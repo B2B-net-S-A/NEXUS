@@ -1,0 +1,492 @@
+"""Pliki rekrutacji: reguły przyjęcia, zapis, przepięcie z formularza, sieroty (0428).
+
+Delivery Lead dokłada pliki na ``/jobs/new`` (request klienta z kroku 1 zapisuje
+się sam, kolejne dodaje ręcznie), a zespół widzi je w menu „⋯” rekrutacji.
+Rekrutacja powstaje dopiero przy „Utwórz i przekaż”, więc do tego czasu plik
+należy do niedokończonego formularza autora; ``attach_intake_files`` przepina
+go na rekrutację w transakcji tworzenia.
+
+Pliki leżą na dysku (``storage_service.save_job_file``), wiersz niesie nazwę,
+typ i rozmiar. Typ dokumentu przy pobraniu bierzemy z ROZSZERZENIA, nie
+z nagłówka przeglądarki — plik podpisany jako ``text/html`` nie może się
+otworzyć w karcie na adresie API.
+
+Nazwy plików to dane klienta — do logów idzie wyłącznie identyfikator.
+"""
+
+from __future__ import annotations
+
+import io
+import logging
+import os
+import re
+from dataclasses import dataclass
+from typing import Any, Optional
+
+from fastapi import UploadFile
+from fastapi.concurrency import run_in_threadpool
+from sqlalchemy import delete, func, select, text, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.upload_filename import fit_filename_column
+from app.models.client import Client
+from app.models.job import Job
+from app.models.job_file import JobFile
+from app.models.user import User
+from app.services import (
+    client_form_structure,
+    client_score_structure,
+    storage_service,
+)
+from app.services.client_form_schema import (
+    CLIENT_FORM,
+    COMPANY_CV,
+    KIND_FORM,
+    KIND_SCORE,
+)
+from app.services.job_file_schema import SOURCE_REQUEST, SOURCE_UPLOAD, SOURCES
+
+logger = logging.getLogger(__name__)
+
+MAX_FILE_BYTES = 20 * 1024 * 1024
+MAX_FILES = 20
+ORPHAN_BATCH = 200
+
+# Rozszerzenie → typ, z którym plik wraca przy pobraniu.
+CONTENT_TYPES: dict[str, str] = {
+    ".pdf": "application/pdf",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".txt": "text/plain",
+    ".csv": "text/csv",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".eml": "message/rfc822",
+    ".msg": "application/vnd.ms-outlook",
+}
+
+ALLOWED_TEXT = (
+    "PDF, Word, Excel, PowerPoint, TXT, CSV, PNG, JPG albo wiadomość (EML, MSG)"
+)
+MSG_TYPE = f"Tego typu pliku nie da się dodać. Dozwolone: {ALLOWED_TEXT}."
+MSG_EMPTY = "Plik jest pusty."
+MSG_TOO_BIG = f"Plik jest za duży — najwyżej {MAX_FILE_BYTES // (1024 * 1024)} MB."
+MSG_TOO_MANY = f"Rekrutacja może mieć najwyżej {MAX_FILES} plików. Usuń któryś, żeby dodać kolejny."
+MSG_SOURCE = "Nieznane źródło pliku."
+MSG_FORM_GONE = "Pliku nie ma już w magazynie — dodaj formularz jeszcze raz."
+
+# Plik, który NEXUS sam oznacza jako wzór formularza CV klienta — po nazwie
+# z SWZ („Zał 4b do SWZ Formularz CV_Tester”). Inny plik DL oznacza ręcznie.
+FORM_NAME = re.compile(r"formularz", re.IGNORECASE)
+# Excel tabeli punktowej (zał. 5 CEZ) i plik z zasadami oceny (0525).
+SCORE_NAME = re.compile(r"tabel|punkt|ocen|kryter|za[lł]", re.IGNORECASE)
+RULES_NAME = re.compile(r"ocen|kryter|punkt", re.IGNORECASE)
+MSG_TEMPLATE_TYPE = (
+    "Wzorem może być plik Word (formularz CV) albo Excel (tabela punktowa)."
+)
+
+
+@dataclass(frozen=True)
+class JobFileRefused(Exception):
+    """Odmowa przyjęcia pliku: kod HTTP i zdanie dla użytkownika."""
+
+    status: int
+    message: str
+
+    def __str__(self) -> str:  # pragma: no cover — tylko do logów
+        return self.message
+
+
+def checked_name(filename: Optional[str]) -> tuple[str, str]:
+    """(nazwa do pokazania, typ dokumentu) albo ``JobFileRefused`` 415."""
+    name = os.path.basename((filename or "").replace("\\", "/"))
+    # Znaki sterujące (NUL, CR, LF…) nie są nazwą: Postgres odrzuca NUL,
+    # a reszta trafiłaby do nagłówka pobrania.
+    name = "".join(ch for ch in name if ch.isprintable()).strip()
+    extension = os.path.splitext(name)[1].lower()
+    content_type = CONTENT_TYPES.get(extension)
+    if not name or content_type is None:
+        raise JobFileRefused(415, MSG_TYPE)
+    return fit_filename_column(name), content_type
+
+
+async def read_bounded(upload: UploadFile) -> bytes:
+    """Treść pliku, nigdy więcej niż limit + 1 bajt w pamięci."""
+    data = await upload.read(MAX_FILE_BYTES + 1)
+    if len(data) > MAX_FILE_BYTES:
+        raise JobFileRefused(413, MSG_TOO_BIG)
+    if not data:
+        raise JobFileRefused(422, MSG_EMPTY)
+    return data
+
+
+def _owner_clause(*, job_id: Optional[int], form_id: Optional[int]):
+    if (job_id is None) == (form_id is None):
+        raise ValueError("job_files: podaj dokładnie jedno — rekrutację albo formularz")
+    if job_id is not None:
+        return JobFile.job_id == job_id
+    return JobFile.intake_form_id == form_id
+
+
+async def _lock_owner(
+    db: AsyncSession, *, job_id: Optional[int], form_id: Optional[int]
+) -> None:
+    """Blokada doradcza na właściciela plików — limit liczony bez wyścigu."""
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:scope), :owner)"),
+        {
+            "scope": "job_files:job" if job_id is not None else "job_files:form",
+            "owner": job_id if job_id is not None else form_id,
+        },
+    )
+
+
+async def add_file(
+    db: AsyncSession,
+    *,
+    upload: UploadFile,
+    user_id: int,
+    source: str = SOURCE_UPLOAD,
+    job_id: Optional[int] = None,
+    form_id: Optional[int] = None,
+) -> JobFile:
+    """Przyjmij plik i zapisz wiersz (bez commita). Odmowa = ``JobFileRefused``."""
+    if source not in SOURCES:
+        raise JobFileRefused(422, MSG_SOURCE)
+    name, content_type = checked_name(upload.filename)
+    data = await read_bounded(upload)
+    await _lock_owner(db, job_id=job_id, form_id=form_id)
+    count = await db.scalar(
+        select(func.count(JobFile.id)).where(
+            _owner_clause(job_id=job_id, form_id=form_id)
+        )
+    )
+    if int(count or 0) >= MAX_FILES:
+        raise JobFileRefused(409, MSG_TOO_MANY)
+    relative_path, size = storage_service.save_job_file(name, io.BytesIO(data))
+    row = JobFile(
+        job_id=job_id,
+        intake_form_id=form_id,
+        source=source,
+        filename=name,
+        file_path=relative_path,
+        content_type=content_type,
+        size_bytes=size,
+        uploaded_by=user_id,
+    )
+    db.add(row)
+    try:
+        await db.flush()
+    except Exception:
+        # Wiersz się nie zapisał — plik na dysku byłby sierotą bez rejestru.
+        storage_service.delete_job_file(relative_path)
+        raise
+    return row
+
+
+async def list_files(
+    db: AsyncSession, *, job_id: Optional[int] = None, form_id: Optional[int] = None
+) -> list[dict[str, Any]]:
+    """Pliki rekrutacji albo formularza: najpierw request klienta, potem po kolei."""
+    rows = (
+        await db.execute(
+            select(JobFile, User.name)
+            .outerjoin(User, User.id == JobFile.uploaded_by)
+            .where(_owner_clause(job_id=job_id, form_id=form_id))
+            .order_by(
+                (JobFile.source != SOURCE_REQUEST), JobFile.created_at, JobFile.id
+            )
+        )
+    ).all()
+    return [serialize(row, uploader_name) for row, uploader_name in rows]
+
+
+def serialize(row: JobFile, uploader_name: Optional[str] = None) -> dict[str, Any]:
+    structure = row.client_form_structure if row.client_form else None
+    summarize = (
+        client_score_structure.summary
+        if row.client_form_kind == KIND_SCORE
+        else client_form_structure.summary
+    )
+    return {
+        "id": row.id,
+        "filename": row.filename,
+        "content_type": row.content_type,
+        "size_bytes": row.size_bytes,
+        "source": row.source,
+        "uploaded_by": row.uploaded_by,
+        "uploaded_by_name": (uploader_name or "").strip() or None,
+        "created_at": row.created_at,
+        "client_form": bool(row.client_form),
+        "client_form_kind": row.client_form_kind if row.client_form else None,
+        "client_form_summary": summarize(structure) if structure else None,
+    }
+
+
+async def get_file(
+    db: AsyncSession,
+    file_id: int,
+    *,
+    job_id: Optional[int] = None,
+    form_id: Optional[int] = None,
+) -> Optional[JobFile]:
+    return await db.scalar(
+        select(JobFile).where(
+            JobFile.id == file_id, _owner_clause(job_id=job_id, form_id=form_id)
+        )
+    )
+
+
+async def attach_intake_files(
+    db: AsyncSession, *, job_id: int, form_id: Optional[int], user_id: int
+) -> int:
+    """Pliki niedokończonego formularza przechodzą na nowo założoną rekrutację.
+
+    Wołać w transakcji tworzenia, PRZED usunięciem formularza (klucz obcy
+    ustawiłby ``intake_form_id`` na NULL i plik zostałby sierotą). Cudzy
+    formularz niczego nie oddaje — tak jak jego usunięcie jest wtedy no-opem.
+    """
+    if form_id is None:
+        return 0
+    result = await db.execute(
+        text(
+            "UPDATE job_files SET job_id = :job, intake_form_id = NULL, "
+            "updated_at = now() "
+            "WHERE intake_form_id = :form AND intake_form_id IN ("
+            "SELECT id FROM job_intake_forms WHERE id = :form AND user_id = :uid)"
+        ),
+        {"job": job_id, "form": form_id, "uid": user_id},
+    )
+    return int(result.rowcount or 0)
+
+
+async def file_paths_of_job(db: AsyncSession, job_id: int) -> list[str]:
+    """Ścieżki plików rekrutacji — do skasowania z dysku PO usunięciu rekrutacji."""
+    return list(
+        (
+            await db.scalars(select(JobFile.file_path).where(JobFile.job_id == job_id))
+        ).all()
+    )
+
+
+def delete_stored(paths: list[str]) -> None:
+    for path in paths:
+        storage_service.delete_job_file(path)
+
+
+async def sweep_orphans(db: AsyncSession) -> int:
+    """Usuń wiersze bez rekrutacji i bez formularza razem z plikami.
+
+    Tak wygląda plik formularza, który autor usunął albo który zniknął po
+    30 dniach retencji (klucz obcy ustawia ``intake_form_id`` na NULL). Wiersz
+    znika pierwszy i dopiero po commicie plik — nieudana transakcja nie
+    zostawia rejestru bez pliku. Sam commituje.
+    """
+    rows = (
+        await db.execute(
+            delete(JobFile)
+            .where(
+                JobFile.id.in_(
+                    select(JobFile.id)
+                    .where(JobFile.job_id.is_(None), JobFile.intake_form_id.is_(None))
+                    .order_by(JobFile.id)
+                    .limit(ORPHAN_BATCH)
+                )
+            )
+            .returning(JobFile.file_path)
+        )
+    ).all()
+    await db.commit()
+    delete_stored([path for (path,) in rows])
+    if rows:
+        logger.info("job_files: usunięto %d osieroconych plików", len(rows))
+    return len(rows)
+
+
+# ── Wzór formularza CV klienta (0521) ────────────────────────────────────
+# Klient z ``cv_client_document = client_form`` (na start Centrum e-Zdrowia)
+# dostaje formularz z Plików rekrutacji wypełniony przez NEXUS zamiast CV
+# firmowego. Wzór jest jeden na rekrutację; jego pola odczytuje
+# ``client_form_structure`` raz, przy oznaczeniu.
+
+
+async def client_document_of_job(db: AsyncSession, job_id: int) -> str:
+    """Co idzie do klienta tej rekrutacji: ``company_cv`` albo ``client_form``."""
+    value = await db.scalar(
+        select(Client.cv_client_document)
+        .join(Job, Job.client_id == Client.id)
+        .where(Job.id == job_id)
+    )
+    return value or COMPANY_CV
+
+
+def template_kind(filename: str) -> Optional[str]:
+    """Rodzaj wzoru z pliku: Word = formularz, Excel = tabela punktowa (0525)."""
+    name = filename.lower()
+    if name.endswith(".docx"):
+        return KIND_FORM
+    if name.endswith(".xlsx"):
+        return KIND_SCORE
+    return None
+
+
+def read_template(row: JobFile) -> bytes:
+    """Treść wzoru (Word albo Excel) z dysku; odmowa = ``JobFileRefused``."""
+    if template_kind(row.filename) is None:
+        raise JobFileRefused(422, MSG_TEMPLATE_TYPE)
+    try:
+        path = storage_service.get_job_file_path(row.file_path)
+    except FileNotFoundError as exc:
+        raise JobFileRefused(404, MSG_FORM_GONE) from exc
+    if path.stat().st_size > MAX_FILE_BYTES:
+        raise JobFileRefused(413, MSG_TOO_BIG)
+    return path.read_bytes()
+
+
+def read_form_structure(row: JobFile) -> dict[str, Any]:
+    """Pola wzoru z pliku na dysku; odmowa = ``JobFileRefused`` 422 ze zdaniem."""
+    content = read_template(row)
+    try:
+        if template_kind(row.filename) == KIND_SCORE:
+            return client_score_structure.read_structure(content)
+        return client_form_structure.read_structure(content).to_json()
+    except client_form_structure.FormRejected as exc:
+        raise JobFileRefused(422, str(exc)) from exc
+
+
+def _structure_version(kind: Optional[str]) -> int:
+    if kind == KIND_SCORE:
+        return client_score_structure.STRUCTURE_VERSION
+    return client_form_structure.STRUCTURE_VERSION
+
+
+async def current_structure(db: AsyncSession, row: JobFile) -> dict[str, Any]:
+    """Struktura wzoru w bieżącej wersji — starszą czyta ponownie z pliku."""
+    structure = row.client_form_structure or {}
+    if structure.get("version") != _structure_version(template_kind(row.filename)):
+        structure = read_form_structure(row)
+        row.client_form_structure = structure
+        await db.flush()
+    return structure
+
+
+async def client_form_of_job(
+    db: AsyncSession, job_id: int, kind: str = KIND_FORM
+) -> Optional[JobFile]:
+    return await db.scalar(
+        select(JobFile).where(
+            JobFile.job_id == job_id,
+            JobFile.client_form.is_(True),
+            JobFile.client_form_kind == kind,
+        )
+    )
+
+
+async def set_client_form(db: AsyncSession, row: JobFile, *, on: bool) -> None:
+    """Oznacz plik rekrutacji jako wzór dokumentu klienta albo zdejmij oznaczenie.
+
+    Word jest wzorem formularza, Excel — tabeli punktowej (0525). Nowy wzór
+    zdejmuje oznaczenie z poprzedniego TEGO SAMEGO rodzaju (jeden na rodzaj,
+    ``ux_job_files_client_form_kind``) pod blokadą rekrutacji. Bez commita.
+    """
+    if row.job_id is None:
+        raise JobFileRefused(422, "Wzór formularza oznacza się w rekrutacji.")
+    if not on:
+        row.client_form = False
+        row.client_form_structure = None
+        row.client_form_kind = None
+        await db.flush()
+        return
+    kind = template_kind(row.filename)
+    structure = read_form_structure(row)
+    await _lock_owner(db, job_id=row.job_id, form_id=None)
+    await db.execute(
+        update(JobFile)
+        .where(
+            JobFile.job_id == row.job_id,
+            JobFile.id != row.id,
+            JobFile.client_form.is_(True),
+            JobFile.client_form_kind == kind,
+        )
+        .values(client_form=False, client_form_structure=None, client_form_kind=None)
+    )
+    row.client_form = True
+    row.client_form_structure = structure
+    row.client_form_kind = kind
+    await db.flush()
+
+
+async def auto_mark_client_form(db: AsyncSession, job_id: int) -> dict[str, JobFile]:
+    """Sam oznacz wzory, gdy klient chce formularz, a rekrutacja ich nie ma.
+
+    Formularz: Word z „formularz” w nazwie; tabela punktowa: Excel z nazwą
+    w rodzaju „tabela punktowa” / „ocena” / „zał. 5” — od najnowszego, który
+    daje się odczytać. Plik, którego nie da się odczytać, zostaje zwykłym
+    plikiem (DL może go oznaczyć ręcznie i zobaczyć powód odmowy). Zwraca
+    oznaczone wzory według rodzaju.
+    """
+    if await client_document_of_job(db, job_id) != CLIENT_FORM:
+        return {}
+    rows = list(
+        (
+            await db.scalars(
+                select(JobFile)
+                .where(JobFile.job_id == job_id)
+                .order_by(JobFile.created_at.desc(), JobFile.id.desc())
+            )
+        ).all()
+    )
+    marked = {row.client_form_kind: row for row in rows if row.client_form}
+    for kind, pattern in ((KIND_FORM, FORM_NAME), (KIND_SCORE, SCORE_NAME)):
+        if kind in marked:
+            continue
+        for row in rows:
+            if template_kind(row.filename) != kind or not pattern.search(row.filename):
+                continue
+            try:
+                await set_client_form(db, row, on=True)
+            except JobFileRefused:
+                logger.info("job_files: plik %d nie jest wzorem (%s)", row.id, kind)
+                continue
+            marked[kind] = row
+            break
+    return {kind: row for kind, row in marked.items() if kind}
+
+
+async def scoring_rules_text(db: AsyncSession, job_id: int) -> str:
+    """Tekst zasad oceny z Plików rekrutacji (np. zał. 5 „Szczegółowy opis oceny”).
+
+    Źródło punktów tabeli punktowej. PDF albo Word z „ocen”/„kryter”/„punkt”
+    w nazwie, który nie jest oznaczonym wzorem; brak = pusty tekst (punkty
+    zostają do wpisania ręcznie). Odczyt przez ``cv_text_extractor`` — PDF
+    czyta osobny proces z limitem.
+    """
+    from app.services import cv_text_extractor  # noqa: PLC0415
+
+    rows = (
+        await db.scalars(
+            select(JobFile)
+            .where(JobFile.job_id == job_id, JobFile.client_form.is_(False))
+            .order_by(JobFile.created_at.desc(), JobFile.id.desc())
+        )
+    ).all()
+    for row in rows:
+        name = row.filename.lower()
+        if not RULES_NAME.search(name) or not name.endswith((".pdf", ".docx")):
+            continue
+        try:
+            path = storage_service.get_job_file_path(row.file_path)
+            text = await run_in_threadpool(
+                cv_text_extractor.extract_text, str(path), row.filename
+            )
+        except Exception:  # noqa: BLE001 — brak zasad = punkty ręcznie
+            logger.info("job_files: nie udało się odczytać zasad oceny %d", row.id)
+            continue
+        if text.strip():
+            return text
+    return ""

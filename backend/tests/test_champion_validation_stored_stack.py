@@ -90,7 +90,10 @@ def test_columns_are_compared_with_the_stack_as_stored() -> None:
     cp = filled()
     cp.pop("intake")
     cp["stack"]["must"] = [{"name": "Java 17"}, {"name": "do ustalenia"}]
-    columns = [{"name": "Java 17", "level": None}, {"name": "do ustalenia", "level": None}]
+    columns = [
+        {"name": "Java 17", "level": None},
+        {"name": "do ustalenia", "level": None},
+    ]
 
     result = validation(cp, job(cp, must_skills=columns), enforce=True)
 
@@ -240,9 +243,11 @@ def test_empty_stored_stack_with_empty_columns_is_still_missing(monkeypatch) -> 
     assert "handoff" in result["blocked_operations"]
 
 
-def test_inherited_prose_only_must_is_flagged_ineligible_not_missing(
+def test_inherited_prose_only_must_no_longer_blocks_search(
     monkeypatch,
 ) -> None:
+    """Od 30.09.2026 bramka czyta umiejętności krytyczne, a nie „MUST ze
+    słownika” — lista z samą prozą nie blokuje searchu (dawne `ineligible_must`)."""
     monkeypatch.setenv("CHAMPION_INTAKE_GATE_ENABLED", "true")
     cp = filled()
     cp["stack"]["must"] = []
@@ -255,8 +260,7 @@ def test_inherited_prose_only_must_is_flagged_ineligible_not_missing(
     codes = {i["code"] for i in result["issues"]}
     assert "missing_must" not in codes
     assert "missing_requirements" not in codes
-    assert "ineligible_must" in codes
-    assert "search" in result["blocked_operations"]
+    assert "ineligible_must" not in codes
 
 
 def test_stored_must_with_an_empty_nice_inherits_nice_without_a_warning(

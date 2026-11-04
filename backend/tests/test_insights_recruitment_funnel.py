@@ -22,6 +22,8 @@ from httpx import ASGITransport, AsyncClient
 from app.core.cache import cache_invalidate
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
+from app.models.activity import Activity
+from app.models.call import Call
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job, JobStatus, RemotePolicy
@@ -113,11 +115,8 @@ async def test_funnel_is_reachable_for_every_logged_in_role(fx_client: AsyncClie
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
-        UserRole.tac,
-        UserRole.sourcer,
         UserRole.recruiter,
         UserRole.finance,
-        UserRole.user,
     ):
         _, email, password = await _seed_user(role, "rbac")
         headers = await _login(fx_client, email, password)
@@ -261,7 +260,8 @@ async def test_coverage_counts_manual_moves_by_external_source(
     # i asercja na dokladna liczbe przestalaby byc prawdziwa przy drugim
     # uruchomieniu — czyli test bylby zielony raz.
     slot = int(uuid.uuid4().hex[:6], 16) % 900
-    year = 1100 + slot  # rok bez zadnych innych danych
+    # Po 12.10.2026 — wcześniejsze ruchy Tablicy nie liczą się do statystyk (0467).
+    year = 5100 + slot  # rok bez zadnych innych danych
     when = datetime(year, 6, 15, 12, tzinfo=timezone.utc)
     await _seed_stage(PipelineStage.verified, when, "manual")
     await _seed_stage(PipelineStage.verified, when + timedelta(days=1), "traffit")
@@ -285,6 +285,41 @@ async def test_coverage_counts_manual_moves_by_external_source(
     assert cov["stage_moves_total"] == 2
     assert cov["stage_moves_manual"] == 1
     assert cov["manual_pct"] == 50.0
+
+
+@pytest.mark.asyncio
+async def test_interview_conversions_count_client_interviews_not_qc(
+    fx_client: AsyncClient,
+):
+    """R8-V2-2: kod `interview` to od v5 etap QC CV (przed wysłaniem CV).
+    Konwersja „Rekomendacje → Rozmowy u klienta” liczy `client_interview`
+    — przejście przez QC nie może jej podbić."""
+    _, email, password = await _seed_user(UserRole.admin, "qcconv")
+    headers = await _login(fx_client, email, password)
+    params = {"period": "custom", "date_from": "2067-03-01", "date_to": "2067-03-31"}
+
+    async def funnel() -> tuple[dict[str, int], dict[str, dict]]:
+        await cache_invalidate("insights:recruitment:funnel:")
+        resp = await fx_client.get(
+            "/api/insights/recruitment/funnel", headers=headers, params=params
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        stages = {s["stage"]: s["count"] for s in body["stages"]}
+        return stages, {c["key"]: c for c in body["conversions"]}
+
+    stages_before, conv_before = await funnel()
+    when = datetime(2067, 3, 10, 10, tzinfo=timezone.utc)
+    await _seed_stage(PipelineStage.interview, when, "manual")
+    await _seed_stage(PipelineStage.client_interview, when, "manual")
+    stages_after, conv_after = await funnel()
+
+    assert stages_after["interview"] == stages_before["interview"] + 1
+    sent = conv_after["cv_sent_to_interview"]
+    assert sent["numerator"] == conv_before["cv_sent_to_interview"]["numerator"] + 1
+    assert sent["numerator"] == stages_after["client_interview"]
+    hired = conv_after["interview_to_hired"]
+    assert hired["denominator"] == stages_after["client_interview"]
 
 
 @pytest.mark.asyncio
@@ -332,11 +367,8 @@ async def test_time_to_hire_is_open_to_every_role(fx_client: AsyncClient):
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
         UserRole.finance,
-        UserRole.user,
     ):
         _, email, password = await _seed_user(role, "tth-rbac")
         headers = await _login(fx_client, email, password)
@@ -382,7 +414,7 @@ async def test_time_to_hire_measures_from_the_real_process_start(
         await db.refresh(cand)
 
         # Proces startuje 100 dni PRZED oknem, zatrudnienie wpada do okna.
-        hired_at = datetime(2015, 6, 15, 12, tzinfo=timezone.utc)
+        hired_at = datetime(2068, 6, 15, 12, tzinfo=timezone.utc)
         db.add_all(
             [
                 CandidateStage(
@@ -411,8 +443,8 @@ async def test_time_to_hire_measures_from_the_real_process_start(
             headers=headers,
             params={
                 "period": "custom",
-                "date_from": "2015-06-01",
-                "date_to": "2015-06-30",
+                "date_from": "2068-06-01",
+                "date_to": "2068-06-30",
                 "min_hires": 1,
             },
         )
@@ -471,23 +503,90 @@ async def _seed_activity(
         await db.commit()
 
 
+async def _seed_real_sources(user_id: int, when: datetime) -> None:
+    """Prawdziwe źródła kolumn (runda 10, R10-N2-1).
+
+    Rozmowa u klienta i placement to ruchy etapów tej samej pary przesunięte
+    przez `user_id` (widok `analytics_first_milestones` → `first_moved_by`),
+    screening to zapis arkusza (`activities.screening_answered`), telefon —
+    wiersz `calls`.
+    """
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"TaCli-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
+        job = Job(
+            title=f"Ta {uuid.uuid4().hex[:6]}",
+            location="Warszawa",
+            status=JobStatus.published,
+            remote_policy=RemotePolicy.hybrid,
+            client_id=cli.id,
+        )
+        cand = Candidate(
+            name=f"Ta-{uuid.uuid4().hex[:4]}",
+            lastname=f"Act-{uuid.uuid4().hex[:4]}",
+            email=f"ta-src-{uuid.uuid4().hex[:8]}@example.com",
+        )
+        db.add_all([job, cand])
+        await db.commit()
+        await db.refresh(job)
+        await db.refresh(cand)
+        screening_stage = CandidateStage(
+            candidate_id=cand.id,
+            job_id=job.id,
+            stage=PipelineStage.screening,
+            moved_at=when - timedelta(hours=3),
+            moved_by=user_id,
+        )
+        db.add_all(
+            [
+                screening_stage,
+                CandidateStage(
+                    candidate_id=cand.id,
+                    job_id=job.id,
+                    stage=PipelineStage.client_interview,
+                    moved_at=when - timedelta(hours=2),
+                    moved_by=user_id,
+                ),
+                CandidateStage(
+                    candidate_id=cand.id,
+                    job_id=job.id,
+                    stage=PipelineStage.hired,
+                    moved_at=when - timedelta(hours=1),
+                    moved_by=user_id,
+                ),
+            ]
+        )
+        await db.flush()
+        # Dwa zapisy tego samego arkusza = jeden screening.
+        for minutes in (0, 5):
+            db.add(
+                Activity(
+                    entity_type="candidate_stage",
+                    entity_id=screening_stage.id,
+                    action="screening_answered",
+                    user_id=user_id,
+                    details={},
+                    created_at=when + timedelta(minutes=minutes),
+                )
+            )
+        db.add(Call(candidate_id=cand.id, user_id=user_id, started_at=when))
+        await db.commit()
+
+
 @pytest.mark.asyncio
 async def test_team_activity_is_open_to_every_logged_in_role(fx_client: AsyncClient):
-    """D7 — także dla `user`, którego capability `VIEW_RECRUITMENT_RANKING`
-    NIE obejmuje (`analytics/capabilities.py` daje mu pustą frozenset).
+    """D7 — każda rola z sekcją Insights; wycofywany `user` od 0637 jej nie ma.
 
-    To jest dokładnie ta rola, dla której legacy `/api/activities/leaderboard`
-    zwraca 403 — a sekcja na `/insights` renderowała ten 403 jako „brak
-    danych o zespole".
+    Legacy `/api/activities/leaderboard` zwracał tej roli 403, a sekcja na
+    `/insights` renderowała ten 403 jako „brak danych o zespole".
     """
     for role in (
         UserRole.admin,
-        UserRole.user,
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
-        UserRole.tac,
-        UserRole.sourcer,
         UserRole.recruiter,
         UserRole.finance,
     ):
@@ -561,18 +660,76 @@ async def test_team_activity_window_is_half_open(fx_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_team_activity_counts_people_from_the_owners_links(
+    fx_client: AsyncClient,
+):
+    """Etap 4 linków (decyzja B, 19.10.2026): „Z linków” = osoby, które
+    zgłosiły się przez linki tej osoby — także już będące w bazie, bez
+    powtórek. Kolumna nie wchodzi do „Razem” (Liga i cele bez zmian)."""
+    await cache_invalidate("insights:recruitment:team-activity:")
+    year = 1300 + int(uuid.uuid4().hex[:6], 16) % 200
+    owner_id, email, password = await _seed_user(UserRole.recruiter, "ta-links")
+    headers = await _login(fx_client, email, password)
+    inside = datetime(year, 6, 15, 12, tzinfo=timezone.utc)
+    # Id spoza zakresu prawdziwych kandydatów: baza testowa jest wspólna, a inne
+    # testy szukają ostatniego `applied_via_invite` swojego kandydata po id.
+    base = 900_000_000 + int(uuid.uuid4().hex[:6], 16)
+    first, second, later = base, base + 1, base + 2
+    async with AsyncSessionLocal() as db:
+        for candidate_id, duplicate in ((first, False), (first, True), (second, True)):
+            db.add(
+                Activity(
+                    entity_type="candidate",
+                    entity_id=candidate_id,
+                    action="applied_via_invite",
+                    user_id=owner_id,
+                    details={"was_duplicate": duplicate},
+                    created_at=inside,
+                )
+            )
+        db.add(
+            Activity(
+                entity_type="candidate",
+                entity_id=later,
+                action="applied_via_invite",
+                user_id=owner_id,
+                details={},
+                created_at=datetime(year, 7, 2, 12, tzinfo=timezone.utc),
+            )
+        )
+        await db.commit()
+
+    body = (
+        await fx_client.get(
+            "/api/insights/recruitment/team-activity",
+            headers=headers,
+            params={
+                "period": "custom",
+                "date_from": f"{year}-06-01",
+                "date_to": f"{year}-06-30",
+            },
+        )
+    ).json()
+    mine = [e for e in body["entries"] if e["user_id"] == owner_id]
+    assert len(mine) == 1, body
+    assert mine[0]["link_candidates"] == 2
+    assert mine[0]["total_actions"] == 0
+
+
+@pytest.mark.asyncio
 async def test_team_activity_puts_admin_accounts_outside_the_ranking(
     fx_client: AsyncClient,
 ):
     """Konta administracyjne poza rankingiem osób (reguła Hall of Fame, 24.09.2026)."""
     await cache_invalidate("insights:recruitment:team-activity:")
-    year = 1700 + int(uuid.uuid4().hex[:6], 16) % 200
+    # Po 12.10.2026 — wcześniejsze ruchy Tablicy nie liczą się do statystyk (0467).
+    year = 6100 + int(uuid.uuid4().hex[:6], 16) % 200
     admin_id, email, password = await _seed_user(UserRole.admin, "ta-admin")
     recruiter_id, _, _ = await _seed_user(UserRole.recruiter, "ta-rec")
     headers = await _login(fx_client, email, password)
 
     when = datetime(year, 5, 10, 9, tzinfo=timezone.utc)
-    await _seed_activity(admin_id, UserActionType.placement_closed, when)
+    await _seed_real_sources(admin_id, when)
     await _seed_activity(recruiter_id, UserActionType.candidate_added, when)
 
     body = (
@@ -595,22 +752,22 @@ async def test_team_activity_puts_admin_accounts_outside_the_ranking(
 
 
 @pytest.mark.asyncio
-async def test_team_activity_counters_match_the_legacy_shape(fx_client: AsyncClient):
-    """Te same liczniki co legacy — serwis jest jeden, nie dwa podobne SQL-e."""
+async def test_team_activity_columns_read_real_sources(fx_client: AsyncClient):
+    """Runda 10 (R10-N2-1): kolumny liczone z prawdziwych źródeł.
+
+    Do 27.09.2026 Screeningi/Rozmowy/Placementy/Telefony sumowały typy
+    `user_activities`, których nic w kodzie nie zapisywało — zawsze 0.
+    Martwe typy zapisane ręcznie NIE mogą już zasilać kolumn.
+    """
     await cache_invalidate("insights:recruitment:team-activity:")
-    year = 1500 + int(uuid.uuid4().hex[:6], 16) % 200
+    # Po 12.10.2026 — wcześniejsze ruchy Tablicy nie liczą się do statystyk (0467).
+    year = 6400 + int(uuid.uuid4().hex[:6], 16) % 200
     actor_id, email, password = await _seed_user(UserRole.recruiter, "ta-shape")
     headers = await _login(fx_client, email, password)
 
     when = datetime(year, 3, 10, 9, tzinfo=timezone.utc)
-    for action in (
-        UserActionType.candidate_added,
-        UserActionType.screening_done,
-        UserActionType.interview_scheduled,
-        UserActionType.placement_closed,
-        UserActionType.call_made,
-    ):
-        await _seed_activity(actor_id, action, when)
+    await _seed_activity(actor_id, UserActionType.candidate_added, when)
+    await _seed_real_sources(actor_id, when)
 
     body = (
         await fx_client.get(
@@ -630,11 +787,28 @@ async def test_team_activity_counters_match_the_legacy_shape(fx_client: AsyncCli
     assert row["interviews"] == 1
     assert row["placements"] == 1
     assert row["calls"] == 1
-    assert row["total_actions"] == 5
+    # Razem = czynności w NEXUSIE: 1 wiersz `user_activities` + 1 screening
+    # + 1 telefon. Rozmowa i placement to ruchy etapów, nie osobne akcje.
+    assert row["total_actions"] == 3
     # Kafel jest FOLDEM po widocznej liście — musi dać się sprawdzić dodając
     # kolumnę na ekranie.
     assert body["totals"]["actions"] == sum(e["total_actions"] for e in body["entries"])
     assert body["totals"]["users"] == len(body["entries"])
+
+
+@pytest.mark.asyncio
+async def test_team_activity_extreme_dates_are_422(fx_client: AsyncClient):
+    """Runda 10 (R10-N2-3): data poza kalendarzem to 422, nie 500."""
+    _, email, password = await _seed_user(UserRole.recruiter, "ta-extreme")
+    headers = await _login(fx_client, email, password)
+    for params in (
+        {"period": "custom", "date_from": "9999-12-01", "date_to": "9999-12-31"},
+        {"period": "month", "anchor": "9999-12-15"},
+    ):
+        resp = await fx_client.get(
+            "/api/insights/recruitment/team-activity", headers=headers, params=params
+        )
+        assert resp.status_code == 422, resp.text
 
 
 @pytest.mark.asyncio
@@ -658,7 +832,7 @@ async def test_team_activity_empty_window_has_no_fabricated_zero_share(
     assert body["entries"] == []
     assert body["totals"]["actions"] == 0
     # Pusty ranking to nie „zespół nic nie robił" — koperta musi to powiedzieć.
-    assert body["coverage"]["source"] == "user_activities"
+    assert body["coverage"]["source"] == "mixed"
     assert "NEXUSIE" in body["coverage"]["note"]
 
 
@@ -721,9 +895,6 @@ async def test_invite_links_is_open_to_every_logged_in_role(fx_client: AsyncClie
         UserRole.talent_community_manager,
         UserRole.finance,
         UserRole.recruiter,
-        UserRole.sourcer,
-        UserRole.tac,
-        UserRole.user,
     ):
         _, email, password = await _seed_user(role, "il-rbac")
         headers = await _login(fx_client, email, password)

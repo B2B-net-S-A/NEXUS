@@ -4,6 +4,11 @@ Capabilities answer *what* a user may see.  This module answers *whose / which
 client's* rows may participate in that view.  Keeping the two concerns separate
 lets every Delivery Lead work across the full client portfolio without turning
 the role into an Admin or Finance persona.
+
+Delivery modules (Klienci, Kontrakty, Zamówienia, skrzynka zamówień) use
+``resolve_delivery_lead_client_ids`` — since 25.09.2026 only the DL's assigned
+clients (``DL_CLIENT_SCOPE``). Recruitment surfaces keep the whole portfolio via
+``resolve_delivery_lead_org_client_ids``; dashboards via ``resolve_dashboard_scope``.
 """
 
 from dataclasses import dataclass
@@ -12,7 +17,9 @@ from enum import Enum
 from fastapi import HTTPException, status
 from sqlalchemy import and_, or_, select, union
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
+from app.core.config import settings
 from app.models.activity import Activity
 from app.models.client import Client
 from app.models.job import Job, JobStatus
@@ -105,11 +112,7 @@ async def resolve_dashboard_scope(
         )
         and not delivery_lead_persona
     ):
-        recruitment_roles = (
-            UserRole.tac,
-            UserRole.sourcer,
-            UserRole.recruiter,
-        )
+        recruitment_roles = (UserRole.recruiter,)
         operator_ids = frozenset(
             (
                 await db.scalars(
@@ -220,18 +223,46 @@ async def _delivery_lead_operator_ids(user: User, db: AsyncSession) -> frozenset
     )
 
 
-async def resolve_delivery_lead_client_ids(
+def is_delivery_lead_governed(user: User) -> bool:
+    """Czy zakres klientów konta wyznacza portfel Delivery Leada.
+
+    Uprawnienia z ekranu mówią, CO konto może; ta funkcja mówi, U KOGO.
+    Konto z rolą Delivery Leada (także jako rolą dodatkową) działa u swoich
+    klientów; admin i Finanse — u wszystkich, tak jak każdy inny posiadacz
+    uprawnienia bez roli DL. To ten sam warunek, który w resolverach niżej
+    odróżnia zbiór klientów od ``None``.
+    """
+
+    return user.has_role(UserRole.delivery_lead) and not user.has_any_role(
+        UserRole.admin, UserRole.finance
+    )
+
+
+def delivery_lead_scope_is_assigned() -> bool:
+    """``DL_CLIENT_SCOPE``: anything but ``all`` narrows (fail-closed)."""
+
+    return (settings.DL_CLIENT_SCOPE or "").strip().lower() != "all"
+
+
+def delivery_lead_sees_whole_delivery(user: User) -> bool:
+    """DL accounts whose other role already reads Delivery org-wide.
+
+    Talent Community Manager reads every client's Delivery surfaces; adding
+    the DL role must not take that away.
+    """
+
+    return user.has_role(UserRole.talent_community_manager)
+
+
+async def resolve_delivery_lead_org_client_ids(
     user: User,
     db: AsyncSession,
 ) -> frozenset[int] | None:
-    """Return the canonical all-client boundary for a Delivery Lead.
+    """Every current client for a Delivery Lead — recruitment surfaces only.
 
-    ``None`` means the caller is not governed by the DL persona boundary
-    (Admin/Finance oversight or a non-DL operational role). Any account that
-    actually holds Delivery Lead receives every current client id, even if it
-    also holds a recruitment role. Returning the concrete ids (rather than
-    ``None``) preserves the role's narrow, Delivery-only finance exceptions
-    without granting the global ``VIEW_FINANCE`` capability.
+    Recruitment stays open to everyone (decision 23.09.2026), so screens such
+    as recommendations, prep kit or email templates must not follow the
+    Delivery narrowing. ``None`` has the same meaning as below.
     """
 
     if user.has_any_role(UserRole.admin, UserRole.finance):
@@ -243,27 +274,66 @@ async def resolve_delivery_lead_client_ids(
     )
 
 
+async def resolve_delivery_lead_client_ids(
+    user: User,
+    db: AsyncSession,
+) -> frozenset[int] | None:
+    """Client boundary of a Delivery Lead in the Delivery modules.
+
+    ``None`` means the caller is not governed by the DL persona boundary
+    (Admin/Finance oversight or a non-DL operational role). A Delivery Lead
+    sees only clients with ANY row in ``delivery_lead_client_assignments``
+    (head or not — decision 25.09.2026). ``DL_CLIENT_SCOPE=all`` restores the
+    #1365 behaviour (every client). Returning concrete ids (rather than
+    ``None``) preserves the role's narrow finance exceptions without granting
+    the global ``VIEW_FINANCE`` capability.
+    """
+
+    if not delivery_lead_scope_is_assigned() or delivery_lead_sees_whole_delivery(user):
+        return await resolve_delivery_lead_org_client_ids(user, db)
+    return await resolve_delivery_lead_assigned_client_ids(user, db)
+
+
 async def resolve_delivery_lead_assigned_client_ids(
     user: User,
     db: AsyncSession,
 ) -> frozenset[int] | None:
     """Return clients for which the Delivery Lead is an explicit owner.
 
-    Operational access is organization-wide, but ownership still gates narrow
-    finance exceptions, rate-bearing opaque files and consequential legal
-    writes. ``None`` means the caller is not governed by the DL ownership path.
+    Since 25.09.2026 this is also the Delivery read boundary
+    (``resolve_delivery_lead_client_ids``); it keeps gating finance exceptions,
+    rate-bearing opaque files and consequential legal writes. ``None`` means the caller is not governed by the DL ownership path.
     """
 
     if user.has_any_role(UserRole.admin, UserRole.finance):
         return None
     if not user.has_role(UserRole.delivery_lead):
         return None
+    assigned = select(DeliveryLeadClientAssignment.client_id).where(
+        DeliveryLeadClientAssignment.delivery_lead_user_id == user.id
+    )
+    # Scalony duplikat i klient kanoniczny to ta sama firma (runda 6 audytu),
+    # bo scalenie (``POST /clients/{id}/merge``, manifest portfela) NIE
+    # przepina ``delivery_lead_client_assignments``: DL przypisany tylko do
+    # duplikatu tracił po scaleniu dostęp do klienta kanonicznego, a DL
+    # klienta kanonicznego nie widział historii zostawionej na duplikacie.
+    # Łańcuch ma jeden poziom — celem scalenia nie może być klient scalony.
+    merged = aliased(Client)
+    canonical_of_assigned = select(merged.merged_into_client_id).where(
+        merged.id.in_(assigned),
+        merged.merged_into_client_id.is_not(None),
+    )
     return frozenset(
         int(client_id)
         for client_id in (
             await db.scalars(
-                select(DeliveryLeadClientAssignment.client_id).where(
-                    DeliveryLeadClientAssignment.delivery_lead_user_id == user.id
+                select(Client.id).where(
+                    or_(
+                        Client.id.in_(assigned),
+                        Client.id.in_(canonical_of_assigned),
+                        Client.merged_into_client_id.in_(assigned),
+                        Client.merged_into_client_id.in_(canonical_of_assigned),
+                    )
                 )
             )
         ).all()
@@ -289,6 +359,12 @@ def apply_delivery_lead_client_scope(
     return statement.where(client_column.in_(sorted(allowed_client_ids) or [-1]))
 
 
+# Odmowa zakresu DL trafia wprost do toastów formularzy (Kontrakty,
+# zamówienia), więc mówi po polsku (runda 6 audytu); front na 403 profilu
+# pisze to samo zdanie.
+DL_CLIENT_OUT_OF_SCOPE_DETAIL = "Ten klient jest poza Twoim portfelem."
+
+
 def assert_delivery_lead_client_visible(
     client_id: int | None,
     allowed_client_ids: frozenset[int] | None,
@@ -298,7 +374,7 @@ def assert_delivery_lead_client_visible(
     if client_id is None or client_id not in allowed_client_ids:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Client is outside the resolved Delivery Lead scope",
+            detail=DL_CLIENT_OUT_OF_SCOPE_DETAIL,
         )
 
 

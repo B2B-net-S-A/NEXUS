@@ -4,7 +4,6 @@ import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 
-import { PageHeader } from "@/components/ds/PageHeader";
 import { QueryStateNotice } from "@/components/ds";
 import { RequireSectionAccess } from "@/components/RequireSectionAccess";
 import { FinanceArchiveTab } from "@/components/finance/FinanceArchiveTab";
@@ -26,6 +25,29 @@ import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
 import { parseFinanceView, type FinanceViewMode as ViewMode } from "@/lib/finance-view";
+import { FinanceSalesInvoicesTab } from "@/components/clients/invoicing/FinanceSalesInvoicesTab";
+import { useInvoicingModule } from "@/lib/api/client-invoicing";
+import {
+  APPROVED_EXPENSES_URL_KEYS,
+  ApprovedExpensesTab,
+} from "@/components/finance/ApprovedExpensesTab";
+import { useHrConfig } from "@/lib/api/hr";
+
+/** Jedno zdanie pod tytułem — mówi, co pokazuje wybrana zakładka. */
+const VIEW_DESCRIPTION: Record<ViewMode, string> = {
+  results: "Miesięczne wyniki finansowe kontraktorów — koszt, przychód i marża",
+  archive:
+    "Archiwum importów wyników — każdy wgrany plik zostaje, poprzednią wersję można przywrócić",
+  md: "Miesięczne raporty zużycia MD zasilające budżety zamówień klientów",
+  "order-changes":
+    "Bieżący, comiesięczny audyt zdarzeń w zamówieniach na potrzeby rozliczeń",
+  "order-pdfs":
+    "PDF-y nowych zamówień, przedłużeń i aneksów według miesiąca rozpoczęcia i klienta",
+  "sales-invoices":
+    "Faktury do klientów z KSeF dopasowane do zamówień, wpłaty z wyciągu i zaległości",
+  "approved-expenses":
+    "Zatwierdzone wydatki do rozliczenia, rejestr subskrypcji i faktury kosztowe bez zgody",
+};
 
 /**
  * FE-N09 (audyt 22.09 r2): widok idzie za `?view=` także przy MIĘKKIEJ
@@ -83,7 +105,16 @@ export default function FinancePage() {
   // import, restore lub edycja komórek zadziałają.
   const canWrite =
     !impersonating && hasSectionAccess(user, "finance", "write");
-  const visibleView = view === "md" && !canWrite ? "results" : view;
+  // „Faktury do klientów” (E8) tylko przy włączonym module (admin widzi zawsze).
+  const invoicingOpen = useInvoicingModule().data?.open === true;
+  // „Wydatki ze zgodą” (Zgody, etap 3) tylko przy otwartym module „Zgody”.
+  const approvalsOpen = useHrConfig().data?.open_modules?.approvals === true;
+  const visibleView =
+    (view === "md" && !canWrite) ||
+    (view === "sales-invoices" && !invoicingOpen) ||
+    (view === "approved-expenses" && !approvalsOpen)
+      ? "results"
+      : view;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -131,6 +162,9 @@ export default function FinancePage() {
     if (next !== "order-pdfs") {
       ORDER_PDFS_URL_KEYS.forEach((key) => params.delete(key));
     }
+    if (next !== "approved-expenses") {
+      APPROVED_EXPENSES_URL_KEYS.forEach((key) => params.delete(key));
+    }
     const query = params.toString();
     window.history.replaceState(
       null,
@@ -152,14 +186,25 @@ export default function FinancePage() {
       <Suspense fallback={null}>
         <FinanceViewSync onView={setView} />
       </Suspense>
-      <div className="mx-auto max-w-[1400px] space-y-4">
+      <div className="space-y-3.5">
+        {/* Tytuł i opis w jednej linii, zakładki pod spodem (makiety 02.10.2026)
+            — nagłówek z nadtytułem i osobnym opisem spychał tabelę w dół. */}
+        <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h1 className="font-display text-xl font-semibold leading-tight tracking-tight">
+            Finanse
+          </h1>
+          <p className="min-w-0 text-[13px] text-muted-foreground">
+            {VIEW_DESCRIPTION[visibleView]}
+          </p>
+        </header>
+
         <div
           role="tablist"
           aria-label="Tryb modułu Finanse"
           // Pięć długich etykiet (~460 px) — poniżej `sm` przewijanie w poziomie
           // zamiast wypychania strony (audyt 23.09.2026, P1-12).
           data-help="finance.modes"
-          className="flex w-full max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-[hsl(var(--border))] bg-muted/40 p-1 sm:inline-flex sm:w-auto"
+          className="flex max-w-full gap-0.5 overflow-x-auto border-b border-border"
         >
           <ModeButton
             active={visibleView === "results"}
@@ -185,7 +230,7 @@ export default function FinancePage() {
             Zmiany w zamówieniach
             {todoBadge > 0 ? (
               <span
-                className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"
+                className="rounded-full bg-primary px-1.5 text-[11px] font-semibold leading-5 text-primary-foreground tabular-nums"
                 aria-label={`${todoBadge} do zrobienia w bieżącym miesiącu`}
               >
                 {todoBadge}
@@ -198,33 +243,23 @@ export default function FinancePage() {
           >
             Zamówienia PDF
           </ModeButton>
+          {invoicingOpen ? (
+            <ModeButton
+              active={visibleView === "sales-invoices"}
+              onClick={() => changeView("sales-invoices")}
+            >
+              Faktury do klientów
+            </ModeButton>
+          ) : null}
+          {approvalsOpen ? (
+            <ModeButton
+              active={visibleView === "approved-expenses"}
+              onClick={() => changeView("approved-expenses")}
+            >
+              Wydatki ze zgodą
+            </ModeButton>
+          ) : null}
         </div>
-
-        <PageHeader
-          eyebrow={
-            visibleView === "order-changes"
-              ? "Finanse · Zmiany w zamówieniach"
-              : visibleView === "order-pdfs"
-                ? "Finanse · Zamówienia PDF"
-                : "Finanse · Wyniki kontraktorów"
-          }
-          title={
-            visibleView === "order-changes"
-              ? "Zmiany w zamówieniach"
-              : visibleView === "order-pdfs"
-                ? "Zamówienia PDF"
-                : "Finanse"
-          }
-          description={
-            visibleView === "order-pdfs"
-              ? "PDF-y nowych zamówień, przedłużeń i aneksów według miesiąca rozpoczęcia i klienta"
-              : visibleView === "md"
-              ? "Miesięczne raporty zużycia MD zasilające budżety zamówień klientów"
-              : visibleView === "order-changes"
-                ? "Bieżący, comiesięczny audyt zdarzeń w zamówieniach na potrzeby rozliczeń"
-                : "Miesięczne wyniki finansowe kontraktorów — koszt, przychód i marża"
-          }
-        />
 
         {!mounted ? (
           <div className="py-10 text-center text-sm text-muted-foreground">
@@ -238,6 +273,12 @@ export default function FinancePage() {
           <OrderChangesTab onOpenInPdfs={openInPdfs} />
         ) : visibleView === "order-pdfs" ? (
           <OrderPdfsTab />
+        ) : visibleView === "sales-invoices" ? (
+          <FinanceSalesInvoicesTab />
+        ) : visibleView === "approved-expenses" ? (
+          <div data-help="finance.approved-expenses">
+            <ApprovedExpensesTab />
+          </div>
         ) : (
           <MdImportWorkspace />
         )}
@@ -261,11 +302,13 @@ function ModeButton({
       role="tab"
       aria-selected={active}
       onClick={onClick}
+      // Podkreślenie jak w `ds/WorkspaceModeTabs` (Klienci, Kontrakty). Zakładki
+      // zostają ręczne, bo licznik „do zrobienia" ma własną nazwę dostępną.
       className={cn(
-        "shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+        "-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-1.5 text-[13px] transition-colors pointer-coarse:min-h-10",
         active
-          ? "bg-background text-foreground shadow-xs"
-          : "text-muted-foreground hover:text-foreground",
+          ? "border-primary font-semibold text-foreground"
+          : "border-transparent font-medium text-muted-foreground hover:text-foreground",
       )}
     >
       {children}

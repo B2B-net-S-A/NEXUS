@@ -5,21 +5,33 @@ import type {
   DocumentTypeDef,
 } from "@/lib/api/b2bDocuments";
 import {
+  annexChangeText,
+  annexRegisterHref,
+  annexShortLabel,
+  annexStateLabel,
+  annexStateOf,
+  annexTitle,
+  annexesHref,
   buildDocumentRequest,
+  cleanRateItems,
   cleanValues,
   documentStatusLabel,
   documentsHref,
   fieldKeysForLabels,
-  findRegisterRowForContract,
   groupedFields,
   intentOpensWizard,
+  intentValueKeys,
+  invalidListFields,
   invalidMoneyFields,
   isFieldVisible,
   missingRequired,
+  paragraphAfterVariantChange,
   parseDocumentsIntent,
   parseMoney,
+  rateItemsProblems,
   readDocumentError,
   redownloadNeedsInput,
+  registryLookupValues,
   typesByFamily,
 } from "@/lib/b2b-documents";
 
@@ -34,6 +46,8 @@ function field(key: string, label: string, extra: Partial<DocumentFieldDef> = {}
     options: [],
     show_if: null,
     group: "document",
+    lookup: null,
+    lookup_fills: [],
     ...extra,
   };
 }
@@ -48,6 +62,8 @@ const TERMINATION: DocumentTypeDef = {
   effect_label: "",
   signatories: "both",
   uses_refs: true,
+  allows_external: false,
+  legacy_languages: [],
   fields: [
     field("document_date", "Data dokumentu", { kind: "date", required: true }),
     field("gender", "Płeć Partnera", { kind: "gender", required: true, group: "partner" }),
@@ -217,13 +233,18 @@ describe("adres kreatora", () => {
 
   it("?new=<typ>&parent=<id>", () => {
     const intent = parseDocumentsIntent(params("tab=documents&new=annex_rate_change&parent=42"));
-    expect(intent).toEqual({ newType: "annex_rate_change", parentId: 42, contractId: null });
+    expect(intent).toEqual({
+      newType: "annex_rate_change",
+      parentId: 42,
+      contractId: null,
+      values: {},
+    });
     expect(intentOpensWizard(intent)).toBe(true);
   });
 
   it("śmieci w adresie nie otwierają kreatora z dziwnym typem", () => {
     const intent = parseDocumentsIntent(params("new=<script>&parent=-3&contract=abc"));
-    expect(intent).toEqual({ newType: null, parentId: null, contractId: null });
+    expect(intent).toEqual({ newType: null, parentId: null, contractId: null, values: {} });
     expect(intentOpensWizard(intent)).toBe(false);
   });
 
@@ -238,19 +259,144 @@ describe("adres kreatora", () => {
       "/contracts/b2b-generator?tab=documents&new=termination_agreement&contract=7",
     );
   });
+
+  it("wartości startowe z okna „Zakończ współpracę” przechodzą przez adres", () => {
+    const href = documentsHref({
+      newType: "termination_agreement",
+      contractId: 7,
+      values: {
+        termination_date: "2026-10-31",
+        release_non_compete: true,
+        non_compete_client_name: "Nordea Bank Abp",
+        last_service_date: "",
+      },
+    });
+    const intent = parseDocumentsIntent(params(href.split("?")[1]));
+    // Puste pole nie trafia do adresu — kreator zostawia podpowiedź serwera.
+    expect(intent.values).toEqual({
+      termination_date: "2026-10-31",
+      release_non_compete: true,
+      non_compete_client_name: "Nordea Bank Abp",
+    });
+    expect(parseDocumentsIntent(params("v_release_non_compete=0")).values).toEqual({
+      release_non_compete: false,
+    });
+  });
+
+  it("dziwne klucze wartości z adresu są pomijane, a wartość przycięta", () => {
+    const intent = parseDocumentsIntent(
+      params(`v_Bad-Key=1&v_=x&v_note=${"a".repeat(300)}`),
+    );
+    expect(Object.keys(intent.values)).toEqual(["note"]);
+    expect((intent.values.note as string).length).toBe(255);
+    expect(intentValueKeys(params("tab=documents&v_a=1&v_b=2"))).toEqual(["v_a", "v_b"]);
+  });
+});
+
+describe("rejestr aneksów", () => {
+  it("aneks bez umowy w rejestrze niesie kontrakt, a bez kontraktu — klienta", () => {
+    const common = {
+      type: RATE,
+      language: "pl",
+      values: {},
+      needsRefs: false,
+    };
+    const withContract = buildDocumentRequest({
+      ...common,
+      subject: { contractId: 651, clientId: 9 },
+    });
+    expect(withContract.contract_id).toBe(651);
+    // Klienta dokumentu z kontraktem serwer bierze z kontraktu.
+    expect(withContract).not.toHaveProperty("client_id");
+
+    const withoutContract = buildDocumentRequest({
+      ...common,
+      subject: { clientId: 9 },
+    });
+    expect(withoutContract.client_id).toBe(9);
+    expect(withoutContract).not.toHaveProperty("contract_id");
+  });
+
+  it("jeden stan zamiast pary status + podpis", () => {
+    expect(annexStateLabel("waiting")).toEqual({
+      label: "Czeka na podpis",
+      tone: "warning",
+    });
+    expect(annexStateLabel("signed_pending").label).toBe("Podpisany");
+    expect(annexStateLabel("in_force").label).toBe("Obowiązuje");
+    expect(annexStateLabel("cancelled").label).toBe("Anulowany");
+    // Stan liczy serwer; odpowiedź bez niego (starszy backend) nie zostaje pusta.
+    expect(
+      annexStateOf({ state: "signed_pending", status: "signed", signature_status: "signed_both" }),
+    ).toBe("signed_pending");
+    expect(annexStateOf({ status: "signed", signature_status: "signed_both" })).toBe("in_force");
+    expect(annexStateOf({ status: "issued", signature_status: "unsigned" })).toBe("waiting");
+    expect(annexStateOf({ status: "cancelled", signature_status: "unsigned" })).toBe("cancelled");
+  });
+
+  it("nazwy typów: pełna w rejestrze, krótka na wierszu umowy", () => {
+    expect(annexTitle("annex_start_date")).toBe("Zmiana daty startu");
+    expect(annexTitle("annex_przyszly")).toBe("Aneks");
+    expect(annexShortLabel("annex_party_data")).toBe("dane firmy");
+    expect(annexShortLabel("annex_przyszly")).toBe("aneks");
+  });
+
+  it("skrót zmiany: stawka z „przed” tylko jeden do jednego", () => {
+    const item = { rate: 150, from: "2026-11-01", to: null };
+    expect(
+      annexChangeText({
+        kind: "rate",
+        hidden: false,
+        currency: "PLN",
+        items: [item],
+        before: [{ rate: 140, from: null, to: null }],
+      }),
+    ).toEqual({ before: "140,00", after: "150,00 zł/h" });
+    expect(
+      annexChangeText({
+        kind: "rate",
+        hidden: false,
+        currency: "EUR",
+        items: [item, { rate: 160.5, from: "2027-01-01", to: null, client_name: "Bank Północny S.A." }],
+        before: [{ rate: 140, from: null, to: null }],
+      }),
+    ).toEqual({
+      before: null,
+      after: "150,00 EUR/h · od 01.11.2026; 160,50 EUR/h · od 01.01.2027 · Bank Północny S.A.",
+    });
+    // Bez wglądu w stawki lista mówi tylko, że to zmiana stawki.
+    expect(annexChangeText({ kind: "rate", hidden: true })).toBeNull();
+  });
+
+  it("skrót zmiany: data, firma, osoba skierowana, zlecenie", () => {
+    expect(
+      annexChangeText({ kind: "start_date", before: "2026-11-02", after: "2026-11-16" }),
+    ).toEqual({ before: "02.11.2026", after: "16.11.2026" });
+    expect(
+      annexChangeText({ kind: "party", legal_name: "ZAJĄC IT Piotr Zając", nip: "5213900011" }),
+    ).toEqual({ before: null, after: "ZAJĄC IT Piotr Zając · NIP 5213900011" });
+    expect(annexChangeText({ kind: "delegate", name: "Paweł Sowa" })?.after).toBe("Paweł Sowa");
+    expect(
+      annexChangeText({
+        kind: "mandate",
+        period_from: "2026-10-01",
+        period_to: "2026-12-31",
+        rate_changed: true,
+      })?.after,
+    ).toBe("01.10.2026 – 31.12.2026 · zmiana stawki");
+    expect(annexChangeText({ kind: "delegate", name: null })).toBeNull();
+    expect(annexChangeText(null)).toBeNull();
+  });
+
+  it("link z etykiety na wierszu umowy prowadzi do rejestru z frazą", () => {
+    expect(annexRegisterHref("1538/2026")).toBe(
+      "/contracts/b2b-generator?tab=annexes&q=1538%2F2026",
+    );
+    expect(annexRegisterHref(" ")).toBe("/contracts/b2b-generator?tab=annexes");
+  });
 });
 
 describe("wiersze", () => {
-  it("umowa bazowa kontraktu — obowiązująca wygrywa z anulowaną", () => {
-    const rows = [
-      { id: 1, contract_id: 7, contract_status: "cancelled" },
-      { id: 2, contract_id: 7, contract_status: "active" },
-      { id: 3, contract_id: 8, contract_status: "active" },
-    ];
-    expect(findRegisterRowForContract(rows, 7)?.id).toBe(2);
-    expect(findRegisterRowForContract(rows, 99)).toBeNull();
-  });
-
   it("status podpisu i ponowne pobranie z danymi wrażliwymi", () => {
     expect(documentStatusLabel({ status: "issued", signature_status: "unsigned" }).label).toBe("Niepodpisany");
     expect(documentStatusLabel({ status: "signed", signature_status: "signed_both" }).label).toBe("Podpisany");
@@ -264,5 +410,132 @@ describe("wiersze", () => {
       "Aneksy",
       "Rozwiązanie umowy",
     ]);
+  });
+});
+
+// ── Generator aneksów (ticket 29.09.2026) ───────────────────────────────────
+
+const RATE_ANNEX: DocumentTypeDef = {
+  ...TERMINATION,
+  key: "annex_rate_change",
+  family: "annex",
+  allows_external: true,
+  fields: [
+    field("contract_number", "Numer umowy", { required: true, group: "base" }),
+    field("rate_items", "Stawki", { kind: "rate_items", required: true, group: "change" }),
+  ],
+};
+
+describe("generator aneksów — pozycje stawki", () => {
+  it("drops blank rows and parses Polish amounts", () => {
+    expect(
+      cleanRateItems([
+        { rate: "135,50", client_id: null, from: "", to: null },
+        { rate: "", client_id: null, from: null, to: null },
+      ]),
+    ).toEqual([{ rate: 135.5, client_id: null, from: null, to: null }]);
+  });
+
+  it("mirrors the server rule: several rates need a date or a client", () => {
+    expect(rateItemsProblems([{ rate: "135" }])).toEqual([]);
+    expect(
+      rateItemsProblems([{ rate: "135" }, { rate: "140", from: "2027-01-01" }]),
+    ).toEqual([]);
+    expect(rateItemsProblems([{ rate: "135" }, { rate: "140" }])[0]).toMatch(
+      /daty „od” albo klienta/,
+    );
+    expect(
+      rateItemsProblems([{ rate: "135", from: "2026-12-01", to: "2026-11-01" }])[0],
+    ).toMatch(/wcześniejsza niż „od”/);
+    expect(rateItemsProblems([{ rate: "abc", client_id: 1 }])[0]).toMatch(/podaj stawkę/);
+  });
+
+  it("treats a list with only blank rows as missing and sends clean items", () => {
+    const values = { contract_number: "1/2026", rate_items: [{ rate: "" }] };
+    expect(missingRequired(RATE_ANNEX, values)).toEqual(["Stawki"]);
+    const body = buildDocumentRequest({
+      type: RATE_ANNEX,
+      language: "pl",
+      subject: {},
+      values: { contract_number: "1/2026", rate_items: [{ rate: "150", from: "2026-11-01" }] },
+      needsRefs: false,
+    });
+    expect(body.values.rate_items).toEqual([
+      { rate: 150, client_id: null, from: "2026-11-01", to: null },
+    ]);
+    expect(body.parent_generated_contract_id).toBeUndefined();
+    expect(invalidListFields(RATE_ANNEX, { rate_items: [{ rate: "0" }] })).toHaveLength(1);
+  });
+});
+
+describe("generator aneksów — wariant Partnera i rejestr", () => {
+  const defaults = { sole_trader: ["12", "2"], company: ["13", "2"] } as const;
+
+  it("switches the default paragraph with the variant", () => {
+    expect(
+      paragraphAfterVariantChange(
+        { paragraph: "12", paragraph_section: "2" },
+        "sole_trader",
+        "company",
+        { ...defaults },
+      ),
+    ).toEqual({ paragraph: "13", paragraph_section: "2" });
+  });
+
+  it("keeps a paragraph the user typed", () => {
+    expect(
+      paragraphAfterVariantChange(
+        { paragraph: "15", paragraph_section: "3" },
+        "sole_trader",
+        "company",
+        { ...defaults },
+      ),
+    ).toBeNull();
+  });
+
+  it("maps registry fields and builds the locative seat", () => {
+    expect(
+      registryLookupValues(
+        [
+          ["name", "partner_legal_name"],
+          ["seat_locative", "partner_seat_locative"],
+          ["regon", "partner_regon"],
+        ],
+        { name: "Softex Sp. z o.o.", seat: "Warszawa", regon: null },
+        (city) => `w ${city}`,
+      ),
+    ).toEqual({
+      partner_legal_name: "Softex Sp. z o.o.",
+      partner_seat_locative: "w Warszawa",
+    });
+  });
+
+  it("maps the CEIDG address kind to the address-for-service flag", () => {
+    const fills: [string, string][] = [
+      ["address_kind", "partner_address_for_service"],
+    ];
+    const seat = (city: string) => city;
+    expect(
+      registryLookupValues(fills, { address_kind: "service" }, seat),
+    ).toEqual({ partner_address_for_service: true });
+    expect(
+      registryLookupValues(fills, { address_kind: "place_of_business" }, seat),
+    ).toEqual({ partner_address_for_service: false });
+    // Brak odpowiedzi rejestru nie nadpisuje wyboru z umowy bazowej.
+    expect(
+      registryLookupValues(fills, { address_kind: null }, seat),
+    ).toEqual({});
+  });
+
+  it("sends every annex link to the annex generator tab", () => {
+    expect(documentsHref({ newType: "annex_rate_change", contractId: 7 })).toBe(
+      "/contracts/b2b-generator?tab=annexes&new=annex_rate_change&contract=7",
+    );
+    expect(annexesHref({ newType: "annex_party_data", parentId: 3 })).toBe(
+      "/contracts/b2b-generator?tab=annexes&new=annex_party_data&parent=3",
+    );
+    expect(documentsHref({ newType: "termination_agreement", parentId: 3 })).toBe(
+      "/contracts/b2b-generator?tab=documents&new=termination_agreement&parent=3",
+    );
   });
 });

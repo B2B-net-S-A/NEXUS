@@ -18,8 +18,16 @@ Użycie (logi per job, bo log zbiorczy ``gh run view --log`` bywa obcięty):
     done
     python .github/scripts/build_test_durations.py job_*.log
 
-Kilka przebiegów = średnia per plik. Plik bez pomiaru dostaje w conftest
-medianę, więc nieaktualna mapa tylko pogarsza równowagę — nigdy nie gubi testu.
+Kilka przebiegów = MEDIANA per plik (od 21.10.2026; wcześniej średnia) —
+ten sam shard na innym runnerze trwa 0,7–1,3× (zmierzone 21–22.10), a mediana
+nie idzie za jedną odstającą próbką. Dawaj WYŁĄCZNIE logi shardów kolejki:
+biegną z ``--cov --cov-branch``, a tracer pokrycia spowalnia testy czysto
+pythonowe nawet 2,8× (macierz bramek tras: 51 s bez pokrycia, 145 s z nim —
+lokalnie, ten sam wycinek). Logi sita PR-a (bez pokrycia) zaniżyłyby czasy
+tych plików i rozjechały wyważenie shardów; sito przelicza mapę samo
+(``_NO_COVERAGE_FACTOR`` w ``select_pr_tests.py``). Plik bez pomiaru dostaje
+w conftest medianę, więc nieaktualna mapa tylko pogarsza równowagę — nigdy
+nie gubi testu.
 """
 
 from __future__ import annotations
@@ -79,9 +87,11 @@ def main() -> None:
     if not samples:
         raise SystemExit("Żaden log nie zawierał wyników pytest -v.")
 
+    # Log z gałęzi kolejki niesie też pliki, których na mainie już nie ma.
     result = {
-        name: round(statistics.fmean(values), 1)
+        name: round(statistics.median(values), 1)
         for name, values in sorted(samples.items())
+        if (_REPO / "backend" / name).is_file()
     }
     args.out.write_text(
         json.dumps(result, indent=0, sort_keys=True, ensure_ascii=False) + "\n",

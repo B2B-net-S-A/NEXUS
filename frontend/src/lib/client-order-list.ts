@@ -1057,6 +1057,25 @@ export function isCurrentOrder(
 }
 
 /**
+ * Czy okres zamówienia jeszcze się NIE rozpoczął (start po dzisiejszym dniu).
+ *
+ * To jedyna definicja „przyszłego zamówienia" na karcie kontraktora.
+ * Plakietka „przyszłe zamówienie … kończy się za N dni" wynikała dotąd z tego,
+ * że zamówienie NIE jest tym z górnego slotu karty (porównanie id) — kontrakt
+ * z dwoma wierszami tego samego okresu (stary `completed` w slocie, aktywny
+ * w historii) dostawał ją przy zamówieniu, które trwa od trzech miesięcy
+ * (zgłoszenie 29.09.2026). Zamówienie, które już się zaczęło, nie jest
+ * przyszłe, także gdy właśnie się kończy.
+ */
+export function orderNotStarted(
+  order: Pick<ClientOrderRead, "start_date">,
+  todayIso = localTodayIso(),
+): boolean {
+  const start = dateOnly(order.start_date);
+  return start !== null && start > todayIso;
+}
+
+/**
  * Zamówienia do eksportu: DOKŁADNIE JEDNO na konsultanta i tylko takie, które
  * obowiązuje dziś.
  *
@@ -1095,7 +1114,7 @@ export function visibleLegacyOrderIds(
 
 /** Cel deep linku z panelu „Moi klienci" (`?order=` / `?group=`). */
 export type OrderFocusTarget =
-  | { kind: "group"; groupId: number }
+  | { kind: "group"; groupId: number; lineId?: number }
   | { kind: "contractor"; contractId: number; orderId: number; isDraft: boolean };
 
 /**
@@ -1127,7 +1146,9 @@ export function resolveOrderFocus(
   };
   for (const group of groups) {
     const found = visit(group);
-    if (found !== null) return { kind: "group", groupId: found };
+    // Wersja B (29.09.2026): link do linii otwiera panel TEJ osoby, nie tylko
+    // jej zamówienia.
+    if (found !== null) return { kind: "group", groupId: found, lineId: orderId };
   }
   for (const contractor of contractors) {
     const order = contractor.orders.find((item) => item.id === orderId);

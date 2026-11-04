@@ -20,6 +20,8 @@ import {
   type UserEmailTemplateInput,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { hasRole, useAuthStore } from "@/store/auth";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,6 +70,7 @@ export default function EmailTemplatesCard() {
   const [editing, setEditing] = useState<UserEmailTemplate | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { askConfirm, confirmDialog } = useConfirmV2();
 
   const { data, isLoading } = useQuery({
     queryKey: ["user-email-templates"],
@@ -98,16 +101,17 @@ export default function EmailTemplatesCard() {
 
   return (
     <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
+      {confirmDialog}
       <div className="flex items-start gap-4 mb-6">
         <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
           <FileText className="w-6 h-6 text-primary" />
         </div>
         <div className="flex-1">
           <h3 className="text-base font-bold text-foreground dark:text-foreground">
-            Szablony emaili (Microsoft 365)
+            Moje szablony w Outlooku
           </h3>
           <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-0.5">
-            Twoje prywatne snippety dla okna nowej wiadomości w skrzynce M365.
+            Twoje gotowe treści do okna nowej wiadomości w Outlooku (Microsoft 365).
             Możesz udostępnić szablon całemu zespołowi.
           </p>
         </div>
@@ -174,8 +178,14 @@ export default function EmailTemplatesCard() {
                 <Pencil className="h-4 w-4" />
               </button>
               <button
-                onClick={() => {
-                  if (window.confirm(`Usunąć szablon „${t.name}"?`)) {
+                onClick={async () => {
+                  if (
+                    await askConfirm({
+                      title: `Usunąć szablon „${t.name}"?`,
+                      confirmLabel: "Usuń",
+                      variant: "destructive",
+                    })
+                  ) {
                     setError(null);
                     deleteMutation.mutate(t.id);
                   }
@@ -214,6 +224,10 @@ interface EditorProps {
 }
 
 function TemplateEditor({ initial, onClose, onSaved, onError }: EditorProps) {
+  // Runda 9 (R9-N10-11): szablon wspólny publikują tylko admin, HoR i DL —
+  // serwer odmawia pozostałym, więc checkbox nie może im obiecywać publikacji.
+  const user = useAuthStore((s) => s.user);
+  const canShare = hasRole(user, "admin", "head_of_recruitment", "delivery_lead");
   const isEdit = initial !== null;
 
   const [draft, setDraft] = useState<DraftState>(() =>
@@ -364,31 +378,33 @@ function TemplateEditor({ initial, onClose, onSaved, onError }: EditorProps) {
             </div>
           </div>
 
-          <label
-            className={cn(
-              "flex items-start gap-3 p-3 rounded-xl border border-border dark:border-border cursor-pointer",
-              draft.is_shared && "bg-primary/5 border-primary/30",
-            )}
-          >
-            <input
-              type="checkbox"
-              checked={draft.is_shared}
-              onChange={(e) =>
-                setDraft((prev) => ({ ...prev, is_shared: e.target.checked }))
-              }
-              className="mt-1"
-            />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-foreground flex items-center gap-2">
-                <Share2 className="h-3.5 w-3.5" />
-                Udostępnij zespołowi
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Pozostali użytkownicy zobaczą ten szablon na liście wyboru w oknie
-                nowej wiadomości. Edytować i usuwać może tylko właściciel.
-              </p>
-            </div>
-          </label>
+          {(canShare || draft.is_shared) && (
+            <label
+              className={cn(
+                "flex items-start gap-3 p-3 rounded-xl border border-border dark:border-border cursor-pointer",
+                draft.is_shared && "bg-primary/5 border-primary/30",
+              )}
+            >
+              <input
+                type="checkbox"
+                checked={draft.is_shared}
+                onChange={(e) =>
+                  setDraft((prev) => ({ ...prev, is_shared: e.target.checked }))
+                }
+                className="mt-1"
+              />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-foreground flex items-center gap-2">
+                  <Share2 className="h-3.5 w-3.5" />
+                  Udostępnij zespołowi
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Pozostali użytkownicy zobaczą ten szablon na liście wyboru w oknie
+                  nowej wiadomości. Edytować i usuwać może tylko właściciel.
+                </p>
+              </div>
+            </label>
+          )}
         </SheetBody>
         <SheetFooter>
           <Button

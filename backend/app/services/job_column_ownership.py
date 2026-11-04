@@ -89,6 +89,11 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "work_state",
         "work_state_changed_at",
         "work_state_changed_by",
+        # 0617: „Jeszcze trwa” przy rekrutacji bez ruchu — decyzja DL w NEXUSIE.
+        "idle_snoozed_at",
+        "idle_snoozed_by",
+        # 0406: godzina terminu — Traffit zna tylko datę.
+        "deadline_time",
         "needs_sourcing",
         "favorite_sourcing_paused",
         "description",
@@ -97,9 +102,21 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "salary_min",
         "salary_max",
         "rate_budget_hourly",
+        "rate_budget_hourly_min",
         "remote_policy",
         "onsite_days_per_week",
+        "onsite_days_per_month",
         "priority",
+        # 0525: P0 na 24 h — decyzja Head of Recruitment w NEXUSIE.
+        "p0_until",
+        "p0_reason",
+        "p0_set_at",
+        "p0_set_by",
+        # 0610: prośba Delivery Leada o P0.
+        "p0_request_reason",
+        "p0_request_duration",
+        "p0_requested_at",
+        "p0_requested_by",
         "recruitment_type",
         "portals",
         "must_skills",
@@ -117,12 +134,23 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "criteria_generated_at",
         "close_reason",
         "close_notes",
+        "duplicate_of_job_id",
         "competence_category_id",
         "tac_id",
         "delivery_lead_id",
         "delivery_lead_auto_filled",
+        "client_reference",
+        "working_title",
+        "working_title_auto",
         "favorite_candidate_id",
         "hiring_manager_contact_id",
+        # 0415: „Klient nie podał” przy hiring managerze i terminie — decyzja
+        # w NEXUSIE; Traffit nie zna żadnej z nich.
+        "hiring_manager_not_provided",
+        "deadline_not_provided",
+        # 0403: rola z biblioteki ról — dopasowuje NEXUS, Traffit jej nie zna.
+        "role_profile_id",
+        "role_profile_source",
         "created_by",
     }
 )

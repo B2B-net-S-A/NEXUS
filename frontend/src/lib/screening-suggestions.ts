@@ -44,10 +44,24 @@ const UNIT_SUFFIX: Record<string, string> = { hour: "h", day: "dzień", month: "
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})/;
 
-/** „12.09" z daty ISO; tekst, którego nie umiemy odczytać, pomijamy. */
+/**
+ * „12.09" z daty ISO, „10.2026" z samego miesiąca (`as_of` ekstrakcji notatek
+ * — do 17.10.2026 taka data znikała z podpowiedzi); inny tekst pomijamy.
+ */
 export function notedAtLabel(value: string | null | undefined): string | null {
   const match = value ? ISO_DATE.exec(value) : null;
-  return match ? `${match[3]}.${match[2]}` : null;
+  if (match) return `${match[3]}.${match[2]}`;
+  const month = value ? /^(\d{4})-(\d{2})$/.exec(value.trim()) : null;
+  return month ? `${month[2]}.${month[1]}` : null;
+}
+
+/** „2.04.2025” z daty ISO, „04.2025” z samego miesiąca (`as_of` notatki); inaczej `null`. */
+export function notedAtDateLabel(value: string | null | undefined): string | null {
+  const text = value?.trim() ?? "";
+  const day = ISO_DATE.exec(text);
+  if (day) return `${Number(day[3])}.${day[2]}.${day[1]}`;
+  const month = /^(\d{4})-(\d{2})$/.exec(text);
+  return month ? `${month[2]}.${month[1]}` : null;
 }
 
 function isoDatePl(value: string): string {
@@ -78,6 +92,17 @@ export function rateSuggestionFill(
   const unit = rate.unit ? UNIT_TO_FORM[rate.unit] : undefined;
   if (!unit) return null;
   return { rate: String(rate.value), unit };
+}
+
+/**
+ * Dlaczego podpowiedź stawki nie ma „Użyj” — albo `null`, gdy ma. Do
+ * 17.10.2026 każdy przypadek mówił „inna waluta lub jednostka”, także przy
+ * złotówkach bez jednostki (R3).
+ */
+export function rateSuggestionBlocker(rate: ScreeningRateSuggestion): string | null {
+  if (rateSuggestionFill(rate)) return null;
+  if (rate.currency && rate.currency !== "PLN") return "inna waluta — wpisz ręcznie";
+  return "bez jednostki — wpisz ręcznie";
 }
 
 /** „dostępny od razu" / „od 01.10.2026 · wypowiedzenie: 1 miesiąc". */

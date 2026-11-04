@@ -36,9 +36,7 @@ def test_generator_defaults_give_every_operator_full_generator() -> None:
         UserRole.finance,
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
         # Decyzja Artura 22.09.2026: TCM ma pełny generator B2B.
         UserRole.talent_community_manager,
     ):
@@ -113,7 +111,10 @@ def test_signature_is_independent_from_generator_management() -> None:
         action_access_for_roles([UserRole.talent_community_manager], action)
         is ActionAccess.manage
     )
-    assert action_access_for_roles([UserRole.recruiter], action) is ActionAccess.none
+    # 19.10.2026: rekruter ma podpis z roli (reguła „autor albo zespół”),
+    # choć generatorem tylko zarządza — to nadal dwa osobne uprawnienia.
+    assert action_access_for_roles([UserRole.recruiter], action) is ActionAccess.manage
+    assert action_access_for_roles([UserRole.user], action) is ActionAccess.none
     user = _user(UserRole.talent_community_manager)
     user.effective_action_access = {ACTION.value: "manage", action.value: "none"}
     assert action_access_for_user(user, action) is ActionAccess.none

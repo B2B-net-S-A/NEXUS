@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { isNavItemActive, visibleNavSections } from "@/components/v2/shell/SidebarV2";
+import { accessSnapshot } from "@/lib/__tests__/fixtures/access-snapshot";
 import { visibleNavHrefs, visiblePrimaryNav } from "@/lib/nav-registry";
 import type { UserRole } from "@/store/auth";
 
@@ -45,8 +46,15 @@ describe("visibleNavSections", () => {
     expect(hrefs("admin")).toContain("/finance");
   });
 
-  it("respektuje indywidualne nadanie i odebranie sekcji z backendu", () => {
+  it("respektuje indywidualne nadanie uprawnienia i odebranie sekcji z backendu", () => {
+    // Od 0410 Finanse i Delivery wynikają z uprawnień z ekranu Osoby i role:
+    // wejście „Finanse” daje nadany „Moduł Finanse”, nie sam wyjątek sekcji.
     const recruiterWithFinance = visibleNavSections(
+      accessSnapshot("recruiter", { grant: ["finance_module"] }),
+      { contactQueueEnabled: false },
+    ).flatMap((section) => section.items.map((item) => item.href));
+
+    const recruiterWithSectionOnly = visibleNavSections(
       {
         role: "recruiter",
         roles: ["recruiter"],
@@ -62,6 +70,8 @@ describe("visibleNavSections", () => {
       { contactQueueEnabled: false },
     ).flatMap((section) => section.items.map((item) => item.href));
 
+    // Stary wyjątek osoby potrafi sekcję już tylko ograniczyć — i dalej chowa
+    // pozycje, choć uprawnienia roli zostają.
     const deliveryLeadWithoutDelivery = visibleNavSections(
       {
         role: "delivery_lead",
@@ -79,6 +89,7 @@ describe("visibleNavSections", () => {
     ).flatMap((section) => section.items.map((item) => item.href));
 
     expect(recruiterWithFinance).toContain("/finance");
+    expect(recruiterWithSectionOnly).not.toContain("/finance");
     expect(deliveryLeadWithoutDelivery).not.toContain("/clients");
     expect(deliveryLeadWithoutDelivery).not.toContain("/contracts");
   });
@@ -107,9 +118,7 @@ describe("visibleNavSections", () => {
   });
 
   it.each([
-    "sourcer",
     "recruiter",
-    "tac",
     "head_of_recruitment",
   ] as UserRole[])("%s nie widzi sekcji Delivery ani Finansów", (role) => {
     const visible = hrefs(role);
@@ -155,17 +164,16 @@ describe("visibleNavSections", () => {
 
     expect(viewer).not.toContain("/candidates");
     expect(viewer).not.toContain("/clients");
-    expect(viewer).toContain("/jobs");
-    expect(viewer).toContain("/insights");
+    // 0637: bez żadnej sekcji znikają też Rekrutacje i Insights.
+    expect(viewer).not.toContain("/jobs");
+    expect(viewer).not.toContain("/insights");
     expect(viewer).not.toContain("/cortex");
     expect(viewer).not.toContain("/finance");
   });
 
-  it("praktykant (0374) nie ma menu; panel „Praktykanci” mają admin i HoR", () => {
+  it("praktykant (0374) nie ma menu; panel „Praktykanci” zdjęty z menu 17.10.2026", () => {
     expect(hrefs("trainee")).toEqual([]);
-    expect(hrefs("head_of_recruitment")).toContain("/trainees");
-    expect(hrefs("admin")).toContain("/trainees");
-    for (const role of ["recruiter", "sourcer", "delivery_lead", "finance", "user"] as UserRole[]) {
+    for (const role of ["admin", "head_of_recruitment", "recruiter", "delivery_lead", "finance", "user"] as UserRole[]) {
       expect(hrefs(role)).not.toContain("/trainees");
     }
   });
@@ -208,7 +216,6 @@ describe("szyna vs „Więcej”", () => {
 
   it("rzadziej używane moduły NIE stoją na szynie, ale nadal są w menu", () => {
     for (const href of [
-      "/cv-generator",
       "/contracts/b2b-generator",
       "/help",
       "/settings",
@@ -218,13 +225,9 @@ describe("szyna vs „Więcej”", () => {
     }
   });
 
-  it("viewer `user` ma na szynie tylko to, do czego ma dostęp", () => {
-    // Kalendarz zdjęty 22.09.2026 — backend (RecruitmentReadAccess) odcina viewera.
-    expect(primary("user")).toEqual([
-      "/dashboard",
-      "/jobs",
-      "/insights",
-    ]);
+  it("viewer `user` nie ma nic na szynie", () => {
+    // 0637: bez żadnej sekcji odpadają Dashboard, Rekrutacje i Insights.
+    expect(primary("user")).toEqual([]);
   });
 });
 
@@ -246,7 +249,7 @@ describe("SIDEBAR_VERTICAL_LAYOUT (UAT B57)", () => {
 
 describe("Wyszukiwarka i Talent Radar = tryby ekranu „Kandydaci” (21.09.2026)", () => {
   it("nie stoją w menu żadnej roli", () => {
-    const roles: UserRole[] = ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "tac", "recruiter", "finance", "sourcer", "user", "trainee"];
+    const roles: UserRole[] = ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "recruiter", "finance", "user", "trainee"];
     for (const role of roles) {
       const items = hrefs(role);
       expect(items).not.toContain("/candidates/search");

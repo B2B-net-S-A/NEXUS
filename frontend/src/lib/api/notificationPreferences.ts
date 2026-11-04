@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { MY_EMAIL_NOTIFICATIONS_QUERY_KEY } from "@/lib/api/emailNotifications";
 
 export interface NotificationCategoryPreference {
   key: string;
@@ -15,6 +16,10 @@ export interface NotificationCategoryPreference {
   description: string;
   mandatory: boolean;
   muted: boolean;
+  /** Administrator wyłączył CAŁĄ kategorię wszystkim rolom tego konta —
+   *  własny przełącznik jej nie włączy (Ustawienia → Powiadomienia →
+   *  „Kto co dostaje”). */
+  role_muted?: boolean;
   /** Ile powiadomień tej kategorii przyszło w ostatnich 30 dniach. */
   received_30d: number;
 }
@@ -63,6 +68,9 @@ export function useSetNotificationCategoryMuted() {
     onSuccess: (data) => {
       queryClient.setQueryData(notificationPreferencesQueryKey, data);
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      // Mail idący za wyciszoną kategorią też przestaje przychodzić —
+      // „Maile do Ciebie” mówi to przy wierszu.
+      queryClient.invalidateQueries({ queryKey: MY_EMAIL_NOTIFICATIONS_QUERY_KEY });
     },
   });
 }

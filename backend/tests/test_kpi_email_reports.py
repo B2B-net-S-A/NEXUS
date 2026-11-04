@@ -111,6 +111,10 @@ class _Outbox:
         return True
 
 
+async def _no_weekly_mails(db, now_local):
+    return []
+
+
 @pytest.fixture
 def outbox(monkeypatch) -> _Outbox:
     box = _Outbox()
@@ -190,6 +194,7 @@ async def test_monthly_report_on_first_business_day(
         return [reports._Mail("rada@example.com", f"Rada {period_key}", "treść")]
 
     monkeypatch.setattr(reports, "_monthly_mails", fake_mails)
+    monkeypatch.setattr(reports, "_weekly_mails", _no_weekly_mails)
     year = 2700 + random.randint(0, 250)
     day = reports.first_business_day(year, 6)
     result = await reports.run_once(_at(day, 8))
@@ -201,7 +206,288 @@ async def test_monthly_report_on_first_business_day(
     }
 
 
-def test_board_report_never_goes_to_head_of_recruitment() -> None:
-    """Mail zarządu niesie przychód i marżę — HoR ich nie widzi (24.09.2026)."""
-    assert UserRole.head_of_recruitment not in reports._BOARD_ROLES
-    assert set(reports._BOARD_ROLES) == {UserRole.admin, UserRole.finance}
+def _with_policy(role: UserRole, *permissions: str, insights: str = "read") -> User:
+    """Konto z dołączoną polityką — uprawnienia z ekranu i wynikające z nich sekcje."""
+    from app.services import permission_catalog as catalog
+
+    user = User(
+        id=random.randint(1, 10**6),
+        email=f"kpi-board-{role.value}-{uuid.uuid4().hex[:8]}@example.com",
+        name=role.value,
+        role=role,
+        roles=[role.value],
+        is_active=True,
+    )
+    held = catalog.close(permissions)
+    user.effective_action_access = {key: "manage" for key in held}
+    user.effective_section_access = {
+        **catalog.derive_sections(held),
+        "insights": insights,
+    }
+    return user
+
+
+def test_board_report_goes_only_to_the_board_and_named_people() -> None:
+    """Zbiorczy przychód i marża firmy: Rada i imienne nadanie (Artur 02.11.2026).
+
+    Sama rola admin ani uprawnienie „Moduł Finanse” tego maila nie otwierają.
+    """
+    board = _with_policy(UserRole.board)
+    named = _with_policy(UserRole.admin, "finance_module", insights="write")
+    named.receives_board_report = True
+    admin = _with_policy(UserRole.admin, "finance_module", insights="write")
+    finance = _with_policy(UserRole.finance, "finance_module")
+    hor = _with_policy(UserRole.head_of_recruitment, insights="write")
+    hor_with_grant = _with_policy(
+        UserRole.head_of_recruitment, "finance_module", insights="write"
+    )
+
+    assert reports._board_readers(
+        [board, named, admin, finance, hor, hor_with_grant]
+    ) == [board, named]
+
+
+# ── Runda 7 (R7-N5-2): otwarty bezpiecznik nie gubi raportu ─────────────────
+
+
+def test_deliver_reports_deferred_when_sender_refused_temporarily(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "M365_APP_MAIL_ENABLED", True)
+    monkeypatch.setattr(
+        "app.services.notification_delivery.guarded_send", lambda *a, **k: False
+    )
+    monkeypatch.setattr(
+        "app.services.notification_delivery.last_send_policy_blocked", lambda: False
+    )
+    monkeypatch.setattr(
+        "app.services.m365.app_mail.last_delivery_deferred", lambda: True
+    )
+    mail = reports._Mail("rada@example.com", "s", "t")
+    assert reports._deliver(reports.MONTHLY_KIND, datetime.now(WAW), mail) == (
+        "deferred"
+    )
+    # Blokada polityki to nie odroczenie — raport nie ma wyjść.
+    monkeypatch.setattr(
+        "app.services.notification_delivery.last_send_policy_blocked", lambda: True
+    )
+    assert reports._deliver(reports.MONTHLY_KIND, datetime.now(WAW), mail) == ("failed")
+
+
+@pytest.mark.asyncio
+async def test_deferred_recipients_are_retried_on_next_tick(
+    outbox, monkeypatch, routine_notification_email_enabled
+) -> None:
+    async def fake_mails(db, now_local, period_key):
+        return [
+            reports._Mail("a@example.com", f"Rada {period_key}", "treść"),
+            reports._Mail("b@example.com", f"Rada {period_key}", "treść"),
+        ]
+
+    outcomes = {"a@example.com": ["sent"], "b@example.com": ["deferred", "sent"]}
+    delivered: list[str] = []
+
+    def fake_deliver(kind, now_utc, mail):
+        outcome = outcomes[mail.to].pop(0)
+        if outcome == "sent":
+            delivered.append(mail.to)
+        return outcome
+
+    monkeypatch.setattr(reports, "_monthly_mails", fake_mails)
+    monkeypatch.setattr(reports, "_weekly_mails", _no_weekly_mails)
+    monkeypatch.setattr(reports, "_deliver", fake_deliver)
+    year = 2700 + random.randint(0, 250)
+    day = reports.first_business_day(year, 7)
+    key = f"{year}-06"
+
+    first = await reports.run_once(_at(day, 8))
+    assert first[reports.MONTHLY_KIND] == "sent"
+    assert delivered == ["a@example.com"]
+
+    second = await reports.run_once(_at(day, 8, 15))
+    assert second[reports.MONTHLY_KIND] == "sent"
+    # Drugi raz wyszedł wyłącznie mail odroczony — bez duplikatu do „a”.
+    assert delivered == ["a@example.com", "b@example.com"]
+    runs = await _runs(reports.MONTHLY_KIND, key)
+    assert [(r.status, r.recipients, r.sent) for r in runs] == [("sent", 2, 2)]
+
+    third = await reports.run_once(_at(day, 8, 25))
+    assert third[reports.MONTHLY_KIND] == "already_claimed"
+
+
+@pytest.mark.asyncio
+async def test_new_period_drops_stale_pending_of_the_same_kind(
+    outbox, monkeypatch, routine_notification_email_enabled
+) -> None:
+    """R8-V3-10: odroczeni z poprzedniego okresu nie wiszą w `app_settings`
+    na zawsze — nowy okres tego samego raportu sprząta stare wpisy."""
+    from app.models.app_setting import AppSetting
+
+    async def fake_mails(db, now_local, period_key):
+        return [reports._Mail("rada@example.com", f"Rada {period_key}", "t")]
+
+    monkeypatch.setattr(reports, "_monthly_mails", fake_mails)
+    monkeypatch.setattr(reports, "_weekly_mails", _no_weekly_mails)
+    year = 2700 + random.randint(0, 250)
+    stale = reports._pending_key(reports.MONTHLY_KIND, f"{year}-01")
+    other_kind = f"{reports._PENDING_PREFIX}other_report:{year}-01"
+    async with AsyncSessionLocal() as db:
+        for key in (stale, other_kind):
+            await db.merge(AppSetting(key=key, value={"to": ["x@example.com"]}))
+        await db.commit()
+
+    day = reports.first_business_day(year, 3)
+    result = await reports.run_once(_at(day, 8))
+    assert result[reports.MONTHLY_KIND] == "sent"
+    async with AsyncSessionLocal() as db:
+        assert await db.get(AppSetting, stale) is None
+        # Inny rodzaj raportu nie jest ruszany.
+        assert await db.get(AppSetting, other_kind) is not None
+        await db.delete(await db.get(AppSetting, other_kind))
+        await db.commit()
+
+
+# ── Runda 9 (R9-N6-3): raport nie przepada po awarii liczenia ani restarcie ──
+
+
+def _r9_year() -> int:
+    return 2951 + random.randint(0, 48)
+
+
+@pytest.mark.asyncio
+async def test_failed_build_is_retried_on_next_tick(
+    outbox, monkeypatch, routine_notification_email_enabled
+) -> None:
+    calls = {"n": 0}
+
+    async def flaky_mails(db, now_local, period_key):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("chwilowa awaria")
+        return [reports._Mail("rada-r9@example.com", f"Rada {period_key}", "t")]
+
+    monkeypatch.setattr(reports, "_monthly_mails", flaky_mails)
+    monkeypatch.setattr(reports, "_weekly_mails", _no_weekly_mails)
+    year = _r9_year()
+    day = reports.first_business_day(year, 9)
+    key = f"{year}-08"
+
+    first = await reports.run_once(_at(day, 8))
+    assert first[reports.MONTHLY_KIND] == "failed"
+    second = await reports.run_once(_at(day, 8, 15))
+    assert second[reports.MONTHLY_KIND] == "sent"
+    assert [to for to, _ in outbox.sent] == ["rada-r9@example.com"]
+    runs = await _runs(reports.MONTHLY_KIND, key)
+    assert [(r.status, r.recipients, r.sent) for r in runs] == [("sent", 1, 1)]
+
+
+async def _seed_claim(key: str, *, age_minutes: int) -> None:
+    from sqlalchemy import func as sa_func
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            KpiEmailReportRun(
+                kind=reports.MONTHLY_KIND,
+                period_key=key,
+                status="claimed",
+                claimed_at=(await db.scalar(select(sa_func.now())))
+                - timedelta(minutes=age_minutes),
+            )
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_stale_claim_after_restart_is_taken_over(
+    outbox, monkeypatch, routine_notification_email_enabled
+) -> None:
+    async def fake_mails(db, now_local, period_key):
+        return [reports._Mail("rada-r9b@example.com", f"Rada {period_key}", "t")]
+
+    monkeypatch.setattr(reports, "_monthly_mails", fake_mails)
+    # Dzień testu bywa poniedziałkiem: bez tego raport tygodniowy idzie do
+    # wszystkich HoR na wspólnej bazie CI i psuje asercje skrzynki.
+    monkeypatch.setattr(reports, "_weekly_mails", _no_weekly_mails)
+    year = _r9_year()
+    day = reports.first_business_day(year, 10)
+    key = f"{year}-09"
+    await _seed_claim(key, age_minutes=reports.STALE_CLAIM_MINUTES + 10)
+
+    result = await reports.run_once(_at(day, 9))
+    assert result[reports.MONTHLY_KIND] == "sent"
+    assert [to for to, _ in outbox.sent] == ["rada-r9b@example.com"]
+    runs = await _runs(reports.MONTHLY_KIND, key)
+    assert [(r.status, r.sent) for r in runs] == [("sent", 1)]
+
+
+@pytest.mark.asyncio
+async def test_fresh_claim_is_left_to_the_running_container(
+    outbox, monkeypatch, routine_notification_email_enabled
+) -> None:
+    async def fake_mails(db, now_local, period_key):
+        return [reports._Mail("rada-r9c@example.com", f"Rada {period_key}", "t")]
+
+    monkeypatch.setattr(reports, "_monthly_mails", fake_mails)
+    # Dzień testu bywa poniedziałkiem: bez tego raport tygodniowy idzie do
+    # wszystkich HoR na wspólnej bazie CI i psuje asercje skrzynki.
+    monkeypatch.setattr(reports, "_weekly_mails", _no_weekly_mails)
+    year = _r9_year()
+    day = reports.first_business_day(year, 11)
+    key = f"{year}-10"
+    await _seed_claim(key, age_minutes=1)
+
+    result = await reports.run_once(_at(day, 9))
+    assert result[reports.MONTHLY_KIND] == "already_claimed"
+    assert outbox.sent == []
+    # Sprzątanie: znacznik zakończony, nie „w toku” na wspólnej bazie.
+    async with AsyncSessionLocal() as db:
+        run = (
+            await db.execute(
+                select(KpiEmailReportRun).where(
+                    KpiEmailReportRun.kind == reports.MONTHLY_KIND,
+                    KpiEmailReportRun.period_key == key,
+                )
+            )
+        ).scalar_one()
+        run.status = "skipped"
+        run.finished_at = datetime.now(WAW)
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_interrupted_send_resumes_only_remaining_recipients(
+    outbox, monkeypatch, routine_notification_email_enabled
+) -> None:
+    from app.models.app_setting import AppSetting
+
+    async def fake_mails(db, now_local, period_key):
+        return [
+            reports._Mail("a-r9@example.com", f"Rada {period_key}", "t"),
+            reports._Mail("b-r9@example.com", f"Rada {period_key}", "t"),
+        ]
+
+    monkeypatch.setattr(reports, "_monthly_mails", fake_mails)
+    # Dzień testu bywa poniedziałkiem: bez tego raport tygodniowy idzie do
+    # wszystkich HoR na wspólnej bazie CI i psuje asercje skrzynki.
+    monkeypatch.setattr(reports, "_weekly_mails", _no_weekly_mails)
+    year = _r9_year()
+    day = reports.first_business_day(year, 12)
+    key = f"{year}-11"
+    await _seed_claim(key, age_minutes=reports.STALE_CLAIM_MINUTES + 10)
+    async with AsyncSessionLocal() as db:
+        await db.merge(
+            AppSetting(
+                key=reports._pending_key(reports.MONTHLY_KIND, key),
+                value={"to": ["b-r9@example.com"]},
+            )
+        )
+        await db.commit()
+
+    result = await reports.run_once(_at(day, 9))
+    assert result[reports.MONTHLY_KIND] == "sent"
+    assert [to for to, _ in outbox.sent] == ["b-r9@example.com"]
+    async with AsyncSessionLocal() as db:
+        assert (
+            await db.get(AppSetting, reports._pending_key(reports.MONTHLY_KIND, key))
+            is None
+        )

@@ -46,7 +46,7 @@ Sześć decyzji, które trzymają ten moduł uczciwym:
 
 Ograniczenie do świadomego przeczytania, nie do ukrycia: **hit ratio miesza
 kohorty**. Licznik to placementy OSIĄGNIĘTE w oknie, mianownik to zapytania
-UTWORZONE w oknie — placement zwykle domyka zapytanie starsze niż okno. Tak
+OTWARTE w oknie (`opened_at`) — placement zwykle domyka zapytanie starsze niż okno. Tak
 liczył oryginał (InfraReporter) i tak zostaje, żeby liczby dały się porównać
 z historią; koperta niesie `hit_ratio_is_cross_cohort`, żeby konsument mógł
 to napisać przy kaflu.
@@ -63,6 +63,7 @@ from app.analytics.periods import Period, PeriodError, resolve_period
 from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set
+from app.core.scheduling import business_today
 from app.core.database import get_db
 from app.services.insights_dl_scope import (
     CLIENT_DISPLAY_NAME_SQL as _CLIENT_DISPLAY_NAME_SQL,
@@ -70,7 +71,6 @@ from app.services.insights_dl_scope import (
     DL_HEAD_CTE as _DL_HEAD_CTE,
     HIT_RATIO_TARGET_PCT,
     JOBS_SCOPED_CTE as _JOBS_SCOPED_CTE,
-    RECRUITMENT_TYPE,
 )
 from app.services.insights_dl_scope import ratio_pct as _ratio
 from app.services.insights_dl_portfolio import compute_dl_portfolio
@@ -111,14 +111,14 @@ async def insights_delivery_leads(
 
     # Klucz NIESIE OKNO. Bez tego liczby jednego okresu wyszłyby pod etykietą
     # drugiego — i nikt by się nie dowiedział, bo obie są wiarygodne.
-    cache_key = f"insights:delivery-leads:v1:{resolved.cache_suffix}"
+    cache_key = f"insights:delivery-leads:v2:{resolved.cache_suffix}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
 
     params = {"start": resolved.start, "end": resolved.end}
 
-    # 1. Zapytania i wakaty — oferty body_leasing UTWORZONE w oknie.
+    # 1. Zapytania i wakaty — rekrutacje OTWARTE w oknie (`opened_at`, runda 6).
     demand_rows = (
         (
             await db.execute(
@@ -134,7 +134,8 @@ async def insights_delivery_leads(
                 FROM jobs_scoped js
                 LEFT JOIN clients c
                   ON c.id = js.client_id AND {_CLIENT_VISIBLE_SQL}
-                WHERE js.created_at >= :start AND js.created_at < :end
+                WHERE js.opened_at >= :start AND js.opened_at < :end
+                  AND js.in_demand
                 GROUP BY js.dl_id
                 """
                 ),
@@ -290,7 +291,6 @@ async def insights_delivery_leads(
 
     result = {
         "period": resolved.as_payload(),
-        "recruitment_type": RECRUITMENT_TYPE,
         "hit_ratio_target_pct": HIT_RATIO_TARGET_PCT,
         # Otwarty pipeline nie jest liczony w oknie — patrz zapytanie 3.
         "open_pipeline_scope": "snapshot_now",
@@ -352,7 +352,12 @@ async def insights_dl_portfolio(
     """
     resolved = _resolve(period, offset, anchor, date_from, date_to)
 
-    cache_key = f"insights:delivery-leads-portfolio:v1:{resolved.cache_suffix}"
+    # v2 + dzień (runda 6 audytu): okno w toku porównujemy z tym samym
+    # odcinkiem poprzedniego, a odcinek rośnie z każdym dniem.
+    cache_key = (
+        f"insights:delivery-leads-portfolio:v2:{resolved.cache_suffix}"
+        f":{business_today().isoformat()}"
+    )
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
@@ -401,7 +406,6 @@ async def insights_dl_placements_by_client(
                 WHERE fm.stage = 'hired'
                   AND fm.first_reached_at >= :start
                   AND fm.first_reached_at < :end
-                  AND j.recruitment_type = '{RECRUITMENT_TYPE}'
                 GROUP BY j.client_id, {_CLIENT_DISPLAY_NAME_SQL}
                 ORDER BY placements DESC, {_CLIENT_DISPLAY_NAME_SQL} ASC
                 """
@@ -416,7 +420,6 @@ async def insights_dl_placements_by_client(
     total = sum(int(r["placements"]) for r in rows)
     result = {
         "period": resolved.as_payload(),
-        "recruitment_type": RECRUITMENT_TYPE,
         "total_placements": total,
         "clients": [
             {
@@ -465,7 +468,7 @@ async def insights_delivery_lead_trend(
     # nie wystarcza — dwie serie o tej samej długości i różnej kotwicy dzieliłyby
     # klucz i jedna wyszłaby pod etykietą drugiej.
     cache_key = (
-        f"insights:delivery-lead-trend:v1:{dl_id}:"
+        f"insights:delivery-lead-trend:v2:{dl_id}:"
         f"{windows[0].cache_suffix}:{windows[-1].cache_suffix}"
     )
     cached = await cache_get(cache_key)
@@ -498,8 +501,9 @@ async def insights_delivery_lead_trend(
                            COALESCE(SUM(js.headcount), 0) AS vacancies
                     FROM jobs_scoped js
                     WHERE js.dl_id = :dl_id
-                      AND js.created_at >= m.m_start
-                      AND js.created_at < m.m_end
+                      AND js.opened_at >= m.m_start
+                      AND js.opened_at < m.m_end
+                      AND js.in_demand
                 ) d ON TRUE
                 LEFT JOIN LATERAL (
                     SELECT count(*) AS placements
@@ -562,7 +566,6 @@ async def insights_delivery_lead_trend(
         "name": user_row["name"],
         "is_active": bool(user_row["is_active"]),
         "months": months,
-        "recruitment_type": RECRUITMENT_TYPE,
         # Seria NIE jest kumulatywna — każdy punkt to osobne okno [start, end).
         "cumulative": False,
         "trend": trend,

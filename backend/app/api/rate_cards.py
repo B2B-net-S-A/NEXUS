@@ -17,6 +17,7 @@ from app.schemas.rate_card import (
     RateCardUpdate,
 )
 from app.core.scheduling import business_today
+from app.services.client_access import assert_client_assignable
 
 router = APIRouter()
 
@@ -69,6 +70,9 @@ async def create_rate_card(
     client = await db.scalar(select(Client).where(Client.id == data.client_id))
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+    # Runda 7 (R7-X5-4, bliźniak): stawki nie wolno przypiąć do usuniętego
+    # ani scalonego klienta.
+    await assert_client_assignable(db, data.client_id)
     card = RateCard(**data.model_dump())
     db.add(card)
     await db.flush()

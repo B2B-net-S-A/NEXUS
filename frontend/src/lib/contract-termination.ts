@@ -39,6 +39,17 @@ export function agreementPartyLabel(party: string | null | undefined): string | 
   return AGREEMENT_TERMINATION_PARTIES.find((p) => p.value === party)?.label ?? party;
 }
 
+/**
+ * Dzień końca projektu (R8-N13-1): najpierw `end_date`, bo `terminated_at`
+ * przeżywa przedłużenie i niesie wtedy datę pierwszego zakończenia.
+ */
+export function contractProjectEnd(contract: {
+  end_date?: string | null;
+  terminated_at?: string | null;
+}): string | null {
+  return contract.end_date ?? contract.terminated_at ?? null;
+}
+
 /** Etykieta daty zależy od trybu: złożenie wypowiedzenia vs zawarcie porozumienia. */
 export function signedOnLabel(mode: AgreementTerminationMode | ""): string {
   return mode === "mutual_agreement"
@@ -78,9 +89,49 @@ export function suggestedLastDay(
   return `${targetYear}-${String(targetMonth + 1).padStart(2, "0")}-${String(lastOfMonth).padStart(2, "0")}`;
 }
 
+/**
+ * Co z umową B2B przy końcu projektu — wybór obowiązkowy przy jednej umowie
+ * (propozycja zespołu 28.10.2026: 18 z 22 zakończeń od 23.09 zostawiło umowę
+ * bez rozwiązania, a generator porozumień nie wydał ani jednego dokumentu).
+ * `prepare` = zapis końca + generator porozumienia z datami z okna,
+ * `done` = umowa już rozwiązana (dotychczasowe pola), `keep` = umowa zostaje
+ * („Umowy bez projektu” w generatorze).
+ */
+export type AgreementPlan = "" | "prepare" | "done" | "keep";
+
+export const AGREEMENT_PLANS: { value: Exclude<AgreementPlan, "">; label: string; hint: string }[] = [
+  {
+    value: "prepare",
+    label: "Przygotuj porozumienie o rozwiązaniu",
+    hint: "Po zapisie otworzy się generator z tą umową i datą końca projektu.",
+  },
+  {
+    value: "done",
+    label: "Umowa jest już rozwiązana albo wypowiedziana",
+    hint: "Wpisz tryb i daty, dołącz skan.",
+  },
+  {
+    value: "keep",
+    label: "Umowa zostaje — osoba wraca na inny projekt",
+    hint: "Umowa trafi do „Umów bez projektu” w generatorze.",
+  },
+];
+
+/** Zakaz konkurencji w porozumieniu: `release` = zdjęty dla klienta projektu. */
+export type NonCompetePlan = "keep" | "release";
+
+/** Przejście do klienta = zwykle zdjęcie zakazu dla tego klienta. */
+export function defaultNonCompetePlan(reason: ContractTerminationReason | ""): NonCompetePlan {
+  return reason === "poached_by_client" ? "release" : "keep";
+}
+
 export interface TerminationFormState {
   reason: ContractTerminationReason | "";
   projectEndDate: string;
+  agreementPlan: AgreementPlan;
+  nonCompete: NonCompetePlan;
+  /** Ręcznie wybrany zakaz nie jest nadpisywany przy zmianie powodu. */
+  nonCompeteTouched: boolean;
   agreementTerminated: boolean;
   mode: AgreementTerminationMode | "";
   party: AgreementTerminationParty | "";
@@ -95,6 +146,9 @@ export function emptyTerminationForm(
   return {
     reason: "",
     projectEndDate: "",
+    agreementPlan: "",
+    nonCompete: "keep",
+    nonCompeteTouched: false,
     agreementTerminated: false,
     mode: "",
     party: "",
@@ -106,10 +160,14 @@ export function emptyTerminationForm(
 }
 
 /** Czego brakuje, żeby „Zakończ" zapisało — puste = gotowe. */
-export function missingTerminationFields(form: TerminationFormState): string[] {
+export function missingTerminationFields(
+  form: TerminationFormState,
+  { requirePlan = false }: { requirePlan?: boolean } = {},
+): string[] {
   const missing: string[] = [];
   if (!form.reason) missing.push("Powód zakończenia");
   if (!form.projectEndDate) missing.push("Data zakończenia projektu");
+  if (requirePlan && !form.agreementPlan) missing.push("Co z umową B2B");
   if (form.agreementTerminated) {
     if (!form.mode) missing.push("Tryb");
     if (!form.party) missing.push("Strona");
@@ -120,7 +178,27 @@ export function missingTerminationFields(form: TerminationFormState): string[] {
 }
 
 /** Błąd blokujący zapis (backend odmawia tego samego 422). */
-export function terminationFormError(form: TerminationFormState): string | null {
+function plDay(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split("-");
+  return `${d}.${m}.${y}`;
+}
+
+/**
+ * Błąd blokujący zapis. `contractStart` (ISO) — data rozpoczęcia kontraktu;
+ * runda 10 (F27): koniec projektu przed startem kontraktu zapisywał odwrócony
+ * okres i anulował planowane zamówienie. Backend odmawia 422
+ * `end_date_before_start_date`; tu mówimy to przy polu, przed wysłaniem.
+ */
+export function terminationFormError(
+  form: TerminationFormState,
+  contractStart?: string | null,
+): string | null {
+  const start = (contractStart ?? "").slice(0, 10);
+  if (start && form.projectEndDate && form.projectEndDate < start) {
+    return `Data zakończenia projektu jest wcześniejsza niż start kontraktu (${plDay(
+      start,
+    )}). Wybierz datę od dnia startu. Jeśli współpraca w ogóle się nie zaczęła, unieważnij kontrakt zamiast go kończyć.`;
+  }
   if (
     form.agreementTerminated &&
     form.signedOn &&
@@ -215,6 +293,15 @@ export function statusEventDetailsText(
         }
       } else {
         parts.push("umowa obowiązuje dalej");
+      }
+      return parts.join(" · ");
+    }
+    case "agreement_termination_recorded": {
+      // Rozwiązanie podpisane poza NEXUSEM, dopisane do zakończonego kontraktu.
+      const parts = [`Rozwiązanie umowy zapisane po zakończeniu (${contract})`];
+      if (details.mode) parts.push(agreementModeLabel(details.mode) ?? details.mode);
+      if (details.agreement_last_day) {
+        parts.push(`ostatni dzień umowy ${plDate(details.agreement_last_day)}`);
       }
       return parts.join(" · ");
     }

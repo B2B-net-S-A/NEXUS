@@ -1,8 +1,64 @@
-# Prepy w Teams — konfiguracja Microsoft 365 (jednorazowo, administrator)
+# Prepy i follow-upy w Teams — konfiguracja Microsoft 365 (jednorazowo, administrator)
 
-Kod jest wdrożony z wyłączonymi przełącznikami. Do czasu tych kroków okno
-„Zaplanuj prep” działa jak dotąd (zwykłe zaproszenie przez połączone konto
-M365), a sonda `checks.teams_prep` mówi `unconfigured`.
+Kod i konfiguracja aplikacji są wdrożone. Od 26.09.2026 przełączniki
+`TEAMS_PREP_APP_ONLY_ENABLED` i `TEAMS_PREP_TRANSCRIPTS_ENABLED` są włączone,
+a `/api/health` zwraca `checks.teams_prep = healthy`. Ten wynik potwierdza
+konfigurację; dowód nagrania i importu wymaga zakończonego spotkania z mową.
+
+## Stan tenanta 26.09.2026
+
+- Osobna aplikacja **NEXUS Teams Prep** została zarejestrowana.
+  Administrator zatwierdził aplikacyjne `OnlineMeetings.ReadWrite.All`,
+  `OnlineMeetingTranscript.Read.All`
+  i `User.ReadBasic.All`. Nie ma delegowanego `User.Read` ani nieograniczonego
+  `Calendars.ReadWrite` w Entra.
+- Exchange App RBAC przyznał `Application Calendars.ReadWrite` przez zakres
+  `NEXUS-TeamsPrep-Calendar-Scope` i grupę `NEXUS-Meetings-Scope`. Test dla
+  `ewa.kalata@b2bnetwork.pl` zwrócił `InScope=True`, a dla
+  `artur.twardowski@b2bnetwork.pl` `InScope=False`.
+- Teams `Microsoft Graph access` dla transkryptów jest włączony. Polityka
+  aplikacji `NEXUS-TeamsPrep-ApplicationAccess` i polityka spotkań
+  `NEXUS-TeamsPrep-AutoRecording` są przypisane 13 organizatorom z aktywną
+  skrzynką. Odczyt polityki potwierdził `AutoRecording=Enabled`,
+  `AllowCloudRecording=True`, `AllowTranscription=True` i
+  `ExplicitRecordingConsent=Enabled`. W porównaniu z ich poprzednią polityką
+  globalną zmieniła się tylko wymagana zgoda uczestnika.
+- Adres Wiktorii Deneki to `wiktoria.deneka@b2bnetwork.pl`. Wstępne
+  sprawdzenie błędnego adresu `wiktoria.denka@...` dało fałszywy brak skrzynki;
+  poprawny adres rozwiązuje się do `UserMailbox`.
+- Sekrety obu osobnych aplikacji zapisano w GitHub Actions i Coolify.
+  Wartości nie są zapisywane w repozytorium ani raportach. Wdrożenie
+  [36243866470](https://github.com/B2B-net-S-A/NEXUS/actions/runs/36243866470)
+  zakończyło się sukcesem; produkcja potwierdziła rewizję
+  `300a535963878af59dd62d3c9713fe6134827c7f`.
+- Test wysyłki systemowej
+  [36243955101](https://github.com/B2B-net-S-A/NEXUS/actions/runs/36243955101)
+  zwrócił Graph HTTP 202. Wiadomość od `nexus-powiadomienia@b2bnetwork.pl`
+  dotarła do Outlooka właściciela o 15:04 CEST. Rutynowe powiadomienia nadal
+  mają osobny przełącznik polityki; przywrócenie transportu nie włącza ich.
+- Kontrolowany test pełnego przepływu nadal musi potwierdzić powstanie
+  nagrania i import transkryptu. Sam odczyt polityk nie daje tego dowodu.
+
+### Test dostępu Graph bez danych kandydata
+
+Workflow `Coolify Ops` udostępnia działania wyłącznie z `main`:
+
+- `teams-prep-config-audit`: uzyskuje token aplikacji i potwierdza dostęp do
+  kalendarza Artura oraz HTTP 403 dla skrzynki systemowej poza zakresem.
+- `teams-prep-meeting-probe`: po tej samej kontroli tworzy jedno oznaczone
+  spotkanie bez uczestników, sprawdza zapis i odczyt `recordAutomatically`
+  oraz `allowTranscription`, a także odczyt listy transkryptów. Następnie
+  odwołuje wyłącznie utworzone spotkanie. Nie dołącza do Teams.
+
+Skrypt wypisuje statusy i identyfikator korelacji, bez sekretu, tokena,
+linku spotkania ani treści odpowiedzi Graph. `cleanup_required=true` wymaga
+sprawdzenia oznaczonego spotkania w kalendarzu organizatora; wynik nie jest wtedy
+zaliczany. Pusta lista transkryptów w tym teście potwierdza tylko dostęp API.
+Przy odmowie Graph pole `graph_error_code` zawiera wyłącznie kod ze stałej
+listy rozpoznawanych błędów (np. `ErrorAccessDenied`, `insufficient_claims`
+lub `MailboxNotEnabledForRESTAPI`); pozostałe odpowiedzi mają wartość
+`unclassified`. Komunikaty, identyfikatory żądań i treść odpowiedzi są pomijane.
+Kod błędu pomaga ustalić przyczynę; sam HTTP 403 nie dowodzi problemu propagacji.
 
 ## 1. Nowa rejestracja aplikacji w Entra ID
 
@@ -15,7 +71,7 @@ do zakresu tamtej aplikacji (ma `Mail.Read`) dałoby jej odczyt ich poczty.
 2. API permissions → Microsoft Graph → **Application permissions**:
    - `OnlineMeetings.ReadWrite.All` — identyfikator spotkania i włączenie
      automatycznej transkrypcji,
-   - `OnlineMeetingTranscript.Read.All` — pobranie transkryptu,
+   - `OnlineMeetingTranscript.Read.All` — pobranie transkryptu prepu i follow-upu,
    - `User.ReadBasic.All` — identyfikator obiektu organizatora
      (ścieżki `onlineMeetings` go wymagają).
 3. **Grant admin consent** tylko dla powyższych uprawnień. Dostęp do kalendarzy
@@ -27,7 +83,57 @@ do zakresu tamtej aplikacji (ma `Mail.Read`) dałoby jej odczyt ich poczty.
 ## 2. Grupa, do której aplikacja ma dostęp
 
 Mail-enabled security group **NEXUS-Meetings-Scope** (ukryta w GAL), członkowie:
-wszyscy Delivery Leadzi i rekruterzy prowadzący prepy.
+wszyscy Delivery Leadzi i rekruterzy prowadzący prepy lub follow-upy.
+
+### Nowa osoba prowadzi prepy (stan od 22.10.2026)
+
+Skład grupy NIE synchronizuje się z rolami w NEXUSIE. Osoba spoza grupy przy
+planowaniu prepu dostaje 409 z nazwiskiem prowadzącego („…nie jest w grupie
+NEXUS-Meetings”). 22.10.2026 dotyczyło to 10 osób; Codex dopisał je ręcznie.
+Automat odpadł: Graph nie zmienia grup mail-enabled, a zapis przez Exchange
+app-only z rolą ograniczoną do tej grupy zwrócił 403 (decyzja Artura 22.10).
+
+- **NEXUS mówi, kogo dopisać:** pętla `teams_prep_scope_alerts` (co 6 h,
+  `services/teams_prep_scope.py`) pyta Graph tokenem tej aplikacji o nagłówek
+  kalendarza każdego aktywnego DL-a, rekrutera i Head of Recruitment
+  (200 = w grupie, 403 = poza, 404 = brak skrzynki). Lista trafia do adminów
+  jako `teams_prep_scope_missing` (dzwonek „Konto i system” i mail od razu,
+  najwyżej raz dziennie). Wyłącznik: `TEAMS_PREP_SCOPE_ALERTS_ENABLED=false`.
+- **Admin dopisuje** (polityki Teams są od 22.10 przypisane do grupy, więc
+  wystarczy członkostwo):
+
+```powershell
+Connect-ExchangeOnline
+Add-DistributionGroupMember -Identity nexus-meetings-scope@b2bnetwork.pl -Member <adres>
+Test-ServicePrincipalAuthorization -Identity <APP_ID NEXUS Teams Prep> -Resource <adres>  # InScope = True
+```
+
+Kalendarz działa po kilkunastu minutach, Teams do ok. 30 min.
+
+### Transkrypty spotkań handlowców (decyzja Artura 02.11.2026)
+
+Handlowcy mają OSOBNĄ grupę, a nie `NEXUS-Meetings-Scope`. Członkostwo w tamtej
+włącza `NEXUS-TeamsPrep-AutoRecording` i zapis do kalendarza, czyli nagrywanie
+każdego spotkania z klientem. Handlowiec sam włącza transkrypcję w spotkaniu,
+NEXUS tylko ją odczytuje. Kalendarz czyta token handlowca z synchronizacji, więc
+ta grupa nie dostaje Exchange App RBAC.
+
+1. W Entra załóż grupę zabezpieczeń `NEXUS-Sales-Transcripts` i dodaj handlowców.
+2. Daj grupie samą politykę dostępu aplikacji (bez polityki spotkań):
+
+```powershell
+Connect-MicrosoftTeams
+Grant-CsApplicationAccessPolicy -PolicyName NEXUS-TeamsPrep-ApplicationAccess -Group <ID_GRUPY_HANDLOWCOW>
+```
+
+3. Po ok. 30 minutach workflow „Coolify set env”: `SALES_TEAMS_TRANSCRIPTS_ENABLED=true`,
+   potem Deploy w oknie wdrożeń.
+4. Dowód działania: handlowiec organizuje spotkanie w Teams z osobą z firmy
+   z kartoteki, włącza transkrypcję, a po ok. 10 minutach od końca spotkania
+   Sprzedaż → Spotkania pokazuje plakietkę „transkrypt”.
+
+Graph daje transkrypt tylko organizatorowi, więc spotkania założonego przez klienta
+nie pobierzemy. Bez kroku 2 wiersze kończą w stanie `forbidden` (`last_error=http_403`).
 
 ## 3. Zawężenie dostępu (PowerShell)
 
@@ -67,6 +173,9 @@ globalna ma już `Meeting recording` i `Transcription` włączone, ale
 `Require participant agreement for recording, transcription, and Copilot` jest
 wyłączone. Przed automatycznym nagrywaniem przypisz organizatorom politykę
 z wymaganą zgodą i sprawdź faktyczny ekran zgody u uczestnika testowego.
+Sprawdź też `AutoRecording=Enabled` dla tych organizatorów: Microsoft wymaga
+tej polityki, aby ustawienie „Record and transcribe automatically” było
+dostępne. Samo `allowTranscription=true` jedynie zezwala na transkrypcję.
 
 Osobno: Teams admin center → Meetings → Meeting settings → Transcript API
 access → Microsoft Graph access. Ten przełącznik jest domyślnie wyłączony i
@@ -77,7 +186,7 @@ kandydata w czasie rozmowy. Przed zmianą polityki globalnej sprawdź dostęp
 konkretnych aplikacji i zakres ich uprawnień w Entra.
 
 Uzgodnij informację i zgodę uczestników przed automatycznym nagrywaniem.
-Obecny akapit w zaproszeniu (`PREP_NOTICE_TEXT`) jest roboczy i wymaga
+Obecna adnotacja w zaproszeniu (`prep_invitation.NOTICE_TEXT`) jest robocza i wymaga
 akceptacji prawnej; samo zaproszenie nie zastępuje polityki zgody w Teams.
 
 ## 5. Zmienne w Coolify (workflow „Coolify set env”)
@@ -90,6 +199,13 @@ TEAMS_PREP_TRANSCRIPTS_ENABLED=true
 ```
 
 `M365_MAIL_TENANT_ID` jest już ustawiony (tenant dla client_credentials).
+
+Prepy i follow-upy domyślnie ustawiają język mowy na polski (`pl-PL`)
+przez `meetingSpokenLanguageTag` przed rozpoczęciem transkrypcji.
+Opcjonalne `TEAMS_PREP_SPOKEN_LANGUAGE` pozwala zmienić ten domyślny język
+(np. `en-US`). Organizator nadal może zmienić język podczas spotkania.
+Nie zmienia to ustawień zwykłych spotkań Outlook ani polityki zgody.
+Pole obsługuje [Graph v1.0 Update onlineMeeting](https://learn.microsoft.com/en-us/graph/api/onlinemeeting-update?view=graph-rest-1.0).
 
 ## 6. Sprawdzenie na jednym prawdziwym prepie
 
@@ -105,6 +221,62 @@ TEAMS_PREP_TRANSCRIPTS_ENABLED=true
    a w notatkach kandydata podsumowanie.
 6. Pomiar modeli: `python -m scripts.eval_prep_review --limit 20` w kontenerze
    backendu (po ok. 20 prepach).
+
+## 7. Follow-up w Teams
+
+W profilu kandydata, przy aktywnym follow-upie, przycisk „Zaplanuj follow-up
+w Teams” zakłada spotkanie w kalendarzu osoby zapisującej. Kandydat otrzymuje
+zaproszenie z informacją o nagrywaniu. NEXUS próbuje włączyć automatyczne
+nagranie i transkrypcję tymi samymi uprawnieniami co prep. Stan konfiguracji
+jest widoczny przy spotkaniu; gdy Graph odmówi, prowadzący musi włączyć
+nagrywanie ręcznie. Po zakończeniu kolejka pobiera transkrypt do NEXUS.
+Transkrypt jest widoczny w profilu kandydata również po zakończeniu rundy
+follow-upu. Identyfikator żądania chroni przed podwójnym zaproszeniem.
+Historyczne połączenia CloudTalk pozostają w historii, ale nowe follow-upy
+korzystają z Teams.
+
+Sprawdzenie: zaplanuj kontrolowane spotkanie z testowym kandydatem, otwórz
+link Teams, potwierdź informację i zgodę na nagrywanie, zakończ spotkanie,
+a następnie sprawdź `transcript_status=fetched` i tekst transkryptu w NEXUS.
+Sam fakt utworzenia zaproszenia nie potwierdza nagrywania ani pobrania
+transkryptu.
+
+## Odczyt kontrolnego prepu z 26.09.2026
+
+Akcja `teams-prep-session-audit` w Coolify Ops działa tylko z `main` i tylko
+odczytuje nazwany test właściciela w kalendarzu Klaudii Uliasz. Weryfikuje
+unikalność wydarzenia, kontrolnych uczestników, opcje nagrywania i rzeczywistą
+treść transkryptu. Dodatnia kontrola kalendarza dotyczy organizatora tego
+konkretnego testu (Klaudii), a ujemna nadal wykluczonej skrzynki systemowej.
+Kontrole `teams-prep-config-audit` i `teams-prep-meeting-probe` osobno wymagają
+działającego dostępu Artura. Propagacja nowego członkostwa Artura nie blokuje
+więc odczytu transkryptu istniejącego prepu i nie zostaje uznana za zakończoną
+przez udany odczyt Klaudii.
+Wynik zawiera kody HTTP i liczbę wypowiedzi; nie zawiera treści,
+identyfikatorów spotkań, linków ani sekretów. Pusta lista lub pusty VTT nie
+przechodzą testu. Akcja nie tworzy ani nie odwołuje spotkań i nie zmienia
+uprawnień. Nagranie wideo i import do NEXUS mają osobne dowody odbioru.
+
+## Uzupełnienie konfiguracji 27.09.2026
+
+Na prośbę właściciela konto `artur.twardowski@b2bnetwork.pl` dodano do grupy
+`NEXUS-Meetings-Scope` (14 członków) i przypisano mu istniejące polityki
+`NEXUS-TeamsPrep-ApplicationAccess` oraz `NEXUS-TeamsPrep-AutoRecording`.
+Exchange `Test-ServicePrincipalAuthorization` potwierdził kalendarz Artura
+w zakresie. Skrzynka `nexus-powiadomienia@b2bnetwork.pl` pozostaje poza
+zakresem kalendarzy i zastępuje Artura jako negatywna kontrola w probe.
+Zakres pozostałych aplikacji i ich uprawnienia nie zostały rozszerzone.
+
+Test mowy w kontrolnym prepie potwierdził w Teams automatyczny start oraz
+rzeczywisty tekst transkrypcji. Graph udostępnił jeden plik. Tenant ma
+`EnableGraphTranscriptAccess=true`, `EnableAttributedTranscripts=false`.
+Dlatego probe, tak jak produkcyjny klient NEXUS, po dokładnym błędzie
+`SpeakerAttributionNotAllowed` żąda treści z nagłówkiem
+`Accept: application/vnd.microsoft.graph.transcript+text`. Pozostałe odmowy
+403 pozostają błędami. Ten format nie zawiera nazw mówców; potwierdzenie
+tekstu nie jest dowodem podziału czasu mowy ani importu do NEXUS.
+
+Źródło: [Microsoft Graph — formaty callTranscript](https://learn.microsoft.com/en-us/graph/api/calltranscript-get?view=graph-rest-1.0).
 
 ## Czego NEXUS nie kasuje
 

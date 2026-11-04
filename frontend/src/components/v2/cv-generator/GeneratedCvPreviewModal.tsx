@@ -9,22 +9,46 @@ import api, { cvGeneratedEditorApi, type GeneratedCvItem } from "@/lib/api";
 import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
 import { renderDocxSafely } from "@/lib/docx-preview-safe";
 
+import { generatedCvFileUrl } from "./cv-generated-files";
+
 export interface GeneratedCvPreviewModalProps {
   item: GeneratedCvItem | null;
   onClose: () => void;
   onDownload: (item: GeneratedCvItem) => void;
+  /**
+   * Plik do podglądu zamiast pliku generatora — profil podaje CV etapu, gdy
+   * dokument jest podpięty w rekrutacji (D4, 14.10.2026), żeby podgląd
+   * pokazywał to samo co „Pobierz”. Zgodę RODO sprawdza wtedy serwer.
+   */
+  loadDocx?: (item: GeneratedCvItem) => Promise<Blob>;
+}
+
+/** Osoba, rola z CV, rekrutacja albo klient i język — bez powtórzeń. */
+function previewSubtitle(item: GeneratedCvItem): string {
+  const parts = [
+    item.candidate_name,
+    item.position,
+    item.job_title ?? item.client_name,
+    item.language.toUpperCase(),
+  ].filter((part): part is string => !!part);
+  return Array.from(new Set(parts)).join(" · ");
 }
 
 /**
  * Podgląd wygenerowanego CV w aplikacji. Zwykle renderuje DOCX (docx-preview,
- * leniwie). Gdy brakuje wymaganej zgody RODO, DOCX się nie pobierze (409) —
+ * leniwie) — ten sam plik, który daje „Pobierz” (zatwierdzona wersja, gdy
+ * jest). Gdy brakuje wymaganej zgody RODO, DOCX się nie pobierze (409) —
  * wtedy pokazujemy treść z edytora, w piaskownicy iframe, bez skryptów.
  */
-export function GeneratedCvPreviewModal({ item, onClose, onDownload }: GeneratedCvPreviewModalProps) {
+export function GeneratedCvPreviewModal({ item, onClose, onDownload, loadDocx }: GeneratedCvPreviewModalProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [html, setHtml] = useState<string | null>(null);
-  const viaEditor = !!item?.consent_missing;
+  const viaEditor = !loadDocx && !!item?.consent_missing;
+  // Wołający podaje funkcję inline — z ref efekt nie renderuje podglądu od nowa
+  // przy każdym przerysowaniu rodzica.
+  const loadDocxRef = useRef(loadDocx);
+  loadDocxRef.current = loadDocx;
 
   useEffect(() => {
     if (!item) return;
@@ -40,11 +64,15 @@ export function GeneratedCvPreviewModal({ item, onClose, onDownload }: Generated
           setStatus("ready");
           return;
         }
-        const res = await api.get(`/api/cv-generator/generated/${item.id}/docx`, { responseType: "blob" });
+        // Bez `intent=download` — podgląd to nie pobranie (`cv_file_downloaded`).
+        const load = loadDocxRef.current;
+        const blob = load
+          ? await load(item)
+          : ((await api.get(generatedCvFileUrl(item, "docx"), { responseType: "blob" })).data as Blob);
         const host = hostRef.current;
         if (cancelled || !host) return;
         host.innerHTML = "";
-        await renderDocxSafely(res.data as Blob, host, {
+        await renderDocxSafely(blob, host, {
           className: "docx",
           inWrapper: true,
           breakPages: true,
@@ -67,11 +95,16 @@ export function GeneratedCvPreviewModal({ item, onClose, onDownload }: Generated
     <Dialog open={!!item} onOpenChange={(open) => !open && onClose()}>
       <DialogContent size="full" className="h-[92dvh] gap-0 p-0">
         <DialogHeader className="flex-row items-center justify-between gap-3 border-b border-border px-4 py-3 pr-16">
-          <DialogTitle className="min-w-0 truncate text-base font-semibold">
-            {item?.candidate_name}
-            {item?.position ? ` — ${item.position}` : ""}
-            {item ? ` · ${item.language.toUpperCase()}` : ""}
-          </DialogTitle>
+          {/* Tytuł = nazwa pliku jak w wierszu listy (15.10.2026): dwa CV tej
+              samej osoby dla jednego klienta miały ten sam tytuł „Imię · EN”. */}
+          <div className="min-w-0">
+            <DialogTitle className="truncate text-base font-semibold">
+              {item?.filename ?? "Podgląd CV"}
+            </DialogTitle>
+            {item ? (
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">{previewSubtitle(item)}</p>
+            ) : null}
+          </div>
           {item && !item.consent_missing ? (
             <Button size="sm" variant="outline" onClick={() => onDownload(item)}>
               <Download aria-hidden className="mr-2 h-4 w-4" />

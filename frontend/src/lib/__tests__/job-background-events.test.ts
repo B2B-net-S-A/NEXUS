@@ -29,6 +29,18 @@ describe("job-background-events", () => {
     expect(backgroundEventMessage(ev({ kind: "new_cv_proposals", count: 5, trigger: "job_publish" }))).toBe(
       "Po publikacji rekrutacji: 5 propozycji.",
     );
+    expect(backgroundEventMessage(ev({ kind: "autofill_withdrawn", count: 3 }))).toBe(
+      "System wycofał z „Nowych” 3 swoje osoby — stawka ponad budżetem.",
+    );
+    expect(backgroundEventMessage(ev({ kind: "autofill_withdrawn", count: 1, why: "not_looking" }))).toBe(
+      "System wycofał z „Nowych” 1 swoją osobę — „Nie szuka pracy” z innej rekrutacji.",
+    );
+    expect(backgroundEventMessage(ev({ kind: "autofill_withdrawn", count: 2, why: "client" }))).toBe(
+      "System wycofał z „Nowych” 2 swoje osoby — odrzucenie na cały klient w innej rekrutacji.",
+    );
+    expect(backgroundEventMessage(ev({ kind: "autofill_withdrawn", count: 4, why: "far" }))).toBe(
+      "System wycofał z „Nowych” 4 swoje osoby — mieszkają dalej niż 100 km od biura.",
+    );
   });
 
   it("auto-CV: stan dokumentu czytany na żywo; zredagowane nazwisko to „Kandydat #id”", () => {

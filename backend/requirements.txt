@@ -32,6 +32,10 @@ httpx==0.28.1
 # Migracja na query_points — osobny PR, razem z sondą `checks.qdrant`
 # w /api/health.
 qdrant-client==1.12.1
+# Adapter wektora zapytania (`services/query_adapter.py`). Wersja = ta, którą
+# qdrant-client i tak instaluje w obrazie (2.5.3 na produkcji 07.10.2026);
+# jawny pin, bo kod aplikacji importuje numpy wprost.
+numpy==2.5.3
 # Dependabot #1169 (zmergowany 21.08) podniósł tu DOLNĄ granicę zakresu do
 # >=0.122.0. Pin 0.125.0 mieści się w niej i jest ściśle mocniejszy, więc
 # zastępuje zakres zamiast się z nim ścierać.
@@ -87,12 +91,17 @@ sentry-sdk[fastapi]==2.69.1
 msal==1.38.0
 cryptography==50.0.1
 bleach==6.4.0
+# CSSSanitizer bleacha — style w stopce maila z Outlooka (m365/html_sanitize.py).
+tinycss2==1.5.1
 # Proxycurl LinkedIn tracking — fuzzy company-name matching for diff detection.
 rapidfuzz==3.14.5
 # Autenti e-signature integration — server-side HTML→PDF for contract drafts
 # before upload. python-jose already pinned above (used by JWT auth + webhook
 # JWKS verification).
 weasyprint==70.0
+# Kod QR na plakacie linku rekrutacji (services/career_poster.py). Czysty
+# Python, bez zależności; SVG jako data: URI, więc renderer PDF nic nie pobiera.
+segno==1.6.6
 # In-house QES rail — PAdES validation (Option B upload-and-validate, zero KIR).
 # 0.36.2 requires cryptography>=47 (no upper bound — zgodny z pinem 50.x wyżej).
 # [etsi] adds EU Trusted List parsing (xsdata, signxml, lxml). Authoritative

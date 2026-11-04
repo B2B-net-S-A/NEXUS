@@ -230,6 +230,9 @@ async def test_source_without_stage_reads_only_notes_outside_recruitments(
         world["client_id"],
     )
     assert source.job_title == "Architekt"
+    # Runda 10 (F21): stanowisko wpisane przez rekrutera idzie dosłownie do
+    # nagłówka i nazwy pliku.
+    assert source.position_override == "Architekt"
     assert "Kotlin" in source.screening_notes_text
     assert "TAJNE" not in source.screening_notes_text
     # Champion rekrutacji NIE wchodzi do generacji bez procesu.
@@ -276,6 +279,73 @@ async def test_preview_champion_has_priority_on_a_stage_too(monkeypatch):
         )
     assert source.job_id == world["job_id"]
     assert "Rust" in source.champion_json and "COBOL" not in source.champion_json
+
+
+async def test_position_equal_to_job_title_still_gets_a_clean_header(monkeypatch):
+    # Pole „Stanowisko” jest podpowiadane tytułem rekrutacji — ten sam tekst
+    # nie jest decyzją rekrutera, więc nagłówek bierze rolę bez kodów (D2).
+    world = await _world()
+    title = "PRJ 4412 - Data Platform Developer (51234)"
+    async with AsyncSessionLocal() as db:
+        document = CandidateDocument(
+            candidate_id=world["candidate_id"],
+            filename="header.docx",
+            storage_key=f"cv/test/header-{world['candidate_id']}.docx",
+            is_primary=True,
+        )
+        db.add(document)
+        (await db.get(Job, world["job_id"])).title = title
+        await db.commit()
+        document_id = document.id
+    monkeypatch.setattr(object_storage, "download_cv", lambda key: _docx())
+    async with AsyncSessionLocal() as db:
+        source = await load_candidate_generation_source(
+            db,
+            candidate_id=world["candidate_id"],
+            stage_id=world["stage_id"],
+            cv_document_id=document_id,
+            position=title,
+        )
+    assert source.position_override == ""
+    assert source.job_title == "Data Platform Developer"
+
+
+@pytest.mark.parametrize(
+    "typed, override, header",
+    [
+        # Pole podpowiada rolę z rekrutacji: ten sam tekst to nie decyzja rekrutera.
+        ("Data Platform Developer", "", "Data Platform Developer"),
+        # Wpisany numer schodzi, bo plik ma go już ze wzoru klienta.
+        ("ZOB-3103 Senior Developer", "Senior Developer", "Senior Developer"),
+        ("ZOB-3103", "", "Data Platform Developer"),
+    ],
+)
+async def test_typed_position_is_a_decision_without_client_number(
+    monkeypatch, typed, override, header
+):
+    world = await _world()
+    async with AsyncSessionLocal() as db:
+        document = CandidateDocument(
+            candidate_id=world["candidate_id"],
+            filename="typed.docx",
+            storage_key=f"cv/test/typed-{world['candidate_id']}.docx",
+            is_primary=True,
+        )
+        db.add(document)
+        (await db.get(Job, world["job_id"])).title = "Data Platform Developer (51234)"
+        await db.commit()
+        document_id = document.id
+    monkeypatch.setattr(object_storage, "download_cv", lambda key: _docx())
+    async with AsyncSessionLocal() as db:
+        source = await load_candidate_generation_source(
+            db,
+            candidate_id=world["candidate_id"],
+            stage_id=world["stage_id"],
+            cv_document_id=document_id,
+            position=typed,
+        )
+    assert source.position_override == override
+    assert source.job_title == header
 
 
 async def test_stage_row_attach_and_stage_less_rows_share_the_list(

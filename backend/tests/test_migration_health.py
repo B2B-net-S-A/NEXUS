@@ -81,7 +81,36 @@ def test_startup_failure_message_redacts_credentials_and_is_silent_on_success() 
     )
     assert msg is not None and "exit 2" in msg
     assert "s3cr3t" not in msg
-    assert "nexus:***@postgres" in msg
+    assert "postgres/nexus" not in msg
+
+
+def test_startup_failure_message_drops_postgres_detail_and_parameters() -> None:
+    """Runda 10 (R10-N12-3): DETAIL/HINT/[parameters:] niosą dane osobowe."""
+    tail = (
+        "INFO  [alembic.runtime.migration] Running upgrade 0389 -> 0390_x, cleanup\n"
+        "sqlalchemy.exc.IntegrityError: (sqlalchemy.dialects.postgresql.asyncpg."
+        "IntegrityError) <class 'asyncpg.exceptions.CheckViolationError'>: new row "
+        'for relation "candidates" violates check constraint "ck_x"\n'
+        "DETAIL:  Failing row contains (5, Jan, jan.kowalski@example.pl).\n"
+        "HINT:  sprawdz 600-100-200\n"
+        "[SQL: UPDATE candidates SET email=$1]\n"
+        "[parameters: ('jan.kowalski@example.pl',)]\n"
+    )
+    msg = mh.startup_failure_message({"ok": False, "exit_code": 1, "tail": tail})
+    assert msg is not None
+    assert "0390_x" in msg
+    assert "IntegrityError" in msg and "CheckViolationError" in msg
+    for leaked in ("jan.kowalski", "Jan", "600-100-200", "Failing row", "UPDATE"):
+        assert leaked not in msg
+
+
+def test_startup_failure_summary_is_linear_on_hostile_tail() -> None:
+    import time
+
+    tail = "a" * 16_000 + "\n" + "Error." * 2_000
+    started = time.perf_counter()
+    mh.startup_failure_message({"ok": False, "exit_code": 1, "tail": tail})
+    assert time.perf_counter() - started < 0.05
 
 
 def test_read_startup_status_tolerates_missing_or_garbage(tmp_path: Path) -> None:

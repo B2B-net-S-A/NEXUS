@@ -20,6 +20,7 @@ from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.client import Client
+from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 
 # ── Seedy ───────────────────────────────────────────────────────────────────
@@ -73,22 +74,34 @@ async def _seed_conflict(
         return row.id
 
 
-async def _headers_for(app_client: AsyncClient, role: UserRole) -> dict[str, str]:
+async def _headers_for(
+    app_client: AsyncClient,
+    role: UserRole,
+    *,
+    assigned_client_id: int | None = None,
+) -> dict[str, str]:
     suffix = _hex()
     email = f"conflicts-{role.value}-{suffix}@example.com"
     password = f"T3st_{suffix}!PassX"
     async with AsyncSessionLocal() as db:
-        db.add(
-            User(
-                email=email,
-                password_hash=hash_password(password),
-                name=f"Konflikty {role.value}",
-                role=role,
-                roles=[role.value],
-                is_active=True,
-                profile_completed=True,
-            )
+        user = User(
+            email=email,
+            password_hash=hash_password(password),
+            name=f"Konflikty {role.value}",
+            role=role,
+            roles=[role.value],
+            is_active=True,
+            profile_completed=True,
         )
+        db.add(user)
+        await db.flush()
+        if assigned_client_id is not None:
+            db.add(
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=user.id,
+                    client_id=assigned_client_id,
+                )
+            )
         await db.commit()
     resp = await app_client.post(
         "/api/auth/login", json={"email": email, "password": password}
@@ -545,10 +558,12 @@ async def test_registry_search_folds_polish_characters(
 
 
 async def test_delivery_lead_reads_conflicts_within_scope(app_client: AsyncClient):
-    headers = await _headers_for(app_client, UserRole.delivery_lead)
     candidate_id = await _seed_candidate()
     client_id = await _seed_client()
     conflict_id = await _seed_conflict(candidate_id, client_id)
+    headers = await _headers_for(
+        app_client, UserRole.delivery_lead, assigned_client_id=client_id
+    )
 
     # Do 17.09.2026 za bramką Finance: DL (finance=none) dostawał 403.
     listed = await app_client.get(
@@ -564,6 +579,13 @@ async def test_delivery_lead_reads_conflicts_within_scope(app_client: AsyncClien
         "/api/conflicts", params={"client_id": 2_000_000_000}, headers=headers
     )
     assert outside.status_code == 403
+
+    # Od 25.09.2026 rejestr klienta bez przypisania DL = 403 (zakres Delivery).
+    stranger = await _headers_for(app_client, UserRole.delivery_lead)
+    denied = await app_client.get(
+        "/api/conflicts", params={"client_id": client_id}, headers=stranger
+    )
+    assert denied.status_code == 403, denied.text
 
 
 async def test_viewer_role_is_forbidden(app_client: AsyncClient):

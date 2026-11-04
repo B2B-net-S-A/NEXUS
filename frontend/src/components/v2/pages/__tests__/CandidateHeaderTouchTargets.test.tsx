@@ -1,18 +1,7 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { CandidateNav } from "@/components/v2/CandidateNav";
-import { PinButton } from "@/components/v2/PinButton";
-
-const pins = vi.hoisted(() => ({
-  getState: vi.fn().mockResolvedValue({ data: { pinned: false } }),
-  toggle: vi.fn().mockResolvedValue({ data: { pinned: true } }),
-}));
-
-vi.mock("@/lib/api", () => ({
-  candidatePinsApi: pins,
-}));
 
 function expectTouchTarget(element: HTMLElement) {
   expect(element.classList.contains("min-h-11")).toBe(true);
@@ -45,20 +34,5 @@ describe("candidate profile header touch targets", () => {
     ]) {
       expectTouchTarget(screen.getByRole("button", { name }));
     }
-  });
-
-  it("keeps the icon-only pin action accessible and at least 44 by 44 pixels", async () => {
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <PinButton candidateId={7} iconOnly />
-      </QueryClientProvider>,
-    );
-
-    expectTouchTarget(
-      await screen.findByRole("button", { name: "Przypnij kandydata" }),
-    );
   });
 });

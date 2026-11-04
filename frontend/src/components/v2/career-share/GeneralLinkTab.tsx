@@ -24,6 +24,7 @@ import { useAuthStore } from "@/store/auth";
 
 import { InviteLinkHistory } from "./InviteLinkHistory";
 import { LinkedInPreviewCard } from "./LinkedInPreviewCard";
+import { RecruiterAbout } from "./RecruiterAbout";
 import {
   PROFILE_STATUS_LABEL,
   PROFILE_STATUS_VARIANT,
@@ -222,7 +223,7 @@ export function GeneralLinkTab({ enabled }: { enabled: boolean }) {
                   maxLength={40}
                   spellCheck={false}
                   autoComplete="off"
-                  className="min-w-0 flex-1 bg-transparent px-3 font-mono text-sm text-foreground outline-hidden"
+                  className="w-0 min-w-0 flex-1 bg-transparent px-3 font-mono text-sm text-foreground outline-hidden"
                   aria-describedby="career-slug-status"
                 />
               </div>
@@ -303,12 +304,15 @@ export function GeneralLinkTab({ enabled }: { enabled: boolean }) {
               ) : null}
             </section>
 
+            {link ? <RecruiterAbout slug={link.slug} about={link.about ?? null} /> : null}
+
             <section className="space-y-2" aria-labelledby="general-stats-heading">
               <h3 id="general-stats-heading" className="text-sm font-semibold text-foreground">
                 Ostatnie {data?.stats?.days ?? 30} dni
               </h3>
               <div className="grid grid-cols-3 gap-2">
-                <Stat label="Wejścia" value={link?.visit_count} />
+                {/* Licznik wejść jest od początku istnienia linku — dat wejść nie zapisujemy. */}
+                <Stat label="Wejścia od początku" value={link?.visit_count} />
                 <Stat label="Zgłoszenia" value={data?.stats?.applications} />
                 <Stat label="Nowi w bazie" value={data?.stats?.new_candidates} />
               </div>
@@ -345,10 +349,13 @@ export function GeneralLinkTab({ enabled }: { enabled: boolean }) {
             <div className="space-y-1.5">
               <span className="text-sm font-medium text-foreground">Podgląd posta na LinkedInie</span>
               <LinkedInPreviewCard
-                command={`whoami — ${firstName.toLowerCase()}@dynaminds`}
+                person={{
+                  initial: firstName.charAt(0).toLocaleUpperCase("pl-PL"),
+                  name: `${firstName} · rekrutacje IT w B2B Network`,
+                }}
                 headline="Szukasz kolejnego projektu IT?"
-                tagline="[zostaw CV · odezwę się z konkretem]"
-                cardTitle={`${firstName} — rekrutacja IT · Dynaminds`}
+                foot="Zostaw CV — odezwę się →"
+                cardTitle={`${firstName} — rekrutacje IT`}
                 host={host}
               />
             </div>

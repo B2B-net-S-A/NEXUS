@@ -10,30 +10,44 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { AxiosError } from "axios";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 interface TestUser {
   role: string;
   roles?: string[];
+  effective_action_access?: Record<string, string>;
 }
 
-const authState: { user: TestUser | null } = { user: null };
+interface AuthState {
+  user: TestUser | null;
+  realUser: TestUser | null;
+}
 
-const mocks = vi.hoisted(() => ({ list: vi.fn() }));
+const authState: AuthState = { user: null, realUser: null };
+
+const mocks = vi.hoisted(() => ({
+  list: vi.fn(),
+  create: vi.fn(),
+  showToast: vi.fn(),
+  // Podgląd kwot klienta liczy `store/auth` (zakres Delivery Leada itd.) —
+  // tutaj sterujemy samym wynikiem.
+  canViewClientFinance: vi.fn(),
+}));
 
 vi.mock("@/store/auth", async () => {
   const actual =
     await vi.importActual<typeof import("@/store/auth")>("@/store/auth");
   return {
     ...actual,
-    useAuthStore: (selector: (s: { user: TestUser | null }) => unknown) =>
-      selector(authState),
+    useAuthStore: (selector: (s: AuthState) => unknown) => selector(authState),
+    canViewClientFinance: (...a: unknown[]) => mocks.canViewClientFinance(...a),
   };
 });
 
 vi.mock("@/components/Toast", () => ({
-  useToast: () => ({ showToast: vi.fn() }),
+  useToast: () => ({ showToast: mocks.showToast }),
 }));
 
 vi.mock("@/lib/authenticated-files", () => ({
@@ -44,12 +58,14 @@ vi.mock("@/lib/api/dlPortal", () => ({
   dlPortalApi: {
     listFrameworkContracts: (...a: unknown[]) => mocks.list(...a),
     deleteFrameworkContract: vi.fn(),
+    createFrameworkContract: (...a: unknown[]) => mocks.create(...a),
     listAmendments: vi.fn(),
     deleteAmendment: vi.fn(),
   },
 }));
 
 import { FrameworkContractsTab } from "@/components/FrameworkContractsTab";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 const FALSE_CLAIM = /Brak umów ramowych\. Dodaj pierwszą MSA/;
 const NEW_BUTTON = /Nowa umowa/;
@@ -71,7 +87,12 @@ function renderTab() {
 
 beforeEach(() => {
   mocks.list.mockReset();
+  mocks.create.mockReset();
+  mocks.showToast.mockReset();
+  mocks.canViewClientFinance.mockReset();
+  mocks.canViewClientFinance.mockReturnValue(true);
   authState.user = { role: "admin" };
+  authState.realUser = null;
 });
 
 describe("FrameworkContractsTab", () => {
@@ -98,7 +119,7 @@ describe("FrameworkContractsTab", () => {
   });
 
   it("rola bez prawa zapisu widzi listę, ale nie dostaje zachęty do dodania MSA", async () => {
-    authState.user = { role: "tac" };
+    authState.user = { role: "recruiter" };
     mocks.list.mockResolvedValue({ data: { items: [] } });
 
     renderTab();
@@ -116,5 +137,173 @@ describe("FrameworkContractsTab", () => {
 
     expect(await screen.findByText(FALSE_CLAIM)).toBeInTheDocument();
     expect(screen.getByText(NEW_BUTTON)).toBeInTheDocument();
+  });
+});
+
+describe("FrameworkContractsTab — zapis: edycja kontraktów + kwoty tego klienta", () => {
+  async function renderEmptyList() {
+    mocks.list.mockResolvedValue({ data: { items: [] } });
+    renderTab();
+    await screen.findByText(/Brak umów ramowych/);
+  }
+
+  it.each(["delivery_lead", "finance"])(
+    "%s ma edycję kontraktów domyślnie i dodaje umowę ramową",
+    async (role) => {
+      authState.user = { role };
+      await renderEmptyList();
+
+      expect(screen.getByText(NEW_BUTTON)).toBeInTheDocument();
+      // Kwoty liczą się per klient — pytanie dotyczy klienta tej zakładki.
+      expect(mocks.canViewClientFinance).toHaveBeenCalledWith(authState.user, 3);
+    },
+  );
+
+  it("rekruter z nadaną edycją kontraktów i podglądem kwot dodaje umowę ramową", async () => {
+    authState.user = {
+      role: "recruiter",
+      effective_action_access: permissionSnapshot(
+        "contracts_orders_edit",
+        "amounts_view",
+      ),
+    };
+    await renderEmptyList();
+
+    expect(screen.getByText(NEW_BUTTON)).toBeInTheDocument();
+  });
+
+  it("Delivery Lead z wyłączoną edycją kontraktów nie dostaje „Nowa umowa”", async () => {
+    authState.user = {
+      role: "delivery_lead",
+      effective_action_access: permissionSnapshot("clients_edit", "amounts_view"),
+    };
+    await renderEmptyList();
+
+    expect(screen.queryByText(NEW_BUTTON)).not.toBeInTheDocument();
+    expect(screen.getByText("Brak umów ramowych dla tego klienta.")).toBeInTheDocument();
+  });
+
+  it("edycja kontraktów bez podglądu kwot tego klienta nie wystarcza", async () => {
+    // Np. Delivery Lead u klienta spoza przypisania albo osoba z samą edycją
+    // kontraktów — umowa ramowa niesie stawki.
+    mocks.canViewClientFinance.mockReturnValue(false);
+    authState.user = { role: "delivery_lead" };
+    await renderEmptyList();
+
+    expect(screen.queryByText(NEW_BUTTON)).not.toBeInTheDocument();
+  });
+
+  it("w podglądzie jako inny użytkownik zakładka jest tylko do odczytu", async () => {
+    authState.user = { role: "delivery_lead" };
+    authState.realUser = { role: "admin" };
+    await renderEmptyList();
+
+    expect(screen.queryByText(NEW_BUTTON)).not.toBeInTheDocument();
+  });
+});
+
+describe("Nowa umowa ramowa — odwrócone daty (runda 10, F12)", () => {
+  async function openDialog() {
+    mocks.list.mockResolvedValue({ data: { items: [] } });
+    const view = renderTab();
+    fireEvent.click(await screen.findByText(NEW_BUTTON));
+    fireEvent.change(screen.getByPlaceholderText("np. MSA 2026"), {
+      target: { value: "MSA test" },
+    });
+    return view;
+  }
+
+  function dateInputs(container: HTMLElement) {
+    return container.querySelectorAll<HTMLInputElement>('input[type="date"]');
+  }
+
+  it("koniec przed początkiem: komunikat przy polu „Wygasa”, bez żądania", async () => {
+    const { container } = await openDialog();
+    const [from, to] = Array.from(dateInputs(container));
+    fireEvent.change(from, { target: { value: "2026-10-01" } });
+    fireEvent.change(to, { target: { value: "2026-09-30" } });
+    fireEvent.click(screen.getByRole("button", { name: /Zapisz/ }));
+
+    expect(
+      await screen.findByText(/nie może być wcześniejsza niż „Obowiązuje od”/),
+    ).toBeInTheDocument();
+    expect(to).toHaveAttribute("aria-invalid", "true");
+    expect(document.activeElement).toBe(to);
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(to).toHaveValue("2026-09-30");
+  });
+
+  it("odmowa serwera pokazuje jego polski komunikat, nie kod HTTP", async () => {
+    mocks.create.mockRejectedValue(
+      Object.assign(new Error("Request failed with status code 422"), {
+        response: { status: 422, data: { detail: "Waluta to trzyliterowy kod, np. PLN albo EUR." } },
+      }),
+    );
+    await openDialog();
+    fireEvent.click(screen.getByRole("button", { name: /Zapisz/ }));
+    await waitFor(() =>
+      expect(mocks.showToast).toHaveBeenCalledWith(
+        "Waluta to trzyliterowy kod, np. PLN albo EUR.",
+        "error",
+      ),
+    );
+    expect(mocks.showToast).not.toHaveBeenCalledWith(
+      expect.stringMatching(/status code/),
+      "error",
+    );
+  });
+});
+
+describe("Nowa umowa ramowa — plik nie dotarł do serwera (23.10.2026)", () => {
+  // Skan podpisanej umowy wysyłał się dłużej niż 30 s domyślnego limitu
+  // instancji `api`; przeglądarka zrywała wysyłkę, serwer nie widział żądania,
+  // a okno mówiło tylko „Nie udało się zapisać umowy ramowej.”.
+  async function submitWith(error: AxiosError) {
+    mocks.create.mockRejectedValue(error);
+    mocks.list.mockResolvedValue({ data: { items: [] } });
+    renderTab();
+    fireEvent.click(await screen.findByText(NEW_BUTTON));
+    fireEvent.change(screen.getByPlaceholderText("np. MSA 2026"), {
+      target: { value: "MSA test" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Zapisz/ }));
+    await waitFor(() => expect(mocks.showToast).toHaveBeenCalled());
+    return mocks.showToast.mock.calls[0];
+  }
+
+  it("limit czasu przeglądarki mówi, że plik się nie wysłał, i co zrobić", async () => {
+    const [message, tone] = await submitWith(
+      new AxiosError("timeout of 120000ms exceeded", "ECONNABORTED"),
+    );
+    expect(tone).toBe("error");
+    expect(message).toMatch(/nie została zapisana/);
+    expect(message).toMatch(/mniejsz/);
+  });
+
+  it("zerwane połączenie albo nieczytelny plik nie udaje ogólnej awarii", async () => {
+    const [message] = await submitWith(
+      new AxiosError("Network Error", "ERR_NETWORK"),
+    );
+    expect(message).not.toBe("Nie udało się zapisać umowy ramowej.");
+    expect(message).toMatch(/nie dotarł do serwera/);
+  });
+});
+
+describe("dlPortalApi — wysyłka umowy ramowej i aneksu z plikiem", () => {
+  it("nie jest ucinana po 30 s domyślnego limitu instancji", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/api/dlPortal")>(
+      "@/lib/api/dlPortal",
+    );
+    const { api } = await import("@/lib/api");
+    const post = vi.spyOn(api, "post").mockResolvedValue({ data: {} });
+
+    await actual.dlPortalApi.createFrameworkContract(3, new FormData());
+    await actual.dlPortalApi.createAmendment(3, 7, new FormData());
+
+    for (const call of post.mock.calls) {
+      expect(call[2]?.timeout).toBeGreaterThan(30_000);
+    }
+    expect(post).toHaveBeenCalledTimes(2);
+    post.mockRestore();
   });
 });

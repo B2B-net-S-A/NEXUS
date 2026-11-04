@@ -21,7 +21,7 @@ describe("JobShareTab z danymi w cache przed pierwszym renderem", () => {
     qc.setQueryData(jobPublicProfileQueryKey(101), {
       job_id: 101, status: "draft", subtitle: "podtytuł", about: "O projekcie tekst",
       sections: { must: true, nice: true, params: true, process: true },
-      show_on_recruiter_page: true, approved_at: null, approved_by_name: null, findings: [], preview: null,
+      show_on_recruiter_page: true, approved_at: null, approved_by_name: null, approved_content_stale: false, findings: [], preview: null,
     });
     render(
       <StrictMode>

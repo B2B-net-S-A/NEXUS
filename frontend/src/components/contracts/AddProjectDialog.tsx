@@ -63,6 +63,7 @@ import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { B2B_END_DATE_HOW, b2bEndDateLocked } from "@/lib/contract-end-date";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
 import { warsawToday } from "@/lib/warsaw-date";
+import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
 
 type ClientOption = { id: number; name: string };
 type JobOption = { id: number; title: string };
@@ -159,7 +160,9 @@ export function AddProjectDialog({
     queryFn: async () =>
       (
         await api.get<ClientOption[]>("/api/clients-lookup", {
-          params: { contract_eligible: true },
+          // `delivery_scope`: Delivery Lead widzi tylko swój portfel — zapis
+          // kontraktu u klienta spoza niego i tak odmawia 403 (runda 6 audytu).
+          params: { contract_eligible: true, delivery_scope: true },
         })
       ).data,
     enabled: open,
@@ -237,6 +240,7 @@ export function AddProjectDialog({
       // Odśwież wszystkie powierzchnie, które właśnie stały się wieloklientowe.
       queryClient.invalidateQueries({ queryKey: ["contract", baseContract.id] });
       queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
+      queryClient.invalidateQueries({ queryKey: ["client-register"] });
       queryClient.invalidateQueries({ queryKey: ["contracts-expiring-v2"] });
       queryClient.invalidateQueries({ queryKey: ["contractors-v2"] });
       queryClient.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
@@ -401,13 +405,15 @@ export function AddProjectDialog({
                   onValueChange={setClientQuery}
                 />
                 <CommandList>
-                  {clientsQuery.isLoading ? (
-                    <div className="p-3 text-sm text-muted-foreground">
-                      Ładowanie…
-                    </div>
-                  ) : (
-                    <CommandEmpty>Brak wyników.</CommandEmpty>
-                  )}
+                  {/* Awaria listy klientów ≠ „brak klientów”: pusty stan tylko przy sukcesie. */}
+                  <PickerQueryState
+                    isPending={clientsQuery.isLoading}
+                    isError={clientsQuery.isError}
+                    onRetry={() => void clientsQuery.refetch()}
+                    loadingLabel="Ładowanie klientów…"
+                    errorLabel="Nie udało się pobrać listy klientów."
+                  />
+                  {clientsQuery.isSuccess && <CommandEmpty>Brak wyników.</CommandEmpty>}
                   <CommandGroup>
                     {filteredClients.map((c) => (
                       <CommandItem

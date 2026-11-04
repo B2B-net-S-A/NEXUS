@@ -69,6 +69,9 @@ def _make_job_dict() -> dict:
         "requirements": "must-haves",
         "primary_owner": {"id": 9, "email": "rec@example.com", "name": "Rec"},
         "collaborators": [{"id": 10, "email": "c@example.com", "name": "Col"}],
+        "recruiters": [
+            {"user_id": 9, "name": "Rec", "role": "recruiter", "via": "owner"}
+        ],
     }
 
 
@@ -95,6 +98,9 @@ def test_viewer_loses_sensitive_fields_but_keeps_shape() -> None:
     assert redacted["custom_fields"] is None
     assert redacted["primary_owner"] is None
     assert redacted["collaborators"] == []
+    # Rola „Rekruter” (02.10.2026) to ta sama obsada co wyżej — imiona
+    # i nazwiska zespołu nie wychodzą do konta podglądu.
+    assert redacted["recruiters"] == []
 
     # The viewer still gets what makes the board legible.
     assert redacted["title"] == "Senior Engineer"

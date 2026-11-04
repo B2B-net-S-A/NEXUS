@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { ArrowUpRight, Video } from "lucide-react";
 
+import { PrepEditButtons } from "@/components/calendar/cycle/PrepEditButtons";
+import { PrepResponseChip } from "@/components/calendar/cycle/PrepResponseChip";
 import {
   Sheet,
   SheetBody,
@@ -21,6 +23,7 @@ import {
   candidateLabel,
   countdownLabel,
   debriefAvailable,
+  debriefSummaryLine,
   debriefAvailableFromLabel,
   formatDayLabel,
   formatSlot,
@@ -34,12 +37,16 @@ import {
   type CycleAction,
   type CycleItem,
   type CycleOverview,
+  type DebriefSummary,
   type TodoEntry,
 } from "@/lib/interview-cycle";
 import { cn } from "@/lib/utils";
 
+import { CandidateContactLine } from "./CandidateContactLine";
 import { ClientQuestions } from "./ClientQuestions";
 import { CycleStepper } from "./CycleStepper";
+import { Prep2SkipControls } from "./Prep2Skip";
+import { Prep2FollowupFromPrep1, PrepStepReview } from "./PrepStepReview";
 
 const CHIP: Record<AgendaEntry["kind"], string> = {
   prep: "bg-primary/10 text-primary",
@@ -85,6 +92,7 @@ export function CycleCandidateSheet({
         <SheetContent side="right" size="md">
           <SheetHeader>
             <SheetTitle>{candidateLabel(item)}</SheetTitle>
+            <CandidateContactLine phone={item.candidate_phone} email={item.candidate_email} />
             <SheetDescription className="sr-only">
               Kroki rozmowy u klienta, prepy i pytania klienta — {pairContext(item)}
             </SheetDescription>
@@ -150,7 +158,10 @@ export function CandidateCycleCard({
             const action = actionForTodo(t, data.items);
             const allowed =
               action &&
-              !((action.type === "add_slots" || action.type === "confirm") && !canManageSlots);
+              !(
+                (action.type === "add_slots" || action.type === "confirm" || action.type === "reply") &&
+                !canManageSlots
+              );
             const urgent = t.urgent || TODO_URGENT.has(t.kind);
             return (
               <li
@@ -203,6 +214,44 @@ export function CandidateCycleCard({
             : null
         }
         onPrepReview={(eventId) => onAction({ type: "prep_review", pair: item, eventId })}
+        renderExtra={(step) => {
+          // Odbyty prep z oceną (także „niedostępna”) — wynik wprost w kroku.
+          if (
+            (step.key === "prep" || step.key === "prep2") &&
+            step.event_id != null &&
+            step.quality != null &&
+            step.quality !== "pending" &&
+            step.quality !== "unrecorded"
+          ) {
+            const eventId = step.event_id;
+            return (
+              <PrepStepReview
+                eventId={eventId}
+                onOpen={(tab) => onAction({ type: "prep_review", pair: item, eventId, tab })}
+              />
+            );
+          }
+          // Prep 2 przed spotkaniem: co powtórzyć z Prepu 1.
+          const prep1 = item.steps.find((s) => s.key === "prep");
+          if (
+            step.key === "prep2" &&
+            step.state !== "done" &&
+            step.state !== "skipped" &&
+            prep1?.event_id != null &&
+            (prep1.quality === "good" || prep1.quality === "ok" || prep1.quality === "weak")
+          ) {
+            return <Prep2FollowupFromPrep1 prep1EventId={prep1.event_id} />;
+          }
+          return null;
+        }}
+      />
+
+      <Prep2SkipControls
+        pair={item}
+        status={item.prep2_skip_status}
+        skip={item.prep2_skip}
+        remaining={item.prep1_remaining}
+        interviewAt={item.steps.find((s) => s.key === "interview")?.at ?? null}
       />
 
       {events.length > 0 ? (
@@ -221,6 +270,11 @@ export function CandidateCycleCard({
                 interviewStart={
                   e.kind === "call" && e.event_id != null ? interviewStartFor(data, e.event_id) : undefined
                 }
+                debrief={
+                  e.kind === "call" && e.event_id != null && e.event_id === item.interview_event_id
+                    ? item.debrief
+                    : null
+                }
                 now={now}
                 onAction={onAction}
               />
@@ -231,7 +285,19 @@ export function CandidateCycleCard({
 
       {req && req.status !== "cancelled" && req.status !== "confirmed" ? (
         <div className="rounded-lg bg-muted/50 p-3 text-xs">
-          <div className="mb-1 font-semibold text-foreground">Terminy od klienta</div>
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="font-semibold text-foreground">Terminy od klienta</span>
+            {canManageSlots ? (
+              <button
+                type="button"
+                data-tour="calendar.slots.change"
+                onClick={() => onAction({ type: "add_slots", pair: item, request: req })}
+                className="font-semibold text-primary hover:underline"
+              >
+                Zmień terminy
+              </button>
+            ) : null}
+          </div>
           <ul className="space-y-0.5">
             {req.slots.map((s, i) => (
               <li key={s.start} className={cn(i === req.chosen_index && "font-semibold text-primary")}>
@@ -252,12 +318,15 @@ export function CandidateCycleCard({
 function PairEventRow({
   entry,
   interviewStart,
+  debrief = null,
   now,
   onAction,
 }: {
   entry: AgendaEntry;
   /** Początek rozmowy, po której jest ten telefon — debrief dopiero od niego. */
   interviewStart?: string;
+  /** Zapisany debrief tej rozmowy — skrót pod wierszem telefonu. */
+  debrief?: DebriefSummary | null;
   now: Date;
   onAction: (a: CycleAction) => void;
 }) {
@@ -266,8 +335,16 @@ function PairEventRow({
       ? entry.done
       : new Date(entry.end ?? entry.start).getTime() < now.getTime();
   const range = entry.end ? `${formatTime(entry.start)}–${formatTime(entry.end)}` : formatTime(entry.start);
+  // Prep z NEXUSA przed nami: „Zmień” i „Odwołaj” dla ludzi pary (17.10.2026).
+  // „Szczegóły” otwierały wydarzenie kalendarza, którego właścicielem jest
+  // prowadzący — rekruter, który prep założył, dostawał 404.
+  const nexusPrepAhead =
+    (entry.kind === "prep" || entry.kind === "prep2") &&
+    Boolean(entry.from_nexus) &&
+    !past &&
+    entry.event_id != null;
   return (
-    <li className={cn("flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5", past && "opacity-60")}>
+    <li className={cn("flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5", past && !debrief && "opacity-60")}>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className={cn("rounded-md px-2 py-0.5 text-xs font-semibold", CHIP[entry.kind])}>
@@ -283,10 +360,26 @@ function PairEventRow({
               {PREP_QUALITY_LABELS[entry.prep_quality]}
             </span>
           ) : null}
+          {entry.late ? (
+            <span className="rounded-md bg-destructive/10 px-2 py-0.5 text-xs font-semibold text-destructive">
+              po rozmowie u klienta
+            </span>
+          ) : null}
+          {nexusPrepAhead ? <PrepResponseChip eventId={entry.event_id as number} /> : null}
         </div>
         <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">
           {formatDayLabel(entry.start, now)} · {range}
         </div>
+        {debrief ? (
+          <div className="mt-1 text-xs text-foreground" data-testid="debrief-summary">
+            <span className="font-semibold">Debrief:</span> {debriefSummaryLine(debrief)}
+            {debrief.acceptance_condition ? (
+              <span className="block break-words text-muted-foreground">
+                Warunek: {debrief.acceptance_condition}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {entry.online_meeting_url && !past ? (
@@ -325,8 +418,16 @@ function PairEventRow({
             </>
           )
         ) : null}
-        {entry.kind === "call" && entry.done ? (
-          <span className="text-xs text-success-muted-foreground">debrief zapisany</span>
+        {entry.kind === "call" && entry.done && entry.event_id != null ? (
+          // Zapisany debrief da się otworzyć (04.10.2026: był tylko napis,
+          // a warunek kandydata — np. wyższa stawka — nie był nigdzie widoczny).
+          <button
+            type="button"
+            onClick={() => onAction({ type: "debrief", pair: entry, eventId: entry.event_id as number })}
+            className="h-8 rounded-md border border-border px-2.5 text-xs font-semibold hover:bg-muted"
+          >
+            Zobacz debrief
+          </button>
         ) : null}
         {entry.from_nexus && past && entry.event_id != null ? (
           <button
@@ -337,7 +438,21 @@ function PairEventRow({
             Ocena prepu
           </button>
         ) : null}
-        {entry.kind !== "call" && entry.event_id != null ? (
+        {nexusPrepAhead ? (
+          <PrepEditButtons
+            eventId={entry.event_id as number}
+            onEdit={(mode) =>
+              onAction({
+                type: "reschedule_prep",
+                pair: entry,
+                eventId: entry.event_id as number,
+                prepNo: entry.kind === "prep2" ? 2 : 1,
+                mode,
+              })
+            }
+          />
+        ) : null}
+        {entry.kind !== "call" && entry.event_id != null && !nexusPrepAhead ? (
           <button
             type="button"
             onClick={() => onAction({ type: "open_event", eventId: entry.event_id as number })}

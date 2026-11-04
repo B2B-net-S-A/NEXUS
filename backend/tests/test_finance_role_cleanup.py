@@ -17,6 +17,7 @@ _MUTATION_KEYS = (
     "tac_linkedin_farming",
     "user_competence_categories",
     "job_collaborators",
+    "job_work_assignments_released",
     "jobs_recruiter_owner",
     "jobs_delivery_lead_owner",
     "jobs_tac_owner",

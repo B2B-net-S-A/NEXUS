@@ -23,6 +23,7 @@ paragonu (klucz ``repair_details_…``, którego publiczny workflow nie drukuje)
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -48,6 +49,7 @@ from app.services.b2b_register_import.matching import (
     RecruiterResolver,
     candidates_linked_to_client,
 )
+from app.services.client_portfolio_import import loose_client_name
 from app.services.b2b_register_import.parser import (
     ContractRow,
     NoBusinessRow,
@@ -116,6 +118,69 @@ _STATUS_COLUMNS = (
 )
 
 
+#: Kolumny wiersza, które zmienia skutek podpisanego dokumentu pochodnego
+#: (``services/b2b_documents/effects.py``): aneks daty startu przestawia datę
+#: rozpoczęcia, aneks danych firmy stempluje zdjęcie z kolejki „Aneks
+#: uzupełnienia danych”. Plik działu tego nie wie — import i „Cofnij”
+#: nadpisywały podpisaną zmianę (runda 6 audytu, XLS-1).
+_DOCUMENT_OWNED_COLUMNS: dict[str, tuple[str, ...]] = {
+    "annex_start_date": ("start_date", "start_date_mode"),
+    "annex_party_data": ("business_data_annex_done_at",),
+}
+
+
+async def _document_owned_columns(
+    db: AsyncSession, row_ids: list[int], *, since: Optional[datetime] = None
+) -> dict[int, set[str]]:
+    """Kolumny wierszy rejestru, które zmienił podpisany dokument pochodny.
+
+    ``since`` — tylko dokumenty podpisane po tej chwili (cofnięcie przebiegu:
+    zmiana sprzed importu była w migawce „przed”, więc wolno ją przywrócić)."""
+    if not row_ids:
+        return {}
+    stmt = select(
+        B2BContractDocument.parent_generated_contract_id,
+        B2BContractDocument.document_type,
+    ).where(
+        B2BContractDocument.parent_generated_contract_id.in_(row_ids),
+        B2BContractDocument.document_type.in_(tuple(_DOCUMENT_OWNED_COLUMNS)),
+        B2BContractDocument.effect_applied_at.isnot(None),
+    )
+    if since is not None:
+        stmt = stmt.where(B2BContractDocument.effect_applied_at >= since)
+    owned: dict[int, set[str]] = {}
+    for parent_id, document_type in (await db.execute(stmt)).all():
+        owned.setdefault(parent_id, set()).update(
+            _DOCUMENT_OWNED_COLUMNS.get(document_type, ())
+        )
+    return owned
+
+
+async def _missing_foreign_keys(db: AsyncSession, snapshot: dict[str, Any]) -> set[str]:
+    """Kolumny migawki wskazujące rekord, którego już nie ma.
+
+    Kandydat bywa scalony, a klient usunięty po imporcie — przywrócenie jego id
+    przy „Cofnij” kończyło się 500 na kluczu obcym, więc taka kolumna zostaje
+    przy bieżącej wartości (runda 6 audytu, XLS-1)."""
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.user import User
+
+    missing: set[str] = set()
+    for column, model in (
+        ("candidate_id", Candidate),
+        ("client_id", Client),
+        ("recruiter_user_id", User),
+    ):
+        value = snapshot.get(column)
+        if value is None:
+            continue
+        found = await db.scalar(select(model.id).where(model.id == value))
+        if found is None:
+            missing.add(column)
+    return missing
+
+
 class RegisterImportConflict(Exception):
     """Operacja niemożliwa w bieżącym stanie (409) — komunikat po polsku."""
 
@@ -155,22 +220,131 @@ def _display_number(row: ContractRow) -> str:
     return row.number_raw or "—"
 
 
-def _row_hash(row: ContractRow) -> str:
+def _client_identity(raw: Optional[str], match: Match) -> str:
+    """Klient w kluczu wiersza: rozpoznany klient po id, inaczej nazwa bez
+    formy prawnej — „Klient Testowy” i „Klient Testowy SA” to ten sam klient."""
+    if match.kind == "matched":
+        return f"id:{match.id}"
+    if match.kind == "internal":
+        return "internal"
+    words = [w for w in loose_client_name(raw).split() if w not in _LEGAL_SUFFIXES]
+    return " ".join(words) or norm(raw)
+
+
+#: Skróty form prawnych pisane bez kropek („SA”, „Sp z oo”).
+_LEGAL_SUFFIXES = frozenset({"sa", "zoo", "o", "spzoo", "sk", "sj"})
+
+
+def _row_digest(
+    tokens: frozenset[str], client_identity: str, kind: Optional[str], number_raw: Any
+) -> str:
     """Klucz wiersza bez numeru: osoba + klient + rodzaj umowy. Bez dat —
     dział uzupełnia datę podpisania/startu później, a zmieniony klucz
     zakładałby drugi wiersz (a stary dostawałby „brak w pliku” razem ze
-    statusem i dokumentami pochodnymi). Ta sama osoba kilka razy u klienta
-    rozróżnia się numerem wystąpienia w pliku (`:<n>`)."""
+    statusem i dokumentami pochodnymi). Tekst w kolumnie numeru bez cyfr
+    („bez numeru”, „zlecenie”) nie wchodzi do klucza — jego poprawka nie jest
+    nową umową (runda 7, N3-2)."""
+    folded_number = norm(number_raw)
     material = json.dumps(
         [
-            sorted(row.tokens),
-            norm(row.client_raw),
-            row.kind,
-            norm(row.number_raw),
+            sorted(tokens),
+            client_identity,
+            kind,
+            folded_number if re.search(r"\d", folded_number) else "",
         ],
         ensure_ascii=False,
     )
     return hashlib.sha256(material.encode()).hexdigest()[:40]
+
+
+def _row_hash(row: ContractRow, client_match: Match) -> str:
+    return _row_digest(
+        row.tokens,
+        _client_identity(row.client_raw, client_match),
+        row.kind,
+        row.number_raw,
+    )
+
+
+def _stored_digest(row: B2BGeneratedContract, clients: ClientResolver) -> str:
+    """Ten sam klucz policzony z danych zapisanych przez poprzedni import —
+    niezależny od ``source_key`` (zapisanego starszą regułą i numerem
+    wystąpienia w pliku)."""
+    excel = (row.legacy_data or {}).get("excel") or {}
+    name = excel.get("name")
+    tokens = name_tokens(name) if name else name_tokens(row.partner_name)
+    client_raw = excel.get("client")
+    return _row_digest(
+        tokens,
+        _client_identity(client_raw, clients.resolve(client_raw)),
+        row.contract_kind,
+        excel.get("number", row.raw_contract_number),
+    )
+
+
+def assign_row_keys(
+    plans: list[dict[str, Any]],
+    existing: list[tuple[str, B2BGeneratedContract]],
+    taken_keys: set[str],
+) -> None:
+    """Klucze wierszy bez numeru (``plan["digest"]``) — parowane z wierszami
+    zapisanymi wcześniej po TREŚCI, nie po kolejności w pliku.
+
+    Do rundy 7 (N3-2) druga umowa tej samej osoby u tego samego klienta
+    dostawała sufiks ``:1`` według kolejności wystąpienia, więc posortowanie
+    arkusza zamieniało klucze: rekord umowy z 2023 dostawał daty umowy
+    z 2025, a przy nim zostawał status ustawiony ręcznie i dokumenty
+    pochodne. Parowanie w grupie tego samego klucza treści: najpierw ta sama
+    data podpisania i startu, potem sama data podpisania, sama data startu,
+    na końcu reszta w kolejności (wiersz, któremu dział dopisał datę)."""
+    by_digest: dict[str, list[dict[str, Any]]] = {}
+    for plan in plans:
+        if plan.get("key") is None:
+            by_digest.setdefault(plan["digest"], []).append(plan)
+    stored: dict[str, list[B2BGeneratedContract]] = {}
+    for digest, row in existing:
+        stored.setdefault(digest, []).append(row)
+
+    def signing(row: B2BGeneratedContract) -> Optional[date]:
+        return row.signing_date
+
+    def start(row: B2BGeneratedContract) -> Optional[date]:
+        return row.start_date
+
+    passes = (
+        lambda p, r: (
+            (p.signing_date, p.start_date) == (signing(r), start(r))
+            and (p.signing_date is not None or p.start_date is not None)
+        ),
+        lambda p, r: p.signing_date is not None and p.signing_date == signing(r),
+        lambda p, r: p.start_date is not None and p.start_date == start(r),
+        lambda p, r: True,
+    )
+    used = set(taken_keys)
+    for digest, group in by_digest.items():
+        rows = sorted(stored.get(digest, []), key=lambda r: r.id or 0)
+        free = list(rows)
+        for same in passes:
+            for plan in group:
+                if plan.get("key") is not None:
+                    continue
+                for row in free:
+                    if same(plan["row"], row):
+                        plan["key"] = row.source_key
+                        used.add(row.source_key)
+                        free.remove(row)
+                        break
+        occurrence = 0
+        for plan in group:
+            if plan.get("key") is not None:
+                continue
+            while True:
+                key = f"h:{digest}" + (f":{occurrence}" if occurrence else "")
+                occurrence += 1
+                if key not in used:
+                    break
+            plan["key"] = key
+            used.add(key)
 
 
 def _number_key(row: ContractRow) -> Optional[str]:
@@ -183,7 +357,20 @@ def _number_key(row: ContractRow) -> Optional[str]:
     # „bez numeru”, „zlecenie” itp. — to nie są numery.
     if not folded or not re.search(r"\d", folded):
         return None
-    return "n:" + re.sub(r"\s+", "", (row.number_raw or "").casefold())[:60]
+    text_number = re.sub(r"[\u2010-\u2015\u2212]", "-", row.number_raw or "")
+    return "n:" + re.sub(r"\s+", "", text_number.casefold())[:60]
+
+
+def _legacy_number_key(row: ContractRow) -> Optional[str]:
+    """Klucz numeru sprzed rundy 7 — wiersz zapisany nim wcześniej („1517/2026”,
+    „1519 – A”) jest dalej tym samym wierszem, a nie brakiem w pliku."""
+    raw = row.number_raw
+    if row.number_int is not None and raw and re.fullmatch(r"\d+", raw):
+        return f"n:{row.number_int}"
+    folded = norm(raw)
+    if not folded or not re.search(r"\d", folded):
+        return None
+    return "n:" + re.sub(r"\s+", "", (raw or "").casefold())[:60]
 
 
 def _legacy_payload(row: ContractRow) -> dict[str, Any]:
@@ -278,6 +465,9 @@ class _Report:
                 "annex_matched",
                 "annex_unmatched",
                 "annex_done",
+                "annex_cleared",
+                "generator_annex_flagged",
+                "signing_dates_unparsed",
             )
         }
         self.unmatched_candidates: list[dict[str, Any]] = []
@@ -290,6 +480,7 @@ class _Report:
         self.annex_matched: list[dict[str, Any]] = []
         self.annex_unmatched: list[dict[str, Any]] = []
         self.skipped_rows: list[dict[str, Any]] = []
+        self.unparsed_dates: list[dict[str, Any]] = []
 
     def note_client(self, raw: Optional[str], match: Match) -> None:
         if match.kind == "matched":
@@ -298,9 +489,10 @@ class _Report:
             self.counters["clients_internal"] += 1
         else:
             self.counters["clients_unknown_rows"] += 1
-            key = (raw or "", match.kind)
+            text = raw or "(pusta komórka)"
+            key = (text, match.kind)
             entry = self.unknown_clients.setdefault(
-                key, {"text": raw or "", "reason": match.kind, "rows": 0}
+                key, {"text": text, "reason": match.kind, "rows": 0}
             )
             entry["rows"] += 1
 
@@ -333,6 +525,7 @@ class _Report:
             "status_kept": self.status_kept,
             "annex": {"matched": self.annex_matched, "unmatched": self.annex_unmatched},
             "skipped_rows": self.skipped_rows,
+            "unparsed_dates": self.unparsed_dates,
         }
 
 
@@ -351,6 +544,43 @@ async def _deleted_numbers(db: AsyncSession) -> set[int]:
     return numbers
 
 
+async def _import_owned_annex_flags(db: AsyncSession, ids: list[int]) -> set[int]:
+    """Umowy z NEXUSA, którym flagę aneksu postawił (i nie zdjął) import.
+
+    Ostatni wpis zastosowanego przebiegu z migawką flagi rozstrzyga: migawka
+    ``False`` = import ją postawił, ``True`` = import ją zdjął. Filtr migawki
+    w Pythonie — brak migawki to JSON ``null`` (jak w ``rollback_run``).
+    """
+
+    if not ids:
+        return set()
+    rows = (
+        await db.execute(
+            select(
+                B2BRegisterImportRow.generated_contract_id,
+                B2BRegisterImportRow.snapshot_before,
+            )
+            .join(
+                B2BRegisterImportRun,
+                B2BRegisterImportRun.id == B2BRegisterImportRow.run_id,
+            )
+            .where(
+                B2BRegisterImportRow.generated_contract_id.in_(ids),
+                B2BRegisterImportRow.decision.in_(
+                    ("generator_match", "generator_conflict")
+                ),
+                B2BRegisterImportRun.mode == "applied",
+            )
+            .order_by(B2BRegisterImportRow.id)
+        )
+    ).all()
+    set_by_import: dict[int, bool] = {}
+    for generated_id, snapshot in rows:
+        if isinstance(snapshot, dict) and "needs_business_data_annex" in snapshot:
+            set_by_import[generated_id] = not snapshot["needs_business_data_annex"]
+    return {generated_id for generated_id, owned in set_by_import.items() if owned}
+
+
 def _generator_number(contract_number: Optional[str]) -> Optional[int]:
     match = re.match(r"^\s*(\d+)\s*/\s*\d{4}\s*$", contract_number or "")
     return int(match.group(1)) if match else None
@@ -367,7 +597,9 @@ async def run_import(
     """Import (albo podgląd) jednego pliku. Wołający commituje/rollbackuje
     zgodnie z ``dry_run`` — patrz ``api/b2b_register_import.py``."""
     sha = payload_sha256(payload)
-    parsed = parse_register(payload)
+    # zipfile + openpyxl to sekundy CPU przy dużym arkuszu — w wątku, nie na
+    # pętli zdarzeń jedynego procesu API (runda 6 audytu).
+    parsed = await asyncio.to_thread(parse_register, payload)
     await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _LOCK_KEY})
 
     if not dry_run:
@@ -449,7 +681,13 @@ async def _apply(
     recruiters = await RecruiterResolver.build(db)
     deleted_numbers = await _deleted_numbers(db)
 
-    existing = list((await db.execute(select(B2BGeneratedContract))).scalars().all())
+    # FOR UPDATE: PATCH statusu w trakcie przebiegu czeka na jego koniec,
+    # zamiast zostać nadpisany stanem przeczytanym przed nim (runda 7, N3-10).
+    existing = list(
+        (await db.execute(select(B2BGeneratedContract).with_for_update()))
+        .scalars()
+        .all()
+    )
     generator_by_number: dict[int, B2BGeneratedContract] = {}
     excel_by_key: dict[str, B2BGeneratedContract] = {}
     taken_pairs: dict[tuple[int, int], int] = {}
@@ -462,15 +700,41 @@ async def _apply(
         elif (number := _generator_number(row.contract_number)) is not None:
             generator_by_number.setdefault(number, row)
 
+    document_owned = await _document_owned_columns(
+        db, [row.id for row in excel_by_key.values()]
+    )
+    annex_flag_owned = await _import_owned_annex_flags(
+        db,
+        [
+            row.id
+            for row in generator_by_number.values()
+            if row.needs_business_data_annex
+        ],
+    )
+
     # ── Pierwsze przejście: klucze, kolizje, dopasowania ────────────────────
     plans: list[dict[str, Any]] = []
     seen_numbers: dict[str, int] = {}
-    seen_hashes: dict[str, int] = {}
+    claimed_legacy: set[str] = set()
     ambiguous_by_client: dict[int, set[int]] = {}
     for row in parsed.contracts:
         flags = list(row.flags)
         key = _number_key(row)
         collision = None
+        if "number_out_of_range" in flags:
+            report.number_collisions.append(
+                {
+                    "number": _display_number(row),
+                    "rows": [row.row_number],
+                    "reason": "number_out_of_range",
+                }
+            )
+            report.counters["number_collisions"] += 1
+        if "signing_date_unparsed" in flags:
+            report.counters["signing_dates_unparsed"] += 1
+            report.unparsed_dates.append(
+                {"row": row.row_number, "number": _display_number(row)}
+            )
         if key is not None:
             if key in seen_numbers:
                 collision = "duplicate_in_file"
@@ -485,11 +749,20 @@ async def _apply(
                 key = None
             else:
                 seen_numbers[key] = row.row_number
-        if key is None:
-            digest = _row_hash(row)
-            occurrence = seen_hashes.get(digest, 0)
-            seen_hashes[digest] = occurrence + 1
-            key = f"h:{digest}" + (f":{occurrence}" if occurrence else "")
+                legacy_key = _legacy_number_key(row)
+                # Runda 8 (R8-V1-7): numer umowy z NEXUSA idzie gałęzią
+                # generatora, więc klucza legacy nie przejmuje — zapisany
+                # przed rundą 7 duplikat z Excela („1517/2026” obok umowy
+                # 1517) dostaje wtedy „brak w pliku” zamiast wisieć na zawsze.
+                if (
+                    row.number_int not in generator_by_number
+                    and key not in excel_by_key
+                    and legacy_key is not None
+                    and legacy_key in excel_by_key
+                    and legacy_key not in claimed_legacy
+                ):
+                    claimed_legacy.add(legacy_key)
+                    key = legacy_key
 
         client_match = clients.resolve(row.client_raw)
         report.note_client(row.client_raw, client_match)
@@ -499,6 +772,7 @@ async def _apply(
         plan = {
             "row": row,
             "key": key,
+            "digest": _row_hash(row, client_match) if key is None else None,
             "flags": flags,
             "collision": collision,
             "client": client_match,
@@ -509,6 +783,19 @@ async def _apply(
         if len(candidate_ids) > 1 and client_match.kind == "matched":
             ambiguous_by_client.setdefault(client_match.id, set()).update(candidate_ids)
         plans.append(plan)
+
+    assign_row_keys(
+        plans,
+        [
+            (_stored_digest(row, clients), row)
+            for key, row in excel_by_key.items()
+            if key.startswith("h:")
+        ],
+        # Klucze wszystkich zapisanych wierszy: nowa umowa nie może dostać
+        # klucza wiersza, którego nie sparowano (inna osoba, stara reguła).
+        taken_keys={p["key"] for p in plans if p["key"] is not None}
+        | set(excel_by_key),
+    )
 
     linked: dict[int, set[int]] = {}
     for client_id, ids in ambiguous_by_client.items():
@@ -540,6 +827,9 @@ async def _apply(
 
     # ── Arkusz „Bez działalności” → flagi aneksu ────────────────────────────
     annex_by_plan: dict[int, NoBusinessRow] = {}
+    # Osoba z arkusza, której wiersza nie da się jednoznacznie sparować, nadal
+    # jest w arkuszu — jej flagi nie zdejmujemy jako „zniknęła z pliku”.
+    annex_tokens = {nb.tokens for nb in parsed.no_business if nb.tokens}
     for nb in parsed.no_business:
         matches = [
             i for i, p in enumerate(plans) if p["row"].tokens == nb.tokens and nb.tokens
@@ -633,6 +923,42 @@ async def _apply(
             else:
                 report.counters["generator_matches"] += 1
             decision = "generator_conflict" if differences else "generator_match"
+            # Arkusz „Bez działalności” to jedyne, co import zmienia na umowie
+            # wydanej w NEXUSIE: flaga kolejki „Aneks uzupełnienia danych do
+            # zrobienia” (decyzja Artura 26.09.2026, runda 7 N3-1). Aneks
+            # zrobiony według Excela flagi nie stawia — daty zrobienia na
+            # wierszu z NEXUSA import nie wpisuje, więc wiersz stałby w kolejce.
+            annex_snapshot: Optional[dict[str, Any]] = None
+            annex = annex_by_plan.get(index)
+            if (
+                annex is not None
+                and not annex.done
+                and not generator.needs_business_data_annex
+            ):
+                annex_snapshot = {"needs_business_data_annex": False}
+                generator.needs_business_data_annex = True
+                report.counters["generator_annex_flagged"] += 1
+            elif (
+                generator.needs_business_data_annex
+                and generator.id in annex_flag_owned
+                and generator.business_data_annex_done_at is None
+                and (
+                    (annex is not None and annex.done)
+                    or (
+                        annex is None
+                        and parsed.no_business_sheet_found
+                        and row.tokens not in annex_tokens
+                    )
+                )
+            ):
+                # Runda 8 (R8-V1-2): flagę postawioną przez import zdejmuje
+                # też import — gdy dział oznaczył aneks jako zrobiony (umowy
+                # podpisujemy offline) albo osoby nie ma już w arkuszu. Bez
+                # tego umowa z NEXUSA wisiała w kolejce aneksów na zawsze;
+                # wiersze z Excela mają tę regułę od rundy 7 (N3-7).
+                annex_snapshot = {"needs_business_data_annex": True}
+                generator.needs_business_data_annex = False
+                report.counters["annex_cleared"] += 1
             if persist_rows:
                 db.add(
                     B2BRegisterImportRow(
@@ -643,6 +969,7 @@ async def _apply(
                         decision=decision,
                         generated_contract_id=generator.id,
                         matches={"differences": differences},
+                        snapshot_before=annex_snapshot,
                     )
                 )
             continue
@@ -752,6 +1079,9 @@ async def _apply(
                 import_status = previous_status
             else:
                 import_status = {k: _json_value(k, derived[k]) for k in _STATUS_COLUMNS}
+            # Zmiana z podpisanego dokumentu wygrywa z plikiem, jak ręczny status.
+            for column in document_owned.get(existing_row.id, ()):
+                target[column] = getattr(existing_row, column)
             target["needs_business_data_annex"] = existing_row.needs_business_data_annex
             target["business_data_annex_done_at"] = (
                 existing_row.business_data_annex_done_at
@@ -771,6 +1101,10 @@ async def _apply(
                 and not annex.done_date
                 and target["business_data_annex_done_at"] is None
             ):
+                # Aneks zrobiony według działu, tylko bez daty — nie jest „do
+                # zrobienia”. Daty nie zmyślamy; wiersz wychodzi z kolejki,
+                # a status „zrobiony” zostaje w `legacy_data` (runda 7, N3-7).
+                target["needs_business_data_annex"] = False
                 flags.append("business_annex_done_undated")
             legacy["business_annex"] = {
                 "status": "done" if annex.done else "todo",
@@ -779,6 +1113,17 @@ async def _apply(
             }
         elif previous_annex is not None:
             legacy["business_annex"] = previous_annex
+            if (
+                parsed.no_business_sheet_found
+                and previous_annex.get("status") == "todo"
+                and not previous_annex.get("removed_from_file")
+            ):
+                # Osoby nie ma już w arkuszu „Bez działalności” — flaga
+                # postawiona przez import schodzi razem z nią (N3-7).
+                legacy["business_annex"] = {**previous_annex, "removed_from_file": True}
+                if target["needs_business_data_annex"]:
+                    target["needs_business_data_annex"] = False
+                    report.counters["annex_cleared"] += 1
         legacy["flags"] = sorted(set(flags))
         legacy["import_status"] = import_status
         target["legacy_data"] = legacy
@@ -986,10 +1331,41 @@ async def rollback_run(
         .scalars()
         .all()
     )
+    # Flaga aneksu postawiona przez ten przebieg na umowie z NEXUSA (N3-1).
+    # Filtr w Pythonie: kolumna JSON zapisuje brak migawki jako JSON `null`,
+    # którego `IS NOT NULL` nie odsiewa.
+    generator_flags = [
+        r
+        for r in (
+            await db.execute(
+                select(B2BRegisterImportRow).where(
+                    B2BRegisterImportRow.run_id == run.id,
+                    B2BRegisterImportRow.decision.in_(
+                        ("generator_match", "generator_conflict")
+                    ),
+                )
+            )
+        )
+        .scalars()
+        .all()
+        if isinstance(r.snapshot_before, dict)
+        and "needs_business_data_annex" in r.snapshot_before
+    ]
     # Ręczna zmiana statusu w NEXUSIE po imporcie (PATCH, skutek podpisanego
     # dokumentu) zostawia wpis w dzienniku statusów — import go nie pisze.
     # Taki status wygrywa z cofnięciem, jak wygrywa z plikiem.
     touched_ids = {r.generated_contract_id for r in rows if r.generated_contract_id}
+    # Blokada wierszy przed odczytem dziennika statusów: PATCH w trakcie
+    # cofnięcia czeka na jego koniec, zamiast zostać nadpisany (runda 7, N3-10).
+    locked_ids = touched_ids | {
+        r.generated_contract_id for r in generator_flags if r.generated_contract_id
+    }
+    if locked_ids:
+        await db.execute(
+            select(B2BGeneratedContract.id)
+            .where(B2BGeneratedContract.id.in_(locked_ids))
+            .with_for_update()
+        )
     changed_by_hand: set[int] = set()
     if touched_ids:
         changed_by_hand = set(
@@ -1038,6 +1414,10 @@ async def rollback_run(
             )
         )
     restored = 0
+    # Zmiany z podpisanych po imporcie dokumentów zostają (runda 6 audytu, XLS-1).
+    document_owned = await _document_owned_columns(
+        db, list(touched_ids), since=run.created_at
+    )
     for import_row in rows:
         if import_row.decision != "updated" or not import_row.snapshot_before:
             continue
@@ -1045,10 +1425,23 @@ async def rollback_run(
         if target is None or target.source != "excel":
             continue
         manual_status = target.id in changed_by_hand
+        keep = document_owned.get(target.id, set()) | await _missing_foreign_keys(
+            db, import_row.snapshot_before
+        )
         for column, value in import_row.snapshot_before.items():
             if manual_status and column in _STATUS_COLUMNS:
                 continue
+            if column in keep:
+                continue
             setattr(target, column, _from_json(column, value))
+        restored += 1
+    for import_row in generator_flags:
+        target = await db.get(B2BGeneratedContract, import_row.generated_contract_id)
+        if target is None or target.source == "excel":
+            continue
+        target.needs_business_data_annex = bool(
+            import_row.snapshot_before["needs_business_data_annex"]
+        )
         restored += 1
     missing_ids = list(run.missing_marked_ids or [])
     if missing_ids:

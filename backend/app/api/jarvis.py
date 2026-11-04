@@ -25,27 +25,34 @@ from typing import Any, AsyncIterator, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, CurrentUser
 from app.core.config import settings
-from app.core.database import AsyncSessionLocal, get_db
+from app.core.database import AsyncSessionLocal, get_db, release_idle_connection
 from app.core.rate_limit import client_ip_key, limiter, user_or_ip_key
 from app.core.scheduling import DEFAULT_TZ, business_today, local_now
+from app.core.tasks import spawn
 from app.models.ai_feature import AIFeatureKey
 from app.models.jarvis import (
     JARVIS_UI_EVENTS,
     JarvisAction,
     JarvisConversation,
+    JarvisGap,
     JarvisMessage,
     JarvisUiEvent,
 )
+from app.models.user import User
+from app.services.action_permissions import named_permissions_of
+from app.services.hr import modules as hr_modules
+from app.services.hr_foundation_schema import HR_MODULE_KEYS
 from app.services.ai_models import model_for
 from app.services.jarvis import actions as jarvis_actions
 from app.services.jarvis import agent, store
 from app.services.jarvis import web as jarvis_web
 from app.services.jarvis.prefs import effective_prefs
+from app.services.jarvis.capabilities import capabilities_for
 from app.services.jarvis.tools import build_screen_link, tools_for_user
 from app.services.jarvis.transport import CallerIdentity
 from app.services.llm_providers import api_key_configured
@@ -55,9 +62,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Zadania tur uruchomione w tle — silne referencje, żeby GC nie zebrał
-# zadania, którego klient się rozłączył (tura i tak dokończy się i zapisze).
-_RUNNING: set[asyncio.Task] = set()
 _HEARTBEAT_SECONDS = 10.0
 
 
@@ -94,6 +98,8 @@ class JarvisStatusResponse(BaseModel):
     web_enabled: bool = False
     web_used_today: int = 0
     web_limit: int = 0
+    # Pusty panel: co Jarvis zrobi za tę rolę (``capabilities.capabilities_for``).
+    capabilities: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class JarvisConversationSummary(BaseModel):
@@ -153,6 +159,23 @@ def _identity(request: Request) -> CallerIdentity:
         authorization=authorization,
         forwarded_for=client_ip_key(request),
         operation_id=str(uuid.uuid4()),
+    )
+
+
+async def _allowed_tools(user: Any, db: AsyncSession) -> list[Any]:
+    """Narzędzia tej osoby — te same dla modelu i dla listy w pustym panelu."""
+    # Narzędzia „Ludzi w NEXUSIE” idą do modelu tylko przy module otwartym dla
+    # tej osoby i z jej uprawnieniami (jedno zapytanie o ``app_settings`` na turę).
+    loaded_modules = await hr_modules.load_modules(db)
+    open_hr_modules = {
+        key
+        for key in HR_MODULE_KEYS
+        if hr_modules.module_open_for(user, loaded_modules, key)
+    }
+    return tools_for_user(
+        _section_map(user),
+        permissions=named_permissions_of(user),
+        hr_modules=open_hr_modules,
     )
 
 
@@ -238,9 +261,9 @@ async def _stream(events: AsyncIterator[dict[str, Any]]) -> AsyncIterator[str]:
         finally:
             await queue.put(None)
 
-    task = asyncio.create_task(produce())
-    _RUNNING.add(task)
-    task.add_done_callback(_RUNNING.discard)
+    # `spawn` trzyma silną referencję, żeby GC nie zebrał tury, której klient
+    # się rozłączył (tura i tak dokończy się i zapisze).
+    spawn(produce(), "jarvis_turn")
     while True:
         try:
             event = await asyncio.wait_for(queue.get(), timeout=_HEARTBEAT_SECONDS)
@@ -297,6 +320,9 @@ async def jarvis_status(
         web_enabled=settings.JARVIS_WEB_ENABLED,
         web_used_today=await _used_today(db, current_user.id, web=True),
         web_limit=settings.JARVIS_WEB_DAILY_LIMIT,
+        capabilities=capabilities_for(
+            [tool.name for tool in await _allowed_tools(current_user, db)]
+        ),
     )
 
 
@@ -306,6 +332,7 @@ async def jarvis_chat(
     request: Request,
     payload: JarvisChatRequest,
     current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
 ):
     _require_available(request)
     if payload.web:
@@ -325,6 +352,7 @@ async def jarvis_chat(
                 ),
             )
     prefs = effective_prefs(current_user.jarvis_prefs)
+    permissions = named_permissions_of(current_user)
     turn = agent.TurnInput(
         user_id=current_user.id,
         user_name=current_user.name,
@@ -336,16 +364,22 @@ async def jarvis_chat(
         if payload.web
         else (payload.screen.model_dump() if payload.screen else None),
         assistant_name=prefs.name,
-        allowed_tools=tools_for_user(_section_map(current_user)),
+        allowed_tools=await _allowed_tools(current_user, db),
         identity=_identity(request),
         today=business_today(),
         now=local_now(),
         notes=[] if payload.web else list(prefs.notes),
         sections={s.value: v for s, v in _section_map(current_user).items()},
+        permissions=sorted(permissions),
         web=payload.web,
     )
+    # Runda 8 (R8-N1-1): sesja requestu (auth, snapshot uprawnień) zamyka się
+    # dopiero PO wysłaniu całego strumienia. Bez zwolnienia połączenie wisiało
+    # „idle in transaction” przez całą turę (model do 90 s + narzędzia).
+    # Tura korzysta wyłącznie z własnych, krótkich sesji (``store``).
+    await release_idle_connection(db)
     try:
-        conversation_id = await agent.claim(turn)
+        claimed = await agent.claim(turn)
     except store.TurnBusy:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -356,7 +390,7 @@ async def jarvis_chat(
             status_code=status.HTTP_404_NOT_FOUND, detail="Nie ma takiej rozmowy."
         )
     return StreamingResponse(
-        _stream(agent.run_turn(turn, conversation_id)),
+        _stream(agent.run_turn(turn, claimed)),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
@@ -388,23 +422,40 @@ async def list_conversations(
     ]
 
 
-def _anchor_label(anchor_id: str) -> str:
+def _anchor_label(anchor_id: str) -> Optional[str]:
+    """Etykieta kotwicy z przewodników; ``None`` = takiej kotwicy nie ma."""
     from app.data.screen_guides import load_guides
 
     for guide in load_guides().values():
         for anchor in guide.anchors:
             if anchor.id == anchor_id:
                 return anchor.label
-    return "Element ekranu"
+    return None
+
+
+def _failed_tool_uses(messages: list[tuple[str, list[dict[str, Any]]]]) -> set[str]:
+    return {
+        str(block.get("tool_use_id") or "")
+        for role, blocks in messages
+        if role == "user"
+        for block in blocks or []
+        if isinstance(block, dict)
+        and block.get("type") == "tool_result"
+        and block.get("is_error")
+    }
 
 
 def _conversation_items(
-    messages: list[tuple[str, list[dict[str, Any]]]], actions: list[JarvisAction]
+    messages: list[tuple[str, list[dict[str, Any]]]],
+    actions: list[JarvisAction],
+    gaps: Optional[list[JarvisGap]] = None,
 ) -> list[dict[str, Any]]:
+    gap_by_tool_use = {gap.tool_use_id: gap for gap in gaps or []}
     by_tool_use: dict[str, list[JarvisAction]] = {}
     for action in actions:
         by_tool_use.setdefault(action.tool_use_id, []).append(action)
     items: list[dict[str, Any]] = []
+    failed = _failed_tool_uses(messages)
     for role, blocks in messages:
         # Kolejne bloki tekstu jednej wiadomości asystenta to jeden akapit
         # (odpowiedź z cytatami przychodzi pocięta) — jeden dymek, nie 24.
@@ -440,17 +491,40 @@ def _conversation_items(
                 name = block.get("name")
                 if name == "show_on_screen":
                     anchor = str((block.get("input") or {}).get("anchor") or "")
-                    if anchor:
+                    # Runda 8 (R8-N1-8): odrzucone wywołanie (kotwica spoza
+                    # przewodnika ekranu) nie wraca po odświeżeniu jako
+                    # martwy przycisk „Element ekranu”.
+                    label = (
+                        _anchor_label(anchor)
+                        if anchor and str(block.get("id") or "") not in failed
+                        else None
+                    )
+                    if label:
                         items.append(
                             {
                                 "kind": "highlight",
                                 "anchor": anchor,
-                                "label": _anchor_label(anchor),
+                                "label": label,
                                 "reason": str(
                                     (block.get("input") or {}).get("reason") or ""
                                 )[:200],
                             }
                         )
+                if name == "draft_email" and str(block.get("id") or "") not in failed:
+                    tool_input = block.get("input") or {}
+                    items.append(
+                        {
+                            "kind": "mail_draft",
+                            "draft": {
+                                "candidate_id": tool_input.get("candidate_id"),
+                                "subject": str(tool_input.get("subject") or "")[:150],
+                                "body": str(tool_input.get("body") or "")[:3000],
+                            },
+                        }
+                    )
+                gap = gap_by_tool_use.get(str(block.get("id") or ""))
+                if name == "report_gap" and gap is not None:
+                    items.append({"kind": "gap", "gap": _serialize_gap(gap)})
                 if name == "open_screen":
                     try:
                         items.append(
@@ -505,11 +579,20 @@ async def get_conversation(
             )
         ).scalars()
     )
+    gaps = list(
+        (
+            await db.execute(
+                select(JarvisGap).where(JarvisGap.conversation_id == conversation_id)
+            )
+        ).scalars()
+    )
     return {
         "id": str(conversation.id),
         "title": conversation.title,
         "updated_at": conversation.updated_at,
-        "items": _conversation_items([(r.role, r.content) for r in messages], actions),
+        "items": _conversation_items(
+            [(r.role, r.content) for r in messages], actions, gaps
+        ),
     }
 
 
@@ -592,8 +675,12 @@ async def confirm_action(
     action_id: uuid.UUID,
     request: Request,
     current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
 ):
     _require_available(request)
+    # Runda 8 (R8-N1-1): wykonanie idzie in-process (własna sesja trasy
+    # docelowej) — połączenie tego requestu nie może czekać na nie w puli.
+    await release_idle_connection(db)
     try:
         outcome = await jarvis_actions.confirm_action(
             action_id, user_id=current_user.id, identity=_identity(request)
@@ -677,5 +764,72 @@ async def ui_events_summary(
                 "people": int(r.people),
             }
             for r in rows
+        ],
+    }
+
+
+# ── „Czego Jarvis nie umie” (0527) ─────────────────────────────────────────
+
+
+def _serialize_gap(gap: JarvisGap) -> dict[str, Any]:
+    return {
+        "id": str(gap.id),
+        "kind": gap.kind,
+        "need": gap.need,
+        "why": gap.why,
+        "workaround": gap.workaround,
+        "reported": gap.reported_at is not None,
+    }
+
+
+@router.post("/gaps/{gap_id}/report", status_code=status.HTTP_204_NO_CONTENT)
+async def report_gap(
+    gap_id: uuid.UUID,
+    request: Request,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """„Zgłoś, że tego potrzebuję” — tylko na własnej karcie, idempotentnie."""
+    _require_available(request)
+    result = await db.execute(
+        update(JarvisGap)
+        .where(JarvisGap.id == gap_id, JarvisGap.user_id == current_user.id)
+        .values(reported_at=func.coalesce(JarvisGap.reported_at, func.now()))
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Nie ma takiej karty.")
+    await db.commit()
+
+
+@router.get("/gaps")
+async def list_gaps(
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+    days: int = 30,
+) -> dict[str, Any]:
+    """Czego ludzie chcieli od Jarvisa, a on nie umiał — najnowsze najpierw (admin).
+
+    Bez nazwisk pytających: rola wystarcza do decyzji, co budować dalej.
+    """
+    window = max(1, min(int(days), 90))
+    since = datetime.now(timezone.utc) - timedelta(days=window)
+    rows = (
+        await db.execute(
+            select(JarvisGap, User.role)
+            .join(User, User.id == JarvisGap.user_id)
+            .where(JarvisGap.created_at >= since)
+            .order_by(JarvisGap.created_at.desc())
+            .limit(200)
+        )
+    ).all()
+    return {
+        "days": window,
+        "items": [
+            {
+                **_serialize_gap(gap),
+                "role": getattr(role, "value", role),
+                "created_at": gap.created_at,
+            }
+            for gap, role in rows
         ],
     }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { hasCapability } from "@/lib/capabilities";
 import {
   ALL_USER_ROLES,
   ROLE_SECTION_ACCESS,
@@ -9,6 +10,8 @@ import {
   sectionAccessForUser,
 } from "@/lib/section-access";
 
+import { accessSnapshot } from "./fixtures/access-snapshot";
+
 describe("central section access matrix", () => {
   it("has an explicit policy for every role", () => {
     expect(Object.keys(ROLE_SECTION_ACCESS).sort()).toEqual(
@@ -16,7 +19,7 @@ describe("central section access matrix", () => {
     );
   });
 
-  it.each(["sourcer", "recruiter", "tac", "head_of_recruitment"] as const)(
+  it.each(["recruiter", "head_of_recruitment"] as const)(
     "%s has no Delivery or Finance section",
     (role) => {
       expect(sectionAccessForUser({ role }, "delivery")).toBe("none");
@@ -27,14 +30,13 @@ describe("central section access matrix", () => {
     },
   );
 
-  it("gives TCM all business sections except Finance and read-only Delivery", () => {
+  it("gives TCM all business sections except Finance; Delivery follows the status permission", () => {
     const user = { role: "talent_community_manager" as const };
     expect(sectionAccessForUser(user, "sourcing")).toBe("write");
     expect(sectionAccessForUser(user, "pipeline")).toBe("write");
-    expect(sectionAccessForUser(user, "delivery")).toBe("read");
+    expect(sectionAccessForUser(user, "delivery")).toBe("write");
     expect(sectionAccessForUser(user, "insights")).toBe("read");
     expect(sectionAccessForUser(user, "finance")).toBe("none");
-    expect(hasSectionAccess(user, "delivery", "write")).toBe(false);
   });
 
   it("keeps Delivery Lead in Delivery but outside the global Finance module", () => {
@@ -48,7 +50,7 @@ describe("central section access matrix", () => {
       role: "recruiter" as const,
       roles: ["recruiter", "talent_community_manager"] as const,
     };
-    expect(sectionAccessForUser(hybrid, "delivery")).toBe("read");
+    expect(sectionAccessForUser(hybrid, "delivery")).toBe("write");
     expect(sectionAccessForUser(hybrid, "finance")).toBe("none");
   });
 
@@ -102,17 +104,56 @@ describe("central section access matrix", () => {
 
   it("derives route allowlists from the same matrix", () => {
     expect(rolesWithSectionAccess("delivery").sort()).toEqual(
-      ["admin", "delivery_lead", "finance", "talent_community_manager"].sort(),
+      [
+        "admin",
+        "automation",
+        "delivery_lead",
+        "finance",
+        "talent_community_manager",
+      ].sort(),
+    );
+    // „Automatyzacje” (0446) czytają Delivery, ale niczego tam nie zapisują.
+    expect(rolesWithSectionAccess("delivery", "write")).not.toContain(
+      "automation",
     );
     expect(rolesWithSectionAccess("finance").sort()).toEqual(
       ["admin", "finance"].sort(),
     );
   });
 
-  it("preserves the legacy viewer's existing Pipeline and Insights reads", () => {
+  it("the static allowlist no longer decides Delivery and Finance navigation", () => {
+    // Lista ról z macierzy startowej zostaje dla middleware (stary token).
+    // Menu i capability idą za uprawnieniami, które administrator przełącza.
+    const viewer = accessSnapshot("recruiter", { grant: ["delivery_view"] });
+    expect(rolesWithSectionAccess("delivery")).not.toContain("recruiter");
+    expect(sectionAccessForUser(viewer, "delivery")).toBe("read");
+    expect(hasCapability(viewer, "nav.clients")).toBe(true);
+
+    const leadWithoutDelivery = accessSnapshot("delivery_lead", {
+      revoke: [
+        "delivery_view",
+        "clients_edit",
+        "contracts_orders_edit",
+        "contract_status",
+        "amounts_view",
+      ],
+    });
+    expect(rolesWithSectionAccess("delivery")).toContain("delivery_lead");
+    expect(sectionAccessForUser(leadWithoutDelivery, "delivery")).toBe("none");
+    expect(hasCapability(leadWithoutDelivery, "nav.clients")).toBe(false);
+
+    const financeModule = accessSnapshot("head_of_recruitment", {
+      grant: ["finance_module"],
+    });
+    expect(rolesWithSectionAccess("finance")).not.toContain("head_of_recruitment");
+    expect(hasCapability(financeModule, "nav.finance")).toBe(true);
+  });
+
+  it("wycofywany Viewer (0637) nie ma żadnej sekcji", () => {
     const viewer = { role: "user" as const };
-    expect(sectionAccessForUser(viewer, "pipeline")).toBe("read");
-    expect(sectionAccessForUser(viewer, "insights")).toBe("read");
+    expect(sectionAccessForUser(viewer, "sourcing")).toBe("none");
+    expect(sectionAccessForUser(viewer, "pipeline")).toBe("none");
+    expect(sectionAccessForUser(viewer, "insights")).toBe("none");
     expect(sectionAccessForUser(viewer, "delivery")).toBe("none");
   });
 

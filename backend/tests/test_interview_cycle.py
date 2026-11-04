@@ -15,6 +15,7 @@ niej. Te testy pilnują tego cyklu:
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -25,6 +26,7 @@ import app.models  # noqa: F401
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token, hash_password
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
+from app.models.notification import Notification, NotificationType
 from app.models.interview_feedback import FeedbackSource, InterviewFeedback
 from app.models.interview_question import (
     InterviewQuestion,
@@ -40,6 +42,7 @@ from app.services.interview_cycle import (
     compute_steps,
     compute_todos,
     current_step_key,
+    todo_is_mine,
 )
 
 NOW = datetime(2031, 6, 10, 12, 0, tzinfo=timezone.utc)
@@ -223,25 +226,145 @@ def test_dl_view_flags_client_interview_stage_without_slots():
     ] == ["slots_missing"]
 
 
+# ── Na kogo czeka zadanie (okienko „Rozmowy”, 13.10.2026) ────────────────────
+
+
+def _owned(ev: EventRef, owner_id: int) -> EventRef:
+    return replace(ev, owner_id=owner_id)
+
+
+def _todos_by_kind(
+    pair: PairSnapshot, *, user_id: int = 11, is_dl_view: bool = False
+) -> dict[str, dict]:
+    todos = compute_todos(
+        pair, NOW, call_window_minutes=30, user_id=user_id, is_dl_view=is_dl_view
+    )
+    return {t["kind"]: t for t in todos}
+
+
+def test_call_and_debrief_wait_for_the_interview_owner():
+    call = PairSnapshot(1, 2, interview=_owned(_iv(NOW - timedelta(minutes=65)), 11))
+    assert _todos_by_kind(call)["call_now"]["owner_id"] == 11
+    overdue = PairSnapshot(1, 2, interview=_owned(_iv(NOW - timedelta(hours=3)), 11))
+    assert _todos_by_kind(overdue)["debrief_overdue"]["owner_id"] == 11
+
+
+def test_slot_todos_wait_for_the_recruiter_and_the_request_author():
+    pick = PairSnapshot(1, 2, slot_request=_req("awaiting_recruiter"))
+    assert _todos_by_kind(pick)["slots_pick"]["owner_id"] == 11
+    confirm = PairSnapshot(1, 2, slot_request=_req("awaiting_dl", chosen=0))
+    assert _todos_by_kind(confirm, user_id=22)["slots_confirm"]["owner_id"] == 22
+    missing = PairSnapshot(1, 2, latest_stage="client_interview")
+    assert _todos_by_kind(missing, is_dl_view=True)["slots_missing"]["owner_id"] is None
+
+
+def test_prep_todos_wait_for_the_interview_owner_or_the_prep_organizer():
+    upcoming = _owned(_iv(NOW + timedelta(days=2)), 11)
+    assert (
+        _todos_by_kind(PairSnapshot(1, 2, interview=upcoming))["prep_missing"][
+            "owner_id"
+        ]
+        == 11
+    )
+
+    def prep(**fields) -> EventRef:
+        base = dict(id=5, start=NOW - timedelta(hours=2), end=None, title="P")
+        return EventRef(**{**base, "status": "completed", "owner_id": 33, **fields})
+
+    weak = prep(
+        prep_no=1, transcript_status="ready", review_status="ok", review_level="weak"
+    )
+    with_weak = _todos_by_kind(PairSnapshot(1, 2, preps=[weak], interview=upcoming))
+    assert with_weak["prep_weak"]["owner_id"] == 33
+    # Prep 2 planuje rekruter (właściciel rozmowy), nie organizator Prepu 1.
+    assert with_weak["prep2_missing"]["owner_id"] == 11
+
+    unrecorded = prep(prep_no=1, transcript_status="missing")
+    assert (
+        _todos_by_kind(PairSnapshot(1, 2, preps=[unrecorded], interview=upcoming))[
+            "prep_unrecorded"
+        ]["owner_id"]
+        == 33
+    )
+
+    late = prep(start=NOW + timedelta(days=3), status="scheduled", ordinal=1)
+    assert (
+        _todos_by_kind(PairSnapshot(1, 2, interview=upcoming, late_preps=[late]))[
+            "prep_late"
+        ]["owner_id"]
+        == 33
+    )
+
+
+@pytest.mark.parametrize(
+    "kind, owner_id, acting_for, delivery_lead_id, expected",
+    [
+        ("call_now", 11, {11}, None, True),
+        # Delivery Lead w „Moich rekrutacjach” widzi telefon rekrutera, nie dostaje go.
+        ("call_now", 11, {22}, 22, False),
+        ("call_now", None, {11}, 11, False),
+        # Zastępca pracuje za nieobecnego właściciela.
+        ("debrief_overdue", 11, {22, 11}, None, True),
+        ("slots_pick", None, {11}, None, True),
+        ("slots_pick", 99, {11}, None, False),
+        ("slots_confirm", 22, {22}, None, True),
+        ("slots_confirm", 22, {11}, None, False),
+        ("prep_missing", 11, {22}, 22, True),
+        ("prep_missing", 11, {11}, 22, True),
+        ("prep_missing", 11, {33}, 22, False),
+        ("prep2_missing", 11, {11}, 22, True),
+        ("prep2_missing", 11, {22}, 22, False),
+        ("prep2_missing", None, {22}, 22, True),
+        ("prep_late", 33, {33}, None, True),
+        ("prep_weak", 33, {11}, 11, False),
+        ("prep_unrecorded", 33, {33}, None, True),
+        ("slots_missing", None, {22}, 22, True),
+        ("slots_missing", None, {22}, None, False),
+    ],
+)
+def test_todo_is_mine(kind, owner_id, acting_for, delivery_lead_id, expected):
+    todo = {"kind": kind, "owner_id": owner_id}
+    assert todo_is_mine(todo, acting_for, delivery_lead_id=delivery_lead_id) is expected
+
+
 # ── Wyzwalacze po rozmowie ───────────────────────────────────────────────────
 
 
-def test_client_interview_reminder_goes_to_event_owner_on_candidate_side():
-    from app.services.notification_triggers import (
-        _post_interview_recipients,
-        _post_interview_side,
-    )
+async def test_client_interview_reminder_goes_to_event_owner_on_candidate_side(
+    monkeypatch,
+):
+    from app.services import notification_triggers as nt
 
     ev = CalendarEvent(
         event_type=EventType.client_interview, operational_owner_id=11, created_by=22
     )
-    assert _post_interview_side(ev, None) is False
+    assert nt._post_interview_side(ev, None) is False
 
     class _Job:
         recruiter_id = 33
         delivery_lead_id = 44
 
-    assert _post_interview_recipients(ev, _Job(), client_side=False) == [11]
+    async def active(db, user_id):
+        return True
+
+    async def working_owner_id(_db, job):  # nikt nie jest „Poprzednim rekruterem”
+        return job.recruiter_id
+
+    async def source_unchanged(_db, *, force=False):
+        return False
+
+    monkeypatch.setattr(nt, "_user_is_active", active)
+    monkeypatch.setattr(nt, "working_owner_id", working_owner_id)
+    # Test bez bazy: przełącznik źródła dostępności odświeża się z bazy co
+    # minutę, więc wynik zależał od tego, ile trwały testy przed nim
+    # (kolejka 19.10.2026: „'NoneType' object has no attribute 'scalar'”).
+    from app.services.hr import availability_local
+
+    monkeypatch.setattr(availability_local, "refresh_source", source_unchanged)
+    monkeypatch.setattr(availability_local, "availability_enabled", lambda: False)
+    assert await nt._post_interview_recipients(None, ev, _Job(), client_side=False) == [
+        11
+    ]
 
 
 def test_client_interview_reminder_links_to_debrief_not_generic_feedback():
@@ -301,6 +424,7 @@ async def _job_with_candidate(*, recruiter_id: int, dl_id: int) -> tuple[int, in
             name="Anna",
             lastname=f"Cykl-{tag}",
             email=f"cycle-cand-{tag}@example.com",
+            phone="+48 500 000 000",
             status=CandidateStatus.active,
         )
         db.add_all([job, cand])
@@ -320,6 +444,55 @@ async def _job_with_candidate(*, recruiter_id: int, dl_id: int) -> tuple[int, in
 def _future(days: int, hour: int = 9) -> str:
     base = datetime.now(timezone.utc) + timedelta(days=days)
     return base.replace(hour=hour, minute=0, second=0, microsecond=0).isoformat()
+
+
+async def test_cancelled_interview_from_the_choice_drops_client_reply_todo(
+    app_client: AsyncClient,
+):
+    """Audyt 22.10, F33: rozmowa z wyboru rekrutera odwołana w kalendarzu —
+    DL nie ma już „Odpisz klientowi” z tekstem potwierdzającym termin."""
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _client_id = await _job_with_candidate(
+        recruiter_id=rec_id, dl_id=dl_id
+    )
+    created = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(3)}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{created.json()['id']}/choose",
+        headers=rec_h,
+        json={"index": 0},
+    )
+    assert chosen.status_code == 200, chosen.text
+    body = chosen.json()
+    assert body["client_reply_pending"] is True
+
+    def reply_todos(resp) -> list:
+        return [
+            t
+            for t in resp.json()["todos"]
+            if t["candidate_id"] == cand_id and t["kind"] == "slots_reply"
+        ]
+
+    before = await app_client.get("/api/interview-cycle?scope=mine", headers=dl_h)
+    assert reply_todos(before)
+
+    async with AsyncSessionLocal() as db:
+        event = await db.get(CalendarEvent, body["event_id"])
+        event.status = EventStatus.cancelled
+        await db.commit()
+
+    after = await app_client.get("/api/interview-cycle?scope=mine", headers=dl_h)
+    assert after.status_code == 200, after.text
+    assert reply_todos(after) == []
 
 
 async def test_full_slot_flow_creates_client_interview_for_recruiter(
@@ -373,25 +546,39 @@ async def test_full_slot_flow_creates_client_interview_for_recruiter(
         json={"index": 1},
     )
     assert chosen.status_code == 200, chosen.text
-    assert chosen.json()["status"] == "awaiting_dl"
+    # 0487 (20.10.2026): wybór rekrutera od razu wpisuje rozmowę do
+    # kalendarza, DL tylko odpisuje klientowi.
+    body = chosen.json()
+    assert body["status"] == "confirmed"
+    assert body["client_reply_pending"] is True
+    assert body["event_id"] is not None
 
-    # Rekruter nie potwierdza klientowi — to przekazanie należy do DL.
-    self_confirm = await app_client.post(
-        f"/api/interview-cycle/slots/{req['id']}/confirm",
-        headers=rec_h,
-        json={"add_to_outlook": False},
+    # Rekruter nie odpisuje klientowi w imieniu DL-a.
+    self_reply = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/client-replied", headers=rec_h
     )
-    assert self_confirm.status_code == 403, self_confirm.text
+    assert self_reply.status_code == 403, self_reply.text
 
-    confirmed = await app_client.post(
-        f"/api/interview-cycle/slots/{req['id']}/confirm",
-        headers=dl_h,
-        json={"add_to_outlook": False},
+    dl_todos = await app_client.get("/api/interview-cycle?scope=mine", headers=dl_h)
+    reply_todo = next(
+        t
+        for t in dl_todos.json()["todos"]
+        if t["candidate_id"] == cand_id and t["kind"] == "slots_reply"
     )
-    assert confirmed.status_code == 200, confirmed.text
-    body = confirmed.json()
-    assert body["request"]["status"] == "confirmed"
-    assert body["outlook"] == "not_requested"
+    assert reply_todo["mine"] is True
+
+    replied = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/client-replied", headers=dl_h
+    )
+    assert replied.status_code == 200, replied.text
+    assert replied.json()["client_reply_pending"] is False
+    assert replied.json()["client_replied_at"] is not None
+    dl_todos = await app_client.get("/api/interview-cycle?scope=mine", headers=dl_h)
+    assert not any(
+        t["kind"] == "slots_reply"
+        for t in dl_todos.json()["todos"]
+        if t["candidate_id"] == cand_id
+    )
 
     async with AsyncSessionLocal() as db:
         event = await db.get(CalendarEvent, body["event_id"])
@@ -418,6 +605,9 @@ async def test_full_slot_flow_creates_client_interview_for_recruiter(
     assert states["interview"] == "scheduled"
     assert states["choice"] == "done"
     assert item["candidate_name"].startswith("Anna Cykl-")
+    # Numer i e-mail w nagłówku panelu rozmowy — do umawiania terminu.
+    assert item["candidate_phone"] == "+48 500 000 000"
+    assert item["candidate_email"].startswith("cycle-cand-")
     agenda_kinds = {
         a["kind"] for a in overview.json()["agenda"] if a["candidate_id"] == cand_id
     }
@@ -425,6 +615,199 @@ async def test_full_slot_flow_creates_client_interview_for_recruiter(
 
     dl_view = await app_client.get("/api/interview-cycle?scope=jobs", headers=dl_h)
     assert any(i["candidate_id"] == cand_id for i in dl_view.json()["items"])
+
+
+async def test_dl_replaces_open_slots_and_stale_choice_is_refused(
+    app_client: AsyncClient,
+):
+    """Zgłoszenie 30.10.2026: otwartych terminów nie dało się zmienić ani
+    anulować z ekranu, a nowe kończyły się samym 409."""
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    other_dl_id, other_dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    other_job_id, other_cand_id, _ = await _job_with_candidate(
+        recruiter_id=rec_id, dl_id=other_dl_id
+    )
+    base = {"candidate_id": cand_id, "job_id": job_id}
+
+    first = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={**base, "slots": [{"start": _future(2)}, {"start": _future(3)}]},
+    )
+    assert first.status_code == 201, first.text
+    first_id = first.json()["id"]
+
+    # 409 mówi, który wniosek stoi na drodze — okno proponuje jego zastąpienie.
+    dup = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={**base, "slots": [{"start": _future(4)}]},
+    )
+    assert dup.status_code == 409, dup.text
+    detail = dup.json()["detail"]
+    assert detail["code"] == "SLOTS_ALREADY_OPEN"
+    assert detail["open_request_id"] == first_id
+
+    # Wniosek innej pary nie zostaje zastąpiony przez pomyłkę.
+    foreign = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=other_dl_h,
+        json={
+            "candidate_id": other_cand_id,
+            "job_id": other_job_id,
+            "slots": [{"start": _future(4)}],
+            "replaces_request_id": first_id,
+        },
+    )
+    assert foreign.status_code == 422, foreign.text
+
+    # Rekruter nie zmienia terminów od klienta.
+    by_recruiter = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=rec_h,
+        json={
+            **base,
+            "slots": [{"start": _future(4)}],
+            "replaces_request_id": first_id,
+        },
+    )
+    assert by_recruiter.status_code == 403, by_recruiter.text
+
+    replaced = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            **base,
+            "slots": [{"start": _future(4)}, {"start": _future(5)}],
+            "replaces_request_id": first_id,
+        },
+    )
+    assert replaced.status_code == 201, replaced.text
+    new = replaced.json()
+    assert new["id"] != first_id
+    assert new["status"] == "awaiting_recruiter"
+    assert new["recruiter_id"] == rec_id
+
+    # Rekruter z oknem otwartym na starej liście nie wybierze indeksem nowego
+    # terminu — wybór od razu wpisuje rozmowę do kalendarza.
+    stale = await app_client.post(
+        f"/api/interview-cycle/slots/{first_id}/choose",
+        headers=rec_h,
+        json={"index": 0},
+    )
+    assert stale.status_code == 409, stale.text
+
+    mine = await app_client.get("/api/interview-cycle?scope=mine", headers=rec_h)
+    pair = next(i for i in mine.json()["items"] if i["candidate_id"] == cand_id)
+    assert pair["slot_request"]["id"] == new["id"]
+
+    # Dwa razy tego samego nie da się zastąpić.
+    again = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            **base,
+            "slots": [{"start": _future(6)}],
+            "replaces_request_id": first_id,
+        },
+    )
+    assert again.status_code == 409, again.text
+
+    # Termin już wybrany i wpisany do kalendarza zmienia „Klient wybrał inny
+    # termin”, nie zastąpienie wniosku.
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{new['id']}/choose",
+        headers=rec_h,
+        json={"index": 0},
+    )
+    assert chosen.json()["status"] == "confirmed", chosen.text
+    after_confirm = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            **base,
+            "slots": [{"start": _future(6)}],
+            "replaces_request_id": new["id"],
+        },
+    )
+    assert after_confirm.status_code == 409, after_confirm.text
+
+
+async def test_jobs_scope_includes_the_callers_own_pairs_from_other_jobs(
+    app_client: AsyncClient,
+):
+    """Zgłoszenie 02.10.2026: DL wpisał terminy od klienta, dzwonek dostała
+    rekruterka kandydata, która NIE jest w zespole tej rekrutacji. Jej ekran
+    startuje w „Moje rekrutacje” (ma też rolę TAC), a ten zakres pary nie
+    zawierał — tablica była pusta, a link z dzwonka mówił „nie ma w Twoim
+    zakresie”. „Moje rekrutacje” zawierają też własne pary."""
+    job_rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    outsider_id, outsider_h = await _user(UserRole.recruiter)
+    _, stranger_h = await _user(UserRole.recruiter)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=job_rec_id, dl_id=dl_id)
+
+    created = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(4)}, {"start": _future(3)}],
+            "recruiter_id": outsider_id,
+        },
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["recruiter_id"] == outsider_id
+
+    jobs = await app_client.get("/api/interview-cycle?scope=jobs", headers=outsider_h)
+    assert jobs.status_code == 200, jobs.text
+    item = next((i for i in jobs.json()["items"] if i["candidate_id"] == cand_id), None)
+    assert item is not None, "własny wniosek o terminy zniknął z „Moich rekrutacji”"
+    kinds = [t["kind"] for t in jobs.json()["todos"] if t["candidate_id"] == cand_id]
+    assert "slots_pick" in kinds
+    # Okno prepu zna najwcześniejszy termin, który jeszcze czeka na wybór.
+    assert item["tentative_interview_at"].startswith(_future(3)[:13])
+
+    # Osoba bez żadnego związku z parą nadal jej w swoim zakresie nie ma.
+    other = await app_client.get("/api/interview-cycle?scope=jobs", headers=stranger_h)
+    assert all(i["candidate_id"] != cand_id for i in other.json()["items"])
+
+
+async def test_overview_marks_whose_todo_it_is(app_client: AsyncClient):
+    """Okienko „Rozmowy” (13.10.2026): Delivery Lead w „Moich rekrutacjach”
+    widzi wybór terminu rekrutera, ale nie jako swoje zadanie."""
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    created = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(4)}],
+            "recruiter_id": rec_id,
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    def pick(resp) -> dict:
+        assert resp.status_code == 200, resp.text
+        return next(
+            t
+            for t in resp.json()["todos"]
+            if t["candidate_id"] == cand_id and t["kind"] == "slots_pick"
+        )
+
+    mine = await app_client.get("/api/interview-cycle?scope=mine", headers=rec_h)
+    assert pick(mine)["mine"] is True
+    # Wskazanie wykonawcy jest wewnętrzne — odpowiedź niesie tylko flagę.
+    assert "owner_id" not in pick(mine)
+    jobs = await app_client.get("/api/interview-cycle?scope=jobs", headers=dl_h)
+    assert pick(jobs)["mine"] is False
 
 
 async def test_slots_require_dl_role_and_pipeline_pair(app_client: AsyncClient):
@@ -607,6 +990,128 @@ async def test_debrief_saves_feedback_and_client_questions(app_client: AsyncClie
     assert states["debrief"] == "done"
 
 
+async def test_delivery_lead_of_the_job_saves_debrief_for_someone_elses_interview(
+    app_client: AsyncClient,
+):
+    """Audyt 25.09.2026: DL rekrutacji, który nie jest właścicielem ani
+    uczestnikiem rozmowy, dostawał 404 — a bramka debriefu przed „Umową”
+    zatrzymywała go bez wyjścia. Rekrutacje widzą wszyscy (23.09.2026)."""
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, client_id = await _job_with_candidate(
+        recruiter_id=rec_id, dl_id=dl_id
+    )
+    event_id = await _client_interview(
+        owner_id=rec_id,
+        cand_id=cand_id,
+        job_id=job_id,
+        client_id=client_id,
+        ended_min_ago=15,
+    )
+    event = await app_client.get(
+        f"/api/interview-cycle/events/{event_id}", headers=dl_h
+    )
+    assert event.status_code == 200, event.text
+    saved = await app_client.put(
+        f"/api/interview-cycle/events/{event_id}/debrief",
+        headers=dl_h,
+        json={
+            "outcome": "good",
+            "offer_acceptance": "likely",
+            "no_client_questions": True,
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    fetched = await app_client.get(
+        f"/api/interview-cycle/events/{event_id}/debrief", headers=dl_h
+    )
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["offer_acceptance"] == "likely"
+
+
+async def test_slot_request_recruiter_must_be_an_active_team_member(
+    app_client: AsyncClient,
+):
+    """Audyt 25.09.2026: nieistniejący `recruiter_id` kończył się błędem klucza
+    obcego braną za „otwarte terminy" (409), a dowolne konto dostawało wybór
+    terminu i blokadę w Outlooku. Teraz 422 po polsku, zanim coś się zapisze."""
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    inactive_id, _ = await _user(UserRole.recruiter)
+    trainee_id, _ = await _user(UserRole.trainee)
+    async with AsyncSessionLocal() as db:
+        inactive = await db.get(User, inactive_id)
+        inactive.is_active = False
+        await db.commit()
+
+    for bad in (2_000_000_000, inactive_id, trainee_id):
+        resp = await app_client.post(
+            "/api/interview-cycle/slots",
+            headers=dl_h,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "slots": [{"start": _future(2)}],
+                "recruiter_id": bad,
+            },
+        )
+        assert resp.status_code == 422, resp.text
+        assert "zespołu rekrutacji" in resp.json()["detail"]
+
+    ok = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(2)}],
+            "recruiter_id": rec_id,
+        },
+    )
+    assert ok.status_code == 201, ok.text
+    assert ok.json()["recruiter_id"] == rec_id
+
+
+async def test_default_slot_recruiter_skips_an_inactive_first_verifier(
+    app_client: AsyncClient,
+):
+    """Runda 2 audytu 25.09.2026: podpowiadany rekruter wniosku (właściciel
+    procesu → pierwszy weryfikator → rekruter rekrutacji) nie przechodził
+    reguły jawnego wyboru — wniosek dostawał np. ktoś, kto odszedł z firmy."""
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    gone_id, _ = await _user(UserRole.recruiter)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    async with AsyncSessionLocal() as db:
+        gone = await db.get(User, gone_id)
+        gone.is_active = False
+        db.add(
+            CandidateStage(
+                candidate_id=cand_id,
+                job_id=job_id,
+                stage=PipelineStage.verified,
+                moved_by=gone_id,
+                moved_at=datetime.now(timezone.utc) - timedelta(days=10),
+            )
+        )
+        await db.commit()
+
+    resp = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(2)}],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["recruiter_id"] == rec_id
+
+
 async def test_prep_kit_includes_client_debrief_questions_from_other_jobs(
     app_client: AsyncClient,
 ):
@@ -719,3 +1224,539 @@ def test_outcome_mapping_round_trips(value, expected):
     from app.api.interview_cycle import _outcome_from_impression
 
     assert _outcome_from_impression(value) == expected
+
+
+# ── Potwierdzenie terminu (runda 6 audytu, IC-1 / IC-3) ──────────────────────
+
+
+async def _slot_request(app_client, dl_h, cand_id, job_id, days=3) -> dict:
+    created = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(days)}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    return created.json()
+
+
+async def test_confirming_a_new_date_cancels_the_unheld_previous_interview(
+    app_client: AsyncClient,
+):
+    """Klient przełożył rozmowę: stara, nieodbyta rozmowa nie może dawać
+    telefonów T+15/T+45 ani zabierać prepów nowej rundzie."""
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, client_id = await _job_with_candidate(
+        recruiter_id=rec_id, dl_id=dl_id
+    )
+    first = await _slot_request(app_client, dl_h, cand_id, job_id, days=2)
+    one = await app_client.post(
+        f"/api/interview-cycle/slots/{first['id']}/confirm",
+        headers=dl_h,
+        json={"index": 0, "add_to_outlook": False},
+    )
+    assert one.status_code == 200, one.text
+    held = await _client_interview(
+        owner_id=rec_id,
+        cand_id=cand_id,
+        job_id=job_id,
+        client_id=client_id,
+        ended_min_ago=60 * 24,
+    )
+
+    second = await _slot_request(app_client, dl_h, cand_id, job_id, days=5)
+    # Okno potwierdzenia pokazuje DL rozmowy, które termin może przełożyć:
+    # tylko przyszłą, nieodbytą — nie tę, która się odbyła.
+    listed = await app_client.get(
+        f"/api/interview-cycle/slots/{second['id']}/replaceable", headers=dl_h
+    )
+    assert listed.status_code == 200, listed.text
+    assert [row["id"] for row in listed.json()] == [one.json()["event_id"]]
+    two = await app_client.post(
+        f"/api/interview-cycle/slots/{second['id']}/confirm",
+        headers=dl_h,
+        json={
+            "index": 0,
+            "add_to_outlook": False,
+            "supersedes_event_id": one.json()["event_id"],
+        },
+    )
+    assert two.status_code == 200, two.text
+    assert two.json()["cancelled_event_id"] == one.json()["event_id"]
+    # Rozmowa była tylko w NEXUSIE — w Outlooku nie było czego zdejmować.
+    assert two.json()["superseded_outlook"] == "none"
+
+    async with AsyncSessionLocal() as db:
+        old = await db.get(CalendarEvent, one.json()["event_id"])
+        new = await db.get(CalendarEvent, two.json()["event_id"])
+        past = await db.get(CalendarEvent, held)
+        assert old.status == EventStatus.cancelled
+        assert new.status == EventStatus.scheduled
+        # Rozmowa, która się odbyła, zostaje w historii.
+        assert past.status == EventStatus.completed
+
+
+async def _planned_interview(
+    *,
+    owner_id: int,
+    cand_id: int,
+    job_id: int,
+    client_id: int,
+    start: datetime,
+    **extra,
+) -> int:
+    async with AsyncSessionLocal() as db:
+        ev = CalendarEvent(
+            title="Rozmowa u klienta",
+            event_type=EventType.client_interview,
+            start_time=start,
+            end_time=start + timedelta(hours=1),
+            status=EventStatus.scheduled,
+            created_by=owner_id,
+            operational_owner_id=owner_id,
+            candidate_id=cand_id,
+            job_id=job_id,
+            client_id=client_id,
+            attendees=[],
+            **extra,
+        )
+        db.add(ev)
+        await db.commit()
+        return ev.id
+
+
+async def test_confirming_the_hour_already_in_the_calendar_leaves_one_interview(
+    app_client: AsyncClient,
+):
+    """Zgłoszenie 03.11.2026: rekruter wpisał rozmowę przy ruchu karty, DL dał
+    wniosek o ten sam termin — para miała dwie rozmowy o jednej godzinie
+    (podwójne telefony po rozmowie i prepy „pominięte”)."""
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, client_id = await _job_with_candidate(
+        recruiter_id=rec_id, dl_id=dl_id
+    )
+    entered = await _planned_interview(
+        owner_id=rec_id,
+        cand_id=cand_id,
+        job_id=job_id,
+        client_id=client_id,
+        start=datetime.fromisoformat(_future(3)),
+        external_source="manual",
+    )
+    req = await _slot_request(app_client, dl_h, cand_id, job_id, days=3)
+    done = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/confirm",
+        headers=dl_h,
+        json={"index": 0, "add_to_outlook": False},
+    )
+    assert done.status_code == 200, done.text
+    assert done.json()["event_id"] != entered
+
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(CalendarEvent, entered)).status == EventStatus.cancelled
+        new = await db.get(CalendarEvent, done.json()["event_id"])
+        assert new.status == EventStatus.scheduled
+
+
+async def test_confirming_the_same_hour_keeps_a_foreign_outlook_meeting(
+    app_client: AsyncClient,
+):
+    """Spotkania z Outlooka z uczestnikami NEXUS sam nie odwołuje — to wysłałoby
+    odwołanie ludziom spoza firmy (``replaceable_interviews``)."""
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, client_id = await _job_with_candidate(
+        recruiter_id=rec_id, dl_id=dl_id
+    )
+    outlook = await _planned_interview(
+        owner_id=rec_id,
+        cand_id=cand_id,
+        job_id=job_id,
+        client_id=client_id,
+        start=datetime.fromisoformat(_future(3)),
+        external_source="microsoft365",
+    )
+    req = await _slot_request(app_client, dl_h, cand_id, job_id, days=3)
+    done = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/confirm",
+        headers=dl_h,
+        json={"index": 0, "add_to_outlook": False},
+    )
+    assert done.status_code == 200, done.text
+
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(CalendarEvent, outlook)).status == EventStatus.scheduled
+
+
+async def test_confirming_another_hour_keeps_the_interview_in_the_calendar(
+    app_client: AsyncClient,
+):
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, client_id = await _job_with_candidate(
+        recruiter_id=rec_id, dl_id=dl_id
+    )
+    other_round = await _planned_interview(
+        owner_id=rec_id,
+        cand_id=cand_id,
+        job_id=job_id,
+        client_id=client_id,
+        start=datetime.fromisoformat(_future(3, hour=11)),
+        external_source="manual",
+    )
+    req = await _slot_request(app_client, dl_h, cand_id, job_id, days=3)
+    done = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/confirm",
+        headers=dl_h,
+        json={"index": 0, "add_to_outlook": False},
+    )
+    assert done.status_code == 200, done.text
+
+    async with AsyncSessionLocal() as db:
+        kept = await db.get(CalendarEvent, other_round)
+        assert kept.status == EventStatus.scheduled
+
+
+async def test_next_round_without_rescheduling_keeps_both_interviews(
+    app_client: AsyncClient,
+):
+    """Decyzja Artura 26.09.2026: bez jawnego „to przełożenie” nic nie jest
+    odwoływane — klient bywa, że umawia dwie rundy naraz."""
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    first = await _slot_request(app_client, dl_h, cand_id, job_id, days=2)
+    one = await app_client.post(
+        f"/api/interview-cycle/slots/{first['id']}/confirm",
+        headers=dl_h,
+        json={"index": 0, "add_to_outlook": False},
+    )
+    assert one.status_code == 200, one.text
+    second = await _slot_request(app_client, dl_h, cand_id, job_id, days=5)
+    two = await app_client.post(
+        f"/api/interview-cycle/slots/{second['id']}/confirm",
+        headers=dl_h,
+        json={"index": 0, "add_to_outlook": False},
+    )
+    assert two.status_code == 200, two.text
+    assert two.json()["cancelled_event_id"] is None
+    assert two.json()["superseded_outlook"] is None
+    async with AsyncSessionLocal() as db:
+        for key in (one, two):
+            event = await db.get(CalendarEvent, key.json()["event_id"])
+            assert event.status == EventStatus.scheduled
+
+
+async def test_superseding_a_foreign_interview_is_refused(app_client: AsyncClient):
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    other_job, other_cand, _ = await _job_with_candidate(
+        recruiter_id=rec_id, dl_id=dl_id
+    )
+    foreign = await _slot_request(app_client, dl_h, other_cand, other_job, days=2)
+    foreign_ok = await app_client.post(
+        f"/api/interview-cycle/slots/{foreign['id']}/confirm",
+        headers=dl_h,
+        json={"index": 0, "add_to_outlook": False},
+    )
+    assert foreign_ok.status_code == 200, foreign_ok.text
+    mine = await _slot_request(app_client, dl_h, cand_id, job_id, days=5)
+    refused = await app_client.post(
+        f"/api/interview-cycle/slots/{mine['id']}/confirm",
+        headers=dl_h,
+        json={
+            "index": 0,
+            "add_to_outlook": False,
+            "supersedes_event_id": foreign_ok.json()["event_id"],
+        },
+    )
+    assert refused.status_code == 422, refused.text
+    async with AsyncSessionLocal() as db:
+        event = await db.get(CalendarEvent, foreign_ok.json()["event_id"])
+        assert event.status == EventStatus.scheduled
+
+
+async def test_confirm_skips_a_recruiter_who_left_before_confirmation(
+    app_client: AsyncClient,
+):
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    req = await _slot_request(app_client, dl_h, cand_id, job_id)
+    assert req["recruiter_id"] == rec_id
+    async with AsyncSessionLocal() as db:
+        gone = await db.get(User, rec_id)
+        gone.is_active = False
+        await db.commit()
+
+    confirmed = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/confirm",
+        headers=dl_h,
+        json={"index": 0, "add_to_outlook": False},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    async with AsyncSessionLocal() as db:
+        event = await db.get(CalendarEvent, confirmed.json()["event_id"])
+        # Nikogo innego z dostępem nie ma — rozmowa zostaje u potwierdzającego.
+        assert event.operational_owner_id == dl_id
+        assert event.created_by == dl_id
+
+
+# ── 0487: wybór rekrutera = rozmowa w kalendarzu, DL odpisuje klientowi ─────
+
+
+async def _two_slot_request(app_client, dl_h, cand_id, job_id) -> dict:
+    created = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(3)}, {"start": _future(4)}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    return created.json()
+
+
+async def test_dl_picking_the_slot_notifies_the_recruiter(app_client: AsyncClient):
+    """DL wybrał termin sam — rozmowa jest w kalendarzu rekrutera, więc
+    rekruter dostaje powiadomienie, jak po potwierdzeniu."""
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    req = await _two_slot_request(app_client, dl_h, cand_id, job_id)
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/choose",
+        headers=dl_h,
+        json={"index": 0},
+    )
+    assert chosen.status_code == 200, chosen.text
+    assert chosen.json()["status"] == "confirmed"
+    assert chosen.json()["outlook"] in ("not_requested", "skipped", "failed", "added")
+    async with AsyncSessionLocal() as db:
+        recipients = set(
+            (
+                await db.execute(
+                    select(Notification.user_id).where(
+                        Notification.notification_type
+                        == NotificationType.interview_slot_confirmed,
+                        Notification.related_entity_id == req["id"],
+                    )
+                )
+            ).scalars()
+        )
+    assert rec_id in recipients
+
+
+async def test_choice_waits_for_dl_when_the_switch_is_off(
+    app_client: AsyncClient, monkeypatch
+):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "SLOT_CHOICE_CONFIRMS", False)
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    req = await _two_slot_request(app_client, dl_h, cand_id, job_id)
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/choose",
+        headers=rec_h,
+        json={"index": 0},
+    )
+    assert chosen.status_code == 200, chosen.text
+    assert chosen.json()["status"] == "awaiting_dl"
+    assert chosen.json()["event_id"] is None
+    confirmed = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/confirm",
+        headers=dl_h,
+        json={"add_to_outlook": False},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    # DL potwierdził u klienta — nie ma zadania „Odpisz klientowi”.
+    assert confirmed.json()["request"]["client_reply_pending"] is False
+
+
+async def test_choice_next_to_a_planned_interview_still_waits_for_dl(
+    app_client: AsyncClient,
+):
+    """Nowy termin przy zaplanowanej rozmowie może być przełożeniem — o tym
+    decyduje DL w oknie potwierdzenia (reguła 26.09.2026)."""
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    first = await _slot_request(app_client, dl_h, cand_id, job_id, days=2)
+    one = await app_client.post(
+        f"/api/interview-cycle/slots/{first['id']}/confirm",
+        headers=dl_h,
+        json={"index": 0, "add_to_outlook": False},
+    )
+    assert one.status_code == 200, one.text
+    second = await _slot_request(app_client, dl_h, cand_id, job_id, days=5)
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{second['id']}/choose",
+        headers=rec_h,
+        json={"index": 0},
+    )
+    assert chosen.status_code == 200, chosen.text
+    assert chosen.json()["status"] == "awaiting_dl"
+
+
+async def test_client_picked_another_slot_moves_the_interview(
+    app_client: AsyncClient,
+):
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    req = await _two_slot_request(app_client, dl_h, cand_id, job_id)
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/choose",
+        headers=rec_h,
+        json={"index": 0},
+    )
+    assert chosen.status_code == 200, chosen.text
+    first_event = chosen.json()["event_id"]
+
+    by_recruiter = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/change",
+        headers=rec_h,
+        json={"index": 1},
+    )
+    assert by_recruiter.status_code == 403, by_recruiter.text
+    same = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/change",
+        headers=dl_h,
+        json={"index": 0},
+    )
+    assert same.status_code == 422, same.text
+
+    changed = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/change",
+        headers=dl_h,
+        json={"index": 1},
+    )
+    assert changed.status_code == 200, changed.text
+    body = changed.json()
+    assert body["cancelled_event_id"] == first_event
+    assert body["request"]["chosen_index"] == 1
+    # Zmiana przyszła od klienta — odpowiedź do klienta jest odhaczona.
+    assert body["request"]["client_reply_pending"] is False
+    async with AsyncSessionLocal() as db:
+        old = await db.get(CalendarEvent, first_event)
+        new = await db.get(CalendarEvent, body["event_id"])
+        assert old.status == EventStatus.cancelled
+        assert new.status == EventStatus.scheduled
+        assert new.operational_owner_id == rec_id
+        assert new.start_time.isoformat().startswith(_future(4)[:13])
+
+
+async def test_every_change_of_the_slot_reaches_the_recruiter(
+    app_client: AsyncClient,
+):
+    """Audyt 22.10, F100: „Klient zmienił termin” nie ginie w dziennym
+    dedupie dzwonka po wcześniejszym dzwonku o tym samym wniosku."""
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    req = await _two_slot_request(app_client, dl_h, cand_id, job_id)
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/choose",
+        headers=rec_h,
+        json={"index": 0},
+    )
+    assert chosen.status_code == 200, chosen.text
+    for index in (1, 0):
+        changed = await app_client.post(
+            f"/api/interview-cycle/slots/{req['id']}/change",
+            headers=dl_h,
+            json={"index": index},
+        )
+        assert changed.status_code == 200, changed.text
+    async with AsyncSessionLocal() as db:
+        titles = (
+            await db.scalars(
+                select(Notification.title).where(
+                    Notification.user_id == rec_id,
+                    Notification.notification_type
+                    == NotificationType.interview_slot_confirmed,
+                )
+            )
+        ).all()
+    assert titles == ["Klient zmienił termin rozmowy"] * 2
+
+
+async def _move_slot_to_the_past(request_id: int, index: int) -> None:
+    """Termin wniosku cofnięty na now − 2 h (wniosek sprzed kilku dni)."""
+    from app.models.client_interview_slot_request import ClientInterviewSlotRequest
+
+    past = datetime.now(timezone.utc) - timedelta(hours=2)
+    async with AsyncSessionLocal() as db:
+        req = await db.get(ClientInterviewSlotRequest, request_id)
+        slots = [dict(s) for s in req.slots]
+        slots[index] = {
+            "start": past.isoformat(),
+            "end": (past + timedelta(hours=1)).isoformat(),
+        }
+        req.slots = slots
+        await db.commit()
+
+
+async def test_choosing_a_slot_that_already_passed_is_refused(
+    app_client: AsyncClient,
+):
+    """Audyt 21.10.2026: wybór od 0487 od razu zakłada rozmowę i blokadę
+    w Outlooku — minionego terminu nie wolno wybrać."""
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    req = await _two_slot_request(app_client, dl_h, cand_id, job_id)
+    await _move_slot_to_the_past(req["id"], 0)
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/choose",
+        headers=rec_h,
+        json={"index": 0},
+    )
+    assert chosen.status_code == 422, chosen.text
+    assert "minął" in chosen.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        events = (
+            await db.execute(
+                select(CalendarEvent.id).where(
+                    CalendarEvent.candidate_id == cand_id,
+                    CalendarEvent.job_id == job_id,
+                )
+            )
+        ).all()
+    assert events == []
+
+
+async def test_changing_to_a_slot_that_already_passed_keeps_the_interview(
+    app_client: AsyncClient,
+):
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    req = await _two_slot_request(app_client, dl_h, cand_id, job_id)
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/choose",
+        headers=rec_h,
+        json={"index": 1},
+    )
+    assert chosen.status_code == 200, chosen.text
+    event_id = chosen.json()["event_id"]
+    await _move_slot_to_the_past(req["id"], 0)
+    changed = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/change",
+        headers=dl_h,
+        json={"index": 0},
+    )
+    assert changed.status_code == 422, changed.text
+    async with AsyncSessionLocal() as db:
+        event = await db.get(CalendarEvent, event_id)
+        assert event.status == EventStatus.scheduled

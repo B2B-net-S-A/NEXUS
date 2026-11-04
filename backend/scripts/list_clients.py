@@ -17,17 +17,22 @@ albo SSH — a SSH na tym serwerze nie działa.
 z zewnątrz: filtr jedzie parametrem wiązanym, a wildcardy ``%``/``_`` są
 escapowane, więc ``%`` szuka znaku procenta, a nie zwraca całej bazy.
 
-Wyjście jest CELOWO ubogie — ``id``, nazwa, nazwa wyświetlana, NIP. Żadnych
-kwot, żadnych osób: to narzędzie odpowiada na pytanie „który numer wpisać
-w zmienną", a jego wyjście ląduje w logu GitHub Actions.
+Wyjście jest CELOWO ubogie — ``id``, nazwa, nazwa wyświetlana, końcówka NIP.
+Żadnych kwot, żadnych osób: to narzędzie odpowiada na pytanie „który numer
+wpisać w zmienną", a jego wyjście ląduje w logu GitHub Actions. Pełnego NIP-u
+nie ma (runda 7, R7-X2-7): przy kliencie-JDG NIP jest daną osobową, a do
+odróżnienia dwóch rekordów wystarczą ostatnie cztery cyfry. Nazwa Klienta
+wydrukowana na umowie B2B wychodzi jako krótki skrót — równe skróty znaczą tę
+samą nazwę, a sama nazwa bywa imieniem i nazwiskiem przedsiębiorcy.
 
 Z ``--with-links`` dokłada, co do każdego znalezionego klienta jest
 przypięte: kontrakty i umowy z generatora B2B. To jest materiał do
 rozstrzygnięcia pomyłki „dwa podobnie nazwane rekordy klienta" (BNP Paribas
 Cardif ↔ CARDIF - ASSURANCES…), której nie da się zobaczyć z interfejsu ani
-policzyć bez dostępu do bazy. Wypisujemy IDENTYFIKATORY i statusy, a z osób —
-samo nazwisko: log Actions ma pozwolić wskazać wiersz do poprawki, a nie
-odtworzyć kartotekę.
+policzyć bez dostępu do bazy. Wypisujemy WYŁĄCZNIE IDENTYFIKATORY, statusy
+i liczby — bez nazwisk, nazw Partnerów i tytułów zamówień (tytuł niesie zwykle
+imię i nazwisko), bo wyjście ląduje w logu Actions PUBLICZNEGO repo (runda 6
+audytu). Osobę wskazuje ``candidate=<id>``.
 
 Użycie::
 
@@ -39,6 +44,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
+import re
 import sys
 from pathlib import Path
 
@@ -50,7 +57,6 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.core.database import AsyncSessionLocal  # noqa: E402
 from app.models.b2b_generated_contract import B2BGeneratedContract  # noqa: E402
-from app.models.candidate import Candidate  # noqa: E402
 from app.models.client import Client  # noqa: E402
 from app.models.client_order import ClientOrder  # noqa: E402
 from app.models.contract import Contract  # noqa: E402
@@ -91,6 +97,49 @@ async def find_clients(needle: str, limit: int) -> list[tuple[int, str, str, str
         return [(r[0], r[1] or "", r[2] or "", r[3] or "") for r in rows.all()]
 
 
+def _nip_tail(nip: str) -> str:
+    digits = "".join(ch for ch in (nip or "") if ch.isdigit())
+    return f"…{digits[-4:]}" if digits else ""
+
+
+def _name_ref(name: str | None) -> str:
+    if not name:
+        return ""
+    folded = " ".join(name.split()).casefold()
+    return "sha:" + hashlib.sha256(folded.encode("utf-8")).hexdigest()[:8]
+
+
+# Forma prawna spółki kapitałowej / oddziału / banku = nazwa osoby prawnej,
+# nie przedsiębiorcy-osoby. Spółki osobowe (s.c., sp.j., sp.k.) celowo poza
+# listą — ich nazwa niesie nazwisko wspólnika.
+_LEGAL_ENTITY_RE = re.compile(
+    r"(?:\bs\.\s?a\.?(?![a-z])|\bsp\.\s?z\s?o\.\s?o\b|\bspółka akcyjna\b"
+    r"|\bograniczoną odpowiedzialnością\b|\bgmbh\b|\bltd\b|\blimited\b|\binc\b"
+    r"|\bllc\b|\bag\b|\bse\b|\bb\.v\.|\bn\.v\.|\bplc\b|\bs\.r\.l\b"
+    r"|\bsas\b|\boddział\b|\bbank\b|\bbanku\b)",
+    re.IGNORECASE,
+)
+
+
+def _client_label(name: str | None) -> str:
+    """Nazwa klienta do publicznego logu Actions (runda 8, R8-V3-8).
+
+    Klient-JDG („Jan Kowalski Consulting”) to imię i nazwisko. Nazwa z formą
+    prawną spółki kapitałowej / banku idzie w całości (tym narzędziem
+    rozróżnia się podobne rekordy firm); każda inna — pierwszy wyraz, inicjały
+    reszty i skrót (``_name_ref``), więc dwa rekordy tej samej nazwy nadal
+    widać jako równe.
+    """
+    if not name:
+        return ""
+    if _LEGAL_ENTITY_RE.search(name):
+        return name
+    words = name.split()
+    initials = " ".join(f"{w[0]}." for w in words[1:] if w[:1].isalnum())
+    head = words[0] if words else ""
+    return " ".join(p for p in (head, initials, f"[{_name_ref(name)}]") if p)
+
+
 async def print_links(client_ids: list[int]) -> None:
     """Kontrakty i umowy B2B przypięte do wskazanych klientów.
 
@@ -107,20 +156,18 @@ async def print_links(client_ids: list[int]) -> None:
                 Contract.client_id,
                 Contract.status,
                 Contract.job_id,
-                Candidate.lastname,
-                Candidate.name,
+                Contract.candidate_id,
             )
-            .join(Candidate, Candidate.id == Contract.candidate_id, isouter=True)
             .where(Contract.client_id.in_(client_ids))
             .order_by(Contract.id)
         )
         contracts = rows.all()
         print(f"=== contracts on those clients: {len(contracts)} ===")
-        for cid, client_id, status, job_id, lastname, first in contracts:
-            who = f"{(first or '')[:1]}. {lastname or ''}".strip()
+        for cid, client_id, status, job_id, candidate_id in contracts:
             st = getattr(status, "value", status)
             print(
-                f"contract={cid}\tclient={client_id}\tstatus={st}\tjob={job_id}\t{who}"
+                f"contract={cid}\tclient={client_id}\tstatus={st}\tjob={job_id}"
+                f"\tcandidate={candidate_id}"
             )
 
         rows = await db.execute(
@@ -132,17 +179,19 @@ async def print_links(client_ids: list[int]) -> None:
                 B2BGeneratedContract.job_id,
                 B2BGeneratedContract.contract_id,
                 B2BGeneratedContract.contract_status,
-                B2BGeneratedContract.partner_name,
+                B2BGeneratedContract.candidate_id,
             )
             .where(B2BGeneratedContract.client_id.in_(client_ids))
             .order_by(B2BGeneratedContract.id)
         )
         gen = rows.all()
         print(f"=== b2b generated contracts on those clients: {len(gen)} ===")
-        for gid, number, client_id, cname, job_id, contract_id, st, partner in gen:
+        for gid, number, client_id, cname, job_id, contract_id, st, candidate_id in gen:
             print(
-                f"b2b={gid}\tnr={number}\tclient={client_id}\tprinted={cname}"
-                f"\tjob={job_id}\tcontract={contract_id}\tstatus={st}\tpartner={partner}"
+                f"b2b={gid}\tnr={number}\tclient={client_id}"
+                f"\tprinted={_name_ref(cname)}"
+                f"\tjob={job_id}\tcontract={contract_id}\tstatus={st}"
+                f"\tcandidate={candidate_id}"
             )
 
         # Zamówienia klienta. Bez nich nie da się ODPOWIEDZIALNIE przepiąć
@@ -159,7 +208,6 @@ async def print_links(client_ids: list[int]) -> None:
                 ClientOrder.id,
                 ClientOrder.client_id,
                 ClientOrder.contract_id,
-                ClientOrder.title,
                 ClientOrder.status,
                 ClientOrder.order_group_id,
             )
@@ -168,11 +216,11 @@ async def print_links(client_ids: list[int]) -> None:
         )
         orders = rows.all()
         print(f"=== client orders on those clients: {len(orders)} ===")
-        for oid, client_id, contract_id, title, order_status, group_id in orders:
+        for oid, client_id, contract_id, order_status, group_id in orders:
             order_status = getattr(order_status, "value", order_status)
             print(
                 f"order={oid}\tclient={client_id}\tcontract={contract_id}"
-                f"\tstatus={order_status}\tgroup={group_id}\ttitle={title}"
+                f"\tstatus={order_status}\tgroup={group_id}"
             )
 
 
@@ -192,7 +240,10 @@ async def main() -> None:
     # w logu Actions nie odróżnia „nic nie pasuje" od „skrypt się nie wykonał".
     print(f"=== clients matching {args.like!r}: {len(rows)} ===")
     for cid, name, display, nip in rows:
-        print(f"{cid}\t{name}\tdisplay={display}\tnip={nip}")
+        print(
+            f"{cid}\t{_client_label(name)}\tdisplay={_client_label(display)}"
+            f"\tnip={_nip_tail(nip)}"
+        )
     if args.with_links:
         await print_links([r[0] for r in rows])
 

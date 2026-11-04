@@ -15,6 +15,16 @@ Dla każdego OTWARTEGO PR-a z grupy skrypt:
 * dopisuje albo aktualizuje komentarz (znacznik ``<!-- queue-failure-feedback -->``)
   z listą czerwonych testów i linkiem do biegu.
 
+Test, który padł też w niedawnej grupie bez żadnego PR-a z tej (do 6 h, do
+4 biegów), komentarz oznacza „pada też bez tego PR-a” — najpewniej czerwony
+jest sam ``main`` i PR-a nie trzeba poprawiać ani zdejmować z kolejki.
+
+Czerwony bieg E2E w kolejce nie wyrzuca PR-a, bo nie jest wymaganym kontekstem.
+Dostaje go tylko PR, którego wpis padł: osobny status ``E2E w kolejce``, osobny
+komentarz, a gdy PR zdążył już wejść na ``main``, sam komentarz. Status nie
+powstaje, gdy wszystkie czerwone testy padają też bez tego PR-a, bo wtedy
+budziłby auto-fix każdej kolejnej sesji za cudzy błąd.
+
 PR-y w grupie: commity od ``main`` do HEAD gałęzi kolejki (po jednym
 squashu na PR, ``(#N)`` w tytule); awaryjnie ``pr-<N>`` z nazwy gałęzi.
 Stdlib + ``gh`` (``GH_TOKEN``). ``--dry-run`` tylko wypisuje, co by wysłał.
@@ -30,12 +40,18 @@ import subprocess
 import urllib.request
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 MARKER = "<!-- queue-failure-feedback -->"
 STATUS_CONTEXT = "Kolejka merge'ów"
+E2E_WORKFLOW = "E2E (Playwright)"
+E2E_MARKER = "<!-- queue-e2e-feedback -->"
+E2E_STATUS_CONTEXT = "E2E w kolejce"
 MAX_TESTS = 20
 MAX_JOB_ERRORS = 5
 MAX_REASON = 160
+OTHER_RUNS_HOURS = 6
+MAX_OTHER_RUNS = 4
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _TIMESTAMP = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z ?")
@@ -55,13 +71,17 @@ _TSC = re.compile(
 _TSC_ALT = re.compile(
     r"^(?P<file>\S+?\.[cm]?[jt]sx?):(?P<pos>\d+:\d+) - error (?P<code>TS\d+): (?P<msg>.*)$"
 )
+_PLAYWRIGHT_SUMMARY = re.compile(r"^\s+\d+ failed$")
+_PLAYWRIGHT_CASE = re.compile(
+    r"^\s+\[[^\]]+\] › (?P<file>[^\s:]+)(?::\d+:\d+)? › (?P<title>.+)$"
+)
 _ERROR_LINE = re.compile(r"^##\[error\](?P<msg>.*)$")
 _VITEST_REASON = re.compile(r"^\s*(?:\w*Error|AssertionError)\b.*")
 
 
 @dataclass(frozen=True)
 class Failure:
-    kind: str  # pytest | vitest | tsc
+    kind: str  # pytest | vitest | tsc | playwright
     test_id: str
     reason: str = ""
 
@@ -69,6 +89,8 @@ class Failure:
     def file(self) -> str:
         if self.kind == "vitest":
             return self.test_id.split(" > ", 1)[0]
+        if self.kind == "playwright":
+            return self.test_id.split(" › ", 1)[0]
         return self.test_id.split("::", 1)[0].split("(", 1)[0]
 
 
@@ -83,7 +105,8 @@ def _short(text: str, limit: int = MAX_REASON) -> str:
 
 
 def parse_failures(log_text: str) -> list[Failure]:
-    """Czerwone testy z logu joba: pytest (FAILED/ERROR), vitest (FAIL), tsc."""
+    """Czerwone testy z logu joba: pytest (FAILED/ERROR), vitest (FAIL), tsc,
+    Playwright (podsumowanie „N failed”, bez „N flaky”)."""
     lines = [clean_line(raw) for raw in log_text.splitlines()]
     found: list[Failure] = []
     seen: set[str] = set()
@@ -94,7 +117,18 @@ def parse_failures(log_text: str) -> list[Failure]:
             seen.add(key)
             found.append(failure)
 
+    in_playwright_summary = False
     for index, line in enumerate(lines):
+        if _PLAYWRIGHT_SUMMARY.match(line):
+            in_playwright_summary = True
+            continue
+        if in_playwright_summary:
+            match = _PLAYWRIGHT_CASE.match(line)
+            if match:
+                # Bez numeru linii: ten sam test w innej grupie ma być tym samym.
+                add(Failure("playwright", f"{match['file']} › {match['title']}"))
+                continue
+            in_playwright_summary = False
         match = _PYTEST.match(line)
         if match:
             add(
@@ -162,10 +196,41 @@ def plural_tests(count: int) -> str:
     return f"{count} testów"
 
 
+def shared_with_other_groups(
+    failures: list[Failure],
+    group: list[int],
+    others: list[tuple[list[int], list[Failure]]],
+) -> dict[str, list[int]]:
+    """Testy, które padły też w niedawnej grupie bez żadnego PR-a z tej.
+
+    Grupa ze wspólnym PR-em niczego nie dowodzi (winny może być ten wspólny).
+    Rozłączna grupa z tym samym czerwonym testem = czerwony jest sam ``main``
+    (test z datą, strefa czasu) albo coś poza PR-ami — 25.10.2026 każda sesja
+    poprawiała wtedy swój zielony PR i zdejmowała go z kolejki.
+    """
+    mine = set(group)
+    shared: dict[str, set[int]] = {}
+    for other_group, other_failures in others:
+        if mine & set(other_group):
+            continue
+        seen = {f.test_id for f in other_failures}
+        for failure in failures:
+            if failure.test_id in seen:
+                shared.setdefault(failure.test_id, set()).update(other_group)
+    return {test: sorted(prs) for test, prs in shared.items()}
+
+
 def status_description(
-    failures: list[Failure], job_errors: list[tuple[str, str]]
+    failures: list[Failure],
+    job_errors: list[tuple[str, str]],
+    shared: dict[str, list[int]] | None = None,
 ) -> str:
-    if failures:
+    if failures and shared:
+        text = (
+            f"Wypadł z kolejki: {plural_tests(len(failures))}, {len(shared)} pada też "
+            "bez tego PR-a — szczegóły w komentarzu"
+        )
+    elif failures:
         text = (
             f"Wypadł z kolejki: {plural_tests(len(failures))} — szczegóły w komentarzu"
         )
@@ -183,7 +248,9 @@ def build_comment(
     run_url: str,
     failures: list[Failure],
     job_errors: list[tuple[str, str]],
+    shared: dict[str, list[int]] | None = None,
 ) -> str:
+    shared = shared or {}
     lines = [
         MARKER,
         "### Wypadł z kolejki merge'ów",
@@ -193,10 +260,24 @@ def build_comment(
         "zestaw biegnie w kolejce na drzewie razem z PR-ami przed nim.",
         "",
     ]
+    if shared:
+        groups = sorted({pr for prs in shared.values() for pr in prs})
+        lines += [
+            f"**Pada też bez tego PR-a** ({plural_tests(len(shared))}): ten sam "
+            f"test był czerwony w grupach bez żadnego PR-a stąd "
+            f"({', '.join(f'#{n}' for n in groups)}). Najpewniej czerwony jest sam "
+            "`main` (np. test z datą albo strefą czasu) — nie poprawiaj tych testów "
+            "w tym PR-ze i nie zdejmuj PR-a z kolejki; sprawdź, czy poprawka już "
+            "jest (`gh pr list --search <plik testu>`). Po jej wejściu ponów "
+            "`gh pr merge <nr> --squash --auto`.",
+            "",
+        ]
     if failures:
         lines.append(f"**Czerwone testy ({len(failures)}):**")
         for failure in failures[:MAX_TESTS]:
             reason = f" — {failure.reason}" if failure.reason else ""
+            if failure.test_id in shared:
+                reason = " — także w grupach bez tego PR-a" + reason
             lines.append(f"- `{failure.test_id}`{reason}")
         if len(failures) > MAX_TESTS:
             lines.append(
@@ -233,6 +314,65 @@ def build_comment(
             f"`{STATUS_CONTEXT}`. Komentarz aktualizuje się przy kolejnym "
             "wypadnięciu._"
         )
+    return "\n".join(lines)
+
+
+def e2e_status_description(failures: list[Failure]) -> str:
+    what = plural_tests(len(failures)) if failures else "błąd joba"
+    text = f"E2E w kolejce: {what}. PR wejdzie na main mimo to — szczegóły w komentarzu"
+    return text if len(text) <= 140 else text[:139] + "…"
+
+
+def all_shared(failures: list[Failure], shared: dict[str, list[int]]) -> bool:
+    return bool(failures) and all(f.test_id in shared for f in failures)
+
+
+def build_e2e_comment(
+    run_url: str,
+    failures: list[Failure],
+    job_errors: list[tuple[str, str]],
+    shared: dict[str, list[int]],
+    merged: bool,
+) -> str:
+    lines = [E2E_MARKER, "### E2E w kolejce merge'ów jest czerwone", "", run_url, ""]
+    if merged:
+        lines.append(
+            "**Ten PR jest już na `main`**, bieg skończył się po scaleniu. Jeśli to "
+            "ta zmiana psuje test, popraw to osobnym PR-em: do tego czasu nocny "
+            "bieg i kolejne grupy z frontendem będą czerwone."
+        )
+    else:
+        lines.append(
+            "**PR nie wypadł z kolejki:** E2E nie jest wymaganym kontekstem, więc "
+            "wejdzie na `main`, gdy przejdzie CI. Jeśli to ta zmiana psuje test, "
+            "wypchnij poprawkę teraz (kodu albo testu): push zdejmie PR z kolejki."
+        )
+    lines.append("")
+    if shared:
+        groups = sorted({n for prs in shared.values() for n in prs})
+        lines += [
+            f"**Pada też bez tego PR-a** ({plural_tests(len(shared))}): ten sam test "
+            f"był czerwony w grupach {', '.join(f'#{n}' for n in groups)}. Najpewniej "
+            "czerwony jest sam `main` — sprawdź, czy poprawka już jest, zanim "
+            "cokolwiek zmienisz tutaj.",
+            "",
+        ]
+    if failures:
+        lines.append(f"**Czerwone testy ({len(failures)}):**")
+        for failure in failures[:MAX_TESTS]:
+            also = " — także bez tego PR-a" if failure.test_id in shared else ""
+            lines.append(f"- `{failure.test_id}`{also}")
+        if len(failures) > MAX_TESTS:
+            lines.append(
+                f"- …i jeszcze {len(failures) - MAX_TESTS} (pełna lista w biegu)"
+            )
+        lines.append("")
+    if job_errors:
+        lines.append("**Joby bez rozpoznanych testów:**")
+        for job, message in job_errors[:MAX_JOB_ERRORS]:
+            lines.append(f"- {job}: {message or 'brak komunikatu — zobacz log'}")
+        lines.append("")
+    lines.append("_Komentarz aktualizuje się przy kolejnym czerwonym biegu._")
     return "\n".join(lines)
 
 
@@ -327,13 +467,55 @@ def collect_failures(
     return failures, job_errors
 
 
-def upsert_comment(repo: str, pr: int, body: str) -> str:
+def recent_other_failures(
+    repo: str, run: dict, base: str, group: list[int]
+) -> list[tuple[list[int], list[Failure]]]:
+    """Czerwone testy z niedawnych biegów kolejki grup rozłącznych z tą.
+
+    Najwyżej ``MAX_OTHER_RUNS`` z ``OTHER_RUNS_HOURS`` godzin przed tym biegiem
+    — każdy to pobranie logów. Błąd API = brak porównania, nie przerwanie.
+    """
+    started = run.get("run_started_at") or run.get("created_at") or ""
+    try:
+        since = datetime.fromisoformat(started.replace("Z", "+00:00")) - timedelta(
+            hours=OTHER_RUNS_HOURS
+        )
+        listing = gh_json(
+            f"repos/{repo}/actions/workflows/{run['workflow_id']}/runs"
+            f"?event=merge_group&status=failure&per_page=30"
+            f"&created=%3E%3D{since.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+        )
+    except (KeyError, ValueError, RuntimeError) as exc:
+        print(f"::warning::bez porównania z innymi grupami: {exc}")
+        return []
+    mine = set(group)
+    found: list[tuple[list[int], list[Failure]]] = []
+    for other in listing.get("workflow_runs", []):
+        if other.get("id") == run.get("id") or len(found) >= MAX_OTHER_RUNS:
+            continue
+        try:
+            compare = gh_json(f"repos/{repo}/compare/{base}...{other['head_sha']}")
+        except RuntimeError:
+            compare = None
+        other_group = group_prs(compare, other.get("head_branch", ""))
+        if not other_group or mine & set(other_group):
+            continue
+        try:
+            failures, _ = collect_failures(repo, other["id"])
+        except RuntimeError as exc:
+            print(f"::warning::bieg {other['id']}: {exc}")
+            continue
+        found.append((other_group, failures))
+    return found
+
+
+def upsert_comment(repo: str, pr: int, body: str, marker: str = MARKER) -> str:
     raw = gh(
         "api",
         "--paginate",
         f"repos/{repo}/issues/{pr}/comments?per_page=100",
         "--jq",
-        '.[] | select(.body | contains("' + MARKER + '")) | .id',
+        '.[] | select(.body | contains("' + marker + '")) | .id',
     )
     existing = raw.split()
     payload = json.dumps({"body": body})
@@ -386,24 +568,58 @@ def main(argv: list[str] | None = None) -> int:
         print(f"::warning::Nie rozpoznano PR-ów w grupie {branch}")
         return 0
     failures, job_errors = collect_failures(args.repo, args.run_id)
-    description = status_description(failures, job_errors)
+    shared = (
+        shared_with_other_groups(
+            failures, group, recent_other_failures(args.repo, run, args.base, group)
+        )
+        if failures
+        else {}
+    )
+    is_e2e = run.get("name") == E2E_WORKFLOW
+    marker = E2E_MARKER if is_e2e else MARKER
+    context = E2E_STATUS_CONTEXT if is_e2e else STATUS_CONTEXT
+    description = (
+        e2e_status_description(failures)
+        if is_e2e
+        else status_description(failures, job_errors, shared)
+    )
     print(
         f"Bieg: {run_url}\nGałąź: {branch}\nGrupa: {', '.join(f'#{n}' for n in group)}"
     )
     print(f"Czerwone testy: {len(failures)}; joby bez testów: {len(job_errors)}")
     for failure in failures[:MAX_TESTS]:
-        print(f"  {failure.test_id} — {failure.reason}")
+        also = (
+            f" [też bez tego PR-a: {shared[failure.test_id]}]"
+            if failure.test_id in shared
+            else ""
+        )
+        print(f"  {failure.test_id} — {failure.reason}{also}")
     for job, message in job_errors[:MAX_JOB_ERRORS]:
         print(f"  [{job}] {message}")
 
-    for pr in group:
+    # E2E nikogo nie wyrzuca, a PR-y przed tym wpisem mają własne biegi.
+    targets = [queue_pr] if is_e2e and queue_pr is not None else group
+    for pr in targets:
         info = gh_json(f"repos/{args.repo}/pulls/{pr}")
+        if is_e2e and info.get("merged_at"):
+            body = build_e2e_comment(run_url, failures, job_errors, shared, merged=True)
+            if args.dry_run:
+                print(f"\n--- #{pr}: już na main, sam komentarz ---\n{body}")
+                continue
+            print(f"#{pr}: na main; {upsert_comment(args.repo, pr, body, marker)}")
+            continue
         if info.get("state") != "open":
             state = "zmergowany" if info.get("merged_at") else info.get("state")
             print(f"#{pr}: {state} — pomijam")
             continue
         sha = info["head"]["sha"]
-        body = build_comment(pr, group, queue_pr, run_url, failures, job_errors)
+        body = (
+            build_e2e_comment(run_url, failures, job_errors, shared, merged=False)
+            if is_e2e
+            else build_comment(
+                pr, group, queue_pr, run_url, failures, job_errors, shared=shared
+            )
+        )
         committed = (
             gh_json(f"repos/{args.repo}/commits/{sha}")
             .get("commit", {})
@@ -420,18 +636,18 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"\n--- #{pr}: HEAD {sha[:9]} nowszy niż bieg — bez statusu ---")
                 continue
             print(
-                f"#{pr}: HEAD nowszy niż bieg — bez statusu; {upsert_comment(args.repo, pr, body + note)}"
+                f"#{pr}: HEAD nowszy niż bieg — bez statusu; {upsert_comment(args.repo, pr, body + note, marker)}"
             )
             continue
-        if not sets_status(pr, queue_pr):
+        if not sets_status(pr, queue_pr) or (is_e2e and all_shared(failures, shared)):
             if args.dry_run:
-                print(f"\n--- #{pr}: bez statusu (wypadł #{queue_pr}) ---\n{body}")
+                print(f"\n--- #{pr}: bez statusu (bieg #{queue_pr}) ---\n{body}")
                 continue
-            print(f"#{pr}: bez statusu; {upsert_comment(args.repo, pr, body)}")
+            print(f"#{pr}: bez statusu; {upsert_comment(args.repo, pr, body, marker)}")
             continue
         status = {
             "state": "failure",
-            "context": STATUS_CONTEXT,
+            "context": context,
             "description": description,
             "target_url": run_url,
         }
@@ -451,7 +667,7 @@ def main(argv: list[str] | None = None) -> int:
             stdin=json.dumps(status),
         )
         print(
-            f"#{pr}: status failure na {sha[:9]}; {upsert_comment(args.repo, pr, body)}"
+            f"#{pr}: status failure na {sha[:9]}; {upsert_comment(args.repo, pr, body, marker)}"
         )
     return 0
 

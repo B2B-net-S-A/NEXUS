@@ -5,7 +5,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ChevronDown,
   ChevronUp,
-  Clock,
   Gift,
   Loader2,
   Mail,
@@ -25,6 +24,7 @@ import {
   type MonthlyRaceEntry,
   type MonthlyRacesResponse,
 } from "@/lib/insights-races-api";
+import { ClosureNote, PeriodCountdown, SourceNote } from "./CompetitionPeriod";
 import { count, pct } from "./InsightsFormat";
 import { SectionError } from "./_shared";
 
@@ -37,8 +37,9 @@ import { SectionError } from "./_shared";
  * 1. **Plakietka „X/dzień" mówi, skąd ma mianownik.** Oryginał dzielił przez
  *    sztywną liczbę dni i pokazywał „3.1/dzień" osobie, która połowę miesiąca
  *    była na urlopie. Tu mianownikiem są dni robocze, które upłynęły w tym
- *    miesiącu, minus urlop z COMPASSA. Gdy urlopu nie znamy (`workdays_source:
- *    "calendar"`), plakietka ma dopisek „bez urlopów" — ta sama liczba bez
+ *    miesiącu, minus zatwierdzona nieobecność (`workdays_source: "nexus"`,
+ *    urlopy NEXUSA; dawniej `"compass"`). Gdy nieobecności nie znamy
+ *    (`"calendar"`), plakietka ma dopisek „bez urlopów" — ta sama liczba bez
  *    dopisku czytałaby się jak ocena osoby na urlopie.
  * 2. **Niezakwalifikowany zostaje na liście.** Backend celowo zwraca go
  *    z `qualified: false` i powodem (`competitions.py`); ukrycie zamieniłoby
@@ -51,12 +52,10 @@ import { SectionError } from "./_shared";
  * 4. **Odliczanie tylko dla trwającego miesiąca.** `days_remaining` backend
  *    liczy z „dzisiaj", nie z `period`, więc dla sierpnia oglądanego we
  *    wrześniu opisywałoby wrzesień. Zamknięty miesiąc dostaje chip
- *    „Zakończony" zamiast liczby.
+ *    „Zakończony" zamiast liczby, a zamrożony (`is_frozen`) — „Zamknięte".
  */
 
 const ROLE_LABEL: Record<string, string> = {
-  sourcer: "Sourcer",
-  tac: "TAC",
   recruiter: "Rekruter",
   delivery_lead: "Delivery Lead",
   head_of_recruitment: "Head of Recruitment",
@@ -126,23 +125,35 @@ const RACE_COPY: Record<
 };
 
 /**
- * Próg kwalifikacji Wyścigu Rekomendacji jest WSPÓLNY i KALENDARZOWY:
- * `competitions.py` liczy `4 × dni robocze, które upłynęły w miesiącu`
- * (Pon–Pt minus święta) — bez indywidualnych urlopów. Plakietka „X/dzień"
- * obok odejmuje urlop z COMPASSA, gdy go zna, więc bez tego zdania ekran
- * obiecywał regułę, której backend nie stosuje (audyt B44). Decyzja
- * o progu per osoba jest produktowa i leży poza tym ekranem.
+ * Próg kwalifikacji Wyścigu Rekomendacji. Przy urlopach NEXUSA
+ * (`workdays_source: "nexus"`) `competitions.py` liczy go z dni pracy osoby —
+ * tych samych co plakietka „X/dzień" (decyzja Artura 28.10.2026). Przy innym
+ * źródle próg jest wspólny i kalendarzowy, a ekran mówi to wprost, żeby nie
+ * obiecywać reguły, której backend nie stosuje (audyt B44).
  */
-const RACE_THRESHOLD_TOOLTIP =
-  "Próg kwalifikacji jest wspólny dla wszystkich: 4 weryfikacje × liczba dni roboczych, które upłynęły w tym miesiącu (Pon–Pt bez świąt). Nie uwzględnia indywidualnych urlopów ani dni roboczych z COMPASSA — te wpływają tylko na plakietkę „/dzień”.";
+const RACE_THRESHOLD_SHARED =
+  "Próg kwalifikacji jest wspólny dla wszystkich: 4 weryfikacje × liczba dni roboczych, które upłynęły w tym miesiącu (Pon–Pt bez świąt). Nie uwzględnia indywidualnych urlopów — te wpływają tylko na plakietkę „/dzień”.";
+const RACE_THRESHOLD_PER_PERSON =
+  "Próg kwalifikacji liczy się z dni pracy osoby: 4 weryfikacje × dni robocze, które upłynęły w tym miesiącu (Pon–Pt bez świąt), minus jej zatwierdzona nieobecność. Ten sam mianownik ma plakietka „/dzień”, więc urlop nie podnosi wymagania.";
+
+function raceThresholdNote(entry: MonthlyRaceEntry | undefined): string {
+  // `threshold_basis` zamraża się z wynikiem — zamknięty miesiąc nie ma
+  // `workdays_source`, a próg dalej jest liczony per osoba.
+  return entry?.threshold_basis === "workdays" ||
+    entry?.workdays_source === "nexus"
+    ? RACE_THRESHOLD_PER_PERSON
+    : RACE_THRESHOLD_SHARED;
+}
+
+/** „15” albo „14,5” — dni pracy mogą mieć połówkę (pół dnia nieobecności). */
+function formatWorkdays(days: number): string {
+  return Number.isInteger(days)
+    ? String(days)
+    : days.toFixed(1).replace(".", ",");
+}
 
 /** Ile miejsc wyścigu widać bez klikania. */
 const DEFAULT_VISIBLE_ROWS = 5;
-
-/** Polska odmiana — „1 dzień / 2 dni / 5 dni". */
-function daysPl(n: number): string {
-  return `${n} ${Math.abs(n) === 1 ? "dzień" : "dni"}`;
-}
 
 function describeDisqualification(entry: MonthlyRaceEntry): string | null {
   if (entry.qualified !== false) return null;
@@ -166,7 +177,7 @@ function PerDayBadge({ entry }: { entry: MonthlyRaceEntry }) {
     return (
       <span
         className="inline-flex items-center gap-1 rounded border border-dashed border-border bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
-        title={`Weryfikacje na dzień roboczy: ${label}. Mianownik to dni robocze, które upłynęły w tym miesiącu, minus urlop z COMPASSA. Ta plakietka nie decyduje o kwalifikacji: próg „wymaganych weryfikacji” obok jest wspólny i kalendarzowy.`}
+        title={`Weryfikacje na dzień pracy: ${label}. Mianownik to dni robocze, które upłynęły w tym miesiącu, minus zatwierdzona nieobecność.`}
       >
         <span className="font-semibold">—</span>
         <span>/dzień</span>
@@ -175,17 +186,27 @@ function PerDayBadge({ entry }: { entry: MonthlyRaceEntry }) {
     );
   }
   const withoutLeave = entry.workdays_source === "calendar";
+  // Miesiąc rozliczony w DynaReporterze: mianownik to dni przepracowane
+  // zgłoszone tam, zapisane przy rozliczeniu — nie dni z COMPASSA.
+  const fromDynaReporter = entry.workdays_source === "dynareporter";
+  const fromNexus = entry.workdays_source === "nexus";
   return (
     <span
       className="inline-flex items-center gap-1 rounded bg-info-muted px-1.5 py-0.5 text-[11px] font-semibold text-info-muted-foreground"
       title={
-        withoutLeave
-          ? "Weryfikacje na dzień roboczy liczone z dni kalendarzowych, które upłynęły w tym miesiącu (Pon–Pt bez świąt), bez urlopów — COMPASS nie potwierdził nieobecności w tym okresie."
-          : "Weryfikacje na dzień roboczy: dni robocze, które upłynęły w tym miesiącu, minus urlop z COMPASSA."
+        fromDynaReporter
+          ? "Weryfikacje na dzień przepracowany: liczba dni przepracowanych zgłoszona w DynaReporterze, zapisana przy rozliczeniu miesiąca."
+          : fromNexus
+            ? "Weryfikacje na dzień pracy: dni robocze, które upłynęły w tym miesiącu, minus zatwierdzona nieobecność tej osoby."
+            : withoutLeave
+              ? "Weryfikacje na dzień roboczy liczone z dni kalendarzowych, które upłynęły w tym miesiącu (Pon–Pt bez świąt), bez urlopów — nieobecności z tego okresu nie są znane."
+              : "Weryfikacje na dzień roboczy: dni robocze, które upłynęły w tym miesiącu, minus urlop z COMPASSA."
       }
     >
       {perDay.value.toFixed(1)}/dzień
-      {withoutLeave ? (
+      {fromDynaReporter ? (
+        <span className="font-normal">· dni przepracowane (DynaReporter)</span>
+      ) : withoutLeave ? (
         <span className="font-normal">· bez urlopów</span>
       ) : null}
     </span>
@@ -227,10 +248,14 @@ function RaceRow({
   entry,
   variant,
   isMe = false,
+  fullWorkdays = null,
 }: {
   entry: MonthlyRaceEntry;
   variant: RaceVariant;
   isMe?: boolean;
+  /** Najwięcej dni pracy w tym rankingu — dopisek „liczone z N dni pracy”
+   *  stoi tylko przy osobach, które miały ich mniej (makieta 28.10.2026). */
+  fullWorkdays?: number | null;
 }) {
   const copy = RACE_COPY[variant];
   const disqualified = describeDisqualification(entry);
@@ -279,13 +304,21 @@ function RaceRow({
             <>
               {" · "}
               <span
-                title={RACE_THRESHOLD_TOOLTIP}
+                title={raceThresholdNote(entry)}
                 className="underline decoration-dotted underline-offset-2"
                 data-testid="race-threshold"
               >
                 {count(entry.verifications)} /{" "}
                 {count(entry.required_verifications)} wymaganych weryfikacji
               </span>
+              {entry.workdays_source === "nexus" &&
+              typeof entry.workdays === "number" &&
+              fullWorkdays !== null &&
+              entry.workdays < fullWorkdays ? (
+                <span className="whitespace-nowrap">
+                  {" · "}liczone z {formatWorkdays(entry.workdays)} dni pracy
+                </span>
+              ) : null}
             </>
           ) : null}
         </p>
@@ -325,6 +358,11 @@ function RaceCard({
   const copy = RACE_COPY[variant];
   const Icon = copy.icon;
   const ranking = race.ranking ?? [];
+  const workdayCounts = ranking
+    .map((entry) => entry.workdays)
+    .filter((days): days is number => typeof days === "number");
+  const fullWorkdays =
+    workdayCounts.length > 0 ? Math.max(...workdayCounts) : null;
   // Pierwsza piątka i własny wiersz widać od razu (przebudowa 24.09.2026).
   const visible = showAll
     ? ranking
@@ -354,23 +392,16 @@ function RaceCard({
           </p>
         </div>
         <div className="shrink-0 text-right">
-          {closed ? (
-            <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
-              Zakończony
-            </span>
-          ) : (
-            <p className="flex items-center justify-end gap-1 text-xs text-muted-foreground">
-              <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-              {/* `null` to „nie wiemy, ile zostało", nie „zero dni". */}
-              {race.days_remaining === null || race.days_remaining === undefined
-                ? "—"
-                : `Zostało ${daysPl(race.days_remaining)}`}
-            </p>
-          )}
+          <PeriodCountdown
+            frozen={race.is_frozen === true}
+            closed={closed}
+            daysRemaining={race.days_remaining}
+          />
         </div>
       </header>
 
       <div className="flex flex-1 flex-col gap-3 p-4">
+        <SourceNote closure={race} />
         <p className="flex items-start gap-2 rounded-lg border border-warning/25 bg-warning-muted px-3 py-2 text-xs font-semibold text-warning-muted-foreground">
           <Gift className="mt-px h-4 w-4 shrink-0" aria-hidden="true" />
           <span>{race.prize.name}</span>
@@ -394,7 +425,9 @@ function RaceCard({
               aria-hidden="true"
             />
             <p className="text-sm font-medium text-foreground">
-              Brak wyników w tym miesiącu
+              {race.closure_status === "no_winner"
+                ? "Brak zwycięzcy w tym okresie"
+                : "Brak wyników w tym miesiącu"}
             </p>
             <p className="max-w-sm text-xs text-muted-foreground">
               {copy.emptyText}
@@ -402,6 +435,9 @@ function RaceCard({
           </div>
         ) : (
           <>
+            {/* Remis do decyzji admina i miesiąc bez zwycięzcy stoją NAD
+                listą: bez tego zdania pierwsze miejsce czyta się jak wygrana. */}
+            <ClosureNote closure={race} />
             <ol className="space-y-2">
               {visible.map((entry) => (
                 <RaceRow
@@ -409,6 +445,7 @@ function RaceCard({
                   entry={entry}
                   variant={variant}
                   isMe={entry.user_id === meId}
+                  fullWorkdays={fullWorkdays}
                 />
               ))}
             </ol>
@@ -435,15 +472,24 @@ function RaceCard({
           </>
         )}
 
-        <div className="mt-auto space-y-1 border-t border-border pt-2 text-[11px] text-muted-foreground">
-          {copy.populationNote ? <p>{copy.populationNote}</p> : null}
-          {/* Wyjaśnienie progu także bez hovera — `title` przy liczbie
-              weryfikacji jest nieosiągalny dotykiem (audyt 23.09.2026). */}
-          {variant === "recommendations" && ranking.length > 0 ? (
-            <p>{RACE_THRESHOLD_TOOLTIP}</p>
-          ) : null}
-          <p>{copy.tieRule}</p>
-        </div>
+        {/* Zasady zwinięte (22.10.2026) — treść bez zmian, dostępna kliknięciem
+            także na dotyku (to było powodem przeniesienia jej spod `title`). */}
+        <details className="group mt-auto border-t border-border pt-2 text-[11px] text-muted-foreground">
+          <summary className="flex min-h-9 cursor-pointer items-center justify-between gap-2 font-semibold text-foreground">
+            Zasady: kto na liście, próg i remisy
+            <span className="text-primary group-open:hidden">Pokaż ▾</span>
+            <span className="hidden text-primary group-open:inline">Zwiń ▴</span>
+          </summary>
+          <div className="space-y-1 pt-1">
+            {copy.populationNote ? <p>{copy.populationNote}</p> : null}
+            {/* Wyjaśnienie progu także bez hovera — `title` przy liczbie
+                weryfikacji jest nieosiągalny dotykiem (audyt 23.09.2026). */}
+            {variant === "recommendations" && ranking.length > 0 ? (
+              <p>{raceThresholdNote(ranking[0])}</p>
+            ) : null}
+            <p>{copy.tieRule}</p>
+          </div>
+        </details>
       </div>
     </article>
   );

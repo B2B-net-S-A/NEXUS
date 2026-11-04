@@ -24,8 +24,11 @@ const COPY: Record<
   forbidden: {
     icon: Ban,
     title: "Brak uprawnień",
+    // O dostępie decyduje uprawnienie konta, nie sama rola. Ten opis jest
+    // ogólny (komponent nie wie, którego uprawnienia zabrakło) — ekran, który
+    // to wie, podaje własny `description` z jego nazwą.
     description:
-      "Twoja rola nie ma dostępu do tych danych. To nie znaczy, że są puste — poproś administratora o rozszerzenie uprawnień.",
+      "Nie masz uprawnienia do tych danych. To nie znaczy, że są puste — poproś administratora o dostęp (Ustawienia → Zespół i dostęp → Osoby i role).",
   },
   not_found: {
     icon: SearchX,

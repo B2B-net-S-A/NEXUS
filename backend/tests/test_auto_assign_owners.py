@@ -50,8 +50,8 @@ async def _new_client(db) -> Client:
 async def seeded_client_with_team():
     async with AsyncSessionLocal() as db:
         client = await _new_client(db)
-        tac_primary = await _new_user(db, role=UserRole.tac)
-        tac_backup = await _new_user(db, role=UserRole.tac)
+        tac_primary = await _new_user(db, role=UserRole.recruiter)
+        tac_backup = await _new_user(db, role=UserRole.recruiter)
         dl_head = await _new_user(db, role=UserRole.delivery_lead)
         dl_aux = await _new_user(db, role=UserRole.delivery_lead)
 
@@ -131,7 +131,7 @@ async def test_resolve_returns_sole_active_tac_regardless_of_legacy_primary():
     async with AsyncSessionLocal() as db:
         client = await _new_client(db)
         # Legacy client-primary is unrelated to safe Job ownership.
-        tac = await _new_user(db, role=UserRole.tac)
+        tac = await _new_user(db, role=UserRole.recruiter)
         db.add(
             ClientTacAssignment(
                 tac_user_id=tac.id, client_id=client.id, is_primary=False
@@ -159,7 +159,7 @@ async def test_resolve_returns_sole_active_tac_regardless_of_legacy_primary():
 async def test_resolve_skips_inactive_primary_tac():
     async with AsyncSessionLocal() as db:
         client = await _new_client(db)
-        inactive = await _new_user(db, role=UserRole.tac, is_active=False)
+        inactive = await _new_user(db, role=UserRole.recruiter, is_active=False)
         db.add(
             ClientTacAssignment(
                 tac_user_id=inactive.id,
@@ -190,8 +190,8 @@ async def test_partial_unique_index_blocks_two_primary_tacs():
 
     async with AsyncSessionLocal() as db:
         client = await _new_client(db)
-        a = await _new_user(db, role=UserRole.tac)
-        b = await _new_user(db, role=UserRole.tac)
+        a = await _new_user(db, role=UserRole.recruiter)
+        b = await _new_user(db, role=UserRole.recruiter)
 
         db.add(
             ClientTacAssignment(tac_user_id=a.id, client_id=client.id, is_primary=True)
@@ -220,4 +220,32 @@ async def test_partial_unique_index_blocks_two_primary_tacs():
         await db.delete(client)
         await db.delete(a)
         await db.delete(b)
+        await db.commit()
+
+
+@pytest.mark.unit
+async def test_resolve_skips_head_dl_without_delivery_lead_role():
+    """Runda 7 (N7-1): główny DL, któremu zmieniono rolę, nie jest już DL-em."""
+    async with AsyncSessionLocal() as db:
+        client = await _new_client(db)
+        former = await _new_user(db, role=UserRole.recruiter)
+        db.add(
+            DeliveryLeadClientAssignment(
+                delivery_lead_user_id=former.id,
+                client_id=client.id,
+                is_head=True,
+            )
+        )
+        await db.commit()
+
+        resolved = await resolve_default_owners(db, client.id)
+        assert resolved.delivery_lead_id is None
+
+        await db.execute(
+            DeliveryLeadClientAssignment.__table__.delete().where(
+                DeliveryLeadClientAssignment.client_id == client.id
+            )
+        )
+        await db.delete(client)
+        await db.delete(former)
         await db.commit()

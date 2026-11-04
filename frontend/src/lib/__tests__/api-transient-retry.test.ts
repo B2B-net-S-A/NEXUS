@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 // delays, so an unrelated health-probe timeout must not enter its fake clock.
 vi.mock("@/lib/telemetry-capability", () => ({
   apiSupportsCorrelation: () => false,
+  apiWantsUsageScreen: () => false,
   probeTelemetryCapability: vi.fn().mockResolvedValue(undefined),
 }));
 

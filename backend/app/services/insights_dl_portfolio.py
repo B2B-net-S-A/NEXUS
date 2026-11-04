@@ -7,31 +7,33 @@ wierszowi ``GET /api/insights/delivery-leads`` dla tego samego okna. Dlatego:
 
 * Zapytania i placementy liczymy RAZ na parę (DL, klient) — nagłówek to suma
   wierszy, nie osobne zapytanie, które mogłoby się rozjechać.
-* Fragmenty SQL (rozwiązanie DL per oferta, typ ``body_leasing``, placement
+* Fragmenty SQL (rozwiązanie DL per oferta, placement
   D2 = pierwsze ``hired`` z ``analytics_first_milestones``) pochodzą z
   ``insights_dl_scope`` — tego samego modułu, z którego czyta ranking.
 * Klient schowany / zarchiwizowany / scalony NIE znika z portfela: jego oferty
   liczą się w rankingu, więc wycięcie wiersza rozjechałoby sumy. Dostaje
   jedynie zastępczą nazwę (ranking też bierze nazwę tylko z klienta widocznego).
 
-Hit ratio = placementy w oknie / zapytania UTWORZONE w oknie — ta sama
+Hit ratio = placementy w oknie / zapytania OTWARTE w oknie — ta sama
 (celowo międzykohortowa) definicja co ranking. Zerowy mianownik → ``None``.
 """
 
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.analytics.periods import Period, PeriodKind, resolve_period
+from app.analytics.periods import Period, resolve_period
+from app.core.scheduling import DEFAULT_TZ, local_now
+from app.services import competition_history
 from app.services.insights_dl_scope import (
     CLIENT_DISPLAY_NAME_SQL,
     CLIENT_VISIBLE_SQL,
     DL_HEAD_CTE,
     HIT_RATIO_TARGET_PCT,
     JOBS_SCOPED_CTE,
-    RECRUITMENT_TYPE,
     ratio_pct,
 )
 
@@ -45,19 +47,12 @@ ALERT_DROP_PP = -20.0
 ALERT_MIN_REQUESTS = 3
 
 NO_CLIENT_NAME = "(bez klienta)"
+# Przed 12.10.2026 portfel DL to miesięczne wpisy DL z DynaReportera
+# (`dr_kpi_delivery_lead`, decyzja Artura 18.10.2026) — bez klienta, więc jeden
+# wiersz na DL pod stałym kluczem (None to już „(bez klienta)” z Tablicy).
+HISTORY_CLIENT_ID = 0
+HISTORY_CLIENT_NAME = "DynaReporter — bez klienta (do 11.10.2026)"
 HIDDEN_CLIENT_NAME = "(klient ukryty lub scalony)"
-
-
-def previous_period(period: Period) -> Period:
-    """Okno bezpośrednio poprzedzające — ta sama granulacja.
-
-    Lustro ``insights_board._previous_period``: okresy kalendarzowe cofamy
-    arytmetyką z ``periods.py`` (luty ≠ 30 dni), ``custom`` o dokładną długość.
-    """
-    if period.kind is PeriodKind.custom:
-        span = period.end - period.start
-        return Period(kind=period.kind, start=period.start - span, end=period.start)
-    return resolve_period(period.kind, anchor=period.start.date(), offset=-1)
 
 
 def monthly_windows(period: Period) -> list[Period]:
@@ -86,8 +81,12 @@ class _Cell:
 async def _demand_and_placements(
     db: AsyncSession, start, end
 ) -> list[tuple[int | None, int | None, str, int]]:
-    """(dl_id, client_id, metryka, wartość) — zapytania/wakaty/placementy okna."""
-    params = {"start": start, "end": end}
+    """(dl_id, client_id, metryka, wartość) — zapytania/wakaty/placementy okna.
+
+    Ruchy i rekrutacje Tablicy od 12.10.2026, wcześniej wpisy DL z DynaReportera
+    (`HISTORY_CLIENT_ID`).
+    """
+    params = {"start": competition_history.board_start(start), "end": end}
     demand = (
         (
             await db.execute(
@@ -99,7 +98,8 @@ async def _demand_and_placements(
                        count(*) AS requests,
                        COALESCE(SUM(js.headcount), 0) AS vacancies
                 FROM jobs_scoped js
-                WHERE js.created_at >= :start AND js.created_at < :end
+                WHERE js.opened_at >= :start AND js.opened_at < :end
+                  AND js.in_demand
                 GROUP BY js.dl_id, js.client_id
                 """
                 ),
@@ -138,7 +138,51 @@ async def _demand_and_placements(
         out.append((r["dl_id"], r["client_id"], "vacancies", int(r["vacancies"] or 0)))
     for r in placements:
         out.append((r["dl_id"], r["client_id"], "placements", int(r["placements"])))
+    for r in await _history_entries(db, start, end):
+        for metric in ("requests", "vacancies", "placements"):
+            out.append((r["dl_id"], HISTORY_CLIENT_ID, metric, int(r[metric] or 0)))
     return out
+
+
+async def _history_entries(db: AsyncSession, start, end) -> list:
+    """Wpisy DL z DynaReportera z miesięcy części okna sprzed 12.10.2026.
+
+    Wpis jest miesięczny: liczy się, gdy pierwszy dzień miesiąca leży w oknie
+    (okna Portfeli są miesięczne, kwartalne albo roczne).
+    """
+    history_end = min(end, competition_history.cutover_utc())
+    if start >= history_end:
+        return []
+    tz = ZoneInfo(DEFAULT_TZ)
+    return (
+        (
+            await db.execute(
+                text(
+                    """
+                    SELECT k.user_id AS dl_id,
+                           sum(k.requests) AS requests,
+                           sum(k.vacancies) AS vacancies,
+                           sum(k.placements) AS placements
+                    FROM dr_kpi_delivery_lead k
+                    WHERE k.report_month >= :start_day
+                      AND k.report_month < :end_day
+                    GROUP BY k.user_id
+                    """
+                ),
+                {
+                    "start_day": start.astimezone(tz).date(),
+                    # Wpis za październik 2026 obejmuje tylko 1–11.10 (DynaReporter
+                    # go nie ma, zespół uzupełnia go ręcznie —
+                    # `scripts/import_dr_manual_fill.py`), od 12.10 liczy Tablica.
+                    # Liga i cel DL (`competitions.dl_portfolio_counts`) go nie
+                    # biorą: mianownik hit ratio jest od 12.10, a to wypłaty.
+                    "end_day": history_end.astimezone(tz).date(),
+                },
+            )
+        )
+        .mappings()
+        .all()
+    )
 
 
 async def _open_pipeline(db: AsyncSession) -> list:
@@ -180,11 +224,11 @@ async def _monthly_placements(db: AsyncSession, windows: list[Period]) -> list:
         f"CAST(:e{i} AS timestamptz) AS m_end"
         for i in range(len(windows))
     )
-    params: dict = {}
+    params: dict = {"board_from": competition_history.cutover_utc()}
     for i, window in enumerate(windows):
         params[f"s{i}"] = window.start
         params[f"e{i}"] = window.end
-    return (
+    rows = list(
         (
             await db.execute(
                 text(
@@ -197,7 +241,7 @@ async def _monthly_placements(db: AsyncSession, windows: list[Period]) -> list:
                        count(*) AS placements
                 FROM months m
                 JOIN analytics_first_milestones fm
-                  ON fm.first_reached_at >= m.m_start
+                  ON fm.first_reached_at >= GREATEST(m.m_start, :board_from)
                  AND fm.first_reached_at < m.m_end
                 JOIN jobs_scoped js ON js.id = fm.job_id
                 WHERE fm.stage = 'hired'
@@ -210,12 +254,24 @@ async def _monthly_placements(db: AsyncSession, windows: list[Period]) -> list:
         .mappings()
         .all()
     )
+    # Miesiące sprzed 12.10.2026 — wpisy DL z DynaReportera (`HISTORY_CLIENT_ID`).
+    for i, window in enumerate(windows):
+        for r in await _history_entries(db, window.start, window.end):
+            rows.append(
+                {
+                    "idx": i,
+                    "dl_id": r["dl_id"],
+                    "client_id": HISTORY_CLIENT_ID,
+                    "placements": int(r["placements"] or 0),
+                }
+            )
+    return rows
 
 
 async def _top_hiring_managers(db: AsyncSession, start, end) -> list:
     """Hiring manager z największą liczbą zapytań okna per (DL, klient).
 
-    Liczymy te same oferty co kolumna „Zapytania" (utworzone w oknie), żeby
+    Liczymy te same oferty co kolumna „Zapytania" (otwarte w oknie), żeby
     „HM: 4 rekrutacje" dało się zestawić z liczbą obok. Remis rozstrzyga
     nazwa, potem id — kolejność ma być stabilna między odświeżeniami.
     """
@@ -232,7 +288,8 @@ async def _top_hiring_managers(db: AsyncSession, start, end) -> list:
                            count(*) AS jobs
                     FROM jobs_scoped js
                     JOIN jobs j ON j.id = js.id
-                    WHERE js.created_at >= :start AND js.created_at < :end
+                    WHERE js.opened_at >= :start AND js.opened_at < :end
+                  AND js.in_demand
                       AND j.hiring_manager_contact_id IS NOT NULL
                     GROUP BY js.dl_id, js.client_id, j.hiring_manager_contact_id
                 ),
@@ -250,7 +307,7 @@ async def _top_hiring_managers(db: AsyncSession, start, end) -> list:
                 WHERE rn = 1
                 """
                 ),
-                {"start": start, "end": end},
+                {"start": competition_history.board_start(start), "end": end},
             )
         )
         .mappings()
@@ -321,9 +378,18 @@ def _alert(
     return delta_pp, None
 
 
-async def compute_dl_portfolio(db: AsyncSession, period: Period) -> dict:
+async def compute_dl_portfolio(
+    db: AsyncSession, period: Period, *, now: datetime | None = None
+) -> dict:
     """Portfel DL w oknie ``period`` — kształt opisany w docstringu trasy."""
-    previous = previous_period(period)
+    # Okno W TOKU porównujemy z TYM SAMYM odcinkiem poprzedniego okresu
+    # (`previous_matching_window`, jak widok Zespół i kafle Firmy): hit ratio
+    # trwającego kwartału przeciw całemu poprzedniemu zapalało alarm „spada”,
+    # bo placementy dochodzą później niż zapytania (runda 6 audytu).
+    from app.services.insights_team_signals import previous_matching_window
+
+    prev_start, prev_end = previous_matching_window(period, now or local_now())
+    previous = Period(kind=period.kind, start=prev_start, end=prev_end)
     windows = monthly_windows(period)
 
     cells: dict[tuple[int | None, int | None], _Cell] = {}
@@ -369,7 +435,7 @@ async def compute_dl_portfolio(db: AsyncSession, period: Period) -> dict:
                 "jobs": int(r["jobs"]),
             }
 
-    client_ids = {cid for (_, cid) in cells if cid is not None}
+    client_ids = {cid for (_, cid) in cells if cid}
     names = await _client_names(db, client_ids)
     dl_ids = {dl for (dl, _) in cells if dl is not None}
     users = await _users(db, dl_ids)
@@ -389,6 +455,8 @@ async def compute_dl_portfolio(db: AsyncSession, period: Period) -> dict:
             )
             if client_id is None:
                 client_name = NO_CLIENT_NAME
+            elif client_id == HISTORY_CLIENT_ID:
+                client_name = HISTORY_CLIENT_NAME
             else:
                 client_name = names.get(client_id) or HIDDEN_CLIENT_NAME
             rows.append(
@@ -454,7 +522,6 @@ async def compute_dl_portfolio(db: AsyncSession, period: Period) -> dict:
     return {
         "period": period.as_payload(),
         "previous_period": previous.as_payload(),
-        "recruitment_type": RECRUITMENT_TYPE,
         "hit_ratio_target_pct": HIT_RATIO_TARGET_PCT,
         "alert_rule": {
             "drop_pp": ALERT_DROP_PP,

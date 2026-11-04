@@ -14,13 +14,52 @@ const mocks = vi.hoisted(() => ({
   forceDeleteSigned: vi.fn(),
   updateContract: vi.fn(),
   activities: vi.fn(),
-  canManageFinance: false,
-  deliveryAccess: "write" as "none" | "read" | "write",
   impersonating: false,
   search: "",
   replace: vi.fn(),
   updateStatus: vi.fn(),
+  // Flagi, które strona dostaje z `lib/contract-access.ts` — nadpisania
+  // względem kompletu „wolno wszystko” (patrz mock niżej).
+  access: {} as Record<string, boolean>,
+  accessCalls: [] as Array<{
+    impersonating: boolean;
+    clientId: number | null | undefined;
+  }>,
+  amendmentsTabProps: null as null | {
+    readOnly?: boolean;
+    onRequestTermination?: () => void;
+  },
 }));
+
+// O tym, KTO co może, rozstrzyga `lib/contract-access.ts` (uprawnienia konta;
+// ma własne testy). Ten plik sprawdza, co strona robi z gotowymi flagami —
+// dlatego bramka jest tu podstawiona, a nie odtwarzana z ról.
+vi.mock("@/lib/contract-access", () => {
+  const everything = {
+    isAdmin: true,
+    canManageFinance: false,
+    canViewBenchmark: true,
+    canViewInvoices: true,
+    canManageInvoices: true,
+    canEditContract: true,
+    financeAmountsOnly: false,
+    canEditContractStatus: true,
+    canRecoverTermination: true,
+    canViewFinance: true,
+    canViewContractDocuments: true,
+    canEditContractDocuments: true,
+    canReassignClient: true,
+  };
+  return {
+    contractAccess: (
+      _user: unknown,
+      options: { impersonating: boolean; clientId: number | null | undefined },
+    ) => {
+      mocks.accessCalls.push(options);
+      return { ...everything, ...mocks.access };
+    },
+  };
+});
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "563" }),
@@ -44,53 +83,27 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-vi.mock("@/store/auth", () => ({
-  useAuthStore: (
-    selector: (state: {
-      user: {
-        role: string;
-        roles: string[];
-        effective_section_access: { delivery: "none" | "read" | "write" };
-      };
-      realUser: { role: string; roles: string[] } | null;
-      hydrated: boolean;
-    }) => unknown,
-  ) =>
-    selector({
-      user: {
-        role: mocks.role,
-        roles: [mocks.role],
-        effective_section_access: { delivery: mocks.deliveryAccess },
-      },
-      realUser: mocks.impersonating
-        ? { role: "admin", roles: ["admin"] }
-        : null,
-      hydrated: true,
-    }),
-  hasRole: (
-    _user: unknown,
-    ...roles: string[]
-  ) => roles.includes(mocks.role),
-  canManageCandidateFinance: () => mocks.canManageFinance,
-  canManageContractStatus: () =>
-    ["admin", "delivery_lead"].includes(mocks.role) &&
-    mocks.deliveryAccess === "write",
-  canViewClientFinance: () => mocks.role === "admin",
-  hasAnalyticsCapability: () => mocks.role === "admin",
-  canRecoverContractTermination: () =>
-    ["admin", "finance", "talent_community_manager"].includes(mocks.role) &&
-    mocks.deliveryAccess !== "none",
-}));
-
-vi.mock("@/components/RequireRole", () => ({
-  RequireRole: ({
-    roles,
-    children,
-  }: {
-    roles?: string[];
-    children: React.ReactNode;
-  }) => (roles && !roles.includes(mocks.role) ? null : children),
-}));
+vi.mock("@/store/auth", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/store/auth")>("@/store/auth");
+  return {
+    ...actual,
+    useAuthStore: (
+      selector: (state: {
+        user: { role: string; roles: string[] };
+        realUser: { role: string; roles: string[] } | null;
+        hydrated: boolean;
+      }) => unknown,
+    ) =>
+      selector({
+        user: { role: mocks.role, roles: [mocks.role] },
+        realUser: mocks.impersonating
+          ? { role: "admin", roles: ["admin"] }
+          : null,
+        hydrated: true,
+      }),
+  };
+});
 
 vi.mock("@/components/ds/AppModal", () => ({
   AppModal: ({
@@ -141,7 +154,13 @@ vi.mock("@/components/contracts/AddProjectDialog", () => ({
   AddProjectDialog: () => null,
 }));
 vi.mock("@/components/ContractAmendmentsTab", () => ({
-  ContractAmendmentsTab: () => <p>zakładka aneksów</p>,
+  ContractAmendmentsTab: (props: {
+    readOnly?: boolean;
+    onRequestTermination?: () => void;
+  }) => {
+    mocks.amendmentsTabProps = props;
+    return <p>zakładka aneksów</p>;
+  },
 }));
 vi.mock("@/components/ContractDocumentsTab", () => ({
   ContractDocumentsTab: () => null,
@@ -255,7 +274,7 @@ async function requestDelete() {
   const user = userEvent.setup({ delay: null });
   renderPage();
 
-  await screen.findByRole("heading", { name: /Kontrakt #563/ });
+  await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
   await user.click(screen.getByRole("button", { name: /^Usuń$/ }));
 
   const firstDialog = screen.getByRole("dialog", {
@@ -271,8 +290,9 @@ async function requestDelete() {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.role = "admin";
-  mocks.canManageFinance = false;
-  mocks.deliveryAccess = "write";
+  mocks.access = {};
+  mocks.accessCalls = [];
+  mocks.amendmentsTabProps = null;
   mocks.impersonating = false;
   mocks.search = "";
   window.history.replaceState(
@@ -290,11 +310,11 @@ beforeEach(() => {
 
 describe("ContractDetailPage — edycja walut stawek", () => {
   it("prefilluje i zapisuje niezależną walutę klienta oraz kandydata", async () => {
-    mocks.canManageFinance = true;
+    mocks.access = { canManageFinance: true };
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     // Kotwice są tu load-bearing (jak w `/^Usuń$/` niżej): karta kontraktu ma
     // też ołówki edycji w miejscu z etykietami „Edytuj: E-mail" / „Edytuj:
     // Telefon", więc gołe `/Edytuj/` trafia w kilka przycisków i `getByRole`
@@ -327,15 +347,21 @@ describe("ContractDetailPage — edycja walut stawek", () => {
   });
 });
 
-describe("ContractDetailPage — Finanse zmieniają tylko kwoty (audyt 22.09)", () => {
-  it("daje Finansom edycję stawek i wysyła wyłącznie pola kwot", async () => {
-    mocks.role = "finance";
-    mocks.canManageFinance = true;
+describe("ContractDetailPage — sama zmiana kwot edytuje tylko kwoty (audyt 22.09)", () => {
+  it("konto ze zmianą kwot bez edycji kontraktów dostaje „Edytuj stawki” i wysyła wyłącznie pola kwot", async () => {
+    mocks.access = {
+      isAdmin: false,
+      canEditContract: false,
+      canEditContractStatus: false,
+      canReassignClient: false,
+      canManageFinance: true,
+      financeAmountsOnly: true,
+    };
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
-    // Bez roli admin/DL nie ma pełnej edycji ani usuwania.
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    // Bez edycji kontraktów nie ma pełnej edycji ani usuwania.
     expect(screen.queryByRole("button", { name: /^Edytuj$/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Usuń$/ })).not.toBeInTheDocument();
 
@@ -369,24 +395,98 @@ describe("ContractDetailPage — Finanse zmieniają tylko kwoty (audyt 22.09)", 
   });
 });
 
-describe("ContractDetailPage — poziom sekcji Delivery", () => {
-  it("ukrywa mutacje dla Delivery read i podczas impersonacji", async () => {
-    mocks.role = "delivery_lead";
-    mocks.deliveryAccess = "read";
-    const first = renderPage();
+describe("ContractDetailPage — bez edycji kontraktów strona jest do odczytu", () => {
+  it("ukrywa mutacje, gdy konto nie ma edycji kontraktów ani zmiany kwot", async () => {
+    mocks.access = {
+      isAdmin: false,
+      canEditContract: false,
+      canEditContractStatus: false,
+      canReassignClient: false,
+    };
+    renderPage();
 
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     expect(screen.queryByRole("button", { name: /Edytuj/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Usuń$/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("combobox", { name: "Zmień status kontraktu" }),
+    ).not.toBeInTheDocument();
+  });
 
-    first.unmount();
-    mocks.deliveryAccess = "write";
+  it("przekazuje tryb „podgląd jako” do wspólnej bramki — to ona chowa mutacje", async () => {
     mocks.impersonating = true;
     renderPage();
 
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
-    expect(screen.queryByRole("button", { name: /Edytuj/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Usuń$/ })).not.toBeInTheDocument();
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    expect(mocks.accessCalls.length).toBeGreaterThan(0);
+    expect(mocks.accessCalls.every((call) => call.impersonating)).toBe(true);
+    // Kwoty i dokumenty liczą się per klient kontraktu, nie globalnie.
+    expect(mocks.accessCalls.some((call) => call.clientId === 42)).toBe(true);
+    // „Przepnij na innego klienta" pilnuje podglądu także lokalnie.
+    expect(
+      screen.queryByRole("button", { name: /Przepnij na innego klienta/ }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("ContractDetailPage — edycja kontraktu nie daje zmiany statusu", () => {
+  // Dwa osobne uprawnienia: „Kontrakty i zamówienia: tworzenie i edycja”
+  // (domyślnie także Finanse) i „Zakończenie współpracy, zmiana statusu
+  // kontraktu”. Formularz odsyła status przy każdym zapisie, ale zmienić go
+  // może tylko posiadacz drugiego.
+  const EDIT_WITHOUT_STATUS = {
+    isAdmin: false,
+    canReassignClient: false,
+    canEditContractStatus: false,
+  };
+
+  it("formularz edycji blokuje pole Status i mówi, którego uprawnienia brakuje", async () => {
+    mocks.access = EDIT_WITHOUT_STATUS;
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    await user.click(screen.getByRole("button", { name: /^Edytuj$/ }));
+
+    const status = screen.getByLabelText("Status");
+    expect(status).toBeDisabled();
+    expect(status).toHaveAttribute(
+      "title",
+      "Status zmienia osoba z uprawnieniem „Zakończenie współpracy, zmiana statusu kontraktu”",
+    );
+    // Zapis pozostałych pól działa — status jedzie niezmieniony.
+    await user.click(screen.getByRole("button", { name: /Zapisz/ }));
+    await waitFor(() => expect(mocks.updateContract).toHaveBeenCalledTimes(1));
+    expect(mocks.updateContract.mock.calls[0]?.[1]).toMatchObject({
+      status: "active",
+    });
+  });
+
+  it("posiadacz zmiany statusu ma pole Status aktywne", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    await user.click(screen.getByRole("button", { name: /^Edytuj$/ }));
+
+    expect(screen.getByLabelText("Status")).toBeEnabled();
+  });
+
+  it("„Zakończ wcześniej” w aneksach dostaje tylko posiadacz zmiany statusu", async () => {
+    mocks.search = "tab=amendments";
+    mocks.access = EDIT_WITHOUT_STATUS;
+    const first = renderPage();
+
+    expect(await screen.findByText("zakładka aneksów")).toBeInTheDocument();
+    expect(mocks.amendmentsTabProps?.readOnly).toBe(false);
+    expect(mocks.amendmentsTabProps?.onRequestTermination).toBeUndefined();
+
+    first.unmount();
+    mocks.access = {};
+    renderPage();
+
+    expect(await screen.findByText("zakładka aneksów")).toBeInTheDocument();
+    expect(mocks.amendmentsTabProps?.onRequestTermination).toBeTypeOf("function");
   });
 });
 
@@ -421,7 +521,9 @@ describe("ContractDetailPage — wymuszone usunięcie podpisanego kontraktu", ()
   });
 
   it("użytkownik bez roli Admin widzi blokadę i nie dostaje drugiego modala", async () => {
+    // Wymuszone usunięcie podpisanego kontraktu zostaje przy roli admina.
     mocks.role = "delivery_lead";
+    mocks.access = { isAdmin: false, canReassignClient: false };
 
     await requestDelete();
 
@@ -449,7 +551,7 @@ describe("ContractDetailPage — Timeline (retest UAT B23)", () => {
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     await user.click(screen.getByRole("button", { name: /Timeline/ }));
 
     expect(await screen.findByText("Nie udało się pobrać danych")).toBeInTheDocument();
@@ -461,7 +563,7 @@ describe("ContractDetailPage — Timeline (retest UAT B23)", () => {
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     await user.click(screen.getByRole("button", { name: /Timeline/ }));
 
     expect(await screen.findByText("Brak wpisów w historii.")).toBeInTheDocument();
@@ -476,17 +578,29 @@ describe("ContractDetailPage — audyt 24.09 (blok D)", () => {
 
     expect(await screen.findByText("zakładka aneksów")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Timeline/ }));
-    expect(mocks.replace).toHaveBeenCalledWith(
-      expect.stringContaining("tab=timeline"),
-      { scroll: false },
-    );
+    // Natywna historia, nie router — ten przewijałby stronę na górę.
+    expect(window.location.pathname).toBe("/contracts/563");
+    expect(window.location.search).toContain("tab=timeline");
+    expect(window.location.search).toContain("from=contracts");
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it("tytułem jest osoba, a klient i numer kontraktu stoją w podtytule", async () => {
+    renderPage();
+
+    const heading = await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    expect(heading).not.toHaveTextContent("Kontrakt #563");
+    expect(screen.getByText(/Kontrakt #563/)).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("link", { name: "Nordea" })[0],
+    ).toHaveAttribute("href", "/clients/42");
   });
 
   it("pokazuje „Anulowany” zamiast surowego `void` (S11)", async () => {
     mocks.getContract.mockResolvedValue({ data: { ...contract, status: "void" } });
     renderPage();
 
-    const heading = await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    const heading = await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     expect(within(heading).getAllByText("Anulowany").length).toBeGreaterThan(0);
     expect(within(heading).queryByText("void")).not.toBeInTheDocument();
   });
@@ -496,7 +610,7 @@ describe("ContractDetailPage — audyt 24.09 (blok D)", () => {
     const user = userEvent.setup({ delay: null });
     renderPage();
 
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     await user.selectOptions(
       screen.getByRole("combobox", { name: "Zmień status kontraktu" }),
       "draft",
@@ -511,10 +625,100 @@ describe("ContractDetailPage — audyt 24.09 (blok D)", () => {
     expect(await screen.findByText("karta benchmarku")).toBeInTheDocument();
   });
 
-  it("Delivery Lead bez `view_finance` nie dostaje karty kończącej się 403 (S1)", async () => {
-    mocks.role = "delivery_lead";
+  it("konto bez `view_finance` nie dostaje karty kończącej się 403 (S1)", async () => {
+    mocks.access = { canViewBenchmark: false };
     renderPage();
-    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
     expect(screen.queryByText("karta benchmarku")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Propozycja zespołu 28.10.2026: zakończony projekt z umową B2B bez
+ * rozwiązania przypomina o porozumieniu (69 z 73 zakończonych kontraktów B2B
+ * na kopii z 22.10 nie miało rozwiązanej umowy).
+ */
+describe("ContractDetailPage — umowa B2B nierozwiązana po zakończeniu", () => {
+  const ended = {
+    ...contract,
+    status: "ended",
+    termination_reason: "project_ended",
+    terminated_at: "2026-10-19",
+    end_date: "2026-10-19",
+    agreement_termination_mode: null,
+    agreement_termination_party: null,
+    agreement_termination_signed_on: null,
+    agreement_last_day: null,
+  };
+
+  it("pokazuje przypomnienie z linkiem do porozumienia z datą końca projektu", async () => {
+    mocks.getContract.mockResolvedValue({ data: ended });
+    renderPage();
+    const reminder = await screen.findByTestId("agreement-not-terminated");
+    expect(reminder).toHaveTextContent("Umowa B2B nie jest rozwiązana.");
+    const link = within(reminder).getByRole("link", { name: "Przygotuj porozumienie" });
+    const params = new URLSearchParams(link.getAttribute("href")!.split("?")[1]);
+    expect(params.get("new")).toBe("termination_agreement");
+    expect(params.get("contract")).toBe("563");
+    expect(params.get("v_termination_date")).toBe("2026-10-19");
+    expect(params.get("v_last_service_date")).toBe("2026-10-19");
+    expect(
+      within(reminder).getByRole("link", { name: "Wszystkie nierozwiązane umowy" }),
+    ).toHaveAttribute("href", "/contracts?status=all&agreement=not_terminated");
+  });
+
+  it("po przedłużeniu porozumienie startuje z daty końca, nie z pierwszego zakończenia", async () => {
+    mocks.getContract.mockResolvedValue({
+      data: { ...ended, end_date: "2026-10-26", terminated_at: "2026-10-19" },
+    });
+    renderPage();
+    const reminder = await screen.findByTestId("agreement-not-terminated");
+    const link = within(reminder).getByRole("link", { name: "Przygotuj porozumienie" });
+    const params = new URLSearchParams(link.getAttribute("href")!.split("?")[1]);
+    expect(params.get("v_termination_date")).toBe("2026-10-26");
+    expect(params.get("v_last_service_date")).toBe("2026-10-26");
+    expect(screen.getByText("26.10.2026")).toBeInTheDocument();
+  });
+
+  it("umowa rozwiązana albo zlecenie — bez przypomnienia", async () => {
+    mocks.getContract.mockResolvedValue({
+      data: {
+        ...ended,
+        agreement_termination_mode: "mutual_agreement",
+        agreement_termination_party: "company",
+        agreement_termination_signed_on: "2026-10-10",
+        agreement_last_day: "2026-10-19",
+      },
+    });
+    const { unmount } = renderPage();
+    await screen.findByText("Zakończenie współpracy");
+    expect(screen.queryByTestId("agreement-not-terminated")).toBeNull();
+    unmount();
+
+    mocks.getContract.mockResolvedValue({ data: { ...ended, contract_type: "uzlecenie" } });
+    renderPage();
+    await screen.findByText("Zakończenie współpracy");
+    expect(screen.queryByTestId("agreement-not-terminated")).toBeNull();
+  });
+});
+
+describe("ContractDetailPage — odmowa dostępu to nie awaria", () => {
+  it("403 mówi o braku uprawnień, a nie o nieudanym wczytaniu", async () => {
+    mocks.getContract.mockRejectedValue({ response: { status: 403 } });
+    renderPage();
+    expect(await screen.findByText("Brak uprawnień")).toBeInTheDocument();
+    expect(screen.queryByText("Nie udało się wczytać kontraktu.")).toBeNull();
+  });
+
+  it("404 mówi, że rekordu nie ma", async () => {
+    mocks.getContract.mockRejectedValue({ response: { status: 404 } });
+    renderPage();
+    expect(await screen.findByText("Nie znaleziono")).toBeInTheDocument();
+  });
+
+  it("awaria serwera zostaje komunikatem o nieudanym wczytaniu", async () => {
+    mocks.getContract.mockRejectedValue({ response: { status: 500 } });
+    renderPage();
+    expect(await screen.findByText("Nie udało się wczytać kontraktu.")).toBeInTheDocument();
   });
 });

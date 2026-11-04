@@ -18,14 +18,14 @@ afterEach(() => {
 });
 
 describe("candidate profile navigation", () => {
-  it("reads the four canonical sections and their subviews", () => {
+  it("reads the canonical sections and their subviews", () => {
     expect(
       parseCandidateProfileView(
-        new URLSearchParams("tab=activity&activity=calls"),
+        new URLSearchParams("tab=activity&activity=delivery"),
       ),
     ).toMatchObject({
       section: "activity",
-      activity: "calls",
+      activity: "delivery",
       isLegacy: false,
     });
     expect(
@@ -33,6 +33,44 @@ describe("candidate profile navigation", () => {
         new URLSearchParams("tab=documents&documents=contracts"),
       ),
     ).toMatchObject({ section: "documents", documents: "contracts" });
+    // 13.10.2026: CV wydzielone z dawnego „CV i dokumenty”.
+    expect(parseCandidateProfileView(new URLSearchParams("tab=cv"))).toMatchObject({
+      section: "cv",
+      isLegacy: false,
+    });
+    const written = withCandidateProfileView(new URLSearchParams("documents=files"), {
+      section: "cv",
+      activity: "notes",
+      documents: "files",
+    });
+    expect(written.get("tab")).toBe("cv");
+    expect(written.get("documents")).toBeNull();
+  });
+
+  it("maps the retired „Telefony” filter onto the timeline and rewrites the address (13.10.2026)", () => {
+    for (const query of ["tab=activity&activity=calls", "tab=calls"]) {
+      expect(parseCandidateProfileView(new URLSearchParams(query)), query).toMatchObject({
+        section: "activity",
+        activity: "timeline",
+        isLegacy: true,
+      });
+    }
+  });
+
+  it("opens the screening answers tab, also from its Polish aliases (04.10.2026)", () => {
+    for (const tab of ["screening", "odpowiedzi", "screeningi"]) {
+      expect(
+        parseCandidateProfileView(new URLSearchParams(`tab=${tab}`)),
+      ).toMatchObject({ section: "screening" });
+    }
+    expect(
+      withCandidateProfileView(new URLSearchParams(), {
+        section: "screening",
+        activity: "notes",
+        documents: "files",
+        recruitments: "list",
+      }).get("tab"),
+    ).toBe("screening");
   });
 
   it("keeps the mail reader reachable: `tab=emails` opens Historia → Maile (UAT M01-B03)", () => {
@@ -88,8 +126,12 @@ describe("candidate profile navigation", () => {
       ["tab=notes", { section: "activity", activity: "notes" }],
       ["tab=activity&activity=notes&note=42", { section: "activity", activity: "notes" }],
       ["tab=activity&activity=timeline", { section: "activity", activity: "timeline" }],
-      ["tab=activity&activity=calls", { section: "activity", activity: "calls" }],
+      ["tab=activity&activity=calls", { section: "activity", activity: "timeline" }],
       ["tab=activity&activity=chat", { section: "activity", activity: "chat" }],
+      // 03.10.2026: zakładki notatek po rodzaju.
+      ["tab=activity&activity=contact", { section: "activity", activity: "contact" }],
+      ["tab=activity&activity=delivery", { section: "activity", activity: "delivery" }],
+      ["tab=activity&activity=automat", { section: "activity", activity: "automat" }],
       ["tab=documents&documents=files", { section: "documents", documents: "files" }],
       ["tab=documents&documents=contracts", { section: "documents", documents: "contracts" }],
       ["tab=umowa", { section: "documents", documents: "contracts" }],
@@ -141,9 +183,25 @@ describe("candidate profile navigation", () => {
       }),
     ).toMatchObject({
       section: "recruitments",
-      activity: "timeline",
+      activity: "notes",
       hasExplicitTab: false,
     });
+  });
+
+  it("opens Historia on Notatki by default, old timeline links keep Wszystko", () => {
+    // Decyzja 29.09.2026: domyślny filtr „Historii” to notatki.
+    expect(
+      parseCandidateProfileView(new URLSearchParams("tab=activity")),
+    ).toMatchObject({ section: "activity", activity: "notes" });
+    for (const legacy of ["timeline", "podglad"]) {
+      expect(
+        parseCandidateProfileView(new URLSearchParams(`tab=${legacy}`)),
+        legacy,
+      ).toMatchObject({ section: "activity", activity: "timeline", isLegacy: true });
+    }
+    expect(
+      parseCandidateProfileView(new URLSearchParams("tab=activity&activity=timeline")),
+    ).toMatchObject({ activity: "timeline" });
   });
 
   it("writes a canonical view while preserving nav, job and message context", () => {
@@ -276,7 +334,6 @@ describe("candidate query keys", () => {
       42,
       { limit: 3 },
     ]);
-    expect(candidateQueryKeys.calls("42")).toEqual(["candidate-calls", 42]);
     expect(candidateQueryKeys.risk("42")).toEqual(["candidate-risk", 42]);
     expect(candidateQueryKeys.history("42", "viewer:17")).toEqual([
       "candidate-history",
@@ -315,15 +372,15 @@ describe("candidate query keys", () => {
     const viewerScope = candidateViewerScopeKey({
       id: 17,
       role: "recruiter",
-      roles: ["sourcer", "recruiter"],
+      roles: ["recruiter", "delivery_lead"],
     });
 
-    expect(viewerScope).toBe("viewer:17:roles:recruiter,sourcer");
+    expect(viewerScope).toBe("viewer:17:roles:delivery_lead,recruiter");
     expect(
       candidateViewerScopeKey({
         id: 17,
         role: "recruiter",
-        roles: ["recruiter", "sourcer"],
+        roles: ["delivery_lead", "recruiter"],
       }),
     ).toBe(viewerScope);
     expect(candidateViewerScopeKey(null)).toBeNull();

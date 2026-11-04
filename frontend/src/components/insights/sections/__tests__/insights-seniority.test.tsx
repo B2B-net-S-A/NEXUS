@@ -92,7 +92,7 @@ const BODY: SeniorityResponse = {
     {
       user_id: 2,
       name: "Bartosz Nowak",
-      role: "sourcer",
+      role: "recruiter",
       level: "expert",
       total_placements: 14,
       first_placement_month: "2024-06",
@@ -107,7 +107,7 @@ const BODY: SeniorityResponse = {
     {
       user_id: 3,
       name: "Celina Widmo",
-      role: "tac",
+      role: "recruiter",
       level: "junior",
       total_placements: 0,
       // Zero PRZYPISANEJ historii — wiersz idzie na listę „nieoceniani”.
@@ -217,7 +217,7 @@ describe("InsightsSeniority", () => {
     expect(await screen.findByText("Brak uprawnień")).toBeInTheDocument();
     expect(screen.getByText(/Dane NIE są puste/)).toBeInTheDocument();
     expect(
-      screen.queryByText(/Brak osób w rolach sourcer/),
+      screen.queryByText(/Brak osób w roli rekrutera/),
     ).not.toBeInTheDocument();
   });
 
@@ -228,7 +228,7 @@ describe("InsightsSeniority", () => {
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(screen.getByText(/Dane mogą istnieć/)).toBeInTheDocument();
     expect(
-      screen.queryByText(/Brak osób w rolach sourcer/),
+      screen.queryByText(/Brak osób w roli rekrutera/),
     ).not.toBeInTheDocument();
   });
 

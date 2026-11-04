@@ -72,6 +72,16 @@ export interface TeamTableResponse {
   columns: TeamTableColumn[];
   rows: TeamTableRow[];
   totals: TeamTableTotals;
+  /**
+   * Tylko przy `anchored_average=true`: średnia „CV wysłane" osoby z co
+   * najmniej jednym CV, atrybucją verifier-anchored (jak „Mój miesiąc").
+   * `recommendations: null` = w oknie nikt nic nie wysłał.
+   */
+  anchored_average?: {
+    attribution: "verifier_anchored";
+    people: number;
+    recommendations: number | null;
+  };
 }
 
 /** Lokalna kopia — `periodQuery` z `insights-api.ts` nie jest eksportowane. */
@@ -91,11 +101,20 @@ export const insightsTeamApi = {
         params: periodQuery(p),
       })
       .then((r) => r.data),
+  /** Tabela + średnia zespołu atrybucją „Mojego miesiąca" (runda 6 audytu). */
+  teamTableWithAnchoredAverage: (p: InsightsPeriodParams) =>
+    api
+      .get<TeamTableResponse>("/api/insights/team-table", {
+        params: { ...periodQuery(p), anchored_average: true },
+      })
+      .then((r) => r.data),
 };
 
 export const insightsTeamQueryKeys = {
   teamTable: (p: InsightsPeriodParams) =>
     ["insights", "team", "table", p] as const,
+  teamTableAnchored: (p: InsightsPeriodParams) =>
+    ["insights", "team", "table", p, "anchored-average"] as const,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -112,7 +131,13 @@ export interface TeamPeopleRow {
   verifications: number;
   recommendations: number;
   interviews: number;
+  /** Akceptacje (od 22.10.2026; liczone od 12.10.2026). Brak = odpowiedź sprzed wdrożenia. */
+  acceptances?: number;
   placements: number;
+  /** Cel placementów osoby — tylko w oknie miesiąca; `null` = brak celu albo inne okno. */
+  placements_target?: number | null;
+  /** Pary w drodze dziś (pierwszy weryfikujący) — stan, nie okno. */
+  in_flight?: number;
   /** Placementy z TEGO SAMEGO odcinka poprzedniego okresu. */
   previous_placements: number;
   /** `null` = w oknie nie upłynął jeszcze żaden dzień roboczy. */
@@ -131,6 +156,7 @@ export interface TeamPeopleOutsideScope {
   verifications: number;
   recommendations: number;
   interviews: number;
+  acceptances?: number;
   placements: number;
   previous_placements: number;
 }
@@ -140,6 +166,17 @@ export interface TeamPeopleResponse {
   rows: TeamPeopleRow[];
   /** Konta administracyjne — jeden wiersz pod tabelą (reguła Hall of Fame). */
   outside_scope?: TeamPeopleOutsideScope;
+  /**
+   * Kamienie, które nie liczą się nikomu — wiersz „Bez osoby z zasługą”
+   * (17.10.2026). Brak pola = odpowiedź sprzed wdrożenia.
+   */
+  unattributed?: {
+    verifications: number;
+    recommendations: number;
+    interviews: number;
+    acceptances?: number;
+    placements: number;
+  };
   workdays: number;
   precision_target_pct: number;
   low_precision_pct: number;
@@ -160,7 +197,16 @@ export interface TeamPeopleResponse {
   };
 }
 
-export type TeamAttentionKind = "stale_jobs" | "low_precision" | "weak_preps";
+/** Rodzaje sygnałów z `GET /api/insights/team/attention`
+ *  (`backend/app/api/insights_team_signals.py`). */
+export type TeamAttentionKind =
+  | "stale_jobs"
+  | "no_one_sent"
+  | "overdue"
+  | "dl_send_stale"
+  | "stale_postings"
+  | "low_precision"
+  | "weak_preps";
 
 export interface TeamAttentionItem {
   kind: TeamAttentionKind;
@@ -168,6 +214,8 @@ export interface TeamAttentionItem {
   label: string;
   /** Raport, który pokazuje listę. `null` = sygnał wskazuje wiersze tabeli. */
   report: string | null;
+  /** Gotowy adres listy (np. rekrutacje z filtrem) — sygnały „Gdzie stoi”. */
+  href?: string | null;
   user_ids?: number[];
 }
 

@@ -1,11 +1,29 @@
 "use client";
 
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useId,
+  useMemo,
+  useState,
+  type ChangeEvent,
+  type ClipboardEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { Plus, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { KeywordSuggestionList } from "@/components/v2/filters/KeywordSuggestionList";
+import {
+  buildSuggestionOptions,
+  useKeywordSuggestions,
+  type KeywordContextItem,
+  type SuggestionOption,
+} from "@/lib/keyword-suggest";
+import { keywordLongEnough, tooShortKeywordMessage } from "@/lib/keyword-requirements";
+import { recentKeywords } from "@/lib/search-memory";
+import { useAuthStore } from "@/store/auth";
 
 /**
  * Advanced (Traffit-style) boolean search value.
@@ -32,11 +50,14 @@ interface AdvancedSearchPopoverProps {
   hideHeader?: boolean;
   /** Które kubełki pokazać (domyślnie wszystkie) — reszta żyje gdzie indziej. */
   sections?: ReadonlyArray<"all" | "any" | "none">;
+  /** Podpowiedzi w polach (słownik z bazy, ostatnio używane, kontekst). */
+  suggest?: ChipFieldSuggest;
+  /** Enter w pustym polu = „Szukaj”. */
+  onSubmitEmpty?: () => void;
 }
 
 const MAX_PER_BUCKET = 20;
 const MAX_ANY_GROUPS = 5;
-const MIN_PHRASE_LEN = 2;
 
 type Tone = "emerald" | "sky" | "rose";
 
@@ -78,13 +99,17 @@ function ToneLabel({ tone, children }: { tone: Tone; children: ReactNode }) {
   );
 }
 
-function dedupeCaseInsensitive(xs: string[]): string[] {
+
+function dedupeCaseInsensitive(
+  xs: string[],
+  accept: (phrase: string) => boolean = keywordLongEnough,
+): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const raw of xs) {
     const trimmed = raw.trim();
     const key = trimmed.toLowerCase();
-    if (trimmed.length >= MIN_PHRASE_LEN && !seen.has(key)) {
+    if (accept(trimmed) && !seen.has(key)) {
       seen.add(key);
       out.push(trimmed);
     }
@@ -93,10 +118,44 @@ function dedupeCaseInsensitive(xs: string[]): string[] {
   return out;
 }
 
+/** Podpowiedzi w polu: kontekst (np. rekrutacja) i tryb „tylko umiejętności”. */
+export interface ChipFieldSuggest {
+  context?: readonly KeywordContextItem[];
+  skillsOnly?: boolean;
+  /**
+   * Lista otwiera się dopiero po wpisaniu tekstu i zamyka po dodaniu słowa
+   * (wiersze wymagań rekrutacji, 09.10.2026). Bez tego „Ostatnio używane”
+   * otwierały się na pustym polu i zasłaniały wiersz niżej oraz „Dodaj słowo
+   * kluczowe” — klik w przycisk trafiał w podpowiedź.
+   */
+  quietWhenEmpty?: boolean;
+}
+
+/** Skąd przyszedł tekst oddany przez `onCommitText`. */
+export type ChipCommitSource = "enter" | "separator" | "blur" | "paste";
+
+/** Wklejony tekst z separatorem listy — idzie do `onCommitText` w całości. */
+const PASTED_LIST = /[,;\n]/;
+
+/** Wpis z nawiasem, którego jeszcze nie zamknięto („Spring (Boot”). */
+function hasOpenParenthesis(text: string): boolean {
+  let depth = 0;
+  for (const ch of text) {
+    if (ch === "(") depth += 1;
+    else if (ch === ")" && depth > 0) depth -= 1;
+  }
+  return depth > 0;
+}
+
 /**
  * A single chip input: owns its draft text, commits on Enter/comma/blur,
  * removes the last chip on Backspace-when-empty. Emits the full new chip list
  * to `onChange` (already deduped + capped).
+ *
+ * Z `suggest` pole jest komboboksem: pod nim lista podpowiedzi (kontekst,
+ * ostatnio używane, słownik z bazy, wzorzec, „dokładnie jak wpisane”),
+ * strzałki wybierają, Enter dodaje zaznaczoną, Esc zamyka. `onSubmitEmpty` —
+ * Enter w pustym polu uruchamia wyszukiwanie (przycisk „Szukaj”).
  */
 export function ChipField({
   chips,
@@ -104,6 +163,19 @@ export function ChipField({
   placeholder,
   tone,
   ariaLabel,
+  suggest,
+  onSubmitEmpty,
+  onEnterCommit,
+  onCommitText,
+  hideInput = false,
+  trailing,
+  inputId,
+  layout = "stacked",
+  joiner,
+  maxChips = MAX_PER_BUCKET,
+  invalid = false,
+  autoFocus = false,
+  acceptWord = keywordLongEnough,
 }: {
   chips: string[];
   onChange: (next: string[]) => void;
@@ -111,18 +183,136 @@ export function ChipField({
   tone: Tone;
   /** Nazwa pola dla czytnika ekranu (bez etykiety `<label>` obok). */
   ariaLabel?: string;
+  suggest?: ChipFieldSuggest;
+  onSubmitEmpty?: () => void;
+  /**
+   * Słowo dodane ENTEREM (wpisane albo wybrane strzałkami) — zamiast
+   * `onChange`; przecinek, wyjście z pola i klik w podpowiedź idą przez
+   * `onChange`. Od 10.10.2026 bez konsumenta: wiersz wymagań rekrutacji
+   * oddaje wpis przez `onCommitText`.
+   */
+  onEnterCommit?: (next: string[]) => void;
+  /**
+   * Wpisany tekst idzie w całości do rodzica zamiast stawać się chipami tego
+   * pola (pusty wiersz wymagań rekrutacji, 10.10.2026: przecinek, średnik,
+   * Enter i wklejona lista dają osobne wymagania, nie warianty „lub”).
+   * Średnik też wtedy kończy wpis, a wklejony tekst z `, ; albo nową linią`
+   * nie trafia do pola. Zwrócone słowa pole pokazuje jako odrzucone. Wybór
+   * z listy podpowiedzi dalej idzie przez `onEnterCommit` / `onChange`.
+   */
+  onCommitText?: (text: string, via: ChipCommitSource) => string[] | void;
+  /** Bez pola do pisania — same chipy (wypełniony wiersz wymagań). */
+  hideInput?: boolean;
+  /** Element za chipami w układzie `inline` (np. przycisk „+ lub”). */
+  trailing?: ReactNode;
+  inputId?: string;
+  /**
+   * `inline` — chipy i pole w jednej ramce, jak wiersz wymagań (25.09.2026);
+   * `stacked` — chipy nad polem (dotychczasowy układ).
+   */
+  layout?: "stacked" | "inline";
+  /** Słowo między chipami w układzie `inline` (np. „lub”). */
+  joiner?: string;
+  maxChips?: number;
+  /** Czerwona ramka (brak wymaganego pola). */
+  invalid?: boolean;
+  /** Kursor w polu po zamontowaniu (świeżo dodany wiersz wymagań). */
+  autoFocus?: boolean;
+  /**
+   * Które słowo wolno dodać (domyślnie `keywordLongEnough` — lista
+   * kandydatów). Wiersze wymagań Championa przyjmują też jedną literę
+   * („C”, „R”) — o technologii decyduje serwer (audyt 06.10.2026, P4).
+   */
+  acceptWord?: (phrase: string) => boolean;
 }) {
   const [draft, setDraft] = useState("");
-  const limitReached = chips.length >= MAX_PER_BUCKET;
+  const [open, setOpen] = useState(false);
+  const [tooShort, setTooShort] = useState<string | null>(null);
+  // -1 = nic nie zaznaczone: Enter dodaje wpisany tekst, dopóki ktoś nie
+  // wybierze podpowiedzi strzałką (inaczej „junior” + Enter dodawał
+  // pierwszą pozycję z listy, np. stanowisko „junior java developer”).
+  const [highlight, setHighlight] = useState(-1);
+  const listId = useId();
+  const userId = useAuthStore((s) => s.user?.id ?? null);
+  const limitReached = chips.length >= maxChips;
+  const suggestions = useKeywordSuggestions(draft, Boolean(suggest) && open);
+  const recent = useMemo(
+    () => (suggest && open ? recentKeywords(userId) : []),
+    [suggest, open, userId],
+  );
+  const options = suggest
+    ? buildSuggestionOptions({
+        query: draft,
+        existing: chips,
+        context: suggest.context,
+        recent,
+        response: suggestions.data ?? null,
+        skillsOnly: suggest.skillsOnly,
+      })
+    : [];
+  const showList =
+    Boolean(suggest) &&
+    open &&
+    options.length > 0 &&
+    !limitReached &&
+    !hideInput &&
+    !(suggest?.quietWhenEmpty && draft.trim() === "");
+  const active = showList ? Math.min(highlight, options.length - 1) : -1;
 
-  const commit = () => {
+  const commit = (via: Exclude<ChipCommitSource, "paste">) => {
     if (!draft.trim()) return;
-    const fresh = draft
+    if (onCommitText) {
+      const rejected = onCommitText(draft, via) ?? [];
+      setTooShort(rejected.length > 0 ? tooShortKeywordMessage(rejected) : null);
+      setDraft("");
+      return;
+    }
+    // `|` rozdziela słowa grupy w adresie — w słowie zamieniamy go na spację,
+    // inaczej po odświeżeniu „a|b” wracało jako dwa osobne słowa.
+    const words = draft
       .split(",")
-      .map((x) => x.trim())
-      .filter((x) => x.length >= MIN_PHRASE_LEN);
-    if (fresh.length > 0) onChange(dedupeCaseInsensitive([...chips, ...fresh]));
+      .map((x) => x.replace(/\|/g, " ").replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    const fresh = words.filter(acceptWord);
+    // Słowo, którego nie da się szukać, nie znika po cichu — pole mówi
+    // dlaczego i gdzie szukać pojedynczej litery (przegląd PR #2056).
+    const rejected = words.filter((x) => !acceptWord(x));
+    setTooShort(rejected.length > 0 ? tooShortKeywordMessage(rejected) : null);
+    if (fresh.length > 0) {
+      const next = dedupeCaseInsensitive([...chips, ...fresh], acceptWord);
+      if (via === "enter" && onEnterCommit) onEnterCommit(next);
+      else onChange(next);
+    }
     setDraft("");
+  };
+
+  /**
+   * Wklejona lista (tylko z `onCommitText`): tekst ze schowka staje w miejscu
+   * kursora i całość idzie do rodzica. Jedno słowo wkleja się zwyczajnie.
+   */
+  const handlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
+    if (!onCommitText) return;
+    const pasted = e.clipboardData.getData("text");
+    if (!PASTED_LIST.test(pasted)) return;
+    e.preventDefault();
+    const field = e.currentTarget;
+    const start = field.selectionStart ?? draft.length;
+    const end = field.selectionEnd ?? draft.length;
+    const rejected =
+      onCommitText(draft.slice(0, start) + pasted + draft.slice(end), "paste") ?? [];
+    setTooShort(rejected.length > 0 ? tooShortKeywordMessage(rejected) : null);
+    setDraft("");
+  };
+
+  const pick = (option: SuggestionOption, viaEnter = false) => {
+    const next = dedupeCaseInsensitive(
+      [...chips, option.insert, ...(option.variants ?? [])],
+      acceptWord,
+    );
+    if (viaEnter && onEnterCommit) onEnterCommit(next);
+    else onChange(next);
+    setDraft("");
+    setHighlight(-1);
   };
 
   const removeAt = (index: number) => {
@@ -130,50 +320,154 @@ export function ChipField({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" || e.key === ",") {
+    if (showList && e.key === "ArrowDown") {
       e.preventDefault();
-      commit();
+      setHighlight((h) => Math.min(h + 1, options.length - 1));
+    } else if (showList && e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlight((h) => Math.max(h - 1, -1));
+    } else if (e.key === "Escape" && showList) {
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+    } else if (e.key === "Escape" && draft) {
+      // U8 (audyt 06.10.2026): Esc z wpisanym tekstem czyści pole — okno
+      // rekrutacji nie zamyka się wtedy (`keepSheetOpenOnKeywordEscape`).
+      e.preventDefault();
+      e.stopPropagation();
+      setDraft("");
+      setTooShort(null);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (!draft.trim()) {
+        if (onSubmitEmpty) {
+          setOpen(false);
+          onSubmitEmpty();
+        }
+      } else if (showList && active >= 0 && draft.trim() !== "") {
+        pick(options[active], true);
+      } else {
+        commit("enter");
+      }
+    } else if (e.key === "," || (e.key === ";" && onCommitText)) {
+      // Z `onCommitText` wpis dzieli się poza nawiasami, więc w otwartym
+      // nawiasie przecinek jest jego częścią („Spring (Boot, Data)”) — do
+      // 10.10.2026 wpisany z klawiatury rozcinał wymaganie na dwa wiersze.
+      if (onCommitText && hasOpenParenthesis(draft)) return;
+      e.preventDefault();
+      commit("separator");
     } else if (e.key === "Backspace" && draft.length === 0 && chips.length > 0) {
       e.preventDefault();
       removeAt(chips.length - 1);
     }
   };
 
+  const chipBadges = chips.map((phrase, i) => (
+    <span key={`${phrase}-${i}`} className="inline-flex items-center gap-1.5">
+      <Badge
+        variant="outline"
+        className={cn("gap-1 pl-2 pr-1 py-0.5 font-normal", TONE_CLASSES[tone])}
+      >
+        <span className="max-w-[min(180px,60vw)] truncate">{phrase}</span>
+        <button
+          type="button"
+          onClick={() => removeAt(i)}
+          title="Usuń frazę"
+          aria-label={`Usuń frazę ${phrase}`}
+          className="pointer-coarse:hit-area inline-flex items-center justify-center rounded hover:bg-foreground/10"
+        >
+          <X className="w-3 h-3" />
+        </button>
+      </Badge>
+      {joiner && layout === "inline" && i < chips.length - 1 && (
+        <span className="text-xs font-medium text-muted-foreground">{joiner}</span>
+      )}
+    </span>
+  ));
+  const inputProps = {
+    id: inputId,
+    type: "text",
+    value: draft,
+    onChange: (e: ChangeEvent<HTMLInputElement>) => {
+      setDraft(e.target.value);
+      setHighlight(-1);
+      setOpen(true);
+      setTooShort(null);
+    },
+    onKeyDown: handleKeyDown,
+    onPaste: handlePaste,
+    onFocus: () => setOpen(true),
+    onBlur: () => {
+      setOpen(false);
+      commit("blur");
+    },
+    placeholder: limitReached ? `Limit ${maxChips} fraz osiągnięty` : placeholder,
+    disabled: limitReached,
+    "aria-label": ariaLabel,
+    "aria-invalid": invalid || undefined,
+    autoComplete: "off",
+    autoFocus,
+    ...(suggest
+      ? {
+          role: "combobox",
+          "aria-expanded": showList,
+          "aria-controls": listId,
+          "aria-autocomplete": "list" as const,
+          "aria-activedescendant": active >= 0 ? `${listId}-${active}` : undefined,
+        }
+      : {}),
+  };
+  // Z ukrytym polem notka nie miałaby jak zniknąć (zdejmuje ją pisanie).
+  const tooShortNote = tooShort && !hideInput ? (
+    <p role="status" className="w-full text-xs text-warning-muted-foreground">
+      {tooShort}
+    </p>
+  ) : null;
+  const suggestionList = showList && (
+    <KeywordSuggestionList
+      id={listId}
+      options={options}
+      activeIndex={active}
+      onPick={pick}
+      // W wierszach wymagań pusty Enter przechodzi do następnego wiersza —
+      // podpis „Enter w pustym polu = Szukaj” byłby tam nieprawdą.
+      canSubmit={Boolean(onSubmitEmpty) && !suggest?.quietWhenEmpty}
+    />
+  );
+
+  if (layout === "inline") {
+    return (
+      <div
+        className={cn(
+          "relative flex min-h-10 flex-wrap items-center gap-1.5 rounded-lg border bg-card px-2 py-1 transition-colors duration-150 focus-within:border-primary",
+          invalid ? "border-destructive" : "border-border",
+        )}
+      >
+        {chipBadges}
+        {hideInput ? null : (
+          <input
+            {...inputProps}
+            data-keyword-field=""
+            className="h-7 w-0 min-w-[8rem] flex-1 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed"
+          />
+        )}
+        {trailing}
+        {suggestionList}
+        {tooShortNote}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-1.5">
-      {chips.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {chips.map((phrase, i) => (
-            <Badge
-              key={`${phrase}-${i}`}
-              variant="outline"
-              className={cn("gap-1 pl-2 pr-1 py-0.5 font-normal", TONE_CLASSES[tone])}
-            >
-              <span className="max-w-[min(180px,60vw)] truncate">{phrase}</span>
-              <button
-                type="button"
-                onClick={() => removeAt(i)}
-                title="Usuń frazę"
-                aria-label={`Usuń frazę ${phrase}`}
-                className="pointer-coarse:hit-area inline-flex items-center justify-center rounded hover:bg-foreground/10"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </Badge>
-          ))}
+      {chips.length > 0 && <div className="flex flex-wrap gap-1">{chipBadges}</div>}
+      {hideInput ? null : (
+        <div className="relative">
+          <Input {...inputProps} data-keyword-field="" className="h-8 text-sm" />
+          {suggestionList}
         </div>
       )}
-      <Input
-        type="text"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onBlur={commit}
-        placeholder={limitReached ? `Limit ${MAX_PER_BUCKET} fraz osiągnięty` : placeholder}
-        disabled={limitReached}
-        aria-label={ariaLabel}
-        className="h-8 text-sm"
-      />
+      {tooShortNote}
     </div>
   );
 }
@@ -184,6 +478,8 @@ export function AdvancedSearchPopover({
   className,
   hideHeader = false,
   sections,
+  suggest,
+  onSubmitEmpty,
 }: AdvancedSearchPopoverProps) {
   const show = (key: "all" | "any" | "none") => !sections || sections.includes(key);
   // Always render at least one ANY group row so there's somewhere to type.
@@ -270,6 +566,8 @@ export function AdvancedSearchPopover({
           onChange={setAll}
           placeholder="np. React, TypeScript…"
           tone="emerald"
+          suggest={suggest}
+          onSubmitEmpty={onSubmitEmpty}
         />
       </section>
       )}
@@ -321,6 +619,8 @@ export function AdvancedSearchPopover({
                   onChange={(next) => setGroup(gi, next)}
                   placeholder={gi === 0 ? "np. React, TypeScript…" : "np. Java, Node.js…"}
                   tone="sky"
+                  suggest={suggest}
+                  onSubmitEmpty={onSubmitEmpty}
                 />
               </div>
               {anyGroups.length > 1 && (
@@ -381,6 +681,8 @@ export function AdvancedSearchPopover({
           onChange={setNone}
           placeholder="np. junior, stażysta…"
           tone="rose"
+          suggest={suggest}
+          onSubmitEmpty={onSubmitEmpty}
         />
       </section>
       )}

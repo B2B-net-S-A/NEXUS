@@ -22,6 +22,7 @@ import {
 import { useToast } from "@/components/Toast";
 import { useFullCandidateSearch } from "@/hooks/useFullCandidateSearch";
 import {
+  candidatesApi,
   historicalCandidatesApi,
   matchingApi,
   proposalsApi,
@@ -42,15 +43,19 @@ import { summarizeFullSearch } from "@/lib/full-search-summary";
 import {
   jobProposalsApi,
   jobProposalsKeys,
+  PROPOSAL_DISMISS_BULK_MAX,
   type ProposalInboxPage,
 } from "@/lib/job-proposals-api";
 import {
   countBySource,
+  DEFAULT_PROPOSAL_THRESHOLD,
   filterProposals,
+  isBelowThreshold,
   mergeProposals,
   type ProposalEntry,
   type ProposalViewFilters,
 } from "@/lib/proposals-merge";
+import { bulkDismissMessage, type DismissFeedback } from "@/lib/proposal-dismiss";
 import { httpStatusFromError } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 import { jobShortlistQueryKey } from "@/components/v2/jobs/JobShortlist";
@@ -78,6 +83,23 @@ export interface AddToJobOptions {
   initialStageLegacy?: string | null;
   note?: string | null;
   tags?: string[];
+  /** Po jednej osobie w kolejności `candidateIds` („Oceń z AI”, 28.10.2026). */
+  oneByOne?: boolean;
+  /**
+   * Źródło dla osób spoza listy propozycji — sekcja „Ukryci przez »musi
+   * mieć«” (28.10.2026) dodaje osoby, których źródła okna nie zwracają.
+   * Bez niego takie id są pomijane jak dotąd.
+   */
+  unlistedSource?: BulkAddSource;
+}
+
+/**
+ * Wynik dodania dla wołającego (okno „Kandydaci do dodania” zostawia dodane
+ * osoby na liście z „Cofnij”). Komunikat i ukrycie wierszy robi hook jak dotąd.
+ */
+export interface AddToJobCallbacks {
+  onSuccess?: (response: BulkProposalsResponse) => void;
+  onSettled?: () => void;
 }
 
 interface AddGroup {
@@ -86,19 +108,40 @@ interface AddGroup {
   runId: string | null;
 }
 
+/** Po jednej osobie w kolejności wołającego („Oceń z AI”, 28.10.2026). */
+function oneByOneInOrder(groups: readonly AddGroup[], candidateIds: readonly number[]): AddGroup[] {
+  const groupOf = new Map<number, AddGroup>();
+  for (const group of groups) for (const id of group.ids) groupOf.set(id, group);
+  return candidateIds.flatMap((id) => {
+    const group = groupOf.get(id);
+    return group ? [{ ...group, ids: [id] }] : [];
+  });
+}
+
 /**
  * Telemetria dopasowań: `source` i `run_id` wynikają z POCHODZENIA wiersza,
  * nigdy z domysłu. Pierwszeństwo: żywy przegląd użytkownika → skrzynka
  * propozycji (z `run_id` przeglądu, który tę osobę zaproponował, jeśli serwer
  * go podał) → podobne projekty → rekomendacje. Backend i tak przypina wynik do
  * przeglądu tylko wtedy, gdy ten naprawdę pokazał kandydata.
+ *
+ * `autoRunId` — adoptowany nocny przegląd automatyczny (`latest-run`,
+ * `origin: "auto"`). Jego wiersze idą jako `proposal_inbox`: backend przypina
+ * dodanie do cudzego (automatycznego) przeglądu tylko dla źródeł, które takie
+ * przeglądy pokazują. Jako `full_search` członek zespołu niebędący autorem
+ * tracił `run_id` (runda 8, R8-N11-7).
  */
-export function groupAddsByOrigin(entries: readonly ProposalEntry[]): AddGroup[] {
+export function groupAddsByOrigin(
+  entries: readonly ProposalEntry[],
+  autoRunId: string | null = null,
+): AddGroup[] {
   const groups = new Map<string, AddGroup>();
   for (const { row, detail } of entries) {
     const origins = detail.origins;
     const group: Omit<AddGroup, "ids"> =
-      origins.includes("run") && row.runId
+      origins.includes("run") && row.runId && row.runId === autoRunId
+        ? { source: "proposal_inbox", runId: row.runId }
+        : origins.includes("run") && row.runId
         ? { source: "full_search", runId: row.runId }
         : origins.includes("inbox")
           ? { source: "proposal_inbox", runId: row.runId }
@@ -113,6 +156,18 @@ export function groupAddsByOrigin(entries: readonly ProposalEntry[]): AddGroup[]
     else groups.set(key, { ...group, ids: [row.candidateId] });
   }
   return Array.from(groups.values());
+}
+
+/** „Pomiń" wymaga powodu (0405) — jeden powód dla całej zaznaczonej grupy. */
+interface DismissVariables {
+  candidateIds: number[];
+  feedback: DismissFeedback;
+}
+
+/** Kogo naprawdę pominięto, a kogo serwer zostawił bez zmian. */
+interface DismissOutcome {
+  dismissed: number[];
+  skipped: number[];
 }
 
 /** Źródło dla „Pomiń" osoby, której skrzynka jeszcze nie zna. */
@@ -202,8 +257,16 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     () => inbox.data?.pages.flatMap((p) => p.items) ?? [],
     [inbox.data],
   );
+  const dismissedIds = useMemo(
+    () => inbox.data?.pages[0]?.dismissed_candidate_ids ?? [],
+    [inbox.data],
+  );
   const inboxTotal = inbox.data?.pages[0]?.total ?? 0;
+  // Najlepsze 40 (28.10.2026): próg separatora „Poniżej N%” — ten sam, którym
+  // serwer liczy dzwonek i kafle.
+  const threshold = inbox.data?.pages[0]?.threshold ?? DEFAULT_PROPOSAL_THRESHOLD;
   const inboxHidden = inbox.data?.pages.reduce((n, p) => n + p.hidden_on_page, 0) ?? 0;
+  const newInBaseTotal = inbox.data?.pages[0]?.new_in_base_total ?? 0;
 
   const latestRun = useQuery({
     queryKey: jobProposalsKeys.latestRun(jobId),
@@ -215,6 +278,7 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
   // z serwera (własny albo nocny automat — tylko takie zwraca `latest-run`).
   const { adopt: adoptRun, runId: currentRunId, starting: runStarting } = fullSearch;
   const latestRunId = latestRun.data?.run?.run_id ?? null;
+  const autoRunId = latestRun.data?.run?.origin === "auto" ? latestRunId : null;
   useEffect(() => {
     if (latestRunId && currentRunId === null && !runStarting) adoptRun(latestRunId);
   }, [latestRunId, currentRunId, runStarting, adoptRun]);
@@ -277,9 +341,10 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
             ? { items: recommendations.data.candidates, degraded: recommendations.data.degraded }
             : null,
         pipelineCandidateIds: pipelineIds,
+        dismissedCandidateIds: dismissedIds,
         budgetHourly,
       }).filter((e) => !hiddenIds.has(e.row.candidateId)),
-    [inboxItems, runUsable, runData, similar.data, recommendations.data, pipelineIds, budgetHourly, hiddenIds],
+    [inboxItems, runUsable, runData, similar.data, recommendations.data, pipelineIds, dismissedIds, budgetHourly, hiddenIds],
   );
   // Liczniki pigułek źródeł ignorują sam filtr źródła — inaczej kliknięcie
   // jednej pigułki zerowałoby pozostałe.
@@ -287,8 +352,19 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     () => countBySource(filterProposals(allEntries, { ...filters, source: "all" }, { budgetHourly })),
     [allEntries, filters, budgetHourly],
   );
-  // Pasek etapów pokazuje łączną liczbę ze wszystkich źródeł, nie samą skrzynkę.
-  const totalProposals = sourceCounts.all;
+  // Pasek etapów pokazuje łączną liczbę ze wszystkich źródeł, nie samą skrzynkę
+  // — bez osób spod progu (najlepsze 40), jak kafle i poranny dzwonek.
+  const totalProposals = useMemo(
+    () =>
+      countBySource(
+        filterProposals(
+          allEntries.filter((e) => !isBelowThreshold(e, threshold)),
+          { ...filters, source: "all" },
+          { budgetHourly },
+        ),
+      ).all,
+    [allEntries, filters, budgetHourly, threshold],
+  );
   // Publikujemy dopiero, gdy każde źródło się rozstrzygnęło — inaczej pasek
   // etapów pokazywał przez chwilę „0" (sama skrzynka) zamiast pełnej liczby.
   const countsSettled =
@@ -296,9 +372,13 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     !latestRun.isPending &&
     (latestRunId === null || runData !== undefined || Boolean(fullSearch.error)) &&
     (!secondarySourcesEnabled || (!similar.isPending && !recommendations.isPending));
+  // Skrzynka z kolejnymi stronami (setki osób z nocnego przeglądu): wczytana
+  // część zaniżyłaby liczbę — wtedy czytelnik bierze `total` skrzynki z serwera.
+  const inboxHasMore = inbox.hasNextPage;
   useEffect(() => {
-    if (countsSettled) queryClient.setQueryData(jobProposalsKeys.visibleCount(jobId), totalProposals);
-  }, [queryClient, jobId, totalProposals, countsSettled]);
+    if (!countsSettled) return;
+    queryClient.setQueryData(jobProposalsKeys.visibleCount(jobId), inboxHasMore ? null : totalProposals);
+  }, [queryClient, jobId, totalProposals, countsSettled, inboxHasMore]);
   const entries = useMemo(
     () => filterProposals(allEntries, filters, { budgetHourly }),
     [allEntries, filters, budgetHourly],
@@ -332,8 +412,12 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     mutationFn: async ({ candidateIds, opts }: { candidateIds: number[]; opts: AddToJobOptions }) => {
       if (readOnly) throw new Error("Sekcja Pipeline jest dostępna tylko do odczytu.");
       const picked = candidateIds.flatMap((id) => entryById.get(id) ?? []);
+      const unlisted = opts.unlistedSource ? candidateIds.filter((id) => !entryById.has(id)) : [];
+      const groups = groupAddsByOrigin(picked, autoRunId);
+      if (unlisted.length > 0) groups.push({ ids: unlisted, source: opts.unlistedSource ?? null, runId: null });
+      if (opts.oneByOne) groups.splice(0, groups.length, ...oneByOneInOrder(groups, candidateIds));
       const parts: BulkProposalsResponse[] = [];
-      for (const group of groupAddsByOrigin(picked)) {
+      for (const group of groups) {
         const body: BulkProposalsRequest = { candidate_ids: group.ids };
         if (opts.stageDefId != null) body.initial_stage_def_id = opts.stageDefId;
         else if (opts.initialStageLegacy) body.initial_stage_legacy = opts.initialStageLegacy;
@@ -382,26 +466,42 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
   const { mutate: restoreMutate } = restoreMutation;
 
   const dismissMutation = useMutation({
-    mutationFn: async (candidateIds: number[]) => {
+    mutationFn: async ({ candidateIds, feedback }: DismissVariables): Promise<DismissOutcome> => {
       if (readOnly) throw new Error("Sekcja Pipeline jest dostępna tylko do odczytu.");
       // „Pomiń" jest TRWAŁE dla każdej osoby — także spoza skrzynki (żywy
       // przegląd, podobne projekty, rekomendacje): serwer zakłada wtedy wiersz
       // od razu jako pominięty. Zwraca tych, których naprawdę pominięto.
       const dismissed: number[] = [];
-      for (const id of candidateIds) {
+      const skipped: number[] = [];
+      // „Pomiń zaznaczone” (R8): osoby, które skrzynka zna, idą jednym
+      // żądaniem zbiorczym (paczki po 100). Zbiorcze nie zakłada wierszy spoza
+      // skrzynki — te zostają przy pojedynczym „Pomiń” ze źródłem wiersza.
+      const inboxIds =
+        candidateIds.length > 1
+          ? candidateIds.filter((id) => entryById.get(id)?.detail.origins.includes("inbox"))
+          : [];
+      const inboxSet = new Set(inboxIds);
+      for (let i = 0; i < inboxIds.length; i += PROPOSAL_DISMISS_BULK_MAX) {
+        const chunk = inboxIds.slice(i, i + PROPOSAL_DISMISS_BULK_MAX);
+        const response = await jobProposalsApi.dismissBulk(jobId, chunk, feedback);
+        dismissed.push(...response.dismissed);
+        skipped.push(...response.skipped);
+      }
+      for (const id of candidateIds.filter((candidateId) => !inboxSet.has(candidateId))) {
         try {
-          await jobProposalsApi.dismiss(jobId, id, dismissSourceFor(entryById.get(id)));
+          await jobProposalsApi.dismiss(jobId, id, dismissSourceFor(entryById.get(id)), feedback);
           dismissed.push(id);
         } catch (error) {
           // 404 = kandydat zniknął; 409 = ktoś z zespołu właśnie dodał tę osobę
           // do rekrutacji. W obu przypadkach wiersz i tak ma zniknąć z listy.
           const status = httpStatusFromError(error);
           if (status !== 404 && status !== 409) throw error;
+          skipped.push(id);
         }
       }
-      return dismissed;
+      return { dismissed, skipped };
     },
-    onMutate: async (candidateIds) => {
+    onMutate: async ({ candidateIds }) => {
       await queryClient.cancelQueries({ queryKey: inboxKey });
       const previousInbox = queryClient.getQueryData<InfiniteData<ProposalInboxPage>>(inboxKey);
       const previousHidden = hiddenIds;
@@ -420,9 +520,11 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       if (context) setHiddenIds(context.previousHidden);
       showError(apiErrorMessage(error, "Nie udało się pominąć propozycji."));
     },
-    onSuccess: (dismissed, ids) => {
+    onSuccess: ({ dismissed, skipped }, { candidateIds: ids }) => {
       const message =
-        ids.length === 1 ? "Pominięto — wróci tylko z nową wersją CV." : `Pominięto: ${ids.length}. Wrócą tylko z nową wersją CV.`;
+        ids.length === 1
+          ? "Pominięto — wróci tylko z nową wersją CV."
+          : bulkDismissMessage(dismissed.length, skipped.length);
       if (dismissed.length === 0) {
         showSuccess(message);
         return;
@@ -449,7 +551,37 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     onError: (error) => showError(assignErrorMessage(error)),
   });
 
-  const { mutate: addMutate } = addMutation;
+  /**
+   * „Cofnij” dodania z okna „Kandydaci do dodania” (14.10.2026): usunięcie
+   * osoby z rekrutacji. Serwer do 15 min od wejścia oddaje jej propozycję
+   * (`added` → `proposed`), więc po odświeżeniu źródeł osoba wraca na listę.
+   * Obietnica kończy się PO odświeżeniu — wiersz nie mignie pustką.
+   * `false` = nie cofnięto (komunikat już pokazany).
+   */
+  const undoAdd = useCallback(
+    async (candidateId: number): Promise<boolean> => {
+      if (readOnly) return false;
+      try {
+        await candidatesApi.removeFromRecruitment(candidateId, jobId, { quickUndo: true });
+      } catch (error) {
+        showError(apiErrorMessage(error, "Nie udało się cofnąć dodania."));
+        return false;
+      }
+      setHiddenIds((prev) => new Set([...prev].filter((id) => id !== candidateId)));
+      await Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] }),
+        queryClient.invalidateQueries({ queryKey: ["kanban", jobId] }),
+        queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] }),
+        queryClient.invalidateQueries({ queryKey: jobProposalsKeys.all(jobId) }),
+      ]);
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      void queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
+      return true;
+    },
+    [readOnly, jobId, queryClient, showError],
+  );
+
+  const { mutate: addMutate, mutateAsync: addMutateAsync } = addMutation;
   const { mutate: dismissMutate } = dismissMutation;
   const { mutate: shortlistMutate } = shortlistMutation;
 
@@ -468,6 +600,10 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       engineDegraded,
       /** Każde źródło się rozstrzygnęło (sukces albo błąd) — REC-02. */
       settled: countsSettled,
+      /** Próg propozycji w % (najlepsze 40: separator „Poniżej N%”). */
+      threshold,
+      /** Nowi w bazie najpierw: ile osób ma pierwszeństwo, także na dalszych stronach. */
+      newInBaseTotal,
       inbox: {
         total: inboxTotal,
         hidden: inboxHidden,
@@ -504,11 +640,26 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       },
     },
     addToJob: useCallback(
-      (candidateIds: number[], opts: AddToJobOptions = {}) => addMutate({ candidateIds, opts }),
-      [addMutate],
+      (candidateIds: number[], opts: AddToJobOptions = {}, callbacks?: AddToJobCallbacks) => {
+        if (!callbacks) {
+          addMutate({ candidateIds, opts });
+          return;
+        }
+        // `mutateAsync`, bo callbacki przekazane do `mutate` dostaje tylko
+        // OSTATNIE z kilku równoległych wywołań — dwa szybkie „+ Dodaj” gubiły
+        // wynik pierwszego. Błąd pokazuje `onError` mutacji.
+        void addMutateAsync({ candidateIds, opts })
+          .then((response) => callbacks.onSuccess?.(response), () => undefined)
+          .finally(() => callbacks.onSettled?.());
+      },
+      [addMutate, addMutateAsync],
     ),
+    undoAdd,
     adding: addMutation.isPending,
-    dismiss: useCallback((candidateIds: number[]) => dismissMutate(candidateIds), [dismissMutate]),
+    dismiss: useCallback(
+      (candidateIds: number[], feedback: DismissFeedback) => dismissMutate({ candidateIds, feedback }),
+      [dismissMutate],
+    ),
     dismissing: dismissMutation.isPending,
     addToShortlist: useCallback((candidateIds: number[]) => shortlistMutate(candidateIds), [shortlistMutate]),
     shortlisting: shortlistMutation.isPending,

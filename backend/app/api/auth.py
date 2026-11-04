@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
@@ -45,6 +47,7 @@ from app.services.email_verification import (
 from app.api.deps import AuthenticatedUser, ensure_exclusive_role_configuration
 from app.api.auth_microsoft import is_sso_configured
 from app.services.section_permissions import resolve_effective_section_access
+from app.services.user_email import find_user_by_email
 from app.services.user_response import build_user_response
 
 # Roles that must complete first-login onboarding before the frontend unlocks
@@ -93,6 +96,11 @@ _PASSWORD_LOGIN_DISABLED_DETAIL = (
 SSO_ONLY_PASSWORD_DETAIL = (
     "To konto loguje się przez Microsoft — hasłem zarządza Microsoft."
 )
+
+#: Złe aktualne hasło przy zmianie hasła (R10-N15-2). 400, nie 401: front
+#: traktuje każde 401 jako wygasłą sesję i wylogowuje, więc literówka
+#: w polu „Aktualne hasło” kończyła sesję zamiast pokazać ten komunikat.
+WRONG_CURRENT_PASSWORD_DETAIL = "Aktualne hasło jest nieprawidłowe."
 
 logger = logging.getLogger(__name__)
 
@@ -228,15 +236,20 @@ async def login(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=_PASSWORD_LOGIN_DISABLED_DETAIL,
         )
-    result = await db.execute(select(User).where(User.email == data.email))
-    user = result.scalar_one_or_none()
+    # Runda 9 (R9-N1-1): adres bez rozróżniania wielkości liter — konto
+    # założone w panelu admina mogło mieć wielkie litery.
+    user = await find_user_by_email(db, data.email)
     # Guard SSO-only userów: ``password_hash IS NULL`` po migracji 0081 oznacza
     # konto zalogowane przez Microsoft SSO i bez bcrypt hash — odmów cicho,
     # nie ujawniając czy konto istnieje.
     if (
         not user
         or not user.password_hash
-        or not verify_password(data.password, user.password_hash)
+        # bcrypt (~100 ms) w wątku — na pętli zdarzeń jedynego procesu
+        # wstrzymywał każde inne żądanie (R9-N9-10).
+        or not await asyncio.to_thread(
+            verify_password, data.password, user.password_hash
+        )
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
@@ -319,11 +332,9 @@ async def register(
     # not the email already exists — bcrypt dominates the cost, so doing it on
     # both branches removes the timing oracle that would otherwise complement
     # the (now-removed) 409 enumeration signal.
-    password_hash = hash_password(data.password)
+    password_hash = await asyncio.to_thread(hash_password, data.password)
 
-    existing = (
-        await db.execute(select(User).where(User.email == email))
-    ).scalar_one_or_none()
+    existing = await find_user_by_email(db, email)
 
     if existing is not None:
         # Anti-enumeration: never reveal that the email is taken. If the account
@@ -335,7 +346,11 @@ async def register(
             plain_token = await create_verification_token(
                 db, existing.id, requested_ip=requester_ip
             )
-            send_email_verification_email(
+            # Wysyłka synchroniczna (MSAL + httpx albo smtplib) — w wątku, żeby
+            # nie blokować pętli zdarzeń na czas połączenia z Graphem/SMTP
+            # (audyt 25.09.2026). Obie ścieżki rejestracji czekają tak samo.
+            await asyncio.to_thread(
+                send_email_verification_email,
                 to_email=existing.email,
                 recipient_name=existing.name,
                 verify_url=f"{base}/register/verify?token={plain_token}",
@@ -374,7 +389,8 @@ async def register(
     plain_token = await create_verification_token(
         db, user.id, requested_ip=requester_ip
     )
-    send_email_verification_email(
+    await asyncio.to_thread(
+        send_email_verification_email,
         to_email=user.email,
         recipient_name=user.name,
         verify_url=f"{base}/register/verify?token={plain_token}",
@@ -452,14 +468,15 @@ async def resend_verification(
 
     await cleanup_expired_verification_tokens(db)
 
-    user = await db.scalar(select(User).where(User.email == email))
+    user = await find_user_by_email(db, email)
     if user is not None and user.is_active and not user.email_verified:
         plain_token = await create_verification_token(
             db, user.id, requested_ip=requester_ip
         )
         base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
         verify_url = f"{base}/register/verify?token={plain_token}"
-        send_email_verification_email(
+        await asyncio.to_thread(
+            send_email_verification_email,
             to_email=user.email,
             recipient_name=user.name,
             verify_url=verify_url,
@@ -561,7 +578,7 @@ async def me(
     return await build_user_response(current_user, db)
 
 
-@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/change-password", response_model=TokenResponse)
 @limiter.limit("3/minute")
 async def change_password(
     request: Request,
@@ -572,12 +589,21 @@ async def change_password(
     """Self-service password change.
 
     Wymaga obecnego hasła (proof-of-possession) + nowego hasła min. 8 znaków.
-    Rate-limited 3/min per IP. Nie ujawnia że user istnieje — wszystkie
-    niepoprawne próby zwracają 401.
+    Rate-limited 3/min per IP. Złe obecne hasło zwraca 400 — sesja jest
+    ważna, więc 401 byłoby fałszywym sygnałem „wyloguj”.
 
     Po sukcesie: clear ``force_password_change`` flag (jeśli była ustawiona
-    przez admin-reset) + audit log + email notification.
+    przez admin-reset) + audit log + email notification. Zwraca nową parę
+    tokenów (ten sam kształt co `/login`) — wcześniejsze tokeny są martwe.
     """
+    # Runda 12: token klienta OAuth (integracja działająca w imieniu konta) nie
+    # zmienia hasła — odpowiedź niesie pełną sesję użytkownika, która omijałaby
+    # zakres tras klienta i przeżyła jego wyłączenie.
+    if getattr(getattr(request, "state", None), "oauth_client_id", None):
+        raise HTTPException(
+            status_code=403,
+            detail="Integracja nie może zmieniać hasła konta.",
+        )
     # Konto tylko SSO nie ma hasła do zmiany (AUTH-04). Do 09.2026 formularz
     # kończył się tu 500 (``AttributeError`` na ``None.encode``).
     if not has_usable_password(current_user.password_hash):
@@ -585,22 +611,32 @@ async def change_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=SSO_ONLY_PASSWORD_DETAIL,
         )
-    if not verify_password(data.current_password, current_user.password_hash):
+    if not await asyncio.to_thread(
+        verify_password, data.current_password, current_user.password_hash
+    ):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Current password is incorrect",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=WRONG_CURRENT_PASSWORD_DETAIL,
         )
     if data.new_password == data.current_password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="New password must differ from current",
+            detail="Nowe hasło musi różnić się od aktualnego.",
         )
-    current_user.password_hash = hash_password(data.new_password)
+    current_user.password_hash = await asyncio.to_thread(
+        hash_password, data.new_password
+    )
     current_user.force_password_change = False
     current_user.force_password_change_at = None
-    # F-05: unieważnij wszystkie wcześniej wybite tokeny (także bieżący —
-    # user zaloguje się ponownie). Wykradziony token nie przeżywa zmiany hasła.
-    current_user.tokens_valid_after = func.now()
+    # F-05: unieważnij wszystkie wcześniej wybite tokeny (także bieżący).
+    # Wykradziony token nie przeżywa zmiany hasła.
+    # Runda 12 (BACK-2): bieżąca sesja dostaje w odpowiedzi nową parę tokenów
+    # wybitą PO podłodze — do tej rundy odpowiedź była pusta, a następne
+    # żądanie z unieważnionym tokenem wylogowywało osobę tuż po komunikacie
+    # „Hasło zmienione”. Podłoga z zegara aplikacji (nie `func.now()`
+    # = początek transakcji w bazie), żeby `iat` nowych tokenów nie mógł być
+    # od niej wcześniejszy przy rozjeździe zegarów.
+    current_user.tokens_valid_after = datetime.now(timezone.utc)
 
     db.add(
         Activity(
@@ -614,12 +650,28 @@ async def change_password(
     await db.flush()
 
     # Best-effort email notification (no-op gdy SMTP off).
-    send_password_changed_notification(
+    await asyncio.to_thread(
+        send_password_changed_notification,
         to_email=current_user.email,
         recipient_name=current_user.name,
         by_admin=False,
     )
-    return None
+    # Nowy access token bez ``fpc`` (flaga wyczyszczona wyżej) — middleware
+    # przestaje odsyłać na /profile bez ponownego logowania.
+    await resolve_effective_section_access(db, current_user)
+    return TokenResponse(
+        access_token=create_access_token(
+            current_user.id,
+            current_user.role.value,
+            force_password_change=False,
+            roles=[r.value for r in current_user.get_all_roles()],
+            authorization_version=current_user.authorization_version,
+            section_access=current_user.effective_section_access,
+        ),
+        refresh_token=create_refresh_token(
+            current_user.id, authorization_version=current_user.authorization_version
+        ),
+    )
 
 
 @router.post("/forgot-password", status_code=status.HTTP_200_OK)
@@ -652,10 +704,9 @@ async def forgot_password(
         )
     requester_ip = request.client.host if request.client else None
 
-    # Lookup user (case-insensitive nie jest istotny — backend wymusza
-    # email validator EmailStr, a DB ma unique index na exact match).
-    result = await db.execute(select(User).where(User.email == data.email))
-    user = result.scalar_one_or_none()
+    # Lookup bez rozróżniania wielkości liter (R9-N1-1) — konto założone
+    # w panelu admina mogło mieć wielkie litery w adresie.
+    user = await find_user_by_email(db, data.email)
 
     # Periodic cleanup — best-effort, nie blokujemy responsu.
     await cleanup_expired_tokens(db)
@@ -665,7 +716,8 @@ async def forgot_password(
         base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
         reset_url = f"{base}/login/reset?token={plain_token}"
 
-        send_password_reset_email(
+        await asyncio.to_thread(
+            send_password_reset_email,
             to_email=user.email,
             recipient_name=user.name,
             reset_url=reset_url,
@@ -740,11 +792,14 @@ async def reset_password_with_token(
             detail=_PASSWORD_LOGIN_DISABLED_DETAIL,
         )
 
-    user.password_hash = hash_password(data.new_password)
+    user.password_hash = await asyncio.to_thread(hash_password, data.new_password)
     user.force_password_change = False
     user.force_password_change_at = None
     # F-05: reset przez link z maila też unieważnia wcześniejsze tokeny.
-    user.tokens_valid_after = func.now()
+    # Runda 13 (AUTH): podłoga z zegara aplikacji — tym samym zegarem wybijamy
+    # ``iat``, a ``func.now()`` to początek transakcji w bazie, więc token
+    # wybity równolegle w trakcie resetu przeżyłby go.
+    user.tokens_valid_after = datetime.now(timezone.utc)
 
     db.add(
         Activity(
@@ -757,7 +812,8 @@ async def reset_password_with_token(
     )
     await db.flush()
 
-    send_password_changed_notification(
+    await asyncio.to_thread(
+        send_password_changed_notification,
         to_email=user.email,
         recipient_name=user.name,
         by_admin=False,

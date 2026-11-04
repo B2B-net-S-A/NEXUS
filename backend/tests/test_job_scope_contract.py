@@ -40,6 +40,13 @@ from typing import Any
 # here is how a surface gets protected; removing one needs a reason.
 _SCOPED_MODULES = {
     "app.api.candidate_stage_cv",  # CV snapshot + branded CV + share tokens
+    # Podgląd importu Worda w edytorze CV etapu (trasa z limitem → osobny moduł).
+    "app.api.cv_editor_import",
+    # Strony PDF CV etapu i edytora wyniku generatora (Edytor CV 3, J2).
+    "app.api.cv_pdf_preview",
+    # AI w edytorze CV etapu (zaznaczenie, polecenie): CV pary i płatny model.
+    # Poza listą do 14.10.2026 — trasy miały bramkę, ale nowa przeszłaby bez niej.
+    "app.api.cv_editor_ai",
     "app.api.interview_feedback",  # candidate assessments per job
     "app.api.hiring_manager_feedback",  # werdykty HM per job (te same dane co wyżej)
     "app.api.application_submissions",  # parked applications w/ candidate PII
@@ -49,12 +56,20 @@ _SCOPED_MODULES = {
     "app.api.champion_suggestions",
     # QC CV (Rekrutacja v5): CV firmowe, oryginał i poprawki jednej pary.
     "app.api.cv_qc",
+    # Jeden formularz screeningu (0424): arkusz, karta, stawka i historia pary.
+    "app.api.screening_form",
+    # „Pasuje też do” (14.10.2026): rekrutacja, z której pytamy, i pula
+    # innych rekrutacji w zakresie odczytu patrzącego.
+    "app.api.also_fits",
 }
 
 # Individual routes on shared routers that address one recruitment. Matched as
 # exact paths so a sibling route cannot inherit the exemption by accident.
 _SCOPED_PATHS = {
-    "/api/pipeline/stages/{stage_id}/share-token",
+    # `POST /api/pipeline/stages/{stage_id}/share-token` wypadł (0424, D2):
+    # karta Championa dla klienta zniknęła, trasa odpowiada 410 i niczego nie
+    # czyta ani nie zapisuje, więc nie ma rekrutacji do rozstrzygnięcia.
+    # Odwołanie starego linku dalej sprawdza zespół rekrutacji.
     "/api/pipeline/stages/share-token/{token}",
     "/api/candidates/{candidate_id}/recruitments/{job_id}",
     "/api/candidates/{candidate_id}/recruitments/{job_id}/client-rate",
@@ -79,9 +94,10 @@ _SCOPE_MARKERS = (
     "ensure_job_read_access",
     "ensure_optional_job_read_access",
     "job_read_scope_clause",
-    "_ensure_stage_membership",
     "_load_csv_for_stage",
-    "require_dl_assigned_or_admin",
+    # Wynik generatora: autor albo `ensure_job_read_access` rekrutacji dokumentu
+    # (`cv_generator_b2b._load_generated_document`).
+    "_load_generated_editor",
     "ensure_delivery_lead_job_visible",
     "_load_scoped_suggestion",
 )

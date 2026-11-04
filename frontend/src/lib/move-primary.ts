@@ -9,8 +9,10 @@
 
 import type { MoveRequirementsResponse } from "@/lib/api/moveRequirements";
 
+// Kolejka Delivery Leada liczy tylko karty z zaliczonym (albo przepuszczonym)
+// QC — do 14.10.2026 toast odsyłał do „Czeka na Ciebie”, której rekruter nie ma.
 export const HAND_TO_DL_MESSAGE =
-  "Osoba czeka na Delivery Leada w jego kolejce »Czeka na Ciebie«";
+  "Osoba jest w „QC CV” — trafi do Delivery Leada, gdy QC przejdzie.";
 
 export const NO_QC_STAGE_MESSAGE =
   "Szablon tej rekrutacji nie ma etapu „QC CV” — poproś Delivery Leada, żeby przesunął osobę dalej.";
@@ -20,8 +22,12 @@ export type PrimaryStep =
   | { type: "move" }
   /** Ruch na wskazany etap szablonu (QC CV przy przekazaniu DL, etap Cpro). */
   | { type: "stage"; stageDefId: number; notice: string | null }
-  /** Nic do przesunięcia — osoba już czeka tam, gdzie trzeba. */
-  | { type: "notice"; message: string }
+  /**
+   * Nic do przesunięcia — osoba już stoi w „QC CV” i dalej prowadzi ją
+   * Delivery Lead. Okno i ramka pokazują stan („Czeka u Delivery Leada od …”
+   * albo co poprawić), bez głównego przycisku (14.10.2026).
+   */
+  | { type: "waiting" }
   | { type: "error"; message: string }
   | { type: "disabled" };
 
@@ -44,7 +50,7 @@ export function planPrimaryStep(
         return { type: "stage", stageDefId: primary.target_stage_def_id, notice: HAND_TO_DL_MESSAGE };
       }
       if (data?.from_column !== "cv_qc") return { type: "error", message: NO_QC_STAGE_MESSAGE };
-      return { type: "notice", message: HAND_TO_DL_MESSAGE };
+      return { type: "waiting" };
     case "hand_to_cpro":
       if (primary.target_stage_def_id == null) return { type: "disabled" };
       return { type: "stage", stageDefId: primary.target_stage_def_id, notice: null };

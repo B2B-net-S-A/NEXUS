@@ -2,14 +2,20 @@ import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   effects: vi.fn(),
   confirmSigned: vi.fn(),
   redownload: vi.fn(),
+  pdf: vi.fn(),
+  preliminaryOptions: vi.fn(),
+  searchCandidates: vi.fn(),
+  candidateRecruitments: vi.fn(),
   prefill: vi.fn(),
   create: vi.fn(),
+  partnerNotice: vi.fn(),
+  mandateForm: vi.fn(),
   downloadBlob: vi.fn(),
 }));
 
@@ -28,8 +34,14 @@ vi.mock("@/lib/api/b2bDocuments", async (importOriginal) => {
       effects: (...a: unknown[]) => mocks.effects(...a),
       confirmSigned: (...a: unknown[]) => mocks.confirmSigned(...a),
       redownload: (...a: unknown[]) => mocks.redownload(...a),
+      pdf: (...a: unknown[]) => mocks.pdf(...a),
+      preliminaryOptions: (...a: unknown[]) => mocks.preliminaryOptions(...a),
+      searchCandidates: (...a: unknown[]) => mocks.searchCandidates(...a),
+      candidateRecruitments: (...a: unknown[]) => mocks.candidateRecruitments(...a),
       prefill: (...a: unknown[]) => mocks.prefill(...a),
       create: (...a: unknown[]) => mocks.create(...a),
+      partnerNotice: (...a: unknown[]) => mocks.partnerNotice(...a),
+      mandateForm: (...a: unknown[]) => mocks.mandateForm(...a),
     },
   };
 });
@@ -42,6 +54,7 @@ vi.mock("@/lib/cv-generator", () => ({
 import { ToastProvider } from "@/components/Toast";
 import {
   ConfirmSignedDialog,
+  PartnerNoticeDialog,
   RedownloadDialog,
 } from "@/components/v2/b2b-generator/documents/DocumentDialogs";
 import { DocumentWizard } from "@/components/v2/b2b-generator/documents/DocumentWizard";
@@ -49,6 +62,7 @@ import type {
   DocumentFieldDef,
   DocumentItem,
   DocumentTypeDef,
+  MandateFormDef,
 } from "@/lib/api/b2bDocuments";
 
 function field(key: string, label: string, extra: Partial<DocumentFieldDef> = {}): DocumentFieldDef {
@@ -62,6 +76,8 @@ function field(key: string, label: string, extra: Partial<DocumentFieldDef> = {}
     options: [],
     show_if: null,
     group: "document",
+    lookup: null,
+    lookup_fills: [],
     ...extra,
   };
 }
@@ -76,6 +92,8 @@ const PRELIMINARY: DocumentTypeDef = {
   effect_label: "Brak zmian w kontraktach.",
   signatories: "partner_and_company",
   uses_refs: false,
+  allows_external: false,
+  legacy_languages: [],
   fields: [
     field("document_date", "Data dokumentu", { kind: "date", required: true }),
     field("pesel", "PESEL", { required: true, sensitive: true, group: "partner" }),
@@ -89,6 +107,8 @@ const TERMINATION: DocumentTypeDef = {
   family: "termination",
   parent: "b2b",
   uses_refs: true,
+  allows_external: false,
+  legacy_languages: [],
   fields: [
     field("document_date", "Data dokumentu", { kind: "date", required: true }),
     field("partner_name", "Imię i nazwisko", { required: true, group: "partner" }),
@@ -205,6 +225,128 @@ describe("Ponowne pobranie z danymi wrażliwymi", () => {
     await waitFor(() => expect(mocks.redownload).toHaveBeenLastCalledWith(5, { pesel: "90010112345" }));
     await waitFor(() => expect(mocks.downloadBlob).toHaveBeenCalled());
   });
+
+  it("umowę przedwstępną pobiera też jako PDF, z tymi samymi danymi", async () => {
+    const blob = new Blob(["%PDF"]);
+    mocks.pdf.mockResolvedValueOnce({ data: blob, headers: {} });
+    renderWith(<RedownloadDialog item={item()} type={PRELIMINARY} onClose={() => {}} />);
+    await userEvent.type(screen.getByLabelText(/PESEL/), "90010112345");
+    await userEvent.click(screen.getByRole("button", { name: "Pobierz PDF" }));
+    await waitFor(() => expect(mocks.pdf).toHaveBeenCalledWith(5, { pesel: "90010112345" }));
+    await waitFor(() =>
+      expect(mocks.downloadBlob).toHaveBeenCalledWith(blob, "Umowa przedwstępna.pdf"),
+    );
+    expect(mocks.redownload).not.toHaveBeenCalled();
+  });
+
+  it("503 z PDF pokazuje komunikat serwera", async () => {
+    mocks.pdf.mockRejectedValueOnce(
+      blobError(503, "Nie udało się przygotować PDF — pobierz DOCX."),
+    );
+    renderWith(<RedownloadDialog item={item()} type={PRELIMINARY} onClose={() => {}} />);
+    await userEvent.type(screen.getByLabelText(/PESEL/), "90010112345");
+    await userEvent.click(screen.getByRole("button", { name: "Pobierz PDF" }));
+    expect(
+      await screen.findByText("Nie udało się przygotować PDF — pobierz DOCX."),
+    ).toBeInTheDocument();
+  });
+
+  it("rozwiązanie umowy nie ma PDF", () => {
+    renderWith(
+      <RedownloadDialog
+        item={item({ family: "termination", document_type: "termination_agreement" })}
+        type={TERMINATION}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Pobierz PDF" })).toBeNull();
+  });
+});
+
+describe("Kreator — umowa przedwstępna wg klienta rekrutacji", () => {
+  const JDG: DocumentTypeDef = {
+    ...PRELIMINARY,
+    key: "preliminary_participation_jdg",
+    label: "Umowa o udziale w rekrutacji — kandydat z działalnością",
+    preliminary_scope: "general",
+  };
+  const PERSON: DocumentTypeDef = {
+    ...PRELIMINARY,
+    key: "preliminary_participation_person",
+    label: "Umowa o udziale w rekrutacji — osoba fizyczna",
+    preliminary_scope: "general",
+  };
+  const CEZ: DocumentTypeDef = {
+    ...PRELIMINARY,
+    label: "Umowa przedwstępna — Centrum e-Zdrowia",
+    preliminary_scope: "cez",
+  };
+  const typesData = {
+    types: [CEZ, JDG, PERSON],
+    ref_labels: {},
+    ref_defaults: {},
+    mandate_forms: [],
+  };
+  const option = (t: DocumentTypeDef) => ({
+    key: t.key,
+    label: t.label,
+    default_validity_days: 60,
+    b2b_term_business_days: null,
+  });
+
+  async function pickCandidateAndJob() {
+    mocks.searchCandidates.mockResolvedValue([
+      { id: 7, name: "Ewa", lastname: "Próbna", full_name: "Ewa Próbna" },
+    ]);
+    mocks.candidateRecruitments.mockResolvedValue([
+      { stage_id: 1, job_id: 9, job_title: "Analityk", stage: "verified" },
+    ]);
+    await userEvent.type(screen.getByLabelText(/Kandydat/), "Ewa");
+    await userEvent.click(await screen.findByRole("button", { name: /Ewa Próbna/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /Analityk/ }));
+  }
+
+  it("u innego klienta niż CeZ proponuje dwie umowy o udziale w rekrutacji", async () => {
+    mocks.preliminaryOptions.mockResolvedValue({
+      client_id: 3,
+      types: [option(JDG), option(PERSON)],
+      default_validity_days: 60,
+      b2b_term_business_days: null,
+    });
+    renderWith(
+      <DocumentWizard typesData={typesData} initialType="preliminary_cez" onClose={() => {}} />,
+    );
+    expect(screen.queryByText(/wyłącznie rekrutacji Centrum e-Zdrowia/)).toBeNull();
+    await pickCandidateAndJob();
+    const person = await screen.findByRole("button", { name: PERSON.label });
+    expect(mocks.preliminaryOptions).toHaveBeenCalledWith(7, 9);
+    expect(screen.queryByRole("button", { name: CEZ.label })).toBeNull();
+    // Wybrany wcześniej wzór CeZ nie pasuje — „Dalej” czeka na wybór.
+    expect(screen.getByRole("button", { name: "Dalej" })).toBeDisabled();
+    await userEvent.click(person);
+    expect(person).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Dalej" })).toBeEnabled();
+  });
+
+  it("w rekrutacji CeZ sam wybiera wzór Centrum e-Zdrowia", async () => {
+    mocks.preliminaryOptions.mockResolvedValue({
+      client_id: 115,
+      types: [option(CEZ)],
+      default_validity_days: 60,
+      b2b_term_business_days: 5,
+    });
+    renderWith(
+      <DocumentWizard
+        typesData={typesData}
+        initialType="preliminary_participation_jdg"
+        onClose={() => {}}
+      />,
+    );
+    await pickCandidateAndJob();
+    const cez = await screen.findByRole("button", { name: CEZ.label });
+    await waitFor(() => expect(cez).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByRole("button", { name: "Dalej" })).toBeEnabled();
+  });
 });
 
 describe("Kreator — błąd 422 z serwera", () => {
@@ -226,7 +368,7 @@ describe("Kreator — błąd 422 z serwera", () => {
     );
     renderWith(
       <DocumentWizard
-        typesData={{ types: [TERMINATION], ref_labels: {}, ref_defaults: {} }}
+        typesData={{ types: [TERMINATION], ref_labels: {}, ref_defaults: {}, mandate_forms: [] }}
         initialType="termination_agreement"
         initialParentId={12}
         onClose={() => {}}
@@ -256,7 +398,7 @@ describe("Kreator — błąd 422 z serwera", () => {
     });
     renderWith(
       <DocumentWizard
-        typesData={{ types: [TERMINATION], ref_labels: {}, ref_defaults: {} }}
+        typesData={{ types: [TERMINATION], ref_labels: {}, ref_defaults: {}, mandate_forms: [] }}
         initialType="termination_agreement"
         initialParentId={12}
         onClose={() => {}}
@@ -266,5 +408,118 @@ describe("Kreator — błąd 422 z serwera", () => {
     await userEvent.click(screen.getByRole("button", { name: /Pobierz DOCX/ }));
     expect(await screen.findByText("Uzupełnij: Imię i nazwisko.")).toBeInTheDocument();
     expect(mocks.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("Kreator — oświadczenia i deklaracje do umowy zlecenie", () => {
+  const FORMS: MandateFormDef[] = [
+    {
+      key: "pit_2",
+      label: "PIT-2",
+      description: "Zaliczki na podatek.",
+      download_name: "PIT-2.pdf",
+      format: "PDF",
+    },
+    {
+      key: "ppk_resignation",
+      label: "Deklaracja rezygnacji z wpłat do PPK",
+      description: "Rezygnacja z PPK.",
+      download_name: "Deklaracja rezygnacji z PPK.pdf",
+      format: "PDF",
+    },
+  ];
+  const typesData = {
+    types: [TERMINATION],
+    ref_labels: {},
+    ref_defaults: {},
+    mandate_forms: FORMS,
+  };
+
+  it("przy wyborze rodzaju pobiera pusty wzór pod polską nazwą", async () => {
+    const blob = new Blob(["%PDF"]);
+    mocks.mandateForm.mockResolvedValue({ data: blob, headers: {} });
+    renderWith(<DocumentWizard typesData={typesData} onClose={() => {}} />);
+    expect(
+      screen.getByRole("heading", { name: /Oświadczenia i deklaracje — umowa zlecenie/ }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Pobierz: PIT-2 (PDF)" }));
+    await waitFor(() => expect(mocks.downloadBlob).toHaveBeenCalledWith(blob, "PIT-2.pdf"));
+    expect(mocks.mandateForm).toHaveBeenCalledWith("pit_2");
+  });
+
+  it("błąd pobrania pokazuje komunikat serwera", async () => {
+    mocks.mandateForm.mockRejectedValue(blobError(404, "Nie ma takiego wzoru."));
+    renderWith(<DocumentWizard typesData={typesData} onClose={() => {}} />);
+    await userEvent.click(
+      screen.getByRole("button", { name: /Pobierz: Deklaracja rezygnacji z wpłat do PPK/ }),
+    );
+    expect(await screen.findByText("Nie ma takiego wzoru.")).toBeInTheDocument();
+    expect(mocks.downloadBlob).not.toHaveBeenCalled();
+  });
+
+  it("w generatorze aneksów wzorów nie ma", () => {
+    renderWith(<DocumentWizard mode="annexes" typesData={typesData} onClose={() => {}} />);
+    expect(screen.queryByText(/Oświadczenia i deklaracje/)).not.toBeInTheDocument();
+  });
+});
+
+describe("Wypowiedzenie Partnera (runda 6 audytu, DOC-3)", () => {
+  // Doręczenie domyślnie to dziś, a data rozwiązania nie może być wcześniejsza.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-15T10:00:00+02:00"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("umowa bez wersji wzoru wymaga daty rozwiązania", async () => {
+    mocks.partnerNotice.mockResolvedValue({ termination_date: "2026-10-31" });
+    renderWith(
+      <PartnerNoticeDialog
+        parentId={7}
+        contractNumber="264A"
+        noticePeriodKnown={false}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.getByText(/nie ma w NEXUSIE wersji wzoru/)).toBeInTheDocument();
+    const submit = screen.getByRole("button", { name: "Zarejestruj" });
+    expect(submit).toBeDisabled();
+    await userEvent.type(screen.getByLabelText(/Data rozwiązania umowy/), "2026-10-31");
+    expect(submit).toBeEnabled();
+    await userEvent.click(submit);
+    await waitFor(() =>
+      expect(mocks.partnerNotice).toHaveBeenCalledWith(
+        expect.objectContaining({ parent_generated_contract_id: 7, termination_date: "2026-10-31" }),
+      ),
+    );
+  });
+
+  it("umowa bez powiązanego kontraktu nie obiecuje daty w kontrakcie (runda 10, R10-N14-3)", async () => {
+    mocks.partnerNotice.mockResolvedValue({
+      termination_date: "2026-10-31",
+      contract_warning: "Umowa nie jest powiązana z kontraktem — zmienił się tylko rejestr umów.",
+    });
+    renderWith(
+      <PartnerNoticeDialog
+        parentId={7}
+        contractNumber="264A"
+        contractLinked={false}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.queryByText(/kontrakt dostanie datę zakończenia, a umowa/)).toBeNull();
+    expect(screen.getByText(/nie jest powiązana z kontraktem/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Zarejestruj" }));
+    expect(await screen.findByText(/zmienił się tylko rejestr umów/)).toBeInTheDocument();
+  });
+
+  it("umowa ze znaną wersją pozwala zostawić datę pustą", () => {
+    renderWith(
+      <PartnerNoticeDialog parentId={7} contractNumber="1500/2026" onClose={() => {}} />,
+    );
+    expect(screen.getByText(/Zostaw puste — policzymy/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zarejestruj" })).toBeEnabled();
   });
 });

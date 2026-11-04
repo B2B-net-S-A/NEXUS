@@ -1,0 +1,9 @@
+{
+  "entry": "120edb75ca609c77161a0b6f479f7bdc17b8ee7576f4efa763ff13ca1528183f",
+  "guide": "hr.care",
+  "sources": {
+    "frontend/src/components/back-office/QueueBoard.tsx": "7d1914670255d697a3b178cb68e3b9777459e0a3cc20ac06ca22ef28e3d0f72a",
+    "frontend/src/components/care/CareScreen.tsx": "467b094545c42b4a719663ae266278d4f28af980d15528385b742ff817ab1b23",
+    "frontend/src/components/care/card/ConsultantCard.tsx": "1cf67b41a482b04231c5ef8e1cc04ecb870fb6af86f6bed177271ad7bf26e50a"
+  }
+}

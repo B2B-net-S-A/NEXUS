@@ -342,8 +342,8 @@ describe("CandidateActivitySummaryCard", () => {
 
     auth.user = {
       id: 202,
-      role: "sourcer",
-      roles: ["sourcer"],
+      role: "delivery_lead",
+      roles: ["delivery_lead"],
     };
     view.rerender(cardUi(queryClient));
 

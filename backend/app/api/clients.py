@@ -1,9 +1,8 @@
 from datetime import date, datetime, timezone
-from decimal import Decimal
 from types import SimpleNamespace
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -12,14 +11,13 @@ from starlette.responses import RedirectResponse
 from app.api.financial_access import can_read_client_finance
 from app.core.database import get_db
 from app.core.scheduling import business_today
-from app.core.work_time import HOURS_PER_MONTH
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_directory import ClientPortfolioScope, PortfolioCategory
 from app.models.client_executive_contract import ClientExecutiveContract
 from app.models.client_order import ClientOrder
-from app.models.contract import Contract, ContractStatus, RateUnit
+from app.models.contract import Contract, ContractStatus
 from app.services import job_data_trust
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
@@ -34,6 +32,11 @@ from app.schemas.client import (
     ClientUpdate,
 )
 from app.services.client_access import assert_client_writable
+from app.services.client_deletion import assess_client_merge_blockers
+from app.services.client_duplicates import (
+    duplicate_warning_detail,
+    find_same_name_clients,
+)
 from app.services.access_scope import (
     apply_delivery_lead_client_scope,
     assert_delivery_lead_client_visible,
@@ -45,16 +48,24 @@ from app.services.client_identity import (
     client_display_name_expression,
     visible_client_predicates,
 )
+
+# Stawki godzinowe i marża konsultanta (zamówienie → kontrakt) mieszkają od
+# 08.10.2026 w `services/client_consultant_rates.py` — czyta je też przegląd
+# Delivery Leada (mediana marży u klienta). Aliasy zostają dla tego modułu
+# i testów, które importują stare nazwy.
+from app.services.client_consultant_rates import (
+    contract_rate_currencies as _contract_rate_currencies,
+    finance_rates_in_pln as _finance_rates_in_pln,
+    order_currency as _order_currency,
+)
 from app.services.contractor_identity import (
     is_current_contract as is_current_contract_for,
     summarize_active_contracts,
 )
 from app.schemas.client_executive_contract import ExecutiveContractBrief
-from app.services.order_rate_snapshots import convert_order_rate
 from app.services.representative_order import representative_order
 from app.services.polish_ilike import polish_folded_ilike
 from app.services.fx_service import (
-    amount_to_pln_with_rate,
     rates_to_pln,
     rates_to_pln_by_date,
 )
@@ -71,11 +82,18 @@ from app.schemas.client_profile import (
     RecruiterBrief,
 )
 from app.api.contracts import _effective_rate_fields
-from app.api.deps import AdminUser, OperationalUser, DeliveryLeadPlus
+from app.api.deps import AdminUser, OperationalUser
+from app.api.permission_access import ClientsEditUser, permission_denied
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
+from app.services.action_permissions import ProductAction, has_permission
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 _RATE_NOT_PROVIDED = object()
+
+# clients.id is a PostgreSQL int4 column; values outside this range cannot be
+# encoded by asyncpg (OverflowError -> DBAPIError 500). Reject them with 422.
+_INT4_MAX = 2_147_483_647
+ClientIdPath = Annotated[int, Path(ge=1, le=_INT4_MAX)]
 
 
 # ── Profile helpers ───────────────────────────────────────────────────────────
@@ -99,6 +117,19 @@ def _duration_months(start: date, end: Optional[date]) -> Optional[int]:
     return max(0, days // 30)
 
 
+def _archive_boundary(contract: Contract, today: date) -> date:
+    """Dzień zakończenia kontraktu w archiwum: `end_date` → `terminated_at` → dziś.
+
+    Runda 8 (R8-N13-1): `terminated_at` przeżywa aneks przedłużenia (powrót
+    bezterminowy czyści go dopiero od 02.11.2026), więc umowa zakończona
+    ponownie niosła datę PIERWSZEGO zakończenia — stawka, czas trwania i
+    przychód liczyły się na nią, choć kolumna „End date" obok pokazuje
+    `end_date`. „Zakończ współpracę" zawsze ustawia `end_date <= terminated_at`,
+    więc `end_date` jest faktycznym dniem końca także przy wypowiedzeniu.
+    """
+    return contract.end_date or contract.terminated_at or today
+
+
 def _contract_total_revenue(
     contract: Contract,
     boundary: Optional[date] = None,
@@ -108,7 +139,8 @@ def _contract_total_revenue(
 
     For active contracts the caller passes `boundary=business_today()` so LTV keeps
     ticking. For ended contracts the caller passes the actual end date
-    (terminated_at preferred, falls back to end_date, then today).
+    (end_date preferred, falls back to terminated_at, then today — see
+    ``_archive_boundary``).
 
     ``monthly_rate_client`` lets the caller inject the rate resolved from the
     effective-dated schedule. Without it this would fall back to the legacy
@@ -128,81 +160,6 @@ def _contract_total_revenue(
     return to_whole_pln(monthly) * int(months)
 
 
-def _contract_rate_currencies(contract: Contract) -> tuple[str, str]:
-    """Return the independently resolved client and candidate currencies."""
-
-    return (
-        contract.resolved_rate_client_currency,
-        contract.resolved_rate_candidate_currency,
-    )
-
-
-def _hourly_rate(contract: Contract, rate: object) -> Optional[Decimal]:
-    """Stawka KONTRAKTU za godzinę — zapasowe źródło kolumn profilu klienta.
-
-    Używane, gdy kontrakt nie ma zamówienia albo zamówienie nie niesie danej
-    stawki (patrz ``_order_hourly_leg``). Od 14.09.2026 kontrakt jest godzinowy
-    albo ryczałtowy (``contract_order_sync``): godzinowa bez przeliczenia,
-    ryczałt ÷ godziny rozliczeniowe kontraktu, MD ÷ 8 tylko dla kontraktu
-    sprzed korekty 0309. Nic nie jest zapisywane.
-    """
-    if rate is None:
-        return None
-    return convert_order_rate(
-        rate,
-        RateUnit(contract.rate_unit),
-        RateUnit.hourly,
-        contract.billing_hours_per_month or HOURS_PER_MONTH,
-    )
-
-
-_HourlyLeg = tuple[Decimal, str]
-
-
-def _order_currency(order: ClientOrder, side: str) -> str:
-    raw = (
-        order.rate_client_currency
-        if side == "revenue"
-        else order.rate_candidate_currency
-    )
-    return str(raw or order.currency or "PLN").strip().upper() or "PLN"
-
-
-def _order_hourly_leg(order: Optional[ClientOrder], side: str) -> Optional[_HourlyLeg]:
-    """Stawka ZAMÓWIENIA za godzinę (kwota w walucie zamówienia) — albo ``None``.
-
-    Lustro tego, co pokazuje zakładka „Zamówienia": linia zamówienia MD/kosztowego
-    niesie kanoniczną stawkę PLN/MD w ``md_rate_*`` (waluta obca → ``rate_*``
-    w jednostce linii, jak ``source_rate_*`` w ``client_order_groups``), a
-    zamówienie okresowe — ``rate_client``/``rate_candidate`` w swojej
-    ``rate_unit``. Godzinowa bez przeliczenia, MD ÷ 8 (``convert_order_rate``).
-    Kontrakt bywa z zamówieniem rozjechany (linie MD, których stawki nie
-    zsynchronizowały się do kontraktu — zmierzone na prodzie 14.09.2026), a
-    ticket wymaga wartości Z ZAMÓWIENIA. ``None`` = brak zamówienia albo brak
-    tej stawki na nim; wołający cofa się wtedy na kontrakt.
-    """
-    if order is None:
-        return None
-    currency = _order_currency(order, side)
-    order_rate = order.rate_client if side == "revenue" else order.rate_candidate
-    md_rate = order.md_rate_revenue if side == "revenue" else order.md_rate_cost
-    if order.order_group_id is not None and currency == "PLN" and md_rate is not None:
-        amount, unit = md_rate, RateUnit.daily
-    elif order_rate is not None:
-        default_unit = (
-            RateUnit.daily if order.order_group_id is not None else RateUnit.hourly
-        )
-        amount, unit = order_rate, RateUnit(order.rate_unit or default_unit)
-    else:
-        return None
-    hourly = convert_order_rate(
-        amount, unit, RateUnit.hourly, order.billing_hours_per_month or HOURS_PER_MONTH
-    )
-    if hourly is None:
-        return None
-    return hourly, currency
-
-
 def _profile_currencies(contract: Contract, on: date) -> set[str]:
     """Waluty potrzebne do kwot profilu: obie strony kontraktu + zamówienia."""
     currencies = set(_contract_rate_currencies(contract))
@@ -212,62 +169,18 @@ def _profile_currencies(contract: Contract, on: date) -> set[str]:
     return currencies
 
 
-def _finance_rates_in_pln(
-    contract: Contract,
-    rate_fields: dict[str, object],
-    fx_rates: dict[str, Optional[Decimal]],
-    order: Optional[ClientOrder] = None,
-) -> dict[str, object]:
-    """Convert both monthly rate legs independently and derive a PLN margin.
+def _has_both_rate_legs(rates: dict[str, object]) -> bool:
+    """Obie nogi mają stawkę — przeliczoną albo czekającą na kurs NBP.
 
-    ``effective_rate_fields`` deliberately leaves mixed-currency margin empty,
-    because subtracting the nominal amounts would be meaningless. Client
-    profile amounts are ``WholePLN`` fields, so this surface resolves both legs
-    to PLN first. A missing FX rate stays ``None`` and is reported through the
-    two internal flags so aggregates can fail closed instead of publishing a
-    partial total as complete.
+    Noga bez stawki ma ``None`` i nie jest oznaczona brakiem kursu
+    (``amount_to_pln_with_rate(None, …)`` nie zgłasza braku kursu).
     """
-
-    client_currency, candidate_currency = _contract_rate_currencies(contract)
-    raw_client = rate_fields.get("monthly_rate_client")
-    raw_candidate = rate_fields.get("monthly_rate_candidate")
-    client_fx = fx_rates.get(client_currency)
-    candidate_fx = fx_rates.get(candidate_currency)
-
-    client_pln, client_complete = amount_to_pln_with_rate(raw_client, client_fx)
-    candidate_pln, candidate_complete = amount_to_pln_with_rate(
-        raw_candidate, candidate_fx
+    return (
+        rates["monthly_rate_client"] is not None or bool(rates["client_missing_fx"])
+    ) and (
+        rates["monthly_rate_candidate"] is not None
+        or bool(rates["candidate_missing_fx"])
     )
-    client_missing_fx = not client_complete
-    candidate_missing_fx = not candidate_complete
-    margin_pln = (
-        client_pln - candidate_pln
-        if client_pln is not None and candidate_pln is not None
-        else None
-    )
-    # Kolumny godzinowe: najpierw ZAMÓWIENIE (wartość z ticketu), a gdy go
-    # nie ma albo nie niesie tej stawki — kontrakt. Marża zostaje miesięczna
-    # z kontraktu (kafel „Aktywne MRR" jest jej sumą).
-    hourly: dict[str, Optional[Decimal]] = {}
-    for side, rate_key, contract_currency in (
-        ("revenue", "rate_client", client_currency),
-        ("cost", "rate_candidate", candidate_currency),
-    ):
-        leg = _order_hourly_leg(order, side) or (
-            (_hourly_rate(contract, rate_fields.get(rate_key)), contract_currency)
-        )
-        hourly[side], _ = amount_to_pln_with_rate(leg[0], fx_rates.get(leg[1]))
-    hourly_client_pln = hourly["revenue"]
-    hourly_candidate_pln = hourly["cost"]
-    return {
-        "monthly_rate_client": client_pln,
-        "monthly_rate_candidate": candidate_pln,
-        "monthly_margin": margin_pln,
-        "hourly_rate_client": hourly_client_pln,
-        "hourly_rate_candidate": hourly_candidate_pln,
-        "client_missing_fx": client_missing_fx,
-        "candidate_missing_fx": candidate_missing_fx,
-    }
 
 
 # Wiersz kontraktu, którego kandydat został usunięty (art. 17 RODO) — kontrakt
@@ -298,19 +211,40 @@ def _recruiter_brief(user: Optional[User]) -> Optional[RecruiterBrief]:
 
 
 def _client_schema_for(user: User) -> type[ClientResponse] | type[ClientSafeResponse]:
-    """Pełna projekcja dla zespołu klienta i Finance business read.
+    """Pełna projekcja dla kont z uprawnieniem „Stawki i kwoty: podgląd”.
 
-    Pozostałe role (recruiter/sourcer/viewer) dostają ``ClientSafeResponse``
-    bez ``legal_name``/``nip``/``regon``/``notes`` — pola nie występują
-    w odpowiedzi (nie są ``null``).
+    Dane prawne klienta (``legal_name``/``nip``/``regon``/``notes``) idą razem
+    z dokumentami, które mogą nieść stawki — domyślnie widzą je admin, Finanse
+    i Delivery Lead. Pozostali dostają ``ClientSafeResponse``: pola nie
+    występują w odpowiedzi (nie są ``null``).
     """
-    if user.has_any_role(
-        UserRole.admin,
-        UserRole.delivery_lead,
-        UserRole.finance,
-    ):
+    if has_permission(user, ProductAction.amounts_view):
         return ClientResponse
     return ClientSafeResponse
+
+
+# Pola klienta obecne wyłącznie w pełnej projekcji: dane prawne i notatki.
+_LEGAL_CLIENT_FIELDS = frozenset(ClientResponse.model_fields) - frozenset(
+    ClientSafeResponse.model_fields
+)
+
+
+def _keep_unreadable_legal_fields(user: User, updates: dict[str, object]) -> None:
+    """Konto, które nie widzi danych prawnych klienta, nie może ich zmienić.
+
+    Edycję klienta daje „Klienci: dodawanie i edycja”, a dane prawne pokazuje
+    „Stawki i kwoty: podgląd” — to dwa osobne przełączniki. Konto bez podglądu
+    dostaje klienta bez tych pól, a formularz „Edytuj firmę” odsyła komplet,
+    więc przysyła je PUSTE: zapis samej branży kasowałby notatki, których autor
+    zapisu nigdy nie widział. Puste pole pomijamy; wpisana wartość to próba
+    zmiany pola, którego konto nie widzi — odmowa nazywa uprawnienie (jak
+    ``order_amounts_denied`` przy kwotach zamówienia).
+    """
+    if _client_schema_for(user) is ClientResponse:
+        return
+    for field in _LEGAL_CLIENT_FIELDS.intersection(updates):
+        if updates.pop(field) not in (None, ""):
+            raise permission_denied(ProductAction.amounts_view)
 
 
 def _effective_client_name():
@@ -546,15 +480,24 @@ async def list_clients(
 @router.post("", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
 async def create_client(
     data: ClientCreate,
-    current_user: DeliveryLeadPlus,
+    current_user: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
     portfolio_category: PortfolioCategory = Query(PortfolioCategory.active),
+    acknowledge_duplicate: bool = Query(False),
 ):
     """Create a client and its initial local directory scope atomically.
 
     ``portfolio_category`` deliberately comes from the currently selected
     directory tab; direct API callers may make the same explicit choice.
+    A visible client with the same company name answers 409
+    ``client_duplicate_warning`` until the caller acknowledges it
+    (``services/client_duplicates.py``).
     """
+
+    if not acknowledge_duplicate:
+        found = await find_same_name_clients(db, data.name)
+        if found:
+            raise HTTPException(status_code=409, detail=duplicate_warning_detail(found))
 
     client = Client(**data.model_dump())
     db.add(client)
@@ -598,19 +541,24 @@ async def create_client(
 
 @router.get("/{client_id}", response_model=AnyClientResponse)
 async def get_client(
-    client_id: int, current_user: OperationalUser, db: AsyncSession = Depends(get_db)
+    client_id: ClientIdPath,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
 ):
+    result = await db.execute(select(Client).where(Client.id == client_id))
+    client = result.scalar_one_or_none()
+    # Najpierw przekierowanie scalonego duplikatu, potem bramka portfela na
+    # kliencie kanonicznym (runda 6 audytu): bramka na starym id odmawiała
+    # 403 Delivery Leadowi przypisanemu do klienta kanonicznego.
+    merged_redirect = _merged_client_redirect(client) if client else None
+    if merged_redirect is not None:
+        return merged_redirect
     assert_delivery_lead_client_visible(
         client_id,
         await resolve_delivery_lead_client_ids(current_user, db),
     )
-    result = await db.execute(select(Client).where(Client.id == client_id))
-    client = result.scalar_one_or_none()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
-    merged_redirect = _merged_client_redirect(client)
-    if merged_redirect is not None:
-        return merged_redirect
     if client.hidden or client.archived_at is not None or client.deleted_at:
         raise HTTPException(status_code=404, detail="Client not found")
     return _serialize_client(client, current_user=current_user)
@@ -618,7 +566,7 @@ async def get_client(
 
 @router.get("/{client_id}/profile", response_model=ClientProfileResponse)
 async def get_client_profile(
-    client_id: int,
+    client_id: ClientIdPath,
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ):
@@ -629,7 +577,15 @@ async def get_client_profile(
     Contract model's own `monthly_rate_client` / `monthly_margin` properties
     so the math stays consistent with the Contracts module.
     """
-    # Operacyjna granica DL obejmuje wszystkich klientów. Finansowy wyjątek
+    # Scalony duplikat przekierowuje PRZED bramką portfela (runda 6 audytu) —
+    # bramka i tak zadziała na kliencie kanonicznym po przekierowaniu.
+    client = await db.scalar(select(Client).where(Client.id == client_id))
+    merged_redirect = (
+        _merged_client_redirect(client, suffix="/profile") if client else None
+    )
+    if merged_redirect is not None:
+        return merged_redirect
+    # Operacyjna granica DL = klienci z przypisania (25.09.2026). Finansowy wyjątek
     # jest rozwiązywany osobno i nadal obejmuje wyłącznie własny portfel.
     delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
     assert_delivery_lead_client_visible(client_id, delivery_lead_client_ids)
@@ -642,12 +598,8 @@ async def get_client_profile(
         delivery_lead_finance_client_ids=delivery_lead_finance_client_ids,
     )
     # 404 early so we don't hand back empty sections for a phantom client.
-    client = await db.scalar(select(Client).where(Client.id == client_id))
     if client is None:
         raise HTTPException(status_code=404, detail="Client not found")
-    merged_redirect = _merged_client_redirect(client, suffix="/profile")
-    if merged_redirect is not None:
-        return merged_redirect
     if client.hidden or client.archived_at is not None or client.deleted_at:
         raise HTTPException(status_code=404, detail="Client not found")
 
@@ -834,7 +786,7 @@ async def get_client_profile(
             selectinload(Contract.framework_rate_schedule),
         )
         .order_by(
-            func.coalesce(Contract.terminated_at, Contract.end_date).desc().nullslast(),
+            func.coalesce(Contract.end_date, Contract.terminated_at).desc().nullslast(),
             Contract.id.desc(),
         )
         .limit(ARCHIVE_ROWS_LIMIT)
@@ -856,9 +808,7 @@ async def get_client_profile(
     # zakończenia, nie na dziś. Krok harmonogramu zaplanowany PO zakończeniu
     # projektu nigdy nie obowiązywał w jego trakcie i nie ma prawa pojawić się
     # w wierszu archiwalnym.
-    ended_boundaries = {
-        c.id: (c.terminated_at or c.end_date or today) for c in ended_contracts
-    }
+    ended_boundaries = {c.id: _archive_boundary(c, today) for c in ended_contracts}
     ended_rates = {
         c.id: _effective_rate_fields(c, ended_boundaries[c.id]) for c in ended_contracts
     }
@@ -929,11 +879,21 @@ async def get_client_profile(
     # zaokrąglona raz na końcu potrafi różnić się od sumy kolumny o złotówkę
     # (zmierzone na prodzie: Alior 59 211 vs 59 212). Kafel ma być sumą tego,
     # co użytkownik WIDZI pod nim.
-    active_mrr_complete = not any(
-        active_rates_pln[c.id]["client_missing_fx"]
-        or active_rates_pln[c.id]["candidate_missing_fx"]
+    # Runda 10 (R10-N9-4): brak kursu liczy się WYŁĄCZNIE na kontraktach
+    # z obiema nogami. Kontrakt bez stawki i tak jest niewyceniony — jego
+    # brakujący kurs zerował cały kafel („—"), a front pisał „żaden kontrakt
+    # nie ma stawki", choć inne miały. Ta sama kolejność co
+    # `my_clients._monthly_margin_total_pln`: najpierw noga, potem kurs.
+    fx_missing_contracts = sum(
+        1
         for c in current_contracts
+        if _has_both_rate_legs(active_rates_pln[c.id])
+        and (
+            active_rates_pln[c.id]["client_missing_fx"]
+            or active_rates_pln[c.id]["candidate_missing_fx"]
+        )
     )
+    active_mrr_complete = fx_missing_contracts == 0
     # Kontrakt bez stawki (marża `None`) NIE jest zerem: do sumy wchodzą
     # wyłącznie wiersze z policzoną marżą, a liczba pominiętych jedzie osobno
     # (`active_mrr_unpriced_contracts`), żeby kafel nie podawał zaniżonej
@@ -948,7 +908,9 @@ async def get_client_profile(
         for c in current_contracts
         if active_rates_pln[c.id]["monthly_margin"] is not None
     ]
-    active_mrr_unpriced = len(current_contracts) - len(priced_margins)
+    active_mrr_unpriced = (
+        len(current_contracts) - len(priced_margins) - fx_missing_contracts
+    )
     active_mrr = (
         sum(to_whole_pln(margin) for margin in priced_margins)
         if active_mrr_complete and (priced_margins or not current_contracts)
@@ -1001,7 +963,7 @@ async def get_client_profile(
             .scalars()
             .all()
         )
-        rest_boundaries = {c.id: (c.terminated_at or c.end_date or today) for c in rest}
+        rest_boundaries = {c.id: _archive_boundary(c, today) for c in rest}
         rest_fx = await rates_to_pln_by_date(
             db,
             {
@@ -1061,6 +1023,7 @@ async def get_client_profile(
         total_placements=total_placements,
         active_mrr=int(active_mrr) if active_mrr is not None else None,
         active_mrr_unpriced_contracts=active_mrr_unpriced,
+        active_mrr_fx_missing_contracts=fx_missing_contracts,
         ltv=int(ltv) if ltv_complete else None,
         avg_time_to_fill_days=round(avg_ttf, 1) if avg_ttf is not None else None,
         avg_time_to_fill_source=(
@@ -1093,6 +1056,7 @@ async def get_client_profile(
     if not finance_readable:
         response.summary.active_mrr = None
         response.summary.active_mrr_unpriced_contracts = 0
+        response.summary.active_mrr_fx_missing_contracts = 0
         response.summary.ltv = None
         for job in response.open_jobs:
             job.salary_min = None
@@ -1128,9 +1092,9 @@ async def get_client_profile(
 
 @router.patch("/{client_id}", response_model=AnyClientResponse)
 async def update_client(
-    client_id: int,
+    client_id: ClientIdPath,
     data: ClientUpdate,
-    current_user: DeliveryLeadPlus,
+    current_user: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     assert_delivery_lead_client_visible(
@@ -1142,6 +1106,7 @@ async def update_client(
     # (audyt 24.09.2026, S1).
     client = await assert_client_writable(db, client_id)
     updates = data.model_dump(exclude_unset=True)
+    _keep_unreadable_legal_fields(current_user, updates)
     from app.services.cv_generator_b2b import central_policies
 
     if central_policies.enabled() and "cv_content_mode_cap" in updates:
@@ -1171,15 +1136,17 @@ async def update_client(
 
 @router.post("/{client_id}/merge-into/{target_id}", response_model=AnyClientResponse)
 async def merge_client_into(
-    client_id: int,
-    target_id: int,
+    client_id: ClientIdPath,
+    target_id: ClientIdPath,
     current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Kanonizacja duplikatu: archiwizuje ``client_id`` i wskazuje na ``target_id``.
 
     Historia (joby, kontrakty, aktywności) ZOSTAJE na scalanym wierszu — merge
-    nie przepisuje danych, tylko chowa duplikat z katalogu/lookupów
+    przenosi wyłącznie wiedzę o kliencie (kontakty, wiedza, materiały, warunki
+    umowy, karta — runda 9, ``_move_client_materials_on_merge``) i chowa
+    duplikat z katalogu/lookupów
     (``merged_into_client_id IS NULL`` filtry) i przekierowuje detail 307-ką
     (``_merged_client_redirect``). Pierwszy klient tej ścieżki: e-Zdrowie
     37721 → 115 (Faza B); kolejni kandydaci: rodzina „BNP *".
@@ -1218,6 +1185,35 @@ async def merge_client_into(
             detail=f"Klient jest już scalony z id={source.merged_into_client_id}",
         )
 
+    # Runda 7 (R7-X5-2): scalenie niczego nie przenosi, więc duplikat z żywymi
+    # danymi (zamówienia, kontraktorzy, rekrutacje, bramki w konfiguracji)
+    # zostawiłby je na niewidocznym wierszu. Blokada wiersza duplikatu przed
+    # oceną: dopisanie zamówienia albo kontraktu czeka na nią (FOR KEY SHARE).
+    # Runda 9 (R9-N4-3): blokujemy też wiersz celu — zapis warunków umowy
+    # i karty klienta bierze blokadę wiersza klienta, więc ocena „czy cel ma
+    # własne” i przeniesienie widzą ten sam stan. Kolejność po id.
+    await db.execute(
+        select(Client.id)
+        .where(Client.id.in_((client_id, target_id)))
+        .order_by(Client.id)
+        .with_for_update()
+    )
+    blockers = await assess_client_merge_blockers(db, source, target_id=target_id)
+    if blockers:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "client_merge_blocked",
+                "message": (
+                    "Scalenie zablokowane: "
+                    + ", ".join(f"{b.label} ({b.count})" for b in blockers)
+                    + ". Najpierw przenieś te dane do klienta docelowego."
+                ),
+                "blockers": [b.as_dict() for b in blockers],
+            },
+        )
+
+    moved = await _move_client_materials_on_merge(db, client_id, target_id)
     source.merged_into_client_id = target_id
     # Wcześniej zarchiwizowane źródło to legalny kandydat do scalenia —
     # zachowujemy ORYGINALNY moment/autora archiwizacji (review #1054), merge
@@ -1230,12 +1226,68 @@ async def merge_client_into(
             entity_id=client_id,
             action="merged",
             user_id=current_user.id,
-            details={"merged_into_client_id": target_id},
+            details={"merged_into_client_id": target_id, "moved": moved},
         )
     )
     await db.flush()
     await db.refresh(source)
     return _serialize_client(source, current_user=current_user)
+
+
+async def _move_client_materials_on_merge(
+    db: AsyncSession, source_id: int, target_id: int
+) -> dict[str, int]:
+    """Przenieś wiedzę o kliencie z duplikatu na klienta docelowego.
+
+    Runda 9 (R9-N4-3): scalenie przenosiło tylko przekierowanie profilu.
+    Kontakty założone w NEXUSIE, wiedza, one-pagery, warunki umowy i karta
+    zostawały na niewidocznym duplikacie — hiring manager wpisany w rekrutacji
+    u celu zakładał się drugi raz, a weto HM (po id kontaktu) rozbijało się
+    na dwa rekordy. Kontakty z Traffita też idą na cel: nocny import i tak
+    przypina je do klienta kanonicznego (`_canonical_client_id`).
+
+    Warunki umowy i karta są jednym wierszem na klienta — przechodzą tylko
+    wtedy, gdy cel ich nie ma (inaczej scalenie zatrzymuje blokada
+    ``duplicate_singletons``). Duplikaty scalone wcześniej W źródło
+    (A→S) wskazują od teraz wprost na cel (R9-N4-4) — bez łańcucha, którego
+    przekierowanie profilu i import Traffita nie przechodzą.
+    """
+    from sqlalchemy import update
+
+    from app.models.client_contract_terms import ClientContractTerms
+    from app.models.client_knowledge import ClientKnowledge
+    from app.models.client_one_pager import ClientOnePager
+    from app.models.client_playbook import ClientPlaybook
+    from app.models.client_playbook_event import ClientPlaybookEvent
+    from app.models.contact import Contact
+
+    moved: dict[str, int] = {}
+
+    async def _repoint(model, key: str, column=None) -> None:
+        column = column if column is not None else model.client_id
+        result = await db.execute(
+            update(model)
+            .where(column == source_id)
+            .values({column.key: target_id})
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount:
+            moved[key] = int(result.rowcount)
+
+    await _repoint(Contact, "contacts")
+    await _repoint(ClientKnowledge, "knowledge")
+    await _repoint(ClientOnePager, "one_pagers")
+    await _repoint(ClientContractTerms, "contract_terms")
+    if (
+        await db.scalar(
+            select(ClientPlaybook.id).where(ClientPlaybook.client_id == source_id)
+        )
+        is not None
+    ):
+        await _repoint(ClientPlaybook, "playbook")
+        await _repoint(ClientPlaybookEvent, "playbook_events")
+    await _repoint(Client, "merged_duplicates", Client.merged_into_client_id)
+    return moved
 
 
 # Usuwanie klienta: ``app/api/client_deletion.py`` (imienne uprawnienie,

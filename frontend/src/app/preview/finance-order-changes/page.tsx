@@ -29,6 +29,7 @@ import {
   cardItemsAllTabs,
   statusCounts,
   withCheck,
+  withInvoiceLines,
   type StatusFilter,
 } from "@/lib/finance-order-board";
 import { monthOptions } from "@/lib/finance-order-changes";
@@ -50,7 +51,7 @@ const ref = (id: number, consultant: string, client: string, number: string) => 
 
 const DATA: OrderChangesResponse = {
   period: { year: 2026, month: 9, label: "Wrzesień 2026" },
-  counts: { changes: 6, entries: 2, exits: 2, ending: 2, gaps: 2 },
+  counts: { changes: 6, entries: 4, exits: 2, ending: 2, gaps: 2 },
   changes: [
     {
       ...ref(1, "Jan Nowak", "Bank Przykładowy S.A.", "NB-2291"),
@@ -155,7 +156,7 @@ const DATA: OrderChangesResponse = {
       engagement_since: null,
     },
     {
-      ...ref(9, "Adam Matecki", "Bank Przykładowy S.A.", "NB-2291"),
+      ...ref(9, "Adam Szablonowy", "Bank Przykładowy S.A.", "NB-2291"),
       kind: "order_continuation",
       occurred_at: null,
       effective_date: "2026-09-01",
@@ -180,7 +181,7 @@ const DATA: OrderChangesResponse = {
       engagement_since: null,
     },
     {
-      ...ref(10, "Piotr Żukowski", "Telekom Demo", "TD-330"),
+      ...ref(10, "Piotr Makietowy", "Telekom Demo", "TD-330"),
       kind: "client_change",
       occurred_at: null,
       effective_date: "2026-09-08",
@@ -207,7 +208,7 @@ const DATA: OrderChangesResponse = {
   ],
   entries: [
     {
-      ...ref(11, "Adam Grono", "Bank Przykładowy S.A.", "NB-2301"),
+      ...ref(11, "Adam Wzorowy", "Bank Przykładowy S.A.", "NB-2301"),
       start_date: "2026-09-02",
       end_date: "2026-12-31",
       rate_cost: 120,
@@ -218,7 +219,7 @@ const DATA: OrderChangesResponse = {
       status: "active",
     },
     {
-      ...ref(2, "Alicja Kalbarczyk", "Bank Przykładowy S.A.", "NB-2295"),
+      ...ref(2, "Alicja Próbna", "Bank Przykładowy S.A.", "NB-2295"),
       start_date: "2026-09-21",
       end_date: null,
       rate_cost: 130,
@@ -227,6 +228,54 @@ const DATA: OrderChangesResponse = {
       currency: "PLN",
       order_type: "periodic",
       status: "draft",
+    },
+    // Bank Północny (ticket 8): gotowa pozycja faktury — pełna i z brakami.
+    {
+      ...ref(21, "Ewa Przykładowa", "Bank Północny Abp", "299001"),
+      start_date: "2026-09-14",
+      end_date: "2027-03-12",
+      rate_cost: 110,
+      rate_revenue: 135,
+      rate_unit: "hourly",
+      currency: "PLN",
+      order_type: "periodic",
+      status: "active",
+      invoice_lines: [
+        {
+          index: 0,
+          consultant: "Ewa Przykładowa",
+          text: "NIDS: 2099-000123, IT Retail Banking, Klient Contact: Jan Testowy, Contractor: Ewa Przykładowa ID:",
+          edited_by_name: null,
+          edited_at: null,
+        },
+      ],
+    },
+    {
+      ...ref(22, "Karol Demo", "Bank Północny Abp", "299002"),
+      start_date: "2026-09-21",
+      end_date: "2026-12-31",
+      rate_cost: 120,
+      rate_revenue: 150,
+      rate_unit: "hourly",
+      currency: "PLN",
+      order_type: "periodic",
+      status: "active",
+      invoice_lines: [
+        {
+          index: 0,
+          consultant: "Karol Demo",
+          text: "NIDS: [brak], IT Retail Banking, Klient Contact: Jan Testowy, Contractor: Karol Demo ID:",
+          edited_by_name: null,
+          edited_at: null,
+        },
+        {
+          index: 1,
+          consultant: "Maja Przykład",
+          text: "NIDS: [brak], IT Retail Banking, Klient Contact: Jan Testowy, Contractor: Maja Przykład ID:",
+          edited_by_name: null,
+          edited_at: null,
+        },
+      ],
     },
   ],
   // Zejścia = zapisany koniec współpracy. Zamówienia bez kontynuacji = zamówienie
@@ -246,7 +295,7 @@ const DATA: OrderChangesResponse = {
       intent: "contract_ended",
     },
     {
-      ...ref(8, "Robert Adamczyk", "Telekom Demo", "SAP 4500222222"),
+      ...ref(8, "Robert Fikcyjny", "Telekom Demo", "SAP 4500222222"),
       end_date: "2026-09-30",
       start_date: "2026-02-01",
       rate_cost: 850,
@@ -302,7 +351,7 @@ const DATA: OrderChangesResponse = {
       delay_days: null,
     },
     {
-      ...ref(8, "Kamil Nowicki", "Bank Demo S.A.", "AB-0999"),
+      ...ref(8, "Kamil Fikcyjny", "Bank Demo S.A.", "AB-0999"),
       gap_id: 2,
       ended_on: "2026-08-31",
       detected_on: "2026-09-01",
@@ -426,11 +475,12 @@ export default function FinanceOrderChangesPreview() {
       <option value="">Wszyscy klienci</option>
       <option value="Bank Przykładowy S.A.">Bank Przykładowy S.A.</option>
       <option value="Telekom Demo">Telekom Demo</option>
+      <option value="Bank Północny Abp">Bank Północny Abp</option>
     </select>
   );
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-4 p-4 sm:p-6">
+    <div className="space-y-4 p-4 sm:p-6">
       <h1 className="text-lg font-semibold">Zmiany w zamówieniach — podgląd</h1>
       <OrderChangesPanel
         data={data}
@@ -456,6 +506,21 @@ export default function FinanceOrderChangesPreview() {
                       : null,
                   ),
                 ),
+              onSaveInvoiceLine: async (item, line, text) => {
+                const orderId = item.orderId;
+                if (orderId == null) return false;
+                setData((current) =>
+                  withInvoiceLines(current, orderId, [
+                    {
+                      ...line,
+                      text,
+                      edited_by_name: "Ty (podgląd)",
+                      edited_at: new Date().toISOString(),
+                    },
+                  ]),
+                );
+                return true;
+              },
               pendingKeys: new Set(),
               onDownloadPdf: () => undefined,
               downloadingPdf: null,

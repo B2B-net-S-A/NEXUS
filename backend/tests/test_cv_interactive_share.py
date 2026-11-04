@@ -541,6 +541,24 @@ def test_html_export_blind_masks_and_degrades_without_map():
     assert 'class="classic"' in out
 
 
+def test_html_export_employer_line_has_company_without_industry():
+    """Zgłoszenie 03.11.2026: wiersz „Nazwa firmy:” to sama firma, jak w Wordzie."""
+    from app.services.cv_generator_b2b.html_export import render_interactive_html
+    from app.services.cv_generator_b2b.public_view import build_public_payload
+
+    payload = build_public_payload(_render_payload())
+    company = payload["experience"][0]["company"]
+    assert payload["experience"][0]["industry"] == "fintech"
+
+    out = render_interactive_html(payload, [], document_only=True)
+    assert f'data-cv-section="employer">{company}</p>' in out
+
+    blind = render_interactive_html(
+        build_public_payload(_render_payload(blind=True)), [], document_only=True
+    )
+    assert 'data-cv-section="employer">Firma z branży fintech</p>' in blind
+
+
 async def test_html_export_endpoint(app_client: AsyncClient, app_auth_headers):
     doc_id = await _seed_generated_doc()
     r = await app_client.get(

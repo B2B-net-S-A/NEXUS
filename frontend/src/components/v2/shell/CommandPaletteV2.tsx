@@ -9,6 +9,7 @@ import {
   Plus,
   Search,
   Sparkles,
+  TrendingUp,
   Users,
 } from "lucide-react";
 import {
@@ -28,11 +29,16 @@ import {
   visiblePaletteEntries,
 } from "@/lib/nav-registry";
 import { hasSectionAccess } from "@/lib/section-access";
+import { hasPermission } from "@/lib/permissions";
+import { useHrNavState, useHrProgram } from "@/lib/api/hr";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { useCapabilities } from "@/hooks/useCapability";
 import { useAuthStore } from "@/store/auth";
 import { openJarvis } from "@/lib/jarvis/events";
 import { listedSettingsItems, settingsItemHref } from "@/lib/settings-registry";
+import { jobClientLine, jobDisplayTitle } from "@/lib/job-names";
+import { EmploymentPill } from "@/components/ds/EmploymentMarker";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 
 interface Props {
   /** `undefined` = user nie ma capability `candidate.create` (patrz AppShellV2). */
@@ -44,9 +50,19 @@ interface Props {
 }
 
 type QuickResult =
-  | { type: "candidate"; id: number; title: string; subtitle: string | null }
+  | {
+      type: "candidate";
+      id: number;
+      title: string;
+      subtitle: string | null;
+      /** Znacznik „Pracuje u nas” — osobny element, nie część podpisu. */
+      employment?: EmploymentMarker | null;
+    }
   | { type: "job"; id: number; title: string; subtitle: string | null }
-  | { type: "client"; id: number; title: string; subtitle: string | null };
+  | { type: "client"; id: number; title: string; subtitle: string | null }
+  // Sprzedaż (Atlas → NEXUS): firmy i szanse — w Atlasie ⌘K szukał ich od zawsze.
+  | { type: "sales_company"; id: number; title: string; subtitle: string | null }
+  | { type: "sales_opportunity"; id: number; title: string; subtitle: string | null };
 
 // Loose shape of the rows returned by the list endpoints — only the fields the
 // palette reads. The three endpoints share a `{ items, total }` envelope but
@@ -58,7 +74,10 @@ interface RawSearchItem {
   /** Kandydat: stanowisko z LinkedIna i miasto (pola `CandidateResponse`). */
   linkedin_current_title?: string | null;
   city?: string | null;
+  employment_marker?: EmploymentMarker | null;
   title?: string | null;
+  working_title?: string | null;
+  client_reference?: string | null;
   client_name?: string | null;
   industry?: string | null;
 }
@@ -76,6 +95,7 @@ export function CommandPaletteV2({
     hasSectionAccess(user, "sourcing") && can["nav.candidates"];
   const canSearchJobs = hasSectionAccess(user, "pipeline");
   const canSearchClients = hasSectionAccess(user, "delivery");
+  const canSearchSales = hasPermission(user, "sales_view");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<QuickResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -109,10 +129,18 @@ export function CommandPaletteV2({
       candidate: [],
       job: [],
       client: [],
+      sales_company: [],
+      sales_opportunity: [],
     };
     const flush = () => {
       if (cancelled) return;
-      setResults([...buckets.candidate, ...buckets.job, ...buckets.client]);
+      setResults([
+        ...buckets.candidate,
+        ...buckets.job,
+        ...buckets.client,
+        ...buckets.sales_company,
+        ...buckets.sales_opportunity,
+      ]);
     };
 
     setResults([]);
@@ -150,6 +178,7 @@ export function CommandPaletteV2({
                 subtitle:
                   [c.linkedin_current_title, c.city].filter(Boolean).join(" · ") ||
                   null,
+                employment: c.employment_marker ?? null,
               }));
               flush();
             }),
@@ -167,8 +196,9 @@ export function CommandPaletteV2({
                 (j) => ({
                   type: "job" as const,
                   id: j.id,
-                  title: j.title ?? `Rekrutacja #${j.id}`,
-                  subtitle: j.client_name ?? null,
+                  // 0380: tytuł dla rekrutera; pod nim klient, nazwa i numer od klienta.
+                  title: jobDisplayTitle(j),
+                  subtitle: jobClientLine(j) || null,
                 }),
               );
               flush();
@@ -195,6 +225,34 @@ export function CommandPaletteV2({
             }),
         );
       }
+      if (canSearchSales) {
+        requests.push(
+          api
+            .get("/api/sales/companies", { params: { q: term, limit: 5 }, signal: ctrl.signal })
+            .then((res) => {
+              buckets.sales_company = ((res.data?.items ?? []) as RawSearchItem[]).map((c) => ({
+                type: "sales_company" as const,
+                id: c.id,
+                title: c.name ?? `Firma #${c.id}`,
+                subtitle: "Sprzedaż · firma",
+              }));
+              flush();
+            }),
+          api
+            .get("/api/sales/opportunities", { params: { q: term, limit: 5 }, signal: ctrl.signal })
+            .then((res) => {
+              buckets.sales_opportunity = (
+                (res.data?.items ?? []) as (RawSearchItem & { company?: { name?: string } })[]
+              ).map((o) => ({
+                type: "sales_opportunity" as const,
+                id: o.id,
+                title: o.title ?? `Szansa #${o.id}`,
+                subtitle: ["Sprzedaż", o.company?.name].filter(Boolean).join(" · "),
+              }));
+              flush();
+            }),
+        );
+      }
       // Clear the "searching…" hint only once every request has settled
       // (resolved, rejected, or aborted). Odróżniamy przy tym awarię od pustki:
       // gdy KAŻDE zapytanie padło, pokazujemy komunikat o błędzie zamiast
@@ -212,7 +270,7 @@ export function CommandPaletteV2({
       ctrl.abort();
       clearTimeout(timer);
     };
-  }, [query, open, canSearchCandidates, canSearchJobs, canSearchClients]);
+  }, [query, open, canSearchCandidates, canSearchJobs, canSearchClients, canSearchSales]);
 
   const go = (href: string) => {
     onOpenChange(false);
@@ -237,12 +295,32 @@ export function CommandPaletteV2({
   });
   // Każda pozycja Ustawień, którą ta osoba widzi — ⌘K „reguły CV" prowadzi
   // prosto do ekranu (przebudowa Ustawień 22.09.2026).
-  const settingsItems = useMemo(() => listedSettingsItems(user), [user]);
+  const hrProgram = useHrProgram(Boolean(user));
+  const settingsItems = useMemo(
+    () => listedSettingsItems(user, { hrProgram }),
+    [user, hrProgram],
+  );
+  const {
+    myTime: hrMyTime,
+    people: hrPeople,
+    equipment: hrEquipment,
+    care: hrCare,
+    backOffice: hrBackOffice,
+  } = useHrNavState(user);
   const visibleNav = useMemo(
     () =>
       visiblePaletteEntries(
         user,
-        { contactQueueEnabled: contactFeature.enabled },
+        {
+          contactQueueEnabled: contactFeature.enabled,
+          hr: {
+            myTime: hrMyTime,
+            people: hrPeople,
+            equipment: hrEquipment,
+            care: hrCare,
+            backOffice: hrBackOffice,
+          },
+        },
         (capability) => can[capability],
       ).map((entry) => ({
         id: entry.id,
@@ -251,7 +329,7 @@ export function CommandPaletteV2({
         icon: entry.icon,
         keywords: entry.paletteKeywords ?? [],
       })),
-    [user, contactFeature.enabled, can],
+    [user, contactFeature.enabled, can, hrMyTime, hrPeople, hrEquipment, hrCare, hrBackOffice],
   );
 
   // Po wpisaniu ≥2 znaków pozycje nawigacji pasujące do zapytania zostają
@@ -335,6 +413,8 @@ export function CommandPaletteV2({
                   <Users className="h-4 w-4" />
                 ) : r.type === "job" ? (
                   <Briefcase className="h-4 w-4" />
+                ) : r.type === "sales_opportunity" ? (
+                  <TrendingUp className="h-4 w-4" />
                 ) : (
                   <Building2 className="h-4 w-4" />
                 )}
@@ -344,6 +424,9 @@ export function CommandPaletteV2({
                     · {r.subtitle}
                   </span>
                 )}
+                {r.type === "candidate" && r.employment ? (
+                  <EmploymentPill marker={r.employment} className="ml-2 shrink-0" />
+                ) : null}
               </CommandItem>
             ))}
           </CommandGroup>
@@ -462,5 +545,9 @@ function resultHref(r: QuickResult): string {
       return `/jobs/${r.id}`;
     case "client":
       return `/clients/${r.id}`;
+    case "sales_company":
+      return `/sales/companies/${r.id}`;
+    case "sales_opportunity":
+      return `/sales/opportunities/${r.id}`;
   }
 }

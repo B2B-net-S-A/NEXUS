@@ -7,9 +7,9 @@ z treści dokumentów — pochodzi z tej tabeli i z ręcznego dodania w UI.
 
 Zasiew jest idempotentny i działa WYŁĄCZNIE, gdy istnieje klient o
 ``EZDROWIE_CLIENT_ID`` (w CI go nie ma → no-op). Umowa ramowa jest
-rozpoznawana po ``(client_id, project_part)``, wykonawcza po
-``(client_id, number)`` — powtórny start i migracja po safety-necie nic nie
-dublują. Wykonują go migracja 0312 i ``entrypoint.sh`` (prod alembic bywa
+rozpoznawana po ``(client_id, project_part)``, wykonawcze zasiewa się tylko
+pod część bez żadnej umowy wykonawczej (numer poprawiony w UI nie wraca) —
+powtórny start i migracja po safety-necie nic nie dublują. Wykonują go migracja 0312 i ``entrypoint.sh`` (prod alembic bywa
 osierocony). Numery umów nie są danymi osobowymi.
 
 ``source_key`` NIE zawiera dwukropka: SQL leci przez ``text()``, a ``:cz1``
@@ -110,6 +110,17 @@ def build_structure_seed_sql(client_id: int = EZDROWIE_CLIENT_ID) -> str:
         WHERE NOT EXISTS (
             SELECT 1 FROM client_executive_contracts ec
             WHERE ec.client_id = fc.client_id AND ec.number = v.number
+        )
+        -- Runda 8 (R8-N6-2): wykonawcze zasiewamy tylko pod część, która
+        -- nie ma jeszcze ŻADNEJ umowy wykonawczej. Numery z ticketu bywają
+        -- błędne i DL poprawia je w UI; dopasowanie po samym numerze
+        -- zakładało po najbliższym deployu drugą, aktywną umowę ze starym
+        -- numerem. Umów wykonawczych się nie kasuje (tylko `ended`), więc
+        -- zasiana część nigdy nie wraca do stanu „pusta”. Round-trip
+        -- downgrade→upgrade 0312 dalej działa: downgrade kasuje tabelę.
+        AND NOT EXISTS (
+            SELECT 1 FROM client_executive_contracts ec
+            WHERE ec.framework_contract_id = fc.id
         );
     END $$
     """

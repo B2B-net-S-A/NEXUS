@@ -10,6 +10,7 @@ Pilnujemy zasad, na których stoi bezpieczeństwo asystenta:
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -142,7 +143,9 @@ async def test_api_denial_reaches_the_model_as_an_error_not_data(
     enable_jarvis(monkeypatch, model)
     # Symulujemy błąd filtra: podajemy modelowi wszystkie narzędzia.
     monkeypatch.setattr(
-        jarvis_api, "tools_for_user", lambda _sections: list(jarvis_tools.ALL_TOOLS)
+        jarvis_api,
+        "tools_for_user",
+        lambda _sections, **_hr: list(jarvis_tools.ALL_TOOLS),
     )
     _, headers = await make_user(UserRole.recruiter)
 
@@ -329,6 +332,17 @@ async def test_open_screen_emits_a_link_and_executes_nothing(app_client, monkeyp
             "reason": "Kliknij „Zakończ współpracę”.",
         }
     ]
+    # Runda 10 (F14): wynik narzędzia mówi modelowi, że ekran NIE został
+    # otwarty — inaczej odpowiadał „Otworzyłem zakładkę”.
+    tool_results = [
+        block
+        for msg in model.calls[1]["messages"]
+        if isinstance(msg.get("content"), list)
+        for block in msg["content"]
+        if isinstance(block, dict) and block.get("type") == "tool_result"
+    ]
+    assert tool_results
+    assert "NIE został otwarty" in json.dumps(tool_results, ensure_ascii=False)
 
 
 async def test_impersonation_disabled_flag_and_busy_turn_stop_before_the_model(
@@ -413,8 +427,8 @@ async def test_candidate_hard_delete_erases_linked_conversations(
 async def test_conversation_list_and_delete_are_owner_scoped(app_client, monkeypatch):
     model = ScriptedModel([fake_message(text_block("Cześć!"))])
     enable_jarvis(monkeypatch, model)
-    _, owner = await make_user(UserRole.sourcer)
-    _, stranger = await make_user(UserRole.sourcer)
+    _, owner = await make_user(UserRole.recruiter)
+    _, stranger = await make_user(UserRole.recruiter)
     events = parse_sse((await _chat(app_client, owner, "Cześć Jarvis")).text)
     conversation_id = events[0]["conversation_id"]
 
@@ -438,3 +452,45 @@ async def test_conversation_list_and_delete_are_owner_scoped(app_client, monkeyp
             f"/api/jarvis/conversations/{conversation_id}", headers=owner
         )
     ).status_code == 204
+
+
+async def test_candidate_delete_erases_conversation_found_via_global_search(
+    app_client, monkeypatch, app_auth_headers
+):
+    """Audyt 25.09.2026: `global_search` zwraca nazwisko i `/candidates/{id}`,
+    ale nie jest narzędziem „kandydackim”, więc rozmowa nie była wiązana
+    z osobą i przeżywała jej usunięcie (art. 17)."""
+    lastname = f"Szukana-{uuid.uuid4().hex[:6]}"
+    candidate_id = await make_candidate(lastname)
+    model = ScriptedModel(
+        [
+            fake_message(tool_block("global_search", {"query": lastname})),
+            fake_message(text_block("Znalazłem jedną osobę.")),
+        ]
+    )
+    enable_jarvis(monkeypatch, model)
+    _, headers = await make_user(UserRole.admin)
+    events = parse_sse((await _chat(app_client, headers, f"Kto to {lastname}?")).text)
+    conversation_id = uuid.UUID(events[0]["conversation_id"])
+
+    async with AsyncSessionLocal() as db:
+        linked = (
+            (
+                await db.execute(
+                    select(JarvisConversationEntity.entity_id).where(
+                        JarvisConversationEntity.conversation_id == conversation_id,
+                        JarvisConversationEntity.entity_type == "candidate",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert candidate_id in linked
+
+    deleted = await app_client.delete(
+        f"/api/candidates/{candidate_id}", headers=app_auth_headers
+    )
+    assert deleted.status_code == 204, deleted.text
+    async with AsyncSessionLocal() as db:
+        assert await db.get(JarvisConversation, conversation_id) is None

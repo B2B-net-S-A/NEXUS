@@ -208,6 +208,60 @@ async def test_manual_add_claims_for_12h_and_blocks_other_recruiter(api_client):
         await _cleanup([cand_id], job_id)
 
 
+async def test_own_active_claim_cannot_be_extended(api_client):
+    """Runda 8 (R8-N8-7): ponowne „Biorę" własnej aktywnej blokady nie
+    przesuwa jej o kolejne 12 h — po 12 h osobę może przejąć każdy."""
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id)
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        before = (await _process(cand_id, job_id)).claimed_until
+        again = await api_client.post(
+            "/api/pipeline/claim",
+            headers=owner_h,
+            json={"candidate_id": cand_id, "job_id": job_id},
+        )
+        assert again.status_code == 409, again.text
+        assert (await _process(cand_id, job_id)).claimed_until == before
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+async def test_claim_of_a_deactivated_account_binds_nobody(api_client):
+    """Runda 8 (R8-N8-7): blokada konta nieaktywnego nie daje 423."""
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id, collaborator_ids=(other_id,))
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    other_h = await _login(api_client, other_email, other_pw)
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(User).where(User.id == owner_id).values(is_active=False)
+            )
+            await db.commit()
+        board = await api_client.get(f"/api/pipeline/kanban/{job_id}", headers=other_h)
+        card = next(
+            item
+            for col in board.json()["columns"]
+            for item in col["items"]
+            if item["candidate_id"] == cand_id
+        )
+        assert card.get("claim_user_id") is None and card["can_take"] is True
+        moved = await api_client.post(
+            "/api/pipeline/move",
+            headers=other_h,
+            json={"candidate_id": cand_id, "job_id": job_id, "stage": "verified"},
+        )
+        assert moved.status_code == 200, moved.text
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
 async def test_expired_claim_can_be_taken_by_anyone_in_team(api_client):
     owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
     other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
@@ -346,20 +400,56 @@ async def test_cv_sent_requires_delivery_lead_and_client_rate(api_client):
         await _cleanup([cand_id], job_id)
 
 
-async def test_cv_sent_at_nordea_keeps_the_cpro_path(api_client, monkeypatch):
+async def test_cv_sent_at_nordea_needs_the_delivery_lead_acceptance(
+    api_client, monkeypatch
+):
+    """U Nordei „CV wysłane” = Cpro. Z pominięciem kolejki to akceptacja
+    (13.10.2026): osoba od Cpro i inny rekruter dostają 403, Delivery Lead
+    przechodzi ze stawką do Cpro. Runda 8 (R8-N8-3): także przy wyłączonej
+    bramce QC (autouse w conftest)."""
+    from app.services import cpro_sender
+    from tests.test_board_tasks import CPRO_RATE, restore_cpro_sender
+
     rec_id, rec_email, rec_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    dl_id, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead)
     job_id, client_id = await _seed_job(rec_id)
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(client_id))
     cand_id = await _seed_candidate()
     rec_h = await _login(api_client, rec_email, rec_pw)
+    other_h = await _login(api_client, other_email, other_pw)
+    dl_h = await _login(api_client, dl_email, dl_pw)
     try:
-        await _add(api_client, rec_h, job_id, cand_id, "manual_search")
-        sent = await api_client.post(
-            "/api/pipeline/move",
-            headers=rec_h,
-            json={"candidate_id": cand_id, "job_id": job_id, "stage": "cv_sent"},
-        )
-        assert sent.status_code == 200, sent.text
+        async with restore_cpro_sender():
+            async with AsyncSessionLocal() as db:
+                actor = await db.get(User, rec_id)
+                await cpro_sender.set_sender(
+                    db, user_id=rec_id, until=None, actor=actor
+                )
+                await db.commit()
+            await _add(api_client, rec_h, job_id, cand_id, "manual_search")
+            move = {"candidate_id": cand_id, "job_id": job_id, "stage": "cv_sent"}
+            refused = await api_client.post(
+                "/api/pipeline/move", headers=other_h, json=move
+            )
+            assert refused.status_code == 403, refused.text
+            # Osoba od Cpro wrzuca z kolejki, po akceptacji DL-a — nie wprost.
+            by_sender = await api_client.post(
+                "/api/pipeline/move", headers=rec_h, json=move
+            )
+            assert by_sender.status_code == 403, by_sender.text
+            assert (
+                by_sender.json()["detail"]["message"]
+                == rules.CPRO_ACCEPT_DENIED_MESSAGE
+            )
+            no_rate = await api_client.post(
+                "/api/pipeline/move", headers=dl_h, json=move
+            )
+            assert no_rate.status_code == 422, no_rate.text
+            sent = await api_client.post(
+                "/api/pipeline/move", headers=dl_h, json={**move, **CPRO_RATE}
+            )
+            assert sent.status_code == 200, sent.text
     finally:
         await _cleanup([cand_id], job_id)
 
@@ -428,11 +518,44 @@ def test_withdrawal_is_always_the_candidate() -> None:
     assert err.value.status_code == 422
 
 
-def test_cv_sent_rule_ignores_other_stages_and_nordea(monkeypatch) -> None:
+def test_cv_sent_rule_ignores_other_stages(monkeypatch) -> None:
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "77")
     assert rules.requires_dl_client_rate(PipelineStage.cv_sent, 15) is True
-    assert rules.requires_dl_client_rate(PipelineStage.cv_sent, 77) is False
+    # U Nordei „CV wysłane” = „Wysłane do Cpro” z pominięciem kolejki — też
+    # akceptacja (13.10.2026); „✓ Wrzucone” z kolejki odsiewa
+    # `arrives_from_before_client_send`.
+    assert rules.requires_dl_client_rate(PipelineStage.cv_sent, 77) is True
     assert rules.requires_dl_client_rate(PipelineStage.verified, 15) is False
+
+
+def test_cpro_queue_needs_the_delivery_lead_and_a_rate_at_nordea(monkeypatch) -> None:
+    """13.10.2026: u Nordei akceptacja do kolejki Cpro = wysyłka gdzie indziej.
+
+    Etap Cpro poznajemy po nazwie (kod bywa pusty albo „new”); poza Nordeą
+    etap Cpro nie istnieje (`ensure_badge_stage_allowed`), więc reguła milczy.
+    """
+
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "77")
+    for code in (PipelineStage.new, PipelineStage.screening):
+        assert rules.requires_dl_client_rate(code, 77, stage_name="Wysłać do Cpro")
+        assert rules.requires_dl_client_rate(
+            code, 77, stage_name="NORDEA: Wysłać do Cpro"
+        )
+        assert not rules.requires_dl_client_rate(code, 15, stage_name="Wysłać do Cpro")
+    assert not rules.requires_dl_client_rate(PipelineStage.new, 77, stage_name="QC CV")
+
+    recruiter = User(id=1, email="r@example.com", role=UserRole.recruiter)
+    lead = User(id=2, email="d@example.com", role=UserRole.delivery_lead)
+    with pytest.raises(HTTPException) as err:
+        rules.assert_client_send_allowed(recruiter, Decimal("160"), cpro=True)
+    assert err.value.status_code == 403
+    assert err.value.detail["message"] == rules.CPRO_ACCEPT_DENIED_MESSAGE
+    assert err.value.detail["permission"] == "recruitment_manage"
+    with pytest.raises(HTTPException) as err:
+        rules.assert_client_send_allowed(lead, None, cpro=True)
+    assert err.value.status_code == 422
+    assert err.value.detail == rules.CPRO_RATE_REQUIRED_MESSAGE
+    rules.assert_client_send_allowed(lead, Decimal("160"), cpro=True)
 
 
 async def test_leaving_client_interview_requires_debrief(api_client):
@@ -653,6 +776,73 @@ async def test_debrief_gate_covers_bulk_move_and_detour_through_cv_sent(api_clie
         await _cleanup([cand_id], job_id)
 
 
+async def test_debrief_gate_is_not_skipped_through_the_closed_column(api_client):
+    """Audyt 25.09.2026: „Rozmowa u klienta → Odrzucony → Umowa" omijało
+    debrief, bo bramka patrzyła na bieżącą kolumnę („Zamknięci"). Liczy się
+    kolumna sprzed zamknięcia."""
+    from app.models.calendar_event import CalendarEvent, EventStatus, EventType
+
+    dl_id, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead)
+    job_id, client_id = await _seed_job(dl_id)
+    cand_id = await _seed_candidate()
+    headers = await _login(api_client, dl_email, dl_pw)
+    try:
+        await _add(api_client, headers, job_id, cand_id, "manual_search")
+        ok = await api_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "client_interview",
+            },
+        )
+        assert ok.status_code == 200, ok.text
+        start = datetime.now(timezone.utc) - timedelta(hours=2)
+        async with AsyncSessionLocal() as db:
+            db.add(
+                CalendarEvent(
+                    title="Rozmowa u klienta",
+                    event_type=EventType.client_interview,
+                    start_time=start,
+                    end_time=start + timedelta(hours=1),
+                    status=EventStatus.completed,
+                    created_by=dl_id,
+                    operational_owner_id=dl_id,
+                    candidate_id=cand_id,
+                    job_id=job_id,
+                    client_id=client_id,
+                    attendees=[],
+                )
+            )
+            await db.commit()
+        rejected = await api_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "rejected",
+                "rejection_reason": "Klient się wycofał",
+            },
+        )
+        assert rejected.status_code == 200, rejected.text
+        blocked = await api_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={"candidate_id": cand_id, "job_id": job_id, "stage": "acceptance"},
+        )
+        assert blocked.status_code == 409, blocked.text
+        assert blocked.json()["detail"]["code"] == "DEBRIEF_REQUIRED"
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CalendarEvent).where(CalendarEvent.candidate_id == cand_id)
+            )
+            await db.commit()
+        await _cleanup([cand_id], job_id)
+
+
 # ── Poprawki po teście na produkcji (23.09.2026) ───────────────────────────
 
 
@@ -822,6 +1012,144 @@ async def test_screening_read_falls_back_to_the_pairs_latest_sheet(api_client):
         await _cleanup([cand_id], job_id)
 
 
+async def test_board_tells_the_delivery_lead_that_the_review_is_theirs(api_client):
+    """`viewer_owns_dl_review` — ta sama reguła co „Czeka na Ciebie” na pulpicie:
+    Delivery Lead rekrutacji, a bez aktywnego DL-a — portfel klienta. Inny DL
+    i rekruter widzą tablicę, ale przegląd nie jest ich."""
+    from app.models.team_structure import DeliveryLeadClientAssignment
+
+    rec_id, rec_email, rec_pw = await _seed_user(UserRole.recruiter)
+    dl_id, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead)
+    other_id, other_email, other_pw = await _seed_user(UserRole.delivery_lead)
+    portfolio_id, portfolio_email, portfolio_pw = await _seed_user(
+        UserRole.delivery_lead
+    )
+    job_id, client_id = await _seed_job(
+        rec_id, collaborator_ids=(dl_id, other_id, portfolio_id)
+    )
+    headers = {
+        "recruiter": await _login(api_client, rec_email, rec_pw),
+        "job_dl": await _login(api_client, dl_email, dl_pw),
+        "other_dl": await _login(api_client, other_email, other_pw),
+        "portfolio_dl": await _login(api_client, portfolio_email, portfolio_pw),
+    }
+
+    async def owners() -> dict[str, bool]:
+        out: dict[str, bool] = {}
+        for who, h in headers.items():
+            board = await api_client.get(f"/api/pipeline/kanban/{job_id}", headers=h)
+            assert board.status_code == 200, board.text
+            out[who] = board.json()["viewer_owns_dl_review"]
+        return out
+
+    async def set_job_dl(user_id: int | None, *, active: bool = True) -> None:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Job).where(Job.id == job_id).values(delivery_lead_id=user_id)
+            )
+            if user_id is not None:
+                await db.execute(
+                    update(User).where(User.id == user_id).values(is_active=active)
+                )
+            await db.commit()
+
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=portfolio_id, client_id=client_id
+                )
+            )
+            await db.commit()
+
+        # Rekrutacja bez DL-a: przegląd idzie do portfela klienta.
+        assert await owners() == {
+            "recruiter": False,
+            "job_dl": False,
+            "other_dl": False,
+            "portfolio_dl": True,
+        }
+
+        # DL wpisany w rekrutacji wygrywa z portfelem.
+        await set_job_dl(dl_id)
+        assert await owners() == {
+            "recruiter": False,
+            "job_dl": True,
+            "other_dl": False,
+            "portfolio_dl": False,
+        }
+
+        # Nieaktywny DL rekrutacji = brak DL-a (lustro `_LATEST_SQL`). Jego
+        # własnej tablicy nie pytamy — nieaktywne konto nie przechodzi logowania.
+        headers.pop("job_dl")
+        await set_job_dl(dl_id, active=False)
+        assert await owners() == {
+            "recruiter": False,
+            "other_dl": False,
+            "portfolio_dl": True,
+        }
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(DeliveryLeadClientAssignment).where(
+                    DeliveryLeadClientAssignment.client_id == client_id
+                )
+            )
+            await db.commit()
+        await _cleanup([], job_id)
+
+
+class _ReviewOwnerDb:
+    """Baza dla reguły „czyj przegląd”: aktywność DL-a rekrutacji i portfel."""
+
+    def __init__(self, *, dl_active: bool = True, portfolio: tuple[int, ...] = ()):
+        self.dl_active = dl_active
+        self.portfolio = portfolio
+        self.queries = 0
+
+    async def scalar(self, _stmt):
+        self.queries += 1
+        return self.dl_active
+
+    async def scalars(self, _stmt):
+        self.queries += 1
+        return SimpleNamespace(all=lambda: list(self.portfolio))
+
+
+async def test_review_ownership_rule_without_database(monkeypatch) -> None:
+    from app.api.pipeline import _viewer_owns_dl_review
+
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "77")
+    dl = User(id=5, role=UserRole.delivery_lead, is_active=True)
+    recruiter = User(id=6, role=UserRole.recruiter, is_active=True)
+    own_job = SimpleNamespace(client_id=15, delivery_lead_id=5)
+    someone_elses = SimpleNamespace(client_id=15, delivery_lead_id=9)
+    without_dl = SimpleNamespace(client_id=15, delivery_lead_id=None)
+    nordea = SimpleNamespace(client_id=77, delivery_lead_id=5)
+
+    # Bez roli Delivery Leada i bez patrzącego — bez zapytań.
+    quiet = _ReviewOwnerDb(portfolio=(15, 77))
+    assert await _viewer_owns_dl_review(quiet, own_job, recruiter) is False
+    assert await _viewer_owns_dl_review(quiet, own_job, None) is False
+    # Od 13.10.2026 u Nordei przegląd DL to akceptacja do kolejki Cpro.
+    assert await _viewer_owns_dl_review(quiet, nordea, dl) is True
+    # Własna rekrutacja też nie potrzebuje bazy.
+    assert await _viewer_owns_dl_review(quiet, own_job, dl) is True
+    assert quiet.queries == 0
+
+    # Aktywny cudzy DL wygrywa z portfelem patrzącego.
+    in_portfolio = _ReviewOwnerDb(portfolio=(15,))
+    assert await _viewer_owns_dl_review(in_portfolio, someone_elses, dl) is False
+    # Nieaktywny cudzy DL = brak DL-a: decyduje portfel klienta.
+    inactive = _ReviewOwnerDb(dl_active=False, portfolio=(15,))
+    assert await _viewer_owns_dl_review(inactive, someone_elses, dl) is True
+    assert await _viewer_owns_dl_review(inactive, without_dl, dl) is True
+    assert (
+        await _viewer_owns_dl_review(_ReviewOwnerDb(portfolio=(16,)), without_dl, dl)
+        is False
+    )
+
+
 def test_integration_request_is_detected_by_oauth_client_state() -> None:
     from app.services import candidate_claim
 
@@ -830,3 +1158,252 @@ def test_integration_request_is_detected_by_oauth_client_state() -> None:
     assert candidate_claim.is_integration_request(human) is False
     assert candidate_claim.is_integration_request(integration) is True
     assert candidate_claim.is_integration_request(object()) is False
+
+
+async def _fetch_card(
+    client: AsyncClient, headers: dict[str, str], job_id: int, cand_id: int
+) -> dict:
+    board = await client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
+    assert board.status_code == 200, board.text
+    return next(
+        item
+        for col in board.json()["columns"]
+        for item in col["items"]
+        if item["candidate_id"] == cand_id
+    )
+
+
+async def _expire_claim(cand_id: int, job_id: int) -> None:
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(RecruitmentProcess)
+            .where(
+                RecruitmentProcess.candidate_id == cand_id,
+                RecruitmentProcess.job_id == job_id,
+            )
+            .values(claimed_until=datetime.now(timezone.utc) - timedelta(minutes=1))
+        )
+        await db.commit()
+
+
+async def test_taker_stays_on_card_after_claim_expires_until_verified(api_client):
+    """27.10.2026: „Biorę” zmienia osobę karty. Ostatnia biorąca osoba zostaje
+    w `taken_by_*` także po 12 h (blokada już nie wiąże), a po weryfikacji
+    kartę przejmuje osoba, która zweryfikowała."""
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id, collaborator_ids=(other_id,))
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    other_h = await _login(api_client, other_email, other_pw)
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        card = await _fetch_card(api_client, other_h, job_id, cand_id)
+        assert card["added_to_job_by_id"] == owner_id
+        assert card["taken_by_user_id"] == owner_id
+
+        await _expire_claim(cand_id, job_id)
+        take = await api_client.post(
+            "/api/pipeline/claim",
+            headers=other_h,
+            json={"candidate_id": cand_id, "job_id": job_id},
+        )
+        assert take.status_code == 200, take.text
+        card = await _fetch_card(api_client, owner_h, job_id, cand_id)
+        assert card["taken_by_user_id"] == other_id
+        assert card["taken_by_name"].startswith("V4 recruiter")
+        assert card["added_to_job_by_id"] == owner_id
+
+        # Po 12 h blokada nie wiąże, ale osoba karty zostaje.
+        await _expire_claim(cand_id, job_id)
+        card = await _fetch_card(api_client, owner_h, job_id, cand_id)
+        assert card.get("claim_user_id") is None
+        assert card["can_take"] is True
+        assert card["taken_by_user_id"] == other_id
+
+        moved = await api_client.post(
+            "/api/pipeline/move",
+            headers=owner_h,
+            json={"candidate_id": cand_id, "job_id": job_id, "stage": "verified"},
+        )
+        assert moved.status_code == 200, moved.text
+        card = await _fetch_card(api_client, owner_h, job_id, cand_id)
+        assert card.get("taken_by_user_id") is None
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+async def test_deactivated_taker_is_not_the_card_person(api_client):
+    """Nieaktywne konto nie prowadzi nikogo — także jako osoba karty."""
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id, collaborator_ids=(other_id,))
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    other_h = await _login(api_client, other_email, other_pw)
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(User).where(User.id == owner_id).values(is_active=False)
+            )
+            await db.commit()
+        card = await _fetch_card(api_client, other_h, job_id, cand_id)
+        assert card.get("taken_by_user_id") is None
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+async def _make_system_card(cand_id: int, job_id: int) -> None:
+    """Karta jak od silnika „Nowi na 20”: bez osoby dodającej i bez blokady."""
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(RecruitmentProcess)
+            .where(
+                RecruitmentProcess.candidate_id == cand_id,
+                RecruitmentProcess.job_id == job_id,
+            )
+            .values(
+                entry_source="system",
+                claimed_by_user_id=None,
+                claimed_until=None,
+                owner_user_id=None,
+            )
+        )
+        await db.execute(
+            update(CandidateStage)
+            .where(
+                CandidateStage.candidate_id == cand_id,
+                CandidateStage.job_id == job_id,
+            )
+            .values(moved_by=None)
+        )
+        await db.commit()
+
+
+async def test_moving_system_card_to_screening_takes_it_like_biore(api_client):
+    """Zgłoszenie z 28.10.2026: karta „System” przeniesiona z „Nowych” do
+    „Screeningu” zostawała „System”. Ruch człowieka bierze kartę bez osoby
+    jak „Biorę”: osoba karty, filtr „Ty” i blokada 12 h."""
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id, collaborator_ids=(other_id,))
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    other_h = await _login(api_client, other_email, other_pw)
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        await _make_system_card(cand_id, job_id)
+        card = await _fetch_card(api_client, other_h, job_id, cand_id)
+        assert card["entry_source"] == "system"
+        assert card.get("taken_by_user_id") is None
+
+        moved = await api_client.post(
+            "/api/pipeline/move",
+            headers=other_h,
+            json={"candidate_id": cand_id, "job_id": job_id, "stage": "screening"},
+        )
+        assert moved.status_code == 200, moved.text
+        card = await _fetch_card(api_client, owner_h, job_id, cand_id)
+        assert card["taken_by_user_id"] == other_id
+        proc = await _process(cand_id, job_id)
+        assert proc.claimed_by_user_id == other_id
+        assert proc.claimed_until > datetime.now(timezone.utc) + timedelta(hours=11)
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+async def test_moving_someone_elses_card_to_screening_keeps_its_person(api_client):
+    """Karta dodana przez człowieka zostaje u niego, także po 12 h — kto chce
+    ją wziąć, klika „Biorę” (wariant A, nie „każdy ruch przepisuje kartę”)."""
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id, collaborator_ids=(other_id,))
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    other_h = await _login(api_client, other_email, other_pw)
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        await _expire_claim(cand_id, job_id)
+        moved = await api_client.post(
+            "/api/pipeline/move",
+            headers=other_h,
+            json={"candidate_id": cand_id, "job_id": job_id, "stage": "screening"},
+        )
+        assert moved.status_code == 200, moved.text
+        card = await _fetch_card(api_client, other_h, job_id, cand_id)
+        assert card["taken_by_user_id"] == owner_id
+        assert (await _process(cand_id, job_id)).claimed_by_user_id == owner_id
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+async def test_bulk_move_of_system_card_to_screening_takes_it_too(api_client):
+    """Ruch paczką (zaznaczone karty) idzie tą samą regułą co przeciągnięcie."""
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id, collaborator_ids=(other_id,))
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    other_h = await _login(api_client, other_email, other_pw)
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        await _make_system_card(cand_id, job_id)
+        moved = await api_client.post(
+            "/api/pipeline/bulk-move",
+            headers=other_h,
+            json={"candidate_ids": [cand_id], "job_id": job_id, "stage": "screening"},
+        )
+        assert moved.status_code == 200, moved.text
+        assert (await _process(cand_id, job_id)).claimed_by_user_id == other_id
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+async def test_backfill_gives_system_cards_in_screening_their_mover(api_client):
+    """Jednorazowo (28.10.2026): karty „System” przeniesione do „Screeningu”
+    przed zmianą dostają osobę z ruchu; blokada liczy się od tamtego ruchu.
+    Karta „System” w „Nowych” zostaje bez osoby."""
+    from app.services import system_card_screening_backfill as backfill
+
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id, collaborator_ids=(other_id,))
+    moved_id, waiting_id = await _seed_candidate(), await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    other_h = await _login(api_client, other_email, other_pw)
+    try:
+        for cand_id in (moved_id, waiting_id):
+            await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+            await _make_system_card(cand_id, job_id)
+        moved = await api_client.post(
+            "/api/pipeline/move",
+            headers=other_h,
+            json={"candidate_id": moved_id, "job_id": job_id, "stage": "screening"},
+        )
+        assert moved.status_code == 200, moved.text
+        # Stan sprzed poprawki: ruch nikogo nie zapisał.
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(RecruitmentProcess)
+                .where(RecruitmentProcess.job_id == job_id)
+                .values(claimed_by_user_id=None, claimed_until=None)
+            )
+            await db.commit()
+
+        async with AsyncSessionLocal() as db:
+            takes = [t for t in await backfill.plan(db) if t.job_id == job_id]
+            assert [(t.candidate_id, t.user_id) for t in takes] == [
+                (moved_id, other_id)
+            ]
+            done = await backfill.apply(db, takes)
+            await db.commit()
+        assert len(done) == 1
+        proc = await _process(moved_id, job_id)
+        assert proc.claimed_by_user_id == other_id
+        assert proc.claimed_until == takes[0].moved_at + timedelta(hours=12)
+        assert (await _process(waiting_id, job_id)).claimed_by_user_id is None
+        card = await _fetch_card(api_client, owner_h, job_id, moved_id)
+        assert card["taken_by_user_id"] == other_id
+    finally:
+        await _cleanup([moved_id, waiting_id], job_id)

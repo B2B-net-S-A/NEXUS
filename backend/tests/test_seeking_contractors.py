@@ -318,3 +318,154 @@ async def test_seeking_contractors_location_filter_drops_jobs(
         assert j_berlin not in match_ids, "location filter must drop Berlin"
     finally:
         await _cleanup(candidate_ids=[cid], job_ids=[j_warsaw, j_berlin], client_ids=[])
+
+
+@pytest.mark.asyncio
+async def test_seeking_contractors_skips_jobs_the_candidate_is_already_in(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """R10-N7-5: rekrutacja, w której osoba już jest (tu: odrzucona przez
+    klienta), nie jest „dopasowaniem" — lustro /candidates/{id}/recommendations."""
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    cid, client_id, _ = await _seed_contractor_ending_soon(
+        days_until_end=1, name="StagedSeek"
+    )
+    staged_job = await _seed_published_job(title="Python staged", skills=["Python"])
+    other_job = await _seed_published_job(title="Python other", skills=["Python"])
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateStage(
+                candidate_id=cid, job_id=staged_job, stage=PipelineStage.rejected
+            )
+        )
+        await db.commit()
+    try:
+        _patch_pipeline(
+            monkeypatch,
+            hits_for_query=[
+                {"job_id": staged_job, "score": 0.9, "payload": {}},
+                {"job_id": other_job, "score": 0.9, "payload": {}},
+            ],
+        )
+        resp = await app_client.get(
+            "/api/recommendations/seeking-contractors?horizon_days=2&threshold=0&top_k=20",
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        ours = [it for it in resp.json()["items"] if it["candidate"]["id"] == cid]
+        assert len(ours) == 1
+        matched = {m["job"]["id"] for m in ours[0]["top_matches"]}
+        assert staged_job not in matched
+        assert other_job in matched
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CandidateStage).where(CandidateStage.candidate_id == cid)
+            )
+            await db.commit()
+        await _cleanup(
+            candidate_ids=[cid],
+            job_ids=[staged_job, other_job],
+            client_ids=[client_id],
+        )
+
+
+@pytest.mark.asyncio
+async def test_seeking_contractors_hides_employment_only(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """R10-N7-5: „tylko umowa o pracę" nie trafia na listę (pracujemy na B2B)."""
+    cid, client_id, _ = await _seed_contractor_ending_soon(
+        days_until_end=1, name="UopOnly"
+    )
+    async with AsyncSessionLocal() as db:
+        cand = await db.get(Candidate, cid)
+        cand.b2b_willingness = "employment_only"
+        await db.commit()
+    try:
+        _patch_pipeline(monkeypatch, hits_for_query=[])
+        resp = await app_client.get(
+            "/api/recommendations/seeking-contractors?horizon_days=2",
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        assert cid not in {it["candidate"]["id"] for it in resp.json()["items"]}
+    finally:
+        await _cleanup(candidate_ids=[cid], job_ids=[], client_ids=[client_id])
+
+
+@pytest.mark.asyncio
+async def test_seeking_contractors_status_does_not_pull_in_a_live_contract(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """S3 (15.10.2026): „Szuka aktywnie” przy żywej umowie nie wkłada
+    konsultanta w trakcie zamówienia do puli „szukających projektu”. Zostaje
+    ten, kto wg znacznika kończy u nas pracę w horyzoncie — umowa B2B nie ma
+    `end_date`, więc źródło A go nie widzi. Liczone przez ``total`` (cała pula,
+    nie strona): z trzech nowych osób przybywają dwie."""
+    from decimal import Decimal
+
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    _patch_pipeline(monkeypatch, hits_for_query=[])
+    url = "/api/recommendations/seeking-contractors?horizon_days=30&page_size=1"
+
+    async def total() -> int:
+        resp = await app_client.get(url, headers=app_auth_headers)
+        assert resp.status_code == 200, resp.text
+        return resp.json()["total"]
+
+    before = await total()
+    looking = AvailabilityStatus.actively_looking
+    working = await _seed_candidate_with_availability(
+        availability=looking, name="WorkingLooker"
+    )
+    ending = await _seed_candidate_with_availability(
+        availability=looking, name="EndingLooker"
+    )
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"LiveContractCo_{working}")
+        db.add(client)
+        await db.flush()
+        contracts = {
+            person: Contract(
+                candidate_id=person,
+                client_id=client.id,
+                start_date=today - timedelta(days=40),
+                status=ContractStatus.active,
+                contract_type=ContractType.b2b,
+            )
+            for person in (working, ending)
+        }
+        db.add_all(contracts.values())
+        await db.flush()
+        db.add(
+            ClientOrder(
+                client_id=client.id,
+                contract_id=contracts[ending].id,
+                title=f"Ending-{ending}",
+                status=ClientOrderStatus.active,
+                start_date=today - timedelta(days=40),
+                end_date=today + timedelta(days=10),
+                rate_client=Decimal("150"),
+                rate_unit=RateUnit.hourly,
+            )
+        )
+        await db.commit()
+        client_id = client.id
+    looker = await _seed_candidate_with_availability(
+        availability=looking, name="FreeLooker"
+    )
+    try:
+        assert await total() == before + 2
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(ClientOrder).where(ClientOrder.client_id == client_id)
+            )
+            await db.commit()
+        await _cleanup(
+            candidate_ids=[working, ending, looker], job_ids=[], client_ids=[client_id]
+        )

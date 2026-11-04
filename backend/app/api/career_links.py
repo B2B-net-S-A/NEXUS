@@ -24,23 +24,31 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import RecruiterPlus
+from app.api.deps import LinkResultsManager, OperationalUser, RecruiterPlus
 from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.application_submission import ApplicationSubmission
 from app.models.invite_link import CandidateInviteLink
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.job_public_profile import JobPublicProfile
 from app.models.user import User
+from app.services import career_theme as ct
 from app.schemas.invite_link import (
     CareerLinkBrief,
     CareerLinkJob,
     CareerLinkResponse,
+    CareerLinkResultCounts,
+    CareerLinkResultRow,
+    CareerLinkPeople,
+    CareerLinkPerson,
+    CareerLinkResults,
+    JobTeamLink,
     CareerLinkStats,
     CareerLinkUpdate,
     PublicProfileDraft,
+    PublicProfileLive,
     PublicProfileResponse,
     PublicProfileUpdate,
     PublicProfileVisibility,
@@ -55,12 +63,17 @@ from app.services.career_slugs import (
     recruiter_slug_problem,
     suggest_recruiter_slug,
 )
+from app.services.job_ad.text import visible
+from app.services.public_profile_lint import lint_internal_codes, lint_public_texts
 from app.services.public_apply import link_key
+
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 _STATS_DAYS = 30
 _SLUG_TAKEN = "Ten adres jest już zajęty."
+# „O mnie” na stronie rekrutera: dwa zdania (makieta 6d, 20.10.2026).
+ABOUT_MAX = 280
 
 
 # ── Stały link rekrutera ────────────────────────────────────────────────────
@@ -176,6 +189,7 @@ async def _career_link_response(db: AsyncSession, user: User) -> CareerLinkRespo
             public_url=recruiter_link_url(link.slug),
             created_at=link.created_at,
             visit_count=link.visit_count or 0,
+            about=link.about or None,
         )
         if link is not None and link.slug
         else None
@@ -197,6 +211,134 @@ async def get_my_career_link(
     current_user: RecruiterPlus, db: AsyncSession = Depends(get_db)
 ) -> CareerLinkResponse:
     return await _career_link_response(db, current_user)
+
+
+@router.get("/me/career-link/results", response_model=CareerLinkResults)
+async def get_my_link_results(
+    current_user: RecruiterPlus,
+    days: int = Query(30, ge=0, le=3650),
+    db: AsyncSession = Depends(get_db),
+) -> CareerLinkResults:
+    """Lejek każdego linku osoby (etap 4 linków, 19.10.2026). ``days=0`` = od początku.
+
+    Wycofane, wygasłe i zamknięte linki bez zgłoszeń w oknie nie są pokazywane.
+    """
+    from app.services import career_link_results as clr
+    from app.services.career_slugs import job_link_url
+
+    since = None if days == 0 else _now() - timedelta(days=days)
+    results = await clr.link_results(db, current_user.id, since)
+    job_ids = {r.job_id for r in results if r.job_id is not None}
+    jobs = (
+        {
+            j.id: j
+            for j in (
+                await db.execute(select(Job).where(Job.id.in_(job_ids)))
+            ).scalars()
+        }
+        if job_ids
+        else {}
+    )
+    names_cache: dict[Optional[int], list[str]] = {}
+    rows: list[CareerLinkResultRow] = []
+    for item in results:
+        job = jobs.get(item.job_id) if item.job_id is not None else None
+        if item.revoked:
+            state = "revoked"
+        elif item.expires_at is not None and item.expires_at < _now():
+            state = "expired"
+        elif item.kind == "job" and not jpp.job_is_open(job):
+            state = "closed"
+        elif item.kind == "job":
+            profile = await db.get(JobPublicProfile, item.job_id)
+            version = await jpp.published_version(
+                db, job, profile, names_cache=names_cache
+            )
+            state = "live" if version is not None else "not_live"
+        else:
+            state = "live"
+        if state in ("revoked", "expired", "closed") and item.applications == 0:
+            continue
+        if not item.slug:
+            public_url = None
+        elif item.kind == "job":
+            public_url = job_link_url(item.slug)
+        else:
+            public_url = recruiter_link_url(item.slug)
+        rows.append(
+            CareerLinkResultRow(
+                **clr.as_dict(item),
+                public_url=public_url,
+                job_title=(job.working_title or job.title) if job else None,
+                state=state,
+            )
+        )
+    rows.sort(key=lambda r: (r.kind != "job", -r.applications, r.job_title or ""))
+    # Suma widocznych wierszy — kafel liczony z innego zbioru niż lista pod
+    # nim nie daje się sprawdzić wzrokiem.
+    totals = {
+        key: sum(getattr(r, key) or 0 for r in rows)
+        for key in CareerLinkResultCounts.model_fields
+    }
+    if since is None:
+        totals["visits_in_period"] = None
+    return CareerLinkResults(
+        days=days or None,
+        visits_tracked_from=await clr.visits_tracked_from(db),
+        totals=CareerLinkResultCounts(**totals),
+        links=rows,
+    )
+
+
+@router.get("/me/career-link/people", response_model=CareerLinkPeople)
+async def get_my_link_people(
+    current_user: RecruiterPlus,
+    days: int = Query(0, ge=0, le=3650),
+    db: AsyncSession = Depends(get_db),
+) -> CareerLinkPeople:
+    """Kto zgłosił się z linków osoby i gdzie jest teraz. ``days=0`` = od początku."""
+    from app.services import career_link_results as clr
+
+    since = None if days == 0 else _now() - timedelta(days=days)
+    rows, total = await clr.link_people(db, current_user.id, since)
+    return CareerLinkPeople(
+        days=days or None,
+        total=total,
+        truncated=total > len(rows),
+        people=[
+            CareerLinkPerson(
+                **{key: row[key] for key in CareerLinkPerson.model_fields if key in row}
+            )
+            for row in rows
+        ],
+    )
+
+
+@router.get("/jobs/{job_id}/link-results", response_model=list[JobTeamLink])
+async def get_job_team_links(
+    job_id: int, current_user: LinkResultsManager, db: AsyncSession = Depends(get_db)
+) -> list[JobTeamLink]:
+    """Kto z zespołu ma link do rekrutacji i co przyniósł (decyzja Artura 02.11.2026)."""
+    from app.api.candidate_search import _authorized_job
+    from app.services import career_link_results as clr
+
+    # Sekcja Pipeline i istnienie rekrutacji; dla Delivery Leada rekrutacje są org-wide.
+    job = await _authorized_job(db, current_user, job_id)
+    rows = await clr.job_team_links(db, job.id)
+    now = _now()
+    return [
+        JobTeamLink(
+            **{key: row[key] for key in JobTeamLink.model_fields if key in row},
+            state=(
+                "revoked"
+                if row["revoked"]
+                else "expired"
+                if row["expires_at"] is not None and row["expires_at"] < now
+                else "active"
+            ),
+        )
+        for row in rows
+    ]
 
 
 @router.get("/me/career-link/slug-available", response_model=SlugAvailability)
@@ -236,6 +378,73 @@ def _new_recruiter_link(user_id: int, slug: str) -> CandidateInviteLink:
     )
 
 
+async def _about_findings(db: AsyncSession, user: User, about: str) -> list[dict]:
+    """Kontrola „O mnie” — ta sama co opisu rekrutacji (etap 6, 20.10.2026).
+
+    Klienci: wszystkich otwartych rekrutacji, które osoba prowadzi albo do
+    których ma aktywny link (zdanie „rekrutuję dla …” pisze się o nich).
+    Osoby: sama rekruterka — na stronie kariery jest tylko imię, więc nazwisko
+    w „O mnie” to znalezisko. Kody zgłoszeń klientów jak w opisie rekrutacji.
+    """
+    linked = select(CandidateInviteLink.job_id).where(
+        CandidateInviteLink.created_by == user.id,
+        CandidateInviteLink.kind == "job",
+        CandidateInviteLink.revoked.is_(False),
+        CandidateInviteLink.job_id.is_not(None),
+    )
+    client_ids = (
+        await db.execute(
+            select(Job.client_id)
+            .where(
+                Job.status == JobStatus.published,
+                Job.client_id.is_not(None),
+                (Job.recruiter_id == user.id) | Job.id.in_(linked),
+            )
+            .distinct()
+        )
+    ).scalars()
+    client_names: list[str] = []
+    for client_id in client_ids:
+        client_names.extend(await jpp.client_lint_names(db, client_id))
+    findings = [
+        *lint_public_texts(
+            [about], client_names=client_names, person_names=[user.name]
+        ),
+        *lint_internal_codes([about]),
+    ]
+    return [f.as_dict() for f in findings]
+
+
+async def _clean_about(
+    db: AsyncSession, user: User, raw: Optional[str]
+) -> Optional[str]:
+    """„O mnie” do zapisu albo 422. Pusty tekst = usuń."""
+    # Znaki formatujące (Cf) wycinamy jak w opisie rekrutacji
+    # (``put_public_profile``); nowe linie zlewamy — to dwa zdania pod imieniem.
+    about = " ".join(visible(raw or "").split())
+    if not about:
+        return None
+    if len(about) > ABOUT_MAX:
+        raise HTTPException(
+            status_code=422,
+            detail=f"„O mnie” może mieć najwyżej {ABOUT_MAX} znaków (dwa zdania).",
+        )
+    findings = await _about_findings(db, user, about)
+    if findings:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "CAREER_ABOUT_FINDINGS",
+                "message": (
+                    "„O mnie” zawiera treści, których nie publikujemy na stronie "
+                    "kariery — popraw je przed zapisem."
+                ),
+                "findings": findings,
+            },
+        )
+    return about
+
+
 @router.put("/me/career-link", response_model=CareerLinkResponse)
 async def put_my_career_link(
     data: CareerLinkUpdate,
@@ -246,6 +455,8 @@ async def put_my_career_link(
     problem = recruiter_slug_problem(slug)
     if problem:
         raise HTTPException(status_code=422, detail=problem)
+    about_given = "about" in data.model_fields_set
+    about = await _clean_about(db, current_user, data.about) if about_given else None
     own = await _own_recruiter_link(db, current_user.id)
     owner = await _slug_owner(db, slug)
     reclaim = (
@@ -260,10 +471,16 @@ async def put_my_career_link(
         # Własny, wcześniej odwołany link z tym adresem — wraca do życia
         # (slug jest unikalny także wśród odwołanych).
         owner.revoked = False
+        target = owner
     elif own is None:
-        db.add(_new_recruiter_link(current_user.id, slug))
-    elif own.slug != slug:
-        own.slug = slug
+        target = _new_recruiter_link(current_user.id, slug)
+        db.add(target)
+    else:
+        if own.slug != slug:
+            own.slug = slug
+        target = own
+    if about_given:
+        target.about = about
     try:
         await db.commit()
     except IntegrityError:
@@ -325,21 +542,43 @@ async def _profile_response(
     status_value, default_title, effective_title = await jpp.resolve_status(
         db, job, profile
     )
-    preview = jpp.public_job_payload(
-        job,
-        title=effective_title,
-        link_slug=await _preview_slug(db, user, job.id),
-        subtitle=subtitle,
-        about=about,
-        sections=sections,
+    preview_kwargs = {
+        "title": effective_title,
+        "link_slug": await _preview_slug(db, user, job.id),
+        "subtitle": subtitle,
+        "about": about,
+        "sections": sections,
+    }
+    # Podgląd (karta LinkedIna w edytorze) = to, co zobaczy kandydat, więc bez
+    # sekcji ukrytych; kontrola czyta pełną projekcję (runda 8).
+    preview = jpp.public_job_payload(job, **preview_kwargs)
+    findings = await jpp.lint_payload(
+        db, job, jpp.public_job_payload(job, **preview_kwargs, respect_show=False)
     )
-    findings = await jpp.lint_payload(db, job, preview)
     approved_by_name: Optional[str] = None
     if profile is not None and profile.approved_by:
         approved_by_name = await db.scalar(
             select(User.name).where(User.id == profile.approved_by)
         )
+    version = await jpp.published_version(db, job, profile)
+    live = (
+        PublicProfileLive(
+            title=version.title,
+            subtitle=version.subtitle,
+            about=version.about,
+            sections=PublicSections(**jpp.normalize_sections(version.sections)),
+            pending_changes=version.pending_changes,
+        )
+        if version is not None
+        else None
+    )
+    theme_default = ct.default_theme(
+        effective_title, await ct.job_category_slug(db, job)
+    )
     return PublicProfileResponse(
+        live=live,
+        theme=profile.theme if profile else None,
+        theme_default=theme_default,
         job_id=job.id,
         status=status_value,
         public_title=profile.public_title if profile else None,
@@ -353,6 +592,10 @@ async def _profile_response(
         ),
         approved_at=profile.approved_at if profile else None,
         approved_by_name=approved_by_name,
+        approved_content_stale=(
+            status_value == jpp.STATUS_APPROVED
+            and jpp.approved_content_stale(job, profile.sections if profile else None)
+        ),
         findings=[f.as_dict() for f in findings],
         preview=preview,
     )
@@ -360,11 +603,58 @@ async def _profile_response(
 
 @router.get("/jobs/{job_id}/public-profile", response_model=PublicProfileResponse)
 async def get_public_profile(
-    job_id: int, current_user: RecruiterPlus, db: AsyncSession = Depends(get_db)
+    job_id: int, current_user: OperationalUser, db: AsyncSession = Depends(get_db)
 ) -> PublicProfileResponse:
     job = await _load_job(db, current_user, job_id)
     profile = await db.get(JobPublicProfile, job_id)
     return await _profile_response(db, current_user, job, profile)
+
+
+@router.get("/jobs/{job_id}/public-profile/poster.pdf")
+async def get_public_profile_poster(
+    job_id: int, current_user: OperationalUser, db: AsyncSession = Depends(get_db)
+) -> Response:
+    """Plakat A4 z kodem QR do linku rekrutacji (etap 3 linków, 19.10.2026).
+
+    Treść z opublikowanej wersji opisu, adres = link osoby (albo najnowszy
+    aktywny link rekrutacji). 409, gdy strona jeszcze nie działa — plakat bez
+    zatwierdzonego opisu prowadziłby kandydata na 404.
+    """
+    from app.services.career_poster import render_poster_pdf
+    from app.services.career_slugs import job_link_url
+
+    job = await _load_job(db, current_user, job_id)
+    profile = await db.get(JobPublicProfile, job_id)
+    version = await jpp.published_version(db, job, profile)
+    slug = await _preview_slug(db, current_user, job_id)
+    if version is None or slug is None or not jpp.job_is_open(job):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Plakat powstaje z działającej strony rekrutacji — zatwierdź opis "
+                "publiczny i wygeneruj link."
+            ),
+        )
+    payload = jpp.public_job_payload(
+        job,
+        title=version.title,
+        link_slug=slug,
+        subtitle=version.subtitle,
+        about=version.about,
+        sections=version.sections,
+    )
+    theme = ct.resolve_theme(
+        profile.theme, version.title, await ct.job_category_slug(db, job)
+    )
+    pdf = render_poster_pdf(payload, job_link_url(slug), theme=theme)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="plakat-{slug}.pdf"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.put("/jobs/{job_id}/public-profile", response_model=PublicProfileResponse)
@@ -377,27 +667,40 @@ async def put_public_profile(
     """Zapis szkicu. Zmiana treści po zatwierdzeniu = status ``draft``.
 
     Nie trzeba niczego odznaczać: status wynika ze skrótu treści, a skrót
-    zatwierdzonej wersji przestaje pasować przy pierwszej zmianie.
+    zatwierdzonej wersji przestaje pasować przy pierwszej zmianie. Strona
+    zostaje na wersji zatwierdzonej (``jpp.published_version``).
     """
     job = await _load_job(db, current_user, job_id)
     profile = await db.get(JobPublicProfile, job_id)
     if profile is None:
         profile = JobPublicProfile(job_id=job_id)
         db.add(profile)
+    else:
+        await jpp.keep_published_text(db, job, profile)
     fields = data.model_fields_set
+    # Znaki formatujące (kategoria Cf) wycinamy jak w ogłoszeniu na portale:
+    # „\u202ełz 081\u202c” przeglądarka pokazuje jako „180 zł”, a kontrola
+    # porównuje tekst bez nich i go przepuszczała (audyt 13.10.2026).
     if "public_title" in fields:
-        title = " ".join((data.public_title or "").split())
+        title = " ".join(visible(data.public_title or "").split())
         profile.public_title = title[: jpp.PUBLIC_TITLE_MAX] or None
     if "subtitle" in fields:
-        profile.subtitle = (data.subtitle or "").strip() or None
+        profile.subtitle = visible(data.subtitle or "").strip() or None
     if "about" in fields:
-        profile.about = (data.about or "").strip() or None
+        profile.about = visible(data.about or "").strip() or None
     if "sections" in fields and data.sections is not None:
-        profile.sections = data.sections.model_dump()
+        # Migawka zatwierdzenia zostaje — zmiana przełączników i tak zmienia
+        # skrót treści (szkic), a ten sam zestaw nie może zgubić migawki.
+        profile.sections = jpp.sections_with_approved_content(
+            data.sections.model_dump(), jpp.stored_approved_content(profile.sections)
+        )
     elif profile.sections is None:
         profile.sections = jpp.normalize_sections(None)
     if "show_on_recruiter_page" in fields and data.show_on_recruiter_page is not None:
         profile.show_on_recruiter_page = data.show_on_recruiter_page
+    if "theme" in fields:
+        # Wygląd nie wchodzi do skrótu treści — zatwierdzony opis zostaje.
+        profile.theme = data.theme
     profile.updated_by = current_user.id
     await db.commit()
     await db.refresh(profile)
@@ -466,17 +769,9 @@ async def approve_public_profile(
                 "findings": [],
             },
         )
-    _default_title, effective_title = await jpp.public_titles(db, job, profile)
-    preview = jpp.public_job_payload(
-        job,
-        title=effective_title,
-        link_slug=None,
-        subtitle=profile.subtitle,
-        about=profile.about,
-        sections=profile.sections,
-    )
-    findings = await jpp.lint_payload(db, job, preview)
-    if findings:
+    try:
+        await jpp.approve_profile(db, job, profile, user_id=current_user.id)
+    except jpp.ProfileFindings as exc:
         raise HTTPException(
             status_code=422,
             detail={
@@ -485,15 +780,9 @@ async def approve_public_profile(
                     "Opis zawiera treści, których nie publikujemy — popraw je "
                     "przed zatwierdzeniem."
                 ),
-                "findings": [f.as_dict() for f in findings],
+                "findings": [f.as_dict() for f in exc.findings],
             },
-        )
-    profile.approved_at = _now()
-    profile.approved_by = current_user.id
-    profile.approved_hash = jpp.content_hash(
-        profile.subtitle, profile.about, profile.sections, effective_title
-    )
-    profile.updated_by = current_user.id
+        ) from exc
     await db.commit()
     await db.refresh(profile)
     return await _profile_response(db, current_user, job, profile)

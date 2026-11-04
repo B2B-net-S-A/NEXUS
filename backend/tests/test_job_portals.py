@@ -97,6 +97,7 @@ async def test_flags_off_config_publish_and_health(api):
     assert {p["portal"]: p["state"] for p in body["portals"]} == {
         "pracuj_pl": "disabled",
         "justjoinit": "disabled",
+        "rocketjobs": "disabled",
     }
 
     resp = await api.post(_publish_url(job_id), headers=headers)

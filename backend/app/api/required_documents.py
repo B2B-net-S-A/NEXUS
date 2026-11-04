@@ -9,7 +9,8 @@ Templates (admin only):
   PATCH  /required-document-templates/{id}
   DELETE /required-document-templates/{id}
 
-Per-klient instancje (jawny scope klienta/Joba do view, Admin/DL do edycji):
+Per-klient instancje (jawny scope klienta/Joba do view; edycja = uprawnienie
+„Klienci: dodawanie i edycja” u klienta z zakresu, odmowa je nazywa):
   GET    /clients/{client_id}/required-documents
   POST   /clients/{client_id}/required-documents              (ad-hoc, bez pliku)
   POST   /clients/{client_id}/required-documents/apply-templates  (bulk z szablonów)
@@ -28,8 +29,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import OperationalUser, require_roles
+from app.api.permission_access import ClientsEditUser
 from app.api.section_access import DeliverySectionUser
 from app.core.database import get_db
+from app.core.upload_filename import fit_filename_column
 from app.models.activity import Activity
 from app.models.client import Client
 from app.models.client_required_document import (
@@ -48,7 +51,11 @@ from app.schemas.required_documents import (
     RequiredDocumentTemplateResponse,
 )
 from app.services import storage_service
-from app.services.client_access import deny, resolve_client_access
+from app.services.client_access import (
+    assert_client_writable,
+    deny,
+    resolve_client_access,
+)
 
 
 _admin_only = require_roles(UserRole.admin)
@@ -78,8 +85,11 @@ async def _require_required_docs_access(
     access = await resolve_client_access(db, current_user, client_id)
     allowed = access.can_edit_materials if write else access.can_view_materials
     if not allowed:
-        operation = "edycja" if write else "odczyt"
-        raise deny(f"{operation} wymaganych dokumentów wymaga jawnego zakresu klienta")
+        if write:
+            raise access.edit_denial(
+                "edycja wymaganych dokumentów wymaga jawnego zakresu klienta"
+            )
+        raise deny("odczyt wymaganych dokumentów wymaga jawnego zakresu klienta")
 
 
 async def require_required_docs_read_access(
@@ -100,9 +110,12 @@ async def require_required_docs_read_access(
 async def require_required_docs_write_access(
     client_id: int,
     current_user: DeliverySectionUser,
+    _editor: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    await _assert_client(db, client_id)
+    # Runda 7 (R7-X5-4): usunięty klient nie ma profilu ani zapisów (0307) —
+    # ten sam strażnik co reszta zapisów na profilu klienta.
+    await assert_client_writable(db, client_id)
     await _require_required_docs_access(
         db,
         current_user,
@@ -423,8 +436,9 @@ async def delete_required_doc(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    if doc.file_path:
-        storage_service.delete_client_required_doc(doc.file_path)
+    # Runda 9 (R9-N7-5): plik kasujemy dopiero po udanym commicie — nieudany
+    # zapis zostawiał wiersz wskazujący na nieistniejący plik.
+    file_path = doc.file_path
     await db.delete(doc)
     db.add(
         Activity(
@@ -436,6 +450,9 @@ async def delete_required_doc(
         )
     )
     await db.flush()
+    await db.commit()
+    if file_path:
+        storage_service.delete_client_required_doc(file_path)
     return None
 
 
@@ -460,7 +477,8 @@ async def upload_required_doc_file(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    filename = file.filename or "file"
+    # Runda 9 (R9-N7-4): `filename` to VARCHAR(255).
+    filename = fit_filename_column(file.filename or "file")
     relative_path, size = storage_service.save_client_required_doc(
         client_id=client_id,
         upload_filename=filename,
@@ -473,10 +491,9 @@ async def upload_required_doc_file(
             detail=f"File exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MB",
         )
 
-    # Replace previous file if any
-    if doc.file_path:
-        storage_service.delete_client_required_doc(doc.file_path)
-
+    # Poprzedni plik znika dopiero po zapisie nowego (R9-N7-5): nieudany commit
+    # zostawiał wiersz ze starą ścieżką, której pliku już nie było.
+    previous_path = doc.file_path
     doc.filename = filename
     doc.file_path = relative_path
     doc.content_type = file.content_type
@@ -499,9 +516,17 @@ async def upload_required_doc_file(
             },
         )
     )
-    await db.flush()
-    await db.refresh(doc)
-    return await _doc_to_response(db, doc)
+    try:
+        await db.flush()
+        await db.refresh(doc)
+        response = await _doc_to_response(db, doc)
+        await db.commit()
+    except Exception:
+        storage_service.delete_client_required_doc(relative_path)
+        raise
+    if previous_path and previous_path != relative_path:
+        storage_service.delete_client_required_doc(previous_path)
+    return response
 
 
 @router.get(

@@ -56,7 +56,7 @@ from app.services import dl_alerts
 from app.services.delivery_alert_recipients import DeliveryAlertRecipientScope
 from app.services.order_facts import (
     OrderFact,
-    effective_end_expr,
+    participation_end_expr,
     load_ending_intents,
     load_facts,
     load_siblings,
@@ -159,10 +159,27 @@ def detection_window_start(today: date) -> date:
 
 
 async def _ended_candidates(db: AsyncSession, today: date) -> list[OrderFact]:
-    end = effective_end_expr()
-    already = select(OrderGap.order_id)
+    # Koniec udziału (``participation_end_expr``): linia MD zakończona
+    # wyczerpaniem budżetu nie ma własnej daty, a grupa bywa bez daty końca —
+    # bez tego taka osoba nigdy nie trafiała do Braków (runda 6 audytu).
+    end = participation_end_expr()
+    # Runda 10 (R10-N4-1): pomijamy zamówienie z otwartym brakiem albo z brakiem
+    # na tę samą (lub późniejszą) datę końca — ale NIE zamówienie, którego brak
+    # uzupełniono przedłużeniem, a nowa data końca znowu minęła bez następcy.
+    # Do rundy 10 każdy wiersz braku wykluczał zamówienie na zawsze.
+    already = (
+        select(OrderGap.id)
+        .where(
+            OrderGap.order_id == ClientOrder.id,
+            or_(OrderGap.status == GAP_STATUS_OPEN, OrderGap.ended_on >= end),
+        )
+        .exists()
+    )
+    # Lustro `OrderFact.works_until_md_exhausted`: tylko linia zamówienia
+    # MD/kosztowego pracuje po dacie końca (M10, audyt 25.09.2026).
     still_billing_md = and_(
         ClientOrder.status == ClientOrderStatus.active,
+        ClientOrder.order_group_id.is_not(None),
         ClientOrder.md_total.is_not(None),
         func.coalesce(ClientOrder.md_remaining, 0) > 0,
     )
@@ -174,7 +191,7 @@ async def _ended_candidates(db: AsyncSession, today: date) -> list[OrderFact]:
         end.is_not(None),
         end < today,
         end >= detection_window_start(today),
-        ClientOrder.id.notin_(already),
+        not_(already),
         not_(still_billing_md),
     )
 
@@ -231,7 +248,10 @@ async def detect_order_gaps(
                 gap_id = await db.scalar(
                     pg_insert(OrderGap)
                     .values(**values)
-                    .on_conflict_do_nothing(constraint="uq_order_gaps_order_id")
+                    # Bez nazwy więzu: działa i z ``ux_order_gaps_order_ended``
+                    # (0391), i ze starym UNIQUE(order_id), gdyby lustro DDL
+                    # jeszcze nie przeszło.
+                    .on_conflict_do_nothing()
                     .returning(OrderGap.id)
                 )
                 if gap_id is None:
@@ -273,9 +293,9 @@ async def gap_orders_with_ending_intent(
 
 
 async def _scoped_open_gaps(
-    db: AsyncSession, contract_ids: Optional[set[int]]
+    db: AsyncSession, contract_ids: Optional[set[int]], *, status: str = GAP_STATUS_OPEN
 ) -> list[OrderGap]:
-    query = select(OrderGap).where(OrderGap.status == GAP_STATUS_OPEN)
+    query = select(OrderGap).where(OrderGap.status == status)
     if contract_ids is not None:
         # Brak tej samej współpracy mógł powstać na innym kontrakcie tej osoby
         # u tego klienta — zawężamy w SQL, zamiast ładować wszystkie braki.
@@ -324,8 +344,30 @@ async def close_gaps_of_deleted_orders(
     if not ids or not settings.ORDER_GAPS_ENABLED:
         return
     moment = datetime.now(timezone.utc)
-    for order_id in ids:
-        await _close_gap_alerts(db, order_id, moment, actor_id=actor_id)
+    # Runda 9 (R9-N12-3): usunięcie zamówienia to przyczyna, która ustąpiła,
+    # a nie reakcja DL — epizod sprawy się zamyka (``resolved``), a raport
+    # reakcji nie przypisuje „obsłużenia" osobie, która kasowała zamówienie.
+    # ``actor_id`` zostaje w sygnaturze dla wołających.
+    gap_ids = (
+        await db.scalars(select(OrderGap.id).where(OrderGap.order_id.in_(ids)))
+    ).all()
+    for gap_id in sorted(gap_ids):
+        await dl_alerts.resolve_entity_alerts(
+            db,
+            alert_type=ALERT_ORDER_MISSING_SUCCESSOR,
+            entity_key=f"gap:{gap_id}",
+            now=moment,
+        )
+    # Usuwane zamówienie bywa NASTĘPCĄ, który uzupełnił czyjś brak — ten brak
+    # wraca, jeśli osoba nie ma innego następcy (runda 6 audytu). Liczone
+    # teraz, bo zamówienie jeszcze istnieje: po ``db.delete`` nikt już nie
+    # wiąże braku z usuniętym numerem. Savepoint: awaria alertu nie może
+    # wywrócić samego usunięcia.
+    try:
+        async with db.begin_nested():
+            await reopen_orphaned_gaps(db, excluded_order_ids=ids)
+    except Exception:  # noqa: BLE001
+        logger.exception("reopening gaps of deleted orders failed")
 
 
 async def _close_gap_alerts(
@@ -334,14 +376,28 @@ async def _close_gap_alerts(
     moment: datetime,
     *,
     actor_id: Optional[int] = None,
+    gap_id: Optional[int] = None,
 ) -> None:
+    conditions = [
+        DlAlert.alert_type == ALERT_ORDER_MISSING_SUCCESSOR,
+        DlAlert.order_id == order_id,
+        DlAlert.status == DL_ALERT_STATUS_NEW,
+    ]
+    if gap_id is not None:
+        # Zamówienie może mieć kilka braków (0391) — uzupełnienie jednego nie
+        # odhacza kart drugiego. Wiersze bez ``event_key`` (sprzed kluczy
+        # spraw) zostają przy starej regule po zamówieniu.
+        conditions.append(
+            or_(
+                DlAlert.event_key.is_(None),
+                DlAlert.event_key.startswith(
+                    f"{ALERT_ORDER_MISSING_SUCCESSOR}:gap:{gap_id}:", autoescape=True
+                ),
+            )
+        )
     await db.execute(
         update(DlAlert)
-        .where(
-            DlAlert.alert_type == ALERT_ORDER_MISSING_SUCCESSOR,
-            DlAlert.order_id == order_id,
-            DlAlert.status == DL_ALERT_STATUS_NEW,
-        )
+        .where(*conditions)
         .values(
             status=DL_ALERT_STATUS_HANDLED,
             handled_at=moment,
@@ -400,11 +456,164 @@ async def resolve_order_gaps(
             if successor.order_id != gap.order_id and successor.created_at
             else moment
         )
-        await _close_gap_alerts(db, gap.order_id, moment, actor_id=actor_id)
+        await _close_gap_alerts(
+            db, gap.order_id, moment, actor_id=actor_id, gap_id=gap.id
+        )
         resolved += 1
     if resolved:
         await db.flush()
     return resolved
+
+
+async def reopen_orphaned_gaps(
+    db: AsyncSession,
+    *,
+    contract_ids: Optional[Iterable[int]] = None,
+    excluded_order_ids: Iterable[int] = (),
+    notify: bool = True,
+    bell: bool = True,
+) -> int:
+    """Brak ``filled_late``, którego następca zniknął, wraca jako ``open``.
+
+    Runda 6 audytu: odświeżanie widziało wyłącznie braki otwarte, a detektor
+    pomija zamówienia, które mają już wiersz braku — więc brak uzupełniony
+    zamówieniem, które potem USUNIĘTO albo ANULOWANO, zostawał „uzupełniony”
+    na zawsze: osoba bez zamówienia i bez alertu DL. Wraca tylko wtedy, gdy
+    następca zniknął/anulowano go i osoba nie ma INNEGO następcy (ta sama
+    reguła co przy uzupełnianiu, ``successor_of``); gdy inny jest — brak
+    zostaje uzupełniony, tylko wskazuje tego innego. Świadomy koniec
+    współpracy zapisany po drodze (``load_ending_intents``) braku nie
+    przywraca — osoba stoi wtedy w Zejściach.
+
+    ``excluded_order_ids`` = zamówienia usuwane w tej transakcji (jeszcze
+    widoczne w bazie). Wiersz braku nie znika i nie zmienia daty wykrycia;
+    kasujemy tylko dane uzupełnienia, bo uzupełnienia nie ma. ``bell=False``
+    (dobowy przebieg) zostawia samą kartę DL — pierwszy przebieg po wdrożeniu
+    nie dzwoni o historycznych przypadkach.
+    """
+
+    excluded = {order_id for order_id in excluded_order_ids if order_id is not None}
+    if excluded:
+        # Usuwanie: wyłącznie braki uzupełnione właśnie tymi zamówieniami.
+        gaps = list(
+            (
+                await db.scalars(
+                    select(OrderGap).where(
+                        OrderGap.status == GAP_STATUS_FILLED_LATE,
+                        OrderGap.resolved_order_id.in_(sorted(excluded)),
+                    )
+                )
+            ).all()
+        )
+    else:
+        scoped = set(contract_ids) if contract_ids is not None else None
+        if scoped is not None and not scoped:
+            return 0
+        gaps = await _scoped_open_gaps(db, scoped, status=GAP_STATUS_FILLED_LATE)
+    gaps = [gap for gap in gaps if gap.resolved_order_id is not None]
+    if not gaps:
+        return 0
+
+    resolving_ids = sorted({gap.resolved_order_id for gap in gaps})
+    live_resolving = {
+        order_id
+        for order_id, status in (
+            await db.execute(
+                select(ClientOrder.id, ClientOrder.status).where(
+                    ClientOrder.id.in_(resolving_ids)
+                )
+            )
+        ).all()
+        if order_id not in excluded and status != ClientOrderStatus.cancelled
+    }
+    # Runda 10 (R10-N4-1): brak uzupełniony PRZEDŁUŻENIEM tego samego
+    # zamówienia też jest sprawdzany ponownie — cofnięte przedłużenie (koniec
+    # wraca na datę braku) zostawiało go „uzupełnionym" na zawsze. Pomijamy go,
+    # gdy to zamówienie ma już późniejszy brak (przedłużenie minęło i ma własny
+    # wpis) — inaczej jedna osoba miałaby dwa otwarte braki.
+    superseded_gap_ids: set[int] = set()
+    self_resolved = [
+        gap
+        for gap in gaps
+        if gap.resolved_order_id == gap.order_id and gap.order_id not in excluded
+    ]
+    if self_resolved:
+        later = aliased(OrderGap)
+        superseded_gap_ids = set(
+            (
+                await db.execute(
+                    select(OrderGap.id).where(
+                        OrderGap.id.in_(sorted(gap.id for gap in self_resolved)),
+                        select(later.id)
+                        .where(
+                            later.order_id == OrderGap.order_id,
+                            later.ended_on > OrderGap.ended_on,
+                        )
+                        .exists(),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    self_resolved_ids = {gap.id for gap in self_resolved}
+    orphaned = [
+        gap
+        for gap in gaps
+        if gap.resolved_order_id not in live_resolving
+        or (gap.id in self_resolved_ids and gap.id not in superseded_gap_ids)
+    ]
+    if not orphaned:
+        return 0
+
+    gap_facts = await load_facts(
+        db, ClientOrder.id.in_(sorted({gap.order_id for gap in orphaned}))
+    )
+    by_order = {
+        fact.order_id: fact for fact in gap_facts if fact.order_id not in excluded
+    }
+    intents = await load_ending_intents(db, list(by_order.values()))
+    siblings = await load_siblings(db, by_order.values())
+    moment = datetime.now(timezone.utc)
+
+    reopened = 0
+    for gap in orphaned:
+        fact = by_order.get(gap.order_id)
+        if fact is None or fact.is_cancelled or gap.order_id in intents:
+            # Samo zamówienie braku usunięte/anulowane albo współpraca
+            # świadomie zakończona — nie ma czego przywracać.
+            continue
+        pinned = replace(fact, end=gap.ended_on)
+        candidates = [
+            other
+            for other in (siblings_of(fact, siblings) or [fact])
+            if other.order_id not in excluded
+        ]
+        successor = successor_of(pinned, candidates, include_self=True)
+        if successor is not None:
+            gap.resolved_order_id = successor.order_id
+            gap.resolved_order_number = successor.number[:255]
+            continue
+        gap.status = GAP_STATUS_OPEN
+        gap.resolved_order_id = None
+        gap.resolved_order_number = None
+        gap.resolved_at = None
+        # Nowy epizod = nowy klucz odhaczenia w Finansach (R10-N4-3).
+        gap.episode = (gap.episode or 0) + 1
+        reopened += 1
+        if notify:
+            # Karta DL braku była odhaczona przy uzupełnieniu — zamykamy ten
+            # epizod, żeby ``emit`` wystawił nową kartę zamiast uznać sprawę
+            # za załatwioną.
+            await dl_alerts.resolve_entity_alerts(
+                db,
+                alert_type=ALERT_ORDER_MISSING_SUCCESSOR,
+                entity_key=f"gap:{gap.id}",
+                now=moment,
+            )
+            await _notify(db, gap, fact, bell=bell)
+    await db.flush()
+    return reopened
 
 
 async def remind_open_gaps(
@@ -421,14 +630,27 @@ async def remind_open_gaps(
 
     gaps = list(
         (
-            await db.scalars(select(OrderGap).where(OrderGap.status == GAP_STATUS_OPEN))
+            await db.scalars(
+                select(OrderGap).where(
+                    OrderGap.status == GAP_STATUS_OPEN,
+                    # Runda 9 (R9-N12-6): usunięty klient nie dostaje kart.
+                    dl_alerts.client_not_deleted_clause(OrderGap.client_id),
+                )
+            )
         ).all()
     )
-    if not gaps:
-        return 0
-    fact_list = await load_facts(db, ClientOrder.id.in_([gap.order_id for gap in gaps]))
+    fact_list = (
+        await load_facts(db, ClientOrder.id.in_([gap.order_id for gap in gaps]))
+        if gaps
+        else []
+    )
     facts = {fact.order_id: fact for fact in fact_list}
-    ended = set(await load_ending_intents(db, fact_list))
+    ended = set(await load_ending_intents(db, fact_list)) if fact_list else set()
+    # Runda 9 (R9-N12-7): sprawy, które w tym przebiegu są aktualne. Reszta
+    # (DL zdjęty z klienta, klient usunięty, brak zamknięty) jest zamykana na
+    # końcu — do poprawki odbiorca, który przestał być DL klienta, zachowywał
+    # kartę na zawsze.
+    live: set[str] = set()
     created = 0
     for gap in gaps:
         fact = facts.get(gap.order_id)
@@ -443,11 +665,20 @@ async def remind_open_gaps(
         if gap.order_id in ended:
             # Współpraca zakończona po wykryciu braku: nie przypominamy DL
             # o zamówieniu, którego świadomie nie będzie, i zdejmujemy kartę.
-            await _close_gap_alerts(db, gap.order_id, datetime.now(timezone.utc))
+            # Runda 9 (R9-N12-3): zamknięcie EPIZODU (``resolved``), nie
+            # odhaczenie — cofnięte zakończenie przywraca kartę, a raport
+            # reakcji nie liczy tego jako obsłużenia przez DL.
+            await dl_alerts.resolve_entity_alerts(
+                db, alert_type=ALERT_ORDER_MISSING_SUCCESSOR, entity_key=f"gap:{gap.id}"
+            )
             continue
         user_ids = await dl_alerts.dl_user_ids_for_client(
             db, gap.client_id, scope=scope
         )
+        live |= {
+            dl_alerts.event_key_for(ALERT_ORDER_MISSING_SUCCESSOR, f"gap:{gap.id}", uid)
+            for uid in user_ids
+        }
         rows = await dl_alerts.emit(
             db,
             alert_type=ALERT_ORDER_MISSING_SUCCESSOR,
@@ -468,6 +699,12 @@ async def remind_open_gaps(
             repeat_every_days=settings.DL_ALERT_REPEAT_DAYS,
         )
         created += len(rows)
+    await dl_alerts.resolve_stale(
+        db,
+        alert_type=ALERT_ORDER_MISSING_SUCCESSOR,
+        live_event_keys=live,
+        entity_prefix="gap:",
+    )
     return created
 
 
@@ -475,6 +712,7 @@ async def run_order_gaps(
     db: AsyncSession, *, today: Optional[date] = None
 ) -> GapRunResult:
     opened, late = await detect_order_gaps(db, today=today)
+    await reopen_orphaned_gaps(db, bell=False)
     resolved = await resolve_order_gaps(db)
     return GapRunResult(detected=opened, detected_late=late, resolved=resolved)
 
@@ -494,6 +732,7 @@ async def refresh_order_gaps_safely(
         async with db.begin_nested():
             if detect:
                 await detect_order_gaps(db)
+            await reopen_orphaned_gaps(db, contract_ids=contract_ids)
             await resolve_order_gaps(db, contract_ids=contract_ids, actor_id=actor_id)
     except Exception:  # noqa: BLE001
         logger.exception("order gaps refresh failed")

@@ -234,7 +234,11 @@ async def test_assigned_delivery_lead_can_add_a_consultant_with_rates(
 async def test_unassigned_delivery_lead_reads_redacted_but_cannot_write_rates(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """Każdy DL widzi grupę; stawki i ich zapis pozostają przy właścicielu."""
+    """DL bez przypisania nie zapisuje stawek ani (od 25.09.2026) nie czyta.
+
+    Wyłącznik ``DL_CLIENT_SCOPE=all`` przywraca odczyt operacyjny (#1365),
+    ale kwoty zostają zredagowane.
+    """
     client_id, contracts, _ = await _seed_client_with_contracts(1)
     _enable_for(monkeypatch, client_id)
     group = await _create_group(
@@ -275,7 +279,16 @@ async def test_unassigned_delivery_lead_reads_redacted_but_cannot_write_rates(
     )
     assert swap.status_code == 403, swap.text
 
-    # Odczyt operacyjny jest globalny, ale kwoty są zredagowane.
+    # Od 25.09.2026 DL czyta zamówienia wyłącznie przypisanych klientów.
+    denied = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=other_dl
+    )
+    assert denied.status_code == 403, denied.text
+
+    # ``DL_CLIENT_SCOPE=all``: odczyt operacyjny, kwoty zredagowane.
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "DL_CLIENT_SCOPE", "all")
     read = await app_client.get(
         f"/api/clients/{client_id}/order-groups", headers=other_dl
     )
@@ -325,7 +338,7 @@ async def test_who_sees_line_rates(monkeypatch):
     assert not await client_order_groups._can_see_finance(
         db, _StubUser(UserRole.delivery_lead), 202
     )
-    for role in (UserRole.tac, UserRole.recruiter, UserRole.sourcer):
+    for role in (UserRole.recruiter,):
         assert not await client_order_groups._can_see_finance(
             db, _StubUser(role), 101
         ), role
@@ -357,7 +370,11 @@ async def test_legacy_order_finance_guard_is_untouched(
         def get_all_roles(self):
             return [self._role]
 
-    for role in (UserRole.delivery_lead, UserRole.tac, UserRole.head_of_recruitment):
+    for role in (
+        UserRole.delivery_lead,
+        UserRole.recruiter,
+        UserRole.head_of_recruitment,
+    ):
         with pytest.raises(HTTPException) as exc:
             _assert_order_finance_write_allowed(_StubUser(role), {"rate_client"})
         assert exc.value.status_code == 403, role
@@ -1369,8 +1386,9 @@ async def test_options_label_candidate_cost_with_its_own_currency(
 @pytest.mark.parametrize(
     ("rate_unit", "raw_rate", "expected_per_md"),
     [
-        pytest.param("daily", Decimal("560.125"), 560.13, id="daily"),
-        pytest.param("monthly", Decimal("12600.125"), 600.01, id="monthly"),  # ÷ 21 MD
+        # Od 0419 stawka linii ma trzy miejsca — PLN/MD nie traci 3. miejsca.
+        pytest.param("daily", Decimal("560.125"), 560.125, id="daily"),
+        pytest.param("monthly", Decimal("12600.125"), 600.006, id="monthly"),  # ÷ 21 MD
     ],
 )
 async def test_options_preserve_raw_daily_and_monthly_rate_with_three_decimals(
@@ -1633,7 +1651,7 @@ async def test_options_ignore_other_clients_and_same_client_rates_do_not_warn(
 async def test_options_compare_historical_rates_at_line_storage_precision(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """Różnica poniżej grosza nie ostrzega, jeśli zapis linii jest identyczny."""
+    """Różnica poniżej 3. miejsca nie ostrzega, jeśli zapis linii jest identyczny."""
     from app.core.database import AsyncSessionLocal
     from app.models.contract import Contract, ContractStatus, RateUnit
 
@@ -1644,7 +1662,7 @@ async def test_options_compare_historical_rates_at_line_storage_precision(
         client_id=client_id,
         first="Piotr",
         last=surname,
-        rate_candidate=Decimal("100.005"),
+        rate_candidate=Decimal("100.0051"),
         rate_unit="daily",
     )
 
@@ -1655,7 +1673,7 @@ async def test_options_compare_historical_rates_at_line_storage_precision(
                 client_id=client_id,
                 status=ContractStatus.ended,
                 start_date=business_today() - timedelta(days=300),
-                rate_candidate=Decimal("100.006"),
+                rate_candidate=Decimal("100.0054"),
                 rate_unit=RateUnit.daily,
             )
         )
@@ -1663,10 +1681,10 @@ async def test_options_compare_historical_rates_at_line_storage_precision(
 
     data = await _options(app_client, app_auth_headers, client_id, q=surname)
     row = next(o for o in data["options"] if o["candidate_id"] == candidate_id)
-    assert row["suggested_rate_cost"] == 100.01
-    assert row["suggested_contract_rate_cost"] == 100.005
+    assert row["suggested_rate_cost"] == 100.005
+    assert row["suggested_contract_rate_cost"] == 100.0051
     assert row["suggested_rate_cost_unit"] == "daily"
-    # Obie wartości zapisują się jako 100,01 w Numeric(12,2).
+    # Obie wartości zapisują się jako 100,005 w Numeric(12,3) (0419).
     assert row["has_different_client_contract_rates"] is False
 
 
@@ -2078,7 +2096,8 @@ async def test_group_pdf_syncs_on_upload_assignment_replace_and_survives_detach(
         assert len(documents) == 1
         assert documents[0].contract_id == contracts[0]
         assert documents[0].doc_type == ContractDocumentType.order
-        assert documents[0].filename == group["order_number"]
+        # Runda 9 (R9-N7-10): kopia na kontrakcie to plik `<numer>.pdf`.
+        assert documents[0].filename == f"{group['order_number'].replace('/', '_')}.pdf"
         assert (
             storage_service.get_contract_document_path(
                 documents[0].file_path
@@ -2333,7 +2352,7 @@ async def test_deleting_future_group_keeps_pdf_as_historical_contract_document(
     async with AsyncSessionLocal() as db:
         unchanged = await db.get(ContractDocument, document_id)
         assert unchanged is not None
-        assert unchanged.filename == "FUTURE-PDF"
+        assert unchanged.filename == "FUTURE-PDF.pdf"
         assert unchanged.file_path == original_path
         assert (
             storage_service.get_contract_document_path(unchanged.file_path).read_bytes()
@@ -2350,7 +2369,7 @@ async def test_deleting_future_group_keeps_pdf_as_historical_contract_document(
         document = await db.scalar(
             select(ContractDocument).where(
                 ContractDocument.contract_id == contracts[0],
-                ContractDocument.filename == "FUTURE-PDF",
+                ContractDocument.filename == "FUTURE-PDF.pdf",
             )
         )
         assert document is not None
@@ -2610,6 +2629,33 @@ async def test_late_report_for_the_swap_month_shrinks_the_successor(
         )
     ).json()["events"]
     assert any("Korekta budżetu następcy" in e["description"] for e in events)
+
+
+async def test_late_report_corrects_the_whole_swap_chain(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Runda 6 audytu (MD-6): A→B→C. Raport za miesiąc zamiany schodzi z A,
+    korekta zmniejsza budżet B — a pozostałość B przeszła już na C, więc
+    korekta musi dojść do C (dawniej głębokość 1: C zostawało z 50 MD)."""
+    client_id, contracts, _ = await _seed_client_with_contracts(3)
+    _enable_for(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+    b_id = await _swap(app_client, app_auth_headers, client_id, group, contracts[1])
+    c_id = await _swap(
+        app_client,
+        app_auth_headers,
+        client_id,
+        {"id": group["id"], "lines": [{"id": b_id}]},
+        contracts[2],
+    )
+    assert await _line_total(c_id) == Decimal("50")
+
+    await _report_md(group["lines"][0]["id"], "10")
+
+    assert await _line_total(b_id) == Decimal("40")
+    assert await _line_total(c_id) == Decimal("40")
 
 
 async def test_manually_edited_successor_budget_is_not_corrected(

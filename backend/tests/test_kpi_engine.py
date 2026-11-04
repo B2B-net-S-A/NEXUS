@@ -169,10 +169,27 @@ def test_expected_progress_ratio_week_weekend_caps_at_one():
 
 
 def test_expected_progress_ratio_month_mid():
-    # 15 kwietnia 17:30, miesiąc ma 30 dni → ~15/30 = 0.5
+    # 15 kwietnia 17:30. Kwiecień 2026 ma 21 dni roboczych (22 dni Pon–Pt
+    # minus Poniedziałek Wielkanocny 6.04); do 15.04 włącznie minęło 10.
     now = datetime(2026, 4, 15, 17, 30, tzinfo=WARSAW)
     ratio = expected_progress_ratio(KpiPeriod.month, now)
-    assert 0.48 < ratio < 0.52
+    assert ratio == pytest.approx(10 / 21)
+
+
+def test_expected_progress_ratio_month_counts_only_business_days():
+    """Runda 10 (R10-V1-5): 4 maja rano (po 1–3 maja) nic nie jest oczekiwane."""
+    now = datetime(2026, 5, 4, 9, 30, tzinfo=WARSAW)
+    ratio = expected_progress_ratio(KpiPeriod.month, now)
+    # 30 minut pierwszego z 20 dni roboczych maja 2026 (21 dni Pon–Pt minus
+    # święto 1.05). Wcześniej: 3 dni kalendarzowe z 31 ≈ 0,097.
+    assert ratio < 0.01
+    # Ostatni dzień roboczy miesiąca po pracy = 100%, weekend po nim też.
+    assert expected_progress_ratio(
+        KpiPeriod.month, datetime(2026, 5, 29, 17, 30, tzinfo=WARSAW)
+    ) == pytest.approx(1.0)
+    assert expected_progress_ratio(
+        KpiPeriod.month, datetime(2026, 5, 31, 12, 0, tzinfo=WARSAW)
+    ) == pytest.approx(1.0)
 
 
 # ── derive_state ────────────────────────────────────────────────────────
@@ -214,3 +231,41 @@ def test_derive_state_behind_before_workday_starts_is_neutral():
     # expected_ratio=0.0 (przed 9:00) — nie ma sensu mówić "behind".
     # 0 akcji przy 0% expected → on_track, nie behind.
     assert derive_state(current=0, target=10, expected_ratio=0.0) == "on_track"
+
+
+# „Poniżej tempa” dopiero, gdy brakuje CAŁEJ sztuki (13.10.2026). Dzień roboczy
+# ma 510 minut (9:00–17:30), więc ratio = minuty od 9:00 / 510.
+@pytest.mark.parametrize(
+    ("current", "target", "ratio", "expected"),
+    [
+        # 9:01 i 10:00, 0 z 4: oczekiwane 0,01 i 0,47 — do tempa nie brakuje sztuki.
+        (0, 4, 1 / 510, "on_track"),
+        (0, 4, 60 / 510, "on_track"),
+        # 13:14, 1 z 4: oczekiwane 1,99 — brakuje 0,99 sztuki.
+        (1, 4, 254 / 510, "on_track"),
+        # 13:15, 1 z 4: oczekiwane 2,0 — brakuje równo jednej (granica włącznie).
+        (1, 4, 0.5, "behind"),
+        # 11:07, 0 z 4: oczekiwane 1,0.
+        (0, 4, 0.25, "behind"),
+        # 17:00, 3 z 4: oczekiwane 3,76 — brakuje 0,76.
+        (3, 4, 480 / 510, "on_track"),
+        # Cel 1 (placement miesiąca) nie ma tempa: do końca okresu on_track.
+        (0, 1, 0.5, "on_track"),
+        (0, 1, 0.99, "on_track"),
+        (2, 3, 0.99, "on_track"),
+        # Duże sumy zespołu: brakuje wielu sztuk, korytarz ±20% działa jak dotąd.
+        (41, 180, 0.3, "behind"),
+        (50, 180, 0.3, "on_track"),
+    ],
+)
+def test_derive_state_behind_needs_a_whole_missing_unit(
+    current, target, ratio, expected
+):
+    assert (
+        derive_state(current=current, target=target, expected_ratio=ratio) == expected
+    )
+
+
+def test_derive_state_goal_of_one_still_ends_as_missed_or_hit():
+    assert derive_state(current=0, target=1, expected_ratio=1.0) == "missed"
+    assert derive_state(current=1, target=1, expected_ratio=0.2) == "hit"

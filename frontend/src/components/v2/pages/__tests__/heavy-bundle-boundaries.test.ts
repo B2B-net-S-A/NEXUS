@@ -85,6 +85,46 @@ const CASES: Array<{
       "kliknięciu na karcie rekrutacji — statyczny import wciąga go do " +
       "każdego otwarcia profilu.",
   },
+  {
+    // 0424: podgląd CV obok formularza screeningu (pdf.js, `docx-preview`).
+    label: "Formularz screeningu → podgląd CV obok",
+    file: "components/v2/jobs/ScreeningWorkbench.tsx",
+    heavy: /^pdfjs-dist|^docx-preview|CandidatePreviewPane$|FilePreviewModal$/,
+    lazyModule: "@/components/v2/screening-form/CandidatePreviewPane",
+    why:
+      "Przeglądarka PDF i DOCX wraca do chunku panelu osoby — a ten panel " +
+      "otwiera się przy każdym kliknięciu karty na Tablicy.",
+  },
+  {
+    // Panel klienta (02.11.2026): lista kandydatów nie potrzebuje pdf.js.
+    label: "Panel klienta → podgląd CV przy wymaganiach",
+    file: "components/v2/client-panel/EvidenceTab.tsx",
+    heavy: /^pdfjs-dist|PdfDocumentViewer$/,
+    lazyModule: "@/components/v2/files/PdfDocumentViewer",
+    why:
+      "Przeglądarka PDF wraca do paczki publicznego linku, a klient na liście " +
+      "kandydatów CV jeszcze nie otworzył.",
+  },
+  {
+    // D9 (08.10.2026): przegląd DL — oryginał CV obok wymagań i decyzji.
+    label: "Przegląd DL → podgląd oryginalnego CV",
+    file: "components/v2/recruitment/dl-review/CvColumn.tsx",
+    heavy: /^pdfjs-dist|^docx-preview|CandidatePreviewPane$|FilePreviewModal$/,
+    lazyModule: "@/components/v2/screening-form/CandidatePreviewPane",
+    why:
+      "Przeglądarka PDF i DOCX wraca do chunku Tablicy i pulpitu — przegląd " +
+      "DL importuje się statycznie w obu miejscach.",
+  },
+  {
+    // D6 (09.10.2026): podgląd w lewej strefie panelu dla „CV do klienta” i „Rozmów”.
+    label: "Narzędzia osoby → podgląd w lewej strefie panelu",
+    file: "components/v2/person/PersonSidePreview.tsx",
+    heavy: /^pdfjs-dist|^docx-preview|CandidatePreviewPane$|FilePreviewModal$/,
+    lazyModule: "@/components/v2/screening-form/CandidatePreviewPane",
+    why:
+      "`PersonWorkbenchTabs` importuje ten plik statycznie — statyczny import " +
+      "podglądu wciągnąłby pdf.js i `docx-preview` do chunku Tablicy.",
+  },
 ];
 
 it("profil kandydata nie importuje statycznie edytorów TipTapa", () => {
@@ -170,9 +210,12 @@ it("„CV do klienta” nie wciąga generatora CV do chunku /jobs/[id]", () => {
       ),
     );
   }
-  // …i panel osoby bierze warsztaty z TEJ granicy.
-  const panel = fs.readFileSync(path.join(recruitmentDir, "PersonPanel.tsx"), "utf8");
-  expect(staticSpecifiers(panel)).toContain("./panel-workbenches");
+  // …i rozwinięty panel osoby bierze warsztaty z TEJ granicy.
+  const panel = fs.readFileSync(
+    path.join(SRC, "components/v2/person/PersonWorkbenchTabs.tsx"),
+    "utf8",
+  );
+  expect(staticSpecifiers(panel)).toContain("@/components/v2/recruitment/panel-workbenches");
 
   // Od generatora CV v3 warsztat NIE osadza generatora: karta „CV do klienta”
   // otwiera go w oknie, a okno ładuje formularz dopiero przy otwarciu.
@@ -181,9 +224,6 @@ it("„CV do klienta” nie wciąga generatora CV do chunku /jobs/[id]", () => {
     "utf8",
   );
   expect(staticSpecifiers(workbench)).toContain("@/components/v2/recruitment/CvToClientCard");
-  expect(staticSpecifiers(workbench)).not.toContain(
-    "@/components/v2/pages/CVGeneratorStandaloneV2",
-  );
 });
 
 it("karta „CV do klienta” i okno generatora trzymają generator i edytor za dynamic()", () => {
@@ -191,7 +231,7 @@ it("karta „CV do klienta” i okno generatora trzymają generator i edytor za 
   // okno generatora jest montowane przy każdym otwarciu — żadna z nich nie
   // może wciągnąć formularza generatora ani TipTapa do chunku trasy.
   const heavy =
-    /^@tiptap\/|CVBrandedEditModal$|cv-generator\/CvGenerator$|CVGeneratorStandaloneV2$/;
+    /^@tiptap\/|CVBrandedEditModal$|cv-generator\/CvGenerator$/;
   const files = [
     "components/v2/recruitment/CvToClientCard.tsx",
     "components/v2/cv-generator/CvGeneratorDialog.tsx",
@@ -215,6 +255,29 @@ it("karta „CV do klienta” i okno generatora trzymają generator i edytor za 
   expect(dialog).toMatch(
     /dynamic\(\s*\(\)\s*=>[\s\S]{0,200}?import\(\s*["']@\/components\/v2\/cv-generator\/CvGenerator["']/,
   );
+});
+
+it("miniatura strony CV w karcie „CV do klienta” ładuje pdf.js dopiero przez pdfjs-loader", () => {
+  // Edytor CV 3, „Ekran 5” (14.10.2026): karta importuje miniaturę statycznie,
+  // a karta leży na ścieżce /jobs/[id] (panel osoby). Statyczny import pdf.js
+  // w którymkolwiek z tych plików wciągnąłby ~1 MB do chunku Tablicy.
+  const files = [
+    "components/v2/recruitment/CvToClientCard.tsx",
+    "components/v2/cv/CvFirstPageThumb.tsx",
+    "lib/pdfjs-loader.ts",
+  ];
+  const offenders = files.flatMap((file) =>
+    staticSpecifiers(fs.readFileSync(path.join(SRC, file), "utf8"))
+      .filter((spec) => /^pdfjs-dist/.test(spec))
+      .map((spec) => `${file} → ${spec}`),
+  );
+  expect(offenders).toEqual([]);
+  // …miniatura bierze pdf.js z loadera, a loader — wyrażeniem `import()`.
+  const thumb = fs.readFileSync(path.join(SRC, "components/v2/cv/CvFirstPageThumb.tsx"), "utf8");
+  expect(staticSpecifiers(thumb)).toContain("@/lib/pdfjs-loader");
+  expect(thumb).toContain("loadPdfJs()");
+  const loader = fs.readFileSync(path.join(SRC, "lib/pdfjs-loader.ts"), "utf8");
+  expect(loader).toMatch(/await import\(\s*["']pdfjs-dist["']\s*\)/);
 });
 
 it("wydzielone moduły edytora/wykresu faktycznie niosą ciężką bibliotekę", () => {

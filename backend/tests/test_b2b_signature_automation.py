@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -28,6 +28,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.models.activity import Activity
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_generated_contract import B2BGeneratedContract
@@ -1755,10 +1756,8 @@ async def test_confirm_rbac_allows_admin_and_fails_closed_without_client_scope(
 
     for role in (
         UserRole.delivery_lead,
-        UserRole.tac,
         UserRole.head_of_recruitment,
         UserRole.recruiter,
-        UserRole.sourcer,
         UserRole.user,
     ):
         headers = await _headers_for_role(app_client, role)
@@ -1769,81 +1768,173 @@ async def test_confirm_rbac_allows_admin_and_fails_closed_without_client_scope(
 
 
 @pytest.mark.asyncio
-async def test_delivery_lead_scope_allows_confirmation_but_tac_stays_outside_delivery(
+async def test_delivery_lead_scope_allows_confirmation_only_at_an_assigned_client(
     app_client: AsyncClient,
 ):
     admin_id = await _current_admin_id(app_client)
+    scenario = await _seed_bound_scenario(created_by=admin_id)
+    headers = await _headers_for_role(app_client, UserRole.delivery_lead)
+    user_id = int(headers["X-Test-User-Id"])
 
-    for role, assignment_field in (
-        (UserRole.delivery_lead, "delivery_lead_id"),
-        (UserRole.tac, "tac_id"),
-    ):
-        scenario = await _seed_bound_scenario(created_by=admin_id)
-        headers = await _headers_for_role(app_client, role)
-        user_id = int(headers["X-Test-User-Id"])
+    denied = await _confirm(app_client, headers, scenario["generated_id"])
+    assert denied.status_code == 403, (
+        f"out-of-scope delivery_lead got {denied.status_code}: {denied.text}"
+    )
+    assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
+        0,
+        0,
+        0,
+    )
 
-        denied = await _confirm(app_client, headers, scenario["generated_id"])
-        assert denied.status_code == 403, (
-            f"out-of-scope {role.value} got {denied.status_code}: {denied.text}"
-        )
-        assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
-            0,
-            0,
-            0,
-        )
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, scenario["job_id"])
+        generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert job is not None
+        assert generated is not None
+        assert generated.signature_status == "unsigned"
+        job.delivery_lead_id = user_id
+        await db.commit()
 
-        async with AsyncSessionLocal() as db:
-            job = await db.get(Job, scenario["job_id"])
-            generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
-            assert job is not None
-            assert generated is not None
-            assert generated.signature_status == "unsigned"
-            setattr(job, assignment_field, user_id)
-            await db.commit()
+    job_only = await _confirm(app_client, headers, scenario["generated_id"])
+    assert job_only.status_code == 403, (
+        "delivery_lead without explicit client assignment got "
+        f"{job_only.status_code}: {job_only.text}"
+    )
 
-        job_only = await _confirm(app_client, headers, scenario["generated_id"])
-        assert job_only.status_code == 403, (
-            f"{role.value} without explicit client assignment got "
-            f"{job_only.status_code}: {job_only.text}"
-        )
-
-        async with AsyncSessionLocal() as db:
-            if role is UserRole.delivery_lead:
-                db.add(
-                    DeliveryLeadClientAssignment(
-                        delivery_lead_user_id=user_id,
-                        client_id=scenario["client_id"],
-                    )
-                )
-            else:
-                db.add(
-                    ClientTacAssignment(
-                        tac_user_id=user_id,
-                        client_id=scenario["client_id"],
-                    )
-                )
-            await db.commit()
-
-        allowed = await _confirm(app_client, headers, scenario["generated_id"])
-        if role is UserRole.tac:
-            assert allowed.status_code == 403, (
-                "TAC must remain outside Delivery even with legacy job/client "
-                f"assignments: {allowed.text}"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            DeliveryLeadClientAssignment(
+                delivery_lead_user_id=user_id,
+                client_id=scenario["client_id"],
             )
-            assert await _counts_for_pair(
-                scenario["candidate_id"], scenario["job_id"]
-            ) == (0, 0, 0)
-            continue
+        )
+        await db.commit()
 
-        assert allowed.status_code == 200, (
-            f"assigned {role.value} got {allowed.status_code}: {allowed.text}"
+    allowed = await _confirm(app_client, headers, scenario["generated_id"])
+    assert allowed.status_code == 200, (
+        f"assigned delivery_lead got {allowed.status_code}: {allowed.text}"
+    )
+    assert allowed.json()["outcome"] == "created"
+    assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
+        1,
+        1,
+        1,  # 23.09.2026: podpis przesuwa na „Zatrudniony"
+    )
+
+
+@pytest.mark.asyncio
+async def test_recruiter_confirms_only_with_the_signature_permission(
+    app_client: AsyncClient,
+):
+    """Bez uprawnienia rekruter nie oznacza podpisu — przypisania z rekrutacji
+    i klienta (dawna rola TAC, wycofana w 0411) go nie zastępują. Z uprawnieniem
+    oznacza umowę w rekrutacji, w której jest w zespole (19.10.2026: albo
+    własną — ``test_recruiter_confirms_own_contract_outside_the_team``)."""
+    from tests._permission_grants import grant_permissions, role_permission
+
+    admin_id = await _current_admin_id(app_client)
+    assigned = await _seed_bound_scenario(created_by=admin_id)
+    headers = await _headers_for_role(app_client, UserRole.recruiter)
+    user_id = int(headers["X-Test-User-Id"])
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, assigned["job_id"])
+        assert job is not None
+        job.tac_id = user_id
+        db.add(
+            ClientTacAssignment(tac_user_id=user_id, client_id=assigned["client_id"])
         )
-        assert allowed.json()["outcome"] == "created"
-        assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
-            1,
-            1,
-            1,  # 23.09.2026: podpis przesuwa na „Zatrudniony"
-        )
+        await db.commit()
+
+    # Baza testowa jest wspólna — wartość roli przypinamy na czas odmowy.
+    async with role_permission(
+        "recruiter", "b2b_signature_confirmation", granted=False
+    ):
+        denied = await _confirm(app_client, headers, assigned["generated_id"])
+    assert denied.status_code == 403, (
+        "Recruiter without the signature permission confirmed a legal status: "
+        f"{denied.text}"
+    )
+    detail = denied.json()["detail"]
+    assert detail["code"] == "action_access_denied"
+    assert detail["action"] == "b2b_signature_confirmation"
+    assert await _counts_for_pair(assigned["candidate_id"], assigned["job_id"]) == (
+        0,
+        0,
+        0,
+    )
+    async with AsyncSessionLocal() as db:
+        generated = await db.get(B2BGeneratedContract, assigned["generated_id"])
+        assert generated is not None
+        assert generated.signature_status == "unsigned"
+
+    await grant_permissions(user_id, "b2b_signature_confirmation")
+    allowed = await _confirm(app_client, headers, assigned["generated_id"])
+    assert allowed.status_code == 200, (
+        "Recruiter with the signature permission got "
+        f"{allowed.status_code}: {allowed.text}"
+    )
+    assert allowed.json()["outcome"] == "created"
+    assert await _counts_for_pair(assigned["candidate_id"], assigned["job_id"]) == (
+        1,
+        1,
+        1,
+    )
+
+
+async def _listed(
+    app_client: AsyncClient, headers: dict[str, str], scenario: dict[str, Any]
+) -> dict[str, Any]:
+    listing = await app_client.get(
+        "/api/b2b-generator/generated",
+        headers=headers,
+        params={"job_id": scenario["job_id"]},
+    )
+    assert listing.status_code == 200, listing.text
+    return next(
+        item for item in listing.json() if item["id"] == scenario["generated_id"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_recruiter_confirms_own_contract_outside_the_team(
+    app_client: AsyncClient,
+):
+    """Zgłoszenie z 19.10.2026: rekruterka z uprawnieniem wygenerowała
+    umowę w rekrutacji, w której nie jest w zespole, i lista pokazywała „Brak
+    przypisania do powiązanej rekrutacji”. Autor oznacza podpis własnej umowy;
+    cudzej umowy spoza swojego zespołu — nadal nie (lista i endpoint mówią to
+    samo)."""
+    from tests._permission_grants import grant_permissions
+
+    admin_id = await _current_admin_id(app_client)
+    headers = await _headers_for_role(app_client, UserRole.recruiter)
+    user_id = int(headers["X-Test-User-Id"])
+    await grant_permissions(user_id, "b2b_signature_confirmation")
+    own = await _seed_bound_scenario(created_by=user_id)
+    foreign = await _seed_bound_scenario(created_by=admin_id)
+
+    own_item = await _listed(app_client, headers, own)
+    assert own_item["can_confirm_signed"] is True, own_item["blocked_reason"]
+    assert own_item["blocked_reason"] is None
+
+    foreign_item = await _listed(app_client, headers, foreign)
+    assert foreign_item["can_confirm_signed"] is False
+    assert "wygenerowała" in foreign_item["blocked_reason"]
+
+    denied = await _confirm(app_client, headers, foreign["generated_id"])
+    assert denied.status_code == 403, denied.text
+    assert denied.json()["detail"] == foreign_item["blocked_reason"]
+    assert await _counts_for_pair(foreign["candidate_id"], foreign["job_id"]) == (
+        0,
+        0,
+        0,
+    )
+
+    allowed = await _confirm(app_client, headers, own["generated_id"])
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["outcome"] == "created"
+    assert await _counts_for_pair(own["candidate_id"], own["job_id"]) == (1, 1, 1)
 
 
 @pytest.mark.asyncio
@@ -2174,15 +2265,12 @@ async def test_confirming_signature_promotes_in_progress_to_active(
 async def test_confirming_signature_does_not_reopen_a_closed_contract(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):
-    """Promocja jest WARUNKOWA i to jest jej sens.
+    """Zamknięta niepodpisana umowa nie przyjmuje podpisu (runda 8, R8-X2-6).
 
-    Umowę wolno zamknąć powodem `resignation_before_signing` PRZED podpisem.
-    Bezwarunkowe `contract_status = "active"` zostawiłoby wtedy wypełnione pola
-    `closure_*` przy statusie `active`, co łamie
-    `ck_b2b_generated_contracts_closure_coherence` → IntegrityError w środku
-    atomowej automatyzacji zatrudnienia. Test na samo przejście
-    `in_progress → active` przeszedłby również dla wersji bezwarunkowej.
-    """
+    Do 26.09.2026 potwierdzenie przechodziło: zakładało aktywny kontrakt,
+    zamówienie i zatrudnienie, a wiersz rejestru dalej mówił „Zakończona,
+    powód …”. Teraz 409 z prośbą o powrót na „W trakcie” — i nic się nie
+    zmienia (dawny sens testu: bez IntegrityError i bez cichego otwarcia)."""
     scenario = await _seed_bound_scenario(
         created_by=await _current_admin_id(app_client)
     )
@@ -2194,15 +2282,14 @@ async def test_confirming_signature_does_not_reopen_a_closed_contract(
     )
 
     response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
-    assert response.status_code == 200, response.text
+    assert response.status_code == 409, response.text
 
-    generated = response.json()["generated_contract"]
-    assert generated["contract_status"] == "closed", (
-        "zamknięta umowa nie może zostać cicho otwarta przez potwierdzenie podpisu"
-    )
-    assert generated["closure_reason"] == "resignation_before_signing"
-    # Sam podpis został odnotowany — blokujemy tylko zmianę statusu handlowego.
-    assert generated["signature_status"] == "signed_both"
+    async with AsyncSessionLocal() as db:
+        generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert generated is not None
+        assert generated.contract_status == "closed"
+        assert generated.closure_reason == "resignation_before_signing"
+        assert generated.signature_status == "unsigned"
 
 
 @pytest.mark.asyncio
@@ -2331,6 +2418,37 @@ async def test_confirm_notifies_finance_about_contractor_without_order(
 
 
 @pytest.mark.asyncio
+async def test_completed_order_closes_the_case_for_finance_at_once(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """D3 (04.10.2026): jedna sprawa po zatrudnieniu. Uzupełnienie zamówienia
+    (start + stawka przychodowa) zamyka dzwonek Finansów w chwili zapisu
+    zamówienia — nie czeka na dobowy skaner."""
+    finance_id = await _finance_user_id()
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+    assert response.status_code == 200, response.text
+    body = response.json()
+    contract_id = body["contract_id"]
+    order_id = body["order_id"]
+    assert order_id is not None
+    notices = await _hired_order_notices(finance_id, contract_id)
+    assert [n.is_read for n in notices] == [False]
+
+    patched = await app_client.patch(
+        f"/api/clients/{scenario['client_id']}/orders/{order_id}",
+        headers=app_auth_headers,
+        json={"start_date": "2026-08-01", "rate_client": "180"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert [n.is_read for n in await _hired_order_notices(finance_id, contract_id)] == [
+        True
+    ]
+
+
+@pytest.mark.asyncio
 async def test_confirm_on_group_line_does_not_notify_finance(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):
@@ -2351,3 +2469,455 @@ async def test_confirm_on_group_line_does_not_notify_finance(
     assert response.status_code == 200, response.text
     assert response.json()["order_skipped_reason"] == "open_group_line"
     assert await _hired_order_notices(finance_id, existing_id) == []
+
+
+# ── Runda 8 (R8-X2-1): kontrakt tej osoby bez rekrutacji nie jest dublowany ──
+
+
+async def _live_contracts_at_client(candidate_id: int, client_id: int) -> list[int]:
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(Contract.id).where(
+                        Contract.candidate_id == candidate_id,
+                        Contract.client_id == client_id,
+                        Contract.status.in_(
+                            (
+                                ContractStatus.draft,
+                                ContractStatus.ready_for_signature,
+                                ContractStatus.active,
+                                ContractStatus.ending,
+                            )
+                        ),
+                    )
+                )
+            ).all()
+        )
+
+
+@pytest.mark.asyncio
+async def test_confirm_links_the_persons_contract_without_recruitment(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Kontrakt założony ręcznie („Nowy kontraktor”, rekrutacja opcjonalna) nie
+    był znajdowany: podpis zakładał DRUGI aktywny kontrakt tej osoby u klienta
+    (podwójny MRR). Teraz wiąże istniejący i uzupełnia mu rekrutację."""
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    async with AsyncSessionLocal() as db:
+        manual = Contract(
+            candidate_id=scenario["candidate_id"],
+            client_id=scenario["client_id"],
+            job_id=None,
+            contract_type=ContractType.b2b,
+            status=ContractStatus.active,
+            start_date=date(2026, 8, 1),
+            rate_candidate=Decimal("150.500"),
+            rate_unit=RateUnit.hourly,
+        )
+        db.add(manual)
+        await db.commit()
+        await db.refresh(manual)
+        manual_id = manual.id
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["outcome"] == "linked_existing"
+    assert body["contract_id"] == manual_id
+    assert await _live_contracts_at_client(
+        scenario["candidate_id"], scenario["client_id"]
+    ) == [manual_id]
+    async with AsyncSessionLocal() as db:
+        linked = await db.get(Contract, manual_id)
+        assert linked is not None
+        assert linked.job_id == scenario["job_id"]
+
+
+@pytest.mark.asyncio
+async def test_confirm_refuses_when_a_duplicate_record_of_the_person_has_a_contract(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Ten sam e-mail na innym rekordzie kandydata z żywym kontraktem u klienta
+    = zdublowana osoba. Podpis nie zakłada drugiego kontraktu (to samo robi
+    ręczna blokada duplikatu), tylko prosi o scalenie."""
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    async with AsyncSessionLocal() as db:
+        original = await db.get(Candidate, scenario["candidate_id"])
+        assert original is not None
+        twin = Candidate(
+            name="Anna",
+            lastname="Duplikat",
+            email=f"  {original.email.upper()}\n",
+        )
+        db.add(twin)
+        await db.flush()
+        db.add(
+            Contract(
+                candidate_id=twin.id,
+                client_id=scenario["client_id"],
+                job_id=None,
+                contract_type=ContractType.b2b,
+                status=ContractStatus.active,
+                start_date=date(2026, 8, 1),
+                rate_candidate=Decimal("150.500"),
+                rate_unit=RateUnit.hourly,
+            )
+        )
+        await db.commit()
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+
+    assert response.status_code == 409, response.text
+    assert "scal duplikaty" in response.json()["detail"]["message"]
+    assert (
+        await _live_contracts_at_client(scenario["candidate_id"], scenario["client_id"])
+        == []
+    )
+    async with AsyncSessionLocal() as db:
+        generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert generated is not None
+        assert generated.signature_status == "unsigned"
+
+
+# ── Runda 8 (R8-X2-6): „Zakończona”/„Bez projektu” bez podpisu ─────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("row_status", ["closed", "suspended"])
+async def test_confirm_refuses_an_ended_unsigned_agreement(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], row_status: str
+):
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    await _set_generated_status(
+        scenario["generated_id"],
+        contract_status=row_status,
+        closure_reason="project_completed",
+        closure_date=date(2026, 8, 15),
+    )
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+
+    assert response.status_code == 409, response.text
+    assert "W trakcie" in response.json()["detail"]
+    assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
+        0,
+        0,
+        0,
+    )
+
+
+@pytest.mark.asyncio
+async def test_pipeline_hire_reuses_the_persons_contract_without_recruitment(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """R8-X2-1, bliźniak w ruchu na „Zatrudniony”: zdublowany szkic kontraktu
+    i szkic zamówienia obok ręcznie założonego kontraktu tej osoby."""
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    async with AsyncSessionLocal() as db:
+        manual = Contract(
+            candidate_id=scenario["candidate_id"],
+            client_id=scenario["client_id"],
+            job_id=None,
+            contract_type=ContractType.b2b,
+            status=ContractStatus.active,
+            start_date=date(2026, 8, 1),
+            rate_candidate=Decimal("150.500"),
+            rate_unit=RateUnit.hourly,
+        )
+        db.add(manual)
+        await db.commit()
+        await db.refresh(manual)
+        manual_id = manual.id
+
+    moved = await app_client.post(
+        "/api/pipeline/move",
+        json={
+            "candidate_id": scenario["candidate_id"],
+            "job_id": scenario["job_id"],
+            "stage": "hired",
+        },
+        headers=app_auth_headers,
+    )
+
+    assert moved.status_code == 200, moved.text
+    assert await _live_contracts_at_client(
+        scenario["candidate_id"], scenario["client_id"]
+    ) == [manual_id]
+
+
+# ── Podpisany plik przy wierszu rejestru (0496, 21.10.2026) ──────────────────
+
+SIGNED_FILE_PATH = "/api/b2b-generator/generated/{generated_id}/signed-file"
+SIGNED_PDF = b"%PDF-1.7\n% podpisana umowa\n"
+
+
+async def _attach_file(
+    app_client: AsyncClient,
+    headers: dict[str, str],
+    generated_id: int,
+    *,
+    name: str = "umowa-podpisana.pdf",
+    data: bytes = SIGNED_PDF,
+):
+    return await app_client.post(
+        SIGNED_FILE_PATH.format(generated_id=generated_id),
+        files={"file": (name, data, "application/pdf")},
+        headers=headers,
+    )
+
+
+@pytest.mark.asyncio
+async def test_signed_file_waits_for_the_signature_and_lands_in_contract_documents(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Zgłoszenie Administracji 21.10.2026: po „Oznacz jako podpisaną”
+    podpisanej umowy nie było w NEXUSIE. Plik dołącza się po podpisie, trafia do
+    Dokumentów kontraktu jako „Umowa”, a kolejny plik podmienia poprzedni."""
+    from app.models.contract_document import ContractDocument
+
+    admin_id = await _current_admin_id(app_client)
+    scenario = await _seed_bound_scenario(created_by=admin_id)
+    headers = app_auth_headers
+
+    unsigned_item = await _listed(app_client, headers, scenario)
+    assert unsigned_item["can_attach_signed_file"] is False
+    assert unsigned_item["signed_document_id"] is None
+    early = await _attach_file(app_client, headers, scenario["generated_id"])
+    assert early.status_code == 409, early.text
+    assert "po oznaczeniu" in early.json()["detail"]
+
+    confirmed = await _confirm(app_client, headers, scenario["generated_id"])
+    assert confirmed.status_code == 200, confirmed.text
+    signed_item = await _listed(app_client, headers, scenario)
+    assert signed_item["can_attach_signed_file"] is True
+    assert signed_item["signed_document_id"] is None
+
+    attached = await _attach_file(app_client, headers, scenario["generated_id"])
+    assert attached.status_code == 200, attached.text
+    first_doc_id = attached.json()["signed_document_id"]
+    assert first_doc_id is not None
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        doc = await db.get(ContractDocument, first_doc_id)
+        assert row is not None and doc is not None
+        assert doc.contract_id == row.contract_id
+        assert getattr(doc.doc_type, "value", doc.doc_type) == "contract"
+        assert doc.filename == "umowa-podpisana.pdf"
+
+    replaced = await _attach_file(
+        app_client,
+        headers,
+        scenario["generated_id"],
+        name="umowa-v2.pdf",
+        data=SIGNED_PDF + b"% druga wersja\n",
+    )
+    assert replaced.status_code == 200, replaced.text
+    assert replaced.json()["signed_document_id"] == first_doc_id
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(ContractDocument, first_doc_id)
+        assert doc is not None and doc.filename == "umowa-v2.pdf"
+        await db.delete(doc)
+        await db.commit()
+    after_delete = await _listed(app_client, headers, scenario)
+    assert after_delete["signed_document_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_signed_file_locks_the_contract_before_the_register_row(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Audyt 22.10, F47: plik w Dokumentach kontraktu (FK → blokada kontraktu)
+    po blokadzie wiersza rejestru odwracał kolejność `/terminate` i nocnego
+    crona (kontrakt → wiersz) — groziło zakleszczenie."""
+    from sqlalchemy import event
+
+    from app.core.database import engine
+
+    admin_id = await _current_admin_id(app_client)
+    scenario = await _seed_bound_scenario(created_by=admin_id)
+    headers = app_auth_headers
+    assert (
+        await _confirm(app_client, headers, scenario["generated_id"])
+    ).status_code == 200
+
+    statements: list[str] = []
+
+    def _before(_conn, _cursor, statement, *_args, **_kwargs):
+        statements.append(" ".join(statement.split()))
+
+    event.listen(engine.sync_engine, "before_cursor_execute", _before)
+    try:
+        attached = await _attach_file(app_client, headers, scenario["generated_id"])
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", _before)
+    assert attached.status_code == 200, attached.text
+
+    def _first_lock(table: str) -> int:
+        return next(
+            i
+            for i, sql in enumerate(statements)
+            if f"FROM {table} " in sql and "FOR UPDATE" in sql
+        )
+
+    assert _first_lock("contracts") < _first_lock("b2b_generated_contracts")
+
+
+@pytest.mark.asyncio
+async def test_signed_file_must_be_a_pdf_or_picture(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    admin_id = await _current_admin_id(app_client)
+    scenario = await _seed_bound_scenario(created_by=admin_id)
+    headers = app_auth_headers
+    assert (
+        await _confirm(app_client, headers, scenario["generated_id"])
+    ).status_code == 200
+
+    docx = await _attach_file(
+        app_client,
+        headers,
+        scenario["generated_id"],
+        name="umowa.docx",
+        data=b"PK\x03\x04",
+    )
+    assert docx.status_code == 415, docx.text
+    assert docx.json()["detail"].startswith("Podpisana umowa")
+    fake = await _attach_file(
+        app_client, headers, scenario["generated_id"], name="umowa.pdf", data=b"nie pdf"
+    )
+    assert fake.status_code == 415, fake.text
+
+
+@pytest.mark.asyncio
+async def test_signed_file_follows_who_may_confirm_the_signature(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Plik dołącza ten, kto mógłby oznaczyć podpis tego wiersza (19.10.2026):
+    autor tak, rekruter spoza zespołu cudzej umowy — nie (lista i trasa mówią
+    to samo)."""
+    from tests._permission_grants import grant_permissions
+
+    admin_id = await _current_admin_id(app_client)
+    admin_headers = app_auth_headers
+    headers = await _headers_for_role(app_client, UserRole.recruiter)
+    user_id = int(headers["X-Test-User-Id"])
+    await grant_permissions(user_id, "b2b_signature_confirmation")
+    own = await _seed_bound_scenario(created_by=user_id)
+    foreign = await _seed_bound_scenario(created_by=admin_id)
+    for scenario in (own, foreign):
+        confirmed = await _confirm(app_client, admin_headers, scenario["generated_id"])
+        assert confirmed.status_code == 200, confirmed.text
+
+    foreign_item = await _listed(app_client, headers, foreign)
+    assert foreign_item["can_attach_signed_file"] is False
+    denied = await _attach_file(app_client, headers, foreign["generated_id"])
+    assert denied.status_code == 403, denied.text
+
+    own_item = await _listed(app_client, headers, own)
+    assert own_item["can_attach_signed_file"] is True
+    allowed = await _attach_file(app_client, headers, own["generated_id"])
+    assert allowed.status_code == 200, allowed.text
+
+
+# ── dzień podpisu z okna „Oznacz jako podpisaną” (0514) ──────────────────────
+
+
+async def _backdate_generation(generated_id: int, days: int) -> None:
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, generated_id)
+        assert row is not None
+        row.created_at = datetime.now(timezone.utc) - timedelta(days=days)
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_signing_day_defaults_to_today_and_is_kept_apart_from_the_click(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+
+    assert response.status_code == 200, response.text
+    today = business_today()
+    assert response.json()["generated_contract"]["signed_on"] == today.isoformat()
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None
+        assert row.signed_on == today
+        assert row.signed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_signing_day_from_the_dialog_is_stored(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    await _backdate_generation(scenario["generated_id"], days=10)
+    day = business_today() - timedelta(days=3)
+
+    response = await app_client.post(
+        CONFIRM_PATH.format(generated_id=scenario["generated_id"]),
+        json={"signed_on": day.isoformat()},
+        headers=app_auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["generated_contract"]["signed_on"] == day.isoformat()
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None and row.signed_on == day
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("offset_days", "message"),
+    [
+        (1, "z przyszłości"),
+        (-12, "wcześniejsza niż wygenerowanie umowy"),
+    ],
+)
+async def test_signing_day_in_the_future_or_before_generation_changes_nothing(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+    offset_days: int,
+    message: str,
+):
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    await _backdate_generation(scenario["generated_id"], days=10)
+    day = business_today() + timedelta(days=offset_days)
+
+    response = await app_client.post(
+        CONFIRM_PATH.format(generated_id=scenario["generated_id"]),
+        json={"signed_on": day.isoformat()},
+        headers=app_auth_headers,
+    )
+
+    assert response.status_code == 422, response.text
+    assert message in response.json()["detail"]
+    assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
+        0,
+        0,
+        0,
+    )
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None
+        assert row.signature_status == "unsigned"
+        assert row.signed_on is None

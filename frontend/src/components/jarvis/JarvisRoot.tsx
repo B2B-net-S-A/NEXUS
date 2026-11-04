@@ -9,7 +9,8 @@
  *   znika (backend i tak odmawia — rozmowa szłaby cudzymi uprawnieniami);
  * - `GET /api/jarvis/status`: wyłączony flagą albo bez klucza modelu → brak
  *   maskotki (w trybie kids maskotka zostaje, ale panel mówi, że nie działa);
- * - `prefs.enabled = false` → brak maskotki; ⌘J dalej otwiera panel.
+ * - `prefs.enabled = false` → brak maskotki, także w trybie gry; ⌘J dalej
+ *   otwiera panel, a robota przywraca menu „Wygląd” w górnym pasku.
  *
  * Każdy zapis przechodzi przez kartę akcji (klik człowieka) — ten komponent
  * tylko woła confirm/reject i odświeża dane ekranu kluczami z odpowiedzi.
@@ -19,6 +20,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { usePathname, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, triggerSessionExpiredRedirect } from "@/lib/api";
+import { countPl } from "@/lib/plural-pl";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   cancelJarvisTurn,
@@ -59,6 +61,7 @@ import { useScreenGuides } from "@/lib/help/useScreenGuides";
 import { playPetSound } from "@/lib/kidsSound";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasCapability } from "@/lib/capabilities";
+import { countsForDlSend, type BoardTaskRow } from "@/lib/api/boardTasks";
 import type { MyPeopleSummary } from "@/lib/api/myPeople";
 import {
   MY_PEOPLE_MATCH_EVENT,
@@ -69,10 +72,12 @@ import {
 } from "@/lib/my-people-summary";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { useThemeStore } from "@/store/theme";
+import { useOptionalToast } from "@/components/Toast";
 import { JarvisAppearanceDialog } from "./JarvisAppearanceDialog";
 import { JarvisMascot } from "./JarvisMascot";
 import { JarvisPanel } from "./JarvisPanel";
 import { HelpSpotlight, showHelpAnchor } from "./HelpSpotlight";
+import { shouldShowMascot, useJarvisMascotVisibility } from "./useJarvisMascotVisibility";
 import { useKidsChatter } from "./useKidsChatter";
 
 const DEFAULT_PREFS: JarvisPrefsResponse = {
@@ -125,6 +130,8 @@ export function JarvisRoot() {
   const kidsSound = useThemeStore((s) => s.kidsSound);
   const kidsAutoTalk = useThemeStore((s) => s.kidsAutoTalk);
   const active = hydrated && ownSession && Boolean(user);
+  const toast = useOptionalToast();
+  const mascotVisibility = useJarvisMascotVisibility();
 
   const statusQuery = useQuery({
     queryKey: jarvisKeys.status,
@@ -432,8 +439,19 @@ export function JarvisRoot() {
     const timer = window.setTimeout(async () => {
       const parts: string[] = [];
       try {
-        const { data } = await api.get<{ count: number }>("/api/notifications/count");
-        if (data.count > 0) parts.push(`${data.count} ${data.count === 1 ? "nowe powiadomienie" : "nowe powiadomienia"}`);
+        // Bez dzwonka (16.10.2026): skrót mówi o ikonie „Rekrutacje”, nie
+        // o sumie wszystkich nieprzeczytanych.
+        const { data } = await api.get<{ unread_jobs: number }>("/api/notifications/jobs");
+        if (data.unread_jobs > 0) {
+          parts.push(
+            countPl(
+              data.unread_jobs,
+              "rekrutacja z nowościami",
+              "rekrutacje z nowościami",
+              "rekrutacji z nowościami",
+            ),
+          );
+        }
       } catch {
         /* skrót jest dodatkiem */
       }
@@ -464,10 +482,12 @@ export function JarvisRoot() {
         // naprawdę wynika dzień pracy (telefon po rozmowie, debrief, DZ).
         try {
           const { data } = await api.get<Record<string, unknown>>("/api/board-tasks");
-          const waiting = ["dz", "cpro_to_send", "dl_review"].reduce(
-            (sum, key) => sum + (Array.isArray(data?.[key]) ? (data[key] as unknown[]).length : 0),
-            0,
-          );
+          const waiting = ["dz", "cpro_to_send", "dl_review"].reduce((sum, key) => {
+            const rows = Array.isArray(data?.[key]) ? (data[key] as BoardTaskRow[]) : [];
+            // 13.10.2026: z przeglądu DL liczą się tylko wiersze gotowe do
+            // wysłania do klienta — karta z QC do poprawy jest u rekrutera.
+            return sum + (key === "dl_review" ? rows.filter(countsForDlSend).length : rows.length);
+          }, 0);
           if (waiting > 0) parts.push(`${waiting} ${waiting === 1 ? "osoba czeka" : "osoby czekają"} na Twój przegląd`);
         } catch {
           /* jw. */
@@ -574,7 +594,15 @@ export function JarvisRoot() {
     status && status.available && status.used_today >= status.soft_limit
       ? `Dziś to już ${status.used_today} pytań — to dużo. Asystent działa dalej, ale każde pytanie kosztuje.`
       : null;
-  const showMascot = (available && prefs.enabled) || kidsMode;
+  const showMascot = shouldShowMascot(prefs.enabled, available, kidsMode);
+  const hideMascot = () => {
+    setOpen(false);
+    mascotVisibility.setVisible(false);
+    toast?.showActionToast(`${prefs.name} schowany. Przywrócisz go w menu „Wygląd” w górnym pasku.`, {
+      actionLabel: "Cofnij",
+      onAction: () => mascotVisibility.setVisible(true),
+    });
+  };
   const webRemaining =
     status?.web_enabled && typeof status.web_limit === "number"
       ? Math.max(0, status.web_limit - (status.web_used_today ?? 0))
@@ -600,6 +628,7 @@ export function JarvisRoot() {
           bubble={bubble}
           attention={Boolean(brief || nudge || stuck)}
           onToggle={() => setOpen((v) => !v)}
+          onHide={hideMascot}
           onBubbleClick={() => {
             const wasBrief = Boolean(brief);
             const pending = nudge;
@@ -642,6 +671,7 @@ export function JarvisRoot() {
           streaming={streaming}
           draft={draft}
           suggestions={suggestions}
+          capabilities={status?.capabilities}
           conversations={conversationsQuery.data}
           conversationsLoading={conversationsQuery.isLoading}
           activeConversationId={turn.conversationId}

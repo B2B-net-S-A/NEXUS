@@ -18,8 +18,9 @@ import {
 import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState"
 import { calendarApi, type CalendarEventResponse } from "@/lib/api"
 import { useMyPeopleSummary } from "@/lib/api/myPeople"
+import { safeExternalHref, safeInternalPath } from "@/lib/safe-href"
 import type { TileConfig } from "@/lib/api/userDashboard"
-import { summarySentences } from "@/lib/my-people-summary"
+import { pluralPl } from "@/lib/plural-pl"
 import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
 import { useMyPeoplePanel } from "@/store/my-people"
 
@@ -92,22 +93,52 @@ export function MyPeopleBody() {
   if (query.isError) {
     return <WidgetErrorBlock error={query.error} onRetry={() => query.refetch()} />
   }
-  const sentences = summarySentences(query.data)
+  // 04.10.2026: kafelek pokazuje nowe dopasowania do rekrutacji (to, co da się
+  // od razu dodać), a nie liczbę czekających — tę liczy panel „Moi ludzie”.
+  const { new_matches: newMatches, jobs_with_matches: jobsWithMatches } = query.data
+  const matches = (query.data.latest_matches ?? []).slice(0, 5)
   return (
-    <div className="flex h-full flex-col gap-2">
-      <div className="flex items-baseline gap-2">
-        <span className="font-mono text-3xl font-semibold leading-none">
-          {query.data.total}
-        </span>
-        <span className="text-xs text-muted-foreground">osób na Twojej liście</span>
-      </div>
-      {sentences.length > 0 ? (
-        <ul className="space-y-1 text-sm text-foreground">
-          {sentences.slice(0, 2).map((s) => (
-            <li key={s}>{s}</li>
-          ))}
-        </ul>
-      ) : null}
+    <div className="flex h-full flex-col gap-2 text-sm">
+      {newMatches > 0 && matches.length > 0 ? (
+        <>
+          <p className="font-medium text-foreground">
+            {newMatches} {pluralPl(newMatches, "nowe dopasowanie", "nowe dopasowania", "nowych dopasowań")}{" "}
+            w {jobsWithMatches} {pluralPl(jobsWithMatches, "rekrutacji", "rekrutacjach", "rekrutacjach")}
+          </p>
+          <ul className="flex flex-col gap-1.5">
+            {matches.map((match) => (
+              <li
+                key={`${match.job_id}-${match.candidate_id}`}
+                className="flex items-center gap-2"
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="text-foreground">{match.full_name}</span>
+                  <span className="text-muted-foreground"> → {match.job_title}</span>
+                </span>
+                {match.score !== null ? (
+                  <span
+                    className="shrink-0 font-mono text-xs font-semibold tabular-nums text-foreground"
+                    title="Dopasowanie"
+                  >
+                    {Math.round(match.score)}
+                  </span>
+                ) : null}
+                <Link
+                  href={`/jobs/${match.job_id}?people=1`}
+                  className="shrink-0 text-xs font-medium text-primary hover:underline"
+                  aria-label={`Dodaj: ${match.full_name} do rekrutacji ${match.job_title}`}
+                >
+                  Dodaj
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <p className="text-muted-foreground">
+          Brak nowych dopasowań — ikona „Moi ludzie” da znać, gdy pojawi się rekrutacja dla Twoich ludzi.
+        </p>
+      )}
       <Button variant="outline" size="sm" className="mt-auto self-start" onClick={openPanel}>
         Otwórz „Moi ludzie”
       </Button>
@@ -130,26 +161,36 @@ export function NoteBody({ config }: { config: TileConfig }) {
       {text ? <p className="whitespace-pre-line text-foreground">{text}</p> : null}
       {links.length > 0 ? (
         <ul className="flex flex-col gap-1">
-          {links.map((link) =>
-            link.url.startsWith("/") ? (
+          {links.map((link) => {
+            // Runda 8 (R8-N10-5): `/\evil.com` przeglądarka czyta jak
+            // `//evil.com` — ścieżka wewnętrzna tylko przez `safeInternalPath`,
+            // zewnętrzny wyłącznie https; resztę pokazujemy jako tekst.
+            const internal = safeInternalPath(link.url)
+            const external =
+              internal === null && link.url.startsWith("https://")
+                ? safeExternalHref(link.url)
+                : null
+            return (
               <li key={`${link.label}-${link.url}`}>
-                <Link href={link.url} className="font-medium text-primary hover:underline">
-                  {link.label}
-                </Link>
+                {internal ? (
+                  <Link href={internal} className="font-medium text-primary hover:underline">
+                    {link.label}
+                  </Link>
+                ) : external ? (
+                  <a
+                    href={external}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-primary hover:underline"
+                  >
+                    {link.label}
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground">{link.label}</span>
+                )}
               </li>
-            ) : (
-              <li key={`${link.label}-${link.url}`}>
-                <a
-                  href={link.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-medium text-primary hover:underline"
-                >
-                  {link.label}
-                </a>
-              </li>
-            ),
-          )}
+            )
+          })}
         </ul>
       ) : null}
     </div>

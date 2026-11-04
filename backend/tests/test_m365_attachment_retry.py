@@ -12,6 +12,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from typing import Any
 
 import pytest
@@ -48,8 +49,11 @@ async def test_listing_failure_is_raised_not_swallowed():
             raise RuntimeError("Graph 503")
 
     email = SimpleNamespace(has_attachments=True, m365_message_id="m-1", id=1)
+    db = SimpleNamespace(
+        scalars=AsyncMock(return_value=SimpleNamespace(all=lambda: []))
+    )
     with pytest.raises(RuntimeError):
-        await attachment_handler.download_for_email(None, _Gc(), email)
+        await attachment_handler.download_for_email(db, _Gc(), email)
 
 
 @pytest.mark.asyncio

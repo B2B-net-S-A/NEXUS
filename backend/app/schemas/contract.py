@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Annotated, Any, Literal, Optional
 
-from pydantic import AfterValidator, BaseModel, Field, model_validator
+from pydantic import AfterValidator, BaseModel, Field, field_validator, model_validator
 
 from app.core.work_time import HOURS_PER_MONTH
 from app.models.contract import (
@@ -14,6 +14,7 @@ from app.models.contract import (
     ProlongationStatus,
     RateUnit,
 )
+from app.models.note import NoteType
 
 # Rozwiązanie umowy B2B (0367): wypowiedzenie / porozumienie stron; stronę,
 # która wypowiedziała albo zainicjowała porozumienie — konsultant / b2bnetwork.
@@ -117,6 +118,25 @@ class ContractFrameworkRateEntry(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ClientManagerNewPerson(BaseModel):
+    """Nowa osoba jako menedżer u klienta — serwer zakłada ją jako kontakt klienta
+    kontraktu albo podpina istniejący kontakt tej osoby (``find_or_create_contact``)."""
+
+    name: str = Field(min_length=1, max_length=255)
+    position: Optional[str] = Field(default=None, max_length=255)
+    email: Optional[str] = Field(default=None, max_length=255)
+
+
+class ClientManagerHint(BaseModel):
+    """Podpowiedź „Przypnij: X” — tekst Line Manager/PM to dokładnie kontakt klienta."""
+
+    contact_id: int
+    name: str
+    position: Optional[str] = None
+    source: Literal["line_manager", "client_pm_name"]
+    text: str
 
 
 class ContractCreate(BaseModel):
@@ -237,6 +257,11 @@ class ContractUpdate(BaseModel):
     candidate_phone: Optional[str] = None
     client_pm_name: Optional[str] = None
     client_pm_email: Optional[str] = None
+    # „Menedżer u klienta” (D8, 17.10.2026): kontakt KLIENTA tego kontraktu
+    # (422 dla cudzego), jawny `null` czyści. Nową osobę podaje się w
+    # `client_pm_new_person` — nigdy razem z `client_pm_contact_id`.
+    client_pm_contact_id: Optional[int] = None
+    client_pm_new_person: Optional[ClientManagerNewPerson] = None
     line_manager: Optional[str] = None
     work_mode: Optional[ContractWorkMode] = None
     office_location: Optional[str] = None
@@ -255,6 +280,17 @@ class ContractUpdate(BaseModel):
     # Zużycie zamówienia (migracja 0144) — opcjonalne dla PATCH.
     order_consumption: Optional[float] = None
     order_consumption_unit: Optional[OrderConsumptionUnit] = None
+
+    @model_validator(mode="after")
+    def reject_both_client_manager_inputs(self) -> "ContractUpdate":
+        if self.client_pm_new_person is not None and (
+            self.client_pm_contact_id is not None
+        ):
+            raise ValueError(
+                "Wybierz menedżera z kontaktów klienta albo wpisz nową osobę "
+                "— nie oba naraz"
+            )
+        return self
 
     @model_validator(mode="after")
     def reject_explicit_null_status(self) -> "ContractUpdate":
@@ -389,6 +425,11 @@ class ContractResponse(BaseModel):
     documents: Optional[Any]
     client_pm_name: Optional[str] = None
     client_pm_email: Optional[str] = None
+    # „Menedżer u klienta” (D8) — kontakt klienta. Imię i stanowisko wypełnia
+    # odpowiedź szczegółów i PATCH-a (lista niesie samo id).
+    client_pm_contact_id: Optional[int] = None
+    client_pm_contact_name: Optional[str] = None
+    client_pm_contact_position: Optional[str] = None
     line_manager: Optional[str] = None
     work_mode: Optional[ContractWorkMode] = None
     office_location: Optional[str] = None
@@ -537,6 +578,26 @@ class ContractTimelineItem(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ContractNoteCreate(BaseModel):
+    """Notatka dodana bezpośrednio z zakładki „Notatki / Rozmowy" kontraktu.
+
+    Runda 10 (F03): do 26.09.2026 pusta zakładka kazała „ustawić
+    contract_id" albo dodać notatkę z kandydata, a formularz kandydata nie ma
+    wyboru kontraktu — nie było jak powiązać notatki z umową.
+    """
+
+    content: str = Field(min_length=1, max_length=20000)
+    note_type: NoteType = NoteType.general
+
+    @field_validator("content")
+    @classmethod
+    def _content_not_blank(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Wpisz treść notatki")
+        return cleaned
+
+
 class ContractList(BaseModel):
     items: list[ContractResponse]
     # ``total`` remains the row/group count used for pagination.  These two
@@ -579,6 +640,9 @@ class ContractDetailResponse(ContractResponse):
     candidate_name: Optional[str] = None
     client_name: Optional[str] = None
     job_title: Optional[str] = None
+    # Pusty menedżer, a tekst Line Manager/PM to dokładnie kontakt klienta →
+    # „Przypnij: X”. Nic nie przypina się samo.
+    client_pm_contact_hint: Optional[ClientManagerHint] = None
     monthly_rate_candidate: Optional[float] = None
     monthly_rate_client: Optional[float] = None
     monthly_margin: Optional[float] = None

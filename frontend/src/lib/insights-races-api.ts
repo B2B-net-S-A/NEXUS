@@ -49,14 +49,28 @@ export interface MonthlyRaceEntry {
   // rankingu (nie do `extras` — nie zamrażają się w historii). Mianownik to dni
   // robocze od 1. dnia miesiąca do dziś (Pon–Pt bez świąt) minus urlop
   // z COMPASSA, gdy go znamy:
+  //   - `nexus`    — dni pracy z urlopów NEXUSA (dni robocze minus zatwierdzona
+  //     nieobecność do dziś); z nich liczy się też próg (28.10.2026),
   //   - `compass`  — urlopy uwzględnione,
   //   - `calendar` — dni kalendarzowe BEZ urlopów (brak danych z COMPASSA
   //     albo urlop w trwającym miesiącu, którego część dopiero nadejdzie);
   //     plakietka podpisuje to „bez urlopów".
   // Brak pól (starszy backend) = `perDayVerifications` zwraca `null`.
+  //   - `dynareporter` — miesiąc rozliczony w DynaReporterze (do 11.10.2026):
+  //     mianownik to dni przepracowane zgłoszone tam, a `per_day`/`workdays`
+  //     są zapisane przy rozliczeniu, nie liczone na nowo.
   workdays?: number | null;
   per_day?: number | null;
-  workdays_source?: "compass" | "calendar" | "unavailable" | null;
+  // Z czego liczono próg „wymaganych weryfikacji” (28.10.2026): `workdays` —
+  // dni pracy osoby, `calendar` — wspólne dni robocze. Zamraża się z wynikiem.
+  threshold_basis?: "workdays" | "calendar" | null;
+  workdays_source?:
+    | "nexus"
+    | "compass"
+    | "calendar"
+    | "dynareporter"
+    | "unavailable"
+    | null;
 }
 
 export interface MonthlyRacePrize {
@@ -64,7 +78,34 @@ export interface MonthlyRacePrize {
   name: string;
 }
 
-export interface MonthlyRace {
+// ─────────────────────────────────────────────────────────────────────────────
+// Zamknięcie okresu i źródło liczb — wspólne dla Ligi (`/current`) i wyścigów
+// (`/monthly-races`). NEXUS przejął wyniki 12.10.2026; okresy od 1.01.2026 do
+// 11.10.2026 pochodzą z DynaReportera i są zapisane jako zamknięte, a Q4 2026
+// i październik 2026 łączą oba źródła. Pola są opcjonalne: starszy backend ich
+// nie zna, a brak pola nie może zepsuć ekranu.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Jak zamknięto okres: podium zamrożone, bez zwycięzcy albo z remisem. */
+export type CompetitionClosureStatus =
+  | "frozen"
+  | "no_winner"
+  | "tie_pending"
+  | "tie_resolved";
+
+/** Skąd są liczby okresu. */
+export type CompetitionSource = "nexus" | "dynareporter" | "mixed";
+
+export interface CompetitionClosure {
+  /** Okres zamknięty — podium zamrożone, `days_remaining` jest wtedy `null`. */
+  is_frozen?: boolean;
+  closure_status?: CompetitionClosureStatus | null;
+  source?: CompetitionSource | null;
+  /** Gotowe zdanie po polsku do paska nad wynikiem — renderowane dosłownie. */
+  source_note?: string | null;
+}
+
+export interface MonthlyRace extends CompetitionClosure {
   /** Miesiąc wyścigu w formacie `YYYY-MM`. */
   period: string;
   /**
@@ -285,6 +326,100 @@ export function isClosedMonth(period: string, now: Date = new Date()): boolean {
   return period < currentMonthKey(now);
 }
 
+/** Bieżący kwartał w zapisie backendu (`Q4 2026`), w kalendarzu warszawskim. */
+export function currentQuarterKey(now: Date = new Date()): string {
+  const [year, month] = currentMonthKey(now).split("-").map(Number);
+  return `Q${Math.floor((month - 1) / 3) + 1} ${year}`;
+}
+
+/** `Q3 2026` → `[2026, 3]`; nierozpoznany napis → `null`. */
+function parseQuarterKey(period: string): [number, number] | null {
+  const match = /^Q([1-4]) (\d{4})$/.exec(period);
+  return match ? [Number(match[2]), Number(match[1])] : null;
+}
+
+/** Czy kwartał Ligi już się domknął. Nierozpoznany okres = nie wiemy → `false`. */
+export function isClosedQuarter(
+  period: string,
+  now: Date = new Date(),
+): boolean {
+  const parsed = parseQuarterKey(period);
+  const current = parseQuarterKey(currentQuarterKey(now));
+  if (!parsed || !current) return false;
+  return parsed[0] * 4 + parsed[1] < current[0] * 4 + current[1];
+}
+
+/**
+ * Liga DL od Q4 2026 szereguje po hit ratio i nie ma nagród (decyzja Artura
+ * 25.10.2026). Kwartały wcześniejsze rozliczono po placementach, z nagrodami —
+ * ich karta pokazuje placementy. Nierozpoznany okres = liga bieżąca.
+ */
+export function dlLeagueByHitRatio(period: string | null | undefined): boolean {
+  const parsed = period ? parseQuarterKey(period) : null;
+  if (!parsed) return true;
+  return parsed[0] * 4 + parsed[1] >= 2026 * 4 + 4;
+}
+
+/**
+ * Pierwszy okres z wynikami w NEXUS-ie — styczeń 2026. Wcześniejszych wyników
+ * z DynaReportera nie przenosiliśmy, więc lista wyboru zaczyna się tutaj.
+ */
+const FIRST_RESULTS_YEAR = 2026;
+
+export interface CompetitionPeriodOption {
+  /** Okres w zapisie backendu: `2026-07` albo `Q3 2026`. */
+  value: string;
+  label: string;
+  /** Trwający okres — wybór go wysyła zapytanie BEZ `period`. */
+  current: boolean;
+}
+
+/** Miesiące od stycznia 2026 do bieżącego, najnowszy pierwszy. */
+export function monthPeriodOptions(
+  now: Date = new Date(),
+): CompetitionPeriodOption[] {
+  let [year, month] = currentMonthKey(now).split("-").map(Number);
+  const options: CompetitionPeriodOption[] = [];
+  // Bieżący okres jest na liście zawsze, nawet przy zegarze sprzed 2026.
+  do {
+    const value = `${year}-${String(month).padStart(2, "0")}`;
+    const current = options.length === 0;
+    options.push({
+      value,
+      label: current ? `${formatMonthPl(value)} · trwa` : formatMonthPl(value),
+      current,
+    });
+    month -= 1;
+    if (month === 0) {
+      month = 12;
+      year -= 1;
+    }
+  } while (year >= FIRST_RESULTS_YEAR);
+  return options;
+}
+
+/** Kwartały od Q1 2026 do bieżącego, najnowszy pierwszy. */
+export function quarterPeriodOptions(
+  now: Date = new Date(),
+): CompetitionPeriodOption[] {
+  let [year, quarter] = parseQuarterKey(currentQuarterKey(now)) ?? [
+    FIRST_RESULTS_YEAR,
+    1,
+  ];
+  const options: CompetitionPeriodOption[] = [];
+  do {
+    const value = `Q${quarter} ${year}`;
+    const current = options.length === 0;
+    options.push({ value, label: current ? `${value} · trwa` : value, current });
+    quarter -= 1;
+    if (quarter === 0) {
+      quarter = 4;
+      year -= 1;
+    }
+  } while (year >= FIRST_RESULTS_YEAR);
+  return options;
+}
+
 /**
  * Miesiąc (`YYYY-MM`) z okna rozwiązanego PRZEZ SERWER.
  *
@@ -307,8 +442,12 @@ export interface MyCompetitionPositionEntry {
   user_id: number;
   name: string;
   metric_value: number;
-  rank?: number;
+  /** `null` = na liście, ale bez miejsca w klasyfikacji nagrodowej. */
+  rank?: number | null;
   placements?: number | null;
+  /** Liga DL: placementy ÷ zamknięte rekrutacje; `null` = brak zamkniętych. */
+  hit_ratio?: number | null;
+  qualified?: boolean;
 }
 
 export interface MyCompetitionPosition {
@@ -318,6 +457,86 @@ export interface MyCompetitionPosition {
   me: MyCompetitionPositionEntry | null;
   context: MyCompetitionPositionEntry[];
   total: number;
+}
+
+/** Wiersz rankingu Ligi widoczny w pasku — te same pola co na „Rywalizacji”. */
+export interface LeagueRow {
+  /** `null` = na liście, ale bez miejsca w klasyfikacji (próg niespełniony). */
+  rank: number | null;
+  user_id: number;
+  name: string;
+  /** Punkty (liga rekruterów) albo placementy (liga DL). */
+  metric_value: number;
+  /** Wynik ligi DL od Q4 2026; `null` = brak zamkniętych rekrutacji. */
+  hit_ratio?: number | null;
+  prize_pln: number | null;
+  /** Remis na płatnym miejscu, którego regulamin nie rozstrzyga. */
+  tied: boolean;
+}
+
+/** Własny wiersz osoby — wiersz rankingu z rozbiciem wyniku. */
+export interface LeagueMe extends LeagueRow {
+  qualified?: boolean;
+  placements?: number;
+  interviews?: number;
+  recommendations?: number;
+}
+
+export interface LeagueStanding {
+  /** `null` = osoby nie ma w rankingu (zero punktów albo DL bez portfela). */
+  me: LeagueMe | null;
+  rank: number | null;
+  /** Punkty (liga rekruterów) albo hit ratio w % (liga DL); dystanse w tej samej jednostce. */
+  value: number;
+  /** Pozycja po samym wyniku, także bez miejsca w klasyfikacji. */
+  position_by_value: number | null;
+  gap_to_place_above: number | null;
+  lead_over_next: number | null;
+  /** Ile brakuje do wyniku 3. miejsca (miejsce ≥ 4 albo bez miejsca). */
+  gap_to_podium: number | null;
+  /** O które miejsce jest remis do decyzji admina (z grupy remisu, nie z flagi wiersza). */
+  tie_for?: number | null;
+  neighbours: LeagueRow[];
+}
+
+/** Liczby Delivery Leada w lidze DL — także poniżej progu. */
+export interface LeagueDlNumbers {
+  placements: number;
+  closed_requests: number;
+  /**
+   * Zamknięte w kwartale jako „nie liczy się” (duplikat, anulowane…) — poza
+   * hit ratio (21.10.2026). Brak = odpowiedź sprzed tej zmiany.
+   */
+  closed_neutral?: number;
+  /** `null` = brak zamkniętych rekrutacji w kwartale (hit ratio niepoliczone). */
+  hit_ratio: number | null;
+  /** Cel hit ratio DL — punkt odniesienia, nie próg ligi. */
+  hit_ratio_target: number;
+  min_placements: number;
+  min_closed_requests?: number;
+  missing_placements: number;
+  missing_closed_requests?: number;
+  /** Miejsce w klasyfikacji: dość placementów i zamkniętych rekrutacji. */
+  qualified: boolean;
+}
+
+/** `/api/competitions/my-league` — przycisk Ligi w górnym pasku. */
+export interface MyLeague {
+  kind: "recruiter" | "delivery_lead" | "spectator";
+  type: CompetitionTypeKey;
+  /** „Q4 2026”. */
+  period: string;
+  days_remaining: number;
+  prizes_pln: Record<string, number>;
+  total: number;
+  /** Rekruter i Delivery Lead. */
+  standing?: LeagueStanding;
+  /** Osoby, które nie grają: pierwsze miejsca ligi rekruterów. */
+  leaders?: LeagueRow[];
+  points_formula?: { placement: number; interview: number; recommendation: number };
+  required_placements?: number;
+  required_placements_by_month?: number[];
+  dl?: LeagueDlNumbers;
 }
 
 export const racesApi = {
@@ -339,7 +558,9 @@ export const racesApi = {
 
   /**
    * Pozycja zalogowanej osoby w bieżącym konkursie (`/my-position`): numer
-   * miejsca, własny wpis i ±2 sąsiadów. `rank: null` = poza rankingiem.
+   * miejsca, własny wpis i ±2 sąsiadów. `rank: null` i `me: null` = poza
+   * rankingiem; `rank: null` przy wpisie `me` = na liście, ale bez miejsca
+   * w klasyfikacji nagrodowej (niezakwalifikowany, wykluczony).
    */
   myPosition: (type: CompetitionTypeKey) =>
     api
@@ -347,6 +568,10 @@ export const racesApi = {
         params: { type },
       })
       .then((r) => r.data),
+
+  /** Liga zalogowanej osoby do przycisku w górnym pasku (serwer trzyma 5 min). */
+  myLeague: () =>
+    api.get<MyLeague>("/api/competitions/my-league").then((r) => r.data),
 
   /** Zamrożone podia z `competition_winners`. */
   history: (type: CompetitionTypeKey, limit = 6) =>

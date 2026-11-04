@@ -31,20 +31,25 @@ Po utworzeniu szkicu wiersz dostaje prawdziwe identyfikatory; awaria po tym
 momencie zostawia wiersz w stanie ``uncertain`` (mail mógł wyjść), awaria
 przed nim zwalnia rezerwację (mail na pewno nie wyszedł).
 
-``commit_reservation=True`` (endpointy API) commituje rezerwację, więc
-równoległe żądanie widzi ją od razu. Automaty trzymające własną transakcję
-(harmonogram maili odrzucenia z blokadą wiersza) zostają przy domyślnym
-``False`` — wtedy wzajemne wykluczenie daje sam UNIQUE (drugi INSERT czeka na
-koniec pierwszej transakcji).
+``commit_reservation=True`` (endpointy API i harmonogram maili odrzucenia)
+commituje rezerwację, więc równoległe żądanie widzi ją od razu, a anulowanie
+albo padnięty commit PO wysyłce nie cofa jej razem z transakcją wołającego
+(inaczej ponowienie wysłałoby drugi mail — audyt 25.09.2026, R3-6). Domyślne
+``False`` = wzajemne wykluczenie daje sam UNIQUE (drugi INSERT czeka na koniec
+pierwszej transakcji).
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import logging
+import re
 import uuid
+from dataclasses import dataclass
+from html import escape as html_escape
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -62,16 +67,19 @@ from app.services.m365.actionable_messages import (
 )
 from app.services.m365.access import require_eligible_connection_owner
 from app.services.m365.graph_client import GraphClient, GraphRequestError
-from app.services.m365.html_sanitize import html_to_text, sanitize_html
-from app.services.m365.signature_cache import get_outlook_signature
+from app.services.m365.html_sanitize import (
+    html_to_text,
+    sanitize_html,
+    sanitize_signature_html,
+)
+from app.services.m365.signature_cache import InlineImage, get_outlook_signature
 
 logger = logging.getLogger(__name__)
 
-# Phase 7.7 — visible divider between body and pulled signature so it's
-# obvious in the rendered mail where the user's signature begins. The
-# class hook lets the frontend (and our future inline editor) collapse
-# the block if needed.
-_SIGNATURE_DIVIDER = '<br><br><div class="nexus-signature">--</div>'
+# Phase 7.7 — stopka idzie pod treścią po jednym pustym wierszu, jak
+# w Outlooku. Do 26.10.2026 NEXUS wstawiał nad nią „--”, którego Outlook nie
+# ma. Klasa zostaje jako uchwyt bloku stopki.
+_SIGNATURE_OPEN = '<br><div class="nexus-signature">'
 
 # Outlook treats this header as the "this message has Actionable Messages"
 # signal — without it the JSON-LD `OpenAction` block is ignored and the user
@@ -115,8 +123,8 @@ class EmailSendConflict(RuntimeError):
 
 
 def _append_signature(body_html: str, signature_html: str) -> str:
-    """Concat signature onto a body separated by a visible divider."""
-    return body_html + _SIGNATURE_DIVIDER + signature_html
+    """Treść, pusty wiersz i stopka (bez „--”)."""
+    return body_html + _SIGNATURE_OPEN + signature_html + "</div>"
 
 
 def _sha(value: str) -> str:
@@ -283,20 +291,76 @@ def _definitely_not_sent(exc: BaseException) -> bool:
 
 async def _signature_body(
     gc: GraphClient, connection: M365Connection, body: str
-) -> str:
+) -> tuple[str, tuple[InlineImage, ...]]:
     # Phase 7.7 — append the user's Outlook signature so NEXUS-sent mail
     # matches what they'd get from Outlook itself. Memoized for 24h per
     # mailbox; failures are silent (no signature is better than no send).
+    # HTML stopki jest już oczyszczony w signature_cache (z jej stylami).
     if not settings.M365_SIGNATURE_INJECTION_ENABLED:
-        return body
-    signature_html = await get_outlook_signature(
+        return body, ()
+    signature = await get_outlook_signature(
         gc,
         user_id=connection.user_id,
         mailbox_upn=connection.mailbox_upn,
     )
-    if signature_html:
-        return _append_signature(body, sanitize_html(signature_html))
-    return body
+    if signature is not None and signature.html:
+        return _append_signature(body, signature.html), signature.inline_images
+    return body, ()
+
+
+async def _attach_inline_images(
+    gc: GraphClient, message_id: str, images: tuple[InlineImage, ...]
+) -> None:
+    """Dołącz logo stopki do szkicu, żeby ``cid:`` w treści miał obrazek.
+
+    Błąd = mail bez logo (pusta ramka), ale wysłany — jak przy samej stopce.
+    """
+    for image in images:
+        try:
+            await gc.post(
+                f"/me/messages/{message_id}/attachments",
+                json={
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": image.name,
+                    "contentType": image.content_type,
+                    "contentBytes": image.content_bytes,
+                    "contentId": image.content_id,
+                    "isInline": True,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — logo nie blokuje wysyłki
+            logger.warning(
+                "m365 sender: signature image not attached to draft (%s)",
+                type(exc).__name__,
+            )
+
+
+@dataclass(frozen=True)
+class FileAttachment:
+    """Plik dołączany do maila (np. kopia umowy dla kontraktora, 26.10.2026).
+
+    Graph przyjmuje tą drogą pliki do 3 MB; podpisana umowa ma setki KB."""
+
+    name: str
+    content_type: str
+    data: bytes
+
+
+async def _attach_files(
+    gc: GraphClient, message_id: str, files: Sequence[FileAttachment]
+) -> None:
+    """Załącznik to treść maila: błąd przerywa wysyłkę (inaczej niż logo)."""
+    for item in files:
+        await gc.post(
+            f"/me/messages/{message_id}/attachments",
+            json={
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": item.name,
+                "contentType": item.content_type,
+                "contentBytes": base64.b64encode(item.data).decode("ascii"),
+                "isInline": False,
+            },
+        )
 
 
 DraftBuilder = Callable[[GraphClient], Awaitable[dict[str, Any]]]
@@ -409,16 +473,24 @@ async def send_new(
     candidate_id: Optional[int] = None,
     client_request_id: Optional[str] = None,
     commit_reservation: bool = False,
+    attachments: Sequence[FileAttachment] = (),
+    styled_body: bool = False,
 ) -> Email:
     """Send a brand-new message from the connected mailbox.
 
     Returns the persisted local Email row (direction=sent). Ponowienie z tym
     samym kluczem zwraca wcześniejszy wiersz bez drugiego wywołania Graph albo
     rzuca ``EmailSendConflict`` (wysyłka w toku / wynik nieznany).
+
+    ``styled_body``: treść z szablonu NEXUSA (np. maile podpisu umów) — style
+    z listy dozwolonych zostają jak w stopce; tekst wpisany przez człowieka
+    idzie dalej przez ``sanitize_html`` bez stylów.
     """
     await require_eligible_connection_owner(db, connection)
     cc = cc or []
-    body_html = sanitize_html(body_html)
+    body_html = (
+        sanitize_signature_html(body_html) if styled_body else sanitize_html(body_html)
+    )
 
     now = datetime.now(timezone.utc)
     if client_request_id:
@@ -449,6 +521,7 @@ async def send_new(
         now=now,
         idempotency_key=idempotency_key,
     )
+    row.has_attachments = bool(attachments)
     replay = await _reserve(db, row, commit=commit_reservation)
     if replay is not None:
         logger.info(
@@ -459,7 +532,7 @@ async def send_new(
         return replay
 
     async def _create(gc: GraphClient) -> dict[str, Any]:
-        full_body = await _signature_body(gc, connection, body_html)
+        full_body, images = await _signature_body(gc, connection, body_html)
         if full_body != body_html:
             _set_body(row, full_body)
         payload = {
@@ -468,7 +541,10 @@ async def send_new(
             "toRecipients": [{"emailAddress": {"address": a}} for a in to],
             "ccRecipients": [{"emailAddress": {"address": a}} for a in cc],
         }
-        return await gc.post("/me/messages", json=payload)
+        draft = await gc.post("/me/messages", json=payload)
+        await _attach_inline_images(gc, draft["id"], images)
+        await _attach_files(gc, draft["id"], attachments)
+        return draft
 
     return await _deliver(
         db, connection, row, create_draft=_create, commit=commit_reservation
@@ -577,6 +653,28 @@ async def send_interview_invitation(
     )
 
 
+_BODY_OPEN_RE = re.compile(r"<body\b[^>]*>", re.IGNORECASE)
+
+
+def _with_quoted_history(reply_html: str, draft: Any) -> str:
+    """Nasza odpowiedź + cytat wątku z szkicu ``createReply``.
+
+    Szkic bez treści (albo w tekście) = sama odpowiedź, jak dotąd.
+    """
+    body = draft.get("body") if isinstance(draft, dict) else None
+    if not isinstance(body, dict):
+        return reply_html
+    quoted = body.get("content") or ""
+    if not quoted.strip():
+        return reply_html
+    if (body.get("contentType") or "").lower() != "html":
+        quoted = "<pre>" + html_escape(quoted) + "</pre>"
+    opening = _BODY_OPEN_RE.search(quoted)
+    if opening is None:
+        return reply_html + quoted
+    return quoted[: opening.end()] + reply_html + quoted[opening.end() :]
+
+
 async def reply(
     db: AsyncSession,
     connection: M365Connection,
@@ -636,16 +734,25 @@ async def reply(
     async def _create(gc: GraphClient) -> dict[str, Any]:
         # Phase 7.7 — createReply auto-quotes the thread but does NOT include
         # the user's signature, so we still need to append it.
-        full_body = await _signature_body(gc, connection, body_html)
+        full_body, images = await _signature_body(gc, connection, body_html)
         if full_body != body_html:
             _set_body(row, full_body)
         # 1) Create reply draft (Graph fills in recipients, subject, history).
         draft = await gc.post(f"/me/messages/{original_graph_id}/createReply", json={})
-        # 2) Patch the body.
+        # 2) Patch the body. PATCH `body` ZASTĘPUJE całą treść szkicu, łącznie
+        # z cytatem, który wstawił createReply — dlatego naszą treść wstawiamy
+        # przed cytatem z odpowiedzi createReply (runda 7, R7-V1-3; do tego
+        # dnia odpowiedź z NEXUSA wychodziła bez historii wątku).
         await gc.patch(
             f"/me/messages/{draft['id']}",
-            json={"body": {"contentType": "HTML", "content": full_body}},
+            json={
+                "body": {
+                    "contentType": "HTML",
+                    "content": _with_quoted_history(full_body, draft),
+                }
+            },
         )
+        await _attach_inline_images(gc, draft["id"], images)
         return draft
 
     return await _deliver(

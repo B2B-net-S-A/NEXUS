@@ -121,7 +121,7 @@ async def world(app_client: AsyncClient):
             ).json()["access_token"]
         )
     }
-    author_h, author_id = await _seed_user(app_client, "sourcer")
+    author_h, author_id = await _seed_user(app_client, "recruiter")
     runner_h, runner_id = await _seed_user(app_client, "recruiter")
     outsider_h, _ = await _seed_user(app_client, "recruiter")
     finance_h, _ = await _seed_user(app_client, "finance")

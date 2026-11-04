@@ -164,9 +164,16 @@ HANDLED_FOREIGN_KEYS: tuple[tuple[str, str], ...] = (
     ("client_order_offboarding_cases", "order_id"),
     ("client_order_offboarding_cases", "target_order_id"),
     ("client_orders", "predecessor_order_id"),
+    # Dopisane 18.10.2026 (faktury do klientów z KSeF): korekta przeszła na
+    # produkcji wcześniej (paragon `0306_pfron_renewal_split_repair`), więc
+    # wiązań faktur z zamówieniami nie ma czego przenosić.
+    ("client_sales_invoice_links", "order_id"),
     ("contract_client_rates", "source_order_id"),
     ("dl_alerts", "order_id"),
     ("md_consumption_import_rows", "matched_order_id"),
+    # Dopisane 21.10.2026 (0492, wiersz czekający na kolejne zamówienie):
+    # korekta przeszła na produkcji wcześniej, kolumny wtedy nie było.
+    ("md_consumption_import_rows", "awaiting_origin_order_id"),
     ("order_mail_documents", "applied_order_id"),
 )
 

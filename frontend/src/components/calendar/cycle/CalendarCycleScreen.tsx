@@ -5,10 +5,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarPlus } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { useToast } from "@/components/Toast";
 import WeekCalendar from "@/components/calendar/WeekCalendar";
 import { useInterviewCycle } from "@/lib/api/interviewCycle";
 import {
+  chosenSlotIndex,
   interviewStartFor,
+  linkedStepAction,
   pairKey,
   parseCycleParam,
   parseScope,
@@ -18,8 +21,10 @@ import {
   type CycleScope,
   type CycleView,
   type PairInfo,
+  type Prep2Skip,
   type SlotRequest,
 } from "@/lib/interview-cycle";
+import { prepInterviewForPair } from "@/lib/prep-timing";
 import { resolveViewState } from "@/lib/view-state";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
@@ -29,7 +34,9 @@ import { CycleBoard } from "./CycleBoard";
 import { CycleCandidateSheet } from "./CycleCandidatePanel";
 import { DebriefModal } from "./DebriefModal";
 import { PlanPrepDialog } from "./PlanPrepDialog";
-import { PrepReviewDialog } from "./PrepReviewDialog";
+import { PrecallDoneDialog } from "./Prep2Skip";
+import { PrepReviewDialog, type PrepReviewTab } from "./PrepReviewDialog";
+import { ReschedulePrepDialog } from "./ReschedulePrepDialog";
 import { SlotDecisionDialog, SlotRequestDialog } from "./SlotDialogs";
 
 const VIEWS: { value: CycleView; label: string }[] = [
@@ -38,11 +45,25 @@ const VIEWS: { value: CycleView; label: string }[] = [
 ];
 
 type Dialog =
-  | { kind: "debrief"; pair: PairInfo; eventId: number }
-  | { kind: "pick" | "confirm"; pair: PairInfo; request: SlotRequest }
+  | { kind: "debrief"; pair: PairInfo; eventId: number | null }
+  | {
+      kind: "pick" | "confirm" | "reply";
+      pair: PairInfo;
+      request: SlotRequest;
+      /** Termin zaznaczony z linku maila (`&choose=N`). */
+      initialIndex?: number | null;
+    }
   | { kind: "prep"; pair: PairInfo; second: boolean }
-  | { kind: "prep_review"; pair: PairInfo; eventId: number }
-  | { kind: "slots"; pair: PairInfo | null }
+  | { kind: "prep_review"; pair: PairInfo; eventId: number; tab?: PrepReviewTab }
+  | { kind: "slots"; pair: PairInfo | null; request?: SlotRequest | null }
+  | {
+      kind: "reschedule_prep";
+      pair: PairInfo;
+      eventId: number;
+      prepNo: 1 | 2;
+      mode?: "late" | "edit" | "cancel";
+    }
+  | { kind: "precall_done"; pair: PairInfo; skip: Prep2Skip }
   | null;
 
 /**
@@ -76,17 +97,22 @@ export function CalendarCycleScreen({
   // Lustro `_SLOT_OWNER_ROLES` (interview_cycle.py) + sufit sekcji Pipeline
   // (router stoi za PIPELINE_SECTION_DEPENDENCIES; zapis terminów, U8).
   const canManageSlots =
-    hasRole(user, "admin", "head_of_recruitment", "delivery_lead", "tac") &&
+    hasRole(user, "admin", "head_of_recruitment", "delivery_lead") &&
     hasSectionAccess(user, "pipeline", "write");
   const isOversight = hasRole(user, "admin", "head_of_recruitment");
   // Delivery patrzy domyślnie na swoje rekrutacje, rekruter na swoich kandydatów.
-  const defaultScope: CycleScope = hasRole(user, "delivery_lead", "tac") ? "jobs" : "mine";
+  const defaultScope: CycleScope = hasRole(user, "delivery_lead") ? "jobs" : "mine";
 
   const view = parseView(params.get("view"), params.get("event") != null);
   const scope = parseScope(params.get("scope"), defaultScope);
   const cycleParam = params.get("cycle");
   // Dzwonek „Zadzwoń do kandydata po rozmowie” niesie `?debrief=<id wydarzenia>`.
   const debriefParam = Number(params.get("debrief")) || null;
+  // Przycisk z maila: `?do=<krok>` (+ `&choose=N` przy wyborze terminu).
+  const stepParam = params.get("do");
+  const chooseParam = params.get("choose");
+  const requestParam = params.get("req");
+  const toast = useToast();
 
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -137,6 +163,65 @@ export function CalendarCycleScreen({
     router.replace(qs ? `${basePath}?${qs}` : basePath);
   };
 
+  // Runda 10 (R10-N15-4): link z dzwonka (`?cycle=`, `?debrief=`) wskazuje
+  // parę, której może nie być w domyślnym zakresie — HoR dostaje dzwonek
+  // o słabym prepie cudzego rekrutera, a jego domyślny zakres to „mine”.
+  // Taki link przełącza raz na szerszy dostępny zakres, a gdy szerszego nie
+  // ma, ekran mówi to wprost zamiast otwierać Tablicę bez panelu.
+  const wantedPair = parseCycleParam(cycleParam);
+  const wantedKey = wantedPair ? `${wantedPair.candidateId}-${wantedPair.jobId}` : null;
+  const widerScope: CycleScope | null = isOversight
+    ? scope === "all"
+      ? null
+      : "all"
+    : scope === "mine"
+      ? "jobs"
+      : null;
+  const linkTargetMissing =
+    view === "board" &&
+    !!data &&
+    ((wantedKey != null && !data.items.some((i) => pairKey(i) === wantedKey)) ||
+      (debriefParam != null && !data.items.some((i) => i.interview_event_id === debriefParam)));
+  const widenedFor = useRef<string | null>(null);
+  const linkToken = `${cycleParam ?? ""}|${debriefParam ?? ""}`;
+  useEffect(() => {
+    if (!linkTargetMissing || !widerScope || widenedFor.current === linkToken) return;
+    widenedFor.current = linkToken;
+    setParams({ scope: widerScope === defaultScope ? null : widerScope });
+    // `setParams` czyta bieżące parametry — wystarczy reagować na wynik listy.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkTargetMissing, widerScope, linkToken]);
+
+  // Przycisk z maila (26.10.2026) otwiera okno kroku, na którym para stoi —
+  // potwierdza człowiek w oknie, link sam niczego nie zapisuje. Krok już
+  // zrobiony albo cudzy: zostaje panel pary i zdanie, dlaczego bez okna.
+  // Parametry znikają z adresu po obsłużeniu, więc F5 nie otwiera okna drugi raz.
+  const openedStep = useRef<string | null>(null);
+  useEffect(() => {
+    if (!stepParam || !wantedKey || !data) return;
+    const token = `${wantedKey}|${stepParam}|${chooseParam ?? ""}`;
+    if (openedStep.current === token) return;
+    const item = data.items.find((i) => pairKey(i) === wantedKey);
+    if (!item) return;
+    openedStep.current = token;
+    const action = linkedStepAction(item, stepParam, { canManageSlots });
+    if (action?.type === "pick") {
+      setDialog({
+        kind: "pick",
+        pair: action.pair,
+        request: action.request,
+        initialIndex: chosenSlotIndex(chooseParam, action.request, requestParam),
+      });
+    } else if (action) {
+      onAction(action);
+    } else {
+      toast.showInfo("Ten krok jest już zrobiony albo czeka na kogoś innego — poniżej stan rozmowy.");
+    }
+    setParams({ do: null, choose: null, req: null });
+    // `onAction` i `setParams` czytają bieżący stan — reagujemy na dane i link.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepParam, chooseParam, wantedKey, data, canManageSlots]);
+
   const onAction = (action: CycleAction) => {
     switch (action.type) {
       case "debrief":
@@ -144,16 +229,29 @@ export function CalendarCycleScreen({
         break;
       case "pick":
       case "confirm":
+      case "reply":
         setDialog({ kind: action.type, pair: action.pair, request: action.request });
         break;
       case "plan_prep":
         setDialog({ kind: "prep", pair: action.pair, second: action.second });
         break;
       case "prep_review":
-        setDialog({ kind: "prep_review", pair: action.pair, eventId: action.eventId });
+        setDialog({ kind: "prep_review", pair: action.pair, eventId: action.eventId, tab: action.tab });
         break;
       case "add_slots":
-        setDialog({ kind: "slots", pair: action.pair });
+        setDialog({ kind: "slots", pair: action.pair, request: action.request });
+        break;
+      case "reschedule_prep":
+        setDialog({
+          kind: "reschedule_prep",
+          pair: action.pair,
+          eventId: action.eventId,
+          prepNo: action.prepNo,
+          mode: action.mode,
+        });
+        break;
+      case "precall_done":
+        setDialog({ kind: "precall_done", pair: action.pair, skip: action.skip });
         break;
       case "open_event": {
         // Zakres zostaje — po powrocie na Tablicę użytkownik widzi ten sam zespół.
@@ -249,6 +347,25 @@ export function CalendarCycleScreen({
           }}
         />
       )}
+      {linkTargetMissing && !widerScope ? (
+        <div
+          role="status"
+          data-testid="cycle-link-out-of-scope"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-foreground"
+        >
+          <span>
+            Kandydata z tego linku nie ma w Twoim zakresie — rozmowę prowadzi ktoś spoza
+            Twoich rekrutacji albo cykl już się zakończył.
+          </span>
+          <button
+            type="button"
+            onClick={() => setParams({ cycle: null, debrief: null })}
+            className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted"
+          >
+            Zamknij
+          </button>
+        </div>
+      ) : null}
       {view === "board" && data ? (
         <CycleCandidateSheet
           item={data.items.find((i) => pairKey(i) === selectedKey) ?? null}
@@ -286,13 +403,17 @@ export function CalendarCycleScreen({
         open={dialog?.kind === "slots"}
         onOpenChange={(o) => !o && setDialog(null)}
         pair={dialog?.kind === "slots" ? dialog.pair : null}
+        request={dialog?.kind === "slots" ? dialog.request : null}
       />
       <SlotDecisionDialog
-        open={dialog?.kind === "pick" || dialog?.kind === "confirm"}
+        open={dialog?.kind === "pick" || dialog?.kind === "confirm" || dialog?.kind === "reply"}
         onOpenChange={(o) => !o && setDialog(null)}
-        mode={dialog?.kind === "confirm" ? "confirm" : "pick"}
-        pair={dialog?.kind === "pick" || dialog?.kind === "confirm" ? dialog.pair : null}
-        request={dialog?.kind === "pick" || dialog?.kind === "confirm" ? dialog.request : null}
+        mode={dialog?.kind === "confirm" || dialog?.kind === "reply" ? dialog.kind : "pick"}
+        pair={dialog?.kind === "pick" || dialog?.kind === "confirm" || dialog?.kind === "reply" ? dialog.pair : null}
+        request={
+          dialog?.kind === "pick" || dialog?.kind === "confirm" || dialog?.kind === "reply" ? dialog.request : null
+        }
+        initialIndex={dialog?.kind === "pick" ? dialog.initialIndex : null}
       />
       {dialog?.kind === "prep" ? (
         <PlanPrepDialog
@@ -300,6 +421,26 @@ export function CalendarCycleScreen({
           onOpenChange={(o) => !o && setDialog(null)}
           pair={dialog.pair}
           prepNo={dialog.second ? 2 : 1}
+          interview={prepInterviewForPair(data, dialog.pair)}
+        />
+      ) : null}
+      {dialog?.kind === "precall_done" ? (
+        <PrecallDoneDialog
+          open
+          onOpenChange={(o) => !o && setDialog(null)}
+          pair={dialog.pair}
+          skip={dialog.skip}
+        />
+      ) : null}
+      {dialog?.kind === "reschedule_prep" ? (
+        <ReschedulePrepDialog
+          open
+          onOpenChange={(o) => !o && setDialog(null)}
+          eventId={dialog.eventId}
+          pair={dialog.pair}
+          prepNo={dialog.prepNo}
+          mode={dialog.mode}
+          interview={prepInterviewForPair(data, dialog.pair)}
         />
       ) : null}
       <PrepReviewDialog
@@ -307,6 +448,7 @@ export function CalendarCycleScreen({
         onOpenChange={(o) => !o && setDialog(null)}
         eventId={dialog?.kind === "prep_review" ? dialog.eventId : null}
         pair={dialog?.kind === "prep_review" ? dialog.pair : null}
+        initialTab={dialog?.kind === "prep_review" ? (dialog.tab ?? "score") : "score"}
       />
     </div>
   );

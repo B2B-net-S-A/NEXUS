@@ -28,6 +28,28 @@ from app.services import job_similarity as sim
 _BACKEND = Path(__file__).resolve().parents[1]
 
 
+def force_lexical_similarity(monkeypatch) -> None:
+    """Qdrant „nie odpowiada” — sugestie liczy zapasowy wzór leksykalny.
+
+    Od 30.09.2026 ranking idzie po wektorach rekrutacji; testy tego pliku
+    sprawdzają JAWNIE ścieżkę zapasową (bez wektorów w CI nie ma czego
+    porównać), a ranking wektorowy — ``test_job_similar_vector.py``."""
+    from app.services import embedding_service  # noqa: PLC0415
+    from app.services import full_search_measurement  # noqa: PLC0415
+
+    async def _unavailable(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(embedding_service, "nearest_jobs_for_job_ids", _unavailable)
+    monkeypatch.setattr(embedding_service, "nearest_jobs_for_vector", _unavailable)
+    monkeypatch.setattr(full_search_measurement, "request_vector", _unavailable)
+
+
+@pytest.fixture(autouse=True)
+def _lexical_similarity(monkeypatch):
+    force_lexical_similarity(monkeypatch)
+
+
 async def _user(role: UserRole) -> tuple[int, dict[str, str]]:
     tag = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
@@ -235,7 +257,9 @@ async def test_suggestions_find_similar_job_and_count_people_sent():
         job_b = await db.get(Job, world["b"])
         found = await sim.suggestions_for_job(db, job_b, limit=50)
         sent = await sim.sent_counts(db, [world["a"]])
-    ids = [p.id for p, _ in found]
+    ids = [s.job.id for s in found]
+    assert {s.kind for s in found} == {sim.KIND_LEXICAL}
+    assert all(s.similarity >= sim.MIN_SCORE for s in found)
     assert world["a"] in ids
     assert world["b"] not in ids
     assert sent[world["a"]] == 2
@@ -251,6 +275,11 @@ async def test_request_status_rule():
         assert statuses == {world["a"]: "closed", world["b"]: "searching"}
         job_b = await db.get(Job, world["b"])
         job_b.champion_found_at = datetime.now(timezone.utc)
+        await db.commit()
+        # Runda 12 (BACK-1): champion liczy się wyłącznie przy „Szukamy” —
+        # przy „Do przejrzenia” zostaje status „Szukamy”, jak pigułka stanu.
+        assert (await sim.request_statuses(db, [world["b"]]))[world["b"]] == "searching"
+        job_b.work_state = "searching"
         await db.commit()
         assert (await sim.request_statuses(db, [world["b"]]))[world["b"]] == "champion"
         db.add(
@@ -288,6 +317,8 @@ async def test_similar_api_links_and_lists_reassign_source(
     )
     assert got.status_code == 200, got.text
     assert world["a"] in [s["id"] for s in got.json()["suggestions"]]
+    # Bez wektora (Qdrant nie odpowiada) — dawny wzór, oznaczony jako taki.
+    assert {s["similarity_kind"] for s in got.json()["suggestions"]} == {"lexical"}
 
     linked = await app_client.post(
         f"/api/jobs/{world['b']}/similar",
@@ -389,6 +420,7 @@ async def test_preview_suggests_for_unsaved_job(
     assert response.status_code == 200, response.text
     ids = [s["id"] for s in response.json()["suggestions"]]
     assert world["a"] in ids and world["b"] in ids
+    assert {s["similarity_kind"] for s in response.json()["suggestions"]} == {"lexical"}
 
 
 async def test_champion_found_is_delivery_lead_decision(
@@ -396,19 +428,30 @@ async def test_champion_found_is_delivery_lead_decision(
 ):
     recruiter_id, recruiter = await _user(UserRole.recruiter)
     world = await _world(recruiter_id=recruiter_id)
+    # Runda 12 (BACK-1): „Mamy championa” = champion przy „Szukamy”.
+    async with AsyncSessionLocal() as db:
+        job_b = await db.get(Job, world["b"])
+        job_b.work_state = "searching"
+        await db.commit()
     denied = await app_client.post(
         f"/api/jobs/{world['b']}/champion-found",
         json={"found": True},
         headers=recruiter,
     )
     assert denied.status_code == 403
-    ok = await app_client.post(
+    # 0450 (D1, 15.10.2026): champion to osoba — „oznacz” bez osoby odpada,
+    # wskazuje się go listą `PUT /api/jobs/{id}/champions`
+    # (`test_job_champions.py`). Tu flaga jak sprzed zmiany.
+    refused = await app_client.post(
         f"/api/jobs/{world['b']}/champion-found",
         json={"found": True},
         headers=app_auth_headers,
     )
-    assert ok.status_code == 200, ok.text
-    assert ok.json()["champion_found"] is True
+    assert refused.status_code == 422, refused.text
+    async with AsyncSessionLocal() as db:
+        job_b = await db.get(Job, world["b"])
+        job_b.champion_found_at = datetime.now(timezone.utc)
+        await db.commit()
 
     listed = await app_client.get(
         "/api/jobs",
@@ -472,11 +515,23 @@ def test_entrypoint_mirrors_0341():
         for s in statements
         if s.startswith("CREATE TABLE IF NOT EXISTS job_similar_links (")
     )
+    # 0615 (bliźniaki) dokłada kolumny i CHECK osobnymi poleceniami.
+    added = " ".join(
+        s
+        for s in statements
+        if s.startswith(("ALTER TABLE job_similar_links", "DO $$"))
+    )
     for column in table.columns:
-        assert f" {column.name} " in create or f"({column.name} " in create, column.name
+        assert (
+            f" {column.name} " in create
+            or f"({column.name} " in create
+            or f"ADD COLUMN IF NOT EXISTS {column.name} " in added
+        ), column.name
     for constraint in table.constraints:
         if constraint.name and constraint.name.startswith(("uq_", "ck_")):
-            assert str(constraint.name) in create, constraint.name
+            assert str(constraint.name) in create or str(constraint.name) in added, (
+                constraint.name
+            )
     for index in table.indexes:
         assert any(
             s.startswith(f"CREATE INDEX IF NOT EXISTS {index.name} ")

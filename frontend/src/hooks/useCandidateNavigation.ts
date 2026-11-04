@@ -216,6 +216,7 @@ export function useCandidateNavigation(opts: Options): NavigationState {
     const handler = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
       if (isInputActive()) return;
+      if (typeof e.key !== "string" || !e.key) return;
       if (e.key.toLowerCase() === "k") {
         e.preventDefault();
         goPrev();

@@ -23,18 +23,34 @@ WORKDIR /app
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ARG NEXT_PUBLIC_SENTRY_DSN
 ARG NEXT_PUBLIC_GIT_SHA
+# Coolify w aplikacji z Dockerfile podaje SHA jako SOURCE_COMMIT, a w compose
+# jako NEXT_PUBLIC_GIT_SHA.
+ARG SOURCE_COMMIT
 # Host strony kariery — middleware czyta go z bundla (inline w czasie builda).
 ARG NEXT_PUBLIC_CAREER_HOST
+# Harnessy /preview/* bez logowania — WYŁĄCZNIE stack E2E (docker-compose.e2e.yml).
+# Produkcja (Coolify, docker-compose.yml) nie przekazuje tego arga: puste = po zalogowaniu.
+ARG NEXT_PUBLIC_PREVIEW_PUBLIC
+# `staging` = staging na laptopie (docker-compose.staging.yml): znacznik
+# „STAGING” w rogu i w tytule karty. Produkcja nie przekazuje tego arga.
+ARG NEXT_PUBLIC_NEXUS_ENV
 ARG SENTRY_AUTH_TOKEN
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN}
-ENV NEXT_PUBLIC_GIT_SHA=${NEXT_PUBLIC_GIT_SHA}
+ENV NEXT_PUBLIC_GIT_SHA=${NEXT_PUBLIC_GIT_SHA:-${SOURCE_COMMIT}}
 ENV NEXT_PUBLIC_CAREER_HOST=${NEXT_PUBLIC_CAREER_HOST}
+ENV NEXT_PUBLIC_PREVIEW_PUBLIC=${NEXT_PUBLIC_PREVIEW_PUBLIC}
+ENV NEXT_PUBLIC_NEXUS_ENV=${NEXT_PUBLIC_NEXUS_ENV}
 # SENTRY_AUTH_TOKEN is consumed by withSentryConfig at build time only.
 # Not exported to runtime image (omitted from `runner` stage env block).
 ENV SENTRY_AUTH_TOKEN=${SENTRY_AUTH_TOKEN}
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+# `next build` po module „Ludzie w NEXUSIE” (#2304, 18.10.2026) przekroczył
+# domyślny limit sterty Node'a na serwerze („JavaScript heap out of memory”).
+# 6 GB z ~17 GB wolnych przy równoległym budowaniu backendu. Tylko etap
+# budowania — obraz `runner` dostaje własne ENV bez tej zmiennej.
+ENV NODE_OPTIONS=--max-old-space-size=6144
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # DEP-03: `public/version.json` z SHA builda — smoke test deployu porównuje go
@@ -48,7 +64,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ARG NEXT_PUBLIC_GIT_SHA
-ENV GIT_SHA=${NEXT_PUBLIC_GIT_SHA}
+ARG SOURCE_COMMIT
+ENV GIT_SHA=${NEXT_PUBLIC_GIT_SHA:-${SOURCE_COMMIT}}
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 RUN addgroup --system --gid 1001 nodejs \

@@ -51,6 +51,7 @@ from app.services.cost_orders import skips_standard_order_group_materialization
 from app.services.fx_service import rates_to_pln
 from app.services.multi_consultant_orders import (
     EVENT_CONSULTANT_ADDED,
+    MD_RATE_SCALE,
     format_md,
     is_multi_consultant_client,
 )
@@ -65,17 +66,15 @@ _PLACEHOLDER_TITLE = "(bez numeru)"
 
 
 def md_rate_from_order_rate(rate: Optional[Decimal]) -> Optional[Decimal]:
-    """Stawka zamówienia (Numeric 12,3) → stawka linii MD (Numeric 12,2).
+    """Stawka zamówienia (Numeric 12,3) → stawka linii MD (Numeric 12,3).
 
-    Kolumny ``md_rate_*`` mają 2 miejsca po przecinku, a ``rate_client``
-    trzy (Alior 164.375 — migracja 0149). Kwantyzacja jest tu JAWNA, żeby
-    ewentualna utrata trzeciego miejsca była decyzją tego modułu, a nie cichym
-    przycięciem w bazie. U klientów MD stawki są całkowitozłotowe, więc w
-    praktyce różnica nie występuje.
+    Od 0419 obie kolumny mają trzy miejsca (Alior 164.375 — migracja 0149).
+    Kwantyzacja zostaje JAWNA: wynik przeliczenia (np. waluta × kurs) ma więcej
+    miejsc niż kolumna, a cięcie ma być decyzją tego modułu, nie bazy.
     """
     if rate is None:
         return None
-    return Decimal(str(rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return Decimal(str(rate)).quantize(MD_RATE_SCALE, rounding=ROUND_HALF_UP)
 
 
 #: ``client_orders.rate_client`` / ``rate_candidate`` = Numeric(12, 3).
@@ -371,9 +370,9 @@ async def materialize_group_for_activated_order(
     # PLN/MD. Zachowanie surowych warunków wejściowych należy do eventu/grupy;
     # relabeling bez konwersji był dotychczas źródłem błędu ×8 i EUR→PLN.
     #
-    # Kolumny są WĘŻSZE po stronie zamówienia niż po stronie linii MD:
-    # ``md_rate_*`` to Numeric(12,2) (10 cyfr całkowitych), a ``rate_*``
-    # Numeric(12,3) (9 cyfr). Przepisanie bez sprawdzenia zakresu kończyło się
+    # Kolumny ``md_rate_*`` i ``rate_*`` są dziś obie Numeric(12,3) (9 cyfr
+    # całkowitych; do 0419 ``md_rate_*`` miały 10). Przeliczenie (kurs, ×8)
+    # potrafi wyjść poza zakres, a przepisanie bez sprawdzenia kończyło się
     # ``NumericValueOutOfRangeError`` przy commicie, czyli 500 bez nagłówków
     # CORS — u użytkownika „Network Error" w środku aktywacji zamówienia.
     _assert_fits_order_rate_column(order.md_rate_cost, "kosztowa")

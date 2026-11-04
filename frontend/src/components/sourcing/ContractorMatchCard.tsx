@@ -21,8 +21,10 @@ import {
 import { recommendationsApi, type SeekingContractorRow } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { EmailDraftDialog } from "./EmailDraftDialog";
+import { useToast } from "@/components/Toast";
 import { assignErrorMessage } from "@/lib/assign-error";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
+import { JobNameLabel } from "@/components/v2/jobs/JobNameLabel";
 
 interface Props {
   row: SeekingContractorRow;
@@ -94,6 +96,7 @@ export function ContractorMatchCard({ row }: Props) {
   const [openMenuJobId, setOpenMenuJobId] = useState<number | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftState | null>(null);
+  const { showError, showInfo } = useToast();
 
   const handleProposal = async (jobId: number) => {
     setActionLoading(`proposal-${jobId}`);
@@ -111,7 +114,7 @@ export function ContractorMatchCard({ row }: Props) {
       });
     } catch (e: unknown) {
       const msg = apiErrorMessage(e, "Błąd");
-      alert(`Nie udało się wygenerować propozycji: ${msg}`);
+      showError(`Nie udało się wygenerować propozycji: ${msg}`);
     } finally {
       setActionLoading(null);
     }
@@ -119,7 +122,7 @@ export function ContractorMatchCard({ row }: Props) {
 
   const handleShortlist = async () => {
     if (row.top_matches.length === 0) {
-      alert("Brak rekrutacji do wysłania w shortliście.");
+      showInfo("Brak rekrutacji do wysłania w shortliście.");
       return;
     }
     setActionLoading("shortlist");
@@ -137,7 +140,7 @@ export function ContractorMatchCard({ row }: Props) {
       });
     } catch (e: unknown) {
       const msg = apiErrorMessage(e, "Błąd");
-      alert(`Nie udało się wygenerować shortlistu: ${msg}`);
+      showError(`Nie udało się wygenerować shortlistu: ${msg}`);
     } finally {
       setActionLoading(null);
     }
@@ -149,7 +152,7 @@ export function ContractorMatchCard({ row }: Props) {
       await recommendationsApi.assignToJob(c.id, jobId);
       setAssignedIds((prev) => new Set(prev).add(jobId));
     } catch (e: unknown) {
-      alert(`Nie udało się przypisać: ${assignErrorMessage(e)}`);
+      showError(`Nie udało się przypisać: ${assignErrorMessage(e)}`);
     } finally {
       setAssigningJobId(null);
     }
@@ -246,12 +249,13 @@ export function ContractorMatchCard({ row }: Props) {
                 {/* Na telefonie pigułka ostrzeżenia i przycisk schodzą do drugiej
                     linii zamiast ściskać tytuł rekrutacji do kilku znaków. */}
                 <div className="min-w-0 flex-[1_1_12rem]">
-                  <Link
+                  {/* Numer u klienta i tytuł jak w nagłówku rekrutacji (16.10.2026);
+                      mail do kandydata dalej niesie nazwę od klienta. */}
+                  <JobNameLabel
+                    job={j}
                     href={`/jobs/${j.id}`}
-                    className="font-medium text-sm text-foreground dark:text-foreground hover:underline truncate block"
-                  >
-                    {j.title}
-                  </Link>
+                    titleClassName="font-medium text-sm text-foreground"
+                  />
                   <div className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-2 mt-0.5">
                     {j.location && <span>📍 {j.location}</span>}
                     {j.salary_min && j.salary_max && (

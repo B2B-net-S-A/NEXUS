@@ -135,9 +135,7 @@ def narrow_to_self(
     if scope.payload.kind == "self" and scope.payload.user_id == user.id:
         return scope
     if user.has_role(UserRole.admin) or user.has_any_role(
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
     ):
         return ResolvedDashboardScope(
             raw=None,
@@ -195,9 +193,8 @@ def _delivery_job_conditions(
     if scope.payload.kind == "organization":
         return conditions
 
-    # Every Delivery Lead operates across the complete client portfolio.  TAC
-    # relationships still drive actor attribution below, but they must not
-    # remove a client's job merely because that job has no TAC yet.
+    # Every Delivery Lead operates across the complete client portfolio; the
+    # portfolio (not TAC relationships) scopes jobs and their milestones.
     conditions.append(Job.client_id.in_(scope.payload.client_ids or [-1]))
     if scope.payload.user_id != user.id:
         raise HTTPException(
@@ -207,37 +204,13 @@ def _delivery_job_conditions(
     return conditions
 
 
-def _delivery_milestone_job_actor_pairs(
-    job_rows: list[Any],
-    scope: ResolvedDashboardScope,
-) -> list[tuple[int, int]]:
-    """Map each selected job to TACs assigned to that job's client.
-
-    Keeping the job id and actor id paired prevents an actor assigned only to
-    client B from contributing milestones to client A merely because both
-    actors occur in the Delivery Lead's overall TAC union.
-    """
-
-    actors_by_client: dict[int, set[int]] = {}
-    for pair in scope.payload.client_tac_pairs:
-        actors_by_client.setdefault(pair.client_id, set()).add(pair.tac_user_id)
-
-    return sorted(
-        {
-            (int(row.id), actor_id)
-            for row in job_rows
-            for actor_id in actors_by_client.get(int(row.client_id), set())
-        }
-    )
-
-
 async def load_delivery_metrics(
     user: User,
     db: AsyncSession,
     period: Period,
     scope: ResolvedDashboardScope,
 ) -> DeliveryMetricsSnapshot:
-    """Read delivery facts with client AND TAC/actor scope enforced server-side."""
+    """Read delivery facts with the client scope enforced server-side."""
 
     conditions = _delivery_job_conditions(user, scope)
     rows = (
@@ -264,77 +237,58 @@ async def load_delivery_metrics(
     filled_vacancies: dict[int, int] = {}
     placements = 0
     if job_ids:
-        job_actor_pairs = _delivery_milestone_job_actor_pairs(rows, scope)
-        if scope.payload.kind == "organization" or job_actor_pairs:
-            actor_clause = (
-                ""
-                if scope.payload.kind == "organization"
-                else (
-                    "AND (job_id, first_moved_by) IN ("
-                    "SELECT allowed.job_id, allowed.actor_id "
-                    "FROM UNNEST("
-                    "CAST(:actor_job_ids AS integer[]), "
-                    "CAST(:actor_ids AS integer[])"
-                    ") AS allowed(job_id, actor_id)"
-                    ")"
-                )
+        # Runda 7 (R7-N9-6): kamienie milowe liczymy po rekrutacji
+        # (portfel DL już zawęża `job_ids`), nie po tym, kto przesunął kartę.
+        # Do 26.09 DL widział tylko ruchy TAC-ów swoich klientów, a funkcji TAC
+        # nie używamy (decyzja 22.09) — pulpit pokazywał 0 placementów jako
+        # komplet i każdą rekrutację jako „bez pierwszej rekomendacji”.
+        params = {
+            "job_ids": job_ids,
+            "start": period.start,
+            "end": period.end,
+        }
+        rec_rows = (
+            await db.execute(
+                text(
+                    "SELECT job_id, MIN(first_reached_at) AS reached_at "
+                    "FROM analytics_first_milestones "
+                    "WHERE job_id = ANY(CAST(:job_ids AS integer[])) "
+                    "AND stage = 'cv_sent' "
+                    "GROUP BY job_id"
+                ),
+                params,
             )
-            params = {
-                "job_ids": job_ids,
-                "actor_job_ids": [job_id for job_id, _ in job_actor_pairs],
-                "actor_ids": [actor_id for _, actor_id in job_actor_pairs],
-                "start": period.start,
-                "end": period.end,
-            }
-            rec_rows = (
+        ).all()
+        first_recommendations = {int(row.job_id): row.reached_at for row in rec_rows}
+        filled_rows = (
+            await db.execute(
+                text(
+                    "SELECT job_id, COUNT(*) AS placements "
+                    "FROM analytics_first_milestones "
+                    "WHERE job_id = ANY(CAST(:job_ids AS integer[])) "
+                    "AND stage = 'hired' "
+                    "GROUP BY job_id"
+                ),
+                params,
+            )
+        ).all()
+        filled_vacancies = {int(row.job_id): int(row.placements) for row in filled_rows}
+        placements = int(
+            (
                 await db.execute(
                     text(
-                        "SELECT job_id, MIN(first_reached_at) AS reached_at "
-                        "FROM analytics_first_milestones "
-                        "WHERE job_id = ANY(CAST(:job_ids AS integer[])) "
-                        "AND stage = 'cv_sent' "
-                        f"{actor_clause} "
-                        "GROUP BY job_id"
-                    ),
-                    params,
-                )
-            ).all()
-            first_recommendations = {
-                int(row.job_id): row.reached_at for row in rec_rows
-            }
-            filled_rows = (
-                await db.execute(
-                    text(
-                        "SELECT job_id, COUNT(*) AS placements "
+                        "SELECT COUNT(*) "
                         "FROM analytics_first_milestones "
                         "WHERE job_id = ANY(CAST(:job_ids AS integer[])) "
                         "AND stage = 'hired' "
-                        f"{actor_clause} "
-                        "GROUP BY job_id"
+                        "AND first_reached_at >= :start "
+                        "AND first_reached_at < :end"
                     ),
                     params,
                 )
-            ).all()
-            filled_vacancies = {
-                int(row.job_id): int(row.placements) for row in filled_rows
-            }
-            placements = int(
-                (
-                    await db.execute(
-                        text(
-                            "SELECT COUNT(*) "
-                            "FROM analytics_first_milestones "
-                            "WHERE job_id = ANY(CAST(:job_ids AS integer[])) "
-                            "AND stage = 'hired' "
-                            "AND first_reached_at >= :start "
-                            "AND first_reached_at < :end "
-                            f"{actor_clause}"
-                        ),
-                        params,
-                    )
-                ).scalar()
-                or 0
-            )
+            ).scalar()
+            or 0
+        )
 
     jobs = [
         DeliveryJobSnapshot(
@@ -517,14 +471,11 @@ async def load_quarterly_league(db: AsyncSession) -> dict[str, Any]:
     niezależnie od okresu sekcji."""
 
     from app.services import competitions as comp
-    from app.services.insights_scoring_config import (
-        get_scoring_config,
-        league_points_formula,
-    )
+    from app.services.insights_scoring_config import league_points_formula
 
     period = comp.current_quarter_period()
     ranked = await comp.quarterly_champions_recruiter(db, period)
-    _config = await get_scoring_config(db)
+    _config = await comp.league_scoring_config(db, period)
     _year, _quarter = comp.parse_quarter(period)
     _required_placements = comp.required_placements_for_quarter(
         _year, _quarter, _config
@@ -543,7 +494,15 @@ async def load_quarterly_league(db: AsyncSession) -> dict[str, Any]:
             f"{'placement' if _required_placements == 1 else 'placementów'} "
             "w kwartale (próg rośnie z każdym miesiącem kwartału)."
         ),
-        "ranked": [r.to_dict() for r in ranked],
+        # Numeracja i kwoty z `award_order` — ta sama co `/api/competitions/current`
+        # i zamrożenie; niezakwalifikowany ma `rank: None`, nie miejsce na podium.
+        "ranked": comp.award_ranked_rows(
+            comp.CompetitionType.quarterly_champions_recruiter,
+            ranked,
+            await comp.award_order(
+                db, comp.CompetitionType.quarterly_champions_recruiter, period, ranked
+            ),
+        ),
     }
 
 
@@ -556,8 +515,6 @@ async def load_monthly_races(db: AsyncSession) -> dict[str, Any]:
 
 async def load_hall_of_fame(db: AsyncSession) -> dict[str, Any]:
     """All-time TOP 5 (live) + zamrożone podia ligi kwartalnej z historii."""
-    from sqlalchemy import desc
-
     from app.models.competition_winner import CompetitionType, CompetitionWinner
     from app.services import competitions as comp
 
@@ -571,8 +528,10 @@ async def load_hall_of_fame(db: AsyncSession) -> dict[str, Any]:
                 CompetitionWinner.competition_type
                 == CompetitionType.quarterly_champions_recruiter.value
             )
-            .order_by(desc(CompetitionWinner.period), CompetitionWinner.rank)
-            .limit(12)  # 4 okresy × podium
+            # Runda 9 (R9-N6-4): bez `LIMIT` po napisie okresu — „Q4 2025” >
+            # „Q1 2026” alfabetycznie; 4 ostatnie okresy wybiera niżej
+            # `period_sort_key`.
+            .order_by(CompetitionWinner.period, CompetitionWinner.rank)
         )
     ).all()
     history: dict[str, list[dict[str, Any]]] = {}
@@ -591,7 +550,9 @@ async def load_hall_of_fame(db: AsyncSession) -> dict[str, Any]:
         "all_time": [r.to_dict() for r in all_time],
         "history": [
             {"period": period, "top3": history[period]}
-            for period in sorted(history.keys(), reverse=True)
+            for period in sorted(
+                history.keys(), key=comp.period_sort_key, reverse=True
+            )[:4]
         ],
     }
 

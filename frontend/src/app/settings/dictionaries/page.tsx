@@ -67,13 +67,13 @@ function AddItemRow({ slug }: { slug: string }) {
           value={keyDraft}
           onChange={(e) => setKeyDraft(e.target.value)}
           placeholder="key (np. consulting)"
-          className="flex-1 min-w-40 px-3 py-1.5 bg-background border border-input rounded-md text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-ring"
+          className="w-0 flex-1 min-w-40 px-3 py-1.5 bg-background border border-input rounded-md text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-ring"
         />
         <input
           value={labelDraft}
           onChange={(e) => setLabelDraft(e.target.value)}
           placeholder="Etykieta PL"
-          className="flex-1 min-w-40 px-3 py-1.5 bg-background border border-input rounded-md text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
+          className="w-0 flex-1 min-w-40 px-3 py-1.5 bg-background border border-input rounded-md text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
           onKeyDown={(e) => {
             if (e.key === "Enter") submit();
           }}
@@ -156,7 +156,7 @@ function ItemRow({
             }
           }}
           autoFocus
-          className="flex-1 min-w-0 px-2 py-1 bg-background border border-input rounded-md text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
+          className="w-0 flex-1 min-w-0 px-2 py-1 bg-background border border-input rounded-md text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
         />
       ) : (
         <span className="flex-1 min-w-0 break-words text-sm text-foreground">
@@ -301,7 +301,7 @@ export default function DictionariesPage() {
   return (
     <div className="container max-w-5xl mx-auto md:py-8 md:px-4">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground mt-2">Słowniki</h1>
+        <h1 className="text-2xl font-bold text-foreground mt-2">Listy wyboru</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Edytuj wartości używane w listach rozwijanych — branże, powody
           odrzucenia, etc. Zarchiwizowane wartości pozostają w historycznych

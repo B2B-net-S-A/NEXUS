@@ -11,7 +11,7 @@ import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 import { useClickOutside } from "@/lib/use-click-outside";
 import { useAuthStore } from "@/store/auth";
-import { canManageClientDelivery } from "@/components/client-profile/permissions";
+import { canManageClientContracts } from "@/components/client-profile/permissions";
 
 interface Props {
   contractId: number;
@@ -25,15 +25,16 @@ const DURATIONS = [3, 6, 12];
 /**
  * Czy wiersz konsultanta pokazuje „Przedłuż” (audyt 24.09.2026, W2).
  *
- * `POST /api/contracts/bulk-extend` wymaga `DeliveryLeadPlus` (admin + DL),
- * a przycisk widziały też Finanse i TCM — klik kończył się 403. Sensowny jest
- * tylko dla kontraktu „Kończący się”: umowę bezterminową backend pomija.
+ * `POST /api/contracts/bulk-extend` wymaga uprawnienia „Kontrakty i zamówienia:
+ * tworzenie i edycja” (domyślnie Delivery Lead i Finanse); kto go nie ma —
+ * np. TCM — dostałby 403, więc przycisku nie widzi. Sensowny jest tylko dla
+ * kontraktu „Kończący się”: umowę bezterminową backend pomija.
  */
 export function canExtendContract(
-  user: Parameters<typeof canManageClientDelivery>[0],
+  user: Parameters<typeof canManageClientContracts>[0],
   contractStatus: string | null | undefined,
 ): boolean {
-  return contractStatus === "ending" && canManageClientDelivery(user);
+  return contractStatus === "ending" && canManageClientContracts(user);
 }
 
 /** Klucze odświeżane po przedłużeniu — profil, zamówienia i rejestr kontraktów. */
@@ -69,7 +70,13 @@ export function ExtendContractMenu({ contractId, clientId, contractStatus }: Pro
       }
       // Backend pomija umowy bezterminowe (w tym każdą umowę B2B bez ręcznego
       // zakończenia) — „przedłużono" byłoby wtedy nieprawdą.
-      if ((response?.data?.extended ?? 0) === 0) {
+      if ((response?.data?.skipped_end_date_passed?.length ?? 0) > 0) {
+        // Umowa zakończona dawno — przedłużenie o N mc nadal kończy się
+        // w przeszłości, więc backend jej nie rusza (runda 6 audytu).
+        showError(
+          "Nowa data zakończenia nadal byłaby w przeszłości — przedłuż umowę aneksem do przyszłej daty.",
+        );
+      } else if ((response?.data?.extended ?? 0) === 0) {
         showError(
           "Umowa jest bezterminowa — nie ma czego przedłużać. Przedłuż zamówienie klienta.",
         );

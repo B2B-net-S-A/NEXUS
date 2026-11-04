@@ -24,6 +24,7 @@ from datetime import date
 
 import pytest
 
+from app.services.b2b_documents.company_party import COMPANY_PL
 from app.services.b2b_documents.context import BaseContractInfo, build_document_context
 from app.services.b2b_documents.registry import TYPES, DocumentType
 from app.services.b2b_documents.render import (
@@ -51,6 +52,16 @@ BASE = BaseContractInfo(
 
 #: Wartości jawnie rozpoznawalne w wyniku; reszta pól dostaje wartość z rodzaju.
 OVERRIDES = {
+    "contract_number": "1600/2026",
+    "contract_signing_date": "2026-08-03",
+    "current_start_date": "2026-09-01",
+    "partner_seat_locative": "w Poznaniu",
+    "partner_krs": "0000654321",
+    "partner_registry_court": "Sąd Rejonowy Poznań – Nowe Miasto i Wilda w Poznaniu, VIII Wydział Gospodarczy Krajowego Rejestru Sądowego",
+    "partner_share_capital": "5 000,00",
+    "partner_representative_name": "Ewa Zarządcza",
+    "partner_representative_function": "Prezes Zarządu",
+    "partner_representation": None,
     "document_date": "2026-10-05",
     "effective_date": "2026-11-01",
     "new_rate": 185.5,
@@ -86,6 +97,8 @@ OVERRIDES = {
     "project_number": "CEZ/77/2026",
     "hourly_rate": 160,
     "valid_until": "2026-12-04",
+    "project_label": "Klient Testowy — Programista Java",
+    "penalty_amount": 10000,
 }
 
 
@@ -100,10 +113,16 @@ def _values(doc_type: DocumentType, gender: str, **extra) -> dict:
             values[f.key] = f.options[0][0]
         elif f.kind == "gender":
             values[f.key] = gender
+        elif f.kind == "rate_items":
+            values[f.key] = [{"rate": 185.5}]
         else:
             values[f.key] = f"Wartość {f.key}"
     values.update(PARTNER[gender])
     values["gender"] = gender
+    if doc_type.key == "annex_start_date":
+        values.update(paragraph="13", paragraph_section="2")
+    if doc_type.key == "annex_rate_change":
+        values.update(paragraph="6", paragraph_section="1")
     values.update(extra)
     return values
 
@@ -117,9 +136,20 @@ def _docx_text(data: bytes) -> tuple[str, str]:
 
 def _variants(doc_type: DocumentType) -> list[dict]:
     if doc_type.key == "annex_party_data":
-        return [{"entity_type": "sole_trader"}, {"entity_type": "company"}]
+        # `entity_type` = dokument sprzed generatora aneksów (29.09.2026), gdy
+        # aneks wystawiano też dla spółki — ponowne pobranie ma go oddać.
+        return [
+            {"entity_type": "sole_trader"},
+            {
+                "entity_type": "company",
+                "company_krs": "0000123456",
+                "company_representative": "Prezes Testowy",
+            },
+        ]
     if doc_type.key.startswith("termination_agreement"):
         return [{"release_non_compete": True}, {"release_non_compete": False}]
+    if doc_type.key in ("annex_start_date", "annex_rate_change"):
+        return [{"partner_variant": "sole_trader"}, {"partner_variant": "company"}]
     if doc_type.key == "annex_mandate":
         return [
             {},
@@ -140,7 +170,7 @@ CASES = [
 def _render(doc_type: DocumentType, lang: str, gender: str, extra: dict):
     values = _values(doc_type, gender, **extra)
     ctx = build_document_context(doc_type, values, language=lang, base=BASE, refs=None)
-    key = template_key(doc_type.key, lang)
+    key = template_key(doc_type.key, lang, doc_type.template_revision)
     return values, render_docx(key, ctx), render_html(key, ctx)
 
 
@@ -157,19 +187,47 @@ def _expected(doc_type: DocumentType, lang: str, values: dict) -> list[str]:
     if doc_type.parent == "b2b":
         out.append("1600/2026")
         out.append("03.08.2026")
+    company = values.get("partner_variant") == "company"
+    if company:
+        out += [
+            "z siedzibą w Poznaniu",
+            "0000654321",
+            "VIII Wydział Gospodarczy",
+            "o kapitale zakładowym 5 000,00 zł",
+            "Ewa Zarządcza – Prezes Zarządu",
+            "zwaną dalej „",
+        ]
+    elif key in ("annex_start_date", "annex_rate_change"):
+        out += ["prowadząc", "Próbna Firma IT", "1234563218", "123456785"]
+    if key in ("annex_start_date", "annex_rate_change", "annex_party_data"):
+        out += [
+            "Ustalone zmiany wchodzą w życie z dniem 01.11.2026 r.",
+            "zgodnie z art. 78¹ §1 Kodeksu cywilnego",
+            "Aneks sporządzono w dwóch jednobrzmiących egzemplarzach",
+        ]
     if key == "annex_rate_change":
         out += [
-            "185,50",
-            "sto osiemdziesiąt pięć" if lang == "pl" else "one hundred eighty",
+            "185,50 zł",
+            "sto osiemdziesiąt pięć złotych 50/100",
+            "§ 6 ust. 1 otrzymuje następujące brzmienie",
+            "netto + VAT za każdą roboczogodzinę",
         ]
-        out.append("§ 6 ust. 1" if lang == "pl" else "§ 6 section 1")
-        out.append("01.11.2026")
     elif key == "annex_start_date":
-        out += ["§ 13 ust. 2", "Załącznik nr 3", "z dniem 01.09.2026 roku"]
-        out.append("nie później niż 15.10.2026 roku")
+        out += [
+            "Określoną w § 13 ust. 2 treść",
+            "Załącznik",
+            "z niniejszej Umowy z dniem 01.09.2026 r.",
+            "z niniejszej Umowy z dniem 15.10.2026 r.",
+        ]
     elif key == "annex_party_data":
-        out += ["Nowa Firma Sp. z o.o.", "9876543210", "ul. Domowa 2", "ABC123456"]
-        if values["entity_type"] == "company":
+        out += [
+            "dokonać uzupełnienia",
+            "Nowa Firma Sp. z o.o.",
+            "9876543210",
+            "ul. Domowa 2",
+            "ABC123456",
+        ]
+        if values.get("entity_type") == "company":
             out += ["0000123456", "Prezes Testowy"]
     elif key == "annex_subcontractor":
         out += [
@@ -199,7 +257,50 @@ def _expected(doc_type: DocumentType, lang: str, values: dict) -> list[str]:
     elif key == "notice_withdrawal":
         out.append("10.09.2026")
     elif key == "preliminary_cez":
-        out += ["CEZ/77/2026", "90010112345", "ABC123456", "04.12.2026", "0000387063"]
+        out += [
+            "CEZ/77/2026",
+            "90010112345",
+            "ABC123456",
+            "04.12.2026",
+            "0000387063",
+            "160 zł netto",
+            # v2 (21.10.2026): każda forma podpisu.
+            "podpisem zaufanym lub podpisem osobistym",
+        ]
+    elif key.startswith("preliminary_participation_"):
+        out += [
+            "Umowa o udziale w procesie rekrutacyjnym",
+            "Zawarta w dniu 05.10.2026 r. w Warszawie",
+            "0000387063",
+            f"reprezentowaną przez {COMPANY_PL['representative']}, zwaną dalej",
+            "na rzecz klienta Zlecającego Klient Testowy — Programista Java "
+            "(dalej „Klient”)",
+            "wynagrodzenie w wysokości 160 zł netto za każdą godzinę",
+            "kary umownej w wysokości 10000 zł (słownie: dziesięć tysięcy złotych).",
+            "nie dłużej jednak niż do dnia 04.12.2026 r.",
+            "z wykorzystaniem podpisu zaufanego lub podpisu osobistego",
+            "W przypadku zawarcia Umowy w formie elektronicznej albo dokumentowej",
+            "dalej „Kandydatem”",
+        ]
+        if key.endswith("_jdg"):
+            out += [
+                "jednoosobową działalność gospodarczą pod firmą Próbna Firma IT",
+                "1234563218",
+                "123456785",
+                "ul. Testowa 1, 00-001 Warszawa",
+                "do Centralnej Ewidencji i Informacji o Działalności Gospodarczej",
+                "sądu właściwego miejscowo dla siedziby Zlecającego",
+            ]
+        else:
+            out += [
+                "90010112345",
+                "ABC123456",
+                "ul. Domowa 2, 00-002 Kraków",
+                "następcą prawnym B2B.net S.A.",
+                "pod warunkiem rozpoczęcia przez Kandydata działalności gospodarczej",
+                "Właściwość sądu określają przepisy ogólne.",
+                "zostały indywidualnie uzgodnione przez Strony",
+            ]
     return out
 
 
@@ -215,7 +316,8 @@ def test_document_renders_complete(doc_type, lang, gender, extra):
     assert "<w:highlight" not in xml, "podświetlenie wzoru zostało w dokumencie"
 
     nominative = lang == "en" or doc_type.key == "notice_withdrawal"
-    assert values["partner_name" if nominative else "partner_instrumental"] in text
+    if extra.get("partner_variant") != "company":
+        assert values["partner_name" if nominative else "partner_instrumental"] in text
 
     for fragment in _expected(doc_type, lang, values):
         assert fragment in text, f"brak {fragment!r} w DOCX"
@@ -225,6 +327,9 @@ def test_document_renders_complete(doc_type, lang, gender, extra):
 
     if doc_type.key == "notice_withdrawal":
         assert ("przekazałam" if gender == "k" else "przekazałem") in text
+    elif extra.get("partner_variant") == "company":
+        # Spółka: „Pan/Pani” wyłącznie przy osobie reprezentującej (biernik).
+        assert ("Panią Ewa" if gender == "k" else "Pana Ewa") in text
     else:
         assert GENDER_MARKERS[lang][gender] in text
         wrong = GENDER_MARKERS[lang]["m" if gender == "k" else "k"]
@@ -283,16 +388,27 @@ def test_empty_values_render_placeholders_not_none():
     assert "…" in text
 
 
+def _template_keys(doc_type: DocumentType) -> list[str]:
+    """Bieżąca rewizja i rewizje wydanych dokumentów, w każdym języku."""
+    return [
+        template_key(doc_type.key, lang, revision)
+        for lang in (*doc_type.languages, *doc_type.legacy_languages)
+        for revision in (
+            doc_type.template_revision,
+            *doc_type.legacy_template_revisions,
+        )
+    ]
+
+
 def test_every_registry_type_has_a_template_per_language():
     for doc_type in TYPES.values():
-        for lang in doc_type.languages:
-            key = template_key(doc_type.key, lang)
+        for key in _template_keys(doc_type):
             assert docx_path(key).is_file(), f"brak {key}.docx"
             assert html_path(key).is_file(), f"brak {key}.html"
     expected = {
-        f"{template_key(t.key, lang)}.{ext}"
+        f"{key}.{ext}"
         for t in TYPES.values()
-        for lang in t.languages
+        for key in _template_keys(t)
         for ext in ("docx", "html")
     }
     assert {
@@ -378,3 +494,261 @@ def test_templates_have_no_sharepoint_or_addin_parts():
             for name in names:
                 if name.startswith("word/") and name.endswith(".xml"):
                     assert b"<w:highlight" not in zf.read(name), f"{path.name}:{name}"
+
+
+@pytest.mark.parametrize("key", ["annex_rate_change", "annex_party_data"])
+def test_legacy_english_annex_still_downloads(key):
+    """EN wystawiano przed generatorem aneksów — nowych już nie ma, ale
+    zapisany dokument pobiera się ponownie ze swoim starym payloadem."""
+    doc_type = TYPES[key]
+    assert "en" not in doc_type.languages and "en" in doc_type.legacy_languages
+    values = {
+        "document_date": "2026-09-20",
+        "effective_date": "2026-10-01",
+        "gender": "m",
+        "partner_name": "Jan Próbny",
+        "new_rate": 150,
+        "currency": "EUR",
+        "entity_type": "sole_trader",
+        "new_legal_name": "Nowa Firma",
+        "new_nip": "9876543210",
+    }
+    ctx = build_document_context(doc_type, values, language="en", base=BASE, refs=None)
+    _, text = _docx_text(render_docx(template_key(key, "en"), ctx))
+    assert "None" not in text
+    if key == "annex_rate_change":
+        assert "150" in text and "EUR" in text
+    else:
+        assert "Nowa Firma" in text
+
+
+def test_legacy_polish_rate_annex_renders_its_single_rate():
+    """Aneks stawki sprzed generatora (``new_rate``) pobiera się nowym
+    szablonem z tą samą stawką i datą wejścia w życie."""
+    doc_type = TYPES["annex_rate_change"]
+    values = {
+        "document_date": "2026-09-20",
+        "effective_date": "2026-10-01",
+        "gender": "m",
+        "partner_name": "Jan Próbny",
+        "new_rate": 150,
+        "currency": "PLN",
+    }
+    ctx = build_document_context(doc_type, values, language="pl", base=BASE, refs=None)
+    _, text = _docx_text(render_docx(template_key(doc_type.key, "pl"), ctx))
+    assert "150 zł (słownie: sto pięćdziesiąt złotych 00/100)" in text
+    assert "§ 6 ust. 1" in text
+    assert "z dniem 01.10.2026 r." in text
+
+
+def test_rate_annex_lists_positions_with_optional_parts():
+    doc_type = TYPES["annex_rate_change"]
+    values = _values(
+        doc_type,
+        "m",
+        rate_items=[
+            {"rate": 135, "from": "2026-10-01", "to": "2026-12-31"},
+            {"rate": 140, "from": "2027-01-01"},
+            {"rate": 150.5, "client_id": 7, "client_name": "Bank Pocztowy S.A."},
+        ],
+    )
+    ctx = build_document_context(doc_type, values, language="pl", base=BASE, refs=None)
+    _, text = _docx_text(render_docx(template_key(doc_type.key, "pl"), ctx))
+    html = render_html(template_key(doc_type.key, "pl"), ctx)
+    assert "przysługiwać będzie:" in text
+    for fragment in (
+        "Od 01.10.2026 roku wynagrodzenie w wysokości 135 zł (słownie: sto trzydzieści pięć złotych 00/100) netto + VAT za każdą roboczogodzinę w okresie do 31.12.2026 roku.",
+        "Od 01.01.2027 roku wynagrodzenie w wysokości 140 zł",
+        "wynagrodzenie w wysokości 150,50 zł (słownie: sto pięćdziesiąt złotych 50/100) netto + VAT za każdą roboczogodzinę dla Klienta B2BNET – Bank Pocztowy S.A.",
+    ):
+        assert fragment in text
+        assert fragment in _html_unescape(html)
+    # Nazwa klienta kończy się kropką — zdanie nie dostaje drugiej.
+    assert "S.A.." not in text
+    # Pozycja bez daty nie ma „Od …” ani „w okresie do …”.
+    assert "roboczogodzinę dla Klienta" in text
+
+
+def test_single_rate_annex_is_one_sentence():
+    doc_type = TYPES["annex_rate_change"]
+    values = _values(doc_type, "m", rate_items=[{"rate": 135}])
+    ctx = build_document_context(doc_type, values, language="pl", base=BASE, refs=None)
+    _, text = _docx_text(render_docx(template_key(doc_type.key, "pl"), ctx))
+    assert (
+        "Z tytułu realizacji usług wynikających z niniejszej Umowy Partnerowi "
+        "przysługiwać będzie wynagrodzenie w wysokości 135 zł (słownie: sto "
+        "trzydzieści pięć złotych 00/100) netto + VAT za każdą roboczogodzinę."
+    ) in text
+    assert "•" not in text
+
+
+def test_legacy_rate_annex_in_euro_keeps_its_currency():
+    """Aneks sprzed generatora w EUR nie może się pobrać jako „150 zł”."""
+    doc_type = TYPES["annex_rate_change"]
+    values = {
+        "document_date": "2026-09-20",
+        "effective_date": "2026-10-01",
+        "gender": "m",
+        "partner_name": "Jan Próbny",
+        "new_rate": 150,
+        "currency": "EUR",
+    }
+    ctx = build_document_context(doc_type, values, language="pl", base=BASE, refs=None)
+    _, text = _docx_text(render_docx(template_key(doc_type.key, "pl"), ctx))
+    assert "150 EUR" in text
+    assert "150 zł" not in text and "złotych" not in text
+
+
+def test_legacy_start_annex_keeps_its_date_mode():
+    """Aneks daty startu sprzed generatora: „nie później niż …” zostaje."""
+    doc_type = TYPES["annex_start_date"]
+    values = {
+        "document_date": "2026-09-20",
+        "gender": "m",
+        "partner_name": "Jan Próbny",
+        "new_start_date": "2026-10-15",
+        "new_start_date_mode": "not_later",
+    }
+    ctx = build_document_context(doc_type, values, language="pl", base=BASE, refs=None)
+    _, text = _docx_text(render_docx(template_key(doc_type.key, "pl"), ctx))
+    assert "z niniejszej Umowy nie później niż 15.10.2026 roku.”" in text
+    assert "z niniejszej Umowy z dniem 01.09.2026 roku.”" in text
+    assert "z dniem podpisania niniejszego aneksu" in text
+
+
+# ── Właściwości pliku bez autora z szablonu (14.10.2026) ────────────────────
+
+
+def _file_properties(data: bytes) -> dict[str, str]:
+    """Autor, „ostatnio zapisał” i firma/kierownik z `docProps` — to, co pokazuje Word."""
+    from docx import Document
+
+    props = Document(io.BytesIO(data)).core_properties
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        app = (
+            archive.read("docProps/app.xml").decode("utf-8")
+            if "docProps/app.xml" in archive.namelist()
+            else ""
+        )
+
+    def tag(name: str) -> str:
+        found = re.search(rf"<{name}>([^<]*)</{name}>", app)
+        return found.group(1) if found else ""
+
+    return {
+        "author": props.author,
+        "last_modified_by": props.last_modified_by,
+        "company": tag("Company"),
+        "manager": tag("Manager"),
+    }
+
+
+ONE_PER_TEMPLATE = [
+    pytest.param(t, lang, id=f"{t.key}-{lang}")
+    for t in TYPES.values()
+    for lang in t.languages
+]
+
+
+@pytest.mark.parametrize(("doc_type", "lang"), ONE_PER_TEMPLATE)
+def test_document_file_carries_no_author_from_the_template(doc_type, lang):
+    # Szablony mają w docProps imiona i nazwiska osób z firmy i nazwę
+    # kancelarii, która je przygotowała — Partner nie dostaje ich w pliku.
+    _, data, _ = _render(doc_type, lang, "m", _variants(doc_type)[0])
+    assert _file_properties(data) == dict.fromkeys(
+        ("author", "last_modified_by", "company", "manager"), ""
+    )
+
+
+# ── Rewizje wzoru: wydany dokument pobiera się swoim tekstem (21.10.2026) ──
+
+
+def test_cez_revision_key_and_legacy_file():
+    doc_type = TYPES["preliminary_cez"]
+    assert template_key(doc_type.key, "pl", doc_type.template_revision) == (
+        "preliminary_cez_v2_pl"
+    )
+    assert template_key(doc_type.key, "pl") == "preliminary_cez_pl"
+
+
+@pytest.mark.parametrize(
+    ("revision", "present", "absent"),
+    [
+        ("v2", "podpisem zaufanym lub podpisem osobistym", None),
+        ("", "w formie pisemnej albo w formie elektronicznej", "podpisem zaufanym"),
+    ],
+)
+def test_cez_issued_before_v2_keeps_its_clause(revision, present, absent):
+    doc_type = TYPES["preliminary_cez"]
+    values = _values(doc_type, "k")
+    ctx = build_document_context(doc_type, values, language="pl", base=BASE, refs=None)
+    key = template_key(doc_type.key, "pl", revision)
+    _, text = _docx_text(render_docx(key, ctx))
+    html = _html_unescape(render_html(key, ctx))
+    assert present in text and present in html
+    if absent:
+        assert absent not in text and absent not in html
+
+
+def test_stored_key_wins_only_when_its_file_exists():
+    from app.services.b2b_documents.render import stored_or_current_key
+
+    current = "preliminary_cez_v2_pl"
+    assert stored_or_current_key("preliminary_cez_pl", current) == "preliminary_cez_pl"
+    assert stored_or_current_key(None, current) == current
+    assert stored_or_current_key("preliminary_cez_v9_pl", current) == current
+    assert stored_or_current_key("../../etc/passwd", current) == current
+
+
+def test_participation_jdg_and_person_differ_only_where_the_source_does():
+    jdg = TYPES["preliminary_participation_jdg"]
+    person = TYPES["preliminary_participation_person"]
+    _, jdg_docx, _ = _render(jdg, "pl", "m", {})
+    _, person_docx, _ = _render(person, "pl", "m", {})
+    _, jdg_text = _docx_text(jdg_docx)
+    _, person_text = _docx_text(person_docx)
+    assert "PESEL" not in jdg_text and "PESEL" in person_text
+    assert "CEIDG" in jdg_text and "CEIDG" not in person_text
+    assert "wpisanym do Centralnej Ewidencji" in jdg_text
+    assert "legitymującym się dowodem osobistym" in person_text
+    # Bez cyfr kary wpisanych na sztywno — kwota z formularza.
+    assert "10.000" not in jdg_text and "10.000" not in person_text
+
+
+_SERVICE_PHRASE = {
+    "pl": ("Gospodarczej pod adresem do doręczeń: ", "Gospodarczej pod adresem: "),
+    "en": (
+        "Economic Activity at the address for service: ",
+        "Activity at the address: ",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("key", "lang"),
+    [
+        ("annex_rate_change", "pl"),
+        ("annex_rate_change", "en"),
+        ("annex_start_date", "pl"),
+        ("annex_subcontractor", "pl"),
+        ("termination_agreement", "pl"),
+        ("termination_agreement", "en"),
+        ("termination_notice", "pl"),
+    ],
+)
+def test_partner_without_place_of_business_gets_address_for_service(key, lang):
+    """JDG z samym adresem do doręczeń w CEIDG: dokument mówi to samo co umowa."""
+    doc_type = TYPES[key]
+    variant = (
+        {"partner_variant": "sole_trader"}
+        if any(f.key == "partner_variant" for f in doc_type.fields)
+        else {}
+    )
+    service, plain = _SERVICE_PHRASE[lang]
+    for flag, present, absent in ((True, service, plain), (False, plain, service)):
+        _, docx_bytes, html = _render(
+            doc_type, lang, "m", {**variant, "partner_address_for_service": flag}
+        )
+        _, text = _docx_text(docx_bytes)
+        assert present in text and present in html
+        assert absent not in text and absent not in html

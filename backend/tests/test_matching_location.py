@@ -106,3 +106,30 @@ class TestSharedSourceOfTruth:
         overlap = location_utils.tokens_overlap
         assert overlap(set(), {"warszawa"}) is False
         assert overlap({"warszawa"}, set()) is False
+
+
+# ── 27.09.2026: nazwy miast przez słownik miejscowości ──────────────────────
+import pytest as _pytest
+
+from app.services.location_utils import location_tokens as _tokens
+from app.services.location_utils import tokens_overlap as _overlap
+
+
+@_pytest.mark.parametrize(
+    "office, candidate, expected",
+    [
+        ("Warsaw", "Warszawa", True),
+        ("Gdansk", "Gdańsk", True),
+        ("Krakow", "Kraków", True),
+        ("Gdansk or Warsaw", "Warszawa", True),
+        ("Gdańsk, Gdynia, Warszawa", "Gdynia", True),
+        ("Trójmiasto", "Sopot", True),
+        ("Gdańsk", "Trójmiasto", True),
+        ("Warszawa (hybrydowo)", "Warsaw, Poland", True),
+        ("okolice Krakowa", "Kraków", True),
+        ("Warszawa", "Kraków", False),
+        ("Warszawa", "Radom", False),
+    ],
+)
+def test_office_city_names_compare_as_places(office, candidate, expected):
+    assert _overlap(_tokens(office), _tokens(candidate)) is expected

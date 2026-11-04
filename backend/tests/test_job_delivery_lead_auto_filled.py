@@ -68,7 +68,7 @@ async def test_inactive_delivery_lead_escalates_alert_to_head_of_recruitment() -
     assert await nt._delivery_lead_targets(_Db(False), job) == [91]
 
 
-async def _dl(active: bool = True) -> int:
+async def _dl(active: bool = True, role: str = "delivery_lead") -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.user import User, UserRole
 
@@ -77,8 +77,8 @@ async def _dl(active: bool = True) -> int:
         user = User(
             email=f"dlaf-{marker}@example.com",
             name=f"DL {marker}",
-            role=UserRole.delivery_lead,
-            roles=["delivery_lead"],
+            role=UserRole(role),
+            roles=[role],
             is_active=active,
         )
         db.add(user)
@@ -252,3 +252,240 @@ async def test_board_task_of_inactive_dl_falls_back_to_the_portfolio(
         assert await task_dl() is None
     finally:
         await _cleanup(world, [gone])
+
+
+async def _client_with_head(head_id: int) -> tuple[int, int]:
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.team_structure import DeliveryLeadClientAssignment
+
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"dlaf-{uuid.uuid4().hex[:8]}")
+        db.add(client)
+        await db.flush()
+        row = DeliveryLeadClientAssignment(
+            delivery_lead_user_id=head_id, client_id=client.id, is_head=True
+        )
+        db.add(row)
+        await db.commit()
+        return client.id, row.id
+
+
+async def _open_job(client_id: int) -> int:
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job, JobStatus
+
+    async with AsyncSessionLocal() as db:
+        job = Job(title="Bez DL", client_id=client_id, status=JobStatus.published)
+        db.add(job)
+        await db.commit()
+        return job.id
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_head_without_delivery_lead_role_is_not_filled_in() -> None:
+    """Runda 7 (N7-1): wpis w tabeli przypisań nie jest grantem roli.
+
+    Główny DL, który dostał rolę rekrutera, zostawał DL-em rekrutacji klienta,
+    a przeglądu DL nie widział wtedy nikt (`_sees_dl_review` wymaga roli).
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.services.job_delivery_lead_fill import fill_missing_job_delivery_leads
+
+    former_dl = await _dl(role="recruiter")
+    client_id, _ = await _client_with_head(former_dl)
+    job_id = await _open_job(client_id)
+
+    async with AsyncSessionLocal() as db:
+        assert await fill_missing_job_delivery_leads(db, [client_id]) == 0
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Job, job_id)).delivery_lead_id is None
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_auto_filled_dl_leaves_when_the_head_is_removed() -> None:
+    """Runda 7 (N7-2): klient bez głównego DL-a — automatyczny DL schodzi."""
+    from sqlalchemy import delete
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.models.team_structure import DeliveryLeadClientAssignment
+    from app.services.job_delivery_lead_fill import fill_missing_job_delivery_leads
+
+    head = await _dl()
+    client_id, head_row = await _client_with_head(head)
+    job_id = await _open_job(client_id)
+    async with AsyncSessionLocal() as db:
+        await fill_missing_job_delivery_leads(db, [client_id])
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Job, job_id)).delivery_lead_id == head
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(DeliveryLeadClientAssignment).where(
+                DeliveryLeadClientAssignment.id == head_row
+            )
+        )
+        await db.flush()
+        await fill_missing_job_delivery_leads(db, [client_id])
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        assert (job.delivery_lead_id, job.delivery_lead_auto_filled) == (None, False)
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_client_change_moves_the_auto_filled_dl_to_the_new_client(
+    app_client, app_auth_headers
+) -> None:
+    """Runda 7 (N7-2): po zmianie klienta nie zostaje DL poprzedniego klienta."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.job import Job
+    from app.services.job_delivery_lead_fill import fill_missing_job_delivery_leads
+
+    old_head, new_head = await _dl(), await _dl()
+    old_client, _ = await _client_with_head(old_head)
+    new_client, _ = await _client_with_head(new_head)
+    async with AsyncSessionLocal() as db:
+        headless = Client(name=f"dlaf-{uuid.uuid4().hex[:8]}")
+        db.add(headless)
+        await db.commit()
+        headless_id = headless.id
+    job_id = await _open_job(old_client)
+    async with AsyncSessionLocal() as db:
+        await fill_missing_job_delivery_leads(db, [old_client])
+        await db.commit()
+
+    moved = await app_client.patch(
+        f"/api/jobs/{job_id}", json={"client_id": new_client}, headers=app_auth_headers
+    )
+    assert moved.status_code == 200, moved.text
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        assert (job.delivery_lead_id, job.delivery_lead_auto_filled) == (
+            new_head,
+            True,
+        )
+
+    moved = await app_client.patch(
+        f"/api/jobs/{job_id}", json={"client_id": headless_id}, headers=app_auth_headers
+    )
+    assert moved.status_code == 200, moved.text
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Job, job_id)).delivery_lead_id is None
+
+
+# ── Jednorazowa korekta: rekrutacja założona przez DL-a wraca do niego ──────
+
+
+async def _job_created_by(
+    client_id: int,
+    *,
+    creator_id: int,
+    dl_id: int,
+    auto_filled: bool = True,
+    status: str = "published",
+    external_source: str = "manual",
+) -> int:
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job, JobStatus
+
+    async with AsyncSessionLocal() as db:
+        job = Job(
+            title="Korekta DL",
+            client_id=client_id,
+            status=JobStatus(status),
+            created_by=creator_id,
+            delivery_lead_id=dl_id,
+            delivery_lead_auto_filled=auto_filled,
+            external_source=external_source,
+        )
+        db.add(job)
+        await db.commit()
+        return job.id
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_repair_returns_the_job_to_the_delivery_lead_who_created_it() -> None:
+    """Zgłoszenie 08.10.2026: DL założył rekrutację, a automat wpisał głównego
+    DL-a klienta. Korekta rusza tylko taki przypadek."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.services.job_creator_delivery_lead_repair import reassign_to_creators
+
+    head, creator, recruiter = await _dl(), await _dl(), await _dl(role="recruiter")
+    former_dl = await _dl(active=False)
+    client_id, _ = await _client_with_head(head)
+    by_dl = await _job_created_by(client_id, creator_id=creator, dl_id=head)
+    untouched = {
+        "ręcznie wpisany DL": await _job_created_by(
+            client_id, creator_id=creator, dl_id=head, auto_filled=False
+        ),
+        "twórca bez roli DL": await _job_created_by(
+            client_id, creator_id=recruiter, dl_id=head
+        ),
+        "twórca z nieaktywnym kontem": await _job_created_by(
+            client_id, creator_id=former_dl, dl_id=head
+        ),
+        "zamknięta": await _job_created_by(
+            client_id, creator_id=creator, dl_id=head, status="closed"
+        ),
+        "z Traffita": await _job_created_by(
+            client_id, creator_id=creator, dl_id=head, external_source="traffit"
+        ),
+    }
+
+    async with AsyncSessionLocal() as db:
+        changes = {c["job_id"]: c for c in await reassign_to_creators(db)}
+        await db.commit()
+
+    assert changes[by_dl] == {
+        "job_id": by_dl,
+        "previous_dl_id": head,
+        "dl_id": creator,
+    }
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, by_dl)
+        assert job.delivery_lead_id == creator
+        assert job.delivery_lead_auto_filled is False
+        for reason, job_id in untouched.items():
+            assert job_id not in changes, reason
+            assert (await db.get(Job, job_id)).delivery_lead_id == head, reason
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_repair_runs_once_and_keeps_a_receipt_with_ids_only() -> None:
+    from sqlalchemy import delete
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.app_setting import AppSetting
+    from app.services.job_creator_delivery_lead_repair import (
+        REPAIR_MARKER,
+        run_job_creator_delivery_lead_repair,
+    )
+
+    head, creator = await _dl(), await _dl()
+    client_id, _ = await _client_with_head(head)
+    job_id = await _job_created_by(client_id, creator_id=creator, dl_id=head)
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(AppSetting).where(AppSetting.key == REPAIR_MARKER))
+        summary = await run_job_creator_delivery_lead_repair(db)
+        await db.commit()
+    assert summary is not None
+    assert {"job_id": job_id, "previous_dl_id": head, "dl_id": creator} in summary[
+        "changes"
+    ]
+    assert summary["total"] == len(summary["changes"])
+
+    async with AsyncSessionLocal() as db:
+        assert await run_job_creator_delivery_lead_repair(db) is None

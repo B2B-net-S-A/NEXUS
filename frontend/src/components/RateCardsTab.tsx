@@ -9,6 +9,15 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { ConfirmButton } from "@/components/ConfirmDialog";
 import { resolveViewState } from "@/lib/view-state";
 import { Plus, Trash2, Loader2, Pencil, X } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  CALM_AMOUNT,
+  CALM_EMPTY,
+  CALM_HEAD,
+  CALM_ROW,
+  CALM_UNIT,
+} from "@/lib/calm-table";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 const SENIORITIES = ["", "junior", "mid", "senior", "lead", "architect"];
 const RATE_UNITS = [
@@ -208,24 +217,25 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
     viewState === "error";
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {canManage && (
-        <button
+        <Button
+          size="sm"
+          variant="primary"
           onClick={() => {
             setEditingId(null);
             setForm(EMPTY);
             setShowForm(true);
             setError("");
           }}
-          className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
         >
-          <Plus className="w-4 h-4" /> Dodaj wpis cennika
-        </button>
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Dodaj wpis cennika
+        </Button>
       )}
 
       {/* Błąd usuwania nie ma gdzie indziej wyjść — formularz bywa zamknięty. */}
       {error && !showForm && (
-        <div className="text-sm text-destructive bg-destructive/10 dark:bg-red-900/30 dark:text-red-300 rounded-lg px-3 py-2">
+        <div className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">
           {error}
         </div>
       )}
@@ -233,32 +243,32 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
       {showForm && (
         <form
           onSubmit={handleSave}
-          className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 space-y-3 border border-purple-200 dark:border-purple-900"
+          className="space-y-3 rounded-lg border border-border bg-card p-4"
         >
-          <h3 className="text-sm font-semibold">
+          <h3 className="text-[13px] font-semibold">
             {editingId ? `Edytuj cennik #${editingId}` : "Nowy wpis cennika"}
           </h3>
           {error && (
-            <div className="text-sm text-destructive bg-destructive/10 dark:bg-red-900/30 dark:text-red-300 rounded-lg px-3 py-2">
+            <div className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">
               {error}
             </div>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <label className="block">
-              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Rola *</span>
+              <span className="block text-xs text-muted-foreground mb-1">Rola *</span>
               <input
                 value={form.role}
                 onChange={(e) => setForm({ ...form, role: e.target.value })}
                 placeholder="Senior Java Dev"
-                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-card dark:bg-muted"
               />
             </label>
             <label className="block">
-              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Seniority</span>
+              <span className="block text-xs text-muted-foreground mb-1">Seniority</span>
               <select
                 value={form.seniority}
                 onChange={(e) => setForm({ ...form, seniority: e.target.value })}
-                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-card dark:bg-muted"
               >
                 {SENIORITIES.map((s) => (
                   <option key={s || "any"} value={s}>
@@ -268,11 +278,11 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
               </select>
             </label>
             <label className="block">
-              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Jednostka</span>
+              <span className="block text-xs text-muted-foreground mb-1">Jednostka</span>
               <select
                 value={form.rate_unit}
                 onChange={(e) => setForm({ ...form, rate_unit: e.target.value })}
-                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-card dark:bg-muted"
               >
                 {RATE_UNITS.map((u) => (
                   <option key={u.value} value={u.value}>
@@ -284,49 +294,49 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <label className="block">
-              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Kandydat od</span>
+              <span className="block text-xs text-muted-foreground mb-1">Kandydat od</span>
               <input
                 type="number"
                 value={form.rate_candidate_min}
                 onChange={(e) => setForm({ ...form, rate_candidate_min: e.target.value })}
-                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-card dark:bg-muted"
               />
             </label>
             <label className="block">
-              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Kandydat do</span>
+              <span className="block text-xs text-muted-foreground mb-1">Kandydat do</span>
               <input
                 type="number"
                 value={form.rate_candidate_max}
                 onChange={(e) => setForm({ ...form, rate_candidate_max: e.target.value })}
-                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-card dark:bg-muted"
               />
             </label>
             <label className="block">
-              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Klient od</span>
+              <span className="block text-xs text-muted-foreground mb-1">Klient od</span>
               <input
                 type="number"
                 value={form.rate_client_min}
                 onChange={(e) => setForm({ ...form, rate_client_min: e.target.value })}
-                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-card dark:bg-muted"
               />
             </label>
             <label className="block">
-              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Klient do</span>
+              <span className="block text-xs text-muted-foreground mb-1">Klient do</span>
               <input
                 type="number"
                 value={form.rate_client_max}
                 onChange={(e) => setForm({ ...form, rate_client_max: e.target.value })}
-                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-card dark:bg-muted"
               />
             </label>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <label className="block">
-              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Waluta</span>
+              <span className="block text-xs text-muted-foreground mb-1">Waluta</span>
               <select
                 value={form.currency}
                 onChange={(e) => setForm({ ...form, currency: e.target.value })}
-                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-card dark:bg-muted"
               >
                 <option>PLN</option>
                 <option>EUR</option>
@@ -335,48 +345,45 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
               </select>
             </label>
             <label className="block">
-              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Ważny od</span>
+              <span className="block text-xs text-muted-foreground mb-1">Ważny od</span>
               <input
                 type="date"
                 value={form.valid_from}
                 onChange={(e) => setForm({ ...form, valid_from: e.target.value })}
-                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-card dark:bg-muted"
               />
             </label>
             <label className="block">
-              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Ważny do</span>
+              <span className="block text-xs text-muted-foreground mb-1">Ważny do</span>
               <input
                 type="date"
                 value={form.valid_to}
                 onChange={(e) => setForm({ ...form, valid_to: e.target.value })}
-                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-card dark:bg-muted"
               />
             </label>
           </div>
           <label className="block">
-            <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Notatki</span>
+            <span className="block text-xs text-muted-foreground mb-1">Notatki</span>
             <textarea
               rows={2}
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-card dark:bg-muted"
             />
           </label>
           <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted dark:text-muted-foreground dark:hover:bg-muted rounded-lg"
-            >
-              <X className="w-4 h-4" /> Anuluj
-            </button>
-            <button
+            <Button type="button" size="sm" variant="ghost" onClick={handleCancel}>
+              <X className="h-3.5 w-3.5" aria-hidden="true" /> Anuluj
+            </Button>
+            <Button
               type="submit"
+              size="sm"
+              variant="primary"
               disabled={saveMutation.isPending}
-              className="bg-purple-600 hover:bg-purple-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
             >
               {saveMutation.isPending ? "Zapisywanie…" : "Zapisz"}
-            </button>
+            </Button>
           </div>
         </form>
       )}
@@ -404,62 +411,68 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
       ) : (
         // `overflow-x-auto`, nie `overflow-hidden`: na telefonie sześć kolumn
         // się nie mieści, a ucięte kolumny (okres, akcje) były nieosiągalne.
-        <div className="overflow-x-auto rounded-xl border border-border dark:border-border">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead className="bg-muted dark:bg-muted/40 text-xs uppercase text-muted-foreground dark:text-muted-foreground">
-              <tr>
-                <th className="sticky left-0 z-10 bg-muted text-left px-3 py-2">Rola</th>
-                <th className="text-left px-3 py-2">Seniority</th>
-                <th className="text-left px-3 py-2">Kandydat</th>
-                <th className="text-left px-3 py-2">Klient</th>
-                <th className="text-left px-3 py-2">Okres</th>
-                <th className="text-right px-3 py-2"></th>
+        <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
+          <table className="w-full min-w-[640px] text-[13px]">
+            <thead>
+              <tr className="border-b border-border">
+                <th className={`sticky left-0 z-10 bg-card px-3 py-2 text-left ${CALM_HEAD}`}>
+                  Rola
+                </th>
+                <th className={`px-3 py-2 text-left ${CALM_HEAD}`}>Seniority</th>
+                <th className={`px-3 py-2 text-right ${CALM_HEAD}`}>Kandydat</th>
+                <th className={`px-3 py-2 text-right ${CALM_HEAD}`}>Klient</th>
+                <th className={`px-3 py-2 text-left ${CALM_HEAD}`}>Okres</th>
+                <th className="px-3 py-2 text-right"></th>
               </tr>
             </thead>
             <tbody>
-              {cards.map((c) => (
-                <tr key={c.id} className="border-t border-border dark:border-border">
-                  <td className="sticky left-0 z-10 bg-card dark:bg-muted px-3 py-2 font-medium">{c.role}</td>
-                  <td className="px-3 py-2 text-muted-foreground dark:text-muted-foreground">
-                    {c.seniority ?? "—"}
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    {range(c.rate_candidate_min, c.rate_candidate_max, c.currency)}
-                    <span className="text-xs opacity-70">
-                      {RATE_UNITS.find((u) => u.value === c.rate_unit)?.label}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    {range(c.rate_client_min, c.rate_client_max, c.currency)}
-                    <span className="text-xs opacity-70">
-                      {RATE_UNITS.find((u) => u.value === c.rate_unit)?.label}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap text-xs text-muted-foreground dark:text-muted-foreground">
-                    {c.valid_from || "—"} → {c.valid_to || "∞"}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {canManage && (
-                      <div className="inline-flex gap-1">
-                        <button
-                          onClick={() => startEdit(c)}
-                          className="p-1.5 pointer-coarse:p-2.5 rounded hover:bg-muted dark:hover:bg-muted text-muted-foreground"
-                          title="Edytuj"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <ConfirmButton
-                          onConfirm={() => handleDelete(c)}
-                          message={`Usunąć cennik „${c.role}”?`}
-                          className="p-1.5 pointer-coarse:p-2.5 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-destructive disabled:opacity-50"
-                        >
-                          <Trash2 className="w-4 h-4" aria-label="Usuń" />
-                        </ConfirmButton>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {cards.map((c) => {
+                const unit = RATE_UNITS.find((u) => u.value === c.rate_unit)?.label;
+                return (
+                  <tr key={c.id} className={`${CALM_ROW} last:border-b-0`}>
+                    <td className="sticky left-0 z-10 bg-card px-3 py-2 font-semibold">
+                      {c.role}
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {c.seniority ?? <span className={CALM_EMPTY}>—</span>}
+                    </td>
+                    <td className={`px-3 py-2 ${CALM_AMOUNT}`}>
+                      {range(c.rate_candidate_min, c.rate_candidate_max, c.currency)}
+                      <span className={CALM_UNIT}>{unit}</span>
+                    </td>
+                    <td className={`px-3 py-2 ${CALM_AMOUNT}`}>
+                      {range(c.rate_client_min, c.rate_client_max, c.currency)}
+                      <span className={CALM_UNIT}>{unit}</span>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-xs tabular-nums text-muted-foreground">
+                      {c.valid_from ? formatIsoDatePl(c.valid_from) : "—"} →{" "}
+                      {c.valid_to ? formatIsoDatePl(c.valid_to) : "∞"}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {canManage && (
+                        <div className="inline-flex items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => startEdit(c)}
+                            title="Edytuj"
+                            aria-label="Edytuj"
+                          >
+                            <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                          </Button>
+                          <ConfirmButton
+                            onConfirm={() => handleDelete(c)}
+                            message={`Usunąć cennik „${c.role}”?`}
+                            className={buttonVariants({ variant: "quiet", size: "sm" })}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" aria-label="Usuń" />
+                          </ConfirmButton>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

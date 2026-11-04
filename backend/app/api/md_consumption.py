@@ -30,12 +30,13 @@ i stawek: moduł Finanse nie jest powierzchnią kandydacką.
 
 from __future__ import annotations
 
+import hashlib
 import os
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date as date_type, datetime, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Iterable, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import func, select
@@ -60,12 +61,16 @@ from app.models.md_consumption import (
     ClientOrderInvoiceConsumption,
     ClientOrderMdConsumption,
     COST_ROW_APPLIED,
+    COST_ROW_INVOICE_UNREADABLE,
+    COST_ROW_MANUAL_KEPT,
     COST_ROW_NON_POSITIVE,
+    COST_ROW_ORDER_EXHAUSTED,
     COST_ROW_STATUS_LABELS,
     COST_ROW_UNMATCHED_CONSULTANT,
     COST_ROW_UNMATCHED_NUMBER,
     CONSUMPTION_SOURCE_MANUAL,
     IMPORT_ROW_APPLIED,
+    IMPORT_ROW_AWAITING_ORDER,
     IMPORT_ROW_COST_ONLY,
     IMPORT_ROW_NEEDS_ASSIGNMENT,
     IMPORT_ROW_OVERFLOW,
@@ -94,6 +99,7 @@ from app.services.client_order_lines import (
     candidate_name_tokens,
     exhausted_groups_with_month_entry,
     cost_lines_settling_in_month,
+    exhausted_cost_lines,
     describe_import,
     format_period_month,
     group_settles_in_month,
@@ -133,6 +139,13 @@ from app.services.multi_consultant_orders import (
     EVENT_MD_IMPORT,
     format_md,
     quantize_md,
+)
+from app.services.md_awaiting_orders import (
+    apply_reimport,
+    next_order_line_ids,
+    plan_reimport,
+    recount_import_batch,
+    settle_awaiting_rows,
 )
 from app.services.order_policies import md_exhaustion_client_ids
 from app.services.shared_md_orders import (
@@ -275,6 +288,22 @@ def _unmatched_reason(
         or row.cost_status == COST_ROW_APPLIED
     ):
         return None
+    if row.cost_status == COST_ROW_MANUAL_KEPT:
+        # 0493: zamówienie i osoba się zgadzają — za ten miesiąc ktoś wpisał
+        # kwotę ręcznie w zakładce „Zużycie”, a import jej nie nadpisuje.
+        return _REASON_TO_VERIFY, (
+            f"Zamówienie kosztowe nr {row.order_number_hint or '—'} ma ręczny "
+            f"wpis za {format_period_month(period_month)} — faktura z arkusza "
+            "została pominięta. Porównaj kwoty w zakładce „Zużycie” osoby."
+        )
+    if row.cost_status == COST_ROW_ORDER_EXHAUSTED:
+        # Runda 10 (R10-N5-6): zamówienie istnieje — skończył się jego budżet.
+        return _REASON_TO_VERIFY, (
+            f"Zamówienie kosztowe nr {row.order_number_hint or '—'} jest "
+            f"wyczerpane — faktura za {format_period_month(period_month)} nie "
+            "została rozliczona. Zwiększ budżet zamówienia albo dodaj kolejne "
+            "i rozlicz fakturę ręcznie."
+        )
     hints = extract_order_number_candidates(row.notes_raw)
     wanted = name_tokens(row.consultant_name)
     person_lines = context.lines_by_person.get(wanted, []) if wanted else []
@@ -284,8 +313,8 @@ def _unmatched_reason(
     # linie import naprawdę brał pod uwagę — z okresu raportu albo wskazane
     # tym numerem. Dawna linia Polkomtela nie czyni „delegacja 445” u BNP
     # numerem zamówienia.
-    clients = {
-        line.client_id
+    considered = [
+        line
         for line in person_lines
         if line_settles_in_month(line, period_month, contract=line.contract)
         or finance_order_matching.finance_order_number_matches(
@@ -293,14 +322,27 @@ def _unmatched_reason(
             order_number=context.groups[line.order_group_id].order_number,
             numeric_hints=hints,
         )
-    }
+    ]
+    clients = {line.client_id for line in considered}
     if not clients:
         return None
-    if finance_order_matching.POLKOMTEL_CLIENT_ID in clients:
+    # Runda 7 (R7-V4-5): lustro importu — klient, u którego osoba ma tylko
+    # linie kosztowe, wiąże znanym numerem albo numerem w kształcie swoich
+    # zamówień (R8-V1-5), a szeroka reguła
+    # Polkomtela (każdy ciąg cyfr) dotyczy jego linii MD.
+    md_clients = {
+        line.client_id
+        for line in considered
+        if not context.groups[line.order_group_id].is_cost_based
+    }
+    if finance_order_matching.POLKOMTEL_CLIENT_ID in md_clients:
         authoritative = list(hints)
     else:
         authoritative = finance_order_matching.explicit_order_hints(
-            hints, context.index, clients
+            hints,
+            context.index,
+            md_clients,
+            known_only_client_ids=clients - md_clients,
         )
     if not authoritative:
         return None
@@ -384,11 +426,14 @@ async def _row_to_read(
     period_month: Optional[str] = None,
     reason_context: Optional[_ReasonContext] = None,
     merged_rows: int = 1,
+    awaiting_md: Optional[Decimal] = None,
 ) -> ImportRowRead:
     """Wiersz importu wraz z opcjami do wyboru (dla „wymaga przypisania")."""
     order_ids: set[int] = set()
     if row.matched_order_id:
         order_ids.add(row.matched_order_id)
+    if row.awaiting_origin_order_id:
+        order_ids.add(row.awaiting_origin_order_id)
     for oid in row.candidate_order_ids or []:
         try:
             order_ids.add(int(oid))
@@ -453,6 +498,13 @@ async def _row_to_read(
         status_reason=status_reason,
         overflow_md=row.overflow_md,
         merged_rows=merged_rows,
+        md_pending=row.md_pending,
+        awaiting_md=awaiting_md,
+        awaiting_order=(
+            options_by_id.get(row.awaiting_origin_order_id)
+            if row.awaiting_origin_order_id is not None
+            else None
+        ),
     )
 
 
@@ -468,39 +520,14 @@ def _summary(batch: MdConsumptionImport) -> ImportSummary:
         rows_cost_applied=batch.rows_cost_applied,
         rows_cost_unmatched=batch.rows_cost_unmatched,
         uploaded_by_user_id=batch.uploaded_by_user_id,
+        uploaded_by_service_account_id=batch.uploaded_by_service_account_id,
         created_at=batch.created_at,
     )
 
 
 async def _recount(db: AsyncSession, batch: MdConsumptionImport) -> None:
-    """Przelicz liczniki partii z faktycznych statusów wierszy.
-
-    Liczniki są przeliczane, a nie inkrementowane przy rozstrzyganiu: licznik
-    modyfikowany krokowo rozjeżdża się przy każdym nieoczekiwanym przebiegu,
-    a to on jest tym, co operator czyta jako „ile zostało do zrobienia".
-    """
-    result = await db.execute(
-        select(MdConsumptionImportRow.status).where(
-            MdConsumptionImportRow.import_id == batch.id
-        )
-    )
-    statuses = [s for (s,) in result]
-    batch.rows_total = len(statuses)
-    batch.rows_applied = sum(1 for s in statuses if s == IMPORT_ROW_APPLIED)
-    # „Do weryfikacji – przekroczenie puli” też czeka na człowieka.
-    batch.rows_ambiguous = sum(
-        1 for s in statuses if s in (IMPORT_ROW_NEEDS_ASSIGNMENT, IMPORT_ROW_OVERFLOW)
-    )
-    batch.rows_unmatched = sum(1 for s in statuses if s == IMPORT_ROW_UNMATCHED)
-
-    cost_result = await db.execute(
-        select(MdConsumptionImportRow.cost_status).where(
-            MdConsumptionImportRow.import_id == batch.id
-        )
-    )
-    cost_statuses = [c for (c,) in cost_result if c is not None]
-    batch.rows_cost_applied = sum(1 for c in cost_statuses if c == COST_ROW_APPLIED)
-    batch.rows_cost_unmatched = len(cost_statuses) - batch.rows_cost_applied
+    """Przelicz liczniki partii z faktycznych statusów wierszy."""
+    await recount_import_batch(db, batch)
 
 
 async def _rollback_trial(db: AsyncSession, savepoint) -> None:
@@ -954,17 +981,80 @@ async def create_import(
     period_month: str = Form(...),
 ):
     """Wgraj raport MD i zastosuj go do aktywnych linii lub wspólnych pul."""
+    payload = await file.read(MAX_UPLOAD_BYTES + 1)
+    batch, parsed = await run_md_import(
+        db,
+        payload=payload,
+        filename=file.filename or "raport.xlsx",
+        period_month=period_month,
+        user_id=user.id,
+    )
+    await db.commit()
+    await db.refresh(batch)
+    return await _detail(db, batch, parsed_sheet=parsed)
+
+
+def _reimport_persons(
+    rows: Iterable[MdConsumptionImportRow],
+    *,
+    candidates: list[LineMatch],
+    line_pools: Iterable[Iterable[LineMatch]],
+) -> set[tuple[str, int]]:
+    """Pary (osoba, klient) z wierszy MD paczki — klucz powtórki miesiąca.
+
+    Audyt 22.10.2026 (F70): klient wiersza to klient zamówienia, na które
+    trafił (albo z którego czeka), a bez dopasowania — klienci linii, między
+    którymi trzeba wybrać, albo linii tej osoby w miesiącu. Samo nazwisko
+    unieważniało oczekujące MD tej osoby u innego klienta i u imiennika.
+    """
+    line_clients = {
+        match.order.id: match.order.client_id for pool in line_pools for match in pool
+    }
+    persons: set[tuple[str, int]] = set()
+    for row in rows:
+        if row.awaiting_origin_order_id is not None:
+            order_ids = [row.awaiting_origin_order_id]
+        elif row.matched_order_id is not None:
+            order_ids = [row.matched_order_id]
+        else:
+            order_ids = list(row.candidate_order_ids or []) or [
+                match.order.id
+                for match in match_by_name(candidates, row.consultant_name)
+            ]
+        persons |= {
+            (row.consultant_name, line_clients[order_id])
+            for order_id in order_ids
+            if order_id in line_clients
+        }
+    return persons
+
+
+async def run_md_import(
+    db: AsyncSession,
+    *,
+    payload: bytes,
+    filename: str,
+    period_month: str,
+    user_id: Optional[int],
+    service_account_id: Optional[int] = None,
+) -> tuple[MdConsumptionImport, Any]:
+    """Cały import raportu MD BEZ commita — zatwierdza wołający.
+
+    Wspólna droga ekranu (``POST /api/md-consumption/imports``) i API
+    integracyjnego v1 (``POST /api/integrations/v1/md/imports``, 0443). Brak
+    commita w środku to warunek ``dry_run`` w v1: przebieg liczy się w całości,
+    odpowiedź powstaje przed ``rollback`` i nic nie zostaje w bazie. Zwraca
+    partię (po ``flush`` i przeliczeniu liczników) oraz sparsowany arkusz.
+    """
     try:
         month_bounds(period_month)
     except ValueError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
 
-    filename = file.filename or "raport.xlsx"
     ext = os.path.splitext(filename)[1].lower()
     if ext not in _ALLOWED_EXT:
         raise HTTPException(415, detail="Tylko pliki XLSX")
 
-    payload = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(payload) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             413, detail=f"Plik przekracza {MAX_UPLOAD_BYTES // (1024 * 1024)} MB"
@@ -988,12 +1078,15 @@ async def create_import(
     in_period_line_ids = {match.order.id for match in candidates}
     shared_md_candidates = await shared_md_lines_settling_in_month(db, period_month)
     cost_candidates = await cost_lines_settling_in_month(db, period_month)
+    exhausted_cost_candidates = await exhausted_cost_lines(db, period_month)
     order_numbers = await _order_number_index(db)
 
     batch = MdConsumptionImport(
         period_month=period_month,
         filename=filename[:255],
-        uploaded_by_user_id=user.id,
+        uploaded_by_user_id=user_id,
+        uploaded_by_service_account_id=service_account_id,
+        file_sha256=hashlib.sha256(payload).hexdigest(),
     )
     db.add(batch)
     await db.flush()
@@ -1026,6 +1119,13 @@ async def create_import(
     shared_md_orders: dict[int, ClientOrder] = {}
     shared_md_rows: dict[int, list[MdConsumptionImportRow]] = defaultdict(list)
     cost_rows: dict[int, list[MdConsumptionImportRow]] = defaultdict(list)
+    # 21.10.2026: wiersze dopasowane po SAMYM nazwisku czekają do końca pętli —
+    # jeśli trafiają na zamówienie, które inny wiersz tej osoby wskazał
+    # numerem, nie są z nim sumowane (`_split_awaiting_rows`).
+    name_only_md: list[tuple[MdConsumptionImportRow, LineMatch]] = []
+    # Osoby z wierszami MD w tej paczce — powtórka miesiąca poprawia ich
+    # wcześniejsze wiersze oczekujące (`apply_reimport`).
+    md_import_rows: list[MdConsumptionImportRow] = []
 
     for parsed_row in parsed.rows:
         row = MdConsumptionImportRow(
@@ -1039,8 +1139,18 @@ async def create_import(
                 else IMPORT_ROW_UNMATCHED
             ),
             notes_raw=parsed_row.notes_raw,
-            order_number_hint=parsed_row.order_number_hint,
+            # Runda 10 (R10-N5-7): kolumna ma 64 znaki, a parser oddaje
+            # najdłuższy ciąg cyfr z „Uwag" bez limitu — ≥ 65 cyfr dawało 500
+            # i przepadał cały import.
+            order_number_hint=(parsed_row.order_number_hint or "")[:64] or None,
             invoice_amount=parsed_row.invoice_amount,
+            # Runda 10 (R10-N5-5): MD z wiersza zostają, nieczytelna faktura
+            # dostaje trwały znacznik zamiast zniknąć z importu.
+            cost_status=(
+                COST_ROW_INVOICE_UNREADABLE
+                if getattr(parsed_row, "invoice_problem", None)
+                else None
+            ),
         )
         if getattr(parsed_row, "cost_only", False):
             # FIN-MD-06: wiersz z samą fakturą rozlicza wyłącznie pulę
@@ -1052,12 +1162,14 @@ async def create_import(
                 pending_invoices=pending_invoices,
                 invoice_orders=invoice_orders,
                 touched_groups=touched_groups,
+                exhausted_cost_candidates=exhausted_cost_candidates,
             )
             if cost_match is not None:
                 cost_rows[cost_match.order.id].append(row)
             db.add(row)
             continue
 
+        md_import_rows.append(row)
         # Parser dochodzi tutaj wyłącznie po znalezieniu jawnie rozpoznanej
         # kolumny MD. Wspólna pula nie próbuje wyliczać dni z faktury, godzin
         # ani innej kolumny zastępczej, dopóki Finanse nie ustalą formatu.
@@ -1075,13 +1187,61 @@ async def create_import(
             and row.matched_order_id is not None
         ):
             shared_md_rows[row.matched_order_id].append(row)
+        elif consultant_in_shared_md and row.status == IMPORT_ROW_UNMATCHED:
+            # Runda 6 audytu (MD-4): osoba ma też linię MD per osoba u innego
+            # klienta. Wiersz, którego numer nie wskazuje wspólnej puli,
+            # zostawał `unmatched` bez kandydatów, a ręczne przypisanie dawało
+            # 409. Numer zamówienia per osoba → ścieżka per osoba (wiąże numer);
+            # bez takiego numeru → „Wymaga przypisania” z liniami per osoba —
+            # nigdy dopasowanie po samym nazwisku, bo wiersz mógł dotyczyć puli.
+            shared_hints = extract_order_number_candidates(parsed_row.notes_raw)
+            names_a_shared_pool = any(
+                finance_order_matching.finance_order_number_matches(
+                    client_id=match.group.client_id,
+                    order_number=match.group.order_number,
+                    numeric_hints=shared_hints,
+                )
+                for match in match_by_name(
+                    shared_md_candidates, parsed_row.consultant_name
+                )
+            )
+            per_person = (
+                []
+                if names_a_shared_pool
+                else _md_row_pool(
+                    consultant_name=parsed_row.consultant_name,
+                    hints=shared_hints,
+                    named=match_by_name(candidates, parsed_row.consultant_name),
+                    numbered_candidates=numbered_candidates,
+                )
+            )
+            if per_person:
+                if _authoritative_md_hints(
+                    shared_hints,
+                    named=per_person,
+                    order_numbers=order_numbers,
+                    other_client_ids=_cost_client_ids(
+                        cost_candidates, parsed_row.consultant_name
+                    ),
+                ):
+                    consultant_in_shared_md = False
+                else:
+                    row.status = IMPORT_ROW_NEEDS_ASSIGNMENT
+                    row.candidate_order_ids = [m.order.id for m in per_person]
         md_explicit_applied = False
         if not consultant_in_shared_md:
+            # Runda 6 audytu (MD-3): numer zamówienia kosztowego tej osoby
+            # (np. SAP Polkomtela) wiąże wiersz tak samo jak numer jej
+            # zamówienia MD — nie zdejmujemy MD po nazwisku u innego klienta.
+            row_cost_clients = _cost_client_ids(
+                cost_candidates, parsed_row.consultant_name
+            )
             matches = _match_per_consultant_md_row(
                 parsed_row=parsed_row,
                 candidates=candidates,
                 order_numbers=order_numbers,
                 numbered_candidates=numbered_candidates,
+                other_client_ids=row_cost_clients,
             )
             row_hints = extract_order_number_candidates(parsed_row.notes_raw)
             authoritative = _authoritative_md_hints(
@@ -1093,8 +1253,11 @@ async def create_import(
                     numbered_candidates=numbered_candidates,
                 ),
                 order_numbers=order_numbers,
+                other_client_ids=row_cost_clients,
             )
-            if len(matches) == 1:
+            if len(matches) == 1 and not authoritative:
+                name_only_md.append((row, matches[0]))
+            elif len(matches) == 1:
                 match = matches[0]
                 row.status = IMPORT_ROW_APPLIED
                 row.matched_order_id = match.order.id
@@ -1132,10 +1295,27 @@ async def create_import(
                 pending_invoices=pending_invoices,
                 invoice_orders=invoice_orders,
                 touched_groups=touched_groups,
+                exhausted_cost_candidates=exhausted_cost_candidates,
             )
             if cost_match is not None:
                 cost_rows[cost_match.order.id].append(row)
         db.add(row)
+
+    awaiting_rows: list[MdConsumptionImportRow] = []
+    for row, match in name_only_md:
+        if match.order.id in explicit_md_orders:
+            # Wiersz bez numeru obok wiersza tej osoby z numerem tego zamówienia:
+            # MD nie schodzą z jego puli, czekają na kolejne zamówienie.
+            row.status = IMPORT_ROW_AWAITING_ORDER
+            row.awaiting_origin_order_id = match.order.id
+            row.md_pending = quantize_md(row.md_reported)
+            awaiting_rows.append(row)
+            continue
+        row.status = IMPORT_ROW_APPLIED
+        row.matched_order_id = match.order.id
+        pending_md[match.order.id] += row.md_reported
+        md_orders[match.order.id] = (match.order, match.group)
+        md_rows[match.order.id].append(row)
 
     # One lock protocol for every Finance writer: all lines (ascending), then
     # all groups (ascending), only then monthly rows/upserts.  Offboarding and
@@ -1176,8 +1356,37 @@ async def create_import(
     family_line_ids = await _md_family_line_ids(
         db, {group.id for _, group in md_orders.values()}
     )
+    # Kolejne zamówienia, z których zejdą MD oczekujące — ta sama kolejność
+    # blokad co cele z arkusza.
+    awaiting_target_ids = await next_order_line_ids(
+        db, {md_orders[row.awaiting_origin_order_id][0] for row in awaiting_rows}
+    )
+    reimport = await plan_reimport(
+        db,
+        import_id=batch.id,
+        period_month=period_month,
+        persons=_reimport_persons(
+            md_import_rows,
+            candidates=candidates,
+            line_pools=(
+                candidates,
+                numbered_candidates or (),
+                shared_md_candidates,
+                cost_candidates,
+                exhausted_cost_candidates,
+            ),
+        ),
+    )
+    awaiting_clients = [
+        (row, md_orders[row.awaiting_origin_order_id][0].client_id)
+        for row in awaiting_rows
+    ]
     locked_orders = await _lock_finance_target_orders(
-        db, set(expected_group_by_order) | family_line_ids
+        db,
+        set(expected_group_by_order)
+        | family_line_ids
+        | awaiting_target_ids
+        | reimport.targets,
     )
     for order_id, expected_group_id in expected_group_by_order.items():
         if locked_orders[order_id].order_group_id != expected_group_id:
@@ -1260,6 +1469,19 @@ async def create_import(
                 detail="Zamówienie kosztowe zmieniło się podczas importu.",
             )
 
+    if reimport.earlier:
+        # Przed zejściami paczki: cofnięcie MD z kolejnego zamówienia nie może
+        # nadpisać wpisu, który ta paczka zapisze na nim wprost.
+        await db.flush()
+        await apply_reimport(
+            db,
+            reimport,
+            import_id=batch.id,
+            period_month=period_month,
+            new_awaiting=awaiting_clients,
+            user_id=user_id,
+        )
+
     # Ticket 1.1: zejście, po którym saldo spadłoby poniżej zera, nie jest
     # księgowane automatycznie. Zapis idzie próbnie w savepoincie (ta sama
     # ścieżka co zwykły zapis — podział na następcę, przekierowanie na
@@ -1280,7 +1502,7 @@ async def create_import(
             period_month=period_month,
             md_reported=md_total,
             import_id=batch.id,
-            user_id=user.id,
+            user_id=user_id,
             explicit_order=order_id in explicit_md_orders,
             ignore_period=order_id in period_exempt_orders,
         )
@@ -1301,6 +1523,14 @@ async def create_import(
             for touched in (outcome.order, outcome.successor_order):
                 if touched is not None:
                     before_remaining[touched.id] = touched.md_remaining
+
+    if awaiting_rows:
+        await db.flush()
+        for row in awaiting_rows:
+            await db.refresh(
+                row, attribute_names=["import_batch", "awaiting_origin_order"]
+            )
+        await settle_awaiting_rows(db, awaiting_rows, user_id=user_id)
 
     for group_id in sorted(pending_shared_md):
         before_used = await shared_md_used_total(db, group_id)
@@ -1327,7 +1557,7 @@ async def create_import(
             period_month=period_month,
             md_reported=pending_shared_md[group_id] + carried,
             import_id=batch.id,
-            user_id=user.id,
+            user_id=user_id,
             carried_md=carried,
             carried_names=carried_names,
             before_used=before_used,
@@ -1344,33 +1574,51 @@ async def create_import(
         else:
             await savepoint.commit()
 
+    written_groups: set[int] = set()
     for order_id in sorted(pending_invoices):
         amount = pending_invoices[order_id]
+        # Decyzja Artura 21.10.2026: ręczny wpis z zakładki „Zużycie” wygrywa
+        # z importem za ten sam miesiąc. Wiersze arkusza zostają widoczne
+        # z własnym statusem, żeby Finanse rozstrzygnęły różnicę świadomie.
+        manual_id = await db.scalar(
+            select(ClientOrderInvoiceConsumption.id).where(
+                ClientOrderInvoiceConsumption.order_id == order_id,
+                ClientOrderInvoiceConsumption.period_month == period_month,
+                ClientOrderInvoiceConsumption.source == CONSUMPTION_SOURCE_MANUAL,
+            )
+        )
+        if manual_id is not None:
+            for held in cost_rows.get(order_id, []):
+                held.cost_status = COST_ROW_MANUAL_KEPT
+            continue
         await upsert_invoice(
             db,
             order=invoice_orders[order_id],
             period_month=period_month,
             invoice_amount=amount,
             import_id=batch.id,
-            user_id=user.id,
+            user_id=user_id,
         )
+        group_id = invoice_orders[order_id].order_group_id
+        if group_id is not None:
+            written_groups.add(group_id)
 
     await db.flush()
     for group_id in sorted(touched_groups):
+        if group_id not in written_groups:
+            continue
         await _settle_and_record(
             db,
             group=touched_groups[group_id],
             period_month=period_month,
             import_id=batch.id,
-            user_id=user.id,
+            user_id=user_id,
         )
 
     await db.flush()
     await _recount(db, batch)
-    await db.commit()
-    await db.refresh(batch)
-
-    return await _detail(db, batch, parsed_sheet=parsed)
+    await db.flush()
+    return batch, parsed
 
 
 def _authoritative_md_hints(
@@ -1378,6 +1626,7 @@ def _authoritative_md_hints(
     *,
     named: list[LineMatch],
     order_numbers: Optional[finance_order_matching.OrderNumberIndex],
+    other_client_ids: Iterable[int] = (),
 ) -> list[str]:
     """Numery z „Uwag", które wiążą wiersz MD z konkretnym zamówieniem.
 
@@ -1386,6 +1635,13 @@ def _authoritative_md_hints(
     numer ZNANY jako numer zamówienia klienta tej osoby, a u klienta z numerami
     z samych cyfr także dostatecznie długi
     (``finance_order_matching.explicit_order_hints``).
+
+    ``other_client_ids`` (runda 6 audytu, MD-3): klienci, u których osoba ma
+    linie zamówień KOSZTOWYCH. Numer takiego zamówienia (np. SAP Polkomtela)
+    też wiąże — inaczej wiersz rozliczający fakturę u Polkomtela odejmował MD
+    po samym nazwisku u innego klienta. Bez szerokiej reguły Polkomtela
+    (każdy ciąg cyfr): „delegacja 445” u BNP nie może stać się numerem
+    zamówienia tylko dlatego, że osoba ma też linię kosztową (audyt H6).
     """
     if not hints:
         return []
@@ -1395,9 +1651,26 @@ def _authoritative_md_hints(
     )
     if has_polkomtel_candidate:
         return list(hints)
+    named_clients = {match.group.client_id for match in named}
+    # Runda 7 (R7-V4-5): klient kosztowy wiąże ZNANYM numerem albo numerem
+    # w kształcie swoich zamówień (R8-V1-5, SAP „45…” 10 cyfr) — ogólna reguła
+    # „≥ 7 cyfr" zostaje przy klientach, u których osoba ma linię MD.
     return finance_order_matching.explicit_order_hints(
-        hints, order_numbers, {match.group.client_id for match in named}
+        hints,
+        order_numbers,
+        named_clients,
+        known_only_client_ids=set(other_client_ids) - named_clients,
     )
+
+
+def _cost_client_ids(
+    cost_candidates: Iterable[LineMatch], consultant_name: str
+) -> set[int]:
+    """Klienci, u których osoba z wiersza ma linię zamówienia kosztowego."""
+    return {
+        match.group.client_id
+        for match in match_by_name(cost_candidates, consultant_name)
+    }
 
 
 def _md_row_pool(
@@ -1440,6 +1713,7 @@ def _match_per_consultant_md_row(
     candidates: list[LineMatch],
     order_numbers: Optional[finance_order_matching.OrderNumberIndex] = None,
     numbered_candidates: Optional[list[LineMatch]] = None,
+    other_client_ids: Iterable[int] = (),
 ):
     """Dopasuj wiersz MD per konsultant: nazwisko, a numer zamówienia wiąże.
 
@@ -1471,7 +1745,10 @@ def _match_per_consultant_md_row(
     if not pool:
         return []
     authoritative = _authoritative_md_hints(
-        hints, named=pool, order_numbers=order_numbers
+        hints,
+        named=pool,
+        order_numbers=order_numbers,
+        other_client_ids=other_client_ids,
     )
     # Preferencja linii aktywnej dopiero PO zawężeniu numerem — wpięta
     # wcześniej wycinałaby linię, którą numer właśnie miał wskazać.
@@ -1552,6 +1829,7 @@ def _match_cost_row(
     pending_invoices: dict[int, Decimal],
     invoice_orders: dict[int, ClientOrder],
     touched_groups: dict[int, ClientOrderGroup],
+    exhausted_cost_candidates: Iterable[LineMatch] = (),
 ) -> Optional[LineMatch]:
     """Dopasuj wiersz do zamówienia kosztowego po numerze z „Uwag".
 
@@ -1591,6 +1869,23 @@ def _match_cost_row(
         )
     ]
     if not numbered:
+        # Runda 10 (R10-N5-6): numer wyczerpanego zamówienia kosztowego tej
+        # osoby to nie „brak zamówienia” — faktura jest nierozliczona.
+        exhausted = [
+            match
+            for match in match_by_name(
+                exhausted_cost_candidates, parsed_row.consultant_name
+            )
+            if finance_order_matching.finance_order_number_matches(
+                client_id=match.group.client_id,
+                order_number=match.group.order_number,
+                numeric_hints=hints,
+            )
+        ]
+        if len({m.group.id for m in exhausted}) == 1:
+            row.cost_status = COST_ROW_ORDER_EXHAUSTED
+            row.order_number_hint = exhausted[0].group.order_number.strip()[:64]
+            return None
         row.cost_status = COST_ROW_UNMATCHED_NUMBER
         return None
 
@@ -1658,6 +1953,23 @@ def _single_polkomtel_numbered_match(
     if len(numbered) == 1:
         return polkomtel[0], False
     return None, True
+
+
+def _already_booked_on(
+    plan: _PolkomtelReprocessPlan, row: MdConsumptionImportRow
+) -> bool:
+    """Czy wiersz paczki jest już zaksięgowany na cel planu."""
+    if plan.kind == _REPROCESS_COST:
+        return (
+            row.cost_status == COST_ROW_APPLIED
+            and row.matched_group_id == plan.match.group.id
+            and bool(match_by_name([plan.match], row.consultant_name))
+        )
+    if row.status != IMPORT_ROW_APPLIED:
+        return False
+    if plan.kind == _REPROCESS_SHARED_MD:
+        return row.matched_group_id == plan.match.group.id
+    return row.matched_order_id == plan.match.order.id
 
 
 def _build_polkomtel_reprocess_plan(
@@ -1779,6 +2091,21 @@ def _build_polkomtel_reprocess_plan(
                 )
             if cost_match is not None:
                 add_cost(cost_match, row)
+
+    # Runda 7 (R7-N2-1): miesięczne zużycie celu ma jeden klucz, więc plan
+    # musi objąć także wiersze tej paczki JUŻ zaksięgowane na ten cel po
+    # samym nazwisku (bez numeru w „Uwagach"). Bez nich zapis nadpisywał
+    # zużycie linii sumą samych wierszy z numerem i MD z pozostałych znikały.
+    for plan in buckets.values():
+        planned = {row.id for row in plan.rows}
+        for row in rows:
+            if row.id in planned or not _already_booked_on(plan, row):
+                continue
+            plan.rows.append(row)
+            if plan.kind == _REPROCESS_COST:
+                plan.expected_value += Decimal(str(row.invoice_amount or 0))
+            else:
+                plan.expected_value += Decimal(str(row.md_reported))
 
     plans: list[_PolkomtelReprocessPlan] = []
     for plan in buckets.values():
@@ -2301,6 +2628,14 @@ async def _detail(
             IMPORT_ROW_OVERFLOW,
         ):
             per_target[r.matched_order_id] += 1
+    # „Pozostało do zafakturowania” przy wierszu z numerem: MD wierszy tej
+    # paczki, które czekają na kolejne zamówienie po jego zamówieniu.
+    awaiting_by_origin: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+    for r in stored:
+        if r.status == IMPORT_ROW_AWAITING_ORDER and r.awaiting_origin_order_id:
+            awaiting_by_origin[r.awaiting_origin_order_id] += Decimal(
+                str(r.md_pending or 0)
+            )
     rows = [
         await _row_to_read(
             db,
@@ -2312,6 +2647,14 @@ async def _detail(
                 if r.matched_order_id is not None
                 and r.status in (IMPORT_ROW_APPLIED, IMPORT_ROW_OVERFLOW)
                 else 1
+            ),
+            awaiting_md=(
+                r.md_pending
+                if r.status == IMPORT_ROW_AWAITING_ORDER
+                else awaiting_by_origin.get(r.matched_order_id or -1)
+                if r.status in (IMPORT_ROW_APPLIED, IMPORT_ROW_OVERFLOW)
+                and r.awaiting_origin_order_id is None
+                else None
             ),
         )
         for r in stored
@@ -2865,6 +3208,51 @@ async def _approve_shared_md_overflow(
             )
         ).scalars()
     )
+    # Runda 10 (R10-N5-4): wstrzymany miesiąc czeka dowolnie długo — w tym
+    # czasie zamówienie mogło zostać zakończone przed tym miesiącem albo
+    # anulowane (tylko do odczytu). Ta sama reguła co ponowne dopasowanie
+    # importu pod blokadami (`_ordinary_locked_target_is_valid`, shared_md).
+    rows_by_order: dict[int, list[MdConsumptionImportRow]] = defaultdict(list)
+    for booked in group_rows:
+        if booked.matched_order_id is not None:
+            rows_by_order[booked.matched_order_id].append(booked)
+    correctable = await exhausted_groups_with_month_entry(
+        db, [group.id], batch.period_month
+    )
+    booked_orders = {
+        o.id: o
+        for o in (
+            await db.scalars(
+                select(ClientOrder)
+                .options(
+                    selectinload(ClientOrder.contract).selectinload(Contract.candidate)
+                )
+                .where(ClientOrder.id.in_(sorted(rows_by_order)))
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+    }
+    if not rows_by_order or any(
+        booked_orders.get(order_id) is None
+        or not _ordinary_locked_target_is_valid(
+            kind="shared_md",
+            order=booked_orders[order_id],
+            group=group,
+            rows=order_rows,
+            expected_client_id=group.client_id,
+            period_month=batch.period_month,
+            correctable_exhausted_group_ids=correctable,
+        )
+        for order_id, order_rows in rows_by_order.items()
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "Zamówienie ze wspólną pulą MD nie rozlicza już tego miesiąca "
+                "(zakończone przed nim, anulowane albo zmienione) — przekroczenia "
+                "nie da się zatwierdzić."
+            ),
+        )
     present = {r.matched_order_id for r in group_rows if r.matched_order_id}
     carried, carried_names = await _shared_md_carry_over(
         db,
@@ -2977,6 +3365,16 @@ async def reapply_rows_for_restored_line(
 
     results: list[RestoredLineImportRow] = []
     order_numbers: Optional[finance_order_matching.OrderNumberIndex] = None
+    # Wiersze należą do jednej osoby (`wanted`), więc klienci jej linii
+    # kosztowych zależą wyłącznie od miesiąca paczki.
+    cost_clients_by_month: dict[str, set[int]] = {}
+    # Runda 10 (R10-N5-2): wiązanie numeru liczone z tej samej puli co przy
+    # wgraniu pliku — linie osoby rozliczające miesiąc paczki + linie wskazane
+    # numerem (BIK). Sama przywracana linia nie znała klientów o numerach
+    # z samych cyfr, więc wiersz odrzucony za nieznany numer BIK trafiał na
+    # przywróconą linię BNP.
+    md_lines_by_month: dict[str, list[LineMatch]] = {}
+    numbered_candidates: Optional[list[LineMatch]] = None
     for row, batch in candidates:
         if name_tokens(row.consultant_name) != wanted:
             continue
@@ -2984,13 +3382,43 @@ async def reapply_rows_for_restored_line(
         # reguła co ręczne przypisanie): wiersz wskazujący INNE zamówienie nie
         # trafia na przywróconą linię.
         hints = extract_order_number_candidates(row.notes_raw)
+        authoritative: list[str] = []
         if hints:
             if order_numbers is None:
                 order_numbers = await _order_number_index(db)
+            if batch.period_month not in cost_clients_by_month:
+                # Runda 6 audytu (MD-3): numer zamówienia kosztowego tej osoby
+                # wiąże tak samo jak przy wgraniu pliku.
+                cost_clients_by_month[batch.period_month] = _cost_client_ids(
+                    await cost_lines_settling_in_month(db, batch.period_month),
+                    row.consultant_name,
+                )
+            if batch.period_month not in md_lines_by_month:
+                md_lines_by_month[
+                    batch.period_month
+                ] = await md_lines_settling_in_month(db, batch.period_month)
+            if numbered_candidates is None:
+                numbered_candidates = await md_lines_for_numbered_rows(
+                    db, md_exhaustion_client_ids()
+                )
+            own = LineMatch(line, group, row.consultant_name)
+            pool = [
+                match
+                for match in _md_row_pool(
+                    consultant_name=row.consultant_name,
+                    hints=hints,
+                    named=match_by_name(
+                        md_lines_by_month[batch.period_month], row.consultant_name
+                    ),
+                    numbered_candidates=numbered_candidates,
+                )
+                if match.order.id != line.id
+            ]
             authoritative = _authoritative_md_hints(
                 hints,
-                named=[LineMatch(line, group, row.consultant_name)],
+                named=[own, *pool],
                 order_numbers=order_numbers,
+                other_client_ids=cost_clients_by_month[batch.period_month],
             )
             if (
                 authoritative
@@ -3083,6 +3511,10 @@ async def reapply_rows_for_restored_line(
             md_reported=total,
             import_id=locked_batch.id,
             user_id=user_id,
+            # Runda 6 audytu (MD-5): wiersz wskazał TO zamówienie numerem —
+            # jak w imporcie i ręcznym przypisaniu zużycie zostaje na nim,
+            # bez przekierowania na poprzednika (FIN-MD-01).
+            explicit_order=bool(authoritative),
         )
         overflow = _booking_overflow(
             outcome, before_remaining, await _remaining_by_line(db, before_remaining)

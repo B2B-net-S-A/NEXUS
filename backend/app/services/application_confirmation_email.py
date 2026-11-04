@@ -68,9 +68,14 @@ def email_key(email: str) -> str:
 def render_confirmation(
     *, to: str, first_name: str, public_job_title: Optional[str], rodo_url: str
 ) -> ConfirmationEmail:
-    """Czysta funkcja: te same wejścia → ten sam mail, niezależnie od bazy."""
-    name = (first_name or "").strip()
-    greeting = f"Cześć {name}," if name else "Dzień dobry,"
+    """Czysta funkcja: te same wejścia → ten sam mail, niezależnie od bazy.
+
+    ``first_name`` świadomie NIE trafia do treści (runda 8, R8-N4-9): formularz
+    jest anonimowy, więc imię to dowolny tekst obcej osoby, a mail idzie
+    z firmowej skrzynki na dowolny podany adres. Powitanie jest ogólne.
+    """
+    del first_name
+    greeting = "Dzień dobry,"
     title = (public_job_title or "").strip() or None
     what = f"Twoje zgłoszenie na stanowisko „{title}”" if title else "Twoje zgłoszenie"
     subject = (
@@ -119,7 +124,7 @@ async def public_job_title(db: AsyncSession, job_id: Optional[int]) -> Optional[
 
     from app.models.job import Job
     from app.models.job_public_profile import JobPublicProfile
-    from app.services.job_public_profile import STATUS_APPROVED, resolve_status
+    from app.services.job_public_profile import published_version
 
     job = await db.get(Job, job_id)
     if job is None:
@@ -129,8 +134,9 @@ async def public_job_title(db: AsyncSession, job_id: Optional[int]) -> Optional[
     )
     if profile is None:
         return None
-    status, _default, effective = await resolve_status(db, job, profile)
-    return effective if status == STATUS_APPROVED else None
+    # Ten tytuł kandydat widział na stronie, z której aplikował.
+    version = await published_version(db, job, profile)
+    return version.title if version is not None else None
 
 
 async def claim_send(db: AsyncSession, *, email: str, link_key: str) -> bool:
@@ -182,11 +188,15 @@ async def release_claim(*, email: str, link_key: str) -> None:
 async def deliver(message: ConfirmationEmail, *, event_at: datetime, link_key: str):
     """Zadanie w tle: wysyłka przez ``guarded_send`` w wątku. Nigdy nie rzuca."""
     from app.services.email import send_email
-    from app.services.notification_delivery import guarded_send
+    from app.services.notification_delivery import (
+        guarded_send,
+        last_send_policy_blocked,
+    )
 
-    try:
-        sent = await asyncio.to_thread(
-            guarded_send,
+    def _send() -> tuple[bool, bool]:
+        from app.services.m365.app_mail import last_delivery_uncertain
+
+        ok = guarded_send(
             KIND,
             event_at,
             send_email,
@@ -195,10 +205,27 @@ async def deliver(message: ConfirmationEmail, *, event_at: datetime, link_key: s
             message.text_body,
             message.html_body,
         )
+        # Runda 9 (R9-N10-14): 502/504 z Graph = mail mógł wyjść. Stan jest
+        # w wątku wysyłki, więc czytamy go tutaj, nie w pętli zdarzeń.
+        uncertain = bool(
+            not ok
+            and settings.M365_APP_MAIL_ENABLED
+            and not last_send_policy_blocked()
+            and last_delivery_uncertain()
+        )
+        return ok, uncertain
+
+    uncertain = False
+    try:
+        sent, uncertain = await asyncio.to_thread(_send)
     except Exception as exc:  # noqa: BLE001
         logger.warning("[apply-confirmation] send failed: %s", type(exc).__name__)
         sent = False
-    if not sent:
+    if uncertain:
+        # Niepewny wynik = rezerwacja zostaje: drugie zgłoszenie w ciągu 24 h
+        # nie może wysłać kandydatowi drugiego potwierdzenia.
+        logger.warning("[apply-confirmation] delivery uncertain — claim kept")
+    elif not sent:
         await release_claim(email=message.to, link_key=link_key)
     return sent
 

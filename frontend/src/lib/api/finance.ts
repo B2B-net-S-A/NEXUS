@@ -155,6 +155,19 @@ interface OrderRef {
 }
 
 /**
+ * Pozycja faktury cyklicznej Nordei zapisana przy zamówieniu (ticket 8).
+ * `index` = miejsce linii w zapisie zamówienia (pod nim idzie poprawka),
+ * `[brak]` w `text` = pole nieodczytane z PDF-a.
+ */
+export interface InvoiceLine {
+  index: number;
+  consultant: string | null;
+  text: string;
+  edited_by_name: string | null;
+  edited_at: string | null;
+}
+
+/**
  * Wejście = osoba zaczynająca z nami współpracę po raz pierwszy. Kontynuacja,
  * zmiana klienta i dodatkowy projekt idą do Zmian — dlatego nie ma tu pól
  * `is_continuation` / `additional_project`.
@@ -168,6 +181,8 @@ export interface OrderEntryItem extends OrderRef {
   currency: string | null;
   order_type: OrderTypeCode;
   status: string;
+  /** Tylko Nordea: gotowa pozycja faktury; `null`/brak = inny klient. */
+  invoice_lines?: InvoiceLine[] | null;
 }
 
 /**
@@ -210,10 +225,13 @@ export interface OrderChangeItem extends OrderRef {
   old_unit: RateUnitCode | null;
   new_unit: RateUnitCode | null;
   currency: string | null;
+  /** Waluta STAREJ strony zmiany stawki; brak = ta sama co `currency`. */
+  old_currency?: string | null;
   old_date: string | null;
   new_date: string | null;
   is_whole_order: boolean;
-  source: "user" | "system" | null;
+  /** `integration` = zapis kluczem API v1 (0443); autor w `author_name`. */
+  source: "user" | "system" | "integration" | null;
   author_name: string | null;
   rate_cost: number | null;
   rate_revenue: number | null;
@@ -269,6 +287,9 @@ export interface OrderSupersededCheck {
   summary: string;
   done: OrderItemCheck;
 }
+
+/** Klucz zapytania o badge „do zrobienia" (menu Finansów, pulpit Finansów). */
+export const ORDER_CHANGES_SUMMARY_KEY = ["finance-order-changes-summary"] as const;
 
 export interface OrderChangesSummary {
   period: { year: number; month: number; label: string };
@@ -346,6 +367,8 @@ export interface OrderPdfFile {
   consultant_name: string | null;
   start: string;
   end: string | null;
+  /** Koniec przed startem — okres do sprawdzenia (runda 10, F10). */
+  period_invalid?: boolean;
   entry_type: OrderPdfEntryType;
   status: string | null;
   order_number: string | null;
@@ -460,6 +483,12 @@ export const financeApi = {
   }) =>
     api.post<{ item_key: string; done: OrderItemCheck | null }>(
       "/api/finance/order-changes/checks",
+      payload,
+    ),
+
+  updateInvoiceLine: (orderId: number, payload: { index: number; text: string }) =>
+    api.put<{ order_id: number; lines: InvoiceLine[] }>(
+      `/api/finance/order-changes/invoice-lines/${orderId}`,
       payload,
     ),
 

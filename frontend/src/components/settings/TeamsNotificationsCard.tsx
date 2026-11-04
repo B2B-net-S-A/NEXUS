@@ -24,35 +24,56 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { cn } from "@/lib/utils";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { hasRole, useAuthStore } from "@/store/auth";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 
 interface NotificationTypeOption {
   value: TeamsNotificationType;
   label: string;
   description: string;
+  /** Czy NEXUS w ogóle wysyła ten typ (runda 7, R7-N5-6). */
+  sent: boolean;
 }
 
-const NOTIFICATION_TYPES: NotificationTypeOption[] = [
+// Runda 7 (R7-N5-6): akceptację/odrzucenie weryfikacji i podpis umowy dało
+// się zasubskrybować, choć nic ich nie wysyła (kolejka akceptacji usunięta
+// 18.09.2026, `notify_contract_signed_by_id` bez wywołań). Nowy kanał
+// dostaje do wyboru tylko typy, które naprawdę wychodzą; zapisane wcześniej
+// martwe typy widać przy kanale i można je zdjąć.
+export const NOTIFICATION_TYPES: NotificationTypeOption[] = [
   {
     value: "candidate_added",
     label: "Nowy kandydat",
     description: "Po dodaniu kandydata do systemu.",
+    sent: true,
   },
   {
     value: "decision_accepted",
-    label: "Weryfikacja zaakceptowana",
-    description: "Manager zaakceptował weryfikację kandydata.",
+    label: "Weryfikacja zaakceptowana (nie jest wysyłane)",
+    description: "NEXUS nie wysyła już tego powiadomienia.",
+    sent: false,
   },
   {
     value: "decision_rejected",
-    label: "Weryfikacja odrzucona",
-    description: "Manager odrzucił weryfikację kandydata.",
+    label: "Weryfikacja odrzucona (nie jest wysyłane)",
+    description: "NEXUS nie wysyła już tego powiadomienia.",
+    sent: false,
   },
   {
     value: "contract_signed",
-    label: "Umowa podpisana",
-    description: "Kontrakt aktywowany / draft sfinalizowany.",
+    label: "Umowa podpisana (nie jest wysyłane)",
+    description: "NEXUS nie wysyła tego powiadomienia.",
+    sent: false,
   },
 ];
+
+/** Typy do wyboru: wysyłane oraz te, które kanał ma już zapisane. */
+export function selectableNotificationTypes(
+  current: readonly TeamsNotificationType[],
+): NotificationTypeOption[] {
+  return NOTIFICATION_TYPES.filter(
+    (opt) => opt.sent || current.includes(opt.value),
+  );
+}
 
 const EMPTY_FORM: TeamsChannelCreateInput = {
   workspace_label: "",
@@ -312,25 +333,27 @@ export default function TeamsNotificationsCard() {
                 Typy powiadomień
               </p>
               <div className="flex flex-wrap gap-2">
-                {NOTIFICATION_TYPES.map((opt) => {
-                  const active = draft.notification_types.includes(opt.value);
-                  return (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => handleAddType(opt.value)}
-                      title={opt.description}
-                      className={cn(
-                        "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs transition-colors",
-                        active
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-border bg-background text-muted-foreground hover:border-primary hover:text-foreground",
-                      )}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
+                {selectableNotificationTypes(draft.notification_types).map(
+                  (opt) => {
+                    const active = draft.notification_types.includes(opt.value);
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => handleAddType(opt.value)}
+                        title={opt.description}
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs transition-colors",
+                          active
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-background text-muted-foreground hover:border-primary hover:text-foreground",
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  },
+                )}
               </div>
             </div>
 
@@ -372,6 +395,7 @@ function ChannelRow({
   onDelete,
 }: ChannelRowProps) {
   const [editing, setEditing] = useState(false);
+  const { askConfirm, confirmDialog } = useConfirmV2();
   const [localTypes, setLocalTypes] = useState<TeamsNotificationType[]>(
     channel.notification_types,
   );
@@ -383,6 +407,7 @@ function ChannelRow({
 
   return (
     <li className="rounded-lg border border-border bg-background/40 px-4 py-3 text-sm">
+      {confirmDialog}
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -405,30 +430,32 @@ function ChannelRow({
           </p>
           {editing ? (
             <div className="mt-2 flex flex-wrap gap-2">
-              {NOTIFICATION_TYPES.map((opt) => {
-                const active = localTypes.includes(opt.value);
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() =>
-                      setLocalTypes(
+              {selectableNotificationTypes(channel.notification_types).map(
+                (opt) => {
+                  const active = localTypes.includes(opt.value);
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() =>
+                        setLocalTypes(
+                          active
+                            ? localTypes.filter((t) => t !== opt.value)
+                            : [...localTypes, opt.value],
+                        )
+                      }
+                      className={cn(
+                        "rounded-full border px-2.5 py-0.5 text-xs",
                         active
-                          ? localTypes.filter((t) => t !== opt.value)
-                          : [...localTypes, opt.value],
-                      )
-                    }
-                    className={cn(
-                      "rounded-full border px-2.5 py-0.5 text-xs",
-                      active
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-background text-muted-foreground",
-                    )}
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-background text-muted-foreground",
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                },
+              )}
             </div>
           ) : (
             <p className="text-xs text-muted-foreground mt-1">
@@ -504,11 +531,14 @@ function ChannelRow({
               </button>
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   if (
-                    confirm(
-                      `Usunąć kanał "${channel.workspace_label}"? Tej akcji nie można cofnąć.`,
-                    )
+                    await askConfirm({
+                      title: `Usunąć kanał "${channel.workspace_label}"?`,
+                      description: "Tej akcji nie można cofnąć.",
+                      confirmLabel: "Usuń",
+                      variant: "destructive",
+                    })
                   ) {
                     onDelete();
                   }

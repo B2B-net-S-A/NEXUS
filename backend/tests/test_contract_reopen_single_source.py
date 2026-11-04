@@ -16,12 +16,13 @@ from __future__ import annotations
 
 import ast
 import re
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from app.models.contract import ContractStatus
+from app.models.contract import ContractStatus, ContractTerminationReason
 from app.services import contract_lifecycle as lifecycle
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -50,12 +51,56 @@ def _contract(status: ContractStatus) -> SimpleNamespace:
     return SimpleNamespace(
         id=7,
         status=status,
+        client_id=3,
         candidate_id=None,
+        end_date=None,
+        terminated_at=None,
+        termination_reason=None,
+        termination_lessons=None,
         agreement_termination_mode=None,
         agreement_termination_party=None,
         agreement_termination_signed_on=None,
         agreement_last_day=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_indefinite_return_moves_termination_fields_to_history():
+    db = _CollectingDB()
+    contract = _contract(ContractStatus.ended)
+    contract.terminated_at = date(2026, 8, 31)
+    contract.termination_reason = ContractTerminationReason.project_ended
+    contract.termination_lessons = "Klient — koniec projektu"
+
+    assert await lifecycle.reopen_contract(db, contract, actor_id=42) is True
+
+    assert contract.terminated_at is None
+    assert contract.termination_reason is None
+    assert contract.termination_lessons is None
+    cleared = [a for a in db.added if a.action == "termination_data_cleared"]
+    assert [a.details for a in cleared] == [
+        {
+            "terminated_at": "2026-08-31",
+            "termination_reason": "project_ended",
+            "termination_lessons": "Klient — koniec projektu",
+        }
+    ]
+    assert cleared[0].user_id == 42
+
+
+@pytest.mark.asyncio
+async def test_return_with_a_new_end_date_keeps_the_moved_termination():
+    db = _CollectingDB()
+    contract = _contract(ContractStatus.ended)
+    contract.end_date = date(2026, 12, 31)
+    contract.terminated_at = date(2026, 8, 31)
+    contract.termination_reason = ContractTerminationReason.project_ended
+
+    assert await lifecycle.reopen_contract(db, contract, actor_id=42) is True
+
+    assert contract.terminated_at == date(2026, 8, 31)
+    assert contract.termination_reason == ContractTerminationReason.project_ended
+    assert [a.action for a in db.added] == ["contract_reopened"]
 
 
 @pytest.mark.asyncio
@@ -73,6 +118,54 @@ async def test_reopen_flips_to_active_and_writes_audit(start: ContractStatus):
     assert activity.action == "contract_reopened"
     assert activity.details["from_status"] == start.value
     assert activity.details["to_status"] == ContractStatus.active.value
+
+
+@pytest.mark.asyncio
+async def test_reopen_refuses_a_contract_of_a_deleted_client():
+    """Runda 8 (R8-V1-1): zakończony kontrakt usuniętego klienta nie wraca."""
+    from datetime import datetime, timezone
+
+    from fastapi import HTTPException
+
+    class _DeletedClientDB(_CollectingDB):
+        async def scalar(self, *_args: object, **_kwargs: object):
+            return SimpleNamespace(
+                deleted_at=datetime.now(timezone.utc),
+                display_name=None,
+                name="Klient",
+            )
+
+    db = _DeletedClientDB()
+    contract = _contract(ContractStatus.ended)
+    with pytest.raises(HTTPException) as exc:
+        await lifecycle.reopen_contract(db, contract, actor_id=42)
+    assert exc.value.status_code == 422
+    assert exc.value.detail["code"] == "client_deleted"
+    assert contract.status == ContractStatus.ended
+    assert db.added == []
+
+
+@pytest.mark.asyncio
+async def test_reopen_refuses_a_contract_of_a_merged_client():
+    """Przegląd rundy 8: scalony duplikat klienta też nie wskrzesza kontraktu."""
+    from fastapi import HTTPException
+
+    class _MergedClientDB(_CollectingDB):
+        async def scalar(self, *_args: object, **_kwargs: object):
+            return SimpleNamespace(
+                deleted_at=None,
+                merged_into_client_id=7,
+                display_name=None,
+                name="Klient",
+            )
+
+    db = _MergedClientDB()
+    contract = _contract(ContractStatus.ended)
+    with pytest.raises(HTTPException) as exc:
+        await lifecycle.reopen_contract(db, contract, actor_id=42)
+    assert exc.value.status_code == 422
+    assert exc.value.detail["code"] == "client_merged"
+    assert contract.status == ContractStatus.ended
 
 
 @pytest.mark.asyncio
@@ -113,9 +206,11 @@ def test_extension_paths_call_the_lifecycle_helper():
         node.name: node
         for node in tree.body
         if isinstance(node, ast.AsyncFunctionDef)
-        and node.name in {"bulk_extend_contracts", "create_contract_amendment"}
+        and node.name in {"bulk_extend_contracts", "apply_contract_amendment"}
     }
-    assert set(handlers) == {"bulk_extend_contracts", "create_contract_amendment"}, (
+    # Runda 10 (R10-N14-7): ciało trasy aneksu żyje w `apply_contract_amendment`
+    # (woła je też podpis aneksu stawki z Generatora).
+    assert set(handlers) == {"bulk_extend_contracts", "apply_contract_amendment"}, (
         "Ścieżka przedłużania zmieniła nazwę — zaktualizuj ten test razem z nią, "
         "inaczej przestaje czegokolwiek pilnować."
     )

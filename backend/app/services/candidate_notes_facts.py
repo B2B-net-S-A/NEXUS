@@ -186,6 +186,11 @@ def work_mode_from_insights(insights: Any) -> Optional[dict]:
     named = _ordered_modes(prefs.get("work_modes"))
     remote_only = prefs.get("remote_only") is True
     days = _int_days(prefs.get("max_onsite_days_per_week"))
+    if days == 0 and not remote_only and ({"hybrid", "onsite"} & set(named)):
+        # Runda 9 (R9-N8-9): „hybrydowo” z zerem dni to sprzeczny odczyt — zero
+        # zawęziłoby profil do „tylko zdalnie” wbrew notatce. Liczba odpada,
+        # zostaje nazwany tryb (dni do uzupełnienia).
+        days = None
     if days is None and remote_only:
         days = 0
     if days is None and "onsite" in named:
@@ -222,14 +227,86 @@ def _set_preference(candidate: Any, key: str, value: Any) -> None:
     flag_modified(candidate, "preferences")
 
 
+def set_office_days_limit(candidate: Any, days: Optional[int]) -> bool:
+    """Zapisz limit dni w biurze; zmiana limitu unieważnia zgodę na więcej dni.
+
+    Runda 9 (R9-N8-5): zgoda z telefonu praktykanta („można dzwonić z ofertą
+    z większą liczbą dni w biurze”) dotyczyła limitu z tej rozmowy. Po zmianie
+    limitu (formularz, notatki, tryb pracy) zostawała i bramka dopasowań
+    wpuszczała osobę do ofert ponad NOWY limit. Telefon z jawną odpowiedzią
+    ustawia zgodę PO tej funkcji. Zwraca, czy limit się zmienił.
+    """
+    changed = _int_days(getattr(candidate, "max_onsite_days_per_week", None)) != days
+    candidate.max_onsite_days_per_week = days
+    if changed and getattr(candidate, "accepts_more_office_days", None) is not None:
+        candidate.accepts_more_office_days = None
+    return changed
+
+
+# Skąd jest tryb pracy na profilu (14.10.2026). Dziś pisze go tylko odrzucenie
+# z powodem „Nie akceptuje trybu pracy” — profil pokazuje wtedy „z odrzucenia
+# · data · rekrutacja”. Klucz żyje w `preferences` obok `remote_modes`
+# i znika przy każdej innej ZMIANIE trybu pracy: źródło ma sens tylko, dopóki
+# wartość pochodzi z tego odrzucenia.
+WORK_MODE_ORIGIN_KEY = "_work_mode_origin"
+
+
+def drop_work_mode_origin_if_changed(candidate: Any, before: dict) -> None:
+    """Zdejmij źródło trybu pracy, gdy tryb różni się od ``before``."""
+    if profile_work_mode(candidate) != before:
+        _set_preference(candidate, WORK_MODE_ORIGIN_KEY, None)
+
+
 def set_profile_work_mode(
     candidate: Any, *, modes: list[str], max_onsite_days: Optional[int]
 ) -> dict:
     """Zapisz tryb pracy (preferencje + kolumna). Zwraca stan przed/po do audytu."""
     before = profile_work_mode(candidate)
     _set_preference(candidate, "remote_modes", _ordered_modes(modes) or None)
-    candidate.max_onsite_days_per_week = max_onsite_days
+    set_office_days_limit(candidate, max_onsite_days)
+    drop_work_mode_origin_if_changed(candidate, before)
     return {"before": before, "after": profile_work_mode(candidate)}
+
+
+def set_work_mode_from_rejection(
+    candidate: Any,
+    *,
+    max_onsite_days: int,
+    job_id: int,
+    job_title: Optional[str],
+    stage_id: Optional[int],
+    user_id: int,
+    user_name: Optional[str],
+    at_iso: str,
+) -> dict:
+    """Tryb pracy z odrzucenia „Nie akceptuje trybu pracy” (14.10.2026).
+
+    Najświeższa deklaracja z rozmowy nadpisuje profil (decyzja D3). Tryby
+    wynikają z dni jak wszędzie (`modes_for_office_days`). Odrzucenie za biuro
+    znaczy, że kandydat odmówił — dawna zgoda „można dzwonić z większą liczbą
+    dni” przestaje obowiązywać także wtedy, gdy limit się nie zmienił.
+    """
+    change = set_profile_work_mode(
+        candidate,
+        modes=modes_for_office_days(max_onsite_days),
+        max_onsite_days=max_onsite_days,
+    )
+    if getattr(candidate, "accepts_more_office_days", None) is not None:
+        candidate.accepts_more_office_days = None
+    _set_preference(
+        candidate,
+        WORK_MODE_ORIGIN_KEY,
+        {
+            "source": "rejection",
+            "job_id": job_id,
+            "job_title": job_title,
+            "stage_id": stage_id,
+            "by_user_id": user_id,
+            "by_name": user_name,
+            "at": at_iso,
+        },
+    )
+    return change
 
 
 def fill_work_mode_from_notes(candidate: Any, insights: Any) -> dict[str, int]:
@@ -249,7 +326,7 @@ def fill_work_mode_from_notes(candidate: Any, insights: Any) -> dict[str, int]:
         getattr(candidate, "max_onsite_days_per_week", None) is None
         and derived["max_onsite_days"] is not None
     ):
-        candidate.max_onsite_days_per_week = derived["max_onsite_days"]
+        set_office_days_limit(candidate, derived["max_onsite_days"])
         stats["onsite_days_filled"] = 1
     return stats
 
@@ -583,3 +660,71 @@ def apply_notes_fact(candidate: Any, field: str) -> dict:
         return {"field": field, "count": len(cities)}
 
     raise NotesFactUnavailable(field)
+
+
+# ── Usunięta notatka (runda 10, R10-N6-2) ────────────────────────────────────
+#
+# Nocna ekstrakcja wybiera kandydatów po NAJNOWSZEJ istniejącej notatce, więc
+# usunięcie notatki niczego nie unieważniało: stawka, dostępność i weto klienta
+# z usuniętej notatki zostawały na karcie profilu i w bramce budżetu na stałe,
+# a kandydat, któremu usunięto jedyną notatkę, wypadał z selekcji całkiem.
+
+NOTES_CHANGED_AT_KEY = "_notes_changed_at"
+NOTES_REMOVED_RATE_SOURCE = "notes_removed"
+
+
+def _rate_written_by_notes(candidate: Any, insights: dict) -> bool:
+    """Ten sam dowód własności stawki co `apply_insights` (kwota + wersja)."""
+    written = insights.get("_rate_written")
+    version = getattr(candidate, "profile_rate_version", 0) or 0
+    return isinstance(written, dict) and written == {
+        "amount": str(candidate.expected_rate_hourly),
+        "currency": candidate.expected_rate_currency,
+        "version": version,
+    }
+
+
+def mark_notes_changed(candidate: Any, *, now_iso: str) -> bool:
+    """Zbiór notatek się zmienił — nocna ekstrakcja ma policzyć fakty od nowa."""
+    insights = notes_insights(candidate)
+    if insights is None:
+        return False
+    extracted = dict(candidate.cv_extracted_data)
+    extracted["_notes_insights"] = {**insights, NOTES_CHANGED_AT_KEY: now_iso}
+    candidate.cv_extracted_data = extracted
+    flag_modified(candidate, "cv_extracted_data")
+    return True
+
+
+def clear_notes_facts(candidate: Any) -> Optional[dict]:
+    """Kandydat nie ma już notatek z treścią — fakty z notatek znikają.
+
+    Stawkę czyści WYŁĄCZNIE, gdy wpisały ją notatki (`_rate_written` zgodne
+    z profilem) i nikt jej nie przejął ręcznie. Tak samo datę dostępności:
+    tylko gdy profil nadal ma datę ze znacznika `_availability_from_notes`
+    (07.10.2026 — wcześniej zostawała jako fakt bez źródła). Zwraca audyt
+    stawki albo None; zdjęcie daty wołający widzi po `availability_date`.
+    Mutuje obiekt ORM, bez commitu.
+    """
+    insights = notes_insights(candidate)
+    if insights is None:
+        return None
+    extracted = dict(candidate.cv_extracted_data)
+    rate_audit = None
+    if (
+        candidate.expected_rate_hourly is not None
+        and not extracted.get("_manual_override_rate")
+        and _rate_written_by_notes(candidate, insights)
+    ):
+        from app.services.candidate_profile_rate import write_profile_rate
+
+        rate_audit = write_profile_rate(
+            candidate, None, source=NOTES_REMOVED_RATE_SOURCE
+        )
+    from app.services.notes_profile_fill import release_availability_from_notes
+
+    release_availability_from_notes(candidate, insights)
+    extracted.pop("_notes_insights", None)
+    candidate.cv_extracted_data = extracted
+    flag_modified(candidate, "cv_extracted_data")
+    return rate_audit

@@ -240,4 +240,12 @@ describe("PeopleTable — propozycje", () => {
     expect(kamil.getByText("wcześniej pominięta")).toBeInTheDocument();
     expect(kamil.getByTitle("Nie policzono")).toBeInTheDocument();
   });
+
+  it("dopasowanie z portalu ma własną etykietę źródła (30.09.2026)", () => {
+    renderTable({
+      variant: "proposal",
+      rows: [{ ...proposalRows[1], key: "prop:9", candidateId: 9, fullName: "Ola Portal", sources: ["job_board"] }],
+    });
+    expect(within(rowOf("Ola Portal")).getByText("Z portalu (JJIT/RocketJobs)")).toBeInTheDocument();
+  });
 });

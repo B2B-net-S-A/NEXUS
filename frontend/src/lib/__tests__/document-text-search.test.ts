@@ -53,6 +53,21 @@ describe("findMatchOffsets", () => {
     expect(findMatchOffsets("C# i C++", "c++")).toEqual([[5, 8]]);
     expect(findMatchOffsets("a a a", "a")).toEqual([]);
   });
+
+  // „Szukaj w CV” przy wymaganiu „.NET lub C#” (16.10.2026): lista słów, nie
+  // jedna fraza — każde słowo osobno, dłuższe wygrywa z krótszym w tym samym miejscu.
+  it("searches a list of words, each on its own", () => {
+    const text = "C# and .NET 8 (ASP.NET Core)";
+    expect(findMatchOffsets(text, ".NET lub C#")).toEqual([]);
+    expect(findMatchOffsets(text, [".NET", "C#"])).toEqual([
+      [0, 2],
+      [7, 11],
+      [18, 22],
+    ]);
+    expect(findMatchOffsets("ASP.NET Core", [".NET", "ASP.NET Core"])).toEqual([[0, 12]]);
+    expect(findMatchOffsets("C i C++", ["C", "C++"])).toEqual([[4, 7]]);
+    expect(findMatchOffsets("C# only", [])).toEqual([]);
+  });
 });
 
 describe("highlightDocumentMatches (DOCX)", () => {
@@ -61,6 +76,12 @@ describe("highlightDocumentMatches (DOCX)", () => {
     expect(highlightDocumentMatches(root, "Comarch")).toBe(2);
     expect(hits(root)).toEqual(["Comarch", "comarch"]);
     expect(root.textContent).toBe("Comarch ERPcomarch");
+  });
+
+  it("highlights every word of a requirement's list", () => {
+    const root = host("<p>Microservices in C# and .NET 8</p><p>Skills: C#</p>");
+    expect(highlightDocumentMatches(root, [".NET", "C#"])).toBe(3);
+    expect(hits(root)).toEqual(["C#", ".NET", "C#"]);
   });
 
   it("never matches across a paragraph boundary", () => {

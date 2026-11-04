@@ -1019,3 +1019,239 @@ def test_the_fingerprint_ignores_the_client_name_filled_in_at_write_time():
     assert recheck.outcome_fingerprint([base]) == recheck.outcome_fingerprint(
         [{**base, "client_name": "Bank Pocztowy S.A."}]
     )
+
+
+# ── Wpisy „Nieudane”: ponowienie z zachowanego PDF-a (audyt 25.09.2026) ──────
+
+
+async def _failed_document(db, tmp_path, *, sha=None, received=None):
+    storage = tmp_path / f"failed-{uuid.uuid4().hex[:8]}.pdf"
+    storage.write_bytes(b"%PDF-1.4 failed")
+    doc = OrderMailDocument(
+        internet_message_id=f"<{uuid.uuid4()}@failed.test>",
+        attachment_name=storage.name,
+        attachment_sha256=sha or uuid.uuid4().hex + uuid.uuid4().hex,
+        storage_path=storage.name,
+        outcome="failed",
+        error="OperationalError('connection reset')",
+        received_at=received or datetime.now(timezone.utc),
+    )
+    db.add(doc)
+    await db.commit()
+    return doc
+
+
+def _files_in(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        recheck.storage_service,
+        "get_order_mail_attachment_path",
+        lambda p: tmp_path / p,
+    )
+
+
+def _only_failed(monkeypatch, doc_id: int) -> None:
+    """Bieg zawężony do WŁASNEGO wpisu — baza testowa jest wspólna."""
+
+    async def pick(db, *, now):
+        return [doc_id]
+
+    monkeypatch.setattr(recheck, "_failed_candidate_ids", pick)
+
+
+@pytest.mark.asyncio
+async def test_failed_document_is_processed_again_from_the_saved_pdf(
+    monkeypatch, tmp_path
+):
+    """`failed` nie jest już stanem końcowym: przejściowa awaria przy odczycie
+    maila zostawiała zamówienie nieprzeczytane na zawsze."""
+    _files_in(monkeypatch, tmp_path)
+    seen: list[bytes] = []
+
+    async def fake_process(db, row, payload, *, registry):
+        seen.append(payload)
+        row.outcome = "needs_review"
+        row.document_meta = {"page_count": 1}
+        return row
+
+    monkeypatch.setattr(ingest, "process_pdf_bytes", fake_process)
+    async with AsyncSessionLocal() as db:
+        doc = await _failed_document(db, tmp_path)
+        _only_failed(monkeypatch, doc.id)
+        result = recheck.RecheckRunResult()
+        await recheck.retry_failed_documents(db, result, now=datetime.now(timezone.utc))
+        await db.refresh(doc)
+        assert seen == [b"%PDF-1.4 failed"]
+        assert doc.outcome == "needs_review" and doc.error is None
+        assert doc.document_meta["page_count"] == 1
+        assert doc.document_meta["failed_retry"]["attempts"] == 1
+        assert doc.document_meta["failed_retry"]["recovered_at"]
+        assert (result.failed_retried, result.failed_recovered) == (1, 1)
+
+
+@pytest.mark.asyncio
+async def test_failed_document_gives_up_after_three_attempts(monkeypatch, tmp_path):
+    _files_in(monkeypatch, tmp_path)
+    monkeypatch.setattr(recheck.settings, "ORDER_MAIL_RECHECK_MAX_DOCS", 100_000)
+
+    async def broken_process(db, row, payload, *, registry):
+        raise RuntimeError("model niedostępny")
+
+    monkeypatch.setattr(ingest, "process_pdf_bytes", broken_process)
+    real_candidates = recheck._failed_candidate_ids
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        doc = await _failed_document(db, tmp_path)
+        old = await _failed_document(
+            db,
+            tmp_path,
+            received=now - timedelta(days=recheck.FAILED_RETRY_MAX_AGE_DAYS + 1),
+        )
+        picked = await real_candidates(db, now=now)
+        assert doc.id in picked
+        assert old.id not in picked  # starszy niż 7 dni — nie ponawiamy
+
+        _only_failed(monkeypatch, doc.id)
+        for attempt in range(1, recheck.FAILED_RETRY_MAX_ATTEMPTS + 1):
+            result = recheck.RecheckRunResult()
+            await recheck.retry_failed_documents(db, result, now=now)
+            await db.refresh(doc)
+            assert doc.outcome == "failed"
+            assert doc.document_meta["failed_retry"]["attempts"] == attempt
+            # Klasa wyjątku po polsku, bez treści ``repr`` (runda 2 audytu 25.09).
+            assert doc.error == "Błąd przetwarzania: RuntimeError"
+            assert (result.failed_retried, result.failed_recovered) == (1, 0)
+
+        # Limit wyczerpany: kolejny bieg wpisu nie rusza i zapytanie go pomija.
+        result = recheck.RecheckRunResult()
+        await recheck.retry_failed_documents(db, result, now=now)
+        assert result.failed_retried == 0
+        assert doc.id not in await real_candidates(db, now=now)
+
+
+@pytest.mark.asyncio
+async def test_failed_row_is_never_the_original_of_a_duplicate(monkeypatch, tmp_path):
+    """Ponownie przysłany PDF po nieudanym przetworzeniu jest czytany od nowa,
+    a nieudany wpis staje się jego duplikatem (bez drugiego odczytu)."""
+    _files_in(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        ingest,
+        "process_pdf_bytes",
+        AsyncMock(side_effect=AssertionError("duplikat nie jest czytany")),
+    )
+    sha = uuid.uuid4().hex + uuid.uuid4().hex
+    async with AsyncSessionLocal() as db:
+        failed = await _failed_document(db, tmp_path, sha=sha)
+        assert await ingest._first_with_sha(db, sha) is None
+
+        resent = OrderMailDocument(
+            internet_message_id=f"<{uuid.uuid4()}@failed.test>",
+            attachment_name="zamowienie.pdf",
+            attachment_sha256=sha,
+            storage_path=failed.storage_path,
+            outcome="needs_review",
+            received_at=datetime.now(timezone.utc),
+        )
+        db.add(resent)
+        await db.commit()
+        assert (await ingest._first_with_sha(db, sha)).id == resent.id
+
+        _only_failed(monkeypatch, failed.id)
+        result = recheck.RecheckRunResult()
+        await recheck.retry_failed_documents(db, result, now=datetime.now(timezone.utc))
+        await db.refresh(failed)
+        assert failed.outcome == "duplicate_attachment"
+        assert failed.duplicate_of_id == resent.id
+
+
+@pytest.mark.asyncio
+async def test_retry_of_a_failed_row_is_not_turned_into_a_duplicate_of_its_duplicate(
+    monkeypatch, tmp_path
+):
+    """Runda 2 audytu 25.09: wpis „Nieudane” F z duplikatem D (sprzed poprawki
+    duplikat wskazywał na F) — ponowienie F brało D za oryginał i F zostawał
+    „duplikatem” duplikatu, więc PDF nie był czytany nigdy."""
+    _files_in(monkeypatch, tmp_path)
+    seen: list[bytes] = []
+
+    async def fake_process(db, row, payload, *, registry):
+        seen.append(payload)
+        row.outcome = "needs_review"
+        return row
+
+    monkeypatch.setattr(ingest, "process_pdf_bytes", fake_process)
+    sha = uuid.uuid4().hex + uuid.uuid4().hex
+    async with AsyncSessionLocal() as db:
+        failed = await _failed_document(db, tmp_path, sha=sha)
+        dup = OrderMailDocument(
+            internet_message_id=f"<{uuid.uuid4()}@failed.test>",
+            attachment_name="zamowienie.pdf",
+            attachment_sha256=sha,
+            storage_path=failed.storage_path,
+            outcome="duplicate_attachment",
+            duplicate_of_id=failed.id,
+            received_at=datetime.now(timezone.utc),
+        )
+        db.add(dup)
+        await db.commit()
+
+        _only_failed(monkeypatch, failed.id)
+        result = recheck.RecheckRunResult()
+        await recheck.retry_failed_documents(db, result, now=datetime.now(timezone.utc))
+        await db.refresh(failed)
+        assert seen == [b"%PDF-1.4 failed"]
+        assert failed.outcome == "needs_review" and failed.duplicate_of_id is None
+        # Trzeci mail z tym plikiem jest duplikatem PRZETWORZONEGO wpisu.
+        assert (await ingest._first_with_sha(db, sha)).id == failed.id
+
+
+def _failed_row(**over):
+    base = {
+        "internet_message_id": "<x@failed.test>",
+        "outcome": "failed",
+        "storage_path": "x.pdf",
+        "received_at": datetime(2031, 3, 10, 8, 0, tzinfo=timezone.utc),
+        "document_meta": None,
+    }
+    return OrderMailDocument(**{**base, **over})
+
+
+@pytest.mark.parametrize(
+    ("over", "has_file", "expected"),
+    [
+        ({}, True, True),
+        ({}, False, False),  # plik zniknął z dysku
+        ({"storage_path": None}, True, False),  # brak contentBytes / za duży
+        ({"received_at": datetime(2031, 3, 2, 8, 0, tzinfo=timezone.utc)}, True, False),
+        ({"document_meta": {"failed_retry": {"attempts": 3}}}, True, False),
+        ({"document_meta": {"failed_retry": {"attempts": 2}}}, True, True),
+        ({"outcome": "dismissed"}, True, False),
+    ],
+)
+def test_failed_retry_pending_mirrors_the_retry_query(over, has_file, expected):
+    now = datetime(2031, 3, 12, 8, 0, tzinfo=timezone.utc)
+    row = _failed_row(**over)
+    assert recheck.failed_retry_pending(row, now=now, has_file=has_file) is expected
+
+
+@pytest.mark.asyncio
+async def test_a_deleted_clients_document_is_not_rechecked(monkeypatch):
+    """R8-V1-3: writer odmawia zapisu u usuniętego klienta — wpis nie może
+    wracać co godzinę na odczyt PDF-a i kolejną odmowę."""
+    # Sufit na bieg nie może maskować wyniku na wspólnej bazie testowej.
+    monkeypatch.setattr(recheck.settings, "ORDER_MAIL_RECHECK_MAX_DOCS", 1_000_000)
+    async with AsyncSessionLocal() as db:
+        live = Client(name=f"Recheck live {uuid.uuid4().hex[:8]}")
+        gone = Client(name=f"Recheck gone {uuid.uuid4().hex[:8]}")
+        db.add_all([live, gone])
+        await db.flush()
+        live_doc = await _held_document(
+            db, client=live, name="Żywy Testowy" + uuid.uuid4().hex[:6]
+        )
+        gone_doc = await _held_document(
+            db, client=gone, name="Usunięty Testowy" + uuid.uuid4().hex[:6]
+        )
+        gone.deleted_at = datetime.now(timezone.utc)
+        await db.commit()
+        picked = set(await recheck._candidate_ids(db, now=datetime.now(timezone.utc)))
+    assert live_doc.id in picked
+    assert gone_doc.id not in picked

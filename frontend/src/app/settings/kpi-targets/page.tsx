@@ -34,8 +34,8 @@ export default function KpiTargetsPage() {
           Cele KPI
         </h1>
         <p className="text-sm text-muted-foreground">
-          Cele rekruterów, sourcerów i TAC — dla ról i dla pojedynczych osób.
-          Zmiana działa od razu w panelu „Moje KPI”, w widgecie i w wyścigach.
+          Cel roli i wyjątki dla pojedynczych osób. Zmiana działa od razu
+          w panelu „Moje KPI” i w widgecie.
         </p>
       </div>
       <KpiTargetsSettings />

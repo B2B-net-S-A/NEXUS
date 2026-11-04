@@ -7,6 +7,8 @@ własnym kliencie i dalekim miesiącu, a asercje filtrują po swoim kliencie.
 from __future__ import annotations
 
 import io
+import os
+import tempfile
 import zipfile
 from datetime import date, timedelta
 
@@ -17,9 +19,10 @@ from sqlalchemy import func, select
 from app.services.finance_order_pdfs import (
     OrderPdfEntry,
     ascii_slug,
-    build_zip,
+    build_zip_file,
     client_zip_name,
     month_zip_name,
+    remove_file_quietly,
     zip_member_name,
 )
 from tests.test_finance_order_changes import _far_day, _login, _month, _seed
@@ -83,16 +86,39 @@ def test_missing_parts_get_placeholders_instead_of_disappearing():
     )
 
 
+def test_zip_member_keeps_the_original_extension_like_the_single_download():
+    """R8-N6-3: zamówienie w Wordzie nie dostaje w ZIP-ie końcówki ``.pdf``."""
+    docx = _entry(original_name="zamówienie Nordea.DOCX")
+    assert zip_member_name(docx).endswith("_01.10.2026-31.12.2026.docx")
+    assert docx.download_name.endswith(".DOCX")
+    assert zip_member_name(_entry(original_name="stare.doc")).endswith(".doc")
+    # Bez rozszerzenia albo z dziwnym — jak pobranie pojedyncze: ``.pdf``.
+    assert zip_member_name(_entry(original_name="bez_rozszerzenia")).endswith(".pdf")
+    assert zip_member_name(_entry(original_name="x.p$f")).endswith(".pdf")
+
+
+def test_zip_build_failure_leaves_no_temp_file(tmp_path, monkeypatch):
+    """Runda 6 audytu: nieudana budowa archiwum nie zostawia pliku na dysku."""
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    with pytest.raises(FileNotFoundError):
+        build_zip_file(
+            [(_entry(id=1), str(tmp_path / "nie-ma.pdf"))], client_folders=False
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_zip_names():
     assert client_zip_name("Nordea Bank Abp", 2026, 9) == "Nordea_Bank_Abp_2026-09.zip"
     assert month_zip_name(2026, 9) == "Zamowienia_2026-09.zip"
     assert ascii_slug("Bank Pocztowy S.A.") == "Bank_Pocztowy_S.A"
 
 
-def test_zip_lists_missing_files_and_keeps_duplicate_names(tmp_path):
+def test_zip_lists_missing_files_and_keeps_duplicate_names(tmp_path, monkeypatch):
+    # Runda 6 audytu: archiwum powstaje w pliku tymczasowym, nie w pamięci.
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     pdf = tmp_path / "a.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
-    content = build_zip(
+    path = build_zip_file(
         [
             (_entry(id=1), str(pdf)),
             (_entry(id=2), str(pdf)),
@@ -100,9 +126,13 @@ def test_zip_lists_missing_files_and_keeps_duplicate_names(tmp_path):
         ],
         client_folders=True,
     )
-    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+    assert os.path.dirname(path) == str(tmp_path)
+    with zipfile.ZipFile(path) as archive:
         names = sorted(archive.namelist())
         missing = archive.read("BRAKUJACE_PLIKI.txt").decode()
+    remove_file_quietly(path)
+    remove_file_quietly(path)  # drugi raz bez błędu
+    assert not os.path.exists(path)
     folder = "Nordea_Bank_Abp/"
     assert names == [
         "BRAKUJACE_PLIKI.txt",
@@ -326,7 +356,7 @@ async def test_download_status_is_per_person_and_preview_does_not_count(
 
 
 async def test_client_and_month_zip_hold_every_file_under_the_schema_names(
-    app_client: AsyncClient, app_auth_headers: dict
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch, tmp_path
 ):
     month = _far_month()
     ids = await _seed_pdfs(month)
@@ -353,9 +383,13 @@ async def test_client_and_month_zip_hold_every_file_under_the_schema_names(
     files = await _files(app_client, app_auth_headers, month, ids["client_id"])
     assert all(f["downloaded_at"] for f in files.values())
 
+    # Runda 6 audytu: archiwum idzie z pliku tymczasowego, który znika po
+    # wysłaniu odpowiedzi.
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     month_zip = await app_client.get(
         "/api/finance/order-pdfs/zip", params=params, headers=app_auth_headers
     )
+    assert [p.name for p in tmp_path.iterdir() if p.suffix == ".zip"] == []
     assert month_zip.status_code == 200, month_zip.text
     assert "Zamowienia_" in month_zip.headers["content-disposition"]
     with zipfile.ZipFile(io.BytesIO(month_zip.content)) as archive:
@@ -454,20 +488,22 @@ async def test_filled_draft_comes_back_as_todo_after_it_was_checked(
     assert entry_after["done"] is None
 
 
-def test_can_check_needs_finance_section_write_not_only_the_role():
-    """Checkbox aktywny przy sekcji Finanse tylko do odczytu kończył się 403.
+def test_can_check_follows_the_finance_module_permission_and_section_write():
+    """Checkbox aktywny bez prawa zapisu kończył się 403.
 
-    ``POST /order-changes/checks`` wymaga roli i ZAPISU sekcji — flaga
-    ``can_check`` musi liczyć to samo.
+    ``POST /order-changes/checks`` wymaga uprawnienia „Moduł Finanse” i ZAPISU
+    sekcji Finanse — flaga ``can_check`` musi liczyć to samo.
     """
 
     from types import SimpleNamespace
 
     from app.api.finance import _can_check
     from app.models.user import User, UserRole
-    from app.services.section_permissions import ProductSection
+    from app.services import permission_catalog as catalog
 
-    def user(role: UserRole, finance: str) -> User:
+    def user(
+        role: UserRole, *permissions: str, finance_section: str | None = None
+    ) -> User:
         person = User(
             id=77,
             email=f"{role.value}-check@example.com",
@@ -477,15 +513,37 @@ def test_can_check_needs_finance_section_write_not_only_the_role():
             is_active=True,
             profile_completed=True,
         )
-        person.effective_section_access = {
-            section.value: "none" for section in ProductSection
-        }
-        person.effective_section_access[ProductSection.finance.value] = finance
+        held = catalog.close(permissions)
+        person.effective_action_access = {key: "manage" for key in held}
+        person.effective_section_access = catalog.derive_sections(held)
+        if finance_section is not None:
+            # Stary wyjątek osoby: sekcję Finanse da się już tylko ograniczyć.
+            person.effective_section_access["finance"] = finance_section
         return person
 
     request = SimpleNamespace(state=SimpleNamespace())
-    assert _can_check(request, user(UserRole.finance, "write")) is True
-    assert _can_check(request, user(UserRole.finance, "read")) is False
-    assert _can_check(request, user(UserRole.recruiter, "write")) is False
+    assert _can_check(request, user(UserRole.finance, "finance_module")) is True
+    # Uprawnienie nadane osobie spoza roli Finanse.
+    assert _can_check(request, user(UserRole.recruiter, "finance_module")) is True
+    # Rola Finanse z wyłączonym przełącznikiem „Moduł Finanse”.
+    assert _can_check(request, user(UserRole.finance, "amounts_view")) is False
+    assert _can_check(request, user(UserRole.recruiter)) is False
+    # Sekcja ograniczona do odczytu — POST odmówiłby na bramce sekcji.
+    capped = user(UserRole.finance, "finance_module", finance_section="read")
+    assert _can_check(request, capped) is False
     impersonated = SimpleNamespace(state=SimpleNamespace(impersonator_id=1))
-    assert _can_check(impersonated, user(UserRole.admin, "write")) is False
+    assert _can_check(impersonated, user(UserRole.admin, *catalog.KEYS)) is False
+
+
+def test_reopened_gap_gets_a_new_check_key():
+    """Runda 10 (R10-N4-3): brak przywrócony na „open” nie dziedziczy
+    „Zrobione” z pierwszego epizodu; epizod 0 zachowuje dawny klucz."""
+    from types import SimpleNamespace
+
+    from app.services.order_change_checks import item_key
+
+    first = SimpleNamespace(gap_id=7, status="open", episode=0)
+    reopened = SimpleNamespace(gap_id=7, status="open", episode=1)
+    assert item_key("gaps", first) == "gap:7:open"
+    assert item_key("gaps", reopened) == "gap:7:open:e1"
+    assert item_key("gaps", reopened) != item_key("gaps", first)

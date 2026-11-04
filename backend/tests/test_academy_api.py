@@ -543,3 +543,47 @@ async def test_absent_person_rescheduled_to_the_same_full_session_is_refused(
     again = await act(a["id"], {"action": "schedule", "session_id": session_id})
     assert again.status_code == 409, again.text
     assert again.json()["detail"]["code"] == "session_full"
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_source_since_counts_from_warsaw_midnight(app_client):
+    """Runda 2 audytu 25.09.2026: „od dnia” liczyło się od północy UTC, więc
+    zgłoszenie z 00:30 czasu polskiego w dniu `since` (w UTC jeszcze dzień
+    wcześniej) nie wpadało do naboru."""
+    from datetime import time
+    from zoneinfo import ZoneInfo
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.models.academy import AcademyProgram, AcademyProgramSource
+    from app.services import academy as svc
+
+    day = business_today() - timedelta(days=3)
+    warsaw = ZoneInfo("Europe/Warsaw")
+    async with AsyncSessionLocal() as db:
+        job = await _job(db)
+        early = await _candidate(db)
+        before = await _candidate(db)
+        await _apply(
+            db,
+            cand=early,
+            job=job,
+            at=datetime.combine(day, time(0, 30), tzinfo=warsaw),
+        )
+        await _apply(
+            db,
+            cand=before,
+            job=job,
+            at=datetime.combine(day, time(0, 0), tzinfo=warsaw) - timedelta(minutes=5),
+        )
+        program = AcademyProgram(
+            name=f"Akademia {uuid.uuid4().hex[:6]}", luna_enabled=False
+        )
+        db.add(program)
+        await db.flush()
+        db.add(AcademyProgramSource(program_id=program.id, job_id=job.id, since=day))
+        await db.flush()
+        stats = await svc.intake_program(db, program.id)
+        await db.rollback()
+    assert stats["new"] == 1

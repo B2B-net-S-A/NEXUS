@@ -90,3 +90,16 @@ test("a transient read error during a running scan keeps the progress visible", 
   fireEvent.click(screen.getByRole("button", { name: "Spróbuj ponownie" }));
   expect(onRetry).toHaveBeenCalledOnce();
 });
+
+test("over-budget and office rows stay visible with a badge instead of being hidden", () => {
+  const done: CandidateSearchPage = {
+    ...data,
+    state: "complete",
+    ranking_complete: true,
+    results: [{ ...data.results[0], fit_score: 80, measurement: "measured", fit: { rate: "over_budget", office: "days_exceeded" } }],
+  };
+  render(<FullCandidateSearchResults data={done} error={null} loading={false} fetching={false} offset={0} onPage={vi.fn()} onRetry={vi.fn()} canOpenProfile={false} />);
+  const badges = screen.getByRole("list", { name: "Uwagi do stawki i biura" });
+  expect(badges).toHaveTextContent("Ponad budżet");
+  expect(badges).toHaveTextContent("Mniej dni w biurze");
+});

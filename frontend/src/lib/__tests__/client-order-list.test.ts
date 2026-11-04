@@ -26,6 +26,7 @@ import {
   isCurrentOrder,
   lacksCurrentOrder,
   orderGroupMatchesPill,
+  orderNotStarted,
   resolveOrderFocus,
   sortOrderLinesByConsultant,
   sortOrderLinesByEnd,
@@ -547,6 +548,19 @@ describe("client order list filters", () => {
     ).toBe(false);
   });
 
+  it("„przyszłe” = start po dzisiejszym dniu; zamówienie kończące się jutro takie nie jest", () => {
+    const today = "2026-09-29";
+    // Kontrakty #477/#479 (zgłoszenie 29.09.2026): okres do 30.09 nie czyni
+    // z zamówienia „przyszłego zamówienia".
+    expect(orderNotStarted({ start_date: "2026-07-01" }, today)).toBe(false);
+    expect(orderNotStarted({ start_date: "2026-09-29" }, today)).toBe(false);
+    expect(orderNotStarted({ start_date: "2026-09-30" }, today)).toBe(true);
+    // Brak daty startu traktujemy jak rozpoczęte (jak `splitOrders`).
+    expect(orderNotStarted({ start_date: null }, today)).toBe(false);
+    // Znacznik czasu z API nie zmienia dnia.
+    expect(orderNotStarted({ start_date: "2026-09-30T00:00:00Z" }, today)).toBe(true);
+  });
+
   it("chowa kartę kontraktora, po której został wyłącznie martwy duplikat", () => {
     // Zamówienie zakończone/anulowane nie jest osobnym zaangażowaniem — po
     // sprzątnięciu duplikatu (migracja 0262) osoba ma być na liście RAZ,
@@ -767,10 +781,11 @@ describe("resolveOrderFocus — deep link z panelu „Moi klienci”", () => {
     });
   });
 
-  it("?order= linii grupy prowadzi do jej zamówienia", () => {
+  it("?order= linii grupy prowadzi do jej zamówienia i wskazuje tę osobę", () => {
     expect(resolveOrderFocus(groups, contractors, { orderId: 71 })).toEqual({
       kind: "group",
       groupId: 7,
+      lineId: 71,
     });
   });
 

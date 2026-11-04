@@ -7,6 +7,8 @@ import { BarChart3, Building2, Crown, TrendingUp, Users } from "lucide-react";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type { DlKpiRow, OverviewRow } from "@/lib/api/dlPortal";
 import { formatIsoDatePl } from "@/lib/date-pl";
+import { RequirePermission } from "@/components/RequirePermission";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 
 type View = "clients" | "by-dl";
 
@@ -14,6 +16,17 @@ export default function AdminClientsOverviewPage() {
   const [view, setView] = useState<View>("clients");
 
   return (
+    // Lustro `CompanyResultsUser` w API; bez tego osoba z Finansów widziałaby
+    // błędy 403 zamiast jednego komunikatu.
+    <RequirePermission
+      permissions={["company_results"]}
+      fallback={
+        <QueryStateNotice
+          state="forbidden"
+          description="Przegląd klientów wymaga uprawnienia „Wyniki firmy”. Poproś administratora o dostęp."
+        />
+      }
+    >
     <div className="p-6 max-w-6xl mx-auto space-y-4">
       <header>
         <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -22,7 +35,7 @@ export default function AdminClientsOverviewPage() {
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
           Wszyscy klienci z przychodem i marżą + KPI per Delivery Lead. Dane
-          finansowe — widzą je administrator i Finanse.
+          finansowe — widzą je osoby z uprawnieniem „Wyniki firmy”.
         </p>
       </header>
 
@@ -51,6 +64,7 @@ export default function AdminClientsOverviewPage() {
 
       {view === "clients" ? <ClientsTable /> : <DlLeaderboard />}
     </div>
+    </RequirePermission>
   );
 }
 
@@ -221,6 +235,12 @@ function DlLeaderboard() {
                 </td>
                 <td className="px-3 py-2 text-right text-violet-700">
                   {fmt(r.monthly_margin_total)}
+                  {(r.monthly_margin_unpriced_clients ?? 0) > 0 &&
+                    r.monthly_margin_total !== null && (
+                      <div className="text-xs text-muted-foreground">
+                        niepełne ({r.monthly_margin_unpriced_clients} kl. bez stawki)
+                      </div>
+                    )}
                 </td>
                 <td className="px-3 py-2 text-right">{r.active_orders_count}</td>
                 <td className="px-3 py-2 text-right">

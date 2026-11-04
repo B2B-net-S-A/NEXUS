@@ -42,6 +42,7 @@ from app.models.proposal_snapshot import (
     STATUS_PENDING,
 )
 from app.core.config import settings
+from app.services.job_previous_recruiters import load_parked
 from app.services.job_readiness import job_readiness_blockers
 from app.services.priority_work_service import (
     OPERATIONAL_ROLES,
@@ -52,6 +53,7 @@ from app.services.priority_work_service import (
     next_free_position,
     role_values,
 )
+from app.services.request_allocation import void_manual_release
 from app.services.workforce_availability import WARSAW, WorkforceContext
 
 ALLOCATION_LOCK = 734092771
@@ -126,6 +128,22 @@ async def allocation_lock(db: AsyncSession) -> None:
     await db.execute(
         text("SELECT pg_advisory_xact_lock(:key)"), {"key": ALLOCATION_LOCK}
     )
+
+
+async def effective_allocation_mode(db: AsyncSession) -> str:
+    """Tryb automatu przydziału: zapisany, a przy wyłączonej fladze ``off``.
+
+    Bez wiersza stanu obowiązuje ``shadow`` — taki tryb zakłada pierwszy
+    przebieg pętli (domyślna wartość kolumny), tak samo liczy pulpit
+    „Requesty i obłożenie”. Jedna reguła dla ``/jobs/new``
+    (``handoff-options``), gotowości rekrutacji i odmowy 409 w handoffie:
+    dwie kopie rozjechały się na przypadku „flaga włączona, wiersza jeszcze
+    nie ma” (formularz mówił „automat niedostępny”, okno przekazania — że jest).
+    """
+    if not settings.RECRUITMENT_ALLOCATION_ENABLED:
+        return "off"
+    state = await db.get(RecruitmentAllocationState, 1)
+    return state.mode if state is not None else "shadow"
 
 
 async def enqueue_allocation(db, *, job, actor_user_id, channel):
@@ -229,6 +247,13 @@ async def load_workloads(
             )
         ).all()
     )
+    # „Poprzedni rekruter” (zejście z P1, 14.10.2026) nad requestem nie pracuje.
+    parked = await load_parked(db, by_id)
+    commitments = {
+        (owner, job_id)
+        for owner, job_id in commitments
+        if owner not in parked.get(job_id, ())
+    }
     for owner, job_id in commitments:
         load, inherited = target(owner)
         if load is None:
@@ -455,6 +480,10 @@ async def assign_operator(
         if previous_owner is not None and previous_owner != assignee.id:
             await release_operator(db, job=job)
         job.recruiter_id = assignee.id
+        # Człowiek wpisał prowadzącego — wcześniejsze ręczne zdjęcie tej osoby
+        # przestaje obowiązywać, inaczej reguła zespołu nie liczy jej jako
+        # Rekrutera.
+        await void_manual_release(db, job_id=job.id, user_id=assignee.id)
     audit_event(
         db,
         "allocation_assigned",

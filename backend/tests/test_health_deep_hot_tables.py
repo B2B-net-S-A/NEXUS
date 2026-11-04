@@ -59,3 +59,39 @@ def test_probed_models_are_actually_imported() -> None:
         "from app.models.notification import Notification",
     ):
         assert symbol in src, symbol
+
+
+# Audyt 22.10.2026 (F79, decyzja Artura): tabele z 0482, 0499, 0506 i 0509
+# weszły bez sondy. Siatka entrypointu bywa jedynym wdrożeniem schematu
+# (alembic osierocony), więc nieudany CREATE TABLE dawał zielony deploy
+# i 500 UndefinedTable przy pierwszym „Pomiń Prep 2”, przedwstępnej,
+# podpisie w NEXUSIE albo ruchu karty na tablicy opieki.
+@pytest.mark.parametrize(
+    "table",
+    [
+        "prep2_skips",
+        "b2b_signing_requests",
+        "pre_contract_requests",
+        "pre_contract_watchers",
+        "pre_contract_events",
+        "care_board_states",
+    ],
+)
+def test_tables_from_october_are_probed(table: str) -> None:
+    block = _core_checks_block()
+    assert re.search(rf'\("{table}",\s*\w+\)', block), (
+        f"`{table}` musi być w `core_checks` (audyt 22.10, F79)"
+    )
+
+
+def test_october_probe_models_are_imported() -> None:
+    src = MAIN.read_text(encoding="utf-8")
+    for symbol in (
+        "Prep2Skip",
+        "from app.models.b2b_signing_request import B2BSigningRequest",
+        "PreContractRequest",
+        "PreContractWatcher",
+        "PreContractEvent",
+        "from app.services.care.board_state import CARE_BOARD_STATES",
+    ):
+        assert symbol in src, symbol

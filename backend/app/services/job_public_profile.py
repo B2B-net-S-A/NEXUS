@@ -1,7 +1,8 @@
 """Publiczny opis rekrutacji: projekcja, status, kontrola i szkic AI.
 
 Projekcja publiczna (``public_job_payload``) to BIAŁA LISTA pól — wzór
-``public_share._public_champion_projection``. Nie czyta ani klienta, ani
+dawnej ``public_share._public_champion_projection`` (karta Championa dla
+klienta zniknęła w 0424). Nie czyta ani klienta, ani
 stawek, ani budżetu: nawet gdyby opis przeszedł kontrolę z nazwą klienta,
 kształt odpowiedzi nie ma dla niej pola. Kontrola treści
 (``public_profile_lint``) pilnuje tego, co rekruter napisał sam.
@@ -13,6 +14,7 @@ import hashlib
 import json
 import logging
 import re
+from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -21,11 +23,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.client import Client
 from app.models.client_directory import ClientAlias
 from app.models.contact import Contact
-from app.models.job import Job, JobStatus, RecruitmentType
+from app.models.job import Job, JobStatus
 from app.models.job_public_profile import DEFAULT_PUBLIC_SECTIONS, JobPublicProfile
 from app.models.user import User
 from app.services import champion_view
-from app.services.public_profile_lint import Finding, lint_public_texts
+from app.services.public_city import public_city
+from app.services.public_profile_lint import (
+    Finding,
+    lint_internal_codes,
+    lint_public_texts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -115,9 +122,50 @@ def job_is_open(job: Optional[Job]) -> bool:
 # ── Tytuł publiczny ─────────────────────────────────────────────────────────
 
 _SEPARATORS = r":\-\u2013\u2014|"
-_TRAILING_PAREN_CODE = re.compile(r"\s*[\(\[][^()\[\]]*\d[^()\[\]]*[\)\]]\s*$")
-_TRAILING_TICKET = re.compile(r"[\s,;:\-\u2013\u2014|/]*\b(?:RITM|REQ)\d+\s*$", re.I)
+# \u201e\u2026 (42835)\u201d, \u201e\u2026 (ZOB-3003)\u201d: sam numer albo kod z 3\u20136 liter i co najmniej
+# 4 cyframi \u2014 jak nag\u0142\u00f3wek CV (``cv_role_title``). \u201e(K8s)\u201d, \u201e(PL-300)\u201d
+# i \u201e(ISO 27001)\u201d to cz\u0119\u015b\u0107 roli i zostaj\u0105 (19.10.2026; wcze\u015bniej znika\u0142 ka\u017cdy
+# nawias z cyfr\u0105).
+_TRAILING_PAREN_CODE = re.compile(
+    # „(42928, 42927)” (jedna rekrutacja na kilka zapytań), „(nr 42835)”,
+    # „(ID 4521)” też — numer pozwala zgadnąć klienta.
+    r"\s*[\(\[]\s*(?:(?:(?i:nr|no|id)\.?\s*)?\d{3,}(?:\s*[,;/]\s*\d{3,})*"
+    r"|(?!ISO\b)[A-Z]{3,6}[-_]\d{4,})\s*[\)\]]\s*$"
+)
+# Resztka po wycięciu numeru u klienta: „IT Analyst (42928, 42927)” → „(,)”.
+_EMPTY_BRACKETS = re.compile(r"\s*[\(\[][\s,;/]*[\)\]]")
+# \u201e\u2026_RITM0866775\u201d (BNP): podkre\u015blnik to znak s\u0142owa, wi\u0119c ``\b`` przed kodem
+# go nie \u0142apa\u0142 i numer szed\u0142 na stron\u0119, do grafiki OG i do adresu linku.
+_TRAILING_TICKET = re.compile(
+    r"[\s,;:\-\u2013\u2014|/_]*(?<![A-Za-z0-9])(?:RITM|REQ)\d+\s*$", re.I
+)
+# \u201e\u2026Power BI_PKN500023226\u201d, \u201e\u2026NIS2_EITERFP2026016\u201d (Orlen, Energa).
+_TRAILING_CLIENT_CODE = re.compile(r"[_\s]+[A-Z]{2,}[A-Z0-9]*\d{5,}\s*$")
 _TRAILING_PEP = re.compile(r"[\s,;]*\bPep\s*:?\s*\d+\s*$", re.I)
+# Nordea (29.10.2026, decyzja Artura): „… - TP#41745” („TP ID 40942”) to numer
+# zapotrzebowania, „PL - MDM - …” / „PL_KYC_…” kraj i zespół u klienta,
+# a „Replacement for Tomasz B” — kogo osoba zastępuje. „PL/SQL” i „PL-300”
+# zostają; „IT_” po kraju to początek roli, nie zespół; „Replacement (open
+# request)” zostaje, bo bez niego nie ma roli.
+_TRAILING_TP = re.compile(
+    r"[\s,;:\-\u2013\u2014|/_]*(?<![A-Za-z0-9])TP\s*(?:#|ID\b)\s*\d+\s*$"
+)
+_LEADING_COUNTRY_TEAM = re.compile(
+    r"^\s*PL(?:\s*[\-\u2013\u2014|:]\s*|_)(?!\d)"
+    r"(?:(?!IT(?:\s*[\-\u2013\u2014|:]|_))[A-Z]{2,5}(?:\s*[\-\u2013\u2014|:]\s*|_))?"
+    r"(?=\w)"
+)
+_TRAILING_REPLACEMENT = re.compile(
+    r"[\s,;:\-\u2013\u2014|/_]+Replacement(?:\s+for\b.*)?$", re.I
+)
+_LEADING_REPLACEMENT = re.compile(
+    r"^\s*Replacement(?:\s*[\-\u2013\u2014:]\s*|\s+)(?=[^\W\d_])", re.I
+)
+# Regu\u0142y sprzed 19.10.2026 \u2014 tylko do rozpoznania opis\u00f3w zatwierdzonych z tym
+# tytu\u0142em domy\u015blnym (``published_version``): zmiana regu\u0142 nie mo\u017ce zdj\u0105\u0107
+# opublikowanej strony.
+_LEGACY_PAREN_CODE = re.compile(r"\s*[\(\[][^()\[\]]*\d[^()\[\]]*[\)\]]\s*$")
+_LEGACY_TICKET = re.compile(r"[\s,;:\-\u2013\u2014|/]*\b(?:RITM|REQ)\d+\s*$", re.I)
 _EDGE_JUNK = re.compile(r"^[\s,;:\-\u2013\u2014|/]+|[\s,;:\-\u2013\u2014|/]+$")
 _WHITESPACE = re.compile(r"\s+")
 
@@ -150,25 +198,63 @@ def _strip_client_prefix(title: str, client_names: list[str]) -> str:
     return title
 
 
-def default_public_title(title: Optional[str], client_names: list[str]) -> str:
-    """Tytuł na stronę kariery bez nazwy klienta i kodów zleceń.
-
-    Usuwa prefiks klienta (nazwa albo alias, także pierwsze słowo nazwy
-    z co najmniej 4 literami — „Nordea" z „Nordea Bank Abp") zakończony
-    separatorem, końcowe kody w nawiasie zawierające cyfrę, ``RITM…``/
-    ``REQ…``, ``, Pep: 1234`` i nadmiarowe separatory. Nigdy nie zwraca
-    pustego napisu — w ostateczności surowy tytuł.
-    """
-    original = _collapse(title or "")
+def _strip_codes(original: str, client_names: list[str], patterns: tuple) -> str:
     text = _strip_client_prefix(original, client_names)
     while True:
         before = text
-        for pattern in (_TRAILING_PAREN_CODE, _TRAILING_TICKET, _TRAILING_PEP):
+        for pattern in patterns:
             text = pattern.sub("", text)
         text = _EDGE_JUNK.sub("", text)
         if text == before:
             break
-    text = _collapse(text)
+    return _collapse(text)
+
+
+def default_public_title(
+    title: Optional[str],
+    client_names: list[str],
+    client_reference: Optional[str] = None,
+) -> str:
+    """Tytuł na stronę kariery bez nazwy klienta i kodów zleceń.
+
+    Usuwa numer u klienta (``client_reference``, gdziekolwiek stoi), prefiks
+    klienta (nazwa albo alias, także pierwsze słowo nazwy z co najmniej
+    4 literami — „Nordea" z „Nordea Bank Abp") zakończony separatorem,
+    końcowe kody w nawiasie, ``RITM…``/``REQ…`` (także po „_”), kody
+    ``_PKN…``/``_EITE…``, ``, Pep: 1234``, a z tytułów Nordei ``TP#…``,
+    ``PL - <zespół> -`` i ``Replacement`` oraz nadmiarowe separatory. Nigdy
+    nie zwraca pustego napisu — w ostateczności surowy tytuł.
+    """
+    original = _collapse(title or "")
+    base = original
+    if client_reference and original:
+        from app.services.job_working_title import _strip_reference
+
+        base = _collapse(_strip_reference(original, client_reference)) or original
+        base = _collapse(_EMPTY_BRACKETS.sub("", base)) or original
+    text = _strip_codes(
+        base,
+        client_names,
+        (
+            _TRAILING_PAREN_CODE,
+            _TRAILING_TICKET,
+            _TRAILING_CLIENT_CODE,
+            _TRAILING_PEP,
+            _TRAILING_TP,
+            _LEADING_COUNTRY_TEAM,
+            _TRAILING_REPLACEMENT,
+            _LEADING_REPLACEMENT,
+        ),
+    )
+    return text or original
+
+
+def legacy_default_public_title(title: Optional[str], client_names: list[str]) -> str:
+    """Tytuł domyślny według reguł sprzed 19.10.2026 (patrz ``_LEGACY_*``)."""
+    original = _collapse(title or "")
+    text = _strip_codes(
+        original, client_names, (_LEGACY_PAREN_CODE, _LEGACY_TICKET, _TRAILING_PEP)
+    )
     return text or original
 
 
@@ -187,13 +273,10 @@ async def public_titles(
     names_cache: Optional[dict[Optional[int], list[str]]] = None,
 ) -> tuple[str, str]:
     """``(tytuł domyślny, tytuł efektywny)`` rekrutacji."""
-    if names_cache is not None and job.client_id in names_cache:
-        names = names_cache[job.client_id]
-    else:
-        names = await _client_names(db, job.client_id)
-        if names_cache is not None:
-            names_cache[job.client_id] = names
-    default = default_public_title(job.title, names)
+    names = await _cached_client_names(db, job, names_cache)
+    default = default_public_title(
+        job.title, names, getattr(job, "client_reference", None)
+    )
     return default, effective_public_title(profile, default)
 
 
@@ -206,7 +289,73 @@ async def resolve_status(
 ) -> tuple[str, str, str]:
     """``(status, tytuł domyślny, tytuł efektywny)``."""
     default, effective = await public_titles(db, job, profile, names_cache=names_cache)
-    return profile_status(profile, effective, raw_title=job.title), default, effective
+    status = profile_status(profile, effective, raw_title=job.title)
+    if status == STATUS_DRAFT and await _approved_title_with_codes(
+        db, job, profile, default, names_cache=names_cache
+    ):
+        status = STATUS_APPROVED
+    if (
+        status == STATUS_APPROVED
+        and profile is not None
+        and approved_for_other_client(job, profile.sections)
+    ):
+        status = STATUS_DRAFT
+    return status, default, effective
+
+
+async def _cached_client_names(
+    db: AsyncSession,
+    job: Job,
+    names_cache: Optional[dict[Optional[int], list[str]]],
+) -> list[str]:
+    if names_cache is not None and job.client_id in names_cache:
+        return names_cache[job.client_id]
+    names = await _client_names(db, job.client_id)
+    if names_cache is not None:
+        names_cache[job.client_id] = names
+    return names
+
+
+async def _approved_title_with_codes(
+    db: AsyncSession,
+    job: Job,
+    profile: Optional[JobPublicProfile],
+    default_title: str,
+    *,
+    names_cache: Optional[dict[Optional[int], list[str]]] = None,
+) -> Optional[str]:
+    """Tytuł, z którym zatwierdzono NIEZMIENIONĄ treść, gdy dzisiejszy tytuł
+    domyślny to ten tytuł bez kodów (29.10.2026, decyzja Artura).
+
+    Nowa reguła czyszczenia (np. „TP#41745” Nordei) zmienia tytuł domyślny,
+    a z nim skrót treści — opis wracałby do szkicu, a strona pokazywała stary
+    tytuł z kodem, aż ktoś zatwierdzi go ponownie. Zdjęcie samych kodów nie
+    wymaga zatwierdzenia: strona od razu pokazuje nowy tytuł. Tytuł własny
+    (``public_title``) nie podlega czyszczeniu."""
+    if (
+        profile is None
+        or profile.approved_at is None
+        or not profile.approved_hash
+        or (profile.public_title or "").strip()
+    ):
+        return None
+    names = await _cached_client_names(db, job, names_cache)
+    reference = getattr(job, "client_reference", None)
+    candidates: list[str] = []
+    text = (stored_approved_content(profile.sections) or {}).get(APPROVED_TEXT_KEY)
+    if isinstance(text, dict) and isinstance(text.get("title"), str):
+        candidates.append(text["title"])
+    candidates.append(legacy_default_public_title(job.title, names))
+    for approved in candidates:
+        if approved.strip() == default_title.strip():
+            continue
+        if default_public_title(approved, names, reference) != default_title:
+            continue
+        if profile.approved_hash == content_hash(
+            profile.subtitle, profile.about, profile.sections, approved
+        ):
+            return approved
+    return None
 
 
 def _stack_names(job: Job, key: str) -> list[str]:
@@ -226,6 +375,15 @@ def _stack_names(job: Job, key: str) -> list[str]:
             for n in iter_skill_names(getattr(job, column, None))
             if isinstance(n, str) and n.strip()
         ]
+    if isinstance(raw, dict) and raw:
+        # „Rekruter sprawdza w rozmowie” (13.10.2026): zdania, które do tej daty
+        # stały w must/nice. Wyszukiwanie ich nie czyta, ale strona kariery
+        # i ogłoszenie nadal je pokazują — przeniesienie nie może ich ukryć.
+        names.extend(
+            str(item.get("name")).strip()
+            for item in champion_view.experience(raw).get("skills") or []
+            if item.get("level", "must") == key
+        )
     seen: set[str] = set()
     out: list[str] = []
     for name in names:
@@ -243,6 +401,13 @@ def _clean(value: Any, limit: int = 120) -> Optional[str]:
     return text[:limit] if text else None
 
 
+def location(job: Job) -> Optional[str]:
+    """Lokalizacja z rekrutacji tak, jak ją wpisano — także z adresem biura."""
+    raw = getattr(job, "champion_profile", None) or {}
+    basics = champion_view.basics(raw) if isinstance(raw, dict) and raw else {}
+    return _clean(job.location) or _clean(basics.get("candidate_location_pref"))
+
+
 def public_params(job: Job) -> dict[str, Any]:
     raw = getattr(job, "champion_profile", None) or {}
     basics = champion_view.basics(raw) if isinstance(raw, dict) and raw else {}
@@ -251,22 +416,343 @@ def public_params(job: Job) -> dict[str, Any]:
         mode = str(basics.get("work_mode") or "").strip().lower()
         remote = mode if mode in _REMOTE_VALUES else None
     onsite = job.onsite_days_per_week
+    onsite_month = getattr(job, "onsite_days_per_month", None)
     if onsite is None and isinstance(basics.get("onsite_days_per_week"), int):
         onsite = basics.get("onsite_days_per_week")
-    contract = (
-        "B2B"
-        if getattr(job, "recruitment_type", None) == RecruitmentType.body_leasing
-        else None
-    )
+        month = basics.get("onsite_days_per_month")
+        onsite_month = month if isinstance(month, int) else None
+    # Bez typów rekrutacji (25.09.2026): każda rekrutacja to współpraca B2B.
+    contract = "B2B"
     return {
-        "city": _clean(job.location) or _clean(basics.get("candidate_location_pref")),
+        # Samo miasto: adres biura klienta pozwala go wygooglować (28.10.2026).
+        "city": public_city(location(job)),
         "remote_policy": remote,
         "onsite_days_per_week": onsite,
+        # 0407: gdy klient liczy na miesiąc, strona pokazuje „N dni w miesiącu”.
+        "onsite_days_per_month": onsite_month,
         "seniority": job.seniority.value if job.seniority else None,
         "contract": contract,
         "start": _clean(basics.get("start_date"), 60),
         "duration": _clean(basics.get("contract_length"), 60),
     }
+
+
+# Migawka pól czytanych z rekrutacji (must/nice, miasto, start, długość) z
+# chwili ZATWIERDZENIA opisu. Żyje w istniejącym JSON-ie `sections` pod
+# kluczem, którego `normalize_sections` (a więc i skrót treści) nie widzi —
+# bez migracji. Do rundy 3 audytu (25.09.2026) strona czytała te pola na
+# żywo: zmiana must-have albo miasta po zatwierdzeniu trafiała na publiczną
+# stronę i do ogłoszeń na portalach z pominięciem zatwierdzenia i kontroli
+# (nazwa klienta w mieście czy wymaganiu).
+APPROVED_CONTENT_KEY = "_approved_content"
+_SNAPSHOT_PARAMS = ("city", "start", "duration")
+
+
+# Klient, wobec którego kontrola sprawdziła opis (runda 8, R8-N4-4). Zmiana
+# klienta rekrutacji po zatwierdzeniu = szkic: tekst sprawdzono pod kątem
+# nazwy STAREGO klienta, a nowego mógł wymieniać wprost.
+APPROVED_CLIENT_KEY = "client_id"
+
+
+def approved_content(
+    payload: dict[str, Any], *, client_id: Optional[int] = None
+) -> dict[str, Any]:
+    """Migawka z TEJ projekcji, którą sprawdziła kontrola przy zatwierdzeniu —
+    zapisane jest dokładnie to, co przeszło kontrolę."""
+    params = payload.get("params") or {}
+    return {
+        "must": [item["name"] for item in payload.get("must") or []],
+        "nice": list(payload.get("nice") or []),
+        **{key: params.get(key) for key in _SNAPSHOT_PARAMS},
+        APPROVED_CLIENT_KEY: client_id,
+        APPROVED_TEXT_KEY: approved_text(
+            payload.get("title"),
+            payload.get("subtitle"),
+            payload.get("about"),
+            payload.get("show"),
+        ),
+    }
+
+
+# Tekst zatwierdzonej wersji (tytuł efektywny, podtytuł, opis, przełączniki)
+# w migawce zatwierdzenia (19.10.2026). Do tej daty każda zmiana opisu po
+# zatwierdzeniu zdejmowała stronę (404) aż do ponownego zatwierdzenia —
+# kandydaci z rozesłanego linku trafiali na błąd. Teraz strona pokazuje
+# ostatnią zatwierdzoną wersję, a edytor mówi, że czekają zmiany.
+APPROVED_TEXT_KEY = "text"
+
+
+def approved_text(
+    title: Optional[str], subtitle: Optional[str], about: Optional[str], show: Any
+) -> dict[str, Any]:
+    return {
+        "title": (title or "").strip(),
+        "subtitle": (subtitle or "").strip() or None,
+        "about": (about or "").strip() or None,
+        "show": normalize_sections(show),
+    }
+
+
+@dataclass(frozen=True)
+class PublishedVersion:
+    """To, co dziś widzi kandydat pod linkiem rekrutacji."""
+
+    title: str
+    subtitle: Optional[str]
+    about: Optional[str]
+    # Przełączniki + migawka zatwierdzenia — wejście ``public_job_payload``.
+    sections: dict[str, Any]
+    # Opis w edytorze różni się od opublikowanego (szkic czeka na zatwierdzenie).
+    pending_changes: bool
+    # Tytuł, z którym policzono skrót zatwierdzenia, gdy strona pokazuje go już
+    # bez kodów (``_approved_title_with_codes``) — tylko do migawki.
+    approved_title: Optional[str] = None
+
+
+def published_from(
+    job: Job,
+    profile: Optional[JobPublicProfile],
+    *,
+    status: str,
+    effective_title: str,
+    legacy_title: Optional[str] = None,
+) -> Optional[PublishedVersion]:
+    """Opublikowana wersja opisu albo ``None`` (strona daje 404).
+
+    Zatwierdzony opis = bieżące pola. Szkic po zatwierdzeniu = tekst z migawki,
+    o ile jego skrót nadal równa się zatwierdzonemu (migawka niezmieniona od
+    zatwierdzenia). Opisy zatwierdzone przed 19.10.2026 nie mają tekstu
+    w migawce — dla nich bieżące pola z tytułem według dawnych reguł
+    (``legacy_title``), gdy to on był zatwierdzony.
+
+    Zmiana klienta rekrutacji zawsze zdejmuje stronę (R8-N4-4): tekst
+    sprawdzono pod kątem nazwy poprzedniego klienta.
+    """
+    if profile is None:
+        return None
+    if status == STATUS_APPROVED:
+        return PublishedVersion(
+            title=effective_title,
+            subtitle=profile.subtitle,
+            about=profile.about,
+            sections=profile.sections,
+            pending_changes=False,
+        )
+    if (
+        profile.approved_at is None
+        or not profile.approved_hash
+        or approved_for_other_client(job, profile.sections)
+    ):
+        return None
+    snapshot = stored_approved_content(profile.sections) or {}
+    text = snapshot.get(APPROVED_TEXT_KEY)
+    if isinstance(text, dict) and isinstance(text.get("title"), str):
+        show = normalize_sections(text.get("show"))
+        if profile.approved_hash == content_hash(
+            text.get("subtitle"), text.get("about"), show, text["title"]
+        ):
+            return PublishedVersion(
+                title=text["title"],
+                subtitle=text.get("subtitle"),
+                about=text.get("about"),
+                sections=sections_with_approved_content(show, snapshot),
+                pending_changes=True,
+            )
+    if (
+        legacy_title
+        and not (profile.public_title or "").strip()
+        and profile.approved_hash
+        == content_hash(profile.subtitle, profile.about, profile.sections, legacy_title)
+    ):
+        # Tytuł domyślny zmienił się tylko przez nowe reguły czyszczenia —
+        # treść jest ta zatwierdzona, więc strona zostaje z dawnym tytułem.
+        return PublishedVersion(
+            title=legacy_title,
+            subtitle=profile.subtitle,
+            about=profile.about,
+            sections=profile.sections,
+            pending_changes=True,
+        )
+    return None
+
+
+async def published_version(
+    db: AsyncSession,
+    job: Job,
+    profile: Optional[JobPublicProfile],
+    *,
+    names_cache: Optional[dict[Optional[int], list[str]]] = None,
+) -> Optional[PublishedVersion]:
+    """Jedna reguła „co widzi kandydat” dla strony, formularzy i maili."""
+    if profile is None:
+        return None
+    status, default, effective = await resolve_status(
+        db, job, profile, names_cache=names_cache
+    )
+    names = await _cached_client_names(db, job, names_cache)
+    legacy: Optional[str] = None
+    if status != STATUS_APPROVED:
+        legacy = legacy_default_public_title(job.title, names)
+    version = published_from(
+        job, profile, status=status, effective_title=effective, legacy_title=legacy
+    )
+    if version is None:
+        return None
+    if not version.pending_changes:
+        approved = await _approved_title_with_codes(
+            db, job, profile, default, names_cache=names_cache
+        )
+        return replace(version, approved_title=approved) if approved else version
+    # Wersja sprzed zmian w edytorze: jej tytuł też bez kodów, które zdejmują
+    # dzisiejsze reguły (29.10.2026).
+    shown = default_public_title(
+        version.title, names, getattr(job, "client_reference", None)
+    )
+    if shown == version.title:
+        return version
+    return replace(version, title=shown, approved_title=version.title)
+
+
+def with_published_text(sections: Any, version: PublishedVersion) -> dict[str, Any]:
+    """Przełączniki z migawką uzupełnioną o tekst opublikowanej wersji.
+
+    Opisy zatwierdzone przed 19.10.2026 nie mają tekstu w migawce. Pierwszy
+    zapis zmian dopisuje go, póki bieżące pola są jeszcze tą wersją — inaczej
+    zmiana zdjęłaby stronę. Opis bez migawki (zatwierdzony przed 25.09.2026)
+    zostaje bez zmian: migawka z samym tekstem wyzerowałaby must/nice."""
+    stored = stored_approved_content(version.sections)
+    if stored is None:
+        return sections_with_approved_content(sections, None)
+    snapshot = dict(stored)
+    snapshot[APPROVED_TEXT_KEY] = approved_text(
+        version.approved_title or version.title,
+        version.subtitle,
+        version.about,
+        normalize_sections(version.sections),
+    )
+    return sections_with_approved_content(sections, snapshot)
+
+
+def approved_for_other_client(job: Job, sections: Any) -> bool:
+    """Czy opis zatwierdzono przy innym kliencie niż dzisiejszy.
+
+    Migawki sprzed rundy 8 nie mają klucza — dla nich nie wiemy, więc nic się
+    nie zmienia (brak danych nie może zdjąć strony z publikacji).
+    """
+    snapshot = stored_approved_content(sections)
+    if snapshot is None or APPROVED_CLIENT_KEY not in snapshot:
+        return False
+    return snapshot.get(APPROVED_CLIENT_KEY) != job.client_id
+
+
+def stored_approved_content(sections: Any) -> Optional[dict[str, Any]]:
+    snapshot = (
+        sections.get(APPROVED_CONTENT_KEY) if isinstance(sections, dict) else None
+    )
+    return snapshot if isinstance(snapshot, dict) else None
+
+
+def sections_with_approved_content(
+    sections: Any, snapshot: Optional[dict[str, Any]]
+) -> dict[str, Any]:
+    """Przełączniki sekcji + migawka (nowy słownik — JSONB widzi zmianę)."""
+    out: dict[str, Any] = dict(normalize_sections(sections))
+    if snapshot is not None:
+        out[APPROVED_CONTENT_KEY] = dict(snapshot)
+    return out
+
+
+def approved_params(job: Job, sections: Any) -> dict[str, Any]:
+    """Parametry rekrutacji tak, jak widzi je strona publiczna: z migawki
+    zatwierdzenia, gdy jest, a bez niej (opisy sprzed 25.09.2026) na żywo.
+    Jedna reguła dla strony rekrutacji i listy na stronie rekrutera."""
+    snapshot = stored_approved_content(sections)
+    params = public_params(job)
+    if snapshot is None:
+        return params
+    return {**params, **{key: snapshot.get(key) for key in _SNAPSHOT_PARAMS}}
+
+
+def approved_content_stale(job: Job, sections: Any) -> bool:
+    """Czy pola zamrożone przy zatwierdzeniu różnią się dziś od rekrutacji —
+    strona pokazuje wtedy stan z zatwierdzenia, a edytor musi to powiedzieć."""
+    snapshot = stored_approved_content(sections)
+    if snapshot is None:
+        return False
+    live = public_params(job)
+    return (
+        _names(snapshot.get("must")) != _names(_stack_names(job, "must"))
+        or _names(snapshot.get("nice")) != _names(_stack_names(job, "nice"))
+        or any(snapshot.get(key) != live.get(key) for key in _SNAPSHOT_PARAMS)
+    )
+
+
+def _names(value: Any) -> list[str]:
+    return [str(name)[:200] for name in (value or []) if isinstance(name, str)][:20]
+
+
+# Punkty „Wymagane” i „Mile widziane” z ogłoszenia (29.10.2026, uwaga
+# rekruterki): słowa do szukania („bankowości”, „dostawców zewnętrznych”)
+# wycięte ze zdań klienta nic kandydatowi nie mówiły. „Opublikuj na stronie”
+# zapisuje w migawce punkty ogłoszenia, które rekruter widzi i poprawia
+# w oknie „Ogłoszenie”. Słowa w migawce (``must``/``nice``) zostają: czytają
+# je tablica, plakat, portale API i ``approved_content_stale``.
+APPROVED_POINTS_KEY = "points"
+_POINTS_MAX = 15
+_POINT_MAX = 300
+
+
+def requirement_points(must: Any, nice: Any) -> Optional[dict[str, list[str]]]:
+    """Punkty ogłoszenia do migawki; ``None``, gdy ogłoszenie nie ma żadnego."""
+
+    def clean(value: Any) -> list[str]:
+        out: list[str] = []
+        for item in value if isinstance(value, (list, tuple)) else []:
+            text = (
+                " ".join(str(item).split())[:_POINT_MAX]
+                if isinstance(item, str)
+                else ""
+            )
+            if text:
+                out.append(text)
+        return out[:_POINTS_MAX]
+
+    points = {"must": clean(must), "nice": clean(nice)}
+    return points if points["must"] or points["nice"] else None
+
+
+def approved_points(sections: Any) -> Optional[dict[str, list[str]]]:
+    """Punkty ogłoszenia zapisane przy zatwierdzeniu (strona rekrutacji)."""
+    stored = (stored_approved_content(sections) or {}).get(APPROVED_POINTS_KEY)
+    if not isinstance(stored, dict):
+        return None
+    return requirement_points(stored.get("must"), stored.get("nice"))
+
+
+# Parametry, które znikają z danych publicznych razem z wyłączoną sekcją
+# „parametry”. ``contract`` zostaje: to stała firmy (każda rekrutacja to B2B),
+# a nie dana rekrutacji — czyta ją też sekcja „proces”.
+_HIDEABLE_PARAMS = (
+    "city",
+    "remote_policy",
+    "onsite_days_per_week",
+    "onsite_days_per_month",
+    "seniority",
+    "start",
+    "duration",
+)
+
+
+def hide_params(params: dict[str, Any]) -> dict[str, Any]:
+    return {**params, **{key: None for key in _HIDEABLE_PARAMS}}
+
+
+def visible_params(job: Job, sections: Any) -> dict[str, Any]:
+    """Parametry do danych publicznych: z migawki i z przełącznikiem ``show``."""
+    params = approved_params(job, sections)
+    if not normalize_sections(sections)["params"]:
+        return hide_params(params)
+    return params
 
 
 def public_job_payload(
@@ -277,17 +763,51 @@ def public_job_payload(
     subtitle: Optional[str],
     about: Optional[str],
     sections: Any,
+    respect_show: bool = True,
+    points: Optional[dict[str, list[str]]] = None,
 ) -> dict[str, Any]:
-    """Kształt ``job`` z ``GET /api/public/career/r/{slug}`` — biała lista."""
+    """Kształt ``job`` z ``GET /api/public/career/r/{slug}`` — biała lista.
+
+    ``points`` (``approved_points``) = punkty ogłoszenia zamiast słów
+    must/nice — tylko strona rekrutacji i kontrola przy publikacji z
+    ogłoszenia; tablica, plakat i portale dostają słowa.
+
+    ``sections`` z migawką zatwierdzenia (``APPROVED_CONTENT_KEY``) = must/nice,
+    miasto, start i długość z chwili zatwierdzenia. Bez migawki (opisy
+    zatwierdzone przed 25.09.2026, podgląd szkicu i kontrola przy
+    zatwierdzaniu — te podają same przełączniki) pola idą na żywo.
+
+    Runda 8 (decyzja Artura 27.09.2026): sekcja wyłączona przełącznikiem
+    ``show`` znika z projekcji CAŁKIEM — strona, JSON, grafika OG, opis meta
+    i ogłoszenie na portalu dostają pustą listę / puste parametry.
+    ``respect_show=False`` wyłącznie dla kontroli treści i migawki
+    zatwierdzenia: kontrola sprawdza także sekcje ukryte (włączenie sekcji
+    to zmiana skrótu treści, więc i tak wraca do zatwierdzenia), a migawka
+    musi nieść pełne pola, inaczej ``approved_content_stale`` kłamałoby.
+    """
     show = normalize_sections(sections)
+    snapshot = stored_approved_content(sections)
+    if snapshot is None:
+        must = _stack_names(job, "must")
+        nice = _stack_names(job, "nice")
+    else:
+        must = _names(snapshot.get("must"))
+        nice = _names(snapshot.get("nice"))
+    if points is not None:
+        must, nice = list(points["must"]), list(points["nice"])
+    params = approved_params(job, sections)
+    if respect_show:
+        must = must if show["must"] else []
+        nice = nice if show["nice"] else []
+        params = params if show["params"] else hide_params(params)
     return {
         "slug": link_slug,
         "title": title,
         "subtitle": (subtitle or "").strip() or None,
         "about": (about or "").strip() or None,
-        "must": [{"name": name, "note": None} for name in _stack_names(job, "must")],
-        "nice": _stack_names(job, "nice"),
-        "params": public_params(job),
+        "must": [{"name": name, "note": None} for name in must],
+        "nice": nice,
+        "params": params,
         "show": show,
     }
 
@@ -306,6 +826,7 @@ def closed_job_payload(
             "city": None,
             "remote_policy": None,
             "onsite_days_per_week": None,
+            "onsite_days_per_month": None,
             "seniority": None,
             "contract": None,
             "start": None,
@@ -316,20 +837,31 @@ def closed_job_payload(
 
 
 def _payload_texts(payload: dict[str, Any]) -> list[str]:
+    """Wszystkie teksty projekcji — także sekcji ukrytych przełącznikiem.
+
+    Runda 8 (R8-N4-1): kontrola sprawdza także sekcje ukryte — wołający
+    podaje projekcję z ``respect_show=False``. Ukryta sekcja nie trafia do
+    danych publicznych, ale włączenie jej po zatwierdzeniu nie może ominąć
+    kontroli nazwy klienta.
+    """
     texts: list[str] = [payload.get("title") or ""]
     texts.append(payload.get("subtitle") or "")
     texts.append(payload.get("about") or "")
-    show = payload.get("show") or {}
-    if show.get("must", True):
-        texts.extend(item["name"] for item in payload.get("must") or [])
-    if show.get("nice", True):
-        texts.extend(payload.get("nice") or [])
-    if show.get("params", True):
-        params = payload.get("params") or {}
-        texts.extend(
-            str(params.get(key) or "") for key in ("city", "start", "duration")
-        )
+    texts.extend(item["name"] for item in payload.get("must") or [])
+    texts.extend(payload.get("nice") or [])
+    params = payload.get("params") or {}
+    texts.extend(str(params.get(key) or "") for key in ("city", "start", "duration"))
     return texts
+
+
+def client_name_variants(client: Any) -> list[str]:
+    """Nazwy klienta zapisane na jego wierszu — bez duplikatów i pustych."""
+    out: list[str] = []
+    for attr in ("name", "display_name", "legal_name"):
+        value = str(getattr(client, attr, None) or "").strip()
+        if value and value not in out:
+            out.append(value)
+    return out
 
 
 async def _client_names(db: AsyncSession, client_id: Optional[int]) -> list[str]:
@@ -348,6 +880,25 @@ async def _client_names(db: AsyncSession, client_id: Optional[int]) -> list[str]
         )
     ).scalars()
     names.extend(a for a in aliases if a)
+    return names
+
+
+async def client_lint_names(db: AsyncSession, client_id: Optional[int]) -> list[str]:
+    """Nazwy klienta dla kontroli OGŁOSZENIA NA PORTALE: nazwa, aliasy, nazwa
+    wyświetlana i prawna.
+
+    Strona kariery (``lint_payload``, ``slug_findings``) zostaje przy
+    ``_client_names``: szersza lista przy najbliższym zatwierdzeniu obróciłaby
+    adresy ``/r/<slug>`` już rozesłanych linków (``rotate_unsafe_job_slugs``)
+    i zaczęła odmawiać opisom, które dotąd przechodziły — to osobna decyzja.
+    """
+    names = await _client_names(db, client_id)
+    if client_id is None:
+        return names
+    client = await db.get(Client, client_id)
+    for value in client_name_variants(client) if client is not None else []:
+        if value not in names:
+            names.append(value)
     return names
 
 
@@ -373,14 +924,187 @@ async def _person_names(db: AsyncSession, job: Job) -> list[str]:
     return names
 
 
+# Publiczne nazwy dla ``services/job_ad`` (ogłoszenie na portale czyta te same
+# źródła, co strona kariery).
+stack_names = _stack_names
+person_names = _person_names
+
+
 async def lint_payload(
     db: AsyncSession, job: Job, payload: dict[str, Any]
 ) -> list[Finding]:
+    texts = _payload_texts(payload)
+    return [
+        *lint_public_texts(
+            texts,
+            client_names=await _client_names(db, job.client_id),
+            person_names=await _person_names(db, job),
+        ),
+        *lint_internal_codes(
+            texts, client_reference=getattr(job, "client_reference", None)
+        ),
+    ]
+
+
+# ── Slug linku rekrutacji ───────────────────────────────────────────────────
+
+
+async def slug_findings(
+    db: AsyncSession, job: Job, slug: Optional[str]
+) -> list[Finding]:
+    """Kontrola adresu ``/r/<slug>`` — slug powstaje z tytułu i jest publiczny
+    (post na LinkedIn, grafika OG, ``apply.url`` ogłoszenia na portalu)."""
+    if not slug:
+        return []
     return lint_public_texts(
-        _payload_texts(payload),
+        [slug],
         client_names=await _client_names(db, job.client_id),
         person_names=await _person_names(db, job),
     )
+
+
+async def safe_job_slug(db: AsyncSession, job: Job, title: Optional[str]) -> str:
+    """Slug z tytułu, a gdy ten niesie klienta albo nazwisko — sam ``rekrutacja-…``.
+
+    Runda 8 (R8-N4-2): tytuł w chwili tworzenia linku nie przeszedł żadnej
+    kontroli („Java Developer (Nordea)" → ``java-developer-nordea-ab12``).
+    """
+    from app.services.career_slugs import generate_job_slug, job_slug_base
+
+    if await slug_findings(db, job, job_slug_base(title)):
+        return await generate_job_slug(db, None)
+    return await generate_job_slug(db, title)
+
+
+async def rotate_unsafe_job_slugs(
+    db: AsyncSession, job: Job, title: Optional[str]
+) -> list[tuple[str, str]]:
+    """Nowy slug dla aktywnych linków rekrutacji, których adres nie przechodzi
+    kontroli. Wołane przy zatwierdzeniu opisu: stary adres z nazwą klienta
+    przestaje działać (404), a lista linków pokazuje nowy.
+
+    Kontrola czyta część sluga pochodzącą z tytułu (``job_slug_content``).
+    Losowa końcówka trafiała we wzorce kwot („…-zl1v” raz na ok. 1800 linków)
+    i zatwierdzenie opisu wymieniało wtedy rozesłany adres bez powodu.
+    """
+    from app.models.invite_link import CandidateInviteLink
+    from app.services.career_slugs import job_slug_content
+
+    rows = (
+        await db.execute(
+            select(CandidateInviteLink).where(
+                CandidateInviteLink.job_id == job.id,
+                CandidateInviteLink.kind == "job",
+                CandidateInviteLink.revoked.is_(False),
+                CandidateInviteLink.slug.is_not(None),
+            )
+        )
+    ).scalars()
+    changed: list[tuple[str, str]] = []
+    for link in rows:
+        if not await slug_findings(db, job, job_slug_content(link.slug)):
+            continue
+        old_slug = link.slug
+        link.slug = await safe_job_slug(db, job, title)
+        changed.append((old_slug, link.slug))
+    if changed:
+        logger.info(
+            "career: job=%s rotated %s job-link slug(s) failing the public check",
+            job.id,
+            len(changed),
+        )
+    return changed
+
+
+# ── Zapis i zatwierdzenie ───────────────────────────────────────────────────
+
+
+class ProfileFindings(Exception):
+    """Kontrola znalazła w opisie coś, czego nie publikujemy — zatwierdzenie
+    odmawia przy KAŻDYM znalezisku."""
+
+    def __init__(self, findings: list[Finding]):
+        super().__init__("public profile findings")
+        self.findings = findings
+
+
+async def keep_published_text(
+    db: AsyncSession, job: Job, profile: JobPublicProfile
+) -> None:
+    """Przed zmianą pól: opis zatwierdzony przed 19.10.2026 nie ma tekstu
+    w migawce — dopisz go, póki pola są jeszcze opublikowaną wersją, inaczej
+    zmiana zdjęłaby stronę."""
+    version = await published_version(db, job, profile)
+    snapshot = stored_approved_content(profile.sections) or {}
+    if version is not None and APPROVED_TEXT_KEY not in snapshot:
+        profile.sections = with_published_text(profile.sections, version)
+
+
+async def approve_profile(
+    db: AsyncSession,
+    job: Job,
+    profile: JobPublicProfile,
+    *,
+    user_id: int,
+    points: Optional[dict[str, list[str]]] = None,
+) -> None:
+    """Zatwierdzenie = publikacja na stronie kariery. Jedna droga dla okna
+    „Udostępnij” i dla „Opublikuj na stronie” z ogłoszenia (21.10.2026).
+
+    ``points`` = punkty wymagań ogłoszenia (``requirement_points``) — tylko
+    z „Opublikuj na stronie”; zatwierdzenie w „Udostępnij” wraca do słów.
+    ``ProfileFindings`` przy każdym znalezisku kontroli; zapis i commit
+    zostają u wołającego.
+    """
+    from datetime import datetime, timezone
+
+    _default_title, effective_title = await public_titles(db, job, profile)
+    # Kontrola i migawka liczą się z pól NA ŻYWO (same przełączniki, bez
+    # starej migawki) — zatwierdzenie publikuje bieżący stan rekrutacji.
+    preview = public_job_payload(
+        job,
+        title=effective_title,
+        link_slug=None,
+        subtitle=profile.subtitle,
+        about=profile.about,
+        sections=normalize_sections(profile.sections),
+        respect_show=False,
+    )
+    checked = preview
+    if points is not None:
+        # Kontrola czyta słowa i punkty: kody RITM/REQ czy nazwę klienta
+        # w punkcie ogłoszenie tylko odradza, strona ich nie przyjmie.
+        checked = {
+            **preview,
+            "must": [
+                *preview["must"],
+                *({"name": name, "note": None} for name in points["must"]),
+            ],
+            "nice": [*preview["nice"], *points["nice"]],
+        }
+    findings = await lint_payload(db, job, checked)
+    if findings:
+        raise ProfileFindings(findings)
+    profile.approved_at = datetime.now(timezone.utc)
+    profile.approved_by = user_id
+    profile.approved_hash = content_hash(
+        profile.subtitle, profile.about, profile.sections, effective_title
+    )
+    # Strona i portale pokazują must/nice, miasto, start i długość z chwili
+    # zatwierdzenia (audyt 25.09.2026, r3) — ich późniejsza zmiana w
+    # rekrutacji wymaga ponownego zatwierdzenia.
+    snapshot = approved_content(preview, client_id=job.client_id)
+    if points is not None:
+        snapshot[APPROVED_POINTS_KEY] = points
+    profile.sections = sections_with_approved_content(profile.sections, snapshot)
+    # Runda 8 (R8-N4-2): adres linku powstał z tytułu, którego kontrola nie
+    # widziała — slug z nazwą klienta albo nazwiskiem dostaje nowy adres.
+    await rotate_unsafe_job_slugs(db, job, effective_title)
+    profile.updated_by = user_id
+    # 0381: nowa zatwierdzona treść → aktualizacja żywych ogłoszeń na portalach.
+    from app.services.job_portals.service import queue_content_update
+
+    await queue_content_update(db, job.id)
 
 
 # ── Szkic AI ────────────────────────────────────────────────────────────────
@@ -519,6 +1243,16 @@ def _parse_draft(text: str) -> dict[str, str]:
 
 async def generate_draft(db: AsyncSession, job: Job, *, user_id: int) -> dict[str, str]:
     """Szkic AI (NIE zapisywany). Rzuca ``PublicDraftUnavailable``."""
+    profile = await db.get(JobPublicProfile, job.id)
+    _default, title = await public_titles(db, job, profile)
+    return await _draft_from_material(
+        db, draft_material(job, title), user_id=user_id, log_ref=f"job={job.id}"
+    )
+
+
+async def _draft_from_material(
+    db: AsyncSession, material: dict[str, str], *, user_id: int, log_ref: str
+) -> dict[str, str]:
     from fastapi.concurrency import run_in_threadpool
 
     from app.models.ai_feature import AIFeatureKey
@@ -530,9 +1264,7 @@ async def generate_draft(db: AsyncSession, job: Job, *, user_id: int) -> dict[st
     chain = model_chain_for(AIFeatureKey.job_public_description)
     if not api_key_configured(chain[0]):
         raise PublicDraftUnavailable("Brak klucza dostawcy AI.")
-    profile = await db.get(JobPublicProfile, job.id)
-    _default, title = await public_titles(db, job, profile)
-    prompt = _DRAFT_PROMPT.format(**draft_material(job, title))
+    prompt = _DRAFT_PROMPT.format(**material)
     async with ai_feature(db, AIFeatureKey.job_public_description, user_id=user_id):
         await db.commit()
         try:
@@ -547,6 +1279,41 @@ async def generate_draft(db: AsyncSession, job: Job, *, user_id: int) -> dict[st
             return _parse_draft(text_of(message))
         except Exception as exc:  # noqa: BLE001 — każda awaria = 503
             logger.warning(
-                "[career] public draft failed job=%s: %s", job.id, type(exc).__name__
+                "[career] public draft failed %s: %s", log_ref, type(exc).__name__
             )
             raise PublicDraftUnavailable("Nie udało się wygenerować szkicu.") from exc
+
+
+async def draft_for_request(
+    db: AsyncSession, request_job: Any, *, user_id: int
+) -> dict[str, Any]:
+    """Szkic ogłoszenia PRZED zapisem rekrutacji (ekran ``/jobs/new``).
+
+    ``request_job`` to obiekt z atrybutami rekrutacji (wzór Talent Radar:
+    ``SimpleNamespace``) — nic nie trafia do bazy. Zwraca tytuł publiczny,
+    szkic i uwagi kontroli; zatwierdza dopiero ``/public-profile/approve``
+    po utworzeniu rekrutacji (serwer sprawdza treść jeszcze raz).
+    """
+    names = await _client_names(db, request_job.client_id)
+    title = default_public_title(request_job.title, names)
+    draft = await _draft_from_material(
+        db, draft_material(request_job, title), user_id=user_id, log_ref="job=new"
+    )
+    payload = public_job_payload(
+        request_job,
+        title=title,
+        link_slug=None,
+        subtitle=draft["subtitle"],
+        about=draft["about"],
+        sections=None,
+        respect_show=False,
+    )
+    findings = lint_public_texts(
+        _payload_texts(payload), client_names=names, person_names=[]
+    )
+    return {
+        "public_title": title,
+        "subtitle": draft["subtitle"],
+        "about": draft["about"],
+        "findings": [f.as_dict() for f in findings],
+    }

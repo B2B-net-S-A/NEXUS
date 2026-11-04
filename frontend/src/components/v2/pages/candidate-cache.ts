@@ -14,6 +14,9 @@ export function candidateInvalidationKeys(
   kind: CandidateMutationKind,
 ): QueryKey[] {
   const listKey = ["candidates-v2"] as const;
+  // Runda 10 (R10-N15-10): podgląd z listy pokazuje lokalizację, stawkę
+  // i „W procesie” — bez tego klucza został ze starymi danymi.
+  const quickViewKey = candidateQueryKeys.quickView(candidateId);
   switch (kind) {
     case "assignment":
       return [
@@ -21,6 +24,7 @@ export function candidateInvalidationKeys(
         candidateQueryKeys.recommendationsRoot(candidateId),
         ["candidate-pipelines", Number(candidateId)],
         listKey,
+        quickViewKey,
       ];
     case "note":
       return [
@@ -35,13 +39,18 @@ export function candidateInvalidationKeys(
         candidateQueryKeys.aiProfile(candidateId),
         candidateQueryKeys.recommendationsRoot(candidateId),
         listKey,
+        quickViewKey,
       ];
     case "rate":
       return [
         candidateQueryKeys.historyRoot(candidateId),
         candidateQueryKeys.detail(candidateId),
+        candidateQueryKeys.profileRate(candidateId),
+        candidateQueryKeys.rateOverview(candidateId),
+        candidateQueryKeys.cardOverviewRoot(candidateId),
         candidateQueryKeys.recommendationsRoot(candidateId),
         listKey,
+        quickViewKey,
       ];
     case "document":
       return [

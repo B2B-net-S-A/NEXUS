@@ -18,7 +18,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 
 class _NullTolerantSection(BaseModel):
@@ -77,6 +83,10 @@ class ChampionBasics(BaseModel):
     rate_raw: Optional[str] = Field(default=None, max_length=255)
     work_mode: Optional[str] = Field(default=None, max_length=50)
     onsite_days_per_week: Optional[int] = Field(default=None, ge=0, le=7)
+    # „N dni w biurze w miesiącu” (0407). Gdy ustawione, dni w tygodniu są
+    # z niego wyliczone (`services/office_days.py`). Znika z zapisu przy
+    # `None`, żeby profile sprzed tej daty nie zmieniały kształtu JSONB.
+    onsite_days_per_month: Optional[int] = Field(default=None, ge=1, le=22)
     # LOKALIZACJA BIURA — czyli gdzie jest praca, nie gdzie mieszka kandydat.
     #
     # Nazwa klucza kłamie i zostaje taka celowo: `scoring_service` porównuje tę
@@ -100,16 +110,82 @@ class ChampionBasics(BaseModel):
     # Termin na dostarczenie kandydatów DO TEJ oferty. Osobno od KPI klienta
     # („mamy 5 dni roboczych"), bo tamto opisuje tempo, a to konkretną datę.
     deadline: Optional[str] = Field(default=None, max_length=100)
+    # Godzina tego terminu `GG:MM` (czas Europe/Warsaw, 02.11.2026). Osobno od
+    # daty jak `jobs.deadline_time`: bramki i alerty liczą po samym dniu.
+    deadline_time: Optional[str] = None
     contract_length: Optional[str] = Field(default=None, max_length=255)
+
+    @model_validator(mode="after")
+    def _derive_weekly_office_days(self) -> "ChampionBasics":
+        if self.onsite_days_per_month is not None:
+            from app.services.office_days import weekly_from_monthly
+
+            self.onsite_days_per_week = weekly_from_monthly(self.onsite_days_per_month)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _drop_unset_monthly_office_days(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and data.get("onsite_days_per_month") is None:
+            data.pop("onsite_days_per_month", None)
+        return data
+
+
+# Wymagania do wyszukiwania w bazie (25.09.2026) — te same limity co edytor
+# wierszy (`lib/keyword-requirements.ts`) i lista kandydatów.
+SEARCH_REQUIREMENT_MAX_ROWS = 10
+SEARCH_REQUIREMENT_MAX_WORDS = 20
+SEARCH_WORD_MIN_CHARS = 2
+SEARCH_WORD_MAX_CHARS = 100
+
+
+def _search_words(values: Any) -> list[str]:
+    """Słowa jednego wiersza: bez `|` (rozdziela słowa w adresie), pustych,
+    za krótkich i powtórek (bez wielkości liter), najwyżej 20.
+
+    Jednoliterowa technologia ze słownika („C”, „R”) nie jest „za krótka”,
+    a słowo ponad limit jest przycinane na granicy wyrazu (audyt 06.10.2026,
+    P4) — wspólna reguła z ``skill_normalize``.
+    """
+    from app.services.skill_normalize import cut_at_word, is_single_letter_skill
+
+    if isinstance(values, str):
+        values = [values]
+    if not isinstance(values, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        if not isinstance(raw, str):
+            continue
+        word = cut_at_word(
+            " ".join(raw.replace("|", " ").split()), SEARCH_WORD_MAX_CHARS
+        ).strip()
+        too_short = len(word) < SEARCH_WORD_MIN_CHARS and not is_single_letter_skill(
+            word
+        )
+        if too_short or word.casefold() in seen:
+            continue
+        seen.add(word.casefold())
+        out.append(word)
+        if len(out) >= SEARCH_REQUIREMENT_MAX_WORDS:
+            break
+    return out
 
 
 class ChampionSearch(_NullTolerantSection):
     """2. Co wpisać (search) — literally what the recruiter pastes into search.
 
     Not "sourcing strategy" any more. The old block asked for a plan (channels,
-    a narrative, a to-do); this one asks for the query. That is the form the
-    downstream machinery already consumes: `recommended_searches` turns exactly
-    these strings into a `CandidateSearchRequest`.
+    a narrative, a to-do); this one asks for the query.
+
+    ``keywords`` are LinkedIn-style phrases for searching OUTSIDE NEXUS
+    („Frazy do LinkedIna”). ``requirements`` / ``exclude`` are the search in
+    NEXUS's own base (decyzje Artura 25.09.2026): a row is one requirement,
+    the words in a row are variants (OR), rows combine with AND — exactly the
+    list's `q_any_group` / `q_none`. „Szukaj ręcznie” starts from them; the
+    automatic matching does NOT read them (`champion_view.requirement_source`
+    strips them), and the hand-off needs at least one row.
 
     ``sources`` (the old channel checkboxes) survives for data safety — legacy
     profiles carry it — but has no editor UI. A recruiter knows which channels
@@ -125,6 +201,24 @@ class ChampionSearch(_NullTolerantSection):
     sources: List[Literal["internal_base", "linkedin", "ad", "referrals", "other"]] = (
         Field(default_factory=list)
     )
+    requirements: List[List[str]] = Field(default_factory=list)
+    exclude: List[str] = Field(default_factory=list)
+
+    # Normalizacja zamiast odmowy: `prepare_profile` waliduje model w środku
+    # handlera, więc wyjątek walidacji skończyłby się 500. Edytor i tak nie
+    # pozwala przekroczyć limitów — tu łapiemy wyłącznie nietypowe wejście.
+    @field_validator("requirements", mode="before")
+    @classmethod
+    def _clean_requirements(cls, value: Any) -> Any:
+        if not isinstance(value, list):
+            return value
+        rows = [_search_words(row) for row in value]
+        return [row for row in rows if row][:SEARCH_REQUIREMENT_MAX_ROWS]
+
+    @field_validator("exclude", mode="before")
+    @classmethod
+    def _clean_exclude(cls, value: Any) -> Any:
+        return _search_words(value) if isinstance(value, list) else value
 
 
 # Storage bound for ONE stack entry. It was 120 until 09.2026, and the intake
@@ -135,10 +229,37 @@ class ChampionSearch(_NullTolerantSection):
 # stored as "one requirement" (entries are split on newlines, commas and
 # semicolons first, so a real requirement never gets near it).
 STACK_ITEM_MAX_CHARS = 500
+# Umiejętności krytyczne — najwyżej trzy z wyboru Delivery Leada (do 08.10.2026
+# dwie; zgłoszenie DL: role z trzema technologiami, np. Java + Spring + Angular).
+CRITICAL_MAX = 3
 
 
 class StackItem(BaseModel):
     name: str = Field(min_length=1, max_length=STACK_ITEM_MAX_CHARS)
+
+
+# Wiersze wymagań (02.10.2026): jedna lista słów kluczowych zamiast osobnych
+# pól must / krytyczne / mile widziane / wymagania do wyszukiwania. Wiersz =
+# wymaganie, słowa = warianty (wystarczy jedno). Z wierszy serwer wyprowadza
+# `must`, `nice`, `critical` i `search.requirements`
+# (`services/champion_requirement_rows.py`).
+REQUIREMENT_ROW_LEVELS = ("critical", "must", "nice")
+REQUIREMENT_NICE_MAX_ROWS = 20
+
+
+class RequirementRow(BaseModel):
+    words: List[str] = Field(default_factory=list)
+    level: Literal["critical", "must", "nice"] = "must"
+
+    @field_validator("words", mode="before")
+    @classmethod
+    def _clean_words(cls, value: Any) -> Any:
+        return _search_words(value)
+
+    @field_validator("level", mode="before")
+    @classmethod
+    def _known_level(cls, value: Any) -> Any:
+        return value if value in REQUIREMENT_ROW_LEVELS else "must"
 
 
 class ChampionStack(_NullTolerantSection):
@@ -160,6 +281,52 @@ class ChampionStack(_NullTolerantSection):
     nice: List[StackItem] = Field(default_factory=list)
     # For the nuance a list cannot carry: "Java 17+, Java 8 nie interesuje".
     notes: str = ""
+    # Umiejętności krytyczne (30.09.2026): 0–3 pozycje z `must`, które ukrywają
+    # kandydatów. `None` = DL jeszcze nie zdecydował (działa podpowiedź
+    # z historii), `[]` = świadomie brak. Pole znika z zapisu przy `None`,
+    # żeby profile sprzed tej daty nie zmieniały kształtu JSONB.
+    critical: Optional[List[str]] = None
+    # Wiersze wymagań (02.10.2026). `None` = profil prowadzony starymi polami;
+    # lista = `must`, `nice`, `critical` i `search.requirements` są z niej
+    # wyprowadzone. Pole znika z zapisu przy `None` (jak `critical`).
+    rows: Optional[List[RequirementRow]] = None
+
+    @field_validator("rows", mode="before")
+    @classmethod
+    def _clean_rows(cls, value: Any) -> Any:
+        if not isinstance(value, list):
+            return None
+        from app.services.champion_requirement_rows import clean_rows
+
+        return clean_rows(value)
+
+    @field_validator("critical", mode="before")
+    @classmethod
+    def _clean_critical(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if not isinstance(value, list):
+            raise ValueError("Umiejętności krytyczne muszą być listą.")
+        out: list[str] = []
+        for item in value:
+            name = item.get("name") if isinstance(item, dict) else item
+            if not isinstance(name, str):
+                continue
+            name = " ".join(name.split())
+            if name and name.casefold() not in {o.casefold() for o in out}:
+                out.append(name[:STACK_ITEM_MAX_CHARS])
+        if len(out) > CRITICAL_MAX:
+            raise ValueError(f"Wybierz najwyżej {CRITICAL_MAX} umiejętności krytyczne.")
+        return out
+
+    @model_serializer(mode="wrap")
+    def _drop_undecided_critical(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and data.get("critical") is None:
+            data.pop("critical", None)
+        if isinstance(data, dict) and data.get("rows") is None:
+            data.pop("rows", None)
+        return data
 
     def names(self) -> List[str]:
         return [item.name for item in (*self.must, *self.nice)]
@@ -229,10 +396,19 @@ class ChampionClient(_NullTolerantSection):
 # technologiami, a do 09.2026 lądowały w stacku, gdzie scoring i filtry czytały
 # je jak skille. Osobna sekcja mówi, CZYM są. Świadomie NIE jest bramką:
 # branża w CV bywa pusta, więc brak śladu to „nie wiemy", nie „nie ma".
+#
+# Od 13.10.2026 sekcja jest listą „Rekruter sprawdza w rozmowie”: `skills`
+# zbiera zdania, poziom i umiejętności miękkie, których nie da się wyszukać
+# w CV („doświadczenie w przetargach”, „SQL — bardzo dobra znajomość”).
+# `skills` nie ma plakietki „ślad w CV” — to wyłącznie punkt do rozmowy.
 
 
 EXPERIENCE_ITEM_MAX_CHARS = 160
 EXPERIENCE_ITEMS_MAX = 20
+# Wszystkie listy sekcji 4 i te, dla których szukamy śladu w CV.
+EXPERIENCE_KINDS = ("domains", "certifications", "regulations", "skills")
+EXPERIENCE_EVIDENCE_KINDS = ("domains", "certifications", "regulations")
+ExperienceKind = Literal["domains", "certifications", "regulations", "skills"]
 
 
 class ExperienceItem(_NullTolerantSection):
@@ -248,6 +424,7 @@ class ChampionExperience(_NullTolerantSection):
     domains: List[ExperienceItem] = Field(default_factory=list)
     certifications: List[ExperienceItem] = Field(default_factory=list)
     regulations: List[ExperienceItem] = Field(default_factory=list)
+    skills: List[ExperienceItem] = Field(default_factory=list)
     notes: str = ""
 
     def is_empty(self) -> bool:
@@ -255,6 +432,7 @@ class ChampionExperience(_NullTolerantSection):
             self.domains
             or self.certifications
             or self.regulations
+            or self.skills
             or self.notes.strip()
         )
 
@@ -480,102 +658,12 @@ class ChampionBriefingRequest(BaseModel):
     enrich: bool = True
 
 
-# ── Recommended searches (AI-proposed, DL-approved) ──────────────────────────
+# ── Recommended searches — usunięte 25.09.2026 ──────────────────────────────
 #
-# The LLM turns the Champion Profile into 1-3 concrete candidate searches in
-# the exact shape of `CandidateSearchRequest` (the job's "Wyszukaj manualnie"
-# tab). The DL reviews each proposal (live result count, preview), approves or
-# rejects; approval materialises a `SavedSearch` pinned to the job and shared
-# with the team, so any recruiter entering the job activates it in one click.
-# Strict whitelisted params — the LLM cannot invent filters we don't have.
-
-
-class RecommendedSearchParams(BaseModel):
-    """Whitelisted subset of CandidateSearchRequest the LLM may emit.
-
-    Tolerant on purpose (Pydantic's default ``extra="ignore"``): this shape is
-    also what gets read back out of ``jobs.champion_profile`` JSONB, where
-    proposals written by older prompt versions still carry fields that have
-    since been dropped. Validation of *fresh* LLM output goes through
-    :class:`RecommendedSearchParamsIn`, which forbids extras so a hallucinated
-    filter fails loudly instead of being silently discarded.
-
-    List caps mirror ``CandidateSearchRequest`` exactly. Without them the model
-    could emit 25 keywords, the proposal would store fine, and the recruiter
-    would get a 422 the moment they clicked it — an error surfacing three steps
-    away from its cause.
-    """
-
-    # Free-text query. Together with `search_mode="hybrid"` this is what lets a
-    # recommended search reach the semantic index at all: `/api/search/candidates`
-    # only takes the BM25+dense+rerank path when BOTH are set, and the default
-    # is "boolean". Without these two fields the one feature that turns a
-    # Champion into a candidate search was, by construction, the only surface
-    # that never touched the 47 921 vectors we maintain for exactly this.
-    q: Optional[str] = Field(default=None, max_length=500)
-    search_mode: Literal["boolean", "hybrid"] = "hybrid"
-
-    q_all: List[str] = Field(default_factory=list, max_length=20)
-    # OR-groups that AND together: [["React","TS"],["Java"]] = (React OR TS) AND Java
-    q_any_groups: List[List[str]] = Field(default_factory=list, max_length=10)
-    q_none: List[str] = Field(default_factory=list, max_length=20)
-    skills_must: List[str] = Field(default_factory=list, max_length=20)
-    skills_any: List[str] = Field(default_factory=list, max_length=20)
-    skills_none: List[str] = Field(default_factory=list, max_length=20)
-    location_cities: List[str] = Field(default_factory=list, max_length=20)
-
-    def is_empty(self) -> bool:
-        return not any(
-            [
-                (self.q or "").strip(),
-                self.q_all,
-                self.q_any_groups,
-                self.q_none,
-                self.skills_must,
-                self.skills_any,
-                self.skills_none,
-                self.location_cities,
-            ]
-        )
-
-
-class RecommendedSearchParamsIn(RecommendedSearchParams):
-    """Same shape, but for validating what the LLM just produced.
-
-    ``extra="forbid"`` so an invented filter is a loud parse failure instead of
-    a field quietly dropped on the floor. The generator previously swallowed
-    every validation error and skipped the proposal, so a prompt that started
-    hallucinating parameters looked exactly like a prompt that returned fewer
-    strategies — indistinguishable from outside, and silent for as long as it
-    took someone to notice the count.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-
-class RecommendedSearch(BaseModel):
-    id: str = Field(min_length=1, max_length=40)
-    name: str = Field(min_length=1, max_length=100)
-    rationale: str = ""
-    params: RecommendedSearchParams = RecommendedSearchParams()
-    status: Literal["proposed", "approved", "rejected"] = "proposed"
-    saved_search_id: Optional[int] = None
-    # How many candidates this strategy actually matched at generation time.
-    # The module docstring above already promised the DL a "live result count";
-    # counting it BEFORE the proposal is stored is what makes a strategy that
-    # returns nobody visible as such, instead of as an empty list the recruiter
-    # discovers three clicks later and reads as "we have no such people".
-    # ``None`` = the count could not be taken (never "zero").
-    estimated_results: Optional[int] = None
-    generated_at: Optional[datetime] = None
-    decided_by_id: Optional[int] = None
-    decided_by_name: Optional[str] = None
-    decided_at: Optional[datetime] = None
-
-
-class RecommendedSearchDecision(BaseModel):
-    search_id: str
-    action: Literal["approve", "reject", "reset"]
+# Panel „Rekomendowane wyszukiwania (AI)” zastąpiły wymagania do wyszukiwania
+# w sekcji 2 (`ChampionSearch.requirements`, decyzja Artura). Stare profile
+# nadal niosą klucz `recommended_searches` — zostaje w modelu jako surowe dane
+# (bez schematu i bez konsumenta), żeby zapis profilu go nie kasował.
 
 
 # ── Full profile ─────────────────────────────────────────────────────────────
@@ -737,7 +825,8 @@ class ChampionProfile(BaseModel):
     # ── machinery, not fields ──
     verification: ChampionVerification = ChampionVerification()
     briefing: ChampionBriefing = ChampionBriefing()
-    recommended_searches: List[RecommendedSearch] = Field(default_factory=list)
+    # Dane historyczne panelu usuniętego 25.09.2026 — patrz komentarz wyżej.
+    recommended_searches: List[dict[str, Any]] = Field(default_factory=list)
     client_history: ClientHistorySummary = ClientHistorySummary()
 
     # Ingest provenance (`_source` / `_parsed_at` / `_parser`). Carried opaquely:
@@ -750,6 +839,18 @@ class ChampionProfile(BaseModel):
     @classmethod
     def _absorb_legacy_shape(cls, data: Any) -> Any:
         return migrate_legacy_champion_shape(data)
+
+    @model_validator(mode="after")
+    def _drop_stale_requirement_rows(self) -> "ChampionProfile":
+        # Wiersze wymagań są źródłem `must` / `nice` / `search.requirements`
+        # tylko dopóty, dopóki te pola im odpowiadają. Import dokumentu, szkic
+        # AI i stary edytor piszą wprost do pól — wtedy profil wraca do nich.
+        if self.stack.rows is not None:
+            from app.services.champion_requirement_rows import rows_consistent
+
+            if not rows_consistent(self.stack.model_dump(), self.search.model_dump()):
+                self.stack.rows = None
+        return self
 
     def model_dump(self, *args: Any, **kwargs: Any) -> dict:
         """Dump the seven sections plus the underscore provenance keys.
@@ -769,18 +870,41 @@ class ChampionProfile(BaseModel):
 
 # ── Screening answers (CandidateStage.screening_answers) ────────────────────
 
+# Sufity rozmiaru arkusza (02.10.2026). Odpowiedzi pokazuje profil kandydata
+# i czyta je Luna przy kolejnych rozmowach, więc arkusz bez limitu obciążałby
+# każdego, kto otworzy profil. Największy arkusz na produkcji w dniu zmiany:
+# 6 odpowiedzi, 260 znaków — limity są daleko ponad realnym użyciem.
+SCREENING_ANSWERS_MAX = 100
+SCREENING_TEXT_MAX_CHARS = 10_000
+
 
 class ScreeningAnswerItem(BaseModel):
-    question_id: str
-    response: str = ""
+    question_id: str = Field(max_length=100)
+    response: str = Field(default="", max_length=SCREENING_TEXT_MAX_CHARS)
     deal_breaker_hit: bool = False
     # Skąd odpowiedź (Pipeline v4, 23.09.2026): `reassign_suggested` = rekruter
-    # przyjął podpowiedź Luny z poprzedniej rekrutacji (przepięcie).
-    origin: Literal["manual", "reassign_suggested"] = "manual"
+    # przyjął podpowiedź Luny z poprzedniej rekrutacji (przepięcie). Od 0421:
+    # `note_import` = przyjęta z notatki wgranej/wklejonej w oknie karty,
+    # `phrased` = zdanie ułożone z haseł rekrutera („Ułóż w zdanie”). Od
+    # 07.10.2026: `note_sync` = automat przepisał odpowiedź z notatki (karty
+    # rekomendacji z Traffita, `screening_note_sync`). Arkusz z samych
+    # `note_sync` należy do automatu; zapis człowieka zamienia je na
+    # `note_import`.
+    origin: Literal[
+        "manual", "reassign_suggested", "note_import", "phrased", "note_sync"
+    ] = "manual"
+    # Hasła rekrutera, z których powstało zdanie (`phrased`) albo fragment
+    # notatki (`note_import`). Wewnętrzne — poza białą listą dla klienta.
+    keywords: Optional[str] = Field(default=None, max_length=SCREENING_TEXT_MAX_CHARS)
     # Pytanie świadomie pominięte przy przepięciu — odpowiedź bywa pusta.
     # Pominięte odpowiedzi nie liczą się do dopasowania i NIGDY nie wychodzą
     # do klienta (`client_safe_screening`).
     skipped: bool = False
+    # Treść pytania z chwili odpowiedzi (02.10.2026). Identyfikatory pytań są
+    # pozycyjne (`q1…qN`), więc po edycji profilu Championa samo `question_id`
+    # wskazuje inne pytanie. Stempluje serwer (`screening_sheets.stamp_sheet`);
+    # wartość z żądania jest nadpisywana. Poza białą listą dla klienta.
+    question_text: Optional[str] = Field(default=None, max_length=2000)
 
 
 class ExperienceCheck(BaseModel):
@@ -790,7 +914,7 @@ class ExperienceCheck(BaseModel):
     (te mówią o śladzie w CV, a to o tym, co kandydat powiedział).
     """
 
-    kind: Literal["domains", "certifications", "regulations"] = "domains"
+    kind: ExperienceKind = "domains"
     name: str = Field(min_length=1, max_length=EXPERIENCE_ITEM_MAX_CHARS)
     status: Literal["confirmed", "not_confirmed", "unknown"] = "unknown"
     note: str = Field(default="", max_length=500)
@@ -799,12 +923,14 @@ class ExperienceCheck(BaseModel):
 class ScreeningAnswers(BaseModel):
     """Full payload a recruiter submits when moving a candidate past screening."""
 
-    answers: List[ScreeningAnswerItem] = Field(default_factory=list)
+    answers: List[ScreeningAnswerItem] = Field(
+        default_factory=list, max_length=SCREENING_ANSWERS_MAX
+    )
     experience_checks: List[ExperienceCheck] = Field(
-        default_factory=list, max_length=EXPERIENCE_ITEMS_MAX * 3
+        default_factory=list, max_length=EXPERIENCE_ITEMS_MAX * len(EXPERIENCE_KINDS)
     )
     overall_fit: Literal["fit", "uncertain", "miss"] = "uncertain"
-    notes: str = ""
+    notes: str = Field(default="", max_length=SCREENING_TEXT_MAX_CHARS)
     # Notatka WEWNĘTRZNA „pominięte — przepięcie": dlaczego część pytań nie ma
     # odpowiedzi. W odróżnieniu od `notes` (widoczne w share portalu) nie
     # trafia do klienta ani do generatora CV.
@@ -840,13 +966,30 @@ def client_safe_screening(screening_answers: Any) -> Optional[dict]:
     pusta odpowiedź z dopiskiem „pominięte" czytałaby się u klienta jak brak
     kompetencji. Wejście to surowy JSONB z `CandidateStage.screening_answers`
     (także sprzed 23.09.2026); brak danych = ``None``.
+
+    Runda 8 (R8-N12-4): BIAŁA lista kluczy (``_CLIENT_SCREENING_KEYS``,
+    ``_CLIENT_ANSWER_KEYS``), nie czarna. Czarna przepuściła
+    ``experience_checks`` (status „nie potwierdził” + notatka rekrutera,
+    23.09.2026) i ``answered_by`` do JSON-u publicznej karty Championa — każde
+    nowe pole arkusza wychodziłoby do klienta, dopóki ktoś go nie dopisze tutaj.
+
+    0424 (D2, 07.10.2026): bez ``notes`` — „Notatki rekrutera” to wewnętrzny
+    zapis dla Delivery Leada, a karta Championa dla klienta zniknęła. Generator
+    CV czyta stąd wyłącznie odpowiedzi kandydata.
     """
     if not isinstance(screening_answers, dict) or not screening_answers:
         return None
-    safe = {k: v for k, v in screening_answers.items() if k != "internal_note"}
+    safe = {k: v for k, v in screening_answers.items() if k in _CLIENT_SCREENING_KEYS}
     answers = screening_answers.get("answers")
     if isinstance(answers, list):
         safe["answers"] = [
-            a for a in answers if isinstance(a, dict) and not a.get("skipped")
+            {k: v for k, v in a.items() if k in _CLIENT_ANSWER_KEYS}
+            for a in answers
+            if isinstance(a, dict) and not a.get("skipped")
         ]
     return safe
+
+
+# Pola arkusza screeningu, które czyta generator CV (treść dla klienta).
+_CLIENT_SCREENING_KEYS = frozenset({"answers", "overall_fit"})
+_CLIENT_ANSWER_KEYS = frozenset({"question_id", "response", "deal_breaker_hit"})

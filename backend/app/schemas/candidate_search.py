@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field, model_validator
 from pydantic_core import PydanticCustomError
 
 from app.models.candidate import AvailabilityStatus, CandidateStatus
+from app.schemas.candidate import EmploymentMarker
 from app.services.candidate_monthly_rate_retirement import (
     reject_retired_candidate_rate,
 )
@@ -113,6 +114,10 @@ class CandidateSearchRequest(BaseModel):
     # Ukryj osoby BEZ danych dla aktywnych filtrów lokalizacji / stażu / stawki.
     # Domyślnie (v2) takie osoby ZOSTAJĄ i są oznaczane w `unknown_fields`.
     hide_unknown: Optional[bool] = None
+    # D5 (19.10.2026): to samo tylko dla stawki / tylko dla miasta (`true`
+    # ukrywa, brak = jak bez przełącznika) — te same pola co na liście.
+    hide_unknown_rate: Optional[bool] = None
+    hide_unknown_location: Optional[bool] = None
     # Wersja semantyki filtrów. Brak pola (v1) = DOKŁADNIE dotychczasowe wyniki
     # tego endpointu — zapisane wyszukiwania nie zmieniają się bez zgody
     # właściciela. `2` = jedna semantyka wspólna z `GET /api/candidates`
@@ -180,12 +185,50 @@ EXPERIENCE_RANGE_REVERSED_MSG = (
 RATE_RANGE_REVERSED_MSG = "Minimalna stawka nie może być większa niż maksymalna."
 
 
+def reversed_range_message(
+    *,
+    experience_min: Any = None,
+    experience_max: Any = None,
+    rate_min: Any = None,
+    rate_max: Any = None,
+) -> Optional[str]:
+    """Pierwszy odwrócony przedział (min > max) jako zdanie po polsku albo
+    ``None``. Ta sama reguła dla wyszukiwarki i listy kandydatów (GET
+    ``/api/candidates`` i eksport z filtra) — do rundy 2 audytu (25.09.2026)
+    lista odwrócony zakres przyjmowała i zwracała same osoby bez danych."""
+
+    for low, high, message in (
+        (experience_min, experience_max, EXPERIENCE_RANGE_REVERSED_MSG),
+        (rate_min, rate_max, RATE_RANGE_REVERSED_MSG),
+    ):
+        if low is not None and high is not None and low > high:
+            return message
+    return None
+
+
 def raise_if_range_reversed(low: Any, high: Any, message: str) -> None:
     """Wspólna reguła dla obu schematów wyszukiwania (legacy i V3)."""
     if low is not None and high is not None and low > high:
         # PydanticCustomError: komunikat wychodzi w 422 bez prefiksu
         # „Value error, ..." — użytkownik widzi zdanie po polsku.
         raise PydanticCustomError("range_reversed", message)
+
+
+class LastRecruitment(BaseModel):
+    """Ostatnia rekrutacja osoby u nas poza bieżącą (okno szybkiego dodawania).
+
+    Ostatni ruch karty w innej rekrutacji, w zakresie rekrutacji widocznych
+    dla pytającego; ``moved_on`` to dzień w kalendarzu firmy.
+    """
+
+    job_id: int
+    # Już nazwa jak w nagłówku rekrutacji: tytuł dla rekrutera, a bez niego
+    # nazwa od klienta (``latest_cards``). Obok numer u klienta (0380).
+    job_title: str
+    job_client_reference: Optional[str] = None
+    stage_label: str
+    column: str
+    moved_on: date
 
 
 class CandidateSearchItem(BaseModel):
@@ -224,9 +267,35 @@ class CandidateSearchItem(BaseModel):
     # hiring managera blokuje (``False``). ``None`` bez kontekstu rekrutacji
     # albo bez przeciwwskazań.
     eligibility: Optional[dict[str, Any]] = None
+    # Znacznik „Pracuje u nas” — zawsze; `elsewhere` tylko przy
+    # ``exclude_in_job_id`` i dostępie do tej rekrutacji.
+    employment_marker: Optional[EmploymentMarker] = None
     # v2: które AKTYWNE filtry („location", „experience", „rate") ta osoba
     # przeszła wyłącznie dlatego, że nie mamy o niej danych — do plakietki w UI.
     unknown_fields: list[str] = Field(default_factory=list)
+    # Tylko przy ``exclude_in_job_id``: ostatnia rekrutacja osoby gdzie indziej
+    # — po niej rekruter odróżnia imienników. ``None`` = bez historii u nas.
+    last_recruitment: Optional[LastRecruitment] = None
+
+
+class InJobMatch(BaseModel):
+    """Osoba pasująca do frazy, która JUŻ ma kartę w tej rekrutacji.
+
+    Wynik okna szybkiego dodawania ją pomija (``exclude_in_job_id``), więc
+    imiennik z kartą znikał bez śladu i rekruter dodawał nie tę osobę.
+    ``closed`` ma kształt ``proposals_bulk.ClosedCardInfo`` (cel ruchu
+    „Przywróć”) i jest tylko przy karcie w „Zamkniętych”.
+    """
+
+    id: int
+    name: str
+    lastname: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    location: Optional[str] = None
+    card_label: str
+    card_column: str
+    closed: Optional[dict[str, Any]] = None
 
 
 class CompetenceCategoryFacet(BaseModel):
@@ -268,6 +337,9 @@ class SearchMeta(BaseModel):
     text_mode_applied: Literal["literal", "keywords", "semantic", "none"] = "none"
     # „Rozumiem to jako…" — patrz `candidate_search_predicates.TextInterpretation`.
     interpretation: Optional[dict[str, Any]] = None
+    # Osoba (v2 + `text_mode=auto`): "exact" / "similar" — jak `text_match`
+    # listy (`candidate_search_predicates.person_text_match`).
+    text_match: Optional[Literal["exact", "similar"]] = None
 
 
 class CandidateSearchResponse(BaseModel):
@@ -277,6 +349,9 @@ class CandidateSearchResponse(BaseModel):
     items: list[CandidateSearchItem]
     facets: SearchFacets = Field(default_factory=SearchFacets)
     meta: SearchMeta = Field(default_factory=SearchMeta)
+    # Tylko przy ``exclude_in_job_id`` + dosłownej frazie (imię i nazwisko,
+    # telefon, e-mail) i dostępie do rekrutacji; najwyżej 5 osób.
+    in_job_matches: list[InJobMatch] = Field(default_factory=list)
 
 
 # The scores endpoint measures canonical fit ON DEMAND (query vector + exact
@@ -293,6 +368,14 @@ class MatchScoresRequest(BaseModel):
     candidate_ids: list[int] = Field(
         default_factory=list, max_length=MATCH_SCORES_MAX_CANDIDATES
     )
+    # U5 (audyt 06.10.2026): pierwsza strona okna „Szukaj ręcznie” zapisuje
+    # te wiersze jako wyświetlenia (kolejność = kolejność `candidate_ids`).
+    impression_surface: Optional[Literal["manual_search"]] = None
+    # Pozycje wierszy na stronie (równoległe do `candidate_ids`); bez nich
+    # pozycją jest kolejność w żądaniu.
+    impression_ranks: Optional[list[int]] = Field(
+        default=None, max_length=MATCH_SCORES_MAX_CANDIDATES
+    )
 
 
 class MatchScoresResponse(BaseModel):
@@ -308,11 +391,15 @@ class MatchScoresResponse(BaseModel):
     ``profile_key`` identifies the weight profile (id + weights) the scores
     were computed under: the same pair scores differently under another
     profile, so a client caching scores keys them by it and never shows two
-    profiles side by side. ``None`` when nothing was scored."""
+    profiles side by side. ``None`` when nothing was scored.
+    ``non_technology_must`` lists the must labels that are not technologies."""
 
     scores: dict[str, int] = Field(default_factory=dict)
     breakdowns: dict[str, Any] = Field(default_factory=dict)
     profile_key: Optional[str] = None
+    # Pozycje must z `breakdowns`, które nie są technologią (zdania, branża,
+    # język, rola — reguła bramki must). Podgląd osoby ich nie pokazuje.
+    non_technology_must: list[str] = Field(default_factory=list)
 
 
 class WaterfallStage(BaseModel):

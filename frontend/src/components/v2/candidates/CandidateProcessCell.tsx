@@ -1,33 +1,31 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import {
   activeRecruitments,
   processCell,
   stageLabel,
-  type CandidateRowAvailabilitySource,
   type CandidateRowRecruitment,
 } from "@/components/v2/candidates/candidate-row-format";
+import { JobNameLabel } from "@/components/v2/jobs/JobNameLabel";
+import { candidateJobNames } from "@/lib/job-name-text";
 
 const CLOSE_DELAY_MS = 150;
 
 /**
  * Kolumna „W procesie”: w komórce skrót („2 procesy · CV wysłane”),
  * po najechaniu (albo kliknięciu / fokusie — dotyk i klawiatura) lista
- * rekrutacji, w których osoba bierze udział: tytuł, klient, etap i kiedy
- * był ostatni ruch. Każda pozycja prowadzi do rekrutacji. Zamknięte
+ * rekrutacji, w których osoba bierze udział: numer u klienta i tytuł jak
+ * w nagłówku rekrutacji, klient, etap i kiedy był ostatni ruch. Każda pozycja prowadzi do rekrutacji. Zamknięte
  * rekrutacje (etap końcowy) się nie liczą — tak samo jak skrót.
  */
 export function CandidateProcessCell({
   candidateName,
-  employment,
   recruitments,
 }: {
   candidateName: string;
-  employment: CandidateRowAvailabilitySource["employment"];
   recruitments: readonly CandidateRowRecruitment[] | null | undefined;
 }) {
   const [open, setOpen] = useState(false);
@@ -36,7 +34,7 @@ export function CandidateProcessCell({
     if (closeTimer.current) clearTimeout(closeTimer.current);
   }, []);
 
-  const cell = processCell(employment, recruitments);
+  const cell = processCell(recruitments);
   const active = activeRecruitments(recruitments);
   if (!cell) return <span className="text-muted-foreground">—</span>;
 
@@ -66,9 +64,8 @@ export function CandidateProcessCell({
             show();
           }}
           className={cn(
-            "max-w-full truncate rounded-sm text-left text-sm underline decoration-dotted decoration-muted-foreground/60 underline-offset-4",
+            "max-w-full truncate rounded-sm text-left text-sm text-foreground underline decoration-dotted decoration-muted-foreground/60 underline-offset-4",
             "hover:text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-            cell.tone === "employed" ? "font-medium text-warning-muted-foreground" : "text-foreground",
           )}
         >
           {cell.text}
@@ -83,34 +80,29 @@ export function CandidateProcessCell({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-b border-border px-3 py-2 text-xs font-semibold text-muted-foreground">
-          {active.length > 0
-            ? `Rekrutacje w toku (${active.length})`
-            : "Brak rekrutacji w toku"}
+          Rekrutacje w toku ({active.length})
         </div>
-        {cell.tone === "employed" && (
-          <p className="border-b border-border px-3 py-2 text-sm font-medium text-warning-muted-foreground">
-            {cell.text}
-          </p>
-        )}
-        {active.length > 0 && (
-          <ul className="max-h-72 overflow-y-auto py-1">
-            {active.map((r) => (
-              <li key={r.job_id}>
-                <Link
-                  href={`/jobs/${r.job_id}`}
-                  className="block px-3 py-2 hover:bg-muted focus-visible:bg-muted focus-visible:outline-hidden"
-                >
-                  <span className="block truncate text-sm font-medium text-foreground">{r.job_title}</span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {[r.client_name, stageLabel(r.stage), r.moved_at ? formatRelativeTime(r.moved_at) : null]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+        <ul className="max-h-72 overflow-y-auto py-1">
+          {active.map((r) => (
+            <li
+              key={r.job_id}
+              className="relative px-3 py-2 hover:bg-muted focus-within:bg-muted"
+            >
+              {/* Cały wiersz prowadzi do rekrutacji; numer u klienta kopiuje. */}
+              <JobNameLabel
+                job={candidateJobNames(r)}
+                href={`/jobs/${r.job_id}`}
+                stretched
+                titleClassName="text-sm font-medium text-foreground"
+              />
+              <span className="block truncate text-xs text-muted-foreground">
+                {[r.client_name, stageLabel(r.stage), r.moved_at ? formatRelativeTime(r.moved_at) : null]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+            </li>
+          ))}
+        </ul>
       </PopoverContent>
     </Popover>
   );

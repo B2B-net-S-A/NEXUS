@@ -174,7 +174,13 @@ export function attendeesOf(
   sessionId: number,
 ): AcademyApplication[] {
   return apps
-    .filter((a) => a.session_id === sessionId)
+    .filter(
+      (a) =>
+        a.session_id === sessionId &&
+        // Wykluczeni i zrezygnowani przed spotkaniem nie są jego uczestnikami
+        // (lustro `people` w `sessions_with_counts`, runda 8).
+        !((a.status === "rejected" || a.status === "withdrew") && a.attended !== true),
+    )
     .sort((a, b) => a.full_name.localeCompare(b.full_name, "pl"));
 }
 
@@ -243,6 +249,30 @@ export function bulkFailureMessage(
       ? `Nie wykluczono ${failed.length} os.`
       : `Nie udało się dla ${failed.length} os.`;
   return `${head}: ${reasons}`;
+}
+
+/**
+ * Wiersz zwrócony po akcji na osobie wstawiony do listy razem z licznikami
+ * statusów. Bez przeliczenia `counts` zakładka „Wykluczeni” i kafle edycji
+ * pokazywały stan sprzed akcji do najbliższego odpytania (≤ 2 min). Liczniki
+ * pochodne (`luna_skipped`, `reapplied_excluded`…) dociąga odświeżenie listy.
+ */
+export function withReplacedApplication<
+  T extends { items: AcademyApplication[]; counts: AcademyCounts },
+>(data: T | undefined, row: AcademyApplication): T | undefined {
+  if (!data) return data;
+  const previous = data.items.find((a) => a.id === row.id);
+  const counts: AcademyCounts = { ...data.counts };
+  if (previous && previous.status !== row.status) {
+    const before = counts[previous.status];
+    if (typeof before === "number") counts[previous.status] = Math.max(0, before - 1);
+    counts[row.status] = (counts[row.status] ?? 0) + 1;
+  }
+  return {
+    ...data,
+    items: data.items.map((a) => (a.id === row.id ? row : a)),
+    counts,
+  };
 }
 
 /** Dni tygodnia w kolejności pon–nd dla formularza rytmu (0 = poniedziałek). */

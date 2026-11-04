@@ -1,6 +1,6 @@
 import enum
 from datetime import datetime
-from typing import Optional
+from typing import Iterable, Optional
 
 from sqlalchemy import (
     BigInteger,
@@ -16,6 +16,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
+from app.services.role_merge import normalize_role_value
 
 
 class UserRole(str, enum.Enum):
@@ -29,12 +30,15 @@ class UserRole(str, enum.Enum):
     - talent_community_manager — zarządza Talent Community; globalny odczyt
                                  delivery bez finansów i bez mutacji delivery
     - finance             — operacje finansowe i widok executive
-    - tac                 — Talent Acquisition Consultant (hybryda ATS + LinkedIn)
-    - recruiter           — 100% LinkedIn, dodaje kandydatów
-    - sourcer             — 100% ATS + ogłoszenia
+    - recruiter           — rekruter; od 0411 (02.10.2026) jedna rola zamiast
+                            trzech: sourcer, rekruter i TAC
     - user                — deprecated legacy viewer; no new provisioning
     - trainee             — praktykant (0374): przez program wdrożenia widzi
                             wyłącznie „Telefony na dziś”; rola wyłączna
+    - automation          — „Automatyzacje” (0446): osoba budująca automatyzacje
+                            procesów; tylko PODGLĄD rekrutacji, kandydatów,
+                            Insights oraz klientów, kontraktów i zamówień bez
+                            kwot; żadnego zapisu na ekranach; rola wyłączna
 
     ``user`` remains during the expand/contract window so legacy guards keep
     failing closed while accounts are migrated to ``recruiter``.
@@ -45,11 +49,61 @@ class UserRole(str, enum.Enum):
     delivery_lead = "delivery_lead"
     talent_community_manager = "talent_community_manager"
     finance = "finance"
-    tac = "tac"
     recruiter = "recruiter"
-    sourcer = "sourcer"
     user = "user"
     trainee = "trainee"
+    automation = "automation"
+    # „Ludzie w NEXUSIE” (decyzja Artura 16.10.2026, D1): pracownik bez pracy
+    # w rekrutacji — widzi tylko swój czas, ludzi i pomoc. Rola wyłączna.
+    employee = "employee"
+    # „Rada nadzorcza” (0490, decyzja Artura 21.10.2026): tylko Insights —
+    # kokpit Firma z kwotami, rok do roku, raporty i zespół imiennie. Żadnego
+    # zapisu, kandydatów ani Delivery; nie przyjmuje nadań. Rola wyłączna.
+    board = "board"
+
+    # Wycofane role (0411) — ALIASY rekrutera, nie osobne role. Etykiety
+    # `sourcer` i `tac` zostają w typie `userrole` w Postgresie, więc wiersz
+    # ze starą wartością (odtworzona kopia, stary obraz po rollbacku) musi się
+    # dać odczytać: bez aliasu `LookupError` wywracałby każde zapytanie
+    # ładujące to konto, także listy u innych osób. Muszą stać PO `recruiter`
+    # (pierwsza nazwa jest kanoniczna i to ją SQLAlchemy zapisuje). W kodzie
+    # ich nie używamy — pilnuje `tests/test_retired_roles_guard.py`.
+    sourcer = "recruiter"
+    tac = "recruiter"
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        # Pydantic buduje listę `enum` z `__members__`, więc aliasy dawałyby
+        # w OpenAPI trzy razy „recruiter”.
+        schema = handler(core_schema)
+        resolved = handler.resolve_ref_schema(schema)
+        if "enum" in resolved:
+            resolved["enum"] = list(dict.fromkeys(resolved["enum"]))
+        return schema
+
+
+def known_roles(values: Optional[Iterable[object]]) -> list[UserRole]:
+    """Role z listy napisów (JSONB ``roles``, wejście API), w podanej kolejności.
+
+    Wycofane ``sourcer``/``tac`` liczą się jako rekruter, nieznane napisy są
+    pomijane, duplikaty zwijane — stary wiersz nie może wywrócić odczytu.
+    """
+
+    out: list[UserRole] = []
+    for value in values or ():
+        try:
+            role = UserRole(normalize_role_value(str(getattr(value, "value", value))))
+        except ValueError:
+            continue
+        if role not in out:
+            out.append(role)
+    return out
+
+
+def user_role_column_type() -> Enum:
+    """Typ kolumny z rolą; ``omit_aliases=False`` czyta wycofane etykiety."""
+
+    return Enum(UserRole, name="userrole", omit_aliases=False)
 
 
 class User(Base, TimestampMixin):
@@ -70,9 +124,11 @@ class User(Base, TimestampMixin):
         CheckConstraint(
             """
             CASE
-                WHEN role::text IN ('finance', 'user', 'trainee')
+                WHEN role::text IN ('finance', 'user', 'trainee', 'automation', 'employee', 'board')
                     THEN roles = jsonb_build_array(role::text)
-                ELSE NOT (roles ?| ARRAY['finance', 'user', 'trainee']::text[])
+                ELSE NOT (
+                    roles ?| ARRAY['finance', 'user', 'trainee', 'automation', 'employee', 'board']::text[]
+                )
             END
             """,
             name="ck_users_exclusive_finance_viewer_roles",
@@ -87,7 +143,7 @@ class User(Base, TimestampMixin):
     password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(
-        Enum(UserRole, name="userrole"),
+        user_role_column_type(),
         default=UserRole.recruiter,
         nullable=False,
     )
@@ -122,6 +178,19 @@ class User(Base, TimestampMixin):
         Boolean, default=True, server_default="true", nullable=False
     )
 
+    # 0425: poranny skrót „Twój dzień w NEXUSIE” mailem — własny wyłącznik
+    # konta (przełącznik w Ustawienia → System działa na całą firmę).
+    daily_digest_email_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
+
+    # 0427: maile, które konto wyłączyło sobie — ``{rodzaj: ISO czasu
+    # wyłączenia}``. Rodzaje i reguła: ``services/notification_email_prefs``
+    # (poranny skrót ma własną kolumnę wyżej).
+    email_opt_outs: Mapped[dict] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+
     # Jarvis (0330): wygląd i zachowanie maskotki-asystenta — postać, własne
     # imię, akcent, dźwięk, zwinięcie. Walidowane w `/api/users/me/preferences`
     # (`JarvisPrefs`); pusty słownik = ustawienia domyślne.
@@ -144,6 +213,12 @@ class User(Base, TimestampMixin):
     can_delete_clients: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
+    # 0631: imienne prawo do maila „Podsumowanie Rady” (decyzja Artura 02.11.2026).
+    # Rada dostaje go z tytułu roli, a rola admin już nie. Zmiana ląduje
+    # w Historii zdarzeń.
+    receives_board_report: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
 
     # 0371: konto „Poza przydziałem” — automat przydziału requestów pomija
     # tę osobę (np. rola rekrutera na koncie kogoś, kto nie pracuje przy
@@ -151,6 +226,13 @@ class User(Base, TimestampMixin):
     # Kategorie kompetencji; każda zmiana zostawia wpis w `activities`.
     allocation_excluded: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
+    )
+
+    # 0612 (28.10.2026): konto po pierwszym logowaniu przez Microsoft czeka na
+    # decyzję Head of Recruitment albo admina, kim jest ta osoba („Nowe osoby
+    # do ustawienia” w „Czeka na Ciebie”). NULL = nic nie czeka.
+    setup_pending_since: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     # First-login onboarding gate.
@@ -282,22 +364,21 @@ class User(Base, TimestampMixin):
         are silently dropped so a stale row never raises ``ValueError`` deep
         in a permission check.
         """
-        out: set[UserRole] = set()
+        out: set[UserRole] = set(known_roles(self.roles))
         if self.role is not None:
             out.add(self.role)
-        for r in self.roles or []:
-            try:
-                out.add(UserRole(r))
-            except ValueError:
-                continue
         return out
 
     def has_role(self, role: UserRole | str) -> bool:
         """True if user holds ``role`` (primary or secondary)."""
-        target = role.value if isinstance(role, UserRole) else str(role)
+        target = normalize_role_value(
+            role.value if isinstance(role, UserRole) else str(role)
+        )
         if self.role is not None and self.role.value == target:
             return True
-        return target in (self.roles or [])
+        # Stara etykieta w liście (`tac`, `sourcer`) liczy się jak rekruter —
+        # tak samo jak w `get_all_roles`.
+        return any(normalize_role_value(str(v)) == target for v in self.roles or [])
 
     def has_any_role(self, *roles: UserRole) -> bool:
         """True if user holds at least one of the given roles."""
@@ -317,13 +398,16 @@ class User(Base, TimestampMixin):
             self.roles = [primary_str] + current
 
     def ensure_exclusive_roles(self) -> None:
-        """Finance, legacy viewer and trainee are exclusive personas."""
+        """Finance, legacy viewer, trainee, automation, employee and board are exclusive."""
 
         role_values = {role.value for role in self.get_all_roles()}
         exclusive = {
             UserRole.finance.value,
             UserRole.user.value,
             UserRole.trainee.value,
+            UserRole.automation.value,
+            UserRole.employee.value,
+            UserRole.board.value,
         }.intersection(role_values)
         if exclusive and len(role_values) != 1:
             role_name = sorted(exclusive)[0]

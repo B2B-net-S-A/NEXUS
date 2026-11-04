@@ -6,6 +6,7 @@
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const get = vi.hoisted(() => vi.fn());
@@ -85,5 +86,43 @@ describe("ChampionProfileSourcesPanel — meetingi bez powiązania", () => {
     const urls = get.mock.calls.map((c) => String(c[0]));
     expect(urls).toContain("/api/notes?note_type=meeting&unattached=true&limit=10");
     expect(urls.some((u) => u === "/api/notes?note_type=meeting")).toBe(false);
+  });
+});
+
+// Runda 8 (R8-N14-5): pusta lista z `.map()` jest truthy, więc sekcje nigdy
+// nie pokazywały pustego stanu, a awaria zapytania dawała pustą sekcję.
+describe("ChampionProfileSourcesPanel — pusty stan i awaria", () => {
+  function renderPanel() {
+    return render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ChampionProfileSourcesPanel jobId={5} currentProfile={EMPTY_CHAMPION_PROFILE} clientId={3} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("puste listy → komunikaty pustego stanu we wszystkich trzech sekcjach", async () => {
+    get.mockResolvedValue({ data: { items: [], total: 0 } });
+    renderPanel();
+    expect(await screen.findByText("Brak pending draftów.")).toBeInTheDocument();
+    expect(await screen.findByText("Żadne meetingi nie są powiązane z tą rekrutacją.")).toBeInTheDocument();
+    expect(await screen.findByText("Wszystkie meetingi zostały już powiązane.")).toBeInTheDocument();
+  });
+
+  it("awaria zapytania → komunikat błędu z „Ponów”, nie pusty stan", async () => {
+    let calls = 0;
+    get.mockImplementation(async (url: string) => {
+      if (url === "/api/notes?job_id=5") {
+        calls += 1;
+        if (calls === 1) throw new Error("boom");
+        return { data: { items: [note(9, "# Briefing roli", { job_id: 5 })], total: 1 } };
+      }
+      return { data: { items: [], total: 0 } };
+    });
+    renderPanel();
+    const retry = await screen.findByRole("button", { name: "Ponów" });
+    expect(screen.getByText(/Nie udało się wczytać/)).toBeInTheDocument();
+    expect(screen.queryByText("Żadne meetingi nie są powiązane z tą rekrutacją.")).toBeNull();
+    await userEvent.click(retry);
+    expect(await screen.findByText("Briefing roli")).toBeInTheDocument();
   });
 });

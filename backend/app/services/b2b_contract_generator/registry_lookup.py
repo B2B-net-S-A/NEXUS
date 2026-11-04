@@ -18,7 +18,10 @@ Moczydłowski"), a nie samo imię i nazwisko właściciela.
     imię+nazwisko właściciela) + REGON + KRS. Zawsze dostępna; fallback nazwy.
   - **KRS OpenAPI** (`api-krs.ms.gov.pl`) — po numerze KRS (spółki).
 
-Zwracany kształt: ``{name, person, nip, regon, krs, address, source}``.
+Zwracany kształt: ``{name, person, nip, regon, krs, address, address_kind, source}``.
+``address_kind`` (karta firmy w CEIDG): ``place_of_business`` = wpisane stałe
+miejsce wykonywania działalności, ``service`` = tylko adres do doręczeń
+(wtedy umowa mówi „pod adresem do doręczeń”), ``None`` = rejestr nie powiedział.
 ``name`` = pełna nazwa firmy; ``person`` = osoba fizyczna (JDG) → pole „Imię i
 nazwisko". Błędy/timeouty → ``None`` (UI wraca do wpisu ręcznego).
 """
@@ -27,12 +30,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+from datetime import date
 
 import httpx
 
 from app.core.config import settings
 from app.core.scheduling import business_today
-from app.services.b2b_contract_generator.entity_type import entity_type_from_registry
+from app.services.b2b_contract_generator.entity_type import (
+    COMPANY,
+    entity_type_from_registry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +73,48 @@ def _digits(value: str | None) -> str:
     return "".join(ch for ch in (value or "") if ch.isdigit())
 
 
+ADDRESS_PLACE_OF_BUSINESS = "place_of_business"
+ADDRESS_SERVICE = "service"
+
+
+def address_kind_from_biznes_details(details: dict) -> str | None:
+    """Rodzaj adresu z karty firmy CEIDG (``GetCompanyDetails``).
+
+    JDG bez stałego miejsca wykonywania działalności nie ma w ``addressData``
+    klucza ``placeOfBusinessAddress`` — jest tylko ``correspondenceAddress``
+    (adres do doręczeń). Biała Lista MF zwraca ten adres jako zwykły
+    ``workingAddress``, więc stamtąd tego nie widać (23.10.2026: 24 z 75 JDG
+    z generatora)."""
+    addresses = details.get("addressData") or {}
+    if addresses.get("placeOfBusinessAddress"):
+        return ADDRESS_PLACE_OF_BUSINESS
+    if addresses.get("correspondenceAddress"):
+        return ADDRESS_SERVICE
+    return None
+
+
+async def _biznes_address_kind(
+    client: httpx.AsyncClient, company_id: str | None
+) -> str | None:
+    if not company_id:
+        return None
+    resp = await client.get(
+        f"{_BIZNES_BASE}/GetCompanyDetails",
+        params={"id": company_id, "source": "CEIDG"},
+    )
+    if resp.status_code != 200:
+        logger.info("biznes.gov.pl details non-200 (%s)", resp.status_code)
+        return None
+    return address_kind_from_biznes_details(resp.json())
+
+
+async def lookup_address_kind(nip: str) -> str | None:
+    """Rodzaj adresu JDG z CEIDG po NIP — dla ścieżki z tokenem CEIDG API,
+    gdzie nazwa nie idzie przez biznes.gov.pl. Awaria = ``None``."""
+    found = await lookup_by_biznes(nip)
+    return (found or {}).get("address_kind")
+
+
 async def lookup_by_biznes(nip: str) -> dict | None:
     """Wyszukiwarka firm biznes.gov.pl — pełna nazwa firmy (JDG i spółki)."""
     clean = _digits(nip)
@@ -95,12 +145,21 @@ async def lookup_by_biznes(nip: str) -> dict | None:
                 return None
             c = companies[0]
             name = (c.get("name") or "").strip() or None
+            source = (c.get("source") or "").upper()
+            # Karta firmy tylko dla JDG; jej awaria nie psuje nazwy.
+            address_kind = None
+            if source == "CEIDG":
+                try:
+                    address_kind = await _biznes_address_kind(client, c.get("id"))
+                except (httpx.HTTPError, ValueError) as exc:
+                    logger.info("biznes.gov.pl details failed NIP %s: %s", clean, exc)
             return {
                 "name": name,
                 "nip": c.get("nip"),
                 "regon": c.get("regon"),
                 "krs": c.get("krs"),
-                "source": (c.get("source") or "").upper(),  # CEIDG (JDG) | KRS
+                "address_kind": address_kind,
+                "source": source,  # CEIDG (JDG) | KRS
             }
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("biznes.gov.pl lookup failed NIP %s: %s", clean, exc)
@@ -172,17 +231,52 @@ async def lookup_by_ceidg(nip: str) -> dict | None:
         return None
 
 
-def _parse_ceidg(data: dict) -> dict | None:
-    firmy = data.get("firmy") or []
+# Kolejność wyboru wpisu CEIDG dla jednego NIP-u. Osoba, która zamknęła
+# działalność i założyła nową, ma pod tym samym NIP-em kilka wpisów (na
+# produkcji 10 z 40 NIP-ów Partnerów, 28.09.2026), a API nie zwraca ich w stałej
+# kolejności. Do 28.09 brany był pierwszy z listy — bywało nim stare, wykreślone
+# przedsiębiorstwo z nieaktualną nazwą i adresem.
+_CEIDG_STATUS_RANK = {
+    "AKTYWNY": 0,
+    "OCZEKUJE_NA_ROZPOCZECIE_DZIALANOSCI": 1,
+    "WYLACZNIE_W_FORMIE_SPOLKI": 2,
+    "ZAWIESZONY": 3,
+    "WYKRESLONY": 4,
+}
+
+
+def _iso_ordinal(value: object) -> int:
+    try:
+        return date.fromisoformat(str(value)[:10]).toordinal()
+    except ValueError:
+        return 0
+
+
+def pick_current_ceidg_firm(firmy: list[dict]) -> dict | None:
+    """Wpis CEIDG, który opisuje firmę DZIŚ: najpierw status, potem najnowszy
+    start działalności."""
     if not firmy:
         return None
-    f = firmy[0]
+    return min(
+        firmy,
+        key=lambda f: (
+            _CEIDG_STATUS_RANK.get(str(f.get("status") or "").upper(), 5),
+            -_iso_ordinal(f.get("dataRozpoczecia")),
+        ),
+    )
+
+
+def _parse_ceidg(data: dict) -> dict | None:
+    f = pick_current_ceidg_firm(data.get("firmy") or [])
+    if f is None:
+        return None
     owner = f.get("wlasciciel") or {}
     person = (
         " ".join(p for p in [owner.get("imie"), owner.get("nazwisko")] if p).strip()
         or None
     )
-    address = _ceidg_address(f.get("adresDzialalnosci") or {})
+    adr = f.get("adresDzialalnosci") or {}
+    address = _ceidg_address(adr)
     return {
         "name": f.get("nazwa"),
         "person": person,
@@ -190,6 +284,9 @@ def _parse_ceidg(data: dict) -> dict | None:
         "regon": owner.get("regon") or f.get("regon"),
         "krs": None,
         "address": address,
+        # Pole `ulica` rozstrzyga wieś z pocztą w innej miejscowości, której
+        # z samego napisu adresu nie widać (`format_registry_address`).
+        "has_street": bool(adr.get("ulica")) if adr else None,
         "source": "CEIDG",
     }
 
@@ -197,12 +294,29 @@ def _parse_ceidg(data: dict) -> dict | None:
 def _ceidg_address(adr: dict) -> str | None:
     if not adr:
         return None
-    street = " ".join(p for p in [adr.get("ulica"), adr.get("budynek")] if p).strip()
+    # Miejscowość bez ulic: CEIDG nie ma `ulica`, a numer domu stoi przy nazwie
+    # miejscowości („Dąbrówka 12, 05-252 Dąbrówka").
+    street_name = adr.get("ulica") or (
+        adr.get("miasto") if adr.get("budynek") else None
+    )
+    street = " ".join(p for p in [street_name, adr.get("budynek")] if p).strip()
     if adr.get("lokal"):
         street = f"{street}/{adr['lokal']}".strip("/")
     tail = " ".join(p for p in [adr.get("kod"), adr.get("miasto")] if p).strip()
     full = ", ".join(p for p in [street, tail] if p)
     return full.upper() or None
+
+
+async def _fetch_odpis(client: httpx.AsyncClient, krs: str, kind: str) -> dict | None:
+    """Odpis z API KRS (``OdpisAktualny`` / ``OdpisPelny``), rejestr P, potem S."""
+    for rejestr in ("P", "S"):
+        resp = await client.get(
+            f"{_KRS_BASE}/api/krs/{kind}/{krs}",
+            params={"rejestr": rejestr, "format": "json"},
+        )
+        if resp.status_code == 200:
+            return resp.json()
+    return None
 
 
 async def lookup_by_krs(krs: str) -> dict | None:
@@ -213,19 +327,40 @@ async def lookup_by_krs(krs: str) -> dict | None:
     clean = clean.zfill(10)
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            for rejestr in ("P", "S"):
-                resp = await client.get(
-                    f"{_KRS_BASE}/api/krs/OdpisAktualny/{clean}",
-                    params={"rejestr": rejestr, "format": "json"},
-                )
-                if resp.status_code != 200:
-                    continue
-                parsed = _parse_krs(resp.json())
-                if parsed:
-                    return parsed
+            data = await _fetch_odpis(client, clean, "OdpisAktualny")
+            if data is not None:
+                return _parse_krs(data)
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("KRS lookup failed for KRS %s: %s", clean, exc)
     return None
+
+
+async def lookup_krs_company_details(krs: str) -> dict:
+    """Dane komparycji spółki: siedziba, kapitał, sąd rejestrowy, zarząd.
+
+    Dwa odpisy, bo sąd rejestrowy NIE występuje w odpisie aktualnym (tam jest
+    tylko sąd OSTATNIEGO wpisu, zwykle „SYSTEM”) — bierzemy go z historii
+    wpisów odpisu pełnego. Imiona i nazwiska członków zarządu publiczne API
+    maskuje („K*****”), więc zwracamy tylko to, co da się pokazać: funkcje
+    i sposób reprezentacji. Każda awaria = puste pola, nie wyjątek."""
+    clean = _digits(krs)
+    if not clean:
+        return {}
+    clean = clean.zfill(10)
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            current, full = await asyncio.gather(
+                _fetch_odpis(client, clean, "OdpisAktualny"),
+                _fetch_odpis(client, clean, "OdpisPelny"),
+            )
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("KRS details lookup failed for KRS %s: %s", clean, exc)
+        return {}
+    details = _parse_krs_company_details(current) if current else {}
+    court = _registry_court_from_full(full) if full else None
+    if court:
+        details["registry_court"] = court
+    return details
 
 
 def _parse_krs(data: dict) -> dict | None:
@@ -255,6 +390,111 @@ def _parse_krs(data: dict) -> dict | None:
         return None
 
 
+# ── Dane komparycji spółki (wariant „spółka” Generatora, ticket 8) ──────────
+
+_ROMAN = re.compile(r"^[IVXLCDM]+$")
+_LOWER_WORDS = frozenset({"dla", "w", "we", "i", "z"})
+
+
+def _title_word(word: str) -> str:
+    core = word.rstrip(",.")
+    tail = word[len(core) :]
+    if not core:
+        return word
+    lower = core.lower()
+    if lower in _LOWER_WORDS:
+        return lower + tail
+    if lower in ("m.st", "m.st."):
+        return "m.st." + tail.lstrip(".")
+    if _ROMAN.match(core):
+        return core + tail
+    return (
+        "-".join(part[:1].upper() + part[1:].lower() for part in core.split("-")) + tail
+    )
+
+
+def title_case_pl(value: str | None) -> str | None:
+    """„SĄD REJONOWY DLA M. ST. WARSZAWY” → „Sąd Rejonowy dla m.st. Warszawy”.
+
+    KRS podaje wszystko WIELKIMI literami; do umowy trafia zapis zwykły.
+    Liczby rzymskie wydziału („XIV”) zostają wielkie."""
+    text = re.sub(r"\s+", " ", value or "").strip()
+    if not text:
+        return None
+    text = re.sub(r"(?i)\bm\.\s*st\.\s*", "M.ST. ", text)
+    return " ".join(_title_word(w) for w in text.split(" "))
+
+
+def _registry_court_from_full(data: dict) -> str | None:
+    """Sąd rejestrowy = sąd, który dokonał OSTATNIEGO wpisu nie-systemowego."""
+    try:
+        entries = data["odpis"]["naglowekP"]["wpis"] or []
+    except (KeyError, TypeError):
+        return None
+    for entry in reversed(entries):
+        court = (entry or {}).get("oznaczenieSaduDokonujacegoWpisu") or ""
+        if court.strip() and court.strip().upper() != "SYSTEM":
+            return title_case_pl(court)
+    return None
+
+
+def _format_capital(amount: str | None, currency: str | None) -> str | None:
+    """„1360000,00” PLN → „1.360.000,00” (bez waluty — dokłada ją umowa)."""
+    raw = (amount or "").replace(" ", "").strip()
+    if not raw:
+        return None
+    whole, _, frac = raw.partition(",")
+    if not whole.isdigit():
+        return raw
+    groups: list[str] = []
+    while whole:
+        groups.insert(0, whole[-3:])
+        whole = whole[:-3]
+    formatted = f"{'.'.join(groups)},{(frac + '00')[:2]}"
+    cur = (currency or "PLN").strip().upper()
+    return formatted if cur == "PLN" else f"{formatted} {cur}"
+
+
+def _masked(value: str | None) -> bool:
+    return not value or "*" in value
+
+
+def _parse_krs_company_details(data: dict) -> dict:
+    out: dict = {}
+    try:
+        dane = data["odpis"]["dane"]
+    except (KeyError, TypeError):
+        return out
+    d1 = dane.get("dzial1") or {}
+    seat = ((d1.get("siedzibaIAdres") or {}).get("siedziba") or {}).get("miejscowosc")
+    if seat:
+        out["seat"] = title_case_pl(seat)
+    capital = (d1.get("kapital") or {}).get("wysokoscKapitaluZakladowego") or {}
+    formatted = _format_capital(capital.get("wartosc"), capital.get("waluta"))
+    if formatted:
+        out["share_capital"] = formatted
+    representation = (dane.get("dzial2") or {}).get("reprezentacja") or {}
+    people = []
+    for member in representation.get("sklad") or []:
+        if not isinstance(member, dict) or member.get("czyZawieszona"):
+            continue
+        first = ((member.get("imiona") or {}).get("imie") or "").strip()
+        last = ((member.get("nazwisko") or {}).get("nazwiskoICzlon") or "").strip()
+        name = None if _masked(first) or _masked(last) else f"{first} {last}"
+        people.append(
+            {
+                "name": title_case_pl(name) if name else None,
+                "function": title_case_pl(member.get("funkcjaWOrganie")),
+            }
+        )
+    if people:
+        out["representatives"] = people
+    method = (representation.get("sposobReprezentacji") or "").strip()
+    if method:
+        out["representation_method"] = method[:1] + method[1:].lower()
+    return out
+
+
 def _merge(name_src: dict, bl: dict | None) -> dict:
     """Złóż wynik: NAZWA z name_src (biznes/CEIDG), ADRES + osoba z Białej Listy."""
     src = (name_src.get("source") or "").upper()
@@ -268,6 +508,8 @@ def _merge(name_src: dict, bl: dict | None) -> dict:
         "regon": name_src.get("regon") or (bl.get("regon") if bl else None),
         "krs": (bl.get("krs") if bl else None) or name_src.get("krs"),
         "address": (bl.get("address") if bl else None) or name_src.get("address"),
+        "address_kind": name_src.get("address_kind") if is_jdg else None,
+        "has_street": name_src.get("has_street"),
         "source": name_src.get("source") or "biznes",
     }
 
@@ -296,7 +538,17 @@ def _with_entity_type(result: dict | None) -> dict | None:
 
 async def lookup_company(nip: str | None = None, krs: str | None = None) -> dict | None:
     """Pełna nazwa firmy z biznes.gov.pl (lub CEIDG, jeśli token) + adres/osoba
-    z Białej Listy. KRS jako fallback po numerze KRS."""
+    z Białej Listy. KRS jako fallback po numerze KRS. Spółka z numerem KRS
+    dostaje też dane komparycji (siedziba, kapitał, sąd, zarząd)."""
+    result = await _lookup_company_base(nip=nip, krs=krs)
+    if result and result.get("entity_type") == COMPANY and result.get("krs"):
+        result = {**result, **await lookup_krs_company_details(result["krs"])}
+    return result
+
+
+async def _lookup_company_base(
+    nip: str | None = None, krs: str | None = None
+) -> dict | None:
     if nip:
         # Adres/osobę zawsze z Białej Listy; nazwę z preferowanego źródła.
         if settings.CEIDG_API_TOKEN:
@@ -305,6 +557,8 @@ async def lookup_company(nip: str | None = None, krs: str | None = None) -> dict
             )
             if not (name_src and name_src.get("name")):
                 name_src = await lookup_by_biznes(nip)
+            elif not name_src.get("address_kind"):
+                name_src = {**name_src, "address_kind": await lookup_address_kind(nip)}
         else:
             bl, name_src = await asyncio.gather(
                 lookup_by_nip(nip), lookup_by_biznes(nip)

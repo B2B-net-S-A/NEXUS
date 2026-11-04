@@ -28,16 +28,23 @@
  *      przypadek ma klienta (`clientId={1}`), więc zasiewa też kartę klienta
  *      i regułę CV z tych samych fixture'ów co `/preview/client-playbook`.
  *
+ * Sieć: interaktywne pola pytają API także po renderze (licznik „~N osób
+ * w bazie” przy wymaganiach do wyszukiwania, podpowiedzi słów). Na czas życia
+ * harnessu interceptor axiosa odpowiada na nie lokalnie, a każde inne żądanie
+ * odrzuca bez wyjścia do sieci — bez tego wpisanie wymagania kończyło się 401
+ * i przekierowaniem na `/login`.
+ *
  * Oba przypadki mają `clientId={null}`, więc karta klienta w sekcji 6 się nie
  * renderuje (notka „Wybierz klienta…") — nic z `client-playbook` nie trzeba
  * zasiewać. Dane `documents` w fixture zostają: pole żyje w JSONB nadal.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { AxiosError } from "axios";
 
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
-import { EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
+import api, { EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
 import { clientQuestionPoolQueryKey } from "@/lib/api/interviewCycle";
 import { makeClientPlaybook } from "@/test/fixtures/client-playbook";
 import { makeCvRule } from "@/test/fixtures/cv-rule";
@@ -92,10 +99,17 @@ const MIGRATED_LEGACY: ChampionProfile = {
 
 const FILLED_NEW: ChampionProfile = {
   ...MIGRATED_LEGACY,
+  search: {
+    ...MIGRATED_LEGACY.search,
+    // Wymagania do wyszukiwania w bazie ustawione przez DL-a (25.09.2026).
+    requirements: [["Java", "Kotlin"], ["Kafka", "RabbitMQ"]],
+    exclude: ["junior"],
+  },
   stack: {
-    must: [{ name: "Java" }, { name: "Spring Boot" }, { name: "Kafka" }],
+    must: [{ name: "Java" }, { name: "Spring Boot" }, { name: "Kafka" }, { name: "komunikatywność" }],
     nice: [{ name: "Kubernetes" }, { name: "AWS" }],
     notes: "Java 17+, Java 8 nie interesuje",
+    // Krytyczne (30.09.2026): brak decyzji — działa podpowiedź z historii.
   },
   documents: [
     { name: "NDA klienta", url: "https://b2bnetsa.sharepoint.com/nda" },
@@ -105,6 +119,8 @@ const FILLED_NEW: ChampionProfile = {
 
 const WITH_INSIGHTS: ChampionProfile = {
   ...FILLED_NEW,
+  // Krytyczne (30.09.2026): DL zdecydował — gwiazdka przy „Java”.
+  stack: { ...FILLED_NEW.stack, critical: ["Java"] },
   basics: { ...FILLED_NEW.basics, role_name: "Tester manualny — płatności kartowe" },
   experience: {
     domains: [
@@ -203,9 +219,71 @@ const WITH_INSIGHTS: ChampionProfile = {
   },
 };
 
+/**
+ * Profil zapisany z `/jobs/new` po 02.10.2026: wymagania jako wiersze słów
+ * kluczowych. `must` / `nice` / `search.requirements` są tu takie, jakie serwer
+ * wyprowadza z wierszy — inaczej walidator profilu skasowałby `rows`.
+ */
+const WITH_ROWS: ChampionProfile = {
+  ...MIGRATED_LEGACY,
+  search: {
+    ...MIGRATED_LEGACY.search,
+    requirements: [["Java"], ["Spring Boot", "Spring*"], ["Kafka", "RabbitMQ"]],
+    exclude: ["junior"],
+  },
+  stack: {
+    must: [{ name: "Java" }, { name: "Spring Boot" }, { name: "Kafka lub RabbitMQ" }],
+    nice: [{ name: "Kubernetes" }],
+    critical: ["Java"],
+    rows: [
+      { words: ["Java"], level: "must" },
+      { words: ["Spring Boot", "Spring*"], level: "must" },
+      { words: ["Kafka", "RabbitMQ"], level: "must" },
+      { words: ["Kubernetes", "k8s"], level: "nice" },
+    ],
+    notes: "Java 17+, Java 8 nie interesuje\nmin. 5 lat doświadczenia komercyjnego",
+  },
+};
+
 const EMPTY_LIST: unknown[] = [];
 
 export default function ChampionProfilePreviewPage() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const blocker = api.interceptors.request.use((config) => {
+      const local = (data: unknown) => {
+        config.adapter = async () => ({ data, status: 200, statusText: "OK", headers: {}, config });
+        return config;
+      };
+      // Licznik „~N osób w bazie” (lista kandydatów, `page_size=1`).
+      if (config.url === "/api/candidates" && config.method === "get") {
+        return local({ items: [], total: 214, page: 1, page_size: 1 });
+      }
+      if (config.url === "/api/candidates/keywords/suggest") return local({ items: [], wildcard: null });
+      // Podpowiedź krytycznych (30.09.2026) — lokalna odpowiedź, bez sieci:
+      // „komunikatywność” nie jest technologią, „Java” podpowiada historia.
+      if (config.url === "/api/job-intake/critical-suggestion") {
+        const body = typeof config.data === "string" ? JSON.parse(config.data) : (config.data ?? {});
+        // Profil z wierszami pyta wierszami — etykietą jest pierwsze słowo.
+        const rows: string[][] | undefined = body.rows;
+        const must: string[] = rows ? rows.map((row) => row[0]) : (body.must_skills ?? []);
+        const eligible = must.filter((m) => !/komunikat|angielsk|bankow/i.test(m));
+        const stats: Record<string, { rate: number; jobs: number }> = {};
+        for (const label of eligible) {
+          stats[label] = { rate: /^java$/i.test(label) ? 0.96 : 0.62, jobs: 41 };
+        }
+        return local({
+          ...(rows ? { labels: must } : {}),
+          suggested: eligible.filter((m) => /^java$/i.test(m)).slice(0, 2),
+          eligible,
+          stats,
+        });
+      }
+      return Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config));
+    });
+    setReady(true);
+    return () => api.interceptors.request.eject(blocker);
+  }, []);
   const queryClient = useMemo(() => {
     const qc = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -214,18 +292,28 @@ export default function ChampionProfilePreviewPage() {
       [1, MIGRATED_LEGACY],
       [2, FILLED_NEW],
       [3, WITH_INSIGHTS],
+      [4, WITH_ROWS],
     ] as const) {
+      const hasJava = profile.stack.must.some((item) => item.name === "Java");
+      const stored = profile.stack.critical ?? null;
       qc.setQueryData(["champion-profile", jobId], {
         job_id: jobId,
         job_title: "Senior Java Developer",
         champion_profile: profile,
+        critical_resolution: {
+          stored,
+          decided: stored !== null,
+          effective: stored ?? (hasJava ? ["Java"] : []),
+          source: stored !== null ? "dl" : hasJava ? "suggested" : "none",
+          suggested: hasJava ? ["Java"] : [],
+        },
       });
       qc.setQueryData(["champion-consultant-suggestions", jobId], EMPTY_LIST);
       qc.setQueryData(["job-meeting-notes", jobId], EMPTY_LIST);
       qc.setQueryData(["champion-suggestions", jobId], EMPTY_LIST);
       qc.setQueryData(["notes-attached", jobId], EMPTY_LIST);
-      // Pipeline v4: panel „Pytania klienta z rozmów" (pula z debriefów).
-      qc.setQueryData(clientQuestionPoolQueryKey("job", jobId, 50), EMPTY_LIST);
+      // Pipeline v4: panel „Pytania klienta z rozmów" (pytania tej rekrutacji).
+      qc.setQueryData(clientQuestionPoolQueryKey("job", jobId, 200), EMPTY_LIST);
       // Panel podobnych ról ma przełącznik „ten klient / wszyscy klienci", a
       // `crossClient` wchodzi w klucz — zasianie jednego wariantu zostawia drugi
       // niezasiany, więc pierwsze kliknięcie strzeliłoby do API.
@@ -242,6 +330,10 @@ export default function ChampionProfilePreviewPage() {
     qc.setQueryData(["client-cv-rule", 1], makeCvRule());
     return qc;
   }, []);
+
+  if (!ready) {
+    return <div className="p-8 text-sm text-muted-foreground">Ładowanie…</div>;
+  }
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -283,6 +375,16 @@ export default function ChampionProfilePreviewPage() {
             3. Doświadczenie poza stackiem + wiedza z rozmów + historia klienta
           </h2>
           <ChampionProfileEditor jobId={3} canEdit clientId={1} />
+        </section>
+
+        <section
+          className="rounded-xl border border-dashed border-border p-4"
+          data-testid="case-requirement-rows"
+        >
+          <h2 className="mb-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+            4. Wymagania jako wiersze słów kluczowych (profil z /jobs/new)
+          </h2>
+          <ChampionProfileEditor jobId={4} canEdit clientId={null} />
         </section>
       </main>
     </QueryClientProvider>

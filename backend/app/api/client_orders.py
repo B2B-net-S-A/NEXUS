@@ -12,12 +12,13 @@ Flow B — "Nowy kontraktor / zamówienie" (POST /contract-with-order) —
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
-from dataclasses import replace
-from datetime import date, datetime, timezone
+from dataclasses import dataclass, replace
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Annotated, Literal, Optional
+from typing import Literal, Optional
 
 from fastapi import (
     APIRouter,
@@ -36,19 +37,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
 
-from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.contracts import (
     _normalize_contract_currency,
     _raise_currency_conflict,
     _reject_b2b_end_date,
 )
-from app.api.deps import DeliveryLeadOrAdmin, require_roles
 from app.api.financial_access import (
-    assert_finance_manager_touches_only_amounts,
+    assert_amounts_only,
     can_manage_finance_amounts,
-    require_roles_or_finance_manager,
+    can_read_client_finance,
+    can_write_order_amounts,
+    order_amounts_denied,
+)
+from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
+from app.api.permission_access import (
+    AmountsViewUser,
+    ClientContractsEditUser,
+    ContractsOrdersEditUser,
+    ContractsOrdersOrAmountsEditUser,
+    DeliveryViewUser,
 )
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
+from app.api.write_policy import UserWritePolicy, WritePolicy
+from app.services.access_scope import resolve_delivery_lead_finance_client_ids
 from app.services.contract_lifecycle import (
     lock_contract_then_orders,
     sync_contract_to_live_order,
@@ -84,6 +95,8 @@ from app.schemas.client_order import (
     ClientOrderUpdate,
     ContractWithOrdersRead,
     OrderDocumentItem,
+    RecruitmentRateLookupResponse,
+    RecruitmentRateRead,
     OrderDocumentsResponse,
     OrderDeletePreview,
     OrderDeleteRateChange,
@@ -94,12 +107,16 @@ from app.schemas.new_contractor_order import (
     NewContractorOrderRequest,
     NewContractorOrderResponse,
 )
-from app.services import storage_service
+from app.services import nordea_invoice_lines, recruitment_rates, storage_service
 from app.services.order_gaps import close_gaps_of_deleted_orders
 from app.services.shared_md_orders import client_uses_shared_md_pool
 from app.services.order_continuation import ending_without_successor
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
-from app.services.client_access import deny, resolve_client_access
+from app.services.client_access import (
+    assert_client_assignable,
+    deny,
+    resolve_client_access,
+)
 from app.services.client_default_rate_unit import default_rate_unit_for_client
 from app.services.client_identity import client_display_name
 from app.services.client_order_lines import LIVE_CONTRACT_STATUSES, recompute_remaining
@@ -109,6 +126,7 @@ from app.services.multi_consultant_orders import (
     INPUT_MODE_MD,
     quantize_md,
 )
+from app.services.md_awaiting_orders import settle_awaiting_md_for_client
 from app.services.order_group_materializer import (
     materialize_group_for_activated_order,
     md_rate_from_order_rate,
@@ -129,6 +147,7 @@ from app.services.order_types import (
     should_process_active_standalone_order,
 )
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
+from app.services.order_document_text import extract_order_words
 from app.services.order_settlements import (
     assert_order_has_no_settlements,
     settlement_blockers,
@@ -162,39 +181,25 @@ from app.services.order_excel_export import (
     rate_unit_export_label,
 )
 
-router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
+logger = logging.getLogger(__name__)
+
+router = APIRouter(
+    dependencies=[*DELIVERY_SECTION_DEPENDENCIES, *DELIVERY_CLIENT_SCOPE_DEPENDENCIES]
+)
 
 
-# The combined export can contain group cards. The section gate narrows this
-# legacy role alias to Admin, Finance and Delivery Lead; standalone order items
-# still pass their own client-aware guards inside the handler below.
-# HoR i TAC zdjęci 22.09.2026 (audyt U7): nie mają sekcji Delivery, więc bramka
-# routera i tak ich odcinała — lista ról mówiła coś, czego kod nie robił.
-UnifiedOrderExportReader = Annotated[
-    User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.delivery_lead,
-            UserRole.finance,
-        )
-    ),
-]
-
-# Structured GET responses are finance-redacted below and may be shown to TCM.
-# Keep this distinct from ``UnifiedOrderExportReader``: exports and PO files are
-# opaque rate-bearing artefacts and deliberately do not admit TCM.
-OrderSafeReadUser = Annotated[
-    User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.delivery_lead,
-            UserRole.talent_community_manager,
-            UserRole.finance,
-        )
-    ),
-]
+# Trasy pytają o uprawnienie z ekranu Osoby i role (``permission_access``):
+#
+# * listy i szczegóły zamówień — „Klienci, kontrakty i zamówienia: podgląd”;
+#   odpowiedź jest redagowana z kwot i metadanych pliku dla kont, które nie
+#   widzą kwot tego klienta,
+# * eksport i pliki PO (nieprzejrzyste artefakty ze stawkami) — „Stawki
+#   i kwoty: podgląd”,
+# * każdy zapis — „Kontrakty i zamówienia: tworzenie i edycja”; PATCH wpuszcza
+#   też samą „Stawki i kwoty: zmiana”, wyłącznie dla pól kwot.
+#
+# Zakres klientów zostaje w handlerach: konto z rolą Delivery Leada działa
+# u klientów z portfela (bramka routera), a kwoty i pliki — u przypisanych.
 
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -211,13 +216,46 @@ def _assert_allowed_order_type(client_id: int, order_type: OrderType | str) -> N
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
-async def _assert_client(db: AsyncSession, client_id: int) -> Client:
+async def _assert_client(
+    db: AsyncSession, client_id: int, *, for_write: bool = False
+) -> Client:
     client = await db.scalar(select(Client).where(Client.id == client_id))
     # Klient usunięty z profilu (0307) nie przyjmuje nowych zamówień — jego
     # historyczne zamówienia zostają w bazie, ale nie ma już profilu.
     if client is None or client.deleted_at is not None:
         raise HTTPException(404, detail="Client not found")
+    if for_write and getattr(client, "merged_into_client_id", None) is not None:
+        # Runda 9 (R9-V1-1): scalony duplikat jest ukryty jak usunięty klient,
+        # a zapis zamówienia przez jego stary profil (karta otwarta przed
+        # scaleniem, wywołanie API) zakładał zamówienie, którego nie widać
+        # w żadnym rejestrze. Odczyt zostaje — to historia.
+        await assert_client_assignable(db, client_id)
     return client
+
+
+async def _assert_job_of_client(
+    db: AsyncSession, client_id: int, job_id: Optional[int]
+) -> None:
+    """Rekrutacja zamówienia musi istnieć i należeć do tego klienta.
+
+    Jedna bramka dla POST (przedłużenie), PATCH i Flow B (nowy kontraktor).
+    Do audytu 25.09.2026 POST jej nie miał: nieistniejące `job_id` kończyło
+    się 500 na kluczu obcym, a rekrutacja INNEGO klienta zapisywała się
+    i przepinała zamówienie pod cudzy projekt.
+    """
+    if job_id is None:
+        return
+    job_ok = await db.scalar(
+        select(Job.id).where(Job.id == job_id, Job.client_id == client_id)
+    )
+    if job_ok is None:
+        raise HTTPException(
+            422,
+            detail=(
+                "Wskazana rekrutacja nie istnieje albo należy do innego "
+                "klienta (job_id)."
+            ),
+        )
 
 
 async def _require_client_order_read(
@@ -225,12 +263,20 @@ async def _require_client_order_read(
     user,
     client_id: int,
 ) -> None:
-    """Require operational Delivery access before any order-specific guard."""
+    """Dokument zamówienia (plik PO, odczyt PDF-a) może nieść stawki.
+
+    Wymaga „Stawki i kwoty: podgląd” w zakresie klienta; odmowa nazywa
+    brakujące uprawnienie. Zapisy czysto operacyjne (zamówienie bez kwot
+    i bez pliku, zakończenie, usunięcie) tej bramki NIE wołają — tam wystarcza
+    uprawnienie trasy i zakres klienta z bramki routera.
+    """
 
     await _assert_client(db, client_id)
     access = await resolve_client_access(db, user, client_id)
     if not access.can_view_legal_documents:
-        raise deny("zamówienia klienta wymagają dostępu operacyjnego Delivery")
+        raise access.legal_denial(
+            "zamówienia klienta wymagają dostępu operacyjnego Delivery"
+        )
 
 
 async def _require_safe_client_order_read(
@@ -246,21 +292,57 @@ async def _require_safe_client_order_read(
         raise deny("zamówienia klienta wymagają dostępu operacyjnego do klienta")
 
 
-async def _can_read_order_file(db: AsyncSession, user: User, client_id: int) -> bool:
-    """Opaque PO files keep the assigned-client finance boundary for DLs."""
+@dataclass(frozen=True)
+class _OrderAmounts:
+    """Kwoty zamówień JEDNEGO klienta dla wołającego — liczone raz na żądanie.
 
-    dl_assigned = await _dl_assigned_to_client(db, user, client_id)
-    can_finance = _can_manage_order_finance(user, dl_assigned=dl_assigned)
-    return _order_finance_visible(user, can_finance=can_finance)
+    ``can_read``: stawki w odpowiedzi i plik PO („Moduł Finanse” albo „Stawki
+    i kwoty: podgląd” u klienta z przypisania). ``can_write``: zapis kwot
+    zamówienia („Stawki i kwoty: zmiana” albo prowadzenie zamówień razem
+    z podglądem kwot tego klienta — jak dotąd przypisany Delivery Lead).
+    """
+
+    can_read: bool
+    can_write: bool
+
+
+def _order_amounts_within(
+    user: User, client_id: int, boundary: frozenset[int] | None
+) -> _OrderAmounts:
+    return _OrderAmounts(
+        can_read=can_read_client_finance(
+            user, client_id=client_id, delivery_lead_finance_client_ids=boundary
+        ),
+        can_write=can_write_order_amounts(
+            user, client_id=client_id, delivery_lead_finance_client_ids=boundary
+        ),
+    )
+
+
+async def _order_amounts(db: AsyncSession, user: User, client_id: int) -> _OrderAmounts:
+    # Granica przypisań (razem ze scalonymi duplikatami klienta) — jedno
+    # zapytanie dla konta z rolą Delivery Leada, zero dla pozostałych.
+    boundary = await resolve_delivery_lead_finance_client_ids(user, db)
+    return _order_amounts_within(user, client_id, boundary)
 
 
 async def _require_order_file_read(
     db: AsyncSession,
     user: User,
     client_id: int,
+    *,
+    amounts: _OrderAmounts | None = None,
 ) -> None:
+    """Plik PO: podgląd kwot w zakresie klienta ORAZ kwoty TEGO klienta.
+
+    Druga połowa rozróżnia konto z rolą Delivery Leada, które klienta widzi,
+    ale nie jest do niego przypisane — pliki zostają przy przypisaniu.
+    """
+
     await _require_client_order_read(db, user, client_id)
-    if not await _can_read_order_file(db, user, client_id):
+    if amounts is None:
+        amounts = await _order_amounts(db, user, client_id)
+    if not amounts.can_read:
         raise deny("plik zamówienia z kwotami wymaga przypisania do klienta")
 
 
@@ -339,6 +421,10 @@ def _attach_po_bytes(
     order.size_bytes = size
     order.file_uploaded_by = user.id
     order.file_uploaded_at = datetime.now(timezone.utc)
+    # Nordea: pozycja faktury cyklicznej z tego dokumentu (ticket 8). Odczyt
+    # (OCR) robi wołający przez ``refresh_on_upload_async`` — tu tylko zdjęcie
+    # formuły poprzedniego dokumentu; brak odczytu dosypie pętla ``order_gaps``.
+    nordea_invoice_lines.clear_on_new_upload(order)
     return previous if previous and previous != rel_path else None
 
 
@@ -403,6 +489,40 @@ def _activation_candidate_rate(contract: Contract) -> Optional[Decimal]:
     if "candidate_rate_schedule" in inspect(contract).unloaded:
         return contract.rate_candidate
     return contract.effective_candidate_rate(business_today())
+
+
+def _missing_activation_fields(order: ClientOrder) -> list[str]:
+    """Czego brakuje szkicowi do aktywacji — lustro
+    :func:`_order_has_required_activation_data`, nazwane po polsku.
+
+    Audyt 25.09.2026: jawny ``PATCH {"status": "active"}`` omijał bramkę
+    kompletności zamówienia okresowego (POST zamienia takie zamówienie
+    w szkic), więc aktywne zamówienie bez numeru czy stawek trafiało do MRR.
+    Odmowa ma nazwać braki, żeby dało się je uzupełnić jednym zapisem.
+    """
+    missing: list[str] = []
+    title = (order.title or "").strip()
+    if not title or title == "(bez numeru)":
+        missing.append("numer zamówienia")
+    if order.start_date is None:
+        missing.append("data startu")
+    if order.rate_client is None:
+        missing.append("stawka przychodowa")
+    if order.rate_candidate is None and not (
+        order.contract is not None
+        and _activation_candidate_rate(order.contract) is not None
+    ):
+        missing.append("stawka kosztowa")
+    effective_type = effective_standalone_order_type(order.client_id, order.order_type)
+    if effective_type == OrderType.cost and not (
+        order.total_value is not None and order.total_value > 0
+    ):
+        missing.append("kwota zamówienia")
+    if effective_type == OrderType.md and not (
+        order.md_total is not None and order.md_total > 0
+    ):
+        missing.append("liczba MD")
+    return missing
 
 
 def _order_has_required_activation_data(order: ClientOrder) -> bool:
@@ -537,11 +657,17 @@ async def _materialize_group_after_activation(
     if candidate_rate is None and order.contract is not None:
         candidate_rate = _activation_candidate_rate(order.contract)
     try:
-        await materialize_group_for_activated_order(
+        group = await materialize_group_for_activated_order(
             db, order, actor_id=actor_id, candidate_rate=candidate_rate
         )
     except ValueError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
+    if group is not None:
+        # Szkic stał się kolejnym zamówieniem — MD z importu, które na nie
+        # czekały, schodzą z niego od razu (21.10.2026).
+        await settle_awaiting_md_for_client(
+            db, client_id=order.client_id, user_id=actor_id
+        )
 
 
 def _apply_md_order_quantity(order: ClientOrder, quantity: Optional[Decimal]) -> None:
@@ -728,6 +854,8 @@ async def _assert_no_duplicate_order_number(
     title: str,
     start: Optional[date],
     end: Optional[date],
+    *,
+    exclude_order_id: Optional[int] = None,
 ) -> None:
     """Ta sama osoba nie dostaje drugiego zamówienia o tym samym numerze na
     nachodzący okres (ticket OIT/0569/2026/ITVM, 24.09.2026: „Dodaj
@@ -748,18 +876,21 @@ async def _assert_no_duplicate_order_number(
             ).where(
                 ClientOrder.contract_id == contract_id,
                 ClientOrder.status != ClientOrderStatus.cancelled,
+                ClientOrder.id != (exclude_order_id or 0),
             )
         )
     ).all()
     for row in rows:
         if " ".join((row.title or "").split()).upper() != number:
             continue
-        starts_before_other_ends = (
-            start is None or row.end_date is None or start <= row.end_date
-        )
-        ends_after_other_starts = (
-            end is None or row.start_date is None or end >= row.start_date
-        )
+        # Zamówienie zapisane z odwróconym okresem (sprzed blokady) liczy się
+        # jako przedział od wcześniejszej do późniejszej daty — inaczej nie
+        # nachodziłoby na nic (zgłoszenie 28.09.2026).
+        row_start, row_end = row.start_date, row.end_date
+        if row_start is not None and row_end is not None and row_start > row_end:
+            row_start, row_end = row_end, row_start
+        starts_before_other_ends = start is None or row_end is None or start <= row_end
+        ends_after_other_starts = end is None or row_start is None or end >= row_start
         if starts_before_other_ends and ends_after_other_starts:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -772,6 +903,95 @@ async def _assert_no_duplicate_order_number(
                     "order_id": row.id,
                 },
             )
+
+
+# Zamówienia, które NAPRAWDĘ obowiązują w swoim okresie. Szkic (także pusty
+# szkic z podpisu, wchłaniany przez przedłużenie) i anulowane nie blokują —
+# szkic o tym samym numerze łapie ``_assert_no_duplicate_order_number``.
+_OVERLAP_BLOCKING_STATUSES = (
+    ClientOrderStatus.active,
+    ClientOrderStatus.paused,
+    ClientOrderStatus.completed,
+)
+
+
+def _pl_day(value: date) -> str:
+    return value.strftime("%d.%m.%Y")
+
+
+async def _assert_no_overlapping_periodic_order(
+    db: AsyncSession,
+    contract_id: int,
+    start: Optional[date],
+    end: Optional[date],
+    *,
+    exclude_order_id: Optional[int] = None,
+) -> None:
+    """Jedna osoba nie ma dwóch równoległych zamówień okresowych u klienta.
+
+    Runda 10 (F15): „Dodaj przedłużenie” 01.12.2026–31.03.2027 obok
+    zamówienia 01.10–31.12.2026 zapisało się bez słowa — grudzień był w dwóch
+    zamówieniach, choć instrukcja w Pomocy mówi „Jedna osoba nie ma dwóch
+    równoległych zamówień na to samo”. Porównujemy wyłącznie zamówienia
+    okresowe tego kontraktu (osoba × klient); linie zamówień MD/kosztowych
+    mają własną bramkę (``assert_no_open_md_group_line``). Zamówienie
+    zakończone bez daty końca nie jest „otwarte” (lustro ``order_facts``).
+    Lustro frontu: ``lib/order-period.ts`` ``overlappingOrderError``.
+    """
+    stmt = select(
+        ClientOrder.id,
+        ClientOrder.title,
+        ClientOrder.status,
+        ClientOrder.start_date,
+        ClientOrder.end_date,
+    ).where(
+        ClientOrder.contract_id == contract_id,
+        ClientOrder.order_group_id.is_(None),
+        ClientOrder.status.in_(_OVERLAP_BLOCKING_STATUSES),
+    )
+    if exclude_order_id is not None:
+        stmt = stmt.where(ClientOrder.id != exclude_order_id)
+    for row in (await db.execute(stmt.order_by(ClientOrder.id))).all():
+        if row.status == ClientOrderStatus.completed and row.end_date is None:
+            continue
+        # Odwrócony okres (zapis sprzed walidacji 24.09) nie opisuje żadnego
+        # okresu — nie może blokować poprawnego zamówienia.
+        if (
+            row.start_date is not None
+            and row.end_date is not None
+            and row.end_date < row.start_date
+        ):
+            continue
+        starts_before_other_ends = (
+            start is None or row.end_date is None or start <= row.end_date
+        )
+        ends_after_other_starts = (
+            end is None or row.start_date is None or end >= row.start_date
+        )
+        if not (starts_before_other_ends and ends_after_other_starts):
+            continue
+        period = (
+            f"{_pl_day(row.start_date) if row.start_date else '—'}–"
+            f"{_pl_day(row.end_date) if row.end_date else 'bezterminowo'}"
+        )
+        hint = (
+            f"Zacznij nowe zamówienie od {_pl_day(row.end_date + timedelta(days=1))}"
+            " albo najpierw skróć poprzednie."
+            if row.end_date is not None
+            else "Najpierw ustaw datę końca poprzedniego zamówienia."
+        )
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "overlapping_order",
+                "message": (
+                    f"Ta osoba ma już zamówienie {row.title} ({period}), które "
+                    "nakłada się na ten okres. Jedna osoba nie ma dwóch "
+                    f"równoległych zamówień. {hint}"
+                ),
+                "order_id": row.id,
+            },
+        )
 
 
 def _validated_total_value(value: Decimal) -> Decimal:
@@ -995,7 +1215,12 @@ _CONTRACTOR_FINANCE_FIELDS = (
     "rate_candidate_currency",
     "latest_order_rate_client",
     "latest_order_monthly_margin",
+    # Stawki z rekrutacji (D7) to też kwoty — znikają razem z resztą.
+    "recruitment_rates",
 )
+# Pola kwot zamówienia. Wszystkie opisują wyłącznie snapshot jednego zamówienia:
+# zmiana jednostki albo godzin przelicza jego dwie stawki, ale nie dotyka
+# Contract ani sąsiednich zamówień.
 _ORDER_FINANCE_WRITE_FIELDS = frozenset(
     {
         "rate_client",
@@ -1008,108 +1233,47 @@ _ORDER_FINANCE_WRITE_FIELDS = frozenset(
         "billing_hours_per_month",
     }
 )
-# Podzbiór, który wolno zapisać PRZYPISANEMU Delivery Leadowi. Admin ma pełen
-# zestaw. Wszystkie pola poniżej opisują wyłącznie snapshot jednego zamówienia;
-# zmiana jednostki przelicza jego dwie stawki, ale nie dotyka Contract ani
-# sąsiednich zamówień. Pozostałe admin-only pola nie są tu dopuszczane.
-_DL_ORDER_FINANCE_WRITE_FIELDS = frozenset(
-    {
-        "rate_client",
-        "rate_candidate",
-        "total_value",
-        "currency",
-        "rate_client_currency",
-        "rate_candidate_currency",
-        # These fields now describe one order snapshot; they no longer rewrite
-        # Contract or the history of sibling orders.
-        "rate_unit",
-        "billing_hours_per_month",
-    }
-)
 
 
-async def _dl_assigned_to_client(db: AsyncSession, user, client_id: int) -> bool:
-    """Czy ten user ma JAWNE przypisanie Delivery Leada do tego klienta.
+def amount_fields_forbidden(user, fields: list[str]) -> HTTPException:
+    """403 zapisu kwot zamówienia: stały kod i lista pól + czego brakuje.
 
-    Dostęp operacyjny do klienta jest globalny dla roli DL, ale ten helper
-    celowo zachowuje węższy wyjątek finansowy własnego portfela.
+    ``code`` i ``fields`` czyta frontend; ``message`` (oraz ``permission``
+    i ``label``, gdy brakuje uprawnienia) pochodzą z ``order_amounts_denied``:
+    kto prowadzi zamówienia bez podglądu kwot, dostaje nazwę „Stawki i kwoty:
+    podgląd”, a konto z rolą Delivery Leada poza przypisaniem — zdanie
+    o portfelu. Wspólne dla zamówień okresowych i linii MD.
     """
 
-    from app.models.team_structure import DeliveryLeadClientAssignment
-
-    row = await db.scalar(
-        select(DeliveryLeadClientAssignment.id).where(
-            DeliveryLeadClientAssignment.client_id == client_id,
-            DeliveryLeadClientAssignment.delivery_lead_user_id == user.id,
+    denial = order_amounts_denied(user).detail
+    detail: dict[str, object] = {"code": "finance_fields_forbidden", "fields": fields}
+    if isinstance(denial, dict):
+        detail.update(
+            message=denial["message"],
+            permission=denial["permission"],
+            label=denial["label"],
         )
-    )
-    return row is not None
-
-
-def _can_manage_order_finance(user, *, dl_assigned: bool) -> bool:
-    """Kto zapisuje kwoty na zamówieniach TEGO klienta.
-
-    Admin zawsze; Delivery Lead WYŁĄCZNIE na kliencie, do którego jest jawnie
-    przypisany. To rozszerzenie pierwotnej reguły „tylko admin" (F-13/P0.12):
-    DL prowadzi zamówienia klienta na co dzień i to on uzupełnia draft, więc
-    odsyłanie każdej stawki do admina zamieniało rejestr w prośbę o czynność,
-    której adresat nie mógł wykonać.
-
-    Predykat CELOWO sprawdza rolę i przypisanie niezależnie. TAC, HoR, TCM,
-    recruiter i sourcer: zawsze False.
-
-    Tego predykatu używa też kolejka poczty zamówień (zapis CAŁEGO zamówienia
-    z maila), więc NIE jest poszerzony o Finanse. Zapis samych kwot przez
-    ``MANAGE_FINANCE`` (decyzja 22.09.2026) rozstrzyga
-    ``_assert_order_finance_write_allowed``.
-    """
-
-    if user.has_role(UserRole.admin):
-        return True
-    return user.has_role(UserRole.delivery_lead) and dl_assigned
-
-
-def _order_finance_visible(user, *, can_finance: bool) -> bool:
-    """Czy pokazywać kwoty: klasyczne VIEW_FINANCE albo przypisany DL."""
-
-    return can_finance or user_has_capability(user, AnalyticsCapability.VIEW_FINANCE)
+    else:
+        detail["message"] = denial
+    return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
 
 def _assert_order_finance_write_allowed(
     user, supplied_fields, *, can_finance: bool = False
 ) -> None:
-    """Reject amount writes from operational-only roles before touching the DB.
+    """Odrzuć zapis kwot bez prawa do kwot zamówień, zanim cokolwiek dotknie bazy.
 
-    ``can_finance`` DOMYŚLNIE False i jest tylko ROZSZERZENIEM: admin przechodzi
-    niezależnie od niego. Dzięki temu endpoint, który zapomni policzyć flagę,
-    zamyka się dla wszystkich poza adminem, zamiast otwierać dla wszystkich —
-    bramka nie zależy od tego, czy wywołujący pamiętał o argumencie.
-
-    Przypisany Delivery Lead dostaje wyłącznie jawnie allowlistowane pola
-    finansowe zamówienia. Jednostka i godziny są snapshotem jednego zamówienia,
-    więc mogą być zmieniane razem ze stawkami bez przepisywania Contract ani
-    zamówień historycznych.
+    ``can_finance`` to ``_OrderAmounts.can_write`` dla klienta zamówienia.
+    DOMYŚLNIE False i jest tylko ROZSZERZENIEM: „Stawki i kwoty: zmiana” bez
+    portfela Delivery Leada przechodzi niezależnie od niego. Dzięki temu
+    endpoint, który zapomni policzyć flagę, zamyka się dla wszystkich poza
+    posiadaczami zmiany kwot, zamiast otwierać dla wszystkich — bramka nie
+    zależy od tego, czy wywołujący pamiętał o argumencie.
     """
 
-    full_finance = can_manage_finance_amounts(user)
-    allowed = (
-        _ORDER_FINANCE_WRITE_FIELDS
-        if full_finance
-        else (_DL_ORDER_FINANCE_WRITE_FIELDS if can_finance else frozenset())
-    )
-    forbidden = sorted(
-        set(supplied_fields).intersection(_ORDER_FINANCE_WRITE_FIELDS) - allowed
-    )
-    # Kwoty zamówienia zmieniają admin, Finanse (MANAGE_FINANCE, 22.09.2026)
-    # i przypisany Delivery Lead (węższa lista pól).
-    if forbidden:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "code": "finance_fields_forbidden",
-                "fields": forbidden,
-            },
-        )
+    forbidden = sorted(set(supplied_fields).intersection(_ORDER_FINANCE_WRITE_FIELDS))
+    if forbidden and not (can_finance or can_manage_finance_amounts(user)):
+        raise amount_fields_forbidden(user, forbidden)
 
 
 async def _assert_no_pending_group_line_offboarding(
@@ -1235,22 +1399,13 @@ def _redact_order_finance(order: ClientOrderRead) -> ClientOrderRead:
     return order
 
 
-def _is_read_only_tcm(user: User) -> bool:
-    """TCM ceiling for Delivery orders, irrespective of HoR/TAC secondary roles.
-
-    HoR and TAC do not independently enter Delivery, so only Admin, assigned
-    Delivery Lead, or Finance can supersede the TCM read-only projection here.
-    """
-
-    return user.has_role(UserRole.talent_community_manager) and not user.has_any_role(
-        UserRole.admin,
-        UserRole.delivery_lead,
-        UserRole.finance,
-    )
-
-
 def _redact_order_document_metadata(order: ClientOrderRead) -> ClientOrderRead:
-    """Hide affordances for PO files that the TCM role cannot download."""
+    """Hide affordances for PO files that the caller cannot download.
+
+    Plik PO niesie stawki, więc pobiera go ten, kto widzi kwoty klienta
+    (``_OrderAmounts.can_read``). Pozostali nie dostają też nazwy ani rozmiaru
+    pliku — przycisk kończyłby się odmową.
+    """
 
     order.filename = None
     order.has_file = False
@@ -1269,13 +1424,17 @@ def _redact_contractor_finance(item: ContractWithOrdersRead) -> ContractWithOrde
 
 def _order_response_for_user(
     order: ClientOrderRead,
-    user,
     *,
-    can_finance: bool = False,
+    show_finance: bool = False,
 ) -> ClientOrderRead:
-    if not _order_finance_visible(user, can_finance=can_finance):
+    """Zamówienie dla wołającego: bez ``show_finance`` znikają kwoty i plik PO.
+
+    ``show_finance`` to ``_OrderAmounts.can_read``. Domyślnie False — handler,
+    który zapomni policzyć flagę, oddaje odpowiedź zredagowaną.
+    """
+
+    if not show_finance:
         _redact_order_finance(order)
-    if _is_read_only_tcm(user):
         _redact_order_document_metadata(order)
     return order
 
@@ -1407,7 +1566,7 @@ async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRea
 )
 async def get_client_default_rate_unit(
     client_id: int,
-    user: OrderSafeReadUser,
+    user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Jednostka stawki proponowana domyślnie w formularzach zamówień klienta.
@@ -1429,7 +1588,7 @@ async def get_client_default_rate_unit(
 @router.get("/{client_id}/orders", response_model=ClientOrdersGroupedResponse)
 async def list_contractors_with_orders(
     client_id: int,
-    user: OrderSafeReadUser,
+    user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Zwraca listę kontraktorów (per Contract) z historią Orderów per Contract.
@@ -1560,14 +1719,12 @@ async def list_contractors_with_orders(
             )
         )
 
-    can_finance = _can_manage_order_finance(
-        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
-    )
-    if not _order_finance_visible(user, can_finance=can_finance):
+    amounts = await _order_amounts(db, user, client_id)
+    if amounts.can_read:
+        await _attach_recruitment_rates(db, user, contracts, items)
+    if not amounts.can_read:
         for item in items:
             _redact_contractor_finance(item)
-    if _is_read_only_tcm(user):
-        for item in items:
             for order in item.orders:
                 _redact_order_document_metadata(order)
 
@@ -1578,9 +1735,86 @@ async def list_contractors_with_orders(
         # czy pokazać pola stawek — i pokazywałby kontrolkę, która kończy się
         # 403 na zapisie. Cała zakładka dotyczy jednego klienta, więc jedna
         # flaga na odpowiedź wystarcza.
-        can_manage_finance=can_finance,
+        can_manage_finance=amounts.can_write,
         nordea_order_import_enabled=is_client_in_policy("nordea", client_id),
         shared_md_pool_client=client_uses_shared_md_pool(client_id),
+    )
+
+
+async def _attach_recruitment_rates(
+    db: AsyncSession,
+    user: User,
+    contracts: list[Contract],
+    items: list[ContractWithOrdersRead],
+) -> None:
+    """Stawki z rekrutacji (D7) na kartach kontraktorów — jedno zbiorcze odczytanie.
+
+    Wołane wyłącznie dla konta, które widzi kwoty tego klienta. Stawkę do
+    klienta dostaje tylko rola z ``user_can_view_client_rate``. Awaria odczytu
+    nie kładzie listy — podpowiedź po prostu się nie pokaże.
+    """
+    from app.api.candidate_access import user_can_view_client_rate
+
+    try:
+        async with db.begin_nested():
+            found = await recruitment_rates.for_contracts(db, contracts)
+    except Exception:  # noqa: BLE001 — podpowiedź, nie warunek odczytu listy
+        logger.exception("client_orders: stawki z rekrutacji niedostępne")
+        return
+    show_client_rate = user_can_view_client_rate(user)
+    for item in items:
+        rate = found.get(item.contract_id)
+        if rate is not None:
+            item.recruitment_rates = RecruitmentRateRead(
+                **rate.as_dict(show_client_rate=show_client_rate)
+            )
+
+
+@router.get(
+    "/{client_id}/recruitment-rates",
+    response_model=RecruitmentRateLookupResponse,
+)
+async def get_recruitment_rates_for_order(
+    client_id: int,
+    user: DeliveryViewUser,
+    candidate_id: int = Query(..., ge=1),
+    job_id: Optional[int] = Query(None, ge=1),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stawki z rekrutacji dla formularza „Nowy kontraktor / zamówienie” (D7).
+
+    Z ``job_id`` — ta para (rekrutacja wybrana w formularzu); bez niego —
+    najnowsza para osoby w rekrutacjach tego klienta i klientów z nim
+    scalonych. Tylko odczyt i tylko podpowiedź: różnica niczego nie blokuje.
+    Kwoty dostaje konto z podglądem kwot tego klienta, stawkę do klienta —
+    dodatkowo rola, która ją widzi w rekrutacji.
+    """
+    from app.api.candidate_access import user_can_view_client_rate
+
+    await _require_safe_client_order_read(db, user, client_id)
+    amounts = await _order_amounts(db, user, client_id)
+    if not amounts.can_read:
+        return RecruitmentRateLookupResponse(rate=None, amounts_redacted=True)
+    if job_id is not None:
+        job_client = await db.scalar(select(Job.client_id).where(Job.id == job_id))
+        family = await recruitment_rates.client_family_ids(db, client_id)
+        if job_client not in family:
+            # Rekrutacja innego klienta nie jest punktem odniesienia dla tego
+            # zamówienia — i nie może zdradzać jego stawek.
+            return RecruitmentRateLookupResponse(rate=None)
+        rate = (await recruitment_rates.for_pairs(db, [(candidate_id, job_id)])).get(
+            (candidate_id, job_id)
+        )
+    else:
+        rate = (await recruitment_rates.for_client(db, client_id, [candidate_id])).get(
+            candidate_id
+        )
+    if rate is None:
+        return RecruitmentRateLookupResponse(rate=None)
+    return RecruitmentRateLookupResponse(
+        rate=RecruitmentRateRead(
+            **rate.as_dict(show_client_rate=user_can_view_client_rate(user))
+        )
     )
 
 
@@ -1588,7 +1822,7 @@ async def list_contractors_with_orders(
 async def export_client_orders(
     client_id: int,
     payload: ClientOrderExportRequest,
-    user: UnifiedOrderExportReader,
+    user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Export exactly the ordered rows visible in the unified client view.
@@ -1619,18 +1853,9 @@ async def export_client_orders(
 
     orders_by_id: dict[int, tuple[ContractWithOrdersRead, ClientOrderRead]] = {}
     if not unified or requested_order_ids:
-        # Standalone order rows use the same business-read audience as the
-        # unified order list. Finance is organization-wide; Delivery Lead still
-        # passes the normal client-assignment resolver inside the list handler.
-        if not user.has_any_role(
-            UserRole.admin,
-            UserRole.delivery_lead,
-            UserRole.finance,
-        ):
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN,
-                detail="Brak dostępu do zamówień okresowych tego klienta",
-            )
+        # Standalone order rows reuse the unified order list: its client guard
+        # and its per-client amount redaction („Stawki i kwoty: podgląd” na
+        # trasie mówi, że konto widzi kwoty; lista — czy u TEGO klienta).
         grouped = await list_contractors_with_orders(client_id, user, db)
         for contractor in grouped.contractors:
             for order in contractor.orders:
@@ -1825,7 +2050,7 @@ async def export_client_orders(
 )
 async def list_active_contracts_for_extension(
     client_id: int,
-    user: OrderSafeReadUser,
+    user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Lista aktywnych Contractów + ich latest Order — dla autocomplete w
@@ -1847,7 +2072,7 @@ async def list_active_contracts_for_extension(
 async def get_order(
     client_id: int,
     order_id: int,
-    user: OrderSafeReadUser,
+    user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _require_safe_client_order_read(db, user, client_id)
@@ -1864,15 +2089,10 @@ async def get_order(
     )
     if order is None:
         raise HTTPException(404, detail="Order not found")
-    result = await _order_to_read(db, order)
-    can_finance = _can_manage_order_finance(
-        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
+    amounts = await _order_amounts(db, user, client_id)
+    return _order_response_for_user(
+        await _order_to_read(db, order), show_finance=amounts.can_read
     )
-    if not _order_finance_visible(user, can_finance=can_finance):
-        _redact_order_finance(result)
-    if _is_read_only_tcm(user):
-        _redact_order_document_metadata(result)
-    return result
 
 
 @router.post(
@@ -1882,7 +2102,7 @@ async def get_order(
 )
 async def create_order_extension(
     client_id: int,
-    user: DeliveryLeadOrAdmin,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
     file: Optional[UploadFile] = File(None),
     contract_id: int = Form(...),
@@ -1929,7 +2149,7 @@ async def create_order_extension(
         }.items()
         if value is not None
     }
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     if order_status in (ClientOrderStatus.completed, ClientOrderStatus.cancelled):
         # Nowe zamówienie nie może powstać od razu jako historia (S7).
         raise HTTPException(
@@ -1937,14 +2157,15 @@ async def create_order_extension(
             detail="Nowe zamówienie może być szkicem albo aktywnym zamówieniem.",
         )
     _assert_order_period(start_date, end_date)
+    await _assert_job_of_client(db, client_id, job_id)
+    amounts = await _order_amounts(db, user, client_id)
     if file is not None:
-        await _require_order_file_read(db, user, client_id)
+        # Plik PO niesie stawki — wymaga podglądu kwot klienta. Samo
+        # zamówienie bez kwot i bez pliku zakłada każdy, kto prowadzi zamówienia.
+        await _require_order_file_read(db, user, client_id, amounts=amounts)
     _assert_allowed_order_type(client_id, order_type)
-    can_finance = _can_manage_order_finance(
-        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
-    )
     _assert_order_finance_write_allowed(
-        user, supplied_finance_fields, can_finance=can_finance
+        user, supplied_finance_fields, can_finance=amounts.can_write
     )
 
     # Umowa wykonawcza — wymagana dla Centrum e-Zdrowia (także przy
@@ -1960,6 +2181,26 @@ async def create_order_extension(
         )
     except ValueError as e:
         raise HTTPException(422, detail=str(e)) from None
+
+    # Plik zapisujemy DOPIERO po nadaniu Orderowi id (flush niżej) — wcześniej
+    # leciało tu `order_id=0`, więc każdy PO z tej ścieżki lądował w jednym
+    # wspólnym katalogu `client_orders/0/` zamiast w katalogu swojego
+    # zamówienia. Rozmiar sprawdzamy PRZED zapisem na dysk, żeby odrzucony
+    # upload nie zostawiał sieroty do posprzątania.
+    payload_bytes: Optional[bytes] = None
+    content_type: Optional[str] = None
+    filename: Optional[str] = None
+    if file is not None:
+        filename = file.filename or "po.pdf"
+        if not filename.lower().endswith(_ALLOWED_EXT):
+            raise HTTPException(415, detail="Tylko pliki PDF/DOCX/DOC")
+        content_type = file.content_type
+        payload_bytes = await _read_upload_within_limit(file)
+    # Runda 6 audytu (C2): odczyt formuły Nordei (OCR) PRZED blokadą
+    # kontraktu — pod nią inne zapisy tego kontraktu czekały na OCR.
+    invoice_payload = await nordea_invoice_lines.read_upload_payload(
+        client_id, payload_bytes, filename
+    )
 
     # Kontrakt blokowany PRZED wstawieniem zamówienia: INSERT bierze na nim
     # FOR KEY SHARE, a synchronizacja przed commitem — FOR UPDATE.
@@ -1989,6 +2230,10 @@ async def create_order_extension(
     await _assert_no_duplicate_order_number(
         db, contract.id, title, start_date, end_date
     )
+    if order_type == OrderType.periodic:
+        await _assert_no_overlapping_periodic_order(
+            db, contract.id, start_date, end_date
+        )
 
     effective = effective_rate_fields(contract, start_date or business_today())
     # Przedłużenie DZIEDZICZY jednostkę kontraktu (razem z jego stawkami), więc
@@ -2050,21 +2295,6 @@ async def create_order_extension(
             raise HTTPException(400, detail="Invalid total_value") from exc
         total_dec = _validated_total_value(total_dec)
 
-    # Plik zapisujemy DOPIERO po nadaniu Orderowi id (flush niżej) — wcześniej
-    # leciało tu `order_id=0`, więc każdy PO z tej ścieżki lądował w jednym
-    # wspólnym katalogu `client_orders/0/` zamiast w katalogu swojego
-    # zamówienia. Rozmiar sprawdzamy PRZED zapisem na dysk, żeby odrzucony
-    # upload nie zostawiał sieroty do posprzątania.
-    payload_bytes: Optional[bytes] = None
-    content_type: Optional[str] = None
-    filename: Optional[str] = None
-    if file is not None:
-        filename = file.filename or "po.pdf"
-        if not filename.lower().endswith(_ALLOWED_EXT):
-            raise HTTPException(415, detail="Tylko pliki PDF/DOCX/DOC")
-        content_type = file.content_type
-        payload_bytes = await _read_upload_within_limit(file)
-
     order = ClientOrder(
         client_id=client_id,
         contract_id=contract_id,
@@ -2117,6 +2347,7 @@ async def create_order_extension(
             content_type=content_type,
             user=user,
         )
+        nordea_invoice_lines.apply_upload_payload(order, invoice_payload)
     # Formularz może świadomie zacząć od draftu i uzupełniać cztery wymagane
     # obszary kolejnymi zapisami. Gdy komplet jest już obecny przy tworzeniu,
     # rekord od razu trafia do „Aktywnych”.
@@ -2181,7 +2412,7 @@ async def create_order_extension(
     await db.refresh(order)
     await commit_order_write(db)
     return _order_response_for_user(
-        await _order_to_read(db, order), user, can_finance=can_finance
+        await _order_to_read(db, order), show_finance=amounts.can_read
     )
 
 
@@ -2192,7 +2423,7 @@ async def create_order_extension(
 )
 async def extract_order_pdf(
     client_id: int,
-    user: DeliveryLeadOrAdmin,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
     candidate_id: Optional[int] = Form(None, gt=0),
@@ -2206,12 +2437,14 @@ async def extract_order_pdf(
     dokładnie jednym wierszem osoby w zamówieniu wieloosobowym; brak lub
     niejednoznaczność zostawia oba pola puste. Przy jakiejkolwiek niepewności
     ``uncertain=True`` → front pokazuje baner „Sprawdź dane!". Kwoty zredagowane
-    dla ról bez VIEW_FINANCE.
+    dla kont, które nie widzą kwot tego klienta.
 
-    Bramkowane: Delivery Lead lub Admin, plus quota AI
+    Bramkowane: „Kontrakty i zamówienia: tworzenie i edycja” oraz — bo
+    dokument niesie stawki — „Stawki i kwoty: podgląd” w zakresie klienta
+    (ta sama bramka co ``/order-groups/extract``), plus quota AI
     ``AIFeatureKey.order_parser`` (master → feature → miesięczny limit).
     """
-    await _assert_client(db, client_id)
+    await _require_client_order_read(db, user, client_id)
 
     target_consultant: Optional[str] = None
     target_given_names: Optional[str] = None
@@ -2277,6 +2510,8 @@ async def extract_order_pdf(
             text = await run_in_threadpool(extract_text, tmp_path, filename)
         except UnsupportedCvFormat as exc:
             raise HTTPException(400, detail=str(exc)) from exc
+        # Słowa z położeniem — tabela osób czytana z kolumn PDF-a (PKO BP).
+        words = await run_in_threadpool(extract_order_words, tmp_path, filename, text)
     finally:
         if tmp_path:
             try:
@@ -2289,7 +2524,7 @@ async def extract_order_pdf(
             400,
             detail=(
                 "Nie udało się odczytać tekstu z dokumentu "
-                "(skan, plik zaszyfrowany lub nieobsługiwany format .doc?)."
+                "(skan, plik zaszyfrowany lub nieobsługiwany format?)."
             ),
         )
 
@@ -2303,7 +2538,7 @@ async def extract_order_pdf(
     #    gdy model odczytał wiersz osoby, ale pominął sam token jednostki.
     policies = active_policies(client_id)
     plan = parse_plan(policies)
-    text = prepare_document_text(text, policies)
+    text = prepare_document_text(text, policies, words=words)
 
     # Bramka kwoty MUSI obejmować wywołanie modelu: `ai_feature` deklaruje
     # kontekst tylko na czas swojego bloku, a bez deklaracji `parse_order_document`
@@ -2354,9 +2589,9 @@ async def extract_order_pdf(
     # MD bywa jedną liczbą na całe zamówienie) — `drop_md_absence_reasons`.
     extraction = drop_md_absence_reasons(extraction)
 
-    # Finance redaction — kwoty widzą tylko role z VIEW_FINANCE (spójne z
-    # _order_response_for_user). Redagujemy NIE TYLKO wartości pól, ale też
-    # kanały poboczne, które zdradzałyby sygnał finansowy roli bez VIEW_FINANCE:
+    # Finance redaction — kwoty widzi tylko konto z kwotami tego klienta (spójne
+    # z _order_response_for_user). Redagujemy NIE TYLKO wartości pól, ale też
+    # kanały poboczne, które zdradzałyby sygnał finansowy kontu bez kwot:
     #  - fields_confidence z kluczami finansowymi (np. {"rate_client": 0.97})
     #    ujawnia, że PO zawiera stawkę i jak pewnie ją odczytano;
     #  - uncertain_reasons to tekst (regułowy „Niepewny odczyt: stawka…" ORAZ
@@ -2365,12 +2600,7 @@ async def extract_order_pdf(
     # Bramka MUSI być tą samą zmienną co przy kwotach — dwa niezależne
     # sprawdzenia dałyby stan, w którym przypisany DL widzi stawkę, ale nie
     # pewność jej odczytu (albo odwrotnie).
-    show_finance = _order_finance_visible(
-        user,
-        can_finance=_can_manage_order_finance(
-            user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
-        ),
-    )
+    show_finance = (await _order_amounts(db, user, client_id)).can_read
     if show_finance:
         reasons = extraction.uncertain_reasons
         confidence = extraction.confidence
@@ -2432,34 +2662,42 @@ async def extract_order_pdf(
     return result
 
 
-# PATCH zamówienia: admin / Delivery Lead jak dotąd albo Finanse
-# z MANAGE_FINANCE — te ostatnie wyłącznie dla pól kwot (22.09.2026).
-OrderPatchUser = Annotated[
-    User, Depends(require_roles_or_finance_manager(UserRole.delivery_lead))
-]
-
-
+# PATCH zamówienia to trasa mieszana: prowadzenie zamówień („Kontrakty
+# i zamówienia: tworzenie i edycja”) albo sama „Stawki i kwoty: zmiana” —
+# ta druga wyłącznie dla pól kwot (decyzja 22.09.2026).
 @router.patch("/{client_id}/orders/{order_id}", response_model=ClientOrderRead)
 async def update_order(
     client_id: int,
     order_id: int,
     payload: ClientOrderUpdate,
-    user: OrderPatchUser,
+    user: ContractsOrdersOrAmountsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
-    assert_finance_manager_touches_only_amounts(
-        user,
+    policy = UserWritePolicy(user, db)
+    order = await apply_order_update(db, client_id, order_id, payload, policy=policy)
+    # Kwoty liczone przed zapisem (polityka pamięta wynik) — jak przed wydzieleniem.
+    amounts = await policy.order_amounts(client_id)
+    return _order_response_for_user(
+        await _order_to_read(db, order), show_finance=amounts.can_read
+    )
+
+
+async def apply_order_update(
+    db: AsyncSession,
+    client_id: int,
+    order_id: int,
+    payload: ClientOrderUpdate,
+    *,
+    policy: WritePolicy,
+) -> ClientOrder:
+    """PATCH zamówienia — ciało trasy ekranu i API v1 (``policy``: kto i co)."""
+    assert_amounts_only(
         payload.model_fields_set,
         _ORDER_FINANCE_WRITE_FIELDS,
-        operational_roles=(UserRole.delivery_lead,),
+        can_edit_record=policy.can_edit_orders(),
     )
-    await _assert_client(db, client_id)
-    can_finance = _can_manage_order_finance(
-        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
-    )
-    _assert_order_finance_write_allowed(
-        user, payload.model_fields_set, can_finance=can_finance
-    )
+    await _assert_client(db, client_id, for_write=True)
+    await policy.assert_order_amounts_writable(client_id, payload.model_fields_set)
     await lock_contract_then_orders(db, order_ids=[order_id])  # kontrakt → zamówienie
     order = await db.scalar(
         select(ClientOrder)
@@ -2497,6 +2735,46 @@ async def update_order(
         _assert_order_period(
             data.get("start_date", order.start_date),
             data.get("end_date", order.end_date),
+        )
+        # Runda 10 (F15): lustro „Dodaj przedłużenie” — zmiana dat nie może
+        # zrobić z dwóch zamówień tej osoby równoległych. Tylko przy REALNEJ
+        # zmianie daty: formularz odsyła nieruszane daty przy każdym zapisie.
+        dates_changed = data.get("start_date", order.start_date) != (
+            order.start_date
+        ) or data.get("end_date", order.end_date) != (order.end_date)
+        if (
+            dates_changed
+            and order.order_group_id is None
+            and order.order_type in (None, OrderType.periodic.value)
+            and data.get("status", order.status) != ClientOrderStatus.cancelled
+        ):
+            await _assert_no_overlapping_periodic_order(
+                db,
+                order.contract_id,
+                data.get("start_date", order.start_date),
+                data.get("end_date", order.end_date),
+                exclude_order_id=order.id,
+            )
+    # Zgłoszenie 28.09.2026: zmiana numeru albo okresu nie może zrobić z dwóch
+    # zamówień tej osoby dwóch zapisów jednego dokumentu (ten sam numer na
+    # nachodzący okres). Tylko przy REALNEJ zmianie — formularz odsyła
+    # nieruszane pola przy każdym zapisie.
+    new_title = data.get("title", order.title)
+    new_start = data.get("start_date", order.start_date)
+    new_end = data.get("end_date", order.end_date)
+    if (
+        order.order_group_id is None
+        and data.get("status", order.status) != ClientOrderStatus.cancelled
+        and (new_title, new_start, new_end)
+        != (order.title, order.start_date, order.end_date)
+    ):
+        await _assert_no_duplicate_order_number(
+            db,
+            order.contract_id,
+            new_title,
+            new_start,
+            new_end,
+            exclude_order_id=order.id,
         )
     requested_type = data.pop("order_type", None)
     if "order_type" in payload.model_fields_set:
@@ -2606,21 +2884,7 @@ async def update_order(
                     "klienta (framework_contract_id)."
                 ),
             )
-    if data.get("job_id") is not None:
-        job_ok = await db.scalar(
-            select(Job.id).where(
-                Job.id == data["job_id"],
-                Job.client_id == client_id,
-            )
-        )
-        if job_ok is None:
-            raise HTTPException(
-                422,
-                detail=(
-                    "Wskazana rekrutacja nie istnieje albo należy do innego "
-                    "klienta (job_id)."
-                ),
-            )
+    await _assert_job_of_client(db, client_id, data.get("job_id"))
     if (
         "executive_contract_id" in data
         and "project_part" not in data
@@ -2663,6 +2927,43 @@ async def update_order(
         _apply_md_order_quantity(order, md_quantity)
         await recompute_remaining(db, order)
     _refresh_md_rate_mirror(order, explicit_fields=payload.model_fields_set)
+    if (
+        "status" in payload.model_fields_set
+        and previous_status == ClientOrderStatus.draft
+        and order.order_group_id is None
+    ):
+        if order.status == ClientOrderStatus.completed:
+            # Audyt 25.09.2026: ta sama odmowa co `/close` — „zakończony”
+            # szkic udawał w rejestrze historię współpracy, której nie było.
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "order_is_draft",
+                    "message": (
+                        "To zamówienie jest szkicem — nie ma czego kończyć. "
+                        "Jeśli nie jest potrzebne, usuń szkic."
+                    ),
+                    "status": previous_status.value,
+                },
+            )
+        if order.status == ClientOrderStatus.active:
+            # Ta sama bramka co POST (tam niekompletne „aktywne” zapisuje się
+            # jako szkic). Tu status jest jawną prośbą, więc odmawiamy
+            # z listą braków zamiast po cichu zostawić szkic.
+            missing = _missing_activation_fields(order)
+            if missing:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "code": "order_incomplete",
+                        "message": (
+                            "Zamówienia nie można aktywować — uzupełnij: "
+                            + ", ".join(missing)
+                            + "."
+                        ),
+                        "missing": missing,
+                    },
+                )
 
     auto_activated = _auto_activate_unless_status_explicit(
         order, explicit_fields=payload.model_fields_set
@@ -2712,7 +3013,9 @@ async def update_order(
                         "Uzupełnij numer, datę startu, obie stawki i budżet wybranego typu"
                     ),
                 )
-            await _materialize_group_after_activation(db, order, actor_id=user.id)
+            await _materialize_group_after_activation(
+                db, order, actor_id=policy.actor_id
+            )
 
     # PATCH jest osobną ścieżką wejścia do ``active``: widok inline najpierw
     # zakłada niepełny draft, a kolejne zapisy uzupełniają numer/okres/stawki.
@@ -2731,7 +3034,7 @@ async def update_order(
     )
     if order.contract is not None and patch_requires_contract_sync:
         contract_revived = await _sync_contract_after_order_extension(
-            db, order, order.contract, actor_id=user.id
+            db, order, order.contract, actor_id=policy.actor_id
         )
 
     db.add(
@@ -2739,7 +3042,7 @@ async def update_order(
             entity_type="client",
             entity_id=client_id,
             action="order_updated",
-            user_id=user.id,
+            user_id=policy.actor_id,
             details={
                 "order_id": order_id,
                 "changed": sorted(payload.model_fields_set),
@@ -2752,9 +3055,7 @@ async def update_order(
     )
     await commit_order_write(db)
     await db.refresh(order)
-    return _order_response_for_user(
-        await _order_to_read(db, order), user, can_finance=can_finance
-    )
+    return order
 
 
 @router.post(
@@ -2765,7 +3066,7 @@ async def close_order(
     client_id: int,
     order_id: int,
     payload: ClientOrderClose,
-    user: DeliveryLeadOrAdmin,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Zakończ JEDNO zamówienie — bez dotykania umowy i pozostałych zamówień.
@@ -2795,6 +3096,24 @@ async def close_order(
     nikt nie ustalił, a która zablokowałaby porządkowanie starych danych.
     """
 
+    order = await apply_order_close(
+        db, client_id, order_id, payload, policy=UserWritePolicy(user, db)
+    )
+    amounts = await _order_amounts(db, user, client_id)
+    return _order_response_for_user(
+        await _order_to_read(db, order), show_finance=amounts.can_read
+    )
+
+
+async def apply_order_close(
+    db: AsyncSession,
+    client_id: int,
+    order_id: int,
+    payload: ClientOrderClose,
+    *,
+    policy: WritePolicy,
+) -> ClientOrder:
+    """„Zakończ” zamówienie okresowe — ciało trasy ekranu i API v1."""
     await _assert_client(db, client_id)
     await lock_contract_then_orders(db, order_ids=[order_id])  # kontrakt → zamówienie
     order = await db.scalar(
@@ -2865,7 +3184,7 @@ async def close_order(
             entity_type="client_order",
             entity_id=order.id,
             action="order_closed",
-            user_id=user.id,
+            user_id=policy.actor_id,
             details={
                 "client_id": client_id,
                 "contract_id": order.contract_id,
@@ -2883,19 +3202,14 @@ async def close_order(
     await db.flush()
     await db.refresh(order)
     await commit_order_write(db)
-    can_finance = _can_manage_order_finance(
-        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
-    )
-    return _order_response_for_user(
-        await _order_to_read(db, order), user, can_finance=can_finance
-    )
+    return order
 
 
 @router.delete("/{client_id}/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_order(
     client_id: int,
     order_id: int,
-    user: DeliveryLeadOrAdmin,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Usuń JEDNO zamówienie — bez żadnych skutków dla innych zamówień i umowy.
@@ -3034,7 +3348,10 @@ def is_draft_card(contract: Contract) -> bool:
 async def dismiss_draft_card(
     client_id: int,
     contract_id: int,
-    user: DeliveryLeadOrAdmin,
+    # Prowadzenie zamówień u klienta z PRZYPISANIA: konto z rolą Delivery
+    # Leada usuwa kartę wyłącznie u swojego klienta (razem ze scalonymi
+    # duplikatami), pozostali posiadacze uprawnienia — u każdego.
+    user: ClientContractsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """„Usuń szkic" — pusta karta kontraktora znika z zakładki Zamówienia.
@@ -3046,11 +3363,6 @@ async def dismiss_draft_card(
     Karta z zamówieniem innym niż szkic → 409: to nie jest szkic.
     """
     client = await _assert_client(db, client_id)
-    can_finance = _can_manage_order_finance(
-        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
-    )
-    if not can_finance:
-        raise deny("szkic karty usuwa administrator albo Delivery Lead klienta")
     contract = await db.scalar(
         select(Contract)
         .options(selectinload(Contract.client_orders))
@@ -3126,7 +3438,7 @@ async def dismiss_draft_card(
 async def preview_order_deletion(
     client_id: int,
     order_id: int,
-    user: DeliveryLeadOrAdmin,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
     context: Literal["order", "group_line"] = Query("order"),
 ):
@@ -3145,8 +3457,8 @@ async def preview_order_deletion(
     kontraktów ma więcej niż jeden, 5 z RÓŻNYMI stawkami (np. kontrakt 167:
     usunięcie zamówienia 351 przecenia marzec–sierpień z 185,00 na 178,00 zł/h).
 
-    Kwoty są redagowane tak jak wszędzie w module (``_can_see_finance``):
-    rola bez finansów widzi, ŻE stawka się zmieni, i od kiedy — bez kwot.
+    Kwoty są redagowane tak jak wszędzie w module (``_OrderAmounts.can_read``):
+    konto bez kwot klienta widzi, ŻE stawka się zmieni, i od kiedy — bez kwot.
 
     ``context=group_line`` (audyt 22.09 r2, FE-N02): podgląd dla kosza linii
     w zakładce zamówień MD/kosztowych, która woła ``DELETE …/lines/{id}``.
@@ -3163,9 +3475,7 @@ async def preview_order_deletion(
     if order is None:
         raise HTTPException(404, detail="Order not found")
 
-    from app.api.client_order_groups import _can_see_finance
-
-    with_finance = await _can_see_finance(db, user, client_id)
+    with_finance = (await _order_amounts(db, user, client_id)).can_read
     blockers = await settlement_blockers(db, [order.id])
 
     steps = list(
@@ -3257,7 +3567,7 @@ async def preview_order_deletion(
 async def download_order_po(
     client_id: int,
     order_id: int,
-    user: UnifiedOrderExportReader,
+    user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _require_order_file_read(db, user, client_id)
@@ -3268,7 +3578,12 @@ async def download_order_po(
     )
     if order is None or order.file_path is None:
         raise HTTPException(404, detail="File not found")
-    abs_path = storage_service.get_client_order_po_path(order.file_path)
+    try:
+        abs_path = storage_service.get_client_order_po_path(order.file_path)
+    except FileNotFoundError as exc:
+        # Runda 9 (R9-N7-9): wiersz wskazuje na plik, którego nie ma na dysku —
+        # 410 jak przy dokumentach kontraktu, nie 500 bez CORS.
+        raise HTTPException(410, detail="Plik PDF zamówienia nie istnieje") from exc
     return FileResponse(
         path=str(abs_path),
         filename=order.filename or "po.pdf",
@@ -3309,7 +3624,7 @@ def _order_to_document_item(order: ClientOrder) -> OrderDocumentItem:
 )
 async def list_contract_order_documents(
     contract_id: int,
-    user: UnifiedOrderExportReader,
+    user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """PO PDF-y zamówień danego kontraktu — sekcja „Dokumenty zamówień" w
@@ -3335,9 +3650,25 @@ async def list_contract_order_documents(
         .scalars()
         .all()
     )
-    return OrderDocumentsResponse(
-        documents=[_order_to_document_item(o) for o in orders]
-    )
+    # Runda 9 (R9-X2-2): `client_orders.client_id` to własna kolumna, a baza nie
+    # wiąże jej z klientem kontraktu. Bramka wyżej sprawdzała WYŁĄCZNIE klienta
+    # kontraktu, więc zamówienie z rozjechanym klientem (PDF ze stawkami innego
+    # klienta) wychodziło bez sprawdzenia. Każdy inny klient — ta sama bramka co
+    # pobranie pliku (`GET /{client_id}/orders/{id}/file`).
+    access_cache: dict[int, bool] = {contract.client_id: True}
+    visible: list[OrderDocumentItem] = []
+    for o in orders:
+        can = access_cache.get(o.client_id)
+        if can is None:
+            try:
+                await _require_order_file_read(db, user, o.client_id)
+                can = True
+            except HTTPException:
+                can = False
+            access_cache[o.client_id] = can
+        if can:
+            visible.append(_order_to_document_item(o))
+    return OrderDocumentsResponse(documents=visible)
 
 
 @router.get(
@@ -3346,7 +3677,7 @@ async def list_contract_order_documents(
 )
 async def list_candidate_order_documents(
     candidate_id: int,
-    user: UnifiedOrderExportReader,
+    user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """PO PDF-y wszystkich zamówień osoby/kontraktora — sekcja „Dokumenty
@@ -3377,15 +3708,12 @@ async def list_candidate_order_documents(
         .all()
     )
 
-    access_cache: dict[int, bool] = {}
-    visible: list[OrderDocumentItem] = []
-    for o in orders:
-        can = access_cache.get(o.client_id)
-        if can is None:
-            can = await _can_read_order_file(db, user, o.client_id)
-            access_cache[o.client_id] = can
-        if can:
-            visible.append(_order_to_document_item(o))
+    boundary = await resolve_delivery_lead_finance_client_ids(user, db)
+    visible = [
+        _order_to_document_item(o)
+        for o in orders
+        if _order_amounts_within(user, o.client_id, boundary).can_read
+    ]
     return OrderDocumentsResponse(documents=visible)
 
 
@@ -3400,11 +3728,11 @@ async def list_candidate_order_documents(
 async def create_contract_with_order(
     client_id: int,
     payload: NewContractorOrderRequest,
-    user: DeliveryLeadOrAdmin,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Flow B — "Nowy kontraktor / zamówienie": atomic Contract + Order create."""
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     # Ten formularz zakłada umowę B2B (typ domyślny kontraktu), a umowa B2B
     # rodzi się bezterminowa. Pole „Contract end" było tu źródłem dat
     # przepisywanych z końca ZAMÓWIENIA — tamta data ma swoje pole
@@ -3421,11 +3749,9 @@ async def create_contract_with_order(
                 "kosztowe lub MD utwórz jako grupę i dodaj konsultanta."
             ),
         )
-    can_finance = _can_manage_order_finance(
-        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
-    )
+    amounts = await _order_amounts(db, user, client_id)
     contract_finance_kwargs, order_finance_kwargs = _flow_b_finance_kwargs(
-        payload, user, can_finance=can_finance
+        payload, user, can_finance=amounts.can_write
     )
 
     # Jednostka stawki NIE jest już twardo `monthly`. Jeśli wywołujący ją podał
@@ -3447,14 +3773,7 @@ async def create_contract_with_order(
     if cand is None:
         raise HTTPException(404, detail="Candidate not found")
 
-    if payload.job_id is not None:
-        job = await db.scalar(
-            select(Job).where(Job.id == payload.job_id, Job.client_id == client_id)
-        )
-        if job is None:
-            raise HTTPException(
-                400, detail="job_id must be a Job belonging to this client"
-            )
+    await _assert_job_of_client(db, client_id, payload.job_id)
 
     if payload.framework_contract_id is not None:
         fc = await db.scalar(
@@ -3487,6 +3806,13 @@ async def create_contract_with_order(
     # w MD zapisujemy w zł/h (÷ 8, 168 h/mc). Zamówienie niżej zostaje w MD —
     # to dokument od klienta, a koszt wróci do niego ×8 bez zmiany kwoty.
     apply_contract_hourly_policy(contract)
+    if payload.job_id is not None:
+        # D8 (17.10.2026): hiring manager rekrutacji jako menedżer u klienta.
+        from app.services.contract_client_manager import default_from_job
+
+        contract.client_pm_contact_id = await default_from_job(
+            db, job=await db.get(Job, payload.job_id), client_id=client_id
+        )
     db.add(contract)
     await db.flush()  # Get contract.id
 
@@ -3559,7 +3885,7 @@ async def create_contract_with_order(
 
     # Callers without finance access never receive a computed/inferred value.
     monthly_margin: Optional[Decimal | int] = None
-    if can_finance:
+    if amounts.can_read:
         # Umowa powstała przed chwilą w tym żądaniu, więc jej harmonogramy
         # stawek nie są wczytane — a `effective_rate_fields` sięga po nie
         # atrybutem i lazy-load na sesji async to `MissingGreenlet` (500 bez
@@ -3588,7 +3914,7 @@ async def create_contract_with_order(
 async def replace_order_po(
     client_id: int,
     order_id: int,
-    user: DeliveryLeadOrAdmin,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
 ):
@@ -3604,8 +3930,46 @@ async def replace_order_po(
     działającą od dawna ścieżkę przedłużeń, gdzie klienci przysyłają PO również
     w Wordzie.
     """
-    await _assert_client(db, client_id)
-    await _require_order_file_read(db, user, client_id)
+    order = await apply_order_file(
+        db, client_id, order_id, file, policy=UserWritePolicy(user, db)
+    )
+    amounts = await _order_amounts(db, user, client_id)
+    return _order_response_for_user(
+        await _order_to_read(db, order), show_finance=amounts.can_read
+    )
+
+
+async def apply_order_file(
+    db: AsyncSession,
+    client_id: int,
+    order_id: int,
+    file: UploadFile,
+    *,
+    policy: WritePolicy,
+) -> ClientOrder:
+    """Wgranie/podmiana PDF-a zamówienia — ciało trasy ekranu i API v1.
+
+    Plik ląduje na dysku PRZED commitem (``_attach_po_bytes``), więc ta
+    ścieżka nie ma próby bez zapisu.
+    """
+    await _assert_client(db, client_id, for_write=True)
+    await policy.require_order_file(client_id)
+
+    filename = file.filename or "po.pdf"
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(415, detail="Tylko pliki PDF")
+    payload_bytes = await _read_upload_within_limit(file)
+    # Rozszerzenie deklaruje nadawca, nagłówek pliku nie. Bez tej kontroli
+    # dowolne bajty przemianowane na „.pdf" trafiały na wolumen i były potem
+    # serwowane z `media_type=application/pdf` każdemu, kto otworzy dokument.
+    if not payload_bytes.startswith(b"%PDF-"):
+        raise HTTPException(415, detail="Plik nie jest dokumentem PDF.")
+    # Runda 6 audytu (C2): odczyt formuły Nordei (OCR) PRZED blokadami —
+    # pod nimi inne zapisy tego kontraktu i zamówienia czekały na OCR.
+    invoice_payload = await nordea_invoice_lines.read_upload_payload(
+        client_id, payload_bytes, filename
+    )
+
     # Kontrakt → zamówienie (S5, 24.09.2026): zapis pliku to UPDATE zamówienia,
     # a ``commit_order_write`` bierze potem kontrakt FOR UPDATE — bez blokady
     # w tej kolejności to ABBA z handlerami kontraktu.
@@ -3619,31 +3983,23 @@ async def replace_order_po(
     if order is None:
         raise HTTPException(404, detail="Order not found")
 
-    filename = file.filename or "po.pdf"
-    if not filename.lower().endswith(".pdf"):
-        raise HTTPException(415, detail="Tylko pliki PDF")
-
     replaced = order.file_path is not None
-    payload_bytes = await _read_upload_within_limit(file)
-    # Rozszerzenie deklaruje nadawca, nagłówek pliku nie. Bez tej kontroli
-    # dowolne bajty przemianowane na „.pdf" trafiały na wolumen i były potem
-    # serwowane z `media_type=application/pdf` każdemu, kto otworzy dokument.
-    if not payload_bytes.startswith(b"%PDF-"):
-        raise HTTPException(415, detail="Plik nie jest dokumentem PDF.")
     superseded_path = _attach_po_bytes(
         order,
         payload=payload_bytes,
         filename=filename,
         content_type=file.content_type,
-        user=user,
+        # `_attach_po_bytes` czyta z autora wyłącznie `.id`.
+        user=policy.actor,
     )
+    nordea_invoice_lines.apply_upload_payload(order, invoice_payload)
 
     db.add(
         Activity(
             entity_type="client",
             entity_id=client_id,
             action="order_file_uploaded",
-            user_id=user.id,
+            user_id=policy.actor_id,
             details={
                 "order_id": order_id,
                 "filename": filename,
@@ -3658,12 +4014,7 @@ async def replace_order_po(
     if superseded_path:
         storage_service.delete_client_order_po(superseded_path)
     await db.refresh(order)
-    can_finance = _can_manage_order_finance(
-        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
-    )
-    return _order_response_for_user(
-        await _order_to_read(db, order), user, can_finance=can_finance
-    )
+    return order
 
 
 @router.delete(
@@ -3673,7 +4024,7 @@ async def replace_order_po(
 async def delete_order_po(
     client_id: int,
     order_id: int,
-    user: DeliveryLeadOrAdmin,
+    user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Usuń wyłącznie aktualny PDF zamówienia, bez zmiany innych pól."""
@@ -3695,6 +4046,7 @@ async def delete_order_po(
     previous_filename = order.filename
     order.filename = None
     order.file_path = None
+    nordea_invoice_lines.clear_on_file_delete(order)
     order.content_type = None
     order.size_bytes = None
     order.file_uploaded_by = None

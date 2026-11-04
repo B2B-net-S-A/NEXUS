@@ -1,0 +1,42 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "recruiter",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit",
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases",
+  "board",
+  "finance-finance_module"
+ ],
+ "routes": {
+  "GET /api/cases": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "GET /api/cases/assignees": "BDDDBDDDBDDDBBDDDDDDDDDDBDD",
+  "GET /api/cases/contract-options": "BDDDBDDDBDDDBBDDDDDDDDDDBDD",
+  "GET /api/cases/{case_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "PATCH /api/cases/{case_id}": "BDDDBDDDBDDDBBDDDDDDDDDDBDD",
+  "POST /api/cases": "BDDDBDDDBDDDBBDDDDDDDDDDBDD",
+  "POST /api/cases/{case_id}/close": "BDDDBDDDBDDDBBDDDDDDDDDDBDD",
+  "POST /api/cases/{case_id}/comments": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "POST /api/cases/{case_id}/reply": "BDDDBDDDBDDDBBDDDDDDDDDDBDD"
+ }
+}

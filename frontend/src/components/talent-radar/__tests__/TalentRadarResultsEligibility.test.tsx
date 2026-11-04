@@ -92,4 +92,43 @@ describe("TalentRadarResults — eligibility", () => {
     expect(line.className).toContain("warning");
     expect(screen.queryByTestId("tr-eligibility-2")).not.toBeInTheDocument();
   });
+
+  it("pokazuje znacznik „Pracuje u nas” i nie dubluje go ostrzeżeniem o tym samym kliencie", () => {
+    const employedAtThisClient = {
+      reason_code: "client_current_employment",
+      reason: "Kandydat obecnie pracuje u tego klienta",
+      assignment_allowed: true,
+      visibility: "warn",
+      severity: "warning",
+      secondary: [],
+    } as TalentRadarResult["eligibility"];
+    const client = {
+      client_id: 5,
+      client_name: "Bank Przykładowy",
+      contract_id: 50,
+      phase: "working" as const,
+    };
+    render(
+      <TalentRadarResults
+        meta={META}
+        pending={false}
+        results={[
+          // Pracuje u klienta, dla którego szukamy: znacznik mówi to sam.
+          {
+            ...result(1, employedAtThisClient),
+            employment_marker: { phase: "working", source: "contract", elsewhere: false, clients: [client] },
+          },
+          // Pracuje u innego klienta: sam znacznik, bez ostrzeżenia.
+          {
+            ...result(2, null),
+            employment_marker: { phase: "working", source: "contract", elsewhere: true, clients: [client] },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Pracuje u tego klienta")).toBeInTheDocument();
+    expect(screen.queryByTestId("tr-eligibility-1")).not.toBeInTheDocument();
+    expect(screen.getByText("Pracuje u nas · Bank Przykładowy")).toBeInTheDocument();
+  });
 });

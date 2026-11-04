@@ -1,0 +1,2285 @@
+"""Podpis umowy B2B w NEXUSIE (0499) — reguły przyjęcia pliku i przebieg.
+
+Czyste reguły (bez bazy) pilnują wad toru z czerwca z audytu 21.10.2026:
+kwalifikowany KAŻDY podpis, brak walidatora = odmowa, obie strony po nazwisku.
+Przebieg na bazie podmienia walidator (``_validator``) i zamianę Worda na PDF —
+DSS i LibreOffice nie stoją w CI.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+from pathlib import Path
+from typing import Any
+
+import pytest
+from httpx import AsyncClient
+
+from app.services.b2b_esign import settings as esign_settings
+from app.services.b2b_esign.verdict import (
+    Fingerprint,
+    builds_on,
+    judge,
+    name_matches,
+)
+from app.services.signing.provider import ValidationReport
+from app.services.signing.validation import ValidationService
+
+SOURCE = b"%PDF-1.7\n% umowa do podpisu\n%%EOF\n"
+
+
+def _report(*sigs: tuple[str, str, str]) -> ValidationReport:
+    return ValidationReport(
+        is_qes=True,
+        signature_count=len(sigs),
+        signature_results=[
+            {"signer": signer, "indication": indication, "level": level}
+            for signer, indication, level in sigs
+        ],
+    )
+
+
+# ── czyste reguły ────────────────────────────────────────────────────────────
+
+
+def test_signed_file_must_extend_the_issued_bytes():
+    issued = Fingerprint.of(SOURCE)
+    assert builds_on(SOURCE + b"% podpis\n", issued)
+    assert not builds_on(SOURCE, issued)  # nic nie dołożono
+    assert not builds_on(SOURCE.replace(b"umowa", b"UMOWA") + b"% podpis", issued)
+
+
+def test_the_same_file_without_a_signature_says_there_is_no_new_signature():
+    """Olaf 26.10.2026: wgrał pobrany plik bez podpisu i dostał „To nie jest
+    ten sam dokument” — a to JEST ten sam dokument, tylko bez podpisu."""
+    from app.services.b2b_esign.verdict import (
+        MSG_CHANGED,
+        MSG_NOT_SIGNED,
+        upload_problem,
+    )
+
+    issued = Fingerprint.of(SOURCE)
+    assert upload_problem(SOURCE, issued) == MSG_NOT_SIGNED
+    assert upload_problem(SOURCE + b"% podpis\n", issued) is None
+    assert upload_problem(SOURCE.replace(b"umowa", b"UMOWA"), issued) == MSG_CHANGED
+    assert upload_problem(SOURCE[:-10], issued) == MSG_CHANGED
+
+
+def test_name_from_the_certificate_may_carry_a_middle_name_and_any_order():
+    assert name_matches("Jan Kowalski", "CN=Kowalski Jan Piotr, C=PL")
+    assert name_matches("Łukasz Żółć", "Common Name: Lukasz Zolc, Country: PL")
+    assert not name_matches("Jan Kowalski", "CN=Jan Nowak")
+    assert not name_matches("", "CN=Jan Kowalski")
+
+
+def test_no_authoritative_validator_means_no():
+    verdict = judge(
+        _report(("Jan Kowalski", "TOTAL_PASSED", "QESig")),
+        authoritative=False,
+        required_signers=["Jan Kowalski"],
+    )
+    assert verdict.code == "no_validator"
+
+
+def test_every_signature_must_be_qualified_not_only_the_first():
+    verdict = judge(
+        _report(
+            ("Jan Kowalski", "TOTAL_PASSED", "QESig"),
+            ("Olaf Firma", "TOTAL_PASSED", "AdESig"),
+        ),
+        authoritative=True,
+        required_signers=["Jan Kowalski", "Olaf Firma"],
+    )
+    assert verdict.code == "not_qualified"
+
+
+def test_failed_signature_blocks_even_beside_a_good_one():
+    verdict = judge(
+        _report(
+            ("Jan Kowalski", "TOTAL_PASSED", "QESig"),
+            ("Ktoś Inny", "TOTAL_FAILED", "QESig"),
+        ),
+        authoritative=True,
+        required_signers=["Jan Kowalski"],
+    )
+    assert verdict.code == "invalid"
+
+
+def test_the_named_contractor_has_to_sign():
+    verdict = judge(
+        _report(("Jan Nowak", "TOTAL_PASSED", "QESig")),
+        authoritative=True,
+        required_signers=["Jan Kowalski"],
+    )
+    assert verdict.code == "missing_signer"
+    assert "Jan Kowalski" in (verdict.message or "")
+
+
+def test_both_parties_signed_with_qualified_signatures_is_accepted():
+    verdict = judge(
+        _report(
+            ("CN=Jan Kowalski", "TOTAL_PASSED", "QESig"),
+            ("CN=Olaf Firma", "TOTAL_PASSED", "QESig"),
+        ),
+        authoritative=True,
+        required_signers=["Jan Kowalski", "Olaf Firma"],
+    )
+    assert verdict.accepted
+
+
+def test_any_listed_company_representative_may_sign_for_the_firm():
+    """Artur 26.10.2026: Olaf wgrywa plik podpisany podpisem Artura — za firmę
+    wystarczy podpis kwalifikowany jednej z osób z listy reprezentantów."""
+    representatives = ["Olaf Firma", "Artur Prezes"]
+    by_artur = judge(
+        _report(
+            ("CN=Jan Kowalski", "TOTAL_PASSED", "QESig"),
+            ("CN=Artur Prezes", "TOTAL_PASSED", "QESig"),
+        ),
+        authoritative=True,
+        required_signers=["Jan Kowalski"],
+        any_of_signers=representatives,
+    )
+    assert by_artur.accepted
+
+    only_contractor = judge(
+        _report(("CN=Jan Kowalski", "TOTAL_PASSED", "QESig")),
+        authoritative=True,
+        required_signers=["Jan Kowalski"],
+        any_of_signers=representatives,
+    )
+    assert not only_contractor.accepted
+    assert only_contractor.code == "missing_signer"
+    assert "Olaf Firma" in (only_contractor.message or "")
+    assert "Artur Prezes" in (only_contractor.message or "")
+
+    stranger = judge(
+        _report(
+            ("CN=Jan Kowalski", "TOTAL_PASSED", "QESig"),
+            ("CN=Ktoś Obcy", "TOTAL_PASSED", "QESig"),
+        ),
+        authoritative=True,
+        required_signers=["Jan Kowalski"],
+        any_of_signers=representatives,
+    )
+    assert not stranger.accepted
+
+    # Kontraktor nie podpisze „za firmę”, nawet gdyby był na liście.
+    same_person = judge(
+        _report(("CN=Jan Kowalski", "TOTAL_PASSED", "QESig")),
+        authoritative=True,
+        required_signers=["Jan Kowalski"],
+        any_of_signers=["Jan Kowalski"],
+    )
+    assert not same_person.accepted
+
+
+def test_dss_mapping_keeps_the_level_of_every_signature():
+    report = ValidationService._map_dss_report(
+        {
+            "simpleReport": {
+                "signatureOrTimestamp": [
+                    {
+                        "signedBy": "A",
+                        "indication": "TOTAL_PASSED",
+                        "signatureLevel": "QESig",
+                    },
+                    {
+                        "signedBy": "B",
+                        "indication": "TOTAL_PASSED",
+                        "signatureLevel": "AdESig",
+                    },
+                ]
+            }
+        }
+    )
+    assert [r["level"] for r in report.signature_results] == ["QESig", "AdESig"]
+
+
+def test_settings_default_to_off_and_pilot_is_per_account():
+    assert esign_settings.parse(None).mode == "off"
+    assert esign_settings.parse({"mode": "everyone"}).mode == "off"
+    pilot = esign_settings.parse({"mode": "pilot", "pilot_user_ids": [7, "x", -1]})
+    assert pilot.pilot_user_ids == frozenset({7})
+
+    class _U:
+        def __init__(self, uid: int) -> None:
+            self.id = uid
+
+    assert pilot.can_send(_U(7)) and not pilot.can_send(_U(8))  # type: ignore[arg-type]
+
+
+def test_entrypoint_mirrors_the_signing_table():
+    root = Path(__file__).resolve().parents[1]
+    entrypoint = (root / "entrypoint.sh").read_text(encoding="utf-8")
+    assert "CREATE TABLE IF NOT EXISTS b2b_signing_requests" in entrypoint
+    assert "uq_b2b_signing_requests_open_per_row" in entrypoint
+    # 0603: dziennik zdarzeń i odcisk danych umowy (wygasły link, 27.10.2026).
+    assert "ADD COLUMN IF NOT EXISTS events" in entrypoint
+    assert "source_payload_sha256 VARCHAR(64)" in entrypoint
+    assert "'signature_renewal_requested'" in entrypoint
+    # 0604: osoby w DW przy wysyłce (27.10.2026).
+    assert "ADD COLUMN IF NOT EXISTS cc_user_ids" in entrypoint
+    # 0605: kto obsługuje wysyłkę (zastępstwo, 27.10.2026).
+    assert "ADD COLUMN IF NOT EXISTS handled_by" in entrypoint
+    migration = (root / "alembic/versions/0499_b2b_signing_requests.py").read_text()
+    assert re.search(r'down_revision = "0496_b2b_generated_signed_file"', migration)
+
+
+# ── przebieg na bazie ────────────────────────────────────────────────────────
+
+
+class _FakeValidator:
+    """Walidator z gotowym raportem — DSS nie stoi w CI."""
+
+    report: ValidationReport = _report()
+    authoritative = True
+    on_validate: Any = None
+
+    async def validate(self, signed_pdf: bytes) -> ValidationReport:
+        if _FakeValidator.on_validate is not None:
+            await _FakeValidator.on_validate()
+        return _FakeValidator.report
+
+
+@pytest.fixture
+async def esign_env(monkeypatch, app_client: AsyncClient):
+    from app.api import b2b_esign
+    from app.core.database import AsyncSessionLocal
+    from tests.test_b2b_signature_automation import (
+        _current_admin_id,
+        _headers_for_role,
+    )
+    from app.models.user import UserRole
+
+    async def _docx(db, row):
+        return b"docx"
+
+    async def _pdf(docx: bytes) -> bytes:
+        return SOURCE
+
+    monkeypatch.setattr(b2b_esign, "_render_generated_row_docx", _docx)
+    monkeypatch.setattr(b2b_esign, "pdf_from_docx", _pdf)
+    monkeypatch.setattr(b2b_esign, "_validator", lambda: _FakeValidator())
+    _FakeValidator.on_validate = None
+
+    admin_id = await _current_admin_id(app_client)
+    signer_headers = await _headers_for_role(app_client, UserRole.delivery_lead)
+    signer_id = int(signer_headers["X-Test-User-Id"])
+    async with AsyncSessionLocal() as db:
+        await esign_settings.save(
+            db,
+            esign_settings.EsignSettings(mode="all", company_signer_ids=(signer_id,)),
+            actor_id=admin_id,
+        )
+        await db.commit()
+    yield {
+        "admin_id": admin_id,
+        "signer_headers": signer_headers,
+        "signer_id": signer_id,
+    }
+    async with AsyncSessionLocal() as db:
+        await esign_settings.save(db, esign_settings.EsignSettings(), actor_id=admin_id)
+        await db.commit()
+
+
+async def _send(app_client, headers, generated_id: int, signer_id: int, days: int = 14):
+    return await app_client.post(
+        f"/api/b2b-generator/generated/{generated_id}/esign/send",
+        json={
+            "contractor_email": "anna@example.com",
+            "company_signer_id": signer_id,
+            "days": days,
+        },
+        headers=headers,
+    )
+
+
+async def _seed_in_progress(*, created_by: int) -> dict[str, Any]:
+    """Wiersz jak po „Pobierz DOCX”: niepodpisany, „W trakcie” (``/render``)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+    from tests.test_b2b_signature_automation import _seed_bound_scenario
+
+    scenario = await _seed_bound_scenario(created_by=created_by)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None
+        row.contract_status = "in_progress"
+        await db.commit()
+    return scenario
+
+
+def _token(sign_url: str) -> str:
+    return sign_url.rsplit("/", 1)[-1]
+
+
+async def _partner(generated_id: int) -> str:
+    """Kto podpisuje za kontraktora — osoba z umowy, nie z formularza wysyłki."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, generated_id)
+        assert row is not None and row.partner_name
+        return row.partner_name
+
+
+@pytest.mark.asyncio
+async def test_contractor_then_company_sign_and_the_request_completes(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    partner = await _partner(scenario["generated_id"])
+    sent = await _send(
+        app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
+    )
+    assert sent.status_code == 200, sent.text
+    assert sent.json()["request"]["contractor_name"] == partner
+    # Konto testowe nie ma połączonej skrzynki M365 — link do skopiowania.
+    assert sent.json()["mail_sent"] is False
+    assert "skrzynka" in (sent.json()["mail_problem"] or "")
+    defaults = await app_client.get(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/esign/defaults",
+        headers=app_auth_headers,
+    )
+    assert defaults.status_code == 200, defaults.text
+    assert defaults.json()["contractor_name"] == partner
+    assert defaults.json()["mailbox_connected"] is False
+    token = _token(sent.json()["sign_url"])
+    again = await _send(
+        app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
+    )
+    assert again.status_code == 409, again.text
+
+    view = await app_client.get(f"/api/public/b2b-sign/{token}")
+    assert view.status_code == 200 and view.json()["status"] == "waiting"
+    pdf = await app_client.get(f"/api/public/b2b-sign/{token}/pdf")
+    assert pdf.content == SOURCE
+
+    _FakeValidator.report = _report((f"CN={partner}", "TOTAL_PASSED", "QESig"))
+    changed = await app_client.post(
+        f"/api/public/b2b-sign/{token}",
+        files={
+            "file": ("u.pdf", b"%PDF-1.7\n% inna tresc\n% podpis", "application/pdf")
+        },
+    )
+    assert changed.status_code == 422, changed.text
+    contractor_pdf = SOURCE + b"% podpis kontraktora\n"
+    signed = await app_client.post(
+        f"/api/public/b2b-sign/{token}",
+        files={"file": ("u.pdf", contractor_pdf, "application/pdf")},
+    )
+    assert signed.status_code == 200, signed.text
+    assert signed.json()["status"] == "signed_by_you"
+
+    request_id = sent.json()["request"]["id"]
+    stranger = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/company-sign",
+        files={"file": ("u.pdf", contractor_pdf + b"% firma\n", "application/pdf")},
+        headers=app_auth_headers,
+    )
+    # Obcy nie dowiaduje się, że wniosek istnieje (przegląd bezpieczeństwa).
+    assert stranger.status_code == 404, stranger.text
+
+    signer = esign_env["signer_headers"]
+    mine = await app_client.get("/api/b2b-generator/esign/mine", headers=signer)
+    assert [r["id"] for r in mine.json()] == [request_id]
+    own_pdf = await app_client.get(
+        f"/api/b2b-generator/esign/{request_id}/pdf", headers=signer
+    )
+    assert own_pdf.content == contractor_pdf
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.user import User
+
+    async with AsyncSessionLocal() as db:
+        signer_name = (await db.get(User, esign_env["signer_id"])).name
+    final_pdf = contractor_pdf + b"% podpis firmy\n"
+    _FakeValidator.report = _report(
+        (f"CN={partner}", "TOTAL_PASSED", "QESig"),
+        (f"CN={signer_name}", "TOTAL_PASSED", "AdESig"),
+    )
+    not_qualified = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/company-sign",
+        files={"file": ("u.pdf", final_pdf, "application/pdf")},
+        headers=signer,
+    )
+    assert not_qualified.status_code == 422, not_qualified.text
+    _FakeValidator.report = _report(
+        (f"CN={partner}", "TOTAL_PASSED", "QESig"),
+        (f"CN={signer_name}", "TOTAL_PASSED", "QESig"),
+    )
+    done = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/company-sign",
+        files={"file": ("u.pdf", final_pdf, "application/pdf")},
+        headers=signer,
+    )
+    assert done.status_code == 200, done.text
+    assert done.json()["status"] == "completed"
+    # 26.10.2026: link zostaje 30 dni, żeby kontraktor pobrał swoją kopię.
+    after = await app_client.get(f"/api/public/b2b-sign/{token}")
+    assert after.status_code == 200 and after.json()["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_company_signer_gets_a_mail_and_the_contractor_gets_the_signed_copy(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env, monkeypatch
+):
+    """Olaf 26.10.2026: „nic mi nie przyszło”; kontraktor nie dostawał umowy
+    podpisanej przez obie strony. Teraz: mail do podpisującego za firmę od
+    razu, a po podpisie firmy mail do kontraktora z PDF-em i link do
+    pobrania przez 30 dni."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.user import User
+    from app.services.b2b_esign import mail as esign_mail
+    from app.tasks import b2b_esign_sweeper
+
+    mails: list[dict[str, Any]] = []
+
+    async def _send_from(db, **kwargs):
+        mails.append(kwargs)
+        return True, None
+
+    monkeypatch.setattr(esign_mail, "send_from", _send_from)
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    partner = await _partner(scenario["generated_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    assert sent.status_code == 200, sent.text
+    request_id = sent.json()["request"]["id"]
+    token = _token(sent.json()["sign_url"])
+    assert [m["to"] for m in mails] == ["anna@example.com"]
+
+    async with AsyncSessionLocal() as db:
+        signer = await db.get(User, esign_env["signer_id"])
+        signer_email, signer_name = signer.email, signer.name
+
+    contractor_pdf = SOURCE + b"% podpis kontraktora\n"
+    _FakeValidator.report = _report((f"CN={partner}", "TOTAL_PASSED", "QESig"))
+    signed = await app_client.post(
+        f"/api/public/b2b-sign/{token}",
+        files={"file": ("u.pdf", contractor_pdf, "application/pdf")},
+    )
+    assert signed.status_code == 200, signed.text
+    to_signer = mails[-1]
+    assert to_signer["to"] == signer_email
+    assert "czeka na Twój podpis" in to_signer["subject"]
+    assert "/contracts/b2b-generator" in to_signer["body_html"]
+    assert not to_signer.get("attachments")
+
+    final_pdf = contractor_pdf + b"% podpis firmy\n"
+    _FakeValidator.report = _report(
+        (f"CN={partner}", "TOTAL_PASSED", "QESig"),
+        (f"CN={signer_name}", "TOTAL_PASSED", "QESig"),
+    )
+    done = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/company-sign",
+        files={"file": ("u.pdf", final_pdf, "application/pdf")},
+        headers=esign_env["signer_headers"],
+    )
+    assert done.status_code == 200, done.text
+    copy = mails[-1]
+    assert copy["to"] == "anna@example.com"
+    assert "podpisana przez obie strony" in copy["subject"]
+    [attachment] = copy["attachments"]
+    assert attachment.data == final_pdf
+    assert attachment.name.startswith("Umowa B2B ")
+    assert attachment.name.endswith(" podpisana.pdf")
+
+    view = await app_client.get(f"/api/public/b2b-sign/{token}")
+    assert view.status_code == 200, view.text
+    assert view.json()["status"] == "completed"
+    assert view.json()["signed_pdf_until"]
+    own_copy = await app_client.get(f"/api/public/b2b-sign/{token}/signed-pdf")
+    assert own_copy.status_code == 200, own_copy.text
+    assert own_copy.content == final_pdf
+    assert "podpisana" in own_copy.headers["content-disposition"]
+
+    await b2b_esign_sweeper.sweep(datetime.now(timezone.utc) + timedelta(days=31))
+    gone = await app_client.get(f"/api/public/b2b-sign/{token}")
+    assert gone.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_withdraw_closes_the_link_and_wins_over_a_running_validation(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    partner = await _partner(scenario["generated_id"])
+    sent = await _send(
+        app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
+    )
+    assert sent.status_code == 200, sent.text
+    token = _token(sent.json()["sign_url"])
+    request_id = sent.json()["request"]["id"]
+
+    async def _withdraw_meanwhile() -> None:
+        response = await app_client.post(
+            f"/api/b2b-generator/esign/{request_id}/withdraw",
+            json={"reason": "Przechodzimy na drogę zwykłą"},
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 200, response.text
+
+    _FakeValidator.report = _report((f"CN={partner}", "TOTAL_PASSED", "QESig"))
+    _FakeValidator.on_validate = _withdraw_meanwhile
+    late = await app_client.post(
+        f"/api/public/b2b-sign/{token}",
+        files={"file": ("u.pdf", SOURCE + b"% podpis\n", "application/pdf")},
+    )
+    _FakeValidator.on_validate = None
+    assert late.status_code in (404, 409), late.text
+    assert (await app_client.get(f"/api/public/b2b-sign/{token}")).status_code == 404
+
+    resent = await _send(
+        app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
+    )
+    assert resent.status_code == 200, resent.text
+
+
+@pytest.mark.asyncio
+async def test_sending_needs_the_switch_and_a_listed_company_signer(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    from app.core.database import AsyncSessionLocal
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    wrong_signer = await _send(
+        app_client, app_auth_headers, scenario["generated_id"], esign_env["admin_id"]
+    )
+    assert wrong_signer.status_code == 422, wrong_signer.text
+
+    async with AsyncSessionLocal() as db:
+        await esign_settings.save(
+            db, esign_settings.EsignSettings(mode="off"), actor_id=esign_env["admin_id"]
+        )
+        await db.commit()
+    off = await _send(
+        app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
+    )
+    assert off.status_code == 403, off.text
+
+
+def test_token_is_stored_only_as_a_hash():
+    from app.services.b2b_esign.service import new_token, token_hash
+
+    token, digest = new_token()
+    assert digest == hashlib.sha256(token.encode()).hexdigest() == token_hash(token)
+    assert token not in digest
+
+
+@pytest.mark.asyncio
+async def test_bogus_link_is_refused_before_the_file_and_failures_are_capped(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Przegląd bezpieczeństwa 21.10.2026: fałszywy link nie przyjmuje pliku,
+    a jeden link nie uruchamia walidacji w nieskończoność."""
+    from app.services.b2b_esign import service
+
+    bogus = await app_client.post(
+        "/api/public/b2b-sign/nie-ma-takiego-linku",
+        files={"file": ("u.pdf", SOURCE + b"% podpis\n", "application/pdf")},
+    )
+    assert bogus.status_code == 404, bogus.text
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
+    )
+    token = _token(sent.json()["sign_url"])
+    _FakeValidator.report = _report(("CN=Ktoś Obcy", "TOTAL_PASSED", "QESig"))
+    for _ in range(service.MAX_FAILED_ATTEMPTS):
+        wrong = await app_client.post(
+            f"/api/public/b2b-sign/{token}",
+            files={"file": ("u.pdf", SOURCE + b"% podpis\n", "application/pdf")},
+        )
+        assert wrong.status_code == 422, wrong.text
+    capped = await app_client.post(
+        f"/api/public/b2b-sign/{token}",
+        files={"file": ("u.pdf", SOURCE + b"% podpis\n", "application/pdf")},
+    )
+    assert capped.status_code == 429, capped.text
+
+
+# ── walidator pyHanko z listą UE (bez sieci) ────────────────────────────────
+
+
+def test_only_a_qualified_esign_certificate_on_a_qscd_is_qesig():
+    from types import SimpleNamespace
+
+    from pyhanko.sign.validation.qualified.q_status import (
+        QcPrivateKeyManagementType as Key,
+    )
+    from pyhanko.sign.validation.qualified.tsp import QcCertType
+
+    from app.services.b2b_esign.qualified import level_of
+
+    def q(qualified: bool, qc_type: QcCertType, key: Key):
+        return SimpleNamespace(
+            status=SimpleNamespace(
+                qualified=qualified, qc_type=qc_type, qc_key_security=key
+            )
+        )
+
+    assert level_of(q(True, QcCertType.QC_ESIGN, Key.QSCD)) == "QESig"
+    # SimplySign, mSzafir: klucz na zdalnym QSCD zarządzanym przez dostawcę.
+    assert level_of(q(True, QcCertType.QC_ESIGN, Key.QSCD_DELEGATED)) == "QESig"
+    assert level_of(q(True, QcCertType.QC_ESIGN, Key.UNKNOWN)) == "AdESig"
+    # Pieczęć firmy nie zastępuje podpisu osoby.
+    assert level_of(q(True, QcCertType.QC_ESEAL, Key.QSCD)) == "AdESig"
+    assert level_of(q(False, QcCertType.QC_ESIGN, Key.QSCD)) == "AdESig"
+    assert level_of(None) == "AdESig"
+
+
+@pytest.mark.asyncio
+async def test_without_the_eu_list_the_validator_is_not_authoritative(monkeypatch):
+    from app.services.b2b_esign import qualified
+
+    async def _down():
+        raise OSError("ec.europa.eu nie odpowiada")
+
+    monkeypatch.setattr(qualified, "_registry", None)
+    monkeypatch.setattr(qualified, "_fetch_registry", _down)
+    validator = qualified.QualifiedValidator()
+    report = await validator.validate(SOURCE + b"% podpis\n")
+    assert validator.authoritative is False
+    assert report.sub_indication == "EU_TRUSTED_LIST_UNAVAILABLE"
+    verdict = judge(
+        report, authoritative=validator.authoritative, required_signers=["Jan Kowalski"]
+    )
+    assert verdict.code == "no_validator"
+
+
+@pytest.mark.asyncio
+async def test_failed_refresh_keeps_the_last_good_eu_list(monkeypatch):
+    from app.services.b2b_esign import qualified
+
+    sentinel = object()
+    calls: list[str] = []
+
+    async def _ok():
+        calls.append("ok")
+        return sentinel
+
+    async def _down():
+        calls.append("down")
+        raise OSError("timeout")
+
+    monkeypatch.setattr(qualified, "_registry", None)
+    monkeypatch.setattr(qualified, "_loaded_at", 0.0)
+    monkeypatch.setattr(qualified, "_fetch_registry", _ok)
+    assert await qualified.trusted_registry(now=1000.0) is sentinel
+    # Świeża lista — bez ponownego pobrania.
+    assert await qualified.trusted_registry(now=1000.0 + 3600) is sentinel
+    monkeypatch.setattr(qualified, "_fetch_registry", _down)
+    stale = 1000.0 + qualified.REFRESH_HOURS * 3600 + 1
+    assert await qualified.trusted_registry(now=stale) is sentinel
+    assert calls == ["ok", "down"]
+
+
+# ── po podpisie obu stron (PR 5) ─────────────────────────────────────────────
+
+
+async def _sign_both(
+    app_client,
+    sender_headers,
+    signer_headers,
+    generated_id,
+    signer_id,
+    contractor_days_ago: int = 0,
+):
+    from datetime import timedelta
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_signing_request import B2BSigningRequest
+    from app.models.user import User
+
+    partner = await _partner(generated_id)
+    sent = await _send(app_client, sender_headers, generated_id, signer_id)
+    assert sent.status_code == 200, sent.text
+    token = _token(sent.json()["sign_url"])
+    request_id = sent.json()["request"]["id"]
+    _FakeValidator.report = _report((f"CN={partner}", "TOTAL_PASSED", "QESig"))
+    contractor_pdf = SOURCE + b"% podpis kontraktora\n"
+    signed = await app_client.post(
+        f"/api/public/b2b-sign/{token}",
+        files={"file": ("u.pdf", contractor_pdf, "application/pdf")},
+    )
+    assert signed.status_code == 200, signed.text
+    async with AsyncSessionLocal() as db:
+        signer_name = (await db.get(User, signer_id)).name
+        if contractor_days_ago:
+            request = await db.get(B2BSigningRequest, request_id)
+            request.contractor_signed_at -= timedelta(days=contractor_days_ago)
+            await db.commit()
+    _FakeValidator.report = _report(
+        (f"CN={partner}", "TOTAL_PASSED", "QESig"),
+        (f"CN={signer_name}", "TOTAL_PASSED", "QESig"),
+    )
+    done = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/company-sign",
+        files={"file": ("u.pdf", contractor_pdf + b"% firma\n", "application/pdf")},
+        headers=signer_headers,
+    )
+    assert done.status_code == 200, done.text
+    assert done.json()["status"] == "completed"
+    return request_id
+
+
+async def _notices(user_id: int, request_id: int) -> list[str]:
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.notification import Notification
+
+    async with AsyncSessionLocal() as db:
+        rows = await db.scalars(
+            select(Notification.title).where(
+                Notification.user_id == user_id,
+                Notification.related_entity_type == "b2b_signing_request",
+                Notification.related_entity_id == request_id,
+            )
+        )
+        return list(rows.all())
+
+
+@pytest.mark.asyncio
+async def test_both_signatures_run_the_signed_automation_with_the_file(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Reprezentant z prawem oznaczania podpisu: kontrakt, zamówienie,
+    „Zatrudniony” i podpisany PDF w Dokumentach — jak „Oznacz jako podpisaną”."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    admin_id = esign_env["admin_id"]
+    async with AsyncSessionLocal() as db:
+        await esign_settings.save(
+            db,
+            esign_settings.EsignSettings(mode="all", company_signer_ids=(admin_id,)),
+            actor_id=admin_id,
+        )
+        await db.commit()
+    scenario = await _seed_in_progress(created_by=admin_id)
+    request_id = await _sign_both(
+        app_client,
+        app_auth_headers,
+        app_auth_headers,
+        scenario["generated_id"],
+        admin_id,
+    )
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None
+        assert row.signature_status == "signed_both"
+        assert row.signature_source == "validated_upload"
+        assert row.contract_id is not None and row.signed_document_id is not None
+    titles = await _notices(admin_id, request_id)
+    assert any("podpisana przez obie strony" in t for t in titles), titles
+
+
+@pytest.mark.asyncio
+async def test_signing_day_is_the_contractor_day_not_the_company_day(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Kontraktor podpisał dwa dni przed reprezentantem firmy — „Data
+    podpisania” w eksporcie „Placementy” to dzień podpisu kontraktora (0514)."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_date, business_today
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+    from app.models.b2b_signing_request import B2BSigningRequest
+
+    admin_id = esign_env["admin_id"]
+    async with AsyncSessionLocal() as db:
+        await esign_settings.save(
+            db,
+            esign_settings.EsignSettings(mode="all", company_signer_ids=(admin_id,)),
+            actor_id=admin_id,
+        )
+        await db.commit()
+    scenario = await _seed_in_progress(created_by=admin_id)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        row.created_at = datetime.now(timezone.utc) - timedelta(days=10)
+        await db.commit()
+    request_id = await _sign_both(
+        app_client,
+        app_auth_headers,
+        app_auth_headers,
+        scenario["generated_id"],
+        admin_id,
+        contractor_days_ago=2,
+    )
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None and row.signature_status == "signed_both"
+        assert row.signed_on == business_date(request.contractor_signed_at)
+        assert row.signed_on < business_today()
+
+
+@pytest.mark.asyncio
+async def test_without_the_confirm_permission_the_sender_is_asked_to_finish(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Reprezentant bez zakresu klienta: podpis zostaje, kontrakt nie powstaje,
+    nadawca dostaje dzwonek „oznacz ją w rejestrze” i może pobrać plik."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    request_id = await _sign_both(
+        app_client,
+        app_auth_headers,
+        esign_env["signer_headers"],
+        scenario["generated_id"],
+        esign_env["signer_id"],
+    )
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None and row.signature_status == "unsigned"
+    titles = await _notices(esign_env["admin_id"], request_id)
+    assert any("oznacz ją w rejestrze" in t for t in titles), titles
+    pdf = await app_client.get(
+        f"/api/b2b-generator/esign/{request_id}/signed-pdf", headers=app_auth_headers
+    )
+    assert pdf.status_code == 200 and pdf.content.endswith(b"% firma\n")
+    # Audyt 22.10, F45: rejestr pokazuje nadawcy „Pobierz podpisaną umowę”.
+    item = await _register_item(app_client, app_auth_headers, scenario["generated_id"])
+    assert item["can_download_signed_esign"] is True
+
+
+# ── nazwa pliku i termin przypomnienia (prośby Sandry i Klaudii, 26.10.2026) ──
+
+
+def test_messages_for_the_contractor_have_no_em_dash():
+    """Klaudia, 26.10.2026: strona dla konsultanta bez myślników „—”."""
+    from app.services.b2b_esign import service, verdict
+
+    contractor_messages = [
+        service.MSG_LINK,
+        service.MSG_ALREADY_SIGNED,
+        service.MSG_CLOSED,
+        service.MSG_RACE,
+        service.MSG_TOO_BIG,
+        service.MSG_TOO_MANY_ATTEMPTS,
+        verdict.MSG_NOT_PDF,
+        verdict.MSG_CHANGED,
+        verdict.MSG_NOT_SIGNED,
+    ]
+    assert [m for m in contractor_messages if "—" in m] == []
+
+
+def test_contract_file_name_is_number_then_surname_first_without_diacritics():
+    from app.services.b2b_contract_filename import contract_file_name
+
+    assert (
+        contract_file_name("1555/2026", "Jan Kowalski", ext="pdf")
+        == "Umowa B2B 1555-2026 Kowalski Jan.pdf"
+    )
+    assert (
+        contract_file_name(
+            "1555/2026", "Maria Anna Nowak-Kowalska", suffix="podpisana", ext="pdf"
+        )
+        == "Umowa B2B 1555-2026 Nowak-Kowalska Maria Anna podpisana.pdf"
+    )
+    # „ł” nie rozkłada się w NFKD — bez osobnej zamiany znikało z nazwy.
+    assert (
+        contract_file_name("1555/2026", "  Łucja   Żółć ", ext="docx")
+        == "Umowa B2B 1555-2026 Zolc Lucja.docx"
+    )
+    # Cudzysłów i ukośnik z danych nie psują nagłówka Content-Disposition.
+    assert (
+        contract_file_name("15/2026", 'Jan "Kot" Kos/ki', ext="pdf")
+        == "Umowa B2B 15-2026 Kos ki Jan Kot.pdf"
+    )
+    assert contract_file_name(None, None, ext="pdf") == "Umowa B2B.pdf"
+
+
+def test_contractor_reminder_comes_a_day_before_the_deadline():
+    from datetime import datetime, timedelta, timezone
+
+    from app.tasks.b2b_esign_sweeper import contractor_reminder_at
+
+    sent = datetime(2026, 10, 26, 10, 0, tzinfo=timezone.utc)
+    for days, before in (
+        (3, timedelta(days=1)),
+        (5, timedelta(days=1)),
+        (7, timedelta(days=1)),
+    ):
+        expires = sent + timedelta(days=days)
+        assert contractor_reminder_at(sent, expires) == expires - before
+    # Przy jednym dniu „dzień przed końcem” to chwila wysyłki — połowa terminu.
+    one_day = sent + timedelta(days=1)
+    assert contractor_reminder_at(sent, one_day) == sent + timedelta(hours=12)
+
+
+def test_company_signer_is_reminded_after_one_business_day_in_working_hours():
+    """Decyzja Artura 26.10.2026: mail od razu, przypomnienie po 1 dniu
+    roboczym, potem co 3 dni — zawsze w dzień roboczy, 8:00–18:00."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.tasks.b2b_esign_sweeper import company_reminder_due
+
+    warsaw = ZoneInfo("Europe/Warsaw")
+
+    def at(month: int, day: int, hour: int, minute: int = 0) -> datetime:
+        return datetime(2026, month, day, hour, minute, tzinfo=warsaw)
+
+    friday = at(10, 30, 15)
+    assert not company_reminder_due(friday, None, at(10, 31, 16))  # sobota
+    assert not company_reminder_due(friday, None, at(11, 2, 7, 30))  # przed 8:00
+    assert company_reminder_due(friday, None, at(11, 2, 9))  # poniedziałek
+
+    monday = at(10, 26, 10)
+    assert not company_reminder_due(monday, None, at(10, 26, 17))  # ten sam dzień
+    assert company_reminder_due(monday, None, at(10, 27, 10, 30))
+    # Przypomnienie z etapu kontraktora (przed jego podpisem) się nie liczy.
+    assert company_reminder_due(monday, at(10, 24, 10), at(10, 27, 10, 30))
+
+    reminded = at(10, 27, 10, 30)
+    assert not company_reminder_due(monday, reminded, at(10, 28, 10, 30))
+    assert company_reminder_due(monday, reminded, at(10, 30, 10, 31))
+
+
+# ── wygasanie i przypomnienia (PR 4b) ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_sweeper_reminds_a_day_before_the_deadline_once_then_expires_the_link(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_signing_request import B2BSigningRequest
+    from app.tasks import b2b_esign_sweeper
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    request_id = sent.json()["request"]["id"]
+    token = _token(sent.json()["sign_url"])
+    now = datetime.now(timezone.utc)
+
+    assert await b2b_esign_sweeper._handle(request_id, now + timedelta(days=1)) is None
+    assert (
+        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=2, minutes=1))
+        == "reminded"
+    )
+    # Jedno przypomnienie na termin — kolejny przegląd przed końcem nic nie wysyła.
+    assert (
+        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=2, hours=12))
+        is None
+    )
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        assert request is not None and request.last_reminder_at is not None
+    titles = await _notices(esign_env["admin_id"], request_id)
+    assert any("czeka na podpis kontraktora" in t for t in titles), titles
+
+    assert (
+        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=3, minutes=1))
+        == "expired"
+    )
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        assert request is not None and request.status == "expired"
+    # Wygasły link nie znika: kontraktor widzi termin i „Poproś o nowy link”
+    # (27.10.2026), ale pliku już nie wgra.
+    view = await app_client.get(f"/api/public/b2b-sign/{token}")
+    assert view.status_code == 200 and view.json()["status"] == "expired"
+    titles = await _notices(esign_env["admin_id"], request_id)
+    assert any("wygasł" in t for t in titles), titles
+
+
+# ── wniosek w toku a zmiany umowy (code review 21.10.2026) ───────────────────
+
+
+def test_only_an_exact_qualified_signature_level_counts():
+    for level in ("QESeal", "Indeterminate QESig", "QESig?", "AdESig-QC"):
+        verdict = judge(
+            _report(("CN=Jan Kowalski", "TOTAL_PASSED", level)),
+            authoritative=True,
+            required_signers=["Jan Kowalski"],
+        )
+        assert verdict.code == "not_qualified", level
+
+
+@pytest.mark.asyncio
+async def test_open_request_blocks_correction_and_closes_on_manual_paths(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Po wysyłce PDF jest zamrożony: „Popraw” odmawia, a „Oznacz jako
+    podpisaną” i „Anulowana” zamykają wniosek — link przestaje działać."""
+    from tests.test_b2b_signature_automation import _confirm
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
+    )
+    token = _token(sent.json()["sign_url"])
+    form = await app_client.get(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/form",
+        headers=app_auth_headers,
+    )
+    assert form.status_code == 409, form.text
+    assert "zwykłą drogę" in form.json()["detail"]
+
+    confirmed = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+    assert confirmed.status_code == 200, confirmed.text
+    assert (await app_client.get(f"/api/public/b2b-sign/{token}")).status_code == 404
+
+    other = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client, app_auth_headers, other["generated_id"], esign_env["signer_id"]
+    )
+    token = _token(sent.json()["sign_url"])
+    cancelled = await app_client.patch(
+        f"/api/b2b-generator/generated/{other['generated_id']}",
+        json={"contract_status": "cancelled"},
+        headers=app_auth_headers,
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert (await app_client.get(f"/api/public/b2b-sign/{token}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_unexpected_confirm_failure_still_tells_the_sender(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env, monkeypatch
+):
+    """Błąd automatyki inny niż HTTP nie daje 500 po zapisanym podpisie —
+    nadawca dostaje „oznacz ją w rejestrze”."""
+    from app.api import b2b_esign
+    from app.core.database import AsyncSessionLocal
+
+    async def _boom(**kwargs):
+        raise RuntimeError("employment automation returned no ClientOrder")
+
+    monkeypatch.setattr(b2b_esign, "confirm_generated_contract_fully_signed", _boom)
+    admin_id = esign_env["admin_id"]
+    async with AsyncSessionLocal() as db:
+        await esign_settings.save(
+            db,
+            esign_settings.EsignSettings(mode="all", company_signer_ids=(admin_id,)),
+            actor_id=admin_id,
+        )
+        await db.commit()
+    scenario = await _seed_in_progress(created_by=admin_id)
+    request_id = await _sign_both(
+        app_client,
+        app_auth_headers,
+        app_auth_headers,
+        scenario["generated_id"],
+        admin_id,
+    )
+    titles = await _notices(admin_id, request_id)
+    assert any("oznacz ją w rejestrze" in t for t in titles), titles
+
+
+# ── etap 1b: reszta systemu wie, że umowa jest w podpisie (22.10.2026) ───────
+
+
+def test_signature_bells_reach_the_recruiter_who_sent_the_contract():
+    """Dzwonki podpisu stoją za sekcją Generatora (Sourcing), nie Delivery —
+    rekruter bez Delivery dostaje informację o swojej umowie."""
+    from app.models.notification import NotificationType
+    from app.services.notification_access import NOTIFICATION_SECTION_BY_TYPE
+    from app.services.section_permissions import ProductSection
+
+    for ntype in (
+        NotificationType.signature_sent,
+        NotificationType.signature_signed,
+        NotificationType.signature_failed,
+    ):
+        assert NOTIFICATION_SECTION_BY_TYPE[ntype] == ProductSection.sourcing
+
+
+@pytest.mark.asyncio
+async def test_open_request_blocks_manual_confirm_requests_and_manual_hire(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
+    )
+    assert sent.status_code == 200, sent.text
+
+    asked = await app_client.post(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/signature-request",
+        headers=app_auth_headers,
+    )
+    assert asked.status_code == 409, asked.text
+    assert "zwykłą drogę" in asked.json()["detail"]
+
+    moved = await app_client.post(
+        "/api/pipeline/move",
+        json={
+            "candidate_id": scenario["candidate_id"],
+            "job_id": scenario["job_id"],
+            "stage": "hired",
+            "hired_signed_via": "b2b_offline",
+        },
+        headers=app_auth_headers,
+    )
+    assert moved.status_code == 409, moved.text
+    assert moved.json()["detail"]["code"] == "ESIGN_IN_PROGRESS"
+
+
+def test_history_lists_the_sending_signatures_and_how_it_ended():
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.services.b2b_esign.history import esign_history
+
+    t0 = datetime(2026, 10, 21, 13, 0, tzinfo=timezone.utc)
+    base = dict(
+        sent_by=7,
+        last_reminder_at=None,
+        contractor_signed_at=None,
+        completed_at=None,
+        closed_at=None,
+        closed_by=None,
+        close_reason=None,
+        company_signer_id=9,
+    )
+    withdrawn = SimpleNamespace(
+        id=1,
+        status="withdrawn",
+        sent_at=t0,
+        **{
+            **base,
+            "closed_at": t0 + timedelta(hours=1),
+            "closed_by": 7,
+            "close_reason": "Przejście na drogę zwykłą",
+        },
+    )
+    completed = SimpleNamespace(
+        id=2,
+        status="completed",
+        sent_at=t0 + timedelta(days=1),
+        **{
+            **base,
+            "last_reminder_at": t0 + timedelta(days=4),
+            "contractor_signed_at": t0 + timedelta(days=5),
+            "completed_at": t0 + timedelta(days=6),
+        },
+    )
+    expired = SimpleNamespace(
+        id=3,
+        status="expired",
+        sent_at=t0 + timedelta(days=7),
+        **{**base, "closed_at": t0 + timedelta(days=21)},
+    )
+
+    entries = esign_history([completed, expired, withdrawn])
+
+    assert [e.label for e in entries] == [
+        "Wysłana do podpisu w NEXUSIE",
+        "Wysyłka wycofana — Przejście na drogę zwykłą",
+        "Wysłana do podpisu w NEXUSIE",
+        "Przypomnienie do kontraktora",
+        "Kontraktor podpisał — podpis kwalifikowany sprawdzony",
+        "Podpis za B2B Network — umowa podpisana przez obie strony",
+        "Wysłana do podpisu w NEXUSIE",
+        "Link do podpisu wygasł",
+    ]
+    assert entries[5].user_id == 9
+    assert len({e.key for e in entries}) == len(entries)
+
+
+@pytest.mark.asyncio
+async def test_card_history_and_signer_list_know_the_contract_is_in_signing(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    from app.core.database import AsyncSessionLocal
+    from app.services.agreement_status import agreement_status_for_pairs
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    generated_id = scenario["generated_id"]
+    partner = await _partner(generated_id)
+    sent = await _send(
+        app_client, app_auth_headers, generated_id, esign_env["signer_id"]
+    )
+    assert sent.status_code == 200, sent.text
+
+    async with AsyncSessionLocal() as db:
+        cards = await agreement_status_for_pairs(
+            db, job_id=scenario["job_id"], candidate_ids=[scenario["candidate_id"]]
+        )
+    esign = cards[scenario["candidate_id"]]["esign"]
+    assert esign["status"] == "sent" and esign["expires_at"]
+
+    _FakeValidator.report = _report((f"CN={partner}", "TOTAL_PASSED", "QESig"))
+    signed = await app_client.post(
+        f"/api/public/b2b-sign/{_token(sent.json()['sign_url'])}",
+        files={"file": ("u.pdf", SOURCE + b"% podpis\n", "application/pdf")},
+    )
+    assert signed.status_code == 200, signed.text
+
+    mine = await app_client.get(
+        "/api/b2b-generator/esign/mine", headers=esign_env["signer_headers"]
+    )
+    assert mine.status_code == 200, mine.text
+    waiting = [r for r in mine.json() if r["generated_contract_id"] == generated_id]
+    assert waiting and waiting[0]["contract_number"]
+
+    history = await app_client.get(
+        f"/api/b2b-generator/generated/{generated_id}/status-history",
+        headers=app_auth_headers,
+    )
+    assert history.status_code == 200, history.text
+    esign_labels = [e["label"] for e in history.json() if e["kind"] == "esign"]
+    assert esign_labels == [
+        "Wysłana do podpisu w NEXUSIE",
+        "Kontraktor podpisał — podpis kwalifikowany sprawdzony",
+    ]
+
+
+def test_reminder_after_the_contractor_signed_goes_to_the_company_signer():
+    """Audyt 22.10, F48: po podpisie kontraktora zamiatacz ponagla reprezentanta
+    firmy — historia nie może pisać „Przypomnienie do kontraktora”."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.services.b2b_esign.history import esign_history
+
+    t0 = datetime(2026, 11, 1, 9, 0, tzinfo=timezone.utc)
+    waiting = SimpleNamespace(
+        id=4,
+        status="contractor_signed",
+        sent_at=t0 - timedelta(days=2),
+        sent_by=7,
+        last_reminder_at=t0 + timedelta(days=3),
+        contractor_signed_at=t0,
+        completed_at=None,
+        closed_at=None,
+        closed_by=None,
+        close_reason=None,
+        company_signer_id=9,
+    )
+
+    labels = [e.label for e in esign_history([waiting])]
+
+    assert labels == [
+        "Wysłana do podpisu w NEXUSIE",
+        "Kontraktor podpisał — podpis kwalifikowany sprawdzony",
+        "Przypomnienie do podpisu za B2B Network",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_sweeper_skips_a_request_closed_after_the_due_list(monkeypatch):
+    """Audyt 22.10, F106: wniosek wycofany albo podpisany między listą a blokadą
+    nie dostaje przypomnienia — bez dzwonka i bez maila do kontraktora."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.tasks import b2b_esign_sweeper
+
+    now = datetime(2026, 11, 5, 9, 0, tzinfo=timezone.utc)
+    calls: list[str] = []
+
+    for status in ("withdrawn", "completed", "expired"):
+        request = SimpleNamespace(
+            id=12,
+            status=status,
+            generated_contract_id=5,
+            sent_at=now - timedelta(days=4),
+            expires_at=now + timedelta(days=10),
+            contractor_signed_at=None,
+            last_reminder_at=None,
+            sent_by=7,
+            company_signer_id=9,
+            contractor_email="anna@example.com",
+            contractor_name="Anna",
+        )
+
+        class _Session:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def scalar(self, _stmt, _request=request):
+                return _request
+
+            async def get(self, _model, _id):
+                return SimpleNamespace(contract_number="B2B/1", candidate_id=3)
+
+            async def commit(self):
+                calls.append("commit")
+
+        async def _emit(*_a, **_k):
+            calls.append("notify")
+
+        async def _send_from(*_a, **_k):
+            calls.append("mail")
+
+        monkeypatch.setattr(b2b_esign_sweeper, "AsyncSessionLocal", _Session)
+        monkeypatch.setattr(b2b_esign_sweeper, "emit_notification", _emit)
+        monkeypatch.setattr(b2b_esign_sweeper.esign_mail, "send_from", _send_from)
+
+        assert await b2b_esign_sweeper._handle(12, now) is None, status
+        assert request.last_reminder_at is None, status
+    assert calls == []
+
+
+async def _register_item(app_client, headers, generated_id: int) -> dict[str, Any]:
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, generated_id)
+        assert row is not None
+        number = row.contract_number
+    listed = await app_client.get(
+        "/api/b2b-generator/generated", headers=headers, params={"q": number}
+    )
+    assert listed.status_code == 200, listed.text
+    return next(i for i in listed.json() if i["id"] == generated_id)
+
+
+@pytest.mark.asyncio
+async def test_contract_in_nexus_signing_or_signed_there_cannot_be_deleted(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Audyt 22.10, F44: kaskada FK kasowała wniosek razem z podpisem
+    kontraktora albo obu stron. Usunąć można dopiero po wycofaniu wysyłki."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+    from app.models.b2b_signing_request import B2BSigningRequest
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    generated_id = scenario["generated_id"]
+    sent = await _send(
+        app_client, app_auth_headers, generated_id, esign_env["signer_id"]
+    )
+    assert sent.status_code == 200, sent.text
+    request_id = sent.json()["request"]["id"]
+
+    assert (await _register_item(app_client, app_auth_headers, generated_id))[
+        "can_delete"
+    ] is False
+    deleted = await app_client.delete(
+        f"/api/b2b-generator/generated/{generated_id}", headers=app_auth_headers
+    )
+    assert deleted.status_code == 409, deleted.text
+    assert "zwykłą drogę" in deleted.json()["detail"]
+
+    # Obie strony podpisały, ale automatyka nie oznaczyła wiersza.
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        assert request is not None
+        request.status = "completed"
+        request.contractor_token_hash = None
+        await db.commit()
+    assert (await _register_item(app_client, app_auth_headers, generated_id))[
+        "can_delete"
+    ] is False
+    deleted = await app_client.delete(
+        f"/api/b2b-generator/generated/{generated_id}", headers=app_auth_headers
+    )
+    assert deleted.status_code == 409, deleted.text
+    async with AsyncSessionLocal() as db:
+        assert await db.get(B2BGeneratedContract, generated_id) is not None
+        assert await db.get(B2BSigningRequest, request_id) is not None
+
+    # Wycofana wysyłka nie blokuje usunięcia.
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        assert request is not None
+        request.status = "withdrawn"
+        await db.commit()
+    assert (await _register_item(app_client, app_auth_headers, generated_id))[
+        "can_delete"
+    ] is True
+    deleted = await app_client.delete(
+        f"/api/b2b-generator/generated/{generated_id}", headers=app_auth_headers
+    )
+    assert deleted.status_code == 204, deleted.text
+
+
+@pytest.mark.asyncio
+async def test_withdraw_stays_available_after_the_switch_goes_off(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Audyt 22.10, F46: przełącznik dotyczy wysyłki, nie wycofania — wniosek
+    z pilotażu musi dać się przenieść na drogę zwykłą."""
+    from app.core.database import AsyncSessionLocal
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    generated_id = scenario["generated_id"]
+    sent = await _send(
+        app_client, app_auth_headers, generated_id, esign_env["signer_id"]
+    )
+    assert sent.status_code == 200, sent.text
+    async with AsyncSessionLocal() as db:
+        await esign_settings.save(
+            db, esign_settings.EsignSettings(mode="off"), actor_id=esign_env["admin_id"]
+        )
+        await db.commit()
+
+    item = await _register_item(app_client, app_auth_headers, generated_id)
+    assert item["can_send_esign"] is False
+    assert item["can_withdraw_esign"] is True
+
+
+# ── wygasły link: ten sam PDF, przedłużenie, prośba kontraktora (27.10.2026) ──
+
+
+def test_payload_fingerprint_follows_the_contract_data_not_the_pdf_bytes():
+    from types import SimpleNamespace
+
+    from app.services.b2b_esign.service import payload_fingerprint
+
+    row = SimpleNamespace(contract_number="1555/2026", render_payload={"a": 1, "b": 2})
+    same = SimpleNamespace(contract_number="1555/2026", render_payload={"b": 2, "a": 1})
+    edited = SimpleNamespace(
+        contract_number="1555/2026", render_payload={"a": 1, "b": 3}
+    )
+    renumbered = SimpleNamespace(
+        contract_number="1556/2026", render_payload={"a": 1, "b": 2}
+    )
+    assert payload_fingerprint(row) == payload_fingerprint(same)
+    assert payload_fingerprint(row) != payload_fingerprint(edited)
+    assert payload_fingerprint(row) != payload_fingerprint(renumbered)
+
+
+def test_history_keeps_every_deadline_new_link_and_the_contractor_request():
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.services.b2b_esign.history import esign_history
+
+    t0 = datetime(2026, 10, 27, 9, 0, tzinfo=timezone.utc)
+    request = SimpleNamespace(
+        id=5,
+        status="sent",
+        sent_at=t0,
+        sent_by=7,
+        last_reminder_at=None,
+        contractor_signed_at=None,
+        completed_at=None,
+        closed_at=None,
+        closed_by=None,
+        close_reason=None,
+        company_signer_id=9,
+        events=[
+            {"kind": "contractor_reminder", "at": (t0 + timedelta(days=2)).isoformat()},
+            {"kind": "expired", "at": (t0 + timedelta(days=3)).isoformat()},
+            {"kind": "renewal_requested", "at": (t0 + timedelta(days=4)).isoformat()},
+            {
+                "kind": "relinked",
+                "at": (t0 + timedelta(days=4, hours=2)).isoformat(),
+                "user_id": 8,
+                "until": (t0 + timedelta(days=7, hours=2)).isoformat(),
+            },
+            {"kind": "nieznany", "at": t0.isoformat()},
+        ],
+    )
+
+    entries = esign_history([request])
+
+    assert [e.label for e in entries] == [
+        "Wysłana do podpisu w NEXUSIE",
+        "Przypomnienie do kontraktora",
+        "Link do podpisu wygasł",
+        "Kontraktor poprosił o nowy link",
+        "Nowy link do kontraktora, ten sam PDF, ważny do 03.11.2026",
+    ]
+    assert entries[-1].user_id == 8
+    assert len({e.key for e in entries}) == len(entries)
+
+
+async def _expire(request_id: int, now) -> None:
+    from app.tasks import b2b_esign_sweeper
+
+    assert await b2b_esign_sweeper._handle(request_id, now) == "expired"
+
+
+@pytest.mark.asyncio
+async def test_new_link_after_the_deadline_keeps_the_pdf_so_a_signed_file_passes(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env, monkeypatch
+):
+    """Zespół 27.10.2026: „co jeśli link wygaśnie?”. LibreOffice daje z tego
+    samego Worda inne bajty, więc nowa wysyłka odrzucała plik podpisany przed
+    terminem. „Wyślij nowy link” zostaje na zamrożonym PDF-ie."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.api import b2b_esign
+
+    renders: list[int] = []
+
+    async def _pdf(docx: bytes) -> bytes:
+        renders.append(1)
+        return SOURCE if len(renders) == 1 else SOURCE + b"% inny /ID\n"
+
+    monkeypatch.setattr(b2b_esign, "pdf_from_docx", _pdf)
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    partner = await _partner(scenario["generated_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    assert sent.status_code == 200, sent.text
+    request_id = sent.json()["request"]["id"]
+    old_token = _token(sent.json()["sign_url"])
+    # Kontraktor pobiera i podpisuje plik, ale nie zdąży go wgrać.
+    contractor_pdf = SOURCE + b"% podpis kontraktora\n"
+    now = datetime.now(timezone.utc)
+    await _expire(request_id, now + timedelta(days=3, minutes=1))
+
+    view = await app_client.get(f"/api/public/b2b-sign/{old_token}")
+    assert view.status_code == 200, view.text
+    assert view.json()["status"] == "expired"
+    assert view.json()["expires_at"] is not None
+    _FakeValidator.report = _report((f"CN={partner}", "TOTAL_PASSED", "QESig"))
+    late = await app_client.post(
+        f"/api/public/b2b-sign/{old_token}",
+        files={"file": ("u.pdf", contractor_pdf, "application/pdf")},
+    )
+    assert late.status_code == 410, late.text
+    assert "Poproś o nowy link" in late.json()["detail"]
+
+    listed = await _register_item(
+        app_client, app_auth_headers, scenario["generated_id"]
+    )
+    assert listed["can_relink_esign"] is True
+    assert listed["can_extend_esign"] is False
+
+    relinked = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert relinked.status_code == 200, relinked.text
+    assert relinked.json()["request"]["id"] == request_id
+    assert relinked.json()["request"]["status"] == "sent"
+    new_token = _token(relinked.json()["sign_url"])
+    assert new_token != old_token
+    assert len(renders) == 1, "nowy link nie robi nowego PDF-a"
+    assert (
+        await app_client.get(f"/api/public/b2b-sign/{old_token}")
+    ).status_code == 404
+    pdf = await app_client.get(f"/api/public/b2b-sign/{new_token}/pdf")
+    assert pdf.content == SOURCE
+
+    signed = await app_client.post(
+        f"/api/public/b2b-sign/{new_token}",
+        files={"file": ("u.pdf", contractor_pdf, "application/pdf")},
+    )
+    assert signed.status_code == 200, signed.text
+    assert signed.json()["status"] == "signed_by_you"
+
+    history = await app_client.get(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/status-history",
+        headers=app_auth_headers,
+    )
+    assert history.status_code == 200, history.text
+    labels = [e["label"] for e in history.json() if e.get("kind") == "esign"]
+    assert "Link do podpisu wygasł" in labels, labels
+    assert any(label.startswith("Nowy link do kontraktora") for label in labels)
+
+
+@pytest.mark.asyncio
+async def test_new_link_needs_an_expired_link_and_an_unchanged_contract(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    request_id = sent.json()["request"]["id"]
+    live = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert live.status_code == 409, live.text
+    assert "Przedłuż termin" in live.json()["detail"]
+
+    await _expire(request_id, datetime.now(timezone.utc) + timedelta(days=3, minutes=1))
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None
+        row.render_payload = {**(row.render_payload or {}), "poprawka": "stawka"}
+        await db.commit()
+    listed = await _register_item(
+        app_client, app_auth_headers, scenario["generated_id"]
+    )
+    assert listed["can_relink_esign"] is False
+    edited = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert edited.status_code == 409, edited.text
+    assert "Wyślij ją do podpisu od nowa" in edited.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_extend_keeps_the_link_and_the_new_deadline_gets_its_own_reminder(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_signing_request import B2BSigningRequest
+    from app.tasks import b2b_esign_sweeper
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    request_id = sent.json()["request"]["id"]
+    token = _token(sent.json()["sign_url"])
+    first_deadline = datetime.fromisoformat(sent.json()["request"]["expires_at"])
+    now = datetime.now(timezone.utc)
+    assert (
+        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=2, minutes=1))
+        == "reminded"
+    )
+    listed = await _register_item(
+        app_client, app_auth_headers, scenario["generated_id"]
+    )
+    assert listed["can_extend_esign"] is True
+    assert listed["can_relink_esign"] is False
+
+    extended = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/extend",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert extended.status_code == 200, extended.text
+    new_deadline = datetime.fromisoformat(extended.json()["expires_at"])
+    assert new_deadline - first_deadline == timedelta(days=3)
+    view = await app_client.get(f"/api/public/b2b-sign/{token}")
+    assert view.json()["status"] == "waiting", "link z pierwszego maila działa dalej"
+
+    # Stary termin nic już nie zamyka; nowy dostaje jedno przypomnienie.
+    assert (
+        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=3, minutes=1))
+        is None
+    )
+    assert (
+        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=5, minutes=1))
+        == "reminded"
+    )
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        assert request is not None
+        kinds = [e["kind"] for e in request.events]
+    assert kinds == ["contractor_reminder", "extended"]
+
+    await _expire(request_id, now + timedelta(days=6, minutes=1))
+    late = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/extend",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert late.status_code == 409, late.text
+    assert "nowy link" in late.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_contractor_asks_for_a_new_link_and_the_sender_gets_one_bell_a_day(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    from datetime import datetime, timedelta, timezone
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=1,
+    )
+    request_id = sent.json()["request"]["id"]
+    token = _token(sent.json()["sign_url"])
+    too_early = await app_client.post(f"/api/public/b2b-sign/{token}/renewal")
+    assert too_early.status_code == 409, too_early.text
+
+    await _expire(request_id, datetime.now(timezone.utc) + timedelta(days=1, minutes=1))
+    asked = await app_client.post(f"/api/public/b2b-sign/{token}/renewal")
+    assert asked.status_code == 200, asked.text
+    assert asked.json()["status"] == "expired"
+    assert asked.json()["renewal_requested_at"] is not None
+    again = await app_client.post(f"/api/public/b2b-sign/{token}/renewal")
+    assert again.status_code == 200, again.text
+
+    titles = await _notices(esign_env["admin_id"], request_id)
+    assert sum("prosi o nowy link" in t for t in titles) == 1, titles
+    listed = await _register_item(
+        app_client, app_auth_headers, scenario["generated_id"]
+    )
+    assert listed["esign"]["renewal_requested_at"] is not None
+
+    relinked = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert relinked.status_code == 200, relinked.text
+    listed = await _register_item(
+        app_client, app_auth_headers, scenario["generated_id"]
+    )
+    assert listed["esign"]["renewal_requested_at"] is None
+
+    bogus = await app_client.post("/api/public/b2b-sign/zly-link/renewal")
+    assert bogus.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_after_a_new_link_the_reminder_counts_from_that_link_not_the_first_mail(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Przegląd kodu 27.10.2026: przypomnienie liczone od pierwszej wysyłki
+    wychodziło zaraz po nowym linku i wskazywało martwy link z pierwszego maila."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_signing_request import B2BSigningRequest
+    from app.tasks import b2b_esign_sweeper
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    request_id = sent.json()["request"]["id"]
+    t0 = datetime.now(timezone.utc)
+    await _expire(request_id, t0 + timedelta(days=3, minutes=1))
+    relinked = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 1},
+        headers=app_auth_headers,
+    )
+    assert relinked.status_code == 200, relinked.text
+    relinked_at = datetime.now(timezone.utc)
+    # Pierwsza wysyłka była dni temu (w teście „teraz” to czas wysyłki).
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        assert request is not None
+        request.sent_at -= timedelta(days=4)
+        await db.commit()
+
+    assert (
+        await b2b_esign_sweeper._handle(request_id, relinked_at + timedelta(minutes=31))
+        is None
+    )
+    mails: list[str] = []
+
+    async def _capture(db, **kwargs):
+        mails.append(kwargs["body_html"])
+        return False, "bez skrzynki"
+
+    original = b2b_esign_sweeper.esign_mail.send_from
+    b2b_esign_sweeper.esign_mail.send_from = _capture
+    try:
+        assert (
+            await b2b_esign_sweeper._handle(
+                request_id, relinked_at + timedelta(hours=12, minutes=1)
+            )
+            == "reminded"
+        )
+    finally:
+        b2b_esign_sweeper.esign_mail.send_from = original
+    assert (
+        mails
+        and relinked_at.astimezone(b2b_esign_sweeper._WARSAW).strftime("%d.%m.%Y")
+        in mails[0]
+    )
+
+
+@pytest.mark.asyncio
+async def test_new_link_moves_to_a_listed_representative_when_the_old_one_left(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_signing_request import B2BSigningRequest
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    request_id = sent.json()["request"]["id"]
+    await _expire(request_id, datetime.now(timezone.utc) + timedelta(days=3, minutes=1))
+    async with AsyncSessionLocal() as db:
+        await esign_settings.save(
+            db,
+            esign_settings.EsignSettings(
+                mode="all", company_signer_ids=(esign_env["admin_id"],)
+            ),
+            actor_id=esign_env["admin_id"],
+        )
+        await db.commit()
+
+    relinked = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert relinked.status_code == 200, relinked.text
+    assert relinked.json()["request"]["company_signer_id"] == esign_env["admin_id"]
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        assert request is not None
+        changed = [e for e in request.events if e["kind"] == "signer_changed"]
+    assert changed and changed[0]["previous"] == esign_env["signer_id"]
+
+
+@pytest.mark.asyncio
+async def test_expired_link_of_a_cancelled_or_resent_contract_does_not_promise_a_new_link(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    request_id = sent.json()["request"]["id"]
+    token = _token(sent.json()["sign_url"])
+    await _expire(request_id, datetime.now(timezone.utc) + timedelta(days=3, minutes=1))
+
+    # Poprawka umowy po wygaśnięciu: link nie obiecuje już tego samego PDF-a.
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None
+        original_payload = row.render_payload
+        row.render_payload = {**(row.render_payload or {}), "poprawka": "stawka"}
+        await db.commit()
+    view = await app_client.get(f"/api/public/b2b-sign/{token}")
+    assert view.json()["status"] == "closed", view.text
+    asked = await app_client.post(f"/api/public/b2b-sign/{token}/renewal")
+    assert asked.status_code == 409, asked.text
+
+    # Umowa wraca do treści z wysyłki, ale idzie nowa wysyłka: stary link gaśnie.
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None
+        row.render_payload = original_payload
+        await db.commit()
+    assert (await app_client.get(f"/api/public/b2b-sign/{token}")).json()[
+        "status"
+    ] == "expired"
+    fresh = await _send(
+        app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
+    )
+    assert fresh.status_code == 200, fresh.text
+    assert (await app_client.get(f"/api/public/b2b-sign/{token}")).status_code == 404
+
+
+# ── DW przy wysyłce (decyzja Artura 27.10.2026) ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_cc_is_the_recruitment_team_and_gets_the_link_mail_and_the_bells(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env, monkeypatch
+):
+    """DW tylko z zespołu rekrutacji i autora, którzy sami widzą umowę ze
+    stawkami; mail z własnej skrzynki nadawcy, rekruter w DW."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.models.user import User, UserRole
+    from app.services.b2b_esign import mail as esign_mail
+    from tests.test_b2b_signature_automation import _headers_for_role
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    recruiter_id = int(
+        (await _headers_for_role(app_client, UserRole.recruiter))["X-Test-User-Id"]
+    )
+    outsider_id = int(
+        (await _headers_for_role(app_client, UserRole.recruiter))["X-Test-User-Id"]
+    )
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, scenario["job_id"])
+        assert job is not None
+        job.recruiter_id = recruiter_id
+        await db.commit()
+        recruiter_email = (await db.get(User, recruiter_id)).email
+
+    defaults = await app_client.get(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/esign/defaults",
+        headers=app_auth_headers,
+    )
+    assert defaults.status_code == 200, defaults.text
+    candidates = {p["id"]: p for p in defaults.json()["cc_candidates"]}
+    assert candidates[recruiter_id]["suggested"] is True
+    assert outsider_id not in candidates
+    assert esign_env["admin_id"] not in candidates, "nadawca nie jest w DW"
+
+    outsider = await app_client.post(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/esign/send",
+        json={
+            "contractor_email": "anna@example.com",
+            "company_signer_id": esign_env["signer_id"],
+            "days": 3,
+            "cc_user_ids": [outsider_id],
+        },
+        headers=app_auth_headers,
+    )
+    assert outsider.status_code == 422, outsider.text
+
+    mails: list[dict] = []
+
+    async def _capture(db, **kwargs):
+        mails.append(kwargs)
+        return True, None
+
+    monkeypatch.setattr(esign_mail, "send_from", _capture)
+    sent = await app_client.post(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/esign/send",
+        json={
+            "contractor_email": "anna@example.com",
+            "company_signer_id": esign_env["signer_id"],
+            "days": 3,
+            "cc_user_ids": [recruiter_id],
+        },
+        headers=app_auth_headers,
+    )
+    assert sent.status_code == 200, sent.text
+    assert [p["id"] for p in sent.json()["request"]["cc"]] == [recruiter_id]
+    assert mails[0]["to"] == "anna@example.com"
+    assert mails[0]["cc"] == [recruiter_email]
+    assert mails[0]["user_id"] == esign_env["admin_id"], "mail z własnej skrzynki"
+
+    listed = await _register_item(
+        app_client, app_auth_headers, scenario["generated_id"]
+    )
+    assert listed["esign"]["cc_names"] == ["Signature recruiter"]
+
+    request_id = sent.json()["request"]["id"]
+    await _expire(request_id, datetime.now(timezone.utc) + timedelta(days=3, minutes=1))
+    assert any("wygasł" in t for t in await _notices(recruiter_id, request_id))
+    assert any("wygasł" in t for t in await _notices(esign_env["admin_id"], request_id))
+    assert not await _notices(outsider_id, request_id)
+
+    relinked = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert relinked.status_code == 200, relinked.text
+    assert mails[-1]["cc"] == [recruiter_email], "nowy link też idzie do DW"
+
+
+def test_watchers_are_the_sender_and_cc_without_repeats():
+    from types import SimpleNamespace
+
+    from app.services.b2b_esign.service import watchers
+
+    assert watchers(
+        SimpleNamespace(sent_by=7, handled_by=None, cc_user_ids=[9, 7, 9, 11])
+    ) == [7, 9, 11]
+    assert (
+        watchers(SimpleNamespace(sent_by=None, handled_by=None, cc_user_ids=[])) == []
+    )
+    # Po „Przejmij obsługę” obsługujący pierwszy, nadawca dalej wie (0605).
+    assert watchers(SimpleNamespace(sent_by=7, handled_by=12, cc_user_ids=[9])) == [
+        12,
+        7,
+        9,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cc_who_left_the_team_gets_no_new_link_or_copy(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env, monkeypatch
+):
+    """Przegląd kodu 27.10.2026: DW sprawdzane tylko przy wysyłce — rekruter
+    przepięty z rekrutacji dostawał nowy link do PDF-a ze stawkami."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.models.user import UserRole
+    from app.services.b2b_esign import mail as esign_mail
+    from tests.test_b2b_signature_automation import _headers_for_role
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    recruiter_id = int(
+        (await _headers_for_role(app_client, UserRole.recruiter))["X-Test-User-Id"]
+    )
+    successor_id = int(
+        (await _headers_for_role(app_client, UserRole.recruiter))["X-Test-User-Id"]
+    )
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, scenario["job_id"])
+        assert job is not None
+        job.recruiter_id = recruiter_id
+        await db.commit()
+    mails: list[dict] = []
+
+    async def _capture(db, **kwargs):
+        mails.append(kwargs)
+        return True, None
+
+    monkeypatch.setattr(esign_mail, "send_from", _capture)
+    sent = await app_client.post(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/esign/send",
+        json={
+            "contractor_email": "anna@example.com",
+            "company_signer_id": esign_env["signer_id"],
+            "days": 3,
+            "cc_user_ids": [recruiter_id],
+        },
+        headers=app_auth_headers,
+    )
+    assert sent.status_code == 200, sent.text
+    assert mails[-1]["cc"], "przy wysyłce rekruter jest w DW"
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, scenario["job_id"])
+        assert job is not None
+        job.recruiter_id = successor_id
+        await db.commit()
+    request_id = sent.json()["request"]["id"]
+    await _expire(request_id, datetime.now(timezone.utc) + timedelta(days=3, minutes=1))
+    relinked = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert relinked.status_code == 200, relinked.text
+    assert mails[-1]["cc"] == [], "kto wypadł z zespołu, nie dostaje nowego linku"
+
+
+# ── obsługujący i zastępstwo (decyzja Artura 27.10.2026) ─────────────────────
+
+
+async def _connect_mailbox(user_id: int) -> None:
+    """Połączona skrzynka M365 (bez prawdziwych tokenów — Graph nie jest wołany)."""
+    import uuid
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.m365 import M365Connection
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            M365Connection(
+                user_id=user_id,
+                tenant_id="t",
+                mailbox_upn=f"esign-{uuid.uuid4().hex[:6]}@example.com",
+                access_token_ct="a",
+                refresh_token_ct="r",
+                expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+                is_active=True,
+            )
+        )
+        await db.commit()
+
+
+async def _team_recruiter(app_client, job_id: int) -> tuple[int, dict[str, str]]:
+    """Rekruter prowadzący rekrutację umowy — może ją wysłać i przejąć."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.models.user import UserRole
+    from tests.test_b2b_signature_automation import _headers_for_role
+
+    headers = await _headers_for_role(app_client, UserRole.recruiter)
+    user_id = int(headers["X-Test-User-Id"])
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        assert job is not None
+        job.recruiter_id = user_id
+        await db.commit()
+    return user_id, headers
+
+
+@pytest.mark.asyncio
+async def test_take_over_moves_the_reminders_to_the_new_handlers_mailbox(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env, monkeypatch
+):
+    """Zespół chciał „wysyłki w zastępstwie”: bez nowego uprawnienia przejmuje
+    ten, kto mógłby wysłać umowę; kolejne maile idą z jego skrzynki."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.user import UserRole
+    from app.services.b2b_esign import mail as esign_mail
+    from app.tasks import b2b_esign_sweeper
+    from tests.test_b2b_signature_automation import _headers_for_role
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    recruiter_id, recruiter_headers = await _team_recruiter(
+        app_client, scenario["job_id"]
+    )
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    request_id = sent.json()["request"]["id"]
+    assert sent.json()["request"]["handled_by_id"] == esign_env["admin_id"]
+
+    own = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/take-over", headers=app_auth_headers
+    )
+    assert own.status_code == 409, own.text
+    outsider = await _headers_for_role(app_client, UserRole.recruiter)
+    refused = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/take-over", headers=outsider
+    )
+    assert refused.status_code == 403, refused.text
+
+    listed = await _register_item(
+        app_client, recruiter_headers, scenario["generated_id"]
+    )
+    assert listed["can_take_over_esign"] is True
+    # Bez połączonej skrzynki dalsze maile przepadłyby po cichu (przegląd kodu).
+    no_mailbox = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/take-over", headers=recruiter_headers
+    )
+    assert no_mailbox.status_code == 409, no_mailbox.text
+    assert "skrzynkę Microsoft 365" in no_mailbox.json()["detail"]
+    await _connect_mailbox(recruiter_id)
+    taken = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/take-over", headers=recruiter_headers
+    )
+    assert taken.status_code == 200, taken.text
+    assert taken.json()["handled_by_id"] == recruiter_id
+    assert any(
+        "obsługuje teraz umowę" in t
+        for t in await _notices(esign_env["admin_id"], request_id)
+    )
+
+    mails: list[dict] = []
+
+    async def _capture(db, **kwargs):
+        mails.append(kwargs)
+        return True, None
+
+    monkeypatch.setattr(esign_mail, "send_from", _capture)
+    now = datetime.now(timezone.utc)
+    assert (
+        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=2, minutes=1))
+        == "reminded"
+    )
+    assert mails and mails[0]["user_id"] == recruiter_id
+    assert await _notices(recruiter_id, request_id)
+
+    history = await app_client.get(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/status-history",
+        headers=app_auth_headers,
+    )
+    labels = [e["label"] for e in history.json() if e.get("kind") == "esign"]
+    assert any(label.startswith("Obsługa wysyłki przejęta") for label in labels)
+
+
+@pytest.mark.asyncio
+async def test_handler_on_leave_brings_the_leave_substitute_into_the_bells(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Obsługujący na urlopie z wpisanym zastępcą (moduł „Urlopy”): zastępca
+    dostaje dzwonek o wygaśnięciu, a rejestr mówi, do kiedy trwa urlop."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.models.hr_leave import LeaveRequest
+    from app.models.user import UserRole
+    from tests.test_b2b_signature_automation import _headers_for_role
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    substitute_id = int(
+        (await _headers_for_role(app_client, UserRole.recruiter))["X-Test-User-Id"]
+    )
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    request_id = sent.json()["request"]["id"]
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        leave = LeaveRequest(
+            user_id=esign_env["admin_id"],
+            leave_type="vacation",
+            status="approved",
+            start_date=today - timedelta(days=1),
+            end_date=today + timedelta(days=5),
+            substitute_user_id=substitute_id,
+        )
+        db.add(leave)
+        await db.commit()
+        leave_id = leave.id
+    try:
+        listed = await _register_item(
+            app_client, app_auth_headers, scenario["generated_id"]
+        )
+        assert (
+            listed["esign"]["handler_absent_until"]
+            == (today + timedelta(days=5)).isoformat()
+        )
+        assert listed["esign"]["handler_substitute_name"] == "Signature recruiter"
+
+        await _expire(
+            request_id, datetime.now(timezone.utc) + timedelta(days=3, minutes=1)
+        )
+        assert any("wygasł" in t for t in await _notices(substitute_id, request_id))
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.delete(await db.get(LeaveRequest, leave_id))
+            await db.commit()

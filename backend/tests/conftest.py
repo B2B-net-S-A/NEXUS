@@ -18,6 +18,7 @@ schema is ready.
 from __future__ import annotations
 
 import asyncio
+import functools
 import importlib
 import json
 import os
@@ -81,6 +82,7 @@ def routine_notification_email_enabled(monkeypatch):
         "app.tasks.app_mail_monitor",
         "app.services.stage_notification_emitter",
         "app.services.mention_dispatch",
+        "app.tasks.notification_email_outbox",
     )
     # Import konsumentów PRZED podmianą: moduł importowany pierwszy raz w trakcie
     # podmiany wiąże `from … import load_policy` z włączoną polityką, a
@@ -203,6 +205,59 @@ def _competition_rankings_uncached(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _cv_preview_reads_cleared():
+    """Odczyt CV z `/cv/preview` żyje 30 min w procesie pod skrótem pliku.
+
+    Testy `/from-cv` wgrywają te same bajty z różnymi zamockowanymi odczytami
+    — bez czyszczenia dostawałyby odczyt poprzedniego testu.
+    """
+    from app.services.cv_preview_cache import preview_cache
+
+    preview_cache.clear()
+    yield
+    preview_cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _dashboard_metric_credit_snapshot_uncached(monkeypatch):
+    """Migawka kredytu kamieni milowych kreatora metryk żyje 60 s w procesie.
+
+    Runda 10 (R10-N1-1): testy na wspólnej bazie dosiewają ruchy i liczą
+    metrykę ponownie — z cache'em dostawałyby migawkę poprzedniego testu.
+    Zachowanie cache'u sprawdza `test_dashboard_metrics_r10.py`.
+    """
+    from app.services.custom_metrics import engine as metric_engine
+
+    monkeypatch.setattr(metric_engine, "_CREDITED_SNAPSHOT_TTL_SECONDS", -1)
+
+
+@pytest.fixture(autouse=True)
+def _credited_snapshot_uncached(monkeypatch):
+    """Migawka `credited` całej firmy żyje 60 s w procesie (27.10.2026).
+
+    Testy na wspólnej bazie dosiewają etapy i liczą KPI ponownie — z cache'em
+    dostawałyby wiersze poprzedniego testu. Zachowanie cache'u sprawdza
+    `test_credited_snapshot.py`.
+    """
+    from app.services import credited_snapshot
+
+    monkeypatch.setattr(credited_snapshot, "_SNAPSHOT_TTL_SECONDS", -1)
+
+
+@pytest.fixture
+def empty_credited_snapshot(monkeypatch):
+    """Pusta migawka `credited` dla testów z atrapą `db` z kolejką odpowiedzi
+    — odczyt migawki (`credited_snapshot`, 27.10.2026) nie może zjadać z niej
+    wyników przygotowanych dla zapytania konsumenta."""
+    from app.services import credited_snapshot
+
+    async def _rows(_db):
+        return ()
+
+    monkeypatch.setattr(credited_snapshot, "credited_rows", _rows)
+
+
+@pytest.fixture(autouse=True)
 def _open_the_order_mail_recheck_window(monkeypatch):
     """Automatyczny recheck ma w testach chodzić niezależnie od pory dnia.
 
@@ -217,6 +272,23 @@ def _open_the_order_mail_recheck_window(monkeypatch):
 
     monkeypatch.setattr(settings, "ORDER_MAIL_RECHECK_START_HOUR_LOCAL", 0)
     monkeypatch.setattr(settings, "ORDER_MAIL_RECHECK_END_HOUR_LOCAL", 0)
+
+
+# ── „Ludzie w NEXUSIE”: główny wyłącznik programu ──────────────────────────
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _hr_program_enabled_in_tests():
+    """Na produkcji program jest wyłączony (`HR_PROGRAM_ENABLED=false`, Artur
+    18.10.2026), a testy modułów sprawdzają ich działanie — dlatego tu włączony.
+    Zasięg sesji, bo fixture'y modułu (np. macierz bramek w
+    `test_authz_guard_matrix.py`) liczą się przed fixture'ami testu. Stan
+    wyłączony sprawdza `test_hr_program_switch.py` (monkeypatch w teście)."""
+
+    patch = pytest.MonkeyPatch()
+    patch.setattr(settings, "HR_PROGRAM_ENABLED", True)
+    yield
+    patch.undo()
 
 
 # ── Auto-CV po ruchu na „Zweryfikowany" ─────────────────────────────────────
@@ -236,7 +308,35 @@ def _no_background_cv_generation_after_moves(monkeypatch):
     monkeypatch.setattr(settings, "CV_AUTO_GENERATE_ON_VERIFIED", False)
 
 
+@pytest.fixture(autouse=True)
+def _no_background_sales_company_dates(monkeypatch):
+    """Szansa w Sprzedaży odpala w tle uzupełnianie dat osób z firmy (D3).
+
+    Zadanie ma własną sesję bazy i przeżyłoby test, który je odpalił. Testy
+    biegu (`test_sales_company_dates.py`) wołają `run_company_dates` wprost.
+    """
+
+    from app.services.sales import company_dates
+
+    monkeypatch.setattr(company_dates, "schedule_company_dates", lambda _id: False)
+
+
 # ── QC CV — bramka przed „CV wysłane”/Cpro (Rekrutacja v5, 0361) ────────────
+
+
+@pytest.fixture(autouse=True)
+def _no_background_contract_reading(monkeypatch):
+    """Wgranie i usunięcie umowy ramowej uruchamia zadanie w tle (0426: odczyt
+    pliku, Voyage, Qdrant) — przeżywałoby test, który je odpalił. Testy indeksu
+    wołają ``index_contract`` wprost."""
+    from app.services import framework_contract_index
+
+    monkeypatch.setattr(
+        framework_contract_index, "index_after_upload", lambda _id: None
+    )
+    monkeypatch.setattr(
+        framework_contract_index, "forget_after_delete", lambda _id: None
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -248,6 +348,39 @@ def _cv_qc_gate_off_by_default(monkeypatch):
     """
 
     monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", False)
+
+
+# ── Bramka „Zweryfikowany” i powód zatrudnienia (D1, D2 — 04.10.2026) ───────
+
+
+@pytest.fixture(autouse=True)
+def _verified_and_hired_gates_off_by_default(monkeypatch):
+    """Setki testów przesuwają kartę na „Zweryfikowany” bez arkusza i na
+    „Zatrudniony” bez pola „jak podpisano” — testują co innego. Testy tych
+    reguł (`test_verified_gate.py`) włączają je jawnie. Minimum dla DL
+    (21.10.2026) ma osobny wyłącznik — włącza go `minimum_on`. Delivery Lead
+    bez bramek pól (22.10.2026) też jest tu wyłączony — testy bramek
+    przesuwają kartę jako DL; włącza go `dl_skips_on`."""
+
+    monkeypatch.setattr(settings, "VERIFIED_GATE_ENABLED", False)
+    monkeypatch.setattr(settings, "DL_SKIPS_FILL_GATES", False)
+    monkeypatch.setattr(settings, "VERIFIED_MINIMUM_FIELDS_ENABLED", False)
+    monkeypatch.setattr(settings, "HIRED_SIGNED_VIA_REQUIRED", False)
+
+
+# ── Przegląd AI zgłoszeń z linku rekrutacji (0404) ───────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _application_screening_off_by_default(monkeypatch):
+    """Testy formularza kariery sprawdzają proces w „Nowi” zaraz po zgłoszeniu.
+
+    Z przeglądem AI proces otwiera dopiero pętla w tle, więc te testy
+    widziałyby pustą rekrutację. Testy przeglądu
+    (`test_application_screening.py`) włączają go jawnie.
+    """
+
+    monkeypatch.setattr(settings, "APPLICATION_SCREENING_ENABLED", False)
 
 
 # ── Polkomtel: klientowa normalizacja numerów Finansów ─────────────────────
@@ -578,6 +711,59 @@ def ci_shard_assignment(
     return assignment
 
 
+_CI_SHARD_PATTERNS = ("test_*.py", "*_test.py")
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _ci_key(path) -> str:
+    return Path(path).resolve().relative_to(_BACKEND_ROOT).as_posix()
+
+
+@functools.cache
+def _ci_shard_plan() -> tuple[int, int, dict[str, int]] | None:
+    """``(indeks, liczba, {plik: shard})`` z env CI albo ``None`` poza shardem.
+
+    Partycję liczymy z LISTY PLIKÓW na dysku (oba wzorce domyślne pytesta),
+    nie z zebranych testów — dzięki temu shard nie musi kolekcjonować cudzych
+    plików (``pytest_ignore_collect`` niżej). Każdy shard widzi te same pliki
+    i te same czasy, więc liczy tę samą partycję bez koordynacji.
+    """
+    count = int(os.environ.get("CI_SHARD_COUNT", "1") or "1")
+    if count <= 1:
+        return None
+    index = int(os.environ.get("CI_SHARD_INDEX", "0") or "0")
+    if not 0 <= index < count:
+        raise pytest.UsageError(f"CI_SHARD_INDEX={index} poza zakresem 0..{count - 1}")
+    tests_root = Path(__file__).resolve().parent
+    files = sorted(
+        {
+            _ci_key(path)
+            for pattern in _CI_SHARD_PATTERNS
+            for path in tests_root.rglob(pattern)
+            if "__pycache__" not in path.parts
+        }
+    )
+    return index, count, ci_shard_assignment(files, count, _ci_file_durations())
+
+
+def pytest_ignore_collect(collection_path, config):
+    """Shard CI nie importuje plików testowych innych shardów.
+
+    22.10.2026: każdy z 12 shardów kolekcjonował wszystkie ~29,9 tys. testów
+    i odrzucał 93% z nich dopiero w ``pytest_collection_modifyitems``. Pod
+    tracerem pokrycia (``--cov-branch``) sama kolekcja trwała w kolejce
+    1:52–3:00 min na shard, lokalnie bez pokrycia 36 s.
+    """
+    plan = _ci_shard_plan()
+    if plan is None or collection_path.suffix != ".py":
+        return None
+    index, _, shard_of = plan
+    shard = shard_of.get(_ci_key(collection_path))
+    if shard is not None and shard != index:
+        return True
+    return None
+
+
 def _apply_ci_shard_filter(config, items) -> None:
     """CI-only podział kolekcji na shardy: całe PLIKI, wyważone zmierzonym czasem.
 
@@ -591,31 +777,30 @@ def _apply_ci_shard_filter(config, items) -> None:
     z ``ci_test_durations.json`` (odświeżanie: `.github/scripts/
     build_test_durations.py`). Nieaktualna mapa pogarsza tylko równowagę.
 
+    Od 22.10.2026 cudze pliki odpadają już przed kolekcją
+    (``pytest_ignore_collect``); ten filtr zostaje jako druga linia: plik
+    spoza listy z dysku (inny wzorzec, plik dodany w trakcie) trafia tylko do
+    shardu 0 — partycja zostaje zupełna i rozłączna.
+
     To NIE jest xdist (wdrożony i wycofany — patrz komentarz przy pytest
     w ci.yml): każdy shard to osobny runner z własnym postgresem
     i sekwencyjnym pytestem, więc klasa „równolegli workerzy na wspólnej
     bazie psują globalne agregaty" tu nie istnieje.
     """
-    count = int(os.environ.get("CI_SHARD_COUNT", "1") or "1")
-    if count <= 1:
+    plan = _ci_shard_plan()
+    if plan is None:
         return
-    index = int(os.environ.get("CI_SHARD_INDEX", "0") or "0")
-    if not 0 <= index < count:
-        raise pytest.UsageError(f"CI_SHARD_INDEX={index} poza zakresem 0..{count - 1}")
-    backend_root = Path(__file__).resolve().parent.parent
-    key_of = {
-        str(item.path): Path(item.path).resolve().relative_to(backend_root).as_posix()
-        for item in items
-    }
-    shard_of = ci_shard_assignment(
-        sorted(set(key_of.values())), count, _ci_file_durations()
-    )
-    kept = [item for item in items if shard_of[key_of[str(item.path)]] == index]
+    index, count, shard_of = plan
+
+    def mine(item) -> bool:
+        return shard_of.get(_ci_key(item.path), 0) == index
+
+    kept = [item for item in items if mine(item)]
     if not kept:
         raise pytest.UsageError(
             f"Shard {index}/{count} nie dostał żadnego pliku — błędna konfiguracja"
         )
-    deselected = [item for item in items if shard_of[key_of[str(item.path)]] != index]
+    deselected = [item for item in items if not mine(item)]
     if deselected:
         items[:] = kept
         config.hook.pytest_deselected(items=deselected)
@@ -695,3 +880,14 @@ def db_without_client_merges():
     db = AsyncMock()
     db.execute.return_value = SimpleNamespace(all=lambda: [], scalars=lambda: [])
     return db
+
+
+@pytest.fixture
+def v8_must_gate(monkeypatch):
+    """Bramka v8 (każde must-technologia, budżet i dni ukrywają; osoba bez
+    danych przechodzi, gdy nie ma bramki must) — od 30.09.2026 wyłącznik
+    awaryjny ``MUST_GATE_MODE=all``. Testy opisujące to zachowanie przypinają
+    się tą fixturą; tryb domyślny (krytyczne) pilnuje ``test_critical_gate.py``."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "MUST_GATE_MODE", "all")

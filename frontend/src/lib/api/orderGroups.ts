@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 import type { OrderType } from "@/lib/api/dlPortal";
 import type { ExecutiveContractBrief } from "@/lib/api/executiveContracts";
+import type { RecruitmentRate } from "@/lib/api/recruitmentRates";
 
 export type { OrderType } from "@/lib/api/dlPortal";
 
@@ -112,6 +113,16 @@ export interface OrderLineRead {
   unsettled_total: number | null;
   /** Ostatni zaimportowany miesiąc bez zejścia dla tej linii („2026-07"). */
   missing_consumption_month: string | null;
+  /** Przycisk „Zużycie MD" (ticket 7, 09.2026): zejścia z ostatnich miesięcy,
+   *  najstarsze pierwsze — mini-wykres. Puste przy kosztowym / wspólnej puli. */
+  consumption_recent?: LineConsumptionPoint[];
+  /** Powody pomarańczowego przycisku (liczone na serwerze). */
+  consumption_flags?: LineConsumptionFlag[];
+  /** Miesiąc bez zejścia przy fladze `missing_previous_month` („2026-08"). */
+  consumption_missing_month?: string | null;
+  /** MD z importu czekające na kolejne zamówienie tej osoby — per miesiąc
+   *  raportu (wiersz bez numeru obok wiersza z numerem, 21.10.2026). */
+  awaiting_md?: LineConsumptionPoint[];
   /** Decyzja po zakończeniu współpracy na zamówieniu MD. `pending` oznacza,
    *  że linia zostaje oznaczona alarmowo do czasu decyzji Delivery Leada. */
   offboarding_case?: OrderOffboardingCaseRead | null;
@@ -128,8 +139,17 @@ export interface OrderLineRead {
   removed_from_order?: boolean;
   /** Data zakończenia współpracy, gdy się skończyła (linia zostaje). */
   cooperation_ended_on?: string | null;
-  /** Zaraportowane MD tej osoby na zamówieniu (operacyjne). */
+  /** Zaraportowane MD tej osoby na zamówieniu (operacyjne). Przy wspólnej
+   *  puli — suma z podziału zejść miesięcznych na osoby (jak „Zejścia MD”). */
   md_used?: number | null;
+  /** Wspólna pula: ile miesięcy zejść nie ma podziału na osoby — `md_used`
+   *  osoby ich nie obejmuje. `null`/brak poza wspólną pulą. */
+  shared_md_unattributed_months?: number | null;
+  /** Rozwiązanie UMOWY osoby (0367) — odróżnia „Zakończył współpracę"
+   *  (umowa rozwiązana) od „Zakończył projekt" (umowa B2B trwa). */
+  contract_type?: "b2b" | "uop" | "uzlecenie" | null;
+  agreement_termination_mode?: "notice" | "mutual_agreement" | null;
+  agreement_last_day?: string | null;
   /** Decyzja „Zostaw jako historię". */
   history_kept_at?: string | null;
   history_kept_by_name?: string | null;
@@ -236,6 +256,8 @@ export interface OrderGroupRead {
    *  bez rozbicia na zakresy (BIK/Polkomtel — nagłówek bez paska). */
   md_positions_total: number | null;
   md_used_total: number | null;
+  /** Suma ręcznych korekt linii wnoszących budżet; brak = bez korekty. */
+  md_adjustment_total?: number | null;
   /** Wartość umowy i wykorzystana kwota w PLN. `null` dla ról bez finansów —
    *  nagłówek pokazuje wtedy wyłącznie MD, a nie „0 zł". */
   contract_value_pln: number | null;
@@ -356,6 +378,9 @@ export interface OrderPlanContract {
    *  co przy odznace „Zakończył współpracę"). Wybór takiego kontraktu z listy
    *  prowadzi do pytania zostaw / wznów / zastąp / usuń, nie do cichego wznowienia. */
   inactive_reason?: string | null;
+  /** Stawki z rekrutacji tej osoby (D7) — stawka do klienta jest punktem
+   *  odniesienia dla stawki przychodowej linii. `null` bez podglądu kwot. */
+  recruitment_rate?: RecruitmentRate | null;
 }
 
 /** Wynik dopasowania osoby z dokumentu do kontraktu (odznaka karty). */
@@ -448,13 +473,14 @@ export interface OrderLineTakeoverInput {
   entry_date: string;
   rate_cost: number;
   rate_revenue: number;
+  /** Waluty stawek; brak = PLN. Serwer przelicza do PLN/MD. */
+  rate_candidate_currency?: string;
+  rate_client_currency?: string;
   md_transfer_method?: MdTransferMethod | null;
   expected_case_version?: number | null;
 }
 
 export interface OrderGroupInput {
-  md_consumption_month?: string;
-  md_consumption_value?: number;
   status?: "draft" | "active";
   md_budget_mode?: "per_person" | "shared" | null;
   md_budget_mode_locked?: boolean;
@@ -474,8 +500,6 @@ export interface OrderGroupInput {
 }
 
 export interface OrderGroupPatch {
-  md_consumption_month?: string;
-  md_consumption_value?: number;
   status?: "draft" | "active";
   md_budget_mode?: "per_person" | "shared" | null;
   md_budget_mode_locked?: boolean;
@@ -523,7 +547,7 @@ export type LineConsumptionStatus = "accepted" | "protocol";
 
 /** Jeden miesiąc zużycia MD osoby na zamówieniu. `status` jest etapem
  *  rozliczenia u klienta (protokół → akceptacja), nie stanem importu. Etykiety
- *  PL żyją w warstwie prezentacji (`LineMonthlyHistoryDialog`), NIE tutaj —
+ *  PL żyją w warstwie prezentacji (`LineConsumptionTable`), NIE tutaj —
  *  testy mockują `@/lib/api` w całości, więc stałe stąd wychodziłyby w nich
  *  jako `undefined`. */
 export interface LineConsumptionRow {
@@ -535,10 +559,229 @@ export interface LineConsumptionRow {
   import_id: number | null;
   created_by_name: string | null;
   updated_at: string | null;
+  /** Kolumna „Źródło": ręczna korekta = ręczny wpis nadpisujący import. */
+  source_kind?: "import" | "manual" | "manual_correction";
+  /** Saldo osoby po tym miesiącu (ujemne = przekroczenie). */
+  balance_after?: number | null;
+  import_rows?: LineConsumptionImportRef[];
+  corrections?: LineConsumptionCorrection[];
+}
+
+export interface LineConsumptionPoint {
+  period_month: string;
+  md: number;
+}
+
+export type LineConsumptionFlag =
+  | "negative_balance"
+  | "missing_previous_month"
+  | "import_to_verify";
+
+export interface LineConsumptionImportRef {
+  import_id: number;
+  row_number: number;
+  order_number_hint: string | null;
+  md_reported: number;
+  /** Numer z „Uwag" wskazuje inne zamówienie niż to, na które zaksięgowano. */
+  foreign: boolean;
+}
+
+export interface LineConsumptionCorrection {
+  created_at: string;
+  period_month?: string | null;
+  author_name: string | null;
+  from_md: number | null;
+  from_source: "import" | "manual" | "none";
+  to_md: number | null;
+  removed: boolean;
+}
+
+export interface LineConsumptionForeignWarning {
+  period_month: string;
+  order_number: string;
+  md: number;
+  import_id: number;
+  row_number: number;
+}
+
+/** Jeden miesiąc osoby na zamówieniu kosztowym (zakładka „Zużycie”). */
+export interface CostConsumptionRow {
+  period_month: string;
+  invoice_amount: number;
+  settled_amount: number;
+  /** Część kwoty, która nie zmieściła się w budżecie zamówienia. */
+  unsettled_amount: number;
+  source: "import" | "manual";
+  status?: LineConsumptionStatus | null;
+  note?: string | null;
+  import_id?: number | null;
+  created_by_name?: string | null;
+  updated_at?: string | null;
+  /** Saldo ZAMÓWIENIA po tym miesiącu — po wpisach wszystkich osób. */
+  balance_after: number;
+}
+
+export interface CostConsumptionPerson {
+  order_id: number;
+  name: string;
+  invoiced: number;
+}
+
+/** Kwota dowolnej osoby zamówienia — do podglądu „po zapisie”. */
+export interface CostConsumptionGroupRow {
+  order_id: number;
+  period_month: string;
+  invoice_amount: number;
+}
+
+export interface CostConsumptionsResponse {
+  order_number: string;
+  /** Budżet zamówienia z ręczną korektą — punkt startu rozliczenia. */
+  budget_pool: number;
+  budget_used: number;
+  budget_remaining: number;
+  rows: CostConsumptionRow[];
+  people: CostConsumptionPerson[];
+  group_rows: CostConsumptionGroupRow[];
+}
+
+export interface CostConsumptionUpsert {
+  invoice_amount: number;
+  status?: LineConsumptionStatus | null;
+  note?: string | null;
 }
 
 export interface LineConsumptionsResponse {
   rows: LineConsumptionRow[];
+  order_number?: string | null;
+  md_budget?: number | null;
+  md_used?: number | null;
+  md_remaining?: number | null;
+  foreign_import_warnings?: LineConsumptionForeignWarning[];
+  removed_months?: LineConsumptionCorrection[];
+}
+
+// ── Historia zamówienia (ticket 7, 09.2026) ─────────────────────────────────
+
+export type OrderHistoryCategory = "order" | "consultants" | "consumption" | "edits";
+
+export interface OrderHistoryChange {
+  label: string;
+  /** `null` = wpis sprzed 25.09.2026 (bez wartości) albo kwota zredagowana. */
+  before: string | null;
+  after: string | null;
+}
+
+export interface OrderHistoryDetail {
+  created_at: string;
+  author_id: number | null;
+  author_name: string | null;
+  text: string;
+}
+
+export interface OrderHistoryEntry {
+  key: string;
+  category: OrderHistoryCategory;
+  event_type: string;
+  type_label: string;
+  created_at: string;
+  author_id: number | null;
+  author_name: string | null;
+  summary: string;
+  order_id: number | null;
+  person_name: string | null;
+  person_names: string[];
+  changes: OrderHistoryChange[];
+  balance_before: number | null;
+  balance_after: number | null;
+  details: OrderHistoryDetail[];
+  import_id: number | null;
+  import_period_month: string | null;
+  import_people: number | null;
+  import_md: number | null;
+  related_group_id: number | null;
+  related_order_number: string | null;
+}
+
+export interface OrderHistoryResponse {
+  entries: OrderHistoryEntry[];
+  people: string[];
+}
+
+// ── Importy MD klienta (ticket 7, 09.2026) ──────────────────────────────────
+
+export type ClientMdImportRowState = "booked" | "to_verify" | "error" | "neutral" | "awaiting";
+
+export interface ClientMdImportSummary {
+  id: number;
+  period_month: string;
+  filename: string | null;
+  created_at: string;
+  uploaded_by_name: string | null;
+  rows_total: number;
+  rows_booked: number;
+  rows_to_verify: number;
+  rows_error: number;
+  md_booked: number;
+}
+
+export interface ClientMdImportRow {
+  id: number;
+  row_number: number;
+  consultant_name: string;
+  order_number_hint: string | null;
+  target_order_number: string | null;
+  target_group_id: number | null;
+  md_reported: number;
+  invoice_amount: number | null;
+  state: ClientMdImportRowState;
+  state_label: string;
+  status_label: string;
+  status_reason: string | null;
+  number_mismatch: boolean;
+}
+
+export interface ClientMdImportDetail extends ClientMdImportSummary {
+  rows: ClientMdImportRow[];
+}
+
+/** MD jednego konsultanta w miesięcznym zejściu wspólnej puli. */
+export interface SharedMdConsumptionPerson {
+  order_id: number;
+  consultant_name: string;
+  md: number;
+}
+
+/** Zejście wspólnej puli MD za miesiąc (ticket 10.2026: edycja i usunięcie). */
+export interface SharedMdConsumptionMonth {
+  period_month: string;
+  /** Suma miesiąca — to ona pomniejsza pulę. */
+  md_reported: number;
+  source: "import" | "manual";
+  /** `null` = zapis bez podziału na osoby (stara ręczna suma albo import,
+   *  którego wiersze nie składają się w zapisaną sumę). */
+  breakdown: SharedMdConsumptionPerson[] | null;
+  breakdown_source: "manual" | "import" | null;
+  created_by_name: string | null;
+  updated_at: string | null;
+}
+
+export interface SharedMdConsultant {
+  order_id: number;
+  consultant_name: string;
+  status: string;
+}
+
+export interface SharedMdConsumptionsResponse {
+  months: SharedMdConsumptionMonth[];
+  consultants: SharedMdConsultant[];
+  md_budget_total: number | null;
+  md_used: number | null;
+  md_remaining: number | null;
+}
+
+export interface SharedMdConsumptionUpsert {
+  lines: { order_id: number; md: number }[];
 }
 
 export interface LineConsumptionUpsert {
@@ -551,6 +794,9 @@ export interface SwapConsultantInput {
   contract_id: number;
   rate_cost: number;
   rate_revenue: number;
+  /** Waluty stawek; brak = PLN. Serwer przelicza do PLN/MD. */
+  rate_candidate_currency?: string;
+  rate_client_currency?: string;
   swap_date: string;
   /** Pula per osoba: sposób przeniesienia pozostałych MD (ticket 09.2026). */
   md_transfer_method?: MdTransferMethod | null;
@@ -566,7 +812,9 @@ export type ImportRowStatus =
   | "needs_assignment"
   | "unmatched"
   | "cost_only"
-  | "overflow";
+  | "overflow"
+  | "awaiting_order"
+  | "superseded";
 
 /** Wynik dopasowania KOSZTOWEGO — niezależny od `status` (dopasowanie MD po
  *  nazwisku). `null` = wiersz nie dotyczy zamówień kosztowych, co jest czym
@@ -576,7 +824,14 @@ export type ImportCostStatus =
   | "unmatched_number"
   | "unmatched_consultant"
   /** FIN-MD-06: korekta faktury / kwota ≤ 0 — do ręcznego rozliczenia. */
-  | "non_positive_amount";
+  | "non_positive_amount"
+  /** Runda 10: nieczytelna kwota w „Fakturze” — MD zostały, faktura ręcznie. */
+  | "invoice_unreadable"
+  /** Runda 10: numer wskazuje wyczerpane zamówienie kosztowe — faktura
+   *  nierozliczona. */
+  | "order_exhausted"
+  /** 0493: za ten miesiąc jest ręczny wpis kwoty — import go nie nadpisał. */
+  | "manual_kept";
 
 export interface ImportLineOption {
   order_id: number;
@@ -605,6 +860,13 @@ export interface ImportRow {
   overflow_md?: number | null;
   /** Ile wierszy tej samej osoby z tym samym numerem zsumowano w jedno zejście. */
   merged_rows?: number;
+  /** `awaiting_order`: ile MD z wiersza wciąż czeka na kolejne zamówienie. */
+  md_pending?: number | null;
+  /** „Pozostało do zafakturowania” — przy wierszu oczekującym jego MD, przy
+   *  wierszu z numerem suma oczekujących po jego zamówieniu w tej paczce. */
+  awaiting_md?: number | null;
+  /** Zamówienie z numerem, po którym wiersz czeka na kolejne. */
+  awaiting_order?: ImportLineOption | null;
   notes_raw: string | null;
   order_number_hint: string | null;
   invoice_amount: number | null;
@@ -832,6 +1094,60 @@ export const orderGroupsApi = {
       `/api/clients/${clientId}/order-groups/${groupId}/lines/${lineId}/consumptions/${periodMonth}`,
     ),
 
+  /** Zakładka „Zużycie” osoby na zamówieniu kosztowym — same kwoty, więc
+   *  serwer zwraca 403 roli bez dostępu do finansów klienta. */
+  listCostConsumptions: (clientId: number, groupId: number, lineId: number) =>
+    api.get<CostConsumptionsResponse>(
+      `/api/clients/${clientId}/order-groups/${groupId}/lines/${lineId}/cost-consumptions`,
+    ),
+
+  /** Upsert po miesiącu (powtórka nadpisuje). Import Finansów nie nadpisuje
+   *  ręcznego wpisu za ten sam miesiąc. */
+  putCostConsumption: (
+    clientId: number,
+    groupId: number,
+    lineId: number,
+    periodMonth: string,
+    payload: CostConsumptionUpsert,
+  ) =>
+    api.put<CostConsumptionsResponse>(
+      `/api/clients/${clientId}/order-groups/${groupId}/lines/${lineId}/cost-consumptions/${periodMonth}`,
+      payload,
+    ),
+
+  deleteCostConsumption: (
+    clientId: number,
+    groupId: number,
+    lineId: number,
+    periodMonth: string,
+  ) =>
+    api.delete<CostConsumptionsResponse>(
+      `/api/clients/${clientId}/order-groups/${groupId}/lines/${lineId}/cost-consumptions/${periodMonth}`,
+    ),
+
+  /** Zejścia wspólnej puli MD — miesiąc po miesiącu, z podziałem na osoby. */
+  listSharedMdConsumptions: (clientId: number, groupId: number) =>
+    api.get<SharedMdConsumptionsResponse>(
+      `/api/clients/${clientId}/order-groups/${groupId}/md-consumptions`,
+    ),
+
+  /** Zapis miesiąca wspólnej puli (MD per konsultant) — NADPISUJE miesiąc. */
+  putSharedMdConsumption: (
+    clientId: number,
+    groupId: number,
+    periodMonth: string,
+    payload: SharedMdConsumptionUpsert,
+  ) =>
+    api.put<SharedMdConsumptionsResponse>(
+      `/api/clients/${clientId}/order-groups/${groupId}/md-consumptions/${periodMonth}`,
+      payload,
+    ),
+
+  deleteSharedMdConsumption: (clientId: number, groupId: number, periodMonth: string) =>
+    api.delete<SharedMdConsumptionsResponse>(
+      `/api/clients/${clientId}/order-groups/${groupId}/md-consumptions/${periodMonth}`,
+    ),
+
   /** „Wejdź za konsultanta" (albo zaplanowane zastępstwo za osobę, która
    *  ma przyszłą datę zakończenia). */
   takeover: (clientId: number, groupId: number, payload: OrderLineTakeoverInput) =>
@@ -854,6 +1170,22 @@ export const orderGroupsApi = {
   events: (clientId: number, groupId: number) =>
     api.get<{ events: OrderGroupEvent[] }>(
       `/api/clients/${clientId}/order-groups/${groupId}/events`,
+    ),
+
+  /** Historia biznesowa (zgrupowana) — to czyta karta zamówienia. */
+  history: (clientId: number, groupId: number) =>
+    api.get<OrderHistoryResponse>(
+      `/api/clients/${clientId}/order-groups/${groupId}/history`,
+    ),
+
+  listClientMdImports: (clientId: number) =>
+    api.get<{ imports: ClientMdImportSummary[] }>(
+      `/api/clients/${clientId}/md-imports`,
+    ),
+
+  getClientMdImport: (clientId: number, importId: number) =>
+    api.get<ClientMdImportDetail>(
+      `/api/clients/${clientId}/md-imports/${importId}`,
     ),
 };
 

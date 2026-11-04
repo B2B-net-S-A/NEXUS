@@ -18,6 +18,14 @@ let listItems: Array<Record<string, unknown> & { id: number }> = [];
 let listTotal = 0;
 let listExtra: Record<string, unknown> = {};
 
+const classifyMock = vi.hoisted(() =>
+  vi.fn(async (): Promise<{ skills: string[]; as_requirements: boolean } | null> => null),
+);
+vi.mock("@/lib/keyword-suggest", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/keyword-suggest")>()),
+  classifyKeywords: classifyMock,
+}));
+
 vi.mock("next/link", () => ({
   default: ({
     href,
@@ -70,18 +78,30 @@ vi.mock("@/components/AppShell", () => ({ AddCandidateModal: () => null }));
 vi.mock("@/components/v2/modals/ImportCandidatesV2", () => ({
   ImportCandidatesV2: () => null,
 }));
-vi.mock("@/components/v2/modals/AddCandidateFromCVModal", () => ({
-  AddCandidateFromCVModal: () => null,
+vi.mock("@/components/v2/modals/QuickAssignV2", () => ({
+  QuickAssignV2: ({
+    open,
+    candidateId,
+    onAssigned,
+  }: {
+    open: boolean;
+    candidateId: number;
+    onAssigned?: (jobId: number) => void;
+  }) =>
+    open ? (
+      <div role="dialog" aria-label="Przypisz do rekrutacji">
+        <span>assign:{candidateId}</span>
+        <button type="button" onClick={() => onAssigned?.(55)}>
+          Potwierdź przypisanie
+        </button>
+      </div>
+    ) : null,
 }));
-vi.mock("@/components/v2/modals/QuickAssignV2", () => ({ QuickAssignV2: () => null }));
 vi.mock("@/components/v2/modals/GenerateInviteLinkV2", () => ({
   GenerateInviteLinkV2: () => null,
 }));
 vi.mock("@/components/v2/pages/CandidateQuickView", () => ({
   CandidateQuickView: () => null,
-}));
-vi.mock("@/components/v2/filters/PinnedCandidatesBar", () => ({
-  PinnedCandidatesBar: () => null,
 }));
 vi.mock("@/components/v2/filters/SavedSearchesMenu", () => ({
   SavedSearchesMenu: () => null,
@@ -149,6 +169,7 @@ import {
   isHistoryNeutralChange,
 } from "@/components/v2/pages/CandidatesListV2";
 import { DEFAULT_FILTERS } from "@/lib/url-filters";
+import { clearSearchMemory, readRecentSearches, writeListSearch } from "@/lib/search-memory";
 
 function renderList(props: Parameters<typeof CandidatesListV2>[0] = {}) {
   const client = new QueryClient({
@@ -165,7 +186,7 @@ function bar() {
   return screen.getByRole("region", { name: "Filtry kandydatów" });
 }
 
-/** Otwiera okienko przycisku filtra na pasku („Lokalizacja”, „Historia z nami”…). */
+/** Otwiera okienko przycisku filtra na pasku („Lokalizacja”, „Rekrutacje i historia”…). */
 async function openFilter(name: RegExp) {
   fireEvent.click(within(bar()).getByRole("button", { name }));
   return screen.findByRole("dialog");
@@ -188,6 +209,20 @@ async function pickStatus(option: string) {
   fireEvent.click(within(more).getByRole("button", { name: option }));
 }
 
+/**
+ * „Szukaj” — zmiany filtrów czekają na ten przycisk (25.09.2026). Przy otwartej
+ * szufladzie „Więcej filtrów” klikamy przycisk w jej stopce (pasek pod nią
+ * jest wtedy ukryty przed czytnikiem).
+ */
+function search() {
+  const drawer = screen.queryByTestId("candidate-more-filters");
+  if (drawer) {
+    fireEvent.click(screen.getByRole("button", { name: /^Szukaj \(/ }));
+    return;
+  }
+  fireEvent.click(within(bar()).getByRole("button", { name: /^Szukaj(?! w)/ }));
+}
+
 async function candidateCalls() {
   const api = (await import("@/lib/api")).default as unknown as {
     get: ReturnType<typeof vi.fn>;
@@ -204,6 +239,9 @@ async function candidateCalls() {
 describe("CandidatesListV2", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Pamięć ostatniego wyszukiwania (sessionStorage) przeżywa test — bez tego
+    // goły adres następnego testu przywróciłby filtry poprzedniego.
+    clearSearchMemory();
     urlParams = new URLSearchParams();
     listItems = [];
     listTotal = 0;
@@ -260,18 +298,18 @@ describe("CandidatesListV2", () => {
         "CV",
         "Przypisz",
       ]);
-      // Pasek nad tabelą (wariant A, 23.09.2026): słowa kluczowe jak w Traffit
-      // (wszystkie / którekolwiek / żadne + „Szukaj w”) widać od razu.
-      expect(within(bar()).getByLabelText("Zawiera wszystkie ze słów")).toBeTruthy();
-      expect(within(bar()).getByLabelText("Zawiera którekolwiek ze słów")).toBeTruthy();
-      expect(within(bar()).getByLabelText("Nie zawiera żadnego ze słów")).toBeTruthy();
+      // Pasek nad tabelą: słowa kluczowe jako lista wymagań (25.09.2026) —
+      // pierwszy wiersz, „Dodaj wymaganie”, „Wyklucz” i „Szukaj w” od razu.
+      expect(within(bar()).getByLabelText("Wymaganie 1 — słowo albo wariant")).toBeTruthy();
+      expect(within(bar()).getByRole("button", { name: "Dodaj wymaganie" })).toBeTruthy();
+      expect(within(bar()).getByLabelText("Wyklucz — żadne z tych słów")).toBeTruthy();
       expect(within(bar()).getByLabelText("Szukaj w")).toBeTruthy();
       // Pozostałe grupy to przyciski; pola są dopiero w ich okienkach.
       for (const name of [
         /^Stawka/,
         /^Lokalizacja/,
         /^Tryb pracy/,
-        /^Historia z nami/,
+        /^Rekrutacje i historia/,
         /^Umiejętności/,
         /^Dostępność/,
         /^Więcej filtrów/,
@@ -279,16 +317,18 @@ describe("CandidatesListV2", () => {
         expect(within(bar()).getByRole("button", { name })).toBeTruthy();
       }
       expect(screen.queryByLabelText("Promień")).toBeNull();
-      expect(screen.queryByText("Brał udział w rekrutacji")).toBeNull();
+      expect(screen.queryByRole("radiogroup", { name: "Rekrutacje" })).toBeNull();
       const location = await openFilter(/^Lokalizacja/);
       expect(within(location).getByLabelText("Miasto")).toBeTruthy();
       expect(within(location).getByLabelText("Promień")).toBeTruthy();
       fireEvent.keyDown(location, { key: "Escape" });
       await waitFor(() => expect(screen.queryByLabelText("Promień")).toBeNull());
-      const history = await openFilter(/^Historia z nami/);
-      expect(within(history).getByText("Brał udział w rekrutacji")).toBeTruthy();
+      const history = await openFilter(/^Rekrutacje i historia/);
+      expect(within(history).getByRole("radiogroup", { name: "Rekrutacje" })).toBeTruthy();
       fireEvent.keyDown(history, { key: "Escape" });
-      await waitFor(() => expect(screen.queryByText("Brał udział w rekrutacji")).toBeNull());
+      await waitFor(() =>
+        expect(screen.queryByRole("radiogroup", { name: "Rekrutacje" })).toBeNull(),
+      );
       // Rzadsze grupy w szufladzie „Więcej filtrów”, zwinięte.
       expect(screen.queryByRole("radiogroup", { name: "Kogo pokazać" })).toBeNull();
       fireEvent.click(within(bar()).getByRole("button", { name: /Więcej filtrów/ }));
@@ -297,7 +337,7 @@ describe("CandidatesListV2", () => {
         "aria-expanded",
         "false",
       );
-      expect(within(more).queryByRole("button", { name: /Historia z nami/ })).toBeNull();
+      expect(within(more).queryByRole("button", { name: /Rekrutacje i historia/ })).toBeNull();
       // Bez konfiguracji kolumn, gęstości i widoku kafelków.
       expect(screen.queryByLabelText("Konfiguracja kolumn")).toBeNull();
       expect(screen.queryByLabelText("Widok kafelków")).toBeNull();
@@ -323,11 +363,32 @@ describe("CandidatesListV2", () => {
             { job_id: 3, job_title: "C", stage: "rejected", moved_at: "2026-09-12T10:00:00Z" },
           ],
         },
-        { id: 2, name: "Tomasz", lastname: "Nowicki" },
+        {
+          id: 2,
+          name: "Tomasz",
+          lastname: "Nowicki",
+          // Osoba, która u nas pracuje i nie ma żadnego procesu w toku.
+          employment: { state: "employed_at_client", client_name: "Bank Przykładowy" },
+          employment_marker: {
+            phase: "working",
+            source: "contract",
+            clients: [
+              {
+                client_id: 7,
+                client_name: "Bank Przykładowy",
+                contract_id: 70,
+                phase: "working",
+                order_end_date: "2026-12-31",
+              },
+            ],
+          },
+        },
       ];
       listTotal = 2;
       renderList();
       const row = await screen.findByTestId("candidate-row-1");
+      // Bez znacznika — osoba u nas nie pracuje.
+      expect(within(row).queryByText(/Pracuje u nas/)).toBeNull();
       expect(within(row).getByText("od 01.10")).toBeTruthy();
       expect(within(row).getByText("160 zł/h")).toBeTruthy();
       expect(within(row).getByText("Senior Java Developer")).toBeTruthy();
@@ -350,37 +411,119 @@ describe("CandidatesListV2", () => {
       // Stanowisko, telefon, stawka, dostępność i CV — pięć „brak”.
       expect(within(empty).getAllByText("brak")).toHaveLength(5);
       expect(within(empty).getByText("brak lokalizacji")).toBeTruthy();
+      // Znacznik zatrudnienia stoi pod nazwiskiem (kolumna wymagana), a nie
+      // w „W procesie”, którą da się ukryć i która liczy rekrutacje.
+      expect(
+        within(empty).getByText("Pracuje u nas · Bank Przykładowy · do 31.12.2026"),
+      ).toBeTruthy();
+      expect(within(empty).queryByRole("button", { name: /^W procesie:/ })).toBeNull();
       expect(within(empty).queryByRole("button", { name: /Podgląd CV/ })).toBeNull();
       expect(
         within(empty).getByRole("button", { name: "Przypisz Tomasz Nowicki do rekrutacji" }),
       ).toBeTruthy();
     });
 
-    it("słowa kluczowe i wykluczenia z panelu idą do API", async () => {
+    it("osoba na czarnej liście u nas ma pigułkę „Czarna lista” pod nazwiskiem (17.10.2026)", async () => {
+      listItems = [
+        {
+          id: 1,
+          name: "Marta",
+          lastname: "Kowalczyk",
+          status: "blacklisted",
+          availability_status: "actively_looking",
+        },
+        {
+          id: 2,
+          name: "Tomasz",
+          lastname: "Nowicki",
+          status: "active",
+          availability_status: "actively_looking",
+        },
+      ];
+      listTotal = 2;
       renderList();
-      const must = within(bar()).getByLabelText("Zawiera wszystkie ze słów");
-      fireEvent.change(must, { target: { value: "Kafka" } });
-      fireEvent.keyDown(must, { key: "Enter" });
-      const exclude = within(bar()).getByLabelText("Nie zawiera żadnego ze słów");
+      const row = await screen.findByTestId("candidate-row-1");
+      expect(within(row).getByTestId("blacklist-badge")).toHaveTextContent("Czarna lista");
+      // Pigułka zastępuje „Szuka aktywnie” — obok siebie wychodziły poza kolumnę.
+      expect(within(row).queryByText("Szuka aktywnie")).toBeNull();
+      const other = screen.getByTestId("candidate-row-2");
+      expect(within(other).queryByTestId("blacklist-badge")).toBeNull();
+      expect(within(other).getByText("Szuka aktywnie")).toBeTruthy();
+    });
+
+    it("dostępność z notatki mówi, z którego dnia jest, a data człowieka nie", async () => {
+      listItems = [
+        {
+          id: 1,
+          name: "Marta",
+          lastname: "Kowalczyk",
+          availability_date: "2023-05-04",
+          availability_from_notes: { as_of: "2023-05-04", basis: "asap" },
+        },
+        { id: 2, name: "Tomasz", lastname: "Nowicki", availability_date: "2026-11-01" },
+      ];
+      listTotal = 2;
+      renderList();
+      const row = await screen.findByTestId("candidate-row-1");
+      expect(within(row).getByText("od 04.05")).toBeTruthy();
+      const hint = within(row).getByText("z notatki · 04.05.2023");
+      expect(hint.getAttribute("title")).toContain("stan na 04.05.2023");
+      const manual = screen.getByTestId("candidate-row-2");
+      expect(within(manual).getByText("od 01.11")).toBeTruthy();
+      expect(within(manual).queryByText(/z notatki/)).toBeNull();
+    });
+
+    it("wymagania (wiersze) i wykluczenia z panelu idą do API w kolejności wierszy", async () => {
+      renderList();
+      // 11.10.2026: Enter kończy wymaganie i przenosi kursor do następnego
+      // wiersza; warianty jednego wymagania wpisuje się z „/” albo przez „+ lub”.
+      const first = within(bar()).getByLabelText("Wymaganie 1 — słowo albo wariant");
+      fireEvent.change(first, { target: { value: "Kafka / RabbitMQ" } });
+      fireEvent.keyDown(first, { key: "Enter" });
+      const second = within(bar()).getByLabelText("Wymaganie 2 — słowo albo wariant");
+      fireEvent.change(second, { target: { value: "Java" } });
+      fireEvent.keyDown(second, { key: "Enter" });
+      const exclude = within(bar()).getByLabelText("Wyklucz — żadne z tych słów");
       fireEvent.change(exclude, { target: { value: "junior" } });
       fireEvent.keyDown(exclude, { key: "Enter" });
+      // Zdanie mówi, jak serwer przeczyta wyszukiwanie.
+      expect(
+        within(bar()).getByText(
+          "Szukamy osób, które mają (Kafka lub RabbitMQ) i Java, bez słów: junior. Szukamy w: cały profil.",
+        ),
+      ).toBeTruthy();
+      search();
       await waitFor(async () => {
         const calls = await candidateCalls();
-        expect(calls.at(-1)).toMatchObject({ q_all: ["Kafka"], q_none: ["junior"] });
+        expect(calls.at(-1)).toMatchObject({
+          q_any_group: ["Kafka|RabbitMQ", "Java"],
+          q_none: ["junior"],
+        });
+        expect(calls.at(-1)?.q_all).toBeUndefined();
       });
     });
 
-    it("„którekolwiek” i „Szukaj w” z panelu idą do API", async () => {
+    it("„Szukaj w” z panelu idzie do API", async () => {
       renderList();
-      const any = within(bar()).getByLabelText("Zawiera którekolwiek ze słów");
-      fireEvent.change(any, { target: { value: "Spring" } });
-      fireEvent.keyDown(any, { key: "Enter" });
-      fireEvent.change(any, { target: { value: "Quarkus" } });
-      fireEvent.keyDown(any, { key: "Enter" });
+      const first = within(bar()).getByLabelText("Wymaganie 1 — słowo albo wariant");
+      fireEvent.change(first, { target: { value: "Spring" } });
+      fireEvent.keyDown(first, { key: "Enter" });
       fireEvent.change(within(bar()).getByLabelText("Szukaj w"), { target: { value: "cv" } });
+      search();
       await waitFor(async () => {
         const calls = await candidateCalls();
-        expect(calls.at(-1)).toMatchObject({ q_any_group: ["Spring|Quarkus"], q_scope: "cv" });
+        expect(calls.at(-1)).toMatchObject({ q_any_group: ["Spring"], q_scope: "cv" });
+      });
+    });
+
+    it("usunięcie wiersza zostawia pozostałe wymagania", async () => {
+      urlParams = new URLSearchParams("q_any=Kafka&q_any=Java");
+      renderList();
+      fireEvent.click(within(bar()).getByRole("button", { name: "Usuń wymaganie 1" }));
+      search();
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ q_any_group: ["Java"] });
       });
     });
 
@@ -388,11 +531,17 @@ describe("CandidatesListV2", () => {
       renderList();
       const popover = await openFilter(/^Lokalizacja/);
       fireEvent.change(within(popover).getByLabelText("Miasto"), { target: { value: "Kraków" } });
+      fireEvent.keyDown(popover, { key: "Escape" });
+      search();
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ location: "Kraków" });
       });
-      fireEvent.change(within(popover).getByLabelText("Promień"), { target: { value: "25" } });
+      // Dodane miasto ma własny promień w wierszu listy (D6, 19.10.2026).
+      const again = await openFilter(/^Lokalizacja/);
+      fireEvent.change(within(again).getByLabelText("Promień: Kraków"), { target: { value: "25" } });
+      fireEvent.keyDown(again, { key: "Escape" });
+      search();
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ location: "Kraków", location_radius_km: 25 });
@@ -408,10 +557,133 @@ describe("CandidatesListV2", () => {
       const popover = await openFilter(/^Lokalizacja/);
       fireEvent.change(within(popover).getByLabelText("Miasto"), { target: { value: "Gdańsk" } });
       fireEvent.keyDown(popover, { key: "Escape" });
+      search();
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ location: "Gdańsk" });
       });
+    });
+
+    it("kilka miast z promieniami: dodaj, usuń i suma w API (D6, 19.10.2026)", async () => {
+      renderList();
+      const popover = await openFilter(/^Lokalizacja/);
+      const add = (city: string, radius?: string) => {
+        fireEvent.change(within(popover).getByLabelText("Miasto"), { target: { value: city } });
+        if (radius) {
+          fireEvent.change(within(popover).getByLabelText("Promień"), {
+            target: { value: radius },
+          });
+        }
+        fireEvent.click(within(popover).getByRole("button", { name: "Dodaj" }));
+      };
+      add("Warszawa", "25");
+      add("Łódź");
+      add("Kraków", "50");
+      add("Gdańsk");
+      const list = within(popover).getByRole("list", { name: "Wybrane miasta" });
+      expect(within(list).getAllByRole("listitem")).toHaveLength(4);
+      fireEvent.click(within(popover).getByRole("button", { name: "Usuń miasto: Gdańsk" }));
+      expect(within(list).getAllByRole("listitem")).toHaveLength(3);
+      fireEvent.click(within(popover).getByRole("radio", { name: "ukryj" }));
+      fireEvent.keyDown(popover, { key: "Escape" });
+      search();
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({
+          location_places: ["Warszawa:25", "Łódź", "Kraków:50"],
+          hide_unknown_location: true,
+        });
+        expect(calls.at(-1)?.location).toBeUndefined();
+      });
+      expect(
+        within(bar()).getByRole("button", {
+          name: /^Lokalizacja: Warszawa \+25 km, Łódź, Kraków \+50 km · bez miasta: ukryte/,
+        }),
+      ).toBeTruthy();
+    });
+
+    it("okienko lokalizacji przyjmuje najwyżej 10 miast", async () => {
+      urlParams = new URLSearchParams(
+        `locs=${Array.from({ length: 10 }, (_, i) => `Miasto${i}`).join("|")}`,
+      );
+      renderList();
+      const popover = await openFilter(/^Lokalizacja/);
+      expect(within(popover).getByLabelText("Miasto")).toBeDisabled();
+      expect(within(popover).getByText("Najwyżej 10 miast.")).toBeTruthy();
+    });
+
+    it("licznik rozdziela trafienia od braków, kreska i plakietki w wierszach (D5)", async () => {
+      urlParams = new URLSearchParams("rate_max=55&loc=Warszawa&radius=25&sort=newest");
+      listItems = [
+        {
+          id: 1,
+          name: "Ala",
+          lastname: "Pierwsza",
+          city: "Pruszków",
+          unknown_fields: [],
+          location_distance: { place: "Pruszków", km: 16, center: "Warszawa" },
+        },
+        { id: 2, name: "Ola", lastname: "Druga", city: null, unknown_fields: ["location"] },
+        { id: 3, name: "Ela", lastname: "Trzecia", city: "Warszawa", unknown_fields: ["rate"] },
+      ];
+      listTotal = 25;
+      listExtra = { known_match_count: 2 };
+      renderList();
+      expect(await screen.findByText("2 spełniają filtr · 23 bez danych")).toBeTruthy();
+      const divider = screen.getByTestId("unknown-divider");
+      expect(divider.textContent).toContain("Bez stawki albo miasta w profilu");
+      expect(divider.textContent).toContain("23");
+      // Kreska stoi nad pierwszą osobą bez danych.
+      const rows = screen.getAllByRole("group", { name: /Enter otwiera podgląd/ });
+      expect(
+        divider.compareDocumentPosition(rows[1]) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(
+        divider.compareDocumentPosition(rows[0]) & Node.DOCUMENT_POSITION_PRECEDING,
+      ).toBeTruthy();
+      expect(within(rows[1]).getByTestId("unknown-field-location")).toBeTruthy();
+      expect(within(rows[2]).getByTestId("unknown-field-rate")).toBeTruthy();
+      expect(within(rows[0]).getAllByText("Pruszków · 16 km (Warszawa)").length).toBeGreaterThan(0);
+
+      fireEvent.click(within(divider).getByRole("button", { name: "Ukryj" }));
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({
+          hide_unknown_rate: true,
+          hide_unknown_location: true,
+        });
+      });
+    });
+
+    it("braki w środku listy (Mile widziane) — bez kreski", async () => {
+      urlParams = new URLSearchParams("rate_max=55");
+      listItems = [
+        { id: 1, name: "Ala", lastname: "A", unknown_fields: ["rate"] },
+        { id: 2, name: "Ola", lastname: "B", unknown_fields: [] },
+      ];
+      listTotal = 2;
+      listExtra = { known_match_count: 1 };
+      renderList();
+      expect(await screen.findByText("1 spełnia filtr · 1 bez danych")).toBeTruthy();
+      expect(screen.queryByTestId("unknown-divider")).toBeNull();
+    });
+
+    it("okienko stawki: „Osoby bez stawki: ukryj” idzie do API", async () => {
+      renderList();
+      const popover = await openFilter(/^Stawka/);
+      fireEvent.change(within(popover).getByLabelText("Stawka B2B — do"), {
+        target: { value: "55" },
+      });
+      fireEvent.click(within(popover).getByRole("radio", { name: "ukryj" }));
+      fireEvent.keyDown(popover, { key: "Escape" });
+      search();
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ max_rate: 55, hide_unknown_rate: true });
+      });
+      expect(
+        within(bar()).getByRole("button", { name: /^Stawka: do 55 zł\/h · bez stawki: ukryte/ }),
+      ).toBeTruthy();
     });
 
     it("stawka z okienka idzie do API, a ✕ na przycisku ją zdejmuje", async () => {
@@ -420,11 +692,12 @@ describe("CandidatesListV2", () => {
       fireEvent.change(within(popover).getByLabelText("Stawka B2B — do"), {
         target: { value: "160" },
       });
+      fireEvent.keyDown(popover, { key: "Escape" });
+      search();
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ max_rate: 160 });
       });
-      fireEvent.keyDown(popover, { key: "Escape" });
       expect(
         within(bar()).getByRole("button", { name: /^Stawka: do 160 zł\/h/ }),
       ).toBeTruthy();
@@ -437,18 +710,55 @@ describe("CandidatesListV2", () => {
       expect(within(bar()).getByRole("button", { name: /^Stawka$/ })).toBeTruthy();
     });
 
-    it("kontakt z kandydatem w „Historii z nami”", async () => {
+    it("kontakt z kandydatem w „Rekrutacjach i historii”", async () => {
       renderList();
-      const history = await openFilter(/^Historia z nami/);
+      const history = await openFilter(/^Rekrutacje i historia/);
       const group = within(history).getByRole("radiogroup", { name: "Kontakt z kandydatem" });
       fireEvent.click(within(group).getByRole("radio", { name: "Nie było kontaktu" }));
       fireEvent.change(within(history).getByLabelText("Kontakt — od"), {
         target: { value: "2026-08-01" },
       });
+      fireEvent.keyDown(history, { key: "Escape" });
+      search();
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ contacted: "no", contacted_from: "2026-08-01" });
       });
+    });
+
+    it("kolumna „Ostatnia rozmowa”: data i autor rozmowy, a bez niej liczba prób kontaktu", async () => {
+      const { useUiStore } = await import("@/store/ui");
+      // Zapisany wybór osoby: wszystkie dodatkowe kolumny schowane poza rozmową.
+      useUiStore
+        .getState()
+        .setColumnPreference("candidates-table-v2", ["email", "location", "experience", "added"]);
+      listItems = [
+        {
+          id: 1,
+          name: "Marta",
+          lastname: "Kowalczyk",
+          last_talk_at: "2026-09-30T10:00:00Z",
+          last_talk_by: "Ola Testowa",
+          last_talk_preview: "Szuka projektu z Javą 21.",
+          contact_attempts: 2,
+        },
+        { id: 2, name: "Tomasz", lastname: "Nowicki", last_talk_at: null, contact_attempts: 3 },
+      ];
+      listTotal = 2;
+      try {
+        renderList();
+        const talked = await screen.findByTestId("candidate-row-1");
+        expect(within(talked).getByText("30.09.2026")).toBeTruthy();
+        expect(within(talked).getByText("Ola Testowa")).toBeTruthy();
+        expect(within(talked).getByTitle("Szuka projektu z Javą 21.")).toBeTruthy();
+        const silent = screen.getByTestId("candidate-row-2");
+        expect(within(silent).getByText("bez rozmowy")).toBeTruthy();
+        expect(within(silent).getByText("3 próby kontaktu")).toBeTruthy();
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ include_last_talk: true });
+      } finally {
+        useUiStore.getState().clearColumnPreference("candidates-table-v2");
+      }
     });
 
     it("wybrane kolumny z preferencji osoby", async () => {
@@ -468,10 +778,46 @@ describe("CandidatesListV2", () => {
           "Dostępność",
           "Staż",
           "W procesie",
-          "Ostatni kontakt",
+          "Ostatnia rozmowa",
           "Dodano",
           "Przypisz",
         ]);
+      } finally {
+        useUiStore.getState().clearColumnPreference("candidates-table-v2");
+      }
+    });
+
+    it("kolumna „Dodano” to „w bazie od”; import bez daty u źródła — „przed …” (13.10.2026)", async () => {
+      const { useUiStore } = await import("@/store/ui");
+      useUiStore.getState().setColumnPreference("candidates-table-v2", ["phone", "cv"]);
+      listItems = [
+        {
+          id: 1,
+          name: "Marta",
+          lastname: "Kowalczyk",
+          created_at: "2026-04-16T10:00:00Z",
+          added_to_base_at: "2019-05-11T22:00:00Z",
+          added_to_base_exact: true,
+        },
+        {
+          id: 2,
+          name: "Tomasz",
+          lastname: "Nowicki",
+          created_at: "2026-05-04T10:00:00Z",
+          added_to_base_at: "2026-05-04T10:00:00Z",
+          added_to_base_exact: false,
+        },
+      ];
+      listTotal = 2;
+      try {
+        renderList();
+        const known = await screen.findByTestId("candidate-row-1");
+        expect(within(known).getByText("12.05.2019")).toBeTruthy();
+        const imported = screen.getByTestId("candidate-row-2");
+        expect(within(imported).getByText("przed 04.05.2026")).toBeTruthy();
+        expect(
+          within(imported).getByTitle("Import z Traffita — w bazie przed 04.05.2026, dokładnej daty nie znamy"),
+        ).toBeTruthy();
       } finally {
         useUiStore.getState().clearColumnPreference("candidates-table-v2");
       }
@@ -484,6 +830,8 @@ describe("CandidatesListV2", () => {
         name: "Czy można go teraz zaproponować?",
       });
       fireEvent.click(within(group).getByRole("radio", { name: /Tak — szuka pracy/ }));
+      fireEvent.keyDown(popover, { key: "Escape" });
+      search();
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({
@@ -503,6 +851,143 @@ describe("CandidatesListV2", () => {
     });
   });
 
+  describe("przycisk „Szukaj” i pamięć wyszukiwania (25.09.2026)", () => {
+    it("zmiana filtra czeka na „Szukaj”, a „Cofnij zmiany” wraca do zastosowanych", async () => {
+      renderList();
+      await waitFor(async () => expect((await candidateCalls()).length).toBeGreaterThan(0));
+      const before = (await candidateCalls()).length;
+      const must = within(bar()).getByLabelText("Wymaganie 1 — słowo albo wariant");
+      fireEvent.change(must, { target: { value: "Kafka" } });
+      fireEvent.keyDown(must, { key: "Enter" });
+      expect(await screen.findByText("1 zmiana czeka na „Szukaj”")).toBeTruthy();
+      expect((await candidateCalls()).length).toBe(before);
+
+      fireEvent.click(screen.getByRole("button", { name: "Cofnij zmiany" }));
+      await waitFor(() => expect(screen.queryByText(/czeka na „Szukaj”/)).toBeNull());
+
+      const again = within(bar()).getByLabelText("Wymaganie 1 — słowo albo wariant");
+      fireEvent.change(again, { target: { value: "Kafka" } });
+      fireEvent.keyDown(again, { key: "Enter" });
+      // Enter w pustym polu (kursor stoi już w następnym wierszu) = „Szukaj”.
+      fireEvent.keyDown(within(bar()).getByLabelText("Wymaganie 2 — słowo albo wariant"), {
+        key: "Enter",
+      });
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ q_any_group: ["Kafka"] });
+      });
+      expect(screen.queryByText(/czeka na „Szukaj”/)).toBeNull();
+      expect(readRecentSearches(7)[0]).toMatchObject({ kind: "list", label: "Kafka", keywords: ["Kafka"] });
+    });
+
+    it("blok „Rekrutacje”: „Nie brał udziału” bez rekrutacji czeka na „Szukaj” i wyłącza etap", async () => {
+      renderList();
+      await waitFor(async () => expect((await candidateCalls()).length).toBeGreaterThan(0));
+      const before = (await candidateCalls()).length;
+
+      const history = await openFilter(/^Rekrutacje i historia/);
+      fireEvent.click(within(history).getByRole("radio", { name: "Nie brał udziału" }));
+      // Bez wskazania rekrutacji pytanie dotyczy wszystkich.
+      expect(within(history).getByRole("button", { name: /Wszystkie rekrutacje/ })).toBeTruthy();
+      expect(within(history).getByLabelText("Data wysłania do klienta — od")).toBeDisabled();
+      expect(within(history).getByText(/Etap i data wysłania są wyłączone/)).toBeTruthy();
+      expect(await screen.findByText("1 zmiana czeka na „Szukaj”")).toBeTruthy();
+      expect((await candidateCalls()).length).toBe(before);
+
+      fireEvent.keyDown(history, { key: "Escape" });
+      fireEvent.click(within(bar()).getByRole("button", { name: /^Szukaj(?! w)/ }));
+      await waitFor(async () => {
+        const last = (await candidateCalls()).at(-1) ?? {};
+        expect(last).toMatchObject({ recruitment_presence: "never" });
+        expect(last.recruitment_match).toBeUndefined();
+      });
+      // Tryb bez zakresu ma chip nad tabelą i liczy się w „Wyczyść”.
+      expect(screen.getByText("Nie brał udziału w żadnej rekrutacji")).toBeTruthy();
+
+      const again = await openFilter(/^Rekrutacje i historia/);
+      fireEvent.click(within(again).getByRole("radio", { name: "Bez procesu w toku" }));
+      expect(within(again).queryByRole("button", { name: /Wszystkie rekrutacje/ })).toBeNull();
+      expect(within(again).getByLabelText("Data wysłania do klienta — od")).not.toBeDisabled();
+      fireEvent.keyDown(again, { key: "Escape" });
+      fireEvent.click(within(bar()).getByRole("button", { name: /^Szukaj(?! w)/ }));
+      await waitFor(async () => {
+        expect((await candidateCalls()).at(-1)).toMatchObject({
+          recruitment_presence: "not_in_process",
+        });
+      });
+    });
+
+    it("„Rekrutacje i historia”: podpowiedź, jak ukryć osoby z danej rekrutacji (16.10.2026)", async () => {
+      renderList();
+      // Rekruter szukał tego filtra i nie znalazł — okienko mówi, jak go ustawić.
+      const tip = /Żeby ukryć osoby, które są albo były w danej rekrutacji/;
+      const history = await openFilter(/^Rekrutacje i historia/);
+      expect(within(history).getByText(tip)).toBeTruthy();
+      // Po wyborze trybu zdanie pod opcjami mówi już, co filtr robi.
+      fireEvent.click(within(history).getByRole("radio", { name: "Nie brał udziału" }));
+      expect(within(history).queryByText(tip)).toBeNull();
+      expect(within(history).getByRole("button", { name: /Wszystkie rekrutacje/ })).toBeTruthy();
+      fireEvent.click(within(history).getByRole("radio", { name: "Dowolnie" }));
+      expect(within(history).getByText(tip)).toBeTruthy();
+      expect(within(bar()).queryByRole("button", { name: /^Historia z nami/ })).toBeNull();
+    });
+
+    it("goły adres przywraca ostatnie wyszukiwanie z tej karty", async () => {
+      // Pamięć sprzed 25.09.2026 niesie `q_all` — wraca jako wiersz wymagań.
+      writeListSearch({ query: "q_all=Kafka&rate_max=160" });
+      renderList();
+      expect(await screen.findByText("Wróciłeś do swojego wyszukiwania.")).toBeTruthy();
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ q_any_group: ["Kafka"], max_rate: 160 });
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Nowe wyszukiwanie" }));
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)?.q_any_group).toBeUndefined();
+      });
+      expect(screen.queryByText("Wróciłeś do swojego wyszukiwania.")).toBeNull();
+    });
+
+    it("baner powrotu znika, gdy zastosowano inne kryteria — sama zmiana w szkicu go nie zdejmuje", async () => {
+      writeListSearch({ query: "q_any=Kafka" });
+      renderList();
+      expect(await screen.findByText("Wróciłeś do swojego wyszukiwania.")).toBeTruthy();
+
+      // Wypełniony wiersz dostaje wariant przez „+ lub”.
+      fireEvent.click(
+        within(bar()).getByRole("button", { name: "Dodaj wariant do wymagania 1" }),
+      );
+      const must = within(bar()).getByLabelText("Wymaganie 1 — słowo albo wariant");
+      fireEvent.change(must, { target: { value: "RabbitMQ" } });
+      fireEvent.keyDown(must, { key: "Enter" });
+      expect(await screen.findByText("1 zmiana czeka na „Szukaj”")).toBeTruthy();
+      expect(screen.getByText("Wróciłeś do swojego wyszukiwania.")).toBeTruthy();
+
+      // Enter w pustym polu = „Szukaj”.
+      fireEvent.keyDown(must, { key: "Enter" });
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ q_any_group: ["Kafka|RabbitMQ"] });
+      });
+      await waitFor(() =>
+        expect(screen.queryByText("Wróciłeś do swojego wyszukiwania.")).toBeNull(),
+      );
+    });
+
+    it("adres z filtrami wygrywa z pamięcią", async () => {
+      writeListSearch({ query: "q_all=Kafka" });
+      urlParams = new URLSearchParams("q_all=Python");
+      renderList();
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ q_any_group: ["Python"] });
+      });
+      expect(screen.queryByText("Wróciłeś do swojego wyszukiwania.")).toBeNull();
+    });
+  });
+
   describe("historia przeglądarki", () => {
     it("pierwszy zapis podmienia wpis, zmiana filtra dodaje nowy", async () => {
       const pushState = vi.spyOn(window.history, "pushState");
@@ -513,10 +998,62 @@ describe("CandidatesListV2", () => {
       expect(pushState).not.toHaveBeenCalled();
 
       await pickStatus("Aktywni");
+      // Zmiana czeka na „Szukaj” — adres jeszcze stoi.
+      expect(pushState).not.toHaveBeenCalled();
+      search();
 
       await waitFor(() => expect(pushState).toHaveBeenCalledTimes(1));
       expect(String(pushState.mock.calls[0][2])).toContain("status=active");
       expect(await screen.findByText("Status: Aktywni")).toBeTruthy();
+    });
+
+    it("wiersze z górnego pola dochodzą pod wypełnionymi — pusty wiersz roboczy nie zostaje w środku", async () => {
+      classifyMock.mockResolvedValueOnce({ skills: ["Java", "Spring"], as_requirements: true });
+      renderList();
+      const first = screen.getByLabelText("Wymaganie 1 — słowo albo wariant");
+      fireEvent.change(first, { target: { value: "Kafka" } });
+      fireEvent.keyDown(first, { key: "Enter" });
+      // Po Enterze pod „Kafka” stoi pusty wiersz z kursorem.
+      expect(screen.getByLabelText("Wymaganie 2 — słowo albo wariant")).toBeTruthy();
+      fireEvent.change(screen.getByLabelText("Szukaj kandydatów"), {
+        target: { value: "java spring" },
+      });
+      fireEvent.keyDown(screen.getByLabelText("Szukaj kandydatów"), { key: "Enter" });
+
+      expect(await screen.findByText(/Czytam jako wymagania: Java, Spring/)).toBeTruthy();
+      for (const n of [1, 2, 3]) {
+        expect(
+          screen.getByRole("button", { name: `Dodaj wariant do wymagania ${n}` }),
+        ).toBeTruthy();
+        expect(screen.queryByLabelText(`Wymaganie ${n} — słowo albo wariant`)).toBeNull();
+      }
+    });
+
+    it("same nazwy technologii w górnym polu idą jak wiersze wymagań", async () => {
+      classifyMock.mockResolvedValueOnce({ skills: ["Java"], as_requirements: true });
+      renderList();
+      fireEvent.change(screen.getByLabelText("Szukaj kandydatów"), {
+        target: { value: "java" },
+      });
+      fireEvent.keyDown(screen.getByLabelText("Szukaj kandydatów"), { key: "Enter" });
+
+      expect(await screen.findByText(/Czytam jako wymagania: Java/)).toBeTruthy();
+      // K8 (audyt 06.10.2026): imiona i nazwiska sprawdzamy tylko dla górnego pola.
+      expect(classifyMock).toHaveBeenCalledWith("java", "top");
+      await waitFor(async () => {
+        const last = (await candidateCalls()).at(-1);
+        expect(last?.q_any_group).toEqual(["Java"]);
+        expect(last?.q).toBeFalsy();
+        expect(last?.sort).toBe("match");
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /po znaczeniu/ }));
+      await waitFor(async () => {
+        const last = (await candidateCalls()).at(-1);
+        expect(last?.q).toBe("java");
+        expect(last?.text_mode).toBe("semantic");
+        expect(last?.q_any_group ?? []).toEqual([]);
+      });
     });
 
     it("pisanie w polu wyszukiwania tylko podmienia wpis", async () => {
@@ -529,6 +1066,7 @@ describe("CandidatesListV2", () => {
       fireEvent.change(screen.getByLabelText("Szukaj kandydatów"), {
         target: { value: "tester" },
       });
+      fireEvent.keyDown(screen.getByLabelText("Szukaj kandydatów"), { key: "Enter" });
 
       await waitFor(() =>
         expect(
@@ -543,8 +1081,9 @@ describe("CandidatesListV2", () => {
       renderList();
 
       await pickStatus("Aktywni");
+      search();
       expect(await screen.findByText("Status: Aktywni")).toBeTruthy();
-      expect(pushState).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(pushState).toHaveBeenCalledTimes(1));
 
       await act(async () => {
         window.history.replaceState(null, "", "/candidates");
@@ -562,24 +1101,15 @@ describe("CandidatesListV2", () => {
       renderList();
       const more = await openAdvanced(/Kto dodał/);
       fireEvent.click(within(more).getByRole("radio", { name: "Moi kandydaci" }));
-      await waitFor(async () => {
-        const calls = await candidateCalls();
-        expect(calls.at(-1)).toMatchObject({ added_by_user_id: [7] });
-      });
       expect(within(more).getByRole("radio", { name: "Moi kandydaci" })).toHaveAttribute(
         "aria-checked",
         "true",
       );
-      const drawer = screen.getByTestId("candidate-more-filters");
-      fireEvent.click(within(drawer).getByRole("radio", { name: "Wszyscy" }));
-      // Powrót do parametrów z pierwszego zapytania trafia w cache react-query,
-      // więc sprawdzamy stan przełącznika, nie kolejne wywołanie API.
-      await waitFor(() =>
-        expect(within(drawer).getByRole("radio", { name: "Wszyscy" })).toHaveAttribute(
-          "aria-checked",
-          "true",
-        ),
-      );
+      search();
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ added_by_user_id: [7] });
+      });
     });
 
     it("języki z adresu idą do API i podbijają licznik „Więcej filtrów”", async () => {
@@ -660,6 +1190,49 @@ describe("CandidatesListV2", () => {
       ).toBeTruthy();
     });
 
+    it("brak nazwiska w bazie: zdanie, że pokazujemy podobne", async () => {
+      urlParams = new URLSearchParams("q=Kowalczykowski");
+      listItems = [{ id: 1, name: "Jan", lastname: "Kowalczyk" }];
+      listTotal = 1;
+      listExtra = { text_mode_applied: "literal", text_match: "similar" };
+      renderList();
+      expect(
+        await screen.findByText("Nie ma nikogo o tym nazwisku — pokazujemy podobne."),
+      ).toBeTruthy();
+    });
+
+    it("dokładne nazwisko nie pokazuje zdania o podobnych", async () => {
+      urlParams = new URLSearchParams("q=Kowalski");
+      listItems = [{ id: 1, name: "Jan", lastname: "Kowalski" }];
+      listTotal = 1;
+      listExtra = { text_mode_applied: "literal", text_match: "exact" };
+      renderList();
+      expect(await screen.findByText(/Kowalski/)).toBeTruthy();
+      expect(
+        screen.queryByText("Nie ma nikogo o tym nazwisku — pokazujemy podobne."),
+      ).toBeNull();
+    });
+
+    it("numery stron pod listą: bieżąca oznaczona, klik przechodzi na stronę", async () => {
+      listItems = Array.from({ length: 3 }, (_, i) => ({
+        id: i + 1,
+        name: `Osoba${i + 1}`,
+        lastname: "Testowa",
+      }));
+      listTotal = 31_800;
+      renderList();
+      const nav = await screen.findByRole("navigation", { name: "Strony wyników" });
+      const current = within(nav).getByRole("button", { name: "Strona 1" });
+      expect(current).toHaveAttribute("aria-current", "page");
+      const last = within(nav).getByRole("button", { name: "Strona 636" });
+      expect(last).not.toHaveAttribute("aria-current");
+      fireEvent.click(within(nav).getByRole("button", { name: "Strona 3" }));
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ page: 3 });
+      });
+    });
+
     it("„Z requestu” otwiera okno, a „Dalej” oddaje dane rodzicowi", async () => {
       const onRequestSearch = vi.fn();
       renderList({ onRequestSearch });
@@ -714,6 +1287,19 @@ describe("CandidatesListV2", () => {
       await waitFor(() =>
         expect(screen.queryByRole("region", { name: "Akcje zaznaczonych kandydatów" })).toBeNull(),
       );
+    });
+
+    it("„Rekrutacja” w wierszu odświeża listę po przypisaniu (R10-N15-5)", async () => {
+      renderList();
+      await screen.findByRole("button", { name: "Przypisz Osoba2 Testowa do rekrutacji" });
+      const before = (await candidateCalls()).length;
+      fireEvent.click(screen.getByRole("button", { name: "Przypisz Osoba2 Testowa do rekrutacji" }));
+      const dialog = await screen.findByRole("dialog", { name: "Przypisz do rekrutacji" });
+      expect(within(dialog).getByText("assign:2")).toBeTruthy();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Potwierdź przypisanie" }));
+
+      expect(await screen.findByText("Kandydat przypisany.")).toBeTruthy();
+      await waitFor(async () => expect((await candidateCalls()).length).toBeGreaterThan(before));
     });
 
     it("„Odznacz” czyści zaznaczenie", async () => {

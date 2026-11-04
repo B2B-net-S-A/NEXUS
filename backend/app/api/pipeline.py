@@ -1,19 +1,21 @@
-import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 from types import SimpleNamespace
 from pydantic import BaseModel, Field
-from collections.abc import Iterable, Mapping, Sequence
-from typing import List, Literal, Optional
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Annotated, Any, List, Literal, Optional, Union
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, text
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+from fastapi.responses import JSONResponse
+from sqlalchemy import exists, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
+from app.core.tasks import spawn
 from app.models.candidate import Candidate
 from app.models.recruitment_pipeline import (
     CandidateStage,
@@ -26,17 +28,38 @@ from app.models.recruitment_priority import PriorityChannel
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity, UserActionType
+from app.models.note import Note
 from app.models.notification import Notification, NotificationType
 from app.services import board_tasks as board_tasks_svc
 from app.services import candidate_audit, candidate_claim, pipeline_move_rules
-from app.models.contract import RateUnit
+from app.services.client_off_limits import off_limits_badge
+from app.services.process_entry_meta import (
+    application_link_owner_id,
+    application_screening_badge,
+    auto_match_badge,
+    autofill_badge,
+)
+from app.models.contract import ContractType, RateUnit
 from app.services.board_stage_badges import (
+    BOARD_COLUMN_ORDER,
+    _NAME_ONLY_KINDS as NAME_ONLY_STAGE_KINDS,
     board_column_for,
+    cpro_enabled_for_client,
     ensure_badge_stage_allowed,
     foreign_stage_target,
     is_cpro_stage,
+    is_entry_column,
+    stage_badge_kind,
 )
-from app.services import champion_view
+from app.services import (
+    champion_view,
+    move_requirements,
+    rejection_reason_labels,
+    screening_fix_requests,
+    stage_handoff_recipients,
+    stage_remarks,
+)
+from app.services.candidate_added_date import AddedToBase, added_to_base
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
@@ -45,7 +68,10 @@ from app.services.candidate_contact_hooks import (
     maybe_close_contact_opportunity,
     maybe_ensure_contact_opportunity,
 )
-from app.services.b2b_contract_automation import ensure_b2b_employment_draft
+from app.services.b2b_contract_automation import (
+    ORDER_SKIPPED_OPEN_GROUP_LINE,
+    ensure_b2b_employment_draft,
+)
 from app.models.job import Job, JobStatus
 from app.models.pipeline_template import (
     PipelineStageDef,
@@ -53,7 +79,7 @@ from app.models.pipeline_template import (
     RejectionReason,
     TerminalType,
 )
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.pipeline import (
     CandidateStageResponse,
     HiringManagerVetoBrief,
@@ -68,7 +94,9 @@ from app.schemas.pipeline import (
 )
 from app.api.candidate_access import (
     CandidatePIIAccess,
+    client_rate_write_denied,
     resolve_client_rate_write,
+    user_can_access_candidate_domain,
     user_can_view_client_rate,
     user_has_candidate_read,
 )
@@ -76,15 +104,14 @@ from app.api.deps import CurrentUser, OperationalUser, RecruiterPlus
 from app.api.recruitment_access import (
     ensure_job_read_access,
     ensure_job_membership,
+    job_read_scope_clause,
+    job_scope_clause,
     user_can_edit_rates,
-    user_can_terminal_transition,
 )
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
-from app.services.hiring_manager_verdicts import (
-    puts_candidate_before_client,
-    veto_for_candidate_stage,
-)
+from app.services.hiring_manager_verdicts import puts_column_before_client
 from app.services.pipeline_eligibility import (
+    assert_candidate_move_eligible,
     assert_candidates_move_eligible,
     check_candidate_move_eligibility,
     evaluate_candidates_for_job_with_verdicts,
@@ -103,9 +130,35 @@ from app.services.recruitment_process_commands import (
     lock_candidates_stmt,
     transition_process,
 )
+from app.services.recruitment_move_policy import (
+    MoveTarget,
+    RecruitmentMovePolicy,
+    UserMovePolicy,
+)
 from app.services.delivery_alert_recipients import load_delivery_alert_recipient_scope
 from app.services.pipeline_realtime import broadcast_pipeline_changed
-from app.core.scheduling import business_today
+from app.services import screening_calls
+from app.services.stage_verifier import first_verifier
+from app.core.scheduling import DEFAULT_TZ, business_today
+from app.services.consultant_elsewhere_notifications import (
+    employed_elsewhere_client_ids,
+)
+from app.services.employment_marker import load_employment_markers
+from app.services.candidate_rate_from import (
+    effective_currency_sql,
+    effective_rate_sql,
+)
+
+if TYPE_CHECKING:  # pragma: no cover
+    from app.api.proposals_bulk import ProposeResult
+
+# PostgreSQL int4 upper bound — path parameters bound to int4 columns must not
+# exceed this value or asyncpg's int4_encode will raise OverflowError.
+_PG_INT4_MAX = 2_147_483_647
+DbIdPath = Annotated[int, Path(ge=1, le=_PG_INT4_MAX)]
+
+# Karty, które niosą powód zamknięcia i osobę zamykającą (19.10.2026).
+_CLOSED_CARD_STAGES = frozenset({PipelineStage.rejected, PipelineStage.withdrawn})
 
 # Terminal wynikający wprost z legacy enuma — używane w gałęzi bez szablonu
 # pipeline'u, żeby `KanbanColumn.terminal_type` był wypełniany tak samo jak
@@ -122,27 +175,46 @@ router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 logger = logging.getLogger(__name__)
 
 
-# Referencje zadań w tle (fire-and-forget ``create_task`` gubi je pod GC —
-# pętla zdarzeń trzyma tylko słabą referencję). Wzorzec z app/api/cortex.py,
-# rozszerzony o log: powiadomienie Teams padłe w zadaniu nie ma czytelnika,
-# więc bez done_callbacku znika bez śladu.
-_bg_tasks: set[asyncio.Task] = set()
-
-
 def _spawn(coro, label: str) -> None:
-    task = asyncio.create_task(coro)
-    _bg_tasks.add(task)
+    # Wspólny `app.core.tasks.spawn`: trzymana referencja (goły `create_task`
+    # gubi zadanie pod GC) i log porażki — powiadomienie Teams padłe w zadaniu
+    # nie ma czytelnika. Nazwa `_spawn` zostaje: testy ją podmieniają.
+    spawn(coro, f"pipeline:{label}")
 
-    def _done(finished: asyncio.Task) -> None:
-        _bg_tasks.discard(finished)
-        if finished.cancelled():
-            logger.warning("pipeline background task cancelled: %s", label)
-            return
-        exc = finished.exception()
-        if exc is not None:
-            logger.exception("pipeline background task failed: %s", label, exc_info=exc)
 
-    task.add_done_callback(_done)
+async def _post_commit_effect(
+    db: AsyncSession, label: str, effect: Callable[[], Awaitable[None]]
+) -> bool:
+    """Efekt uboczny po zatwierdzonym ruchu — nigdy nie rzuca i nie wygasza sesji.
+
+    ``True`` = zapisy efektu są zatwierdzone (mail o nich może już wyjść).
+
+    Efekt biegnie w savepoincie: błąd cofa wyłącznie jego zapisy, a obiekty
+    załadowane w sesji żądania (``current_user``, ``stage``, ``job``) zostają
+    ważne — `db.rollback()` na całej sesji wygaszał je i kolejny odczyt
+    atrybutu kończył się MissingGreenlet (500 po zapisanym ruchu, audyt
+    25.09.2026). Commit dopiero po udanym efekcie; nieudany commit cofa sesję
+    (wtedy nie ma już czego chronić — odpowiedź jest policzona wcześniej).
+    """
+
+    try:
+        async with db.begin_nested():
+            await effect()
+    except Exception as exc:  # noqa: BLE001 — efekt uboczny nie psuje ruchu
+        # Klasa wyjątku, nie treść: IntegrityError niesie `DETAIL: Key (...)=(...)`
+        # z danymi wiersza, których `hide_parameters` nie ukrywa (runda 7, R7-X2-9).
+        logger.warning("%s failed (%s)", label, type(exc).__name__)
+        return False
+    try:
+        await db.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("%s commit failed (%s)", label, type(exc).__name__)
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+    return True
 
 
 # ── Helpers to bridge legacy enum ↔ new stage_def FK ────────────────────────
@@ -175,12 +247,311 @@ async def _resolve_stage_def(
     ) or await _default_template_id(db)
     if not template_id:
         return None
-    return await db.scalar(
-        select(PipelineStageDef).where(
-            PipelineStageDef.template_id == template_id,
-            PipelineStageDef.legacy_enum_value == legacy_stage.value,
+    # Runda 9 (R9-N11-8): kilka etapów szablonu bywa z tym samym kodem
+    # („QC CV” ma kod `interview`, obok zwykłej rozmowy), a `scalar` bez
+    # ORDER BY brał dowolny. Pierwszy w kolejności szablonu, z pominięciem
+    # etapów rozpoznawanych po NAZWIE (QC, Cpro) — jak `foreign_stage_target`.
+    candidates = (
+        await db.scalars(
+            select(PipelineStageDef)
+            .where(
+                PipelineStageDef.template_id == template_id,
+                PipelineStageDef.legacy_enum_value == legacy_stage.value,
+            )
+            .order_by(PipelineStageDef.order.asc(), PipelineStageDef.id.asc())
+        )
+    ).all()
+    for sd in candidates:
+        if stage_badge_kind(sd.name) not in NAME_ONLY_STAGE_KINDS:
+            return sd
+    return candidates[0] if candidates else None
+
+
+async def _pair_has_no_stage(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> bool:
+    """Para (kandydat, rekrutacja) nie ma jeszcze żadnego wiersza etapu."""
+    return not await db.scalar(
+        select(
+            exists().where(
+                CandidateStage.candidate_id == candidate_id,
+                CandidateStage.job_id == job_id,
+            )
         )
     )
+
+
+FRESH_PAIR_ENTRY_ONLY = (
+    "Tej osoby nie ma jeszcze w rekrutacji — dodaje się ją do „Nowych” albo "
+    "„Screeningu”, a dalej prowadzi zwykłym ruchem."
+)
+
+
+def _fresh_pair_entry_kwargs(user: User, request: Optional[Request]) -> dict:
+    """Źródło wejścia i blokada nowego procesu dodanego ruchem ``/move``.
+
+    Lustro ``proposals_bulk``: człowiek dostaje ``added_manual`` + 12 h
+    blokady, integracja (token OAuth) — ``auto_match`` bez blokady.
+    """
+    if candidate_claim.is_integration_request(request):
+        return {"entry_source": candidate_claim.ENTRY_AUTO_MATCH}
+    return {
+        "entry_source": candidate_claim.ENTRY_ADDED_MANUAL,
+        "claim_for_user_id": user.id,
+    }
+
+
+INTEGRATION_PROPOSED = (
+    "Osoba czeka w „Do przejrzenia” tej rekrutacji — integracja dodaje na "
+    "Tablicę tylko osoby, które zgłosiły się do tej rekrutacji."
+)
+
+
+async def _integration_fresh_pair_proposal(
+    db: AsyncSession, request: Optional[Request], *, job: Job, candidate_id: int
+) -> Optional["ProposeResult"]:
+    """Integracja dodaje NOWĄ osobę ruchem ``/move`` → propozycja (06.10.2026).
+
+    Bez dowodu zgłoszenia do tej rekrutacji (``integration_intake``) karta nie
+    powstaje; osoba trafia do „Do przejrzenia” jako propozycja ``job_board``.
+    Bez commita: trasa zatwierdza i odpowiada 202
+    (``_integration_proposed_response`` — nie kształt etapu, etapu nie ma).
+    ``None`` = dodaj jak dotąd (człowiek albo osoba ze zgłoszeniem).
+    """
+    if not candidate_claim.is_integration_request(request):
+        return None
+    from app.api.proposals_bulk import propose_candidates_for_job
+    from app.services.integration_intake import candidates_with_application_evidence
+
+    applied = await candidates_with_application_evidence(
+        db, job_id=job.id, candidate_ids=[candidate_id]
+    )
+    if candidate_id in applied:
+        return None
+    return await propose_candidates_for_job(
+        db, job=job, candidate_ids=[candidate_id], entry_meta=None
+    )
+
+
+def _integration_proposed_response(outcome: "MoveProposed") -> JSONResponse:
+    """Odpowiedź 202 ``/move`` po propozycji zamiast karty (po commicie)."""
+    proposal = outcome.proposal
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "proposed" if proposal.proposed else "skipped",
+            "candidate_id": outcome.candidate_id,
+            "job_id": outcome.job_id,
+            "proposed": proposal.proposed,
+            "detail": INTEGRATION_PROPOSED,
+        },
+    )
+
+
+def _assert_fresh_pair_entry(
+    stage_def: Optional[PipelineStageDef], legacy: Optional[PipelineStage]
+) -> None:
+    """422, gdy osoba spoza rekrutacji ma wejść dalej niż „Nowi”/„Screening”."""
+    if not is_entry_column(
+        stage_def.name if stage_def else None,
+        (stage_def.legacy_enum_value if stage_def else None)
+        or (legacy.value if legacy is not None else None),
+        category=(
+            stage_def.category.value if stage_def and stage_def.category else None
+        ),
+        terminal_type=(
+            stage_def.terminal_type.value
+            if stage_def and stage_def.terminal_type
+            else None
+        ),
+    ):
+        raise HTTPException(status_code=422, detail=FRESH_PAIR_ENTRY_ONLY)
+
+
+# Kod etapu, którym haki „osoba u klienta” (przepięcia, „Klient milczy”)
+# rozpoznają kolumnę Tablicy — lustro `_COLUMN_BY_ENUM` w odwrotną stronę.
+_CLIENT_COLUMN_HOOK_STAGE: dict[str, PipelineStage] = {
+    "cv_sent": PipelineStage.cv_sent,
+    "client_interview": PipelineStage.client_interview,
+    "contract": PipelineStage.acceptance,
+}
+
+
+def _client_hook_stage(column: str, legacy: PipelineStage) -> PipelineStage:
+    """Kod etapu dla haków po ruchu, liczony z kolumny docelowej.
+
+    Własny kod zostaje, gdy leży w tej samej kolumnie (`negotiation` to
+    „Umowa”); etap rozpoznany po nazwie dostaje kod swojej kolumny.
+    """
+    mapped = _CLIENT_COLUMN_HOOK_STAGE.get(column)
+    if mapped is None:
+        return legacy
+    if board_column_for(None, legacy.value) == column:
+        return legacy
+    return mapped
+
+
+def _record_stage_change(
+    db: AsyncSession,
+    *,
+    stage: CandidateStage,
+    stage_def: Optional[PipelineStageDef],
+    legacy_enum: PipelineStage,
+    actor_id: Optional[int],
+    stage_display_name: str,
+    extra_details: Optional[dict] = None,
+) -> None:
+    """Ślad ruchu: `Activity stage_changed` + `UserActivity` (ranking osób).
+
+    Wspólny dla `/move` i `/bulk-move` — do rundy 9 (R9-N11-7) ruch zbiorczy
+    nie zostawiał żadnego z nich, więc historia karty i liczniki osoby
+    gubiły przesunięcia zrobione paczką.
+
+    ``actor_id=None`` = ruch konta serwisowego (API v1): zostaje `Activity`
+    (autora mówi ``details.via`` ze stempla sesji klucza), a `UserActivity`
+    nie powstaje — to ranking ludzi, a ``user_activities.user_id`` jest NOT NULL.
+    """
+    details: dict = {
+        "candidate_id": stage.candidate_id,
+        "job_id": stage.job_id,
+        "stage": legacy_enum.value,
+        "stage_def_id": stage_def.id if stage_def else None,
+        "stage_name": stage_display_name,
+    }
+    if extra_details:
+        details.update(extra_details)
+    db.add(
+        Activity(
+            entity_type="pipeline",
+            entity_id=stage.id,
+            action="stage_changed",
+            user_id=actor_id,
+            details=details,
+        )
+    )
+    if actor_id is None:
+        return
+    db.add(
+        UserActivity(
+            user_id=actor_id,
+            action_type=UserActionType.stage_changed,
+            entity_type="pipeline",
+            entity_id=stage.id,
+            details={
+                "candidate_id": stage.candidate_id,
+                "job_id": stage.job_id,
+                "stage": legacy_enum.value,
+                "stage_def_id": stage_def.id if stage_def else None,
+            },
+        )
+    )
+
+
+async def _cancel_pending_rejection_emails(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job_id: int,
+    actor_id: Optional[int],
+    restored_to: PipelineStage,
+) -> None:
+    """Ruch na etap nieterminalny anuluje niewysłane maile odrzucenia pary.
+
+    W TEJ SAMEJ transakcji co ruch (M4 PR-02, audyt P1.7). Wiersz, którego
+    wysyłka już ruszyła, zostaje — rozstrzyga go pętla wysyłki (runda 9).
+    """
+    from app.models.rejection_email import RejectionEmailStatus
+    from app.services.rejection_email_scheduler import (
+        pending_rows_covering,
+        send_in_progress,
+    )
+
+    # Wspólny mail (D3, 17.10.2026) mówi też o tej rekrutacji — osoba, która
+    # do niej wraca, nie może dostać maila, że w niej „nie przechodzi dalej”.
+    pending_mails = await pending_rows_covering(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
+    for mail_row in pending_mails:
+        if send_in_progress(mail_row):
+            continue
+        mail_row.status = RejectionEmailStatus.cancelled
+        mail_row.cancelled_at = datetime.now(timezone.utc)
+        mail_row.cancelled_by = actor_id
+        db.add(
+            Activity(
+                entity_type="candidate",
+                entity_id=candidate_id,
+                action="rejection_email_cancelled_on_restore",
+                user_id=actor_id,
+                details={
+                    "scheduled_rejection_email_id": mail_row.id,
+                    "job_id": job_id,
+                    "restored_to_stage": restored_to.value,
+                },
+            )
+        )
+
+
+def _spawn_cv_qc_after_move(
+    target_column: str, stage_id: int, actor_id: Optional[int]
+) -> None:
+    """QC CV liczy się samo po wejściu do kolumny „QC CV” (Rekrutacja v5).
+
+    Ten sam wyłącznik co bramka (w testach wyłączony autouse-fixturą). QC,
+    które nie przeszło i którego nikt nie przepuścił, dzwoni do rekrutera
+    kandydata („QC CV do poprawy”, 14.10.2026) — tylko z tej ścieżki, nie po
+    podpięciu CV.
+    """
+    if target_column != "cv_qc":
+        return
+    try:
+        from app.core.config import settings as _settings
+        from app.services import cv_qc as _cv_qc
+
+        if _settings.CV_QC_GATE_ENABLED:
+            _spawn(
+                _cv_qc.run_after_move(
+                    stage_id, actor_id, notify_recruiter_on_fail=True
+                ),
+                f"cv_qc stage={stage_id}",
+            )
+    except Exception as _exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
+        logger.warning(
+            "cv_qc spawn failed stage=%s (%s)", stage_id, type(_exc).__name__
+        )
+
+
+def _notify_stage_change_effect(
+    db: AsyncSession,
+    *,
+    stage: CandidateStage,
+    previous_stage_row: Optional[CandidateStage],
+    job: Job,
+    mover: User,
+    stage_display_name: str,
+    hired_engagement: Optional[str] = None,
+) -> Callable[[], Awaitable[None]]:
+    """Powiadomienia o przejściu (reguły 0066) — efekt po commicie ruchu."""
+
+    async def _effect() -> None:
+        from app.services.stage_notification_emitter import notify_stage_change
+
+        candidate_obj = await db.scalar(
+            select(Candidate).where(Candidate.id == stage.candidate_id)
+        )
+        if candidate_obj is not None:
+            await notify_stage_change(
+                db,
+                new_stage=stage,
+                previous_stage=previous_stage_row,
+                job=job,
+                candidate=candidate_obj,
+                mover=mover,
+                stage_display_name=stage_display_name,
+                hired_engagement=hired_engagement,
+            )
+
+    return _effect
 
 
 def _days_in_stage(moved_at: datetime) -> int:
@@ -236,6 +607,14 @@ def _http_detail_text(detail: object) -> str:
     return str(detail)
 
 
+# Typ kontraktu zakładanego przy ręcznym „Zatrudniony” (D2, 04.10.2026):
+# do tego dnia każdy szkic był B2B, także przy umowie o pracę i zleceniu.
+_HIRED_CONTRACT_TYPE = {
+    "uop": ContractType.uop,
+    "zlecenie": ContractType.uzlecenie,
+}
+
+
 def _sheet_filled(payload: object) -> bool:
     """Czy arkusz JSONB (screening / scorecard) ma treść.
 
@@ -251,13 +630,186 @@ def _sheet_filled(payload: object) -> bool:
     return any(value not in (None, "", [], {}) for value in payload.values())
 
 
+async def _assert_client_rate_not_order_locked(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> None:
+    """Kwota do klienta w ruchu karty = ta sama blokada co ``PATCH …/client-rate``.
+
+    Po zamówieniu pary stawkę zmienia się w zamówieniu (decyzja Artura
+    20.10.2026) — powrót na „CV wysłane” z nową kwotą nie może jej obejść.
+    """
+
+    from app.services import client_rate_correction  # noqa: PLC0415
+
+    lock = await client_rate_correction.order_lock(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
+    if lock is not None:
+        raise HTTPException(
+            status_code=409, detail=client_rate_correction.order_lock_message(lock)
+        )
+
+
+async def _record_rate_from_move(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    value: Decimal,
+    unit: Optional[str],
+    currency: Optional[str],
+    is_minimum: bool,
+    actor_id: int,
+) -> None:
+    """Stawka z okna „Zweryfikowany” w „Stawce od” (0414).
+
+    Zaznaczone „To jego nowe minimum” zapisuje ją też w profilu jako jawne
+    minimum (audyt ``rate_meaning: minimum``). Potem przeliczenie — nigdy nie
+    cofa samego ruchu (``recompute_safely``).
+    """
+    from app.services.candidate_profile_rate import write_profile_rate
+    from app.services.candidate_rate_from import recompute_safely
+    from app.services.candidate_rate_observations import hourly_from_unit
+
+    if is_minimum:
+        hourly = hourly_from_unit(value, unit, currency)
+        candidate = await db.scalar(
+            select(Candidate).where(Candidate.id == candidate_id).with_for_update()
+        )
+        if hourly is not None and candidate is not None:
+            details = write_profile_rate(candidate, hourly, source="stage_minimum")
+            details["rate_meaning"] = "minimum"
+            candidate_audit.record_candidate_audit(
+                db,
+                action=candidate_audit.PROFILE_RATE_CHANGED,
+                user_id=actor_id,
+                entity_id=candidate_id,
+                details=details,
+            )
+            await db.flush()
+    await recompute_safely(db, [candidate_id])
+
+
+def _rate_rejection_note(
+    amount: Decimal, *, is_minimum: bool, notes: Optional[str]
+) -> str:
+    """„Chce min. 150 zł/h — opis rekrutera” do historii procesu (26.10.2026).
+
+    Profil pokazuje odrzucenie jako „Powód — opis”, więc kwota stoi w opisie
+    także wtedy, gdy rekruter nic nie dopisał.
+    """
+    text = f"{amount:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+    line = f"Chce {'min. ' if is_minimum else ''}{text} zł/h"
+    rest = (notes or "").strip()
+    return f"{line} — {rest}" if rest else line
+
+
+async def _record_rejection_rate(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    amount: Decimal,
+    is_minimum: bool,
+    job_id: int,
+    stage_id: int,
+    actor_id: int,
+) -> None:
+    """Nowa stawka z odrzucenia „za drogo” w profilu i „Stawce od” (26.10.2026).
+
+    Ta sama ścieżka co stawka z okna „Zweryfikowany” (``_record_rate_from_move``),
+    ale kwota trafia do profilu zawsze: jako jawne minimum (domyślnie, starsze
+    niższe stawki przestają się liczyć) albo jako zwykła stawka w historii.
+    Rekrutacja i etap w audycie mówią, skąd przyszła.
+    """
+    from app.services.candidate_profile_rate import write_profile_rate
+    from app.services.candidate_rate_from import recompute_safely
+    from app.services.match_score_cache import mark_stale_for_candidate
+
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id).with_for_update()
+    )
+    if candidate is None:
+        return
+    details = write_profile_rate(
+        candidate,
+        amount,
+        source="rejection_minimum" if is_minimum else "rejection",
+    )
+    if is_minimum:
+        details["rate_meaning"] = "minimum"
+    details["job_id"] = job_id
+    details["stage_id"] = stage_id
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.PROFILE_RATE_CHANGED,
+        user_id=actor_id,
+        entity_id=candidate_id,
+        details=details,
+    )
+    await mark_stale_for_candidate(db, candidate_id)
+    await db.flush()
+    await recompute_safely(db, [candidate_id])
+
+
+async def _record_work_mode_from_rejection(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job: Job,
+    stage: CandidateStage,
+    max_onsite_days: int,
+    user: User,
+) -> None:
+    """Odrzucenie „Nie akceptuje trybu pracy” zapisuje tryb pracy na profilu.
+
+    Ta sama ścieżka co ołówek „Tryb pracy” na profilu (audyt
+    ``candidate_work_mode_changed``, odświeżenie wyników dopasowań), tylko ze
+    źródłem — rekrutacja i etap, z którego przyszła deklaracja.
+    """
+    from app.services.candidate_notes_facts import set_work_mode_from_rejection
+    from app.services.match_score_cache import mark_stale_for_candidate
+
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id).with_for_update()
+    )
+    if candidate is None:
+        return
+    job_title = job.working_title or job.title
+    change = set_work_mode_from_rejection(
+        candidate,
+        max_onsite_days=max_onsite_days,
+        job_id=job.id,
+        job_title=job_title,
+        stage_id=stage.id,
+        user_id=user.id,
+        user_name=user.name,
+        at_iso=stage.moved_at.isoformat(),
+    )
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.WORK_MODE_CHANGED,
+        user_id=user.id,
+        entity_id=candidate_id,
+        details={
+            **change,
+            "source": "rejection",
+            "job_id": job.id,
+            "stage_id": stage.id,
+        },
+    )
+    await mark_stale_for_candidate(db, candidate_id)
+
+
 def _stage_response(
     stage: CandidateStage,
     *,
     candidate_name: Optional[str] = None,
     candidate_lastname: Optional[str] = None,
     added_to_job_by_name: Optional[str] = None,
+    added_to_job_by_id: Optional[int] = None,
     added_to_job_at: Optional[datetime] = None,
+    verified_by_name: Optional[str] = None,
+    verified_by_id: Optional[int] = None,
+    verified_at: Optional[datetime] = None,
     candidate_expected_rate_hourly: Optional[Decimal] = None,
     # Bez wartości domyślnej: każdy wołający decyduje jawnie
     # (`user_can_view_client_rate`) — zapomniany argument nie może odsłonić
@@ -269,10 +821,14 @@ def _stage_response(
     Candidate name/lastname are optional — populated by the Kanban endpoint
     so the frontend can render card titles without an extra round-trip.
 
-    ``added_to_job_by_name`` / ``added_to_job_at`` describe WHO assigned the
-    candidate to the recruitment and WHEN — i.e. the mover on the *earliest*
-    stage of this candidate/job pair, not the current-stage mover. Also
-    populated by the Kanban endpoint (NULL elsewhere).
+    ``added_to_job_by_name`` / ``added_to_job_by_id`` / ``added_to_job_at``
+    describe WHO assigned the candidate to the recruitment and WHEN — i.e. the
+    mover on the *earliest* stage of this candidate/job pair, not the
+    current-stage mover. Also populated by the Kanban endpoint (NULL elsewhere).
+
+    ``verified_by_name`` / ``verified_by_id`` / ``verified_at`` — the FIRST
+    verifier of the pair (``stage_verifier.first_verifier``, the same rule as
+    the recruiter bonus and the DL review). Kanban only.
     """
     return {
         "id": stage.id,
@@ -313,9 +869,18 @@ def _stage_response(
         "name": candidate_name,
         "lastname": candidate_lastname,
         "added_to_job_by_name": added_to_job_by_name,
+        # Filtr „Kto dodał” na Tablicy (14.10.2026) porównuje po numerze —
+        # po imieniu myliłby imienników.
+        "added_to_job_by_id": added_to_job_by_id,
         "added_to_job_at": added_to_job_at,
+        # Karta od „Zweryfikowanego” pokazuje osobę, która zweryfikowała, nie
+        # tę, która dodała (decyzja Artura 20.10.2026).
+        "verified_by_name": verified_by_name,
+        "verified_by_id": verified_by_id,
+        "verified_at": verified_at,
         # Odznaki karty (17.09.2026) — patrz `CandidateStageResponse`.
-        "screening_done": _sheet_filled(stage.screening_answers),
+        # Arkusz z odpowiedzią — jak bramka „Zweryfikowany” (14.10.2026).
+        "screening_done": move_requirements.sheet_answered(stage.screening_answers),
         "scorecard_done": _sheet_filled(stage.scorecard_answers),
         "candidate_expected_rate_hourly": candidate_expected_rate_hourly,
         "task_assignee_id": stage.task_assignee_id,
@@ -385,6 +950,238 @@ async def _process_v4_cards(
         .distinct(RecruitmentProcess.candidate_id)
     )
     return {p.candidate_id: p for p in rows.scalars().all()}
+
+
+async def _link_reapplications(
+    db: AsyncSession, *, job_id: int, candidate_ids: Iterable[int]
+) -> list[tuple[int, int, datetime]]:
+    """Zgłoszenia z linków do tej rekrutacji: ``(kandydat, właściciel linku, kiedy)``.
+
+    Etap 2 linków (19.10.2026), plakietka „Zgłosił się też z Twojego linku”.
+    Dwa źródła, jedno zapytanie dla całej tablicy: zgłoszenie dołączone do
+    osoby (``application_submissions`` → właściciel linku po skrócie tokenu)
+    i przegląd AI, który zastał osobę w rekrutacji (``application_screenings``
+    ``already_in_job``). Które z nich są PONOWNE (po otwarciu karty), wybiera
+    wołający — zgłoszenie, które kartę otworzyło, jest od niej starsze albo
+    z tej samej transakcji.
+    """
+    from sqlalchemy import Integer, cast, union_all
+
+    from app.models.application_screening import ApplicationScreening
+    from app.models.application_submission import (
+        ApplicationSubmission,
+        ApplicationSubmissionStatus,
+    )
+    from app.models.invite_link import CandidateInviteLink
+
+    ids = sorted(set(candidate_ids))
+    if not ids:
+        return []
+    submissions = (
+        select(
+            ApplicationSubmission.matched_candidate_id.label("candidate_id"),
+            CandidateInviteLink.created_by.label("owner_id"),
+            ApplicationSubmission.created_at.label("at"),
+        )
+        .join(
+            CandidateInviteLink,
+            CandidateInviteLink.token_sha256
+            == ApplicationSubmission.invite_link_token_sha256,
+        )
+        .where(
+            ApplicationSubmission.job_id == job_id,
+            ApplicationSubmission.matched_candidate_id.in_(ids),
+            ApplicationSubmission.status.in_(
+                (
+                    ApplicationSubmissionStatus.linked.value,
+                    ApplicationSubmissionStatus.merged.value,
+                )
+            ),
+        )
+    )
+    owner_in_context = ApplicationScreening.context["link_owner_id"].astext
+    screenings = select(
+        ApplicationScreening.candidate_id.label("candidate_id"),
+        cast(owner_in_context, Integer).label("owner_id"),
+        ApplicationScreening.created_at.label("at"),
+    ).where(
+        ApplicationScreening.job_id == job_id,
+        ApplicationScreening.candidate_id.in_(ids),
+        ApplicationScreening.outcome == "already_in_job",
+        owner_in_context.op("~")(r"^\d+$"),
+    )
+    rows = await db.execute(union_all(submissions, screenings))
+    return [
+        (cid, owner, at)
+        for cid, owner, at in rows.all()
+        if cid is not None and owner is not None and at is not None
+    ]
+
+
+def _reapplied_link_owners(
+    reapplications: Iterable[tuple[int, int, datetime]],
+    processes: Mapping[int, RecruitmentProcess],
+    link_owner_by_candidate: Mapping[int, int],
+) -> dict[int, list[int]]:
+    """Właściciele linków, z których osoba zgłosiła się PO otwarciu karty.
+
+    Bez właściciela linku, który kartę przyprowadził (to mówi plakietka
+    „Z Twojego linku”), kolejność = pierwsze ponowne zgłoszenie.
+    """
+    earliest: dict[int, dict[int, datetime]] = {}
+    for cid, owner, at in reapplications:
+        process = processes.get(cid)
+        opened = (process.opened_at or process.created_at) if process else None
+        if opened is None or at <= opened:
+            continue
+        if owner == link_owner_by_candidate.get(cid):
+            continue
+        seen = earliest.setdefault(cid, {})
+        if owner not in seen or at < seen[owner]:
+            seen[owner] = at
+    return {
+        cid: sorted(owners, key=lambda o: (owners[o], o))
+        for cid, owners in earliest.items()
+    }
+
+
+def _merge_skip_traces(
+    rows: Iterable[tuple[int, Optional[dict], Optional[int], Optional[datetime]]],
+    since: Mapping[int, Optional[datetime]],
+) -> dict[int, tuple[list[str], Optional[int]]]:
+    """Suma braków ze śladów pary (od najstarszego) i autor najnowszego.
+
+    Kolejny ruch mimo braków (np. przeskok debriefu) nie chowa braków
+    z wejścia na „Zweryfikowany”; ślad sprzed bieżącej próby (``since``
+    = początek próby, gdy osoba wróciła do rekrutacji) się nie liczy.
+    """
+    found: dict[int, tuple[list[str], Optional[int]]] = {}
+    for cid, details, user_id, moved_at in rows:
+        start = since.get(cid)
+        if start is not None and moved_at is not None and moved_at < start:
+            continue
+        keys = found[cid][0] if cid in found else []
+        for key in (details or {}).get("missing") or []:
+            if str(key) not in keys:
+                keys.append(str(key))
+        found[cid] = (keys, user_id)
+    return found
+
+
+async def _requirements_skipped(
+    db: AsyncSession,
+    *,
+    job_id: int,
+    candidate_ids: Iterable[int],
+    since: Optional[Mapping[int, Optional[datetime]]] = None,
+) -> dict[int, tuple[list[str], Optional[int]]]:
+    """Ruchy mimo braków każdej pary: ``(braki, kto)`` — 22.10.2026.
+
+    Ślad zapisuje ``/move``, gdy Delivery Lead przeszedł bramki pól
+    (``pipeline_move_rules.skips_fill_gates``); jedno zapytanie na tablicę
+    przez wiersze etapów rekrutacji (``Activity.entity_id`` = wiersz).
+    Braki z bieżącej próby sumują się (:func:`_merge_skip_traces`).
+    """
+    ids = sorted(set(candidate_ids))
+    if not ids:
+        return {}
+    rows = await db.execute(
+        select(
+            CandidateStage.candidate_id,
+            Activity.details,
+            Activity.user_id,
+            CandidateStage.moved_at,
+        )
+        .join(
+            Activity,
+            (Activity.entity_type == "pipeline")
+            & (Activity.entity_id == CandidateStage.id),
+        )
+        .where(
+            CandidateStage.job_id == job_id,
+            CandidateStage.candidate_id.in_(ids),
+            Activity.action == pipeline_move_rules.REQUIREMENTS_SKIPPED_ACTION,
+        )
+        .order_by(CandidateStage.candidate_id, Activity.id)
+    )
+    return _merge_skip_traces(rows.all(), since or {})
+
+
+def _still_missing(keys: list[str], payload: dict) -> list[str]:
+    """Braki ze śladu ``requirements_skipped``, których karta dalej nie ma.
+
+    Arkusz i „Dlaczego” — ``screening_done``; stawka — stawka etapu albo
+    z profilu; pola karty — ``minimum_missing``. Debrief zostaje, dopóki
+    jest w śladzie (karta nie zna jego stanu).
+    """
+    minimum = set(payload.get("minimum_missing") or ())
+    has_rate = (
+        payload.get("expected_rate_value") is not None
+        or payload.get("candidate_expected_rate_hourly") is not None
+    )
+    out: list[str] = []
+    for key in keys:
+        if key in ("screening_sheet", "why_candidate"):
+            if payload.get("screening_done") is False:
+                out.append(key)
+        elif key == "candidate_rate":
+            if not has_rate:
+                out.append(key)
+        elif key == "debrief" or key in minimum:
+            out.append(key)
+    return out
+
+
+# Krótkie nazwy braków w dzwonku — etykiety komunikatu 409 mają cudzysłowy
+# i dopiski („ta rekrutacja nie ma pytań…”), które w dzwonku nie pasują.
+_SKIP_BELL_LABELS = {
+    "screening_sheet": "arkusz screeningu",
+    "why_candidate": "Dlaczego ten kandydat",
+    "candidate_rate": "stawka kandydata",
+    "debrief": "debrief",
+}
+
+
+async def _notify_recruiter_of_skip(
+    db: AsyncSession,
+    *,
+    job: Job,
+    candidate_id: int,
+    mover: Optional[User],
+    stage_name: str,
+    missing: list[str],
+) -> None:
+    """Dzwonek do prowadzącego rekrutację: Delivery Lead przesunął osobę mimo
+    braków (22.10.2026) — rekruter wie, że osobę prowadzi już ktoś inny.
+
+    Każde przejście przez „Zweryfikowany” od lewej — ruch na „Zweryfikowany”
+    albo przeskok dalej, np. na „QC CV” (DL przejmuje proces; audyt
+    22.10.2026, F58); sam przeskok debriefu nikogo nie powiadamia. ``emit`` sprawdza odbiorcę i dzienny duplikat.
+    """
+    from app.services.notification_triggers import emit  # noqa: PLC0415
+
+    if mover is None or job.recruiter_id is None or job.recruiter_id == mover.id:
+        return
+    candidate = await db.get(Candidate, candidate_id)
+    person = (
+        f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+        if candidate is not None
+        else ""
+    ) or "Kandydat"
+    labels = ", ".join(
+        _SKIP_BELL_LABELS.get(key) or move_requirements.card_field_label(key)
+        for key in missing
+    )
+    await emit(
+        db,
+        user_id=job.recruiter_id,
+        title=f"{mover.name} przesunął(-ęła) {person} na „{stage_name}”",
+        message=f"{job.title} · bez: {labels}",
+        ntype=NotificationType.stage_changed,
+        related_entity_type="candidate",
+        related_entity_id=candidate_id,
+        link=f"/jobs/{job.id}?candidate={candidate_id}",
+    )
 
 
 async def _process_cards(
@@ -525,8 +1322,6 @@ async def _assert_cv_qc_gate(
     from app.core.config import settings
     from app.services import cv_qc
 
-    if not settings.CV_QC_GATE_ENABLED:
-        return
     if stage_def is not None and stage_def.is_terminal:
         return
     target_column = board_column_for(
@@ -544,44 +1339,61 @@ async def _assert_cv_qc_gate(
     target_is_cpro = stage_def is not None and is_cpro_stage(stage_def.name)
     if target_column != "cv_sent" and not target_is_cpro:
         return
-    current = await db.scalar(
-        select(CandidateStage)
-        .where(
-            CandidateStage.candidate_id == candidate_id,
-            CandidateStage.job_id == job_id,
-        )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-        .limit(1)
+    # Para w „Zamkniętych" liczy się kolumną sprzed zamknięcia — inaczej
+    # „Nowi → Odrzucony → CV wysłane" omijało QC i osobę od Cpro.
+    # Para bez wierszy liczy się od „Nowych” (`current` = None) — świeży
+    # kandydat wysłany przez API wprost na „CV wysłane” nie omija bramki.
+    current, current_column = await pipeline_move_rules.gate_stage_row(
+        db, candidate_id=candidate_id, job_id=job_id
     )
-    if current is None:
-        return
-    current_column = await candidate_claim.stage_column(db, current)
     if not cv_qc.gate_applies(current_column, target_column, target_is_cpro):
         return
     # U Nordei „CV wysłane" = „Wysłane do Cpro": wrzuca osoba od Cpro
     # wyznaczona dla całej firmy (albo admin / DL / HoR). Rekruter po QC
-    # przekazuje kartę do kolejki Cpro, nie wysyła jej sam.
+    # przekazuje kartę Delivery Leadowi, który akceptuje ją do kolejki Cpro
+    # (13.10.2026, `pipeline_move_rules.requires_dl_client_rate`).
     from app.services.board_stage_badges import cpro_enabled_for_client
 
     if target_column == "cv_sent" and cpro_enabled_for_client(client_id):
         from app.services import cpro_sender
 
-        if not await cpro_sender.can_send_to_cpro(db, user):
+        # Bez osoby na firmę wrzuca też osoba zapasowa tej rekrutacji — ta
+        # sama, której kolejka pokazuje zadanie (`board_tasks._sees_cpro`).
+        job_sender_id = await db.scalar(
+            select(Job.cpro_sender_id).where(Job.id == job_id)
+        )
+        if not await cpro_sender.can_send_to_cpro(
+            db,
+            user,
+            fallback_sender_ids=(
+                job_sender_id,
+                current.task_assignee_id if current is not None else None,
+            ),
+        ):
             sender = await cpro_sender.effective_sender(db)
             names = await cpro_sender.user_names(db, {sender.user_id})
             who = names.get(sender.user_id) or "osoba wyznaczona do Cpro"
             raise HTTPException(
                 status_code=403,
                 detail=(
-                    f"Do Cpro wrzuca {who}. Po QC użyj „Przekaż do Cpro” — "
-                    "osoba trafi do kolejki na pulpicie."
+                    f"Do Cpro wrzuca {who}, z kolejki Cpro po akceptacji "
+                    "Delivery Leada. Po QC użyj „Przekaż Delivery Leadowi”."
                 ),
             )
+    # Runda 8 (R8-N8-3): wyłącznik QC dotyczy wyłącznie kontroli CV — reguła
+    # „do Cpro wrzuca osoba od Cpro” wyżej działa także przy wyłączonym QC.
+    if not settings.CV_QC_GATE_ENABLED:
+        return
     # Osoba już w kolejce Cpro przeszła bramkę przy wejściu do niej (albo —
     # sprzed 24.09.2026 — ręczny przegląd DZ). „✓ Wrzucone” nie liczy QC
     # drugi raz: CV Nordei to zwykle pliki Word spoza NEXUSA, a obejście ma
-    # tylko DL/admin, więc osoba od Cpro dostawałaby odmowę na zaakceptowanych.
-    if target_column == "cv_sent" and current.stage_def_id is not None:
+    # tylko osoba z uprawnieniem `recruitment_manage` (domyślnie DL/admin),
+    # więc osoba od Cpro dostawałaby odmowę na zaakceptowanych.
+    if (
+        target_column == "cv_sent"
+        and current is not None
+        and current.stage_def_id is not None
+    ):
         current_name = await db.scalar(
             select(PipelineStageDef.name).where(
                 PipelineStageDef.id == current.stage_def_id
@@ -589,22 +1401,138 @@ async def _assert_cv_qc_gate(
         )
         if is_cpro_stage(current_name):
             return
+    # 0521 (26.10.2026): klient bierze formularz CV z Plików rekrutacji, nie
+    # CV firmowe — QC CV firmowego nie ma czego sprawdzać (decyzja D3:
+    # o brakach formularza przypomina lista wymagań, bez blokady).
+    from app.services import client_form_status
+
+    if await client_form_status.client_takes_client_form(db, client_id):
+        return
     await cv_qc.assert_qc_passed(
         db, candidate_id=candidate_id, job_id=job_id, user=user, stage=current
     )
 
 
-@router.post("/move", response_model=CandidateStageResponse)
-async def move_candidate(
-    data: StageMove,
-    current_user: RecruiterPlus,
-    db: AsyncSession = Depends(get_db),
-):
-    """Move a candidate to a new pipeline stage for a given job.
+async def _spend_advisory_qc_override_on_return(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job_id: int,
+    stage_def: Optional[PipelineStageDef],
+    legacy_value: Optional[str],
+) -> None:
+    """Zwrot karty kończy obejście doradcze QC (tryb doradczy, 12.10.2026).
 
-    Accepts either `stage` (legacy enum) or `stage_def_id` (new FK). For
-    custom stages introduced via templates, the legacy enum is set to
-    `PipelineStage.new` as a placeholder — the real identifier is stage_def_id.
+    „Przesuń mimo uwag…” rekrutera przepuszcza kartę naprzód — także wysyłkę
+    przez Delivery Leada, który widzi baner z powodem. Każdy inny ruch (wstecz,
+    z kolejki Cpro do „QC CV”, do „Zamkniętych”) je kończy: gdy karta wróci,
+    QC znów pyta, a kolejne obejście znów powiadamia Delivery Leada. Zapis
+    w transakcji ruchu — odmowa ruchu cofa także ten zapis.
+    """
+
+    from app.services import cv_finding_dismissals, cv_qc
+
+    has_override = await cv_qc.has_live_advisory_override(db, candidate_id, job_id)
+    # Pominięte uwagi blokujące („To nieprawda”, D5) działają jak obejście
+    # doradcze: zwrot karty przywraca te, które pominęła osoba bez prawa wysyłki.
+    has_dismissals = await cv_finding_dismissals.has_blocking(db, candidate_id, job_id)
+    if not (has_override or has_dismissals):
+        return
+    target_column = board_column_for(
+        stage_def.name if stage_def else None,
+        (stage_def.legacy_enum_value if stage_def else None) or legacy_value,
+        category=(
+            stage_def.category.value if stage_def and stage_def.category else None
+        ),
+        terminal_type=(
+            stage_def.terminal_type.value
+            if stage_def and stage_def.terminal_type
+            else None
+        ),
+    )
+    _current, current_column = await pipeline_move_rules.gate_stage_row(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
+    order = BOARD_COLUMN_ORDER
+    forward = (
+        target_column in order
+        and current_column in order
+        and (
+            order.index(target_column) > order.index(current_column)
+            # Ta sama kolumna „QC CV”: naprzód idzie tylko wejście do kolejki Cpro.
+            or (
+                target_column == current_column
+                and stage_def is not None
+                and is_cpro_stage(stage_def.name)
+            )
+        )
+    )
+    if not forward:
+        if has_override:
+            await cv_qc.spend_advisory_overrides(db, candidate_id, job_id)
+        if has_dismissals:
+            await cv_finding_dismissals.restore_on_card_return(db, candidate_id, job_id)
+
+
+@dataclass
+class MoveProposed:
+    """Integracja (token OAuth) dodała ruchem NOWĄ osobę bez zgłoszenia do tej
+    rekrutacji — propozycja ``job_board`` zamiast karty (06.10.2026)."""
+
+    proposal: "ProposeResult"
+    candidate_id: int
+    job_id: int
+
+
+@dataclass
+class MoveReplayed:
+    """Powtórzony ruch na „Zatrudniony” — karta już tam stoi, nic nie zapisano."""
+
+    stage: CandidateStage
+
+
+@dataclass
+class MoveApplied:
+    """Zapisany ruch (bez commita) i to, czego potrzebują efekty po commicie."""
+
+    stage: CandidateStage
+    job: Job
+    candidate_id: int
+    job_id: int
+    stage_def: Optional[PipelineStageDef]
+    legacy_enum: PipelineStage
+    target_column: str
+    previous_stage_row: Optional[CandidateStage]
+    stage_display_name: str
+    hired_engagement: Optional[str]
+    cpro_assignee: Optional[User]
+    cpro_assignee_added_to_team: bool
+    scheduled_rejection_email_id: Optional[int]
+    rejection_email_status: Optional[str]
+    # Ostrzeżenie eligibility przyjęte flagą `acknowledge_eligibility`.
+    eligibility_acknowledged: Optional[str]
+    # Czytane PRZED commitem — obiekty sesji po commicie bywają wygasłe.
+    actor_id: Optional[int]
+    # Uwaga zapisana przy ruchu (`stage_remarks`) — jej wzmianki „@” dzwonią
+    # po commicie (22.10.2026).
+    remark_note: Optional[Note] = None
+
+
+async def apply_move(
+    db: AsyncSession,
+    data: StageMove,
+    *,
+    policy: RecruitmentMovePolicy,
+    request: Optional[Request] = None,
+) -> Union[MoveProposed, MoveReplayed, MoveApplied]:
+    """Ruch karty bez commita — jedno ciało dla Tablicy i API v1 (15.10.2026).
+
+    Wszystkie bramki ``/move`` w tej samej kolejności; „czy wolno” i „kto”
+    idą przez ``policy`` (``services/recruitment_move_policy.py``): osoba
+    z Tablicy dostaje dokładnie bramki sprzed wydzielenia, konto serwisowe —
+    reguły API v1. Wołający zatwierdza transakcję i po commicie woła
+    ``run_move_effects`` (powiadomienia, Tablica na żywo, pula talentów,
+    ryzyko). Dwa wyniki nie zapisują ruchu: ``MoveProposed`` i ``MoveReplayed``.
     """
     if data.stage is None and data.stage_def_id is None:
         raise HTTPException(
@@ -620,7 +1548,7 @@ async def move_candidate(
     # a job they belong to (owner/DL/TAC/collaborator) or oversee (admin/HoR).
     # Runs before any target/capability work so a non-member learns nothing
     # about the requested move.
-    await ensure_job_membership(db, current_user, job.id)
+    await policy.ensure_job_access(job.id)
 
     stage_def = await _resolve_stage_def(
         db, job, stage_def_id=data.stage_def_id, legacy_stage=data.stage
@@ -667,72 +1595,15 @@ async def move_candidate(
     # Recruitment, „Gotowy do Cpro" istnieje tylko u Nordei.
     if stage_def is not None:
         ensure_badge_stage_allowed(
-            current_user, stage_name=stage_def.name, client_id=job.client_id
+            policy.viewer, stage_name=stage_def.name, client_id=job.client_id
         )
-    # Rekrutacja v5 (0361): QC CV przed „CV wysłane”/Cpro. Tu, przed
-    # pierwszym zapisem ruchu — odmowa zapisuje przebieg QC i nic więcej.
-    await _assert_cv_qc_gate(
-        db,
-        current_user,
-        candidate_id=data.candidate_id,
-        job_id=job.id,
-        stage_def=stage_def,
-        legacy_value=data.stage.value if data.stage is not None else None,
-        client_id=job.client_id,
-    )
-    # 0348/0353: osoba, która wysyła do Cpro — od 23.09.2026 JEDNA na całą
-    # rekrutację (`jobs.cpro_sender_id`); pole przy ruchu ustawia ją dla
-    # rekrutacji. Na każdym innym etapie pole nie ma znaczenia, więc 422.
-    cpro_assignee: Optional[User] = None
-    cpro_assignee_added_to_team = False
-    if data.task_assignee_id is not None:
-        if stage_def is None or not is_cpro_stage(stage_def.name):
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "Osobę wysyłającą wybiera się tylko przy oznaczeniu "
-                    "„Gotowy do Cpro”."
-                ),
-            )
-        cpro_assignee = await board_tasks_svc.load_assignee(db, data.task_assignee_id)
-        # Przed ruchem: odmowa (osoba spoza zespołu, a typuje ktoś bez prawa
-        # zmiany zespołu) ma zatrzymać ruch, zanim cokolwiek się zapisze.
-        cpro_assignee_added_to_team = await board_tasks_svc.ensure_assignee_can_move(
-            db, job_id=job.id, assignee=cpro_assignee, actor=current_user
-        )
-
-    # Use the same first lock as the signed-contract automation. Besides
-    # serializing two pipeline moves, this prevents the inverse
-    # CandidateStage-FK → Candidate-FOR-UPDATE lock order that could deadlock
-    # with a concurrent signature confirmation.
-    locked_candidate_id = await db.scalar(
-        select(Candidate.id).where(Candidate.id == data.candidate_id).with_for_update()
-    )
-    if locked_candidate_id is None:
-        raise HTTPException(status_code=404, detail="Candidate not found")
-
-    # Pipeline v4 (0352): osoba w „Nowych" zarezerwowana przez kogoś innego
-    # (12 h) — ruch tylko dla admina, DL i Head of Recruitment.
-    await candidate_claim.assert_can_act(
-        db,
-        process=await candidate_claim.load_process(
-            db, candidate_id=data.candidate_id, job_id=data.job_id
-        ),
-        user=current_user,
-    )
-
-    # Current row pary — kanoniczny tiebreaker (moved_at DESC, id DESC).
-    # Reużywany niżej: cancel maili przy restore, notyfikacje. Wiersz
-    # historyczny `pending` NIE blokuje kolejnego ruchu — bramka „Oczekuje"
-    # została usunięta i nie ma approvera, który mógłby ją odblokować.
-    previous_stage_row = await db.scalar(
-        select(CandidateStage)
-        .where(
-            CandidateStage.candidate_id == data.candidate_id,
-            CandidateStage.job_id == data.job_id,
-        )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-        .limit(1)
+    # Runda 9 (R9-N11-4): para BEZ żadnego wiersza etapu to dodanie osoby do
+    # rekrutacji, nie ruch. Wejście tylko do „Nowych”/„Screeningu” i twarda
+    # bramka czarnej listy / weta — ta sama reguła co bulk-add
+    # (`proposals_bulk`, `is_entry_column`). Dalsze kolumny mają bramki
+    # ruchu, które liczą się względem drogi, której tu nie ma.
+    fresh_pair = await _pair_has_no_stage(
+        db, candidate_id=data.candidate_id, job_id=job.id
     )
 
     # Derive effective legacy-enum value for backward-compat column
@@ -759,54 +1630,7 @@ async def move_candidate(
         mapped = _terminal_to_legacy.get(stage_def.terminal_type)
         if mapped is not None:
             legacy_enum = mapped
-
-    # ── M4 PR-01: capability guard na ruchy terminalne i rate-bearing ──────
-    # Terminal (po stage_def LUB legacy enum): sourcer nie zamyka rekrutacji
-    # (audyt P0.3 — RecruiterPlus obejmuje sourcera, a terminal nie miał
-    # osobnego guardu). Ruch na `verified` niesie stawkę kandydata
-    # (expected_rate_*), więc wymaga capability edycji stawek.
-    is_terminal_target = bool(stage_def and stage_def.is_terminal) or legacy_enum in (
-        PipelineStage.hired,
-        PipelineStage.rejected,
-        PipelineStage.withdrawn,
-    )
-    if is_terminal_target and not user_can_terminal_transition(current_user):
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "Ruch na etap terminalny (hired/rejected/withdrawn) wymaga roli "
-                "admin, delivery_lead, talent_community_manager, tac, recruiter "
-                "lub finance."
-            ),
-        )
-    # A concurrent confirm or pipeline move may have completed while this
-    # request waited for the candidate lock. Treat an identical hired move as
-    # an idempotent replay instead of appending a second terminal stage.
-    if (
-        legacy_enum == PipelineStage.hired
-        and previous_stage_row is not None
-        and previous_stage_row.stage == PipelineStage.hired
-    ):
-        resp = _stage_response(
-            previous_stage_row,
-            show_client_rate=user_can_view_client_rate(current_user),
-        )
-        resp["scheduled_rejection_email_id"] = None
-        await db.commit()
-        return CandidateStageResponse(**resp)
-
-    if legacy_enum == PipelineStage.verified and not user_can_edit_rates(current_user):
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "Ruch na etap 'Zweryfikowany' może nieść stawkę kandydata i wymaga "
-                "roli admin, delivery_lead, tac, recruiter lub finance."
-            ),
-        )
-
-    # Pipeline v4 (23.09.2026): wejście do „Umowy"/„Zatrudnionego" wymaga
-    # debriefu po rozmowie u klienta (pytania klienta albo „klient nie zadawał
-    # pytań") — pytania zasilają prep i profil Championa.
+    # Kolumna docelowa (bramki debriefu, „Zweryfikowany”, haki po ruchu).
     target_column = board_column_for(
         stage_def.name if stage_def else None,
         legacy_enum.value,
@@ -819,20 +1643,253 @@ async def move_candidate(
             else None
         ),
     )
-    await pipeline_move_rules.assert_debrief_before_contract(
+    # Ruchy, których autor nie robi wcale — przed pierwszym zapisem i przed
+    # bramkami biznesowymi (osoba z ekranu: bez listy odmów, API v1:
+    # `requires_screen_decision`, `services/recruitment_move_policy.py`).
+    await policy.assert_move_allowed(
+        MoveTarget(
+            data=data,
+            job=job,
+            stage_def=stage_def,
+            legacy_enum=legacy_enum,
+            target_column=target_column,
+            fresh_pair=fresh_pair,
+        )
+    )
+    if fresh_pair:
+        _assert_fresh_pair_entry(stage_def, data.stage)
+        await assert_candidate_move_eligible(
+            db,
+            candidate_id=data.candidate_id,
+            job=job,
+            now=datetime.now(timezone.utc),
+        )
+        proposal = await _integration_fresh_pair_proposal(
+            db, request, job=job, candidate_id=data.candidate_id
+        )
+        if proposal is not None:
+            return MoveProposed(
+                proposal=proposal, candidate_id=data.candidate_id, job_id=job.id
+            )
+
+    # Rekrutacja v5 (0361): QC CV przed „CV wysłane”/Cpro. Tu, przed
+    # pierwszym zapisem ruchu — odmowa zapisuje przebieg QC i nic więcej.
+    await _assert_cv_qc_gate(
+        db,
+        policy.viewer,
+        candidate_id=data.candidate_id,
+        job_id=job.id,
+        stage_def=stage_def,
+        legacy_value=data.stage.value if data.stage is not None else None,
+        client_id=job.client_id,
+    )
+    await _spend_advisory_qc_override_on_return(
+        db,
+        candidate_id=data.candidate_id,
+        job_id=job.id,
+        stage_def=stage_def,
+        legacy_value=data.stage.value if data.stage is not None else None,
+    )
+    # 0348/0353: osoba, która wysyła do Cpro — od 23.09.2026 JEDNA na całą
+    # rekrutację (`jobs.cpro_sender_id`); pole przy ruchu ustawia ją dla
+    # rekrutacji. Na każdym innym etapie pole nie ma znaczenia, więc 422.
+    cpro_assignee: Optional[User] = None
+    cpro_assignee_added_to_team = False
+    if data.task_assignee_id is not None:
+        if stage_def is None or not is_cpro_stage(stage_def.name):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Osobę wysyłającą wybiera się tylko przy oznaczeniu "
+                    "„Gotowy do Cpro”."
+                ),
+            )
+        # Wskazanie osoby przy ruchu ustawia osobę od Cpro rekrutacji (zapas,
+        # który widzi stawki do klienta w kolejce) — ta sama bramka co
+        # `PUT /api/board-tasks/cpro/sender`: tylko admin albo DL Nordei
+        # (przegląd PR #1844; inaczej rekruter wskazywał sam siebie).
+        from app.services import cpro_sender as cpro_sender_svc
+
+        if not await cpro_sender_svc.can_set_sender(db, policy.viewer):
+            raise HTTPException(
+                status_code=403, detail=cpro_sender_svc.SET_SENDER_FORBIDDEN
+            )
+        cpro_assignee = await board_tasks_svc.load_assignee(db, data.task_assignee_id)
+        # Przed ruchem: odmowa (osoba spoza zespołu, a typuje ktoś bez prawa
+        # zmiany zespołu) ma zatrzymać ruch, zanim cokolwiek się zapisze.
+        cpro_assignee_added_to_team = await board_tasks_svc.ensure_assignee_can_move(
+            db, job_id=job.id, assignee=cpro_assignee, actor=policy.viewer
+        )
+
+    # Use the same first lock as the signed-contract automation. Besides
+    # serializing two pipeline moves, this prevents the inverse
+    # CandidateStage-FK → Candidate-FOR-UPDATE lock order that could deadlock
+    # with a concurrent signature confirmation.
+    locked_candidate_id = await db.scalar(
+        select(Candidate.id).where(Candidate.id == data.candidate_id).with_for_update()
+    )
+    if locked_candidate_id is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    # Pipeline v4 (0352): osoba w „Nowych" zarezerwowana przez kogoś innego
+    # (12 h) — ruch tylko dla admina, DL i Head of Recruitment.
+    await policy.assert_can_act(candidate_id=data.candidate_id, job_id=data.job_id)
+
+    # Current row pary — kanoniczny tiebreaker (moved_at DESC, id DESC).
+    # Reużywany niżej: cancel maili przy restore, notyfikacje. Wiersz
+    # historyczny `pending` NIE blokuje kolejnego ruchu — bramka „Oczekuje"
+    # została usunięta i nie ma approvera, który mógłby ją odblokować.
+    previous_stage_row = await db.scalar(
+        select(CandidateStage)
+        .where(
+            CandidateStage.candidate_id == data.candidate_id,
+            CandidateStage.job_id == data.job_id,
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        .limit(1)
+    )
+
+    # ── M4 PR-01: capability guard na ruchy terminalne i rate-bearing ──────
+    # Terminal (po stage_def LUB legacy enum) i ruch na `verified` (niesie
+    # stawkę kandydata) mają własne listy ról. Od 02.10.2026 obie obejmują
+    # każdą rolę wewnętrzną, także sourcera (decyzja Artura).
+    is_terminal_target = bool(stage_def and stage_def.is_terminal) or legacy_enum in (
+        PipelineStage.hired,
+        PipelineStage.rejected,
+        PipelineStage.withdrawn,
+    )
+    if is_terminal_target and not policy.can_terminal_transition():
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Ruch na etap terminalny (hired/rejected/withdrawn) wymaga roli "
+                "admin, head_of_recruitment, delivery_lead, "
+                "talent_community_manager, recruiter lub finance."
+            ),
+        )
+    # A concurrent confirm or pipeline move may have completed while this
+    # request waited for the candidate lock. Treat an identical hired move as
+    # an idempotent replay instead of appending a second terminal stage.
+    if (
+        legacy_enum == PipelineStage.hired
+        and previous_stage_row is not None
+        and previous_stage_row.stage == PipelineStage.hired
+    ):
+        return MoveReplayed(stage=previous_stage_row)
+
+    if legacy_enum == PipelineStage.verified and not policy.can_edit_rates():
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Ruch na etap 'Zweryfikowany' może nieść stawkę kandydata i wymaga "
+                "roli admin, head_of_recruitment, delivery_lead, "
+                "talent_community_manager, recruiter lub finance."
+            ),
+        )
+
+    # D2 (04.10.2026): ręczny ruch na „Zatrudniony” mówi, jak podpisano umowę.
+    pipeline_move_rules.assert_hired_signed_via(
+        legacy_enum, data.hired_signed_via, data.hired_signed_note
+    )
+    # Etap 1b (22.10.2026): umowa w podpisie w NEXUSIE zatrudnia sama.
+    await pipeline_move_rules.assert_no_esign_in_progress(
+        db,
+        target=legacy_enum,
+        candidate_id=data.candidate_id,
+        job_id=data.job_id,
+    )
+    # 16.10.2026 (D1): okno „Klient zaakceptował” — data akceptacji i start.
+    pipeline_move_rules.assert_client_acceptance_dates(
+        legacy_enum,
+        data.client_accepted_on,
+        data.planned_start_on,
+        today=business_today(),
+    )
+
+    # Pipeline v4 (23.09.2026): wejście do „Umowy"/„Zatrudnionego" wymaga
+    # debriefu po rozmowie u klienta (pytania klienta albo „klient nie zadawał
+    # pytań") — pytania zasilają prep i profil Championa.
+    # Delivery Lead przechodzi mimo braków (22.10.2026) — braki idą do śladu
+    # ruchu (`requirements_skipped`), z którego Tablica rysuje odznakę.
+    debrief_skipped = await pipeline_move_rules.assert_debrief_before_contract(
         db,
         candidate_id=data.candidate_id,
         job_id=data.job_id,
         target_column=target_column,
+        user=policy.viewer,
     )
+    # D1 (04.10.2026): „Zweryfikowany” z Nowych/Screeningu wymaga arkusza
+    # screeningu i stawki kandydata — ta sama reguła co okno „Przesuń dalej”.
+    # Lista niepusta tylko przy przejściu przez „Zweryfikowany” od lewej
+    # (z Nowych/Screeningu na „Zweryfikowany” albo dalej).
+    verified_skipped = await pipeline_move_rules.assert_verified_requirements(
+        db,
+        candidate_id=data.candidate_id,
+        job=job,
+        user=policy.viewer,
+        target_column=target_column,
+        pending_rate=data.expected_rate_value is not None
+        and data.expected_rate_value > 0,
+    )
+    # Bliźniaki (0615, 28.10.2026): „Zweryfikowany” po screeningu pod każdy
+    # bliźniak albo z jawnym pominięciem (powód zostaje w Historii zdarzeń).
+    from app.services import job_twins  # noqa: PLC0415
+
+    twin_skipped = await job_twins.assert_twin_screening(
+        db,
+        candidate_id=data.candidate_id,
+        job=job,
+        user=policy.viewer,
+        target_column=target_column,
+        skips=data.twin_skips,
+    )
+    for skip in twin_skipped:
+        db.add(
+            Activity(
+                entity_type="candidate",
+                entity_id=data.candidate_id,
+                action="job_twin_skipped",
+                user_id=policy.actor_id,
+                details={
+                    "job_id": data.job_id,
+                    "twin_job_id": skip["job_id"],
+                    "reason": skip["reason"],
+                },
+            )
+        )
+    skipped_requirements = debrief_skipped + verified_skipped
+    # D6 (08.10.2026): „Wróć do poprawy” z „QC CV” niesie listę pól do poprawy.
+    # Walidacja PRZED zapisem ruchu — zła lista nie może cofnąć karty bez niej.
+    fix_keys: list[str] = []
+    if data.fix_fields:
+        _gate_row, from_column = await pipeline_move_rules.gate_stage_row(
+            db, candidate_id=data.candidate_id, job_id=data.job_id
+        )
+        screening_fix_requests.assert_allowed(
+            from_column=from_column,
+            target_column=target_column,
+            client_id=job.client_id,
+        )
+        fix_keys = screening_fix_requests.validate(
+            data.fix_fields, screening_fix_requests.fix_options(job)
+        )
 
     # Pipeline v4 (23.09.2026): „CV wysłane" poza Nordeą wysyła Delivery Lead
-    # i wpisuje stawkę do klienta. Stawka zapisana wcześniej w tej rekrutacji
-    # (powrót na etap) wystarcza — nie trzeba jej przepisywać.
+    # (uprawnienie `recruitment_manage`) i wpisuje stawkę do klienta. U Nordei
+    # tym krokiem jest akceptacja do kolejki Cpro (13.10.2026). Stawka
+    # zapisana wcześniej w tej rekrutacji (powrót na etap) wystarcza — nie
+    # trzeba jej przepisywać.
     client_rate_value = data.client_rate_value
     client_rate_unit = data.client_rate_unit
     client_rate_currency = (data.client_rate_currency or "PLN")[:3].upper()
-    if pipeline_move_rules.requires_dl_client_rate(legacy_enum, job.client_id):
+    to_cpro_queue = cpro_enabled_for_client(job.client_id)
+    if pipeline_move_rules.requires_dl_client_rate(
+        legacy_enum,
+        job.client_id,
+        stage_name=stage_def.name if stage_def else None,
+    ) and await pipeline_move_rules.arrives_from_before_client_send(
+        db, candidate_id=data.candidate_id, job_id=data.job_id
+    ):
         known_rate = client_rate_value
         if known_rate is None:
             known_rate = await db.scalar(
@@ -845,15 +1902,27 @@ async def move_candidate(
                 .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
                 .limit(1)
             )
-        pipeline_move_rules.assert_client_send_allowed(current_user, known_rate)
+        pipeline_move_rules.assert_client_send_allowed(
+            policy.viewer, known_rate, cpro=to_cpro_queue
+        )
     elif client_rate_value is not None and not await resolve_client_rate_write(
-        db, current_user, job
+        db, policy.viewer, job
     ):
         # Stawka do klienta w ruchu = ta sama bramka co `PATCH …/client-rate`.
-        raise HTTPException(
-            status_code=403,
-            detail=("Stawkę do klienta zapisuje Delivery Lead albo admin."),
+        raise client_rate_write_denied()
+    # Stawka pary sprzed ruchu — „stara” kwota w audycie, jak w PATCH. Nowy
+    # wiersz etapu startuje bez stawki, więc bez niej historia gubi kwotę
+    # wysyłki („brak stawki → X”).
+    client_rate_before = None
+    if client_rate_value is not None:
+        await _assert_client_rate_not_order_locked(
+            db, candidate_id=data.candidate_id, job_id=data.job_id
         )
+        from app.services.stage_client_rate import latest_client_rates  # noqa: PLC0415
+
+        client_rate_before = (
+            await latest_client_rates(db, [(data.candidate_id, data.job_id)])
+        ).get((data.candidate_id, data.job_id))
 
     # ── P1-PIPE-01: eligibility gate ── same hard block the assign ingresses
     # enforce (global blacklist / hiring-manager veto) → 409 with the Polish
@@ -875,13 +1944,15 @@ async def move_candidate(
     # powód jest OSTRZEŻENIEM — bez `acknowledge_eligibility` 409
     # `ELIGIBILITY_WARNING`, z flagą ruch przechodzi i zostaje `Activity`.
     eligibility_block = None
-    if not is_removal_move:
+    if not is_removal_move and not fresh_pair:
         eligibility_block = await check_candidate_move_eligibility(
             db,
             candidate_id=data.candidate_id,
             job=job,
             now=datetime.now(timezone.utc),
-            enforce_manager_verdict=puts_candidate_before_client(legacy_enum),
+            # Runda 9 (R9-N11-3): weto z kolumny docelowej, jak bramka QC —
+            # etapy u klienta rozpoznane po nazwie mają kod `interview`.
+            enforce_manager_verdict=puts_column_before_client(target_column),
             acknowledged=data.acknowledge_eligibility,
         )
 
@@ -908,7 +1979,7 @@ async def move_candidate(
     ended_by: Optional[str] = None
     if is_removal_move:
         ended_by = pipeline_move_rules.resolve_ended_by(
-            data.ended_by, withdrawn=is_withdrawn_target, user=current_user
+            data.ended_by, withdrawn=is_withdrawn_target, user=policy.viewer
         )
     elif data.ended_by is not None:
         raise HTTPException(
@@ -937,6 +2008,7 @@ async def move_candidate(
     # M4 PR-02 (audyt P1.1): walidacja powodu ZAWSZE gdy podany — dotąd
     # legacy `rejected` zapisywał dowolny FK bez sprawdzenia template'u,
     # kategorii i stage-bindingu.
+    reason: Optional[RejectionReason] = None
     if data.rejection_reason_id:
         reason = await db.scalar(
             select(RejectionReason).where(
@@ -990,6 +2062,83 @@ async def move_candidate(
                 status_code=422,
                 detail="Powód jest przypisany do innego etapu.",
             )
+    # Powód „Nie akceptuje trybu pracy” (14.10.2026): liczba dni w biurze,
+    # które kandydat akceptuje, jest przy nim obowiązkowa (trafia na profil),
+    # a przy każdym innym ruchu nie ma czego zapisać.
+    work_mode_rejection = (
+        reason is not None and reason.name == rejection_reason_labels.WORK_MODE_MISMATCH
+    )
+    if work_mode_rejection and data.work_mode_max_onsite_days is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Podaj, ile dni w biurze kandydat akceptuje.",
+        )
+    if not work_mode_rejection and data.work_mode_max_onsite_days is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Liczbę dni w biurze podaje się tylko przy powodzie "
+                "„Nie akceptuje trybu pracy”."
+            ),
+        )
+    # Powód „za drogo” (26.10.2026): nowa stawka osoby ma sens tylko przy nim.
+    rate_rejection = reason is not None and rejection_reason_labels.is_rate_too_high(
+        reason.name
+    )
+    if data.rejection_rate_hourly is not None and not rate_rejection:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Nową stawkę podaje się tylko przy powodzie "
+                "„Za wysokie oczekiwania finansowe”."
+            ),
+        )
+    # Osoba od systemu (23.10.2026): odrzucenie z „Nowych”/„Screeningu”
+    # wymaga powodu ze stałej listy i „skąd wiesz” — z powodów poprawiamy
+    # wyszukiwanie (`services/autofill_feedback.py`). Walidacja PRZED zapisem.
+    from app.services import autofill_feedback  # noqa: PLC0415
+
+    target_terminal = (
+        getattr(stage_def.terminal_type, "value", stage_def.terminal_type)
+        if is_terminal_move_stagedef
+        else legacy_enum.value
+    )
+    autofill_process = None
+    if target_terminal == PipelineStage.rejected.value:
+        _gate_row, autofill_from_column = await pipeline_move_rules.gate_stage_row(
+            db, candidate_id=data.candidate_id, job_id=data.job_id
+        )
+        autofill_process = await autofill_feedback.system_process_in_decision(
+            db,
+            candidate_id=data.candidate_id,
+            job_id=data.job_id,
+            from_column=autofill_from_column,
+        )
+    autofill_feedback.validate(
+        process=autofill_process,
+        reason=data.autofill_reason,
+        learned_from=data.autofill_learned_from,
+        note=data.notes,
+        not_looking_until=data.autofill_not_looking_until,
+    )
+    # 20.10.2026: „Inne” i „Już po rozmowie u tego hiring managera” bez opisu
+    # zostawiały w historii samo słowo. Opis przychodzi jako `notes` (okna
+    # odrzucenia) albo `rejection_reason` (API integracyjne).
+    reason_description = (data.notes or "").strip() or (
+        data.rejection_reason or ""
+    ).strip()
+    if (
+        reason is not None
+        and rejection_reason_labels.needs_description(reason.name)
+        and not reason_description
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Przy powodzie „{rejection_reason_labels.rejection_reason_label(reason.name)}” "
+                "opisz, dlaczego — bez opisu w historii zostaje samo słowo."
+            ),
+        )
 
     # ── Stawka przy ruchu na `verified` (0056; bramka zdjęta 17.09.2026) ──
     # Stawka jest OPCJONALNA i NIGDY nie ustawia `pending` (decyzja właściciela:
@@ -1005,6 +2154,22 @@ async def move_candidate(
 
     if legacy_enum == PipelineStage.verified:
         # Stawka jest OPCJONALNA (17.09.2026) — brak stawki to 200, nie 422.
+        if expected_rate_value is None:
+            # D2 (14.10.2026): Tablica przesuwa parę ze stawką bez okna stawki
+            # i bez stawki w żądaniu — nowy wiersz dostaje najnowszą stawkę pary
+            # (`pair_rates`, ta sama reguła co karta), żeby porównanie
+            # z budżetem i odznaka „ponad budżet” liczyły się jak po oknie.
+            from app.services.candidate_rate_change import pair_rates
+
+            carried = await pair_rates(
+                db, candidate_id=data.candidate_id, job_id=data.job_id
+            )
+            if carried["amount"] is not None:
+                expected_rate_value = carried["amount"]
+                expected_rate_unit = (
+                    RateUnit(carried["unit"]) if carried["unit"] else None
+                )
+                expected_rate_currency = str(carried["currency"] or "PLN")
         if job.salary_max is not None:
             budget_max_snapshot = int(job.salary_max)
         if job.salary_max is not None and expected_rate_value is not None:
@@ -1034,6 +2199,19 @@ async def move_candidate(
     if data.rejection_reason and not data.rejection_reason_id:
         prefix = f"Powód ({legacy_enum.value}): {data.rejection_reason.strip()}"
         effective_notes = f"{prefix}\n{data.notes}" if data.notes else prefix
+    elif (
+        data.rejection_reason
+        and data.rejection_reason.strip()
+        and not (data.notes or "").strip()
+    ):
+        # Powód ze słownika z opisem z API integracyjnego — opis dotąd znikał.
+        effective_notes = data.rejection_reason.strip()
+    if rate_rejection and data.rejection_rate_hourly is not None:
+        effective_notes = _rate_rejection_note(
+            data.rejection_rate_hourly,
+            is_minimum=data.rejection_rate_is_minimum,
+            notes=effective_notes,
+        )
 
     stage = await transition_process(
         db,
@@ -1043,7 +2221,7 @@ async def move_candidate(
         stage_def_id=stage_def.id if stage_def else None,
         rejection_reason_id=data.rejection_reason_id,
         moved_at=datetime.now(timezone.utc),
-        actor_user_id=current_user.id,
+        actor_user_id=policy.actor_id,
         work_channel=PriorityChannel.database,
         notes=effective_notes,
         rating=data.rating,
@@ -1068,23 +2246,191 @@ async def move_candidate(
         client_rate_currency=(
             client_rate_currency if client_rate_value is not None else None
         ),
+        # Runda 10 (R10-V2-4): para bez wiersza to dodanie osoby — źródło
+        # wejścia i blokada 12 h jak w bulk-add (integracja bez blokady).
+        **(_fresh_pair_entry_kwargs(policy.viewer, request) if fresh_pair else {}),
     )
+    if legacy_enum == PipelineStage.acceptance and (
+        data.client_accepted_on is not None
+        or await _enters_acceptance_from_before_contract(db, previous_stage_row)
+    ):
+        # Karta i dzwonek mówią, KIEDY klient zaakceptował — przeciągnięcie
+        # bez okna to akceptacja z dnia ruchu. Powrót na „Akceptację” z kroku
+        # umowy (odznaczone „Umowa wysłana”) nie jest nową akceptacją: wiersz
+        # zostaje bez daty, a karta czyta ostatnią akceptację z datą.
+        stage.client_accepted_on = data.client_accepted_on or business_today()
+        stage.planned_start_on = data.planned_start_on
     if client_rate_value is not None:
+        old_value, old_unit, old_currency = client_rate_before or (None, None, None)
         candidate_audit.record_candidate_audit(
             db,
             action=candidate_audit.CLIENT_RATE_CHANGED,
-            user_id=current_user.id,
+            user_id=policy.actor_id,
             entity_id=data.candidate_id,
             details={
                 "job_id": data.job_id,
                 "stage_id": stage.id,
+                "old_client_rate": old_value,
+                "old_client_rate_unit": old_unit,
+                "old_client_rate_currency": old_currency,
                 "new_client_rate": float(client_rate_value),
                 "new_client_rate_unit": stage.client_rate_unit,
                 "new_client_rate_currency": stage.client_rate_currency,
                 "source": "pipeline_move",
             },
         )
+    # 0506: umowa przedwstępna pary — termin umowy B2B po akceptacji klienta
+    # i ślad ruchu bez podpisanej umowy (ostrzeżenie, nie bramka).
+    from app.services import pre_contracts as _pre_contracts  # noqa: PLC0415
+    from app.services.board_stage_badges import (  # noqa: PLC0415
+        board_column_for as _board_column_for,
+    )
+    from app.services.move_requirements import (  # noqa: PLC0415
+        column_label as _column_label,
+    )
+
+    _to_column = _board_column_for(
+        stage_def.name if stage_def is not None else None,
+        legacy_enum.value,
+        category=getattr(
+            getattr(stage_def, "category", None),
+            "value",
+            getattr(stage_def, "category", None),
+        ),
+        terminal_type=getattr(
+            getattr(stage_def, "terminal_type", None),
+            "value",
+            getattr(stage_def, "terminal_type", None),
+        ),
+    )
+    # 28.10.2026: karta bez osoby („System”) przeniesiona przez człowieka
+    # z „Nowych” do „Screeningu” jest jego, jak po „Biorę”.
+    if (
+        policy.mover is not None
+        and policy.actor_id is not None
+        and not candidate_claim.is_integration_request(request)
+    ):
+        await candidate_claim.take_unowned_on_screening(
+            db, previous=previous_stage_row, moved=stage, user_id=policy.actor_id
+        )
+    await _pre_contracts.on_move(
+        db,
+        candidate_id=data.candidate_id,
+        job_id=data.job_id,
+        to_column=_to_column,
+        to_label=_column_label(_to_column),
+        accepted_on=stage.client_accepted_on,
+        actor_id=policy.actor_id,
+        actor_name=getattr(policy.viewer, "name", None),
+    )
     await create_original_cv_snapshot(db, stage)
+    if expected_rate_value is not None:
+        await _record_rate_from_move(
+            db,
+            candidate_id=data.candidate_id,
+            value=Decimal(expected_rate_value),
+            unit=expected_rate_unit.value if expected_rate_unit else None,
+            currency=expected_rate_currency,
+            is_minimum=data.expected_rate_is_minimum,
+            actor_id=policy.actor_id,
+        )
+    if autofill_process is not None:
+        await autofill_feedback.record(
+            db,
+            process=autofill_process,
+            job=job,
+            stage_id=stage.id,
+            reason=data.autofill_reason,
+            learned_from=data.autofill_learned_from,
+            rate_hourly=data.autofill_rate_hourly,
+            note=data.notes,
+            actor_id=policy.actor_id,
+            whole_client=data.autofill_whole_client,
+        )
+        if (
+            data.autofill_whole_client
+            and data.autofill_reason in autofill_feedback.CLIENT_WIDE_REASONS
+            and job.client_id is not None
+        ):
+            from app.services import autofill_withdraw
+
+            await autofill_withdraw.withdraw_at_client(
+                db,
+                candidate_id=data.candidate_id,
+                client_id=job.client_id,
+                except_job_id=job.id,
+            )
+        # „Nie szuka pracy” z datą (28.10.2026): profil + zdjęcie nietkniętych
+        # kart od systemu z innych rekrutacji, silnik pomija do tej daty.
+        if data.autofill_not_looking_until is not None:
+            from app.services import autofill_withdraw
+
+            change = await autofill_feedback.mark_not_looking(
+                db,
+                candidate_id=data.candidate_id,
+                until=data.autofill_not_looking_until,
+            )
+            if change is not None:
+                candidate_audit.record_candidate_audit(
+                    db,
+                    action=candidate_audit.AVAILABILITY_CHANGED,
+                    user_id=policy.actor_id,
+                    entity_id=data.candidate_id,
+                    details={
+                        **change,
+                        "source": "autofill_rejection",
+                        "job_id": job.id,
+                        "stage_id": stage.id,
+                    },
+                )
+            await autofill_withdraw.withdraw_elsewhere(
+                db, candidate_id=data.candidate_id, except_job_id=job.id
+            )
+        # „Ile chce?” z rozmowy — ta sama droga do „Stawki od” co stawka
+        # z okna „Zweryfikowany”.
+        if data.autofill_rate_hourly is not None:
+            await _record_rate_from_move(
+                db,
+                candidate_id=data.candidate_id,
+                value=Decimal(data.autofill_rate_hourly),
+                unit="hourly",
+                currency="PLN",
+                is_minimum=False,
+                actor_id=policy.actor_id,
+            )
+    if rate_rejection and data.rejection_rate_hourly is not None:
+        await _record_rejection_rate(
+            db,
+            candidate_id=data.candidate_id,
+            amount=Decimal(data.rejection_rate_hourly),
+            is_minimum=data.rejection_rate_is_minimum,
+            job_id=job.id,
+            stage_id=stage.id,
+            actor_id=policy.actor_id,
+        )
+    if work_mode_rejection and data.work_mode_save_to_profile:
+        await _record_work_mode_from_rejection(
+            db,
+            candidate_id=data.candidate_id,
+            job=job,
+            stage=stage,
+            max_onsite_days=data.work_mode_max_onsite_days,
+            user=policy.actor,
+        )
+    remark_note = stage_remarks.record(
+        db, stage=stage, author_id=policy.actor_id, text=data.recruiter_remark
+    )
+    await screening_fix_requests.record(
+        db, job=job, stage=stage, user=policy.actor, keys=fix_keys
+    )
+    await stage_handoff_recipients.close_cpro_queue_bells(
+        db,
+        previous=previous_stage_row,
+        target_name=stage_def.name if stage_def else None,
+    )
+    await stage_handoff_recipients.close_client_acceptance_bells(
+        db, previous=previous_stage_row, target_column=target_column
+    )
     if cpro_assignee is not None:
         stage.task_assignee_id = cpro_assignee.id
         job.cpro_sender_id = cpro_assignee.id
@@ -1093,7 +2439,7 @@ async def move_candidate(
             db,
             candidate_id=data.candidate_id,
             job_id=data.job_id,
-            actor_user_id=current_user.id,
+            actor_user_id=policy.actor_id,
             reason=f"pipeline_terminal:{legacy_enum.value}",
             occurred_at=stage.moved_at,
         )
@@ -1112,31 +2458,75 @@ async def move_candidate(
         else STAGE_LABELS.get(legacy_enum, legacy_enum.value)
     )
 
-    # Activity log
-    activity_details: dict = {
-        "candidate_id": data.candidate_id,
-        "job_id": data.job_id,
-        "stage": legacy_enum.value,
-        "stage_def_id": stage_def.id if stage_def else None,
-        "stage_name": stage_display_name,
-    }
+    # Activity log + UserActivity (ranking) — wspólne z `/bulk-move`.
+    activity_extra: dict = {}
+    if legacy_enum == PipelineStage.hired and data.hired_signed_via is not None:
+        activity_extra["hired_signed_via"] = data.hired_signed_via
+        if data.hired_signed_note:
+            activity_extra["hired_signed_note"] = data.hired_signed_note.strip()
+    # „Co z obecną współpracą?” (12.10.2026): odpowiedź zapisujemy tylko, gdy
+    # osoba faktycznie ma u nas zatrudnienie u innego klienta — inaczej
+    # historia mówiłaby o współpracy, której nie ma.
+    hired_engagement: Optional[str] = None
+    if legacy_enum == PipelineStage.hired and data.hired_current_engagement is not None:
+        elsewhere_client_ids = await employed_elsewhere_client_ids(
+            db, candidate_id=data.candidate_id, job=job
+        )
+        if elsewhere_client_ids:
+            hired_engagement = data.hired_current_engagement
+            activity_extra["hired_current_engagement"] = hired_engagement
+            activity_extra["employed_at_client_ids"] = elsewhere_client_ids
+            candidate_audit.record_candidate_audit(
+                db,
+                action=candidate_audit.HIRED_ENGAGEMENT_ACTIONS[hired_engagement],
+                user_id=policy.actor_id,
+                entity_id=data.candidate_id,
+                details={"job_id": job.id, "client_ids": elsewhere_client_ids},
+            )
     if legacy_enum == PipelineStage.verified and budget_max_snapshot is not None:
         # M4 PR-02: audyt decyzji gate'u — z jakiej normalizacji wynikła.
-        activity_details["rate_gate"] = {
+        activity_extra["rate_gate"] = {
             "policy": RATE_POLICY_VERSION,
             "note": normalization_note,
             "budget_exceeded": budget_exceeded,
             "budget_max": budget_max_snapshot,
         }
-    db.add(
-        Activity(
-            entity_type="pipeline",
-            entity_id=stage.id,
-            action="stage_changed",
-            user_id=current_user.id,
-            details=activity_details,
-        )
+    _record_stage_change(
+        db,
+        stage=stage,
+        stage_def=stage_def,
+        legacy_enum=legacy_enum,
+        actor_id=policy.actor_id,
+        stage_display_name=stage_display_name,
+        extra_details=activity_extra,
     )
+    if skipped_requirements:
+        db.add(
+            Activity(
+                entity_type="pipeline",
+                entity_id=stage.id,
+                action=pipeline_move_rules.REQUIREMENTS_SKIPPED_ACTION,
+                user_id=policy.actor_id,
+                details={
+                    "candidate_id": data.candidate_id,
+                    "job_id": data.job_id,
+                    "stage": legacy_enum.value,
+                    "missing": skipped_requirements,
+                },
+            )
+        )
+        # Audyt 22.10.2026 (F58), decyzja Artura: dzwonek przy każdym
+        # przejściu DL-a przez „Zweryfikowany” od lewej, także przeskoku
+        # od razu na „QC CV” czy dalej. Sam przeskok debriefu nie dzwoni.
+        if verified_skipped:
+            await _notify_recruiter_of_skip(
+                db,
+                job=job,
+                candidate_id=data.candidate_id,
+                mover=policy.mover,
+                stage_name=stage_display_name,
+                missing=skipped_requirements,
+            )
     if eligibility_block is not None:
         # Przeniesiono mimo ostrzeżenia — audyt widzi, co zignorowano i kto.
         db.add(
@@ -1144,7 +2534,7 @@ async def move_candidate(
                 entity_type="pipeline",
                 entity_id=stage.id,
                 action="eligibility_acknowledged",
-                user_id=current_user.id,
+                user_id=policy.actor_id,
                 details={
                     "candidate_id": data.candidate_id,
                     "job_id": data.job_id,
@@ -1159,57 +2549,13 @@ async def move_candidate(
     # niewysłane maile odrzucenia tej pary — w TEJ SAMEJ transakcji co move.
     # Dotąd przywrócony kandydat mógł dostać zaplanowane wcześniej odrzucenie.
     if not is_terminal_target:
-        from app.models.rejection_email import (
-            RejectionEmailStatus,
-            ScheduledRejectionEmail,
+        await _cancel_pending_rejection_emails(
+            db,
+            candidate_id=data.candidate_id,
+            job_id=data.job_id,
+            actor_id=policy.actor_id,
+            restored_to=legacy_enum,
         )
-
-        pending_mails = (
-            (
-                await db.execute(
-                    select(ScheduledRejectionEmail).where(
-                        ScheduledRejectionEmail.candidate_id == data.candidate_id,
-                        ScheduledRejectionEmail.job_id == data.job_id,
-                        ScheduledRejectionEmail.status == RejectionEmailStatus.pending,
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for mail_row in pending_mails:
-            mail_row.status = RejectionEmailStatus.cancelled
-            mail_row.cancelled_at = datetime.now(timezone.utc)
-            mail_row.cancelled_by = current_user.id
-            db.add(
-                Activity(
-                    entity_type="candidate",
-                    entity_id=data.candidate_id,
-                    action="rejection_email_cancelled_on_restore",
-                    user_id=current_user.id,
-                    details={
-                        "scheduled_rejection_email_id": mail_row.id,
-                        "job_id": data.job_id,
-                        "restored_to_stage": legacy_enum.value,
-                    },
-                )
-            )
-
-    # UserActivity for leaderboard/performance tracking
-    db.add(
-        UserActivity(
-            user_id=current_user.id,
-            action_type=UserActionType.stage_changed,
-            entity_type="pipeline",
-            entity_id=stage.id,
-            details={
-                "candidate_id": data.candidate_id,
-                "job_id": data.job_id,
-                "stage": legacy_enum.value,
-                "stage_def_id": stage_def.id if stage_def else None,
-            },
-        )
-    )
 
     # M4 PR-02 (audyt P0.6): notify_stage_change (in-app + SMTP) oraz
     # talent-pool auto-add przeniesione ZA commit — patrz sekcja post-commit
@@ -1233,7 +2579,7 @@ async def move_candidate(
                     db,
                     candidate_id=data.candidate_id,
                     job=job,
-                    actor_id=current_user.id,
+                    actor_id=policy.actor_id,
                     default_start_date=business_today(),
                     ensure_order=True,
                     # The stage was inserted and flushed just above. The
@@ -1242,6 +2588,9 @@ async def move_candidate(
                     ensure_hired=True,
                     require_b2b=False,
                     ensure_detail=False,
+                    contract_type=_HIRED_CONTRACT_TYPE.get(
+                        data.hired_signed_via or "", ContractType.b2b
+                    ),
                 )
         except HTTPException as exc:
             # 409/404 serwisu — zatrudnienie zostaje, szkic zakłada Delivery.
@@ -1279,16 +2628,33 @@ async def move_candidate(
                         if employment.created_contract
                         else "order_auto_drafted_from_pipeline"
                     ),
-                    user_id=current_user.id,
+                    user_id=policy.actor_id,
                     details={
                         "candidate_id": data.candidate_id,
                         "job_id": job.id,
                         "stage": legacy_enum.value,
                         "order_id": (employment.order.id if employment.order else None),
+                        # Stawka z tej rekrutacji wpisana w szkic — po niej
+                        # podpis w Generatorze rozpoznaje zaślepkę.
+                        "seeded_rate_candidate": (
+                            str(employment.seeded_rate_candidate)
+                            if employment.seeded_rate_candidate is not None
+                            else None
+                        ),
                     },
                 )
             )
-            for uid in delivery_recipients.for_client(job.client_id):
+            # D3 (04.10.2026): nowy szkic zamówienia ma kartę DL „uzupełnij
+            # zamówienie” (`_notify_new_contractor_draft`) — dzwonek dublowałby
+            # tę samą sprawę. Zostaje tylko dla samego szkicu kontraktu.
+            bell_recipients = (
+                []
+                if employment.created_order
+                else delivery_recipients.bell_recipients(
+                    job.client_id, NotificationType.contract_activated
+                )
+            )
+            for uid in bell_recipients:
                 db.add(
                     Notification(
                         user_id=uid,
@@ -1308,6 +2674,27 @@ async def move_candidate(
                     )
                 )
 
+        if (
+            employment is not None
+            and employment.contract is not None
+            and employment.order_skipped_reason != ORDER_SKIPPED_OPEN_GROUP_LINE
+        ):
+            # D3 (04.10.2026): ręczne zatrudnienie otwiera tę samą sprawę co
+            # podpis w Generatorze — Finanse dostają dzwonek (o ile para nie
+            # ma jeszcze uzupełnionego zamówienia). Fail-soft, savepoint.
+            from app.services.hired_order_status import (  # noqa: PLC0415
+                notify_finance_hired_without_order,
+            )
+
+            await notify_finance_hired_without_order(
+                db,
+                contract_id=employment.contract.id,
+                candidate_id=data.candidate_id,
+                job_id=job.id,
+                client_id=job.client_id,
+                start_date=employment.contract.start_date,
+            )
+
         if draft_skip_reason is not None:
             from app.services.notification_triggers import emit
 
@@ -1316,7 +2703,7 @@ async def move_candidate(
                     entity_type="pipeline",
                     entity_id=stage.id,
                     action="contract_draft_skipped",
-                    user_id=current_user.id,
+                    user_id=policy.actor_id,
                     details={
                         "candidate_id": data.candidate_id,
                         "job_id": job.id,
@@ -1327,7 +2714,9 @@ async def move_candidate(
             )
             # Ci sami odbiorcy co przy udanym szkicu. `emit` = savepoint + dedup
             # dzienny, więc duplikat nie wywróci commitu zatrudnienia.
-            for uid in delivery_recipients.for_client(job.client_id):
+            for uid in delivery_recipients.bell_recipients(
+                job.client_id, NotificationType.suggest_next_step
+            ):
                 await emit(
                     db,
                     user_id=uid,
@@ -1344,111 +2733,67 @@ async def move_candidate(
                     link=f"/clients/{job.client_id}?tab=zamowienia",
                 )
 
-    # Obsada kompletna → PODPOWIEDŹ zamknięcia rekrutacji, nie automat.
-    #
-    # Zatrudnienie nie zmieniało dotąd stanu rekrutacji: `headcount` nie był
-    # dekrementowany, a `close_reason = filled_by_us` nie był ustawiany nigdzie
-    # w kodzie pipeline'u — stąd 315 rekrutacji zamkniętych w 90 dni BEZ powodu
-    # i raport wygranych/przegranych bez czego liczyć wygranej.
-    #
-    # Automatu tu nie ma świadomie (decyzja właściciela 2026-09-03): 99,6% ruchu
-    # pochodzi z importu, więc automatyczne domykanie działałoby retroaktywnie
-    # na tysiącach rekrutacji, o które nikt nie prosił. Powiadomienie prowadzi
-    # do ISTNIEJĄCEGO `POST /api/jobs/{job_id}/close`, który zapisuje powód
-    # i loguje `Activity`.
+    # Obsada kompletna → PODPOWIEDŹ zamknięcia rekrutacji, nie automat
+    # (`job_fill.suggest_closing_when_fully_staffed` — ta sama reguła woła
+    # potwierdzenie podpisu B2B). Savepoint, nigdy nie rzuca.
     if legacy_enum == PipelineStage.hired:
-        try:
-            from app.services.job_fill import is_fully_staffed, placements_by_job
+        from app.services.job_fill import (  # noqa: PLC0415
+            suggest_closing_when_fully_staffed,
+        )
 
-            # Skrót: właśnie kogoś zatrudniliśmy, więc obsada >= 1. Przy
-            # `headcount = 1` (default) wiemy to bez pytania widoku
-            # `analytics_first_milestones` — a to gorąca ścieżka `/move`.
-            headcount = int(job.headcount or 1)
-            filled = (
-                1
-                if headcount <= 1
-                else (await placements_by_job(db, [job.id])).get(job.id, 0)
-            )
-            already_hinted = await db.scalar(
-                select(Notification.id)
-                .where(
-                    Notification.related_entity_type == "job",
-                    Notification.related_entity_id == job.id,
-                    Notification.notification_type
-                    == NotificationType.suggest_next_step,
-                )
-                .limit(1)
-            )
-            if (
-                is_fully_staffed(headcount, filled)
-                and job.status != JobStatus.closed
-                # Bez dedupu KAŻDE kolejne zatrudnienie na tej rekrutacji
-                # rozsyłałoby ten sam komunikat do wszystkich admin/DL/TAC.
-                # Podpowiedź ma być jedna — jeśli ktoś ją zignorował, powtórka
-                # niczego nie doda, a nauczy ignorować powiadomienia.
-                and already_hinted is None
-            ):
-                # Odbiorcy = zespół TEJ rekrutacji (właściciel, DL, TAC,
-                # współpracownicy) + admini z `list_job_member_ids`, nie każdy
-                # DL/TAC w firmie — podpowiedź o cudzej rekrutacji uczyła
-                # ignorować powiadomienia.
-                from app.services.job_membership import list_job_member_ids
-
-                recipient_ids = await list_job_member_ids(db, job.id)
-                from app.services.notification_triggers import emit
-
-                title = f"Rekrutacja '{job.title}' ma komplet obsady"
-                message = (
-                    f"Obsadzono {filled} z {job.headcount or 1} "
-                    "etatów. Jeśli to koniec — zamknij rekrutację "
-                    "z powodem „Obsadzone przez nas”, żeby raport "
-                    "wygranych i przegranych miał z czego liczyć."
-                )
-                job_id = job.id
-                # `emit` zapisuje w savepoincie. `ix_notif_dedup_daily` nie zna
-                # typu encji, więc powiadomienie o KANDYDACIE #N z tego dnia
-                # blokowało podpowiedź dla REKRUTACJI #N — a `db.add` bez flush
-                # wywracał dopiero commit zatrudnienia (500 na /move).
-                for uid in recipient_ids:
-                    await emit(
-                        db,
-                        user_id=uid,
-                        title=title,
-                        message=message,
-                        ntype=NotificationType.suggest_next_step,
-                        related_entity_type="job",
-                        related_entity_id=job_id,
-                        link=f"/jobs/{job_id}",
-                    )
-        except Exception as _exc:  # noqa: BLE001
-            # Podpowiedź nie może wywrócić zatrudnienia.
-            logger.warning("fully-staffed hint failed for job=%s: %s", job.id, _exc)
+        await suggest_closing_when_fully_staffed(db, job)
 
     # Mail odrzucenia (0045_rejection_emails) jest OPT-IN od 17.09.2026:
     # planujemy WYŁĄCZNIE gdy klient przysłał `send_rejection_email=True`
     # (checkbox w oknie odrzucenia, domyślnie odznaczony). `maybe_schedule`
     # nadal sam sprawdza kwalifikowalność (etap klienta, e-mail kandydata).
+    #
+    # Runda 9 (R9-N11-1): mail wychodzi ze skrzynki osoby, która ODRZUCA —
+    # nie prowadzącego rekrutacji (dotąd `job.recruiter_id`: cudza skrzynka,
+    # cudzy podpis i 403 na „Cofnij wysyłkę” dla odrzucającego). Bez
+    # podłączonej skrzynki nic nie planujemy i odpowiedź mówi dlaczego.
     scheduled_rejection_email_id: Optional[int] = None
-    if legacy_enum == PipelineStage.rejected and data.send_rejection_email is True:
-        from app.services.rejection_email_scheduler import maybe_schedule
+    rejection_email_status: Optional[str] = None
+    if (
+        legacy_enum == PipelineStage.rejected
+        and data.send_rejection_email is True
+        and policy.may_send_rejection_email
+    ):
+        from app.services import rejection_email_scheduler as _rejection_mail
 
-        scheduled = await maybe_schedule(
-            db,
-            stage=stage,
-            job=job,
-            recruiter_id=job.recruiter_id,
-            template_override_id=data.rejection_email_template_id,
+        rejection_email_status = await _rejection_mail.skip_reason(
+            db, stage=stage, sender=policy.actor
         )
-        if scheduled is not None:
-            scheduled_rejection_email_id = scheduled.id
+        if rejection_email_status is None:
+            scheduled = await _rejection_mail.maybe_schedule(
+                db,
+                stage=stage,
+                job=job,
+                recruiter_id=policy.actor_id,
+                template_override_id=data.rejection_email_template_id,
+                edited_subject=data.rejection_email_subject,
+                edited_body=data.rejection_email_body,
+                append_other_processes=data.rejection_email_other_processes
+                is not False,
+                merge=data.rejection_email_merge is not False,
+            )
+            if scheduled is not None:
+                scheduled_rejection_email_id = scheduled.id
+                rejection_email_status = _rejection_mail.EMAIL_STATUS_SCHEDULED
+            else:
+                rejection_email_status = _rejection_mail.EMAIL_SKIP_NOT_CLIENT_VISIBLE
 
     # 0341: osoba weszła do klienta → przepnij ją do połączonych (podobnych)
     # rekrutacji jako propozycję „przepięcie". Nigdy nie rzuca.
     if legacy_enum is not None:
         from app.services.job_similarity import on_candidate_sent  # noqa: PLC0415
 
+        # Runda 9 (R9-N11-3): haki czytają kolumnę docelową, nie sam kod —
+        # „Po Interview” / „Preparation Meeting” (kod `interview`) to rozmowa
+        # u klienta.
+        hook_stage = _client_hook_stage(target_column, legacy_enum)
         await on_candidate_sent(
-            db, job_id=data.job_id, candidate_id=stage.candidate_id, stage=legacy_enum
+            db, job_id=data.job_id, candidate_id=stage.candidate_id, stage=hook_stage
         )
         # 0371: klient zaprosił na rozmowę / zaakceptował → „Klient milczy”
         # wraca do „Szukamy kandydatów”. Nigdy nie rzuca.
@@ -1457,157 +2802,217 @@ async def move_candidate(
         )
 
         await wake_on_client_response(
-            db, job_id=data.job_id, stage=legacy_enum, reason="client_stage"
+            db, job_id=data.job_id, stage=hook_stage, reason="client_stage"
         )
 
-    actor_id = current_user.id
-    await db.commit()
-    await db.refresh(stage)
-    # Live kanban: the rest of the team re-reads the board (best-effort).
-    await broadcast_pipeline_changed(db, data.job_id, actor_id)
+    return MoveApplied(
+        stage=stage,
+        job=job,
+        candidate_id=data.candidate_id,
+        job_id=data.job_id,
+        stage_def=stage_def,
+        legacy_enum=legacy_enum,
+        target_column=target_column,
+        previous_stage_row=previous_stage_row,
+        stage_display_name=stage_display_name,
+        hired_engagement=hired_engagement,
+        cpro_assignee=cpro_assignee,
+        cpro_assignee_added_to_team=cpro_assignee_added_to_team,
+        scheduled_rejection_email_id=scheduled_rejection_email_id,
+        rejection_email_status=rejection_email_status,
+        eligibility_acknowledged=(
+            eligibility_block.reason_code if eligibility_block is not None else None
+        ),
+        actor_id=policy.actor_id,
+        remark_note=remark_note,
+    )
 
-    # ── Post-commit best-effort side effects (M4 PR-02, audyt P0.6) ────────
-    # Transition jest już trwały. Nic poniżej nie może zwrócić 500 ani
-    # cofnąć ruchu — każdy blok ma własny try/except + rollback, żeby błąd
-    # SQL nie zostawił sesji w failed transaction (PendingRollbackError
-    # → fałszywe 500 po zapisanym ruchu; scenariusz B audytu).
+
+async def run_move_effects(
+    db: AsyncSession, outcome: MoveApplied, *, mover: Optional[User]
+) -> None:
+    """Efekty po zatwierdzonym ruchu — wspólne dla ``/move`` i API v1.
+
+    Transition jest już trwały. Nic tu nie może zwrócić 500 ani cofnąć ruchu
+    (M4 PR-02, audyt P0.6). Każdy efekt biegnie w SAVEPOINCIE
+    (``_post_commit_effect``): błąd cofa tylko jego zapisy i nie wygasza
+    obiektów sesji, więc kolejne efekty dalej widzą ``mover``, ``job``
+    i ``stage``. ``mover=None`` — ruch konta serwisowego (powiadomienia bez
+    osoby, Tablica na żywo dla całego zespołu).
+    """
+    stage = outcome.stage
+    stage_id = stage.id
+    job = outcome.job
+    actor_id = outcome.actor_id
+
+    # Live kanban: the rest of the team re-reads the board (best-effort).
+    await broadcast_pipeline_changed(db, outcome.job_id, actor_id)
 
     # Configurable stage-transition notifications (migracja 0066) —
     # in-app + email (SMTP) per regułą; teraz wyłącznie PO commicie.
-    try:
-        from app.services.stage_notification_emitter import notify_stage_change
+    await _post_commit_effect(
+        db,
+        f"stage_notif stage={stage_id}",
+        _notify_stage_change_effect(
+            db,
+            stage=stage,
+            previous_stage_row=outcome.previous_stage_row,
+            job=job,
+            mover=mover,
+            stage_display_name=outcome.stage_display_name,
+            hired_engagement=outcome.hired_engagement,
+        ),
+    )
 
-        candidate_obj = await db.scalar(
-            select(Candidate).where(Candidate.id == data.candidate_id)
-        )
-        if candidate_obj is not None:
-            await notify_stage_change(
+    # Wzmianki „@” w uwadze ruchu (22.10.2026) — dzwonek jak przy notatce;
+    # mail dopiero, gdy dzwonki są zatwierdzone. Ruch konta serwisowego
+    # (``mover=None``) nikogo nie oznacza.
+    remark_note = outcome.remark_note
+    if remark_note is not None and mover is not None:
+        remark_mentions: list[stage_remarks.RemarkMentions] = []
+
+        async def _remark_mentions() -> None:
+            found = await stage_remarks.enqueue_mentions(
                 db,
-                new_stage=stage,
-                previous_stage=previous_stage_row,
-                job=job,
-                candidate=candidate_obj,
-                mover=current_user,
-                stage_display_name=stage_display_name,
+                note=remark_note,
+                author=mover,
+                stage_name=outcome.stage_display_name,
             )
-        await db.commit()
-    except Exception as _exc:  # noqa: BLE001
-        logger.warning("stage_notif top-level failure for stage=%s: %s", stage.id, _exc)
-        try:
-            await db.rollback()
-        except Exception:  # noqa: BLE001
-            pass
+            if found is not None:
+                remark_mentions.append(found)
+
+        if await _post_commit_effect(
+            db, f"remark mentions stage={stage_id}", _remark_mentions
+        ):
+            for found in remark_mentions:
+                await stage_remarks.send_mentions(found)
 
     # 0348/0353: dzwonek dla osoby, która wysyła do Cpro. Best-effort.
+    cpro_assignee = outcome.cpro_assignee
     if cpro_assignee is not None:
-        try:
+
+        async def _notify_cpro_sender() -> None:
             await board_tasks_svc.notify_cpro_sender(
                 db,
                 job_id=job.id,
                 job_title=job.title,
                 waiting=0,
                 sender_id=cpro_assignee.id,
-                actor=current_user,
+                actor=mover,
             )
-            await db.commit()
-        except Exception as _exc:  # noqa: BLE001
-            logger.warning(
-                "cpro assignment notice failed stage=%s: %s (added_to_team=%s)",
-                stage.id,
-                _exc,
-                cpro_assignee_added_to_team,
-            )
-            try:
-                await db.rollback()
-            except Exception:  # noqa: BLE001
-                pass
+
+        await _post_commit_effect(
+            db,
+            f"cpro assignment notice stage={stage_id} "
+            f"(added_to_team={outcome.cpro_assignee_added_to_team})",
+            _notify_cpro_sender,
+        )
 
     # Phase 10 A1: auto-add candidate to a talent pool when CV is sent to
     # the client. Best-effort — po commicie ruchu.
-    if legacy_enum == PipelineStage.cv_sent:
-        from app.services.talent_pool_auto_add import auto_add_on_cv_sent
+    if outcome.legacy_enum == PipelineStage.cv_sent:
 
-        try:
+        async def _auto_add_to_pool() -> None:
+            from app.services.talent_pool_auto_add import auto_add_on_cv_sent
+
             pool_candidate = await db.scalar(
-                select(Candidate).where(Candidate.id == data.candidate_id)
+                select(Candidate).where(Candidate.id == outcome.candidate_id)
             )
             await auto_add_on_cv_sent(
                 db=db,
-                candidate_id=data.candidate_id,
+                candidate_id=outcome.candidate_id,
                 job=job,
-                user_id=current_user.id,
+                user_id=actor_id,
                 candidate=pool_candidate,
             )
-            await db.commit()
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "auto_add_on_cv_sent failed for candidate=%s job=%s: %s",
-                data.candidate_id,
-                job.id,
-                e,
+
+        await _post_commit_effect(
+            db,
+            f"auto_add_on_cv_sent candidate={outcome.candidate_id} "
+            f"job={outcome.job_id}",
+            _auto_add_to_pool,
+        )
+
+    # 0450 (D5, D7): karta championa zamknięta → champion schodzi sam;
+    # zatrudnienie przelicza miejsca. PO commicie, we własnej transakcji —
+    # blokady przydział → rekrutacja (wewnątrz ruchu trzymamy już kandydata
+    # i blokadę klucza rekrutacji, więc tam groziłoby zakleszczenie).
+    if outcome.target_column in ("closed", "hired"):
+
+        async def _reconcile_champions() -> None:
+            from app.services import job_champions
+
+            await job_champions.reconcile(
+                db,
+                job_id=outcome.job_id,
+                candidate_ids=[outcome.candidate_id],
+                actor_id=actor_id,
             )
-            try:
-                await db.rollback()
-            except Exception:  # noqa: BLE001
-                pass
+
+        await _post_commit_effect(
+            db,
+            f"champions after move job={outcome.job_id}",
+            _reconcile_champions,
+        )
 
     # Phase 17 (migracja 0068): event-driven recompute risk profile.
     # Best-effort — błąd NIE może wywołać 500 po zapisanym transition.
-    try:
+    async def _recompute_risk() -> None:
         from app.services.candidate_risk import on_candidate_stage_change
 
-        await on_candidate_stage_change(db, data.candidate_id)
+        await on_candidate_stage_change(db, outcome.candidate_id)
+
+    await _post_commit_effect(
+        db,
+        f"risk recompute post-move candidate={outcome.candidate_id}",
+        _recompute_risk,
+    )
+
+
+@router.post("/move", response_model=CandidateStageResponse)
+async def move_candidate(
+    data: StageMove,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+    request: Request = None,  # type: ignore[assignment] — wywołania wprost w testach
+):
+    """Move a candidate to a new pipeline stage for a given job.
+
+    Accepts either `stage` (legacy enum) or `stage_def_id` (new FK). For
+    custom stages introduced via templates, the legacy enum is set to
+    `PipelineStage.new` as a placeholder — the real identifier is stage_def_id.
+
+    Ciało ruchu (bramki i zapisy) to ``apply_move`` z ``UserMovePolicy`` —
+    to samo co ``POST /api/integrations/v1/recruitments/{id}/moves``.
+    """
+    outcome = await apply_move(
+        db, data, policy=UserMovePolicy(current_user, db), request=request
+    )
+    if isinstance(outcome, MoveProposed):
         await db.commit()
-    except Exception as _exc:  # noqa: BLE001
-        logger.warning(
-            "risk recompute failed post-move candidate=%s: %s",
-            data.candidate_id,
-            _exc,
+        return _integration_proposed_response(outcome)
+    if isinstance(outcome, MoveReplayed):
+        resp = _stage_response(
+            outcome.stage,
+            show_client_rate=user_can_view_client_rate(current_user),
         )
-        try:
-            await db.rollback()
-        except Exception:  # noqa: BLE001
-            pass
+        resp["scheduled_rejection_email_id"] = None
+        await db.commit()
+        return CandidateStageResponse(**resp)
 
-    # Auto-CV (21.09.2026): po trwałym ruchu na „Zweryfikowany" system w tle
-    # zakolejkowuje CV w szablonie firmowym. Własna sesja, fire-and-forget —
-    # nie wpływa na status ani czas tej odpowiedzi; reguły klienta (zrzut zgody
-    # RODO itd.) NIE są omijane. Tylko ten endpoint: `/bulk-move` nie przyjmuje
-    # etapu `verified`, importy nie przechodzą tędy.
-    if legacy_enum == PipelineStage.verified:
-        try:
-            from app.services import cv_auto_generate
+    stage = outcome.stage
+    await db.commit()
+    await db.refresh(stage)
 
-            if cv_auto_generate.enabled():
-                _spawn(
-                    cv_auto_generate.generate_after_verified(
-                        stage_id=stage.id, user_id=actor_id
-                    ),
-                    f"cv_auto_generate stage={stage.id}",
-                )
-        except Exception as _exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
-            logger.warning("cv_auto_generate spawn failed stage=%s: %s", stage.id, _exc)
-
-    # QC CV (Rekrutacja v5): po wejściu do kolumny „QC CV” QC liczy się samo,
-    # żeby karta, przegląd DL i kolejka Cpro nie mówiły „nie sprawdzone”.
-    # Ten sam wyłącznik co bramka (w testach wyłączony autouse-fixturą).
-    if target_column == "cv_qc":
-        try:
-            from app.core.config import settings as _settings
-            from app.services import cv_qc as _cv_qc
-
-            if _settings.CV_QC_GATE_ENABLED:
-                _spawn(
-                    _cv_qc.run_after_move(stage.id, actor_id),
-                    f"cv_qc stage={stage.id}",
-                )
-        except Exception as _exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
-            logger.warning("cv_qc spawn failed stage=%s: %s", stage.id, _exc)
-
+    # Odpowiedź i wszystko, czego potrzebują efekty uboczne, liczymy TERAZ —
+    # zanim któryś z nich zawiedzie. Do 25.09.2026 blok po commicie przy
+    # błędzie robił `db.rollback()` na sesji żądania, co wygaszało
+    # `current_user` i `stage`, a końcowe `_stage_response` czytało wygasłe
+    # atrybuty → MissingGreenlet → 500 po zapisanym ruchu (audyt 25.09.2026).
     resp = _stage_response(
         stage, show_client_rate=user_can_view_client_rate(current_user)
     )
-    resp["scheduled_rejection_email_id"] = scheduled_rejection_email_id
+    stage_id = stage.id
     # F05: nowa wersja procesu po ruchu — karta podmienia ją od razu, żeby
     # kolejny ruch z tej samej karty (przed odświeżeniem tablicy) nie wysłał
     # wersji sprzed własnego ruchu i nie dostał 409 za samego siebie.
@@ -1615,7 +3020,53 @@ async def move_candidate(
         db, job_id=data.job_id, candidate_ids=[data.candidate_id]
     )
     resp["process_state_version"] = versions.get(data.candidate_id, 0)
+
+    # Po commicie: Tablica na żywo, powiadomienia o przejściu
+    # (`notify_stage_change` z `previous_stage_row`), dzwonek osoby od Cpro,
+    # pula talentów, ryzyko — `run_move_effects`, wspólne z API v1.
+    await run_move_effects(db, outcome, mover=current_user)
+
+    # Auto-CV (21.09.2026): po trwałym ruchu na „Zweryfikowany" system w tle
+    # zakolejkowuje CV w szablonie firmowym. Własna sesja, fire-and-forget —
+    # nie wpływa na status ani czas tej odpowiedzi; reguły klienta (zrzut zgody
+    # RODO itd.) NIE są omijane. Tylko ten endpoint: `/bulk-move` nie przyjmuje
+    # etapu `verified`, importy nie przechodzą tędy, a ruch z API v1 nie ma
+    # osoby, w której imieniu CV by powstało.
+    if outcome.legacy_enum == PipelineStage.verified:
+        try:
+            from app.services import cv_auto_generate
+
+            if cv_auto_generate.enabled():
+                _spawn(
+                    cv_auto_generate.generate_after_verified(
+                        stage_id=stage_id, user_id=outcome.actor_id
+                    ),
+                    f"cv_auto_generate stage={stage_id}",
+                )
+        except Exception as _exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
+            logger.warning(
+                "cv_auto_generate spawn failed stage=%s (%s)",
+                stage_id,
+                type(_exc).__name__,
+            )
+
+    # QC CV (Rekrutacja v5): po wejściu do kolumny „QC CV” QC liczy się samo,
+    # żeby karta, przegląd DL i kolejka Cpro nie mówiły „nie sprawdzone”.
+    _spawn_cv_qc_after_move(outcome.target_column, stage_id, outcome.actor_id)
+
+    resp["scheduled_rejection_email_id"] = outcome.scheduled_rejection_email_id
+    resp["rejection_email_status"] = outcome.rejection_email_status
     return CandidateStageResponse(**resp)
+
+
+def _newest_first(entries: Iterable[CandidateStage]) -> list[CandidateStage]:
+    """Kolejność kart w kolumnie Tablicy: najświeższe wejście na etap na górze.
+
+    Remis czasu → wyżej później zapisany wiersz (`id`). Wcześniej karty stały
+    wg `candidate_id`, więc osoba dodana ze starej bazy lądowała w środku
+    kolumny (ticket rekrutera 15.10.2026, decyzja Artura 16.10.2026).
+    """
+    return sorted(entries, key=lambda s: (s.moved_at, s.id), reverse=True)
 
 
 def _bucket_by_stage_def(
@@ -1830,7 +3281,7 @@ async def _build_off_template(
 
 @router.get("/kanban/{job_id}", response_model=KanbanView)
 async def get_kanban(
-    job_id: int,
+    job_id: DbIdPath,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
@@ -1873,15 +3324,150 @@ def _card_warnings(stage: CandidateStage, *, decision, has_veto: bool) -> list[s
 
 
 def _with_next_action_owner(payload: dict, column: StageColumn, group: str) -> dict:
-    """Dopisz `next_action_owner` — ta sama reguła co karta na froncie."""
+    """Dopisz `next_action_owner` — ta sama reguła co karta na froncie.
+
+    Faza cyklu rozmowy u klienta idzie z odznaki terminarza karty
+    (`interview_cycle.badge_phase`) — tej samej, którą czyta front.
+    """
+    badge = payload.get("interview_badge") or {}
     payload["next_action_owner"] = next_action_for(
         column,
         days_in_stage=payload.get("days_in_stage"),
         screening_done=payload.get("screening_done"),
+        screening_requirement=payload.get("screening_requirement"),
         hm_veto=payload.get("hm_veto") is not None,
         group=group,
+        interview_phase=badge.get("phase"),
+        interview_date=badge.get("interview_date"),
     ).owner
     return payload
+
+
+async def _viewer_owns_dl_review(
+    db: AsyncSession,
+    job: Job,
+    viewer: Optional[User],
+    *,
+    memo: Optional[dict[Any, Any]] = None,
+) -> bool:
+    """Czy przegląd przed wysłaniem do klienta w ``job`` należy do patrzącego.
+
+    Ta sama reguła co pas „Do wysłania do klienta” na pulpicie
+    (`board_tasks.reviews_as_dl`):
+    Delivery Lead wpisany w rekrutacji, a bez niego — Delivery Lead z portfelem
+    klienta. Nieaktywny DL rekrutacji liczy się jak brak DL-a (lustro
+    `_LATEST_SQL`). U Nordei to akceptacja do kolejki Cpro (13.10.2026) —
+    ta sama reguła. Bez roli Delivery Leada — bez zapytań.
+
+    ``memo`` — pamięć jednego żądania tego samego patrzącego: „Moje następne
+    kroki” składają do kilkudziesięciu tablic, a portfel i aktywność DL-a
+    rekrutacji pytały bazę osobno dla każdej (audyt 13.10.2026).
+    """
+    if viewer is None or not viewer.has_role(UserRole.delivery_lead):
+        return False
+    memo = {} if memo is None else memo
+    delivery_lead_id = job.delivery_lead_id
+    if delivery_lead_id is not None and delivery_lead_id != viewer.id:
+        # Własne konto patrzącego jest aktywne (jest zalogowany) — pytamy tylko
+        # o cudze.
+        key = ("active", delivery_lead_id)
+        if key not in memo:
+            memo[key] = bool(
+                await db.scalar(
+                    select(User.is_active).where(User.id == delivery_lead_id)
+                )
+            )
+        if not memo[key]:
+            delivery_lead_id = None
+    if delivery_lead_id is None:
+        if "portfolio" not in memo:
+            memo["portfolio"] = await board_tasks_svc.dl_portfolio_client_ids(
+                db, viewer.id
+            )
+        portfolio = memo["portfolio"]
+    else:
+        portfolio = frozenset()
+    return board_tasks_svc.reviews_as_dl(
+        viewer,
+        delivery_lead_id=delivery_lead_id,
+        client_id=job.client_id,
+        portfolio=portfolio,
+    )
+
+
+async def _job_stages_generating_auto_cv(db: AsyncSession, job_id: int) -> set[int]:
+    """Wiersze etapu rekrutacji, dla których automat auto-CV właśnie generuje
+    dokument (``origin="auto"``, ``status="processing"``) — jedno zapytanie.
+
+    Zadanie przerwane utratą wykonawcy `recovery_loop` przestawia na
+    ``failed``, więc „w przygotowaniu” nie wisi bez końca.
+    """
+    from app.models.cv_generated_document import CvGeneratedDocument
+
+    rows = await db.scalars(
+        select(CvGeneratedDocument.stage_id)
+        .where(
+            CvGeneratedDocument.job_id == job_id,
+            CvGeneratedDocument.stage_id.is_not(None),
+            CvGeneratedDocument.origin == "auto",
+            CvGeneratedDocument.status == "processing",
+        )
+        .distinct()
+    )
+    return {int(stage_id) for stage_id in rows.all()}
+
+
+async def _enters_acceptance_from_before_contract(
+    db: AsyncSession, previous: Optional[CandidateStage]
+) -> bool:
+    """Czy ruch na „Akceptację” przychodzi spoza kolumny „Akceptacja i umowa”
+    (rozmowa u klienta, wcześniej, nowa para) — to jest akceptacja klienta."""
+
+    if previous is None:
+        return True
+    previous_def = (
+        await db.get(PipelineStageDef, previous.stage_def_id)
+        if previous.stage_def_id is not None
+        else None
+    )
+    column = board_column_for(
+        previous_def.name if previous_def else None,
+        getattr(previous.stage, "value", previous.stage),
+        category=(
+            previous_def.category.value
+            if previous_def and previous_def.category
+            else None
+        ),
+        terminal_type=(
+            previous_def.terminal_type.value
+            if previous_def and previous_def.terminal_type
+            else None
+        ),
+    )
+    return column not in ("contract", "hired")
+
+
+def _client_acceptance_badge(
+    row: Optional[CandidateStage], names: dict[int, Optional[str]]
+) -> Optional[dict]:
+    """Ostatnia akceptacja klienta pary (0451). Front rysuje ją wyłącznie
+    w kolumnie „Akceptacja i umowa” — karta cofnięta do „Rozmowy u klienta”
+    niesie dawną akceptację, ale jej nie pokazuje."""
+
+    if row is None:
+        return None
+    accepted_on = row.client_accepted_on or (
+        row.moved_at.astimezone(ZoneInfo(DEFAULT_TZ)).date() if row.moved_at else None
+    )
+    return {
+        "stage_id": row.id,
+        "accepted_on": accepted_on.isoformat() if accepted_on else None,
+        "planned_start_on": (
+            row.planned_start_on.isoformat() if row.planned_start_on else None
+        ),
+        "marked_at": row.moved_at.isoformat() if row.moved_at else None,
+        "marked_by_name": names.get(row.moved_by) if row.moved_by else None,
+    }
 
 
 async def build_kanban_view(
@@ -1890,6 +3476,10 @@ async def build_kanban_view(
     *,
     viewer: Optional[User] = None,
     with_followups: bool = True,
+    with_employment: bool = True,
+    with_cv_state: bool = True,
+    with_other_jobs: bool = True,
+    dl_review_memo: Optional[dict[Any, Any]] = None,
 ) -> KanbanView:
     """The board of ``job`` — shared by ``/kanban/{job_id}`` and ``/my-next-steps``.
 
@@ -1926,17 +3516,43 @@ async def build_kanban_view(
     screened_pairs: set[int] = set()
     carried_expected_rate: dict[int, CandidateStage] = {}
     carried_client_rate: dict[int, CandidateStage] = {}
+    # 0451: najnowsza akceptacja klienta pary — zielony wiersz „Klient
+    # zaakceptował · data · kto” na karcie w kolumnie „Akceptacja i umowa”.
+    # Wiersz z datą to prawdziwa akceptacja; powrót z kroku umowy daty nie ma
+    # (wiersze sprzed 0451 też nie — wtedy najnowszy wiersz akceptacji).
+    latest_acceptance: dict[int, CandidateStage] = {}
+    latest_any_acceptance: dict[int, CandidateStage] = {}
+    # Kto zweryfikował: pierwszy weryfikujący pary, jak premia rekrutera.
+    # Najnowszy wiersz „Zweryfikowany” bywa cofnięciem karty przez DL z „QC
+    # CV” (21.10.2026: karta pokazywała DL-a zamiast rekruterki).
+    first_verified: dict[int, CandidateStage] = {}
     for s in all_stages:
         if s.candidate_id not in seen:
             seen[s.candidate_id] = s
         earliest[s.candidate_id] = s  # overwritten; last write wins (oldest row)
-        if _sheet_filled(s.screening_answers):
+        # Ta sama reguła co bramka „Zweryfikowany”: arkusz z odpowiedzią, nie
+        # sam zapisany arkusz (audyt 13.10.2026, pkt 5).
+        if move_requirements.sheet_answered(s.screening_answers):
             screened_pairs.add(s.candidate_id)
         if s.expected_rate_value is not None:
             carried_expected_rate.setdefault(s.candidate_id, s)
         if s.client_rate_value is not None:
             carried_client_rate.setdefault(s.candidate_id, s)
+        if s.stage == PipelineStage.verified:
+            first_verified[s.candidate_id] = first_verifier(
+                first_verified.get(s.candidate_id), s
+            )
+        if s.stage == PipelineStage.acceptance:
+            latest_any_acceptance.setdefault(s.candidate_id, s)
+            if s.client_accepted_on is not None:
+                latest_acceptance.setdefault(s.candidate_id, s)
+    for cid, row in latest_any_acceptance.items():
+        latest_acceptance.setdefault(cid, row)
     show_client_rate = user_can_view_client_rate(viewer)
+    # „Czeka na Ciebie” w kolumnie „QC CV”: raz na tablicę, dla obu gałęzi niżej.
+    viewer_owns_dl_review = await _viewer_owns_dl_review(
+        db, job, viewer, memo=dl_review_memo
+    )
 
     # Bulk-load candidate names so cards render with real names (not "Kandydat" fallback)
     candidate_ids = list(seen.keys())
@@ -1944,10 +3560,14 @@ async def build_kanban_view(
     name_by_id: dict[int, tuple[Optional[str], Optional[str]]] = {}
     # Stawka z profilu (PLN/h) — podpowiedź w oknie „Zweryfikowany" (17.09.2026).
     profile_rate_by_id: dict[int, Optional[Decimal]] = {}
+    rate_from_by_id: dict[int, Optional[Decimal]] = {}
     # Dostępność z profilu (tabela rekrutacji „wersja 3") i lekkie wiersze dla
     # polityki dopuszczalności — TO SAMO zapytanie, bez ładowania całej encji.
     availability_by_id: dict[int, tuple[Optional[str], Optional[date]]] = {}
     eligibility_rows: dict[int, SimpleNamespace] = {}
+    # „W bazie od” (0437): data wejścia osoby do bazy i kto ją dodał — pigułka
+    # „Nowy · N dni” na karcie w „Nowych” i „Screeningu”.
+    added_to_base_by_id: dict[int, tuple[Optional[datetime], bool, Optional[int]]] = {}
     if candidate_ids:
         rows = await db.execute(
             select(
@@ -1955,10 +3575,16 @@ async def build_kanban_view(
                 Candidate.name,
                 Candidate.lastname,
                 Candidate.expected_rate_hourly,
+                effective_rate_sql(Candidate),
+                effective_currency_sql(Candidate),
                 Candidate.availability_status,
                 Candidate.availability_date,
                 Candidate.status,
                 Candidate.preferences,
+                Candidate.created_at,
+                Candidate.source_created_at,
+                Candidate.external_source,
+                Candidate.created_by,
             ).where(Candidate.id.in_(candidate_ids))
         )
         for (
@@ -1966,13 +3592,27 @@ async def build_kanban_view(
             cname,
             clastname,
             rate_hourly,
+            rate_from,
+            rate_from_currency,
             availability_status,
             availability_date,
             candidate_status,
             preferences,
+            created_at,
+            source_created_at,
+            external_source,
+            created_by,
         ) in rows.all():
+            added = added_to_base(created_at, source_created_at, external_source)
+            added_to_base_by_id[cid] = (added.at, added.exact, created_by)
             name_by_id[cid] = (cname, clastname)
             profile_rate_by_id[cid] = rate_hourly
+            # „Stawka od” (0414) — porównywalna tylko w PLN.
+            rate_from_by_id[cid] = (
+                rate_from
+                if str(rate_from_currency or "PLN").strip().upper() in {"", "PLN"}
+                else None
+            )
             availability_by_id[cid] = (
                 availability_status.value if availability_status else None,
                 availability_date,
@@ -1983,9 +3623,15 @@ async def build_kanban_view(
 
     # Bulk-load names of the recruiters who first assigned each candidate to the
     # job (mover on the earliest stage). One query, no per-card N+1.
-    added_by_user_ids = {
-        e.moved_by for e in earliest.values() if e.moved_by is not None
-    }
+    added_by_user_ids = (
+        {e.moved_by for e in earliest.values() if e.moved_by is not None}
+        | {v.moved_by for v in first_verified.values() if v is not None}
+        | {
+            creator
+            for _, _, creator in added_to_base_by_id.values()
+            if creator is not None
+        }
+    )
     user_name_by_id: dict[int, Optional[str]] = {}
     if added_by_user_ids:
         urows = await db.execute(
@@ -2019,6 +3665,16 @@ async def build_kanban_view(
     # zapytanie niesie właściciela procesu (`recruiter_id` karty).
     process_cards = await _process_cards(db, job_id=job_id, candidate_ids=candidate_ids)
     process_versions = {cid: card[0] for cid, card in process_cards.items()}
+    # „Prowadzi” (25.10.2026): przypisanie admina/HoR wygrywa z właścicielem
+    # procesu i osobą, która dodała — karta, panel i „kto ma ruch”.
+    from app.services.pair_owner import owners_for_job
+
+    pair_owners = await owners_for_job(db, job_id)
+    # Odejście z firmy (28.10.2026): karta osoby z wyłączonym kontem pokazuje
+    # Delivery Leada, który ją domyka (``departure_care``).
+    from app.services.departure_care import open_care
+
+    pair_care = {row.candidate_id: row for row in await open_care(db, job_id=job_id)}
     owner_ids = {card[1] for card in process_cards.values() if card[1] is not None}
     # Pipeline v4 (0352): blokada 12 h, źródło wejścia i przepięcie.
     v4_processes = await _process_v4_cards(
@@ -2029,21 +3685,85 @@ async def build_kanban_view(
         for p in v4_processes.values()
         if p.claimed_by_user_id is not None
     }
+    # Etap 2 linków (19.10.2026): plakietka „Z Twojego linku” / „Z linku …”.
+    link_owner_by_candidate = {
+        cid: owner
+        for cid, p in v4_processes.items()
+        if p.entry_source == candidate_claim.ENTRY_APPLICATION
+        and (owner := application_link_owner_id(p.entry_meta)) is not None
+    }
+    owner_ids |= set(link_owner_by_candidate.values())
+    # …i ślad ponownego zgłoszenia osoby, która już była w rekrutacji:
+    # „Zgłosił się też z Twojego linku” / „Zgłosił się też z linku: Marta”.
+    reapplied_link_owners = _reapplied_link_owners(
+        await _link_reapplications(db, job_id=job_id, candidate_ids=candidate_ids),
+        v4_processes,
+        link_owner_by_candidate,
+    )
+    for reapplied in reapplied_link_owners.values():
+        owner_ids |= set(reapplied)
+    inactive_claimers = await candidate_claim.inactive_holders(
+        db, v4_processes.values()
+    )
+    booked_calls = await screening_calls.starts_by_candidate(db, job_id, candidate_ids)
     reassign_job_ids = {
         p.reassign_from_job_id
         for p in v4_processes.values()
         if p.reassign_from_job_id is not None
     }
     reassign_titles: dict[int, str] = {}
+    reassign_refs: dict[int, Optional[str]] = {}
     if reassign_job_ids:
-        reassign_titles = dict(
-            (
-                await db.execute(
-                    select(Job.id, Job.title).where(Job.id.in_(reassign_job_ids))
+        for rid, rtitle, rref in (
+            await db.execute(
+                select(Job.id, Job.title, Job.reference_number).where(
+                    Job.id.in_(reassign_job_ids)
                 )
-            ).all()
-        )
+            )
+        ).all():
+            reassign_titles[rid] = rtitle
+            reassign_refs[rid] = rref
     board_now = datetime.now(timezone.utc)
+    # Osoby od systemu (23.10.2026): termin decyzji liczy się od przypisania
+    # rekrutera; jedno zapytanie tylko wtedy, gdy na Tablicy są takie karty.
+    from app.services import (
+        autofill_decisions,
+        job_proposals,
+        known_queue_points,
+        new_column_autofill,
+    )
+
+    known_queue_facts = await known_queue_points.facts_for(
+        db,
+        job_id=job_id,
+        client_id=job.client_id,
+        candidate_ids=[
+            cid
+            for cid, p in v4_processes.items()
+            if p.entry_source == candidate_claim.ENTRY_SYSTEM
+        ],
+        now=board_now,
+    )
+    without_process_ids = await known_queue_points.without_process(
+        db,
+        job_id=job_id,
+        candidate_ids=[
+            cid
+            for cid, p in v4_processes.items()
+            if p.entry_source == candidate_claim.ENTRY_SYSTEM
+        ],
+    )
+    has_system_cards = any(
+        p.entry_source == candidate_claim.ENTRY_SYSTEM for p in v4_processes.values()
+    )
+    autofill_recruiter_since = (
+        (await autofill_decisions.recruiter_since_for_jobs(db, [job_id])).get(job_id)
+        if has_system_cards
+        else None
+    )
+    fresh_threshold = (
+        await job_proposals.proposal_threshold(db) if has_system_cards else 0.0
+    )
     # Odznaki terminarza rozmowy u klienta i status zamówienia zatrudnionych —
     # po jednym zapytaniu hurtowym (liczone w serwisach, front tylko rysuje).
     from app.services.hired_order_status import order_status_for_pairs
@@ -2052,18 +3772,107 @@ async def build_kanban_view(
     interview_badges = await interview_badges_for_job(
         db, job_id=job_id, candidate_ids=candidate_ids, now=board_now
     )
-    hired_ids = [
-        s.candidate_id for s in seen.values() if s.stage == PipelineStage.hired
-    ]
+    # „Zatrudniony” na Tablicy to też Onboarding (`job_similarity.HIRED_STAGES`).
+    from app.services.job_similarity import HIRED_STAGES  # noqa: PLC0415
+
+    hired_ids = [s.candidate_id for s in seen.values() if s.stage in HIRED_STAGES]
     order_statuses = (
         await order_status_for_pairs(db, [(cid, job_id) for cid in hired_ids])
         if hired_ids
         else {}
     )
+    # 17.10.2026: „Zatrudniony” bez umowy w Kontraktach — „Pracuje u nas”
+    # liczy się wyłącznie z umowy, więc karta mówi, czego brakuje.
+    from app.services.hire_contract_reminder import missing_contract_ids
+
+    missing_contracts = (
+        await missing_contract_ids(
+            db,
+            job_client_id=job.client_id,
+            hired=[
+                (s.candidate_id, s.moved_at)
+                for s in seen.values()
+                if s.stage in HIRED_STAGES
+            ],
+            now=board_now,
+        )
+        if hired_ids
+        else set()
+    )
+    # 04.10.2026: stan umowy z Generatora na karcie w każdej kolumnie.
+    from app.services.agreement_status import agreement_status_for_pairs
+
+    agreements = await agreement_status_for_pairs(
+        db, job_id=job_id, candidate_ids=candidate_ids
+    )
+    # Znacznik „Pracuje u nas” — jedno zapytanie o źródła na tablicę.
+    employment_markers = (
+        await load_employment_markers(
+            db, candidate_ids, today=business_today(), job_client_id=job.client_id
+        )
+        if with_employment
+        else {}
+    )
+    # 0506: umowa przedwstępna pary na karcie — dwa zapytania na tablicę.
+    from app.services.pre_contracts import kanban_badges  # noqa: PLC0415
+
+    pre_contract_badges = await kanban_badges(db, job_id, candidate_ids)
+    # 0450 (D3): złota plakietka „Champion” na karcie — jedno zapytanie.
+    from app.services.job_champions import live_candidate_ids  # noqa: PLC0415
+
+    champion_ids = await live_candidate_ids(db, job_id)
+    # „+1 rekrutacja” (14.10.2026): ta sama osoba czeka też w „Nowych”/
+    # „Screeningu” innej rekrutacji — sygnał „zrób screening razem”.
+    other_open_jobs: dict[int, list[dict]] = {}
+    if with_other_jobs and candidate_ids:
+        from app.services.also_fits import (
+            SCREENING_ENTRY_STAGES,
+            other_open_jobs_for_candidates,
+        )
+
+        # Znacznik stoi tylko na kartach w „Nowych”/„Screeningu” — reszty Tablicy
+        # nie pytamy (zespół czyta Tablicę przy każdym `pipeline_changed`).
+        screening_ids = [
+            cid
+            for cid, s in seen.items()
+            if getattr(s.stage, "value", s.stage) in SCREENING_ENTRY_STAGES
+        ]
+        other_open_jobs = await other_open_jobs_for_candidates(
+            db,
+            candidate_ids=screening_ids,
+            exclude_job_id=job_id,
+            scope_clause=(
+                job_read_scope_clause(viewer, Job.id) if viewer is not None else None
+            ),
+        )
     # 0348: wytypowani do wysłania do Cpro — ta sama paczka nazwisk.
     owner_ids |= {
         s.task_assignee_id for s in seen.values() if s.task_assignee_id is not None
     }
+    # 0451: kto zaznaczył akceptację klienta.
+    owner_ids |= {
+        s.moved_by for s in latest_acceptance.values() if s.moved_by is not None
+    }
+    # Powód zamknięcia na karcie i w panelu osoby (19.10.2026): nazwa powodu
+    # i kto zamknął kartę — tylko w „Odrzuconych” i „Rezygnacjach”. Nazwa
+    # z bazy, nie ze słownika szablonu: powód wycofany z szablonu nadal ma
+    # się wyświetlić przy kartach, które go dostały.
+    closed_cards = [s for s in seen.values() if s.stage in _CLOSED_CARD_STAGES]
+    owner_ids |= {s.moved_by for s in closed_cards if s.moved_by is not None}
+    closed_reason_ids = {
+        s.rejection_reason_id for s in closed_cards if s.rejection_reason_id is not None
+    }
+    reason_name_by_id: dict[int, Optional[str]] = {}
+    if closed_reason_ids:
+        rrows = await db.execute(
+            select(RejectionReason.id, RejectionReason.name).where(
+                RejectionReason.id.in_(closed_reason_ids)
+            )
+        )
+        reason_name_by_id = {
+            rid: rejection_reason_labels.rejection_reason_label(rname)
+            for rid, rname in rrows.all()
+        }
     missing_owner_names = owner_ids - set(user_name_by_id)
     if missing_owner_names:
         orows = await db.execute(
@@ -2077,11 +3886,107 @@ async def build_kanban_view(
     from app.services.cv_auto_review import job_stages_with_ready_auto_cv
 
     auto_cv_stage_ids = await job_stages_with_ready_auto_cv(db, job_id)
+    # Droga rekrutera do DL (14.10.2026): automat właśnie generuje CV dla
+    # wiersza etapu — karta mówi „CV w przygotowaniu…”. Też jedno zapytanie.
+    generating_stage_ids = (
+        await _job_stages_generating_auto_cv(db, job_id) if with_cv_state else set()
+    )
     # Rekrutacja v5 (0361): stan QC CV każdej karty — jedno zapytanie hurtowe
     # (najnowszy przebieg pary; obejście DL/admina = `overridden`).
     from app.services.cv_qc import pair_statuses
 
     qc_by_pair = await pair_statuses(db, [(cid, job_id) for cid in candidate_ids])
+    # 22.10.2026: Delivery Lead przesunął mimo braków — odznaka na karcie.
+    # Tylko ślady bieżącej próby — po ponownym dodaniu osoby dawne nie wracają.
+    from app.services.recommendation_cards import attempt_started
+
+    skipped_by_candidate = await _requirements_skipped(
+        db,
+        job_id=job_id,
+        candidate_ids=candidate_ids,
+        since={cid: attempt_started(p) for cid, p in v4_processes.items()},
+    )
+    missing_skip_names = {
+        uid for _keys, uid in skipped_by_candidate.values() if uid is not None
+    } - set(user_name_by_id)
+    if missing_skip_names:
+        srows = await db.execute(
+            select(User.id, User.name).where(User.id.in_(missing_skip_names))
+        )
+        for uid, uname in srows.all():
+            user_name_by_id[uid] = uname
+    # 0413: stan karty rekomendacji każdej osoby („Karta gotowa” / „brakuje N”)
+    # i liczba prób kontaktu — po jednym zapytaniu na tablicę.
+    from sqlalchemy import func, or_
+
+    from app.models.note import Note as _Note
+    from app.services import (
+        note_kinds,
+        recommendation_cards,
+        screening_sheets,
+    )
+
+    from app.services import candidate_rate_change as _rate_change
+
+    job_has_questions = bool(screening_sheets.question_texts(job.champion_profile))
+    # Pola, które klient dokłada do minimum dla DL (karta klienta, D3).
+    job_client_required, _ = await move_requirements.client_required_fields(
+        db, job.client_id
+    )
+    # Para ma CV firmowe — ta sama reguła co wymaganie ruchu na „QC CV”
+    # (`company_cv_refs`, hurtem: najwyżej 4 zapytania na tablicę). Karta
+    # z „Zweryfikowanego” wie przed ruchem, że CV brakuje (14.10.2026).
+    company_cv_pairs = (
+        set(
+            await move_requirements.company_cv_refs(
+                db, [(cid, job_id) for cid in candidate_ids]
+            )
+        )
+        if with_cv_state
+        else None
+    )
+    # 0521 (26.10.2026): klient bierze formularz CV — karta pokazuje stan
+    # formularza zamiast CV firmowego. `None` = klient bierze CV firmowe.
+    from app.services import client_form_status
+
+    client_forms = (
+        await client_form_status.job_states(db, job_id, candidate_ids)
+        if with_cv_state
+        else None
+    )
+    # „Do wysłania do klienta” (`dl_send_queue`): kolejka Delivery Leada bierze
+    # tylko opublikowane rekrutacje, a etap z importu Traffita nie liczy się do
+    # „Czeka na Ciebie” — karta mówi to samo co pas na pulpicie (audyt 13.10.2026).
+    from app.services.dl_send_queue import TRAFFIT_SOURCE
+
+    dl_send_job = job.status == JobStatus.published
+
+    # 0418: otwarta sprawa zmiany stawki pary — plakietka na karcie.
+    rate_change_by_candidate = await _rate_change.open_badges_for_job(db, job_id=job_id)
+    card_by_candidate = await recommendation_cards.summaries_for_job(
+        db,
+        job_id=job_id,
+        started_by_candidate={
+            cid: recommendation_cards.attempt_started(v4_processes.get(cid))
+            for cid in candidate_ids
+        },
+    )
+    contact_attempts: dict[int, int] = {}
+    if candidate_ids:
+        contact_attempts = {
+            cid: int(total)
+            for cid, total in (
+                await db.execute(
+                    select(_Note.candidate_id, func.count(_Note.id))
+                    .where(
+                        _Note.candidate_id.in_(sorted(candidate_ids)),
+                        _Note.kind == note_kinds.CONTACT_ATTEMPT,
+                        or_(_Note.job_id == job_id, _Note.job_id.is_(None)),
+                    )
+                    .group_by(_Note.candidate_id)
+                )
+            ).all()
+        }
     # 0372: follow-up z kandydatem, gdy klient milczy — liczony dla OSOBY (ze
     # wszystkimi jej procesami), na karcie tylko przy procesie, który czeka.
     from app.services import candidate_followups
@@ -2120,16 +4025,35 @@ async def build_kanban_view(
             else None
         )
         added_at = first.moved_at if first is not None else None
+        verified = first_verified.get(e.candidate_id)
         payload = _stage_response(
             e,
             show_client_rate=show_client_rate,
             candidate_name=n,
             candidate_lastname=ln,
             added_to_job_by_name=added_by_name,
+            added_to_job_by_id=first.moved_by if first is not None else None,
             added_to_job_at=added_at,
+            verified_by_name=(
+                user_name_by_id.get(verified.moved_by)
+                if verified is not None and verified.moved_by is not None
+                else None
+            ),
+            verified_by_id=verified.moved_by if verified is not None else None,
+            verified_at=verified.moved_at if verified is not None else None,
             candidate_expected_rate_hourly=profile_rate_by_id.get(e.candidate_id),
         )
-        payload["screening_done"] = e.candidate_id in screened_pairs
+        # Rekrutacja bez pytań: karta mówi o „Dlaczego ten kandydat”, nie
+        # o arkuszu, którego tam nie ma (ta sama reguła co bramka ruchu).
+        (
+            payload["screening_done"],
+            payload["screening_requirement"],
+        ) = move_requirements.card_screening_state(
+            has_questions=job_has_questions,
+            sheet=e.candidate_id in screened_pairs,
+            card=card_by_candidate.get(e.candidate_id),
+        )
+        payload["candidate_rate_from_hourly"] = rate_from_by_id.get(e.candidate_id)
         if e.expected_rate_value is None:
             rate_row = carried_expected_rate.get(e.candidate_id)
             if rate_row is not None:
@@ -2149,45 +4073,203 @@ async def build_kanban_view(
         payload["contact_case"] = contact_case_by_candidate.get(e.candidate_id)
         payload["process_state_version"] = process_versions.get(e.candidate_id, 0)
         payload["auto_cv_ready"] = e.id in auto_cv_stage_ids
+        payload["auto_cv_state"] = (
+            "processing" if e.id in generating_stage_ids else None
+        )
+        payload["company_cv"] = (
+            (e.candidate_id, job_id) in company_cv_pairs
+            if company_cv_pairs is not None
+            else None
+        )
+        form_state = client_forms.get(e.candidate_id) if client_forms else None
+        payload["client_form"] = (
+            {"template": form_state.template is not None, "missing": form_state.missing}
+            if form_state is not None
+            else None
+        )
         payload["qc"] = qc_by_pair.get((e.candidate_id, job_id))
-        # Rekruter karty: właściciel procesu (Priority Work), a gdy proces go
-        # nie ma — osoba, która dodała kandydata do rekrutacji.
+        payload["dl_send_counts"] = dl_send_job and e.external_source != TRAFFIT_SOURCE
+        card = card_by_candidate.get(e.candidate_id)
+        payload["card"] = (
+            {
+                "status": card["status"],
+                "missing": len(card["missing"]),
+                "answers": card["answers"],
+                "rate_hourly": card["rate_hourly"],
+            }
+            if card is not None
+            else None
+        )
+        payload["contact_attempts"] = contact_attempts.get(e.candidate_id, 0)
+        # Rekruter karty: przypisany „Prowadzi”, potem właściciel procesu
+        # (Priority Work), a gdy proces go nie ma — osoba, która dodała
+        # kandydata do rekrutacji.
+        assigned = pair_owners.get(e.candidate_id)
         process_owner = process_cards.get(e.candidate_id, (0, None))[1]
         recruiter_id = (
-            process_owner
+            assigned.owner_user_id
+            if assigned is not None
+            else process_owner
             if process_owner is not None
             else (first.moved_by if first is not None else None)
         )
         payload["recruiter_id"] = recruiter_id
         payload["recruiter_name"] = (
-            user_name_by_id.get(recruiter_id) if recruiter_id is not None else None
+            assigned.owner_name
+            if assigned is not None
+            else user_name_by_id.get(recruiter_id)
+            if recruiter_id is not None
+            else None
         )
+        if assigned is not None:
+            payload["owner_user_id"] = assigned.owner_user_id
+            payload["owner_name"] = assigned.owner_name
+            payload["owner_assigned_by_name"] = assigned.assigned_by_name
+            payload["owner_assigned_at"] = assigned.assigned_at
+            payload["owner_previous_name"] = assigned.previous_owner_name
+        care = pair_care.get(e.candidate_id)
+        if care is not None:
+            payload["care_user_id"] = care.caretaker_user_id
+            payload["care_user_name"] = care.caretaker_name
+            payload["care_departed_name"] = care.departed_name
+            payload["care_since"] = care.since
         if e.task_assignee_id is not None:
             payload["task_assignee_name"] = user_name_by_id.get(e.task_assignee_id)
+        if e.stage in _CLOSED_CARD_STAGES:
+            payload["closed_by_name"] = (
+                user_name_by_id.get(e.moved_by) if e.moved_by is not None else None
+            )
+            payload["rejection_reason_name"] = (
+                reason_name_by_id.get(e.rejection_reason_id)
+                if e.rejection_reason_id is not None
+                else None
+            )
         payload["interview_badge"] = interview_badges.get(e.candidate_id)
         payload["followup"] = _followup_badge(e.candidate_id)
-        if e.stage == PipelineStage.hired:
+        payload["rate_change"] = rate_change_by_candidate.get(e.candidate_id)
+        if e.stage in HIRED_STAGES:
             payload["order_status"] = order_statuses.get((e.candidate_id, job_id))
+            payload["missing_contract"] = e.candidate_id in missing_contracts
+        payload["agreement"] = agreements.get(e.candidate_id)
+        payload["client_acceptance"] = _client_acceptance_badge(
+            latest_acceptance.get(e.candidate_id), user_name_by_id
+        )
+        payload["employment_marker"] = employment_markers.get(e.candidate_id)
+        payload["pre_contract"] = pre_contract_badges.get(e.candidate_id)
+        payload["other_open_jobs"] = other_open_jobs.get(e.candidate_id) or []
+        payload["is_champion"] = e.candidate_id in champion_ids
         v4 = v4_processes.get(e.candidate_id)
         if v4 is not None:
             payload["entry_source"] = v4.entry_source
+            payload["entry_auto_match"] = auto_match_badge(v4.entry_meta)
+            payload["entry_autofill"] = (
+                autofill_badge(
+                    v4.entry_meta,
+                    waiting_days=autofill_decisions.waiting_days(
+                        meta=v4.entry_meta,
+                        entered_at=v4.opened_at,
+                        recruiter_since=autofill_recruiter_since,
+                        now=board_now,
+                    ),
+                )
+                if v4.entry_source == candidate_claim.ENTRY_SYSTEM
+                else None
+            )
+            known_fact = known_queue_facts.get(e.candidate_id)
+            if payload["entry_autofill"] is not None and known_fact is not None:
+                payload["entry_autofill"]["known"] = known_fact.as_dict()
+            if payload["entry_autofill"] is not None:
+                in_base_at, in_base_exact, _ = added_to_base_by_id.get(
+                    e.candidate_id, (None, False, None)
+                )
+                payload["entry_autofill"]["fresh_first"] = (
+                    new_column_autofill.has_fresh_first(
+                        v4.entry_meta,
+                        AddedToBase(at=in_base_at, exact=in_base_exact),
+                        threshold=fresh_threshold,
+                        now=board_now,
+                    )
+                )
+                payload["entry_autofill"]["fresh"] = (
+                    e.candidate_id in without_process_ids
+                )
+            payload["entry_ai_screening"] = application_screening_badge(v4.entry_meta)
+            payload["entry_off_limits"] = off_limits_badge(
+                v4.entry_meta, user_name_by_id
+            )
+            link_owner = link_owner_by_candidate.get(e.candidate_id)
+            if link_owner is not None:
+                payload["entry_link_owner_id"] = link_owner
+                payload["entry_link_owner_name"] = user_name_by_id.get(link_owner)
+            payload["reapplied_via_links"] = [
+                {"owner_id": uid, "owner_name": user_name_by_id.get(uid)}
+                for uid in reapplied_link_owners.get(e.candidate_id, ())
+            ]
             payload["reassign_from_job_id"] = v4.reassign_from_job_id
             if v4.reassign_from_job_id is not None:
                 payload["reassign_from_title"] = reassign_titles.get(
                     v4.reassign_from_job_id
                 )
-            claim = candidate_claim.claim_state(v4)
+                payload["reassign_from_reference"] = reassign_refs.get(
+                    v4.reassign_from_job_id
+                )
+            booked_call = booked_calls.get(e.candidate_id)
+            if booked_call is not None:
+                payload["booked_call"] = {
+                    "event_id": booked_call.id,
+                    "start_time": booked_call.start_time,
+                    "note": booked_call.description,
+                    "owner_id": booked_call.operational_owner_id,
+                    "owner_name": user_name_by_id.get(booked_call.operational_owner_id),
+                    "in_outlook": bool(booked_call.external_id),
+                }
+            claim = candidate_claim.claim_state(v4, inactive_claimers)
             if claim.active(board_now):
                 payload["claim_user_id"] = claim.user_id
                 payload["claim_user_name"] = user_name_by_id.get(claim.user_id)
                 payload["claim_until"] = claim.until
+            # „Biorę” zmienia osobę karty (prośba rekruterki, decyzja Artura
+            # 27.10.2026): ostatnia osoba, która wzięła, zostaje na karcie
+            # i w filtrze „Kto dodał” także po 12 h — do pierwszej weryfikacji.
+            if claim.user_id is not None and first_verified.get(e.candidate_id) is None:
+                payload["taken_by_user_id"] = claim.user_id
+                payload["taken_by_name"] = user_name_by_id.get(claim.user_id)
             if viewer is not None:
-                payload["can_take"] = candidate_claim.can_take(v4, viewer, board_now)
+                payload["can_take"] = candidate_claim.can_take(
+                    v4, viewer, board_now, inactive_claimers
+                )
         elif viewer is not None:
             payload["can_take"] = True
         availability = availability_by_id.get(e.candidate_id, (None, None))
         payload["availability_status"] = availability[0]
         payload["availability_date"] = availability[1]
+        # Minimum dla DL (21.10.2026): strzałka i „Przesuń dalej” znają braki
+        # przed ruchem — ta sama reguła co bramka serwera.
+        payload["minimum_missing"] = move_requirements.board_minimum_missing(
+            card_by_candidate.get(e.candidate_id),
+            has_questions=job_has_questions,
+            availability_known=availability[1] is not None,
+            screening_met=bool(payload["screening_done"]),
+            client_required=job_client_required,
+        )
+        # 22.10.2026: ruch DL-a mimo braków — na karcie zostają tylko braki,
+        # których dalej brakuje (uzupełnione gaszą odznakę).
+        skipped = skipped_by_candidate.get(e.candidate_id)
+        if skipped is not None:
+            still_missing = _still_missing(skipped[0], payload)
+            if still_missing:
+                payload["requirements_skipped"] = still_missing
+                payload["requirements_skipped_by_name"] = (
+                    user_name_by_id.get(skipped[1]) if skipped[1] is not None else None
+                )
+        in_base_at, in_base_exact, in_base_by = added_to_base_by_id.get(
+            e.candidate_id, (None, False, None)
+        )
+        payload["candidate_added_at"] = in_base_at
+        payload["candidate_added_exact"] = in_base_exact
+        payload["candidate_added_by_name"] = (
+            user_name_by_id.get(in_base_by) if in_base_by is not None else None
+        )
         payload["warnings"] = _card_warnings(
             e,
             decision=eligibility_decisions.get(e.candidate_id),
@@ -2244,7 +4326,7 @@ async def build_kanban_view(
             else {}
         )
         columns_map, off_template_entries = _bucket_by_stage_def(
-            seen.values(), stage_defs, foreign_defs
+            _newest_first(seen.values()), stage_defs, foreign_defs
         )
 
         columns = []
@@ -2278,6 +4360,7 @@ async def build_kanban_view(
                 entries=off_template_entries,
                 render=_stage_resp_with_name,
             ),
+            viewer_owns_dl_review=viewer_owns_dl_review,
         )
 
     # ── Legacy fallback (no template seeded yet) ──────────────────────────────
@@ -2290,7 +4373,7 @@ async def build_kanban_view(
     columns_map_legacy[PipelineStage.rejected] = []
     columns_map_legacy[PipelineStage.withdrawn] = []
     off_template_entries = []
-    for stage_entry in seen.values():
+    for stage_entry in _newest_first(seen.values()):
         if stage_entry.stage in columns_map_legacy:
             columns_map_legacy[stage_entry.stage].append(stage_entry)
             continue
@@ -2330,6 +4413,7 @@ async def build_kanban_view(
             entries=off_template_entries,
             render=_stage_resp_with_name,
         ),
+        viewer_owns_dl_review=viewer_owns_dl_review,
     )
 
 
@@ -2349,13 +4433,24 @@ async def my_next_steps(
     ``MY_NEXT_STEPS_JOB_LIMIT`` recruitments, nearest deadline first;
     ``truncated`` says the list was cut.
     """
-    from app.api.jobs import jobs_mine_clause  # noqa: PLC0415 — import cycle
+    from app.api.jobs import (  # noqa: PLC0415 — import cycle
+        _live_work_assignment_job_ids,
+        jobs_mine_working_clause,
+    )
 
+    # Runda 10 (R10-V2-2): członkostwo filtrujemy w SQL PRZED LIMIT — inaczej
+    # rekrutacje odrzucane niżej (samo przypisanie, usunięty współpracownik)
+    # zjadały miejsca i wypychały własne rekrutacje osoby.
     jobs = (
         await db.scalars(
             select(Job)
             .options(selectinload(Job.client))
-            .where(jobs_mine_clause(current_user), Job.status != JobStatus.closed)
+            .where(
+                # „Poprzedni rekruter” (14.10.2026) nie ma tu następnych kroków.
+                jobs_mine_working_clause(current_user),
+                Job.status != JobStatus.closed,
+                job_scope_clause(current_user, Job.id, oversight_bypass=False),
+            )
             .order_by(Job.deadline.asc().nullslast(), Job.id.desc())
             # One extra row tells a full page from a cut list.
             .limit(MY_NEXT_STEPS_JOB_LIMIT + 1)
@@ -2363,16 +4458,27 @@ async def my_next_steps(
     ).all()
     truncated = len(jobs) > MY_NEXT_STEPS_JOB_LIMIT
     jobs = jobs[:MY_NEXT_STEPS_JOB_LIMIT]
+    # Aktywne przypisanie z przydziału to „moja” rekrutacja (R9-N15-2) — dla
+    # nich decyduje zakres w SQL wyżej. Od 02.10.2026 zna je też bramka
+    # tablicy (`is_member_of_job`); ten zbiór oszczędza jej zapytań.
+    assigned_job_ids = (
+        set(await db.scalars(_live_work_assignment_job_ids([current_user.id])))
+        if user_can_access_candidate_domain(current_user)
+        else set()
+    )
     out: list[MyNextStepsJob] = []
+    # „Czyj przegląd” raz na żądanie, nie raz na tablicę (audyt 13.10.2026).
+    dl_review_memo: dict[Any, Any] = {}
     for job in jobs:
         try:
-            # `jobs_mine_clause` keeps collaborators removed from the team;
-            # the board read guard is the one that decides. Widok OSOBISTY:
+            # The board read guard is the one that decides (`jobs_mine_clause`
+            # is a list scope, not an access rule). Widok OSOBISTY:
             # od 23.09.2026 tablicę każdej rekrutacji czyta każdy, więc
             # przypisanie liczymy jawnie (`oversight_bypass=False`).
-            await ensure_job_read_access(
-                db, current_user, job.id, oversight_bypass=False
-            )
+            if job.id not in assigned_job_ids:
+                await ensure_job_read_access(
+                    db, current_user, job.id, oversight_bypass=False
+                )
         except HTTPException:
             continue
         out.append(
@@ -2382,8 +4488,17 @@ async def my_next_steps(
                 client_name=job.client.name if job.client else None,
                 # Follow-up (0372) liczy ~14 zapytań na tablicę — „Moje
                 # następne kroki” składa do 25 tablic, a plakietki nie pokazuje.
+                # Stan CV firmowego (14.10.2026) też nie: `company_cv=None`
+                # znaczy „nie wiadomo” i niczego nie blokuje.
                 view=await build_kanban_view(
-                    db, job, viewer=current_user, with_followups=False
+                    db,
+                    job,
+                    viewer=current_user,
+                    with_followups=False,
+                    with_employment=False,
+                    with_cv_state=False,
+                    with_other_jobs=False,
+                    dl_review_memo=dl_review_memo,
                 ),
             )
         )
@@ -2422,6 +4537,9 @@ async def get_stage_history(
 # wierszach pary (kandydat, rekrutacja) — dlatego okno stoi w CTE, a stronicowanie
 # dopiero na zewnątrz: LIMIT w tym samym SELECT-cie ucinałby historię, z której
 # LAG czyta. `COUNT(*) OVER ()` = `total` bez drugiego zapytania.
+# `candidate_id` zawęża dziennik do jednej osoby (panel osoby): filtr stoi w CTE,
+# bo okno jest partycjonowane po kandydacie — odpada cała partycja, a LAG dalej
+# widzi komplet ruchów tej pary.
 _JOB_MOVES_SQL = text(
     """
     WITH moves AS (
@@ -2437,6 +4555,7 @@ _JOB_MOVES_SQL = text(
         FROM candidate_stages cs
         LEFT JOIN pipeline_stage_defs sd ON sd.id = cs.stage_def_id
         WHERE cs.job_id = :job_id
+          AND (CAST(:candidate_id AS INTEGER) IS NULL OR cs.candidate_id = :candidate_id)
         WINDOW w AS (PARTITION BY cs.candidate_id ORDER BY cs.moved_at, cs.id)
     )
     SELECT m.id,
@@ -2461,7 +4580,8 @@ _JOB_MOVES_SQL = text(
 )
 
 _JOB_MOVES_COUNT_SQL = text(
-    "SELECT COUNT(*) FROM candidate_stages cs WHERE cs.job_id = :job_id"
+    "SELECT COUNT(*) FROM candidate_stages cs WHERE cs.job_id = :job_id "
+    "AND (CAST(:candidate_id AS INTEGER) IS NULL OR cs.candidate_id = :candidate_id)"
 )
 
 
@@ -2483,6 +4603,7 @@ async def list_job_moves(
     current_user: OperationalUser,
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    candidate_id: Optional[int] = Query(None, ge=1),
     db: AsyncSession = Depends(get_db),
 ):
     """Ruchy etapów całej rekrutacji, od najnowszych.
@@ -2490,6 +4611,7 @@ async def list_job_moves(
     Ta sama bramka co tablica: odczyt sekcji Pipeline (router) + zakres
     rekrutacji. Imię i nazwisko kandydata tylko dla ról z odczytem kandydatów;
     pozostali dostają `candidate_id` i `candidate_names_redacted`.
+    `candidate_id` = ruchy jednej osoby w tej rekrutacji (panel osoby).
     """
     job_exists = await db.scalar(select(Job.id).where(Job.id == job_id))
     if job_exists is None:
@@ -2497,16 +4619,15 @@ async def list_job_moves(
     await ensure_job_read_access(db, current_user, job_id)
 
     show_names = user_has_candidate_read(current_user)
+    scope = {"job_id": job_id, "candidate_id": candidate_id}
     rows = (
-        await db.execute(
-            _JOB_MOVES_SQL, {"job_id": job_id, "limit": limit, "offset": offset}
-        )
+        await db.execute(_JOB_MOVES_SQL, {**scope, "limit": limit, "offset": offset})
     ).all()
     if rows:
         total = int(rows[0].total)
     elif offset:
         # Strona za końcem listy nie niesie wiersza z `total`.
-        total = int(await db.scalar(_JOB_MOVES_COUNT_SQL, {"job_id": job_id}) or 0)
+        total = int(await db.scalar(_JOB_MOVES_COUNT_SQL, scope) or 0)
     else:
         total = 0
     items = [
@@ -2558,10 +4679,16 @@ async def get_stage_screening(
     # zakres odczytu co tablica (`/kanban/{job_id}`), nie sama rola.
     await ensure_job_read_access(db, current_user, stage.job_id)
     job = await db.scalar(select(Job).where(Job.id == stage.job_id))
+    from app.services import screening_sheets
     from app.services.screening_suggestions import suggestions_from_notes
 
     candidate = await db.get(Candidate, stage.candidate_id)
-    answers, source_stage_id = await _latest_filled_screening(db, stage)
+    answers, source_stage_id = await screening_sheets.latest_filled_sheet(db, stage)
+    # Arkusze sprzed 02.10.2026 nie niosą tekstu pytań — dok i profil czytają
+    # go z odpowiedzi, więc uzupełniamy z bieżącego profilu po identyfikatorze.
+    answers = screening_sheets.with_question_texts(
+        answers, screening_sheets.question_texts(job.champion_profile if job else None)
+    )
     return {
         "stage_id": stage.id,
         "candidate_id": stage.candidate_id,
@@ -2586,28 +4713,6 @@ async def get_stage_screening(
     }
 
 
-async def _latest_filled_screening(
-    db: AsyncSession, stage: CandidateStage
-) -> tuple[Optional[dict], Optional[int]]:
-    """Arkusz screeningu etapu, a gdy pusty — najnowszy wypełniony tej pary."""
-    if _sheet_filled(stage.screening_answers):
-        return stage.screening_answers, None
-    rows = await db.execute(
-        select(CandidateStage.id, CandidateStage.screening_answers)
-        .where(
-            CandidateStage.candidate_id == stage.candidate_id,
-            CandidateStage.job_id == stage.job_id,
-            CandidateStage.id != stage.id,
-            CandidateStage.screening_answers.isnot(None),
-        )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-    )
-    for row_id, answers in rows.all():
-        if _sheet_filled(answers):
-            return answers, row_id
-    return stage.screening_answers or None, None
-
-
 @router.post("/stages/{stage_id}/screening")
 async def submit_stage_screening(
     stage_id: int,
@@ -2619,6 +4724,8 @@ async def submit_stage_screening(
     Also invalidates the (candidate, *) match score cache so the next
     recommendation read recomputes `champion_fit`.
     """
+    from pydantic import ValidationError
+
     from app.schemas.champion import ScreeningAnswers
     from app.services.match_score_cache import mark_stale_for_candidate
 
@@ -2637,9 +4744,60 @@ async def submit_stage_screening(
         user=current_user,
     )
 
-    answers = ScreeningAnswers.model_validate(payload or {})
-    answers.answered_at = datetime.now(timezone.utc)
-    answers.answered_by = current_user.id
+    from app.services import screening_sheets
+
+    # Ciało przychodzi jako słownik, więc błąd schematu nie jest błędem
+    # żądania FastAPI — bez zamiany na 422 arkusz ponad limit (albo z nieznaną
+    # wartością) kończył się 500 bez komunikatu.
+    try:
+        answers = ScreeningAnswers.model_validate(payload or {})
+    except ValidationError as exc:
+        too_long = any(
+            error.get("type") in ("string_too_long", "too_long")
+            for error in exc.errors()
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Arkusz screeningu jest za długi — skróć odpowiedzi albo notatkę."
+                if too_long
+                else "Arkusz screeningu ma nieprawidłowe dane."
+            ),
+        ) from None
+    previous = stage.screening_answers
+    if answers.answers and not _sheet_filled(previous):
+        # Arkusz należy do pary — wiersz bez własnej kopii porównujemy
+        # z najnowszym wypełnionym arkuszem tej pary.
+        previous, _ = await screening_sheets.latest_filled_sheet(
+            db, stage, for_write=True
+        )
+    # „Pomiń brakujące” tylko z powodem — ta sama bramka co formularz
+    # (`PUT /screening-form`, audyt 13.10.2026, pkt 6).
+    from app.services.screening_reassign import assert_skip_allowed
+
+    await assert_skip_allowed(
+        db,
+        answers=answers.answers,
+        previous=previous,
+        candidate_id=stage.candidate_id,
+        job_id=stage.job_id,
+        user=current_user,
+    )
+    job = await db.scalar(select(Job).where(Job.id == stage.job_id))
+    # Zapis człowieka przejmuje arkusz z notatki (07.10.2026): odpowiedzi
+    # `note_sync` stają się `note_import`, więc automat już ich nie poprawi.
+    from app.services.screening_note_sync import humanize_origins
+
+    humanize_origins(answers)
+    screening_sheets.stamp_sheet(
+        answers,
+        questions=screening_sheets.question_texts(
+            getattr(job, "champion_profile", None)
+        ),
+        previous=previous,
+        user_id=current_user.id,
+        now=datetime.now(timezone.utc),
+    )
 
     stage.screening_answers = answers.model_dump(mode="json")
     db.add(
@@ -2689,68 +4847,29 @@ async def submit_stage_screening(
 
 # ── Champion Card share tokens (Phase 12) ───────────────────────────────────
 
+# D2 (07.10.2026): z NEXUSA nic nie idzie do klienta — wszystko w formularzu
+# screeningu jest dla Delivery Leada. Wystawienie linku do karty Championa
+# odpowiada 410 bez sprawdzania rekrutacji (nic nie czyta ani nie zapisuje),
+# a migracja 0424 odwołała wszystkie tokeny. Odwołanie (DELETE) zostaje.
+CHAMPION_SHARE_REMOVED_MESSAGE = (
+    "Udostępnianie karty Championa klientowi zostało wyłączone — formularz "
+    "screeningu jest dla Delivery Leada, a CV do klienta wysyła DL."
+)
+
 
 @router.post("/stages/{stage_id}/share-token")
 async def create_share_token(
     stage_id: int,
     current_user: RecruiterPlus,
-    db: AsyncSession = Depends(get_db),
-    expires_in_days: int = Query(30, ge=1, le=365),
 ):
-    """Generate a shareable token for this CandidateStage's Champion card."""
-    import hashlib
-    import secrets
-    from datetime import timedelta
-
-    from app.models.champion_share import ChampionCardShareToken
-
-    stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == stage_id))
-    if not stage:
-        raise HTTPException(status_code=404, detail="Stage not found")
-
-    # Resource scope: wystawienie linku dla klienta to działanie NA rekrutacji,
-    # nie ogólna operacja rekrutera. Bez tego członek zespołu oferty A mógł
-    # wygenerować działający, publiczny link do karty kandydata z oferty B.
-    await ensure_job_membership(db, current_user, stage.job_id)
-
-    # Same outbound gate as the CV share link — this card goes to the client too.
-    verdict = await veto_for_candidate_stage(db, candidate_stage_id=stage_id)
-    if verdict is not None:
-        raise HTTPException(
-            status_code=409,
-            detail=f"{verdict.as_polish_detail()} Nie wysyłaj mu go ponownie.",
-        )
-
-    # v2: the secret lives only in the URL and as a SHA-256 digest in the DB.
-    # The PK holds a non-secret revoke key, so a DB leak yields no working link.
-    raw_token = secrets.token_urlsafe(36)
-    revoke_key = f"v2${secrets.token_hex(16)}"
-    token_digest = hashlib.sha256(raw_token.encode()).hexdigest()
-    token = raw_token  # goes into the share URL
-    expires_at = datetime.now(timezone.utc) + timedelta(days=expires_in_days)
-    row = ChampionCardShareToken(
-        token=revoke_key,
-        token_sha256=token_digest,
-        candidate_stage_id=stage_id,
-        created_by=current_user.id,
-        expires_at=expires_at,
+    """Karta Championa dla klienta — wyłączona (410)."""
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "CHAMPION_SHARE_REMOVED",
+            "message": CHAMPION_SHARE_REMOVED_MESSAGE,
+        },
     )
-    db.add(row)
-    db.add(
-        Activity(
-            entity_type="candidate_stage",
-            entity_id=stage_id,
-            action="champion_share_created",
-            user_id=current_user.id,
-            details={"expires_at": expires_at.isoformat()},
-        )
-    )
-    await db.commit()
-    return {
-        "token": token,
-        "expires_at": expires_at.isoformat(),
-        "share_url_suffix": f"/share/champion-card/{token}",
-    }
 
 
 @router.delete("/stages/share-token/{token}")
@@ -2992,10 +5111,12 @@ async def claim_candidate(
 ):
     """„Biorę" / „Przejmij" — osoba w „Nowych" na 12 h dla klikającego (0352).
 
-    Wolną osobę (z ogłoszenia, propozycji, po upływie blokady) bierze każdy
-    z zespołu rekrutacji. Cudzą, wciąż aktywną blokadę przejmuje wyłącznie
-    admin, Delivery Lead albo Head of Recruitment — poprzedni rekruter dostaje
-    dzwonek.
+    Wolną osobę (z propozycji, z ogłoszenia bez właściciela linku, po upływie
+    blokady) bierze każdy z zespołu rekrutacji. Osoba, która zgłosiła się
+    z linku rekrutacji, ma od wejścia do „Nowi” blokadę właściciela linku
+    (etap 2 linków, 19.10.2026) — jak osoba dodana ręcznie. Cudzą, wciąż
+    aktywną blokadę przejmuje wyłącznie admin, Delivery Lead albo Head of
+    Recruitment — poprzedni rekruter dostaje dzwonek.
     """
     job = await db.scalar(select(Job).where(Job.id == data.job_id))
     if job is None:
@@ -3046,13 +5167,28 @@ async def claim_candidate(
     await candidate_claim.assert_can_act(
         db, process=process, user=current_user, now=now
     )
-    previous = candidate_claim.claim_state(process)
+    previous = candidate_claim.claim_state(
+        process, await candidate_claim.inactive_holders(db, [process])
+    )
+    # Runda 8 (R8-N8-7): własnej aktywnej blokady nie da się przedłużyć —
+    # po 12 h każdy z zespołu może osobę przejąć (tablica: `can_take` = False).
+    if previous.active(now) and previous.user_id == current_user.id:
+        raise HTTPException(
+            status_code=409,
+            detail="Już prowadzisz tę osobę — blokady nie da się przedłużyć.",
+        )
     previous_holder = (
         previous.user_id
         if previous.active(now) and previous.user_id != current_user.id
         else None
     )
     candidate_claim.set_claim(process, current_user.id, now)
+    await screening_calls.follow_claim(db, process=process, user=current_user, now=now)
+    # Osoba od systemu (23.10.2026): „Dzwonię” to decyzja na stałe — po
+    # wygaśnięciu blokady karta nie wraca do „Czeka na Ciebie”.
+    from app.services.autofill_decisions import record_call
+
+    record_call(process, current_user.id, now)
     db.add(
         Activity(
             entity_type="pipeline",
@@ -3106,7 +5242,8 @@ class BulkMoveRequest(BaseModel):
     stage: PipelineStage
     notes: str | None = None
     # Pipeline v4: jedna stawka do klienta dla całej paczki „CV wysłane"
-    # (poza Nordeą wymagana i tylko Delivery Lead / admin).
+    # (poza Nordeą wymagana; wysyła osoba z uprawnieniem `recruitment_manage`,
+    # domyślnie Delivery Lead i admin).
     client_rate_value: Decimal | None = Field(None, gt=0)
     client_rate_unit: RateUnit | None = None
     client_rate_currency: str | None = Field(None, max_length=3)
@@ -3117,6 +5254,7 @@ async def bulk_move_candidates(
     data: BulkMoveRequest,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
+    request: Request = None,  # type: ignore[assignment] — wywołania wprost w testach
 ):
     """Move multiple candidates to a stage at once."""
     if not data.candidate_ids or not data.job_id:
@@ -3171,19 +5309,6 @@ async def bulk_move_candidates(
     # job-specific) and before any candidate lookup.
     await ensure_job_membership(db, current_user, job.id)
 
-    # Pipeline v4: „CV wysłane" poza Nordeą — DL + stawka (jak pojedynczy /move).
-    if pipeline_move_rules.requires_dl_client_rate(data.stage, job.client_id):
-        pipeline_move_rules.assert_client_send_allowed(
-            current_user, data.client_rate_value
-        )
-    elif data.client_rate_value is not None and not await resolve_client_rate_write(
-        db, current_user, job
-    ):
-        raise HTTPException(
-            status_code=403,
-            detail="Stawkę do klienta zapisuje Delivery Lead albo admin.",
-        )
-
     # Etap-odznaka Tablicy (DZ / Cpro) — ta sama reguła co pojedynczy /move.
     bulk_stage_def = await _resolve_stage_def(
         db, job, stage_def_id=None, legacy_stage=data.stage
@@ -3192,6 +5317,90 @@ async def bulk_move_candidates(
         ensure_badge_stage_allowed(
             current_user, stage_name=bulk_stage_def.name, client_id=job.client_id
         )
+    bulk_target_column = board_column_for(
+        bulk_stage_def.name if bulk_stage_def else None,
+        data.stage.value,
+        category=(
+            bulk_stage_def.category.value
+            if bulk_stage_def and bulk_stage_def.category
+            else None
+        ),
+        terminal_type=(
+            bulk_stage_def.terminal_type.value
+            if bulk_stage_def and bulk_stage_def.terminal_type
+            else None
+        ),
+    )
+
+    # Runda 9 (R9-N11-4): osoby spoza rekrutacji (para bez wiersza) wchodzą
+    # tylko do „Nowych”/„Screeningu” i przez twardą bramkę — jak bulk-add.
+    fresh_ids = [
+        cid
+        for cid in unique_ids
+        if await _pair_has_no_stage(db, candidate_id=cid, job_id=job.id)
+    ]
+    if fresh_ids:
+        try:
+            _assert_fresh_pair_entry(bulk_stage_def, data.stage)
+        except HTTPException as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=f"{exc.detail} (kandydaci: {fresh_ids[:20]})",
+            ) from None
+        if candidate_claim.is_integration_request(request):
+            # 06.10.2026: integracja nie wstawia nowych osób paczką bez dowodu
+            # zgłoszenia do tej rekrutacji — propozycje idą przez
+            # `proposals/bulk` (pojedynczy `/move` zakłada je sam).
+            from app.services.integration_intake import (
+                candidates_with_application_evidence,
+            )
+
+            applied = await candidates_with_application_evidence(
+                db, job_id=job.id, candidate_ids=fresh_ids
+            )
+            unproven = [cid for cid in fresh_ids if cid not in applied]
+            if unproven:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Integracja dodaje nowe osoby przez „Do przejrzenia” "
+                        "(POST /api/jobs/{id}/proposals/bulk) — bez zgłoszenia "
+                        f"do tej rekrutacji (kandydaci: {unproven[:20]})."
+                    ),
+                )
+
+    # Pipeline v4: „CV wysłane" poza Nordeą — DL + stawka (jak pojedynczy /move);
+    # u Nordei akceptacja do kolejki Cpro (13.10.2026) — `bulk_stage_def` bywa
+    # etapem Cpro (`_resolve_stage_def` z samego kodu etapu).
+    # Runda 9 (R9-N11-6): tylko dla osób, które do klienta dopiero idą — cofnięcie
+    # karty z „Rozmowy u klienta” to nie wysłanie.
+    dl_send = False
+    bulk_stage_name = bulk_stage_def.name if bulk_stage_def else None
+    if pipeline_move_rules.requires_dl_client_rate(
+        data.stage, job.client_id, stage_name=bulk_stage_name
+    ):
+        for cid in unique_ids:
+            if await pipeline_move_rules.arrives_from_before_client_send(
+                db, candidate_id=cid, job_id=job.id
+            ):
+                dl_send = True
+                break
+    if dl_send:
+        pipeline_move_rules.assert_client_send_allowed(
+            current_user,
+            data.client_rate_value,
+            cpro=cpro_enabled_for_client(job.client_id),
+        )
+    elif data.client_rate_value is not None and not await resolve_client_rate_write(
+        db, current_user, job
+    ):
+        raise client_rate_write_denied()
+    if data.client_rate_value is not None:
+        # Jak pojedynczy /move: osoba z zamówieniem zatrzymuje całą paczkę.
+        for cid in unique_ids:
+            await _assert_client_rate_not_order_locked(
+                db, candidate_id=cid, job_id=job.id
+            )
 
     # Rekrutacja v5 (0361): QC CV przed „CV wysłane” — jak pojedynczy /move.
     # Pierwsza osoba bez QC zatrzymuje całą paczkę (409 z jej `stage_id`).
@@ -3204,6 +5413,13 @@ async def bulk_move_candidates(
             stage_def=bulk_stage_def,
             legacy_value=data.stage.value,
             client_id=job.client_id,
+        )
+        await _spend_advisory_qc_override_on_return(
+            db,
+            candidate_id=cid,
+            job_id=job.id,
+            stage_def=bulk_stage_def,
+            legacy_value=data.stage.value,
         )
 
     # Faza 1 globalnej kolejności blokad: komplet kandydatów rosnąco, ZANIM
@@ -3228,19 +5444,55 @@ async def bulk_move_candidates(
     # (409). Client conflicts are warnings since 17.09.2026 and do not stop the
     # batch. Pojedynczy /move ostrzega z potwierdzeniem; bulk zostaje twardym
     # 409 — nie ma UI, które mogłoby potwierdzić ostrzeżenie za paczkę.
-    await assert_candidates_move_eligible(
-        db,
-        candidate_ids=unique_ids,
-        job=job,
-        now=datetime.now(timezone.utc),
-        enforce_manager_verdict=puts_candidate_before_client(data.stage),
-    )
+    # Runda 9 (R9-N11-3): weto z kolumny docelowej; osoby spoza rekrutacji
+    # zawsze z wetem (jak bulk-add).
+    moving_ids = [cid for cid in unique_ids if cid not in fresh_ids]
+    if moving_ids:
+        await assert_candidates_move_eligible(
+            db,
+            candidate_ids=moving_ids,
+            job=job,
+            now=datetime.now(timezone.utc),
+            enforce_manager_verdict=puts_column_before_client(bulk_target_column),
+        )
+    if fresh_ids:
+        await assert_candidates_move_eligible(
+            db,
+            candidate_ids=fresh_ids,
+            job=job,
+            now=datetime.now(timezone.utc),
+        )
 
     # Pipeline v4: debrief po rozmowie u klienta — jak pojedynczy /move.
-    bulk_target_column = board_column_for(None, data.stage.value)
     for cid in unique_ids:
         await pipeline_move_rules.assert_debrief_before_contract(
             db, candidate_id=cid, job_id=data.job_id, target_column=bulk_target_column
+        )
+    # D1 jak pojedynczy /move: skok z Nowych/Screeningu ponad „Zweryfikowany”
+    # wymaga arkusza i stawki (audyt 05.10.2026 — bulk tej bramki nie wołał).
+    for cid in unique_ids:
+        await pipeline_move_rules.assert_verified_requirements(
+            db,
+            candidate_id=cid,
+            job=job,
+            user=current_user,
+            target_column=bulk_target_column,
+            pending_rate=False,
+            # Ruch zbiorczy nie zapisuje śladu `requirements_skipped` — bramka
+            # pól obowiązuje tu także Delivery Leada (22.10.2026).
+            allow_skip=False,
+        )
+    # Bliźniaki (0615): ruch zbiorczy nie zna powodów pominięcia — każdy
+    # bliźniak wymaga screeningu pary.
+    from app.services import job_twins  # noqa: PLC0415
+
+    for cid in unique_ids:
+        await job_twins.assert_twin_screening(
+            db,
+            candidate_id=cid,
+            job=job,
+            user=current_user,
+            target_column=bulk_target_column,
         )
 
     # Pipeline v4: cudza osoba zarezerwowana w „Nowych" blokuje całą paczkę.
@@ -3261,18 +5513,48 @@ async def bulk_move_candidates(
             "client_rate_currency": (data.client_rate_currency or "PLN")[:3].upper(),
         }
     moved = 0
+    bulk_display_name = (
+        bulk_stage_def.name
+        if bulk_stage_def
+        else STAGE_LABELS.get(data.stage, data.stage.value)
+    )
+    # (etap, poprzedni wiersz) — do powiadomień po commicie, jak w /move.
+    moved_entries: list[tuple[CandidateStage, Optional[CandidateStage]]] = []
     for cid in unique_ids:
+        previous_row = await db.scalar(
+            select(CandidateStage)
+            .where(
+                CandidateStage.candidate_id == cid,
+                CandidateStage.job_id == data.job_id,
+            )
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+            .limit(1)
+        )
         entry = await transition_process(
             db,
             candidate_id=cid,
             job_id=data.job_id,
             stage=data.stage,
+            # Runda 8 (R8-N8-6): wiersz z paczki niesie etap szablonu jak
+            # pojedynczy /move — kolejka Cpro i tablica filtrują po nim.
+            stage_def_id=bulk_stage_def.id if bulk_stage_def else None,
             moved_at=datetime.now(timezone.utc),
             actor_user_id=current_user.id,
             work_channel=PriorityChannel.database,
             notes=data.notes,
             **bulk_rate,
+            # Runda 11 (PIPE-1): osoba spoza rekrutacji dodana paczką dostaje
+            # to samo źródło wejścia i blokadę 12 h co pojedynczy /move.
+            **(
+                _fresh_pair_entry_kwargs(current_user, request)
+                if cid in fresh_ids
+                else {}
+            ),
         )
+        if not candidate_claim.is_integration_request(request):
+            await candidate_claim.take_unowned_on_screening(
+                db, previous=previous_row, moved=entry, user_id=current_user.id
+            )
         await create_original_cv_snapshot(db, entry)
         await maybe_ensure_contact_opportunity(
             db,
@@ -3281,12 +5563,33 @@ async def bulk_move_candidates(
             source="pipeline",
             occurred_at=entry.moved_at,
         )
+        # Runda 9 (R9-N11-7): te same ślady co pojedynczy /move.
+        _record_stage_change(
+            db,
+            stage=entry,
+            stage_def=bulk_stage_def,
+            legacy_enum=data.stage,
+            actor_id=current_user.id,
+            stage_display_name=bulk_display_name,
+            extra_details={"bulk": True},
+        )
+        await _cancel_pending_rejection_emails(
+            db,
+            candidate_id=cid,
+            job_id=data.job_id,
+            actor_id=current_user.id,
+            restored_to=data.stage,
+        )
+        await stage_handoff_recipients.close_cpro_queue_bells(
+            db, previous=previous_row, target_name=bulk_stage_name
+        )
+        moved_entries.append((entry, previous_row))
         moved += 1
 
     # 0341: przepięcia do połączonych rekrutacji (jak w pojedynczym /move).
     from app.services.job_similarity import on_candidate_sent  # noqa: PLC0415
 
-    bulk_stage = data.stage
+    bulk_stage = _client_hook_stage(bulk_target_column, data.stage)
     for cid in unique_ids:
         await on_candidate_sent(
             db, job_id=data.job_id, candidate_id=cid, stage=bulk_stage
@@ -3303,34 +5606,49 @@ async def bulk_move_candidates(
     await db.commit()
     await broadcast_pipeline_changed(db, data.job_id, actor_id)
 
-    # Phase 17 (migracja 0068): recompute risk dla każdego kandydata.
-    # Best-effort — pojedynczy fail nie blokuje response ani nie zostawia
-    # sesji w failed transaction (M4 PR-02).
+    # Efekty po commicie — każdy w savepoincie (`_post_commit_effect`), osobno
+    # dla każdej osoby: błąd jednej nie cofa efektów pozostałych i nie wygasza
+    # obiektów sesji. Do rundy 2 audytu (25.09.2026) `db.rollback()` po
+    # błędzie wygaszał `current_user`, kolejne odczyty `current_user.id`
+    # kończyły się połykanym MissingGreenlet, a reszta paczki nie trafiała do
+    # pul talentów (commit był dopiero po pętli).
+    for entry, previous_row in moved_entries:
+        await _post_commit_effect(
+            db,
+            f"bulk stage_notif stage={entry.id}",
+            _notify_stage_change_effect(
+                db,
+                stage=entry,
+                previous_stage_row=previous_row,
+                job=job,
+                mover=current_user,
+                stage_display_name=bulk_display_name,
+            ),
+        )
+        _spawn_cv_qc_after_move(bulk_target_column, entry.id, actor_id)
+
     from app.services.candidate_risk import on_candidate_stage_change
 
-    try:
-        for cid in unique_ids:
+    for cid in unique_ids:
+
+        async def _recompute_risk(cid: int = cid) -> None:
             await on_candidate_stage_change(db, cid)
-        await db.commit()
-    except Exception as _exc:  # noqa: BLE001
-        logger.warning("bulk risk recompute failed: %s", _exc)
-        try:
-            await db.rollback()
-        except Exception:  # noqa: BLE001
-            pass
+
+        await _post_commit_effect(
+            db, f"bulk risk recompute candidate={cid}", _recompute_risk
+        )
 
     # Auto-add to a talent pool when the bulk move is "CV → klient" (same
     # signal as the single /move path). Best-effort: a failure must not affect
     # the move that already committed above.
     if data.stage == PipelineStage.cv_sent:
-        import logging as _logging
-
         from app.services.talent_pool_auto_add import auto_add_on_cv_sent
 
         pool_job = await db.scalar(select(Job).where(Job.id == data.job_id))
         if pool_job is not None:
             for cid in unique_ids:
-                try:
+
+                async def _auto_add_to_pool(cid: int = cid) -> None:
                     pool_candidate = await db.scalar(
                         select(Candidate).where(Candidate.id == cid)
                     )
@@ -3338,17 +5656,14 @@ async def bulk_move_candidates(
                         db=db,
                         candidate_id=cid,
                         job=pool_job,
-                        user_id=current_user.id,
+                        user_id=actor_id,
                         candidate=pool_candidate,
                     )
-                except Exception as e:  # noqa: BLE001
-                    await db.rollback()
-                    _logging.getLogger(__name__).warning(
-                        "bulk auto_add_on_cv_sent failed candidate=%s job=%s: %s",
-                        cid,
-                        data.job_id,
-                        e,
-                    )
-            await db.commit()
+
+                await _post_commit_effect(
+                    db,
+                    f"bulk auto_add_on_cv_sent candidate={cid} job={data.job_id}",
+                    _auto_add_to_pool,
+                )
 
     return {"moved": moved, "stage": data.stage.value, "job_id": data.job_id}

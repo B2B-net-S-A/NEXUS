@@ -1,5 +1,5 @@
 import enum
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Optional
 
@@ -13,6 +13,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    Time,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -61,7 +62,14 @@ class WorkMode(str, enum.Enum):
 
 
 class JobCloseReason(str, enum.Enum):
-    """Powód zamknięcia oferty bez placementu (dla sekcji 'Przegrane rekrutacje')."""
+    """Powód zamknięcia rekrutacji.
+
+    Grupę w hit ratio (wygrana / przegrana / nie liczy się) ustala
+    `services/metric_definitions.HIT_RATIO_*_CLOSE_REASONS`, nie ten enum.
+    `duplicate` i `no_match` od 0504 (21.10.2026). `no_activity` od 0617
+    (28.10.2026) nadaje wyłącznie NEXUS po 28 dniach bez ruchu Delivery Leada
+    (`services/job_idle.py`).
+    """
 
     budget = "budget"
     internal_hire = "internal_hire"
@@ -70,6 +78,9 @@ class JobCloseReason(str, enum.Enum):
     filled_by_us = "filled_by_us"
     client_ghosted = "client_ghosted"
     other = "other"
+    duplicate = "duplicate"
+    no_match = "no_match"
+    no_activity = "no_activity"
 
 
 class Job(Base, TimestampMixin):
@@ -93,6 +104,9 @@ class Job(Base, TimestampMixin):
     # porównywalna z candidate.expected_rate_hourly — salary_min/max wyżej to
     # legacy PLN/mies. bez polityki konwersji. Fallback: stawka Championa.
     rate_budget_hourly: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 2))
+    # 0420: „od” z przedziału budżetu — tylko do wyświetlania; budżetem
+    # dla całej logiki jest `rate_budget_hourly` (services/job_budget_range.py).
+    rate_budget_hourly_min: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 2))
 
     # 0278: bez `default=` — przed tą migracją każda oferta bez ręcznie
     # ustawionego trybu dostawała 'hybrid' (m.in. na sztywno stemplowane przez
@@ -108,6 +122,10 @@ class Job(Base, TimestampMixin):
     # (`champion_job_sync.fill_job_columns_from_champion`). Nie mylić z
     # `WorkMode` (fulltime/parttime/contract) — to inna oś.
     onsite_days_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Wpis „N dni w miesiącu” (0407). Gdy ustawiony, `onsite_days_per_week`
+    # jest z niego wyliczone (`services/office_days.py`) — bramki czytają
+    # wyłącznie liczbę tygodniową.
+    onsite_days_per_month: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     status: Mapped[JobStatus] = mapped_column(
         Enum(JobStatus), default=JobStatus.draft, nullable=False, index=True
@@ -133,6 +151,33 @@ class Job(Base, TimestampMixin):
         Enum(JobPriority), default=JobPriority.medium, nullable=False
     )
 
+    # 0525: P0 — ultrapilne przez 24 h (decyzje Artura 27.10.2026). Nakładka
+    # z terminem nad `priority`: obowiązuje, dopóki `p0_until` jest w
+    # przyszłości, potem przestaje bez zmiany priorytetu. Ustawia Head of
+    # Recruitment albo admin (`services/job_p0.py`).
+    p0_until: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    p0_reason: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    p0_set_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    p0_set_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # 0610: prośba Delivery Leada o P0 (decyzja Artura 28.10.2026) — DL prosi,
+    # Head of Recruitment albo admin zatwierdza; jedna oczekująca naraz.
+    p0_request_reason: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    p0_request_duration: Mapped[Optional[str]] = mapped_column(
+        String(16), nullable=True
+    )
+    p0_requested_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    p0_requested_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
     # 0341: Delivery Lead oznacza „Mamy championa" — kandydat jest, dalej nie
     # szukamy. Do tej chwili status requestu na liście to „Szukamy".
     champion_found_at: Mapped[Optional[datetime]] = mapped_column(
@@ -156,6 +201,14 @@ class Job(Base, TimestampMixin):
     work_state_changed_by: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # 0617: „Jeszcze trwa” przy przypomnieniu o rekrutacji bez ruchu — licznik
+    # 14/21/28 dni liczy od tej chwili (`services/job_idle.py`, 28.10.2026).
+    idle_snoozed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    idle_snoozed_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     # 0353: jedna osoba wysyła do Cpro kandydatów tej rekrutacji (Nordea) —
     # decyzja Artura 23.09.2026: „jedna osoba per cały proces".
     cpro_sender_id: Mapped[Optional[int]] = mapped_column(
@@ -171,6 +224,9 @@ class Job(Base, TimestampMixin):
         Boolean, nullable=False, default=False, server_default="false"
     )
 
+    # MARTWA kolumna (25.09.2026, decyzja Artura: „bez typów rekrutacji”).
+    # Nic jej nie czyta ani nie pokazuje; zostaje w bazie tylko dlatego, że
+    # usunięcie to osobna migracja. Nie dokładaj logiki zależnej od typu.
     recruitment_type: Mapped[RecruitmentType] = mapped_column(
         Enum(RecruitmentType),
         default=RecruitmentType.body_leasing,
@@ -179,6 +235,16 @@ class Job(Base, TimestampMixin):
     )
 
     deadline: Mapped[Optional[date]] = mapped_column(Date)
+    # 0406: godzina terminu (czas Europe/Warsaw) — banki (Alior, PKO) podają
+    # termin z godziną. Osobna kolumna, bo alerty, filtry i sortowanie liczą
+    # po samej dacie; bez daty godzina nie ma sensu (czyści ją zapis).
+    deadline_time: Mapped[Optional[time]] = mapped_column(Time)
+    # 0415 (rekrutacja bez szkiców, 04.10.2026): termin i hiring manager to
+    # WYMAGANA decyzja — wartość albo jawne „Klient nie podał”. Flaga zeruje
+    # się przy każdym zapisie wartości (`deadline`, `hiring_manager_contact_id`).
+    deadline_not_provided: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     # Portale ogłoszeniowe — lista opublikowanych URL/statusów
     portals: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
@@ -203,6 +269,16 @@ class Job(Base, TimestampMixin):
 
     reference_number: Mapped[Optional[str]] = mapped_column(
         String(50), nullable=True, unique=True
+    )
+    # 0380: trzy nazwy rekrutacji. ``title`` = nazwa od klienta (idzie do
+    # klienta i do wektora oferty), ``client_reference`` = numer zapytania
+    # klienta (ZOB, SAP…; CV, nazwa pliku, Cpro), ``working_title`` = tytuł
+    # dla rekrutera składany z Championa (`job_working_title`) — wyłącznie
+    # ekrany wewnętrzne. Dopóki ``working_title_auto``, przelicza się sam.
+    client_reference: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    working_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    working_title_auto: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
     )
     industry: Mapped[Optional[str]] = mapped_column(
         String(50), nullable=True, index=True
@@ -265,6 +341,11 @@ class Job(Base, TimestampMixin):
         Enum(JobCloseReason, name="jobclosereason"), nullable=True
     )
     close_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 0504: przy powodzie `duplicate` — rekrutacja, która zostaje (opcjonalnie;
+    # „założona przez pomyłkę” nie ma drugiej rekrutacji).
+    duplicate_of_job_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
+    )
 
     # Foreign keys
     # client_id: enforced NOT NULL od migracji 0120 (2026-05-27). Wcześniej
@@ -279,8 +360,8 @@ class Job(Base, TimestampMixin):
         ForeignKey("competence_categories.id"), nullable=True, index=True
     )
     recruiter_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
-    # Delivery Lead odpowiedzialny za realizację requesta (body leasing).
-    # NULL dla sales_project/tender lub gdy nieprzypisany. Fallback przy
+    # Delivery Lead odpowiedzialny za realizację requesta.
+    # NULL gdy nieprzypisany. Fallback przy
     # raportowaniu: `delivery_lead_client_assignments.is_head=true` dla
     # client_id.
     delivery_lead_id: Mapped[Optional[int]] = mapped_column(
@@ -310,6 +391,18 @@ class Job(Base, TimestampMixin):
     # Contact nie kasuje Job, tylko zeruje link.
     hiring_manager_contact_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    hiring_manager_not_provided: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # 0403: rola z biblioteki ról („Champion po ludzku”). `auto` przypisuje
+    # `plain_knowledge.role_matcher`, `manual` — admin albo Head of Recruitment;
+    # ręcznego wyboru automat nigdy nie nadpisuje.
+    role_profile_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("role_profiles.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    role_profile_source: Mapped[Optional[str]] = mapped_column(
+        String(10), nullable=True
     )
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
     pipeline_template_id: Mapped[Optional[int]] = mapped_column(

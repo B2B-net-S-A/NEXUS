@@ -5,8 +5,9 @@ import { useState } from"react";
 import { Calendar, CheckSquare, Square, X, XCircle } from"lucide-react";
 import api from"@/lib/api";
 import { Button } from"@/components/ui/button";
-import { RequireRole } from"@/components/RequireRole";
 import { ContractTerminationDialog } from"@/components/contracts/ContractTerminationDialog";
+import { hasPermission } from"@/lib/permissions";
+import { useAuthStore } from"@/store/auth";
 
 interface Props {
  selectedIds: Set<number>;
@@ -20,6 +21,11 @@ interface Props {
  * ContractsBulkActionsBarV2 — floating plum chrome bar (sticky bottom) with
  * extend +3m/+6m/+12m + mark ended bulk operations. Replaces v1 inline
  * BulkActionsBar inside ContractsPage.
+ *
+ * Każda akcja ma własne uprawnienie, tak jak jej trasa: przedłużenie to
+ * „Kontrakty i zamówienia: tworzenie i edycja”, a „Oznacz zakończone” —
+ * „Zakończenie współpracy, zmiana statusu kontraktu”. Finanse widzą więc samo
+ * przedłużanie, a Talent Community Manager samo zakończenie.
  */
 export function ContractsBulkActionsBarV2({
  selectedIds,
@@ -28,6 +34,11 @@ export function ContractsBulkActionsBarV2({
  onSelectAllVisible,
  visibleCount,
 }: Props) {
+ const user = useAuthStore((state) => state.user);
+ // „Podgląd jako" jest tylko do odczytu — serwer odmówi każdej z tych akcji.
+ const impersonating = useAuthStore((state) => state.realUser !== null);
+ const canExtend = !impersonating && hasPermission(user,"contracts_orders_edit");
+ const canEnd = !impersonating && hasPermission(user,"contract_status");
  const [busy, setBusy] = useState(false);
  const [confirmEnd, setConfirmEnd] = useState(false);
 
@@ -42,15 +53,22 @@ export function ContractsBulkActionsBarV2({
  `/api/contracts/bulk-extend?${params.toString()}`
  );
  const skipped = res.skipped_no_end_date?.length ?? 0;
+ // Zakończona umowa, której nowa data nadal byłaby w przeszłości, jest
+ // pomijana — cron zakończyłby ją ponownie (runda 6 audytu).
+ const passed = res.skipped_end_date_passed?.length ?? 0;
  onDone(
  `Przedłużono ${res.extended} kontraktów o ${months} mies.${
  skipped > 0 ? ` (pominięto ${skipped} bezterminowych — w tym umowy B2B bez zakończenia)` :""
+ }${
+ passed > 0 ? ` (pominięto ${passed} — nowa data zakończenia nadal byłaby w przeszłości; przedłuż aneksem)` : ""
  }.`
  );
  } finally {
  setBusy(false);
  }
  };
+
+ if (!canExtend && !canEnd) return null;
 
  if (selectedIds.size === 0) {
  return (
@@ -67,13 +85,15 @@ export function ContractsBulkActionsBarV2({
  }
 
  return (
- <RequireRole roles={["admin","delivery_lead"]}>
- <div className="fixed inset-x-3 bottom-[calc(1.25rem+env(safe-area-inset-bottom))] mx-auto w-fit z-40 bg-card text-foreground rounded-xl shadow-md border border-white/10 px-4 py-2.5 flex items-center gap-3 flex-wrap animate-slide-in-bottom max-w-[min(96vw,900px)]">
+ <>
+ <div className="fixed inset-x-3 bottom-[calc(1.25rem+env(safe-area-inset-bottom))] mx-auto w-fit z-40 bg-card text-foreground rounded-xl shadow-md border border-border px-4 py-2.5 flex items-center gap-3 flex-wrap animate-slide-in-bottom max-w-[min(96vw,900px)]">
  <span className="text-xs inline-flex items-center gap-1.5">
  <CheckSquare className="h-3.5 w-3.5" />
  Wybrano: <span className="font-bold">{selectedIds.size}</span>
  </span>
- <div className="h-4 w-px bg-card/15" />
+ <div className="h-4 w-px bg-border" aria-hidden="true" />
+ {canExtend && (
+ <>
  <Button
  size="sm"
  variant="primary"
@@ -98,14 +118,18 @@ export function ContractsBulkActionsBarV2({
  >
  <Calendar className="h-3.5 w-3.5" /> +12m
  </Button>
+ </>
+ )}
+ {canEnd && (
  <Button
  size="sm"
- variant="destructive"
+ variant="quiet"
  onClick={() => setConfirmEnd(true)}
  disabled={busy}
  >
  <XCircle className="h-3.5 w-3.5" /> Oznacz zakończone
  </Button>
+ )}
  <button
  onClick={onClear}
  className="ml-auto text-xs text-foreground/70 hover:text-foreground inline-flex min-h-8 items-center gap-1"
@@ -118,7 +142,7 @@ export function ContractsBulkActionsBarV2({
  {/* „Oznacz zakończone" = to samo okno co przy jednej umowie (ticket
  09.2026): jedno wspólne wypełnienie stosowane do każdej zaznaczonej.
  Dyspozycja jest ATOMOWA po stronie serwera — odmowa zostaje w oknie. */}
- {confirmEnd && (
+ {canEnd && confirmEnd && (
  <ContractTerminationDialog
  bulk
  contractIds={[...selectedIds]}
@@ -129,6 +153,6 @@ export function ContractsBulkActionsBarV2({
  }}
  />
  )}
- </RequireRole>
+ </>
  );
 }

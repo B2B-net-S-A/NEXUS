@@ -50,7 +50,7 @@ def _user(role: UserRole, *extra: UserRole) -> User:
 
 @pytest.mark.parametrize(
     "role",
-    [UserRole.recruiter, UserRole.sourcer, UserRole.tac, UserRole.user],
+    [UserRole.recruiter, UserRole.user],
 )
 def test_recruiting_roles_do_not_read_the_client_rate(role: UserRole) -> None:
     assert user_can_view_client_rate(_user(role)) is False
@@ -82,9 +82,7 @@ def test_only_admin_and_delivery_lead_write_the_client_rate() -> None:
     for role in (
         UserRole.head_of_recruitment,
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.finance,
-        UserRole.sourcer,
     ):
         assert user_can_write_client_rate(_user(role), job) is False, role
     assert user_can_write_client_rate(_user(UserRole.admin), job) is True
@@ -175,7 +173,7 @@ def test_profile_history_for_finance_shows_everything() -> None:
 # ── Bramka zespołu otwarta dla ról wewnętrznych ─────────────────────────────
 
 
-@pytest.mark.parametrize("role", [UserRole.recruiter, UserRole.sourcer, UserRole.tac])
+@pytest.mark.parametrize("role", [UserRole.recruiter])
 async def test_recruiting_roles_pass_the_team_gate_without_membership(
     role: UserRole,
 ) -> None:

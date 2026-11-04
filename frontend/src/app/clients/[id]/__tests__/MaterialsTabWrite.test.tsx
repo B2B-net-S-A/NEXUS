@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   delete: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
+  showInfo: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -25,7 +26,11 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/components/Toast", () => ({
-  useToast: () => ({ showSuccess: mocks.showSuccess, showError: mocks.showError }),
+  useToast: () => ({
+    showSuccess: mocks.showSuccess,
+    showError: mocks.showError,
+    showInfo: mocks.showInfo,
+  }),
 }));
 
 const CLIENT_ID = 7;
@@ -86,16 +91,38 @@ function getCallsFor(url: string) {
   return mocks.get.mock.calls.filter(([u]) => u === url).length;
 }
 
-function renderTab() {
+function renderTab(
+  props: { readOnly?: boolean; contractTermsReadOnly?: boolean } = {},
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MaterialsTab clientId={CLIENT_ID} />
+      <MaterialsTab clientId={CLIENT_ID} {...props} />
     </QueryClientProvider>,
   );
 }
+
+const TERMS = {
+  id: 1,
+  client_id: CLIENT_ID,
+  internalization_fee_pct: null,
+  internalization_min_months: null,
+  internalization_notice_days: null,
+  internalization_notes: null,
+  payment_net_days: 30,
+  payment_currency: "PLN",
+  payment_invoice_cycle: null,
+  payment_late_fees: null,
+  payment_notes: null,
+  notice_period_days: null,
+  warranty_replacement_days: null,
+  warranty_notes: null,
+  other_clauses: "cała grupa",
+  updated_at: "2026-09-01T10:00:00Z",
+  updated_by_email: "dl@example.com",
+};
 
 function uploadDialog() {
   return screen.getByRole("heading", { name: "Dodaj one-pager" }).closest(
@@ -272,6 +299,35 @@ describe("MaterialsTab — wymagane dokumenty i warunki (zapis)", () => {
     await waitFor(() => expect(getCallsFor(REQUIRED_DOCS_URL)).toBe(2));
   });
 
+  it("szablony już zaaplikowane to informacja, nie błąd", async () => {
+    // Runda 13 (FRONTB): zero nowych wymogów z szablonu nie jest awarią.
+    routeGets({
+      [ONE_PAGERS_URL]: [[]],
+      [REQUIRED_DOCS_URL]: [[requiredDoc(9, "NDA")]],
+      ["/api/required-document-templates"]: [
+        [{ id: 3, name: "NDA", description: null, is_default: true }],
+      ],
+    });
+    mocks.post.mockResolvedValue({ data: [] });
+
+    renderTab();
+    fireEvent.click(screen.getByRole("button", { name: "Wymagane dokumenty" }));
+    await screen.findByText("NDA");
+
+    fireEvent.click(screen.getByRole("button", { name: "Z szablonu" }));
+    const applyAll = await screen.findByRole("button", { name: "Aplikuj wszystkie domyślne" });
+    await waitFor(() => expect(applyAll).toBeEnabled());
+    fireEvent.click(applyAll);
+
+    await waitFor(() =>
+      expect(mocks.showInfo).toHaveBeenCalledWith(
+        "Wszystkie wybrane szablony są już zaaplikowane",
+      ),
+    );
+    expect(mocks.showError).not.toHaveBeenCalled();
+    expect(mocks.showSuccess).not.toHaveBeenCalled();
+  });
+
   it("zapis warunków kontraktowych wysyła tylko zmienione pola", async () => {
     routeGets({
       [ONE_PAGERS_URL]: [[]],
@@ -279,9 +335,6 @@ describe("MaterialsTab — wymagane dokumenty i warunki (zapis)", () => {
         {
           id: 1,
           client_id: CLIENT_ID,
-          off_limits_months: 12,
-          off_limits_scope: "cała grupa",
-          off_limits_notes: null,
           internalization_fee_pct: null,
           internalization_min_months: null,
           internalization_notice_days: null,
@@ -294,7 +347,7 @@ describe("MaterialsTab — wymagane dokumenty i warunki (zapis)", () => {
           notice_period_days: null,
           warranty_replacement_days: null,
           warranty_notes: null,
-          other_clauses: null,
+          other_clauses: "cała grupa",
           updated_at: "2026-09-01T10:00:00Z",
           updated_by_email: "dl@example.com",
         },
@@ -305,6 +358,8 @@ describe("MaterialsTab — wymagane dokumenty i warunki (zapis)", () => {
     renderTab();
     fireEvent.click(screen.getByRole("button", { name: "Warunki kontraktowe" }));
     const scope = await screen.findByDisplayValue("cała grupa");
+    // Runda 9 (R9-N4-8): off-limits usunięte — formularz nie ma tej sekcji.
+    expect(screen.queryByText(/Off-limits/i)).not.toBeInTheDocument();
     fireEvent.change(scope, { target: { value: "tylko spółka matka" } });
 
     const form = scope.closest("form") as HTMLFormElement;
@@ -312,10 +367,48 @@ describe("MaterialsTab — wymagane dokumenty i warunki (zapis)", () => {
 
     await waitFor(() =>
       expect(mocks.put).toHaveBeenCalledWith(TERMS_URL, {
-        off_limits_scope: "tylko spółka matka",
+        other_clauses: "tylko spółka matka",
       }),
     );
     await waitFor(() => expect(mocks.showError).toHaveBeenCalledWith("Nie udało się zapisać"));
     expect(mocks.showSuccess).not.toHaveBeenCalled();
+  });
+
+  // Warunki kontraktowe mają własną bramkę zapisu (`PUT …/contract-terms`:
+  // „Kontrakty i zamówienia” + podgląd kwot), niezależną od edycji klientów.
+  it("Finanse: materiały tylko do odczytu, ale warunki kontraktowe da się zapisać", async () => {
+    routeGets({ [ONE_PAGERS_URL]: [[]], [TERMS_URL]: [TERMS] });
+    mocks.put.mockResolvedValueOnce({ data: TERMS });
+
+    renderTab({ readOnly: true, contractTermsReadOnly: false });
+    fireEvent.click(screen.getByRole("button", { name: "Warunki kontraktowe" }));
+    const scope = await screen.findByDisplayValue("cała grupa");
+
+    expect(screen.queryByText("Widok tylko do odczytu.")).not.toBeInTheDocument();
+    expect(scope).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Zapisz" })).toBeInTheDocument();
+  });
+
+  it("sama edycja klientów: materiały do zapisu, warunki kontraktowe tylko do odczytu", async () => {
+    routeGets({ [ONE_PAGERS_URL]: [[]], [TERMS_URL]: [TERMS] });
+
+    renderTab({ readOnly: false, contractTermsReadOnly: true });
+    expect(await screen.findByRole("button", { name: "Dodaj" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Warunki kontraktowe" }));
+    const scope = await screen.findByDisplayValue("cała grupa");
+
+    expect(screen.getByText("Widok tylko do odczytu.")).toBeInTheDocument();
+    expect(scope).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Zapisz" })).not.toBeInTheDocument();
+  });
+
+  it("bez osobnej flagi warunki idą za `readOnly` (dotychczasowe wywołania)", async () => {
+    routeGets({ [ONE_PAGERS_URL]: [[]], [TERMS_URL]: [TERMS] });
+
+    renderTab({ readOnly: true });
+    fireEvent.click(screen.getByRole("button", { name: "Warunki kontraktowe" }));
+    await screen.findByDisplayValue("cała grupa");
+
+    expect(screen.getByText("Widok tylko do odczytu.")).toBeInTheDocument();
   });
 });

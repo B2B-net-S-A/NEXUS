@@ -12,14 +12,17 @@
  *    ponowieniami react-query wygląda jak pusta lista).
  */
 
-import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
 import { FullCandidateSearchStatus } from "@/components/talent-radar/FullCandidateSearchStatus";
 import { useCanVerifyRequirements } from "@/components/talent-radar/RequirementVerificationDialog";
 import { apiErrorMessage } from "@/lib/api-error";
 import { searchFailed, searchIsRunning } from "@/lib/full-candidate-search-api";
+import { jobProposalsApi, jobProposalsKeys, talkChecksOf } from "@/lib/job-proposals-api";
+import { recordProposalInboxOpened } from "@/lib/proposal-inbox-opened";
 import {
   DEFAULT_PROPOSAL_FILTERS,
   type ProposalRateFilter,
@@ -28,8 +31,9 @@ import {
 } from "@/lib/proposals-merge";
 import { cn } from "@/lib/utils";
 
+import { useDismissReasonPrompt } from "./DismissReasonDialog";
 import { PeopleTable } from "./PeopleTable";
-import { ProposalPanel } from "./ProposalPanel";
+import { ProposalPanel, type ProposalTalkChecks } from "./ProposalPanel";
 import { PROPOSAL_SOURCE_LABEL, type PersonRow, type ProposalSource } from "./types";
 import { useCanAddToRecruitment } from "./useCanAddToRecruitment";
 import { useJobProposals, type JobProposalsState } from "./useJobProposals";
@@ -96,8 +100,35 @@ export function ProposalsSegment(props: ProposalsSegmentProps) {
   const { jobId, budgetHourly, pipelineCandidateIds, readOnly = false } = props;
   const [filters, setFilters] = useState<ProposalViewFilters>(DEFAULT_PROPOSAL_FILTERS);
   const proposals = useJobProposals(jobId, { filters, budgetHourly, pipelineCandidateIds, readOnly });
+  // Telemetria otwarcia „Do przejrzenia” (audyt 06.10.2026) — raz na wejście
+  // na ekran; raz na dzień pilnuje `recordProposalInboxOpened` i serwer.
+  useEffect(() => {
+    recordProposalInboxOpened(jobId);
+  }, [jobId]);
+  // „Zapytaj w rozmowie” na karcie osoby — ten sam klucz co kafle i okno
+  // „Kandydaci do dodania”, więc odczyt dzieli z nimi cache.
+  const counts = useQuery({
+    queryKey: jobProposalsKeys.counts(jobId),
+    queryFn: ({ signal }) => jobProposalsApi.counts(jobId, signal),
+    staleTime: 30_000,
+    retry: false,
+  });
+  const talk = useMemo<ProposalTalkChecks | null>(
+    () =>
+      counts.data
+        ? { checks: talkChecksOf(counts.data), notSearchableMust: counts.data.not_searchable_must ?? [] }
+        : null,
+    [counts.data],
+  );
   return (
-    <ProposalsSegmentView {...props} proposals={proposals} filters={filters} onFiltersChange={setFilters} />
+    <ProposalsSegmentView
+      {...props}
+      proposals={proposals}
+      filters={filters}
+      onFiltersChange={setFilters}
+      talk={talk}
+      talkError={counts.isError ? apiErrorMessage(counts.error, "błąd serwera") : null}
+    />
   );
 }
 
@@ -105,6 +136,9 @@ export interface ProposalsSegmentViewProps extends ProposalsSegmentProps {
   proposals: JobProposalsState;
   filters: ProposalViewFilters;
   onFiltersChange: (next: ProposalViewFilters) => void;
+  /** „Zapytaj w rozmowie” dla karty osoby (`…/proposal-counts`). */
+  talk?: ProposalTalkChecks | null;
+  talkError?: string | null;
 }
 
 /**
@@ -129,6 +163,8 @@ export function ProposalsSegmentView({
   proposals,
   filters,
   onFiltersChange,
+  talk = null,
+  talkError = null,
 }: ProposalsSegmentViewProps) {
   const router = useRouter();
   const canAdd = useCanAddToRecruitment() && !readOnly;
@@ -171,6 +207,12 @@ export function ProposalsSegmentView({
     [rows, selectedKeys],
   );
   const clearSelection = () => setSelectedKeys(new Set());
+  // „Pomiń" pyta o powód (0405); zaznaczenie znika dopiero po potwierdzeniu.
+  const dismissPrompt = useDismissReasonPrompt((ids, feedback) => {
+    proposals.dismiss(ids, feedback);
+    const gone = new Set(ids);
+    setSelectedKeys((prev) => new Set([...prev].filter((key) => !rows.some((r) => r.key === key && gone.has(r.candidateId)))));
+  });
 
   const skillOptions = useMemo(() => {
     if (runData?.criteria?.must?.length) return runData.criteria.must;
@@ -190,7 +232,7 @@ export function ProposalsSegmentView({
       proposals.addToJob([activeEntry.row.candidateId]);
     } else if (key === "p") {
       event.preventDefault();
-      proposals.dismiss([activeEntry.row.candidateId]);
+      dismissPrompt.ask([activeEntry.row.candidateId]);
     }
   };
 
@@ -249,16 +291,33 @@ export function ProposalsSegmentView({
 
   const footer = (
     <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs opacity-80">
+        {rows.length} {filtersActive ? `z ${proposals.totalBeforeFilters} ` : ""}propozycji
+        {status.inbox.hidden > 0 ? ` · ukryto ${status.inbox.hidden} (globalna czarna lista)` : ""}
+      </span>
+    </div>
+  );
+
+  // Akcje zbiorcze pływają przy dolnej krawędzi ekranu od pierwszego
+  // zaznaczenia. W stopce tabeli lądowały pod ostatnim z 200+ wierszy i nikt
+  // ich nie widział (zgłoszenie 19.10.2026).
+  const bulkBar = selectedIds.length > 0 && (
+    <div
+      role="toolbar"
+      aria-label="Akcje dla zaznaczonych"
+      data-testid="proposals-bulk-bar"
+      className="sticky bottom-3 z-20 mx-auto flex w-fit max-w-full flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm shadow-lg"
+    >
       <span className="font-semibold">Zaznaczono {selectedIds.length}</span>
       {canAdd && (
         <>
-          <Button size="sm" variant="outline" disabled={busy || selectedIds.length === 0} onClick={() => { proposals.addToJob(selectedIds); clearSelection(); }}>
+          <Button size="sm" disabled={busy} onClick={() => { proposals.addToJob(selectedIds); clearSelection(); }}>
             Dodaj do rekrutacji
           </Button>
-          <Button size="sm" variant="outline" disabled={busy || selectedIds.length === 0} onClick={() => { proposals.dismiss(selectedIds); clearSelection(); }}>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => dismissPrompt.ask(selectedIds)}>
             Pomiń
           </Button>
-          <Button size="sm" variant="outline" disabled={busy || selectedIds.length === 0} onClick={() => { proposals.addToShortlist(selectedIds); clearSelection(); }}>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => { proposals.addToShortlist(selectedIds); clearSelection(); }}>
             Do shortlisty
           </Button>
         </>
@@ -271,10 +330,7 @@ export function ProposalsSegmentView({
       >
         Porównaj
       </Button>
-      <span className="ml-auto text-xs opacity-80">
-        {rows.length} {filtersActive ? `z ${proposals.totalBeforeFilters} ` : ""}propozycji
-        {status.inbox.hidden > 0 ? ` · ukryto ${status.inbox.hidden} (globalna czarna lista)` : ""}
-      </span>
+      <Button size="sm" variant="ghost" onClick={clearSelection}>Odznacz</Button>
     </div>
   );
 
@@ -288,6 +344,7 @@ export function ProposalsSegmentView({
       data-testid="proposals-segment"
       onKeyDown={onKeyDown}
     >
+      {dismissPrompt.dialog}
       {/* ── Pasek stanu przeglądu bazy ───────────────────────────────────── */}
       <section aria-label="Przegląd bazy" className="space-y-2" data-help="jobs.proposals.review">
         <div className="flex flex-wrap items-center gap-2">
@@ -439,6 +496,7 @@ export function ProposalsSegmentView({
               Pokaż więcej propozycji
             </Button>
           )}
+          {bulkBar}
         </div>
         {showPanel && (
           <div ref={panelRef} className="min-w-0 scroll-mt-4 lg:shrink-0">
@@ -453,11 +511,13 @@ export function ProposalsSegmentView({
               busy={busy}
               onAdd={(id) => proposals.addToJob([id])}
               onShortlist={(id) => proposals.addToShortlist([id])}
-              onDismiss={(id) => proposals.dismiss([id])}
+              onDismiss={(id) => dismissPrompt.ask([id])}
               onWriteEmail={onWriteEmail}
               onVerified={() => { if (run.runId) void run.refresh(); }}
               adminTools={activeEntry && renderAdminTools ? renderAdminTools(activeEntry.row.candidateId) : undefined}
               matchDetails={activeEntry && renderMatchDetails ? renderMatchDetails(activeEntry.row.candidateId) : undefined}
+              talk={talk}
+              talkError={talkError}
             />
           </div>
         )}

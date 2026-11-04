@@ -38,11 +38,7 @@ from app.models.user import User, UserRole
 from app.services.kpi_catalog import KPI_ID_ALIASES, canonical_kpi_id, get_kpi
 
 # Role z osobistymi celami rekrutacyjnymi (i pula celu organizacyjnego).
-KPI_BEARING_ROLES: tuple[UserRole, ...] = (
-    UserRole.recruiter,
-    UserRole.sourcer,
-    UserRole.tac,
-)
+KPI_BEARING_ROLES: tuple[UserRole, ...] = (UserRole.recruiter,)
 
 
 def _ids_for(kpi_id: str) -> tuple[str, ...]:
@@ -88,7 +84,12 @@ async def resolve_kpi_targets_bulk(
     liczy cel dla każdego członka zespołu.
     """
     canonical_ids = [canonical_kpi_id(k) for k in kpi_ids]
-    all_ids = sorted({i for k in canonical_ids for i in _ids_for(k)})
+    # Id spoza katalogu (cel wycofany, np. `daily_new_candidates`) = 0 i zero
+    # zapytań: wiersze wycofanego celu zostają w bazie, ale nikt ich nie czyta
+    # — inaczej cel wróciłby każdemu, kto zapyta po id.
+    all_ids = sorted(
+        {i for k in canonical_ids if get_kpi(k) is not None for i in _ids_for(k)}
+    )
     user_ids = [u.id for u in users]
     roles_by_user = {u.id: u.get_all_roles() for u in users}
     all_roles = sorted({r for roles in roles_by_user.values() for r in roles})
@@ -173,6 +174,9 @@ async def resolve_org_target(
     rolami operacyjnymi naraz.
     """
     canonical = canonical_kpi_id(kpi_id)
+    if get_kpi(canonical) is None:
+        # Cel spoza katalogu (wycofany) — jak w `resolve_kpi_targets_bulk`.
+        return 0
     ids = _ids_for(canonical)
     rows = (
         await db.execute(

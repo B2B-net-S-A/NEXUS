@@ -57,6 +57,32 @@ describe("buildProcessRows", () => {
     expect(before[0].key).toBe(after[0].key);
   });
 
+  it("ostrzeżenia pary z serwera mają odznaki; weto i budżet się nie dublują", () => {
+    const atThisClient = {
+      phase: "working" as const,
+      source: "contract" as const,
+      elsewhere: false,
+      clients: [{ client_id: 1, client_name: "Bank Przykładowy", contract_id: 10, phase: "working" as const }],
+    };
+    const rows = buildProcessRows(
+      template({
+        3: [
+          item(1, { warnings: ["budget_exceeded", "client_nda"] }),
+          // „Pracuje u tego klienta” mówi już znacznik zatrudnienia na karcie.
+          item(2, { warnings: ["client_current_employment"], employment_marker: atThisClient }),
+          item(3, { warnings: ["client_current_employment"] }),
+        ],
+      }),
+      {},
+    );
+    expect(rowBadges(byId(rows, 1)).map((b) => [b.key, b.label, b.tone])).toEqual([
+      ["over-budget", "ponad budżet", "warning"],
+      ["warning:client_nda", "NDA z klientem", "warning"],
+    ]);
+    expect(rowBadges(byId(rows, 2))).toEqual([]);
+    expect(rowBadges(byId(rows, 3)).map((b) => b.label)).toEqual(["pracuje u tego klienta"]);
+  });
+
   it("odznaka „ponad budżet”: stempel serwera ALBO stawka ponad bieżący budżet", () => {
     const rows = buildProcessRows(
       template({
@@ -110,6 +136,27 @@ describe("buildProcessRows", () => {
     expect(rowBadges(byId(rows, 4))).toEqual([]);
   });
 
+  it("stan CV firmowego jak na karcie Tablicy: w przygotowaniu, wynik QC na „Zweryfikowanym” (14.10.2026)", () => {
+    const rows = buildProcessRows(
+      template({
+        3: [
+          item(1, { auto_cv_state: "processing" }),
+          item(2, { company_cv: true, qc: { status: "failed", blocking_failed: 1, warnings_count: 2 } }),
+          item(3, { company_cv: true, qc: { status: "passed", blocking_failed: 0, warnings_count: 0 } }),
+          item(4, { company_cv: false, qc: { status: "failed", blocking_failed: 1 } }),
+        ],
+      }),
+    );
+    const cv = (id: number) =>
+      rowBadges(byId(rows, id))
+        .filter((b) => b.key === "auto-cv")
+        .map((b) => [b.label, b.tone]);
+    expect(cv(1)).toEqual([["CV w przygotowaniu…", "info"]]);
+    expect(cv(2)).toEqual([["CV gotowe · QC: 1 do poprawy · 2 uwagi", "warning"]]);
+    expect(cv(3)).toEqual([["CV gotowe · QC bez uwag", "info"]]);
+    expect(cv(4)).toEqual([]);
+  });
+
   it("weto HM: kod ostrzeżenia, odznaka i ruch po stronie rekrutera", () => {
     const veto = {
       hiring_manager_contact_id: 1,
@@ -157,6 +204,27 @@ describe("availabilityLabelFor", () => {
   it("data wygrywa ze statusem; miniona znaczy „od razu”", () => {
     expect(availabilityLabelFor({ availability_date: "2026-09-01", availability_status: "not_looking" }, today)).toBe("od razu");
     expect(availabilityLabelFor({ availability_date: "2026-11-01" }, today)).toMatch(/^od /);
+  });
+  it("osoba z żywą umową: termin z umowy, nie „od razu” ze screeningu (15.10.2026)", () => {
+    const employment_marker = {
+      phase: "working" as const,
+      source: "contract" as const,
+      clients: [{ client_name: "Bank Przykładowy", phase: "working" as const }],
+      free_from: "2026-12-01",
+      free_from_basis: "work_end" as const,
+    };
+    expect(
+      availabilityLabelFor({ availability_date: "2026-09-01", employment_marker }, today),
+    ).toBe("od 01.12.2026");
+    expect(
+      availabilityLabelFor(
+        {
+          availability_date: "2026-09-01",
+          employment_marker: { ...employment_marker, free_from: null, free_from_basis: "no_end_date" },
+        },
+        today,
+      ),
+    ).toBe("Bez daty końca zamówienia");
   });
   it("status bez daty; `unknown` i brak pól to null", () => {
     expect(availabilityLabelFor({ availability_status: "open_to_offers" }, today)).toBe("Otwarty na oferty");
@@ -338,11 +406,13 @@ describe("defaultPanelSectionFor", () => {
     expect(defaultPanelSectionFor("verification")).toBe("cv");
     expect(defaultPanelSectionFor("client")).toBe("interviews");
     expect(defaultPanelSectionFor("contract")).toBe("contract");
-    expect(defaultPanelSectionFor("intake")).toBe("notes");
+    // 0424 (D3): „Nowi” (także z ogłoszeń) otwierają formularz screeningu.
+    expect(defaultPanelSectionFor("intake")).toBe("screening");
+    expect(defaultPanelSectionFor("posting")).toBe("screening");
     expect(defaultPanelSectionFor("closed")).toBe("notes");
   });
 
-  it("„CV Wysłane” i etap przed rozmową otwierają CV, nie pustą sekcję rozmów", () => {
+  it("„CV wysłane” i etap przed rozmową otwierają CV, nie pustą sekcję rozmów", () => {
     const cvSent = { stage: "cv_sent", category: "internal", name: "CV Wysłane" } as never;
     const interview = { stage: "client_interview", category: "external", name: "Interview Klient" } as never;
     expect(defaultPanelSectionFor("client", cvSent)).toBe("cv");

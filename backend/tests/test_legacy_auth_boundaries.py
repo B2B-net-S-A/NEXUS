@@ -23,7 +23,6 @@ from app.api.deps import (
     ensure_onboarding_complete,
     get_authenticated_user,
     get_current_user,
-    require_dl_assigned_or_admin,
 )
 from app.models.user import User, UserRole
 from app.services.access_scope import DashboardScope, ScopeKind
@@ -92,15 +91,6 @@ def test_direct_and_factory_domain_dependencies_use_global_boundary() -> None:
         .default.dependency
         is get_current_user
     )
-    assert (
-        _annotated_dependency(
-            get_type_hints(
-                require_dl_assigned_or_admin,
-                include_extras=True,
-            )["current_user"]
-        )
-        is get_current_user
-    )
 
 
 @pytest.mark.parametrize("role", [UserRole.delivery_lead, UserRole.recruiter])
@@ -111,8 +101,8 @@ def test_incomplete_primary_onboarding_personas_are_blocked(role: UserRole) -> N
 
 def test_secondary_role_onboarding_prefers_dl_and_admin_is_exempt() -> None:
     secondary_dl = _user(
-        UserRole.tac,
-        roles=[UserRole.tac.value, UserRole.delivery_lead.value],
+        UserRole.recruiter,
+        roles=[UserRole.recruiter.value, UserRole.delivery_lead.value],
         completed=False,
     )
     with pytest.raises(HTTPException) as exc:
@@ -271,8 +261,12 @@ async def test_global_candidate_mentions_exclude_viewer_role_unions(
         viewer,
         malformed_finance_admin,
     ]
+    # Runda 10 (R10-N6-4): wzmianka to wyłącznie `@e-mail` — pierwsze zapytanie
+    # zamienia adresy na id, drugie czyta konta.
+    email_rows = MagicMock()
+    email_rows.all.return_value = [(1,), (2,), (3,), (4,)]
     db = AsyncMock()
-    db.execute.return_value = result
+    db.execute.side_effect = [email_rows, result]
     # This unit exercises the legacy role-union guard only. Runtime policy
     # resolution has its own DB-backed tests; avoid turning this fixture into a
     # partial mock of the role/override tables.
@@ -283,7 +277,8 @@ async def test_global_candidate_mentions_exclude_viewer_role_unions(
 
     # Finance (2) i hybryda finance+admin (4) wchodzą od 19.08 — wykluczony
     # zostaje wyłącznie viewer `user` (3).
-    assert await parse_mentions_global(db, "@1 @2 @3 @4") == [1, 2, 4]
+    content = " ".join(f"@u{uid}@example.com" for uid in (1, 2, 3, 4))
+    assert await parse_mentions_global(db, content) == [1, 2, 4]
 
 
 def test_all_chat_routes_declare_candidate_read_or_write_guards() -> None:

@@ -307,14 +307,19 @@ export function myMonthSentence(f: MyMonthFacts): string {
  * Czy pokazać wiersz tabeli „Ludzie” w Zespole. Osoba bez ruchu w okresie
  * zostaje, gdy miała placementy w poprzednim — spadek do zera ma być widoczny
  * w kolumnie „vs poprzednio”, a nie znikać razem z wierszem (audyt 24.09.2026).
+ * Aktywny rekruter zostaje także z samymi zerami (decyzja Artura 20.10.2026):
+ * nowa osoba bez pierwszej weryfikacji wyglądała, jakby jej nie było w zespole.
  */
 export function isPeopleRowWorthShowing(row: {
+  role: string;
+  is_active: boolean;
   verifications: number;
   recommendations: number;
   interviews: number;
   placements: number;
   previous_placements: number;
 }): boolean {
+  if (row.is_active && row.role === "recruiter") return true;
   return (
     row.verifications +
       row.recommendations +

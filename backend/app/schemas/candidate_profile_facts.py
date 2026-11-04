@@ -6,7 +6,7 @@ import re
 import unicodedata
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from pydantic import (
     BaseModel,
@@ -18,6 +18,7 @@ from pydantic import (
 )
 
 from app.models.recruitment_pipeline import PipelineStage
+from app.schemas.champion import ExperienceKind
 
 CefrLevel = Literal["A1", "A2", "B1", "B2", "C1", "C2"]
 LanguageProvenance = Literal[
@@ -29,6 +30,8 @@ LanguageProvenance = Literal[
     "csv",
     "legacy",
     "unknown",
+    # 0423: języki zaobserwowane w notatkach rekruterów.
+    "notes",
 ]
 
 _LANGUAGE_CODE_RE = re.compile(r"^[a-z][a-z0-9-]{1,15}$")
@@ -72,6 +75,10 @@ class CandidateLanguageWrite(BaseModel):
     cefr_level: Optional[CefrLevel] = None
     is_native: bool = False
     is_level_unknown: bool = True
+    # 29.09.2026: język spoza listy okna („Inny…”) — kod wyprowadzony z nazwy.
+    # Bez tej flagi kod spoza listy jest odrzucany (chyba że kandydat już ma
+    # taki język zapisany — stare dane zostają czytelne i zapisywalne).
+    other: bool = False
 
     @field_validator("language_code", mode="before")
     @classmethod
@@ -168,6 +175,9 @@ class CandidateProfileRatePatch(BaseModel):
 
     # Required-but-nullable: only an explicit {"amount": null} clears the fact.
     amount: Optional[ProfileRateAmount]
+    # „To jego minimum” (0414): starsze, niższe stawki przestają się liczyć
+    # do „Stawki od”. Bez pola = zwykła stawka podana przez kandydata.
+    is_minimum: bool = False
 
 
 class CandidateProfileRateResponse(BaseModel):
@@ -199,6 +209,108 @@ class RecentRecruitmentItem(BaseModel):
 class CandidateRecentRecruitmentsResponse(BaseModel):
     candidate_id: int
     items: list[RecentRecruitmentItem]
+
+
+# ── Odpowiedzi z rozmów screeningowych (02.10.2026) ────────────────────────
+
+
+class ScreeningConversationAnswer(BaseModel):
+    question_id: str
+    # Treść pytania z chwili odpowiedzi; ``None`` = pytanie usunięto z profilu
+    # Championa, zanim odpowiedzi zaczęły nieść własny tekst.
+    question_text: Optional[str] = None
+    response: str = ""
+    deal_breaker_hit: bool = False
+    skipped: bool = False
+    # Pochodzenie odpowiedzi (0421): plakietka „zdanie z haseł” / „z notatki”.
+    origin: str = "manual"
+    keywords: Optional[str] = None
+
+
+class ScreeningConversationCheck(BaseModel):
+    kind: ExperienceKind = "domains"
+    name: str
+    status: Literal["confirmed", "not_confirmed", "unknown"] = "unknown"
+    note: str = ""
+
+
+class ScreeningConversation(BaseModel):
+    """Arkusz screeningu jednej rekrutacji — najnowszy wypełniony wiersz pary."""
+
+    stage_id: int
+    job_id: int
+    job_title: Optional[str] = None
+    client_name: Optional[str] = None
+    answered_at: Optional[datetime] = None
+    answered_by_name: Optional[str] = None
+    overall_fit: Literal["fit", "uncertain", "miss"] = "uncertain"
+    match_percent: float = 0.0
+    answers: list[ScreeningConversationAnswer]
+    experience_checks: list[ScreeningConversationCheck]
+    notes: str = ""
+    internal_note: Optional[str] = None
+
+
+class CandidateScreeningAnswersResponse(BaseModel):
+    candidate_id: int
+    conversations: list[ScreeningConversation]
+
+
+# ── Karty rekomendacji w profilu kandydata (03.10.2026) ────────────────────
+
+
+class CardFact(BaseModel):
+    """Najświeższe ustalenie z kart rekomendacji osoby — z datą i źródłem."""
+
+    key: str
+    label: str
+    raw: str
+    # Liczba (stawka PLN/h) albo kod (np. „no”) — gdy dało się odczytać.
+    value: Optional[Any] = None
+    level: Optional[str] = None
+    at: Optional[datetime] = None
+    source: Literal["note", "manual"]
+    author_name: Optional[str] = None
+    job_id: Optional[int] = None
+    job_title: Optional[str] = None
+
+
+class CardNoteAnswer(BaseModel):
+    number: int
+    question: str = ""
+    answer: str
+
+
+class CardConversation(BaseModel):
+    """Odpowiedzi na pytania zapisane w notatce-karcie jednej rekrutacji."""
+
+    job_id: int
+    job_title: Optional[str] = None
+    client_name: Optional[str] = None
+    answered_at: Optional[datetime] = None
+    author_name: Optional[str] = None
+    note_id: Optional[int] = None
+    from_traffit: bool = False
+    question_count: int = 0
+    answers: list[CardNoteAnswer]
+
+
+class CardNoteLink(BaseModel):
+    """Co z jednej notatki trafiło do karty rekomendacji."""
+
+    note_id: int
+    job_id: int
+    job_title: Optional[str] = None
+    fields: list[str]
+    field_labels: list[str]
+    answers: int = 0
+
+
+class CandidateCardOverviewResponse(BaseModel):
+    candidate_id: int
+    facts: list[CardFact]
+    conversations: list[CardConversation]
+    note_links: list[CardNoteLink]
 
 
 # ── Fakty z notatek rekruterów (22.09.2026) ────────────────────────────────

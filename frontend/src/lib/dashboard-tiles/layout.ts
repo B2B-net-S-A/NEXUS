@@ -15,6 +15,15 @@ export const GRID_COLUMNS = 12;
 export const ROW_HEIGHT = 88;
 export const GRID_GAP = 16;
 export const MAX_TILES = 40;
+/** Górna granica wysokości kafelka z `fitContent` — wyższy rośnie dalej w sobie. */
+export const MAX_FIT_ROWS = 60;
+
+/** Ile rzędów siatki zajmuje treść o tej wysokości (rzędy dzieli odstęp). */
+export function rowsForHeight(px: number): number {
+  if (!Number.isFinite(px) || px <= 0) return 1;
+  const rows = Math.ceil((px + GRID_GAP) / (ROW_HEIGHT + GRID_GAP));
+  return Math.min(Math.max(rows, 1), MAX_FIT_ROWS);
+}
 
 export const PERIOD_LABELS: Record<MetricPeriod, string> = {
   last_7_days: "7 dni",
@@ -31,7 +40,7 @@ export const PERIOD_LABELS: Record<MetricPeriod, string> = {
 
 export const AUTHOR_LABELS = {
   me: "Moje",
-  team: "Mój zespół",
+  team: "Koordynacja",
   all: "Cała firma",
 } as const;
 
@@ -111,6 +120,33 @@ function structuredCloneSafe<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/**
+ * Kafelek na samą górę, pełną szerokością — reszta układu zjeżdża w dół
+ * o jego wysokość, więc nic się nie nakłada ani nie przestawia względem
+ * siebie. Dla kafelków, które mają być widoczne od razu po wejściu (nowość
+ * dodana z banera), a nie gdzieś pod ułożonym już pulpitem.
+ */
+export function prependTemplate(
+  tiles: DashboardTile[],
+  template: TileTemplate,
+): DashboardTile[] {
+  if (tiles.length >= MAX_TILES) return tiles;
+  const def = TILE_DEFINITIONS[template.type];
+  const size = template.size ?? def.defaultSize;
+  return [
+    {
+      id: newId(),
+      type: template.type,
+      x: 0,
+      y: 0,
+      w: GRID_COLUMNS,
+      h: size.h,
+      config: structuredCloneSafe(template.config),
+    },
+    ...tiles.map((t) => ({ ...t, y: t.y + size.h })),
+  ];
+}
+
 export function duplicateTile(
   tiles: DashboardTile[],
   id: string,
@@ -158,6 +194,22 @@ export function metricIsSnapshot(metric: MetricDefinition): boolean {
   return SNAPSHOT_MEASURES.has(metric.measure);
 }
 
+/**
+ * Kwoty finansów bez podziału po miesiącach serwer wycenia na ostatni dzień
+ * okresu albo dziś, co wcześniej (`Window.asof`). Z okresów kreatora tylko
+ * „poprzedni miesiąc” jest zamknięty — tam „dziś” byłoby nieprawdą.
+ * Runda 10 (R10-N1-4): sierpniowa marża czytała się jak dzisiejsze MRR.
+ */
+export function financeValuationClosed(metric: MetricDefinition): boolean {
+  return metric.source === "finance" && metric.group_by !== "month" && metric.period === "last_month";
+}
+
+/** Nota z datą wyceny (serwer: „Kwoty według stanu na DD.MM.RRRR.”) idzie pierwsza. */
+export function orderedMetricNotes(notes: readonly string[]): string[] {
+  const valuation = notes.filter((n) => n.startsWith("Kwoty według stanu na"));
+  return [...valuation, ...notes.filter((n) => !valuation.includes(n))];
+}
+
 /** Chip w nagłówku kafelka: „Moje · 30 dni". */
 export function metricChip(metric: MetricDefinition): string {
   const parts: string[] = [];
@@ -168,6 +220,8 @@ export function metricChip(metric: MetricDefinition): string {
   }
   if (metricIsSnapshot(metric)) {
     parts.push(metric.measure === "ending_30_days" ? "najbliższe 30 dni" : "teraz");
+  } else if (financeValuationClosed(metric)) {
+    parts.push("koniec poprzedniego miesiąca");
   } else if (metric.source === "finance" && metric.group_by !== "month") {
     parts.push("dziś");
   } else {

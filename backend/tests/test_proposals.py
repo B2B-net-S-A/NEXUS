@@ -1,7 +1,7 @@
 """Integration + unit tests for AI candidate proposal snapshots (Phase 13).
 
 Covers:
-- POST /api/jobs triggers a proposal snapshot
+- POST /api/jobs (utworzenie = przekazanie do searchu) creates one handoff snapshot
 - GET /api/jobs/{id}/proposals/latest returns the latest row
 - GET /api/jobs/{id}/proposals lists history (paginated)
 - POST /api/jobs/{id}/proposals/regenerate creates a new pending snapshot
@@ -59,27 +59,30 @@ async def _create_job(client: AsyncClient, headers: dict) -> int:
         await db.refresh(cli)
         cli_id = cli.id
 
-    payload = {
-        "title": f"Proposals Pytest Job {uuid.uuid4().hex[:6]}",
-        "description": "Backend engineer with Python + FastAPI",
+    from tests._job_factory import complete_job_payload
+
+    # Rekrutacja bez szkiców (04.10.2026): komplet — utworzenie = przekazanie
+    # do searchu (z migawką dopasowań) = publikacja.
+    payload = await complete_job_payload(
+        cli_id,
+        title=f"Proposals Pytest Job {uuid.uuid4().hex[:6]}",
+        description="Backend engineer with Python + FastAPI",
         # `level` to enum stringowy (junior/mid/senior/expert), nie liczba —
         # `JobCreate` waliduje go wprost. „mid" jest uczciwym odczytem
         # `years: 3`; sama wartość nie wpływa na asercje tych testów.
-        "must_skills": [{"name": "Python", "level": "mid", "years": 3}],
-        "client_id": cli_id,
-    }
+        must_skills=[{"name": "Python", "level": "mid", "years": 3}],
+    )
     resp = await client.post("/api/jobs", headers=headers, json=payload)
     assert resp.status_code in (200, 201), resp.text
     return resp.json()["id"]
 
 
 async def _regenerate(client: AsyncClient, headers: dict, job_id: int) -> None:
-    """Wymuś powstanie snapshotu propozycji.
+    """Wymuś powstanie snapshotu propozycji (ręczna regeneracja).
 
-    Snapshot NIE powstaje przy tworzeniu rekrutacji — to decyzja projektowa,
-    nie brak: ranking liczy się dopiero przy przekazaniu do searchu, żeby nie
-    powstawał „przed Championem" (patrz docstring `job_readiness.py`). Poza
-    handoffem jedyną drogą jest ręczna regeneracja, i tej używamy tutaj.
+    Migawka z przekazania do searchu powstaje przy utworzeniu w tle — ręczna
+    regeneracja daje testom snapshot niezależny od tego, czy zadanie w tle
+    już się skończyło.
     """
     resp = await client.post(
         f"/api/jobs/{job_id}/proposals/regenerate", headers=headers
@@ -90,36 +93,26 @@ async def _regenerate(client: AsyncClient, headers: dict, job_id: int) -> None:
 # ── Integration tests ──────────────────────────────────────────────────────
 
 
-async def test_create_job_does_not_rank_before_handoff(
+async def test_create_job_ranks_once_as_the_handoff(
     proposals_client: AsyncClient, app_auth_headers: dict
 ):
-    """Samo utworzenie rekrutacji NIE liczy rankingu — i tak ma zostać.
+    """Utworzenie rekrutacji liczy ranking DOKŁADNIE raz — jako przekazanie.
 
-    Ten test do 09.2026 twierdził coś odwrotnego („Every POST /api/jobs should
-    schedule a proposal snapshot") i nie przeszedł ANI RAZU: commit, który go
-    dodał (`86e52411`), w ogóle nie dotykał `app/api/jobs.py`. Opisywał
-    intencję, której nigdy nie wdrożono.
-
-    Dzisiejszy projekt świadomie jej przeczy. `create_pending_snapshot` woła
-    się w DWÓCH miejscach — przy przekazaniu do searchu i przy ręcznej
-    regeneracji — bo ranking policzony przed wypełnieniem Profilu Championa
-    powstałby z samej treści ogłoszenia i byłby słaby. Dokładnie temu ma
-    zapobiegać bramka handoffu (patrz `app/services/job_readiness.py`).
-
-    Odwrócenie asercji zamiast skasowania testu jest celowe: granica, która
-    nie ma strażnika, wraca przy pierwszym „to chyba powinno się liczyć od
-    razu".
+    Od 04.10.2026 (rekrutacja bez szkiców) utworzenie = przekazanie do searchu
+    = publikacja, w jednym żądaniu. Granica „ranking nie powstaje przed
+    Championem” zostaje: Profil Championa przychodzi w tym samym żądaniu
+    i bramka przekazania sprawdza go PRZED migawką (`job_readiness.py`), więc
+    jedyna migawka ma źródło ``handoff`` — nie ``create``.
     """
     job_id = await _create_job(proposals_client, app_auth_headers)
 
     async with AsyncSessionLocal() as db:
-        snap = await db.scalar(
-            select(ProposalSnapshot).where(ProposalSnapshot.job_id == job_id)
-        )
-    assert snap is None, (
-        "utworzenie rekrutacji policzyło ranking — to omija bramkę handoffu, "
-        "która istnieje po to, żeby ranking nie powstawał przed Championem"
-    )
+        snaps = (
+            await db.scalars(
+                select(ProposalSnapshot).where(ProposalSnapshot.job_id == job_id)
+            )
+        ).all()
+    assert [snap.source for snap in snaps] == ["handoff"]
 
 
 async def test_get_latest_proposal_returns_snapshot(

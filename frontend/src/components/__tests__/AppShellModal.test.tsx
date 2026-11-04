@@ -18,7 +18,6 @@ vi.mock("@/lib/api", () => ({
     patch: vi.fn(),
     delete: vi.fn(),
   },
-  aiWriterApi: {},
   phase5Api: { clientsLookup: vi.fn() },
   pipelineTemplatesApi: {},
   requestHistoryApi: {},
@@ -209,6 +208,147 @@ describe("AppShell <Modal> — a11y", () => {
       ),
     );
   });
+
+  it("przy kliencie o tej samej nazwie pokazuje go z zakładką i zapisuje dopiero po „Dodaj mimo to”", async () => {
+    const user = userEvent.setup();
+    const post = vi.mocked(api.post);
+    const onClose = vi.fn();
+    post.mockClear();
+    post
+      .mockRejectedValueOnce({
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              code: "client_duplicate_warning",
+              message: "Taki klient już jest: Energa S.A. (Nieaktywni).",
+              clients: [{ id: 41, name: "Energa S.A.", categories: ["inactive"] }],
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({ data: {} } as never);
+    render(<Harness category="active" onClose={onClose} />);
+
+    await user.click(screen.getByRole("button", { name: "Otwórz" }));
+    await user.type(screen.getByPlaceholderText("Acme Sp. z o.o."), "Energa");
+    await user.click(screen.getByRole("button", { name: "Dodaj firmę" }));
+
+    const notice = await screen.findByRole("alert");
+    expect(notice).toHaveTextContent("Taki klient już jest");
+    expect(notice).toHaveTextContent("Energa S.A. · zakładka Nieaktywni");
+    expect(screen.getByRole("link", { name: "Otwórz profil" })).toHaveAttribute(
+      "href",
+      "/clients/41",
+    );
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Dodaj mimo to" }));
+
+    await waitFor(() =>
+      expect(post).toHaveBeenLastCalledWith(
+        "/api/clients",
+        expect.objectContaining({ name: "Energa" }),
+        { params: { portfolio_category: "active", acknowledge_duplicate: true } },
+      ),
+    );
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it("chowa ostrzeżenie po zmianie nazwy", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.post).mockRejectedValueOnce({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: "client_duplicate_warning",
+            clients: [{ id: 41, name: "Energa S.A.", categories: [] }],
+          },
+        },
+      },
+    });
+    render(<Harness />);
+
+    await user.click(screen.getByRole("button", { name: "Otwórz" }));
+    const name = screen.getByPlaceholderText("Acme Sp. z o.o.");
+    await user.type(name, "Energa");
+    await user.click(screen.getByRole("button", { name: "Dodaj firmę" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Energa S.A.");
+
+    await user.type(name, " Obrót");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("EditCandidateModal — status przy żywej umowie (S4, 15.10.2026)", () => {
+  function renderEdit(candidate: Record<string, unknown>) {
+    vi.mocked(api.get).mockResolvedValue({ data: [] });
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({ data: [] } as never);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EditCandidateModal
+          candidate={{ id: 7, name: "Jan", lastname: "Kowalski", ...candidate }}
+          onClose={() => {}}
+          onSuccess={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("przy „Dyspozycyjności” mówi, że status jest ukryty do końca współpracy", () => {
+    renderEdit({
+      availability_status: "actively_looking",
+      employment_marker: {
+        phase: "working",
+        source: "contract",
+        clients: [
+          {
+            client_id: 7,
+            client_name: "Bank Przykładowy",
+            phase: "working",
+            order_end_date: "2027-01-31",
+            delivery_lead_name: "Anna Nowak",
+          },
+        ],
+        free_from: "2027-02-01",
+        free_from_basis: "work_end",
+      },
+    });
+
+    const note = screen.getByTestId("edit-availability-contract-note");
+    expect(note).toHaveTextContent("Pracuje u nas do 31.01.2027 (Bank Przykładowy)");
+    expect(note).toHaveTextContent("status „Czy szuka pracy” jest ukryty");
+    expect(note).toHaveTextContent("Delivery Lead (Anna Nowak)");
+    // Pole zostaje edytowalne — ramka niczego nie blokuje.
+    expect(screen.getByDisplayValue("Aktywnie szuka pracy")).toBeEnabled();
+  });
+
+  it("bez pola „Status” i bez starej podpowiedzi o konflikcie — jedna notka o czarnej liście (17.10.2026)", () => {
+    renderEdit({ status: "blacklisted" });
+
+    expect(screen.queryByText("Zablokowany")).toBeNull();
+    expect(screen.queryByRole("option", { name: "Pasywny" })).toBeNull();
+    expect(screen.queryByText(/Aktualnie u klienta/)).toBeNull();
+    expect(screen.queryByText(/Dodaj konflikt/)).toBeNull();
+    expect(screen.getByTestId("candidate-form-status-note")).toHaveTextContent(
+      "„Pracuje u nas” wynika z umowy w Kontraktach. Czarną listę ustawiasz w menu profilu → „Czarna lista…”.",
+    );
+  });
+
+  it("bez żywej umowy ramki nie ma", () => {
+    renderEdit({
+      availability_status: "actively_looking",
+      employment_marker: {
+        phase: "working",
+        source: "contract",
+        clients: [{ client_id: 7, client_name: "Bank Przykładowy", phase: "working" }],
+      },
+    });
+
+    expect(screen.queryByTestId("edit-availability-contract-note")).toBeNull();
+  });
 });
 
 describe("EditCandidateModal — profile rate boundary", () => {
@@ -222,6 +362,7 @@ describe("EditCandidateModal — profile rate boundary", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
+    const onSuccess = vi.fn();
 
     render(
       <QueryClientProvider client={queryClient}>
@@ -234,7 +375,7 @@ describe("EditCandidateModal — profile rate boundary", () => {
             expected_rate_currency: "PLN",
           }}
           onClose={() => {}}
-          onSuccess={() => {}}
+          onSuccess={onSuccess}
         />
       </QueryClientProvider>,
     );
@@ -244,15 +385,74 @@ describe("EditCandidateModal — profile rate boundary", () => {
     ).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
 
+    // Bez zmian nie ma czego wysyłać (runda 9, R9-N8-7) — stawka ani
+    // tożsamość nie jadą „przy okazji”.
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it("sends only changed fields, never the stale status or preferences (R9-N8-7)", async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [] });
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({ data: [] } as never);
+    vi.mocked(api.patch).mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EditCandidateModal
+          candidate={{
+            id: 13,
+            name: "Jan",
+            lastname: "Kowalski",
+            status: "active",
+            availability_date: "2026-10-01",
+            max_onsite_days_per_week: 2,
+            preferences: { remote_modes: ["hybrid"], industries: ["Fintech"] },
+          }}
+          onClose={() => {}}
+          onSuccess={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+
+    await user.clear(screen.getByPlaceholderText("Fintech, E-commerce"));
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+
     await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
-    const payload = vi.mocked(api.patch).mock.calls[0]?.[1] as Record<
-      string,
-      unknown
-    >;
-    expect(payload).not.toHaveProperty("expected_rate_hourly");
-    expect(payload).not.toHaveProperty("expected_rate_currency");
-    expect(payload).not.toHaveProperty("name");
-    expect(payload).not.toHaveProperty("lastname");
+    const payload = vi.mocked(api.patch).mock.calls[0]?.[1] as Record<string, unknown>;
+    // Czarna lista ustawiona w tym czasie przez kogoś innego nie jest cofana.
+    expect(payload).toEqual({ preferences: { industries: null } });
+  });
+
+  it("osoba na czarnej liście: zapis zmiany nie wysyła statusu (PATCH odrzuca go 422, 17.10.2026)", async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [] });
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({ data: [] } as never);
+    vi.mocked(api.patch).mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EditCandidateModal
+          candidate={{ id: 14, name: "Jan", lastname: "Kowalski", status: "blacklisted" }}
+          onClose={() => {}}
+          onSuccess={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+
+    const lastname = screen.getByPlaceholderText("Kowalski");
+    await user.clear(lastname);
+    await user.type(lastname, "Nowak");
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(api.patch).mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("status");
+    expect(payload).toHaveProperty("lastname", "Nowak");
   });
 
   it("keeps imported object tags intact and shows only text tags in the field (UAT B60)", async () => {
@@ -280,15 +480,24 @@ describe("EditCandidateModal — profile rate boundary", () => {
 
     // Zapis bez zmian nie dotyka kolumny tagów.
     await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
-    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(api.patch).mock.calls[0]?.[1]).not.toHaveProperty("tags");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Zapisz zmiany" })).toBeEnabled());
+    expect(api.patch).not.toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
 
-    // Edycja tekstu zapisuje napisy i zachowuje obiekt importu.
-    await user.type(field, ", Java");
+    // Edycja tekstu dodaje i usuwa POJEDYNCZE tagi — lista (z obiektem
+    // importu i tagami dodanymi w tym czasie przez kolegę) nie jest nadpisywana.
+    vi.mocked(api.post).mockResolvedValue({ data: {} });
+    vi.mocked(api.delete).mockResolvedValue({ data: {} });
+    await user.clear(field);
+    await user.type(field, "Java");
     await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
-    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(2));
-    const payload = vi.mocked(api.patch).mock.calls[1]?.[1] as Record<string, unknown>;
-    expect(payload.tags).toEqual(["Remote", "Java", sourceTag]);
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    expect(api.post).toHaveBeenCalledWith("/api/candidates/12/tags", { tag: "Java" });
+    await waitFor(() => expect(api.delete).toHaveBeenCalledTimes(1));
+    expect(api.delete).toHaveBeenCalledWith("/api/candidates/12/tags", {
+      params: { tag: "Remote" },
+    });
+    expect(api.patch).not.toHaveBeenCalled();
   });
 
   it("sends the office-presence rubric with explicit nulls for cleared preference keys (0278)", async () => {
@@ -344,7 +553,8 @@ describe("EditCandidateModal — profile rate boundary", () => {
     const preferences = payload.preferences as Record<string, unknown>;
     expect(preferences.remote_modes).toEqual(["hybrid", "onsite"]);
     expect(preferences.industries).toBeNull();
-    expect(preferences.office_cities).toBeNull();
+    // Klucz niezmieniony nie jedzie wcale (R9-N8-7).
+    expect(preferences).not.toHaveProperty("office_cities");
   });
 
   it("submits only the identity field that the recruiter actually changed", async () => {
@@ -416,12 +626,7 @@ describe("EditCandidateModal — profile rate boundary", () => {
     );
     await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
 
-    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
-    const payload = vi.mocked(api.patch).mock.calls[0]?.[1] as Record<
-      string,
-      unknown
-    >;
-    expect(payload).not.toHaveProperty("name");
-    expect(payload).not.toHaveProperty("lastname");
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+    expect(api.patch).not.toHaveBeenCalled();
   });
 });

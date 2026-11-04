@@ -12,10 +12,10 @@ import {
   CancelOrderGroupDialog,
   cancelRefusalMessage,
 } from "@/components/client-profile/orders/CancelOrderGroupDialog";
-import {
-  ContractorOrderCards,
-  type ContractorOrderFocus,
-} from "@/components/OrdersAndContractsTab";
+import { ListDetailLayout } from "@/components/ds/ListDetailLayout";
+import { Button } from "@/components/ui/button";
+import { useRowNavigation } from "@/hooks/useRowNavigation";
+import { writeUrlParams } from "@/lib/url-selection";
 import { useToast } from "@/components/Toast";
 import { useClientDefaultRateUnit } from "@/hooks/useClientDefaultRateUnit";
 import { dlPortalApi, type ContractWithOrdersRead } from "@/lib/api/dlPortal";
@@ -37,6 +37,7 @@ import { countPl } from "@/lib/plural-pl";
 import {
   DEFAULT_ORDER_LIST_FILTERS,
   ORDER_TYPE_ORDER,
+  consultantMatchesQuery,
   buildOrderGroupFamilies,
   contractorMatchesPill,
   contractorOrderType,
@@ -60,7 +61,7 @@ import {
   fetchAuthenticatedBlob,
   postAuthenticatedDownload,
 } from "@/lib/authenticated-files";
-import { hasSectionAccess } from "@/lib/section-access";
+import { cn } from "@/lib/utils";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import {
   canViewClientFinance,
@@ -80,29 +81,38 @@ import { EndOrderGroupModal } from "./EndOrderGroupModal";
 import { ExtendOrderGroupModal } from "./ExtendOrderGroupModal";
 import { NordeaOrderImportPanel } from "./NordeaOrderImportPanel";
 import { OffboardingDecisionModal } from "./OffboardingDecisionModal";
-import { OrderGroupCard, type OrderGroupFocusRequest } from "./OrderGroupCard";
+import { EndedLineDecisionDialog } from "./EndedLineDecisionDialog";
+import { OrderGroupPanel, type OrderGroupActions } from "./OrderGroupPanel";
+import { OrderLinePanel } from "./OrderLinePanel";
+import { OrdersTable, type LinePanelTab } from "./OrdersTable";
+import { ContractorOrderPanel, type ContractorOrderFocus } from "./ContractorOrderPanel";
+import {
+  buildSectionRows,
+  findGroup,
+  findLine,
+  groupRoster,
+  selectableKeys,
+  selectionFromKey,
+  selectionKey,
+  type OrderSelection,
+  type OrdersTableSection,
+} from "./orders-table-model";
 import { OrderGroupFormModal } from "./OrderGroupFormModal";
-import { OrderListControls } from "./OrderListControls";
-import { OrderTypeBadge, orderTypeLabel } from "./OrderTypeBadge";
+import {
+  commonFieldsOfPeriodic,
+  periodicDraftForReturn,
+  type CarriedOrderFields,
+  type PeriodicOrderDraft,
+} from "@/lib/order-type-switch";
+import { OrderExportButton, OrderListControls } from "./OrderListControls";
 import { ReplaceWithTakeoverModal } from "./ReplaceWithTakeoverModal";
 import { SwapConsultantModal } from "./SwapConsultantModal";
 
 /** Czytelny komunikat z odpowiedzi API — wspólną regułą `apiErrorMessage`
  *  (audyt 24.09.2026, S12: lokalna kopia przepuszczała surowe komunikaty
- *  po angielsku). Kod `finance_fields_forbidden` ma własne zdanie. */
+ *  po angielsku). Odmowę kwot (`finance_fields_forbidden`) nazywa ta sama
+ *  reguła: z `message` serwera albo zdaniem zastępczym bez nazw ról. */
 function apiError(err: unknown, fallback: string): string {
-  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data
-    ?.detail;
-  if (
-    detail &&
-    typeof detail === "object" &&
-    (detail as { code?: string }).code === "finance_fields_forbidden"
-  ) {
-    return (
-      "Stawki linii może ustawiać administrator, Finanse albo Delivery Lead " +
-      "przypisany do tego klienta."
-    );
-  }
   return apiErrorMessage(err, fallback);
 }
 
@@ -126,15 +136,36 @@ function saveErrorMessage(err: unknown, fallback: string): string {
   return err instanceof SaveStepError ? err.message : apiError(err, fallback);
 }
 
-const PILLS: Array<{ key: UnifiedOrderPill; label: string }> = [
-  { key: "all", label: "Wszystkie" },
+/** „Wymaga decyzji" (wersja B) — zamówienia z osobą zakończoną, o której
+ *  Delivery Lead jeszcze nie zdecydował. Liczone z tej samej reguły co sekcja
+ *  „Zakończone" w tabeli (`requiresDecision`). */
+type OrdersPill = UnifiedOrderPill | "decision";
+
+// Etykiety krótkie, żeby pigułki mieściły się w jednym rzędzie na laptopie
+// 1280 px (menu 240 px) — pełne brzmienie niesie `title`.
+// Kolejność od tego, co trwa, do historii; „Wszystkie” na końcu, bo widok
+// aktywnych i nieaktywnych razem mylił finanse (prośba Anny, 28.10.2026).
+const PILLS: Array<{ key: OrdersPill; label: string; title?: string }> = [
   { key: "active", label: "Aktywne" },
-  { key: "ending_30d", label: "⚠️ Bez kontynuacji 30d" },
+  { key: "ending_30d", label: "Bez kontynuacji 30 dni" },
   { key: "completed", label: "Zakończeni" },
   { key: "exhausted", label: "Wyczerpane" },
   { key: "cancelled", label: "Anulowane" },
-  { key: "draft", label: "📝 Draft (do uzupełnienia)" },
+  { key: "draft", label: "Draft", title: "Szkice do uzupełnienia" },
+  { key: "decision", label: "Wymaga decyzji" },
+  { key: "all", label: "Wszystkie" },
 ];
+
+const TYPE_FILTERS: Array<{ key: OrderType | "all"; label: string }> = [
+  { key: "all", label: "Wszystkie typy" },
+  { key: "md", label: "MD" },
+  { key: "cost", label: "Kosztowe" },
+  { key: "periodic", label: "Okresowe" },
+];
+
+function groupNeedsDecision(group: OrderGroupRead): boolean {
+  return groupRoster(group).pendingDecisions > 0;
+}
 
 interface Props {
   clientId: number;
@@ -154,7 +185,10 @@ interface Props {
    *  linia grupy (`?order=`) i zamówienie MD/kosztowe (`?group=`). */
   focusOrderId?: number | null;
   focusGroupId?: number | null;
-  /** Cel obsłużony (albo niewidoczny) — strona zdejmuje parametry z adresu. */
+  /** Panel kontraktora bez zamówienia (karta szkicu) — `?contract=`. */
+  focusContractId?: number | null;
+  /** Celu nie ma na liście — strona zdejmuje parametry z adresu. Cel
+   *  znaleziony ZOSTAJE w adresie jako otwarty panel (wersja B). */
   onFocusHandled?: () => void;
 }
 
@@ -180,6 +214,7 @@ export function MultiConsultantOrdersTab({
   onOrderMailDocDone,
   focusOrderId = null,
   focusGroupId = null,
+  focusContractId = null,
   onFocusHandled,
 }: Props) {
   const queryClient = useQueryClient();
@@ -194,15 +229,14 @@ export function MultiConsultantOrdersTab({
   const canEditAmounts = canEditOrderLineAmounts(user, clientId);
   const amountsOnly = canEditAmounts && !canManage;
   const canLifecycle = canManageOrderLifecycle(user);
-  // Eksport = odczyt w sekcji Delivery (U8); TCM bez innej roli Delivery — bez
-  // eksportu, jak dotąd.
-  const canExport =
-    hasSectionAccess(user, "delivery", "read") &&
-    (!hasRole(user, "talent_community_manager") ||
-      hasRole(user, "admin", "delivery_lead", "finance"));
+  // Eksport niesie stawki, więc dostaje go ten, kto widzi kwoty tego klienta
+  // („Stawki i kwoty: podgląd” — trasa eksportu pyta o to samo). Sam podgląd
+  // Delivery, np. Talent Community Manager, zostaje bez eksportu.
+  const canExport = canViewFinance;
   const allowedOrderTypes = ALL_ORDER_TYPES;
 
-  const [pill, setPill] = useState<UnifiedOrderPill>("all");
+  const [pill, setPill] = useState<OrdersPill>("active");
+  const [typeFilter, setTypeFilter] = useState<OrderType | "all">("all");
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<OrderListFilters>({
     ...DEFAULT_ORDER_LIST_FILTERS,
@@ -215,6 +249,13 @@ export function MultiConsultantOrdersTab({
   // Numer zamówienia wpisany przed zmianą typu — jedzie za użytkownikiem do
   // drugiego formularza tak jak plik; do 09.2026 przepadał (UAT B03).
   const [carriedOrderNumber, setCarriedOrderNumber] = useState("");
+  // Runda 10 (F02): okres/notatka jadą między formularzami przy zmianie typu,
+  // a roboczy stan formularza okresowego czeka na powrót do „Okresowego".
+  const [carriedCommon, setCarriedCommon] = useState<CarriedOrderFields | null>(
+    null,
+  );
+  const [carriedPeriodicDraft, setCarriedPeriodicDraft] =
+    useState<PeriodicOrderDraft | null>(null);
   const [standardOrderModalOpen, setStandardOrderModalOpen] = useState(false);
   const [groupModal, setGroupModal] = useState<{
     open: boolean;
@@ -269,11 +310,16 @@ export function MultiConsultantOrdersTab({
     group: OrderGroupRead;
     line: OrderLineRead;
   } | null>(null);
-  // Przejście z wpisu „transfer_md" do zamówienia powiązanego. Żądanie leci do
-  // WSZYSTKICH kart, bo cel bywa zagnieżdżony w przyszłych zamówieniach innej
-  // karty — tylko ona wie, że go zawiera, i tylko ona umie się rozwinąć.
-  const [focusRequest, setFocusRequest] =
-    useState<OrderGroupFocusRequest | null>(null);
+  // Panel szczegółów (wersja B, 29.09.2026): zaznaczony wiersz tabeli.
+  const [selection, setSelection] = useState<OrderSelection | null>(null);
+  const [lineTab, setLineTab] = useState<LinePanelTab | null>(null);
+  const [expandedEnded, setExpandedEnded] = useState<ReadonlySet<number>>(new Set());
+  const [collapsedEnded, setCollapsedEnded] = useState<ReadonlySet<number>>(new Set());
+  const [decisionTarget, setDecisionTarget] = useState<{
+    group: OrderGroupRead;
+    line: OrderLineRead;
+  } | null>(null);
+  const tableRef = useRef<HTMLDivElement | null>(null);
 
   const query = useQuery({
     queryKey: ["client-order-groups", clientId],
@@ -373,6 +419,8 @@ export function MultiConsultantOrdersTab({
         // Numer przeniesiony przy zmianie typu w porzuconym formularzu nie może
         // wjechać do okna otwartego z kolejki maila — tam numer czyta PDF.
         setCarriedOrderNumber("");
+        setCarriedCommon(null);
+        setCarriedPeriodicDraft(null);
         setMailSource({ docId, file });
         setStandardOrderModalOpen(false);
         setNewOrderType(target.order_type);
@@ -487,12 +535,6 @@ export function MultiConsultantOrdersTab({
             start_date: values.start_date,
             end_date: values.end_date,
             notes: values.notes,
-            ...(values.md_consumption_month
-              ? {
-                  md_consumption_month: values.md_consumption_month,
-                  md_consumption_value: values.md_consumption_value,
-                }
-              : {}),
             ...(values.md_budget_mode != null
               ? { md_budget_mode: values.md_budget_mode }
               : {}),
@@ -860,41 +902,47 @@ export function MultiConsultantOrdersTab({
   // Rodziny przedłużeń liczone z PEŁNEJ listy: pigułka i filtr dostają już
   // przefiltrowane grupy, a następca zamówienia może w tym podzbiorze nie być.
   const groupFamilies = useMemo(() => buildOrderGroupFamilies(groups), [groups]);
+  const groupMatchesPill = useCallback(
+    (group: OrderGroupRead, key: OrdersPill) =>
+      key === "decision"
+        ? groupNeedsDecision(group)
+        : orderGroupMatchesPill(group, key, undefined, groupFamilies),
+    [groupFamilies],
+  );
   const counts = useMemo(() => {
-    const byStatus = {} as Record<UnifiedOrderPill, number>;
+    const byStatus = {} as Record<OrdersPill, number>;
     for (const entry of PILLS) {
       byStatus[entry.key] =
-        groups.filter((group) =>
-          orderGroupMatchesPill(group, entry.key, undefined, groupFamilies),
-        ).length +
-        contractors.filter((contractor) =>
-          contractorMatchesPill(contractor, entry.key),
-        ).length;
+        groups.filter((group) => groupMatchesPill(group, entry.key)).length +
+        (entry.key === "decision"
+          ? 0
+          : contractors.filter((contractor) =>
+              contractorMatchesPill(contractor, entry.key as UnifiedOrderPill),
+            ).length);
     }
     return byStatus;
-  }, [contractors, groups, groupFamilies]);
+  }, [contractors, groups, groupMatchesPill]);
   const visibleGroups = useMemo(
     () =>
       filterAndSortOrderGroups(
-        groups.filter((group) =>
-          orderGroupMatchesPill(group, pill, undefined, groupFamilies),
-        ),
+        groups.filter((group) => groupMatchesPill(group, pill)),
         search,
         filters,
         undefined,
         groupFamilies,
       ),
-    [filters, groups, groupFamilies, pill, search],
+    [filters, groups, groupFamilies, groupMatchesPill, pill, search],
   );
   const visibleContractors = useMemo(
     () =>
       // „Blisko budżetu" opisuje wyłącznie grupy kosztowe/MD. Kontraktorzy
       // okresowi nie mają wspólnego budżetu, więc przy tym filtrze odpadają.
-      filters.nearBudget
+      // „Wymaga decyzji" dotyczy wyłącznie osób na zamówieniach MD/kosztowych.
+      filters.nearBudget || pill === "decision"
         ? []
         : filterAndSortContractors(
             contractors.filter((contractor) =>
-              contractorMatchesPill(contractor, pill),
+              contractorMatchesPill(contractor, pill as UnifiedOrderPill),
             ),
             search,
             filters,
@@ -924,29 +972,134 @@ export function MultiConsultantOrdersTab({
           ],
           filters.sort,
         ),
-      })).filter((section) => section.items.length > 0),
+      }))
+        .filter((section) => typeFilter === "all" || section.type === typeFilter)
+        .filter((section) => section.items.length > 0),
     [
       filters.sort,
       legacyNullOrderType,
       suggestedOrderType,
+      typeFilter,
       visibleContractors,
       visibleGroups,
     ],
   );
-  const resultCount = visibleGroups.length + visibleContractors.length;
+  const resultCount = sections.reduce((sum, section) => sum + section.items.length, 0);
+  const tableSections: OrdersTableSection[] = useMemo(
+    () =>
+      sections.map((section) => ({
+        type: section.type,
+        itemCount: section.items.length,
+        rows: buildSectionRows(section.items, {
+          expandedEnded,
+          collapsedEnded,
+          matchesSearch: search.trim()
+            ? (name) => consultantMatchesQuery(name, search)
+            : undefined,
+        }),
+      })),
+    [collapsedEnded, expandedEnded, search, sections],
+  );
+  const rowKeys = useMemo(() => selectableKeys(tableSections), [tableSections]);
 
-  // Deep link z panelu „Moi klienci" (`?order=` / `?group=`). Czeka na obie
-  // listy, zdejmuje filtry (cel mógłby być schowany pod pigułką albo
-  // wyszukiwaniem), a potem przewija do grupy (istniejący mechanizm
-  // `focusRequest`) albo do karty kontraktora. Raz na wartość parametru —
-  // odświeżenie listy nie przewija ekranu drugi raz. Cel, którego nie ma,
-  // dostaje komunikat zamiast cichego „nic się nie stało".
+  // ── Zaznaczenie i panel (wersja B, 29.09.2026) ─────────────────────────────
+  // Otwarty panel żyje w adresie: `?group=` (zamówienie), `?order=` (linia MD
+  // albo zamówienie okresowe) i `?contract=` (kontraktor bez zamówienia). To te
+  // same parametry, które niosą linki z powiadomień i alertów DL zapisane
+  // w bazie — link otwiera więc od razu właściwy panel.
+  const focusServed = useRef<string | null>(null);
   const [contractorFocus, setContractorFocus] =
     useState<ContractorOrderFocus | null>(null);
-  const focusServed = useRef<string | null>(null);
   const clearContractorFocus = useCallback(() => setContractorFocus(null), []);
+
+  const writeSelectionToUrl = useCallback((next: OrderSelection | null) => {
+    const patch: Record<string, string | null> = { group: null, order: null, contract: null };
+    let key: string | null = null;
+    if (next?.kind === "group") {
+      patch.group = String(next.groupId);
+      key = `group:${next.groupId}`;
+    } else if (next?.kind === "line") {
+      patch.order = String(next.lineId);
+      key = `order:${next.lineId}`;
+    } else if (next?.kind === "contractor") {
+      patch.contract = String(next.contractId);
+      key = `contract:${next.contractId}`;
+    }
+    // Nasz własny zapis w adresie nie jest „nowym linkiem" do obsłużenia.
+    focusServed.current = key;
+    writeUrlParams(patch);
+  }, []);
+
+  const select = useCallback(
+    (next: OrderSelection | null, tab: LinePanelTab | null = null) => {
+      setSelection(next);
+      setLineTab(tab);
+      writeSelectionToUrl(next);
+    },
+    [writeSelectionToUrl],
+  );
+  const closePanel = useCallback(() => select(null), [select]);
+  const selectKey = useCallback(
+    (key: string, tab?: LinePanelTab) => {
+      const next = selectionFromKey(key, tableSections);
+      if (next) select(next, tab ?? null);
+    },
+    [select, tableSections],
+  );
+
+  /** Cel poza bieżącym filtrem — zdejmij filtry, żeby wiersz był widoczny. */
+  const revealAll = useCallback(() => {
+    setPill("all");
+    setTypeFilter("all");
+    setSearch("");
+    setFilters({ ...DEFAULT_ORDER_LIST_FILTERS });
+  }, []);
+  const scrollRowIntoView = useCallback((anchorId: string) => {
+    window.requestAnimationFrame(() => {
+      document.getElementById(anchorId)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, []);
+  const selectGroupById = useCallback(
+    (groupId: number) => {
+      if (!rowKeys.includes(`g:${groupId}`)) revealAll();
+      select({ kind: "group", groupId });
+      scrollRowIntoView(`order-group-anchor-${groupId}`);
+    },
+    [revealAll, rowKeys, scrollRowIntoView, select],
+  );
+  const selectLineById = useCallback(
+    (groupId: number, lineId: number) => {
+      const found = findLine(groups, lineId);
+      if (!found) return;
+      if (!rowKeys.includes(`l:${lineId}`)) {
+        revealAll();
+        setExpandedEnded((previous) => new Set(previous).add(found.group.id));
+      }
+      select({ kind: "line", groupId: found.group.id ?? groupId, lineId });
+      scrollRowIntoView(`order-line-${lineId}`);
+    },
+    [groups, revealAll, rowKeys, scrollRowIntoView, select],
+  );
+
+  useRowNavigation({
+    keys: rowKeys,
+    activeKey: selection ? selectionKey(selection) : null,
+    onChange: (key) => selectKey(key),
+    containerRef: tableRef,
+  });
+
+  // Link z powiadomienia (`?order=` / `?group=` / `?contract=`). Czeka na obie
+  // listy, zdejmuje filtry (cel mógłby być schowany pod pigułką), otwiera
+  // panel i przewija do wiersza. Raz na wartość parametru — odświeżenie listy
+  // nie przewija ekranu drugi raz. Cel, którego nie ma, dostaje komunikat.
   useEffect(() => {
-    const key = focusGroupId ? `group:${focusGroupId}` : focusOrderId ? `order:${focusOrderId}` : null;
+    const key = focusGroupId
+      ? `group:${focusGroupId}`
+      : focusOrderId
+        ? `order:${focusOrderId}`
+        : focusContractId
+          ? `contract:${focusContractId}`
+          : null;
     if (!key) {
       focusServed.current = null;
       return;
@@ -954,41 +1107,81 @@ export function MultiConsultantOrdersTab({
     if (!query.isSuccess || !contractorQuery.isSuccess) return;
     if (focusServed.current === key) return;
     focusServed.current = key;
+    if (focusContractId && !focusGroupId && !focusOrderId) {
+      const contractor = contractors.find((item) => item.contract_id === focusContractId);
+      if (!contractor) {
+        showToast("Zamówienie nie jest już widoczne na liście tego klienta.", "error");
+        onFocusHandled?.();
+        return;
+      }
+      revealAll();
+      setSelection({ kind: "contractor", contractId: focusContractId });
+      scrollRowIntoView(`contractor-row-${focusContractId}`);
+      return;
+    }
     const target = resolveOrderFocus(groups, contractors, {
       orderId: focusOrderId,
       groupId: focusGroupId,
     });
     if (target === null) {
       showToast("Zamówienie nie jest już widoczne na liście tego klienta.", "error");
-    } else {
-      setPill("all");
-      setSearch("");
-      setFilters({ ...DEFAULT_ORDER_LIST_FILTERS });
-      if (target.kind === "group") {
-        setFocusRequest((previous) => ({
-          groupId: target.groupId,
-          nonce: (previous?.nonce ?? 0) + 1,
-        }));
-      } else {
-        setContractorFocus((previous) => ({
-          contractId: target.contractId,
-          orderId: target.orderId,
-          openEditor: target.isDraft,
-          nonce: (previous?.nonce ?? 0) + 1,
-        }));
-      }
+      onFocusHandled?.();
+      return;
     }
-    onFocusHandled?.();
+    revealAll();
+    if (target.kind === "group") {
+      if (target.lineId != null) {
+        const found = findLine(groups, target.lineId);
+        if (found) setExpandedEnded((previous) => new Set(previous).add(found.group.id));
+        setSelection({ kind: "line", groupId: target.groupId, lineId: target.lineId });
+        scrollRowIntoView(`order-line-${target.lineId}`);
+      } else {
+        setSelection({ kind: "group", groupId: target.groupId });
+        scrollRowIntoView(`order-group-anchor-${target.groupId}`);
+      }
+    } else {
+      setSelection({ kind: "contractor", contractId: target.contractId });
+      setContractorFocus((previous) => ({
+        contractId: target.contractId,
+        orderId: target.orderId,
+        openEditor: target.isDraft,
+        nonce: (previous?.nonce ?? 0) + 1,
+      }));
+      scrollRowIntoView(`contractor-row-${target.contractId}`);
+    }
   }, [
     focusGroupId,
     focusOrderId,
+    focusContractId,
     query.isSuccess,
     contractorQuery.isSuccess,
     groups,
     contractors,
     showToast,
     onFocusHandled,
+    revealAll,
+    scrollRowIntoView,
   ]);
+
+  // Zaznaczony obiekt zniknął z listy (usunięty, anulowany i schowany) —
+  // zamknij panel zamiast pokazywać nieaktualne dane.
+  const selectedGroup =
+    selection?.kind === "group" ? findGroup(groups, selection.groupId) : null;
+  const selectedLine = selection?.kind === "line" ? findLine(groups, selection.lineId) : null;
+  const selectedContractor =
+    selection?.kind === "contractor"
+      ? (contractors.find((item) => item.contract_id === selection.contractId) ?? null)
+      : null;
+  const selectionMissing =
+    selection !== null &&
+    query.isSuccess &&
+    contractorQuery.isSuccess &&
+    !selectedGroup &&
+    !selectedLine &&
+    !selectedContractor;
+  useEffect(() => {
+    if (selectionMissing) closePanel();
+  }, [selectionMissing, closePanel]);
 
   async function exportVisible() {
     setExporting(true);
@@ -998,7 +1191,9 @@ export function MultiConsultantOrdersTab({
       );
       type ExportItem =
         { kind: "group"; id: number } | { kind: "order"; id: number };
-      const items: ExportItem[] = ORDER_TYPE_ORDER.flatMap<ExportItem>((type) =>
+      const items: ExportItem[] = ORDER_TYPE_ORDER.filter(
+        (type) => typeFilter === "all" || type === typeFilter,
+      ).flatMap<ExportItem>((type) =>
         sortUnifiedOrderItems(
           [
             ...visibleGroups
@@ -1046,148 +1241,230 @@ export function MultiConsultantOrdersTab({
     }
   }
 
-  function renderGroup(group: OrderGroupRead) {
-    return (
-      <OrderGroupCard
-        key={group.id}
+  // Te same callbacki, które wołała dawna karta zamówienia — panele
+  // otwierają TE SAME okna, hostowane niżej w tym komponencie.
+  const groupActions: OrderGroupActions & {
+    onReplaceLine: (group: OrderGroupRead, line: OrderLineRead) => void;
+    onKeepHistory: (group: OrderGroupRead, line: OrderLineRead) => void;
+    onSwapLine: (group: OrderGroupRead, line: OrderLineRead) => void;
+    onResolveOffboarding: (group: OrderGroupRead, line: OrderLineRead) => void;
+    onDeleteLine: (group: OrderGroupRead, line: OrderLineRead) => void;
+  } = {
+    onAddConsultant: (selected) => {
+      setFormError(null);
+      setLineModal({ open: true, group: selected, line: null, replaces: null });
+    },
+    onReplaceLine: (selected, line) => {
+      setFormError(null);
+      // Pula per osoba z pozostałymi MD: nowa osoba je przejmuje (B1).
+      // Kosztowe i wspólna pula nie mają puli osoby — zwykłe dodanie.
+      if (!selected.is_cost_based && !usesSharedMdPool(selected) && line.takeover_source) {
+        setReplaceModal({ group: selected, line });
+        return;
+      }
+      setLineModal({ open: true, group: selected, line: null, replaces: line });
+    },
+    onKeepHistory: (selected, line) => keepHistory.mutate({ groupId: selected.id, lineId: line.id }),
+    onEditGroup: (selected) => {
+      setFormError(null);
+      setGroupModal({ open: true, group: selected });
+    },
+    onEditLine: (selected, line) => {
+      setFormError(null);
+      setLineModal({ open: true, group: selected, line, replaces: null });
+    },
+    onSwapLine: (selected, line) => {
+      setFormError(null);
+      setSwapModal({ open: true, group: selected, line });
+    },
+    onResolveOffboarding: (selected, line) => {
+      setFormError(null);
+      setOffboardingModal({ open: true, group: selected, line });
+    },
+    // Audyt 22.09 r2 (FE-N02): dialog ze skutkami liczonymi przez serwer
+    // zamiast `window.confirm` — usunięcie linii zabiera jej krok stawki klienta.
+    onDeleteLine: (selected, line) => setDeleteLineTarget({ group: selected, line }),
+    onDeleteGroup: (selected) => setDeleteGroupTarget(selected),
+    onCloseGroup: (selected) => {
+      setFormError(null);
+      setEndModal({ open: true, group: selected });
+    },
+    onReopenGroup: (selected) => reopenGroup.mutate(selected.id),
+    onCancelGroup: (selected) => {
+      setCancelError(null);
+      setCancelGroupTarget(selected);
+    },
+    onRestoreGroup: (selected) => restoreGroup.mutate(selected.id),
+    onExtendGroup: (selected) => {
+      setFormError(null);
+      setExtendModal({ open: true, group: selected });
+    },
+  };
+
+  function parentOf(groupId: number): OrderGroupRead | null {
+    const visit = (list: readonly OrderGroupRead[]): OrderGroupRead | null => {
+      for (const group of list) {
+        if (group.future_orders.some((future) => future.id === groupId)) return group;
+        const nested = visit(group.future_orders);
+        if (nested) return nested;
+      }
+      return null;
+    };
+    return visit(groups);
+  }
+
+  let panel: React.ReactNode = null;
+  if (selectedGroup) {
+    panel = (
+      <OrderGroupPanel
+        key={`g-${selectedGroup.id}`}
         clientId={clientId}
-        group={group}
+        group={selectedGroup}
+        parent={parentOf(selectedGroup.id)}
+        canManage={canManage}
+        canManageLifecycle={canLifecycle}
         searchQuery={search}
+        onClose={closePanel}
+        onSelectLine={selectLineById}
+        onSelectGroup={selectGroupById}
+        {...groupActions}
+      />
+    );
+  } else if (selectedLine) {
+    panel = (
+      <OrderLinePanel
+        key={`l-${selectedLine.line.id}`}
+        clientId={clientId}
+        group={selectedLine.group}
+        line={selectedLine.line}
         canManage={canManage}
         canEditAmounts={canEditAmounts}
         canManageLifecycle={canLifecycle}
-        onAddConsultant={(selected) => {
-          setFormError(null);
-          setLineModal({ open: true, group: selected, line: null, replaces: null });
-        }}
-        onReplaceLine={(selected, line) => {
-          setFormError(null);
-          // Pula per osoba z pozostałymi MD: nowa osoba je przejmuje (B1).
-          // Kosztowe i wspólna pula nie mają puli osoby — zwykłe dodanie.
-          if (
-            !selected.is_cost_based &&
-            !usesSharedMdPool(selected) &&
-            line.takeover_source
-          ) {
-            setReplaceModal({ group: selected, line });
-            return;
-          }
-          setLineModal({ open: true, group: selected, line: null, replaces: line });
-        }}
-        onKeepHistory={(selected, line) =>
-          keepHistory.mutate({ groupId: selected.id, lineId: line.id })
+        initialTab={lineTab}
+        onClose={closePanel}
+        onEditLine={groupActions.onEditLine}
+        onSwapLine={groupActions.onSwapLine}
+        onDeleteLine={groupActions.onDeleteLine}
+        onDecide={(group, line) => setDecisionTarget({ group, line })}
+        onSelectLine={selectLineById}
+        onSelectGroup={selectGroupById}
+      />
+    );
+  } else if (selectedContractor && contractorQuery.data) {
+    panel = (
+      <ContractorOrderPanel
+        key={`c-${selectedContractor.contract_id}`}
+        clientId={clientId}
+        contractor={selectedContractor}
+        canViewFinance={canViewFinance}
+        canManageFinance={contractorQuery.data.can_manage_finance}
+        canManageOrders={contractorQuery.data.can_manage_finance}
+        suggestedOrderType={suggestedOrderType}
+        legacyNullOrderType={legacyNullOrderType}
+        allowedOrderTypes={allowedOrderTypes}
+        searching={search.trim().length > 0}
+        focusOrder={
+          contractorFocus?.contractId === selectedContractor.contract_id ? contractorFocus : null
         }
-        onEditGroup={(selected) => {
-          setFormError(null);
-          setGroupModal({ open: true, group: selected });
-        }}
-        onEditLine={(selected, line) => {
-          setFormError(null);
-          setLineModal({ open: true, group: selected, line, replaces: null });
-        }}
-        onSwapLine={(selected, line) => {
-          setFormError(null);
-          setSwapModal({ open: true, group: selected, line });
-        }}
-        onResolveOffboarding={(selected, line) => {
-          setFormError(null);
-          setOffboardingModal({ open: true, group: selected, line });
-        }}
-        // Audyt 22.09 r2 (FE-N02): dialog ze skutkami liczonymi przez serwer
-        // zamiast `window.confirm`, który obiecywał „umowa się nie zmieni” —
-        // usunięcie linii zabiera jej krok stawki klienta.
-        onDeleteLine={(selected, line) =>
-          setDeleteLineTarget({ group: selected, line })
+        onFocusOrderServed={clearContractorFocus}
+        onAssignToOrder={
+          isEzdrowieClient(clientId) && canManage
+            ? (contractor, openCompleteOrder) => {
+                setFormError(null);
+                setAssignModal({ contractor, openCompleteOrder });
+              }
+            : undefined
         }
-        onDeleteGroup={(selected) => setDeleteGroupTarget(selected)}
-        onCloseGroup={(selected) => {
-          setFormError(null);
-          setEndModal({ open: true, group: selected });
-        }}
-        onReopenGroup={(selected) => reopenGroup.mutate(selected.id)}
-        onCancelGroup={(selected) => {
-          setCancelError(null);
-          setCancelGroupTarget(selected);
-        }}
-        onRestoreGroup={(selected) => restoreGroup.mutate(selected.id)}
-        onExtendGroup={(selected) => {
-          setFormError(null);
-          setExtendModal({ open: true, group: selected });
-        }}
-        focusRequest={focusRequest}
-        onFocusGroup={(groupId) =>
-          setFocusRequest((previous) => ({
-            groupId,
-            nonce: (previous?.nonce ?? 0) + 1,
-          }))
-        }
+        onClose={closePanel}
       />
     );
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground">
-            Zamówienia klienta
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            Jedna lista zamówień okresowych, kosztowych i rozliczanych w MD.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {/* `isSuccess`, nie `!isLoading && !isError` — w przerwie między
-              ponowieniami dane są puste, a licznik pokazywałby „0 zamówienia",
-              czyli tę samą nieprawdę co pusty stan pod spodem. */}
-          {query.isSuccess && contractorQuery.isSuccess ? (
-            <p className="text-xs text-muted-foreground">
-              {countPl(
-                groups.length + contractors.length,
-                "pozycja na liście",
-                "pozycje na liście",
-                "pozycji na liście",
-              )}
-            </p>
+    <div className="flex flex-col gap-3">
+      {/* Nagłówek to dwa rzędy (restyle 02.10.2026): pigułki z akcjami oraz
+          wyszukiwarka z filtrami. Tytuł i podpowiedź zostają dla czytników
+          ekranu — zakładka nazywa się „Zamówienia”, a wiersz sam mówi, że
+          jest klikalny. */}
+      <h2 className="sr-only">Zamówienia klienta</h2>
+      <p className="sr-only">Kliknij wiersz, żeby zobaczyć szczegóły i akcje.</p>
+
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+        {/* Liczniki liczone z POBRANEJ listy, nie z osobnego zapytania — kafel
+            będący sumą innych liczb niż widoczne pod nim jest niemożliwy do
+            zweryfikowania wzrokiem. Renderujemy je dopiero przy `isSuccess`,
+            żeby „(0)" nie udawało wyniku, zanim cokolwiek wiadomo. */}
+        {query.isSuccess && contractorQuery.isSuccess ? (
+          <div
+            className="flex min-w-0 flex-[1_1_28rem] flex-wrap items-center gap-1.5"
+            data-help="client.orders.pills"
+          >
+            {PILLS.filter((entry) => entry.key !== "decision" || counts.decision > 0 || pill === "decision").map((entry) => {
+              const count = counts[entry.key];
+              const selected = pill === entry.key;
+              return (
+                <button
+                  key={entry.key}
+                  type="button"
+                  onClick={() => setPill(entry.key)}
+                  aria-pressed={selected}
+                  title={entry.title}
+                  className={cn(
+                    "inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 text-xs font-medium transition-colors pointer-coarse:min-h-10",
+                    selected
+                      ? "border-foreground bg-foreground text-background"
+                      : entry.key === "decision"
+                        ? "border-transparent bg-destructive-muted text-destructive-muted-foreground hover:bg-destructive-muted/80"
+                        : count === 0
+                          ? // Pusta pigułka zostaje klikalna, ale nie konkuruje z resztą.
+                            "border-border/60 bg-transparent text-muted-foreground/70 hover:text-foreground"
+                          : "border-border bg-card text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {/* Nazwa dostępna przycisku to nadal „Aktywne (1)” — nawiasy
+                      są w tekście, tylko niewidoczne (liczba stoi pogrubiona). */}
+                  {entry.label}{" "}
+                  <span className="sr-only">(</span>
+                  <span
+                    className={cn(
+                      "tabular-nums",
+                      selected || entry.key === "decision"
+                        ? "font-semibold"
+                        : count === 0
+                          ? "font-normal"
+                          : "font-semibold text-foreground",
+                    )}
+                  >
+                    {count}
+                  </span>
+                  <span className="sr-only">)</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+        <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
+          {query.isSuccess && contractorQuery.isSuccess && canExport ? (
+            <OrderExportButton exporting={exporting} disabled={resultCount === 0} onExport={exportVisible} />
           ) : null}
           {canManage ? (
-            <button
+            <Button
               type="button"
+              size="sm"
               disabled={!query.isSuccess || !contractorQuery.isSuccess}
-              onClick={() => openNewOrderForm(suggestedOrderType)}
+              onClick={() => {
+                // Świeże „Nowe zamówienie" — bez roboczego stanu porzuconego okna.
+                setCarriedCommon(null);
+                setCarriedPeriodicDraft(null);
+                openNewOrderForm(suggestedOrderType);
+              }}
               data-help="client.orders.new"
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
             >
               <Plus className="h-4 w-4" aria-hidden="true" /> Nowe zamówienie
-            </button>
+            </Button>
           ) : null}
         </div>
-      </header>
-
-      {/* Liczniki liczone z POBRANEJ listy, nie z osobnego zapytania — kafel
-          będący sumą innych liczb niż widoczne pod nim jest niemożliwy do
-          zweryfikowania wzrokiem. Renderujemy je dopiero przy `isSuccess`,
-          żeby „(0)" nie udawało wyniku, zanim cokolwiek wiadomo. */}
-      {query.isSuccess && contractorQuery.isSuccess ? (
-        <div className="flex flex-wrap gap-2" data-help="client.orders.pills">
-          {PILLS.map((entry) => (
-            <button
-              key={entry.key}
-              type="button"
-              onClick={() => setPill(entry.key)}
-              aria-pressed={pill === entry.key}
-              className={
-                "rounded-full border px-3 py-1.5 text-sm transition-colors " +
-                (pill === entry.key
-                  ? "border-primary/40 bg-primary/10 text-primary"
-                  : "border-border bg-card text-muted-foreground hover:text-foreground")
-              }
-            >
-              {entry.label} ({counts[entry.key]})
-            </button>
-          ))}
-        </div>
-      ) : null}
+      </div>
 
       {query.isSuccess && contractorQuery.isSuccess ? (
         <OrderListControls
@@ -1196,15 +1473,37 @@ export function MultiConsultantOrdersTab({
           filters={filters}
           onFiltersChange={setFilters}
           resultCount={resultCount}
-          exporting={exporting}
-          onExport={exportVisible}
-          showExport={canExport}
+          extraControls={
+            <select
+              value={typeFilter}
+              onChange={(event) => setTypeFilter(event.target.value as OrderType | "all")}
+              aria-label="Typ zamówienia"
+              className="h-8 shrink-0 rounded-md border border-border bg-card px-2 text-xs text-foreground pointer-coarse:h-10"
+            >
+              {TYPE_FILTERS.map((entry) => (
+                <option key={entry.key} value={entry.key}>
+                  {entry.label}
+                </option>
+              ))}
+            </select>
+          }
+          // `isSuccess`, nie `!isLoading && !isError` — w przerwie między
+          // ponowieniami dane są puste, a licznik pokazywałby „0 pozycji”,
+          // czyli tę samą nieprawdę co pusty stan pod spodem.
+          trailing={countPl(
+            groups.length + contractors.length,
+            "pozycja na liście",
+            "pozycje na liście",
+            "pozycji na liście",
+          )}
         />
       ) : null}
 
       {query.isSuccess &&
       contractorQuery.isSuccess &&
-      (user?.role === "admin" || user?.roles?.includes("admin")) &&
+      // Import CSV zostaje wyłącznie dla administratora (także jako rola
+      // dodatkowa — stąd `hasRole`, nie porównanie `user.role`).
+      hasRole(user, "admin") &&
       // Klient z polityki Nordei liczony na serwerze (S13) — nazwa klienta
       // nie jest regułą (Traffit ją nadpisuje, „Nordea" bywa w kilku nazwach).
       contractorQuery.data.nordea_order_import_enabled === true ? (
@@ -1229,67 +1528,50 @@ export function MultiConsultantOrdersTab({
           title={
             search.trim()
               ? "Nie znaleziono zamówienia pasującego do wyszukiwania"
-              : pill === "all"
+              : counts.all === 0
                 ? "Brak zamówień"
                 : "Brak wyników dla tego filtra"
           }
           description={
             search.trim()
               ? "Zmień wyszukiwaną frazę albo wyczyść aktywne filtry."
-              : pill === "all"
+              : counts.all === 0
                 ? "Ten klient nie ma jeszcze zamówień."
                 : "Zmień filtr, żeby zobaczyć pozostałe zamówienia."
           }
         />
       ) : (
-        <div className="flex flex-col gap-6">
-          {sections.map((section) => (
-            <section
-              key={section.type}
-              aria-labelledby={`orders-${section.type}-heading`}
-              className="space-y-3"
-            >
-              <h3
-                id={`orders-${section.type}-heading`}
-                className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-              >
-                <OrderTypeBadge type={section.type} />
-                {orderTypeLabel(section.type)} ({section.items.length})
-              </h3>
-              {section.items.map((item) =>
-                item.kind === "group" ? (
-                  renderGroup(item.group)
-                ) : (
-                  <ContractorOrderCards
-                    key={`contractor-${item.contractor.contract_id}`}
-                    clientId={clientId}
-                    contractors={[item.contractor]}
-                    canViewFinance={canViewFinance}
-                    canManageFinance={contractorQuery.data.can_manage_finance}
-                    canManageOrders={contractorQuery.data.can_manage_finance}
-                    suggestedOrderType={suggestedOrderType}
-                    legacyNullOrderType={legacyNullOrderType}
-                    allowedOrderTypes={allowedOrderTypes}
-                    searching={search.trim().length > 0}
-                    focusOrder={
-                      contractorFocus?.contractId === item.contractor.contract_id
-                        ? contractorFocus
-                        : null
-                    }
-                    onFocusOrderServed={clearContractorFocus}
-                    onAssignToOrder={
-                      isEzdrowieClient(clientId) && canManage
-                        ? (contractor, openCompleteOrder) => {
-                            setFormError(null);
-                            setAssignModal({ contractor, openCompleteOrder });
-                          }
-                        : undefined
-                    }
-                  />
-                ),
-              )}
-            </section>
-          ))}
+        <div ref={tableRef}>
+          <ListDetailLayout
+            panelLabel="Szczegóły zamówienia"
+            onClose={closePanel}
+            panel={panel}
+            list={
+              <OrdersTable
+                sections={tableSections}
+                selectedKey={selection ? selectionKey(selection) : null}
+                onSelect={selectKey}
+                onToggleEnded={(groupId, open) => {
+                  setExpandedEnded((previous) => {
+                    const next = new Set(previous);
+                    if (open) next.add(groupId);
+                    else next.delete(groupId);
+                    return next;
+                  });
+                  setCollapsedEnded((previous) => {
+                    const next = new Set(previous);
+                    if (open) next.delete(groupId);
+                    else next.add(groupId);
+                    return next;
+                  });
+                }}
+                searchQuery={search}
+                canDecide={canManage || canLifecycle}
+                canManage={canManage}
+                canViewFinance={canViewFinance}
+              />
+            }
+          />
         </div>
       )}
 
@@ -1313,14 +1595,16 @@ export function MultiConsultantOrdersTab({
               ? "cost"
               : newOrderType
         }
-        onOrderTypeChange={(orderType, file, orderNumber) => {
+        onOrderTypeChange={(orderType, file, orderNumber, common) => {
           // Okno okresowe nie zna dokumentów z maila — dokument zostaje w kolejce.
           if (orderType === "periodic") releaseMailSource();
+          setCarriedCommon(common ?? null);
           openNewOrderForm(orderType, file, orderNumber);
         }}
         allowedOrderTypes={allowedOrderTypes}
         initialFile={carriedFile}
         initialOrderNumber={carriedOrderNumber}
+        initialCommon={carriedCommon}
         autoReadFile={mailSource?.file ?? null}
         sourceNotice={
           mailSource
@@ -1348,10 +1632,15 @@ export function MultiConsultantOrdersTab({
           }
           defaultRateUnit={defaultRateUnit}
           orderType={newOrderType}
-          onOrderTypeChange={openNewOrderForm}
+          onOrderTypeChange={(orderType, file, orderNumber, draft) => {
+            setCarriedPeriodicDraft(draft ?? null);
+            setCarriedCommon(draft ? commonFieldsOfPeriodic(draft) : null);
+            openNewOrderForm(orderType, file, orderNumber);
+          }}
           allowedOrderTypes={allowedOrderTypes}
           initialFile={carriedFile}
           initialOrderNumber={carriedOrderNumber}
+          initialDraft={periodicDraftForReturn(carriedPeriodicDraft, carriedCommon)}
           onClose={() => setStandardOrderModalOpen(false)}
           onCreated={async () => {
             await invalidate();
@@ -1485,6 +1774,18 @@ export function MultiConsultantOrdersTab({
           onClose={() => setDeleteGroupTarget(null)}
         />
       ) : null}
+
+      <EndedLineDecisionDialog
+        group={decisionTarget?.group ?? null}
+        line={decisionTarget?.line ?? null}
+        onClose={() => setDecisionTarget(null)}
+        canManage={canManage}
+        canManageLifecycle={canLifecycle}
+        onKeepHistory={groupActions.onKeepHistory}
+        onReplaceLine={groupActions.onReplaceLine}
+        onDeleteLine={groupActions.onDeleteLine}
+        onResolveOffboarding={groupActions.onResolveOffboarding}
+      />
 
       <CancelOrderGroupDialog
         key={cancelGroupTarget?.id ?? "none"}

@@ -32,6 +32,7 @@
  */
 
 import type { ChampionValidation } from "@/components/ChampionIntake";
+import { pruneCritical } from "@/lib/critical-skills";
 import type {
   ChampionBasics,
   ChampionJobValues,
@@ -77,7 +78,10 @@ export function seedStackFromJobColumns(
     nice,
     notes: stack?.notes ?? "",
   };
-  return { profile: { ...profile, stack: seededStack }, seededStack };
+  // Krytyczne zapisane przy pustym stacku (sam klucz `critical`) zostają.
+  const withCritical =
+    stack?.critical !== undefined ? { ...seededStack, critical: stack.critical } : seededStack;
+  return { profile: { ...profile, stack: withCritical }, seededStack };
 }
 
 function sameItems(a: readonly StackItem[], b: readonly StackItem[]): boolean {
@@ -106,6 +110,7 @@ export const SEEDABLE_BASICS = [
   "onsite_days_per_week",
   "candidate_location_pref",
   "deadline",
+  "deadline_time",
 ] as const;
 
 export type SeedableBasicsKey = (typeof SEEDABLE_BASICS)[number];
@@ -122,6 +127,7 @@ export const SEEDABLE_BASICS_LABEL: Record<SeedableBasicsKey, string> = {
   onsite_days_per_week: "Dni stacjonarne / tydzień",
   candidate_location_pref: "Lokalizacja biura",
   deadline: "Deadline na kandydatów",
+  deadline_time: "Godzina deadline'u",
 };
 
 function isEmptyBasicsValue(value: unknown): boolean {
@@ -170,6 +176,10 @@ export function seedBasicsFromJob(
     typeof values.onsite_days_per_week === "number"
   ) {
     seeded.onsite_days_per_week = values.onsite_days_per_week;
+    // 0407: „N dni w miesiącu” wędruje razem z liczbą tygodniową.
+    if (typeof values.onsite_days_per_month === "number") {
+      seeded.onsite_days_per_month = values.onsite_days_per_month;
+    }
   }
   if (
     isEmptyBasicsValue(basics.candidate_location_pref) &&
@@ -184,6 +194,15 @@ export function seedBasicsFromJob(
     values.deadline.trim() !== ""
   ) {
     seeded.deadline = values.deadline;
+  }
+  // Godzina należy do daty: tylko gdy pole pokazuje ten sam dzień co rekrutacja.
+  if (
+    isEmptyBasicsValue(basics.deadline_time) &&
+    typeof values.deadline_time === "string" &&
+    values.deadline_time !== "" &&
+    (seeded.deadline ?? basics.deadline) === values.deadline
+  ) {
+    seeded.deadline_time = values.deadline_time;
   }
 
   if (Object.keys(seeded).length === 0) {
@@ -225,7 +244,14 @@ function stripSeededBasicsKeys(
 ): ChampionBasics {
   if (!seededBasics) return basics;
   const next: ChampionBasics = { ...basics };
+  // Data i godzina jadą razem. Godzina z seedu przy zmienionej dacie: bez niej
+  // serwer uznałby, że nowy termin nie ma godziny, a pole ją pokazuje. Data
+  // z seedu przy zmienionej godzinie: serwer odnosi godzinę do wysłanego dnia.
+  const dateSent = !("deadline" in seededBasics) || basics.deadline !== seededBasics.deadline;
+  const timeEdited = (basics.deadline_time ?? "") !== (seededBasics.deadline_time ?? "");
   for (const key of Object.keys(seededBasics) as (keyof ChampionBasics)[]) {
+    if (key === "deadline_time" && dateSent) continue;
+    if (key === "deadline" && timeEdited) continue;
     if (next[key] === seededBasics[key]) {
       delete next[key];
     }
@@ -254,6 +280,7 @@ export function championSavePayload(
   const withBasics: ChampionProfile = {
     ...draft,
     basics: stripSeededBasicsKeys(draft.basics, seed.seededBasics),
+    stack: withPrunedCritical(draft.stack),
   };
   const { seededStack } = seed;
   if (
@@ -262,10 +289,36 @@ export function championSavePayload(
     sameItems(withBasics.stack.nice, seededStack.nice) &&
     withBasics.stack.notes === seededStack.notes
   ) {
-    const { stack: _untouched, ...rest } = withBasics;
+    const { stack, ...rest } = withBasics;
+    // Nietknięty stack z kolumn nie jedzie — ale decyzja o krytycznych tak:
+    // serwer scala `stack` o poziom w głąb, więc sam klucz `critical` nie
+    // zapisze MUST, a krytyczne sprawdzi wobec kolumn rekrutacji.
+    if (stack.critical !== undefined) {
+      return { ...rest, stack: { critical: stack.critical } } as unknown as ChampionProfile;
+    }
     return rest;
   }
   return withBasics;
+}
+
+/**
+ * Krytyczne jadą tylko wtedy, gdy ktoś o nich zdecydował (`undefined` = klucza
+ * nie ma w profilu, serwer zostawia zapis bez zmian). `null` i `[]` to dwie
+ * różne decyzje („nie zdecydowano” vs „Brak krytycznych”) i obie jadą.
+ * Krytyczna, której nie ma już w MUST, znika przed zapisem.
+ */
+function withPrunedCritical(stack: ChampionStack): ChampionStack {
+  if (Array.isArray(stack.rows)) {
+    // Profil prowadzony wierszami: krytyczne niosą poziomy wierszy, a lista
+    // `critical` to wyłącznie decyzja „Brak krytycznych” (`[]`) albo jej brak.
+    return {
+      ...stack,
+      rows: stack.rows.map(({ words, level }) => ({ words, level })),
+    };
+  }
+  if (stack.critical === undefined) return stack;
+  const must = (stack.must ?? []).map((item) => item.name);
+  return { ...stack, critical: pruneCritical(stack.critical ?? null, must) };
 }
 
 /**

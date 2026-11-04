@@ -11,7 +11,9 @@ import { RequireRole } from "@/components/RequireRole";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Plus, Trash2, Upload, X, Save } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { warsawToday } from "@/lib/warsaw-date";
 import { hasRole, useAuthStore } from "@/store/auth";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 
 const SENIORITY_LABELS: Record<SeniorityLevel, string> = {
   junior: "Junior",
@@ -26,6 +28,33 @@ const RATE_UNIT_LABELS: Record<string, string> = {
   daily: "dzień",
   monthly: "mies.",
 };
+
+/** Kolumny importu CSV (`POST /api/rate-benchmarks/import`) — wzór z samym nagłówkiem. */
+const RATE_BENCHMARK_CSV_COLUMNS = [
+  "role",
+  "seniority",
+  "currency",
+  "rate_unit",
+  "market_min",
+  "market_median",
+  "market_max",
+  "source",
+  "source_date",
+  "location",
+  "notes",
+] as const;
+
+function downloadCsvTemplate() {
+  const blob = new Blob([`${RATE_BENCHMARK_CSV_COLUMNS.join(",")}\n`], {
+    type: "text/csv;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "stawki-rynkowe-wzor.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function RateBenchmarksPage() {
   const user = useAuthStore((state) => state.user);
@@ -54,13 +83,14 @@ function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
   const [adding, setAdding] = useState(false);
   const [roleFilter, setRoleFilter] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+  const { askConfirm, confirmDialog } = useConfirmV2();
   const [importResult, setImportResult] = useState<{
     created: number;
     skipped: number;
     errors: string[];
   } | null>(null);
 
-  const { data: rows = [], isLoading } = useQuery({
+  const { data: rows = [], isLoading, isError, refetch } = useQuery({
     queryKey: ["rate-benchmarks", roleFilter],
     queryFn: async () => {
       const res = await rateBenchmarksApi.list(
@@ -94,9 +124,10 @@ function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
 
   return (
     <div className="max-w-6xl mx-auto md:px-4 md:py-8 space-y-6">
+      {confirmDialog}
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold">Benchmarki stawek</h1>
+          <h1 className="text-xl font-semibold">Stawki rynkowe</h1>
           <p className="text-sm text-muted-foreground">
             Stawki rynkowe z raportów branżowych (Hays, No Fluff Jobs, Just Join
             IT). Używane przez kartę Benchmark na stronie każdego kontraktu.
@@ -200,13 +231,23 @@ function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
                   Ładowanie…
                 </td>
               </tr>
+            ) : isError ? (
+              <tr>
+                <td colSpan={readOnly ? 8 : 9} className="px-3 py-4">
+                  <QueryStateNotice state="error" onRetry={() => void refetch()} />
+                </td>
+              </tr>
             ) : rows.length === 0 ? (
               <tr>
                 <td
                   colSpan={readOnly ? 8 : 9}
                   className="px-3 py-6 text-center text-muted-foreground"
                 >
-                  Brak wpisów.
+                  {roleFilter
+                    ? "Żadna stawka nie pasuje do tej roli."
+                    : readOnly
+                      ? "Nie ma jeszcze stawek rynkowych."
+                      : "Nie ma jeszcze stawek rynkowych. Dodaj je ręcznie albo wgraj plik CSV z raportu — wzór pliku jest niżej."}
                 </td>
               </tr>
             ) : (
@@ -243,8 +284,16 @@ function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
                     <td className="px-3 py-2 text-right">
                       <button
                         type="button"
-                        onClick={() => {
-                          if (confirm("Usunąć wpis ? ")) deleteMut.mutate(row.id);
+                        onClick={async () => {
+                          if (
+                            await askConfirm({
+                              title: "Usunąć wpis?",
+                              confirmLabel: "Usuń",
+                              variant: "destructive",
+                            })
+                          ) {
+                            deleteMut.mutate(row.id);
+                          }
                         }}
                         className="text-destructive hover:underline"
                       >
@@ -259,12 +308,18 @@ function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
         </table>
       </div>
 
-      <div className="text-xs text-muted-foreground">
-        CSV header:{" "}
-        <code className="bg-muted dark:bg-muted px-1 py-0.5 rounded">
-          role,seniority,currency,rate_unit,market_min,market_median,market_max,source,source_date,location,notes
-        </code>
-      </div>
+      {!readOnly && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>Plik CSV z nagłówkiem jak we wzorze; wypełnij co najmniej rolę, jednostkę, medianę, źródło i datę źródła.</span>
+          <button
+            type="button"
+            onClick={downloadCsvTemplate}
+            className="font-semibold text-primary hover:underline"
+          >
+            Pobierz wzór pliku
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -285,7 +340,8 @@ function BenchmarkForm({ onSubmit, onCancel, submitting }: BenchmarkFormProps) {
     market_median: "",
     market_max: "",
     source: "",
-    source_date: new Date().toISOString().slice(0, 10),
+    // Runda 10 (R10-X1-4): dzień w Warszawie, nie UTC.
+    source_date: warsawToday(),
     location: "",
     notes: "",
   });

@@ -7,7 +7,8 @@ Pokrywa scenariusze:
     4. post_note_sends_email_when_smtp_enabled
     5. post_note_does_not_email_self
     6. patch_note_only_emails_new_mentions
-    7. post_note_with_job_filters_to_members
+    7. job_note_mentions_a_person_outside_the_job_team
+    8. patch_note_notify_mentions_* — „Powiadom oznaczonych o zmianie”
 """
 
 from __future__ import annotations
@@ -303,18 +304,17 @@ async def test_patch_note_only_emails_new_mentions(
     assert first_call_count == 1
 
 
-async def test_post_note_with_job_filters_to_members(
-    app_client: AsyncClient, setup_users
-):
-    """Note z job_id → user spoza projektu w content NIE dostaje notyfikacji."""
+async def _job_note_mentioning(
+    app_client: AsyncClient, setup_users, mentioned_role: UserRole
+) -> tuple[int, int, int]:
+    """Notatka rekrutacji, w której autor (jedyny w zespole) oznacza osobę
+    spoza zespołu. Zwraca (id notatki, id oznaczonej osoby, id rekrutacji)."""
     async with AsyncSessionLocal() as db:
         author = await db.get(User, setup_users["author_id"])
-        # Nowy user — non-member projektu
-        non_member, _ = await _new_user(db, UserRole.recruiter)
+        outsider, _ = await _new_user(db, mentioned_role)
         client = Client(name=f"NM Client {uuid.uuid4().hex[:6]}")
         db.add(client)
         await db.flush()
-        # Job w którym tylko author jest recruiterem (member)
         job = Job(
             title="MentionFilter Job",
             client_id=client.id,
@@ -323,8 +323,8 @@ async def test_post_note_with_job_filters_to_members(
         )
         db.add(job)
         await db.commit()
-        non_member_email = non_member.email
-        non_member_id = non_member.id
+        outsider_email = outsider.email
+        outsider_id = outsider.id
         job_id = job.id
 
     headers = await _login(
@@ -334,13 +334,15 @@ async def test_post_note_with_job_filters_to_members(
         "/api/notes",
         headers=headers,
         json={
-            "content": f"Notatka @{non_member_email} (nie w projekcie)",
+            "content": f"Notatka @{outsider_email} (spoza zespołu)",
             "job_id": job_id,
         },
     )
     assert resp.status_code == 201
-    note_id = resp.json()["id"]
+    return resp.json()["id"], outsider_id, job_id
 
+
+async def _mention_rows(note_id: int, user_id: int) -> tuple[list, list]:
     async with AsyncSessionLocal() as db:
         mentions = (
             (
@@ -355,7 +357,7 @@ async def test_post_note_with_job_filters_to_members(
             (
                 await db.execute(
                     select(Notification).where(
-                        Notification.user_id == non_member_id,
+                        Notification.user_id == user_id,
                         Notification.related_entity_id == note_id,
                     )
                 )
@@ -363,5 +365,206 @@ async def test_post_note_with_job_filters_to_members(
             .scalars()
             .all()
         )
-    assert mentions == [], "non-member nie powinien dostać NoteMention"
-    assert notifs == [], "non-member nie powinien dostać Notification"
+    return list(mentions), list(notifs)
+
+
+async def test_job_note_mentions_a_person_outside_the_job_team(
+    app_client: AsyncClient, setup_users
+):
+    """Od 23.09.2026 notatki rekrutacji czyta każda rola wewnętrzna, więc
+    oznaczyć można też osobę spoza zespołu. Do 08.10.2026 taka wzmianka
+    zapisywała się jako zwykły tekst, bez powiadomienia."""
+    note_id, outsider_id, _ = await _job_note_mentioning(
+        app_client, setup_users, UserRole.head_of_recruitment
+    )
+    mentions, notifs = await _mention_rows(note_id, outsider_id)
+    assert [m.user_id for m in mentions] == [outsider_id]
+    assert len(notifs) == 1
+
+
+async def test_job_note_does_not_mention_an_account_without_candidate_access(
+    app_client: AsyncClient, setup_users
+):
+    """Stara rola podglądu `user` nie czyta rekrutacji — wzmianka nie może
+    wysłać jej fragmentu notatki."""
+    note_id, viewer_id, _ = await _job_note_mentioning(
+        app_client, setup_users, UserRole.user
+    )
+    mentions, notifs = await _mention_rows(note_id, viewer_id)
+    assert mentions == []
+    assert notifs == []
+
+
+async def test_mentionable_list_has_everyone_who_can_read_and_team_first(
+    app_client: AsyncClient, setup_users
+):
+    """Lista do @: wszystkie konta z odczytem (także Head of Recruitment
+    i osoby spoza zespołu rekrutacji), zespół rekrutacji na początku; bez
+    kont nieaktywnych i bez starej roli podglądu."""
+    async with AsyncSessionLocal() as db:
+        hor, _ = await _new_user(db, UserRole.head_of_recruitment)
+        viewer, _ = await _new_user(db, UserRole.user)
+        client = Client(name=f"ML Client {uuid.uuid4().hex[:6]}")
+        db.add(client)
+        await db.flush()
+        job = Job(
+            title="Mentionable Job",
+            client_id=client.id,
+            recruiter_id=setup_users["author_id"],
+            status=JobStatus.published,
+        )
+        db.add(job)
+        await db.commit()
+        hor_id, viewer_id, job_id = hor.id, viewer.id, job.id
+
+    headers = await _login(
+        app_client, setup_users["author_email"], setup_users["author_password"]
+    )
+    for params in (
+        {},
+        {"job_id": job_id},
+        {"candidate_id": setup_users["candidate_id"]},
+    ):
+        resp = await app_client.get(
+            "/api/users/mentionable", headers=headers, params=params
+        )
+        assert resp.status_code == 200, resp.text
+        ids = [row["id"] for row in resp.json()]
+        assert hor_id in ids, params
+        assert setup_users["target_id"] in ids, params
+        assert viewer_id not in ids, params
+        emails = {row["email"] for row in resp.json()}
+        assert setup_users["inactive_email"] not in emails, params
+
+    by_job = await app_client.get(
+        "/api/users/mentionable", headers=headers, params={"job_id": job_id}
+    )
+    ids = [row["id"] for row in by_job.json()]
+    assert ids.index(setup_users["author_id"]) < ids.index(hor_id)
+
+
+# ── PATCH z „Powiadom oznaczonych o zmianie” (21.10.2026) ───────────────────
+
+
+async def _note_with_read_mention(app_client: AsyncClient, setup_users) -> int:
+    """Notatka z wzmianką target, której powiadomienie target już przeczytał."""
+    headers = await _login(
+        app_client, setup_users["author_email"], setup_users["author_password"]
+    )
+    resp = await app_client.post(
+        "/api/notes",
+        headers=headers,
+        json={
+            "content": f"Prep 2 śr 10:00 @{setup_users['target_email']}",
+            "candidate_id": setup_users["candidate_id"],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    note_id = resp.json()["id"]
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(Notification).where(
+                    Notification.user_id == setup_users["target_id"],
+                    Notification.related_entity_id == note_id,
+                )
+            )
+        ).all()
+        assert len(rows) == 1
+        rows[0].is_read = True
+        await db.commit()
+    return note_id
+
+
+async def _patch(app_client: AsyncClient, setup_users, note_id: int, body: dict):
+    headers = await _login(
+        app_client, setup_users["author_email"], setup_users["author_password"]
+    )
+    with patch("app.services.email.smtplib.SMTP") as smtp_cls:
+        instance = smtp_cls.return_value.__enter__.return_value
+        resp = await app_client.patch(
+            f"/api/notes/{note_id}", headers=headers, json=body
+        )
+        assert resp.status_code == 200, resp.text
+        return instance.send_message.call_args_list
+
+
+async def test_patch_note_notify_mentions_tells_already_mentioned_person(
+    app_client: AsyncClient, setup_users, monkeypatch
+):
+    """DL oznaczony od początku nie dowiadywał się o zmianie terminu w notatce."""
+    from app.services import email as email_module
+
+    monkeypatch.setattr(email_module.settings, "SMTP_ENABLED", True)
+    monkeypatch.setattr(email_module.settings, "SMTP_HOST", "smtp.test.local")
+    note_id = await _note_with_read_mention(app_client, setup_users)
+
+    sent = await _patch(
+        app_client,
+        setup_users,
+        note_id,
+        {
+            "content": f"Prep 2 czw 14:00 @{setup_users['target_email']}",
+            "notify_mentions": True,
+        },
+    )
+
+    _, notifs = await _mention_rows(note_id, setup_users["target_id"])
+    assert len(notifs) == 1
+    assert notifs[0].is_read is False
+    assert "zmienił(a) notatkę, w której Cię oznaczył(a)" in notifs[0].title
+    assert "czw 14:00" in notifs[0].message
+    assert len(sent) == 1
+    assert "zmienił(a) notatkę" in sent[0].args[0]["Subject"]
+
+
+async def test_patch_note_without_notify_mentions_stays_silent(
+    app_client: AsyncClient, setup_users, monkeypatch
+):
+    """Bez pola (literówka) — fragment się odświeża, ale nic nie wraca."""
+    from app.services import email as email_module
+
+    monkeypatch.setattr(email_module.settings, "SMTP_ENABLED", True)
+    monkeypatch.setattr(email_module.settings, "SMTP_HOST", "smtp.test.local")
+    note_id = await _note_with_read_mention(app_client, setup_users)
+
+    sent = await _patch(
+        app_client,
+        setup_users,
+        note_id,
+        {"content": f"Prep 2 śr 10:00, poprawka @{setup_users['target_email']}"},
+    )
+
+    _, notifs = await _mention_rows(note_id, setup_users["target_id"])
+    assert len(notifs) == 1
+    assert notifs[0].is_read is True
+    assert "poprawka" in notifs[0].message
+    assert sent == []
+
+
+async def test_patch_note_notify_mentions_skips_unchanged_text_and_removed_person(
+    app_client: AsyncClient, setup_users
+):
+    """Pole bez zmiany treści nic nie wysyła; osoba wycięta z treści też nie."""
+    note_id = await _note_with_read_mention(app_client, setup_users)
+
+    await _patch(
+        app_client,
+        setup_users,
+        note_id,
+        {
+            "content": f"Prep 2 śr 10:00 @{setup_users['target_email']}",
+            "notify_mentions": True,
+        },
+    )
+    _, notifs = await _mention_rows(note_id, setup_users["target_id"])
+    assert [n.is_read for n in notifs] == [True]
+
+    await _patch(
+        app_client,
+        setup_users,
+        note_id,
+        {"content": "Prep 2 czw 14:00 — bez oznaczenia", "notify_mentions": True},
+    )
+    _, notifs = await _mention_rows(note_id, setup_users["target_id"])
+    assert [n.is_read for n in notifs] == [True]

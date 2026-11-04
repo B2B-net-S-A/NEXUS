@@ -28,6 +28,7 @@ Trzy reguły, na których stoi cała reszta:
 from __future__ import annotations
 
 import calendar
+import logging
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
@@ -64,16 +65,22 @@ from app.services.multi_consultant_orders import (
     EVENT_MD_TRANSFER,
     LINE_DECISION_KEEP_HISTORY,
     LINE_DECISION_REMOVED,
+    MD_RATE_SCALE,
     format_md,
     is_multi_consultant_client,
     quantize_md,
 )
 from app.services.shared_md_orders import uses_shared_md_pool
 
+logger = logging.getLogger(__name__)
+
+#: Linie, których korekta następcy/celu trwa w tej sesji (runda 6 audytu,
+#: MD-6) — ochrona łańcucha korekt przed cyklem.
+_REBALANCE_CHAIN_KEY = "md_rebalance_chain_order_ids"
+
 ZERO = Decimal("0")
 HOURS_PER_MD = HOURS_PER_MD_DEC
 STANDARD_WORKING_DAYS_PER_MONTH = MD_PER_MONTH_DEC
-MONEY_SCALE = Decimal("0.01")
 
 # Nazwy miesięcy w MIANOWNIKU — wpis historii brzmi „Za lipiec 2026", a nie
 # „Za 2026-07". Forma mianownikowa jest poprawna po przyimku „za" dla każdego
@@ -290,9 +297,9 @@ def contract_rate_cost_per_md_pln(
         rate_per_md = rate
     else:  # RateUnit.monthly
         rate_per_md = rate / STANDARD_WORKING_DAYS_PER_MONTH
-    # Linia zapisuje Numeric(12,2), więc pole zgodności i ostrzeżenie
+    # Linia zapisuje Numeric(12,3) (0419), więc pole zgodności i ostrzeżenie
     # operują dokładnie na wartościach, które mogą się różnić po zapisie.
-    return (rate_per_md * rate_to_pln).quantize(MONEY_SCALE, rounding=ROUND_HALF_UP)
+    return (rate_per_md * rate_to_pln).quantize(MD_RATE_SCALE, rounding=ROUND_HALF_UP)
 
 
 @dataclass(frozen=True)
@@ -1157,6 +1164,44 @@ async def historical_cost_lines(db: AsyncSession, period_month: str) -> list[Lin
     return matches
 
 
+async def exhausted_cost_lines(db: AsyncSession, period_month: str) -> list[LineMatch]:
+    """Linie WYCZERPANYCH zamówień kosztowych, obsadzające dany miesiąc.
+
+    Runda 10 (R10-N5-6): nie są celem zapisu (z wyczerpanej puli nic się nie
+    zdejmuje, ``cost_lines_settling_in_month``), ale faktura z ich numerem nie
+    może dostać opisu „brak zamówienia o tym numerze” — zamówienie istnieje,
+    tylko skończył się jego budżet, więc kwota jest NIEROZLICZONA.
+    """
+    from app.services.cost_orders import is_cost_order_client
+
+    result = await db.execute(
+        _line_query()
+        .join(ClientOrderGroup, ClientOrder.order_group_id == ClientOrderGroup.id)
+        .join(Contract, ClientOrder.contract_id == Contract.id)
+        .options(selectinload(ClientOrder.order_group))
+        .where(
+            ClientOrderGroup.is_cost_based.is_(True),
+            ClientOrderGroup.status == GROUP_STATUS_EXHAUSTED,
+            *line_settles_in_month_conditions(period_month, include_draft=True),
+        )
+    )
+    matches: list[LineMatch] = []
+    for order in result.scalars():
+        group = order.order_group
+        if group is None or (
+            group.order_type != "cost" and not is_cost_order_client(order.client_id)
+        ):
+            continue
+        candidate = order.contract.candidate if order.contract else None
+        display = (
+            f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+            if candidate
+            else ""
+        )
+        matches.append(LineMatch(order=order, group=group, consultant_name=display))
+    return matches
+
+
 async def historical_shared_md_lines(
     db: AsyncSession, period_month: str
 ) -> list[LineMatch]:
@@ -1203,6 +1248,11 @@ def match_by_name(
     return [m for m in candidates if name_tokens(m.consultant_name) == wanted]
 
 
+def _match_candidate_id(match: LineMatch) -> Optional[int]:
+    contract = getattr(match.order, "contract", None)
+    return getattr(contract, "candidate_id", None)
+
+
 def prefer_active_line(matches: list[LineMatch]) -> list[LineMatch]:
     """Remis rozstrzyga linia aktywna — zakończona jest celem ZAPASOWYM.
 
@@ -1221,8 +1271,17 @@ def prefer_active_line(matches: list[LineMatch]) -> list[LineMatch]:
     Preferencja jest wąska z rozmysłem: wymaga DOKŁADNIE JEDNEJ linii
     aktywnej. Dwie aktywne albo dwie zakończone to nadal niejednoznaczność
     i nadal rozstrzyga ją człowiek — system nie zgaduje (reguła 2 modułu).
+
+    Runda 10 (R10-N5-1): tylko wtedy, gdy wszystkie trafienia to TA SAMA osoba
+    (kandydat kontraktu) u TEGO SAMEGO klienta. Linia zakończona u BNP i aktywna
+    u BIK (albo imiennicy u dwóch klientów) to nie „zejście i wejście” jednej
+    osoby — preferencja zdejmowała MD za pracę u klienta A z zamówienia
+    klienta B.
     """
     if len(matches) <= 1:
+        return matches
+    owners = {(m.group.client_id, _match_candidate_id(m)) for m in matches}
+    if len(owners) != 1 or next(iter(owners))[1] is None:
         return matches
     active = [m for m in matches if m.order.status == ClientOrderStatus.active]
     if len(active) == 1:
@@ -1362,10 +1421,17 @@ async def delete_consumption(
 
 
 async def _has_successor_line(db: AsyncSession, order: ClientOrder) -> bool:
-    """Czy jakaś linia przejęła tę przy zamianie kontraktora."""
+    """Czy jakaś linia przejęła tę przy zamianie kontraktora.
+
+    Runda 8 (N5-2): anulowane zaplanowane zastępstwo nie jest następcą —
+    liczone jako następca blokowało powrót osoby na obsadę po „Przywróć".
+    """
     successor = await db.scalar(
         select(ClientOrder.id)
-        .where(ClientOrder.predecessor_order_id == order.id)
+        .where(
+            ClientOrder.predecessor_order_id == order.id,
+            ClientOrder.status != ClientOrderStatus.cancelled,
+        )
         .limit(1)
     )
     return successor is not None
@@ -1455,9 +1521,10 @@ async def sync_md_line_status(db: AsyncSession, order: ClientOrder) -> bool:
     # także zapis historyczny z niewykorzystanym limitem MD (ticket 09.2026),
     # którego data końca udziału bywa dzisiejsza. Wznowienie współpracy to
     # decyzja człowieka (przywrócenie w offboardingu, nowy kontrakt).
+    # Runda 9 (R9-V1-4): unieważniona umowa (``void``) tym bardziej nie wraca.
     contract = await db.get(Contract, order.contract_id)
     if contract is not None and (
-        getattr(contract.status, "value", contract.status) == "ended"
+        getattr(contract.status, "value", contract.status) in ("ended", "void")
     ):
         return False
     # Osoba świadomie usunięta z zamówienia albo zostawiona jako historia nie
@@ -1525,6 +1592,11 @@ async def _refresh_open_offboarding_snapshot(
         .limit(1)
     )
     if case is None:
+        # Runda 6 audytu (MD-2): korekta zużycia przywróciła pulę osobie,
+        # której sprawa zamknęła się sama („pula wykorzystana”) albo nie
+        # powstała wcale (pula 0 MD przy zakończeniu). Bez tego MD zostawały
+        # na zakończonej linii bez nikogo, kto o nich decyduje.
+        await _reopen_used_up_offboarding(db, order, remaining)
         return
     # Nadwyżka zużycia jest historią, nigdy ujemną pulą do przeniesienia —
     # ta sama zasada co przy zakładaniu sprawy.
@@ -1544,6 +1616,167 @@ async def _refresh_open_offboarding_snapshot(
         await db.flush()
 
 
+async def _reopen_used_up_offboarding(
+    db: AsyncSession, order: ClientOrder, remaining: Decimal
+) -> None:
+    """Pula zakończonej osoby wróciła > 0 — sprawa o puli wraca do decyzji.
+
+    Runda 6 audytu (MD-2). Dwa stany wejściowe, oba bez udziału człowieka:
+
+    * sprawa zamknięta AUTOMATYCZNIE (``md_pool_used_up``: ``remove`` bez
+      autora, ``reason = pool_used_up``) — wraca na ``pending``;
+    * sprawy nie ma, bo przy zakończeniu współpracy pula wynosiła 0 MD
+      (``contract_order_offboarding``: wpis ``pool_used_up`` w historii) —
+      powstaje, z datą zejścia z tamtego wpisu.
+
+    Sprawy rozstrzygniętej przez człowieka nie ruszamy (to jego decyzja),
+    tak samo linii z następcą zamiany i wspólnej puli. Alert DL wraca od
+    razu (nowy epizod), a dobowy ``reconcile_pending_md_offboarding_alerts``
+    jest siatką, gdy emisja się nie uda.
+    """
+    refreshed = max(ZERO, quantize_md(remaining))
+    if (
+        refreshed <= ZERO
+        or order.status != ClientOrderStatus.completed
+        or order.order_group_id is None
+        or order.md_total is None
+    ):
+        return
+
+    from app.models.client_order_offboarding import (
+        OFFBOARDING_RESOLUTION_REMOVE,
+        OFFBOARDING_STATUS_PENDING,
+        OFFBOARDING_STATUS_RESOLVED,
+        ClientOrderOffboardingCase,
+    )
+    from app.services.md_pool_used_up import POOL_USED_UP_REASON
+    from app.services.multi_consultant_orders import EVENT_MD_OFFBOARDING_PENDING
+
+    group = await db.get(ClientOrderGroup, order.order_group_id)
+    if group is None or uses_shared_md_pool(group):
+        return
+    if await _has_successor_line(db, order):
+        return
+
+    latest = await db.scalar(
+        select(ClientOrderOffboardingCase)
+        .where(ClientOrderOffboardingCase.order_id == order.id)
+        .order_by(ClientOrderOffboardingCase.id.desc())
+        .limit(1)
+    )
+    reopened = False
+    if latest is not None:
+        payload = latest.resolution_payload or {}
+        if not (
+            latest.status == OFFBOARDING_STATUS_RESOLVED
+            and latest.resolution == OFFBOARDING_RESOLUTION_REMOVE
+            and latest.resolved_by_user_id is None
+            and payload.get("automatic")
+            and payload.get("reason") == POOL_USED_UP_REASON
+        ):
+            return  # decyzja człowieka albo sprawa w toku — nie nasza
+        case = latest
+        case.status = OFFBOARDING_STATUS_PENDING
+        case.resolution = None
+        case.resolved_at = None
+        case.resolved_by_user_id = None
+        case.target_order_id = None
+        case.rate_basis = None
+        case.resolution_payload = None
+        case.remaining_md_snapshot = refreshed
+        case.version = (case.version or 1) + 1
+        reopened = True
+    else:
+        ended = await db.scalar(
+            select(ClientOrderGroupEvent)
+            .where(
+                ClientOrderGroupEvent.order_id == order.id,
+                ClientOrderGroupEvent.event_type == EVENT_CONSULTANT_ENDED,
+            )
+            .order_by(ClientOrderGroupEvent.id.desc())
+            .limit(1)
+        )
+        ended_payload = dict(ended.payload or {}) if ended is not None else {}
+        if not ended_payload.get("pool_used_up"):
+            return
+        contract = await db.get(Contract, order.contract_id)
+        status_value = (
+            None
+            if contract is None
+            else getattr(contract.status, "value", contract.status)
+        )
+        if status_value not in (
+            ContractStatus.ended.value,
+            ContractStatus.ending.value,
+        ):
+            # Zakończenie cofnięte (albo kontrakt znowu żywy) — nie ma zejścia,
+            # o którego pulę trzeba decydować.
+            return
+        try:
+            effective_date = date.fromisoformat(
+                str(ended_payload.get("effective_date"))
+            )
+        except ValueError:
+            return
+        from app.services.contract_order_offboarding import _ensure_md_case
+
+        case, _created = await _ensure_md_case(
+            db,
+            order=order,
+            group=group,
+            effective_date=effective_date,
+            remaining_md=refreshed,
+            uses_shared_md_pool=False,
+            actor_id=None,
+        )
+        if case.status != OFFBOARDING_STATUS_PENDING:
+            return
+
+    who = await _person_name(db, order)
+    record_event(
+        db,
+        group_id=group.id,
+        order_id=order.id,
+        event_type=EVENT_MD_OFFBOARDING_PENDING,
+        description=(
+            f"{who}: korekta zużycia przywróciła pulę {format_md(refreshed)} MD "
+            "po zakończeniu współpracy — wymagana decyzja Delivery Leada."
+        ),
+        payload={
+            "offboarding_case_id": case.id,
+            "order_id": order.id,
+            "effective_date": case.effective_date.isoformat(),
+            "remaining_md": str(refreshed),
+            "uses_shared_md_pool": False,
+            "reopened": reopened,
+            "reason": "pool_restored_by_correction",
+        },
+    )
+    # Sesje mają ``autoflush=False``: `sync_md_group_exhaustion` w SQL-u musi
+    # widzieć sprawę „do decyzji”, która trzyma zamówienie otwarte.
+    await db.flush()
+    from app.services.dl_alerts import emit_md_consultant_ended
+
+    try:
+        async with db.begin_nested():
+            await emit_md_consultant_ended(
+                db,
+                case_id=case.id,
+                client_id=case.client_id,
+                order_id=case.order_id,
+                order_group_id=case.order_group_id,
+                order_number=case.order_number_snapshot,
+                consultant_name=who,
+                effective_date=case.effective_date,
+                remaining_md=refreshed,
+                uses_shared_md_pool=False,
+            )
+    except Exception:  # noqa: BLE001 — alert nadrobi dobowy reconcile
+        logger.exception(
+            "Nie wysłano alertu DL po ponownym otwarciu sprawy MD case=%s", case.id
+        )
+
+
 async def recompute_remaining(
     db: AsyncSession, order: ClientOrder, *, rebalance: bool = True
 ) -> Decimal:
@@ -1553,7 +1786,8 @@ async def recompute_remaining(
     koryguje budżet NASTĘPCY po zamianie kontraktora i celu transferu puli
     przy offboardingu — patrz :func:`_rebalance_swap_successor` i
     :func:`_rebalance_offboarding_transfer`. Korekta woła tę funkcję dla
-    następcy z ``rebalance=False`` (głębokość 1).
+    następcy/celu z korektą (runda 6 audytu: łańcuch A→B→C), a dla samej
+    linii źródłowej z ``rebalance=False``.
 
     Jedyny writer tego pola. Wartość może zejść do zera i poniżej —
     przekroczony budżet jest faktem handlowym, więc nie jest tu ścinany;
@@ -1585,8 +1819,17 @@ async def recompute_remaining(
             db, order.order_group_id, client_id=order.client_id
         )
     if rebalance and order.id is not None:
-        await _rebalance_swap_successor(db, order)
-        await _rebalance_offboarding_transfer(db, order)
+        # Runda 6 audytu (MD-6): korekta następcy przelicza go Z korektą,
+        # więc łańcuch zamian A→B→C dochodzi do C. Zbiór linii w toku
+        # (``session.info``) chroni przed cyklem w danych.
+        chain: set[int] = db.info.setdefault(_REBALANCE_CHAIN_KEY, set())
+        if order.id not in chain:
+            chain.add(order.id)
+            try:
+                await _rebalance_swap_successor(db, order)
+                await _rebalance_offboarding_transfer(db, order)
+            finally:
+                chain.discard(order.id)
     return order.md_remaining if order.md_remaining is not None else remaining
 
 
@@ -1772,11 +2015,12 @@ async def _rebalance_swap_successor(db: AsyncSession, order: ClientOrder) -> Non
             "new_md_total": str(new_total),
         },
     )
-    await recompute_remaining(db, succ, rebalance=False)
+    await recompute_remaining(db, succ)
 
 
 async def _rebalance_offboarding_transfer(db: AsyncSession, order: ClientOrder) -> None:
     from app.models.client_order_offboarding import (
+        OFFBOARDING_RESOLUTION_REMOVE,
         OFFBOARDING_RESOLUTION_TRANSFER,
         OFFBOARDING_STATUS_RESOLVED,
         ClientOrderOffboardingCase,
@@ -1789,14 +2033,20 @@ async def _rebalance_offboarding_transfer(db: AsyncSession, order: ClientOrder) 
 
     if order.md_total is None or order.order_group_id is None:
         return
+    # Runda 6 audytu (MD-1): także „oddaj pulę” (remove). Decyzja zdjęła
+    # z wartości zamówienia migawkę pozostałości z chwili kliknięcia, a raport
+    # za miesiąc zejścia przychodzi później — bez korekty te same MD były
+    # jednocześnie zużyciem i „utraconą pulą”: saldo ujemne (fałszywe
+    # przekroczenie puli) i zaniżona wartość zamówienia.
     case = await db.scalar(
         select(ClientOrderOffboardingCase)
         .where(
             ClientOrderOffboardingCase.order_id == order.id,
             ClientOrderOffboardingCase.status == OFFBOARDING_STATUS_RESOLVED,
-            ClientOrderOffboardingCase.resolution == OFFBOARDING_RESOLUTION_TRANSFER,
+            ClientOrderOffboardingCase.resolution.in_(
+                (OFFBOARDING_RESOLUTION_TRANSFER, OFFBOARDING_RESOLUTION_REMOVE)
+            ),
             ClientOrderOffboardingCase.uses_shared_md_pool.is_(False),
-            ClientOrderOffboardingCase.target_order_id.is_not(None),
         )
         .order_by(ClientOrderOffboardingCase.id.desc())
         .limit(1)
@@ -1811,6 +2061,11 @@ async def _rebalance_offboarding_transfer(db: AsyncSession, order: ClientOrder) 
         order.md_total, payload.get("source_md_total_after")
     ) or not _same_md(order.md_optional_total, payload.get("source_md_optional_after")):
         return  # linia odchodzącego edytowana ręcznie
+    if case.resolution == OFFBOARDING_RESOLUTION_REMOVE:
+        await _rebalance_offboarding_removal(db, order, case, payload, before)
+        return
+    if case.target_order_id is None:
+        return
     target = await db.get(ClientOrder, case.target_order_id)
     if target is None or target.md_total is None:
         return
@@ -1868,15 +2123,39 @@ async def _rebalance_offboarding_transfer(db: AsyncSession, order: ClientOrder) 
         select(ClientOrder.id).where(ClientOrder.id == target.id).with_for_update()
     )
     delta = new_transferred - quantize_md(old_transferred)
-    target.md_total = quantize_md(Decimal(str(target.md_total)) + delta)
+    previous_target_total = Decimal(str(target.md_total))
+    if delta >= 0:
+        target.md_total = quantize_md(previous_target_total + delta)
+    else:
+        # Audyt 25.09.2026: po przejęciu z zakresem opcjonalnym („Wejdź za
+        # konsultanta") pula celu siedzi w podstawie I opcji — ujemna korekta
+        # zdejmowana w całości z `md_total` potrafiła zejść poniżej zera
+        # (podstawa 17, opcja 170, korekta −50 → −33). Lustro
+        # `_reduce_legacy_md_budget`: najpierw opcja, potem podstawa, żadna
+        # poniżej zera; nadwyżka (tylko przy ręcznie zmienionej opcji) idzie
+        # do korekty ręcznej, żeby pozostało zgadzało się z przeliczeniem.
+        cut = -delta
+        if target.md_optional_total is not None:
+            optional_total = Decimal(str(target.md_optional_total))
+            optional_cut = min(optional_total, max(ZERO, cut))
+            target.md_optional_total = quantize_md(optional_total - optional_cut)
+            cut -= optional_cut
+        base_cut = min(previous_target_total, max(ZERO, cut))
+        target.md_total = quantize_md(previous_target_total - base_cut)
+        overflow = cut - base_cut
+        if overflow > 0:
+            target.md_manual_adjustment = quantize_md(
+                Decimal(str(target.md_manual_adjustment or 0)) - overflow
+            )
+    base_delta = Decimal(str(target.md_total)) - previous_target_total
     if target.md_input_mode == INPUT_MODE_AMOUNT:
         target.md_input_value = quantize_md(
-            Decimal(str(target.md_input_value or 0)) + delta * target_rate
+            Decimal(str(target.md_input_value or 0)) + base_delta * target_rate
         )
     else:
         target.md_input_mode = INPUT_MODE_MD
         target.md_input_value = quantize_md(
-            Decimal(str(target.md_input_value or 0)) + delta
+            Decimal(str(target.md_input_value or 0)) + base_delta
         )
     payload.update(
         {
@@ -1913,7 +2192,79 @@ async def _rebalance_offboarding_transfer(db: AsyncSession, order: ClientOrder) 
         },
     )
     await recompute_remaining(db, order, rebalance=False)
-    await recompute_remaining(db, target, rebalance=False)
+    await recompute_remaining(db, target)
+
+
+async def _rebalance_offboarding_removal(
+    db: AsyncSession,
+    order: ClientOrder,
+    case,
+    payload: dict,
+    before: dict,
+) -> None:
+    """Korekta zdjętej puli po „oddaj pulę” (runda 6 audytu, MD-1).
+
+    Lustro transferu bez celu: odtwórz budżet odchodzącego sprzed decyzji
+    i zdejmij z niego pulę, która NAPRAWDĘ została po zaległych zejściach
+    (nigdy ujemną — nadwyżka zużycia jest prawdziwym przekroczeniem).
+    """
+    from fastapi import HTTPException
+
+    from app.api.client_order_groups import _reduce_legacy_md_budget
+    from app.services.multi_consultant_orders import EVENT_MANUAL_EDIT
+
+    old_remaining = _dec_or_none(payload.get("remaining_md_snapshot"))
+    before_total = _dec_or_none(before.get("md_total"))
+    if old_remaining is None or before_total is None:
+        return
+    before_optional = _dec_or_none(before.get("md_optional_total"))
+    before_adjustment = _dec_or_none(before.get("md_manual_adjustment")) or ZERO
+    consumed = await consumed_md(db, order.id)
+    budget_before = before_total + (before_optional or ZERO)
+    new_remaining = max(ZERO, quantize_md(budget_before - consumed + before_adjustment))
+    if new_remaining == quantize_md(old_remaining):
+        return
+    order.md_total = before_total
+    order.md_optional_total = before_optional
+    order.md_manual_adjustment = before_adjustment
+    order.md_input_mode = before.get("md_input_mode")
+    order.md_input_value = _dec_or_none(before.get("md_input_value"))
+    try:
+        _reduce_legacy_md_budget(order, new_remaining)
+    except HTTPException:
+        return
+    payload.update(
+        {
+            "remaining_md_snapshot": str(new_remaining),
+            "source_md_total_after": str(order.md_total),
+            "source_md_optional_after": (
+                None
+                if order.md_optional_total is None
+                else str(order.md_optional_total)
+            ),
+        }
+    )
+    # Nowy dict: mutacja JSONB w miejscu nie jest widoczna dla ORM.
+    case.resolution_payload = payload
+    source_name = await _person_name(db, order)
+    record_event(
+        db,
+        group_id=order.order_group_id,
+        order_id=order.id,
+        event_type=EVENT_MANUAL_EDIT,
+        description=(
+            "Korekta oddanej puli MD po rozliczeniu miesiąca zejścia: "
+            f"{source_name} {format_md(old_remaining)} MD → "
+            f"{format_md(new_remaining)} MD zdjęte z wartości zamówienia."
+        ),
+        payload={
+            "kind": "offboarding_removal_rebalance",
+            "offboarding_case_id": case.id,
+            "previous_removed_md": str(old_remaining),
+            "removed_md": str(new_remaining),
+        },
+    )
+    await recompute_remaining(db, order, rebalance=False)
 
 
 async def upsert_consumption(
@@ -2379,6 +2730,63 @@ async def _revert_earlier_transfer(
     )
 
 
+async def _revert_earlier_predecessor_split(
+    db: AsyncSession,
+    *,
+    order: ClientOrder,
+    group: ClientOrderGroup,
+    period_month: str,
+    import_id: Optional[int],
+    user_id: Optional[int],
+) -> None:
+    """Lustro :func:`_revert_earlier_transfer` od strony NASTĘPCY.
+
+    Runda 10 (R10-N5-3): wcześniejsza paczka podzieliła raport osoby — część
+    na poprzedniku, nadwyżka na tym zamówieniu (``transfer_md``). Nowy wiersz
+    z numerem TEGO zamówienia niesie całą liczbę, więc wpis poprzednika za ten
+    miesiąc liczyłby część tych samych MD drugi raz. Cofamy go tylko wtedy,
+    gdy ``_month_split_from_predecessor`` potwierdza podział (wpis poprzednika
+    z importu, z INNEJ paczki, dziennik ma przeniesienie za ten miesiąc).
+    Wpis poprzednika z tej samej paczki to jego własny wiersz arkusza.
+    """
+    pred_line, pred_group = await predecessor_line_for(db, order)
+    if pred_line is None or pred_group is None:
+        return
+    if not await _month_split_from_predecessor(
+        db,
+        predecessor_line=pred_line,
+        predecessor_group=pred_group,
+        successor_group_id=group.id,
+        period_month=period_month,
+        import_id=import_id,
+    ):
+        return
+    from app.services.contract_lifecycle import lock_contract_then_orders
+
+    await lock_contract_then_orders(db, order_ids=[pred_line.id])
+    removed = await delete_consumption(db, pred_line, period_month)
+    if removed is None or quantize_md(removed) == ZERO:
+        return
+    record_event(
+        db,
+        group_id=pred_group.id,
+        order_id=pred_line.id,
+        event_type=EVENT_MD_IMPORT,
+        description=(
+            f"Za {format_period_month(period_month)} cofnięto {format_md(removed)} MD "
+            f"z wcześniejszego podziału miesiąca — import wskazał numerem "
+            f"zamówienie nr {group.order_number} i rozliczył na nim całość."
+        ),
+        payload={
+            "period_month": period_month,
+            "md_reverted": str(removed),
+            "successor_group_id": group.id,
+            "import_id": import_id,
+        },
+        user_id=user_id,
+    )
+
+
 async def apply_md_consumption(
     db: AsyncSession,
     *,
@@ -2473,6 +2881,14 @@ async def apply_md_consumption(
             )
     elif allow_successor_transfer and group is not None:
         await _revert_earlier_transfer(
+            db,
+            order=order,
+            group=group,
+            period_month=period_month,
+            import_id=import_id,
+            user_id=user_id,
+        )
+        await _revert_earlier_predecessor_split(
             db,
             order=order,
             group=group,
@@ -2643,6 +3059,25 @@ def record_event(
     payload: Optional[dict] = None,
     user_id: Optional[int] = None,
 ) -> ClientOrderGroupEvent:
+    # Ticket 7 (25.09.2026): to samo zdarzenie zapisane dwa razy w jednej
+    # transakcji (dwie ścieżki przeliczenia wołające ten sam hak) dawało dwa
+    # identyczne wpisy „Zakończono zamówienie" z tą samą minutą. Identyczny,
+    # jeszcze niezapisany wpis w sesji = ten sam fakt — zwracamy istniejący.
+    try:
+        pending = list(db.new)
+    except (AttributeError, TypeError):  # atrapa sesji w testach jednostkowych
+        pending = []
+    for existing in pending:
+        if (
+            isinstance(existing, ClientOrderGroupEvent)
+            and existing.group_id == group_id
+            and existing.order_id == order_id
+            and existing.event_type == event_type
+            and existing.description == description
+            and existing.payload == payload
+            and existing.created_by_user_id == user_id
+        ):
+            return existing
     event = ClientOrderGroupEvent(
         group_id=group_id,
         order_id=order_id,

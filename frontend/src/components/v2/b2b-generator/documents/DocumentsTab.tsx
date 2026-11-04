@@ -1,19 +1,24 @@
 "use client";
 
-// Zakładka „Dokumenty” Generatora Umów B2B (`?tab=documents`): lista aneksów,
-// rozwiązań i umów przedwstępnych + kreator „Nowy dokument”. Wejście z adresu
+// Zakładka „Dokumenty” Generatora Umów B2B (`?tab=documents`): lista
+// rozwiązań, wypowiedzeń i umów przedwstępnych + kreator „Nowy dokument”.
+// Aneksy mają własny rejestr w zakładce „Generator aneksów” (13.10.2026) —
+// tu ich nie ma, żeby nie było dwóch list tego samego. Wejście z adresu
 // (`?new=<typ>&parent=<id>` albo `&contract=<id>` z modułu Kontrakty) otwiera
 // kreator; efekt działa na WARTOŚCI parametrów, bo link z wiersza rejestru to
 // miękka nawigacja na tej samej stronie.
 
 import { useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import { useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import {
   CheckCircle2,
   Download,
   FilePen,
   FilePlus2,
+  FileText,
   Loader2,
   MoreHorizontal,
   Search,
@@ -51,8 +56,14 @@ import {
 } from "@/lib/api/b2bDocuments";
 import {
   DOCUMENTS_INTENT_KEYS,
+  NON_ANNEX_FAMILIES,
+  annexRegisterHref,
+  annexesHref,
+  createdInAnnexGenerator,
   documentStatusLabel,
+  isAnnexTypeKey,
   intentOpensWizard,
+  intentValueKeys,
   parseDocumentsIntent,
   readDocumentError,
   redownloadNeedsInput,
@@ -64,10 +75,11 @@ import {
   CancelDocumentDialog,
   ConfirmSignedDialog,
   RedownloadDialog,
-  saveDocx,
+  downloadDocumentFile,
+  offersPdf,
+  type DocumentFileFormat,
 } from "./DocumentDialogs";
 import { DocumentWizard } from "./DocumentWizard";
-import { BusinessDataAnnexQueue } from "./BusinessDataAnnexQueue";
 
 const SELECT_CLASS =
   "flex h-9 w-full rounded-md border border-border bg-card px-3 text-sm text-foreground";
@@ -85,12 +97,14 @@ export interface WizardState {
   parentId: number | null;
   contractId: number | null;
   editId: number | null;
+  /** Wartości startowe z adresu (np. daty z okna „Zakończ współpracę”). */
+  values?: Record<string, string | boolean>;
 }
 
 export function DocumentsTab({ canGenerate = true }: { canGenerate?: boolean }) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
-  const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   const intent = parseDocumentsIntent(searchParams);
   const [wizard, setWizard] = useState<WizardState | null>(null);
 
@@ -98,19 +112,31 @@ export function DocumentsTab({ canGenerate = true }: { canGenerate?: boolean }) 
   // pustego kreatora po zapisanym dokumencie.
   useEffect(() => {
     if (!intentOpensWizard(intent)) return;
+    if (intent.newType && isAnnexTypeKey(intent.newType)) {
+      // Stary link „?tab=documents&new=annex_…” — aneksy tworzy Generator aneksów.
+      replaceUrl(
+        annexesHref({
+          newType: intent.newType,
+          parentId: intent.parentId,
+          contractId: intent.contractId,
+        }),
+      );
+      return;
+    }
     setWizard({
       key: Date.now(),
       type: intent.newType || null,
       parentId: intent.parentId,
       contractId: intent.contractId,
       editId: null,
+      values: intent.values,
     });
     const params = new URLSearchParams(searchParams?.toString() ?? "");
-    for (const key of DOCUMENTS_INTENT_KEYS) params.delete(key);
+    for (const key of [...DOCUMENTS_INTENT_KEYS, ...intentValueKeys(params)]) {
+      params.delete(key);
+    }
     const query = params.toString();
-    router.replace(query ? `${pathname ?? ""}?${query}` : (pathname ?? ""), {
-      scroll: false,
-    });
+    replaceUrl(query ? `${pathname ?? ""}?${query}` : (pathname ?? ""));
     // Tylko wartości parametrów — `searchParams` zmienia tożsamość przy
     // każdej nawigacji, a zdjęcie parametrów nie może otworzyć kreatora znowu.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -145,7 +171,12 @@ export function DocumentsTabContent({
   const [search, setSearch] = useState("");
   const q = useDebouncedValue(search, 300).trim();
   const list = useInfiniteQuery({
-    queryKey: b2bDocumentsKeys.list({ documentType, status, q }),
+    queryKey: b2bDocumentsKeys.list({
+      documentType,
+      status,
+      q,
+      family: NON_ANNEX_FAMILIES,
+    }),
     initialPageParam: 0,
     getNextPageParam: (lastPage: DocumentItem[], allPages: DocumentItem[][]) =>
       lastPage.length < B2B_DOCUMENTS_PAGE_SIZE
@@ -153,6 +184,7 @@ export function DocumentsTabContent({
         : allPages.length * B2B_DOCUMENTS_PAGE_SIZE,
     queryFn: ({ pageParam }: { pageParam: number }) =>
       b2bDocumentsApi.list({
+        family: NON_ANNEX_FAMILIES,
         documentType: documentType || undefined,
         status: status || undefined,
         q,
@@ -181,6 +213,7 @@ export function DocumentsTabContent({
           initialType={wizard.type}
           initialParentId={wizard.parentId}
           initialContractId={wizard.contractId}
+          initialValues={wizard.values}
           editDocumentId={wizard.editId}
           onClose={onCloseWizard}
         />
@@ -201,26 +234,22 @@ export function DocumentsTabContent({
         </p>
       ) : null}
 
-      <BusinessDataAnnexQueue
-        enabled={canGenerate && !wizard}
-        onStart={(row) =>
-          onOpenWizard({
-            type: "annex_party_data",
-            parentId: row.id,
-            contractId: null,
-            editId: null,
-          })
-        }
-      />
-
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
           <div>
             <CardTitle className="text-base">Dokumenty do umów</CardTitle>
             <CardDescription>
-              Aneksy, porozumienia i wypowiedzenia do umów z rejestru oraz
-              umowy przedwstępne. Po podpisie oznacz dokument jako podpisany —
-              NEXUS zastosuje jego skutki w kontrakcie i rejestrze.
+              Porozumienia i wypowiedzenia do umów z rejestru oraz umowy
+              przedwstępne. Po podpisie oznacz dokument jako podpisany — NEXUS
+              zastosuje jego skutki w kontrakcie i rejestrze. Aneksy
+              przygotujesz i znajdziesz w zakładce{" "}
+              <Link
+                href={annexRegisterHref(null)}
+                className="font-medium text-primary hover:underline"
+              >
+                Generator aneksów
+              </Link>
+              .
             </CardDescription>
           </div>
           {canGenerate ? (
@@ -258,11 +287,13 @@ export function DocumentsTabContent({
                 onChange={(e) => setDocumentType(e.target.value)}
               >
                 <option value="">Wszystkie</option>
-                {(types.data?.types ?? []).map((t) => (
-                  <option key={t.key} value={t.key}>
-                    {t.label}
-                  </option>
-                ))}
+                {(types.data?.types ?? [])
+                  .filter((t) => !createdInAnnexGenerator(t))
+                  .map((t) => (
+                    <option key={t.key} value={t.key}>
+                      {t.label}
+                    </option>
+                  ))}
               </select>
             </div>
             <div className="space-y-1">
@@ -345,11 +376,10 @@ export function DocumentsListView({
   const [redownloadRow, setRedownloadRow] = useState<DocumentItem | null>(null);
   const [cancelRow, setCancelRow] = useState<{ item: DocumentItem; mode: "cancel" | "delete" } | null>(null);
   const download = useMutation({
-    mutationFn: async (item: DocumentItem) => {
-      const res = await b2bDocumentsApi.redownload(item.id);
-      saveDocx(res as { data: unknown; headers: Record<string, unknown> }, `${item.type_label}.docx`);
+    mutationFn: async ({ item, format }: { item: DocumentItem; format: DocumentFileFormat }) => {
+      await downloadDocumentFile(item, format);
     },
-    onError: async (e, item) => {
+    onError: async (e, { item }) => {
       const parsed = await readDocumentError(e, "Nie udało się pobrać dokumentu.");
       // Serwer może wymagać danych wrażliwych, których lista nie przewidziała.
       if (parsed.code === "sensitive_values_required") setRedownloadRow(item);
@@ -396,7 +426,7 @@ export function DocumentsListView({
         description={
           filtered
             ? "Zmień filtry albo wyczyść wyszukiwanie."
-            : "Aneks, porozumienie albo wypowiedzenie wygenerujesz przyciskiem „Nowy dokument” albo z wiersza umowy w rejestrze."
+            : "Porozumienie albo wypowiedzenie przygotujesz przyciskiem „Nowy dokument” albo z wiersza umowy w rejestrze. Aneksy są w zakładce „Generator aneksów”."
         }
       />
     );
@@ -419,7 +449,14 @@ export function DocumentsListView({
           <tbody>
             {rows.map((item) => {
               const badge = documentStatusLabel(item);
-              const downloading = download.isPending && download.variables?.id === item.id;
+              const downloading =
+                download.isPending &&
+                download.variables?.item.id === item.id &&
+                download.variables.format === "docx";
+              const downloadingPdf =
+                download.isPending &&
+                download.variables?.item.id === item.id &&
+                download.variables.format === "pdf";
               return (
                 <tr key={item.id} className="border-b border-border align-top">
                   <td className="py-2 pr-4">
@@ -453,7 +490,9 @@ export function DocumentsListView({
                         size="icon-sm"
                         disabled={downloading}
                         onClick={() =>
-                          redownloadNeedsInput(item) ? setRedownloadRow(item) : download.mutate(item)
+                          redownloadNeedsInput(item)
+                            ? setRedownloadRow(item)
+                            : download.mutate({ item, format: "docx" })
                         }
                         title="Pobierz DOCX"
                         aria-label={`Pobierz: ${item.label}`}
@@ -464,6 +503,27 @@ export function DocumentsListView({
                           <Download className="h-4 w-4" />
                         )}
                       </Button>
+                      {offersPdf(item) ? (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          disabled={downloadingPdf}
+                          onClick={() =>
+                            // Okno danych wrażliwych ma też „Pobierz PDF”.
+                            redownloadNeedsInput(item)
+                              ? setRedownloadRow(item)
+                              : download.mutate({ item, format: "pdf" })
+                          }
+                          title="Pobierz PDF"
+                          aria-label={`Pobierz PDF: ${item.label}`}
+                        >
+                          {downloadingPdf ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <FileText className="h-4 w-4" />
+                          )}
+                        </Button>
+                      ) : null}
                       {item.can_edit ? (
                         <Button
                           variant="ghost"

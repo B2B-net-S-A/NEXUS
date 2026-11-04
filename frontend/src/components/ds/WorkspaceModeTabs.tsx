@@ -13,8 +13,8 @@ export interface WorkspaceMode<T extends string> {
 
 /**
  * Przełącznik trybów jednego ekranu (Klienci: lista / kontakty; Kontrakty:
- * rejestr / obsługa / skrzynka zamówień). Te same klasy co dawny przełącznik
- * w `/contracts`, żeby oba ekrany wyglądały identycznie.
+ * rejestr / obsługa / skrzynka zamówień). Zakładki z podkreśleniem pod
+ * tytułem widoku — układ z makiety B (29.09.2026), wspólny dla obu ekranów.
  */
 export function WorkspaceModeTabs<T extends string>({
   label,
@@ -31,7 +31,7 @@ export function WorkspaceModeTabs<T extends string>({
     <div
       role="tablist"
       aria-label={label}
-      className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-[hsl(var(--border))] bg-muted/40 p-1"
+      className="flex gap-0.5 overflow-x-auto border-b border-border"
     >
       {modes.map((mode) => {
         const active = mode.value === value;
@@ -43,10 +43,10 @@ export function WorkspaceModeTabs<T extends string>({
             aria-selected={active}
             onClick={() => onChange(mode.value)}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              "-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-1.5 text-[13px] transition-colors pointer-coarse:min-h-10",
               active
-                ? "bg-background text-foreground shadow-xs"
-                : "text-muted-foreground hover:text-foreground",
+                ? "border-primary font-semibold text-foreground"
+                : "border-transparent font-medium text-muted-foreground hover:text-foreground",
             )}
           >
             {mode.icon}

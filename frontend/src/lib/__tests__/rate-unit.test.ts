@@ -3,9 +3,11 @@ import {
   contractRateUnitToInputUnit,
   HOURS_PER_MD,
   MD_PER_MONTH,
+  contractRateField,
   convertRate,
+  formatRateField,
+  normalizeRateField,
   rateUnitLabel,
-  roundTo2,
   toMdRate,
   toPlnMdRate,
 } from "@/lib/rate-unit";
@@ -25,13 +27,14 @@ describe("rate-unit — przelicznik godzinowa / miesięczna ↔ MD", () => {
   });
 
   it("ta sama jednostka tylko zaokrągla", () => {
-    expect(convertRate(130.456, "hour", "hour")).toBe(130.46);
+    expect(convertRate(130.4565, "hour", "hour")).toBe(130.457);
   });
 
-  it("zaokrągla do 2 miejsc w obie strony", () => {
-    // 1000 / 8 = 125 dokładnie; 1005 / 8 = 125,625 → 125,63
-    expect(convertRate(1005, "md", "hour")).toBe(125.63);
-    expect(convertRate(125.634, "hour", "md")).toBe(1005.07);
+  it("zaokrągla do 3 miejsc w obie strony (stawki linii MD, 0419)", () => {
+    // 291 / 8 = 36,375 — dwa miejsca pokazywały „36.38”, a ×8 dawało 291,04.
+    expect(convertRate(291, "md", "hour")).toBe(36.375);
+    expect(convertRate(36.375, "hour", "md")).toBe(291);
+    expect(convertRate(125.6344, "hour", "md")).toBe(1005.075);
   });
 
   it("round-trip wraca do wartości wyjściowej dla kwot podzielnych", () => {
@@ -40,9 +43,27 @@ describe("rate-unit — przelicznik godzinowa / miesięczna ↔ MD", () => {
     expect(convertRate(md, "md", "hour")).toBe(hourly);
   });
 
-  it("zaokrąglenie jest odporne na błąd binarny (1.005 → 1.01)", () => {
-    expect(roundTo2(1.005)).toBe(1.01);
-    expect(roundTo2(2.675)).toBe(2.68);
+  it("zaokrąglenie jest odporne na błąd binarny (1.0005 → 1.001)", () => {
+    expect(convertRate(1.0005, "md", "md")).toBe(1.001);
+    expect(convertRate(2.6755, "md", "md")).toBe(2.676);
+  });
+
+  it("pole stawki zawsze ma trzy miejsca po przecinku", () => {
+    expect(formatRateField(36.375)).toBe("36.375");
+    expect(formatRateField(1000)).toBe("1000.000");
+    expect(formatRateField(36.38)).toBe("36.380");
+    expect(formatRateField(null)).toBe("");
+    expect(normalizeRateField("36,375")).toBe("36.375");
+    expect(normalizeRateField("1200")).toBe("1200.000");
+    expect(normalizeRateField("  ")).toBe("");
+  });
+
+  it("stawka kontraktu spoza 3 miejsc wchodzi w MD bez utraty groszy", () => {
+    // 1001,55 zł/MD = 125,19375 zł/h — „125.194” ×8 dałoby 1001,552.
+    expect(contractRateField(125.19375, "hour")).toEqual({ value: "1001.550", unit: "md" });
+    expect(contractRateField(36.375, "hour")).toEqual({ value: "36.375", unit: "hour" });
+    expect(contractRateField(60, "hour")).toEqual({ value: "60.000", unit: "hour" });
+    expect(contractRateField(null, "hour")).toEqual({ value: "", unit: "hour" });
   });
 
   it("wejście niepoliczalne zwraca null, nie NaN", () => {
@@ -53,16 +74,16 @@ describe("rate-unit — przelicznik godzinowa / miesięczna ↔ MD", () => {
   it("zapis zawsze idzie w zł/MD — niezależnie od wybranej jednostki", () => {
     expect(toMdRate(130, "hour")).toBe(1040);
     expect(toMdRate(1040, "md")).toBe(1040);
-    expect(toMdRate(12000, "month")).toBe(571.43);
+    expect(toMdRate(12000, "month")).toBe(571.429);
   });
 
   it("stosuje kurs do PLN przed końcowym zaokrągleniem", () => {
     expect(toPlnMdRate(60, "hour", 1)).toBe(480);
     expect(toPlnMdRate(100, "hour", 4.25)).toBe(3400);
-    expect(toPlnMdRate(12000, "month", 4.25)).toBe(2428.57);
-    // 978,285 / 21 = 46,585 — wymagane finansowe ROUND_HALF_UP, nie wynik
+    expect(toPlnMdRate(12000, "month", 4.25)).toBe(2428.571);
+    // 978,2955 / 21 = 46,5855 — wymagane finansowe ROUND_HALF_UP, nie wynik
     // zależny od binarnej reprezentacji IEEE-754.
-    expect(toPlnMdRate(978.285, "month", 1)).toBe(46.59);
+    expect(toPlnMdRate(978.2955, "month", 1)).toBe(46.586);
   });
 
   it("mapuje jednostkę kontraktu, a brak metadanych zgodnie wstecznie na MD", () => {

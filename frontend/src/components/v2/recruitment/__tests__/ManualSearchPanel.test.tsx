@@ -1,30 +1,59 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ getReqs: vi.fn(), view: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  getReqs: vi.fn(),
+  list: vi.fn(),
+  mounts: 0,
+  getChampion: vi.fn(),
+  classify: vi.fn(),
+  remove: vi.fn(),
+  alsoFits: vi.fn(),
+}));
+
+vi.mock("@/lib/keyword-suggest", () => ({
+  classifyKeywords: (...a: unknown[]) => mocks.classify(...a),
+}));
+
+vi.mock("@/lib/api", () => ({
+  championApi: { get: (...a: unknown[]) => mocks.getChampion(...a) },
+  candidatesApi: { removeFromRecruitment: (...a: unknown[]) => mocks.remove(...a) },
+}));
+vi.mock("@/lib/also-fits-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/also-fits-api")>();
+  return { ...actual, alsoFitsApi: { get: (...a: unknown[]) => mocks.alsoFits(...a) } };
+});
+vi.mock("@/lib/candidate-search-api", () => ({ proposalsBulkApi: { add: vi.fn() } }));
 
 vi.mock("@/lib/matching-requirements", () => ({
   matchingRequirementsApi: { get: (...a: unknown[]) => mocks.getReqs(...a) },
   // Uproszczone lustro: etykiety pozycji `must`.
   requirementLabels: (data: { must: string[] }) => data.must,
 }));
-vi.mock("@/lib/job-search-prefill", () => ({
-  buildJobSearchPrefill: (job: { title: string }, must: string[] | null) => ({
-    fromJob: job.title,
-    must,
-  }),
-}));
-vi.mock("@/components/v2/pages/CandidateSearchView", () => ({
-  CandidateSearchView: (props: unknown) => {
-    mocks.view(props);
-    return <div data-testid="candidate-search-view" />;
+vi.mock("@/components/v2/pages/CandidatesListV2", () => ({
+  CandidatesListV2: function MockList(props: unknown) {
+    mocks.list(props);
+    useEffect(() => {
+      mocks.mounts += 1;
+    }, []);
+    return <div data-testid="candidates-list" />;
   },
 }));
 
-import { ManualSearchPanel } from "@/components/v2/recruitment/ManualSearchPanel";
+import { jobListFilters, ManualSearchPanel } from "@/components/v2/recruitment/ManualSearchPanel";
+import type { CandidatesListEmbed } from "@/components/v2/pages/CandidatesListV2";
+import { effectiveSort } from "@/lib/url-filters";
 
-const JOB = { id: 7, title: "Java Developer", must_skills: ["Java"] };
+const JOB = {
+  id: 7,
+  title: "PKO BP: Analityk Systemowy (ZOB-1725)",
+  must_skills: ["Java"],
+  location: "Warszawa",
+  remote_policy: "hybrid",
+  competence_category_id: 5,
+};
 
 function renderPanel(props: Partial<React.ComponentProps<typeof ManualSearchPanel>> = {}) {
   return render(
@@ -34,33 +63,298 @@ function renderPanel(props: Partial<React.ComponentProps<typeof ManualSearchPane
   );
 }
 
-describe("ManualSearchPanel", () => {
-  beforeEach(() => vi.clearAllMocks());
+function lastEmbed(): CandidatesListEmbed {
+  const props = mocks.list.mock.calls.at(-1)?.[0] as { embed: CandidatesListEmbed };
+  return props.embed;
+}
 
-  it("montuje wyszukiwarkę dopiero PO odczycie wymagań i zasila ją rekrutacją", async () => {
-    mocks.getReqs.mockResolvedValue({ must: ["Java 17", "Kafka"] });
+describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getChampion.mockResolvedValue({ data: { champion_profile: {} } });
+    mocks.alsoFits.mockResolvedValue({ candidate_id: 0, from_job_id: 7, status: "ok", jobs: [] });
+    // Technologie ze słownika: „Java”, „Kafka RabbitMQ”, „Python”.
+    mocks.classify.mockImplementation(async (text: string) => ({
+      skills: [],
+      as_requirements: ["Java", "Kafka RabbitMQ", "Python"].includes(text),
+    }));
+  });
+
+  it("montuje listę dopiero PO odczycie wymagań i zasila ją rekrutacją", async () => {
+    mocks.getReqs.mockResolvedValue({ must: ["SQL", "UML"] });
     const onBulkAdded = vi.fn();
     renderPanel({ onBulkAdded, readOnly: true });
     expect(screen.getByText("Ładowanie…")).toBeInTheDocument();
-    expect(screen.queryByTestId("candidate-search-view")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("candidates-list")).not.toBeInTheDocument();
 
-    await screen.findByTestId("candidate-search-view");
+    await screen.findByTestId("candidates-list");
     expect(mocks.getReqs).toHaveBeenCalledWith(7);
-    expect(mocks.view).toHaveBeenLastCalledWith({
-      initial: { fromJob: "Java Developer", must: ["Java 17", "Kafka"] },
-      addToJob: { id: 7, title: "Java Developer" },
-      hideHeader: true,
-      onBulkAdded,
+    const embed = lastEmbed();
+    expect(embed).toMatchObject({
+      jobId: 7,
+      jobTitle: JOB.title,
       readOnly: true,
     });
+    // Dodanie z listy nadal odświeża Tablicę strony rekrutacji.
+    act(() => embed.onAdded?.([{ candidateId: 1, fullName: "Ewa Marczak" }]));
+    expect(onBulkAdded).toHaveBeenCalledTimes(1);
+    // Must-have z kontraktu rekrutacji podnoszą w kolejności (jak dotąd),
+    // miasto i kategoria z rekrutacji. Tytuł NIE idzie jako tekst po znaczeniu
+    // (limit 200 osób) — bez wymagań w Championie lista pokazuje całą bazę
+    // według dopasowania do rekrutacji (decyzja 25.09.2026).
+    expect(embed.initialFilters.skillsPreferred).toEqual(["SQL", "UML"]);
+    expect(embed.initialFilters.q).toBe("");
+    expect(embed.initialFilters.textMode).toBe("auto");
+    expect(
+      effectiveSort({ ...embed.initialFilters, recruitmentIds: [7], recruitmentMatch: "not_assigned" }),
+    ).toBe("match");
+    // Miasto i kategoria rekrutacji tylko podnoszą — jako filtry wycinały
+    // 55,6% osób wybranych potem przez zespół (audyt 26.09.2026).
+    expect(embed.initialFilters.location).toBe("");
+    expect(embed.initialFilters.competenceCategoryIds).toEqual([]);
+    expect(embed.initialFilters.locationPreferred).toEqual(["Warszawa"]);
+    expect(embed.initialFilters.competenceCategoryPreferred).toEqual([5]);
+    expect(embed.initialFilters.status).toEqual(["active", "passive"]);
   });
 
   it("błąd odczytu wymagań nie blokuje wyszukiwania — prefill wraca do kolumn rekrutacji", async () => {
     mocks.getReqs.mockRejectedValue(new Error("boom"));
     renderPanel();
-    await screen.findByTestId("candidate-search-view");
-    expect(mocks.view).toHaveBeenLastCalledWith(
-      expect.objectContaining({ initial: { fromJob: "Java Developer", must: null }, readOnly: false }),
+    await screen.findByTestId("candidates-list");
+    expect(lastEmbed().initialFilters.skillsPreferred).toEqual(["Java"]);
+    expect(lastEmbed().readOnly).toBe(false);
+  });
+
+  it("wymagania z Championa: obowiązkowe tylko krytyczne z serwera, z wariantami (D1/W1/W4)", async () => {
+    mocks.getReqs.mockResolvedValue({ must: ["SQL"] });
+    mocks.getChampion.mockResolvedValue({
+      data: {
+        champion_profile: {
+          search: {
+            requirements: [["Java"], ["Kafka", "RabbitMQ"], [], ["bankowość"], ["bankow*"]],
+            exclude: ["junior"],
+          },
+        },
+        critical_resolution: {
+          stored: ["Kafka lub RabbitMQ"],
+          decided: true,
+          effective: ["Kafka lub RabbitMQ"],
+          source: "dl",
+          suggested: [],
+          search_rows: [["Kafka", "Apache Kafka", "RabbitMQ"]],
+        },
+      },
+    });
+    renderPanel();
+    await screen.findByTestId("candidates-list");
+    const embed = lastEmbed();
+    expect(mocks.getChampion).toHaveBeenCalledWith(7);
+    // Wiersz z krytyczną dostaje warianty z serwera; reszta tylko podnosi.
+    expect(embed.initialFilters.qAny).toEqual([["Kafka", "RabbitMQ", "Apache Kafka"]]);
+    expect(embed.initialFilters.qPreferred).toEqual([["Java"], ["bankowość"], ["bankow*"]]);
+    expect(embed.initialFilters.qNone).toEqual(["junior"]);
+    // Klasyfikacja „technologia / nie” nie decyduje już o obowiązkowości.
+    expect(mocks.classify).not.toHaveBeenCalled();
+    expect(embed.initialFilters.q).toBe("");
+    // D2: przy wierszach must-have nie liczą się drugi raz w „Umiejętnościach”.
+    expect(embed.initialFilters.skillsPreferred).toEqual([]);
+    expect(embed.keywordsNote).toMatch(/wybrane przez Delivery Leada: Kafka lub RabbitMQ/);
+  });
+
+  it("podpowiedź z historii — ekran mówi, że DL nie wybrał krytycznych (W2)", async () => {
+    mocks.getReqs.mockResolvedValue({ must: [] });
+    mocks.getChampion.mockResolvedValue({
+      data: {
+        champion_profile: { search: { requirements: [["Java"], ["Spring"]] } },
+        critical_resolution: {
+          stored: null,
+          decided: false,
+          effective: ["Java"],
+          source: "suggested",
+          suggested: ["Java"],
+          search_rows: [["Java", "j2ee"]],
+        },
+      },
+    });
+    renderPanel();
+    await screen.findByTestId("candidates-list");
+    expect(lastEmbed().initialFilters.qAny).toEqual([["Java", "j2ee"]]);
+    expect(lastEmbed().initialFilters.qPreferred).toEqual([["Spring"]]);
+    expect(lastEmbed().keywordsNote).toMatch(/podpowiedzi z historii/);
+  });
+
+  it("„Brak krytycznych” — nic nie wycina, ekran mówi to wprost", async () => {
+    mocks.getReqs.mockResolvedValue({ must: [] });
+    mocks.getChampion.mockResolvedValue({
+      data: {
+        champion_profile: { search: { requirements: [["Java"]] } },
+        critical_resolution: {
+          stored: [],
+          decided: true,
+          effective: [],
+          source: "none",
+          suggested: ["Java"],
+          search_rows: [],
+        },
+      },
+    });
+    renderPanel();
+    await screen.findByTestId("candidates-list");
+    expect(lastEmbed().initialFilters.qAny).toEqual([]);
+    expect(lastEmbed().initialFilters.qPreferred).toEqual([["Java"]]);
+    expect(lastEmbed().keywordsNote).toMatch(/nic nie jest obowiązkowe/);
+  });
+
+  it("powrót do karty po >10 min nie przemontowuje listy (R8-N14-7)", async () => {
+    mocks.mounts = 0;
+    mocks.getReqs.mockResolvedValue({ must: [] });
+    mocks.getChampion.mockResolvedValue({
+      data: { champion_profile: { search: { requirements: [["bankowość"]] } } },
+    });
+    renderPanel();
+    await screen.findByTestId("candidates-list");
+    expect(mocks.mounts).toBe(1);
+    const realNow = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(realNow + 11 * 60 * 1000);
+    try {
+      await act(async () => {
+        focusManager.setFocused(false);
+        focusManager.setFocused(true);
+        await new Promise((r) => setTimeout(r, 50));
+      });
+    } finally {
+      clock.mockRestore();
+      focusManager.setFocused(undefined);
+    }
+    expect(mocks.mounts).toBe(1);
+  });
+
+  it("bez wymagań w Championie — start jak dotąd, bez odniesienia do Championa", async () => {
+    mocks.getReqs.mockResolvedValue({ must: [] });
+    renderPanel();
+    await screen.findByTestId("candidates-list");
+    expect(lastEmbed().initialFilters.qAny).toEqual([]);
+    expect(lastEmbed().keywordsNote).toBeUndefined();
+  });
+
+  it("błąd odczytu Championa — wiersze z profilu w odczycie rekrutacji", async () => {
+    mocks.getReqs.mockResolvedValue({ must: [] });
+    mocks.getChampion.mockRejectedValue(new Error("boom"));
+    renderPanel({
+      job: { ...JOB, champion_profile: { search: { requirements: [["Python"]] } } },
+    });
+    await screen.findByTestId("candidates-list");
+    // Bez odpowiedzi serwera nie wiemy, co krytyczne — nic nie wycina.
+    expect(lastEmbed().initialFilters.qAny).toEqual([]);
+    expect(lastEmbed().initialFilters.qPreferred).toEqual([["Python"]]);
+    expect(lastEmbed().keywordsNote).toMatch(/Nie udało się wczytać/);
+  });
+
+  it("wiersze „mile widziane” ze stack.rows tylko podnoszą (W6)", () => {
+    const champion_profile = {
+      stack: {
+        rows: [
+          { words: ["Java"], level: "must" },
+          { words: ["Kafka", "RabbitMQ"], level: "must" },
+          { words: ["Grafana"], level: "nice" },
+        ],
+        critical: ["Kafka lub RabbitMQ"],
+      },
+      search: { requirements: [["Java"], ["Kafka", "RabbitMQ"]] },
+    };
+    const filters = jobListFilters({ ...JOB, champion_profile }, null, {
+      stored: ["Kafka lub RabbitMQ"],
+      decided: true,
+      effective: ["Kafka lub RabbitMQ"],
+      source: "dl",
+      suggested: [],
+    });
+    // Odpowiedź bez `search_rows` (sprzed zmiany) — opcje etykiety.
+    expect(filters.qAny).toEqual([["Kafka", "RabbitMQ"]]);
+    expect(filters.qPreferred).toEqual([["Java"], ["Grafana"]]);
+  });
+
+  it("krytyczna spoza wierszy (profil bez stack.rows) dochodzi jako nowy wiersz (W3)", () => {
+    const champion_profile = { search: { requirements: [["bankowość"]] } };
+    const filters = jobListFilters({ ...JOB, champion_profile }, null, {
+      stored: null,
+      decided: false,
+      effective: ["Java"],
+      source: "suggested",
+      suggested: ["Java"],
+      search_rows: [["Java"]],
+    });
+    expect(filters.qAny).toEqual([["Java"]]);
+    expect(filters.qPreferred).toEqual([["bankowość"]]);
+  });
+
+  it("bez wierszy w Championie krytyczne i tak obowiązują, must zostaje w rankingu", () => {
+    const filters = jobListFilters(JOB, ["Java", "SQL"], {
+      stored: null,
+      decided: false,
+      effective: ["Java"],
+      source: "suggested",
+      suggested: ["Java"],
+      search_rows: [["Java"]],
+    });
+    expect(filters.qAny).toEqual([["Java"]]);
+    expect(filters.skillsPreferred).toEqual(["Java", "SQL"]);
+  });
+
+  it("rekrutacja zdalna nie zawęża po mieście", () => {
+    const filters = jobListFilters({ ...JOB, remote_policy: "remote" }, null);
+    expect(filters.location).toBe("");
+    expect(filters.locationPreferred).toEqual([]);
+  });
+});
+
+describe("ManualSearchPanel — „Dodani teraz” nad listą", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getReqs.mockResolvedValue({ must: [] });
+    mocks.getChampion.mockResolvedValue({ data: { champion_profile: {} } });
+    mocks.alsoFits.mockResolvedValue({ candidate_id: 0, from_job_id: 7, status: "ok", jobs: [] });
+  });
+
+  it("bez dodanych nie ma paska; po dodaniu pasek stoi NAD listą z „Cofnij”", async () => {
+    const onBulkAdded = vi.fn();
+    renderPanel({ onBulkAdded });
+    const list = await screen.findByTestId("candidates-list");
+    expect(screen.queryByText(/Dodani teraz/)).not.toBeInTheDocument();
+
+    act(() =>
+      lastEmbed().onAdded?.([
+        { candidateId: 1, fullName: "Ewa Marczak" },
+        { candidateId: 2, fullName: "Piotr Lis" },
+      ]),
     );
+    const strip = screen.getByRole("region", { name: "Dodani teraz" });
+    expect(within(strip).getByText("Dodani teraz (2)")).toBeInTheDocument();
+    expect(strip.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(strip).getByRole("button", { name: "Cofnij dodanie: Ewa Marczak" })).toBeEnabled();
+    expect(onBulkAdded).toHaveBeenCalledTimes(1);
+
+    // Kolejne dodanie dopisuje osoby, nie gubi wcześniejszych.
+    act(() => lastEmbed().onAdded?.([{ candidateId: 3, fullName: "Olga Nowak" }]));
+    expect(within(strip).getByText("Dodani teraz (3)")).toBeInTheDocument();
+  });
+
+  it("udane „Cofnij” zdejmuje wiersz, a ostatni — cały pasek", async () => {
+    mocks.remove.mockResolvedValue({});
+    renderPanel();
+    await screen.findByTestId("candidates-list");
+    act(() =>
+      lastEmbed().onAdded?.([
+        { candidateId: 1, fullName: "Ewa Marczak" },
+        { candidateId: 2, fullName: "Piotr Lis" },
+      ]),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cofnij dodanie: Ewa Marczak" }));
+    await waitFor(() => expect(screen.queryByText("Ewa Marczak")).not.toBeInTheDocument());
+    expect(mocks.remove).toHaveBeenCalledWith(1, 7, { quickUndo: true });
+    expect(screen.getByText("Dodani teraz (1)")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cofnij dodanie: Piotr Lis" }));
+    await waitFor(() => expect(screen.queryByText(/Dodani teraz/)).not.toBeInTheDocument());
   });
 });

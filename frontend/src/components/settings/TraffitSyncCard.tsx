@@ -12,10 +12,15 @@
  *
  * Karta odpowiada na trzy pytania operatora: kiedy ostatnio poszło, co jest
  * zepsute, i które wiersze czekają na człowieka.
+ *
+ * Od 14.10.2026 Traffit jest wyłączony na stałe (decyzja Artura; backend
+ * `services/traffit_retired.py`, trasy importu odpowiadają 410). Karta mówi to
+ * wprost i zostawia historię ostatnich biegów — bez ostrzeżenia, że import
+ * stoi, i bez nazwy zmiennej, której już nie da się włączyć.
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Clock, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, Clock, Loader2, PowerOff, RefreshCw } from "lucide-react";
 
 import { traffitSyncApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -80,30 +85,21 @@ export function TraffitSyncCard() {
     (s) => s.phase !== DAILY_MARKER && s.phase !== FULL_MARKER,
   );
   const failing = phases.filter((p) => p.last_status !== "ok");
-  const healthy = data.enabled && daily?.last_status === "ok";
 
   return (
     <div className="bg-card dark:bg-muted rounded-2xl border border-border p-6">
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <div
-            className={cn(
-              "flex h-10 w-10 items-center justify-center rounded-xl",
-              healthy ? "bg-emerald-500/10" : "bg-amber-500/10",
-            )}
+            data-traffit-state="retired"
+            className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted"
           >
-            {healthy ? (
-              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-            ) : (
-              <AlertTriangle className="h-5 w-5 text-amber-600" />
-            )}
+            <PowerOff className="h-5 w-5 text-muted-foreground" />
           </div>
           <div>
             <h3 className="text-base font-bold text-foreground">Traffit</h3>
             <p className="text-xs text-muted-foreground">
-              {data.enabled
-                ? "Import Traffit → NEXUS, codziennie o 02:00 UTC"
-                : "Wyłączony (TRAFFIT_SYNC_ENABLED=false)"}
+              Wyłączony od 14.10.2026 — NEXUS nie importuje już danych z Traffita.
             </p>
             {typeof data.managed_in_nexus_jobs === "number" ? (
               <p className="text-xs text-muted-foreground">
@@ -142,18 +138,9 @@ export function TraffitSyncCard() {
           <dt className="text-xs uppercase tracking-wide text-muted-foreground">
             Znacznik delty
           </dt>
-          <dd
-            className={cn(
-              "mt-1 text-sm font-medium",
-              // Zamrożony watermark to najcichszy tryb awarii tego importu:
-              // sync „działa", a okno delty rośnie każdej nocy.
-              daily?.last_synced_at &&
-                Date.now() - new Date(daily.last_synced_at).getTime() >
-                  72 * 3_600_000
-                ? "text-amber-600"
-                : "text-foreground",
-            )}
-          >
+          {/* Bez ostrzeżenia o zamrożonym znaczniku: po 14.10.2026 nie rośnie
+              już żadne okno delty, więc stary znacznik to historia, nie awaria. */}
+          <dd className="mt-1 text-sm font-medium text-foreground">
             {formatAge(daily?.last_synced_at ?? null)}
           </dd>
         </div>

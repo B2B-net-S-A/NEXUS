@@ -17,6 +17,13 @@ class ContractDocumentResponse(BaseModel):
     uploaded_by: Optional[int] = None
     uploaded_by_email: Optional[str] = None
     created_at: datetime
+    # Ticket 9 (0402): pochodzenie i kopia w folderze „Umowy pracowników”.
+    source: Optional[str] = None
+    sharepoint_item_id: Optional[str] = None
+    sharepoint_push_status: Optional[str] = None
+    sharepoint_push_error: Optional[str] = None
+    # 0494: folder w zakładce Dokumenty (NULL = „Aktualna umowa”).
+    folder_id: Optional[int] = None
 
     model_config = {"from_attributes": True}
 

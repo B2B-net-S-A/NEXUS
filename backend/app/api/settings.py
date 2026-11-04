@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +30,11 @@ from app.api.deps import AdminUser, CurrentUser
 from app.core.database import get_db
 from app.models.app_setting import AppSetting
 from app.models.user import UserRole
+from app.services.notification_delivery import (
+    ADMIN_DECIDES,
+    PAUSE_REASON_MAX,
+    ROUTINE_KINDS,
+)
 
 
 router = APIRouter()
@@ -53,7 +58,22 @@ class NotificationEmailToggle(BaseModel):
 class NotificationDeliveryUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: StrictBool
-    types: list[NotificationEmailToggle] = Field(default_factory=list, max_length=5)
+    # Ekran wysyła komplet przełączników — limit idzie za katalogiem
+    # (stałe 5 z #1691 dawało 422, gdy katalog urósł do 9 rodzajów).
+    types: list[NotificationEmailToggle] = Field(
+        default_factory=list, max_length=len(ROUTINE_KINDS)
+    )
+    # Wymagany przy wstrzymaniu maila obowiązkowego (26.10.2026).
+    reason: Optional[str] = Field(default=None, max_length=PAUSE_REASON_MAX)
+    # „Zostaw wyłączone” z banera (29.10.2026) — tylko zwykłe rodzaje.
+    keep_off: list[str] = Field(default_factory=list, max_length=len(ADMIN_DECIDES))
+
+    @field_validator("keep_off")
+    @classmethod
+    def admin_decided_kinds(cls, value: list[str]) -> list[str]:
+        if not set(value) <= set(ADMIN_DECIDES):
+            raise ValueError("Ten rodzaj maila nie może zostać wyłączony na stałe")
+        return value
 
     @field_validator("types")
     @classmethod
@@ -78,14 +98,117 @@ async def put_notification_delivery(
     admin: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    from app.services.notification_delivery import admin_view, save_policy
-
-    await save_policy(
-        db,
-        enabled=payload.enabled,
-        toggles={item.id: item.email_enabled for item in payload.types},
-        admin_id=admin.id,
+    from app.services.notification_delivery import (
+        RequiredKindReasonMissing,
+        admin_view,
+        save_policy,
     )
+
+    try:
+        await save_policy(
+            db,
+            enabled=payload.enabled,
+            toggles={item.id: item.email_enabled for item in payload.types},
+            admin_id=admin.id,
+            actor=admin,
+            reason=payload.reason,
+            keep_off=set(payload.keep_off),
+        )
+    except RequiredKindReasonMissing as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=422,
+            detail="To mail obowiązkowy — podaj powód wstrzymania.",
+        ) from exc
+    return await admin_view(db)
+
+
+# ── „Kto co dostaje”: powiadomienia wyłączone dla całej roli ────────────────
+
+
+class NotificationRoleChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: str
+    group: str
+    muted: StrictBool
+
+    @field_validator("role")
+    @classmethod
+    def known_role(cls, value: str) -> str:
+        from app.services.notification_role_mutes import ROLE_LABELS
+
+        if value not in ROLE_LABELS:
+            raise ValueError("Nieznana rola")
+        return value
+
+    @field_validator("group")
+    @classmethod
+    def mutable_group(cls, value: str) -> str:
+        from app.services.notification_categories import GROUP_INFO, group_is_mutable
+
+        if value not in GROUP_INFO:
+            raise ValueError("Nieznana grupa powiadomień")
+        if not group_is_mutable(value):
+            raise ValueError("Tej grupy powiadomień nie da się wyłączyć")
+        return value
+
+
+class NotificationRolesUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: int = Field(ge=0)
+    changes: list[NotificationRoleChange] = Field(min_length=1, max_length=200)
+
+    @field_validator("changes")
+    @classmethod
+    def unique_cells(cls, value: list[NotificationRoleChange]):
+        if len({(item.role, item.group) for item in value}) != len(value):
+            raise ValueError("Powtórzona para rola i grupa")
+        return value
+
+
+@router.get("/notification-roles")
+async def get_notification_roles(
+    _admin: AdminUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    from app.services.notification_role_view import admin_view
+
+    return await admin_view(db)
+
+
+@router.put("/notification-roles")
+async def put_notification_roles(
+    payload: NotificationRolesUpdate,
+    admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    from app.services.notification_role_mutes import (
+        RoleMuteChange,
+        StaleRoleMutes,
+        save_changes,
+    )
+    from app.services.notification_role_view import admin_view
+
+    try:
+        await save_changes(
+            db,
+            actor=admin,
+            revision=payload.revision,
+            changes=[
+                RoleMuteChange(role=item.role, group=item.group, muted=item.muted)
+                for item in payload.changes
+            ],
+        )
+    except StaleRoleMutes:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "stale_notification_roles",
+                "message": (
+                    "Ktoś zmienił te ustawienia w międzyczasie. "
+                    "Wczytaj je ponownie i powtórz zmianę."
+                ),
+            },
+        ) from None
     return await admin_view(db)
 
 

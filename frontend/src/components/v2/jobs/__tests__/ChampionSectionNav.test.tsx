@@ -110,7 +110,7 @@ describe("ChampionSectionNav — kolejność kroku 02", () => {
       .map((link) => link.textContent ?? "");
     expect(order[0]).toContain("Podstawowe informacje");
     expect(order[1]).toContain("Stack technologiczny");
-    expect(order[2]).toContain("Doświadczenie poza stackiem");
+    expect(order[2]).toContain("Rekruter sprawdza w rozmowie");
     expect(order[3]).toContain("Co wpisać (search)");
     expect(order[6]).toContain("O kliencie");
     expect(order[7]).toContain("Wiedza z rozmów");

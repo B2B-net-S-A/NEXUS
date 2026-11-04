@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from app.services.full_search_measurement import measure_candidates, request_vector
+from app.services.query_adapter import adapt_job_query
 from app.services.request_matching_context import RequestMatchingContext
 from app.services.search_telemetry import stage
 
@@ -53,6 +54,14 @@ def display_score(fit_score: float | None) -> int | None:
     return int(math.floor(min(max(float(fit_score), 0.0), 100.0) + 0.5))
 
 
+def uses_prior_screening(context: RequestMatchingContext) -> bool:
+    """Warstwa wcześniejszych rozmów — decyzja zamrożona w żądaniu, nie flaga
+    z chwili oceny: przegląd zaczęty przy OFF dokończy się bez niej."""
+    from app.services.prior_screening import VERSION
+
+    return context.versions.get("prior_screening") == VERSION
+
+
 async def score_pair(db, context: RequestMatchingContext, candidate, measurement):
     from app.services.scoring_service import score_candidate_job
 
@@ -65,24 +74,66 @@ async def score_pair(db, context: RequestMatchingContext, candidate, measurement
             semantic_unavailable=measurement.status != "measured",
             profile=context.profile(),
             base_fit=True,
+            prior_screening=uses_prior_screening(context),
         )
     return CanonicalFit(breakdown, measurement.status)
 
 
-async def score_candidates(db, context: RequestMatchingContext, candidates):
+async def _attach_missing_evidence(db, job, candidates, before=None) -> None:
+    """Dowód z CV i notatek przed oceną (30.09.2026) — ocena umiejętności
+    czyta go tak samo jak bramka. Kandydaci z dowodem dołączonym już przez
+    bramkę tej rekrutacji nie są czytani drugi raz."""
+    if db is None:
+        return
+    from app.services.dealbreaker_filters import dealbreaker_inputs_for_job
+    from app.services.must_text_evidence import attach_gate_evidence, evidence_for
+
+    inputs = dealbreaker_inputs_for_job(job)
+    labels = inputs.gate_evidence_labels
+    missing = [c for c in candidates if evidence_for(c, labels) is None]
+    if missing:
+        await attach_gate_evidence(
+            db, missing, labels, options=inputs.gate_options, before=before
+        )
+
+
+async def score_candidates(
+    db,
+    context: RequestMatchingContext,
+    candidates,
+    *,
+    reviewed_evidence: bool = True,
+    evidence_before=None,
+):
     """Score supplied identities against the same full request as Radar/C2.
 
     Does not grant visibility or claim exhaustive retrieval. Callers own their
     population, eligibility and pagination. No legacy score cache is read/written.
+
+    ``reviewed_evidence=False`` (pomiar na historii, ``ranking_lab``) pomija
+    wymagania zweryfikowane przez rekruterów — powstają w trakcie procesu,
+    więc przy ocenie z dnia otwarcia rekrutacji byłyby przeciekiem etykiety.
+    Z tego samego powodu ``evidence_before`` (dzień otwarcia) ogranicza
+    notatki-dowody i materiał wcześniejszych rozmów do sprzed tej chwili.
     """
     if not candidates:
         return []
     from app.services.requirement_verification import load_verified_requirements
 
-    await load_verified_requirements(db, context.as_job(), candidates)
+    job = context.as_job()
+    await load_verified_requirements(db if reviewed_evidence else None, job, candidates)
+    await _attach_missing_evidence(db, job, candidates, before=evidence_before)
+    if uses_prior_screening(context):
+        from app.services.prior_screening import attach_prior_screening
+
+        await attach_prior_screening(db, job, candidates, before=evidence_before)
+    # Dostępność z żywej umowy raz na pulę (15.10.2026).
+    from app.services.contract_availability import attach_contract_free
+
+    await attach_contract_free(db, candidates)
     with stage("query_embedding") as outcome:
         try:
-            vector = await request_vector(context.query_text)
+            vector = adapt_job_query(await request_vector(context.query_text))
             outcome["failed"] = vector is None
         except Exception:
             vector = None

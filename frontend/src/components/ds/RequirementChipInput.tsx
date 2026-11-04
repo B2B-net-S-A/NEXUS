@@ -151,7 +151,7 @@ export function RequirementChipInput({
           onKeyDown={onKeyDown}
           onBlur={commit}
           placeholder={items.length === 0 ? placeholder : "dodaj…"}
-          className="h-7 min-w-[8rem] flex-1 bg-transparent px-1 text-xs text-foreground outline-hidden placeholder:text-muted-foreground"
+          className="h-7 w-0 min-w-[8rem] flex-1 bg-transparent px-1 text-xs text-foreground outline-hidden placeholder:text-muted-foreground"
         />
         {suggestions.length ? (
           <datalist id={listId}>

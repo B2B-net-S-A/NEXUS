@@ -1,6 +1,13 @@
 import { create } from "zustand"
 
 import { clearSessionArtifacts, writeAuthCookie } from "@/lib/session"
+import {
+  hasPermission,
+  isDeliveryLeadGoverned,
+  type Permission,
+} from "@/lib/permissions"
+import { BOARD_HOME, isBoardAllowedPath } from "@/lib/board-access"
+import { normalizeRole, normalizeRoles } from "@/lib/role-normalize"
 import { hasSectionAccess } from "@/lib/section-access"
 
 // ── Role model ──────────────────────────────────────────────────────────────
@@ -14,17 +21,24 @@ export type UserRole =
   | "head_of_recruitment"
   | "delivery_lead"
   | "talent_community_manager"
-  | "tac"
   | "recruiter"
-  | "sourcer"
   | "user"
   // Praktykant (0374) — rola WYŁĄCZNA: widzi tylko „Telefony na dziś”
   // (`/trainee`). Nie łączy się z innymi rolami (lustro finance).
   | "trainee"
+  // „Automatyzacje” (0446) — rola WYŁĄCZNA: podgląd rekrutacji, kandydatów,
+  // Insights oraz klientów, kontraktów i zamówień bez kwot; bez zapisu.
+  | "automation"
+  // „Pracownik” (0456, „Ludzie w NEXUSIE”) — rola WYŁĄCZNA: osoba bez pracy
+  // w rekrutacji widzi swój czas, ludzi i pomoc; przyjmuje nadania (np. Sprzęt).
+  | "employee"
+  // „Rada nadzorcza” (0490) — rola WYŁĄCZNA: tylko Insights (kokpit Firma
+  // z kwotami, rok do roku, raporty, zespół imiennie); bez zapisu i nadań.
+  | "board"
 
 // Ranga — liczbowa reprezentacja pozwala na porównanie "min rola".
 // Legacy rank helper only. Section/action access is defined by explicit
-// matrices; TCM intentionally sits between Delivery Lead and TAC here.
+// matrices; TCM intentionally sits between Delivery Lead and Recruiter here.
 // head_of_recruitment = manager zespołu rekrutacji (wyżej niż DL, ale niżej od
 // admina — wg backend/app/models/user.py).
 export const ROLE_RANK: Record<UserRole, number> = {
@@ -36,13 +50,18 @@ export const ROLE_RANK: Record<UserRole, number> = {
   head_of_recruitment: 4.5,
   delivery_lead: 4,
   talent_community_manager: 3.5,
-  tac: 3,
   recruiter: 2,
-  sourcer: 2,
   user: 1,
   // Najniżej z ról operacyjnych — praktykant nie przechodzi żadnej bramki
   // rangowej. Finance zostaje minimum (rola rozłączna, fail-closed).
   trainee: 0.5,
+  // Rola tylko do odczytu — rangą jak dawny viewer, żadna bramka rangowa
+  // zapisu jej nie przepuszcza.
+  automation: 1,
+  // Bez sekcji produktu — żadna bramka rangowa go nie przepuszcza.
+  employee: 0.5,
+  // Tylko odczyt Insights — żadna bramka rangowa jej nie przepuszcza.
+  board: 0.5,
 }
 
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -51,11 +70,12 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   head_of_recruitment: "Head of Recruitment",
   delivery_lead: "Delivery Lead",
   talent_community_manager: "Talent Community Manager",
-  tac: "TAC",
   recruiter: "Rekruter",
-  sourcer: "Sourcer",
   user: "User",
   trainee: "Praktykant",
+  automation: "Automatyzacje",
+  employee: "Konsultant/Kontraktor",
+  board: "Rada nadzorcza",
 }
 
 /** Identyfikatory modułów DynaReportera (migracja B.0, 0111). Lista
@@ -110,7 +130,7 @@ export interface User {
   role: UserRole
   /** Multi-role (migracja 0110). Lista wszystkich ról jakie user posiada.
    *  ``role`` to primary (legacy single-role kod); ``roles`` to authoritative
-   *  source dla permission checks. Hybrid users (np. DL+TAC) mają tu obie
+   *  source dla permission checks. Hybrid users (np. DL+rekruter) mają tu obie
    *  wartości. Optional przy hydration ze starego localStorage cache —
    *  helper hasRole() fallbackuje wtedy na ``[role]``. */
   roles?: UserRole[]
@@ -169,12 +189,14 @@ export interface User {
     >
   >
   /**
-   * Uprawnienia do konkretnych operacji wewnątrz dostępnej sekcji. Dla
-   * generatora B2B rozdziela podgląd rejestru, generowanie i zarządzanie.
+   * Uprawnienia do konkretnych operacji. Dla generatora B2B rozdziela podgląd
+   * rejestru, generowanie i zarządzanie; dziewięć uprawnień z ekranu
+   * Ustawienia → Osoby i role (`lib/permissions.ts`) ma wartość "manage"
+   * albo "none". Pytaj o nie przez `hasPermission`.
    */
   effective_action_access?: Partial<
     Record<
-      "b2b_contract_generator",
+      "b2b_contract_generator" | Permission,
       "none" | "view" | "generate" | "manage"
     >
   >
@@ -183,6 +205,15 @@ export interface User {
   /** Tryb rolloutu Analytics v1 (off|shadow|live) z GET /api/auth/me.
    *  Frontend pyta /api/analytics/v1 tylko przy "live" (fail-closed). */
   analytics_v1_mode?: string
+  /** Zakres klientów Delivery Leada w modułach Delivery (25.09.2026):
+   *  "assigned" = tylko klienci z przypisania, "all" = wszyscy; brak dla kont
+   *  spoza persony DL. Serwer jest arbitrem — front tylko dopasowuje UX. */
+  delivery_client_scope?: "assigned" | "all" | null
+  /** Konto przesuwa karty bez bramek pól (arkusz, stawka, minimum) — ta sama
+   *  reguła co serwer (`pipeline_move_rules.skips_fill_gates`: uprawnienie
+   *  `recruitment_manage` i wyłącznik `DL_SKIPS_FILL_GATES`). Brak pola = nie.
+   *  Audyt 22.10.2026 (F109). */
+  skips_fill_gates?: boolean
 }
 
 /** Role, które muszą przejść blokujący onboarding po pierwszym logowaniu.
@@ -236,7 +267,35 @@ export function postLoginDestination(
   // Praktykant ma jeden ekran — `?next=` do innej trasy i tak odbiłby się
   // w middleware z powrotem na `/trainee`.
   if (isTraineeOnly(user)) return "/trainee"
+  // „Pracownik” (0456) nie ma pulpitu ani sekcji produktu — jego dom to
+  // „Mój czas”. Jawny `?next=` do innego ekranu „Ludzi” zostaje.
+  if (isEmployeeOnly(user)) {
+    return fallback === "/" || fallback.startsWith("/dashboard") ? "/my-time" : fallback
+  }
+  // „Rada nadzorcza” (0490) ma jeden ekran — Insights, domyślnie widok Firma.
+  // Jawny `?next=` do Insights albo własnego konta zostaje.
+  if (isBoardOnly(user)) {
+    return isBoardAllowedPath(fallback.split("?")[0]) ? fallback : BOARD_HOME
+  }
   return fallback
+}
+
+/** Konto wyłącznie z rolą „Rada nadzorcza” (rola wyłączna, lustro CHECK-a). */
+export function isBoardOnly(
+  user: { role: UserRole; roles?: readonly UserRole[] } | null | undefined,
+): boolean {
+  if (!user) return false
+  const roles = getUserRoles(user)
+  return roles.length === 1 && roles[0] === "board"
+}
+
+/** Konto wyłącznie z rolą „Pracownik” (rola wyłączna, lustro CHECK-a). */
+export function isEmployeeOnly(
+  user: { role: UserRole; roles?: readonly UserRole[] } | null | undefined,
+): boolean {
+  if (!user) return false
+  const roles = getUserRoles(user)
+  return roles.length === 1 && roles[0] === "employee"
 }
 
 /** Konto praktykanta: rola `trainee` i żadna inna (rola jest wyłączna, ale
@@ -256,7 +315,7 @@ export function isTraineeOnly(
 /** All roles a user holds — primary ``role`` ∪ secondary ``roles``.
  *  Fallback: jeśli ``roles`` brakuje (stary localStorage cache lub starsza
  *  API odpowiedź) — używamy ``[role]``. */
-type RoleBearingUser = {
+export type RoleBearingUser = {
   role: UserRole
   roles?: readonly UserRole[]
 }
@@ -265,9 +324,9 @@ export function getUserRoles(
   user: RoleBearingUser | null | undefined
 ): UserRole[] {
   if (!user) return []
-  const set = new Set<UserRole>([user.role])
-  for (const r of user.roles ?? []) set.add(r)
-  return Array.from(set)
+  // Profil zapisany przed połączeniem ról (02.10.2026) może nieść `tac` albo
+  // `sourcer` — liczą się jak `recruiter`.
+  return normalizeRoles([user.role, ...(user.roles ?? [])])
 }
 
 /**
@@ -282,6 +341,14 @@ export function hasRole(
   if (!user) return false
   const userRoles = getUserRoles(user)
   return roles.some((r) => userRoles.includes(r))
+}
+
+/**
+ * „Automatyzacje” (0446) czytają ekrany, ale nie wynoszą danych plikiem —
+ * lustro ``NOT_READ_ONLY`` na trasach eksportu (candidate_access.py).
+ */
+export function mayExportFiles(user: RoleBearingUser | null | undefined): boolean {
+  return !hasRole(user, "automation")
 }
 
 /**
@@ -338,75 +405,107 @@ export function hasAnalyticsCapability(
   )
 }
 
+// ── Bramki uprawnień (0410) ─────────────────────────────────────────────────
+//
+// Te helpery decydują wyłącznie o tym, co POKAZAĆ; o dostępie decyduje backend.
+// Pytają o jedno z dziewięciu uprawnień z ekranu Ustawienia → Zespół i dostęp
+// → Osoby i role (`lib/permissions.ts`), nie o rolę: przycisk pojawia się
+// dokładnie wtedy, gdy trasa przyjmie kliknięcie — także u osoby, której
+// administrator nadał uprawnienie ponad jej rolę, i znika u roli, której je
+// wyłączył. Zakres klientów zostaje przy personie (`isClientInAssignedScope`).
+
 /**
- * Zmiana kwot kontraktu i zamówienia (stawki, wartość, waluta). Decyzja
- * Artura 22.09.2026 (audyt ról U6): Admin ORAZ Finanse — obie role wyłącznie
- * z backendowym capability `manage_finance` z `/api/auth/me`. Delivery Lead
- * własnego portfela ma osobną, węższą ścieżkę liczoną przez serwer
- * (`can_manage_finance` w odpowiedziach zamówień). Stary cache bez
- * capabilities = fail-closed.
+ * Pola profilu, z których liczą się bramki uprawnień, kwot i zakresu klientów.
+ * Wszystko poza rolą jest opcjonalne: profil bez kompletu z `/api/auth/me`
+ * (stary cache) liczy się z domyślnych uprawnień ról.
  */
-export function canManageCandidateFinance(
-  user:
-    | Pick<User, "role" | "roles" | "analytics_capabilities" | "capabilities">
-    | null
-    | undefined
+type PermissionGateUser = Pick<
+  User,
+  | "role"
+  | "roles"
+  | "analytics_capabilities"
+  | "capabilities"
+  | "effective_action_access"
+  | "effective_section_access"
+  | "data_scope"
+>
+
+/**
+ * Czy klient leży w granicy PRZYPISANIA konta. Uprawnienie mówi, CO konto
+ * może; zakres — U KOGO: konto rządzone portfelem Delivery Leada
+ * (`isDeliveryLeadGoverned`) działa u klientów z `data_scope.finance_client_ids`
+ * (lustro `resolve_delivery_lead_assigned_client_ids`), każdy inny posiadacz
+ * uprawnienia — u wszystkich.
+ *
+ * Fail-closed: konto z rolą Delivery Leada bez listy (stary cache
+ * localStorage) nie ma żadnego klienta, nigdy wszystkich.
+ */
+export function isClientInAssignedScope(
+  user: Pick<User, "role" | "roles" | "data_scope"> | null | undefined,
+  clientId: number
 ): boolean {
-  return (
-    hasRole(user, "admin", "finance") &&
-    hasAnalyticsCapability(user, "manage_finance")
-  )
+  if (!user) return false
+  if (!isDeliveryLeadGoverned(user)) return true
+  return (user.data_scope?.finance_client_ids ?? []).includes(clientId)
 }
 
 /**
- * Candidate-bearing Delivery resources expose rates to Admin/Finance and to a
- * Delivery Lead only when `/api/auth/me` reports at least one client in the
- * narrow finance portfolio. Row-level APIs remain authoritative and redact
- * each unassigned client independently.
+ * Zmiana kwot KONTRAKTU (stawki, wartość, waluta): uprawnienie „Stawki
+ * i kwoty: zmiana” — domyślnie Finanse (decyzja Artura 22.09.2026) i admin.
+ * Lustro `can_manage_finance_amounts` (`api/financial_access.py`).
+ *
+ * Konto rządzone portfelem Delivery Leada zmienia kwoty wyłącznie u klientów
+ * z przypisania: z `clientId` pytamy o tego klienta, a bez niego (lista,
+ * formularz przed wyborem klienta) wystarcza, że konto ma choć jednego.
+ * Kwoty ZAMÓWIEŃ mają szerszą regułę — `canEditOrderLineAmounts` oraz flaga
+ * `can_manage_finance` z odpowiedzi serwera.
+ */
+export function canManageCandidateFinance(
+  user: PermissionGateUser | null | undefined,
+  clientId?: number | null
+): boolean {
+  if (!user || !hasPermission(user, "amounts_edit")) return false
+  if (!isDeliveryLeadGoverned(user)) return true
+  const assigned = user.data_scope?.finance_client_ids ?? []
+  return clientId == null ? assigned.length > 0 : assigned.includes(clientId)
+}
+
+/**
+ * Czy konto w ogóle widzi stawki na listach z kandydatami i kontraktorami:
+ * admin, capability `view_finance` („Moduł Finanse”) albo uprawnienie „Stawki
+ * i kwoty: podgląd”. Konto rządzone portfelem Delivery Leada potrzebuje do
+ * tego choć jednego klienta z przypisania. API i tak redaguje kwoty każdego
+ * klienta spoza zakresu osobno.
  */
 export function canViewCandidateFinance(
-  user:
-    | Pick<
-        User,
-        "role" | "roles" | "analytics_capabilities" | "capabilities" | "data_scope"
-      >
-    | null
-    | undefined
+  user: PermissionGateUser | null | undefined
 ): boolean {
   if (!user) return false
   if (hasRole(user, "admin")) return true
-  if (
-    hasRole(user, "finance") &&
-    hasAnalyticsCapability(user, "view_finance")
-  ) {
-    return true
-  }
-  return (
-    hasRole(user, "delivery_lead") &&
-    user.data_scope?.kind === "delivery_clients" &&
-    (user.data_scope.finance_client_ids?.length ?? 0) > 0
-  )
+  if (hasAnalyticsCapability(user, "view_finance")) return true
+  if (!hasPermission(user, "amounts_view")) return false
+  if (!isDeliveryLeadGoverned(user)) return true
+  return (user.data_scope?.finance_client_ids?.length ?? 0) > 0
 }
 
-/** Kto może usuwać / kończyć / przywracać / przedłużać zamówienia klienta.
+/**
+ * Kto może usuwać / kończyć / przywracać / przedłużać zamówienia klienta:
+ * uprawnienie „Kontrakty i zamówienia: tworzenie i edycja” (domyślnie
+ * Delivery Lead i Finanse).
  *
- *  ŚWIADOMIE szerszy zbiór niż `canManageMultiConsultantOrders`, który rządzi
- *  STAWKAMI i zostaje przy admin + Delivery Lead. Granica sekcji Delivery
- *  odcina HoR/TAC/rekrutera/sourcera, a TCM ma tu wyłącznie odczyt.
- *
- *  Lustro backendowego `_ORDER_LIFECYCLE_ROLES` (`api/client_order_groups.py`).
- *  Rozjazd tych dwóch list kończy się przyciskiem, który na kliknięciu daje
- *  403 — a to czyta się jak „zapis nie działa", nie jak „nie masz uprawnień". */
+ * ŚWIADOMIE szersze niż `canManageMultiConsultantOrders`, które rządzi też
+ * STAWKAMI i dlatego wymaga podglądu kwot klienta. Rozjazd z backendem kończy
+ * się przyciskiem, który na kliknięciu daje 403 — a to czyta się jak „zapis
+ * nie działa", nie jak „nie masz uprawnień".
+ */
 export function canManageOrderLifecycle(
-  user:
-    | Pick<User, "role" | "roles" | "effective_section_access">
-    | null
-    | undefined
+  user: PermissionGateUser | null | undefined
 ): boolean {
-  // Rola to dopiero połowa bramki: backend liczy też sufit sekcji Delivery
-  // (zapis). DL z odebraną sekcją widziałby przyciski kończące się 403 (U8).
+  // Uprawnienie to dopiero połowa bramki: router liczy też sufit sekcji
+  // Delivery (zapis). Przy świeżym profilu sekcja wynika z uprawnienia; stary
+  // wyjątek osoby potrafi ją jeszcze ograniczyć i wtedy trasa odmawia (U8).
   return (
-    hasRole(user, "admin", "delivery_lead", "finance") &&
+    hasPermission(user, "contracts_orders_edit") &&
     hasSectionAccess(user, "delivery", "write")
   )
 }
@@ -426,91 +525,99 @@ export function canRecoverContractTermination(
   )
 }
 
-/** Status kontraktu jest operacyjnie utrzymywany także przez TCM.
- * Pozostałe pola kontraktu, dokumenty i finanse zachowują dotychczasowe bramki. */
-export function canManageContractStatus(
-  user: Pick<User, "role" | "roles" | "effective_section_access"> | null | undefined
-): boolean {
-  if (!hasRole(user, "admin", "delivery_lead", "talent_community_manager")) {
-    return false
-  }
-  return hasRole(user, "talent_community_manager")
-    ? hasSectionAccess(user, "delivery", "read")
-    : hasSectionAccess(user, "delivery", "write")
-}
-
 /**
- * Stawki i obsada zamówienia wielo-konsultantowego: Admin globalnie, Delivery
- * Lead tylko w finansowym portfelu konkretnego klienta. Backend pozostaje
- * ostatecznym arbitrem, a stary cache bez `finance_client_ids` fail-closed.
- */
-export function canManageMultiConsultantOrders(
-  user:
-    | Pick<
-        User,
-        "role" | "roles" | "analytics_capabilities" | "capabilities" | "data_scope"
-      >
-    | null
-    | undefined,
-  clientId: number
-): boolean {
-  if (hasRole(user, "admin")) return true
-  return hasRole(user, "delivery_lead") && canViewClientFinance(user, clientId)
-}
-
-/**
- * Edycja KWOT linii zamówienia MD/kosztowego (stawki i ich waluty).
+ * Lista statusu kontraktu, „Zakończ współpracę” i „Zakończ projekt”:
+ * uprawnienie „Zakończenie współpracy, zmiana statusu kontraktu” (domyślnie
+ * Delivery Lead i TCM). Pozostałe pola kontraktu, dokumenty i kwoty mają
+ * własne bramki.
  *
- * Szersza niż `canManageMultiConsultantOrders` o Finanse z `manage_finance`
- * (decyzja 22.09.2026; audyt 24.09.2026, S11): backend wpuszcza ich na PATCH
- * linii, ale wyłącznie z polami kwot (`finance_amounts_only` na resztę) —
- * reszta obsady (osoba, budżet MD, daty, zamiana) zostaje przy admin/DL.
+ * Sufit sekcji to dziś zapis dla każdego: osobny wyjątek „TCM zmienia status
+ * przy samym odczycie Delivery” zniknął w 0410 — z uprawnienia wynika zapis.
  */
-export function canEditOrderLineAmounts(
-  user:
-    | Pick<
-        User,
-        "role" | "roles" | "analytics_capabilities" | "capabilities" | "data_scope"
-      >
-    | null
-    | undefined,
-  clientId: number
+export function canManageContractStatus(
+  user: PermissionGateUser | null | undefined
 ): boolean {
-  if (canManageMultiConsultantOrders(user, clientId)) return true
   return (
-    hasRole(user, "finance") && hasAnalyticsCapability(user, "manage_finance")
+    hasPermission(user, "contract_status") &&
+    hasSectionAccess(user, "delivery", "write")
   )
 }
 
 /**
- * Kwoty JEDNEGO klienta: przychód, marża, stawki (profil klienta + zakładka
- * Analityka, zasilana przez `/api/my-clients/{id}/dashboard`).
+ * Stawki i obsada zamówienia wielo-konsultantowego („Nowe zamówienie”, edycja
+ * zamówienia i linii, przypisanie do zamówienia): uprawnienie „Kontrakty
+ * i zamówienia: tworzenie i edycja” u klienta z zakresu konta ORAZ podgląd
+ * kwot tego klienta — formularze niosą stawki i PDF, a backend odmawia ich
+ * bez podglądu kwot (`can_write_order_amounts`, `order_amounts_denied`).
+ *
+ * Kto ma samą zmianę kwot (bez edycji zamówień), dostaje wyłącznie tryb
+ * „Edytuj stawki” — `canEditOrderLineAmounts`.
+ */
+export function canManageMultiConsultantOrders(
+  user: PermissionGateUser | null | undefined,
+  clientId: number
+): boolean {
+  return (
+    hasPermission(user, "contracts_orders_edit") &&
+    isClientInAssignedScope(user, clientId) &&
+    canViewClientFinance(user, clientId)
+  )
+}
+
+/**
+ * Edycja KWOT linii zamówienia MD/kosztowego (stawki i ich waluty) — lustro
+ * `can_write_order_amounts` (`api/financial_access.py`): „Stawki i kwoty:
+ * zmiana” u klienta z zakresu konta albo prowadzenie zamówień razem
+ * z podglądem kwot tego klienta.
+ *
+ * Szersza niż `canManageMultiConsultantOrders` o osoby z samą zmianą kwot
+ * (audyt 24.09.2026, S11): backend wpuszcza je na PATCH linii, ale wyłącznie
+ * z polami kwot (`finance_amounts_only` na resztę) — osoba, budżet MD, daty
+ * i zamiana wymagają edycji zamówień.
+ */
+export function canEditOrderLineAmounts(
+  user: PermissionGateUser | null | undefined,
+  clientId: number
+): boolean {
+  if (
+    hasPermission(user, "amounts_edit") &&
+    isClientInAssignedScope(user, clientId)
+  ) {
+    return true
+  }
+  return (
+    hasPermission(user, "contracts_orders_edit") &&
+    canViewClientFinance(user, clientId)
+  )
+}
+
+/**
+ * Kwoty JEDNEGO klienta: przychód, marża, stawki (profil klienta, zakładka
+ * Analityka, kontrakty, zamówienia).
  *
  * Lustro backendowego `can_read_client_finance` (`api/financial_access.py`):
- * capability `view_finance` ALBO Delivery Lead w finansowej granicy WŁASNEGO
- * portfela. Operacyjne `allowed_client_ids` obejmują teraz wszystkich klientów,
- * dlatego kwoty muszą korzystać z osobnego `finance_client_ids`.
+ * capability `view_finance` („Moduł Finanse”) ALBO uprawnienie „Stawki
+ * i kwoty: podgląd” u klienta z zakresu konta. Operacyjne `allowed_client_ids`
+ * Delivery Leada obejmują wszystkich klientów, dlatego kwoty korzystają
+ * z osobnego `finance_client_ids` (`isClientInAssignedScope`).
  *
- * Dlaczego nie sam `hasRole(user, "delivery_lead")`: również hybryda HoR/TCM
- * + Delivery Lead musi mieć `delivery_clients` z konkretną listą finansową.
+ * Granicą jest portfel, nie rola: także hybryda HoR/TCM + Delivery Lead widzi
+ * kwoty wyłącznie u klientów z przypisania, a posiadacz uprawnienia bez roli
+ * Delivery Leada — u wszystkich.
  *
- * Fail-closed: brak `data_scope` (stary cache localStorage) = false.
+ * Fail-closed: konto z rolą Delivery Leada bez `data_scope` (stary cache
+ * localStorage) nie widzi kwot żadnego klienta.
  */
 export function canViewClientFinance(
-  user:
-    | Pick<
-        User,
-        "role" | "roles" | "analytics_capabilities" | "capabilities" | "data_scope"
-      >
-    | null
-    | undefined,
+  user: PermissionGateUser | null | undefined,
   clientId: number
 ): boolean {
   if (!user) return false
   if (hasAnalyticsCapability(user, "view_finance")) return true
-  const scope = user.data_scope
-  if (!scope || scope.kind !== "delivery_clients") return false
-  return (scope.finance_client_ids ?? []).includes(clientId)
+  return (
+    hasPermission(user, "amounts_view") &&
+    isClientInAssignedScope(user, clientId)
+  )
 }
 
 // ── Store ───────────────────────────────────────────────────────────────────
@@ -615,12 +722,21 @@ function readInitialUser(): User | null {
       if (!Array.isArray(user.allowed_sections)) {
         user.allowed_sections = []
       }
-      return user as unknown as User
+      return withStoredRoles(user as unknown as User)
     }
   } catch {
     /* corrupt value */
   }
   return null
+}
+
+/** Profil w kształcie, w jakim trafia do store'u: `roles` zawsze wypełnione
+ *  (odpowiedź sprzed migracji 0110 ich nie miała), a role sprzed połączenia
+ *  z 02.10.2026 (`tac`, `sourcer`) zamienione na `recruiter`. */
+function withStoredRoles(user: User): User {
+  const roles =
+    Array.isArray(user.roles) && user.roles.length > 0 ? user.roles : [user.role]
+  return { ...user, role: normalizeRole(user.role), roles: normalizeRoles(roles) }
 }
 
 function persistUser(user: User | null): void {
@@ -658,7 +774,7 @@ function readRealUser(): User | null {
       typeof parsed.id === "number" &&
       typeof parsed.role === "string"
     ) {
-      return parsed as User
+      return withStoredRoles(parsed as User)
     }
   } catch {
     /* corrupt value */
@@ -716,12 +832,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     clearImpersonation()
     // Backfill roles for fresh logins where the API response predates
     // migration 0110 (cached at the edge or old build still up).
-    const safe: User = {
-      ...user,
-      roles: Array.isArray(user.roles) && user.roles.length > 0
-        ? user.roles
-        : [user.role],
-    }
+    const safe = withStoredRoles(user)
     persistUser(safe)
     writeAuthCookie(token)
     set({ user: safe, token, realUser: null, hydrated: true })
@@ -735,13 +846,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Inna tożsamość niż zapamiętana = coś jest nie tak z sesją. Cicha
     // podmiana konta jest gorsza niż nieodświeżony profil.
     if (!current || current.id !== user.id) return
-    const safe: User = {
-      ...user,
-      roles:
-        Array.isArray(user.roles) && user.roles.length > 0
-          ? user.roles
-          : [user.role],
-    }
+    const safe = withStoredRoles(user)
     // Bez zmian = bez zapisu. Nowa referencja `user` przerenderowałaby
     // cały shell przy każdym załadowaniu aplikacji.
     if (JSON.stringify(safe) === JSON.stringify(current)) return
@@ -752,13 +857,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Admin = obecny efektywny user (nie jesteśmy jeszcze w trybie podglądu).
     const admin = get().realUser ?? get().user
     if (!admin) return
-    const safeTarget: User = {
-      ...target,
-      roles:
-        Array.isArray(target.roles) && target.roles.length > 0
-          ? target.roles
-          : [target.role],
-    }
+    const safeTarget = withStoredRoles(target)
     writeImpersonation(admin, safeTarget.id)
     persistUser(safeTarget)
     set({ user: safeTarget, realUser: admin })

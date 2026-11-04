@@ -1,6 +1,6 @@
 """
 Nexus ATS — Reporting Module
-Generates live reports from ATS data (recruitment, sales, delivery, tenders, board).
+Generates live reports from ATS data (recruitment, sales, delivery, board).
 """
 
 import logging
@@ -15,10 +15,11 @@ from sqlalchemy.orm import selectinload
 
 from app.analytics.capabilities import AnalyticsCapability, require_capability
 from app.api.deps import CurrentUser, require_roles
-from app.api.financial_access import FinanceReadUser
+from app.api.permission_access import CompanyResultsUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
-from app.core.database import get_db
 from app.core.cache import cache_get, cache_set
+from app.core.database import get_db
+from app.core.scheduling import business_today, local_month_bounds
 from app.core.work_time import HOURS_PER_MONTH, MD_PER_MONTH
 from app.models.client import Client
 from app.models.competence_category import (
@@ -26,21 +27,21 @@ from app.models.competence_category import (
     UserCompetenceCategory,
 )
 from app.models.contract import Contract, ContractStatus
-from app.services import job_data_trust
-from app.models.job import Job, JobCloseReason, JobStatus, RecruitmentType
+from app.models.job import Job, JobCloseReason, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
-from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
+from app.services import competition_history, job_data_trust
 from app.services.client_identity import client_display_name_expression
 from app.services.contractor_identity import summarize_active_contracts
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
-from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+from app.services.hit_ratio_scope import counts_in_hit_ratio
+from app.services.job_delivery_lead_fill import _HEADS as _DL_HEADS_SQL
+from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
 from app.services.metric_definitions import (
     DL_HIT_RATIO_TARGET_PCT,
     VERIFIER_ANCHORED_MILESTONES,
 )
 from app.services.placement_exclusions import not_excluded_placement
-from app.core.scheduling import business_today, local_month_bounds
 
 logger = logging.getLogger(__name__)
 
@@ -243,7 +244,6 @@ async def report_recruitment(
     current_user: RecruitmentRankingUser,
     db: AsyncSession = Depends(get_db),
     period: str = Query("month", enum=["week", "month", "quarter", "year"]),
-    recruitment_type: Optional[str] = Query(None),
 ):
     """Lejek rekrutacyjny + rozbicie per rekruter (atrybucja verifier-anchored).
 
@@ -255,22 +255,14 @@ async def report_recruitment(
 
     Cache 5 min; klucz nie zawiera okna, bo okno jest funkcją `period`.
     """
-    cache_key = f"reports:recruitment:{period}:{recruitment_type}"
+    cache_key = f"reports:recruitment:{period}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
 
     start = _period_start(period)
 
-    rtype_clause = ""
-    base_params: dict = {"period_start": start}
-    if recruitment_type and recruitment_type != "all":
-        try:
-            RecruitmentType(recruitment_type)
-            rtype_clause = "AND j.recruitment_type::text = :rtype"
-            base_params["rtype"] = recruitment_type
-        except ValueError:
-            pass
+    base_params: dict = {"period_start": start, **await credited_bind(db)}
 
     # Global funnel counts (across all recruiters). Definicje KPI Artura
     # (spójne z panelem „Moje KPI" / app/services/kpi_panel.py):
@@ -291,8 +283,8 @@ async def report_recruitment(
     # do 3 833 pod nagłówkiem mówiącym 3 339, czyli rozjazd 15%. Tabela, która
     # nie sumuje się do własnego nagłówka, podważa obie liczby naraz.
     totals_sql = text(
-        VERIFIER_ANCHORED_CTE
-        + f"""
+        CREDITED_FROM_SNAPSHOT_CTE
+        + """
         SELECT c.stage,
                count(*) AS cnt,
                count(*) FILTER (WHERE c.credit_user IS NULL) AS unattributed
@@ -300,7 +292,6 @@ async def report_recruitment(
         JOIN jobs j ON j.id = c.job_id
         WHERE c.reached_at >= :period_start
           AND c.stage IN ('verified', 'cv_sent', 'interview', 'hired')
-          {rtype_clause}
         GROUP BY c.stage
         """
     )
@@ -332,15 +323,14 @@ async def report_recruitment(
     # VERIFIER_ANCHORED_CTE z kpi_panel (jedna implementacja atrybucji,
     # kanoniczny view, bez lookbacku) zamiast zdublowanej kopii SQL-a.
     per_recruiter_sql = text(
-        VERIFIER_ANCHORED_CTE
-        + f"""
+        CREDITED_FROM_SNAPSHOT_CTE
+        + """
         SELECT c.credit_user, c.stage, count(*) AS cnt
         FROM credited c
         JOIN jobs j ON j.id = c.job_id
         WHERE c.reached_at >= :period_start
           AND c.credit_user IS NOT NULL
           AND c.stage IN ('verified', 'cv_sent', 'interview', 'hired')
-          {rtype_clause}
         GROUP BY c.credit_user, c.stage
         """
     )
@@ -455,7 +445,6 @@ async def report_recruitment(
 
     result_data = {
         "period": period,
-        "recruitment_type": recruitment_type,
         "funnel": {
             "weryfikacje_count": weryfikacje,
             "rekomendacje_count": rekomendacje,
@@ -490,10 +479,10 @@ async def report_recruitment(
 # ── Sales Report ───────────────────────────────────────────────────────────────
 
 
-@router.get("/sales")
+@router.get("/sales", dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 async def report_sales(
-    # Revenue/margin/MRR: wyłącznie Finance/Admin, nigdy Delivery Lead.
-    current_user: FinanceReadUser,
+    # Revenue/margin/MRR całej firmy: uprawnienie „Wyniki firmy”.
+    current_user: CompanyResultsUser,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -734,24 +723,49 @@ async def report_sales(
 HIT_RATIO_TARGET_PCT = DL_HIT_RATIO_TARGET_PCT
 
 
-async def _dl_head_fallback_map(db: AsyncSession) -> dict[int, int]:
-    """client_id → delivery_lead_user_id (is_head=true). Używane jako fallback
-    dla Jobów bez przypisanego `delivery_lead_id`."""
-    rows = (
-        await db.execute(
-            select(
-                DeliveryLeadClientAssignment.client_id,
-                DeliveryLeadClientAssignment.delivery_lead_user_id,
-            ).where(DeliveryLeadClientAssignment.is_head == True)  # noqa: E712
-        )
-    ).all()
-    return {r.client_id: r.delivery_lead_user_id for r in rows}
+class DlFallback(dict[int, int]):
+    """client_id → główny DL klienta + zbiór kont, które mogą być DL-em.
+
+    Runda 9 (R9-N6-2, decyzja Artura 27.09.2026): DL rekrutacji to aktywne
+    konto z rolą Delivery Leada (w `role` albo `roles`). Nieaktywne konto albo
+    konto bez tej roli = brak DL-a rekrutacji, więc rekrutacja idzie do
+    głównego DL-a klienta — lustro `job_delivery_lead_fill._HEADS`. Do tego dnia
+    liga DL (wypłaca nagrody), cel DL i raport DL liczyły placementy
+    odchodzącego DL-a jemu, a ranking i tak odrzucał nieaktywne konto — zasługa
+    przepadała zamiast trafić do opiekuna klienta.
+    """
+
+    def __init__(self, heads: dict[int, int], eligible_dl_ids: frozenset[int]):
+        super().__init__(heads)
+        self.eligible_dl_ids = eligible_dl_ids
+
+
+_ELIGIBLE_DL_SQL = text(
+    """
+    SELECT u.id FROM users u
+     WHERE u.is_active
+       AND (CAST(u.role AS text) = 'delivery_lead'
+            OR u.roles @> CAST('["delivery_lead"]' AS jsonb))
+    """
+)
+
+
+async def _dl_head_fallback_map(db: AsyncSession) -> DlFallback:
+    """client_id → główny DL klienta (`is_head`, aktywny, z rolą DL). Fallback
+    dla rekrutacji bez DL-a albo z DL-em, który nie może już nim być."""
+    heads = {
+        int(r.client_id): int(r.dl_id)
+        for r in (await db.execute(text(_DL_HEADS_SQL))).all()
+    }
+    eligible = frozenset(int(r.id) for r in (await db.execute(_ELIGIBLE_DL_SQL)).all())
+    return DlFallback(heads, eligible)
 
 
 def _resolve_dl_id(
     job_dl_id: Optional[int], job_client_id: Optional[int], fallback: dict[int, int]
 ) -> Optional[int]:
-    if job_dl_id is not None:
+    eligible = getattr(fallback, "eligible_dl_ids", None)
+    if job_dl_id is not None and (eligible is None or job_dl_id in eligible):
         return job_dl_id
     if job_client_id is not None:
         return fallback.get(job_client_id)
@@ -764,9 +778,9 @@ async def _compute_dl_metrics(
     period_start: Optional[datetime],
     only_dl_id: Optional[int] = None,
 ) -> tuple[list[dict], dict]:
-    """Zwraca (per_dl_rows, overall_totals) dla body_leasing Jobów.
+    """Zwraca (per_dl_rows, overall_totals) dla rekrutacji.
 
-    - requests / vacancies liczone z Jobów body_leasing **utworzonych** w okresie
+    - requests / vacancies liczone z rekrutacji **utworzonych** w okresie
     - placements = PIERWSZE wejście pary (kandydat, oferta) na `hired`
       (widok `analytics_first_milestones`, `first_reached_at` w okresie)
       dla Jobów tych DL
@@ -776,23 +790,22 @@ async def _compute_dl_metrics(
     """
     fallback = await _dl_head_fallback_map(db)
 
-    # 1. Jobs body_leasing stworzone w okresie.
-    jobs_q = (
-        select(
-            Job.id,
-            Job.delivery_lead_id,
-            Job.client_id,
-            Job.headcount,
-            Job.status,
-            Client.name.label("client_name"),
-        )
-        .outerjoin(Client, Job.client_id == Client.id)
-        .where(
-            Job.recruitment_type == RecruitmentType.body_leasing,
-        )
-    )
+    # 1. Rekrutacje stworzone w okresie.
+    jobs_q = select(
+        Job.id,
+        Job.delivery_lead_id,
+        Job.client_id,
+        Job.headcount,
+        Job.status,
+        Client.name.label("client_name"),
+    ).outerjoin(Client, Job.client_id == Client.id)
     if period_start is not None:
-        jobs_q = jobs_q.where(Job.created_at >= period_start)
+        # Data otwarcia, nie importu z Traffita (runda 6 audytu — jak Insights).
+        jobs_q = jobs_q.where(
+            func.coalesce(Job.opened_at, Job.created_at) >= period_start
+        )
+    # Zamknięcia „nie liczy się” (21.10.2026) nie są zapytaniem — jak portfele DL.
+    jobs_q = jobs_q.where((Job.status != JobStatus.closed) | counts_in_hit_ratio())
     jobs_rows = (await db.execute(jobs_q)).all()
 
     # Map job_id → resolved_dl_id
@@ -836,14 +849,11 @@ async def _compute_dl_metrics(
         FROM analytics_first_milestones fm
         JOIN jobs j ON j.id = fm.job_id
         WHERE fm.stage = 'hired'
-          AND j.recruitment_type = :recruitment_type
           {period_clause}
         GROUP BY j.id, j.delivery_lead_id, j.client_id
         """
     )
-    placement_params: dict[str, object] = {
-        "recruitment_type": RecruitmentType.body_leasing.value
-    }
+    placement_params: dict[str, object] = {}
     if period_start:
         placement_params["period_start"] = period_start
     placement_rows = (
@@ -868,7 +878,6 @@ async def _compute_dl_metrics(
         Job.client_id,
         Job.headcount,
     ).where(
-        Job.recruitment_type == RecruitmentType.body_leasing,
         Job.status.in_([JobStatus.draft, JobStatus.published]),
     )
     open_rows = (await db.execute(open_q)).all()
@@ -996,11 +1005,11 @@ async def report_delivery_leads(
     period: str = Query("month", enum=["week", "month", "quarter", "year"]),
 ):
     """Delivery Lead performance: requests, vacancies, placements, hit ratio,
-    fill rate, open pipeline. Dotyczy wyłącznie Jobów `body_leasing`.
+    fill rate, open pipeline.
 
     Cached for 5 minutes.
     """
-    cache_key = f"reports:delivery_leads:v2:{period}"
+    cache_key = f"reports:delivery_leads:v3:{period}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
@@ -1101,7 +1110,6 @@ _ClientsReportViewer = Annotated[
         require_roles(
             UserRole.admin,
             UserRole.delivery_lead,
-            UserRole.tac,
             UserRole.head_of_recruitment,
             UserRole.talent_community_manager,
             UserRole.finance,
@@ -1134,6 +1142,9 @@ def _client_hit_ratio_bucket(client_id: int, name: str, status) -> dict:
         "outcome_known_jobs": 0,
         "filled_job_ids": set(),
         "placements": 0,
+        # Licznik `fill_rate`: placementy WYŁĄCZNIE z rekrutacji, których
+        # etaty weszły do mianownika (runda 6 audytu).
+        "declared_placements": 0,
         "active_jobs": 0,
         "close_reasons": {},
     }
@@ -1176,12 +1187,23 @@ async def _compute_client_hit_ratio(
         .join(Client, Job.client_id == Client.id)
         .where(Job.status == JobStatus.closed, Job.closed_at.isnot(None))
     )
-    if period_start is not None:
-        jobs_q = jobs_q.where(Job.closed_at >= period_start)
+    # Zamknięcia liczymy od 12.10.2026 (decyzja Artura 18.10.2026): wcześniejsze
+    # to import Traffita, a hit ratio DynaReporter nie prowadził — brak danych.
+    jobs_q = jobs_q.where(
+        Job.closed_at
+        >= (
+            competition_history.board_start(period_start)
+            if period_start is not None
+            else competition_history.cutover_utc()
+        )
+    )
     if period_end is not None:
         jobs_q = jobs_q.where(Job.closed_at < period_end)
     if only_client_id is not None:
         jobs_q = jobs_q.where(Job.client_id == only_client_id)
+    # Zamknięcia „nie liczy się” (21.10.2026) nigdy nie wchodzą do hit ratio;
+    # `exclude_reasons` wycina dodatkowo to, o co prosi wołający.
+    jobs_q = jobs_q.where(counts_in_hit_ratio())
     if exclude_reasons:
         jobs_q = jobs_q.where(
             (Job.close_reason.is_(None)) | (Job.close_reason.notin_(exclude_reasons))
@@ -1191,6 +1213,7 @@ async def _compute_client_hit_ratio(
     # Index: client_id → bucket
     per_client: dict[int, dict] = {}
     closed_job_ids: list[int] = []
+    declared_job_ids: set[int] = set()
     for r in jobs_rows:
         closed_job_ids.append(r.id)
         bucket = per_client.setdefault(
@@ -1205,6 +1228,7 @@ async def _compute_client_hit_ratio(
         if job_data_trust.vacancies_declared(r):
             bucket["total_vacancies"] += int(r.headcount or 1)
             bucket["vacancies_declared_jobs"] += 1
+            declared_job_ids.add(r.id)
         if job_data_trust.outcome_available(r):
             bucket["outcome_known_jobs"] += 1
         reason_key = (
@@ -1243,6 +1267,8 @@ async def _compute_client_hit_ratio(
                 continue
             per_client[r.client_id]["filled_job_ids"].add(r.job_id)
             per_client[r.client_id]["placements"] += int(r.cnt)
+            if r.job_id in declared_job_ids:
+                per_client[r.client_id]["declared_placements"] += int(r.cnt)
 
     # 3. Active (published) jobs per client — snapshot, bez filtra okresu.
     active_q = (
@@ -1283,7 +1309,10 @@ async def _compute_client_hit_ratio(
         # zadeklarowanego headcountu — czyli gdy mianownika po prostu nie ma.
         # Zero byłoby zdaniem „obsadziliśmy 0% zamówionych etatów", a to nie
         # jest to, co wiemy.
-        fill_rate = _pct_or_none(placements, vacancies)
+        # Licznik i mianownik z TYCH SAMYCH rekrutacji: placementy z importu
+        # Traffita (bez zadeklarowanych etatów) przy mianowniku tylko z NEXUSA
+        # dawały 500% (runda 6 audytu).
+        fill_rate = _pct_or_none(bucket["declared_placements"], vacancies)
         per_client_out.append(
             {
                 "client_id": bucket["client_id"],
@@ -1294,6 +1323,7 @@ async def _compute_client_hit_ratio(
                 "lost_jobs": max(closed - filled, 0),
                 "total_vacancies": vacancies,
                 "placements": placements,
+                "fill_rate_placements": bucket["declared_placements"],
                 "hit_ratio": hit_ratio,
                 "fill_rate": fill_rate,
                 "fill_rate_source": (
@@ -1320,7 +1350,9 @@ async def _compute_client_hit_ratio(
     total_placements = sum(d["placements"] for d in per_client_out)
     total_vacancies = sum(d["total_vacancies"] for d in per_client_out)
     global_hit_ratio = _safe_pct(total_filled, total_closed)
-    global_fill_rate = _pct_or_none(total_placements, total_vacancies)
+    global_fill_rate = _pct_or_none(
+        sum(d["fill_rate_placements"] for d in per_client_out), total_vacancies
+    )
     # Avg ratios: średnia z klientów z ≥1 closed job.
     clients_with_jobs = [d for d in per_client_out if d["closed_jobs"] > 0]
     avg_hit = (
@@ -1423,7 +1455,9 @@ async def report_clients_hit_ratio(
 
     Cached for 5 minutes.
     """
-    cache_key = f"reports:clients:{period}:{min_closed}:{sort}:{exclude_reasons or ''}"
+    cache_key = (
+        f"reports:clients:v2:{period}:{min_closed}:{sort}:{exclude_reasons or ''}"
+    )
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
@@ -1565,95 +1599,6 @@ async def report_client_trend(
         )
 
     return {"client_id": client_id, "months": months, "trend": trend}
-
-
-# ── Tenders Report ─────────────────────────────────────────────────────────────
-
-
-@router.get("/tenders")
-async def report_tenders(
-    # Raport zawiera wartości przetargów: wyłącznie Finance/Admin.
-    current_user: FinanceReadUser,
-    db: AsyncSession = Depends(get_db),
-    period: str = Query("year", enum=["week", "month", "quarter", "year"]),
-):
-    """
-    Tenders (przetargi) report: total, won, lost, pending, win rate.
-    Cached for 5 minutes.
-    """
-    cache_key = f"reports:tenders:{period}"
-    cached = await cache_get(cache_key)
-    if cached is not None:
-        return cached
-
-    start = _period_start(period)
-
-    tenders_q = (
-        select(Job, Client.name.label("client_name"))
-        .outerjoin(Client, Job.client_id == Client.id)
-        .where(
-            Job.recruitment_type == RecruitmentType.tender,
-            Job.created_at >= start,
-        )
-    )
-    tenders_rows = (await db.execute(tenders_q)).all()
-
-    total = len(tenders_rows)
-
-    # PR 4 (plan analytics §3.2/§4.2): wynik przetargu z Job.close_reason
-    # (filled_by_us = wygrana; inny powód = przegrana; zamknięty BEZ powodu
-    # = nieznany), nie z heurystyki po priority. Otwarte = w_toku.
-    lost_list = []
-    won_list = []
-    pending_list = []
-    unknown_list = []
-
-    for r in tenders_rows:
-        j = r.Job
-        value = j.salary_max or j.salary_min or 0
-        entry = {
-            "job_id": j.id,
-            "job_title": j.title,
-            "client": r.client_name or "—",
-            "status": j.status.value,
-            "value": value,
-            "deadline": str(j.deadline) if j.deadline else None,
-            "close_reason": j.close_reason.value if j.close_reason else None,
-        }
-        if j.status.value == "closed":
-            if j.close_reason is None:
-                entry["result"] = "nieznana"
-                unknown_list.append(entry)
-            elif j.close_reason.value == "filled_by_us":
-                entry["result"] = "wygrana"
-                won_list.append(entry)
-            else:
-                entry["result"] = "przegrana"
-                lost_list.append(entry)
-        else:
-            entry["result"] = "w_toku"
-            pending_list.append(entry)
-
-    won_count = len(won_list)
-    lost_count = len(lost_list)
-    pending_count = len(pending_list)
-    unknown_count = len(unknown_list)
-    win_rate = _safe_pct(won_count, won_count + lost_count)
-
-    per_tender = won_list + lost_list + unknown_list + pending_list
-
-    result_data = {
-        "period": period,
-        "total_tenders": total,
-        "won": won_count,
-        "lost": lost_count,
-        "pending": pending_count,
-        "unknown": unknown_count,
-        "win_rate": win_rate,
-        "per_tender": per_tender,
-    }
-    await cache_set(cache_key, result_data, ttl_seconds=300)
-    return result_data
 
 
 # ── Invite-link channel report ─────────────────────────────────────────────

@@ -23,6 +23,8 @@ READ_ONLY_POST_ROUTE_TEMPLATES: tuple[str, ...] = (
     "/api/jobs/champion-profile/historical-matches",
     "/api/jobs/request-history/preview",
     "/api/jobs/{job_id}/classify-cc",
+    # 0403: „Champion po ludzku” — odświeżenie pamięci podręcznej tekstów.
+    "/api/jobs/{job_id}/plain-brief/refresh",
     "/api/jobs/{job_id}/generate-criteria-preview",
     "/api/recommendations/cv-upload-preview",
     "/api/prep-kit/generate",
@@ -33,6 +35,10 @@ READ_ONLY_POST_ROUTE_TEMPLATES: tuple[str, ...] = (
     "/api/candidates/bulk-cv-download",
     # Własna metryka pulpitu: definicja w ciele, bez zapisu (0337).
     "/api/dashboard-metrics/evaluate",
+    # Podpowiedź umiejętności krytycznych dla niezapisanej listy MUST (30.09.2026).
+    "/api/job-intake/critical-suggestion",
+    "/api/job-intake/requirement-rows",
+    "/api/job-intake/category-suggestion",
 )
 
 _READ_ONLY_POST_ROUTE_PATTERNS = tuple(

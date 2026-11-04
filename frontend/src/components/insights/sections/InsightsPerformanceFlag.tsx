@@ -17,7 +17,7 @@ import type {
 /**
  * Plakietki ostrzeżeń pod nazwiskiem w tabeli „Performance per osoba”
  * (odpowiednik czerwonej „Słabe wyniki” i bursztynowej „Procedury”
- * z DynaReportera) plus chip „były pracownik”.
+ * z DynaReportera) plus chip „był(a) w zespole”.
  *
  * Komponent jest CZYSTO PREZENTACYJNY — nie pobiera danych sam. Tabela ma
  * kilkanaście wierszy, a zapytanie per wiersz dałoby kilkanaście odczytów
@@ -79,7 +79,7 @@ function provenance(flag: PerformanceFlag): string {
 }
 
 /**
- * Chip „były pracownik”. Wyprowadzany z `User.is_active`, NIE z flagi —
+ * Chip „był(a) w zespole”. Wyprowadzany z `User.is_active`, NIE z flagi —
  * odejście z firmy to zdarzenie kadrowe, nie ocena jakości pracy, a wygaszanie
  * ostrzeżeń nie może nikogo „przywracać” do zespołu.
  */
@@ -90,7 +90,7 @@ export function FormerEmployeeChip({ className }: { className?: string }) {
       size="sm"
       className={cn("text-muted-foreground", className)}
     >
-      były pracownik
+      był(a) w zespole
     </Badge>
   );
 }

@@ -14,7 +14,7 @@ const RATE_UNITS: ReadonlyArray<{
   { value: "monthly", label: "Miesięczna" },
 ];
 
-const ORDER_CURRENCIES = ["PLN", "EUR", "USD", "GBP"] as const;
+export const ORDER_CURRENCIES = ["PLN", "EUR", "USD", "GBP"] as const;
 
 export function convertRateInput(
   value: string,

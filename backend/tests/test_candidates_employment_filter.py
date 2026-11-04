@@ -1,15 +1,13 @@
 """Tests for `GET /api/candidates?employment=at_client|available`.
 
-Regression guard for the bug where the filter relied solely on the `contracts`
-/ `candidate_conflicts` tables, which the Traffit import never backfilled — so
-"Zatrudnieni u naszego klienta" returned ~1 row instead of the ~700 placed
-consultants. The real signal is a recruitment whose LATEST pipeline stage is
-`hired` (documented as "Zatrudniony / kontrakt aktywny").
+Do 17.10.2026 filtr czytał też etap „Zatrudniony” i ręczny konflikt
+`current_employment` (z czasów, gdy import z Traffita nie wypełniał umów). Od
+17.10.2026 (decyzja Artura) „Pracuje u nas” = wyłącznie żywa umowa — z niej
+czyta się też stawkę i termin dostępności.
 
 Filter semantics (mirrored by `_at_client_predicate` and `_derive_employment`):
 
-* `at_client`  — active Contract OR active current_employment conflict OR a job
-  whose latest stage == `hired`.
+* `at_client`  — a live Contract (`active` / `ending`) only.
 * `available`  — the exact complement (`not_(_at_client_predicate())`).
 
 `candidate_stages` is append-only history, so a candidate moved `hired`→`rejected`
@@ -145,32 +143,30 @@ def _find(items: list[dict], cand_id: int) -> dict | None:
 
 
 @pytest.mark.asyncio
-async def test_at_client_includes_currently_hired(
+async def test_hired_without_contract_is_not_at_client(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """A candidate whose latest stage is `hired` appears in `employment=at_client`
-    and carries `employment.state=employed_at_client`, `source=pipeline`, and the
-    client name — even with NO Contract row (the Traffit reality)."""
-    display_name = f"Employment Client S.A. {uuid.uuid4().hex[:6]}"
-    job_id, client_id, client_name = await _seed_job(
-        client_name=f"EmpShort-{uuid.uuid4().hex[:6]}",
-        client_display_name=f"  {display_name}  ",
-    )
+    """17.10.2026: „Zatrudniony” bez umowy nie jest „Pracuje u nas” — osoba
+    jest `on_bench` po stronie `available`."""
+    job_id, client_id, _ = await _seed_job()
     hired = await _seed_candidate(name_suffix="-H")
     await _seed_stage(hired, job_id, "hired")
     try:
-        r = await app_client.get(
+        at_client = await app_client.get(
             "/api/candidates?employment=at_client&page_size=100",
             headers=app_auth_headers,
         )
-        assert r.status_code == 200, r.text
-        items = r.json()["items"]
-        match = _find(items, hired)
-        assert match is not None, "currently-hired candidate must match at_client"
-        assert match["employment"]["state"] == "employed_at_client"
-        assert match["employment"]["source"] == "pipeline"
-        assert match["employment"]["client_name"] == client_name
-        assert match["employment"]["client_id"] == client_id
+        avail = await app_client.get(
+            "/api/candidates?employment=available&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert at_client.status_code == 200, at_client.text
+        assert avail.status_code == 200, avail.text
+        assert _find(at_client.json()["items"], hired) is None
+        match = _find(avail.json()["items"], hired)
+        assert match is not None, "hired without a contract belongs in available"
+        assert match["employment"]["state"] == "on_bench"
+        assert match["employment_marker"] is None
     finally:
         await _cleanup(candidate_ids=[hired], job_ids=[job_id], client_ids=[client_id])
 
@@ -227,14 +223,14 @@ async def test_at_client_excludes_never_hired(
 
 
 @pytest.mark.asyncio
-async def test_available_excludes_currently_hired(
+async def test_available_excludes_live_contract(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """`available` is the exact complement — a currently-hired candidate must NOT
-    appear there."""
+    """`available` is the exact complement — a candidate with a live contract
+    must NOT appear there."""
     job_id, client_id, _ = await _seed_job()
     hired = await _seed_candidate(name_suffix="-AH")
-    await _seed_stage(hired, job_id, "hired")
+    await _seed_contract(hired, client_id, status="active")
     try:
         r = await app_client.get(
             "/api/candidates?employment=available&page_size=100",

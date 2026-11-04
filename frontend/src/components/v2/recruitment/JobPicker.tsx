@@ -8,11 +8,15 @@
  * Sekcje w kolejności, w jakiej rekruter ich szuka: „Moje otwarte”, „Ostatnio
  * otwierane” (pasek kart rekrutacji), a po wpisaniu frazy — wyniki szukania.
  *
- * `scope="mine"` zawęża WSZYSTKIE sekcje do rekrutacji, w których użytkownik
- * jest w zespole: dodanie do pipeline'u wymaga członkostwa
- * (`proposals_bulk.py`), więc podsuwanie cudzych rekrutacji kończyłoby się 403.
- * `scope="all"` służy odczytom (porównanie, ocena dopasowania), które członkostwa
- * nie wymagają.
+ * Wyszukiwanie obejmuje WSZYSTKIE otwarte rekrutacje: rekruter dodaje
+ * i przepina kandydatów także tam, gdzie nie jest w zespole (decyzja Artura
+ * 07.10.2026; serwer nie wymaga członkostwa od 23.09.2026). „Moje otwarte”
+ * to tylko skrót na górze.
+ *
+ * Wiersz nazywa rekrutację jak jej nagłówek: numer u klienta i tytuł dla
+ * rekrutera (`JobPickName`, 16.10.2026). Wybrana rekrutacja wraca z polem
+ * `title` = nazwa od klienta — wołający, który ją pokazuje, bierze
+ * `jobDisplayTitle`.
  */
 
 import { useMemo, useState } from "react";
@@ -24,20 +28,20 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useTabsStore } from "@/store/tabs";
 import { Input } from "@/components/ui/input";
+import { JobPickName } from "@/components/v2/jobs/JobPickName";
 import { cn } from "@/lib/utils";
 
 export interface JobPickerJob {
   id: number;
   title: string;
+  working_title?: string | null;
+  client_reference?: string | null;
   client_name?: string | null;
 }
-
-export type JobPickerScope = "mine" | "all";
 
 interface JobPickerProps {
   value: JobPickerJob | null;
   onChange: (job: JobPickerJob) => void;
-  scope: JobPickerScope;
   /** Etykieta pola szukania (dostępność). */
   label?: string;
   className?: string;
@@ -71,7 +75,7 @@ function JobRow({
         )}
       >
         <span className="min-w-0">
-          <span className="block truncate font-medium text-foreground">{job.title}</span>
+          <JobPickName job={job} />
           {job.client_name ? (
             <span className="block truncate text-xs text-muted-foreground">{job.client_name}</span>
           ) : null}
@@ -91,7 +95,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-export function JobPicker({ value, onChange, scope, label = "Szukaj rekrutacji", className }: JobPickerProps) {
+export function JobPicker({ value, onChange, label = "Szukaj rekrutacji", className }: JobPickerProps) {
   const [text, setText] = useState("");
   const q = useDebouncedValue(text.trim(), 250);
 
@@ -102,24 +106,25 @@ export function JobPicker({ value, onChange, scope, label = "Szukaj rekrutacji",
   });
 
   const search = useQuery({
-    queryKey: ["job-picker", "search", scope, q],
+    queryKey: ["job-picker", "search", q],
     queryFn: () =>
       jobsApi
-        .list({ q, page_size: 20, open_only: true, ...(scope === "mine" ? { mine: true } : {}) })
+        .list({ q, page_size: 20, open_only: true })
         .then((r) => r.data as JobListResponse),
     enabled: q.length > 0,
     staleTime: 30_000,
   });
 
   const tabs = useTabsStore((s) => s.tabs);
-  const recent = useMemo(() => {
-    const jobTabs = tabs.filter((t) => t.type === "job");
-    const recentJobs = jobTabs.map((t) => ({ id: t.entityId, title: t.title }));
-    if (scope === "all") return recentJobs.slice(0, 5);
-    // Przy "mine" pokazujemy tylko te ostatnio otwierane, które są w "Moich".
-    const mineIds = new Set((mine.data?.items ?? []).map((j) => j.id));
-    return recentJobs.filter((j) => mineIds.has(j.id)).slice(0, 5);
-  }, [tabs, scope, mine.data]);
+  const recent = useMemo(
+    () =>
+      tabs
+        .filter((t) => t.type === "job")
+        // Karta trzyma tytuł dla rekrutera i numer u klienta (jak nagłówek).
+        .map((t) => ({ id: t.entityId, title: t.title, client_reference: t.reference }))
+        .slice(0, 5),
+    [tabs],
+  );
 
   const mineItems = mine.data?.items ?? [];
 
@@ -130,7 +135,7 @@ export function JobPicker({ value, onChange, scope, label = "Szukaj rekrutacji",
         <Input
           id="job-picker-search"
           aria-label={label}
-          placeholder="Tytuł albo klient…"
+          placeholder="Tytuł, klient albo numer…"
           value={text}
           onChange={(e) => setText(e.target.value)}
           className="pl-9"
@@ -147,7 +152,7 @@ export function JobPicker({ value, onChange, scope, label = "Szukaj rekrutacji",
             <p role="status" className="text-sm text-muted-foreground">Szukam…</p>
           ) : search.data.items.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              {scope === "mine" ? "Brak Twoich otwartych rekrutacji pasujących do frazy." : "Brak rekrutacji pasujących do frazy."}
+              Brak otwartych rekrutacji pasujących do frazy.
             </p>
           ) : (
             <ul className="space-y-1.5">

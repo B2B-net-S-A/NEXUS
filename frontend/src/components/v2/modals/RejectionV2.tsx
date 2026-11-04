@@ -2,7 +2,12 @@
 
 import * as React from"react";
 import { useState, useEffect } from"react";
-import { AlertTriangle, Mail } from"lucide-react";
+import { AlertTriangle, Trophy } from"lucide-react";
+import {
+ RejectionRateField,
+ type RejectionRateChoice,
+ type RejectionRateProfile,
+} from "./RejectionRateField";
 import {
  Dialog,
  DialogBody,
@@ -16,10 +21,49 @@ import { Button } from"@/components/ui/button";
 import { FormField } from"@/components/ui/form-field";
 import { Textarea } from"@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from"@/components/ui/radio-group";
+import {
+ pendingAgreement,
+ signedAgreementWithContract,
+ type CardAgreement,
+} from "@/lib/b2b-agreement";
+import type { RejectionEmailText } from "@/lib/rejection-email";
+import {
+ RejectionEmailField,
+ type RejectionEmailFieldState,
+ type RejectionEmailPeople,
+} from "@/components/v2/modals/RejectionEmailField";
+import {
+ RejectionWorkModeField,
+ type RejectionWorkModeChoice,
+ type RejectionWorkModeJob,
+ type RejectionWorkModeProfile,
+} from "@/components/v2/modals/RejectionWorkModeField";
+import {
+ AutofillFeedbackField,
+ parseRateInput,
+} from "@/components/v2/modals/AutofillFeedbackField";
+import {
+ CLIENT_WIDE_REASONS,
+ NOT_LOOKING_DEFAULT_MONTHS,
+ autofillReasonLabel,
+ notLookingUntil,
+ templateReasonFor,
+ type AutofillFeedbackChoice,
+ type AutofillLearnedFrom,
+ type AutofillReason,
+} from "@/lib/autofill-feedback";
+import {
+ HM_ALREADY_INTERVIEWED_REASON,
+ WORK_MODE_MISMATCH_REASON,
+ isRateTooHighReason,
+ reasonNeedsDescription,
+} from "@/lib/rejection-reasons";
 
 interface RejectionReason {
  id: string;
  label: string;
+ /** Klucz danych powodu — `work_mode_mismatch` otwiera pytanie o dni w biurze. */
+ name?: string;
  applies_to: ("rejected" |"withdrawn")[];
 }
 
@@ -64,13 +108,75 @@ interface Props {
  // Wolny tekst powodu — przekazywany tylko w trybie fallback (brak
  // zdefiniowanych powodów). Backend przyjmuje go jako `rejection_reason`.
  freeReason?: string,
- endedBy?: EndedBy
+ endedBy?: EndedBy,
+ /** Id niepodpisanej umowy z Generatora do anulowania po ruchu (04.10.2026). */
+ cancelAgreementId?: number | null,
+ /** Temat i treść maila poprawione w podglądzie (jedna osoba, 13.10.2026);
+  *  `null` — treść domyślna. */
+ emailText?: RejectionEmailText | null,
+ /** Powód „Nie akceptuje trybu pracy” (14.10.2026): ile dni w biurze
+  *  kandydat akceptuje i czy zapisać to na profilu; `null` przy innym powodzie. */
+ workMode?: RejectionWorkModeChoice | null,
+ /** Osoba od systemu (23.10.2026): powód dla systemu; `null`, gdy okno
+  *  go nie pytało (żadna osoba od systemu z „Nowych”/„Screeningu”). */
+ autofill?: AutofillFeedbackChoice | null,
+ /** „Za wysokie oczekiwania finansowe” (26.10.2026): ile osoba teraz chce;
+  *  `null` przy innym powodzie, kilku osobach albo pustym polu. */
+ rate?: RejectionRateChoice | null
  ) => void;
  /** Wstępny wybór „kto kończy" (np. upuszczenie na „Odrzucony przez klienta"). */
  initialEndedBy?: Exclude<EndedBy, "candidate"> | null;
  /** „Odrzuca Delivery Lead" widzi tylko admin, DL i Head of Recruitment. */
  canEndAsDeliveryLead?: boolean;
+ /** Czy osoba była widoczna dla klienta — ta sama reguła co serwer
+  *  (`lib/rejection-email.ts`). Podane wygrywa z `previousStageCategory`,
+  *  które mówi o kategorii kolumny, a nie o tym, co widział klient
+  *  (runda 9, R9-N11-2: „CV wysłane" ma kategorię `internal`). */
+ emailAvailable?: boolean;
+ /** Notatka wstawiona przy otwarciu (np. „Odpada, gdy…” z wymagań ruchu).
+  *  Czytana tylko w chwili otwarcia — nie nadpisuje tego, co ktoś już pisze. */
+ initialNotes?: string | null;
+ /** Umowa z Generatora tej pary (tylko przy jednej osobie). Niepodpisaną
+  *  domyślnie anulujemy, przy podpisanej z kontraktem prowadzimy do
+  *  „Zakończ współpracę” (decyzja Artura 04.10.2026). */
+ agreement?: CardAgreement | null;
+ /** Jedna osoba: kogo zamykasz (13.10.2026). Przy przechodzeniu z panelu
+  *  osoby od razu do następnej łatwo pomylić osoby — okno to ostatnie
+  *  miejsce, gdzie to widać. */
+ subject?: { name: string; stageLabel?: string | null } | null;
+ /** Okno otwarte z panelu osoby: kogo panel pokaże po potwierdzeniu.
+  *  `null` — to ostatnia osoba, panel się zamknie. Bez propu (kilka osób,
+  *  karta, przeciągnięcie) okno niczego nie zapowiada. */
+ nextPerson?: { name: string; stageLabel: string } | null;
+ /** Odrzucana osoba jest championem (D7, 15.10.2026): co stanie się
+  *  z rekrutacją — zostają inni championi albo wraca „Szukamy”. Liczy
+  *  `championRemovalOutcome` z detalu rekrutacji; `null` = bez linii. */
+ championNotice?: string | null;
+ /** Rekrutacja i odrzucane osoby — podgląd maila odrzucenia przed wysyłką
+  *  (13.10.2026). Bez propu okno pokazuje sam checkbox. */
+ emailPreview?: RejectionEmailPeople | null;
+ /** Zapis ruchu w toku — „Potwierdź” zablokowany, bo drugi klik wysłałby
+  *  drugi ruch (z panelu osoby już przy następnej osobie; audyt 13.10.2026). */
+ pending?: boolean;
+ /** Tryb pracy rekrutacji — pytanie przy „Nie akceptuje trybu pracy” pokazuje
+  *  tylko mniej dni, niż wymaga rekrutacja. Bez propu: 0–4 dni. */
+ workModeJob?: RejectionWorkModeJob | null;
+ /** Tryb pracy z profilu (tylko przy jednej osobie) — „Teraz na profilu: …”. */
+ profileWorkMode?: RejectionWorkModeProfile | null;
+ /** „Stawka od” z profilu (tylko przy jednej osobie) — przy „Za wysokie
+  *  oczekiwania finansowe”. */
+ profileRate?: RejectionRateProfile | null;
+ /** Wśród odrzucanych jest osoba od systemu z „Nowych”/„Screeningu”
+  *  (silnik „Nowi na 20”, 23.10.2026) — okno pyta o powód dla systemu.
+  *  `rateKnown`: czy system znał stawkę (jedna osoba). */
+ autofill?: { rateKnown: boolean; several: boolean } | null;
 }
+
+const EMAIL_STATE_IDLE: RejectionEmailFieldState = {
+ blocked: false,
+ invalid: false,
+ text: null,
+};
 
 const TYPE_LABEL: Record<string, string> = {
  rejected: "Zamknij proces — odrzucenie",
@@ -87,19 +193,43 @@ export function RejectionV2({
  onConfirm,
  initialEndedBy = null,
  canEndAsDeliveryLead = false,
+ emailAvailable: emailAvailableProp,
+ initialNotes = null,
+ agreement = null,
+ subject = null,
+ nextPerson,
+ championNotice = null,
+ emailPreview = null,
+ pending = false,
+ workModeJob = null,
+ profileWorkMode,
+ profileRate,
+ autofill = null,
 }: Props) {
+ // Notatkę startową czytamy tylko przy otwarciu (efekt resetu niżej) —
+ // zmiana propa przy otwartym oknie nie kasuje tego, co ktoś już wpisał.
+ const initialNotesRef = React.useRef(initialNotes);
+ useEffect(() => {
+ initialNotesRef.current = initialNotes;
+ }, [initialNotes]);
  const [reasonId, setReasonId] = useState("");
  const [endedBy, setEndedBy] = useState<Exclude<EndedBy, "candidate">>(
  initialEndedBy ?? "recruiter"
  );
  const [notes, setNotes] = useState("");
+ const unsignedAgreement = pendingAgreement(agreement);
+ const signedAgreement = signedAgreementWithContract(agreement);
+ const [cancelAgreement, setCancelAgreement] = useState(true);
 
  // Mail odrzucenia dotyczy tylko `rejected` z etapu widocznego dla klienta
  // (wycofanie inicjuje kandydat). Od 17.09.2026 to OPT-IN: checkbox
  // domyślnie ODZNACZONY, serwer planuje wysyłkę wyłącznie przy `true`.
  const emailAvailable =
- terminalType === "rejected" && previousStageCategory === "external";
+ terminalType === "rejected" &&
+ (emailAvailableProp ?? previousStageCategory === "external");
  const [sendEmail, setSendEmail] = useState<boolean>(false);
+ const [emailState, setEmailState] =
+ useState<RejectionEmailFieldState>(EMAIL_STATE_IDLE);
 
  // Phase 17 — show offer response radio only for withdrawn FROM post-accept.
  const offerResponseRequired =
@@ -115,15 +245,45 @@ export function RejectionV2({
  // pusty, a przycisk "Potwierdź" byłby trwale zablokowany.
  const [freeReason, setFreeReason] = useState("");
 
+ // „Nie akceptuje trybu pracy” (D2–D3): domyślnie „Tylko zdalnie” i zapis
+ // na profilu — najświeższa deklaracja z rozmowy nadpisuje profil.
+ const [officeDays, setOfficeDays] = useState(0);
+ const [saveWorkMode, setSaveWorkMode] = useState(true);
+ // „Za wysokie oczekiwania finansowe” (26.10.2026): ile teraz chce.
+ const [newRate, setNewRate] = useState("");
+ const [newRateIsMinimum, setNewRateIsMinimum] = useState(true);
+ // Osoba od systemu (23.10.2026): powód dla systemu.
+ const [autofillLearnedFrom, setAutofillLearnedFrom] = useState<AutofillLearnedFrom | null>(null);
+ const [autofillReason, setAutofillReason] = useState<AutofillReason | null>(null);
+ const [autofillRate, setAutofillRate] = useState("");
+ // 27.10.2026: „Pracuje u tego klienta” / „Nie chce do tego klienta” —
+ // domyślnie na cały klient.
+ const [autofillWholeClient, setAutofillWholeClient] = useState(true);
+ // 28.10.2026: „Nie szuka pracy” — domyślnie 3 miesiące.
+ const [notLookingUntilValue, setNotLookingUntilValue] = useState(() =>
+ notLookingUntil(NOT_LOOKING_DEFAULT_MONTHS),
+ );
+
  // Reset defaults when modal re-opens (e.g. user bails, opens again).
  useEffect(() => {
  if (open) {
  setReasonId("");
- setNotes("");
+ setNotes(initialNotesRef.current ?? "");
  setSendEmail(false);
+ setEmailState(EMAIL_STATE_IDLE);
  setOfferResponse("");
  setFreeReason("");
  setEndedBy(initialEndedBy ?? "recruiter");
+ setCancelAgreement(true);
+ setOfficeDays(0);
+ setSaveWorkMode(true);
+ setNewRate("");
+ setNewRateIsMinimum(true);
+ setAutofillLearnedFrom(null);
+ setAutofillReason(null);
+ setAutofillRate("");
+ setAutofillWholeClient(true);
+ setNotLookingUntilValue(notLookingUntil(NOT_LOOKING_DEFAULT_MONTHS));
  }
  }, [open, initialEndedBy]);
  const endedByValue: EndedBy = terminalType === "withdrawn" ? "candidate" : endedBy;
@@ -133,30 +293,112 @@ export function RejectionV2({
 
  const filtered = reasons.filter((r) => r.applies_to.includes(terminalType));
  const hasReasons = filtered.length > 0;
+ const autofillAsked = terminalType === "rejected" && autofill != null;
+ // Osoba od systemu (27.10.2026): okno pyta o powód raz — powód z szablonu
+ // do raportu lejka wynika z powodu dla systemu.
+ const effectiveReasonId = autofillAsked
+ ? templateReasonFor(autofillReason, filtered)?.id ?? ""
+ : reasonId;
+ const chosenReason = filtered.find((r) => r.id === effectiveReasonId);
+ const workModeReason = chosenReason?.name === WORK_MODE_MISMATCH_REASON;
+ const rateReason = isRateTooHighReason(chosenReason);
+ // 20.10.2026: „Inne” i „Już po rozmowie u tego hiring managera” bez opisu
+ // zostawiały w historii samo słowo — notatka jest wtedy opisem powodu.
+ // „Inne” dla systemu też potrzebuje opisu (serwer: 422 bez `notes`).
+ const descriptionRequired = autofillAsked
+ ? autofillReason === "other"
+ : hasReasons && reasonNeedsDescription(chosenReason);
+ // Powód bez odpowiednika w szablonie idzie jako „Inne” z nazwą powodu
+ // w opisie — inaczej w historii zostaje samo słowo.
+ const reasonNotes =
+ autofillAsked && autofillReason && autofillReason !== "other" && reasonNeedsDescription(chosenReason)
+ ? [autofillReasonLabel(autofillReason), notes.trim()].filter(Boolean).join(". ")
+ : notes;
+ const several = (emailPreview?.people.length ?? 1) > 1;
+ const parsedNewRate = parseRateInput(newRate);
+ const rateChoice: RejectionRateChoice | null =
+ rateReason && !several && parsedNewRate !== null
+ ? { rateHourly: parsedNewRate, isMinimum: newRateIsMinimum }
+ : null;
+ const autofillChoice: AutofillFeedbackChoice | null =
+ autofillAsked && autofillReason && autofillLearnedFrom
+ ? {
+ reason: autofillReason,
+ learnedFrom: autofillLearnedFrom,
+ rateHourly:
+ // Przy powodzie „za drogo” kwotę niesie pole pod powodem — bez
+ // drugiego „Ile chce?” niżej.
+ autofillReason === "too_expensive" && !autofill?.several && !rateReason
+ ? parseRateInput(autofillRate)
+ : null,
+ ...(CLIENT_WIDE_REASONS.has(autofillReason) && !autofill?.several
+ ? { wholeClient: autofillWholeClient }
+ : {}),
+ ...(autofillReason === "not_looking" ? { notLookingUntil: notLookingUntilValue } : {}),
+ }
+ : null;
+ const hmInterviewed = chosenReason?.name === HM_ALREADY_INTERVIEWED_REASON;
 
  const handleConfirm = () => {
  // Zawsze jawny boolean — serwer planuje mail WYŁĄCZNIE przy `true`.
- const emailFlag: boolean = emailAvailable && sendEmail;
+ const emailFlag: boolean = emailAvailable && sendEmail && !emailState.blocked;
+ const emailText = emailFlag ? emailState.text : null;
+ const cancelAgreementId =
+ unsignedAgreement && cancelAgreement ? unsignedAgreement.id : null;
  const offerResponseValue: CandidateOfferResponse | null =
  offerResponseRequired && offerResponse ? offerResponse : null;
  if (hasReasons) {
- onConfirm(reasonId, notes, emailFlag, offerResponseValue, undefined, endedByValue);
+ onConfirm(
+ effectiveReasonId,
+ reasonNotes,
+ emailFlag,
+ offerResponseValue,
+ undefined,
+ endedByValue,
+ cancelAgreementId,
+ emailText,
+ workModeReason
+ ? { maxOnsiteDays: officeDays, saveToProfile: saveWorkMode }
+ : null,
+ autofillChoice,
+ rateChoice
+ );
  return;
  }
  // Fallback wolnego tekstu — brak zdefiniowanych powodów. Powód trafia do
  // `notes` (zapisywane + widoczne w timeline), a dodatkowo przekazujemy go
  // jako `freeReason` -> backend przyjmuje to jako `rejection_reason`, co
  // spełnia walidację ruchu na etap terminalny. reasonId zostaje pusty.
- const reasonText = freeReason.trim();
+ const reasonText =
+ autofillAsked && autofillReason ? autofillReasonLabel(autofillReason) : freeReason.trim();
  const combinedNotes = notes.trim()
  ? `${reasonText}\n\n${notes.trim()}`
  : reasonText;
- onConfirm("", combinedNotes, emailFlag, offerResponseValue, reasonText, endedByValue);
+ onConfirm(
+ "",
+ combinedNotes,
+ emailFlag,
+ offerResponseValue,
+ reasonText,
+ endedByValue,
+ cancelAgreementId,
+ emailText,
+ null,
+ autofillChoice
+ );
  };
 
  const submitDisabled =
- (hasReasons ? !reasonId : !freeReason.trim()) ||
- (offerResponseRequired && !offerResponse);
+ pending ||
+ (autofillAsked
+ ? hasReasons && !effectiveReasonId
+ : hasReasons
+ ? !reasonId
+ : !freeReason.trim()) ||
+ (descriptionRequired && !notes.trim()) ||
+ (offerResponseRequired && !offerResponse) ||
+ (autofillAsked && autofillChoice == null) ||
+ (emailAvailable && sendEmail && emailState.invalid);
 
  return (
  <Dialog open={open} onOpenChange={onOpenChange}>
@@ -169,6 +411,20 @@ export function RejectionV2({
  <DialogDescription>
  Podaj powód — pomoże to raportom o lejku rekrutacyjnym.
  </DialogDescription>
+ {subject ? (
+ <p className="rounded-md border border-border bg-muted/40 px-2.5 py-1.5 text-sm font-medium text-foreground">
+ {subject.stageLabel ? `${subject.name} · ${subject.stageLabel}` : subject.name}
+ </p>
+ ) : null}
+ {championNotice ? (
+ <p
+ className="flex items-start gap-1.5 rounded-md bg-medal-gold px-2.5 py-1.5 text-sm text-medal-gold-foreground"
+ data-testid="rejection-champion-notice"
+ >
+ <Trophy className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+ {championNotice}
+ </p>
+ ) : null}
  </DialogHeader>
 
  <DialogBody>
@@ -197,6 +453,44 @@ export function RejectionV2({
  </RadioGroup>
  </FormField>
  )}
+ {autofillAsked && autofill ? (
+ <AutofillFeedbackField
+ learnedFrom={autofillLearnedFrom}
+ onLearnedFromChange={setAutofillLearnedFrom}
+ reason={autofillReason}
+ onReasonChange={setAutofillReason}
+ rate={autofillRate}
+ onRateChange={setAutofillRate}
+ rateKnown={autofill.rateKnown}
+ several={autofill.several}
+ askRate={!rateReason}
+ wholeClient={autofillWholeClient}
+ onWholeClientChange={setAutofillWholeClient}
+ notLookingUntil={notLookingUntilValue}
+ onNotLookingUntilChange={setNotLookingUntilValue}
+ >
+ {workModeReason ? (
+ <RejectionWorkModeField
+ job={workModeJob}
+ profile={several ? undefined : profileWorkMode}
+ several={several}
+ days={officeDays}
+ onDaysChange={setOfficeDays}
+ saveToProfile={saveWorkMode}
+ onSaveToProfileChange={setSaveWorkMode}
+ />
+ ) : null}
+ {rateReason && !several ? (
+ <RejectionRateField
+ profile={profileRate}
+ rate={newRate}
+ onRateChange={setNewRate}
+ isMinimum={newRateIsMinimum}
+ onIsMinimumChange={setNewRateIsMinimum}
+ />
+ ) : null}
+ </AutofillFeedbackField>
+ ) : (
  <FormField
  label="Powód"
  required
@@ -209,13 +503,32 @@ export function RejectionV2({
  {hasReasons ? (
  <RadioGroup value={reasonId} onValueChange={setReasonId}>
  {filtered.map((r) => (
- <label
- key={r.id}
- className="flex items-center gap-2 text-sm cursor-pointer rounded-md p-1.5 hover:bg-primary/10"
- >
+ <React.Fragment key={r.id}>
+ <label className="flex items-center gap-2 text-sm cursor-pointer rounded-md p-1.5 hover:bg-primary/10">
  <RadioGroupItem value={r.id} />
  <span>{r.label}</span>
  </label>
+ {r.id === reasonId && workModeReason ? (
+ <RejectionWorkModeField
+ job={workModeJob}
+ profile={several ? undefined : profileWorkMode}
+ several={several}
+ days={officeDays}
+ onDaysChange={setOfficeDays}
+ saveToProfile={saveWorkMode}
+ onSaveToProfileChange={setSaveWorkMode}
+ />
+ ) : null}
+ {r.id === reasonId && rateReason && !several ? (
+ <RejectionRateField
+ profile={profileRate}
+ rate={newRate}
+ onRateChange={setNewRate}
+ isMinimum={newRateIsMinimum}
+ onIsMinimumChange={setNewRateIsMinimum}
+ />
+ ) : null}
+ </React.Fragment>
  ))}
  </RadioGroup>
  ) : (
@@ -227,6 +540,7 @@ export function RejectionV2({
  />
  )}
  </FormField>
+ )}
  {offerResponseRequired && (
  <FormField
  label="Reakcja kandydata na ofertę"
@@ -258,40 +572,87 @@ export function RejectionV2({
  </FormField>
  )}
  <FormField
- label="Notatka (opcjonalnie)"
- description="Np. kontekst decyzji, follow-up."
+ label={
+ hmInterviewed
+ ? "Na jakiej rozmowie i kiedy?"
+ : descriptionRequired
+ ? "Opisz powód"
+ : "Notatka (opcjonalnie)"
+ }
+ required={descriptionRequired}
+ description={
+ descriptionRequired
+ ? "Bez opisu w historii kandydata zostaje samo słowo."
+ : "Np. kontekst decyzji, follow-up."
+ }
  >
  <Textarea
  value={notes}
  onChange={(e) => setNotes(e.target.value)}
  rows={3}
- placeholder="Kandydat dostał lepszą ofertę finansową gdzie indziej."
+ placeholder={
+ hmInterviewed
+ ? "Np. Rating & Limit Management, rozmowa 21.08 — manager jej nie chce drugi raz."
+ : "Kandydat dostał lepszą ofertę finansową gdzie indziej."
+ }
  />
  </FormField>
 
- {emailAvailable && (
- <FormField label="Powiadomienie e-mail do kandydata">
- <label className="flex items-start gap-2 text-sm cursor-pointer rounded-md p-1.5 hover:bg-primary/10">
+ {unsignedAgreement && (
+ <label
+ data-testid="rejection-cancel-agreement"
+ className="flex items-start gap-2 rounded-md p-1.5 text-sm cursor-pointer hover:bg-primary/10"
+ >
  <input
  type="checkbox"
  className="mt-0.5 h-4 w-4 rounded border-[hsl(var(--border))] text-primary focus:ring-primary"
- checked={sendEmail}
- onChange={(e) => setSendEmail(e.target.checked)}
+ checked={cancelAgreement}
+ onChange={(e) => setCancelAgreement(e.target.checked)}
  />
- <span className="flex items-start gap-1.5">
- <Mail className="mt-0.5 h-3.5 w-3.5 text-[hsl(var(--muted-foreground))] shrink-0" />
  <span>
- Wyślij e-mail z informacją zwrotną do kandydata — za 15
- minut. Do tego czasu można anulować wysyłkę.
- </span>
+ Anuluj umowę {unsignedAgreement.number} w rejestrze (nie doszła do skutku).
+ Numer zostaje zużyty.
  </span>
  </label>
- </FormField>
+ )}
+ {signedAgreement && (
+ <div
+ data-testid="rejection-signed-agreement"
+ className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm"
+ >
+ Umowa {signedAgreement.number} jest podpisana i kontrakt trwa. Zamknięcie
+ karty nie kończy współpracy —{" "}
+ <a
+ className="font-medium text-primary underline-offset-2 hover:underline"
+ href={`/contracts/${signedAgreement.contract_id}`}
+ target="_blank"
+ rel="noreferrer"
+ >
+ zakończ ją w kontrakcie
+ </a>
+ . Bez tego sprawa trafi do Delivery Leada na pulpit.
+ </div>
+ )}
+
+ {emailAvailable && (
+ <RejectionEmailField
+ preview={emailPreview}
+ checked={sendEmail}
+ onCheckedChange={setSendEmail}
+ onStateChange={setEmailState}
+ />
  )}
  </div>
  </DialogBody>
 
  <DialogFooter>
+ {nextPerson !== undefined ? (
+ <p className="min-w-0 self-center text-xs text-muted-foreground sm:mr-auto">
+ {nextPerson
+ ? `Dalej: ${nextPerson.name} · ${nextPerson.stageLabel}`
+ : "To ostatnia osoba w kolejce — panel się zamknie."}
+ </p>
+ ) : null}
  <Button variant="ghost" onClick={() => onOpenChange(false)}>
  Anuluj
  </Button>

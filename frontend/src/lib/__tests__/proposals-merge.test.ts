@@ -5,9 +5,15 @@ import type { CandidateSearchRow } from "@/lib/full-candidate-search-api";
 import type { ProposalInboxItem } from "@/lib/job-proposals-api";
 import {
   DEFAULT_PROPOSAL_FILTERS,
+  EMPLOYMENT_ONLY_WARNING_PL,
   countBySource,
   filterProposals,
+  availabilityLabel,
+  historyReason,
+  isAvailableNow,
+  isBelowThreshold,
   mergeProposals,
+  splitByPostings,
   normalizeFitScore,
   traineeHandoverReason,
   WORK_TIME_FIT_WARNING_PL,
@@ -57,6 +63,29 @@ function recommendation(id: number, total: number | null): ProposalCandidateItem
     breakdown: {} as ProposalCandidateItem["breakdown"],
   };
 }
+
+describe("dostępność osoby z żywą umową (15.10.2026)", () => {
+  const now = new Date("2026-10-15T12:00:00");
+  const marker = {
+    phase: "working" as const,
+    source: "contract" as const,
+    clients: [{ client_name: "Bank Przykładowy", phase: "working" as const }],
+    free_from: "2026-12-01",
+    free_from_basis: "work_end" as const,
+  };
+
+  it("data ze screeningu sprzed zatrudnienia nie robi z niej „od razu”", () => {
+    expect(isAvailableNow("actively_looking", "2026-09-01", now)).toBe(true);
+    expect(isAvailableNow("actively_looking", "2026-09-01", now, marker)).toBe(false);
+    expect(availabilityLabel("actively_looking", "2026-09-01", now, marker)).toBe("od 01.12");
+  });
+
+  it("po końcu zamówień jest dostępna od razu", () => {
+    expect(
+      isAvailableNow(null, null, now, { ...marker, free_from: "2026-10-01" }),
+    ).toBe(true);
+  });
+});
 
 describe("normalizeFitScore", () => {
   it("nigdy nie zmyśla wyniku: puste, nieliczbowe i spoza skali → null", () => {
@@ -121,6 +150,35 @@ describe("mergeProposals", () => {
     expect(entries.map((e) => e.row.candidateId)).toEqual([2]);
   });
 
+  it("pominięci znikają ze WSZYSTKICH źródeł, nie tylko ze skrzynki (R10-N7-1)", () => {
+    const entries = mergeProposals({
+      inbox: [inboxItem(2)],
+      run: { runId: "r", rows: [runRow(1, 80), runRow(3, 75)] },
+      similar: [similar(1), similar(4)],
+      recommendations: { items: [recommendation(1, 60), recommendation(5, 50)], degraded: false },
+      dismissedCandidateIds: [1],
+    });
+    expect(entries.map((e) => e.row.candidateId).sort()).toEqual([2, 3, 4, 5]);
+  });
+
+  it("wynik scrapera portalu (`board_score`) nigdy nie jest „Dop.” — tylko dopisek; osoba bez kanonicznego wyniku czeka na `/scores` (27.10.2026)", () => {
+    const entries = mergeProposals({
+      inbox: [
+        inboxItem(1, { sources: ["job_board"], score: null, board_score: "77.00" }),
+        inboxItem(2, { sources: ["full_base", "job_board"], score: 72, board_score: 78 }),
+        inboxItem(3, { sources: ["new_cv"], score: 68 }),
+      ],
+    });
+    const byId = new Map(entries.map((e) => [e.row.candidateId, e.row]));
+    expect(byId.get(1)).toMatchObject({ fitScore: null, boardScore: 77 });
+    expect(byId.get(2)).toMatchObject({ fitScore: 72, boardScore: 78 });
+    expect(byId.get(3)?.fitScore).toBe(68);
+    expect(byId.get(3)).not.toHaveProperty("boardScore");
+    // Kolejność po kanonicznym wyniku: osoba tylko z portalu na końcu
+    // (okno przelicza ją od razu i układa po policzonym procencie).
+    expect(entries.map((e) => e.row.candidateId)).toEqual([2, 3, 1]);
+  });
+
   it("sortuje stabilnie: wynik malejąco (null na końcu), potem nowe, potem nazwisko", () => {
     const entries = mergeProposals({
       inbox: [
@@ -144,6 +202,25 @@ describe("mergeProposals", () => {
     const byId = new Map(entries.map((e) => [e.row.candidateId, e.row.warnings]));
     expect(byId.get(1)).toEqual(["hm_veto", "over_budget"]);
     expect(byId.get(2)).toEqual(["client_nda", "over_budget"]);
+  });
+
+  it("za mało dni w biurze (30.09.2026) to plakietka, nie ukrycie", () => {
+    const days = {
+      candidate: { id: 1, name: "Anna", lastname: "Nowak1" },
+      match_score: 0.8, matching_skills: [], gaps: [], office_fit: "days_exceeded",
+    } as unknown as CandidateSearchRow["match"];
+    const [entry] = mergeProposals({ run: { runId: "run-1", rows: [runRow(1, 80, { match: days })] } });
+    expect(entry.row.warnings).toContain("office_days");
+  });
+
+  it("„tylko zdalnie” przy hybrydzie (07.10.2026) to plakietka, nie ukrycie", () => {
+    const remote = {
+      candidate: { id: 1, name: "Anna", lastname: "Nowak1" },
+      match_score: 0.8, matching_skills: [], gaps: [], remote_fit: "prefers_remote",
+    } as unknown as CandidateSearchRow["match"];
+    const [entry] = mergeProposals({ run: { runId: "run-1", rows: [runRow(1, 80, { match: remote })] } });
+    expect(entry.row.warnings).toContain("prefers_remote");
+    expect(entry.detail.remoteFit).toBe("prefers_remote");
   });
 
   it("sprzeczny wymiar pracy (24.09.2026) to plakietka na wierszu, nie ukrycie", () => {
@@ -215,10 +292,55 @@ describe("mergeProposals", () => {
     expect(entries[2].row.handoverNote).toBeUndefined();
   });
 
+  it("przekazanie osoby „tylko umowa o pracę” niesie ostrzeżenie (runda 2 audytu 25.09.2026)", () => {
+    const entries = mergeProposals({
+      inbox: [
+        inboxItem(1, {
+          sources: ["trainee"],
+          trainee_handover: { by_name: "Ola", note: null, at: null, employment_only: true },
+        }),
+        inboxItem(2, {
+          sources: ["trainee"],
+          trainee_handover: { by_name: "Ola", note: null, at: null },
+        }),
+      ],
+    });
+    const byId = new Map(entries.map((e) => [e.row.candidateId, e.row]));
+    expect(byId.get(1)?.warnings).toContain("employment_only");
+    expect(byId.get(2)?.warnings).not.toContain("employment_only");
+    expect(EMPLOYMENT_ONLY_WARNING_PL).toBe("Tylko umowa o pracę");
+  });
+
+  it("dzień przekazania to dzień w Warszawie, nie UTC (R10-X1-3)", () => {
+    // 30.09 22:30 UTC = 1.10 00:30 w Warszawie.
+    expect(
+      traineeHandoverReason({ by_name: "Ola", note: null, at: "2026-09-30T22:30:00+00:00" }),
+    ).toBe("Od praktykanta: Ola · 01.10");
+  });
+
   it("przekazanie bez nazwiska i daty nie zmyśla danych", () => {
     expect(traineeHandoverReason({ by_name: null, note: null, at: null })).toBe(
       "Od praktykanta: praktykant",
     );
+  });
+
+  it("dopasowanie z portalu (job_board) zostaje swoim źródłem i pokazuje trafione must-have", () => {
+    const [entry] = mergeProposals({
+      inbox: [
+        inboxItem(1, {
+          sources: ["job_board"],
+          score: 72,
+          evidence: {
+            matched_must: ["Java", "Spring"],
+            auto_match: { score: 72, source: "jjit", must_hit: ["Java", "Spring"], must_total: 3 },
+          } as ProposalInboxItem["evidence"],
+        }),
+      ],
+    });
+    expect(entry.row.sources).toEqual(["job_board"]);
+    expect(PROPOSAL_SOURCE_LABEL.job_board).toBe("Z portalu (JJIT/RocketJobs)");
+    expect(entry.row.fitScore).toBe(72);
+    expect(entry.detail.requirements.map((r) => r.label)).toEqual(["Java", "Spring"]);
   });
 
   it("nieznane źródło z backendu nie wywraca scalenia", () => {
@@ -255,5 +377,121 @@ describe("filterProposals / countBySource", () => {
 
   it("liczy osoby per źródło", () => {
     expect(countBySource(entries)).toMatchObject({ all: 3, new_cv: 2, marketplace: 1, full_base: 0 });
+  });
+});
+
+describe("splitByPostings — zakładki okna „Kandydaci do dodania”", () => {
+  it("osoby z ogłoszeń z ostatnich 7 dni idą osobno, reszta do „Propozycji z bazy” — nikt nie wypada", () => {
+    const entries = mergeProposals({
+      inbox: [
+        inboxItem(1, { sources: ["job_board"], posting_recent: true, posting_seen_at: "2026-10-01T06:00:00Z" }),
+        // Zgłoszenie starsze niż okno — serwer mówi `posting_recent: false`.
+        inboxItem(2, { sources: ["new_cv"], posting_recent: false, posting_seen_at: "2026-09-01T06:00:00Z" }),
+        inboxItem(3, { sources: ["full_base"] }),
+      ],
+      similar: [similar(4)],
+    });
+    const { postings, base } = splitByPostings(entries);
+    expect(postings.map((e) => e.row.candidateId)).toEqual([1]);
+    expect(base.map((e) => e.row.candidateId).sort()).toEqual([2, 3, 4]);
+    expect(postings.length + base.length).toBe(entries.length);
+    expect(postings[0].detail.postingSeenAt).toBe("2026-10-01T06:00:00Z");
+  });
+
+  it("starszy serwer bez pola: wszyscy zostają w „Propozycjach z bazy”", () => {
+    const entries = mergeProposals({ inbox: [inboxItem(1, { sources: ["job_board"] })] });
+    expect(splitByPostings(entries)).toEqual({ postings: [], base: entries });
+  });
+});
+
+describe("znani zespołowi (07.10.2026)", () => {
+  const history = {
+    points: 6,
+    similar: [
+      { job_id: 7, title: "Analityk systemowy", reference_number: "ZOB-2614", client_name: "PKO BP", stage: "cv_sent", at: "2026-07-14T10:00:00Z" },
+      { job_id: 8, title: "Business Analyst", reference_number: null, client_name: "Alior", stage: "verified", at: "2026-05-02T10:00:00Z" },
+    ],
+    recent: null,
+  };
+
+  it("znana osoba stoi wyżej przy niższym dopasowaniu, a pokazywany procent się nie zmienia", () => {
+    const rows = mergeProposals({
+      inbox: [
+        inboxItem(1, { sources: ["full_base"], score: 75 }),
+        inboxItem(2, { sources: ["full_base"], score: 71, history }),
+      ],
+    });
+    expect(rows.map((e) => e.row.candidateId)).toEqual([2, 1]);
+    expect(rows[0].row.fitScore).toBe(71);
+    expect(rows[0].row.historyPoints).toBe(6);
+    expect(rows[0].row.reason).toBe(
+      "Zweryfikowany(a) przy podobnej rekrutacji: PKO BP · Analityk systemowy · 07.2026 (+1)",
+    );
+  });
+
+  it("punkty nie przeskakują przepięcia ani dużej różnicy dopasowania", () => {
+    const rows = mergeProposals({
+      inbox: [
+        inboxItem(1, { sources: ["full_base"], score: 90 }),
+        inboxItem(2, { sources: ["full_base"], score: 72, history }),
+        inboxItem(3, { sources: ["reassign"], score: 60 }),
+      ],
+    });
+    expect(rows.map((e) => e.row.candidateId)).toEqual([3, 1, 2]);
+  });
+
+  it("niedawna weryfikacja bez podobnej rekrutacji ma własny powód", () => {
+    expect(
+      historyReason({
+        points: 3,
+        similar: [],
+        recent: { job_id: 9, title: "Business Analyst", reference_number: null, client_name: "Nordea", stage: "verified", at: "2026-09-24T08:00:00Z" },
+      }),
+    ).toBe("Zweryfikowany(a) 24.09 w innej rekrutacji: Nordea · Business Analyst");
+  });
+
+  it("bez historii — kolejność i powód jak dotąd", () => {
+    const [entry] = mergeProposals({ inbox: [inboxItem(1, { sources: ["full_base"] })] });
+    expect(entry.row.historyPoints).toBeUndefined();
+  });
+});
+
+describe("isBelowThreshold — najlepsze 40 (28.10.2026)", () => {
+  const byId = (entries: ReturnType<typeof mergeProposals>) =>
+    new Map(entries.map((e) => [e.row.candidateId, e] as const));
+
+  it("skrzynka: wierzy fladze serwera; inne źródło pary znosi „spod progu”", () => {
+    const entries = byId(
+      mergeProposals({
+        inbox: [
+          inboxItem(1, { sources: ["full_base"], score: 65, below_threshold: true }),
+          inboxItem(2, { sources: ["full_base"], score: 75 }),
+          // Nowe CV ma własny próg — 65% stąd liczy się normalnie.
+          inboxItem(3, { sources: ["new_cv"], score: 65 }),
+        ],
+        similar: [similar(4)],
+      }),
+    );
+    expect(isBelowThreshold(entries.get(1)!)).toBe(true);
+    expect(isBelowThreshold(entries.get(2)!)).toBe(false);
+    expect(isBelowThreshold(entries.get(3)!)).toBe(false);
+    expect(isBelowThreshold(entries.get(4)!)).toBe(false);
+  });
+
+  it("strona żywego przeglądu: rozstrzyga wynik względem progu", () => {
+    const entries = byId(
+      mergeProposals({ run: { runId: "r", rows: [runRow(5, 64), runRow(6, 72), runRow(7, null)] } }),
+    );
+    expect(isBelowThreshold(entries.get(5)!)).toBe(true);
+    expect(isBelowThreshold(entries.get(6)!)).toBe(false);
+    expect(isBelowThreshold(entries.get(7)!)).toBe(false);
+    expect(isBelowThreshold(entries.get(6)!, 75)).toBe(true);
+  });
+
+  it("osoba z przeglądu i podobnej rekrutacji nie jest „spod progu”", () => {
+    const entries = byId(
+      mergeProposals({ run: { runId: "r", rows: [runRow(8, 60)] }, similar: [similar(8)] }),
+    );
+    expect(isBelowThreshold(entries.get(8)!)).toBe(false);
   });
 });

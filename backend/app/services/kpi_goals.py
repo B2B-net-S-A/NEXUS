@@ -2,11 +2,14 @@
 
 Decyzja Artura (22.09.2026, punkt 7 audytu ról i targetów):
 
-- **Delivery Lead**: hit ratio 30% i placementy w portfelu. Liczby i okno są
-  TE SAME co w Lidze Mistrzów DL (`competitions.dl_portfolio_counts`: kwartał
-  kalendarzowy, oferty body leasing, DL oferty albo head DL klienta; próg
-  `HIT_RATIO_TARGET` i `QUARTERLY_MIN_PLACEMENTS`). Dzięki temu „twoje hit
-  ratio" na pulpicie i miejsce na podium liczą się z jednego zapytania.
+- **Delivery Lead**: jeden cel — hit ratio 30%. Liczby i okno są TE SAME co
+  w Lidze Mistrzów DL (`competitions.dl_portfolio_counts`: kwartał
+  kalendarzowy, wszystkie rekrutacje, DL oferty albo head DL klienta; próg
+  `HIT_RATIO_TARGET`), więc „twoje hit ratio" i miejsce na podium liczą się
+  z jednego zapytania. Cel placementów wynika z tego samego progu: 30%
+  rekrutacji zamkniętych w kwartale, w górę (10 zamkniętych = 3 placementy;
+  decyzja Artura 13.10.2026). Minimum 3 placementów to warunek podium ligi,
+  nie cel z widgetu.
 - **Head of Recruitment i TCM**: cele ZESPOŁOWE, bez osobistych. Zespół to
   operatorzy rekrutacji z zakresu pulpitu (`resolve_dashboard_scope` →
   `recruitment_org`). Cel zespołu = suma celów ludzi (`kpi_targets`), wynik =
@@ -22,7 +25,8 @@ i precyzja poniżej 5 weryfikacji mają `current=None` i opis w `note`.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import asdict, dataclass
+import math
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -37,8 +41,10 @@ from app.services.kpi_catalog import KPI_CATALOG, KpiMetric, KpiPeriod, kpi_avai
 from app.services.kpi_engine import (
     WARSAW,
     KpiState,
+    absence_for_periods,
     derive_state,
     expected_progress_ratio,
+    target_on_workdays,
 )
 from app.services.kpi_targets import resolve_kpi_targets_bulk, resolve_org_target
 
@@ -50,14 +56,12 @@ _PRECISION_MIN_DENOM = 5
 # KPI zespołowe (licznik z panelu zespołu) → (okno, pole wiersza panelu).
 _TEAM_COUNT_FIELDS: dict[KpiMetric, str] = {
     KpiMetric.first_verifications: "weryfikacje",
-    KpiMetric.new_candidates: "cv_to_base",
     KpiMetric.first_recommendations: "rekomendacje",
     KpiMetric.first_placements: "placementy",
 }
 
 _TEAM_TITLES: dict[str, str] = {
     "daily_first_verifications": "Weryfikacje zespołu dziś",
-    "daily_new_candidates": "Nowi kandydaci zespołu dziś",
     "weekly_cvs_sent": "Rekomendacje zespołu w tygodniu",
     "monthly_placements": "Placementy zespołu w tym miesiącu",
     "monthly_precision": "Precyzja zespołu (30 dni)",
@@ -75,6 +79,11 @@ class GoalRow:
     progress_pct: Optional[float]
     state: Optional[KpiState]
     note: Optional[str] = None
+    # Nazwa bez okresu i zakresu — podpis segmentu w liczniku górnego paska.
+    short_title_pl: str = ""
+    # Ile powinno być zrobione „na teraz” (cel × tempo okresu); None = cel
+    # bez tempa (wskaźniki jakości, cele Delivery Leada).
+    expected: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -83,6 +92,15 @@ class GoalsResult:
     scope_label: str
     people: Optional[int]
     goals: tuple[GoalRow, ...]
+    # Delivery Lead: rekrutacje zamknięte w kwartale — podstawa celu
+    # placementów (30% z tej liczby). Reszta: None.
+    closed_requests: Optional[int] = None
+    # Delivery Lead: zamknięte w kwartale jako „nie liczy się” (21.10.2026) —
+    # poza podstawą celu. Reszta: None.
+    closed_neutral: Optional[int] = None
+    # Delivery Lead: „Sam przekazał” w tym miesiącu (22.10.2026) — procesy,
+    # które sam zweryfikował: `{verified, cv_sent, hired}`. Licznik bez celu.
+    own_handoffs: Optional[dict[str, int]] = None
 
     def as_dict(self) -> dict:
         return {
@@ -90,6 +108,9 @@ class GoalsResult:
             "scope_label": self.scope_label,
             "people": self.people,
             "goals": [asdict(g) for g in self.goals],
+            "closed_requests": self.closed_requests,
+            "closed_neutral": self.closed_neutral,
+            "own_handoffs": self.own_handoffs,
         }
 
     @classmethod
@@ -99,6 +120,9 @@ class GoalsResult:
             scope_label=data["scope_label"],
             people=data["people"],
             goals=tuple(GoalRow(**g) for g in data["goals"]),
+            closed_requests=data.get("closed_requests"),
+            closed_neutral=data.get("closed_neutral"),
+            own_handoffs=data.get("own_handoffs"),
         )
 
 
@@ -118,14 +142,6 @@ def _ratio_state(current: Optional[float], target: float) -> Optional[KpiState]:
     return "hit" if current >= target else "behind"
 
 
-def _quarter_ratio(now: datetime) -> float:
-    """Jaka część kwartału minęła (0..1) — tempo celu kwartalnego."""
-    bounds = local_quarter_bounds(now.astimezone(WARSAW).date())
-    total = (bounds.end_utc - bounds.start_utc).total_seconds()
-    elapsed = (now - bounds.start_utc).total_seconds()
-    return min(1.0, max(0.0, elapsed / total)) if total > 0 else 1.0
-
-
 # ── Delivery Lead ─────────────────────────────────────────────────────────────
 
 
@@ -135,8 +151,8 @@ async def _delivery_lead_goals(
     # Import leniwy: `competitions` importuje `api.reports` w środku funkcji.
     from app.services.competitions import (
         HIT_RATIO_TARGET,
-        QUARTERLY_MIN_PLACEMENTS,
         current_quarter_period,
+        dl_neutral_closed_counts,
         dl_portfolio_counts,
     )
 
@@ -146,41 +162,63 @@ async def _delivery_lead_goals(
     )
     placements = int(placements_by_dl.get(user.id, 0))
     requests = int(requests_by_dl.get(user.id, 0))
+    neutral = int(
+        (
+            await dl_neutral_closed_counts(
+                db, start=bounds.start_utc, end=bounds.end_utc
+            )
+        ).get(user.id, 0)
+    )
     hit_ratio = round(100.0 * placements / requests, 1) if requests else None
     target_hr = float(HIT_RATIO_TARGET)
-    target_pl = float(QUARTERLY_MIN_PLACEMENTS)
+    # Cel placementów = próg hit ratio z rekrutacji zamkniętych, w górę (2 z 7
+    # to 28,6%, czyli jeszcze poniżej 30%). Najpierw mnożenie, potem dzielenie:
+    # `28.0 / 100 * 25` daje 7,000000000000001 i `ceil` zwróciłby 8.
+    target_pl = math.ceil(requests * target_hr / 100)
+    # Oba wiersze to ten sam warunek zapisany na dwa sposoby, więc stan liczymy
+    # raz, na liczbach całkowitych — nie z procentu zaokrąglonego do 0,1. Cel
+    # nie ma tempa: rośnie razem z liczbą zamkniętych rekrutacji.
+    state: Optional[KpiState] = None
+    if requests:
+        state = "hit" if placements >= target_pl else "behind"
 
     goals = (
         GoalRow(
             goal_id="dl_hit_ratio_quarter",
             title_pl="Hit ratio portfela w kwartale",
+            short_title_pl="Hit ratio",
             period="quarter",
             unit="pct",
             target=target_hr,
             current=hit_ratio,
             progress_pct=_progress(hit_ratio, target_hr),
-            state=_ratio_state(hit_ratio, target_hr),
+            state=state,
             note=(
                 None
                 if hit_ratio is not None
-                else "Niepoliczony — w tym kwartale nie ma nowych requestów "
-                "w Twoim portfelu."
+                # Mianownik ligi DL to rekrutacje ZAMKNIĘTE w kwartale
+                # (`dl_portfolio_counts`), nie nowe requesty (runda 6 audytu).
+                else "Niepoliczony — w tym kwartale nie zamknięto żadnej "
+                "rekrutacji w Twoim portfelu."
             ),
         ),
         GoalRow(
             goal_id="dl_placements_quarter",
             title_pl="Placementy portfela w kwartale",
+            short_title_pl="Placementy",
             period="quarter",
             unit="count",
-            target=target_pl,
+            # 0 = celu jeszcze nie ma (nic nie zamknięto); stan None mówi to
+            # frontowi, który pokazuje wtedy sam wynik i notatkę.
+            target=float(target_pl),
             current=float(placements),
-            progress_pct=_progress(float(placements), target_pl),
-            state=derive_state(
-                current=placements,
-                target=int(target_pl),
-                expected_ratio=_quarter_ratio(now),
+            progress_pct=_progress(float(placements), float(target_pl)),
+            state=state,
+            note=(
+                f"Rekrutacje zamknięte w kwartale: {requests}"
+                if requests
+                else "Cel pojawi się po zamknięciu pierwszej rekrutacji w kwartale."
             ),
-            note=f"Nowe requesty w kwartale: {requests}",
         ),
     )
     return GoalsResult(
@@ -189,6 +227,8 @@ async def _delivery_lead_goals(
         scope_label=current_quarter_period(now.astimezone(WARSAW).date()),
         people=None,
         goals=goals,
+        closed_requests=requests,
+        closed_neutral=neutral,
     )
 
 
@@ -227,6 +267,10 @@ async def _team_goals(
     ]
     targets = await resolve_kpi_targets_bulk(db, members, [k.kpi_id for k in kpis])
     member_ids = {m.id for m in members}
+    # Cel zespołu to suma celów osób przeliczonych na ich dni pracy — urlop
+    # osoby zmniejsza cel, a nie robi „poniżej tempa” całemu zespołowi
+    # (decyzja Artura 28.10.2026).
+    absence = await absence_for_periods(db, sorted(member_ids), now)
 
     panels = {}
     for period in {k.period for k in kpis if k.metric is not KpiMetric.precision}:
@@ -242,31 +286,38 @@ async def _team_goals(
         with_goal = [uid for uid in member_ids if targets[uid][kpi.kpi_id] > 0]
         if not with_goal:
             continue
-        target = sum(targets[uid][kpi.kpi_id] for uid in with_goal)
+        target = sum(
+            target_on_workdays(
+                targets[uid][kpi.kpi_id], kpi.period, now, absence.get(uid, {})
+            )
+            for uid in with_goal
+        )
         current = sum(
             int(getattr(rows[uid], field)) for uid in with_goal if uid in rows
         )
+        ratio = expected_progress_ratio(kpi.period, now)
         goals.append(
             GoalRow(
                 goal_id=f"team_{kpi.kpi_id}",
                 title_pl=_TEAM_TITLES.get(kpi.kpi_id, kpi.title_pl),
+                short_title_pl=kpi.short_title_pl,
                 period=kpi.period.value,
                 unit="count",
                 target=float(target),
                 current=float(current),
                 progress_pct=_progress(float(current), float(target)),
                 state=derive_state(
-                    current=current,
-                    target=target,
-                    expected_ratio=expected_progress_ratio(kpi.period, now),
+                    current=current, target=target, expected_ratio=ratio
                 ),
                 note=f"Suma celów osób z tym celem: {len(with_goal)}",
+                expected=round(target * ratio, 1),
             )
         )
 
     # Precyzja nie sumuje się z celów — to wskaźnik jakości całego zespołu
     # z okna kroczącego 30 dni, porównany z celem organizacyjnym.
-    if any(k.metric is KpiMetric.precision for k in kpis):
+    precision_kpi = next((k for k in kpis if k.metric is KpiMetric.precision), None)
+    if precision_kpi is not None:
         month_rows = panels.get(KpiPeriod.month)
         if month_rows is None:
             panel = await compute_team_panel(db, period=KpiPeriod.month, now=now)
@@ -291,6 +342,7 @@ async def _team_goals(
             GoalRow(
                 goal_id="team_monthly_precision",
                 title_pl=_TEAM_TITLES["monthly_precision"],
+                short_title_pl=precision_kpi.short_title_pl,
                 period=KpiPeriod.month.value,
                 unit="pct",
                 target=target,
@@ -349,6 +401,14 @@ async def compute_my_goals(
         if isinstance(cached, dict):
             return GoalsResult.from_dict(cached)
         result = await _delivery_lead_goals(db, user=user, now=now)
+        from app.services.kpi_panel import (  # noqa: PLC0415
+            month_match_handoffs,
+            month_own_handoffs,
+        )
+
+        own = await month_own_handoffs(db, user=user, now=now)
+        own["match"] = await month_match_handoffs(db, user=user, now=now)
+        result = replace(result, own_handoffs=own)
         await cache_set(cache_key, result.as_dict(), ttl_seconds=_CACHE_TTL_SECONDS)
         return result
 

@@ -5,13 +5,20 @@ numerem, numer przełamany myślnikiem, NIP-y osób trzecich), ale nazwy i numer
 są zmyślone z poprawną sumą kontrolną. Realny korpus zostaje poza repo.
 """
 
+import pytest
+
 from app.services.order_client_identity import (
     ClientMarkers,
     ClientRegistry,
+    fi_business_id_valid,
     identify_client,
     nip_checksum_valid,
+    normalize_buyer_number,
     normalize_registry_id,
     registry_ids_in_text,
+)
+from app.services.order_policies.known_clients import (
+    build_registry_from_known_clients,
 )
 
 # Syntetyczne NIP-y z poprawną sumą kontrolną (policzone, nie przepisane).
@@ -51,6 +58,50 @@ class TestNormalizationAndChecksum:
 
     def test_foreign_prefix_is_part_of_identity(self):
         assert normalize_registry_id("FI12345678") == "FI12345678"
+
+
+class TestBuyerNumber:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("FR1A123456789", "FR1A123456789"),
+            ("fr 1a-123 456 789", "FR1A123456789"),
+            ("IE9S99999L", "IE9S99999L"),
+            ("ATU12345678", "ATU12345678"),
+            ("ESX1234567L", "ESX1234567L"),
+            ("NL123456789B01", "NL123456789B01"),
+            ("DE 123.456.789", "DE123456789"),
+            ("FI12345678", "FI12345678"),
+        ],
+    )
+    def test_eu_vat_stays_whole(self, raw, expected):
+        assert normalize_buyer_number(raw) == expected
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("PL 123-456-32-18", BANK_A),
+            ("NIP: 123 456 32 18", BANK_A),
+            ("NIP 1234563218", BANK_A),
+            ("VAT 1234563218", BANK_A),
+            ("GB123456789", "GB123456789"),
+            ("", ""),
+            ("brak", ""),
+        ],
+    )
+    def test_everything_else_goes_like_the_registry(self, raw, expected):
+        assert normalize_buyer_number(raw) == expected
+
+    def test_full_number_in_a_profile_does_not_change_order_mail(self):
+        """Poczta zamówień ma stary klucz, a skan znajduje tylko numery PL i FI."""
+
+        assert normalize_registry_id("FR1A123456789") == "FR1"
+        assert normalize_registry_id("ATU12345678") == "2345678"
+        registry = ClientRegistry(
+            by_registry_id={"FR1A123456789": "a", "ATU12345678": "b"}
+        )
+        text = "VAT FR1A123456789 ATU12345678 FR1 2345678"
+        assert identify_client(text, registry).client_key is None
 
 
 class TestRegistryIdsInText:
@@ -135,3 +186,54 @@ class TestIdentifyClient:
         text = f"Zamówienie z dnia 1.1.2026 do umowy ramowej z dnia 3 lipca 2017 NIP {BANK_B}"
         r = identify_client(text, _registry())
         assert (r.client_key, r.method) == ("bank_b", "registry_id")
+
+
+class TestFinnishBusinessId:
+    """Zgłoszenie 05.10.2026 (zam. Nordei 287341): nagłówek Call Off Agreement
+    niesie „Company number 2858394-9" — fiński Business ID w zapisie krajowym.
+    Bez prefiksu „FI" odpadał jak zły polski NIP, Nordea była rozpoznawana tylko
+    markerem i żadne jej zamówienie bez linii VAT nie mogło przejść automatem.
+    Numer Nordea Bank Abp jest publiczny (rejestr handlowy Finlandii)."""
+
+    NORDEA_HEADER = (
+        "Call Off Agreement\n"
+        'Company name (hereinafter referred to as "Nordea") Company number\n'
+        "Nordea Bank Abp 2858394-9\n"
+        "Frame Agreement number: CW2117535\n"
+    )
+
+    def test_checksum(self):
+        assert fi_business_id_valid("28583949")
+        assert not fi_business_id_valid("28583948")
+        assert not fi_business_id_valid("1234567")
+
+    def test_national_form_becomes_vat_form(self):
+        assert registry_ids_in_text("Nordea Bank Abp 2858394-9") == ["FI28583949"]
+
+    def test_wrong_check_digit_is_not_an_id(self):
+        assert registry_ids_in_text("Nordea Bank Abp 2858394-8") == []
+
+    def test_hyphen_after_country_prefix(self):
+        assert registry_ids_in_text("VAT: FI-28583949") == ["FI28583949"]
+
+    def test_postal_code_with_country_prefix_is_not_an_id(self):
+        assert registry_ids_in_text("Satamaradankatu 5, FI-00020 NORDEA") == []
+
+    def test_header_alone_confirms_nordea_by_registry_id(self):
+        r = identify_client(self.NORDEA_HEADER, build_registry_from_known_clients())
+        assert (r.client_key, r.method) == ("nordea", "registry_id")
+
+    def test_header_and_vat_line_are_one_id_not_ambiguity(self):
+        text = self.NORDEA_HEADER + "(VAT number: FI28583949)\n"
+        r = identify_client(text, build_registry_from_known_clients())
+        assert (r.client_key, r.method) == ("nordea", "registry_id")
+        assert r.registry_ids_found == ("FI28583949",)
+
+    def test_other_finnish_company_is_not_nordea(self):
+        # Poprawny Business ID innej firmy: przecięcie z rejestrem odfiltrowuje
+        # go, więc dokument zostaje przy markerach (bez awansu do numeru).
+        assert fi_business_id_valid("12345671")
+        text = "Call Off Agreement\nNordea Bank Abp\nPartner Oy 1234567-1\n"
+        r = identify_client(text, build_registry_from_known_clients())
+        assert r.registry_ids_found == ("FI12345671",)
+        assert (r.client_key, r.method) == ("nordea", "marker")

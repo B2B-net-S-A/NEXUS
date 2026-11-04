@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -107,4 +108,17 @@ class ClientInterviewSlotRequest(Base, TimestampMixin):
     )
     event_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("calendar_events.id", ondelete="SET NULL"), nullable=True
+    )
+    # 0487 (20.10.2026): wybór rekrutera od razu wpisuje rozmowę do kalendarza,
+    # a DL dostaje zadanie „Odpisz klientowi”. Flaga zamiast „brak daty
+    # odpowiedzi”, żeby wnioski potwierdzone przed 0487 nie stały się
+    # zaległymi zadaniami.
+    client_reply_pending: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    client_replied_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    client_replied_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

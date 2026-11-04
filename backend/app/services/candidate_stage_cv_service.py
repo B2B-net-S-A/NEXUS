@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -29,7 +30,8 @@ from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.recruitment_pipeline import CandidateStage
-from app.services.cv_source import get_current_cv
+from app.services.cv_source import CurrentCV, get_current_cv
+from app.core.log_safety import safe_filename
 
 logger = logging.getLogger(__name__)
 
@@ -240,12 +242,24 @@ async def refresh_original_cv_snapshot(
     stage_id: int,
     *,
     user_id: Optional[int],
+    source: str = "manual_refresh",
+    current: Optional[CurrentCV] = None,
 ) -> CandidateStageCV:
     """Manual refresh przez rekrutera (button "Aktualizuj snapshot z bieżącego").
 
     Nadpisuje `original_*` aktualną zawartością `Candidate.cv_*`. Loguje stary
     filename/timestamp w `Activity.details` — audit trail dla "co było w
     snapshot przed odświeżeniem".
+
+    ``source`` trafia do `original_snapshot_source`: `manual_refresh` to kopia
+    głównego CV z profilu („Użyj w tej rekrutacji”), `manual_upload` — plik
+    wgrany z rekrutacji (`POST …/cv/original/upload`), który chwilę wcześniej
+    został głównym CV.
+
+    ``current`` podaje trasa wgrania, która ma bajty pliku w pamięci — kopia
+    powstaje z nich bez ponownego odczytu. Audyt 13.10.2026: przy awarii
+    magazynu `get_current_cv` schodził do wskaźnika kandydata i kopia etapu
+    dostawała starsze CV pod nazwą nowego pliku.
 
     Raises:
       LookupError — gdy CandidateStageCV dla stage_id nie istnieje.
@@ -260,10 +274,11 @@ async def refresh_original_cv_snapshot(
             "create_original_cv_snapshot() should have run when stage was created."
         )
 
-    candidate = await db.scalar(
-        select(Candidate).where(Candidate.id == csv_row.candidate_id)
-    )
-    current = await get_current_cv(db, candidate) if candidate is not None else None
+    if current is None:
+        candidate = await db.scalar(
+            select(Candidate).where(Candidate.id == csv_row.candidate_id)
+        )
+        current = await get_current_cv(db, candidate) if candidate is not None else None
     if current is None:
         raise ValueError(
             f"Candidate {csv_row.candidate_id} has no current CV to copy — "
@@ -282,7 +297,7 @@ async def refresh_original_cv_snapshot(
     csv_row.original_cv_sha256 = digest
     csv_row.original_cv_language = current.language
     csv_row.original_snapshot_at = datetime.now(tz=timezone.utc)
-    csv_row.original_snapshot_source = "manual_refresh"
+    csv_row.original_snapshot_source = source
     await db.flush()
 
     db.add(
@@ -295,6 +310,7 @@ async def refresh_original_cv_snapshot(
                 "old_filename": old_filename,
                 "new_filename": current.filename,
                 "cv_source": current.source,
+                "snapshot_source": source,
                 "old_at": old_at.isoformat() if old_at else None,
             },
             user_id=user_id,
@@ -304,11 +320,99 @@ async def refresh_original_cv_snapshot(
     logger.info(
         "Snapshot CV odświeżony stage=%s old=%s new=%s (source=%s)",
         stage_id,
-        old_filename,
-        current.filename,
+        safe_filename(old_filename),  # runda 6 audytu: nazwa pliku CV = nazwisko
+        safe_filename(current.filename),
         current.source,
     )
     return csv_row
+
+
+async def restore_stage_copies_after_quarantine(
+    db: AsyncSession,
+    *,
+    candidate: Candidate,
+    quarantined_sha256: Optional[str],
+    source: str = "quarantine_restore",
+    action: str = "snapshot_quarantine_restored",
+) -> int:
+    """Kopie CV etapu z pliku, który bramka tożsamości uznała za CV innej osoby.
+
+    Woła je kwarantanna PO oddaniu głównego CV poprzedniemu plikowi: kopia
+    dostaje bieżące CV osoby (`get_current_cv`), a gdy go nie ma albo bieżące
+    to wciąż ten sam plik — zostaje bez pliku (panel pokazuje wtedy CV
+    z profilu). Plik w profilu i w magazynie zostaje („nie kasujemy CV”).
+    Zwraca liczbę poprawionych kopii.
+
+    ``source`` i ``action`` (15.10.2026): naprawa profili, w których gotowe CV
+    do klienta zostało głównym CV (`app.cli.client_cv_primary_repair`), używa
+    tej samej podmiany z własną etykietą — panel nie może pisać, że plik „nie
+    pasował do tej osoby”.
+    """
+    if not quarantined_sha256:
+        return 0
+    # Sesje mają `autoflush=False`: decyzja kwarantanny i oddane główne CV
+    # z tej transakcji muszą być w bazie, zanim `get_current_cv` wybierze
+    # następcę — inaczej wybierał znowu plik z kwarantanny i kopia zostawała
+    # pusta mimo poprzedniego CV osoby (audyt 13.10.2026).
+    await db.flush()
+    rows = list(
+        (
+            await db.scalars(
+                select(CandidateStageCV).where(
+                    CandidateStageCV.candidate_id == candidate.id,
+                    CandidateStageCV.original_cv_sha256 == quarantined_sha256,
+                )
+            )
+        ).all()
+    )
+    if not rows:
+        return 0
+    current = await get_current_cv(db, candidate)
+    if (
+        current is not None
+        and hashlib.sha256(current.content).hexdigest() == quarantined_sha256
+    ):
+        current = None
+    for csv_row in rows:
+        old_filename = csv_row.original_cv_filename
+        if current is None:
+            storage_key, digest = None, None
+            csv_row.original_cv_filename = None
+            csv_row.original_cv_content = None
+            csv_row.original_cv_language = None
+        else:
+            storage_key, digest = await _store_snapshot(
+                candidate.id, current.content, current.filename
+            )
+            csv_row.original_cv_filename = current.filename
+            csv_row.original_cv_content = (
+                current.content if storage_key is None else None
+            )
+            csv_row.original_cv_language = current.language
+        csv_row.original_cv_storage_key = storage_key
+        csv_row.original_cv_sha256 = digest
+        csv_row.original_snapshot_at = datetime.now(tz=timezone.utc)
+        csv_row.original_snapshot_source = source
+        db.add(
+            Activity(
+                entity_type="candidate_stage_cv",
+                entity_id=csv_row.id,
+                action=action,
+                details={
+                    "candidate_stage_id": csv_row.candidate_stage_id,
+                    "old_filename": old_filename,
+                    "new_filename": csv_row.original_cv_filename,
+                },
+            )
+        )
+    await db.flush()
+    logger.info(
+        "Kopie CV etapu po kwarantannie candidate=%s rows=%s restored=%s",
+        candidate.id,
+        len(rows),
+        current is not None,
+    )
+    return len(rows)
 
 
 # ── Zatwierdzenie brandowanego CV etapu (wyjęte z handlera, generator v3) ────
@@ -335,22 +439,107 @@ async def render_stage_editor_docx(csv, content_html: str) -> tuple[bytes, bytes
     """DOCX z treści edytora i ZAMROŻONYCH zasobów etapu (szablon, zgoda)."""
     from fastapi import HTTPException
 
-    from app.services.cv_approved_docx import ApprovedDocxError, render_approved_docx
+    from app.services.cv_approved_docx import (
+        ApprovedDocxError,
+        cv_text_align,
+        render_approved_docx,
+    )
     from app.services.cv_document_assets import default_template
+    from app.services.cv_rodo_clause import keep_rodo_clause
     from app.services.html_sanitizer import sanitize_cv_html
 
     template = csv.branded_template_content or await run_in_threadpool(default_template)
     try:
         docx = await run_in_threadpool(
             render_approved_docx,
-            sanitize_cv_html(content_html),
+            # Podgląd i szkic do pobrania pokazują to, co zostanie zatwierdzone.
+            keep_rodo_clause(csv.branded_draft_html, sanitize_cv_html(content_html)),
             template,
             consent=csv.branded_consent_content,
             language=csv.branded_language or "pl",
+            text_align=cv_text_align(csv.branded_render_metadata),
         )
     except ApprovedDocxError as error:
         raise HTTPException(422, str(error)) from error
     return docx, template
+
+
+@dataclass(frozen=True)
+class DetachedCopySettings:
+    filename: str
+    client_id: Optional[int]
+    job_title: Optional[str]
+    # Klient rekrutacji wymaga zrzutu zgody RODO pod treścią CV.
+    requires_consent: bool = False
+
+
+def copy_filename(rule, title: Optional[str], name: str, project: Optional[str]) -> str:
+    """Nazwa pliku kopii: wzór klienta, a bez niego nazwa ogólna generatora."""
+    from app.services.cv_generator_b2b.client_rules import build_filename
+    from app.services.cv_generator_b2b.standalone_service import (
+        _build_download_filename,
+    )
+
+    named = build_filename(rule, position=title, candidate_name=name, project=project)
+    return named.filename if named else _build_download_filename(title, name)
+
+
+async def detached_copy_settings(
+    db: AsyncSession, csv: CandidateStageCV, *, masked_name: Optional[str] = None
+) -> DetachedCopySettings:
+    """Ustawienia CV wybranego zamiast generacji (plik Word, CV z innej rekrutacji).
+
+    Taka kopia nie ma dokumentu generatora dla TEJ rekrutacji, więc nazwę
+    pliku i wymóg zrzutu zgody RODO liczymy z reguły klienta rekrutacji.
+    Do 12.10.2026 klient z wymogiem zgody dostawał tu odmowę (422), bo zgodę
+    dało się dołączyć tylko do dokumentu generatora. Teraz wołający zamraża
+    wymóg na kopii (`stage_cv_copy.detached_metadata`), blokada pobrania
+    czyta go jak dla każdej kopii, a zgodę dołącza
+    `cv_consent_attach.attach_to_stage_copy`.
+
+    ``masked_name`` (CV blind): nazwa pliku nie może nieść nazwiska, które
+    dokument ukrywa — generator nazywa taki plik „…_Kandydat.docx”.
+    """
+    from fastapi import HTTPException
+
+    from app.models.job import Job
+    from app.services.cv_generator_b2b import central_policies
+    from app.services.cv_generator_b2b.client_rules import (
+        resolve_client_rule,
+        snapshot_rule,
+    )
+    from app.services.cv_packages import pko_job_reference
+    from app.services.job_working_title import cv_role_title_for_job
+
+    job = await db.get(Job, csv.job_id)
+    candidate = await db.get(Candidate, csv.candidate_id)
+    client_id = job.client_id if job is not None else None
+    try:
+        rule = snapshot_rule(await resolve_client_rule(db, client_id))
+        requires_consent = bool(rule and rule.requires_rodo_consent_block)
+    except HTTPException:
+        # Polityka klienta czeka na synchronizację: nazwa ogólna, a o zgodzie
+        # mówi katalog polityk (czysta funkcja, bez bazy).
+        rule = None
+        requires_consent = bool(
+            central_policies.enabled()
+            and central_policies.policy_for(client_id)["requires_rodo_consent_block"]
+        )
+    # Nazwa roli jak w generatorze (D2): surowy tytuł niesie numer zapytania,
+    # który wzór PKO dokłada drugi raz, i trafiał do nagłówka kopii.
+    title = await cv_role_title_for_job(db, job) if job is not None else None
+    name = masked_name or (
+        " ".join(part for part in (candidate.name, candidate.lastname) if part)
+        if candidate is not None
+        else ""
+    )
+    return DetachedCopySettings(
+        filename=copy_filename(rule, title, name, pko_job_reference(job)),
+        client_id=client_id,
+        job_title=(title or "").strip() or None,
+        # Sam wymóg, bez wyłącznika blokady: ten czyta się przy pobraniu.
+        requires_consent=requires_consent,
+    )
 
 
 def branded_cv_filename(candidate_label: str, version: int) -> str:
@@ -384,11 +573,14 @@ async def finalize_stage_cv(
     from app.services.cv_approval_provenance import approval_provenance
     from app.services.cv_approved_docx import RENDERER_VERSION
     from app.services.cv_document_versions import freeze_approved_version
+    from app.services.cv_rodo_clause import keep_rodo_clause
     from app.services.cv_version_map_jobs import schedule_approved_map
     from app.services.html_sanitizer import sanitize_cv_html
 
     stage_id = csv.candidate_stage_id
-    csv.branded_draft_html = sanitize_cv_html(content_html)
+    csv.branded_draft_html = keep_rodo_clause(
+        csv.branded_draft_html, sanitize_cv_html(content_html)
+    )
     if not csv.branded_draft_html.strip():
         raise HTTPException(
             status_code=422,

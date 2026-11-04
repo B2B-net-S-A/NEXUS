@@ -68,9 +68,10 @@ generated column. Additive — the exact branches stay, so nothing regresses.
 from __future__ import annotations
 
 import unicodedata
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import (
+    Integer,
     Text,
     and_,
     column,
@@ -79,6 +80,7 @@ from sqlalchemy import (
     not_,
     or_,
     select,
+    text,
     union,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
@@ -86,11 +88,15 @@ from sqlalchemy.sql import ColumnElement
 
 from app.models.candidate import Candidate
 from app.models.note import Note
+from app.services import note_kinds
 from app.services import keyword_corpus
 from app.services.keyword_terms import (
     KeywordTerm,
+    KeywordTooShort,
+    keyword_long_enough,
     parse_keyword,
     pg_regex,
+    too_short_keyword_message,
     tsquery_path_variants,
     tsquery_text,
 )
@@ -99,7 +105,10 @@ _MAX_PHRASES_PER_BUCKET = 20
 _MIN_PHRASE_LEN = 2
 # Cap on the number of OR-groups in the ANY bucket. A defensive bound so a
 # crafted URL can't fan out into an unbounded AND-of-ORs query plan.
-_MAX_ANY_GROUPS = 10
+# 20 = the same bound as ALL-phrases: since 25.09.2026 the list sends every
+# requirement row (also a one-word one) as a group, and an old link with
+# several `q_all` words becomes that many rows — 10 cut them silently.
+_MAX_ANY_GROUPS = 20
 
 # Phrases at/above this length that are a single plain alphanumeric token route
 # through the fast FTS word-prefix path (see `_fts_eligible` / `_phrase_match`).
@@ -140,6 +149,11 @@ _SEARCH_DOC_UNACCENT = column("search_doc_unaccented", Text)
 # bez CV (indeks trigramowy); ``keyword_fts`` — profil + CV (GIN).
 _KEYWORD_DOC = column("keyword_doc", Text)
 _KEYWORD_FTS = column("keyword_fts", TSVECTOR)
+# Korpus złożony (0385): profil + CV i notatki bez polskich znaków, ukośnik
+# jako spacja, ``c#``/``c++``/``f#``/``.net`` jako słowa. Przy
+# ``KEYWORD_SEARCH_FOLDED_FTS`` zastępuje regexy (``_folded_whole_word_match``).
+_KEYWORD_FOLD_FTS = column("keyword_fold_fts", TSVECTOR)
+_NOTE_FOLD_FTS = column("content_fold_fts", TSVECTOR)
 
 # Polish diacritic → ASCII fold, both cases. MUST stay byte-for-byte in sync with
 # migration 0159 (_FOLD_SRC/_FOLD_DST) and the entrypoint.sh safety-net copy, so
@@ -259,6 +273,7 @@ def _phrase_match(phrase: str, *, fuzzy: bool = False) -> ColumnElement:
     notes_branch = select(Note.candidate_id).where(
         Note.candidate_id.is_not(None),
         Note.content.ilike(pattern, escape="\\"),
+        note_kinds.not_client_rate_clause(),
     )
     if _fts_eligible(phrase):
         # `phrase` is guaranteed alphanumeric, so `phrase + ":*"` is always valid
@@ -316,27 +331,98 @@ def _quote_sql(value: str) -> str:
     return value.replace("'", "''")
 
 
+def _json_names_text(column: Any, keys: tuple[str, ...]) -> ColumnElement:
+    """Gołe napisy i wartości wskazanych kluczy z tablicy JSON, bez kluczy."""
+    text_value = func.coalesce(
+        func.jsonb_path_query_array(
+            column,
+            literal_column("'lax $[*] ? (@.type() == \"string\")'::jsonpath"),
+        ).cast(Text),
+        "",
+    )
+    for key in keys:
+        text_value = (
+            text_value
+            + " "
+            + func.coalesce(
+                func.jsonb_path_query_array(
+                    column, literal_column(f"'lax $[*].{key}'::jsonpath")
+                ).cast(Text),
+                "",
+            )
+        )
+    return text_value
+
+
 def _skill_names_text() -> ColumnElement:
     """Nazwy umiejętności (``skills[*].name`` i gołe napisy), bez kluczy JSON
-    — regex po ``skills::text`` trafiał „level”/„years” u każdego."""
+    — regex po ``skills::text`` trafiał „level”/„years” u każdego.
+
+    Runda 10 (F17): także „Zweryfikowane technologie” (``verified_tech``) —
+    zakres „Umiejętności” ma widzieć to, co profil pokazuje w tej sekcji i co
+    znajduje filtr „Umiejętności”.
+    """
     return (
-        func.coalesce(
-            func.jsonb_path_query_array(
-                Candidate.skills,
-                literal_column("'lax $[*] ? (@.type() == \"string\")'::jsonpath"),
-            ).cast(Text),
-            "",
-        )
+        _json_names_text(Candidate.skills, keyword_corpus.SKILL_KEYS)
         + " "
-        + func.coalesce(
-            func.jsonb_path_query_array(
-                Candidate.skills, literal_column("'lax $[*].name'::jsonpath")
-            ).cast(Text),
-            "",
-        )
+        + _json_names_text(Candidate.verified_tech, keyword_corpus.VERIFIED_TECH_KEYS)
         + " "
         + _traffit_text("traffit_technologie")
     )
+
+
+def screening_skill_rows():
+    """Umiejętności potwierdzone w screeningu jako wiersze ``(candidate_id,
+    skill)`` — reguła ``keyword_corpus.screening_skill_rows_sql`` (ta sama co
+    korpus). Nieskorelowane: ``Candidate.id IN (…)`` liczy się raz na zapytanie.
+    """
+    return (
+        text(keyword_corpus.screening_skill_rows_sql())
+        .columns(candidate_id=Integer, skill=Text)
+        .subquery("screening_skills")
+    )
+
+
+def _scope_field_match(
+    scope: str, pattern: str, query: Optional[ColumnElement] = None
+) -> ColumnElement:
+    """Warunek POLA dla zakresu ``cv`` / ``title`` / ``skills``.
+
+    ``query`` = zapytanie korpusu złożonego (``folded_tsquery``) — wtedy pole
+    potwierdza też tsvector złożony tą samą funkcją SQL co indeks.
+
+    Runda 12 (SEARCH): zakres „Umiejętności” widzi też umiejętności potwierdzone
+    w screeningu — runda 11 dołożyła je do korpusu (indeks wybierał osobę), ale
+    pole ich nie znało, więc osoba znaleziona wyłącznie po nich odpadała.
+    """
+    field = {
+        "cv": Candidate.raw_cv_text,
+        "title": _experience_roles_text(),
+        "skills": _skill_names_text(),
+    }[scope]
+    fold_fn = getattr(func, keyword_corpus.FOLD_FUNCTION)
+
+    def folded(value: ColumnElement) -> ColumnElement:
+        return func.to_tsvector(
+            _FTS_CONFIG,
+            fold_fn(
+                func.left(func.coalesce(value, ""), keyword_corpus.CV_CAP),
+                type_=Text,
+            ),
+        )
+
+    alternatives: list[ColumnElement] = [field.op("~*")(pattern)]
+    if query is not None:
+        alternatives.append(folded(field).op("@@")(query))
+    if scope == "skills":
+        rows = screening_skill_rows()
+        skill_hit = [rows.c.skill.op("~*")(pattern)]
+        if query is not None:
+            skill_hit.append(folded(rows.c.skill).op("@@")(query))
+        alternatives.append(
+            Candidate.id.in_(select(rows.c.candidate_id).where(or_(*skill_hit)))
+        )
+    return or_(*alternatives) if len(alternatives) > 1 else alternatives[0]
 
 
 def _corpus_fts(query) -> ColumnElement:
@@ -359,6 +445,157 @@ def _corpus_folded(folded_pattern: str) -> ColumnElement:
     )
 
 
+def folded_tsquery(term: KeywordTerm) -> Optional[ColumnElement]:
+    """Zapytanie do korpusu złożonego albo ``None`` (wtedy zostaje regex).
+
+    Tekst zapytania przechodzi przez TĘ SAMĄ funkcję SQL co dokument
+    (``candidate_keyword_fold``), więc „c#”, „Kraków” i „ci/cd” składają się
+    identycznie po obu stronach. Całe słowo → ``to_tsquery`` (+ wariant
+    ``słowo.js``, bo parser trzyma „Vue.js” jako jeden token); gwiazdka na końcu
+    → prefiks ostatniego słowa; wszystko inne (fraza, „node.js”, „c# developer”)
+    → ``phraseto_tsquery``, czyli słowa obok siebie tak, jak je rozbije parser
+    dokumentu. Gwiazdka z przodu nie ma odpowiednika w indeksie.
+    """
+    if term.open_start or not any(ch.isalnum() for ch in term.text):
+        return None
+    fold_fn = getattr(func, keyword_corpus.FOLD_FUNCTION)
+
+    def fold(value: str) -> ColumnElement:
+        return fold_fn(value, type_=Text)
+
+    if term.open_end:
+        if not (term.is_plain_word or term.is_plain_phrase):
+            return None
+        # Tekst jest alfanumeryczny (sprawdzone wyżej), więc po złożeniu nie
+        # niesie operatorów tsquery — tylko litery, cyfry i pojedyncze spacje.
+        prefix = (
+            func.replace(
+                func.btrim(fold(term.text), type_=Text), " ", " <-> ", type_=Text
+            )
+            + ":*"
+        )
+        return func.to_tsquery(_FTS_CONFIG, prefix)
+    if term.is_plain_word:
+        query = func.to_tsquery(_FTS_CONFIG, fold(term.text))
+        if term.text.isascii():
+            query = query.op("||")(
+                func.to_tsquery(_FTS_CONFIG, fold(term.text) + ".js:*")
+            )
+        return query
+    return func.phraseto_tsquery(_FTS_CONFIG, fold(term.text))
+
+
+def keyword_fold_fts_column() -> ColumnElement:
+    """``candidates.keyword_fold_fts`` (kolumna spoza ORM) dla liczników."""
+    return _KEYWORD_FOLD_FTS
+
+
+def _folded_whole_word_match(
+    term: KeywordTerm, scope: str, pattern: str
+) -> Optional[ColumnElement]:
+    """Całe słowo przez indeks korpusu złożonego; ``None`` = stara ścieżka."""
+    query = folded_tsquery(term)
+    if query is None:
+        return None
+    match = _KEYWORD_FOLD_FTS.op("@@")(query)
+    if keyword_corpus.notes_folded_search_enabled():
+        notes_branch = select(Note.candidate_id).where(
+            Note.candidate_id.is_not(None),
+            _NOTE_FOLD_FTS.op("@@")(query),
+            note_kinds.searchable_clause(),
+        )
+    else:
+        notes_branch = select(Note.candidate_id).where(
+            Note.candidate_id.is_not(None),
+            Note.content.op("~*")(pattern),
+            note_kinds.searchable_clause(),
+        )
+    if scope == "notes":
+        return Candidate.id.in_(notes_branch)
+    if scope in ("cv", "title", "skills"):
+        # Indeks wybiera wiersze, regex pola potwierdza zakres — jak dotąd,
+        # tylko teraz także dla „c#” (dawniej regex bez wstępnego filtra).
+        # Runda 7 (R7-X3-1): pole składa TA SAMA funkcja SQL co indeks
+        # (NFC, znaki łączące, „/” i „-” jako spacja, c#/.net). Pythonowe
+        # ``translate`` odrzucało wiersze, które indeks wybrał: „lodz” przy CV
+        # z „Lo\u0301dz\u0301”, „ci/cd” przy „CI-CD”. Tani regex pola idzie
+        # pierwszy — łapie większość wierszy bez liczenia tsvector.
+        return Candidate.id.in_(
+            select(Candidate.id).where(match, _scope_field_match(scope, pattern, query))
+        )
+    return Candidate.id.in_(union(select(Candidate.id).where(match), notes_branch))
+
+
+SHORT_LITERAL_MAX_CHARS = 2
+
+
+def short_literal_match(phrase: str) -> Optional[ColumnElement]:
+    """Krótki tekst dosłowny (≤ 2 znaki, np. „c#”, „go”) jako całe słowo.
+
+    Indeks trigramowy nie działa dla tekstu krótszego niż 3 znaki, więc
+    podłańcuch (`_phrase_match`) czytał całe CV, profile i notatki: na
+    produkcji 07.10.2026 „c#” w trybie dosłownym trwało 10–30 s, a „jo”
+    zwracało 34 tys. osób. Krótki tekst szuka CAŁEGO słowa przez korpus
+    złożony (jak wiersze wymagań) i dokładnego imienia lub nazwiska.
+    ``None`` = korpus złożony wyłączony albo tekst nie jest słowem — wtedy
+    wołający zostaje przy podłańcuchu.
+    """
+    stripped = (phrase or "").strip()
+    # Jedna litera zostaje przy starej ścieżce, która daje 422
+    # (`LiteralTextTooShort`) — jako całe słowo „a” trafiałoby w prawie całą bazę.
+    if len(stripped) > SHORT_LITERAL_MAX_CHARS or not keyword_long_enough(stripped):
+        return None
+    if not keyword_corpus.folded_search_enabled():
+        return None
+    term = parse_keyword(stripped)
+    if term is None:
+        return None
+    query = folded_tsquery(term)
+    if query is None:
+        return None
+    lowered = stripped.lower()
+    branches = [
+        select(Candidate.id).where(_KEYWORD_FOLD_FTS.op("@@")(query)),
+        select(Candidate.id).where(
+            or_(
+                func.lower(Candidate.name) == lowered,
+                func.lower(Candidate.lastname) == lowered,
+            )
+        ),
+    ]
+    if keyword_corpus.notes_folded_search_enabled():
+        branches.append(
+            select(Note.candidate_id).where(
+                Note.candidate_id.is_not(None),
+                _NOTE_FOLD_FTS.op("@@")(query),
+                note_kinds.not_client_rate_clause(),
+            )
+        )
+    return Candidate.id.in_(union(*branches))
+
+
+def note_snippet_match(raw_terms: list[str]) -> Optional[ColumnElement]:
+    """Notatka pasuje do któregoś słowa kluczowego — ta sama reguła co gałąź
+    notatek filtra (``_whole_word_match``); ``None`` = brak słów.
+
+    Runda 7 (R7-N10-5): wycinki pod wynikiem ładowały WSZYSTKIE notatki osób ze
+    strony (także setki maili z Traffita) i czyściły je w pętli zdarzeń. Teraz
+    lista dociąga tylko notatki, w których słowo naprawdę jest.
+    """
+    clauses: list[ColumnElement] = []
+    folded = keyword_corpus.notes_folded_search_enabled()
+    for raw in raw_terms:
+        term = parse_keyword(raw)
+        if term is None:
+            continue
+        query = folded_tsquery(term) if folded else None
+        if query is not None:
+            clauses.append(_NOTE_FOLD_FTS.op("@@")(query))
+        else:
+            clauses.append(Note.content.op("~*")(pg_regex(term)))
+    return or_(*clauses) if clauses else None
+
+
 def _whole_word_match(term: KeywordTerm, scope: str = "all") -> ColumnElement:
     """Całe słowo / fraza / gwiazdka (``keyword_terms``) w wybranym zakresie.
 
@@ -374,6 +611,10 @@ def _whole_word_match(term: KeywordTerm, scope: str = "all") -> ColumnElement:
     regex czyta tylko kandydatów, którzy i tak mają to słowo.
     """
     pattern = pg_regex(term)
+    if keyword_corpus.folded_search_enabled():
+        folded = _folded_whole_word_match(term, scope, pattern)
+        if folded is not None:
+            return folded
     folded_pattern = pg_regex(
         KeywordTerm(
             raw=term.raw,
@@ -390,19 +631,17 @@ def _whole_word_match(term: KeywordTerm, scope: str = "all") -> ColumnElement:
         if variants is not None:
             query = query.op("||")(literal_column(f"'{_quote_sql(variants)}'::tsquery"))
         fts = _corpus_fts(query)
+    # 0412: bez wpisów automatów — „Oferta: Java Developer” w notatce scrapera
+    # znajdowało pod hasłem „java” osobę, która Javy nie zna.
     notes_branch = select(Note.candidate_id).where(
         Note.candidate_id.is_not(None),
         Note.content.op("~*")(pattern),
+        note_kinds.searchable_clause(),
     )
     if scope == "notes":
         return Candidate.id.in_(notes_branch)
     if scope in ("cv", "title", "skills"):
-        field = {
-            "cv": Candidate.raw_cv_text,
-            "title": _experience_roles_text(),
-            "skills": _skill_names_text(),
-        }[scope]
-        conditions = [field.op("~*")(pattern)]
+        conditions = [_scope_field_match(scope, pattern)]
         if fts is not None:
             conditions.insert(0, fts)
         return Candidate.id.in_(select(Candidate.id).where(*conditions))
@@ -434,7 +673,7 @@ def _clean(phrases: Optional[list[str]]) -> list[str]:
             continue
         trimmed = raw.strip()
         key = trimmed.lower()
-        if len(trimmed) >= _MIN_PHRASE_LEN and key not in seen:
+        if keyword_long_enough(trimmed) and key not in seen:
             seen.add(key)
             cleaned.append(trimmed)
         if len(cleaned) >= _MAX_PHRASES_PER_BUCKET:
@@ -467,9 +706,13 @@ def build_advanced_filter(
     *,
     whole_words: bool = False,
     scope: str = "all",
+    reject_short: bool = False,
 ) -> Optional[ColumnElement]:
     """
     Combine the buckets into a single SQLAlchemy expression.
+
+    ``reject_short`` (v2): słowo krótsze niż 2 znaki to ``KeywordTooShort``
+    zamiast cichego pominięcia — wołający odpowiada 422 (przegląd PR #2056).
 
     The ANY bucket supports MULTIPLE OR-groups that AND together::
 
@@ -484,6 +727,20 @@ def build_advanced_filter(
     Returns `None` when all buckets are effectively empty — caller should
     skip the `.where(...)` call in that case.
     """
+    if reject_short:
+        short: list[str] = []
+        for word in [
+            *(q_all or []),
+            *(q_any or []),
+            *(q_none or []),
+            *(w for group in (q_any_groups or []) for w in (group or [])),
+        ]:
+            trimmed = (word or "").strip()
+            if trimmed and trimmed.strip("*") and not keyword_long_enough(trimmed):
+                if trimmed not in short:
+                    short.append(trimmed)
+        if short:
+            raise KeywordTooShort(too_short_keyword_message(short))
     all_phrases = _clean(q_all)
     none_phrases = _clean(q_none)
 

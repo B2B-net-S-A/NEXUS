@@ -161,7 +161,9 @@ async def test_render_is_pure_and_escapes_html():
     )
     assert a == b
     assert a.to == "jan@example.com"
-    assert "&lt;Jan&gt;" in a.html_body and "<Jan>" not in a.html_body
+    # R8-N4-9: imię z anonimowego formularza nie trafia do maila w ogóle.
+    assert "Jan" not in a.html_body and "Jan" not in a.text_body
+    assert a.text_body.startswith("Dzień dobry,")
     assert "Java &amp; Kafka" in a.html_body
     assert a.subject == "Potwierdzenie zgłoszenia: Java & Kafka"
     generic = confirmation.render_confirmation(

@@ -51,6 +51,7 @@ from app.services.access_scope import (
 )
 from app.services.client_identity import client_display_name_expression
 from app.services.polish_ilike import polish_folded_ilike
+from app.services.client_access import assert_client_assignable
 
 router = APIRouter()
 
@@ -61,6 +62,12 @@ SUPERSEDED_AFTER_EXPIRY_REASON = "Zastąpiony nowym wpisem po wygaśnięciu"
 NDA_REQUIRES_EXPIRY_DETAIL = "NDA wymaga daty wygaśnięcia."
 EXPIRY_IN_PAST_DETAIL = "Data wygaśnięcia musi być w przyszłości."
 ALREADY_INACTIVE_DETAIL = "Ten konflikt jest już nieaktywny."
+EMPLOYMENT_TYPE_RETIRED_DETAIL = {
+    "code": "conflict_type_retired",
+    "message": (
+        "„Pracuje u nas” wynika z umowy w Kontraktach — nie oznacza się go ręcznie."
+    ),
+}
 
 
 # ── Schematy ────────────────────────────────────────────────────────────────
@@ -204,12 +211,34 @@ async def create_conflict(
     current_user: ManagerOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
+    if data.type == ConflictType.current_employment:
+        # 17.10.2026 (decyzja Artura): „Pracuje u nas” liczy się wyłącznie
+        # z umowy, więc ręcznego wpisu zatrudnienia nie da się już dodać.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=EMPLOYMENT_TYPE_RETIRED_DETAIL,
+        )
+    return await add_conflict(
+        db, candidate_id=candidate_id, data=data, user=current_user
+    )
+
+
+async def add_conflict(
+    db: AsyncSession, *, candidate_id: int, data: ConflictCreate, user: User
+) -> dict:
+    """Dopisuje konflikt i commituje — wspólne dla rejestru i okna „Czarna
+    lista…” (``api/candidate_blacklist.py``), które wpuszcza też rekrutera,
+    ale wyłącznie z typem ``blacklist``."""
+    current_user = user
     cand = await db.scalar(select(Candidate.id).where(Candidate.id == candidate_id))
     if not cand:
         raise HTTPException(status_code=404, detail="Candidate not found")
     client = await db.scalar(select(Client.id).where(Client.id == data.client_id))
     if not client:
         raise HTTPException(status_code=404, detail="Klient nie istnieje.")
+    # Runda 7 (R7-X5-4, bliźniak): konflikt z usuniętym albo scalonym klientem
+    # nie działałby na żadnej rekrutacji — wskaż rekord główny.
+    await assert_client_assignable(db, data.client_id)
 
     now = datetime.now(timezone.utc)
     if data.type == ConflictType.nda and data.expires_at is None:
@@ -378,20 +407,21 @@ async def list_conflict_registry(
             status_code=422,
             detail=f"Nieznany stan: {state}. Dozwolone: {', '.join(_STATES)}.",
         )
+    # Ta sama granica co profil klienta: od 25.09.2026 DL widzi rejestr
+    # wyłącznie klientów ze swojego portfela (także bez filtra klienta).
+    delivery_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
     if client_id is not None:
-        # Ta sama bramka co profil klienta. Dziś `resolve_delivery_lead_client_ids`
-        # oddaje DL wszystkich klientów (portal organizacyjny), więc realnie
-        # odcina tylko nieistniejące ID — zostaje, żeby zawężenie zakresu DL
-        # objęło rejestr bez zmiany w tym pliku.
-        assert_delivery_lead_client_visible(
-            client_id, await resolve_delivery_lead_client_ids(current_user, db)
-        )
+        assert_delivery_lead_client_visible(client_id, delivery_client_ids)
 
     now = datetime.now(timezone.utc)
     unexpired = active_unexpired_clause(now)
     filters = []
     if client_id is not None:
         filters.append(CandidateConflict.client_id == client_id)
+    elif delivery_client_ids is not None:
+        filters.append(
+            CandidateConflict.client_id.in_(sorted(delivery_client_ids) or [-1])
+        )
     if candidate_id is not None:
         filters.append(CandidateConflict.candidate_id == candidate_id)
     if type is not None:

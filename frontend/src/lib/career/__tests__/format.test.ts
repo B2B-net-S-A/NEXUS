@@ -4,12 +4,9 @@ import {
   aboutParagraphs,
   genitiveName,
   instrumentalName,
-  jobHandle,
   paramRows,
   paramsSummary,
-  recruiterLogin,
   requirementHandle,
-  splitTitle,
 } from "@/lib/career/format";
 
 const params = {
@@ -50,25 +47,25 @@ describe("paramRows", () => {
   it("paramsSummary do grafiki OG", () => {
     expect(paramsSummary(params)).toBe("warszawa · hybryda · b2b · senior");
   });
+
+  it("sekcja parametrów ukryta — API oddaje puste pola, OG i opis meta ich nie mają", () => {
+    // Runda 8: wyłączona sekcja „parametry” zeruje wszystko poza stałą umową.
+    const hidden = {
+      city: null,
+      remote_policy: null,
+      onsite_days_per_week: null,
+      seniority: null,
+      contract: "B2B",
+      start: null,
+      duration: null,
+    };
+    expect(paramsSummary(hidden)).toBe("b2b");
+    expect(paramRows(hidden).map((r) => r.key)).toEqual(["contract"]);
+  });
 });
 
 describe("teksty", () => {
-  it("dzieli tytuł na dwie linie z kropką", () => {
-    expect(splitTitle("Senior Java Developer")).toEqual({ first: "Senior Java", second: "Developer." });
-    expect(splitTitle("DevOps")).toEqual({ first: "", second: "DevOps." });
-    expect(splitTitle("Kto?")).toEqual({ first: "", second: "Kto?" });
-    expect(splitTitle("Java Developer (ZOB-3003)")).toEqual({
-      first: "Java Developer",
-      second: "(ZOB-3003)",
-    });
-    expect(splitTitle("Tester v2")).toEqual({ first: "Tester", second: "v2." });
-    expect(splitTitle("Analityk łódź")).toEqual({ first: "Analityk", second: "łódź." });
-  });
-
-  it("handle z tytułu, bez polskich znaków", () => {
-    expect(jobHandle({ slug: "x-ab12", title: "Analityk biznesowy — Łódź" })).toBe(
-      "analityk-biznesowy-lodz",
-    );
+  it("handle wymagania bez polskich znaków", () => {
     expect(requirementHandle("Java 17+ i Spring Boot")).toBe("java_17+_i_spring_boot");
   });
 
@@ -85,7 +82,9 @@ describe("teksty", () => {
     expect(genitiveName("Olga")).toBe("Olgi");
     expect(genitiveName("Kasia")).toBe("Kasi");
     expect(genitiveName("Maja")).toBe("Mai");
+    // „Zostaw CV u Oli” (strona rekrutera, etap 6): po „l” końcówka „-i”.
+    expect(genitiveName("Ola")).toBe("Oli");
+    expect(genitiveName("Ela")).toBe("Eli");
     expect(genitiveName("Tomasz")).toBe("Tomasza");
-    expect(recruiterLogin("Łucja")).toBe("lucja@dynaminds");
   });
 });

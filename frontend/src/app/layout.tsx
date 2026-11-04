@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import { QueryProvider } from "@/components/QueryProvider";
+import { AppVersionGuard } from "@/components/AppVersionGuard";
 import { ChunkReloadGuard } from "@/components/ChunkReloadGuard";
 import { AppShellV2 } from "@/components/v2/shell/AppShellV2";
 import { ThemeProvider } from "@/components/ThemeProvider";
@@ -9,6 +10,8 @@ import { ToastProvider } from "@/components/Toast";
 import { DatePasteHandler } from "@/components/DatePasteHandler";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { KpiNudgeToaster } from "@/components/v2/kpi/KpiNudgeToaster";
+import { OffLimitsConfirmHost } from "@/components/v2/recruitment/OffLimitsConfirmHost";
+import { IS_STAGING, StagingBadge } from "@/components/StagingBadge";
 
 // Fonts are self-hosted from `./fonts` on purpose — `next/font/google` fetches
 // the .woff2 files from fonts.gstatic.com AT BUILD TIME, and Coolify rebuilds
@@ -101,7 +104,7 @@ const baloo2 = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Nexus",
+  title: IS_STAGING ? "STAGING · Nexus" : "Nexus",
   description: "Modern recruitment platform for IT staffing agencies",
 };
 
@@ -121,6 +124,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="bg-background text-foreground font-sans antialiased">
         <ChunkReloadGuard />
+        <AppVersionGuard />
+        <StagingBadge />
         <QueryProvider>
           <ThemeProvider>
             <ToastProvider>
@@ -128,6 +133,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <TooltipProvider delayDuration={200} skipDelayDuration={100}>
                 <AppShellV2>{children}</AppShellV2>
                 <KpiNudgeToaster />
+                <OffLimitsConfirmHost />
               </TooltipProvider>
             </ToastProvider>
           </ThemeProvider>

@@ -28,6 +28,8 @@ from app.models.competence_category import (
     CompetenceCategory,
     UserCompetenceCategory,
 )
+from app.services.auto_cc_collaborators import sync_cc_participants
+from app.services.client_access import assert_client_assignable
 from app.services.job_delivery_lead_fill import fill_missing_job_delivery_leads
 from app.services.pipeline_latest import latest_stage_ids
 from app.models.job import Job, JobStatus
@@ -78,8 +80,6 @@ _MY_TEAM_SECTION = [
 ]
 
 _COMPETENCE_OPERATOR_ROLES = {
-    UserRole.sourcer,
-    UserRole.tac,
     UserRole.recruiter,
 }
 
@@ -186,7 +186,7 @@ async def assign_sourcer_to_category(
     if not user.is_active or not user.has_any_role(*_COMPETENCE_OPERATOR_ROLES):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "User must be an active Sourcer, TAC or Recruiter",
+            "User must be an active Recruiter",
         )
     cat = (
         await db.execute(
@@ -258,6 +258,12 @@ async def assign_sourcer_to_category(
                 is_primary=(payload.priority == 1),
             )
         )
+    # Osoba w kategorii = uczestnik jej otwartych rekrutacji.
+    await sync_cc_participants(
+        db,
+        category_ids=[row.competence_category_id for row in assignments]
+        + [payload.competence_category_id],
+    )
     await db.commit()
     return {"ok": True}
 
@@ -289,7 +295,7 @@ async def replace_operator_competences(
     if not user.is_active or not user.has_any_role(*_COMPETENCE_OPERATOR_ROLES):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "User must be an active Sourcer, TAC or Recruiter",
+            "User must be an active Recruiter",
         )
 
     requested_ids = [primary_id, *secondary_ids]
@@ -364,6 +370,8 @@ async def replace_operator_competences(
             row.priority = 2
             row.is_primary = False
 
+    # Uczestnicy rekrutacji idą za kategoriami osoby — także tymi zdjętymi.
+    await sync_cc_participants(db, category_ids=set(by_category) | wanted)
     await db.commit()
     return {
         "ok": True,
@@ -402,7 +410,11 @@ async def remove_sourcer_from_category(
                 status.HTTP_409_CONFLICT,
                 "Promote another competence before removing the primary",
             )
+    category_id = row.competence_category_id
     await db.delete(row)
+    # Osoba zdjęta z kategorii przestaje być uczestnikiem jej otwartych
+    # rekrutacji (dopisana ręcznie zostaje).
+    await sync_cc_participants(db, category_ids=[category_id])
     await db.commit()
     return {"ok": True}
 
@@ -502,8 +514,11 @@ async def assign_tac_to_dl(
     tac = (
         await db.execute(select(User).where(User.id == payload.tac_user_id))
     ).scalar_one_or_none()
-    if tac is None or not tac.has_role(UserRole.tac):
-        raise HTTPException(400, "tac_user_id must reference a user with role=tac")
+    # Roli TAC nie ma od 0411 — w tej (nieużywanej) macierzy stoi rekruter.
+    if tac is None or not tac.has_role(UserRole.recruiter):
+        raise HTTPException(
+            400, "tac_user_id must reference a user with role=recruiter"
+        )
     dl = (
         await db.execute(select(User).where(User.id == payload.delivery_lead_user_id))
     ).scalar_one_or_none()
@@ -718,6 +733,22 @@ async def assign_dl_to_client(
     ).scalar_one_or_none()
     if dl is None or not dl.has_role(UserRole.delivery_lead):
         raise HTTPException(400, "must reference role=delivery_lead")
+    # Runda 9 (R9-N4-7): nieaktywny DL nie dostaje portfela (jego alerty
+    # i przeglądy trafiałyby w próżnię), klienta, którego nie ma, nie da się
+    # przypisać (FK → 500), a usuniętemu/scalonemu nie przypisujemy nikogo.
+    if not dl.is_active:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Delivery Lead jest nieaktywny — nie można przypisać mu klienta.",
+        )
+    # Blokada wiersza klienta szereguje równoległe przypisania: dwa naraz
+    # widziały brak wiersza i drugi INSERT padał na `uq_dl_client` (500).
+    client_row = await db.scalar(
+        select(Client.id).where(Client.id == payload.client_id).with_for_update()
+    )
+    if client_row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Klient nie został znaleziony.")
+    await assert_client_assignable(db, payload.client_id)
 
     changed_delivery_lead_ids: set[int] = set()
 
@@ -806,9 +837,10 @@ async def toggle_dl_client_head(
         changed_delivery_lead_ids = {row.delivery_lead_user_id}
     row.is_head = not row.is_head
     await invalidate_delivery_lead_scope_for_users(db, changed_delivery_lead_ids)
-    if row.is_head:
-        await db.flush()
-        await fill_missing_job_delivery_leads(db, [row.client_id])
+    # Także przy zdjęciu heada: DL wpisany automatem schodzi z rekrutacji
+    # klienta (runda 7, N7-2).
+    await db.flush()
+    await fill_missing_job_delivery_leads(db, [row.client_id])
     await db.commit()
     return {"ok": True, "is_head": row.is_head}
 
@@ -828,11 +860,16 @@ async def remove_dl_client(
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(404, "Assignment not found")
+    client_id = row.client_id
     await db.delete(row)
     await invalidate_delivery_lead_scope_for_users(
         db,
         {row.delivery_lead_user_id},
     )
+    # Runda 7 (N7-2): DL wpisany automatem nie zostaje w rekrutacjach klienta
+    # po usunięciu przypisania.
+    await db.flush()
+    await fill_missing_job_delivery_leads(db, [client_id])
     await db.commit()
     return {"ok": True}
 
@@ -862,8 +899,6 @@ async def team_structure_summary(
         return (await db.execute(q)).scalar() or 0
 
     totals = {
-        "sourcers": await _count(UserRole.sourcer),
-        "tacs": await _count(UserRole.tac),
         "recruiters": await _count(UserRole.recruiter),
         "delivery_leads": await _count(UserRole.delivery_lead),
         "head_of_recruitment": await _count(UserRole.head_of_recruitment),

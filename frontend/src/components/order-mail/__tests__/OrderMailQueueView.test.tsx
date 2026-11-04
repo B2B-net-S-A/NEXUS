@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 const openAuthenticatedFile = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/authenticated-files", () => ({ openAuthenticatedFile }));
 
-import { OrderMailQueueView, selectOrderMailDocument } from "@/components/order-mail/OrderMailQueue";
+import { failedRetryNote, OrderMailQueueView, selectOrderMailDocument } from "@/components/order-mail/OrderMailQueue";
 import type { OrderMailDocument, OrderMailRecheckRun, OrderMailSyncStatus } from "@/lib/api/orderMail";
 
 function doc(over: Partial<OrderMailDocument> = {}): OrderMailDocument {
@@ -463,5 +463,116 @@ describe("Audyt 24.09 — kolejka poczty zamówień", () => {
     expect(screen.queryByRole("button", { name: /Zastosuj/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Odrzuć/ }));
     expect(onDismiss).toHaveBeenCalledWith(1);
+  });
+});
+
+describe("Audyt 25.09 — wpisy „Nieudane”", () => {
+  it("zakładka „Nieudane” istnieje i przełącza kolejkę na stan failed", () => {
+    const onOutcomeChange = vi.fn();
+    render(<OrderMailQueueView {...base} onOutcomeChange={onOutcomeChange} state="ready" items={[]} total={0} />);
+    fireEvent.click(screen.getByRole("tab", { name: /Nieudane/ }));
+    expect(onOutcomeChange).toHaveBeenCalledWith("failed");
+  });
+
+  it("nieudany wpis mówi, ile automatycznych prób zostało", () => {
+    const failed = doc({
+      outcome: "failed", error: "Błąd przetwarzania: OperationalError", can_apply: false,
+      proposal: null, extraction: null, document_meta: { failed_retry: { attempts: 1 } },
+      failed_retry_pending: true,
+    });
+    const { rerender } = render(<OrderMailQueueView {...base} outcome="failed" state="ready" items={[failed]} />);
+    expect(screen.getByTestId("failed-retry-note")).toHaveTextContent("próba 1 z 3");
+    expect(screen.queryByRole("button", { name: /Zastosuj/ })).toBeNull();
+    const exhausted = {
+      ...failed, document_meta: { failed_retry: { attempts: 3 } }, failed_retry_pending: false, can_dismiss: true,
+    };
+    rerender(<OrderMailQueueView {...base} outcome="failed" state="ready" items={[exhausted]} />);
+    expect(screen.getByTestId("failed-retry-note")).toHaveTextContent("3 razy bez skutku");
+    expect(screen.getByTestId("failed-retry-note")).toHaveTextContent("odrzuć wpis");
+  });
+
+  it("wpis bez pliku albo starszy niż 7 dni nie obiecuje ponowień (runda 2 audytu 25.09)", () => {
+    // Serwer liczy `failed_retry_pending` tą samą regułą co wybór wpisów do
+    // ponowienia; wpis bez pliku ma 0 prób, a system i tak go nie weźmie.
+    const noFile = doc({
+      outcome: "failed", error: "Graph nie zwrócił treści załącznika (brak contentBytes).", can_apply: false,
+      proposal: null, extraction: null, document_meta: null, has_file: false, failed_retry_pending: false,
+      can_dismiss: true,
+    });
+    render(<OrderMailQueueView {...base} outcome="failed" state="ready" items={[noFile]} />);
+    const note = screen.getByTestId("failed-retry-note");
+    expect(note).not.toHaveTextContent("ponawia je sam");
+    expect(note).toHaveTextContent(
+      "Nie będzie ponawiany — wprowadź zamówienie ręcznie w oknie zamówienia klienta i odrzuć wpis.",
+    );
+  });
+
+  it("bez prawa odrzucenia zdanie nie każe odrzucać wpisu (runda 3 audytu 25.09)", () => {
+    const failed = doc({
+      outcome: "failed", error: null, can_apply: false, proposal: null, extraction: null,
+      document_meta: null, has_file: false, failed_retry_pending: false, can_dismiss: false,
+    });
+    render(<OrderMailQueueView {...base} outcome="failed" state="ready" items={[failed]} />);
+    const note = screen.getByTestId("failed-retry-note");
+    expect(note).toHaveTextContent(/^Nie będzie ponawiany/);
+    expect(note).not.toHaveTextContent("odrzuć wpis");
+    expect(note).toHaveTextContent("wpis odrzuci admin albo Delivery Lead klienta");
+    expect(
+      failedRetryNote({ document_meta: { failed_retry: { attempts: 3 } }, failed_retry_pending: false }),
+    ).not.toMatch(/odrzuć wpis/);
+  });
+
+  it("brak pola z serwera (stary backend) nie obiecuje ponowień", () => {
+    expect(failedRetryNote({ document_meta: { failed_retry: { attempts: 1 } } })).toMatch(/^Nie będzie ponawiany/);
+  });
+
+  it("wpis „Nieudane” da się odrzucić, gdy serwer na to pozwala", () => {
+    const onDismiss = vi.fn();
+    const failed = doc({
+      outcome: "failed", error: null, can_apply: false, proposal: null, extraction: null,
+      document_meta: null, failed_retry_pending: false,
+    });
+    const { rerender } = render(
+      <OrderMailQueueView {...base} outcome="failed" onDismiss={onDismiss} state="ready" items={[{ ...failed, can_dismiss: false }]} />,
+    );
+    expect(screen.queryByRole("button", { name: /Odrzuć/ })).toBeNull();
+    rerender(
+      <OrderMailQueueView {...base} outcome="failed" onDismiss={onDismiss} state="ready" items={[{ ...failed, can_dismiss: true }]} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Odrzuć/ }));
+    expect(onDismiss).toHaveBeenCalledWith(1);
+  });
+
+  it("renewal overlapping the current order: choose what happens to it, apply sends the choice", () => {
+    const onApply = vi.fn();
+    const renewal = doc({
+      gate_reasons: [
+        "„Jan Kowalski”: przy przedłużeniu zmienia się stawka do klienta: 120 zł/h → 138 zł/h (+15%) względem zamówienia #70 — potwierdź, że klient przyjął nową stawkę",
+      ],
+      proposal: {
+        client_id: 1, order_number: "10/2031", is_group_client: false, blocking: [],
+        rows: [{
+          row_index: 0, row_name: "Jan Kowalski", action: "overlap", candidate_id: 1, contract_id: 2,
+          target_order_id: 70, title: "10/2031", start_date: "2031-12-01", end_date: "2032-05-01",
+          rate_client: "138.00", rate_unit: "hour", md_total: null,
+          reasons: ["Nowe zamówienie zaczyna się 01.12.2031, a #70 (9/2031) trwa do 31.12.2031"],
+          previous_order_id: 70, previous_order_title: "9/2031", previous_rate_client: "120.000", previous_rate_unit: "hour",
+          previous_start_date: "2031-07-01", previous_end_date: "2031-12-31",
+          overlap_options: ["trim_previous", "start_after"], overlap_trim_end: "2031-11-30", overlap_start_after: "2032-01-01",
+        }],
+      },
+    });
+    render(<OrderMailQueueView {...base} onApply={onApply} state="ready" items={[renewal]} />);
+    expect(screen.getByTestId("previous-rate")).toHaveTextContent("było 120 zł/h (#70)+15%");
+    expect(screen.getByText("Przedłużenie #70 — wybierz niżej")).toBeInTheDocument();
+    const trim = screen.getByRole("radio", { name: "Skróć #70 do 30.11.2031, 10/2031 od 01.12.2031" });
+    expect(trim).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: /Zastosuj: skróć #70 i zapisz 10\/2031/ }));
+    const seen = { target_order_id: 70, previous_end_date: "2031-12-31", start_date: "2031-12-01" };
+    expect(onApply).toHaveBeenLastCalledWith(1, { 0: { choice: "trim_previous", ...seen } });
+
+    fireEvent.click(screen.getByRole("radio", { name: "#70 bez zmian do 31.12.2031, 10/2031 od 01.01.2032" }));
+    fireEvent.click(screen.getByRole("button", { name: /Zastosuj: zapisz 10\/2031 od 01.01.2032/ }));
+    expect(onApply).toHaveBeenLastCalledWith(1, { 0: { choice: "start_after", ...seen } });
   });
 });

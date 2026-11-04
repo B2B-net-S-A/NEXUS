@@ -8,7 +8,9 @@ import {
   insightsQueryKeys,
   type InsightsPeriodParams,
 } from "@/lib/insights-api";
+import { hasSectionAccess } from "@/lib/section-access";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
+import { useAuthStore } from "@/store/auth";
 import { Degraded, KpiCard, SectionError } from "./_shared";
 import { count, DefinitionNote, money } from "./InsightsFormat";
 
@@ -31,6 +33,9 @@ interface Props {
  * `slice(0, 10)` — kafel nad przyciętą listą nie daje się zweryfikować.
  */
 export function InsightsClientsRanking({ period }: Props) {
+  // Rada nadzorcza (0490) widzi ranking, ale nie profil klienta — link
+  // odbiłby ją z powrotem na kokpit.
+  const canOpenClients = useAuthStore((s) => hasSectionAccess(s.user, "delivery"));
   const { data, isPending, isSuccess, isError, error, refetch } = useQuery({
     queryKey: insightsQueryKeys.clientsRanking(period),
     queryFn: () => insightsBoardApi.clientsRanking(period),
@@ -177,13 +182,20 @@ export function InsightsClientsRanking({ period }: Props) {
                       {idx + 1}
                     </td>
                     <td className="sticky left-0 z-10 bg-card px-3 py-2">
-                      <Link
-                        href={`/clients/${r.client_id}?tab=analityka`}
-                        className="flex items-center gap-1 font-medium hover:text-primary"
-                      >
-                        <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                        {r.name}
-                      </Link>
+                      {canOpenClients ? (
+                        <Link
+                          href={`/clients/${r.client_id}?tab=analityka`}
+                          className="flex items-center gap-1 font-medium hover:text-primary"
+                        >
+                          <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                          {r.name}
+                        </Link>
+                      ) : (
+                        <span className="flex items-center gap-1 font-medium">
+                          <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                          {r.name}
+                        </span>
+                      )}
                       {r.industry && (
                         <div className="mt-0.5 text-xs text-muted-foreground">
                           {r.industry}

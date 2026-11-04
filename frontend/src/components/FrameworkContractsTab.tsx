@@ -2,23 +2,28 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import {
-  AlertTriangle,
-  Calendar,
+  ChevronRight,
   Download,
   FileText,
   Plus,
   Trash2,
   Upload,
 } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
+import { CALM_SUBLINE } from "@/lib/calm-table";
+import { formatIsoDatePl } from "@/lib/date-pl";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
-import { hasSectionAccess } from "@/lib/section-access";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { hasPermission, permissionLabel } from "@/lib/permissions";
+import { canViewClientFinance, useAuthStore } from "@/store/auth";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { ConfirmButton } from "@/components/ConfirmDialog";
 import { apiErrorMessage } from "@/lib/api-error";
+import { isClientTimeout } from "@/lib/http-timeouts";
 import { resolveViewState } from "@/lib/view-state";
 import type {
   FrameworkContractRead,
@@ -44,28 +49,34 @@ const STATUS_LABELS: Record<FrameworkContractStatus, string> = {
 };
 
 /**
- * Kosmetyczne lustro zapisu sekcji Delivery i per-klientowego guarda prawnego:
- * Admin globalnie, Delivery Lead po przypisaniu do klienta. Front nie zna
- * przypisań, więc DL widzi przyciski, a ostatecznym arbitrem zostaje backend.
- * Pozostali czytelnicy nie dostają formularza kończącego się 403.
+ * Lustro `ClientAccess.can_edit_legal_documents`: „Kontrakty i zamówienia:
+ * tworzenie i edycja” razem z podglądem kwot TEGO klienta (umowa ramowa
+ * i aneksy niosą stawki; Delivery Lead widzi je u klientów z przypisania).
+ * Ostatecznym arbitrem zostaje backend; pozostali czytelnicy nie dostają
+ * formularza kończącego się 403, a „podgląd jako” jest tylko do odczytu.
  */
-function useCanEditLegalDocs(): boolean {
+function useCanEditLegalDocs(clientId: number): boolean {
   const user = useAuthStore((s) => s.user);
-  // Rola + zapis w sekcji Delivery (U8) — odebrana sekcja = brak przycisków.
+  const impersonating = useAuthStore((s) => s.realUser !== null);
   return (
-    hasRole(user, "admin", "delivery_lead") &&
-    hasSectionAccess(user, "delivery", "write")
+    !impersonating &&
+    hasPermission(user, "contracts_orders_edit") &&
+    canViewClientFinance(user, clientId)
   );
 }
 
-const STATUS_COLORS: Record<FrameworkContractStatus, string> = {
-  draft: "bg-muted text-muted-foreground",
-  pending_signature: "bg-yellow-100 text-yellow-800",
-  active: "bg-green-100 text-green-800",
-  expired: "bg-red-100 text-red-700",
-  terminated: "bg-orange-100 text-orange-800",
-  superseded: "bg-zinc-200 text-zinc-700",
+const STATUS_TONES: Record<FrameworkContractStatus, StatusDotTone> = {
+  draft: "neutral",
+  pending_signature: "warning",
+  active: "success",
+  expired: "danger",
+  terminated: "warning",
+  superseded: "neutral",
 };
+
+function amendmentsLabel(count: number): string {
+  return `${count} ${count === 1 ? "aneks" : "aneksy"}`;
+}
 
 export function FrameworkContractsTab({
   clientId,
@@ -79,7 +90,7 @@ export function FrameworkContractsTab({
   const [highlightedFcId, setHighlightedFcId] = useState<number | null>(null);
   const focusServed = useRef<number | null>(null);
 
-  const canEdit = useCanEditLegalDocs();
+  const canEdit = useCanEditLegalDocs(clientId);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["framework-contracts", clientId],
@@ -136,9 +147,9 @@ export function FrameworkContractsTab({
 
   const contracts = data?.items ?? [];
 
-  // Odczyt stoi za `can_view_legal_documents`: Admin, Finance i Delivery Lead
-  // globalnie. Zapis DL nadal wymaga przypisania; TCM nie czyta dokumentów.
-  // „Brak umów ramowych. Dodaj pierwszą MSA…" mówiło im wtedy nieprawdę
+  // Odczyt stoi za `can_view_legal_documents`: „Stawki i kwoty: podgląd”
+  // u klienta z zakresu konta (Delivery Lead — z przypisania). Kto go nie ma,
+  // dostaje 403; „Brak umów ramowych. Dodaj pierwszą MSA…" mówiło wtedy nieprawdę
   // handlową — w body leasingu brak MSA znaczy „nie możemy obsadzić klienta" —
   // i zapraszało do zduplikowania umowy, która już istnieje.
   const viewState = resolveViewState({
@@ -153,17 +164,21 @@ export function FrameworkContractsTab({
     viewState === "error";
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Umowy ramowe (MSA)</h3>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
+          Umowy ramowe (MSA)
+          {!failed && contracts.length > 0 ? (
+            <span className="rounded-full bg-muted px-1.5 text-[11px] font-semibold leading-[18px] text-muted-foreground tabular-nums">
+              {contracts.length}
+            </span>
+          ) : null}
+        </h3>
         {canEdit && !failed && (
-          <button
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-violet-600 text-white rounded hover:bg-violet-700"
-          >
-            <Plus className="w-4 h-4" />
+          <Button size="sm" variant="primary" onClick={() => setShowCreate(true)}>
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
             Nowa umowa
-          </button>
+          </Button>
         )}
       </div>
 
@@ -172,20 +187,20 @@ export function FrameworkContractsTab({
           state={viewState as "forbidden" | "not_found" | "error"}
           description={
             viewState === "forbidden"
-              ? "Twoja rola nie ma dostępu do dokumentów prawnych tego klienta. Klient MOŻE mieć umowę ramową — nie zakładaj nowej MSA."
+              ? `Dokumenty prawne tego klienta wymagają uprawnienia „${permissionLabel("amounts_view")}” u tego klienta. Klient MOŻE mieć umowę ramową — nie zakładaj nowej MSA; o dostęp poproś administratora.`
               : undefined
           }
           onRetry={() => void refetch()}
         />
       ) : contracts.length === 0 ? (
-        <div className="border border-dashed border-border rounded-lg p-8 text-center text-muted-foreground">
-          <FileText className="w-12 h-12 mx-auto mb-2 opacity-40" />
+        <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+          <FileText className="mx-auto mb-2 h-8 w-8 opacity-40" aria-hidden="true" />
           {canEdit
             ? "Brak umów ramowych. Dodaj pierwszą MSA aby móc tworzyć zamówienia."
             : "Brak umów ramowych dla tego klienta."}
         </div>
       ) : (
-        <ul className="space-y-2">
+        <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
           {contracts.map((fc) => (
             <FrameworkContractRow
               key={fc.id}
@@ -232,7 +247,7 @@ function FrameworkContractRow({
   onDelete,
 }: FrameworkContractRowProps) {
   const { showToast } = useToast();
-  const canEdit = useCanEditLegalDocs();
+  const canEdit = useCanEditLegalDocs(clientId);
   const expiringWarn =
     fc.days_to_expiry !== null && fc.days_to_expiry >= 0 && fc.days_to_expiry <= 30;
 
@@ -251,79 +266,88 @@ function FrameworkContractRow({
     }
   };
 
+  const period = [
+    fc.effective_date ? `od ${formatIsoDatePl(fc.effective_date)}` : null,
+    fc.expiry_date ? `do ${formatIsoDatePl(fc.expiry_date)}` : null,
+    fc.currency || null,
+  ].filter(Boolean);
+
   return (
     <li
       id={`framework-contract-${fc.id}`}
       data-focused={highlighted ? "true" : undefined}
       className={
-        "border border-border rounded-lg overflow-hidden bg-card transition-shadow" +
-        (highlighted ? " ring-2 ring-primary ring-offset-2 ring-offset-background" : "")
+        "transition-shadow" +
+        (highlighted ? " ring-2 ring-inset ring-primary" : "")
       }
     >
-      <div className="p-4 hover:bg-accent/30 cursor-pointer" onClick={onToggle}>
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-medium break-words">{fc.name}</span>
-              <span
-                className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[fc.status]}`}
-              >
-                {STATUS_LABELS[fc.status]}
-              </span>
-              {expiringWarn && (
-                <span className="text-xs text-orange-700 bg-orange-100 px-2 py-0.5 rounded flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3" />
-                  wygasa za {fc.days_to_expiry} dni
-                </span>
-              )}
-              {fc.amendments_count > 0 && (
-                <span className="text-xs text-muted-foreground">
-                  {fc.amendments_count} {fc.amendments_count === 1 ? "aneks" : "aneksy"}
-                </span>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs text-muted-foreground">
-              {fc.effective_date && (
-                <span className="flex items-center gap-1">
-                  <Calendar className="w-3 h-3" />
-                  od {fc.effective_date}
-                </span>
-              )}
-              {fc.expiry_date && <span>do {fc.expiry_date}</span>}
-              {fc.currency && <span>{fc.currency}</span>}
-              {fc.has_file && fc.filename && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDownload();
-                  }}
-                  className="flex min-w-0 max-w-full items-center gap-1 hover:text-violet-600"
-                  title={fc.filename}
-                >
-                  <Download className="w-3 h-3 shrink-0" />
-                  <span className="truncate">{fc.filename}</span>
-                </button>
-              )}
-            </div>
-          </div>
-          {canEdit && (
-            // Potwierdzenie w wierszu zamiast natywnego `confirm` (audyt S12).
-            // Szkic znika trwale, podpisana umowa zostaje jako „zastąpiona”.
-            <ConfirmButton
-              onConfirm={onDelete}
-              message={
-                fc.status === "draft"
-                  ? "Usunąć szkic trwale?"
-                  : "Oznaczyć umowę jako zastąpioną?"
-              }
-              confirmLabel={fc.status === "draft" ? "Usuń" : "Oznacz"}
-              className="hit-area text-muted-foreground hover:text-destructive p-1"
-            >
-              <Trash2 className="w-4 h-4" aria-label="Usuń" />
-            </ConfirmButton>
-          )}
+      <div
+        className="flex cursor-pointer flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 hover:bg-accent/30"
+        onClick={onToggle}
+      >
+        <ChevronRight
+          className={
+            "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform" +
+            (expanded ? " rotate-90" : "")
+          }
+          aria-hidden="true"
+        />
+        <div className="min-w-0 flex-1 basis-56">
+          <span className="block break-words text-[13px] font-semibold text-foreground">
+            {fc.name}
+          </span>
+          {period.length > 0 ? (
+            <span className={CALM_SUBLINE}>{period.join(" · ")}</span>
+          ) : null}
         </div>
+        <StatusDot
+          tone={STATUS_TONES[fc.status]}
+          note={
+            expiringWarn ? (
+              <span className="font-medium text-warning-muted-foreground">
+                wygasa za {fc.days_to_expiry} dni
+              </span>
+            ) : undefined
+          }
+        >
+          {STATUS_LABELS[fc.status]}
+        </StatusDot>
+        {fc.amendments_count > 0 && (
+          <span className="whitespace-nowrap text-xs text-muted-foreground">
+            {amendmentsLabel(fc.amendments_count)}
+          </span>
+        )}
+        {fc.has_file && fc.filename && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDownload();
+            }}
+            className="flex min-w-0 max-w-[16rem] items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+            title={fc.filename}
+          >
+            <Download className="h-3 w-3 shrink-0" aria-hidden="true" />
+            <span className="truncate">{fc.filename}</span>
+          </button>
+        )}
+        {canEdit && (
+          // Potwierdzenie w wierszu zamiast natywnego `confirm` (audyt S12).
+          // Szkic znika trwale, podpisana umowa zostaje jako „zastąpiona”.
+          <ConfirmButton
+            onConfirm={onDelete}
+            message={
+              fc.status === "draft"
+                ? "Usunąć szkic trwale?"
+                : "Oznaczyć umowę jako zastąpioną?"
+            }
+            confirmLabel={fc.status === "draft" ? "Usuń" : "Oznacz"}
+            className={buttonVariants({ variant: "quiet", size: "sm" })}
+          >
+            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+            Usuń
+          </ConfirmButton>
+        )}
       </div>
       {expanded && <AmendmentsSection clientId={clientId} fcId={fc.id} />}
     </li>
@@ -338,7 +362,7 @@ interface AmendmentsSectionProps {
 function AmendmentsSection({ clientId, fcId }: AmendmentsSectionProps) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
-  const canEdit = useCanEditLegalDocs();
+  const canEdit = useCanEditLegalDocs(clientId);
   const [showCreate, setShowCreate] = useState(false);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
@@ -361,7 +385,7 @@ function AmendmentsSection({ clientId, fcId }: AmendmentsSectionProps) {
     onError: () => showToast("Nie udało się usunąć aneksu", "error"),
   });
 
-  if (isLoading) return <div className="px-6 pb-4 text-xs text-muted-foreground">Ładowanie aneksów…</div>;
+  if (isLoading) return <div className="px-4 pb-3 pl-[2.375rem] text-xs text-muted-foreground">Ładowanie aneksów…</div>;
   const amendments: AmendmentRead[] = data ?? [];
 
   // Ten sam kształt co lista umów: „Brak aneksów." nie może opisywać awarii —
@@ -373,17 +397,16 @@ function AmendmentsSection({ clientId, fcId }: AmendmentsSectionProps) {
     viewState === "error";
 
   return (
-    <div className="bg-muted/30 px-6 py-4 border-t border-border">
-      <div className="flex items-center justify-between mb-2">
-        <h4 className="text-sm font-medium">Aneksy</h4>
+    <div className="border-t border-border/60 bg-muted/30 px-4 py-3 pl-[2.375rem]">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <h4 className="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+          Aneksy
+        </h4>
         {canEdit && !failed && (
-          <button
-            onClick={() => setShowCreate(true)}
-            className="text-xs text-violet-600 hover:text-violet-700 flex items-center gap-1"
-          >
-            <Plus className="w-3 h-3" />
+          <Button size="sm" variant="outline" onClick={() => setShowCreate(true)}>
+            <Plus className="h-3 w-3" aria-hidden="true" />
             Dodaj aneks
-          </button>
+          </Button>
         )}
       </div>
       {failed ? (
@@ -392,7 +415,7 @@ function AmendmentsSection({ clientId, fcId }: AmendmentsSectionProps) {
           className="py-6"
           description={
             viewState === "forbidden"
-              ? "Twoja rola nie ma dostępu do aneksów tej umowy. Aneksy MOGĄ istnieć."
+              ? `Aneksy tej umowy wymagają uprawnienia „${permissionLabel("amounts_view")}” u tego klienta. Aneksy MOGĄ istnieć.`
               : "Nie udało się wczytać aneksów — ta umowa może mieć aneksy zmieniające jej warunki."
           }
           onRetry={() => void refetch()}
@@ -400,16 +423,16 @@ function AmendmentsSection({ clientId, fcId }: AmendmentsSectionProps) {
       ) : amendments.length === 0 ? (
         <p className="text-xs text-muted-foreground italic">Brak aneksów.</p>
       ) : (
-        <ul className="space-y-1.5">
+        <ul className="divide-y divide-border/60">
           {amendments.map((a) => (
             <li
               key={a.id}
-              className="flex items-center justify-between text-sm bg-card border border-border rounded p-2"
+              className="flex items-center justify-between gap-3 py-1.5 text-[13px]"
             >
-              <div>
+              <div className="min-w-0">
                 <span className="font-medium">{a.name}</span>
                 <span className="text-xs text-muted-foreground ml-2">
-                  obowiązuje od {a.effective_date}
+                  obowiązuje od {formatIsoDatePl(a.effective_date)}
                 </span>
                 {a.changes_summary && (
                   <p className="text-xs text-muted-foreground mt-0.5">
@@ -421,9 +444,9 @@ function AmendmentsSection({ clientId, fcId }: AmendmentsSectionProps) {
                 <ConfirmButton
                   onConfirm={() => deleteMutation.mutate(a.id)}
                   message={`Usunąć aneks „${a.name}”?`}
-                  className="hit-area text-muted-foreground hover:text-destructive p-1"
+                  className={buttonVariants({ variant: "quiet", size: "sm" })}
                 >
-                  <Trash2 className="w-3.5 h-3.5" aria-label="Usuń aneks" />
+                  <Trash2 className="h-3.5 w-3.5" aria-label="Usuń aneks" />
                 </ConfirmButton>
               )}
             </li>
@@ -444,6 +467,24 @@ function AmendmentsSection({ clientId, fcId }: AmendmentsSectionProps) {
       )}
     </div>
   );
+}
+
+/** Zapis z plikiem, na który serwer nie odpowiedział. 23.10.2026 skan
+ *  podpisanej umowy wysyłał się dłużej niż limit przeglądarki: serwer nie
+ *  dostał żądania, a okno mówiło tylko „Nie udało się zapisać umowy
+ *  ramowej.” — bez słowa o tym, że chodzi o plik i co z nim zrobić. */
+function uploadErrorMessage(
+  err: unknown,
+  notSaved: string,
+  fallback: string,
+): string {
+  if (isClientTimeout(err)) {
+    return `${notSaved}: plik wysyłał się dłużej niż 2 minuty. Spróbuj ponownie przy szybszym łączu albo z mniejszym plikiem (np. skan w niższej rozdzielczości).`;
+  }
+  if (isAxiosError(err) && !err.response) {
+    return `${notSaved}: formularz nie dotarł do serwera. Sprawdź połączenie i czy wybrany plik jest dostępny na dysku (plik z OneDrive musi być pobrany), potem spróbuj ponownie.`;
+  }
+  return apiErrorMessage(err, fallback);
 }
 
 interface CreateFrameworkContractDialogProps {
@@ -467,10 +508,20 @@ function CreateFrameworkContractDialog({
   const [notes, setNotes] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Runda 10 (F12): odwrócony zakres dat mówimy przy polu „Wygasa”, zanim
+  // formularz pójdzie do serwera — do 27.09 kończyło się to toastem
+  // „Request failed with status code 422”.
+  const [expiryError, setExpiryError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
+    if (effectiveDate && expiryDate && expiryDate < effectiveDate) {
+      setExpiryError("Data wygaśnięcia nie może być wcześniejsza niż „Obowiązuje od”.");
+      document.getElementById("framework-contract-expiry")?.focus();
+      return;
+    }
+    setExpiryError(null);
     setSubmitting(true);
     try {
       const fd = new FormData();
@@ -486,8 +537,14 @@ function CreateFrameworkContractDialog({
       showToast("Umowa ramowa dodana", "success");
       onCreated();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Błąd zapisu";
-      showToast(msg, "error");
+      showToast(
+        uploadErrorMessage(
+          err,
+          "Umowa nie została zapisana",
+          "Nie udało się zapisać umowy ramowej.",
+        ),
+        "error",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -546,18 +603,36 @@ function CreateFrameworkContractDialog({
               <input
                 type="date"
                 value={effectiveDate}
-                onChange={(e) => setEffectiveDate(e.target.value)}
+                onChange={(e) => {
+                  setEffectiveDate(e.target.value);
+                  setExpiryError(null);
+                }}
                 className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
               />
             </label>
             <label>
               <span className="text-sm">Wygasa</span>
               <input
+                id="framework-contract-expiry"
                 type="date"
                 value={expiryDate}
-                onChange={(e) => setExpiryDate(e.target.value)}
+                onChange={(e) => {
+                  setExpiryDate(e.target.value);
+                  setExpiryError(null);
+                }}
+                aria-invalid={expiryError ? true : undefined}
+                aria-describedby={expiryError ? "framework-contract-expiry-error" : undefined}
                 className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
               />
+              {expiryError ? (
+                <span
+                  id="framework-contract-expiry-error"
+                  role="alert"
+                  className="mt-1 block text-xs text-destructive"
+                >
+                  {expiryError}
+                </span>
+              ) : null}
             </label>
           </div>
           <label>
@@ -590,17 +665,13 @@ function CreateFrameworkContractDialog({
           </label>
         </div>
         <div className="flex shrink-0 justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} className="px-3 py-2 text-sm border border-border rounded">
+          <Button type="button" variant="outline" onClick={onClose}>
             Anuluj
-          </button>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="px-3 py-2 text-sm bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50 flex items-center gap-1"
-          >
-            <Upload className="w-4 h-4" />
+          </Button>
+          <Button type="submit" variant="primary" disabled={submitting}>
+            <Upload className="h-4 w-4" aria-hidden="true" />
             {submitting ? "Zapisywanie…" : "Zapisz"}
-          </button>
+          </Button>
         </div>
       </form>
     </div>
@@ -641,7 +712,14 @@ function CreateAmendmentDialog({
       showToast("Aneks dodany", "success");
       onCreated();
     } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : "Błąd zapisu", "error");
+      showToast(
+        uploadErrorMessage(
+          err,
+          "Aneks nie został zapisany",
+          "Nie udało się zapisać aneksu.",
+        ),
+        "error",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -697,16 +775,12 @@ function CreateAmendmentDialog({
           </label>
         </div>
         <div className="flex shrink-0 justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} className="px-3 py-2 text-sm border border-border rounded">
+          <Button type="button" variant="outline" onClick={onClose}>
             Anuluj
-          </button>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="px-3 py-2 text-sm bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50"
-          >
+          </Button>
+          <Button type="submit" variant="primary" disabled={submitting}>
             {submitting ? "Zapisywanie…" : "Zapisz"}
-          </button>
+          </Button>
         </div>
       </form>
     </div>

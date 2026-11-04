@@ -148,3 +148,77 @@ async def test_bulk_add_unknown_pool_returns_404(
         headers=app_auth_headers,
     )
     assert res.status_code == 404
+
+
+async def _marketplace_pool_id() -> int:
+    from app.core.database import AsyncSessionLocal
+    from app.services.marketplace_service import ensure_marketplace_pool
+
+    async with AsyncSessionLocal() as db:
+        pool = await ensure_marketplace_pool(db)
+        await db.commit()
+        return pool.id
+
+
+@pytest.mark.asyncio
+async def test_generic_pool_routes_refuse_the_marketplace_pool(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """R10-N7-4: Targ ma własne trasy z terminem. Wpis z ogólnego /add albo
+    /bulk-add nie miałby `marketplace_until` i nigdy by nie wygasł."""
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.talent_pool import TalentPoolMembership
+
+    pool_id = await _marketplace_pool_id()
+    a = await _seed_candidate()
+    try:
+        bulk = await app_client.post(
+            f"/api/talent-pools/{pool_id}/bulk-add",
+            json={"candidate_ids": [a]},
+            headers=app_auth_headers,
+        )
+        assert bulk.status_code == 409, bulk.text
+        single = await app_client.post(
+            f"/api/talent-pools/{pool_id}/add",
+            json={"candidate_id": a},
+            headers=app_auth_headers,
+        )
+        assert single.status_code == 409, single.text
+        dropped = await app_client.delete(
+            f"/api/talent-pools/{pool_id}/remove/{a}", headers=app_auth_headers
+        )
+        assert dropped.status_code == 409, dropped.text
+        async with AsyncSessionLocal() as db:
+            row = await db.scalar(
+                select(TalentPoolMembership.id).where(
+                    TalentPoolMembership.talent_pool_id == pool_id,
+                    TalentPoolMembership.candidate_id == a,
+                )
+            )
+        assert row is None
+
+        listed = await app_client.get("/api/talent-pools", headers=app_auth_headers)
+        assert listed.status_code == 200, listed.text
+        flags = {p["id"]: p["is_marketplace"] for p in listed.json()}
+        assert flags[pool_id] is True
+    finally:
+        await _cleanup([a], None)
+
+
+@pytest.mark.asyncio
+async def test_bulk_add_caps_the_id_list(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """R10-N7-11: ponad 1000 id = 422, nie 500 z asyncpg."""
+    pool_id = await _seed_pool()
+    try:
+        res = await app_client.post(
+            f"/api/talent-pools/{pool_id}/bulk-add",
+            json={"candidate_ids": list(range(1, 40_001))},
+            headers=app_auth_headers,
+        )
+        assert res.status_code == 422, res.text
+    finally:
+        await _cleanup([], pool_id)

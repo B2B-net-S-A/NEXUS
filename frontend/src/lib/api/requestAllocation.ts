@@ -5,29 +5,52 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 
 import api from "@/lib/api"
+import type { RecruiterVia } from "@/lib/job-team"
 import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
+import type { PriorityLevel } from "@/lib/request-priority"
 import type { VisibleState, WorkState } from "@/lib/request-work-state"
 
 // ── Pulpit „Requesty i obłożenie" ───────────────────────────────────────────
+//
+// Pola dopisane 02.10.2026 (trzy role rekrutacji, propozycje automatu do
+// akceptacji) są w typach opcjonalne: starszy backend ich nie oddaje, a ekran
+// ma wtedy pokazać mniej, nie paść.
 
 export interface BoardPerson {
   user_id: number
   name: string
-  role: "recruiter" | "sourcer"
-  /** Propozycja automatu w trybie podglądu — nikogo nie zobowiązuje. */
+  /** Propozycja automatu — czeka na akceptację, nikogo nie zobowiązuje. */
   proposed: boolean
   source: "auto" | "manual" | "owner"
+  /** Skąd osoba jest przy rekrutacji (prowadzący, przypisanie, współpracownik). */
+  via?: RecruiterVia
+  /** Kto przypisał; `null` = nie wiadomo. */
+  assigned_by_name?: string | null
 }
 
 export interface BoardRequest {
   job_id: number
   title: string
   client_name: string | null
+  /** Numer zapytania u klienta (Nordea, ZOB…); może mieć kilka części. */
+  client_reference?: string | null
   category_id: number | null
   deadline: string | null
   sent: number
+  /** Osoby, których karta stoi teraz w „Zweryfikowany” (jak Tablica). */
+  verified?: number
+  /** Osoby, których karta stoi teraz w „QC CV” (z kolejką Cpro). */
+  cv_qc?: number
   champion: boolean
   people: BoardPerson[]
+  delivery_lead?: { id: number; name: string } | null
+  priority_level?: PriorityLevel
+  /** P0 — ultrapilne przez 24 h (27.10.2026); termin i powód widzą wszyscy. */
+  is_p0?: boolean
+  p0_until?: string | null
+  p0_reason?: string | null
+  /** Data otwarcia requestu (ISO): `opened_at`, a bez niej data dodania. */
+  opened_effective_at?: string | null
 }
 
 export interface BoardGroup {
@@ -50,7 +73,12 @@ export interface LoadRequest {
 export interface LoadPerson {
   user_id: number
   name: string
+  /** Rekrutacje P1, nad którymi osoba pracuje — bez propozycji (14.10.2026). */
   count: number
+  /** Propozycje automatu czekające na akceptację. */
+  proposed?: number
+  /** Rekrutacje bez priorytetu i „Przyjmujemy” — poza obłożeniem. */
+  outside_p1?: number
   leave_until: string | null
   requests: LoadRequest[]
 }
@@ -72,29 +100,137 @@ export interface RequestBoard {
   requests: BoardRequest[]
   load: LoadPerson[]
   changes: BoardChange[]
+  /** Kto patrzy — zakres kafelka („Moja kategoria”, „Moje jako DL”) liczy się z tego. */
+  viewer?: { user_id: number; primary_category_id: number | null } | null
+  /**
+   * Początek okna „Zmiany od wczoraj” (ISO): ta sama godzina poprzedniego dnia
+   * roboczego. `null`/brak = starszy backend — okno to ostatnia doba.
+   */
+  changes_since?: string | null
 }
 
 export const REQUEST_BOARD_QUERY_KEY = ["request-board"] as const
 
-export function useRequestBoard() {
+export function useRequestBoard(options: { enabled?: boolean } = {}) {
   return useQuery<RequestBoard>({
     queryKey: REQUEST_BOARD_QUERY_KEY,
     queryFn: async () => (await api.get<RequestBoard>("/api/request-board")).data,
+    enabled: options.enabled ?? true,
     refetchInterval: DASHBOARD_SECTION_POLL_MS,
     staleTime: 30_000,
   })
 }
 
-export async function addBoardPerson(
-  jobId: number,
-  userId: number,
-  role: "recruiter" | "sourcer",
-): Promise<void> {
-  await api.post(`/api/request-board/jobs/${jobId}/people`, { user_id: userId, role })
+export async function addBoardPerson(jobId: number, userId: number): Promise<void> {
+  await api.post(`/api/request-board/jobs/${jobId}/people`, { user_id: userId })
 }
 
+/**
+ * „Potwierdź” na liście „Nowe rekrutacje — kto prowadzi”: Head of Recruitment
+ * zgadza się z prowadzącym, rekrutacja znika z listy. Niczego nie przydziela;
+ * inny prowadzący niż `leadUserId` = 409 (lista była nieaktualna).
+ */
+export async function confirmJobLead(jobId: number, leadUserId: number): Promise<void> {
+  await api.post(`/api/request-board/jobs/${jobId}/lead-confirmation`, {
+    lead_user_id: leadUserId,
+  })
+}
+
+/**
+ * Zdejmuje osobę z roli „Rekruter” — ze wszystkich miejsc naraz (prowadzący,
+ * przypisanie, współpracownik). Przy samej propozycji automatu oznacza
+ * „odrzuć” i wymaga osoby, która rozstrzyga propozycje.
+ */
 export async function removeBoardPerson(jobId: number, userId: number): Promise<void> {
   await api.delete(`/api/request-board/jobs/${jobId}/people/${userId}`)
+}
+
+// ── Propozycje automatu: akceptacja, zmiana, odrzucenie ─────────────────────
+// Decyduje admin albo Head of Recruitment (capability `request.proposal.decide`).
+
+export type ProposalDecision = "accept" | "reject" | "replace"
+
+export type ProposalDecisionBody =
+  | { decision: "accept" | "reject" }
+  | {
+      decision: "replace"
+      /** Kto ma pracować zamiast proponowanej osoby. */
+      replacement_user_id: number
+    }
+
+export interface ProposalDecisionResult {
+  decision: ProposalDecision
+  /** Kto po decyzji pracuje nad requestem; `null` przy odrzuceniu. */
+  assigned_user_id: number | null
+}
+
+/** 409 = propozycja jest już nieaktualna (serwer mówi to po polsku w `detail`). */
+export async function decideProposal(
+  jobId: number,
+  userId: number,
+  body: ProposalDecisionBody,
+): Promise<ProposalDecisionResult> {
+  return (
+    await api.post<ProposalDecisionResult>(
+      `/api/request-board/jobs/${jobId}/proposals/${userId}`,
+      body,
+    )
+  ).data
+}
+
+export interface ProposalRef {
+  job_id: number
+  user_id: number
+}
+
+export interface ProposalAcceptResult extends ProposalRef {
+  /** `gone` = propozycja przestała być aktualna; pozostałych to nie zatrzymuje. */
+  status: "accepted" | "gone"
+}
+
+/** „Zaakceptuj wszystkie” — jedno żądanie, najwyżej 100 propozycji. */
+export async function acceptProposals(
+  items: readonly ProposalRef[],
+): Promise<ProposalAcceptResult[]> {
+  if (items.length === 0) return []
+  const { data } = await api.post<{ results?: ProposalAcceptResult[] }>(
+    "/api/request-board/proposals/accept",
+    { items: items.map(({ job_id, user_id }) => ({ job_id, user_id })) },
+  )
+  return data.results ?? []
+}
+
+// ── Kategoria rekrutacji: kto w niej pracuje (informacyjnie) ────────────────
+
+export interface CategoryRecruiter {
+  user_id: number
+  name: string
+  email: string
+  role: string | null
+  is_primary: boolean
+  /** 1 = pierwszy priorytet osoby, 2 = drugi. */
+  priority: 1 | 2 | null
+}
+
+export const categoryRecruitersQueryKey = (categoryId: number) =>
+  ["competence-category-recruiters", categoryId] as const
+
+/** Aktywne osoby z kategorii kompetencji (`GET /api/competence-categories/{id}/recruiters`). */
+export function useCategoryRecruiters(
+  categoryId: number | null | undefined,
+  options: { enabled?: boolean } = {},
+) {
+  return useQuery<CategoryRecruiter[]>({
+    queryKey: categoryRecruitersQueryKey(categoryId ?? 0),
+    queryFn: async () =>
+      (
+        await api.get<CategoryRecruiter[]>(
+          `/api/competence-categories/${categoryId}/recruiters`,
+        )
+      ).data,
+    enabled: (options.enabled ?? true) && categoryId != null,
+    staleTime: 5 * 60_000,
+  })
 }
 
 // ── „Porządek w requestach" ─────────────────────────────────────────────────
@@ -113,6 +249,8 @@ export interface ReviewRow {
   applications_14d: number
   suggested_state: WorkState | null
   suggestion_reason: string
+  /** Rekrutacja zamknięta — stanu pracy nie zmienia się, dopóki jej nie otworzą. */
+  closed?: boolean
 }
 
 export interface ReviewResponse {
@@ -183,9 +321,54 @@ export interface TeamCategory {
   second: TeamPerson[]
 }
 
+export type AllocationOrder = "sent_first" | "deadline_first"
+export type LeavePolicy = "wait" | "ignore"
+
+/** Zasady automatu przydziału (`request_allocation_rules`, 29.10.2026). */
 export interface TeamRules {
-  sourcer_threshold: number
   review_time: string
+  include_p2: boolean
+  people_per_p1: number
+  max_load: number | null
+  overflow: number
+  outsiders: boolean
+  order: AllocationOrder
+  leave_policy: LeavePolicy
+}
+
+export type AllocationRunMode = "off" | "shadow" | "auto"
+
+export interface AllocationPreviewPerson {
+  user_id: number
+  name: string
+  p1_now: number
+  new: number
+  new_p1: number
+}
+
+/** Przebieg „na sucho” (`POST /api/competence-team/rules/preview`). */
+export interface AllocationPreviewSide {
+  pool: number
+  empty: number
+  new_people: number
+  new_requests: number
+  waiting: number
+  proposals_dropped: number
+  at_limit: number
+  team: number
+  people: AllocationPreviewPerson[]
+  auto_waits_for_leave: boolean
+}
+
+export interface AllocationPreview {
+  today: AllocationPreviewSide
+  draft: AllocationPreviewSide
+}
+
+export interface AllocationRulesChange {
+  at: string
+  actor_name: string | null
+  changed: Record<string, [unknown, unknown]>
 }
 
 export interface CompetenceTeam {
@@ -194,15 +377,17 @@ export interface CompetenceTeam {
   excluded: TeamPerson[]
   people: TeamPerson[]
   rules: TeamRules
+  mode: AllocationRunMode
 }
 
 export const COMPETENCE_TEAM_QUERY_KEY = ["competence-team"] as const
 
-export function useCompetenceTeam() {
+export function useCompetenceTeam({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery<CompetenceTeam>({
     queryKey: COMPETENCE_TEAM_QUERY_KEY,
     queryFn: async () => (await api.get<CompetenceTeam>("/api/competence-team")).data,
     staleTime: 15_000,
+    enabled,
   })
 }
 
@@ -231,4 +416,14 @@ export async function setAllocationExcluded(
 
 export async function putTeamRules(rules: TeamRules): Promise<TeamRules> {
   return (await api.put<TeamRules>("/api/competence-team/rules", rules)).data
+}
+
+export async function previewTeamRules(rules: TeamRules): Promise<AllocationPreview> {
+  return (await api.post<AllocationPreview>("/api/competence-team/rules/preview", rules)).data
+}
+
+export const RULES_HISTORY_QUERY_KEY = ["competence-team", "rules-history"] as const
+
+export async function fetchRulesHistory(): Promise<AllocationRulesChange[]> {
+  return (await api.get<AllocationRulesChange[]>("/api/competence-team/rules/history")).data
 }

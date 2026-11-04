@@ -1,0 +1,175 @@
+/**
+ * Trzy nazwy rekrutacji (0380, 25.09.2026).
+ *
+ * - `title` — nazwa od klienta. Idzie do klienta (CV, plik, Cpro).
+ * - `client_reference` — numer zapytania klienta (ZOB, SAP, numer w Cpro).
+ * - `working_title` — tytuł dla rekrutera („Java Developer · Java, Kafka ·
+ *   5+ lat · Payments”). Tylko ekrany wewnętrzne, nigdy do klienta.
+ *
+ * `composeWorkingTitle` jest lustrem `backend/app/services/job_working_title.py`
+ * — oba czytają `__fixtures__/job-working-title-cases.json`.
+ *
+ * Do tytułu trafiają wyłącznie must-have będące NAZWĄ („Java”, „CI/CD”,
+ * „React (Hooks)”). Pozycja wpisana zdaniem — więcej niż trzy słowa, ponad 40
+ * znaków albo z przecinkiem, średnikiem, dwukropkiem czy pauzą — jest pomijana
+ * (`isProse`), i to ZANIM wybierzemy dwie pierwsze: zdanie na początku listy
+ * nie zabiera miejsca technologii.
+ */
+
+const SEPARATOR = " · ";
+const MAX_LEN = 255;
+const MUST_IN_TITLE = 2;
+// Must-have dłuższe niż tyle słów albo znaków to zdanie, nie nazwa.
+const MUST_MAX_WORDS = 3;
+const MUST_MAX_CHARS = 40;
+// Znaki zdania. „/”, „&”, nawiasy, „+”, „#” i „.” świadomie poza listą:
+// „CI/CD”, „PL/SQL”, „C++”, „.NET”, „React (Hooks)” to nazwy.
+const PROSE_MARKS = [",", ";", ":", "–", "—"];
+
+type MustItem = string | { name?: string | null } | null | undefined;
+
+function clean(value: unknown): string {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+}
+
+/** Czy pozycja must-have jest zdaniem (`name` po `clean`). */
+function isProse(name: string): boolean {
+  return (
+    name.split(" ").length > MUST_MAX_WORDS ||
+    // Punkty kodowe, nie jednostki UTF-16 — jak `len()` w Pythonie.
+    [...name].length > MUST_MAX_CHARS ||
+    PROSE_MARKS.some((mark) => name.includes(mark))
+  );
+}
+
+function yearsLabel(years: number): string {
+  if (years === 1) return "1+ rok";
+  if ([2, 3, 4].includes(years % 10) && ![12, 13, 14].includes(years % 100))
+    return `${years}+ lata`;
+  return `${years}+ lat`;
+}
+
+export function composeWorkingTitle(
+  role: string | null | undefined,
+  must: readonly MustItem[] = [],
+  minYears: number | null | undefined = null,
+  domain: string | null | undefined = null,
+): string | null {
+  const roleText = clean(role);
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const item of must ?? []) {
+    // „Kafka lub RabbitMQ” w tytule to sama „Kafka” (lustro backendu).
+    const name = clean(typeof item === "object" && item !== null ? item.name : item)
+      .split(" lub ")[0]
+      .trim();
+    const key = name.toLocaleLowerCase("pl");
+    if (name && !isProse(name) && !seen.has(key)) {
+      seen.add(key);
+      names.push(name);
+    }
+    if (names.length === MUST_IN_TITLE) break;
+  }
+  if (!roleText && names.length === 0) return null;
+  const parts = [roleText, names.join(", ")];
+  if (typeof minYears === "number" && Number.isInteger(minYears) && minYears > 0)
+    parts.push(yearsLabel(minYears));
+  parts.push(clean(domain));
+  const kept = parts.filter(Boolean);
+  while (kept.length > 1 && kept.join(SEPARATOR).length > MAX_LEN) kept.pop();
+  return kept.join(SEPARATOR).slice(0, MAX_LEN).trimEnd();
+}
+
+export interface JobNames {
+  id?: number | null;
+  title?: string | null;
+  working_title?: string | null;
+  client_reference?: string | null;
+  client_name?: string | null;
+}
+
+/**
+ * „42928, 42927” → dwa numery: jedna rekrutacja na kilka zapytań klienta
+ * (lustro `client_reference_parts` w `job_working_title.py`).
+ */
+export function clientReferenceParts(reference: string | null | undefined): string[] {
+  return (reference ?? "")
+    .split(",")
+    .map((part) => clean(part))
+    .filter(Boolean);
+}
+
+/** Tytuł na ekranach wewnętrznych: tytuł dla rekrutera, a bez niego nazwa od klienta. */
+export function jobDisplayTitle(job: JobNames): string {
+  return (
+    clean(job.working_title) ||
+    clean(job.title) ||
+    (job.id != null ? `Rekrutacja #${job.id}` : "Rekrutacja")
+  );
+}
+
+/**
+ * Nazwa od klienta pod tytułem — tylko gdy różni się od tego, co już widać
+ * (rekrutacja bez tytułu dla rekrutera pokazuje ją w pierwszej linii).
+ */
+export function jobClientTitle(job: JobNames): string | null {
+  const title = clean(job.title);
+  if (!title) return null;
+  return title.toLocaleLowerCase("pl") === jobDisplayTitle(job).toLocaleLowerCase("pl")
+    ? null
+    : title;
+}
+
+/** Druga linia: `klient · „nazwa od klienta” · numer u klienta` (puste człony znikają). */
+export function jobClientLine(job: JobNames): string {
+  const clientTitle = jobClientTitle(job);
+  return [
+    clean(job.client_name),
+    clientTitle ? `„${clientTitle}”` : "",
+    clean(job.client_reference),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+export interface JobNamesDraft {
+  clientReference: string;
+  workingTitle: string;
+  /** `true` = tytuł wpisany ręcznie (automat wyłączony). */
+  workingTitleManual: boolean;
+}
+
+export function jobNamesDraft(job: JobNames & { working_title_auto?: boolean | null }): JobNamesDraft {
+  return {
+    clientReference: job.client_reference ?? "",
+    workingTitle: job.working_title ?? "",
+    workingTitleManual: job.working_title_auto === false,
+  };
+}
+
+/**
+ * Pola PATCH `/api/jobs/{id}` dla nazw — WYŁĄCZNIE to, co się zmieniło.
+ * Pusty `working_title` przywraca automat (serwer przelicza tytuł sam).
+ */
+export function jobNamesPatch(
+  job: JobNames & { working_title_auto?: boolean | null },
+  draft: JobNamesDraft,
+): Record<string, string | null> {
+  const before = jobNamesDraft(job);
+  const patch: Record<string, string | null> = {};
+  const reference = draft.clientReference.trim();
+  if (reference !== before.clientReference.trim()) patch.client_reference = reference || null;
+  if (draft.workingTitleManual) {
+    const title = draft.workingTitle.trim();
+    if (!title) {
+      // Runda 9 (R9-N15-8): wyczyszczony ręczny tytuł = powrót do automatu,
+      // nie „bez zmian” — inaczej stary ręczny tytuł zostawał po zapisie.
+      if (before.workingTitleManual) patch.working_title = "";
+    } else if (!before.workingTitleManual || title !== before.workingTitle.trim()) {
+      patch.working_title = title;
+    }
+  } else if (before.workingTitleManual) {
+    patch.working_title = "";
+  }
+  return patch;
+}

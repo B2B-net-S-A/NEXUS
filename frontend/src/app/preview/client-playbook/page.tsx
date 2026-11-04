@@ -56,13 +56,13 @@ export default function ClientPlaybookPreviewPage() {
     qc.setQueryData(["client-cv-rule", 1], makeCvRule());
     qc.setQueryData(
       ["client-playbook", 2],
-      makeEmptyClientPlaybook(2, "PKO Bank Polski"),
+      makeEmptyClientPlaybook(2, "Bank Kappa"),
     );
     qc.setQueryData(
       ["client-cv-rule", 2],
       makeCvRule({
         client_id: 2,
-        client_name: "PKO Bank Polski",
+        client_name: "Bank Kappa",
         is_active: false,
         confirmed_at: null,
         client_policy: "",

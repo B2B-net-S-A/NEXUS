@@ -23,7 +23,7 @@
   {
    "id": "cv.branded",
    "area": "cv",
-   "opis": "CV do klienta: podgląd, edytor (zapis + zatwierdzenie w tle), wersje, „Użyj nowej wersji”",
+   "opis": "CV do klienta: miniatura pierwszej strony (klik = wszystkie strony), edytor „Otwórz i popraw” (zapis + zatwierdzenie w tle), wersje, „Użyj nowej wersji”",
    "file": "components/v2/recruitment/CvToClientCard.tsx",
    "marker": "CVBrandedEditModal",
    "v3_home": "panel → CV → karta „CV do klienta”"
@@ -40,9 +40,9 @@
    "id": "cv.one-time-link",
    "area": "cv",
    "opis": "Link jednorazowy dla klienta",
-   "file": "components/v2/jobs/CvHandoffWorkbench.tsx",
+   "file": "components/v2/recruitment/BulkCvHandoffDialog.tsx",
    "marker": "OneTimeLinkField",
-   "v3_home": "panel → CV"
+   "v3_home": "Tablica → zaznaczenie → wysyłka CV (w panelu osoby od 0424 bez pola linku karty Championa — D2)"
   },
   {
    "id": "cv.share-revoke",
@@ -69,12 +69,36 @@
    "v3_home": "okno Historia i czat"
   },
   {
+   "id": "person.booked-call",
+   "area": "panel",
+   "opis": "Umów telefon: termin screeningu z przypomnieniem, plakietka na karcie, Przełóż i Odwołaj",
+   "file": "components/v2/recruitment/ScreeningCallControl.tsx",
+   "marker": "ScreeningCallControl",
+   "v3_home": "panel osoby → obok „Nie odebrał”"
+  },
+  {
    "id": "list.dock",
    "area": "lista",
    "opis": "Dock podglądu rekrutacji",
    "file": "components/v2/pages/JobsListV2.tsx",
    "marker": "JobReadinessDock",
    "v3_home": "ikona podglądu w wierszu"
+  },
+  {
+   "id": "list.recruiter-edit",
+   "area": "lista",
+   "opis": "Kolumna „Rekruter” z edycją (14.10.2026): admin, Head of Recruitment i Delivery Lead zdejmują osobę, przypisują albo dodają rekrutera i rozstrzygają propozycję automatu w okienku przy komórce",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "job.recruiter.assign",
+   "v3_home": "kolumna „Rekruter” na liście rekrutacji"
+  },
+  {
+   "id": "list.recruiter-absence",
+   "area": "lista",
+   "opis": "Kropka nieobecności przy Rekruterze i DL (17.10.2026, moduł urlopów): kto jest dziś nieobecny, do kiedy i kto zastępuje — w podpowiedzi, bez rodzaju nieobecności; jedno zapytanie na stronę listy",
+   "file": "components/v2/jobs/JobListCells.tsx",
+   "marker": "job-recruiter-absence",
+   "v3_home": "kolumna „Rekruter” na liście rekrutacji"
   },
   {
    "id": "list.priority-badges",
@@ -87,10 +111,10 @@
   {
    "id": "list.quick-filters",
    "area": "lista",
-   "opis": "Szybkie filtry z licznikami",
+   "opis": "Pasek filtrów nad tabelą z licznikami (Po terminie, Nikt nie pracuje, Nikogo nie wysłano) — zastąpił „Szybkie” 25.09.2026",
    "file": "components/v2/pages/JobsListV2.tsx",
    "marker": "quick-counts",
-   "v3_home": "panel filtrów (zwijany)"
+   "v3_home": "pasek filtrów nad tabelą"
   },
   {
    "id": "list.tiles",
@@ -98,7 +122,8 @@
    "opis": "Widok kafelków",
    "file": "components/v2/pages/JobsListV2.tsx",
    "marker": "jobsView",
-   "v3_home": "bez zmian"
+   "v3_home": "bez zmian",
+   "removed_reason": "Decyzja Artura 02.10.2026 („kafelki opcję wywal całkowicie”): lista rekrutacji ma jeden widok — tabelę z prostym wierszem. To, co kafelek pokazywał dodatkowo (must-have, numery, miasta), jest w Podglądzie; plakietka „Brak opiekuna TAC” żyła tylko na kafelku i zniknęła razem z nim."
   },
   {
    "id": "list.unopenable",
@@ -114,15 +139,15 @@
    "opis": "Dodaj kandydata (szybko po nazwisku)",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "AddCandidatesQuickModal",
-   "v3_home": "+ Dodaj kandydatów"
+   "v3_home": "menu „⋯” → Dodaj kandydatów → Po nazwisku; „Dodaj ▾” w linii „Kandydaci do dodania” nagłówka"
   },
   {
    "id": "header.ai-writer",
    "area": "naglowek",
-   "opis": "Szkic ogłoszenia (AI)",
+   "opis": "Ogłoszenie: jedna treść z Profilu Championa — strona kariery jednym kliknięciem, Pracuj.pl i JustJoin.IT do wklejenia (do 12.10.2026 „Szkic ogłoszenia”, do 21.10.2026 „Ogłoszenie na portale”)",
    "file": "app/jobs/[id]/page.tsx",
-   "marker": "AIJobWriterModal",
-   "v3_home": "Zlecenie (okno) → Ogłoszenie i link"
+   "marker": "JobAdWindow",
+   "v3_home": "nagłówek rekrutacji → „Ogłoszenie” (kropki: kariera, Pracuj, JJIT) / Profil Championa → Zespół i ogłoszenie → Ogłoszenie"
   },
   {
    "id": "header.chat-unread",
@@ -130,7 +155,7 @@
    "opis": "Licznik nieprzeczytanych czatu",
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
    "marker": "unread",
-   "v3_home": "przycisk Historia i czat"
+   "v3_home": "ikona „Historia i czat” w linii tytułu (licznik na ikonie, nazwa w dymku — 14.10.2026)"
   },
   {
    "id": "header.edit",
@@ -138,15 +163,15 @@
    "opis": "Edytuj rekrutację",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "EditJobModal",
-   "v3_home": "Zlecenie (okno) / menu …"
+   "v3_home": "menu …"
   },
   {
    "id": "header.hm-picker",
    "area": "naglowek",
    "opis": "Hiring manager klienta",
-   "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
+   "file": "components/v2/jobs/JobReadinessDock.tsx",
    "marker": "HiringManagerPicker",
-   "v3_home": "Zlecenie (okno) → Zespół"
+   "v3_home": "Profil Championa → Zespół i ogłoszenie"
   },
   {
    "id": "header.invite-link",
@@ -154,7 +179,7 @@
    "opis": "Wygeneruj link aplikacyjny",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "GenerateInviteLinkV2",
-   "v3_home": "Zlecenie (okno) → Ogłoszenie i link"
+   "v3_home": "menu „⋯” → Link do zgłoszeń kandydatów / Profil Championa → Zespół i ogłoszenie"
   },
   {
    "id": "header.managed",
@@ -167,18 +192,90 @@
   {
    "id": "header.ownership",
    "area": "naglowek",
-   "opis": "Przejmij / współpracownicy",
-   "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
+   "opis": "Wiersz „Rekruter” karty zespołu (02.10.2026, dawniej „Właściciel projektu” i „Współpracownicy”): osoby, które pracują nad rekrutacją, z podpisem, kto je przydzielił",
+   "file": "components/v2/jobs/JobReadinessDock.tsx",
    "marker": "JobOwnershipPanel",
-   "v3_home": "Zlecenie (okno) → Zespół"
+   "v3_home": "Profil Championa → Zespół i ogłoszenie"
+  },
+  {
+   "id": "team.claim-join",
+   "area": "naglowek",
+   "opis": "„Biorę” przy wolnej rekrutacji (dawne „Przejmij rekrutację”) i „Dołącz” przy zajętej — rekruter, sourcer, TAC, Delivery Lead, admin",
+   "file": "components/v2/jobs/JobOwnershipPanel.tsx",
+   "marker": "joinJob",
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Rekruter"
+  },
+  {
+   "id": "team.assign-recruiter",
+   "area": "naglowek",
+   "opis": "„Przypisz…” / „Zmień” — okno przypisania pierwszego rekrutera (admin, Delivery Lead, Head of Recruitment)",
+   "file": "components/v2/jobs/JobOwnershipPanel.tsx",
+   "marker": "ReassignOwnerV2",
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Rekruter"
+  },
+  {
+   "id": "team.add-remove-person",
+   "area": "naglowek",
+   "opis": "„+ Dodaj osobę” (kolejna osoba przy rekrutacji) i zdjęcie osoby „×” z potwierdzeniem",
+   "file": "components/v2/jobs/JobOwnershipPanel.tsx",
+   "marker": "+ Dodaj osobę",
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Rekruter"
+  },
+  {
+   "id": "team.proposal-decision",
+   "area": "naglowek",
+   "opis": "Propozycja automatu przy rekrutacji: „Akceptuj” · „Zmień” · „Odrzuć” (admin, Head of Recruitment); do decyzji nikt nie jest przypisany",
+   "file": "components/v2/jobs/JobOwnershipPanel.tsx",
+   "marker": "proposalActions",
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Rekruter"
+  },
+  {
+   "id": "team.category",
+   "area": "naglowek",
+   "opis": "Wiersz „Kategoria”: plakietka kategorii, zwijana lista uczestników (osoby z kategorii: widzą rekrutację w „Moja kategoria” i dostają jej powiadomienia) i „Zmień” dla osoby z pełną edycją rekrutacji",
+   "file": "components/v2/jobs/JobSettingsPanel.tsx",
+   "marker": "JobCategoryRow",
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Kategoria"
+  },
+  {
+   "id": "team.priority",
+   "area": "naglowek",
+   "opis": "Priorytet w trzech poziomach (P1 Pilne / Bez priorytetu / Przyjmujemy kandydatów), zapis kliknięciem — admin, Delivery Lead, TAC, Head of Recruitment",
+   "file": "components/v2/jobs/JobSettingsPanel.tsx",
+   "marker": "PriorityRow",
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Priorytet"
+  },
+  {
+   "id": "team.previous-recruiters",
+   "area": "naglowek",
+   "opis": "„Poprzedni rekruter” — osoby uśpione przy zejściu z P1 albo zamknięciu, wracają przy P1; „Usuń z poprzednich” dla roli przydzielającej (14.10.2026)",
+   "file": "components/v2/jobs/PreviousRecruitersRow.tsx",
+   "marker": "dismissPreviousRecruiter",
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Poprzedni rekruter"
+  },
+  {
+   "id": "team.priority-confirm",
+   "area": "naglowek",
+   "opis": "Potwierdzenie zejścia z P1, gdy ktoś pracuje — zespół przejdzie do „Poprzedni rekruter” (pole „Priorytet” i plakietka w nagłówku)",
+   "file": "components/v2/jobs/useJobPriorityChange.ts",
+   "marker": "leavingP1Confirm",
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Priorytet; nagłówek rekrutacji → plakietka priorytetu"
+  },
+  {
+   "id": "header.recruiter-subtitle",
+   "area": "naglowek",
+   "opis": "Kto jest rekruterem rekrutacji: „Rekruter: X +N” albo „Bez rekrutera” (dawniej podtytuł nagłówka)",
+   "file": "components/v2/jobs/JobRecruiterFact.tsx",
+   "marker": "Zespół rekrutacji",
+   "v3_home": "fakt „Rekruter” w nagłówku → okienko „Zespół rekrutacji” z linkiem do zakładki „Zespół” (od 25.10.2026 bez pozycji „Zespół” w menu „⋯”)"
   },
   {
    "id": "header.priority",
    "area": "naglowek",
    "opis": "Kontekst Priority Work",
-   "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
+   "file": "components/v2/jobs/JobReadinessDock.tsx",
    "marker": "JobPriorityContext",
-   "v3_home": "Zlecenie (okno) → Priorytet"
+   "v3_home": "Profil Championa → Zespół i ogłoszenie"
   },
   {
    "id": "header.tabs-rail",
@@ -195,6 +292,14 @@
    "file": "app/jobs/[id]/page.tsx",
    "marker": "ActiveViewers",
    "v3_home": "nagłówek"
+  },
+  {
+   "id": "dock.pair-owner",
+   "area": "panel",
+   "opis": "„Prowadzi” — kto prowadzi osobę w tej rekrutacji; admin i Head of Recruitment przypisują osobę z rolą rekrutera (25.10.2026)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "PairOwnerLine",
+   "v3_home": "panel osoby → nagłówek"
   },
   {
    "id": "dock.match",
@@ -234,7 +339,8 @@
    "opis": "Filtry: utknęli / bez akcji / ostrzeżenia / rekruter / SLA",
    "file": "components/v2/jobs/PipelineFiltersRail.tsx",
    "marker": "Bez następnej akcji",
-   "v3_home": "pasek filtrów nad Tablicą"
+   "v3_home": "pasek filtrów nad Tablicą",
+   "removed_reason": "Decyzja Artura 02.10.2026 (prostszy ekran rekrutacji): filtry Tablicy (utknęli, bez akcji, ostrzeżenia, rekruter, SLA) zdjęte bez zamiennika — „za dużo się dzieje”. Plakietki „Twój ruch”, SLA kolumny i „Brak następnej akcji” zostają na kartach i w nagłówkach kolumn."
   },
   {
    "id": "kanban.off-template",
@@ -258,7 +364,7 @@
    "opis": "Widok przeglądowy / kolumnowy",
    "file": "components/v2/pages/KanbanBoardV2.tsx",
    "marker": "kanban-view",
-   "v3_home": "widok Tablica"
+   "v3_home": "nad kolumnami Tablicy, po prawej (tylko przy ponad 10 kolumnach; do 14.10.2026 w pasku „Kandydaci do dodania”)"
   },
   {
    "id": "src.ai-admin",
@@ -298,16 +404,15 @@
    "opis": "Wyszukaj manualnie w rekrutacji",
    "file": "components/v2/recruitment/ManualSearchPanel.tsx",
    "marker": "ManualSearchPanel",
-   "v3_home": "okno Szukaj ręcznie"
+   "v3_home": "okno „Kandydaci do dodania” → zakładka „Szukaj ręcznie” (?win=add&wintab=manual)"
   },
   {
    "id": "src.portals",
    "area": "pozyskiwanie",
    "opis": "Portale ogłoszeniowe",
-   "file": "components/v2/recruitment/PostingsSection.tsx",
-   "marker": "PostingsSection",
-   "v3_home": "Zlecenie (okno) → portale",
-   "removed_reason": "Symulacja multipostingu (dane SIM-…) usunięta 23.09.2026 — wprowadzała w błąd; prawdziwe portale (Pracuj.pl, JustJoinIT) przyjdą w PR2 za flagą."
+   "file": "components/v2/recruitment/JobPortalsSection.tsx",
+   "marker": "JobPortalsSection",
+   "v3_home": "Zlecenie (okno) → Portale ogłoszeniowe (RocketJobs, JustJoin.IT, Pracuj.pl — za flagami; symulacja SIM-… usunięta 23.09.2026)"
   },
   {
    "id": "src.recommended",
@@ -350,6 +455,22 @@
    "v3_home": "źródło w Propozycjach"
   },
   {
+   "id": "header.menu-files",
+   "area": "naglowek",
+   "opis": "Pliki rekrutacji: request klienta i załączniki (menu „⋯”)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "menu-files",
+   "v3_home": "menu „⋯” → Pliki"
+  },
+  {
+   "id": "header.menu-client-panel",
+   "area": "naglowek",
+   "opis": "Panel klienta pod linkiem z CV: włącznik, link, dowody, sprawy od klienta (menu „⋯”)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "menu-client-panel",
+   "v3_home": "menu „⋯” → Panel klienta"
+  },
+  {
    "id": "questions.bank",
    "area": "pytania",
    "opis": "Baza pytań: przypinanie, kolejność, oceny",
@@ -382,6 +503,14 @@
    "v3_home": "usePipelineMove"
   },
   {
+   "id": "panel.client-rate-change",
+   "area": "panel",
+   "opis": "Zmiana stawki do klienta po wysyłce CV (powód, historia, blokada po zamówieniu)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "dock-client-rate-change",
+   "v3_home": "panel → Do klienta → Zmień"
+  },
+  {
    "id": "move.eligibility",
    "area": "ruch",
    "opis": "Ostrzeżenie „Przenieś mimo to”",
@@ -406,9 +535,57 @@
    "v3_home": "usePipelineMove"
   },
   {
+   "id": "move.rejection-email-preview",
+   "area": "ruch",
+   "opis": "Podgląd maila odrzucenia w oknie odrzucenia: adresat, temat i treść; przy jednej osobie poprawka i „Przywróć treść domyślną”, przy kilku tylko do odczytu z listą, kto dostanie mail; brak skrzynki lub adresu widać przed potwierdzeniem (13.10.2026)",
+   "file": "components/v2/modals/RejectionEmailField.tsx",
+   "marker": "/api/rejection-emails/preview",
+   "v3_home": "RejectionV2"
+  },
+  {
+   "id": "move.rejection-email-other-processes",
+   "area": "ruch",
+   "opis": "Mail odrzucenia od „Zweryfikowany” w górę, treść „przed klientem” albo „po kliencie” i dopisek o pozostałych rekrutacjach osoby („To dotyczy tylko tej rekrutacji — nadal bierzesz udział w…”), liczony w chwili wysyłki; przy kilku osobach przełącznik treści i „+N w toku” (17.10.2026)",
+   "file": "components/v2/modals/RejectionEmailField.tsx",
+   "marker": "Dopisz pozostałe rekrutacje",
+   "v3_home": "RejectionV2"
+  },
+  {
+   "id": "move.rejection-email-merge",
+   "area": "ruch",
+   "opis": "Druga odrzucona rekrutacja tej samej osoby, zanim wyszedł pierwszy mail: okno proponuje jeden wspólny mail o obu rekrutacjach (albo osobny), tamten jest anulowany, a jego nadawca dostaje dzwonek (17.10.2026)",
+   "file": "components/v2/modals/RejectionEmailField.tsx",
+   "marker": "Jeden wspólny mail o obu rekrutacjach",
+   "v3_home": "RejectionV2"
+  },
+  {
+   "id": "move.rejection-email-connect-mailbox",
+   "area": "ruch",
+   "opis": "Bez podłączonej skrzynki Microsoft 365 okno odrzucenia daje „Podłącz skrzynkę” (Ustawienia → Integracje w nowej karcie) i po powrocie sprawdza jeszcze raz (17.10.2026)",
+   "file": "components/v2/modals/RejectionEmailField.tsx",
+   "marker": "Podłącz skrzynkę",
+   "v3_home": "RejectionV2"
+  },
+  {
+   "id": "move.rejection-work-mode",
+   "area": "ruch",
+   "opis": "Powód „Nie akceptuje trybu pracy” w oknie odrzucenia: pytanie, ile dni w biurze kandydat akceptuje (tylko mniej, niż wymaga rekrutacja), i zapis trybu pracy na profilu z podglądem „Teraz na profilu” (14.10.2026)",
+   "file": "components/v2/modals/RejectionWorkModeField.tsx",
+   "marker": "Ile dni w biurze kandydat akceptuje?",
+   "v3_home": "RejectionV2"
+  },
+  {
+   "id": "move.rejection-rate",
+   "area": "ruch",
+   "opis": "Powód „Za wysokie oczekiwania finansowe” (i rezygnacja „Rozbieżność oczekiwań finansowych”) w oknie odrzucenia: „Ile teraz chce?” i zapis nowego minimum w profilu z podglądem „Stawka od X → Y” (prośba Marka, 26.10.2026)",
+   "file": "components/v2/modals/RejectionRateField.tsx",
+   "marker": "Ile teraz chce?",
+   "v3_home": "RejectionV2"
+  },
+  {
    "id": "move.verified-rate",
    "area": "ruch",
-   "opis": "Stawka przy „Zweryfikowany” + Pomiń",
+   "opis": "Stawka przy „Zweryfikowany” — okno tylko, gdy para nie ma stawki etapu (D2, 14.10.2026)",
    "file": "hooks/usePipelineMove.tsx",
    "marker": "VerifiedRateModal",
    "v3_home": "usePipelineMove"
@@ -459,15 +636,23 @@
    "opis": "Edytor profilu Championa",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "ChampionProfileEditor",
-   "v3_home": "strona Champion (bez zmian)"
+   "v3_home": "Profil Championa → menu ⋯ → Edytuj Profil Championa; blok — „Edytuj” w Briefie (szuflada)"
   },
   {
    "id": "champ.handoff",
    "area": "zlecenie",
    "opis": "Przekaż do searchu",
-   "file": "components/v2/jobs/JobReadinessDock.tsx",
+   "file": "components/champion/ChampionTodoStrip.tsx",
    "marker": "JobHandoffButton",
-   "v3_home": "strona Champion"
+   "v3_home": "Profil Championa → Brief → Do dopięcia (tylko rekrutacja nieprzekazana)"
+  },
+  {
+   "id": "champ.handoff-assignment",
+   "area": "zlecenie",
+   "opis": "Pole „Rekruter” przy przekazaniu: automat („Przydzieli automat” w trybie auto, „Zaproponuje automat” w trybie propozycji; dobiera tylko przy priorytecie P1 — przy pozostałych pole mówi, że rekrutacja zostanie bez rekrutera) albo „Wybieram sam”",
+   "file": "components/v2/jobs/JobHandoffButton.tsx",
+   "marker": "RecruiterAssignmentChoice",
+   "v3_home": "Profil Championa → Brief → Do dopięcia → Przekaż do searchu"
   },
   {
    "id": "champ.intake",
@@ -475,15 +660,15 @@
    "opis": "Import Championa z dokumentu",
    "file": "components/ChampionProfileEditor.tsx",
    "marker": "ChampionIntake",
-   "v3_home": "strona Champion"
+   "v3_home": "Profil Championa → menu ⋯ → Edytuj Profil Championa → Wypełnij szybciej"
   },
   {
    "id": "champ.readiness",
    "area": "zlecenie",
    "opis": "Lista gotowości",
-   "file": "components/v2/jobs/JobReadinessDock.tsx",
+   "file": "components/champion/ChampionTodoStrip.tsx",
    "marker": "readiness",
-   "v3_home": "okno Zlecenie + strona Champion"
+   "v3_home": "okno Zlecenie + Profil Championa → Brief → Do dopięcia"
   },
   {
    "id": "champ.rec-searches",
@@ -491,30 +676,31 @@
    "opis": "Rekomendowane wyszukiwania (AI)",
    "file": "components/v2/jobs/JobReadinessDock.tsx",
    "marker": "ChampionRecommendedSearches",
-   "v3_home": "strona Champion"
+   "v3_home": "strona Champion",
+   "removed_reason": "Decyzja Artura 25.09.2026: panel użyty raz w historii, a zatwierdzone wyszukiwanie od 25.09 nie trafiało do „Szukaj ręcznie”. Zastąpiły go wymagania do wyszukiwania w sekcji 2 Championa (wypełnia DL przy tworzeniu, Luna proponuje z maila) — od nich startuje „Szukaj ręcznie”."
   },
   {
    "id": "champ.settings",
    "area": "zlecenie",
-   "opis": "Delivery Lead i termin (TAC, szablon, kategoria, Program/Train i priorytet usunięte 22.09.2026 decyzją Artura — ustawia je backend)",
+   "opis": "Karta zespołu: Delivery Lead → Rekruter → Kategoria → Termin → Priorytet (kolejność z 02.10.2026; TAC, szablon i Program/Train usunięte 22.09.2026 decyzją Artura — ustawia je backend)",
    "file": "components/v2/jobs/JobReadinessDock.tsx",
    "marker": "JobSettingsPanel",
-   "v3_home": "okno Zlecenie + strona Champion"
+   "v3_home": "Profil Championa → Zespół i ogłoszenie"
   },
   {
    "id": "panel.saved-screening",
    "area": "screening",
-   "opis": "Zapisany arkusz screeningu tylko do odczytu dla osoby na późniejszym etapie",
-   "file": "components/v2/recruitment/PanelSavedViews.tsx",
-   "marker": "SavedScreeningView",
+   "opis": "Zapisany screening tylko do odczytu dla osoby na późniejszym etapie albo po zakończeniu procesu — od 09.10.2026 wspólny widok „Screening” (warunki, odpowiedzi, ocena)",
+   "file": "components/v2/screening-form/ScreeningSummaryView.tsx",
+   "marker": "ScreeningSummarySection",
    "v3_home": "panel → Screening"
   },
   {
    "id": "panel.saved-cv",
    "area": "cv",
-   "opis": "CV oryginalne, stan CV firmowego i linki dla klienta tylko do odczytu dla osoby na późniejszym etapie",
-   "file": "components/v2/recruitment/PanelSavedViews.tsx",
-   "marker": "SavedCvView",
+   "opis": "CV osoby na późniejszym etapie (QC CV, CV wysłane i dalej): ta sama karta „CV do klienta” z podglądem, pobraniem Word/PDF i edytorem; od „CV wysłane” bez podmiany CV (D3, 14.10.2026 — do tej daty widok tylko do odczytu bez pobierania)",
+   "file": "components/v2/jobs/CvHandoffWorkbench.tsx",
+   "marker": "lockedAfterSend={isAtClientColumn(laterColumn)}",
    "v3_home": "panel → CV"
   },
   {
@@ -547,19 +733,19 @@
    "opis": "Link do karty klienta (Pomoc → Klienci)",
    "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
    "marker": "/help?tab=clients",
-   "v3_home": "okno Zlecenie"
+   "v3_home": "skrót zlecenia (okno) / Profil Championa → Klient i historia / menu …"
   },
   {
    "id": "header.view-switch",
-   "area": "nagłówek",
-   "opis": "Tryb „Tabela” usunięty (22.09.2026) — z ekranów pobocznych wraca się przyciskiem „← Tablica”",
+   "area": "naglowek",
+   "opis": "Zakładki „Tablica” | „Zlecenie i Champion” w nagłówku (29.09.2026); z pełnej listy „Do przejrzenia” wraca „Tablica”",
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
-   "marker": "onViewChange(\"board\")",
-   "v3_home": "nagłówek (tylko poza Tablicą)"
+   "marker": "view=\"board\"",
+   "v3_home": "nagłówek — zakładki widoku"
   },
   {
    "id": "routing.legacy-tabs",
-   "area": "nagłówek",
+   "area": "naglowek",
    "opis": "Stare adresy ?tab= przepisywane na widok/segment/panel/okno",
    "file": "lib/job-detail-routing.ts",
    "marker": "resolveLegacyJobTab",
@@ -619,11 +805,12 @@
    "opis": "Podgląd CV tylko do odczytu: linki dla klienta ze WSZYSTKICH etapów pary (link leży na etapie sprzed „CV Wysłane”)",
    "file": "components/v2/recruitment/PanelSavedViews.tsx",
    "marker": "listForRecruitment",
-   "v3_home": "panel → CV (tylko odczyt)"
+   "v3_home": "panel → CV (tylko odczyt)",
+   "removed_reason": "Decyzja Artura 14.10.2026 (D3, prośba Delivery Leada o pobieranie CV z panelu): widok tylko do odczytu zastąpiła karta „CV do klienta” na każdym etapie. Lista linków dla klienta była w nim i tak schowana flagą CV_CLIENT_LINKS_UI_ENABLED=false (linki wyłączone od 21.09.2026)."
   },
   {
    "id": "views.carry-person",
-   "area": "nagłówek",
+   "area": "naglowek",
    "opis": "Przełączenie „Tabela” ↔ „Tablica” zachowuje otwartą osobę (panel ↔ dok)",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "carryPersonAcrossViews",
@@ -634,7 +821,7 @@
    "id": "contract.headcount-filled-hint",
    "area": "umowa",
    "opis": "Podpowiedź „Obsada kompletna — zamknij rekrutację” po zatrudnieniu kompletu; otwiera „Zlecenie” na zamknięciu z powodem „Obsadzone przez nas”",
-   "file": "components/v2/recruitment/PersonPanel.tsx",
+   "file": "components/v2/person/PersonWorkbenchTabs.tsx",
    "marker": "Obsada kompletna — zamknij rekrutację",
    "v3_home": "panel → Umowa"
   },
@@ -666,9 +853,25 @@
    "id": "screening.note-suggestions",
    "area": "screening",
    "opis": "Podpowiedzi „Z notatek: … — Użyj” dla stawki i dostępności na stanowisku screeningu; stawka wypełnia pole (zapis przy ruchu), dostępność to jawny zapis w profilu kandydata (nigdy w notatkach widocznych dla klienta) albo link „uzupełnij w profilu”; bez chipa stawki przy `rate_redacted`",
-   "file": "components/v2/jobs/ScreeningWorkbench.tsx",
+   "file": "components/v2/screening-form/ScreeningFullForm.tsx",
    "marker": "ScreeningSuggestionChips",
-   "v3_home": "panel → Screening → Stawka oczekiwana"
+   "v3_home": "panel osoby → formularz screeningu → Warunki → Stawka kandydata"
+  },
+  {
+   "id": "screening.rate-lower-known",
+   "area": "screening",
+   "opis": "Ramka „ponad budżet” dopisuje niższą znaną stawkę w budżecie („Znana też niższa stawka: … — mieści się w budżecie.”) z „Użyj”; formularz screeningu i okno „Przesuń na Zweryfikowany” (R2, 17.10.2026)",
+   "file": "components/v2/screening/VerifiedRateFields.tsx",
+   "marker": "rate-lower-known",
+   "v3_home": "panel osoby → formularz screeningu → Warunki → Stawka kandydata"
+  },
+  {
+   "id": "screening.rate-declared-from",
+   "area": "screening",
+   "opis": "Osoba z żywą umową: podpis „Stawka u nas · z umowy” pod polem stawki i podpowiedź „Zadeklarowana od” z „Użyj” (R4, 17.10.2026)",
+   "file": "components/v2/screening-form/ScreeningFullForm.tsx",
+   "marker": "Zadeklarowana od",
+   "v3_home": "panel osoby → formularz screeningu → Warunki → Stawka kandydata"
   },
   {
    "id": "cv.auto-generate-skip-reason",
@@ -681,34 +884,74 @@
   {
    "id": "list.request-status",
    "area": "lista",
-   "opis": "Status requestu (Szukamy / Mamy championa / Umowa / Obsadzona / Do uzupełnienia) — kolumna i filtr `rs=`",
+   "opis": "Stan requestu (Do uzupełnienia / Do przejrzenia / Szukamy / Mamy championa / Umowa / Klient milczy) — kolumna i jeden rząd pigułek `stage=` (25.09.2026; dawniej `rs=` i `ws=`)",
    "file": "components/v2/pages/JobsListV2.tsx",
-   "marker": "RequestStatusBadge",
+   "marker": "RequestStageBadge",
    "v3_home": "lista → kolumna Status"
   },
   {
    "id": "list.similar-jobs",
    "area": "lista",
-   "opis": "Plakietka „Podobne rekrutacje” pod tytułem: ↻ połączone (przepięto N), ≈ sugestie z osobami u klienta → okno przepięć",
+   "opis": "„Podobne rekrutacje” w wierszu: ikona w kolumnie akcji (połączone albo sugestie z osobami u klienta) → okno przepięć",
    "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "SimilarJobsIconButton",
+   "v3_home": "lista → ikona w kolumnie akcji wiersza"
+  },
+  {
+   "id": "list.preview-details",
+   "area": "lista",
+   "opis": "Szczegóły w Podglądzie (02.10.2026): wymagania, nazwa od klienta, numer u klienta, nasz numer, tryb pracy i miasta, data otwarcia, plakietka „Podobne rekrutacje” (↻ połączone, ≈ sugestie + Przepnij), plakietki Priority Work",
+   "file": "components/v2/jobs/JobPreviewDetails.tsx",
    "marker": "SimilarJobsCell",
-   "v3_home": "lista → plakietka pod tytułem rekrutacji"
+   "v3_home": "lista → Podgląd (ikona oka), zakładka Gotowość"
   },
   {
    "id": "header.similar-jobs",
    "area": "naglowek",
-   "opis": "Okno „Podobne rekrutacje”: sugestie, dodanie własnej, połącz i przepnij osoby wysłane do klienta",
-   "file": "app/jobs/[id]/page.tsx",
-   "marker": "SimilarJobsDialog",
-   "v3_home": "nagłówek → Podobne rekrutacje"
+   "opis": "„Podobne rekrutacje”: sugestie, dodanie własnej, osoby wysłane do klienta i pozostali z tych rekrutacji, przepięcie do Nowych jednym kliknięciem",
+   "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
+   "marker": "useSimilarJobsTab",
+   "v3_home": "„Podobne rekrutacje” w linii źródeł nagłówka → okno „Kandydaci do dodania” (?win=add&wintab=similar; stary ?win=similar działa)"
+  },
+  {
+   "id": "header.similar-person-preview",
+   "area": "naglowek",
+   "opis": "Podobne rekrutacje: klik w nazwisko otwiera kartę osoby obok panelu (dopasowanie do tej rekrutacji, fakty, notatka, CV, profil)",
+   "file": "components/v2/jobs/SimilarJobsPanel.tsx",
+   "marker": "SimilarPersonPreview",
+   "v3_home": "nagłówek → Podobne rekrutacje → klik w osobę"
   },
   {
    "id": "header.champion-found",
    "area": "naglowek",
-   "opis": "„Mamy championa” — Delivery Lead zatrzymuje szukanie (status requestu)",
-   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
-   "marker": "toggle-champion",
-   "v3_home": "nagłówek"
+   "opis": "Championi — Delivery Lead wskazuje osoby (kilka), szukanie zatrzymane, P1 wstrzymany",
+   "file": "components/v2/jobs/JobChampionsStatus.tsx",
+   "marker": "job-champions-status",
+   "v3_home": "plakietka statusu w nagłówku → okienko „Championi” (od 25.10.2026 bez pozycji w menu „⋯”)"
+  },
+  {
+   "id": "header.champions-popover",
+   "area": "naglowek",
+   "opis": "Okienko „Championi tej rekrutacji”: lista osób od „CV wysłane” z zaznaczaniem (DL), skutki zapisu, lista do odczytu dla pozostałych",
+   "file": "components/v2/jobs/JobChampionsStatus.tsx",
+   "marker": "job-champions-status",
+   "v3_home": "plakietka statusu w nagłówku rekrutacji (np. „Champion: Karol W.”)"
+  },
+  {
+   "id": "board.card-champion",
+   "area": "tablica",
+   "opis": "Plakietka „Champion” jako pierwsza na karcie i złota obwódka karty championa",
+   "file": "lib/board-card-badges.ts",
+   "marker": "key: \"champion\"",
+   "v3_home": "Tablica → karta osoby"
+  },
+  {
+   "id": "dock.champion-badge",
+   "area": "panel",
+   "opis": "Znak „Champion” przy nazwisku w panelu osoby (bez przycisków oznaczania)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "dock-champion-badge",
+   "v3_home": "panel osoby → wiersz z nazwiskiem"
   },
   {
    "id": "src.reassign",
@@ -727,16 +970,25 @@
    "v3_home": "nowa rekrutacja"
   },
   {
+   "id": "new.team-step",
+   "area": "zlecenie",
+   "opis": "Sekcja „Kategoria i zespół” (02.10.2026): Delivery Lead potwierdza kategorię kompetencji (uczestnikami zostają wszyscy z kategorii), rekruter prowadzący — „Przydzieli automat” albo „Wskażę sam” — i priorytet w trzech poziomach (domyślnie P1; automat dobiera rekrutera tylko przy P1)",
+   "file": "components/v2/jobs/new/NewJobPage.tsx",
+   "marker": "NewJobTeamStep",
+   "v3_home": "nowa rekrutacja → 6 · Kategoria i zespół"
+  },
+  {
    "id": "board.review-column",
    "area": "pipeline",
    "opis": "Tablica: pierwsza kolumna „Do przejrzenia” — przepięcia i propozycje z bazy nad osobami z ogłoszeń; ✓ do Screening, ✕ pomiń",
    "file": "components/v2/pages/KanbanBoardV2.tsx",
    "marker": "BoardReviewSection",
-   "v3_home": "Tablica → Do przejrzenia"
+   "v3_home": "Tablica → Do przejrzenia",
+   "removed_reason": "Decyzja Artura 02.10.2026: blok propozycji w kolumnie „Nowi” zastąpił pasek „Kandydaci do dodania” z czterema kaflami (Podobne rekrutacje, Nowi z ogłoszeń, Propozycje z bazy, Szukaj w bazie) i jedno okno z podglądem osoby; „Nowi” to zwykła kolumna."
   },
   {
    "id": "view.board-default",
-   "area": "nagłówek",
+   "area": "naglowek",
    "opis": "Tablica jest jedynym widokiem rekrutacji (22.09.2026); `tab=people` zostaje dla ekranu „Do przejrzenia”",
    "file": "lib/job-detail-routing.ts",
    "marker": "JOB_DETAIL_DEFAULT_VIEW: JobDetailView = \"board\"",
@@ -751,20 +1003,52 @@
    "v3_home": "Tablica → panel osoby"
   },
   {
+   "id": "dock.rate-hints",
+   "area": "panel",
+   "opis": "Stawki z notatek, gdy etap ich nie ma: stawka kandydata z karty rekomendacji i notatka z wysyłki pod „Do klienta”",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "fetchRecruitmentRateHints",
+   "v3_home": "Tablica → panel osoby → fakty"
+  },
+  {
    "id": "dock.note-footer",
    "area": "panel",
-   "opis": "Pole notatki zawsze na dole doku (Enter wysyła)",
+   "opis": "Pole notatki zawsze na dole doku: rośnie z tekstem do 10 linii (Enter wysyła, Shift+Enter nowa linia, @ oznacza osobę)",
    "file": "components/v2/jobs/PipelineCandidateDock.tsx",
-   "marker": "aria-label=\"Dodaj notatkę\"",
+   "marker": "ariaLabel=\"Dodaj notatkę\"",
+   "v3_home": "Tablica → panel osoby"
+  },
+  {
+   "id": "dock.note-enlarge",
+   "area": "panel",
+   "opis": "„Powiększ” przy polu notatki (12.10.2026): duże okno pisania pod paskiem osoby — Enter robi nową linię, notatkę dodaje przycisk albo Ctrl+Enter, Esc i „Zmniejsz” wracają do panelu",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "aria-label=\"Powiększ pole notatki\"",
+   "v3_home": "Tablica → panel osoby → pole notatki"
+  },
+  {
+   "id": "dock.note-draft",
+   "area": "panel",
+   "opis": "Szkic niewysłanej notatki per osoba i rekrutacja (12.10.2026): wraca po powrocie do osoby i po odświeżeniu, znika po wysłaniu, zamknięciu karty przeglądarki i wylogowaniu",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "readNoteDraft(userId, jobId, item.candidate_id)",
+   "v3_home": "Tablica → panel osoby → pole notatki"
+  },
+  {
+   "id": "dock.next-after-close",
+   "area": "panel osoby",
+   "opis": "Po „Odrzuć z powodem”, „Zrezygnował” i „Odrzuć” w formularzu screeningu z panelu osoby panel sam pokazuje następną osobę z kolejności „›”, z paskiem „Odrzucono … · Pokaż”; okno odrzucenia mówi, kogo zamykasz i kto będzie dalej; po ostatniej osobie panel się zamyka z komunikatem (13.10.2026)",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "advanceAfterCloseRef",
    "v3_home": "Tablica → panel osoby"
   },
   {
    "id": "order.blocks",
    "area": "zlecenie",
-   "opis": "Okno Zlecenie w trzech blokach: Co zamówił klient · Zespół · Ogłoszenie i link, reszta w „Więcej”",
+   "opis": "Skrót zlecenia (29.09.2026): braki z szybką poprawką, fakty i wymagania; zespół, ogłoszenie i priorytet otwierają panel obok Profilu Championa",
    "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
    "marker": "OrderBlock",
-   "v3_home": "okno Zlecenie"
+   "v3_home": "menu „⋯” → Zlecenie — skrót (?win=order)"
   },
   {
    "id": "board.filter-bar",
@@ -772,20 +1056,53 @@
    "opis": "Pasek filtrów Tablicy zamiast lewej kolumny: nazwisko, Mój ruch, utknęli, bez akcji, ostrzeżenia, poza szablonem, rekruter, puste kolumny, SLA",
    "file": "components/v2/jobs/PipelineFiltersRail.tsx",
    "marker": "PipelineFilterBar",
-   "v3_home": "Tablica → pasek filtrów"
+   "v3_home": "Tablica → pasek filtrów",
+   "removed_reason": "Decyzja Artura 02.10.2026: pasek filtrów nad Tablicą (nazwisko, „Mój ruch”, „Filtry”, „N w procesie”, SLA) usunięty. „Ukryj puste kolumny” przeszło do menu „⋯”, zamknięci do wąskiej kolumny „Zamknięci” obok Tablicy."
+  },
+  {
+   "id": "board.added-by-filter",
+   "area": "naglowek",
+   "opis": "Filtr „Kto dodał” Tablicy: jeden przycisk w nagłówku (od 14.10.2026 w linii źródeł kandydatów; w zwiniętym nagłówku tylko włączony), menu z liczbą osób w toku (Wszyscy, Ty, inne osoby, Brak danych), „✕” wraca do wszystkich; tylko w adresie `?added_by=` (14.10.2026)",
+   "file": "components/v2/jobs/AddedByFilter.tsx",
+   "marker": "added-by-filter",
+   "v3_home": "nagłówek rekrutacji → trzecia linia, po prawej od „Kandydatów do dodania”"
+  },
+  {
+   "id": "board.filter-empty-column",
+   "area": "tablica",
+   "opis": "Kolumna, z której filtr „Kto dodał” schował wszystkich: licznik „0 z N”, napis „Brak osób dodanych przez…” i „Pokaż wszystkich (N)”",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "column-filter-empty",
+   "v3_home": "Tablica → kolumna przy włączonym filtrze"
+  },
+  {
+   "id": "person.queue-in-column",
+   "area": "panel osoby",
+   "opis": "Strzałki „‹ N z M ›” chodzą po kolumnie otwartej osoby z filtrem „Kto dodał”; za licznikiem nazwa kolejki z menu filtra (14.10.2026, D1)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "dock-queue-label",
+   "v3_home": "panel osoby → nawigator nad nazwiskiem"
+  },
+  {
+   "id": "person.queue-end",
+   "area": "panel osoby",
+   "opis": "Koniec kolejki: pasek „To ostatnia z N osób w kolejce” z „Od pierwszej”, „Wszyscy (N)” i „Dalej: <kolumna>” (14.10.2026, D4)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "dock-queue-end",
+   "v3_home": "panel osoby → pasek pod nawigatorem na ostatniej osobie"
   },
   {
    "id": "board.workbench",
    "area": "pipeline",
-   "opis": "Warsztaty osoby z dawnej Tabeli (CV do klienta, rozmowy i werdykt, umowa) otwierane z doku Tablicy w szerokim panelu",
-   "file": "components/v2/recruitment/BoardWorkbenchDrawer.tsx",
-   "marker": "PersonPanel",
-   "v3_home": "Tablica → panel osoby → warsztat"
+   "opis": "Pełne narzędzia osoby z dawnej Tabeli (CV do klienta, rozmowy i werdykt, umowa) w rozwiniętym panelu osoby („Rozwiń”, 760 px) — ta sama głowa co dok",
+   "file": "components/v2/person/PersonWorkbenchTabs.tsx",
+   "marker": "Narzędzia osoby",
+   "v3_home": "Tablica → panel osoby → Rozwiń"
   },
   {
    "id": "board.stage-badges",
    "area": "pipeline",
-   "opis": "Tablica: jeden etap = jedna kolumna; etapy-odznaki (Gotowy do Cpro — tylko Nordea, Prep, Umowa wysłana/podpisana, Onboarding) jako odznaki na karcie, przełączniki w panelu osoby; odrzuceni/wycofani na pasku",
+   "opis": "Tablica: jeden etap = jedna kolumna; etapy-odznaki (Prep, Umowa wysłana/podpisana, Onboarding) jako odznaki na karcie, przełączniki w panelu osoby; u Nordei kolejka Cpro to własna kolumna „Do Cpro” po „QC CV” (26.10.2026); odrzuceni/wycofani na pasku",
    "file": "lib/board-stages.ts",
    "marker": "foldBoardColumns",
    "v3_home": "Tablica → kolumny, karta, panel osoby"
@@ -793,10 +1110,18 @@
   {
    "id": "board.cpro-assignee-queue",
    "area": "pipeline",
-   "opis": "Kolejka „Czeka na Ciebie” na pulpicie: przegląd DL (osoby w kolumnie „QC CV” z wynikiem QC), do wrzucenia do Cpro — jedna linia per rekrutacja i „Wrzucaj po kolei”, kto wrzuca (cała firma) z „Zmień”, wysłane do Cpro (Nordea); rano zbiorczy dzwonek. Kolejka „Czeka na DZ” usunięta (v5: QC CV).",
+   "opis": "Kolejka „Czeka na Ciebie” na pulpicie: do wrzucenia do Cpro (u osoby od Cpro pierwsza sekcja, 26.10.2026) — jedna linia per rekrutacja i „Wrzucaj po kolei”, kto wrzuca (cała firma) z „Zmień”, wysłane do Cpro (Nordea); rano zbiorczy dzwonek. Przegląd DL (osoby w kolumnie „QC CV”) stoi od 13.10.2026 w pasie „Do wysłania do klienta” nad panelem (`dl-send.band`). Kolejka „Czeka na DZ” usunięta (v5: QC CV).",
    "file": "components/v2/dashboard/BoardTasksPanel.tsx",
    "marker": "BoardTasksPanel",
    "v3_home": "Pulpit → „Czeka na Ciebie”"
+  },
+  {
+   "id": "board.cv-in-transit",
+   "area": "pipeline",
+   "opis": "Lista „Twoje CV w drodze” na pulpicie dla rekrutera kandydata: co wróciło (odrzucenie przez DL, cofnięcie z QC, zwrot z kolejki Cpro), co czeka w przeglądzie i co poszło do klienta; każdy ma ją domyślnie, „Usuń z pulpitu” zapisuje się na koncie, przywraca „Dodaj kafelek”",
+   "file": "components/v2/dashboard/CvInTransitSection.tsx",
+   "marker": "CvInTransitSection",
+   "v3_home": "Pulpit → „Czeka na Ciebie” / pasek „Twoje CV w drodze”"
   },
   {
    "id": "board.dz-review",
@@ -819,7 +1144,7 @@
   {
    "id": "board.cv-qc",
    "area": "pipeline",
-   "opis": "QC CV przed „CV wysłane”/Cpro: CV firmowe z zaznaczonymi brakami (niepogrubione must-have, stanowiska bez opisu technologii), sprawdzenia blokujące i uwagi, naprawy (pogrub wszystkie, pisownia, usuń termin, pytanie do kandydata, generator CV), propozycje poprawek AI ze źródłem (zastosuj/edytuj/odrzuć), „Przepuść mimo QC” z powodem dla DL i admina",
+   "opis": "QC CV przed „CV wysłane”/Cpro: pasek „Co sprawdza QC” z umiejętnościami krytycznymi i ich źródłem, „Do poprawy przed wysłaniem” (karta na wymaganie: brak CV firmowego, umiejętności krytyczne, treść spoza oryginału, reguły klienta) z przyciskiem naprawy, „Warto poprawić — nie blokuje”, „W porządku”, CV firmowe z zaznaczonymi brakami, naprawy (pogrub wszystkie, pisownia, usuń termin, pytanie do kandydata, generator CV), propozycje poprawek AI ze źródłem (zastosuj/edytuj/odrzuć), „Przepuść mimo QC…” z gotowym powodem dla DL i admina, „Przesuń dalej” ze stopki; od 12.10.2026: karta umiejętności krytycznej pokazuje dla każdej roli dowód z oryginału („W oryginale”: zdanie z opisu roli, lista technologii albo nazwa stanowiska) i stan w CV firmowym, a gdy oryginał ma ją tylko na liście technologii — „Skopiuj pytanie do kandydata” zamiast przycisku AI; rozwinięte sprawdzenie pokazuje „Rola po roli” (opisane, brakuje zdania, oryginał nie pokazuje, do sprawdzenia ręcznie); tryb doradczy: „Zalecane poprawki przed wysłaniem”, „Przesuń mimo uwag…” także dla rekrutera z rekrutacji (decyduje serwer), po zapisaniu powodu karta od razu idzie dalej",
    "file": "components/v2/recruitment/CvQcDialog.tsx",
    "marker": "CvQcDialog",
    "v3_home": "Tablica → kolumna „QC CV” / Pulpit → przegląd DL → Otwórz QC"
@@ -833,6 +1158,22 @@
    "v3_home": "Pulpit → „Czeka na Ciebie” → Wrzucaj po kolei"
   },
   {
+   "id": "dl-review.cpro-accept",
+   "area": "przegląd DL",
+   "opis": "Nordea (13.10.2026): przegląd Delivery Leada kończy akceptacja do kolejki Cpro zamiast wysyłki do klienta — „Stawka do Cpro” (wymagana), „Akceptuj — do Cpro za …”, uwaga dla osoby od Cpro; dopiero po akceptacji osoba od Cpro dostaje dzwonek i mail",
+   "file": "components/v2/recruitment/dl-review/DecisionPanel.tsx",
+   "marker": "Akceptuj — do Cpro za",
+   "v3_home": "Tablica Nordei → karta w „QC CV” → Przejrzyj → Cpro / Pulpit → Do wysłania do klienta"
+  },
+  {
+   "id": "board.cpro-queue.acceptance",
+   "area": "pipeline",
+   "opis": "Kolejka Cpro: przy każdej osobie kto i kiedy zaakceptował ją do kolejki (Delivery Lead) i uwaga DL-a; karta włożona przez rekrutera przed 13.10.2026 ma ostrzeżenie „Bez akceptacji DL”",
+   "file": "components/v2/dashboard/CproQueueDialog.tsx",
+   "marker": "CproAcceptance",
+   "v3_home": "Pulpit → „Czeka na Ciebie” → Wrzucaj po kolei"
+  },
+  {
    "id": "board.move-next",
    "area": "pipeline",
    "opis": "„Przesuń dalej” (strzałka → na karcie): wymagania następnego etapu z serwera (`move-requirements`), każdy brak z akcją, która go usuwa, przekazanie do DL / do Cpro",
@@ -843,26 +1184,82 @@
   {
    "id": "board.add-candidates",
    "area": "pipeline",
-   "opis": "„Dodaj kandydatów”: jedno okno z wyszukiwaniem w bazie (AI) według Championa, propozycjami, „Moimi ludźmi” i ręcznym dodaniem; dodani trafiają do „Nowych” z blokadą 12 h",
+   "opis": "„Kandydaci do dodania”: jedno okno z czterema źródłami (podobne rekrutacje, nowi z ogłoszeń, propozycje z bazy, szukaj w bazie); dodani trafiają do „Nowych” z blokadą 12 h",
    "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
    "marker": "AddCandidatesPanel",
-   "v3_home": "Tablica → nagłówek / kolumna Nowi → Dodaj kandydatów"
+   "v3_home": "linia źródeł w nagłówku rekrutacji → okno „Kandydaci do dodania”"
   },
   {
    "id": "cv.to-client-card",
    "area": "cv",
-   "opis": "Karta „CV do klienta” w panelu osoby (generator CV v3): gotowe / generuje się / brak („Generuj CV” otwiera okno generatora z osobą i rekrutacją) / stary szablon tylko do odczytu; uwagi kontroli AI; plik CV kandydata z podglądem oryginału",
+   "opis": "Karta „CV do klienta” w panelu osoby (generator CV v3): gotowe / generuje się / brak („Generuj CV” rozwija w karcie panel „Z czego powstało” — od 13.10.2026 bez okna generatora) / stary szablon tylko do odczytu; jedna liczba rzeczy do sprawdzenia przed wysłaniem; plik CV kandydata z podglądem oryginału; od 14.10.2026 (Edytor CV 3) gotowe CV to miniatura prawdziwej pierwszej strony z liczbą stron, „Otwórz i popraw”, „Pobierz Word” i menu „⋯” (Pobierz PDF, Użyj innego CV, Historia wersji, Wygeneruj ponownie); od 14.10.2026 (D3) także dla osoby za „Zweryfikowanym”, a od „CV wysłane” (`lockedAfterSend`) bez „Użyj innego CV” i generowania",
    "file": "components/v2/recruitment/CvToClientCard.tsx",
    "marker": "export function CvToClientCard",
    "v3_home": "panel → CV"
   },
   {
+   "id": "cv.to-client-thumbnail",
+   "area": "cv",
+   "opis": "Miniatura pierwszej strony CV do klienta (PDF z pliku Word) na karcie z liczbą stron; klik otwiera wszystkie strony; bez zgody RODO i przy awarii — ikona pliku (Edytor CV 3, 14.10.2026)",
+   "file": "components/v2/cv/CvFirstPageThumb.tsx",
+   "marker": "Otwórz strony CV",
+   "v3_home": "panel → CV → karta „CV do klienta” → miniatura"
+  },
+  {
+   "id": "cv.to-client-more-menu",
+   "area": "cv",
+   "opis": "Menu „⋯” na karcie gotowego CV: Pobierz PDF (wpis pobrania), Użyj innego CV, Historia wersji (edytor otwarty na historii), Wygeneruj ponownie",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "Więcej akcji CV",
+   "v3_home": "panel → CV → karta „CV do klienta” → ⋯"
+  },
+  {
    "id": "cv.to-client-consent",
    "area": "cv",
-   "opis": "Zgoda RODO na karcie „CV do klienta”: brak zrzutu wyłącza tylko pobranie DOCX, dołączenie zrzutu w miejscu (ConsentAttachButton)",
+   "opis": "Zgoda RODO na karcie „CV do klienta”: brak zrzutu wyłącza pobranie pliku (Word i PDF) i miniaturę stron, dołączenie zrzutu w miejscu (ConsentAttachButton)",
    "file": "components/v2/recruitment/CvToClientCard.tsx",
    "marker": "ConsentAttachButton",
    "v3_home": "panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.to-client-sources",
+   "area": "cv",
+   "opis": "„Z czego powstało” w karcie „CV do klienta” (D4, 13.10.2026): „Generuj CV”, „Wygeneruj ponownie” i „Spróbuj ponownie” rozwijają panel w karcie — oryginalne CV i Profil Championa zawsze, przełączniki odpowiedzi ze screeningu (ile przeczy pytaniu), notatek, transkryptów (ile spoza rekrutacji) i prepu, notatki ze stawką zawsze wycinane, obróbka i język; start z wyboru bieżącej wersji; ponowna generacja przy istniejącym szkicu sama zastępuje szkic gotową wersją; od 14.10.2026 panel zwinięty do jednego zdania („Z oryginału CV, Championa… · tryb · język · Zmień”), rozwija się sam przy brakach i błędach; „Wygeneruj ponownie” gotowego CV jest w menu „⋯”",
+   "file": "components/v2/recruitment/CvGeneratePanel.tsx",
+   "marker": "Z czego powstało",
+   "v3_home": "panel → CV → karta „CV do klienta” → Generuj CV"
+  },
+  {
+   "id": "cv.to-client-confirm",
+   "area": "cv",
+   "opis": "Trzy potwierdzenia przed generacją CV w karcie „CV do klienta” (21.10.2026): plik CV (domyślnie kopia „Oryginał CV” rekrutacji, do wyboru każdy plik CV osoby z opisem: główne, nieaktualne), odpowiedzi ze screeningu (podgląd treści, „Popraw w formularzu”) i dodatkowe notatki do CV (zapis w rekrutacji przed generacją, „Nie mam nic do dodania”); „Generuj” dopiero po trzech; ruch na „Zweryfikowany” nie generuje CV, panel otwiera się sam po „Zapisz i przekaż dalej”",
+   "file": "components/v2/recruitment/CvGenerateConfirm.tsx",
+   "marker": "Potwierdź plik",
+   "v3_home": "panel → CV → karta „CV do klienta” → Generuj CV"
+  },
+  {
+   "id": "cv.to-client-source-and-discard",
+   "area": "cv",
+   "opis": "Gotowe CV w karcie „CV do klienta” (21.10.2026): „Powstało z: <plik>”, żółta ramka, gdy źródło to plik „CV dla klienta”, nieaktualny, usunięty albo inny niż Oryginał CV rekrutacji, z „Wygeneruj z innego pliku”; w „⋯” „Odrzuć to CV i zacznij od nowa” — karta wraca do potwierdzeń, CV zostaje w historii wersji",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "Odrzuć to CV i zacznij od nowa",
+   "v3_home": "panel → CV → karta „CV do klienta” → ⋯"
+  },
+  {
+   "id": "cv.to-client-checks",
+   "area": "cv",
+   "opis": "Jedna liczba „N rzeczy do sprawdzenia przed wysłaniem” na karcie „CV do klienta” (QC bez zapisu przebiegu, uwagi generatora i kontrola AI, po pominięciach — ta sama co „Do poprawy (N)” w edytorze) z „Sprawdź i popraw”, które otwiera edytor na panelu „Do poprawy”; awaria nie wygląda jak zero",
+   "file": "components/v2/recruitment/CvToClientChecks.tsx",
+   "marker": "do sprawdzenia przed wysłaniem",
+   "v3_home": "panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.generator-dialog-sources",
+   "area": "cv",
+   "opis": "Te same przełączniki źródeł dla AI („Co jeszcze przeczyta AI”: odpowiedzi, notatki, transkrypty, prep; notatki ze stawką zawsze wycinane) w kroku „Proces” okna generatora — wybór idzie jako `sources`",
+   "file": "components/v2/cv-generator/CvGenerator.tsx",
+   "marker": "AiSourcesRows",
+   "v3_home": "okno generatora CV → krok „Proces”"
   },
   {
    "id": "cv.to-client-use-newer",
@@ -873,12 +1270,94 @@
    "v3_home": "panel → CV → karta „CV do klienta”"
   },
   {
+   "id": "cv.to-client-use-other",
+   "area": "cv",
+   "opis": "„Użyj innego CV” na karcie „CV do klienta” (12.10.2026): okno z gotowymi CV osoby zamiast generacji — CV etapu z innej rekrutacji, plik Word z profilu, plik z dysku",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "Użyj innego CV",
+   "v3_home": "panel → CV → karta „CV do klienta” (gotowe CV: menu „⋯”)"
+  },
+  {
+   "id": "cv.to-client-ready-hint",
+   "area": "cv",
+   "opis": "Pasek „Ta osoba ma już gotowe CV” — podpowiedź najlepszego gotowego CV, gdy CV jeszcze nie ma albo leży nieprzejrzane auto-CV; „Użyj tego CV” podmienia jednym kliknięciem",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "Ta osoba ma już gotowe CV",
+   "v3_home": "panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.to-client-copy-consent",
+   "area": "cv",
+   "opis": "Zgoda RODO dla CV bez dokumentu generatora (plik Word, kopia z innej rekrutacji, przepięcie): zrzut dołączany do CV etapu, a nie do dokumentu generatora",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "stageCopy={{ candidateId, stageId: cvStageId }}",
+   "v3_home": "panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.to-client-origin-badge",
+   "area": "cv",
+   "opis": "Plakietka pochodzenia CV wybranego zamiast generacji („z rekrutacji …”, „z pliku Word”, „przeniesione z … — sprawdź przed wysyłką”)",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "cv-origin-badge",
+   "v3_home": "panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.use-other-upload",
+   "area": "cv",
+   "opis": "Wgranie pliku Word z dysku jako szkicu CV do klienta (bez AI, plik nie trafia do plików kandydata); wysyłka dopiero po „Użyj tego pliku”. Od 29.10.2026 sekcja nazywa się „Gotowe CV do klienta z dysku (bez AI)”",
+   "file": "components/v2/recruitment/UseOtherCvDialog.tsx",
+   "marker": "Wgraj gotowe CV do klienta (bez AI)",
+   "v3_home": "panel → CV → karta „CV do klienta” → „Użyj innego CV”"
+  },
+  {
+   "id": "cv.use-other-upload-candidate-cv-question",
+   "area": "cv",
+   "opis": "Plik bez układu szablonu B2B (brak „Dlaczego nasz kandydat?” i „Nazwa firmy:/Stanowisko:”) zatrzymuje się na pytaniu: „Wygeneruj z tego pliku” (CV kandydata + panel generowania) albo „Użyj tak, jak jest” (29.10.2026)",
+   "file": "components/v2/recruitment/UseOtherCvDialog.tsx",
+   "marker": "Wygeneruj z tego pliku",
+   "v3_home": "panel → CV → karta „CV do klienta” → „Użyj innego CV” → plik z dysku"
+  },
+  {
+   "id": "cv.qc-word-file-badge",
+   "area": "cv",
+   "opis": "Znacznik „z pliku Word” w oknie QC CV i w panelu „Do poprawy” edytora, gdy szkic etapu wczytano z pliku Word bez AI (29.10.2026)",
+   "file": "components/v2/recruitment/cv-qc-cards.tsx",
+   "marker": "qc-cv-word-file",
+   "v3_home": "okno QC CV z Tablicy; edytor CV → „Do poprawy”"
+  },
+  {
+   "id": "cv.stage-copy-from-other-job",
+   "area": "cv",
+   "opis": "Grupa „Z innych rekrutacji” na liście gotowych CV: CV etapu tej osoby z innej rekrutacji w wersji po poprawkach rekrutera (screening i karta „CV do klienta”)",
+   "file": "components/v2/screening-form/StageCvPicker.tsx",
+   "marker": "Z innych rekrutacji",
+   "v3_home": "panel → Screening → podgląd „CV firmowe” oraz panel → CV → „Użyj innego CV”"
+  },
+  {
+   "id": "cv.to-client-before-verified",
+   "area": "cv",
+   "opis": "Karta „CV do klienta” także dla osób w „Nowych” i „Screeningu” (bez sekcji wysyłki) — gotowe CV da się wskazać, zanim automat po „Zweryfikowany” wygeneruje nowe",
+   "file": "components/v2/jobs/CvHandoffWorkbench.tsx",
+   "marker": "cv-send-later-note",
+   "v3_home": "panel → CV"
+  },
+  {
+   "id": "similar.reassign-carries-cv",
+   "area": "pipeline",
+   "opis": "Przepięcie przenosi CV z rekrutacji źródłowej jako szkic; komunikat po przepięciu mówi, u ilu osób",
+   "file": "components/v2/jobs/SimilarJobsPanel.tsx",
+   "marker": "CV z tamtej rekrutacji przeniesiono",
+   "v3_home": "okno „Kandydaci do dodania” → Podobne rekrutacje",
+   "removed_reason": "Decyzja Artura 27.10.2026 („Bez kopii CV”): zwykłe przepięcie nie przenosi CV, bo CV do klienta powstaje po trzech potwierdzeniach, a kopia dawała gotowe CV sprzed nowego screeningu. Stare CV rekruter bierze przez „Użyj gotowego CV” w karcie; kopię zostawia tylko „Match” DL-a."
+  },
+  {
    "id": "header.recruitment-path",
    "area": "naglowek",
    "opis": "„Ścieżka rekrutacji” (Zlecenie → Kandydaci → CV do klienta → Rozmowy → Umowa, kropka stanu + linia faktu) i pole „Najbliższy krok” (jedno zdanie + przycisk)",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "JobRecruitmentPath",
-   "v3_home": "nagłówek rekrutacji, pod metadanymi"
+   "v3_home": "nagłówek rekrutacji, pod metadanymi",
+   "removed_reason": "Decyzja Artura 02.10.2026: ścieżka „Zlecenie → … → Umowa” i pole „Najbliższy krok” usunięte z nagłówka. Braki zlecenia niesie odznaka „brakuje N” przy zakładce „Zlecenie i Champion”, źródła kandydatów — kafle nad Tablicą."
   },
   {
    "id": "board.column-purpose",
@@ -895,6 +1374,2072 @@
    "file": "components/v2/pages/KanbanBoardV2.tsx",
    "marker": "isPlainLeftClick",
    "v3_home": "karta Tablicy"
+  },
+  {
+   "id": "order.close-job",
+   "area": "zlecenie",
+   "opis": "Zamknij rekrutację z powodem",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "Zamknij rekrutację",
+   "v3_home": "menu … (29.09.2026; dawniej dół okna Zlecenie)"
+  },
+  {
+   "id": "order.portals",
+   "area": "zlecenie",
+   "opis": "Portale ogłoszeniowe (RocketJobs, JustJoin.IT)",
+   "file": "components/v2/jobs/JobAnnouncementSection.tsx",
+   "marker": "JobPortalsSection",
+   "v3_home": "Profil Championa → Zespół i ogłoszenie"
+  },
+  {
+   "id": "champion.brief",
+   "area": "zlecenie",
+   "opis": "Brief zlecenia: jednym zdaniem, czego szukamy, pytania na rozmowę, co powiedzieć kandydatowi, projekt, warunki, kto prowadzi, do dopytania",
+   "file": "components/champion/ChampionBriefView.tsx",
+   "marker": "champion-brief-view",
+   "v3_home": "Profil Championa → Brief"
+  },
+  {
+   "id": "champion.request-history",
+   "area": "zlecenie",
+   "opis": "Wcześniejsze zapytania klienta (Otwórz, Skopiuj jako template, Dodaj championa)",
+   "file": "components/champion/ChampionClientTab.tsx",
+   "marker": "RequestHistorySection",
+   "v3_home": "Profil Championa → Klient i historia (każda rola) i pełny formularz → Wypełnij szybciej"
+  },
+  {
+   "id": "champion.plain-brief",
+   "area": "zlecenie",
+   "opis": "„Po ludzku”: jedno zdanie o rekrutacji, przykład z codzienności, o kliencie, czym będzie się zajmować, słowniczek technologii i pytania screeningowe przetłumaczone na zwykły język (pomoc AI, odświeżana sama)",
+   "file": "components/champion/ChampionBriefView.tsx",
+   "marker": "<PlainBriefBlock jobId",
+   "v3_home": "Profil Championa → Brief (Jednym zdaniem), Technologie po ludzku, Klient i historia"
+  },
+  {
+   "id": "dock.call-cheatsheet",
+   "area": "panel",
+   "opis": "Ściąga do rozmowy: tekst na start, odpowiedzi na pytania kandydata (brak → dopisz do „Do dopytania”), trzy pytania z profilu z dobrą odpowiedzią i powodem odrzucenia",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "<DockCallCheatsheet jobId",
+   "v3_home": "Tablica → dok osoby → Screening"
+  },
+  {
+   "id": "board.cv-qc-override-reasons",
+   "area": "pipeline",
+   "opis": "„Przepuść mimo QC”: cztery gotowe powody, opis wymagany tylko przy „Inny powód”, lista rzeczy, które zostają niepoprawione; powód trafia do historii kandydata; w trybie doradczym to samo okno jako „Przesuń mimo uwag QC” (przycisk „Przesuń mimo uwag”) z informacją, że Delivery Lead dostanie powiadomienie i może cofnąć kartę do poprawy",
+   "file": "components/v2/recruitment/QcOverrideDialog.tsx",
+   "marker": "QcOverrideDialog",
+   "v3_home": "Okno QC CV → stopka → „Przepuść mimo QC…”"
+  },
+  {
+   "id": "board.cv-qc-confirmed-with-candidate",
+   "area": "pipeline",
+   "opis": "„Potwierdzone z kandydatem” na karcie treści spoza oryginału: formularz „Co powiedział kandydat? (opcjonalnie)”, zapis jako notatka pary i świeże QC (działa też, gdy CV nie da się edytować w NEXUSIE); lista potwierdzeń z autorem i datą pod ramką „Co sprawdza QC”",
+   "file": "components/v2/recruitment/CvQcDialog.tsx",
+   "marker": "useQcConfirm",
+   "v3_home": "Okno QC CV → karta „…jest w CV, a nie ma tego w oryginale” → „Potwierdzone z kandydatem”"
+  },
+  {
+   "id": "dock.screening-answers",
+   "area": "panel",
+   "opis": "Pytania i odpowiedzi z zapisanego screeningu pod wynikiem w doku osoby (z pominiętymi, „sprawdzone w rozmowie” i notatkami) — ten sam renderer odpowiedzi co w profilu kandydata; od 09.10.2026 w widoku „Screening”",
+   "file": "components/v2/screening-form/ScreeningSummaryView.tsx",
+   "marker": "<ScreeningAnswersList",
+   "v3_home": "Tablica → dok osoby → Screening"
+  },
+  {
+   "id": "screening.earlier-answers",
+   "area": "screening",
+   "opis": "Wcześniejsze odpowiedzi kandydata pod pytaniami arkusza: Luna raz przy otwarciu, dosłowna odpowiedź z rekrutacją, klientem i datą, „Użyj tej odpowiedzi” / „Pomiń”, dopisek „dopytaj” po 30 dniach; przy przepięciu także „Pomiń brakujące — przepięcie”",
+   "file": "components/v2/jobs/ScreeningReassignSuggestions.tsx",
+   "marker": "Użyj tej odpowiedzi",
+   "v3_home": "Arkusz screeningu (okno z Tablicy i warsztat w panelu osoby)"
+  },
+  {
+   "id": "header.fact-tiles",
+   "area": "naglowek",
+   "opis": "Fakty pod tytułem: Klient · Budżet · Tryb pracy (ikona zamiast etykiety, etykieta w dymku — 14.10.2026); brak wartości = „nie podano”, budżet ukryty dla roli bez wglądu",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "job-header-facts",
+   "v3_home": "nagłówek rekrutacji"
+  },
+  {
+   "id": "header.client-line",
+   "area": "naglowek",
+   "opis": "Nazwa stanowiska od klienta i nasz numer (do 14.10.2026 linia pod tytułem); numer zapytania klienta od 15.10.2026 stoi przed tytułem (header.client-reference)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "header-client-line",
+   "v3_home": "dymek tytułu rekrutacji (i tekst dla czytnika ekranu)"
+  },
+  {
+   "id": "header.priority-level",
+   "area": "naglowek",
+   "opis": "Priorytet rekrutacji przed tytułem: „P1”, „Bez priorytetu”, „Przyjmujemy”; Delivery Lead, Head of Recruitment i administrator zmieniają go z menu (zapis od razu), pozostali widzą plakietkę (14.10.2026)",
+   "file": "components/v2/jobs/JobPriorityMenu.tsx",
+   "marker": "job-header-priority",
+   "v3_home": "nagłówek rekrutacji → plakietka przed tytułem (też Profil Championa › Zespół)"
+  },
+  {
+   "id": "header.recruiter",
+   "area": "naglowek",
+   "opis": "Fakt „Rekruter”: kto pracuje (zalogowana osoba jako „Ty”), „Bez rekrutera”, propozycja automatu; okienko z panelem zespołu (Zmień, Zdejmij, Dodaj osobę, Biorę, Dołącz, propozycje) i Delivery Leadem (14.10.2026)",
+   "file": "components/v2/jobs/JobRecruiterFact.tsx",
+   "marker": "job-header-recruiter",
+   "v3_home": "nagłówek rekrutacji → linia faktów, po Trybie pracy"
+  },
+  {
+   "id": "header.collapse",
+   "area": "naglowek",
+   "opis": "„Zwiń nagłówek”: zostaje linia tytułu z priorytetem, statusem i awatarami rekruterów; pamiętane per osoba, domyślnie rozwinięty (14.10.2026)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "job-header-collapse",
+   "v3_home": "nagłówek rekrutacji → przycisk ˄ po prawej od „⋯”"
+  },
+  {
+   "id": "header.menu-full-review",
+   "area": "naglowek",
+   "opis": "Ręczny pełny przegląd bazy przez AI — otwiera „Propozycje z bazy” i startuje przegląd raz na kliknięcie",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "menu-full-review",
+   "v3_home": "menu „⋯” → Dodaj kandydatów → Przeszukaj całą bazę (AI)"
+  },
+  {
+   "id": "header.menu-add-from-cv",
+   "area": "naglowek",
+   "opis": "Dodanie kandydata z pliku CV do rekrutacji",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "menu-add-from-cv",
+   "v3_home": "menu „⋯” → Dodaj kandydatów → Z pliku CV; „Dodaj ▾” w linii „Kandydaci do dodania” nagłówka"
+  },
+  {
+   "id": "header.menu-empty-columns",
+   "area": "naglowek",
+   "opis": "Ukryj / pokaż puste kolumny Tablicy (ustawienie w przeglądarce)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "toggle-empty-columns",
+   "v3_home": "menu „⋯” → Ukryj puste kolumny",
+   "removed_reason": "Decyzja Artura 25.10.2026 (uproszczenie menu „⋯”): Tablica zawsze pokazuje puste kolumny, bez przełącznika. Do tego dnia domyślnie je chowano, a Tablica nie mówiła, że coś ukryła; pole `hideEmptyKanbanColumns` znika z `nexus-ui` (migracja v11)."
+  },
+  {
+   "id": "board.sources-strip",
+   "area": "pipeline",
+   "opis": "„Kandydaci do dodania”: cztery źródła z liczbami (Podobne rekrutacje, Nowi z ogłoszeń z 7 dni, Propozycje z bazy, Szukaj w bazie), opis w dymku, „Dodaj ▾” po nazwisku i z pliku CV",
+   "file": "components/v2/jobs/CandidateSourcesStrip.tsx",
+   "marker": "candidate-sources-strip",
+   "v3_home": "nagłówek rekrutacji → trzecia linia, tylko na Tablicy (do 14.10.2026 osobny pasek nad Tablicą)"
+  },
+  {
+   "id": "board.sources-window",
+   "area": "pipeline",
+   "opis": "Jedno okno „Kandydaci do dodania” z czterema zakładkami; w każdej lista + podgląd osoby obok, zaznaczenie, „Dodaj N do Nowych”, „Pomiń” z powodem",
+   "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
+   "marker": "Źródło kandydatów",
+   "v3_home": "źródło w linii „Kandydaci do dodania” nagłówka (?win=add&wintab=…)"
+  },
+  {
+   "id": "board.sources-dismiss-bulk",
+   "area": "pipeline",
+   "opis": "„Pomiń zaznaczone (N)” w „Nowi z ogłoszeń” i „Propozycje z bazy”: jeden powód dla wszystkich, jedno żądanie zbiorcze (`dismiss-bulk`)",
+   "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
+   "marker": "Pomiń zaznaczone",
+   "v3_home": "okno „Kandydaci do dodania” → stopka obok „Dodaj N do Nowych”"
+  },
+  {
+   "id": "board.sources-postings",
+   "area": "pipeline",
+   "opis": "„Nowi z ogłoszeń”: osoby z ogłoszeń z ostatnich 7 dni pasujące do rekrutacji + zgłoszenia odłożone przez AI",
+   "file": "lib/proposals-merge.ts",
+   "marker": "splitByPostings",
+   "v3_home": "okno „Kandydaci do dodania” → Nowi z ogłoszeń"
+  },
+  {
+   "id": "board.sources-search",
+   "area": "pipeline",
+   "opis": "„Szukaj w bazie”: wyszukiwanie po słowach z Championa uruchamiane od razu; linie „Wymagane (krytyczne)”, „Musi mieć (Delivery Lead)”, „Mile widziane”, „Lokalizacja kandydata” i „Rekruter sprawdza w rozmowie” (dawne „Po tym nie szukamy”, wariant A 13.10.2026), trafienia w CV, „Zmień słowa i filtry” przełącza na zakładkę „Szukaj ręcznie” tego samego okna",
+   "file": "components/v2/recruitment/useSearchBaseTab.tsx",
+   "marker": "Rekruter sprawdza w rozmowie",
+   "v3_home": "okno „Kandydaci do dodania” → Szukaj w bazie"
+  },
+  {
+   "id": "board.sources-similar-rest",
+   "area": "pipeline",
+   "opis": "W podobnej rekrutacji pod wysłanymi do klienta: „Pozostali z tej rekrutacji” (od Screeningu wzwyż), dodawani na życzenie",
+   "file": "components/v2/jobs/SimilarJobsPanel.tsx",
+   "marker": "Pozostali z tej rekrutacji",
+   "v3_home": "okno „Kandydaci do dodania” → Podobne rekrutacje"
+  },
+  {
+   "id": "board.person-preview",
+   "area": "pipeline",
+   "opis": "Podgląd osoby obok listy w KAŻDYM źródle: dopasowanie do tej rekrutacji, fakty, skąd osoba, notatki, CV, profil; strzałki ↑/↓",
+   "file": "components/v2/recruitment/PersonPreview.tsx",
+   "marker": "person-preview",
+   "v3_home": "okno „Kandydaci do dodania” → klik w nazwisko"
+  },
+  {
+   "id": "board.closed-column",
+   "area": "pipeline",
+   "opis": "Wąska kolumna „Zamknięci” obok Tablicy: cztery strefy upuszczenia (przez nas / DL / klienta / zrezygnował) z licznikami; klik rozwija kolumny zamkniętych",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "board-closed-column",
+   "v3_home": "Tablica → prawa krawędź"
+  },
+  {
+   "id": "header.menu-my-people",
+   "area": "naglowek",
+   "opis": "„Moi ludzie do tej rekrutacji” — lista własnych ludzi z dopasowaniem do rekrutacji i dodaniem (dawniej zakładka okna „Dodaj kandydatów”)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "menu-my-people",
+   "v3_home": "menu „⋯” → Dodaj kandydatów → Z moich ludzi (panel „Moi ludzie”)"
+  },
+  {
+   "id": "new.source-tiles",
+   "area": "zlecenie",
+   "opis": "Źródła nowej rekrutacji: klient (wymagany, z komunikatem przy próbie użycia źródła albo utworzenia bez niego) i akcje „Wypełnij z: Wklej treść | Wgraj plik | Inna rekrutacja” nad formularzem — do użycia w dowolnej chwili; ręczne wpisywanie nie wymaga wyboru źródła",
+   "file": "components/v2/jobs/new/NewJobPage.tsx",
+   "marker": "NewJobSourceBar",
+   "v3_home": "nowa rekrutacja → pasek nad formularzem"
+  },
+  {
+   "id": "new.requirement-rows",
+   "area": "zlecenie",
+   "opis": "Wymagania jako jedna lista słów kluczowych: wiersz = wymaganie, słowa = warianty, poziom krytyczne / musi mieć / mile widziane, liczba osób w bazie, „Brak krytycznych”, „Wyklucz”",
+   "file": "components/v2/jobs/new/NewJobReviewForm.tsx",
+   "marker": "RequirementRowsEditor",
+   "v3_home": "nowa rekrutacja → 2 · Wymagania"
+  },
+  {
+   "id": "new.client-reference",
+   "area": "zlecenie",
+   "opis": "Numer u klienta czytany z nazwy od klienta, z korektą „To nie ten numer”",
+   "file": "components/v2/jobs/new/NewJobReviewForm.tsx",
+   "marker": "ClientReferenceLine",
+   "v3_home": "nowa rekrutacja → 1 · Nazwa"
+  },
+  {
+   "id": "new.questions-deal-breaker",
+   "area": "zlecenie",
+   "opis": "Pytania do kandydata: pytanie, dobra odpowiedź i odpowiedź, która odpada (wymagana); propozycje AI zatwierdza Delivery Lead („Zatwierdź”, „Zatwierdź wszystkie”)",
+   "file": "components/v2/jobs/new/NewJobReviewForm.tsx",
+   "marker": "QuestionsSection",
+   "v3_home": "nowa rekrutacja → 5 · Pytania do kandydata"
+  },
+  {
+   "id": "new.section-nav",
+   "area": "zlecenie",
+   "opis": "Pasek sześciu sekcji nad formularzem z liczbą braków w każdej; braki w stopce prowadzą do sekcji, a „Utwórz i opublikuj” przy brakach podświetla pola i przewija do pierwszej sekcji z brakiem",
+   "file": "components/v2/jobs/new/NewJobReviewForm.tsx",
+   "marker": "NewJobSectionNav",
+   "v3_home": "nowa rekrutacja → nad formularzem"
+  },
+  {
+   "id": "new.save-draft",
+   "area": "zlecenie",
+   "opis": "„Zapisz szkic” na stronie nowej rekrutacji",
+   "file": "components/v2/jobs/new/NewJobPage.tsx",
+   "marker": "Dokończę później",
+   "v3_home": "nowa rekrutacja → stopka",
+   "removed_reason": "Decyzja Artura 04.10.2026: rekrutacja nigdy nie jest szkicem — „Utwórz i opublikuj” tworzy, przekazuje i publikuje jednym żądaniem. Niedokończona praca to formularz na koncie autora („Dokończę później”, autozapis), nie rekrutacja."
+  },
+  {
+   "id": "new.unfinished-forms",
+   "area": "zlecenie",
+   "opis": "Niedokończone formularze nowej rekrutacji na koncie autora: autozapis, „Dokończę później”, lista „Masz N niedokończonych formularzy” z „Dokończ” / „Usuń” na pustej stronie (i przy limicie formularzy — do usunięcia)",
+   "file": "components/v2/jobs/new/NewJobPage.tsx",
+   "marker": "UnfinishedIntakeForms",
+   "v3_home": "nowa rekrutacja → nad paskiem źródeł"
+  },
+  {
+   "id": "new.intake-offers",
+   "area": "zlecenie",
+   "opis": "Odczyt maila, pliku albo szablonu wypełnia tylko puste pola; inna wartość niż wpisana to propozycja przy polu („W mailu: …”, „W pliku: …”, „W szablonie: …”) z „Użyj” / „Zostaw”, a nowe wymagania i pytania — z „Dodaj”",
+   "file": "components/v2/jobs/new/NewJobReviewForm.tsx",
+   "marker": "IntakeOfferChip",
+   "v3_home": "nowa rekrutacja → przy polach formularza"
+  },
+  {
+   "id": "new.fill-summary",
+   "area": "zlecenie",
+   "opis": "Pasek po odczycie: „wypełniono N pól · M propozycji czeka na „Użyj””, „Cofnij wypełnienie” (zdejmuje tylko to, co wpisał odczyt i czego nikt potem nie zmienił)",
+   "file": "components/v2/jobs/new/NewJobPage.tsx",
+   "marker": "NewJobFillSummary",
+   "v3_home": "nowa rekrutacja → pod paskiem źródeł"
+  },
+  {
+   "id": "new.template-picker",
+   "area": "zlecenie",
+   "opis": "„Wypełnij z: Inna rekrutacja” — lista rekrutacji wybranego klienta (także zamkniętych) z wyszukiwaniem i „Także inni klienci”; „Użyj jako szablon” wypełnia puste pola",
+   "file": "components/v2/jobs/new/NewJobPage.tsx",
+   "marker": "TemplateJobPicker",
+   "v3_home": "nowa rekrutacja → pasek nad formularzem → Inna rekrutacja"
+  },
+  {
+   "id": "new.decisions",
+   "area": "zlecenie",
+   "opis": "Hiring manager i termin jako wymagana decyzja z „Klient nie podał”; liczba osób",
+   "file": "components/v2/jobs/new/NewJobReviewForm.tsx",
+   "marker": "new-job-deadline",
+   "v3_home": "nowa rekrutacja → 1 · Nazwa, 3 · Warunki"
+  },
+  {
+   "id": "job.reopen",
+   "area": "zlecenie",
+   "opis": "„Otwórz ponownie” zamkniętej rekrutacji i „Dokończ i opublikuj” starego szkicu — okno z brakami, wyborem rekrutera i powodem",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "onReopenJob",
+   "v3_home": "nagłówek rekrutacji → „⋯”"
+  },
+  {
+   "id": "job.change-close-reason",
+   "area": "zlecenie",
+   "opis": "„Zmień powód zamknięcia” zamkniętej rekrutacji — trzy grupy: wygrana, przegrana (inna firma), nie liczy się do hit ratio (21.10.2026)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "onChangeCloseReason",
+   "v3_home": "nagłówek rekrutacji → „⋯”"
+  },
+  {
+   "id": "job.close-reason-groups",
+   "area": "zlecenie",
+   "opis": "Okno zamykania: „Jak się skończyła?” — Wygraliśmy / Przegraliśmy / Nie liczy się z uzasadnieniem i rekrutacją, która zostaje przy duplikacie (21.10.2026)",
+   "file": "components/v2/jobs/CloseReasonFields.tsx",
+   "marker": "Jak się skończyła?",
+   "v3_home": "nagłówek rekrutacji → „⋯” → Zamknij rekrutację"
+  },
+  {
+   "id": "job.reopen-priority",
+   "area": "zlecenie",
+   "opis": "„Priorytet po otwarciu” w oknie „Otwórz ponownie” (domyślnie P1) i zdanie, kto z poprzednich rekruterów wraca (14.10.2026)",
+   "file": "components/v2/jobs/JobReopenDialog.tsx",
+   "marker": "Priorytet po otwarciu",
+   "v3_home": "nagłówek rekrutacji → „⋯” → Otwórz ponownie"
+  },
+  {
+   "id": "board.pending-jobs",
+   "area": "zlecenie",
+   "opis": "Pulpit: „Rekrutacje do dokończenia albo zamknięcia” (stare szkice z odliczaniem do zamknięcia, opublikowane bez przekazania) i niedokończone formularze",
+   "file": "components/v2/dashboard/BoardTasksPanel.tsx",
+   "marker": "PendingJobsSection",
+   "v3_home": "Pulpit → Czeka na Ciebie"
+  },
+  {
+   "id": "champ.requirement-rows",
+   "area": "zlecenie",
+   "opis": "Wymagania w Profilu Championa jako lista słów kluczowych (profil prowadzony wierszami) i „Uprość do słów kluczowych” dla profilu na starych polach",
+   "file": "components/ChampionProfileEditor.tsx",
+   "marker": "simplifyToRows",
+   "v3_home": "Profil Championa → Brief → „Edytuj” przy „Czego szukamy” (szuflada)"
+  },
+  {
+   "id": "champ.requirement-rare-word",
+   "area": "zlecenie",
+   "opis": "Rzadkie słowo „musi mieć” (mniej niż 20 osób w bazie): okienko pod wierszem z „Do rozmowy”, „Zostaw” i „Rozdziel” dla wariantów sklejonych ukośnikiem albo nawiasem, a w podsumowaniu „Najbardziej zawężają” — także na nowej rekrutacji",
+   "file": "components/champion/RequirementRowsEditor.tsx",
+   "marker": "RareWordCallout",
+   "v3_home": "Profil Championa → „Edytuj” przy „Czego szukamy” · nowa rekrutacja → 2 · Wymagania"
+  },
+  {
+   "id": "champ.sent-gap",
+   "area": "zlecenie",
+   "opis": "Ostrzeżenie pod wierszem „musi mieć”, którego nie ma nikt z co najmniej 3 osób wysłanych do klienta: „Do rozmowy”, „Zostaw” i „Podpowiedz słowa” (model czyta CV wysłanych, słowa z liczbą złapanych osób i osób w bazie); ten sam powód w „Propozycji uporządkowania wymagań” i na pulpicie Delivery Leada (02.11.2026)",
+   "file": "components/champion/RequirementRowCallouts.tsx",
+   "marker": "SentGapCallout",
+   "v3_home": "Profil Championa → „Edytuj” przy „Czego szukamy” · pulpit → Wymagania do poprawy"
+  },
+  {
+   "id": "champ.talk-search-word",
+   "area": "zlecenie",
+   "opis": "„To słowo do szukania?” pod listą „Rekruter sprawdza w rozmowie”: pozycja, którą serwer czyta jako technologię albo słowo do szukania, a której nie ma w wierszach wymagań, dostaje liczbę osób w bazie i „Dodaj do słów do szukania” (pozycja z poziomem albo komentarzem zostaje na liście) albo „Przenieś do słów do szukania” (27.10.2026)",
+   "file": "components/champion/TalkSearchWordHints.tsx",
+   "marker": "To słowo do szukania?",
+   "v3_home": "Profil Championa → Brief → „Edytuj” przy „Czego szukamy” (szuflada) → 4 · Rekruter sprawdza w rozmowie"
+  },
+  {
+   "id": "team.category-change",
+   "area": "naglowek",
+   "opis": "„Zmień” kategorię rekrutacji — uczestnicy idą za kategorią",
+   "file": "components/v2/jobs/JobCategoryRow.tsx",
+   "marker": "CategoryChange",
+   "v3_home": "Profil Championa → Zespół i ogłoszenie → Kategoria"
+  },
+  {
+   "id": "dashboard.new-job-leads",
+   "area": "pulpit",
+   "opis": "„Nowe rekrutacje P1 — kto prowadzi”: lista dla Head of Recruitment i admina — rekrutacje P1 bez championa, o których prowadzącym HoR jeszcze nie zdecydował (zespół ustawiony na dowolnym ekranie = „Potwierdź”), z rekruterem prowadzącym (automat / wskazany ręcznie), kategorią, liczbą uczestników, „Potwierdź”, „Zmień” (zaznaczenie jednej albo kilku osób, zapis dopiero po „Potwierdź”, „Cofnij”) i powodem powrotu („Wraca… było X”); filtry: klient, kategoria, Delivery Lead, prowadzący",
+   "file": "components/v2/dashboard/BoardTasksPanel.tsx",
+   "marker": "NewJobLeadsSection",
+   "v3_home": "Pulpit → Czeka na Ciebie"
+  },
+  {
+   "id": "new.collaborators",
+   "area": "zlecenie",
+   "opis": "Pole „Kolejne osoby” przy tworzeniu rekrutacji",
+   "file": "components/v2/jobs/new/NewJobTeamStep.tsx",
+   "marker": "JobCollaboratorsField",
+   "v3_home": "nowa rekrutacja",
+   "removed_reason": "Decyzja Artura 02.10.2026: uczestnikami rekrutacji są wszyscy z potwierdzonej kategorii kompetencji (dopisuje ich serwer, w tle), a przy rekrutacji jest jeden rekruter prowadzący. Kolejną osobę nadal da się dopisać w panelu „Zespół” rekrutacji."
+  },
+  {
+   "id": "champ.linkedin-phrases",
+   "area": "zlecenie",
+   "opis": "Pole „Frazy do LinkedIna” w formularzu nowej rekrutacji i w Profilu Championa",
+   "file": "components/ChampionProfileEditor.tsx",
+   "marker": "champion-search-keywords",
+   "v3_home": "Zlecenie i Champion → Edytuj",
+   "removed_reason": "Decyzja Artura 02.10.2026: pole do usunięcia — słowa kluczowe wymagań są jedną listą, po której szuka się w bazie. Zapisane frazy zostają w profilu (dane), nie są już pokazywane ani zmieniane."
+  },
+  {
+   "id": "card.board-badge",
+   "area": "tablica",
+   "opis": "Plakietka stanu pól screeningu na karcie tablicy („Screening: komplet” / „brakuje N” / próby kontaktu); do 09.10.2026 pod nazwą „karta rekomendacji”",
+   "file": "lib/board-card-badges.ts",
+   "marker": "recommendation_card",
+   "v3_home": "Tablica"
+  },
+  {
+   "id": "card.dock-section",
+   "area": "panel osoby",
+   "opis": "Warunki i ocena (pola z notatki i z formularza) w doku osoby — od 09.10.2026 część jednej sekcji „Screening”, bez osobnej sekcji „Karta rekomendacji”",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "<ScreeningSummaryView",
+   "v3_home": "Tablica → dok osoby"
+  },
+  {
+   "id": "card.full-dialog",
+   "area": "panel osoby",
+   "opis": "Wszystkie pola, pytania Championa i tekst w starym formacie z „Kopiuj” — od 09.10.2026 w widoku „Screening” (zwinięte „W starym formacie”), bez osobnego okna",
+   "file": "components/v2/screening-form/ScreeningSummaryView.tsx",
+   "marker": "W starym formacie",
+   "v3_home": "Tablica → dok osoby → Screening → W starym formacie"
+  },
+  {
+   "id": "card.note-import",
+   "area": "panel osoby",
+   "opis": "Karta rekomendacji z notatki: wgraj plik albo wklej tekst, przegląd „obecnie → propozycja”, zapis zaznaczonych pól i odpowiedzi (0421)",
+   "file": "components/v2/screening/RecommendationCardDialog.tsx",
+   "marker": "Zastosuj zaznaczone",
+   "v3_home": "Tablica → dok osoby → Otwórz całą kartę → Wgraj notatkę / Wklej tekst",
+   "removed_reason": "0424 (D1, 07.10.2026): karta jest tylko do odczytu, a notatkę czyta formularz screeningu — „Uzupełnij z notatki” wypełnia puste pola na miejscu (wpis screening-form.note-fill), bez osobnego przeglądu i zapisu karty"
+  },
+  {
+   "id": "screening.phrase",
+   "area": "warsztat screeningu",
+   "opis": "„Ułóż w zdanie” — hasła rekrutera w pełnym zdaniu przy odpowiedziach i polach opisowych karty (0421)",
+   "file": "components/v2/screening/PhraseSuggestion.tsx",
+   "marker": "Ułóż w zdanie",
+   "v3_home": "Screening → odpowiedź → Ułóż w zdanie"
+  },
+  {
+   "id": "card.move-next",
+   "area": "tablica",
+   "opis": "Braki pól warunków i oceny w oknie „Przesuń dalej” (nie blokują) z przyciskiem „Uzupełnij w screeningu”",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "open_card",
+   "v3_home": "Tablica → Przesuń dalej"
+  },
+  {
+   "id": "card.workbench-tab",
+   "area": "warsztat",
+   "opis": "Zakładka „Karta” w warsztacie screeningu (karta rekomendacji obok stawki i notatek)",
+   "file": "components/v2/jobs/ScreeningWorkbench.tsx",
+   "marker": "RecommendationCardSection",
+   "v3_home": "Tablica → warsztat screeningu",
+   "removed_reason": "0424 (D1, 07.10.2026): pola karty rekomendacji są sekcjami „Warunki” i „Ocena” jednego formularza screeningu — osobnej zakładki „Karta” nie ma; karta tylko do odczytu zostaje w doku i po zakończeniu procesu"
+  },
+  {
+   "id": "dl-review.card",
+   "area": "przegląd DL",
+   "opis": "Warunki, odpowiedzi na pytania Championa i ocena rekrutera w przeglądzie Delivery Leada — od 09.10.2026 jeden blok „Screening” (wcześniej „Ocena rekrutera”, karta rekomendacji i zwinięty arkusz)",
+   "file": "components/v2/recruitment/DlReviewPanel.tsx",
+   "marker": "<ScreeningSummarySection",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj / Tablica → dok osoby w „QC CV”"
+  },
+  {
+   "id": "dl-review.remark",
+   "area": "przegląd DL",
+   "opis": "„Uwagi dla rekrutera” przy każdej decyzji DL (wysyłka, powrót, odrzucenie): notatka pary, dzwonek i linia na liście „Twoje CV w drodze”",
+   "file": "components/v2/recruitment/DlReviewPanel.tsx",
+   "marker": "recruiter_remark",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj"
+  },
+  {
+   "id": "dl-review.rejection-email",
+   "area": "przegląd DL",
+   "opis": "Mail odrzucenia z „Odrzuć…” w przeglądzie Delivery Leada — checkbox, podgląd z treścią „przed klientem” i dopiskiem o pozostałych rekrutacjach, toast „Cofnij wysyłkę”; mail wychodzi ze skrzynki DL (17.10.2026)",
+   "file": "components/v2/recruitment/DlReviewPanel.tsx",
+   "marker": "<RejectionEmailField",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj"
+  },
+  {
+   "id": "dl-review.return",
+   "area": "przegląd DL",
+   "opis": "„Wróć do poprawy”: karta wraca z „QC CV” na „Zweryfikowany”, rekruter dostaje dzwonek z uwagą",
+   "file": "components/v2/recruitment/DlReviewPanel.tsx",
+   "marker": "Wróć do poprawy",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj"
+  },
+  {
+   "id": "dl-review.card-state",
+   "area": "pulpit",
+   "opis": "Stan pól screeningu („Screening: komplet” / „brakuje N” / „puste pola”) w wierszu pasa „Do wysłania do klienta” (do 13.10.2026 w kolejce przeglądu DL w „Czeka na Ciebie”)",
+   "file": "components/v2/dashboard/DlSendQueueBand.tsx",
+   "marker": "ReviewCardBadge",
+   "v3_home": "Pulpit → Do wysłania do klienta"
+  },
+  {
+   "id": "dl-review.requirements",
+   "area": "przegląd DL",
+   "opis": "Wymagania klienta a kandydat (status i źródło dowodu), ocena rekrutera i ryzyka z historii u klienta (D9, 08.10.2026)",
+   "file": "components/v2/recruitment/dl-review/RequirementsColumn.tsx",
+   "marker": "Wymagania klienta a kandydat",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj / Tablica → panel osoby w „QC CV”"
+  },
+  {
+   "id": "dl-review.cv",
+   "area": "przegląd DL",
+   "opis": "CV firmowe i oryginał kandydata w przeglądzie DL, z wynikiem QC i „Otwórz QC” (D9)",
+   "file": "components/v2/recruitment/dl-review/CvColumn.tsx",
+   "marker": "CV oryginalne",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj"
+  },
+  {
+   "id": "dl-review.margin",
+   "area": "przegląd DL",
+   "opis": "Budżet, stawka do klienta z podpowiedzią i marża na godzinę i miesiąc obok stawki kandydata (D9)",
+   "file": "components/v2/recruitment/dl-review/DecisionPanel.tsx",
+   "marker": "dl-review-margin",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj"
+  },
+  {
+   "id": "dl-review.return-fields",
+   "area": "przegląd DL",
+   "opis": "„Wróć do poprawy…” z listą pól formularza screeningu do poprawy (D6)",
+   "file": "components/v2/recruitment/dl-review/ReturnForFixDialog.tsx",
+   "marker": "Zaznacz, co rekruter ma poprawić",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj → Wróć do poprawy…"
+  },
+  {
+   "id": "dl-review.compare",
+   "area": "przegląd DL",
+   "opis": "Porównanie osób czekających na przegląd DL w jednej rekrutacji: ocena, wymagania X/Y, koszt, start, ryzyka (D10)",
+   "file": "components/v2/recruitment/dl-review/DlReviewQueueDialog.tsx",
+   "marker": "Porównanie kandydatów w przeglądzie",
+   "v3_home": "Pulpit → Do wysłania do klienta → porównaj / Tablica → nagłówek „QC CV” → Porównaj (N)"
+  },
+  {
+   "id": "dl-send.band",
+   "area": "pulpit",
+   "opis": "Pas „Do wysłania do klienta” nad pulpitem Delivery Leada: gotowi po QC CV w tabeli (rekrutacja z terminem, kto przekazał, stawka kandydata wobec budżetu, QC i screening, czas czekania w kolorze pilności, „Przejrzyj i wyślij”, u Nordei „Przejrzyj → Cpro”); „Jeszcze u rekrutera” i „Z Traffita” zwinięte do jednej linii z „Pokaż”; pusta kolejka = jedno zdanie",
+   "file": "components/v2/dashboard/DlSendQueueBand.tsx",
+   "marker": "DlSendQueueBand",
+   "v3_home": "Pulpit → Do wysłania do klienta"
+  },
+  {
+   "id": "dl-send.sequence",
+   "area": "pulpit",
+   "opis": "„Przejrzyj po kolei (N)”: przegląd gotowych osób jedna po drugiej z licznikiem „2 z 5”, „Pomiń” i „Zakończ kolejkę”; to samo uruchamia link `?wysylka=po-kolei` z górnego paska",
+   "file": "hooks/useReviewSequence.ts",
+   "marker": "useReviewSequence",
+   "v3_home": "Pulpit → Do wysłania do klienta → Przejrzyj po kolei"
+  },
+  {
+   "id": "dl-send.topbar",
+   "area": "powłoka",
+   "opis": "Kolejka „Do wysłania do klienta” Delivery Leada — od 16.10.2026 w ikonie „CV” górnego paska (pigułka z liczbą i kolorem pilności, gdy ktoś czeka) i przy „Rekrutacjach” w menu — stan kolejki (nie zdarzenia): sekcja z osobami gotowymi do wysłania, wiersz prowadzi do przeglądu na Tablicy, stopka do „po kolei” i pulpitu",
+   "file": "components/v2/shell/CvNotificationsDropdown.tsx",
+   "marker": "CvNotificationsDropdown",
+   "v3_home": "Górny pasek → ikona „CV” (sekcja „Do wysłania do klienta”, pigułka z kolorem pilności) / Menu → Rekrutacje (licznik)"
+  },
+  {
+   "id": "dl-send.cpro-row",
+   "area": "pulpit",
+   "opis": "Nordea (14.10.2026): wiersz akceptacji do Cpro w pasie „Do wysłania do klienta” ma plakietkę „do Cpro” w linii, która się nie ucina, i przycisk „Przejrzyj → Cpro”; w okienku górnego paska plakietka stoi przy nazwisku",
+   "file": "components/v2/dashboard/DlSendQueueBand.tsx",
+   "marker": "CPRO_ROW_BADGE",
+   "v3_home": "Pulpit → Do wysłania do klienta (wiersz Nordei) / Górny pasek → Do wysłania"
+  },
+  {
+   "id": "league.topbar",
+   "area": "powłoka",
+   "opis": "Przycisk Ligi Mistrzów w górnym pasku przed licznikiem celów: kółko z numerem miejsca (złote, srebrne, brązowe 1–3) i punkty kwartału rekrutera, placementy Delivery Leada w lidze DL, lider ligi u osób, które nie grają; panel po kliknięciu z dystansem do podium przeliczonym na pracę, rozbiciem punktów, warunkiem udziału, sąsiadami ±2 i linkiem do Rywalizacji",
+   "file": "components/v2/league/MyLeagueWidget.tsx",
+   "marker": "MyLeagueWidget",
+   "v3_home": "Górny pasek → Liga"
+  },
+  {
+   "id": "shell.appearance-menu",
+   "area": "powłoka",
+   "opis": "Menu „Wygląd” w górnym pasku: motyw koloru, styl interfejsu, tryb gry i tryb ciemny w jednym przycisku (na telefonie te przełączniki są osobno w szufladzie nawigacji)",
+   "file": "components/v2/shell/AppearanceMenu.tsx",
+   "marker": "AppearanceMenu",
+   "v3_home": "Górny pasek → Wygląd"
+  },
+  {
+   "id": "dl-send.board-card",
+   "area": "tablica",
+   "opis": "Karta gotowa do wysyłki w „QC CV”: przycisk „Przejrzyj i wyślij” (u Nordei „Przejrzyj → Cpro”) zamiast strzałki (każdy z prawem wysyłki); u Delivery Leada tej rekrutacji „Twój ruch” i plakietka „Czeka na Ciebie · N dni” liczona od zaliczenia QC",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "card-review-send",
+   "v3_home": "Tablica → kolumna „QC CV” → karta"
+  },
+  {
+   "id": "dl-send.board-sequence",
+   "area": "tablica",
+   "opis": "„Przejrzyj po kolei (N)” w drugiej linii nagłówka kolumny „QC CV” (Delivery Lead tej rekrutacji, od 2 gotowych osób) — przegląd jedna osoba po drugiej bez zamykania",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "dl-review-sequence-start",
+   "v3_home": "Tablica → nagłówek „QC CV” → Przejrzyj po kolei"
+  },
+  {
+   "id": "dl-send.list-highlight",
+   "area": "lista",
+   "opis": "Komórka „QC” w kolumnie „Etapy” wypełniona kolorem akcji, gdy ktoś czeka na wysyłkę patrzącego Delivery Leada (podpowiedź z liczbą osób); to samo w kafelku „Moje rekrutacje”",
+   "file": "components/v2/jobs/JobListCells.tsx",
+   "marker": "dlReadyLabel",
+   "v3_home": "Rekrutacje → kolumna „Etapy” → QC / Pulpit → Moje rekrutacje"
+  },
+  {
+   "id": "dl-send.list-filter",
+   "area": "lista",
+   "opis": "Filtr „Do wysłania do klienta” w „Więcej filtrów”: czeka na mnie (Delivery Lead) / czeka 3+ dni robocze; w adresie `tosend=`",
+   "file": "components/v2/jobs/JobsFilterBar.tsx",
+   "marker": "Do wysłania do klienta",
+   "v3_home": "Rekrutacje → Więcej filtrów → Do wysłania do klienta"
+  },
+  {
+   "id": "dl-send.nudge",
+   "area": "pulpit",
+   "opis": "„Twoje CV w drodze” → „W przeglądzie”: stan QC („… — Twój ruch” przy QC do poprawy), czas od gotowości i „Przypomnij” Delivery Leadowi od 2 dni roboczych (raz dziennie)",
+   "file": "components/v2/dashboard/CvInTransitSection.tsx",
+   "marker": "Przypomnij",
+   "v3_home": "Pulpit → Twoje CV w drodze → W przeglądzie → Przypomnij"
+  },
+  {
+   "id": "dl-send.stale-signal",
+   "area": "pulpit",
+   "opis": "Sygnał „CV czeka na wysyłkę do klienta 3+ dni robocze” w kafelku „Gdzie stoi” i w panelu uwagi Insights, z linkiem do listy rekrutacji z filtrem",
+   "file": "components/v2/dashboard/custom/TeamSignalsTile.tsx",
+   "marker": "dl_send_stale",
+   "v3_home": "Pulpit → Gdzie stoi / Insights → Zespół"
+  },
+  {
+   "id": "screening-form.fix-request",
+   "area": "screening",
+   "opis": "Prośba Delivery Leada o poprawki: baner z polami, podświetlenie w formularzu i „Zapisz i oddaj do przeglądu DL” (D6)",
+   "file": "components/v2/screening-form/ScreeningFullForm.tsx",
+   "marker": "Zapisz i oddaj do przeglądu DL",
+   "v3_home": "Tablica → panel osoby → Screening"
+  },
+  {
+   "id": "contract.generate-in-panel",
+   "area": "umowa",
+   "opis": "Rekruter generuje umowę B2B w panelu osoby — formularz Generatora z ustaloną parą i podpowiedziami z rekrutacji (04.10.2026)",
+   "file": "components/v2/b2b-generator/AgreementPanelTab.tsx",
+   "marker": "lockedPair",
+   "v3_home": "panel → Umowa → Wygeneruj umowę"
+  },
+  {
+   "id": "contract.correct-in-panel",
+   "area": "umowa",
+   "opis": "„Popraw umowę” pod tym samym numerem z panelu osoby (autor, zespół rekrutacji, TCM, admin)",
+   "file": "components/v2/b2b-generator/AgreementPanelTab.tsx",
+   "marker": "Popraw umowę",
+   "v3_home": "panel → Umowa"
+  },
+  {
+   "id": "contract.signature-request",
+   "area": "umowa",
+   "opis": "Podpis umowy z panelu: okno „Oznacz jako podpisaną” z „Podpis B2B”, bez niego prośba do Delivery Leada",
+   "file": "components/v2/b2b-generator/AgreementSignatureAction.tsx",
+   "marker": "Poproś o potwierdzenie podpisu",
+   "v3_home": "panel → sekcja Umowa"
+  },
+  {
+   "id": "champion.tabs",
+   "area": "zlecenie",
+   "opis": "Profil Championa w czterech zakładkach: Brief, Technologie po ludzku, Klient i historia, Zespół i ogłoszenie (?ptab=)",
+   "file": "components/champion/ChampionWorkspace.tsx",
+   "marker": "CHAMPION_TABS",
+   "v3_home": "Profil Championa"
+  },
+  {
+   "id": "champion.edit-drawer",
+   "area": "zlecenie",
+   "opis": "Edycja jednego bloku Briefu w szufladzie z prawej (tylko sekcje tego bloku, pytanie przy zamknięciu bez zapisu)",
+   "file": "components/champion/ChampionEditDrawer.tsx",
+   "marker": "onlySections",
+   "v3_home": "Profil Championa → Brief / Klient i historia → „Edytuj” przy bloku"
+  },
+  {
+   "id": "champion.glossary-tooltip",
+   "area": "zlecenie",
+   "opis": "Dymek ze słowniczka „po ludzku” na chipie technologii w „Czego szukamy”",
+   "file": "components/champion/BriefParts.tsx",
+   "marker": "GlossaryTip",
+   "v3_home": "Profil Championa → Brief → Czego szukamy"
+  },
+  {
+   "id": "champion.edit-full",
+   "area": "zlecenie",
+   "opis": "Pełny formularz Profilu Championa z „Wypełnij szybciej” (?mode=edit, powrót „Wróć do Profilu Championa”)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "Edytuj Profil Championa",
+   "v3_home": "menu ⋯ w nagłówku rekrutacji → Edytuj Profil Championa"
+  },
+  {
+   "id": "champion.todo-strip",
+   "area": "zlecenie",
+   "opis": "Pasek „Do dopięcia”: braki w zleceniu, weryfikacja z klientem i konsultantem, briefing — tylko gdy jest co dopiąć",
+   "file": "components/champion/ChampionTodoStrip.tsx",
+   "marker": "ChampionVerificationChecklist",
+   "v3_home": "Profil Championa → Brief (na górze)"
+  },
+  {
+   "id": "champion.client-questions-all",
+   "area": "zlecenie",
+   "opis": "Pytania klienta: domyślnie zadane w tej rekrutacji, w zakładce wszystkie pytania klienta po rekrutacjach z wyszukiwarką i archiwum po roli",
+   "file": "components/ChampionClientQuestionsPanel.tsx",
+   "marker": "AllClientQuestions",
+   "v3_home": "Profil Championa → Klient i historia → Pytania klienta"
+  },
+  {
+   "id": "champion.client-tab",
+   "area": "zlecenie",
+   "opis": "Klient i historia: opis klienta, karta klienta i branże, pytania klienta z rozmów, wiedza z rozmów, wcześniejsze zapytania",
+   "file": "components/champion/ChampionClientTab.tsx",
+   "marker": "ChampionClientQuestionsPanel",
+   "v3_home": "Profil Championa → Klient i historia"
+  },
+  {
+   "id": "screening-form.single-form",
+   "area": "formularz screeningu",
+   "opis": "Jeden formularz screeningu pary: pytania z Profilu Championa, warunki (stawka kandydata + pola karty), ocena; jeden zapis z wersją, konflikt wersji nie kasuje pracy (0424)",
+   "file": "components/v2/screening-form/ScreeningFullForm.tsx",
+   "marker": "useSaveScreeningForm",
+   "v3_home": "Tablica → klik w osobę z „Nowych”/„Screeningu” → panel szeroki"
+  },
+  {
+   "id": "screening-form.forward",
+   "area": "formularz screeningu",
+   "opis": "„Zapisz i przekaż dalej → Zweryfikowany” i „Odrzuć” z formularza (te same okna ruchu co Tablica)",
+   "file": "components/v2/screening-form/ScreeningFullForm.tsx",
+   "marker": "Zapisz i przekaż dalej",
+   "v3_home": "panel osoby → formularz screeningu → stopka"
+  },
+  {
+   "id": "screening-form.joint-picker",
+   "area": "formularz screeningu",
+   "opis": "„Screening dla” nad formularzem: inne rekrutacje osoby z Nowych/Screeningu do zaznaczenia, wyszarzone z powodem (po screeningu, cudza rezerwacja), „+ Dodaj i dołącz” z „Pasuje też do” (14.10.2026)",
+   "file": "components/v2/screening-form/JointScreeningPicker.tsx",
+   "marker": "+ Dodaj i dołącz",
+   "v3_home": "panel osoby → Nowi/Screening → nad formularzem"
+  },
+  {
+   "id": "screening-form.joint",
+   "area": "formularz screeningu",
+   "opis": "Formularz wspólny dla kilku rekrutacji: warunki i stawka raz, pytania wspólne raz, ocena per rekrutacja, zapis i „Zapisz i przekaż dalej” per para z kartą wyniku i „Przekaż mimo to” (14.10.2026)",
+   "file": "components/v2/screening-form/JointScreeningForm.tsx",
+   "marker": "Wspólne · zadajesz raz",
+   "v3_home": "panel osoby → „Screening dla” z zaznaczoną drugą rekrutacją"
+  },
+  {
+   "id": "screening-form.joint-earlier-answers",
+   "area": "formularz screeningu",
+   "opis": "Formularz wspólny: wcześniejsze odpowiedzi kandydata (Luna per rekrutacja) pod wspólnym pytaniem, „Użyj tej odpowiedzi” / „Użyj wszystkich odpowiedzi (N)” z pochodzeniem „z podpowiedzi Luny” w każdej rekrutacji (15.10.2026)",
+   "file": "components/v2/screening-form/joint-screening-tools.tsx",
+   "marker": "Użyj tej odpowiedzi",
+   "v3_home": "panel osoby → „Screening dla” → pod pytaniem"
+  },
+  {
+   "id": "screening-form.joint-skip-missing",
+   "area": "formularz screeningu",
+   "opis": "Formularz wspólny: „Pomiń brakujące” osobno w każdej rekrutacji, której serwer na to pozwala (przepięcie, wcześniejszy screening, zatrudniony przez nas), z notatką wewnętrzną tej rekrutacji (15.10.2026)",
+   "file": "components/v2/screening-form/JointScreeningForm.tsx",
+   "marker": "Notatka wewnętrzna ·",
+   "v3_home": "panel osoby → „Screening dla” → pod pytaniami"
+  },
+  {
+   "id": "screening-form.joint-phrase",
+   "area": "formularz screeningu",
+   "opis": "Formularz wspólny: „Ułóż w zdanie” przy odpowiedziach i polach oceny (język CV klienta danej rekrutacji), zdanie zapisane z pochodzeniem „zdanie z haseł” w każdej rekrutacji (15.10.2026)",
+   "file": "components/v2/screening-form/JointScreeningForm.tsx",
+   "marker": "Możesz wpisać hasła i ułożyć z nich zdanie.",
+   "v3_home": "panel osoby → „Screening dla” → pod odpowiedzią"
+  },
+  {
+   "id": "screening-form.joint-memory",
+   "area": "formularz screeningu",
+   "opis": "Pamięć rozmowy: odznaczenie rekrutacji w „Screening dla” nie kasuje wpisów („N odpowiedzi w pamięci”, „Cofnij”), zapis czyści pamięć i wcześniej mówi, co z odznaczonych przepadnie, powrót do osoby przywraca niezapisany screening (do 12 h, „Odrzuć szkic”) (16.10.2026)",
+   "file": "components/v2/screening-form/ScreeningMemoryNotes.tsx",
+   "marker": "Przywrócono niezapisany screening",
+   "v3_home": "panel osoby → Nowi/Screening → „Screening dla”"
+  },
+  {
+   "id": "screening-form.note-fill",
+   "area": "formularz screeningu",
+   "opis": "„Uzupełnij z notatki”: wklej tekst albo wgraj plik, puste pola wypełniają się z plakietką, przy wpisanych propozycja „Użyj”, „Cofnij wypełnienie”; notatka idzie do historii przy zapisie",
+   "file": "components/v2/screening-form/NoteFillBar.tsx",
+   "marker": "Cofnij wypełnienie",
+   "v3_home": "panel osoby → formularz screeningu → nad pytaniami"
+  },
+  {
+   "id": "screening-form.history",
+   "area": "formularz screeningu",
+   "opis": "Historia zmian formularza: wersje z autorem i „przed → po”, „Przywróć” z potwierdzeniem w wierszu (nowa wersja)",
+   "file": "components/v2/screening-form/ScreeningFormHistory.tsx",
+   "marker": "Przywrócić wersję",
+   "v3_home": "panel osoby → formularz screeningu → Historia zmian"
+  },
+  {
+   "id": "screening-form.preview",
+   "area": "formularz screeningu",
+   "opis": "Podgląd przy formularzu: CV oryginalne / CV firmowe / inne pliki, wymagania ze zdaniem ze słowniczka i wyszukiwaniem w CV, „Po ludzku” ze ściągą; od ok. 1700 px okna CV i wymagania naraz; CV i wymagania da się zwinąć (13.10.2026)",
+   "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
+   "marker": "Które CV pokazać",
+   "v3_home": "panel osoby → lewa strefa (wąskie okno: przycisk „Pokaż CV i wymagania”)"
+  },
+  {
+   "id": "screening-form.cv-pick",
+   "area": "formularz screeningu",
+   "opis": "Wybór gotowego CV z profilu kandydata jako CV firmowego rekrutacji (CV z generatora, także z innej rekrutacji, i pliki Word „…B2B…”), potem „Edytuj” i „Zmień CV”",
+   "file": "components/v2/screening-form/StageCvPicker.tsx",
+   "marker": "Wybierz gotowe CV z profilu",
+   "v3_home": "panel osoby → Screening → podgląd „CV” → „CV firmowe”"
+  },
+  {
+   "id": "person-panel.side-preview",
+   "area": "tablica",
+   "opis": "Duży podgląd po lewej stronie panelu osoby (cała wysokość okna, panel zakrywa menu) dla zakładek Screening, CV i Rozmowy; przy Rozmowach dodatkowo „Pytania klienta”",
+   "file": "components/v2/person/PersonPanelSide.tsx",
+   "marker": "data-person-side-content",
+   "v3_home": "Tablica → panel osoby → Rozwiń"
+  },
+  {
+   "id": "screening-form.before-call",
+   "area": "formularz screeningu",
+   "opis": "Formularz od razu (bez „Zacznij screening” i „Biorę — 12 h”, 14.10.2026): nad nim zwijany blok „Co już wiemy” — stanowisko, staż, źródło, inne rekrutacje, „Nie odebrał”; osobę na 12 h bierze pierwszy zapis formularza",
+   "file": "components/v2/screening-form/BeforeCallProfile.tsx",
+   "marker": "Co już wiemy",
+   "v3_home": "Tablica → klik w osobę z „Nowych” / „Screeningu” → nad formularzem"
+  },
+  {
+   "id": "screening-form.split-panel",
+   "area": "tablica",
+   "opis": "Panel osoby na całą szerokość okna (split: podgląd po lewej, formularz po prawej) od razu dla „Nowych” i „Screeningu”; „Zwiń” wraca do doku",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "\"split\"",
+   "v3_home": "Tablica → klik w kartę"
+  },
+  {
+   "id": "screening-form.after-cv-sent",
+   "area": "formularz screeningu",
+   "opis": "Po „CV wysłane” formularz da się poprawić z banerem, że zmiana idzie do DL i do następnego CV firmowego (D8)",
+   "file": "components/v2/jobs/ScreeningWorkbench.tsx",
+   "marker": "screening-after-cv-sent",
+   "v3_home": "panel osoby → Rozwiń → Screening"
+  },
+  {
+   "id": "screening-form.sheet-window",
+   "area": "rozmowy",
+   "opis": "Ten sam formularz screeningu w oknie z zakładki „Rozmowy” (bez podglądu CV obok)",
+   "file": "components/v2/modals/ScreeningSheet.tsx",
+   "marker": "ScreeningFullForm",
+   "v3_home": "panel osoby → Rozmowy → Formularz screeningu"
+  },
+  {
+   "id": "cv.editor-fullscreen",
+   "area": "cv",
+   "opis": "Edytor CV na cały ekran: kartka w układzie szablonu Worda, nagłówek w jednym rzędzie (Zamknij, pasek, „Edycja | Jak u klienta”, stan zapisu, „Pokaż oryginał”, „Pobierz Word”), jedna kolumna obok kartki (Edytor CV 3, 14.10.2026)",
+   "file": "components/v2/modals/CVBrandedEditModal.tsx",
+   "marker": "Edytor CV do klienta",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw"
+  },
+  {
+   "id": "cv.editor-toolbar",
+   "area": "cv",
+   "opis": "Pasek narzędzi edytora CV: cofnij/ponów, pogrubienie, lista, „Do lewej” / „Wyjustuj”, „Pogrub wymagania (N)” i „Więcej” („Typ akapitu”, „Dodaj”: stanowisko, punkt, wiersz edukacji, grupa umiejętności, certyfikat, język)",
+   "file": "components/v2/cv-editor/CvEditorToolbar.tsx",
+   "marker": "Narzędzia edytora CV",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw"
+  },
+  {
+   "id": "cv.editor-role-blocks",
+   "area": "cv",
+   "opis": "Stanowisko jako blok: przenieś wyżej/niżej, powiel, usuń (z potwierdzeniem) — razem z firmą, obowiązkami i technologiami",
+   "file": "components/v2/cv-editor/CvEditorToolbar.tsx",
+   "marker": "Powiel stanowisko",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Więcej → Stanowisko"
+  },
+  {
+   "id": "cv.editor-sources",
+   "area": "cv",
+   "opis": "Źródła po lewej od kartki, na przycisk (03.11.2026): oryginalne CV i pliki kandydata, wymagania klienta, „Po ludzku”, notatki z rekrutacji",
+   "file": "components/v2/cv-editor/CvEditorSourcesPane.tsx",
+   "marker": "Notatki",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Pokaż oryginał"
+  },
+  {
+   "id": "cv.editor-pages-preview",
+   "area": "cv",
+   "opis": "„Jak u klienta” w edytorze i „Podgląd” w karcie: strony PDF z tego samego pliku Word (LibreOffice na serwerze), bez pobierania",
+   "file": "components/v2/cv/CvPagesPreview.tsx",
+   "marker": "Przygotowuję strony CV",
+   "v3_home": "karta „CV do klienta” → miniatura strony; karta „CV do klienta” → Otwórz i popraw → Jak u klienta"
+  },
+  {
+   "id": "cv.editor-word-preview",
+   "area": "cv",
+   "opis": "Zapas „Jak u klienta”: plik DOCX złożony z bieżącej treści, bez pobierania, gdy strony PDF nie powstaną",
+   "file": "components/v2/cv-editor/CvEditorWordPreview.tsx",
+   "marker": "Podgląd pliku Word",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Jak u klienta (zapas)"
+  },
+  {
+   "id": "cv.editor-rodo-locked",
+   "area": "cv",
+   "opis": "Klauzula zgody RODO w edytorze jest stała: nie da się jej zmienić ani usunąć (serwer pilnuje tego samego przy zapisie)",
+   "file": "lib/cv-editor-structure.ts",
+   "marker": "cv-rodo-locked",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw"
+  },
+  {
+   "id": "cv.editor-unfilled-fields",
+   "area": "cv",
+   "opis": "„Zapisz” nie zatwierdza CV, dopóki w nowo wstawionych blokach zostały pola w nawiasach kwadratowych; szkic jest zapisany",
+   "file": "components/v2/modals/CVBrandedEditModal.tsx",
+   "marker": "Uzupełnij albo usuń pola w nawiasach",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw"
+  },
+  {
+   "id": "cv.editor-issues-panel",
+   "area": "cv",
+   "opis": "Panel „Do poprawy” w edytorze CV: jedna lista z QC CV pary, uwag generatora i kontroli AI zatwierdzonej wersji, od 17.10.2026 w grupach po wadze — „Blokuje wysyłkę”, „Do poprawy”, „Poprawione”, „Do decyzji · nie blokuje” — wiersz = problem, podgląd zmiany i jeden przycisk, zdanie AI w wierszu swojej uwagi; potem „Pominięte”, „Informacje” i „W porządku”; uwaga generatora „MUST-HAVE: X” nie dubluje pozycji QC o X",
+   "file": "components/v2/cv-editor/CvEditorIssues.tsx",
+   "marker": "buildIssueList",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy"
+  },
+  {
+   "id": "cv.editor-issues-counter",
+   "area": "cv",
+   "opis": "Licznik w edytorze CV: „Do poprawy (N)” w pasku i „N blokuje / blokują wysyłkę” w panelu (liczba z QC na serwerze); lista odświeża się po autozapisie",
+   "file": "components/v2/cv-editor/CvEditorIssues.tsx",
+   "marker": "blokują wysyłkę",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy"
+  },
+  {
+   "id": "cv.editor-issue-locate",
+   "area": "cv",
+   "opis": "„Pokaż w CV”: uwaga przewija kartkę do swojego miejsca i wyróżnia je; miejsca uwag są zaznaczone w tekście (czerwone = zatrzymuje wysyłkę)",
+   "file": "components/v2/recruitment/cv-qc-cards.tsx",
+   "marker": "Pokaż w CV",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy"
+  },
+  {
+   "id": "cv.editor-fix-all",
+   "area": "cv",
+   "opis": "„Popraw wszystkie” w edytorze CV: pogrubienie wymagań, pisownia technologii i zdania AI z cytatem ze źródła jednym kliknięciem, z „Cofnij wszystkie” w grupie „Poprawione”; usunięcie treści i własne poprawki pojedynczo",
+   "file": "components/v2/cv-editor/CvEditorIssues.tsx",
+   "marker": "Popraw wszystkie",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy"
+  },
+  {
+   "id": "cv.editor-issues-applied-undo",
+   "area": "cv",
+   "opis": "Grupa „Poprawione” w panelu „Do poprawy” (17.10.2026): co panel nałożył w tej sesji, z „Cofnij” przy ostatniej poprawce, dopóki CV się po niej nie zmieniło",
+   "file": "components/v2/cv-editor/CvEditorIssues.tsx",
+   "marker": "Poprawione",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy → Poprawione"
+  },
+  {
+   "id": "cv.editor-unsupported-quick-answers",
+   "area": "cv",
+   "opis": "Treść spoza oryginału w panelu „Do poprawy” (D5, 17.10.2026): „Usuń z CV”, „Kandydat to ma” (notatka „Potwierdzone z kandydatem”) i „Jest w oryginale” (pominięcie z fragmentem, który sprawdza serwer) jednym kliknięciem w wierszu",
+   "file": "components/v2/cv-editor/CvEditorIssueRows.tsx",
+   "marker": "Jest w oryginale",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy → Blokuje wysyłkę"
+  },
+  {
+   "id": "cv.editor-issue-keep",
+   "area": "cv",
+   "opis": "„OK” przy uwadze generatora i „Zostaw” przy uwadze kontroli AI (17.10.2026): pominięcie z powodem „Sprawdzone — zostaje w CV” jednym kliknięciem, bez formularza",
+   "file": "components/v2/cv-editor/CvEditorIssueRows.tsx",
+   "marker": "dismiss.keep",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy → Do decyzji"
+  },
+  {
+   "id": "cv.editor-one-click-years-title-rules",
+   "area": "cv",
+   "opis": "Panel „Do poprawy” (PR 2, 17.10.2026): lata w nagłówku według historii („Zmień”, z podglądem), tytuł CV z rekrutacji („Wpisz”), stawka i kontakt kandydata („Usuń stawkę” / „Usuń dane kontaktowe”) i „Usuń zdanie” przy uwadze kontroli AI — jednym kliknięciem; lata i tytuł także w „Popraw wszystkie”",
+   "file": "components/v2/cv-editor/CvEditorIssueRows.tsx",
+   "marker": "Zmień lata według historii",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy"
+  },
+  {
+   "id": "cv.editor-remove-term-via-assistant",
+   "area": "cv",
+   "opis": "„Usuń z CV” przy terminie spoza oryginału, który stoi w zdaniu (PR 3, 17.10.2026): serwer usuwa tylko z list, więc panel prosi asystenta o przeredagowanie zdania bez tego słowa, bez nowych faktów",
+   "file": "components/v2/cv-editor/CvEditorIssues.tsx",
+   "marker": "onAskAssistant",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy → Blokuje wysyłkę"
+  },
+  {
+   "id": "cv.editor-consent-upload-in-panel",
+   "area": "cv",
+   "opis": "Brak zrzutu zgody RODO w panelu „Do poprawy” (PR 4, 17.10.2026): „Wgraj zrzut maila” w wierszu blokady — do dokumentu generatora albo do CV etapu (kopia), jak na karcie „CV do klienta”; po wgraniu QC liczy się od nowa",
+   "file": "components/v2/cv-editor/CvEditorIssueRows.tsx",
+   "marker": "ConsentAttachButton",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy → Blokuje wysyłkę"
+  },
+  {
+   "id": "cv.editor-issues-override-in-panel",
+   "area": "cv",
+   "opis": "„Przekaż mimo uwag…” w nagłówku grupy „Blokuje wysyłkę” (17.10.2026) — to samo okno obejścia co w stopce, tylko gdy karta stoi na „Zweryfikowany” i jest prawo obejścia",
+   "file": "components/v2/modals/CVBrandedEditModal.tsx",
+   "marker": "onOverride={handoff && gate.kind === \"override\" ? openOverride : undefined}",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy → Blokuje wysyłkę"
+  },
+  {
+   "id": "cv.editor-ai-selection",
+   "area": "cv",
+   "opis": "AI na zaznaczonym fragmencie CV: dymek nad zaznaczeniem (pogrubienie, Skróć, Rozwiń z oryginału, Przeredaguj, Popraw język, Na angielski) i menu „AI” w pasku narzędzi",
+   "file": "components/v2/cv-editor/CvEditorSelectionAi.tsx",
+   "marker": "Zaznaczony tekst",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → zaznacz tekst",
+   "removed_reason": "Dymek i menu „AI” nad zaznaczeniem zastąpił asystent w kolumnie (Edytor CV 3, PR 4, zasada „jedno miejsce do AI”): zaznaczony tekst jest kontekstem wiadomości do asystenta."
+  },
+  {
+   "id": "cv.editor-ai-proposal",
+   "area": "cv",
+   "opis": "Propozycja AI zawsze do decyzji: karta „było / będzie” z „Przyjmij”, „Doprecyzuj”, „Jeszcze raz”, „Odrzuć”; przyjęcie to jedna cofalna zmiana, szkic na zatwierdzonej wersji powstaje dopiero wtedy",
+   "file": "components/v2/cv-editor/CvAiProposalCard.tsx",
+   "marker": "Doprecyzuj",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → zaznacz tekst",
+   "removed_reason": "Karta propozycji AI („Przyjmij”, „Doprecyzuj”) zastąpiona zmianą od razu na kartce z „Cofnij” w asystencie (Edytor CV 3, PR 4); doprecyzowanie to kolejna wiadomość w rozmowie."
+  },
+  {
+   "id": "cv.editor-ai-source",
+   "area": "cv",
+   "opis": "„Rozwiń z oryginału” tylko z cytatem sprawdzonym przez serwer: plakietka „Zgodne ze źródłem”, cytat w karcie i „Pokaż w oryginale” (wyszukanie w oryginalnym CV obok)",
+   "file": "components/v2/cv-editor/CvAiProposalCard.tsx",
+   "marker": "Pokaż w oryginale",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → zaznacz tekst",
+   "removed_reason": "„Pokaż w oryginale” z karty propozycji zniknęło razem z kartą (Edytor CV 3, PR 4): asystent sprawdza nowy fakt w oryginale CV i notatkach po stronie serwera, a fakt bez źródła wraca pytaniem „Kandydat mówił o tym na rozmowie?”. Oryginał jest pod „Oryginał” w nagłówku."
+  },
+  {
+   "id": "cv.editor-command",
+   "area": "cv",
+   "opis": "Asystent w kolumnie edytora CV (Edytor CV 3, PR 4): rekruter pisze jak do czatu albo wybiera podpowiedź, zmiany są od razu na kartce na zielono z jednym „Cofnij” na wiadomość; zaznaczony tekst to kontekst wiadomości (zastąpił „Polecenie”, plan zmian i dymek AI)",
+   "file": "components/v2/cv-editor/CvEditorAssistant.tsx",
+   "marker": "Napisz, co zmienić",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → kolumna „Asystent CV”"
+  },
+  {
+   "id": "cv.editor-assistant-fact",
+   "area": "cv",
+   "opis": "Fakt spoza CV i źródeł w asystencie: pytanie „Kandydat mówił o tym na rozmowie?”; „Tak, dopisz” zapisuje notatkę pary „Potwierdzone z kandydatem: …” (autor, data, bez kwot) i dopiero wtedy zmienia CV; usunięcie jedynego miejsca z wymaganiem klienta pyta „Zmienić mimo to?”",
+   "file": "components/v2/cv-editor/useCvAssistant.ts",
+   "marker": "confirmFact",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → kolumna „Asystent CV” → pytanie"
+  },
+  {
+   "id": "cv.editor-assistant-undo",
+   "area": "cv",
+   "opis": "„Cofnij” przy każdej odpowiedzi asystenta — cofa całą zmianę z tej wiadomości, dopóki CV się po niej nie zmieniło",
+   "file": "components/v2/cv-editor/CvEditorAssistant.tsx",
+   "marker": "Cofnięte.",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → kolumna „Asystent CV”"
+  },
+  {
+   "id": "cv.card-rewrite",
+   "area": "cv",
+   "opis": "„Napisz od nowa” w karcie: pole „Co poprawić?” — lista poprawek do 2000 znaków (linia = poprawka, Ctrl+Enter wysyła, szkic zostaje), uwaga trafia do notatek rekrutacji (fakty z listy), generacja rusza sama, a gotowa wersja zastępuje szkic z zachowaniem części poprawionych ręcznie",
+   "file": "components/v2/recruitment/CvRewriteForm.tsx",
+   "marker": "Twoje ręczne poprawki zostaną, a fakty z listy",
+   "v3_home": "karta „CV do klienta” → pole „Co poprawić?” → „Napisz od nowa”"
+  },
+  {
+   "id": "cv.card-rewrite-restore",
+   "area": "cv",
+   "opis": "Po „Napisz od nowa” pasek „Nowa wersja CV. „X” zostało w Twojej wersji.” z „Wróć do poprzedniej” — szkic sprzed podmiany wraca z migawki jednym kliknięciem",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "Wróć do poprzedniej",
+   "v3_home": "karta „CV do klienta” → pasek po nowej wersji"
+  },
+  {
+   "id": "cv.editor-assistant-rewrite",
+   "area": "cv",
+   "opis": "„Napisz od nowa: …” w asystencie edytora (podpowiedź „Napisz od nowa…”): edytor zapisuje szkic, zamyka się i oddaje uwagę karcie",
+   "file": "components/v2/cv-editor/CvEditorAssistant.tsx",
+   "marker": "Napisz od nowa…",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → kolumna „Asystent CV” → „Napisz od nowa…”"
+  },
+  {
+   "id": "cv.editor-plan",
+   "area": "cv",
+   "opis": "Plan zmian: operacje sprawdzone przez serwer z polami wyboru, podgląd na kartce (co znika, co się zmienia), ostrzeżenie o znikającym wymaganiu klienta, „Zastosuj zaznaczone” jedną cofalną zmianą i „Odrzuć plan”",
+   "file": "components/v2/cv-editor/CvEditorPlan.tsx",
+   "marker": "Zastosuj zaznaczone",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Więcej → Polecenie dla całego CV",
+   "removed_reason": "Plan zmian z polami wyboru i „Zastosuj zaznaczone” zastąpił asystent w kolumnie (Edytor CV 3, PR 4, decyzja Artura D1 i zasada „AI zmienia od razu”): zmiany idą od razu z „Cofnij” na wiadomość, a pytanie pada tylko przy fakcie bez źródła i przy usunięciu jedynego miejsca z wymaganiem klienta."
+  },
+  {
+   "id": "cv.editor-history",
+   "area": "cv",
+   "opis": "Historia wersji w edytorze CV: zatwierdzone wersje (kiedy, kto), „Pobierz DOCX”, „Porównaj” z bieżącą treścią — lista różnic — i „Przywróć treść wersji N” jedną cofalną zmianą; klauzula zgody zostaje z bieżącej wersji",
+   "file": "components/v2/cv-editor/CvEditorHistory.tsx",
+   "marker": "Przywróć treść wersji",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Więcej → Historia wersji; karta → ⋯ → Historia wersji"
+  },
+  {
+   "id": "cv.editor-word-import",
+   "area": "cv",
+   "opis": "Powrót pliku Word: „Wgraj poprawiony plik Word” w panelu historii pokazuje różnice z bieżącą treścią, zanim cokolwiek się zmieni; „Wstaw treść z pliku Word” przyjmuje ją jedną cofalną zmianą",
+   "file": "components/v2/cv-editor/CvEditorHistory.tsx",
+   "marker": "Wgraj poprawiony plik Word",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Więcej → Historia wersji"
+  },
+  {
+   "id": "cv.download-intent",
+   "area": "cv",
+   "opis": "Przycisk „Pobierz” CV (edytor, karta, podgląd etapu, kolejka Cpro, wynik generatora, pliki) zostawia wpis o pobraniu; podgląd nie",
+   "file": "lib/cv-download-intent.ts",
+   "marker": "intent=download",
+   "v3_home": "każde „Pobierz” pliku CV"
+  },
+  {
+   "id": "card.employment-marker",
+   "area": "tablica",
+   "opis": "Wiersz „Pracuje u nas · klient · do daty” na karcie tablicy (kończy / zaczyna u nas w innym kolorze) — znacznik z serwera, niczego nie blokuje",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "card-employment",
+   "v3_home": "Tablica → karta osoby"
+  },
+  {
+   "id": "card.eligibility-warnings",
+   "area": "tablica",
+   "opis": "Odznaki ostrzeżeń pary na karcie i w wierszu (NDA, czarna lista klienta, konkurent, wykluczył klienta, czarna lista) — do 12.10.2026 widoczne dopiero przy ruchu karty",
+   "file": "lib/eligibility-reason-labels.ts",
+   "marker": "eligibilityWarningBadges",
+   "v3_home": "Tablica → karta osoby"
+  },
+  {
+   "id": "dock.employment-pill",
+   "area": "panel osoby",
+   "opis": "Pigułka „Pracuje u nas” w głowie panelu osoby; po kliknięciu ramka z klientem, końcem zamówienia i Delivery Leadem",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "EmploymentPopoverPill",
+   "v3_home": "panel osoby → głowa"
+  },
+  {
+   "id": "dock.blacklist-pill",
+   "area": "panel osoby",
+   "opis": "Pigułka „Czarna lista” w głowie panelu osoby; po kliknięciu kto, kiedy i dlaczego (17.10.2026)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "<BlacklistPopoverPill",
+   "v3_home": "panel osoby → głowa"
+  },
+  {
+   "id": "dock.blacklist-dialog",
+   "area": "panel osoby",
+   "opis": "„Czarna lista…” w menu panelu osoby — to samo okno co w profilu (u nas albo u klienta, z powodem)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "Czarna lista…",
+   "v3_home": "panel osoby → „Więcej akcji osoby”"
+  },
+  {
+   "id": "dock.missing-contract",
+   "area": "panel osoby",
+   "opis": "Pigułka „Brak umowy w Kontraktach” przy osobie na „Zatrudniony” bez umowy — „Pracuje u nas” liczy się wyłącznie z umowy (17.10.2026)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "Brak umowy w Kontraktach",
+   "v3_home": "panel osoby → głowa"
+  },
+  {
+   "id": "card.missing-contract",
+   "area": "tablica",
+   "opis": "Plakietka „Brak umowy w Kontraktach” na karcie w kolumnie „Zatrudniony” (17.10.2026)",
+   "file": "lib/board-card-badges.ts",
+   "marker": "Brak umowy w Kontraktach",
+   "v3_home": "Tablica → karta osoby"
+  },
+  {
+   "id": "add.employment-notice",
+   "area": "pozyskiwanie",
+   "opis": "Okna dodawania do rekrutacji: znacznik „Pracuje u nas” przy osobie i ramka po zaznaczeniu (klient, koniec zamówienia, Delivery Lead) — informacja, nie blokada",
+   "file": "components/v2/modals/AddCandidatesQuickModal.tsx",
+   "marker": "EmployedPeopleNotice",
+   "v3_home": "„Dodaj po nazwisku”, „Kandydaci do dodania”, „Przypisz do rekrutacji”"
+  },
+  {
+   "id": "add.homonym-contact-line",
+   "area": "pozyskiwanie",
+   "opis": "Okno „Dodaj kandydatów do pipeline”: druga linia wiersza z telefonem, e-mailem i miastem („brak telefonu”, gdy go nie ma), żeby odróżnić imienników",
+   "file": "components/v2/modals/AddCandidatesQuickModal.tsx",
+   "marker": "brak telefonu",
+   "v3_home": "„Dodaj po nazwisku” (Dodaj kandydatów do pipeline)"
+  },
+  {
+   "id": "add.homonym-banner",
+   "area": "pozyskiwanie",
+   "opis": "Pasek „N osób o imieniu i nazwisku …”, gdy wśród wyników i osób już w rekrutacji są imiennicy",
+   "file": "components/v2/modals/AddCandidatesQuickModal.tsx",
+   "marker": "Porównaj telefon i e-mail, zanim zaznaczysz.",
+   "v3_home": "„Dodaj po nazwisku” (Dodaj kandydatów do pipeline)"
+  },
+  {
+   "id": "add.search-by-phone",
+   "area": "pozyskiwanie",
+   "opis": "Pole szuka po imieniu i nazwisku, telefonie albo e-mailu; linia „Szukam po numerze telefonu” / „po adresie e-mail” i podświetlony pasujący numer",
+   "file": "components/v2/modals/AddCandidatesQuickModal.tsx",
+   "marker": "Imię i nazwisko, telefon albo e-mail…",
+   "v3_home": "„Dodaj po nazwisku” (Dodaj kandydatów do pipeline)"
+  },
+  {
+   "id": "add.in-job-section",
+   "area": "pozyskiwanie",
+   "opis": "Sekcja „Już w tej rekrutacji” z etapem karty; przy zamkniętej karcie „Przywróć” (ruch karty, nie drugie dodanie)",
+   "file": "components/v2/modals/AddCandidatesQuickModal.tsx",
+   "marker": "Już w tej rekrutacji",
+   "v3_home": "„Dodaj po nazwisku” (Dodaj kandydatów do pipeline)"
+  },
+  {
+   "id": "add.last-recruitment",
+   "area": "pozyskiwanie",
+   "opis": "Trzecia linia wiersza: ostatnia rekrutacja osoby u nas, jej wynik i miesiąc („ostatnio 03.2026: …”) albo „jeszcze w żadnej rekrutacji”",
+   "file": "components/v2/modals/AddCandidatesQuickModal.tsx",
+   "marker": "jeszcze w żadnej rekrutacji",
+   "v3_home": "„Dodaj po nazwisku” (Dodaj kandydatów do pipeline)"
+  },
+  {
+   "id": "add.same-phone-merge",
+   "area": "pozyskiwanie",
+   "opis": "Plakietka „Ten sam telefon co …” przy możliwym duplikacie; admin i Head of Recruitment mają „Scal…” (okno scalania z profilu)",
+   "file": "components/v2/modals/AddCandidatesQuickModal.tsx",
+   "marker": "Scal…",
+   "v3_home": "„Dodaj po nazwisku” (Dodaj kandydatów do pipeline)"
+  },
+  {
+   "id": "add.profile-link",
+   "area": "pozyskiwanie",
+   "opis": "Link „Profil” przy każdej osobie w oknie dodawania — profil w nowej karcie, okno i zaznaczenie zostają",
+   "file": "components/v2/modals/AddCandidatesQuickModal.tsx",
+   "marker": "?from=job&jobId=",
+   "v3_home": "„Dodaj po nazwisku” (Dodaj kandydatów do pipeline)"
+  },
+  {
+   "id": "add.bulk-skip-employed",
+   "area": "pozyskiwanie",
+   "opis": "„Dodaj do rekrutacji” dla kilku osób: „N z M osób pracują u nas” i przycisk dodania reszty bez nich; po dodaniu ostrzeżenia z odpowiedzi serwera",
+   "file": "components/v2/recruitment/AddToRecruitmentDialog.tsx",
+   "marker": "Dodaj bez tej osoby",
+   "v3_home": "lista kandydatów → pasek zaznaczenia; Talent Radar; Moi ludzie"
+  },
+  {
+   "id": "move.hired-current-engagement",
+   "area": "ruch",
+   "opis": "„Potwierdź zatrudnienie”: gdy osoba ma trwającą umowę u innego klienta, okno pyta „Co z obecną współpracą?”; odpowiedź dostaje Delivery Lead tamtego klienta",
+   "file": "hooks/usePipelineMove.tsx",
+   "marker": "Co z obecną współpracą?",
+   "v3_home": "Tablica → ruch na „Zatrudniony”"
+  },
+  {
+   "id": "ad.pracuj-fields",
+   "area": "zlecenie",
+   "opis": "Zakładka Pracuj.pl: pola w kolejności formularza portalu, każde z własnym „Kopiuj”, wybory z list formularza jako podpowiedź",
+   "file": "components/v2/job-ad/PracujTab.tsx",
+   "marker": "Pola w kolejności formularza Pracuj.pl",
+   "v3_home": "nagłówek → Ogłoszenie → Pracuj.pl"
+  },
+  {
+   "id": "ad.jjit-body",
+   "area": "zlecenie",
+   "opis": "Zakładka JustJoin.IT: pola formularza, tech stack z poziomem (zmiana poziomu, usunięcie) i jeden opis kopiowany z formatowaniem albo jako zwykły tekst",
+   "file": "components/v2/job-ad/JustJoinTab.tsx",
+   "marker": "Tech stack z poziomem",
+   "v3_home": "nagłówek → Ogłoszenie → JustJoin.IT"
+  },
+  {
+   "id": "ad.edit-field",
+   "area": "zlecenie",
+   "opis": "Ręczna poprawka pola ogłoszenia („Edytuj” → „Zapisz”); ta sama treść w obu zakładkach",
+   "file": "components/v2/job-ad/AdBlock.tsx",
+   "marker": "Edytuj",
+   "v3_home": "nagłówek → Ogłoszenie → Edytuj przy polu"
+  },
+  {
+   "id": "ad.checks",
+   "area": "zlecenie",
+   "opis": "Kontrola przed publikacją: nazwa klienta, kwota, kontakt i nazwisko wyłączają kopiowanie i publikację na stronie kariery; „Pokaż” i „Usuń fragment”; uwagi doradcze",
+   "file": "components/v2/job-ad/AdChecksPanel.tsx",
+   "marker": "Kontrola przed publikacją",
+   "v3_home": "nagłówek → Ogłoszenie → kolumna „Gdzie publikujesz” → kontrola"
+  },
+  {
+   "id": "ad.terms",
+   "area": "zlecenie",
+   "opis": "Warunki w ogłoszeniu (start, długość, język pracy) i lista danych, których rekrutacji brakuje",
+   "file": "components/v2/job-ad/AdFactsRail.tsx",
+   "marker": "Warunki w ogłoszeniu",
+   "v3_home": "nagłówek → Ogłoszenie → lewa kolumna"
+  },
+  {
+   "id": "ad.regenerate",
+   "area": "zlecenie",
+   "opis": "„Przygotuj ponownie” i zmiana języka PL/EN z potwierdzeniem; awaria modelu nie zastępuje zapisanej treści",
+   "file": "components/v2/job-ad/JobAdWindow.tsx",
+   "marker": "Przygotuj ponownie",
+   "v3_home": "nagłówek → Ogłoszenie → nagłówek okna"
+  },
+  {
+   "id": "ad.publications",
+   "area": "zlecenie",
+   "opis": "Gdzie ogłoszenie wisi: „Oznacz jako opublikowane” z linkiem do portalu, „do aktualizacji” po zmianie treści, „Zdjęte z portalu”, przypomnienie przy zamkniętej rekrutacji",
+   "file": "components/v2/job-ad/AdPublications.tsx",
+   "marker": "Oznacz jako opublikowane",
+   "v3_home": "nagłówek → Ogłoszenie → kolumna „Gdzie publikujesz”; Profil Championa → Zespół i ogłoszenie"
+  },
+  {
+   "id": "ad.career-page",
+   "area": "zlecenie",
+   "opis": "Strona kariery z ogłoszenia (21.10.2026): „Opublikuj na stronie” / „Zaktualizuj na stronie”, „Kopiuj link”, „Otwórz stronę”; zastępuje osobny „Opis publiczny”",
+   "file": "components/v2/job-ad/AdChannels.tsx",
+   "marker": "Opublikuj na stronie",
+   "v3_home": "nagłówek → Ogłoszenie → kolumna „Gdzie publikujesz” → Strona kariery"
+  },
+  {
+   "id": "ad.career-queue",
+   "area": "lista",
+   "opis": "Strona kariery do uzupełnienia (21.10.2026): otwarte rekrutacje bez strony kariery, treść z nocy, „Opublikuj i następna”, „Popraw treść”, „Pomiń”, „Moje / Wszystkie”",
+   "file": "components/v2/job-ad/CareerQueue.tsx",
+   "marker": "Opublikuj i następna",
+   "v3_home": "Lista rekrutacji → „Strona kariery · N” → /jobs/strona-kariery"
+  },
+  {
+   "id": "ad.channel-reminders",
+   "area": "zlecenie",
+   "opis": "Przypomnienia o ogłoszeniach (27.10.2026): przy każdym kanale okna „Ogłoszenie” kto robi brak, „Nie publikujemy tu” z powodem i „Cofnij” (DL, HoR, admin)",
+   "file": "components/v2/job-ad/AdReminderControls.tsx",
+   "marker": "Nie publikujemy tu",
+   "v3_home": "nagłówek → Ogłoszenie → kolumna „Gdzie publikujesz” → linia pod kanałem"
+  },
+  {
+   "id": "ad.remind-recruiters",
+   "area": "zlecenie",
+   "opis": "„Przypomnij: <rekruter>” — DL prosi rekrutera o stronę kariery, mail od razu (27.10.2026)",
+   "file": "components/v2/job-ad/AdChannels.tsx",
+   "marker": "ad-remind-recruiters",
+   "v3_home": "nagłówek → Ogłoszenie → Strona kariery → Przypomnij"
+  },
+  {
+   "id": "ad.mail-entry",
+   "area": "zlecenie",
+   "opis": "Wejście z maila przypomnienia: ?ogloszenie=kariera|pracuj|jjit|pomin i &przypomnij=rekruter otwierają okno ogłoszenia z krokami dla kanału (27.10.2026)",
+   "file": "lib/job-ad-mail-intent.ts",
+   "marker": "readAdMailIntent",
+   "v3_home": "mail „Wstaw ogłoszenia” → przycisk → rekrutacja z otwartym oknem"
+  },
+  {
+   "id": "ad.missing-queue",
+   "area": "lista",
+   "opis": "Ogłoszenia do nadrobienia (27.10.2026): rekrutacje bez strony kariery, Pracuj.pl albo JustJoin.IT, „Do zrobienia przeze mnie / Także pilnowane”, okno ogłoszenia na pierwszym brakującym kanale",
+   "file": "components/v2/job-ad/MissingAdsQueue.tsx",
+   "marker": "Do zrobienia przeze mnie",
+   "v3_home": "mail zbiorczy „Nadrabiaj po kolei” → /jobs/ogloszenia"
+  },
+  {
+   "id": "list.career-queue-link",
+   "area": "lista",
+   "opis": "Przycisk „Strona kariery · N” na liście rekrutacji: ile otwartych rekrutacji osoby nie wisi na stronie kariery",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "CareerQueueLink",
+   "v3_home": "Lista rekrutacji → nagłówek"
+  },
+  {
+   "id": "order.ad-publications",
+   "area": "zlecenie",
+   "opis": "Stan ogłoszeń na Pracuj.pl i JustJoin.IT w sekcji ogłoszenia rekrutacji",
+   "file": "components/v2/jobs/JobAnnouncementSection.tsx",
+   "marker": "AdPublications",
+   "v3_home": "Profil Championa → Zespół i ogłoszenie"
+  },
+  {
+   "id": "list.ad-publications",
+   "area": "lista",
+   "opis": "Kolumna „Ogłoszenia”: plakietki portali z linkiem do ogłoszenia, żółte przy treści do aktualizacji albo zamkniętej rekrutacji",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "JobAdPublicationsCell",
+   "v3_home": "Lista rekrutacji → kolumna „Ogłoszenia”"
+  },
+  {
+   "id": "list.filter-memory",
+   "area": "lista",
+   "opis": "Lista pamięta ostatnie filtry osoby (zakres, sortowanie, stan requestu, pasek filtrów, przełączniki): goły adres z menu albo okruszka otwiera ostatni widok, link z parametrami wygrywa, „Wyczyść” kasuje wpis",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "readJobsListMemory",
+   "v3_home": "Lista rekrutacji → filtry (pamięć w przeglądarce, per osoba)"
+  },
+  {
+   "id": "panel.notes-earlier",
+   "area": "panel",
+   "opis": "„Wcześniej u nas”: notatki osoby z innych rekrutacji i bez rekrutacji, pogrupowane po rekrutacji z jej wynikiem i powodem, także zakończone rekrutacje bez notatek; licznik notatek ludzi na zakładce",
+   "file": "components/v2/person/PersonNotesHistory.tsx",
+   "marker": "Wcześniej u nas",
+   "v3_home": "Tablica → panel osoby → Rozwiń → Notatki i historia"
+  },
+  {
+   "id": "dock.notes-earlier",
+   "area": "panel",
+   "opis": "Sekcja „Notatki” wąskiego doku: podpis „N tu · M wcześniej”, ostatnie rozmowy z innych rekrutacji i „Cała historia (M)”",
+   "file": "components/v2/person/PersonNotesHistory.tsx",
+   "marker": "Cała historia (",
+   "v3_home": "Tablica → panel osoby → Notatki"
+  },
+  {
+   "id": "panel.pair-moves",
+   "area": "panel",
+   "opis": "Historia w tej rekrutacji z prawdziwych ruchów osoby (z jakiego etapu na jaki, kto i kiedy)",
+   "file": "components/v2/person/PersonWorkbenchTabs.tsx",
+   "marker": "pairMovesQueryKey",
+   "v3_home": "Tablica → panel osoby → Rozwiń → Notatki i historia"
+  },
+  {
+   "id": "preview.person-history",
+   "area": "panel",
+   "opis": "„Historia osoby (N)” w dużym podglądzie po lewej: wszystkie notatki osoby pogrupowane po rekrutacji, z filtrem rodzajów; CV zostaje zamontowane pod spodem",
+   "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
+   "marker": "Historia osoby",
+   "v3_home": "Tablica → panel osoby → Rozwiń → podgląd po lewej (każda zakładka)"
+  },
+  {
+   "id": "preview.collapse-cv",
+   "area": "panel",
+   "opis": "„Zwiń CV” w dużym podglądzie: CV zostaje listwą przy lewej krawędzi, wymagania i panel dzielą ekran po połowie; „Szukaj w CV” i „Historia osoby” rozwijają CV z powrotem",
+   "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
+   "marker": "Zwiń CV",
+   "v3_home": "Tablica → panel osoby → Rozwiń → podgląd po lewej (pasek źródeł CV)"
+  },
+  {
+   "id": "preview.collapse-requirements",
+   "area": "panel",
+   "opis": "„Zwiń wymagania”: kolumna z wymaganiami, warunkami i „Po ludzku” zamienia się w pasek nad CV, a CV bierze jej miejsce; zwinięte CV i wymagania naraz = dwie listwy i szeroki panel",
+   "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
+   "marker": "Zwiń wymagania",
+   "v3_home": "Tablica → panel osoby → Rozwiń → podgląd po lewej (nagłówek „Wymagania”)"
+  },
+  {
+   "id": "preview.requirements-strip",
+   "area": "panel",
+   "opis": "Pasek wymagań nad CV: krytyczne (albo pierwsze cztery „Musi mieć”) z „Szukaj w CV”, warunki rekrutacji w jednej linii, „Wszystkie wymagania”; na laptopie stoi nad CV także przy otwartych wymaganiach",
+   "file": "components/champion/JobRequirementsStrip.tsx",
+   "marker": "requirements-strip",
+   "v3_home": "Tablica → panel osoby → Rozwiń → podgląd po lewej → CV"
+  },
+  {
+   "id": "preview.requirement-cv-search-words",
+   "area": "panel",
+   "opis": "„Szukaj w CV” przy wymaganiu szuka słów z serwera („.NET lub C#” → „.NET”, „C#” i warianty nazw), a pod paskiem lupy stoi „Szukam: …” albo „Szukałem: … — tej nazwy nie ma w CV”",
+   "file": "components/v2/files/DocumentSearchBar.tsx",
+   "marker": "document-search-terms",
+   "v3_home": "Tablica → panel osoby → Rozwiń → podgląd po lewej → Wymagania albo pasek nad CV → „Szukaj w CV”"
+  },
+  {
+   "id": "preview.layout-memory",
+   "area": "panel",
+   "opis": "Układ podglądu (zwinięte CV / wymagania) pamiętany per osoba w przeglądarce — ten sam przy następnym kandydacie i w każdej zakładce panelu",
+   "file": "lib/person-preview-layout.ts",
+   "marker": "nexus:person-preview-layout:",
+   "v3_home": "Tablica → panel osoby → Rozwiń"
+  },
+  {
+   "id": "screening.before-call-earlier",
+   "area": "panel",
+   "opis": "Blok „Co już wiemy” nad formularzem: „Warunki — co już wiemy” (ostatnio podana stawka z datą, dostępność, tryb pracy) i „Wcześniej u nas” (ostatnia zakończona rekrutacja z wynikiem, wcześniejsze notatki z „Pokaż”); wynik i powód widać też po zwinięciu",
+   "file": "components/v2/screening-form/BeforeCallProfile.tsx",
+   "marker": "Warunki — co już wiemy",
+   "v3_home": "Tablica → panel osoby → Screening → blok „Co już wiemy” nad formularzem"
+  },
+  {
+   "id": "panel.in-base",
+   "area": "panel",
+   "opis": "„Osoba w bazie” na górze „Notatek i historii”: od kiedy osoba jest w bazie (data i wiek; z importu bez daty u źródła — „przed …”), skąd i kto ją dodał, od kiedy jest w tej rekrutacji; na końcu historii wiersz „Dodany do bazy”",
+   "file": "components/v2/person/PersonInBase.tsx",
+   "marker": "Osoba w bazie",
+   "v3_home": "Tablica → panel osoby → Rozwiń → Notatki i historia"
+  },
+  {
+   "id": "panel.new-in-base-pill",
+   "area": "panel",
+   "opis": "Pigułka „Nowy w bazie · N dni” w głowie panelu osoby — osoba dodana do bazy w ostatnich 14 dniach, data i autor w dymku",
+   "file": "components/v2/person/PersonInBase.tsx",
+   "marker": "Nowy w bazie",
+   "v3_home": "Tablica → panel osoby (głowa, każda zakładka)"
+  },
+  {
+   "id": "screening.before-call-in-base",
+   "area": "panel",
+   "opis": "Blok „Co już wiemy”: wiersz „W bazie od” (data, wiek, skąd) w bloku „Kandydat”",
+   "file": "components/v2/screening-form/BeforeCallProfile.tsx",
+   "marker": "W bazie od",
+   "v3_home": "Tablica → panel osoby → Screening → blok „Co już wiemy” nad formularzem"
+  },
+  {
+   "id": "card.new-in-base",
+   "area": "tablica",
+   "opis": "Plakietka „Nowy · N dni” na karcie w „Nowych” i „Screeningu” — osoba dodana do bazy w ostatnich 14 dniach",
+   "file": "lib/board-card-badges.ts",
+   "marker": "new_in_base",
+   "v3_home": "Tablica"
+  },
+  {
+   "id": "dock.cv-upload",
+   "area": "panel",
+   "opis": "„Wgraj nowe CV” w sekcji CV panelu osoby i upuszczenie pliku na panel: plik staje się głównym CV profilu i CV tej rekrutacji (13.10.2026); plik Word nazwany jak CV do klienta („B2B…” albo wzór nazwy klienta) staje się od razu „CV do klienta” tej rekrutacji, CV kandydata bez zmian (15.10.2026)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "Wgraj nowe CV",
+   "v3_home": "Tablica → panel osoby → sekcja CV"
+  },
+  {
+   "id": "dock.cv-download",
+   "area": "panel",
+   "opis": "„Pobierz Word” i „PDF” przy CV firmowym w sekcji CV panelu osoby — ten sam plik co karta „CV do klienta”, z wiersza etapu, na którym CV leży; bez zgody RODO wyłączone z powodem (D1, 14.10.2026)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "download: \"dock\"",
+   "v3_home": "Tablica → panel osoby → sekcja CV"
+  },
+  {
+   "id": "dock.cv-newer-in-profile",
+   "area": "panel",
+   "opis": "„W profilu jest nowsze CV” z „Użyj w tej rekrutacji” i ostrzeżenie, gdy wgrane CV nie pasuje do osoby",
+   "file": "components/v2/jobs/DockCvFreshness.tsx",
+   "marker": "Użyj w tej rekrutacji",
+   "v3_home": "Tablica → panel osoby → sekcja CV"
+  },
+  {
+   "id": "dock.company-cv-stale",
+   "area": "panel",
+   "opis": "„CV firmowe powstało z poprzedniego CV” z „Wygeneruj od nowa” i „Użyj nowej wersji”",
+   "file": "components/v2/recruitment/CompanyCvStaleNotice.tsx",
+   "marker": "Wygeneruj od nowa",
+   "v3_home": "Tablica → panel osoby → sekcja CV"
+  },
+  {
+   "id": "screening-form.preview-cv-upload",
+   "area": "formularz screeningu",
+   "opis": "„Wgraj CV” w pasku źródeł podglądu po „Rozwiń”, upuszczenie pliku na podgląd i kafelek przy braku CV",
+   "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
+   "marker": "preview-cv-upload-input",
+   "v3_home": "panel osoby → lewa strefa → CV"
+  },
+  {
+   "id": "cv-to-client.original-after-generator",
+   "area": "CV do klienta",
+   "opis": "„Generator źle zrobił CV? Pobierz oryginał” dla samej roli rekrutera: okno z powodami, potem plik",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "cv-original-after-generator",
+   "v3_home": "panel osoby → CV → CV do klienta"
+  },
+  {
+   "id": "screening-form.preview-cv-download",
+   "area": "formularz screeningu",
+   "opis": "„Pobierz CV” w pasku źródeł podglądu po „Rozwiń” — pobiera to, co widać (oryginał, zaznaczony plik, CV firmowe jako Word / PDF), i ramka „W profilu jest nowsze CV”",
+   "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
+   "marker": "preview-cv-download",
+   "v3_home": "panel osoby → lewa strefa → CV"
+  },
+  {
+   "id": "add-from-cv.existing-person",
+   "area": "naglowek",
+   "opis": "Okno „Dodaj z CV” przy osobie z bazy: „Dodaj do rekrutacji z tym CV” (CV na górę profilu i „Nowi”), „Podmień CV w tej rekrutacji” przy osobie w toku, „Przywróć” przy zamkniętej karcie",
+   "file": "components/v2/modals/AddCandidateFromCVModal.tsx",
+   "marker": "Dodaj do rekrutacji z tym CV",
+   "v3_home": "menu „⋯” → Dodaj kandydatów → Z pliku CV"
+  },
+  {
+   "id": "board.cv-qc-dismiss",
+   "area": "pipeline",
+   "opis": "„To nieprawda” przy pozycji QC (okno QC i panel „Do poprawy” w edytorze): pięć powodów, opis wymagany przy „Inny powód”, fragment źródła przy „pod inną nazwą” w treści spoza oryginału; uwagę blokującą pomija tylko osoba z prawem obejścia, brak CV i reguł klienta — nikt",
+   "file": "components/v2/recruitment/cv-qc-cards.tsx",
+   "marker": "Oznacz jako nieprawdę",
+   "v3_home": "Okno QC CV → pozycja → „To nieprawda”"
+  },
+  {
+   "id": "board.cv-qc-dismissed",
+   "area": "pipeline",
+   "opis": "„Pominięte (n)” w oknie QC i w edytorze CV: co, dlaczego, kto i kiedy oznaczył jako nieprawdę, z „Przywróć”; uwagi wyciszone w „Jakość QC” stoją osobno jako informacja i nie liczą się do „Warto poprawić”",
+   "file": "components/v2/recruitment/cv-qc-cards.tsx",
+   "marker": "Przywróć",
+   "v3_home": "Okno QC CV → „Pominięte”"
+  },
+  {
+   "id": "cv.editor-issue-dismiss",
+   "area": "cv",
+   "opis": "„To nieprawda” przy uwadze generatora i kontroli AI w panelu „Do poprawy” edytora CV — pominięcie dla pary (kandydat, rekrutacja), z „Przywróć” w „Pominięte”",
+   "file": "components/v2/cv-editor/CvEditorIssues.tsx",
+   "marker": "dismissIssue",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Do poprawy"
+  },
+  {
+   "id": "board.arrow-undo",
+   "area": "ruch",
+   "opis": "Strzałka „→” na karcie bez braków przesuwa bez okna, z „Cofnij” przez 10 s (ruch odroczony, D7 14.10.2026)",
+   "file": "hooks/usePipelineMove.tsx",
+   "marker": "deferMove",
+   "v3_home": "Tablica → karta → „→”"
+  },
+  {
+   "id": "card.cv-state",
+   "area": "pipeline",
+   "opis": "Plakietka CV na karcie w „Zweryfikowany”: „CV w przygotowaniu…”, „CV gotowe · QC: N do poprawy”, „CV gotowe · QC bez uwag”",
+   "file": "lib/board-card-badges.ts",
+   "marker": "cvStateBadge",
+   "v3_home": "Tablica → karta w „Zweryfikowany”"
+  },
+  {
+   "id": "board.dl-waiting",
+   "area": "pipeline",
+   "opis": "„Czeka u Delivery Leada od …” w „Przesuń dalej” i ramce „Następny etap” dla karty w „QC CV” (zamiast martwego „Przekaż Delivery Leadowi”)",
+   "file": "components/v2/recruitment/MoveNextDialog.tsx",
+   "marker": "move-next-waiting",
+   "v3_home": "Tablica → karta w „QC CV” → „→”"
+  },
+  {
+   "id": "board.sources-row-add",
+   "area": "pozyskiwanie",
+   "opis": "„+ Dodaj” w wierszu okna „Kandydaci do dodania” (propozycje, ogłoszenia, „Szukaj w bazie”)",
+   "file": "components/v2/recruitment/pick-list.tsx",
+   "marker": "pick-row-add",
+   "v3_home": "okno „Kandydaci do dodania” → wiersz"
+  },
+  {
+   "id": "board.sources-row-undo",
+   "area": "pozyskiwanie",
+   "opis": "„Dodano do „Nowych” · rezerwacja 12 h · Cofnij” po dodaniu z wiersza; do 15 min propozycja wraca na listę",
+   "file": "components/v2/recruitment/pick-list.tsx",
+   "marker": "Cofnij dodanie: ",
+   "v3_home": "okno „Kandydaci do dodania” → wiersz po dodaniu"
+  },
+  {
+   "id": "board.sources-row-also-fits",
+   "area": "pozyskiwanie",
+   "opis": "„Pasuje też do N innych rekrutacji” pod osobą dodaną z wiersza: do 3 rekrutacji w pracy (bramka krytycznych, dopasowanie ≥ 70), „+ Dodaj” / „Dodaj do wszystkich” / „Cofnij” (14.10.2026)",
+   "file": "components/v2/recruitment/also-fits-block.tsx",
+   "marker": "Pasuje też do ",
+   "v3_home": "okno „Kandydaci do dodania” → wiersz po dodaniu"
+  },
+  {
+   "id": "board.manual-added-strip",
+   "area": "pozyskiwanie",
+   "opis": "„Szukaj ręcznie”: pasek „Dodani teraz (N)” nad wynikami — dodana osoba z „Cofnij” (15 min) i „Pasuje też do”, 3 najnowsze, reszta po „Pokaż wszystkich” (15.10.2026)",
+   "file": "components/v2/recruitment/ManualAddedStrip.tsx",
+   "marker": "Dodano do „Nowych” · rezerwacja 12 h",
+   "v3_home": "okno „Kandydaci do dodania” → „Szukaj ręcznie” → nad wynikami"
+  },
+  {
+   "id": "board.card-other-jobs",
+   "area": "tablica",
+   "opis": "„+N rekrutacja” na karcie w Nowych/Screeningu: osoba czeka też w innej rekrutacji — okienko z listą, „Otwórz kartę” i „Screening razem” (14.10.2026)",
+   "file": "components/v2/pages/kanban-other-jobs-chip.tsx",
+   "marker": "card-other-jobs-chip",
+   "v3_home": "Tablica → karta w „Nowych”/„Screeningu”"
+  },
+  {
+   "id": "board.sources-row-reasons",
+   "area": "pozyskiwanie",
+   "opis": "Do trzech plakietek wymagań w wierszu: „✓”, „✕”, „? zapytaj”",
+   "file": "components/v2/recruitment/pick-list.tsx",
+   "marker": "Dlaczego ta osoba",
+   "v3_home": "okno „Kandydaci do dodania” → wiersz"
+  },
+  {
+   "id": "board.sources-row-rate",
+   "area": "pozyskiwanie",
+   "opis": "Plakietka stawki względem budżetu rekrutacji w wierszu („w budżecie · 140 zł/h”, „+12% ponad budżet · 160 zł/h”) — „Szukaj w bazie” i propozycje, ta sama reguła (D3, 19.10.2026)",
+   "file": "components/v2/recruitment/pick-list.tsx",
+   "marker": "pick-row-rate",
+   "v3_home": "okno „Kandydaci do dodania” → wiersz"
+  },
+  {
+   "id": "board.sources-manual-tab",
+   "area": "pozyskiwanie",
+   "opis": "„Szukaj ręcznie” jako zakładka okna „Kandydaci do dodania” (szerokie okno, zaznaczenia nie giną)",
+   "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
+   "marker": "manual-search-tab",
+   "v3_home": "okno „Kandydaci do dodania” → Szukaj ręcznie"
+  },
+  {
+   "id": "board.sources-ai-assess",
+   "area": "pozyskiwanie",
+   "opis": "„✦ Oceń z AI” na zaznaczonych osobach (do 30) w „Szukaj ręcznie” i w propozycjach — zamiast pobierania CV do prywatnego czatu (makieta C, 28.10.2026)",
+   "file": "components/v2/recruitment/AiAssessmentPanel.tsx",
+   "marker": "assess-with-ai",
+   "v3_home": "okno „Kandydaci do dodania” → zaznacz osoby → pasek akcji"
+  },
+  {
+   "id": "board.sources-ai-panel",
+   "area": "pozyskiwanie",
+   "opis": "Panel „Ocena AI · N zaznaczonych osób”: kolejność dzwonienia Dzwoń / Może / Nie pasuje, 1–2 powody z cytatem z CV albo notatki, „AI nie oceniło” przy braku CV albo awarii",
+   "file": "components/v2/recruitment/AiAssessmentPanel.tsx",
+   "marker": "ai-assessment-panel",
+   "v3_home": "okno „Kandydaci do dodania” → „Oceń z AI”"
+  },
+  {
+   "id": "board.sources-ai-add-calls",
+   "area": "pozyskiwanie",
+   "opis": "„Dodaj K „Dzwoń” do Nowych w tej kolejności” — ta sama droga co „Dodaj N do Nowych” zakładki",
+   "file": "components/v2/recruitment/AiAssessmentPanel.tsx",
+   "marker": "ai-assessment-add-calls",
+   "v3_home": "okno „Kandydaci do dodania” → „Oceń z AI” → stopka panelu"
+  },
+  {
+   "id": "board.sources-ai-latest",
+   "area": "pozyskiwanie",
+   "opis": "„Ostatnia ocena AI · Otwórz” nad wynikami „Szukaj ręcznie” — zapisana ocena (≤ 7 dni) bez ponownego wywołania modelu",
+   "file": "components/v2/recruitment/ManualSearchPanel.tsx",
+   "marker": "ai-assessment-latest",
+   "v3_home": "okno „Kandydaci do dodania” → „Szukaj ręcznie” → nad wynikami"
+  },
+  {
+   "id": "board.sources-auto-score",
+   "area": "pozyskiwanie",
+   "opis": "Dopasowanie liczy się samo dla widocznych wierszy (bez „Policz dopasowanie”, D1 14.10.2026)",
+   "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
+   "marker": "onRowVisible",
+   "v3_home": "okno „Kandydaci do dodania”"
+  },
+  {
+   "id": "board.sources-below-threshold",
+   "area": "pozyskiwanie",
+   "opis": "„Propozycje z bazy” kończą się separatorem „Poniżej 70% · N osób” z najlepszymi spod progu (nocny przegląd publikuje łącznie do 40); zakładka, kafel i dzwonek liczą tylko od progu (28.10.2026)",
+   "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
+   "marker": "proposals-below-threshold",
+   "v3_home": "okno „Kandydaci do dodania” → Propozycje z bazy"
+  },
+  {
+   "id": "board.sources-hidden-by-critical",
+   "area": "pozyskiwanie",
+   "opis": "Sekcja „Ukryci przez »musi mieć«, choć w CV jest coś bliskiego · N” pod propozycjami: cytat z CV, wynik „?”, Dodaj/Pomiń/podgląd, zwinięta do 3 (28.10.2026)",
+   "file": "components/v2/recruitment/HiddenByCriticalSection.tsx",
+   "marker": "hidden-by-critical",
+   "v3_home": "okno „Kandydaci do dodania” → Propozycje z bazy → pod listą"
+  },
+  {
+   "id": "board.sources-critical-variant",
+   "area": "pozyskiwanie",
+   "opis": "Przycisk „„SailPoint” = SailPoint IIQ” w sekcji ukrytych — dopisuje wariant do wiersza krytycznej zapisem Championa (rekruter, DL), przegląd od następnej nocy (28.10.2026)",
+   "file": "components/v2/recruitment/HiddenByCriticalSection.tsx",
+   "marker": "hidden-variant-add",
+   "v3_home": "okno „Kandydaci do dodania” → sekcja ukrytych → nagłówek"
+  },
+  {
+   "id": "screening.use-all-answers",
+   "area": "formularz screeningu",
+   "opis": "„Użyj wszystkich odpowiedzi (N)” z poprzedniego screeningu tej osoby",
+   "file": "components/v2/jobs/ScreeningReassignSuggestions.tsx",
+   "marker": "Użyj wszystkich odpowiedzi",
+   "v3_home": "panel osoby → Screening → podpowiedzi z poprzedniego screeningu"
+  },
+  {
+   "id": "panel.note-fills-form",
+   "area": "panel",
+   "opis": "„Zapisz notatkę i wypełnij formularz” w polu notatki doku — notatka zapisuje się raz i wypełnia puste pola screeningu (D3)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "Zapisz notatkę i wypełnij formularz",
+   "v3_home": "panel osoby → pole notatki (przy otwartym formularzu)"
+  },
+  {
+   "id": "cv.editor-handoff",
+   "area": "CV",
+   "opis": "Stopka edytora CV na „Zweryfikowany”: „Uwaga dla Delivery Leada”, „Gotowe, przekaż do DL” (do 14.10.2026: „Zapisz i przekaż do DL”), „Przekaż mimo uwag…” (D6)",
+   "file": "components/v2/cv-editor/CvEditorHandoffBar.tsx",
+   "marker": "Gotowe, przekaż do DL",
+   "v3_home": "panel osoby → CV → „Sprawdź i popraw” → stopka edytora"
+  },
+  {
+   "id": "cv.editor-more-menu",
+   "area": "cv",
+   "opis": "„Więcej” w pasku edytora CV: Dodaj (stanowisko, punkt, wiersze), typ akapitu, stanowisko pod kursorem (wyżej, niżej, powiel, usuń), AI na zaznaczonym tekście, „Wyjustuj całe CV” / „Całe CV do lewej”, polecenie, historia, „Pobierz PDF”, „Drukuj” (Edytor CV 3, 14.10.2026)",
+   "file": "components/v2/cv-editor/CvEditorToolbar.tsx",
+   "marker": "Wyjustuj całe CV",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Więcej"
+  },
+  {
+   "id": "cv.editor-bold-requirements",
+   "area": "cv",
+   "opis": "„Pogrub wymagania (N)” w pasku edytora: pogrubia w całym CV wymagania klienta, których QC nie widzi pogrubionych — ta sama poprawka co „Pogrub wszystkie” w „Do poprawy”, jeden krok cofania",
+   "file": "components/v2/cv-editor/CvEditorToolbar.tsx",
+   "marker": "Pogrub wymagania",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw"
+  },
+  {
+   "id": "cv.editor-done-footer",
+   "area": "cv",
+   "opis": "Stopka edytora z „Gotowe”: zapis szkicu, pola w nawiasach, zamknięcie i zatwierdzenie w tle — zastępuje „Zapisz” z nagłówka (Edytor CV 3)",
+   "file": "components/v2/modals/CVBrandedEditModal.tsx",
+   "marker": "Zakończenie pracy z CV",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → stopka"
+  },
+  {
+   "id": "cv.editor-pdf-download",
+   "area": "cv",
+   "opis": "„Pobierz PDF” w edytorze: PDF tego samego pliku Word (wersja zatwierdzona albo szkic z bieżącej treści), wpis pobrania z formatem pdf; „Drukuj” obok",
+   "file": "components/v2/modals/CVBrandedEditModal.tsx",
+   "marker": "Pobierz PDF",
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Więcej → Pobierz PDF"
+  },
+  {
+   "id": "cv.forward-progress",
+   "area": "CV",
+   "opis": "Po „Zapisz i przekaż dalej” karta CV pokazuje postęp (CV / źródło gotowego CV / powód pominięcia → QC) i „Następna w Screeningu”",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "cv-forward-progress",
+   "v3_home": "panel osoby → CV (zaraz po przekazaniu)"
+  },
+  {
+   "id": "dl-review.recruiter-remark",
+   "area": "przegląd DL",
+   "opis": "„Od rekrutera (…)” — uwaga z przekazania na górze przeglądu Delivery Leada",
+   "file": "components/v2/recruitment/DlReviewPanel.tsx",
+   "marker": "dl-review-recruiter-remark",
+   "v3_home": "przegląd DL → kolumna decyzji"
+  },
+  {
+   "id": "list.client-reference",
+   "area": "lista",
+   "opis": "Numer u klienta przed nazwą w wierszu listy (prośba DL Nordei, 15.10.2026): pierwszy numer i „+N”, klik kopiuje, nazwa od klienta w dymku",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "job-row-client-reference",
+   "v3_home": "lista → wiersz rekrutacji"
+  },
+  {
+   "id": "header.client-reference",
+   "area": "naglowek",
+   "opis": "Numer u klienta przed tytułem rekrutacji, także po „Zwiń” (15.10.2026); klik kopiuje",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "header-client-reference",
+   "v3_home": "nagłówek rekrutacji, linia 1"
+  },
+  {
+   "id": "header.tabs-rail-reference",
+   "area": "naglowek",
+   "opis": "Numer u klienta w miejscu ikony na szynie „Otwarte karty” (15.10.2026)",
+   "file": "components/v2/shell/OpenTabsRail.tsx",
+   "marker": "open-tab-reference",
+   "v3_home": "szyna „Otwarte karty”"
+  },
+  {
+   "id": "board.client-accept",
+   "area": "tablica",
+   "opis": "Akceptacja klienta (D1, 16.10.2026): przycisk „Klient zaakceptował” na karcie w „Rozmowie u klienta” otwiera okno akceptacji (data, planowany start, słowa klienta, debrief, kto dostanie dzwonek); zapis = ruch na etap „Akceptacja” i werdykt „Akceptuje”",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "card-client-accept",
+   "v3_home": "Tablica → karta w „Rozmowie u klienta”"
+  },
+  {
+   "id": "board.client-acceptance-line",
+   "area": "tablica",
+   "opis": "Zielony wiersz „✓ Klient zaakceptował · data · kto” na karcie w kolumnie „Akceptacja i umowa” (D2) zamiast samej plakietki „Akceptacja”",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "card-client-acceptance",
+   "v3_home": "Tablica → kolumna „Akceptacja i umowa”"
+  },
+  {
+   "id": "board.contract-step-chips",
+   "area": "tablica",
+   "opis": "Liczniki „Zaakceptowani · Umowa wysłana · Podpisana” w nagłówku kolumny „Akceptacja i umowa” (D2)",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "ContractStepChips",
+   "v3_home": "Tablica → nagłówek kolumny „Akceptacja i umowa”"
+  },
+  {
+   "id": "dialog.client-accepted",
+   "area": "ruch",
+   "opis": "Okno „Klient zaakceptował”: debrief po rozmowie w tym samym oknie (D3), lista osób, które dostaną dzwonek (D4), zapis akceptacji",
+   "file": "components/v2/recruitment/ClientAcceptedDialog.tsx",
+   "marker": "client-accepted-save",
+   "v3_home": "Tablica / panel osoby / werdykt „Akceptuje”"
+  },
+  {
+   "id": "move.client-interview-date",
+   "area": "ruch",
+   "opis": "Przesunięcie na „Rozmowę u klienta” pyta „Kiedy rozmowa u klienta?” (20.10.2026): termin zakłada rozmowę w NEXUSIE (telefon po rozmowie, pytania klienta), „Nie znam jeszcze terminu” przesuwa bez niego",
+   "file": "hooks/usePipelineMove.tsx",
+   "marker": "ClientInterviewDateDialog",
+   "v3_home": "Tablica / panel osoby → ruch na „Rozmowę u klienta”"
+  },
+  {
+   "id": "ruch.client-interview-from-mail",
+   "area": "ruch",
+   "opis": "„Kiedy rozmowa u klienta?” i „Terminy od klienta”: „Wklej maila od klienta” wypisuje terminy z cytatem, długość i „odpowiedz do” (20.10.2026); treść maila nie jest zapisywana",
+   "file": "components/v2/recruitment/ClientInterviewDateDialog.tsx",
+   "marker": "PasteClientMail",
+   "v3_home": "Tablica / panel osoby → ruch na „Rozmowę u klienta” i Kalendarz → „Terminy od klienta”"
+  },
+  {
+   "id": "panel.client-interview-questions",
+   "area": "panel",
+   "opis": "Panel osoby: „Pytania z rozmowy” na „Rozmowie u klienta” bez terminu w NEXUSIE (20.10.2026) — okno pytań pyta, kiedy była rozmowa",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "DockClientInterviewQuestions",
+   "v3_home": "Panel osoby → sekcja procesu"
+  },
+  {
+   "id": "panel.client-questions-note-hint",
+   "area": "panel",
+   "opis": "Notatka „klient pytał…” po rozmowie u klienta podpowiada „Zapisz jako pytania z rozmowy” z listą pytań wyjętą z notatki (20.10.2026)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "ClientQuestionsNoteHint",
+   "v3_home": "Panel osoby → nad polem notatki"
+  },
+  {
+   "id": "panel.client-accept",
+   "area": "panel",
+   "opis": "Panel osoby: „Klient zaakceptował” na „Rozmowie u klienta”, zielony pasek akceptacji z planowanym startem na „Akceptacji i umowie” i „Cofnij akceptację klienta” w menu „⋯”",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "Cofnij akceptację klienta",
+   "v3_home": "Panel osoby → głowa panelu / menu „⋯”"
+  },
+  {
+   "id": "interviews.verdict-accepts",
+   "area": "panel",
+   "opis": "Werdykt hiring managera „Akceptuje” (dawniej „Dalej”, D6) na „Rozmowie u klienta” otwiera okno „Klient zaakceptował”",
+   "file": "components/v2/jobs/JobInterviewsTab.tsx",
+   "marker": "acceptOpensWindow",
+   "v3_home": "Panel osoby → zakładka „Rozmowy”"
+  },
+  {
+   "id": "board.hired-column-help",
+   "area": "tablica",
+   "opis": "„?” przy kolumnie „Zatrudniony”: kto przesuwa (każdy z zespołu), co jest potrzebne (debrief, jak podpisano umowę), a co nie (zamówienie)",
+   "file": "components/v2/jobs/HiredColumnHelp.tsx",
+   "marker": "Kto przesuwa na „Zatrudniony”?",
+   "v3_home": "Tablica → nagłówek kolumny „Zatrudniony”"
+  },
+  {
+   "id": "panel.hire-offline",
+   "area": "panel",
+   "opis": "Panel osoby, sekcja „Do „Zatrudnionego””: umowa spoza Generatora — „Przesuń na „Zatrudniony”…”; zamówienie osobno jako krok po zatrudnieniu, który nie blokuje ruchu",
+   "file": "components/v2/jobs/DockContractSteps.tsx",
+   "marker": "Po zatrudnieniu — nie blokuje ruchu",
+   "v3_home": "Panel osoby → sekcja umowy"
+  },
+  {
+   "id": "panel.pre-contract",
+   "area": "umowa",
+   "opis": "Sekcja „Umowa przedwstępna” w zakładce „Umowa”: kroki (prośba, wystawiona, wysłana, podpis kandydata z formą, podpis firmy), ważność, termin B2B, obserwujący, akcje (0506)",
+   "file": "components/v2/person/pre-contract/PreContractSection.tsx",
+   "marker": "pre-contract-section",
+   "v3_home": "Panel osoby / zakładka „Umowa”"
+  },
+  {
+   "id": "dialog.pre-contract-request",
+   "area": "umowa",
+   "opis": "Okno „Poproś o umowę przedwstępną”: na kiedy (przed CV, przed rozmową, przed B2B, do daty) i po co (0506)",
+   "file": "components/v2/person/pre-contract/PreContractDialogs.tsx",
+   "marker": "pre-contract-request-save",
+   "v3_home": "Panel osoby / menu „⋯” w doku / przegląd DL"
+  },
+  {
+   "id": "dialog.pre-contract-issue",
+   "area": "umowa",
+   "opis": "Okno „Wystaw umowę przedwstępną” — formularz Generatora z ustaloną parą, DOCX i podpięcie do prośby (0506)",
+   "file": "components/v2/person/pre-contract/PreContractIssueDialog.tsx",
+   "marker": "pre-contract-issue-save",
+   "v3_home": "Panel osoby / sekcja „Umowa przedwstępna”"
+  },
+  {
+   "id": "card.pre-contract",
+   "area": "tablica",
+   "opis": "Plakietka „Przedwstępna …” na karcie i w tabeli osób — napis i ton z serwera (0506)",
+   "file": "lib/board-card-badges.ts",
+   "marker": "pre_contract",
+   "v3_home": "Tablica / tabela osób"
+  },
+  {
+   "id": "dialog.client-accepted-pre-contract",
+   "area": "ruch",
+   "opis": "„Potrzebna umowa przedwstępna przed umową B2B” w oknie „Klient zaakceptował” (0506)",
+   "file": "components/v2/recruitment/ClientAcceptedDialog.tsx",
+   "marker": "client-accepted-pre-contract",
+   "v3_home": "Okno „Klient zaakceptował”"
+  },
+  {
+   "id": "dl-review.pre-contract",
+   "area": "przegląd DL",
+   "opis": "„Poproś o umowę przedwstępną przed wysłaniem CV” w przeglądzie Delivery Leada (0506)",
+   "file": "components/v2/recruitment/DlReviewPanel.tsx",
+   "marker": "dl-review-pre-contract",
+   "v3_home": "Przegląd DL"
+  },
+  {
+   "id": "list.pre-contracts",
+   "area": "lista",
+   "opis": "Rekrutacje › Umowy przedwstępne — zakładki z licznikami, stan, wystawiający, ważność, termin B2B, decyzje o karze (0506)",
+   "file": "components/v2/recruitment/PreContractsList.tsx",
+   "marker": "pre-contract-row",
+   "v3_home": "/jobs/umowy-przedwstepne"
+  },
+  {
+   "id": "header.p0",
+   "area": "naglowek",
+   "opis": "P0 — ultrapilne przez 24 h (27.10.2026): czerwona plakietka „P0 · 23 h” zamiast poziomu, pasek nad tytułem z terminem, autorem i powodem; Head of Recruitment i administrator: „Ustaw P0” w menu priorytetu (powód, 24 h / 48 h / do piątku), „Przedłuż o 24 h”, „Zdejmij P0”",
+   "file": "components/v2/jobs/p0/JobP0Strip.tsx",
+   "marker": "job-p0-strip",
+   "v3_home": "nagłówek rekrutacji → pasek nad tytułem i menu plakietki priorytetu"
+  },
+  {
+   "id": "header.p0-option",
+   "area": "naglowek",
+   "opis": "Opcja „P0 Teraz — ultrapilne…” w menu priorytetu otwiera okno z powodem i czasem (tylko Head of Recruitment i administrator, 27.10.2026)",
+   "file": "components/v2/jobs/JobPriorityMenu.tsx",
+   "marker": "job-priority-option-p0",
+   "v3_home": "nagłówek rekrutacji → menu plakietki priorytetu, pierwsza opcja"
+  },
+  {
+   "id": "list.p0",
+   "area": "lista",
+   "opis": "Rekrutacje z P0 przypięte na górze listy przy każdym sortowaniu, czerwone tło wiersza i plakietka „P0 · 23 h” zamiast P1 (27.10.2026)",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "data-p0",
+   "v3_home": "lista /jobs → pierwsze wiersze"
+  },
+  {
+   "id": "dashboard.p0-panel",
+   "area": "pulpit",
+   "opis": "Stały panel „P0 — ultrapilne teraz” nad kafelkami pulpitu u każdego i na Daily; znika, gdy nie ma P0 (decyzja Artura 27.10.2026)",
+   "file": "components/v2/jobs/p0/P0NowPanel.tsx",
+   "marker": "p0-now-panel",
+   "v3_home": "pulpit → nad kafelkami; Daily → nad tablicą"
+  },
+  {
+   "id": "shell.p0-topbar",
+   "area": "powłoka",
+   "opis": "Czerwony przycisk „P0 teraz · N rekrutacji” w górnym pasku na każdym ekranie, klik pokazuje listę z powodami (27.10.2026)",
+   "file": "components/v2/jobs/p0/P0TopbarButton.tsx",
+   "marker": "p0-topbar-button",
+   "v3_home": "górny pasek → pierwszy przycisk"
+  },
+  {
+   "id": "daily.p0-button",
+   "area": "tablica",
+   "opis": "„P0 na 24 h” przy wierszu requestu w Daily i kafelku „Requesty i obłożenie” (po najechaniu, Head of Recruitment i administrator) — prośba Olafa „Omawiane na Daily”; P0 na górze kategorii (27.10.2026)",
+   "file": "components/v2/request-board/RequestBoard.tsx",
+   "marker": "request-row-set-p0",
+   "v3_home": "Daily → wiersz requestu"
+  },
+  {
+   "id": "dl-review.cover-sheet",
+   "area": "przegląd DL",
+   "opis": "„Karta przed CV” (Credit Agricole, 29.10.2026): pigułka „Karta do klienta” u klienta z wzorem karty w regule CV — kartka jak w Wordzie, źródło przy każdym polu, poziom do sprawdzenia, wynagrodzenie za MD na żywo ze stawki do klienta, „Word”; linia „Karta przed CV gotowa” nad decyzją",
+   "file": "components/v2/recruitment/DlReviewPanel.tsx",
+   "marker": "<ClientCoverSheet",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj"
+  },
+  {
+   "id": "panel.cover-sheet-download",
+   "area": "panel",
+   "opis": "„Karta (Word)” przy „Do klienta” w panelu osoby — karta przed CV po wysyłce, tylko u klienta z wzorem karty i dla ról ze stawką do klienta (29.10.2026)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "dock-cover-sheet-download",
+   "v3_home": "panel → Do klienta → Karta (Word)"
   }
  ]
 }

@@ -650,3 +650,27 @@ def test_apply_leaves_column_untouched_when_skills_unsalvageable():
     assert c.skills is None, "śmieć nie może wylądować w kolumnie"
     prov = c.cv_extracted_data.get("_field_provenance", {})
     assert "skills" not in prov, "odrzucony zapis nie może udawać zapisu"
+
+
+def test_cv_parse_keeps_notes_facts_and_import_provenance():
+    """Runda 9 (R9-N8-3): nowe CV nie kasuje faktów z notatek ani pochodzenia."""
+    c = _bare_candidate()
+    c.cv_extracted_data = {
+        "_notes_insights": {"rate": {"amount": 150}},
+        "legacy_source": "tr_legacy",
+    }
+
+    _apply_cv_enrichment(c, _AI_PARSE, policy=CvWritePolicy.REFRESH)
+
+    assert c.cv_extracted_data["_notes_insights"] == {"rate": {"amount": 150}}
+    assert c.cv_extracted_data["legacy_source"] == "tr_legacy"
+
+
+def test_refresh_does_not_resurrect_manually_curated_skills():
+    """Runda 9 (R9-N8-11): ręcznie poprawione umiejętności chroni też REFRESH."""
+    c = _curated_candidate()
+    c.skills_manually_curated = True
+
+    _apply_cv_enrichment(c, _AI_PARSE, policy=CvWritePolicy.REFRESH)
+
+    assert c.skills == [{"name": "Rust", "level": "expert", "years": 5}]

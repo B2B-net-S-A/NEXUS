@@ -50,7 +50,7 @@ _LEGACY_BRANDED_HTML = (
 ).read_text(encoding="utf-8")
 
 
-async def _public_stage_cv(html: str) -> dict:
+async def _public_stage_cv(html: str, template: str = "standard") -> dict:
     from app.api import public_share as api
 
     row = SimpleNamespace(
@@ -68,6 +68,8 @@ async def _public_stage_cv(html: str) -> dict:
         job_id=2,
         branded_status="finalized",
         branded_draft_html=html,
+        branded_template=template,
+        branded_language="pl",
     )
     db = SimpleNamespace(
         scalar=AsyncMock(
@@ -88,6 +90,13 @@ async def _public_stage_cv(html: str) -> dict:
         response=Response(),
         db=db,
     )
+
+
+async def test_public_blind_stage_cv_does_not_reveal_the_first_name():
+    """R9-N3-1: link do CV etapu w szablonie blind nie niesie imienia."""
+    assert (await _public_stage_cv("<p>cv</p>"))["candidate_first_name"] == "Jan"
+    blind = await _public_stage_cv("<p>cv</p>", template="blind")
+    assert blind["candidate_first_name"] == "Kandydat"
 
 
 async def test_public_stage_cv_keeps_branded_template_stylesheet():

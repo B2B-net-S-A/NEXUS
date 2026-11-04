@@ -28,15 +28,12 @@ from app.core.security import hash_password
 from app.models.user import User, UserRole
 
 _READ_ONLY_ROLES = [
-    UserRole.sourcer,
     UserRole.recruiter,
-    UserRole.tac,
     UserRole.talent_community_manager,
     UserRole.finance,
     UserRole.delivery_lead,
     UserRole.head_of_recruitment,
     UserRole.admin,
-    UserRole.user,
 ]
 
 
@@ -117,12 +114,13 @@ async def _seed_hall_of_fame_people(count: int) -> list[dict]:
 
             # Rok nieużywany przez inne testy — baza jest wspólna, a te wiersze
             # mają `moved_by`, więc wchodzą też do imiennych raportów sąsiadów.
+            # Po 12.10.2026: wcześniejsze ruchy Tablicy nie liczą się (0467).
             db.add(
                 CandidateStage(
                     candidate_id=candidate.id,
                     job_id=job.id,
                     stage=PipelineStage.hired,
-                    moved_at=datetime(2004, 6, 15, 12, 0, tzinfo=timezone.utc)
+                    moved_at=datetime(2070, 6, 15, 12, 0, tzinfo=timezone.utc)
                     + timedelta(days=i),
                     moved_by=user.id,
                 )
@@ -160,7 +158,7 @@ async def test_every_role_reads_the_quarterly_league(
     assert resp.status_code == 200, f"{role.value}: {resp.text}"
 
 
-@pytest.mark.parametrize("role", [UserRole.sourcer, UserRole.finance])
+@pytest.mark.parametrize("role", [UserRole.recruiter, UserRole.finance])
 @pytest.mark.asyncio
 async def test_every_role_reads_races_and_history(
     comp_client: AsyncClient, role: UserRole
@@ -248,7 +246,9 @@ async def test_hall_of_fame_sql_actually_runs_against_the_real_schema(
         total = (
             await db.execute(
                 text(
-                    "SELECT count(*) FROM analytics_first_milestones "
+                    # Widok KPI (0454): 1.01–11.10.2026 placementy z wpisów
+                    # DynaReportera — ten sam, który czyta Hall of Fame.
+                    "SELECT count(*) FROM analytics_kpi_milestones "
                     "WHERE stage::text = 'hired'"
                 )
             )
@@ -470,7 +470,7 @@ async def test_reads_still_require_a_session(comp_client: AsyncClient):
 @pytest.mark.asyncio
 async def test_freeze_stays_admin_only(comp_client: AsyncClient):
     """Zamrożenie podium jest nieodwracalne — D7 go NIE otwiera."""
-    email, password = await _seed_user(UserRole.sourcer)
+    email, password = await _seed_user(UserRole.recruiter)
     headers = await _login(comp_client, email, password)
     resp = await comp_client.post(
         "/api/competitions/freeze",

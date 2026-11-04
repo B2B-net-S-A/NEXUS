@@ -130,6 +130,37 @@ def _gap(total: int, indexed: int | None) -> dict[str, Any]:
     }
 
 
+async def _client_documents(db: AsyncSession) -> dict[str, Any]:
+    """Umowy ramowe czytane przez Jarvisa: ile ma plik i w jakim stanie odczytu.
+
+    Kolekcji ``nexus_client_documents`` nie sprawdza żadna sonda zdrowia —
+    ``text_only`` przy pliku z tekstem znaczy, że wektory nie powstały.
+    """
+    from app.models.client_contract_amendment import ClientContractAmendment
+    from app.models.client_framework_contract import ClientFrameworkContract
+    from app.services.framework_contract_index import COLLECTION
+
+    rows = await db.execute(
+        select(ClientFrameworkContract.text_status, func.count())
+        .where(ClientFrameworkContract.file_path.is_not(None))
+        .group_by(ClientFrameworkContract.text_status)
+    )
+    by_status = {status or "not_read": int(count) for status, count in rows}
+    amendment_rows = await db.execute(
+        select(ClientContractAmendment.text_status, func.count())
+        .where(ClientContractAmendment.file_path.is_not(None))
+        .group_by(ClientContractAmendment.text_status)
+    )
+    amendments = {status or "not_read": int(count) for status, count in amendment_rows}
+    return {
+        "contracts_with_file": sum(by_status.values()),
+        "by_text_status": by_status,
+        "amendments_with_file": sum(amendments.values()),
+        "amendments_by_text_status": amendments,
+        "points": await _collection_points(COLLECTION),
+    }
+
+
 @router.get("/index-coverage")
 async def index_coverage(
     auth_mode: str = Depends(_snapshot_auth),
@@ -202,4 +233,5 @@ async def index_coverage(
             "done": outbox.get("done", 0),
         },
         "candidate_search": candidate_search,
+        "client_documents": await _client_documents(db),
     }

@@ -2,6 +2,12 @@
 
 # In-house QES e-signature — plan implementacji (Szafir-first)
 
+> **Usunięte 21.10.2026.** Tor opisany w tym pliku (`/api/signing/*`, `/sign/{token}`,
+> KIR Szafir/mSzafir, `SIGNING_*`/`QTSP_*`) był wyłączony od 22.09.2026 i został usunięty
+> z kodu. Zastąpił go podpis umowy B2B w NEXUSIE (0499) — reguły w
+> [`docs/claude/kontrakty/podpis-umowy-b2b-w-nexusie.md`](./claude/kontrakty/podpis-umowy-b2b-w-nexusie.md).
+> Dokument zostaje jako historia decyzji.
+
 ## 1. Metadane + decyzja
 
 | Pole | Wartość |

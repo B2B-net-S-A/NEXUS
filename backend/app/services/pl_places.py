@@ -113,6 +113,11 @@ def _distance_km(a: Place, b: Place) -> float:
     return 2 * 6371.0 * math.asin(math.sqrt(h))
 
 
+def distance_km(a: Place, b: Place) -> float:
+    """Odległość w linii prostej (km) — do opisu wiersza „16 km od Warszawy”."""
+    return _distance_km(a, b)
+
+
 def keys_for(place_ids: set[int]) -> list[str]:
     """Wszystkie klucze nazw (także aliasy: „Trójmiasto”, „Warsaw”) wskazanych miejscowości."""
     _, by_key = _load()

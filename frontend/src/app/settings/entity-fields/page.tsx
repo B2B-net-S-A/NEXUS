@@ -452,7 +452,7 @@ export default function EntityFieldsPage() {
     <div className="container max-w-6xl mx-auto md:py-8 md:px-4">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-foreground mt-2">
-          Konfiguracja pól
+          Dodatkowe pola
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
           Definiuj własne pola na profilu kandydata i rekrutacji bez deploya.

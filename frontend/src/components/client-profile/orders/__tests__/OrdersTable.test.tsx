@@ -1,0 +1,952 @@
+/**
+ * Tabela zamówień (wersja B, 29.09.2026) — to, czego pilnowały testy dawnej
+ * karty `OrderGroupCard` (podział obsady, sekcja „Zakończone", nazwisko jako
+ * link do kontraktu z wiersza, paski MD), przeniesione na wiersze tabeli.
+ */
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { useState } from "react";
+import { describe, expect, it, vi } from "vitest";
+
+import { OrdersTable } from "@/components/client-profile/orders/OrdersTable";
+import { buildSectionRows } from "@/components/client-profile/orders/orders-table-model";
+import type { OrderGroupRead } from "@/lib/api/orderGroups";
+import { consultantMatchesQuery, effectiveGroupOrderType } from "@/lib/client-order-list";
+import {
+  makeOffboardingCase as offboardingCase,
+  makeOrderGroup as group,
+  makeOrderLine as line,
+} from "@/components/client-profile/orders/__tests__/fixtures/order-groups";
+
+function renderTable(
+  groups: OrderGroupRead[],
+  options: { canDecide?: boolean; canManage?: boolean; searchQuery?: string } = {},
+) {
+  const onSelect = vi.fn();
+  // Ta sama plątanina rozwinięć co w `MultiConsultantOrdersTab`.
+  function Harness() {
+    const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
+    const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set());
+    const query = options.searchQuery ?? "";
+    const rows = buildSectionRows(
+      groups.map((item) => ({ kind: "group" as const, group: item })),
+      {
+        expandedEnded: expanded,
+        collapsedEnded: collapsed,
+        matchesSearch: query ? (name) => consultantMatchesQuery(name, query) : undefined,
+      },
+    );
+    return (
+      <OrdersTable
+        sections={[
+          { type: effectiveGroupOrderType(groups[0]), itemCount: groups.length, rows },
+        ]}
+        selectedKey={null}
+        onSelect={onSelect}
+        onToggleEnded={(groupId, open) => {
+          setExpanded((prev) => {
+            const next = new Set(prev);
+            if (open) next.add(groupId);
+            else next.delete(groupId);
+            return next;
+          });
+          setCollapsed((prev) => {
+            const next = new Set(prev);
+            if (open) next.delete(groupId);
+            else next.add(groupId);
+            return next;
+          });
+        }}
+        searchQuery={query}
+        canDecide={options.canDecide ?? true}
+        canManage={options.canManage ?? true}
+        canViewFinance
+      />
+    );
+  }
+  const view = render(<Harness />);
+  return { ...view, onSelect };
+}
+
+const rowOf = (lineId: number) => document.getElementById(`order-line-${lineId}`);
+
+describe("OrdersTable — kafelki zamówień MD i kosztowych (ticket 11)", () => {
+  it("każde zamówienie to osobny kafelek z nagłówkiem zamówienia i nagłówkami kolumn", () => {
+    renderTable([
+      group({ id: 30, order_number: "4500030845", lines: [line()] }),
+      group({ id: 31, order_number: "4500030744", lines: [line({ id: 5, consultant_name: "Robert Drugi" })] }),
+    ]);
+
+    const tiles = document.querySelectorAll('[data-order-tile="group"]');
+    expect(tiles).toHaveLength(2);
+    tiles.forEach((tile) => {
+      const headers = Array.from(tile.querySelectorAll("thead th")).map((th) => th.textContent);
+      expect(headers).toEqual(["Konsultant", "Koszt", "Przychód", "Zostało MD", "Zużycie", "Uwagi"]);
+      // Te same szerokości kolumn w każdym kafelku — kolumny trzymają linię.
+      expect(tile.querySelector("table")).toHaveClass("table-fixed");
+    });
+    const firstTile = tiles[0] as HTMLElement;
+    const header = firstTile.querySelector("thead tr")!;
+    expect(header).toHaveAttribute("data-order-row", "group");
+    expect(header).toHaveTextContent("Zamówienie nr 4500030845");
+    expect(firstTile).toContainElement(rowOf(1));
+    expect(firstTile).not.toContainElement(rowOf(5));
+    expect(tiles[1]).toContainElement(rowOf(5));
+  });
+
+  it("każde zamówienie ma własną kartę z odstępem — bez wspólnej karty, w której się zlewały (29.10.2026)", () => {
+    renderTable([
+      group({ id: 30, order_number: "4500030845", lines: [line()] }),
+      group({ id: 31, order_number: "4500030744", lines: [line({ id: 5, consultant_name: "Robert Drugi" })] }),
+    ]);
+
+    const tiles = Array.from(document.querySelectorAll<HTMLElement>('[data-order-tile="group"]'));
+    tiles.forEach((tile) => expect(tile).toHaveClass("rounded-lg", "border", "bg-card"));
+    // Karty stoją w kolumnie z odstępem, a ich wspólny rodzic nie jest kartą.
+    const stack = tiles[0].parentElement!;
+    expect(stack).toHaveClass("flex-col", "gap-2.5");
+    expect(stack.parentElement).not.toHaveClass("border");
+    // `overflow-hidden` zrobiłoby z karty kontener przewijania i zepsuło
+    // przyklejoną kolumnę osoby przy przewijaniu w bok.
+    tiles.forEach((tile) => expect(tile).not.toHaveClass("overflow-hidden"));
+  });
+
+  it("nagłówek MD per osoba pokazuje budżet zamówienia — te same liczby co panel", () => {
+    renderTable([
+      group({
+        md_positions_total: 200,
+        md_used_total: 24.625,
+        lines: [
+          line({ id: 1, md_total: 85, md_remaining: 76 }),
+          line({ id: 2, consultant_name: "Robert Drugi", md_total: 60, md_remaining: 20 }),
+        ],
+      }),
+    ]);
+    const header = document.getElementById("order-group-anchor-15")!;
+    expect(header).toHaveTextContent("Zamówienie nr");
+    expect(header).toHaveTextContent("2 os.");
+    expect(header).toHaveTextContent(
+      "Budżet 200 MD · wykorzystano 24,625 MD · pozostało 175,375 MD",
+    );
+    expect(within(header).getByRole("progressbar", { name: "Pozostało w zamówieniu" })).toBeInTheDocument();
+    // Wiersze osób bez zmian — pasek i „X / Y MD” per osoba.
+    expect(within(rowOf(1)!).getByRole("progressbar", { name: "Pozostałe MD" })).toBeInTheDocument();
+    expect(rowOf(1)).toHaveTextContent(/76\s*\/\s*85\s*MD/);
+    expect(rowOf(2)).toHaveTextContent(/20\s*\/\s*60\s*MD/);
+  });
+
+  it("nagłówek kosztowego: kwota · zafakturowano · pozostało; bez kwot (brak uprawnień) — nic", () => {
+    const { unmount } = renderTable([
+      group({
+        is_cost_based: true,
+        budget_amount: 1000,
+        budget_used: 400,
+        budget_remaining: 600,
+        lines: [line({ md_total: null, md_remaining: null })],
+      }),
+    ]);
+    expect(document.getElementById("order-group-anchor-15")).toHaveTextContent(
+      /Kwota 1000,00\szł · zafakturowano 400,00\szł · pozostało 600,00\szł/,
+    );
+    unmount();
+
+    // Rola bez VIEW_FINANCE dostaje kwoty grupy jako `null` — nie „pozostało 0”.
+    renderTable([
+      group({
+        is_cost_based: true,
+        lines: [line({ md_total: null, md_remaining: null, invoiced_total: null })],
+      }),
+    ]);
+    const header = document.getElementById("order-group-anchor-15")!;
+    expect(header).not.toHaveTextContent(/pozostało/);
+    expect(within(header).queryByRole("progressbar")).toBeNull();
+  });
+
+  it("nagłówek MD per osoba liczy ręczną korektę tak samo jak wiersz osoby", () => {
+    renderTable([
+      group({
+        md_positions_total: 96.95,
+        md_used_total: 62.05,
+        md_adjustment_total: -2.4,
+        lines: [line({ id: 1, md_total: 96.95, md_remaining: 32.5, md_manual_adjustment: -2.4 })],
+      }),
+    ]);
+    const header = document.getElementById("order-group-anchor-15")!;
+    expect(header).toHaveTextContent(
+      "Budżet 96,95 MD · wykorzystano 62,05 MD · pozostało 32,5 MD (w tym korekta −2,4 MD)",
+    );
+    expect(rowOf(1)).toHaveTextContent(/32,5\s*\/\s*96,95\s*MD/);
+  });
+
+  it("korekta na plus też trafia do „pozostało” w nagłówku", () => {
+    renderTable([
+      group({ md_positions_total: 100, md_used_total: 120, md_adjustment_total: 30 }),
+    ]);
+    expect(document.getElementById("order-group-anchor-15")).toHaveTextContent(
+      "Budżet 100 MD · wykorzystano 120 MD · pozostało 10 MD (w tym korekta +30 MD)",
+    );
+  });
+
+  it("nagłówek wspólnej puli MD: budżet · wykorzystano · pozostało, bez schodzenia pod zero", () => {
+    renderTable([
+      group({
+        is_md_budget_based: true,
+        md_budget_mode: "shared",
+        md_budget_total: 100,
+        md_budget_used: 104,
+        md_budget_remaining: -4,
+        lines: [line({ md_total: null, md_remaining: null })],
+      }),
+    ]);
+    const header = document.getElementById("order-group-anchor-15")!;
+    expect(header).toHaveTextContent(
+      "Wspólna pula: budżet 100 MD · wykorzystano 104 MD · pozostało 0 MD",
+    );
+    // Wyczerpanie nadal sygnalizuje plakietka w „Uwagach”.
+    expect(within(header).getByText("Budżet wyczerpany")).toBeInTheDocument();
+  });
+
+  it("osoba dodana do zamówienia nie ma tagu „Dodany ręcznie”", () => {
+    renderTable([
+      group({
+        lines: [line({ origin: "manual", added_at: "2026-08-21T09:00:00Z", added_by_name: "Anna Przykładowa" })],
+      }),
+    ]);
+    expect(rowOf(1)).not.toHaveTextContent(/ręcznie/i);
+  });
+
+  it("MD czekające na kolejne zamówienie stoją przy osobie z poprzedniego zamówienia (21.10.2026)", () => {
+    renderTable([
+      group({
+        lines: [line({ awaiting_md: [{ period_month: "2026-09", md: 12.25 }] })],
+      }),
+    ]);
+    expect(rowOf(1)).toHaveTextContent(
+      "Pozostało do zafakturowania za wrzesień 2026: 12,25 MD – oczekuje na kolejne zamówienie",
+    );
+  });
+});
+
+describe("OrdersTable — podział obsady", () => {
+  it("zakończony konsultant z nierozstrzygniętą sprawą jest w „Zakończone”, nie w obsadzie", () => {
+    // Do 09.2026 sprawa `pending` przypinała wiersz do aktywnej obsady, żeby
+    // decyzja DL nie zginęła — sekcja odpowiadała na dwa pytania naraz.
+    renderTable([
+      group({
+        lines: [
+          line(),
+          line({
+            id: 2,
+            consultant_name: "Anna Zejście",
+            status: "completed",
+            is_active: false,
+            end_date: "2026-08-31",
+            cooperation_ended_on: "2026-08-31",
+            md_used: 25,
+            offboarding_case: offboardingCase(),
+          }),
+        ],
+      }),
+    ]);
+
+    expect(rowOf(1)).toHaveAttribute("data-order-row", "line");
+    expect(rowOf(2)).toHaveAttribute("data-order-row", "ended-line");
+    // Kolumna nazywa się „Zostało MD” — wykorzystanie osoby zakończonej musi
+    // to powiedzieć, inaczej „0 MD” czyta się jak pusta pula.
+    // Makieta B: „Zostało MD” = pula czekająca na decyzję, „Zużycie” = wykorzystane.
+    expect(rowOf(2)).toHaveTextContent(/zostało 30 MD/);
+    expect(rowOf(2)).toHaveTextContent(/25 MD/);
+    expect(rowOf(2)).not.toHaveTextContent(/wykorzystano/);
+    const toggleRow = screen.getByRole("button", { name: /^Zakończone/ }).closest("tr")!;
+    expect(rowOf(1)!.compareDocumentPosition(toggleRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(toggleRow.compareDocumentPosition(rowOf(2)!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("nagłówek „Zakończone” liczy sprawy czekające na decyzję, a decyzje są na górze", () => {
+    // Przeniesienie wiersza nie może ukryć decyzji: licznik jest jedynym
+    // sygnałem, że w tej sekcji zostało coś do zrobienia.
+    renderTable([
+      group({
+        lines: [
+          line(),
+          line({
+            id: 3,
+            consultant_name: "Piotr Historia",
+            status: "completed",
+            is_active: false,
+            cooperation_ended_on: "2026-07-31",
+            history_kept_at: "2026-08-01T09:00:00Z",
+          }),
+          line({
+            id: 2,
+            consultant_name: "Anna Zejście",
+            status: "completed",
+            is_active: false,
+            cooperation_ended_on: "2026-08-31",
+            offboarding_case: offboardingCase(),
+          }),
+        ],
+      }),
+    ]);
+
+    const toggle = screen.getByRole("button", {
+      name: /^Zakończone \(2\)\s*· 1 wymaga decyzji$/,
+    });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const ended = Array.from(document.querySelectorAll('[data-order-row="ended-line"]'));
+    expect(ended).toHaveLength(2);
+    expect(ended[0]).toHaveTextContent("Anna Zejście");
+    expect(ended[0]).toHaveTextContent("Podejmij decyzję");
+    expect(ended[0]).toHaveClass("bg-destructive/5");
+    expect(ended[1]).toHaveTextContent("Zostawiony jako historia");
+    expect(ended[1]).not.toHaveTextContent("Podejmij decyzję");
+    expect(ended[1]).not.toHaveClass("bg-destructive/5");
+  });
+
+  it("bez spraw do rozstrzygnięcia sekcja jest zwinięta i rozwija się na klik", async () => {
+    const user = userEvent.setup();
+    renderTable([
+      group({
+        lines: [
+          line(),
+          line({
+            id: 2,
+            consultant_name: "Piotr Historia",
+            status: "completed",
+            is_active: false,
+            cooperation_ended_on: "2026-07-31",
+            history_kept_at: "2026-08-01T09:00:00Z",
+          }),
+        ],
+      }),
+    ]);
+
+    const toggle = screen.getByRole("button", { name: "Zakończone (1)" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Piotr Historia")).not.toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Piotr Historia")).toBeInTheDocument();
+    await user.click(toggle);
+    expect(screen.queryByText("Piotr Historia")).not.toBeInTheDocument();
+  });
+
+  it("sekcja z decyzją da się zwinąć ręcznie mimo decyzji", async () => {
+    const user = userEvent.setup();
+    renderTable([
+      group({
+        lines: [
+          line(),
+          line({
+            id: 2,
+            consultant_name: "Anna Zejście",
+            status: "completed",
+            is_active: false,
+            cooperation_ended_on: "2026-08-31",
+          }),
+        ],
+      }),
+    ]);
+    await user.click(screen.getByRole("button", { name: /^Zakończone \(1\)/ }));
+    expect(screen.queryByText("Anna Zejście")).not.toBeInTheDocument();
+  });
+
+  it("następca, który kogoś zastąpił, zostaje w aktywnej obsadzie", async () => {
+    // Kryterium zgłoszenia: przenosimy zakończonych, nie zastępców.
+    const user = userEvent.setup();
+    renderTable([
+      group({
+        lines: [
+          line({
+            id: 3,
+            consultant_name: "Nowy Zastępca",
+            predecessor_order_id: 2,
+            predecessor_consultant_name: "Anna Zejście",
+          }),
+          line({
+            id: 2,
+            consultant_name: "Anna Zejście",
+            status: "completed",
+            is_active: false,
+            cooperation_ended_on: "2026-08-31",
+            replaced_by_order_id: 3,
+            replaced_by_consultant_name: "Nowy Zastępca",
+          }),
+        ],
+      }),
+    ]);
+
+    expect(rowOf(3)).toHaveAttribute("data-order-row", "line");
+    expect(rowOf(3)).toHaveTextContent("zastąpił: Anna Zejście");
+    await user.click(screen.getByRole("button", { name: "Zakończone (1)" }));
+    expect(rowOf(2)).toHaveAttribute("data-order-row", "ended-line");
+    // Decyzja już zapadła — opis zamiast pytania.
+    expect(rowOf(2)).toHaveTextContent("Zastąpiony przez Nowy Zastępca");
+    expect(rowOf(2)).not.toHaveTextContent("Podejmij decyzję");
+  });
+
+  it("zakończeni schodzą z aktywnej obsady, najnowsze zejście na górze", () => {
+    // Osoba po zejściu ma DALEJ `status: "active"` — linia MD kończy się
+    // budżetem, nie kalendarzem. O sekcji decyduje `is_active` z serwera.
+    const departed = (overrides: Parameters<typeof line>[0]) =>
+      line({ status: "active", is_active: false, md_used: 30, ...overrides });
+    renderTable([
+      group({
+        lines: [
+          line({ id: 1, consultant_name: "Aktywna Osoba" }),
+          departed({
+            id: 2,
+            consultant_name: "Anna Wczesna",
+            end_date: "2026-06-30",
+            cooperation_ended_on: "2026-06-30",
+          }),
+          departed({
+            id: 3,
+            consultant_name: "Zenon Ostatni",
+            end_date: "2026-08-31",
+            cooperation_ended_on: "2026-08-31",
+          }),
+        ],
+      }),
+    ]);
+
+    expect(rowOf(1)).toHaveAttribute("data-order-row", "line");
+    const ended = Array.from(document.querySelectorAll('[data-order-row="ended-line"]'));
+    // Alfabetycznie byłoby odwrotnie — sekcja sortuje się datą zejścia.
+    expect(ended.map((item) => item.id)).toEqual(["order-line-3", "order-line-2"]);
+  });
+});
+
+describe("OrdersTable — wiersz osoby zakończonej", () => {
+  it("wiersz: kto, plakietka, okres, wykorzystanie i decyzja — reszta w panelu", () => {
+    renderTable([
+      group({
+        active_consultants: 0,
+        lines: [
+          line({
+            id: 2,
+            consultant_name: "Marian Odeszły",
+            status: "active",
+            is_active: false,
+            start_date: "2026-05-01",
+            end_date: "2026-08-31",
+            cooperation_ended_on: "2026-08-31",
+            md_used: 25.45,
+            rate_revenue: 1000,
+            origin: "manual",
+            added_at: "2026-08-21T09:00:00Z",
+            added_by_name: "Anna Przykładowa",
+            contract_type: "b2b",
+          }),
+        ],
+      }),
+    ]);
+
+    const row = rowOf(2)!;
+    expect(row).toHaveTextContent("Zakończył projekt");
+    expect(row).toHaveTextContent("01.05.2026 – 31.08.2026");
+    expect(row).toHaveTextContent(/25,45 MD · 25\s450,00\szł/);
+    expect(within(row).getByText("Podejmij decyzję")).toBeInTheDocument();
+    // Bez „Dodany ręcznie", autora, zdania o puli i paska — to jest w panelu.
+    expect(row).not.toHaveTextContent(/Dodany ręcznie/i);
+    expect(row).not.toHaveTextContent("Anna Przykładowa");
+    expect(row).not.toHaveTextContent(/nie wraca/);
+    expect(row.querySelector('[role="progressbar"]')).toBeNull();
+  });
+
+  it("umowa rozwiązana: plakietka „Zakończył współpracę” i opis decyzji zamiast pytania", async () => {
+    const user = userEvent.setup();
+    renderTable([
+      group({
+        lines: [
+          line({
+            id: 2,
+            consultant_name: "Marian Odeszły",
+            is_active: false,
+            cooperation_ended_on: "2026-08-31",
+            history_kept_at: "2026-09-01T09:00:00Z",
+            contract_type: "b2b",
+            agreement_termination_mode: "mutual_agreement",
+            agreement_last_day: "2026-08-31",
+          }),
+        ],
+      }),
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "Zakończone (1)" }));
+    const row = rowOf(2)!;
+    expect(row).toHaveTextContent("Zakończył współpracę");
+    expect(row).toHaveTextContent("Zostawiony jako historia");
+    expect(row).not.toHaveClass("bg-destructive/5");
+    expect(within(row).queryByText("Podejmij decyzję")).toBeNull();
+  });
+
+  it("rola bez decyzji o puli widzi, na kogo czeka sprawa", () => {
+    renderTable(
+      [
+        group({
+          lines: [
+            line({
+              id: 2,
+              consultant_name: "Anna Zejście",
+              is_active: false,
+              cooperation_ended_on: "2026-08-31",
+              offboarding_case: offboardingCase(),
+            }),
+          ],
+        }),
+      ],
+      { canDecide: true, canManage: false },
+    );
+    expect(rowOf(2)).toHaveTextContent("Oczekuje na decyzję Delivery Leada");
+    expect(within(rowOf(2)!).queryByText("Podejmij decyzję")).toBeNull();
+  });
+
+  it("żaden wiersz nie używa starych nazw zakończenia", () => {
+    renderTable([
+      group({
+        lines: [
+          line({
+            id: 2,
+            consultant_name: "Anna Zejście",
+            is_active: false,
+            cooperation_ended_on: "2026-08-31",
+            offboarding_case: offboardingCase(),
+          }),
+          line({ id: 3, consultant_name: "Piotr Domknięty", status: "completed", is_active: false }),
+        ],
+      }),
+    ]);
+    const text = document.body.textContent ?? "";
+    expect(text).not.toMatch(/Zakończenie współpracy/);
+    expect(text).not.toMatch(/Zakończony\b/);
+  });
+});
+
+describe("OrdersTable — nazwisko prowadzi do kontraktu z tego wiersza", () => {
+  it("dwie osoby na jednym zamówieniu dostają DWA różne kontrakty", () => {
+    renderTable([
+      group({
+        lines: [
+          line({ id: 1, contract_id: 600, consultant_name: "Wojciech Przykładowy" }),
+          line({ id: 2, contract_id: 601, consultant_name: "Anna Wzorcowa" }),
+        ],
+        active_consultants: 2,
+      }),
+    ]);
+
+    // Sedno ticketu: adres bierze się z LINII, nie z osoby ani z zamówienia —
+    // ta sama osoba u innego klienta ma inny kontrakt.
+    expect(screen.getByRole("link", { name: "Wojciech Przykładowy" })).toHaveAttribute(
+      "href",
+      "/contracts/600",
+    );
+    expect(screen.getByRole("link", { name: "Anna Wzorcowa" })).toHaveAttribute(
+      "href",
+      "/contracts/601",
+    );
+  });
+
+  it("wiersz osoby zakończonej też jest linkiem", async () => {
+    const user = userEvent.setup();
+    renderTable([
+      group({
+        lines: [
+          line({ id: 1, contract_id: 600, consultant_name: "Wojciech Przykładowy" }),
+          line({
+            id: 2,
+            contract_id: 700,
+            consultant_name: "Historyczny Konsultant",
+            is_active: false,
+            status: "completed",
+            end_date: "2026-04-30",
+          }),
+        ],
+      }),
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "Zakończone (1)" }));
+    expect(screen.getByRole("link", { name: "Historyczny Konsultant" })).toHaveAttribute(
+      "href",
+      "/contracts/700",
+    );
+  });
+
+  it("nazwą dostępną linku jest NAZWISKO, nie numer kontraktu", () => {
+    renderTable([
+      group({ lines: [line({ id: 1, contract_id: 600, consultant_name: "Wojciech Przykładowy" })] }),
+    ]);
+    const link = screen.getByRole("link", { name: "Wojciech Przykładowy" });
+    // `title` na kotwicy przejmuje nazwę w drzewie dostępności Chrome (jsdom
+    // liczy inaczej) — dlatego pytamy wprost o atrybuty.
+    expect(link).not.toHaveAttribute("title");
+    expect(link).not.toHaveAttribute("aria-label");
+  });
+
+  it("klik w nazwisko nawiguje, klik w resztę wiersza otwiera panel", async () => {
+    const user = userEvent.setup();
+    const { onSelect } = renderTable([
+      group({ lines: [line({ id: 1, contract_id: 600, consultant_name: "Wojciech Przykładowy" })] }),
+    ]);
+    fireEvent.click(screen.getByRole("link", { name: "Wojciech Przykładowy" }));
+    expect(onSelect).not.toHaveBeenCalled();
+    await user.click(rowOf(1)!);
+    expect(onSelect).toHaveBeenCalledWith("l:1");
+  });
+
+  it("poprzednik i następca NIE są linkami do kontraktu", () => {
+    renderTable([
+      group({
+        lines: [
+          line({
+            id: 1,
+            contract_id: 600,
+            consultant_name: "Wojciech Przykładowy",
+            predecessor_order_id: 41,
+            predecessor_consultant_name: "Poprzedni Konsultant",
+            replaced_by_order_id: 42,
+            replaced_by_consultant_name: "Następny Konsultant",
+          }),
+        ],
+      }),
+    ]);
+    // Te nazwiska niosą wyłącznie `*_order_id` — kontraktu nie da się z nich
+    // wyprowadzić, więc link musiałby go zgadywać.
+    expect(screen.queryByRole("link", { name: /Poprzedni Konsultant/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Następny Konsultant/ })).toBeNull();
+  });
+});
+
+describe("OrdersTable — budżet i zużycie w wierszach", () => {
+  const scoped = () =>
+    group({
+      client_id: 115,
+      executive_contract: {
+        id: 71,
+        number: "UW/242/2031",
+        status: "active",
+        framework_contract_id: 12,
+        project_part: "cz2",
+      },
+      md_positions_total: 360,
+      md_used_total: 154,
+      contract_value_pln: 2_295_200,
+      used_value_pln: 711_480,
+      lines: [
+        line({
+          id: 2,
+          consultant_name: "Marcin Następca",
+          md_total: 190,
+          md_remaining: 206,
+          md_used: 154,
+          md_optional_total: 170,
+          md_base_used: 154,
+          md_optional_used: 0,
+        }),
+      ],
+    });
+
+  it("linia z zakresami dostaje paski podstawy i opcji, zamówienie — sama umowa wykonawcza", () => {
+    renderTable([scoped()]);
+    const row = rowOf(2)!;
+    expect(row.querySelector('[aria-label="Podstawa — wykorzystano MD"]')).not.toBeNull();
+    expect(row.querySelector('[aria-label="Opcja — wykorzystano MD"]')).not.toBeNull();
+    const groupRow = document.getElementById("order-group-anchor-15")!;
+    expect(groupRow).toHaveTextContent("Umowa wykonawcza UW/242/2031 · Cz. II");
+    // Łączne MD zamówienia w nagłówku; kwoty umowy zostają w panelu.
+    expect(groupRow).toHaveTextContent("Budżet 360 MD · wykorzystano 154 MD · pozostało 206 MD");
+    expect(groupRow).not.toHaveTextContent(/2\s295\s200/);
+  });
+
+  // 13.10.2026: dwa paski CeZ z „184 / 190 MD 97%” potrzebują ok. 300 px, a
+  // kolumna „Zostało MD” miała 208 — liczby wchodziły pod przycisk „Zużycie”.
+  const tileColumns = () =>
+    [...document.querySelectorAll("[data-orders-table] colgroup")].map((colgroup) =>
+      [...colgroup.querySelectorAll("col")].map((col) => col.className),
+    );
+
+  it("sekcja z paskami CeZ: szersza kolumna „Zostało MD” kosztem nazwiska, w nagłówku i w każdym zamówieniu", () => {
+    renderTable([scoped()]);
+    const columns = tileColumns();
+    // Ozdobny nagłówek sekcji + tabela zamówienia muszą mieć te same kolumny.
+    expect(columns).toHaveLength(2);
+    for (const cols of columns) {
+      expect(cols[0]).toBe("w-[20%]");
+      expect(cols[3]).toBe("w-[18rem]");
+    }
+  });
+
+  it("sekcja bez zakresów zostaje przy dawnych szerokościach kolumn", () => {
+    renderTable([group()]);
+    for (const cols of tileColumns()) {
+      expect(cols[0]).toBe("w-[26%]");
+      expect(cols[3]).toBe("w-[13rem]");
+    }
+  });
+
+  it("BIK/Polkomtel bez umowy wykonawczej zostaje przy pasku „pozostało / całość”", () => {
+    renderTable([
+      group({
+        md_positions_total: 50,
+        md_used_total: 50,
+        contract_value_pln: 60_000,
+        used_value_pln: 60_000,
+        lines: [line({ md_used: 50, md_base_used: 50, md_optional_used: null })],
+      }),
+    ]);
+    const row = rowOf(1)!;
+    expect(within(row).getByRole("progressbar", { name: "Pozostałe MD" })).toBeInTheDocument();
+    expect(within(row).queryByRole("progressbar", { name: /Podstawa/ })).toBeNull();
+    expect(screen.queryByText(/Umowa wykonawcza/)).toBeNull();
+    expect(screen.queryByText(/60\s000/)).toBeNull();
+  });
+
+  it("MD per osoba ma przycisk „Zużycie”, kosztowe i wspólna pula — nie", async () => {
+    const user = userEvent.setup();
+    const { onSelect, unmount } = renderTable([group()]);
+    await user.click(screen.getByRole("button", { name: "Zużycie MD — Michał Przykładowy" }));
+    expect(onSelect).toHaveBeenCalledWith("l:1", "zuzycie");
+    unmount();
+
+    renderTable([
+      group({
+        is_cost_based: true,
+        budget_amount: 1000,
+        budget_used: 0,
+        budget_remaining: 1000,
+        lines: [line({ md_total: null, md_remaining: null })],
+      }),
+    ]);
+    expect(screen.queryByRole("button", { name: /Zużycie MD/ })).toBeNull();
+    expect(rowOf(1)).toHaveTextContent("zafakturowano —");
+  });
+
+  it("kosztowe: „Budżet” = wspólny budżet, „zafakturowano” osoby w kolumnie „Zużycie”", () => {
+    renderTable([
+      group({
+        is_cost_based: true,
+        budget_amount: 50_000,
+        budget_used: 12_000,
+        budget_remaining: 38_000,
+        lines: [
+          line({ id: 1, md_total: null, md_remaining: null, invoiced_total: 12_000 }),
+          line({
+            id: 2,
+            consultant_name: "Ewa Odeszła",
+            md_total: null,
+            md_remaining: null,
+            invoiced_total: 3_500,
+            status: "completed",
+            is_active: false,
+            end_date: "2026-08-31",
+            cooperation_ended_on: "2026-08-31",
+            history_kept_at: "2026-09-01T09:00:00Z",
+          }),
+        ],
+      }),
+    ]);
+    const cells = (id: number) => Array.from(rowOf(id)!.querySelectorAll("td")).map((td) => td.textContent);
+    expect(cells(1)[3]).toBe("wspólny budżet");
+    expect(cells(1)[4]).toMatch(/zafakturowano 12\s000,00\szł/);
+    fireEvent.click(screen.getByRole("button", { name: /^Zakończone/ }));
+    expect(cells(2)[3]).toBe("wspólny budżet");
+    expect(cells(2)[4]).toMatch(/zafakturowano 3500,00\szł/);
+  });
+
+  it("wspólna pula: „Zużycie” = suma MD osoby na zamówieniu, także zakończonej", () => {
+    renderTable([
+      group({
+        is_md_budget_based: true,
+        md_budget_mode: "shared",
+        md_budget_total: 458,
+        md_budget_used: 232,
+        md_budget_remaining: 226,
+        lines: [
+          line({ id: 1, md_total: null, md_remaining: null, md_used: 20, shared_md_unattributed_months: 0 }),
+          line({
+            id: 2,
+            consultant_name: "Tomasz Bezpodziału",
+            md_total: null,
+            md_remaining: null,
+            md_used: 8,
+            shared_md_unattributed_months: 2,
+          }),
+          line({
+            id: 3,
+            consultant_name: "Zofia Odeszła",
+            md_total: null,
+            md_remaining: null,
+            md_used: 12,
+            rate_revenue: null,
+            status: "completed",
+            is_active: false,
+            end_date: "2026-08-31",
+            cooperation_ended_on: "2026-08-31",
+            history_kept_at: "2026-09-01T09:00:00Z",
+          }),
+        ],
+      }),
+    ]);
+    const cells = (id: number) => Array.from(rowOf(id)!.querySelectorAll("td")).map((td) => td.textContent);
+    expect(cells(1)[3]).toBe("wspólna pula");
+    expect(cells(1)[4]).toBe("20 MD");
+    // Miesiące zapisane samą sumą nie mają osoby — lista mówi to wprost.
+    expect(cells(2)[4]).toMatch(/^8 MD\+2 mies\. bez podziału$/);
+    expect(screen.queryByRole("button", { name: /Zużycie MD/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Zakończone/ }));
+    expect(cells(3)[3]).toBe("wspólna pula");
+    expect(cells(3)[4]).toBe("12 MD");
+  });
+
+  it("anulowane zamówienie pokazuje datę anulowania w kalendarzu firmy", () => {
+    renderTable([
+      group({
+        status: "cancelled",
+        status_label: "Anulowane",
+        // 23:30 UTC 28.09 to już 29.09 w Warszawie.
+        cancelled_at: "2026-09-28T23:30:00Z",
+      }),
+    ]);
+    expect(document.getElementById("order-group-anchor-15")).toHaveTextContent(
+      "anulowane 29.09.2026",
+    );
+  });
+
+  it("wyszukiwanie podświetla wiersz szukanej osoby i rozwija zakończonych", () => {
+    renderTable(
+      [
+        group({
+          lines: [
+            line({ id: 1, consultant_name: "Anna Nowak" }),
+            line({
+              id: 2,
+              consultant_name: "Zofia Kowalska",
+              is_active: false,
+              status: "completed",
+              history_kept_at: "2026-07-01T09:00:00Z",
+            }),
+          ],
+        }),
+      ],
+      { searchQuery: "Kowal Zof" },
+    );
+    expect(screen.getByRole("button", { name: "Zakończone (1)" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(rowOf(2)).toHaveClass("bg-primary/5");
+    expect(rowOf(1)).not.toHaveClass("bg-primary/5");
+  });
+});
+
+describe("OrdersTable — kontraktor z pojedynczym zamówieniem", () => {
+  const contractor = (orderType: "periodic" | "md") =>
+    ({
+      contract_id: 466,
+      candidate_id: 5,
+      candidate_name: "Mateusz Wzorcowy",
+      contract_status: "active",
+      contract_start_date: "2026-09-01",
+      contract_end_date: null,
+      rate_candidate: 150,
+      rate_client_currency: "PLN",
+      rate_candidate_currency: "PLN",
+      rate_unit: "daily",
+      initial_job_id: null,
+      initial_job_title: null,
+      latest_order_id: 1,
+      latest_order_end_date: "2026-12-31",
+      latest_order_rate_client: 1450,
+      latest_order_monthly_margin: null,
+      days_to_latest_end: 90,
+      orders: [
+        {
+          id: 1,
+          client_id: 1,
+          contract_id: 466,
+          job_id: null,
+          framework_contract_id: null,
+          title: "9/98/2031/PR",
+          description: null,
+          status: "active",
+          order_type: orderType,
+          start_date: "2026-09-01",
+          end_date: "2026-12-31",
+          rate_unit: "daily",
+          rate_candidate: 150,
+          rate_client: 1450,
+          total_value: null,
+          currency: "PLN",
+          rate_client_currency: "PLN",
+          rate_candidate_currency: "PLN",
+          project_part: null,
+          filename: null,
+          has_file: false,
+          content_type: null,
+          size_bytes: null,
+          created_by_user_id: null,
+          notes: null,
+          created_at: "2026-09-01T00:00:00Z",
+          updated_at: "2026-09-01T00:00:00Z",
+          candidate_id: 5,
+          candidate_name: null,
+          contract_status: "active",
+          job_title: null,
+          monthly_margin: null,
+          days_to_end: 90,
+        },
+      ],
+    }) as never;
+
+  function renderSection(type: "periodic" | "md") {
+    const rows = buildSectionRows([{ kind: "contractor", contractor: contractor(type) }], {
+      expandedEnded: new Set(),
+      collapsedEnded: new Set(),
+    });
+    render(
+      <OrdersTable
+        sections={[{ type, itemCount: 1, rows }]}
+        selectedKey={null}
+        onSelect={vi.fn()}
+        onToggleEnded={vi.fn()}
+        searchQuery=""
+        canDecide
+        canManage
+        canViewFinance
+      />,
+    );
+    const row = document.getElementById("contractor-row-466")!;
+    const headers = Array.from(row.closest("table")!.querySelectorAll("thead th")).map(
+      (th) => th.textContent,
+    );
+    return { row, headers, cells: row.querySelectorAll("td") };
+  }
+
+  it("w sekcji „Okresowe” wiersz ma kolumny numeru, okresu, stawek i stanu", () => {
+    const { row, headers, cells } = renderSection("periodic");
+    expect(cells).toHaveLength(headers.length);
+    expect(cells[headers.indexOf("Nr zamówienia")]).toHaveTextContent("9/98/2031/PR");
+    expect(cells[headers.indexOf("Okres")]).toHaveTextContent("01.09.2026");
+    expect(cells[headers.indexOf("Stan")]).toHaveTextContent("Aktywne");
+    expect(within(row).getByRole("link", { name: "Mateusz Wzorcowy" })).toHaveAttribute(
+      "href",
+      "/contracts/466",
+    );
+    // Pod nazwiskiem nie ma drugiej linii — numer kontraktu jest w nagłówku panelu.
+    expect(cells[0]).toHaveTextContent(/^Mateusz Wzorcowy$/);
+    expect(row).not.toHaveTextContent("Kontrakt #");
+  });
+
+  it("w sekcji MD stawki stoją pod „Koszt”/„Przychód”, a nie pod kolumnami MD", () => {
+    // Regresja przeglądu 29.09.2026: wiersz kontraktora renderował kolumny
+    // okresowe pod nagłówkiem MD — numer zamówienia stał pod „Koszt".
+    const { headers, cells } = renderSection("md");
+    expect(cells).toHaveLength(headers.length);
+    expect(cells[headers.indexOf("Koszt")]).toHaveTextContent(/150/);
+    expect(cells[headers.indexOf("Koszt")]).not.toHaveTextContent("9/98/2031/PR");
+    expect(cells[headers.indexOf("Przychód")]).toHaveTextContent(/1\s?450/);
+    expect(cells[headers.indexOf("Uwagi")]).toHaveTextContent("Aktywne");
+    expect(cells[headers.indexOf("Zostało MD")]).toHaveTextContent("9/98/2031/PR");
+  });
+});

@@ -17,10 +17,11 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import date, timedelta
-from typing import Iterable, List
+from datetime import date, datetime, timedelta
+from typing import Iterable, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import Text, cast, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -317,3 +318,139 @@ async def get_auto_match_overview(
         "queue_7d": queue,
         "recent": recent,
     }
+
+
+# ── „Jakość QC” (D6, 13.10.2026) ────────────────────────────────────────────
+
+
+class QcQualityCheck(BaseModel):
+    key: str
+    label: str
+    blocking: bool
+    shown: int
+    dismissed_wrong: int
+    precision: Optional[float] = None
+    reasons: dict[str, int] = {}
+    state: Literal["active", "info", "off"]
+    auto: Optional[Literal["info"]] = None
+    manual: Optional[Literal["active", "info", "off"]] = None
+
+
+class QcQualityDismissal(BaseModel):
+    id: int
+    check_key: str
+    check_label: str
+    label: str
+    reason: str
+    reason_label: str
+    note: Optional[str] = None
+    by_name: Optional[str] = None
+    at: datetime
+    restored: bool
+    job_id: int
+    candidate_id: int
+
+
+class QcQualityOut(BaseModel):
+    window_days: int
+    auto_min_shown: int
+    auto_info_below: float
+    alert_blocking_below: float
+    checks: List[QcQualityCheck]
+    recent: List[QcQualityDismissal]
+
+
+class QcQualityStateIn(BaseModel):
+    # None = wróć do automatu.
+    state: Optional[Literal["active", "info", "off"]] = None
+
+
+async def _qc_quality(db: AsyncSession) -> QcQualityOut:
+    from app.models.cv_finding_dismissal import CvFindingDismissal
+    from app.models.user import User
+    from app.services import qc_quality
+    from app.services.cv_finding_dismissals import REASONS
+    from app.services.cv_qc import BLOCKING_KEYS, LABELS, WARNING_KEYS
+
+    numbers = await qc_quality.report(db)
+    states = await qc_quality.load_states(db)
+    effective = qc_quality.effective_states(states)
+    checks = [
+        QcQualityCheck(
+            key=key,
+            label=LABELS.get(key, key),
+            blocking=key in BLOCKING_KEYS,
+            shown=numbers[key]["shown"],
+            dismissed_wrong=numbers[key]["dismissed_wrong"],
+            precision=numbers[key]["precision"],
+            reasons=numbers[key]["reasons"],
+            state=effective.get(key, "active"),
+            auto=(states.get(key) or {}).get("auto"),
+            manual=(states.get(key) or {}).get("manual"),
+        )
+        for key in (*BLOCKING_KEYS, *WARNING_KEYS)
+    ]
+    rows = (
+        await db.execute(
+            select(CvFindingDismissal, User.name)
+            .outerjoin(User, User.id == CvFindingDismissal.dismissed_by_user_id)
+            .where(CvFindingDismissal.source == "qc")
+            .order_by(CvFindingDismissal.created_at.desc())
+            .limit(30)
+        )
+    ).all()
+    recent = [
+        QcQualityDismissal(
+            id=row.id,
+            check_key=row.check_key,
+            check_label=LABELS.get(row.check_key, row.check_key),
+            label=row.label,
+            reason=row.reason,
+            reason_label=REASONS.get(row.reason, (row.reason, False))[0],
+            note=row.note,
+            by_name=name,
+            at=row.created_at,
+            restored=row.restored_at is not None,
+            job_id=row.job_id,
+            candidate_id=row.candidate_id,
+        )
+        for row, name in rows
+    ]
+    return QcQualityOut(
+        window_days=qc_quality.WINDOW_DAYS,
+        auto_min_shown=qc_quality.AUTO_MIN_SHOWN,
+        auto_info_below=qc_quality.AUTO_INFO_BELOW,
+        alert_blocking_below=qc_quality.ALERT_BLOCKING_BELOW,
+        checks=checks,
+        recent=recent,
+    )
+
+
+@router.get("/qc-quality", response_model=QcQualityOut)
+async def get_qc_quality(
+    _: AdminUser, db: AsyncSession = Depends(get_db)
+) -> QcQualityOut:
+    """Trafność sprawdzeń QC CV z pominięć „To nieprawda” i ich stan (D6)."""
+    return await _qc_quality(db)
+
+
+@router.patch("/qc-quality/{key}", response_model=QcQualityOut)
+async def set_qc_check_state(
+    key: str,
+    payload: QcQualityStateIn,
+    admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> QcQualityOut:
+    """Ręczny stan uwagi QC: aktywna, informacja, wyłączona albo automat.
+
+    Blokad nie da się wyciszyć (422) — decyzja D6: blokada nigdy nie
+    przechodzi w informację sama ani ręcznie z tego panelu.
+    """
+    from app.services import qc_quality
+
+    try:
+        await qc_quality.set_manual(db, key, payload.state, user_id=admin.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await db.commit()
+    return await _qc_quality(db)

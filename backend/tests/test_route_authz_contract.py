@@ -44,8 +44,6 @@ _GATE_QUALNAME_MARKERS = (
     "require_roles",
     "require_section_access",
     "require_candidate_roles",
-    "require_dl_assigned_or_admin",
-    "require_delivery_lead_or_admin",
     "require_financial_access",
     "require_capability",
     "_snapshot_auth",
@@ -67,6 +65,20 @@ _GATE_QUALNAME_MARKERS = (
     # 0374: trasy „Telefony na dziś” — wyłącznie konto praktykanta, a w serwisie
     # wyłącznie pozycje jego własnej listy (`_own_item`).
     "require_trainee",
+    # 0410: bramki dziewięciu uprawnień z ekranu Ustawienia → Osoby i role.
+    "require_permission",
+    "require_any_permission",
+    "require_client_contracts_edit",
+    "_require_board_trend_reader",
+    # „Ludzie w NEXUSIE” (16.10.2026): kartoteka, samoobsługa i przełączniki
+    # modułów — fabryki w ``app/api/hr_gates.py``.
+    "require_hr_",
+    # Umowy przedwstępne (22.10.2026): rola z ``PRE_CONTRACT_ROLES`` i sekcja
+    # „Rekrutacje” — Finanse, Rada i Automatyzacje z tytułu roli.
+    "require_pre_contract_access",
+    # Skrzynka Outlook (28.10.2026): odczyt kandydatów albo „Sprzedaż: podgląd”
+    # (``api/microsoft365.require_mailbox_owner`` / ``_status_reader``).
+    "require_mailbox_",
 )
 
 # The bare authentication dependency: proves identity, decides nothing.
@@ -224,12 +236,24 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("POST", "/api/jarvis/actions/{action_id}/reject"),
     ("POST", "/api/jarvis/conversations/{conversation_id}/cancel"),
     ("POST", "/api/jarvis/ui-events"),
+    ("POST", "/api/jarvis/gaps/{gap_id}/report"),
     # Przewodniki ekranów Jarvisa — treść pomocy bez danych domenowych,
     # bliźniaczo do /api/procedures.
     ("GET", "/api/help/screens"),
     ("GET", "/api/help/screens/{key}"),
+    # Nowości do przeklikania (0625) — wyłącznie własny stan przy nowościach
+    # swojej roli; treść to rejestr bez danych domenowych.
+    ("GET", "/api/novelties/mine"),
+    ("POST", "/api/novelties/{novelty_id}/events"),
+    # Start w NEXUSIE (30.10.2026) — własny postęp osoby przy przeklikaniach
+    # jej roli, ten sam rejestr bez danych domenowych. Wyłącznik ma bramkę HoR.
+    ("GET", "/api/novelties/start"),
     ("GET", "/api/notifications"),
+    ("GET", "/api/notifications/chats"),
+    ("GET", "/api/notifications/contracts"),
     ("GET", "/api/notifications/count"),
+    ("GET", "/api/notifications/interviews"),
+    ("GET", "/api/notifications/jobs"),
     ("GET", "/api/notifications/preferences"),
     # /api/pipeline/overview gained an OperationalUser gate (F-07) — no longer bare.
     ("GET", "/api/procedures"),
@@ -237,16 +261,27 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/search/"),
     ("GET", "/api/search/global"),
     ("GET", "/api/settings/candidates-columns"),
-    ("GET", "/api/signing/health"),
     ("GET", "/api/skills"),
     ("GET", "/api/skills/autocomplete"),
     ("GET", "/api/user-email-templates"),
     ("GET", "/api/user-email-templates/{template_id}"),
     ("GET", "/api/users/me/preferences"),
+    # „Maile do Ciebie” (0427): które maile dostaje konto i własne wyłączniki.
+    ("GET", "/api/users/me/email-notifications"),
+    ("PUT", "/api/users/me/email-notifications/{kind}"),
     # Własny pulpit (0337): sam układ kafelków właściciela; dane kafelków
     # pobierają ich własne endpointy za bramkami sekcji.
+    # Ogłoszenia na pulpicie (0619, decyzja Artura 28.10.2026): pulpit ma każde
+    # konto, także „Pracownik” i Rada, więc odczyt nie stoi za sekcją. Odbiorców
+    # (wszyscy albo wybrane role) filtruje serwer w `announcements.list_for`,
+    # a „Przeczytane” na ogłoszeniu nie do patrzącego daje 404
+    # (`test_announcements.py`). Publikacja, poprawka i zdjęcie — sekcja
+    # Rekrutacje + Head of Recruitment albo admin.
+    ("GET", "/api/announcements"),
+    ("POST", "/api/announcements/{announcement_id}/read"),
     ("GET", "/api/users/me/dashboard"),
     ("PUT", "/api/users/me/dashboard"),
+    ("PUT", "/api/users/me/dashboard/panels/{panel}"),
     ("PATCH", "/api/notifications/read-all"),
     ("PATCH", "/api/notifications/{notification_id}/read"),
     ("PATCH", "/api/users/me/preferences"),
@@ -256,7 +291,9 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     # kontaktu i stawek (salary wygaszone), a pełny profil kandydata pozostaje
     # za bramkami modułu kandydatów; test w test_champion_profile_ingest.py
     # pilnuje, że guard rolowy nie wróci na te trasy cichym refaktorem.
-    ("POST", "/api/user-email-templates"),
+    ("PUT", "/api/notifications/chats/read"),
+    ("PUT", "/api/notifications/interviews/read"),
+    ("PUT", "/api/notifications/topics/read"),
     ("PUT", "/api/notifications/preferences/{category}"),
     ("PUT", "/api/notifications/read-all"),
     ("PUT", "/api/notifications/{notification_id}/read"),

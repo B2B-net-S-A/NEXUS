@@ -79,7 +79,7 @@ function recEntry(over: Partial<MonthlyRaceEntry> = {}): MonthlyRaceEntry {
     metric_value: 42,
     rank: 1,
     excluded: false,
-    role: "sourcer",
+    role: "recruiter",
     verifications: 63,
     recommendations: 42,
     precision_pct: 66.7,
@@ -102,7 +102,7 @@ function placEntry(over: Partial<MonthlyRaceEntry> = {}): MonthlyRaceEntry {
     metric_value: 4,
     rank: 1,
     excluded: false,
-    role: "tac",
+    role: "recruiter",
     ...over,
   };
 }
@@ -277,6 +277,64 @@ describe("InsightsRaces", () => {
     expect(screen.queryByText(/bez urlopów/)).not.toBeInTheDocument();
   });
 
+  it("dni pracy z urlopów NEXUSA: próg per osoba, bez dopisku „bez urlopów”", async () => {
+    respond({
+      [RACES]: racesPayload({
+        recommendations: [
+          recEntry({
+            verifications: 33,
+            required_verifications: 58,
+            workdays: 14.5,
+            per_day: 2.28,
+            workdays_source: "nexus",
+          }),
+          recEntry({
+            user_id: 2,
+            name: "Pełny miesiąc",
+            verifications: 80,
+            required_verifications: 80,
+            workdays: 20,
+            per_day: 4,
+            workdays_source: "nexus",
+          }),
+        ],
+      }),
+    });
+    renderWithClient(<InsightsRaces month="2020-01" />);
+
+    expect(await screen.findByText(/2\.3\/dzień/)).toBeInTheDocument();
+    expect(screen.queryByText(/bez urlopów/)).not.toBeInTheDocument();
+    // Dopisek tylko przy osobie z mniejszą liczbą dni pracy niż pełna.
+    expect(screen.getAllByText(/liczone z .* dni pracy/)).toHaveLength(1);
+    expect(screen.getByText(/liczone z 14,5 dni pracy/)).toBeInTheDocument();
+    expect(screen.getAllByTestId("race-threshold")[0]).toHaveAttribute(
+      "title",
+      expect.stringContaining("z dni pracy osoby"),
+    );
+    expect(
+      screen.queryByText(/Próg kwalifikacji jest wspólny/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("zamknięty miesiąc z progiem per osoba nie mówi „wspólny dla wszystkich”", async () => {
+    respond({
+      [RACES]: racesPayload({
+        recommendations: [
+          recEntry({ required_verifications: 60, threshold_basis: "workdays" }),
+        ],
+      }),
+    });
+    renderWithClient(<InsightsRaces month="2020-01" />);
+
+    expect(await screen.findByTestId("race-threshold")).toHaveAttribute(
+      "title",
+      expect.stringContaining("z dni pracy osoby"),
+    );
+    expect(
+      screen.queryByText(/Próg kwalifikacji jest wspólny/),
+    ).not.toBeInTheDocument();
+  });
+
   it("mianownik kalendarzowy dostaje dopisek „bez urlopów”", async () => {
     respond({
       [RACES]: racesPayload({
@@ -444,6 +502,117 @@ describe("InsightsRaces", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Miesiące z przeszłości (decyzja Artura 15.10.2026): do września 2026
+// rozliczone z DynaReportera, październik mieszany.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DR_NOTE =
+  "Wynik z DynaReportera — rozliczony przy przejściu na NEXUS (12.10.2026).";
+
+/** Te same pola zamknięcia w obu kopertach wyścigów. */
+function withClosure(
+  payload: ReturnType<typeof racesPayload>,
+  closure: Record<string, unknown>,
+  placementsClosure: Record<string, unknown> = closure,
+) {
+  return {
+    recommendations: { ...payload.recommendations, ...closure },
+    placements: { ...payload.placements, ...placementsClosure },
+  };
+}
+
+describe("InsightsRaces — wybrany miesiąc", () => {
+  it("wybrany miesiąc idzie do serwera jako `period`", async () => {
+    respond({ [RACES]: racesPayload({ period: "2026-07" }) });
+    renderWithClient(<InsightsRaces month="2026-07" />);
+
+    expect(await screen.findByText("Wyścig Rekomendacji")).toBeInTheDocument();
+    expect(mocks.get).toHaveBeenCalledWith(RACES, {
+      params: { period: "2026-07" },
+    });
+  });
+
+  it("zamrożony miesiąc: „Zamknięte” zamiast odliczania i zdanie o źródle", async () => {
+    respond({
+      [RACES]: withClosure(racesPayload({ period: "2026-07", daysRemaining: null }), {
+        is_frozen: true,
+        days_remaining: null,
+        closure_status: "frozen",
+        source: "dynareporter",
+        source_note: DR_NOTE,
+      }),
+    });
+    renderWithClient(<InsightsRaces month="2026-07" />);
+
+    expect(await screen.findAllByText("Zamknięte")).toHaveLength(2);
+    expect(screen.queryByText("Zakończony")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Zostało/)).not.toBeInTheDocument();
+    expect(screen.getAllByText(DR_NOTE)).toHaveLength(2);
+  });
+
+  it("remis do decyzji admina jest widoczny nad listą", async () => {
+    respond({
+      [RACES]: withClosure(
+        racesPayload({ period: "2026-07" }),
+        { is_frozen: true, closure_status: "frozen" },
+        {
+          is_frozen: true,
+          closure_status: "tie_pending",
+          leader_tie_user_ids: [9, 10],
+        },
+      ),
+    });
+    renderWithClient(<InsightsRaces month="2026-07" />);
+
+    expect(
+      await screen.findByText("Remis — o miejscu zdecyduje admin"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByTestId("competition-tie-pending")).toHaveLength(1);
+  });
+
+  it("miesiąc bez zwycięzcy mówi to wprost zamiast „brak wyników”", async () => {
+    respond({
+      [RACES]: withClosure(
+        racesPayload({ period: "2026-07", placements: [] }),
+        { is_frozen: true, closure_status: "frozen" },
+        { is_frozen: true, closure_status: "no_winner" },
+      ),
+    });
+    renderWithClient(<InsightsRaces month="2026-07" />);
+
+    expect(
+      await screen.findByText("Brak zwycięzcy w tym okresie"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Brak wyników w tym miesiącu"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("mianownik z DynaReportera podpisuje plakietkę dniami przepracowanymi", async () => {
+    respond({
+      [RACES]: racesPayload({
+        period: "2026-07",
+        recommendations: [
+          recEntry({
+            verifications: 84,
+            workdays: 21,
+            per_day: 4,
+            workdays_source: "dynareporter",
+          }),
+        ],
+      }),
+    });
+    renderWithClient(<InsightsRaces month="2026-07" />);
+
+    expect(
+      await screen.findByText("· dni przepracowane (DynaReporter)"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/4\.0\/dzień/)).toBeInTheDocument();
+    expect(screen.queryByText(/bez urlopów/)).not.toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Hall of Fame
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -463,8 +632,6 @@ describe("InsightsHallOfFame", () => {
       unattributed_placements: 0,
       ranked_people: 12,
       roles: [
-        "sourcer",
-        "tac",
         "recruiter",
         "delivery_lead",
         "head_of_recruitment",
@@ -511,7 +678,7 @@ describe("InsightsHallOfFame", () => {
     // chipa sugerowałby, że ta osoba wciąż tu pracuje. Ta sama reguła co
     // w tabeli „Performance per osoba" dwie sekcje wyżej.
     expect(await screen.findByText("Elza Grabińska")).toBeInTheDocument();
-    expect(screen.getByText("były pracownik")).toBeInTheDocument();
+    expect(screen.getByText("był(a) w zespole")).toBeInTheDocument();
   });
 
   it("mówi, ile placementów stoi POZA rankingiem", async () => {

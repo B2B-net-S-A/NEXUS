@@ -1,4 +1,4 @@
 {
-  "sha256": "396b3226013c15a703cec08794207753e64ed4a9489e4cafc152f073dfdfaba5",
+  "sha256": "1580a6bc365875de1113f3797e0a60af039f9e466eea03e373fce97ad0f29423",
   "source": "frontend/src/components/client-profile/orders/NordeaOrderImportPanel.tsx"
 }

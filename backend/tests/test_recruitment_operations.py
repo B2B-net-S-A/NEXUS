@@ -80,8 +80,13 @@ def test_mine_only_keeps_org_readers_on_explicit_assignment_scope() -> None:
     assert "jobs.recruiter_id = 73" in sql
     assert "jobs.delivery_lead_id = 73" in sql
     assert "jobs.tac_id = 73" in sql
-    assert "job_collaborators.user_id = 73" in sql
+    assert "job_collaborators.user_id IN (73)" in sql or (
+        "job_collaborators.user_id = 73" in sql
+    )
     assert "job_collaborators.removed_from_auto_cc IS false" in sql
+    # Wiersz `auto_cc` (cała kategoria dopisana automatycznie) to nie „moje
+    # przypisane” — ta sama reguła co zakres „Moje” na liście rekrutacji.
+    assert "job_collaborators.source = 'manual'" in sql
 
 
 @pytest_asyncio.fixture
@@ -117,9 +122,7 @@ async def _authorized(*_args: Any, **_kwargs: Any) -> None:
         (UserRole.talent_community_manager, "head-of-recruitment"),
         (UserRole.delivery_lead, "delivery-lead"),
         (UserRole.finance, "finance"),
-        (UserRole.tac, "my-work"),
         (UserRole.recruiter, "my-work"),
-        (UserRole.sourcer, "my-work"),
     ],
 )
 @pytest.mark.asyncio
@@ -166,9 +169,7 @@ async def test_operations_guard_excludes_viewer(
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.finance,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
     ],
 )
 @pytest.mark.asyncio
@@ -261,7 +262,7 @@ async def test_activity_scope_rejects_person_and_team_combination() -> None:
 @pytest.mark.asyncio
 async def test_recruiter_cannot_request_named_team_drilldown() -> None:
     current = _user(UserRole.recruiter, user_id=11)
-    other = _user(UserRole.tac, user_id=12)
+    other = _user(UserRole.recruiter, user_id=12)
     result = MagicMock()
     result.scalars.return_value.all.return_value = [current, other]
     db = AsyncMock()
@@ -279,9 +280,14 @@ async def test_recruiter_cannot_request_named_team_drilldown() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("empty_credited_snapshot")
 async def test_activity_summary_uses_one_snapshot_for_counts_and_comparisons() -> None:
+    # Przegląd jest w cache procesu (runda 7, R7-N9-3) — liczymy od zera.
+    from app.core import cache as cache_module
+
+    cache_module._cache.clear()
     current = _user(UserRole.recruiter, user_id=11)
-    other = _user(UserRole.tac, user_id=12)
+    other = _user(UserRole.recruiter, user_id=12)
     users_result = MagicMock()
     users_result.scalars.return_value.all.return_value = [current, other]
     overview_result = MagicMock()
@@ -562,11 +568,13 @@ async def test_hybrid_user_can_select_each_held_preset(
     assert response.status_code == 418
 
 
-def test_stage_counts_use_only_exact_dashboard_pipeline_stages() -> None:
+def test_stage_counts_follow_board_columns() -> None:
+    # Runda 7 (R7-N9-4): licznik = kolumna Tablicy (`board_column_for`).
     rows = [
         service._LatestStage(index, 1, stage)
         for index, stage in enumerate(
             [
+                PipelineStage.posting,
                 PipelineStage.new,
                 PipelineStage.prep_call,
                 PipelineStage.screening,
@@ -584,9 +592,41 @@ def test_stage_counts_use_only_exact_dashboard_pipeline_stages() -> None:
     ]
 
     assert service._stage_counts(rows).model_dump() == {
-        "new": 1,
-        "screening": 1,
+        "new": 2,
+        "screening": 2,
         "cv_sent": 1,
+        "client_interview": 1,
+        "acceptance": 2,
+    }
+
+
+def test_stage_counts_read_the_stage_name_like_the_board() -> None:
+    # „Przepuszczony przez DZ” (kod `interview`) = kolumna QC CV — poza
+    # licznikami; „Umowa wysłana” = kolumna „Umowa”; „Po Interview” = rozmowa
+    # u klienta — tak samo jak na Tablicy.
+    row = SimpleNamespace(
+        stage="interview",
+        stage_name="Przepuszczony przez DZ",
+        stage_category="internal",
+        stage_terminal_type=None,
+    )
+    assert service._row_column(row) == "cv_qc"
+    after = SimpleNamespace(
+        stage="new",
+        stage_name="Po Interview",
+        stage_category="external",
+        stage_terminal_type=None,
+    )
+    assert service._row_column(after) == "client_interview"
+    rows = [
+        service._LatestStage(1, 1, PipelineStage.interview, column="cv_qc"),
+        service._LatestStage(2, 1, PipelineStage.new, column="client_interview"),
+        service._LatestStage(3, 1, PipelineStage.new, column="contract"),
+    ]
+    assert service._stage_counts(rows).model_dump() == {
+        "new": 0,
+        "screening": 0,
+        "cv_sent": 0,
         "client_interview": 1,
         "acceptance": 1,
     }
@@ -1074,20 +1114,27 @@ def test_explicit_process_owner_can_write_favorite() -> None:
     service._ensure_favorite_write_access(owner, job)
 
 
-def test_plain_sourcer_cannot_write_favorite_even_when_stored_as_owner() -> None:
-    sourcer = _user(UserRole.sourcer, user_id=55)
+def test_owner_outside_recruiter_and_dl_roles_cannot_write_favorite() -> None:
+    """Zapis w polu właściciela nie wystarcza — liczy się też rola.
+
+    Do 0411 pilnował tego przypadek sourcera; dziś sourcer jest rekruterem
+    (i jako właściciel zapisuje), więc granicę trzyma konto TCM.
+    """
+
+    stored_owner = _user(UserRole.talent_community_manager, user_id=55)
     job = Job(
         id=7,
         title="Backend",
         client_id=4,
-        recruiter_id=sourcer.id,
+        recruiter_id=stored_owner.id,
         status=JobStatus.published,
     )
 
-    assert service._can_edit_favorite(sourcer, job) is False
+    assert service._can_edit_favorite(stored_owner, job) is False
     with pytest.raises(HTTPException) as exc:
-        service._ensure_favorite_write_access(sourcer, job)
+        service._ensure_favorite_write_access(stored_owner, job)
     assert exc.value.status_code == 403
+    assert "właściciel procesu (rekruter / Delivery Lead)" in exc.value.detail
 
 
 def test_finance_org_wide_read_does_not_grant_favorite_write() -> None:
@@ -1237,3 +1284,20 @@ async def test_similar_processes_use_live_scoped_jobs_only(
     assert "jobs.status =" in scope_sql
     assert "jobs.recruiter_id =" in scope_sql
     assert "job_collaborators" in scope_sql
+
+
+def test_finished_requests_are_not_open_processes() -> None:
+    # Runda 7 (R7-N9-5): „Zakończony” (stan pracy NEXUSA) znika z pulpitu
+    # procesów, choć status z Traffita zostaje `published`.
+    compiled = (
+        select(Job.id)
+        .where(
+            *service._job_filters(
+                _user(UserRole.admin),
+                scope=service._RecruitmentOperationsScope(preset="finance"),
+            )
+        )
+        .compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+    )
+
+    assert "jobs.work_state != 'finished'" in str(compiled)

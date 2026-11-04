@@ -198,3 +198,65 @@ async def test_total_counts_a_mismatch_once_even_in_two_families(
     assert body["total_families"] == 2, body
     assert sum(f["mismatch_count"] for f in body["families"]) == 2
     assert body["total_mismatches"] == 1
+
+
+@pytest.mark.asyncio
+async def test_unassigned_b2b_names_are_tokenized_once_not_per_family(
+    app_client, app_auth_headers, monkeypatch
+):
+    """Runda 10 (R10-N8-9): umowa bez klienta w dwóch rodzinach — jeden odczyt nazwy.
+
+    Dotąd każda rodzina liczyła `name_tokens` dla każdej umowy bez klienta
+    (F × G wywołań synchronicznie na pętli zdarzeń).
+    """
+    import random
+
+    from app.api import admin_client_mixups as mixups
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    suffix = uuid.uuid4().hex[:8]
+    printed = f"Zetamix{suffix} Omegamix{suffix} Gamma"
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                Client(name=f"Zetamix{suffix} Omegamix{suffix} Alfa"),
+                Client(name=f"Zetamix{suffix} Omegamix{suffix} Beta"),
+            ]
+        )
+        seq = random.randint(10_000_000, 99_999_999)
+        db.add(
+            B2BGeneratedContract(
+                year=2031,
+                seq=seq,
+                contract_number=f"{seq}/2031",
+                partner_name="Osoba Testowa",
+                client_name=printed,
+                language="pl",
+                signature_status="unsigned",
+                contract_status="in_progress",
+            )
+        )
+        await db.commit()
+
+    real = mixups.name_tokens
+    printed_calls = 0
+
+    def counting(value):
+        nonlocal printed_calls
+        if value == printed:
+            printed_calls += 1
+        return real(value)
+
+    monkeypatch.setattr(mixups, "name_tokens", counting)
+    resp = await app_client.get(
+        "/api/admin/client-mixups", params={"q": suffix}, headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    families_with_row = [
+        f
+        for f in body["families"]
+        if any(g["printed_client_name"] == printed for g in f["generated_contracts"])
+    ]
+    assert len(families_with_row) == 2, body
+    assert printed_calls == 1

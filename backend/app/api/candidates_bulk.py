@@ -90,6 +90,10 @@ class BulkActionResponse(BaseModel):
 
 
 def _validate_tags(params: dict) -> List[str]:
+    from pydantic import ValidationError
+
+    from app.api.candidate_tags import TagPayload
+
     tags = params.get("tags") or []
     if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
         raise HTTPException(
@@ -101,21 +105,82 @@ def _validate_tags(params: dict) -> List[str]:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="cap of 50 tags per bulk call",
         )
-    return [t.strip() for t in tags if t.strip()]
+    # Runda 9 (R9-N8-10): te same reguły co pojedynczy tag (długość, bez
+    # przecinka, białe znaki zwinięte) — inaczej zbiorczo dało się wpisać to,
+    # czego pojedynczo nie wolno.
+    cleaned: List[str] = []
+    for raw in tags:
+        if not raw.strip():
+            continue
+        try:
+            tag = TagPayload(tag=raw).tag
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=exc.errors()[0].get("msg", "Nieprawidłowy tag."),
+            ) from exc
+        if tag.casefold() not in {t.casefold() for t in cleaned}:
+            cleaned.append(tag)
+    return cleaned
 
 
 async def _handle_add_tags(
-    candidates: List[Candidate], params: dict
+    db: AsyncSession, candidates: List[Candidate], params: dict, *, user_id: int
 ) -> List[BulkActionItemResult]:
+    """Runda 9 (R9-N8-10): jak ``POST /{id}/tags`` — pod blokadą wiersza, bez
+    wielkości liter, z limitem tagów, z dziennikiem i przeliczeniem wektora.
+
+    Do tej pory lista była doklejana ze stanu wczytanego bez blokady (tag
+    dodany w międzyczasie przez kolegę znikał), ``Java`` obok ``java`` dawało
+    dwa tagi, limit nie działał, a indeks wyszukiwania nie widział zmiany.
+    """
+    from app.api.candidate_tags import (
+        MAX_STRING_TAGS,
+        _current_tags,
+        _lock_candidate,
+        _string_tags,
+    )
+    from app.models.activity import Activity
+    from app.services.index_outbox_service import record_bulk_reindex
+    from app.services.match_score_cache import mark_stale_for_candidate
+
     tags = _validate_tags(params)
 
     results: List[BulkActionItemResult] = []
-    for candidate in candidates:
-        existing = list(candidate.tags or [])
-        # Append, dedupe, preserve insertion order.
-        merged = existing + [t for t in tags if t not in existing]
-        candidate.tags = merged
+    changed_ids: List[int] = []
+    for loaded in sorted(candidates, key=lambda c: c.id):
+        candidate = await _lock_candidate(db, loaded.id)
+        existing = _current_tags(candidate)
+        folded = {t.casefold() for t in _string_tags(existing)}
+        added = [t for t in tags if t.casefold() not in folded]
+        if not added:
+            results.append(BulkActionItemResult(candidate_id=candidate.id, ok=True))
+            continue
+        if len(folded) + len(added) > MAX_STRING_TAGS:
+            results.append(
+                BulkActionItemResult(
+                    candidate_id=candidate.id, ok=False, reason="tag_limit"
+                )
+            )
+            continue
+        candidate.tags = [*existing, *added]
+        db.add(
+            Activity(
+                entity_type="candidate",
+                entity_id=candidate.id,
+                action="tags_changed",
+                user_id=user_id,
+                details={"added": added, "bulk": True},
+            )
+        )
+        await mark_stale_for_candidate(db, candidate.id)
+        changed_ids.append(candidate.id)
         results.append(BulkActionItemResult(candidate_id=candidate.id, ok=True))
+    if changed_ids:
+        # Ścieżka masowa: intencja przeliczenia wektora w tej transakcji, bez
+        # wywołania modelu embeddingów na wiersz (`record_bulk_reindex`).
+        await db.flush()
+        await record_bulk_reindex(db, "candidate", changed_ids)
     return results
 
 
@@ -185,7 +250,9 @@ async def bulk_action(
     items: List[BulkActionItemResult] = []
 
     if payload.action is BulkAction.add_tags:
-        items = await _handle_add_tags(candidates, payload.params)
+        items = await _handle_add_tags(
+            db, candidates, payload.params, user_id=current_user.id
+        )
     elif payload.action in (
         BulkAction.assign_talent_pool,
         BulkAction.assign_to_job,

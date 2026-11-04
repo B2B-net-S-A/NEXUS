@@ -44,7 +44,11 @@ export function factsRateLabel(facts: Pick<ProposalFacts, "expected_rate_hourly"
   return isPln ? formatHourlyRate(value) : `${Math.round(value)} ${currency}/h`;
 }
 
-/** Linia „Ostatnio: …” — stanowisko, staż, miasto, tryb, dostępność, stawka. */
+/**
+ * Linia „Ostatnio: …” — stanowisko, staż, miasto, tryb, dostępność. Stawki
+ * tu nie ma od 19.10.2026 (D3): wiersz okna pokazuje ją plakietką względem
+ * budżetu (`lib/rate-budget-badge.ts`), druga goła kwota byłaby powtórzeniem.
+ */
 export function proposalFactsLine(facts: ProposalFacts | null | undefined, now: Date = new Date()): string | null {
   if (!facts) return null;
   const role = facts.title
@@ -55,10 +59,39 @@ export function proposalFactsLine(facts: ProposalFacts | null | undefined, now: 
     yearsLabel(facts.years_experience),
     facts.city?.trim() || null,
     workModeLabel(facts),
-    availabilityLabel(facts.availability_status, facts.availability_date, now),
-    factsRateLabel(facts),
+    availabilityLabel(
+      facts.availability_status,
+      facts.availability_date,
+      now,
+      facts.employment_marker,
+    ),
   ].filter((p): p is string => Boolean(p));
   return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/** Po ilu latach CV dostaje ton ostrzegawczy („CV może być nieaktualne”). */
+export const CV_STALE_YEARS = 2;
+
+export interface CvYearBadge {
+  label: string;
+  stale: boolean;
+}
+
+/**
+ * Plakietka „CV z 2023” z daty wgrania głównego CV. Bez prawdziwej daty —
+ * nic (nie zgadujemy z dnia importu). Starsze niż 2 lata = ostrzeżenie.
+ */
+export function cvYearBadge(
+  cvUploadedOn: string | null | undefined,
+  now: Date = new Date(),
+): CvYearBadge | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(cvUploadedOn?.trim() ?? "");
+  if (!match) return null;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  if (!year || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const staleBefore = new Date(now.getFullYear() - CV_STALE_YEARS, now.getMonth(), now.getDate());
+  const uploaded = new Date(year, month - 1, day);
+  return { label: `CV z ${year}`, stale: uploaded < staleBefore };
 }
 
 const OUTCOME_SUFFIX: Record<string, string> = {
@@ -75,7 +108,34 @@ export function clientHistoryLine(history: ProposalClientHistory | null | undefi
   return `Był(a) u tego klienta: ${where} — doszedł(a) do etapu „${history.furthest_stage_label}”${suffix}`;
 }
 
-export type ProposalSortMode = "client_first" | "proposals";
+/**
+ * „match” = według pokazanego dopasowania (domyślnie od 19.10.2026, zgłoszenie
+ * „najpierw najbardziej dopasowani”); „client_first” = najpierw byli u klienta.
+ */
+export type ProposalSortMode = "match" | "client_first";
+
+/**
+ * Według pokazanego dopasowania malejąco; osoby bez wyniku na końcu w dotychczasowej
+ * kolejności. Stabilne — remisy zostają tam, gdzie były.
+ */
+export function sortByShownScore<T extends { candidateId: number }>(
+  rows: readonly T[],
+  scoreOf: (row: T) => number | null | undefined,
+): T[] {
+  return rows
+    .map((row, index) => ({ row, index, score: scoreOf(row) }))
+    .sort((a, b) => {
+      const sa = typeof a.score === "number" ? a.score : null;
+      const sb = typeof b.score === "number" ? b.score : null;
+      if (sa !== sb) {
+        if (sa === null) return 1;
+        if (sb === null) return -1;
+        return sb - sa;
+      }
+      return a.index - b.index;
+    })
+    .map((x) => x.row);
+}
 
 /**
  * „Najpierw byli u tego klienta” — osoby z historią u klienta na górę

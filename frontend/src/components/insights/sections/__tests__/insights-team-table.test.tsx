@@ -71,8 +71,8 @@ function row(
 ): TeamTableRow {
   return {
     name: `Osoba ${overrides.user_id}`,
-    role: "sourcer",
-    role_label: "Sourcer",
+    role: "recruiter",
+    role_label: "Rekruter",
     is_active: true,
     verifications: 0,
     recommendations: 0,
@@ -93,7 +93,7 @@ const BODY: TeamTableResponse = {
   columns: [
     { key: "verifications", label: "Weryfikacje", stage: "verified" },
     { key: "recommendations", label: "Rekomendacje", stage: "cv_sent" },
-    { key: "interviews", label: "Interviews", stage: "interview" },
+    { key: "interviews", label: "Rozmowy u klienta", stage: "client_interview" },
     { key: "placements", label: "Placements", stage: "hired" },
   ],
   rows: [
@@ -122,8 +122,8 @@ const BODY: TeamTableResponse = {
     row({
       user_id: 3,
       name: "Katarzyna Orlińska",
-      role: "tac",
-      role_label: "TAC",
+      role: "recruiter",
+      role_label: "Rekruter",
       verifications: 19,
       recommendations: 4,
       interviews: 1,
@@ -145,8 +145,8 @@ const BODY: TeamTableResponse = {
     row({
       user_id: 5,
       name: "Marlena Rosół",
-      role: "tac",
-      role_label: "TAC",
+      role: "recruiter",
+      role_label: "Rekruter",
       verifications: 0,
       recommendations: 0,
       interviews: 0,
@@ -258,7 +258,7 @@ describe("InsightsTeamTable", () => {
 
     const name = await screen.findByText("Aleksandra Nałęcz");
     const personCell = name.closest("td")!;
-    expect(within(personCell).getByText("były pracownik")).toBeInTheDocument();
+    expect(within(personCell).getByText("był(a) w zespole")).toBeInTheDocument();
     // Jej liczby zostają w tabeli — offboarding nie kasuje historii wstecz.
     const tableRow = name.closest("tr")!;
     expect(within(tableRow).getAllByRole("cell")[2]).toHaveTextContent("15");
@@ -307,8 +307,8 @@ describe("InsightsTeamTable", () => {
     expect(
       await screen.findByText("Nieznany użytkownik (#99)"),
     ).toBeInTheDocument();
-    // Brak konta ≠ były pracownik — nie wiemy, więc nie twierdzimy.
-    expect(screen.queryByText("były pracownik")).not.toBeInTheDocument();
+    // Brak konta ≠ był(a) w zespole — nie wiemy, więc nie twierdzimy.
+    expect(screen.queryByText("był(a) w zespole")).not.toBeInTheDocument();
   });
 
   it("renderuje plakietki ostrzeżeń wstrzyknięte przez integratora", async () => {

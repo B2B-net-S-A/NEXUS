@@ -4,11 +4,13 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Briefcase,
+  Globe2,
   CalendarClock,
+  Check,
+  ChevronsUpDown,
   Languages,
   Loader2,
   LockKeyhole,
-  PhoneCall,
   MapPin,
   PencilLine,
   Plus,
@@ -16,13 +18,7 @@ import {
   Trash2,
   WalletCards,
 } from "lucide-react";
-import { useCandidateFollowup } from "@/lib/api/candidateFollowups";
-import { pluralPl } from "@/lib/plural-pl";
-import {
-  followupDueLabel,
-  lastContactLabel,
-  shortPersonName,
-} from "@/lib/candidate-followup";
+import { activeProcessesQueryKey, rateChangesApi } from "@/lib/rate-change";
 
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +33,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -65,13 +70,59 @@ import {
   WORK_MODE_LABELS,
   formatWorkMode,
   profileWorkMode,
+  rejectionWorkModeOrigin,
   workModeValidationError,
   type WorkMode,
 } from "@/lib/work-mode";
 import { useCapability } from "@/hooks/useCapability";
+import {
+  foldLanguageName,
+  isListedLanguageCode,
+  languageLabel as listedLanguageLabel,
+  otherLanguageCode,
+  searchLanguageOptions,
+} from "@/lib/candidate-languages";
 import { formatCandidateLocation } from "./candidate-list-helpers";
 import { invalidateCandidateMutation } from "./candidate-cache";
-import { candidateQueryKeys } from "./candidate-query-keys";
+import { candidateQueryKeys, candidateViewerScopeKey } from "./candidate-query-keys";
+import {
+  useCandidateCardOverview,
+  type CandidateCardFact,
+} from "@/lib/api/candidateCards";
+import {
+  cardFactLine,
+  cardFactOrigin,
+  cardFactTitle,
+  cardFactsByKey,
+} from "@/lib/candidate-card-facts";
+import { useAuthStore } from "@/store/auth";
+import {
+  declaredFromText,
+  rateFromText,
+  rateSecondLine,
+  toAmount,
+  type RateFromFields,
+} from "@/lib/candidate-rate";
+import { RateHistoryDialog } from "@/components/v2/candidate-profile/RateHistoryDialog";
+import api from "@/lib/api";
+import { notesAvailabilityOrigin } from "@/lib/notes-facts";
+import {
+  availabilityContractNote,
+  contractAvailability,
+  contractAvailabilityCountdown,
+  contractAvailabilityOrigin,
+  contractAvailabilityText,
+  type ContractAvailability,
+} from "@/lib/contract-availability";
+import type { EmploymentMarker } from "@/lib/employment-marker";
+import {
+  AVAILABILITY_STATUS_OPTIONS,
+  NOTICE_PERIOD_UNITS,
+  availabilityDraft,
+  availabilityDraftError,
+  availabilityPatch,
+  type AvailabilityDraft,
+} from "@/lib/candidate-availability-edit";
 
 const CEFR_LEVELS: CandidateLanguageCefrLevel[] = [
   "A1",
@@ -90,52 +141,121 @@ const AVAILABILITY_LABELS: Record<string, string> = {
 };
 
 const LANGUAGE_CODE_RE = /^[a-z][a-z0-9-]{1,15}$/;
-const COMMON_LANGUAGE_CODES: Record<string, string> = {
-  angielski: "en",
-  english: "en",
-  polski: "pl",
-  polish: "pl",
-  niemiecki: "de",
-  german: "de",
-  francuski: "fr",
-  french: "fr",
-  hiszpanski: "es",
-  spanish: "es",
-  wloski: "it",
-  italian: "it",
-  ukrainski: "uk",
-  ukrainian: "uk",
-  rosyjski: "ru",
-  russian: "ru",
-  czeski: "cs",
-  czech: "cs",
-  slowacki: "sk",
-  slovak: "sk",
-  niderlandzki: "nl",
-  holenderski: "nl",
-  dutch: "nl",
-  portugalski: "pt",
-  portuguese: "pt",
-};
 
-function normalizedLanguageToken(value: string): string {
-  return value
-    .normalize("NFKD")
-    .toLocaleLowerCase()
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/ł/g, "l")
-    .trim();
-}
+/** Podpowiedzi pola „Hub” (dawniej panel „Lokalizacja” w szczegółach profilu). */
+const HUB_SUGGESTIONS = [
+  "Warszawa",
+  "Kraków",
+  "Wrocław",
+  "Trójmiasto",
+  "Poznań",
+  "Śląsk",
+  "Łódź",
+  "Lublin",
+  "Rzeszów",
+  "Remote",
+];
 
-function inferredLanguageCode(languageName: string): string {
-  const normalizedName = normalizedLanguageToken(languageName);
-  if (!normalizedName) return "";
-  const knownCode = COMMON_LANGUAGE_CODES[normalizedName];
-  if (knownCode) return knownCode;
-  return normalizedName
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 16);
+/** Wiersz okna „Języki kandydata” — `other` = język spoza listy („Inny…”). */
+type LanguageRow = CandidateLanguageInput & { other: boolean };
+
+/**
+ * Wybór języka z JEDNEJ listy (`LANGUAGE_OPTIONS`) z wyszukiwaniem. Kod
+ * wynika z wyboru — pola „Kod” już nie ma. „Inny…” odsłania pole nazwy
+ * (kod wyprowadzony z nazwy, serwer przyjmuje go tylko z `other: true`).
+ */
+function LanguagePicker({
+  id,
+  row,
+  onPick,
+}: {
+  id: string;
+  row: LanguageRow;
+  onPick: (option: { code: string; label: string } | "other") => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const options = React.useMemo(() => searchLanguageOptions(query), [query]);
+  const selectedLabel = row.other
+    ? "Inny…"
+    : row.language_code
+      ? isListedLanguageCode(row.language_code)
+        ? listedLanguageLabel(row.language_code)
+        : row.language_name || row.language_code
+      : null;
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setQuery("");
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          id={id}
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="mt-1 min-h-11 w-full justify-between font-normal"
+        >
+          <span className={cn("truncate", !selectedLabel && "text-muted-foreground")}>
+            {selectedLabel ?? "Wybierz język…"}
+          </span>
+          <ChevronsUpDown className="size-4 opacity-50" aria-hidden="true" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[260px] p-0">
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder="Szukaj języka…"
+            value={query}
+            onValueChange={setQuery}
+          />
+          <CommandList>
+            <CommandEmpty>Brak na liście — wybierz „Inny…”.</CommandEmpty>
+            <CommandGroup>
+              {options.map((option) => (
+                <CommandItem
+                  key={option.code}
+                  value={option.code}
+                  onSelect={() => {
+                    onPick(option);
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    aria-hidden="true"
+                    className={cn(
+                      "mr-2 size-4",
+                      !row.other && row.language_code === option.code
+                        ? "opacity-100"
+                        : "opacity-0",
+                    )}
+                  />
+                  {option.label}
+                </CommandItem>
+              ))}
+              <CommandItem
+                value="__other__"
+                onSelect={() => {
+                  onPick("other");
+                  setOpen(false);
+                }}
+              >
+                <Check
+                  aria-hidden="true"
+                  className={cn("mr-2 size-4", row.other ? "opacity-100" : "opacity-0")}
+                />
+                Inny…
+              </CommandItem>
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 type LanguagesQueryData = {
@@ -149,39 +269,46 @@ type RateQueryData = {
 };
 
 interface CandidateProfileFactsBarProps {
+  /**
+   * `column` (od 04.10.2026) = karta „Podsumowanie” w lewej kolumnie profilu:
+   * fakty jeden pod drugim, ołówki dopiero po „Edytuj”, a pod faktami treść
+   * z `children` („W skrócie”, „Ustalenia z notatek”). `grid` = dawny pasek
+   * kafelków (zostaje dla wąskich wariantów i testów).
+   */
+  layout?: "grid" | "column" | "proposal";
+  children?: React.ReactNode;
+  /**
+   * `proposal` (od 13.10.2026, decyzja E1) = karta „Do propozycji”: jedna
+   * linia na fakt, źródło jako kropka z okienkiem; po „Edytuj” wiersze jak
+   * w `column` (z ołówkami). Status dostępności („szuka aktywnie”) stoi wtedy
+   * w pigułce paska osoby, więc wiersz „Dostępność” pokazuje tylko termin.
+   * `lead` = treść na górze karty (ramka „Pracuje u nas”).
+   */
+  lead?: React.ReactNode;
   candidate: {
     id: number;
     city?: string | null;
     country?: string | null;
+    region?: string | null;
+    hub_city?: string | null;
     location?: string | null;
     availability_status?: string | null;
     availability_date?: string | null;
+    /** Znacznik dostępności z notatek („stan na”) — `notesAvailabilityOrigin`. */
+    cv_extracted_data?: unknown;
     notice_period?: number | null;
     notice_period_unit?: string | null;
     preferences?: unknown;
     max_onsite_days_per_week?: number | null;
-  } & CandidateCallFacts;
-}
-
-/**
- * 0372: „Kontakt” — kiedy ostatnio ktoś z nami rozmawiał z kandydatem i kto
- * zadzwoni następny, gdy klient milczy. Tylko przy procesach czekających na
- * klienta; bez sekcji Pipeline (403) i przy awarii fakt po prostu znika —
- * to podpowiedź, nie dane profilu.
- */
-function FollowupFact({ candidateId }: { candidateId: number }) {
-  const query = useCandidateFollowup(candidateId);
-  const row = query.data?.followup;
-  if (!row) return null;
-  const caller = row.caller_name ? shortPersonName(row.caller_name) : "brak opiekuna";
-  return (
-    <FactShell icon={<PhoneCall className="size-4" />} label="Kontakt">
-      {row.processes.length}{" "}
-      {pluralPl(row.processes.length, "proces czeka", "procesy czekają", "procesów czeka")} na
-      klienta ·{" "}
-      {lastContactLabel(row)} · następny: {followupDueLabel(row)}, {caller}
-    </FactShell>
-  );
+    /**
+     * Znacznik „Pracuje u nas” — przy żywej umowie dostępność i stawka idą
+     * z umowy, nie ze screeningu (15.10.2026).
+     */
+    employment_marker?: EmploymentMarker | null;
+    /** Skąd „Stawka od”; `contract` = stawka z żywej umowy. */
+    rate_from_source?: string | null;
+  } & CandidateCallFacts &
+    RateFromFields;
 }
 
 function requestStatus(error: unknown): number | null {
@@ -219,6 +346,28 @@ function availabilityValue(
   return status;
 }
 
+/**
+ * Sam termin dostępności — w karcie „Do propozycji” status („szuka aktywnie”)
+ * pokazuje pigułka przy nazwisku, więc tu go nie powtarzamy (każdy fakt raz).
+ */
+function availabilityTerm(
+  candidate: CandidateProfileFactsBarProps["candidate"],
+): string | null {
+  if (candidate.availability_date) {
+    return `od ${formatDate(candidate.availability_date)}`;
+  }
+  if (candidate.notice_period != null) {
+    const unit =
+      candidate.notice_period_unit === "months"
+        ? "mies."
+        : candidate.notice_period_unit === "weeks"
+          ? "tyg."
+          : "dni";
+    return `za ${candidate.notice_period} ${unit}`;
+  }
+  return null;
+}
+
 function formatRate(amount: string | null): string {
   if (amount == null) return "Nie uzupełniono";
   const parsed = Number(amount);
@@ -237,21 +386,146 @@ function languageLabel(language: CandidateLanguagesResponse["languages"][number]
   return `${language.language_name} · poziom nieznany`;
 }
 
+/**
+ * Linia pod wartością z profilu: co i kiedy ustalono w rozmowie (karta
+ * rekomendacji). Wartość z profilu zostaje główną — po niej filtruje lista.
+ */
+/**
+ * Źródło faktu. `tone: "contract"` = wartość z umowy osoby, która pracuje
+ * u nas (zielona kropka, kolor ramki „Pracuje u nas”); bez tonu — rozmowa
+ * albo notatka.
+ */
+type FactOrigin = { text: string; title: string; tone?: "contract" | "notes" };
+
+function cardOrigin(
+  fact: CandidateCardFact | undefined,
+  profileAmount?: number | null,
+): FactOrigin | undefined {
+  const text = cardFactLine(fact, profileAmount);
+  return fact && text ? { text, title: cardFactTitle(fact) } : undefined;
+}
+
+/**
+ * Układ faktów: `column` = wiersze karty „Podsumowanie” (ołówki tylko w trybie
+ * edycji), inaczej kafelki paska.
+ */
+const FactsLayoutContext = React.createContext<{
+  column: boolean;
+  editing: boolean;
+  /** Karta „Do propozycji” poza trybem edycji: jedna linia na fakt. */
+  compact?: boolean;
+}>({
+  column: false,
+  editing: true,
+});
+
+/**
+ * Źródło faktu w karcie „Do propozycji”: kropka-przycisk z okienkiem (klik
+ * albo Enter — działa też na dotyk, tooltip by nie zadziałał). Treść niesie
+ * `data-fact-origin`, jak linia źródła w pozostałych układach.
+ */
+function FactOriginDot({ origin }: { origin: FactOrigin }) {
+  const contract = origin.tone === "contract";
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Źródło: ${origin.text}`}
+          title={origin.title}
+          data-origin-tone={contract ? "contract" : undefined}
+          className="ml-1 inline-flex size-5 shrink-0 items-center justify-center rounded-full align-middle hover:bg-accent"
+        >
+          <span
+            aria-hidden
+            className={cn(
+              "size-1.5 rounded-full",
+              contract ? "bg-success ring-2 ring-success-muted" : "bg-primary",
+            )}
+          />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64 p-3 text-xs">
+        <p data-fact-origin title={origin.title} className="break-words text-muted-foreground">
+          {origin.text}
+        </p>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function FactShell({
   icon,
   label,
   children,
   action,
+  actionAlways,
   muted,
+  origin,
+  footer,
 }: {
   icon: React.ReactNode;
   label: string;
   children: React.ReactNode;
   action?: React.ReactNode;
+  /** Akcja widoczna także poza trybem edycji (np. „Ponów” po awarii). */
+  actionAlways?: boolean;
   muted?: boolean;
+  /** Źródło i data ustalenia z rozmowy (karta rekomendacji) albo umowa. */
+  origin?: FactOrigin;
+  /** Akcja pod opisem źródła (np. „Historia stawek”). */
+  footer?: React.ReactNode;
 }) {
+  const layout = React.useContext(FactsLayoutContext);
+  if (layout.compact) {
+    return (
+      <div className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)_auto] items-baseline gap-x-2 py-1.5">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <div
+          className={cn(
+            "min-w-0 break-words text-sm font-semibold leading-5 text-foreground",
+            muted && "font-normal text-muted-foreground",
+          )}
+        >
+          {children}
+          {origin ? <FactOriginDot origin={origin} /> : null}
+          {footer}
+        </div>
+        {actionAlways ? action : <span />}
+      </div>
+    );
+  }
+  if (layout.column) {
+    const showAction = actionAlways || layout.editing;
+    return (
+      <div className="flex min-w-0 items-start gap-2 py-2.5 md:max-2xl:py-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <div
+            className={cn(
+              "min-w-0 break-words text-sm font-semibold leading-5 text-foreground",
+              muted && "font-normal text-muted-foreground",
+            )}
+          >
+            {children}
+          </div>
+          {origin ? (
+            <p
+              className="mt-0.5 break-words text-[11px] leading-4 text-muted-foreground"
+              title={origin.title}
+              data-fact-origin
+            >
+              {origin.text}
+            </p>
+          ) : null}
+          {footer}
+        </div>
+        {showAction ? action : null}
+      </div>
+    );
+  }
   return (
-    <div className="min-w-0 rounded-lg border border-border bg-card p-3">
+    <div className="min-w-0 rounded-lg border border-border bg-card p-3 md:max-2xl:p-2">
       <div className="flex min-h-11 items-start gap-2.5">
         <span
           aria-hidden="true"
@@ -272,6 +546,16 @@ function FactShell({
           >
             {children}
           </div>
+          {origin ? (
+            <p
+              className="mt-0.5 break-words text-[11px] leading-4 text-muted-foreground"
+              title={origin.title}
+              data-fact-origin
+            >
+              {origin.text}
+            </p>
+          ) : null}
+          {footer}
         </div>
         {action}
       </div>
@@ -304,7 +588,7 @@ function LanguagesEditor({
 }) {
   const queryClient = useQueryClient();
   const { showError, showSuccess } = useToast();
-  const [rows, setRows] = React.useState<CandidateLanguageInput[]>([]);
+  const [rows, setRows] = React.useState<LanguageRow[]>([]);
   const [validationError, setValidationError] = React.useState<string | null>(
     null,
   );
@@ -323,6 +607,9 @@ function LanguagesEditor({
           cefr_level: language.cefr_level,
           is_native: language.is_native,
           is_level_unknown: language.is_level_unknown,
+          // Zapisany kod spoza listy (np. z CV) zostaje „Innym…” z tym samym
+          // kodem, dopóki ktoś nie zmieni nazwy.
+          other: !isListedLanguageCode(language.language_code),
         })),
       );
       setValidationError(null);
@@ -372,10 +659,7 @@ function LanguagesEditor({
     },
   });
 
-  const updateRow = (
-    index: number,
-    update: Partial<CandidateLanguageInput>,
-  ) => {
+  const updateRow = (index: number, update: Partial<LanguageRow>) => {
     setRows((current) =>
       current.map((row, rowIndex) =>
         rowIndex === index ? { ...row, ...update } : row,
@@ -389,23 +673,28 @@ function LanguagesEditor({
       .map((row) => ({
         ...row,
         language_name: row.language_name.trim(),
-        language_code:
-          row.language_code.trim().toLocaleLowerCase() ||
-          inferredLanguageCode(row.language_name),
+        language_code: row.language_code.trim().toLocaleLowerCase(),
       }))
-      .filter((row) => row.language_name);
+      .filter((row) => row.language_name || row.language_code);
+    const missingName = normalized.find((row) => !row.language_name);
+    if (missingName) {
+      setValidationError(
+        missingName.other
+          ? "Wpisz nazwę języka spoza listy albo usuń pusty wiersz."
+          : "Wybierz język z listy albo usuń pusty wiersz.",
+      );
+      return;
+    }
     const invalidCode = normalized.find(
       (row) => !LANGUAGE_CODE_RE.test(row.language_code),
     );
     if (invalidCode) {
       setValidationError(
-        `Podaj poprawny kod języka dla „${invalidCode.language_name}” (2–16 małych liter, cyfr lub łączników).`,
+        `Nazwa „${invalidCode.language_name}” jest za krótka albo nie zawiera liter — wpisz pełną nazwę języka.`,
       );
       return;
     }
-    const nameKeys = normalized.map((row) =>
-      normalizedLanguageToken(row.language_name),
-    );
+    const nameKeys = normalized.map((row) => foldLanguageName(row.language_name));
     const codeKeys = normalized.map((row) => row.language_code);
     if (
       new Set(nameKeys).size !== nameKeys.length ||
@@ -444,51 +733,48 @@ function LanguagesEditor({
               className="rounded-lg border border-border p-3"
             >
               <legend className="sr-only">Język {index + 1}</legend>
-              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_6rem_9rem_auto]">
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_9rem_auto]">
                 <div>
                   <Label htmlFor={`candidate-language-${index}`}>Język</Label>
-                  <Input
+                  <LanguagePicker
                     id={`candidate-language-${index}`}
-                    className="mt-1 min-h-11"
-                    value={row.language_name}
-                    onChange={(event) => {
-                      const languageName = event.target.value;
-                      const previousInferredCode = inferredLanguageCode(
-                        row.language_name,
-                      );
+                    row={row}
+                    onPick={(picked) => {
+                      if (picked === "other") {
+                        updateRow(index, {
+                          other: true,
+                          language_name: row.other ? row.language_name : "",
+                          language_code: row.other ? row.language_code : "",
+                        });
+                        return;
+                      }
                       updateRow(index, {
-                        language_name: languageName,
-                        language_code:
-                          !row.language_code ||
-                          row.language_code === previousInferredCode
-                            ? inferredLanguageCode(languageName)
-                            : row.language_code,
+                        other: false,
+                        language_code: picked.code,
+                        language_name: picked.label,
                       });
                     }}
-                    placeholder="np. angielski"
-                    autoComplete="off"
                   />
-                </div>
-                <div>
-                  <Label htmlFor={`candidate-language-code-${index}`}>
-                    Kod
-                  </Label>
-                  <Input
-                    id={`candidate-language-code-${index}`}
-                    className="mt-1 min-h-11 font-mono lowercase"
-                    value={row.language_code}
-                    onChange={(event) =>
-                      updateRow(index, {
-                        language_code: event.target.value
-                          .toLocaleLowerCase()
-                          .replace(/[^a-z0-9-]/g, "")
-                          .slice(0, 16),
-                      })
-                    }
-                    placeholder="en"
-                    maxLength={16}
-                    autoComplete="off"
-                  />
+                  {row.other ? (
+                    <div className="mt-2">
+                      <Label htmlFor={`candidate-language-other-${index}`}>
+                        Nazwa języka
+                      </Label>
+                      <Input
+                        id={`candidate-language-other-${index}`}
+                        className="mt-1 min-h-11"
+                        value={row.language_name}
+                        onChange={(event) =>
+                          updateRow(index, {
+                            language_name: event.target.value,
+                            language_code: otherLanguageCode(event.target.value),
+                          })
+                        }
+                        placeholder="np. kataloński"
+                        autoComplete="off"
+                      />
+                    </div>
+                  ) : null}
                 </div>
                 <div>
                   <Label htmlFor={`candidate-language-level-${index}`}>
@@ -564,6 +850,7 @@ function LanguagesEditor({
                   cefr_level: null,
                   is_native: false,
                   is_level_unknown: true,
+                  other: false,
                 },
               ])
             }
@@ -630,26 +917,57 @@ function LocationEditor({
   const { showError, showSuccess } = useToast();
   const [city, setCity] = React.useState("");
   const [country, setCountry] = React.useState("");
+  const [region, setRegion] = React.useState("");
+  const [hub, setHub] = React.useState("");
   const [mutationError, setMutationError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!open) return;
     setCity(candidate.city ?? "");
     setCountry(candidate.country ?? "");
+    setRegion(candidate.region ?? "");
+    setHub(candidate.hub_city ?? "");
     setMutationError(null);
-  }, [candidate.city, candidate.country, open]);
+  }, [candidate.city, candidate.country, candidate.region, candidate.hub_city, open]);
+
+  // Tylko zmienione pola — każde zapisane pole dostaje ręczną blokadę przed
+  // kolejnym odczytem CV, więc nietknięty region nie może jej dostać „przy okazji”.
+  const locationPatch = () => {
+    const next = {
+      city: city.trim() || null,
+      country: country.trim().toUpperCase() || null,
+      region: region.trim() || null,
+      hub_city: hub.trim() || null,
+    };
+    const before = {
+      city: candidate.city?.trim() || null,
+      country: candidate.country?.trim().toUpperCase() || null,
+      region: candidate.region?.trim() || null,
+      hub_city: candidate.hub_city?.trim() || null,
+    };
+    return Object.fromEntries(
+      (Object.keys(next) as Array<keyof typeof next>)
+        .filter((key) => next[key] !== before[key])
+        .map((key) => [key, next[key]]),
+    );
+  };
 
   const mutation = useMutation({
-    mutationFn: () =>
-      candidateProfileApi.updateLocation(candidate.id, {
-        city: city.trim() || null,
-        country: country.trim().toUpperCase() || null,
-      }),
-    onSuccess: () => {
+    // Bez zmian nic nie wysyłamy — serwer odpowiedziałby 422 „No location fields”.
+    mutationFn: async () => {
+      const patch = locationPatch();
+      if (Object.keys(patch).length === 0) return "unchanged" as const;
+      await candidateProfileApi.updateLocation(candidate.id, patch);
+      return "saved" as const;
+    },
+    onSuccess: (result) => {
       setMutationError(null);
-      queryClient.invalidateQueries({
-        queryKey: candidateQueryKeys.detail(candidate.id),
-      });
+      if (result === "unchanged") {
+        onOpenChange(false);
+        return;
+      }
+      // Runda 10 (R10-N15-10): lista (miasto pod nazwiskiem) i podgląd też.
+      invalidateCandidateMutation(queryClient, candidate.id, "edit");
       onOpenChange(false);
       showSuccess("Lokalizacja zapisana");
     },
@@ -695,6 +1013,32 @@ function LocationEditor({
               maxLength={2}
             />
           </div>
+          <div>
+            <Label htmlFor="candidate-profile-region">Region / województwo</Label>
+            <Input
+              id="candidate-profile-region"
+              className="mt-1 min-h-11"
+              value={region}
+              onChange={(event) => setRegion(event.target.value)}
+              placeholder="np. mazowieckie"
+            />
+          </div>
+          <div>
+            <Label htmlFor="candidate-profile-hub">Hub</Label>
+            <Input
+              id="candidate-profile-hub"
+              className="mt-1 min-h-11"
+              value={hub}
+              onChange={(event) => setHub(event.target.value)}
+              placeholder="np. Warszawa"
+              list="candidate-profile-hub-suggestions"
+            />
+            <datalist id="candidate-profile-hub-suggestions">
+              {HUB_SUGGESTIONS.map((suggestion) => (
+                <option key={suggestion} value={suggestion} />
+              ))}
+            </datalist>
+          </div>
           {mutationError ? (
             <p
               role="alert"
@@ -719,10 +1063,169 @@ function LocationEditor({
             loading={mutation.isPending}
             onClick={() => {
               setMutationError(null);
+              if (Object.keys(locationPatch()).length === 0) {
+                onOpenChange(false);
+                return;
+              }
               mutation.mutate();
             }}
           >
             Zapisz lokalizację
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AvailabilityEditor({
+  open,
+  onOpenChange,
+  candidate,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  candidate: CandidateProfileFactsBarProps["candidate"];
+}) {
+  const queryClient = useQueryClient();
+  const { showError, showSuccess } = useToast();
+  const [initial, setInitial] = React.useState<AvailabilityDraft>(() =>
+    availabilityDraft(candidate),
+  );
+  const [draft, setDraft] = React.useState<AvailabilityDraft>(initial);
+  const [mutationError, setMutationError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const fresh = availabilityDraft(candidate);
+    setInitial(fresh);
+    setDraft(fresh);
+    setMutationError(null);
+    // Stan z chwili otwarcia — zapis wysyła tylko różnice względem niego.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const validationError = availabilityDraftError(draft);
+  const patch = availabilityPatch(initial, draft);
+  const contractNote = availabilityContractNote(candidate.employment_marker);
+  const mutation = useMutation({
+    mutationFn: () => api.patch(`/api/candidates/${candidate.id}`, patch),
+    onSuccess: () => {
+      setMutationError(null);
+      invalidateCandidateMutation(queryClient, candidate.id, "edit");
+      onOpenChange(false);
+      showSuccess("Dostępność zapisana");
+    },
+    onError: (error) => {
+      const message = extractErrorMsg(error) || "Nie udało się zapisać dostępności";
+      setMutationError(message);
+      showError(message);
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent aria-describedby="candidate-availability-dialog-description">
+        <DialogHeader>
+          <DialogTitle>Dostępność kandydata</DialogTitle>
+          <DialogDescription id="candidate-availability-dialog-description">
+            Od kiedy kandydat może zacząć i czy szuka teraz pracy. Po tych
+            polach filtruje lista kandydatów.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="grid gap-4 sm:grid-cols-2">
+          {contractNote ? (
+            <p
+              data-testid="availability-contract-note"
+              className="rounded-lg bg-success-muted px-3 py-2 text-xs leading-5 text-success-muted-foreground sm:col-span-2"
+            >
+              {contractNote}
+            </p>
+          ) : null}
+          <div className="sm:col-span-2">
+            <Label htmlFor="candidate-availability-status">Czy szuka pracy</Label>
+            <select
+              id="candidate-availability-status"
+              className="mt-1 min-h-11 w-full rounded-lg border border-border bg-card px-3 text-sm"
+              value={draft.status}
+              onChange={(event) => setDraft((d) => ({ ...d, status: event.target.value }))}
+            >
+              {AVAILABILITY_STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="candidate-availability-date">Dostępny od</Label>
+            <Input
+              id="candidate-availability-date"
+              type="date"
+              className="mt-1 min-h-11"
+              value={draft.date}
+              onChange={(event) => setDraft((d) => ({ ...d, date: event.target.value }))}
+            />
+          </div>
+          <div>
+            <Label htmlFor="candidate-notice-period">Okres wypowiedzenia</Label>
+            <div className="mt-1 grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-2">
+              <Input
+                id="candidate-notice-period"
+                inputMode="numeric"
+                className="min-h-11"
+                value={draft.noticePeriod}
+                onChange={(event) =>
+                  setDraft((d) => ({ ...d, noticePeriod: event.target.value }))
+                }
+                placeholder="np. 30"
+                aria-invalid={validationError ? true : undefined}
+              />
+              <select
+                aria-label="Okres wypowiedzenia — jednostka"
+                className="min-h-11 rounded-lg border border-border bg-card px-2 text-sm"
+                value={draft.noticeUnit}
+                onChange={(event) =>
+                  setDraft((d) => ({ ...d, noticeUnit: event.target.value }))
+                }
+              >
+                {NOTICE_PERIOD_UNITS.map((unit) => (
+                  <option key={unit.value} value={unit.value}>
+                    {unit.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {validationError || mutationError ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/30 bg-destructive-muted px-3 py-2 text-sm text-destructive-muted-foreground [overflow-wrap:anywhere] sm:col-span-2"
+            >
+              {validationError ?? mutationError}
+            </p>
+          ) : null}
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11 min-w-11"
+            onClick={() => onOpenChange(false)}
+          >
+            Anuluj
+          </Button>
+          <Button
+            type="button"
+            className="min-h-11 min-w-11"
+            loading={mutation.isPending}
+            disabled={Boolean(validationError) || Object.keys(patch).length === 0}
+            onClick={() => {
+              setMutationError(null);
+              mutation.mutate();
+            }}
+          >
+            Zapisz dostępność
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1079,11 +1582,14 @@ function RateEditor({
   onOpenChange,
   candidateId,
   queryData,
+  initialMinimum = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   candidateId: number;
   queryData: RateQueryData;
+  /** Otwarte z „Ustaw minimum ręcznie” w historii stawek. */
+  initialMinimum?: boolean;
 }) {
   const queryClient = useQueryClient();
   const { showError, showSuccess } = useToast();
@@ -1095,30 +1601,59 @@ function RateEditor({
     null,
   );
   const [mutationError, setMutationError] = React.useState<string | null>(null);
+  // „To jego minimum” (0414): starsze niższe stawki przestają się liczyć do
+  // „Stawki od”, którą czytają filtry i AI.
+  const [isMinimum, setIsMinimum] = React.useState(false);
   const wasOpenRef = React.useRef(false);
+  // 0418 (D4): zmiana stawki w profilu pyta o trwające procesy — w zaznaczonych
+  // stawka zmienia się tą samą regułą co w panelu osoby (ślad, DL i HoR).
+  const processes = useQuery({
+    queryKey: activeProcessesQueryKey(candidateId),
+    queryFn: () => rateChangesApi.activeProcesses(candidateId),
+    enabled: open,
+    staleTime: 15_000,
+  });
+  const [processJobs, setProcessJobs] = React.useState<Set<number> | null>(null);
+  React.useEffect(() => {
+    if (!open) {
+      setProcessJobs(null);
+      return;
+    }
+    if (processJobs === null && processes.data) {
+      setProcessJobs(new Set(processes.data.map((p) => p.job_id)));
+    }
+  }, [open, processes.data, processJobs]);
 
   React.useEffect(() => {
     if (open && !wasOpenRef.current) {
       setAmount(queryData.data.amount ?? "");
+      setIsMinimum(initialMinimum);
       setValidationError(null);
       setConflictMessage(null);
       setMutationError(null);
     }
     wasOpenRef.current = open;
-  }, [open, queryData.data.amount]);
+  }, [open, queryData.data.amount, initialMinimum]);
 
   const mutation = useMutation({
     mutationFn: (nextAmount: string | null) => {
       if (!queryData.etag) {
         throw new Error("Brak wersji danych. Odśwież stawkę i spróbuj ponownie.");
       }
-      return candidateFactsApi.updateProfileRate(
-        candidateId,
-        nextAmount,
-        queryData.etag,
-      );
+      return isMinimum && nextAmount !== null
+        ? candidateFactsApi.updateProfileRate(
+            candidateId,
+            nextAmount,
+            queryData.etag,
+            true,
+          )
+        : candidateFactsApi.updateProfileRate(
+            candidateId,
+            nextAmount,
+            queryData.etag,
+          );
     },
-    onSuccess: (result) => {
+    onSuccess: async (result, nextAmount) => {
       setMutationError(null);
       queryClient.setQueryData(
         candidateQueryKeys.profileRate(candidateId),
@@ -1128,7 +1663,35 @@ function RateEditor({
       // unieważnienia lista pokazywała starą kwotę przez 30 s (staleTime).
       invalidateCandidateMutation(queryClient, candidateId, "rate");
       onOpenChange(false);
-      showSuccess("Stawka profilu zapisana");
+      const jobs = nextAmount !== null ? [...(processJobs ?? [])] : [];
+      if (jobs.length === 0) {
+        showSuccess("Stawka profilu zapisana");
+        return;
+      }
+      const results = await Promise.allSettled(
+        jobs.map((jobId) =>
+          rateChangesApi.create({
+            candidate_id: candidateId,
+            job_id: jobId,
+            amount: nextAmount as string,
+            unit: "hourly",
+            reason: "other",
+            source: "profile",
+          }),
+        ),
+      );
+      queryClient.invalidateQueries({ queryKey: ["kanban"] });
+      queryClient.invalidateQueries({ queryKey: ["rate-changes"] });
+      const failed = results.filter((r) => r.status === "rejected").length;
+      if (failed > 0) {
+        showError(
+          `Stawka profilu zapisana, ale w ${failed} z ${jobs.length} procesów nie udało się jej zmienić. Zmień ją w panelu osoby.`,
+        );
+      } else {
+        showSuccess(
+          `Stawka zapisana w profilu i w ${jobs.length} ${jobs.length === 1 ? "procesie" : "procesach"}.`,
+        );
+      }
     },
     onError: (error) => {
       const status = requestStatus(error);
@@ -1174,10 +1737,11 @@ function RateEditor({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent aria-describedby="candidate-rate-dialog-description">
         <DialogHeader>
-          <DialogTitle>Globalna stawka kandydata</DialogTitle>
+          <DialogTitle>Stawka podana przez kandydata</DialogTitle>
           <DialogDescription id="candidate-rate-dialog-description">
-            To oczekiwana stawka B2B w PLN netto za godzinę. Nie zmienia stawek
-            przypisanych do konkretnych rekrutacji.
+            Stawka B2B w PLN netto za godzinę. Trafia do historii stawek —
+            filtry i AI porównują budżet z najniższą stawką z ostatnich 18
+            miesięcy („Stawka od”).
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -1206,8 +1770,63 @@ function RateEditor({
             </span>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            Pozostaw puste, aby usunąć globalną stawkę.
+            Pozostaw puste, aby usunąć stawkę z profilu.
           </p>
+          <label
+            htmlFor="candidate-profile-rate-minimum"
+            className="mt-3 flex items-start gap-2 text-sm"
+          >
+            <Checkbox
+              id="candidate-profile-rate-minimum"
+              checked={isMinimum}
+              onCheckedChange={(value) => setIsMinimum(value === true)}
+              className="mt-0.5"
+            />
+            <span>
+              To jego minimum
+              <span className="block text-xs text-muted-foreground">
+                Niższe stawki podane wcześniej przestaną się liczyć do
+                „Stawki od”. Zostaną w historii.
+              </span>
+            </span>
+          </label>
+          {processes.data && processes.data.length > 0 ? (
+            <fieldset className="mt-3" data-testid="profile-rate-processes">
+              <legend className="text-sm font-medium">Zmień też w trwających procesach</legend>
+              <p className="text-xs text-muted-foreground">
+                Delivery Lead i Head of Recruitment dostaną powiadomienie, a gdy CV
+                jest już u klienta — DL dostanie zadanie.
+              </p>
+              <ul className="mt-1.5 space-y-1">
+                {processes.data.map((p) => (
+                  <li key={p.job_id}>
+                    <label className="flex items-start gap-2 text-sm">
+                      <Checkbox
+                        checked={processJobs?.has(p.job_id) ?? true}
+                        onCheckedChange={(value) =>
+                          setProcessJobs((prev) => {
+                            const next = new Set(prev ?? []);
+                            if (value === true) next.add(p.job_id);
+                            else next.delete(p.job_id);
+                            return next;
+                          })
+                        }
+                        className="mt-0.5"
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate">{p.job_title}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {[p.client_name, p.current_label ? `teraz ${p.current_label}` : null]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </fieldset>
+          ) : null}
           {validationError ? (
             <p
               id="candidate-profile-rate-error"
@@ -1282,29 +1901,50 @@ function EditFactButton({
 
 export function CandidateProfileFactsBar({
   candidate,
+  layout = "grid",
+  children,
+  lead,
 }: CandidateProfileFactsBarProps) {
   // GET/PATCH /api/candidates/{id}/profile-rate stoi na
   // CandidateProfileFacts{Read,Write}Access = _INTERNAL_OPERATIONAL_ROLES —
   // czyli KAŻDA rola operacyjna, w tym HoR i sourcer (polityka faktów
   // globalnych) oraz `finance` (tier recruitera od 19.08), którego ręczna
   // lista tu gubiła. To NIE jest RECRUITMENT_RATE_EDIT_ROLES: tamten zbiór
-  // (bez HoR i sourcera) bramkuje stawkę w pipelinie, nie fakt globalny.
+  // bramkuje stawkę w pipelinie, nie fakt globalny.
   //
   // Ta sama capability bramkuje KAŻDĄ edycję w pasku: PUT języków i PATCH
   // lokalizacji stoją na tym samym CandidateProfileFactsWriteAccess. Ołówek
   // bez prawa zapisu kończył się 403 po kliknięciu „Zapisz”.
   const canViewAndEditRate = useCapability("candidate.profile_fact.manage");
   const canEditFacts = canViewAndEditRate;
+  // Dostępność zapisuje PATCH /api/candidates/{id} (jak „Edytuj dane”), więc
+  // potrzebuje też prawa zapisu kandydata.
+  const canWriteCandidate = useCapability("candidate.write");
+  const canEditAvailability = canEditFacts && canWriteCandidate;
+  const column = layout === "column" || layout === "proposal";
+  const proposal = layout === "proposal";
+  // Karta „Podsumowanie”: ołówki dopiero po „Edytuj” (jedno wejście w edycję
+  // zamiast sześciu ikon stale na widoku). Pasek kafelków pokazuje je zawsze.
+  const [editing, setEditing] = React.useState(false);
+  // Karta „Do propozycji” bez edycji: jedna linia na fakt (wiersze z ołówkami
+  // wracają po „Edytuj”).
+  const compact = proposal && !editing;
   const [languagesOpen, setLanguagesOpen] = React.useState(false);
   const [locationOpen, setLocationOpen] = React.useState(false);
+  const [availabilityOpen, setAvailabilityOpen] = React.useState(false);
   const [rateOpen, setRateOpen] = React.useState(false);
+  const [rateHistoryOpen, setRateHistoryOpen] = React.useState(false);
+  const [rateAsMinimum, setRateAsMinimum] = React.useState(false);
   const [workModeOpen, setWorkModeOpen] = React.useState(false);
   const [callFactsOpen, setCallFactsOpen] = React.useState(false);
 
   React.useEffect(() => {
+    setEditing(false);
     setLanguagesOpen(false);
     setLocationOpen(false);
+    setAvailabilityOpen(false);
     setRateOpen(false);
+    setRateHistoryOpen(false);
     setWorkModeOpen(false);
     setCallFactsOpen(false);
   }, [candidate.id]);
@@ -1341,210 +1981,357 @@ export function CandidateProfileFactsBar({
   const rateLabel = rateFactLabel(candidate, rateQuery.data?.data.updated_at);
   const verifiedLabel = callFactsVerifiedLabel(candidate);
   const callFacts = callFactItems(candidate);
+  // Ustalenia z kart rekomendacji — dodatek: brak dostępu albo awaria odczytu
+  // zostawia pasek bez linii źródła.
+  const viewerScope = candidateViewerScopeKey(useAuthStore((state) => state.user));
+  const cardOverview = useCandidateCardOverview(candidate.id, viewerScope);
+  const cardFacts = cardFactsByKey(cardOverview.data?.facts);
+  // Źródło trybu pracy: odrzucenie „Nie akceptuje trybu pracy” (14.10.2026)
+  // wygrywa z kartą rekomendacji — serwer trzyma je tylko, dopóki wartość
+  // na profilu pochodzi z tego odrzucenia, a karta mówi o starszej rozmowie.
+  const workModeOrigin =
+    rejectionWorkModeOrigin(candidate.preferences) ?? cardOrigin(cardFacts.work_mode);
+  const profileRate =
+    rateQuery.data?.data.amount != null ? Number(rateQuery.data.data.amount) : null;
+  // „Stawka od” (0414): najniższa stawka z 18 miesięcy — ją czytają filtry
+  // i AI. Pokazujemy ją, gdy różni się od stawki profilu albo profil jej nie ma
+  // — inaczej kafel mówi to samo dwa razy.
+  const rateFromAmount = toAmount(candidate.rate_from_hourly);
+  // Osoba z żywą umową (15.10.2026, D4/D5): „Stawka od” = stawka z umowy —
+  // wiersz mówi „Stawka u nas” zawsze, także gdy kwota równa się profilowi.
+  const rateFromContract =
+    rateFromAmount !== null && candidate.rate_from_source === "contract";
+  const rateFrom = rateFromContract
+    ? formatRate(String(rateFromAmount))
+    : rateFromAmount !== null &&
+        (profileRate === null ||
+          Math.abs(rateFromAmount - profileRate) >= 0.005 ||
+          Boolean(candidate.rate_from_stale) ||
+          (candidate.rate_observation_count ?? 0) > 1)
+      ? (rateFromText(candidate) ?? "").replace(/^od /, "")
+      : null;
+  const rateSecond = rateFrom && !rateFromContract ? rateSecondLine(candidate) : null;
+  // R4 (17.10.2026): przy żywej umowie niższa zadeklarowana stawka — w samym
+  // kaflu, nie tylko w opisie źródła, żeby nikt nie wziął umowy za minimum.
+  const rateDeclared = rateFromContract ? declaredFromText(candidate) : null;
+  const contractClients =
+    candidate.employment_marker?.clients
+      .map((client) => client.client_name?.trim())
+      .filter(Boolean)
+      .join(", ") || null;
+  const rateContractOrigin: FactOrigin | undefined = rateFromContract
+    ? {
+        title: "Z umowy",
+        tone: "contract",
+        text:
+          `Z umowy${contractClients ? ` z ${contractClients}` : ""}: stawka konsultanta, ` +
+          "liczy się, dopóki umowa trwa." +
+          (profileRate !== null && Math.abs(profileRate - (rateFromAmount ?? 0)) >= 0.005
+            ? ` W profilu: ${formatRate(String(profileRate))}.`
+            : ""),
+      }
+    : undefined;
+  // Żywa umowa (15.10.2026, D1): termin z umowy, nie ze screeningu.
+  const contractAvail: ContractAvailability | null = contractAvailability(
+    candidate.employment_marker,
+    candidate.availability_date,
+  );
+  const contractAvailLabel = contractAvail
+    ? [contractAvailabilityText(contractAvail), contractAvailabilityCountdown(contractAvail)]
+        .filter(Boolean)
+        .join(" · ")
+    : null;
   const languagesForbidden = requestStatus(languagesQuery.error) === 403;
   const rateForbidden = requestStatus(rateQuery.error) === 403;
 
-  return (
+  // Kolejność od 04.10.2026: najpierw to, o co rekruter pyta przed
+  // zaproponowaniem osoby (dostępność, stawka, tryb, miasto), potem języki
+  // i narodowość.
+  const facts = (
     <>
-      <section
-        aria-label="Najważniejsze fakty o kandydacie"
-        data-help="candidate.profile.facts"
-        // Liczba kolumn wynika z szerokości PASKA, nie okna: obok listy
-        // „Kandydaci — ostatnio wyświetlani” pasek bywa o połowę węższy niż
-        // ekran, a `xl:grid-cols-5` wciskało pięć kafelków w ~900 px. Kafelek
-        // ma najmniej 15rem (ikona, etykieta, wartość i przycisk edycji), resztę
-        // dzieli po równo; za mało miejsca = kolejny wiersz.
-        className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3"
+      <FactShell
+        icon={<CalendarClock className="size-4" />}
+        label="Dostępność"
+        muted={
+          contractAvail
+            ? contractAvail.kind === "no_end_date"
+            : proposal
+              ? !availabilityTerm(candidate)
+              : !candidate.availability_status
+        }
+        origin={
+          contractAvail
+            ? contractAvailabilityOrigin(contractAvail)
+            : (cardOrigin(cardFacts.availability) ??
+              notesAvailabilityOrigin(candidate))
+        }
+        action={
+          canEditAvailability ? (
+            <EditFactButton
+              label="Edytuj dostępność"
+              onClick={() => setAvailabilityOpen(true)}
+            />
+          ) : null
+        }
       >
-        {languagesQuery.isPending ? (
-          <FactLoading label="Języki" />
-        ) : languagesQuery.isError ? (
+        {contractAvailLabel ??
+          (proposal
+            ? (availabilityTerm(candidate) ?? "Nie ustalono")
+            : availabilityValue(candidate))}
+      </FactShell>
+
+      {canViewAndEditRate && !rateForbidden ? (
+        rateQuery.isPending ? (
+          <FactLoading label={rateLabel} />
+        ) : rateQuery.isError ? (
           <FactShell
-            icon={
-              languagesForbidden ? (
-                <LockKeyhole className="size-4" />
-              ) : (
-                <Languages className="size-4" />
-              )
-            }
-            label="Języki"
+            icon={<WalletCards className="size-4" />}
+            label={rateLabel}
             muted
+            actionAlways
             action={
-              languagesForbidden ? null : (
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  className="min-h-11 min-w-11"
-                  aria-label="Ponów pobieranie języków"
-                  onClick={() => languagesQuery.refetch()}
-                >
-                  <RefreshCw aria-hidden="true" className="size-4" />
-                </Button>
-              )
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                className="min-h-11 min-w-11"
+                aria-label="Ponów pobieranie stawki"
+                onClick={() => rateQuery.refetch()}
+              >
+                <RefreshCw aria-hidden="true" className="size-4" />
+              </Button>
             }
           >
-            <span role={languagesForbidden ? "status" : "alert"}>
-              {languagesForbidden ? "Brak dostępu" : "Dane niedostępne"}
-            </span>
+            <span role="alert">Dane niedostępne</span>
           </FactShell>
-        ) : (
+        ) : rateQuery.data ? (
           <FactShell
-            icon={<Languages className="size-4" />}
-            label="Języki"
-            muted={languageSummary.length === 0}
+            icon={<WalletCards className="size-4" />}
+            label={rateFromContract ? "Stawka u nas" : rateFrom ? "Stawka od" : rateLabel}
+            muted={rateQuery.data.data.amount == null && !rateFrom}
+            origin={
+              rateContractOrigin ??
+              (rateFrom
+                ? rateSecond
+                  ? {
+                      text: rateSecond,
+                      title: "Ostatnio podana stawka i liczba stawek w historii",
+                    }
+                  : undefined
+                : cardOrigin(cardFacts.rate, profileRate))
+            }
             action={
-              canEditFacts ? (
-                <EditFactButton
-                  label="Edytuj języki"
-                  onClick={() => setLanguagesOpen(true)}
-                />
-              ) : null
+              <EditFactButton
+                label="Edytuj globalną stawkę B2B"
+                onClick={() => setRateOpen(true)}
+              />
+            }
+            footer={
+              <button
+                type="button"
+                className={
+                  compact
+                    ? "ml-1 inline text-xs font-medium text-primary hover:underline"
+                    : "mt-1 block min-h-6 text-xs font-medium text-primary hover:underline"
+                }
+                onClick={() => setRateHistoryOpen(true)}
+              >
+                Historia stawek
+                {candidate.rate_observation_count
+                  ? ` (${candidate.rate_observation_count})`
+                  : ""}
+              </button>
             }
           >
-            {languageSummary.length ? (
-              <span className="flex flex-wrap gap-1">
-                {languageSummary.slice(0, 2).map((language) => (
-                  <Badge
-                    key={language.id}
-                    variant="soft"
-                    size="sm"
-                    className="h-auto max-w-full whitespace-normal break-words py-0.5"
-                  >
-                    {languageLabel(language)}
-                  </Badge>
-                ))}
-                {languageSummary.length > 2 ? (
-                  <Badge variant="neutral" size="sm">
-                    +{languageSummary.length - 2}
-                  </Badge>
-                ) : null}
+            {rateFrom ?? formatRate(rateQuery.data.data.amount)}
+            {rateDeclared ? (
+              <span
+                className="block text-[11px] font-normal leading-4 text-muted-foreground"
+                data-testid="rate-declared-from"
+              >
+                {rateDeclared}
               </span>
-            ) : (
-              "Nie uzupełniono"
-            )}
+            ) : null}
           </FactShell>
-        )}
+        ) : null
+      ) : null}
 
-        <FactShell
-          icon={<MapPin className="size-4" />}
-          label="Lokalizacja"
-          muted={!location}
-          action={
-            canEditFacts ? (
-              <EditFactButton
-                label="Edytuj lokalizację"
-                onClick={() => setLocationOpen(true)}
-              />
-            ) : null
-          }
-        >
-          {location || "Nie uzupełniono"}
-        </FactShell>
-
-        <FactShell
-          icon={<CalendarClock className="size-4" />}
-          label="Dostępność"
-          muted={!candidate.availability_status}
-        >
-          {availabilityValue(candidate)}
-        </FactShell>
-
+      {compact ? (
+        // „Do propozycji” bez edycji: tryb pracy i miasto w jednym wierszu
+        // „Praca”; po „Edytuj” rozdzielają się na dwa wiersze z ołówkami.
         <FactShell
           icon={<Briefcase className="size-4" />}
-          label="Tryb pracy"
-          muted={!workModeLabel}
+          label="Praca"
+          muted={!workModeLabel && !location}
+          origin={workModeOrigin}
+        >
+          {[workModeLabel, location].filter(Boolean).join(" · ") || "Nie uzupełniono"}
+        </FactShell>
+      ) : (
+      <>
+      <FactShell
+        icon={<Briefcase className="size-4" />}
+        label="Tryb pracy"
+        muted={!workModeLabel}
+        origin={workModeOrigin}
+        action={
+          canEditFacts ? (
+            <EditFactButton
+              label="Edytuj tryb pracy"
+              onClick={() => setWorkModeOpen(true)}
+            />
+          ) : null
+        }
+      >
+        {workModeLabel ?? "Nie uzupełniono"}
+      </FactShell>
+
+      <FactShell
+        icon={<MapPin className="size-4" />}
+        label={column ? "Miasto" : "Lokalizacja"}
+        muted={!location}
+        action={
+          canEditFacts ? (
+            <EditFactButton
+              label="Edytuj lokalizację"
+              onClick={() => setLocationOpen(true)}
+            />
+          ) : null
+        }
+      >
+        {location || "Nie uzupełniono"}
+      </FactShell>
+      </>
+      )}
+
+      {languagesQuery.isPending ? (
+        <FactLoading label="Języki" />
+      ) : languagesQuery.isError ? (
+        <FactShell
+          icon={
+            languagesForbidden ? (
+              <LockKeyhole className="size-4" />
+            ) : (
+              <Languages className="size-4" />
+            )
+          }
+          label="Języki"
+          muted
+          actionAlways
+          action={
+            languagesForbidden ? null : (
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                className="min-h-11 min-w-11"
+                aria-label="Ponów pobieranie języków"
+                onClick={() => languagesQuery.refetch()}
+              >
+                <RefreshCw aria-hidden="true" className="size-4" />
+              </Button>
+            )
+          }
+        >
+          <span role={languagesForbidden ? "status" : "alert"}>
+            {languagesForbidden ? "Brak dostępu" : "Dane niedostępne"}
+          </span>
+        </FactShell>
+      ) : (
+        <FactShell
+          icon={<Languages className="size-4" />}
+          label="Języki"
+          muted={languageSummary.length === 0}
+          origin={cardOrigin(cardFacts.english)}
           action={
             canEditFacts ? (
               <EditFactButton
-                label="Edytuj tryb pracy"
-                onClick={() => setWorkModeOpen(true)}
+                label="Edytuj języki"
+                onClick={() => setLanguagesOpen(true)}
               />
             ) : null
           }
         >
-          {workModeLabel ?? "Nie uzupełniono"}
-        </FactShell>
-
-        {canViewAndEditRate && !rateForbidden ? (
-          rateQuery.isPending ? (
-            <FactLoading label={rateLabel} />
-          ) : rateQuery.isError ? (
-            <FactShell
-              icon={<WalletCards className="size-4" />}
-              label={rateLabel}
-              muted
-              action={
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  className="min-h-11 min-w-11"
-                  aria-label="Ponów pobieranie stawki"
-                  onClick={() => rateQuery.refetch()}
+          {languageSummary.length ? (
+            <span className="flex flex-wrap gap-1">
+              {languageSummary.slice(0, 2).map((language) => (
+                <Badge
+                  key={language.id}
+                  variant="soft"
+                  size="sm"
+                  className="h-auto max-w-full whitespace-normal break-words py-0.5"
                 >
-                  <RefreshCw aria-hidden="true" className="size-4" />
-                </Button>
-              }
-            >
-              <span role="alert">Dane niedostępne</span>
-            </FactShell>
-          ) : rateQuery.data ? (
-            <FactShell
-              icon={<WalletCards className="size-4" />}
-              label={rateLabel}
-              muted={rateQuery.data.data.amount == null}
-              action={
-                <EditFactButton
-                  label="Edytuj globalną stawkę B2B"
-                  onClick={() => setRateOpen(true)}
-                />
-              }
-            >
-              {formatRate(rateQuery.data.data.amount)}
-            </FactShell>
-          ) : null
-        ) : null}
-        <FollowupFact candidateId={candidate.id} />
-      </section>
+                  {languageLabel(language)}
+                </Badge>
+              ))}
+              {languageSummary.length > 2 ? (
+                <Badge variant="neutral" size="sm">
+                  +{languageSummary.length - 2}
+                </Badge>
+              ) : null}
+            </span>
+          ) : (
+            "Nie uzupełniono"
+          )}
+        </FactShell>
+      )}
 
-      {verifiedLabel || callFacts.length ? (
-        <div
-          aria-label="Fakty z rozmowy telefonicznej"
-          className="mt-2 flex flex-wrap items-center gap-1.5"
+      {cardFacts.nationality ? (
+        <FactShell
+          icon={<Globe2 className="size-4" />}
+          label="Narodowość"
+          origin={{
+            text: cardFactOrigin(cardFacts.nationality),
+            title: cardFactTitle(cardFacts.nationality),
+          }}
         >
-          {verifiedLabel ? (
-            <Badge
-              variant="success"
-              className="h-auto max-w-full whitespace-normal break-words py-0.5"
-            >
-              {verifiedLabel}
-            </Badge>
-          ) : null}
-          {callFacts.map((fact) => (
-            <Badge
-              key={fact.key}
-              variant={fact.tone === "danger" ? "danger" : "outline"}
-              className="h-auto max-w-full whitespace-normal break-words py-0.5"
-            >
-              {fact.label}
-            </Badge>
-          ))}
-          {canEditFacts && callFacts.length ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="min-h-11"
-              aria-label="Popraw fakty z rozmowy"
-              onClick={() => setCallFactsOpen(true)}
-            >
-              <PencilLine aria-hidden="true" className="size-4" />
-              Popraw
-            </Button>
-          ) : null}
-        </div>
+          {cardFacts.nationality.raw}
+        </FactShell>
       ) : null}
+    </>
+  );
+
+  const callFactsRow =
+    verifiedLabel || callFacts.length ? (
+      <div
+        aria-label="Fakty z rozmowy telefonicznej"
+        className="mt-2 flex flex-wrap items-center gap-1.5"
+      >
+        {verifiedLabel ? (
+          <Badge
+            variant="success"
+            className="h-auto max-w-full whitespace-normal break-words py-0.5"
+          >
+            {verifiedLabel}
+          </Badge>
+        ) : null}
+        {callFacts.map((fact) => (
+          <Badge
+            key={fact.key}
+            variant={fact.tone === "danger" ? "danger" : "outline"}
+            className="h-auto max-w-full whitespace-normal break-words py-0.5"
+          >
+            {fact.label}
+          </Badge>
+        ))}
+        {canEditFacts && callFacts.length && (!column || editing) ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="min-h-11"
+            aria-label="Popraw fakty z rozmowy"
+            onClick={() => setCallFactsOpen(true)}
+          >
+            <PencilLine aria-hidden="true" className="size-4" />
+            Popraw
+          </Button>
+        ) : null}
+      </div>
+    ) : null;
+
+  const editors = (
+    <>
       {canEditFacts ? (
         <CallFactsEditor
           open={callFactsOpen}
@@ -1568,6 +2355,13 @@ export function CandidateProfileFactsBar({
           candidate={candidate}
         />
       ) : null}
+      {canEditAvailability ? (
+        <AvailabilityEditor
+          open={availabilityOpen}
+          onOpenChange={setAvailabilityOpen}
+          candidate={candidate}
+        />
+      ) : null}
       {canEditFacts ? (
         <WorkModeEditor
           open={workModeOpen}
@@ -1578,11 +2372,95 @@ export function CandidateProfileFactsBar({
       {rateQuery.data ? (
         <RateEditor
           open={rateOpen}
-          onOpenChange={setRateOpen}
+          onOpenChange={(next) => {
+            setRateOpen(next);
+            if (!next) setRateAsMinimum(false);
+          }}
           candidateId={candidate.id}
           queryData={rateQuery.data}
+          initialMinimum={rateAsMinimum}
         />
       ) : null}
+      {canViewAndEditRate ? (
+        <RateHistoryDialog
+          open={rateHistoryOpen}
+          onOpenChange={setRateHistoryOpen}
+          candidateId={candidate.id}
+          canEdit={canEditFacts}
+          onSetMinimum={
+            rateQuery.data
+              ? () => {
+                  setRateHistoryOpen(false);
+                  setRateAsMinimum(true);
+                  setRateOpen(true);
+                }
+              : undefined
+          }
+        />
+      ) : null}
+    </>
+  );
+
+  if (column) {
+    return (
+      <FactsLayoutContext.Provider value={{ column: true, editing, compact }}>
+        <section
+          aria-labelledby="candidate-summary-heading"
+          data-help="candidate.profile.facts"
+          className="rounded-xl border border-border bg-card px-4 py-3 md:max-2xl:px-3"
+        >
+          {lead ? <div className="mb-2">{lead}</div> : null}
+          <div className="flex min-h-9 items-center justify-between gap-2">
+            <h2
+              id="candidate-summary-heading"
+              className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+            >
+              {proposal ? "Do propozycji" : "Podsumowanie"}
+            </h2>
+            {canEditFacts ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="min-h-9 px-2 text-primary"
+                aria-pressed={editing}
+                onClick={() => setEditing((value) => !value)}
+              >
+                {editing ? "Gotowe" : "Edytuj"}
+              </Button>
+            ) : null}
+          </div>
+          <div
+            aria-label="Najważniejsze fakty o kandydacie"
+            className={compact ? "" : "divide-y divide-border"}
+          >
+            {facts}
+          </div>
+          {callFactsRow}
+          {children}
+        </section>
+        {editors}
+      </FactsLayoutContext.Provider>
+    );
+  }
+
+  return (
+    <>
+      <section
+        aria-label="Najważniejsze fakty o kandydacie"
+        data-help="candidate.profile.facts"
+        // Liczba kolumn wynika z szerokości PASKA, nie okna: obok listy
+        // „Kandydaci — ostatnio wyświetlani” pasek bywa o połowę węższy niż
+        // ekran, a `xl:grid-cols-5` wciskało pięć kafelków w ~900 px. Kafelek
+        // ma najmniej 15rem (ikona, etykieta, wartość i przycisk edycji), resztę
+        // dzieli po równo; za mało miejsca = kolejny wiersz.
+        className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3 md:max-2xl:gap-2"
+      >
+        {facts}
+      </section>
+      {callFactsRow}
+      {children}
+      {editors}
     </>
   );
 }

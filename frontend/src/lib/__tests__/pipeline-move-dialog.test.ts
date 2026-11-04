@@ -2,7 +2,7 @@
  * Które ruchy wymagają dialogu — jedna reguła dla tablicy i dla doku „Decyzja".
  *
  * Cichy tryb awarii, przed którym to broni: dok kroku 07 wysyła
- * `POST /api/pipeline/move` sam. Gdyby nie znał gałęzi „CV Wysłane", ruch
+ * `POST /api/pipeline/move` sam. Gdyby nie znał gałęzi „CV wysłane", ruch
  * PRZESZEDŁBY — tyle że bez zapytania o stawkę do klienta, czyli bez danych,
  * które tamten modal istnieje po to, żeby zebrać. Nic by się nie wywaliło;
  * po prostu stawka byłaby pusta.
@@ -13,6 +13,8 @@ import { describe, expect, it } from "vitest";
 import {
   dialogUnavailableReason,
   moveDialogFor,
+  movesBackTo,
+  needsInterviewDate,
 } from "@/lib/pipeline-move-dialog";
 
 describe("moveDialogFor", () => {
@@ -24,8 +26,13 @@ describe("moveDialogFor", () => {
     expect(moveDialogFor({ stage: "withdrawn" })).toBe("rejection");
   });
 
+  it("„Rozmowa u klienta” pyta o termin (20.10.2026)", () => {
+    expect(moveDialogFor({ stage: "client_interview" })).toBe("interview_date");
+    // Dok „Decyzja” nie blokuje tego ruchu — termin można podać później.
+    expect(dialogUnavailableReason("interview_date")).toBeNull();
+  });
+
   it("zwykły etap idzie bez dialogu", () => {
-    expect(moveDialogFor({ stage: "client_interview" })).toBe("none");
     expect(moveDialogFor({ stage: "acceptance" })).toBe("none");
     expect(moveDialogFor({ stage: "new", terminal_type: null })).toBe("none");
   });
@@ -53,5 +60,63 @@ describe("dialogUnavailableReason", () => {
     // inaczej nie dałoby się zamknąć kandydata z poziomu kroku 07.
     expect(dialogUnavailableReason("none")).toBeNull();
     expect(dialogUnavailableReason("rejection")).toBeNull();
+  });
+});
+
+describe("needsInterviewDate", () => {
+  const badge = (extra: object) => ({ kind: "slot", label: "x", tone: "info", ...extra }) as never;
+
+  it("bez niczego w cyklu — pyta", () => {
+    expect(needsInterviewDate({ interview_badge: null })).toBe(true);
+    expect(needsInterviewDate({ interview_badge: badge({ steps: [] }) })).toBe(true);
+  });
+
+  it("zaplanowana rozmowa albo otwarte terminy od klienta — nie pyta", () => {
+    expect(
+      needsInterviewDate({
+        interview_badge: badge({ steps: [{ key: "interview", state: "scheduled" }] }),
+      }),
+    ).toBe(false);
+    expect(
+      needsInterviewDate({ interview_badge: badge({ slot_request: { status: "awaiting_dl" } }) }),
+    ).toBe(false);
+    expect(
+      needsInterviewDate({
+        interview_badge: badge({ slot_request: { status: "awaiting_recruiter" } }),
+      }),
+    ).toBe(false);
+  });
+
+  it("odbyta rozmowa (kolejna runda) albo anulowany wniosek — pyta", () => {
+    expect(
+      needsInterviewDate({
+        interview_badge: badge({ steps: [{ key: "interview", state: "done" }] }),
+      }),
+    ).toBe(true);
+    expect(
+      needsInterviewDate({ interview_badge: badge({ slot_request: { status: "cancelled" } }) }),
+    ).toBe(true);
+  });
+});
+
+describe("movesBackTo", () => {
+  // Audyt 21.10.2026: „Cofnij akceptację klienta” po odbytej rozmowie pytało
+  // „Kiedy rozmowa u klienta?” — karta wraca z kolumny ZA rozmową.
+  const cols = [
+    { id: "a", stage: "cv_sent" },
+    { id: "b", stage: "client_interview" },
+    { id: "c", stage: "client_accepted" },
+    { id: "d", stage: "rejected", terminal_type: "rejected" as const },
+  ];
+  const idOf = (c: { id: string }) => c.id;
+
+  it("powrót z kolumny za celem — tak", () => {
+    expect(movesBackTo(cols, "c", cols[1], idOf)).toBe(true);
+  });
+
+  it("ruch naprzód, przywrócenie z zamkniętych i nieznana kolumna — nie", () => {
+    expect(movesBackTo(cols, "a", cols[1], idOf)).toBe(false);
+    expect(movesBackTo(cols, "d", cols[1], idOf)).toBe(false);
+    expect(movesBackTo(cols, "zzz", cols[1], idOf)).toBe(false);
   });
 });

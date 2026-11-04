@@ -1,16 +1,17 @@
 /**
- * `JobTabsRail` — szyna „Otwarte karty" na trasach szczegółów rekrutacji.
+ * `JobTabsRail` — szyna „Otwarte karty" na stronach rekrutacji i (od
+ * 02.10.2026) na liście `/jobs`.
  *
  * Fala 3 przeniosła stan zwinięcia z ręcznego `useState`/`localStorage`
- * (klucz `nexus.jobTabsRail.collapsed`) na `useLocalStorageFlag` z nowym
- * kluczem `nexus.jobTabsRail.collapsed.v2` i domyślnie ZWINIĘTĄ szyną —
- * te testy pilnują właśnie tej zmiany (a nie samej listy kart, która nie
- * jest tu ruszana).
+ * (klucz `nexus.jobTabsRail.collapsed`) na klucz `nexus.jobTabsRail.collapsed.v2`
+ * i domyślnie ZWINIĘTĄ szynę na stronie rekrutacji — pierwsze testy pilnują
+ * właśnie tego. Niżej: lista ma własny stan domyślny (rozwinięta od 1920 px),
+ * a zapisany wybór wygrywa na obu stronach.
  */
 
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { JobTabsRail } from "@/components/v2/jobs/JobTabsRail";
 import { JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY } from "@/lib/job-tabs-rail-preferences";
@@ -36,6 +37,26 @@ beforeEach(() => {
   routerPush.mockReset();
   useTabsStore.setState({ tabs: [oneJobTab], activeTabId: "job-501" });
 });
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+/** Okno o podanej szerokości: `matchMedia("(min-width: N px)")` odpowiada jak przeglądarka. */
+function stubViewportWidth(width: number) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockImplementation((query: string) => {
+      const min = /min-width:\s*(\d+)px/.exec(query);
+      return {
+        matches: min ? width >= Number(min[1]) : false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+    }),
+  );
+}
 
 describe("JobTabsRail — preferencja zwinięcia", () => {
   it("bez zapisanej preferencji startuje ZWINIĘTA (pasek z licznikiem, nie lista)", async () => {
@@ -104,5 +125,168 @@ describe("JobTabsRail — samo-ukrywanie", () => {
     });
     const { container } = render(<JobTabsRail />);
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe("JobTabsRail — okno węższe niż 1536 px (laptop z Windows)", () => {
+  function mockNarrowScreen() {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    );
+  }
+
+  it("zapisane „rozwiń” nie zabiera szerokości: pasek, a lista jako nakładka bez zapisu", async () => {
+    mockNarrowScreen();
+    window.localStorage.setItem(JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY, "0");
+    const user = userEvent.setup();
+    render(<JobTabsRail />);
+
+    const open = await screen.findByRole("button", { name: "Pokaż pasek rekrutacji" });
+    expect(screen.queryByText("Rekrutacje")).not.toBeInTheDocument();
+
+    await user.click(open);
+    expect(await screen.findByText("Otwarte karty: 1")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByText("Otwarte karty: 1")).not.toBeInTheDocument();
+    expect(window.localStorage.getItem(JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY)).toBe("0");
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("JobTabsRail — lista rekrutacji (`variant=\"list\"`)", () => {
+  it("bez zapisanej preferencji: od 1920 px rozwinięta, a przycisk „Ukryj” zapisuje wybór", async () => {
+    stubViewportWidth(1920);
+    const user = userEvent.setup();
+    render(<JobTabsRail variant="list" />);
+
+    expect(await screen.findByText("Otwarte karty: 1")).toBeInTheDocument();
+    // Sam stan domyślny niczego nie zapisuje.
+    expect(window.localStorage.getItem(JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY)).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Ukryj pasek rekrutacji" }));
+    expect(await screen.findByRole("button", { name: "Pokaż pasek rekrutacji" })).toBeInTheDocument();
+    expect(window.localStorage.getItem(JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY)).toBe("1");
+  });
+
+  it("bez zapisanej preferencji: poniżej 1920 px (1536–1919) zwinięty pasek w układzie strony", async () => {
+    stubViewportWidth(1600);
+    const user = userEvent.setup();
+    render(<JobTabsRail variant="list" />);
+
+    const show = await screen.findByRole("button", { name: "Pokaż pasek rekrutacji" });
+    expect(screen.queryByText("Otwarte karty: 1")).not.toBeInTheDocument();
+
+    // Od 1536 px „Pokaż” rozwija szynę na stałe (zapis), nie jako nakładkę.
+    await user.click(show);
+    expect(await screen.findByText("Otwarte karty: 1")).toBeInTheDocument();
+    expect(window.localStorage.getItem(JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY)).toBe("0");
+  });
+
+  it("zapisana preferencja wygrywa z szerokością okna — w obie strony", async () => {
+    stubViewportWidth(1920);
+    window.localStorage.setItem(JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY, "1");
+    const view = render(<JobTabsRail variant="list" />);
+    expect(await screen.findByRole("button", { name: "Pokaż pasek rekrutacji" })).toBeInTheDocument();
+    expect(screen.queryByText("Otwarte karty: 1")).not.toBeInTheDocument();
+    view.unmount();
+
+    stubViewportWidth(1600);
+    window.localStorage.setItem(JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY, "0");
+    render(<JobTabsRail variant="list" />);
+    expect(await screen.findByText("Otwarte karty: 1")).toBeInTheDocument();
+  });
+
+  it("laptop (poniżej 1536 px): pasek, a lista kart jako nakładka — bez zapisu", async () => {
+    stubViewportWidth(1280);
+    const user = userEvent.setup();
+    render(<JobTabsRail variant="list" />);
+
+    await user.click(await screen.findByRole("button", { name: "Pokaż pasek rekrutacji" }));
+    const panel = await screen.findByRole("complementary", { name: "Otwarte rekrutacje" });
+    // Nakładka nie zabiera miejsca w układzie: jest pozycjonowana nad treścią.
+    expect(panel).toHaveClass("absolute");
+    expect(window.localStorage.getItem(JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY)).toBeNull();
+
+    // Klik w kartę otwiera rekrutację.
+    await user.click(screen.getByRole("button", { name: /Programista Python/ }));
+    expect(routerPush).toHaveBeenCalledWith("/jobs/501");
+  });
+
+  it("strona rekrutacji przy 1920 px zostaje zwinięta — stan domyślny listy jej nie dotyczy", async () => {
+    stubViewportWidth(1920);
+    render(<JobTabsRail />);
+    expect(await screen.findByRole("button", { name: "Pokaż pasek rekrutacji" })).toBeInTheDocument();
+    expect(screen.queryByText("Otwarte karty: 1")).not.toBeInTheDocument();
+  });
+});
+
+describe("JobTabsRail — karty", () => {
+  it("„×” przy karcie zamyka ją bez nawigacji, „×” w nagłówku zamyka wszystkie", async () => {
+    window.localStorage.setItem(JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY, "0");
+    useTabsStore.setState({
+      tabs: [
+        oneJobTab,
+        { id: "job-502", type: "job", entityId: 502, title: "Tester", url: "/jobs/502" },
+        { id: "candidate-9", type: "candidate", entityId: 9, title: "Kandydat", url: "/candidates/9" },
+      ],
+      activeTabId: "job-501",
+    });
+    const user = userEvent.setup();
+    render(<JobTabsRail />);
+
+    // Szyna rekrutacji pokazuje tylko rekrutacje.
+    expect(await screen.findByText("Otwarte karty: 2")).toBeInTheDocument();
+    expect(screen.queryByText("Kandydat")).not.toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "Zamknij kartę" })[1]);
+    expect(routerPush).not.toHaveBeenCalled();
+    expect(useTabsStore.getState().tabs.map((t) => t.id)).toEqual(["job-501", "candidate-9"]);
+
+    await user.click(screen.getByRole("button", { name: "Zamknij wszystkie karty" }));
+    expect(useTabsStore.getState().tabs.map((t) => t.id)).toEqual(["candidate-9"]);
+  });
+
+  it("numer u klienta w miejscu ikony; openTab dopisuje go do otwartej już karty (15.10.2026)", async () => {
+    window.localStorage.setItem(JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY, "0");
+    useTabsStore.setState({
+      tabs: [oneJobTab, { id: "job-502", type: "job", entityId: 502, title: "Tester", url: "/jobs/502" }],
+      activeTabId: "job-501",
+    });
+    // Karta zapisana przed 15.10.2026 nie ma numeru — dostaje go przy otwarciu.
+    act(() => useTabsStore.getState().openTab("job", 501, "Programista Python", "41228, 41227"));
+    render(<JobTabsRail />);
+
+    const row = await screen.findByRole("button", { name: /Programista Python/ });
+    expect(within(row).getByTestId("open-tab-reference")).toHaveTextContent("41228");
+    expect(row).toHaveAttribute("title", "41228, 41227 · Programista Python");
+    const plain = screen.getByRole("button", { name: /Tester/ });
+    expect(within(plain).queryByTestId("open-tab-reference")).toBeNull();
+    expect(useTabsStore.getState().tabs.map((t) => t.id)).toEqual(["job-501", "job-502"]);
+  });
+
+  it("z klawiatury: Enter na wierszu otwiera kartę, Enter na „×” ją zamyka (nie otwiera)", async () => {
+    window.localStorage.setItem(JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY, "0");
+    const user = userEvent.setup();
+    render(<JobTabsRail />);
+
+    const row = await screen.findByRole("button", { name: /Programista Python/ });
+    row.focus();
+    await user.keyboard("{Enter}");
+    expect(routerPush).toHaveBeenCalledWith("/jobs/501");
+    routerPush.mockReset();
+
+    // Klawisz na przycisku w środku wiersza też dociera do wiersza — do
+    // 02.10.2026 otwierał kartę, którą użytkownik właśnie zamykał.
+    screen.getByRole("button", { name: "Zamknij kartę" }).focus();
+    await user.keyboard("{Enter}");
+    expect(routerPush).not.toHaveBeenCalled();
+    expect(useTabsStore.getState().tabs).toEqual([]);
   });
 });

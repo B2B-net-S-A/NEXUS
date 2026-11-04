@@ -50,10 +50,13 @@ def _candidate(insights):
 def test_defaults_keep_all_four_automations_on():
     fields = Settings.model_fields
     assert fields["AUTO_FULL_REVIEW_ENABLED"].default is True
-    # Audyt 22.09 r2 (PROD-03): 5/noc — przegląd ~190 MB.
-    assert fields["AUTO_FULL_REVIEW_MAX_PER_NIGHT"].default == 5
-    assert fields["AUTO_FULL_REVIEW_TOP_K"].default == 60
+    # 30.09.2026: co noc wszystkie rekrutacje w pracy (~18); dysk trzyma
+    # retencja zastąpionych przeglądów automatycznych.
+    assert fields["AUTO_FULL_REVIEW_MAX_PER_NIGHT"].default == 48
     assert fields["CV_AUTO_GENERATE_ON_VERIFIED"].default is True
+    # 21.10.2026: automat po ruchu liczy tylko QC istniejącego CV pary;
+    # nowe CV powstaje po potwierdzeniu w karcie.
+    assert fields["CV_AUTO_GENERATE_WITHOUT_CONFIRMATION"].default is False
     assert fields["AUTO_MATCH_MODE"].default is None  # = propose
     assert fields["AUTO_MATCH_DRY_RUN"].default is None
 
@@ -121,7 +124,7 @@ async def test_screening_sheet_carries_suggestions_without_saving_anything(
     app_client: AsyncClient,
 ):
     recruiter_id, recruiter = await _user(UserRole.recruiter)
-    sourcer_id, sourcer = await _user(UserRole.sourcer)
+    sourcer_id, sourcer = await _user(UserRole.recruiter)
     # Arkusz czyta zespół rekrutacji — obie osoby są właścicielami swoich.
     world = await _world(people=1, recruiter_id=recruiter_id)
     stage_id = await _stage(world)
@@ -137,14 +140,14 @@ async def test_screening_sheet_carries_suggestions_without_saving_anything(
     assert body["suggestions"]["availability"]["notice_period"] == "1 miesiąc"
     assert body["screening_answers"] is None
 
-    # Sourcer nie może wpisać stawki przy ruchu na „Zweryfikowany" — i jej nie widzi.
-    narrow = await app_client.get(
+    # Od 02.10.2026 sourcer przenosi na „Zweryfikowany" — podpowiedź stawki też widzi.
+    as_sourcer = await app_client.get(
         f"/api/pipeline/stages/{sourcer_stage_id}/screening", headers=sourcer
     )
-    assert narrow.status_code == 200, narrow.text
-    assert "rate" not in narrow.json()["suggestions"]
-    assert narrow.json()["suggestions"]["rate_redacted"] is True
-    assert "availability" in narrow.json()["suggestions"]
+    assert as_sourcer.status_code == 200, as_sourcer.text
+    assert as_sourcer.json()["suggestions"]["rate"]["value"] == 150.0
+    assert as_sourcer.json()["suggestions"]["rate_redacted"] is False
+    assert "availability" in as_sourcer.json()["suggestions"]
 
     async with AsyncSessionLocal() as db:
         stage = await db.get(CandidateStage, stage_id)

@@ -163,8 +163,12 @@ async def test_status_promotion_active_to_expired():
         await _cleanup(client_id, [admin_id, dl_id])
 
 
-async def test_alert_dispatch_30d_to_dl_and_admin():
-    """30d before expiry → assigned DL + admin, but never HoR."""
+async def test_alert_dispatch_30d_to_assigned_dl_only():
+    """30 dni przed końcem → przypisany DL; admin i HoR nie.
+
+    Do 09.10.2026 dzwonek szedł też do każdego admina (1 237 w 30 dni na
+    7 kont, przeczytane w 8%). Admin jest już tylko zapasem dla klienta bez DL-a.
+    """
     admin_id, dl_id, client_id = await _setup_dl_with_client()
     suffix = uuid.uuid4().hex[:6]
     async with AsyncSessionLocal() as db:
@@ -207,13 +211,51 @@ async def test_alert_dispatch_30d_to_dl_and_admin():
                 ).scalars()
             )
             recipient_ids = {n.user_id for n in notifs}
-            # DL powinien dostać; admin też (ale staff list zawiera wielu adminów —
-            # weryfikujemy tylko że nasze targety są w secie)
-            assert dl_id in recipient_ids
-            assert admin_id in recipient_ids
+            assert recipient_ids == {dl_id}
+            assert admin_id not in recipient_ids
             assert hor_id not in recipient_ids
     finally:
         await _cleanup(client_id, [admin_id, dl_id, hor_id])
+
+
+async def test_alert_falls_back_to_admins_when_client_has_no_delivery_lead():
+    """Klient bez przypisanego DL-a → alert dostają admini, żeby nie zginął."""
+    admin_id, dl_id, client_id = await _setup_dl_with_client()
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                DeliveryLeadClientAssignment.__table__.delete().where(
+                    DeliveryLeadClientAssignment.client_id == client_id
+                )
+            )
+            fc = ClientFrameworkContract(
+                client_id=client_id,
+                name="MSA bez DL-a",
+                status=FrameworkContractStatus.active,
+                expiry_date=business_today() + timedelta(days=30),
+            )
+            db.add(fc)
+            await db.commit()
+            fc_id = fc.id
+
+        await run_once()
+
+        async with AsyncSessionLocal() as db:
+            recipient_ids = set(
+                (
+                    await db.execute(
+                        select(Notification.user_id).where(
+                            Notification.related_entity_type
+                            == "client_framework_contract",
+                            Notification.related_entity_id == fc_id,
+                        )
+                    )
+                ).scalars()
+            )
+            assert admin_id in recipient_ids
+            assert dl_id not in recipient_ids
+    finally:
+        await _cleanup(client_id, [admin_id, dl_id])
 
 
 async def test_alert_dedup_no_duplicate_on_second_run():
@@ -256,7 +298,7 @@ async def test_alert_dedup_no_duplicate_on_second_run():
             )
 
         assert count_after_second == count_after_first
-        assert count_after_first >= 2  # at least dl + admin
+        assert count_after_first == 1  # przypisany DL; admin tylko jako zapas
     finally:
         await _cleanup(client_id, [admin_id, dl_id])
 
@@ -503,11 +545,9 @@ async def test_contract_typed_alert_with_the_same_id_does_not_crash_the_run():
                     )
                 )
             ).all()
-            # DL: jeden wpis (indeks nie przyjmie drugiego tego dnia), admin:
-            # zwykły alert zamówienia.
-            assert sorted(rows) == sorted(
-                [(dl_id, "contract"), (admin_id, "client_order")]
-            )
+            # DL: jeden wpis (indeks nie przyjmie drugiego tego dnia). Admin nie
+            # dostaje nic — klient ma przypisanego DL-a.
+            assert rows == [(dl_id, "contract")]
             overdue_row = await db.get(ClientOrder, overdue_id)
             assert overdue_row.status == ClientOrderStatus.completed
     finally:
@@ -606,7 +646,7 @@ async def test_order_alert_dispatched():
                     )
                 ).scalars()
             )
-            assert len(notifs) >= 2  # dl + admin minimum
+            assert [n.user_id for n in notifs] == [dl_id]
     finally:
         await _cleanup(client_id, [admin_id, dl_id], [candidate_id])
 

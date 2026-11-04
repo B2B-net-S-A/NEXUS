@@ -12,13 +12,13 @@ RBAC: admin only (``AdminUser`` dependency).
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import AdminUser
+from app.core.tasks import spawn
 from app.services.talent_pool_backfill import (
     backfill_is_running,
     last_backfill_stats,
@@ -57,8 +57,11 @@ async def trigger_talent_pool_backfill(
 
     # Fire-and-forget: replaying ~19k rows takes minutes. Progress is observable
     # via GET /backfill/status.
-    asyncio.create_task(
-        run_membership_backfill(since=since_dt, commit=True, limit=limit)
+    # `spawn` trzyma referencję (goły `create_task` bywa zebrany przez GC
+    # w połowie biegu) i loguje porażkę, której inaczej nikt by nie zobaczył.
+    spawn(
+        run_membership_backfill(since=since_dt, commit=True, limit=limit),
+        "talent_pool_backfill",
     )
     return {"status": "started", "since": since, "limit": limit}
 

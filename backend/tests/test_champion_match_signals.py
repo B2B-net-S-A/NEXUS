@@ -64,7 +64,12 @@ def test_salary_flag_off_stays_not_comparable(monkeypatch):
     assert "not_comparable" in (res.reason or "") or "brak danych" in (res.reason or "")
 
 
-def test_salary_in_champion_budget_scores_full(flag_on):
+def test_salary_in_champion_budget_scores_full(monkeypatch, flag_on):
+    # Stawka w punktach i bramka każdego must — tryb v8 (MUST_GATE_MODE=all)
+    # od 30.09.2026; tryb domyślny pilnuje test_critical_gate.py.
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "MUST_GATE_MODE", "all")
     job = _job(champion_profile={"rate_value": 150.0})
     cand = _cand(expected_rate_hourly=120)
     res = _score_salary(cand, job)
@@ -72,7 +77,12 @@ def test_salary_in_champion_budget_scores_full(flag_on):
     assert "w budżecie requestu" in res.reason
 
 
-def test_salary_overshoot_decays_linearly_to_zero_at_30_percent(flag_on):
+def test_salary_overshoot_decays_linearly_to_zero_at_30_percent(monkeypatch, flag_on):
+    # Stawka w punktach i bramka każdego must — tryb v8 (MUST_GATE_MODE=all)
+    # od 30.09.2026; tryb domyślny pilnuje test_critical_gate.py.
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "MUST_GATE_MODE", "all")
     job = _job(champion_profile={"rate_value": 100.0})
     mid = _score_salary(_cand(expected_rate_hourly=115), job)  # +15% → ~połowa
     assert 0 < mid.points < mid.max_points

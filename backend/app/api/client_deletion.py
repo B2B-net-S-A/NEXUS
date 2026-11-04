@@ -33,7 +33,7 @@ from app.api.section_access import require_section_access_any_read
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.critical_event import CriticalEvent
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.client_deletion import (
     ClientDeletionCheckResponse,
     ClientDeletionResult,
@@ -65,7 +65,10 @@ async def require_client_deletion_permission(
     """Imienne uprawnienie do usuwania klientów. Odmowa trafia do dziennika."""
 
     impersonating = getattr(request.state, "impersonator_id", None) is not None
-    if current_user.can_delete_clients and not impersonating:
+    # 0446: rola „Automatyzacje” niczego nie zapisuje na ekranach — imienne
+    # uprawnienie zaznaczone przez pomyłkę nie otwiera jej usuwania.
+    read_only_role = current_user.has_role(UserRole.automation)
+    if current_user.can_delete_clients and not impersonating and not read_only_role:
         return current_user
 
     reason = (

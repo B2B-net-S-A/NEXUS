@@ -49,7 +49,7 @@ def test_row_write_sits_in_a_savepoint():
     """Bez savepointa błąd wiersza kosztuje paczkę — patrz docstring modułu."""
 
     source = IMPORTER.read_text(encoding="utf-8")
-    upsert_at = source.index("_UPSERT_CANDIDATE, params")
+    upsert_at = source.index("upsert_sql, params")
     window = source[max(0, upsert_at - 4000) : upsert_at]
 
     assert "begin_nested()" in window, (

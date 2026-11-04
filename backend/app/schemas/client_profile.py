@@ -51,6 +51,10 @@ class ClientProfileSummary(BaseModel):
     # `active_mrr`. >0 znaczy, że kafel jest sumą NIEPEŁNĄ; `active_mrr = None`
     # przy wszystkich kontraktach niewycenionych („—", nie 0,00 zł).
     active_mrr_unpriced_contracts: int = 0
+    # Runda 10 (R10-N9-4): kontrakty z obiema stawkami, ale bez kursu NBP.
+    # >0 zeruje kafel (`active_mrr = None`) — front pisze „brak kursu", nie
+    # „brak stawek". Osobno od `active_mrr_unpriced_contracts`.
+    active_mrr_fx_missing_contracts: int = 0
     ltv: Optional[int] = (
         None  # lifetime revenue (PLN, monthly_rate_client * duration_months)
     )

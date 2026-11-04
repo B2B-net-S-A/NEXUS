@@ -24,8 +24,16 @@ from app.services.order_mail_planner import (
     ACTION_REACTIVATE,
     AUTO_ACTIONS,
     DocumentProposal,
+    reversed_period_reason,
 )
 from app.services.order_mail_resolver import MATCH_EXACT, ResolvedConsultant
+from app.services.recruitment_rate_check import (
+    DIFFERS,
+    RateRef,
+    comparable_amount,
+    compare_ref,
+    format_rate,
+)
 from app.services.order_pdf_parser import (
     ConsultantOrderRow,
     OrderExtraction,
@@ -90,6 +98,16 @@ CODE_OCR_CAPPED = "ocr_capped"
 CODE_RATE_MISSING = "rate_missing"
 CODE_RATE_OUT_OF_BAND = "rate_out_of_band"
 CODE_RATE_DEVIATION = "rate_deviation"
+#: Stawka z zamówienia różni się od stawki do klienta, za którą Delivery Lead
+#: wysłał osobę w rekrutacji (D7, 08.10.2026). „Do sprawdzenia”, nigdy blokada:
+#: klient mógł przyjąć inną stawkę po negocjacji. Świadomie POZA
+#: ``AWAITING_CONTRACT_CODES`` — po trzech próbach DL dostaje kartę.
+CODE_RATE_RECRUITMENT_MISMATCH = "rate_recruitment_mismatch"
+#: Przedłużenie (kontrakt ma już zamówienie ze stawką) przychodzi z inną
+#: stawką niż poprzednie zamówienie. Odniesieniem jest ostatnia uzgodniona
+#: stawka, nie rekrutacja sprzed lat (decyzja Artura 27.10.2026). Też POZA
+#: ``AWAITING_CONTRACT_CODES``.
+CODE_RATE_RENEWAL_CHANGED = "rate_renewal_changed"
 CODE_MD_MISSING = "md_missing"
 CODE_MD_SHARED_POOL = "md_shared_pool"
 #: Zamówienie kosztowe z kilkoma osobami: kwota zlecenia jest wspólna dla całej
@@ -125,6 +143,28 @@ _DECISION_CODES = {
 }
 
 
+def _renewal_rate_reason(row_prop, previous: RateRef) -> str:
+    """„120 zł/h → 138 zł/h (+15%) względem zamówienia #70” — zdanie kolejki."""
+    before = comparable_amount(previous.value, previous.unit, previous.currency)
+    after = comparable_amount(
+        row_prop.rate_client, row_prop.rate_unit, row_prop.currency or "PLN"
+    )
+    change = ""
+    if before and after and before[0] == after[0] and before[1]:
+        pct = (after[1] - before[1]) / before[1] * 100
+        size = (
+            f"{abs(pct):.0f}" if abs(pct) >= 1 else f"{abs(pct):.1f}".replace(".", ",")
+        )
+        change = f" ({'+' if pct > 0 else '−'}{size}%)"
+    return (
+        f"„{row_prop.row_name}”: przy przedłużeniu zmienia się stawka do klienta: "
+        f"{format_rate(previous.value, previous.unit)} → "
+        f"{format_rate(row_prop.rate_client, row_prop.rate_unit)}{change} względem "
+        f"zamówienia #{row_prop.previous_order_id} — potwierdź, że klient przyjął "
+        "nową stawkę"
+    )
+
+
 @dataclass(frozen=True)
 class GateInput:
     identification_method: Optional[str]
@@ -148,6 +188,9 @@ class GateInput:
     #: Okres zamówienia ustala reguła klienta z etykiety dokumentu — musi być
     #: przez nią potwierdzony (confidence 1.0), inaczej kolejka (FIN-MAIL-03).
     document_period_authoritative: bool = False
+    #: contract_id → stawka do klienta z rekrutacji (D7). Puste = brak
+    #: porównania (wołający bez danych z rekrutacji, stare testy).
+    recruitment_rates: Mapping[int, RateRef] = field(default_factory=dict)
 
 
 @dataclass
@@ -479,6 +522,65 @@ def evaluate(inp: GateInput) -> GateVerdict:
                     )
                 )
 
+    # 7-bis) stawka odniesienia = ostatnia uzgodniona: przy pierwszym
+    #     zamówieniu kontraktu stawka do klienta z rekrutacji (D7), przy
+    #     przedłużeniu stawka poprzedniego zamówienia (27.10.2026). Różnica =
+    #     „do sprawdzenia”. Pomija osoby bez dopasowania (``MATCH_NONE`` — nie
+    #     wiadomo, czyja to rekrutacja), zamówienia kosztowe (kwota zlecenia,
+    #     nie stawka osoby), brak stawki i stawki nieporównywalne (inna waluta,
+    #     miesiąc z godziną).
+    unmatched_rows = {res.row_index for res in inp.resolved if res.match_kind == "none"}
+    for row_prop in prop.rows:
+        if (
+            row_prop.row_index in unmatched_rows
+            or row_prop.contract_id is None
+            or row_prop.order_type == "cost"
+            or row_prop.rate_client is None
+            or row_prop.rate_unit is None
+        ):
+            continue
+        if row_prop.previous_rate_client is not None:
+            previous = RateRef(
+                value=Decimal(row_prop.previous_rate_client),
+                unit=row_prop.previous_rate_unit,
+                currency=row_prop.previous_rate_currency or "PLN",
+            )
+            if (
+                compare_ref(
+                    previous,
+                    row_prop.rate_client,
+                    row_prop.rate_unit,
+                    row_prop.currency,
+                )
+                == DIFFERS
+            ):
+                reasons.append(
+                    (
+                        CODE_RATE_RENEWAL_CHANGED,
+                        _renewal_rate_reason(row_prop, previous),
+                    )
+                )
+            continue
+        ref = inp.recruitment_rates.get(row_prop.contract_id)
+        if ref is None:
+            continue
+        verdict = compare_ref(
+            ref, row_prop.rate_client, row_prop.rate_unit, row_prop.currency
+        )
+        if verdict == DIFFERS:
+            where = f" „{ref.label}”" if ref.label else ""
+            reasons.append(
+                (
+                    CODE_RATE_RECRUITMENT_MISMATCH,
+                    f"„{row_prop.row_name}”: stawka z zamówienia "
+                    f"{format_rate(row_prop.rate_client, row_prop.rate_unit)} różni się "
+                    f"od stawki do klienta z rekrutacji{where} "
+                    f"({format_rate(ref.value, ref.unit)}) — sprawdź, czy klient "
+                    "przyjął inną stawkę; po renegocjacji popraw stawkę do klienta "
+                    "w rekrutacji",
+                )
+            )
+
     # 7a) waluta: automat zapisuje wyłącznie PLN (brak kursu) — FIN-MAIL-02
     for row_prop in prop.rows:
         if row_prop.currency and row_prop.currency != "PLN":
@@ -571,7 +673,8 @@ def evaluate(inp: GateInput) -> GateVerdict:
             reasons.append(
                 (
                     CODE_PERIOD_REVERSED,
-                    f"„{row_prop.row_name}”: okres odwrócony w dokumencie ({row_prop.start_date} – {row_prop.end_date})",
+                    f"„{row_prop.row_name}”: "
+                    + reversed_period_reason(row_prop.start_date, row_prop.end_date),
                 )
             )
 

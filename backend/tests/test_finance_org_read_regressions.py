@@ -121,16 +121,22 @@ async def test_finance_branded_cv_lazy_preview_does_not_persist(monkeypatch):
         branded_status="none",
     )
 
-    async def load_csv(db, stage_id, user, *, read_access=False):
-        assert stage_id == 17
-        assert read_access is True
-        return csv
+    # 12.10.2026: GET nie idzie już przez `_load_csv_for_stage` — brak
+    # wiersza CV jest stanem, nie 404 (jak w `get_original_cv`). Bramka ODCZYTU
+    # rekrutacji stoi w samej trasie i to ją tu pilnujemy.
+    gate = []
+
+    async def read_gate(db, user, job_id):
+        gate.append((user.role, job_id))
 
     class RecordingDb:
         def __init__(self):
             self.added = []
             self.commits = 0
             self.refreshes = 0
+
+        async def execute(self, statement):
+            return SimpleNamespace(first=lambda: (8, 4, csv))
 
         def add(self, value):
             self.added.append(value)
@@ -141,8 +147,13 @@ async def test_finance_branded_cv_lazy_preview_does_not_persist(monkeypatch):
         async def refresh(self, value):
             self.refreshes += 1
 
+    async def no_pair_cv(db, candidate_id, job_id):
+        # Runda 11 (F23): pusty etap pyta o CV firmowe pary — tu go nie ma.
+        return SimpleNamespace(status="none", stage_id=None)
+
     db = RecordingDb()
-    monkeypatch.setattr(candidate_stage_cv, "_load_csv_for_stage", load_csv)
+    monkeypatch.setattr(candidate_stage_cv, "ensure_job_read_access", read_gate)
+    monkeypatch.setattr(candidate_stage_cv, "_branded_cv_summary_for_pair", no_pair_cv)
 
     response = await candidate_stage_cv.get_branded_cv(
         stage_id=17,
@@ -153,6 +164,7 @@ async def test_finance_branded_cv_lazy_preview_does_not_persist(monkeypatch):
     # CV-01 (audyt 22.09.2026): odczyt mówi prawdę o stanie — szkicu nie ma.
     # Generator v3: stary szablon wycofany, więc stan 'none' to pusty stan
     # bez renderu (i bez danych kontaktowych kandydata).
+    assert gate == [(UserRole.finance, 4)]
     assert response.status == "none"
     assert response.content_html is None
     assert response.rendered_from_default is False
@@ -223,66 +235,40 @@ async def test_finance_can_export_requested_standalone_order_ids(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_consultant_options_allow_every_dl_and_add_finance():
-    class AssignedResult:
-        def scalar_one_or_none(self):
-            return object()
+async def test_consultant_options_require_the_order_editing_permission():
+    """Lista osób do obsady to formularz „dodaj konsultanta”.
 
-    class AssignedDb:
-        async def execute(self, statement):
-            return AssignedResult()
+    Trasa pyta o „Kontrakty i zamówienia: tworzenie i edycja”: domyślnie admin,
+    Delivery Lead i Finanse. Zakres klienta (tylko klienci z portfela konta
+    z rolą DL) sprawdza handler przez ``_require_group_read``.
+    """
+    from typing import get_args, get_type_hints
 
-    finance = _user(UserRole.finance)
-    assert (
-        await client_order_groups.require_consultant_options_reader(
-            client_id=5, current_user=finance, db=SimpleNamespace()
-        )
-        is finance
-    )
+    annotation = get_type_hints(
+        client_order_groups.list_consultant_options_for_client, include_extras=True
+    )["user"]
+    gate = get_args(annotation)[1].dependency
 
-    admin = _user(UserRole.admin)
-    assert (
-        await client_order_groups.require_consultant_options_reader(
-            client_id=5, current_user=admin, db=SimpleNamespace()
-        )
-        is admin
-    )
-
-    delivery_lead = _user(UserRole.delivery_lead)
-    assert (
-        await client_order_groups.require_consultant_options_reader(
-            client_id=5, current_user=delivery_lead, db=AssignedDb()
-        )
-        is delivery_lead
-    )
-
-    class UnassignedResult:
-        def scalar_one_or_none(self):
-            return None
-
-    class UnassignedDb:
-        async def execute(self, statement):
-            return UnassignedResult()
-
-    assert (
-        await client_order_groups.require_consultant_options_reader(
-            client_id=5,
-            current_user=delivery_lead,
-            db=UnassignedDb(),
-        )
-        is delivery_lead
-    )
+    for role in (UserRole.finance, UserRole.admin, UserRole.delivery_lead):
+        user = _user(role)
+        assert await gate(current_user=user) is user
 
     for role in (
+        UserRole.talent_community_manager,
         UserRole.head_of_recruitment,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
     ):
         with pytest.raises(HTTPException) as exc_info:
-            await client_order_groups.require_consultant_options_reader(
-                client_id=5,
-                current_user=_user(role),
-                db=SimpleNamespace(),
-            )
+            await gate(current_user=_user(role))
         assert exc_info.value.status_code == 403
+        assert exc_info.value.detail["code"] == "permission_denied"
+        assert exc_info.value.detail["permission"] == "contracts_orders_edit"
+
+    # Uprawnienie nadane osobie spoza domyślnych ról otwiera listę.
+    granted = _user(UserRole.talent_community_manager)
+    granted.effective_section_access = {"delivery": "write"}
+    granted.effective_action_access = {
+        "delivery_view": "manage",
+        "contracts_orders_edit": "manage",
+    }
+    assert await gate(current_user=granted) is granted

@@ -20,13 +20,23 @@ stawki w Championie NIE podąża więc do `rate_budget_hourly`, gdy ta jest już
 ustawiona — `resolve_job_budget_hourly` i tak preferuje kolumnę nad
 Championem, więc rozjazd nie ma efektu na scoring, tylko na to, co widać
 w formularzu oferty.
+
+Wyjątek od 30.09.2026: pole, które człowiek ZMIENIŁ w edytorze Championa,
+nadpisuje kolumnę (`overwrite_edited_job_columns`) — patrz jej docstring.
+
+Od 08.10.2026 tą samą drogą idzie „Deadline na kandydatów” → `jobs.deadline`.
+Bramka przekazania pyta o termin rekrutacji, a edytor Championa ma własne pole
+terminu: wpisana tam data zostawała w profilu i brak „Ustaw termin” wisiał
+mimo wypełnionego pola.
 """
 
 from __future__ import annotations
 
 import re
+from datetime import date, datetime, time
 from typing import Any, Optional
 
+from app.core.scheduling import business_today
 from app.models.job import Job, RemotePolicy
 
 # Tryb pracy z profilu Championa jest wolnym tekstem wpisywanym przez
@@ -73,6 +83,33 @@ def _as_number(value: Any) -> Optional[float]:
     return None
 
 
+def _as_date(value: Any) -> Optional[date]:
+    """Termin z sekcji 1 — ISO `RRRR-MM-DD`, jak zapisuje go normalizator profilu.
+
+    Tekst, którego normalizator nie odczytał („ASAP”), nie jest terminem.
+    """
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _as_time(value: Any) -> Optional[time]:
+    """Godzina terminu z sekcji 1 — `GG:MM`, jak zapisuje ją normalizator."""
+    if isinstance(value, str):
+        try:
+            return time.fromisoformat(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
 def champion_work_mode_to_remote(value: Any) -> Optional[str]:
     """Wolny tekst trybu pracy Championa → wartość `RemotePolicy` (strip+prefiks).
 
@@ -91,7 +128,9 @@ def champion_work_mode_to_remote(value: Any) -> Optional[str]:
     return None
 
 
-def fill_job_columns_from_champion(job: Job, basics: dict[str, Any]) -> list[str]:
+def fill_job_columns_from_champion(
+    job: Job, basics: dict[str, Any], *, set_deadline: bool = False
+) -> list[str]:
     """FILL_EMPTY: przenosi to, co Champion już wie, do kolumn oferty.
 
     `basics` to sekcja „1. Podstawowe informacje” profilu (kształt
@@ -103,6 +142,11 @@ def fill_job_columns_from_champion(job: Job, basics: dict[str, Any]) -> list[str
     ani wypełnioną wcześniej z tego samego profilu. Zwraca nazwy KOLUMN
     faktycznie zapisanych w tym wywołaniu; pusta lista mówi wołającemu
     „nic się nie zmieniło”, więc nie warto płacić za `refresh_job_matching`.
+
+    ``set_deadline`` włącza wyłącznie zapis Championa przez osobę z pełną
+    redakcją rekrutacji: termin jest polem cyklu życia
+    (`JOB_MEMBER_LOCKED_FIELDS`), więc przy zapisie treści, imporcie pliku
+    i akceptacji szkicu AI zostaje w profilu.
     """
     if not isinstance(basics, dict):
         return []
@@ -126,6 +170,14 @@ def fill_job_columns_from_champion(job: Job, basics: dict[str, Any]) -> list[str
     if job.onsite_days_per_week is None and days is not None and 0 <= days <= 7:
         job.onsite_days_per_week = days
         filled.append("onsite_days_per_week")
+        # 0407: „N dni w miesiącu” wędruje razem z liczbą tygodniową.
+        month_raw = _as_number(basics.get("onsite_days_per_month"))
+        if month_raw is not None and month_raw.is_integer() and 1 <= month_raw <= 22:
+            from app.services.office_days import weekly_from_monthly
+
+            job.onsite_days_per_month = int(month_raw)
+            job.onsite_days_per_week = weekly_from_monthly(int(month_raw))
+            filled.append("onsite_days_per_month")
 
     if job.remote_policy is None:
         remote = champion_work_mode_to_remote(basics.get("work_mode"))
@@ -142,4 +194,133 @@ def fill_job_columns_from_champion(job: Job, basics: dict[str, Any]) -> list[str
         job.location = location_pref.strip()[:_MAX_LOCATION_LENGTH]
         filled.append("location")
 
+    # Termin: tylko pusty i bez decyzji „Klient nie podał” (tę zmienia dopiero
+    # edycja pola), i tylko data, która jeszcze nie minęła — stary profil nie
+    # może zrobić z rekrutacji „po terminie” przy zapisie innego pola.
+    deadline = _as_date(basics.get("deadline"))
+    if (
+        set_deadline
+        and deadline is not None
+        and deadline >= business_today()
+        and job.deadline is None
+        and not job.deadline_not_provided
+    ):
+        job.deadline = deadline
+        job.deadline_time = _as_time(basics.get("deadline_time"))
+        job.deadline_not_provided = False
+        filled.append("deadline")
+
     return filled
+
+
+def overwrite_edited_job_columns(
+    job: Job,
+    old_basics: dict[str, Any],
+    new_basics: dict[str, Any],
+    *,
+    set_deadline: bool = False,
+) -> list[str]:
+    """Ręczna zmiana rubryki w edytorze Championa idzie też do kolumny oferty.
+
+    Wyjątek od FILL_EMPTY (30.09.2026): pole z sekcji 1, które człowiek
+    ZMIENIŁ w tym zapisie (nowa, niepusta, poprawna wartość), nadpisuje
+    kolumnę. Do tej daty poprawka „0 → 1 dzień w biurze” w edytorze zapisywała
+    się tylko w profilu, a walidacja i bramka czytały dalej 0 z rekrutacji —
+    ten sam błąd wisiał po „Zapisano”. Pola nietknięte w tym zapisie zostają
+    (starszy rozjazd rozstrzyga „Uzgodnij profil i pola rekrutacji”).
+    Te same progi co w `fill_job_columns_from_champion`. Zwraca nazwy kolumn,
+    których wartość się zmieniła.
+    """
+    from app.services.requirement_contract import apply_requirement_source_update
+
+    if not isinstance(old_basics, dict) or not isinstance(new_basics, dict):
+        return []
+
+    def edited(key: str) -> Any:
+        value = new_basics.get(key)
+        if value in (None, "") or value == old_basics.get(key):
+            return None
+        return value
+
+    targets: dict[str, Any] = {}
+
+    rate_value = _as_number(edited("rate_value"))
+    if rate_value is not None and 0 < rate_value <= _MAX_RATE_BUDGET_HOURLY:
+        targets["rate_budget_hourly"] = rate_value
+
+    # 0407: wpis „N dni w miesiącu” niesie liczbę tygodniową wyliczoną przez
+    # serwer, a wpis tygodniowy czyści miesięczny — oba pola idą razem, jak
+    # przy uzupełnianiu pustych pól i w PATCH rekrutacji. Bez tego zmiana
+    # w edytorze zostawiała w rekrutacji stare „2 dni w miesiącu”, które
+    # strona kariery i portale czytają pierwsze (audyt 05.10.2026).
+    month_new = _as_number(new_basics.get("onsite_days_per_month"))
+    month_old = _as_number(old_basics.get("onsite_days_per_month"))
+    month_valid = (
+        month_new is not None and month_new.is_integer() and 1 <= month_new <= 22
+    )
+    days_raw = _as_number(new_basics.get("onsite_days_per_week"))
+    days_valid = days_raw is not None and days_raw.is_integer() and 0 <= days_raw <= 7
+    if month_valid and month_new != month_old:
+        from app.services.office_days import weekly_from_monthly
+
+        targets["onsite_days_per_month"] = int(month_new)
+        targets["onsite_days_per_week"] = weekly_from_monthly(int(month_new))
+    elif (
+        month_new is None
+        and days_valid
+        and (
+            days_raw != _as_number(old_basics.get("onsite_days_per_week"))
+            or month_old is not None
+        )
+    ):
+        targets["onsite_days_per_week"] = int(days_raw)
+        targets["onsite_days_per_month"] = None
+
+    remote = champion_work_mode_to_remote(edited("work_mode"))
+    if remote is not None:
+        targets["remote_policy"] = RemotePolicy(remote)
+
+    location_pref = edited("candidate_location_pref")
+    if isinstance(location_pref, str) and location_pref.strip():
+        targets["location"] = location_pref.strip()[:_MAX_LOCATION_LENGTH]
+
+    # Wpisany w tym zapisie termin jest terminem rekrutacji — także gdy
+    # zastępuje wcześniejszy albo decyzję „Klient nie podał”. Wyczyszczone
+    # pole terminu nie kasuje (`edited` pomija puste). Tylko przy pełnej
+    # redakcji rekrutacji (`set_deadline`).
+    deadline = _as_date(edited("deadline")) if set_deadline else None
+    if deadline is not None:
+        targets["deadline"] = deadline
+        # Godzina należy do daty: nowa data bez godziny nie dziedziczy starej.
+        targets["deadline_time"] = _as_time(new_basics.get("deadline_time"))
+    elif (
+        set_deadline
+        and new_basics.get("deadline_time") != old_basics.get("deadline_time")
+        and _as_date(new_basics.get("deadline")) == job.deadline
+        and job.deadline is not None
+    ):
+        targets["deadline_time"] = _as_time(new_basics.get("deadline_time"))
+
+    changed: list[str] = []
+    for column, value in targets.items():
+        current = getattr(job, column, None)
+        if column == "rate_budget_hourly" and current is not None:
+            if float(current) == float(value):
+                continue
+        elif current == value:
+            continue
+        apply_requirement_source_update(job, column, value)
+        changed.append(column)
+    if "deadline" in changed:
+        job.deadline_not_provided = False
+    # 0420: budżet obniżony w edytorze poniżej zapisanego „od” czyści „od”
+    # (lustro PATCH rekrutacji) — budżetem jest górna granica.
+    if "rate_budget_hourly" in changed:
+        from app.services.job_budget_range import min_below_max
+
+        if not min_below_max(
+            getattr(job, "rate_budget_hourly_min", None), job.rate_budget_hourly
+        ):
+            job.rate_budget_hourly_min = None
+            changed.append("rate_budget_hourly_min")
+    return changed

@@ -2,11 +2,28 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import (
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    event,
+    inspect,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
+from app.services import note_kinds
+
+
+# 0399: wpisy zapisane przez automaty (auto-match z CV i ze scrapera JJIT)
+# — lista notatek chowa je domyślnie za „Pokaż systemowe”.
+SYSTEM_NOTE_SOURCE = "system"
 
 
 class NoteType(str, enum.Enum):
@@ -67,6 +84,29 @@ class Note(Base, TimestampMixin):
     # audio do Object Storage zamiast polegać na tym URL-u.
     audio_url: Mapped[Optional[str]] = mapped_column(Text)
 
+    # 0399: przypięcie wspólne dla zespołu — przypięta notatka jest pierwsza
+    # na liście, w szybkim podglądzie kandydata i w doku osoby w rekrutacji.
+    pinned_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    pinned_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # 0399: odpowiedź na notatkę — JEDEN poziom (odpowiedź na odpowiedź = 422).
+    # Odpowiedź dziedziczy kandydata i rekrutację notatki głównej; usunięcie
+    # notatki głównej kasuje odpowiedzi (ON DELETE CASCADE).
+    parent_note_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("notes.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    # 0412: rodzaj notatki (`services/note_kinds.py`) — nadaje go nasłuch
+    # niżej przy zapisie przez ORM, a wierszom z surowego SQL (import
+    # Traffita) `note_kind_backfill.classify_pending`. NULL = jeszcze
+    # nieuzupełniony; czytelnicy traktują go jak zwykłą notatkę.
+    kind: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    # 0413: odcisk, z którym notatka została przeliczona na kartę rekomendacji
+    # (`services/recommendation_card_import.py`). Pisany wyłącznie surowym SQL-em.
+    card_parsed_hash: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+
     # Relationships
     candidate = relationship("Candidate", back_populates="notes")
     job = relationship("Job", back_populates="notes")
@@ -83,6 +123,13 @@ class Note(Base, TimestampMixin):
     )
     supersedes_note = relationship(
         "Note", remote_side="Note.id", foreign_keys=[supersedes_note_id]
+    )
+    # Tylko do odczytu i bez kaskady ORM: odpowiedzi kasuje baza (CASCADE).
+    parent_note = relationship(
+        "Note",
+        remote_side="Note.id",
+        foreign_keys=[parent_note_id],
+        viewonly=True,
     )
 
     __table_args__ = (
@@ -105,3 +152,54 @@ class Note(Base, TimestampMixin):
         return (
             f"<Note id={self.id} type={self.note_type} candidate={self.candidate_id}>"
         )
+
+
+def _note_type_value(note: Note) -> Optional[str]:
+    value = note.note_type
+    return value.value if isinstance(value, NoteType) else value
+
+
+def _classify_note(connection, target: Note) -> str:
+    kind = note_kinds.classify(
+        target.content,
+        note_type=_note_type_value(target),
+        external_source=target.external_source,
+    )
+    # 07.10.2026: krótki wpis „X/Y” Delivery Leada albo admina to para stawek
+    # (X — stawka do klienta), więc rekruter widzi go zakrytego. O autora
+    # pytamy tylko wtedy, gdy treść ma ten kształt.
+    if target.author_id is None or not note_kinds.author_matters(kind, target.content):
+        return kind
+    from app.services.client_rate_notes import DL_PAIR_AUTHOR_SQL
+
+    author_is_dl = connection.execute(
+        text(f"SELECT {DL_PAIR_AUTHOR_SQL} FROM users u WHERE u.id = :id"),
+        {"id": target.author_id},
+    ).scalar()
+    return note_kinds.with_author(kind, target.content, author_is_dl=bool(author_is_dl))
+
+
+@event.listens_for(Note, "before_insert")
+def _set_note_kind_on_insert(_mapper, connection, target: Note) -> None:
+    # 0413: rodzaj podany wprost przy tworzeniu („Nie odebrał”, uwaga
+    # Delivery Leada) zostaje — reguła treści zrobiłaby z uwagi z kwotą wpis
+    # o stawce do klienta i zakryła ją adresatowi.
+    if target.kind is not None:
+        return
+    target.kind = _classify_note(connection, target)
+
+
+@event.listens_for(Note, "before_update")
+def _set_note_kind_on_update(_mapper, connection, target: Note) -> None:
+    # Edycja treści zawsze liczy rodzaj od nowa. Wyjątek „rodzaj podany
+    # wprost zostaje” obowiązuje tylko przy tworzeniu: bez osobnego znacznika
+    # nie da się odróżnić rodzaju jawnego od takiego, który rozjechał się
+    # z regułą (treść przepisana surowym SQL-em), a pomyłka w tę stronę
+    # odsłoniłaby rekruterowi notatkę o stawce do klienta.
+    attrs = inspect(target).attrs
+    if not any(
+        getattr(attrs, name).history.has_changes()
+        for name in ("content", "note_type", "external_source")
+    ):
+        return
+    target.kind = _classify_note(connection, target)

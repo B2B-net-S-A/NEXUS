@@ -7,6 +7,9 @@ const mocks = vi.hoisted(() => ({
   showSuccess: vi.fn(),
   showError: vi.fn(),
   roles: ["admin"] as string[],
+  // Pełna migawka uprawnień konta; `null` = profil liczony z domyślnych
+  // uprawnień ról.
+  access: null as Record<string, string> | null,
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -20,7 +23,15 @@ vi.mock("@/components/Toast", () => ({
 }));
 vi.mock("@/store/auth", () => ({
   useAuthStore: (selector: (s: unknown) => unknown) =>
-    selector({ user: { id: 1, roles: mocks.roles }, realUser: null }),
+    selector({
+      user: {
+        id: 1,
+        role: mocks.roles[0],
+        roles: mocks.roles,
+        ...(mocks.access ? { effective_action_access: mocks.access } : {}),
+      },
+      realUser: null,
+    }),
   hasRole: (_user: unknown, ...roles: string[]) =>
     roles.some((r) => mocks.roles.includes(r)),
 }));
@@ -54,6 +65,8 @@ vi.mock("@/components/v2/jobs/JobCloseWithReasonDialog", () => ({
     defaultReason: string;
   }) => (open ? <div data-testid="close-dialog" data-reason={defaultReason} /> : null),
 }));
+
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 import { OrderSlideOver, type OrderSlideOverProps } from "../OrderSlideOver";
 import { renderWithQuery } from "./test-utils";
@@ -108,6 +121,7 @@ describe("OrderSlideOver", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.roles = ["admin"];
+    mocks.access = null;
   });
 
   it("zamknięte okno nie montuje treści i nie pyta o zlecenie", () => {
@@ -122,9 +136,10 @@ describe("OrderSlideOver", () => {
     const missing = await within(dialog).findByRole("region", {
       name: "Braki w zleceniu",
     });
-    // 9 pozycji bramki (hybryda → także dni i miasto biura) + 2 zdania spoza
-    // lustra — te zostają brakami z własną treścią.
-    expect(within(missing).getByText("9 z 11 gotowe")).toBeInTheDocument();
+    // 10 pozycji bramki (hybryda → także dni i miasto biura; od 25.09.2026
+    // także wymagania do wyszukiwania) + 2 zdania spoza lustra — te zostają
+    // brakami z własną treścią.
+    expect(within(missing).getByText("10 z 12 gotowe")).toBeInTheDocument();
     expect(within(missing).getByText("Brak hiring managera")).toBeInTheDocument();
     expect(within(dialog).getByText("do 190,00 PLN/h")).toBeInTheDocument();
     expect(within(dialog).getByText("Warszawa / hybryda 2 dni")).toBeInTheDocument();
@@ -137,8 +152,103 @@ describe("OrderSlideOver", () => {
     );
   });
 
-  it("rola spoza bramki nie wysyła zapytania o gotowość i nie widzi bloku braków", async () => {
+  describe("fakt „Rekruter” (02.10.2026 — dawniej „Prowadzi”)", () => {
+    const person = (user_id: number, name: string, extra: Record<string, unknown> = {}) => ({
+      user_id,
+      name,
+      via: "owner",
+      proposed: false,
+      assigned_by_name: null,
+      ...extra,
+    });
+    const recruiterFact = async () => {
+      const dialog = await screen.findByRole("dialog", { name: "Zlecenie" });
+      const label = await within(dialog).findByText("Rekruter");
+      return label.nextElementSibling as HTMLElement;
+    };
+
+    it("starszy serwer bez `recruiters`: pierwszy rekruter z `primary_owner`", async () => {
+      setup();
+      expect(await recruiterFact()).toHaveTextContent("Anna Nowicka");
+      expect(screen.queryByText("Prowadzi")).not.toBeInTheDocument();
+    });
+
+    it("kilka pracujących osób: pierwsza i „+N”, wszystkie nazwiska w podpowiedzi", async () => {
+      setup(
+        {},
+        {
+          job: {
+            ...JOB,
+            recruiters: [
+              person(5, "Anna Nowicka"),
+              person(6, "Bartek Testowy", { via: "collaborator" }),
+              person(8, "Celina Wzorcowa", { via: "assignment" }),
+            ],
+          },
+        },
+      );
+      const fact = await recruiterFact();
+      expect(fact).toHaveTextContent("Anna Nowicka +2");
+      expect(fact).toHaveAttribute(
+        "title",
+        "Rekruterzy: Anna Nowicka, Bartek Testowy, Celina Wzorcowa",
+      );
+    });
+
+    it("sama propozycja automatu to jeszcze nie rekruter — „Bez rekrutera”", async () => {
+      setup(
+        {},
+        {
+          job: {
+            ...JOB,
+            primary_owner: null,
+            recruiters: [person(9, "Darek Makietowy", { via: "assignment", proposed: true })],
+          },
+        },
+      );
+      const fact = await recruiterFact();
+      expect(fact).toHaveTextContent("Bez rekrutera");
+      expect(fact).toHaveAttribute("title", "Propozycja automatu: Darek Makietowy");
+    });
+
+    it("nikt nie pracuje: „Bez rekrutera”", async () => {
+      setup({}, { job: { ...JOB, primary_owner: null, recruiters: [] } });
+      expect(await recruiterFact()).toHaveTextContent("Bez rekrutera");
+    });
+  });
+
+  // Bramka gotowości (`GET …/readiness`) idzie za uprawnieniem „Rekrutacje:
+  // zakładanie, zamykanie, wysyłka CV do klienta”, nie za rolą.
+  it("konto bez uprawnienia nie wysyła zapytania o gotowość i nie widzi bloku braków", async () => {
     mocks.roles = ["recruiter"];
+    setup();
+    await screen.findByText("Java 17");
+    expect(screen.queryByTestId("order-missing-block")).not.toBeInTheDocument();
+    expect(mocks.get).not.toHaveBeenCalledWith("/api/jobs/7/readiness");
+  });
+
+  it("Delivery Lead ma uprawnienie domyślnie i widzi braki z serwera", async () => {
+    mocks.roles = ["delivery_lead"];
+    setup();
+    expect(
+      await screen.findByRole("region", { name: "Braki w zleceniu" }),
+    ).toBeInTheDocument();
+    expect(mocks.get).toHaveBeenCalledWith("/api/jobs/7/readiness");
+  });
+
+  it("rekruter z nadanym uprawnieniem widzi braki z serwera", async () => {
+    mocks.roles = ["recruiter"];
+    mocks.access = permissionSnapshot("recruitment_manage");
+    setup();
+    expect(
+      await screen.findByRole("region", { name: "Braki w zleceniu" }),
+    ).toBeInTheDocument();
+    expect(mocks.get).toHaveBeenCalledWith("/api/jobs/7/readiness");
+  });
+
+  it("Delivery Lead z wyłączonym uprawnieniem nie pyta o gotowość mimo roli", async () => {
+    mocks.roles = ["delivery_lead"];
+    mocks.access = permissionSnapshot("delivery_view", "clients_edit");
     setup();
     await screen.findByText("Java 17");
     expect(screen.queryByTestId("order-missing-block")).not.toBeInTheDocument();
@@ -169,66 +279,37 @@ describe("OrderSlideOver", () => {
     expect(h.onOpenSlideOver).toHaveBeenCalledWith("questions");
   });
 
-  it("sekcje montują klocki dopiero po rozwinięciu", async () => {
+  it("skrót prowadzi do panelu obok Profilu Championa: „Zespół i priorytet”, „Ogłoszenie i portale”", async () => {
     const h = setup();
-    // Blok „Zespół" pokazuje właściciela od razu; panele montują się po „Zmień".
-    const teamBlock = await screen.findByRole("region", { name: "Zespół" });
-    expect(teamBlock).toHaveTextContent("Anna Nowicka");
-    const team = screen.getByRole("button", { name: /Zmień zespół i hiring managera/ });
+    // Fakty zespołu zostają w skrócie — edycja jest w panelu.
+    expect(await screen.findByText("Anna Nowicka")).toBeInTheDocument();
     expect(screen.queryByTestId("ownership-panel")).not.toBeInTheDocument();
-    fireEvent.click(team);
-    expect(screen.getByTestId("ownership-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("hm-picker")).toHaveAttribute("data-can-edit", "true");
-
-    fireEvent.click(screen.getByRole("button", { name: /Ustawienia rekrutacji/ }));
-    expect(screen.getByTestId("settings-panel")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /^Priorytet/ }));
-    expect(screen.getByTestId("priority-context")).toBeInTheDocument();
-
-    // Symulowane portale ogłoszeniowe usunięte 23.09.2026.
-    expect(screen.queryByRole("button", { name: /Portale ogłoszeniowe/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Napisz ogłoszenie z AI" }));
-    expect(h.onOpenAiWriter).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Zespół i priorytet" }));
+    expect(h.onOpenChange).toHaveBeenCalledWith(false);
+    expect(h.onNavigate).toHaveBeenCalledWith("champion", { panelTab: "team" });
+    fireEvent.click(screen.getByRole("button", { name: "Ogłoszenie i portale" }));
+    expect(h.onNavigate).toHaveBeenCalledWith("champion", { panelTab: "announce" });
   });
 
-  it("canEdit=false chowa edycję i zamknięcie, a klocki dostają tryb odczytu", async () => {
+  it("canEdit=false chowa edycję; skrót nie ma już zamknięcia ani paneli zespołu", async () => {
     setup({ canEdit: false, onOpenAiWriter: undefined, onOpenInviteLink: undefined });
     await screen.findByText("Java 17");
     expect(screen.queryByRole("button", { name: "Edytuj rekrutację" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Zamknij rekrutację" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Zmień zespół i hiring managera/ }));
-    expect(screen.getByTestId("hm-picker")).toHaveAttribute("data-can-edit", "false");
+    expect(screen.queryByRole("button", { name: /Zamknij rekrutację/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("hm-picker")).not.toBeInTheDocument();
   });
 
-  it("rekruter prowadzący (canEditContent): edycja treści, bez zespołu i zamknięcia", async () => {
+  it("rekruter prowadzący (canEditContent): edycja treści w skrócie", async () => {
     setup({ canEdit: false, canEditContent: true });
     expect(await screen.findByRole("button", { name: "Edytuj rekrutację" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Zamknij rekrutację" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Zmień zespół i hiring managera/ }));
-    expect(screen.getByTestId("hm-picker")).toHaveAttribute("data-can-edit", "false");
+    expect(screen.queryByRole("button", { name: /Zamknij rekrutację/ })).not.toBeInTheDocument();
   });
 
-  it("„Zamknij rekrutację” otwiera istniejący dialog z podpowiedzią powodu", async () => {
-    setup({ hiredCount: 1 });
-    fireEvent.click(await screen.findByRole("button", { name: "Zamknij rekrutację" }));
-    expect(screen.getByTestId("close-dialog")).toHaveAttribute("data-reason", "filled_by_us");
-  });
-
-  it("initialSection=close (podpowiedź „Obsada kompletna”) otwiera od razu dialog zamknięcia z „Obsadzone przez nas”", async () => {
+  it("„Zamknij rekrutację” przeszło do menu „⋯” — okno go nie renderuje, także przy initialSection=close", async () => {
     setup({ initialSection: "close", hiredCount: 2 });
-    expect(await screen.findByTestId("close-dialog")).toHaveAttribute("data-reason", "filled_by_us");
-  });
-
-  it("initialSection=close bez prawa edycji niczego nie otwiera (bramka zostaje w oknie)", async () => {
-    setup({ initialSection: "close", hiredCount: 2, canEdit: false });
     await screen.findByText("Java 17");
     expect(screen.queryByTestId("close-dialog")).not.toBeInTheDocument();
-  });
-
-  it("zamknięta rekrutacja nie pokazuje przycisku zamknięcia", async () => {
-    setup({}, { job: { ...JOB, status: "closed" }, readiness: { closed: true } });
-    await screen.findByText("Java 17");
-    expect(screen.queryByRole("button", { name: "Zamknij rekrutację" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Zamknij rekrutację/ })).not.toBeInTheDocument();
   });
 });
 
@@ -252,15 +333,17 @@ describe("OrderSlideOver — braki z działaniem", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.roles = ["admin"];
+    mocks.access = null;
     mocks.put.mockResolvedValue({ data: {} });
   });
 
   it("pasek postępu i sekcja „Gotowe” z tej samej listy braków", async () => {
     setup({}, { job: OPEN_JOB, readiness: { ready: false, blockers: [MSG.context, MSG.budget, MSG.workMode] } });
     const missing = await screen.findByRole("region", { name: "Braki w zleceniu" });
-    // Zdalność nieznana → bez dni i miasta biura: 7 pozycji, 3 brakuje.
-    expect(within(missing).getByText("4 z 7 gotowe")).toBeInTheDocument();
-    expect(within(missing).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "4");
+    // Zdalność nieznana → bez dni i miasta biura: 8 pozycji (z wymaganiami
+    // do wyszukiwania), 3 brakuje.
+    expect(within(missing).getByText("5 z 8 gotowe")).toBeInTheDocument();
+    expect(within(missing).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "5");
     const done = within(missing).getByRole("list", { name: "Gotowe" });
     expect(within(done).getByText("Klient: Bank Alfa")).toBeInTheDocument();
     expect(within(done).getByText("Rola: Java Developer")).toBeInTheDocument();
@@ -305,11 +388,11 @@ describe("OrderSlideOver — braki z działaniem", () => {
     );
   });
 
-  it("kontekst projektu prowadzi do Profilu Championa (i zamyka okno)", async () => {
+  it("kontekst projektu otwiera szufladę bloku „O projekcie” w Profilu Championa (i zamyka okno)", async () => {
     const handlers = setup({}, { job: OPEN_JOB, readiness: { ready: false, blockers: [MSG.context] } });
     fireEvent.click(await screen.findByRole("button", { name: /Uzupełnij w Championie/ }));
     expect(handlers.onOpenChange).toHaveBeenCalledWith(false);
-    expect(handlers.onNavigate).toHaveBeenCalledWith("champion");
+    expect(handlers.onNavigate).toHaveBeenCalledWith("champion", { block: "project" });
   });
 
   it("bez prawa edycji treści budżet i tryb są tylko linkiem do Championa", async () => {

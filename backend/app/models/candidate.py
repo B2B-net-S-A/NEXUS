@@ -120,7 +120,7 @@ class Candidate(Base, TimestampMixin):
     linkedin: Mapped[Optional[str]] = mapped_column(String(500))
     # PG-side STORED generated column (migration 0106). Indexed for fast
     # O(log n) dedup in `find_candidate_duplicates` and the Chrome extension's
-    # `POST /api/candidates/from-linkedin` endpoint. App code is READ-ONLY —
+    # `POST /api/extension/candidates` endpoint. App code is READ-ONLY —
     # SQLAlchemy must NEVER emit linkedin_slug in INSERT/UPDATE statements
     # (PG raises `cannot insert a non-DEFAULT value into column`). We achieve
     # that by combining: (a) Computed() so Alembic-aware tooling treats it as
@@ -152,6 +152,38 @@ class Candidate(Base, TimestampMixin):
     # exposes the immutable literal PLN; persistence must not invent a fact for
     # an otherwise empty profile.
     expected_rate_currency: Mapped[Optional[str]] = mapped_column(String(3))
+    # „Stawka od” (0414): najniższa stawka PLN/h z ostatnich 18 miesięcy, liczona
+    # z kart rekomendacji, etapów, zmian profilu i zgłoszeń
+    # (`services/candidate_rate_from.py`). Pisze ją WYŁĄCZNIE przeliczenie
+    # surowym SQL-em (bez `updated_at`). Czytaj przez `effective_rate*`,
+    # nigdy wprost — przed pierwszym przeliczeniem obowiązuje stawka profilu.
+    rate_from_hourly: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    rate_from_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    rate_from_source: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    # FK (SET NULL) istnieje w bazie; w ORM bez ForeignKey, żeby nie tworzyć
+    # drugiej ścieżki złączenia candidates↔jobs dla istniejących relacji.
+    rate_from_job_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rate_from_stale: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    rate_from_computed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Ostatnio podana porównywalna stawka i liczba stawek w historii — druga
+    # linia „ostatnio 140 · 7 rozmów” na liście bez liczenia historii per wiersz.
+    rate_latest_hourly: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    rate_latest_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    rate_observation_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     # Collection-level optimistic-concurrency tokens for typed profile facts.
     # They are incremented while the candidate row is locked by the canonical
     # profile-facts service.
@@ -319,6 +351,16 @@ class Candidate(Base, TimestampMixin):
         nullable=False,
         index=True,
     )
+    # 0452 (17.10.2026): kto, kiedy i dlaczego dodał do czarnej listy „u nas”
+    # (okno „Czarna lista…”, `api/candidate_blacklist.py`). Puste przy
+    # wpisach sprzed zmiany (dopiski z Traffita) i po zdjęciu z listy.
+    blacklisted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    blacklisted_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    blacklist_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Postawa wobec sourcingu — niezależna od statusu w bazie (Phase: Wyróżnienia).
     availability_status: Mapped[AvailabilityStatus] = mapped_column(
@@ -397,6 +439,14 @@ class Candidate(Base, TimestampMixin):
     # chwilowa awaria po stronie Traffita) zostawiałoby trwałe kłamstwo.
     # Indeks (częściowy) siedzi w `__table_args__` — patrz komentarz tam.
     external_deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Data dodania osoby U ŹRÓDŁA (Traffit `created_at`, 0437). `created_at`
+    # zostaje czasem wstawienia do NEXUSA — dla 65 tys. osób z Traffita to dzień
+    # importu. „W bazie od” liczy `app/services/candidate_added_date.py`.
+    # Indeks wyrażeniowy na LEAST(created_at, source_created_at) jest tylko
+    # w migracji i `entrypoint.sh` (jak `ix_candidates_created_at_id`).
+    source_created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     cv_file_content: Mapped[Optional[bytes]] = mapped_column(LargeBinary)

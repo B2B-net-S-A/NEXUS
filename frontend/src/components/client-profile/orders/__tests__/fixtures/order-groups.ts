@@ -1,0 +1,146 @@
+import type {
+  OrderGroupRead,
+  OrderHistoryEntry,
+  OrderLineRead,
+  OrderOffboardingCaseRead,
+} from "@/lib/api/orderGroups";
+
+/**
+ * Linia zamówienia MD/kosztowego do testów tabeli i paneli zamówień. Literał
+ * w każdym teście starzeje się przy pierwszym nowym polu odpowiedzi, a fabryka
+ * nie. Nazwiska fikcyjne.
+ */
+export function makeOrderLine(overrides: Partial<OrderLineRead> = {}): OrderLineRead {
+  return {
+    id: 1,
+    group_id: 15,
+    contract_id: 100,
+    candidate_id: 5,
+    consultant_name: "Michał Przykładowy",
+    job_id: null,
+    job_title: null,
+    status: "active",
+    is_active: true,
+    start_date: "2026-05-01",
+    end_date: null,
+    rate_cost: 1000,
+    rate_revenue: 1200,
+    input_value: 50,
+    input_mode: "md",
+    md_total: 50,
+    md_remaining: 30,
+    md_manual_adjustment: 0,
+    predecessor_order_id: null,
+    predecessor_consultant_name: null,
+    invoiced_total: null,
+    unsettled_total: null,
+    missing_consumption_month: null,
+    md_optional_total: null,
+    md_base_used: null,
+    md_optional_used: null,
+    replaced_by_order_id: null,
+    replaced_by_consultant_name: null,
+    ...overrides,
+  };
+}
+
+export function makeOffboardingCase(
+  overrides: Partial<OrderOffboardingCaseRead> = {},
+): OrderOffboardingCaseRead {
+  return {
+    id: 7,
+    contract_id: 100,
+    order_id: 2,
+    order_group_id: 15,
+    client_id: 18,
+    effective_date: "2026-08-31",
+    status: "pending",
+    version: 1,
+    uses_shared_md_pool: false,
+    remaining_md_snapshot: 20,
+    rate_cost_snapshot: 1000,
+    rate_revenue_snapshot: 1200,
+    currency_snapshot: "PLN",
+    order_number_snapshot: "4599030067",
+    resolution: null,
+    target_order_id: null,
+    rate_basis: null,
+    resolution_payload: null,
+    resolved_at: null,
+    resolved_by_user_id: null,
+    created_by_user_id: null,
+    created_at: "2026-08-31T10:00:00Z",
+    updated_at: "2026-08-31T10:00:00Z",
+    ...overrides,
+  };
+}
+
+export function makeOrderGroup(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
+  return {
+    id: 15,
+    client_id: 18,
+    order_number: "4599030067",
+    start_date: "2026-05-01",
+    end_date: null,
+    notes: null,
+    created_at: "2026-05-01T10:00:00Z",
+    status: "active",
+    status_label: "Aktywne",
+    closure_date: null,
+    closure_reason: null,
+    is_cost_based: false,
+    is_md_budget_based: false,
+    budget_amount: null,
+    budget_used: null,
+    budget_remaining: null,
+    budget_manual_adjustment: null,
+    md_budget_total: null,
+    md_budget_used: null,
+    md_budget_remaining: null,
+    md_budget_manual_adjustment: null,
+    predecessor_group_id: null,
+    filename: null,
+    has_file: false,
+    content_type: null,
+    size_bytes: null,
+    file_uploaded_at: null,
+    can_add_consultant: true,
+    executive_contract: null,
+    md_positions_total: null,
+    md_used_total: null,
+    contract_value_pln: null,
+    used_value_pln: null,
+    lines: [makeOrderLine()],
+    active_consultants: 1,
+    event_count: 2,
+    future_orders: [],
+    ...overrides,
+  };
+}
+
+export function makeHistoryEntry(overrides: Partial<OrderHistoryEntry> = {}): OrderHistoryEntry {
+  return {
+    key: "ev-1",
+    category: "order",
+    event_type: "utworzenie",
+    type_label: "Utworzenie zamówienia",
+    created_at: "2026-05-01T10:00:00Z",
+    author_id: null,
+    author_name: null,
+    summary: "Zamówienie utworzone.",
+    order_id: null,
+    person_name: null,
+    person_names: [],
+    changes: [],
+    balance_before: null,
+    balance_after: null,
+    details: [],
+    import_id: null,
+    import_period_month: null,
+    import_people: null,
+    import_md: null,
+    related_group_id: null,
+    related_order_number: null,
+    ...overrides,
+  };
+}

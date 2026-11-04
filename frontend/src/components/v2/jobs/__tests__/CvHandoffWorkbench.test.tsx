@@ -15,7 +15,7 @@
  * WYŁĄCZNIE sekcją panelu osoby — pełnoekranowego układu z kolejką już nie ma.
  */
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -36,7 +36,6 @@ const move = vi.fn(async (...a: unknown[]) => {
 const brandedGet = vi.fn();
 const shareList = vi.fn();
 const shareRevokeAll = vi.fn();
-const createScreeningShareToken = vi.fn();
 // Schowek sterowany wprost — `user-event` podmienia `navigator.clipboard`
 // własną zaślepką, która zawsze się udaje, a tu testujemy także porażkę.
 const copyText = vi.fn(async (..._a: unknown[]) => true);
@@ -77,10 +76,6 @@ vi.mock("@/lib/api", () => ({
       revokeAll: (...a: unknown[]) => shareRevokeAll(...a),
     },
   },
-  // Link do karty Championa w doku — ten sam endpoint, którego używa krok 07.
-  screeningApi: {
-    createShareToken: (...a: unknown[]) => createScreeningShareToken(...a),
-  },
   extractErrorMsg: (e: unknown) => (e instanceof Error ? e.message : "Błąd"),
 }));
 
@@ -106,12 +101,16 @@ vi.mock("@/hooks/useCapability", () => ({
 }));
 
 // Karta „CV do klienta” ma własne zapytania i testy — tu liczy się, CO dostaje.
+const card = vi.hoisted(() => ({ props: null as null | Record<string, unknown> }));
 vi.mock("@/components/v2/recruitment/CvToClientCard", () => ({
-  CvToClientCard: (p: { stageId: number; candidateId: number; jobId: number; readOnly: boolean }) => (
-    <div data-testid="cv-to-client-card-stub">
-      {`card:${p.stageId}/${p.candidateId}/${p.jobId}/${p.readOnly ? "ro" : "rw"}`}
-    </div>
-  ),
+  CvToClientCard: (p: { stageId: number; candidateId: number; jobId: number; readOnly: boolean }) => {
+    card.props = p as unknown as Record<string, unknown>;
+    return (
+      <div data-testid="cv-to-client-card-stub">
+        {`card:${p.stageId}/${p.candidateId}/${p.jobId}/${p.readOnly ? "ro" : "rw"}`}
+      </div>
+    );
+  },
 }));
 // Reguła CV klienta — szyna makiety wypisuje ją klockami, więc test musi móc
 // podać ZATWIERDZONĄ regułę (bez `is_active` obowiązuje baner „brak reguł").
@@ -199,7 +198,7 @@ function renderWorkbench(
 
 async function sendButton() {
   return screen.findByRole("button", {
-    name: /(?:Utwórz link i oznacz|Oznacz) „CV Wysłane”/,
+    name: /(?:Utwórz link i oznacz|Oznacz) „CV wysłane”/,
   });
 }
 
@@ -234,7 +233,7 @@ describe("CvHandoffWorkbench", () => {
 
   it("limit CV klienta jest liczony z tablicy, nie zmyślony", () => {
     renderWorkbench();
-    // Jedna karta na „CV Wysłane" przy limicie 3 z karty klienta — ta sama
+    // Jedna karta na „CV wysłane" przy limicie 3 z karty klienta — ta sama
     // liczba w pigułce nagłówka i w szynie reguł klienta (makieta kroku 06).
     expect(screen.getByText("Limit CV: 1 z 3")).toBeTruthy();
     expect(screen.getByText("Limit CV na proces: 3")).toBeTruthy();
@@ -256,6 +255,75 @@ describe("CvHandoffWorkbench", () => {
     expect(screen.queryByText(/dostępne na etapie „Zweryfikowany”/)).toBeNull();
   });
 
+  it("osoba w „Nowych” dostaje kartę CV bez sekcji wysyłki (12.10.2026)", () => {
+    // Gotowe CV da się wskazać, zanim automat po „Zweryfikowany” wygeneruje nowe.
+    const early: KanbanColumn = {
+      stage: "new",
+      name: "Nowi",
+      category: "internal",
+      stage_def_id: 2,
+      count: 1,
+      items: [item({ id: 11, candidate_id: 111, stage: "new" })],
+    };
+    renderWorkbench({
+      columns: [early, ...columns([])],
+      focusCandidateId: 111,
+      panelFallback: <div data-testid="saved-cv-view" />,
+    });
+
+    expect(screen.getByTestId("cv-to-client-card-stub").textContent).toBe("card:11/111/7/rw");
+    expect(screen.getByTestId("cv-send-later-note")).toHaveTextContent("na etapie „Zweryfikowany”");
+    expect(screen.queryByRole("region", { name: "Wysyłka do klienta" })).toBeNull();
+    expect(screen.queryByTestId("saved-cv-view")).toBeNull();
+  });
+
+  it("rekruter bez uprawnienia wysyłki w „Nowych” nie dostaje zapowiedzi „Oznacz CV Wysłane” (27.10.2026)", () => {
+    const early: KanbanColumn = {
+      stage: "new",
+      name: "Nowi",
+      category: "internal",
+      stage_def_id: 2,
+      count: 1,
+      items: [item({ id: 11, candidate_id: 111, stage: "new" })],
+    };
+    renderWorkbench({ columns: [early, ...columns([])], focusCandidateId: 111, canWriteClientRate: false });
+
+    expect(screen.getByTestId("cv-to-client-card-stub")).toBeTruthy();
+    expect(screen.queryByTestId("cv-send-later-note")).toBeNull();
+  });
+
+  it("po „CV wysłane” ta sama karta CV, ale bez podmiany CV — zamiast widoku tylko do odczytu (D3, 14.10.2026)", () => {
+    renderWorkbench({
+      columns: columns([]),
+      focusCandidateId: 131,
+      panelFallback: <div data-testid="saved-cv-view" />,
+    });
+
+    expect(screen.getByTestId("cv-to-client-card-stub").textContent).toBe("card:31/131/7/rw");
+    expect(card.props).toMatchObject({ lockedAfterSend: true });
+    expect(card.props).not.toHaveProperty("handoff");
+    expect(screen.getByTestId("cv-later-stage-note")).toHaveTextContent("Ta osoba jest na etapie „CV Wysłane”.");
+    expect(screen.queryByTestId("saved-cv-view")).toBeNull();
+    expect(screen.queryByTestId("cv-send-later-note")).toBeNull();
+    expect(screen.queryByRole("region", { name: "Wysyłka do klienta" })).toBeNull();
+  });
+
+  it("w „QC CV” karta CV bez blokady — Delivery Lead może jeszcze prosić o poprawki", () => {
+    const qc: KanbanColumn = {
+      stage: "interview",
+      name: "QC CV",
+      category: "internal",
+      stage_def_id: 9,
+      count: 1,
+      items: [item({ id: 41, candidate_id: 141, stage: "interview" })],
+    };
+    renderWorkbench({ columns: [...columns([]), qc], focusCandidateId: 141 });
+
+    expect(screen.getByTestId("cv-to-client-card-stub").textContent).toBe("card:41/141/7/rw");
+    expect(card.props).toMatchObject({ lockedAfterSend: false });
+    expect(screen.getByTestId("cv-later-stage-note")).toHaveTextContent("„QC CV”");
+  });
+
   it("sekwencja idzie: ruch ze stawką (Pipeline v4) → link na etapie SPRZED ruchu", async () => {
     const { onMoved } = renderWorkbench();
     await readySendButton();
@@ -266,9 +334,9 @@ describe("CvHandoffWorkbench", () => {
     await waitFor(() => expect(shareCreate).toHaveBeenCalledOnce());
     expect(calls).toEqual(["move", "share_link"]);
     // Etap 21 = „Zweryfikowany", na którym leży sfinalizowane CV brandowane —
-    // nie świeży „CV Wysłane" (id 99), który ruch właśnie utworzył.
+    // nie świeży „CV wysłane" (id 99), który ruch właśnie utworzył.
     expect(shareCreate).toHaveBeenCalledWith(21, 14);
-    // Stawka jedzie W RUCHU — serwer odmawia „CV Wysłane" bez niej.
+    // Stawka jedzie W RUCHU — serwer odmawia „CV wysłane" bez niej.
     expect(move).toHaveBeenCalledWith({
       candidate_id: 121,
       job_id: 7,
@@ -283,6 +351,26 @@ describe("CvHandoffWorkbench", () => {
     expect(showSuccess).toHaveBeenCalledWith(
       expect.stringContaining("Stawka do klienta zapisana"),
     );
+  });
+
+  it("pusty wiersz etapu: link dla klienta idzie na wiersz pary z CV (runda 12)", async () => {
+    brandedGet.mockImplementation((stageId: number) =>
+      Promise.resolve({
+        data:
+          stageId === 21
+            ? { status: "none", pair_source_stage_id: 20, pair_source_status: "finalized" }
+            : { status: "finalized" },
+      }),
+    );
+    renderWorkbench();
+    await readySendButton();
+    expect(screen.queryByText(/wymaga zatwierdzonego CV do klienta/)).toBeNull();
+
+    await userEvent.click(await sendButton());
+
+    await waitFor(() => expect(shareCreate).toHaveBeenCalledOnce());
+    expect(brandedGet).toHaveBeenCalledWith(20);
+    expect(shareCreate).toHaveBeenCalledWith(20, 14);
   });
 
   it("puste pole stawki = świadome pominięcie, komunikat nie sugeruje braku", async () => {
@@ -301,27 +389,29 @@ describe("CvHandoffWorkbench", () => {
     );
   });
 
-  it("u Nordei bez `can_write_client_rate` pole stawki znika, a wysyłka i tak idzie", async () => {
+  it("u Nordei bez `can_write_client_rate` nie ma doku wysyłki ani „Oznacz „CV wysłane”” (27.10.2026)", () => {
     // Nawet admin z roli — decyduje pole z serwera, nie zgadywanie po roli.
+    // Od 13.10.2026 do kolejki Cpro wkłada Delivery Lead przy akceptacji, a ruch
+    // rekrutera na „Wysłane do Cpro” serwer odrzuca 403 — przycisk był martwy.
     renderWorkbench({ canWriteClientRate: false, cproEnabled: true });
-    await readySendButton();
 
+    expect(screen.queryByRole("region", { name: "Wysyłka do klienta" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Oznacz „CV wysłane”/ })).toBeNull();
     expect(screen.queryByLabelText("Kwota")).toBeNull();
-    expect(screen.getByText(/Stawkę do klienta ustala Delivery Lead/)).toBeTruthy();
-
-    await userEvent.click(await sendButton());
-    await waitFor(() => expect(shareCreate).toHaveBeenCalledOnce());
-    expect(setRecruitmentClientRate).not.toHaveBeenCalled();
-    expect(calls).toEqual(["move", "share_link"]);
+    expect(screen.getByTestId("cv-send-not-yours")).toHaveTextContent(
+      "Do Cpro wysyła Delivery Lead po akceptacji. Twój krok: przekaż osobę do „QC CV”.",
+    );
+    expect(move).not.toHaveBeenCalled();
   });
 
-  it("poza Nordeą rekruter nie wyśle do klienta — wysyła Delivery Lead (Pipeline v4)", async () => {
+  it("bez kolejki Cpro i bez uprawnienia wysyłki zostaje jedno zdanie o następnym kroku", () => {
     renderWorkbench({ canWriteClientRate: false });
-    expect(screen.queryByLabelText("Kwota")).toBeNull();
-    expect(screen.getByText(/Do klienta wysyła Delivery Lead i to on ustala stawkę/)).toBeTruthy();
-    expect(
-      (await screen.findAllByText(/osoba czeka w jego przeglądzie/)).length,
-    ).toBeGreaterThan(0);
+    expect(screen.queryByRole("region", { name: "Wysyłka do klienta" })).toBeNull();
+    expect(screen.getByTestId("cv-send-not-yours")).toHaveTextContent(
+      "Do klienta wysyła Delivery Lead po przeglądzie. Twój krok: przekaż osobę do „QC CV”.",
+    );
+    // Karta CV i reguły klienta zostają — to praca rekrutera.
+    expect(screen.getByText(/Reguły CV klienta/)).toBeTruthy();
     expect(move).not.toHaveBeenCalled();
   });
 
@@ -398,7 +488,7 @@ describe("CvHandoffWorkbench", () => {
 
     await waitFor(() => expect(showError).toHaveBeenCalled());
     const msg = showError.mock.calls[0][0] as string;
-    expect(msg).toContain("przeniesienie na „CV Wysłane”");
+    expect(msg).toContain("przeniesienie na „CV wysłane”");
     expect(msg).toContain("Nic nie zostało zmienione");
     expect(msg).toContain("link dla klienta nie powstał");
     // Do 09.2026 link powstawał PRZED ruchem — odmowa zostawiała żywy,
@@ -410,7 +500,7 @@ describe("CvHandoffWorkbench", () => {
 
   it("limit czasu ruchu NIE mówi „nic się nie zmieniło” — każe odświeżyć kartę przed ponowieniem", async () => {
     // Bez odpowiedzi serwera ruch mógł się zatwierdzić; „nic się nie stało"
-    // zachęcało do ponowienia, które dopisuje drugi etap „CV Wysłane".
+    // zachęcało do ponowienia, które dopisuje drugi etap „CV wysłane".
     move.mockRejectedValueOnce(
       Object.assign(new Error("timeout of 60000ms exceeded"), {
         code: "ECONNABORTED",
@@ -470,52 +560,13 @@ describe("CvHandoffWorkbench", () => {
     expect(screen.queryByText(/Stawka czeka na/)).toBeNull();
   });
 
-  // ── Link do karty Championa: sekret zwracany RAZ ────────────────────────
-  it("link do karty Championa: nieudane kopiowanie NIE udaje sukcesu, a adres zostaje na ekranie", async () => {
-    createScreeningShareToken.mockResolvedValueOnce({
-      data: { share_url_suffix: "/share/champion-card/sekret-1" },
-    });
-    copyText.mockResolvedValueOnce(false);
+  // ── D2 (0424): karta Championa dla klienta wycofana ─────────────────────
+  it("nie ma już linku do karty Championa dla klienta (D2)", async () => {
     renderWorkbench();
-
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Utwórz link (30 dni)" }),
-    );
-
-    await waitFor(() => expect(showError).toHaveBeenCalled());
-    expect(showError.mock.calls[0][0]).toContain("nie udało się go skopiować");
-    expect(showSuccess).not.toHaveBeenCalledWith(
-      expect.stringContaining("skopiowany"),
-    );
-    const field = await screen.findByLabelText("Link do karty Championa");
-    expect((field as HTMLInputElement).value).toBe(
-      `${window.location.origin}/share/champion-card/sekret-1`,
-    );
-    expect(createScreeningShareToken).toHaveBeenCalledWith(21, 30);
-  });
-
-  it("link do karty Championa: udane kopiowanie potwierdza toastem i też zostawia adres", async () => {
-    createScreeningShareToken.mockResolvedValueOnce({
-      data: { share_url_suffix: "/share/champion-card/sekret-2" },
-    });
-    renderWorkbench();
-
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Utwórz link (30 dni)" }),
-    );
-
-    await waitFor(() =>
-      expect(showSuccess).toHaveBeenCalledWith(
-        "Link do karty Championa skopiowany (ważny 30 dni).",
-      ),
-    );
-    expect(copyText).toHaveBeenCalledWith(
-      `${window.location.origin}/share/champion-card/sekret-2`,
-    );
-    expect(
-      ((await screen.findByLabelText("Link do karty Championa")) as HTMLInputElement)
-        .value,
-    ).toContain("sekret-2");
+    await readySendButton();
+    expect(screen.queryByRole("button", { name: /Utwórz link \(30 dni\)/ })).toBeNull();
+    expect(screen.queryByLabelText("Link do karty Championa")).toBeNull();
+    expect(screen.queryByText(/Karta Championa/)).toBeNull();
   });
 
   it("link do reguł CV klienta tylko dla ról z `cv_rule.manage` (inne dostałyby 403 z middleware)", () => {
@@ -675,8 +726,8 @@ describe("CvHandoffWorkbench — layout=\"panel\" (rekrutacja v3)", () => {
     expect(screen.queryByText("Grzegorz Żebrowski")).toBeNull();
   });
 
-  it("osoba spoza etapu „Zweryfikowany” dostaje zdanie o etapie, nie pustkę ani błąd", () => {
-    renderWorkbench({ layout: "panel", focusCandidateId: 131 });
+  it("osoby nie ma na Tablicy: zdanie o etapie, nie pustka ani błąd", () => {
+    renderWorkbench({ layout: "panel", focusCandidateId: 999 });
     expect(
       screen.getByText(/Przekazanie CV klientowi jest dostępne na etapie „Zweryfikowany”/),
     ).toBeTruthy();
@@ -684,27 +735,26 @@ describe("CvHandoffWorkbench — layout=\"panel\" (rekrutacja v3)", () => {
     expect(brandedGet).not.toHaveBeenCalled();
   });
 
-  it("kluczowe akcje zostają: karta CV, stawka, link, karta Championa, linki, reguły", async () => {
+  it("kluczowe akcje zostają: karta CV, stawka, link, linki, reguły", async () => {
     renderWorkbench({ layout: "panel", focusCandidateId: 121 });
     await readySendButton();
     expect(screen.getByTestId("cv-to-client-card-stub")).toBeTruthy();
     expect(screen.getByLabelText("Kwota")).toBeTruthy();
     expect(screen.getByRole("checkbox", { name: /Utwórz link do brandowanego CV/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Utwórz link \(30 dni\)/ })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Mail do klienta/ })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Linki i historia" })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Reguły CV \(DL\)/ })).toBeTruthy();
   });
 
-  it("bez `can_write_client_rate` pole stawki znika także w panelu", async () => {
+  it("bez `can_write_client_rate` dok wysyłki znika także w panelu", () => {
     renderWorkbench({
       layout: "panel",
       focusCandidateId: 121,
       canWriteClientRate: false,
       cproEnabled: true,
     });
-    await readySendButton();
     expect(screen.queryByLabelText("Kwota")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Oznacz „CV wysłane”/ })).toBeNull();
   });
 
   it("kolejność ruch → link → stawka zostaje, a link jednorazowy przeżywa wyjście osoby z kolejki", async () => {
@@ -749,9 +799,9 @@ describe("linki dla klienta wyłączone (stan produkcyjny)", () => {
   beforeEach(() => { linkFlags.enabled = false; });
   afterEach(() => { linkFlags.enabled = true; });
 
-  it("przycisk tylko oznacza „CV Wysłane” i zapisuje stawkę — bez linku", async () => {
+  it("przycisk tylko oznacza „CV wysłane” i zapisuje stawkę — bez linku", async () => {
     renderWorkbench();
-    const button = await screen.findByRole("button", { name: "Oznacz „CV Wysłane”" });
+    const button = await screen.findByRole("button", { name: "Oznacz „CV wysłane”" });
     await waitFor(() => expect(button).not.toBeDisabled());
     await userEvent.type(screen.getByLabelText("Kwota"), "25000");
     await userEvent.click(button);
@@ -763,7 +813,7 @@ describe("linki dla klienta wyłączone (stan produkcyjny)", () => {
 
   it("nie pokazuje linku, ważności, kopiowania, maila ani zakładki linków", async () => {
     renderWorkbench();
-    await screen.findByRole("button", { name: "Oznacz „CV Wysłane”" });
+    await screen.findByRole("button", { name: "Oznacz „CV wysłane”" });
     expect(screen.queryByText("Utwórz link do brandowanego CV")).toBeNull();
     expect(screen.queryByLabelText("Ważność linku")).toBeNull();
     expect(screen.queryByText(/Kopiuj link/)).toBeNull();
@@ -774,7 +824,7 @@ describe("linki dla klienta wyłączone (stan produkcyjny)", () => {
 
   it("stopka doku nie odsyła do zarządzania linkami, których nie ma", async () => {
     renderWorkbench();
-    await screen.findByRole("button", { name: "Oznacz „CV Wysłane”" });
+    await screen.findByRole("button", { name: "Oznacz „CV wysłane”" });
     expect(screen.queryByText(/Zarządzanie linkami zostaje też/)).toBeNull();
   });
 });
@@ -788,5 +838,127 @@ describe("centralne reguły CV — tryb obróbki", () => {
     expect(screen.getByText(/można zmienić w generatorze/)).toBeTruthy();
     expect(screen.queryByText(/Tryb: automatyczny/)).toBeNull();
     expect(screen.queryByText(/ustalony z kontekstu rekrutacji/)).toBeNull();
+  });
+});
+
+describe("„Zapisz i przekaż do DL” ze stopki edytora (D6, 14.10.2026)", () => {
+  const QC_COLUMN: KanbanColumn = {
+    stage: "interview",
+    name: "QC CV",
+    category: "internal",
+    stage_def_id: 9,
+    count: 0,
+    items: [],
+  };
+  const CPRO_COLUMN: KanbanColumn = {
+    stage: "screening",
+    name: "NORDEA: Wysłać do Cpro",
+    category: "internal",
+    stage_def_id: 10,
+    count: 0,
+    items: [],
+  };
+  type Handoff = { onSaveAndHandOff: (remark: string) => Promise<boolean> };
+  const handoff = () => card.props?.handoff as Handoff | undefined;
+
+  beforeEach(() => {
+    card.props = null;
+  });
+
+  it("na „Zweryfikowany” karta dostaje przekazanie: ruch na „QC CV” z uwagą i wersją procesu", async () => {
+    const [verified, sent] = columns([item({ process_state_version: 6 })]);
+    const { onMoved } = renderWorkbench({ columns: [verified, CPRO_COLUMN, QC_COLUMN, sent] });
+    expect(handoff()).toBeDefined();
+    let moved = false;
+    await act(async () => {
+      moved = await handoff()!.onSaveAndHandOff("Dostępny od listopada.");
+    });
+    expect(moved).toBe(true);
+    // Cel to „QC CV” (przegląd DL), nie etap kolejki Cpro — także u Nordei.
+    expect(move).toHaveBeenCalledWith({
+      candidate_id: 121,
+      job_id: 7,
+      stage_def_id: 9,
+      expected_state_version: 6,
+      recruiter_remark: "Dostępny od listopada.",
+    });
+    expect(onMoved).toHaveBeenCalled();
+  });
+
+  it("pusta uwaga nie idzie jako pusty tekst", async () => {
+    const [verified, sent] = columns([item()]);
+    renderWorkbench({ columns: [verified, QC_COLUMN, sent] });
+    await act(async () => {
+      await handoff()!.onSaveAndHandOff("");
+    });
+    expect(move.mock.calls[0][0]).toMatchObject({ stage_def_id: 9, recruiter_remark: undefined });
+  });
+
+  it("odmowa (konflikt wersji): `false`, komunikat z rdzenia i odświeżenie Tablicy", async () => {
+    move.mockRejectedValueOnce({ response: { status: 409, data: { detail: { code: "PIPELINE_VERSION_CONFLICT" } } } });
+    const [verified, sent] = columns([item()]);
+    const { onMoved } = renderWorkbench({ columns: [verified, QC_COLUMN, sent] });
+    let moved = true;
+    await act(async () => {
+      moved = await handoff()!.onSaveAndHandOff("x");
+    });
+    expect(moved).toBe(false);
+    expect(showError).toHaveBeenCalled();
+    expect(onMoved).toHaveBeenCalled();
+  });
+
+  it("bez etapu „QC CV” w szablonie, tylko do odczytu albo poza „Zweryfikowany” — bez przekazania", () => {
+    renderWorkbench();
+    expect(handoff()).toBeUndefined();
+
+    const [verified, sent] = columns([item()]);
+    renderWorkbench({ columns: [verified, QC_COLUMN, sent], readOnly: true });
+    expect(handoff()).toBeUndefined();
+
+    const screening: KanbanColumn = {
+      stage: "screening",
+      name: "Screening",
+      category: "internal",
+      stage_def_id: 3,
+      count: 1,
+      items: [item({ id: 11, candidate_id: 111, stage: "screening" })],
+    };
+    renderWorkbench({ columns: [screening, ...columns([]), QC_COLUMN], focusCandidateId: 111 });
+    expect(card.props?.stageId).toBe(11);
+    expect(handoff()).toBeUndefined();
+  });
+
+  it("po „Zapisz i przekaż dalej” karta dostaje postęp i następną osobę ze Screeningu", () => {
+    const openPerson = vi.fn();
+    const nextInColumn = vi.fn(() => ({ candidateId: 55, name: "Ewa Nowak", detail: null }));
+    // Tuż po ruchu Tablica bywa jeszcze sprzed odświeżenia — osoba stoi w „Screeningu”.
+    const screening: KanbanColumn = {
+      stage: "screening",
+      name: "Screening",
+      category: "internal",
+      stage_def_id: 3,
+      count: 1,
+      items: [item({ id: 11, candidate_id: 111, stage: "screening" })],
+    };
+    renderWorkbench({
+      columns: [screening, ...columns([])],
+      focusCandidateId: 111,
+      forwarded: true,
+      nextInColumn,
+      openPerson,
+    });
+    expect(nextInColumn).toHaveBeenCalledWith(111, "screening");
+    expect(card.props).toMatchObject({
+      forwarded: true,
+      nextInScreening: { candidateId: 55, name: "Ewa Nowak" },
+      onOpenPerson: openPerson,
+    });
+  });
+
+  it("bez `forwarded` nie pyta o następną osobę", () => {
+    const nextInColumn = vi.fn(() => null);
+    renderWorkbench({ nextInColumn });
+    expect(nextInColumn).not.toHaveBeenCalled();
+    expect(card.props).toMatchObject({ forwarded: false, nextInScreening: null });
   });
 });

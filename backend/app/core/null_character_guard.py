@@ -29,13 +29,17 @@ from urllib.parse import parse_qsl
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core.body_size_limit import REQUEST_BODY_METHODS
+
 NULL_CHARACTER_ERROR_TYPE = "null_character"
 
 _NUL = "\x00"
 _MESSAGE = "Value must not contain the NUL character (U+0000)"
 _MAX_ERRORS = 20
 _MAX_INPUT_CHARS = 100
-_BODY_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+# Ta sama stała co limit ciała: każda metoda buforowana tutaj musi mieć limit
+# (``BodySizeLimitMiddleware`` stoi nad tym strażnikiem).
+_BODY_METHODS = REQUEST_BODY_METHODS
 
 Loc = list[Union[str, int]]
 

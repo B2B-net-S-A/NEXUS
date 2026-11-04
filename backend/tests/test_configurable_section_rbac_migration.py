@@ -7,11 +7,11 @@ import inspect
 from pathlib import Path
 
 from app.models.user import UserRole
+from app.services.role_merge import MERGED_ROLE_VALUE, RETIRED_ROLE_VALUES
 from app.services.section_permissions import (
     DEFAULT_ROLE_SECTION_ACCESS,
     ProductSection,
 )
-
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_PATH = BACKEND_ROOT / "alembic/versions/0269_configurable_section_rbac.py"
@@ -19,7 +19,34 @@ MIGRATION_PATH = BACKEND_ROOT / "alembic/versions/0269_configurable_section_rbac
 # Role dodane po 0269 — ich wiersze zasiewa ich własna migracja, nie 0269.
 ROLES_ADDED_AFTER_0269: dict[str, str] = {
     UserRole.trainee.value: "0374_trainee_call_lists.py",
+    UserRole.automation.value: "0446_automation_role.py",
+    UserRole.employee.value: "0456_hr_access.py",
+    UserRole.board.value: "0490_board_role.py",
 }
+
+# Migracje, których SQL stoi w module schematu (to samo źródło czyta
+# entrypoint przez `hr_schema_bundle`) — test czyta migrację razem z nim.
+MIGRATION_SQL_MODULES: dict[str, str] = {
+    "0456_hr_access.py": "app/services/hr_access_schema.py",
+    "0490_board_role.py": "app/services/board_role_schema.py",
+}
+
+# 0637 zeruje sekcje wycofywanego Viewera; zamrożona 0269 nadal zasiewa odczyt.
+SEEDED_BY_0269_THEN_ZEROED: dict[str, dict[str, str]] = {
+    UserRole.user.value: {
+        "sourcing": "read",
+        "pipeline": "read",
+        "delivery": "none",
+        "insights": "read",
+        "finance": "none",
+        "system_admin": "none",
+    },
+}
+
+# Role wycofane w 0411 (sourcer, TAC → rekruter). Zamrożona migracja 0269 nadal
+# je zasiewa — z tymi samymi sekcjami co rekruter, więc połączenie ról nie
+# zmieniło nikomu dostępu do sekcji.
+ROLES_RETIRED_AFTER_0269: tuple[str, ...] = RETIRED_ROLE_VALUES
 
 
 def _migration_module():
@@ -40,6 +67,9 @@ def test_migration_seed_exactly_matches_bootstrap_matrix() -> None:
         for role in UserRole
         if role.value not in ROLES_ADDED_AFTER_0269
     }
+    for retired in ROLES_RETIRED_AFTER_0269:
+        expected[retired] = expected[MERGED_ROLE_VALUE]
+    expected.update(SEEDED_BY_0269_THEN_ZEROED)
     assert migration.ROLE_DEFAULTS == expected
     assert tuple(migration.SECTIONS) == tuple(
         section.value for section in ProductSection
@@ -77,9 +107,16 @@ def test_entrypoint_recovery_seed_is_complete_and_never_overwrites_admin_edits()
 def test_roles_added_after_0269_are_seeded_by_their_own_migration() -> None:
     for role, migration_file in ROLES_ADDED_AFTER_0269.items():
         source = (BACKEND_ROOT / "alembic/versions" / migration_file).read_text()
+        module = MIGRATION_SQL_MODULES.get(migration_file)
+        if module is not None:
+            assert f"import {Path(module).stem}" in source
+            source += (BACKEND_ROOT / module).read_text()
         assert "INSERT INTO rbac_role_section_permissions" in source
-        assert f"SELECT '{role}', section, 'none'" in source
-        assert all(
-            DEFAULT_ROLE_SECTION_ACCESS[UserRole(role)][section].name == "none"
-            for section in ProductSection
-        )
+        policy = DEFAULT_ROLE_SECTION_ACCESS[UserRole(role)]
+        if all(access.name == "none" for access in policy.values()):
+            assert f"SELECT '{role}', section, 'none'" in source
+            continue
+        # 0446: rola z sekcjami do odczytu wpisuje poziom każdej sekcji jawnie.
+        assert f"SELECT '{role}', s.section, s.access" in source
+        for section, access in policy.items():
+            assert f"('{section.value}', '{access.name}')" in source

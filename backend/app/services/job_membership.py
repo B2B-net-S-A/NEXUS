@@ -6,20 +6,24 @@ Członkowie projektu = osoby które mogą widzieć Job Chat danego projektu:
     - job.delivery_lead_id (DL projektu)
     - job.tac_id (TAC projektu)
     - aktywni job_collaborators (removed_from_auto_cc=False)
+    - osoby z AKTYWNYM przypisaniem do requestu (job_work_assignments) —
+      zaakceptowany sourcer albo drugi rekruter pracuje nad rekrutacją, więc
+      dostaje jej powiadomienia (02.10.2026); propozycja automatu się nie liczy
 
 Klient i kandydat NIE są członkami — Job Chat jest wewnętrzny.
 """
-
-from typing import Iterable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import user_can_access_candidate_domain
 from app.models.job import Job, JobStatus
-from app.models.job_collaborator import JobCollaborator
+from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
+from app.models.job_work_assignment import JobWorkAssignment
 from app.models.user import User, UserRole
 from app.core.config import settings
+from app.services.hr.availability_local import availability_enabled
+from app.services.job_team import working_assignment_job_ids
 from app.services.workforce_availability import (
     workforce_context,
     effective_owner_ids,
@@ -126,11 +130,45 @@ async def is_member_of_job(
         .where(JobCollaborator.removed_from_auto_cc.is_(False))
         .limit(1)
     )
-    return (await db.execute(q)).scalar_one_or_none() is not None
+    if (await db.execute(q)).scalar_one_or_none() is not None:
+        return True
+
+    # Aktywne przypisanie do requestu — ta sama reguła co rola „Rekruter”
+    # (`job_team`): propozycja automatu i lustro prowadzącego się nie liczą.
+    assigned = await db.scalar(
+        working_assignment_job_ids([user.id])
+        .where(JobWorkAssignment.job_id == job_id)
+        .limit(1)
+    )
+    return assigned is not None
 
 
-async def list_job_member_ids(db: AsyncSession, job_id: int) -> list[int]:
-    """Zwraca unikalną listę user_id członków projektu (z adminami)."""
+async def list_job_member_ids(
+    db: AsyncSession,
+    job_id: int,
+    *,
+    include_category_participants: bool = True,
+    include_parked: bool = True,
+    include_admins: bool = True,
+) -> list[int]:
+    """Zwraca unikalną listę user_id członków projektu (z adminami).
+
+    ``include_category_participants=False`` pomija uczestników z kategorii
+    (``job_collaborators.source='auto_cc'``) — używają tego WYŁĄCZNIE
+    producenci dzwonków o rekrutacji (decyzja Artura D7, 06.10.2026: uczestnik
+    kategorii widzi rekrutację w „Moja kategoria”, ale nie dostaje jej
+    powiadomień). Dostęp (wzmianki, czat, prepy) liczy się z uczestnikami —
+    domyślne ``True``.
+
+    ``include_parked=False`` pomija „Poprzednich rekruterów” (14.10.2026,
+    zejście z P1 albo zamknięcie) — też tylko producenci dzwonków: osoba nad
+    rekrutacją nie pracuje, ale czat, wzmianki i dostęp ją znają. Delivery
+    Lead i TAC rekrutacji zostają zawsze.
+
+    ``include_admins=False`` pomija adminów spoza zespołu — tylko ruch na
+    Tablicy na żywo (``pipeline_realtime``, 27.10.2026): każdy admin dostawał
+    każdy ruch karty w firmie i odświeżał po nim swoje kolejki.
+    """
     job = await db.get(Job, job_id)
     if job is None:
         return []
@@ -144,13 +182,27 @@ async def list_job_member_ids(db: AsyncSession, job_id: int) -> list[int]:
         member_ids.add(job.tac_id)
 
     # Aktywni collaboratorzy
-    rows = await db.execute(
+    collaborators = (
         select(JobCollaborator.user_id)
         .where(JobCollaborator.job_id == job_id)
         .where(JobCollaborator.removed_from_auto_cc.is_(False))
     )
+    if not include_category_participants:
+        collaborators = collaborators.where(
+            JobCollaborator.source != JobCollaboratorSource.auto_cc
+        )
+    rows = await db.execute(collaborators)
     for (uid,) in rows.all():
         member_ids.add(uid)
+
+    # Osoby z aktywnym przypisaniem do requestu (zaakceptowany sourcer, drugi
+    # rekruter) — bez nich powiadomienia rekrutacji szły tylko do prowadzącego.
+    assigned = await db.scalars(
+        working_assignment_job_ids()
+        .where(JobWorkAssignment.job_id == job_id)
+        .with_only_columns(JobWorkAssignment.user_id)
+    )
+    member_ids.update(assigned.all())
 
     if settings.RECRUITMENT_ALLOCATION_ENABLED:
         members = await db.scalars(
@@ -172,16 +224,23 @@ async def list_job_member_ids(db: AsyncSession, job_id: int) -> list[int]:
         )
         member_ids.update(members.all())
 
-    # Wszyscy admini systemu (małych liczb użytkowników — OK)
-    admins = await db.execute(
-        select(User.id)
-        .where(User.role == UserRole.admin)
-        .where(User.is_active.is_(True))
-    )
-    for (uid,) in admins.all():
-        member_ids.add(uid)
+    if not include_parked:
+        from app.services.job_previous_recruiters import load_parked  # noqa: PLC0415
 
-    if settings.COMPASS_AVAILABILITY_ENABLED:
+        asleep = (await load_parked(db, [job_id])).get(job_id, set())
+        member_ids -= asleep - {job.delivery_lead_id, job.tac_id}
+
+    if include_admins:
+        # Wszyscy admini systemu (małych liczb użytkowników — OK)
+        admins = await db.execute(
+            select(User.id)
+            .where(User.role == UserRole.admin)
+            .where(User.is_active.is_(True))
+        )
+        for (uid,) in admins.all():
+            member_ids.add(uid)
+
+    if availability_enabled():
         context = await workforce_context(db)
         # Notifications use the same resource boundary as interactive access.
         # An observer's absence alone must not subscribe the substitute.
@@ -217,11 +276,3 @@ async def list_job_members(db: AsyncSession, job_id: int) -> list[User]:
     users = list(rows.scalars().all())
     users.sort(key=lambda u: (u.role.value, u.name.lower()))
     return users
-
-
-async def filter_to_members(
-    db: AsyncSession, job_id: int, user_ids: Iterable[int]
-) -> list[int]:
-    """Z listy user_ids zwróć tylko tych którzy są członkami projektu."""
-    members = set(await list_job_member_ids(db, job_id))
-    return [uid for uid in user_ids if uid in members]

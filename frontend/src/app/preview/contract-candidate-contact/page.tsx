@@ -42,7 +42,7 @@ export default function ContractCandidateContactPreview() {
   const [email, setEmail] = useState<string | null>(null);
   const [phone, setPhone] = useState<string | null>(null);
   const profileEmail = "anna.nowak@example.com";
-  const profilePhone = "+48 600 100 200";
+  const profilePhone = "+48 000 000 109";
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 p-6">
@@ -78,7 +78,7 @@ export default function ContractCandidateContactPreview() {
         <ContractCandidateContactRow
           email="anna.nowak@partner.example.com"
           emailSource="contract"
-          phone="+48 601 202 303"
+          phone="+48 000 000 110"
           phoneSource="contract"
           editable
           onSaveEmail={async () => undefined}

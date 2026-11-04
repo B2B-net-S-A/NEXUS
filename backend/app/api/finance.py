@@ -11,6 +11,7 @@ Dane tego modułu są NIEZALEŻNE od reszty systemu: „Imię i nazwisko" oraz
 modyfikuje niczego poza dwiema tabelami ``finance_*``.
 """
 
+import asyncio
 import hashlib
 import io
 import logging
@@ -33,6 +34,7 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy import String, cast, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import FinanceModuleUser
@@ -44,7 +46,7 @@ from app.models.finance import (
     FinanceImportRunStatus,
     FinanceMonthlyResult,
 )
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.finance import (
     EDITABLE_NUMERIC_FIELDS,
     FinanceHeaderMismatch,
@@ -59,6 +61,9 @@ from app.schemas.finance import (
     FinanceTotals,
 )
 from app.schemas.finance_order_changes import (
+    InvoiceLine,
+    InvoiceLinesResponse,
+    InvoiceLineUpdate,
     OrderChangesPeriod,
     OrderChangesResponse,
     OrderChangesSummaryResponse,
@@ -74,9 +79,11 @@ from app.schemas.finance_order_pdfs import (
     OrderPdfsResponse,
 )
 from app.core.http_headers import content_disposition_attachment
+from app.core.upload_filename import fit_filename_column
 from app.services import finance_order_pdfs
-from app.services import order_change_checks
+from app.services import nordea_invoice_lines, order_change_checks
 from app.services import storage_service
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -186,6 +193,10 @@ async def _lock_period(db: AsyncSession, year: int, month: int) -> None:
 
 
 _PCT_QUANT = Decimal("0.1")
+
+
+#: Sortowanie po marży to gotowy ranking całej firmy — tylko z „Wynikami firmy”.
+_COMPANY_RESULT_SORTS = frozenset({"margin_pln", "margin_pct"})
 
 
 def _margin_percent(row: FinanceMonthlyResult) -> Optional[Decimal]:
@@ -357,6 +368,10 @@ async def get_results(
     run = await _current_run(db, year, month)
     if run is None:
         raise HTTPException(404, detail="Brak importu za wskazany miesiąc.")
+    # Bez konta (`_user=None`) woła nas API v1, które ma własne zakresy kwot.
+    sees_totals = _user is None or has_permission(_user, ProductAction.company_results)
+    if not sees_totals and sort in _COMPANY_RESULT_SORTS:
+        sort, direction = "row_number", "asc"
 
     query = select(FinanceMonthlyResult).where(
         FinanceMonthlyResult.import_run_id == run.id
@@ -424,13 +439,17 @@ async def get_results(
         month=month,
         run_id=run.id,
         rows=[_row_to_read(r) for r in rows],
-        totals=FinanceTotals(
-            cost=cost,
-            revenue=revenue,
-            margin=margin,
-            avg_margin_pct=avg_pct,
-            rows_without_margin=len(without_margin),
-            cost_without_margin=cost_without_margin,
+        totals=(
+            FinanceTotals(
+                cost=cost,
+                revenue=revenue,
+                margin=margin,
+                avg_margin_pct=avg_pct,
+                rows_without_margin=len(without_margin),
+                cost_without_margin=cost_without_margin,
+            )
+            if sees_totals
+            else None
         ),
         needs_completion_count=_needs_completion_count(all_rows),
     )
@@ -548,7 +567,9 @@ async def import_workbook(
     """
     _validate_period(year, month)
 
-    filename = file.filename or "wyniki.xlsx"
+    # Runda 9 (R9-N7-4): `source_filename` to VARCHAR(255) — dłuższa nazwa
+    # dawała DataError (500) przy zapisie przebiegu.
+    filename = fit_filename_column(file.filename or "wyniki.xlsx")
     if not filename.lower().endswith(_ALLOWED_EXT):
         raise HTTPException(415, detail="Dozwolone są wyłącznie pliki .xlsx")
 
@@ -907,17 +928,19 @@ def _impersonating(request: Request) -> bool:
 
 
 def _can_check(request: Request, user: User) -> bool:
-    """Odhaczać mogą role Admin i Finanse z ZAPISEM sekcji Finanse.
+    """Odhaczać mogą osoby z uprawnieniem „Moduł Finanse” i zapisem sekcji.
 
-    Lustro bramek ``POST /order-changes/checks`` (rola + zapis sekcji z
-    ``FINANCE_SECTION_DEPENDENCIES``). Sama rola nie wystarczała: osoba
-    z sekcją odebraną do odczytu widziała aktywne checkboxy, a każde
-    kliknięcie kończyło się 403. Nigdy w trybie „podgląd jako".
+    Lustro bramek ``POST /order-changes/checks``: uprawnienie
+    (``FinanceModuleUser``; domyślnie Admin i Finanse) i zapis sekcji
+    z ``FINANCE_SECTION_DEPENDENCIES``. Sekcja Finanse wynika z uprawnienia,
+    ale stary wyjątek osoby potrafi ją ograniczyć do odczytu — taka osoba
+    widziałaby aktywne checkboxy, a każde kliknięcie kończyłoby się 403.
+    Nigdy w trybie „podgląd jako".
     """
 
     return (
         not _impersonating(request)
-        and user.has_any_role(UserRole.admin, UserRole.finance)
+        and has_permission(user, ProductAction.finance_module)
         and section_access_for_user(user, ProductSection.finance) >= SectionAccess.write
     )
 
@@ -951,7 +974,7 @@ async def set_order_change_check(
     user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Odhacza pozycję jako „Zrobione" albo cofa odhaczenie (Admin i Finanse).
+    """Odhacza pozycję jako „Zrobione" albo cofa odhaczenie („Moduł Finanse”).
 
     Pozycja musi istnieć w audycie wskazanego miesiąca — klucz spoza niego
     to nieaktualny widok (zamówienie zmieniono w międzyczasie), nie zapis.
@@ -981,6 +1004,46 @@ async def set_order_change_check(
     )
     await db.commit()
     return OrderCheckResponse(item_key=payload.item_key, done=done)
+
+
+@router.put(
+    "/order-changes/invoice-lines/{order_id}", response_model=InvoiceLinesResponse
+)
+async def update_invoice_line(
+    order_id: int,
+    payload: InvoiceLineUpdate,
+    request: Request,
+    user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Ręczna poprawka pozycji faktury Nordei (ticket 8) — zapis przy zamówieniu.
+
+    Te same osoby co „Zrobione" (``_can_check``). Poprawka zostaje przy
+    zamówieniu także po odhaczeniu wejścia i w kolejnych miesiącach.
+    """
+
+    if _impersonating(request):
+        raise HTTPException(
+            status_code=403, detail="W trybie podglądu nie można zapisywać zmian."
+        )
+    try:
+        lines = await nordea_invoice_lines.save_line(
+            db,
+            order_id,
+            index=payload.index,
+            text=payload.text,
+            user_id=user.id,
+            user_name=user.name or user.email,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except nordea_invoice_lines.InvoiceLineError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await db.commit()
+    return InvoiceLinesResponse(
+        order_id=order_id,
+        lines=[InvoiceLine.model_validate(line) for line in lines],
+    )
 
 
 @router.get("/order-changes/history", response_model=OrderHistoryResponse)
@@ -1057,6 +1120,7 @@ def _order_pdf_file(
         consultant_name=entry.consultant_name,
         start=entry.start,
         end=entry.end,
+        period_invalid=entry.period_invalid,
         entry_type=entry.entry_type,
         status=entry.status,
         order_number=entry.order_number,
@@ -1235,25 +1299,32 @@ async def download_order_pdfs_zip(
             detail=f"Za dużo plików w jednym archiwum (limit {MAX_ZIP_FILES}).",
         )
     members = [(entry, _entry_path(entry)) for entry in entries]
-    content = await run_in_threadpool(
-        finance_order_pdfs.build_zip, members, client_folders=client_id is None
+    # Archiwum w pliku tymczasowym oddawanym strumieniem i usuwanym po
+    # wysłaniu — w pamięci szczyt był ~2× archiwum (runda 6 audytu).
+    zip_path = await asyncio.to_thread(
+        finance_order_pdfs.build_zip_file, members, client_folders=client_id is None
     )
-    await _record_downloads(
-        request, db, user, [entry for entry, path in members if path is not None]
-    )
+    try:
+        await _record_downloads(
+            request, db, user, [entry for entry, path in members if path is not None]
+        )
+    except BaseException:
+        finance_order_pdfs.remove_file_quietly(zip_path)
+        raise
     filename = (
         finance_order_pdfs.client_zip_name(entries[0].client_name, year, month)
         if client_id is not None
         else finance_order_pdfs.month_zip_name(year, month)
     )
-    return Response(
-        content=content,
+    return FileResponse(
+        zip_path,
         media_type="application/zip",
         headers={
             "Content-Disposition": content_disposition_attachment(
                 filename, fallback="zamowienia.zip"
             )
         },
+        background=BackgroundTask(finance_order_pdfs.remove_file_quietly, zip_path),
     )
 
 

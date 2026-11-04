@@ -35,6 +35,7 @@ from app.core.rate_limit import limiter as _limiter
 from app.core.security import create_access_token
 from app.models.activity import Activity
 from app.models.auth_exchange_code import AuthExchangeCode
+from app.models.hr_profile import EmployeeProfile
 from app.models.user import User, UserRole
 from app.services.admin_membership import protect_active_admin_membership
 from app.services.m365 import aad_groups as aad_groups_module
@@ -75,25 +76,24 @@ def test_map_groups_to_role_mapping_order_priority():
 
 
 def test_map_groups_to_roles_returns_all_matches_in_mapping_order():
-    """Hybrid DL+TAC user gets both roles, ordered by mapping insertion."""
+    """Hybrid DL+recruiter user gets both roles, ordered by mapping insertion."""
     mapping = {
         "g-admin": "admin",
         "g-dl": "delivery_lead",
-        "g-tac": "tac",
         "g-rec": "recruiter",
     }
-    # User in DL + TAC groups → both roles, DL first (precedes TAC in mapping).
-    assert map_groups_to_roles(["g-tac", "g-dl"], mapping) == [
+    # User in DL + recruiter groups → both roles, DL first (precedes it in mapping).
+    assert map_groups_to_roles(["g-rec", "g-dl"], mapping) == [
         "delivery_lead",
-        "tac",
+        "recruiter",
     ]
     # Reverse mapping order swaps the primary.
     mapping_rev = {
-        "g-tac": "tac",
+        "g-rec": "recruiter",
         "g-dl": "delivery_lead",
     }
-    assert map_groups_to_roles(["g-tac", "g-dl"], mapping_rev) == [
-        "tac",
+    assert map_groups_to_roles(["g-rec", "g-dl"], mapping_rev) == [
+        "recruiter",
         "delivery_lead",
     ]
 
@@ -112,8 +112,8 @@ def test_map_groups_to_roles_dedupes_duplicate_role_values():
 
 def test_map_groups_to_role_matches_map_groups_to_roles_first_element():
     """``map_groups_to_role`` (legacy) returns the same as ``roles[0]``."""
-    mapping = {"g-admin": "admin", "g-tac": "tac"}
-    groups = ["g-tac", "g-admin"]
+    mapping = {"g-admin": "admin", "g-rec": "recruiter"}
+    groups = ["g-rec", "g-admin"]
     roles = map_groups_to_roles(groups, mapping)
     single = map_groups_to_role(groups, mapping)
     assert roles[0] == single
@@ -284,6 +284,10 @@ async def cleanup_users():
                 delete(AuthExchangeCode).where(AuthExchangeCode.user_id.in_(ids))
             )
             await db.execute(delete(Activity).where(Activity.user_id.in_(ids)))
+            # Logowanie SSO zakłada kartotekę (19.10.2026) — FK RESTRICT.
+            await db.execute(
+                delete(EmployeeProfile).where(EmployeeProfile.user_id.in_(ids))
+            )
         await db.execute(delete(User).where(User.email.in_(emails)))
         await db.commit()
 
@@ -868,6 +872,70 @@ async def test_resync_endpoint_remaps_role_from_stored_groups(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("admin_disabled", [True, False])
+async def test_resync_respects_admin_disable_decision(
+    app_client_no_redirect, monkeypatch, admin_token, cleanup_users, admin_disabled
+):
+    """R10-V3-2: resync nie włącza konta wyłączonego jawną decyzją admina.
+
+    Bliźniak R9-N13-2 (logowanie SSO). Konto wyłączone bez decyzji admina
+    (np. przez wypadnięcie z grupy przy SSO) resync nadal włącza.
+    """
+    unique = uuid.uuid4().hex[:8]
+    email = f"resync-disabled-{unique}@b2bnetwork.pl"
+    cleanup_users.append(email)
+    rec_group = f"grp-rec-{unique}"
+    admin_id, token = admin_token
+    async with AsyncSessionLocal() as db:
+        u = User(
+            email=email,
+            password_hash=None,
+            name="Resync Disabled",
+            role=UserRole.recruiter,
+            is_active=False,
+            profile_completed=True,
+            aad_group_ids=[{"id": rec_group, "displayName": "NEXUS-Recruiters"}],
+        )
+        db.add(u)
+        await db.flush()
+        if admin_disabled:
+            db.add(
+                Activity(
+                    entity_type="user",
+                    entity_id=u.id,
+                    action="active_changed",
+                    user_id=admin_id,
+                    details={"from": True, "to": False},
+                )
+            )
+        await db.commit()
+        target_id = u.id
+
+    monkeypatch.setattr(settings, "AAD_GROUP_RBAC_ENABLED", True)
+    monkeypatch.setattr(
+        settings, "AAD_GROUP_ROLE_MAP_JSON", json.dumps({rec_group: "recruiter"})
+    )
+    resp = await app_client_no_redirect.post(
+        f"/api/admin/users/{target_id}/resync-aad-groups",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["is_active"] is (not admin_disabled)
+    assert body["kept_inactive_by_admin_decision"] is admin_disabled
+
+    async with AsyncSessionLocal() as db:
+        u = await db.scalar(select(User).where(User.id == target_id))
+        assert u.is_active is (not admin_disabled)
+        await db.execute(
+            delete(Activity).where(
+                Activity.entity_id == target_id, Activity.entity_type == "user"
+            )
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
 async def test_resync_endpoint_422_when_user_has_no_stored_groups(
     app_client_no_redirect, monkeypatch, admin_token, cleanup_users
 ):
@@ -1078,3 +1146,61 @@ def test_aad_group_role_map_rejects_malformed_json(monkeypatch):
 def test_aad_group_role_map_empty_returns_empty_dict(monkeypatch):
     monkeypatch.setattr(settings, "AAD_GROUP_ROLE_MAP_JSON", "")
     assert settings.aad_group_role_map == {}
+
+
+class _PagedAsyncClient:
+    """Dwie strony wyników `transitiveMemberOf` (runda 7, R7-N5-7)."""
+
+    def __init__(self, pages: dict[str, dict], **_kwargs):
+        self._pages = pages
+        self.urls: list[str] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return None
+
+    async def get(self, url: str, headers: dict):  # noqa: ARG002
+        self.urls.append(url)
+        return httpx.Response(
+            status_code=200, json=self._pages[url], request=httpx.Request("GET", url)
+        )
+
+
+@pytest.mark.asyncio
+async def test_fetch_user_groups_follows_next_link_and_is_transitive(monkeypatch):
+    first = aad_groups_module._GRAPH_MEMBEROF_URL
+    second = "https://graph.microsoft.com/v1.0/me/transitiveMemberOf?$skiptoken=X"
+    client = _PagedAsyncClient(
+        {
+            first: {
+                "value": [
+                    {"@odata.type": "#microsoft.graph.group", "id": "g-1"},
+                ],
+                "@odata.nextLink": second,
+            },
+            second: {
+                "value": [
+                    {"@odata.type": "#microsoft.graph.group", "id": "g-nexus"},
+                ]
+            },
+        }
+    )
+    monkeypatch.setattr(aad_groups_module.httpx, "AsyncClient", lambda **kw: client)
+    groups = await fetch_user_groups("tok")
+    assert [g["id"] for g in groups] == ["g-1", "g-nexus"]
+    assert "transitiveMemberOf" in client.urls[0]
+    assert client.urls == [first, second]
+
+
+@pytest.mark.asyncio
+async def test_fetch_user_groups_refuses_foreign_next_link(monkeypatch):
+    first = aad_groups_module._GRAPH_MEMBEROF_URL
+    client = _PagedAsyncClient(
+        {first: {"value": [], "@odata.nextLink": "https://evil.example/steal"}}
+    )
+    monkeypatch.setattr(aad_groups_module.httpx, "AsyncClient", lambda **kw: client)
+    with pytest.raises(ValueError):
+        await fetch_user_groups("tok")
+    assert client.urls == [first]

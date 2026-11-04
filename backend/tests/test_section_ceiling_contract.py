@@ -13,7 +13,15 @@ Ten test przechodzi po WSZYSTKICH trasach i wymaga jednej z bramek:
 * guard kandydatów (``require_candidate_roles`` — liczy max(sourcing, pipeline)),
 * capability analityczne (``capabilities_for`` przycina je sekcjami),
 * wyłącznie admin (admin ma zapis w każdej sekcji),
-* scope konta serwisowego.
+* scope konta serwisowego,
+* bramka modułów „Ludzi w NEXUSIE” (``require_hr_*``, ``app/api/hr_gates.py``
+  i moduły HR): dostęp liczy kartoteka pracownika, uprawnienia z grupy
+  „Ludzie” (Kadry, Płace, Sprzęt, Sprawy) i przełącznik modułu — to osobna oś
+  od sekcji produktu (rola „Pracownik” nie ma żadnej sekcji, a składa wnioski),
+* uprawnienie Sprzedaży (``SalesViewUser`` / ``SalesEditUser`` z
+  ``app/api/permission_access.py``): Sprzedaż nie ma sekcji produktu, dostęp
+  liczy wyłącznie „Sprzedaż: podgląd” / „Sprzedaż: edycja” (decyzja Artura
+  26.10.2026), więc administrator odbiera ją na ekranie Osoby i role.
 
 Trasa bez żadnej z nich trafia do ``_SECTIONLESS_ALLOWLIST`` z POWODEM:
 dane wspólne dla każdej sekcji (powiadomienia, słowniki) albo kontrola sekcji
@@ -28,9 +36,12 @@ from typing import Any
 import pytest
 
 from app.models.user import UserRole
+from app.services.action_permissions import ProductAction
 from app.services.request_semantics import READ_ONLY_POST_ROUTE_TEMPLATES
 from app.services.section_permissions import ProductSection
 from tests._route_introspection import iter_api_routes, iter_dependency_calls
+
+_SALES_PERMISSIONS = {ProductAction.sales_view, ProductAction.sales_edit}
 
 _AUTH_CALLS = {"get_current_user", "get_authenticated_user", "require_onboarded_user"}
 
@@ -39,6 +50,13 @@ _SECTION_AWARE_HELPERS = {
     # contacts.py: `_require_contact_read_section` = Pipeline albo Delivery.
     "require_contact_read_access",
     "require_global_contact_access",
+    # pre_contracts.py: sekcja „Rekrutacje” (odczyt/zapis wg metody); Finanse,
+    # Rada nadzorcza i Automatyzacje z tytułu roli (decyzja Artura 22.10.2026, F54).
+    "require_pre_contract_access",
+    # microsoft365.py: skrzynka Outlook — sekcja kandydatów (odczyt) albo
+    # uprawnienie „Sprzedaż: podgląd” (skrzynka handlowca, 28.10.2026).
+    "require_mailbox_owner",
+    "require_mailbox_status_reader",
 }
 
 _SECTIONLESS_ALLOWLIST: dict[str, str] = {
@@ -49,17 +67,28 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "GET /api/users/me/onboarding/jobs": "lista rekrutacji w kroku onboardingu, poprzedza sekcje",
     "GET /api/users/me/preferences": "własne preferencje interfejsu, bez danych domenowych",
     "PATCH /api/users/me/preferences": "zapis własnych preferencji interfejsu",
+    "GET /api/users/me/email-notifications": "własne maile konta: nazwy maili i ich stan, bez danych domenowych",
+    "PUT /api/users/me/email-notifications/{kind}": "własny wyłącznik jednego maila konta, bez danych domenowych",
     "GET /api/users/me/dashboard": "własny układ kafelków pulpitu; dane kafelków mają własne bramki sekcji",
     "PUT /api/users/me/dashboard": "zapis własnego układu kafelków pulpitu, bez danych domenowych",
+    "PUT /api/users/me/dashboard/panels/{panel}": "własny pulpit: usunięcie albo przywrócenie listy nad kafelkami, bez danych domenowych",
+    "GET /api/announcements": "ogłoszenia na pulpicie każdego konta; odbiorców filtruje serwer po roli, publikacja ma bramkę sekcji",
+    "POST /api/announcements/{announcement_id}/read": "własne „przeczytane” ogłoszenia; cudze albo wygasłe = 404",
     "GET /api/settings/candidates-columns": "własny układ kolumn tabeli, bez danych domenowych",
     "GET /api/user-email-templates": "prywatne szablony maili autora, zakres = właściciel",
-    "POST /api/user-email-templates": "prywatne szablony maili autora, zakres = właściciel",
     "GET /api/user-email-templates/{template_id}": "prywatny szablon autora, zakres = właściciel",
     "PUT /api/user-email-templates/{template_id}": "prywatny szablon autora, zakres = właściciel",
     "DELETE /api/user-email-templates/{template_id}": "prywatny szablon autora, zakres = właściciel",
     # ── Skrzynka i powiadomienia (filtr sekcji per wiersz) ──────────────────
     "GET /api/notifications": "skrzynka osobista; notification_access filtruje wiersze po sekcjach",
     "GET /api/notifications/count": "licznik skrzynki osobistej, ten sam filtr sekcji per wiersz",
+    "GET /api/notifications/chats": "własne powiadomienia czatów pogrupowane w rozmowy, ten sam filtr sekcji per wiersz",
+    "PUT /api/notifications/chats/read": "oznaczenie własnych powiadomień czatów jako przeczytane",
+    "GET /api/notifications/interviews": "własne nieprzeczytane powiadomienia kategorii Rozmowy, ten sam filtr sekcji per wiersz",
+    "PUT /api/notifications/interviews/read": "oznaczenie własnych powiadomień kategorii Rozmowy jako przeczytane",
+    "GET /api/notifications/contracts": "własne powiadomienia tematu Umowy pogrupowane po umowie, ten sam filtr sekcji per wiersz",
+    "GET /api/notifications/jobs": "własne powiadomienia tematu Rekrutacje pogrupowane po rekrutacji, ten sam filtr sekcji per wiersz",
+    "PUT /api/notifications/topics/read": "oznaczenie własnych powiadomień jednego tematu ikony paska jako przeczytane",
     "GET /api/notifications/preferences": "własne ustawienia powiadomień, lista kategorii z filtrem sekcji",
     "PUT /api/notifications/preferences/{category}": "wyciszenie własnej kategorii powiadomień",
     "PATCH /api/notifications/read-all": "oznaczenie własnych powiadomień jako przeczytane",
@@ -84,6 +113,7 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "GET /api/settings/client-playbooks": "źródło Pomoc → Klienci; decyzja: odczyt org-wide",
     # ── Kontrola sekcji w treści handlera ───────────────────────────────────
     "GET /api/clients/{client_id}/cv-rule": "_require_shared_rule_section_read: Delivery albo Pipeline w handlerze",
+    "GET /api/clients/{client_id}/cover-sheet-template": "jak GET cv-rule — _require_shared_rule_section_read w handlerze (karta przed CV, 29.10.2026)",
     "GET /api/search/": "wyszukiwarka globalna filtruje każdy kubełek po sekcji w handlerze",
     "GET /api/search/global": "wyszukiwarka globalna filtruje każdy kubełek po sekcji w handlerze",
     # ── Jarvis (0330) — asystent dostępny dla każdej roli ──────────────────
@@ -96,8 +126,16 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "POST /api/jarvis/actions/{action_id}/reject": "Jarvis: rozmowy i akcje zawężone do właściciela, bez danych domenowych",
     "POST /api/jarvis/conversations/{conversation_id}/cancel": "Jarvis: rozmowy i akcje zawężone do właściciela, bez danych domenowych",
     "POST /api/jarvis/ui-events": "Jarvis: telemetria własnych kliknięć (kod ekranu, bez danych domenowych)",
+    "POST /api/jarvis/gaps/{gap_id}/report": "Jarvis: „Zgłoś, że tego potrzebuję” na własnej karcie braku (bez danych domenowych)",
     "GET /api/help/screens": "przewodniki ekranów — treść pomocy czyta każda rola",
     "GET /api/help/screens/{key}": "przewodnik ekranu — treść pomocy czyta każda rola",
+    "GET /api/novelties/mine": "nowości do przeklikania — własny stan przy nowościach swojej roli, bez danych domenowych",
+    "POST /api/novelties/{novelty_id}/events": "nowości do przeklikania — zapis własnego kliknięcia (id nowości, bez danych domenowych)",
+    "GET /api/novelties/adoption": "panel „kto już umie” — imiennie, kto zaliczył nowość, bez danych domenowych; admin i HoR (decyzja Artura 28.10.2026)",
+    "POST /api/novelties/{novelty_id}/remind": "przypomnienie nowości (wraca karta przy kropce), bez danych domenowych; admin i HoR (decyzja Artura 28.10.2026)",
+    "GET /api/novelties/start": "Start w NEXUSIE — własny postęp przy przeklikaniach swojej roli, bez danych domenowych; blokuje osobę na każdej sekcji (decyzja Artura 30.10.2026)",
+    "GET /api/cv-generator/feedback/summary": "Ustawienia → „Jakość generatora CV” — zestawienie dla admina i HoR (bramka roli), poza sekcjami jak panel nowości",
+    "PUT /api/novelties/start/gate": "wyłącznik blokady Startu dla całej firmy, bez danych domenowych; admin i HoR (decyzja Artura 30.10.2026)",
     # ── Praktykant (0374): brak sekcji, własna lista telefonów ──────────────
     "GET /api/trainee/today": "praktykant nie ma sekcji — własna lista telefonów, tylko jego pozycje",
     "POST /api/trainee/items/{item_id}/call": "praktykant: zapis rozmowy z własnej listy",
@@ -106,7 +144,6 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "POST /api/trainee/items/{item_id}/handover": "praktykant: propozycja do „Do przejrzenia” dla osoby z jego listy",
     # ── Sondy integracji bez danych ─────────────────────────────────────────
     "GET /api/autenti/health": "stan konfiguracji integracji podpisów, bez danych domenowych",
-    "GET /api/signing/health": "stan konfiguracji podpisu kwalifikowanego, bez danych domenowych",
 }
 
 
@@ -134,11 +171,18 @@ def _classify(route: Any) -> str:
     for call, name in zip(calls, names):
         if "require_section_access" in name or name in _SECTION_AWARE_HELPERS:
             return "section"
-        if "require_candidate_roles" in name or name == "require_candidate_finance_read":
+        if (
+            "require_candidate_roles" in name
+            or name == "require_candidate_finance_read"
+        ):
             return "section"
         if "require_capability" in name:
             return "section"
         if "require_service_scope" in name:
+            return "section"
+        if "require_hr_" in name:
+            return "section"
+        if _SALES_PERMISSIONS & set(getattr(call, "required_permissions", ())):
             return "section"
     for call, name in zip(calls, names):
         if "require_roles" in name:
@@ -234,6 +278,7 @@ _EXPECTED_SECTIONS = [
     ("GET", "/api/team-structure/my-team", {D, P}),
     ("GET", "/api/clients-lookup", {S, P, D, INS, F}),
     ("GET", "/api/jobs-lookup", {P, S, INS}),
+    ("GET", "/api/jobs-lookup/search", {P, S, INS}),
 ]
 
 

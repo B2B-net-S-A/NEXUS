@@ -277,16 +277,38 @@ async def test_auto_advance_compares_template_positions_not_codes():
     )
     assert await _advance(cand_late, job_late, rec_id) is None
 
-    # Etap własny PRZED rozmową (też kod `new`) — ruch na etap szablonu.
+    # Etap własny PRZED „CV wysłane” (też kod `new`) — runda 10 (F09): automat
+    # nie przeskakuje wysłania CV, karta zostaje z wpisem w historii.
     job_early, cand_early, _ = await _pair(
         stage=PipelineStage.new,
         recruiter_id=rec_id,
         template_id=tpl["template"],
         stage_def_id=tpl["early"],
     )
-    moved = await _advance(cand_early, job_early, rec_id)
+    assert await _advance(cand_early, job_early, rec_id) is None
+    early = await _latest(cand_early, job_early)
+    assert early.stage_def_id == tpl["early"]
+    async with AsyncSessionLocal() as db:
+        skipped = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "pipeline",
+                Activity.entity_id == early.id,
+                Activity.action == "auto_advance_skipped",
+            )
+        )
+        assert skipped is not None
+        assert skipped.details["reason_code"] == "cv_not_sent"
+
+    # „CV wysłane” w szablonie (kod `cv_sent`) — ruch na etap szablonu.
+    job_cv, cand_cv, _ = await _pair(
+        stage=PipelineStage.cv_sent,
+        recruiter_id=rec_id,
+        template_id=tpl["template"],
+        stage_def_id=tpl["cv"],
+    )
+    moved = await _advance(cand_cv, job_cv, rec_id)
     assert moved is not None
-    latest = await _latest(cand_early, job_early)
+    latest = await _latest(cand_cv, job_cv)
     assert latest.stage == PipelineStage.client_interview
     assert latest.stage_def_id == tpl["ci"]
 
@@ -339,6 +361,50 @@ async def test_slot_request_moves_card_to_client_interview(app_client: AsyncClie
         )
         assert audit is not None
         assert audit.details["source"] == "interview_slots"
+
+
+@pytest.mark.parametrize(
+    "stage", [PipelineStage.posting, PipelineStage.verified, PipelineStage.interview]
+)
+async def test_slot_request_does_not_skip_cv_sent_gate(
+    app_client: AsyncClient, stage: PipelineStage
+):
+    """Runda 10 (F09): terminy od klienta dla osoby bez wysłanego CV zapisują
+    się, ale karta NIE przeskakuje QC CV i „CV wysłane”."""
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _pair(stage=stage, recruiter_id=rec_id, dl_id=dl_id)
+    before = await _latest(cand_id, job_id)
+
+    created = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(3)}],
+        },
+    )
+
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["moved_to_client_interview"] is False
+    assert body["move_skipped_reason"] == "cv_not_sent"
+    assert body["status"] == "awaiting_recruiter"
+    after = await _latest(cand_id, job_id)
+    assert after.id == before.id
+    assert after.stage == stage
+    async with AsyncSessionLocal() as db:
+        skipped = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "pipeline",
+                Activity.entity_id == before.id,
+                Activity.action == "auto_advance_skipped",
+            )
+        )
+        assert skipped is not None
+        assert skipped.details["reason_code"] == "cv_not_sent"
+        assert skipped.details["source"] == "interview_slots"
 
 
 async def test_slot_request_leaves_card_that_is_already_further(
@@ -549,12 +615,41 @@ async def test_interview_badges_for_job_only_for_pairs_in_cycle():
     assert badges[event_id]["kind"] == "slot"
     # Karta i dok dostają kroki cyklu (kreski postępu) i id rozmowy.
     assert [s["key"] for s in badges[event_id]["steps"]] == [
-        "slots", "choice", "prep", "prep2", "interview", "call", "debrief"
+        "slots",
+        "choice",
+        "prep",
+        "prep2",
+        "interview",
+        "call",
+        "debrief",
     ]
     assert badges[event_id]["steps"][0]["state"] == "done"
     assert isinstance(badges[event_id]["interview_event_id"], int)
     assert badges[with_slots]["interview_event_id"] is None
-    assert badges[with_slots]["steps"][1]["state"] in {"current", "todo", "waiting", "overdue"}
+    # Okno „Zaplanuj prep” w doku liczy termin prepu względem rozmowy:
+    # potwierdzonej (krok „interview”) albo dopiero proponowanej przez klienta.
+    interview_step = badges[event_id]["steps"][4]
+    assert interview_step["state"] == "scheduled"
+    assert datetime.fromisoformat(interview_step["at"]) == now + timedelta(days=5)
+    assert badges[event_id]["tentative_interview_at"] is None
+    assert datetime.fromisoformat(
+        badges[with_slots]["tentative_interview_at"]
+    ) == now + timedelta(days=3)
+    assert badges[event_id]["late_prep_event_id"] is None
+    # PR 6 (04.10.2026): panel osoby wybiera termin bez kalendarza — odznaka
+    # niesie otwarty wniosek o terminy i prepy pary.
+    request = badges[with_slots]["slot_request"]
+    assert request["status"] == "awaiting_recruiter"
+    assert len(request["slots"]) == 2
+    assert isinstance(request["id"], int)
+    assert badges[event_id]["slot_request"] is None
+    assert badges[event_id]["preps"] == []
+    assert badges[with_slots]["steps"][1]["state"] in {
+        "current",
+        "todo",
+        "waiting",
+        "overdue",
+    }
     async with AsyncSessionLocal() as db:
         assert await interview_badges_for_job(db, job_id=job_id, candidate_ids=[]) == {}
 
@@ -686,3 +781,122 @@ async def test_order_status_for_pairs():
         (cand_e, job_e): "missing",
         (cand_f, job_f): "complete",
     }
+
+
+# ── Runda 7 audytu (N7-3, N7-4, X1-4) ───────────────────────────────────────
+
+
+async def test_auto_advance_leaves_blacklisted_candidate_in_place():
+    """N7-3: na tablicy taki ruch wymaga „Przenieś mimo to”; automat nie pyta."""
+    rec_id, _ = await _user(UserRole.recruiter)
+    job_id, cand_id, _ = await _pair(stage=PipelineStage.cv_sent, recruiter_id=rec_id)
+    async with AsyncSessionLocal() as db:
+        cand = await db.get(Candidate, cand_id)
+        cand.status = CandidateStatus.blacklisted
+        await db.commit()
+    before = await _latest(cand_id, job_id)
+
+    assert await _advance(cand_id, job_id, rec_id) is None
+
+    assert (await _latest(cand_id, job_id)).id == before.id
+    async with AsyncSessionLocal() as db:
+        skipped = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "pipeline",
+                Activity.entity_id == before.id,
+                Activity.action == "auto_advance_skipped",
+            )
+        )
+        assert skipped is not None
+        assert skipped.details["reason_code"]
+
+
+async def test_auto_advance_reassigns_to_linked_jobs_like_the_board_move():
+    """N7-4: `/move` na „Rozmowę u klienta” przepina — automat też."""
+    from app.models.job_proposal import JobProposal
+    from app.services import job_similarity as sim
+
+    rec_id, _ = await _user(UserRole.recruiter)
+    # Runda 10 (F09): automat rusza wyłącznie parę z wysłanym CV.
+    job_id, cand_id, client_id = await _pair(
+        stage=PipelineStage.cv_sent, recruiter_id=rec_id
+    )
+    async with AsyncSessionLocal() as db:
+        other = Job(
+            title=f"V4Linked-{uuid.uuid4().hex[:6]}",
+            status=JobStatus.published,
+            client_id=client_id,
+        )
+        db.add(other)
+        await db.commit()
+        other_id = other.id
+        await sim.link_jobs(db, other_id, [job_id], user_id=None)
+        await db.commit()
+
+    assert await _advance(cand_id, job_id, rec_id) is not None
+
+    async with AsyncSessionLocal() as db:
+        proposals = set(
+            (
+                await db.execute(
+                    select(JobProposal.candidate_id).where(
+                        JobProposal.job_id == other_id,
+                        JobProposal.source == "reassign",
+                    )
+                )
+            ).scalars()
+        )
+    assert cand_id in proposals
+
+
+async def test_chosen_slot_rings_the_job_dl_when_the_author_left(
+    app_client: AsyncClient,
+):
+    """X1-4: autor wniosku odszedł — dzwonek idzie do DL-a rekrutacji."""
+    from sqlalchemy import update
+
+    from app.models.notification import Notification, NotificationType
+
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    author_id, author_h = await _user(UserRole.delivery_lead)
+    job_dl_id, _ = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _pair(
+        stage=PipelineStage.acceptance, recruiter_id=rec_id, dl_id=job_dl_id
+    )
+    created = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=author_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(3)}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    request_id = created.json()["id"]
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(User).where(User.id == author_id).values(is_active=False)
+        )
+        await db.commit()
+
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{request_id}/choose",
+        headers=rec_h,
+        json={"index": 0},
+    )
+    assert chosen.status_code == 200, chosen.text
+
+    async with AsyncSessionLocal() as db:
+        recipients = set(
+            (
+                await db.execute(
+                    select(Notification.user_id).where(
+                        Notification.notification_type
+                        == NotificationType.interview_slot_chosen,
+                        Notification.related_entity_id == request_id,
+                    )
+                )
+            ).scalars()
+        )
+    assert recipients == {job_dl_id}

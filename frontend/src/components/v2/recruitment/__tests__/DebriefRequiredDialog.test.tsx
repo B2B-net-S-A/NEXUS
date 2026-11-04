@@ -37,7 +37,11 @@ const SAVED = {
   questions_saved: 0,
 };
 
-function renderDialog(onSaved = vi.fn(), onOpenChange = vi.fn()) {
+function renderDialog(
+  onSaved = vi.fn(),
+  onOpenChange = vi.fn(),
+  extra: Partial<React.ComponentProps<typeof DebriefRequiredDialog>> = {},
+) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const invalidate = vi.spyOn(qc, "invalidateQueries");
   render(
@@ -46,9 +50,11 @@ function renderDialog(onSaved = vi.fn(), onOpenChange = vi.fn()) {
         open
         onOpenChange={onOpenChange}
         eventId={44}
+        candidateId={5}
         candidateName="Piotr Nowak"
         jobId={22}
         onSaved={onSaved}
+        {...extra}
       />
     </QueryClientProvider>,
   );
@@ -107,6 +113,10 @@ describe("DebriefRequiredDialog", () => {
     );
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["kanban", "22"] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["kanban", 22] });
+    // Panel osoby po debriefie: follow-up, kolejka i wymagania ruchu.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["candidate-followup"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["board-tasks"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["move-requirements"] });
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
@@ -145,5 +155,115 @@ describe("DebriefRequiredDialog", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Zapisz i przenieś dalej" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(/pod rozmową kandydata/);
     expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("bez rozmowy w kalendarzu pyta, kiedy była, i zapisuje pytania pary (20.10.2026)", async () => {
+    mocks.put.mockResolvedValue({
+      data: { ...SAVED, calendar_event_id: 77, questions: ["Jak testujesz Kafkę?"], no_client_questions: false },
+    });
+    const { onSaved } = renderDialog(vi.fn(), vi.fn(), {
+      eventId: null,
+      initialQuestions: ["Jak testujesz Kafkę?", "Spring Boot 3"],
+      submitLabel: "Zapisz pytania",
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Pytania z rozmowy u klienta" });
+    // Bez wydarzenia okno nie czeka na odczyt debriefu z serwera.
+    expect(mocks.get).not.toHaveBeenCalledWith(expect.stringContaining("/events/"));
+    expect(within(dialog).getByTestId("debrief-held-on")).toHaveTextContent("Kiedy była rozmowa?");
+    expect(within(dialog).getByLabelText("Pytanie 1")).toHaveValue("Jak testujesz Kafkę?");
+    expect(within(dialog).getByLabelText("Pytanie 2")).toHaveValue("Spring Boot 3");
+    fireEvent.change(within(dialog).getByLabelText("Dzień"), { target: { value: "2026-10-19" } });
+    fireEvent.change(within(dialog).getByLabelText("Godzina (opcjonalnie)"), {
+      target: { value: "14:00" },
+    });
+    fireEvent.click(within(dialog).getByLabelText("Dobrze"));
+    fireEvent.click(within(dialog).getByLabelText("Tak"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zapisz pytania" }));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(mocks.put).toHaveBeenCalledWith(
+      "/api/interview-cycle/pairs/5/22/debrief",
+      expect.objectContaining({
+        held_on: "2026-10-19",
+        held_at: "14:00",
+        questions: ["Jak testujesz Kafkę?", "Spring Boot 3"],
+        no_client_questions: false,
+      }),
+    );
+  });
+
+  it("rozmowa z tego dnia ma już debrief: 409 otwiera go do poprawy z dopisanymi pytaniami (audyt 22.10, F27)", async () => {
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/interview-cycle/events/77/debrief") {
+        return Promise.resolve({
+          data: {
+            ...SAVED,
+            calendar_event_id: 77,
+            questions: ["Jak testujesz Kafkę?", "Spring Boot 3"],
+            no_client_questions: false,
+            offer_acceptance: "likely",
+          },
+        });
+      }
+      if (url === "/api/interview-cycle/events/77") {
+        return Promise.resolve({ data: { id: 77, candidate_id: 5, job_id: 22, start: "2026-10-19T12:00:00Z" } });
+      }
+      return Promise.resolve({ data: null });
+    });
+    mocks.put
+      .mockRejectedValueOnce({
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              code: "DEBRIEF_EXISTS",
+              event_id: 77,
+              message: "Rozmowa u klienta z 19.10.2026 ma już zapisany debrief.",
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({ data: { ...SAVED, calendar_event_id: 77 } });
+    const { onSaved } = renderDialog(vi.fn(), vi.fn(), { eventId: null, submitLabel: "Zapisz pytania" });
+    const dialog = await screen.findByRole("dialog", { name: "Pytania z rozmowy u klienta" });
+    fireEvent.change(within(dialog).getByLabelText("Pytanie 1"), { target: { value: "Ile lat z Kotlinem?" } });
+    fireEvent.click(within(dialog).getByLabelText("Średnio"));
+    fireEvent.click(within(dialog).getByLabelText("Nie wiadomo"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zapisz pytania" }));
+
+    // Okno przechodzi na zapisany debrief tej rozmowy — nic nie nadpisało.
+    expect(await within(dialog).findByTestId("debrief-exists")).toHaveTextContent(/ma już zapisany debrief/);
+    await waitFor(() => expect(within(dialog).getByLabelText("Pytanie 1")).toHaveValue("Jak testujesz Kafkę?"));
+    expect(within(dialog).getByLabelText("Pytanie 2")).toHaveValue("Spring Boot 3");
+    expect(within(dialog).getByLabelText("Pytanie 3")).toHaveValue("Ile lat z Kotlinem?");
+    expect(within(dialog).getByLabelText("Dobrze")).toBeChecked();
+    expect(within(dialog).getByLabelText("Raczej tak")).toBeChecked();
+    expect(within(dialog).queryByTestId("debrief-held-on")).not.toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zapisz pytania" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(mocks.put).toHaveBeenLastCalledWith(
+      "/api/interview-cycle/events/77/debrief",
+      expect.objectContaining({
+        outcome: "good",
+        offer_acceptance: "likely",
+        questions: ["Jak testujesz Kafkę?", "Spring Boot 3", "Ile lat z Kotlinem?"],
+      }),
+    );
+  });
+
+  it("bez daty rozmowy nie wysyła", async () => {
+    renderDialog(vi.fn(), vi.fn(), { eventId: null });
+    const dialog = await screen.findByRole("dialog", { name: "Pytania z rozmowy u klienta" });
+    fireEvent.change(within(dialog).getByLabelText("Dzień"), { target: { value: "" } });
+    fireEvent.click(within(dialog).getByLabelText("Dobrze"));
+    fireEvent.click(within(dialog).getByLabelText("Tak"));
+    fireEvent.click(within(dialog).getByLabelText("Klient nie zadawał pytań"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zapisz i przenieś dalej" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Podaj, kiedy była rozmowa u klienta.",
+    );
+    expect(mocks.put).not.toHaveBeenCalled();
   });
 });

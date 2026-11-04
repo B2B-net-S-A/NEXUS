@@ -39,12 +39,14 @@ const validRecruiter = makeToken({
   roles: ["recruiter"],
   exp: now() + HOUR,
 })
-const validSourcer = makeToken({
+// Tokeny wydane PRZED połączeniem ról (02.10.2026): backend nie wydaje już
+// `sourcer` ani `tac`, ale stare cookie może je nieść do ponownego logowania.
+const legacySourcer = makeToken({
   role: "sourcer",
   roles: ["sourcer"],
   exp: now() + HOUR,
 })
-const validTac = makeToken({ role: "tac", roles: ["tac"], exp: now() + HOUR })
+const legacyTac = makeToken({ role: "tac", roles: ["tac"], exp: now() + HOUR })
 const validDeliveryLead = makeToken({
   role: "delivery_lead",
   roles: ["delivery_lead"],
@@ -71,6 +73,20 @@ const validHybridHeadOfRecruitment = makeToken({
   exp: now() + HOUR,
 })
 const expiredAdmin = makeToken({ role: "admin", roles: ["admin"], exp: now() - HOUR })
+const validEmployee = makeToken({ role: "employee", roles: ["employee"], exp: now() + HOUR })
+const validBoard = makeToken({
+  role: "board",
+  roles: ["board"],
+  sa: {
+    sourcing: "none",
+    pipeline: "none",
+    delivery: "none",
+    insights: "read",
+    finance: "none",
+    system_admin: "none",
+  },
+  exp: now() + HOUR,
+})
 
 function request(pathname: string, token?: string): NextRequest {
   return new NextRequest(new URL(pathname, BASE), {
@@ -113,6 +129,10 @@ const PRIVATE_ROUTES = [
   "/manager",
   "/preview/shell",
   "/jakas/zupelnie/nowa/trasa",
+  "/wtyczka",
+  "/wtyczka/prywatnosc-admin",
+  "/wtyczka/prywatnosc/panel",
+  "/extension/connect",
 ]
 
 describe("brak tokenu → ekran logowania", () => {
@@ -155,9 +175,27 @@ describe("ważny token → dostęp", () => {
     const res = middleware(request("/dashboard", undefined))
     expect(res.headers.get("location")).toContain("next=%2Fdashboard")
   })
+
+  it("zachowuje w ?next także query linku (R10-N15-1)", () => {
+    const res = middleware(request("/jobs/5?candidate=7", undefined))
+    const location = new URL(res.headers.get("location") ?? "")
+    expect(location.pathname).toBe("/login")
+    expect(location.searchParams.get("next")).toBe("/jobs/5?candidate=7")
+  })
 })
 
 describe("linki publiczne działają bez tokenu", () => {
+  it("polityka wtyczki jest publiczna także na produkcji i z wygasłą sesją", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    try {
+      expect(destination("/wtyczka/prywatnosc")).toBe("pass")
+      expect(destination("/wtyczka/prywatnosc", expiredAdmin)).toBe("pass")
+      expect(destination("/wtyczka/prywatnosc/panel")).toBe("/login")
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it.each([
     "/login",
     "/login/forgot-password",
@@ -166,17 +204,26 @@ describe("linki publiczne działają bez tokenu", () => {
     "/register",
     "/register/verify",
     "/403",
+    "/wtyczka/prywatnosc",
     "/apply/abc123",
     "/share/champion-card/abc123",
     "/sign/abc123",
+    "/protocol/abc123",
+    "/konsultant",
+    "/konsultant/wejscie",
+    "/konsultant/ocena",
+    "/wypis/abc123",
     "/cv/abc123",
     "/cv/i/abc123",
+    "/k/abc123",
+    "/preview/client-panel",
     "/engagement/abc123",
     "/preview/candidates",
     "/preview/candidate-profile",
     "/preview/contact-queue",
     "/preview/order-consultant-picker",
     "/preview/order-tile",
+    "/preview/client-orders",
     "/preview/contracts-consolidation",
     "/preview/procedure-help",
     "/preview/client-playbook",
@@ -184,22 +231,69 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/order-new-from-pdf",
     "/preview/finance-order-changes",
     "/preview/finance-order-pdfs",
+    "/preview/clients-list",
+    "/preview/client-profile-tabs",
+    "/preview/finance-results",
     "/preview/contract-candidate-contact",
     "/preview/cv-search",
     "/preview/jobs-list-v3",
     "/preview/jarvis",
     "/preview/recruitment-v3",
     "/preview/pipeline-v4",
+    "/preview/job-detail",
     "/preview/calendar-cycle",
     "/preview/cv-generator",
     "/preview/cv-qc",
+    "/preview/cv-editor",
+    "/preview/cv-to-client",
     "/preview/cpro-queue",
     "/preview/candidate-followup",
     "/preview/kariera",
     "/preview/career-share",
     "/preview/candidate-merge",
+    "/preview/add-candidates",
+    "/preview/job-ad",
+    "/preview/career-queue",
+    "/preview/kpi-topbar",
+    "/preview/kpi-who-counts",
+    "/preview/topbar-topics",
+    "/preview/hr-dashboard",
+    "/preview/hr-my-time",
+    "/preview/hr-calendar",
+    "/preview/hr-approvals",
+    "/preview/hr-person",
+    "/preview/hr-payroll",
+    "/preview/hr-offboarding",
+    "/preview/hr-onboarding",
+    "/preview/hr-care",
+    "/preview/hr-client-tech",
+    "/preview/hr-cases",
+    "/preview/hr-equipment",
+    "/preview/hr-equipment-issue",
+    "/preview/hr-structure",
+    "/preview/hr-team",
+    "/preview/hr-client-people",
+    "/preview/hr-client-structure",
+    "/preview/hr-announcements",
+    "/preview/hr-settlements",
+    "/preview/hr-consents",
+    "/preview/finance-approved-expenses",
+    "/preview/hr-documents",
+    "/preview/hr-agreements",
+    "/preview/hr-people",
+    "/preview/client-invoicing",
+    "/preview/sales",
     "/preview/job-portals",
     "/preview/request-allocation",
+    "/preview/job-team-panel",
+    "/preview/plain-brief",
+    "/preview/job-board-screening",
+    "/preview/screening-form",
+    "/preview/dl-review",
+    "/preview/permissions",
+    "/preview/ranking-panel",
+    "/preview/rejection-email",
+    "/preview/api-keys",
     "/kariera",
     "/kariera/r/senior-java-developer-7kq2",
     "/kariera/p/marta-n",
@@ -241,10 +335,12 @@ describe("linki publiczne działają bez tokenu", () => {
     // Picker konsultanta — harness renderuje prawdziwy komponent, ale z cache
     // react-query zasianym z góry, więc nie woła API (warunek wejścia tutaj).
     expect(destination("/preview/order-consultant-picker")).toBe("pass")
-    // Kafelek zamówienia — `ContractorOrderCards` nie ma ani jednego
-    // `useQuery` (tylko mutacje, odpalane kliknięciem), więc harness
-    // renderuje produkcyjny komponent bez jednego żądania.
+    // Kontraktor z zamówieniem — `ContractorOrderPanel` nie ma ani jednego
+    // `useQuery` przy wejściu (tylko mutacje, odpalane kliknięciem), więc
+    // harness renderuje produkcyjny komponent bez jednego żądania.
     expect(destination("/preview/order-tile")).toBe("pass")
+    // Cała zakładka „Zamówienia” klienta — zasiany cache, sieć odcięta.
+    expect(destination("/preview/client-orders")).toBe("pass")
     // Treść procedury z modułu Pomoc — sam `ProcedureContent` z mockiem,
     // bez sesji i bez API.
     expect(destination("/preview/procedure-help")).toBe("pass")
@@ -256,6 +352,33 @@ describe("linki publiczne działają bez tokenu", () => {
     // SidebarV2 (role-gating, liczniki) — czyli wewnętrzną strukturę aplikacji.
     expect(destination("/preview/shell")).toBe("/login")
     expect(destination("/preview/ds-kit")).toBe("/login")
+  })
+})
+
+describe("harnessy /preview/* na produkcji (runda 10, R10-N10-1)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it("build produkcyjny bez flagi wymaga logowania", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("NEXT_PUBLIC_PREVIEW_PUBLIC", "")
+    expect(destination("/preview/order-mail")).toBe("/login")
+    expect(destination("/preview/candidates")).toBe("/login")
+    expect(destination("/preview/contracts-consolidation")).toBe("/login")
+    // Zalogowany przechodzi — harness zostaje narzędziem zespołu.
+    expect(destination("/preview/order-mail", validRecruiter)).toBe("pass")
+    // Reszta publicznych linków bez zmian.
+    expect(destination("/share/champion-card/abc123")).toBe("pass")
+    expect(destination("/login")).toBe("pass")
+  })
+
+  it("flaga builda stacku E2E otwiera harnessy bez sesji", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("NEXT_PUBLIC_PREVIEW_PUBLIC", "1")
+    expect(destination("/preview/order-mail")).toBe("pass")
+    // Flaga nie otwiera harnessów spoza jawnej listy.
+    expect(destination("/preview/shell")).toBe("/login")
   })
 })
 
@@ -318,6 +441,21 @@ describe("zawężenia ról nadal obowiązują", () => {
     expect(destination("/settings/scoring", readOnlyDeliveryLead)).toBe(
       "pass",
     )
+
+    const headOfRecruitment = makeToken({
+      role: "head_of_recruitment",
+      roles: ["head_of_recruitment"],
+      exp: now() + HOUR,
+      sa: {
+        sourcing: "write",
+        pipeline: "write",
+        delivery: "read",
+        insights: "write",
+        finance: "none",
+        system_admin: "none",
+      },
+    })
+    expect(destination("/settings/scoring", headOfRecruitment)).toBe("pass")
 
     const readOnlyFinance = makeToken({
       role: "finance",
@@ -408,9 +546,7 @@ describe("zawężenia ról nadal obowiązują", () => {
   })
 
   it.each([
-    ["sourcer", validSourcer],
     ["recruiter", validRecruiter],
-    ["tac", validTac],
     ["head_of_recruitment", validHeadOfRecruitment],
   ])("%s ma Sourcing, Pipeline i Insights, ale nie Delivery ani Finanse", (_role, token) => {
     for (const route of [
@@ -499,14 +635,13 @@ describe("zawężenia ról nadal obowiązują", () => {
   it("Generator B2B pozostaje w Sourcing mimo prefiksu /contracts", () => {
     for (const token of [
       validRecruiter,
-      validSourcer,
-      validTac,
       validHeadOfRecruitment,
       validTalentCommunityManager,
-      validViewer,
     ]) {
       expect(destination("/contracts/b2b-generator", token)).toBe("pass")
     }
+    // 0637: wycofywany Viewer nie ma już sekcji Sourcing.
+    expect(destination("/contracts/b2b-generator", validViewer)).toBe("/403")
   })
 
   it("kolejka kontaktu wpuszcza tylko role wykonujące telefony", () => {
@@ -522,7 +657,6 @@ describe("zawężenia ról nadal obowiązują", () => {
     expect(destination("/applications", validHeadOfRecruitment)).toBe("pass")
     expect(destination("/applications", validViewer)).toBe("/403")
     expect(destination("/applications", validRecruiter)).toBe("pass")
-    expect(destination("/applications", validTac)).toBe("pass")
     expect(destination("/applications", validAdmin)).toBe("pass")
     // Hybryda HoR + rekruter rozpatruje zgłoszenia jako rekruter.
     expect(destination("/applications", validHybridHeadOfRecruitment)).toBe("pass")
@@ -559,6 +693,7 @@ describe("zawężenia ról nadal obowiązują", () => {
       "/candidates/contact-queue",
       "/settings/ai",
       "/settings/api-integration",
+      "/settings/api-keys",
       "/settings/diagnostics",
       "/settings/dictionaries",
       "/settings/entity-fields",
@@ -574,6 +709,7 @@ describe("zawężenia ról nadal obowiązują", () => {
     const technicalRoutes = [
       "/settings/ai",
       "/settings/api-integration",
+      "/settings/api-keys",
       "/settings/diagnostics",
       "/settings/dictionaries",
       "/settings/entity-fields",
@@ -584,9 +720,7 @@ describe("zawężenia ról nadal obowiązują", () => {
         validHeadOfRecruitment,
         validDeliveryLead,
         validTalentCommunityManager,
-        validTac,
         validRecruiter,
-        validSourcer,
         validFinance,
         validViewer,
       ]) {
@@ -604,6 +738,71 @@ describe("zawężenia ról nadal obowiązują", () => {
     }
   })
 
+  describe("/settings/cv-rules — zapis w Delivery zamiast listy ról (0410)", () => {
+    const withSections = (
+      role: string,
+      delivery: "none" | "read" | "write",
+    ) =>
+      makeToken({
+        role,
+        roles: [role],
+        exp: now() + HOUR,
+        sa: {
+          sourcing: "write",
+          pipeline: "write",
+          delivery,
+          insights: "read",
+          finance: "none",
+          system_admin: "none",
+        },
+      });
+
+    it("wpuszcza każdego z zapisem Delivery — także rolę spoza admin/DL", () => {
+      // Rekruter z nadanym „Klienci: dodawanie i edycja” ma w tokenie Delivery
+      // „write”; do 0410 `enforceRoles` odsyłał go na /403 mimo uprawnienia.
+      expect(destination("/settings/cv-rules", withSections("recruiter", "write"))).toBe(
+        "pass",
+      );
+      expect(
+        destination("/settings/cv-rules?client=7&tab=playbook", withSections("recruiter", "write")),
+      ).toBe("pass");
+      expect(
+        destination("/settings/cv-rules", withSections("delivery_lead", "write")),
+      ).toBe("pass");
+    });
+
+    it("sam odczyt Delivery albo jego brak nie wystarcza", () => {
+      expect(destination("/settings/cv-rules", withSections("recruiter", "read"))).toBe(
+        "/403",
+      );
+      expect(destination("/settings/cv-rules", withSections("recruiter", "none"))).toBe(
+        "/403",
+      );
+      // Delivery Lead, któremu administrator zostawił sam podgląd.
+      expect(
+        destination("/settings/cv-rules", withSections("delivery_lead", "read")),
+      ).toBe("/403");
+    });
+
+    it("token bez sekcji: role z domyślnym zapisem Delivery", () => {
+      for (const token of [
+        validAdmin,
+        validDeliveryLead,
+        validFinance,
+        validTalentCommunityManager,
+      ]) {
+        expect(destination("/settings/cv-rules", token)).toBe("pass");
+      }
+      for (const token of [
+        validRecruiter,
+        validHeadOfRecruitment,
+        validViewer,
+      ]) {
+        expect(destination("/settings/cv-rules", token)).toBe("/403");
+      }
+    });
+  });
+
   it("Head of Recruitment zarządza strukturą także jako rola dodatkowa", () => {
     expect(
       destination("/settings/team-structure", validHeadOfRecruitment),
@@ -614,6 +813,69 @@ describe("zawężenia ról nadal obowiązują", () => {
     expect(destination("/settings/team-structure", validRecruiter)).toBe(
       "/403",
     )
+  })
+})
+
+describe("token sprzed połączenia ról (02.10.2026) — `tac` i `sourcer` liczą się jak `recruiter`", () => {
+  it.each([
+    ["tac", legacyTac],
+    ["sourcer", legacySourcer],
+  ])("stary token %s wchodzi tam, gdzie rekruter — bez /403", (_role, token) => {
+    // Trasa z listą ról (bez sekcji w tokenie decyduje wyłącznie lista).
+    expect(destination("/candidates/contact-queue", token)).toBe("pass")
+    // Trasy sekcji Sourcing i Pipeline.
+    for (const route of ["/candidates", "/jobs", "/calendar", "/applications"]) {
+      expect(destination(route, token), route).toBe("pass")
+    }
+  })
+
+  it("stary token nie dostaje więcej niż rekruter", () => {
+    for (const token of [legacyTac, legacySourcer]) {
+      expect(destination("/clients", token)).toBe("/403")
+      expect(destination("/finance", token)).toBe("/403")
+      expect(destination("/settings/cv-rules", token)).toBe("/403")
+    }
+  })
+
+  it("rola dodatkowa `tac` w claimie `roles` też jest zamieniana", () => {
+    const hybrid = makeToken({
+      role: "user",
+      roles: ["user", "tac"],
+      exp: now() + HOUR,
+    })
+    expect(destination("/candidates/contact-queue", hybrid)).toBe("pass")
+  })
+})
+
+describe("„Automatyzacje” (0446) — podgląd bez zapisu", () => {
+  const automation = makeToken({
+    role: "automation",
+    roles: ["automation"],
+    exp: now() + HOUR,
+  })
+
+  it.each([
+    "/jobs",
+    "/candidates",
+    "/talent-radar",
+    "/clients",
+    "/contracts",
+    "/insights",
+    "/calendar",
+  ])("%s jest otwarte (odczyt)", (route) => {
+    expect(destination(route, automation)).toBe("pass")
+  })
+
+  it.each([
+    "/finance",
+    "/applications",
+    "/academy",
+    "/candidates/contact-queue",
+    "/settings/api-keys",
+    "/settings/cv-rules",
+    "/trainees",
+  ])("%s daje /403", (route) => {
+    expect(destination(route, automation)).toBe("/403")
   })
 })
 
@@ -646,7 +908,7 @@ describe("praktykant (0374) — jeden ekran", () => {
   })
 
   it("panel i reguły są zamknięte dla pozostałych ról", () => {
-    for (const token of [validRecruiter, validSourcer, validDeliveryLead, validFinance, validViewer]) {
+    for (const token of [validRecruiter, validDeliveryLead, validFinance, validViewer]) {
       expect(destination("/trainees", token)).toBe("/403")
       expect(destination("/settings/trainee-rules", token)).toBe("/403")
     }
@@ -778,15 +1040,107 @@ describe("host kariery — routing po domenie", () => {
     expect(destination("/dashboard")).toBe("/login")
     expect(destination("/candidates")).toBe("/login")
     expect(destination("/dashboard", validAdmin)).toBe("pass")
-    expect(destination("/kariera/r/senior-java-developer-7kq2")).toBe("pass")
+    // Grafiki OG i 404 kariery zostają na hoście aplikacji.
+    expect(destination("/kariera/r/senior-java-developer-7kq2/opengraph-image")).toBe("pass")
+    expect(destination("/kariera/nie-znaleziono")).toBe("pass")
     // Na hoście aplikacji `/r/<slug>` NIE jest przepisywane — to nie jego domena.
     expect(destination("/r/senior-java-developer-7kq2")).toBe("/login")
     // Prefiks `/kariera` bez ukośnika nie otwiera tras o podobnej nazwie.
     expect(destination("/kariera-cokolwiek")).toBe("/login")
   })
 
+  it.each([
+    ["/kariera/r/senior-java-developer-7kq2", "/r/senior-java-developer-7kq2"],
+    ["/kariera/p/marta-n", "/marta-n"],
+    ["/kariera/rodo", "/rodo"],
+    ["/kariera", "/"],
+  ])("stary adres %s na hoście aplikacji → domena kariery %s (307, z UTM)", (path, visible) => {
+    const res = middleware(
+      new NextRequest(new URL(`${path}?utm_source=linkedin`, "https://nexus.b2bnetwork.pl")),
+    )
+    expect(res.status).toBe(307)
+    expect(res.headers.get("location")).toBe(`https://${CAREER}${visible}?utm_source=linkedin`)
+  })
+
   it("bez NEXT_PUBLIC_CAREER_HOST routing po domenie jest wyłączony", () => {
     vi.stubEnv("NEXT_PUBLIC_CAREER_HOST", "")
     expect(careerOutcome("/dashboard")).toBe("redirect:/login")
+    // …i stare adresy `/kariera/*` zostają na hoście aplikacji.
+    expect(destination("/kariera/r/senior-java-developer-7kq2")).toBe("pass")
+  })
+})
+
+describe("„Pracownik” (Ludzie w NEXUSIE)", () => {
+  it.each(["/", "/dashboard"])("%s prowadzi do „Mój czas”", (path) => {
+    const res = middleware(request(path, validEmployee))
+    expect(new URL(res.headers.get("location") ?? "").pathname).toBe("/my-time")
+  })
+
+  it("„Mój czas” otwiera się bez przekierowania", () => {
+    const res = middleware(request("/my-time", validEmployee))
+    expect(res.headers.get("location")).toBeNull()
+  })
+})
+
+describe("„Rada nadzorcza” (0490)", () => {
+  it.each([
+    "/",
+    "/dashboard",
+    "/jobs",
+    "/candidates/12",
+    "/clients",
+    "/contracts",
+    "/finance",
+    "/my-time",
+    "/people",
+    "/settings/api-keys",
+  ])("%s prowadzi do kokpitu Firma", (path) => {
+    const res = middleware(request(path, validBoard))
+    const location = new URL(res.headers.get("location") ?? "")
+    expect(location.pathname).toBe("/insights")
+    expect(location.searchParams.get("tab")).toBe("firma")
+  })
+
+  it.each(["/insights", "/profile", "/settings", "/help"])(
+    "%s otwiera się bez przekierowania",
+    (path) => {
+      const res = middleware(request(path, validBoard))
+      expect(res.headers.get("location")).toBeNull()
+    },
+  )
+
+  // Decyzja Artura 23.10.2026: Rada otwiera samą listę umów przedwstępnych —
+  // panel osoby i reszta rekrutacji zostają zamknięte.
+  it("lista „Umowy przedwstępne” otwiera się bez przekierowania", () => {
+    expect(destination("/jobs/umowy-przedwstepne", validBoard)).toBe("pass")
+  })
+
+  it.each(["/jobs/12", "/jobs/umowy-przedwstepne/12", "/jobs/strona-kariery"])(
+    "%s nadal prowadzi do kokpitu Firma",
+    (path) => {
+      expect(destination(path, validBoard)).toBe("/insights")
+    },
+  )
+})
+
+describe("lista „Umowy przedwstępne” — role z bramki API", () => {
+  const automation = makeToken({
+    role: "automation",
+    roles: ["automation"],
+    sa: { pipeline: "read" },
+    exp: now() + HOUR,
+  })
+
+  it.each([
+    ["Finanse", validFinance],
+    ["Automatyzacje", automation],
+    ["rekruter", validRecruiter],
+    ["Head of Recruitment", validHeadOfRecruitment],
+  ])("%s wchodzi", (_label, token) => {
+    expect(destination("/jobs/umowy-przedwstepne", token)).toBe("pass")
+  })
+
+  it("Viewer dostaje /403 — API przedwstępnych mu odmawia", () => {
+    expect(destination("/jobs/umowy-przedwstepne", validViewer)).toBe("/403")
   })
 })

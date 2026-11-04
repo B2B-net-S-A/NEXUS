@@ -104,7 +104,7 @@ async def test_assignment_requires_a_request_handed_off_to_search() -> None:
 
 
 async def test_assignee_must_hold_an_operational_role() -> None:
-    """Nie da się przypisać rekrutacji komuś spoza recruiter/sourcer/TAC."""
+    """Nie da się przypisać rekrutacji komuś, kto nie jest rekruterem."""
     dl = _FakeUser(5, UserRole.delivery_lead)
     job = SimpleNamespace(
         id=7, delivery_lead_id=5, status=JobStatus.published, is_open=True
@@ -119,22 +119,32 @@ async def test_assignee_must_hold_an_operational_role() -> None:
     assert "rekruterowi" in err.value.detail
 
 
-async def test_channel_must_match_the_assignees_role() -> None:
-    """Sourcer pracuje na bazie; przypisanie mu LinkedIna jest błędem DL-a."""
+@pytest.mark.parametrize("channel", ["database", "linkedin", "mixed"])
+async def test_recruiter_can_be_assigned_on_every_channel(monkeypatch, channel) -> None:
+    """Od 0411 jedna rola „Rekruter” pracuje każdym kanałem.
+
+    Do 0411 sourcer pracował na bazie, rekruter na LinkedInie i bramka kanału
+    odmawiała 422 („Kanał … jest poza rolą tej osoby”).
+    """
     dl = _FakeUser(5, UserRole.delivery_lead)
     job = SimpleNamespace(
         id=7, delivery_lead_id=5, status=JobStatus.published, is_open=True
     )
-    sourcer = _FakeUser(42, UserRole.sourcer)
-    db = SimpleNamespace(scalar=AsyncMock(side_effect=[job, sourcer]))
+    recruiter = _FakeUser(42, UserRole.recruiter)
+    expected = priority_work.PriorityChannel(channel)
+    assignment = SimpleNamespace(id=12, position=1, rank=None, channel=expected)
+    command = AsyncMock(return_value=assignment)
+    monkeypatch.setattr(priority_work, "assign_operator", command)
+    db = SimpleNamespace(
+        scalar=AsyncMock(side_effect=[job, recruiter]), commit=AsyncMock()
+    )
 
-    with pytest.raises(HTTPException) as err:
-        await priority_work.create_priority_assignment(
-            _payload(channel="linkedin"), dl, db
-        )
+    result = await priority_work.create_priority_assignment(
+        _payload(channel=channel), dl, db
+    )
 
-    assert err.value.status_code == 422
-    assert "kanał" in err.value.detail.lower()
+    assert result["channel"] == channel
+    assert command.await_args.kwargs["channel"] is expected
 
 
 async def test_rank_is_optional_and_advisory() -> None:

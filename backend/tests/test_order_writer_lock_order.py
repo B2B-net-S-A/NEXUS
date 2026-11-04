@@ -65,6 +65,14 @@ EXEMPT: dict[tuple[str, str], str] = {
         "_renewal_of_completed_order",
     ): "FOR SHARE w pętli _write_document, po blokadzie całego dokumentu",
     (
+        "services/order_mail_apply.py",
+        "_settle_overlap",
+    ): (
+        "FOR UPDATE nachodzącego zamówienia w pętli _write_document — jego id "
+        "(target_order_id planu) jest już zablokowane przez "
+        "lock_contract_then_orders razem z kontraktami dokumentu"
+    ),
+    (
         "services/client_order_lines.py",
         "_rebalance_swap_successor",
     ): (
@@ -333,6 +341,15 @@ MASS_UPDATE_EXEMPT: dict[tuple[str, str], str] = {
         "services/contract_client_reassign.py",
         "execute_reassign",
     ): "lock_contract + lock_orders (helper kontrakt → zamówienia) przed zapisem",
+    (
+        "services/order_line_takeover.py",
+        "cancel_scheduled_takeovers_for_contract",
+    ): (
+        "warunkowy UPDATE szkicu zastępstwa INNEGO kontraktu (status = draft) "
+        "po blokadzie kontraktu odchodzącego u wołającego — blokada kontraktu "
+        "zastępcy po nim łamałaby kolejność rosnącą (ABBA z nocną aktywacją "
+        "zastępstw), a sam wiersz zamówienia nie jest wtedy przez nią trzymany"
+    ),
 }
 
 # Writery, które zmieniają pola zamówienia BEZ ``FOR UPDATE`` (więc strażnik
@@ -340,7 +357,8 @@ MASS_UPDATE_EXEMPT: dict[tuple[str, str], str] = {
 # pisały do zamówień przed blokadą kontraktu, którą bierze potem
 # ``commit_order_write``/``resync_contract``.
 FIELD_WRITERS: tuple[tuple[str, str], ...] = (
-    ("api/client_orders.py", "replace_order_po"),
+    # Ciało `PUT …/file` (wspólne z API v1, PR 2B).
+    ("api/client_orders.py", "apply_order_file"),
     ("api/client_orders.py", "delete_order_po"),
     ("services/contract_order_sync.py", "run_daily_order_cost_sync"),
     ("tasks/dl_portal_expiry_scanner.py", "_promote_statuses"),

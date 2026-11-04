@@ -9,6 +9,7 @@ import { cache } from "react";
 
 import {
   serverApiBase,
+  type CareerBoardResponse,
   type CareerJobResponse,
   type CareerRecruiterResponse,
   type FetchResult,
@@ -54,4 +55,10 @@ export const fetchCareerRecruiter = cache(
       `/api/public/career/p/${encodeURIComponent(slug)}`,
       countVisit ? {} : NO_VISIT,
     ),
+);
+
+/** Tablica otwartych rekrutacji (strona główna). Nie dotyka liczników wejść. */
+export const fetchCareerBoard = cache(
+  (): Promise<FetchResult<CareerBoardResponse>> =>
+    getJson<CareerBoardResponse>("/api/public/career/jobs"),
 );

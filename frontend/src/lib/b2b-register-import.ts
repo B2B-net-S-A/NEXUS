@@ -26,6 +26,9 @@ export const REGISTER_IMPORT_COUNTER_LABELS: readonly {
   { key: "clients_unknown_rows", label: "Wiersze z nieznanym klientem" },
   { key: "annex_matched", label: "„Bez działalności” dopasowane" },
   { key: "annex_unmatched", label: "„Bez działalności” bez dopasowania" },
+  { key: "generator_annex_flagged", label: "Aneks do zrobienia (umowy z NEXUSA)" },
+  { key: "annex_cleared", label: "Zdjęte z „Bez działalności”" },
+  { key: "signing_dates_unparsed", label: "Nieczytelne daty podpisania" },
 ];
 
 const MODE_LABELS: Record<B2BRegisterImportMode, string> = {
@@ -42,6 +45,7 @@ const REASON_LABELS: Record<string, string> = {
   duplicate_in_file: "ten sam numer w kilku wierszach pliku",
   deleted_in_nexus: "numer był wydany i usunięty w NEXUSIE",
   number_taken: "numer zajęty w NEXUSIE przez inną umowę",
+  number_out_of_range: "numer poza zakresem (literówka?) — zapisany bez numeru kanonicznego",
   legend: "legenda pod tabelą",
   no_name_no_number: "brak nazwiska i numeru",
   no_name: "brak nazwiska",

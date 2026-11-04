@@ -17,10 +17,8 @@ ALLOWED_ROLES = ["admin", "finance"]
 DENIED_ROLES = [
     "delivery_lead",
     "talent_community_manager",
-    "tac",
     "head_of_recruitment",
     "recruiter",
-    "sourcer",
     "user",
 ]
 
@@ -66,8 +64,8 @@ async def test_finance_roles_pass(app_client: AsyncClient, role_value: str):
 
 
 async def test_non_finance_cannot_create_or_mutate(app_client: AsyncClient):
-    """Ani TAC, ani Delivery Lead nie mogą mutować kwot faktur."""
-    for role in ("tac", "delivery_lead"):
+    """Ani rekruter, ani Delivery Lead nie mogą mutować kwot faktur."""
+    for role in ("recruiter", "delivery_lead"):
         headers = await _headers_for(app_client, role)
         response = await app_client.post(
             INVOICES_URL,

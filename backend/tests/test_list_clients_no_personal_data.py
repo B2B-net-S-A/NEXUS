@@ -1,0 +1,144 @@
+"""``scripts.list_clients`` i jego wywołanie z CI nie wypisują danych osób
+(runda 6 audytu, W2).
+
+Wyjście skryptu trafia do logu GitHub Actions (``coolify-ops.yml`` →
+``client-lookup``), a repo jest PUBLICZNE — log widzi każdy. Do 26.09.2026
+``--with-links`` drukował nazwisko konsultanta przy kontrakcie, nazwę Partnera
+umowy B2B i tytuł zamówienia (tytuł niesie zwykle imię i nazwisko), a krok
+sprzątający przy porażce wypisywał surowe wykonania do 1500 znaków.
+Zostają identyfikatory, statusy i liczby — to wystarcza, żeby wskazać wiersz
+do poprawki.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import yaml
+
+from scripts import list_clients
+
+_WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/coolify-ops.yml"
+
+
+class _Rows:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return self._rows
+
+
+class _FakeSession:
+    """Zwraca po jednym wierszu na zapytanie, z wartością „SECRET_<kolumna>”."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def execute(self, stmt):
+        row = []
+        for column in stmt.selected_columns:
+            name = getattr(column, "key", None) or getattr(column, "name", "col")
+            if name in {
+                "id",
+                "client_id",
+                "contract_id",
+                "job_id",
+                "order_group_id",
+                "candidate_id",
+            }:
+                row.append(7)
+            else:
+                row.append(f"SECRET_{name}")
+        return _Rows([tuple(row)])
+
+
+async def test_with_links_prints_ids_not_people(monkeypatch, capsys):
+    monkeypatch.setattr(list_clients, "AsyncSessionLocal", _FakeSession)
+
+    await list_clients.print_links([7])
+
+    out = capsys.readouterr().out
+    for leaked in (
+        "SECRET_lastname",
+        "SECRET_name",
+        "SECRET_partner_name",
+        "SECRET_title",
+        # Runda 7 (R7-X2-7): nazwa Klienta z umowy bywa imieniem i nazwiskiem JDG.
+        "SECRET_client_name",
+    ):
+        assert leaked not in out, f"{leaked} w wyjściu:\n{out}"
+    # identyfikatory i liczby zostają — po nich wskazuje się wiersz do poprawki
+    assert "contract=7" in out
+    assert "b2b=7" in out
+    assert "order=7" in out
+
+
+async def test_client_rows_print_only_the_nip_tail(monkeypatch, capsys):
+    """R7-X2-7: klient bywa JDG — pełny NIP to dana osobowa w publicznym logu."""
+
+    async def _rows(_like, _limit):
+        return [(7, "Firma", None, "526-104-08-28")]
+
+    monkeypatch.setattr(list_clients, "find_clients", _rows)
+    monkeypatch.setattr("sys.argv", ["list_clients", "--like", "Firma"])
+
+    await list_clients.main()
+
+    out = capsys.readouterr().out
+    assert "5261040828" not in out and "526-104-08-28" not in out
+    assert "nip=…0828" in out
+
+
+def _cleanup_run(job: str) -> str:
+    workflow = yaml.safe_load(_WORKFLOW.read_text(encoding="utf-8"))
+    steps = workflow["jobs"][job]["steps"]
+    step = next(s for s in steps if s.get("name") == "Skasuj zadanie jednorazowe")
+    return step["run"]
+
+
+def test_failed_lookup_cleanup_does_not_dump_raw_executions():
+    for job in ("lookup", "receipts"):
+        run = _cleanup_run(job)
+        assert "[0:1500]" not in run, (
+            f"{job}: surowe wykonanie (do 1500 znaków) w publicznym logu Actions"
+        )
+        assert '(.message // "") | .[0:' not in run, job
+
+
+def test_nip_is_printed_only_as_its_last_digits():
+    """Runda 7 (R7-X2-7): przy kliencie-JDG NIP jest daną osobową."""
+    assert list_clients._nip_tail("123-456-78-90") == "…7890"
+    assert list_clients._nip_tail("") == ""
+    ref = list_clients._name_ref("Jan  Nowak")
+    assert "Nowak" not in ref and ref == list_clients._name_ref("jan nowak")
+
+
+async def test_client_rows_shorten_names_without_legal_form(monkeypatch, capsys):
+    """R8-V3-8: klient-JDG to imię i nazwisko — do publicznego logu idzie
+    pierwszy wyraz, inicjały i skrót; nazwa spółki z formą prawną zostaje."""
+
+    async def _rows(_like, _limit):
+        return [
+            (7, "Jan Kowalski Consulting", "Jan Kowalski", "1"),
+            (8, "BNP Paribas Bank Polska S.A.", "BNP Paribas", "2"),
+            (9, "CARDIF - ASSURANCES VIE SA Oddział w Polsce", None, "3"),
+        ]
+
+    monkeypatch.setattr(list_clients, "find_clients", _rows)
+    monkeypatch.setattr("sys.argv", ["list_clients", "--like", "x"])
+
+    await list_clients.main()
+
+    out = capsys.readouterr().out
+    assert "Kowalski" not in out
+    assert "Jan K. C." in out
+    assert "BNP Paribas Bank Polska S.A." in out
+    assert "CARDIF - ASSURANCES VIE SA Oddział w Polsce" in out
+    # ten sam skrót dla tej samej nazwy — dwa rekordy JDG da się porównać
+    assert list_clients._client_label("Anna Nowak").endswith(
+        f"[{list_clients._name_ref('anna  nowak')}]"
+    )

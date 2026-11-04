@@ -12,6 +12,7 @@ import { api, type HiddenCounters, type MatchEligibility } from "@/lib/api";
 // Sufit czasu dla endpointów LLM/scoringowych — jedna stała dla całej
 // aplikacji, nie kopia w każdym kliencie (kopie rozjeżdżają się cicho).
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 
 /** Warstwa punktowa scoringu — jedna z sześciu składowych wyniku. */
 export interface TalentRadarLayer {
@@ -72,6 +73,8 @@ export interface TalentRadarResult {
    * obecne zatrudnienie, weto HM). Konflikt = ostrzeżenie, nie blokada.
    */
   eligibility?: MatchEligibility | null;
+  /** Znacznik „Pracuje u nas”; `elsewhere` względem klienta wyszukiwania. */
+  employment_marker?: EmploymentMarker | null;
   /** `null` tylko wtedy, gdy wiersz zniknął między rankingiem a odpowiedzią. */
   candidate: TalentRadarCandidate | null;
 }

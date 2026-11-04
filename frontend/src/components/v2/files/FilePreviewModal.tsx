@@ -12,6 +12,7 @@
  * backendu), więc bez problemów CORS z bucketem Hetzner Object Storage.
  */
 
+import { useRecruiterOnly } from "@/lib/cv-download-access";
 import {
   useEffect,
   useMemo,
@@ -43,15 +44,29 @@ import {
   highlightDocumentMatches,
 } from "@/lib/document-text-search";
 import { useDocumentFindShortcut } from "@/lib/use-document-find-shortcut";
+import { observeDocxFit } from "@/lib/docx-fit";
 import { renderDocxSafely } from "@/lib/docx-preview-safe";
 import {
   DocumentSearchBar,
+  DocumentSearchTerms,
   EMPTY_FIND_RESULT,
   keepDialogOpenOnDocumentSearchEscape,
   type DocumentFindResult,
   type DocumentTextAvailability,
 } from "./DocumentSearchBar";
+import { preloadPdfJs } from "@/lib/pdfjs-loader";
 import { SearchablePdfPreview, useDebouncedValue } from "./SearchablePdfPreview";
+
+/**
+ * „Szukaj w CV” zlecone z zewnątrz. `text` trafia do pola; `terms` (słowa
+ * wymagania z serwera, 16.10.2026) są tym, czego lupa szuka, dopóki pole
+ * pokazuje `text`. Bez `terms` lupa szuka frazy `text` (cytat z edytora CV).
+ */
+export interface DocumentSearchRequest {
+  text: string;
+  nonce: number;
+  terms?: readonly string[];
+}
 
 export interface CandidateDocument {
   id: number;
@@ -63,6 +78,11 @@ export interface CandidateDocument {
   uploaded_at: string | null;
   external_source: string | null;
   created_at: string;
+  /** 0400: kto wgrał plik (puste dla importów i starszych plików). */
+  uploaded_by_name?: string | null;
+  /** 0400: plakietka „nieaktualne” — plik zostaje w teczce. */
+  outdated_at?: string | null;
+  outdated_by_name?: string | null;
 }
 
 export function formatFileSize(bytes: number | null): string {
@@ -75,28 +95,6 @@ export function formatFileSize(bytes: number | null): string {
 export function fileIcon(_contentType: string | null): ReactNode {
   // Visual hint by mime type.
   return <FileText className="h-4 w-4 text-muted-foreground" />;
-}
-
-/** Skaluje strony `docx-preview` (`section.docx`) do szerokości hosta, gdy są
- *  od niego szersze — na telefonie CV w DOCX czytało się tylko przewijając w bok.
- *  Na wąskim ekranie zmniejsza też szary margines wokół stron. */
-function fitDocxSectionsToWidth(host: HTMLElement): void {
-  const wrapper = host.querySelector<HTMLElement>(".docx-wrapper");
-  const sections = host.querySelectorAll<HTMLElement>("section.docx");
-  if (!wrapper || sections.length === 0) return;
-  wrapper.style.padding = host.clientWidth < 640 ? "8px" : "";
-  const wrapperStyle = window.getComputedStyle(wrapper);
-  const available =
-    wrapper.clientWidth -
-    (parseFloat(wrapperStyle.paddingLeft) || 0) -
-    (parseFloat(wrapperStyle.paddingRight) || 0);
-  sections.forEach((section) => {
-    section.style.removeProperty("zoom");
-    const natural = section.offsetWidth;
-    if (available > 0 && natural > available) {
-      section.style.setProperty("zoom", String(available / natural));
-    }
-  });
 }
 
 export type PreviewKind = "pdf" | "docx" | "image" | "unsupported";
@@ -205,6 +203,8 @@ export function FilePreviewContent({
   hidePdfSidebar: _hidePdfSidebar = false,
   findShortcutScope = "container",
   loadDocumentBlob = fetchDocumentBlob,
+  searchRequest = null,
+  pdfFit,
 }: {
   doc: CandidateDocument | null;
   candidateId: number;
@@ -218,7 +218,15 @@ export function FilePreviewContent({
   // Źródło bajtów — domyślnie proxy backendu. Harness `/preview/cv-search`
   // podaje pliki statyczne, bo nie może wołać API.
   loadDocumentBlob?: typeof fetchDocumentBlob;
+  // Szukanie zlecone z zewnątrz (0424: chip wymagania obok formularza
+  // screeningu wpisuje technologię w „Szukaj w CV”). `nonce` pozwala
+  // powtórzyć to samo słowo po ręcznej zmianie pola.
+  searchRequest?: DocumentSearchRequest | null;
+  // Duża strefa podglądu w panelu osoby podaje `"auto"`: strona PDF rośnie
+  // najwyżej do 125%, zamiast wypełniać 1400 px szerokości.
+  pdfFit?: "page-width" | "auto";
 }) {
+  const recruiterOnly = useRecruiterOnly();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const docxHostRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -235,6 +243,26 @@ export function FilePreviewContent({
   const [findResult, setFindResult] =
     useState<DocumentFindResult>(EMPTY_FIND_RESULT);
   const [docxActiveIndex, setDocxActiveIndex] = useState(0);
+
+  const [requestTerms, setRequestTerms] = useState<{
+    text: string;
+    terms: readonly string[];
+  } | null>(null);
+
+  useEffect(() => {
+    if (!searchRequest) return;
+    setQuery(searchRequest.text);
+    setRequestTerms(
+      searchRequest.terms?.length
+        ? { text: searchRequest.text, terms: searchRequest.terms }
+        : null,
+    );
+  }, [searchRequest]);
+
+  // Słowa wymagania obowiązują, dopóki pole pokazuje jego nazwę — ręczna
+  // zmiana pola wraca do zwykłej frazy.
+  const terms =
+    requestTerms && query === requestTerms.text ? requestTerms.terms : null;
 
   const kind = doc ? previewKind(doc) : "unsupported";
   // PDF ma własny pasek w `SearchablePdfPreview`; tu pasek dla DOCX i obrazu
@@ -267,6 +295,7 @@ export function FilePreviewContent({
       setStatus("ready");
       return;
     }
+    if (kind === "pdf") preloadPdfJs();
 
     (async () => {
       // Stream contentu z proxy backendu (→ Hetzner Object Storage) bywa
@@ -354,11 +383,7 @@ export function FilePreviewContent({
     if (kind !== "docx" || status !== "ready") return;
     const host = docxHostRef.current;
     if (!host) return;
-    fitDocxSectionsToWidth(host);
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => fitDocxSectionsToWidth(host));
-    observer.observe(host);
-    return () => observer.disconnect();
+    return observeDocxFit(host);
   }, [kind, status, docxBlob]);
 
   // DOCX: podświetlenie po wyrenderowaniu i przy każdej zmianie zapytania.
@@ -366,11 +391,11 @@ export function FilePreviewContent({
     if (kind !== "docx" || status !== "ready") return;
     const host = docxHostRef.current;
     if (!host) return;
-    const total = highlightDocumentMatches(host, debouncedQuery);
+    const total = highlightDocumentMatches(host, terms ?? debouncedQuery);
     setDocxActiveIndex(0);
     if (total > 0) activateDocumentMatch(host, 0);
     setFindResult({ current: total > 0 ? 1 : 0, total, pending: false });
-  }, [kind, status, debouncedQuery, docxBlob]);
+  }, [kind, status, debouncedQuery, docxBlob, terms]);
 
   const stepMatch = (previous: boolean) => {
     const host = docxHostRef.current;
@@ -384,29 +409,35 @@ export function FilePreviewContent({
 
   if (!doc) return null;
 
+  const shownFindResult =
+    query === debouncedQuery ? findResult : { ...findResult, pending: true };
+
   return (
     <div
       ref={rootRef}
       className={cn("relative flex flex-col overflow-hidden bg-muted/40", className)}
     >
       {hasDomSearchBar && status !== "error" ? (
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-card px-3 py-1.5">
-          <DocumentSearchBar
-            query={query}
-            onQueryChange={setQuery}
+        <>
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-card px-3 py-1.5">
+            <DocumentSearchBar
+              query={query}
+              onQueryChange={setQuery}
+              availability={availability}
+              result={shownFindResult}
+              onNext={() => stepMatch(false)}
+              onPrevious={() => stepMatch(true)}
+              inputRef={searchInputRef}
+              placeholder={searchPlaceholder}
+              className="min-w-0 flex-1"
+            />
+          </div>
+          <DocumentSearchTerms
+            terms={terms}
             availability={availability}
-            result={
-              query === debouncedQuery
-                ? findResult
-                : { ...findResult, pending: true }
-            }
-            onNext={() => stepMatch(false)}
-            onPrevious={() => stepMatch(true)}
-            inputRef={searchInputRef}
-            placeholder={searchPlaceholder}
-            className="min-w-0 flex-1"
+            result={shownFindResult}
           />
-        </div>
+        </>
       ) : null}
 
       <div className="relative min-h-0 flex-1 overflow-auto">
@@ -425,6 +456,7 @@ export function FilePreviewContent({
             <p className="text-sm text-muted-foreground">
               Nie udało się wyświetlić podglądu tego pliku.
             </p>
+            {recruiterOnly ? null : (
             <button
               type="button"
               onClick={() => onDownload(doc)}
@@ -433,6 +465,7 @@ export function FilePreviewContent({
               <Download className="h-4 w-4" />
               Pobierz plik
             </button>
+            )}
           </div>
         )}
 
@@ -445,6 +478,8 @@ export function FilePreviewContent({
             placeholder={searchPlaceholder}
             query={query}
             onQueryChange={setQuery}
+            terms={terms}
+            fit={pdfFit}
           />
         )}
 
@@ -499,6 +534,9 @@ export function FilePreviewModal({
   onClose,
   onDownload,
   loadDocumentBlob,
+  candidateName,
+  headerActions,
+  onCloseAutoFocus,
 }: {
   doc?: CandidateDocument | null;
   documents?: CandidateDocument[];
@@ -507,7 +545,14 @@ export function FilePreviewModal({
   onClose: () => void;
   onDownload: (doc: CandidateDocument) => void;
   loadDocumentBlob?: typeof fetchDocumentBlob;
+  /** Imię osoby pod nazwą pliku — nazwa pliku często go nie zawiera. */
+  candidateName?: string;
+  /** Akcje ekranu, który otwiera okno (np. „Przypisz do rekrutacji”), przed „Pobierz”. */
+  headerActions?: ReactNode;
+  /** Gdzie wrócić fokusem po zamknięciu (domyślnie przycisk, który otworzył okno). */
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
+  const recruiterOnly = useRecruiterOnly();
   const gallery = useMemo(() => {
     if (documents?.length) {
       return [...documents].sort((left, right) => {
@@ -544,6 +589,8 @@ export function FilePreviewModal({
   useEffect(() => {
     if (!open || gallery.length <= 1) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      // Shift + strzałka zostaje dla przejścia między osobami (lista kandydatów).
+      if (event.shiftKey) return;
       // Strzałki w polu „Szukaj w CV” przesuwają kursor w tekście.
       const target = event.target;
       if (
@@ -576,6 +623,7 @@ export function FilePreviewModal({
         className="h-[92dvh] p-0 gap-0"
         hideClose
         onEscapeKeyDown={keepDialogOpenOnDocumentSearchEscape}
+        onCloseAutoFocus={onCloseAutoFocus}
       >
         <DialogHeader className="flex-row items-center justify-between gap-3 py-3 pr-3">
           <div className="min-w-0">
@@ -587,6 +635,9 @@ export function FilePreviewModal({
               aria-live="polite"
             >
               {galleryLabel} {activeIndex + 1} z {gallery.length}
+              {candidateName ? (
+                <span className="text-foreground"> · {candidateName}</span>
+              ) : null}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -619,7 +670,8 @@ export function FilePreviewModal({
                 <ChevronRight className="h-4 w-4" />
               </button>
             </div>
-            {activeDocument && (
+            {headerActions}
+            {activeDocument && !(recruiterOnly && previewKind(activeDocument) !== "unsupported") && (
               <button
                 type="button"
                 onClick={() => onDownload(activeDocument)}

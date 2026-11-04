@@ -28,7 +28,13 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.core.config import settings
-from app.models.section_permission import RoleSectionPermission, UserSectionOverride
+from app.models.app_setting import AppSetting
+from app.models.section_permission import (
+    RoleActionPermission,
+    RoleSectionPermission,
+    UserActionOverride,
+    UserSectionOverride,
+)
 from app.models.user import User, UserRole
 from app.services.m365 import sender as sender_mod
 from app.services.m365 import signature_cache
@@ -39,6 +45,17 @@ from app.services.m365.signature_cache import (
     get_outlook_signature,
 )
 from app.services.section_permissions import DEFAULT_ROLE_SECTION_ACCESS
+
+# Resolver dostępu czyta sekcje i akcje jednym wejściem. Atrapa zwraca tylko
+# wiersze sekcji — rola bez wierszy akcji jest liczona regułą zasiewu.
+POLICY_ENTITIES = {
+    # Wiersz „Kto co dostaje” (powiadomienia wyłączone dla roli) — pusty.
+    AppSetting,
+    RoleActionPermission,
+    RoleSectionPermission,
+    UserActionOverride,
+    UserSectionOverride,
+}
 
 
 # ── extract_signature ────────────────────────────────────────────────────────
@@ -73,9 +90,10 @@ def test_extract_signature_div_dash() -> None:
     assert "Sig" in sig
 
 
-def test_extract_signature_picks_last_sigsep() -> None:
-    """An earlier '--' inside a quoted reply must not steal the match — the
-    real signature is at the tail."""
+def test_extract_signature_two_sigseps_without_quote_header_is_rejected() -> None:
+    """Runda 6 audytu: dwa znaczniki podpisu w treści autora znaczą, że za
+    pierwszym stoi zagnieżdżona cudza treść. Do 26.09 wygrywał ostatni
+    znacznik; teraz wątpliwość = brak podpisu (bezpieczniej niż wyciek)."""
     body = (
         "<p>My reply.</p>"
         "<br>--<br>"
@@ -83,10 +101,94 @@ def test_extract_signature_picks_last_sigsep() -> None:
         "<br>--<br>"
         "<p>My real signature</p>"
     )
-    sig = extract_signature(body)
+    assert extract_signature(body) is None
+
+
+# Realistyczna odpowiedź z OWA: podpis autora, potem cytat maila kandydata
+# z jego własnym ``x_Signature`` i danymi (runda 6 audytu).
+_OWA_REPLY = (
+    '<html><body><div class="elementToProof">Dzień dobry, dziękuję za CV.</div>'
+    '<div id="Signature"><p>Marta Nowak</p><p>Rekruterka · B2B.NET S.A.</p>'
+    "<p>marta.nowak@b2bnetwork.pl</p></div>"
+    '<div id="appendonsend"></div>'
+    '<hr style="display:inline-block;width:98%" tabindex="-1">'
+    '<div id="divRplyFwdMsg" dir="ltr"><font face="Calibri"><b>From:</b> '
+    "Jan Kandydat &lt;jan.kandydat@gmail.com&gt;<br><b>Sent:</b> Monday, "
+    "September 21, 2026 10:00<br><b>To:</b> Marta Nowak<br><b>Subject:</b> "
+    "CV</font></div>"
+    '<div><div dir="ltr">Moja stawka to 180 zł/h, telefon 600 100 200.</div>'
+    '<div id="x_Signature"><p>Jan Kandydat</p><p>ul. Prywatna 5, Kraków</p>'
+    "</div></div></body></html>"
+)
+
+
+def test_extract_signature_owa_reply_stops_before_quote() -> None:
+    sig = extract_signature(_OWA_REPLY, "marta.nowak@b2bnetwork.pl")
     assert sig is not None
-    assert "My real signature" in sig
-    assert "Quoted body" not in sig
+    assert "Marta Nowak" in sig
+    assert "180 zł/h" not in sig
+    assert "Jan Kandydat" not in sig
+    assert "Prywatna" not in sig
+    assert "gmail.com" not in sig
+
+
+def test_extract_signature_owa_reply_without_author_signature_is_none() -> None:
+    """Jedyny znacznik stoi w CYTACIE (``x_Signature`` kandydata) — to nie
+    jest podpis autora i nie może zostać doklejony do maili z NEXUSA."""
+    body = _OWA_REPLY.replace(
+        '<div id="Signature"><p>Marta Nowak</p><p>Rekruterka · B2B.NET S.A.</p>'
+        "<p>marta.nowak@b2bnetwork.pl</p></div>",
+        "",
+    )
+    assert extract_signature(body, "marta.nowak@b2bnetwork.pl") is None
+
+
+def test_extract_signature_new_outlook_plain_header_quote() -> None:
+    """Nowy Outlook / desktop: nagłówek „Od: … Wysłano:” bez id — ucinamy
+    na nim, a nie na końcu treści."""
+    body = (
+        "<div>Odpowiadam krótko.</div>"
+        '<div id="Signature"><p>Marta</p></div>'
+        '<div style="border-top:solid #E1E1E1 1pt"><p><b>Od:</b> Jan '
+        "&lt;jan@firma-klienta.pl&gt;<br><b>Wysłano:</b> poniedziałek<br>"
+        "<b>Temat:</b> Re: oferta</p></div><div>Stawka 150 zł/h</div>"
+    )
+    sig = extract_signature(body, "marta@b2bnetwork.pl")
+    assert sig is not None
+    assert "Marta" in sig
+    assert "150" not in sig and "firma-klienta" not in sig
+
+
+def test_extract_signature_blockquote_reply() -> None:
+    body = (
+        "<p>Reply</p><br>--<br><p>Anna</p><blockquote><p>Cudza treść</p></blockquote>"
+    )
+    sig = extract_signature(body, "anna@b2bnetwork.pl")
+    assert sig is not None and "Anna" in sig
+    assert "Cudza" not in sig
+
+
+def test_extract_signature_foreign_email_rejected() -> None:
+    """Adres spoza domeny nadawcy w „podpisie” = cudza treść → brak podpisu."""
+    body = (
+        '<div>Body</div><div id="Signature"><p>Anna</p>'
+        "<p>kontakt: kandydat@gmail.com</p></div>"
+    )
+    assert extract_signature(body, "anna@b2bnetwork.pl") is None
+    # Własny adres nadawcy w podpisie jest w porządku.
+    own = body.replace("kandydat@gmail.com", "anna@b2bnetwork.pl")
+    assert extract_signature(own, "anna@b2bnetwork.pl") is not None
+
+
+async def test_owa_reply_in_sent_items_never_leaks_quote() -> None:
+    gc = _make_gc(
+        response={"value": [{"body": {"contentType": "html", "content": _OWA_REPLY}}]}
+    )
+    sig = await get_outlook_signature(
+        gc, user_id=5, mailbox_upn="marta.nowak@b2bnetwork.pl"
+    )
+    assert sig is not None
+    assert "180 zł/h" not in sig.html and "Jan Kandydat" not in sig.html
 
 
 def test_extract_signature_no_marker_returns_none() -> None:
@@ -225,7 +327,7 @@ async def test_cache_hit_avoids_second_graph_call() -> None:
     sig1 = await get_outlook_signature(gc, user_id=1, mailbox_upn="a@b.com")
     sig2 = await get_outlook_signature(gc, user_id=1, mailbox_upn="a@b.com")
 
-    assert sig1 is not None and "Anna Nowak" in sig1
+    assert sig1 is not None and "Anna Nowak" in sig1.html
     assert sig1 == sig2
     assert gc.get.await_count == 1
 
@@ -300,8 +402,8 @@ async def test_different_users_isolated() -> None:
     sig_a = await get_outlook_signature(gc_a, user_id=1, mailbox_upn="shared@b.com")
     sig_b = await get_outlook_signature(gc_b, user_id=2, mailbox_upn="shared@b.com")
 
-    assert sig_a is not None and "Alice" in sig_a
-    assert sig_b is not None and "Bob" in sig_b
+    assert sig_a is not None and "Alice" in sig_a.html
+    assert sig_b is not None and "Bob" in sig_b.html
 
 
 # ── get_outlook_signature: failure paths ─────────────────────────────────────
@@ -387,7 +489,7 @@ async def test_probe_skips_unsigned_messages_returns_first_signed() -> None:
     )
     sig = await get_outlook_signature(gc, user_id=1, mailbox_upn="a@b.com")
     assert sig is not None
-    assert "Real Signature" in sig
+    assert "Real Signature" in sig.html
     # Single Graph call — we batched probe depth in one $top= query.
     assert gc.get.await_count == 1
 
@@ -459,7 +561,7 @@ class _FakeAsyncSession:
     async def scalars(self, statement: Any) -> Any:
         entity = statement.column_descriptions[0].get("entity")
         rows = self.role_rows if entity is RoleSectionPermission else []
-        assert entity in {RoleSectionPermission, UserSectionOverride}
+        assert entity in POLICY_ENTITIES
         return SimpleNamespace(all=lambda: rows)
 
 
@@ -620,3 +722,359 @@ async def test_send_new_kill_switch_skips_graph_lookup(
     # No GET (we never asked for the signature) — only the draft+send POSTs.
     assert gc.gets == []
     assert all(p[0].startswith("/me/messages") for p in gc.posts)
+
+
+# ── Runda 7 audytu (R7-V1-1, V1-4, V1-5) ─────────────────────────────────────
+
+
+def test_dash_divider_in_body_does_not_become_signature() -> None:
+    """R7-V1-1: „--” użyte w treści jako przerywnik — wszystko pod nim to
+    treść maila (kandydaci, stawki), a nie podpis doklejany przez 24 h."""
+    body = (
+        "<div>Dzień dobry, przesyłam kandydatów:</div>"
+        "<div>Kandydat 1: Jan Kowalski, stawka 150 zł/h netto B2B.</div>"
+        "<div>--</div>"
+        "<div>Kandydat 2: Anna Nowak, stawka 140 zł/h netto B2B, "
+        "tel. 600 100 200, dostępna od 1.10, doświadczenie 7 lat w bankowości, "
+        "Java, Spring, Kafka, Kubernetes; preferuje pracę zdalną, dwa dni w "
+        "biurze w Warszawie są do przyjęcia, okres wypowiedzenia miesiąc, "
+        "rozmawiałam z nią wczoraj i jest zainteresowana projektem u klienta, "
+        "prosi o informację zwrotną do końca tygodnia, bo ma drugą ofertę "
+        "na stole i musi się szybko zdecydować.</div>"
+        "<div>Pozdrawiam</div><div>Marta</div>"
+    )
+    assert extract_signature(body, "marta@b2bnetwork.pl") is None
+
+
+def test_postscript_under_dash_signature_is_rejected() -> None:
+    body = (
+        "<div>Treść</div><br>--<br><div>Marta Nowak</div><div>Rekruterka</div>"
+        "<div>PS. Anna zgodziła się na 140 zł/h</div>"
+    )
+    assert extract_signature(body, "marta@b2bnetwork.pl") is None
+
+
+def test_postscript_below_signature_element_is_not_included() -> None:
+    """Przy podpisie z id bierzemy sam element — dopisek pod nim zostaje."""
+    body = (
+        '<div>Treść</div><div id="Signature"><div><p>Marta Nowak</p>'
+        "<p>Rekruterka</p></div></div>"
+        "<div>PS. Anna zgodziła się na 140 zł/h</div>"
+    )
+    sig = extract_signature(body, "marta@b2bnetwork.pl")
+    assert sig is not None
+    assert "Marta Nowak" in sig
+    assert "140" not in sig and "PS." not in sig
+    assert sig.endswith("</div>")
+
+
+def test_short_dash_signature_still_extracted() -> None:
+    body = (
+        "<p>Treść</p><br>--<br><p>Marta Nowak</p><p>Rekruterka · B2B.NET S.A.</p>"
+        "<p>tel. 600 000 000</p>"
+    )
+    sig = extract_signature(body, "marta@b2bnetwork.pl")
+    assert sig is not None and "Marta Nowak" in sig
+
+
+def test_outlook_mobile_default_footer_is_not_a_signature() -> None:
+    """R7-V1-4: „Get Outlook for iOS” to stopka aplikacji, nie podpis osoby."""
+    for text in (
+        'Get <a href="https://aka.ms/o0ukef">Outlook for iOS</a>',
+        "Get Outlook for Android",
+        "Pobierz aplikację Outlook dla systemu Android",
+    ):
+        body = (
+            "<div>Krótko z telefonu.</div>"
+            f'<div id="ms-outlook-mobile-signature"><div>{text}</div></div>'
+        )
+        assert extract_signature(body, "marta@b2bnetwork.pl") is None, text
+
+
+async def test_mobile_default_footer_does_not_shadow_real_signature() -> None:
+    mobile = (
+        "<div>Z telefonu.</div>"
+        '<div id="ms-outlook-mobile-signature"><div>Get Outlook for iOS</div></div>'
+    )
+    desktop = '<div>Treść</div><div id="Signature"><p>Marta Nowak</p></div>'
+    gc = _make_gc(
+        response={
+            "value": [
+                {"body": {"contentType": "html", "content": mobile}},
+                {"body": {"contentType": "html", "content": desktop}},
+            ]
+        }
+    )
+    sig = await get_outlook_signature(gc, user_id=7, mailbox_upn="m@b2bnetwork.pl")
+    assert sig is not None and "Marta Nowak" in sig.html
+
+
+def test_inline_logo_cid_is_not_a_foreign_address() -> None:
+    """R7-V1-5: ``src="cid:image001.png@01DA1F2C.AB3E8A90"`` to obrazek."""
+    for cid in (
+        "image001.png@01DA1F2C.AB3E8A90",
+        "image002.jpg@01DB0A1C.ZZ9F0B11",
+        "logo@x",
+    ):
+        body = (
+            '<div>Treść</div><div id="Signature"><p>Marta Nowak</p>'
+            f'<img src="cid:{cid}" alt="logo"></div>'
+        )
+        sig = extract_signature(body, "marta@b2bnetwork.pl")
+        assert sig is not None, cid
+        assert "Marta Nowak" in sig
+
+
+def test_email_check_is_linear_on_pathological_signature() -> None:
+    """R8-V3-4: dawny ``_EMAIL_RE`` z lookaheadem liczył 12 KB ok. 2 s."""
+    import time
+
+    from app.services.m365.signature_cache import _looks_like_quote
+
+    for text in (
+        "a" * 5900 + "@" + "aa1." * 2500,  # ~16 KB, ciąg bez końca domeny
+        "a" * 16000,
+        "a@" + "a." * 8000,
+    ):
+        started = time.perf_counter()
+        _looks_like_quote(text, "marta@b2bnetwork.pl")
+        assert time.perf_counter() - started < 0.05
+
+
+def test_email_domains_keep_the_tld_rule() -> None:
+    """R8-V3-4: ta sama reguła końca domeny co przed zmianą wzorca."""
+    from app.services.m365.signature_cache import _email_domains
+
+    assert _email_domains("pisz: jan@gmail.com.") == ["gmail.com"]
+    assert _email_domains("image001.png@01DA1F2C.AB3E8A90") == []
+    assert _email_domains("x@b.com-") == []
+    assert _email_domains("@gmail.com") == []  # brak części lokalnej
+    assert _email_domains("a@b.pl, c@evil.org") == ["b.pl", "evil.org"]
+
+
+def test_hr_inside_signature_element_keeps_the_signature() -> None:
+    """R8-V3-5: ``<hr>`` jako linia w podpisie nie ucina elementu."""
+    body = (
+        "<div>Treść maila</div>"
+        '<div id="Signature"><p>Marta Nowak</p><hr><p>B2B.NET S.A.</p></div>'
+    )
+    sig = extract_signature(body, "marta@b2bnetwork.pl")
+    assert sig is not None
+    assert "Marta Nowak" in sig and "B2B.NET" in sig
+
+
+def test_quote_inside_signature_element_is_still_rejected() -> None:
+    """R8-V3-5: inny znacznik cytatu wewnątrz elementu nadal odrzuca podpis."""
+    body = (
+        '<div id="Signature"><p>Marta</p><hr>'
+        '<div id="divRplyFwdMsg"><b>From:</b> Jan &lt;jan@gmail.com&gt;'
+        "<b>Sent:</b> x</div></div>"
+    )
+    assert extract_signature(body, "marta@b2bnetwork.pl") is None
+
+
+# ── Stopka jak w Outlooku (zgłoszenie z 26.10.2026) ──────────────────────────
+# Mail z profilu kandydata wychodził z „--” nad stopką, bez krojów i
+# rozmiarów czcionki (sanitizer wycinał ``style``) i z pustą ramką zamiast
+# logo: ``src="cid:…"`` wskazywał załącznik, którego NEXUS nie dołączał.
+
+_LOGO_CID = "image001.png@01DB27A1.5E0C8F70"
+_OUTLOOK_SIGNATURE_BODY = (
+    "<div>Wcześniejsza treść</div>"
+    '<div id="Signature">'
+    '<p style="font-family:Calibri,sans-serif;font-size:11pt;color:#1F3864">'
+    "<b>Pozdrawiam/Best Regards,</b></p>"
+    '<table style="width:600px"><tr><td style="padding:0 8px 0 0">'
+    f'<img src="cid:{_LOGO_CID}" width="120" height="40" alt="logo"></td></tr></table>'
+    '<p style="font-size:6.5pt;color:#7F7F7F">B2B.net S.A. — klauzula RODO</p>'
+    "</div>"
+)
+
+
+def _routed_gc(routes: dict[str, Any]):
+    """Atrapa GraphClient.get z odpowiedzią (albo wyjątkiem) per adres."""
+    calls: list[str] = []
+
+    async def _get(url: str, params: Any = None) -> Any:
+        calls.append(url)
+        answer = routes[url]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    return SimpleNamespace(get=_get, calls=calls)
+
+
+def _signature_routes(**overrides: Any) -> dict[str, Any]:
+    routes: dict[str, Any] = {
+        "/me/mailFolders/sentitems/messages": {
+            "value": [
+                {
+                    "id": "MSG-1",
+                    "body": {"contentType": "html", "content": _OUTLOOK_SIGNATURE_BODY},
+                }
+            ]
+        },
+        "/me/messages/MSG-1/attachments": {
+            "value": [
+                {"id": "ATT-LOGO", "isInline": True, "size": 2048},
+                {"id": "ATT-CV", "isInline": False, "size": 900_000},
+            ]
+        },
+        "/me/messages/MSG-1/attachments/ATT-LOGO": {
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name": "image001.png",
+            "contentType": "image/png",
+            "contentId": f"<{_LOGO_CID}>",
+            "contentBytes": "iVBORw0KGgo=",
+        },
+    }
+    routes.update(overrides)
+    return routes
+
+
+def test_signature_keeps_outlook_fonts_and_drops_unsafe_css() -> None:
+    from app.services.m365.html_sanitize import sanitize_signature_html
+
+    out = sanitize_signature_html(
+        '<p style="font-family:Calibri;font-size:6.5pt;color:#7F7F7F;'
+        'position:fixed;behavior:url(x.htc)">RODO</p>'
+        '<a href="javascript:alert(1)" onclick="x()">k</a>'
+    )
+    assert "font-size:6.5pt" in out
+    assert "font-family:Calibri" in out
+    assert "color:#7F7F7F" in out
+    assert "position" not in out and "behavior" not in out
+    assert "javascript" not in out and "onclick" not in out
+
+
+async def test_inline_logo_is_fetched_together_with_the_signature() -> None:
+    gc = _routed_gc(_signature_routes())
+
+    sig = await get_outlook_signature(gc, user_id=5, mailbox_upn="s@b2bnetwork.pl")
+
+    assert sig is not None
+    assert f'src="cid:{_LOGO_CID}"' in sig.html
+    assert "font-size:6.5pt" in sig.html
+    assert [i.content_id for i in sig.inline_images] == [_LOGO_CID]
+    assert sig.inline_images[0].content_bytes == "iVBORw0KGgo="
+    # Zwykłego załącznika (CV) nie pobieramy.
+    assert "/me/messages/MSG-1/attachments/ATT-CV" not in gc.calls
+
+
+async def test_logo_without_its_attachment_is_dropped_not_sent_broken() -> None:
+    gc = _routed_gc(
+        _signature_routes(
+            **{"/me/messages/MSG-1/attachments": GraphRequestError(403, "denied")}
+        )
+    )
+
+    sig = await get_outlook_signature(gc, user_id=5, mailbox_upn="s@b2bnetwork.pl")
+
+    assert sig is not None
+    assert "Pozdrawiam/Best Regards" in sig.html
+    assert "cid:" not in sig.html and "<img" not in sig.html
+    assert sig.inline_images == ()
+
+
+class _LogoGraphClient(_FakeGraphClient):
+    """Atrapa Graph ze stopką z logo i zapisem kolejności wywołań."""
+
+    routes = _signature_routes()
+
+    async def get(self, url: str, params: Any = None) -> Any:
+        self.gets.append((url, params))
+        return self.routes[url]
+
+    async def post(self, url: str, json: Any = None, **_kwargs: Any) -> Any:
+        if url.endswith("/createReply"):
+            self.posts.append((url, json))
+            return {"id": "FAKE-REPLY-ID", "conversationId": "CONV-R"}
+        return await super().post(url, json, **_kwargs)
+
+    async def patch(self, url: str, json: Any = None) -> Any:
+        self.posts.append((f"PATCH {url}", json))
+        return {}
+
+
+def _capture_clients(monkeypatch: pytest.MonkeyPatch) -> list[_LogoGraphClient]:
+    instances: list[_LogoGraphClient] = []
+    real_init = _LogoGraphClient.__init__
+
+    def _init(self: _LogoGraphClient, connection: Any, db_: Any) -> None:
+        real_init(self, connection, db_)
+        instances.append(self)
+
+    monkeypatch.setattr(_LogoGraphClient, "__init__", _init)
+    monkeypatch.setattr(sender_mod, "GraphClient", _LogoGraphClient)
+    monkeypatch.setattr(settings, "M365_SIGNATURE_INJECTION_ENABLED", True)
+    return instances
+
+
+def _assert_logo_attached_before_send(gc: _LogoGraphClient, draft_id: str) -> None:
+    urls = [url for url, _ in gc.posts]
+    attach_url = f"/me/messages/{draft_id}/attachments"
+    assert attach_url in urls
+    assert urls.index(attach_url) < urls.index(f"/me/messages/{draft_id}/send")
+    payload = next(body for url, body in gc.posts if url == attach_url)
+    assert payload == {
+        "@odata.type": "#microsoft.graph.fileAttachment",
+        "name": "image001.png",
+        "contentType": "image/png",
+        "contentBytes": "iVBORw0KGgo=",
+        "contentId": _LOGO_CID,
+        "isInline": True,
+    }
+
+
+async def test_send_new_signature_looks_like_outlook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    instances = _capture_clients(monkeypatch)
+
+    await sender_mod.send_new(
+        _FakeAsyncSession(),  # type: ignore[arg-type]
+        _fake_connection(),  # type: ignore[arg-type]
+        to=["kandydat@example.com"],
+        subject="Kontakt",
+        body_html="<p>xxx</p>",
+    )
+
+    gc = instances[0]
+    body = next(p for p in gc.posts if p[0] == "/me/messages")[1]["body"]["content"]
+    assert ">--<" not in body
+    assert body.startswith("<p>xxx</p>")
+    assert "font-size:6.5pt" in body
+    assert f'src="cid:{_LOGO_CID}"' in body
+    _assert_logo_attached_before_send(gc, "FAKE-DRAFT-ID")
+
+
+async def test_reply_signature_logo_is_attached_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    instances = _capture_clients(monkeypatch)
+
+    async def _eligible(db: Any, connection: Any) -> None:
+        return None
+
+    monkeypatch.setattr(sender_mod, "require_eligible_connection_owner", _eligible)
+    original = SimpleNamespace(
+        id=1,
+        candidate_id=None,
+        m365_message_id="ORIG-ID",
+        m365_conversation_id="CONV-R",
+        subject="Pytanie",
+        from_address="kandydat@example.com",
+    )
+
+    await sender_mod.reply(
+        _FakeAsyncSession(),  # type: ignore[arg-type]
+        _fake_connection(),  # type: ignore[arg-type]
+        email_row=original,  # type: ignore[arg-type]
+        body_html="<p>Odpowiedź</p>",
+    )
+
+    gc = instances[0]
+    patched = next(b for u, b in gc.posts if u == "PATCH /me/messages/FAKE-REPLY-ID")
+    assert ">--<" not in patched["body"]["content"]
+    _assert_logo_attached_before_send(gc, "FAKE-REPLY-ID")

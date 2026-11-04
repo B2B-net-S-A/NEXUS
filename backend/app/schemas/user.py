@@ -1,9 +1,9 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from app.models.user import UserRole
+from app.models.user import UserRole, known_roles
 
 
 class UserCreate(BaseModel):
@@ -68,6 +68,13 @@ class UserResponse(BaseModel):
     # set — including any secondary roles granted via AAD RBAC or admin —
     # lives here. Frontend should prefer ``roles`` for permission checks.
     roles: list[UserRole] = []
+
+    @field_validator("roles", mode="before")
+    @classmethod
+    def _known_roles_only(cls, value: object) -> object:
+        # Wiersz ze starą rolą (`tac`, `sourcer`) nie może dać 500 na /auth/me.
+        return known_roles(value) if isinstance(value, (list, tuple)) else value
+
     is_active: bool
     # Email-verification gate (migracja 0139). True dla wszystkich kont poza
     # świeżo self-zarejestrowanymi, które nie kliknęły jeszcze linku.
@@ -113,6 +120,17 @@ class UserResponse(BaseModel):
     # requestów do /api/analytics/v1 dopóki tryb != live (fail-closed;
     # w shadow legacy UI pozostaje nietknięte — plan §8).
     analytics_v1_mode: str = "off"
+    # Zakres klientów Delivery Leada w modułach Delivery (25.09.2026):
+    # ``assigned`` = tylko klienci z przypisania, ``all`` = wszyscy (wyłącznik
+    # ``DL_CLIENT_SCOPE`` albo rola czytająca Delivery całej organizacji).
+    # ``None`` dla kont spoza persony DL. Front chowa wtedy „Moi / Wszyscy”.
+    delivery_client_scope: Optional[Literal["assigned", "all"]] = None
+    # Czy konto przesuwa karty bez bramek pól (arkusz, stawka, minimum) —
+    # ta sama reguła co serwer (``pipeline_move_rules.skips_fill_gates``:
+    # uprawnienie ``recruitment_manage`` i wyłącznik ``DL_SKIPS_FILL_GATES``).
+    # Tablica, okna screeningu i „Dodaj do rekrutacji” czytają tę flagę
+    # zamiast samego uprawnienia (audyt 22.10.2026, F109).
+    skips_fill_gates: bool = False
     created_at: datetime
     updated_at: datetime
 

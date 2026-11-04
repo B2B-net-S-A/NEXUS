@@ -1,61 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  consultantUsageSentence,
   hasScopedMd,
   lineHasSettlements,
   lineScopeRemaining,
   lineScopeUsage,
-  usageAmount,
 } from "@/lib/order-line-usage";
-
-const base = {
-  consultant_name: "Marian Odeszły",
-  is_active: false,
-  invoiced_total: null,
-  md_used: null,
-  rate_revenue: null,
-  removed_from_order: false,
-  cooperation_ended_on: "2031-08-12",
-};
-
-describe("wykorzystanie osoby na zamówieniu — to samo zdanie dla MD i kosztowych", () => {
-  it("zamówienie kosztowe: kwota zafakturowana przed zakończeniem współpracy", () => {
-    const sentence = consultantUsageSentence(
-      { is_cost_based: true },
-      { ...base, invoiced_total: 12500 },
-    );
-    expect(sentence).toMatch(
-      /^Marian Odeszły wykorzystał\(a\) 12\s500,00\szł na tym zamówieniu przed zakończeniem współpracy — ta kwota nie wraca do puli/,
-    );
-  });
-
-  it("zamówienie MD: MD i ich wartość, gdy stawka jest widoczna", () => {
-    expect(
-      usageAmount({ is_cost_based: false }, { ...base, md_used: 12.5, rate_revenue: 1000 }),
-    ).toMatch(/^12\s500,00\szł \/ 12,5 MD$/);
-  });
-
-  it("rola bez finansów widzi same MD, bez kwoty", () => {
-    expect(usageAmount({ is_cost_based: false }, { ...base, md_used: 7 })).toBe("7 MD");
-  });
-
-  it("osoba usunięta z zamówienia bez zakończonej współpracy", () => {
-    expect(
-      consultantUsageSentence(
-        { is_cost_based: false },
-        { ...base, md_used: 3, cooperation_ended_on: null, removed_from_order: true },
-      ),
-    ).toContain("przed usunięciem z zamówienia");
-  });
-
-  it("aktywna osoba albo zero zużycia — bez zdania", () => {
-    expect(
-      consultantUsageSentence({ is_cost_based: false }, { ...base, is_active: true, md_used: 3 }),
-    ).toBeNull();
-    expect(consultantUsageSentence({ is_cost_based: true }, { ...base, invoiced_total: 0 })).toBeNull();
-  });
-});
 
 describe("lineScopeUsage — podstawa + opcja (CeZ)", () => {
   const scoped = {
@@ -95,6 +45,30 @@ describe("lineScopeUsage — podstawa + opcja (CeZ)", () => {
     expect(usage.optionalTotal).toBeNull();
     expect(usage.optionalUsed).toBeNull();
     expect(usage.totalBudget).toBe(190);
+  });
+
+  it("bez opcji przekroczenie podstawy nie znika (runda 8, N6-1)", () => {
+    const line = {
+      md_total: 100,
+      md_optional_total: null,
+      md_used: 130.5,
+      md_base_used: 100,
+      md_optional_used: 30.5,
+      md_remaining: -30.5,
+    };
+    const usage = lineScopeUsage(line);
+    expect(usage.optionalUsed).toBeNull();
+    expect(usage.baseUsed).toBe(130.5);
+    expect(usage.totalUsed).toBe(130.5);
+    expect(usage.totalBudget).toBe(100);
+    expect(usage.pct).toBeCloseTo(130.5);
+    const rest = lineScopeRemaining(line);
+    expect(rest.baseRemaining).toBe(-30.5);
+    expect(rest.totalRemaining).toBe(-30.5);
+    // Bez serwerowego podziału — ta sama reguła z samego `md_used`.
+    expect(
+      lineScopeUsage({ ...line, md_base_used: null, md_optional_used: null }).totalUsed,
+    ).toBe(130.5);
   });
 
   it("bez serwerowego podziału zużycie schodzi najpierw z podstawy, potem z opcji", () => {

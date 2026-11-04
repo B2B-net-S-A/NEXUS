@@ -161,3 +161,119 @@ async def test_admin_maps_and_ignores_unmatched_terms(
         headers=app_auth_headers,
     )
     assert missing.status_code == 400
+
+
+async def test_alias_equal_to_another_skills_name_is_refused(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """R9-N13-3: alias „java” dopisany do JavaScriptu przepinał Javę w scoringu
+    (alias wygrywa z nazwą kanoniczną w ALIAS_MAP)."""
+    from app.services import scoring_service
+
+    suffix = uuid.uuid4().hex[:8]
+    first = await app_client.post(
+        "/api/skills-admin/skills",
+        json={"canonical_name": f"Langa {suffix}"},
+        headers=app_auth_headers,
+    )
+    second = await app_client.post(
+        "/api/skills-admin/skills",
+        json={"canonical_name": f"Langb {suffix}"},
+        headers=app_auth_headers,
+    )
+    assert first.status_code == 200 and second.status_code == 200
+    second_id = second.json()["id"]
+
+    resp = await app_client.post(
+        f"/api/skills-admin/skills/{second_id}/aliases",
+        json={"alias": f"LANGA {suffix}"},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 409, resp.text
+    assert "nazwa innej umiejętności" in resp.json()["detail"]
+    assert scoring_service.ALIAS_MAP.get(f"langa {suffix}") != f"Langb {suffix}"
+
+    # Nowa umiejętność z aliasem równym nazwie istniejącej — odmowa, nic nie powstaje.
+    third = await app_client.post(
+        "/api/skills-admin/skills",
+        json={"canonical_name": f"Langc {suffix}", "aliases": [f"langa {suffix}"]},
+        headers=app_auth_headers,
+    )
+    assert third.status_code == 409, third.text
+    listed = await app_client.get(
+        "/api/skills-admin/skills",
+        params={"q": f"langc {suffix}"},
+        headers=app_auth_headers,
+    )
+    assert listed.json()["total"] == 0
+
+
+async def test_skill_name_equal_to_existing_alias_is_refused(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """R9-N13-3: umiejętność o nazwie równej istniejącemu aliasowi byłaby
+    nieosiągalna — mapa scoringu kieruje ten tekst na właściciela aliasu."""
+    suffix = uuid.uuid4().hex[:8]
+    owner = await app_client.post(
+        "/api/skills-admin/skills",
+        json={"canonical_name": f"Owner {suffix}", "aliases": [f"shared-{suffix}"]},
+        headers=app_auth_headers,
+    )
+    assert owner.status_code == 200, owner.text
+
+    resp = await app_client.post(
+        "/api/skills-admin/skills",
+        json={"canonical_name": f"Shared-{suffix.upper()}"},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 409, resp.text
+    assert "aliasem" in resp.json()["detail"]
+
+
+async def test_term_owned_by_another_skill_is_not_marked_mapped(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """R9-N13-3: gdy termin jest już aliasem INNEJ umiejętności, mapowanie
+    nie dodaje aliasu — więc termin nie może dostać statusu „mapped”."""
+    from app.models.cortex import CortexUnmatchedTerm
+
+    suffix = uuid.uuid4().hex[:8]
+    term = f"dup-{suffix}"
+    owner = await app_client.post(
+        "/api/skills-admin/skills",
+        json={"canonical_name": f"Tfirst {suffix}", "aliases": [term]},
+        headers=app_auth_headers,
+    )
+    other = await app_client.post(
+        "/api/skills-admin/skills",
+        json={"canonical_name": f"Tsecond {suffix}"},
+        headers=app_auth_headers,
+    )
+    assert owner.status_code == 200 and other.status_code == 200
+    term_id = await _seed_term(term)
+
+    resp = await app_client.post(
+        f"/api/skills-admin/unmatched-terms/{term_id}/map",
+        json={"skill_id": other.json()["id"]},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 409, resp.text
+
+    created = await app_client.post(
+        "/api/skills-admin/skills",
+        json={"canonical_name": f"Tthird {suffix}", "from_term_id": term_id},
+        headers=app_auth_headers,
+    )
+    assert created.status_code == 409, created.text
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(CortexUnmatchedTerm, term_id)
+        assert row.status == "new"
+
+    # Mapowanie na właściciela aliasu jest w porządku.
+    ok = await app_client.post(
+        f"/api/skills-admin/unmatched-terms/{term_id}/map",
+        json={"skill_id": owner.json()["id"]},
+        headers=app_auth_headers,
+    )
+    assert ok.status_code == 200, ok.text

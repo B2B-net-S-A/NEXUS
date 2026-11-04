@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
 import { CandidateCombobox, type CandidateChoice } from "@/components/calendar/CandidateCombobox";
 import { RecruitmentSelect } from "@/components/calendar/RecruitmentSelect";
+import { PasteClientMail } from "@/components/calendar/cycle/PasteClientMail";
+import { ClientReplyDialog } from "@/components/calendar/cycle/ClientReplyDialog";
+import { PickInterviewDialog } from "@/components/calendar/cycle/PickInterviewDialog";
 import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
 import { interviewCycleApi } from "@/lib/api/interviewCycle";
@@ -15,16 +18,34 @@ import {
   formatSlot,
   pairContext,
   type PairInfo,
+  slotConfirmedMessage,
+  slotsCreatedMessage,
   type SlotRequest,
 } from "@/lib/interview-cycle";
+import {
+  isoToLocalInput,
+  keepsWindow,
+  noteFromMail,
+  rowsFromMail,
+  type SlotRow,
+  type SlotsFromMail,
+  warningLabel,
+} from "@/lib/interview-slot-mail";
 import { cn } from "@/lib/utils";
 
 const INPUT =
   "w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
 
+/** Długości rozmowy do wyboru — jak w „Kiedy rozmowa u klienta?” (`ClientInterviewDateDialog`). */
+const DURATIONS = [30, 45, 60, 90, 120] as const;
+
 /** `datetime-local` → ISO z przesunięciem przeglądarki (serwer normalizuje do UTC). */
 function localToIso(value: string): string {
   return new Date(value).toISOString();
+}
+
+function formatTimeOf(iso: string): string {
+  return isoToLocalInput(iso).slice(11);
 }
 
 function nextWorkdayAt(hour: number, offsetDays: number): string {
@@ -42,85 +63,146 @@ function useInvalidateCycle() {
     qc.invalidateQueries({ queryKey: ["interview-cycle"] });
     qc.invalidateQueries({ queryKey: ["calendar-events"] });
     qc.invalidateQueries({ queryKey: ["calendar-upcoming"] });
+    // Odznaka rozmowy na Tablicy i w panelu osoby (PR 6, 04.10.2026) — oba
+    // klucze tablicy zaczynają się od „kanban”.
+    qc.invalidateQueries({ queryKey: ["kanban"] });
   };
+}
+
+/** Id otwartego wniosku z 409 `SLOTS_ALREADY_OPEN` — do „Zastąp otwarte terminy”. */
+function openRequestIdFrom(err: unknown): number | null {
+  const detail = (err as { response?: { data?: { detail?: { code?: string; open_request_id?: number | null } } } })
+    ?.response?.data?.detail;
+  return detail?.code === "SLOTS_ALREADY_OPEN" ? (detail.open_request_id ?? null) : null;
 }
 
 /**
  * DL wpisuje terminy od klienta. Z karty pary kandydat i rekrutacja są znane;
- * z przycisku „Dodaj terminy od klienta” wybiera się je tutaj.
+ * z przycisku „Dodaj terminy od klienta” wybiera się je tutaj. Z `request`
+ * („Zmień terminy”) okno wczytuje otwarty wniosek, a zapis go zastępuje —
+ * miniony termin odpada, bo serwer i tak by go nie przyjął.
  */
 export function SlotRequestDialog({
   open,
   onOpenChange,
   pair,
+  request = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pair: PairInfo | null;
+  request?: SlotRequest | null;
 }) {
   const toast = useToast();
   const invalidate = useInvalidateCycle();
   const [candidate, setCandidate] = useState<CandidateChoice | null>(null);
   const [jobId, setJobId] = useState<number | null>(null);
-  const [slots, setSlots] = useState<string[]>([]);
+  const [slots, setSlots] = useState<SlotRow[]>([]);
   const [duration, setDuration] = useState(60);
+  const [respondBy, setRespondBy] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Otwarty wniosek z odpowiedzi 409 — DL decyduje, czy go zastąpić.
+  const [openRequestId, setOpenRequestId] = useState<number | null>(null);
+  // Na 1280 × 720 błąd stoi pod zgięciem okna — po „Wyślij” wyglądało, że nic się nie stało.
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [error]);
 
   useEffect(() => {
     if (!open) return;
     setCandidate(null);
     setJobId(null);
-    setSlots([nextWorkdayAt(10, 1), nextWorkdayAt(14, 2)]);
-    setDuration(60);
-    setNote("");
+    if (request) {
+      const ahead = request.slots.filter((s) => new Date(s.start).getTime() >= Date.now());
+      setSlots(
+        ahead.length > 0
+          ? ahead.map((s) => ({ value: isoToLocalInput(s.start), windowEnd: s.window_end ?? undefined }))
+          : [{ value: "" }],
+      );
+    } else {
+      setSlots([{ value: nextWorkdayAt(10, 1) }, { value: nextWorkdayAt(14, 2) }]);
+    }
+    setDuration(request?.duration_minutes ?? 60);
+    setRespondBy(request?.respond_by ? isoToLocalInput(request.respond_by) : "");
+    setNote(request?.note ?? "");
     setError(null);
-  }, [open, pair]);
+    setOpenRequestId(null);
+  }, [open, pair, request]);
 
+  const filledSlots = slots.filter((s) => s.value);
   const candidateId = pair?.candidate_id ?? candidate?.id ?? null;
   const targetJobId = pair?.job_id ?? jobId;
 
   const mutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (replacesRequestId: number | null) =>
       interviewCycleApi.createSlots({
         candidate_id: candidateId as number,
         job_id: targetJobId as number,
-        slots: slots.filter(Boolean).map((s) => ({ start: localToIso(s) })),
+        slots: filledSlots.map((s) => {
+          const start = localToIso(s.value);
+          // Okno klienta jedzie dalej, dopóki rozmowa mieści się w nim tego samego dnia
+          // (DL mógł przesunąć początek albo zmienić długość).
+          const windowEnd = keepsWindow(s.value, s.windowEnd, duration) ? (s.windowEnd as string) : null;
+          return windowEnd ? { start, window_end: windowEnd } : { start };
+        }),
         duration_minutes: duration,
+        respond_by: respondBy ? localToIso(respondBy) : null,
         note: note.trim() || null,
+        ...(replacesRequestId != null ? { replaces_request_id: replacesRequestId } : {}),
       }),
-    onSuccess: () => {
+    onSuccess: (res) => {
       invalidate();
-      toast.showSuccess("Terminy wysłane rekruterowi — ustali termin z kandydatem.");
+      toast.showSuccess(request ? "Rekruter dostał zmienione terminy." : slotsCreatedMessage(res));
       onOpenChange(false);
     },
-    onError: (err) => setError(apiErrorMessage(err, "Nie udało się zapisać terminów.")),
+    onError: (err) => {
+      setOpenRequestId(openRequestIdFrom(err));
+      setError(apiErrorMessage(err, "Nie udało się zapisać terminów."));
+    },
   });
 
-  const submit = () => {
+  const submit = (replacesRequestId: number | null = request?.id ?? null) => {
     setError(null);
+    setOpenRequestId(null);
     if (candidateId == null || targetJobId == null) {
       setError("Wybierz kandydata i rekrutację.");
       return;
     }
-    const filled = slots.filter(Boolean);
-    if (filled.length === 0) {
+    if (filledSlots.length === 0) {
       setError("Dodaj co najmniej jeden termin od klienta.");
       return;
     }
-    if (filled.some((s) => new Date(s).getTime() < Date.now())) {
+    if (filledSlots.some((s) => new Date(s.value).getTime() < Date.now())) {
       setError("Termin rozmowy nie może być w przeszłości.");
       return;
     }
-    mutation.mutate();
+    mutation.mutate(replacesRequestId);
+  };
+
+  const applyMail = (result: SlotsFromMail) => {
+    setSlots(rowsFromMail(result));
+    // Długość spoza przycisków nie ustawia się po cichu (audyt 22.10, F29).
+    if (result.duration_minutes && (DURATIONS as readonly number[]).includes(result.duration_minutes)) {
+      setDuration(result.duration_minutes);
+    }
+    if (result.respond_by) setRespondBy(isoToLocalInput(result.respond_by));
+    const fromMail = noteFromMail(result);
+    if (fromMail) setNote((prev) => (prev.trim() ? `${prev.trim()}\n${fromMail}` : fromMail).slice(0, 1000));
+    setError(null);
   };
 
   return (
     <AppModal
       open={open}
       onOpenChange={onOpenChange}
-      title="Terminy rozmowy od klienta"
-      description="Rekruter dostanie je w NEXUSIE, ustali jeden z kandydatem i odeśle Ci wybór."
+      title={request ? "Zmień terminy od klienta" : "Terminy rozmowy od klienta"}
+      description={
+        request
+          ? "Rekruter dostanie nowe terminy i wybierze od początku — dotychczasowy wybór przestaje obowiązywać."
+          : "Rekruter dostanie je w NEXUSIE, ustali jeden z kandydatem i odeśle Ci wybór."
+      }
       footer={
         <>
           <button type="button" onClick={() => onOpenChange(false)} className="h-9 px-4 text-sm text-muted-foreground hover:text-foreground">
@@ -128,11 +210,11 @@ export function SlotRequestDialog({
           </button>
           <button
             type="button"
-            onClick={submit}
+            onClick={() => submit()}
             disabled={mutation.isPending}
             className="h-9 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
-            Wyślij rekruterowi
+            {request ? "Zapisz i wyślij rekruterowi" : "Wyślij rekruterowi"}
           </button>
         </>
       }
@@ -159,33 +241,53 @@ export function SlotRequestDialog({
             </div>
           </>
         )}
+        <PasteClientMail idPrefix="slot-request" onRead={applyMail} />
         <fieldset className="space-y-2">
           <legend className="mb-1 text-xs font-semibold text-muted-foreground">Terminy od klienta</legend>
-          {slots.map((value, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <input
-                type="datetime-local"
-                aria-label={`Termin ${i + 1}`}
-                value={value}
-                onChange={(e) => setSlots((s) => s.map((v, j) => (j === i ? e.target.value : v)))}
-                className={INPUT}
-              />
-              {slots.length > 1 ? (
-                <button
-                  type="button"
-                  aria-label={`Usuń termin ${i + 1}`}
-                  onClick={() => setSlots((s) => s.filter((_, j) => j !== i))}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              ) : null}
-            </div>
-          ))}
+          {slots.map((row, i) => {
+            const warning = warningLabel(row.warning);
+            return (
+              <div key={i} className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="datetime-local"
+                    aria-label={`Termin ${i + 1}`}
+                    value={row.value}
+                    onChange={(e) =>
+                      setSlots((s) =>
+                        // Poprawiony ręcznie termin traci ostrzeżenie odczytu — DL go sprawdził.
+                        s.map((v, j) => (j === i ? { ...v, value: e.target.value, warning: null } : v)),
+                      )
+                    }
+                    className={INPUT}
+                  />
+                  {slots.length > 1 ? (
+                    <button
+                      type="button"
+                      aria-label={`Usuń termin ${i + 1}`}
+                      onClick={() => setSlots((s) => s.filter((_, j) => j !== i))}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </div>
+                {row.quote ? (
+                  <p className="text-xs italic text-muted-foreground">
+                    „{row.quote}”
+                    {row.windowEnd ? ` · okno do ${formatTimeOf(row.windowEnd)} — godzinę ustali rekruter` : ""}
+                  </p>
+                ) : null}
+                {warning ? (
+                  <p className="rounded-md bg-warning-muted px-2 py-1 text-xs text-warning-muted-foreground">{warning}</p>
+                ) : null}
+              </div>
+            );
+          })}
           {slots.length < 6 ? (
             <button
               type="button"
-              onClick={() => setSlots((s) => [...s, ""])}
+              onClick={() => setSlots((s) => [...s, { value: "" }])}
               className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
             >
               <Plus className="h-3.5 w-3.5" /> Dodaj termin
@@ -202,7 +304,7 @@ export function SlotRequestDialog({
             aria-labelledby="slot-duration-label"
             className="inline-flex flex-wrap rounded-lg bg-muted p-1"
           >
-            {[30, 45, 60, 90, 120].map((m) => (
+            {DURATIONS.map((m) => (
               <button
                 key={m}
                 type="button"
@@ -222,12 +324,24 @@ export function SlotRequestDialog({
           </div>
         </div>
         <div>
+          <label htmlFor="slot-respond-by" className="mb-1 block text-xs font-semibold text-muted-foreground">
+            Odpowiedź do klienta do (opcjonalnie)
+          </label>
+          <input
+            id="slot-respond-by"
+            type="datetime-local"
+            value={respondBy}
+            onChange={(e) => setRespondBy(e.target.value)}
+            className={INPUT}
+          />
+        </div>
+        <div>
           <label htmlFor="slot-note" className="mb-1 block text-xs font-semibold text-muted-foreground">
             Notatka dla rekrutera (opcjonalnie)
           </label>
           <textarea
             id="slot-note"
-            rows={2}
+            rows={3}
             maxLength={1000}
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -236,9 +350,19 @@ export function SlotRequestDialog({
           />
         </div>
         {error ? (
-          <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </p>
+          <div ref={errorRef} role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <p>{error}</p>
+            {openRequestId != null ? (
+              <button
+                type="button"
+                onClick={() => submit(openRequestId)}
+                disabled={mutation.isPending}
+                className="mt-2 h-8 rounded-md border border-border bg-card px-3 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-50"
+              >
+                Zastąp otwarte terminy
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </AppModal>
@@ -247,9 +371,46 @@ export function SlotRequestDialog({
 
 /**
  * Wybór (rekruter) albo potwierdzenie (DL) terminu. DL może potwierdzić inny
- * termin niż wybrany, gdy klient zmienił zdanie.
+ * termin niż wybrany, gdy klient zmienił zdanie. Wybór rekrutera to od
+ * 20.10.2026 okno „Umów rozmowę i prepy” (termin + oba prepy w jednym kroku).
  */
-export function SlotDecisionDialog({
+export function SlotDecisionDialog(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  mode: "pick" | "confirm" | "reply";
+  pair: PairInfo | null;
+  request: SlotRequest | null;
+  /** Wybór terminu: termin zaznaczony z linku maila. */
+  initialIndex?: number | null;
+}) {
+  const invalidate = useInvalidateCycle();
+  if (props.mode === "reply") {
+    return (
+      <ClientReplyDialog
+        open={props.open}
+        onOpenChange={props.onOpenChange}
+        pair={props.pair}
+        request={props.request}
+        onInvalidate={invalidate}
+      />
+    );
+  }
+  if (props.mode === "pick") {
+    return (
+      <PickInterviewDialog
+        open={props.open}
+        onOpenChange={props.onOpenChange}
+        pair={props.pair}
+        request={props.request}
+        onInvalidate={invalidate}
+        initialIndex={props.initialIndex}
+      />
+    );
+  }
+  return <SlotDecisionDialogBody {...props} mode={props.mode} />;
+}
+
+function SlotDecisionDialogBody({
   open,
   onOpenChange,
   mode,
@@ -266,32 +427,46 @@ export function SlotDecisionDialog({
   const invalidate = useInvalidateCycle();
   const [index, setIndex] = useState<number | null>(null);
   const [addToOutlook, setAddToOutlook] = useState(true);
+  // Rozmowa, którą ten termin PRZEKŁADA (runda 6 audytu, decyzja Artura
+  // 26.09.2026): bez zaznaczenia nic nie jest odwoływane — para może mieć
+  // kilka rund naraz.
+  const [supersedes, setSupersedes] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setIndex(request?.chosen_index ?? (request?.slots.length === 1 ? 0 : null));
     setAddToOutlook(true);
+    setSupersedes(null);
     setError(null);
   }, [open, request]);
+
+  const replaceable = useQuery({
+    queryKey: ["interview-cycle", "replaceable", request?.id],
+    queryFn: () => interviewCycleApi.replaceableInterviews(request!.id),
+    enabled: open && mode === "confirm" && request != null,
+  });
 
   const mutation = useMutation({
     mutationFn: async () => {
       if (!request || index == null) throw new Error("no-index");
       if (mode === "pick") return interviewCycleApi.chooseSlot(request.id, index);
-      return interviewCycleApi.confirmSlot(request.id, { index, add_to_outlook: addToOutlook });
+      return interviewCycleApi.confirmSlot(request.id, {
+        index,
+        add_to_outlook: addToOutlook,
+        supersedes_event_id: supersedes,
+      });
     },
     onSuccess: (res) => {
       invalidate();
       if (mode === "pick") {
         toast.showSuccess("Termin wysłany do DL — potwierdzi go u klienta.");
       } else {
-        const outlook = (res as { outlook?: string }).outlook;
-        toast.showSuccess(
-          outlook === "added"
-            ? "Termin potwierdzony — rozmowa jest w kalendarzu rekrutera i w jego Outlooku."
-            : "Termin potwierdzony — rozmowa jest w kalendarzu rekrutera w NEXUSIE.",
+        const { tone, message } = slotConfirmedMessage(
+          res as Parameters<typeof slotConfirmedMessage>[0],
         );
+        if (tone === "error") toast.showError(message);
+        else toast.showSuccess(message);
       }
       onOpenChange(false);
     },
@@ -361,6 +536,50 @@ export function SlotDecisionDialog({
             </div>
           </fieldset>
           {request.note ? <p className="text-xs text-muted-foreground">Notatka DL: {request.note}</p> : null}
+          {mode === "confirm" && replaceable.isSuccess && replaceable.data.length > 0 ? (
+            <fieldset>
+              <legend className="mb-2 text-xs font-semibold text-muted-foreground">
+                Kandydat ma już zaplanowaną rozmowę u tego klienta
+              </legend>
+              <div className="space-y-1.5">
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="supersedes"
+                    checked={supersedes == null}
+                    onChange={() => setSupersedes(null)}
+                    className="mt-0.5 h-4 w-4"
+                  />
+                  <span>To kolejna rozmowa — zostaw obie</span>
+                </label>
+                {replaceable.data.map((ev) => (
+                  <label key={ev.id} className="flex items-start gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="supersedes"
+                      checked={supersedes === ev.id}
+                      onChange={() => setSupersedes(ev.id)}
+                      className="mt-0.5 h-4 w-4"
+                    />
+                    <span>
+                      To przełożenie rozmowy z {formatSlot({ start: ev.start_time, end: ev.end_time ?? null })}
+                      <span className="block text-xs text-muted-foreground">
+                        Tamta rozmowa zostanie odwołana. Blokadę w Outlooku rekrutera zdejmiemy, gdy jego skrzynka jest połączona.
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          ) : null}
+          {mode === "confirm" && replaceable.isError ? (
+            <p role="alert" className="text-xs text-muted-foreground">
+              {apiErrorMessage(
+                replaceable.error,
+                "Nie udało się sprawdzić, czy kandydat ma już zaplanowaną rozmowę.",
+              )}
+            </p>
+          ) : null}
           {mode === "confirm" ? (
             <label className="flex items-start gap-2 text-sm">
               <input

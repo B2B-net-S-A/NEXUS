@@ -158,3 +158,52 @@ async def test_bulk_move(app_client: AsyncClient, app_auth_headers: dict):
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["moved"] == 2
+
+
+async def test_bulk_move_post_commit_effects_survive_one_failure(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Runda 2 audytu 25.09.2026: błąd efektu po commicie (przeliczenie ryzyka,
+    pula talentów) robił `db.rollback()` na całej sesji — `current_user`
+    wygasał, kolejne `current_user.id` kończyły się połykanym MissingGreenlet
+    i reszta paczki nie trafiała do pul. Każda osoba ma własny savepoint."""
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    job_id = await _seed_job()
+    cand_ids = [await _seed_candidate(), await _seed_candidate()]
+    for cid in cand_ids:
+        await _move(app_client, app_auth_headers, cid, job_id, "screening")
+    me = await app_client.get("/api/auth/me", headers=app_auth_headers)
+    admin_id = me.json()["id"]
+
+    async def _risk_fails_for_first(db, candidate_id):
+        if candidate_id == cand_ids[0]:
+            raise RuntimeError("symulowana awaria ryzyka")
+
+    pool_calls: list[tuple[int, int]] = []
+
+    async def _pool(*, db, candidate_id, job, user_id, candidate):
+        pool_calls.append((candidate_id, user_id))
+        if candidate_id == cand_ids[0]:
+            raise RuntimeError("symulowana awaria puli")
+
+    monkeypatch.setattr(
+        "app.services.candidate_risk.on_candidate_stage_change",
+        _risk_fails_for_first,
+    )
+    monkeypatch.setattr("app.services.talent_pool_auto_add.auto_add_on_cv_sent", _pool)
+
+    resp = await app_client.post(
+        "/api/pipeline/bulk-move",
+        headers=app_auth_headers,
+        json={
+            "candidate_ids": cand_ids,
+            "job_id": job_id,
+            "stage": "cv_sent",
+            "client_rate_value": "180",
+            "client_rate_unit": "hourly",
+            "client_rate_currency": "PLN",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["moved"] == 2
+    assert sorted(pool_calls) == sorted((cid, admin_id) for cid in cand_ids)

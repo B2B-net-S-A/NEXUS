@@ -25,14 +25,16 @@ from app.models.candidate import Candidate
 from app.models.job import Job
 from app.services.candidate_job_eligibility import Severity, Visibility
 from app.services.eligibility_annotation import eligibility_annotation
+from app.services.must_text_evidence import attach_gate_evidence
 from app.services.dealbreaker_filters import (
     DealbreakerInputs,
     DealbreakerResult,
-    apply_dealbreakers,
     dealbreaker_inputs_for_job,
+    employment_only_refuses_b2b,
     missing_must_skills,
     office_fit_status,
     rate_fit_status,
+    remote_fit_status,
     work_time_fit_status,
     resolve_job_budget_hourly,
 )
@@ -41,6 +43,7 @@ from app.services.location_utils import (
     location_matches as _location_matches,
     location_tokens as _location_tokens,
 )
+from app.services.candidate_rate_from import effective_rate
 from app.services.scoring_service import (
     _extract_skills_from_champion,
     candidate_skill_names,
@@ -218,15 +221,16 @@ def _build_match_info(
             # miasto"). Wszystkie z wczytanego wiersza — zero dodatkowych zapytań.
             # `getattr` z domyślną: realny ORM ma te pola, ale atrapy testowe
             # (SimpleNamespace) nie muszą — brak pola nie może wywalić rankingu.
+            # „Stawka od” (0414) — ta sama liczba, z którą porównuje `rate_fit`.
+            # Waluta idzie z tej samej pary: po przeliczeniu PLN, przed nim —
+            # waluta profilu (EUR zostaje EUR, plakietka mówi „nie wiadomo”).
             "expected_rate_hourly": (
                 float(rate_hourly)
-                if (rate_hourly := getattr(candidate, "expected_rate_hourly", None))
+                if (rate_hourly := (rate_pair := effective_rate(candidate))[0])
                 is not None
                 else None
             ),
-            "expected_rate_currency": getattr(
-                candidate, "expected_rate_currency", None
-            ),
+            "expected_rate_currency": rate_pair[1],
             # This dedicated column stores hourly amounts; no unit inference
             # is made from historical free-text or monthly rate fields.
             "expected_rate_unit": "hour" if rate_hourly is not None else None,
@@ -248,8 +252,20 @@ def _build_match_info(
         "work_time_fit": (
             work_time_fit_status(candidate, inputs) if inputs else "not_applicable"
         ),
+        # „Tylko zdalnie” przy hybrydzie: plakietka, nie ukrycie (07.10.2026).
+        "remote_fit": (
+            remote_fit_status(candidate, inputs) if inputs else "not_required"
+        ),
         "missing_must": (
-            missing_must_skills(candidate, inputs.must_skills) if inputs else []
+            missing_must_skills(
+                candidate,
+                inputs.must_skills,
+                verification_job_id=inputs.verification_job_id,
+                verification_fingerprint=inputs.verification_fingerprint,
+                options=inputs.gate_options,
+            )
+            if inputs
+            else []
         ),
     }
 
@@ -352,12 +368,16 @@ async def _gate_and_dealbreakers(
     # i rekruter szuka tej osoby od nowa. Miękkie ostrzeżenia (konflikt klienta,
     # obecne zatrudnienie, wykluczenie) są przypisywalne, więc budżet ścina je
     # jak każdego innego kandydata.
+    # Wyjątek od wyjątku: „tylko umowa o pracę” z rozmowy (0374) ukrywa ZAWSZE
+    # — pracujemy wyłącznie na B2B, więc osoba z wetem HM i tak nie jest
+    # kandydatem; weto nie może jej przywrócić na listę.
     blocked_visible_ids = {
         c.id
         for c in visible
         if (d := decisions.get(c.id)) is not None
         and d.severity is Severity.hard
         and d.visibility is Visibility.warn
+        and not employment_only_refuses_b2b(c)
     }
     dealbreakable = [c for c in visible if c.id not in blocked_visible_ids]
 
@@ -374,7 +394,19 @@ async def _gate_and_dealbreakers(
     # zastosowała, a nie drugim, niezależnym wyliczeniem tego samego.
     if inputs is None:
         inputs = dealbreaker_inputs_for_job(job)
-    db_res = apply_dealbreakers(
+    # Runda 10 (R10-V2-10): pula do MATCH_POOL_SIZE (1000) to 60–125 ms czystego
+    # CPU w jedynym procesie — paczki z oddaniem pętli, jak ścieżka legacy
+    # radaru (R9-N5-1).
+    from app.services.talent_radar_search import (  # noqa: PLC0415 — cykl importów
+        _apply_dealbreakers_yielding,
+    )
+
+    # 27.09.2026: must spełnia też CV i notatki — dowód dla całej widocznej
+    # puli (także wiersze z wetem HM: chipy ✓/✗ muszą mówić to samo co bramka).
+    await attach_gate_evidence(
+        db, visible, inputs.gate_evidence_labels, options=inputs.gate_options
+    )
+    db_res = await _apply_dealbreakers_yielding(
         dealbreakable,
         inputs=inputs,
         exclude_over_budget=exclude_over_budget,

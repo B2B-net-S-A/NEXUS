@@ -13,6 +13,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import and_, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import (
@@ -43,11 +44,16 @@ from app.schemas.job_chat import (
     ReactionToggleResponse,
     ReadByUser,
 )
+from app.services import chat_notifications
 from app.services.chat_reactions import aggregate_job_reactions
 from app.services.job_membership import (
     is_member_of_job,
     list_job_member_ids,
     list_job_members,
+)
+from app.services.mention_dispatch import (
+    refresh_chat_message_snippets,
+    retract_chat_message_notifications,
 )
 from app.services.mention_parser import parse_mentions
 
@@ -107,47 +113,94 @@ def _reply_preview(content: str, limit: int = 120) -> str:
     return cleaned[: limit - 1] + "…"
 
 
-async def _serialize(db: AsyncSession, msg: JobChatMessage) -> ChatMessageResponse:
-    """Zbuduj ChatMessageResponse — z author, mentions, reply preview."""
-    author = await db.get(User, msg.author_id) if msg.author_id is not None else None
+async def _serialize_many(
+    db: AsyncSession, msgs: list[JobChatMessage]
+) -> list[ChatMessageResponse]:
+    """Hurtowo: autorzy, cytowane wiadomości, wzmianki, reakcje — stała liczba zapytań.
 
-    reply_preview: Optional[str] = None
-    if msg.reply_to_message_id:
-        parent = await db.get(JobChatMessage, msg.reply_to_message_id)
+    Runda 10 (R10-N6-11): wersja per wiadomość robiła ~4 zapytania na wiersz
+    (do 800 przy ``limit=200``); lustro ``candidate_chat._serialize_many``.
+    """
+    if not msgs:
+        return []
+
+    author_ids = {m.author_id for m in msgs if m.author_id is not None}
+    authors_map: dict[int, User] = {}
+    if author_ids:
+        rows = await db.execute(select(User).where(User.id.in_(author_ids)))
+        for u in rows.scalars().all():
+            authors_map[u.id] = u
+
+    parent_ids = {
+        m.reply_to_message_id for m in msgs if m.reply_to_message_id is not None
+    }
+    parents_map: dict[int, JobChatMessage] = {}
+    if parent_ids:
+        rows = await db.execute(
+            select(JobChatMessage).where(JobChatMessage.id.in_(parent_ids))
+        )
+        for parent in rows.scalars().all():
+            parents_map[parent.id] = parent
+
+    msg_ids = [m.id for m in msgs]
+    mentions_map: dict[int, list[int]] = {}
+    rows = await db.execute(
+        select(JobChatMention.message_id, JobChatMention.user_id).where(
+            JobChatMention.message_id.in_(msg_ids)
+        )
+    )
+    for mid, uid in rows.all():
+        mentions_map.setdefault(mid, []).append(uid)
+
+    reactions_map = await aggregate_job_reactions(db, msg_ids)
+
+    out: list[ChatMessageResponse] = []
+    for msg in msgs:
+        author = authors_map.get(msg.author_id) if msg.author_id is not None else None
+        reply_preview: Optional[str] = None
+        parent = (
+            parents_map.get(msg.reply_to_message_id)
+            if msg.reply_to_message_id is not None
+            else None
+        )
         if parent is not None:
-            if parent.is_deleted:
-                reply_preview = DELETED_PLACEHOLDER
-            else:
-                reply_preview = _reply_preview(parent.content)
+            reply_preview = (
+                DELETED_PLACEHOLDER
+                if parent.is_deleted
+                else _reply_preview(parent.content)
+            )
+        out.append(
+            ChatMessageResponse(
+                id=msg.id,
+                job_id=msg.job_id,
+                content=DELETED_PLACEHOLDER if msg.is_deleted else msg.content,
+                author=_user_to_mini(author),
+                reply_to_message_id=msg.reply_to_message_id,
+                reply_to_preview=reply_preview,
+                is_edited=msg.is_edited,
+                edited_at=msg.edited_at,
+                is_deleted=msg.is_deleted,
+                pinned=msg.pinned,
+                pinned_at=msg.pinned_at,
+                pinned_by=msg.pinned_by,
+                mentions=mentions_map.get(msg.id, []),
+                reactions=[
+                    ReactionAggregate(**r) for r in reactions_map.get(msg.id, [])
+                ],
+                created_at=msg.created_at,
+                updated_at=msg.updated_at,
+            )
+        )
+    return out
 
-    mention_rows = await db.execute(
-        select(JobChatMention.user_id).where(JobChatMention.message_id == msg.id)
-    )
-    mentions = [uid for (uid,) in mention_rows.all()]
 
-    reactions_map = await aggregate_job_reactions(db, [msg.id])
-    reactions = [ReactionAggregate(**r) for r in reactions_map.get(msg.id, [])]
+async def _serialize(db: AsyncSession, msg: JobChatMessage) -> ChatMessageResponse:
+    """Jedna wiadomość (odpowiedź na zapis, zdarzenie WS)."""
+    return (await _serialize_many(db, [msg]))[0]
 
-    visible_content = DELETED_PLACEHOLDER if msg.is_deleted else msg.content
 
-    return ChatMessageResponse(
-        id=msg.id,
-        job_id=msg.job_id,
-        content=visible_content,
-        author=_user_to_mini(author),
-        reply_to_message_id=msg.reply_to_message_id,
-        reply_to_preview=reply_preview,
-        is_edited=msg.is_edited,
-        edited_at=msg.edited_at,
-        is_deleted=msg.is_deleted,
-        pinned=msg.pinned,
-        pinned_at=msg.pinned_at,
-        pinned_by=msg.pinned_by,
-        mentions=mentions,
-        reactions=reactions,
-        created_at=msg.created_at,
-        updated_at=msg.updated_at,
-    )
+def _message_link(job_id: int, msg_id: int) -> str:
+    return f"/jobs/{job_id}?tab=chat&msg={msg_id}"
 
 
 async def _broadcast(
@@ -190,6 +243,9 @@ async def list_messages(
     if before_id is not None:
         q = q.where(JobChatMessage.id < before_id)
     if search:
+        # Runda 10 (R10-N6-9): `search_vector` indeksuje treść także po
+        # miękkim usunięciu — trafienie zdradzało, co było w usuniętej.
+        q = q.where(JobChatMessage.is_deleted.is_(False))
         # plainto_tsquery jest 'safe' — automatycznie escape'uje query.
         q = q.where(
             JobChatMessage.search_vector.op("@@")(
@@ -203,7 +259,7 @@ async def list_messages(
     has_more = len(rows) > limit
     page = list(rows[:limit])
 
-    items = [await _serialize(db, m) for m in page]
+    items = await _serialize_many(db, page)
     next_before_id = page[-1].id if (has_more and page) else None
 
     return ChatMessageList(
@@ -268,9 +324,11 @@ async def create_message(
 
     # Notyfikacje persistent — każdy członek projektu (poza autorem) dostaje
     # standardowy `job_chat_message`; mention'y dostają DODATKOWO `job_chat_mention`.
-    member_ids = await list_job_member_ids(db, job_id)
+    # „Poprzedni rekruter” (14.10.2026) nie dostaje dzwonka o każdej wiadomości
+    # — wzmianka dalej go budzi, a czat zna go jak dotąd.
+    member_ids = await list_job_member_ids(db, job_id, include_parked=False)
     target_ids = [uid for uid in member_ids if uid != current_user.id]
-    link = f"/jobs/{job_id}?tab=chat&msg={msg.id}"
+    link = _message_link(job_id, msg.id)
     snippet = _reply_preview(data.content, limit=140)
 
     for uid in target_ids:
@@ -315,6 +373,17 @@ async def create_message(
             "data": {"job_id": job_id, "message": payload.model_dump(mode="json")},
         },
     )
+    await chat_notifications.notify_recipients(
+        db,
+        notify_user,
+        kind="job",
+        entity_id=job_id,
+        link=link,
+        author_name=current_user.name,
+        preview=snippet,
+        message_recipient_ids=target_ids,
+        mention_recipient_ids=mentioned_ids,
+    )
     return payload
 
 
@@ -350,6 +419,17 @@ async def edit_message(
     msg.is_edited = True
     msg.edited_at = datetime.now(timezone.utc)
 
+    old_mentions = set(
+        (
+            await db.execute(
+                select(JobChatMention.user_id).where(
+                    JobChatMention.message_id == msg.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     # Re-parse @mentions: usuń poprzednie i utwórz nowe
     await db.execute(
         JobChatMention.__table__.delete().where(JobChatMention.message_id == msg.id)
@@ -358,6 +438,31 @@ async def edit_message(
     new_mentions = [uid for uid in new_mentions if uid != current_user.id]
     for uid in new_mentions:
         db.add(JobChatMention(message_id=msg.id, user_id=uid))
+
+    link = _message_link(job_id, msg.id)
+    snippet = _reply_preview(data.content, limit=140)
+    # Runda 10 (R10-N6-3): dzwonek i mail zastępczy niosły pierwotną treść.
+    await refresh_chat_message_snippets(
+        db,
+        related_entity_type="job_chat_message",
+        link=link,
+        message_created_at=msg.created_at,
+        snippet=snippet,
+    )
+    # Runda 10 (R10-N6-10): wzmianka dopisana przy edycji powiadamia — jak
+    # w notatkach (`update_note`).
+    for uid in sorted(set(new_mentions) - old_mentions):
+        db.add(
+            Notification(
+                user_id=uid,
+                title=f"{current_user.name} oznaczył(a) Cię w czacie",
+                message=snippet,
+                link=link,
+                notification_type=NotificationType.job_chat_mention,
+                related_entity_type="job_chat_message",
+                related_entity_id=None,  # chat notifications nie używają dedup
+            )
+        )
 
     await db.commit()
     await db.refresh(msg)
@@ -409,6 +514,14 @@ async def delete_message(
     msg.pinned = False
     msg.pinned_at = None
     msg.pinned_by = None
+    # Runda 10 (R10-N6-3): usunięta treść nie zostaje w dzwonku i nie wychodzi
+    # mailem zastępczym po 15 min.
+    await retract_chat_message_notifications(
+        db,
+        related_entity_type="job_chat_message",
+        link=_message_link(job_id, msg.id),
+        message_created_at=msg.created_at,
+    )
     await db.commit()
 
     await _broadcast(
@@ -530,7 +643,7 @@ async def list_pinned(
         .scalars()
         .all()
     )
-    return [await _serialize(db, m) for m in rows]
+    return await _serialize_many(db, list(rows))
 
 
 # ── Read state / unread ──────────────────────────────────────────────────────
@@ -551,32 +664,42 @@ async def mark_read(
         )
     ).scalar()
 
-    state = (
-        await db.execute(
-            select(JobChatReadState).where(
-                and_(
-                    JobChatReadState.job_id == job_id,
-                    JobChatReadState.user_id == current_user.id,
-                )
-            )
-        )
-    ).scalar_one_or_none()
-
+    # Atomowy upsert zamiast SELECT + INSERT: równoległe PUT-y /chat/read
+    # (mount + załadowanie wiadomości + WS) wstawiały ten sam wiersz i
+    # wywracały się na uq_job_chat_read_state_job_user. GREATEST pilnuje,
+    # żeby spóźnione żądanie nie cofnęło znacznika przeczytania.
     now = datetime.now(timezone.utc)
-    if state is None:
-        state = JobChatReadState(
-            job_id=job_id,
-            user_id=current_user.id,
-            last_read_message_id=last_id,
-            last_read_at=now,
+    stmt = pg_insert(JobChatReadState).values(
+        job_id=job_id,
+        user_id=current_user.id,
+        last_read_message_id=last_id,
+        last_read_at=now,
+    )
+    await db.execute(
+        stmt.on_conflict_do_update(
+            constraint="uq_job_chat_read_state_job_user",
+            set_={
+                "last_read_message_id": func.greatest(
+                    JobChatReadState.last_read_message_id,
+                    stmt.excluded.last_read_message_id,
+                ),
+                "last_read_at": stmt.excluded.last_read_at,
+            },
         )
-        db.add(state)
-    else:
-        state.last_read_message_id = last_id
-        state.last_read_at = now
+    )
 
+    # Wejście do czatu gasi jego powiadomienia — do 09.10.2026 trzeba je było
+    # odklikiwać osobno w dzwonku.
+    cleared = await chat_notifications.mark_read(
+        db, current_user.id, kind="job", entity_id=job_id
+    )
     await db.commit()
-    return ChatUnreadCount(job_id=job_id, unread_count=0, last_read_message_id=last_id)
+    return ChatUnreadCount(
+        job_id=job_id,
+        unread_count=0,
+        last_read_message_id=last_id,
+        notifications_cleared=cleared,
+    )
 
 
 @router.get("/{job_id}/chat/unread-count", response_model=ChatUnreadCount)
@@ -659,7 +782,8 @@ async def add_reaction(
     if msg.is_deleted:
         raise HTTPException(status_code=400, detail="Nie można reagować na usuniętą.")
 
-    emoji = (payload or {}).get("emoji", "").strip()
+    emoji = (payload or {}).get("emoji")
+    emoji = emoji.strip() if isinstance(emoji, str) else ""
     if not emoji or len(emoji) > 16:
         raise HTTPException(
             status_code=400, detail="Emoji jest wymagane (max 16 znaków)."

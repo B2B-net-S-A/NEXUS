@@ -51,9 +51,10 @@ _INDEXING_CALLS = {
 
 # (plik, funkcja) — każda ścieżka, która tworzy kandydata.
 _WRITE_PATHS = [
-    ("app/api/candidates.py", "create_candidate"),
-    ("app/api/candidates.py", "create_candidate_from_linkedin"),
+    # Ciało `POST /api/candidates` (ekran i API v1 od 15.10.2026).
+    ("app/api/candidates.py", "apply_candidate_create"),
     ("app/api/import_export.py", "import_candidates"),
+    ("app/api/candidates.py", "bulk_import_candidates"),
     ("app/services/traffit/importer.py", "import_candidates"),
 ]
 
@@ -110,10 +111,8 @@ _KNOWN_UNINDEXED = {
     # kandydaci w bazie — ludzie, którzy sami zaaplikowali na ogłoszenie — i
     # żaden z nich nie trafia do matchingu.
     "app/api/application_submissions.py::resolve_application_submission",
-    # Import wsadowy z panelu (POST /api/candidates/bulk-import). Ścieżka
-    # masowa, więc lekarstwem jest `record_bulk_reindex`, nie embedowanie
-    # w pętli (patrz `test_bulk_paths_do_not_embed_inline`).
-    "app/api/candidates.py::bulk_import_candidates",
+    # (Runda 10, R10-N13-8: `bulk_import_candidates` zapisuje już intencję
+    # przez `record_bulk_reindex` i zniknął z tej listy.)
 }
 
 
@@ -162,7 +161,7 @@ def _discover_candidate_write_paths() -> dict[str, set[str]]:
 def test_discovery_sees_the_known_good_paths() -> None:
     """Zabezpieczenie przed testem, który przechodzi, bo nic nie znalazł."""
     discovered = _discover_candidate_write_paths()
-    assert discovered.get("app/api/candidates.py::create_candidate"), (
+    assert discovered.get("app/api/candidates.py::apply_candidate_create"), (
         "detektor przestał widzieć ścieżkę, o której WIEMY, że tworzy i "
         "indeksuje kandydata — reszta tego pliku jest wtedy pusta"
     )
@@ -199,6 +198,7 @@ def test_bulk_paths_do_not_embed_inline() -> None:
     """
     for path, func_name in [
         ("app/api/import_export.py", "import_candidates"),
+        ("app/api/candidates.py", "bulk_import_candidates"),
         ("app/services/traffit/importer.py", "import_candidates"),
     ]:
         node = _function_node(path, func_name)

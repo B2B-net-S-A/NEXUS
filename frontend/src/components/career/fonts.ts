@@ -9,6 +9,9 @@ import localFont from "next/font/local";
  */
 export const careerDisplayFont = localFont({
   src: [
+    // 400/500: tekst do czytania w Geist (etap 7, D4 = A, 21.10.2026).
+    { path: "../../app/fonts/Geist-400.woff2", weight: "400", style: "normal" },
+    { path: "../../app/fonts/Geist-500.woff2", weight: "500", style: "normal" },
     { path: "../../app/fonts/Geist-700.woff2", weight: "700", style: "normal" },
     { path: "../../app/fonts/Geist-800.woff2", weight: "800", style: "normal" },
   ],

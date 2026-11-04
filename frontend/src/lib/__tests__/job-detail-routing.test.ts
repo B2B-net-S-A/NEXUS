@@ -20,7 +20,7 @@ describe("resolveLegacyJobTab", () => {
     ["ai-matching", { view: "people", segment: "proposals" }],
     ["similar", { view: "people", segment: "proposals" }],
     ["manual-search", { view: "people", slideOver: "manual-search" }],
-    ["portals", { view: "people", slideOver: "order" }],
+    ["portals", { view: "people", slideOver: "order", orderSection: "portals" }],
     ["questions", { view: "people", slideOver: "questions" }],
     ["history", { view: "people", slideOver: "history-chat", slideOverTab: "request" }],
     ["chat", { view: "people", slideOver: "history-chat", slideOverTab: "chat" }],
@@ -70,6 +70,7 @@ describe("readJobDetailUrlState", () => {
       slideOver: null,
       slideOverTab: null,
       orderSection: null,
+      sourceTab: null,
       highlightProposals: false,
     });
   });
@@ -85,6 +86,32 @@ describe("readJobDetailUrlState", () => {
       orderSection: null,
     });
     expect(read("win=order&wintab=team").orderSection).toBe("team");
+    // Okno „Pliki” z menu „⋯” (0428, 09.10.2026).
+    expect(read("win=files").slideOver).toBe("files");
+    expect(read("win=client-panel").slideOver).toBe("client-panel");
+    // Dawny panel przepięć (`?win=similar`) to od 02.10.2026 zakładka okna
+    // „Kandydaci do dodania”; `?tab=similar` z powiadomień o propozycjach AI
+    // zostaje przy „Do przejrzenia”.
+    expect(read("win=similar")).toMatchObject({ slideOver: "add", sourceTab: "similar" });
+    expect(read("tab=similar")).toMatchObject({ segment: "proposals", slideOver: null });
+  });
+
+  it("okno „Kandydaci do dodania”: zakładka z `wintab`, bez niej „Propozycje z bazy”", () => {
+    expect(read("win=add&wintab=postings")).toMatchObject({ slideOver: "add", sourceTab: "postings" });
+    expect(read("win=add&wintab=search").sourceTab).toBe("search");
+    expect(read("win=add").sourceTab).toBe("base");
+    expect(read("win=add&wintab=nope").sourceTab).toBe("base");
+    expect(read("win=order&wintab=search").sourceTab).toBeNull();
+  });
+
+  it("„Szukaj ręcznie” to zakładka okna źródeł — także ze starego adresu (14.10.2026)", () => {
+    expect(read("win=add&wintab=manual")).toMatchObject({ slideOver: "add", sourceTab: "manual" });
+    expect(read("win=manual-search")).toMatchObject({ slideOver: "add", sourceTab: "manual" });
+    expect(read("tab=manual-search")).toMatchObject({
+      view: "people",
+      slideOver: "add",
+      sourceTab: "manual",
+    });
   });
 
   it("stary adres daje ten sam stan co nowy", () => {
@@ -93,7 +120,7 @@ describe("readJobDetailUrlState", () => {
       slideOver: "history-chat",
       slideOverTab: "chat",
     });
-    expect(read("tab=portals")).toMatchObject({ slideOver: "order", orderSection: null });
+    expect(read("tab=portals")).toMatchObject({ slideOver: "order", orderSection: "portals" });
     expect(read("tab=notes&candidate=7")).toMatchObject({ view: "people", panelSection: "notes" });
   });
 
@@ -152,9 +179,11 @@ describe("rewriteLegacyJobParams", () => {
     expect(rewrite("tab=notes&candidate=3")).toBe("candidate=3&tab=people&panel=notes");
     expect(rewrite("tab=chat")).toBe("tab=people&win=history-chat&wintab=chat");
     expect(rewrite("tab=history")).toBe("tab=people&win=history-chat&wintab=request");
-    expect(rewrite("tab=portals")).toBe("tab=people&win=order");
+    expect(rewrite("tab=portals")).toBe("tab=people&win=order&wintab=portals");
     expect(rewrite("tab=questions")).toBe("tab=people&win=questions");
-    expect(rewrite("tab=manual-search")).toBe("tab=people&win=manual-search");
+    expect(rewrite("tab=manual-search")).toBe("tab=people&win=add&wintab=manual");
+    expect(rewrite("win=manual-search")).toBe("win=add&wintab=manual");
+    expect(rewrite("win=add&wintab=manual")).toBeNull();
     expect(rewrite("tab=similar")).toBe("tab=people&seg=proposals");
   });
 

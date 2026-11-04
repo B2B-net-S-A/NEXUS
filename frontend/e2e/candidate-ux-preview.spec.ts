@@ -66,11 +66,11 @@ test.describe("candidate UX deterministic previews", () => {
       await expectNoPageOverflow(page);
 
       if (viewport.width < 1024) {
-        await expect(page.getByRole("heading", { name: "Janusz Prażmowski" })).toBeVisible();
+        await expect(page.getByRole("heading", { name: "Janusz Przykładowy" })).toBeVisible();
         await expect(page.getByRole("button", { name: "Podgląd" }).first()).toBeVisible();
         await expect(page.getByRole("table")).toBeHidden();
       } else {
-        await expect(page.getByRole("button", { name: "Janusz Prażmowski", exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Janusz Przykładowy", exact: true })).toBeVisible();
         await expect(page.getByRole("table")).toBeVisible();
         await expect(page.getByRole("columnheader", { name: "Kandydat" })).toBeVisible();
         await expect(page.getByRole("columnheader", { name: "Ostatnia aktywność" })).toBeVisible();
@@ -78,16 +78,16 @@ test.describe("candidate UX deterministic previews", () => {
     });
   }
 
-  // Profil ma od 22.09.2026 CZTERY zakładki (Profil · Rekrutacje · Historia ·
-  // Pliki i umowy, #1689) w jednym pasku, który na telefonie przewija się
-  // poziomo — dawnej listy rozwijanej „Sekcja profilu" już nie ma.
-  test("profile exposes four sections and they stay usable on mobile", async ({ page }) => {
+  // Profil ma od 13.10.2026 SZEŚĆ zakładek (Przegląd · Rekrutacje · Screening ·
+  // Notatki · CV · Dokumenty) w jednym pasku, który na telefonie przewija się
+  // poziomo.
+  test("profile exposes six sections and they stay usable on mobile", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/preview/candidate-profile");
 
     const tabs = page.getByRole("tablist", { name: "Sekcje profilu kandydata" });
     await expect(tabs).toBeVisible();
-    const history = tabs.getByRole("tab", { name: /Historia/ });
+    const history = tabs.getByRole("tab", { name: /^Notatki/ });
     await history.scrollIntoViewIfNeeded();
     await history.click();
     await expect(history).toHaveAttribute("aria-selected", "true");
@@ -95,8 +95,8 @@ test.describe("candidate UX deterministic previews", () => {
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.reload();
-    for (const label of ["Profil", "Rekrutacje", "Historia", "Pliki i umowy"]) {
-      await expect(page.getByRole("tab", { name: new RegExp(label) })).toBeVisible();
+    for (const label of [/^Przegląd/, /^Rekrutacje/, /^Screening/, /^Notatki/, /^CV/, /^Dokumenty/]) {
+      await expect(page.getByRole("tab", { name: label })).toBeVisible();
     }
   });
 

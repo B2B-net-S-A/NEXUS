@@ -428,6 +428,9 @@ def test_salary_layer_is_really_scored_on_the_radar_path(monkeypatch):
     monkeypatch.setattr(
         scoring_service.settings, "CHAMPION_MATCH_SIGNALS_ENABLED", True
     )
+    # Stawka w punktach to tryb v8 (MUST_GATE_MODE=all) od 30.09.2026 —
+    # w trybie domyślnym jest plakietką (test_critical_gate.py).
+    monkeypatch.setattr(scoring_service.settings, "MUST_GATE_MODE", "all")
 
     job = build_ephemeral_job(
         RadarQuery(
@@ -668,6 +671,7 @@ async def test_search_survives_the_real_eligibility_path(monkeypatch):
 # ── rubryki 0278: dni w biurze / miasto biura uzbrajają bramkę ──────────────
 
 
+@pytest.mark.usefixtures("v8_must_gate")
 @pytest.mark.asyncio
 async def test_radar_office_fields_arm_the_gate(monkeypatch):
     """Kandydat z deklaracją 1 dnia w biurze odpada przy wymogu 3 dni."""

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { AppModal } from "@/components/ds/AppModal";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -8,6 +8,7 @@ import {
   PREP_ITEM_LABELS,
   PREP_LEVEL_LABELS,
   formatTalkShare,
+  isReviewV2,
   prepStatusLine,
   usePrep,
   usePrepTranscript,
@@ -17,6 +18,8 @@ import {
 } from "@/lib/api/prepMeetings";
 import { candidateLabel, pairContext, type PairInfo } from "@/lib/interview-cycle";
 import { cn } from "@/lib/utils";
+
+import { ReviewScoreTab, ReviewSummaryTab, ReviewTranscriptTab } from "./PrepReviewTabs";
 
 const LEVEL_CLASS: Record<"weak" | "ok" | "good", string> = {
   weak: "bg-destructive/10 text-destructive",
@@ -31,70 +34,115 @@ const ITEM_CLASS: Record<PrepItemStatus, string> = {
   missing: "text-destructive",
 };
 
+export type PrepReviewTab = "score" | "summary" | "transcript";
+
 /**
- * Ocena prepu z transkryptu Teams. Poziom liczy serwer z punktów i udziału
- * kandydata w rozmowie; każdy punkt „omówione” ma cytat z rozmowy. Ocena jest
- * podpowiedzią dla prowadzącego — nic nie blokuje ruchu kandydata.
+ * Ocena prepu z transkryptu Teams — zakładki Ocena · Podsumowanie
+ * i follow-up · Transkrypt (v2, 22.10.2026). Wynik liczy serwer z ustawień
+ * Ocena prepów; ocena jest podpowiedzią — nic nie blokuje ruchu kandydata.
+ * Oceny sprzed v2 mają tylko punkty „omówione / nie było” (`PrepSummary`).
  */
 export function PrepReviewDialog({
   open,
   onOpenChange,
   eventId,
   pair,
+  initialTab = "score",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   eventId: number | null;
   pair: PairInfo | null;
+  initialTab?: PrepReviewTab;
 }) {
   const prep = usePrep(open ? eventId : null);
-  const [showTranscript, setShowTranscript] = useState(false);
-  const transcript = usePrepTranscript(eventId, open && showTranscript);
+  const [tab, setTab] = useState<PrepReviewTab>(initialTab);
+  const [focusQuote, setFocusQuote] = useState<string | null>(null);
+  const transcript = usePrepTranscript(eventId, open && tab === "transcript");
+
+  // Okno jest zamontowane na stałe — przy każdym otwarciu zaczyna od zakładki,
+  // z której przyszło wejście („Transkrypt” w karcie osoby otwiera transkrypt).
+  useEffect(() => {
+    if (open) {
+      setTab(initialTab);
+      setFocusQuote(null);
+    }
+  }, [open, initialTab]);
+
+  const data = prep.data;
+  const v2 = isReviewV2(data?.review);
+  const hasTranscript = data?.transcript_status === "fetched";
+  const tabs: Array<[PrepReviewTab, string]> = [
+    ["score", "Ocena"],
+    ...(v2 ? ([["summary", "Podsumowanie i follow-up"]] as Array<[PrepReviewTab, string]>) : []),
+    ...(hasTranscript ? ([["transcript", "Transkrypt"]] as Array<[PrepReviewTab, string]>) : []),
+  ];
+  const active = tabs.some(([id]) => id === tab) ? tab : "score";
+
+  const showQuote = (quote: string) => {
+    setFocusQuote(quote);
+    setTab("transcript");
+  };
 
   return (
     <AppModal
       open={open}
       onOpenChange={(o) => {
-        if (!o) setShowTranscript(false);
+        if (!o) {
+          setTab(initialTab);
+          setFocusQuote(null);
+        }
         onOpenChange(o);
       }}
-      size="lg"
-      title={prep.data ? `Prep ${prep.data.prep_no} — ocena` : "Ocena prepu"}
+      size="xl"
+      title={data ? `Prep ${data.prep_no} — ocena` : "Ocena prepu"}
       description={pair ? `${candidateLabel(pair)} · ${pairContext(pair)}` : undefined}
     >
       {prep.isPending ? (
         <p className="text-sm text-muted-foreground">Ładowanie prepu…</p>
-      ) : prep.isError || !prep.data ? (
+      ) : prep.isError || !data ? (
         <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {apiErrorMessage(prep.error, "Nie udało się wczytać prepu.")}
         </p>
       ) : (
-        <div className="space-y-4">
-          <PrepSummary prep={prep.data} />
-          {prep.data.transcript_status === "fetched" ? (
-            <div>
-              <button
-                type="button"
-                onClick={() => setShowTranscript((v) => !v)}
-                aria-expanded={showTranscript}
-                className="text-xs font-semibold text-primary hover:underline"
-              >
-                {showTranscript ? "Ukryj transkrypt" : "Pokaż pełny transkrypt"}
-              </button>
-              {showTranscript ? (
-                transcript.isPending ? (
-                  <p className="mt-2 text-xs text-muted-foreground">Ładowanie transkryptu…</p>
-                ) : transcript.isError || !transcript.data ? (
-                  <p role="alert" className="mt-2 text-xs text-destructive">
-                    {apiErrorMessage(transcript.error, "Nie udało się wczytać transkryptu.")}
-                  </p>
-                ) : (
-                  <pre className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap rounded-lg bg-muted/50 p-3 font-sans text-xs text-foreground">
-                    {transcript.data.text}
-                  </pre>
-                )
-              ) : null}
+        <div className="flex flex-col gap-4">
+          <PrepFacts prep={data} />
+          {tabs.length > 1 ? (
+            <div role="tablist" aria-label="Ocena prepu" className="flex gap-1 border-b border-border">
+              {tabs.map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active === id}
+                  onClick={() => setTab(id)}
+                  className={cn(
+                    "min-h-11 border-b-2 px-3 text-sm",
+                    active === id
+                      ? "border-primary font-semibold text-primary"
+                      : "border-transparent text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
+          ) : null}
+          {active === "score" ? (
+            v2 ? (
+              <ReviewScoreTab prep={data} onQuote={showQuote} />
+            ) : (
+              <PrepSummary prep={data} withFacts={false} />
+            )
+          ) : null}
+          {active === "summary" && v2 ? <ReviewSummaryTab prep={data} onQuote={showQuote} /> : null}
+          {active === "transcript" ? (
+            <ReviewTranscriptTab
+              transcript={transcript.data}
+              isPending={transcript.isPending}
+              error={transcript.isError ? transcript.error : null}
+              focusQuote={focusQuote}
+            />
           ) : null}
         </div>
       )}
@@ -102,7 +150,28 @@ export function PrepReviewDialog({
   );
 }
 
-export function PrepSummary({ prep }: { prep: Prep }) {
+/** Kto prowadził, ile trwało, ile mówił kandydat — nad zakładkami. */
+function PrepFacts({ prep }: { prep: Prep }) {
+  const status = prepStatusLine(prep);
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+        {prep.organizer ? <span>Prowadził(a): {prep.organizer.name}</span> : null}
+        {prep.duration_seconds ? <span>· {Math.max(1, Math.round(prep.duration_seconds / 60))} min</span> : null}
+        {prep.transcript_status === "fetched" ? <span>· kandydat mówił {formatTalkShare(prep.talk_share)}</span> : null}
+        {prep.online_meeting_url ? (
+          <a href={prep.online_meeting_url} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+            · Spotkanie w Teams ↗
+          </a>
+        ) : null}
+      </div>
+      {status ? <p className="rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground">{status}</p> : null}
+    </div>
+  );
+}
+
+/** Ocena sprzed v2: punkty „omówione / nie było”. `withFacts` = z linią faktów. */
+export function PrepSummary({ prep, withFacts = true }: { prep: Prep; withFacts?: boolean }) {
   const review = prep.review;
   const status = prepStatusLine(prep);
   const items = review?.criteria.items ?? [];
@@ -117,21 +186,21 @@ export function PrepSummary({ prep }: { prep: Prep }) {
             Ocena: {PREP_LEVEL_LABELS[review.level]}
           </span>
         ) : null}
-        {prep.organizer ? (
+        {withFacts && prep.organizer ? (
           <span className="text-xs text-muted-foreground">Prowadził(a): {prep.organizer.name}</span>
         ) : null}
-        {prep.duration_seconds ? (
+        {withFacts && prep.duration_seconds ? (
           <span className="text-xs text-muted-foreground">
             · {Math.max(1, Math.round(prep.duration_seconds / 60))} min
           </span>
         ) : null}
-        {prep.transcript_status === "fetched" ? (
+        {withFacts && prep.transcript_status === "fetched" ? (
           <span className="text-xs text-muted-foreground">
             · kandydat mówił {formatTalkShare(prep.talk_share)}
           </span>
         ) : null}
       </div>
-      {status ? (
+      {withFacts && status ? (
         <p className="rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground">{status}</p>
       ) : null}
       {review?.summary ? <p className="text-sm text-foreground">{review.summary}</p> : null}

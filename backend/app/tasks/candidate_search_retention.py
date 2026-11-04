@@ -32,7 +32,8 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, exists, func, or_, select
+from sqlalchemy.orm import aliased
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -128,9 +129,25 @@ async def expired_run_ids(
         protect_after = datetime.now(timezone.utc) - _protect_max_age()
     finished_before = _finished_before(cutoff)
     if auto_cutoff is not None:
+        # 30.09.2026: nocny przegląd biegnie co noc dla każdej rekrutacji
+        # w pracy, więc przegląd automatyczny zastąpiony nowszym zakończonym
+        # przeglądem automatycznym tej samej rekrutacji znika od razu —
+        # stan ustalony to jeden przegląd na rekrutację (~75 MB), nie dwa dni.
+        newer = aliased(CandidateSearchRun)
+        superseded = exists(
+            select(newer.id).where(
+                newer.job_id == CandidateSearchRun.job_id,
+                newer.created_at > CandidateSearchRun.created_at,
+                newer.state.in_(("complete", "partial")),
+                auto_origin_clause(newer),
+            )
+        )
         finished_before = or_(
             finished_before,
             and_(auto_origin_clause(), _finished_before(auto_cutoff)),
+            and_(
+                auto_origin_clause(), CandidateSearchRun.job_id.is_not(None), superseded
+            ),
         )
     rows = await db.scalars(
         select(CandidateSearchRun.id)

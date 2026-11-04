@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.candidate_access import CandidatePIIAccess
+from app.api.candidate_access import NOT_READ_ONLY, CandidatePIIAccess
 from app.api.deps import AdminUser
 from app.core.config import settings
 from app.core.database import get_db
@@ -290,7 +290,11 @@ async def sync_agents(
     )
 
 
-@router.post("/initiate-call", response_model=InitiateCallResponse)
+@router.post(
+    "/initiate-call",
+    response_model=InitiateCallResponse,
+    dependencies=NOT_READ_ONLY,
+)
 async def initiate_call(
     payload: InitiateCallRequest,
     current_user: CandidatePIIAccess,

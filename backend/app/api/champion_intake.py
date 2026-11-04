@@ -32,6 +32,31 @@ TEMPLATE = (
 )
 
 
+def invalid_champion_profile(exc: Exception) -> HTTPException:
+    """422 po polsku dla profilu Championa o złym kształcie albo typach.
+
+    Wspólne dla `/champion/validate` i zapisu w rekrutacji (`PUT
+    /api/jobs/{id}/champion-profile`, `apply-import`). Do rundy 3 audytu
+    (25.09.2026) sekcja o złym typie (np. `"basics": "x"`) kończyła się 500,
+    bo normalizacja wołała `.get` na napisie. Bez surowego zrzutu Pydantica.
+    """
+    where = ""
+    if isinstance(exc, ValidationError):
+        fields = sorted(
+            {
+                ".".join(str(part) for part in err.get("loc", ()))
+                for err in exc.errors()
+                if err.get("loc")
+            }
+        )
+        where = f" ({', '.join(fields[:5])})" if fields else ""
+    return HTTPException(
+        422,
+        "Profil Championa ma niepoprawne albo niekompletne pola"
+        f"{where}. Popraw je w edytorze Championa.",
+    )
+
+
 @router.get("/template")
 @limiter.limit("60/minute")
 async def download_template(request: Request, current_user: OperationalUser):
@@ -114,8 +139,15 @@ async def validate_preview(
 ):
     from app.services.champion_intake import prepare_profile, validation
 
+    profile = payload.get("profile")
+    if not isinstance(profile, dict):
+        raise HTTPException(422, "Wymagany jest profil Championa (obiekt JSON).")
     try:
-        cp = prepare_profile(payload.get("profile"), actor_id=None)
+        cp = prepare_profile(profile, actor_id=None)
         return {"champion_profile": cp, "validation": validation(cp)}
+    except ValidationError as exc:
+        raise invalid_champion_profile(exc) from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    except (TypeError, AttributeError) as exc:
+        raise invalid_champion_profile(exc) from exc

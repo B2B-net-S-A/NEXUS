@@ -26,6 +26,7 @@ from app.services.access_scope import resolve_dashboard_scope
 from app.services.custom_metrics.definition import MetricDefinition
 from app.services.custom_metrics.engine import (
     MetricAccessDenied,
+    access_fingerprint,
     evaluate_metric,
     metric_catalog,
 )
@@ -46,7 +47,14 @@ router = APIRouter(
 )
 
 _CACHE_TTL_SECONDS = 120
-_CACHE_PREFIX = "dashboard_metric:v1"
+_CACHE_PREFIX = "dashboard_metric:v2"
+
+
+def _denied(exc: MetricAccessDenied) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={"code": "metric_scope_denied", "message": str(exc)},
+    )
 
 
 @router.get("/catalog")
@@ -71,13 +79,22 @@ async def evaluate(
     """Liczy metrykę. 403 `metric_scope_denied` = brak dostępu, nie zero."""
     today = business_today()
     scope = await resolve_dashboard_scope(current_user, db)
-    # Klucz obejmuje zakres konta i dzień: dwie osoby o różnych uprawnieniach
-    # nigdy nie dzielą wyniku, a „teraz" nie przeżywa północy.
+    try:
+        # Uprawnienia do źródła i granica klientów liczone PRZED cache
+        # (runda 8, R8-N10-4) — odebrana sekcja albo klient nie przeżywa
+        # w wyniku zapamiętanym na 2 minuty.
+        access = await access_fingerprint(db, current_user, definition)
+    except MetricAccessDenied as exc:
+        raise _denied(exc) from exc
+    # Klucz obejmuje zakres konta, granicę klientów i dzień: dwie osoby
+    # o różnych uprawnieniach nigdy nie dzielą wyniku, a „teraz" nie
+    # przeżywa północy.
     raw = json.dumps(
         {
             "d": definition.model_dump(mode="json"),
             "u": current_user.id,
             "s": scope.cache_token(),
+            "a": access,
             "t": today.isoformat(),
         },
         sort_keys=True,
@@ -91,10 +108,7 @@ async def evaluate(
             db, current_user, definition, today=today, scope=scope
         )
     except MetricAccessDenied as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"code": "metric_scope_denied", "message": str(exc)},
-        ) from exc
+        raise _denied(exc) from exc
     payload = result.as_payload()
     await cache_set(key, payload, ttl_seconds=_CACHE_TTL_SECONDS)
     return payload

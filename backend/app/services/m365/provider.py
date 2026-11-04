@@ -26,6 +26,9 @@ class TokenBundle:
     scopes: list[str]
     tenant_id: str
     mailbox_upn: str
+    #: Tożsamość Microsoft (claim ``oid`` z id_token) — callback porównuje ją
+    #: z ``users.azure_oid``. Odświeżenie tokenu zwykle jej nie niesie.
+    oid: Optional[str] = None
 
 
 @dataclass(frozen=True)

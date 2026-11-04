@@ -172,12 +172,15 @@ def documents(source: Any) -> list:
 
 
 def experience(source: Any) -> dict:
-    """Sekcja 4 — doświadczenie poza stackiem (dziedzina, certyfikaty, regulacje).
+    """Sekcja 4 — doświadczenie poza stackiem (dziedzina, certyfikaty, regulacje)
+    i od 13.10.2026 `skills`: zdania do sprawdzenia w rozmowie.
 
     Stary kształt jej nie ma; pusty słownik znaczy „DL nic nie podał".
     """
+    from app.schemas.champion import EXPERIENCE_KINDS
+
     out = _sub(as_dict(source), "experience")
-    for key in ("domains", "certifications", "regulations"):
+    for key in EXPERIENCE_KINDS:
         value = out.get(key)
         out[key] = [
             item
@@ -328,6 +331,45 @@ RANKING_IGNORED_KEYS = frozenset(
 )
 
 
+# Wymagania do wyszukiwania w bazie (sekcja 2, 25.09.2026) zasilają WYŁĄCZNIE
+# „Szukaj ręcznie” — decyzja Artura: automaty (przegląd bazy, propozycje)
+# liczą z must/nice. Ich edycja nie może więc ani skasować zatwierdzonego
+# kontraktu wymagań, ani zmienić odcisku rankingu (409 na pełnym przeglądzie).
+SEARCH_ONLY_KEYS = ("requirements", "exclude")
+
+
+def without_search_rows(search: Any) -> Any:
+    """Sekcja `search` bez wierszy wyszukiwania — jedna reguła dla odcisku
+    wymagań i dla zapisu edytora (`champion_intake.user_edit`)."""
+    if isinstance(search, Mapping) and any(k in search for k in SEARCH_ONLY_KEYS):
+        return {k: v for k, v in search.items() if k not in SEARCH_ONLY_KEYS}
+    return search
+
+
+# Pola sekcji `stack`, które nie są wymaganiami roli: wybór krytycznych
+# (30.09.2026) i wiersze wymagań (02.10.2026 — ich treść niosą `must` i `nice`,
+# a warianty słów czytają „Szukaj ręcznie” i ocena; do oceny żądanie niesie je
+# poza odciskiem, `request_matching_context`).
+STACK_NON_REQUIREMENT_KEYS = ("critical", "rows")
+
+
+def without_critical(stack: Any) -> Any:
+    """Sekcja `stack` bez umiejętności krytycznych i wierszy wymagań.
+
+    Wybór krytycznych zmienia bramkę, nie wymagania roli: nie może kasować
+    przejrzanego kontraktu wymagań ani odpalać przeliczenia dopasowań.
+    Bramka i tak czyta krytyczne na żywo, a odcisk zapytania niesie je osobno
+    (`request_matching_context`, wersja `critical`). Wiersze wymagań to zapis
+    edytora — zmiana, która nie rusza `must` ani `nice` (inny wariant słowa),
+    też nie jest zmianą wymagań.
+    """
+    if isinstance(stack, Mapping) and any(
+        key in stack for key in STACK_NON_REQUIREMENT_KEYS
+    ):
+        return {k: v for k, v in stack.items() if k not in STACK_NON_REQUIREMENT_KEYS}
+    return stack
+
+
 def requirement_source(
     profile: Any, *, ignored: frozenset = _NON_REQUIREMENT_KEYS
 ) -> Any:
@@ -336,12 +378,24 @@ def requirement_source(
     Pusta sekcja `experience` jest usuwana: każdy zapis po 09.2026 dokłada ją
     z wartością domyślną, a jej pojawienie się nie jest zmianą wymagań. Tak
     samo pusta lista `insights` i pusty blok `client_history`, gdy wołający
-    ich nie pomija.
+    ich nie pomija. Z sekcji `search` zawsze wypadają wiersze wyszukiwania
+    (`SEARCH_ONLY_KEYS`) — dla obu porównań, więc profile sprzed tych pól
+    i po nich dają ten sam odcisk.
     """
     if not isinstance(profile, Mapping):
         return profile
     out = {k: v for k, v in profile.items() if k not in ignored}
+    if "search" in out:
+        out["search"] = without_search_rows(out["search"])
+    if "stack" in out:
+        out["stack"] = without_critical(out["stack"])
     exp = out.get("experience")
+    if isinstance(exp, Mapping) and "skills" in exp:
+        # „Rekruter sprawdza w rozmowie” (13.10.2026) nie jest wymaganiem roli:
+        # nie trafia do bramki, punktów ani wyszukiwania, więc jego edycja nie
+        # kasuje kontraktu wymagań i nie odpala przeliczeń.
+        exp = {k: v for k, v in exp.items() if k != "skills"}
+        out["experience"] = exp
     if (
         isinstance(exp, Mapping)
         and not any(
@@ -350,6 +404,20 @@ def requirement_source(
         and _blank(exp.get("notes"))
     ):
         out.pop("experience")
+    return out
+
+
+def search_requirements(source: Any) -> list[list[str]]:
+    """Wiersze wymagań do wyszukiwania w bazie (sekcja 2) — puste pomijane."""
+    section = source.get("search") if isinstance(source, Mapping) else None
+    rows = section.get("requirements") if isinstance(section, Mapping) else None
+    out: list[list[str]] = []
+    for row in rows or []:
+        if not isinstance(row, list):
+            continue
+        words = [w.strip() for w in row if isinstance(w, str) and w.strip()]
+        if words:
+            out.append(words)
     return out
 
 

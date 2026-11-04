@@ -14,11 +14,17 @@
  * Karta niczego nie blokuje („Kanban bez bramek”): brak CV czy zgody RODO nie
  * wyłącza „Oznacz CV Wysłane”. Ruch idzie przez `pipeline/move` ze stawką
  * (Pipeline v4), link — na etap SPRZED ruchu, gdzie leży CV.
+ *
+ * 14.10.2026 („Droga rekrutera do DL”, D6): na „Zweryfikowany” edytor CV
+ * otwarty z karty ma w stopce „Gotowe, przekaż do DL” — warsztat podaje mu
+ * ruch na etap „QC CV” szablonu (ten sam rdzeń ruchu, z uwagą rekrutera jako
+ * `recruiter_remark`). Po „Zapisz i przekaż dalej” z formularza (`forwarded`)
+ * karta pokazuje postęp CV → QC i „Następna w Screeningu”.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -35,14 +41,13 @@ import {
 import {
   candidateStageCvApi,
   extractErrorMsg,
-  pipelineApi,
-  screeningApi,
-  type CVBrandedState,
   type CVShareTokenListItem,
   type RateUnit,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { useCapability } from "@/hooks/useCapability";
+import { CLIENT_SEND_DENIED_MESSAGE } from "@/hooks/usePipelineMove";
+import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -66,10 +71,12 @@ import { RATE_UNIT_LABELS } from "@/lib/verified-rate-gate";
 import {
   CV_SENT_STAGE,
   countAtClient,
+  findPersonEntry,
   findStageColumn,
   formatExpectedRate,
   itemFullName,
   moveBlockedReason,
+  selectScreeningQueue,
   selectVerifiedQueue,
 } from "@/lib/pipeline-flow";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
@@ -80,17 +87,15 @@ import {
   runCvHandoff,
   type CvHandoffPlan,
 } from "@/lib/cv-handoff";
-import {
-  PIPELINE_VERSION_CONFLICT_MESSAGE,
-  expectedStateVersionOf,
-  invalidateAfterPipelineVersionConflict,
-  isPipelineVersionConflict,
-} from "@/lib/pipeline-version-conflict";
+import { expectedStateVersionOf } from "@/lib/pipeline-version-conflict";
+import { BOARD_COLUMN_LABEL, isAtClientColumn, placeStage } from "@/lib/board-stages";
+import type { CvEditorHandoff } from "@/lib/cv-editor-handoff";
+import { MoveRefusedError } from "@/lib/pipeline-move-core";
+import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { resolveViewState } from "@/lib/view-state";
 import { cn, formatDate } from "@/lib/utils";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { copyTextToClipboard } from "@/lib/clipboard";
-import { OneTimeLinkField } from "@/components/v2/jobs/OneTimeLinkField";
 import {
   ChromeBanner,
   DockActions,
@@ -100,7 +105,7 @@ import {
   type DockTabItem,
 } from "@/components/v2/jobs/workbench-chrome";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
-import { useEligibilityWarning } from "@/components/v2/jobs/useEligibilityWarning";
+import type { WorkbenchContext } from "@/components/v2/person/PersonWorkbenchTabs";
 import { TabbedNav } from "@/components/ds";
 import { CvToClientCard } from "@/components/v2/recruitment/CvToClientCard";
 import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
@@ -111,6 +116,11 @@ import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
  * z szyną) już nie ma.
  */
 export interface CvHandoffWorkbenchProps extends WorkbenchPanelProps {
+  /** Osobę przed chwilą przekazano dalej z formularza — karta CV pokazuje
+   *  blok postępu (CV → QC) i „Następna w Screeningu” (14.10.2026). */
+  forwarded?: boolean;
+  nextInColumn?: WorkbenchContext["nextInColumn"];
+  openPerson?: (candidateId: number) => void;
   jobId: number;
   jobTitle?: string;
   clientId: number | null;
@@ -125,12 +135,14 @@ export interface CvHandoffWorkbenchProps extends WorkbenchPanelProps {
   readOnly: boolean;
   /**
    * `JobResponse.can_write_client_rate` — liczone przez serwer tą samą funkcją
-   * co `PATCH …/client-rate` (admin, DL, TAC, TCM, HoR, Finanse albo
-   * właściciel/twórca rekrutacji). Brak pola = pole stawki ukryte.
+   * co `PATCH …/client-rate` (uprawnienie „Rekrutacje: zakładanie, zamykanie,
+   * wysyłka CV do klienta”, `resolve_client_rate_write`). Brak pola = pole
+   * stawki ukryte.
    */
   canWriteClientRate?: boolean;
-  /** Nordea (DZ → Cpro) — tam „CV wysłane" wysyła wytypowana osoba bez
-   *  stawki; poza Nordeą wysyła wyłącznie DL ze stawką (Pipeline v4). */
+  /** Nordea (DZ → Cpro) — tam „CV wysłane” to „Wysłane do Cpro”; do kolejki
+   *  Cpro wkłada DL po akceptacji ze stawką (od 13.10.2026), poza Nordeą
+   *  wysyła wyłącznie DL ze stawką (Pipeline v4). */
   cproEnabled?: boolean;
   /**
    * Aktualny budżet PLN/h rekrutacji (`effective_budget_hourly`) — odznaka
@@ -179,9 +191,11 @@ export function CvHandoffWorkbench({
   budgetHourly = null,
   focusCandidateId = null,
   panelFallback,
+  forwarded = false,
+  nextInColumn,
+  openPerson,
 }: CvHandoffWorkbenchProps) {
   const { showSuccess, showError } = useToast();
-  const queryClient = useQueryClient();
 
   const queue = useMemo(() => selectVerifiedQueue(columns), [columns]);
   const cvSentCol = useMemo(
@@ -197,6 +211,28 @@ export function CvHandoffWorkbench({
   const selected = queue.find((e) => e.item.id === activeStageId) ?? null;
   const stageId = selected?.item.id ?? null;
   const fullName = selected ? itemFullName(selected.item) : "";
+  // 12.10.2026: osoba w „Nowych”/„Screeningu” też dostaje kartę CV — żeby
+  // wskazać gotowe CV (z innej rekrutacji, z pliku) zamiast generować nowe
+  // (od 21.10.2026 generacja tylko po potwierdzeniu w karcie). Sama wysyłka
+  // zostaje przy „Zweryfikowany”.
+  const early = useMemo(
+    () =>
+      selected
+        ? null
+        : (selectScreeningQueue(columns).find(
+            (e) => e.item.candidate_id === focusCandidateId,
+          ) ?? null),
+    [columns, focusCandidateId, selected],
+  );
+  // D3 (14.10.2026): osoba za „Zweryfikowanym” (QC CV, CV wysłane, rozmowy,
+  // umowa, zamknięta karta) dostaje tę samą kartę „CV do klienta” — do tej
+  // daty panel pokazywał widok tylko do odczytu, który nie dawał pobrać CV
+  // i odsyłał do profilu kandydata. Od „CV wysłane” karta nie podmienia CV.
+  const later = useMemo(
+    () => (selected || early ? null : findPersonEntry(columns, focusCandidateId)),
+    [columns, focusCandidateId, selected, early],
+  );
+  const laterColumn = later ? placeStage(later.col).column : null;
   const jobLabel = jobTitle?.trim() || `Rekrutacja #${jobId}`;
 
   // `canWriteClientRate` przychodzi z odpowiedzi `GET /api/jobs/{id}` — ta
@@ -222,11 +258,9 @@ export function CvHandoffWorkbench({
   // ── CV etapu — ten sam klucz co karta „CV do klienta” i edytor ──────────
   // Warsztat potrzebuje stanu tylko do linku dla klienta (link wymaga
   // zatwierdzonej wersji). Samo CV — podgląd, edycja, generacja — żyje w karcie.
-  const brandedQuery = useQuery<CVBrandedState>({
-    queryKey: ["cv-branded", stageId],
-    queryFn: () => candidateStageCvApi.branded.get(stageId!).then((r) => r.data),
-    enabled: stageId != null,
-  });
+  // Runda 12: nowy wiersz etapu nie ma własnego CV — CV firmowe pary leży na
+  // wierszu wskazanym przez serwer. Link dla klienta i jego lista idą tam.
+  const { query: brandedQuery, cvStageId } = useStageBrandedCv(stageId);
   const brandedStatus = brandedQuery.data?.status ?? "none";
   const brandedFinalized = brandedStatus === "finalized";
 
@@ -241,7 +275,9 @@ export function CvHandoffWorkbench({
   const lastShareSuffix =
     [...handoffResults]
       .reverse()
-      .find((r) => r.stageId === activeStageId && r.suffix != null)?.suffix ?? null;
+      .find(
+        (r) => (r.stageId === activeStageId || r.stageId === cvStageId) && r.suffix != null,
+      )?.suffix ?? null;
   const rememberLink = (result: HandoffLinkResult) => {
     resultsRef.current = [...resultsRef.current, result];
     setHandoffResults(resultsRef.current);
@@ -255,7 +291,7 @@ export function CvHandoffWorkbench({
     setDockTab("send");
   }, [activeStageId]);
 
-  // Link, który padł PO udanym ruchu: kandydat stoi już na „CV Wysłane", a CV
+  // Link, który padł PO udanym ruchu: kandydat stoi już na „CV wysłane", a CV
   // brandowane zostało na etapie sprzed ruchu — profil i dok celują w etap
   // najnowszy, więc bez tego przycisku nie byłoby jak utworzyć linku do tego
   // dokumentu. Ponowienie idzie na ZAPAMIĘTANY identyfikator etapu.
@@ -287,22 +323,22 @@ export function CvHandoffWorkbench({
     ? null
     : "Link dla klienta wymaga zatwierdzonego CV do klienta — zapisz je w edytorze albo oznacz etap bez tworzenia linku.";
   // Linki dla klienta wyłączone (CV_CLIENT_LINKS_UI_ENABLED): akcja tylko
-  // przesuwa kandydata na „CV Wysłane" i zapisuje stawkę — bez linku.
+  // przesuwa kandydata na „CV wysłane" i zapisuje stawkę — bez linku.
   const willCreateLink = CV_CLIENT_LINKS_UI_ENABLED && createLink && brandedFinalized;
 
   // Linki tego etapu — lista i odwołanie. Zapytanie startuje dopiero na
   // zakładce „Linki": kolejka bywa długa, a to jest zapytanie per kandydat.
   const linksQuery = useQuery<CVShareTokenListItem[]>({
-    queryKey: ["cv-share-tokens", stageId],
-    queryFn: () => candidateStageCvApi.share.list(stageId!).then((r) => r.data),
-    enabled: stageId != null && dockTab === "links",
+    queryKey: ["cv-share-tokens", cvStageId],
+    queryFn: () => candidateStageCvApi.share.list(cvStageId!).then((r) => r.data),
+    enabled: cvStageId != null && dockTab === "links",
   });
   const activeLinks = (linksQuery.data ?? []).filter((t) => !t.revoked);
 
   const revokeAllMut = useMutation({
     mutationFn: () =>
       candidateStageCvApi.share.revokeAll(
-        stageId!,
+        cvStageId!,
         "Odwołane z warsztatu „CV do klienta”",
       ),
     onSuccess: () => {
@@ -313,36 +349,8 @@ export function CvHandoffWorkbench({
       showError(extractErrorMsg(e) || "Nie udało się odwołać linków."),
   });
 
-  // Link do karty Championa niesie sekret zwracany JEDEN raz — adres zostaje
-  // na ekranie (`OneTimeLinkField`), a toast „skopiowany" pada wyłącznie po
-  // UDANYM zapisie do schowka. Do 09.2026 toast szedł zawsze, a adres nigdzie
-  // się nie pokazywał: nieudany zapis zostawiał żywy, 30-dniowy link, którego
-  // nikt nie znał.
-  const [championLink, setChampionLink] = useState<{
-    stageId: number;
-    url: string;
-  } | null>(null);
-  const championLinkMut = useMutation({
-    mutationFn: (forStageId: number) => screeningApi.createShareToken(forStageId, 30),
-    onSuccess: async (res, forStageId) => {
-      const suffix = res?.data?.share_url_suffix;
-      if (!suffix) {
-        showError("Serwer nie zwrócił adresu linku do karty Championa.");
-        return;
-      }
-      const url = `${window.location.origin}${suffix}`;
-      setChampionLink({ stageId: forStageId, url });
-      if (await copyTextToClipboard(url)) {
-        showSuccess("Link do karty Championa skopiowany (ważny 30 dni).");
-      } else {
-        showError(
-          "Link do karty Championa utworzony (ważny 30 dni), ale nie udało się go skopiować — skopiuj go z pola w doku.",
-        );
-      }
-    },
-    onError: (e) =>
-      showError(extractErrorMsg(e) || "Nie udało się utworzyć linku."),
-  });
+  // 0424 (D2, 07.10.2026): z NEXUSA nic nie idzie do klienta — link do
+  // karty Championa zniknął (serwer odpowiada na tworzenie linku 410).
 
   const moveBlocked = selected
     ? (moveBlockedReason({
@@ -351,9 +359,9 @@ export function CvHandoffWorkbench({
         targetStage: CV_SENT_STAGE,
       }) ??
       (!cvSentCol
-        ? "Szablon tej rekrutacji nie ma kolumny „CV Wysłane”."
+        ? "Szablon tej rekrutacji nie ma kolumny „CV wysłane”."
         : !cproEnabled && !canWriteClientRate
-          ? "Do klienta wysyła Delivery Lead — osoba czeka w jego przeglądzie."
+          ? CLIENT_SEND_DENIED_MESSAGE
         : CV_CLIENT_LINKS_UI_ENABLED && brandedQuery.isLoading
           ? // Bez tego w oknie ładowania `brandedStatus` = "none", więc klik
             // wysłałby BEZ linku i zaraportował to jako świadomą decyzję.
@@ -361,17 +369,56 @@ export function CvHandoffWorkbench({
           : null))
     : "Wybierz kandydata z kolejki.";
 
-  // 17.09.2026: weto HM / czarna lista / NDA na „CV Wysłane" to ostrzeżenie
-  // serwera — okno „Przenieś mimo to" zamiast toastu błędu.
-  const eligibilityWarning = useEligibilityWarning();
+  // Ruch idzie rdzeniem (`usePipelineMoveCore`): ostrzeżenie „Przenieś mimo
+  // to”, bramka QC CV i konflikt wersji mają te same okna co na Tablicy.
+  const moveCore = usePipelineMoveCore({ jobId });
+
+  // D6 (14.10.2026): „Gotowe, przekaż do DL” ze stopki edytora — tylko gdy
+  // karta stoi na „Zweryfikowany”. Cel to etap „QC CV” szablonu (u Nordei ten
+  // sam: tam jest przegląd DL przed kolejką Cpro), nie etap kolejki Cpro.
+  const qcColumn = useMemo(
+    () =>
+      columns.find((col) => {
+        if (col.category === "terminal") return false;
+        const place = placeStage(col);
+        return place.column === "cv_qc" && place.badge === null;
+      }) ?? null,
+    [columns],
+  );
+  const inVerified = selected != null && placeStage(selected.col).column === "verified";
+  const handoff: CvEditorHandoff | undefined =
+    selected && inVerified && !readOnly && qcColumn
+      ? {
+          onSaveAndHandOff: async (remark) => {
+            const outcome = await moveCore.send(
+              {
+                candidate_id: selected.item.candidate_id,
+                job_id: jobId,
+                ...(qcColumn.stage_def_id ? { stage_def_id: qcColumn.stage_def_id } : { stage: qcColumn.stage }),
+                expected_state_version: expectedStateVersionOf(selected.item),
+                recruiter_remark: remark || undefined,
+              },
+              { candidateName: fullName },
+            );
+            // Konflikt wersji: Tablica jest nieaktualna — odświeżamy ją, edytor zostaje.
+            if (outcome.ok || outcome.refusal.kind === "version_conflict") onMoved();
+            return outcome.ok;
+          },
+        }
+      : undefined;
+  // „Następna w Screeningu” w bloku postępu — migawka kolejności Tablicy.
+  const nextInScreening =
+    forwarded && focusCandidateId != null ? (nextInColumn?.(focusCandidateId, "screening") ?? null) : null;
+  const progressProps = { forwarded, nextInScreening, onOpenPerson: openPerson };
   const sendMut = useMutation({
-    mutationFn: async (acknowledgeEligibility: boolean) => {
+    mutationFn: async () => {
       if (!selected || !cvSentCol || stageId == null) {
         throw new Error("Brak etapu docelowego.");
       }
       // Etap SPRZED ruchu: na nim leży sfinalizowane CV brandowane, więc link
-      // tworzony po ruchu celuje właśnie tutaj, a nie w świeży „CV Wysłane".
-      const sourceStageId = stageId;
+      // tworzony po ruchu celuje właśnie tutaj, a nie w świeży „CV wysłane".
+      // Gdy ten wiersz jest pusty, CV leży na wierszu pary (runda 12).
+      const sourceStageId = cvStageId ?? stageId;
       const expiresInDays = shareDays;
       const plan: CvHandoffPlan = {
         clientRate: canWriteClientRate && clientRateValid
@@ -407,17 +454,21 @@ export function CvHandoffWorkbench({
           }
         },
         move: async (rate) => {
-          await pipelineApi.move({
-            candidate_id: selected.item.candidate_id,
-            job_id: jobId,
-            stage: CV_SENT_STAGE,
-            stage_def_id: cvSentCol.stage_def_id ?? undefined,
-            expected_state_version: expectedStateVersionOf(selected.item),
-            acknowledge_eligibility: acknowledgeEligibility ? true : undefined,
-            client_rate_value: rate?.value,
-            client_rate_unit: rate?.unit,
-            client_rate_currency: rate?.currency,
-          });
+          const outcome = await moveCore.send(
+            {
+              candidate_id: selected.item.candidate_id,
+              job_id: jobId,
+              stage: CV_SENT_STAGE,
+              stage_def_id: cvSentCol.stage_def_id ?? undefined,
+              expected_state_version: expectedStateVersionOf(selected.item),
+              client_rate_value: rate?.value,
+              client_rate_unit: rate?.unit,
+              client_rate_currency: rate?.currency,
+            },
+            { candidateName: fullName, rethrowOther: true },
+          );
+          // Odmowa przerywa link i stawkę — komunikat dał już rdzeń.
+          if (!outcome.ok) throw new MoveRefusedError(outcome.refusal);
         },
       });
     },
@@ -431,36 +482,20 @@ export function CvHandoffWorkbench({
       else showSuccess(summary);
       onMoved();
     },
-    onError: (e, acknowledged) => {
+    onError: (e) => {
+      // Odmowa serwera przed zapisem ruchu (ostrzeżenie, QC, konflikt wersji):
+      // link i stawka nie powstały, komunikat pokazał już rdzeń ruchu.
       if (
-        !acknowledged &&
         e instanceof CvHandoffError &&
         e.step === "move" &&
-        eligibilityWarning.intercept(e.reason, () => sendMut.mutate(true))
+        e.reason instanceof MoveRefusedError
       ) {
-        // Ruch nie przeszedł (409 przed zapisem) — link i stawka nie powstały.
+        if (e.reason.refusal.kind === "version_conflict") onMoved();
         return;
       }
       // Ruch idzie pierwszy, więc przy tej porażce nie powstał ani link dla
-      // klienta, ani stawka. Sam ruch: odmowa serwera (4xx) = nic się nie
-      // zmieniło; brak odpowiedzi / 5xx = nie wiadomo (ruch mógł się zapisać),
-      // więc komunikat każe odświeżyć kartę przed ponowieniem.
-      if (
-        e instanceof CvHandoffError &&
-        e.step === "move" &&
-        isPipelineVersionConflict(e.reason)
-      ) {
-        // F05: odmowa ruchu (4xx) — link i stawka nie powstały; bez
-        // ponowienia, kolejka pokaże etap zapisany przez kolegę.
-        showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
-        invalidateAfterPipelineVersionConflict(
-          queryClient,
-          jobId,
-          selected?.item.candidate_id,
-        );
-        onMoved();
-        return;
-      }
+      // klienta, ani stawka. Brak odpowiedzi / 5xx = nie wiadomo (ruch mógł
+      // się zapisać), więc komunikat każe odświeżyć kartę przed ponowieniem.
       if (e instanceof CvHandoffError) {
         showError(describeCvHandoffFailure(e, extractErrorMsg(e.reason)));
         return;
@@ -525,7 +560,7 @@ export function CvHandoffWorkbench({
               <div key={index} className="space-y-2 rounded-lg border border-warning/30 bg-warning-muted p-3">
                 <p className="text-sm font-medium">{result.candidateName} · {result.jobTitle}</p>
                 <p className="text-xs text-warning-muted-foreground">
-                  Kandydat jest już na „CV Wysłane”, ale link dla klienta nie powstał. CV brandowane zostało na etapie sprzed ruchu — utwórz link tutaj.
+                  Kandydat jest już na „CV wysłane”, ale link dla klienta nie powstał. CV brandowane zostało na etapie sprzed ruchu — utwórz link tutaj.
                 </p>
                 <Button
                   size="sm"
@@ -681,7 +716,7 @@ export function CvHandoffWorkbench({
             ) : CV_CLIENT_LINKS_UI_ENABLED ? (
               <>
                 <Link2 className="h-3 w-3 shrink-0" />
-                Zarządzanie linkami zostaje też w doku „Karta w procesie” na
+                Zarządzanie linkami zostaje też w panelu osoby na
                 tablicy i na profilu kandydata.
               </>
             ) : null;
@@ -782,7 +817,7 @@ export function CvHandoffWorkbench({
                   }`}
               </ChromeBanner>
 
-              {canWriteClientRate ? (
+              {canWriteClientRate && (
                 <DockSection title="Stawka do klienta">
                   <div className="grid grid-cols-[1.2fr_minmax(0,1fr)] gap-3">
                     <div className="flex flex-col gap-1.5">
@@ -830,16 +865,10 @@ export function CvHandoffWorkbench({
                   </div>
                   <p className="text-[10.5px] text-muted-foreground">
                     {cproEnabled
-                      ? "Puste pole wysyła bez stawki — DL uzupełni ją później na karcie rekrutacji."
-                      : "Bez stawki do klienta nie wyślesz — trafi do umowy i zamówienia."}
+                      ? "Z kolejki Cpro wyślesz bez stawki — wpisał ją Delivery Lead przy akceptacji. Z pominięciem kolejki stawka do Cpro jest wymagana."
+                      : "Bez stawki do klienta nie wyślesz. Stawka do klienta jest punktem odniesienia dla zamówienia klienta; do umowy idzie stawka kandydata."}
                   </p>
                 </DockSection>
-              ) : (
-                <p className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
-                  {cproEnabled
-                    ? "Stawkę do klienta ustala Delivery Lead — wysyłka idzie bez stawki, DL ją uzupełni."
-                    : "Do klienta wysyła Delivery Lead i to on ustala stawkę — osoba czeka w jego przeglądzie."}
-                </p>
               )}
 
               {CV_CLIENT_LINKS_UI_ENABLED && (
@@ -887,31 +916,8 @@ export function CvHandoffWorkbench({
                       k: "Limit wyświetleń",
                       v: "— (ustawia się przy linku interaktywnego CV)",
                     },
-                    {
-                      k: "Karta Championa",
-                      v:
-                        readOnly || stageId == null ? (
-                          "—"
-                        ) : (
-                          <button
-                            type="button"
-                            className="text-primary hover:underline disabled:opacity-60"
-                            disabled={championLinkMut.isPending}
-                            onClick={() => championLinkMut.mutate(stageId)}
-                          >
-                            Utwórz link (30 dni)
-                          </button>
-                        ),
-                    },
                   ]}
                 />
-                {championLink && championLink.stageId === stageId && (
-                  <OneTimeLinkField
-                    url={championLink.url}
-                    label="Link do karty Championa"
-                    note="Ważny 30 dni. Adres pokazujemy tylko teraz — serwer nie przechowuje sekretu, więc skopiuj go przed opuszczeniem strony."
-                  />
-                )}
                 <label className="flex cursor-pointer items-start gap-2 text-xs">
                   <input
                     type="checkbox"
@@ -941,12 +947,12 @@ export function CvHandoffWorkbench({
                       disabled={Boolean(moveBlocked) || sendMut.isPending}
                       loading={sendMut.isPending}
                       title={moveBlocked ?? undefined}
-                      onClick={() => sendMut.mutate(false)}
+                      onClick={() => sendMut.mutate()}
                     >
                       <Send className="h-3.5 w-3.5" />
                       {!CV_CLIENT_LINKS_UI_ENABLED
-                        ? "Oznacz „CV Wysłane”"
-                        : willCreateLink ? "Utwórz link i oznacz „CV Wysłane”" : "Oznacz „CV Wysłane” bez tworzenia linku"}
+                        ? "Oznacz „CV wysłane”"
+                        : willCreateLink ? "Utwórz link i oznacz „CV wysłane”" : "Oznacz „CV wysłane” bez tworzenia linku"}
                     </Button>
                     {CV_CLIENT_LINKS_UI_ENABLED && (
                     <>
@@ -996,11 +1002,47 @@ export function CvHandoffWorkbench({
           );
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      {eligibilityWarning.dialog}
-      {/* Link jednorazowy przeżywa ruch: po „CV Wysłane” osoba wypada
+      {moveCore.dialogs}
+      {/* Link jednorazowy przeżywa ruch: po „CV wysłane” osoba wypada
           z kolejki tego warsztatu, a adres musi zostać na ekranie. */}
       {resultsSection}
-      {!selected && panelFallback != null ? (
+      {early ? (
+        <>
+          <CvToClientCard
+            stageId={early.item.id}
+            candidateId={early.item.candidate_id}
+            candidateName={itemFullName(early.item)}
+            jobId={jobId}
+            jobTitle={jobTitle}
+            readOnly={readOnly}
+            {...progressProps}
+          />
+          {canWriteClientRate && (
+            <p
+              data-testid="cv-send-later-note"
+              className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
+            >
+              Wysyłka do klienta (stawka i „Oznacz CV Wysłane”) będzie dostępna na etapie
+              „Zweryfikowany”. CV możesz przygotować już teraz.
+            </p>
+          )}
+        </>
+      ) : !selected && later && laterColumn ? (
+        <>
+          <p data-testid="cv-later-stage-note" className="text-xs text-muted-foreground">
+            Ta osoba jest na etapie „{later.col.name?.trim() || BOARD_COLUMN_LABEL[laterColumn]}”.
+          </p>
+          <CvToClientCard
+            stageId={later.item.id}
+            candidateId={later.item.candidate_id}
+            candidateName={itemFullName(later.item)}
+            jobId={jobId}
+            jobTitle={jobTitle}
+            readOnly={readOnly}
+            lockedAfterSend={isAtClientColumn(laterColumn)}
+          />
+        </>
+      ) : !selected && panelFallback != null ? (
         panelFallback
       ) : !selected ? (
         <p className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">
@@ -1031,8 +1073,21 @@ export function CvHandoffWorkbench({
             jobId={jobId}
             jobTitle={jobTitle}
             readOnly={readOnly}
+            handoff={handoff}
+            {...progressProps}
           />
 
+          {/* 27.10.2026 (zgłoszenie rekruterki): bez uprawnienia wysyłki dok był
+              martwym przyciskiem — poza Nordeą zablokowany, u Nordei serwer
+              odpowiada 403 (do kolejki Cpro wkłada DL po akceptacji), a rekruter
+              klikał go zamiast „Przekaż Delivery Leadowi”. Zostaje jedno zdanie. */}
+          {!canWriteClientRate ? (
+            <p data-testid="cv-send-not-yours" className="px-1 text-[11px] text-muted-foreground">
+              {cproEnabled
+                ? "Do Cpro wysyła Delivery Lead po akceptacji. Twój krok: przekaż osobę do „QC CV”."
+                : "Do klienta wysyła Delivery Lead po przeglądzie. Twój krok: przekaż osobę do „QC CV”."}
+            </p>
+          ) : (
           <section
             aria-label="Wysyłka do klienta"
             className="space-y-3 rounded-xl border border-border bg-card p-3"
@@ -1053,6 +1108,7 @@ export function CvHandoffWorkbench({
               </p>
             ) : null}
           </section>
+          )}
 
           <details className="rounded-xl border border-border bg-card px-3 py-2 text-xs">
             <summary className="cursor-pointer font-medium text-foreground">

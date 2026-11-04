@@ -2,16 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   CAREER_NOT_FOUND_PATH,
+  careerHosts,
   isCareerHost,
+  legacyCareerRedirectPath,
   requestHost,
   resolveCareerRoute,
 } from "@/lib/career/host";
 import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
+import { normalizeRoles } from "@/lib/role-normalize";
 import {
   rolesWithSectionAccess,
   type ProductSection,
   type SectionAccess,
 } from "@/lib/section-access";
+import { BOARD_HOME, isBoardAllowedPath } from "@/lib/board-access";
+import { PRE_CONTRACT_ROLES, PRE_CONTRACTS_PATH } from "@/lib/pre-contract-access";
 import type { UserRole } from "@/store/auth";
 
 /**
@@ -47,9 +52,7 @@ const NON_FINANCE_ROLES: UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
 ];
 
@@ -70,6 +73,11 @@ const PIPELINE_OPERATIONAL_ROLES = PIPELINE_ROLES.filter(
   (role) => role !== "user",
 );
 const DELIVERY_ROLES = sectionRoles("delivery");
+// „Automatyzacje” (0446) mają w sekcjach tylko odczyt. Ekrany, które istnieją
+// po to, żeby coś zapisać (kolejka zgłoszeń, Akademia), dostają /403 zamiast
+// pustego ekranu z odmową z API.
+const WITHOUT_READ_ONLY = (roles: UserRole[]): UserRole[] =>
+  roles.filter((role) => role !== "automation");
 const INSIGHTS_ROLES = sectionRoles("insights");
 const SYSTEM_ADMIN_ROLES = sectionRoles("system_admin");
 
@@ -128,6 +136,10 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   { prefix: "/my-clients", roles: DELIVERY_ROLES, section: "delivery" },
   { prefix: "/clients", roles: DELIVERY_ROLES, section: "delivery" },
   { prefix: "/jobs", roles: PIPELINE_ROLES, section: "pipeline" },
+  // Lista „Umowy przedwstępne”: role z bramki API (`PRE_CONTRACT_ROLES`), bez
+  // sekcji — Rada nadzorcza nie ma Rekrutacji, a Viewer z odczytem Rekrutacji
+  // dostawałby od API 403 (decyzje Artura 22–23.10.2026).
+  { prefix: PRE_CONTRACTS_PATH, roles: [...PRE_CONTRACT_ROLES] },
   {
     prefix: "/calendar",
     roles: PIPELINE_OPERATIONAL_ROLES,
@@ -137,7 +149,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   // Akademia (0369) = sekcja Pipeline + RecruiterPlus w backendzie.
   {
     prefix: "/academy",
-    roles: PIPELINE_OPERATIONAL_ROLES,
+    roles: WITHOUT_READ_ONLY(PIPELINE_OPERATIONAL_ROLES),
     section: "pipeline",
     enforceRoles: true,
   },
@@ -172,6 +184,18 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     roles: SYSTEM_ADMIN_ROLES,
     section: "system_admin",
   },
+  // Klucze API kont serwisowych (`X-API-Key`) — backend `AdminUser`.
+  {
+    prefix: "/settings/api-keys",
+    roles: SYSTEM_ADMIN_ROLES,
+    section: "system_admin",
+  },
+  // Połączenia wtyczki LinkedIn — backend `AdminUser` (`/api/extension/connections`).
+  {
+    prefix: "/settings/linkedin-extension",
+    roles: SYSTEM_ADMIN_ROLES,
+    section: "system_admin",
+  },
   {
     prefix: "/settings/diagnostics",
     roles: SYSTEM_ADMIN_ROLES,
@@ -195,12 +219,43 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   {
+    // 0505: ustawienia oceny prepów — odczyt rekruter, DL, HoR, admin;
+    // publikację (HoR, admin) bramkuje backend.
+    prefix: "/settings/prep-review",
+    roles: ["admin", "delivery_lead", "head_of_recruitment", "recruiter"],
+    section: "pipeline",
+    required: "read",
+    enforceRoles: true,
+  },
+  {
+    // Zasady bliźniaków (29.10.2026): odczyt DL, HoR, admin; zapis — backend.
+    prefix: "/settings/twin-rules",
+    roles: ["admin", "delivery_lead", "head_of_recruitment"],
+    section: "pipeline",
+    required: "read",
+    enforceRoles: true,
+  },
+  {
+    // Dziennik CPro (02.11.2026): odczyt DL, HoR, admin; wyłączniki — backend.
+    prefix: "/settings/cpro",
+    roles: ["admin", "delivery_lead", "head_of_recruitment"],
+    section: "pipeline",
+    required: "read",
+    enforceRoles: true,
+  },
+  {
+    // Odczyt: admin, Delivery Lead, Head of Recruitment; szkic i publikację
+    // wag (admin, HoR + zapis Insights) bramkuje strona i backend.
     prefix: "/settings/scoring",
-    roles: ["admin", "delivery_lead"],
+    roles: ["admin", "delivery_lead", "head_of_recruitment"],
     section: "insights",
     required: "read",
     enforceRoles: true,
   },
+  // Nowości — kto już umie (28.10.2026): imienna lista bez danych domenowych,
+  // lustro `HeadOfRecruitmentPlus`.
+  { prefix: "/settings/nowosci", roles: ["admin", "head_of_recruitment"], enforceRoles: true },
+  { prefix: "/settings/jakosc-generatora", roles: ["admin", "head_of_recruitment"], enforceRoles: true },
   {
     prefix: "/settings/kpi-targets",
     roles: ["admin", "head_of_recruitment"],
@@ -208,12 +263,16 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     required: "write",
     enforceRoles: true,
   },
+  // Reguły CV edytuje posiadacz uprawnienia „Klienci: dodawanie i edycja”
+  // (0410). Token niesie sekcje (`sa`), nie uprawnienia, więc tutaj wymagamy
+  // zapisu w Delivery i nie zawężamy do ról: edycję bramkuje sama strona
+  // i backend, a osoba z zapisem Delivery bez tego uprawnienia widzi reguły
+  // tylko do odczytu. `roles` to fallback dla tokenów bez `sa`.
   {
     prefix: "/settings/cv-rules",
-    roles: ["admin", "delivery_lead"],
+    roles: sectionRoles("delivery", "write"),
     section: "delivery",
     required: "write",
-    enforceRoles: true,
   },
   { prefix: "/settings/templates", roles: NON_FINANCE_ROLES },
   {
@@ -277,7 +336,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   // Zmieniając tę listę ról, przemieć też tamten `href`.
   {
     prefix: "/candidates/contact-queue",
-    roles: ["talent_community_manager", "tac", "recruiter", "sourcer"],
+    roles: ["talent_community_manager", "recruiter"],
   },
   // Moduł kandydatów (audyt M2 PR1): rola `user` = read-only viewer/klient
   // NIE ma dostępu do bazy kandydatów, talentów ani targu — backend zwraca
@@ -313,7 +372,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   // (parytet z rekruterem), więc HoR nie jest już odcinany (audyt ról U5).
   {
     prefix: "/applications",
-    roles: SOURCING_OPERATIONAL_ROLES,
+    roles: WITHOUT_READ_ONLY(SOURCING_OPERATIONAL_ROLES),
     section: "sourcing",
     enforceRoles: true,
   },
@@ -357,17 +416,23 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //                  i wystawiło go publicznie.
 //   `/preview/candidates`, `/preview/candidate-profile`, `/preview/contact-queue`,
 //   `/preview/talent-radar`, `/preview/order-consultant-picker`,
-//   `/preview/order-tile`,
+//   `/preview/order-tile`, `/preview/order-ended-lines`, `/preview/client-orders`,
 //   `/preview/procedure-help`, `/preview/champion-profile`,
 //   `/preview/client-playbook`, `/preview/inactive-clients-cleanup`,
 //   `/preview/order-new-from-pdf`, `/preview/finance-order-changes`,
 //   `/preview/finance-order-pdfs`, `/preview/order-takeover`,
+//   `/preview/clients-list`, `/preview/client-profile-tabs`, `/preview/finance-results`,
 //   `/preview/contract-candidate-contact`, `/preview/cv-search`,
-//   `/preview/recruitment-v3`, `/preview/pipeline-v4`, `/preview/cv-generator`,
-//   `/preview/jobs-list-v3`, `/preview/calendar-cycle`, `/preview/cv-qc`,
+//   `/preview/recruitment-v3`, `/preview/pipeline-v4`, `/preview/job-detail`,
+//   `/preview/cv-generator`,
+//   `/preview/jobs-list-v3`, `/preview/calendar-cycle`, `/preview/cv-qc`, `/preview/cv-editor`,
+//   `/preview/cv-to-client`,
 //   `/preview/cpro-queue`, `/preview/candidate-followup`,
-//   `/preview/kpi-targets`,
-//   `/preview/b2b-documents`,
+//   `/preview/kpi-targets`, `/preview/kpi-topbar`, `/preview/kpi-who-counts`,
+//   `/preview/plain-brief`, `/preview/permissions`,
+//   `/preview/b2b-documents`, `/preview/b2b-generator`, `/preview/similar-reassign`,
+//   `/preview/job-team-panel`, `/preview/champion-workspace`, `/preview/job-ad`,
+//   `/preview/career-queue`, `/preview/pre-contracts`,
 //   `/preview/candidates-list` (publiczny przez prefiks `/preview/candidates`)
 //                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
@@ -376,6 +441,9 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //                  bramka deny-by-default objęła tę przestrzeń, wszystkie 9
 //                  specow zaczęło dostawać 307 na /login i nightly był czerwony
 //                  tygodniami.
+//                  Publiczne TYLKO poza produkcją (patrz
+//                  `previewHarnessesArePublic`, runda 10) — na produkcji po
+//                  zalogowaniu.
 //                  Ścieżki dokładne, NIE prefiks `/preview/` — reszta harnessów
 //                  zostaje prywatna, bo `/preview/shell` renderuje prawdziwy
 //                  `SidebarV2` (role-gating, liczniki), czyli wewnętrzną
@@ -393,7 +461,17 @@ const PUBLIC_PATHS = [
   "/apply/",
   "/sign/",
   "/cv/",
+  // Panel klienta pod linkiem z CV: token w adresie, klient nie ma konta.
+  "/k/",
   "/engagement/",
+  // Publiczny podpis protokołu sprzętu: token w adresie, bez logowania.
+  "/protocol/",
+  // Strefa konsultanta: konsultant nie ma konta, API ma własny wyłącznik i sesję.
+  "/konsultant/",
+  // Wypis konsultanta z komunikatów informacyjnych: token w adresie, konsultant
+  // nie ma konta (etap 3, O12).
+  "/wypis/",
+  "/preview/client-panel",
   "/preview/candidates",
   "/preview/candidate-profile",
   "/preview/contact-queue",
@@ -401,13 +479,16 @@ const PUBLIC_PATHS = [
   "/preview/order-consultant-picker",
   "/preview/order-lifecycle",
   "/preview/order-md-scopes",
+  "/preview/order-ended-lines",
   "/preview/order-takeover",
   "/preview/ezdrowie-contract-structure",
   "/preview/order-tile",
+  // Zakładka „Zamówienia” profilu klienta (wersja B, tabela z panelem) —
+  // cała `MultiConsultantOrdersTab` na zasianym cache, sieć odcięta.
+  "/preview/client-orders",
   "/preview/dl-alerts",
   "/preview/order-mail",
   "/preview/insights",
-  "/preview/insights-campaign",
   "/preview/insights-seniority",
   "/preview/contracts-consolidation",
   "/preview/procedure-help",
@@ -416,32 +497,125 @@ const PUBLIC_PATHS = [
   "/preview/cv-generator",
   "/preview/client-playbook",
   "/preview/inactive-clients-cleanup",
+  "/preview/contract-docs-sharepoint",
+  // Foldery w zakładce Dokumenty kontraktu (0494); zasiany cache, sieć odcięta.
+  "/preview/contract-documents-folders",
   "/preview/order-new-from-pdf",
   "/preview/jobs-list-v3",
   "/preview/new-job",
   "/preview/finance-order-changes",
   "/preview/finance-order-pdfs",
+  // Odświeżony wygląd Klientów i Finansów (02.10.2026): lista klientów
+  // z „Kluczowymi relacjami”, zakładki profilu klienta i „Wyniki miesięczne”.
+  "/preview/clients-list",
+  "/preview/client-profile-tabs",
+  "/preview/finance-results",
   "/preview/contract-candidate-contact",
   "/preview/cv-search",
   "/preview/jarvis",
   "/preview/recruitment-v3",
   "/preview/pipeline-v4",
+  "/preview/job-detail",
   "/preview/my-people",
   "/preview/custom-dashboard",
+  // „Jakość podpowiedzi systemu” (silnik „Nowi na 20”, 23.10.2026), dane fikcyjne.
+  "/preview/autofill-quality",
+  // Ustawienia → „Powiadomienia”: Moje · Kto co dostaje · Maile · Reguły etapów.
+  "/preview/notification-settings",
+  // Okienko „Wiadomości” (dawniej „Czaty”) z górnego paska: ikona i lista rozmów.
+  "/preview/chat-notifications",
+  // Ikony „CV” i „Rekrutacje” z górnego paska (bez dzwonka), dane fikcyjne.
+  "/preview/topbar-topics",
+  // Okienko „Rozmowy” z górnego paska: rozmowy u klienta i prepy, dane fikcyjne.
+  "/preview/interview-notifications",
+  // Licznik celów w górnym pasku: segmenty, panel po kliknięciu, replika paska.
+  "/preview/kpi-topbar",
+  // Lista „Kto się liczy” za celami (17.10.2026): wiersze, filtry stanu, rama kafla.
+  "/preview/kpi-who-counts",
   "/preview/calendar-cycle",
   "/preview/cv-qc",
+  "/preview/cv-editor",
+  // Karta „CV do klienta” — panel „Z czego powstało” i liczba do sprawdzenia
+  // (13.10.2026); zasiany cache, sieć odcięta.
+  "/preview/cv-to-client",
   "/preview/cpro-queue",
   "/preview/candidate-followup",
+  // Ustawienia → Ocena prepów (0505): wagi, tematy, skala, historia; `?tryb=odczyt`.
+  "/preview/prep-review-settings",
   "/preview/kpi-targets",
+  // Ustawienia → „Ranking kandydatów” (21.10.2026): wagi, podgląd, pomiar.
+  "/preview/ranking-panel",
+  // Ustawienia → „Osoby i role” (0410): dziewięć przełączników, okno osoby.
+  "/preview/permissions",
   "/preview/b2b-documents",
+  "/preview/b2b-generator",
+  "/preview/similar-reassign",
   "/preview/kariera",
   "/preview/career-share",
   "/preview/candidate-merge",
+  // Okno „Dodaj kandydatów do pipeline”: imiennicy, telefon, „Już w tej rekrutacji”.
+  "/preview/add-candidates",
+  "/preview/job-ad",
+  // „Strona kariery do uzupełnienia” (21.10.2026) — kolejka na danych w pamięci.
+  "/preview/career-queue",
+  // Umowa przedwstępna (0506) — sekcja panelu, lista i kafelek na danych w pamięci.
+  "/preview/pre-contracts",
   "/preview/job-portals",
   "/preview/academy",
   "/preview/request-allocation",
+  // Strona „Daily — requesty i obłożenie” (`/jobs/daily`), wariant daily pulpitu.
+  "/preview/daily",
+  // Panel „Zespół” rekrutacji: Delivery Lead · Rekruter · Kategoria (02.10.2026).
+  "/preview/job-team-panel",
+  // Profil Championa w czterech zakładkach (04.10.2026).
+  "/preview/champion-workspace",
+  "/preview/plain-brief",
+  // 0404: „Odrzuceni przez AI” i plakietki przeglądu zgłoszeń.
+  "/preview/job-board-screening",
+  // 0424: jeden formularz screeningu z podglądem CV obok.
+  "/preview/screening-form",
+  // Przegląd Delivery Leada: karta, uwagi dla rekrutera, „Wróć do poprawy”.
+  "/preview/dl-review",
+  "/preview/dl-send",
+  // Okno odrzucenia z podglądem maila do kandydata (13.10.2026).
+  "/preview/rejection-email",
+  // Ustawienia → „Klucze API”: konta serwisowe, klucze, ostatnie zapisy (14.10.2026).
+  "/preview/api-keys",
   // Praktykanci (0374): `/preview/trainee` pokrywa też `/preview/trainees`.
   "/preview/trainee",
+  // „Ludzie w NEXUSIE” (17.10.2026): harnessy 14 makiet — fikcja, zero zapytań
+  // (strażnik `app/preview/__tests__/hr-harnesses.test.ts`).
+  "/preview/hr-dashboard",
+  "/preview/hr-my-time",
+  "/preview/hr-calendar",
+  "/preview/hr-approvals",
+  "/preview/hr-person",
+  "/preview/hr-payroll",
+  "/preview/hr-offboarding",
+  "/preview/hr-onboarding",
+  "/preview/hr-care",
+  "/preview/hr-client-tech",
+  "/preview/hr-cases",
+  "/preview/hr-equipment",
+  "/preview/hr-equipment-issue",
+  // Etap 2 (17.10.2026): struktura, „Mój zespół”, struktura u klienta.
+  "/preview/hr-structure",
+  "/preview/hr-team",
+  "/preview/hr-client-people",
+  // Propozycje struktury u klienta i akcept DL (18.10.2026).
+  "/preview/hr-client-structure",
+  "/preview/hr-announcements",
+  "/preview/hr-settlements",
+  "/preview/hr-consents",
+  // Finanse → „Wydatki ze zgodą” (Zgody, etap 3 — 0486, 20.10.2026).
+  "/preview/finance-approved-expenses",
+  "/preview/hr-documents",
+  "/preview/hr-agreements",
+  // Katalog z listą rozjazdów kartoteka ↔ konto (19.10.2026).
+  "/preview/hr-people",
+  "/preview/client-invoicing",
+  // Sprzedaż → Szanse (Atlas → NEXUS, 27.10.2026), fikcyjne dane.
+  "/preview/sales",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym
   // hoście (`kariera.dynaminds.pl`) obsługuje ją `careerHostResponse` niżej;
   // tu jest wejście pod `/kariera/*` na hoście aplikacji (dev, podgląd, grafiki
@@ -451,9 +625,28 @@ const PUBLIC_PATHS = [
 ];
 
 // Ścieżki publiczne dopasowywane DOKŁADNIE (bez `startsWith`).
-const PUBLIC_EXACT_PATHS = ["/kariera"];
+const PUBLIC_EXACT_PATHS = ["/kariera", "/konsultant", "/wtyczka/prywatnosc"];
+
+/**
+ * Runda 10 (R10-N10-1): harnessy `/preview/*` są publiczne wyłącznie poza
+ * buildem produkcyjnym (`next dev`, vitest) albo przy jawnej fladze builda
+ * `NEXT_PUBLIC_PREVIEW_PUBLIC=1` (stack E2E w `docker-compose.e2e.yml`, na nim
+ * chodzi nocny `preview-chromium`). Na produkcji wpuszczają tylko po
+ * zalogowaniu — do 27.09.2026 każdy bez sesji oglądał nazwiska, klientów
+ * i stawki z danych harnessów. Czytane przy wywołaniu (nie stała modułu), żeby
+ * testy mogły przełączać środowisko; Next wstawia obie wartości przy buildzie.
+ */
+function previewHarnessesArePublic(): boolean {
+  return (
+    process.env.NODE_ENV !== "production" ||
+    process.env.NEXT_PUBLIC_PREVIEW_PUBLIC === "1"
+  );
+}
 
 function isPublicPath(pathname: string): boolean {
+  if (pathname.startsWith("/preview/") && !previewHarnessesArePublic()) {
+    return false;
+  }
   return (
     PUBLIC_EXACT_PATHS.includes(pathname) ||
     PUBLIC_PATHS.some((p) => pathname.startsWith(p))
@@ -534,6 +727,17 @@ export function middleware(request: NextRequest) {
     return careerHostResponse(request);
   }
 
+  // Stare linki `nexus…/kariera/r/<slug>` → domena kariery, gdy jest włączona.
+  // 307, nie 308: przeglądarki nie zapamiętują przekierowania, gdyby domenę
+  // trzeba było wyłączyć.
+  const careerHost = careerHosts()[0];
+  const legacyPath = careerHost ? legacyCareerRedirectPath(pathname) : null;
+  if (careerHost && legacyPath) {
+    const target = new URL(`https://${careerHost}${legacyPath}`);
+    target.search = request.nextUrl.search;
+    return NextResponse.redirect(target, 307);
+  }
+
   if (isPublicPath(pathname)) {
     return NextResponse.next();
   }
@@ -544,17 +748,21 @@ export function middleware(request: NextRequest) {
   // oznacza tu tylko „brak zawężenia ról", a NIE „trasa niechroniona".
   const accessRule = resolveAccessRule(pathname);
 
+  // Runda 10 (R10-N15-1): `next` niesie też query — link z maila
+  // (`/clients/15?tab=zamowienia&order=123`) bez niego lądował na profilu.
+  const nextTarget = pathname + request.nextUrl.search;
+
   // Brak tokena na chronionej trasie → login.
   if (!token) {
     const loginUrl = new URL("/login", request.url);
-    if (pathname !== "/") loginUrl.searchParams.set("next", pathname);
+    if (pathname !== "/") loginUrl.searchParams.set("next", nextTarget);
     return NextResponse.redirect(loginUrl);
   }
 
   const payload = decodeJwtPayload(token);
   if (!payload || isJwtExpired(payload.exp) || !payload.role) {
     const loginUrl = new URL("/login", request.url);
-    if (pathname !== "/") loginUrl.searchParams.set("next", pathname);
+    if (pathname !== "/") loginUrl.searchParams.set("next", nextTarget);
     const response = NextResponse.redirect(loginUrl);
     // Wyczyść zepsute cookie — żeby unknąć pętli redirectów.
     response.cookies.delete(COOKIE_NAME);
@@ -565,10 +773,11 @@ export function middleware(request: NextRequest) {
   // secondary z claim `roles`) — spójnie z Sidebar/RequireRole, które używają
   // roles[]. Fallback na sam `role` dla starych tokenów (sprzed deploya) bez
   // claim `roles`, żeby nie wyrzucać zalogowanych na /403 w okresie przejściowym.
-  const userRoles = new Set<string>([
-    payload.role as string,
-    ...(payload.roles ?? []),
-  ]);
+  // Token sprzed połączenia ról (02.10.2026) może nieść `tac`/`sourcer` —
+  // liczą się jak `recruiter`, inaczej stare cookie dawałoby /403.
+  const userRoles = new Set<string>(
+    normalizeRoles([payload.role as string, ...(payload.roles ?? [])]),
+  );
 
   // Praktykant (rola wyłączna) widzi WYŁĄCZNIE „Telefony na dziś”. Bramka
   // stoi przed regułami tras: `/jobs` ma go zaprowadzić na jego listę, a nie
@@ -579,6 +788,25 @@ export function middleware(request: NextRequest) {
     !isTraineeAllowedPath(pathname)
   ) {
     return NextResponse.redirect(new URL("/trainee", request.url));
+  }
+  // „Pracownik” (0456) nie ma pulpitu — strona startowa to „Mój czas”.
+  // Pozostałe trasy z sekcjami kończą się jak dotąd na /403.
+  if (
+    userRoles.size === 1 &&
+    userRoles.has("employee") &&
+    (pathname === "/" || pathname === "/dashboard" || pathname.startsWith("/dashboard/"))
+  ) {
+    return NextResponse.redirect(new URL("/my-time", request.url));
+  }
+  // „Rada nadzorcza” (0490, rola wyłączna) widzi tylko Insights, własne konto,
+  // Pomoc i listę umów przedwstępnych — wszystko inne prowadzi do kokpitu
+  // Firma, także „/” i pulpit.
+  if (
+    userRoles.size === 1 &&
+    userRoles.has("board") &&
+    !isBoardAllowedPath(pathname)
+  ) {
+    return NextResponse.redirect(new URL(BOARD_HOME, request.url));
   }
   if (accessRule?.section && payload.sa) {
     if (

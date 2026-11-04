@@ -6,6 +6,10 @@ zatrudnienie) — z widoku ``analytics_first_milestones`` (reguła D2), więc
 powrót na etap nie dubluje osoby, a rozmowa WEWNĘTRZNA (``interview``) się nie
 liczy.
 
+``dl_send`` i pole ``dl_send_ready_count`` („Do wysłania do klienta”,
+13.10.2026) liczą wiersze kolejki Delivery Leada z ``services/dl_send_queue``
+— tej samej, którą czytają pulpit i górny pasek.
+
 Baza testowa jest wspólna i nieczyszczona — każde zapytanie zawęża się do
 klientów zasianych w tym teście (``client_id``).
 """
@@ -16,6 +20,10 @@ from datetime import datetime, timedelta, timezone
 import app.models  # noqa: F401  (zarejestruj wszystkie mappery)
 import pytest
 from httpx import AsyncClient
+
+from app.models.user import UserRole
+from tests.test_board_tasks import _cleanup, _login, _seed_user, _seed_world
+from tests.test_dl_send_queue import _add_qc_run, _put_in_qc, _set_job_lead
 
 
 async def _seed_job_with_stages(
@@ -153,3 +161,112 @@ async def test_delivery_lead_filter_accepts_one_or_many_ids(
         client_ids,
         delivery_lead_id=[me, 999_999_999],
     ) == {mine["job_id"]}
+
+
+# ── „Do wysłania do klienta” ────────────────────────────────────────────────
+
+
+async def _list(
+    app_client: AsyncClient, headers: dict, client_ids: list[int], **params
+) -> dict:
+    response = await app_client.get(
+        "/api/jobs",
+        params={"client_id": client_ids, "page_size": 100, **params},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def _rows(
+    app_client: AsyncClient, headers: dict, client_ids: list[int], **params
+) -> dict[int, dict]:
+    body = await _list(
+        app_client, headers, client_ids, include_stage_counts=True, **params
+    )
+    return {row["id"]: row for row in body["items"]}
+
+
+@pytest.mark.asyncio
+async def test_dl_send_count_and_filters_follow_the_delivery_leads_queue(
+    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    # Trzy rekrutacje jednego Delivery Leada, w każdej jedna osoba w „QC CV”:
+    # gotowa od dziś, gotowa od dwóch tygodni i z QC do poprawy (ruch ma
+    # rekruter, więc mimo dwóch tygodni w kolumnie na nikogo nie „czeka”).
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    fresh = await _seed_world()
+    stale = await _seed_world()
+    not_ready = await _seed_world()
+    worlds = [fresh, stale, not_ready]
+    lead_id, lead_creds = await _seed_user(UserRole.delivery_lead)
+    other_lead_id, other_lead_creds = await _seed_user(UserRole.delivery_lead)
+    recruiter_id, recruiter_creds = await _seed_user(UserRole.recruiter)
+    lead = await _login(app_client, lead_creds)
+    other_lead = await _login(app_client, other_lead_creds)
+    recruiter = await _login(app_client, recruiter_creds)
+    now = datetime.now(timezone.utc)
+    # 14 dni wstecz to co najmniej 3 dni robocze także przez święta i weekendy.
+    long_ago = now - timedelta(days=14)
+    client_ids = [w["client_id"] for w in worlds]
+    try:
+        for world in worlds:
+            await _set_job_lead(world, lead_id)
+        await _put_in_qc(
+            fresh, moved_by=recruiter_id, moved_at=now - timedelta(hours=3)
+        )
+        await _add_qc_run(fresh, passed=True, created_at=now - timedelta(hours=2))
+        await _put_in_qc(stale, moved_by=recruiter_id, moved_at=long_ago)
+        await _add_qc_run(stale, passed=True, created_at=long_ago)
+        await _put_in_qc(not_ready, moved_by=recruiter_id, moved_at=long_ago)
+        await _add_qc_run(not_ready, passed=False, created_at=long_ago)
+
+        # Delivery Lead rekrutacji: licznik gotowych na każdym wierszu, zero
+        # tam, gdzie jedyna osoba w kolumnie nie ma zaliczonego QC.
+        mine = await _rows(app_client, lead, client_ids)
+        assert mine[fresh["job_id"]]["dl_send_ready_count"] == 1
+        assert mine[stale["job_id"]]["dl_send_ready_count"] == 1
+        assert mine[not_ready["job_id"]]["dl_send_ready_count"] == 0
+
+        # Inny Delivery Lead ma pole (rola), ale to nie jego kolejka.
+        theirs = await _rows(app_client, other_lead, client_ids)
+        assert {row["dl_send_ready_count"] for row in theirs.values()} == {0}
+
+        # Rekruter: klucza nie ma w ogóle („nie dotyczy”, a nie zero).
+        for row in (await _rows(app_client, recruiter, client_ids)).values():
+            assert "dl_send_ready_count" not in row
+        # Bez liczników etapów pola nie ma nawet u Delivery Leada.
+        plain = await _list(app_client, lead, client_ids)
+        assert all("dl_send_ready_count" not in row for row in plain["items"])
+
+        # „Czeka na mnie”: dokładnie rekrutacje z gotową osobą — i tylko
+        # u Delivery Leada, na którego czekają.
+        waiting = await _list(app_client, lead, client_ids, dl_send="mine")
+        assert {row["id"] for row in waiting["items"]} == {
+            fresh["job_id"],
+            stale["job_id"],
+        }
+        assert waiting["total"] == 2
+        for headers in (other_lead, recruiter):
+            empty = await _list(app_client, headers, client_ids, dl_send="mine")
+            assert empty["items"] == []
+            assert empty["total"] == 0
+
+        # „Czeka 3+ dni robocze”: cała firma, więc widzi to także rekruter;
+        # osoba gotowa od dziś i osoba z QC do poprawy się nie liczą.
+        for headers in (recruiter, lead):
+            old = await _list(app_client, headers, client_ids, dl_send="stale")
+            assert {row["id"] for row in old["items"]} == {stale["job_id"]}
+            assert old["total"] == 1
+        # Filtr firmowy nie podmienia licznika patrzącego Delivery Leada.
+        stale_rows = await _rows(app_client, lead, client_ids, dl_send="stale")
+        assert stale_rows[stale["job_id"]]["dl_send_ready_count"] == 1
+
+        # Nieznana wartość to błąd walidacji, nie cicho pominięty filtr.
+        bad = await app_client.get(
+            "/api/jobs", params={"dl_send": "everyone"}, headers=lead
+        )
+        assert bad.status_code == 422
+    finally:
+        for world in worlds:
+            await _cleanup(world, [lead_id, other_lead_id, recruiter_id])

@@ -5,27 +5,73 @@
  *
  * PRODUKCYJNY `JobPortalsSection` na zasianym cache react-query
  * (`staleTime: Infinity`) — zero zapytań. Na produkcji sekcja jest dziś
- * niewidoczna (portale wyłączone flagami); tu konfiguracja udaje dwa gotowe
- * portale, żeby było widać stany: opublikowane, w kolejce, nieudane, nic.
+ * niewidoczna (portale wyłączone flagami); tu konfiguracja udaje RocketJobs
+ * i Pracuj.pl gotowe oraz JustJoin.IT z niepołączonym kontem, żeby było widać
+ * stany: opublikowane, aktualizacja w kolejce, w kolejce, nieudane, nic.
+ * `?dialog=1` otwiera okno publikacji na RocketJobs (ostatnia rekrutacja).
  * Dane fikcyjne.
  */
 
-import { useMemo } from "react";
+import { Suspense, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ToastProvider } from "@/components/Toast";
 import { JobPortalsSection } from "@/components/v2/recruitment/JobPortalsSection";
 import {
+  EMPTY_LISTING_OPTIONS,
   jobPortalKeys,
+  type BoardDictionaries,
   type JobPostingRead,
   type PortalConfigResponse,
+  type PortalListingOptions,
 } from "@/lib/api/jobPortals";
 
 const CONFIG: PortalConfigResponse = {
   any_ready: true,
   portals: [
+    { portal: "rocketjobs", label: "RocketJobs", state: "ready", enabled: true },
+    { portal: "justjoinit", label: "JustJoin.IT", state: "not_connected", enabled: true },
     { portal: "pracuj_pl", label: "Pracuj.pl", state: "ready", enabled: true },
-    { portal: "justjoinit", label: "JustJoinIT", state: "ready", enabled: true },
+  ],
+};
+
+const OPTIONS: PortalListingOptions = {
+  ...EMPTY_LISTING_OPTIONS,
+  category: "java",
+  experience_level: "senior",
+  working_time: "freelance",
+  workplace_type: "hybrid",
+  office_days: 2,
+  city: "Warszawa",
+  salary: { from: 150, to: 180, unit: "hour" },
+};
+
+const DEFAULTS: PortalListingOptions = {
+  ...EMPTY_LISTING_OPTIONS,
+  workplace_type: "remote",
+  city: "Kraków",
+};
+
+const DICTIONARY: BoardDictionaries = {
+  categories: [
+    { key: "java", name: "Java" },
+    { key: "devops", name: "DevOps" },
+    { key: "testing", name: "Testing" },
+  ],
+  experience_levels: [
+    { key: "junior", name: "Junior" },
+    { key: "mid", name: "Mid" },
+    { key: "senior", name: "Senior" },
+  ],
+  working_times: [
+    { key: "full_time", name: "Pełny etat" },
+    { key: "freelance", name: "Freelance" },
+  ],
+  workplace_types: [
+    { key: "remote", name: "Zdalnie" },
+    { key: "hybrid", name: "Hybrydowo" },
+    { key: "office", name: "Biuro" },
   ],
 };
 
@@ -42,6 +88,8 @@ function posting(overrides: Partial<JobPostingRead>): JobPostingRead {
     attempts: 1,
     created_at: "2026-09-20T08:59:00Z",
     updated_at: "2026-09-23T06:00:00Z",
+    options: OPTIONS,
+    pending_action: null,
     ...overrides,
   };
 }
@@ -49,16 +97,19 @@ function posting(overrides: Partial<JobPostingRead>): JobPostingRead {
 const JOBS: Array<{ id: number; title: string; postings: JobPostingRead[] }> = [
   {
     id: 901,
-    title: "Opublikowane na Pracuj.pl, nieudane na JustJoinIT",
+    title: "RocketJobs: aktualizacja w kolejce; Pracuj.pl nieudane",
     postings: [
-      posting({ id: 2, portal: "justjoinit", status: "failed", external_id: null, url: null, published_at: null, last_error: "Integracja z JustJoinIT czeka na dokumentację API portalu — ogłoszenie nie zostało wysłane." }),
-      posting({ id: 1 }),
+      posting({ id: 2, portal: "pracuj_pl", status: "failed", external_id: null, url: null, published_at: null, last_error: "Integracja z Pracuj.pl czeka na dokumentację API portalu — ogłoszenie nie zostało wysłane." }),
+      posting({ id: 1, portal: "rocketjobs", pending_action: "update" }),
     ],
   },
   {
     id: 902,
     title: "W kolejce do wysłania",
-    postings: [posting({ id: 3, status: "publishing", external_id: null, url: null, published_at: null })],
+    postings: [
+      posting({ id: 3, portal: "rocketjobs", status: "publishing", external_id: null, url: null, published_at: null, pending_action: "publish" }),
+      posting({ id: 4, portal: "pracuj_pl", pending_action: "close" }),
+    ],
   },
   { id: 903, title: "Jeszcze nie publikowano", postings: [] },
 ];
@@ -68,12 +119,27 @@ function seeded(): QueryClient {
     defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnMount: false, refetchInterval: false } },
   });
   qc.setQueryData(jobPortalKeys.config, CONFIG);
-  for (const job of JOBS) qc.setQueryData(jobPortalKeys.postings(job.id), job.postings);
+  for (const job of JOBS) {
+    qc.setQueryData(jobPortalKeys.postings(job.id), job.postings);
+    qc.setQueryData(jobPortalKeys.listingDefaults(job.id), DEFAULTS);
+  }
+  qc.setQueryData(jobPortalKeys.dictionaries("rocketjobs"), DICTIONARY);
+  qc.setQueryData(jobPortalKeys.dictionaries("justjoinit"), DICTIONARY);
   return qc;
 }
 
 export default function JobPortalsPreviewPage() {
+  return (
+    <Suspense fallback={null}>
+      <Harness />
+    </Suspense>
+  );
+}
+
+function Harness() {
   const client = useMemo(seeded, []);
+  const dialog = useSearchParams()?.get("dialog") === "1";
+  const lastJobId = JOBS[JOBS.length - 1].id;
   return (
     <QueryClientProvider client={client}>
       <ToastProvider>
@@ -82,7 +148,13 @@ export default function JobPortalsPreviewPage() {
           {JOBS.map((job) => (
             <section key={job.id} className="rounded-xl border border-border p-4">
               <h2 className="pb-2 text-sm font-semibold">{job.title}</h2>
-              <JobPortalsSection jobId={job.id} readOnly={false} defaultOpen pollWhilePublishingMs={false} />
+              <JobPortalsSection
+                jobId={job.id}
+                readOnly={false}
+                defaultOpen
+                pollWhilePublishingMs={false}
+                defaultDialogPortal={dialog && job.id === lastJobId ? "rocketjobs" : undefined}
+              />
             </section>
           ))}
         </main>

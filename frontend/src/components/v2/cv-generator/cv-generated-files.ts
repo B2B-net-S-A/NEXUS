@@ -5,25 +5,36 @@
  */
 
 import api, { type GeneratedCvItem } from "@/lib/api";
+import { withDownloadIntent, type CvDownloadSurface } from "@/lib/cv-download-intent";
 import { downloadBlob, extractErrorDetail } from "@/lib/cv-generator";
 
 import { htmlFilename } from "./cv-generator-form";
 
 type DownloadTarget = Pick<GeneratedCvItem, "id" | "filename" | "approved_version_id">;
 
-function fileUrl(item: DownloadTarget, format: "docx" | "html"): string {
+/**
+ * Plik, który daje „Pobierz”: zatwierdzona wersja, gdy jest, inaczej bieżący
+ * plik. Podgląd bierze ten sam adres, żeby pokazywał to, co poszło do klienta.
+ */
+export function generatedCvFileUrl(item: DownloadTarget, format: "docx" | "html"): string {
   return item.approved_version_id
     ? `/api/cv-generator/generated/${item.id}/approved/${item.approved_version_id}/${format}`
     : `/api/cv-generator/generated/${item.id}/${format}`;
 }
 
-/** Pobiera DOCX; zwraca komunikat błędu albo `null` po sukcesie. */
+/**
+ * Pobiera DOCX; zwraca komunikat błędu albo `null` po sukcesie. `surface` —
+ * skąd w aplikacji poszło pobranie (wpis `cv_file_downloaded`).
+ */
 export async function downloadGeneratedCv(
   item: DownloadTarget,
   format: "docx" | "html" = "docx",
+  surface: CvDownloadSurface = "result",
 ): Promise<string | null> {
   try {
-    const res = await api.get(fileUrl(item, format), { responseType: "blob" });
+    const res = await api.get(withDownloadIntent(generatedCvFileUrl(item, format), surface), {
+      responseType: "blob",
+    });
     downloadBlob(res.data as Blob, format === "html" ? htmlFilename(item.filename) : item.filename);
     return null;
   } catch (err) {

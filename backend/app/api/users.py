@@ -6,7 +6,7 @@ to populate a recruiter/owner picker. Always excludes inactive accounts and
 read-only (`user` role) viewers — neither is a legitimate job owner.
 """
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -14,9 +14,10 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.user import User, UserRole
+from app.models.user import User, UserRole, known_roles
 from app.api.deps import OperationalUser, CurrentUser
 from app.schemas.job import UserBrief
+from app.services import notification_email_prefs
 from app.services.jarvis.prefs import (
     UNLOCKABLE_CHARACTERS,
     JarvisPrefs,
@@ -44,6 +45,10 @@ class UserPreferencesUpdate(BaseModel):
         default=None,
         description="Wygląd i zachowanie maskotki Jarvisa (tylko zmieniane pola).",
     )
+    daily_digest_email_enabled: Optional[bool] = Field(
+        default=None,
+        description="Poranny skrót „Twój dzień w NEXUSIE” mailem — tylko to konto.",
+    )
 
 
 class JarvisPrefsResponse(JarvisPrefs):
@@ -55,6 +60,10 @@ class JarvisPrefsResponse(JarvisPrefs):
 class UserPreferencesResponse(BaseModel):
     kpi_coach_enabled: bool
     jarvis: JarvisPrefsResponse
+    daily_digest_email_enabled: bool
+    # Czy skrót w ogóle może trafić do tego konta (rola z listy skrótu) —
+    # bez tego przełącznik obiecywałby mail, którego konto nie dostaje.
+    daily_digest_email_available: bool
 
 
 async def _preferences_response(
@@ -66,8 +75,12 @@ async def _preferences_response(
         # Odblokowanie mogło zniknąć (ranking przeliczony) — pokazujemy
         # domyślną postać, zapis zostaje nietknięty.
         prefs = prefs.model_copy(update={"character": "robot"})
+    from app.tasks.daily_digest_email import DIGEST_ROLES
+
     return UserPreferencesResponse(
         kpi_coach_enabled=user.kpi_coach_enabled,
+        daily_digest_email_enabled=user.daily_digest_email_enabled,
+        daily_digest_email_available=user.has_any_role(*DIGEST_ROLES),
         jarvis=JarvisPrefsResponse(
             **prefs.model_dump(),
             unlocked_characters=unlocked,
@@ -86,9 +99,15 @@ _DEFAULT_ROLES = [
     UserRole.admin,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
+]
+
+# Role, których dawne (nieaktywne) konta mogą być autorem albo adresatem
+# wzmianki w starej notatce.
+_MENTION_HISTORY_ROLES = [
+    *_DEFAULT_ROLES,
+    UserRole.head_of_recruitment,
+    UserRole.finance,
 ]
 
 
@@ -96,18 +115,22 @@ _DEFAULT_ROLES = [
 async def list_users(
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
-    roles: Optional[List[UserRole]] = Query(
+    roles: Optional[List[str]] = Query(
         None,
         description=(
             "Filter by role. Repeat the param for multiple values "
-            "(e.g. `?roles=recruiter&roles=tac`). Defaults to ownership-"
-            "eligible roles (excludes read-only viewers)."
+            "(e.g. `?roles=recruiter&roles=delivery_lead`). Defaults to "
+            "ownership-eligible roles (excludes read-only viewers)."
         ),
     ),
     q: Optional[str] = Query(None, description="Case-insensitive match on name/email."),
 ):
     """Directory listing for owner/collaborator pickers."""
-    target_roles = roles if roles else _DEFAULT_ROLES
+    # Napisy, nie enum: otwarta karta ze starą wersją aplikacji pyta jeszcze
+    # o `tac` i `sourcer` (od 0411 to rekruter) — nie może dostać 422.
+    target_roles = known_roles(roles) if roles else _DEFAULT_ROLES
+    if not target_roles:
+        raise HTTPException(status_code=422, detail="Nieznana rola w filtrze.")
     effective_role_filter = or_(
         User.role.in_(target_roles),
         *(User.roles.contains([role.value]) for role in target_roles),
@@ -132,77 +155,63 @@ async def list_mentionable_users(
     job_id: Optional[int] = Query(
         None,
         description=(
-            "Jeśli podane: zwraca tylko members tego projektu (job-scope). "
-            "Używane gdy mention dotyczy notatki/chatu związanego z konkretnym "
-            "projektem."
+            "Rekrutacja, której dotyczy notatka albo czat: jej zespół stoi na "
+            "początku listy."
         ),
     ),
     candidate_id: Optional[int] = Query(
         None,
         description=(
-            "Jeśli podane: zwraca tylko members chatu kandydata. Używane przez "
-            "candidate chat. Job_id ma pierwszeństwo gdy oba są podane."
+            "Kandydat, którego czatu dotyczy wzmianka: osoby z jego rekrutacji "
+            "stoją na początku listy. `job_id` ma pierwszeństwo."
         ),
     ),
     q: Optional[str] = Query(None, description="Case-insensitive match on name/email."),
     include_inactive: bool = Query(
         False,
         description=(
-            "Jeśli True — zwraca też nieaktywnych userów (Faza A: 131 userów "
-            "zaimportowanych z Traffit jako disabled accounts). Używane gdy "
-            "renderujemy historyczne notatki i chcemy pokazać autora któremu "
-            "konto wygasło."
+            "Dokłada nieaktywne konta ról wewnętrznych — do pokazania nazwiska "
+            "przy wzmiance w historycznej notatce, nie do oznaczania."
         ),
     ),
 ):
-    """Lista userów dostępnych do @mention.
+    """Osoby, które można oznaczyć przez @.
 
-    Trzy tryby (mutually exclusive — pierwszy match wygrywa):
-      job_id       → members projektu (przez list_job_member_ids)
-      candidate_id → members chatu kandydata (przez list_candidate_chat_member_ids)
-      brak ID      → wszyscy aktywni z rolą != `user` (default _DEFAULT_ROLES)
-
-    Domyślnie filtruje `is_active=True`. Z `include_inactive=true` rozszerza
-    o disabled userów (np. importowani z Traffit w Faza A migracji).
-    Frontend `MentionTextarea` cache'uje przez react-query (`staleTime: 60s`).
+    Zawsze wszystkie aktywne konta z odczytem tego, w czym się oznacza
+    (`mention_parser.mentionable_users` — ta sama reguła co przy zapisie
+    wzmianki). `job_id` / `candidate_id` zmieniają tylko kolejność: najpierw
+    zespół. Do 08.10.2026 lista rekrutacji i czatu kandydata zawierała sam
+    zespół, a lista ogólna pomijała Head of Recruitment i Finanse.
     """
-    active_clause = User.is_active.is_(True)
+    from app.services.candidate_membership import list_candidate_chat_member_ids
+    from app.services.job_membership import list_job_member_ids
+    from app.services.mention_parser import mentionable_users
+    from app.services.section_permissions import ProductSection
 
+    team_ids: set[int] = set()
+    section = None
     if job_id is not None:
-        from app.services.job_membership import list_job_member_ids
-
-        member_ids = await list_job_member_ids(db, job_id)
-        if not member_ids:
-            return []
-        q_stmt = select(User).where(User.id.in_(member_ids))
-        if not include_inactive:
-            q_stmt = q_stmt.where(active_clause)
-        rows = await db.execute(q_stmt.order_by(User.name))
-        users = list(rows.scalars().all())
+        section = ProductSection.pipeline
+        team_ids = set(await list_job_member_ids(db, job_id))
     elif candidate_id is not None:
-        from app.services.candidate_membership import (
-            list_candidate_chat_member_ids,
-        )
+        section = ProductSection.sourcing
+        team_ids = set(await list_candidate_chat_member_ids(db, candidate_id))
 
-        member_ids = await list_candidate_chat_member_ids(db, candidate_id)
-        if not member_ids:
-            return []
-        q_stmt = select(User).where(User.id.in_(member_ids))
-        if not include_inactive:
-            q_stmt = q_stmt.where(active_clause)
-        rows = await db.execute(q_stmt.order_by(User.name))
-        users = list(rows.scalars().all())
-    else:
-        q_stmt = select(User).where(
-            or_(
-                User.role.in_(_DEFAULT_ROLES),
-                *(User.roles.contains([role.value]) for role in _DEFAULT_ROLES),
+    users = await mentionable_users(db, section=section)
+    if include_inactive:
+        rows = await db.execute(
+            select(User).where(
+                User.is_active.is_(False),
+                or_(
+                    User.role.in_(_MENTION_HISTORY_ROLES),
+                    *(
+                        User.roles.contains([role.value])
+                        for role in _MENTION_HISTORY_ROLES
+                    ),
+                ),
             )
         )
-        if not include_inactive:
-            q_stmt = q_stmt.where(active_clause)
-        rows = await db.execute(q_stmt.order_by(User.name))
-        users = list(rows.scalars().all())
+        users = [*users, *rows.scalars().all()]
 
     if q:
         needle = q.lower()
@@ -211,6 +220,7 @@ async def list_mentionable_users(
             for u in users
             if needle in (u.email or "").lower() or needle in (u.name or "").lower()
         ]
+    users.sort(key=lambda u: (u.id not in team_ids, (u.name or u.email).lower()))
     return [UserBrief.model_validate(u) for u in users]
 
 
@@ -241,6 +251,10 @@ async def update_my_preferences(
         current_user.kpi_coach_enabled = payload.kpi_coach_enabled
         changed = True
 
+    if payload.daily_digest_email_enabled is not None:
+        current_user.daily_digest_email_enabled = payload.daily_digest_email_enabled
+        changed = True
+
     if payload.jarvis is not None:
         update = payload.jarvis
         if update.character is not None:
@@ -264,3 +278,83 @@ async def update_my_preferences(
         await db.refresh(current_user)
 
     return await _preferences_response(db, current_user)
+
+
+# ── „Maile do Ciebie” (0427) ───────────────────────────────────────────────
+#
+# Lista maili stała do 09.10.2026 tylko w zakładce administratora (polityka
+# całej firmy). Tu każde konto widzi swoje maile i każdy z nich wyłącza sobie.
+
+
+class MyEmailNotification(BaseModel):
+    id: str
+    label: str
+    description: str
+    # Mail obowiązkowy (26.10.2026): bez własnego wyłącznika.
+    required: bool = False
+    company_enabled: bool
+    self_enabled: bool
+    # Wynik końcowy: firmowo włączony, niewyłączony przez konto i bez blokady.
+    receiving: bool
+    state: Literal["on", "self_off", "company_off", "bell_muted", "role_muted"]
+    note: Optional[str] = None
+
+
+class MyEmailRef(BaseModel):
+    id: str
+    label: str
+
+
+class MyAlwaysOnEmail(MyEmailRef):
+    description: str
+
+
+class MyEmailNotificationsResponse(BaseModel):
+    # `false` = wysyłka maili z NEXUSA nie jest teraz skonfigurowana.
+    channel_ready: bool
+    items: List[MyEmailNotification]
+    not_applicable: List[MyEmailRef]
+    always_on: List[MyAlwaysOnEmail]
+
+
+class MyEmailNotificationUpdate(BaseModel):
+    enabled: bool
+
+
+@router.get("/me/email-notifications", response_model=MyEmailNotificationsResponse)
+async def get_my_email_notifications(
+    current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+):
+    """Które maile dostaje bieżące konto i które są wyłączone (i przez kogo)."""
+    return await notification_email_prefs.my_view(db, current_user)
+
+
+@router.put(
+    "/me/email-notifications/{kind}", response_model=MyEmailNotificationsResponse
+)
+async def set_my_email_notification(
+    kind: str,
+    payload: MyEmailNotificationUpdate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Włącz albo wyłącz jeden mail tylko temu kontu (dzwonek bez zmian)."""
+    try:
+        await notification_email_prefs.set_enabled(
+            db, current_user, kind, payload.enabled
+        )
+    except notification_email_prefs.UnknownEmailKind as exc:
+        raise HTTPException(status_code=422, detail="Nie ma takiego maila.") from exc
+    except notification_email_prefs.EmailKindNotApplicable as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Ten mail nie trafia do Twojego konta, więc nie ma czego wyłączać.",
+        ) from exc
+    except notification_email_prefs.EmailKindRequired as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="To mail obowiązkowy — przychodzi zawsze, bo ktoś czeka na Twój ruch.",
+        ) from exc
+    await db.commit()
+    await db.refresh(current_user)
+    return await notification_email_prefs.my_view(db, current_user)

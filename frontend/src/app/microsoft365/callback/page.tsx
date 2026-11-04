@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 
+import { takeM365Return } from "@/lib/m365-return";
+
 export default function Microsoft365CallbackPage() {
   const router = useRouter();
   const params = useSearchParams();
@@ -12,6 +14,11 @@ export default function Microsoft365CallbackPage() {
   const message = params.get("message");
 
   const [countdown, setCountdown] = useState(2);
+  // Skrzynkę podłączoną ze Sprzedaży odsyłamy do Sprzedaży (`m365-return`).
+  const [returnTo] = useState(() =>
+    typeof window === "undefined" ? "/settings" : takeM365Return(),
+  );
+  const backLabel = returnTo.startsWith("/sales") ? "Sprzedaży" : "ustawień";
 
   useEffect(() => {
     if (status !== "success") return;
@@ -19,12 +26,12 @@ export default function Microsoft365CallbackPage() {
       () => setCountdown((c) => (c > 0 ? c - 1 : 0)),
       1000,
     );
-    const jump = setTimeout(() => router.push("/settings"), 2000);
+    const jump = setTimeout(() => router.push(returnTo), 2000);
     return () => {
       clearInterval(id);
       clearTimeout(jump);
     };
-  }, [status, router]);
+  }, [status, router, returnTo]);
 
   if (status === "success") {
     return (
@@ -36,7 +43,7 @@ export default function Microsoft365CallbackPage() {
               Połączono z Microsoft 365
             </p>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Synchronizacja wątków rozpoczęta. Wracamy do ustawień za{" "}
+              Synchronizacja wątków rozpoczęta. Wracamy do {backLabel} za{" "}
               {countdown}s...
             </p>
           </div>
@@ -58,10 +65,10 @@ export default function Microsoft365CallbackPage() {
               {message ?? "Nieznany błąd."}
             </p>
             <Link
-              href="/settings"
+              href={returnTo}
               className="inline-flex mt-4 items-center gap-2 text-sm font-medium text-primary hover:underline"
             >
-              Wróć do ustawień i spróbuj ponownie
+              Wróć do {backLabel} i spróbuj ponownie
             </Link>
           </div>
         </div>

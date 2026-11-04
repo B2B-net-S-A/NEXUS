@@ -136,7 +136,7 @@ async def admin_headers() -> dict[str, str]:
 
 
 @pytest.mark.parametrize(
-    "role", [UserRole.sourcer, UserRole.recruiter, UserRole.finance, UserRole.admin]
+    "role", [UserRole.recruiter, UserRole.finance, UserRole.admin]
 )
 @pytest.mark.asyncio
 async def test_every_role_can_read_active_flags(
@@ -155,7 +155,7 @@ async def test_every_role_can_read_active_flags(
 
 @pytest.mark.asyncio
 async def test_non_admin_cannot_raise_a_flag(pflag_client: AsyncClient):
-    target_id = (await _seed_user(UserRole.sourcer)).id
+    target_id = (await _seed_user(UserRole.recruiter)).id
     headers = await _seed_headers(UserRole.recruiter)
 
     resp = await pflag_client.post(
@@ -170,7 +170,7 @@ async def test_non_admin_cannot_raise_a_flag(pflag_client: AsyncClient):
 async def test_non_admin_cannot_clear_a_flag(
     pflag_client: AsyncClient, admin_headers: dict[str, str]
 ):
-    target_id = (await _seed_user(UserRole.sourcer)).id
+    target_id = (await _seed_user(UserRole.recruiter)).id
     created = await pflag_client.post(
         _BASE,
         headers=admin_headers,
@@ -189,7 +189,7 @@ async def test_non_admin_cannot_clear_a_flag(
 @pytest.mark.asyncio
 async def test_history_is_admin_only(pflag_client: AsyncClient):
     """Wygaszona ocena sprzed roku nie ma powodu wisieć przed całym zespołem."""
-    target_id = (await _seed_user(UserRole.sourcer)).id
+    target_id = (await _seed_user(UserRole.recruiter)).id
     headers = await _seed_headers(UserRole.recruiter)
 
     resp = await pflag_client.get(f"{_BASE}/history/{target_id}", headers=headers)
@@ -203,7 +203,7 @@ async def test_history_is_admin_only(pflag_client: AsyncClient):
 async def test_clearing_keeps_the_row_with_full_authorship(
     pflag_client: AsyncClient, admin_headers: dict[str, str]
 ):
-    target_id = (await _seed_user(UserRole.sourcer)).id
+    target_id = (await _seed_user(UserRole.recruiter)).id
     created = await pflag_client.post(
         _BASE,
         headers=admin_headers,
@@ -266,7 +266,7 @@ async def test_clearing_keeps_the_row_with_full_authorship(
 async def test_cleared_flag_cannot_be_revived(
     pflag_client: AsyncClient, admin_headers: dict[str, str]
 ):
-    target_id = (await _seed_user(UserRole.sourcer)).id
+    target_id = (await _seed_user(UserRole.recruiter)).id
     flag_id = (
         await pflag_client.post(
             _BASE,
@@ -294,7 +294,7 @@ async def test_second_active_flag_of_same_type_is_refused(
     pflag_client: AsyncClient, admin_headers: dict[str, str]
 ):
     """Dwie takie same plakietki to ta sama ocena narysowana dwa razy."""
-    target_id = (await _seed_user(UserRole.sourcer)).id
+    target_id = (await _seed_user(UserRole.recruiter)).id
     first = await pflag_client.post(
         _BASE,
         headers=admin_headers,
@@ -334,7 +334,7 @@ async def test_second_active_flag_of_same_type_is_refused(
 async def test_note_is_optional_and_blank_means_absent(
     pflag_client: AsyncClient, admin_headers: dict[str, str]
 ):
-    without_note_target = (await _seed_user(UserRole.sourcer)).id
+    without_note_target = (await _seed_user(UserRole.recruiter)).id
     resp = await pflag_client.post(
         _BASE,
         headers=admin_headers,
@@ -343,7 +343,7 @@ async def test_note_is_optional_and_blank_means_absent(
     assert resp.status_code == 201, resp.text
     assert resp.json()["note"] is None
 
-    blank_target = (await _seed_user(UserRole.sourcer)).id
+    blank_target = (await _seed_user(UserRole.recruiter)).id
     blank = await pflag_client.post(
         _BASE,
         headers=admin_headers,
@@ -358,7 +358,7 @@ async def test_note_is_optional_and_blank_means_absent(
 async def test_unknown_flag_type_is_rejected(
     pflag_client: AsyncClient, admin_headers: dict[str, str]
 ):
-    target_id = (await _seed_user(UserRole.sourcer)).id
+    target_id = (await _seed_user(UserRole.recruiter)).id
     resp = await pflag_client.post(
         _BASE,
         headers=admin_headers,
@@ -372,7 +372,7 @@ async def test_empty_patch_is_rejected(
     pflag_client: AsyncClient, admin_headers: dict[str, str]
 ):
     """Pusty zapis zwracający 200 wygląda dla admina jak wykonany."""
-    target_id = (await _seed_user(UserRole.sourcer)).id
+    target_id = (await _seed_user(UserRole.recruiter)).id
     flag_id = (
         await pflag_client.post(
             _BASE,
@@ -392,7 +392,7 @@ async def test_note_edit_does_not_clear_the_flag(
     pflag_client: AsyncClient, admin_headers: dict[str, str]
 ):
     """Zapis częściowy: poprawka komentarza nie może zdjąć ostrzeżenia."""
-    target_id = (await _seed_user(UserRole.sourcer)).id
+    target_id = (await _seed_user(UserRole.recruiter)).id
     flag_id = (
         await pflag_client.post(
             _BASE,
@@ -424,7 +424,7 @@ async def test_flag_on_former_employee_is_allowed(
     DynaReporter pokazuje plakietki także przy osobach, które odeszły — chip
     stoi OBOK ostrzeżenia, nie zamiast niego.
     """
-    target_id = (await _seed_user(UserRole.sourcer, is_active=False)).id
+    target_id = (await _seed_user(UserRole.recruiter, is_active=False)).id
     resp = await pflag_client.post(
         _BASE,
         headers=admin_headers,

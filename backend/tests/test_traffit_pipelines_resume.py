@@ -143,7 +143,14 @@ async def test_interrupt_persists_the_last_flushed_page(monkeypatch) -> None:
     with pytest.raises(httpx.ReadTimeout):
         await imp.import_pipelines(since=_SINCE)
 
-    assert db.cursor == {"delta": {"page": 2, "since": _SINCE_ISO, "page_size": 100}}
+    assert db.cursor == {
+        "delta": {
+            "page": 2,
+            "since": _SINCE_ISO,
+            "page_size": 100,
+            "carried_errors": {"errors": 0, "refs": []},
+        }
+    }
 
 
 @pytest.mark.asyncio

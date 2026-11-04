@@ -1,8 +1,11 @@
 """Router `/api/my-clients` — Delivery client register + per-client dashboard.
 
-Delivery Lead, Admin, Finance i Talent Community Manager widzą wszystkich
-klientów. ``DeliveryLeadClientAssignment`` opisuje odpowiedzialność i flagę
-głównego opiekuna, ale nie ogranicza dostępu operacyjnego.
+Wejście daje uprawnienie „Klienci, kontrakty i zamówienia: podgląd”
+(domyślnie Admin, Finanse, Delivery Lead i Talent Community Manager). Konto
+z rolą Delivery Leada widzi klientów ze swojego portfela
+(``resolve_delivery_lead_client_ids``), każdy inny posiadacz — wszystkich.
+``DeliveryLeadClientAssignment`` niesie też flagę głównego opiekuna i granicę
+kwot Delivery Leada.
 
 Dashboard stosuje ten sam per-client guard, po rozwiązaniu merge redirectu.
 """
@@ -20,8 +23,8 @@ from sqlalchemy.orm import selectinload
 from starlette.responses import RedirectResponse
 
 from app.api.clients import client_time_to_fill, polish_alphabetical_key
-from app.api.deps import CurrentUser, require_delivery_lead_or_admin
-from app.api.financial_access import can_read_client_finance, has_financial_access
+from app.api.financial_access import can_read_client_finance
+from app.api.permission_access import DeliveryViewUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.client import Client
@@ -32,16 +35,20 @@ from app.models.client_framework_contract import (
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.team_structure import DeliveryLeadClientAssignment
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.my_clients import (
     ClientDashboardResponse,
     ExpiringAlert,
     MyClientRow,
 )
 from app.services.access_scope import (
+    apply_delivery_lead_client_scope,
+    assert_delivery_lead_client_visible,
+    is_delivery_lead_governed,
     resolve_delivery_lead_client_ids,
     resolve_delivery_lead_finance_client_ids,
 )
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.client_identity import (
     client_display_name,
     client_display_name_expression,
@@ -65,13 +72,6 @@ from app.schemas.money import to_whole_pln
 from app.core.scheduling import business_today
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
-
-
-_MY_CLIENTS_ORGANIZATION_READ_ROLES = (
-    UserRole.admin,
-    UserRole.finance,
-    UserRole.talent_community_manager,
-)
 
 
 # „Konsultant pracuje u tego klienta" = active LUB ending. Dzienny cron
@@ -162,26 +162,25 @@ async def _monthly_margin_total_pln(
 
 async def require_client_dashboard_access_after_merge(
     client_id: int,
-    current_user: CurrentUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Authorize dashboard access against the canonical client identity."""
+    """Authorize dashboard access against the canonical client identity.
+
+    Wejście daje podgląd Delivery (zależność — odmowa nazywa uprawnienie).
+    Konto z rolą Delivery Leada zostaje przy swoim portfelu, każdy inny
+    posiadacz czyta wszystkich klientów (resolver zwraca wtedy ``None``);
+    kwoty rozstrzyga handler (``can_read_client_finance``).
+    """
     canonical = await resolve_visible_client(db, client_id, follow_merge=True)
     if canonical is None:
         raise HTTPException(404, detail="Client not found")
 
-    # Keep the Delivery Lead persona path for hybrids so its Delivery-specific
-    # finance rules remain explicit. Operational access covers every canonical
-    # client; financial fields are decided inside the handler.
-    delivery_scoped = current_user.has_role(
-        UserRole.delivery_lead
-    ) and not current_user.has_any_role(UserRole.admin, UserRole.finance)
-    if not delivery_scoped and current_user.has_any_role(
-        *_MY_CLIENTS_ORGANIZATION_READ_ROLES
-    ):
-        return current_user
-
-    await require_delivery_lead_or_admin(current_user=current_user)
+    # Portal DL pokazuje wyłącznie klientów z portfela (25.09.2026); granicę
+    # sprawdzamy na kliencie kanonicznym, po rozwiązaniu scalenia.
+    assert_delivery_lead_client_visible(
+        canonical.id, await resolve_delivery_lead_client_ids(current_user, db)
+    )
     return current_user
 
 
@@ -206,70 +205,80 @@ def _days_to(target: Optional[date]) -> Optional[int]:
     response_model_exclude_none=True,
 )
 async def list_my_clients(
-    user: CurrentUser,
+    user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Organization-wide client register for Delivery-facing personas."""
-    # A concrete set still identifies the Delivery Lead persona, even though it
-    # now contains every client. This keeps its assigned-client finance
-    # exception separate from organization-wide VIEW_FINANCE.
+    """Client register for Delivery-facing personas.
+
+    Wejście daje podgląd Delivery. A Delivery Lead sees its portfolio
+    (``resolve_delivery_lead_client_ids`` — assigned clients since 25.09.2026,
+    every client under ``DL_CLIENT_SCOPE=all``); every other holder of the
+    view permission reads every client (``reads_delivery_organization_wide``).
+    """
+    # A concrete set identifies the Delivery Lead persona and keeps its
+    # assigned-client finance exception separate from VIEW_FINANCE; ``None``
+    # is the organization-wide reader.
     delivery_lead_client_ids = await resolve_delivery_lead_client_ids(user, db)
-    is_delivery_scoped = delivery_lead_client_ids is not None
-    is_organization_reader = (
-        user.has_any_role(*_MY_CLIENTS_ORGANIZATION_READ_ROLES)
-        and not is_delivery_scoped
-    )
     client_name = client_display_name_expression()
 
-    if not is_delivery_scoped and not is_organization_reader:
-        raise HTTPException(
-            403,
-            detail="Only Delivery Leads or organization readers can view clients",
-        )
-
-    clients_stmt = (
+    clients_stmt = apply_delivery_lead_client_scope(
         select(Client)
         .where(*visible_client_predicates())
-        .order_by(polish_alphabetical_key(client_name).asc(), Client.id.asc())
+        .order_by(polish_alphabetical_key(client_name).asc(), Client.id.asc()),
+        Client.id,
+        delivery_lead_client_ids,
     )
     clients = list((await db.execute(clients_stmt)).scalars())
     client_ids = [client.id for client in clients]
 
-    # Assignment still answers "is this person the head DL?" and which client
-    # finance they own. It no longer decides which clients are listed.
+    # Assignment also answers "is this person the head DL?" and which client
+    # finance they own. ``None`` = konto nierządzone portfelem DL.
     head_lookup: dict[int, bool] = {}
-    assigned_client_ids: frozenset[int] = frozenset()
-    if is_delivery_scoped:
-        assigned_client_ids = (
-            await resolve_delivery_lead_finance_client_ids(user, db) or frozenset()
-        )
-        if assigned_client_ids:
-            assignments = list(
-                (
-                    await db.execute(
-                        select(
-                            DeliveryLeadClientAssignment.client_id,
-                            DeliveryLeadClientAssignment.is_head,
-                        ).where(
-                            DeliveryLeadClientAssignment.delivery_lead_user_id
-                            == user.id,
-                            DeliveryLeadClientAssignment.client_id.in_(
-                                sorted(assigned_client_ids)
-                            ),
-                        )
+    delivery_lead_finance_client_ids = await resolve_delivery_lead_finance_client_ids(
+        user, db
+    )
+    if delivery_lead_finance_client_ids:
+        assignments = list(
+            (
+                await db.execute(
+                    select(
+                        DeliveryLeadClientAssignment.client_id,
+                        DeliveryLeadClientAssignment.is_head,
+                    ).where(
+                        DeliveryLeadClientAssignment.delivery_lead_user_id == user.id,
+                        DeliveryLeadClientAssignment.client_id.in_(
+                            sorted(delivery_lead_finance_client_ids)
+                        ),
                     )
                 )
             )
-            head_lookup = {
-                assignment.client_id: assignment.is_head for assignment in assignments
-            }
+        )
+        head_lookup = {
+            assignment.client_id: assignment.is_head for assignment in assignments
+        }
 
     if not client_ids:
         return []
 
-    finance_client_ids = (
-        frozenset(client_ids) if has_financial_access(user) else assigned_client_ids
+    # Kwoty według tej samej reguły co dashboard i profil klienta: „Moduł
+    # Finanse” albo „Stawki i kwoty: podgląd” u klienta z zakresu — konto
+    # z rolą DL u klientów z przypisania, pozostali posiadacze u wszystkich.
+    finance_client_ids = frozenset(
+        client_id
+        for client_id in client_ids
+        if can_read_client_finance(
+            user,
+            client_id=client_id,
+            delivery_lead_finance_client_ids=delivery_lead_finance_client_ids,
+        )
     )
+
+    # Przychody wszystkich klientów na jednej liście to zbiorczy wynik firmy
+    # (decyzja Artura 02.11.2026). Portfel Delivery Leada zostaje.
+    if not has_permission(
+        user, ProductAction.company_results
+    ) and not is_delivery_lead_governed(user):
+        finance_client_ids = frozenset()
 
     # Aktywne zamówienia — licznik jest operacyjny dla każdego dopuszczonego
     # czytelnika Delivery, w tym TCM. Zamówienie MD/kosztowe to jedno
@@ -477,6 +486,7 @@ async def client_dashboard(
     has_margin = False
     margin_complete = True
     margin_unpriced = 0
+    current_contract_count = 0
     # „Dziś” poza gałęzią finansową: czyta je też liczenie aktywnych
     # konsultantów niżej, a odbiorca bez kwot dostawał tu 500 (NameError).
     today = business_today()
@@ -502,6 +512,7 @@ async def client_dashboard(
         # na profilu tego klienta (UAT B46). Pusta data startu znaczy „start
         # nieznany", nie „planowany" (audyt 18.09.2026).
         contract_rows = await load_current_contracts(db, contract_rows, today)
+        current_contract_count = len(contract_rows)
         totals = await _monthly_margin_total_pln(db, contract_rows, today)
         monthly_margin_total = totals.margin
         monthly_revenue_total = totals.revenue
@@ -637,9 +648,15 @@ async def client_dashboard(
             completed_rev if finance_ok and revenue_fx_complete else None
         ),
         currency_breakdown=currency_breakdown if finance_ok else None,
+        # Runda 8 (R8-N13-3): klient bez obecnych kontraktów ma marżę 0, jak
+        # kafel „Aktywne MRR" na profilu (`clients.py`) — dotąd Analityka
+        # pokazywała „—", a profil tego samego klienta „0 zł". „—" zostaje
+        # dla kontraktów, z których żaden nie ma wyceny.
         monthly_margin_total=(
             monthly_margin_total
-            if finance_ok and has_margin and margin_complete
+            if finance_ok
+            and margin_complete
+            and (has_margin or current_contract_count == 0)
             else None
         ),
         monthly_margin_pct=margin_pct if finance_ok else None,

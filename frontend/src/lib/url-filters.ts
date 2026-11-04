@@ -12,19 +12,39 @@ import {
   serializeSkillBuckets,
 } from "@/lib/skill-expression";
 import type { OpenToValue } from "@/lib/filter-options";
+import type { BoardColumnKey } from "@/lib/board-stages";
+import { isStageColumn } from "@/lib/stage-filter";
 import { normalizeLanguageFilters } from "@/lib/candidate-languages";
+import { cleanRows, requirementRows } from "@/lib/keyword-requirements";
+import {
+  encodeLocationPlaces,
+  locationPlacesParam,
+  parseLocationPlaces,
+  type LocationPlace,
+} from "@/lib/location-places";
 
-export type SortMode = "newest" | "oldest" | "name" | "relevance";
+export type SortMode = "newest" | "oldest" | "name" | "relevance" | "match";
 /** Jak czytać tekst `q` — `auto` = decyduje backend („Rozumiem to jako…"). */
 export type TextModeFilter = "auto" | "literal" | "semantic";
 export type SkillCombine = "and" | "or";
 export type RemoteMode = "remote" | "hybrid" | "onsite";
 export type CandidatesView = "list" | "tiles";
 export type RecruitmentMatch = "assigned" | "not_assigned";
+/**
+ * Pytanie o rekrutacje BEZ wskazywania którejkolwiek: `ever` był w jakiejś,
+ * `never` w żadnej, `not_in_process` nie ma dziś procesu w toku. `""` = brak.
+ */
+export type RecruitmentPresence = "" | "never" | "ever" | "not_in_process";
 export type RecentlyChangedJobs = 1 | 2 | 3 | null;
 
 export type CandidateStatusFilter = "active" | "passive" | "blacklisted";
-export type EmploymentFilter = "at_client" | "available";
+/**
+ * Wartości parametru `employment` — JEDNA lista dla adresu, listy i backendu
+ * (`_EMPLOYMENT_FILTER_VALUES` w `api/candidates.py`). `ending_soon` =
+ * pracuje u nas, a zamówienie kończy się w 60 dni bez kontynuacji.
+ */
+export const EMPLOYMENT_FILTER_VALUES = ["at_client", "available", "ending_soon"] as const;
+export type EmploymentFilter = (typeof EMPLOYMENT_FILTER_VALUES)[number];
 export type AvailabilityFilter =
   | "actively_looking"
   | "open_to_offers"
@@ -51,7 +71,7 @@ const CANDIDATE_STATUS_VALUES: ReadonlySet<string> = new Set([
   "passive",
   "blacklisted",
 ]);
-const EMPLOYMENT_VALUES: ReadonlySet<string> = new Set(["at_client", "available"]);
+const EMPLOYMENT_VALUES: ReadonlySet<string> = new Set(EMPLOYMENT_FILTER_VALUES);
 const AVAILABILITY_VALUES: ReadonlySet<string> = new Set([
   "actively_looking",
   "open_to_offers",
@@ -111,9 +131,26 @@ export interface CandidateFilters {
   // „Mile widziane" — trzeci kubełek: tylko kolejność, nikogo nie usuwa.
   // Pozycja może być grupą `a|b`. W URL powtarzany parametr `skills_pref`.
   skillsPreferred: string[];
+  /**
+   * „Mile widziane” poza umiejętnościami (audyt 26.09.2026) — tylko kolejność,
+   * nikogo nie usuwają. „Szukaj ręcznie” wstawia tu miasta i kategorię
+   * rekrutacji oraz wiersze wymagań, które nie są technologiami (jako filtry
+   * wycinały 55,6% osób wybranych potem przez zespół). W adresie `loc_pref`
+   * (`a|b`), `cc_pref` (CSV) i powtarzany `q_pref` (wiersz, słowa przez `|`).
+   */
+  locationPreferred: string[];
+  competenceCategoryPreferred: number[];
+  qPreferred: string[][];
   // „Ukryj osoby bez danych" (`hide_unknown`) — bez tego osoby bez lokalizacji,
   // stażu albo stawki zostają z plakietką `unknown_fields`. W URL `hu=1`.
   hideUnknown: boolean;
+  /**
+   * D5 (19.10.2026): „Osoby bez stawki / bez miasta w profilu: ukryj” —
+   * w okienku samego filtru, węższe niż `hideUnknown`. W URL `hur=1` / `hul=1`,
+   * w API `hide_unknown_rate` / `hide_unknown_location`.
+   */
+  hideUnknownRate: boolean;
+  hideUnknownLocation: boolean;
   /**
    * Zakres pola lokalizacji (`location_scope`). `location_only` = sama kolumna
    * `location` (dawne zachowanie listy) — ustawia go migracja zapisów
@@ -139,6 +176,13 @@ export interface CandidateFilters {
   // `recr` (CSV ids) + `recr_mode` (zapisywane tylko dla `not_assigned`).
   recruitmentIds: number[];
   recruitmentMatch: RecruitmentMatch;
+  // Blok „Rekrutacje” (12.10.2026). `recruitmentClientIds` = „wszystkie
+  // rekrutacje klienta” — razem z `recruitmentIds` tworzy JEDEN zakres (LUB),
+  // kierunek niesie `recruitmentMatch`. `recruitmentPresence` pyta bez zakresu.
+  // Tryb widoczny na ekranie wylicza `lib/recruitment-filter.ts`; te pola
+  // zapisuj jego łatkami, nie ręcznie. W URL `recr_cl` (CSV) i `recr_p`.
+  recruitmentClientIds: number[];
+  recruitmentPresence: RecruitmentPresence;
   // Lata doświadczenia — inclusive numeric band (years of IT experience).
   // `null` on either side means that bound is open. The backend matches against
   // a derived per-candidate interval (exact `years_it_experience` or the coarse
@@ -172,6 +216,10 @@ export interface CandidateFilters {
   // the URL as `sent_from`/`sent_to`.
   sentToClientFrom: string;
   sentToClientTo: string;
+  // „Dodany na etap” (19.10.2026): kolumny Tablicy („QC CV”, „Zweryfikowany”…)
+  // zamiast kodów etapu — LUB z `pipelineStage` (stare linki i zapisy), na tym
+  // samym przejściu co `stageMovedByIds` / daty / klient. Adres `stage_col`.
+  stageColumns: BoardColumnKey[];
   // "Aktualny etap" toggle. When true → force CURRENT-stage matching even with
   // who/when/client move-filters (sends `stage_current_only=true`). When false
   // (default) → omit the param so the backend auto-resolves: current for a bare
@@ -192,13 +240,12 @@ export interface CandidateFilters {
   semanticsVersion: 1 | 2;
   view: CandidatesView;
   savedSearchId: number | null;
-  // Traffit-style advanced search buckets. Each phrase matches ILIKE
-  // across name/email/CV/ai_summary/competence_category/experience/skills/tags.
-  qAll: string[]; // every phrase must match (AND)
-  // ANY bucket = list of OR-groups that AND together. Each inner array is one
-  // OR-group (phrases OR'd); groups AND with each other. `[["a","b"],["c"]]`
-  // means `(a OR b) AND c`. A single group is the classic "any of these" and
-  // round-trips from legacy `?q_any=a|b` URLs (decoded as one group).
+  // Słowa kluczowe jako lista wymagań (25.09.2026, `lib/keyword-requirements`):
+  // `qAny` to wiersze w kolejności — OR w wierszu, AND między wierszami
+  // (`[["a","b"],["c"]]` = `(a OR b) AND c`). `qAll` zostaje tylko dla źródeł
+  // spoza adresu (stare zapisy, prefill); adres i API niosą same wiersze,
+  // a `decodeFilters` zamienia stare `q_all` na wiersze na początku.
+  qAll: string[]; // legacy: każde słowo = osobny wiersz
   qAny: string[][];
   qNone: string[]; // none of these phrases may match (NOT)
   /**
@@ -210,6 +257,13 @@ export interface CandidateFilters {
   locationRadiusKm: number | null;
   /** Województwa (małymi literami, np. „mazowieckie”) — którekolwiek. */
   voivodeships: string[];
+  /**
+   * D6 (19.10.2026): kilka miast, każde z własnym promieniem — SUMA
+   * z województwami (`lib/location-places.ts`). W URL `locs`, w API
+   * powtarzany `location_places`. Pojedyncze `location` + `locationRadiusKm`
+   * to stary kształt (z `voivodeships` łączy się przez „i”).
+   */
+  locationPlaces: LocationPlace[];
   /** Kontakt w okresie: `yes` był, `no` nie było; `null` = bez filtra. */
   contacted: "yes" | "no" | null;
   contactedFrom: string;
@@ -243,7 +297,12 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   remote: [],
   skillsExpr: "",
   skillsPreferred: [],
+  locationPreferred: [],
+  competenceCategoryPreferred: [],
+  qPreferred: [],
   hideUnknown: false,
+  hideUnknownRate: false,
+  hideUnknownLocation: false,
   locationScope: "",
   location: "",
   poolIds: [],
@@ -255,6 +314,8 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   workedAtClientIds: [],
   recruitmentIds: [],
   recruitmentMatch: "assigned",
+  recruitmentClientIds: [],
+  recruitmentPresence: "",
   experienceMin: null,
   experienceMax: null,
   rateMin: null,
@@ -263,6 +324,7 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   stageMovedAfter: "",
   stageMovedBefore: "",
   stageClientIds: [],
+  stageColumns: [],
   sentToClientFrom: "",
   sentToClientTo: "",
   stageCurrentOnly: false,
@@ -277,6 +339,7 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   qScope: "all",
   locationRadiusKm: null,
   voivodeships: [],
+  locationPlaces: [],
   contacted: null,
   contactedFrom: "",
   contactedTo: "",
@@ -324,6 +387,14 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const parseIsoDate = (raw: string | null): string =>
   raw && ISO_DATE.test(raw) ? raw : "";
 
+const RECRUITMENT_PRESENCE_VALUES: ReadonlySet<string> = new Set([
+  "never",
+  "ever",
+  "not_in_process",
+]);
+const parseRecruitmentPresence = (raw: string | null): RecruitmentPresence =>
+  raw && RECRUITMENT_PRESENCE_VALUES.has(raw) ? (raw as RecruitmentPresence) : "";
+
 // Skill boolean expression. New URLs carry `skills_q` verbatim. Legacy URLs /
 // saved searches stored a flat `skills` CSV plus a `skill_combine` of `and`/`or`
 // — reconstruct an equivalent expression (`a AND b` / `a OR b`) so old shares
@@ -356,7 +427,14 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   for (const entry of f.skillsPreferred) {
     if (entry.trim()) p.append("skills_pref", entry.trim());
   }
+  if (f.locationPreferred.length) p.set("loc_pref", PIPE(f.locationPreferred));
+  if (f.competenceCategoryPreferred.length) {
+    p.set("cc_pref", CSV(f.competenceCategoryPreferred));
+  }
+  for (const row of cleanRows(f.qPreferred)) p.append("q_pref", PIPE(row));
   if (f.hideUnknown) p.set("hu", "1");
+  if (f.hideUnknownRate) p.set("hur", "1");
+  if (f.hideUnknownLocation) p.set("hul", "1");
   if (f.locationScope) p.set("ls", f.locationScope);
   if (f.location) p.set("loc", f.location);
   if (f.poolIds.length) p.set("pool", CSV(f.poolIds));
@@ -366,10 +444,16 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.currentTitle.length) p.set("title", PIPE(f.currentTitle));
   if (f.tags.length) p.set("tags", PIPE(f.tags));
   if (f.workedAtClientIds.length) p.set("client_hist", CSV(f.workedAtClientIds));
-  if (f.recruitmentIds.length) {
-    p.set("recr", CSV(f.recruitmentIds));
-    if (f.recruitmentMatch !== "assigned") p.set("recr_mode", f.recruitmentMatch);
+  if (f.recruitmentIds.length) p.set("recr", CSV(f.recruitmentIds));
+  // Kierunek ma znaczenie przy każdym zakresie — także gdy to sam klient.
+  if (
+    (f.recruitmentIds.length || f.recruitmentClientIds.length) &&
+    f.recruitmentMatch !== "assigned"
+  ) {
+    p.set("recr_mode", f.recruitmentMatch);
   }
+  if (f.recruitmentClientIds.length) p.set("recr_cl", CSV(f.recruitmentClientIds));
+  if (f.recruitmentPresence) p.set("recr_p", f.recruitmentPresence);
   if (f.experienceMin !== null) p.set("exp_min", String(f.experienceMin));
   if (f.experienceMax !== null) p.set("exp_max", String(f.experienceMax));
   if (f.rateMin !== null) p.set("rate_min", String(f.rateMin));
@@ -387,29 +471,35 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   }
   // v2 jest domyślne — `sv` w adresie tylko dla zapisu przypiętego do v1.
   if (f.semanticsVersion === 1) p.set("sv", "1");
-  if (f.qAll.length) p.set("q_all", PIPE(f.qAll));
-  // One repeated `q_any` param per OR-group (each pipe-joined). Empty groups
-  // are skipped. Legacy single-param `?q_any=a|b` decodes back to one group.
-  for (const group of f.qAny) {
-    if (group.length) p.append("q_any", PIPE(group));
+  // Każdy wiersz wymagań = jeden powtarzany `q_any` (słowa przez `|`), także
+  // jednowyrazowy — kolejność wierszy przeżywa odświeżenie. Stare `q_all`
+  // idzie jako wiersze na początku (tak samo czyta je `decodeFilters`).
+  for (const group of cleanRows(requirementRows(f.qAll, f.qAny))) {
+    p.append("q_any", PIPE(group));
   }
   if (f.qNone.length) p.set("q_none", PIPE(f.qNone));
   if (f.qScope !== "all") p.set("q_in", f.qScope);
   if (f.locationRadiusKm !== null) p.set("radius", String(f.locationRadiusKm));
   if (f.voivodeships.length) p.set("woj", CSV(f.voivodeships));
+  if (f.locationPlaces.length) p.set("locs", encodeLocationPlaces(f.locationPlaces));
   if (f.contacted) p.set("contact", f.contacted);
   if (f.contactedFrom) p.set("contact_from", f.contactedFrom);
   if (f.contactedTo) p.set("contact_to", f.contactedTo);
   if (f.contactedByIds.length) p.set("contact_by", CSV(f.contactedByIds));
   if (f.view !== "list") p.set("view", f.view);
   if (f.savedSearchId !== null) p.set("ss", String(f.savedSearchId));
+  // Dopisane na końcu (19.10.2026) — stare adresy kodują się bajt w bajt.
+  if (f.stageColumns.length) p.set("stage_col", CSV(f.stageColumns));
   return p;
 }
 
 export function decodeFilters(sp: URLSearchParams): CandidateFilters {
   const sortRaw = sp.get("sort");
   const sort: SortMode =
-    sortRaw === "oldest" || sortRaw === "name" || sortRaw === "relevance"
+    sortRaw === "oldest" ||
+    sortRaw === "name" ||
+    sortRaw === "relevance" ||
+    sortRaw === "match"
       ? sortRaw
       : "newest";
   const tmRaw = sp.get("tm");
@@ -469,7 +559,12 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
       .getAll("skills_pref")
       .map((x) => x.trim())
       .filter(Boolean),
+    locationPreferred: parsePipe(sp.get("loc_pref")),
+    competenceCategoryPreferred: parseCsvInt(sp.get("cc_pref")),
+    qPreferred: cleanRows(sp.getAll("q_pref").map(parsePipe)),
     hideUnknown: sp.get("hu") === "1",
+    hideUnknownRate: sp.get("hur") === "1",
+    hideUnknownLocation: sp.get("hul") === "1",
     locationScope: sp.get("ls") === "location_only" ? "location_only" : "",
     location: sp.get("loc") ?? "",
     poolIds: parseCsvInt(sp.get("pool")),
@@ -482,6 +577,8 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     recruitmentIds: parseCsvInt(sp.get("recr")),
     recruitmentMatch:
       sp.get("recr_mode") === "not_assigned" ? "not_assigned" : "assigned",
+    recruitmentClientIds: parseCsvInt(sp.get("recr_cl")),
+    recruitmentPresence: parseRecruitmentPresence(sp.get("recr_p")),
     experienceMin: parseYearBound(sp.get("exp_min")),
     experienceMax: parseYearBound(sp.get("exp_max")),
     rateMin: parseRateBound(sp.get("rate_min")),
@@ -490,6 +587,7 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     stageMovedAfter: parseIsoDate(sp.get("stage_from")),
     stageMovedBefore: parseIsoDate(sp.get("stage_to")),
     stageClientIds: parseCsvInt(sp.get("stage_client")),
+    stageColumns: parseCsv(sp.get("stage_col")).filter(isStageColumn),
     sentToClientFrom: parseIsoDate(sp.get("sent_from")),
     sentToClientTo: parseIsoDate(sp.get("sent_to")),
     stageCurrentOnly: sp.get("stage_current") === "1",
@@ -499,15 +597,22 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     semanticsVersion: sp.get("sv") === "1" ? 1 : 2,
     view,
     savedSearchId,
-    qAll: parsePipe(sp.get("q_all")),
-    // Each repeated `q_any` value is one pipe-joined OR-group. Drop empties.
-    qAny: sp.getAll("q_any").map(parsePipe).filter((g) => g.length > 0),
+    // Stare `q_all` (zakładki, zapisy sprzed 25.09.2026) → wiersz na słowo,
+    // na początku; potem powtarzane `q_any` — każde to jeden wiersz.
+    qAll: [],
+    qAny: cleanRows(
+      requirementRows(
+        parsePipe(sp.get("q_all")),
+        sp.getAll("q_any").map(parsePipe),
+      ),
+    ),
     qNone: parsePipe(sp.get("q_none")),
     qScope: KEYWORD_SCOPES.has(sp.get("q_in") ?? "")
       ? (sp.get("q_in") as KeywordScope)
       : "all",
     locationRadiusKm: parseRadiusKm(sp.get("radius")),
     voivodeships: parseCsv(sp.get("woj")).map((v) => v.toLowerCase()),
+    locationPlaces: parseLocationPlaces(sp.get("locs")),
     contacted:
       sp.get("contact") === "yes" ? "yes" : sp.get("contact") === "no" ? "no" : null,
     contactedFrom: parseIsoDate(sp.get("contact_from")),
@@ -581,6 +686,30 @@ export function decodeJobBackRef(sp: URLSearchParams): number | null {
   if (sp.get("from") !== "job") return null;
   const jid = Number.parseInt(sp.get("jobId") ?? "", 10);
   return Number.isFinite(jid) && jid > 0 ? jid : null;
+}
+
+/**
+ * Profil otwarty z „Szukaj ręcznie” w oknie rekrutacji (`?from=job-search&jobId=N`):
+ * powrót prowadzi do tego okna, nie do ogólnej listy kandydatów (zgłoszenie
+ * Marka G., 28.10.2026). Filtry wyszukiwania okno odtwarza samo ze swojej pamięci.
+ */
+export function withJobSearchBackRef(sp: URLSearchParams, jobId: number): URLSearchParams {
+  const p = new URLSearchParams(sp);
+  p.set("from", "job-search");
+  p.set("jobId", String(jobId));
+  return p;
+}
+
+export function decodeJobSearchBackRef(sp: URLSearchParams): number | null {
+  if (sp.get("from") !== "job-search") return null;
+  const jid = Number.parseInt(sp.get("jobId") ?? "", 10);
+  return Number.isFinite(jid) && jid > 0 ? jid : null;
+}
+
+/** Link powrotny z profilu do listy, z której przyszedł (filtry + strona). */
+export function listBackHref(filters: CandidateFilters): string {
+  const qs = encodeFilters(filters).toString();
+  return qs ? `/candidates?${qs}` : "/candidates";
 }
 
 /**
@@ -658,7 +787,18 @@ export function filtersToApiParams(
     skills_preferred: filters.skillsPreferred.length
       ? filters.skillsPreferred
       : undefined,
+    location_preferred: filters.locationPreferred.length
+      ? filters.locationPreferred
+      : undefined,
+    competence_category_preferred: filters.competenceCategoryPreferred.length
+      ? filters.competenceCategoryPreferred
+      : undefined,
+    q_preferred_group: cleanRows(filters.qPreferred).length
+      ? cleanRows(filters.qPreferred).map((row) => row.join("|"))
+      : undefined,
     hide_unknown: filters.hideUnknown ? true : undefined,
+    hide_unknown_rate: filters.hideUnknownRate ? true : undefined,
+    hide_unknown_location: filters.hideUnknownLocation ? true : undefined,
     location_scope: filters.locationScope || undefined,
     remote_policy: filters.remote.length ? filters.remote : undefined,
     employment: filters.employment.length ? filters.employment : undefined,
@@ -683,9 +823,14 @@ export function filtersToApiParams(
     // Mode only matters with a selection, and only `not_assigned` flips the
     // default — omit otherwise so the API call stays minimal.
     recruitment_match:
-      filters.recruitmentIds.length && filters.recruitmentMatch !== "assigned"
+      (filters.recruitmentIds.length || filters.recruitmentClientIds.length) &&
+      filters.recruitmentMatch !== "assigned"
         ? filters.recruitmentMatch
         : undefined,
+    recruitment_client_id: filters.recruitmentClientIds.length
+      ? filters.recruitmentClientIds
+      : undefined,
+    recruitment_presence: filters.recruitmentPresence || undefined,
     min_experience: filters.experienceMin ?? undefined,
     max_experience: filters.experienceMax ?? undefined,
     min_rate: filters.rateMin ?? undefined,
@@ -698,6 +843,7 @@ export function filtersToApiParams(
     stage_client_id: filters.stageClientIds.length
       ? filters.stageClientIds
       : undefined,
+    stage_column: filters.stageColumns.length ? filters.stageColumns : undefined,
     sent_to_client_from: filters.sentToClientFrom || undefined,
     sent_to_client_to: filters.sentToClientTo || undefined,
     // Only send when forcing current-stage matching; omitting lets the backend
@@ -706,11 +852,9 @@ export function filtersToApiParams(
     open_to: filters.openTo.length ? filters.openTo : undefined,
     recently_changed_jobs: filters.recentlyChangedJobs ?? undefined,
     semantics_version: filters.semanticsVersion,
-    q_all: filters.qAll.length ? filters.qAll : undefined,
-    // ANY OR-groups → one repeated `q_any_group` value per group (pipe-joined).
-    q_any_group: filters.qAny.some((g) => g.length)
-      ? filters.qAny.filter((g) => g.length).map((g) => g.join("|"))
-      : undefined,
+    // Wiersze wymagań → powtarzany `q_any_group` (słowa przez `|`); stare
+    // `qAll` idzie jako wiersze jednowyrazowe (to samo znaczenie co `q_all`).
+    q_any_group: keywordRowsParam(filters),
     q_none: filters.qNone.length ? filters.qNone : undefined,
     // Zakres słów kluczowych i promień — tylko wspólna semantyka (v2).
     q_scope:
@@ -722,6 +866,9 @@ export function filtersToApiParams(
         ? filters.locationRadiusKm
         : undefined,
     voivodeship: filters.voivodeships.length ? filters.voivodeships : undefined,
+    location_places: filters.locationPlaces.length
+      ? locationPlacesParam(filters.locationPlaces)
+      : undefined,
     contacted: filters.contacted ?? undefined,
     contacted_from: filters.contacted ? filters.contactedFrom || undefined : undefined,
     contacted_to: filters.contacted ? filters.contactedTo || undefined : undefined,
@@ -733,6 +880,13 @@ export function filtersToApiParams(
   };
 }
 
+function keywordRowsParam(
+  filters: Pick<CandidateFilters, "qAll" | "qAny">,
+): string[] | undefined {
+  const rows = cleanRows(requirementRows(filters.qAll, filters.qAny));
+  return rows.length ? rows.map((row) => row.join("|")) : undefined;
+}
+
 /** Ile słów kluczowych (wszystkie + którekolwiek + wykluczone) jest ustawionych. */
 export function keywordCount(
   filters: Pick<CandidateFilters, "qAll" | "qAny" | "qNone">,
@@ -740,14 +894,43 @@ export function keywordCount(
   return filters.qAll.length + filters.qAny.flat().length + filters.qNone.length;
 }
 
+type SortContext = Pick<CandidateFilters, "q" | "sort" | "sortExplicit"> &
+  Partial<
+    Pick<
+      CandidateFilters,
+      "qAll" | "qAny" | "recruitmentIds" | "recruitmentMatch" | "recruitmentClientIds"
+    >
+  >;
+
+/**
+ * Czy jest z czym porównać kandydatów dla kolejności „Dopasowanie”: okno
+ * „Szukaj ręcznie” (jedna rekrutacja, osoby spoza niej) albo wiersze wymagań.
+ */
+export function matchSortAvailable(filters: SortContext): boolean {
+  // Zakres klienta to filtr listy, nie okno rekrutacji (lustro
+  // `candidate_match_order.job_scope`).
+  const jobScope =
+    (filters.recruitmentIds?.length ?? 0) === 1 &&
+    filters.recruitmentMatch === "not_assigned" &&
+    (filters.recruitmentClientIds?.length ?? 0) === 0;
+  return jobScope || cleanRows(requirementRows(filters.qAll ?? [], filters.qAny ?? [])).length > 0;
+}
+
 /**
  * Sortowanie wysyłane do API. Wpisany tekst bez jawnego wyboru sortowania =
  * trafność (dla wyszukiwania po znaczeniu to kolejność puli; decyzja
- * 22.09.2026). Jawny wybór rekrutera wygrywa zawsze.
+ * 22.09.2026). Bez tekstu, ale z rekrutacją albo wierszami wymagań =
+ * „Dopasowanie” (decyzja Artura 25.09.2026: na 120 rekrutacjach pierwsza
+ * strona z właściwą osobą w 83% zamiast 33% przy „najnowsi”). Jawny wybór
+ * rekrutera wygrywa zawsze.
  */
-export function effectiveSort(filters: Pick<CandidateFilters, "q" | "sort" | "sortExplicit">): SortMode {
+export function effectiveSort(filters: SortContext): SortMode {
   const hasText = filters.q.trim().length >= 2;
-  if (hasText && filters.sort === "newest" && !filters.sortExplicit) return "relevance";
+  if (filters.sort === "newest" && !filters.sortExplicit) {
+    if (hasText) return "relevance";
+    if (matchSortAvailable(filters)) return "match";
+  }
+  if (filters.sort === "match" && !matchSortAvailable(filters)) return "newest";
   return filters.sort;
 }
 
@@ -798,6 +981,7 @@ export function filtersToApiCriteria(
     "include_match_stats",
     "include_active_recruitments",
     "include_last_activity",
+    "include_last_talk",
     "match_threshold",
   ]);
   return Object.fromEntries(
@@ -874,20 +1058,32 @@ export type TraffitExtraFilters = Pick<
   | "qScope"
   | "locationRadiusKm"
   | "voivodeships"
+  | "locationPlaces"
+  | "hideUnknownRate"
+  | "hideUnknownLocation"
   | "contacted"
   | "contactedFrom"
   | "contactedTo"
   | "contactedByIds"
+  | "recruitmentClientIds"
+  | "recruitmentPresence"
+  | "stageColumns"
 >;
 
 const TRAFFIT_EXTRA_KEYS = [
   "qScope",
   "locationRadiusKm",
   "voivodeships",
+  "locationPlaces",
+  "hideUnknownRate",
+  "hideUnknownLocation",
   "contacted",
   "contactedFrom",
   "contactedTo",
   "contactedByIds",
+  "recruitmentClientIds",
+  "recruitmentPresence",
+  "stageColumns",
 ] as const satisfies ReadonlyArray<keyof TraffitExtraFilters>;
 
 export function pickTraffitExtras(filters: CandidateFilters): TraffitExtraFilters {
@@ -895,10 +1091,16 @@ export function pickTraffitExtras(filters: CandidateFilters): TraffitExtraFilter
     qScope: filters.qScope,
     locationRadiusKm: filters.locationRadiusKm,
     voivodeships: filters.voivodeships,
+    locationPlaces: filters.locationPlaces,
+    hideUnknownRate: filters.hideUnknownRate,
+    hideUnknownLocation: filters.hideUnknownLocation,
     contacted: filters.contacted,
     contactedFrom: filters.contactedFrom,
     contactedTo: filters.contactedTo,
     contactedByIds: filters.contactedByIds,
+    recruitmentClientIds: filters.recruitmentClientIds,
+    recruitmentPresence: filters.recruitmentPresence,
+    stageColumns: filters.stageColumns,
   };
 }
 

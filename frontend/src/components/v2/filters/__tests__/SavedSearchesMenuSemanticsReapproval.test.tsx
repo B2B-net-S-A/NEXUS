@@ -142,6 +142,15 @@ describe("semanticsReapproval", () => {
     expect(r?.ruleLabels[0]).toContain("tag musi pasować w całości");
   });
 
+  it("umiejętności ze screeningu mają własne zdanie, nie opis ogólny", () => {
+    const r = semanticsReapproval({
+      migration: { diff: { legacy_total: 1, unified_total: 2, rules: ["screening_skills"] } },
+    });
+    expect(r?.ruleLabels).toEqual([
+      "filtr umiejętności liczy też umiejętności potwierdzone w screeningu",
+    ]);
+  });
+
   it("zwraca null dla zapisu bez migracji i po akceptacji", () => {
     expect(semanticsReapproval({ qs: "q=x" })).toBeNull();
     expect(

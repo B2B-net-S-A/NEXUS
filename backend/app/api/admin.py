@@ -1,28 +1,34 @@
 """Admin-only API endpoints for user management and system stats."""
 
+import asyncio
 import os
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
-from sqlalchemy import func, select, text, update
+from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.models.activity import Activity
-from app.models.invite_link import CandidateInviteLink
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract
 from app.models.job import Job
-from app.models.notification import Notification, NotificationType
-from app.models.user import User, UserRole
+from app.models.notification import NotificationType
+from app.models.section_permission import (
+    RoleActionPermission,
+    RoleSectionPermission,
+    UserActionOverride,
+)
+from app.models.user import User, UserRole, known_roles
 from app.models.user_activity import UserActivity
 from app.api.deps import AdminUser, ensure_exclusive_role_configuration
+from app.api.notifications import create_notification
 from app.schemas.user import UserResponse
 from app.services.aad_role_policy import (
     InvalidAadRoleMapping,
@@ -34,6 +40,7 @@ from app.services.email import (
     send_password_reset_email,
 )
 from app.services.finance_role_cleanup import clear_recruitment_access_for_finance
+from app.services.hr import account_profiles
 from app.services.password_reset import (
     RESET_TOKEN_TTL_MINUTES,
     create_reset_token,
@@ -42,12 +49,17 @@ from app.services.onboarding_access import (
     onboarding_persona_changed,
     onboarding_persona_for_roles,
 )
+from app.services.admin_active_decision import latest_admin_active_decision
+from app.services.account_deactivation import deactivate_account
 from app.services.admin_membership import protect_active_admin_membership
 from app.services.client_identity import visible_client_predicates
 from app.services import trainee_program
+from app.services.user_email import find_user_by_email, normalize_email
 from app.services.critical_events import record_executed
-from app.services.action_permissions import resolve_effective_action_access
-from app.services.section_permissions import resolve_effective_section_access
+from app.services.effective_access import (
+    granted_beyond_roles,
+    resolve_effective_access,
+)
 from app.services.user_response import build_user_response
 
 router = APIRouter()
@@ -66,17 +78,28 @@ class AdminUserResponse(BaseModel):
     is_active: bool
     # Imienne uprawnienie do usuwania klientów (0307).
     can_delete_clients: bool = False
+    # Imienne prawo do maila „Podsumowanie Rady” (0631).
+    receives_board_report: bool = False
+    # Uprawnienia z ekranu nadane tej osobie ponad to, co dają jej role
+    # (plakietka „+N uprawnienie” na liście kont).
+    extra_permissions: list[str] = []
     activity_count: int
     last_activity: Optional[datetime] = None
     created_at: datetime
+    # 0612: konto po pierwszym logowaniu czeka na decyzję, kim jest
+    # (filtr „Do decyzji” i plakietka „Nowa · zdecyduj”).
+    setup_pending_since: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 
 
 class AdminUserCreate(BaseModel):
     email: EmailStr
-    password: str
-    name: str
+    # Runda 9 (R9-N13-7): hasło ustawione przez admina bez granic (dozwolone
+    # było ""), a imię dłuższe niż kolumna (255) kończyło się 500. Te same
+    # granice co przy zmianie hasła przez użytkownika.
+    password: str = Field(..., min_length=8, max_length=128)
+    name: str = Field(..., min_length=1, max_length=255)
     role: UserRole = UserRole.recruiter
     # Optional secondary roles. ``role`` is always set as primary. If
     # ``roles`` is omitted, defaults to ``[role]``.
@@ -84,7 +107,7 @@ class AdminUserCreate(BaseModel):
 
 
 class AdminUserUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
     role: Optional[UserRole] = None
     # Replace the full role set. If supplied, must contain ``role`` (or the
     # current primary). Setting only ``role`` updates the primary and adds
@@ -94,6 +117,8 @@ class AdminUserUpdate(BaseModel):
     # Imienne uprawnienie do usuwania klientów z profilu (0307). Nie wynika
     # z żadnej roli — nadaje się je konkretnej osobie.
     can_delete_clients: Optional[bool] = None
+    # Imienne prawo do maila „Podsumowanie Rady” (0631).
+    receives_board_report: Optional[bool] = None
     # Odpina konto od tożsamości Microsoft (`azure_oid`). SSO odmawia logowania,
     # gdy ten sam adres przychodzi z INNYM `oid` (audyt 24.09.2026) — np. konto
     # odtworzone w Entra; admin świadomie pozwala przypiąć nową tożsamość.
@@ -101,7 +126,7 @@ class AdminUserUpdate(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
-    new_password: str
+    new_password: str = Field(..., min_length=8, max_length=128)
 
 
 def _normalized_role_values(
@@ -124,6 +149,9 @@ def _normalized_role_values(
         UserRole.finance.value,
         UserRole.user.value,
         UserRole.trainee.value,
+        UserRole.automation.value,
+        UserRole.employee.value,
+        UserRole.board.value,
     }.intersection(values)
     if exclusive and len(values) != 1:
         role_name = sorted(exclusive)[0]
@@ -171,15 +199,40 @@ async def list_users(
         for row in activity_result.all()
     }
 
+    # Nadania osób: jedno zapytanie na całą listę; macierz ról doczytujemy
+    # tylko wtedy, gdy ktokolwiek ma nadanie (na co dzień to kilka kont).
+    grants_by_user: dict[int, list[UserActionOverride]] = {}
+    for grant in (
+        await db.scalars(
+            select(UserActionOverride).where(UserActionOverride.access == "manage")
+        )
+    ).all():
+        grants_by_user.setdefault(grant.user_id, []).append(grant)
+    section_rows: list[RoleSectionPermission] = []
+    action_rows: list[RoleActionPermission] = []
+    if grants_by_user:
+        section_rows = list((await db.scalars(select(RoleSectionPermission))).all())
+        action_rows = list((await db.scalars(select(RoleActionPermission))).all())
+
     return [
         AdminUserResponse(
             id=u.id,
             email=u.email,
             name=u.name,
             role=u.role,
-            roles=[UserRole(r) for r in (u.roles or []) if r in UserRole.__members__],
+            roles=known_roles(u.roles),
             is_active=u.is_active,
             can_delete_clients=bool(u.can_delete_clients),
+            receives_board_report=bool(u.receives_board_report),
+            setup_pending_since=u.setup_pending_since,
+            extra_permissions=list(
+                granted_beyond_roles(
+                    u,
+                    section_role_rows=section_rows,
+                    action_role_rows=action_rows,
+                    action_override_rows=grants_by_user.get(u.id, []),
+                )
+            ),
             activity_count=activity_map.get(u.id, {}).get("count", 0),
             last_activity=activity_map.get(u.id, {}).get("last"),
             created_at=u.created_at,
@@ -221,10 +274,10 @@ async def create_user(
     domain_error = admin_email_domain_error(data.email)
     if domain_error:
         raise HTTPException(status_code=422, detail=domain_error)
-    existing = await db.execute(
-        select(User).where(func.lower(User.email) == data.email.lower())
-    )
-    if existing.scalar_one_or_none():
+    # Adres zawsze małymi literami (R9-N1-1) — SSO i rejestracja zapisują go
+    # tak samo, więc konto założone tutaj nie dostaje bliźniaka przy SSO.
+    email = normalize_email(data.email)
+    if await find_user_by_email(db, email) is not None:
         raise HTTPException(
             status_code=409, detail="Konto z tym adresem e-mail już istnieje."
         )
@@ -235,8 +288,8 @@ async def create_user(
     preexempt = onboarding_persona_for_roles(roles_list) is None
     is_finance = data.role == UserRole.finance
     user = User(
-        email=data.email,
-        password_hash=hash_password(data.password),
+        email=email,
+        password_hash=await asyncio.to_thread(hash_password, data.password),
         name=data.name,
         role=data.role,
         roles=roles_list,
@@ -244,11 +297,19 @@ async def create_user(
         kpi_coach_enabled=not is_finance,
         profile_completed=preexempt,
         profile_completed_at=func.now() if preexempt else None,
+        # Hasło zna admin — przy pierwszym logowaniu hasłem użytkownik ustawia
+        # własne (R9-N13-7), tak jak po resecie hasła przez admina.
+        force_password_change=True,
+        force_password_change_at=func.now(),
     )
     db.add(user)
     await db.flush()
     await trainee_program.sync_program_for_roles(
         db, user.id, before=[], after=roles_list, actor_id=_admin.id
+    )
+    # „Ludzie w NEXUSIE”: nowe konto pracownicze dostaje kartotekę (19.10.2026).
+    await account_profiles.ensure_profile_on_account(
+        db, user, actor_id=_admin.id, source="admin_create"
     )
     await db.refresh(user)
     return user
@@ -281,6 +342,7 @@ async def update_user(
     original_name = user.name
     original_allowed_sections = list(user.allowed_sections or [])
     original_can_delete_clients = bool(user.can_delete_clients)
+    original_receives_board_report = bool(user.receives_board_report)
 
     if data.name is not None:
         user.name = data.name
@@ -289,10 +351,21 @@ async def update_user(
         final_roles = _normalized_role_values(final_primary, data.roles)
     elif data.role is not None:
         if (
-            final_primary in {UserRole.finance, UserRole.user, UserRole.trainee}
+            final_primary
+            in {
+                UserRole.finance,
+                UserRole.user,
+                UserRole.trainee,
+                UserRole.automation,
+                UserRole.employee,
+                UserRole.board,
+            }
             or UserRole.finance.value in original_roles
             or UserRole.user.value in original_roles
             or UserRole.trainee.value in original_roles
+            or UserRole.automation.value in original_roles
+            or UserRole.employee.value in original_roles
+            or UserRole.board.value in original_roles
         ):
             final_roles = [final_primary.value]
         else:
@@ -338,6 +411,8 @@ async def update_user(
         user.is_active = data.is_active
     if data.can_delete_clients is not None:
         user.can_delete_clients = data.can_delete_clients
+    if data.receives_board_report is not None:
+        user.receives_board_report = data.receives_board_report
     if data.clear_microsoft_identity and user.azure_oid:
         previous_oid = user.azure_oid
         user.azure_oid = None
@@ -365,6 +440,14 @@ async def update_user(
     if authorization_changed:
         user.authorization_version += 1
         user.tokens_valid_after = datetime.now(timezone.utc)
+    if (
+        user.role != original_role
+        or list(user.roles or []) != original_roles
+        or not user.is_active
+    ):
+        # 0612: zmiana roli albo wyłączenie konta to decyzja o nowej osobie —
+        # znika z „Nowych osób do ustawienia”.
+        user.setup_pending_since = None
     await trainee_program.sync_program_for_roles(
         db,
         user.id,
@@ -435,6 +518,13 @@ async def update_user(
                 },
             )
         )
+    if original_active and data.is_active is False:
+        # Odejście z firmy: kandydaci osoby → Delivery Leadzi jej rekrutacji
+        # (``departure_care``, decyzja Artura 28.10.2026).
+        from app.services.departure_care import hand_over_safely
+
+        await db.flush()
+        await hand_over_safely(db, user, actor_id=_admin.id)
     if data.name is not None and data.name != original_name:
         db.add(
             Activity(
@@ -473,10 +563,49 @@ async def update_user(
                 "to": data.can_delete_clients,
             },
         )
+    if (
+        data.receives_board_report is not None
+        and data.receives_board_report != original_receives_board_report
+    ):
+        # Kto dostaje przychód i marżę firmy mailem, jest częścią Historii zdarzeń.
+        await record_executed(
+            db,
+            actor=_admin,
+            event_type="user.board_report_permission",
+            entity_type="user",
+            entity_id=user.id,
+            entity_label=f"{user.name} ({user.email})",
+            reason_code="granted" if data.receives_board_report else "revoked",
+            reason=(
+                "Nadano mail „Podsumowanie Rady”."
+                if data.receives_board_report
+                else "Odebrano mail „Podsumowanie Rady”."
+            ),
+            details={
+                "from": original_receives_board_report,
+                "to": data.receives_board_report,
+            },
+        )
 
     await db.flush()
     await db.refresh(user)
     return user
+
+
+@router.get("/users/{user_id}/departure-preview")
+async def departure_preview(
+    user_id: int,
+    _admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Co zostaje po koncie i który Delivery Lead to przejmie — okno
+    „Wyłącz konto” (``services/departure_care.py``, 28.10.2026)."""
+    from app.services.departure_care import preview
+
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return await preview(db, user)
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -509,28 +638,12 @@ async def deactivate_user(
         next_active=False,
     )
 
-    if user.is_active:
-        user.authorization_version += 1
-        user.tokens_valid_after = datetime.now(timezone.utc)
-    user.is_active = False
-    # audyt 22.09 r2 (SEC-06): stały link kariery usuniętego pracownika
-    # przestaje działać na stałe (odczyt i tak sprawdza aktywność właściciela).
-    await db.execute(
-        update(CandidateInviteLink)
-        .where(
-            CandidateInviteLink.created_by == user.id,
-            CandidateInviteLink.kind == "recruiter",
-        )
-        .values(revoked=True)
-    )
-    db.add(
-        Activity(
-            entity_type="user",
-            entity_id=user.id,
-            action="user_deactivated",
-            user_id=admin.id,
-            details={"target_email": user.email},
-        )
+    await deactivate_account(
+        db,
+        user,
+        action="user_deactivated",
+        actor_id=admin.id,
+        details={"target_email": user.email},
     )
     await db.flush()
 
@@ -578,8 +691,7 @@ async def start_impersonation(
         )
     )
     await db.flush()
-    await resolve_effective_section_access(db, target)
-    await resolve_effective_action_access(db, target)
+    await resolve_effective_access(db, [target])
     return await build_user_response(target, db)
 
 
@@ -603,12 +715,14 @@ async def reset_password(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    user.password_hash = hash_password(data.new_password)
+    user.password_hash = await asyncio.to_thread(hash_password, data.new_password)
     user.force_password_change = True
     user.force_password_change_at = func.now()
     # F-05: admin-reset unieważnia wszystkie wcześniej wybite tokeny usera —
     # wykradziony/wyciekły token nie przeżywa resetu hasła.
-    user.tokens_valid_after = func.now()
+    # Runda 13: podłoga z zegara aplikacji (jak token_is_revoked i iat), nie
+    # początek transakcji w bazie.
+    user.tokens_valid_after = datetime.now(timezone.utc)
 
     db.add(
         Activity(
@@ -623,28 +737,36 @@ async def reset_password(
             },
         )
     )
-    db.add(
-        Notification(
-            user_id=user.id,
-            title="Twoje hasło zostało zresetowane",
-            message=(
-                f"Administrator {_admin.name} zresetował Twoje hasło. "
-                "Przy następnym logowaniu zostaniesz poproszony(-a) o "
-                "ustawienie nowego hasła."
-            ),
-            link="/profile",
-            notification_type=NotificationType.password_changed_by_admin,
-            related_entity_type="user",
-            related_entity_id=user.id,
-        )
+    # Runda 9 (R9-N2-4): drugi reset tego samego dnia trafiał w
+    # ``ix_notif_dedup_daily`` (użytkownik, typ, encja, doba) — 500 i cofnięty
+    # reset. Drugi wpis tego dnia odświeża pierwszy zamiast wstawiać nowy.
+    await create_notification(
+        db,
+        user_id=user.id,
+        title="Twoje hasło zostało zresetowane",
+        message=(
+            f"Administrator {_admin.name} zresetował Twoje hasło. "
+            "Przy następnym logowaniu zostaniesz poproszony(-a) o "
+            "ustawienie nowego hasła."
+        ),
+        link="/profile",
+        notification_type=NotificationType.password_changed_by_admin,
+        related_entity_type="user",
+        related_entity_id=user.id,
+        dedupe_resurface=True,
     )
     await db.flush()
-
-    send_password_changed_notification(
-        to_email=user.email,
-        recipient_name=user.name,
+    to_email, recipient_name, admin_name = user.email, user.name, _admin.name
+    # Commit PRZED wysyłką (audyt 25.09.2026): wiersz użytkownika jest
+    # zablokowany `FOR UPDATE`, a wysyłka (MSAL + Graph albo SMTP) trwa
+    # sekundy — blokada i pętla zdarzeń nie mogą na nią czekać.
+    await db.commit()
+    await asyncio.to_thread(
+        send_password_changed_notification,
+        to_email=to_email,
+        recipient_name=recipient_name,
         by_admin=True,
-        admin_name=_admin.name,
+        admin_name=admin_name,
     )
     return {"detail": "Password reset successfully"}
 
@@ -675,12 +797,7 @@ async def send_reset_link(
     base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
     reset_url = f"{base}/login/reset?token={plain_token}"
 
-    send_password_reset_email(
-        to_email=user.email,
-        recipient_name=user.name,
-        reset_url=reset_url,
-        expires_minutes=RESET_TOKEN_TTL_MINUTES,
-    )
+    to_email, recipient_name = user.email, user.name
 
     db.add(
         Activity(
@@ -694,21 +811,32 @@ async def send_reset_link(
             },
         )
     )
-    db.add(
-        Notification(
-            user_id=user.id,
-            title="Wysłano link do resetu hasła",
-            message=(
-                f"Administrator {_admin.name} wysłał Ci link do zresetowania "
-                "hasła. Sprawdź skrzynkę email — link jest ważny przez 60 minut."
-            ),
-            link=None,
-            notification_type=NotificationType.password_reset_requested,
-            related_entity_type="user",
-            related_entity_id=user.id,
-        )
+    # Drugi link tego samego dnia odświeża powiadomienie (R9-N2-4).
+    await create_notification(
+        db,
+        user_id=user.id,
+        title="Wysłano link do resetu hasła",
+        message=(
+            f"Administrator {_admin.name} wysłał Ci link do zresetowania "
+            "hasła. Sprawdź skrzynkę email — link jest ważny przez 60 minut."
+        ),
+        link=None,
+        notification_type=NotificationType.password_reset_requested,
+        related_entity_type="user",
+        related_entity_id=user.id,
+        dedupe_resurface=True,
     )
     await db.flush()
+    # Commit PRZED wysyłką: token musi istnieć, zanim link wyjdzie mailem,
+    # a blokada wiersza użytkownika nie może trwać przez połączenie z Graphem.
+    await db.commit()
+    await asyncio.to_thread(
+        send_password_reset_email,
+        to_email=to_email,
+        recipient_name=recipient_name,
+        reset_url=reset_url,
+        expires_minutes=RESET_TOKEN_TTL_MINUTES,
+    )
     return {"detail": "Reset link sent to user's email"}
 
 
@@ -791,6 +919,9 @@ class ResyncAadGroupsResponse(BaseModel):
     new_roles: list[str] = []
     roles_changed: bool = False
     is_active: bool
+    # R10-V3-2: konto wyłączone jawną decyzją admina zostaje wyłączone —
+    # grupa AAD nie cofa decyzji admina (jak logowanie SSO, R9-N13-2).
+    kept_inactive_by_admin_decision: bool = False
 
 
 @router.post(
@@ -951,16 +1082,24 @@ async def resync_aad_groups(
             detail=str(exc),
         ) from exc
     new_role = mapped_roles[0]
+    # Runda 10 (R10-V3-2): resync nie jest decyzją admina o aktywności
+    # (``admin_active_decision``). Konto, które admin jawnie wyłączył, zostaje
+    # wyłączone — inaczej resync włączał je bez wpisu ``active_changed``,
+    # a SSO nadal widziało „wyłączone” i przy następnym wyjściu i powrocie
+    # do grupy odmawiało logowania. Włączenie = zwykła edycja użytkownika.
+    kept_inactive = (
+        not user.is_active and await latest_admin_active_decision(db, user.id) is False
+    )
     await protect_active_admin_membership(
         db,
         actor_id=_admin.id,
         target=user,
         next_roles=role_strs,
-        next_active=True,
+        next_active=not kept_inactive,
     )
     role_changed = user.role != new_role
     roles_changed = previous_roles != role_strs
-    active_changed = not user.is_active
+    active_changed = not user.is_active and not kept_inactive
     legacy_sections_reset = new_role == UserRole.finance and bool(user.allowed_sections)
     onboarding_reset = onboarding_persona_changed(
         previous_effective_roles,
@@ -998,6 +1137,16 @@ async def resync_aad_groups(
                 )
             )
         user.roles = role_strs
+    # R8-N3-1: bliźniak zapisu ról z panelu i logowania SSO — bez tego awans
+    # przez grupę AAD zostawiał program praktykanta „active”, a ponowne
+    # nadanie roli nie wznawiało zakończonego programu.
+    await trainee_program.sync_program_for_roles(
+        db,
+        user.id,
+        before=previous_effective_roles,
+        after=list(role_strs),
+        actor_id=_admin.id,
+    )
     if onboarding_reset:
         user.profile_completed = False
         user.profile_completed_at = None
@@ -1009,7 +1158,18 @@ async def resync_aad_groups(
         user.profile_completed_at = user.profile_completed_at or datetime.now(
             timezone.utc
         )
-    user.is_active = True
+    if kept_inactive:
+        db.add(
+            Activity(
+                entity_type="user",
+                entity_id=user.id,
+                action="admin_aad_resync_kept_inactive",
+                user_id=_admin.id,
+                details={"reason": "admin_active_decision"},
+            )
+        )
+    else:
+        user.is_active = True
     if role_changed or roles_changed or active_changed or legacy_sections_reset:
         user.authorization_version += 1
         user.tokens_valid_after = datetime.now(timezone.utc)
@@ -1044,4 +1204,5 @@ async def resync_aad_groups(
         new_roles=role_strs,
         roles_changed=roles_changed,
         is_active=user.is_active,
+        kept_inactive_by_admin_decision=kept_inactive,
     )

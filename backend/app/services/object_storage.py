@@ -26,6 +26,8 @@ from functools import lru_cache
 from typing import Literal, Optional
 from uuid import uuid4
 
+from app.core.log_safety import safe_storage_key
+
 logger = logging.getLogger(__name__)
 
 
@@ -86,7 +88,14 @@ def upload_cv(
     key = storage_key or new_cv_storage_key(filename)
     extra = {"ContentType": content_type} if content_type else {}
     _client().put_object(Bucket=_bucket_name(), Key=key, Body=content, **extra)
-    logger.info("uploaded %d bytes to s3://%s/%s", len(content), _bucket_name(), key)
+    # Klucz niesie oryginalną nazwę pliku CV (zwykle imię i nazwisko) — do logu
+    # tylko prefiks + uuid (runda 6 audytu).
+    logger.info(
+        "uploaded %d bytes to s3://%s/%s",
+        len(content),
+        _bucket_name(),
+        safe_storage_key(key),
+    )
     return key
 
 
@@ -107,7 +116,12 @@ def upload_briefing_audio(
     _client().put_object(
         Bucket=_bucket_name(), Key=key, Body=content, ContentType=content_type
     )
-    logger.info("uploaded %d bytes to s3://%s/%s", len(content), _bucket_name(), key)
+    logger.info(
+        "uploaded %d bytes to s3://%s/%s",
+        len(content),
+        _bucket_name(),
+        safe_storage_key(key),
+    )
     return key
 
 
@@ -146,7 +160,7 @@ def download_cv(storage_key: str) -> bytes:
 def delete_cv(storage_key: str) -> None:
     """Permanent delete object. Idempotent — nie raisuje gdy key już nie istnieje."""
     _client().delete_object(Bucket=_bucket_name(), Key=storage_key)
-    logger.info("deleted s3://%s/%s", _bucket_name(), storage_key)
+    logger.info("deleted s3://%s/%s", _bucket_name(), safe_storage_key(storage_key))
 
 
 def is_available() -> bool:

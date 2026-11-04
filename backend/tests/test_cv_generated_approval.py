@@ -7,6 +7,13 @@ from fastapi import HTTPException
 
 from app.services.cv_generated_approval import approved_version_for_generation
 
+# `cv_packages` wiąże `approved_version_for_generation` przy pierwszym imporcie.
+# Testy niżej podmieniają ją w module `cv_generated_approval`; gdyby pierwszy
+# import `cv_packages` nastąpił w trakcie podmiany (leniwe importy w trasach),
+# atrapa zostałaby w nim na stałe i psuła `test_r9_cvgen.py` w tym samym
+# procesie (sito PR-a #2388, 19.10.2026).
+import app.services.cv_packages  # noqa: E402,F401
+
 
 @pytest.mark.parametrize(
     "case",

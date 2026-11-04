@@ -48,7 +48,7 @@ Pętle tła w `backend/app/main.py` (lifespan) i ich sondy w `/api/health.checks
 | S12 | `GET /api/admin/schema-drift` | brak dryfu albo `error` z opisem; `alembic` head | P1 |
 | S13 | `GET /api/health/alembic` | wersja bookmarku; pamięć projektu: bookmark bywa osierocony (entrypoint jest wdrożeniem) — zapisz stan | P2 |
 | S14 | `GET /api/settings/ai` → `spend_alert_level`, ostatnie ostrzeżenie | zapisz; jeśli zużycie > próg, a `spend_alert_level` = 0 → alarm nie działa (P1) | P1 |
-| S15 | GitHub: `gh run list --workflow uptime-probe.yml --limit 10`, `sentry-daily-monitor.yml`, `order-mail-cleanup.yml`, `disk-alert.yml`, `coolify-queue-maintenance.yml` | wszystkie `success` w ostatnich biegach; czerwony = zgłoszenie z linkiem do runu | P1 |
+| S15 | GitHub: `gh run list --workflow uptime-probe.yml --limit 10`, `sentry-daily-monitor.yml`, `disk-alert.yml`, `coolify-queue-maintenance.yml` | wszystkie `success` w ostatnich biegach; czerwony = zgłoszenie z linkiem do runu | P1 |
 | S16 | GitHub: `backup-drill.yml` | patrz Fala 0 §2.2 — czerwony = BLOCKER startu (nie UAT) | P0 |
 | S17 | Sentry: `nexus-be` issues z tagiem `logger:app.tasks.*` / `background` z ostatnich 7 dni | lista do raportu; nowe względem baseline → zgłoszenia | P1 |
 
@@ -59,7 +59,7 @@ Pętle tła w `backend/app/main.py` (lifespan) i ich sondy w `/api/health.checks
 | S20 | powtórz S02 | `__daily__` przesunięty o ~24 h; `errors` nie rosną w nieskończoność (porównaj); `degraded` → `healthy`, jeśli Fala 0 naprawiła powód | P1 |
 | S21 | powtórz S04 | `finished_at` przesunięty; `last_status: ok`; liczniki biegów rosną | P1 |
 | S22 | kontrakt PRAWDZIWY, który miał `end_date` = wczoraj (znajdź w `GET /api/contracts?status=ending` dzień wcześniej; tylko ID) | dziś `ended`; jego zamówienia `completed`; osoba w „Zakończonych” u klienta | P1 |
-| S23 | powiadomienia dzwonka admina | brak DUPLIKATÓW alertu wygasania (ten sam obiekt, próg, data końca) między dzień 1 i 2 | P2 |
+| S23 | powiadomienia dzwonka Delivery Leada klienta (od 09.10.2026 admin dostaje alert wygasania tylko dla klienta bez DL-a) | brak DUPLIKATÓW alertu wygasania (ten sam obiekt, próg, data końca) między dzień 1 i 2 | P2 |
 | S24 | Insights → Placementy dla D3 (po P2 „Zatrudniony”) | placement testowy WIDOCZNY następnego dnia (widok `analytics_first_milestones` odświeżony) — i sprzątnięty po Fali 2 | P2 |
 | S25 | jeśli okres przejściowy = „równolegle”: zmień w Trafficie notatkę u kandydata TESTOWEGO (CZŁOWIEK) → po nocy | notatka w NEXUS z `source_ref=traffit:activity:<id>`; bez duplikatu | P1 |
 
@@ -70,7 +70,7 @@ TOK=…; API=https://api.nexus.dynaminds.pl; H="Authorization: Bearer $TOK"
 for p in /api/health /api/health/deep /api/health/alembic /api/admin/traffit/sync/status /api/order-mail/sync/status \
          /api/admin/index-coverage /api/admin/schema-drift /api/admin/engagement-inventory /api/admin/client-mixups; do
   echo "== $p"; curl -fsS -H "$H" "$API$p" | jq -c 'if type=="object" then with_entries(select(.key|test("status|last|enabled|errors|count|total|degraded|drift|alembic"))) else . end' 2>/dev/null | head -c 800; echo; done
-for w in uptime-probe.yml sentry-daily-monitor.yml order-mail-cleanup.yml disk-alert.yml coolify-queue-maintenance.yml backup-drill.yml e2e.yml; do
+for w in uptime-probe.yml sentry-daily-monitor.yml disk-alert.yml coolify-queue-maintenance.yml backup-drill.yml e2e.yml; do
   printf '%-32s ' "$w"; gh run list --workflow "$w" --limit 3 --json conclusion --jq 'map(.conclusion)|join(",")'; done
 ```
 

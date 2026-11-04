@@ -13,23 +13,46 @@ rekrutacji), więc wymaga tego, czego wymaga dodanie kandydata do rekrutacji:
 skrzynka nie zna (wyszukiwarka, rekomendacja) — wiersz powstaje od razu jako
 pominięty. Pominięta osoba wraca z nową wersją CV albo przez „Cofnij"
 (``…/restore``, ta sama bramka). Nie ma znacznika „widziane" per użytkownik.
+
+``…/proposal-inbox/opened`` (07.10.2026) zapisuje otwarcie skrzynki
+(``Activity proposal_inbox_opened``, raz na osobę/rekrutację/dzień).
+
+``…/proposal-counts`` (02.10.2026) dzieli otwarte propozycje na świeże
+z ogłoszeń (nowe CV, portale) i resztę — te same pary co lista skrzynki.
+
+Od 30.09.2026 (0405) „Pomiń" wymaga powodu (``reason`` ze słownika
+``DISMISS_REASONS``, przy „other" także ``note``) — powód trafia do wiersza,
+telemetrii ``reject`` i raportu „Propozycje AI" w Insights.
 """
 
-from datetime import datetime, timezone
-from typing import Literal, Optional
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, RecruiterPlus, get_db
 from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
+from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.services import job_proposals as proposals
+from app.services.candidate_added_date import added_to_base_of
+from app.services.employment_marker import load_employment_markers
+from app.services.job_proposal_feedback_schema import DISMISS_NOTE_MAX
+from app.services.candidate_rate_from import rate_summary
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
+
+# Telemetria otwarcia skrzynki (07.10.2026) — ile osób w ogóle patrzy na
+# „Propozycje z bazy” (do tego dnia nie wiedzieliśmy, czy brak decyzji to
+# złe propozycje, czy nieotwierana zakładka).
+PROPOSAL_INBOX_OPENED = "proposal_inbox_opened"
 
 # Lustro CHECK-a `ck_job_proposals_source` (`JOB_PROPOSAL_SOURCES`).
 ProposalSource = Literal[
@@ -40,6 +63,7 @@ ProposalSource = Literal[
     "marketplace",
     "reassign",
     "trainee",
+    "job_board",
 ]
 
 
@@ -99,6 +123,78 @@ async def _reassign_sources(db, job_id: int, candidate_ids: list[int]) -> dict:
     return out
 
 
+async def _history_sources(db, job_id: int, candidate_ids: list[int]) -> dict:
+    """07.10.2026: znani zespołowi — skąd osoba ma punkty historii.
+
+    Dowód (`known_people_signal`) niesie same id rekrutacji, etapy i daty;
+    tytuł, numer i klienta rozwijamy tu, jak przy przepięciach.
+    """
+    from app.models.client import Client  # noqa: PLC0415
+    from app.models.job import Job  # noqa: PLC0415
+    from app.models.job_proposal import JobProposal  # noqa: PLC0415
+
+    if not candidate_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(JobProposal.candidate_id, JobProposal.evidence).where(
+                JobProposal.job_id == job_id,
+                JobProposal.source == "full_base",
+                # Te same wiersze co punkty w kolejności `list_for_job` (`_live`):
+                # wygasły wiersz nie może dawać powodu ani punktów w przeglądarce.
+                JobProposal.status != "expired",
+                JobProposal.candidate_id.in_(candidate_ids),
+            )
+        )
+    ).all()
+    info = {
+        cid: ev["history"]
+        for cid, ev in rows
+        if isinstance(ev, dict) and isinstance(ev.get("history"), dict)
+    }
+    refs = [
+        ref
+        for h in info.values()
+        for ref in [*(h.get("similar") or []), h.get("recent")]
+        if isinstance(ref, dict) and ref.get("job_id")
+    ]
+    jobs = {}
+    if refs:
+        for jid, title, ref_no, client in (
+            await db.execute(
+                select(
+                    Job.id,
+                    Job.title,
+                    Job.reference_number,
+                    func.coalesce(Client.display_name, Client.name),
+                )
+                .outerjoin(Client, Client.id == Job.client_id)
+                .where(Job.id.in_({r["job_id"] for r in refs}))
+            )
+        ).all():
+            jobs[jid] = {
+                "job_id": jid,
+                "title": title,
+                "reference_number": ref_no,
+                "client_name": client,
+            }
+
+    def expand(ref):
+        base = jobs.get(ref.get("job_id")) if isinstance(ref, dict) else None
+        if base is None:
+            return None
+        return {**base, "stage": ref.get("stage"), "at": ref.get("at")}
+
+    out = {}
+    for cid, h in info.items():
+        similar = [x for x in (expand(r) for r in h.get("similar") or []) if x]
+        recent = expand(h.get("recent"))
+        # Punkty zostają, nawet gdy rekrutacji z powodu już nie ma — serwer
+        # i tak sortuje po nich; przeglądarka pominie wtedy tylko tekst powodu.
+        out[cid] = {"points": h.get("points"), "similar": similar, "recent": recent}
+    return out
+
+
 async def _trainee_handovers(db, job_id: int, candidate_ids: list[int]) -> dict:
     """0374: kto z praktykantów przekazał osobę i co napisał rekruterowi."""
     from app.models.job_proposal import JobProposal  # noqa: PLC0415
@@ -139,6 +235,8 @@ async def _trainee_handovers(db, job_id: int, candidate_ids: list[int]) -> dict:
             "by_name": names.get(value.get("user_id")),
             "note": value.get("note"),
             "at": seen.isoformat() if seen else None,
+            # Kandydat deklaruje wyłącznie umowę o pracę — ostrzeżenie, nie blokada.
+            "employment_only": bool(value.get("employment_only")),
         }
         for cid, (value, seen) in info.items()
     }
@@ -154,10 +252,11 @@ async def _job(db, user, job_id: int):
     return await _authorized_job(db, user, job_id)
 
 
-def _candidate_brief(candidate: Candidate, *, include_finance: bool) -> dict:
+def _candidate_brief(candidate: Candidate) -> dict:
     """Tożsamość węższa niż profil — jak wiersz pełnego przeglądu (bez kontaktu)."""
     availability = candidate.availability_status
-    rate = candidate.expected_rate_hourly
+    # „Stawka od” (0414) — ta sama liczba, z którą porównuje plakietka budżetu.
+    rate = rate_summary(candidate)["rate_from_hourly"]
     return {
         "id": candidate.id,
         "name": candidate.name,
@@ -170,12 +269,11 @@ def _candidate_brief(candidate: Candidate, *, include_finance: bool) -> dict:
             if candidate.availability_date
             else None
         ),
-        # Stawka z profilu (PLN/h) — tylko dla ról z odczytem finansów; klucz
-        # zostaje, żeby „—" nie czytało się jak brak pola w odpowiedzi.
-        "expected_rate_hourly": (
-            float(rate) if include_finance and rate is not None else None
-        ),
-        "expected_rate_redacted": not include_finance,
+        # Stawka KANDYDATA (PLN/h) jest jawna dla każdej roli — jak na profilu
+        # i liście (decyzja Artura 27.09.2026, R10-N7-10). Stawka DO KLIENTA
+        # tu nie występuje. Klucz `expected_rate_redacted` zostaje w kształcie.
+        "expected_rate_hourly": float(rate) if rate is not None else None,
+        "expected_rate_redacted": False,
     }
 
 
@@ -188,10 +286,6 @@ async def list_job_proposals(
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.analytics.capabilities import (  # noqa: PLC0415
-        AnalyticsCapability,
-        user_has_capability,
-    )
     from app.services.candidate_job_eligibility import Visibility  # noqa: PLC0415
     from app.services.eligibility_annotation import (  # noqa: PLC0415
         eligibility_annotation,
@@ -201,8 +295,25 @@ async def list_job_proposals(
     )
 
     job = await _job(db, user, job_id)
+    # Najlepsze 40 (28.10.2026): ten sam próg dla flagi wiersza i separatora.
+    threshold = await proposals.proposal_threshold(db)
+    # Nowi w bazie najpierw (03.11.2026): te same osoby i reguły co silnik „Nowych”.
+    from app.services.new_column_autofill import new_in_base_picks  # noqa: PLC0415
+
+    now = datetime.now(timezone.utc)
+    new_in_base = (
+        {p.candidate_id for p in await new_in_base_picks(db, job, now=now)}
+        if status == "proposed"
+        else set()
+    )
     rows, total = await proposals.list_for_job(
-        db, job_id=job_id, status=status, limit=limit, offset=offset
+        db,
+        job_id=job_id,
+        status=status,
+        limit=limit,
+        offset=offset,
+        min_score=threshold,
+        first_ids=new_in_base,
     )
     ids = [row.candidate_id for row in rows]
     candidates = {
@@ -227,9 +338,17 @@ async def list_job_proposals(
         if candidates and status == "proposed"
         else {}
     )
-    include_finance = user_has_capability(user, AnalyticsCapability.VIEW_FINANCE)
     reassign_from = await _reassign_sources(db, job_id, ids)
     trainee_handover = await _trainee_handovers(db, job_id, ids)
+    history = await _history_sources(db, job_id, ids)
+    employment_markers = await load_employment_markers(
+        db, list(candidates), today=business_today(), job_client_id=job.client_id
+    )
+    # „Z ogłoszeń w ostatnich dniach” — to samo okno co domyślny podział
+    # licznika (`…/proposal-counts`), liczone zegarem serwera.
+    posting_since = datetime.now(timezone.utc) - timedelta(
+        days=proposals.POSTING_RECENT_DAYS
+    )
     items = []
     hidden = 0
     for row in rows:
@@ -242,34 +361,280 @@ async def list_job_proposals(
             continue
         items.append(
             {
-                "candidate": _candidate_brief(
-                    candidate, include_finance=include_finance
-                ),
+                "candidate": _candidate_brief(candidate),
                 "sources": row.sources,
                 "score": row.score,
+                "board_score": row.board_score,
                 "evidence": row.evidence,
                 "first_seen_at": row.first_seen_at,
                 "last_seen_at": row.last_seen_at,
                 "is_new": row.is_new,
+                "posting_seen_at": row.posting_seen_at,
+                "posting_recent": (
+                    row.posting_seen_at is not None
+                    and row.posting_seen_at >= posting_since
+                ),
                 "status": row.status,
                 "run_id": row.run_id,
+                "below_threshold": row.below_threshold,
+                "new_in_base_at": (
+                    added_to_base_of(candidate).at
+                    if row.candidate_id in new_in_base
+                    else None
+                ),
                 "eligibility": (
                     eligibility_annotation(decision) if decision is not None else None
                 ),
+                "employment_marker": employment_markers.get(row.candidate_id),
                 "reassign_from": reassign_from.get(row.candidate_id),
                 "trainee_handover": trainee_handover.get(row.candidate_id),
+                "history": history.get(row.candidate_id),
             }
         )
+    # Runda 10 (R10-N7-1): pominięci znikają ze wszystkich źródeł widoku, nie
+    # tylko ze skrzynki — tylko pierwsza strona niesie listę (dalsze pytają
+    # o kolejne osoby, a lista jest ta sama).
+    dismissed_ids = (
+        await proposals.dismissed_candidate_ids(db, job_id=job_id)
+        if status == "proposed" and offset == 0
+        else []
+    )
     return {
         "job_id": job_id,
         "status": status,
         "items": items,
+        "dismissed_candidate_ids": dismissed_ids,
         "total": total,
+        # Próg propozycji: osoby z `below_threshold` stoją pod „Poniżej N%”.
+        "threshold": threshold,
+        "new_in_base_total": await proposals.people_on_base_tab(
+            db,
+            job_id=job_id,
+            candidate_ids=new_in_base,
+            posting_since=posting_since,
+        ),
         "hidden_on_page": hidden,
         "limit": limit,
         "offset": offset,
         "next_offset": offset + limit if offset + limit < total else None,
     }
+
+
+@router.get("/jobs/{job_id}/proposal-inbox/hidden-by-critical")
+async def list_hidden_by_critical(
+    job_id: int,
+    user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Ukryci przez „musi mieć”, choć w CV jest coś bliskiego (28.10.2026).
+
+    Reguły w ``services/hidden_by_critical.py``. Ta sama bramka odczytu co
+    skrzynka; globalna czarna lista chowa, weto HM jedzie jako plakietka.
+    ``can_add_variant`` = osoba zapisuje Profil Championa tej rekrutacji
+    (``job_edit_level``, ta sama reguła co ``PUT …/champion-profile``) —
+    przycisk wariantu idzie tym zapisem, bez własnej trasy.
+    """
+    from app.api.recruitment_access import job_edit_level  # noqa: PLC0415
+    from app.services.candidate_job_eligibility import Visibility  # noqa: PLC0415
+    from app.services.eligibility_annotation import (  # noqa: PLC0415
+        eligibility_annotation,
+    )
+    from app.services.hidden_by_critical import hidden_by_critical  # noqa: PLC0415
+    from app.services.pipeline_eligibility import (  # noqa: PLC0415
+        evaluate_candidates_for_job,
+    )
+
+    job = await _job(db, user, job_id)
+    section = await hidden_by_critical(db, job)
+    decisions = (
+        await evaluate_candidates_for_job(
+            db,
+            job=job,
+            candidate_ids=[person.candidate.id for person in section.people],
+            now=datetime.now(timezone.utc),
+        )
+        if section.people
+        else {}
+    )
+    items = []
+    for person in section.people:
+        decision = decisions.get(person.candidate.id)
+        if decision is not None and decision.visibility == Visibility.hidden:
+            continue
+        items.append(
+            {
+                "candidate": _candidate_brief(person.candidate),
+                "critical": person.critical,
+                "row": section.rows.get(person.critical),
+                "word": person.word,
+                "snippet": person.snippet,
+                "source": person.source,
+                "eligibility": (
+                    eligibility_annotation(decision) if decision is not None else None
+                ),
+            }
+        )
+    return {
+        "job_id": job_id,
+        "run_id": section.run_id,
+        "items": items,
+        "total": len(items),
+        "truncated": section.truncated,
+        # `row` = etykieta wiersza Championa (pisownia DL-a), do którego
+        # przycisk dopisuje wariant; `None` = krytyczna bez wiersza.
+        "searched": [
+            {
+                "critical": label,
+                "row": section.rows.get(label),
+                "words": list(words),
+            }
+            for label, words in section.searched.items()
+        ],
+        "variants": [
+            {
+                "critical": v.critical,
+                "row": section.rows.get(v.critical),
+                "word": v.word,
+                "people": v.people,
+                "in_row": v.in_row,
+            }
+            for v in section.variants
+        ],
+        "can_add_variant": await job_edit_level(db, user, job) is not None,
+    }
+
+
+@router.post("/jobs/{job_id}/proposal-inbox/opened")
+async def record_proposal_inbox_opened(
+    job_id: int,
+    user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Telemetria: osoba otworzyła „Propozycje z bazy” tej rekrutacji (07.10.2026).
+
+    Osobny POST, nie zapis w GET listy — GET zostaje odczytem. Wpis
+    ``Activity proposal_inbox_opened`` (encja: rekrutacja) najwyżej raz na
+    osobę, rekrutację i dzień w kalendarzu firmy; niezależnie od
+    ``AI_MATCH_TELEMETRY_ENABLED``. Tryb „podgląd jako” jest tylko do odczytu
+    (zależność odmawia POST-u wcześniej), więc nic się wtedy nie zapisuje.
+    Odpowiedź mówi, czy wpis powstał.
+    """
+    from app.core.scheduling import business_today, local_day_start_utc  # noqa: PLC0415
+    from app.models.activity import Activity  # noqa: PLC0415
+
+    await _job(db, user, job_id)
+    since = local_day_start_utc(business_today())
+    already = await db.scalar(
+        select(Activity.id)
+        .where(
+            Activity.entity_type == "job",
+            Activity.entity_id == job_id,
+            Activity.action == PROPOSAL_INBOX_OPENED,
+            Activity.user_id == user.id,
+            Activity.created_at >= since,
+        )
+        .limit(1)
+    )
+    if already is not None:
+        return {"job_id": job_id, "recorded": False}
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action=PROPOSAL_INBOX_OPENED,
+            user_id=user.id,
+            details={},
+        )
+    )
+    await db.commit()
+    return {"job_id": job_id, "recorded": True}
+
+
+@router.get("/jobs/{job_id}/proposal-counts")
+async def job_proposal_counts(
+    job_id: int,
+    user: CurrentUser,
+    days: int = Query(proposals.POSTING_RECENT_DAYS, ge=1, le=30),
+    db: AsyncSession = Depends(get_db),
+):
+    """Liczby do nagłówka „Do przejrzenia” — ta sama bramka co skrzynka.
+
+    ``postings_recent`` + ``base`` + ``below_threshold`` = ``total`` skrzynki
+    (otwarte propozycje: świeże z ogłoszeń, reszta od progu i osoby spod progu
+    z najlepszych 40, których kafel nie liczy). ``screened_out`` = lista „Odrzuceni przez AI”
+    (ta sama reguła i ta sama bramka co ``…/screened-out``). ``not_searchable_must``
+    = pozycje must rekrutacji, których nie da się szukać w CV (zdanie, branża,
+    język, rola) — ta sama reguła co ``non_technology_must`` w ``/scores``.
+    """
+    from app.api.search import (  # noqa: PLC0415
+        _critical_options,
+        _non_technology_must,
+    )
+    from app.models.application_screening import (  # noqa: PLC0415
+        ApplicationScreening,
+    )
+    from app.services import application_screening as screening  # noqa: PLC0415
+    from app.services.scoring_service import job_skill_requirements  # noqa: PLC0415
+
+    job = await _job(db, user, job_id)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    threshold = await proposals.proposal_threshold(db)
+    split = await proposals.open_split_counts(
+        db, job_id=job_id, since=since, min_score=threshold
+    )
+    screened_out = int(
+        await db.scalar(
+            select(func.count(ApplicationScreening.id)).where(
+                ApplicationScreening.job_id == job_id, screening.listed_clause()
+            )
+        )
+        or 0
+    )
+    # Te same etykiety must, które punktuje `/scores` (`matching_must` +
+    # `gap_must` każdej osoby to razem wymagania must rekrutacji).
+    must = job_skill_requirements(job).get("must") or []
+    not_searchable = _non_technology_must(
+        {"job": {"matching_must": must}}, _critical_options(job)
+    )
+    return {
+        "job_id": job_id,
+        "days": days,
+        "postings_recent": split["postings_recent"],
+        "base": split["base"],
+        # Najlepsze 40 (28.10.2026): osoby spod progu są na liście, ale nie
+        # w liczbach kafli — te liczą tylko od `threshold`.
+        "below_threshold": split["below_threshold"],
+        "threshold": threshold,
+        "screened_out": screened_out,
+        "not_searchable_must": not_searchable,
+        # D5 (13.10.2026): „Zapytaj w rozmowie” na karcie propozycji —
+        # sekcja 4 Championa, język i must, których wyszukiwanie nie czyta.
+        "talk_checks": _talk_checks(job, not_searchable),
+    }
+
+
+def _talk_checks(job: Any, not_searchable: list[str]) -> list[dict[str, str]]:
+    from app.services import champion_view  # noqa: PLC0415
+    from app.schemas.champion import EXPERIENCE_KINDS  # noqa: PLC0415
+
+    profile = getattr(job, "champion_profile", None)
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def add(label: Any, kind: str) -> None:
+        text = " ".join(str(label or "").split())
+        if text and text.casefold() not in seen:
+            seen.add(text.casefold())
+            out.append({"label": text, "kind": kind})
+
+    experience = champion_view.experience(profile)
+    for kind in EXPERIENCE_KINDS:
+        for item in experience.get(kind) or []:
+            add(item.get("name"), kind)
+    add(champion_view.basics(profile).get("language"), "language")
+    for label in not_searchable:
+        add(label, "must")
+    return out
 
 
 @router.get("/jobs/{job_id}/proposal-facts")
@@ -281,15 +646,10 @@ async def job_proposal_facts(
 ):
     """Fakty o osobach z propozycji — hurtowo, bez kontaktu.
 
-    Dwa zapytania niezależnie od liczby osób (kandydaci + historia etapów
-    u klienta tej rekrutacji). Dostęp jak skrzynka propozycji
-    (``_authorized_job``); stawka tylko dla ról z odczytem finansów — tak samo
-    jak w wierszu skrzynki.
+    Stała liczba zapytań niezależnie od liczby osób (kandydaci, historia
+    etapów u klienta tej rekrutacji, znacznik „Pracuje u nas”). Dostęp jak skrzynka propozycji
+    (``_authorized_job``); stawka kandydata jawna jak w wierszu skrzynki.
     """
-    from app.analytics.capabilities import (  # noqa: PLC0415
-        AnalyticsCapability,
-        user_has_capability,
-    )
     from app.models.job import Job  # noqa: PLC0415
     from app.models.recruitment_pipeline import CandidateStage  # noqa: PLC0415
     from app.services import proposal_facts  # noqa: PLC0415
@@ -331,24 +691,104 @@ async def job_proposal_facts(
         history = proposal_facts.client_history(
             proposal_facts.StageRow(*row) for row in rows
         )
-    include_rate = user_has_capability(user, AnalyticsCapability.VIEW_FINANCE)
     by_id = {c.id: c for c in candidates}
+    cv_dates = await proposal_facts.main_cv_uploaded_on(db, ids)
+    from app.services.candidate_rate_from import this_job_rates  # noqa: PLC0415
+
+    this_job = await this_job_rates(db, job_id, list(by_id))
+    employment_markers = await load_employment_markers(
+        db, list(by_id), today=business_today(), job_client_id=job.client_id
+    )
+    from app.services.role_family import mismatches_for_job  # noqa: PLC0415
+
+    # Tester przy programiście (27.10.2026) — okno oznacza i stawia na końcu.
+    role_mismatches = await mismatches_for_job(db, job, list(by_id.values()))
     return {
         "job_id": job_id,
         "items": [
-            proposal_facts.candidate_facts(
-                by_id[cid], include_rate=include_rate, history=history.get(cid)
-            )
+            {
+                **proposal_facts.candidate_facts(by_id[cid], history=history.get(cid)),
+                "employment_marker": employment_markers.get(cid),
+                "cv_uploaded_on": cv_dates.get(cid),
+                "rate_this_job_hourly": (
+                    float(this_job[cid]["amount"]) if cid in this_job else None
+                ),
+                "role_mismatch": (
+                    role_mismatches[cid].as_dict() if cid in role_mismatches else None
+                ),
+            }
             for cid in ids
             if cid in by_id
         ],
     }
 
 
+# Lustro `job_proposal_feedback_schema.DISMISS_REASONS` (CHECK z 0405) —
+# `test_dismiss_reason_literal_mirrors_the_check` pilnuje zgodności.
+DismissReason = Literal[
+    "missing_critical",
+    "too_expensive",
+    "location_office",
+    "too_junior",
+    "outdated_cv",
+    "other",
+]
+
+MSG_REASON_REQUIRED = "Wybierz powód pominięcia — bez niego nie wiemy, co poprawić."
+MSG_NOTE_REQUIRED = "Przy powodzie „Inne” opisz w jednym zdaniu, dlaczego pomijasz."
+MSG_NOTE_TOO_LONG = "Opis powodu może mieć najwyżej 500 znaków."
+
+
 class DismissProposalBody(BaseModel):
-    """Skąd przyszło „Pomiń" osoby, której skrzynka jeszcze nie zna."""
+    """„Pomiń": powód (wymagany od 30.09.2026) i źródło osoby spoza skrzynki.
+
+    ``reason`` jest w modelu opcjonalny, żeby brak powodu dał 422 z polskim
+    zdaniem (walidacja Pydantica mówi po angielsku) — sprawdza go
+    :func:`validated_dismiss_feedback`.
+    """
 
     source: ProposalSource = "full_base"
+    reason: Optional[DismissReason] = None
+    note: Optional[str] = None
+
+
+def validated_dismiss_feedback(
+    body: Optional[DismissProposalBody],
+) -> tuple[str, Optional[str]]:
+    """Powód i opis „Pomiń" albo 422 po polsku. Czysta — testowana bez bazy."""
+    reason = body.reason if body is not None else None
+    if reason is None:
+        raise HTTPException(422, MSG_REASON_REQUIRED)
+    note = (body.note or "").strip() or None
+    if note is not None and len(note) > DISMISS_NOTE_MAX:
+        raise HTTPException(422, MSG_NOTE_TOO_LONG)
+    if reason == "other" and note is None:
+        raise HTTPException(422, MSG_NOTE_REQUIRED)
+    return reason, note
+
+
+async def _emit_reject_outcome(
+    db, *, job_id: int, candidate_id: int, reason: str
+) -> None:
+    """Telemetria `reject` z kodem powodu — nigdy nie wywraca „Pomiń"."""
+    from app.services.match_telemetry_service import (  # noqa: PLC0415
+        emit_match_outcome,
+    )
+
+    try:
+        await emit_match_outcome(
+            db,
+            event_type="reject",
+            candidate_id=candidate_id,
+            job_id=job_id,
+            reason_code=reason,
+        )
+    except Exception:  # noqa: BLE001 — telemetria nigdy nie psuje decyzji
+        logger.warning(
+            "[job_proposals] reject telemetry failed job=%s candidate=%s",
+            job_id,
+            candidate_id,
+        )
 
 
 async def _writable_pair(db, user, job_id: int, candidate_id: int) -> Candidate:
@@ -371,6 +811,7 @@ async def dismiss_job_proposal(
 ):
     from app.services.auto_match_outbox import candidate_revision  # noqa: PLC0415
 
+    reason, note = validated_dismiss_feedback(body)
     candidate = await _writable_pair(db, user, job_id, candidate_id)
     if await proposals.is_in_pipeline(db, job_id=job_id, candidate_id=candidate_id):
         raise HTTPException(
@@ -384,6 +825,8 @@ async def dismiss_job_proposal(
         candidate_id=candidate_id,
         user_id=user.id,
         cv_revision=revision,
+        reason=reason,
+        note=note,
     )
     if not changed:
         from app.models.job_proposal import JobProposal  # noqa: PLC0415
@@ -405,18 +848,92 @@ async def dismiss_job_proposal(
                 job_id=job_id,
                 candidate_id=candidate_id,
                 user_id=user.id,
-                source=(body or DismissProposalBody()).source,
+                source=body.source,
                 cv_revision=revision,
+                reason=reason,
+                note=note,
             ) or await proposals.dismiss(
                 db,
                 job_id=job_id,
                 candidate_id=candidate_id,
                 user_id=user.id,
                 cv_revision=revision,
+                reason=reason,
+                note=note,
             )
         # Inaczej idempotentne: druga próba albo wiersze `added` — nic do zrobienia.
     await db.commit()
+    if changed:
+        await _emit_reject_outcome(
+            db, job_id=job_id, candidate_id=candidate_id, reason=reason
+        )
     return {"job_id": job_id, "candidate_id": candidate_id, "dismissed": changed}
+
+
+class BulkDismissBody(BaseModel):
+    """„Pomiń zaznaczone” (audyt 06.10.2026, R8) — jeden powód dla wielu osób.
+
+    Przy 60–80 propozycjach powód przy każdej osobie z osobna był powodem, dla
+    którego nikt nie zaczynał (0 pominięć w całej historii). Powód zostaje
+    obowiązkowy — ta sama reguła co pojedyncze „Pomiń”.
+    """
+
+    candidate_ids: list[int] = Field(..., min_length=1, max_length=100)
+    reason: Optional[DismissReason] = None
+    note: Optional[str] = None
+
+
+@router.post("/jobs/{job_id}/proposal-inbox/dismiss-bulk")
+async def dismiss_job_proposals_bulk(
+    job_id: int,
+    body: BulkDismissBody,
+    user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Pomija wiele otwartych propozycji jednym powodem.
+
+    Tylko osoby, które skrzynka zna i które nie są już w rekrutacji — reszta
+    wraca w ``skipped`` (bez błędu: lista na ekranie mogła się zmienić).
+    """
+    from app.services.auto_match_outbox import candidate_revision  # noqa: PLC0415
+
+    reason, note = validated_dismiss_feedback(
+        DismissProposalBody(reason=body.reason, note=body.note)
+    )
+    await _job(db, user, job_id)
+    await ensure_job_membership(db, user, job_id)
+    ids = list(dict.fromkeys(body.candidate_ids))
+    candidates = {
+        c.id: c
+        for c in (
+            await db.scalars(select(Candidate).where(Candidate.id.in_(ids)))
+        ).all()
+    }
+    dismissed: list[int] = []
+    skipped: list[int] = []
+    for candidate_id in ids:
+        candidate = candidates.get(candidate_id)
+        if candidate is None or await proposals.is_in_pipeline(
+            db, job_id=job_id, candidate_id=candidate_id
+        ):
+            skipped.append(candidate_id)
+            continue
+        changed = await proposals.dismiss(
+            db,
+            job_id=job_id,
+            candidate_id=candidate_id,
+            user_id=user.id,
+            cv_revision=candidate_revision(candidate),
+            reason=reason,
+            note=note,
+        )
+        (dismissed if changed else skipped).append(candidate_id)
+    await db.commit()
+    for candidate_id in dismissed:
+        await _emit_reject_outcome(
+            db, job_id=job_id, candidate_id=candidate_id, reason=reason
+        )
+    return {"job_id": job_id, "dismissed": dismissed, "skipped": skipped}
 
 
 @router.post("/jobs/{job_id}/proposal-inbox/{candidate_id}/restore")
@@ -439,6 +956,10 @@ _BACKGROUND_ENTITY = "job_automation"
 _BACKGROUND_KINDS = {
     "auto_full_review_finished": "auto_full_review",
     "auto_match_proposed": "new_cv_proposals",
+    # 23.10.2026: silnik „System trzyma Nowych na 20” dodał `count` osób.
+    "new_column_autofill": "autofill",
+    # 25.10.2026: system zdjął swoje nietknięte karty ponad budżetem.
+    "autofill_withdrawn": "autofill_withdrawn",
     "cv_auto_generate_started": "cv_auto_generate",
     "cv_auto_generate_skipped": "cv_auto_generate_skipped",
     "cv_auto_generate_failed": "cv_auto_generate_failed",
@@ -454,6 +975,7 @@ _DETAIL_KEYS = (
     "trigger",
     "reason",
     "message",
+    "why",
 )
 
 

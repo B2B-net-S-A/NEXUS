@@ -16,7 +16,12 @@ const DialogOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
  <DialogPrimitive.Overlay
  ref={ref}
- className={cn("fixed inset-0 z-50 bg-card/60 backdrop-blur-[2px]","data-[state=open]:animate-fadeIn",
+ // z-110: ta sama warstwa co lista wyboru, menu i select (`popover.tsx`).
+ // Okno i lista otwierają się nawzajem w obie strony — wyżej leży to, co
+ // otwarto później (portal na końcu `<body>`). Przy z-50 potwierdzenie
+ // otwarte z okienka listy leżało pod nim (14.10.2026); pilnuje
+ // `floating-layers.test.ts`.
+ className={cn("fixed inset-0 z-110 bg-card/60 backdrop-blur-[2px]","data-[state=open]:animate-fadeIn",
  className
  )}
  {...props}
@@ -56,11 +61,15 @@ const DialogContent = React.forwardRef<
  <DialogPrimitive.Content
  ref={ref}
  aria-describedby={ariaDescribedBy}
- className={cn("fixed left-[50%] top-[50%] z-50 flex flex-col translate-x-[-50%] translate-y-[-50%]",
+ className={cn("fixed left-[50%] top-[50%] z-110 flex flex-col translate-x-[-50%] translate-y-[-50%]",
  // Na telefonie margines 0,5 rem z każdej strony (ramka i zaokrąglenie
  // widoczne); `dvh` — `vh` na iOS liczy wysokość bez paska Safari.
  "w-[calc(100%-1rem)] sm:w-full",
- dialogSizes[size], "bg-card text-foreground","border border-border rounded-xl shadow-md","max-h-[90dvh] overflow-hidden","data-[state=open]:animate-fadeIn",
+ // `overflow-clip`, nie `overflow-hidden`: okno z `hidden` da się przewinąć
+ // skryptem, a fokus na polu leżącym poza oknem (ukryte radio `sr-only`
+ // w przewijanej treści) przesuwał całe okno — biała plansza bez
+ // nagłówka i stopki, bez powrotu kółkiem (debrief, 26.10.2026).
+ dialogSizes[size], "bg-card text-foreground","border border-border rounded-xl shadow-md","max-h-[90dvh] overflow-clip","data-[state=open]:animate-fadeIn",
  className
  )}
  {...props}

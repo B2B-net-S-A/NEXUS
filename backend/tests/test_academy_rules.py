@@ -372,3 +372,171 @@ def test_position_without_end_date_further_down_is_past_not_until_today():
     # Pierwsza pozycja bez daty końca to nadal praca trwająca.
     current = rules.work_from_profile([{"start": "2025-01", "role": "Rekruter"}], TODAY)
     assert current.periods[0].end == (TODAY.year, TODAY.month)
+
+
+# ── runda 8 audytu (26.09.2026) ────────────────────────────────────────────
+
+CV_R8 = (
+    "Języki: polski — ojczysty, angielski B2. "
+    "2012 – 2014 Kasjer, Biedronka. 2025-03 – obecnie Asystentka HR"
+)
+POLISH_QUOTE = {"level": "native", "quote": "polski — ojczysty"}
+
+
+def test_model_present_needs_proof_in_cv_not_only_start_year():
+    """R8-N2-1: „present” od modelu dla pracy, która się skończyła, dawało
+    14,8 roku i „skip” (trwałe wykluczenie po „Zatwierdź”)."""
+    parsed = {
+        "polish": POLISH_QUOTE,
+        "education": [],
+        "work": [
+            {
+                "start": "2012-01",
+                "end": "present",
+                "quote": "2012 – 2014 Kasjer, Biedronka",
+            }
+        ],
+    }
+    result = _evaluate(model_parsed=parsed, cv_text=CV_R8)
+    assert result.verdict != rules.VERDICT_SKIP
+    assert result.experience_years is None
+    # Sam rok startu też nie wystarcza — „obecnie” stoi przy innym stanowisku.
+    parsed["work"] = [{"start": "2012-01", "end": "present", "quote": "2012"}]
+    result = _evaluate(model_parsed=parsed, cv_text=CV_R8)
+    assert result.verdict != rules.VERDICT_SKIP
+
+    # „obecnie” zaraz za cytatem albo w cytacie — praca trwająca.
+    parsed["work"] = [{"start": "2025-03", "end": "present", "quote": "2025-03"}]
+    _s, work, _p = rules.facts_from_model(parsed, CV_R8, TODAY)
+    assert work is not None and len(work.periods) == 1
+    parsed["work"] = [
+        {
+            "start": "2025-03",
+            "end": "present",
+            "quote": "2025-03 – obecnie Asystentka HR",
+        }
+    ]
+    _s, work, _p = rules.facts_from_model(parsed, CV_R8, TODAY)
+    assert work is not None and len(work.periods) == 1
+
+
+def test_model_work_quote_must_describe_one_position():
+    cv = "Doświadczenie. " + "Opis obowiązków. " * 20 + "2010 – obecnie Dyrektor"
+    parsed = {"work": [{"start": "2010-01", "end": "present", "quote": cv}]}
+    _s, work, _p = rules.facts_from_model(parsed, cv, TODAY)
+    assert work is not None and work.periods == () and work.undated == 1
+
+
+def test_ongoing_after_quote_is_fast_on_long_text():
+    import time
+
+    text = "a – " * 4000
+    started = time.perf_counter()
+    rules.ongoing_after_quote("a", text)
+    assert time.perf_counter() - started < 0.5
+
+
+def test_studies_without_end_year_are_not_no_studies():
+    """R8-N2-3: parser zgubił rok ukończenia — to nie „bez ukończonych studiów”."""
+    result = _evaluate(
+        education=[
+            {
+                "school": "Politechnika Warszawska",
+                "degree": "inżynier",
+                "start_year": 2016,
+            }
+        ],
+        experience=[{"start": "2016-10", "end": "present"}],
+        languages=POLISH_NATIVE,
+    )
+    assert result.verdict == rules.VERDICT_REVIEW
+    assert any(r["code"] == "studies_end_unknown" for r in result.reasons)
+    assert not any("bez ukończonych studiów" in r["text"] for r in result.reasons)
+
+    # Start z ostatnich lat nie znaczy już „studiuje” (osoba mogła skończyć).
+    result = _evaluate(
+        education=[
+            {
+                "school": "Uniwersytet Warszawski",
+                "degree": "licencjat",
+                "start_year": 2022,
+            }
+        ],
+        experience=[{"start": "2018-01", "end": "present"}],
+        languages=POLISH_NATIVE,
+    )
+    assert result.verdict == rules.VERDICT_REVIEW
+
+    # Pod limitem staż po studiach i tak nie będzie większy — dzwonimy.
+    result = _evaluate(
+        education=[{"school": "Uniwersytet Warszawski", "degree": "licencjat"}],
+        experience=[{"start": "2024-01", "end": "present"}],
+        languages=POLISH_NATIVE,
+    )
+    assert result.verdict == rules.VERDICT_CALL
+
+
+def test_model_completed_studies_without_year_keep_the_doubt():
+    cv = "Uniwersytet Warszawski, magister 2010. Praca 2010 – obecnie, Specjalista."
+    parsed = {
+        "polish": {"level": "unknown", "quote": ""},
+        "education": [
+            {
+                "kind": "higher",
+                "completed": True,
+                "end_year": None,
+                "quote": "Uniwersytet Warszawski, magister",
+            }
+        ],
+        "work": [
+            {"start": "2010-01", "end": "present", "quote": "Praca 2010 – obecnie"}
+        ],
+    }
+    result = _evaluate(model_parsed=parsed, cv_text=cv, languages=POLISH_NATIVE)
+    assert result.verdict == rules.VERDICT_REVIEW
+    assert result.facts["studies_end_unknown"] is True
+
+    # Luna dowiodła roku (jest w cytacie) — niepewność z profilu znika.
+    parsed["education"] = [
+        {
+            "kind": "higher",
+            "completed": True,
+            "end_year": 2010,
+            "quote": "magister 2010",
+        }
+    ]
+    result = _evaluate(
+        model_parsed=parsed,
+        cv_text=cv,
+        languages=POLISH_NATIVE,
+        education=[{"school": "Uniwersytet Warszawski", "degree": "magister"}],
+    )
+    assert result.verdict == rules.VERDICT_SKIP
+    assert result.facts["studies_end_unknown"] is False
+
+
+@pytest.mark.parametrize(
+    "quote,expected",
+    [
+        ("polski — ojczysty, angielski B2", False),
+        ("Języki: polski natywny angielski B2", False),
+        ("polski B1", True),
+        ("angielski C1, polski podstawowy", True),
+        ("Polish - intermediate / English - native", True),
+    ],
+)
+def test_basic_polish_level_must_stand_next_to_polish(quote, expected):
+    """R8-N2-5: „B2” przy angielskim nie dowodzi polskiego podstawowego."""
+    assert rules.quote_proves_polish(quote, rules.POLISH_BASIC) is expected
+
+
+def test_undated_profile_positions_survive_empty_model_work():
+    """R8-N2-6: profil ze stanowiskami bez dat + Luna bez okresów ≠ „0 lat”."""
+    result = _evaluate(
+        experience=[{"role": "Kierownik"}, {"role": "Specjalista"}],
+        languages=POLISH_NATIVE,
+        model_parsed={"polish": POLISH_QUOTE, "education": [], "work": []},
+        cv_text=CV_R8,
+    )
+    assert result.verdict == rules.VERDICT_REVIEW
+    assert result.experience_years is None

@@ -74,6 +74,19 @@ class _FakeDB:
     async def rollback(self):
         self.rollbacks += 1
 
+    def begin_nested(self):
+        return _Nested()
+
+
+class _Nested:
+    """Atrapa ``db.begin_nested()`` — savepoint per wiersz aktywności."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
 
 class _FakeTraffit:
     """`get_pages` honours `start_page` (skips earlier pages) and can raise a
@@ -153,7 +166,12 @@ async def test_run1_interrupt_persists_page_cursor(monkeypatch) -> None:
     assert progress.error_refs == set()
     # Cursor persisted at the last committed page, keyed to this run's filter.
     assert db.written_cursor == {
-        "delta": {"page": 5, "since": _SINCE_ISO, "page_size": 100}
+        "delta": {
+            "page": 5,
+            "since": _SINCE_ISO,
+            "page_size": 100,
+            "carried_errors": {"errors": 0, "refs": []},
+        }
     }
 
 
@@ -263,3 +281,58 @@ async def test_full_scan_since_none_ignores_delta_cursor(monkeypatch) -> None:
     await imp.import_candidate_activities(since=None)  # must not crash
 
     assert traffit.start_pages == [1]
+
+
+@pytest.mark.asyncio
+async def test_resume_keeps_errors_from_before_the_cursor(monkeypatch) -> None:
+    """Audyt 25.09.2026: przebieg przerwany po błędach wierszy (deploy zabija
+    proces — `PhaseProgress` nigdy nie wraca) zostawiał kursor BEZ śladu tych
+    błędów. Wznowienie kończyło się „czysto” i przesuwało `__daily__` nad
+    wierszami, które się nie zaimportowały. Kursor niesie teraz błędy, a
+    wznowiony przebieg je przyjmuje jako blokujące (nieprzypisane — wiersze
+    sprzed kursora nie są w tym biegu ponawiane, więc nie mogą iść do
+    kwarantanny)."""
+    from app.tasks.traffit_sync import _blocking_errors
+
+    seeded = {
+        "page": 5,
+        "since": _SINCE_ISO,
+        "page_size": 100,
+        "carried_errors": {"errors": 3, "refs": ["activity:1017", "activity:2042"]},
+    }
+    db = _FakeDB(seeded_cursor=seeded)
+    traffit = _FakeTraffit(_pages(7), raise_at_page=None)
+    imp = _make_importer(db, traffit, monkeypatch)
+
+    progress = await imp.import_candidate_activities(since=_SINCE)
+
+    assert traffit.start_pages == [5]
+    assert progress.errors == 3
+    # Nieprzypisane: nie trafiają do kwarantanny, ale blokują watermark.
+    assert progress.error_refs == set()
+    pd = progress.as_dict()
+    assert (
+        _blocking_errors(
+            progress.errors,
+            pd["error_refs"],
+            {},
+            5,
+            attributed_errors=pd["attributed_errors"],
+        )
+        == 3
+    )
+
+
+@pytest.mark.asyncio
+async def test_cursor_carries_row_errors_of_the_interrupted_run(monkeypatch) -> None:
+    """Błąd wiersza przed zapisem kursora ląduje w kursorze — kolejne
+    wznowienie go odzyska."""
+    db = _FakeDB(fail_activity_at=3)
+    traffit = _FakeTraffit(_pages(6, last_short=False), raise_at_page=6)
+    imp = _make_importer(db, traffit, monkeypatch)
+
+    await imp.import_candidate_activities(since=_SINCE)
+
+    carried = db.written_cursor["delta"]["carried_errors"]
+    assert carried["errors"] == 1
+    assert carried["refs"] == ["activity:1002"]

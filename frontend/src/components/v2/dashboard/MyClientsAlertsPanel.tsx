@@ -113,6 +113,9 @@ export function cardMeta(card: DlAlertCard): string {
   if (card.alert_type === "new_contractor_draft" && card.source === "b2b_generator") {
     return "Draft utworzony automatycznie z Generatora umów"
   }
+  if (card.alert_type === "new_contractor_draft" && card.source === "pipeline_hire") {
+    return "Draft utworzony automatycznie po zatrudnieniu w rekrutacji"
+  }
   // Karta pilna (T-7 / próg tempa) nie ma już kolejnej powtórki — zostaje
   // w panelu do odhaczenia albo do chwili, gdy przyczyna ustąpi.
   const tail =

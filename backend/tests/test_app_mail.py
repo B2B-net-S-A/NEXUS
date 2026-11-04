@@ -297,3 +297,45 @@ def test_gate_unavailable_does_not_send_or_report_success(monkeypatch):
     assert not app_mail.send_via_graph_app(
         to="x@example.com", subject="s", text_body="b"
     )
+
+
+@pytest.mark.parametrize("status", [502, 504])
+def test_gateway_error_is_uncertain_not_a_refusal(monkeypatch, status):
+    """Runda 7 (R7-N5-8): 502/504 z bramy — Graph mógł mail przyjąć, więc
+    to nie jest pewna odmowa (ponowienie dałoby duplikat)."""
+    _configure(monkeypatch)
+    monkeypatch.setattr(app_mail, "_acquire_token", lambda: "tok")
+    monkeypatch.setattr(app_mail.httpx, "post", lambda *a, **k: _FakeResp(status))
+    assert not app_mail.send_via_graph_app(
+        to="x@example.com", subject="s", text_body="b"
+    )
+    assert app_mail.last_delivery_uncertain()
+    assert not app_mail.last_delivery_deferred()
+
+
+@pytest.mark.parametrize("status,deferred", [(429, True), (503, True), (400, False)])
+def test_explicit_refusal_marks_deferred_only_when_transient(
+    monkeypatch, status, deferred
+):
+    _configure(monkeypatch)
+    monkeypatch.setattr(app_mail, "_acquire_token", lambda: "tok")
+    monkeypatch.setattr(app_mail.httpx, "post", lambda *a, **k: _FakeResp(status))
+    assert not app_mail.send_via_graph_app(
+        to="x@example.com", subject="s", text_body="b"
+    )
+    assert not app_mail.last_delivery_uncertain()
+    assert app_mail.last_delivery_deferred() is deferred
+
+
+def test_open_circuit_marks_mail_as_deferred(monkeypatch):
+    """Runda 7 (R7-N5-2): bezpiecznik zamknięty = mail na pewno nie wyszedł."""
+    _configure(monkeypatch)
+    monkeypatch.setattr(app_mail.mail_circuit, "acquire", lambda: None)
+    monkeypatch.setattr(
+        app_mail.httpx, "post", lambda *a, **kw: pytest.fail("must not send")
+    )
+    assert not app_mail.send_via_graph_app(
+        to="x@example.com", subject="s", text_body="b"
+    )
+    assert app_mail.last_delivery_deferred()
+    assert not app_mail.last_delivery_uncertain()

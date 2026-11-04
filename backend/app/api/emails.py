@@ -22,6 +22,10 @@ from app.api.candidate_access import (
 )
 from app.api.deps import AdminUser, require_roles
 from app.models.user import User, UserRole
+from app.services.email_template_variables import (
+    TEMPLATE_VARIABLES,
+    unsupported_variables,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,12 +105,6 @@ class PreviewResponse(BaseModel):
 
 # ── Default Templates ──────────────────────────────────────────────────────
 
-# Stable name used by `rejection_email_scheduler._resolve_template` to find
-# the auto-rejection template. Changing this string requires coordinated
-# update of the scheduler lookup.
-REJECTION_EXTERNAL_TEMPLATE_NAME = "Auto-odrzucenie (po widoczności u klienta)"
-
-
 DEFAULT_TEMPLATES = [
     {
         "name": "Potwierdzenie otrzymania aplikacji",
@@ -175,7 +173,7 @@ Zespół Rekrutacji
         "subject": "Informacja zwrotna dotycząca Twojej aplikacji — {{job_title}}",
         "body": """Szanowny/a {{candidate_name}},
 
-Dziękujemy za zainteresowanie stanowiskiem {{job_title}} w {{company_name}} oraz za czas poświęcony na udział w procesie rekrutacyjnym.
+Dziękujemy za zainteresowanie stanowiskiem {{job_title}} oraz za czas poświęcony na udział w procesie rekrutacyjnym.
 
 Po dokładnym rozpatrzeniu Twojej kandydatury, z przykrością informujemy, że tym razem zdecydowaliśmy się na innych kandydatów, których profil w pełni odpowiada aktualnym potrzebom projektu.
 
@@ -186,8 +184,8 @@ Chętnie zachowamy Twoje CV w naszej bazie danych i skontaktujemy się z Tobą p
 Życzymy powodzenia w dalszych poszukiwaniach zawodowych.
 
 Z wyrazami szacunku,
-Zespół Rekrutacji
-{{company_name}}""",
+{{recruiter_name}}
+Zespół Rekrutacji""",
         "is_default": True,
     },
     {
@@ -230,38 +228,34 @@ Zespół Rekrutacji
 {{company_name}}""",
         "is_default": False,
     },
-    # 0045_rejection_emails — auto-notification template used by the
-    # rejection_email_scheduler. Name is load-bearing: the scheduler looks
-    # it up by this exact string before falling back to any default
-    # rejection template. Supports `{{#if other_processes}}` for the
-    # conditional "still in X processes" block.
-    {
-        "name": REJECTION_EXTERNAL_TEMPLATE_NAME,
-        "category": EmailCategory.rejection,
-        "subject": "Informacja zwrotna — {{job_title}}",
-        "body": """<p>Cześć {{candidate_name}},</p>
-<p>Dziękujemy za zaangażowanie w proces rekrutacyjny na stanowisko <strong>{{job_title}}</strong>.
-Po analizie zebranych informacji zwrotnych podjęliśmy decyzję o zakończeniu współpracy
-przy tym konkretnym procesie.</p>
-{{#if other_processes}}<p>Nadal rozważamy Cię w <strong>{{other_processes_count}}</strong>
-innych otwartych procesach: {{other_processes_list}}. Jeśli pojawią się nowe informacje,
-dam znać.</p>{{/if}}
-<p>Bardzo dziękuję za poświęcony czas i życzę powodzenia w dalszych poszukiwaniach.</p>
-<p>Pozdrawiam,<br>{{recruiter_name}}</p>""",
-        "is_default": False,
-    },
 ]
 
-AVAILABLE_PLACEHOLDERS = [
-    "{{candidate_name}}",
-    "{{job_title}}",
-    "{{company_name}}",
-    "{{interview_date}}",
-    "{{salary}}",
-    "{{recruiter_name}}",
-    "{{recruiter_email}}",
-    "{{application_date}}",
-]
+# Runda 9 (R9-N10-5): jedna lista z `email_template_variables` — dokładnie to,
+# co wypełnia wysyłka maila odrzucenia. Dawna lista obiecywała m.in.
+# `{{company_name}}` i `{{salary}}`, których nic nie podstawiało.
+AVAILABLE_PLACEHOLDERS = ["{{" + name + "}}" for name, _ in TEMPLATE_VARIABLES]
+
+
+def _assert_rejection_variables(
+    category: EmailCategory, subject: str, body: str
+) -> None:
+    """Szablon odrzucenia wysyła się sam — zmienna bez wartości = 422."""
+    if category != EmailCategory.rejection:
+        return
+    missing = unsupported_variables(subject, body)
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "UNSUPPORTED_TEMPLATE_VARIABLES",
+                "message": (
+                    "Szablon odrzucenia wysyła się automatycznie, a tych zmiennych "
+                    "wysyłka nie wypełni: " + ", ".join(missing) + ". Usuń je albo "
+                    "wpisz wartość na stałe."
+                ),
+                "variables": missing,
+            },
+        )
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -281,9 +275,17 @@ def _render_template(
     """
     placeholders = {}
     if candidate is not None:
-        full_name = f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+        # Runda 9 (R9-N10-5): te same znaczenia co w wysyłce
+        # (`rejection_email_scheduler._render`) — `candidate_name` to imię.
+        first = (candidate.name or "").strip()
+        last = (candidate.lastname or "").strip()
+        full_name = f"{first} {last}".strip()
+        if first:
+            placeholders["{{candidate_name}}"] = first
+        if last:
+            placeholders["{{candidate_lastname}}"] = last
         if full_name:
-            placeholders["{{candidate_name}}"] = full_name
+            placeholders["{{candidate_full_name}}"] = full_name
 
     rendered_subject = subject
     rendered_body = body
@@ -376,6 +378,7 @@ async def create_email_template(
     must not be able to author them — separation of duties for outbound
     candidate communications.
     """
+    _assert_rejection_variables(data.category, data.subject, data.body)
     template = EmailTemplate(
         **data.model_dump(),
         created_by=current_user.id,
@@ -416,7 +419,13 @@ async def update_email_template(
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Szablon nie znaleziony")
-    for k, v in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    _assert_rejection_variables(
+        changes.get("category") or template.category,
+        changes["subject"] if changes.get("subject") is not None else template.subject,
+        changes["body"] if changes.get("body") is not None else template.body,
+    )
+    for k, v in changes.items():
         setattr(template, k, v)
     await db.flush()
     await db.refresh(template)

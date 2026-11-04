@@ -2,6 +2,8 @@
  * Czyste reguły profilu kandydata — wydzielone, żeby dało się je testować
  * bez montowania ciężkiego profilu (kilkanaście zapytań).
  */
+import { safeExternalHref } from "@/lib/safe-href";
+import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import {
   getCurrentTitle,
   type CandidateLite,
@@ -71,9 +73,12 @@ export interface RecruitmentHistoryItem {
   [key: string]: unknown;
 }
 
-const ENDED_STAGES = new Set(["rejected", "withdrawn"]);
+// Zatrudnienie też kończy proces (04.10.2026): zatrudniona osoba trafia do
+// „Zakończone” z wynikiem „Zatrudniony”, a nie wisi „w toku” do zamknięcia
+// rekrutacji.
+const ENDED_STAGES = new Set(["rejected", "withdrawn", "hired", "onboarding"]);
 
-/** Rekrutacja zakończona dla tej osoby: zamknięta albo odrzucenie/wycofanie. */
+/** Rekrutacja zakończona dla tej osoby: zamknięta, zatrudnienie, odrzucenie albo wycofanie. */
 export function isRecruitmentEnded(item: RecruitmentHistoryItem): boolean {
   if (item.job_status === "closed") return true;
   return ENDED_STAGES.has(String(item.latest_stage ?? ""));
@@ -89,6 +94,15 @@ export function splitRecruitments<T extends RecruitmentHistoryItem>(
     (isRecruitmentEnded(item) ? ended : active).push(item);
   }
   return { active, ended };
+}
+
+/**
+ * Tablica rekrutacji z otwartą osobą (17.10.2026: klik w nazwę rekrutacji
+ * na profilu przenosi na pipeline). `?candidate=` otwiera dok osoby i znika
+ * z adresu — tak samo jak linki z powiadomień.
+ */
+export function candidateBoardHref(jobId: number, candidateId: number): string {
+  return `/jobs/${jobId}?candidate=${candidateId}`;
 }
 
 interface VerifiedSkillAggregate {
@@ -126,4 +140,37 @@ export function screeningConfirmedSkills(
     if (entry?.level === "confirmed") push(entry.skill);
   }
   return [...out.values()];
+}
+
+/**
+ * Link do profilu LinkedIn z pola `linkedin` kandydata (runda 8, R8-N14-3).
+ * Import bywa bez schematu („linkedin.com/in/…”) — dostaje `https://`;
+ * schemat inny niż http(s) (np. `javascript:`) = brak linku.
+ */
+export function linkedinHref(raw: string | null | undefined): string | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  return safeExternalHref(withScheme);
+}
+
+/**
+ * „Najnowsze CV” w pasku osoby (22.10.2026, jak w Traffit): główne CV, a bez
+ * niego najświeżej wgrane. Nowy plik CV staje się główny przy wgraniu, więc
+ * główne = najnowsza wersja, chyba że ktoś świadomie wskazał inne. Plik
+ * oznaczony „nieaktualne” przegrywa z każdym aktualnym.
+ */
+export function latestCvDocument(
+  documents: readonly CandidateDocument[] | null | undefined,
+): CandidateDocument | null {
+  const cvs = (documents ?? []).filter((doc) => doc.document_kind === "cv");
+  if (!cvs.length) return null;
+  const uploaded = (doc: CandidateDocument) => doc.uploaded_at ?? doc.created_at;
+  const ranked = [...cvs].sort((left, right) => {
+    const leftOutdated = Boolean(left.outdated_at);
+    if (leftOutdated !== Boolean(right.outdated_at)) return leftOutdated ? 1 : -1;
+    if (left.is_primary !== right.is_primary) return left.is_primary ? -1 : 1;
+    return uploaded(right).localeCompare(uploaded(left));
+  });
+  return ranked[0];
 }

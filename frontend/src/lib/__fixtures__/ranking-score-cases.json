@@ -1,0 +1,2555 @@
+{
+ "_comment": "Generated from the real scoring engine (backend/tests/test_ranking_lab.py helpers). Backend: tests/test_ranking_lab.py; front: components/settings/ranking/rankingMath.test.ts.",
+ "cases": [
+  {
+   "components": {
+    "candidate_id": 1,
+    "layers": {
+     "semantic": [
+      0.532649,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.833333,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 3,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 60.0,
+    "skills": 10.0,
+    "salary": 15.0,
+    "location": 5.0,
+    "availability": 0.0
+   },
+   "expected": 60.185836
+  },
+  {
+   "components": {
+    "candidate_id": 1,
+    "layers": {
+     "semantic": [
+      0.532649,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.833333,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 3,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 60,
+    "skills": 30,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 49.0909,
+    "skills": 24.5455,
+    "salary": 12.2727,
+    "location": 4.0909,
+    "availability": 0.0
+   },
+   "expected": 64.39448
+  },
+  {
+   "components": {
+    "candidate_id": 1,
+    "layers": {
+     "semantic": [
+      0.532649,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.833333,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 3,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 20,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 51.4286,
+    "skills": 8.5714,
+    "salary": 12.8571,
+    "location": 17.1429,
+    "availability": 0.0
+   },
+   "expected": 63.373572
+  },
+  {
+   "components": {
+    "candidate_id": 1,
+    "layers": {
+     "semantic": [
+      0.532649,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.833333,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 3,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 100,
+    "skills": 0,
+    "location": 0,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 78.2609,
+    "skills": 0.0,
+    "salary": 11.7391,
+    "location": 0.0,
+    "availability": 0.0
+   },
+   "expected": 54.79553
+  },
+  {
+   "components": {
+    "candidate_id": 1,
+    "layers": {
+     "semantic": [
+      0.532649,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.833333,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 3,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 0,
+    "skills": 50,
+    "location": 50,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 0.0,
+    "skills": 39.1304,
+    "salary": 11.7391,
+    "location": 39.1304,
+    "availability": 0.0
+   },
+   "expected": 80.579714
+  },
+  {
+   "components": {
+    "candidate_id": 2,
+    "layers": {
+     "semantic": [
+      0.619338,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.222222,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 60.0,
+    "skills": 10.0,
+    "salary": 15.0,
+    "location": 5.0,
+    "availability": 0.0
+   },
+   "expected": 56.397204
+  },
+  {
+   "components": {
+    "candidate_id": 2,
+    "layers": {
+     "semantic": [
+      0.619338,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.222222,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 60,
+    "skills": 30,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 49.0909,
+    "skills": 24.5455,
+    "salary": 12.2727,
+    "location": 4.0909,
+    "availability": 0.0
+   },
+   "expected": 50.183553
+  },
+  {
+   "components": {
+    "candidate_id": 2,
+    "layers": {
+     "semantic": [
+      0.619338,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.222222,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 20,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 51.4286,
+    "skills": 8.5714,
+    "salary": 12.8571,
+    "location": 17.1429,
+    "availability": 0.0
+   },
+   "expected": 52.983315
+  },
+  {
+   "components": {
+    "candidate_id": 2,
+    "layers": {
+     "semantic": [
+      0.619338,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.222222,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 100,
+    "skills": 0,
+    "location": 0,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 78.2609,
+    "skills": 0.0,
+    "salary": 11.7391,
+    "location": 0.0,
+    "availability": 0.0
+   },
+   "expected": 62.333711
+  },
+  {
+   "components": {
+    "candidate_id": 2,
+    "layers": {
+     "semantic": [
+      0.619338,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.222222,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 0,
+    "skills": 50,
+    "location": 50,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 0.0,
+    "skills": 39.1304,
+    "salary": 11.7391,
+    "location": 39.1304,
+    "availability": 0.0
+   },
+   "expected": 32.270524
+  },
+  {
+   "components": {
+    "candidate_id": 3,
+    "layers": {
+     "semantic": [
+      0.698582,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.0,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.65,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 0,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 60.0,
+    "skills": 10.0,
+    "salary": 15.0,
+    "location": 5.0,
+    "availability": 0.0
+   },
+   "expected": 61.016602
+  },
+  {
+   "components": {
+    "candidate_id": 3,
+    "layers": {
+     "semantic": [
+      0.698582,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.0,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.65,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 0,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 60,
+    "skills": 30,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 49.0909,
+    "skills": 24.5455,
+    "salary": 12.2727,
+    "location": 4.0909,
+    "availability": 0.0
+   },
+   "expected": 49.922641
+  },
+  {
+   "components": {
+    "candidate_id": 3,
+    "layers": {
+     "semantic": [
+      0.698582,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.0,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.65,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 0,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 20,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 51.4286,
+    "skills": 8.5714,
+    "salary": 12.8571,
+    "location": 17.1429,
+    "availability": 0.0
+   },
+   "expected": 61.585681
+  },
+  {
+   "components": {
+    "candidate_id": 3,
+    "layers": {
+     "semantic": [
+      0.698582,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.0,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.65,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 0,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 100,
+    "skills": 0,
+    "location": 0,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 78.2609,
+    "skills": 0.0,
+    "salary": 11.7391,
+    "location": 0.0,
+    "availability": 0.0
+   },
+   "expected": 69.224555
+  },
+  {
+   "components": {
+    "candidate_id": 3,
+    "layers": {
+     "semantic": [
+      0.698582,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.0,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.65,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 0,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 0,
+    "skills": 50,
+    "location": 50,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 0.0,
+    "skills": 39.1304,
+    "salary": 11.7391,
+    "location": 39.1304,
+    "availability": 0.0
+   },
+   "expected": 36.739124
+  },
+  {
+   "components": {
+    "candidate_id": 4,
+    "layers": {
+     "semantic": [
+      0.772232,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.388889,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      true
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 60.0,
+    "skills": 10.0,
+    "salary": 15.0,
+    "location": 5.0,
+    "availability": 0.0
+   },
+   "expected": 71.219814
+  },
+  {
+   "components": {
+    "candidate_id": 4,
+    "layers": {
+     "semantic": [
+      0.772232,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.388889,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      true
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 60,
+    "skills": 30,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 49.0909,
+    "skills": 24.5455,
+    "salary": 12.2727,
+    "location": 4.0909,
+    "availability": 0.0
+   },
+   "expected": 65.341448
+  },
+  {
+   "components": {
+    "candidate_id": 4,
+    "layers": {
+     "semantic": [
+      0.772232,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.388889,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      true
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 20,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 51.4286,
+    "skills": 8.5714,
+    "salary": 12.8571,
+    "location": 17.1429,
+    "availability": 0.0
+   },
+   "expected": 72.831289
+  },
+  {
+   "components": {
+    "candidate_id": 4,
+    "layers": {
+     "semantic": [
+      0.772232,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.388889,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      true
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 100,
+    "skills": 0,
+    "location": 0,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 78.2609,
+    "skills": 0.0,
+    "salary": 11.7391,
+    "location": 0.0,
+    "availability": 0.0
+   },
+   "expected": 75.628908
+  },
+  {
+   "components": {
+    "candidate_id": 4,
+    "layers": {
+     "semantic": [
+      0.772232,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.388889,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      true
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 0,
+    "skills": 50,
+    "location": 50,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 0.0,
+    "skills": 39.1304,
+    "salary": 11.7391,
+    "location": 39.1304,
+    "availability": 0.0
+   },
+   "expected": 61.256038
+  },
+  {
+   "components": {
+    "candidate_id": 5,
+    "layers": {
+     "semantic": [
+      0.841466,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.444444,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 2,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 60.0,
+    "skills": 10.0,
+    "salary": 15.0,
+    "location": 5.0,
+    "availability": 0.0
+   },
+   "expected": 73.674918
+  },
+  {
+   "components": {
+    "candidate_id": 5,
+    "layers": {
+     "semantic": [
+      0.841466,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.444444,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 2,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 60,
+    "skills": 30,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 49.0909,
+    "skills": 24.5455,
+    "salary": 12.2727,
+    "location": 4.0909,
+    "availability": 0.0
+   },
+   "expected": 68.360277
+  },
+  {
+   "components": {
+    "candidate_id": 5,
+    "layers": {
+     "semantic": [
+      0.841466,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.444444,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 2,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 20,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 51.4286,
+    "skills": 8.5714,
+    "salary": 12.8571,
+    "location": 17.1429,
+    "availability": 0.0
+   },
+   "expected": 67.792784
+  },
+  {
+   "components": {
+    "candidate_id": 5,
+    "layers": {
+     "semantic": [
+      0.841466,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.444444,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 2,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 100,
+    "skills": 0,
+    "location": 0,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 78.2609,
+    "skills": 0.0,
+    "salary": 11.7391,
+    "location": 0.0,
+    "availability": 0.0
+   },
+   "expected": 81.649255
+  },
+  {
+   "components": {
+    "candidate_id": 5,
+    "layers": {
+     "semantic": [
+      0.841466,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.444444,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.65,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.65,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 2,
+    "must_total": 3
+   },
+   "renormalize": false,
+   "panel": {
+    "semantic": 0,
+    "skills": 50,
+    "location": 50,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 0.0,
+    "skills": 39.1304,
+    "salary": 11.7391,
+    "location": 39.1304,
+    "availability": 0.0
+   },
+   "expected": 41.932362
+  },
+  {
+   "components": {
+    "candidate_id": 1,
+    "layers": {
+     "semantic": [
+      0.532649,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.833333,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 3,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 60.0,
+    "skills": 10.0,
+    "salary": 15.0,
+    "location": 5.0,
+    "availability": 0.0
+   },
+   "expected": 59.223003
+  },
+  {
+   "components": {
+    "candidate_id": 1,
+    "layers": {
+     "semantic": [
+      0.532649,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.833333,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 3,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 60,
+    "skills": 30,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 49.0909,
+    "skills": 24.5455,
+    "salary": 12.2727,
+    "location": 4.0909,
+    "availability": 0.0
+   },
+   "expected": 64.298872
+  },
+  {
+   "components": {
+    "candidate_id": 1,
+    "layers": {
+     "semantic": [
+      0.532649,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.833333,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 3,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 20,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 51.4286,
+    "skills": 8.5714,
+    "salary": 12.8571,
+    "location": 17.1429,
+    "availability": 0.0
+   },
+   "expected": 63.102502
+  },
+  {
+   "components": {
+    "candidate_id": 1,
+    "layers": {
+     "semantic": [
+      0.532649,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.833333,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 3,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 100,
+    "skills": 0,
+    "location": 0,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 78.2609,
+    "skills": 0.0,
+    "salary": 11.7391,
+    "location": 0.0,
+    "availability": 0.0
+   },
+   "expected": 53.264865
+  },
+  {
+   "components": {
+    "candidate_id": 1,
+    "layers": {
+     "semantic": [
+      0.532649,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.833333,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 3,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 0,
+    "skills": 50,
+    "location": 50,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 0.0,
+    "skills": 39.1304,
+    "salary": 11.7391,
+    "location": 39.1304,
+    "availability": 0.0
+   },
+   "expected": 82.916667
+  },
+  {
+   "components": {
+    "candidate_id": 2,
+    "layers": {
+     "semantic": [
+      0.619338,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.222222,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 60.0,
+    "skills": 10.0,
+    "salary": 15.0,
+    "location": 5.0,
+    "availability": 0.0
+   },
+   "expected": 54.676645
+  },
+  {
+   "components": {
+    "candidate_id": 2,
+    "layers": {
+     "semantic": [
+      0.619338,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.222222,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 60,
+    "skills": 30,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 49.0909,
+    "skills": 24.5455,
+    "salary": 12.2727,
+    "location": 4.0909,
+    "availability": 0.0
+   },
+   "expected": 47.84412
+  },
+  {
+   "components": {
+    "candidate_id": 2,
+    "layers": {
+     "semantic": [
+      0.619338,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.222222,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 20,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 51.4286,
+    "skills": 8.5714,
+    "salary": 12.8571,
+    "location": 17.1429,
+    "availability": 0.0
+   },
+   "expected": 50.980542
+  },
+  {
+   "components": {
+    "candidate_id": 2,
+    "layers": {
+     "semantic": [
+      0.619338,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.222222,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 100,
+    "skills": 0,
+    "location": 0,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 78.2609,
+    "skills": 0.0,
+    "salary": 11.7391,
+    "location": 0.0,
+    "availability": 0.0
+   },
+   "expected": 61.933769
+  },
+  {
+   "components": {
+    "candidate_id": 2,
+    "layers": {
+     "semantic": [
+      0.619338,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.222222,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 0,
+    "skills": 50,
+    "location": 50,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 0.0,
+    "skills": 39.1304,
+    "salary": 11.7391,
+    "location": 39.1304,
+    "availability": 0.0
+   },
+   "expected": 27.361111
+  },
+  {
+   "components": {
+    "candidate_id": 3,
+    "layers": {
+     "semantic": [
+      0.698582,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.0,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.65,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 0,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 60.0,
+    "skills": 10.0,
+    "salary": 15.0,
+    "location": 5.0,
+    "availability": 0.0
+   },
+   "expected": 60.219922
+  },
+  {
+   "components": {
+    "candidate_id": 3,
+    "layers": {
+     "semantic": [
+      0.698582,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.0,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.65,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 0,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 60,
+    "skills": 30,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 49.0909,
+    "skills": 24.5455,
+    "salary": 12.2727,
+    "location": 4.0909,
+    "availability": 0.0
+   },
+   "expected": 47.542011
+  },
+  {
+   "components": {
+    "candidate_id": 3,
+    "layers": {
+     "semantic": [
+      0.698582,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.0,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.65,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 0,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 20,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 51.4286,
+    "skills": 8.5714,
+    "salary": 12.8571,
+    "location": 17.1429,
+    "availability": 0.0
+   },
+   "expected": 61.01663
+  },
+  {
+   "components": {
+    "candidate_id": 3,
+    "layers": {
+     "semantic": [
+      0.698582,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.0,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.65,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 0,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 100,
+    "skills": 0,
+    "location": 0,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 78.2609,
+    "skills": 0.0,
+    "salary": 11.7391,
+    "location": 0.0,
+    "availability": 0.0
+   },
+   "expected": 69.858236
+  },
+  {
+   "components": {
+    "candidate_id": 3,
+    "layers": {
+     "semantic": [
+      0.698582,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.0,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.65,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 0,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 0,
+    "skills": 50,
+    "location": 50,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 0.0,
+    "skills": 39.1304,
+    "salary": 11.7391,
+    "location": 39.1304,
+    "availability": 0.0
+   },
+   "expected": 32.5
+  },
+  {
+   "components": {
+    "candidate_id": 4,
+    "layers": {
+     "semantic": [
+      0.772232,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.388889,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      true
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 60.0,
+    "skills": 10.0,
+    "salary": 15.0,
+    "location": 5.0,
+    "availability": 0.0
+   },
+   "expected": 72.463776
+  },
+  {
+   "components": {
+    "candidate_id": 4,
+    "layers": {
+     "semantic": [
+      0.772232,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.388889,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      true
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 60,
+    "skills": 30,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 49.0909,
+    "skills": 24.5455,
+    "salary": 12.2727,
+    "location": 4.0909,
+    "availability": 0.0
+   },
+   "expected": 65.39536
+  },
+  {
+   "components": {
+    "candidate_id": 4,
+    "layers": {
+     "semantic": [
+      0.772232,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.388889,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      true
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 20,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 51.4286,
+    "skills": 8.5714,
+    "salary": 12.8571,
+    "location": 17.1429,
+    "availability": 0.0
+   },
+   "expected": 74.136499
+  },
+  {
+   "components": {
+    "candidate_id": 4,
+    "layers": {
+     "semantic": [
+      0.772232,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.388889,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      true
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 100,
+    "skills": 0,
+    "location": 0,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 78.2609,
+    "skills": 0.0,
+    "salary": 11.7391,
+    "location": 0.0,
+    "availability": 0.0
+   },
+   "expected": 77.223239
+  },
+  {
+   "components": {
+    "candidate_id": 4,
+    "layers": {
+     "semantic": [
+      0.772232,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.388889,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.825,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      true
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 1,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 0,
+    "skills": 50,
+    "location": 50,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 0.0,
+    "skills": 39.1304,
+    "salary": 11.7391,
+    "location": 39.1304,
+    "availability": 0.0
+   },
+   "expected": 60.694444
+  },
+  {
+   "components": {
+    "candidate_id": 5,
+    "layers": {
+     "semantic": [
+      0.841466,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.444444,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 2,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 60.0,
+    "skills": 10.0,
+    "salary": 15.0,
+    "location": 5.0,
+    "availability": 0.0
+   },
+   "expected": 75.409901
+  },
+  {
+   "components": {
+    "candidate_id": 5,
+    "layers": {
+     "semantic": [
+      0.841466,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.444444,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 2,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 60,
+    "skills": 30,
+    "location": 5,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 49.0909,
+    "skills": 24.5455,
+    "salary": 12.2727,
+    "location": 4.0909,
+    "availability": 0.0
+   },
+   "expected": 68.890846
+  },
+  {
+   "components": {
+    "candidate_id": 5,
+    "layers": {
+     "semantic": [
+      0.841466,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.444444,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 2,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 60,
+    "skills": 10,
+    "location": 20,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 51.4286,
+    "skills": 8.5714,
+    "salary": 12.8571,
+    "location": 17.1429,
+    "availability": 0.0
+   },
+   "expected": 68.258246
+  },
+  {
+   "components": {
+    "candidate_id": 5,
+    "layers": {
+     "semantic": [
+      0.841466,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.444444,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 2,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 100,
+    "skills": 0,
+    "location": 0,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 78.2609,
+    "skills": 0.0,
+    "salary": 11.7391,
+    "location": 0.0,
+    "availability": 0.0
+   },
+   "expected": 84.146636
+  },
+  {
+   "components": {
+    "candidate_id": 5,
+    "layers": {
+     "semantic": [
+      0.841466,
+      1.0,
+      true
+     ],
+     "skills": [
+      0.444444,
+      1.0,
+      true
+     ],
+     "salary": [
+      0.0,
+      1.0,
+      false
+     ],
+     "location": [
+      0.325,
+      1.0,
+      true
+     ],
+     "availability": [
+      0.0,
+      1.0,
+      false
+     ]
+    },
+    "extra": null,
+    "factor": 1.0,
+    "matched_must": 2,
+    "must_total": 3
+   },
+   "renormalize": true,
+   "panel": {
+    "semantic": 0,
+    "skills": 50,
+    "location": 50,
+    "threshold": 70
+   },
+   "weights": {
+    "semantic": 0.0,
+    "skills": 39.1304,
+    "salary": 11.7391,
+    "location": 39.1304,
+    "availability": 0.0
+   },
+   "expected": 38.472222
+  }
+ ]
+}

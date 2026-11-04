@@ -198,7 +198,10 @@ async def test_orders_list_does_not_query_once_per_order(
         # `selectin` to JEDNO zapytanie na relację, niezależnie od liczby
         # zamówień. Przed fixem: po jednym na zamówienie (czyli 5 + 5).
         assert len(cand_selects) <= 1, cand_selects
-        assert len(job_selects) <= 1, job_selects
+        # Stawki z rekrutacji (D7) czytają rekrutacje hurtowo dla całej
+        # listy: złączenie po kliencie i tytuły — stały koszt, nie per wiersz.
+        assert len(job_selects) <= 3, job_selects
+        assert len(job_selects) < order_count, job_selects
     finally:
         await _cleanup_client(client_id, cand_id, job_id)
 

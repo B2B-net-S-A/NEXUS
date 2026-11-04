@@ -9,7 +9,7 @@
  * `queryFn` się nie odpala. To warunek wejścia do `PUBLIC_PATHS` w
  * middleware.ts — stronę otwiera nightly Playwright bez sesji.
  *
- * Dwie sekcje: przykład z ticketu (PDF BIK: Suwała + Łaski) oraz cztery
+ * Dwie sekcje: przykład z ticketu (PDF Biura Gamma: Szkicowy + Pomysłowy) oraz cztery
  * warianty dopasowania obok siebie. Ich różnice łatwo zepsuć niezauważenie:
  * żółta karta nie może wyglądać jak zielona, a „dwie osoby" nie może
  * wyglądać jak „brak dopasowania" — to dwie różne decyzje Delivery Leada.
@@ -76,7 +76,7 @@ function line(overrides: Partial<OrderPlanLine>): OrderPlanLine {
 
 function extraction(lines: OrderPlanLine[]): OrderGroupExtraction {
   return {
-    order_number: "4500030845",
+    order_number: "4599000845",
     start_date: "2026-09-03",
     end_date: null,
     total_value: 91560,
@@ -93,16 +93,16 @@ function extraction(lines: OrderPlanLine[]): OrderGroupExtraction {
   };
 }
 
-const BIK = extraction([
+const GAMMA = extraction([
   line({
     ordinal: 1,
-    document_name: "Krzysztof Suwała",
+    document_name: "Krzysztof Szkicowy",
     position_label: "10",
-    contract: contract({ contract_id: 11, candidate_id: 101, contractor_name: "Krzysztof Suwała" }),
+    contract: contract({ contract_id: 11, candidate_id: 101, contractor_name: "Krzysztof Szkicowy" }),
   }),
   line({
     ordinal: 2,
-    document_name: "Paweł Łaski",
+    document_name: "Paweł Pomysłowy",
     position_label: "20",
     rate_revenue: 1280,
     md_total: 42,
@@ -112,7 +112,7 @@ const BIK = extraction([
     contract: contract({
       contract_id: 12,
       candidate_id: 102,
-      contractor_name: "Active Paweł Łaski",
+      contractor_name: "Active Paweł Pomysłowy",
       rate_cost: 160,
     }),
   }),
@@ -121,9 +121,9 @@ const BIK = extraction([
 const VARIANTS = extraction([
   line({
     ordinal: 1,
-    document_name: "Paweł Łaski",
+    document_name: "Paweł Pomysłowy",
     position_label: "10",
-    contract: contract({ contract_id: 21, candidate_id: 201, contractor_name: "Pawel Laski" }),
+    contract: contract({ contract_id: 21, candidate_id: 201, contractor_name: "Pawel Pomyslowy" }),
   }),
   line({
     ordinal: 2,
@@ -157,7 +157,7 @@ const VARIANTS = extraction([
   }),
 ]);
 
-// Zlecenie wykonawcze kosztowe (kształt dokumentu Polkomtela, dane zmyślone):
+// Zlecenie wykonawcze kosztowe (kształt dokumentu Telekomu Przykładowego, dane zmyślone):
 // stawki z wierszy tabeli, bez liczby MD; osoba z zakończoną współpracą i osoba,
 // której nie ma w systemie — obie z jawnym wyborem zamiast cichego błędu.
 const COST_ORDER: OrderGroupExtraction = {
@@ -310,7 +310,7 @@ export default function OrderNewFromPdfPreview() {
           onSubmit={() => setModalOpen(false)}
           onDeleteFile={async () => undefined}
         />
-        <Cards plan={BIK} title="Zamówienie BIK 4500030845 — dwie pozycje z PDF-a" />
+        <Cards plan={GAMMA} title="Zamówienie Biura Gamma 4599000845 — dwie pozycje z PDF-a" />
         <Cards plan={VARIANTS} title="Warianty dopasowania" />
         <Cards
           plan={COST_ORDER}

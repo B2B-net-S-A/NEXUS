@@ -11,13 +11,24 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
-from datetime import date, datetime, timezone
-from typing import get_args
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+from collections.abc import Callable
+from typing import Any, get_args
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.concurrency import run_in_threadpool
 from jinja2 import TemplateError
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, selectinload
@@ -29,17 +40,28 @@ from app.api.contract_access import (
     assert_b2b_generator_action_access,
     assert_contract_legal_client_access,
 )
-from app.api.contract_templates import _jinja_env
-from app.api.contracts import _load_contract_with_relations, _render_draft_body
+from app.api.contract_templates import render_contract_template
+from app.api.candidate_access import user_can_view_client_rate
+from app.api.contracts import (
+    _assert_no_duplicate_contract,
+    _load_contract_with_relations,
+    _render_draft_body,
+)
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.deps import AdminUser
 from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.export_safety import safe_row
 from app.models.activity import Activity
 from app.models.b2b_contract_detail import B2BContractDetail
+from app.models.b2b_contract_document import B2BContractDocument
 from app.models.b2b_contract_role import B2BContractRole
 from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.b2b_signing_request import (
+    OPEN_STATUSES as ESIGN_OPEN_STATUSES,
+    B2BSigningRequest,
+)
 from app.models.b2b_generated_contract_status_event import (
     B2BGeneratedContractStatusEvent,
 )
@@ -56,20 +78,31 @@ from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.contract_template import ContractTemplate
 from app.models.job import Job
 from app.models.note import Note, NoteType
-from app.models.job_collaborator import JobCollaborator
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.services.agreement_status import pair_columns
 from app.models.user import User, UserRole
 from app.services.action_permissions import (
     ActionAccess,
     ProductAction,
     action_access_for_user,
 )
-from app.services.access_scope import resolve_delivery_lead_assigned_client_ids
+from app.services.access_scope import (
+    is_delivery_lead_governed,
+    resolve_delivery_lead_assigned_client_ids,
+)
+from app.services.b2b_contract_filename import contract_file_name, mandate_file_name
+from app.services.b2b_contract_generator.formatting import pl_date
+from app.services.b2b_documents import contract_annexes, signed_scan
+from app.services.b2b_documents import effects as document_effects
+from app.services.b2b_documents.contract_versions import version_for_variant
 from app.services.critical_events import audited_deletion
 from app.schemas.b2b_contract_generator import (
+    B2BReplaceableContract,
+    B2BGeneratedEsign,
     B2B_CLOSING_STATUSES,
     B2BClosureReason,
     B2BCompanyLookupResponse,
+    B2BCompanyVerificationResponse,
     B2BContractDetailResponse,
     B2BContractStatus,
     B2BGenerateRequest,
@@ -77,12 +110,16 @@ from app.schemas.b2b_contract_generator import (
     B2BConfirmFullySignedRequest,
     B2BConfirmFullySignedResponse,
     B2BGeneratedContractItem,
+    B2BRegisterAnnex,
     B2BGeneratedContractUpdate,
     B2BLinkContractRequest,
     B2BLinkContractResponse,
     B2BNextNumberResponse,
+    B2BAgreementPrefillResponse,
+    B2BSignatureRequestResponse,
     B2BStatusEventItem,
     B2BRenderHtmlResponse,
+    B2BMandateRenderRequest,
     B2BRenderRequest,
     B2BRoleCreate,
     B2BRoleResponse,
@@ -95,15 +132,32 @@ from app.services.polish_ilike import polish_folded_ilike
 from app.services.contract_lifecycle import (
     SIGNED_AGREEMENT_ACTIVATION,
     activate_without_revenue_gate,
+    lock_contract_then_orders,
 )
-from app.services.contract_order_sync import resync_contract_safely
+from app.services.contract_order_sync import (
+    resync_contract_safely,
+    switch_loaded_contract_to_hourly,
+)
 from app.services.hired_order_status import notify_finance_hired_without_order
+from app.services.job_fill import suggest_closing_when_fully_staffed
+from app.services.pipeline_auto_move import run_after_commit
 from app.services.pipeline_realtime import broadcast_pipeline_changed
+from app.services.b2b_agreement_prefill import build_prefill
+from app.models.notification import NotificationType
+from app.models.team_structure import DeliveryLeadClientAssignment
+from app.services.notification_triggers import emit
+from app.services.effective_access import resolve_effective_access
+from app.services.job_team import (
+    manual_collaborator_job_ids,
+    working_assignment_job_ids,
+)
 from app.services.b2b_contract_automation import (
     ORDER_SKIPPED_COST_CLIENT,
     ORDER_SKIPPED_OPEN_GROUP_LINE,
+    B2BEmploymentDraftResult,
     ensure_b2b_employment_draft,
     fill_candidate_contact,
+    fill_contract_from_linked_agreement,
     should_auto_create_order,
 )
 from app.services.b2b_contract_generator.clause_overrides import (
@@ -123,7 +177,23 @@ from app.services.b2b_contract_generator.entity_type import (
     partner_display_lines,
     resolve_partner_entity_type,
 )
+from app.services.b2b_contract_generator import admin_details, mandate, signed_file
+from app.services.hr import payroll_rates
+from app.services.b2b_esign import service as esign_service
+from app.services.b2b_esign import settings as esign_settings
+from app.services.b2b_esign.history import esign_history
+from app.services.b2b_contract_generator.address_format import (
+    format_registry_address,
+    tidy_house_number,
+)
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
+from app.services.b2b_contract_generator.company_variant import (
+    CompanyVariantError,
+    apply_company_variant_html,
+)
+from app.services.b2b_contract_generator.registry_verification import (
+    verify_company,
+)
 from app.services.b2b_contract_generator.render_context import build_render_context
 from app.services.b2b_contract_generator.uop_check import (
     CVGeneratorAIError,
@@ -133,7 +203,7 @@ from app.services.client_identity import (
     client_display_name,
     client_display_name_expression,
 )
-from app.core.scheduling import business_today
+from app.core.scheduling import business_date, business_today
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +230,31 @@ def _reject_excel_row(row: B2BGeneratedContract) -> None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_EXCEL_ROW_READ_ONLY
         )
+
+
+def signing_day_or_reject(row: B2BGeneratedContract, requested: date | None) -> date:
+    """Dzień podpisu umowy z okna „Oznacz jako podpisaną” (0514).
+
+    Domyślnie dziś w kalendarzu firmy. Nie z przyszłości i nie sprzed dnia
+    wygenerowania umowy — podpisać można tylko dokument, który już powstał.
+    """
+    today = business_today()
+    day = requested or today
+    if day > today:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Data podpisu nie może być z przyszłości.",
+        )
+    generated_on = business_date(row.created_at) if row.created_at else None
+    if generated_on is not None and day < generated_on:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Data podpisu nie może być wcześniejsza niż wygenerowanie umowy "
+                f"({generated_on:%d.%m.%Y})."
+            ),
+        )
+    return day
 
 
 def _is_view_only_generator_user(user: User) -> bool:
@@ -210,7 +305,7 @@ async def _render_docx_or_500(
                 context, language=lang, clause_override_key=clause_override_key
             )
         )
-    except ClauseOverrideError as exc:
+    except (ClauseOverrideError, CompanyVariantError) as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -253,11 +348,11 @@ def _ascii_filename(name: str) -> str:
     return safe.strip("._") or "umowa"
 
 
-def _contract_docx_filename(contract_number: str | None) -> str:
-    """Publiczna nazwa pobieranego DOCX: ``Umowa B2B 1472-2026.docx``."""
-    number = re.sub(r"\s*/\s*", "-", (contract_number or "").strip())
-    label = _ascii_filename(number) if number else ""
-    return f"Umowa B2B {label}.docx" if label else "Umowa B2B.docx"
+def _contract_docx_filename(
+    contract_number: str | None, person_name: str | None = None
+) -> str:
+    """Publiczna nazwa pobieranego DOCX: ``Umowa B2B 1472-2026 Kowalski Jan.docx``."""
+    return contract_file_name(contract_number, person_name, ext="docx")
 
 
 def _docx_response(
@@ -265,13 +360,15 @@ def _docx_response(
     contract_number: str | None,
     *,
     generated_id: int | None = None,
+    person_name: str | None = None,
+    filename: str | None = None,
 ) -> Response:
     """Zwróć DOCX z nazwą widoczną dla frontendu także przez CORS.
 
     ``X-Generated-Contract-Id`` niesie id wiersza rejestru — formularz po
     pobraniu wie, KTÓRY wpis opisuje, i poprawka idzie do niego zamiast
     zakładać drugi wiersz z nowym numerem."""
-    filename = _contract_docx_filename(contract_number)
+    filename = filename or _contract_docx_filename(contract_number, person_name)
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
         "Access-Control-Expose-Headers": (
@@ -314,6 +411,17 @@ _IN_PROGRESS_IS_AUTOMATIC = (
 _CANCELLED_BLOCKS_SIGNATURE = (
     "Umowa jest anulowana. Przywróć status „W trakcie”, aby potwierdzić podpis."
 )
+# Runda 8 (R8-X2-6): niepodpisana umowa „Zakończona” / „Bez projektu” też nie
+# przyjmuje podpisu — potwierdzenie zakładało aktywny kontrakt i zatrudnienie,
+# a wiersz rejestru dalej mówił „Zakończona, powód …”.
+_ENDED_BLOCKS_SIGNATURE = (
+    "Umowa ma status „Zakończona” albo „Bez projektu”, a nie jest podpisana. "
+    "Przywróć status „W trakcie”, aby potwierdzić podpis."
+)
+_SIGNATURE_BLOCKING_STATUSES = frozenset({"closed", "suspended"})
+# Wnioski o podpis w NEXUSIE, przy których wiersza rejestru nie wolno usunąć:
+# w toku (najpierw „Przejdź na zwykłą drogę”) albo podpisane przez obie strony.
+_ESIGN_BLOCKS_DELETE = (*ESIGN_OPEN_STATUSES, "completed")
 
 _CLOSURE_REASON_LABEL_PL = {
     "no_client_budget": "Brak budżetu u klienta",
@@ -382,9 +490,8 @@ async def _reactivation_contract_id(
     projekt tylko przesunęłoby ten sam defekt.
 
     ``None`` znaczy „nie ma na co przepiąć" i zostawia link bez zmian.
-    **Nie tworzymy** tu kontraktu: ``ensure_b2b_employment_draft`` zakłada go
-    z pominięciem ``_assert_no_duplicate_contract``, więc reaktywacja mogłaby
-    po cichu zrobić drugi wiersz u tego samego klienta.
+    **Nie tworzymy** tu kontraktu: projekt u klienta bez kontraktu tej osoby
+    to decyzja Delivery, nie skutek uboczny zmiany statusu umowy.
     """
     candidate_id = await db.scalar(
         select(Contract.candidate_id).where(Contract.id == current_contract_id)
@@ -439,10 +546,19 @@ def _require_signature_confirmation(user: User) -> None:
 async def _assert_signature_client_access(
     db: AsyncSession, user: User, client_id: int | None
 ) -> None:
-    # Preserve existing legal scope for DL/TAC. The separately granted command
-    # lets operational users confirm signatures without granting document edits.
-    if user.has_any_role(UserRole.delivery_lead, UserRole.tac):
-        await assert_contract_legal_client_access(db, user, client_id, write=True)
+    # Uprawnienie „Umowy B2B: oznaczanie jako podpisane” mówi, CO konto może;
+    # tutaj rozstrzyga się, U KOGO. Konto rządzone portfelem Delivery Leada
+    # potwierdza u klientów z przypisania, każdy inny posiadacz — u wszystkich
+    # (rola, której administrator jawnie włączył uprawnienie, ma działać).
+    # TCM potwierdza podpisy w całej organizacji (decyzja 10.09.2026) — także
+    # wtedy, gdy ma dodatkowo rolę DL. Do 02.10.2026 zakres klienta obejmował
+    # też TAC, który bez zapisu w Delivery nie przechodził go nigdy.
+    if user.has_role(UserRole.talent_community_manager):
+        return
+    if is_delivery_lead_governed(user):
+        await assert_contract_legal_client_access(
+            db, user, client_id, write=True, purpose="org"
+        )
 
 
 def _generator_unscoped(user: User) -> bool:
@@ -487,16 +603,19 @@ def _sees_every_generator_rate(user: User) -> bool:
 
 
 async def _jobs_run_by(db: AsyncSession, user: User, job_ids: set[int]) -> set[int]:
-    """Rekrutacje z ``job_ids``, które ``user`` prowadzi albo współprowadzi.
+    """Rekrutacje z ``job_ids``, które ``user`` prowadzi albo przy nich pracuje.
 
-    Prowadzi = rekruter, TAC albo Delivery Lead rekrutacji; współprowadzi =
-    aktywny współpracownik. Jedno zapytanie na listę, żeby rejestr umów nie
-    robił N+1 przy liczeniu, czyje stawki wolno pokazać.
+    Prowadzi = rekruter, TAC albo Delivery Lead rekrutacji. Pracuje = ta sama
+    reguła „Rekruter” co lista i pulpit (``services.job_team``, 0409): aktywne
+    przypisanie albo RĘCZNIE dopisany współpracownik. Uczestnicy dopisani
+    automatycznie z kategorii (``auto_cc``) nie są rekruterami rekrutacji, więc
+    stawek jej umów nie widzą (04.10.2026). Jedno zapytanie na listę, żeby
+    rejestr umów nie robił N+1 przy liczeniu, czyje stawki wolno pokazać.
     """
 
     if not job_ids:
         return set()
-    owned = {
+    return {
         int(job_id)
         for job_id in (
             await db.scalars(
@@ -506,24 +625,68 @@ async def _jobs_run_by(db: AsyncSession, user: User, job_ids: set[int]) -> set[i
                         Job.recruiter_id == user.id,
                         Job.tac_id == user.id,
                         Job.delivery_lead_id == user.id,
+                        Job.id.in_(working_assignment_job_ids([user.id])),
+                        Job.id.in_(manual_collaborator_job_ids([user.id])),
                     ),
                 )
             )
         ).all()
     }
-    owned.update(
+
+
+async def _jobs_led_by(db: AsyncSession, user: User, job_ids: set[int]) -> set[int]:
+    """Rekrutacje, w których ``user`` jest w zespole z NADANIA, nie z dopisania.
+
+    Prowadzący, TAC, Delivery Lead albo aktywne przypisanie (automat, Head of
+    Recruitment, „Zmień” na pulpicie). Ręcznego współpracownika każda rola
+    wewnętrzna może dopisać sama sobie (``POST /jobs/{id}/collaborators``), więc
+    daje on wgląd w stawki jak dotąd, ale nie prawo poprawiania cudzej umowy
+    ani wysyłania próśb o podpis (przegląd bezpieczeństwa 04.10.2026).
+    """
+
+    if not job_ids:
+        return set()
+    return {
         int(job_id)
         for job_id in (
             await db.scalars(
-                select(JobCollaborator.job_id).where(
-                    JobCollaborator.job_id.in_(job_ids),
-                    JobCollaborator.user_id == user.id,
-                    JobCollaborator.removed_from_auto_cc.is_(False),
+                select(Job.id).where(
+                    Job.id.in_(job_ids),
+                    or_(
+                        Job.recruiter_id == user.id,
+                        Job.tac_id == user.id,
+                        Job.delivery_lead_id == user.id,
+                        Job.id.in_(working_assignment_job_ids([user.id])),
+                    ),
                 )
             )
         ).all()
-    )
-    return owned
+    }
+
+
+_CORRECTION_DENIED = (
+    "Poprawić umowę mogą jej autor, rekruterzy i Delivery Lead tej rekrutacji, "
+    "TCM albo administrator — i tylko gdy widzą jej stawki."
+)
+
+
+def _may_correct_generated(
+    user: User, row: B2BGeneratedContract, team_job_ids: set[int]
+) -> bool:
+    """Kto poprawia niepodpisaną umowę pod tym samym numerem (D3, 04.10.2026).
+
+    Umowę generuje rekruter prowadzący proces, a poprawiają ją także TCM
+    i Delivery Lead — do tego dnia tylko autor albo admin, więc literówka
+    w cudzej umowie kończyła się usunięciem i nowym numerem. ``team_job_ids``
+    to wynik ``_jobs_led_by`` dla rekrutacji wiersza. Stawki sprawdza osobno
+    ``_RateVisibility`` — poprawka pokazuje cały formularz razem ze stawką.
+    """
+
+    if user.has_any_role(UserRole.admin, UserRole.talent_community_manager):
+        return True
+    if row.created_by is not None and row.created_by == user.id:
+        return True
+    return row.job_id is not None and row.job_id in team_job_ids
 
 
 class _RateVisibility:
@@ -673,7 +836,9 @@ async def _assert_generator_client_access(
 
     if _generator_unscoped(user):
         return
-    await assert_contract_legal_client_access(db, user, client_id, write=write)
+    await assert_contract_legal_client_access(
+        db, user, client_id, write=write, purpose="org"
+    )
 
 
 async def _scope_generator_query(
@@ -692,12 +857,72 @@ async def _scope_generator_query(
 
     if _generator_unscoped(user):
         return statement
-    return await apply_contract_legal_client_scope(statement, client_column, db, user)
+    return await apply_contract_legal_client_scope(
+        statement, client_column, db, user, purpose="org"
+    )
 
 
 async def _require_signature_job_scope(db: AsyncSession, user: User, job: Job) -> None:
     if not user.has_role(UserRole.talent_community_manager):
         await ensure_job_membership(db, user, job.id)
+
+
+#: Kto oznacza podpis KAŻDEJ umowy (w swoim zakresie klientów). Delivery Lead
+#: jest tu, bo jego zakres i tak zawęża portfel (``_assert_signature_client_access``).
+_SIGNS_EVERY_CONTRACT_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.talent_community_manager,
+    UserRole.delivery_lead,
+)
+
+_SIGNATURE_ROW_SCOPE_DENIED = (
+    "Podpis tej umowy oznacza osoba, która ją wygenerowała, zespół rekrutacji, "
+    "Delivery Lead klienta albo TCM."
+)
+
+
+def _may_confirm_row_signature(
+    user: User,
+    *,
+    created_by: int | None,
+    job_id: int | None,
+    team_job_ids: set[int],
+    open_without_job: bool = True,
+) -> bool:
+    """Czy posiadacz uprawnienia podpisu oznacza TEN wiersz (decyzja 19.10.2026).
+
+    Rekruterzy i DL generują umowy sami, więc autor oznacza podpis własnej
+    umowy — także w rekrutacji, w której nie jest w zespole (zgłoszenie 19.10:
+    współpracownik z kategorii od 04.10 nie liczy się do zespołu). Zespół
+    rekrutacji (``_jobs_run_by``) zostaje drugą drogą, żeby nikt nie stracił
+    tego, co mógł. Wiersz bez rekrutacji rozstrzyga endpoint, gdy człowiek ją
+    wskaże; tam, gdzie nikt jej nie wskazuje (dokumenty do umowy,
+    wypowiedzenie Partnera), ``open_without_job=False`` zostawia wtedy tylko
+    autora i role z ``_SIGNS_EVERY_CONTRACT_ROLES``.
+    """
+
+    if user.has_any_role(*_SIGNS_EVERY_CONTRACT_ROLES):
+        return True
+    if created_by is not None and created_by == user.id:
+        return True
+    if job_id is None:
+        return open_without_job
+    return job_id in team_job_ids
+
+
+async def _require_signature_row_scope(
+    db: AsyncSession, user: User, row: B2BGeneratedContract, job_id: int
+) -> None:
+    team_job_ids = (
+        set()
+        if user.has_any_role(*_SIGNS_EVERY_CONTRACT_ROLES)
+        else await _jobs_run_by(db, user, {job_id})
+    )
+    if not _may_confirm_row_signature(
+        user, created_by=row.created_by, job_id=job_id, team_job_ids=team_job_ids
+    ):
+        raise HTTPException(status_code=403, detail=_SIGNATURE_ROW_SCOPE_DENIED)
 
 
 async def _load_legal_scoped_job(
@@ -726,6 +951,7 @@ async def _load_legal_scoped_job(
             user,
             job.client_id,
             write=write,
+            purpose="org",
         )
     else:
         await _assert_generator_client_access(
@@ -735,6 +961,47 @@ async def _load_legal_scoped_job(
             write=write,
         )
     return job
+
+
+def _stored_entity_type(payload: "B2BRenderRequest") -> str | None:
+    """Umowa wydana w wariancie spółki JEST umową ze spółką — to rozstrzyga
+    typ podmiotu w rejestrze mocniej niż lookup albo heurystyka po nazwie."""
+    if payload.contract_variant == "company":
+        return "company"
+    return payload.partner_entity_type
+
+
+def _stamp_assigned_person(
+    payload: "B2BRenderRequest", candidate: Candidate | None
+) -> None:
+    """Osoba skierowana w umowie spółki = kandydat z powiązanej rekrutacji.
+
+    Ticket 8: w Załączniku nr 3 ma stać osoba, która świadczy usługi — nie
+    nazwa spółki i nie jej reprezentant — „pobierana automatycznie
+    z rekrutacji”. Formularz podpowiada to samo, ale źródłem prawdy jest
+    rekord kandydata; wartość ląduje w ``render_payload``, więc ponowne
+    pobranie wydaje ten sam dokument."""
+    if payload.contract_variant != "company" or candidate is None:
+        return
+    full_name = " ".join(
+        part.strip() for part in (candidate.name, candidate.lastname) if part
+    ).strip()
+    if full_name:
+        payload.assigned_person_name = full_name
+
+
+def _tidy_partner_addresses(payload: "B2BRenderRequest") -> None:
+    """Adres wklejony z wydruku CEIDG: „ul. Polna 12” zamiast „ul. Polna, nr 12”.
+
+    Tylko przy wydaniu i poprawce umowy, nie w walidatorze schematu: ten sam
+    schemat odtwarza zapisany ``render_payload``, a ponowne pobranie ma dać
+    dokument, który wydano."""
+    payload.partner_business_address = tidy_house_number(
+        payload.partner_business_address
+    )
+    payload.partner_correspondence_address = tidy_house_number(
+        payload.partner_correspondence_address
+    )
 
 
 async def _validate_candidate_job_link(
@@ -768,6 +1035,43 @@ async def _validate_candidate_job_link(
     return candidate, job
 
 
+def _row_annex_fields(
+    row: B2BGeneratedContract,
+    annexes: list[B2BContractDocument],
+    state_of: Callable[[B2BContractDocument, int | None], str],
+) -> dict[str, Any]:
+    """Pola wiersza o aneksach: najnowszy aneks, ich liczba i data startu
+    sprzed aneksu zmiany daty (``annexes`` rosnąco po id, bez anulowanych)."""
+    if not annexes:
+        return {}
+    latest = annexes[-1]
+    fields: dict[str, Any] = {
+        "latest_annex": B2BRegisterAnnex(
+            document_id=latest.id,
+            document_type=latest.document_type,
+            state=state_of(latest, row.client_id),
+            effective_date=contract_annexes.effective_date_of(
+                latest, contract_client_id=row.client_id
+            ),
+        ),
+        "annex_count": len(annexes),
+    }
+    start_annexes = [a for a in annexes if a.document_type == "annex_start_date"]
+    if start_annexes:
+        last_start = start_annexes[-1]
+        before = (last_start.render_payload or {}).get("register_before")
+        raw = before.get("start_date") if isinstance(before, dict) else None
+        try:
+            previous = date.fromisoformat(str(raw)[:10]) if raw else None
+        except ValueError:
+            previous = None
+        # Wiersz pokazuje datę z aneksu; „przed” ma sens tylko, gdy się różni.
+        if previous is not None and previous != row.start_date:
+            fields["start_date_before"] = previous
+            fields["start_date_annex_state"] = state_of(last_start, row.client_id)
+    return fields
+
+
 async def _serialize_generated_contracts(
     db: AsyncSession,
     rows: list[B2BGeneratedContract],
@@ -786,11 +1090,25 @@ async def _serialize_generated_contracts(
     client_ids = {row.client_id for row in rows if row.client_id is not None}
 
     users: dict[int, str] = {}
+    user_roles: dict[int, str] = {}
     if user_ids:
         result = await db.execute(
-            select(User.id, User.name).where(User.id.in_(user_ids))
+            select(User.id, User.name, User.role).where(User.id.in_(user_ids))
         )
-        users = {uid: name for uid, name in result.all()}
+        for uid, name, role in result.all():
+            users[uid] = name
+            user_roles[uid] = getattr(role, "value", role)
+
+    # Kolumna Tablicy pary w tej rekrutacji — rejestr pokazuje, gdzie jest
+    # osoba, której dotyczy umowa (lustro panelu osoby, 04.10.2026).
+    columns = await pair_columns(
+        db,
+        {
+            (row.candidate_id, row.job_id)
+            for row in rows
+            if row.candidate_id is not None and row.job_id is not None
+        },
+    )
 
     candidates: dict[int, str] = {}
     if candidate_ids:
@@ -819,33 +1137,10 @@ async def _serialize_generated_contracts(
         clients = {cid: name for cid, name in result.all()}
 
     scoped_job_ids: set[int] = set()
-    if _has_signature_permission(current_user):
-        if current_user.has_any_role(
-            UserRole.admin,
-            UserRole.head_of_recruitment,
-            UserRole.talent_community_manager,
-        ):
-            scoped_job_ids = set(job_ids)
-        else:
-            scoped_job_ids = {
-                job.id
-                for job in jobs.values()
-                if current_user.id
-                in {
-                    job.recruiter_id,
-                    job.delivery_lead_id,
-                    job.tac_id,
-                }
-            }
-            if job_ids:
-                result = await db.execute(
-                    select(JobCollaborator.job_id).where(
-                        JobCollaborator.job_id.in_(job_ids),
-                        JobCollaborator.user_id == current_user.id,
-                        JobCollaborator.removed_from_auto_cc.is_(False),
-                    )
-                )
-                scoped_job_ids.update(job_id for (job_id,) in result.all())
+    if _has_signature_permission(current_user) and not current_user.has_any_role(
+        *_SIGNS_EVERY_CONTRACT_ROLES
+    ):
+        scoped_job_ids = await _jobs_run_by(db, current_user, set(job_ids))
 
     # Stan powiązanego kontraktu: rejestr nie wie, że kontrakt się skończył
     # albo został usunięty (audyt 23.09.2026 — trzy umowy „Aktywne” przy
@@ -864,7 +1159,39 @@ async def _serialize_generated_contracts(
             for cid, cstatus, end_date in result.all()
         }
 
+    # Aneksy do umów tej strony listy — jeden odczyt na wszystkie wiersze.
+    # Anulowany aneks nie jest etykietą ani nie liczy się do „+N aneksów”:
+    # nie doszedł do skutku, a wiersz wrócił już do wartości sprzed niego.
+    annexes_by_row: dict[int, list[B2BContractDocument]] = {}
+    row_ids = {row.id for row in rows}
+    if row_ids:
+        annex_result = await db.scalars(
+            select(B2BContractDocument)
+            .where(
+                B2BContractDocument.parent_generated_contract_id.in_(row_ids),
+                B2BContractDocument.document_type.in_(contract_annexes.ANNEX_TYPE_KEYS),
+                B2BContractDocument.status != "cancelled",
+            )
+            .order_by(B2BContractDocument.id.asc())
+        )
+        for annex in annex_result.all():
+            annexes_by_row.setdefault(annex.parent_generated_contract_id, []).append(
+                annex
+            )
+    annex_today = business_today()
+
+    def annex_state_of(annex: B2BContractDocument, client_id: int | None) -> str:
+        return document_effects.annex_state(
+            status=annex.status,
+            signature_status=annex.signature_status,
+            effective=contract_annexes.effective_date_of(
+                annex, contract_client_id=client_id
+            ),
+            today=annex_today,
+        )
+
     rate_visibility = await _rate_visibility(db, current_user, set(job_ids))
+    team_job_ids = await _jobs_led_by(db, current_user, set(job_ids))
     is_admin = current_user.has_role(UserRole.admin)
     generator_access = action_access_for_user(
         current_user, ProductAction.b2b_contract_generator
@@ -889,6 +1216,42 @@ async def _serialize_generated_contracts(
                 if exc.status_code != 403:
                     raise
                 signature_client_access[client_id] = False
+    live_signed_files = await signed_file.existing_document_ids(db, rows)
+    # Podpis w NEXUSIE (0499): ostatni wniosek na wiersz, jedno zapytanie.
+    esign_mode = await esign_settings.load(db)
+    esign_allowed = esign_mode.can_send(current_user)
+    latest_esign: dict[int, B2BSigningRequest] = {}
+    list_now = datetime.now(timezone.utc)
+    if rows:
+        esign_rows = await db.scalars(
+            select(B2BSigningRequest)
+            .where(
+                B2BSigningRequest.generated_contract_id.in_([row.id for row in rows])
+            )
+            .order_by(
+                B2BSigningRequest.generated_contract_id,
+                B2BSigningRequest.id.desc(),
+            )
+            .distinct(B2BSigningRequest.generated_contract_id)
+        )
+        latest_esign = {r.generated_contract_id: r for r in esign_rows.all()}
+    # Obsługujący wysyłki i ich urlopy dziś (zastępstwo, 27.10.2026).
+    esign_handlers = {r.id: esign_service.handler_id(r) for r in latest_esign.values()}
+    esign_absences = await esign_service.absences(
+        db, [h for h in esign_handlers.values() if h], business_today()
+    )
+    esign_signer_ids = (
+        {r.company_signer_id for r in latest_esign.values() if r.company_signer_id}
+        | {uid for r in latest_esign.values() for uid in (r.cc_user_ids or [])}
+        | {h for h in esign_handlers.values() if h}
+        | {a.substitute_id for a in esign_absences.values() if a.substitute_id}
+    )
+    esign_signer_names: dict[int, str] = {}
+    if esign_signer_ids:
+        named = await db.execute(
+            select(User.id, User.name).where(User.id.in_(esign_signer_ids))
+        )
+        esign_signer_names = {uid: name for uid, name in named.all()}
     items: list[B2BGeneratedContractItem] = []
     for row in rows:
         is_signed = row.signature_status == "signed_both"
@@ -901,12 +1264,31 @@ async def _serialize_generated_contracts(
             and not is_signed
             and (is_admin or row.created_by == current_user.id)
         )
+        # Poprawa pod tym samym numerem: szerzej niż usunięcie (D3) — zespół
+        # rekrutacji, TCM; zawsze przy widocznych stawkach.
+        can_correct = (
+            can_manage_documents
+            and can_write_client
+            and not is_signed
+            and _may_correct_generated(current_user, row, team_job_ids)
+            and rate_visibility.visible(
+                client_id=row.client_id, created_by=row.created_by, job_id=row.job_id
+            )
+        )
         is_cancelled = row.contract_status == "cancelled"
+        is_ended_unsigned = (
+            not is_signed and row.contract_status in _SIGNATURE_BLOCKING_STATUSES
+        )
         from_excel = row.source == "excel"
         if from_excel:
             # Wiersz z rejestru Excela: treść i usunięcie należą do pliku
             # działu (ponowny import by je cofnął). Status handlowy — tak.
             can_manage = False
+            can_correct = False
+        is_mandate_row = mandate.is_mandate(row)
+        if is_mandate_row:
+            # „Popraw” i podpis w NEXUSIE znają tylko formularz i PDF umowy B2B.
+            can_correct = False
         can_confirm = (
             generator_access >= ActionAccess.view
             and (
@@ -916,6 +1298,7 @@ async def _serialize_generated_contracts(
             and _has_signature_permission(current_user)
             and not is_signed
             and not is_cancelled
+            and not is_ended_unsigned
         )
         blocked_reason: str | None = None
         if from_excel and not is_signed:
@@ -929,6 +1312,8 @@ async def _serialize_generated_contracts(
         # coś, co i tak nie odblokuje tego wiersza.
         elif is_cancelled:
             blocked_reason = _CANCELLED_BLOCKS_SIGNATURE
+        elif is_ended_unsigned:
+            blocked_reason = _ENDED_BLOCKS_SIGNATURE
         elif generator_access < ActionAccess.view:
             blocked_reason = (
                 "Oznaczenie podpisu wymaga dostępu do rejestru Generatora Umów B2B."
@@ -947,9 +1332,82 @@ async def _serialize_generated_contracts(
         ):
             blocked_reason = "Brak uprawnień do potwierdzania podpisu dla tego klienta. Sprawdź przypisanie klienta i dostęp do Delivery."
             can_confirm = False
-        elif row.job_id is not None and row.job_id not in scoped_job_ids:
-            blocked_reason = "Brak przypisania do powiązanej rekrutacji."
+        elif not _may_confirm_row_signature(
+            current_user,
+            created_by=row.created_by,
+            job_id=row.job_id,
+            team_job_ids=scoped_job_ids,
+        ):
+            blocked_reason = _SIGNATURE_ROW_SCOPE_DENIED
             can_confirm = False
+
+        # Plik dołącza ten, kto mógłby oznaczyć podpis — liczone bez warunku
+        # „jeszcze niepodpisana”, bo plik dochodzi właśnie po podpisie.
+        can_attach_file = (
+            is_signed
+            and not from_excel
+            and row.contract_id is not None
+            and generator_access >= ActionAccess.view
+            and can_write_client
+            and _has_signature_permission(current_user)
+            and signature_client_access.get(row.client_id, False)
+            and _may_confirm_row_signature(
+                current_user,
+                created_by=row.created_by,
+                job_id=row.job_id,
+                team_job_ids=scoped_job_ids,
+            )
+        )
+
+        # Kto wysyła i wycofuje podpis w NEXUSIE — jak trasy w api/b2b_esign.py.
+        esign = latest_esign.get(row.id)
+        esign_open = esign is not None and esign.status in ESIGN_OPEN_STATUSES
+        # Wysłany do podpisu PDF jest zamrożony — „Popraw” dopiero po wycofaniu.
+        can_correct = can_correct and not esign_open
+        # Przełącznik dotyczy tylko wysyłki: wniosek z pilotażu musi dać się
+        # wycofać także po wyłączeniu (trasa withdraw go nie sprawdza).
+        may_handle_esign = (
+            not from_excel
+            and can_generate_documents
+            and can_write_client
+            and _may_correct_generated(current_user, row, team_job_ids)
+            and rate_visibility.visible(
+                client_id=row.client_id, created_by=row.created_by, job_id=row.job_id
+            )
+        )
+        can_send_esign = (
+            esign_allowed
+            and not is_mandate_row
+            and may_handle_esign
+            and not is_signed
+            and row.contract_status == "in_progress"
+            and not esign_open
+            and bool(row.partner_name)
+            and row.render_payload is not None
+        )
+
+        # Wygasły link: nowy na tym samym PDF-ie, gdy umowy nikt nie poprawił.
+        can_extend_esign = (
+            may_handle_esign
+            and esign is not None
+            and esign_service.is_link_live(esign, list_now)
+        )
+        handler = esign_handlers.get(esign.id) if esign is not None else None
+        absence = esign_absences.get(handler) if handler else None
+        can_take_over_esign = (
+            may_handle_esign
+            and esign is not None
+            and (esign_open or esign.status == "expired")
+            and handler != current_user.id
+        )
+        can_relink_esign = (
+            esign_allowed
+            and may_handle_esign
+            and esign is not None
+            and esign_service.is_expired(esign, list_now)
+            and esign_service.row_still_signable(row)
+            and esign.source_payload_sha256 == esign_service.payload_fingerprint(row)
+        )
 
         linked_status, linked_end = linked_contracts.get(row.contract_id, (None, None))
         job = jobs.get(row.job_id) if row.job_id is not None else None
@@ -997,8 +1455,12 @@ async def _serialize_generated_contracts(
                 signing_date=row.signing_date,
                 created_at=row.created_at.isoformat() if row.created_at else None,
                 created_by_name=users.get(row.created_by),
-                can_delete=can_manage,
-                can_edit=can_manage,
+                created_by_role=user_roles.get(row.created_by),
+                pair_column=(columns.get((row.candidate_id, row.job_id)) or (None,))[0],
+                # Wniosek w toku albo podpisany w NEXUSIE zginąłby w kaskadzie FK.
+                can_delete=can_manage
+                and not (esign is not None and esign.status in _ESIGN_BLOCKS_DELETE),
+                can_edit=can_correct,
                 # DOCX niesie stawkę — pobranie tylko przy widocznych stawkach.
                 can_download=(
                     row.render_payload is not None
@@ -1022,10 +1484,67 @@ async def _serialize_generated_contracts(
                 job_title=job.title if job else None,
                 canonical_client_name=clients.get(row.client_id),
                 signed_at=row.signed_at.isoformat() if row.signed_at else None,
+                signed_on=row.signed_on,
                 signed_by_name=users.get(row.signed_by_user_id),
                 can_confirm_signed=can_confirm,
                 blocked_reason=blocked_reason,
+                signed_document_id=(
+                    row.signed_document_id
+                    if row.signed_document_id in live_signed_files
+                    else None
+                ),
+                can_attach_signed_file=can_attach_file,
+                esign=(
+                    B2BGeneratedEsign(
+                        request_id=esign.id,
+                        status=esign.status,
+                        contractor_signed_at=esign.contractor_signed_at,
+                        completed_at=esign.completed_at,
+                        expires_at=esign.expires_at,
+                        company_signer_name=esign_signer_names.get(
+                            esign.company_signer_id or -1
+                        ),
+                        renewal_requested_at=esign_service.renewal_requested_at(esign),
+                        cc_names=[
+                            esign_signer_names[uid]
+                            for uid in (esign.cc_user_ids or [])
+                            if uid in esign_signer_names
+                        ],
+                        handled_by_name=esign_signer_names.get(handler or -1),
+                        handler_absent_until=absence.until if absence else None,
+                        handler_substitute_name=(
+                            esign_signer_names.get(absence.substitute_id or -1)
+                            if absence
+                            else None
+                        ),
+                    )
+                    if esign is not None
+                    else None
+                ),
+                can_send_esign=can_send_esign,
+                can_withdraw_esign=may_handle_esign and esign_open,
+                can_extend_esign=can_extend_esign,
+                can_relink_esign=can_relink_esign,
+                can_take_over_esign=can_take_over_esign,
+                # Ta sama bramka co trasa `signed-pdf` (nadawca albo reprezentant).
+                can_download_signed_esign=(
+                    esign is not None
+                    and esign.status == "completed"
+                    and bool(esign.final_pdf_path)
+                    and (may_handle_esign or esign.company_signer_id == current_user.id)
+                ),
+                annex_rates=(
+                    list((row.annex_rates or {}).get("items") or [])
+                    if row.annex_rates
+                    and rate_visibility.visible(
+                        client_id=row.client_id,
+                        created_by=row.created_by,
+                        job_id=row.job_id,
+                    )
+                    else None
+                ),
                 source=row.source or "generator",
+                template_version=row.template_version,
                 raw_contract_number=row.raw_contract_number,
                 position=row.position,
                 contract_kind=row.contract_kind,
@@ -1034,6 +1553,9 @@ async def _serialize_generated_contracts(
                 legacy_flags=list((row.legacy_data or {}).get("flags") or []),
                 needs_business_data_annex=bool(row.needs_business_data_annex),
                 business_data_annex_done_at=row.business_data_annex_done_at,
+                **_row_annex_fields(
+                    row, annexes_by_row.get(row.id, []), annex_state_of
+                ),
                 excel_missing_since=(
                     row.excel_missing_since.isoformat()
                     if row.excel_missing_since
@@ -1357,8 +1879,20 @@ async def generate(
             contract = ensured.contract
             pre_existing_contract = not ensured.created_contract
         else:
-            # Legacy ad-hoc path without a recruitment cannot be safely
-            # deduplicated. New UI flows always send job_id.
+            # Legacy ad-hoc path without a recruitment. New UI flows always
+            # send job_id. Runda 8 (R8-X2-1): ta sama blokada duplikatu co
+            # ręczne „Nowy kontraktor” (osoba albo e-mail + klient) — do tej
+            # pory zakładała drugi kontrakt tej osoby u klienta bez pytania.
+            dup_candidate = await db.get(Candidate, payload.candidate_id)
+            dup_client = await db.get(Client, client_id)
+            if dup_candidate is None or dup_client is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Kandydat albo klient nie istnieje.",
+                )
+            await _assert_no_duplicate_contract(
+                db, candidate=dup_candidate, client=dup_client
+            )
             contract = Contract(
                 candidate_id=payload.candidate_id,
                 client_id=client_id,
@@ -1384,6 +1918,10 @@ async def generate(
         )
 
     # 2. Pola finansowe/daty na Contract.
+    # Generator zapisuje stawkę Partnera w zł/h — istniejący szkic w innej
+    # jednostce przechodzi na zł/h RAZEM z kwotami, nie samą etykietą
+    # (runda 6 audytu: ryczałt 20 000 zł/mc stawał się 20 000 zł/h).
+    await switch_loaded_contract_to_hourly(db, contract)
     contract.start_date = payload.start_date
     contract.rate_candidate = payload.rate_candidate
     contract.rate_candidate_currency = payload.currency
@@ -1519,7 +2057,11 @@ async def download_docx(
     data = await run_in_threadpool(render_contract_docx, contract, language=lang)
 
     number = contract.b2b_detail.contract_number if contract.b2b_detail else None
-    return _docx_response(data, number)
+    person = contract.candidate
+    person_name = (
+        " ".join(p for p in (person.name, person.lastname) if p) if person else None
+    )
+    return _docx_response(data, number, person_name=person_name)
 
 
 # ── Numeracja umów (auto, uwzględnia wcześniej wygenerowane) ──────────────────
@@ -1527,6 +2069,19 @@ async def download_docx(
 # Numer umowy w formacie „<liczba>/<rok>" (np. „1434/2026"). Prefiks liczbowy
 # jest faktycznym numerem porządkowym — kolumna `seq` to tylko licznik wierszy.
 _NUMBER_RE = re.compile(r"^\s*(\d+)\s*/\s*(\d{4})\s*$")
+# Zakres kolumny `seq` (INTEGER). Wyższy numer kończył zapis DataError → 500.
+_MAX_CONTRACT_SEQ = 2_147_483_647
+# Kod 409 „numer zajęty” — front podmienia numer na podpowiedź WYŁĄCZNIE przy
+# nim (R8-X2-5); inne 409 z `/render` (kandydat spoza rekrutacji, zmiana
+# powiązań w trakcie zapisu) nie mają nic wspólnego z numerem.
+_NUMBER_TAKEN_CODE = "contract_number_taken"
+
+
+def _number_taken(message: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={"code": _NUMBER_TAKEN_CODE, "message": message},
+    )
 
 
 def _nip_digits(raw: str | None) -> str | None:
@@ -1567,6 +2122,13 @@ def _validate_contract_number(number: str, suggested: str) -> tuple[int, int, st
             detail=f"Numer umowy musi być w formacie „liczba/rok”, np. {suggested}.",
         )
     seq, year = int(m.group(1)), int(m.group(2))
+    # Runda 8 (R8-X2-7): numer spoza zakresu kolumny `seq` kończył zapis
+    # błędem DataError (500) zamiast czytelnej odmowy.
+    if seq > _MAX_CONTRACT_SEQ:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Numer porządkowy umowy jest za duży — wpisz np. {suggested}.",
+        )
     return seq, year, f"{seq}/{year}"
 
 
@@ -1641,9 +2203,143 @@ async def next_number(
     db: AsyncSession = Depends(get_db),
 ):
     """Sugerowany kolejny WOLNY numer umowy `<seq>/<rok>` (edytowalny w UI)."""
-    year = datetime.now(timezone.utc).year
+    # Rok kalendarza firmy (Europe/Warsaw): 1 stycznia między 00:00 a 01:00
+    # zegar UTC mówi jeszcze o poprzednim roku.
+    year = business_today().year
     seq = await _next_seq(db)
     return B2BNextNumberResponse(contract_number=f"{seq}/{year}", year=year, seq=seq)
+
+
+@router.get("/prefill", response_model=B2BAgreementPrefillResponse)
+async def agreement_prefill(
+    current_user: B2BGeneratorAccess,
+    candidate_id: int = Query(..., ge=1, le=2_147_483_647),
+    job_id: int = Query(..., ge=1, le=2_147_483_647),
+    db: AsyncSession = Depends(get_db),
+):
+    """Podpowiedzi formularza umowy dla pary (kandydat, rekrutacja).
+
+    Te same liczby czyta panel osoby i Generator (``b2b_agreement_prefill``).
+    Bramka jak przy generowaniu z rekrutacji (``/render``): poziom generowania,
+    zakres rekrutacji i klienta, kandydat w tej rekrutacji. Stawkę do klienta
+    dostaje tylko rola, która widzi ją na Tablicy.
+    """
+    _require_contract_generation(current_user)
+    job = await _load_legal_scoped_job(db, current_user, job_id, write=True)
+    candidate, job = await _validate_candidate_job_link(
+        db, candidate_id=candidate_id, job_id=job.id
+    )
+    await _assert_generator_client_access(db, current_user, job.client_id, write=True)
+    prefill = await build_prefill(
+        db,
+        candidate=candidate,
+        job=job,
+        show_client_rate=user_can_view_client_rate(current_user),
+    )
+    # Kafelek „Szczegóły administracyjne” (0524): odbiorcy premii i zastępstwo
+    # z tytułu. Tylko Generator — panel osoby czyta `build_prefill` bez tego.
+    prefill["admin"] = await admin_details.admin_defaults(
+        db, candidate_id=candidate.id, job=job
+    )
+    return prefill
+
+
+@router.get("/replacement-options", response_model=list[B2BReplaceableContract])
+async def replacement_options(
+    current_user: B2BGeneratorAccess,
+    client_id: int | None = Query(None, ge=1, le=2_147_483_647),
+    q: str | None = Query(None, max_length=80, pattern=r"^[^\x00]*$"),
+    contract_id: int | None = Query(None, ge=1, le=2_147_483_647),
+    exclude_candidate_id: int | None = Query(None, ge=1, le=2_147_483_647),
+    db: AsyncSession = Depends(get_db),
+):
+    """Kontraktorzy do „Replacement za kogo” w kafelku Generatora.
+
+    ``client_id`` — kontraktorzy klienta z rekrutacji (najpierw ci, którzy
+    odeszli); bez niego wyszukiwanie w całym NEXUSIE wymaga frazy (min. 2
+    znaki); ``contract_id`` — jeden wpis do odtworzenia wyboru przy „Popraw”.
+    Bez kwot — kafelek widzą role bez dostępu do stawek. Bramka jak przy
+    generowaniu (poziom generowania; klient — odczyt jak w rejestrze).
+    """
+    _require_contract_generation(current_user)
+    phrase = (q or "").strip()
+    if client_id is None and contract_id is None and len(phrase) < 2:
+        raise HTTPException(
+            status_code=422,
+            detail="Wpisz co najmniej 2 litery nazwiska albo wybierz klienta.",
+        )
+    if client_id is not None:
+        await _assert_generator_client_access(db, current_user, client_id)
+    items = await admin_details.replaceable_contracts(
+        db,
+        client_id=client_id,
+        query=phrase or None,
+        contract_ids=[contract_id] if contract_id is not None else None,
+        exclude_candidate_id=exclude_candidate_id,
+        limit=100 if client_id is not None else 20,
+    )
+    return [admin_details.replaceable_payload(item) for item in items]
+
+
+async def _stamp_admin_details(
+    db: AsyncSession,
+    row: B2BGeneratedContract,
+    payload: "B2BRenderRequest | B2BMandateRenderRequest",
+    *,
+    linked_job: Job | None,
+) -> admin_details.PlacementPerson | None:
+    """Replacement i FTE do wiersza + osoba prowadząca jako adresat przypomnień.
+
+    Obowiązkowe przy umowie z rekrutacją (422 przed zapisem wiersza).
+    Zwraca prowadzącego, żeby po zapisie dać mu dzwonek."""
+    await admin_details.apply_admin_details(
+        db,
+        row,
+        is_replacement=payload.is_replacement,
+        replaced_contract_id=payload.replaced_contract_id,
+        fte=payload.fte,
+        candidate_id=payload.candidate_id,
+        linked=linked_job is not None,
+    )
+    if linked_job is None or payload.candidate_id is None:
+        return None
+    people = await admin_details.placement_people(
+        db, candidate_id=payload.candidate_id, job=linked_job
+    )
+    if people.recruiter is not None:
+        row.recruiter_user_id = people.recruiter.user_id
+    return people.recruiter
+
+
+async def _notify_owner_after_render(
+    db: AsyncSession,
+    row: B2BGeneratedContract,
+    owner: admin_details.PlacementPerson | None,
+    *,
+    actor: User,
+    linked_job: Job | None,
+) -> None:
+    """Dzwonek do prowadzącego po zapisie umowy — awaria nie zabiera pliku.
+
+    Wiersz jest już zapisany; wycofanie nieudanego dzwonka wygasza obiekty
+    sesji, więc id bierzemy wcześniej, a wiersz odświeżamy dla odpowiedzi."""
+    if linked_job is None or owner is None or owner.user_id == actor.id:
+        return
+    row_id = row.id
+    try:
+        if await admin_details.notify_pair_owner(
+            db,
+            row,
+            owner=owner,
+            actor=actor,
+            job=linked_job,
+            person_name=row.partner_name or "kandydat",
+        ):
+            await db.commit()
+    except Exception:  # noqa: BLE001 — dzwonek jest poboczny wobec dokumentu
+        await db.rollback()
+        logger.warning("b2b render: owner notification skipped row=%s", row_id)
+        await db.refresh(row)
 
 
 # ── Auto-uzupełnianie danych firmy z rejestru (NIP / KRS) ────────────────────
@@ -1663,7 +2359,29 @@ async def company_lookup(
             status_code=404,
             detail="Nie znaleziono firmy w rejestrze (sprawdź NIP / KRS).",
         )
-    return data
+    return {
+        **data,
+        "address": format_registry_address(
+            data.get("address"), has_street=data.get("has_street")
+        ),
+    }
+
+
+@router.get("/company-verification", response_model=B2BCompanyVerificationResponse)
+async def company_verification(
+    current_user: B2BGeneratorAccess,
+    nip: str | None = Query(None, max_length=32),
+    krs: str | None = Query(None, max_length=32),
+):
+    """Najnowsze dane firmy z CEIDG (JDG) albo KRS (spółka) + ostrzeżenia.
+
+    Front woła to przy KAŻDYM „Pobierz DOCX", bez pamięci podręcznej — dane
+    mają być z chwili generowania. Odpowiedź jest zawsze 200: rejestr, który
+    nie odpowiada, daje `status = unverified` z powodem, bo sprawdzenie nie
+    blokuje umowy (ticket 6).
+    """
+    _require_contract_generation(current_user)
+    return await verify_company(nip=nip, krs=krs)
 
 
 # ── Standalone render (DOCX / HTML) — bez rekordu Contract ───────────────────
@@ -1682,6 +2400,7 @@ async def render_standalone(
     numer, loguje wygenerowanie i zwraca plik DOCX.
     """
     _require_contract_generation(current_user)
+    _tidy_partner_addresses(payload)
     lang = normalize_language(payload.language)
     role = await db.get(B2BContractRole, payload.role_id) if payload.role_id else None
     linked_job: Job | None = None
@@ -1692,11 +2411,12 @@ async def render_standalone(
             payload.job_id,
             write=True,
         )
-        _, linked_job = await _validate_candidate_job_link(
+        linked_candidate, linked_job = await _validate_candidate_job_link(
             db,
             candidate_id=payload.candidate_id,
             job_id=linked_job.id,
         )
+        _stamp_assigned_person(payload, linked_candidate)
     await _assert_generator_client_access(
         db,
         current_user,
@@ -1709,7 +2429,7 @@ async def render_standalone(
         tpl = await _b2b_template_for(db, lang)
         try:
             html = await run_in_threadpool(
-                lambda: _jinja_env.from_string(tpl.content_jinja).render(**context)
+                render_contract_template, tpl.content_jinja, context
             )
         except TemplateError as exc:
             raise HTTPException(status_code=422, detail=f"Render error: {exc}")
@@ -1737,6 +2457,16 @@ async def render_standalone(
                         "klauzul. Zgłoś to zanim wygenerujesz dokument."
                     ),
                 )
+        if context["b2b"]["is_company"]:
+            try:
+                html = apply_company_variant_html(
+                    html,
+                    language=lang,
+                    assigned_person=context["b2b"]["assigned_person"] or "",
+                )
+            except CompanyVariantError as exc:
+                logger.error("b2b_company_variant_failed surface=html: %s", exc)
+                raise HTTPException(status_code=500, detail=str(exc))
         return B2BRenderHtmlResponse(html=html, contract_number=payload.contract_number)
 
     # format == docx → numer + log + plik
@@ -1745,9 +2475,7 @@ async def render_standalone(
     # innego dokumentu niż wydany.
     override_key, override_ops = resolve_override(payload.client_name, lang)
     default_year = (
-        payload.signing_date.year
-        if payload.signing_date
-        else datetime.now(timezone.utc).year
+        payload.signing_date.year if payload.signing_date else business_today().year
     )
     suggested_seq = await _next_seq(db)
     suggested = f"{suggested_seq}/{default_year}"
@@ -1763,44 +2491,52 @@ async def render_standalone(
         )
     )
     if clash:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Numer umowy „{number}” jest już użyty — wybierz inny. "
-                f"Następny wolny: {suggested}."
-            ),
+        raise _number_taken(
+            f"Numer umowy „{number}” jest już użyty — wybierz inny. "
+            f"Następny wolny: {suggested}."
         )
-    # Numeracja działu jest ciągła między latami, a wiersz z Excela bywa bez
-    # roku („1517” bez daty podpisania) — ten sam numer porządkowy z Excela
-    # w DOWOLNYM roku jest już wydany.
-    excel_clash = await db.scalar(
-        select(B2BGeneratedContract.id)
+    # Numeracja działu jest ciągła między latami — zmienia się tylko rok — więc
+    # numer porządkowy jest wydany w DOWOLNYM roku. Wiersz z Excela bywa bez
+    # roku („1517” bez daty podpisania). Runda 8 (R8-X2-4): do tej pory
+    # dotyczyło to tylko Excela, a „1600/2026” i „1600/2027” z generatora
+    # wchodziły obie (UNIQUE jest na parze rok + numer).
+    seq_clash_source = await db.scalar(
+        select(B2BGeneratedContract.source)
         .where(
-            B2BGeneratedContract.source == "excel",
             or_(
-                B2BGeneratedContract.seq == row_seq,
-                func.trim(B2BGeneratedContract.raw_contract_number) == str(row_seq),
                 B2BGeneratedContract.contract_number.like(f"{row_seq}/%"),
+                and_(
+                    B2BGeneratedContract.source == "excel",
+                    or_(
+                        B2BGeneratedContract.seq == row_seq,
+                        func.trim(B2BGeneratedContract.raw_contract_number)
+                        == str(row_seq),
+                    ),
+                ),
             ),
         )
         .limit(1)
     )
-    if excel_clash:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Numer porządkowy {row_seq} jest już w rejestrze z Excela działu "
-                f"— wybierz inny. Następny wolny: {suggested}."
-            ),
+    if seq_clash_source == "excel":
+        raise _number_taken(
+            f"Numer porządkowy {row_seq} jest już w rejestrze z Excela działu "
+            f"— wybierz inny. Następny wolny: {suggested}."
         )
-    if number in set(await _deleted_contract_numbers(db)):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Numer umowy „{number}” był już wydany (wpis usunięto z "
-                f"rejestru, ale dokument mógł trafić do Partnera) — wybierz "
-                f"inny. Następny wolny: {suggested}."
-            ),
+    if seq_clash_source is not None:
+        raise _number_taken(
+            f"Numer porządkowy {row_seq} jest już użyty w innym roku — "
+            f"numeracja jest ciągła między latami. Następny wolny: {suggested}."
+        )
+    deleted_seqs = {
+        parsed
+        for deleted in await _deleted_contract_numbers(db)
+        if (parsed := _parse_seq(deleted)) is not None
+    }
+    if row_seq in deleted_seqs:
+        raise _number_taken(
+            f"Numer umowy „{number}” był już wydany (wpis usunięto z "
+            f"rejestru, ale dokument mógł trafić do Partnera) — wybierz "
+            f"inny. Następny wolny: {suggested}."
         )
 
     # Render PRZED zapisem wiersza (audyt 23.09.2026): dotąd numer był
@@ -1827,6 +2563,11 @@ async def render_standalone(
         # ją WYŁĄCZNIE confirm-fully-signed; default kolumny („active")
         # kłamałby o każdej nowej umowie.
         contract_status="in_progress",
+        # Wersja wzoru od razu przy wydaniu: backfill w entrypoincie stempluje
+        # ją dopiero przy następnym starcie, a do tego czasu wypowiedzenie
+        # Partnera odmawiało policzenia okresu wypowiedzenia (runda 6 audytu,
+        # DOC-3).
+        template_version=version_for_variant(payload.contract_variant),
         # Snapshot danych rejestrowych na potrzeby listy — odnormalizowane
         # z payloadu, bo lista pokazuje je jako kolumny i filtruje po
         # `start_date` po stronie SQL-a.
@@ -1837,7 +2578,7 @@ async def render_standalone(
         # wymaga snapshotu „nieprzeliczanego później", a forma prawna
         # Partnera po podpisaniu umowy przestaje być bieżącą informacją.
         partner_entity_type=resolve_partner_entity_type(
-            stored=payload.partner_entity_type,
+            stored=_stored_entity_type(payload),
             legal_name=payload.partner_legal_name,
         ),
         # Zapis surowych pól → ponowne pobranie DOCX z listy (re-render).
@@ -1848,6 +2589,7 @@ async def render_standalone(
             _CLAUSE_SNAPSHOT_FIELD: _clause_snapshot(override_key, override_ops),
         },
     )
+    owner = await _stamp_admin_details(db, created, payload, linked_job=linked_job)
     db.add(created)
     try:
         await db.commit()
@@ -1868,19 +2610,111 @@ async def render_standalone(
                 ),
             ) from exc
         fresh = await _next_seq(db)
+        raise _number_taken(
+            f"Numer umowy „{number}” został właśnie użyty przez kogoś innego "
+            f"— wybierz inny. Następny wolny: {fresh}/{row_year}."
+        )
+    await _notify_owner_after_render(
+        db, created, owner, actor=current_user, linked_job=linked_job
+    )
+    await _stamp_candidate_contact_on_contract(db, payload)
+    return _docx_response(
+        data, number, generated_id=created.id, person_name=created.partner_name
+    )
+
+
+@router.post("/mandate/render")
+async def render_mandate_contract(
+    payload: B2BMandateRenderRequest,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+    fmt: str = Query("docx", alias="format", pattern="^(docx|html)$"),
+):
+    """Umowa zlecenia (decyzje Artura 26.10.2026) — ten sam rejestr co B2B.
+
+    `format=html` → podgląd (nic nie zapisuje). `format=docx` → wiersz
+    rejestru „W trakcie” z `contract_kind = "mandate"`, bez numeru z puli B2B,
+    i plik. PESEL, dowód i adres idą wyłącznie do pliku (`mandate`)."""
+    _require_contract_generation(current_user)
+    linked_job: Job | None = None
+    if payload.candidate_id is not None and payload.job_id is not None:
+        linked_job = await _load_legal_scoped_job(
+            db, current_user, payload.job_id, write=True
+        )
+        await _validate_candidate_job_link(
+            db, candidate_id=payload.candidate_id, job_id=linked_job.id
+        )
+    await _assert_generator_client_access(
+        db,
+        current_user,
+        linked_job.client_id if linked_job else None,
+        write=True,
+    )
+    try:
+        mandate.validate(payload, await payroll_rates.load_minimum_rates(db))
+    except mandate.MandateError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    label = mandate.mandate_label(payload.signing_date)
+
+    if fmt == "html":
+        html = await run_in_threadpool(mandate.render_html, payload)
+        return B2BRenderHtmlResponse(html=html, contract_number=label)
+
+    data = await run_in_threadpool(mandate.render_docx, payload)
+    client_name = (payload.client_name or "").strip() or None
+    if client_name is None and linked_job is not None and linked_job.client_id:
+        client = await db.get(Client, linked_job.client_id)
+        if client is not None:
+            client_name = client.display_name or client.name
+    created = B2BGeneratedContract(
+        year=payload.signing_date.year,
+        seq=None,
+        contract_number=label,
+        partner_name=payload.partner_name,
+        client_name=client_name,
+        language="pl",
+        signing_date=payload.signing_date,
+        start_date=payload.period_from,
+        created_by=current_user.id,
+        candidate_id=payload.candidate_id,
+        job_id=payload.job_id,
+        client_id=linked_job.client_id if linked_job else None,
+        # Jak przy B2B: „Aktywna” ustawia wyłącznie potwierdzenie podpisu.
+        contract_status="in_progress",
+        contract_kind=mandate.MANDATE_KIND,
+        render_payload=mandate.stored_payload(payload),
+    )
+    owner = await _stamp_admin_details(db, created, payload, linked_job=linked_job)
+    db.add(created)
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        logger.error("b2b_mandate_render_integrity_error: %s", exc.orig)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f"Numer umowy „{number}” został właśnie użyty przez kogoś innego "
-                f"— wybierz inny. Następny wolny: {fresh}/{row_year}."
+                "Nie udało się zapisać umowy — powiązany kandydat, rekrutacja "
+                "albo klient zmienił się w trakcie. Odśwież formularz i spróbuj "
+                "ponownie."
             ),
-        )
+        ) from exc
+    await _notify_owner_after_render(
+        db, created, owner, actor=current_user, linked_job=linked_job
+    )
     await _stamp_candidate_contact_on_contract(db, payload)
-    return _docx_response(data, number, generated_id=created.id)
+    return _docx_response(
+        data,
+        label,
+        generated_id=created.id,
+        filename=mandate_file_name(
+            pl_date(payload.signing_date), payload.partner_name, ext="docx"
+        ),
+    )
 
 
 async def _stamp_candidate_contact_on_contract(
-    db: AsyncSession, payload: "B2BRenderRequest"
+    db: AsyncSession, payload: "B2BRenderRequest | B2BMandateRenderRequest"
 ) -> None:
     """Przepisz kontakt z „Danych Partnera" na JEDNOZNACZNĄ umowę tej pary.
 
@@ -1942,6 +2776,44 @@ def _like_needle(raw: str) -> str:
     return f"%{escaped}%"
 
 
+def _generated_search_clause(needle: str):
+    """Warunek wyszukiwarki rejestru umów — wołający dokłada OUTER JOIN na
+    ``Candidate`` po ``B2BGeneratedContract.candidate_id``.
+
+    Wspólny dla listy rejestru i wyboru umowy przy aneksie
+    (``b2b_documents.document_subjects``): ta sama fraza ma znajdować te same
+    umowy w obu miejscach."""
+    # Pola tekstowe bez wrażliwości na polskie znaki (UAT M08-B01);
+    # `polish_folded_ilike` escapuje `%`, `_` i `\\` jak `_like_needle`.
+    clauses = [
+        polish_folded_ilike(B2BGeneratedContract.contract_number, needle),
+        polish_folded_ilike(B2BGeneratedContract.partner_name, needle),
+        # Kolumna „Partner" pokazuje NAZWĘ FIRMY, więc bez tego warunku
+        # wyszukiwarka nie znajduje tego, co użytkownik widzi na liście.
+        polish_folded_ilike(B2BGeneratedContract.partner_legal_name, needle),
+        polish_folded_ilike(B2BGeneratedContract.client_name, needle),
+        polish_folded_ilike(Candidate.name, needle),
+        polish_folded_ilike(Candidate.lastname, needle),
+        # Pełne „Imię Nazwisko" wpisane jednym ciągiem — pojedyncze
+        # kolumny wyżej same tego nie dopasują.
+        polish_folded_ilike(
+            func.concat(Candidate.name, " ", Candidate.lastname), needle
+        ),
+    ]
+    # NIP dochodzi tylko dla fraz wyglądających jak NIP. Próg 5 cyfr, bo
+    # `q="1"` dopasowałoby połowę rejestru. Kolumna trzyma same cyfry
+    # (kanonicznie, patrz `_nip_digits`), więc needle też normalizujemy —
+    # inaczej „123-456-32-18" nie znalazłoby zapisanego „1234563218".
+    nip_needle = re.sub(r"\D", "", needle)
+    if len(nip_needle) >= 5:
+        clauses.append(
+            B2BGeneratedContract.partner_nip.ilike(
+                _like_needle(nip_needle), escape="\\"
+            )
+        )
+    return or_(*clauses)
+
+
 @router.get("/generated", response_model=list[B2BGeneratedContractItem])
 async def list_generated_contracts(
     current_user: B2BGeneratorAccess,
@@ -2001,6 +2873,17 @@ async def list_generated_contracts(
         None,
         pattern="^(generator|excel)$",
         description="Tylko umowy wydane w NEXUSIE (`generator`) albo z Excela działu.",
+    ),
+    candidate_id: int | None = Query(
+        None,
+        gt=0,
+        le=2_147_483_647,
+        description="Umowy jednej osoby (panel osoby, ostrzeżenie o istniejącej umowie).",
+    ),
+    author: str | None = Query(
+        None,
+        pattern="^recruiter$",
+        description="`recruiter` — tylko umowy wygenerowane przez rekruterów.",
     ),
     business_data_annex_pending: bool = Query(
         False,
@@ -2069,35 +2952,7 @@ async def list_generated_contracts(
         query = query.outerjoin(
             Candidate, Candidate.id == B2BGeneratedContract.candidate_id
         )
-        # Pola tekstowe bez wrażliwości na polskie znaki (UAT M08-B01);
-        # `polish_folded_ilike` escapuje `%`, `_` i `\\` jak `_like_needle`.
-        clauses = [
-            polish_folded_ilike(B2BGeneratedContract.contract_number, needle),
-            polish_folded_ilike(B2BGeneratedContract.partner_name, needle),
-            # Kolumna „Partner" pokazuje NAZWĘ FIRMY, więc bez tego warunku
-            # wyszukiwarka nie znajduje tego, co użytkownik widzi na liście.
-            polish_folded_ilike(B2BGeneratedContract.partner_legal_name, needle),
-            polish_folded_ilike(B2BGeneratedContract.client_name, needle),
-            polish_folded_ilike(Candidate.name, needle),
-            polish_folded_ilike(Candidate.lastname, needle),
-            # Pełne „Imię Nazwisko" wpisane jednym ciągiem — pojedyncze
-            # kolumny wyżej same tego nie dopasują.
-            polish_folded_ilike(
-                func.concat(Candidate.name, " ", Candidate.lastname), needle
-            ),
-        ]
-        # NIP dochodzi tylko dla fraz wyglądających jak NIP. Próg 5 cyfr, bo
-        # `q="1"` dopasowałoby połowę rejestru. Kolumna trzyma same cyfry
-        # (kanonicznie, patrz `_nip_digits`), więc needle też normalizujemy —
-        # inaczej „123-456-32-18" nie znalazłoby zapisanego „1234563218".
-        nip_needle = re.sub(r"\D", "", needle)
-        if len(nip_needle) >= 5:
-            clauses.append(
-                B2BGeneratedContract.partner_nip.ilike(
-                    _like_needle(nip_needle), escape="\\"
-                )
-            )
-        query = query.where(or_(*clauses))
+        query = query.where(_generated_search_clause(needle))
 
     if statuses:
         query = query.where(B2BGeneratedContract.contract_status.in_(statuses))
@@ -2109,6 +2964,19 @@ async def list_generated_contracts(
         query = query.where(B2BGeneratedContract.job_id == job_id)
     if source is not None:
         query = query.where(B2BGeneratedContract.source == source)
+    if candidate_id is not None:
+        query = query.where(B2BGeneratedContract.candidate_id == candidate_id)
+    if author == "recruiter":
+        query = query.where(
+            B2BGeneratedContract.created_by.in_(
+                select(User.id).where(
+                    or_(
+                        User.role == UserRole.recruiter,
+                        User.roles.contains([UserRole.recruiter.value]),
+                    )
+                )
+            )
+        )
     if business_data_annex_pending:
         query = query.where(
             B2BGeneratedContract.needs_business_data_annex.is_(True),
@@ -2239,6 +3107,9 @@ def _build_register_xlsx(
             role_id = payload.get("role_id")
             position = role_names.get(role_id) if isinstance(role_id, int) else None
             kind = "B2B"
+            if mandate.is_mandate(row):
+                # Zlecenie w Excelu działu: „zlecenie” w kolumnie numeru i rodzaju.
+                number = kind = _KIND_LABELS["mandate"]
             recruiter_id = job_recruiters.get(row.job_id) if row.job_id else None
             recruiter = user_names.get(recruiter_id) if recruiter_id else None
         if row.start_date and row.start_date_mode in _START_MODE_PREFIX:
@@ -2248,6 +3119,9 @@ def _build_register_xlsx(
         else:
             start = row.start_date or excel.get("start")
         end_date = excel.get("end_date")
+        if mandate.is_mandate(row):
+            # Koniec zlecenia jest częścią umowy (§ 2 ust. 2), nie „czas nieokreślony”.
+            end_date = payload.get("period_to")
         end: object = (
             date.fromisoformat(end_date)
             if end_date
@@ -2260,34 +3134,34 @@ def _build_register_xlsx(
                 if row.contract_status == "cancelled"
                 else None
             )
+        # Tekst z pliku działu i z formularza generatora ma zostać tekstem
+        # (formula injection) — `safe_row`, daty i liczby bez zmian.
         sheet.append(
-            [
-                name,
-                number,
-                row.client_name,
-                position,
-                kind,
-                signing,
-                start,
-                end,
-                excel.get("loyalty"),
-                recruiter,
-                # Wolny tekst działu bywa o stawkach („zmiana stawki od…”) —
-                # tylko dla ról, które widzą wszystkie stawki (admin, Finanse).
-                excel.get("settlement_info") if include_free_text else None,
-                excel.get("welcome_mail"),
-                excel.get("notes") if include_free_text else None,
-                excel.get("changes") if include_free_text else None,
-            ]
+            safe_row(
+                [
+                    name,
+                    number,
+                    row.client_name,
+                    position,
+                    kind,
+                    signing,
+                    start,
+                    end,
+                    excel.get("loyalty"),
+                    recruiter,
+                    # Wolny tekst działu bywa o stawkach („zmiana stawki od…”) —
+                    # tylko dla ról, które widzą wszystkie stawki (admin, Finanse).
+                    excel.get("settlement_info") if include_free_text else None,
+                    excel.get("welcome_mail"),
+                    excel.get("notes") if include_free_text else None,
+                    excel.get("changes") if include_free_text else None,
+                ]
+            )
         )
     for cells in sheet.iter_rows(min_row=2):
         for cell in cells:
             if isinstance(cell.value, date):
                 cell.number_format = "DD.MM.YYYY"
-            elif cell.data_type == "f":
-                # openpyxl zamienia napis zaczynający się od „=” w formułę —
-                # tekst z pliku działu ma zostać tekstem (formula injection).
-                cell.data_type = "s"
     buffer = BytesIO()
     workbook.save(buffer)
     return buffer.getvalue()
@@ -2402,7 +3276,19 @@ async def generated_contract_status_history(
         .scalars()
         .all()
     )
-    if not events:
+    # Etap 1b: wysyłki do podpisu w NEXUSIE dołączają do tej samej historii.
+    esign_entries = esign_history(
+        (
+            await db.execute(
+                select(B2BSigningRequest).where(
+                    B2BSigningRequest.generated_contract_id == generated_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not events and not esign_entries:
         return []
 
     # Batch lookup jak w `_serialize_generated_contracts` — dziennik bywa długi
@@ -2410,7 +3296,9 @@ async def generated_contract_status_history(
     # zrobiłby z dialogu historii najwolniejszy ekran w module.
     job_ids = {e.job_id for e in events if e.job_id}
     client_ids = {e.client_id for e in events if e.client_id}
-    user_ids = {e.changed_by for e in events if e.changed_by}
+    user_ids = {e.changed_by for e in events if e.changed_by} | {
+        e.user_id for e in esign_entries if e.user_id
+    }
 
     jobs: dict[int, str] = {}
     if job_ids:
@@ -2432,7 +3320,7 @@ async def generated_contract_status_history(
         )
         users = {uid: name for uid, name in result.all()}
 
-    return [
+    items = [
         B2BStatusEventItem(
             id=e.id,
             from_status=e.from_status,
@@ -2450,6 +3338,19 @@ async def generated_contract_status_history(
         )
         for e in events
     ]
+    items += [
+        B2BStatusEventItem(
+            id=-(index + 1),
+            to_status="esign",
+            kind="esign",
+            label=entry.label,
+            changed_by_name=users.get(entry.user_id) if entry.user_id else None,
+            created_at=entry.at.isoformat(),
+        )
+        for index, entry in enumerate(esign_entries)
+    ]
+    # Rosnąco jak dziennik; wpis bez daty (stare dane) zostaje na początku.
+    return sorted(items, key=lambda item: item.created_at or "")
 
 
 @router.get("/generated/{generated_id}/docx")
@@ -2489,14 +3390,30 @@ async def download_generated_contract(
     )
     _reject_excel_row(row)
     data = await _render_generated_row_docx(db, row)
-    return _docx_response(data, row.contract_number)
+    return _docx_response(
+        data,
+        row.contract_number,
+        person_name=row.partner_name,
+        filename=(
+            mandate_file_name(pl_date(row.signing_date), row.partner_name, ext="docx")
+            if mandate.is_mandate(row)
+            else None
+        ),
+    )
 
 
 async def _render_generated_row_docx(
     db: AsyncSession, row: B2BGeneratedContract
 ) -> bytes:
     """DOCX odtworzony z zapisanego payloadu (numer z wiersza, klauzule z
-    przypiętego snapshotu). Wiersz bez payloadu → 422."""
+    przypiętego snapshotu). Wiersz bez payloadu → 422.
+
+    Umowa zlecenia: z zapisanego formularza, bez PESEL-u, dowodu i adresu —
+    NEXUS ich nie przechowuje, w pliku zostają kropki do wpisania ręcznie."""
+    if row.render_payload and mandate.is_mandate(row):
+        return await run_in_threadpool(
+            mandate.render_docx, mandate.payload_from_row(row.render_payload)
+        )
     if not row.render_payload:
         raise HTTPException(
             status_code=422,
@@ -2551,6 +3468,77 @@ async def _assert_link_same_person(
         raise HTTPException(status_code=409, detail=_LINK_OTHER_PERSON)
 
 
+async def apply_contract_link(
+    db: AsyncSession,
+    row: B2BGeneratedContract,
+    contract: Contract,
+    *,
+    user_id: int | None,
+) -> None:
+    """Rdzeń „Powiąż z kontraktem”: kontrakt, osoba i klient wiersza z kontraktu.
+
+    Wspólny dla akcji z rejestru i jednorazowej korekty danych
+    (``cardif_client_merge_repair``, tam bez autora). Poprzednie wartości
+    zostają w historii statusów umowy i w Activity kontraktu. Kontrakt dostaje
+    z umowy rekrutację i szczegóły B2B, jeśli ich nie ma
+    (``fill_contract_from_linked_agreement``). Walidacje i commit należą do
+    wołającego.
+    """
+
+    previous = {
+        "previous_contract_id": row.contract_id,
+        "previous_candidate_id": row.candidate_id,
+        "previous_client_id": row.client_id,
+    }
+    row.contract_id = contract.id
+    row.candidate_id = contract.candidate_id
+    row.client_id = contract.client_id
+    if previous["previous_client_id"] != contract.client_id:
+        # Aneksy i rozwiązania tej umowy idą za nią do właściwego klienta —
+        # bramka dostępu dokumentu czyta jego własne ``client_id`` (runda 6
+        # audytu, REA-1, bliźniak przepięcia kontraktu na innego klienta).
+        await db.execute(
+            update(B2BContractDocument)
+            .where(
+                B2BContractDocument.parent_generated_contract_id == row.id,
+                B2BContractDocument.client_id.is_not_distinct_from(
+                    previous["previous_client_id"]
+                ),
+            )
+            .values(client_id=contract.client_id)
+            .execution_options(synchronize_session=False)
+        )
+    filled_fields = await fill_contract_from_linked_agreement(db, contract, row)
+    db.add(
+        B2BGeneratedContractStatusEvent(
+            generated_contract_id=row.id,
+            from_status=row.contract_status,
+            to_status=row.contract_status,
+            client_id=contract.client_id,
+            changed_by=user_id,
+            details={
+                "source": LINK_CONTRACT_EVENT_SOURCE,
+                "contract_id": contract.id,
+                **previous,
+            },
+        )
+    )
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract.id,
+            action="generated_contract_linked",
+            user_id=user_id,
+            details={
+                "generated_contract_id": row.id,
+                "contract_number": row.contract_number,
+                "filled_fields": filled_fields,
+                **previous,
+            },
+        )
+    )
+
+
 @router.post(
     "/generated/{generated_id}/link-contract",
     response_model=B2BLinkContractResponse,
@@ -2581,6 +3569,12 @@ async def link_generated_contract_to_contract(
             status_code=403,
             detail="Powiązać umowę z kontraktem może administrator albo Delivery Lead.",
         )
+    # Kontrakt blokowany PRZED wierszem rejestru — ta sama kolejność co
+    # ``/terminate`` i nocny cron (kontrakt → wiersze), inaczej równoległe
+    # zakończenie tej osoby dawało zakleszczenie (runda 6 audytu, LOCK-1).
+    contract = await db.scalar(
+        select(Contract).where(Contract.id == payload.contract_id).with_for_update()
+    )
     row = await db.scalar(
         select(B2BGeneratedContract)
         .where(B2BGeneratedContract.id == generated_id)
@@ -2608,9 +3602,6 @@ async def link_generated_contract_to_contract(
                 status_code=409,
                 detail=f"Umowa jest już powiązana z kontraktem #{current.id}.",
             )
-    contract = await db.scalar(
-        select(Contract).where(Contract.id == payload.contract_id).with_for_update()
-    )
     if contract is None:
         raise HTTPException(status_code=404, detail="Kontrakt nie istnieje")
     if contract.status == ContractStatus.void:
@@ -2633,42 +3624,13 @@ async def link_generated_contract_to_contract(
             detail=f"Kontrakt #{contract.id} ma już powiązaną umowę {other}.",
         )
     await _assert_link_same_person(db, row, contract)
+    if mandate.is_mandate(row) and contract.contract_type != ContractType.uzlecenie:
+        raise HTTPException(
+            status_code=409,
+            detail="Umowę zlecenia powiąż z kontraktem typu zlecenie.",
+        )
 
-    previous = {
-        "previous_contract_id": row.contract_id,
-        "previous_candidate_id": row.candidate_id,
-        "previous_client_id": row.client_id,
-    }
-    row.contract_id = contract.id
-    row.candidate_id = contract.candidate_id
-    row.client_id = contract.client_id
-    db.add(
-        B2BGeneratedContractStatusEvent(
-            generated_contract_id=row.id,
-            from_status=row.contract_status,
-            to_status=row.contract_status,
-            client_id=contract.client_id,
-            changed_by=current_user.id,
-            details={
-                "source": LINK_CONTRACT_EVENT_SOURCE,
-                "contract_id": contract.id,
-                **previous,
-            },
-        )
-    )
-    db.add(
-        Activity(
-            entity_type="contract",
-            entity_id=contract.id,
-            action="generated_contract_linked",
-            user_id=current_user.id,
-            details={
-                "generated_contract_id": row.id,
-                "contract_number": row.contract_number,
-                **previous,
-            },
-        )
-    )
+    await apply_contract_link(db, row, contract, user_id=current_user.id)
 
     attached = False
     note: str | None = None
@@ -2686,7 +3648,7 @@ async def link_generated_contract_to_contract(
         from app.models.contract_document import ContractDocument, ContractDocumentType
         from app.services.storage_service import save_contract_document
 
-        filename = f"Umowa {row.contract_number.replace('/', '-')}.docx"
+        filename = contract_file_name(row.contract_number, row.partner_name, ext="docx")
         path, size = save_contract_document(
             contract.id,
             filename,
@@ -2717,6 +3679,12 @@ async def link_generated_contract_to_contract(
     )
 
 
+_MANDATE_NO_CORRECTION = (
+    "Umowy zlecenia nie poprawia się w formularzu B2B. Wydaj ją od nowa "
+    "(Generator → „Zlecenie”), a ten wpis oznacz jako anulowany."
+)
+
+
 async def _load_row_for_correction(
     db: AsyncSession, current_user: User, generated_id: int
 ) -> B2BGeneratedContract:
@@ -2735,11 +3703,28 @@ async def _load_row_for_correction(
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
     await _assert_generator_client_access(db, current_user, row.client_id, write=True)
     _reject_excel_row(row)
-    if not current_user.has_role(UserRole.admin) and row.created_by != current_user.id:
+    if mandate.is_mandate(row):
+        # Formularz zlecenia nie trzyma PESEL-u ani dowodu, a „Popraw” B2B
+        # wczytałby go do formularza umowy B2B.
         raise HTTPException(
-            status_code=403,
-            detail="Poprawić umowę może tylko jej autor albo administrator.",
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_MANDATE_NO_CORRECTION,
         )
+    team_job_ids = (
+        await _jobs_led_by(db, current_user, {row.job_id})
+        if row.job_id is not None
+        else set()
+    )
+    if not _may_correct_generated(
+        current_user, row, team_job_ids
+    ) or not await _generator_rate_content_visible(
+        db,
+        current_user,
+        row.client_id,
+        created_by=row.created_by,
+        job_id=row.job_id,
+    ):
+        raise HTTPException(status_code=403, detail=_CORRECTION_DENIED)
     if row.signature_status == "signed_both" or row.contract_status != "in_progress":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -2748,6 +3733,8 @@ async def _load_row_for_correction(
                 "podpisany dokument jest zapisem tego, co strony podpisały."
             ),
         )
+    # Po wysyłce do podpisu w NEXUSIE PDF jest zamrożony (code review 21.10).
+    await esign_service.assert_no_open_request(db, row.id)
     return row
 
 
@@ -2778,7 +3765,18 @@ async def generated_contract_form(
         if key != _CLAUSE_SNAPSHOT_FIELD
     }
     form["contract_number"] = row.contract_number
-    return {"id": row.id, "contract_number": row.contract_number, "form": form}
+    replaced = None
+    if row.replaced_contract_id is not None:
+        found = await admin_details.replaceable_contracts(
+            db, contract_ids=[row.replaced_contract_id], limit=1
+        )
+        replaced = admin_details.replaceable_payload(found[0]) if found else None
+    return {
+        "id": row.id,
+        "contract_number": row.contract_number,
+        "form": form,
+        "replaced": replaced,
+    }
 
 
 @router.post("/generated/{generated_id}/rerender")
@@ -2795,7 +3793,8 @@ async def rerender_generated_contract(
     ponowne kliknięcie „Pobierz” zakładało drugi wiersz z kolejnym numerem.
     Poprawka nadpisuje ``render_payload`` i kolumny snapshotu tego samego
     wiersza. Kandydata i rekrutacji zmienić nie można — to już inna umowa.
-    Bramka jak przy usuwaniu: autor albo admin, tylko umowa „W trakcie”."""
+    Bramka ``_may_correct_generated`` (autor, zespół rekrutacji, TCM, admin;
+    od 04.10.2026), tylko umowa „W trakcie”."""
     row = await _load_row_for_correction(db, current_user, generated_id)
     if (payload.candidate_id, payload.job_id) != (row.candidate_id, row.job_id):
         raise HTTPException(
@@ -2808,6 +3807,9 @@ async def rerender_generated_contract(
 
     lang = normalize_language(payload.language)
     role = await db.get(B2BContractRole, payload.role_id) if payload.role_id else None
+    if row.candidate_id is not None:
+        _stamp_assigned_person(payload, await db.get(Candidate, row.candidate_id))
+    _tidy_partner_addresses(payload)
     context = build_render_context(payload, role)
     context["b2b"]["contract_number"] = row.contract_number
     override_key, override_ops = resolve_override(payload.client_name, lang)
@@ -2820,9 +3822,21 @@ async def rerender_generated_contract(
     row.partner_legal_name = payload.partner_legal_name
     row.partner_nip = _nip_digits(payload.partner_nip)
     row.start_date = payload.start_date
+    # Zmiana wariantu JDG ↔ spółka przesuwa paragrafy, które cytują aneksy
+    # i wypowiedzenia — wersja wzoru idzie za poprawioną treścią.
+    row.template_version = version_for_variant(payload.contract_variant)
     row.partner_entity_type = resolve_partner_entity_type(
-        stored=payload.partner_entity_type,
+        stored=_stored_entity_type(payload),
         legal_name=payload.partner_legal_name,
+    )
+    await admin_details.apply_admin_details(
+        db,
+        row,
+        is_replacement=payload.is_replacement,
+        replaced_contract_id=payload.replaced_contract_id,
+        fte=payload.fte,
+        candidate_id=row.candidate_id,
+        linked=row.job_id is not None,
     )
     row.render_payload = {
         **payload.model_dump(mode="json"),
@@ -2844,7 +3858,195 @@ async def rerender_generated_contract(
     )
     await db.commit()
     await _stamp_candidate_contact_on_contract(db, payload)
-    return _docx_response(data, row.contract_number, generated_id=row.id)
+    return _docx_response(
+        data, row.contract_number, generated_id=row.id, person_name=row.partner_name
+    )
+
+
+_SIGNATURE_REQUEST_COOLDOWN = timedelta(hours=24)
+
+
+async def _signature_confirmers(
+    db: AsyncSession, *, job: Job, client_id: int | None
+) -> list[User]:
+    """Komu wysłać prośbę o potwierdzenie podpisu.
+
+    Najpierw Delivery Lead rekrutacji, potem Delivery Leadzi z portfela
+    klienta, na końcu TCM — zawsze aktywne konta z uprawnieniem „Podpis B2B”
+    i dostępem do klienta (te same bramki co ``confirm-fully-signed``).
+    """
+
+    async def _qualifies(user: User | None) -> bool:
+        if user is None or not user.is_active:
+            return False
+        # Uprawnienia z tabeli (0410: nadania i odebrania), nie domyślne roli —
+        # konto wczytane tutaj nie ma migawki żądania.
+        await resolve_effective_access(db, [user])
+        if not _has_signature_permission(user):
+            return False
+        try:
+            await _assert_signature_client_access(db, user, client_id)
+        except HTTPException:
+            return False
+        return True
+
+    if job.delivery_lead_id is not None:
+        lead = await db.get(User, job.delivery_lead_id)
+        if await _qualifies(lead):
+            return [lead]
+    if client_id is not None:
+        portfolio = (
+            await db.scalars(
+                select(User)
+                .join(
+                    DeliveryLeadClientAssignment,
+                    DeliveryLeadClientAssignment.delivery_lead_user_id == User.id,
+                )
+                .where(DeliveryLeadClientAssignment.client_id == client_id)
+                .order_by(DeliveryLeadClientAssignment.is_head.desc(), User.id)
+            )
+        ).all()
+        found = [user for user in portfolio if await _qualifies(user)]
+        if found:
+            return found
+    tcm = (
+        await db.scalars(
+            select(User)
+            .where(
+                User.is_active.is_(True),
+                or_(
+                    User.role == UserRole.talent_community_manager,
+                    User.roles.contains([UserRole.talent_community_manager.value]),
+                ),
+            )
+            .order_by(User.id)
+        )
+    ).all()
+    return [user for user in tcm if await _qualifies(user)]
+
+
+@router.post(
+    "/generated/{generated_id}/signature-request",
+    response_model=B2BSignatureRequestResponse,
+)
+async def request_signature_confirmation(
+    generated_id: int,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Rekruter prosi o potwierdzenie podpisu umowy (D1, 04.10.2026).
+
+    Podpis zakłada aktywny kontrakt i zamówienie, więc potwierdzają go nadal
+    admin, Delivery Lead i TCM. Prosić może ten, kto poprawia umowę
+    (``_may_correct_generated``). Druga prośba w ciągu doby nie wysyła dzwonka.
+    """
+
+    # Autoryzacja na odczycie bez blokady — blokada wiersza dopiero dla
+    # uprawnionego, inaczej każdy mógłby blokować cudze wiersze po id.
+    row = await db.get(B2BGeneratedContract, generated_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    _reject_excel_row(row)
+    await _assert_generator_client_access(db, current_user, row.client_id, write=False)
+    team_job_ids = (
+        await _jobs_led_by(db, current_user, {row.job_id})
+        if row.job_id is not None
+        else set()
+    )
+    if not _may_correct_generated(current_user, row, team_job_ids):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "O potwierdzenie podpisu prosi autor umowy albo rekruter "
+                "lub Delivery Lead tej rekrutacji."
+            ),
+        )
+    row = await db.scalar(
+        select(B2BGeneratedContract)
+        .where(B2BGeneratedContract.id == generated_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if row.signature_status == "signed_both" or row.contract_status != "in_progress":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Prosić o potwierdzenie można tylko przy niepodpisanej umowie „W trakcie”.",
+        )
+    if await esign_service.open_request_for(db, row.id) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=esign_service.MSG_REQUEST_WHILE_OPEN,
+        )
+    if row.candidate_id is None or row.job_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Umowa nie jest powiązana z kandydatem i rekrutacją.",
+        )
+    now = datetime.now(timezone.utc)
+    if (
+        row.signature_requested_at is not None
+        and now - row.signature_requested_at < _SIGNATURE_REQUEST_COOLDOWN
+    ):
+        return B2BSignatureRequestResponse(
+            sent=False, requested_at=row.signature_requested_at.isoformat()
+        )
+    job = await db.get(Job, row.job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje")
+    recipients = [
+        user
+        for user in await _signature_confirmers(db, job=job, client_id=row.client_id)
+        if user.id != current_user.id
+    ]
+    if not recipients:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Nie ma osoby, która może potwierdzić podpis u tego klienta "
+                "(Delivery Lead albo TCM z uprawnieniem „Podpis B2B”). "
+                "Poproś administratora o przypisanie."
+            ),
+        )
+    candidate = await db.get(Candidate, row.candidate_id)
+    person = (
+        f"{candidate.name} {candidate.lastname}".strip()
+        if candidate is not None
+        else row.partner_name
+    )
+    for recipient in recipients:
+        await emit(
+            db,
+            user_id=recipient.id,
+            title=f"Potwierdź podpis umowy {row.contract_number}",
+            message=(
+                f"{current_user.name} prosi o potwierdzenie podpisu umowy "
+                f"{row.contract_number} ({person}, „{job.title}”)."
+            ),
+            ntype=NotificationType.b2b_signature_requested,
+            related_entity_type="b2b_generated_contract",
+            related_entity_id=row.id,
+            link=f"/jobs/{job.id}?candidate={row.candidate_id}",
+        )
+    row.signature_requested_at = now
+    row.signature_requested_by = current_user.id
+    db.add(
+        Activity(
+            entity_type="b2b_generated_contract",
+            entity_id=row.id,
+            action="signature_confirmation_requested",
+            user_id=current_user.id,
+            details={
+                "contract_number": row.contract_number,
+                "recipient_ids": [user.id for user in recipients],
+            },
+        )
+    )
+    await db.commit()
+    return B2BSignatureRequestResponse(
+        sent=True,
+        requested_at=now.isoformat(),
+        recipient_names=[user.name for user in recipients],
+    )
 
 
 @router.post(
@@ -2870,6 +4072,36 @@ async def confirm_generated_contract_fully_signed(
 
     _require_signature_confirmation(current_user)
     try:
+        # Kontrakty osoby blokowane PRZED wierszem rejestru — ta sama kolejność
+        # co ``/terminate`` i nocny cron (kontrakt → wiersze). Automatyzacja
+        # zatrudnienia blokuje kontrakt pary dopiero później
+        # (``lock_contract_then_orders``), więc równoległe zakończenie tej osoby
+        # kończyło się zakleszczeniem (runda 7, R7-V4-7 — bliźniak LOCK-1).
+        # Odczyt osoby samymi kolumnami, bez encji w mapie tożsamości.
+        link = (
+            await db.execute(
+                select(
+                    B2BGeneratedContract.candidate_id,
+                    B2BGeneratedContract.contract_id,
+                ).where(B2BGeneratedContract.id == generated_id)
+            )
+        ).first()
+        person_id = (link.candidate_id if link else None) or payload.candidate_id
+        person_contract_ids = (
+            list(
+                (
+                    await db.scalars(
+                        select(Contract.id).where(Contract.candidate_id == person_id)
+                    )
+                ).all()
+            )
+            if person_id is not None
+            else []
+        )
+        await lock_contract_then_orders(
+            db,
+            contract_ids=[*person_contract_ids, link.contract_id if link else None],
+        )
         row = await db.scalar(
             select(B2BGeneratedContract)
             .where(B2BGeneratedContract.id == generated_id)
@@ -2974,6 +4206,12 @@ async def confirm_generated_contract_fully_signed(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=_CANCELLED_BLOCKS_SIGNATURE,
             )
+        if row.contract_status in _SIGNATURE_BLOCKING_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=_ENDED_BLOCKS_SIGNATURE,
+            )
+        signed_on = signing_day_or_reject(row, payload.signed_on)
 
         if (
             row.candidate_id is not None
@@ -3009,6 +4247,7 @@ async def confirm_generated_contract_fully_signed(
             job_id=job_id,
         )
         await _require_signature_job_scope(db, current_user, job)
+        await _require_signature_row_scope(db, current_user, row, job.id)
         await _assert_signature_client_access(db, current_user, job.client_id)
         if row.client_id is not None and row.client_id != job.client_id:
             raise HTTPException(
@@ -3019,27 +4258,32 @@ async def confirm_generated_contract_fully_signed(
                 ),
             )
 
-        render_payload = (
-            B2BRenderRequest(**row.render_payload) if row.render_payload else None
-        )
-        result = await ensure_b2b_employment_draft(
-            db,
-            candidate_id=candidate_id,
-            job=job,
-            actor_id=current_user.id,
-            payload=render_payload,
-            contract_number=row.contract_number,
-            signing_date=row.signing_date,
-            language=row.language,
-            ensure_order=True,
-            # Pipeline v4 (23.09.2026): podpis przesuwa kandydata na
-            # „Zatrudniony". Gdy polityka Priority Work odmówi otwarcia procesu,
-            # `_ensure_hired_stage` łapie PriorityWorkLocked i podpis przechodzi
-            # bez ruchu karty — komunikat mówi to wprost.
-            ensure_hired=True,
-            audit_source_generated_id=row.id,
-            keep_existing_terms=payload.keep_existing_contract_terms,
-        )
+        if mandate.is_mandate(row):
+            result = await _ensure_mandate_employment(
+                db, row, candidate_id=candidate_id, job=job, actor_id=current_user.id
+            )
+        else:
+            render_payload = (
+                B2BRenderRequest(**row.render_payload) if row.render_payload else None
+            )
+            result = await ensure_b2b_employment_draft(
+                db,
+                candidate_id=candidate_id,
+                job=job,
+                actor_id=current_user.id,
+                payload=render_payload,
+                contract_number=row.contract_number,
+                signing_date=row.signing_date,
+                language=row.language,
+                ensure_order=True,
+                # Pipeline v4 (23.09.2026): podpis przesuwa kandydata na
+                # „Zatrudniony". Gdy polityka Priority Work odmówi otwarcia
+                # procesu, `_ensure_hired_stage` łapie PriorityWorkLocked
+                # i podpis przechodzi bez ruchu karty — komunikat mówi to wprost.
+                ensure_hired=True,
+                audit_source_generated_id=row.id,
+                keep_existing_terms=payload.keep_existing_contract_terms,
+            )
         # Brak zamówienia jest stanem do obsłużenia WYŁĄCZNIE z powodem
         # podanym przez serwis: klient kosztowy (typ zamówienia wybiera
         # Delivery Lead) albo osoba już obsadzona na żywej linii zamówienia
@@ -3068,20 +4312,32 @@ async def confirm_generated_contract_fully_signed(
                 extra={"generated_contract_id": row.id},
             )
         row.signature_status = "signed_both"
+        # Ręczne oznaczenie podpisu kończy drogę NEXUSOWĄ: link kontraktora
+        # i przypomnienia przestają działać (code review 21.10.2026).
+        await esign_service.close_open_requests(
+            db,
+            row_id=row.id,
+            actor_id=current_user.id,
+            reason="Podpis oznaczony ręcznie w rejestrze",
+            now=datetime.now(timezone.utc),
+        )
         row.signature_source = "manual_confirmation"
         # Podpis obustronny to JEDYNE przejście `in_progress` → `active`.
-        # WARUNKOWO, nie bezwarunkowo: umowę wolno zamknąć powodem
-        # `resignation_before_signing` PRZED podpisem, a bezwarunkowe „active"
-        # na takim wierszu zostawiłoby wypełnione pola `closure_*` przy statusie
-        # `active` → IntegrityError z ck_..._closure_coherence, w środku
-        # atomowej automatyzacji zatrudnienia.
+        # WARUNKOWO: „Zakończona”/„Bez projektu”/„Anulowana” odmawiają wyżej
+        # (409), a bezwarunkowe „active" na wierszu z `closure_*` dałoby
+        # IntegrityError z ck_..._closure_coherence.
         if row.contract_status == "in_progress":
             row.contract_status = "active"
         row.candidate_id = candidate_id
         row.job_id = job.id
         row.client_id = job.client_id
         row.contract_id = result.contract.id
+        # Replacement i FTE przechodzą do kontraktu fill-only (0524).
+        admin_details_filled = admin_details.copy_admin_details_to_contract(
+            result.contract, row
+        )
         row.signed_at = datetime.now(timezone.utc)
+        row.signed_on = signed_on
         row.signed_by_user_id = current_user.id
         await db.flush()
         from app.services.order_mail_signature import complete_signed_mail_drafts
@@ -3122,6 +4378,7 @@ async def confirm_generated_contract_fully_signed(
                     "acknowledged_conflicts": list(result.acknowledged_conflicts),
                     "order_skipped_reason": result.order_skipped_reason,
                     "contract_activated": contract_activated,
+                    "admin_details_filled": admin_details_filled,
                 },
             )
         )
@@ -3151,6 +4408,7 @@ async def confirm_generated_contract_fully_signed(
             "start_date": result.contract.start_date,
         }
         current_user_id = current_user.id
+        hired_stage_id = result.hired_stage.id if result.hired_stage else None
         await db.commit()
         # Live kanban: karta przeszła na „Zatrudniony" (best-effort).
         if result.created_hired_stage:
@@ -3221,7 +4479,7 @@ async def confirm_generated_contract_fully_signed(
                 "je ręcznie w zakładce Zamówienia („Nowy kontraktor / "
                 "zamówienie”)."
             )
-        return B2BConfirmFullySignedResponse(
+        response = B2BConfirmFullySignedResponse(
             outcome=outcome,
             contract_id=result.contract.id,
             order_id=result.order.id if result.order else None,
@@ -3233,12 +4491,196 @@ async def confirm_generated_contract_fully_signed(
             acknowledged_conflicts=list(result.acknowledged_conflicts),
             order_skipped_reason=result.order_skipped_reason,
         )
+        if hired_stage_id is not None:
+            # Audyt 05.10.2026: zatrudnienie z podpisu robi po commicie to
+            # samo co `/pipeline/move` — dzwonki z reguł etapu (rekruter wie,
+            # że kandydat jest zatrudniony), profil ryzyka i podpowiedź
+            # „komplet obsady”. Każdy efekt w savepoincie; nic nie cofa
+            # podpisu. Odpowiedź jest policzona WCZEŚNIEJ — nieudany commit
+            # efektu wycofuje sesję i wygasza obiekty ORM.
+            await _hired_effects_after_signature(
+                db, stage_id=hired_stage_id, job=job, mover=current_user
+            )
+        return response
     except HTTPException:
         await db.rollback()
         raise
     except Exception:
         await db.rollback()
         raise
+
+
+async def _ensure_mandate_employment(
+    db: AsyncSession,
+    row: B2BGeneratedContract,
+    *,
+    candidate_id: int,
+    job: Job,
+    actor_id: int,
+) -> B2BEmploymentDraftResult:
+    """Podpis umowy zlecenia: kontrakt typu zlecenie, szkic zamówienia, „Zatrudniony”.
+
+    Warunki z dokumentu (okres, stawka brutto za godzinę, kontakt) trafiają na
+    kontrakt fill-only — wpisane już przez Delivery wygrywają, jak przy B2B.
+    Istniejący kontrakt innego typu u tego klienta = 409 (nie zmieniamy typu
+    umowy po cichu)."""
+    terms = mandate.payload_from_row(row.render_payload or {})
+
+    async def fill(contract: Contract) -> None:
+        if contract.start_date is None:
+            contract.start_date = terms.period_from
+        if contract.end_date is None:
+            contract.end_date = terms.period_to
+        if contract.rate_candidate is None and not contract.candidate_rate_schedule:
+            # Kontrakt zlecenia powstaje w zł/mc; istniejący może mieć już
+            # stawkę klienta w ryczałcie — przejście na zł/h z przeliczeniem
+            # kwot, nie samą etykietą (runda 6 audytu, jak ścieżka B2B).
+            await switch_loaded_contract_to_hourly(db, contract)
+            contract.rate_candidate = Decimal(str(terms.gross_hourly_rate))
+            contract.rate_unit = RateUnit.hourly
+            contract.rate_candidate_currency = "PLN"
+        fill_candidate_contact(contract, terms)
+
+    return await ensure_b2b_employment_draft(
+        db,
+        candidate_id=candidate_id,
+        job=job,
+        actor_id=actor_id,
+        signing_date=row.signing_date,
+        language=row.language,
+        ensure_order=True,
+        ensure_hired=True,
+        audit_source_generated_id=row.id,
+        require_b2b=False,
+        ensure_detail=False,
+        contract_type=ContractType.uzlecenie,
+        require_contract_type=True,
+        fill_terms=fill,
+    )
+
+
+async def _hired_effects_after_signature(
+    db: AsyncSession, *, stage_id: int, job: Job, mover: User
+) -> None:
+    """Efekty zatrudnienia z podpisu — lustro bloku po commicie `/move`.
+
+    Nigdy nie rzuca: podpis i ruch karty są już zatwierdzone.
+    """
+    job_id = job.id
+    await run_after_commit(db, stage_id=stage_id, mover=mover)
+    try:
+        if await suggest_closing_when_fully_staffed(db, job):
+            await db.commit()
+    except Exception as exc:  # noqa: BLE001 — podpis jest zapisany
+        logger.warning(
+            "fully-staffed hint after signature failed job=%s (%s)",
+            job_id,
+            type(exc).__name__,
+        )
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+async def _lock_person_contracts_before_row(
+    db: AsyncSession, generated_id: int
+) -> None:
+    """Zablokuj kontrakty osoby wiersza rejestru (kontrakt → wiersz).
+
+    Osoba z wiersza i z kontraktu, do którego jest podpięty (wiersz z Excela
+    bywa bez ``candidate_id``). Odczyt samymi kolumnami, bez encji.
+    """
+
+    link = (
+        await db.execute(
+            select(
+                B2BGeneratedContract.candidate_id,
+                B2BGeneratedContract.contract_id,
+            ).where(B2BGeneratedContract.id == generated_id)
+        )
+    ).first()
+    if link is None:
+        return
+    person_ids = {link.candidate_id}
+    if link.contract_id is not None:
+        person_ids.add(
+            await db.scalar(
+                select(Contract.candidate_id).where(Contract.id == link.contract_id)
+            )
+        )
+    person_ids.discard(None)
+    contract_ids = (
+        list(
+            (
+                await db.scalars(
+                    select(Contract.id).where(Contract.candidate_id.in_(person_ids))
+                )
+            ).all()
+        )
+        if person_ids
+        else []
+    )
+    await lock_contract_then_orders(db, contract_ids=[*contract_ids, link.contract_id])
+
+
+@router.post(
+    "/generated/{generated_id}/signed-file",
+    response_model=B2BGeneratedContractItem,
+)
+async def attach_generated_contract_signed_file(
+    generated_id: int,
+    current_user: B2BGeneratorAccess,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Dołącz podpisany egzemplarz umowy — trafia do Dokumentów kontraktu (0496).
+
+    Okno „Oznacz jako podpisaną” woła najpierw podpis (JSON, bez zmian), potem
+    tę trasę; wiersz podpisany wcześniej bez pliku dołącza go z rejestru.
+    Wchodzi ten, kto mógłby ten podpis oznaczyć (``_may_confirm_row_signature``),
+    bo plik ląduje w kontrakcie, który założył podpis."""
+    _require_signature_confirmation(current_user)
+    # Plik w Dokumentach kontraktu (FK → blokada kontraktu): kontrakty osoby
+    # PRZED wierszem, jak `/terminate` i nocny cron (audyt 22.10.2026, F47).
+    await _lock_person_contracts_before_row(db, generated_id)
+    row = await db.scalar(
+        select(B2BGeneratedContract)
+        .where(B2BGeneratedContract.id == generated_id)
+        .with_for_update()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    _reject_excel_row(row)
+    await _assert_signature_client_access(db, current_user, row.client_id)
+    team_job_ids = (
+        await _jobs_run_by(db, current_user, {row.job_id})
+        if row.job_id is not None
+        and not current_user.has_any_role(*_SIGNS_EVERY_CONTRACT_ROLES)
+        else set()
+    )
+    if not _may_confirm_row_signature(
+        current_user,
+        created_by=row.created_by,
+        job_id=row.job_id,
+        team_job_ids=team_job_ids,
+    ):
+        raise HTTPException(status_code=403, detail=_SIGNATURE_ROW_SCOPE_DENIED)
+    name, content_type, data = await signed_scan.read_scan(
+        file, format_msg=signed_file.MSG_FORMAT
+    )
+    replaced_path = await signed_file.attach(
+        db,
+        row=row,
+        filename=name,
+        content_type=content_type,
+        data=data,
+        actor_id=current_user.id,
+    )
+    await db.commit()
+    signed_file.discard(replaced_path)
+    await db.refresh(row)
+    return await _serialize_generated_contract(db, row, current_user)
 
 
 @router.patch("/generated/{generated_id}", response_model=B2BGeneratedContractItem)
@@ -3253,14 +4695,14 @@ async def update_generated_contract(
     ``client_name`` aktualizuje zarówno kolumnę (widoczną na liście), jak i
     ``render_payload['client_name']`` — dzięki temu ponowne pobranie DOCX ma już
     poprawioną nazwę, a per-klienta klauzule (§/załączniki) dobiorą się pod nią.
-    Edytować może wyłącznie autor wpisu lub administrator (jak przy usuwaniu).
+    Poprawić może ten, kto poprawia treść umowy (``_may_correct_generated``).
 
     Zmiana treści dokumentu jest zablokowana po podpisaniu, ale zmiana **statusu
     handlowego** — nie: wypowiedzenie i porozumienie o rozwiązaniu dotyczą z
     definicji umów już podpisanych. Zamknięcie nie usuwa wiersza.
 
     **Kto co może** (dwie różne bramki, celowo):
-    - ``client_name`` — autor wpisu albo admin, jak przy usuwaniu. To korekta
+    - ``client_name`` — jak poprawa treści (``_may_correct_generated``). To korekta
       TREŚCI dokumentu (synchronizuje `render_payload`), więc trzyma wąską
       bramkę.
     - ``contract_status`` — każdy, kto widzi wiersz (`B2BGeneratorAccess` +
@@ -3269,6 +4711,16 @@ async def update_generated_contract(
       bramce przycisk byłby niewidoczny dla większości zespołu i cała zakładka
       „Umowy bez projektu" nie miałaby jak działać."""
     _require_generated_contract_management(current_user)
+    if (
+        "contract_status" in payload.model_fields_set
+        and payload.contract_status == "active"
+    ):
+        # Runda 8 (R8-V1-8): powrót z „Umów bez projektu” dopisuje notatkę do
+        # kontraktu i przepina `contract_id` (FK → blokada kontraktu) PO
+        # blokadzie wiersza rejestru. `/terminate` i nocny cron biorą kontrakt,
+        # a potem wiersze — ta sama kolejność co w `confirm-fully-signed`:
+        # kontrakty osoby PRZED wierszem.
+        await _lock_person_contracts_before_row(db, generated_id)
     row = await db.scalar(
         select(B2BGeneratedContract)
         .where(B2BGeneratedContract.id == generated_id)
@@ -3295,11 +4747,22 @@ async def update_generated_contract(
     # (409 „podpisana" / 422 „zły status wyjściowy") odpowiadałyby na pytania
     # o cudzy wiersz, zanim ustalimy, że pytający ma do niego prawo.
     is_admin = current_user.has_role(UserRole.admin)
-    if wants_client_name and not is_admin and row.created_by != current_user.id:
-        raise HTTPException(
-            status_code=403,
-            detail="Nazwę Klienta może poprawić tylko autor wpisu albo administrator.",
+    if wants_client_name and not is_admin:
+        team_job_ids = (
+            await _jobs_led_by(db, current_user, {row.job_id})
+            if row.job_id is not None
+            else set()
         )
+        if not _may_correct_generated(
+            current_user, row, team_job_ids
+        ) or not await _generator_rate_content_visible(
+            db,
+            current_user,
+            row.client_id,
+            created_by=row.created_by,
+            job_id=row.job_id,
+        ):
+            raise HTTPException(status_code=403, detail=_CORRECTION_DENIED)
     if wants_client_name and row.source == "excel":
         _reject_excel_row(row)
     if wants_client_name and row.signature_status == "signed_both":
@@ -3310,6 +4773,10 @@ async def update_generated_contract(
                 "być edytowana."
             ),
         )
+
+    if wants_client_name:
+        # Nazwa Klienta jest w treści PDF-u wysłanego do podpisu w NEXUSIE.
+        await esign_service.assert_no_open_request(db, row.id)
 
     if wants_client_name:
         old_client = row.client_name
@@ -3360,6 +4827,15 @@ async def update_generated_contract(
     if wants_status:
         old_status = row.contract_status
         new_status = payload.contract_status
+        if new_status != "in_progress":
+            # Umowa przestaje czekać na podpis — wysyłka w NEXUSIE też.
+            await esign_service.close_open_requests(
+                db,
+                row_id=row.id,
+                actor_id=current_user.id,
+                reason=f"Status umowy zmieniony na „{new_status}”",
+                now=datetime.now(timezone.utc),
+            )
         # ŚWIADOMA ASYMETRIA: projektu i notatki wymaga wyłącznie powrót
         # z ZAWIESZENIA, nie każde przejście na „Aktywna".
         #
@@ -3451,6 +4927,19 @@ async def update_generated_contract(
 
         job: Job | None = None
         if reactivating:
+            # Runda 8 (R8-X2-2): przywrócenie przepina rekrutację i klienta
+            # wiersza, a od nich zależy, kto widzi stawki umowy. Bez tej bramki
+            # osoba bez wglądu w stawki zawieszała cudzą umowę, przywracała ją
+            # na SWOJĄ rekrutację i od tej chwili pobierała DOCX ze stawką.
+            # Przywrócić na projekt może więc tylko ktoś, kto stawki tej umowy
+            # już widzi (admin, Finanse, DL portfela, autor, prowadzący).
+            await _require_generator_rate_content(
+                db,
+                current_user,
+                row.client_id,
+                created_by=row.created_by,
+                job_id=row.job_id,
+            )
             if payload.job_id is None:
                 raise HTTPException(
                     status_code=422,
@@ -3494,6 +4983,21 @@ async def update_generated_contract(
         prev_date = row.closure_date
 
         row.contract_status = new_status
+        # Ręczna zmiana statusu jest decyzją człowieka i wygrywa z migawką
+        # zakończenia kontraktu: bez tego „Cofnij zakończenie" albo powrót po
+        # przerwie odtwarzały stan sprzed synchronizacji i nadpisywały to, co
+        # ktoś świadomie ustawił (audyt 25.09.2026, runda 3). Umowa, która
+        # wychodzi z „Zakończonych", traci też tryb rozwiązania — opisywał
+        # zakończenie, które właśnie cofnięto. Zapis tego samego statusu (np.
+        # poprawka powodu w „Zakończonych”) nie jest zmianą statusu i migawki
+        # nie rusza — inaczej „Cofnij zakończenie” nie przywracałoby umowy
+        # (przegląd PR #1840).
+        if new_status != old_status:
+            row.termination_restore = None
+        if old_status == "closed" and new_status != "closed":
+            row.termination_mode = None
+            row.termination_party = None
+            row.termination_signed_on = None
         if new_status in B2B_CLOSING_STATUSES:
             row.closure_reason = payload.closure_reason
             row.closure_reason_other = (
@@ -3637,7 +5141,11 @@ async def delete_generated_contract(
             raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
         # Bez nazwy Partnera (to osoba — wpis przeżywa jej usunięcie).
         audit.describe(
-            label=f"Umowa B2B {row.contract_number}",
+            label=(
+                row.contract_number
+                if mandate.is_mandate(row)
+                else f"Umowa B2B {row.contract_number}"
+            ),
             client_id=row.client_id,
             client_name=row.client_name,
             contract_number=row.contract_number,
@@ -3665,6 +5173,54 @@ async def delete_generated_contract(
             raise HTTPException(
                 status_code=403,
                 detail="Możesz usunąć tylko umowy, które samodzielnie wygenerowałeś.",
+            )
+        # Runda 8 (R8-X2-8): FK dokumentów pochodnych ma CASCADE, a aneks można
+        # wystawić i podpisać także do umowy, której podpisu nie potwierdzono
+        # w NEXUSIE — usunięcie umowy kasowało rekord podpisanego aneksu.
+        signed_document_id = await db.scalar(
+            select(B2BContractDocument.id)
+            .where(
+                B2BContractDocument.parent_generated_contract_id == row.id,
+                B2BContractDocument.signature_status == "signed_both",
+            )
+            .limit(1)
+        )
+        if signed_document_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Do tej umowy jest podpisany dokument pochodny (aneks, "
+                    "rozwiązanie albo wypowiedzenie) — usunięcie umowy "
+                    "skasowałoby go razem z nią."
+                ),
+            )
+        # Audyt 22.10.2026 (F44): FK wniosku o podpis w NEXUSIE ma CASCADE —
+        # usunięcie kasowało podpis kontraktora albo obu stron bez śladu.
+        esign_statuses = set(
+            (
+                await db.scalars(
+                    select(B2BSigningRequest.status).where(
+                        B2BSigningRequest.generated_contract_id == row.id,
+                        B2BSigningRequest.status.in_(_ESIGN_BLOCKS_DELETE),
+                    )
+                )
+            ).all()
+        )
+        if "completed" in esign_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Umowa jest podpisana przez obie strony w NEXUSIE — oznacz ją "
+                    "jako podpisaną zamiast usuwać."
+                ),
+            )
+        if esign_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Umowa jest w podpisie w NEXUSIE. Najpierw „Przejdź na zwykłą "
+                    "drogę”, potem ją usuń."
+                ),
             )
         number, partner, rid = row.contract_number, row.partner_name, row.id
         await db.delete(row)

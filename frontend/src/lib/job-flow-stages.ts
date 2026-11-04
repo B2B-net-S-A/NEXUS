@@ -10,8 +10,7 @@
  *
  * - **Krok 08** rozpoznajemy po NAZWACH etapów podpisu z szablonu „Default
  *   B2B" (od 17.09.2026 etapy RĘCZNE — podpis umowy jest offline i nic nie
- *   przesuwa na nie kandydata automatycznie; stałe `STAGE_SIGNED` /
- *   `STAGE_HIRED` w `services/signing/sender.py` służą tylko audytowi). „Umowa
+ *   przesuwa na nie kandydata automatycznie). „Umowa
  *   wysłana" i „Umowa podpisana" NIE MAJĄ `legacy_enum_value`, więc backend
  *   raportuje dla nich `stage: "new"` i po `stage` ich nie da się poznać.
  *   Nazwa jest jedynym identyfikatorem, jaki system dla nich ma — po obu

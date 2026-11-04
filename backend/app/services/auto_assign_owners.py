@@ -17,15 +17,16 @@ Jobs.
 
 import logging
 from dataclasses import dataclass
+from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.team_structure import (
     ClientTacAssignment,
     DeliveryLeadClientAssignment,
 )
-from app.models.user import User
+from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,25 @@ class ResolvedOwners:
     tac_id: int | None
     delivery_lead_id: int | None
     tac_selection_required: bool = False
+
+
+DeliveryLeadSource = Literal["creator", "client_head"]
+
+
+def pick_delivery_lead(
+    creator: User, head_delivery_lead_id: int | None
+) -> tuple[int | None, DeliveryLeadSource | None]:
+    """Kto zostaje Delivery Leadem nowej rekrutacji, gdy nikt go nie wskazał.
+
+    Twórca z rolą Delivery Leada (08.10.2026), inaczej główny DL klienta,
+    inaczej nikt. Jedna reguła dla zapisu (`create_job_core`) i dla formularza
+    `/jobs/new`, który pokazuje tę osobę przed zapisem.
+    """
+    if creator.has_role(UserRole.delivery_lead):
+        return creator.id, "creator"
+    if head_delivery_lead_id is not None:
+        return head_delivery_lead_id, "client_head"
+    return None, None
 
 
 async def resolve_default_owners(
@@ -81,6 +101,13 @@ async def resolve_default_owners(
             DeliveryLeadClientAssignment.client_id == client_id,
             DeliveryLeadClientAssignment.is_head.is_(True),
             User.is_active.is_(True),
+            # Runda 7 (N7-1): wpis przypisania nie jest grantem — główny DL
+            # musi nadal mieć rolę Delivery Leada (lustro
+            # `job_delivery_lead_fill._HEADS`).
+            or_(
+                User.role == UserRole.delivery_lead,
+                User.roles.contains([UserRole.delivery_lead.value]),
+            ),
         )
         .order_by(DeliveryLeadClientAssignment.id.asc())
         .limit(1)

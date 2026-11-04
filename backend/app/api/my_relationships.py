@@ -5,8 +5,10 @@ DL który zaznaczył kontakty u różnych klientów jako `is_key_relationship=Tr
 posortowane po `last_personal_touchpoint_at` (najstarsze najpierw — do
 follow-up planning).
 
-Admin/Finance oraz Talent Community Manager widzą wszystkie key relationships
-(TCM bez prywatnych notatek relacyjnych).
+Konto z podglądem Delivery bez portfela Delivery Leada (domyślnie Admin,
+Finanse i Talent Community Manager) widzi wszystkie key relationships.
+Prywatne notatki relacyjne to reguła o DANYCH, nie uprawnienie: poza
+właścicielem relacji czyta je tylko Admin i Finanse.
 """
 
 from __future__ import annotations
@@ -19,13 +21,14 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.permission_access import DeliveryViewUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.contact import Contact, RelationshipStrength
 from app.models.user import UserRole
 from app.services.access_scope import resolve_delivery_lead_client_ids
+from app.services.client_access import reads_delivery_organization_wide
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
@@ -51,20 +54,18 @@ class MyRelationshipRow(BaseModel):
 
 @router.get("", response_model=list[MyRelationshipRow])
 async def list_my_key_relationships(
-    user: CurrentUser,
+    user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Lista key contactów DL'a cross-client, posortowane po stalności touchpoint'u.
 
-    Admin/Finance/TCM widzi wszystkie key contacts (management read view).
+    Posiadacz podglądu Delivery bez portfela DL (domyślnie Admin/Finance/TCM)
+    widzi wszystkie key contacts (management read view).
     """
     delivery_lead_client_ids = await resolve_delivery_lead_client_ids(user, db)
-    is_delivery_scoped = delivery_lead_client_ids is not None
-    is_organization_reader = not is_delivery_scoped and user.has_any_role(
-        UserRole.admin,
-        UserRole.finance,
-        UserRole.talent_community_manager,
-    )
+    is_organization_reader = reads_delivery_organization_wide(user)
+    # Prywatne notatki relacyjne zostają przy ROLI (dane osobiste kontaktu):
+    # nadany podgląd Delivery ich nie odsłania.
     can_view_all_private_notes = user.has_any_role(
         UserRole.admin,
         UserRole.finance,

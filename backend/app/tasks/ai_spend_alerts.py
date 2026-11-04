@@ -103,7 +103,10 @@ async def _post_to_slack(webhook: str, text: str) -> bool:
             return False
         return True
     except Exception as exc:  # noqa: BLE001
-        logger.warning("ai_spend_alerts: nie udało się wysłać na Slacka: %s", exc)
+        # Sama klasa wyjątku — treść bywa pełnym adresem webhooka (sekret).
+        logger.warning(
+            "ai_spend_alerts: nie udało się wysłać na Slacka (%s)", type(exc).__name__
+        )
         return False
 
 
@@ -129,8 +132,12 @@ def _daily_level(used: float, baseline: float, floor: float) -> int:
 
 
 async def _queue_daily_alerts(db: AsyncSession) -> None:
+    from app.core.scheduling import business_today  # noqa: PLC0415
+
     now = datetime.now(timezone.utc)
-    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Jeden alert na dobę w kalendarzu firmy — nie od północy UTC (runda 2
+    # audytu 25.09.2026).
+    today = business_today()
     # Compare a completed rolling day to the preceding seven days. Historical
     # monthly token counters never enter this calculation.
     day = now - timedelta(days=1)
@@ -166,9 +173,12 @@ async def _queue_daily_alerts(db: AsyncSession) -> None:
             label, decimals = ("tokenów", 0) if metric == "tokeny" else (metric, 2)
             level = _daily_level(used, baseline, floor)
             if level:
+                # Raz w tygodniu na funkcję i miarę (07.10.2026): klucz dzienny
+                # z poziomem dawał ~340 wpisów w 30 dni, czytanych w 10%.
+                year, week, _ = today.isocalendar()
                 await queue_alert(
                     db,
-                    f"daily:{today.date()}:{feature}:{metric}:{level}",
+                    f"weekly:{year}-W{week:02d}:{feature}:{metric}",
                     f"AI {feature}: ostatnie 24 h — {_pl_number(used, decimals)} {label}; "
                     f"średnia wcześniejszych 7 dni — {_pl_number(baseline, decimals)}. "
                     "Sprawdź zużycie w Ustawienia → AI. Funkcja pozostaje dostępna.",
@@ -288,7 +298,9 @@ async def _scan_once(db: AsyncSession, webhook: str) -> int:
                 if level:
                     await queue_alert(
                         db,
-                        f"monthly:{period}:{feature.value}:{level}",
+                        # Raz w miesiącu na funkcję — kolejne podwojenia nie
+                        # dokładają wpisów (07.10.2026).
+                        f"monthly:{period}:{feature.value}",
                         f"{FEATURE_LABELS[feature]}: {used} operacji w tym miesiącu, "
                         f"{baseline} w poprzednim. Sprawdź zużycie w Ustawienia → AI. "
                         "Funkcja pozostaje dostępna.",

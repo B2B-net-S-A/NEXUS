@@ -8,6 +8,10 @@ from starlette.concurrency import run_in_threadpool
 from app.models.cv_generation_job import CvGenerationJob
 from app.services import object_storage
 from app.services.cv_generator_b2b.job_snapshot import deserialize_job_inputs
+from app.services.cv_generator_b2b.legacy_v7._helpers import (
+    screening_text_without_questions,
+)
+from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.services.cv_generator_b2b.standalone_service import (
     CandidateGenerationSource,
     UploadGenerationInput,
@@ -60,6 +64,21 @@ async def load_upload_requirements(db, generated_id: int):
         ) from exc
 
 
+def _without_hidden_card_fields(notes):
+    """Notatki zamrożone przed 03.10.2026 (#1998) niosą narodowość z karty.
+
+    Recenzent kontroli AI to model, a narodowości nie dostaje żaden model —
+    tnie się ją przy odczycie, nie tylko przy generacji. Audyt 05.10.2026.
+
+    Bez linii „P:” (pytania rekrutera), jak w kontroli przy generacji
+    (``screening_text_without_questions``): audyt 13.10.2026 — pytanie
+    „Czy pracował Pan z OpenTelemetry?” potwierdzało edycję CV jak fakt.
+    """
+    if not notes or not isinstance(notes, str):
+        return notes
+    return screening_text_without_questions(redact_card_text(notes, AI_HIDDEN_FIELDS))
+
+
 async def load_review_source(db, generated_id: int) -> ReviewSource:
     """Caller must first authorize the concrete generated document resource.
 
@@ -90,7 +109,7 @@ async def load_review_source(db, generated_id: int) -> ReviewSource:
         return ReviewSource(
             source.cv_bytes,
             source.cv_filename,
-            source.screening_notes_text,
+            _without_hidden_card_fields(source.screening_notes_text),
             source.fallback_name or "",
             job.input_sha256,
         )
@@ -98,7 +117,7 @@ async def load_review_source(db, generated_id: int) -> ReviewSource:
         return ReviewSource(
             source.cv_bytes,
             source.cv_filename,
-            source.screening_notes,
+            _without_hidden_card_fields(source.screening_notes),
             "",
             job.input_sha256,
         )

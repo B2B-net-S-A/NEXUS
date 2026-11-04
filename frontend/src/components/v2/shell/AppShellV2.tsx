@@ -11,8 +11,11 @@ import { useOnboardingGuard } from "@/hooks/useOnboardingGuard";
 import { SidebarV2 } from "./SidebarV2";
 import { TopbarV2 } from "./TopbarV2";
 import { ImpersonationBanner } from "./ImpersonationBanner";
+import { NotificationsRealtime } from "./NotificationsRealtime";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { JarvisRoot } from "@/components/jarvis/JarvisRoot";
+import { NoveltyLayer } from "@/components/novelties/NoveltyLayer";
+import { useStartGate } from "@/components/novelties/useStartGate";
 import { KidsBackdrop } from "./KidsBackdrop";
 import { MyPeopleRoot } from "@/components/v2/my-people/MyPeopleLauncher";
 import { useMyPeoplePanel } from "@/store/my-people";
@@ -48,8 +51,16 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // `/cv/{token}` — public CV preview. `startsWith("/cv/")` (trailing slash) żeby
   // NIE złapać authed `/cv-generator`.
   const isCvPreviewPage = pathname?.startsWith("/cv/") ?? false;
+  // `/k/{token}` — panel klienta pod linkiem z CV. Ukośnik na końcu, żeby nie
+  // złapać `/kariera`, `/klienci` i podobnych.
+  const isClientPanelPage = pathname?.startsWith("/k/") ?? false;
   // `/engagement/{token}` — public magic-link engagement page, no internal shell.
   const isEngagementPage = pathname?.startsWith("/engagement/") ?? false;
+  // `/protocol/{token}` — publiczny podpis protokołu sprzętu („Ludzie w NEXUSIE”).
+  const isProtocolPage = pathname?.startsWith("/protocol/") ?? false;
+  // `/konsultant` — strefa konsultanta: osobna sesja, bez konta pracownika.
+  const isConsultantPortal = pathname === "/konsultant" || (pathname?.startsWith("/konsultant/") ?? false);
+  const isExtensionPrivacyPage = pathname === "/wtyczka/prywatnosc";
   // Strona kariery dla kandydatów (`/kariera/*`, host `kariera.dynaminds.pl`).
   // Na hoście kariery middleware PRZEPISUJE adres (`/r/x` → `/kariera/r/x`),
   // a `usePathname()` zwraca adres WIDOCZNY — samo `startsWith("/kariera")`
@@ -87,7 +98,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   const hasOwnSession = useAuthStore((s) => !!s.token && !s.realUser);
   const userSynced = useRef(false);
   useEffect(() => {
-    if (!hydrated || !hasOwnSession || userSynced.current) return;
+    if (isExtensionPrivacyPage || !hydrated || !hasOwnSession || userSynced.current) return;
     userSynced.current = true;
     api
       .get("/api/auth/me")
@@ -96,7 +107,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
         // Best-effort: przy błędzie zostaje zapamiętany profil. Martwą sesję
         // (401) obsługuje interceptor w lib/api.ts.
       });
-  }, [hydrated, hasOwnSession, syncUser]);
+  }, [hydrated, hasOwnSession, syncUser, isExtensionPrivacyPage]);
 
   // Close mobile sidebar on route change
   useEffect(() => {
@@ -138,6 +149,9 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // to /onboarding before the shell renders. Runs after hydration so we
   // don't bounce on initial SSR paint.
   const { needsOnboarding } = useOnboardingGuard();
+  // Start w NEXUSIE (30.10.2026): bez przeklikania najważniejszych funkcji
+  // roli tylko pulpit i `/start` — reszta przekierowuje na Start.
+  const startBlocked = useStartGate();
 
   if (isLoginPage) return <>{children}</>;
   if (isSharePage) return <>{children}</>;
@@ -148,7 +162,11 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // for unauthenticated visitors.
   if (isRegisterPage) return <>{children}</>;
   if (isCvPreviewPage) return <>{children}</>;
+  if (isClientPanelPage) return <>{children}</>;
   if (isEngagementPage) return <>{children}</>;
+  if (isProtocolPage) return <>{children}</>;
+  if (isConsultantPortal) return <>{children}</>;
+  if (isExtensionPrivacyPage) return <>{children}</>;
   if (isCareerPage) return <>{children}</>;
   // /preview/* — design-system prototype pages, rendered bare (no shell/auth).
   if (pathname?.startsWith("/preview")) return <>{children}</>;
@@ -219,7 +237,9 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
           {/* `pb-24` na telefonie: zapas pod pływającą maskotką w prawym
               dolnym rogu — ostatnie przyciski strony dają się wyprzewijać
               spod niej. */}
-          <div className="p-4 pb-24 md:p-6 animate-fadeIn">{children}</div>
+          <div className="p-4 pb-24 md:p-6 animate-fadeIn">
+            {startBlocked ? null : children}
+          </div>
         </main>
       </div>
 
@@ -237,9 +257,14 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
       {/* „Moi ludzie" — panel rekrutera, postać w rogu, `?people=1` z dzwonka */}
       <MyPeopleRoot />
 
+      {/* Jedyne gniazdo powiadomień — niezależne od ikon paska (16.10.2026). */}
+      <NotificationsRealtime />
+
       {/* Game-mode decorations — only in Kids mode (inert otherwise) */}
       <KidsBackdrop />
       <JarvisRoot />
+      {/* Kropki „Nowe”, przeklikanie i okno zmiany procesu. */}
+      <NoveltyLayer />
     </div>
   );
 }

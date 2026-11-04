@@ -11,30 +11,41 @@ Decyzje Artura (22.09.2026):
 * **Status requestu** jest liczony (:func:`request_status_subquery`) —
   „Szukamy" trwa, dopóki Delivery Lead nie oznaczy „Mamy championa".
 
-Sugestie liczy prosta, deterministyczna miara: wspólne must-have, wspólne
-słowa tytułu i ta sama kategoria kompetencji. Pula (CAŁA historia, także
-zamknięte i archiwum z Traffita — tam są osoby już wysłane; decyzja Artura
-24.09.2026, do tego dnia 18 miesięcy) trzymana jest
-w pamięci procesu przez kilka minut, a kandydaci do porównania wybierani są
-przez indeks odwrócony, więc lista rekrutacji nie porównuje każdej z każdą.
+Sugestie (decyzja Artura 30.09.2026) to rekrutacje najbliższe WEKTOROWO
+(kosinus wektorów rekrutacji z kolekcji ``nexus_jobs``) spośród tych, w których
+ktoś dotarł do klienta, z premią :data:`VECTOR_CLIENT_BONUS` za tego samego
+klienta. Zmierzone na historii (1620 rekrutacji docelowych): prawdziwe źródło
+przepięcia w top 5 dla 60,6% rekrutacji zamiast 39,7% przy wzorze
+leksykalnym z progiem 55 (86% prawdziwych źródeł miało poniżej 55 pkt).
+Gdy rekrutacja nie ma wektora albo Qdrant nie odpowiada, działa dawna miara
+leksykalna (:func:`similarity_score`: wspólne must-have, słowa tytułu,
+kategoria/klient) z progiem :data:`MIN_SCORE` — bez zmian. Pula (CAŁA
+historia, także zamknięte i archiwum z Traffita — tam są osoby już wysłane;
+decyzja Artura 24.09.2026, do tego dnia 18 miesięcy) trzymana jest
+w pamięci procesu przez kilka minut, a kandydaci do porównania leksykalnego
+wybierani są przez indeks odwrócony, więc lista rekrutacji nie porównuje
+każdej z każdą.
 
 Żadna funkcja tutaj nie commituje — transakcja należy do wołającego.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any, Iterable, Mapping, NamedTuple, Optional, Sequence
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, case, exists, func, or_, select
+from sqlalchemy import and_, case, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.core.scheduling import DEFAULT_TZ
 from app.models.job import Job, JobStatus
 from app.models.job_similar_link import JobSimilarLink
 from app.models.pipeline_template import PipelineStageDef
@@ -51,6 +62,13 @@ CLIENT_STAGES: tuple[PipelineStage, ...] = (
     PipelineStage.onboarding,
     PipelineStage.hired,
 )
+# Kolumny Tablicy, w których osoba stoi „u klienta” (`at_client_counts`).
+AT_CLIENT_COLUMNS: tuple[str, ...] = (
+    "cv_sent",
+    "client_interview",
+    "contract",
+    "hired",
+)
 # Przepinamy wysłanych, ale nie zatrudnionych (ci pracują).
 REASSIGN_STAGES: tuple[PipelineStage, ...] = (
     PipelineStage.cv_sent,
@@ -61,6 +79,24 @@ REASSIGN_STAGES: tuple[PipelineStage, ...] = (
 CONTRACT_STAGES: tuple[PipelineStage, ...] = (
     PipelineStage.acceptance,
     PipelineStage.negotiation,
+)
+# „Reszta” w panelu podobnych rekrutacji (02.10.2026): osoby, z którymi ktoś
+# już rozmawiał albo je zweryfikował, ale które nie dotarły do klienta.
+# Kolejność = jak daleko zaszły. Same „Ogłoszenia”/„Nowi” to szum zgłoszeń —
+# takich osób panel nie pokazuje.
+REST_STAGES: tuple[PipelineStage, ...] = (
+    PipelineStage.prep_call,
+    PipelineStage.screening,
+    PipelineStage.verified,
+    PipelineStage.interview,
+)
+MAX_REST_PEOPLE_PER_JOB = 50
+# Runda 10 (R10-X2-2): Onboarding leży na Tablicy w kolumnie „Zatrudniony”
+# (`board_stage_badges._COLUMN_BY_ENUM`), więc w statusie requestu liczy się
+# jak zatrudnienie — do tej rundy odznaka Onboarding cofała „Obsadzona” na
+# „Umowa”.
+HIRED_STAGES: tuple[PipelineStage, ...] = (
+    PipelineStage.hired,
     PipelineStage.onboarding,
 )
 
@@ -73,9 +109,51 @@ REQUEST_STATUSES = (
     "searching",
 )
 
+# Stan requestu w JEDNYM rzędzie pigułek listy `/jobs` (25.09.2026): status
+# requestu i stan pracy złożone w jedną wartość na rekrutację. Wartości się
+# wykluczają, więc kilka pigułek naraz to LUB (samo `request_status` +
+# `work_state` łączyły się przez AND). Kolejność = pierwszeństwo w CASE.
+REQUEST_STAGES = (
+    "closed",
+    "filled",
+    "contract",
+    "champion",
+    "incomplete",
+    "finished",
+    "client_silent",
+    "to_review",
+    "searching",
+)
+
+# Próg dawnej miary leksykalnej — działa już tylko jako zapas (rekrutacja bez
+# wektora, awaria Qdranta).
 MIN_SCORE = 55
 MAX_SUGGESTIONS = 5
 _POOL_TTL_SECONDS = 300
+
+# Ranking wektorowy (30.09.2026). Porządek = kosinus + premia za tego samego
+# klienta; progu nie ma — pięć najbliższych rekrutacji z osobami u klienta.
+KIND_VECTOR = "vector"
+KIND_LEXICAL = "lexical"
+VECTOR_CLIENT_BONUS = 0.08
+VECTOR_CANDIDATE_LIMIT = 60
+# Plakietka „≈” na liście rekrutacji liczy tylko sugestie wektorowe z
+# (kosinus + premia) co najmniej tyle — bez progu świeciłaby przy każdej
+# rekrutacji. Kalibracja 30.09.2026 na produkcji (1 620 rekrutacji, 27 037
+# prawdziwych przepięć, `similar_calibration.py`): źródło przepięcia ma
+# wynik 10. percentyl 0,45, mediana 0,65; najlepsza sugestia rekrutacji —
+# 10. percentyl 0,76. Próg = mediana prawdziwych źródeł: plakietka mówi „jest
+# rekrutacja co najmniej tak podobna jak typowe źródło przepięcia”. Świeci
+# przy większości rekrutacji — tak jak dawny próg 55 (średnio 3,1 sugestii).
+SIMILAR_JOBS_BADGE_MIN_COSINE = 0.65
+# Sufit czasu odczytu Qdranta: pojedyncza rekrutacja i szkic ~2 s, strona
+# listy (kilka paczek zapytań) dłużej. Po nim — miara leksykalna.
+_VECTOR_TIMEOUT_SECONDS = 2.0
+_VECTOR_LIST_TIMEOUT_SECONDS = 5.0
+# Embedding szkicu (Voyage) na /jobs/new.
+_DRAFT_EMBED_TIMEOUT_SECONDS = 5.0
+# Wersja rankingu w kluczu pamięci listy — inna miara to inny wynik.
+RANK_VERSION = "vector-v1"
 
 _STOPWORDS = frozenset(
     {
@@ -165,14 +243,28 @@ def similarity_score(
     b_skills: frozenset[str],
     b_title: frozenset[str],
     b_cc: Optional[int],
+    *,
+    a_client: Optional[int] = None,
+    b_client: Optional[int] = None,
 ) -> int:
-    """0–100. Bez must-have po którejś stronie liczy tytuł i kategorię."""
+    """0–100. Bez must-have po którejś stronie liczy tytuł i kategorię.
+
+    Ten sam klient waży tyle, co ta sama kategoria kompetencji (bierzemy
+    lepsze z dwóch, nie sumę — klient i kategoria bez wspólnego tytułu nie
+    przechodzą progu). Do 25.09.2026 klient nie wchodził do miary wcale:
+    „Analityk Systemowy AI/LLM (ZOB-3006)" (kategoria Infra) i „PKO BP:
+    Analityk Systemowy / ZOB-1725" (kategoria PM & BA) tego samego klienta
+    dostawały 30 pkt przy progu 55, a to z tamtej rekrutacji są osoby,
+    które klient już zna.
+    """
     title = _jaccard(a_title, b_title)
-    same_cc = 1.0 if a_cc is not None and a_cc == b_cc else 0.0
+    same_cc = a_cc is not None and a_cc == b_cc
+    same_client = a_client is not None and a_client == b_client
+    context = 1.0 if same_cc or same_client else 0.0
     if a_skills and b_skills:
-        score = 0.55 * _jaccard(a_skills, b_skills) + 0.30 * title + 0.15 * same_cc
+        score = 0.55 * _jaccard(a_skills, b_skills) + 0.30 * title + 0.15 * context
     else:
-        score = 0.70 * title + 0.30 * same_cc
+        score = 0.70 * title + 0.30 * context
     return round(score * 100)
 
 
@@ -187,6 +279,10 @@ class PoolJob:
     skills: frozenset[str]
     tokens: frozenset[str]
     created_at: Optional[datetime]
+    # Data otwarcia rekrutacji; `created_at` rekrutacji z Traffita to data
+    # importu (runda 7, R7-V3-1). Okna „z ostatnich N miesięcy” czytają
+    # `opened_at or created_at`.
+    opened_at: Optional[datetime] = None
 
 
 @dataclass
@@ -194,9 +290,34 @@ class _Pool:
     loaded_at: float = 0.0
     jobs: dict[int, PoolJob] = field(default_factory=dict)
     index: dict[str, set[int]] = field(default_factory=dict)
+    #: Ranking wiersza listy pamiętany na czas życia puli (runda 6 audytu) —
+    #: klucz niesie całą referencję i wykluczenia, więc edycja rekrutacji albo
+    #: nowe połączenie liczy się od nowa. Pisany wyłącznie na pętli zdarzeń.
+    rank_cache: dict[tuple, list[tuple[int, int, str, float]]] = field(
+        default_factory=dict
+    )
+    #: Rekrutacje, w których ktoś dotarł do klienta — pula rankingu
+    #: wektorowego. Doczytywana leniwie, żyje tyle co pula.
+    sent_ids: Optional[frozenset[int]] = None
 
 
 _pool = _Pool()
+
+#: Jedno przeładowanie puli naraz (runda 6 audytu): po wygaśnięciu TTL każde
+#: równoległe żądanie listy budowało własny indeks całej historii rekrutacji.
+_pool_lock = asyncio.Lock()
+_sent_lock = asyncio.Lock()
+
+# (id rekrutacji, podobieństwo 0–100, rodzaj miary, porządek). Porządek to
+# kosinus + premia klienta (wektor) albo punkty / 100 (leksykalnie).
+_Ranked = tuple[int, int, str, float]
+
+
+class Suggestion(NamedTuple):
+    job: PoolJob
+    similarity: int
+    kind: str
+    score: float
 
 
 def reset_pool_cache() -> None:
@@ -205,25 +326,16 @@ def reset_pool_cache() -> None:
     _pool = _Pool()
 
 
-async def _load_pool(db: AsyncSession) -> _Pool:
-    global _pool
-    if _pool.jobs and time.monotonic() - _pool.loaded_at < _POOL_TTL_SECONDS:
-        return _pool
-    rows = (
-        await db.execute(
-            select(
-                Job.id,
-                Job.title,
-                Job.client_id,
-                Job.reference_number,
-                Job.status,
-                Job.competence_category_id,
-                Job.must_skills,
-                Job.champion_profile,
-                Job.created_at,
-            ).where(Job.client_id.is_not(None))
-        )
-    ).all()
+def _pool_fresh() -> bool:
+    return bool(_pool.jobs) and time.monotonic() - _pool.loaded_at < _POOL_TTL_SECONDS
+
+
+def _build_pool(rows: Sequence[Any]) -> _Pool:
+    """Pula i indeks z pobranych wierszy — czysta funkcja, liczona w wątku.
+
+    Kilka tysięcy rekrutacji × kanonizacja umiejętności i Championa to CPU,
+    które na pętli zatrzymywało całe API (runda 6 audytu).
+    """
     pool = _Pool(loaded_at=time.monotonic())
     for row in rows:
         item = PoolJob(
@@ -238,12 +350,43 @@ async def _load_pool(db: AsyncSession) -> _Pool:
             skills=skill_set(row.must_skills, row.champion_profile),
             tokens=title_tokens(row.title),
             created_at=row.created_at,
+            # `getattr`: wiersz bez kolumny (starsze wywołania, atrapy) = brak daty.
+            opened_at=getattr(row, "opened_at", None),
         )
         pool.jobs[item.id] = item
         for key in item.skills | {f"t:{t}" for t in item.tokens}:
             pool.index.setdefault(key, set()).add(item.id)
-    _pool = pool
     return pool
+
+
+async def _load_pool(db: AsyncSession) -> _Pool:
+    global _pool
+    if _pool_fresh():
+        return _pool
+    async with _pool_lock:
+        # Kto czekał, zastaje pulę przeładowaną przez poprzednika.
+        if _pool_fresh():
+            return _pool
+        rows = (
+            await db.execute(
+                select(
+                    Job.id,
+                    Job.title,
+                    Job.client_id,
+                    Job.reference_number,
+                    Job.status,
+                    Job.competence_category_id,
+                    Job.must_skills,
+                    Job.champion_profile,
+                    Job.created_at,
+                    Job.opened_at,
+                ).where(Job.client_id.is_not(None))
+            )
+        ).all()
+        pool = await asyncio.to_thread(_build_pool, rows)
+        pool.loaded_at = time.monotonic()
+        _pool = pool
+        return pool
 
 
 def _rank(pool: _Pool, ref: PoolJob, exclude: set[int]) -> list[tuple[int, int]]:
@@ -262,11 +405,118 @@ def _rank(pool: _Pool, ref: PoolJob, exclude: set[int]) -> list[tuple[int, int]]
             other.skills,
             other.tokens,
             other.competence_category_id,
+            a_client=ref.client_id,
+            b_client=other.client_id,
         )
         if score >= MIN_SCORE:
             scored.append((job_id, score))
     scored.sort(key=lambda pair: (-pair[1], -pair[0]))
     return scored
+
+
+def _rank_cache_key(ref: PoolJob, exclude: frozenset[int]) -> tuple:
+    return (
+        RANK_VERSION,
+        ref.id,
+        ref.skills,
+        ref.tokens,
+        ref.competence_category_id,
+        ref.client_id,
+        exclude,
+    )
+
+
+def _lexical_ranked(pool: _Pool, ref: PoolJob, exclude: Iterable[int]) -> list[_Ranked]:
+    return [
+        (job_id, score, KIND_LEXICAL, score / 100)
+        for job_id, score in _rank(pool, ref, set(exclude))
+    ]
+
+
+def _rank_many(
+    pool: _Pool, work: list[tuple[tuple, PoolJob, frozenset[int]]]
+) -> dict[tuple, list[_Ranked]]:
+    """Ranking leksykalny wielu wierszy naraz (w wątku) — pula tylko czytana."""
+    return {
+        key: _lexical_ranked(pool, ref, exclude)[:MAX_SUGGESTIONS]
+        for key, ref, exclude in work
+    }
+
+
+def _vector_ranked(
+    pool: _Pool,
+    ref: PoolJob,
+    hits: Iterable[tuple[int, float]],
+    exclude: Iterable[int],
+) -> list[_Ranked]:
+    """Sąsiedzi wektorowi → ranking z premią za tego samego klienta.
+
+    ``similarity`` to sam kosinus × 100 (to pokazuje ekran); porządek
+    i plakietka listy liczą kosinus + premię."""
+    skip = {ref.id, *exclude}
+    out: list[_Ranked] = []
+    for job_id, cosine in hits:
+        other = pool.jobs.get(job_id)
+        if other is None or job_id in skip:
+            continue
+        same_client = ref.client_id is not None and ref.client_id == other.client_id
+        score = cosine + (VECTOR_CLIENT_BONUS if same_client else 0.0)
+        similarity = max(0, min(100, round(cosine * 100)))
+        out.append((job_id, similarity, KIND_VECTOR, score))
+    out.sort(key=lambda item: (-item[3], -item[0]))
+    return out
+
+
+async def _sent_job_ids(db: AsyncSession, pool: _Pool) -> frozenset[int]:
+    """Rekrutacje z kimkolwiek, kto dotarł do klienta (od „CV wysłane”) —
+    ta sama reguła co :func:`sent_counts`, dla całej puli naraz."""
+    if pool.sent_ids is not None:
+        return pool.sent_ids
+    async with _sent_lock:
+        if pool.sent_ids is None:
+            rows = (
+                await db.execute(
+                    select(CandidateStage.job_id)
+                    .where(CandidateStage.stage.in_(CLIENT_STAGES))
+                    .distinct()
+                )
+            ).all()
+            pool.sent_ids = frozenset(int(row[0]) for row in rows)
+    return pool.sent_ids
+
+
+async def _vector_neighbours(
+    db: AsyncSession,
+    pool: _Pool,
+    refs: Sequence[tuple[PoolJob, frozenset[int]]],
+    *,
+    timeout: float = _VECTOR_TIMEOUT_SECONDS,
+) -> Optional[dict[int, list[tuple[int, float]]]]:
+    """Najbliższe wektorowo rekrutacje z osobami u klienta, per referencja.
+
+    Referencja bez wektora nie ma klucza w wyniku; ``None`` = Qdrant nie
+    odpowiedział (albo przekroczył czas) — wołający liczy wtedy leksykalnie.
+    """
+    from app.services import embedding_service  # noqa: PLC0415
+
+    wanted = [(ref, exclude) for ref, exclude in refs if ref.id]
+    if not wanted:
+        return {}
+    try:
+        sent = await _sent_job_ids(db, pool)
+        candidates = [job_id for job_id in pool.jobs if job_id in sent]
+        return await asyncio.wait_for(
+            embedding_service.nearest_jobs_for_job_ids(
+                [ref.id for ref, _ in wanted],
+                candidates,
+                exclude={ref.id: sorted(exclude) for ref, exclude in wanted},
+                limit=VECTOR_CANDIDATE_LIMIT,
+            ),
+            timeout=timeout,
+        )
+    except Exception:  # noqa: BLE001 — podpowiedź, nie warunek; zapas leksykalny
+        logger.warning("similar jobs: vector ranking unavailable", exc_info=True)
+        return None
 
 
 def _as_pool_job(job: Any) -> PoolJob:
@@ -283,6 +533,7 @@ def _as_pool_job(job: Any) -> PoolJob:
         ),
         tokens=title_tokens(getattr(job, "title", None)),
         created_at=getattr(job, "created_at", None),
+        opened_at=getattr(job, "opened_at", None),
     )
 
 
@@ -324,6 +575,154 @@ async def sent_counts(db: AsyncSession, job_ids: Iterable[int]) -> dict[int, int
     return {job_id: int(n) for job_id, n in rows}
 
 
+async def at_client_counts(db: AsyncSession, job_ids: Iterable[int]) -> dict[int, int]:
+    """Ile osób w rekrutacji stoi DZIŚ u klienta (od „CV wysłane”) — jak Tablica.
+
+    W odróżnieniu od :func:`sent_counts` liczy bieżący etap pary, więc osoba
+    wysłana i potem odrzucona już się nie liczy. Na tym stoi kolumna
+    „Wysłani” na pulpicie requestów (do 19.10.2026 pokazywała historię:
+    4 przy jednej karcie w „CV wysłane”).
+
+    „U klienta” = kolumny Tablicy od „CV wysłane” do „Zatrudnionych”, liczone
+    z NAZWY etapu szablonu razem z kodem wiersza (``board_column_for``), nie
+    z samego kodu: „Po Interview” ma kod ``interview``, a „Rezerwa” — kod
+    ``cv_sent`` (21.10.2026)."""
+    return await board_column_counts(db, job_ids, AT_CLIENT_COLUMNS)
+
+
+async def board_column_counts(
+    db: AsyncSession, job_ids: Iterable[int], columns: Sequence[str]
+) -> dict[int, int]:
+    """Ile osób w rekrutacji stoi DZIŚ w jednej z kolumn Tablicy.
+
+    Bieżący etap pary (``latest_stage_ids``) i kolumna z nazwy etapu szablonu
+    razem z kodem wiersza — ta sama reguła co Tablica. Na niej stoją
+    „Zweryf.”, „QC CV” i „Wysłani” na pulpicie requestów (23.10.2026)."""
+    from app.services.candidate_stage_column import (  # noqa: PLC0415
+        column_clause,
+        column_rule,
+        load_stage_defs,
+    )
+    from app.services.pipeline_latest import latest_stage_ids  # noqa: PLC0415
+
+    ids = list(set(job_ids))
+    if not ids:
+        return {}
+    rule = column_rule(columns, await load_stage_defs(db))
+    latest = latest_stage_ids(job_ids=ids)
+    rows = (
+        await db.execute(
+            select(CandidateStage.job_id, func.count(CandidateStage.candidate_id))
+            .where(
+                CandidateStage.id.in_(select(latest.c.latest_id)),
+                column_clause(rule, CandidateStage.stage_def_id, CandidateStage.stage),
+            )
+            .group_by(CandidateStage.job_id)
+        )
+    ).all()
+    return {job_id: int(n) for job_id, n in rows}
+
+
+async def reassignable_counts(
+    db: AsyncSession, target_job_id: int, source_job_ids: Iterable[int]
+) -> tuple[dict[int, int], int]:
+    """Ile osób z każdej rekrutacji źródłowej DA SIĘ przepiąć do celu
+    i ile to różnych osób łącznie.
+
+    Ta sama reguła co ``selectable`` w :func:`sent_people`: wiersz
+    w ``REASSIGN_STAGES``, bez zatrudnienia w źródle i bez żadnego wiersza
+    w celu. Na tej liczbie stoją odznaka w nagłówku, pasek w „Nowych”
+    i „Najbliższy krok” — suma ``sent_count`` liczyła też zatrudnionych
+    i obecnych, więc krok potrafił wisieć bez nikogo do przepięcia.
+    """
+    sources = [sid for sid in set(source_job_ids) if sid != target_job_id]
+    if not sources:
+        return {}, 0
+    hired = aliased(CandidateStage)
+    in_target = aliased(CandidateStage)
+    rows = (
+        await db.execute(
+            select(CandidateStage.job_id, CandidateStage.candidate_id)
+            .distinct()
+            .where(
+                CandidateStage.job_id.in_(sources),
+                CandidateStage.stage.in_(REASSIGN_STAGES),
+                ~exists().where(
+                    hired.candidate_id == CandidateStage.candidate_id,
+                    hired.job_id == CandidateStage.job_id,
+                    hired.stage == PipelineStage.hired,
+                ),
+                ~exists().where(
+                    in_target.candidate_id == CandidateStage.candidate_id,
+                    in_target.job_id == target_job_id,
+                ),
+            )
+        )
+    ).all()
+    per_job: dict[int, int] = {}
+    people: set[int] = set()
+    for job_id, candidate_id in rows:
+        per_job[job_id] = per_job.get(job_id, 0) + 1
+        people.add(candidate_id)
+    return per_job, len(people)
+
+
+async def rest_counts(
+    db: AsyncSession, target_job_id: int, source_job_ids: Iterable[int]
+) -> tuple[dict[int, int], int]:
+    """Ile osób „reszty” z każdej rekrutacji źródłowej da się dodać do celu
+    i ile to różnych osób łącznie — jedno zapytanie.
+
+    Ta sama reguła co ``sent=False`` w :func:`sent_people`: wiersz w
+    ``REST_STAGES``, żadnego wiersza u klienta w tej rekrutacji i żadnego
+    wiersza w celu. Liczba łączna pomija osoby, które w KTÓREJKOLWIEK z tych
+    rekrutacji dotarły do klienta — te liczy już ``reassignable_people``
+    (albo są zatrudnione), więc obie liczby dają się dodać.
+    """
+    sources = [sid for sid in set(source_job_ids) if sid != target_job_id]
+    if not sources:
+        return {}, 0
+    at_client = aliased(CandidateStage)
+    in_target = aliased(CandidateStage)
+    sent_anywhere = aliased(CandidateStage)
+    rows = (
+        await db.execute(
+            select(
+                CandidateStage.job_id,
+                CandidateStage.candidate_id,
+                exists()
+                .where(
+                    sent_anywhere.candidate_id == CandidateStage.candidate_id,
+                    sent_anywhere.job_id.in_(sources),
+                    sent_anywhere.stage.in_(CLIENT_STAGES),
+                )
+                .label("sent_anywhere"),
+            )
+            .distinct()
+            .where(
+                CandidateStage.job_id.in_(sources),
+                CandidateStage.stage.in_(REST_STAGES),
+                ~exists().where(
+                    at_client.candidate_id == CandidateStage.candidate_id,
+                    at_client.job_id == CandidateStage.job_id,
+                    at_client.stage.in_(CLIENT_STAGES),
+                ),
+                ~exists().where(
+                    in_target.candidate_id == CandidateStage.candidate_id,
+                    in_target.job_id == target_job_id,
+                ),
+            )
+        )
+    ).all()
+    per_job: dict[int, int] = {}
+    people: set[int] = set()
+    for job_id, candidate_id, sent in rows:
+        per_job[job_id] = per_job.get(job_id, 0) + 1
+        if not sent:
+            people.add(candidate_id)
+    return per_job, len(people)
+
+
 async def reassign_counts(db: AsyncSession, job_ids: Sequence[int]) -> dict[int, int]:
     from app.models.job_proposal import JobProposal  # noqa: PLC0415
 
@@ -341,19 +740,93 @@ async def reassign_counts(db: AsyncSession, job_ids: Sequence[int]) -> dict[int,
     return {job_id: int(n) for job_id, n in rows}
 
 
+def _as_suggestions(pool: _Pool, ranked: Iterable[_Ranked]) -> list[Suggestion]:
+    return [
+        Suggestion(pool.jobs[job_id], similarity, kind, score)
+        for job_id, similarity, kind, score in ranked
+    ]
+
+
 async def suggestions_for_job(
     db: AsyncSession,
     job: Any,
     *,
     exclude: Iterable[int] = (),
     limit: int = MAX_SUGGESTIONS,
-) -> list[tuple[PoolJob, int]]:
-    """Najbardziej podobne rekrutacje (bez już połączonych). Działa też dla
-    rekrutacji jeszcze niezapisanej — wystarczy obiekt z tytułem i must-have."""
+) -> list[Suggestion]:
+    """Najbardziej podobne rekrutacje (bez już połączonych).
+
+    Zapisana rekrutacja z wektorem → ranking wektorowy (tylko rekrutacje
+    z osobami u klienta, premia za tego samego klienta, bez progu). Bez
+    wektora, przy awarii Qdranta i dla obiektu bez id — miara leksykalna
+    z progiem :data:`MIN_SCORE`, jak przed 30.09.2026.
+    """
     pool = await _load_pool(db)
     ref = _as_pool_job(job)
-    ranked = _rank(pool, ref, set(exclude))[:limit]
-    return [(pool.jobs[job_id], score) for job_id, score in ranked]
+    excluded = frozenset(exclude)
+    if ref.id:
+        hits = await _vector_neighbours(db, pool, [(ref, excluded)])
+        if hits is not None and ref.id in hits:
+            ranked = _vector_ranked(pool, ref, hits[ref.id], excluded)
+            return _as_suggestions(pool, ranked[:limit])
+    return _as_suggestions(pool, _lexical_ranked(pool, ref, excluded)[:limit])
+
+
+def _draft_text(title: str, must_skills: Sequence[str]) -> str:
+    must = ", ".join(s.strip() for s in must_skills if s and s.strip())
+    return f"{title.strip()}\n{must}".strip()
+
+
+async def preview_suggestions(
+    db: AsyncSession,
+    draft: Any,
+    *,
+    limit: int = MAX_SUGGESTIONS,
+) -> list[Suggestion]:
+    """Podobne rekrutacje dla szkicu z /jobs/new (bez zapisanego wektora).
+
+    Szkic (tytuł + must-have) jest embedowany jak zapytanie wyszukiwarki
+    (``full_search_measurement.request_vector`` — z pamięcią podręczną) i
+    porównywany z wektorami rekrutacji z osobami u klienta. Awaria Voyage'a
+    albo Qdranta = miara leksykalna.
+    """
+    from app.services import embedding_service  # noqa: PLC0415
+    from app.services import full_search_measurement  # noqa: PLC0415
+
+    pool = await _load_pool(db)
+    ref = _as_pool_job(draft)
+    text = _draft_text(
+        getattr(draft, "title", "") or "", getattr(draft, "must_skills", None) or []
+    )
+    if text:
+        try:
+            vector = await asyncio.wait_for(
+                full_search_measurement.request_vector(text),
+                timeout=_DRAFT_EMBED_TIMEOUT_SECONDS,
+            )
+            if vector:
+                sent = await _sent_job_ids(db, pool)
+                candidates = [job_id for job_id in pool.jobs if job_id in sent]
+                hits = await asyncio.wait_for(
+                    embedding_service.nearest_jobs_for_vector(
+                        vector, candidates, limit=VECTOR_CANDIDATE_LIMIT
+                    ),
+                    timeout=_VECTOR_TIMEOUT_SECONDS,
+                )
+                if hits is not None:
+                    ranked = _vector_ranked(pool, ref, hits, ())
+                    return _as_suggestions(pool, ranked[:limit])
+        except Exception:  # noqa: BLE001 — podpowiedź; zapas leksykalny
+            logger.warning("similar jobs preview: vector unavailable", exc_info=True)
+    return _as_suggestions(pool, _lexical_ranked(pool, ref, ())[:limit])
+
+
+def counts_for_badge(item: _Ranked) -> bool:
+    """Czy sugestia zapala plakietkę „≈” na liście. Leksykalne przeszły już
+    próg :data:`MIN_SCORE`; wektorowe muszą mieć (kosinus + premia) co
+    najmniej :data:`SIMILAR_JOBS_BADGE_MIN_COSINE`."""
+    _job_id, _similarity, kind, score = item
+    return kind != KIND_VECTOR or score >= SIMILAR_JOBS_BADGE_MIN_COSINE
 
 
 async def suggestion_summaries(
@@ -362,27 +835,63 @@ async def suggestion_summaries(
     """Dla listy: ile podobnych (niepołączonych) rekrutacji z osobami
     wysłanymi do klienta ma każda rekrutacja. Tylko otwarte wiersze."""
     pool = await _load_pool(db)
-    ranked_by_job: dict[int, list[tuple[int, int]]] = {}
-    wanted: set[int] = set()
+    # Referencje z obiektów ORM składamy na pętli (atrybuty są już wczytane).
+    # Ranking wektorowy strony to jedno wywołanie Qdranta (paczki zapytań),
+    # leksykalny zapas — ~0,4 s CPU przy 100 wierszach — idzie w wątku.
+    # Wynik zostaje w pamięci puli (runda 6 audytu), chyba że Qdrant nie
+    # odpowiedział — wtedy następna strona spróbuje wektora znowu.
+    keys_by_job: dict[int, tuple] = {}
+    work: list[tuple[tuple, PoolJob, frozenset[int]]] = []
     for job in jobs:
         status = job.status.value if hasattr(job.status, "value") else job.status
         if status == JobStatus.closed.value:
             continue
-        ranked = _rank(pool, _as_pool_job(job), set(linked.get(job.id, [])))[
-            :MAX_SUGGESTIONS
-        ]
-        ranked_by_job[job.id] = ranked
-        wanted.update(job_id for job_id, _ in ranked)
+        ref = _as_pool_job(job)
+        exclude = frozenset(linked.get(job.id, []))
+        key = _rank_cache_key(ref, exclude)
+        keys_by_job[job.id] = key
+        if key not in pool.rank_cache:
+            work.append((key, ref, exclude))
+    uncached: dict[tuple, list[_Ranked]] = {}
+    if work:
+        hits = await _vector_neighbours(
+            db,
+            pool,
+            [(ref, exclude) for _key, ref, exclude in work],
+            timeout=_VECTOR_LIST_TIMEOUT_SECONDS,
+        )
+        lexical_work = []
+        for key, ref, exclude in work:
+            if hits is not None and ref.id in hits:
+                ranked = _vector_ranked(pool, ref, hits[ref.id], exclude)
+                pool.rank_cache[key] = ranked[:MAX_SUGGESTIONS]
+            else:
+                lexical_work.append((key, ref, exclude))
+        if lexical_work:
+            lexical = await asyncio.to_thread(_rank_many, pool, lexical_work)
+            # Brak wektora to stan (pamiętamy), awaria Qdranta — nie.
+            (uncached if hits is None else pool.rank_cache).update(lexical)
+    ranked_by_job: dict[int, list[_Ranked]] = {}
+    wanted: set[int] = set()
+    for job_id, key in keys_by_job.items():
+        ranked = uncached[key] if key in uncached else pool.rank_cache.get(key, [])
+        ranked_by_job[job_id] = ranked
+        wanted.update(item[0] for item in ranked)
     sent = await sent_counts(db, wanted)
     out: dict[int, dict] = {}
     for job_id, ranked in ranked_by_job.items():
-        with_people = [(jid, score) for jid, score in ranked if sent.get(jid, 0) > 0]
+        with_people = [
+            item
+            for item in ranked
+            if sent.get(item[0], 0) > 0 and counts_for_badge(item)
+        ]
         if not with_people:
             continue
         first = pool.jobs[with_people[0][0]]
         out[job_id] = {
             "count": len(with_people),
-            "sent_count": sum(sent.get(jid, 0) for jid, _ in with_people),
+            "sent_count": sum(sent.get(item[0], 0) for item in with_people),
+            "kind": with_people[0][2],
             "first": {
                 "id": first.id,
                 "title": first.title,
@@ -395,6 +904,21 @@ async def suggestion_summaries(
 # ── Przepięcia ────────────────────────────────────────────────────────────
 
 
+def _local_day_iso(moment: Optional[datetime]) -> Optional[str]:
+    """Dzień wysłania w kalendarzu firmy (Europe/Warsaw), nie UTC.
+
+    ``moved_at`` jest w UTC — ``.date()`` datowało wysyłkę z 00:00–02:00
+    czasu polskiego dniem wcześniej (audyt 25.09.2026). Czas bez strefy
+    traktujemy jak UTC (tak zapisuje baza).
+    """
+
+    if moment is None:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(ZoneInfo(DEFAULT_TZ)).date().isoformat()
+
+
 def _reassign_evidence(
     source_job_id: int, stage: PipelineStage, sent_at: Optional[datetime]
 ) -> dict:
@@ -402,20 +926,30 @@ def _reassign_evidence(
         "reassign": {
             "job_id": source_job_id,
             "stage": stage.value,
-            "sent_at": sent_at.date().isoformat() if sent_at else None,
+            "sent_at": _local_day_iso(sent_at),
         }
     }
 
 
-async def _open_job_ids(db: AsyncSession, job_ids: Iterable[int]) -> set[int]:
+async def _open_job_ids(
+    db: AsyncSession, job_ids: Iterable[int], *, in_work_only: bool = False
+) -> set[int]:
+    """Rekrutacje, które przyjmują przepięcia.
+
+    ``in_work_only`` — hak ruchu (automat): tylko requesty w pracy
+    (`request_work_state.IN_WORK_STATES`, runda 7 N2-4). Request „Zakończony”
+    albo „Klient milczy” jest nadal ``published``, ale automaty go omijają.
+    Przepięcie klikane przez człowieka (``reassign_into``) stanu nie pyta.
+    """
     ids = list(set(job_ids))
     if not ids:
         return set()
-    rows = (
-        await db.execute(
-            select(Job.id).where(Job.id.in_(ids), Job.status != JobStatus.closed)
-        )
-    ).scalars()
+    query = select(Job.id).where(Job.id.in_(ids), Job.status != JobStatus.closed)
+    if in_work_only:
+        from app.services.request_work_state import IN_WORK_STATES  # noqa: PLC0415
+
+        query = query.where(Job.work_state.in_(IN_WORK_STATES))
+    rows = (await db.execute(query)).scalars()
     return set(rows)
 
 
@@ -469,6 +1003,242 @@ async def reassign_into(
     if not payload:
         return 0
     return await upsert_proposals(db, target_job_id, payload, source="reassign")
+
+
+_OUTCOME_ORDER = {
+    "in_progress": 0,
+    "rejected_by_client": 1,
+    "rejected": 2,
+    "withdrawn": 3,
+    "hired": 4,
+}
+
+
+class SentPeople(dict[int, list[dict]]):
+    """``{rekrutacja źródłowa: [osoby]}`` z :func:`sent_people`.
+
+    ``rest_total`` — ile osób „reszty” ma każda rekrutacja PRZED przycięciem
+    do :data:`MAX_REST_PEOPLE_PER_JOB` (puste, gdy o resztę nie proszono).
+    """
+
+    rest_total: dict[int, int]
+
+    def __init__(self, sources: Iterable[int]) -> None:
+        super().__init__({sid: [] for sid in sources})
+        self.rest_total = {}
+
+
+def _process_outcome(history: Sequence[Any]) -> str:
+    """Jak skończył się proces pary — z jej wierszy etapów, od najstarszego."""
+    latest = history[-1]
+    if any(r.stage == PipelineStage.hired for r in history):
+        return "hired"
+    if latest.stage == PipelineStage.rejected:
+        return "rejected_by_client" if latest.ended_by == "client" else "rejected"
+    if latest.stage == PipelineStage.withdrawn:
+        return "withdrawn"
+    return "in_progress"
+
+
+async def sent_people(
+    db: AsyncSession,
+    target_job_id: int,
+    source_job_ids: Sequence[int],
+    *,
+    include_rest: bool = False,
+) -> SentPeople:
+    """Osoby wysłane do klienta w ``source_job_ids`` — do panelu przepięć.
+
+    Ta sama reguła „był u klienta" co :func:`reassign_into`: jakikolwiek
+    wiersz w ``REASSIGN_STAGES``. Zatrudnieni w źródle i osoby, które już są
+    w rekrutacji docelowej, wracają z ``selectable=False`` — panel ich
+    pokazuje, ale nie da się ich przepiąć (decyzja Artura 25.09.2026).
+
+    Wynik pamięta, jak skończył się tamten proces (``outcome``), bo odrzucony
+    przez klienta też jest zaznaczany i rekruter ma to widzieć przed kliknięciem.
+
+    ``include_rest`` (02.10.2026) dokłada ZA wysłanymi „resztę” rekrutacji:
+    osoby bez żadnego wiersza u klienta, które doszły co najmniej do jednego
+    z ``REST_STAGES`` (``sent=False``, ``sent_at=None``, ``furthest_stage`` =
+    najdalszy z tych etapów). Kolejność reszty: najpierw osoby do wybrania,
+    potem od ostatnio ruszanych; najwyżej :data:`MAX_REST_PEOPLE_PER_JOB` na
+    rekrutację, pełna liczba w ``rest_total``. Bez flagi wynik jest taki jak
+    dotąd — na nim stoi walidacja przepięcia (``/similar/reassign``), która
+    reszty nie przyjmuje.
+    """
+    from app.models.candidate import Candidate  # noqa: PLC0415
+
+    sources = [sid for sid in dict.fromkeys(source_job_ids) if sid != target_job_id]
+    out = SentPeople(sources)
+    if not sources:
+        return out
+    reached = aliased(CandidateStage)
+    reached_stages = REASSIGN_STAGES + (REST_STAGES if include_rest else ())
+    rows = (
+        await db.execute(
+            select(
+                CandidateStage.candidate_id,
+                CandidateStage.job_id,
+                CandidateStage.stage,
+                CandidateStage.moved_at,
+                CandidateStage.ended_by,
+                Candidate.name,
+                Candidate.lastname,
+            )
+            .join(Candidate, Candidate.id == CandidateStage.candidate_id)
+            .where(
+                CandidateStage.job_id.in_(sources),
+                exists().where(
+                    reached.candidate_id == CandidateStage.candidate_id,
+                    reached.job_id == CandidateStage.job_id,
+                    reached.stage.in_(reached_stages),
+                ),
+            )
+            .order_by(
+                CandidateStage.job_id,
+                CandidateStage.candidate_id,
+                CandidateStage.moved_at,
+                CandidateStage.id,
+            )
+        )
+    ).all()
+    candidate_ids = {row.candidate_id for row in rows}
+    in_target: set[int] = set()
+    if candidate_ids:
+        in_target = set(
+            (
+                await db.execute(
+                    select(CandidateStage.candidate_id).where(
+                        CandidateStage.job_id == target_job_id,
+                        CandidateStage.candidate_id.in_(list(candidate_ids)),
+                    )
+                )
+            ).scalars()
+        )
+
+    pairs: dict[tuple[int, int], list[Any]] = {}
+    for row in rows:
+        pairs.setdefault((row.job_id, row.candidate_id), []).append(row)
+
+    client_order = {stage: i for i, stage in enumerate(CLIENT_STAGES)}
+    rest_order = {stage: i for i, stage in enumerate(REST_STAGES)}
+    rest: dict[int, list[tuple[datetime, dict]]] = {sid: [] for sid in sources}
+    for (job_id, candidate_id), history in pairs.items():
+        sent_rows = [r for r in history if r.stage in REASSIGN_STAGES]
+        latest = history[-1]
+        outcome = _process_outcome(history)
+        already = candidate_id in in_target
+        name = f"{latest.name or ''} {latest.lastname or ''}".strip()
+        if not sent_rows:
+            # Reszta: bez żadnego wiersza u klienta (zatrudniony albo
+            # w onboardingu bez „CV wysłane” to nie jest ktoś do wzięcia).
+            reached_rest = [r.stage for r in history if r.stage in rest_order]
+            if not reached_rest or any(r.stage in client_order for r in history):
+                continue
+            rest[job_id].append(
+                (
+                    latest.moved_at,
+                    {
+                        "candidate_id": candidate_id,
+                        "name": name,
+                        "furthest_stage": max(
+                            reached_rest, key=lambda stage: rest_order[stage]
+                        ).value,
+                        "sent_at": None,
+                        "outcome": outcome,
+                        "already_in_job": already,
+                        "selectable": not already,
+                        "sent": False,
+                    },
+                )
+            )
+            continue
+        hired = outcome == "hired"
+        furthest = max(
+            (r.stage for r in history if r.stage in client_order),
+            key=lambda stage: client_order[stage],
+        )
+        last_sent = sent_rows[-1]
+        out[job_id].append(
+            {
+                "candidate_id": candidate_id,
+                "name": name,
+                "furthest_stage": furthest.value,
+                "sent_at": _local_day_iso(sent_rows[0].moved_at),
+                "outcome": outcome,
+                "already_in_job": already,
+                "selectable": not hired and not already,
+                "sent": True,
+                "reassign_stage": last_sent.stage.value,
+                "reassign_at": last_sent.moved_at,
+            }
+        )
+    for people in out.values():
+        people.sort(
+            key=lambda p: (
+                not p["selectable"],
+                _OUTCOME_ORDER.get(p["outcome"], 9),
+                p["sent_at"] or "",
+            )
+        )
+    if include_rest:
+        for job_id, entries in rest.items():
+            out.rest_total[job_id] = len(entries)
+            # Najpierw od ostatnio ruszanych, potem (stabilnie) do wybrania.
+            entries.sort(key=lambda entry: entry[0], reverse=True)
+            entries.sort(key=lambda entry: not entry[1]["selectable"])
+            out[job_id].extend(
+                person for _moved, person in entries[:MAX_REST_PEOPLE_PER_JOB]
+            )
+    return out
+
+
+async def propose_selected(
+    db: AsyncSession, target_job_id: int, people: Sequence[Mapping[str, Any]]
+) -> int:
+    """Przepięcie wskazane ręcznie: propozycja ``reassign`` z dowodem źródła,
+    w statusie ``proposed`` — także gdy wcześniej ją pominięto albo cel jest
+    zamknięty. Dzięki temu dodanie do pipeline'u zapisze wejście jako
+    „przepięcie" z rekrutacją źródłową (``proposals_bulk._reassign_sources``).
+    """
+    from app.models.job_proposal import JobProposal  # noqa: PLC0415
+    from app.services.job_proposals import upsert_proposals  # noqa: PLC0415
+
+    payload = [
+        {
+            "candidate_id": p["candidate_id"],
+            "evidence": _reassign_evidence(
+                p["source_job_id"],
+                PipelineStage(p["reassign_stage"]),
+                p.get("reassign_at"),
+            ),
+        }
+        for p in people
+    ]
+    if not payload:
+        return 0
+    written = await upsert_proposals(db, target_job_id, payload, source="reassign")
+    # Rekruter wybrał te osoby teraz — wcześniejsze „Pomiń" tej propozycji
+    # nie może zamienić przepięcia w zwykłe ręczne dodanie. `added` też:
+    # po „Cofnij” osoby nie ma w celu (wołający sprawdził `selectable`), a
+    # propozycja została `added` — bez tego ponowne przepięcie szło jako
+    # ręczne dodanie, bez rekrutacji źródłowej na karcie.
+    await db.execute(
+        update(JobProposal)
+        .where(
+            JobProposal.job_id == target_job_id,
+            JobProposal.source == "reassign",
+            JobProposal.candidate_id.in_([p["candidate_id"] for p in people]),
+            JobProposal.status.in_(("dismissed", "added")),
+        )
+        .values(
+            status="proposed",
+            dismissed_by=None,
+            dismissed_at=None,
+            dismissed_cv_revision=None,
+        )
+    )
+    return written
 
 
 async def link_jobs(
@@ -536,6 +1306,21 @@ async def on_candidate_sent(
         return 0
     try:
         async with db.begin_nested():
+            # Runda 7 (N2-2): zatrudnionych w źródle nie przepinamy — tę samą
+            # regułę mają `sent_people` i `reassign_into`. Ruch w NEXUSIE
+            # nie może trafić na zatrudnionego, ale import dopisuje „Akceptację”
+            # i „Zatrudniony” jednym wsadem, a hak woła się dopiero po nim.
+            hired_in_source = await db.scalar(
+                select(
+                    exists().where(
+                        CandidateStage.candidate_id == candidate_id,
+                        CandidateStage.job_id == job_id,
+                        CandidateStage.stage == PipelineStage.hired,
+                    )
+                )
+            )
+            if hired_in_source:
+                return 0
             targets = (
                 (
                     await db.execute(
@@ -547,7 +1332,7 @@ async def on_candidate_sent(
                 .scalars()
                 .all()
             )
-            open_targets = await _open_job_ids(db, targets)
+            open_targets = await _open_job_ids(db, targets, in_work_only=True)
             if not open_targets:
                 return 0
             already = set(
@@ -606,7 +1391,7 @@ def request_status_subquery(job_ids: Any):
                 func.distinct(
                     case(
                         (
-                            CandidateStage.stage == PipelineStage.hired,
+                            CandidateStage.stage.in_(HIRED_STAGES),
                             CandidateStage.candidate_id,
                         )
                     )
@@ -624,16 +1409,73 @@ def request_status_subquery(job_ids: Any):
 
 
 def request_status_expr(sq):
-    """Jedna reguła statusu — filtr listy i wiersz listy czytają to samo."""
+    """Jedna reguła statusu — filtr listy i wiersz listy czytają to samo.
+
+    Champion liczy się WYŁĄCZNIE przy „Szukamy” — ta sama reguła co
+    ``request_stage_expr`` i ``request_work_state.visible_state``. Runda 11
+    (PIPE-2) wyłączyła „Klient milczy” i „Zakończony”; runda 12 (BACK-1)
+    także „Do przejrzenia”: tam pigułka stanu i pulpit mówią „Do
+    przejrzenia”, a status mówił „Mamy championa”. Słownik statusu nie zna
+    tych stanów, więc taki request spada do dalszych gałęzi (szkic /
+    „Szukamy”)."""
     hired = func.coalesce(sq.c.hired_n, 0)
     return case(
         (Job.status == JobStatus.closed, "closed"),
         (and_(hired > 0, hired >= func.greatest(Job.headcount, 1)), "filled"),
         (func.coalesce(sq.c.contract_n, 0) > 0, "contract"),
-        (Job.champion_found_at.is_not(None), "champion"),
+        (
+            and_(Job.work_state == "searching", Job.champion_found_at.is_not(None)),
+            "champion",
+        ),
         (Job.status == JobStatus.draft, "incomplete"),
         else_="searching",
     )
+
+
+def request_stage_expr(sq):
+    """Jedna wartość stanu requestu na rekrutację (lista `/jobs`, 25.09.2026).
+
+    Najpierw fakty z pipeline'u i championa (jak ``request_status_expr``),
+    potem stan pracy prowadzony w NEXUSIE (`jobs.work_state`). Szkic jest
+    „Do uzupełnienia” niezależnie od stanu pracy.
+
+    Runda 10 (R10-X2-1): champion liczy się WYŁĄCZNIE przy „Szukamy” — ta
+    sama reguła co ``request_work_state.visible_state`` (pulpit, „Porządek
+    w requestach”). „Klient milczy” i „Zakończony” z championem nie trafiały
+    pod pigułkę „Mamy championa”. Wspólne przypadki:
+    ``frontend/src/lib/__fixtures__/request-work-state-cases.json``."""
+    hired = func.coalesce(sq.c.hired_n, 0)
+    return case(
+        (Job.status == JobStatus.closed, "closed"),
+        (and_(hired > 0, hired >= func.greatest(Job.headcount, 1)), "filled"),
+        (func.coalesce(sq.c.contract_n, 0) > 0, "contract"),
+        (
+            and_(Job.work_state == "searching", Job.champion_found_at.is_not(None)),
+            "champion",
+        ),
+        (Job.status == JobStatus.draft, "incomplete"),
+        (Job.work_state == "finished", "finished"),
+        (Job.work_state == "client_silent", "client_silent"),
+        (Job.work_state == "searching", "searching"),
+        else_="to_review",
+    )
+
+
+async def request_statuses_and_stages(
+    db: AsyncSession, job_ids: Sequence[int]
+) -> dict[int, tuple[str, str]]:
+    """``{job_id: (request_status, request_stage)}`` jednym zapytaniem."""
+    if not job_ids:
+        return {}
+    sq = request_status_subquery(list(job_ids))
+    rows = (
+        await db.execute(
+            select(Job.id, request_status_expr(sq), request_stage_expr(sq))
+            .outerjoin(sq, sq.c.job_id == Job.id)
+            .where(Job.id.in_(list(job_ids)))
+        )
+    ).all()
+    return {job_id: (status, stage) for job_id, status, stage in rows}
 
 
 async def request_statuses(db: AsyncSession, job_ids: Sequence[int]) -> dict[int, str]:

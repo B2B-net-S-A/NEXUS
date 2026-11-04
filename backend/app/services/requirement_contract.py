@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from app.schemas.matching_requirements import MatchingRequirements, SkillRequirement
+from app.services import skill_freshness
 
 _ALTERNATIVE = re.compile(r"\s+(?:lub|albo|or)\s+", re.IGNORECASE)
 # `SkillRequirement` accepts names of at most 100 characters.
@@ -90,7 +91,40 @@ def requirements_for_job(job) -> MatchingRequirements:
 # pracy ukrywają, zgoda na ofertę poniżej minimum / więcej dni w biurze nie.
 # v5 (audyt 24.09.2026): sprzeczny wymiar pracy tylko ostrzega (plakietka
 # `work_time_fit`), nie ukrywa.
-MUST_GATE_POLICY_VERSION = "known-technology-gap-v5"
+# v6 (25.09.2026): polskie słowa i litery z surowego CV („różni”, „jest”)
+# przestały być znanymi umiejętnościami R/C/Jest/Go (`is_technology_mention`).
+# v7 (27.09.2026, runda 9 R9-N8-6): „wyłącznie zdalnie” z notatek nie ukrywa
+# osoby, która ma w profilu jawny tryb pracy, limit dni w biurze albo zgodę
+# na więcej dni.
+# v8 (27.09.2026, decyzja Artura): must spełnia profil, CV albo notatka;
+# bramka tylko na technologiach (bez wersji, przykłady klienta jako „lub”);
+# kandydat bez żadnych danych ukryty (`no_data`); inne miasto ukrywa dopiero
+# od 4 dni w biurze; nazwy miast porównywane przez słownik miejscowości.
+# v9 (30.09.2026, decyzje Artura): ukrywają tylko umiejętności krytyczne
+# (0–3, decyzja DL albo podpowiedź z historii — `critical_skills`); budżet
+# i dni w biurze tylko plakietka; kandydat bez żadnych danych ukryty zawsze;
+# role i metodyki ze słownika nie są technologią (`must_gate_terms`).
+# v9.1 (30.09.2026): słowna wersja („Java (minimalna 11)”, „Oracle (min.
+# 19c)”) jest odcinana jak „Java 11+” — wcześniej cała pozycja nie bramkowała.
+# v10 (07.10.2026, audyt AI Search): braki z notatek i przeczące odpowiedzi
+# z karty nie są dowodem; „tylko zdalnie” ukrywa tylko przy pracy
+# stacjonarnej/4+ dniach (hybryda = plakietka `remote_fit`); podpowiedź
+# krytycznych z tytułu albo z pierwszych 3 pozycji listy ≤ 8; „C#” bez
+# rozróżniania wielkości liter, rodzina SQL ⇒ SQL, PlantUML ⇒ UML.
+# v10.1 (07.10.2026, audyt rekrutacji, PR #2056): fraza przez nawias,
+# dwukropek, przecinek i kropkę (K7), odmiana must-have w CV i notatkach
+# (K12) i CV czekające na odczyt tekstu to nie „brak danych” (K9) — zmienia,
+# kogo bramka ukrywa.
+# v11 (09.10.2026, decyzja Artura): krytyczną z wyboru Delivery Leada może być
+# dowolna fraza, nie tylko nazwa technologii; bramka szuka wtedy słów jej
+# wiersza w profilu, CV i notatkach, a słowa wiersza liczą się też przy
+# technologii (`critical_skills.critical_gate_options`).
+# v12 (13.10.2026, pomiar na produkcji): nawias po technologii ze słownika to
+# komentarz („SQL (bardzo dobra znajomość)” = SQL, „Python (… API …)” = Python),
+# alternatywą jest tylko „(lub X)” albo lista samych technologii; wstęp wokół
+# jednej nazwy ze słownika („Bardzo dobra znajomość SQL”) daje tę nazwę;
+# „OWASP Top 10” nie traci „10” jako wersji.
+MUST_GATE_POLICY_VERSION = "critical-v12"
 
 
 def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):
@@ -98,9 +132,11 @@ def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):
 
     The gate only ever compares must-haves recognised as technologies
     (`gate_eligible_must_skills`); prose requirements never hide anyone.
-    ``review`` (the default) hides a candidate whose known skills lack such a
-    technology, while a candidate with no skill data passes — absence of data
-    is not proof. ``exclude`` additionally hides that missing proof. An
+    Since v8 (27.09.2026) a technology counts as present when the profile,
+    the CV text or a recruiter's call/meeting note names it
+    (`must_text_evidence`); a candidate with no data at all hides as
+    ``no_data``. ``exclude`` additionally treats a recruiter's "unknown"
+    verification as missing, ``review`` (the default) does not. An
     explicit per-request ``True``/``False`` overrides the saved policy (``True``
     = ``exclude``, ``False`` = no must-have gate at all). The kill switch
     ``RUBRIC_DEALBREAKERS_ENABLED`` is applied once, in ``apply_dealbreakers``.
@@ -126,6 +162,26 @@ def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):
     return replace(inputs, exclude_unknown_skill_evidence=exclude)
 
 
+def _normalized_profile(value: dict) -> dict:
+    """Profil Championa w bieżącym kształcie (leniwa migracja schematu).
+
+    Runda 8 (R8-N12-5): zapisany JSONB bywa w kształcie sprzed 09.2026
+    (`project_context`, `sourcing`), a nowy profil przychodzi już po migracji —
+    porównanie surowej strony z zmigrowaną różniło się ZAWSZE, więc pierwszy
+    zapis samych notatek, historii klienta albo weryfikacji kasował przejrzany
+    kontrakt wymagań. Obie strony idą przez ten sam schemat; profil, którego
+    schemat nie przyjmuje, zostaje porównany surowo (jak dotąd).
+    """
+    from pydantic import ValidationError
+
+    from app.schemas.champion import ChampionProfile
+
+    try:
+        return ChampionProfile.model_validate(value).model_dump()
+    except ValidationError:
+        return value
+
+
 def invalidate_changed_requirements(job, updates: dict) -> None:
     """An edited source must not remain masked by previously reviewed criteria."""
     if "matching_requirements" in updates:
@@ -147,7 +203,7 @@ def invalidate_changed_requirements(job, updates: dict) -> None:
             # (`insights`, `client_history`) do not change role requirements.
             from app.services import champion_view
 
-            return champion_view.requirement_source(value)
+            return champion_view.requirement_source(_normalized_profile(value))
         return value
 
     if any(
@@ -167,19 +223,48 @@ def evaluate_requirements(
     from app.services.requirement_verification import reviewed_group
 
     skills = candidate_skill_names(candidate)
+    # 27.09.2026: must wymieniony w profilu, CV albo notatce (dowód dołączony
+    # przez bramkę, `must_text_evidence`) jest spełniony — plakietka mówi to
+    # samo co bramka, z podstawą „text_mention”.
+    evidence = getattr(candidate, "_must_text_evidence", None)
+    text_met = {label.lower() for label in getattr(evidence, "met", ())}
+    last_used = skill_freshness.last_used_index(candidate)
     results = []
     for group in contract.all_of:
         found = [name for name in group.any_of if skill_present(name, skills)]
+        # 27.10.2026: technologia nieużywana od ponad 3 lat to „?” z rokiem,
+        # nie „✓” — także gdy CV ją wymienia (to ta sama, stara pozycja CV).
+        stale = {
+            name: year
+            for name in group.any_of
+            if (year := skill_freshness.stale_year(name, last_used)) is not None
+        }
+        fresh = [name for name in found if name not in stale]
+        mentioned = not fresh and (
+            any(name.lower() in text_met and name not in stale for name in group.any_of)
+            or (
+                requirement_label(group).lower() in text_met
+                and len(stale) < len(group.any_of)
+            )
+        )
         # Absence in imported/extracted skills is not proof of inability.
         results.append(
             {
                 "any_of": group.any_of,
                 "level": group.level,
-                "status": "met" if found else "unknown",
-                "matched": found,
+                "status": "met" if (fresh or mentioned) else "unknown",
+                "matched": fresh,
                 # Imported/extracted profile signals do not establish current
                 # proficiency, a verification date or project usage context.
-                "evidence_basis": "profile_signal" if found else "no_evidence",
+                "evidence_basis": (
+                    "profile_signal"
+                    if fresh
+                    else "text_mention"
+                    if mentioned
+                    else "stale_profile_signal"
+                    if stale
+                    else "no_evidence"
+                ),
                 "verified_at": None,
                 "usage_context": None,
                 "source": group.source,
@@ -187,8 +272,11 @@ def evaluate_requirements(
                 "candidate_updated_at": str(getattr(candidate, "updated_at", "")),
             }
         )
+        if stale and not (fresh or mentioned):
+            results[-1]["last_used_year"] = max(stale.values())
         review = reviewed_group(candidate, contract, group, job_id=job_id)
         if review:
+            results[-1].pop("last_used_year", None)
             results[-1].update(
                 **review,
                 evidence_basis="reviewed",

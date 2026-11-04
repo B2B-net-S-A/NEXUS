@@ -1,17 +1,285 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
+import {
+  grantedByRoles,
+  legacyLimits,
+  personPermissionRows,
+  requiredByCaption,
+  rolesAcceptGrants,
+  setPersonPermission,
+  snapshotIsUsable,
+  storedPersonOverrides,
+  userPermissionsSave,
+  type PersonOverrides,
+  type PersonPermissionRow,
+  type UserPermissionsSave,
+} from "@/lib/admin-permissions";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
+import { adminApi } from "@/lib/api";
+import { useHrProgram } from "@/lib/api/hr";
+import type { Permission } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import {
   AdminUser,
   UserFormData,
   ROLES,
-  RECRUITER_ROLES,
   ROLE_LABELS,
-  RECRUITER_ROLE_LABELS,
+  HR_PROGRAM_PERMISSION_GROUP,
+  HR_PROGRAM_ROLE,
   isExclusiveRole,
 } from "./types";
+
+interface OverridesDraft {
+  revision: number;
+  overrides: PersonOverrides;
+}
+
+type PersonPermissionsState =
+  | { status: "hidden" }
+  | { status: "loading" }
+  | { status: "error"; retry: () => void }
+  | {
+      status: "ready";
+      rows: PersonPermissionRow[];
+      /** Stare limity sekcji nazwane słowami (pusto = nie ma czego usuwać). */
+      legacy: string[];
+      removeLegacy: boolean;
+      /** Szkic przepadł, bo zasady zmieniły się, gdy okno było otwarte. */
+      refreshed: boolean;
+      /** Drugie żądanie zapisu albo `null`, gdy uprawnienia się nie zmieniają. */
+      save: UserPermissionsSave | null;
+      setPermission: (key: Permission, on: boolean) => void;
+      setRemoveLegacy: (remove: boolean) => void;
+    };
+
+/**
+ * Uprawnienia jednej osoby. Lista idzie za rolami WYBRANYMI w formularzu, nie
+ * zapisanymi — zmiana roli w tym samym oknie od razu pokazuje, co nowa rola
+ * daje, a czego nie.
+ */
+function usePersonPermissions(
+  userId: number | null,
+  roles: string[],
+): PersonPermissionsState {
+  const enabled = userId !== null;
+  const hrProgram = useHrProgram();
+  const snapshotQuery = useQuery({
+    queryKey: ["admin-section-permissions"],
+    queryFn: () =>
+      adminApi.getSectionPermissions().then((response) => response.data),
+    enabled,
+  });
+  const personQuery = useQuery({
+    queryKey: ["admin-user-permissions", userId],
+    queryFn: () =>
+      adminApi.getUserPermissions(userId as number).then((response) => response.data),
+    enabled,
+  });
+  const [draft, setDraft] = useState<OverridesDraft | null>(null);
+  const [removeLegacy, setRemoveLegacy] = useState(false);
+  const [refreshed, setRefreshed] = useState(false);
+
+  const snapshot = snapshotIsUsable(snapshotQuery.data) ? snapshotQuery.data : null;
+  const person = personQuery.data ?? null;
+  const revision = person?.revision;
+
+  useEffect(() => {
+    if (!draft || revision === undefined || draft.revision === revision) return;
+    // Wybory powstały na starszej wersji zasad — nie przenosimy ich po cichu
+    // na nową (role mogą dawać już co innego).
+    setDraft(null);
+    setRefreshed(true);
+  }, [draft, revision]);
+
+  const stored = useMemo<PersonOverrides>(
+    () => (person ? storedPersonOverrides(person.user) : new Map()),
+    [person],
+  );
+  const overrides = draft && draft.revision === revision ? draft.overrides : stored;
+  const roleGranted = useMemo(
+    () => (snapshot ? grantedByRoles(snapshot, roles) : new Set<Permission>()),
+    [snapshot, roles],
+  );
+
+  if (!enabled) return { status: "hidden" };
+  // Same zasady wystarczą, żeby wiedzieć, że wybranym rolom nic się nie ustawia
+  // (administrator, Viewer, Praktykant) — sekcja nie pojawia się wtedy nawet
+  // na czas odczytu osoby.
+  if (snapshot && !rolesAcceptGrants(snapshot, roles)) return { status: "hidden" };
+  if (snapshotQuery.isPending || personQuery.isPending) return { status: "loading" };
+  // Błędem jest brak danych. Nieudane odświeżenie w tle zostawia listę — zapis
+  // i tak sprawdza wersję zasad, a wybory nie powinny znikać.
+  if (!snapshot || !person) {
+    return {
+      status: "error",
+      retry: () => {
+        void snapshotQuery.refetch();
+        void personQuery.refetch();
+      },
+    };
+  }
+
+  const savedRoles = new Set<string>(person.user.roles);
+  const rolesChanged =
+    savedRoles.size !== new Set(roles).size ||
+    roles.some((role) => !savedRoles.has(role));
+  return {
+    status: "ready",
+    rows: personPermissionRows(
+      snapshot,
+      roleGranted,
+      overrides,
+      hrProgram ? undefined : new Set([HR_PROGRAM_PERMISSION_GROUP]),
+    ),
+    legacy: legacyLimits(person.user),
+    removeLegacy,
+    refreshed,
+    save: userPermissionsSave({
+      response: person,
+      draft: overrides,
+      roleGranted,
+      rolesChanged,
+      removeLegacy,
+    }),
+    setPermission: (key, on) => {
+      setRefreshed(false);
+      setDraft({
+        revision: person.revision,
+        overrides: setPersonPermission(overrides, roleGranted, key, on),
+      });
+    },
+    setRemoveLegacy,
+  };
+}
+
+type RowChoice = "on" | "off";
+
+function PersonPermissionRowField({
+  row,
+  onChange,
+}: {
+  row: PersonPermissionRow;
+  onChange: (key: Permission, on: boolean) => void;
+}) {
+  const labelId = useId();
+  const captionId = useId();
+  const locked = row.requiredBy.length > 0;
+  const describedBy = locked ? captionId : undefined;
+  return (
+    <div className="py-1">
+      <div className="flex items-center justify-between gap-3">
+        <span id={labelId} className="min-w-0 text-sm">
+          {row.label}
+        </span>
+        <SegmentedRadio<RowChoice>
+          labelledBy={labelId}
+          size="sm"
+          className="shrink-0 flex-nowrap"
+          value={row.on ? "on" : "off"}
+          disabled={locked}
+          onChange={(choice) => onChange(row.key, choice === "on")}
+          options={
+            row.fromRole
+              ? [
+                  { value: "on", label: "Z roli", describedBy },
+                  {
+                    value: "off",
+                    label: "Odebrane",
+                    describedBy,
+                    checkedClassName: "bg-warning-muted text-warning-muted-foreground",
+                  },
+                ]
+              : [
+                  { value: "off", label: "Brak", describedBy },
+                  { value: "on", label: "Nadane", describedBy },
+                ]
+          }
+        />
+      </div>
+      {locked ? (
+        <p id={captionId} className="mt-0.5 text-xs text-muted-foreground">
+          {requiredByCaption(row.requiredBy)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function PersonPermissionsSection({ state }: { state: PersonPermissionsState }) {
+  const headingId = useId();
+  if (state.status === "hidden") return null;
+  return (
+    <div role="group" aria-labelledby={headingId}>
+      <p id={headingId} className="block text-sm font-medium text-foreground mb-1">
+        Uprawnienia tej osoby
+      </p>
+      {state.status === "loading" ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          Wczytywanie uprawnień…
+        </p>
+      ) : state.status === "error" ? (
+        <div
+          role="alert"
+          className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          Nie udało się wczytać uprawnień tej osoby. Zapis zmieni tylko dane konta.{" "}
+          <button
+            type="button"
+            onClick={state.retry}
+            className="hit-area font-medium underline underline-offset-2"
+          >
+            Ponów
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="border border-border rounded-lg px-3 py-1.5 divide-y divide-border">
+            {state.rows.map((row) => (
+              <PersonPermissionRowField
+                key={row.key}
+                row={row}
+                onChange={state.setPermission}
+              />
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Rola daje punkt wyjścia. Tu możesz dla tej jednej osoby dodać uprawnienie
+            albo je odebrać. Każda zmiana trafia do Historii zdarzeń i wylogowuje tę
+            osobę.
+          </p>
+          {state.refreshed ? (
+            <p className="text-xs text-warning-muted-foreground mt-1">
+              Zasady uprawnień zmieniły się w międzyczasie — wczytaliśmy aktualne.
+              Ustaw uprawnienia jeszcze raz.
+            </p>
+          ) : null}
+          {state.legacy.length > 0 ? (
+            <p className="text-xs text-muted-foreground mt-1">
+              {state.removeLegacy
+                ? "Stare ograniczenia tej osoby zostaną usunięte po zapisaniu."
+                : `Stare ograniczenia tej osoby: ${state.legacy.join("; ")}.`}{" "}
+              <button
+                type="button"
+                onClick={() => state.setRemoveLegacy(!state.removeLegacy)}
+                className="hit-area font-medium text-foreground underline underline-offset-2"
+              >
+                {state.removeLegacy ? "Zostaw ograniczenia" : "Usuń ograniczenia"}
+              </button>
+            </p>
+          ) : null}
+          {state.save ? (
+            <p className="text-xs font-medium text-warning-muted-foreground mt-1">
+              Po zapisaniu ta osoba zostanie wylogowana.
+            </p>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
 
 interface UserModalProps {
   initial?: Partial<AdminUser> | null;
@@ -40,14 +308,20 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
           ...rawInitialRoles.filter((role) => !isExclusiveRole(role)),
         ]),
       );
+  // Praktykanci ukryci 17.10.2026 (decyzja Artura) — roli nie da się nadać,
+  // ale konto, które już ją ma, dalej ją widzi zamiast pustego wyboru.
+  const hrProgram = useHrProgram();
+  const offersRole = (role: string) =>
+    (role !== "trainee" || initialRoles.includes("trainee")) &&
+    (role !== HR_PROGRAM_ROLE || hrProgram || initialRoles.includes(HR_PROGRAM_ROLE));
   const [form, setForm] = useState<UserFormData>({
     name: initial?.name ?? "",
     email: initial?.email ?? "",
     password: "",
     role: initialPrimary,
     roles: initialRoles,
-    recruiter_role: initial?.recruiter_role ?? "",
     can_delete_clients: initial?.can_delete_clients ?? false,
+    receives_board_report: initial?.receives_board_report ?? false,
     clear_microsoft_identity: false,
   });
 
@@ -57,7 +331,7 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
   const setPrimaryRole = (role: string) => {
     setForm((f) => {
       if (isExclusiveRole(role)) {
-        return { ...f, role, roles: [role], recruiter_role: "" };
+        return { ...f, role, roles: [role] };
       }
       const withoutExclusive = f.roles.filter(
         (value) => !isExclusiveRole(value),
@@ -90,6 +364,18 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
       return { ...f, roles: [f.role, ...f.roles] };
     });
   }, [form.role]);
+
+  const personPermissions = usePersonPermissions(
+    isEdit ? (initial?.id as number) : null,
+    form.roles,
+  );
+  // Uprawnienia jadą obok danych konta — rodzic zapisuje je drugim żądaniem.
+  const handleSave = () =>
+    onSave(
+      personPermissions.status === "ready"
+        ? { ...form, permissions: personPermissions.save }
+        : form,
+    );
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -135,8 +421,10 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
                 type="password"
                 value={form.password}
                 onChange={(e) => set("password", e.target.value)}
+                minLength={8}
+                maxLength={128}
                 className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
-                placeholder="••••••••"
+                placeholder="min. 8 znaków"
               />
             </div>
           )}
@@ -148,7 +436,7 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
               onChange={(e) => setPrimaryRole(e.target.value)}
               className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
             >
-              {ROLES.filter((r) => r !== "user").map((r) => (
+              {ROLES.filter((r) => r !== "user" && offersRole(r)).map((r) => (
                 <option key={r} value={r}>{ROLE_LABELS[r] ?? r}</option>
               ))}
             </select>
@@ -160,7 +448,7 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
           <div>
             <label className="block text-sm font-medium text-foreground mb-1">Dodatkowe role</label>
             <div className="space-y-1.5 border border-border rounded-lg px-3 py-2 max-h-44 overflow-y-auto">
-              {ROLES.filter((r) => r !== "user" || r === form.role).map((r) => {
+              {ROLES.filter((r) => (r !== "user" || r === form.role) && offersRole(r)).map((r) => {
                 const isPrimary = r === form.role;
                 const checked = form.roles.includes(r);
                 const primaryIsExclusive = isExclusiveRole(form.role);
@@ -190,12 +478,14 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
               })}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Osobom z kilkoma rolami (np. DL+TAC) zaznacz obie. Rola podstawowa
-              jest zawsze wybrana. Finanse, Praktykant i Viewer (legacy) są rolami
+              Osobom z kilkoma rolami (np. DL + Rekruter) zaznacz obie. Rola podstawowa
+              jest zawsze wybrana. Finanse i Viewer (legacy) są rolami
               wyłącznymi i nie mogą być łączone z innymi; Viewer nie jest
               dostępny jako rola dodatkowa.
             </p>
           </div>
+
+          <PersonPermissionsSection state={personPermissions} />
 
           {isEdit && (
             <div className="border border-border rounded-lg px-3 py-2">
@@ -221,6 +511,25 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
               <label className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <input
                   type="checkbox"
+                  checked={form.receives_board_report}
+                  onChange={(e) => set("receives_board_report", e.target.checked)}
+                  className="rounded border-border"
+                />
+                Dostaje mail „Podsumowanie Rady”
+              </label>
+              <p className="text-xs text-muted-foreground mt-1">
+                Mail z przychodem i marżą firmy. Rada nadzorcza dostaje go zawsze,
+                inni tylko po zaznaczeniu, także administrator. Zmiana trafia do
+                Historii zdarzeń.
+              </p>
+            </div>
+          )}
+
+          {isEdit && (
+            <div className="border border-border rounded-lg px-3 py-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <input
+                  type="checkbox"
                   checked={form.clear_microsoft_identity}
                   onChange={(e) =>
                     set("clear_microsoft_identity", e.target.checked)
@@ -237,19 +546,6 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
               </p>
             </div>
           )}
-
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Rola rekrutacyjna (legacy)</label>
-            <select
-              value={form.recruiter_role}
-              onChange={(e) => set("recruiter_role", e.target.value)}
-              className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
-            >
-              {RECRUITER_ROLES.map((r) => (
-                <option key={r} value={r}>{RECRUITER_ROLE_LABELS[r] ?? r}</option>
-              ))}
-            </select>
-          </div>
         </div>
 
         {error && (
@@ -266,7 +562,7 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
             Anuluj
           </button>
           <button
-            onClick={() => onSave(form)}
+            onClick={handleSave}
             disabled={loading}
             className="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50"
           >

@@ -86,6 +86,7 @@ def recipe_for(policy: dict) -> dict:
         "glossary": None,
         "highlight_policy": "technologies",
         "highlight_terms": None,
+        "cv_text_align": "justify",
     }
 
 

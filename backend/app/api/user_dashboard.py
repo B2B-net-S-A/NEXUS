@@ -13,7 +13,7 @@ Tryb „podgląd jako" odrzuca zapis w `deps.py` (każde żądanie nie-odczytowe
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +21,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.user_dashboard import UserDashboard
-from app.services.dashboard_tiles import DashboardLayout, DashboardTile, load_layout
+from app.services.dashboard_tiles import (
+    MAX_TILES,
+    DashboardLayout,
+    DashboardTile,
+    ROLE_LAYOUT_OFF_KEY,
+    PanelKey,
+    hidden_panels,
+    load_layout,
+    may_hide_panel,
+    uses_role_layout,
+)
 
 router = APIRouter()
 
@@ -30,24 +40,47 @@ class UserDashboardResponse(BaseModel):
     tiles: list[DashboardTile]
     version: int
     dropped_tiles: list[dict[str, Any]] = Field(default_factory=list)
+    # Listy nad kafelkami usunięte z pulpitu („Twoje CV w drodze”).
+    hidden_panels: list[str] = Field(default_factory=list)
+    # Brak zapisanych kafelków = front pokazuje układ roli. Fałsz także wtedy,
+    # gdy osoba zapisała pusty pulpit („Usuń” ostatniego kafelka).
+    uses_role_layout: bool = False
+
+
+class PanelVisibilityUpdate(BaseModel):
+    hidden: bool
 
 
 class UserDashboardUpdate(BaseModel):
-    tiles: list[DashboardTile] = Field(default_factory=list)
+    # Runda 10 (R10-N1-5): limit i unikalność id sprawdzane w modelu żądania
+    # (422 z FastAPI). Do tej rundy łapał je dopiero `DashboardLayout(...)`
+    # w ciele handlera, a `ValidationError` stamtąd kończył się 500.
+    tiles: list[DashboardTile] = Field(default_factory=list, max_length=MAX_TILES)
     expected_version: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _unique_tile_ids(self) -> "UserDashboardUpdate":
+        ids = [tile.id for tile in self.tiles]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Dwa kafelki mają ten sam identyfikator.")
+        return self
 
 
 @router.get("", response_model=UserDashboardResponse)
 async def get_my_dashboard(
     current_user: CurrentUser, db: AsyncSession = Depends(get_db)
 ) -> UserDashboardResponse:
-    """Układ pulpitu zalogowanej osoby; brak zapisu = pusty pulpit."""
+    """Układ pulpitu zalogowanej osoby; brak zapisu = układ roli."""
     row = await db.get(UserDashboard, current_user.id)
     if row is None:
-        return UserDashboardResponse(tiles=[], version=0)
+        return UserDashboardResponse(tiles=[], version=0, uses_role_layout=True)
     layout, dropped = load_layout(row.layout)
     return UserDashboardResponse(
-        tiles=layout.tiles, version=row.version, dropped_tiles=dropped
+        tiles=layout.tiles,
+        version=row.version,
+        dropped_tiles=dropped,
+        hidden_panels=hidden_panels(row.layout),
+        uses_role_layout=uses_role_layout(row.layout, layout.tiles),
     )
 
 
@@ -92,7 +125,65 @@ async def save_my_dashboard(
     if row is None:
         row = UserDashboard(user_id=current_user.id, layout={}, version=0)
         db.add(row)
-    row.layout = layout.to_storage()
+    # Zapis kafelków nie rusza list usuniętych z pulpitu — to osobna decyzja.
+    hidden = hidden_panels(row.layout)
+    stored: dict[str, Any] = {**layout.to_storage(), "hidden_panels": hidden}
+    # Pusty zapis to decyzja „chcę pusty pulpit” — bez znacznika wróciłby
+    # układ roli przy następnym wejściu.
+    if not layout.tiles:
+        stored[ROLE_LAYOUT_OFF_KEY] = True
+    row.layout = stored
     row.version = current_version + 1
     await db.commit()
-    return UserDashboardResponse(tiles=layout.tiles, version=current_version + 1)
+    return UserDashboardResponse(
+        tiles=layout.tiles,
+        version=current_version + 1,
+        hidden_panels=hidden,
+        uses_role_layout=False,
+    )
+
+
+@router.put("/panels/{panel}", response_model=UserDashboardResponse)
+async def set_panel_visibility(
+    panel: PanelKey,
+    payload: PanelVisibilityUpdate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> UserDashboardResponse:
+    """„Usuń z pulpitu” / „Przywróć” dla listy stojącej nad kafelkami.
+
+    Wersja układu zostaje bez zmian: chroni kafelki, a ta decyzja ich nie
+    dotyczy — otwarta druga karta nie dostaje 409 przy zapisie układu.
+    """
+    if payload.hidden and not may_hide_panel(current_user, panel):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tę listę może usunąć z pulpitu tylko Head of Recruitment albo administrator.",
+        )
+    await db.execute(
+        pg_insert(UserDashboard)
+        .values(user_id=current_user.id, layout={}, version=0)
+        .on_conflict_do_nothing(index_elements=["user_id"])
+    )
+    row = (
+        await db.execute(
+            select(UserDashboard)
+            .where(UserDashboard.user_id == current_user.id)
+            .with_for_update()
+        )
+    ).scalar_one()
+    hidden = [key for key in hidden_panels(row.layout) if key != panel]
+    if payload.hidden:
+        hidden.append(panel)
+    stored = {**(row.layout or {}), "hidden_panels": hidden}
+    row.layout = stored
+    version = row.version
+    await db.commit()
+    layout, dropped = load_layout(stored)
+    return UserDashboardResponse(
+        tiles=layout.tiles,
+        version=version,
+        dropped_tiles=dropped,
+        hidden_panels=hidden,
+        uses_role_layout=uses_role_layout(stored, layout.tiles),
+    )

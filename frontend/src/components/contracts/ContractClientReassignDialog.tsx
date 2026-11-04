@@ -61,6 +61,8 @@ export function ReassignPlanView({ plan }: { plan: ReassignPlan }) {
             ? plan.b2b_documents.map((d) => d.contract_number).join(", ")
             : "brak"}
         </dd>
+        <dt className="text-muted-foreground">Dokumenty do umów B2B</dt>
+        <dd>{plan.b2b_derived_documents?.length || "brak"}</dd>
         <dt className="text-muted-foreground">Otwarte braki zamówień</dt>
         <dd>{plan.open_gaps.length || "brak"}</dd>
         <dt className="text-muted-foreground">Alerty do zamknięcia</dt>
@@ -97,6 +99,7 @@ export function ContractClientReassignDialog({ open, onOpenChange, contractId, c
       void queryClient.invalidateQueries({ queryKey: ["contract", contractId] });
       void queryClient.invalidateQueries({ queryKey: ["contract", String(contractId)] });
       void queryClient.invalidateQueries({ queryKey: ["contracts"] });
+      void queryClient.invalidateQueries({ queryKey: ["client-register"] });
       onDone?.(result);
       onOpenChange(false);
     },
@@ -158,6 +161,7 @@ export function ContractClientReassignDialog({ open, onOpenChange, contractId, c
               setError(null);
             }}
             queryKey="contract-reassign-clients"
+            selectableOnly
           />
         </div>
         {error ? (

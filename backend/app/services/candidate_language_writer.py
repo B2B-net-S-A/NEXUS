@@ -9,6 +9,12 @@ this module, which deliberately has weaker authority:
 * descriptive proficiency labels stay ``unknown`` (they are not promoted to
   CEFR without an explicit CEFR token from the source);
 * the legacy JSONB column is only a compatibility projection of active facts.
+
+Źródło ``notes`` (języki zaobserwowane w notatkach rekruterów, 07.10.2026) ma
+jeszcze słabszą pozycję: wyłącznie DOPISUJE język, którego profil nie zna.
+Wiersza z innego źródła (CV, Traffit, człowiek) nie zmienia — ani poziomu,
+ani nazwy — i nigdy niczego nie usuwa (nagrobek blokowałby później język
+z CV).
 """
 
 from __future__ import annotations
@@ -32,7 +38,11 @@ AutomatedLanguageSource = Literal[
     "csv",
     "legacy",
     "unknown",
+    "notes",
 ]
+
+#: Źródła, które tylko dopisują brakujące języki (patrz docstring modułu).
+FILL_ONLY_SOURCES: frozenset[str] = frozenset({"notes"})
 
 _CEFR_LEVELS = ("A1", "A2", "B1", "B2", "C1", "C2")
 _NATIVE_LABELS = {
@@ -90,7 +100,53 @@ _LANGUAGE_CODES = {
     "hungarian": "hu",
     "wegierski": "hu",
     "węgierski": "hu",
+    # 29.09.2026: pełna lista okna „Języki kandydata” (`LANGUAGE_OPTIONS`
+    # w `frontend/src/lib/candidate-languages.ts`). Parytet kodów i polskich
+    # nazw pilnuje `test_candidate_language_options_mirror.py`.
+    "niderlandzki": "nl",
+    "bulgarian": "bg",
+    "bulgarski": "bg",
+    "bułgarski": "bg",
+    "croatian": "hr",
+    "chorwacki": "hr",
+    "serbian": "sr",
+    "serbski": "sr",
+    "slovenian": "sl",
+    "slovene": "sl",
+    "slowenski": "sl",
+    "słoweński": "sl",
+    "lithuanian": "lt",
+    "litewski": "lt",
+    "latvian": "lv",
+    "lotewski": "lv",
+    "łotewski": "lv",
+    "estonian": "et",
+    "estonski": "et",
+    "estoński": "et",
+    "greek": "el",
+    "grecki": "el",
+    "turkish": "tr",
+    "turecki": "tr",
+    "arabic": "ar",
+    "arabski": "ar",
+    "hebrew": "he",
+    "hebrajski": "he",
+    "chinese": "zh",
+    "chinski": "zh",
+    "chiński": "zh",
+    "mandarin": "zh",
+    "japanese": "ja",
+    "japonski": "ja",
+    "japoński": "ja",
+    "korean": "ko",
+    "koreanski": "ko",
+    "koreański": "ko",
+    "hindi": "hi",
 }
+
+# Kody, które okno „Języki kandydata” pozwala wybrać z listy. Kod spoza tej
+# listy rekruter zapisuje wyłącznie jako „Inny…” (`other: true`).
+KNOWN_LANGUAGE_CODES: frozenset[str] = frozenset(_LANGUAGE_CODES.values())
 _INLINE_LEVEL_RE = re.compile(
     r"^(?P<name>.+?)(?:\s*[-:–—]\s*|\s*\(\s*|\s+)"
     r"(?P<level>A1|A2|B1|B2|C1|C2|native speaker|native|mother tongue|"
@@ -135,6 +191,8 @@ class LanguageWriteResult:
     protected_manual: int
     protected_tombstone: int
     changed: bool
+    #: Wiersz z innego źródła, którego źródło „tylko dopisuje” nie ruszyło.
+    protected_other_source: int = 0
 
 
 def _ascii_slug(value: str) -> str:
@@ -319,6 +377,10 @@ def merge_automated_languages(
     by_code = {row.language_code: row for row in existing_rows}
     desired = {item.language_code: item for item in incoming}
     inserted = updated = tombstoned = protected_manual = protected_tombstone = 0
+    protected_other_source = 0
+    fill_only = provenance in FILL_ONLY_SOURCES
+    if fill_only:
+        replace_source_snapshot = False
 
     for code, item in desired.items():
         row = by_code.get(code)
@@ -328,6 +390,9 @@ def merge_automated_languages(
                 continue
             if row.manual_lock:
                 protected_manual += 1
+                continue
+            if fill_only and row.provenance != provenance:
+                protected_other_source += 1
                 continue
             next_values = (
                 item.language_name,
@@ -397,6 +462,7 @@ def merge_automated_languages(
         protected_manual=protected_manual,
         protected_tombstone=protected_tombstone,
         changed=changed,
+        protected_other_source=protected_other_source,
     )
 
 
@@ -461,4 +527,5 @@ async def sync_candidate_languages_from_source(
         protected_manual=result.protected_manual,
         protected_tombstone=result.protected_tombstone,
         changed=result.changed or projection_changed,
+        protected_other_source=result.protected_other_source,
     )

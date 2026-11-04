@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { PeriodicOrderDraft } from "@/lib/order-type-switch";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -100,11 +101,13 @@ function renderDialog({
   onOrderTypeChange,
   canManageFinance,
   defaultRateUnit,
+  initialDraft,
 }: {
   orderType?: OrderType;
   onOrderTypeChange?: (orderType: OrderType) => void;
   canManageFinance?: boolean;
   defaultRateUnit?: "hourly" | "daily" | "monthly";
+  initialDraft?: Partial<PeriodicOrderDraft> | null;
 } = {}) {
   // `retry: 1` LUSTRZANIE do produkcji (`QueryProvider`), nie `false`. Przy
   // `retry: false` test przechodziłby, nie dotykając realnego opóźnienia:
@@ -122,6 +125,7 @@ function renderDialog({
           onOrderTypeChange={onOrderTypeChange}
           canManageFinance={canManageFinance}
           defaultRateUnit={defaultRateUnit}
+          initialDraft={initialDraft}
           onClose={() => {}}
           onCreated={() => {}}
         />
@@ -174,7 +178,43 @@ describe("NewContractorOrderDialog — wyszukiwarka kandydatów", () => {
     );
     await user.click(screen.getByRole("radio", { name: "Kosztowe" }));
     // Plik (tu: brak) jedzie razem ze zmianą typu — okno MD/kosztowe go przejmie.
-    expect(onOrderTypeChange).toHaveBeenCalledWith("cost", null, "");
+    expect(onOrderTypeChange).toHaveBeenCalledWith(
+      "cost",
+      null,
+      "",
+      expect.objectContaining({ orderStart: "", notes: "" }),
+    );
+  });
+
+  it("zmiana typu oddaje roboczy stan, a powrót go odtwarza (runda 10, F02)", async () => {
+    const user = userEvent.setup();
+    const onOrderTypeChange = vi.fn();
+    mockApi(() => Promise.resolve({ data: { items: [] } }));
+    const first = renderDialog({ orderType: "periodic", onOrderTypeChange });
+    await user.type(screen.getByLabelText(/Początek umowy/i), "2026-10-01");
+    await user.type(screen.getByLabelText(/Koniec zamówienia/i), "2026-10-31");
+    await user.type(screen.getByLabelText(/Notatki/i), "notatka testowa");
+    await user.click(screen.getByRole("radio", { name: "Kosztowe" }));
+    const draft = onOrderTypeChange.mock.calls[0][3];
+    expect(draft).toMatchObject({
+      contractStart: "2026-10-01",
+      orderEnd: "2026-10-31",
+      notes: "notatka testowa",
+    });
+    first.unmount();
+
+    renderDialog({
+      orderType: "periodic",
+      onOrderTypeChange,
+      initialDraft: {
+        ...draft,
+        selectedCandidate: { id: 7, name: "Jan", lastname: "Testowy" },
+      },
+    });
+    expect(screen.getByLabelText(/Początek umowy/i)).toHaveValue("2026-10-01");
+    expect(screen.getByLabelText(/Koniec zamówienia/i)).toHaveValue("2026-10-31");
+    expect(screen.getByLabelText(/Notatki/i)).toHaveValue("notatka testowa");
+    expect(screen.getByText(/Jan Testowy/)).toBeInTheDocument();
   });
 
   it("awaria zapytania NIE renderuje się jako „Brak wyników”", async () => {
@@ -510,5 +550,71 @@ describe("NewContractorOrderDialog — PDF od klienta", () => {
     expect(
       await screen.findByText(/Nie udało się odczytać danych z dokumentu/),
     ).toBeInTheDocument();
+  });
+});
+
+describe("NewContractorOrderDialog — stawki z rekrutacji (D7)", () => {
+  it("pokazuje stawki z rekrutacji i notkę przy różnicy, a zapis przechodzi", async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.mocked(api.get).mockImplementation(((url: string) => {
+      if (url.includes("/api/candidates")) {
+        return Promise.resolve({
+          data: {
+            items: [{ id: 42, name: "Jan", lastname: "Kowalski", email: "jan@example.com" }],
+          },
+        });
+      }
+      if (url.includes("/recruitment-rates")) {
+        return Promise.resolve({
+          data: {
+            amounts_redacted: false,
+            rate: {
+              candidate_id: 42,
+              job_id: 7,
+              job_title: "Java Developer",
+              client_rate_value: "165.00",
+              client_rate_unit: "hourly",
+              client_rate_currency: "PLN",
+              client_rate_at: null,
+              client_rate_by_name: "Anna Lead",
+              client_rate_redacted: false,
+              candidate_rate_value: "140.00",
+              candidate_rate_unit: "hourly",
+              candidate_rate_currency: "PLN",
+              candidate_rate_at: null,
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    }) as never);
+    renderDialog();
+
+    await user.type(screen.getByPlaceholderText(/Szukaj po imieniu/i), "Jan");
+    await user.click(
+      await screen.findByRole("button", { name: /Jan Kowalski/ }, { timeout: 2000 }),
+    );
+    expect(
+      await screen.findByText(
+        "Z rekrutacji „Java Developer” (Anna Lead): 165 zł/h · kandydat 140 zł/h",
+      ),
+    ).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(/Numer zamówienia/i), "45767");
+    await user.type(screen.getByLabelText(/Początek umowy/i), "2026-09-01");
+    await user.click(screen.getByRole("radio", { name: "Godzinowa" }));
+    await user.type(screen.getByPlaceholderText("np. 215,60"), "170");
+    await user.type(screen.getByPlaceholderText("np. 150,40"), "140");
+
+    expect(
+      screen.getByText(/Stawka przychodowa różni się od stawki do klienta z rekrutacji/),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Utwórz umowę i zamówienie" }));
+    await waitFor(() => expect(createContractWithOrder).toHaveBeenCalledTimes(1));
+    expect(createContractWithOrder).toHaveBeenCalledWith(
+      11,
+      expect.objectContaining({ rate_client: 170, rate_candidate: 140 }),
+    );
   });
 });

@@ -269,6 +269,77 @@ async def test_auto_sync_removes_expired_manual(clean_db):
     assert counters.removed_expired >= 1
 
 
+async def test_auto_sync_skips_and_drops_people_with_a_live_contract(clean_db):
+    """S3 (15.10.2026): osoba z żywą umową (także przed startem) liczy się tak,
+    jakby statusu nie miała — nie wchodzi automatem, jej wpis automatyczny
+    schodzi, a ręczny wrzut zostaje. Pomiar 15.10: 132 pracujące osoby
+    w puli, dzwonki o konsultantach w trakcie zamówienia."""
+    import uuid as _uuid
+
+    from sqlalchemy import select
+
+    from app.models.client import Client
+    from app.models.contract import Contract, ContractStatus
+
+    looking = AvailabilityStatus.actively_looking
+    working = await _seed_candidate(
+        clean_db, availability=looking, email_suffix="working"
+    )
+    starting = await _seed_candidate(
+        clean_db, availability=looking, email_suffix="starting"
+    )
+    manual = await _seed_candidate(
+        clean_db, availability=looking, email_suffix="manual"
+    )
+    free = await _seed_candidate(clean_db, availability=looking, email_suffix="free")
+    await auto_sync_marketplace_membership(clean_db)
+    # Sesja bez autoflush — wrzut musi widzieć zapisany wpis automatyczny.
+    await clean_db.commit()
+    await add_candidate_to_marketplace(
+        clean_db, candidate_id=manual.id, added_by=None, marketplace_until=None
+    )
+    await clean_db.commit()
+
+    today = business_today()
+    client = Client(name=f"Marketplace-contract-{_uuid.uuid4().hex[:6]}")
+    clean_db.add(client)
+    await clean_db.flush()
+    for person, start in (
+        (working, today - timedelta(days=30)),
+        (starting, today + timedelta(days=14)),
+        (manual, today - timedelta(days=30)),
+    ):
+        clean_db.add(
+            Contract(
+                candidate_id=person.id,
+                client_id=client.id,
+                start_date=start,
+                status=ContractStatus.active,
+            )
+        )
+    await clean_db.commit()
+
+    counters = await auto_sync_marketplace_membership(clean_db)
+    await clean_db.commit()
+
+    pool = await ensure_marketplace_pool(clean_db)
+    members = dict(
+        (
+            await clean_db.execute(
+                select(
+                    TalentPoolMembership.candidate_id,
+                    TalentPoolMembership.source_event,
+                ).where(TalentPoolMembership.talent_pool_id == pool.id)
+            )
+        ).all()
+    )
+    assert counters.removed_status_change >= 2
+    assert working.id not in members
+    assert starting.id not in members
+    assert members.get(manual.id) == "manual"
+    assert members.get(free.id) == "auto_availability"
+
+
 async def test_add_candidate_upgrades_auto_to_manual(clean_db):
     cand = await _seed_candidate(
         clean_db,

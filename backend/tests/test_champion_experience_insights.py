@@ -18,7 +18,6 @@ from __future__ import annotations
 from copy import deepcopy
 from types import SimpleNamespace
 
-import pytest
 
 from app.schemas.champion import ChampionProfile
 from app.services import champion_view
@@ -355,44 +354,6 @@ def test_cv_generator_champion_section_carries_domain_and_certificates() -> None
     assert "CERTYFIKATY: ISTQB Foundation" in section
     assert "REGULACJE / STANDARDY: PSD2 (mile widziane)" in section
     assert not dto.is_empty()
-
-
-@pytest.mark.asyncio
-async def test_recommended_searches_prompt_puts_experience_before_prose(
-    monkeypatch,
-) -> None:
-    from app.core.database import AsyncSessionLocal
-    from app.models.client import Client
-    from app.models.job import Job
-    from app.services import champion_draft_service
-
-    captured: dict = {}
-
-    async def fake_call(*, prompt, **_):
-        captured["prompt"] = prompt
-        return {"searches": []}
-
-    monkeypatch.setattr(champion_draft_service, "_call_claude_json", fake_call)
-    profile = user_edit(
-        {},
-        {
-            "project": {"about": "x" * 7000},
-            "experience": {"certifications": [{"name": "ISTQB Foundation"}]},
-        },
-        5,
-    )
-    async with AsyncSessionLocal() as db:
-        client = Client(name="Experience Search Client")
-        db.add(client)
-        await db.flush()
-        job = Job(title="Tester", client_id=client.id, champion_profile=profile)
-        db.add(job)
-        await db.commit()
-        await champion_draft_service.generate_recommended_searches(
-            db, job_id=job.id, user_id=None
-        )
-    # Długi opis projektu nie wypycha certyfikatu z przyciętego wycinka.
-    assert "ISTQB Foundation" in captured["prompt"]
 
 
 def test_screening_experience_checks_are_recorded_but_do_not_score() -> None:

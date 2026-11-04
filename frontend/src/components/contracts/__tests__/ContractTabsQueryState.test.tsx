@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   equipmentList: vi.fn(),
   equipmentUpdate: vi.fn(),
   notesTimeline: vi.fn(),
+  createNote: vi.fn(),
   showToast: vi.fn(),
 }));
 
@@ -39,6 +40,7 @@ vi.mock("@/lib/api", () => ({
   },
   contractsApi: {
     notesTimeline: (...a: unknown[]) => mocks.notesTimeline(...a),
+    createNote: (...a: unknown[]) => mocks.createNote(...a),
   },
   // Słowniki czytane przez `contract-timeline-labels.ts` (lista zmian aneksu).
   CONTRACT_FIELD_LABELS: { rate_candidate: "Stawka kandydata" },
@@ -50,10 +52,6 @@ vi.mock("@/components/Toast", () => ({
     showToast: mocks.showToast,
     showError: (message: string) => mocks.showToast(message, "error"),
   }),
-}));
-
-vi.mock("@/components/RequireRole", () => ({
-  RequireRole: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 vi.mock("@/store/auth", async () => {
@@ -227,6 +225,37 @@ describe("ContractNotesTab", () => {
     fireEvent.click(screen.getByRole("button", { name: /Spróbuj ponownie/ }));
     expect(await screen.findByText(/Brak notatek/)).toBeInTheDocument();
   });
+
+  it("pusta zakładka nie każe ustawiać pola technicznego (runda 10, F03)", async () => {
+    mocks.notesTimeline.mockResolvedValueOnce({ data: [] });
+    renderWith(<ContractNotesTab contractId={4} />);
+    expect(await screen.findByText(/Brak notatek/)).toBeInTheDocument();
+    expect(screen.queryByText(/contract_id/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Dodaj notatkę/ })).toBeNull();
+  });
+
+  it("notatkę dodaje się wprost przy kontrakcie (runda 10, F03)", async () => {
+    mocks.notesTimeline.mockResolvedValue({ data: [] });
+    mocks.createNote.mockResolvedValueOnce({ data: { id: 1 } });
+    renderWith(<ContractNotesTab contractId={4} canAddNote />);
+
+    const button = await screen.findByRole("button", { name: /Dodaj notatkę/ });
+    expect(button).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Nowa notatka przy kontrakcie/), {
+      target: { value: "  Ustalenia z rozmowy  " },
+    });
+    fireEvent.change(screen.getByLabelText("Rodzaj notatki"), {
+      target: { value: "call" },
+    });
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(mocks.createNote).toHaveBeenCalledWith(4, {
+        content: "Ustalenia z rozmowy",
+        note_type: "call",
+      }),
+    );
+    await waitFor(() => expect(mocks.notesTimeline).toHaveBeenCalledTimes(2));
+  });
 });
 
 describe("audyt 24.09 (blok D) — zakładki kontraktu", () => {
@@ -253,6 +282,41 @@ describe("audyt 24.09 (blok D) — zakładki kontraktu", () => {
     expect(await screen.findByText(/→ 30\.09\.2026/)).toBeInTheDocument();
     expect(screen.getByText(/→ Aktywny/)).toBeInTheDocument();
     expect(screen.queryByText(/"end_date"/)).not.toBeInTheDocument();
+  });
+
+  // Aneksy podpisane w Generatorze aneksów zapisują cztery typy spoza
+  // pierwotnej czwórki — do 13.10.2026 ich wiersz nie miał nazwy typu.
+  it("aneks z Generatora aneksów ma nazwę typu, a nieznany typ — „Aneks”", async () => {
+    const amendment = (id: number, amendment_type: string, new_values: object) => ({
+      id,
+      contract_id: 5,
+      amendment_type,
+      old_values: {},
+      new_values,
+      effective_date: "2026-11-16",
+      reason: null,
+      document_id: null,
+      created_by: null,
+      created_by_email: null,
+      created_at: "2026-10-10T10:00:00Z",
+    });
+    mocks.get.mockResolvedValue({
+      data: [
+        amendment(1, "start_date_change", { start_date: "2026-11-16" }),
+        amendment(2, "party_data_change", { legal_name: "ZAJĄC IT Piotr Zając" }),
+        amendment(3, "subcontractor_consent", { delegate_name: "Paweł Sowa" }),
+        amendment(4, "mandate_change", { rate_changed: true }),
+        amendment(5, "typ_z_przyszlosci", {}),
+      ],
+    });
+    renderWith(<ContractAmendmentsTab contractId={5} clientId={2} readOnly />);
+
+    expect(await screen.findByText("Zmiana daty startu")).toBeInTheDocument();
+    expect(screen.getByText("Uzupełnienie danych firmy")).toBeInTheDocument();
+    // Nazwa typu i etykieta pola `delegate_name` brzmią tak samo.
+    expect(screen.getAllByText("Osoba skierowana").length).toBeGreaterThan(0);
+    expect(screen.getByText("Aneks do umowy zlecenie")).toBeInTheDocument();
+    expect(screen.getByText("Aneks")).toBeInTheDocument();
   });
 
   it("formularz aneksu nie ma już gałęzi „wcześniejsze zakończenie” (S5)", async () => {
@@ -318,5 +382,61 @@ describe("audyt 24.09 (blok D) — zakładki kontraktu", () => {
         "error",
       ),
     );
+  });
+});
+
+// Runda 10 (R10-X1-1): puste pole kwoty zapisywało fakturę na 0 zł, a grosze
+// były blokowane domyślnym `step=1`.
+describe("ContractInvoicesTab — kwota faktury", () => {
+  async function openForm() {
+    mocks.get.mockResolvedValue({ data: [] });
+    renderWith(<ContractInvoicesTab contractId={5} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Dodaj fakturę/ }));
+    const field = (label: string) =>
+      screen.getByText(label).parentElement!.querySelector("input")!;
+    const form = screen.getByRole("button", { name: "Zapisz" }).closest("form")!;
+    return { input: field("Kwota"), number: field("Numer"), form };
+  }
+
+  it("pola kwoty i numeru są wymagane, kwota przyjmuje grosze", async () => {
+    const { input, number } = await openForm();
+    expect(input).toHaveAttribute("step", "0.01");
+    expect(input).toBeRequired();
+    expect(number).toBeRequired();
+  });
+
+  it("UI F01: pusty formularz nie wysyła faktury (najpierw numer)", async () => {
+    const { form } = await openForm();
+    fireEvent.submit(form);
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.showToast).toHaveBeenCalledWith("Podaj numer faktury.", "error");
+  });
+
+  it("zerowa albo ujemna kwota nie wysyła faktury", async () => {
+    const { input, number, form } = await openForm();
+    fireEvent.change(number, { target: { value: "FV/9" } });
+    for (const value of ["", "0", "-5"]) {
+      fireEvent.change(input, { target: { value } });
+      fireEvent.submit(form);
+    }
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.showToast).toHaveBeenCalledWith(
+      "Podaj kwotę faktury większą od zera.",
+      "error",
+    );
+  });
+
+  it("kwota z groszami idzie do API bez zaokrąglenia", async () => {
+    mocks.post.mockResolvedValue({ data: {} });
+    const { input, number, form } = await openForm();
+    fireEvent.change(number, { target: { value: " FV/2026/09/1 " } });
+    // UI F13: 123,45 PLN.
+    fireEvent.change(input, { target: { value: "123.45" } });
+    fireEvent.submit(form);
+    await waitFor(() => expect(mocks.post).toHaveBeenCalled());
+    expect(mocks.post.mock.calls[0][1]).toMatchObject({
+      amount: 123.45,
+      invoice_number: "FV/2026/09/1",
+    });
   });
 });

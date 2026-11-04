@@ -53,17 +53,109 @@ export function invalidateAfterDocumentChange(
   queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
   queryClient.invalidateQueries({ queryKey: ["contract"] });
   queryClient.invalidateQueries({ queryKey: ["contract-amendments"] });
+  // Aneks widać w kontrakcie od wygenerowania, a skan trafia do jego Dokumentów.
+  queryClient.invalidateQueries({ queryKey: ["contract-annex-documents"] });
+  queryClient.invalidateQueries({ queryKey: ["contract-documents"] });
   queryClient.invalidateQueries({ queryKey: ["contractors-v2"] });
   queryClient.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
 }
 
-/** Zapisz odpowiedź DOCX jako plik. */
+/** Skan podpisanego aneksu: PDF albo zdjęcie, do 20 MB (serwer sprawdza to samo). */
+export const SCAN_ACCEPT = ".pdf,.jpg,.jpeg,.png";
+const SCAN_MAX_BYTES = 20 * 1024 * 1024;
+
+const SCAN_FORMAT_MESSAGE =
+  "Skan podpisanego aneksu musi być plikiem PDF, JPG albo PNG.";
+
+/** Powód odrzucenia pliku przed wysyłką albo `null`, gdy plik się nadaje. */
+export function scanFileProblem(
+  file: File,
+  formatMessage: string = SCAN_FORMAT_MESSAGE,
+): string | null {
+  if (!/\.(pdf|jpe?g|png)$/i.test(file.name)) {
+    return formatMessage;
+  }
+  if (file.size > SCAN_MAX_BYTES) {
+    return "Plik jest za duży — skan może mieć najwyżej 20 MB.";
+  }
+  if (file.size === 0) return "Plik jest pusty.";
+  return null;
+}
+
+/** Pole wyboru skanu — wspólne dla okien podpisu aneksu i umowy oraz „Dołącz skan”. */
+export function ScanFileField({
+  id,
+  file,
+  onFile,
+  disabled = false,
+  label = "Skan podpisanego aneksu",
+  formatMessage = SCAN_FORMAT_MESSAGE,
+}: {
+  id: string;
+  file: File | null;
+  onFile: (file: File | null) => void;
+  disabled?: boolean;
+  label?: string;
+  formatMessage?: string;
+}) {
+  const problem = file ? scanFileProblem(file, formatMessage) : null;
+  return (
+    <div className="space-y-1">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        type="file"
+        accept={SCAN_ACCEPT}
+        disabled={disabled}
+        aria-invalid={problem ? true : undefined}
+        aria-describedby={`${id}-hint`}
+        onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+      />
+      <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+        PDF, JPG albo PNG, do 20 MB. Trafi do Dokumentów kontraktu.
+      </p>
+      {problem ? (
+        <p role="alert" className="text-xs text-destructive">
+          {problem}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** Zapisz odpowiedź z plikiem (DOCX albo PDF) na dysku. */
 export function saveDocx(
   res: { data: unknown; headers: Record<string, unknown> },
   fallback: string,
 ) {
   const disposition = String(res.headers?.["content-disposition"] ?? "");
   downloadBlob(res.data as Blob, parseDispositionFilename(disposition, fallback));
+}
+
+export type DocumentFileFormat = "docx" | "pdf";
+
+/**
+ * PDF oferujemy przy umowach przedwstępnych — idą do kandydata, który podpisuje
+ * je dowolną formą (także podpisem zaufanym); pozostałe dokumenty — DOCX.
+ */
+export function offersPdf(item: Pick<DocumentItem, "family">): boolean {
+  return item.family === "preliminary";
+}
+
+/** Pobierz wydany dokument w wybranym formacie (dane wrażliwe tylko w żądaniu). */
+export async function downloadDocumentFile(
+  item: Pick<DocumentItem, "id" | "type_label">,
+  format: DocumentFileFormat,
+  values: DocumentValues = {},
+) {
+  const res =
+    format === "pdf"
+      ? await b2bDocumentsApi.pdf(item.id, values)
+      : await b2bDocumentsApi.redownload(item.id, values);
+  saveDocx(
+    res as { data: unknown; headers: Record<string, unknown> },
+    `${item.type_label}.${format}`,
+  );
 }
 
 // ── Oznacz jako podpisany ───────────────────────────────────────────────────
@@ -131,10 +223,33 @@ export function ConfirmSignedDialog({
     queryFn: () => b2bDocumentsApi.effects(item.id),
     staleTime: 0,
   });
+  // Skan ma sens tylko przy aneksie z kontraktem — trafia do jego Dokumentów.
+  const takesScan = item.family === "annex" && Boolean(item.contract_id);
+  const [scan, setScan] = useState<File | null>(null);
+  const scanProblem = scan ? scanFileProblem(scan) : null;
   const confirm = useMutation({
-    mutationFn: () => b2bDocumentsApi.confirmSigned(item.id),
-    onSuccess: () => {
-      toast.showSuccess("Dokument oznaczony jako podpisany — skutki zastosowane.");
+    mutationFn: async () => {
+      await b2bDocumentsApi.confirmSigned(item.id);
+      if (!scan) return { scanError: null };
+      // Podpis jest już zapisany — nieudana wysyłka skanu go nie cofa, skan
+      // da się dołączyć z rejestru aneksów.
+      try {
+        await b2bDocumentsApi.uploadSignedScan(item.id, scan);
+        return { scanError: null };
+      } catch (error) {
+        return {
+          scanError: apiErrorMessage(error, "Nie udało się zapisać skanu."),
+        };
+      }
+    },
+    onSuccess: ({ scanError }) => {
+      if (scanError) {
+        toast.showError(
+          `Dokument oznaczony jako podpisany, ale skan nie został zapisany: ${scanError} Dołącz go z rejestru aneksów („Dołącz skan”).`,
+        );
+      } else {
+        toast.showSuccess("Dokument oznaczony jako podpisany — skutki zastosowane.");
+      }
       invalidateAfterDocumentChange(queryClient);
       onClose();
     },
@@ -166,6 +281,20 @@ export function ConfirmSignedDialog({
           ) : effects.data ? (
             <EffectsView effects={effects.data} />
           ) : null}
+          {takesScan && effects.isSuccess && !blocked ? (
+            <div className="space-y-1">
+              <ScanFileField
+                id={`b2b-doc-scan-${item.id}`}
+                file={scan}
+                onFile={setScan}
+                disabled={confirm.isPending}
+              />
+              <p className="text-xs text-muted-foreground">
+                Opcjonalnie. Bez skanu w Dokumentach kontraktu zostanie
+                wygenerowany plik bez podpisów — skan dołączysz później.
+              </p>
+            </div>
+          ) : null}
           {confirm.isError ? (
             <Alert
               variant="error"
@@ -180,7 +309,12 @@ export function ConfirmSignedDialog({
           </Button>
           <Button
             onClick={() => confirm.mutate()}
-            disabled={!effects.isSuccess || blocked || confirm.isPending}
+            disabled={
+              !effects.isSuccess ||
+              blocked ||
+              confirm.isPending ||
+              Boolean(scanProblem)
+            }
             loading={confirm.isPending}
           >
             Potwierdź podpis obu stron
@@ -208,9 +342,8 @@ export function RedownloadDialog({
   const [errorKeys, setErrorKeys] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const download = useMutation({
-    mutationFn: async () => {
-      const res = await b2bDocumentsApi.redownload(item.id, values);
-      saveDocx(res, `${item.type_label}.docx`);
+    mutationFn: async (format: DocumentFileFormat) => {
+      await downloadDocumentFile(item, format, values);
     },
     onSuccess: () => {
       toast.showSuccess("Dokument pobrany.");
@@ -261,13 +394,26 @@ export function RedownloadDialog({
           <Button variant="ghost" onClick={onClose}>
             Anuluj
           </Button>
+          {offersPdf(item) ? (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setError(null);
+                download.mutate("pdf");
+              }}
+              disabled={download.isPending || !sensitiveType}
+              loading={download.isPending && download.variables === "pdf"}
+            >
+              Pobierz PDF
+            </Button>
+          ) : null}
           <Button
             onClick={() => {
               setError(null);
-              download.mutate();
+              download.mutate("docx");
             }}
             disabled={download.isPending || !sensitiveType}
-            loading={download.isPending}
+            loading={download.isPending && download.variables === "docx"}
           >
             Pobierz DOCX
           </Button>
@@ -367,11 +513,25 @@ export function PartnerNoticeDialog({
   parentId,
   contractNumber,
   partnerName,
+  noticePeriodKnown = true,
+  contractLinked = true,
   onClose,
 }: {
   parentId: number;
   contractNumber: string;
   partnerName?: string | null;
+  /**
+   * Umowa ma znaną wersję wzoru — serwer policzy datę rozwiązania z okresu
+   * wypowiedzenia. Bez wersji (wiersz z Excela działu) data jest wymagana:
+   * serwer nie zgaduje jej z umowy 2026 (runda 6 audytu, DOC-3).
+   */
+  noticePeriodKnown?: boolean;
+  /**
+   * Umowa ma powiązany kontrakt. Bez niego (wiersz z Excela działu) serwer
+   * szuka trwającego kontraktu osoby u klienta umowy — okno nie może obiecać,
+   * że kontrakt dostanie datę zakończenia (runda 10, R10-N14-3).
+   */
+  contractLinked?: boolean;
   onClose: () => void;
 }) {
   const toast = useToast();
@@ -386,8 +546,11 @@ export function PartnerNoticeDialog({
         termination_date: terminationDate || null,
       }),
     onSuccess: (result) => {
+      const when = result.termination_date.split("-").reverse().join(".");
       toast.showSuccess(
-        `Wypowiedzenie zarejestrowane — umowa rozwiąże się ${result.termination_date.split("-").reverse().join(".")}.`,
+        result.contract_warning
+          ? `Wypowiedzenie zarejestrowane — umowa rozwiąże się ${when}. ${result.contract_warning}`
+          : `Wypowiedzenie zarejestrowane — umowa rozwiąże się ${when}.`,
       );
       invalidateAfterDocumentChange(queryClient);
       onClose();
@@ -406,9 +569,9 @@ export function PartnerNoticeDialog({
         </DialogHeader>
         <DialogBody className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Partner złożył wypowiedzenie — NEXUS zapisze fakt i jego skutek:
-            kontrakt dostanie datę zakończenia, a umowa w rejestrze status
-            „Zakończona”. Dokumentu po naszej stronie nie ma.
+            {contractLinked
+              ? "Partner złożył wypowiedzenie — NEXUS zapisze fakt i jego skutek: kontrakt dostanie datę zakończenia, a umowa w rejestrze status „Zakończona”. Dokumentu po naszej stronie nie ma."
+              : "Partner złożył wypowiedzenie — NEXUS zapisze fakt i jego skutek w rejestrze umów (status „Zakończona”). Umowa nie jest powiązana z kontraktem: datę zakończenia dostanie trwający kontrakt tej osoby u tego klienta, jeśli jest jeden; bez niego zmieni się tylko rejestr. Dokumentu po naszej stronie nie ma."}
           </p>
           <div className="space-y-1">
             <Label htmlFor="b2b-partner-notice-delivered">Data doręczenia wypowiedzenia *</Label>
@@ -420,7 +583,9 @@ export function PartnerNoticeDialog({
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="b2b-partner-notice-end">Data rozwiązania umowy</Label>
+            <Label htmlFor="b2b-partner-notice-end">
+              Data rozwiązania umowy{noticePeriodKnown ? "" : " *"}
+            </Label>
             <Input
               id="b2b-partner-notice-end"
               type="date"
@@ -429,7 +594,9 @@ export function PartnerNoticeDialog({
               onChange={(e) => setTerminationDate(e.target.value)}
             />
             <p id="b2b-partner-notice-end-help" className="text-xs text-muted-foreground">
-              Zostaw puste — policzymy ją z okresu wypowiedzenia w umowie.
+              {noticePeriodKnown
+                ? "Zostaw puste — policzymy ją z okresu wypowiedzenia w umowie."
+                : "Ta umowa nie ma w NEXUSIE wersji wzoru — wpisz datę rozwiązania wynikającą z okresu wypowiedzenia w umowie."}
             </p>
             {tooEarly ? (
               <p className="text-xs text-destructive">
@@ -450,7 +617,12 @@ export function PartnerNoticeDialog({
           </Button>
           <Button
             onClick={() => mutation.mutate()}
-            disabled={!deliveredOn || tooEarly || mutation.isPending}
+            disabled={
+              !deliveredOn ||
+              tooEarly ||
+              (!noticePeriodKnown && !terminationDate) ||
+              mutation.isPending
+            }
             loading={mutation.isPending}
           >
             Zarejestruj

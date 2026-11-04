@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client_order import ClientOrder, ClientOrderStatus
@@ -29,6 +29,7 @@ from app.models.activity import Activity
 from app.models.order_mail import OrderMailDocument
 from app.services import storage_service
 from app.services.advanced_candidate_search import fold_polish
+from app.services.candidate_name_rules import without_name_markers
 from app.services.contract_lifecycle import (
     lock_contract_then_orders,
     sync_contract_to_live_order,
@@ -46,9 +47,12 @@ from app.services.order_mail_planner import (
     ACTION_FUTURE,
     ACTION_NEW,
     ACTION_NEW_DRAFT,
+    ACTION_OVERLAP,
     ACTION_REACTIVATE,
     ACTION_UNCHANGED,
     AUTO_ACTIONS,
+    OVERLAP_START_AFTER,
+    OVERLAP_TRIM_PREVIOUS,
     renewal_gap_phrase,
 )
 from app.services.order_pdf_parser import (
@@ -62,6 +66,7 @@ from app.services.order_rate_snapshots import (
     order_unit_for_contract,
 )
 from app.core.scheduling import business_today
+from app.core.log_safety import safe_storage_key
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +97,16 @@ COST_SHARED_BUDGET_REFUSAL = (
     "Zamówienie kosztowe dla kilku osób — kwota zlecenia jest wspólna dla całej "
     "obsady; załóż je ręcznie w oknie zamówienia klienta, zapis z kolejki dałby "
     "same szkice bez kwoty"
+)
+
+DELETED_CLIENT_REFUSAL = (
+    "Klient tego dokumentu został usunięty — zamówienie nie zostanie zapisane; "
+    "wskaż właściwego klienta albo odrzuć dokument"
+)
+
+MERGED_CLIENT_REFUSAL = (
+    "Klient tego dokumentu został scalony z innym rekordem — kliknij „Przelicz "
+    "plan”, żeby przenieść dokument na klienta głównego, i zastosuj ponownie"
 )
 
 
@@ -190,7 +205,11 @@ async def _new_person_contract(db, doc, rp, actor_user_id=None):
     if matches:
         candidate = matches[0]
     else:
-        candidate = Candidate(name=" ".join(tokens[:-1]), lastname=tokens[-1])
+        given, surname = _split_person_name(tokens)
+        # Dopisek z wiersza zamówienia nie trafia do imienia (D6, 13.10.2026).
+        candidate = Candidate(
+            name=without_name_markers(given), lastname=without_name_markers(surname)
+        )
         db.add(candidate)
         await db.flush()
         from app.services.index_outbox_service import CANDIDATE, record_bulk_reindex
@@ -224,6 +243,32 @@ async def _new_person_contract(db, doc, rp, actor_user_id=None):
         )
     )
     return contract
+
+
+def _is_caps_word(token: str) -> bool:
+    letters = [ch for ch in token if ch.isalpha()]
+    return len(letters) > 1 and all(ch.isupper() for ch in letters)
+
+
+def _split_person_name(tokens: list[str]) -> tuple[str, str]:
+    """Imię i nazwisko nowej kartoteki z nazwy osoby w PDF-ie.
+
+    Runda 10 (R10-N3-10): zapis „KOWALSKI Jan” (nazwisko wielkimi literami na
+    początku) dawał ``name="KOWALSKI"``, ``lastname="Jan"``. Wyraz pisany
+    WIELKIMI literami obok wyrazów pisanych normalnie jest nazwiskiem; gdy tak
+    zapisane są wszystkie albo żaden — nazwisko jest ostatnie, jak dotąd.
+    Wyrazy WIELKIMI literami dostają zwykłą pisownię („Kowalski”).
+    """
+    caps = [i for i, token in enumerate(tokens) if _is_caps_word(token)]
+    if caps and len(caps) < len(tokens) and caps == list(range(len(caps))):
+        surname_tokens, given_tokens = tokens[: len(caps)], tokens[len(caps) :]
+    else:
+        surname_tokens, given_tokens = tokens[-1:], tokens[:-1]
+
+    def pretty(words: list[str]) -> str:
+        return " ".join(w.title() if _is_caps_word(w) else w for w in words)
+
+    return pretty(given_tokens), pretty(surname_tokens)
 
 
 async def _notify_new_draft(db, doc, order, name):
@@ -261,6 +306,10 @@ async def _renewal_of_completed_order(
     utrwalonego), więc warunki planera sprawdzamy jeszcze raz — odmowa kończy
     zapis całego dokumentu i odsyła go do weryfikacji.
     """
+    from app.services.executive_contracts import (
+        inheritable_executive_contract_id,
+    )
+
     previous = await db.scalar(
         select(ClientOrder)
         .where(
@@ -302,13 +351,173 @@ async def _renewal_of_completed_order(
         "project_part": previous.project_part,
         # Część jest pochodną umowy wykonawczej (CeZ) — bez niej nowe
         # zamówienie miałoby część bez umowy, czyli wróciłoby do przeglądu.
-        "executive_contract_id": previous.executive_contract_id,
+        # Runda 8 (R8-N6-5): tylko umowa wykonawcza, która nadal trwa.
+        "executive_contract_id": await inheritable_executive_contract_id(
+            db, previous.executive_contract_id
+        ),
         "framework_contract_id": previous.framework_contract_id,
         "job_id": previous.job_id,
         "billing_hours_per_month": previous.billing_hours_per_month,
         "description": previous.description,
     }
     return details, inherited
+
+
+#: ``row_index`` → ``{"choice", "target_order_id", "previous_end_date",
+#: "start_date"}`` — wybór z panelu razem z tym, co człowiek widział.
+OverlapChoices = Optional[Mapping[int, Mapping[str, Any]]]
+
+
+def _overlap_fields(rp: dict) -> SimpleNamespace:
+    return SimpleNamespace(
+        row_index=rp.get("row_index", 0),
+        row_name=rp.get("row_name") or "wiersz",
+        action=rp.get("action"),
+        overlap_options=rp.get("overlap_options") or [],
+        target_order_id=rp.get("target_order_id"),
+        previous_end_date=rp.get("previous_end_date"),
+        start_date=rp.get("start_date"),
+    )
+
+
+#: Pola wiersza ``overlap``, które człowiek widział w panelu, gdy wybierał.
+_SEEN_FIELDS = ("target_order_id", "previous_end_date", "start_date")
+
+
+def _overlap_choice(row, overlap_choices: OverlapChoices) -> Optional[str]:
+    """Wybór człowieka, o ile dotyczy TEGO planu, który widział w panelu.
+
+    Plan jest liczony od nowa przy „Zastosuj” (godzinowa ponowna weryfikacja
+    albo zmiana zamówienia w oknie mogą go zmienić między wyświetleniem
+    a kliknięciem). Wybór niesie więc cel i daty z ekranu; inny cel albo inne
+    daty = wybór nieważny, bo dotyczyłby zamówienia, którego człowiek nie
+    oglądał (przegląd PR 27.10.2026).
+    """
+    picked = (overlap_choices or {}).get(row.row_index)
+    if row.action != ACTION_OVERLAP or not picked:
+        return None
+    if any(picked.get(f) != getattr(row, f) for f in _SEEN_FIELDS):
+        return None
+    choice = picked.get("choice")
+    return choice if choice in (row.overlap_options or []) else None
+
+
+def _settled_overlap_rows(rows, overlap_choices: OverlapChoices) -> set[int]:
+    """Wiersze ``overlap`` z ważnym wyborem człowieka."""
+    return {
+        r.row_index for r in rows if _overlap_choice(r, overlap_choices) is not None
+    }
+
+
+def _stale_overlap_rows(rows, overlap_choices: OverlapChoices) -> list[str]:
+    """Wiersze, dla których wybór przyszedł, ale plan od tamtej chwili się zmienił."""
+    choices = overlap_choices or {}
+    return [
+        f"„{r.row_name}”: plan zmienił się od wyświetlenia (zamówienie "
+        f"#{r.target_order_id}) — odśwież kolejkę i wybierz ponownie"
+        for r in rows
+        if r.row_index in choices and _overlap_choice(r, choices) is None
+    ]
+
+
+def _pl_day(value: date) -> str:
+    return value.strftime("%d.%m.%Y")
+
+
+async def _settle_overlap(
+    db, doc, rp: dict, contract, *, choice: str, start, end, actor_user_id
+) -> date:
+    """Wykonaj wybór człowieka dla nakładających się okresów; zwróć start nowego.
+
+    ``trim_previous`` kończy nachodzące zamówienie dzień przed nowym (ślad
+    w Activity ``order_mail_trim_previous`` z datą sprzed zmiany),
+    ``start_after`` przesuwa początek nowego na dzień po nim. Zamówienie,
+    które od odczytu dokumentu zmieniło okres albo status, wymaga „Przelicz
+    plan”; zamówienie z fakturą za skracany miesiąc skraca człowiek w oknie
+    zamówienia — automat nie zabiera okresu, za który klient już zapłacił.
+    """
+    from app.api.client_orders import _assert_no_overlapping_periodic_order
+    from app.models.client_sales_invoice import ClientSalesInvoiceLink
+    from app.services.periodic_order_lifecycle import refresh_periodic_order_status
+
+    name = rp.get("row_name") or "wiersz"
+    target_id = rp.get("target_order_id")
+    previous = await db.scalar(
+        select(ClientOrder)
+        .where(ClientOrder.id == target_id, ClientOrder.contract_id == contract.id)
+        .with_for_update()
+        # Stan PO blokadzie, nie z mapy tożsamości (FIN-MAIL-08).
+        .execution_options(populate_existing=True)
+    )
+    if (
+        previous is None
+        or start is None
+        or previous.order_group_id is not None
+        or previous.status not in (ClientOrderStatus.active, ClientOrderStatus.paused)
+        or previous.start_date is None
+        or previous.end_date is None
+        or previous.end_date.isoformat() != rp.get("previous_end_date")
+    ):
+        raise ValueError(
+            f"„{name}”: zamówienie #{target_id} zmieniło się od odczytu "
+            "dokumentu — kliknij „Przelicz plan”"
+        )
+    if choice == OVERLAP_START_AFTER:
+        new_start = previous.end_date + timedelta(days=1)
+        if end is not None and new_start > end:
+            raise ValueError(
+                f"„{name}”: po zamówieniu #{previous.id} nie zostaje nic z okresu "
+                "dokumentu — skróć je albo zapisz zamówienie w oknie zamówienia"
+            )
+        await _assert_no_overlapping_periodic_order(db, contract.id, new_start, end)
+        return new_start
+    if choice != OVERLAP_TRIM_PREVIOUS:
+        raise ValueError(f"„{name}”: nieznany wybór dla nakładającego się okresu")
+    cut = start - timedelta(days=1)
+    if cut < previous.start_date:
+        raise ValueError(
+            f"„{name}”: zamówienie #{previous.id} zaczyna się {_pl_day(previous.start_date)} "
+            "— nie da się go skrócić przed nowym okresem"
+        )
+    invoiced = await db.scalar(
+        select(func.count())
+        .select_from(ClientSalesInvoiceLink)
+        .where(
+            ClientSalesInvoiceLink.order_id == previous.id,
+            ClientSalesInvoiceLink.period_year * 12
+            + ClientSalesInvoiceLink.period_month
+            >= start.year * 12 + start.month,
+        )
+    )
+    if invoiced:
+        raise ValueError(
+            f"„{name}”: zamówienie #{previous.id} ma już fakturę za {start:%m.%Y} "
+            "albo późniejszy miesiąc — skróć je ręcznie w oknie zamówienia"
+        )
+    db.add(
+        Activity(
+            entity_type="client_order",
+            entity_id=previous.id,
+            action="order_mail_trim_previous",
+            user_id=actor_user_id,
+            details={
+                "document_id": doc.id,
+                "before": {
+                    "end_date": previous.end_date.isoformat(),
+                    "status": previous.status.value,
+                },
+                "end_date": cut.isoformat(),
+                "next_order_title": rp.get("title"),
+            },
+        )
+    )
+    previous.end_date = cut
+    refresh_periodic_order_status(previous)
+    await db.flush()
+    # Ta sama bramka co PATCH i „Dodaj przedłużenie”: po skróceniu żadne
+    # inne zamówienie tej osoby nie może nachodzić na nowy okres.
+    await _assert_no_overlapping_periodic_order(db, contract.id, start, end)
+    return start
 
 
 async def apply_document(
@@ -318,8 +527,14 @@ async def apply_document(
     actor_user_id: Optional[int],
     only_actions: frozenset[str] = AUTO_ACTIONS,
     confirmed_by_human: Optional[bool] = None,
+    overlap_choices: OverlapChoices = None,
 ) -> ApplyResult:
     """Wykonaj plan z ``doc.proposal``. Nie rzuca; wynik w ``ApplyResult``.
+
+    ``overlap_choices`` (``row_index`` → ``OVERLAP_*`` z celem i datami) to wybór człowieka
+    z panelu dla wiersza ``overlap`` (27.10.2026): skrócić nachodzące
+    zamówienie albo zacząć nowe po nim. Tylko „Zastosuj” go podaje — automat
+    i „Przelicz plan” nigdy, więc taki dokument zawsze przechodzi przez kolejkę.
 
     ``actor_user_id`` to ATRYBUCJA (kto uruchomił zapis: Activity, autor
     zamówienia i pliku, ``applied_by``), a ``confirmed_by_human`` — czy ten
@@ -332,11 +547,36 @@ async def apply_document(
     """
     if confirmed_by_human is None:
         confirmed_by_human = actor_user_id is not None
+    # Runda 6 audytu (C2): PDF dokumentu czytamy RAZ i PRZED blokadą klienta —
+    # formułę Nordei (OCR) też. Dawniej odczyt szedł pod blokadą klienta, dla
+    # KAŻDEGO zamówienia dokumentu osobno (N razy ten sam PDF).
+    pdf_bytes = _read_document_pdf(doc)
+    from app.services import nordea_invoice_lines
+
+    invoice_payload = await nordea_invoice_lines.read_upload_payload(
+        doc.client_id, pdf_bytes, doc.attachment_name or "zamowienie.pdf"
+    )
     # Lock the client before refreshing the roster. Different incoming PDFs
     # for the same first contractor cannot both create an initial draft.
-    await db.scalar(
-        select(Client.id).where(Client.id == doc.client_id).with_for_update()
-    )
+    client_state = (
+        await db.execute(
+            select(Client.deleted_at, Client.merged_into_client_id)
+            .where(Client.id == doc.client_id)
+            .with_for_update()
+        )
+    ).first()
+    if client_state is not None and client_state.deleted_at is not None:
+        # Runda 7 (R7-X5-1): usunięty klient nie ma profilu ani zapisów (0307).
+        # Dokument rozpoznany przed usunięciem nie może założyć zamówienia ani
+        # wskrzesić kontraktu u klienta, którego profil zwraca 404.
+        return ApplyResult(error=DELETED_CLIENT_REFUSAL)
+    if client_state is not None and client_state.merged_into_client_id is not None:
+        # Runda 10 (R10-N3-1): scalony duplikat nie jest klientem — ma pusty
+        # roster, więc każda osoba wyglądała na nową i „Zastosuj” zakładało
+        # kandydata, kontrakt i zamówienie u ukrytego rekordu. Przeliczenie
+        # (``refresh_review_plan``) przenosi dokument na klienta głównego
+        # i sprawdza prawa do niego; writer tego nie zgaduje.
+        return ApplyResult(error=MERGED_CLIENT_REFUSAL)
     if not (doc.proposal or {}).get("apply_result"):
         from app.services.order_mail_ingest import current_proposal, restore_extraction
 
@@ -355,14 +595,24 @@ async def apply_document(
             # kwota zlecenia nie trafia na żadną osobę, więc zostałyby szkice,
             # których nie da się aktywować (audyt 24.09, S3).
             return ApplyResult(error=COST_SHARED_BUDGET_REFUSAL)
-        if proposal.blocking or not proposal.auto_eligible_actions:
+        stale = _stale_overlap_rows(proposal.rows, overlap_choices)
+        if stale:
+            return ApplyResult(error="; ".join(stale))
+        settled = _settled_overlap_rows(proposal.rows, overlap_choices)
+        if proposal.blocking or not (
+            proposal.rows
+            and all(
+                r.action in AUTO_ACTIONS or r.row_index in settled
+                for r in proposal.rows
+            )
+        ):
             return ApplyResult(
                 error="; ".join(
                     proposal.blocking
                     + [
                         f"{r.row_name}: {'; '.join(r.reasons)}"
                         for r in proposal.rows
-                        if r.action not in only_actions
+                        if r.action not in only_actions and r.row_index not in settled
                     ]
                 )
             )
@@ -394,6 +644,9 @@ async def apply_document(
             actor_user_id=actor_user_id,
             only_actions=only_actions,
             confirmed_by_human=confirmed_by_human,
+            pdf_bytes=pdf_bytes,
+            invoice_payload=invoice_payload,
+            overlap_choices=overlap_choices,
         )
         if not result.ok:
             await transaction.rollback()
@@ -412,11 +665,48 @@ async def apply_document(
         await refresh_order_gaps_safely(
             db, contract_ids=sorted(touched_contracts), actor_id=actor_user_id
         )
+        # D3 (04.10.2026) jak w ``commit_order_write``: uzupełnione zamówienie
+        # z maila zamyka sprawę po zatrudnieniu — dzwonek Finansów i kartę DL
+        # (bez tego dzwonek „bez zamówienia” wisiał bez końca; audyt 05.10.2026).
+        from app.services.hired_order_status import (  # noqa: PLC0415
+            resolve_hired_order_cases_safely,
+        )
+
+        await resolve_hired_order_cases_safely(
+            db, contract_ids=sorted(touched_contracts)
+        )
     return result
 
 
+def _read_document_pdf(doc) -> Optional[bytes]:
+    """Bajty PDF-a dokumentu z magazynu poczty; brak/nieczytelny = ``None``."""
+    if not doc.storage_path:
+        return None
+    try:
+        return storage_service.get_order_mail_attachment_path(
+            doc.storage_path
+        ).read_bytes()
+    except OSError as exc:
+        # Klucz i komunikat OSError niosą oryginalną nazwę PDF-a (zwykle
+        # z nazwiskiem konsultanta) — runda 7, R7-V5-2.
+        logger.warning(
+            "order_mail apply: cannot read PDF %s (%s)",
+            safe_storage_key(doc.storage_path),
+            type(exc).__name__,
+        )
+        return None
+
+
 async def _write_document(
-    db, doc, *, actor_user_id, only_actions, confirmed_by_human=None
+    db,
+    doc,
+    *,
+    actor_user_id,
+    only_actions,
+    confirmed_by_human=None,
+    pdf_bytes: Optional[bytes] = None,
+    invoice_payload: Optional[dict] = None,
+    overlap_choices: OverlapChoices = None,
 ):
     from app.api.client_orders import (
         _activate_complete_draft,
@@ -436,16 +726,10 @@ async def _write_document(
         result.error = "Brak planu zapisu"
         return result
     actor = SimpleNamespace(id=actor_user_id)
-    pdf_bytes: Optional[bytes] = None
-    if doc.storage_path:
-        try:
-            pdf_bytes = storage_service.get_order_mail_attachment_path(
-                doc.storage_path
-            ).read_bytes()
-        except OSError as exc:
-            logger.warning(
-                "order_mail apply: cannot read PDF %s: %s", doc.storage_path, exc
-            )
+    if pdf_bytes is None:
+        # Wołający bez wcześniejszego odczytu (testy writera) — sam plik,
+        # bez formuły Nordei (dosypie ją pętla `order_gaps`).
+        pdf_bytes = _read_document_pdf(doc)
 
     # Idempotencja ponowienia po częściowym niepowodzeniu: wiersz, który w
     # poprzednim biegu dostał `order_id`, jest już zapisany — drugi klik
@@ -482,7 +766,8 @@ async def _write_document(
         if applied.row_index in previously_applied:
             applied.order_id = previously_applied[applied.row_index]
             continue
-        if applied.action not in only_actions:
+        overlap_choice = _overlap_choice(_overlap_fields(rp), overlap_choices)
+        if applied.action not in only_actions and overlap_choice is None:
             applied.error = f"Akcja {applied.action!r} poza zakresem writera"
             continue
         contract_id = rp.get("contract_id")
@@ -519,6 +804,17 @@ async def _write_document(
                 continue
             start = _date(rp.get("start_date"))
             end = _date(rp.get("end_date"))
+            if overlap_choice is not None:
+                start = await _settle_overlap(
+                    db,
+                    doc,
+                    rp,
+                    contract,
+                    choice=overlap_choice,
+                    start=start,
+                    end=end,
+                    actor_user_id=actor_user_id,
+                )
             effective = effective_rate_fields(contract, start or business_today())
             # Bez jednostki z dokumentu — jednostka, w której zamówienia tej osoby
             # dziedziczą z kontraktu (kontrakt z MD jest dziś w zł/h, a zamówienie
@@ -556,6 +852,15 @@ async def _write_document(
                 )
                 if order is None:
                     applied.error = "Szkic do uzupełnienia już nie istnieje"
+                    continue
+                if order.order_group_id is not None:
+                    # Plan zapisany przed 25.09.2026 mógł wskazywać szkic LINII
+                    # zamówienia MD/kosztowego. Wypełniony jak zamówienie
+                    # okresowe dostawał numer, okres i stawkę bez budżetu MD.
+                    applied.error = (
+                        "Szkic należy do zamówienia MD/kosztowego — uzupełnij go "
+                        "w oknie zamówienia u tego klienta (przelicz plan)"
+                    )
                     continue
                 before = {
                     "title": order.title,
@@ -602,8 +907,10 @@ async def _write_document(
                     if applied.action == ACTION_REACTIVATE
                     else (None, {})
                 )
-                if applied.action != ACTION_FUTURE:
-                    await assert_no_open_md_group_line(db, contract.id)
+                # Runda 10 (R10-N3-2): także ``future`` — linia MD nie kończy
+                # się datą, więc „kolejne zamówienie po jej okresie” byłoby
+                # drugim zapisem tej samej współpracy (ręcznie: 409).
+                await assert_no_open_md_group_line(db, contract.id)
                 # Drugi guard, gdy `apply_result` nie zdążył się zapisać (crash
                 # między commitem wiersza a zapisem dokumentu): zamówienie z TEJ
                 # POZYCJI dokumentu dla tego kontraktu i numeru już istnieje →
@@ -680,6 +987,11 @@ async def _write_document(
                     content_type="application/pdf",
                     user=actor,
                 )
+                from app.services import nordea_invoice_lines
+
+                # Ten sam plik: `pdf_bytes` i `invoice_payload` pochodzą z tego
+                # samego odczytu dokumentu (runda 6 audytu, C2).
+                nordea_invoice_lines.apply_upload_payload(order, invoice_payload)
             # Copy a cost only from the contract's own schedule, preserving
             # unit/currency. A first unsigned engagement has no such cost.
             if order.rate_candidate is None:
@@ -698,6 +1010,20 @@ async def _write_document(
                 )
                 and _activate_complete_draft(order)
             )
+            if (
+                overlap_choice == OVERLAP_TRIM_PREVIOUS
+                and order.status != ClientOrderStatus.active
+            ):
+                # Skrócone obowiązujące zamówienie, a nowe zostaje szkicem
+                # (wypowiedziana umowa, brak danych do aktywacji): okres,
+                # za który klient płaci, zostałby tylko w szkicu. Savepoint
+                # writera cofa skrócenie razem z nowym zamówieniem.
+                raise ValueError(
+                    f"„{rp.get('row_name') or 'wiersz'}”: nowe zamówienie nie "
+                    "aktywuje się (umowa albo brakujące dane) — zamówienie "
+                    f"#{rp.get('target_order_id')} nie zostało skrócone; zapisz "
+                    "przedłużenie w oknie zamówienia"
+                )
             if is_new_person and order.status == ClientOrderStatus.draft:
                 await _notify_new_draft(db, doc, order, rp["row_name"])
             if order.status == ClientOrderStatus.active:
@@ -719,7 +1045,12 @@ async def _write_document(
             await db.flush()
             applied.order_id = order.id
         except HTTPException as exc:
-            applied.error = str(exc.detail)
+            detail = exc.detail
+            if isinstance(detail, dict) and detail.get("message"):
+                # Odmowa ze strukturą (np. „konsultant już na zamówieniu MD”)
+                # — do kolejki idzie zdanie, nie słownik Pythona.
+                detail = detail["message"]
+            applied.error = str(detail)[:500]
             return result
         except ValueError as exc:
             if type(exc) is not ValueError:
@@ -736,12 +1067,12 @@ async def _write_document(
             # Odmowy writera (imiennik w bazie, zmieniony plan…) niosą polskie
             # zdanie dla operatora. `repr(exc)` pokazywał je w kolejce jako
             # „ValueError('W bazie jest już…')". Ślad zostaje w logu.
+            # Runda 10 (R10-N3-9): treść odmowy cytuje imiona i nazwiska
+            # („Jan Kowalski” (#123)) — do logu idą tylko identyfikatory.
             logger.warning(
-                "order_mail apply refused (doc=%s row=%s): %s",
+                "order_mail apply refused (doc=%s row=%s)",
                 doc.id,
                 applied.row_index,
-                exc,
-                exc_info=True,
             )
             applied.error = str(exc)[:500]
             return result

@@ -25,7 +25,7 @@ from app.services.client_access import (
 )
 from app.services.access_scope import (
     assert_delivery_lead_client_visible,
-    resolve_delivery_lead_client_ids,
+    resolve_delivery_lead_org_client_ids,
 )
 from app.services.question_suggestions import suggest_questions_for_prep
 
@@ -104,6 +104,7 @@ def _must_have_gaps(job, candidate) -> list[str]:
         gate_eligible_must_skills,
         missing_must_skills,
     )
+    from app.services.must_text_evidence import cv_text
     from app.services.scoring_service import (
         candidate_known_skill_names,
         job_explicit_must_skills,
@@ -113,14 +114,14 @@ def _must_have_gaps(job, candidate) -> list[str]:
     if not must:
         return []
     shown = _display_names(job)
-    if not candidate_known_skill_names(candidate):
+    if not candidate_known_skill_names(candidate) and not cv_text(candidate).strip():
         names = ", ".join(shown.get(skill, skill) for skill in must[:5])
         return [
             "Brak danych o umiejętnościach kandydata — nie da się porównać "
             f"z wymaganiami MUST ({names}). Uzupełnij profil lub CV przed rozmową."
         ]
     return [
-        f"Brak {shown.get(skill, skill)} (MUST rekrutacji) w profilu — może być pytanie"
+        f"Brak {shown.get(skill, skill)} (MUST rekrutacji) w profilu ani CV — może być pytanie"
         for skill in missing_must_skills(candidate, must, verification_job_id=job.id)
     ]
 
@@ -198,7 +199,7 @@ async def generate_prep_kit(
     # authorize.
     assert_delivery_lead_client_visible(
         job.client_id,
-        await resolve_delivery_lead_client_ids(current_user, db),
+        await resolve_delivery_lead_org_client_ids(current_user, db),
     )
 
     # ── Fetch Candidate ──────────────────────────────────────────────────────
@@ -228,7 +229,9 @@ async def generate_prep_kit(
     # stays gated by the CandidatePIIAccess role dependency above.
     if job.client_id:
         await assert_client_exists(db, job.client_id)
-        access = await resolve_client_access(db, current_user, job.client_id)
+        access = await resolve_client_access(
+            db, current_user, job.client_id, purpose="org"
+        )
         if not access.can_view_knowledge:
             raise deny("brak dostępu do wiedzy tego klienta")
 

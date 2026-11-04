@@ -4,10 +4,14 @@
  * Krok 07 „Rozmowy i decyzja" — program „flow w języku C2" (PR 7/7).
  *
  * Zbiera w jednym miejscu to, co dziś jest rozrzucone: kto jest u klienta
- * (kanban), prep-kit (własna strona), Screening Championa dla klienta (modal
- * + link 30-dniowy), weto hiring managera (chip na karcie + 409 przy ruchu)
- * i decyzję (modale odrzucenia). Żadna z tych rzeczy nie znika ze swojego
- * miejsca — ta zakładka je CYTUJE i linkuje.
+ * (kanban), prep-kit (własna strona), formularz screeningu (okno), weto
+ * hiring managera (chip na karcie + 409 przy ruchu) i decyzję (modale
+ * odrzucenia). Żadna z tych rzeczy nie znika ze swojego miejsca — ta
+ * zakładka je CYTUJE i linkuje.
+ *
+ * 0424 (D2, 07.10.2026): z NEXUSA nic nie idzie do klienta — przycisk
+ * „Karta Championa dla klienta” i link 30-dniowy zniknęły (serwer odpowiada
+ * na tworzenie linku 410).
  *
  * Dane pipeline'u przychodzą PROPSEM z tego samego zapytania `["kanban", id]`,
  * którym strona karmi tablicę. Zero zapytań per wiersz.
@@ -21,7 +25,6 @@ import {
   CalendarClock,
   ExternalLink,
   FileText,
-  Link2,
   Loader2,
   Save,
   Sparkles,
@@ -29,8 +32,9 @@ import {
   Users,
 } from "lucide-react";
 
+import { usePersonPanelSideActive } from "@/components/v2/person/PersonPanelSide";
 import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
-import api, {
+import {
   extractErrorMsg,
   hiringManagerFeedbackApi,
   screeningApi,
@@ -38,22 +42,22 @@ import api, {
   type HiringManagerFeedback,
   type HiringManagerFeedbackList,
 } from "@/lib/api";
-import {
-  PIPELINE_VERSION_CONFLICT_MESSAGE,
-  expectedStateVersionOf,
-  invalidateAfterPipelineVersionConflict,
-  isPipelineVersionConflict,
-} from "@/lib/pipeline-version-conflict";
+import { expectedStateVersionOf } from "@/lib/pipeline-version-conflict";
+import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
+import { itemFullName } from "@/lib/pipeline-flow";
 import { useToast } from "@/components/Toast";
 import { useCapability } from "@/hooks/useCapability";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState, QueryStateNotice } from "@/components/ds";
 import { cn, formatDate } from "@/lib/utils";
-import { copyTextToClipboard } from "@/lib/clipboard";
 import { countPl } from "@/lib/plural-pl";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { terminalOf } from "@/lib/kanban-terminal";
+import {
+  rejectionEmailAvailableFrom,
+  type RejectionEmailText,
+} from "@/lib/rejection-email";
 import { isInterviewStage } from "@/lib/job-flow-stages";
 import {
   loadJobRejectionReasons,
@@ -72,6 +76,16 @@ import {
   RejectionV2,
   type CandidateOfferResponse,
 } from "@/components/v2/modals/RejectionV2";
+import type { RejectionWorkModeChoice } from "@/components/v2/modals/RejectionWorkModeField";
+import {
+  rejectionRateMoveFields,
+  type RejectionRateChoice,
+} from "@/components/v2/modals/RejectionRateField";
+import {
+  useRejectionProfileWorkMode,
+  useRejectionProfileRate,
+  useRejectionWorkModeJob,
+} from "@/hooks/useRejectionWorkModeContext";
 import {
   InterviewDecisionDock,
   InterviewDecisionDockEmpty,
@@ -85,12 +99,14 @@ import {
   WorkbenchHeader,
   WorkbenchRail,
 } from "@/components/v2/jobs/workbench-chrome";
-import { OneTimeLinkField } from "@/components/v2/jobs/OneTimeLinkField";
-import { useEligibilityWarning } from "@/components/v2/jobs/useEligibilityWarning";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
+import { championRemovalOutcome, type JobChampionsFields } from "@/lib/job-champions";
+import { placeStage } from "@/lib/board-stages";
 
+// D6 (16.10.2026): „Dalej” → „Akceptuje” — na „Rozmowie u klienta” otwiera
+// okno „Klient zaakceptował” (ruch, werdykt i dzwonki razem).
 const DECISION_OPTIONS: { value: HiringManagerDecision; label: string }[] = [
-  { value: "advance", label: "Dalej" },
+  { value: "advance", label: "Akceptuje" },
   { value: "on_hold", label: "Druga rozmowa" },
   { value: "reject", label: "Odrzuca" },
 ];
@@ -117,6 +133,9 @@ export interface JobInterviewsTabProps extends WorkbenchPanelProps {
   onColumnsRetry?: () => void;
   /** Budżet PLN/h rekrutacji — ta sama kwota co nagłówek (`jobBudgetHourly`). */
   budgetHourly?: number | null;
+  /** D6: „Akceptuje” na „Rozmowie u klienta” otwiera okno akceptacji Tablicy
+   *  (z notatką wpisaną w formularzu werdyktu). */
+  onClientAccept?: (candidateId: number, note?: string | null) => void;
 }
 
 interface SelectedEntry {
@@ -136,27 +155,26 @@ export function JobInterviewsTab({
   budgetHourly = null,
   layout = "full",
   focusCandidateId = null,
+  onClientAccept,
 }: JobInterviewsTabProps) {
   const isPanel = layout === "panel";
-  const { showSuccess, showError, showActionToast } = useToast();
+  const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
   const [selectedCandidateId, setSelectedCandidateId] = useState<number | null>(
     null,
   );
   const [screeningFor, setScreeningFor] = useState<{
-    stageId: number;
+    candidateId: number;
     name: string;
   } | null>(null);
   const [showOriginalCv, setShowOriginalCv] = useState(false);
+  const previewInSide = usePersonPanelSideActive();
   const [prepInviteOpen, setPrepInviteOpen] = useState(false);
   const [pendingTerminal, setPendingTerminal] = useState<{
     col: KanbanColumn;
     terminal: "rejected" | "withdrawn";
     entry: SelectedEntry;
   } | null>(null);
-  // Linki do karty Championa utworzone w tej sesji, po `candidate_id` —
-  // sekret wraca raz, a karta rozmowy montuje się od nowa po zapisie werdyktu.
-  const [championLinks, setChampionLinks] = useState<Record<number, string>>({});
 
   // ── Kto jest u klienta ──────────────────────────────────────────────
   const interviewColumns = useMemo(
@@ -262,49 +280,40 @@ export function JobInterviewsTab({
     staleTime: 5 * 60_000,
   });
   const rejectionReasons = reasonsQuery.data ?? [];
+  // Okno odrzucenia: pytanie o dni w biurze przy „Nie akceptuje trybu pracy”.
+  const terminalWorkModeJob = useRejectionWorkModeJob(jobId, pendingTerminal !== null);
+  const terminalProfileWorkMode = useRejectionProfileWorkMode(
+    pendingTerminal?.entry.item.candidate_id ?? null,
+    pendingTerminal !== null,
+  );
+  const terminalProfileRate = useRejectionProfileRate(
+    pendingTerminal?.entry.item.candidate_id ?? null,
+    pendingTerminal !== null,
+  );
 
-  // ── Ruch bez dialogu — ta sama trasa co drag&drop na tablicy ─────────
-  // 17.09.2026: weto HM / czarna lista / NDA to ostrzeżenie serwera — okno
-  // „Przenieś mimo to" powtarza ruch z `acknowledge_eligibility`.
-  const eligibilityWarning = useEligibilityWarning();
+  // ── Ruch bez dialogu — ta sama droga co drag&drop na tablicy ─────────
+  // Rdzeń ruchu (`usePipelineMoveCore`) obsługuje ostrzeżenie „Przenieś mimo
+  // to”, wymóg debriefu po rozmowie u klienta i konflikt wersji.
+  const moveCore = usePipelineMoveCore({ jobId });
   const moveMutation = useMutation({
-    mutationFn: (vars: {
-      item: KanbanItem;
-      col: KanbanColumn;
-      acknowledgeEligibility?: boolean;
-    }) =>
-      api.post("/api/pipeline/move", {
-        candidate_id: vars.item.candidate_id,
-        job_id: jobId,
-        stage: vars.col.stage,
-        stage_def_id: vars.col.stage_def_id ?? undefined,
-        expected_state_version: expectedStateVersionOf(vars.item),
-        acknowledge_eligibility: vars.acknowledgeEligibility ? true : undefined,
-      }),
-    onSuccess: (_data, vars) => {
-      queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-      queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
-      showSuccess(`Przeniesiono na etap „${columnLabel(vars.col)}”.`);
+    mutationFn: (vars: { item: KanbanItem; col: KanbanColumn }) =>
+      moveCore.send(
+        {
+          candidate_id: vars.item.candidate_id,
+          job_id: jobId,
+          stage: vars.col.stage,
+          stage_def_id: vars.col.stage_def_id ?? undefined,
+          expected_state_version: expectedStateVersionOf(vars.item),
+        },
+        {
+          candidateName: itemFullName(vars.item),
+          fallbackMessage: "Nie udało się przenieść",
+        },
+      ),
+    onSuccess: (outcome, vars) => {
+      if (outcome.ok) showSuccess(`Przeniesiono na etap „${columnLabel(vars.col)}”.`);
     },
-    onError: (e, vars) => {
-      if (
-        !vars.acknowledgeEligibility &&
-        eligibilityWarning.intercept(e, () =>
-          moveMutation.mutate({ ...vars, acknowledgeEligibility: true }),
-        )
-      ) {
-        return;
-      }
-      if (isPipelineVersionConflict(e)) {
-        // F05: bez ponowienia — lista pokaże etap zapisany przez kolegę.
-        showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
-        invalidateAfterPipelineVersionConflict(
-          queryClient,
-          jobId,
-          vars.item.candidate_id,
-        );
-        return;
-      }
+    onError: (e) => {
       showError(extractErrorMsg(e) || "Nie udało się przenieść");
     },
   });
@@ -318,56 +327,45 @@ export function JobInterviewsTab({
       sendRejectionEmail: boolean | null;
       offerResponse: CandidateOfferResponse | null;
       freeReason?: string;
+      emailText?: RejectionEmailText | null;
+      workMode?: RejectionWorkModeChoice | null;
+      rate?: RejectionRateChoice | null;
     }) =>
-      api.post("/api/pipeline/move", {
-        candidate_id: vars.item.candidate_id,
-        job_id: jobId,
-        stage: vars.col.stage,
-        stage_def_id: vars.col.stage_def_id ?? undefined,
-        rejection_reason_id: vars.reasonId || undefined,
-        rejection_reason: vars.freeReason || undefined,
-        notes: vars.notes,
-        send_rejection_email: vars.sendRejectionEmail ?? undefined,
-        candidate_offer_response: vars.offerResponse ?? undefined,
-        expected_state_version: expectedStateVersionOf(vars.item),
-      }),
-    onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-      queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
-      setPendingTerminal(null);
-      showSuccess("Zapisano decyzję.");
-      // 0045_rejection_emails — ta sama afordancja co na tablicy: backend
-      // zaplanował mail odrzucenia za 15 min, rekruter ma 10 s na „Cofnij".
-      // Bez tego decyzja z tej zakładki wysyłałaby mail bez szansy anulowania.
-      const scheduledId = (
-        res as { data?: { scheduled_rejection_email_id?: number | null } }
-      )?.data?.scheduled_rejection_email_id;
-      if (scheduledId) {
-        showActionToast("Email odrzucenia zostanie wysłany za 15 minut.", {
-          actionLabel: "Cofnij wysyłkę",
-          onAction: async () => {
-            try {
-              await api.post(`/api/rejection-emails/${scheduledId}/cancel`);
-              showSuccess("Anulowano wysyłkę emaila.");
-            } catch {
-              showError("Nie udało się anulować wysyłki.");
-            }
-          },
-          durationMs: 10_000,
-        });
-      }
-    },
-    onError: (e, vars) => {
-      if (isPipelineVersionConflict(e)) {
-        setPendingTerminal(null);
-        showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
-        invalidateAfterPipelineVersionConflict(
-          queryClient,
-          jobId,
-          vars.item.candidate_id,
-        );
+      moveCore.send(
+        {
+          candidate_id: vars.item.candidate_id,
+          job_id: jobId,
+          stage: vars.col.stage,
+          stage_def_id: vars.col.stage_def_id ?? undefined,
+          rejection_reason_id: vars.reasonId || undefined,
+          rejection_reason: vars.freeReason || undefined,
+          notes: vars.notes,
+          send_rejection_email: vars.sendRejectionEmail ?? undefined,
+          rejection_email_subject: vars.emailText?.subject,
+          rejection_email_body: vars.emailText?.body,
+          rejection_email_other_processes: vars.emailText?.otherProcesses,
+          rejection_email_merge: vars.emailText?.merge,
+          work_mode_max_onsite_days: vars.workMode?.maxOnsiteDays,
+          work_mode_save_to_profile: vars.workMode?.saveToProfile,
+          ...rejectionRateMoveFields(vars.rate),
+          candidate_offer_response: vars.offerResponse ?? undefined,
+          expected_state_version: expectedStateVersionOf(vars.item),
+        },
+        {
+          candidateName: itemFullName(vars.item),
+          fallbackMessage: "Nie udało się zapisać",
+        },
+      ),
+    onSuccess: (outcome) => {
+      if (!outcome.ok) {
+        if (outcome.refusal.kind === "version_conflict") setPendingTerminal(null);
         return;
       }
+      setPendingTerminal(null);
+      // Mail odrzucenia („Cofnij wysyłkę”) ogłasza rdzeń ruchu.
+      showSuccess("Zapisano decyzję.");
+    },
+    onError: (e) => {
       showError(extractErrorMsg(e) || "Nie udało się zapisać");
     },
   });
@@ -415,14 +413,10 @@ export function JobInterviewsTab({
               isSuccess: feedbackQuery.isSuccess,
             })}
             onFeedbackRetry={() => void feedbackQuery.refetch()}
-            onOpenScreening={(stageId, name) =>
-              setScreeningFor({ stageId, name })
+            onClientAccept={onClientAccept}
+            onOpenScreening={(candidateId, name) =>
+              setScreeningFor({ candidateId, name })
             }
-            championLinkUrl={championLinks[selected.item.candidate_id] ?? null}
-            onChampionLinkCreated={(url) => {
-              const candidateId = selected.item.candidate_id;
-              setChampionLinks((prev) => ({ ...prev, [candidateId]: url }));
-            }}
           />
   );
   const decisionDock = !selected ? null : (
@@ -454,8 +448,11 @@ export function JobInterviewsTab({
         <ScreeningSheet
           open
           onOpenChange={(o) => !o && setScreeningFor(null)}
-          stageId={screeningFor.stageId}
+          candidateId={screeningFor.candidateId}
+          jobId={jobId}
           candidateName={screeningFor.name}
+          jobBudgetHourly={budgetHourly}
+          readOnly={readOnly}
         />
       )}
 
@@ -489,6 +486,7 @@ export function JobInterviewsTab({
       {pendingTerminal && (
         <RejectionV2
           open
+          pending={terminalMutation.isPending}
           onOpenChange={(o) => !o && setPendingTerminal(null)}
           terminalType={pendingTerminal.terminal}
           reasons={rejectionReasons}
@@ -500,12 +498,39 @@ export function JobInterviewsTab({
                 : null
           }
           previousStage={pendingTerminal.entry.col.stage}
+          // Championi (D7): to samo zdanie co w oknie odrzucenia z Tablicy.
+          championNotice={championRemovalOutcome(
+            queryClient.getQueryData<JobChampionsFields>(["job", String(jobId)]),
+            pendingTerminal.entry.item.candidate_id,
+            itemFullName(pendingTerminal.entry.item),
+          )}
+          // Runda 10 (R10-V2-1): ta sama reguła dostępności maila co na
+          // Tablicy (kod etapu albo kolumna), nie sama kategoria kolumny.
+          emailAvailable={rejectionEmailAvailableFrom(pendingTerminal.entry.col)}
+          emailPreview={{
+            jobId,
+            people: [
+              {
+                candidateId: pendingTerminal.entry.item.candidate_id,
+                name: itemFullName(pendingTerminal.entry.item),
+              },
+            ],
+          }}
+          workModeJob={terminalWorkModeJob}
+          profileWorkMode={terminalProfileWorkMode}
+          profileRate={terminalProfileRate}
           onConfirm={(
             reasonId,
             notes,
             sendRejectionEmail,
             offerResponse,
             freeReason,
+            _endedBy,
+            _cancelAgreementId,
+            emailText,
+            workMode,
+            _autofill,
+            rate,
           ) =>
             terminalMutation.mutate({
               item: pendingTerminal.entry.item,
@@ -515,6 +540,9 @@ export function JobInterviewsTab({
               sendRejectionEmail,
               offerResponse: offerResponse ?? null,
               freeReason,
+              emailText,
+              workMode,
+              rate,
             })
           }
         />
@@ -554,16 +582,19 @@ export function JobInterviewsTab({
     }
     return (
       <div className="flex min-w-0 flex-col gap-3">
-        {eligibilityWarning.dialog}
+        {moveCore.dialogs}
         <div className="flex flex-wrap gap-1.5">
-          <Button
-            size="sm"
-            variant="outline"
-            title="Podgląd CV oryginalnego z momentu zgłoszenia (snapshot etapu)"
-            onClick={() => setShowOriginalCv(true)}
-          >
-            <FileText className="h-3.5 w-3.5" /> Pokaż CV obok
-          </Button>
+          {/* W szerokim oknie CV stoi już w lewej strefie panelu osoby. */}
+          {!previewInSide ? (
+            <Button
+              size="sm"
+              variant="outline"
+              title="Podgląd CV oryginalnego z momentu zgłoszenia (snapshot etapu)"
+              onClick={() => setShowOriginalCv(true)}
+            >
+              <FileText className="h-3.5 w-3.5" /> Pokaż CV obok
+            </Button>
+          ) : null}
           <Button
             size="sm"
             variant="outline"
@@ -582,11 +613,11 @@ export function JobInterviewsTab({
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
-      {eligibilityWarning.dialog}
+      {moveCore.dialogs}
       {/* ── Szyna: u klienta, weta i przygotowanie ─────────────────── */}
       <WorkbenchRail
         icon={<Users className="h-4 w-4 text-primary" />}
-        // „Rozmowy u klienta" (M03-B12): liczy etapy kroku 07, bez „CV Wysłane"
+        // „Rozmowy u klienta" (M03-B12): liczy etapy kroku 07, bez „CV wysłane"
         // i bez etapów umowy — to NIE jest grupa „U klienta (CV → interview)"
         // z szyny Pipeline'u. Etykieta = KPI jobbara i licznik listwy kroków.
         title="Rozmowy u klienta"
@@ -660,7 +691,7 @@ export function JobInterviewsTab({
 
         <RailSection
           label="Wcześniej u tego klienta"
-          note="Weto blokuje ponowne „CV Wysłane” i „Interview Klient” u tego managera — 409 z powodem, nie do nadpisania."
+          note="Weto blokuje ponowne „CV wysłane” i „Interview Klient” u tego managera — 409 z powodem, nie do nadpisania."
         >
           {vetoedEntries.length === 0 ? (
             <p className="text-[11px] text-muted-foreground">
@@ -701,11 +732,11 @@ export function JobInterviewsTab({
                 </span>
               </Link>
               <RailRow
-                label="Screening Championa dla klienta"
-                meta="arkusz"
+                label="Formularz screeningu"
+                meta="otwórz"
                 onSelect={() =>
                   setScreeningFor({
-                    stageId: selected.item.id,
+                    candidateId: selected.item.candidate_id,
                     name:
                       `${selected.item.name ?? ""} ${selected.item.lastname ?? ""}`.trim() ||
                       "Kandydat",
@@ -766,14 +797,13 @@ interface InterviewCardProps {
   canRecord: boolean | null;
   feedbackQueryState: ReturnType<typeof resolveViewState>;
   onFeedbackRetry: () => void;
-  onOpenScreening: (stageId: number, name: string) => void;
-  /** Adres linku do karty Championa utworzonego dla tego kandydata (albo brak). */
-  championLinkUrl: string | null;
-  onChampionLinkCreated: (url: string) => void;
+  /** Formularz screeningu pary (okno). */
+  onOpenScreening: (candidateId: number, name: string) => void;
   /** Aktualny budżet PLN/h rekrutacji — pigułka „Stawka ponad budżet". */
   budgetHourly: number | null;
   /** `"panel"` — bez nagłówka kroku; pigułki i akcja w zwartym pasku. */
   layout?: "full" | "panel";
+  onClientAccept?: (candidateId: number, note?: string | null) => void;
 }
 
 function InterviewCard({
@@ -788,12 +818,14 @@ function InterviewCard({
   feedbackQueryState,
   onFeedbackRetry,
   onOpenScreening,
-  championLinkUrl,
-  onChampionLinkCreated,
   budgetHourly,
   layout = "full",
+  onClientAccept,
 }: InterviewCardProps) {
   const { item, col } = entry;
+  // D6: na „Rozmowie u klienta” „Akceptuje” to akceptacja klienta — okno
+  // „Klient zaakceptował” przesuwa kartę i zapisuje ten werdykt.
+  const acceptOpensWindow = Boolean(onClientAccept) && placeStage(col).column === "client_interview";
   const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
   const fullName =
@@ -843,7 +875,7 @@ function InterviewCard({
     onError: (e) => showError(extractErrorMsg(e) || "Nie udało się zapisać"),
   });
 
-  // Screening Championa — skrót wyniku i link dla klienta.
+  // Formularz screeningu — skrót wyniku (wszystko w nim jest dla zespołu).
   const screeningQuery = useQuery({
     queryKey: ["pipeline-stage-screening", item.id],
     queryFn: () => screeningApi.getForStage(item.id).then((r) => r.data),
@@ -851,45 +883,6 @@ function InterviewCard({
   });
   const answers = screeningQuery.data?.screening_answers ?? null;
 
-  // Sekret linku wraca JEDEN raz — adres zostaje na karcie, a „skopiowany"
-  // pada tylko po udanym zapisie do schowka (lustro kroku 06). Adres trzyma
-  // RODZIC: karta montuje się od nowa po zapisie werdyktu (klucz niesie id
-  // feedbacku), a lokalny stan zabrałby ze sobą jedyną kopię sekretu.
-  const shareMutation = useMutation({
-    mutationFn: () => screeningApi.createShareToken(item.id, 30),
-    onSuccess: async (res) => {
-      const suffix = res.data?.share_url_suffix;
-      if (!suffix) {
-        showError("Serwer nie zwrócił adresu linku do karty Championa.");
-        return;
-      }
-      const url = `${window.location.origin}${suffix}`;
-      onChampionLinkCreated(url);
-      if (await copyTextToClipboard(url)) {
-        showSuccess("Link do karty Championa skopiowany (ważny 30 dni).");
-      } else {
-        showError(
-          "Link do karty Championa utworzony (ważny 30 dni), ale nie udało się go skopiować — skopiuj go z pola na karcie.",
-        );
-      }
-    },
-    onError: (e) =>
-      showError(extractErrorMsg(e) || "Nie udało się utworzyć linku"),
-  });
-
-  // Prep-kit ma JEDNO wejście w tym kroku (szyna / dok) — drugi link o tym
-  // samym adresie obok nagłówka kazałby zgadywać, czym się różnią.
-  const headerAction = !readOnly ? (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => shareMutation.mutate()}
-              loading={shareMutation.isPending}
-              title="Link do karty Championa dla klienta — ważny 30 dni"
-            >
-              <Link2 className="h-3.5 w-3.5" /> Karta Championa dla klienta
-            </Button>
-          ) : undefined;
   const headerTools = (
           <>
             {item.hm_veto ? (
@@ -916,7 +909,6 @@ function InterviewCard({
       {layout === "panel" ? (
         <div className="flex flex-wrap items-center gap-1.5">
           {headerTools}
-          {headerAction}
         </div>
       ) : (
       <WorkbenchHeader
@@ -930,9 +922,6 @@ function InterviewCard({
         ]
           .filter(Boolean)
           .join(" · ")}
-        actions={
-          headerAction
-        }
         tools={
           headerTools
         }
@@ -940,26 +929,17 @@ function InterviewCard({
       )}
 
       <WorkbenchCard
-        title="Screening Championa dla klienta"
+        title="Formularz screeningu"
         status={
           <button
             type="button"
             className="text-primary hover:underline"
-            onClick={() => onOpenScreening(item.id, fullName)}
+            onClick={() => onOpenScreening(item.candidate_id, fullName)}
           >
-            Otwórz arkusz
+            Otwórz formularz
           </button>
         }
       >
-        {championLinkUrl && (
-          <div className="mb-3">
-            <OneTimeLinkField
-              url={championLinkUrl}
-              label="Link do karty Championa dla klienta"
-              note="Ważny 30 dni. Adres pokazujemy tylko teraz — serwer nie przechowuje sekretu, więc skopiuj go przed opuszczeniem strony."
-            />
-          </div>
-        )}
         <div className="text-xs">
           {screeningQuery.isLoading ? (
             <span className="inline-flex items-center gap-1.5 text-muted-foreground">
@@ -1057,7 +1037,13 @@ function InterviewCard({
                     <button
                       key={opt.value}
                       type="button"
-                      onClick={() => setDecision(opt.value)}
+                      onClick={() => {
+                        if (opt.value === "advance" && acceptOpensWindow) {
+                          onClientAccept?.(item.candidate_id, note.trim() || null);
+                          return;
+                        }
+                        setDecision(opt.value);
+                      }}
                       aria-pressed={decision === opt.value}
                       className={cn(
                         "rounded-full border px-3 py-1 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60",
@@ -1070,6 +1056,12 @@ function InterviewCard({
                     </button>
                   ))}
                 </div>
+                {acceptOpensWindow && (
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    „Akceptuje” otwiera okno „Klient zaakceptował” — karta idzie dalej, werdykt się zapisuje,
+                    zespół dostaje powiadomienie w „Rekrutacjach”.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1">
@@ -1146,7 +1138,16 @@ function InterviewCard({
               <div className="flex justify-end">
                 <Button
                   size="sm"
-                  onClick={() => saveMutation.mutate()}
+                  onClick={() => {
+                    // „Akceptuje” jest wciśnięte domyślnie — zapis takiego
+                    // werdyktu na rozmowie u klienta to akceptacja klienta:
+                    // to samo okno (ruch, dzwonki), nie sam wpis werdyktu.
+                    if (decision === "advance" && acceptOpensWindow) {
+                      onClientAccept?.(item.candidate_id, note.trim() || null);
+                      return;
+                    }
+                    saveMutation.mutate();
+                  }}
                   loading={saveMutation.isPending}
                 >
                   <Save className="h-3.5 w-3.5" /> Zapisz feedback
@@ -1159,7 +1160,7 @@ function InterviewCard({
               </p>
             ) : canRecord === false && !canRecordVerdict ? (
               <p className="text-[11px] text-muted-foreground">
-                Werdykt zapisuje zespół rekrutacji (rekruter, TAC, Delivery Lead,
+                Werdykt zapisuje zespół rekrutacji (rekruter, Delivery Lead,
                 admin) — Twoja rola ma tu podgląd.
               </p>
             ) : canRecord === false ? (

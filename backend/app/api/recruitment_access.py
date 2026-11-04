@@ -39,8 +39,10 @@ Capability → allowed roles:
   rejection email incl. recipient/subject/body/last_error) — admin,
   delivery_lead, head_of_recruitment; the owning recruiter always retains
   access to their own rows (checked in-endpoint, not here).
-- **job edit** (opis, ogłoszenia, Champion — decyzja 22.09.2026) — admin,
-  Delivery Lead, TAC albo członek zespołu rekrutacji (``ensure_job_editor``).
+- **job edit** (opis, ogłoszenia, Champion — decyzja 22.09.2026) — każda rola
+  wewnętrzna (``ensure_job_editor``); pola cyklu życia zmienia posiadacz
+  uprawnienia „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”
+  (``recruitment_manage``) albo konto TAC.
 
 Od 23.09.2026 (decyzja Artura) bramka zespołu przepuszcza KAŻDĄ rolę
 wewnętrzną — rekrutacje i kandydatów widzą i obsługują wszyscy; członkostwo
@@ -68,7 +70,7 @@ from fastapi import Depends, HTTPException, status
 from sqlalchemy import ColumnElement, and_, exists, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_roles
+from app.api.deps import require_permission_or_roles, require_roles
 from app.core.config import settings
 from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator
@@ -83,7 +85,9 @@ from app.models.recruitment_priority import (
 )
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 from app.models.user import User, UserRole
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.job_membership import is_member_of_job
+from app.services.permission_denial import permission_denied
 from app.services.workforce_availability import (
     operational_owner_clause,
     operational_job_owner_clause,
@@ -103,13 +107,20 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
-    UserRole.sourcer,
 )
 
-RECRUITMENT_READ_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
+# 0446: „Automatyzacje” tylko czytają — zapisy zostają przy rolach operacyjnych.
+RECRUITMENT_READ_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.delivery_lead,
+    UserRole.talent_community_manager,
+    UserRole.recruiter,
+    UserRole.finance,
+    UserRole.automation,
+)
 
 # Parity with deps.RecruiterPlus — the pre-existing move contract
 # (od 2026-09-17 z head_of_recruitment — parytet HoR z rekruterem).
@@ -118,34 +129,20 @@ RECRUITMENT_TRANSITION_ROLES: tuple[UserRole, ...] = (
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
-    UserRole.sourcer,
 )
 
-# Terminal lifecycle decisions (hired / rejected / withdrawn) — no sourcer.
-# head_of_recruitment od 2026-09-17 (parytet z rekruterem; /move jest już
-# RecruiterPlus z HoR).
-RECRUITMENT_TERMINAL_ROLES: tuple[UserRole, ...] = (
-    UserRole.admin,
-    UserRole.head_of_recruitment,
-    UserRole.delivery_lead,
-    UserRole.talent_community_manager,
-    UserRole.tac,
-    UserRole.recruiter,
-    UserRole.finance,
-)
+# Terminal lifecycle decisions (hired / rejected / withdrawn). Od 2026-10-02
+# każda rola wewnętrzna, także sourcer (decyzja Artura) — do tego dnia sourcer
+# dostawał 403 (M4-SEC-02).
+RECRUITMENT_TERMINAL_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 
 # Candidate expected-rate edits (PATCH + rate-bearing `verified` move).
-RECRUITMENT_RATE_EDIT_ROLES: tuple[UserRole, ...] = (
-    UserRole.admin,
-    UserRole.head_of_recruitment,
-    UserRole.delivery_lead,
-    UserRole.tac,
-    UserRole.recruiter,
-    UserRole.finance,
-)
+# Od 2026-10-02 każda rola wewnętrzna (decyzja Artura): Talent Community
+# Manager i sourcer dostawali 403 na „Zweryfikowany", choć weryfikują ludzi.
+# Poza listą zostaje wyłącznie rola podglądu `user`.
+RECRUITMENT_RATE_EDIT_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 
 # Scorecards, screening notes, interview feedback.
 RECRUITMENT_ASSESSMENT_WRITE_ROLES: tuple[UserRole, ...] = (
@@ -153,10 +150,8 @@ RECRUITMENT_ASSESSMENT_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
-    UserRole.sourcer,
 )
 
 CALENDAR_WRITE_ROLES: tuple[UserRole, ...] = (
@@ -164,10 +159,8 @@ CALENDAR_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
-    UserRole.sourcer,
 )
 
 REJECTION_EMAIL_OVERSIGHT_ROLES: tuple[UserRole, ...] = (
@@ -222,13 +215,27 @@ CalendarWriteAccess = Annotated[User, Depends(require_roles(*CALENDAR_WRITE_ROLE
 # i propozycjach, a profil kandydata po cichu gubił rekrutacje, w których nie
 # byli. Odpowiedź na pytanie o zapis brzmiała „każdy może wszystko", więc
 # bramka zespołu znika także dla poleceń — zostają wyłącznie bramki RÓL
-# (zatrudnienie bez sourcera, „CV wysłane” i stawka do klienta tylko DL/admin,
-# sekcje z ``allowed_sections``). Stara rola podglądu ``user`` jest poza tym
-# zbiorem i nadal przechodzi wyłącznie przez członkostwo.
+# (zatrudnienie bez sourcera, sekcje z ``allowed_sections``) oraz „CV wysłane”
+# i stawka do klienta — od 02.10.2026 jako uprawnienie ``recruitment_manage``
+# (domyślnie DL/admin). Stara rola podglądu ``user`` jest poza tym zbiorem
+# i nadal przechodzi wyłącznie przez członkostwo.
 #
 # ``oversight_bypass=False`` zostaje: to jawnie OSOBISTE widoki („moje
 # rekrutacje” w cyklu rozmów u klienta), które mają liczyć przypisanie.
-_JOB_MEMBERSHIP_BYPASS_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
+#
+# 0446: „Automatyzacje” też omijają bramkę zespołu — rekrutacje widzą wszyscy
+# (decyzja Artura 14.10.2026: podgląd „jak reszta firmy”). Polecenia ta rola
+# i tak zatrzymuje wcześniej: sekcje ma tylko do odczytu, a zbiory zapisu jej
+# nie zawierają (``tests/test_automation_role_access.py``).
+_JOB_MEMBERSHIP_BYPASS_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.delivery_lead,
+    UserRole.talent_community_manager,
+    UserRole.recruiter,
+    UserRole.finance,
+    UserRole.automation,
+)
 
 # Role, które omijały bramkę zespołu JUŻ przed 23.09.2026. Dla pozostałych
 # (rekruter, sourcer, TAC, Finanse) bypass sprawdza najpierw, czy rekrutacja
@@ -265,7 +272,7 @@ async def ensure_job_membership(
     pair may be opened.
 
     A non-member gets a uniform **403** at every ingress — the same status the
-    sibling resource-scope guard ``require_dl_assigned_or_admin`` returns, so
+    sibling client-scope guard (``delivery_client_scope``) returns, so
     the module speaks one language for "authenticated but out of scope". 403
     (not 404) is chosen for consistency and because job existence is already
     discoverable to any internal role through the jobs list; there is no
@@ -319,7 +326,7 @@ async def ensure_job_membership(
         )
         # `priority_compliant_at_open IS TRUE` jest tu OBOWIĄZKOWE: samo
         # ownership otwartego procesu jest SAMONADAWALNE. Ingresy, które proces
-        # otwierają (np. POST /api/candidates/from-linkedin), tej bramki nie
+        # otwierają (np. POST /api/extension/candidates), tej bramki nie
         # wołają, a w trybie shadow polityka wpuszcza otwarcie bez assignmentu
         # (allowed=True), ustawia wołającego właścicielem i zapisuje naruszenie
         # jako `priority_compliant_at_open=False`. Bez tego warunku jedno takie
@@ -479,6 +486,15 @@ def job_scope_clause(
         )
     )
     scope_clauses = [job_id_col.is_(None), job_id_col.in_(member_jobs)]
+    if not oversight_bypass:
+        # Runda 10 (R10-V2-3): widok OSOBISTY („my-work”, „moje” w cyklu
+        # rozmów) liczy też AKTYWNE przypisanie z przydziału requestów — ta
+        # sama reguła co „Moje” na liście /jobs (R9-N15-2). Bez tego filtr „Moje
+        # przypisane” był AND-owany z zakresem, który przypisań nie zna.
+        # Propozycja automatu (czeka na akceptację) zakresu nie daje.
+        from app.api.jobs import _live_work_assignment_job_ids  # noqa: PLC0415
+
+        scope_clauses.append(job_id_col.in_(_live_work_assignment_job_ids([user.id])))
     inherited = operational_owner_ids(user) - {user.id}
     if inherited:
         scope_clauses.append(inherited_collaborator_work_clause(job_id_col, inherited))
@@ -689,10 +705,12 @@ async def ensure_champion_job_visible(
             # Odmowa po stronie delivery nie kończy sprawy — ten sam człowiek
             # może być TAC-iem tej oferty. Sprawdzamy drugą ścieżkę niżej.
 
-    # `job.tac_id` bywa NULL (oferta bez przypisanego TAC-a), a `current_user.id`
-    # nigdy — więc nieprzypisana oferta wypada z zakresu, zamiast wpadać w niego
-    # przez porównanie dwóch pustych wartości.
-    if current_user.has_role(UserRole.tac) and job.tac_id == current_user.id:
+    # `job.tac_id` bywa NULL (oferta bez przypisanego opiekuna), a
+    # `current_user.id` nigdy — więc nieprzypisana oferta wypada z zakresu,
+    # zamiast wpadać w niego przez porównanie dwóch pustych wartości. Roli TAC
+    # nie ma od 0411 — jej konta są rekruterami, więc warunek roli zostaje:
+    # sam wpis w `tac_id` nie poszerza zakresu Delivery Leada.
+    if current_user.has_role(UserRole.recruiter) and job.tac_id == current_user.id:
         return
 
     raise HTTPException(
@@ -726,32 +744,55 @@ async def ensure_delivery_lead_job_visible(
 
 # ── Redakcja rekrutacji (decyzja Artura 22.09.2026) ─────────────────────────
 #
-# Rekrutację ZAKŁADA admin albo Delivery Lead (`/jobs/new`), a jej cykl życia
-# (publikacja, zamknięcie, usunięcie) zostaje przy admin / DL — od 23.09.2026
+# Rekrutację ZAKŁADA (`/jobs/new`), publikuje, zamyka i usuwa posiadacz
+# uprawnienia „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”
+# (`recruitment_manage`; domyślnie admin i Delivery Lead) — od 23.09.2026
 # bez roli TAC; przełączenie do NEXUSA włącza każdy członek zespołu. TREŚĆ rekrutacji — opis, ogłoszenia, profil Championa —
 # redaguje też osoba, która ją PROWADZI, i jej współpracownicy, niezależnie od
 # roli. Do 22.09 wszystkie te trasy stały za `TacPlus` (usunięty 23.09), a funkcji TAC nie
 # używamy, więc rekruter prowadzący rekrutację nie mógł poprawić jej opisu.
 #
-# Konta TAC zostają bez zmian (decyzja 22.09): TAC redaguje jak dotąd każdą
-# rekrutację, ale kod nie WYMAGA już TAC do niczego, co robi rekruter.
+# Roli TAC nie ma od 0411 (02.10.2026) — jej konta są rekruterami i redagują
+# treść jak każdy rekruter.
 
 JOB_EDIT_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 
-# Role z PEŁNĄ redakcją (`JobEditLevel.full` w `job_edit_level` niżej; Delivery
-# Lead dodatkowo tylko w swoim portfelu). Lustro capability `job.update`
+# PEŁNĄ redakcję (`JobEditLevel.full` w `job_edit_level` niżej) daje
+# uprawnienie `recruitment_manage` — konto z rolą Delivery Leada dodatkowo
+# tylko w swoim zakresie. Lustro capability `job.update`
 # w `frontend/src/lib/capabilities.ts` — pilnuje go `capabilities.test.ts`.
-# Konta TAC zachowują pełną redakcję (decyzja 22.09), ale żadna trasa nie
-# WYMAGA już roli TAC (`TacPlus` usunięty 23.09.2026).
-JOB_FULL_EDIT_ROLES: tuple[UserRole, ...] = (
+
+# Kto przydziela i zdejmuje ludzi w roli „Rekruter”: posiadacz uprawnienia
+# `recruitment_manage` (konto z rolą Delivery Leada — w swoim zakresie) ORAZ,
+# z tytułu roli, Head of Recruitment (decyzja Artura 02.10.2026: układa pracę
+# zespołu wszędzie tam, gdzie Delivery Lead, choć rekrutacji nie prowadzi).
+# ``POST/DELETE /api/jobs/{id}/owner`` i pulpit „Requesty i obłożenie”.
+# Lustro capability `job.recruiter.assign` (`capabilities.test.ts`).
+JOB_STAFFING_EXTRA_ROLES: tuple[UserRole, ...] = (UserRole.head_of_recruitment,)
+
+# Kto ustawia priorytet rekrutacji (P1 / P2 / „Przyjmujemy kandydatów”):
+# pełni redaktorzy (uprawnienie `recruitment_manage`) ORAZ Head
+# of Recruitment — to on prowadzi kolejkę pracy zespołu. Lustro capability
+# `job.priority.update`.
+JOB_PRIORITY_EXTRA_ROLES: tuple[UserRole, ...] = (UserRole.head_of_recruitment,)
+
+# Kto akceptuje, zmienia i odrzuca propozycje automatu przydziału.
+# Lustro capability `request.proposal.decide`.
+PROPOSAL_DECISION_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
-    UserRole.delivery_lead,
-    UserRole.tac,
+    UserRole.head_of_recruitment,
 )
 
 # Pola, których członek zespołu (rekruter prowadzący, współpracownik) nie
-# zmienia: status to cykl życia, klient i osoby prowadzące to decyzja
-# Delivery, a widełki wynagrodzenia ustawia admin albo TAC (CLAUDE.md).
+# zmienia bez uprawnienia `recruitment_manage`: status to cykl życia, klient
+# i osoby prowadzące to decyzja Delivery, a widełki wynagrodzenia ustawia
+# admin (CLAUDE.md).
+# Runda 9 (R9-N15-6): termin, budżet (kolumna), liczba osób, priorytet,
+# „Potrzebny search”, szablon procesu i kategoria — lustro okna edycji, które
+# członkowi zespołu pokazuje „termin, budżet, zespół zmienia Delivery Lead”.
+# Budżet z Championa (`PUT …/champion-profile`) tej bramki nie przechodzi.
+# `priority` zostaje w zbiorze — wyjątek dla `JOB_PRIORITY_EXTRA_ROLES` (Head
+# of Recruitment) robi `ensure_job_editor`, nie ta lista.
 JOB_MEMBER_LOCKED_FIELDS: frozenset[str] = frozenset(
     {
         "status",
@@ -761,18 +802,44 @@ JOB_MEMBER_LOCKED_FIELDS: frozenset[str] = frozenset(
         "delivery_lead_id",
         "salary_min",
         "salary_max",
+        "deadline",
+        "rate_budget_hourly",
+        "rate_budget_hourly_min",
+        "headcount",
+        "priority",
+        "needs_sourcing",
+        "pipeline_template_id",
+        "competence_category_id",
+        "secondary_cc_ids",
     }
 )
 
 _JOB_EDIT_DENIED = "Nie masz uprawnień do edycji rekrutacji."
+# Sama nazwa uprawnienia nie mówi, które pole zatrzymało zapis — odmowa
+# wylicza więc pola cyklu życia i nazywa uprawnienie, które je odblokowuje.
 _JOB_MEMBER_LOCKED_DENIED = (
-    "Status, klienta, osoby prowadzące i widełki wynagrodzenia zmienia "
-    "Delivery Lead albo admin."
+    "Status, klienta, osoby prowadzące, termin, budżet, liczbę osób, "
+    "szablon procesu, kategorię i widełki wynagrodzenia zmienia osoba "
+    "z uprawnieniem „{label}”; priorytet — także Head of Recruitment. "
+    "Poproś administratora o dostęp."
 )
 
 
+def _job_member_locked_denied() -> HTTPException:
+    """403 w kształcie odmowy uprawnienia, z listą pól w komunikacie."""
+
+    denied = permission_denied(ProductAction.recruitment_manage)
+    return HTTPException(
+        status_code=denied.status_code,
+        detail={
+            **denied.detail,
+            "message": _JOB_MEMBER_LOCKED_DENIED.format(label=denied.detail["label"]),
+        },
+    )
+
+
 class JobEditLevel(StrEnum):
-    """Zakres redakcji rekrutacji: pełny (DL/admin/TAC) albo członka zespołu."""
+    """Zakres redakcji: pełny (uprawnienie albo konto TAC) albo członka zespołu."""
 
     full = "full"
     member = "member"
@@ -782,19 +849,15 @@ async def job_edit_level(
     db: AsyncSession,
     user: User,
     job: Job,
-    *,
-    tac_unscoped: bool = True,
 ) -> JobEditLevel | None:
-    """Jeden rozstrzygacz „czy ta osoba redaguje tę rekrutację".
-
-    ``tac_unscoped=False`` dla powierzchni Championa: tam TAC od #1069 widzi
-    wyłącznie oferty, których jest TAC-iem (``ensure_champion_job_visible``),
-    więc przechodzi tylko ścieżką członkostwa — tak jak rekruter.
-    """
+    """Jeden rozstrzygacz „czy ta osoba redaguje tę rekrutację"."""
 
     if user.has_role(UserRole.admin):
         return JobEditLevel.full
-    if user.has_role(UserRole.delivery_lead):
+    if has_permission(user, ProductAction.recruitment_manage):
+        # Uprawnienie mówi CO; zakres zostaje przy personie — konto z rolą
+        # Delivery Leada przechodzi ten sam helper zakresu co dotąd, dla
+        # pozostałych posiadaczy ``delivery_lead_job_pairs`` zwraca ``None``.
         try:
             assert_delivery_lead_job_visible(
                 job, await delivery_lead_job_pairs(user, db)
@@ -803,14 +866,56 @@ async def job_edit_level(
         except HTTPException as exc:
             if exc.status_code != status.HTTP_403_FORBIDDEN:
                 raise
-    if tac_unscoped and user.has_role(UserRole.tac):
-        return JobEditLevel.full
     # Od 23.09.2026 treść rekrutacji redaguje każda rola wewnętrzna, bez
     # przypisania do zespołu (patrz ``_JOB_MEMBERSHIP_BYPASS_ROLES``). Pola
-    # cyklu życia (``JOB_MEMBER_LOCKED_FIELDS``) nadal zmienia DL albo admin.
+    # cyklu życia (``JOB_MEMBER_LOCKED_FIELDS``) zmienia posiadacz uprawnienia
+    # ``recruitment_manage`` — także Delivery Lead, któremu je wyłączono,
+    # redaguje tu już tylko treść.
     if user.has_any_role(*JOB_EDIT_ROLES):
         return JobEditLevel.member
     return None
+
+
+async def _manages_job(db: AsyncSession, user: User, job: Job) -> bool:
+    """Czy osoba prowadzi tę rekrutację z tytułu uprawnienia `recruitment_manage`.
+
+    Uprawnienie mówi CO, zakres zostaje przy personie: konto z rolą Delivery
+    Leada liczy się tylko w swoim zakresie — tą samą regułą, którą
+    ``job_edit_level`` rozstrzyga pełną redakcję.
+    """
+    if user.has_role(UserRole.admin):
+        return True
+    if not has_permission(user, ProductAction.recruitment_manage):
+        return False
+    try:
+        assert_delivery_lead_job_visible(job, await delivery_lead_job_pairs(user, db))
+    except HTTPException as exc:
+        if exc.status_code != status.HTTP_403_FORBIDDEN:
+            raise
+        return False
+    return True
+
+
+async def user_can_staff_job(db: AsyncSession, user: User, job: Job) -> bool:
+    """Czy osoba przydziela i zdejmuje rekruterów tej rekrutacji.
+
+    Reguła bramki ``POST/DELETE /api/jobs/{id}/owner`` (``require_job_staffing``
+    + zakres Delivery Leada); ``GET /api/jobs/{id}`` niesie ją jako ``can_staff``.
+    """
+    if user.has_any_role(*JOB_STAFFING_EXTRA_ROLES):
+        return True
+    return await _manages_job(db, user, job)
+
+
+async def user_can_set_job_priority(db: AsyncSession, user: User, job: Job) -> bool:
+    """Czy osoba ustawia priorytet tej rekrutacji.
+
+    Jedna reguła dla bramki PATCH (``ensure_job_editor``) i flagi
+    ``can_set_priority`` w ``GET /api/jobs/{id}``.
+    """
+    if user.has_any_role(*JOB_PRIORITY_EXTRA_ROLES):
+        return True
+    return await _manages_job(db, user, job)
 
 
 async def ensure_job_editor(
@@ -819,24 +924,33 @@ async def ensure_job_editor(
     job: Job,
     *,
     fields: Iterable[str] = (),
-    tac_unscoped: bool = True,
 ) -> JobEditLevel:
     """403, gdy osoba nie redaguje rekrutacji albo zmienia pola spoza zakresu."""
 
-    level = await job_edit_level(db, user, job, tac_unscoped=tac_unscoped)
+    level = await job_edit_level(db, user, job)
     if level is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, _JOB_EDIT_DENIED)
-    if level is JobEditLevel.member and JOB_MEMBER_LOCKED_FIELDS & set(fields):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, _JOB_MEMBER_LOCKED_DENIED)
+    if level is JobEditLevel.member:
+        locked = JOB_MEMBER_LOCKED_FIELDS & set(fields)
+        # Priorytet ustawia też Head of Recruitment (02.10.2026): prowadzi
+        # kolejkę pracy zespołu, a pełnej redakcji rekrutacji nie ma.
+        if "priority" in locked and await user_can_set_job_priority(db, user, job):
+            locked = locked - {"priority"}
+        if locked:
+            raise _job_member_locked_denied()
     return level
 
 
 async def ensure_champion_job_editor(
     job: Job, current_user: User, db: AsyncSession
-) -> None:
-    """Zapis Championa: DL/admin jak dotąd plus zespół rekrutacji (TAC też)."""
+) -> JobEditLevel:
+    """Zapis Championa: pełna redakcja jak dotąd plus zespół rekrutacji.
 
-    await ensure_job_editor(db, current_user, job, tac_unscoped=False)
+    Zwraca poziom redakcji — zapis Championa przenosi termin do rekrutacji
+    tylko przy pełnym (termin jest w ``JOB_MEMBER_LOCKED_FIELDS``).
+    """
+
+    return await ensure_job_editor(db, current_user, job)
 
 
 async def ensure_champion_job_reader(
@@ -855,3 +969,10 @@ async def ensure_champion_job_reader(
 
 # Bramka roli tras redakcji — zakres rozstrzyga ``ensure_job_editor`` w trasie.
 JobEditUser = Annotated[User, Depends(require_roles(*JOB_EDIT_ROLES))]
+
+# Bramka roli „Rekruter”: `/owner` i pulpit „Requesty i obłożenie”. Zakres
+# Delivery Leada sprawdza handler (`user_can_staff_job` liczy go dla flagi).
+require_job_staffing = require_permission_or_roles(
+    ProductAction.recruitment_manage, *JOB_STAFFING_EXTRA_ROLES
+)
+JobStaffingUser = Annotated[User, Depends(require_job_staffing)]

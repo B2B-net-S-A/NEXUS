@@ -15,6 +15,7 @@ wywrócić cały ekran startowy z powodu jednego starego kafelka.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Literal, Optional, get_args
 from uuid import UUID
 
@@ -45,6 +46,16 @@ TileType = Literal[
     "my_kpis_today",
     "my_onboarding",
     "my_recruitments",
+    "closing_candidates",
+    # „Do uzupełnienia” (21.10.2026): umowy do zamknięcia, rekrutacje do
+    # dokończenia i wymagania do poprawy z `/api/board-tasks` w kafelku.
+    "to_complete",
+    # „Czeka na Ciebie” jako kafelek (23.10.2026, decyzja Artura po prośbie
+    # Olafa): panel przesuwa się i usuwa jak inne kafelki — tylko Head of
+    # Recruitment i admin, jak usuwanie list panelu.
+    "board_tasks",
+    # 0506: umowy przedwstępne — liczniki z `/api/pre-contracts` w kafelku.
+    "pre_contracts",
     "recruitment_activity",
     "recruitment_competence",
     "team_workload",
@@ -54,6 +65,22 @@ TileType = Literal[
     "my_clients_alerts",
     "dl_alerts",
     "calendar_today",
+    "today_cycle",
+    "team_signals",
+    "system_status",
+    "my_week",
+    "team_results",
+    # „Ludzie w NEXUSIE” (17.10.2026): dane z tras `/api/hr/*` i `/api/equipment`,
+    # każda za swoją bramką modułu; katalog na froncie chowa je przy wyłączonym
+    # module.
+    "hr_substitution",
+    "hr_my_time",
+    "hr_approvals",
+    "equipment_tasks",
+    # Opieka (22.10.2026): „Moja opieka” z tablicy `/api/care/board?scope=mine`
+    # i „Zagrożeni konsultanci” z `/api/care/consultants` (zdrowie „Ryzyko”).
+    "care_mine",
+    "care_at_risk",
     "metric_number",
     "metric_chart",
     "metric_funnel",
@@ -63,6 +90,83 @@ TileType = Literal[
 
 # Jedna lista: Literal waliduje zapis, krotka służy testowi lustra frontu.
 TILE_TYPES: tuple[str, ...] = get_args(TileType)
+
+# Listy panelu „Czeka na Ciebie” stojące NAD kafelkami. To nie kafelki
+# siatki: usunięcie zapisuje się w `layout["hidden_panels"]`, obok `tiles`.
+# „Twoje CV w drodze” usuwa każdy (02.10.2026); pozostałe listy wyłącznie
+# Head of Recruitment i admin (decyzje Artura 06.10.2026) — osobom pracującym przy
+# kandydatach zadanie ma dotrzeć, nawet gdy pulpitu nie układały.
+# Lustro: `frontend/src/lib/dashboard-panels.ts`.
+PanelKey = Literal[
+    "cv_in_transit",
+    "allocation_proposals",
+    "new_job_leads",
+    "team_load",
+    "pending_jobs",
+    "requirement_fixes",
+    "board_flow",
+    "followups",
+    "agreements",
+    "rate_changes",
+    "dl_review",
+    "cpro",
+    "prep_attention",
+    # Cały panel nad kafelkami (23.10.2026): ukryty = nie stoi nad pulpitem.
+    # Stoi wtedy w kafelku `board_tasks` albo nigdzie, gdy kafelek usunięto.
+    "board_tasks",
+]
+PANEL_KEYS: tuple[str, ...] = get_args(PanelKey)
+PANEL_CV_IN_TRANSIT = "cv_in_transit"
+PANEL_EDIT_ROLES: tuple[str, ...] = ("admin", "head_of_recruitment")
+
+
+def may_hide_panel(user: Any, panel: str) -> bool:
+    """Czy osoba może usunąć listę z pulpitu (przywrócić może zawsze)."""
+
+    if panel == PANEL_CV_IN_TRANSIT:
+        return True
+    return any(user.has_role(role) for role in PANEL_EDIT_ROLES)
+
+
+def hidden_panels(raw: Any) -> list[str]:
+    """Listy usunięte z pulpitu przez osobę; nieznane klucze odpadają."""
+
+    stored = raw.get("hidden_panels") if isinstance(raw, dict) else None
+    if not isinstance(stored, list):
+        return []
+    return [key for key in PANEL_KEYS if key in stored]
+
+
+# Pulpit bez kafelków pokazuje układ roli (04.10.2026: 29 z 35 kont nigdy nie
+# ułożyło pulpitu). Osoba, która świadomie zapisała pusty układ, dostaje pustą
+# kartę — znacznik obok `tiles`, jak `hidden_panels`.
+ROLE_LAYOUT_OFF_KEY = "role_layout_off"
+
+
+def role_layout_off(raw: Any) -> bool:
+    """Czy osoba zapisała pusty pulpit (zamiast korzystać z układu roli)."""
+
+    return isinstance(raw, dict) and raw.get(ROLE_LAYOUT_OFF_KEY) is True
+
+
+def uses_role_layout(raw: Any, tiles: list[Any]) -> bool:
+    """Pulpit bez zapisanych kafelków i bez świadomie pustego układu."""
+
+    return not tiles and not role_layout_off(raw)
+
+
+# Backslash, białe i sterujące znaki — przeglądarka normalizuje `/\evil.com`
+# do `//evil.com`, czyli adresu obcej domeny (runda 8, R8-N10-5). Lustro
+# `safeInternalPath` z `frontend/src/lib/safe-href.ts`.
+_UNSAFE_PATH_CHARS = re.compile(r"[\\\s\x00-\x1f\x7f]")
+
+
+def _is_internal_path(value: str) -> bool:
+    return (
+        value.startswith("/")
+        and not value.startswith("//")
+        and not _UNSAFE_PATH_CHARS.search(value)
+    )
 
 
 class NoteLink(BaseModel):
@@ -77,9 +181,7 @@ class NoteLink(BaseModel):
         # Link w notatce renderuje się jako <a href>. `javascript:` i podobne
         # schematy byłyby XSS-em zapisanym na koncie — dopuszczamy wyłącznie
         # adresy https i ścieżki wewnątrz aplikacji.
-        if value.startswith("https://") or (
-            value.startswith("/") and not value.startswith("//")
-        ):
+        if value.startswith("https://") or _is_internal_path(value):
             return value
         raise ValueError("Link musi zaczynać się od https:// albo / (strona NEXUS).")
 
@@ -95,13 +197,16 @@ class TileConfig(BaseModel):
     text: Optional[str] = Field(default=None, max_length=2000)
     links: list[NoteLink] = Field(default_factory=list, max_length=10)
     link_to: Optional[str] = Field(default=None, max_length=300)
+    # „Requesty i obłożenie”: zakres startowy filtrów, gdy adres ich nie niesie
+    # (moja kategoria / „Delivery Lead: ja” / całość). Liczony u oglądającego.
+    board_scope: Optional[Literal["all", "my_category", "my_lead"]] = None
 
     @field_validator("link_to")
     @classmethod
     def _internal_link(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return value
-        if value.startswith("/") and not value.startswith("//"):
+        if _is_internal_path(value):
             return value
         raise ValueError("Kliknięcie w kafelek może prowadzić tylko do strony NEXUS.")
 
@@ -125,6 +230,10 @@ class DashboardTile(BaseModel):
             raise ValueError("Kafelek metryki wymaga definicji metryki.")
         if self.type not in METRIC_TILE_TYPES and self.config.metric is not None:
             raise ValueError("Tylko kafelek metryki może nieść definicję metryki.")
+        if self.config.board_scope is not None and self.type != "request_board":
+            raise ValueError(
+                "Zakres tablicy dotyczy tylko kafelka „Requesty i obłożenie”."
+            )
         if self.type == "metric_funnel" and self.config.metric is not None:
             m = self.config.metric
             if m.source != "pipeline_moves" or m.group_by != "stage":

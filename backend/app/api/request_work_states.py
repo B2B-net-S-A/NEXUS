@@ -23,6 +23,7 @@ from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
+from app.services.job_working_title import display_title
 from app.services.request_work_state import (
     LABELS,
     VISIBLE_STATES,
@@ -58,6 +59,9 @@ class ReviewRow(BaseModel):
     applications_14d: int
     suggested_state: Optional[str]
     suggestion_reason: str
+    # Rekrutacja zamknięta (zakładka „Zakończone”) — stanu pracy nie da się
+    # zmienić, dopóki ktoś jej nie otworzy; front chowa wtedy przyciski.
+    closed: bool = False
 
 
 class ReviewResponse(BaseModel):
@@ -102,6 +106,7 @@ async def list_request_work_states(
             load_only(
                 Job.id,
                 Job.title,
+                Job.working_title,
                 Job.client_id,
                 Job.delivery_lead_id,
                 Job.deadline,
@@ -125,7 +130,12 @@ async def list_request_work_states(
             )
         )
     if q and q.strip():
-        query = query.where(Job.title.ilike(f"%{q.strip()}%"))
+        # Runda 8 (R8-N7-6): ekran wewnętrzny szuka po nazwie roboczej
+        # i po nazwie od klienta (numer ZOB bywa tylko w tej drugiej).
+        needle = f"%{q.strip()}%"
+        query = query.where(
+            or_(Job.title.ilike(needle), Job.working_title.ilike(needle))
+        )
     jobs = list((await db.scalars(query)).all())
 
     counts = {state: 0 for state in VISIBLE_STATES}
@@ -167,7 +177,7 @@ async def list_request_work_states(
         rows.append(
             ReviewRow(
                 job_id=job.id,
-                title=job.title,
+                title=display_title(job),
                 client_name=clients.get(job.client_id),
                 delivery_lead_name=leads.get(job.delivery_lead_id),
                 deadline=job.deadline.isoformat() if job.deadline else None,
@@ -179,6 +189,7 @@ async def list_request_work_states(
                 applications_14d=sig.applications_14d,
                 suggested_state=hint.state,
                 suggestion_reason=hint.reason,
+                closed=job.status != JobStatus.published,
             )
         )
     return ReviewResponse(
@@ -209,6 +220,22 @@ async def change_request_work_states(
     )
     if len(jobs) != len(wanted):
         raise HTTPException(404, "Część requestów nie istnieje.")
+    # Stan pracy dotyczy otwartej rekrutacji. Zamknięta (np. w zakładce
+    # „Zakończone”) po „Szukamy” dostawała `searching` przy `status=closed`
+    # i znikała z listy, bo lista bierze opublikowane albo zakończone
+    # (audyt 25.09.2026). „Zakończony” zostaje dozwolony — zgadza się ze
+    # stanem zamkniętej rekrutacji. Sprawdzamy całą paczkę przed zapisem.
+    closed = [
+        job
+        for job in jobs
+        if job.status != JobStatus.published and wanted[job.id] != "finished"
+    ]
+    if closed:
+        raise HTTPException(
+            409,
+            f"Najpierw otwórz rekrutację „{display_title(closed[0])}” — zamknięta "
+            "rekrutacja może mieć tylko stan „Zakończony”.",
+        )
     changed = []
     try:
         for job in jobs:

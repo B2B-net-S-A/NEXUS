@@ -25,9 +25,17 @@ export const TRAINEE_STATE_LABEL: Record<TraineeState, string> = {
 /** Poniżej 80% zaliczonych dni = poniżej normy (70 pozycji dziennie). */
 export const DAYS_COMPLETED_NORM = 0.8;
 
+/**
+ * Statusy programu, które znaczą „już nie dzwoni” — lustro
+ * `TRAINEE_PROGRAM_STATUSES` (`active | completed | ended`): `completed` to
+ * awans, `ended` to zakończenie bez awansu. Do 25.09.2026 panel znał
+ * nieistniejące „finished” i liczył awansowanych jako aktywnych (kafel puli).
+ */
+const PROGRAM_CLOSED_STATUSES: ReadonlySet<string> = new Set(["completed", "ended"]);
+
 export function traineeState(row: TraineeOverviewRow): TraineeState {
   const program = row.program;
-  if (!program || program.status === "ended" || program.status === "finished") {
+  if (!program || PROGRAM_CLOSED_STATUSES.has(program.status)) {
     return program ? "ended" : "not_started";
   }
   if (program.decision_due) return "decision";

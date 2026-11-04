@@ -73,6 +73,11 @@ class _Database:
         self.parameters.append(parameters)
         return self.results.pop(0) if self.results else _ScalarResult(rowcount=0)
 
+    async def scalar(self, statement):
+        # Runda 9 (R9-N4-7): przypisanie DL blokuje wiersz klienta.
+        self.statements.append(statement)
+        return 44
+
     def add(self, value):
         self.added.append(value)
 
@@ -112,7 +117,8 @@ async def test_user_scope_invalidation_is_atomic_active_dl_only() -> None:
     sql = str(db.statements[0].compile(dialect=postgresql.dialect()))
     assert sql.startswith("UPDATE users SET ")
     assert "authorization_version=(users.authorization_version +" in sql
-    assert "tokens_valid_after=now()" in sql
+    # Runda 13: podłoga z zegara aplikacji (parametr), nie now() bazy.
+    assert "tokens_valid_after=%(tokens_valid_after)s" in sql
     assert "users.is_active IS true" in sql
     assert "users.role =" in sql
     assert "users.roles @>" in sql
@@ -150,6 +156,7 @@ async def test_dl_client_upsert_does_not_revoke_session_on_noop(monkeypatch) -> 
         "app.api.team_structure.invalidate_delivery_lead_scope_for_users",
         invalidator,
     )
+    monkeypatch.setattr("app.api.team_structure.assert_client_assignable", AsyncMock())
 
     result = await assign_dl_to_client(
         AssignDlClientPayload(
@@ -191,6 +198,7 @@ async def test_dl_client_upsert_revokes_every_changed_dl(monkeypatch) -> None:
         "app.api.team_structure.invalidate_delivery_lead_scope_for_users",
         invalidator,
     )
+    monkeypatch.setattr("app.api.team_structure.assert_client_assignable", AsyncMock())
     fill = AsyncMock(return_value=0)
     monkeypatch.setattr("app.api.team_structure.fill_missing_job_delivery_leads", fill)
 
@@ -218,6 +226,9 @@ async def test_dl_client_toggle_and_delete_revoke_changed_dl(monkeypatch) -> Non
         "app.api.team_structure.invalidate_delivery_lead_scope_for_users",
         invalidator,
     )
+    monkeypatch.setattr("app.api.team_structure.assert_client_assignable", AsyncMock())
+    fill = AsyncMock(return_value=0)
+    monkeypatch.setattr("app.api.team_structure.fill_missing_job_delivery_leads", fill)
 
     assignment = DeliveryLeadClientAssignment(
         id=90,
@@ -243,6 +254,9 @@ async def test_dl_client_toggle_and_delete_revoke_changed_dl(monkeypatch) -> Non
     )
     assert delete_db.deleted == [assignment]
     invalidator.assert_awaited_once_with(delete_db, {12})
+    # Runda 7 (N7-2): zdjęcie heada i usunięcie przypisania też przeliczają DL-a
+    # rekrutacji — DL wpisany automatem nie zostaje bez podstawy.
+    assert fill.await_args_list == [((toggle_db, [44]),), ((delete_db, [44]),)]
 
 
 @pytest.mark.asyncio
@@ -250,7 +264,7 @@ async def test_tac_client_upsert_revokes_client_dls_only_on_change(
     monkeypatch,
 ) -> None:
     ensure_client = AsyncMock(return_value=Client(id=44, name="Client"))
-    load_tac = AsyncMock(return_value=_user(22, UserRole.tac))
+    load_tac = AsyncMock(return_value=_user(22, UserRole.head_of_recruitment))
     invalidator = AsyncMock()
     monkeypatch.setattr("app.api.clients_team._ensure_client_exists", ensure_client)
     monkeypatch.setattr("app.api.clients_team._load_user_for_tac", load_tac)
@@ -319,7 +333,7 @@ async def test_explicit_post_priority_closes_reconciliation(monkeypatch) -> None
     )
     monkeypatch.setattr(
         "app.api.clients_team._load_user_for_tac",
-        AsyncMock(return_value=_user(22, UserRole.tac)),
+        AsyncMock(return_value=_user(22, UserRole.head_of_recruitment)),
     )
     monkeypatch.setattr(
         "app.api.clients_team.upsert_client_tac_assignment",
@@ -464,4 +478,4 @@ async def test_explicit_job_tac_must_match_client_relationship() -> None:
             client_id=44,
         )
     assert exc_info.value.status_code == 400
-    assert "assigned to the selected client_id" in exc_info.value.detail
+    assert "nie jest przypisana do wybranego klienta" in exc_info.value.detail

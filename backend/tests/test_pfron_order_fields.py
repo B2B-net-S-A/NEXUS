@@ -214,3 +214,31 @@ async def test_refresh_pfron_reidentifies_and_reapplies_fields_without_model_or_
     assert planner.call_args.args[-2:] == (122, "marker")
     parser.assert_not_called()
     writer.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "Termin wykonania Prac: od 01.07.2026 r. przez okres 6 miesięcy",
+        "Termin wykonania Prac: od dnia 01.07.2026",
+        "Termin wykonania Prac od 2026-07-01",
+    ],
+)
+def test_start_only_term_is_not_read_as_the_end_date(field):
+    """Runda 6 audytu: „od DATA” bez „do” to początek, nie koniec.
+
+    Reguła traktowała „od” i „do” tak samo — „od 01.07.2026 przez okres
+    6 miesięcy” dawało koniec 01.07 z pewnością 1.0, czyli zamówienie
+    jednodniowe zapisywane automatem.
+    """
+    assert pfron_end_date(field) is None
+    result = apply_pfron_order_policy(old_extraction(), field, filename=FILENAME)
+    assert result.end_date is None
+    assert "end_date" not in result.confidence
+    assert result.consultant_rows[0].end_date is None
+    assert result.uncertain
+    assert any("Termin wykonania Prac" in r for r in result.uncertain_reasons)
+
+
+def test_until_term_still_reads_the_end_date():
+    assert pfron_end_date("Termin wykonania Prac: do 30.09.2026 r.") == "2026-09-30"

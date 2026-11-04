@@ -47,6 +47,10 @@ _INT_BOUNDS: dict[str, tuple[int, int]] = {
 MIN_COVERAGE = 0.6
 #: Ponowna próba po „Nie odbiera”.
 RETRY_AFTER = timedelta(hours=3)
+#: Suma przedłużeń programu — lustro CHECK `ck_trainee_programs_numbers` (0374).
+MAX_EXTENDED_DAYS = 250
+#: Pełny etat w biurze — lustro `candidate_notes_facts.FULL_OFFICE_DAYS`.
+FULL_OFFICE_DAYS = 5
 #: Maks. rozsądna stawka godzinowa (lustro notatek) — reszta to pomyłka jednostki.
 MAX_HOURLY_PLN = Decimal("2000")
 
@@ -77,7 +81,9 @@ def normalize_rules(raw: Optional[Mapping[str, Any]]) -> dict[str, Any]:
             continue
         try:
             number = int(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            # Runda 9 (R9-N13-9): JSON `1e999` to float('inf') — int() rzucał
+            # OverflowError i zapis reguł kończył się 500.
             continue
         low, high = _INT_BOUNDS[key]
         rules[key] = min(max(number, low), high)
@@ -140,8 +146,14 @@ def missing_codes(row: Any, rules: Mapping[str, Any], *, now: datetime) -> list[
     """
     out: list[str] = []
     if rules.get("missing_rate", True):
-        rate = getattr(row, "expected_rate_hourly", None)
-        updated = getattr(row, "profile_rate_updated_at", None)
+        # „Stawka od” (0414); wiersz puli niesie ją już pod tymi nazwami.
+        from app.services.candidate_rate_from import (
+            effective_rate,
+            effective_rate_at,
+        )
+
+        rate, _currency = effective_rate(row)
+        updated = effective_rate_at(row)
         if rate is None:
             out.append("rate_missing")
         elif updated is None or updated < _months_ago(
@@ -292,3 +304,25 @@ def answered_pct(connected: int, no_answer: int) -> Optional[float]:
     if total <= 0:
         return None
     return round(connected * 100 / total, 1)
+
+
+def onsite_days_for_call_modes(
+    modes: Iterable[str], previous: Optional[int]
+) -> Optional[int]:
+    """Dni w biurze, gdy telefon podał tryby pracy bez liczby dni (R8-N3-2).
+
+    Odwrotność ``modes_for_office_days``: bramki biura czytają wyłącznie
+    liczbę dni, więc stara liczba nie może przeczyć nowym trybom. Tylko
+    zdalnie → 0; biuro → pełny etat; hybryda → dotychczasowa liczba tylko
+    z przedziału 1–4, inaczej nieznana.
+    """
+    wanted = set(modes)
+    if "onsite" in wanted:
+        return FULL_OFFICE_DAYS
+    if "hybrid" in wanted:
+        if previous is not None and 1 <= previous < FULL_OFFICE_DAYS:
+            return previous
+        return None
+    if "remote" in wanted:
+        return 0
+    return previous

@@ -19,9 +19,19 @@ import pytest_asyncio
 from app.services import notification_triggers as nt
 
 
+@pytest.fixture(autouse=True)
+def _nobody_is_a_previous_recruiter(monkeypatch):
+    """Atrapy sesji nie znają tabeli „Poprzedni rekruter” (14.10.2026) — tu
+    nikt nie jest uśpiony; regułę sprawdza `test_previous_recruiters.py`."""
+
+    async def working_owner_id(_db, job):
+        return job.recruiter_id
+
+    monkeypatch.setattr(nt, "working_owner_id", working_owner_id)
+
+
 def test_exports_the_core_triggers():
     names = {
-        "check_dl_stage_stale_6h",
         "check_client_feedback_eobd",
         "check_candidate_feedback_1h",
         "check_stage_stuck_7d",
@@ -29,6 +39,17 @@ def test_exports_the_core_triggers():
     for name in names:
         fn = getattr(nt, name)
         assert inspect.iscoroutinefunction(fn), f"{name} musi być async"
+
+
+def test_the_cv_sent_reminder_for_delivery_leads_is_gone():
+    """13.10.2026: przypomnienie o karcie stojącej w „CV wysłane” (CV już u
+    klienta) dało 4 695 wpisów dzwonka w 30 dni. Kolejkę Delivery Leada liczy
+    `dl_send_queue`; typ powiadomienia zostaje dla historycznych wierszy."""
+    from app.models.notification import NotificationType
+
+    assert not hasattr(nt, "check_dl_stage_stale_6h")
+    assert "check_dl_stage_stale_6h" not in nt.__all__
+    assert NotificationType.dl_stage_stale_6h.value == "dl_stage_stale_6h"
 
 
 def test_run_all_triggers_keys():
@@ -68,21 +89,35 @@ async def test_all_triggers_return_zero_when_no_data(empty_db):
     now = datetime(2026, 4, 21, 21, 0, tzinfo=ZoneInfo("Europe/Warsaw"))
     results = await nt.run_all_triggers(empty_db, now)
     # Nie zakładamy że baza jest pusta (test może lecieć na shared instance),
-    # ale zwrócony słownik musi mieć wszystkie 8 kluczy z int values.
+    # ale zwrócony słownik musi mieć komplet kluczy z int values.
     assert set(results.keys()) == {
-        "dl_stage_stale_6h",
         "stage_stuck_7d",
         "candidate_feedback_1h",
         "client_feedback_eobd",
         "post_interview_t15",
         "post_interview_t45",
         "post_interview_t2h_escalation",
-        "board_tasks_digest",
         "prep_attention",
+        "rate_change_reminders",
+        "proposals_morning",
+        # 23.10.2026: osoby od systemu po terminie decyzji (`autofill_decisions_bell`).
+        "autofill_decisions",
+        # 23.10.2026: raport poniedziałkowy „Jakość podpowiedzi systemu”.
+        "autofill_quality_report",
+        # 26.10.2026: „Nowa rekrutacja u Twojego klienta” (`client_job_opened`).
+        "client_job_opened",
+        # 27.10.2026: przypomnienia o brakujących ogłoszeniach (`job_ad.reminders`).
+        "job_ad_reminders",
+        # 28.10.2026: odejście rekrutera — nadrobione przekazania i przypomnienia.
+        "departed_care",
     }
     assert all(isinstance(v, int) and v >= 0 for v in results.values())
     # Time-gated trigger musi zwrócić 0 o 21:00.
     assert results["client_feedback_eobd"] == 0
+    # Przypomnienia o ogłoszeniach chodzą tylko 8–17.
+    assert results["job_ad_reminders"] == 0
+    # Przypomnienia DL-om po odejściu też tylko 8–17 w dni robocze.
+    assert results["departed_care"] == 0
 
 
 # ── stage_stuck_7d (audyt 17.09.2026) ─────────────────────────────────────────
@@ -282,37 +317,6 @@ class _Captured:
 
 
 @pytest.mark.asyncio
-async def test_dl_stage_stale_link_opens_the_candidate_on_the_board(monkeypatch):
-    from datetime import datetime, timedelta, timezone
-    from types import SimpleNamespace
-
-    from app.models.recruitment_pipeline import PipelineStage
-
-    now = datetime(2026, 9, 17, 12, 0, tzinfo=timezone.utc)
-    stage = nt.LatestStage(
-        id=5,
-        candidate_id=77,
-        job_id=12,
-        stage=PipelineStage.cv_sent,
-        moved_at=now - timedelta(hours=8),
-    )
-    captured = _Captured()
-
-    async def jobs_by_id(db, ids):  # lustro `_open_jobs_by_id` (#1593)
-        return {12: SimpleNamespace(id=12, title="Java")}
-
-    async def targets(db, job):
-        return [3]
-
-    monkeypatch.setattr(nt, "_open_jobs_by_id", jobs_by_id)
-    monkeypatch.setattr(nt, "_delivery_lead_targets", targets)
-    monkeypatch.setattr(nt, "emit", captured.emit)
-
-    assert await nt.check_dl_stage_stale_6h(None, now, {(77, 12): stage}) == 1
-    assert captured.links == ["/jobs/12?candidate=77"]
-
-
-@pytest.mark.asyncio
 async def test_client_feedback_link_opens_the_candidate_on_the_board(monkeypatch):
     from datetime import datetime, timedelta, timezone
     from types import SimpleNamespace
@@ -321,7 +325,11 @@ async def test_client_feedback_link_opens_the_candidate_on_the_board(monkeypatch
 
     now = datetime(2026, 9, 17, 14, 30, tzinfo=timezone.utc)
     event = SimpleNamespace(
-        id=9, candidate_id=77, job_id=12, end_time=now - timedelta(hours=2)
+        id=9,
+        candidate_id=77,
+        job_id=12,
+        start_time=now - timedelta(hours=3),
+        end_time=now - timedelta(hours=2),
     )
 
     class _Rows:
@@ -366,3 +374,236 @@ async def test_client_feedback_link_opens_the_candidate_on_the_board(monkeypatch
 
     assert await nt.check_client_feedback_eobd(_Db(), now, latest) == 1
     assert captured.links == ["/jobs/12?candidate=77"]
+
+
+# ── Nieaktywne konto = brak osoby (runda 6 audytu) ───────────────────────────
+
+
+def _active_only(*active_ids):
+    async def is_active(db, user_id):
+        return user_id in active_ids
+
+    return is_active
+
+
+@pytest.mark.asyncio
+async def test_post_interview_call_skips_inactive_owner_for_the_job_recruiter(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from app.models.calendar_event import CalendarEvent, EventType
+
+    ev = CalendarEvent(
+        event_type=EventType.client_interview, operational_owner_id=11, created_by=11
+    )
+    job = SimpleNamespace(id=1, recruiter_id=33, delivery_lead_id=44)
+    monkeypatch.setattr(nt, "_user_is_active", _active_only(33))
+    assert await nt._post_interview_recipients(None, ev, job, client_side=False) == [33]
+
+    # Nikt aktywny z rekrutacji → zapas DL-owy (DL albo HoR).
+    async def targets(db, job):
+        return [90]
+
+    monkeypatch.setattr(nt, "_user_is_active", _active_only())
+    monkeypatch.setattr(nt, "_delivery_lead_targets", targets)
+    assert await nt._post_interview_recipients(None, ev, job, client_side=False) == [90]
+
+
+@pytest.mark.asyncio
+async def test_post_interview_call_goes_to_the_compass_substitute(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.models.calendar_event import CalendarEvent, EventType
+    from app.services import workforce_availability
+
+    async def substitute(db, owner_id):
+        return 77 if owner_id == 33 else owner_id
+
+    monkeypatch.setattr(workforce_availability, "effective_owner_id", substitute)
+    monkeypatch.setattr(nt, "_user_is_active", _active_only(77))
+    ev = CalendarEvent(event_type=EventType.interview, created_by=33)
+    job = SimpleNamespace(id=1, recruiter_id=33, delivery_lead_id=None)
+    assert await nt._post_interview_recipients(None, ev, job, client_side=False) == [77]
+
+
+@pytest.mark.asyncio
+async def test_stage_stuck_reminder_for_inactive_recruiter_goes_to_the_dl(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from app.models.recruitment_pipeline import PipelineStage
+
+    now = datetime(2026, 9, 17, 12, 0, tzinfo=timezone.utc)
+    stage = nt.LatestStage(
+        id=5,
+        candidate_id=77,
+        job_id=12,
+        stage=PipelineStage.cv_sent,
+        moved_at=now - timedelta(days=10),
+    )
+    sent: list[int] = []
+
+    async def emit(db, **kwargs):
+        sent.append(kwargs["user_id"])
+        return object()
+
+    async def jobs_by_id(db, ids):
+        return {
+            12: SimpleNamespace(id=12, title="Java", working_title=None, recruiter_id=3)
+        }
+
+    async def targets(db, job):
+        return [44]
+
+    async def names(db, ids):
+        return {77: "Anna Nowak"}
+
+    class _Db:
+        async def execute(self, statement):
+            return []
+
+    monkeypatch.setattr(nt, "_open_jobs_by_id", jobs_by_id)
+    monkeypatch.setattr(nt, "_delivery_lead_targets", targets)
+    monkeypatch.setattr(nt, "_candidate_names", names)
+    monkeypatch.setattr(nt, "_user_is_active", _active_only())
+    monkeypatch.setattr(nt, "emit", emit)
+    assert await nt.check_stage_stuck_7d(_Db(), now, {(77, 12): stage}) == 1
+    assert sent == [44]
+
+
+# ── Runda 8 (CAL2): przypomnienie po rozmowie u klienta gasi tylko debrief ───
+
+
+class _FeedbackRows:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return list(self._rows)
+
+
+class _FeedbackDb:
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def execute(self, statement):
+        return _FeedbackRows(self._rows)
+
+
+@pytest.mark.asyncio
+async def test_client_interview_reminder_needs_a_complete_debrief():
+    from app.models.calendar_event import CalendarEvent, EventType
+    from app.models.interview_feedback import FeedbackSource
+
+    start = datetime(2026, 9, 20, 10, 0, tzinfo=timezone.utc)
+    ev = CalendarEvent(id=5, event_type=EventType.client_interview, start_time=start)
+    after = start + timedelta(hours=2)
+
+    # Ogólny feedback bez pytań klienta NIE gasi przypomnienia.
+    assert not await nt._post_interview_feedback_done(
+        _FeedbackDb([(None, None, after)]), ev, FeedbackSource.candidate_side
+    )
+    # Debrief zapisany PRZED rozmową też nie.
+    assert not await nt._post_interview_feedback_done(
+        _FeedbackDb([("Jak testujesz?", None, start - timedelta(days=1))]),
+        ev,
+        FeedbackSource.candidate_side,
+    )
+    # Pytania klienta albo jawne „nie pytał” po rozmowie — gasi.
+    assert await nt._post_interview_feedback_done(
+        _FeedbackDb([("Jak testujesz?", None, after)]),
+        ev,
+        FeedbackSource.candidate_side,
+    )
+    assert await nt._post_interview_feedback_done(
+        _FeedbackDb([(None, True, after.replace(tzinfo=None))]),
+        ev,
+        FeedbackSource.candidate_side,
+    )
+
+
+def test_all_post_interview_reminders_share_the_debrief_rule() -> None:
+    """Runda 9 (R9-V2-3): T+15, T+45 i T+2h gasi ta sama reguła."""
+    for fn in (
+        nt.check_post_interview_t15,
+        nt.check_post_interview_t45,
+        nt.check_post_interview_t2h_escalation,
+    ):
+        src = inspect.getsource(fn)
+        assert "_post_interview_feedback_done(" in src
+        assert "_feedback_exists(" not in src
+
+
+# ── Etap przeniesiony z Traffita nie budzi (decyzja Artura 11.10.2026) ───────
+
+
+def _stage_reminder_fakes(monkeypatch, sent: list[str]):
+    from types import SimpleNamespace
+
+    async def emit(db, **kwargs):
+        sent.append(kwargs["ntype"].value)
+        return object()
+
+    async def jobs_by_id(db, ids):
+        return {
+            12: SimpleNamespace(id=12, title="Java", working_title=None, recruiter_id=3)
+        }
+
+    async def targets(db, job):
+        return [44]
+
+    async def names(db, ids):
+        return {}
+
+    monkeypatch.setattr(nt, "_open_jobs_by_id", jobs_by_id)
+    monkeypatch.setattr(nt, "_delivery_lead_targets", targets)
+    monkeypatch.setattr(nt, "_candidate_names", names)
+    monkeypatch.setattr(nt, "_user_is_active", _active_only(3))
+    monkeypatch.setattr(nt, "emit", emit)
+
+
+class _NoRemindersYet:
+    async def execute(self, statement):
+        return []
+
+    # `availability_local.refresh_source` czyta przełącznik z bazy, gdy jego
+    # pamięć na proces jest pusta albo starsza niż minuta — bez tego wynik
+    # zależał od tego, co biegło wcześniej w tym samym shardzie.
+    async def scalar(self, statement):
+        return None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        # Otwarcie fali z Traffita (11.10.2026): jedna osoba dostałaby do 146
+        # przypomnień o kartach, których w NEXUSIE nikt jeszcze nie dotknął.
+        ("traffit", []),
+        ("manual", ["stage_stuck_7d"]),
+        (None, ["stage_stuck_7d"]),
+    ],
+)
+async def test_stage_reminders_wait_for_the_first_move_made_in_nexus(
+    monkeypatch, source, expected
+):
+    from app.models.recruitment_pipeline import PipelineStage
+
+    now = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)
+    # „CV wysłane” od 10 dni: w oknie przypomnienia (7–30 dni).
+    stage = nt.LatestStage(
+        id=5,
+        candidate_id=77,
+        job_id=12,
+        stage=PipelineStage.cv_sent,
+        moved_at=now - timedelta(days=10),
+        external_source=source,
+    )
+    sent: list[str] = []
+    _stage_reminder_fakes(monkeypatch, sent)
+
+    await nt.check_stage_stuck_7d(_NoRemindersYet(), now, {(77, 12): stage})
+
+    assert sent == expected

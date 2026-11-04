@@ -1,6 +1,8 @@
 import { api, type matchingApi, type MatchEligibility } from "@/lib/api";
 import type { TalentRadarCandidate, TalentRadarSearchRequest } from "@/lib/talent-radar-api";
 import { httpStatusFromError } from "@/lib/view-state";
+import type { FullSearchFit } from "@/lib/fit-badges";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 
 /** `failed` is terminal: the run will never finish and holds no ranking. */
 export type SearchState = "queued" | "running" | "complete" | "partial" | "failed";
@@ -37,13 +39,30 @@ export interface CandidateSearchRow {
     matched: string[];
     stale?: boolean;
     candidate_updated_at: string;
-    evidence_basis?: "profile_signal" | "no_evidence" | "reviewed";
+    evidence_basis?: "profile_signal" | "text_mention" | "stale_profile_signal" | "no_evidence" | "reviewed";
+    /** Rok ostatniego użycia, gdy technologia jest starsza niż 3 lata — wtedy „?” (27.10.2026). */
+    last_used_year?: number | null;
     verified_at?: string | null;
     candidate_evidence?: string | null;
     usage_context?: string | null;
     requirement_evidence?: string | null;
   }>;
   eligibility: MatchEligibility | null;
+  /** Znacznik „Pracuje u nas” — liczony przy odczycie, nie zamrożony z przeglądem. */
+  employment_marker?: EmploymentMarker | null;
+  /** Budżet i biuro z chwili przeglądu — plakietka, nie ukrycie (v9).
+   *  `null`, gdy dane kandydata zmieniły się od przeglądu. */
+  fit?: FullSearchFit | null;
+  /** Pytania TEJ rekrutacji z dopasowaną odpowiedzią z wcześniejszej rozmowy
+   *  (warstwa `prior_screening`) — tylko w przeglądach liczonych z warstwą. */
+  prior_screening?: Array<{
+    question_id: string;
+    question: string;
+    polarity: 1 | -1 | null;
+    deal_breaker: boolean;
+    similarity: number;
+    answered_at: string | null;
+  }>;
 }
 
 export interface CandidateSearchPage {

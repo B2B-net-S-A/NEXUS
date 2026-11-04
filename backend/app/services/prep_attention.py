@@ -6,12 +6,15 @@ i stepper mówią to samo:
 
 * ``missing`` — brak Prepu 1 albo Prepu 2 przed rozmową w ciągu
   ``WINDOW_DAYS`` (dzwonek dopiero na dobę przed — ``urgent``),
+* ``late`` — prep zaplanowany PO rozmowie, do której miał przygotować
+  (termin rozmowy potwierdzono albo przełożono na wcześniej); dzwonek od razu,
 * ``weak`` — odbyty prep z oceną „słaby”,
 * ``unrecorded`` — odbyty prep bez transkryptu.
 
 Adresat: organizator prepu (dla brakującego — podpowiadany: Prep 1 → DL
 rekrutacji, Prep 2 → rekruter) oraz Head of Recruitment (decyzja Artura
-23.09.2026). Nic tu niczego nie blokuje.
+23.09.2026); dzwonek idzie też do Delivery Leada rekrutacji (17.10.2026, D7).
+Nic tu niczego nie blokuje.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.candidate import Candidate
 from app.models.job import Job
+from app.services.job_working_title import job_display_title_expr
 from app.models.user import User, UserRole
 from app.services.interview_cycle import (
     PREP_URGENT_HOURS,
@@ -33,13 +37,15 @@ from app.services.interview_cycle import (
     prep_quality,
 )
 
-Reason = Literal["missing", "weak", "unrecorded"]
+Reason = Literal["missing", "late", "weak", "unrecorded"]
 WINDOW_DAYS = 7
+LATE_PREP_LOOKAHEAD_DAYS = 30
 MAX_INTERVIEWS = 300
 _OVERSIGHT = (UserRole.admin, UserRole.head_of_recruitment)
 
 REASON_LABELS = {
     "missing": "brak prepu",
+    "late": "prep po rozmowie",
     "weak": "prep słaby",
     "unrecorded": "prep bez nagrania",
 }
@@ -87,30 +93,66 @@ async def load_prep_attention(
         db,
         [(c, j) for c, j in pairs],
         window_start=now - timedelta(days=14),
-        window_end=now + timedelta(days=days_ahead),
+        # Okno prepów sięga dalej niż okno rozmów: prep zaplanowany PO rozmowie
+        # trzeba zobaczyć, żeby nie zgłosić go jako „brak prepu”.
+        window_end=now + timedelta(days=days_ahead + LATE_PREP_LOOKAHEAD_DAYS),
+        now=now,
     )
-    owners = {
-        jid: (dl, rec)
-        for jid, dl, rec in (
-            await db.execute(
-                select(Job.id, Job.delivery_lead_id, Job.recruiter_id).where(
-                    Job.id.in_({j for _c, j in pairs})
-                )
-            )
+    from app.services.interview_slots import eligible_slot_recruiters  # noqa: PLC0415
+    from app.services.prep_meetings import suggest_organizer_ids  # noqa: PLC0415
+    from app.services.workforce_availability import workforce_context  # noqa: PLC0415
+
+    jobs = {
+        job.id: job
+        for job in (
+            await db.scalars(select(Job).where(Job.id.in_({j for _c, j in pairs})))
         ).all()
     }
+    # Runda 7 (R7-V3-2): podpowiedź organizatora hurtowo — stała liczba
+    # zapytań. Ta trasa (``GET /api/board-tasks``) idzie z pulpitu każdego.
+    suggested = await suggest_organizer_ids(db, jobs, snaps.keys())
+    # Runda 7 (X3): sprawa „słaby”/„bez nagrania” idzie do organizatora, za
+    # którego ktoś faktycznie pracuje — zastępca z COMPASS-a wygrywa, a konto
+    # nieaktywne albo bez dostępu to brak osoby i sprawa wraca do podpowiedzi
+    # (Prep 1 → DL, Prep 2 → rekruter). Dotąd dzwonek organizatora, który
+    # odszedł, przepadał; widział ją tylko HoR.
+    workforce = await workforce_context(db)
+    # Runda 8 (CAL2): prepy liczą się do rundy prepów (najbliższa przyszła
+    # rozmowa), także gdy poprzednia runda czeka jeszcze na debrief — oba
+    # przypomnienia idą równolegle (decyzja Artura 27.09.2026).
+    snaps = {key: snap.for_preps() for key, snap in snaps.items()}
+    held_owners = {
+        (workforce.performer(ev.owner_id), jid)
+        for (_cid, jid), snap in snaps.items()
+        for n in (1, 2)
+        if (ev := snap.prep_slot(n) or snap.late_prep(n)) is not None and ev.owner_id
+    }
+    active_owners = await eligible_slot_recruiters(db, held_owners)
     out: list[PrepAttention] = []
     for (cid, jid), snap in snaps.items():
         iv = snap.interview
         if iv is None or iv.start <= now:
             continue
         urgent = iv.start - now <= timedelta(hours=PREP_URGENT_HOURS)
-        dl, rec = owners.get(jid, (None, None))
         for n in (1, 2):
+            fallback = suggested.get((cid, jid), (None, None))[n - 1]
             ev = snap.prep_slot(n)
-            if ev is None:
-                reason: Optional[Reason] = "missing"
-                owner = (dl or rec) if n == 1 else (rec or dl)
+            if ev is None and (late := snap.late_prep(n)) is not None:
+                # Prep jest w kalendarzu, ale po rozmowie — sprawa organizatora
+                # (przełożyć), nie „brak prepu” (zaplanować drugi).
+                ev = late
+                reason: Optional[Reason] = "late"
+                performer = workforce.performer(ev.owner_id)
+                owner = performer if (performer, jid) in active_owners else fallback
+            elif ev is None and n == 2 and snap.prep2_skip() is not None:
+                # 0482: rozmowa bez Prepu 2 z zapisanym powodem — nie „brak”.
+                reason = None
+                owner = None
+            elif ev is None:
+                reason = "missing"
+                # Ta sama podpowiedź co w oknie „Zaplanuj prep” — tylko osoby
+                # aktywne z dostępem do rekrutacji (runda 6 audytu).
+                owner = fallback
             elif ev.start <= now:
                 quality = prep_quality(ev)[1]
                 reason = (
@@ -120,7 +162,8 @@ async def load_prep_attention(
                     if quality == "unrecorded"
                     else None
                 )
-                owner = ev.owner_id
+                performer = workforce.performer(ev.owner_id)
+                owner = performer if (performer, jid) in active_owners else fallback
             else:
                 reason = None
                 owner = None
@@ -168,7 +211,10 @@ async def labels(
     titles: dict[int, str] = {}
     if job_ids:
         for jid, title in (
-            await db.execute(select(Job.id, Job.title).where(Job.id.in_(job_ids)))
+            # Ekran wewnętrzny: tytuł dla rekrutera, a bez niego nazwa od klienta.
+            await db.execute(
+                select(Job.id, job_display_title_expr()).where(Job.id.in_(job_ids))
+            )
         ).all():
             titles[jid] = title or f"Rekrutacja #{jid}"
     return names, titles

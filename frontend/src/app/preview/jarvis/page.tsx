@@ -124,7 +124,7 @@ const PREFS: JarvisPrefsResponse = {
   sound: false,
   daily_brief: true,
   screen_tips: true,
-  notes: ["Odpowiadaj krótko, w punktach", "Moi klienci to PKO BP i Nordea"],
+  notes: ["Odpowiadaj krótko, w punktach", "Moi klienci to Bank Kappa i Bank Północny"],
   unlocked_characters: ["robot", "owl", "cat", "ghost", "rocket", "star", "dragon", "astronaut"],
   locked_characters: {
     robot_gold: "Wygraj dowolny ranking Ligi Mistrzów (1. miejsce).",

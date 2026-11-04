@@ -1,0 +1,140 @@
+/**
+ * Obudowa panelu osoby (jeden panel osoby, 04.10.2026): ta sama `aside`
+ * w trzech rozmiarach (dok, dzielony ze strefą podglądu po lewej, przegląd
+ * DL — 09.10.2026), podkład zamyka najwyższą warstwę, ukryty panel
+ * nie traci treści.
+ */
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { PersonPanelShell } from "@/components/v2/person/PersonPanelShell";
+import { useAuthStore } from "@/store/auth";
+
+const originalMatchMedia = window.matchMedia;
+
+afterEach(() => {
+  window.matchMedia = originalMatchMedia;
+  window.localStorage.clear();
+  useAuthStore.setState({ user: null });
+});
+
+describe("PersonPanelShell", () => {
+  it("wąski: 380 px, podkład tylko na tablecie", () => {
+    render(
+      <PersonPanelShell size="dock" chromeTop={null} onBackdropClick={vi.fn()}>
+        <p>treść</p>
+      </PersonPanelShell>,
+    );
+    const panel = screen.getByRole("complementary", { name: "Panel osoby" });
+    expect(panel.className).toContain("max-w-[380px]");
+    expect(panel).not.toHaveAttribute("data-wide");
+    expect(panel).toHaveAttribute("data-size", "dock");
+    expect(panel).toHaveAttribute("data-help", "jobs.person.dock");
+    expect(screen.getByTestId("pipeline-dock-backdrop").className).toContain("lg:hidden");
+  });
+
+  it("dzielony (09.10.2026): cała szerokość, strefa podglądu po lewej i stała kolumna po prawej", () => {
+    const onBackdropClick = vi.fn();
+    render(
+      <PersonPanelShell size="split" chromeTop={64} onBackdropClick={onBackdropClick}>
+        <p>treść</p>
+      </PersonPanelShell>,
+    );
+    const panel = screen.getByRole("complementary", { name: "Panel osoby" });
+    expect(panel.className).toContain("max-w-none");
+    expect(panel).toHaveAttribute("data-wide");
+    expect(panel).toHaveAttribute("data-cover");
+    expect(panel).toHaveAttribute("data-size", "split");
+    expect(panel.style.top).toBe("64px");
+    // Podkład na każdej szerokości, klik zamyka najwyższą warstwę.
+    const backdrop = screen.getByTestId("pipeline-dock-backdrop");
+    expect(backdrop.className).not.toContain("lg:hidden");
+    fireEvent.click(backdrop);
+    expect(onBackdropClick).toHaveBeenCalledTimes(1);
+
+    const zone = screen.getByTestId("person-panel-side");
+    expect(zone).not.toHaveAttribute("hidden");
+    const column = screen.getByTestId("person-panel-column");
+    expect(column.className).toContain("lg:w-[460px]");
+    expect(column.className).toContain("2xl:w-[520px]");
+    expect(column).toContainElement(screen.getByText("treść"));
+    // Strefa stoi w DOM przed kolumną — kolejność tabulatora = lewo → prawo.
+    expect(zone.compareDocumentPosition(column) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("przegląd DL: cała szerokość bez strefy podglądu", () => {
+    render(
+      <PersonPanelShell size="review" chromeTop={null} onBackdropClick={vi.fn()}>
+        <p>treść</p>
+      </PersonPanelShell>,
+    );
+    const panel = screen.getByRole("complementary", { name: "Panel osoby" });
+    expect(panel.className).toContain("max-w-none");
+    expect(panel).toHaveAttribute("data-cover");
+    expect(panel).toHaveAttribute("data-size", "review");
+    expect(screen.getByTestId("person-panel-side")).toHaveAttribute("hidden");
+    expect(screen.getByTestId("person-panel-column").className).not.toContain("lg:w-[460px]");
+  });
+
+  it("dok i tryb szeroki nie zakrywają menu i trzymają strefę ukrytą, ale zamontowaną", () => {
+    const { rerender } = render(
+      <PersonPanelShell size="dock" chromeTop={null} onBackdropClick={vi.fn()}>
+        <p>treść</p>
+      </PersonPanelShell>,
+    );
+    const panel = screen.getByRole("complementary", { name: "Panel osoby" });
+    const zone = screen.getByTestId("person-panel-side");
+    expect(panel).not.toHaveAttribute("data-cover");
+    expect(zone).toHaveAttribute("hidden");
+
+    rerender(
+      <PersonPanelShell size="split" chromeTop={null} onBackdropClick={vi.fn()}>
+        <p>treść</p>
+      </PersonPanelShell>,
+    );
+    // Ten sam węzeł strefy i ta sama kolumna — zmiana rozmiaru niczego nie odmontowuje.
+    expect(screen.getByTestId("person-panel-side")).toBe(zone);
+    expect(zone).not.toHaveAttribute("hidden");
+  });
+
+  it("ukryty: bez podkładu, treść zostaje zamontowana", () => {
+    render(
+      <PersonPanelShell size="dock" hidden chromeTop={null} onBackdropClick={vi.fn()}>
+        <textarea defaultValue="niewysłana notatka" aria-label="notatka" />
+      </PersonPanelShell>,
+    );
+    expect(screen.queryByTestId("pipeline-dock-backdrop")).toBeNull();
+    expect(screen.getByLabelText("notatka", { selector: "textarea" })).toHaveValue("niewysłana notatka");
+    expect(screen.getByLabelText("notatka", { selector: "textarea" })).not.toBeVisible();
+  });
+
+  it("zapamiętane zwinięte CV (13.10.2026): w trybie dzielonym panel ma połowę ekranu, w przeglądzie DL nic się nie zmienia", () => {
+    window.matchMedia = ((query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+    useAuthStore.setState({ user: { id: 7 } as never, hydrated: true });
+    window.localStorage.setItem(
+      "nexus:person-preview-layout:7",
+      JSON.stringify({ cvCollapsed: true, infoCollapsed: false }),
+    );
+    const { rerender } = render(
+      <PersonPanelShell size="split" chromeTop={null} onBackdropClick={vi.fn()}>
+        <p>treść</p>
+      </PersonPanelShell>,
+    );
+    const column = screen.getByTestId("person-panel-column");
+    expect(column.className).toContain("lg:w-[calc((100%-2.75rem)/2)]");
+    expect(column.className).not.toContain("lg:w-[460px]");
+
+    rerender(
+      <PersonPanelShell size="review" chromeTop={null} onBackdropClick={vi.fn()}>
+        <p>treść</p>
+      </PersonPanelShell>,
+    );
+    expect(screen.getByTestId("person-panel-column")).toBe(column);
+    expect(column.className).not.toContain("lg:w-");
+  });
+});

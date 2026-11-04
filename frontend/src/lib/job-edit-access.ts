@@ -3,9 +3,11 @@
  * 22.09.2026, audyt ról U2).
  *
  * Dwa poziomy:
- *  • `full`    — admin, Delivery Lead (i TAC): wszystko, łącznie z klientem,
- *                budżetem, właścicielami, terminem i cyklem życia (publikacja,
- *                zamknięcie, „prowadzona w NEXUSIE"). Capability `job.update`.
+ *  • `full`    — posiadacz uprawnienia „Rekrutacje: zakładanie, zamykanie,
+ *                wysyłka CV do klienta” (domyślnie Delivery Lead i admin):
+ *                wszystko, łącznie z klientem, budżetem, właścicielami,
+ *                terminem i cyklem życia (publikacja, zamknięcie, „prowadzona
+ *                w NEXUSIE"). Capability `job.update`.
  *  • `content` — rekruter prowadzący i współpracownicy: TREŚĆ rekrutacji
  *                (opis, ogłoszenia, Profil Championa, podpowiedzi Championa).
  *                Budżet, właściciele, klient i cykl życia zostają zamknięte.
@@ -15,6 +17,7 @@
  * (starszy backend) — wtedy zostaje dotychczasowa reguła z capability, bez
  * żadnego poszerzenia. Jawne `can_edit: false` wygrywa zawsze.
  */
+import { holdsCapabilityGrant, type CapabilityUser } from "@/lib/capabilities";
 
 export type JobEditScope = "full" | "content" | "none";
 
@@ -31,7 +34,7 @@ export function jobEditScope(
   }: {
     /** Zapis w sekcji Pipeline (sufit) i brak trybu „podgląd jako". */
     canWritePipeline: boolean;
-    /** Capability `job.update` — pełna edycja (TacPlus). */
+    /** Capability `job.update` — pełna edycja (uprawnienie). */
     canManageJob: boolean;
   },
 ): JobEditScope {
@@ -43,8 +46,21 @@ export function jobEditScope(
 }
 
 /**
+ * Reguła zapasowa pełnej edycji, gdy serwer nie przysłał `can_edit` (starszy
+ * backend, harness): tytuł do capability `job.update` — uprawnienie
+ * „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta” (lustro poziomu
+ * `full` z `job_edit_level`). Jedna kopia reguły: rejestr
+ * capability. Bez sufitu sekcji — ten dokłada wołający (`canWritePipeline`).
+ */
+export function hasFullJobEditFallback(
+  user: CapabilityUser | null | undefined,
+): boolean {
+  return holdsCapabilityGrant(user, "job.update");
+}
+
+/**
  * Edycja Profilu Championa. `can_edit` z serwera, a gdy go jeszcze nie ma —
- * dotychczasowe lustro `PUT /champion-profile` (`fallback`, np. admin + DL).
+ * reguła zapasowa wołającego (`fallback`: `hasFullJobEditFallback(user)`).
  */
 export function canEditJobContent(
   job: JobEditAccessInput | null | undefined,
@@ -53,4 +69,31 @@ export function canEditJobContent(
   if (!canWritePipeline) return false;
   if (typeof job?.can_edit === "boolean") return job.can_edit;
   return fallback;
+}
+
+/** Co robi „Otwórz ponownie” / „Dokończ i opublikuj” (04.10.2026). */
+export type JobPublishAction = "reopen" | "finish";
+
+export interface JobPublishStateInput {
+  status?: string | null;
+  is_open?: boolean | null;
+  external_source?: string | null;
+}
+
+/**
+ * Rekrutacja, której brakuje drogi do pracy: zamknięta (`reopen`), stary
+ * szkic albo opublikowana bez przekazania do searchu poza Traffitem
+ * (`finish` — lustro listy `pending_jobs` z `services/pending_job_completion.py`).
+ * `null` — rekrutacja jest w pracy.
+ */
+export function jobPublishAction(
+  job: JobPublishStateInput | null | undefined,
+): JobPublishAction | null {
+  if (!job) return null;
+  if (job.status === "closed") return "reopen";
+  if (job.status === "draft") return "finish";
+  if (job.status === "published" && job.is_open === false && job.external_source !== "traffit") {
+    return "finish";
+  }
+  return null;
 }

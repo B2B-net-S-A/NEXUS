@@ -110,4 +110,25 @@ describe("signed contract forced delete confirmation", () => {
     await user.click(button);
     expect(onConfirm).toHaveBeenCalledWith("563");
   });
+
+  it("says what happens to the signed agreement and how to re-link it", () => {
+    // Umowa 1520/2026 (10.2026): administrator usunął zdublowany kontrakt,
+    // a podpisana umowa została w rejestrze bez kontraktu — okno nie mówiło
+    // ani o tym skutku, ani o akcji, która go naprawia.
+    render(
+      <SignedContractDeleteConfirmation
+        open
+        onOpenChange={vi.fn()}
+        contractId={563}
+        contractorName="Agnieszka Urbaniak"
+        isPending={false}
+        onConfirm={vi.fn()}
+      />,
+    );
+
+    const consequence = screen.getByTestId("signed-delete-agreement-consequence");
+    expect(consequence).toHaveTextContent(/zostanie w „Wygenerowane umowy” bez kontraktu/);
+    expect(consequence).toHaveTextContent("Kontrakt usunięty — brak kontraktora");
+    expect(consequence).toHaveTextContent("Powiąż z kontraktem");
+  });
 });

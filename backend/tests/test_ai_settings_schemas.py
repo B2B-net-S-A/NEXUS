@@ -85,6 +85,41 @@ class TestFeatureKeyEnum:
             "academy_screening",
             # 0370: ocena prepu z transkryptu Teams.
             "prep_review",
+            # 0383: import archiwum pytań z interview (jednorazowy skrypt).
+            "interview_question_import",
+            # 0403: research „Champion po ludzku” w internecie.
+            "plain_knowledge_research",
+            # 0404: przegląd zgłoszeń z linku rekrutacji przed „Nowi”.
+            "application_screening",
+            # 0421: karta rekomendacji z notatki i „Ułóż w zdanie”.
+            "recommendation_card_note_read",
+            "screening_answer_phrasing",
+            # 0433: AI na zaznaczonym fragmencie w edytorze CV.
+            "cv_selection_edit",
+            # 0434: polecenie własnymi słowami dla całego CV w edytorze.
+            "cv_editor_command",
+            # 0485: terminy rozmowy u klienta z wklejonego maila.
+            "interview_slots_from_mail",
+            # 0486: odczyt faktury albo paragonu do zgody (Zgody, etap 3).
+            "expense_document_read",
+            # 0488: „Po rozmowie” — pytania i oferta z notatki z telefonu.
+            "debrief_from_text",
+            # 0518: raport poniedziałkowy „Jakość podpowiedzi systemu”.
+            "autofill_quality_report",
+            # 0522: formularz CV klienta wypełniany z CV i screeningu.
+            "client_form_fill",
+            # 0529: zrzut zgody RODO pod CV — odczyt nadawcy, daty i ZOB.
+            "consent_screenshot_check",
+            "linkedin_message_draft",
+            # 0620: „Oceń z AI” na zaznaczonych osobach w rekrutacji.
+            "candidate_ai_assessment",
+            "sales_meeting_summary",
+            "case_triage",
+            "portal_meeting_summary",
+            # 0634: słowa z CV wysłanych do wiersza „musi mieć”.
+            "requirement_word_hints",
+            # 0638: podsumowanie rozmowy z portalu konsultanta.
+            "portal_meeting_summary",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

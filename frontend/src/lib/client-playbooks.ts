@@ -10,9 +10,8 @@
  * prowadzona przez Delivery Leada. Zapis = obowiązuje (bez bramki
  * zatwierdzenia jak w regułach CV); wersja + historia zostają.
  *
- * Off-limit NIE jest polem karty — przychodzi tylko do odczytu z warunków
- * umowy ramowej (`client_contract_terms`) i wyłącznie dla ról z odczytem
- * sekcji Delivery; reszta dostaje `null`.
+ * Off-limits usunięte 27.09.2026 decyzją Artura (runda 9, R9-N4-8) — karta
+ * ani API ich nie niosą; kolumny w `client_contract_terms` zostają w bazie.
  *
  * Nazwy `playbookToForm` / `playbookFormToPayload` są celowo inne niż
  * `ruleToForm` / `formToPayload` z `cv-rules.ts` — oba moduły spotykają się
@@ -23,15 +22,21 @@ import { useQuery } from "@tanstack/react-query";
 
 import api from "@/lib/api";
 
+/**
+ * Link „Edytuj kartę" / „Załóż kartę" spoza profilu klienta (strona
+ * rekrutacji, Pomoc → Klienci). Prowadzi do edytora w Ustawieniach, nie do
+ * `/clients/{id}?tab=zasady` (runda 6 audytu), bo od 25.09.2026 Delivery Lead
+ * widzi profil wyłącznie klientów ze swojego portfela (#1843) — link do
+ * profilu cudzego klienta kończył się 403 — a zapis karty jest org-wide
+ * i ten sam formularz (`ClientPlaybookForm`) żyje w edytorze reguł CV.
+ */
+export function clientPlaybookEditHref(clientId: number): string {
+  return `/settings/cv-rules?client=${clientId}&tab=playbook`;
+}
+
 export interface PlaybookDocument {
   name: string;
   url: string;
-}
-
-export interface PlaybookOffLimits {
-  months: number | null;
-  scope: string | null;
-  notes: string | null;
 }
 
 /** Odpowiedź `GET /api/clients/{id}/playbook` (także dla klienta bez karty). */
@@ -48,12 +53,21 @@ export interface ClientPlaybook {
   multi_project_cooldown_days: number | null;
   rate_policy: string | null;
   about_for_candidate: string | null;
+  /**
+   * `web` = opis ułożony z publicznych źródeł (AI) — karta pokazuje plakietkę
+   * „z internetu” i źródła. Pola opcjonalne: starsze odpowiedzi ich nie niosą.
+   */
+  about_for_candidate_origin?: "manual" | "web" | null;
+  about_for_candidate_sources?: { url: string; title: string | null }[];
   priority_rules: string | null;
   process_rules_md: string | null;
   onboarding_md: string | null;
   documents: PlaybookDocument[];
-  /** Tylko do odczytu — z warunków umowy, nie z karty. */
-  off_limits: PlaybookOffLimits | null;
+  /**
+   * 0495 (21.10.2026, D3): pola screeningu, które klient dokłada do minimum przed
+   * „Zweryfikowany”. Opcjonalne — starsze odpowiedzi go nie niosą.
+   */
+  verified_required_fields?: string[];
   seed_key: string | null;
   updated_at: string | null;
   updated_by_name: string | null;
@@ -76,7 +90,21 @@ export interface ClientPlaybookPayload {
   process_rules_md: string | null;
   onboarding_md: string | null;
   documents: PlaybookDocument[];
+  verified_required_fields: string[];
 }
+
+/**
+ * Pola, które Delivery Lead może dołożyć do minimum przed „Zweryfikowany”
+ * — lustro `CLIENT_EXTRA_FIELDS`; lokalizacja, tryb pracy, dostępność
+ * i „Dlaczego ten kandydat” są wymagane u każdego klienta.
+ */
+export const VERIFIED_EXTRA_FIELD_OPTIONS: ReadonlyArray<{ key: string; label: string }> = [
+  { key: "motivation", label: "Motywacja" },
+  { key: "worked_at_client", label: "Czy pracował u Klienta" },
+  { key: "english", label: "Angielski" },
+  { key: "nationality", label: "Narodowość" },
+  { key: "red_flags", label: "Red flags („brak” też się liczy)" },
+];
 
 export interface PlaybookEvent {
   id: number;
@@ -113,7 +141,7 @@ export const PLAYBOOK_FIELD_LABELS: Record<string, string> = {
   process_rules_md: "Zasady procesu rekrutacji (Markdown)",
   onboarding_md: "Onboarding po akceptacji (Markdown)",
   documents: "Dokumenty (nazwa + link)",
-  off_limits: "Off-limit (z warunków umowy)",
+  verified_required_fields: "Przed „Zweryfikowany” wymagaj też",
 };
 
 /** Etykiety akcji historii — backend emituje dziś wyłącznie `saved`;
@@ -172,11 +200,7 @@ export function useClientPlaybookHistory(clientId: number) {
   });
 }
 
-/**
- * `exists=false` LUB wszystkie pola treści puste. `off_limits` NIE liczy się
- * — pochodzi z umowy, nie z karty, więc nie świadczy o tym, że kartę ktoś
- * wypełnił.
- */
+/** `exists=false` LUB wszystkie pola treści puste. */
 export function isPlaybookEmpty(p: ClientPlaybook | null | undefined): boolean {
   if (!p || !p.exists) return true;
   const ints = [
@@ -196,16 +220,9 @@ export function isPlaybookEmpty(p: ClientPlaybook | null | undefined): boolean {
   return (
     ints.every((v) => v == null) &&
     texts.every((t) => !t?.trim()) &&
-    (p.documents ?? []).length === 0
+    (p.documents ?? []).length === 0 &&
+    (p.verified_required_fields ?? []).length === 0
   );
-}
-
-export function formatOffLimits(o: PlaybookOffLimits | null): string | null {
-  if (!o) return null;
-  const parts: string[] = [];
-  if (o.months != null) parts.push(`${o.months} mies.`);
-  if (o.scope?.trim()) parts.push(o.scope.trim());
-  return parts.join(" · ") || null;
 }
 
 /** Formularz: null → "" (kontrolki sterowane), liczby jako string dla <input type="number">. */
@@ -221,6 +238,7 @@ export interface PlaybookForm {
   process_rules_md: string;
   onboarding_md: string;
   documents: PlaybookDocument[];
+  verified_required_fields: string[];
 }
 
 const str = (v: number | null) => (v != null ? String(v) : "");
@@ -238,6 +256,7 @@ export function playbookToForm(p: ClientPlaybook): PlaybookForm {
     process_rules_md: p.process_rules_md ?? "",
     onboarding_md: p.onboarding_md ?? "",
     documents: (p.documents ?? []).map((d) => ({ name: d.name, url: d.url })),
+    verified_required_fields: [...(p.verified_required_fields ?? [])],
   };
 }
 
@@ -267,5 +286,8 @@ export function playbookFormToPayload(form: PlaybookForm): ClientPlaybookPayload
     documents: form.documents
       .map((d) => ({ name: d.name.trim(), url: d.url.trim() }))
       .filter((d) => d.name && d.url),
+    verified_required_fields: VERIFIED_EXTRA_FIELD_OPTIONS.map((o) => o.key).filter((key) =>
+      form.verified_required_fields.includes(key),
+    ),
   };
 }

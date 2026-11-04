@@ -10,7 +10,6 @@
  * i link z dzwonka (`?people=1`).
  */
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -23,6 +22,7 @@ import {
   useMyPeople,
   useMyPeopleForJob,
   useMyPeopleSummary,
+  useMyPeopleTeam,
   type SnoozeReason,
 } from "@/lib/api/myPeople";
 import { recommendationsApi } from "@/lib/api";
@@ -32,12 +32,14 @@ import { matchesQuery, splitPeople, summarySentences } from "@/lib/my-people-sum
 import { isForbiddenError } from "@/lib/view-state";
 import { useMyPeoplePanel } from "@/store/my-people";
 import { useUiStore } from "@/store/ui";
-import { useAuthStore } from "@/store/auth";
+import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { useCompetenceCategories } from "@/components/v2/CompetenceCategoryBadge";
 import { AddToRecruitmentDialog, addToRecruitmentSummary } from "@/components/v2/recruitment/AddToRecruitmentDialog";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 import { MatchScoreBadge } from "@/components/ds/MatchScoreBadge";
+import { JobNameLabel } from "@/components/v2/jobs/JobNameLabel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/Toast";
@@ -45,11 +47,21 @@ import {
   EmptyListView,
   ErrorView,
   ForJobView,
+  FromLinksView,
   PeopleListView,
   type RowActions,
 } from "./MyPeopleViews";
+import { shouldCloseOnEscape } from "@/lib/panel-escape";
+import { useCandidateLists } from "@/lib/api/candidateLists";
+import { useEndingConsultants } from "@/lib/api/endingConsultants";
+import { useLinkPeople } from "@/lib/api/careerLinks";
+import { useCapability } from "@/hooks/useCapability";
+import { hasPermission } from "@/lib/permissions";
+import { ListsTab } from "./CandidateListsViews";
+import { EndingAtClientsView } from "./EndingAtClientsView";
+import { TeamListsView } from "./TeamListsView";
 
-type PanelTab = "all" | "job" | "move";
+type PanelTab = "links" | "all" | "job" | "move" | "lists" | "ending" | "team";
 
 const JOB_PATH = /^\/jobs\/(\d+)/;
 const CANDIDATE_PATH = /^\/candidates\/(\d+)/;
@@ -66,12 +78,7 @@ export function contextFromPath(pathname: string | null): {
   };
 }
 
-/** Escape zamyka panel — chyba że klawisz należy do otwartego okna albo menu. */
-export function shouldCloseOnEscape(e: KeyboardEvent): boolean {
-  if (e.key !== "Escape" || e.defaultPrevented) return false;
-  if (typeof document === "undefined") return true;
-  return !document.querySelector('[role="dialog"],[role="alertdialog"],[role="menu"]');
-}
+export { shouldCloseOnEscape };
 
 function WhereToMove({ candidateId }: { candidateId: number }) {
   const query = useQuery({
@@ -106,12 +113,13 @@ function WhereToMove({ candidateId }: { candidateId: number }) {
       {matches.map((m) => (
         <li key={m.job.id} className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-muted/60">
           <MatchScoreBadge score={m.total_score} emptyLabel="Ocena niepełna" className="shrink-0" />
-          <Link
+          {/* Numer u klienta i tytuł jak w nagłówku rekrutacji (16.10.2026). */}
+          <JobNameLabel
+            job={m.job}
             href={`/jobs/${m.job.id}`}
-            className="min-w-0 flex-1 truncate text-sm font-medium text-foreground hover:underline"
-          >
-            {m.job.title}
-          </Link>
+            className="flex-1"
+            titleClassName="text-sm font-medium text-foreground"
+          />
         </li>
       ))}
     </ul>
@@ -124,13 +132,21 @@ export function MyPeoplePanel() {
   const pathname = usePathname();
   // Pasek „Podgląd jako” (h-9) przesuwa topbar w dół — panel startuje pod nim.
   const impersonating = useAuthStore((s) => !!s.realUser);
+  const me = useAuthStore((s) => s.user);
   const { jobId, candidateId } = contextFromPath(pathname);
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
 
   const [tab, setTab] = useState<PanelTab>("all");
+  // Trasa stoi za RecruiterPlus; ta sama bramka co „Wygeneruj link aplikacyjny”.
+  const canSeeLinks = useCapability("invite_link.create");
+  const linkPeople = useLinkPeople(open && canSeeLinks, 0);
   const [query, setQuery] = useState("");
-  const [addFor, setAddFor] = useState<{ candidate_id: number; full_name: string } | null>(null);
+  const [addFor, setAddFor] = useState<{
+    candidate_id: number;
+    full_name: string;
+    employment_marker?: EmploymentMarker | null;
+  } | null>(null);
   const [busy, setBusy] = useState<Set<number>>(new Set());
   const buddyHidden = useUiStore((s) => s.hideMyPeopleBuddy);
   const setBuddyHidden = useUiStore((s) => s.setHideMyPeopleBuddy);
@@ -154,6 +170,15 @@ export function MyPeoplePanel() {
   const people = useMyPeople(open);
   const summary = useMyPeopleSummary(open);
   const categories = useCompetenceCategories();
+  // Listy ręczne (25.10.2026) — licznik w zakładce, treść w `ListsTab`.
+  const lists = useCandidateLists(me?.id, open);
+  // „Kończą u klientów” (25.10.2026): Delivery Lead z podglądem Delivery —
+  // to samo uprawnienie, którego wymaga trasa; zakres klientów liczy serwer.
+  const showEnding = hasRole(me, "delivery_lead") && hasPermission(me, "delivery_view");
+  const ending = useEndingConsultants(open && showEnding);
+  // „Zespół” (25.10.2026): Head of Recruitment i admin — tak jak bramka trasy.
+  const showTeam = hasRole(me, "head_of_recruitment", "admin");
+  const team = useMyPeopleTeam(open && showTeam && tab === "team");
   const forJob = useMyPeopleForJob(jobId, open && tab === "job");
 
   // Obejrzenie zakładki rekrutacji zeruje jej dopasowania w liczniku awatara.
@@ -204,17 +229,16 @@ export function MyPeoplePanel() {
           candidate_ids: [row.candidate_id],
           source: "my_people",
         });
-        showSuccess(addToRecruitmentSummary({ job: { id: jobId, title }, response }));
+        // Nikogo nie dodano = powód w tonie błędu, nie zielone „Pominięto: 1”.
+        const summary = addToRecruitmentSummary({ job: { id: jobId, title }, response });
+        if (response.total_added > 0) showSuccess(summary);
+        else showError(summary);
         void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
         void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
         void queryClient.invalidateQueries({ queryKey: ["my-next-steps"] });
         void queryClient.invalidateQueries({ queryKey: MY_PEOPLE_QUERY_PREFIX });
       } catch (err) {
-        showError(
-          isForbiddenError(err)
-            ? "Nie należysz do zespołu tej rekrutacji."
-            : apiErrorMessage(err, "Nie udało się dodać do rekrutacji."),
-        );
+        showError(apiErrorMessage(err, "Nie udało się dodać do rekrutacji."));
       }
     });
   };
@@ -237,7 +261,21 @@ export function MyPeoplePanel() {
     (people.data?.rows ?? []).some((r) => r.candidate_id === candidateId && !r.snoozed);
 
   const tabs = [
-    { value: "all", label: "Wszyscy", count: people.data?.active_count },
+    { value: "all", label: "Z procesów", count: people.data?.active_count },
+    ...(canSeeLinks ? [{
+            value: "links",
+            label: <span data-tour="my-people.from-links">Z linków</span>,
+            count: linkPeople.data?.total,
+          }] : []),
+    {
+      value: "lists",
+      label: "Listy",
+      count: lists.data ? lists.data.mine.length + lists.data.shared.length : undefined,
+    },
+    ...(showEnding
+      ? [{ value: "ending", label: "Kończą u klientów", count: ending.data?.length }]
+      : []),
+    ...(showTeam ? [{ value: "team", label: "Zespół" }] : []),
     ...(jobId != null ? [{ value: "job", label: "Do tej rekrutacji" }] : []),
     ...(isMine ? [{ value: "move", label: "Gdzie przepiąć" }] : []),
   ];
@@ -314,6 +352,19 @@ export function MyPeoplePanel() {
           </>
         ) : null}
 
+        {tab === "links" && canSeeLinks ? (
+          linkPeople.isError ? (
+            <ErrorView
+              message={apiErrorMessage(linkPeople.error, "Nie udało się wczytać osób z Twoich linków.")}
+              onRetry={() => void linkPeople.refetch()}
+            />
+          ) : !linkPeople.isSuccess ? (
+            <p className="px-2 py-6 text-center text-sm text-muted-foreground">Wczytuję osoby…</p>
+          ) : (
+            <FromLinksView people={linkPeople.data.people} onAdd={(row) => setAddFor(row)} />
+          )
+        ) : null}
+
         {tab === "job" ? (
           forJob.isError ? (
             <ErrorView
@@ -334,6 +385,45 @@ export function MyPeoplePanel() {
         ) : null}
 
         {tab === "move" && candidateId != null ? <WhereToMove candidateId={candidateId} /> : null}
+
+        {tab === "lists" && me ? (
+          <ListsTab userId={me.id} onAdd={(row) => setAddFor(row)} />
+        ) : null}
+
+        {tab === "ending" && showEnding ? (
+          ending.isError ? (
+            <ErrorView
+              message={apiErrorMessage(ending.error, "Nie udało się wczytać kończących się umów.")}
+              onRetry={() => void ending.refetch()}
+            />
+          ) : !ending.isSuccess ? (
+            <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+              Sprawdzam umowy Twoich klientów…
+            </p>
+          ) : (
+            <EndingAtClientsView rows={ending.data} onAdd={(row) => setAddFor(row)} />
+          )
+        ) : null}
+
+        {tab === "team" && showTeam && me ? (
+          team.isError ? (
+            <ErrorView
+              message={apiErrorMessage(team.error, "Nie udało się wczytać list zespołu.")}
+              onRetry={() => void team.refetch()}
+            />
+          ) : !team.isSuccess ? (
+            <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+              Liczę listy zespołu…
+            </p>
+          ) : (
+            <TeamListsView
+              members={team.data.members}
+              idleDays={team.data.idle_days}
+              selfId={me.id}
+              categories={categories.data ?? []}
+            />
+          )
+        ) : null}
       </div>
 
       <footer className="border-t border-border px-4 py-2 text-xs text-muted-foreground">
@@ -357,6 +447,11 @@ export function MyPeoplePanel() {
           candidateIds={[addFor.candidate_id]}
           source="my_people"
           subject={addFor.full_name}
+          employed={
+            addFor.employment_marker
+              ? [{ id: addFor.candidate_id, name: addFor.full_name, marker: addFor.employment_marker }]
+              : undefined
+          }
           onAdded={(result) => {
             showSuccess(addToRecruitmentSummary(result));
             setAddFor(null);

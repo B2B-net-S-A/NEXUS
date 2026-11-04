@@ -131,3 +131,24 @@ def high_priority_threshold(
     if rate is None or workdays <= 0:
         return None
     return rate.per_workday * Decimal(workdays)
+
+
+def _workdays_noun(count: int) -> str:
+    if count == 1:
+        return "dzień roboczy"
+    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        return "dni robocze"
+    return "dni roboczych"
+
+
+def workdays_left_phrase(remaining: Decimal, rate: BurnRate) -> str:
+    """Na ile dni roboczych starczy pozostałość przy tym tempie — do treści.
+
+    Zaokrąglenie w dół: lepiej ostrzec o dzień za wcześnie niż za późno.
+    Nie myl z progiem ``DL_ALERT_HIGH_PRIORITY_WORKDAYS`` — próg mówi, KIEDY
+    sprawa jest pilna, a ta fraza, ile czasu faktycznie zostało.
+    """
+    days = int(Decimal(remaining) / rate.per_workday)
+    if days < 1:
+        return "mniej niż 1 dzień roboczy"
+    return f"ok. {days} {_workdays_noun(days)}"

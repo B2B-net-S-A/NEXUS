@@ -14,6 +14,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from app.core.export_safety import safe_cell
 from app.services.shared_md_orders import uses_shared_md_pool
 from app.core.scheduling import business_today
 
@@ -112,6 +113,30 @@ def order_type_export_label(value: object) -> str:
     return ORDER_TYPE_LABELS.get(str(raw), str(raw))
 
 
+def _line_md_allocation(line: object) -> Optional[Decimal]:
+    """Budżet MD linii = podstawa + opcja + korekta ręczna.
+
+    Runda 10 (R10-N13-6): kolumna „Liczba MD” pokazywała samą podstawę, a
+    „Zużycie” i „Pozostały budżet MD” liczą też opcję i korektę — arkusz nie
+    dawał się uzgodnić (100 − 110 ≠ 20). Ta sama suma co ``consumption``.
+    """
+    md_total = getattr(line, "md_total", None)
+    if md_total is None:
+        return None
+    return (
+        md_total
+        + (getattr(line, "md_optional_total", None) or Decimal("0"))
+        + (getattr(line, "md_manual_adjustment", None) or Decimal("0"))
+    )
+
+
+def _shared_md_allocation(group: OrderGroupRead) -> Optional[Decimal]:
+    """Wspólna pula MD = budżet + korekta ręczna (``recompute_shared_md_remaining``)."""
+    if group.md_budget_total is None:
+        return None
+    return group.md_budget_total + (group.md_budget_manual_adjustment or Decimal("0"))
+
+
 def export_rows_for_group(
     group: OrderGroupRead,
     *,
@@ -151,7 +176,7 @@ def export_rows_for_group(
                 revenue_rate=None,
                 start_date=group.start_date,
                 end_date=group.end_date,
-                allocation=group.md_budget_total,
+                allocation=_shared_md_allocation(group),
                 consumption=group.md_budget_used,
                 remaining_md=group.md_budget_remaining
                 if group.md_budget_mode is not None
@@ -170,7 +195,7 @@ def export_rows_for_group(
                 allocation=(
                     group.budget_amount
                     if group.is_cost_based
-                    else group.md_budget_total
+                    else _shared_md_allocation(group)
                     if shared_md
                     else None
                 ),
@@ -194,11 +219,8 @@ def export_rows_for_group(
         else:
             # Budżet = podstawa + zakres opcjonalny (Faza B): bez opcji
             # zużycie wychodziłoby ujemne przy każdej linii z opcją.
-            consumption = (
-                line.md_total
-                + (line.md_optional_total or Decimal("0"))
-                + (line.md_manual_adjustment or Decimal("0"))
-                - (line.md_remaining or Decimal("0"))
+            consumption = _line_md_allocation(line) - (
+                line.md_remaining or Decimal("0")
             )
         rows.append(
             OrderExportRow(
@@ -212,7 +234,9 @@ def export_rows_for_group(
                 start_date=getattr(line, "start_date", None) or group.start_date,
                 end_date=getattr(line, "end_date", None) or group.end_date,
                 allocation=(
-                    None if group.is_cost_based or shared_md else line.md_total
+                    None
+                    if group.is_cost_based or shared_md
+                    else _line_md_allocation(line)
                 ),
                 consumption=consumption,
                 remaining_md=line.md_remaining
@@ -223,12 +247,6 @@ def export_rows_for_group(
             )
         )
     return rows
-
-
-def _safe_text(value: str) -> str:
-    """Prevent user-controlled text from becoming an Excel formula."""
-
-    return f"'{value}" if value.startswith(("=", "+", "-", "@")) else value
 
 
 def _period(row: OrderExportRow) -> str:
@@ -267,18 +285,18 @@ def build_orders_workbook(
 
     for item in rows:
         values: list[object] = [
-            _safe_text(item.consultant_name),
-            _safe_text(item.order_number),
+            safe_cell(item.consultant_name),
+            safe_cell(item.order_number),
             item.cost_rate,
             item.revenue_rate,
-            _safe_text(item.rate_unit) if item.rate_unit else None,
-            _safe_text(item.currency) if item.currency else None,
+            safe_cell(item.rate_unit) if item.rate_unit else None,
+            safe_cell(item.currency) if item.currency else None,
             _period(item),
         ]
         if include_model_columns:
             values.extend([item.allocation, item.consumption])
         if include_order_type:
-            values.append(_safe_text(item.order_type or ""))
+            values.append(safe_cell(item.order_type or ""))
         if include_remaining:
             values.append(item.remaining_md)
         sheet.append(values)

@@ -13,20 +13,24 @@
 
 import type { InsightsPeriodParams } from "@/lib/insights-api";
 import { writePeriodToParams } from "@/lib/insights-period-url";
+import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasAnalyticsCapability, hasRole, type User } from "@/store/auth";
 
 export type ReportId =
   | "lejek-etapy"
+  | "akceptacje-w-toku"
   | "czas-konwersje"
   | "placementy"
   | "kompetencje"
+  | "propozycje-ai"
   | "aktywnosc-zespolu"
   | "obciazenie"
   | "prepy"
   | "bez-ruchu"
   | "doplyw"
   | "portfele-dl"
+  | "zamkniecia-hit-ratio"
   | "ranking-klientow"
   | "rok-do-roku"
   | "hall-of-fame"
@@ -64,8 +68,32 @@ const isLeader = (user: ReportUser) =>
 // Imienne wyniki cudzej pracy — ta sama capability co `/api/insights/team/*`.
 const seesTeam = (user: ReportUser) =>
   hasRole(user, "admin") || hasAnalyticsCapability(user, "view_team_kpi");
-// Pieniądze firmy: tylko admin i Finanse (decyzja Artura 24.09.2026).
-const seesMoney = (user: ReportUser) => hasRole(user, "admin", "finance");
+// Propozycje AI (30.09.2026): admin i HoR — cała firma, DL — swoje rekrutacje.
+const seesProposalOutcomes = (user: ReportUser) =>
+  hasRole(user, "admin", "head_of_recruitment", "delivery_lead");
+// Pieniądze firmy: uprawnienie „Wyniki firmy” (domyślnie administrator —
+// decyzja Artura 02.11.2026) albo Rada nadzorcza (0490); lustro `BoardReader`
+// w API.
+const seesMoney = (user: ReportUser) =>
+  hasPermission(user, "company_results") || hasRole(user, "board");
+const MONEY_PERMISSION_LABEL = permissionLabel("company_results");
+// Rada nadzorcza (decyzja Artura 22.10.2026): raporty-narzędzia pracy zespołu
+// (profile w toku, źródła kandydatów, lista kontrolna zamknięć) jej nie
+// dotyczą — wynik ma na widoku Firma. Zespół widzi je jak dotąd.
+const notBoard = (user: ReportUser) => !hasRole(user, "board");
+
+/**
+ * Tabele rok do roku Rady (`GET /api/insights/board/yoy`, `BoardTrendReader`):
+ * „Moduł Finanse” i rola Head of Recruitment dostają je BEZ kwot (redaguje
+ * serwer), a „Wyniki firmy” i Rada nadzorcza (0490) — z kwotami.
+ */
+export function seesBoardTrend(user: ReportUser | null | undefined): boolean {
+  return (
+    hasPermission(user, "finance_module") ||
+    hasPermission(user, "company_results") ||
+    hasRole(user, "head_of_recruitment", "board")
+  );
+}
 
 export const REPORTS: readonly ReportDef[] = [
   {
@@ -76,6 +104,17 @@ export const REPORTS: readonly ReportDef[] = [
       "Ile osób doszło do każdego etapu i odznaki Tablicy, a ile stoi tam teraz?",
     window: "poprzedni miesiąc",
     defaultPeriod: MONTH_CLOSED,
+  },
+  {
+    id: "akceptacje-w-toku",
+    group: "Rekrutacja",
+    title: "Akceptacje w toku",
+    question:
+      "Które akceptacje czekają na domknięcie — u jakiego klienta, od kiedy i na jakim etapie umowy?",
+    window: "stan na dziś",
+    defaultPeriod: null,
+    // Lista ma klientów i Delivery Leadów — ta sama bramka co tabela ludzi.
+    visible: seesTeam,
   },
   {
     id: "czas-konwersje",
@@ -100,6 +139,18 @@ export const REPORTS: readonly ReportDef[] = [
     question: "Jakich profili szukamy teraz i na jakim są etapie?",
     window: "stan na dziś",
     defaultPeriod: null,
+    visible: notBoard,
+  },
+  {
+    id: "propozycje-ai",
+    group: "Rekrutacja",
+    title: "Propozycje AI",
+    question:
+      "Co zespół robi z propozycjami z bazy — dodaje, pomija (i dlaczego) czy zostawia bez decyzji?",
+    window: "7 / 30 / 90 dni",
+    defaultPeriod: null,
+    note: "admin, HoR i Delivery Lead",
+    visible: seesProposalOutcomes,
   },
   {
     id: "aktywnosc-zespolu",
@@ -147,6 +198,7 @@ export const REPORTS: readonly ReportDef[] = [
     question: "Skąd przychodzą kandydaci i które źródło kończy się placementem?",
     window: "7 / 30 / 90 dni",
     defaultPeriod: null,
+    visible: notBoard,
   },
   {
     id: "portfele-dl",
@@ -158,13 +210,25 @@ export const REPORTS: readonly ReportDef[] = [
     note: "bez kwot",
   },
   {
+    id: "zamkniecia-hit-ratio",
+    group: "Klienci i trend",
+    title: "Zamknięcia i hit ratio",
+    question: "Które zamknięte rekrutacje liczą się do hit ratio, a które nie — i dlaczego?",
+    window: "od 12.10.2026",
+    defaultPeriod: null,
+    note: "bez kwot",
+    // Lista kontrolna wyłączeń (21.10.2026) — ta sama bramka co rok do roku,
+    // bez Rady (22.10.2026): to narzędzie kontroli zamknięć, nie wynik.
+    visible: (user) => seesBoardTrend(user) && notBoard(user),
+  },
+  {
     id: "ranking-klientow",
     group: "Klienci i trend",
     title: "Ranking klientów",
     question: "Który klient ile daje przychodu i marży miesięcznie?",
     window: "kwartał",
     defaultPeriod: { period: "quarter", offset: 0 },
-    note: "admin i Finanse",
+    note: `uprawnienie „${MONEY_PERMISSION_LABEL}” albo Rada nadzorcza`,
     visible: seesMoney,
   },
   {
@@ -174,7 +238,7 @@ export const REPORTS: readonly ReportDef[] = [
     question: "Jak wyglądają placementy, hit ratio i zejścia miesiąc po miesiącu w kolejnych latach?",
     window: "pełne lata",
     defaultPeriod: null,
-    note: "kwoty tylko admin i Finanse",
+    note: `kwoty z uprawnieniem „${MONEY_PERMISSION_LABEL}” albo dla Rady nadzorczej`,
   },
   {
     id: "hall-of-fame",

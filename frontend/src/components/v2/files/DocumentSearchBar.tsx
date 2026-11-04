@@ -4,7 +4,7 @@ import { type KeyboardEvent, type RefObject } from "react";
 import { ChevronDown, ChevronUp, Loader2, Search, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { isSearchableQuery } from "@/lib/document-text-search";
+import { isSearchableQuery, searchableTerms } from "@/lib/document-text-search";
 
 /** Czy da się szukać w bieżącym dokumencie. */
 export type DocumentTextAvailability =
@@ -58,6 +58,48 @@ function statusText(
   if (availability === "pending" || result.pending) return "Szukam…";
   if (result.total === 0) return "Brak wyników";
   return `${result.current} z ${result.total}`;
+}
+
+/**
+ * „Szukam: …” pod paskiem, gdy lupa szuka słów wymagania zamiast frazy z pola
+ * (16.10.2026). Bez trafień mówi, czego szukała — brak w CV ma wyglądać jak
+ * brak, a nie jak zepsuta lupa.
+ */
+export function DocumentSearchTerms({
+  terms,
+  availability,
+  result,
+}: {
+  terms: readonly string[] | null | undefined;
+  availability: DocumentTextAvailability;
+  result: DocumentFindResult;
+}) {
+  const words = terms ? searchableTerms(terms) : [];
+  if (words.length === 0 || availability === "no_text") return null;
+  const missing =
+    availability === "has_text" && !result.pending && result.total === 0;
+  return (
+    <div
+      data-testid="document-search-terms"
+      className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground"
+    >
+      <span>{missing ? "Szukałem:" : "Szukam:"}</span>
+      {words.map((word, index) => (
+        <span
+          key={`${index}-${word}`}
+          className="inline-flex h-[22px] items-center rounded-full border border-border bg-card px-2 font-medium text-foreground"
+        >
+          {word}
+        </span>
+      ))}
+      {missing ? (
+        <span>
+          — {words.length > 1 ? "tych nazw" : "tej nazwy"} nie ma w CV. Wpisz w
+          pole inną, żeby szukać dalej.
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 export function DocumentSearchBar({
@@ -114,7 +156,7 @@ export function DocumentSearchBar({
       role="search"
       className={cn("flex min-w-0 items-center gap-2", className)}
     >
-      <div className="relative min-w-0 flex-1 sm:max-w-xs">
+      <div className="relative min-w-44 flex-1 sm:max-w-xs">
         <Search
           className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
           aria-hidden
@@ -155,12 +197,17 @@ export function DocumentSearchBar({
       {status ? (
         <span
           className={cn(
-            "inline-flex shrink-0 items-center gap-1 text-xs tabular-nums",
+            // Zdanie o skanie jest długie: w połowie ekranu („Pokaż oryginał”) ma
+            // się uciąć, a nie zgnieść pole i na nie wejść (04.11.2026).
+            noText
+              ? "min-w-0 truncate text-xs"
+              : "inline-flex shrink-0 items-center gap-1 text-xs tabular-nums",
             noText || (result.total === 0 && status === "Brak wyników")
               ? "text-muted-foreground"
               : "text-foreground",
           )}
           aria-live="polite"
+          title={noText ? status : undefined}
         >
           {status === "Szukam…" ? (
             <Loader2 className="h-3 w-3 animate-spin" aria-hidden />

@@ -7,56 +7,240 @@
  * dok gotowości. Decyzje Artura: tworzenie przenosimy do NEXUSA, start od
  * maila klienta, AI wypełnia minimum, DL sprawdza i jednym kliknięciem
  * „Utwórz i przekaż do searchu”. Pola spoza minimum (TAC, szablon procesu,
- * kategoria, Program/Train, priorytet, typ, widełki mies.) nie istnieją ani
- * tu, ani w ustawieniach rekrutacji — ustawia je backend.
+ * Program/Train, typ, widełki mies.) nie istnieją ani tu, ani w ustawieniach
+ * rekrutacji — ustawia je backend.
  *
- * Zapis idzie ZWYKŁYMI trasami (`POST /api/jobs` → `PUT …/champion-profile`
- * → `POST …/handoff` → `POST …/publish`), więc wszystkie bramki uprawnień
- * i gotowości zostają tam, gdzie były. Awaria po utworzeniu rekrutacji nie
- * gubi pracy: ląduje w zakładce Championa z komunikatem, co zostało do zrobienia.
+ * Od 02.10.2026 (makiety https://claude.ai/artifact/UPDv1tSQBeo5t9kLW6WJoH)
+ * formularz ma sześć sekcji — wymagania są jedną listą słów kluczowych,
+ * pytania mają odpowiedź, która odpada, a Delivery Lead potwierdza kategorię
+ * i wybiera, czy rekrutera prowadzącego przydzieli automat, czy wskaże go sam
+ * (`NewJobTeamStep`). Wtedy też źródła stały się trzema kaflami kroku 1.
+ *
+ * Od 04.10.2026 rekrutacja nigdy nie jest szkicem (decyzja Artura): jedno
+ * `POST /api/jobs` tworzy ją razem z profilem Championa, hiring managerem,
+ * przekazaniem i publikacją, w jednej transakcji. Brak = 422 z listą braków
+ * i nic nie powstaje. Praca w toku żyje na koncie autora jako formularz
+ * (`/api/job-intake/forms`): zapis co kilka sekund i przy „Dokończę później”.
+ *
+ * Od 10.10.2026 (decyzje D2 i D3) strona ma JEDEN ekran. Do tej daty były dwa
+ * kroki i trzy źródła dawały trzy różne ekrany (ręczny — pusty przerywany
+ * prostokąt na 40% szerokości, braki podświetlone dopiero po odczycie AI),
+ * a zmiana źródła kasowała wpisane pola bez pytania. Teraz sześć sekcji stoi
+ * na stronie od wejścia, źródło to akcja „Wypełnij z: Wklej treść | Wgraj
+ * plik | Inna rekrutacja” (`NewJobSourceBar`), z której można skorzystać
+ * w dowolnej chwili, a odczyt wypełnia tylko PUSTE pola — inna wartość staje
+ * się propozycją „W mailu: … [Użyj] [Zostaw]” (`lib/job-intake-fill.ts`).
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check } from "lucide-react";
+import { Check } from "lucide-react";
 
-import api, { championApi, jobsApi } from "@/lib/api";
+import api, { championApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { jobTwinsApi } from "@/lib/job-twins-api";
+import { fetchHiringManagerOptions } from "@/lib/hiring-manager";
+import {
+  applyJobPrefill,
+  hasJobPrefill,
+  parseJobPrefill,
+  skillNamesFor,
+} from "@/lib/job-new-params";
 import { useToast } from "@/components/Toast";
+import { pracujMailHref } from "@/lib/job-ad-mail-intent";
+import { hasRole, useAuthStore } from "@/store/auth";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ds/PageHeader";
 import type { ClientRef } from "@/components/clients/ClientSinglePicker";
 import { SimilarRequestsBanner } from "@/components/v2/jobs/SimilarRequestsBanner";
 import {
   EMPTY_INTAKE_FORM,
+  FORM_SECTIONS,
   MISSING_LABEL,
+  CLIENT_TITLE_REQUIRED_TEXT,
+  MISSING_SECTION,
   applyTemplate,
-  buildChampionPayload,
-  buildJobPayload,
+  loadTemplateSource,
+  buildCreateJobPayload,
+  championExtrasFrom,
   formFromIntake,
   highlightSegments,
+  intakeFormLabel,
   missingFor,
   missingHeadline,
+  mustOf,
+  restoreIntakeForm,
+  jobTitleFor,
+  sectionAnchor,
+  serverBlockerSection,
+  serverBlockersFromError,
+  serverBlockersHeadline,
+  templateLegacyFields,
+  type CreateHandoff,
   type IntakeForm,
+  type ServerBlocker,
   type RequestIntakeResponse,
+  type TemplateRows,
   type TemplateSourceJob,
 } from "@/lib/job-request-intake";
+import {
+  CRITICAL_PEOPLE_MIN,
+  criticalReachWarning,
+  type RowCriticalState,
+} from "@/lib/requirement-rows";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { fetchRowsFromLegacy, useRowCriticalInfo } from "@/lib/requirement-rows-api";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
-import { NewJobRequestStep } from "./NewJobRequestStep";
-import { NewJobReviewForm } from "./NewJobReviewForm";
+import {
+  acceptIntakeOffer,
+  appendRequestText,
+  applyIntakeRead,
+  isPristineIntake,
+  liveIntakeOffers,
+  mergeEvidence,
+  mergeIntakeOffers,
+  restoreIntakeOffers,
+  undoIntakeFill,
+  type IntakeFillUndo,
+  type IntakeOffer,
+  type IntakeSource,
+  type IntakeUnit,
+} from "@/lib/job-intake-fill";
+import { jobDisplayTitle } from "@/lib/job-names";
+import {
+  CLIENT_FIELD_ANCHOR,
+  NewJobSourceBar,
+  type NewJobSource,
+  type NewJobSourcePanel,
+} from "./NewJobSourceBar";
+import { NewJobFillSummary, type NewJobFillInfo } from "./NewJobFillSummary";
+import { TemplateJobPicker, type TemplateJobOption } from "./TemplateJobPicker";
+import {
+  NewJobReviewForm,
+  NewJobSectionNav,
+  type MissingNoteSource,
+} from "./NewJobReviewForm";
+import { NewJobTwinPicker } from "./NewJobTwinPicker";
 import { SimilarJobsPicker } from "./SimilarJobsPicker";
 import { ClientAskedBeforeHint } from "./ClientAskedBeforeHint";
-import { plural } from "@/components/v2/jobs/SimilarJobsDialog";
-import { similarJobsApi } from "@/lib/similar-jobs-api";
+import { NewJobFilesCard } from "./NewJobFilesCard";
+import { jobFilesKey, uploadJobFile, type JobFilesResponse } from "@/lib/api/jobFiles";
+import { UnfinishedIntakeForms } from "./UnfinishedIntakeForms";
+import {
+  deleteIntakeForm,
+  fetchIntakeForm,
+  fetchIntakeForms,
+  isFormsLimitError,
+  jobIntakeFormKeys,
+  saveIntakeForm,
+  type IntakeFormListItem,
+  type IntakeFormRead,
+  type IntakeFormState,
+  type IntakeFormWrite,
+} from "@/lib/api/jobIntakeForms";
+import {
+  automaticAssignmentAvailable,
+  automaticHandoffOutcome,
+  resolveRecruiterAssignment,
+  type AllocationMode,
+  type RecruiterAssignment,
+} from "@/lib/recruiter-assignment";
+import {
+  NEW_JOB_PRIORITY_LEVEL,
+  automatAssigns,
+  rawPriorityForLevel,
+  type PriorityLevel,
+} from "@/lib/request-priority";
+import { invalidateJobTeam } from "@/lib/job-team-cache";
+import { NewJobDeliveryLeadField } from "./NewJobDeliveryLeadField";
+import {
+  NewJobTeamStep,
+  type CategoryOption,
+  type RecruiterOption,
+} from "./NewJobTeamStep";
+import {
+  fetchPortalConfig,
+  fetchPublicDraft,
+  jobPortalKeys,
+  readyPortals,
+  EMPTY_LISTING_OPTIONS,
+  type PublicDraftRead,
+} from "@/lib/api/jobPortals";
+import {
+  listingDefaultsFromForm,
+  portalPlanBlocker,
+  publicDraftRequest,
+  publishNewJobToPortals,
+  type NewJobPortalPlan,
+} from "@/lib/new-job-portal-publish";
+import { NewJobPortalsStep } from "./NewJobPortalsStep";
 
-interface RecruiterOption {
-  id: number;
-  name?: string | null;
-  email?: string | null;
+/** Autozapis formularza: po tylu ms ciszy od ostatniej zmiany. */
+export const AUTOSAVE_DELAY_MS = 3_000;
+
+export const FORMS_LIMIT_TEXT =
+  "Masz już komplet niedokończonych formularzy. Usuń któryś z listy na górze strony — wtedy ten się zapisze.";
+
+export const TEMPLATE_LOAD_ERROR_TEXT = "Nie udało się wczytać rekrutacji-szablonu.";
+
+/** Stan zapisu formularza na koncie — stopka mówi go jednym zdaniem. */
+export type AutosaveState =
+  | { status: "idle" }
+  | { status: "saving" }
+  | { status: "saved"; at: string }
+  | { status: "error"; message: string };
+
+function hourMinute(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export type Step = "request" | "review";
+function autosaveLabel(state: AutosaveState): string | null {
+  switch (state.status) {
+    case "saving":
+      return "Zapisuję formularz…";
+    case "saved":
+      return `Formularz zapisany ${hourMinute(state.at)}`.trim();
+    case "error":
+      return state.message;
+    default:
+      return null;
+  }
+}
+
+const SOURCES: readonly NewJobSource[] = ["text", "file", "manual"];
+
+/** `GET /api/job-intake/handoff-options` — rekrutacji jeszcze nie ma. */
+interface HandoffOptions {
+  automatic_enabled: boolean;
+  mode: AllocationMode;
+}
+
+/** `POST /api/job-intake/category-suggestion`. */
+interface CategorySuggestion {
+  suggested_id: number | null;
+  categories: CategoryOption[];
+}
+
+/**
+ * Stare pola wymagań rekrutacji-szablonu zamienione na wiersze słów
+ * kluczowych. Awaria zamiany nie blokuje szablonu — formularz bierze wtedy
+ * każde must-have jako wiersz z jednym słowem.
+ */
+async function templateRows(src: TemplateSourceJob): Promise<TemplateRows | null> {
+  const legacy = templateLegacyFields(src);
+  if (legacy == null) return null;
+  if (legacy.must.length + legacy.nice.length + legacy.requirements.length === 0) return null;
+  try {
+    return await fetchRowsFromLegacy(legacy);
+  } catch {
+    return null;
+  }
+}
 
 /** Odczyt modelem trwa kilkanaście–kilkadziesiąt sekund (OCR PDF-a dłużej). */
 const READ_TIMEOUT_MS = 120_000;
@@ -86,54 +270,295 @@ function readErrorMessage(error: unknown, fallback: string): string {
  * Produkcja nie przekazuje go nigdy.
  */
 export interface NewJobPagePreview {
-  step: Step;
+  /**
+   * `"request"` = panel „Wklej treść” otwarty, a `requestText` to treść
+   * jeszcze nieodczytana. Brak albo `"review"` = treść stoi obok formularza.
+   */
+  step?: "request" | "review";
   client: ClientRef | null;
+  /** Źródło użyte ostatnio (zapis formularza); brak = nic nie odczytano. */
+  source?: NewJobSource;
   requestText: string;
   form: IntakeForm;
   evidence: string[];
+  /** Kategorie do sekcji 6 (strona pyta o nie serwer). */
+  categories?: CategoryOption[];
+  /** Co serwer wie o wierszach wymagań (strona pyta o to serwer). */
+  criticalInfo?: RowCriticalState;
   recruiterId?: number | null;
+  /** Jawny wybór w polu „Rekruter prowadzący”; brak = automat, o ile jest dostępny. */
+  assignment?: RecruiterAssignment;
+  priorityLevel?: PriorityLevel;
+  /** Sekcja „Ogłoszenie na portalach” (widoczna tylko przy gotowym portalu). */
+  portalPlan?: NewJobPortalPlan;
+  portalFindings?: PublicDraftRead["findings"];
+  /** Niedokończone formularze nad paskiem źródeł (strona pyta o nie serwer). */
+  unfinishedForms?: IntakeFormListItem[];
+  /** Propozycje z odczytu czekające przy polach. */
+  offers?: IntakeOffer[];
+  /** Pasek „wypełniono N pól” pod źródłami. */
+  fill?: NewJobFillInfo;
+  /** Stan po „Utwórz i opublikuj” z brakami — pola podświetlone. */
+  createAttempted?: boolean;
+  /** Otwarty panel źródła („Wgraj plik”, „Inna rekrutacja”). */
+  panel?: NewJobSourcePanel;
+  /** Lista w panelu „Inna rekrutacja” (strona pyta o nią serwer). */
+  templateJobs?: TemplateJobOption[];
+  /** Stan autozapisu w stopce. */
+  autosave?: AutosaveState;
+  /** 422 `job_not_ready` z ostatniej próby utworzenia. */
+  serverBlockers?: ServerBlocker[];
+  /** Karta „Pliki” (strona pyta o nie serwer). */
+  files?: JobFilesResponse;
 }
+
+/** Stan strony sprzed ostatniego wypełnienia — to, co cofa „Cofnij wypełnienie”. */
+interface FillUndo {
+  undo: IntakeFillUndo;
+  /** Pola, przy których to wypełnienie zostawiło propozycję. */
+  offerUnits: IntakeUnit[];
+  previous: {
+    requestText: string;
+    evidence: string[];
+    offers: IntakeOffer[];
+    readByAi: boolean;
+    templateJobId: number | null;
+    source: NewJobSource;
+  };
+}
+
+/** Odczyt i szablon w kształcie formularza, z tym, co strona trzyma obok niego. */
+interface FillInput {
+  source: IntakeSource;
+  /** Nazwa pliku albo tytuł rekrutacji-szablonu — do paska pod źródłami. */
+  sourceName: string | null;
+  /** Treść requestu (odczyt) albo opis rekrutacji-szablonu. */
+  text: string;
+  evidence: string[];
+  templateJobId?: number;
+  /** Plik Profilu Championa: pola przepisał kod, bez modelu („z dokumentu”). */
+  championForm?: boolean;
+}
+
+const EMPTY_PORTAL_PLAN: NewJobPortalPlan = {
+  portals: [],
+  draft: null,
+  options: EMPTY_LISTING_OPTIONS,
+};
 
 export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showInfo, showActionToast } = useToast();
+  // Pracuj.pl wstawia opiekun konta — po utworzeniu DL wysyła mu ogłoszenie
+  // jednym kliknięciem (`ogloszenie-pracuj-mailem-do-opiekuna.md`).
+  const sendsToPracuj = useAuthStore((s) =>
+    hasRole(s.user, "delivery_lead", "head_of_recruitment", "admin"),
+  );
 
-  const [step, setStep] = useState<Step>(preview?.step ?? "request");
+  // Podgląd z `step: "request"`: treść czeka w panelu „Wklej treść”, nieodczytana.
+  const previewUnread = preview?.step === "request";
   const [client, setClient] = useState<ClientRef | null>(
     preview?.client ?? null,
   );
-  const [requestText, setRequestText] = useState(preview?.requestText ?? "");
+  // Ostatnio użyte źródło — do zapisu formularza („manual” = nic nie odczytano).
+  const [source, setSource] = useState<NewJobSource>(preview?.source ?? "manual");
+  // Treść już odczytana (albo opis rekrutacji-szablonu): stoi obok formularza
+  // i idzie jako opis rekrutacji przy utworzeniu.
+  const [requestText, setRequestText] = useState(
+    preview && !previewUnread ? preview.requestText : "",
+  );
+  // Treść wpisana w panelu „Wklej treść”, której jeszcze nie odczytano.
+  const [pasteDraft, setPasteDraft] = useState(previewUnread ? (preview?.requestText ?? "") : "");
+  const [panel, setPanel] = useState<NewJobSourcePanel | null>(
+    preview?.panel ?? (previewUnread && preview?.client ? "text" : null),
+  );
   const [file, setFile] = useState<File | null>(null);
   const [reading, setReading] = useState(false);
   const [readError, setReadError] = useState<string | null>(null);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [templateBusyId, setTemplateBusyId] = useState<number | null>(null);
   const [form, setForm] = useState<IntakeForm>(
     preview?.form ?? EMPTY_INTAKE_FORM,
   );
   const [evidence, setEvidence] = useState<string[]>(preview?.evidence ?? []);
-  const [readByAi, setReadByAi] = useState(preview != null);
+  const [readByAi, setReadByAi] = useState(
+    preview != null && !previewUnread && preview.requestText.trim() !== "",
+  );
   const [templateJobId, setTemplateJobId] = useState<number | null>(null);
+  // Propozycje z odczytu: pole miało już wartość, a odczyt podał inną.
+  const [offers, setOffers] = useState<IntakeOffer[]>(preview?.offers ?? []);
+  // Ostatnie wypełnienie: skrót dla paska i łatka do „Cofnij wypełnienie”.
+  const [fillInfo, setFillInfo] = useState<NewJobFillInfo | null>(preview?.fill ?? null);
+  const fillUndoRef = useRef<FillUndo | null>(null);
+  // „Utwórz i opublikuj” kliknięte przy brakach — pola są odtąd podświetlone.
+  const [createAttempted, setCreateAttempted] = useState(preview?.createAttempted ?? false);
+  // Próba użycia źródła albo utworzenia bez klienta — komunikat przy polu klienta.
+  const [clientAsked, setClientAsked] = useState(false);
+  const clientRef = useRef<HTMLDivElement>(null);
+  const sourceBarRef = useRef<HTMLElement>(null);
+  // Licznik udanych odczytów — po nim rusza zapis pliku requestu (0428).
+  const [readCount, setReadCount] = useState(0);
+  // Licznik wczytanych formularzy: części strony, które pamiętają wybór
+  // u siebie (podobne rekrutacje), zakładają się wtedy od nowa. Do 10.10.2026
+  // robiło to przejście z kroku 1 do kroku 2.
+  const [restoreCount, setRestoreCount] = useState(0);
   const [recruiterId, setRecruiterId] = useState<number | null>(
     preview?.recruiterId ?? null,
   );
-  const [saving, setSaving] = useState<"handoff" | "draft" | null>(null);
+  // Wybór trójstanowy (02.10.2026): `null` = Delivery Lead niczego nie
+  // zaznaczył — wtedy osobę proponuje automat, o ile jest dostępny. Wskazany
+  // rekruter (podgląd, kliknięcie w listę) to jawne „Wybieram sam”.
+  // Delivery Lead wskazany ręcznie; `null` = osoba domyślna z serwera.
+  const [deliveryLeadId, setDeliveryLeadId] = useState<number | null>(null);
+  const [assignmentChoice, setAssignmentChoice] =
+    useState<RecruiterAssignment | null>(
+      preview?.assignment ?? (preview?.recruiterId != null ? "person" : null),
+    );
+  // Nowa rekrutacja zaczyna od P1 („Pilne”) — zmienia to człowiek.
+  const [priorityLevel, setPriorityLevel] = useState<PriorityLevel>(
+    preview?.priorityLevel ?? NEW_JOB_PRIORITY_LEVEL,
+  );
+  const [saving, setSaving] = useState<"create" | "later" | null>(null);
   // 0341: podobne rekrutacje zaznaczone przy tworzeniu — łączone po zapisie.
   const [similarJobIds, setSimilarJobIds] = useState<number[]>([]);
+  // 0614: bliźniaki zaznaczone przy tworzeniu — łączone po utworzeniu.
+  const [twinJobIds, setTwinJobIds] = useState<number[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Audyt 06.10.2026 (P9): „Utwórz” bez nazwy od klienta — komunikat przy polu.
+  const [clientTitleAttempted, setClientTitleAttempted] = useState(false);
+  // 04.10.2026: braki zgłoszone przez serwer przy utworzeniu (422 `job_not_ready`).
+  const [serverBlockers, setServerBlockers] = useState<ServerBlocker[] | null>(
+    preview?.serverBlockers ?? null,
+  );
+  // Formularz na koncie autora: id po pierwszym zapisie, stan dla stopki.
+  const [intakeFormId, setIntakeFormId] = useState<number | null>(null);
+  const [autosave, setAutosave] = useState<AutosaveState>(
+    preview?.autosave ?? { status: "idle" },
+  );
+  const [busyFormId, setBusyFormId] = useState<number | null>(null);
+  // Ogłoszenie na RocketJobs / JustJoin.IT — publikowane PO rekrutacji.
+  const [portalPlan, setPortalPlan] = useState<NewJobPortalPlan>(
+    preview?.portalPlan ?? EMPTY_PORTAL_PLAN,
+  );
+  const [portalFindings, setPortalFindings] = useState<PublicDraftRead["findings"]>(
+    preview?.portalFindings ?? [],
+  );
+  const [preparingAd, setPreparingAd] = useState(false);
+  const [prepareAdError, setPrepareAdError] = useState<string | null>(null);
 
-  // „Skopiuj jako template” z historii requestów: `?from=<id>` otwiera od
-  // razu krok 2 z danymi rekrutacji-źródła i tym samym klientem.
+  // Stan z ostatniego renderu — dla odczytu, który wraca po kilkudziesięciu
+  // sekundach: formularz mógł się w tym czasie zmienić i to do NIEGO wkładamy
+  // odczyt, nie do stanu z chwili kliknięcia „Odczytaj”.
+  const liveRef = useRef({ form, requestText, evidence, offers, readByAi, templateJobId, source });
+  liveRef.current = { form, requestText, evidence, offers, readByAi, templateJobId, source };
+
+  /**
+   * Wkłada odczyt albo szablon do formularza: puste pola się wypełniają,
+   * wpisane zostają, a różnica to propozycja przy polu. Nietknięty formularz
+   * bierze odczyt w całości.
+   */
+  const applyFill = useCallback((incoming: IntakeForm, input: FillInput) => {
+    const live = liveRef.current;
+    const result = applyIntakeRead(live.form, incoming, {
+      source: input.source,
+      ...(input.championForm ? { basis: "document" as const } : {}),
+    });
+    fillUndoRef.current = {
+      undo: result.undo,
+      offerUnits: result.offers.map((offer) => offer.unit),
+      previous: {
+        requestText: live.requestText,
+        evidence: live.evidence,
+        offers: live.offers,
+        readByAi: live.readByAi,
+        templateJobId: live.templateJobId,
+        source: live.source,
+      },
+    };
+    setForm(result.form);
+    setOffers(mergeIntakeOffers(live.offers, result.offers));
+    if (input.source === "template") {
+      // Opis szablonu staje się treścią requestu tylko wtedy, gdy żadnej nie ma.
+      if (!live.requestText.trim() && input.text.trim()) setRequestText(input.text);
+      setTemplateJobId(input.templateJobId ?? null);
+    } else {
+      // Kolejny odczyt dopisuje treść pod kreską, a podświetlenia się sumują.
+      setRequestText(appendRequestText(live.requestText, input.text));
+      setEvidence(mergeEvidence(live.evidence, input.evidence));
+      setReadByAi(true);
+      setSource(input.source === "file" ? "file" : "text");
+    }
+    setFillInfo({
+      source: input.source,
+      sourceName: input.sourceName,
+      filled: result.filled,
+      ...(input.championForm
+        ? {
+            championForm: true,
+            // Sekcje bierzemy z pierwszego pliku — pasek ma mówić, co się stało.
+            championSections:
+              incoming.championExtras == null
+                ? ("none" as const)
+                : result.form.championExtras === incoming.championExtras
+                  ? ("taken" as const)
+                  : ("kept" as const),
+          }
+        : {}),
+    });
+  }, []);
+
+  const undoFill = () => {
+    const saved = fillUndoRef.current;
+    fillUndoRef.current = null;
+    // Pasek z przyciskiem znika — fokus zostaje na pasku źródeł nad nim.
+    sourceBarRef.current?.focus();
+    setFillInfo(null);
+    if (!saved) return;
+    setForm((f) => {
+      const next = undoIntakeFill(f, saved.undo);
+      // Formularz wrócił do pustego: podpowiedź kategorii dla roli, której już
+      // nie ma, też znika (potwierdzonej kategorii cofnięcie nie rusza).
+      return isPristineIntake(next)
+        ? { ...next, suggestedCategoryId: null, competenceCategoryId: null }
+        : next;
+    });
+    // Znikają propozycje tego wypełnienia, a wracają te, które zastąpiło.
+    setOffers((list) => [
+      ...list.filter((offer) => !saved.offerUnits.includes(offer.unit)),
+      ...saved.previous.offers.filter((offer) => saved.offerUnits.includes(offer.unit)),
+    ]);
+    setRequestText(saved.previous.requestText);
+    setEvidence(saved.previous.evidence);
+    setReadByAi(saved.previous.readByAi);
+    setTemplateJobId(saved.previous.templateJobId);
+    setSource(saved.previous.source);
+  };
+
+  const acceptOffer = useCallback((offer: IntakeOffer) => {
+    setForm((f) => acceptIntakeOffer(f, offer));
+    setOffers((list) => list.filter((item) => item.unit !== offer.unit));
+  }, []);
+  const dismissOffer = useCallback(
+    (offer: IntakeOffer) => setOffers((list) => list.filter((item) => item.unit !== offer.unit)),
+    [],
+  );
+  // Propozycja znika też wtedy, gdy ktoś sam wpisał tę samą wartość.
+  const liveOffers = useMemo(() => liveIntakeOffers(form, offers), [form, offers]);
+
+  // „Skopiuj jako template” z historii requestów: `?from=<id>` wypełnia
+  // formularz danymi rekrutacji-źródła i ustawia tego samego klienta.
   const fromParam = searchParams?.get("from") ?? null;
   useEffect(() => {
     const fromId = fromParam ? Number(fromParam) : NaN;
     if (!Number.isInteger(fromId) || fromId <= 0) return;
     let cancelled = false;
-    api
-      .get<
-        TemplateSourceJob & { client?: { id: number; name: string } | null }
-      >(`/api/jobs/${fromId}`)
-      .then(({ data }) => {
+    loadTemplateSource<
+      TemplateSourceJob & { client?: { id: number; name: string } | null }
+    >(api.get, fromId)
+      .then(async (data) => ({ data, rows: await templateRows(data) }))
+      .then(({ data, rows }) => {
         if (cancelled) return;
         if (data.client_id != null) {
           setClient({
@@ -141,48 +566,292 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
             name: data.client?.name ?? "",
           } as ClientRef);
         }
-        setForm(applyTemplate({ ...EMPTY_INTAKE_FORM }, data));
-        setRequestText(data.description ?? "");
-        setTemplateJobId(fromId);
-        setStep("review");
+        applyFill(applyTemplate({ ...EMPTY_INTAKE_FORM }, data, rows), {
+          source: "template",
+          sourceName: jobDisplayTitle(data),
+          text: data.description ?? "",
+          evidence: [],
+          templateJobId: fromId,
+        });
       })
       .catch(() => {
-        if (!cancelled)
-          setReadError("Nie udało się wczytać rekrutacji-szablonu.");
+        if (!cancelled) setTemplateError(TEMPLATE_LOAD_ERROR_TEXT);
       });
     return () => {
       cancelled = true;
     };
-  }, [fromParam]);
+  }, [fromParam, applyFill]);
 
+  // „Nowa rekrutacja z tej mapy” (zakładka „Technologie” klienta): `?client=<id>`
+  // ustawia klienta, o ile nikt go jeszcze nie wybrał; `?from=` ma pierwszeństwo.
+  const clientParam = searchParams?.get("client") ?? null;
+  useEffect(() => {
+    const clientId = clientParam ? Number(clientParam) : NaN;
+    if (fromParam || !Number.isInteger(clientId) || clientId <= 0) return;
+    let cancelled = false;
+    api
+      .get(`/api/clients/${clientId}`)
+      .then((r) => {
+        if (cancelled) return;
+        const name = (r.data as { name?: string } | null)?.name ?? "";
+        setClient((current) => current ?? ({ id: clientId, name } as ClientRef));
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          showError(apiErrorMessage(e, "Nie udało się wczytać klienta — wybierz go z listy."));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientParam, fromParam, showError]);
+
+  // „Nowa rekrutacja z działu” i potwierdzony popyt (22.10.2026):
+  // `?hm=<kontakt>&skills=<id,id>&title=&dept=&headcount=&start=` wypełniają tylko PUSTE pola
+  // (`lib/job-new-params.ts`); `?from=` ma pierwszeństwo. Nazwy umiejętności
+  // daje mapa technologii klienta (to z niej pochodzą id), menedżera — lista
+  // hiring managerów klienta. Awaria którejś = pole zostaje puste i zdanie.
+  const hmParam = searchParams?.get("hm") ?? null;
+  const skillsParam = searchParams?.get("skills") ?? null;
+  const titleParam = searchParams?.get("title") ?? null;
+  const deptParam = searchParams?.get("dept") ?? null;
+  const headcountParam = searchParams?.get("headcount") ?? null;
+  const startParam = searchParams?.get("start") ?? null;
+  useEffect(() => {
+    const clientId = clientParam ? Number(clientParam) : NaN;
+    if (fromParam || !Number.isInteger(clientId) || clientId <= 0) return;
+    const prefill = parseJobPrefill({
+      hm: hmParam,
+      skills: skillsParam,
+      title: titleParam,
+      dept: deptParam,
+      headcount: headcountParam,
+      start: startParam,
+    });
+    if (!hasJobPrefill(prefill)) return;
+    let cancelled = false;
+    void (async () => {
+      const [managers, map] = await Promise.all([
+        prefill.hmId !== null
+          ? fetchHiringManagerOptions(clientId).catch(() => null)
+          : Promise.resolve([]),
+        prefill.skillIds.length
+          ? api
+              .get<{ technologies?: { skill_id: number; name: string }[] }>(
+                `/api/care/clients/${clientId}/tech-map`,
+              )
+              .then((r) => r.data)
+              .catch(() => null)
+          : Promise.resolve({ technologies: [] }),
+      ]);
+      if (cancelled) return;
+      const skills = skillNamesFor(prefill.skillIds, map?.technologies ?? []);
+      setForm((f) =>
+        applyJobPrefill(f, {
+          title: prefill.title,
+          hiringManager: managers?.find((m) => m.id === prefill.hmId) ?? null,
+          skills,
+          department: prefill.department,
+          headcount: prefill.headcount,
+          startMonth: prefill.startMonth,
+        }),
+      );
+      if (managers === null || skills.length < prefill.skillIds.length) {
+        showInfo("Części danych z działu nie udało się odczytać — uzupełnij je w formularzu.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    clientParam,
+    fromParam,
+    hmParam,
+    skillsParam,
+    titleParam,
+    deptParam,
+    headcountParam,
+    startParam,
+    showInfo,
+  ]);
+
+  // Formularz stoi na stronie od wejścia, więc listy do sekcji 6 (rekruterzy,
+  // automat przydziału, portale) wczytują się razem z nią. To same odczyty.
   const recruitersQuery = useQuery({
     queryKey: ["handoff-recruiters"],
-    enabled: step === "review",
     queryFn: () =>
       api
         .get("/api/users", {
-          params: { roles: ["recruiter", "tac", "sourcer"] },
+          params: { roles: ["recruiter"] },
           paramsSerializer: { indexes: null },
         })
         .then((r) => r.data as RecruiterOption[]),
   });
 
-  const missing = useMemo(() => missingFor(form), [form]);
+  // Kategoria kompetencji (02.10.2026): system podpowiada ją z nazwy roli,
+  // Delivery Lead potwierdza. Zapytanie idzie po chwili ciszy w polu roli;
+  // opis i wymagania jadą z chwili zapytania (klasyfikator czyta je tylko,
+  // gdy nazwa roli nic nie mówi).
+  const categoryInput = useDebouncedValue(
+    useMemo(
+      () => ({ role: form.title.trim(), clientTitle: form.clientTitle.trim() }),
+      [form.title, form.clientTitle],
+    ),
+    600,
+  );
+  // Pytamy dopiero o rolę, która stoi w polu: zaraz po odczycie requestu
+  // opóźniona wartość to jeszcze puste pole, a podpowiedź dla pustej roli
+  // mignęłaby na ekranie i zniknęła, zanim przyjdzie właściwa.
+  const categoryInputCurrent =
+    categoryInput.role === form.title.trim() &&
+    categoryInput.clientTitle === form.clientTitle.trim();
+  // Pusty formularz o kategorię nie pyta: strona, na której nikt nic nie
+  // wpisał, nie wysyła żadnego POST-a, a podpowiedź i tak liczy się z roli.
+  const formPristine = isPristineIntake(form);
+  const categoryQuery = useQuery({
+    queryKey: ["job-intake-category-suggestion", categoryInput.role, categoryInput.clientTitle],
+    enabled: !preview && categoryInputCurrent && !formPristine,
+    staleTime: 5 * 60_000,
+    retry: false,
+    queryFn: () =>
+      api
+        .post<CategorySuggestion>("/api/job-intake/category-suggestion", {
+          role: categoryInput.role || undefined,
+          client_title: categoryInput.clientTitle || undefined,
+          description: requestText.trim() || undefined,
+          must_skills: mustOf(form),
+        })
+        .then((r) => r.data),
+  });
+  const categories = preview?.categories ?? categoryQuery.data?.categories ?? [];
+  const suggestedCategory = categoryQuery.data?.suggested_id;
+  useEffect(() => {
+    if (suggestedCategory === undefined || !categoryInputCurrent) return;
+    setForm((f) => {
+      // Potwierdzonej kategorii podpowiedź już nie zmienia.
+      const chosen = f.categoryConfirmed ? f.competenceCategoryId : suggestedCategory;
+      if (f.suggestedCategoryId === suggestedCategory && f.competenceCategoryId === chosen)
+        return f;
+      return { ...f, suggestedCategoryId: suggestedCategory, competenceCategoryId: chosen };
+    });
+    // `form.suggestedCategoryId`: odczyt w nietkniętym formularzu bierze go
+    // w całości (podpowiedź wraca do `null`), a odpowiedź serwera dla tej samej
+    // roli się nie zmienia — bez tej zależności kategoria nie byłaby podpowiedziana.
+  }, [suggestedCategory, categoryInputCurrent, form.suggestedCategoryId]);
+
+  // Czy da się wybrać automat — ta sama flaga co w handoffie.
+  // Tryb „off” znaczy, że automat nikogo nie zaproponuje, więc też wyłączone.
+  const handoffOptionsQuery = useQuery({
+    queryKey: ["job-intake-handoff-options"],
+    retry: false,
+    queryFn: () =>
+      api
+        .get("/api/job-intake/handoff-options")
+        .then((r) => r.data as HandoffOptions),
+  });
+  const allocationMode = handoffOptionsQuery.data?.mode;
+  const automaticAvailable = automaticAssignmentAvailable(
+    handoffOptionsQuery.data?.automatic_enabled,
+    allocationMode,
+  );
+  const assignment = resolveRecruiterAssignment(assignmentChoice, automaticAvailable);
+  const automatic = assignment === "automatic";
+  const automaticOffNotice = handoffOptionsQuery.isSuccess && !automaticAvailable;
+  // Automat dobiera rekrutera tylko do P1 — przy pozostałych priorytetach
+  // rekrutacja zostaje bez rekrutera.
+  const automatSkips = !automatAssigns(priorityLevel);
+
+  // Portale wyłączone flagami (produkcja dziś) = `any_ready: false` → sekcji nie ma.
+  const portalConfigQuery = useQuery({
+    queryKey: jobPortalKeys.config,
+    queryFn: fetchPortalConfig,
+    staleTime: 5 * 60_000,
+  });
+  const portalsReady =
+    portalConfigQuery.isSuccess && portalConfigQuery.data.any_ready;
+  const availablePortals = portalsReady ? readyPortals(portalConfigQuery.data) : [];
+  // Zaznaczone portale, których konfiguracja już nie zgłasza, nie idą dalej.
+  const activePortalPlan: NewJobPortalPlan = {
+    ...portalPlan,
+    portals: portalPlan.portals.filter((p) =>
+      availablePortals.some((item) => item.portal === p),
+    ),
+  };
+  const portalBlocker = portalPlanBlocker(activePortalPlan);
+
+  const prepareAd = async () => {
+    setPreparingAd(true);
+    setPrepareAdError(null);
+    try {
+      const draft = await fetchPublicDraft(
+        publicDraftRequest(form, { clientId: client?.id ?? null, requestText }),
+      );
+      setPortalPlan((plan) => ({
+        ...plan,
+        draft: {
+          publicTitle: draft.public_title,
+          subtitle: draft.subtitle,
+          about: draft.about,
+        },
+        // Parametry z pól rekrutacji tylko za pierwszym razem — potem są DL-a.
+        options: plan.draft ? plan.options : listingDefaultsFromForm(form),
+      }));
+      setPortalFindings(draft.findings);
+    } catch (e) {
+      setPrepareAdError(
+        apiErrorMessage(e, "Nie udało się przygotować ogłoszenia — spróbuj ponownie."),
+      );
+    } finally {
+      setPreparingAd(false);
+    }
+  };
+
+  // Krytyczne (30.09.2026): które wiersze wolno oznaczyć i podpowiedź
+  // z historii — dla bieżącej listy. Harness podaje gotowe dane.
+  const liveCriticalInfo = useRowCriticalInfo(form.rows, form.title, {
+    enabled: !preview,
+  });
+  const criticalInfo = preview?.criticalInfo ?? liveCriticalInfo;
+  // D2 (13.10.2026): ile osób zostawiają krytyczne razem — „Utwórz” pyta poniżej 20.
+  const [criticalReach, setCriticalReach] = useState<number | null | undefined>(undefined);
+  const { askConfirm, confirmDialog } = useConfirmV2();
+  const missing = useMemo(
+    () => missingFor(form, { criticalInfo: criticalInfo.info }),
+    [form, criticalInfo.info],
+  );
   const segments = useMemo(
     () => highlightSegments(requestText, evidence),
     [requestText, evidence],
   );
 
-  const onRead = async () => {
+  // Plik requestu czekający na zapis w karcie „Pliki” (0428).
+  const pendingRequestFileRef = useRef<File | null>(null);
+
+  const requireClient = () => {
+    setClientAsked(true);
+    clientRef.current?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    clientRef.current?.querySelector<HTMLElement>("button")?.focus();
+  };
+
+  const onRead = async (kind: "text" | "file") => {
     if (!client) return;
+    const pickedFile = kind === "file" ? file : null;
+    if (kind === "file" && !pickedFile) return;
     setReading(true);
     setReadError(null);
     try {
-      let data: { text: string; intake: RequestIntakeResponse };
-      if (file) {
+      // Wypełniony wzór Profilu Championa serwer czyta bez modelu
+      // (`reader: "champion_form"`) i oddaje obok sekcje bez pola w formularzu.
+      let data: {
+        text: string;
+        intake: RequestIntakeResponse;
+        reader?: string;
+        champion_extras?: unknown;
+      };
+      if (pickedFile) {
         const body = new FormData();
         body.append("client_id", String(client.id));
-        body.append("file", file);
+        body.append("file", pickedFile);
         data = (
           await api.post("/api/job-intake/read-file", body, {
             headers: { "Content-Type": "multipart/form-data" },
@@ -195,23 +864,38 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
             "/api/job-intake/read",
             {
               client_id: client.id,
-              text: requestText,
+              text: pasteDraft,
             },
             { timeout: READ_TIMEOUT_MS },
           )
         ).data;
       }
-      setRequestText(data.text);
+      const championForm = data.reader === "champion_form";
+      applyFill(
+        {
+          ...formFromIntake(data.intake),
+          championExtras: championForm ? championExtrasFrom(data.champion_extras) : null,
+        },
+        {
+          source: pickedFile ? "file" : "request",
+          sourceName: pickedFile?.name ?? null,
+          text: data.text,
+          evidence: data.intake.evidence ?? [],
+          championForm,
+        },
+      );
+      // Plik requestu zostaje przy rekrutacji: zapisze go efekt niżej, gdy
+      // formularz ma już odczytane pola (zapis formularza idzie z nimi).
+      if (pickedFile) pendingRequestFileRef.current = pickedFile;
+      setReadCount((count) => count + 1);
       setFile(null);
-      setForm(formFromIntake(data.intake));
-      setEvidence(data.intake.evidence ?? []);
-      setReadByAi(true);
-      setStep("review");
+      if (!pickedFile) setPasteDraft("");
+      setPanel(null);
     } catch (e) {
       setReadError(
         readErrorMessage(
           e,
-          "Nie udało się odczytać requestu — spróbuj ponownie albo wypełnij ręcznie.",
+          "Nie udało się odczytać requestu — spróbuj ponownie albo wypełnij formularz ręcznie.",
         ),
       );
     } finally {
@@ -219,67 +903,424 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     }
   };
 
-  const onSkipAi = () => {
-    setForm({ ...EMPTY_INTAKE_FORM });
-    setEvidence([]);
-    setReadByAi(false);
-    setStep("review");
-  };
-
-  const applyTemplateFromJob = async (jobId: number) => {
+  /** Wypełnia formularz z innej rekrutacji; `false` = nie udało się jej wczytać. */
+  const applyTemplateFromJob = async (jobId: number, name?: string): Promise<boolean> => {
     try {
-      const { data } = await api.get<TemplateSourceJob>(`/api/jobs/${jobId}`);
-      setForm((f) => applyTemplate(f, data));
-      setTemplateJobId(jobId);
+      const data = await loadTemplateSource(api.get, jobId);
+      const rows = await templateRows(data);
+      applyFill(applyTemplate({ ...EMPTY_INTAKE_FORM }, data, rows), {
+        source: "template",
+        sourceName: name ?? jobDisplayTitle(data),
+        text: data.description ?? "",
+        evidence: [],
+        templateJobId: jobId,
+      });
+      return true;
     } catch (e) {
       showError(
         apiErrorMessage(e, "Nie udało się wczytać podobnej rekrutacji."),
       );
+      return false;
     }
   };
 
-  const invalidateJobs = () => {
-    queryClient.invalidateQueries({ queryKey: ["jobs"] });
-    queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
+  const pickTemplate = async (job: TemplateJobOption) => {
+    // Harness nie wysyła zapytań — lista jest tam tylko do obejrzenia.
+    if (preview) return;
+    setTemplateBusyId(job.id);
+    const applied = await applyTemplateFromJob(job.id, jobDisplayTitle(job));
+    setTemplateBusyId(null);
+    if (applied) setPanel(null);
   };
 
-  const save = async (mode: "handoff" | "draft") => {
+  // Nowa rekrutacja, jej priorytet i obsada zmieniają też liczniki listy,
+  // pulpit „Requesty i obłożenie” i „Czeka na Ciebie” — stąd wspólne odświeżenie.
+  const invalidateJobs = (jobId: number) => {
+    queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    invalidateJobTeam(queryClient, jobId);
+  };
+
+  // ── Formularz na koncie autora (04.10.2026) ──────────────────────────────
+  // Stan zapisu bez listy braków: podpowiedzi krytycznych doczytują się same
+  // i nie mogą wyzwalać zapisu, którego nikt nie zrobił.
+  // `request_text` zapisu to treść odczytana; gdy jej nie ma — to, co czeka
+  // w panelu „Wklej treść” (`requestRead: false`), żeby nie przepadło.
+  const requestRead = requestText.trim() !== "";
+  const formState = useMemo(
+    () => ({
+      version: 1 as const,
+      // Strona ma jeden ekran; starsza wersja frontu czyta `step` — zostaje „review”.
+      step: "review" as const,
+      requestRead,
+      ...(requestRead && pasteDraft.trim() ? { pasteDraft } : {}),
+      ...(liveOffers.length > 0 ? { offers: liveOffers } : {}),
+      form,
+      evidence,
+      readByAi,
+      templateJobId,
+      recruiterId,
+      deliveryLeadId,
+      assignment: assignmentChoice,
+      priorityLevel,
+      similarJobIds,
+    }),
+    [
+      requestRead,
+      pasteDraft,
+      liveOffers,
+      form,
+      evidence,
+      readByAi,
+      templateJobId,
+      recruiterId,
+      deliveryLeadId,
+      assignmentChoice,
+      priorityLevel,
+      similarJobIds,
+    ],
+  );
+  const savedText = requestRead ? requestText : pasteDraft;
+  const snapshot = useMemo(
+    () => JSON.stringify({ client: client?.id ?? null, source, savedText, formState }),
+    [client, source, savedText, formState],
+  );
+  const formBody: IntakeFormWrite | null = client
+    ? {
+        label: intakeFormLabel(form),
+        client_id: client.id,
+        source,
+        request_text: savedText,
+        form: { ...formState, missing } satisfies IntakeFormState,
+      }
+    : null;
+  const latestRef = useRef<{ body: IntakeFormWrite | null; snapshot: string }>({
+    body: formBody,
+    snapshot,
+  });
+  latestRef.current = { body: formBody, snapshot };
+  const formIdRef = useRef<number | null>(null);
+  const lastSavedRef = useRef<string | null>(null);
+  const inflightRef = useRef<Promise<boolean> | null>(null);
+  // Po udanym utworzeniu serwer kasuje formularz — kolejny zapis by go wskrzesił.
+  const stoppedRef = useRef(false);
+  // Audyt 06.10.2026 (N7): od „Utwórz” do końca `POST /api/jobs` autozapis
+  // stoi — serwer kasuje formularz w tej samej transakcji, a zapis w trakcie
+  // (np. przy ukryciu karty) zakładałby nowy.
+  const creatingRef = useRef(false);
+  const markCleanRef = useRef(false);
+  // Strona, na której nikt nic nie wpisał: pusty formularz, żadnej treści
+  // i nic zapisanego na koncie. Taka strona nie zapisuje formularza — sam
+  // wybór klienta to jeszcze nie praca.
+  const contentPristine =
+    formPristine && !requestText.trim() && !pasteDraft.trim() && intakeFormId == null;
+  const pristine = contentPristine && client == null;
+  const canAutosave = !preview && client != null && !contentPristine;
+
+  const persistForm = useCallback(async (): Promise<boolean> => {
+    while (inflightRef.current) await inflightRef.current;
+    if (stoppedRef.current || creatingRef.current) return false;
+    const { body, snapshot: snap } = latestRef.current;
+    if (!body) return false;
+    const run = (async () => {
+      setAutosave({ status: "saving" });
+      try {
+        const saved = await saveIntakeForm(formIdRef.current, body);
+        formIdRef.current = saved?.id ?? formIdRef.current;
+        setIntakeFormId(formIdRef.current);
+        lastSavedRef.current = snap;
+        setAutosave({ status: "saved", at: saved?.updated_at ?? new Date().toISOString() });
+        void queryClient.invalidateQueries({ queryKey: jobIntakeFormKeys.list });
+        return true;
+      } catch (e) {
+        setAutosave({
+          status: "error",
+          message: isFormsLimitError(e)
+            ? FORMS_LIMIT_TEXT
+            : apiErrorMessage(
+                e,
+                "Formularz nie zapisał się — spróbuję ponownie przy następnej zmianie.",
+              ),
+        });
+        return false;
+      }
+    })();
+    inflightRef.current = run;
+    try {
+      return await run;
+    } finally {
+      inflightRef.current = null;
+    }
+  }, [queryClient]);
+
+  const ensureFormId = useCallback(async (): Promise<number | null> => {
+    if (formIdRef.current == null) await persistForm();
+    return formIdRef.current;
+  }, [persistForm]);
+
+  // Po odczycie pliku ten sam plik trafia do plików rekrutacji jako „Request
+  // klienta”. Niepowodzenie nie cofa odczytu — plik da się dodać ręcznie
+  // w karcie „Pliki”. Efekt rusza po każdym udanym odczycie (`readCount`),
+  // a plik zdejmuje z kolejki przed wysyłką — jeden odczyt to jeden zapis.
+  useEffect(() => {
+    const pending = pendingRequestFileRef.current;
+    if (preview || readCount === 0 || !pending) return;
+    pendingRequestFileRef.current = null;
+    void (async () => {
+      try {
+        const id = await ensureFormId();
+        if (id == null) throw new Error("form_not_saved");
+        const owner = { kind: "form", id } as const;
+        await uploadJobFile(owner, pending, "request");
+        await queryClient.invalidateQueries({ queryKey: jobFilesKey(owner) });
+      } catch {
+        showError(
+          "Plik requestu nie zapisał się w plikach rekrutacji — dodaj go w karcie „Pliki”.",
+        );
+      }
+    })();
+  }, [readCount, preview, ensureFormId, queryClient, showError]);
+
+  // Wczytany formularz jest już zapisany — bez tego autozapis od razu by go powtórzył.
+  useEffect(() => {
+    if (!markCleanRef.current) return;
+    markCleanRef.current = false;
+    lastSavedRef.current = snapshot;
+  }, [snapshot]);
+
+  const debouncedSnapshot = useDebouncedValue(snapshot, AUTOSAVE_DELAY_MS);
+  useEffect(() => {
+    if (!canAutosave || saving != null) return;
+    if (debouncedSnapshot !== snapshot) return;
+    if (debouncedSnapshot === lastSavedRef.current) return;
+    void persistForm();
+  }, [debouncedSnapshot, snapshot, canAutosave, saving, persistForm]);
+
+  // Lista niedokończonych formularzy stoi na pustej stronie (jest od czego
+  // zacząć) i wtedy, gdy zapis odbił się od limitu — żeby było co usunąć.
+  const formsLimitHit = autosave.status === "error" && autosave.message === FORMS_LIMIT_TEXT;
+  const showUnfinished = pristine || formsLimitHit;
+  const unfinishedQuery = useQuery({
+    queryKey: jobIntakeFormKeys.list,
+    queryFn: fetchIntakeForms,
+    enabled: !preview && showUnfinished,
+    staleTime: 30_000,
+  });
+  const unfinishedForms = (preview?.unfinishedForms ?? unfinishedQuery.data ?? []).filter(
+    (item) => item.id !== intakeFormId,
+  );
+
+  const applySavedForm = useCallback((data: IntakeFormRead) => {
+    const state = (data.form && typeof data.form === "object"
+      ? data.form
+      : {}) as Partial<IntakeFormState>;
+    formIdRef.current = data.id;
+    setIntakeFormId(data.id);
+    setClient(
+      data.client_id != null
+        ? ({ id: data.client_id, name: data.client_name ?? "" } as ClientRef)
+        : null,
+    );
+    setSource(SOURCES.find((value) => value === data.source) ?? "manual");
+    // Zapis sprzed 10.10.2026 nie ma `requestRead`: `step: "request"` znaczyło
+    // treść wpisaną w kroku 1, jeszcze nieodczytaną — wraca do panelu
+    // „Wklej treść”, a nie obok formularza (plik nie wraca, tylko jego treść).
+    const read =
+      typeof state.requestRead === "boolean" ? state.requestRead : state.step === "review";
+    const text = data.request_text ?? "";
+    setRequestText(read ? text : "");
+    setPasteDraft(read ? (typeof state.pasteDraft === "string" ? state.pasteDraft : "") : text);
+    setPanel(!read && text.trim() !== "" ? "text" : null);
+    setFile(null);
+    setOffers(restoreIntakeOffers(state.offers));
+    // Cofnięcie dotyczy wypełnienia z tej sesji — zapisany formularz go nie niesie.
+    fillUndoRef.current = null;
+    setFillInfo(null);
+    setCreateAttempted(false);
+    setClientAsked(false);
+    setTemplateError(null);
+    setRestoreCount((count) => count + 1);
+    setForm(restoreIntakeForm(state.form));
+    setEvidence(Array.isArray(state.evidence) ? state.evidence : []);
+    setReadByAi(state.readByAi === true);
+    setTemplateJobId(typeof state.templateJobId === "number" ? state.templateJobId : null);
+    setRecruiterId(typeof state.recruiterId === "number" ? state.recruiterId : null);
+    setDeliveryLeadId(
+      typeof state.deliveryLeadId === "number" ? state.deliveryLeadId : null,
+    );
+    setAssignmentChoice(state.assignment ?? null);
+    if (state.priorityLevel) setPriorityLevel(state.priorityLevel);
+    setSimilarJobIds(Array.isArray(state.similarJobIds) ? state.similarJobIds : []);
+    // Szkic ogłoszenia nie należy do zapisanego formularza — inaczej wznowiony
+    // formularz B opublikowałby ogłoszenie przygotowane dla formularza A.
+    setPortalPlan(EMPTY_PORTAL_PLAN);
+    setPortalFindings([]);
+    setServerBlockers(null);
+    setSaveError(null);
+    setReadError(null);
+    setAutosave({ status: "saved", at: data.updated_at });
+    markCleanRef.current = true;
+  }, []);
+
+  // Zmiany sprzed końca odliczania autozapisu nie mogą przepaść — przy
+  // wyjściu ze strony, ukryciu karty i przejściu do innego formularza.
+  const canAutosaveRef = useRef(canAutosave);
+  canAutosaveRef.current = canAutosave;
+  const flushPending = useCallback(async (): Promise<void> => {
+    if (!canAutosaveRef.current || stoppedRef.current || creatingRef.current) return;
+    if (latestRef.current.snapshot === lastSavedRef.current) return;
+    await persistForm();
+  }, [persistForm]);
+  useEffect(() => {
+    const onHidden = () => {
+      if (document.visibilityState === "hidden") void flushPending();
+    };
+    document.addEventListener("visibilitychange", onHidden);
+    return () => {
+      document.removeEventListener("visibilitychange", onHidden);
+      void flushPending();
+    };
+  }, [flushPending]);
+
+  const resumeForm = useCallback(
+    async (id: number) => {
+      setBusyFormId(id);
+      try {
+        // Najpierw dokończ zapis bieżącego formularza: odpowiedź zapisu w locie
+        // nadpisałaby identyfikator wznawianego formularza.
+        await flushPending();
+        while (inflightRef.current) await inflightRef.current;
+        applySavedForm(await fetchIntakeForm(id));
+      } catch (e) {
+        showError(apiErrorMessage(e, "Nie udało się wczytać formularza."));
+      } finally {
+        setBusyFormId(null);
+      }
+    },
+    [applySavedForm, flushPending, showError],
+  );
+
+  const removeForm = async (id: number) => {
+    setBusyFormId(id);
+    try {
+      await deleteIntakeForm(id);
+      await queryClient.invalidateQueries({ queryKey: jobIntakeFormKeys.list });
+      showSuccess("Formularz usunięty.");
+      // Zapis bieżącego formularza odbił się od limitu — miejsce właśnie się
+      // zwolniło, więc zapisujemy od razu, a nie przy następnej zmianie.
+      if (formsLimitHit) void persistForm();
+    } catch (e) {
+      showError(apiErrorMessage(e, "Nie udało się usunąć formularza."));
+    } finally {
+      setBusyFormId(null);
+    }
+  };
+
+  // „Dokończ” z pulpitu albo z linku: `?form=<id>` wczytuje formularz od razu.
+  const formParam = searchParams?.get("form") ?? null;
+  useEffect(() => {
+    const id = formParam ? Number(formParam) : NaN;
+    if (preview || !Number.isInteger(id) || id <= 0) return;
+    void resumeForm(id);
+  }, [formParam, preview, resumeForm]);
+
+  const saveForLater = async () => {
     if (!client) return;
-    if (!form.title.trim()) {
-      setSaveError("Wpisz rolę — bez niej nie da się zapisać rekrutacji.");
+    setSaving("later");
+    const ok = await persistForm();
+    setSaving(null);
+    if (!ok) return;
+    showSuccess("Formularz zapisany. Dokończysz go w „Nowa rekrutacja”.");
+    router.push("/jobs");
+  };
+
+  // Braki nie wyłączają przycisku: kliknięcie pokazuje, czego brakuje i gdzie.
+  const attemptCreate = () => {
+    setCreateAttempted(true);
+    if (!client) {
+      requireClient();
       return;
     }
-    setSaving(mode);
+    const first = FORM_SECTIONS.find((section) =>
+      missing.some((code) => MISSING_SECTION[code] === section.id),
+    );
+    if (first) {
+      document
+        .getElementById(sectionAnchor(first.id))
+        ?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    }
+  };
+
+  const create = async () => {
+    if (!client) return;
+    if (!form.title.trim()) {
+      setSaveError("Wpisz rolę — bez niej nie da się utworzyć rekrutacji.");
+      return;
+    }
+    if (!jobTitleFor(form)) {
+      setClientTitleAttempted(true);
+      document
+        .getElementById(sectionAnchor("name"))
+        ?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+      return;
+    }
+    if (criticalReach != null && criticalReach < CRITICAL_PEOPLE_MIN) {
+      const ok = await askConfirm({
+        title: "Krytyczne zostawiają mało osób",
+        description: `${criticalReachWarning(criticalReach)} Utworzyć rekrutację z tymi krytycznymi?`,
+        confirmLabel: "Utwórz mimo to",
+        cancelLabel: "Wróć do wymagań",
+      });
+      if (!ok) return;
+    }
+    setSaving("create");
     setSaveError(null);
-    let jobId: number | null = null;
+    setServerBlockers(null);
+    // Trwający autozapis kończy się przed utworzeniem — id formularza musi być aktualne.
+    while (inflightRef.current) await inflightRef.current;
+    creatingRef.current = true;
+    const handoff: CreateHandoff = automatic
+      ? { assignment_mode: "automatic", channel: "linkedin" }
+      : { recruiter_id: recruiterId as number, channel: "linkedin" };
+    let jobId: number;
     try {
       const { data } = await api.post<{ id: number }>(
         "/api/jobs",
-        buildJobPayload(form, {
+        buildCreateJobPayload(form, {
           clientId: client.id,
           requestText,
           templateJobId,
+          // Kolumna ma cztery wartości, ekran mówi trzema poziomami.
+          priority: rawPriorityForLevel(priorityLevel),
+          handoff,
+          similarJobIds,
+          intakeFormId: formIdRef.current,
+          deliveryLeadId,
         }),
       );
       jobId = data.id;
     } catch (e) {
-      setSaveError(readErrorMessage(e, "Nie udało się zapisać rekrutacji."));
+      const blockers = serverBlockersFromError(e);
+      if (blockers && blockers.length > 0) setServerBlockers(blockers);
+      else setSaveError(readErrorMessage(e, "Nie udało się utworzyć rekrutacji."));
       setSaving(null);
+      // Nic nie powstało — autozapis wraca, a formularz zostaje na koncie
+      // z ostatnimi zmianami.
+      creatingRef.current = false;
+      void persistForm();
       return;
     }
-    invalidateJobs();
-    const championTab = `/jobs/${jobId}?tab=champion`;
-    try {
-      await api.put(
-        `/api/jobs/${jobId}/champion-profile`,
-        buildChampionPayload(form),
-      );
-    } catch (e) {
-      showError(
-        `Rekrutacja zapisana, ale profil nie: ${readErrorMessage(e, "błąd zapisu")}. Uzupełnij go tutaj.`,
-      );
-      router.push(championTab);
-      return;
+    stoppedRef.current = true;
+    creatingRef.current = false;
+    void queryClient.invalidateQueries({ queryKey: jobIntakeFormKeys.list });
+    invalidateJobs(jobId);
+    // Bliźniaki (0614): połączenie bez par pytań — nowa rekrutacja nie ma
+    // jeszcze Profilu Championa. Odmowa nie cofa utworzenia, tylko mówi.
+    for (const otherId of twinJobIds) {
+      try {
+        await jobTwinsApi.link(jobId, otherId, []);
+      } catch (error) {
+        showError(apiErrorMessage(error, "Rekrutacja powstała, ale nie udało się połączyć bliźniaka."));
+      }
     }
     // „Z historii klienta” (sekcja 8) — Luna podsumowuje w tle, co klient
     // odrzucał i o co pytał. Bez `await`: tworzenie rekrutacji na to nie
@@ -291,278 +1332,464 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         queryClient.invalidateQueries({ queryKey: ["champion-profile", createdJobId] }),
       )
       .catch(() => undefined);
-    // Połączenie z podobnymi rekrutacjami i przepięcie osób wysłanych do
-    // klienta. Dodatek — jego awaria nie cofa rekrutacji (da się to zrobić
-    // później oknem „Podobne rekrutacje").
-    if (similarJobIds.length > 0) {
-      try {
-        const linked = await similarJobsApi.link(jobId, similarJobIds);
-        if (linked.reassigned_now > 0) {
-          showSuccess(
-            `Przepięto ${linked.reassigned_now} ${plural(linked.reassigned_now)} z podobnych rekrutacji do „Do przejrzenia”.`,
-          );
-        }
-      } catch (e) {
+    const portalsTab = `/jobs/${jobId}?tab=portals`;
+    if (activePortalPlan.portals.length > 0) {
+      const labels = Object.fromEntries(
+        availablePortals.map((item) => [item.portal, item.label]),
+      );
+      const outcome = await publishNewJobToPortals(jobId, activePortalPlan, labels);
+      if (!outcome.ok) {
+        // Rekrutacja zostaje — w oknie zlecenia da się dokończyć publikację.
         showError(
-          `Rekrutacja zapisana, ale nie połączono podobnych: ${apiErrorMessage(e, "błąd")}. Zrób to w rekrutacji („Podobne rekrutacje”).`,
+          `Rekrutacja utworzona, ale ogłoszenie nie wyszło: ${outcome.message}. Dokończ w oknie zlecenia („Portale ogłoszeniowe”).`,
         );
+        router.push(portalsTab);
+        return;
       }
-    }
-    if (mode === "draft") {
-      showSuccess("Szkic rekrutacji zapisany.");
-      router.push(championTab);
+      showSuccess(
+        `Rekrutacja utworzona i opublikowana. Ogłoszenie w kolejce: ${outcome.published
+          .map((p) => labels[p] ?? p)
+          .join(", ")}.`,
+      );
+      router.push(`/jobs/${jobId}`);
       return;
     }
-    try {
-      await jobsApi.handoff(
-        jobId,
-        recruiterId as number,
-        undefined,
-        "linkedin",
-      );
-    } catch (e) {
-      showError(
-        `Rekrutacja zapisana jako szkic — nie przekazano do searchu: ${readErrorMessage(e, "błąd")}`,
-      );
-      router.push(championTab);
-      return;
+    const created = automatic
+      ? `Rekrutacja utworzona i opublikowana. ${automaticHandoffOutcome(allocationMode, automatSkips)}`
+      : "Rekrutacja utworzona i opublikowana.";
+    if (sendsToPracuj) {
+      showActionToast(created, {
+        actionLabel: "Wyślij ogłoszenie na Pracuj.pl",
+        onAction: () => router.push(pracujMailHref(jobId)),
+        durationMs: 15_000,
+      });
+    } else {
+      showSuccess(created);
     }
-    // REC-04: toast sukcesu WYŁĄCZNIE po udanej publikacji — inaczej obok
-    // błędu stał komunikat „utworzona i przekazana”, który mu przeczył.
-    let published = true;
-    try {
-      await api.post(`/api/jobs/${jobId}/publish`);
-    } catch (e) {
-      published = false;
-      showError(
-        `Rekrutacja w searchu, ale nie opublikowana: ${apiErrorMessage(e, "błąd")}. Opublikuj ją na stronie rekrutacji.`,
-      );
-    }
-    invalidateJobs();
-    if (published) showSuccess("Rekrutacja utworzona i przekazana do searchu.");
     router.push(`/jobs/${jobId}`);
   };
 
+  // Tożsamość listy must zmienia się tylko z wierszami — podpowiedź podobnych
+  // rekrutacji czeka na ciszę i nie pyta serwera przy każdej edycji pola obok.
+  const similarMust = useMemo(() => mustOf(form), [form.rows]); // eslint-disable-line react-hooks/exhaustive-deps
+  const onSimilarChange = useCallback((ids: number[]) => setSimilarJobIds(ids), []);
+  // Braki są podświetlane w polach po odczycie, przy szablonie i po próbie
+  // utworzenia — w każdym trybie tak samo. Zanim ktoś kliknie „Utwórz” na
+  // formularzu wypełnianym ręcznie, mówi o nich pasek sekcji i stopka.
+  const highlightMissing = readByAi || templateJobId != null || createAttempted;
+  const missingSource: MissingNoteSource = readByAi
+    ? "request"
+    : templateJobId != null
+      ? "template"
+      : "manual";
   const ready = missing.length === 0;
-  const canHandoff = ready && recruiterId != null && saving == null;
+  // Klient nie jest polem formularza, ale bez niego rekrutacja nie powstanie.
+  const gapCount = missing.length + (client ? 0 : 1);
+  const complete = gapCount === 0;
+  const hasRecruiter = automatic || recruiterId != null;
+  // Krytyczne: dopóki serwer nie powiedział, które wiersze to technologie,
+  // nie wiadomo, czy decyzja jest potrzebna — przycisk czeka.
+  const criticalPending =
+    !preview && criticalInfo.info == null && !criticalInfo.isError;
+  const canHandoff =
+    complete && hasRecruiter && saving == null && portalBlocker == null && !criticalPending;
+  const hasSourcePane = requestText.trim() !== "";
+  const autosaveText = autosaveLabel(autosave);
+  const formIsSaved = autosave.status === "saved";
   const recruiters = recruitersQuery.data ?? [];
 
+  // Karta „Pliki”: przy requeście stoi pod nim (ta sama kolumna co treść),
+  // bez requestu — po sekcji 6, żeby nie zajmować osobnej kolumny.
+  const filesCard =
+    !preview || preview.files ? (
+      <NewJobFilesCard
+        formId={intakeFormId}
+        ensureFormId={ensureFormId}
+        seed={preview?.files}
+        disabled={saving != null}
+      />
+    ) : null;
+  const similarRequests = !preview ? (
+    <SimilarRequestsBanner
+      clientId={client?.id ?? null}
+      title={form.title}
+      description={requestText}
+      templateJobId={templateJobId}
+      onUseAsTemplate={(jobId) => void applyTemplateFromJob(jobId)}
+    />
+  ) : null;
+
   return (
-    <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 md:px-2 md:pt-2">
+    <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 md:px-2 md:pt-2">
+      {confirmDialog}
       <PageHeader
         title="Nowa rekrutacja"
-        description={
-          step === "request"
-            ? "Wklej maila od klienta. AI wyciągnie z niego to, czego potrzebuje search — Ty tylko sprawdzasz."
-            : "Sprawdź, co trafiło do pól, i przekaż rekrutację do searchu."
-        }
+        description="Wybierz klienta i wypełnij formularz — ręcznie albo z maila, pliku lub innej rekrutacji."
         breadcrumb={[
           { label: "Rekrutacje", href: "/jobs" },
           { label: "Nowa rekrutacja" },
         ]}
-        actions={<StepPills step={step} />}
       />
 
-      {step === "request" ? (
-        <NewJobRequestStep
-          client={client}
-          onClientChange={setClient}
-          text={requestText}
-          onTextChange={setRequestText}
-          file={file}
-          onFileChange={setFile}
-          reading={reading}
-          error={readError}
-          onRead={onRead}
-          onSkipAi={onSkipAi}
+      {showUnfinished ? (
+        <UnfinishedIntakeForms
+          items={unfinishedForms}
+          busyId={busyFormId}
+          onResume={(id) => void resumeForm(id)}
+          onDelete={(id) => void removeForm(id)}
+          // Wczytanie innego formularza zastąpiłoby ten, który się nie zapisał.
+          allowResume={pristine}
         />
-      ) : (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-          <section className="flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold text-foreground">
-                Request{client?.name ? ` · ${client.name}` : ""}
-              </h2>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-                onClick={() => setStep("request")}
-              >
-                <ArrowLeft className="h-3.5 w-3.5" /> Zmień request
-              </button>
+      ) : null}
+
+      <NewJobSourceBar
+        client={client}
+        onClientChange={(next) => {
+          // Hiring manager to osoba z firmy klienta — inny klient, inna osoba.
+          if (next?.id !== client?.id) {
+            setForm((f) => ({ ...f, hiringManager: null, hiringManagerNotProvided: false }));
+          }
+          setClient(next);
+        }}
+        clientAsked={clientAsked}
+        onClientRequired={requireClient}
+        clientRef={clientRef}
+        barRef={sourceBarRef}
+        panel={panel}
+        onPanelChange={(next) => {
+          setPanel(next);
+          setReadError(null);
+        }}
+        text={pasteDraft}
+        onTextChange={setPasteDraft}
+        file={file}
+        onFileChange={setFile}
+        reading={reading}
+        error={readError}
+        onRead={(kind) => void onRead(kind)}
+        disabled={saving != null}
+        templatePicker={
+          client ? (
+            <TemplateJobPicker
+              clientId={client.id}
+              usedJobId={templateJobId}
+              busyJobId={templateBusyId}
+              onPick={(job) => void pickTemplate(job)}
+              disabled={saving != null}
+              seed={preview ? (preview.templateJobs ?? []) : undefined}
+            />
+          ) : null
+        }
+      />
+
+      {templateError ? (
+        <div
+          role="alert"
+          className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          {templateError}
+        </div>
+      ) : null}
+
+      <NewJobFillSummary
+        fill={fillInfo}
+        offers={liveOffers.length}
+        onUndo={undoFill}
+        disabled={saving != null || reading}
+      />
+
+      {!hasSourcePane ? similarRequests : null}
+
+      {/* Treść requestu stoi obok formularza tylko wtedy, gdy jest co pokazać;
+          bez niej formularz zajmuje całą szerokość. `minmax(0,1fr)` także
+          w jednej kolumnie: przewijany pasek sekcji rozpychałby inaczej stronę
+          na telefonie do szerokości swoich pozycji. */}
+      <div
+        className={cn(
+          "grid grid-cols-[minmax(0,1fr)] gap-6",
+          hasSourcePane && "xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]",
+        )}
+      >
+        {hasSourcePane ? (
+          <section className="flex flex-col gap-3" data-testid="new-job-source-pane">
+            <h2 className="text-sm font-semibold text-foreground">
+              Request od klienta{client?.name ? ` · ${client.name}` : ""}
+            </h2>
+            <div className="max-h-[35dvh] overflow-auto whitespace-pre-line rounded-xl border border-border bg-card p-4 sm:p-5 xl:max-h-[45dvh] text-sm leading-relaxed text-foreground/80">
+              {segments.map((seg, i) =>
+                seg.mark ? (
+                  <mark
+                    key={i}
+                    className="rounded bg-primary/15 px-0.5 text-foreground"
+                  >
+                    {seg.text}
+                  </mark>
+                ) : (
+                  <span key={i}>{seg.text}</span>
+                ),
+              )}
             </div>
-            {requestText.trim() ? (
-              <div className="max-h-[35dvh] overflow-auto whitespace-pre-line rounded-xl border border-border bg-card p-4 sm:p-5 xl:max-h-[70dvh] text-sm leading-relaxed text-foreground/80">
-                {segments.map((seg, i) =>
-                  seg.mark ? (
-                    <mark
-                      key={i}
-                      className="rounded bg-primary/15 px-0.5 text-foreground"
-                    >
-                      {seg.text}
-                    </mark>
-                  ) : (
-                    <span key={i}>{seg.text}</span>
-                  ),
-                )}
-              </div>
-            ) : (
-              <div className="rounded-xl border border-dashed border-border p-5 text-sm text-muted-foreground">
-                Wypełniasz ręcznie — bez requestu.
-              </div>
-            )}
             {evidence.length > 0 && (
               <p className="text-xs text-muted-foreground">
                 Podświetlone fragmenty trafiły do pól formularza.
               </p>
             )}
-            {!preview && (
-              <SimilarRequestsBanner
-                clientId={client?.id ?? null}
-                title={form.title}
-                description={requestText}
-                templateJobId={templateJobId}
-                onUseAsTemplate={applyTemplateFromJob}
-              />
-            )}
+            {filesCard}
+            {similarRequests}
           </section>
+        ) : null}
 
-          <div className="flex flex-col gap-4">
-            <NewJobReviewForm
-              form={form}
-              onChange={setForm}
-              missing={missing}
-              highlightMissing={readByAi || templateJobId != null}
+        <div className="flex flex-col gap-4">
+          <NewJobSectionNav missing={missing} />
+          <NewJobReviewForm
+            form={form}
+            onChange={setForm}
+            missing={missing}
+            highlightMissing={highlightMissing}
+            missingSource={missingSource}
+            offers={liveOffers}
+            onAcceptOffer={acceptOffer}
+            onDismissOffer={dismissOffer}
+            clientId={client?.id ?? null}
+            countEnabled={!preview}
+            criticalInfo={criticalInfo}
+            onCriticalCountChange={setCriticalReach}
+            clientTitleError={
+              clientTitleAttempted && !jobTitleFor(form) ? CLIENT_TITLE_REQUIRED_TEXT : null
+            }
+            team={
+              <>
+                <NewJobTeamStep
+                  categories={categories}
+                  categoriesIdle={!preview && formPristine}
+                  categoriesLoading={!preview && categoryQuery.isPending}
+                  categoriesFailed={!preview && categoryQuery.isError && !categoryQuery.data}
+                  onCategoriesRetry={() => void categoryQuery.refetch()}
+                  categoryId={form.competenceCategoryId}
+                  suggestedCategoryId={form.suggestedCategoryId}
+                  categoryConfirmed={form.categoryConfirmed}
+                  onCategoryChange={(id, confirmed) =>
+                    setForm((f) => ({
+                      ...f,
+                      competenceCategoryId: id,
+                      categoryConfirmed: confirmed,
+                    }))
+                  }
+                  categoryMissing={highlightMissing && missing.includes("category")}
+                  assignment={assignment}
+                  onAssignmentChange={setAssignmentChoice}
+                  automaticAvailable={automaticAvailable}
+                  automaticOff={automaticOffNotice}
+                  mode={allocationMode}
+                  recruiters={recruiters}
+                  recruitersFailed={recruitersQuery.isError && !recruitersQuery.data}
+                  onRecruitersRetry={() => void recruitersQuery.refetch()}
+                  recruiterId={recruiterId}
+                  onRecruiterChange={(id) => {
+                    setRecruiterId(id);
+                    // Wskazanie osoby to jawny wybór „Wskażę sam”.
+                    if (id != null) setAssignmentChoice("person");
+                  }}
+                  priorityLevel={priorityLevel}
+                  onPriorityChange={setPriorityLevel}
+                  deliveryLead={
+                    <NewJobDeliveryLeadField
+                      clientId={client?.id ?? null}
+                      value={deliveryLeadId}
+                      onChange={setDeliveryLeadId}
+                      disabled={saving != null}
+                    />
+                  }
+                  disabled={saving != null}
+                />
+                {!hasSourcePane ? filesCard : null}
+              </>
+            }
+          />
+          {!preview && (
+            <SimilarJobsPicker
+              key={restoreCount}
+              title={form.title}
+              must={similarMust}
+              clientId={client?.id ?? null}
+              onChange={onSimilarChange}
+              initialSelected={similarJobIds}
             />
-            {!preview && (
-              <SimilarJobsPicker
-                title={form.title}
-                must={form.must}
-                onChange={setSimilarJobIds}
-              />
-            )}
-            {!preview && <ClientAskedBeforeHint clientId={client?.id ?? null} />}
-          </div>
+          )}
+          {!preview && (
+            <NewJobTwinPicker clientId={client?.id ?? null} value={twinJobIds} onChange={setTwinJobIds} />
+          )}
+          {!preview && <ClientAskedBeforeHint clientId={client?.id ?? null} />}
+          {portalsReady && availablePortals.length > 0 && (
+            <NewJobPortalsStep
+              portals={availablePortals}
+              plan={activePortalPlan}
+              onPlanChange={setPortalPlan}
+              findings={portalFindings}
+              preparing={preparingAd}
+              prepareError={prepareAdError}
+              onPrepare={prepareAd}
+              disabled={saving != null}
+            />
+          )}
         </div>
-      )}
+      </div>
 
-      {step === "review" && (
-        <footer className="sticky bottom-0 z-20 mt-2 -mx-4 border-t [@media(max-height:600px)]:static border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 md:-mx-8">
-          <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 md:px-8">
-            <div className="flex min-w-0 items-center gap-3">
+      <footer className="sticky bottom-0 z-20 mt-2 -mx-4 border-t [@media(max-height:600px)]:static border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 md:-mx-8">
+        <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 md:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <span
+              className={cn(
+                "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold",
+                complete
+                  ? "bg-success-muted text-success-muted-foreground"
+                  : "bg-warning-muted text-warning-muted-foreground",
+              )}
+              aria-hidden="true"
+            >
+              {complete ? <Check className="h-4 w-4" /> : gapCount}
+            </span>
+            <div className="flex min-w-0 flex-col" aria-live="polite">
+              <span className="text-sm font-semibold text-foreground">
+                {complete ? "Gotowa do publikacji" : missingHeadline(gapCount)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {!complete ? (
+                  <>
+                    {!client ? (
+                      <a
+                        href={`#${CLIENT_FIELD_ANCHOR}`}
+                        className="underline-offset-2 hover:text-foreground hover:underline"
+                      >
+                        klient
+                      </a>
+                    ) : null}
+                    {missing.map((code, index) => (
+                      <span key={code}>
+                        {index > 0 || !client ? " · " : null}
+                        <a
+                          href={`#${sectionAnchor(MISSING_SECTION[code])}`}
+                          className="underline-offset-2 hover:text-foreground hover:underline"
+                        >
+                          {MISSING_LABEL[code]}
+                        </a>
+                      </span>
+                    ))}
+                  </>
+                ) : !hasRecruiter ? (
+                  "Wybierz rekrutera prowadzącego w sekcji „Kategoria i zespół” — wtedy opublikujesz rekrutację."
+                ) : portalBlocker ? (
+                  `Ogłoszenie na portalach: ${portalBlocker}`
+                ) : automatic ? (
+                  automaticHandoffOutcome(allocationMode, automatSkips)
+                ) : (
+                  "Uczestnikami zostaną wszyscy z potwierdzonej kategorii."
+                )}
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {saveError && (
+              <span
+                role="alert"
+                className="max-w-md text-xs text-destructive"
+              >
+                {saveError}
+              </span>
+            )}
+            {autosaveText && (
               <span
                 className={cn(
-                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold",
-                  ready
-                    ? "bg-success-muted text-success-muted-foreground"
-                    : "bg-warning-muted text-warning-muted-foreground",
+                  "max-w-xs text-xs",
+                  autosave.status === "error"
+                    ? "text-warning-muted-foreground"
+                    : "text-muted-foreground",
                 )}
-                aria-hidden="true"
+                data-testid="new-job-autosave"
               >
-                {ready ? <Check className="h-4 w-4" /> : missing.length}
+                {autosaveText}
               </span>
-              <div className="flex min-w-0 flex-col" aria-live="polite">
-                <span className="text-sm font-semibold text-foreground">
-                  {ready
-                    ? "Gotowa do searchu"
-                    : missingHeadline(missing.length)}
-                </span>
-                <span className="truncate text-xs text-muted-foreground">
-                  {!ready
-                    ? missing.map((code) => MISSING_LABEL[code]).join(" · ")
-                    : recruiterId == null
-                      ? "Wybierz, kto poprowadzi rekrutację — wtedy przekażesz ją do searchu."
-                      : "Szablon procesu, kategoria i zespół ustawią się same."}
-                </span>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {saveError && (
-                <span
-                  role="alert"
-                  className="max-w-md text-xs text-destructive"
-                >
-                  {saveError}
-                </span>
-              )}
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                Prowadzi
-                <select
-                  aria-label="Rekruter prowadzący"
-                  className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-foreground"
-                  value={recruiterId ?? ""}
-                  onChange={(e) =>
-                    setRecruiterId(
-                      e.target.value ? Number(e.target.value) : null,
-                    )
-                  }
-                >
-                  <option value="">Wybierz rekrutera…</option>
-                  {recruiters.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name || r.email || `#${r.id}`}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => save("draft")}
-                disabled={saving != null}
-                loading={saving === "draft"}
-              >
-                Zapisz szkic
-              </Button>
-              <Button
-                type="button"
-                onClick={() => save("handoff")}
-                disabled={!canHandoff}
-                loading={saving === "handoff"}
-                title={
-                  !ready
-                    ? "Uzupełnij braki, żeby przekazać do searchu"
-                    : recruiterId == null
-                      ? "Wybierz rekrutera, który poprowadzi rekrutację"
-                      : undefined
-                }
-              >
-                Utwórz i przekaż do searchu
-              </Button>
-            </div>
+            )}
+            {/* Kategoria, prowadzący i priorytet mają własną sekcję
+                (`NewJobTeamStep`) — tu zostają tylko przyciski, żeby
+                przyklejona stopka nie zabierała laptopowi jednej trzeciej okna. */}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void saveForLater()}
+              // Pustej strony nie ma po co odkładać — nie ma na niej żadnej pracy.
+              disabled={
+                saving != null || reading || client == null || contentPristine || preview != null
+              }
+              loading={saving === "later"}
+            >
+              Dokończę później
+            </Button>
+            <Button
+              type="button"
+              // Przy brakach przycisk zostaje aktywny: kliknięcie niczego nie
+              // wysyła, tylko podświetla brakujące pola i przewija do pierwszego.
+              onClick={() => (complete ? void create() : attemptCreate())}
+              // W trakcie odczytu (do 2 minut) formularz zaraz się zmieni —
+              // utworzenie teraz zgubiłoby to, co odczyt właśnie przynosi.
+              disabled={saving != null || reading || (complete && !canHandoff)}
+              loading={saving === "create"}
+              title={
+                !client
+                  ? "Wybierz klienta, żeby opublikować rekrutację"
+                  : !ready
+                    ? "Uzupełnij braki, żeby opublikować rekrutację"
+                    : !hasRecruiter
+                      ? automaticAvailable
+                        ? "Wybierz rekrutera prowadzącego albo zostaw to automatowi"
+                        : "Wybierz rekrutera prowadzącego, żeby opublikować rekrutację"
+                      : portalBlocker
+                        ? `Ogłoszenie na portalach: ${portalBlocker}`
+                        : criticalPending
+                          ? "Sprawdzam umiejętności krytyczne…"
+                          : undefined
+              }
+            >
+              Utwórz i opublikuj
+            </Button>
           </div>
-        </footer>
-      )}
+        </div>
+        {serverBlockers && serverBlockers.length > 0 && (
+          <div
+            role="alert"
+            data-testid="new-job-server-blockers"
+            className="border-t border-border px-4 py-3 md:px-8"
+          >
+            <p className="text-sm font-semibold text-foreground">
+              {serverBlockersHeadline(serverBlockers.length)}
+            </p>
+            <ul className="mt-1 flex flex-col gap-0.5 text-xs text-foreground">
+              {serverBlockers.map((blocker, index) => {
+                const section = serverBlockerSection(blocker.code);
+                return (
+                  <li key={`${blocker.code}-${index}`}>
+                    {section ? (
+                      <a
+                        href={`#${sectionAnchor(section)}`}
+                        className="underline underline-offset-2 hover:text-primary"
+                      >
+                        {blocker.message}
+                      </a>
+                    ) : (
+                      blocker.message
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {formIsSaved
+                ? "Formularz jest zapisany, nic nie przepadło."
+                : "Zapisuję formularz na Twoim koncie — nic nie przepadnie."}
+            </p>
+          </div>
+        )}
+      </footer>
     </div>
-  );
-}
-
-function StepPills({ step }: { step: Step }) {
-  return (
-    <ol className="flex items-center gap-2" aria-label="Kroki">
-      <li
-        aria-current={step === "request" ? "step" : undefined}
-        className={cn(
-          "rounded-full px-3 py-1 text-xs font-medium",
-          step === "request"
-            ? "bg-primary text-primary-foreground"
-            : "border border-border bg-card text-muted-foreground",
-        )}
-      >
-        1 · Request
-      </li>
-      <li aria-hidden="true" className="h-px w-6 bg-border" />
-      <li
-        aria-current={step === "review" ? "step" : undefined}
-        className={cn(
-          "rounded-full px-3 py-1 text-xs font-medium",
-          step === "review"
-            ? "bg-primary text-primary-foreground"
-            : "border border-border bg-card text-muted-foreground",
-        )}
-      >
-        2 · Sprawdź i przekaż
-      </li>
-    </ol>
   );
 }

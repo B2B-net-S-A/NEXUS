@@ -21,14 +21,16 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Send } from "lucide-react";
+import { AlertCircle, Loader2, Send } from "lucide-react";
 
 import api, { extractErrorMsg } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { TabbedNav } from "@/components/ds";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
-import { cn, formatDate } from "@/lib/utils";
+import { JobNotesList } from "@/components/v2/candidate-profile/JobNotesList";
+import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
+import { cn } from "@/lib/utils";
 
 /** Tony makiety: `ok` (zielony), `warn`, `bad`, `info`, `neutral`. */
 export type ChromeTone = "ok" | "warn" | "bad" | "info" | "neutral";
@@ -628,12 +630,15 @@ export function ChromeTimelineEntry({
 
 // ── Notatki w doku ──────────────────────────────────────────────────────────
 
-interface NoteListItem {
+export interface JobNoteItem {
   id: number;
   content: string;
   content_rendered?: string | null;
   author_name?: string | null;
   created_at: string;
+  is_system?: boolean;
+  pinned_at?: string | null;
+  replies?: JobNoteItem[];
 }
 
 /**
@@ -644,6 +649,88 @@ interface NoteListItem {
  * montuje się przy każdym wyborze kandydata i pobieranie notatek „na zapas"
  * byłoby zapytaniem per wiersz kolejki.
  */
+/**
+ * Awaria odczytu w doku osoby. Runda 10 (R10-N15-3): pusty stan („Brak …”)
+ * wolno pokazać wyłącznie po udanym odczycie — przy `retry: 0` awaria daje
+ * od razu `isLoading=false`, a rekruter czytający „Brak notatek” dopisywał
+ * notatkę albo robił screening drugi raz.
+ */
+export function DockLoadError({ what, onRetry }: { what: string; onRetry: () => void }) {
+  return (
+    <p role="alert" className="flex items-start gap-1.5 text-xs text-muted-foreground">
+      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        Nie udało się wczytać: {what}.{" "}
+        <button
+          type="button"
+          className="font-medium text-primary hover:underline"
+          onClick={onRetry}
+        >
+          Ponów
+        </button>
+      </span>
+    </p>
+  );
+}
+
+/**
+ * Notatki osoby w TEJ rekrutacji — jeden klucz zapytania dla doku na Tablicy,
+ * warsztatu osoby i doków kroków (jeden panel osoby, 04.10.2026). Notatka
+ * dodana w jednym miejscu jest od razu widoczna w pozostałych i na profilu.
+ */
+export function jobNotesQueryKey(candidateId: number, jobId: number) {
+  return [...candidateQueryKeys.notes(candidateId), jobId] as const;
+}
+
+export function useJobNotes(candidateId: number, jobId: number, enabled = true) {
+  return useQuery<{ items?: JobNoteItem[] }>({
+    queryKey: jobNotesQueryKey(candidateId, jobId),
+    queryFn: () =>
+      api
+        .get(`/api/notes?candidate_id=${candidateId}&job_id=${jobId}`)
+        .then((r) => r.data),
+    enabled,
+  });
+}
+
+/**
+ * Lista notatek pary z ładowaniem i błędem. Pusty stan tylko po udanym
+ * odczycie — awaria nie może wyglądać jak „brak notatek”.
+ */
+export function JobNotesBlock({
+  candidateId,
+  query,
+  readOnly,
+  emptyText,
+}: {
+  candidateId: number;
+  query: ReturnType<typeof useJobNotes>;
+  readOnly: boolean;
+  emptyText?: string;
+}) {
+  if (query.isLoading) {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
+      </div>
+    );
+  }
+  if (query.isError) {
+    return <DockLoadError what="notatki" onRetry={() => void query.refetch()} />;
+  }
+  if (!query.isSuccess) return null;
+  // Ta sama lista co w „Historii” profilu: odpowiedzi, przypięte pierwsze,
+  // notatki automatów za „Pokaż systemowe (N)”.
+  return (
+    <JobNotesList
+      candidateId={candidateId}
+      notes={query.data?.items ?? []}
+      readOnly={readOnly}
+      emptyText={emptyText}
+    />
+  );
+}
+
 export function DockNotesPanel({
   candidateId,
   jobId,
@@ -659,14 +746,7 @@ export function DockNotesPanel({
   const queryClient = useQueryClient();
   const [noteText, setNoteText] = useState("");
 
-  const notesQuery = useQuery<{ items?: NoteListItem[] }>({
-    queryKey: [...candidateQueryKeys.notes(candidateId), jobId],
-    queryFn: () =>
-      api
-        .get(`/api/notes?candidate_id=${candidateId}&job_id=${jobId}`)
-        .then((r) => r.data),
-    enabled,
-  });
+  const notesQuery = useJobNotes(candidateId, jobId, enabled);
 
   const addNoteMutation = useMutation({
     mutationFn: (content: string) =>
@@ -697,24 +777,24 @@ export function DockNotesPanel({
     addNoteMutation.mutate(content);
   };
 
-  const items = notesQuery.data?.items ?? [];
-
   return (
     <div className="space-y-3">
       {!readOnly && (
         <div className="space-y-1.5">
-          <textarea
+          <MentionTextarea
             value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
+            onChange={setNoteText}
+            scope={{ kind: "job", jobId }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 submitNote();
               }
             }}
-            placeholder="Notatka z rozmowy… (Enter wysyła, Shift+Enter nowa linia)"
+            ariaLabel="Notatka z rozmowy"
+            placeholder="Notatka z rozmowy… (@ oznacza osobę, Enter wysyła, Shift+Enter nowa linia)"
             rows={2}
-            className="w-full rounded-md border border-border bg-card px-3 py-2 text-xs focus:ring-2 focus:ring-primary focus:outline-hidden"
+            className="rounded-md text-xs focus:ring-primary"
           />
           <div className="flex justify-end">
             <Button
@@ -729,34 +809,7 @@ export function DockNotesPanel({
           </div>
         </div>
       )}
-      {notesQuery.isLoading ? (
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
-        </div>
-      ) : items.length > 0 ? (
-        <div className="space-y-2">
-          {items.map((n) => (
-            <div
-              key={n.id}
-              className="rounded-lg border border-border bg-muted/20 p-2.5 text-xs"
-            >
-              <div className="mb-1 flex items-center justify-between text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {n.author_name ?? "Nieznany autor"}
-                </span>
-                <span>{formatDate(n.created_at)}</span>
-              </div>
-              <p className="whitespace-pre-line text-foreground">
-                {n.content_rendered ?? n.content}
-              </p>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="text-xs text-muted-foreground">
-          Brak notatek dla tej rekrutacji.
-        </p>
-      )}
+      <JobNotesBlock candidateId={candidateId} query={notesQuery} readOnly={readOnly} />
     </div>
   );
 }

@@ -21,6 +21,7 @@
 import { Mail, Phone } from "lucide-react";
 
 import { InlineText } from "@/components/orders/InlineOrderFields";
+import { formatPhone } from "@/lib/phone-format";
 
 export type ContactSource = "contract" | "candidate_profile" | null;
 
@@ -60,6 +61,7 @@ function ContactField({
   onSave,
   onError,
   placeholder,
+  format = (v) => v,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
@@ -69,13 +71,15 @@ function ContactField({
   onSave: (raw: string) => Promise<void>;
   onError: (message: string) => void;
   placeholder: string;
+  /** Tylko to, co widać; edycja dostaje numer tak, jak go zapisano. */
+  format?: (value: string) => string;
 }) {
   const display = value ? (
     // `min-w-0` na obu poziomach jest load-bearing: bez niego długi adres
     // e-mail nie daje się przyciąć i ZAWIJA się pod ikonę, przepychając ołówek
     // poza pierwszą linię — wygląda to jak usterka układu, a nie jak decyzja.
     <span className="block min-w-0 truncate" title={value}>
-      {value}
+      {format(value)}
     </span>
   ) : (
     <span className="text-muted-foreground">—</span>
@@ -150,6 +154,7 @@ export function ContractCandidateContactRow({
         onSave={onSavePhone}
         onError={onError}
         placeholder="+48 600 100 200"
+        format={formatPhone}
       />
     </div>
   );

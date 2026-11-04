@@ -8,7 +8,10 @@ poniżej odpowiada za część tego czasu i łatwo ją cofnąć „przy okazji�
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import yaml
@@ -192,7 +195,9 @@ def test_deploys_are_batched_but_manual_deploy_does_not_wait() -> None:
     select = _load("deploy.yml")["jobs"]["select"]
     wait = _step(select["steps"], "Poczekaj na ciszę na mainie (grupowanie deployów)")
     assert wait["if"] == "${{ github.event_name != 'workflow_dispatch' }}"
-    assert "DEPLOY_QUIET_SECONDS" in wait["env"]["QUIET"]
+    assert wait["env"]["QUIET"] == "${{ vars.DEPLOY_QUIET_SECONDS || '0' }}", (
+        "Domyślnie bez czekania na ciszę (decyzja 26.09.2026)."
+    )
     assert "900" in wait["run"], (
         "Ciągły strumień merge'ów nie może blokować deployu bez końca."
     )
@@ -219,7 +224,11 @@ def test_selector_hub_modules_do_not_select_half_the_suite() -> None:
     assert not indirect, "config.py importuje prawie każdy test — to zadanie kolejki."
     assert all(
         Path(t).name == "test_config.py" or Path(t).name.startswith("test_config_")
-        for t in direct - set(sel._ALWAYS)
+        for t in direct
+        - set(sel._ALWAYS)
+        - {sel._AUTHZ_MATRIX}
+        - set(sel._ROUTE_CONTRACTS)
+        - set(sel.tree_scanner_nodes(sel._test_files()))
     )
 
 
@@ -239,12 +248,245 @@ def test_selector_always_runs_repo_guards_even_for_frontend_only_prs() -> None:
         assert guard in direct
 
 
+def test_selector_runs_the_route_guard_matrix_for_any_application_change() -> None:
+    """Zmiana bramki ma wyjść na PR-ze, nie dopiero w kolejce merge'ów."""
+    sel = _selector()
+    for changed in (
+        "backend/app/api/contracts.py",
+        "backend/app/core/config.py",
+        "backend/app/services/client_access.py",
+        "backend/tests/data/authz_golden/contracts.json",
+    ):
+        direct, _ = sel.select([changed])
+        assert sel._AUTHZ_MATRIX in direct, changed
+    direct, indirect = sel.select(["frontend/src/components/EditOrderDialog.tsx"])
+    assert sel._AUTHZ_MATRIX not in direct | indirect
+
+
+def test_selector_runs_route_contracts_for_a_router_that_does_not_name_them() -> None:
+    """#2611 (23.10.2026): własna bramka w ``api/pre_contracts.py`` przeszła sito,
+    a strażnik sekcji wyrzucił ją w kolejce — razem z każdym PR-em za nią."""
+    sel = _selector()
+    direct, _ = sel.select(["backend/app/api/pre_contracts.py"])
+    for contract in sel._ROUTE_CONTRACTS:
+        assert (_REPO / "backend" / contract).is_file(), f"Kontrakt {contract} zniknął."
+        assert contract in direct
+    direct, indirect = sel.select(["frontend/src/components/EditOrderDialog.tsx"])
+    assert not set(sel._ROUTE_CONTRACTS) & (direct | indirect)
+
+
 def test_selector_budget_keeps_direct_and_drops_slowest_indirect() -> None:
     sel = _selector()
     durations = {"a": 100.0, "b": 10.0, "c": 50.0, "d": 200.0}
-    kept, dropped = sel.apply_budget({"a"}, {"b", "c", "d"}, 170.0, durations)
+    # Budżet liczy też narzut procesu pytest (kolekcja + 0,3 s na plik).
+    kept, dropped = sel.apply_budget({"a"}, {"b", "c", "d"}, 200.0, durations)
     assert kept == ["a", "b", "c"]
     assert dropped == ["d"]
+
+
+_NEW_GUARDS_21_10 = (
+    "tests/test_no_import_time_dates.py",
+    "tests/test_core_tasks_spawn.py",
+    "tests/test_integrations_v1_contract.py",
+)
+
+
+def test_one_application_file_runs_the_guards_that_ejected_prs_on_21_10() -> None:
+    """#2522 (ranking_publish.py:160, daty przy imporcie), #2540, #2542 (EventOut)
+    — PR zmieniał jeden moduł `app/`, sito nie widziało strażnika, kolejka tak."""
+    sel = _selector()
+    for changed in (
+        "backend/app/services/ranking_publish.py",
+        "backend/app/api/pre_contracts.py",
+    ):
+        direct, _ = sel.select([changed])
+        for guard in _NEW_GUARDS_21_10:
+            assert guard in direct, (changed, guard)
+        kept, _ = sel.apply_budget(direct, set(), 0.0, sel._load_durations())
+        assert set(_NEW_GUARDS_21_10) <= set(kept), "Strażnik nie podlega budżetowi."
+
+
+_RATE_GUARD = (
+    "tests/test_rate_from_readers_guard.py"
+    "::test_profile_rate_is_read_only_by_allowed_modules"
+)
+
+
+def test_any_change_runs_every_tree_scanner_without_listing_it() -> None:
+    """#2649 (25.10.2026): ``services/new_column_autofill.py:250`` czytał
+    ``expected_rate_hourly`` poza listą strażnika stawki. Sito zielone (strażnika
+    nie było w ``_ALWAYS``), w kolejce czerwony w każdej grupie z #2649. 31
+    z 41 plików skanujących drzewo nie było na liście — teraz sito znajduje
+    je samo, bez dopisywania."""
+    sel = _selector()
+    for changed in (
+        "backend/app/services/new_column_autofill.py",
+        "frontend/src/components/EditOrderDialog.tsx",
+    ):
+        direct, _ = sel.select([changed])
+        assert _RATE_GUARD in direct, changed
+        kept, _ = sel.apply_budget(direct, set(), 0.0, sel._load_durations())
+        assert _RATE_GUARD in kept, "Strażnik nie podlega budżetowi."
+    nodes = sel.tree_scanner_nodes(sel._test_files())
+    assert len(nodes) >= 50, len(nodes)
+    for node in nodes:
+        assert node not in sel._QUEUE_ONLY_SCANNERS
+
+
+def test_tree_scanner_already_selected_as_a_file_is_not_run_twice() -> None:
+    sel = _selector()
+    direct, _ = sel.select(["backend/tests/test_rate_from_readers_guard.py"])
+    assert "tests/test_rate_from_readers_guard.py" in direct
+    assert _RATE_GUARD not in direct
+
+
+def test_tree_scanner_discovery_skips_database_and_slow_tests() -> None:
+    sel = _selector()
+    source = (
+        "from pathlib import Path\n"
+        "APP = Path('app')\n"
+        "def _files():\n"
+        "    return list(APP.rglob('*.py'))\n"
+        "def test_helper_scan():\n"
+        "    assert _files()\n"
+        "def test_direct_scan(monkeypatch):\n"
+        "    assert list(APP.rglob('*.py'))\n"
+        "async def test_async_scan(db_session):\n"
+        "    assert _files()\n"
+        "def test_client_scan(client):\n"
+        "    assert _files()\n"
+        "def test_no_scan():\n"
+        "    assert True\n"
+    )
+    nodes = sel.tree_scanner_nodes({"tests/test_x.py": source})
+    assert nodes == [
+        "tests/test_x.py::test_direct_scan",
+        "tests/test_x.py::test_helper_scan",
+    ]
+
+
+def test_guards_mode_lists_exactly_the_repo_guards() -> None:
+    out = subprocess.run(
+        [
+            sys.executable,
+            str(_REPO / ".github" / "scripts" / "select_pr_tests.py"),
+            "--guards",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        stdin=subprocess.DEVNULL,
+    ).stdout.split()
+    sel = _selector()
+    guards = list(sel._ALWAYS + sel._ROUTE_CONTRACTS)
+    assert out[: len(guards)] == guards
+    scanners = out[len(guards) :]
+    assert _RATE_GUARD in scanners
+    assert all(node.split("::")[0] not in guards for node in scanners)
+
+
+def test_repo_guards_need_no_database() -> None:
+    """Strażnicy biegną też w ci-gate przed migracjami — bez fixture'ów bazy."""
+    sel = _selector()
+    for guard in sel._ALWAYS + sel._ROUTE_CONTRACTS:
+        source = (_REPO / "backend" / guard).read_text(encoding="utf-8")
+        assert not re.search(
+            r"def test_\w+\([^)]*\b(db|db_session|app_client)\b", source
+        ), guard
+
+
+def test_budget_estimate_matches_recorded_sieve_runs() -> None:
+    """Szacunek ma odpowiadać zegarowi. Do 21.10.2026 mapa czasów miała pomiar
+    dla 1048 z 1967 plików (reszta ważyła 1 s), a macierz bramek 22 s zamiast
+    ~150 — sito „na 5 min” trwało 8–15 min samego pytesta.
+
+    Biegi z ``data/sieve_runs_2026_10_21.json`` nie wchodzą do mapy (od
+    22.10.2026 mapa to wyłącznie shardy kolejki, przeliczone ×0,8 na brak
+    pokrycia). Ten sam wybór na różnych runnerach różni się do ~1,4× (s3),
+    dlatego próg per bieg jest szerszy niż próg dla sumy."""
+    sel = _selector()
+    durations = sel._load_durations()
+    runs = json.loads(
+        (_REPO / "backend" / "tests" / "data" / "sieve_runs_2026_10_21.json").read_text(
+            encoding="utf-8"
+        )
+    )["runs"]
+    assert len(runs) >= 3
+    ratios = []
+    for run in runs:
+        ratio = sel.estimate_seconds(run["files"], durations) / run["pytest_seconds"]
+        ratios.append(ratio)
+        assert 0.7 <= ratio <= 1.4, (run["job"], round(ratio, 2))
+    total = sum(sel.estimate_seconds(r["files"], durations) for r in runs)
+    actual = sum(r["pytest_seconds"] for r in runs)
+    assert 0.7 <= total / actual <= 1.3, round(total / actual, 2)
+
+
+def test_sieve_shards_split_the_selection_and_the_route_matrix() -> None:
+    sel = _selector()
+    durations = sel._load_durations()
+    small = ["tests/test_claude_md_index.py", "tests/test_loop_heartbeat.py"]
+    plan = sel.plan_shards(small, durations, 3)
+    assert plan[0] == (small, None)
+    assert plan[1:] == [([], None), ([], None)], "Mały wybór = jedna część."
+
+    run = json.loads(
+        (_REPO / "backend" / "tests" / "data" / "sieve_runs_2026_10_21.json").read_text(
+            encoding="utf-8"
+        )
+    )["runs"][0]
+    kept = sorted(run["files"])
+    assert sel._AUTHZ_MATRIX in kept
+    plan = sel.plan_shards(kept, durations, 3)
+    assert [s for _, s in plan] == ["0/3", "1/3", "2/3"]
+    rest = [f for files, _ in plan for f in files if f != sel._AUTHZ_MATRIX]
+    assert sorted(rest) + [sel._AUTHZ_MATRIX] == sorted(
+        [f for f in kept if f != sel._AUTHZ_MATRIX]
+    ) + [sel._AUTHZ_MATRIX], "Każdy plik w dokładnie jednej części."
+    assert all(sel._AUTHZ_MATRIX in files for files, _ in plan)
+    loads = [sel._shard_estimate(files, s, durations) for files, s in plan]
+    assert max(loads) <= sel.SHARD_TARGET_SECONDS * 1.25, loads
+
+
+def test_sieve_job_has_as_many_parts_as_the_selector_plans() -> None:
+    job = _load("ci.yml")["jobs"]["backend-pr-tests"]
+    assert len(job["strategy"]["matrix"]["part"]) == _selector().SIEVE_SHARDS
+    assert job["strategy"]["fail-fast"] is False
+    pick = _step(job["steps"], "Wybierz testy dla zmienionych plików")["run"]
+    assert '--shards "${{ strategy.job-total }}"' in pick
+    assert '--shard "${{ strategy.job-index }}"' in pick
+    assert '--env-out "$GITHUB_ENV"' in pick, "Bez tego macierz nie dzieli się."
+
+
+def test_queue_runs_the_repo_guards_in_the_fast_required_job() -> None:
+    """Zły PR ma wypaść z kolejki po ~3 min, nie po ~25 (21.10.2026)."""
+    job = _load("ci-gate.yml")["jobs"]["backend-fast"]
+    assert job["name"] == "Backend (lint + migrations)", "Wymagany kontekst."
+    names = [s.get("name") for s in job["steps"]]
+    step = _step(job["steps"], "Strażnicy repo (bez bazy, kolejka merge'ów)")
+    assert step["if"] == "${{ github.event_name == 'merge_group' }}"
+    assert "select_pr_tests.py --guards" in step["run"]
+    assert "DATABASE_URL" not in (step.get("env") or {})
+    assert names.index(step["name"]) < names.index(
+        "Alembic legacy-row, retry, and contact-queue rollback probe"
+    ), "Przed migracjami — inaczej sygnał przychodzi później."
+
+
+def test_frontend_sieve_always_runs_the_repo_guards() -> None:
+    step = _step(
+        _load("ci.yml")["jobs"]["frontend-lint-build"]["steps"],
+        "Vitest (testy dotknięte zmianą)",
+    )
+    guards = (
+        "src/__tests__/",
+        "src/components/v2/shell/__tests__/BreadcrumbV2.test.tsx",
+        "src/lib/__tests__/recruitment-feature-parity.test.ts",
+        "src/lib/__tests__/orders-contracts-feature-parity.test.ts",
+        "src/lib/__tests__/candidate-profile-feature-parity.test.ts",
+    )
+    for guard in guards:
+        assert guard in step["run"], guard
+        assert (_REPO / "frontend" / guard).exists(), guard
 
 
 def test_ready_prs_enter_the_queue_by_themselves_with_a_real_token() -> None:

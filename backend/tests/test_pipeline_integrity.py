@@ -188,6 +188,7 @@ async def test_hourly_rate_within_budget_stays_active(
 ):
     """100 PLN/h ×168 = 16 800 < 25 000 → active."""
     cand, (job, _) = await _seed_candidate(), await _seed_job(salary_max=25000)
+    await _seed_stage(cand, job, "new")  # R9-N11-4: najpierw w „Nowych”
     r = await app_client.post(
         MOVE,
         json={
@@ -693,6 +694,7 @@ async def test_hourly_rate_over_monthly_budget_stays_active(
     """150 PLN/h ×168 = 25 200 > 25 000 — do 17.09.2026 `pending`, dziś `active`;
     snapshot budżetu zostaje dla audytu."""
     cand, (job, _) = await _seed_candidate(), await _seed_job(salary_max=25000)
+    await _seed_stage(cand, job, "new")  # R9-N11-4: najpierw w „Nowych”
     r = await app_client.post(
         MOVE,
         json={
@@ -714,6 +716,7 @@ async def test_foreign_currency_rate_stays_active(
 ):
     """EUR nie jest porównywane z budżetem — ale też niczego nie blokuje."""
     cand, (job, _) = await _seed_candidate(), await _seed_job(salary_max=25000)
+    await _seed_stage(cand, job, "new")  # R9-N11-4: najpierw w „Nowych”
     r = await app_client.post(
         MOVE,
         json={
@@ -769,6 +772,114 @@ async def test_kanban_carries_sheet_badges_and_profile_rate(
     assert items[empty_sheet_cand]["screening_done"] is False
 
 
+async def test_kanban_closed_card_carries_reason_and_who_closed_it(
+    app_client: AsyncClient, app_auth_headers
+):
+    """Panel osoby i karta w „Odrzuconych” pokazują powód i kto odrzucił
+    (19.10.2026). Etykieta powodu po polsku, z bazy, nawet gdy powód wycofano
+    z szablonu; karta w toku tych pól nie niesie."""
+    from sqlalchemy import select
+
+    from app.models.pipeline_template import RejectionReason, TerminalType
+    from app.models.recruitment_pipeline import CandidateStage
+    from app.models.user import User
+
+    rejected, open_cand = await _seed_candidate(), await _seed_candidate()
+    job, _ = await _seed_job()
+    tpl_id, _, _ = await _seed_template()
+    rejected_stage = await _seed_stage(rejected, job, "rejected")
+    await _seed_stage(open_cand, job, "screening")
+    async with AsyncSessionLocal() as db:
+        admin = await db.scalar(
+            select(User).where(User.email == app_client.headers["X-Test-Admin-Email"])
+        )
+        reason = RejectionReason(
+            template_id=tpl_id,
+            name="salary_mismatch",
+            category=TerminalType.rejected,
+            active=False,
+        )
+        db.add(reason)
+        await db.flush()
+        row = await db.get(CandidateStage, rejected_stage)
+        row.rejection_reason_id = reason.id
+        row.moved_by = admin.id
+        row.notes = "Oczekuje 190 zł/h, budżet do 150."
+        admin_name = admin.name
+        await db.commit()
+
+    r = await app_client.get(f"/api/pipeline/kanban/{job}", headers=app_auth_headers)
+    assert r.status_code == 200, r.text
+    items = {
+        item["candidate_id"]: item
+        for col in r.json()["columns"]
+        for item in col["items"]
+    }
+    closed = items[rejected]
+    assert closed["rejection_reason_name"] == "Rozbieżność oczekiwań finansowych"
+    assert closed["closed_by_name"] == admin_name
+    assert closed["notes"] == "Oczekuje 190 zł/h, budżet do 150."
+    assert items[open_cand]["rejection_reason_name"] is None
+    assert items[open_cand]["closed_by_name"] is None
+
+
+async def test_kanban_in_a_job_without_questions_asks_for_the_assessment(
+    app_client: AsyncClient, app_auth_headers
+):
+    """Zgłoszenie 13.10.2026: rekrutacja bez pytań screeningowych nie ma
+    arkusza, a karta w „Screeningu” dalej prosiła o jego uzupełnienie. Karta
+    niesie teraz wymaganie „Dlaczego ten kandydat” i wie, czy jest wpisane."""
+    from app.models.job import Job
+    from app.models.recommendation_card import RecommendationCard
+
+    assessed, bare = await _seed_candidate(), await _seed_candidate()
+    job, _ = await _seed_job()
+    with_questions, _ = await _seed_job()
+    asked = await _seed_candidate()
+    for cand in (assessed, bare):
+        await _seed_stage(cand, job, "screening")
+    await _seed_stage(asked, with_questions, "screening")
+    async with AsyncSessionLocal() as db:
+        (await db.get(Job, with_questions)).champion_profile = {
+            "screening_questions": [{"id": "q1", "question": "Ile lat z Javą?"}]
+        }
+        for cand, job_id in ((assessed, job), (asked, with_questions)):
+            db.add(
+                RecommendationCard(
+                    candidate_id=cand,
+                    job_id=job_id,
+                    fields_manual={
+                        "recommendation": {
+                            "raw": "Zna raportowanie podatkowe.",
+                            "at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    },
+                )
+            )
+        await db.commit()
+
+    async def cards(job_id: int) -> dict[int, dict]:
+        r = await app_client.get(
+            f"/api/pipeline/kanban/{job_id}", headers=app_auth_headers
+        )
+        assert r.status_code == 200, r.text
+        return {
+            item["candidate_id"]: item
+            for col in r.json()["columns"]
+            for item in col["items"]
+        }
+
+    no_questions = await cards(job)
+    assert no_questions[assessed]["screening_requirement"] == "why_candidate"
+    assert no_questions[assessed]["screening_done"] is True
+    assert no_questions[bare]["screening_requirement"] == "why_candidate"
+    assert no_questions[bare]["screening_done"] is False
+    # Rekrutacja z pytaniami: ocena nie zastępuje arkusza, pole zostaje puste.
+    asked_card = (await cards(with_questions))[asked]
+    assert asked_card["screening_requirement"] is None
+    assert asked_card["screening_done"] is False
+
+
 async def test_move_from_legacy_pending_row_is_allowed(
     app_client: AsyncClient, app_auth_headers
 ):
@@ -792,6 +903,9 @@ async def test_rejection_email_is_scheduled_only_on_explicit_opt_in(
 
     schedule = AsyncMock(return_value=None)
     monkeypatch.setattr(scheduler, "maybe_schedule", schedule)
+    # Runda 9 (R9-N11-1): mail wychodzi ze skrzynki odrzucającego — tu udajemy,
+    # że ją ma (test niżej sprawdza przypadek bez skrzynki).
+    monkeypatch.setattr(scheduler, "sender_has_mailbox", AsyncMock(return_value=True))
 
     cand, (job, _) = await _seed_candidate(), await _seed_job()
     await _seed_stage(cand, job, "cv_sent")
@@ -823,3 +937,203 @@ async def test_rejection_email_is_scheduled_only_on_explicit_opt_in(
     )
     assert r2.status_code == 200, r2.text
     schedule.assert_awaited_once()
+    # Mail planuje się na OSOBĘ, która odrzuca, nie na prowadzącego rekrutacji.
+    me = await app_client.get("/api/auth/me", headers=app_auth_headers)
+    assert schedule.await_args.kwargs["recruiter_id"] == me.json()["id"]
+    # Atrapa nic nie zapisała → serwer mówi wprost, że maila nie ma.
+    assert r2.json()["rejection_email_status"] == "not_client_visible"
+    assert r.json()["rejection_email_status"] is None
+
+
+async def test_rejection_email_without_mailbox_is_refused_out_loud(
+    app_client: AsyncClient, app_auth_headers, monkeypatch
+):
+    """Runda 9 (R9-N11-1/N11-2): odrzucający bez skrzynki M365 nie dostaje
+    maila zaplanowanego z cudzej skrzynki ani cichego `skipped` po 15 minutach
+    — odpowiedź ruchu mówi `no_mailbox`, a wiersz harmonogramu nie powstaje."""
+    from unittest.mock import AsyncMock
+
+    from sqlalchemy import select
+
+    import app.services.rejection_email_scheduler as scheduler
+    from app.models.rejection_email import ScheduledRejectionEmail
+
+    monkeypatch.setattr(scheduler, "sender_has_mailbox", AsyncMock(return_value=False))
+    cand, (job, _) = await _seed_candidate(), await _seed_job()
+    await _seed_stage(cand, job, "cv_sent")
+    r = await app_client.post(
+        MOVE,
+        json={
+            "candidate_id": cand,
+            "job_id": job,
+            "stage": "rejected",
+            "rejection_reason": "Klient wybrał innego kandydata",
+            "send_rejection_email": True,
+        },
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["rejection_email_status"] == "no_mailbox"
+    assert r.json()["scheduled_rejection_email_id"] is None
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(ScheduledRejectionEmail.id).where(
+                    ScheduledRejectionEmail.candidate_id == cand
+                )
+            )
+        ).all()
+    assert rows == []
+
+
+async def test_move_sends_the_text_edited_in_the_rejection_window(
+    app_client: AsyncClient, app_auth_headers, monkeypatch
+):
+    """13.10.2026: temat i treść z podglądu w oknie odrzucenia idą do wiersza
+    harmonogramu — treść jako zwykły tekst z escape."""
+    from unittest.mock import AsyncMock
+
+    from sqlalchemy import select
+
+    import app.services.rejection_email_scheduler as scheduler
+    from app.models.rejection_email import ScheduledRejectionEmail
+
+    monkeypatch.setattr(scheduler, "sender_has_mailbox", AsyncMock(return_value=True))
+    cand, (job, _) = await _seed_candidate(), await _seed_job()
+    await _seed_stage(cand, job, "cv_sent")
+    r = await app_client.post(
+        MOVE,
+        json={
+            "candidate_id": cand,
+            "job_id": job,
+            "stage": "rejected",
+            "rejection_reason": "Klient wybrał innego kandydata",
+            "send_rejection_email": True,
+            "rejection_email_subject": "Twoja rekrutacja\nw B2B",
+            "rejection_email_body": "Cześć,\n\n<script>x</script> dziękujemy.",
+        },
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["rejection_email_status"] == "scheduled"
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(ScheduledRejectionEmail).where(
+                ScheduledRejectionEmail.candidate_id == cand
+            )
+        )
+    assert row is not None
+    assert row.subject == "Twoja rekrutacja w B2B"
+    assert row.body_html == (
+        "<p>Cześć,</p>\n<p>&lt;script&gt;x&lt;/script&gt; dziękujemy.</p>"
+    )
+
+
+async def test_move_refuses_a_blank_rejection_mail(
+    app_client: AsyncClient, app_auth_headers
+):
+    cand, (job, _) = await _seed_candidate(), await _seed_job()
+    await _seed_stage(cand, job, "cv_sent")
+    r = await app_client.post(
+        MOVE,
+        json={
+            "candidate_id": cand,
+            "job_id": job,
+            "stage": "rejected",
+            "rejection_reason": "Klient wybrał innego kandydata",
+            "send_rejection_email": True,
+            "rejection_email_body": "   \n ",
+        },
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 422, r.text
+
+
+async def test_rejection_mail_preview_route(
+    app_client: AsyncClient, app_auth_headers, monkeypatch
+):
+    """Podgląd w oknie odrzucenia: kto dostanie mail i z jaką treścią."""
+    from unittest.mock import AsyncMock
+
+    import app.services.rejection_email_scheduler as scheduler
+
+    monkeypatch.setattr(scheduler, "sender_has_mailbox", AsyncMock(return_value=True))
+    job, _ = await _seed_job()
+    at_client, early = await _seed_candidate(), await _seed_candidate()
+    verified = await _seed_candidate()
+    await _seed_stage(at_client, job, "client_interview")
+    await _seed_stage(early, job, "screening")
+    await _seed_stage(verified, job, "verified")
+
+    r = await app_client.post(
+        "/api/rejection-emails/preview",
+        json={"job_id": job, "candidate_ids": [at_client, early, verified]},
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert [
+        (p["candidate_id"], p["skip_reason"], p["text_kind"]) for p in body["people"]
+    ] == [
+        (at_client, None, "after_client"),
+        (early, "not_client_visible", None),
+        # 17.10.2026 (D1): po rozmowie z nami mail też wychodzi.
+        (verified, None, "before_client"),
+    ]
+    assert body["people"][0]["to_email"].endswith("@example.com")
+    assert body["people"][1]["to_email"] is None  # przed weryfikacją — bez adresu
+    assert body["subject"].startswith("Informacja zwrotna — Int-Job-")
+    assert body["body"].startswith("Cześć Int,")
+    assert [s["text_kind"] for s in body["samples"]] == ["after_client", "before_client"]
+
+    missing = await app_client.post(
+        "/api/rejection-emails/preview",
+        json={"job_id": 2_000_000_000, "candidate_ids": [at_client]},
+        headers=app_auth_headers,
+    )
+    assert missing.status_code == 404, missing.text
+
+    too_big = await app_client.post(
+        "/api/rejection-emails/preview",
+        json={"job_id": job, "candidate_ids": [3_000_000_000]},
+        headers=app_auth_headers,
+    )
+    assert too_big.status_code == 422, too_big.text
+
+
+async def test_failed_post_commit_side_effect_does_not_turn_the_move_into_500(
+    app_client: AsyncClient, app_auth_headers, monkeypatch
+):
+    """Audyt 25.09.2026: efekt uboczny po commicie, który zawiódł (tu błąd SQL
+    przy przeliczeniu ryzyka), robił `db.rollback()` na sesji żądania —
+    `current_user` i `stage` wygasały, a odpowiedź czytała je → MissingGreenlet
+    → 500 po zapisanym ruchu. Teraz ruch zwraca 200 z danymi etapu."""
+    from sqlalchemy import select, text
+
+    import app.services.candidate_risk as candidate_risk
+    from app.models.recruitment_pipeline import CandidateStage
+
+    async def boom(db, candidate_id):  # noqa: ARG001
+        await db.execute(text("SELECT 1 / 0"))
+
+    monkeypatch.setattr(candidate_risk, "on_candidate_stage_change", boom)
+
+    cand, (job, _) = await _seed_candidate(), await _seed_job()
+    await _seed_stage(cand, job, "new")
+    r = await app_client.post(
+        MOVE,
+        json={"candidate_id": cand, "job_id": job, "stage": "screening"},
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["candidate_id"] == cand and body["stage"] == "screening"
+
+    async with AsyncSessionLocal() as db:
+        latest = await db.scalar(
+            select(CandidateStage)
+            .where(CandidateStage.candidate_id == cand, CandidateStage.job_id == job)
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+            .limit(1)
+        )
+    assert latest is not None and latest.stage.value == "screening"

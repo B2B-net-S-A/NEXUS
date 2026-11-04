@@ -6,11 +6,9 @@ import Link from "next/link";
 import {
   ArrowLeft,
   Plus,
-  Copy,
   Trash2,
   Key,
   AlertCircle,
-  CheckCircle2,
   Loader2,
   Power,
 } from "lucide-react";
@@ -20,6 +18,8 @@ import {
   type ScopeInfoDto,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { SecretRevealCard } from "@/components/settings/SecretRevealCard";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -161,75 +161,6 @@ function CreateClientForm({ scopes, onCreated, onCancel }: CreateClientFormProps
   );
 }
 
-interface SecretRevealCardProps {
-  clientName: string;
-  clientSecret: string;
-  onClose: () => void;
-}
-
-function SecretRevealCard({
-  clientName,
-  clientSecret,
-  onClose,
-}: SecretRevealCardProps) {
-  const [copied, setCopied] = useState(false);
-
-  const copy = async () => {
-    await navigator.clipboard.writeText(clientSecret);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <div className="p-6 bg-amber-500/5 border-2 border-amber-500/30 rounded-xl">
-      <div className="flex items-start gap-3 mb-4">
-        <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-        <div>
-          <h3 className="text-base font-semibold text-foreground">
-            Zapisz teraz secret dla &ldquo;{clientName}&rdquo;
-          </h3>
-          <p className="text-sm text-muted-foreground mt-1">
-            Po zamknięciu tego okna sekret nie będzie już dostępny. NEXUS
-            przechowuje wyłącznie hash. Aby go odzyskać, trzeba usunąć i
-            stworzyć klienta od nowa.
-          </p>
-        </div>
-      </div>
-
-      <div className="bg-background border border-border rounded-md p-3 font-mono text-sm break-all">
-        {clientSecret}
-      </div>
-
-      <div className="flex gap-2 mt-4 justify-end">
-        <button
-          type="button"
-          onClick={copy}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
-        >
-          {copied ? (
-            <>
-              <CheckCircle2 className="w-4 h-4" />
-              Skopiowano
-            </>
-          ) : (
-            <>
-              <Copy className="w-4 h-4" />
-              Skopiuj
-            </>
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          className="px-4 py-2 text-sm border border-border rounded-md hover:bg-muted"
-        >
-          Zamknij
-        </button>
-      </div>
-    </div>
-  );
-}
-
 interface ClientRowProps {
   client: OAuthClientDto;
   scopes: ScopeInfoDto[];
@@ -239,6 +170,7 @@ interface ClientRowProps {
 function ClientRow({ client, scopes, onChange }: ClientRowProps) {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<"toggle" | "delete" | null>(null);
+  const { askConfirm, confirmDialog } = useConfirmV2();
 
   const labelFor = (value: string) =>
     scopes.find((s) => s.value === value)?.label ?? value;
@@ -273,6 +205,7 @@ function ClientRow({ client, scopes, onChange }: ClientRowProps) {
         client.enabled ? "border-border" : "border-border opacity-60",
       )}
     >
+      {confirmDialog}
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
@@ -336,8 +269,14 @@ function ClientRow({ client, scopes, onChange }: ClientRowProps) {
           </button>
           <button
             type="button"
-            onClick={() => {
-              if (confirm(`Usunąć klienta "${client.name}"?`)) {
+            onClick={async () => {
+              if (
+                await askConfirm({
+                  title: `Usunąć klienta "${client.name}"?`,
+                  confirmLabel: "Usuń",
+                  variant: "destructive",
+                })
+              ) {
                 remove.mutate();
               }
             }}
@@ -433,8 +372,9 @@ export default function ApiIntegrationPage() {
       {revealedSecret && (
         <div className="mb-6">
           <SecretRevealCard
-            clientName={revealedSecret.name}
-            clientSecret={revealedSecret.secret}
+            title={<>Zapisz teraz secret dla &ldquo;{revealedSecret.name}&rdquo;</>}
+            description="Po zamknięciu tego okna sekret nie będzie już dostępny. NEXUS przechowuje wyłącznie hash. Aby go odzyskać, trzeba usunąć i stworzyć klienta od nowa."
+            secret={revealedSecret.secret}
             onClose={() => setRevealedSecret(null)}
           />
         </div>

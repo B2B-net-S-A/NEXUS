@@ -117,12 +117,16 @@ async def seeded() -> dict:
                 competence_category_id=category.id,
             )
 
-        job_a, job_b, job_closed = (
+        job_a, job_b, job_closed, job_finished = (
             job(JobStatus.published),
             job(JobStatus.published),
             job(JobStatus.closed),
+            job(JobStatus.published),
         )
-        db.add_all([job_a, job_b, job_closed])
+        # Runda 7 (R7-N9-5): „Zakończony” w NEXUSIE nie jest otwarty, choć
+        # status z Traffita zostaje `published`.
+        job_finished.work_state = "finished"
+        db.add_all([job_a, job_b, job_closed, job_finished])
         await db.flush()
 
         await _add_stages(db, job_a.id, [PipelineStage.new], now)
@@ -138,6 +142,12 @@ async def seeded() -> dict:
         await _add_stages(db, job_b.id, [PipelineStage.hired], now)
         # Zamknięta oferta nie wchodzi do macierzy, choćby miała kandydatów.
         await _add_stages(db, job_closed.id, [PipelineStage.new], now)
+        await _add_stages(db, job_finished.id, [PipelineStage.new], now)
+        # Runda 7 (R7-N9-4): liczniki = kolumny Tablicy — `posting` to „Nowi”,
+        # `prep_call` to „Screening”, `negotiation` to „Umowa”.
+        await _add_stages(db, job_a.id, [PipelineStage.posting], now)
+        await _add_stages(db, job_a.id, [PipelineStage.prep_call], now)
+        await _add_stages(db, job_b.id, [PipelineStage.negotiation], now)
         await db.commit()
         return {
             "category_id": category.id,
@@ -148,7 +158,7 @@ async def seeded() -> dict:
 
 def test_stage_keys_mirror_the_dashboard_counters():
     """Klucze macierzy = liczniki pulpitu, w tej samej kolejności."""
-    assert [key for key, _ in STAGES] == list(ops._DASHBOARD_STAGE_FIELDS.values())
+    assert [key for key, _ in STAGES] == list(ops._DASHBOARD_COLUMN_FIELDS.values())
 
 
 @pytest.mark.asyncio
@@ -172,8 +182,8 @@ async def test_matrix_counts_current_stages_of_published_jobs(
         "Nowy",
         "Screening",
         "Wysłany do klienta",
-        "Interview",
-        "Akceptacje",
+        "Rozmowa u klienta",
+        "Umowa",
     ]
     assert body["as_of"]
 
@@ -183,11 +193,11 @@ async def test_matrix_counts_current_stages_of_published_jobs(
     assert row["name"] == seeded["category_name"]
     assert row["open_jobs"] == 2
     assert row["stage_counts"] == {
-        "new": 1,
-        "screening": 1,
+        "new": 2,
+        "screening": 2,
         "cv_sent": 1,
         "client_interview": 1,
-        "acceptance": 1,
+        "acceptance": 2,
     }
 
     # Sumy = suma wierszy (także „Bez kategorii" — ostatni, jeśli jest).

@@ -560,3 +560,117 @@ async def test_present_like_end_words_are_current_employment(app_client) -> None
         )
     assert past_ids & set(ids) == {ids[2]}
     assert current_ids & set(ids) == {ids[0], ids[1]}
+
+
+@pytest.mark.asyncio
+async def test_deleted_client_is_not_resolved_by_name_or_nip() -> None:
+    """Runda 9 (R9-N9-5): usunięty klient nie jest „naszym klientem” dla CRM.
+
+    Drugie wywołanie po usunięciu sprawdza też, że indeks nazw w pamięci
+    (R9-N9-12) odświeża się po zmianie tabeli klientów.
+    """
+    tag = uuid.uuid4().hex[:8]
+    company = f"Pelikan Serwis {tag}"
+    nip = f"99{uuid.uuid4().int % 10**8:08d}"
+    async with AsyncSessionLocal() as db:
+        client = Client(name=company, nip=nip)
+        db.add(client)
+        await db.commit()
+        client_id = client.id
+
+    names = {integrations_companies.normalize_company_name(company)}
+    async with AsyncSessionLocal() as db:
+        found = await integrations_companies._resolve_client(db, names, "")
+        assert found is not None and found.id == client_id
+        by_nip = await integrations_companies._resolve_client(db, set(), nip)
+        assert by_nip is not None and by_nip.id == client_id
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Client, client_id)
+        row.deleted_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        assert await integrations_companies._resolve_client(db, names, "") is None
+        assert await integrations_companies._resolve_client(db, set(), nip) is None
+
+
+@pytest.mark.asyncio
+async def test_client_alias_resolves_the_client_and_widens_the_cv_match(
+    app_client,
+) -> None:
+    """Alias klienta (stara nazwa, skrót) to ta sama firma dla CRM.
+
+    Dopasowanie po nazwie czytało tylko ``name``/``legal_name``/``display_name``,
+    choć ostrzeżenie o duplikatach klienta używa już ``client_aliases``.
+    Zapytanie starą nazwą ma znaleźć klienta, a zapytanie obecną nazwą —
+    osoby, które w CV mają starą. Zarchiwizowany alias nie liczy się wcale.
+    """
+    from app.models.client_directory import ClientAlias
+
+    tag = uuid.uuid4().hex[:8]
+    company = f"Kormoran Bank {tag}"
+    old_name = f"Stary Kormoran {tag}"
+    archived_name = f"Dawny Kormoran {tag}"
+    async with AsyncSessionLocal() as db:
+        client = Client(name=company)
+        db.add(client)
+        await db.flush()
+        db.add_all(
+            [
+                ClientAlias(
+                    client_id=client.id,
+                    alias=old_name,
+                    normalized_alias=old_name.lower(),
+                ),
+                ClientAlias(
+                    client_id=client.id,
+                    alias=archived_name,
+                    normalized_alias=archived_name.lower(),
+                    archived_at=datetime.now(timezone.utc),
+                ),
+            ]
+        )
+        old_cv = await _candidate(
+            db,
+            f"StaraNazwa{tag}",
+            experience=[
+                {
+                    "company": old_name,
+                    "role": "Analityk",
+                    "start": "2019",
+                    "end": "2021",
+                }
+            ],
+        )
+        archived_cv = await _candidate(
+            db,
+            f"Archiwum{tag}",
+            experience=[
+                {
+                    "company": archived_name,
+                    "role": "Tester",
+                    "start": "2015",
+                    "end": "2016",
+                }
+            ],
+        )
+        await db.commit()
+        client_id, old_cv_id, archived_cv_id = client.id, old_cv.id, archived_cv.id
+
+    by_alias = await app_client.post(
+        URL, json={"names": [old_name]}, headers=_headers()
+    )
+    assert by_alias.status_code == 200, by_alias.text
+    assert by_alias.json()["matched_client"]["id"] == client_id
+
+    by_name = await app_client.post(URL, json={"names": [company]}, headers=_headers())
+    assert by_name.status_code == 200, by_name.text
+    got = _by_id(by_name.json())
+    assert got.get(old_cv_id) == "past"
+    assert archived_cv_id not in got
+
+    by_archived = await app_client.post(
+        URL, json={"names": [archived_name]}, headers=_headers()
+    )
+    assert by_archived.json()["matched_client"] is None

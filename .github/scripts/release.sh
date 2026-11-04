@@ -11,6 +11,17 @@ build_env=$4
 [ -f "$project_dir/docker-compose.yml" ] || fail "missing generated compose file"
 [ -f "$build_env" ] || fail "missing Coolify build environment"
 
+# Coolify od 01.10.2026 pisze runtime `.env` do katalogu wdrożenia dopiero PO
+# budowie (zmienne budowy są w osobnym pliku poza kontekstem), a compose
+# odmawia nawet `config`, gdy `env_file: .env` nie istnieje. Budowa nie czyta
+# treści `env_file`, więc na jej czas wystarcza pusty plik — usuwany na końcu,
+# żeby nie zasłonić `.env`, który Coolify zapisze przed startem kontenerów.
+runtime_env="$project_dir/.env"
+if [ ! -e "$runtime_env" ]; then
+    : > "$runtime_env" || fail "cannot create placeholder runtime env"
+    trap 'rm -f "$runtime_env"' EXIT
+fi
+
 compose() {
     docker compose --project-directory "$project_dir" \
         --env-file "$build_env" -f "$project_dir/docker-compose.yml" "$@"

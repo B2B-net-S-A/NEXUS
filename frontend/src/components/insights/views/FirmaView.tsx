@@ -5,11 +5,16 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import {
+  insightsApi,
   insightsBoardApi,
   insightsQueryKeys,
+  type InFlightAcceptance,
+  type InsightsBoardFlowsResponse,
   type InsightsPeriodParams,
   type InsightsYoYResponse,
 } from "@/lib/insights-api";
+import { firmaSentence, signedCount } from "@/lib/insights-firma";
+import { monthForecast } from "@/lib/insights-in-flight";
 import { buildRadaCsvExport } from "@/lib/insights-csv";
 import { reportHref } from "@/lib/insights-reports";
 import {
@@ -23,7 +28,10 @@ import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { PeriodPicker } from "@/components/insights/PeriodPicker";
 import { useInsightsPeriod } from "@/components/insights/useInsightsPeriod";
 import { SectionError } from "@/components/insights/sections/_shared";
+import { AcceptancesTable } from "./AcceptancesReport";
+import { TeamFunnelPanel } from "./team/TeamFunnelPanel";
 import { Panel, PanelLoading, Takeaway, Tile, TileRow, ViewHeader } from "./ViewKit";
+import { hasRole, useAuthStore } from "@/store/auth";
 
 export const FIRMA_DEFAULT_PERIOD: InsightsPeriodParams = {
   period: "quarter",
@@ -38,9 +46,31 @@ const PREVIOUS_LABEL: Record<string, string> = {
   custom: "wobec poprzedniego okresu",
 };
 
+const SAME_STRETCH_LABEL: Record<string, string> = {
+  week: "wobec tego samego odcinka poprzedniego tygodnia",
+  month: "wobec tego samego odcinka poprzedniego miesiąca",
+  quarter: "wobec tego samego odcinka poprzedniego kwartału",
+  year: "wobec tego samego odcinka poprzedniego roku",
+  custom: "wobec tego samego odcinka poprzedniego okresu",
+};
+
 /**
- * Firma — „Jak zarabia firma?". Tylko admin i Finanse (decyzja Artura
- * 24.09.2026; lustro `BoardReader`).
+ * Podpis delty placementów. Okres W TOKU backend porównuje z tym samym
+ * odcinkiem poprzedniego (`placements_previous_window.same_stretch`, runda 6
+ * audytu) — „wobec poprzedniego miesiąca" obiecywałby pełny miesiąc.
+ */
+export function placementsDeltaLabel(
+  period: string,
+  sameStretch: boolean | undefined,
+): string {
+  const labels = sameStretch ? SAME_STRETCH_LABEL : PREVIOUS_LABEL;
+  return labels[period] ?? labels.custom;
+}
+
+/**
+ * Firma — „Jak idzie firma?” (v3, 22.10.2026: + ruch konsultantów, lejek
+ * z „stoi dziś” i prognozą okresu, akceptacje, skuteczność i popyt). Tylko „Moduł Finanse” (admin, Finanse —
+ * decyzja Artura 24.09.2026) i Rada nadzorcza (0490); lustro `BoardReader`.
  *
  * Kwoty porównujemy z poprzednim okresem, NIE rok do roku: ewidencja
  * kontraktów jest młodsza niż firma, więc porównanie lat opisuje głównie
@@ -49,6 +79,9 @@ const PREVIOUS_LABEL: Record<string, string> = {
  */
 export function FirmaView() {
   const { period, setPeriod } = useInsightsPeriod(FIRMA_DEFAULT_PERIOD);
+  // Rada nadzorcza widzi liczby bez nazwisk (jak mail „Nowy placement”).
+  const user = useAuthStore((state) => state.user);
+  const canOpenList = hasRole(user, "admin") || hasRole(user, "finance");
   const boardQuery = useQuery({
     queryKey: insightsQueryKeys.board(period),
     queryFn: () => insightsBoardApi.board(period),
@@ -62,8 +95,23 @@ export function FirmaView() {
     queryFn: () => insightsBoardApi.boardYoY({ years: 2 }),
     staleTime: 15 * 60 * 1000,
   });
+  const flowsQuery = useQuery({
+    queryKey: insightsQueryKeys.boardFlows(period),
+    queryFn: () => insightsBoardApi.boardFlows(period),
+  });
+  const funnelQuery = useQuery({
+    queryKey: ["insights", "recruitment", "funnel", period],
+    queryFn: () => insightsApi.recruitmentFunnel(period),
+  });
+  const inFlightQuery = useQuery({
+    queryKey: insightsQueryKeys.inFlight(),
+    queryFn: () => insightsApi.inFlight(),
+    staleTime: 60 * 1000,
+  });
 
   const board = boardQuery.data;
+  const flows = flowsQuery.data;
+  const inFlight = inFlightQuery.data;
   const viewState = resolveViewState({
     isLoading: boardQuery.isPending,
     isSuccess: boardQuery.isSuccess,
@@ -71,12 +119,30 @@ export function FirmaView() {
     error: boardQuery.error,
   });
   const prevLabel = PREVIOUS_LABEL[period.period] ?? PREVIOUS_LABEL.custom;
+  // Prognoza tylko dla okresu, który trwa — zamknięty kwartał już się skończył.
+  const periodOngoing = board ? new Date(board.period.end).getTime() > Date.now() : false;
+  const periodForecast =
+    board && inFlight && periodOngoing
+      ? monthForecast(board.kpis.placements, inFlight.forecast)
+      : null;
+  const sentence = board
+    ? firmaSentence({
+        margin:
+          board.kpis.finance.margin_monthly_pln === null
+            ? null
+            : compactPln(board.kpis.finance.margin_monthly_pln),
+        marginChangePct: board.comparison.margin_monthly_pln.change_pct,
+        net: flows?.consultants.net ?? null,
+        endingWithoutContinuation: flows?.ending_without_continuation.contracts ?? null,
+        periodForecast,
+      })
+    : null;
 
   return (
     <div className="space-y-6">
       <ViewHeader
-        question="Jak zarabia firma?"
-        lede="Kafle porównujemy z poprzednim okresem — ewidencja kontraktów sprzed 2026 jest niepełna, więc kwoty rok do roku pokazałyby wzrost, którego nie było. Rok do roku pokazuje wykres: placementy i hit ratio z historii pipeline'u."
+        question="Jak idzie firma?"
+        lede={sentence ?? undefined}
         actions={
           <PeriodPicker
             value={period}
@@ -132,7 +198,14 @@ export function FirmaView() {
             <Tile
               label="Placementy w okresie"
               value={board.kpis.placements.toLocaleString("pl-PL")}
-              delta={pctDelta(board.comparison.placements.change_pct, prevLabel)}
+              delta={pctDelta(
+                board.comparison.placements.change_pct,
+                placementsDeltaLabel(
+                  period.period,
+                  board.comparison.placements_previous_window?.same_stretch,
+                ),
+              )}
+              note={periodForecast ? `z akceptacjami ${periodForecast}` : null}
             />
           </TileRow>
           {board.degraded ? (
@@ -142,6 +215,45 @@ export function FirmaView() {
           ) : null}
         </>
       )}
+
+      <ConsultantFlowsPanel
+        flows={flows}
+        isPending={flowsQuery.isPending}
+        error={flowsQuery.isError ? flowsQuery.error : null}
+        onRetry={() => void flowsQuery.refetch()}
+      />
+
+      {funnelQuery.data ? (
+        <TeamFunnelPanel
+          funnel={funnelQuery.data}
+          previous={undefined}
+          previousLabel={undefined}
+          inFlight={inFlight}
+          period={period}
+          canOpenList={canOpenList}
+        />
+      ) : funnelQuery.isError ? (
+        <SectionError
+          label="Lejek"
+          error={funnelQuery.error}
+          onRetry={() => void funnelQuery.refetch()}
+        />
+      ) : (
+        <PanelLoading />
+      )}
+
+      {inFlight?.acceptances && inFlight.acceptances.length > 0 ? (
+        <AcceptancesList acceptances={inFlight.acceptances} staleDays={inFlight.stale_days} />
+      ) : null}
+
+      {board ? (
+        <EffectivenessPanel
+          hitRatio={board.kpis.hit_ratio_pct}
+          closedWithPlacement={board.kpis.jobs_closed_with_placement}
+          closed={board.kpis.jobs_closed}
+          jobs={flows?.jobs ?? null}
+        />
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <YearOverYearPanel
@@ -175,7 +287,164 @@ export function FirmaView() {
           </Link>
         </Panel>
       </div>
+
+      <details className="text-xs text-muted-foreground">
+        <summary className="min-h-9 cursor-pointer py-2 font-semibold text-primary">
+          Jak liczymy widok Firma?
+        </summary>
+        <p className="max-w-4xl leading-relaxed">
+          Kwoty porównujemy z poprzednim okresem, nie rok do roku: ewidencja
+          kontraktów sprzed 2026 jest niepełna, więc kwoty rok do roku
+          pokazałyby wzrost, którego nie było. Rok do roku pokazuje wykres —
+          placementy i hit ratio z historii pipeline'u. Ruch konsultantów liczymy
+          z kontraktów: start kontraktu w oknie, zejście = koniec kontraktu
+          zakończonego (rezygnacje to część zejść, bez „klient zabrał”).
+          „Kończą się w 30 dni” — zamówienie okresowe kończy się w 30 dni
+          i nic go nie przedłuża (ta sama reguła co zakładka „Kończące się 30d”).
+          Akceptacje liczą się od 12.10.2026; szacunek placementów z akceptacji —
+          od 10 rozstrzygniętych.
+        </p>
+      </details>
     </div>
+  );
+}
+
+function ConsultantFlowsPanel({
+  flows,
+  isPending,
+  error,
+  onRetry,
+}: {
+  flows: InsightsBoardFlowsResponse | undefined;
+  isPending: boolean;
+  error: unknown;
+  onRetry: () => void;
+}) {
+  if (isPending) return <PanelLoading />;
+  if (error || !flows) {
+    return <SectionError label="Ruch konsultantów" error={error} onRetry={onRetry} />;
+  }
+  const c = flows.consultants;
+  const p = flows.previous_consultants;
+  return (
+    <Panel title="Ruch konsultantów w okresie" hint="z kontraktów">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <FlowCell label="Przyszli" value={signedCount(c.starts)} note={`poprzednio ${p.starts}`} tone="good" />
+        <FlowCell
+          label="Odeszli"
+          value={c.ends === 0 ? "0" : signedCount(-c.ends)}
+          note={`w tym rezygnacje: ${c.resignations} · poprzednio ${p.ends}`}
+          tone={c.ends > 0 ? "bad" : "neutral"}
+        />
+        <FlowCell label="Netto" value={signedCount(c.net)} note={`poprzednio ${signedCount(p.net)}`} tone="neutral" />
+        <FlowCell
+          label={`Kończą się w ${flows.ending_without_continuation.days} dni`}
+          value={String(flows.ending_without_continuation.contracts)}
+          note="bez kontynuacji zamówienia"
+          tone={flows.ending_without_continuation.contracts > 0 ? "warn" : "neutral"}
+        />
+      </div>
+    </Panel>
+  );
+}
+
+const FLOW_TONE = {
+  good: "text-success-muted-foreground",
+  bad: "text-destructive",
+  warn: "text-warning-muted-foreground",
+  neutral: "text-foreground",
+} as const;
+
+function FlowCell({
+  label,
+  value,
+  note,
+  tone,
+}: {
+  label: string;
+  value: string;
+  note: string;
+  tone: keyof typeof FLOW_TONE;
+}) {
+  return (
+    <div className="rounded-lg bg-muted/50 p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className={cn("text-2xl font-bold tabular-nums", FLOW_TONE[tone])}>{value}</p>
+      <p className="text-xs text-muted-foreground">{note}</p>
+    </div>
+  );
+}
+
+function AcceptancesList({
+  acceptances,
+  staleDays,
+}: {
+  acceptances: InFlightAcceptance[];
+  staleDays: number;
+}) {
+  return (
+    <details className="group rounded-xl border border-border bg-card shadow-xs">
+      <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 px-4 text-sm font-semibold text-foreground">
+        Akceptacje do domknięcia: {acceptances.length} — klient, rekrutacja, od kiedy, umowa, DL
+        <span className="text-primary group-open:hidden">Pokaż ▾</span>
+        <span className="hidden text-primary group-open:inline">Zwiń ▴</span>
+      </summary>
+      <div className="space-y-2 border-t border-border px-4 py-2">
+        <AcceptancesTable acceptances={acceptances} staleDays={staleDays} />
+        <p className="text-xs text-muted-foreground">
+          Bez nazwisk kandydatów.{" "}
+          <Link
+            href={reportHref("akceptacje-w-toku")}
+            className="font-semibold text-primary hover:underline"
+          >
+            Raport „Akceptacje w toku” →
+          </Link>
+        </p>
+      </div>
+    </details>
+  );
+}
+
+function EffectivenessPanel({
+  hitRatio,
+  closedWithPlacement,
+  closed,
+  jobs,
+}: {
+  hitRatio: number | null;
+  closedWithPlacement: number;
+  closed: number;
+  jobs: InsightsBoardFlowsResponse["jobs"] | null;
+}) {
+  return (
+    <Panel title="Skuteczność i popyt">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <FlowCell
+          label="Hit ratio"
+          value={hitRatio === null ? "—" : `${Math.round(hitRatio)}%`}
+          note={`${closedWithPlacement} z ${closed} zamkniętych rekrutacji`}
+          tone="neutral"
+        />
+        <FlowCell
+          label="Otwarte rekrutacje"
+          value={jobs ? String(jobs.open) : "…"}
+          note={jobs ? `u ${jobs.open_clients} klientów · stan na dziś` : ""}
+          tone="neutral"
+        />
+        <FlowCell
+          label="Nowe rekrutacje w okresie"
+          value={jobs ? String(jobs.new) : "…"}
+          note={jobs ? `poprzednio ${jobs.previous_new}` : ""}
+          tone="neutral"
+        />
+      </div>
+      <Link
+        href={reportHref("czas-konwersje")}
+        className="w-fit text-sm font-semibold text-primary hover:underline"
+      >
+        Czas do placementu i konwersje →
+      </Link>
+    </Panel>
   );
 }
 

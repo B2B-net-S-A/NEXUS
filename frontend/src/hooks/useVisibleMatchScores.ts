@@ -157,10 +157,21 @@ function emptyState(epoch: object): ScoreState {
  * other failure marks it `retry` ("nie policzono — ponów") until `retry()` —
  * and a 429 is retried on its own with a doubling delay.
  */
+export interface VisibleMatchScoresOptions {
+  /**
+   * U5 (audyt 06.10.2026): okno „Szukaj ręcznie” zapisuje wyświetlenia
+   * pierwszej strony — serwer dopisuje je do telemetrii przy tym samym
+   * zapytaniu o „Dop.”, z pozycją wiersza na stronie.
+   */
+  impressionSurface?: "manual_search";
+}
+
 export function useVisibleMatchScores(
   jobId: number | null | undefined,
   items: readonly { id: number }[] | null | undefined,
+  options: VisibleMatchScoresOptions = {},
 ) {
+  const impressionSurface = options.impressionSurface;
   // A fresh identity per (job, result set) — compared by reference only.
   const epoch = useMemo(() => ({ jobId, items }), [jobId, items]);
   const order = useMemo(() => (items ?? []).map((item) => item.id), [items]);
@@ -219,8 +230,11 @@ export function useVisibleMatchScores(
     }
     const controller = new AbortController();
     current.controllers.add(controller);
+    const impression = impressionSurface
+      ? { surface: impressionSurface, ranks: batch.map((id) => order.indexOf(id) + 1) }
+      : undefined;
     candidateSearchApi
-      .matchScores(jobId, batch, { signal: controller.signal })
+      .matchScores(jobId, batch, { signal: controller.signal, impression })
       .then((response) => {
         if (controller.signal.aborted || book.current !== current) return;
         current.retryRounds = 0;
@@ -294,7 +308,7 @@ export function useVisibleMatchScores(
       });
     // More rows came into view than one request may carry: next batch.
     if (current.pending.size > 0) schedule(0);
-  }, [epoch, jobId, order, requeue, schedule, updateFailures]);
+  }, [epoch, impressionSurface, jobId, order, requeue, schedule, updateFailures]);
 
   useEffect(() => {
     flushRef.current = flush;

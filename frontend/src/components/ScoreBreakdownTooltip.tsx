@@ -22,11 +22,11 @@ function Row({
   reason,
 }: {
   label: string;
-  points: number;
+  points: number | null;
   max: number;
   reason: string;
 }) {
-  const pct = max > 0 ? (points / max) * 100 : 0;
+  const pct = max > 0 ? ((points ?? 0) / max) * 100 : 0;
   return (
     <div className="flex items-center gap-2 text-xs">
       <span className="w-24 text-muted-foreground dark:text-muted-foreground">{label}</span>
@@ -37,7 +37,7 @@ function Row({
         />
       </div>
       <span className="w-12 text-right text-foreground dark:text-muted-foreground">
-        {points.toFixed(1)}/{max}
+        {(points ?? 0).toFixed(1)}/{max}
       </span>
       <span className="flex-1 text-[11px] text-muted-foreground truncate" title={reason}>
         {reason}
@@ -81,6 +81,15 @@ export function ScoreBreakdownTooltip({ breakdown, compact }: Props) {
           <Row label="Availability" {...breakdown.availability} />
           {breakdown.champion_fit && (
             <Row label="Champion" {...breakdown.champion_fit} />
+          )}
+          {/* Warstwa bez oceny ma max 0 — mówi tylko, że nic nie pasowało. */}
+          {breakdown.prior_screening && breakdown.prior_screening.max > 0 && (
+            <Row
+              label="Wcześniej"
+              points={breakdown.prior_screening.points}
+              max={breakdown.prior_screening.max}
+              reason={breakdown.prior_screening.reason}
+            />
           )}
           {(breakdown.historical_sources_count ?? 0) > 0 && (
             <div className="flex items-center gap-2 text-xs">

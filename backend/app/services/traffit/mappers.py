@@ -22,236 +22,41 @@ from zoneinfo import ZoneInfo
 
 from app.core.scheduling import DEFAULT_TZ
 from app.services.candidate_location_writer import normalize_candidate_location
-
-# Legacy Traffit hack: recruiters flagged placed consultants by stuffing
-# "[zatrudniony]" into the candidate's name/lastname, because Traffit had no
-# employment status field. Nexus derives employment properly (active contract /
-# `current_employment` conflict / `hired` pipeline stage — see
-# app/api/candidates.py::_derive_employment), so the marker is pure noise that
-# also breaks name search and CV headers. Strip it on every import so the daily
-# sync never re-introduces it (the candidate UPSERT overwrites name/lastname
-# from the payload). Matches bracketed / parenthesized / bare forms, any case,
-# with adjacent separators; the suffix list covers Polish declensions without
-# greedily eating a glued surname.
-_EMPLOYMENT_MARKER_RE = re.compile(
-    # Multi-char endings first: alternation is ordered, so a bare "e" must not
-    # win over "ego"/"ej" and leave a dangling suffix. Plain capturing group
-    # (not `(?:...)`) to stay byte-identical with migration 0165's _MARKER,
-    # where `(?:` would trip SQLAlchemy text() bind-param parsing.
-    r"[\[(]?\s*zatrudnion(ego|ej|ych|ymi|[yaieą])?\s*[\])]?",
-    re.IGNORECASE,
+from app.services.candidate_name_rules import (
+    find_name_markers,
+    has_blacklist_marker,
+    strip_employment_marker,  # noqa: F401 — re-eksport dla dotychczasowych wołających
+    strip_name_markers,
 )
 
-
-def strip_employment_marker(value: str) -> str:
-    """Remove the legacy ``[zatrudniony]`` employment tag from a name string.
-
-    Returns the input unchanged when no marker is present. Collapses the
-    whitespace left behind and trims dangling separators, so
-    ``"Kowalski - zatrudniony"`` → ``"Kowalski"`` and
-    ``"[ZATRUDNIONY] Jan"`` → ``"Jan"``. May return ``""`` when the field held
-    nothing but the marker — callers apply their own empty-name fallback.
-    """
-    if not value or "zatrudnion" not in value.lower():
-        return value
-    cleaned = _EMPLOYMENT_MARKER_RE.sub(" ", value)
-    cleaned = re.sub(r"\s{2,}", " ", cleaned)
-    return cleaned.strip(" -–,;")
-
-
-# Ten sam nawyk, inny marker: skoro Traffit nie miał pola „zatrudniony", nie miał
-# też jak zapisać, że kogoś NIE WOLNO proponować klientom — więc rekruterzy
-# wkleili to w imię: "[BLACKLIST] Marek", "[ blacklist ] Wiktor",
-# "(Blacklist) Karolina", "[BLACK LIST]Jaromir". Obok tego jeździ "[ACTIVE]" /
-# "[active /" — powtórzenie statusu, który i tak przychodzi osobnym polem.
-#
-# Skutki były dwa i oba realne (wykryte 18.08.2026 na produkcji):
-#   * blacklista NIE ISTNIAŁA w żadnym polu strukturalnym — 29 osób miało
-#     `status = active`, więc matching, Talent Radar i picker obsady podawały
-#     je jak każdą inną; jedenaście z nich w dodatku jako „aktywnie szuka",
-#   * marker normalizuje się do „active"/„blacklist" i przy sortowaniu po
-#     imieniu wypychał te osoby na SZCZYT każdej listy.
-#
-# Dziewięć wariantów zapisu (wielkość liter, spacja w „black list", nawiasy
-# kwadratowe ORAZ okrągłe, ukośniki zamiast nawiasów, brak spacji przed
-# imieniem), więc wzorzec musi być szeroki. Wymagamy przynajmniej JEDNEGO
-# ogranicznika obok słowa — samo „active" bez nawiasu mogłoby trafić w treść,
-# która jest częścią nazwiska.
-#
-# `[[(/]` i `[])/]` to klasy znaków (`]` tuż po `[` jest literałem) — ten sam
-# trik co w `_EMPLOYMENT_MARKER_RE`. Grupy są ZWYKŁE `(...)`, nie `(?:...)`:
-# migracja lustrzana wykonuje ten wzorzec przez `op.execute()`, a SQLAlchemy
-# czyta `:` w `(?:` jako parametr bindowany i wywala się na „A value is
-# required for bind parameter".
-# „akcept" dołącza do rodziny po ustaleniu z Arturem, że znaczy „zaakceptowany
-# przez klienta". Odmiany polskie (`akceptacja`, `akceptowany`) łapie sufiks.
-_STATUS_MARKER_LETTER = r"A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ"
-_STATUS_MARKER_WORD = (
-    r"(?<![" + _STATUS_MARKER_LETTER + r"])"
-    # Dłuższe warianty muszą wyprzedzać ``active`` / ``aktywny``. Dodatkowe
-    # granice literowe blokują częściowe dopasowanie ``active]`` wewnątrz
-    # ``[inactive]`` oraz nazwiska w rodzaju ``Inactivewicz``.
-    r"(black\s*-?\s*list|nieaktywny|inactive|aktywny|passive|active|"
-    r"zatrunion(ego|ej|ych|ymi|[yaieą])?|akcept[a-ząćęłńóśźż]*)"
-    r"(?![" + _STATUS_MARKER_LETTER + r"])"
-)
-_STATUS_MARKER_RE = re.compile(
-    r"[[(/]\s*" + _STATUS_MARKER_WORD + r"\s*[])/]?"
-    r"|"
-    r"[[(/]?\s*" + _STATUS_MARKER_WORD + r"\s*[])/]",
-    re.IGNORECASE,
-)
-
-# Część rekordów ma ten sam szum BEZ nawiasu: ``"ACTIVE Jan"`` albo
-# ``"Kowalski passive"``. Tu nie wolno użyć zwykłego ``replace`` ani luźnego
-# wyszukiwania substringu — ``Activision`` i ``Inactivewicz`` są prawdziwym
-# tekstem, nie markerami. Dlatego rozpoznajemy wyłącznie zamknięty token na
-# POCZĄTKU albo KOŃCU pola, z wymaganym separatorem od reszty wartości.
-#
-# ``zatrunion*`` to zaobserwowana literówka rodziny ``zatrudnion*``. Poprawna
-# forma nadal idzie przez starszy `_EMPLOYMENT_MARKER_RE` (którego zachowanie
-# jest objęte osobnymi regresjami); literówkę celowo obejmujemy tylko nową,
-# konserwatywną regułą krawędziową.
-_BARE_EDGE_MARKER_WORD = (
-    r"(active|aktywny|inactive|nieaktywny|passive|"
-    r"zatrunion(ego|ej|ych|ymi|[yaieą])?)"
-)
-_BARE_EDGE_SEPARATOR = r"(\s+|\s*[-–,;/]+\s*)"
-_BARE_EDGE_PREFIX_RE = re.compile(
-    r"^\s*(?P<marker>" + _BARE_EDGE_MARKER_WORD + r")" + _BARE_EDGE_SEPARATOR,
-    re.IGNORECASE,
-)
-_BARE_EDGE_SUFFIX_RE = re.compile(
-    _BARE_EDGE_SEPARATOR + r"(?P<marker>" + _BARE_EDGE_MARKER_WORD + r")\s*$",
-    re.IGNORECASE,
-)
-
-# Wykrywanie blacklisty: to samo słowo co wyżej, ale sam blacklist bez „active",
-# bo decyduje o `status`. Ogranicznik jest WYMAGANY dokładnie tak jak przy
-# zdejmowaniu — bez tego nazwisko zawierające ciąg „blacklist" (np. „Blacklista")
-# dostawało status blacklisted, czyli ciche wykluczenie realnego konsultanta
-# z propozycji. Złapane na teście migracji, nie na produkcji.
-_BLACKLIST_ONLY = r"(black\s*-?\s*list)"
-_BLACKLIST_WORD_RE = re.compile(
-    r"[[(/]\s*" + _BLACKLIST_ONLY + r"\s*[])/]?"
-    r"|"
-    r"[[(/]?\s*" + _BLACKLIST_ONLY + r"\s*[])/]",
-    re.IGNORECASE,
-)
-
-
-def _normalize_name_marker_spacing(value: str) -> str:
-    """Zwiń odstępy i osierocone separatory po zdjęciu markera."""
-    return re.sub(r"\s{2,}", " ", value).strip(" -–,;/")
-
-
-def _has_real_name_text(value: str) -> bool:
-    """Marker zdejmujemy tylko, gdy zostaje co najmniej jedna litera."""
-    return any(char.isalpha() for char in value)
-
-
-def _strip_bare_edge_markers(value: str) -> tuple[str, list[str]]:
-    """Zdejmij pełne, bare markery wyłącznie z krawędzi pola.
-
-    Zwraca też dokładne tokeny potrzebne do prowieniencji. Pętla obsługuje
-    kilka sąsiadujących markerów (``"ACTIVE PASSIVE Jan"``), ale każdy krok
-    jest akceptowany dopiero wtedy, gdy po czyszczeniu nadal zostaje realny
-    tekst. Dzięki temu pojedyncze ``"Active"`` pozostaje nietknięte.
-    """
-    if not value:
-        return value, []
-
-    cleaned = value
-    found: list[str] = []
-    while True:
-        prefix = _BARE_EDGE_PREFIX_RE.search(cleaned)
-        if prefix is not None:
-            candidate = _normalize_name_marker_spacing(
-                _BARE_EDGE_PREFIX_RE.sub(" ", cleaned, count=1)
-            )
-            if _has_real_name_text(candidate):
-                found.append(prefix.group("marker"))
-                cleaned = candidate
-                continue
-
-        suffix = _BARE_EDGE_SUFFIX_RE.search(cleaned)
-        if suffix is not None:
-            candidate = _normalize_name_marker_spacing(
-                _BARE_EDGE_SUFFIX_RE.sub(" ", cleaned, count=1)
-            )
-            if _has_real_name_text(candidate):
-                found.append(suffix.group("marker"))
-                cleaned = candidate
-                continue
-
-        break
-
-    return cleaned, found
+# Dopiski w imieniu z Traffita („[zatrudniony]”, „[BLACKLIST]”, „[ACTIVE]”,
+# „(zaakceptowany)”…) zdejmuje JEDNA reguła z ``candidate_name_rules`` — ta sama,
+# której używa migracja 0436, odmowa 422 przy ręcznym wpisie i ścieżki
+# automatyczne. Inaczej nocny import przywracałby to, co migracja wyczyściła
+# (upsert kandydata nadpisuje imię i nazwisko z payloadu). Historia wzorców:
+# 0165 (zatrudniony), 0232 (blacklist/active, 18.08.2026), 0436 (13.10.2026).
+# Nazwy poniżej zostają importowalne stąd dla dotychczasowych wołających.
 
 
 def strip_status_marker(value: str) -> str:
-    """Zdejmij z imienia/nazwiska marker statusu wklejony w Traffit.
+    """Imię/nazwisko bez dopisków (pełna reguła ``strip_name_markers``).
 
-    ``"[BLACK LIST]Jaromir"`` → ``"Jaromir"``, ``"/ ACTIVE] Bartłomiej"`` →
-    ``"Bartłomiej"``. Zwraca wejście bez zmian, gdy markera nie ma. Może zwrócić
-    ``""``, jeśli pole zawierało wyłącznie marker — wołający ma własny fallback.
-
-    Zdjęty marker NIE ginie: wołający zapisuje go w ``cv_extracted_data``
-    (``traffit_name_marker``), więc prowieniencja zostaje nawet wtedy, gdy dla
-    danego markera nie ma pola o właściwym znaczeniu.
+    ``"[BLACK LIST]Jaromir"`` → ``"Jaromir"``. Może zwrócić ``""``, jeśli pole
+    zawierało wyłącznie dopisek — wołający ma własny fallback. Zdjęty dopisek
+    NIE ginie: mapper zapisuje go w ``cv_extracted_data["traffit_name_marker"]``.
     """
     if not value:
         return value
-    cleaned = value
-    low = value.lower()
-    # Tani zwód przed uruchomieniem wyrażenia. MUSI wymieniać KAŻDE słowo
-    # z `_STATUS_MARKER_WORD` — pominięte tutaj nie zostanie zdjęte, mimo że
-    # wzorzec je zna (tak „akcept" przeszedł bokiem przy pierwszym podejściu).
-    if any(
-        word in low
-        for word in (
-            "black",
-            "active",
-            "aktywny",
-            "passive",
-            "zatrunion",
-            "akcept",
-        )
-    ):
-        cleaned = _STATUS_MARKER_RE.sub(" ", cleaned)
-        cleaned = _normalize_name_marker_spacing(cleaned)
-    cleaned, _ = _strip_bare_edge_markers(cleaned)
-    return cleaned
+    return strip_name_markers(value)[0]
 
 
 def extract_markers(value: Optional[str]) -> list[str]:
-    """Surowe teksty markerów obecnych w polu — do zapisu prowieniencji.
+    """Surowe teksty dopisków obecnych w polu — do zapisu prowieniencji.
 
-    Czyta FAKTYCZNE dopasowania wyrażeń, a nie różnicę długości przed i po
-    czyszczeniu: marker bywa też na końcu pola („Kowalski - zatrudniony"),
-    więc arytmetyka na długościach wycinałaby kawałek nazwiska.
+    Czyta faktyczne dopasowania wyrażeń, a nie różnicę długości przed i po
+    czyszczeniu: dopisek bywa też na końcu pola („Kowalski - zatrudniony”).
     """
-    if not value:
-        return []
-    found = [m.group(0).strip() for m in _EMPLOYMENT_MARKER_RE.finditer(value)]
-    found += [m.group(0).strip() for m in _STATUS_MARKER_RE.finditer(value)]
-    # Najpierw zdejmij starsze rodziny z kopii tekstu. Inaczej w
-    # ``"[zatrudniony] ACTIVE Jan"`` poprawny marker na początku zasłaniałby
-    # bare ``ACTIVE`` przed krawędziowym parserem i prowieniencja byłaby
-    # niekompletna, mimo że mapper usunie oba.
-    edge_source = _EMPLOYMENT_MARKER_RE.sub(" ", value)
-    edge_source = _STATUS_MARKER_RE.sub(" ", edge_source)
-    edge_source = _normalize_name_marker_spacing(edge_source)
-    _, bare_found = _strip_bare_edge_markers(edge_source)
-    found += bare_found
-    return [f for f in found if f]
-
-
-def has_blacklist_marker(*values: Optional[str]) -> bool:
-    """Czy którekolwiek z pól niesie marker blacklisty (w dowolnym zapisie)."""
-    return any(
-        value and _BLACKLIST_WORD_RE.search(value) is not None for value in values
-    )
+    return find_name_markers(value)
 
 
 # Traffit zwraca czas LOKALNY firmy ("yyyy-MM-dd HH:mm:ss" bez strefy) —
@@ -671,15 +476,15 @@ def traffit_employee_to_candidate(
     # Odczyt PRZED czyszczeniem — po zdjęciu markera nie ma już z czego wnosić,
     # że tej osoby nie wolno proponować.
     blacklisted = has_blacklist_marker(raw_name, raw_lastname)
-    name = strip_status_marker(strip_employment_marker(raw_name))
-    lastname = strip_status_marker(strip_employment_marker(raw_lastname))
+    name, name_markers = strip_name_markers(raw_name)
+    lastname, lastname_markers = strip_name_markers(raw_lastname)
     # Co zdjęliśmy, zostaje zapisane. Dla blacklisty znaczenie idzie do `status`,
     # ale „[akcept]" („zaakceptowany przez klienta") NIE MA pola, które by je
     # unosiło: to fakt z konkretnej rekrutacji, a marker nie niesie ani oferty,
     # ani daty. Wymyślenie etapu `acceptance` byłoby sfabrykowaniem historii
     # rekrutacyjnej, z której liczone są lejek i premie — więc zamiast tego
     # zostaje surowy ślad, a przypisanie do procesu robi człowiek.
-    stripped_markers = extract_markers(raw_name) + extract_markers(raw_lastname)
+    stripped_markers = name_markers + lastname_markers
     if not name:
         email = payload.get("email") or ""
         if "@" in email:
@@ -721,6 +526,9 @@ def traffit_employee_to_candidate(
         raw_location=payload.get("candidate_location")
     )
     source_updated_at = _parse_traffit_datetime(payload.get("updated_at"))
+    # „W bazie od” (0437): kiedy osoba trafiła do Traffita. `candidates.created_at`
+    # to chwila importu, więc bez tego pola cała baza z Traffita ma dzień importu.
+    source_created_at = _parse_traffit_datetime(payload.get("created_at"))
 
     return {
         "external_id": str(traffit_id),
@@ -735,6 +543,9 @@ def traffit_employee_to_candidate(
         "traffit_raw_lastname": raw_lastname[:100],
         "traffit_source_updated_at": (
             source_updated_at.isoformat() if source_updated_at else None
+        ),
+        "source_created_at": (
+            source_created_at.isoformat() if source_created_at else None
         ),
         "email": _trunc(_pick_nonempty(payload.get("email")), 255),
         "phone": _trunc(
@@ -1078,6 +889,11 @@ def traffit_activity_to_activity(
         "entity_type": "candidate",
         "entity_id": candidate_id,
         "action": action,
+        # Data aktywności z Traffita (czas lokalny Europe/Warsaw → UTC). Do
+        # 29.09.2026 aktywność dostawała `created_at = NOW()`, więc notatka
+        # z lutego wyglądała na majową (dzień importu). `None` = brak daty
+        # w Traffit — zapis bierze wtedy chwilę importu.
+        "created_at": _parse_traffit_datetime(payload.get("activity_date")),
         "details": {
             "traffit_type_id": type_id,
             "traffit_type_value": type_value,
@@ -1178,10 +994,12 @@ _TRAFFIT_GROUP_TO_ROLE: dict[str, str] = {
     "lead": "delivery_lead",
     "kierownicy": "delivery_lead",
     "delivery": "delivery_lead",
-    "sourcer": "sourcer",
-    "sourcerzy": "sourcer",
-    "sourcing": "sourcer",
-    "tac": "tac",
+    # Od 0411 jedna rola: grupy sourcerów i TAC to rekruterzy. Importer pisze
+    # rolę surowym SQL-em co noc, więc stara wartość wracałaby do bazy.
+    "sourcer": "recruiter",
+    "sourcerzy": "recruiter",
+    "sourcing": "recruiter",
+    "tac": "recruiter",
 }
 
 
@@ -1201,6 +1019,23 @@ def normalize_traffit_role(group_name: Optional[str]) -> str:
         if keyword in key:
             return role
     return "recruiter"
+
+
+def traffit_user_display_name(payload: dict[str, Any]) -> str:
+    """Imię i nazwisko użytkownika Traffita tak, jak je pokazuje Traffit.
+
+    Ta sama reguła co ``name`` w :func:`traffit_user_to_nexus` („imię
+    nazwisko”, zapasowo część adresu przed @). Pusty napis, gdy Traffit nie
+    podaje ani nazwiska, ani adresu.
+    """
+    raw_first = (payload.get("name") or "").strip()
+    raw_last = (payload.get("lastname") or "").strip()
+    full_name = " ".join(p for p in (raw_first, raw_last) if p).strip()
+    if full_name:
+        return full_name
+    email = (payload.get("email") or payload.get("username") or "").strip().lower()
+    local = email.split("@", 1)[0] if "@" in email else ""
+    return " ".join(part.capitalize() for part in local.replace(".", " ").split())
 
 
 def traffit_user_to_nexus(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1288,3 +1123,70 @@ def select_all_files_with_priority(
         # Don't mutate input — return shallow-copied dict z is_primary marker
         result.append({**f, "is_primary": (i == 0)})
     return result
+
+
+# ── Data wgrania pliku (29.09.2026) ─────────────────────────────────────────
+#
+# Lista `/employees/{id}/files` niesie tylko `id` i `name`; datę wgrania ma
+# detal osoby (`files: [{filename, file_uploaded}]`), ale BEZ id pliku — plik
+# łączymy z datą po nazwie. Nazwa przycięta do 500 znaków jak w
+# `candidate_documents.filename`, porównanie bez wielkości liter i białych
+# znaków na brzegach.
+
+
+def _traffit_file_key(name: Any) -> Optional[str]:
+    if not isinstance(name, str):
+        return None
+    key = unicodedata.normalize("NFC", name[:500]).strip().casefold()
+    return key or None
+
+
+def employee_files_from_detail(payload: Any) -> list[Any]:
+    """Lista `files` z odpowiedzi `/employees/{id}` (obiekt albo lista z jednym)."""
+    if isinstance(payload, list):
+        payload = payload[0] if payload else None
+    if not isinstance(payload, dict):
+        return []
+    files = payload.get("files")
+    return files if isinstance(files, list) else []
+
+
+def traffit_file_upload_dates(files: Any) -> dict[str, Optional[datetime]]:
+    """Nazwa pliku (klucz) → data wgrania w UTC z `files` detalu osoby.
+
+    Dwa pliki o tej samej nazwie i różnych datach dają ``None`` — nie zgadujemy,
+    który jest który. Brak albo nieczytelna data też ``None`` (klucz zostaje,
+    żeby odróżnić „plik jest, daty nie ma” od „nie ma takiego pliku”).
+    """
+    out: dict[str, Optional[datetime]] = {}
+    if not isinstance(files, list):
+        return out
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        key = _traffit_file_key(item.get("filename") or item.get("name"))
+        if key is None:
+            continue
+        when = _parse_traffit_datetime(item.get("file_uploaded"))
+        if key in out:
+            if out[key] != when:
+                out[key] = None
+        else:
+            out[key] = when
+    return out
+
+
+def traffit_file_upload_lookup(
+    name: Any, dates: dict[str, Optional[datetime]]
+) -> tuple[bool, Optional[datetime]]:
+    """``(czy Traffit zna plik o tej nazwie, data albo None)``."""
+    key = _traffit_file_key(name)
+    if key is None or key not in dates:
+        return False, None
+    return True, dates[key]
+
+
+def traffit_file_upload_date(
+    name: Any, dates: dict[str, Optional[datetime]]
+) -> Optional[datetime]:
+    return traffit_file_upload_lookup(name, dates)[1]

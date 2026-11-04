@@ -1,4 +1,4 @@
-"""Slugi i adresy linków strony kariery (kariera.dynaminds.pl).
+"""Slugi i adresy linków strony kariery (kariera.b2bnetwork.pl).
 
 Dwa rodzaje adresów:
 
@@ -64,6 +64,7 @@ RESERVED_RECRUITER_SLUGS = frozenset(
         "dynaminds",
         "b2b",
         "b2bnet",
+        "b2bnetwork",
         "kontakt",
         "privacy",
         "polityka-prywatnosci",
@@ -93,6 +94,15 @@ def random_suffix(length: int = 4) -> str:
 def job_slug_base(title: str | None) -> str:
     base = slugify(title)[:_JOB_SLUG_BASE_MAX].strip("-")
     return base or "rekrutacja"
+
+
+def job_slug_content(slug: str | None) -> str:
+    """Slug linku rekrutacji bez losowej końcówki — część, która pochodzi
+    z tytułu. Tylko ją czyta kontrola treści: końcówkę dopisujemy sami i nic
+    nie znaczy, a potrafi wyglądać jak kwota („…-zl1v”, „…-1czk”)."""
+    value = slug or ""
+    head, _dash, _suffix = value.rpartition("-")
+    return head or value
 
 
 async def generate_job_slug(db: AsyncSession, title: str | None) -> str:
@@ -142,6 +152,16 @@ def suggest_recruiter_slug(name: str | None) -> str:
     return slug[:RECRUITER_SLUG_MAX].strip("-")
 
 
+def _career_domain() -> str:
+    """``CAREER_PUBLIC_BASE_URL`` bez końcowego ``/`` i przypadkowej interpunkcji.
+
+    23.10.2026 zmienna na produkcji miała średnik na końcu i każdy link
+    wychodził jako ``https://kariera.b2bnetwork.pl;/<slug>`` — adres, którego
+    przeglądarka nie otwiera.
+    """
+    return (settings.CAREER_PUBLIC_BASE_URL or "").strip().rstrip("/;, ")
+
+
 def career_base_url() -> str:
     """Adres strony kariery.
 
@@ -150,9 +170,9 @@ def career_base_url() -> str:
     ``PUBLIC_BASE_URL`` dawałby ``/r/<slug>`` na hoście aplikacji, czyli adres,
     którego nic nie obsługuje.
     """
-    base = (settings.CAREER_PUBLIC_BASE_URL or "").strip()
+    base = _career_domain()
     if base:
-        return base.rstrip("/")
+        return base
     return f"{settings.PUBLIC_BASE_URL.rstrip('/')}/kariera"
 
 
@@ -166,9 +186,9 @@ def recruiter_base_url() -> str:
     Na domenie kariery stały link to ``/<slug>``; na hoście aplikacji strona
     rekrutera leży pod ``/kariera/p/<slug>`` (``/kariera/<slug>`` = 404).
     """
-    base = (settings.CAREER_PUBLIC_BASE_URL or "").strip()
+    base = _career_domain()
     if base:
-        return f"{base.rstrip('/')}/"
+        return f"{base}/"
     return f"{career_base_url()}/p/"
 
 

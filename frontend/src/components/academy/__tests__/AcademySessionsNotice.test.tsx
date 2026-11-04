@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { AcademyCallView } from "@/components/academy/AcademyCallView";
-import type { SessionsLoadState } from "@/components/academy/AcademyShared";
+import { PersonActions, type SessionsLoadState } from "@/components/academy/AcademyShared";
 import type { AcademyApplication, AcademyProgram } from "@/lib/api/academy";
 
 const program: AcademyProgram = {
@@ -85,5 +85,20 @@ describe("terminy w biurze: błąd i wczytywanie to nie „brak terminów”", (
   it("po wczytaniu pustej listy — dopiero wtedy „Nie ma przyszłych terminów”", () => {
     renderCall({ loading: false, error: null, onRetry: vi.fn() });
     expect(screen.getByText(/Nie ma przyszłych terminów/)).toBeInTheDocument();
+  });
+});
+
+describe("W akademii (runda 8, R8-N2-7)", () => {
+  it("osobę po podpisie da się oznaczyć jako „Zrezygnował sam”", async () => {
+    const onAct = vi.fn(async () => true);
+    const signed = {
+      ...caller,
+      status: "signed",
+      signed_at: "2026-09-25T10:00:00Z",
+      cohort_month: "2026-10-01",
+    } as AcademyApplication;
+    render(<PersonActions app={signed} sessions={[]} onAct={onAct} />);
+    await userEvent.click(screen.getByRole("button", { name: "Zrezygnował sam" }));
+    expect(onAct).toHaveBeenCalledWith(signed, { action: "withdraw", reason: "Zrezygnował sam" });
   });
 });

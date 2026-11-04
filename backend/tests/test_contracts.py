@@ -1,6 +1,24 @@
 """Tests for contracts API."""
 
+import uuid
+
 from httpx import AsyncClient
+
+
+async def _fresh_pair() -> tuple[list[dict], list[dict]]:
+    """Nowy kandydat i klient (kształt jak elementy list z API)."""
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+
+    marker = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(name="Kontrakt", lastname=f"Test-{marker}")
+        client = Client(name=f"Klient Testowy {marker}")
+        db.add_all([candidate, client])
+        await db.commit()
+        return [{"id": candidate.id}], [{"id": client.id}]
 
 
 # Legacy live-server smoke tests (skipped unless RUN_LIVE_TESTS=1)
@@ -213,17 +231,9 @@ async def test_contract_rate_unit_round_trip(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """Creating a contract with rate_unit=hourly persists it."""
-    # Find an existing candidate and client to reuse
-    cands = (
-        (await app_client.get("/api/candidates?page_size=1", headers=app_auth_headers))
-        .json()
-        .get("items", [])
-    )
-    clients = (
-        (await app_client.get("/api/clients?page_size=1", headers=app_auth_headers))
-        .json()
-        .get("items", [])
-    )
+    # Własna para kandydat–klient: „pierwsza z listy” bywa już zajęta kontraktem
+    # z innego pliku w tym samym shardzie (wspólna baza) — wtedy 409 duplicate.
+    cands, clients = await _fresh_pair()
     if not cands or not clients:
         return
     payload = {
@@ -256,16 +266,9 @@ async def test_contract_register_fields_round_trip(
 ):
     """Per-klient rejestr (migracja 0138): project_code, prolongation_status,
     engagement_model=hours_pool + pula godzin round-trip + inline PATCH."""
-    cands = (
-        (await app_client.get("/api/candidates?page_size=1", headers=app_auth_headers))
-        .json()
-        .get("items", [])
-    )
-    clients = (
-        (await app_client.get("/api/clients?page_size=1", headers=app_auth_headers))
-        .json()
-        .get("items", [])
-    )
+    # Własna para kandydat–klient: „pierwsza z listy” bywa już zajęta kontraktem
+    # z innego pliku w tym samym shardzie (wspólna baza) — wtedy 409 duplicate.
+    cands, clients = await _fresh_pair()
     if not cands or not clients:
         return
     client_id = clients[0]["id"]
@@ -359,16 +362,9 @@ async def test_contract_order_consumption_round_trip(
 ):
     """Zużycie zamówienia (migracja 0144): ilość + jednostka RBH/MD round-trip
     przez create (formularz "Nowy kontrakt") + zmiana jednostki przez PATCH."""
-    cands = (
-        (await app_client.get("/api/candidates?page_size=1", headers=app_auth_headers))
-        .json()
-        .get("items", [])
-    )
-    clients = (
-        (await app_client.get("/api/clients?page_size=1", headers=app_auth_headers))
-        .json()
-        .get("items", [])
-    )
+    # Własna para kandydat–klient: „pierwsza z listy” bywa już zajęta kontraktem
+    # z innego pliku w tym samym shardzie (wspólna baza) — wtedy 409 duplicate.
+    cands, clients = await _fresh_pair()
     if not cands or not clients:
         return
     payload = {

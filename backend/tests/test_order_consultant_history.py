@@ -699,3 +699,50 @@ async def test_replacement_sets_the_predecessor_column_and_positions_skip_the_re
     assert body["md_used_total"] == 20
     assert body["contract_value_pln"] == pytest.approx(40 * 1280)
     assert body["used_value_pln"] == pytest.approx(20 * 1280)
+
+
+# ── Karta w „Zakończonych": umowa rozwiązana czy projekt skończony ─────────
+
+
+async def test_line_carries_agreement_termination_for_the_ended_card(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Ticket 6 (09.2026): plakietka „Zakończył współpracę" vs „Zakończył
+    projekt" zależy od rozwiązania UMOWY, nie od końca linii — linia niesie
+    więc tryb i ostatni dzień umowy (bez redakcji, to nie kwoty)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract
+
+    ids = await _seed()
+    ended_on = ids["ended_end"]
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, ids["ended_contract"])
+        contract.agreement_termination_mode = "notice"
+        contract.agreement_termination_party = "consultant"
+        contract.agreement_termination_signed_on = ended_on - timedelta(days=30)
+        contract.agreement_last_day = ended_on
+        await db.commit()
+
+    group = await _create_cost_group(
+        app_client,
+        app_auth_headers,
+        ids["client_id"],
+        [
+            _line(ids["active_contract"], rate_revenue=840),
+            _line(
+                ids["ended_contract"],
+                historical=True,
+                end_date=ended_on.isoformat(),
+            ),
+        ],
+    )
+    body = await _group(app_client, app_auth_headers, ids["client_id"], group["id"])
+
+    ended = _by_contract(body, ids["ended_contract"])
+    assert ended["contract_type"] == "b2b"
+    assert ended["agreement_termination_mode"] == "notice"
+    assert ended["agreement_last_day"] == ended_on.isoformat()
+
+    working = _by_contract(body, ids["active_contract"])
+    assert working["agreement_termination_mode"] is None
+    assert working["agreement_last_day"] is None

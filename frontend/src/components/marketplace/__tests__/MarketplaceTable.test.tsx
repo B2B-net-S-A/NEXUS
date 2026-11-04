@@ -8,7 +8,7 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -110,5 +110,30 @@ describe("MarketplaceTable — stany zapytania", () => {
     expect(
       screen.queryByText(/Nie udało się pobrać danych/),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("MarketplaceTable — brak trafień ≠ pusty targ (runda 10, F11)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("0 wyników przy wpisanym wyszukiwaniu mówi o filtrze i pozwala go wyczyścić", async () => {
+    mocks.list.mockResolvedValue({ data: { items: [], total: 0 } });
+    renderTable();
+    await screen.findByText(EMPTY_TEXT);
+
+    fireEvent.change(screen.getByPlaceholderText(/Szukaj po imieniu/), {
+      target: { value: "NEXUSQA" },
+    });
+    expect(
+      await screen.findByText("Nikt na targu nie pasuje do wyszukiwania"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(EMPTY_TEXT)).toBeNull();
+    expect(screen.getByText(/Pasuje do wyszukiwania:/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Wyczyść wyszukiwanie" }));
+    expect(await screen.findByText(EMPTY_TEXT)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Szukaj po imieniu/)).toHaveValue("");
   });
 });

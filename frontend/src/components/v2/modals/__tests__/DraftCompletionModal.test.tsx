@@ -7,6 +7,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   update: vi.fn(),
   activate: vi.fn(),
+  // Reguła helpera należy do `store/auth` — tu sterujemy tylko jego wynikiem.
+  canManageFinance: true,
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -19,7 +21,7 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/store/auth", () => ({
   useAuthStore: (selector: (state: { user: { role: string } }) => unknown) =>
     selector({ user: { role: "admin" } }),
-  canManageCandidateFinance: () => true,
+  canManageCandidateFinance: () => mocks.canManageFinance,
 }));
 
 // The regression is form validation/payload, not Radix portal positioning.
@@ -69,6 +71,7 @@ function renderModal(contractorOverrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.canManageFinance = true;
   mocks.update.mockResolvedValue({ data: { status: "active" } });
   mocks.activate.mockResolvedValue({ data: {} });
 });
@@ -236,5 +239,50 @@ describe("DraftCompletionModal — audyt 24.09 (S12)", () => {
   it("umowa o pracę nadal ma datę zakończenia", () => {
     renderModal({ contract_type: "uop", status: "draft" });
     expect(screen.getByLabelText("Data zakończenia")).toBeInTheDocument();
+  });
+});
+
+describe("DraftCompletionModal — stawki należą do uprawnienia, nie do roli", () => {
+  it("konto bez zmiany kwot zapisuje dane operacyjne i wie, kto dopisze stawki", async () => {
+    mocks.canManageFinance = false;
+    const user = userEvent.setup({ delay: null });
+    renderModal({ rate_client: null, missing_fields: ["rate_client"] });
+
+    // Opis nazywa uprawnienie z ekranu Osoby i role, nie „administratora".
+    expect(
+      screen.getByText(/Stawki wpisuje osoba z uprawnieniem „Stawki i kwoty: zmiana”/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/przez administratora/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Stawka przychodowa/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Zapisz dane operacyjne" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+    const payload = mocks.update.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("rate_client");
+    expect(payload).not.toHaveProperty("rate_candidate");
+    expect(mocks.activate).not.toHaveBeenCalled();
+  });
+
+  it("odmowa serwera pokazuje nazwę brakującego uprawnienia", async () => {
+    const message =
+      "Brakuje Ci uprawnienia „Kontrakty i zamówienia: tworzenie i edycja”. Poproś administratora o dostęp.";
+    mocks.update.mockRejectedValue({
+      response: {
+        status: 403,
+        data: {
+          detail: {
+            code: "permission_denied",
+            permission: "contracts_orders_edit",
+            message,
+          },
+        },
+      },
+    });
+    const user = userEvent.setup({ delay: null });
+    renderModal();
+
+    await user.click(screen.getByRole("button", { name: /Aktywuj kontrakt/i }));
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
   });
 });

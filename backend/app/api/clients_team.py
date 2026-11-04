@@ -53,11 +53,10 @@ from app.services.client_access import (
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 
-# Role allowed to act as a client-relationship TAC. Intentionally wider than
-# just `UserRole.tac` — a DL or admin can own a client relationship too
-# (especially during transitions). Reused in `POST /jobs` role validation.
+# Role allowed to act as a client-relationship TAC. Roli TAC nie ma od 0411
+# (02.10.2026) — opiekunem relacji bywa DL, admin albo Head of Recruitment.
+# Reused in `POST /jobs` role validation.
 TAC_ASSIGNABLE_ROLES = {
-    UserRole.tac,
     UserRole.delivery_lead,
     UserRole.admin,
     UserRole.head_of_recruitment,
@@ -144,9 +143,15 @@ async def get_client_team(
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> ClientTeamResponse:
-    """Combined TAC + DL view for a single client."""
+    """Combined TAC + DL view for a single client.
+
+    ``purpose="org"``: formularz rekrutacji i ustawienia rekrutacji czytają
+    stąd podpowiedź Delivery Leada dla KAŻDEGO klienta, a rekrutacje są
+    otwarte dla wszystkich — zespół (same nazwiska ludzi) nie zawęża się
+    razem z modułami Delivery (25.09.2026).
+    """
     await _ensure_client_exists(db, client_id)
-    access = await resolve_client_access(db, current_user, client_id)
+    access = await resolve_client_access(db, current_user, client_id, purpose="org")
     if not access.can_view_contacts:
         raise deny("brak dostępu do zespołu tego klienta")
 

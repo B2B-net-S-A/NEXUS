@@ -106,8 +106,15 @@ TECH_CATEGORIES = frozenset(
     }
 )
 
+# Technologie w sensie bramki must i umiejętności krytycznych (30.09.2026):
+# kategorie CV plus narzędzia (Pega, SAP, IBM MQ, Camunda, OpenShift), standardy
+# (UML, BPMN, OpenAPI) i AI. Osobny zbiór, bo TECH_CATEGORIES steruje też
+# pogrubianiem w CV — dopisanie tam narzędzi zmieniłoby wygląd każdego CV.
+GATE_TECH_CATEGORIES = TECH_CATEGORIES | frozenset({"tools", "standards", "ai"})
+
 # All keys/values lowercase. Empty until hydrated so offline use degrades.
 TECH_CANONICALS: set[str] = set()  # canonical names whose category ∈ TECH_CATEGORIES
+CANONICAL_CATEGORY: dict[str, str] = {}  # canonical -> category (ALL skills)
 ALIAS_TO_CANONICAL: dict[str, str] = {}  # alias -> canonical (ALL skills)
 CANONICAL_TO_ALIASES: dict[str, list[str]] = {}  # tech canonical -> [alias, ...]
 
@@ -117,8 +124,17 @@ def set_tech_taxonomy(
     tech_canonicals,
     alias_to_canonical: dict[str, str],
     canonical_to_aliases: dict[str, list[str]] | None = None,
+    categories: dict[str, str] | None = None,
 ) -> None:
     """Replace the in-memory tech taxonomy atomically (called at startup)."""
+    CANONICAL_CATEGORY.clear()
+    CANONICAL_CATEGORY.update(
+        {
+            c.strip().lower(): (cat or "").strip().lower()
+            for c, cat in (categories or {}).items()
+            if c
+        }
+    )
     TECH_CANONICALS.clear()
     TECH_CANONICALS.update(c.strip().lower() for c in tech_canonicals if c)
     ALIAS_TO_CANONICAL.clear()
@@ -151,6 +167,50 @@ def is_taxonomy_technology(name: str) -> bool:
     return canonical_of(name) in TECH_CANONICALS
 
 
+def taxonomy_category(name: str) -> str | None:
+    """Kategoria nazwy ze słownika (``role_dev``, ``tools``…) albo ``None``,
+    gdy nazwy nie ma w słowniku albo słownik nie jest wczytany."""
+    return CANONICAL_CATEGORY.get(canonical_of(name)) or None
+
+
+def is_gate_technology(name: str) -> bool:
+    """Czy nazwa jest technologią ze słownika w sensie bramki must
+    (``GATE_TECH_CATEGORIES``). ``False`` bez wczytanego słownika."""
+    return taxonomy_category(name) in GATE_TECH_CATEGORIES
+
+
+def is_single_letter_skill(word: str) -> bool:
+    """Jednoliterowa nazwa technologii ze słownika („C”, „R”) — nie szum.
+
+    Wspólna reguła wierszy wymagań, odczytu maila i słów kluczowych (audyt
+    06.10.2026, P4/K4): limit „co najmniej 2 znaki” wycinał je po cichu, więc
+    rekrutacji na programistę C nie dało się opisać wierszem. Każda inna
+    pojedyncza litera dalej jest szumem. ``False`` bez wczytanego słownika.
+    """
+    text = (word or "").strip()
+    return len(text) == 1 and text.isalpha() and is_gate_technology(text)
+
+
+def cut_at_word(text: str, limit: int) -> str:
+    """Tekst przycięty do ``limit`` znaków na granicy słowa (bez urwanego wyrazu).
+
+    Słowo dłuższe niż limit (bez spacji) jest przycinane twardo — nie ma tu
+    granicy, na której można by się zatrzymać.
+    """
+    if len(text) <= limit:
+        return text
+    head = text[: limit + 1]
+    cut = head.rfind(" ")
+    return (head[:cut] if cut > 0 else text[:limit]).rstrip()
+
+
+def is_non_technology_concept(name: str) -> bool:
+    """Nazwa ze słownika, która jest rolą albo metodyką („QA”, „Software
+    developer”, „Scrum”) — nie technologią, więc nie bramkuje."""
+    category = taxonomy_category(name) or ""
+    return category.startswith("role_") or category == "methodology"
+
+
 def tech_alias_forms(name: str) -> list[str]:
     """All lowercase surface forms (canonical + its aliases + the input) for a
     taxonomy technology — used to build bold patterns so a chip written as
@@ -164,3 +224,73 @@ def tech_alias_forms(name: str) -> list[str]:
     forms = {canon, (name or "").strip().lower()}
     forms.update(CANONICAL_TO_ALIASES.get(canon, []))
     return sorted(f for f in forms if f)
+
+
+# ── Technologie, które spełniają wymaganie ogólniejsze ─────────────────────
+
+# „SQL” w wymaganiach spełnia każdy, kto pracuje z bazą SQL-ową — w CV pisze
+# się wtedy nazwę bazy („PostgreSQL & MySQL”), nie samo „SQL”. Ukrywało to
+# trafne osoby za bramką krytycznych (pomiar 07.10.2026: 10 z 271 ukryć).
+# To IMPLIKACJA, nie alias: PostgreSQL spełnia SQL, ale SQL nie spełnia
+# PostgreSQL — dlatego nie w `skill_aliases` (alias jest dwukierunkowy).
+IMPLIED_BY: dict[str, tuple[str, ...]] = {
+    "sql": (
+        "postgresql",
+        "postgres",
+        "mysql",
+        "microsoft sql server",
+        "ms sql",
+        "mssql",
+        "sql server",
+        "mariadb",
+        "sqlite",
+        "t-sql",
+        "pl/sql",
+    ),
+    "uml": ("plantuml",),
+}
+
+
+def implied_forms(name: str) -> tuple[str, ...]:
+    """Formy, które spełniają wymaganie `name` (puste, gdy nie ma implikacji)."""
+    low = (name or "").strip().lower()
+    return IMPLIED_BY.get(low) or IMPLIED_BY.get(canonical_of(low)) or ()
+
+
+# ── Wersja przy nazwie technologii (bramka must, formularz rekrutacji) ──────
+
+# „Java 8+”, „Python 3.x”, „Angular 15”, „.NET 6”, „Java 7/8”,
+# „React.js (v18 or higher)”, „Java 11 or higher”. Formy sklejone z nazwą
+# („ES6”, „S3”, „OAuth2”, „Log4j”) zostają — tam cyfra jest częścią nazwy.
+# Wersja bywa też słowna: „Java (minimalna 11)”, „Oracle (min. 19c)”, „Java
+# od 11” — bez tych słów cała pozycja wypadała z bramki i z wyboru krytycznych
+# (produkcja 30.09.2026).
+_VERSION_WORD = (
+    r"(?:v\.?|ver\.?|version|wersja|wersji|min\.?|minimum|minimaln\w*|od|from|"
+    r"at\s+least|co\s+najmniej|>=|≥)"
+)
+_VERSION_TAIL = re.compile(
+    rf"(?:\s*\((?:{_VERSION_WORD}\s?)?\d[^()]*\)"
+    rf"|\s+(?:{_VERSION_WORD}\s?)?\d+(?:[.,/]\d+)*(?:\.x|[a-z])?\s*\+?"
+    r"(?:\s*(?:or|lub|and)\s*(?:higher|newer|above|wyżej|wyzej|nowsz\w*|nowsza|później|pozniej))?)\s*$",
+    re.IGNORECASE,
+)
+
+
+def strip_version(name: str) -> tuple[str, str | None]:
+    """Nazwa bez wersji i odcięta wersja: „Java 8+” → („Java”, „8+”).
+
+    Bez wersji zwraca (nazwa, None). Nazwa złożona z samej wersji nie jest
+    ucinana do pustego napisu.
+    """
+    text = (name or "").strip()
+    match = _VERSION_TAIL.search(text)
+    if not match or match.start() == 0:
+        return text, None
+    base = text[: match.start()].strip()
+    if not base:
+        return text, None
+    # „OWASP Top 10”, „CWE Top 25” — liczba jest częścią nazwy (13.10.2026).
+    if re.search(r"\btop$", base, re.IGNORECASE):
+        return text, None
+    return base, match.group(0).strip().strip("()").strip()

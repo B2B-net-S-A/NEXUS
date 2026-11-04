@@ -29,7 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import RecruiterPlus
+from app.api.deps import OperationalUser, RecruiterPlus
 from app.api.proposals_bulk import _resolve_initial_stage
 from app.api.recruitment_access import ensure_job_membership, ensure_job_read_access
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
@@ -174,7 +174,7 @@ async def add_to_shortlist(
 )
 async def list_shortlist(
     job_id: int,
-    current_user: RecruiterPlus,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[ShortlistEntryResponse]:
     await ensure_job_read_access(db, current_user, job_id)

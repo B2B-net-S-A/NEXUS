@@ -66,6 +66,7 @@ class PolicyContext:
 
 PolicyFn = Callable[[OrderExtraction, PolicyContext], OrderExtraction]
 RowsFn = Callable[[str], list[ConsultantOrderRow]]
+LayoutTextFn = Callable[[str, Optional[list]], str]
 RateRulesFn = Callable[[OrderExtraction, str], Optional[OrderExtraction]]
 
 
@@ -145,6 +146,11 @@ class OrderClientPolicy:
     #: 09.2026). ZMIEŃ wersję przy każdej zmianie reguły, która może zmienić
     #: werdykt dokumentu; ``None`` = bez automatycznego przeliczania.
     rule_version: Optional[str] = None
+    #: Tabela osób czytana z POŁOŻENIA słów PDF-a (PKO BP): funkcja dopisuje
+    #: do tekstu dokumentu wiersze z kolumn, które czyta reguła i bramka; model
+    #: dostaje tekst bez dopisku (``prepare_parser_text``). Słowa niesie
+    #: ``OrderDocumentText.words``; bez nich tekst zostaje bez zmian.
+    layout_text: Optional[LayoutTextFn] = None
 
 
 def client_ids_from_env(env_name: str) -> frozenset[int]:
@@ -288,7 +294,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         rate_rules=_nordea_rate_rules,
         # 24.09.2026: tabela porównywana z zachowanym odczytem modelu
         # (``model_rows``), a nie sama ze sobą (audyt S2).
-        rule_version="2026-09-24",
+        # 26.09.2026: model dostaje surowy fragment tabeli, kontrola
+        # kompletności wierszy i trzeci człon nazwy (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     OrderClientPolicy(
         key="bank_pocztowy",
@@ -302,7 +310,10 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         # Reguła jest idempotentna (``rate_client_md``, jednostka wiersza).
         reapply_on_refresh=True,
         # 24.09.2026: wiersze osób też przeliczane MD → h (audyt W3).
-        rule_version="2026-09-24",
+        # 29.09.2026: wiersz z tabeli niesie stawkę ze wzoru, a kilkuwyrazowy
+        # profil nie czyni nazwiska niepewnym — bramka przestała odsyłać
+        # każdy dokument do weryfikacji.
+        rule_version="2026-09-29",
     ),
     OrderClientPolicy(
         key="credit_agricole",
@@ -346,7 +357,12 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         rate_unit_default="hour",
         document_period_authoritative=True,
         # 22.09.2026: okres z dokumentu wiążący (FIN-MAIL-03).
-        rule_version="2026-09-22",
+        # 26.09.2026: „od DATA" bez „do" nie jest datą końca (runda 6 audytu).
+        # 26.09.2026: jawne „netto" przy stawce bez ÷ 1,23, sprzeczne
+        # oznaczenie do sprawdzenia (runda 6 audytu, decyzja Artura).
+        # 26.09.2026: „zł (netto)”, „zł/h netto”, „+ 23% VAT” = netto; „netto”
+        # w innym zapisie za kwotą = do sprawdzenia (runda 7, R7-V4-3).
+        rule_version="2026-09-26b",
     ),
     OrderClientPolicy(
         key="erste",
@@ -370,10 +386,13 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         extract_rows=pko_bp.extract_rows,
         rate_rules=pko_bp.apply_rate_rules,
         reapply_on_refresh=True,
+        layout_text=pko_bp.apply_layout_table,
         # 09.2026: nazwisko bez doklejonego profilu, stawka zawsze netto.
         # 16.09.2026: jawny podział liczby MD i stawki (stawka ≥ 1 000 zł ze
         # spacją w tysiącach szła wcześniej jako MD — patrz `split_md_and_rate`).
-        rule_version="2026-09-16",
+        # 01.10.2026: tabela Wykonawców z kolumn PDF-a (ticket 12 — profil
+        # „Inżynier DevSecOpS Senior" doklejał się do nazwiska).
+        rule_version="2026-10-01",
     ),
     OrderClientPolicy(
         key="kir",
@@ -383,6 +402,8 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         order=120,
         rate_unit_default="hour",
         extract_rows=kir.extract_rows,
+        # 26.09.2026: zastrzeżenia modelu zachowane (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     OrderClientPolicy(
         key="mleasing",
@@ -391,6 +412,10 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         apply=_mleasing,
         order=130,
         extract_rows=mleasing.extract_rows,
+        # 26.09.2026: zastrzeżenia modelu zachowane (runda 6 audytu);
+        # kilka osób — cena i okres tylko wspólne dla wszystkich pozycji
+        # (runda 7, R7-N4-1).
+        rule_version="2026-09-26b",
     ),
     OrderClientPolicy(
         key="velobank",
@@ -400,6 +425,8 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         order=140,
         rate_unit_default="day",
         extract_rows=velobank.extract_rows,
+        # 26.09.2026: zastrzeżenia modelu zachowane (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     OrderClientPolicy(
         key="alior",
@@ -412,7 +439,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         table_authoritative=True,
         rate_rules=alior.apply_rate_rules,
         # 09.2026: cztery pola z PDF, netto z definicji, zapisany odczyt modelu.
-        rule_version="2026-09-10",
+        # 26.09.2026: wyczyszczona stawka nie wraca z kwoty brutto starego
+        # odczytu (runda 7).
+        rule_version="2026-09-26",
     ),
     OrderClientPolicy(
         key="cardif",
@@ -422,6 +451,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         order=160,
         rate_unit_default="day",
         extract_rows=cardif.extract_rows,
+        # 26.09.2026: kilka różnych stawek w prozie = wiersze do sprawdzenia,
+        # zastrzeżenia modelu zachowane (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     # Kanoniczne ID 18 = BIK z ticketu korekty 29.08.2026 (to samo, które
     # przypina ``order_types._PINNED_ALLOWED_ORDER_TYPES``). Env dopisuje
@@ -464,7 +496,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         # 22.09.2026: okres z dokumentu wiążący (FIN-MAIL-03).
         # 24.09.2026: stawka po ÷ 1,23 wraca do kwoty z PDF-a (audyt N3) —
         # wyłącznie w „Zleceniu wykonawczym nr …" (.2, audyt 24.09 wieczór).
-        rule_version="2026-09-24.2",
+        # 26.09.2026: liczba MD sklejona z kwotą rozdzielana, bez dowodu
+        # arytmetycznego — wiersz do sprawdzenia (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     # Ten sam szablon „Zlecenie wykonawcze nr CP … / rok" — wyłącznie reguła
     # numeru. Cyfrowy Polsat ma też zamówienia okresowe, więc okres i stawki
@@ -561,8 +595,21 @@ def apply_policies(
     return result, applied
 
 
-def prepare_document_text(text: str, policies: list[OrderClientPolicy]) -> str:
-    """Zakres dokumentu wspólny dla modelu, reguł i kontroli deterministycznej."""
+def prepare_document_text(
+    text: str,
+    policies: list[OrderClientPolicy],
+    *,
+    words: Optional[list] = None,
+) -> str:
+    """Zakres dokumentu wspólny dla modelu, reguł i kontroli deterministycznej.
+
+    ``words`` — słowa PDF-a z położeniem (``OrderDocumentText.words``); reguła
+    z ``layout_text`` (PKO BP) dopisuje nimi wiersze tabeli osób z kolumn PDF-a.
+    """
+    for policy in sorted(policies, key=lambda p: p.order):
+        layout_text = getattr(policy, "layout_text", None)
+        if layout_text is not None and words:
+            text = layout_text(text, words)
     if any(p.key == "nordea" for p in policies):
         return nordea.order_text_only(text)
     return text
@@ -622,7 +669,13 @@ def open_ended_period(policies: list[OrderClientPolicy]) -> bool:
 
 
 def prepare_parser_text(text: str, policies: list[OrderClientPolicy]) -> str:
-    """Kolumny ignorowane przez klienta nie są przekazywane do modelu."""
+    """Kolumny ignorowane przez klienta nie są przekazywane do modelu.
+
+    Wiersze dopisane z układu PDF-a (PKO BP) też nie: model czyta surową
+    tabelę jako niezależny czytelnik, a bramka porównuje go z dopiskiem.
+    """
+    if any(getattr(p, "layout_text", None) is not None for p in policies):
+        text = pko_bp.without_layout_table(text)
     if any(p.key == "nordea" for p in policies):
         return nordea.parser_text(text)
     return text

@@ -250,3 +250,141 @@ async def test_person_without_a_limit_keeps_the_order_open(
     state, lines = await _group_state(group["id"])
     assert lines == ["completed", "active"]
     assert state.status == "active"
+
+
+# ── Runda 6 audytu (MD-2): korekta przywraca pulę zakończonej osobie ─────────
+
+
+async def _departed_with_pending_case(client_id: int, group_id: int, line_id: int):
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.client_order_offboarding import ClientOrderOffboardingCase
+
+    async with AsyncSessionLocal() as db:
+        departed = await db.get(ClientOrder, line_id)
+        departed.status = ClientOrderStatus.completed
+        db.add(
+            ClientOrderOffboardingCase(
+                contract_id=departed.contract_id,
+                order_id=line_id,
+                order_group_id=group_id,
+                client_id=client_id,
+                effective_date=business_today(),
+                uses_shared_md_pool=False,
+                remaining_md_snapshot=Decimal("13.75"),
+            )
+        )
+        await db.commit()
+
+
+async def _case_of(line_id: int):
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order_offboarding import ClientOrderOffboardingCase
+
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(
+            select(ClientOrderOffboardingCase).where(
+                ClientOrderOffboardingCase.order_id == line_id
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_correction_restoring_the_pool_reopens_the_automatic_decision(
+    app_client, app_auth_headers, monkeypatch
+):
+    """Sprawa zamknięta sama („pula wykorzystana”) wraca do decyzji, gdy
+    Finanse poprawią raport i osobie znowu zostają MD — inaczej 12 MD wisi
+    na zakończonej linii bez nikogo, kto o nich decyduje."""
+    client_id, group = await _bik_group(app_client, app_auth_headers, monkeypatch)
+    first, second = (line["id"] for line in group["lines"])
+    await _consume(first, "35")
+    await _departed_with_pending_case(client_id, group["id"], second)
+    await _consume(second, "42")
+    case = await _case_of(second)
+    assert case.status == "resolved"
+    assert case.resolution_payload["reason"] == "pool_used_up"
+
+    await _consume(second, "30")
+
+    case = await _case_of(second)
+    assert case.status == "pending"
+    assert case.resolution is None and case.resolved_at is None
+    assert case.remaining_md_snapshot == Decimal("12")
+    state, _ = await _group_state(group["id"])
+    assert state.status == "active"
+
+
+@pytest.mark.asyncio
+async def test_correction_does_not_reopen_a_human_decision(
+    app_client, app_auth_headers, monkeypatch
+):
+    from datetime import datetime, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order_offboarding import ClientOrderOffboardingCase
+
+    client_id, group = await _bik_group(app_client, app_auth_headers, monkeypatch)
+    first, second = (line["id"] for line in group["lines"])
+    await _consume(first, "35")
+    await _departed_with_pending_case(client_id, group["id"], second)
+    async with AsyncSessionLocal() as db:
+        case = await db.scalar(
+            select(ClientOrderOffboardingCase).where(
+                ClientOrderOffboardingCase.order_id == second
+            )
+        )
+        case.status = "resolved"
+        case.resolution = "remove"
+        case.resolved_at = datetime.now(timezone.utc)
+        case.resolution_payload = {"remaining_md_snapshot": "13.75"}
+        await db.commit()
+
+    await _consume(second, "30")
+
+    assert (await _case_of(second)).status == "resolved"
+
+
+@pytest.mark.asyncio
+async def test_correction_opens_a_case_when_the_pool_was_zero_at_termination(
+    app_client, app_auth_headers, monkeypatch
+):
+    """Przy zakończeniu pula wynosiła 0 MD, więc sprawy nie założono (tylko
+    wpis ``pool_used_up``). Korekta przywracająca MD zakłada ją teraz."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.contract import Contract, ContractStatus
+    from app.services.client_order_lines import record_event
+    from app.services.multi_consultant_orders import EVENT_CONSULTANT_ENDED
+
+    client_id, group = await _bik_group(app_client, app_auth_headers, monkeypatch)
+    first, second = (line["id"] for line in group["lines"])
+    await _consume(first, "35")
+    await _consume(second, "42")
+    async with AsyncSessionLocal() as db:
+        departed = await db.get(ClientOrder, second)
+        departed.status = ClientOrderStatus.completed
+        contract = await db.get(Contract, departed.contract_id)
+        contract.status = ContractStatus.ended
+        record_event(
+            db,
+            group_id=group["id"],
+            order_id=second,
+            event_type=EVENT_CONSULTANT_ENDED,
+            description="zakończył(a) współpracę — pula MD wykorzystana w całości",
+            payload={
+                "order_id": second,
+                "effective_date": business_today().isoformat(),
+                "pool_used_up": True,
+            },
+        )
+        await db.commit()
+    assert await _case_of(second) is None
+
+    await _consume(second, "30")
+
+    case = await _case_of(second)
+    assert case is not None
+    assert case.status == "pending"
+    assert case.remaining_md_snapshot == Decimal("12")
+    assert case.effective_date == business_today()

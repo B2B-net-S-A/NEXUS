@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from decimal import Decimal
-from typing import Optional, Protocol
+from typing import Any, Optional, Protocol
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -22,6 +22,11 @@ from app.models.client_order_group import (
     GROUP_STATUS_EXHAUSTED,
     ClientOrderGroup,
     ClientOrderGroupMdConsumption,
+)
+from app.models.md_consumption import (
+    IMPORT_ROW_APPLIED,
+    MdConsumptionImport,
+    MdConsumptionImportRow,
 )
 from app.services.cost_orders import lock_group_for_settlement
 from app.services.cyfrowy_polsat_orders import (
@@ -163,6 +168,10 @@ async def settle_shared_md_group(db: AsyncSession, group: ClientOrderGroup) -> D
         group.status = GROUP_STATUS_EXHAUSTED
     elif group.status == GROUP_STATUS_EXHAUSTED and remaining > ZERO:
         group.status = GROUP_STATUS_ACTIVE
+        # Runda 9 (R9-N12-9): budżet wrócił — karta „wyczerpane" znika.
+        from app.services.dl_alerts import resolve_budget_exhausted_alerts
+
+        await resolve_budget_exhausted_alerts(db, group.id)
     return remaining
 
 
@@ -174,8 +183,14 @@ async def upsert_shared_md_consumption(
     md_reported: Decimal,
     source: str = "import",
     user_id: Optional[int] = None,
+    breakdown: Optional[list[dict[str, Any]]] = None,
 ) -> tuple[ClientOrderGroupMdConsumption, Decimal]:
-    """Idempotentnie zapisz miesiąc grupy i od razu przelicz pozostałość."""
+    """Idempotentnie zapisz miesiąc grupy i od razu przelicz pozostałość.
+
+    ``breakdown`` = podział na konsultantów z ręcznej edycji (0419). Każdy
+    zapis go NADPISUJE — import i stara ręczna suma zostawiają ``NULL``, bo
+    suma z innego źródła nie musi już zgadzać się z poprzednim podziałem.
+    """
 
     if not uses_shared_md_pool(group):
         raise ValueError("Konsumpcję wspólnej puli MD można zapisać tylko dla typu MD")
@@ -202,6 +217,7 @@ async def upsert_shared_md_consumption(
             md_reported=value,
             source=source,
             created_by_user_id=user_id,
+            breakdown=breakdown,
         )
         .on_conflict_do_update(
             index_elements=[
@@ -212,6 +228,7 @@ async def upsert_shared_md_consumption(
                 "md_reported": value,
                 "source": source,
                 "created_by_user_id": user_id,
+                "breakdown": breakdown,
                 "updated_at": func.now(),
             },
         )
@@ -225,3 +242,144 @@ async def upsert_shared_md_consumption(
         )
     remaining = await settle_shared_md_group(db, group)
     return row, remaining
+
+
+async def delete_shared_md_consumption(
+    db: AsyncSession, *, group: ClientOrderGroup, period_month: str
+) -> Optional[tuple[Decimal, Decimal]]:
+    """Usuń zejście wspólnej puli za miesiąc i przelicz pulę od zera.
+
+    Zwraca ``(usunięte MD, pozostało)`` albo ``None``, gdy miesiąca nie było.
+    Ta sama kolejność blokad co zapis (grupa → miesiąc), więc równoległy import
+    tego miesiąca nie zapisze pozostałości policzonej ze starego stanu.
+    """
+
+    if not uses_shared_md_pool(group):
+        raise ValueError("Zamówienie nie ma wspólnej puli MD")
+    group = await lock_group_for_settlement(db, group, flush_local_changes=False)
+    row = await db.scalar(
+        select(ClientOrderGroupMdConsumption)
+        .where(
+            ClientOrderGroupMdConsumption.group_id == group.id,
+            ClientOrderGroupMdConsumption.period_month == period_month,
+        )
+        .with_for_update()
+    )
+    if row is None:
+        return None
+    removed = quantize_md(row.md_reported)
+    await db.delete(row)
+    await db.flush()
+    remaining = await settle_shared_md_group(db, group)
+    return removed, remaining
+
+
+async def shared_md_import_breakdowns(
+    db: AsyncSession, group_id: int
+) -> dict[str, list[tuple[int, Decimal]]]:
+    """Podział miesięcy z importu na osoby — z wierszy importu.
+
+    Wkład osoby w miesiącu to jej wiersze z NAJNOWSZEJ paczki tego miesiąca,
+    w której była (ta sama reguła co przeniesienie przy pliku korygującym,
+    ``_shared_md_carry_over``). Wołający porównuje sumę z ``md_reported`` —
+    przy rozjeździe (np. ręczna korekta sumy) podziału nie pokazuje.
+    """
+
+    rows = (
+        await db.execute(
+            select(
+                MdConsumptionImport.period_month,
+                MdConsumptionImportRow.import_id,
+                MdConsumptionImportRow.matched_order_id,
+                MdConsumptionImportRow.md_reported,
+            )
+            .join(
+                MdConsumptionImport,
+                MdConsumptionImport.id == MdConsumptionImportRow.import_id,
+            )
+            .where(
+                MdConsumptionImportRow.matched_group_id == group_id,
+                MdConsumptionImportRow.matched_order_id.is_not(None),
+                MdConsumptionImportRow.status == IMPORT_ROW_APPLIED,
+            )
+        )
+    ).all()
+    latest: dict[tuple[str, int], int] = {}
+    sums: dict[tuple[str, int, int], Decimal] = {}
+    for month, batch_id, order_id, md in rows:
+        key = (month, order_id)
+        latest[key] = max(latest.get(key, batch_id), batch_id)
+        sums[(month, order_id, batch_id)] = sums.get(
+            (month, order_id, batch_id), ZERO
+        ) + Decimal(str(md))
+    out: dict[str, list[tuple[int, Decimal]]] = {}
+    for (month, order_id), batch_id in sorted(latest.items()):
+        out.setdefault(month, []).append(
+            (order_id, quantize_md(sums[(month, order_id, batch_id)]))
+        )
+    return out
+
+
+def shared_md_month_people(
+    row: ClientOrderGroupMdConsumption,
+    import_breakdowns: dict[str, list[tuple[int, Decimal]]],
+) -> tuple[Optional[list[tuple[int, Decimal]]], Optional[str]]:
+    """Podział jednego miesiąca puli na osoby i jego źródło.
+
+    Ręczny ``breakdown`` wygrywa; bez niego miesiąc z importu dostaje podział
+    z wierszy importu — tylko gdy składa się w zapisaną sumę, inaczej
+    przypisalibyśmy osobom liczby, których suma nie zgadza się z tym, co
+    zeszło z puli. ``(None, None)`` = miesiąc bez podziału na osoby.
+    Jedna reguła dla sekcji „Zejścia MD” panelu i kolumny „Zużycie” listy.
+    """
+
+    if row.breakdown:
+        return (
+            [
+                (int(item["order_id"]), Decimal(str(item["md"])))
+                for item in row.breakdown
+            ],
+            "manual",
+        )
+    if row.source == "import":
+        derived = import_breakdowns.get(row.period_month) or []
+        if derived and quantize_md(sum((md for _, md in derived), ZERO)) == quantize_md(
+            row.md_reported
+        ):
+            return derived, "import"
+    return None, None
+
+
+async def shared_md_person_usage(
+    db: AsyncSession, group_id: int
+) -> tuple[dict[int, Decimal], int]:
+    """Narastające MD każdej osoby na wspólnej puli i liczba miesięcy bez podziału.
+
+    Suma po miesiącach z tego samego podziału co sekcja „Zejścia MD”
+    (``shared_md_month_people``) — bez nowego liczenia. Miesiąc, którego nie da
+    się rozpisać na osoby (ręczna suma bez podziału), nie trafia do żadnej
+    osoby; wołający pokazuje, ile takich miesięcy jest, żeby suma osoby nie
+    udawała kompletnej.
+    """
+
+    rows = (
+        await db.scalars(
+            select(ClientOrderGroupMdConsumption).where(
+                ClientOrderGroupMdConsumption.group_id == group_id
+            )
+        )
+    ).all()
+    if not rows:
+        return {}, 0
+    import_breakdowns = await shared_md_import_breakdowns(db, group_id)
+    totals: dict[int, Decimal] = {}
+    unattributed = 0
+    for row in rows:
+        people, _source = shared_md_month_people(row, import_breakdowns)
+        if people is None:
+            if quantize_md(row.md_reported) > ZERO:
+                unattributed += 1
+            continue
+        for order_id, md in people:
+            totals[order_id] = totals.get(order_id, ZERO) + md
+    return {key: quantize_md(value) for key, value in totals.items()}, unattributed

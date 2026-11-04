@@ -22,6 +22,7 @@ trafiają do specjalnego klienta `__traffit_orphans` (auto-utworzony, status=ina
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -31,8 +32,8 @@ from typing import Any, Optional
 
 import httpx
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import bindparam, select, text
+from sqlalchemy.exc import IntegrityError, PendingRollbackError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -47,20 +48,34 @@ from app.services.candidate_contact_hooks import (
     maybe_ensure_contact_opportunity,
 )
 from app.services.inactive_client_cleanup_run import purged_external_ids
+from app.services.candidate_audit import (
+    EMAIL_TOMBSTONE_SOURCE,
+    candidate_email_tombstone,
+    candidate_source_tombstone,
+)
+from app.services.candidate_erasure_leftovers import purged_candidate_hashes
+from app.services.note_mention_render import (
+    clean_mention_label,
+    rewrite_traffit_mentions,
+)
 from app.services.traffit.client import TraffitClient
 from app.services.traffit.mappers import (
     _parse_traffit_datetime,
+    employee_files_from_detail,
     select_all_files_with_priority,
     select_primary_cv_file,
     traffit_activity_to_activity,
     traffit_client_to_nexus,
     traffit_crm_person_to_nexus,
     traffit_employee_to_candidate,
+    traffit_file_upload_date,
+    traffit_file_upload_dates,
     traffit_recruitment_history_to_stage,
     traffit_recruitment_to_job,
     traffit_responsible_user_id,
     traffit_source_to_candidate_tag,
     traffit_talent_to_pool,
+    traffit_user_display_name,
     traffit_user_to_nexus,
     traffit_workflow_state_to_stage_def,
     traffit_workflow_to_template,
@@ -77,6 +92,10 @@ from app.services.recruitment_process_commands import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Źródło Talent Radar (`talent_radar_importer.SOURCE_VALUE`) — ten sam numer
+# kandydata z Traffita. Literał, bo import modułu Talent Radar ciągnie asyncpg.
+TALENT_RADAR_TOMBSTONE_SOURCE = "tr_legacy"
 
 
 ORPHAN_CLIENT_NAME = "__traffit_orphans"
@@ -168,6 +187,11 @@ _ERROR_REF_RE = re.compile(r"\b(\w+)\s+(?:ext|id)=([^\s:,]+)")
 # stats JSONB. Past this many distinct failing rows the problem is not a poison
 # row and quarantine is the wrong tool anyway.
 _MAX_ERROR_REFS = 500
+
+# Kolizje e-maila (05.10.2026): pary ext_id → kandydat są w statystykach fazy
+# i w `/sync/status`. Lista przycięta, licznik pełny — kilkadziesiąt par to
+# realny rząd wielkości, a JSONB stanu nie może rosnąć bez końca.
+_MAX_EMAIL_COLLISIONS = 200
 
 # HTTP answers that mean "the record no longer exists upstream". Neither is a
 # failure: retrying cannot change either one, so both are counted into
@@ -323,6 +347,11 @@ class PhaseProgress:
     # („Zakończony”) i ilu nowym nadała kategorię kompetencji.
     archived: int = 0
     categorised: int = 0
+    # Runda 9 (R9-N15-7): przeliczone tytuły dla rekrutera (`working_title`).
+    working_titles: int = 0
+    # 29.09.2026: rekrutacje dopisane do notatek z aktywności osoby w Traffit
+    # (liczniki `link_note_recruitments` + `over_budget`).
+    note_recruitments: dict[str, int] = field(default_factory=dict)
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -336,6 +365,18 @@ class PhaseProgress:
     # forever — the quarantine would never release and the whole mechanism
     # would be a no-op. Counted separately so the arithmetic stays exact.
     attributed_errors: int = 0
+    # Kolizje e-maila w fazie `candidates` (05.10.2026): rekord Traffita, którego
+    # mail należy już do wiersza NEXUSA z INNYM żywym numerem Traffita (dwie
+    # kartoteki tej samej osoby w Traffit albo duplikat w NEXUSIE). To stan
+    # DANYCH — ponowienie go nie naprawi, rozstrzyga człowiek („Scal z…” albo
+    # poprawka w Traffit). Do 05.10 szły przez `add_error`, a kwarantanna ich
+    # nie parkowała (licznik prób zerował się w biegu, który wiersza nie
+    # oglądał — delta bez zmiany u źródła, wznowienie z kursora), więc
+    # `__daily__` stał od 28.09. Teraz są DORADCZE: policzone i wypisane
+    # parami samych identyfikatorów (bez maili), ale nie wstrzymują
+    # watermarku. Inne błędy fazy blokują jak dotąd.
+    email_collision_count: int = 0
+    email_collisions: list[dict[str, Any]] = field(default_factory=list)
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
 
@@ -352,6 +393,85 @@ class PhaseProgress:
         # Past the ref cap we deliberately stop attributing: 500+ distinct
         # failing rows is a systemic fault, and counting the overflow as
         # unattributable keeps the watermark frozen, which is the safe answer.
+
+    def add_email_collision(self, ext_id: Any, candidate_id: int) -> None:
+        """Kolizja e-maila: doradczo, same identyfikatory (nigdy mail)."""
+        self.email_collision_count += 1
+        if len(self.email_collisions) < _MAX_EMAIL_COLLISIONS:
+            self.email_collisions.append(
+                {"ext_id": str(ext_id), "candidate_id": int(candidate_id)}
+            )
+
+    def collision_carry(self) -> dict[str, Any]:
+        """Kolizje do zapisania w kursorze wznowienia (kumulatywne)."""
+        return {
+            "count": self.email_collision_count,
+            "pairs": list(self.email_collisions),
+        }
+
+    def absorb_carried_collisions(self, carried: Any) -> None:
+        """Przyjmij kolizje przerwanej próby — wiersze sprzed kursora nie wrócą.
+
+        Bez tego wznowiony bieg pokazywałby tylko kolizje ze stron po kursorze,
+        a lista w `/sync/status` malałaby przy każdym deployu w trakcie fazy.
+        """
+        if not isinstance(carried, dict):
+            return
+        try:
+            count = max(0, int(carried.get("count") or 0))
+        except (TypeError, ValueError):
+            return
+        self.email_collision_count += count
+        for pair in carried.get("pairs") or []:
+            if len(self.email_collisions) >= _MAX_EMAIL_COLLISIONS:
+                break
+            if not isinstance(pair, dict):
+                continue
+            try:
+                self.email_collisions.append(
+                    {
+                        "ext_id": str(pair["ext_id"]),
+                        "candidate_id": int(pair["candidate_id"]),
+                    }
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+
+    # ── Błędy niesione przez kursor wznowienia (audyt 25.09.2026) ──────────
+    #
+    # Faza z kursorem stron, przerwana w połowie (deploy zabija proces), nie
+    # zwraca `PhaseProgress` — jej błędy wierszy sprzed przerwania ginęły razem
+    # z procesem. Wznowiony przebieg zaczynał od kursora, nie widział ich,
+    # kończył się „czysto” i przesuwał `__daily__` nad wierszami, które nigdy
+    # się nie zaimportowały. Kursor niesie więc stan błędów, a wznowienie
+    # przyjmuje go z powrotem — dalej blokują watermark, dopóki faza nie przejdzie
+    # całego feedu od nowa (kursor wyczyszczony → kolejny bieg ponawia wiersze).
+    #
+    # Wracają jako błędy NIEPRZYPISANE, świadomie: wiersze sprzed kursora nie są
+    # w tym biegu ponawiane, więc doliczanie ich do kwarantanny zaparkowałoby
+    # wiersz po kilku przerwanych biegach, choć ani razu go nie spróbowano.
+
+    def error_carry(self) -> dict[str, Any]:
+        """Stan błędów do zapisania w kursorze wznowienia (kumulatywny)."""
+        return {"errors": self.errors, "refs": sorted(self.error_refs)[:50]}
+
+    def absorb_carried_errors(self, carried: Any) -> None:
+        """Przyjmij błędy przerwanej próby zapisane w kursorze."""
+        if not isinstance(carried, dict):
+            return
+        try:
+            total = max(0, int(carried.get("errors") or 0))
+        except (TypeError, ValueError):
+            return
+        if not total:
+            return
+        self.errors += total
+        refs = [r for r in (carried.get("refs") or []) if isinstance(r, str)]
+        if len(self.error_samples) < 20:
+            self.error_samples.append(
+                f"{total} błąd(y) z przerwanej próby (wznowienie z kursora)"
+                + (f": {', '.join(refs[:10])}" if refs else "")
+            )
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -378,9 +498,13 @@ class PhaseProgress:
             "recruiter_detail_failed": self.recruiter_detail_failed,
             "archived": self.archived,
             "categorised": self.categorised,
+            "working_titles": self.working_titles,
+            "note_recruitments": self.note_recruitments,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
+            "email_collision_count": self.email_collision_count,
+            "email_collisions": list(self.email_collisions),
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
         }
@@ -482,13 +606,32 @@ _UPSERT_CONTACT = text(
     )
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
     DO UPDATE SET
-        client_id          = EXCLUDED.client_id,
-        name               = EXCLUDED.name,
+        -- Runda 10 (R10-N11-4): klienta i nazwę kontaktu prowadzi NEXUS —
+        -- sync tylko dopełnia. Klient zmienia się wyłącznie, gdy kontakt
+        -- siedzi w worku zastępczym albo u klienta usuniętego/scalonego.
+        -- Do 27.09 pełny skan co noc cofał przeniesienie kontaktu do
+        -- właściwego klienta (także hiring managera rekrutacji).
+        client_id          = CASE
+                               WHEN contacts.client_id
+                                    = CAST(:orphan_client_id AS integer)
+                                 OR EXISTS (
+                                   SELECT 1 FROM clients AS c
+                                   WHERE c.id = contacts.client_id
+                                     AND (c.deleted_at IS NOT NULL
+                                          OR (c.merged_into_client_id IS NOT NULL
+                                              AND c.merged_into_client_id <> c.id))
+                                 )
+                               THEN EXCLUDED.client_id
+                               ELSE contacts.client_id
+                             END,
+        name               = COALESCE(NULLIF(contacts.name, ''), EXCLUDED.name),
         email              = COALESCE(EXCLUDED.email, contacts.email),
         phone              = COALESCE(EXCLUDED.phone, contacts.phone),
         position           = COALESCE(EXCLUDED.position, contacts.position),
         department         = COALESCE(EXCLUDED.department, contacts.department),
-        is_decision_maker  = EXCLUDED.is_decision_maker,
+        -- Traffit nie ma tego pola (mapper zawsze daje `false`) — decydenta
+        -- oznacza wyłącznie NEXUS.
+        is_decision_maker  = contacts.is_decision_maker,
         notes              = COALESCE(EXCLUDED.notes, contacts.notes)
     RETURNING id, (xmax = 0) AS was_insert
     """
@@ -521,7 +664,108 @@ _UPSERT_PIPELINE_TEMPLATE = text(
 )
 
 
-_UPSERT_CANDIDATE = text(
+# Runda 7 audytu (R7-V2-3): nagrobki są wczytywane raz, na starcie fazy, a
+# pełny przegląd `/employees/` trwa godziny — kandydat usunięty W TRAKCIE fazy
+# (bez maila albo z innym niż w Traffit) był zakładany od nowa w tym samym
+# biegu. Dlatego sam INSERT sprawdza nagrobek (identyfikatora i maila) w chwili
+# zapisu: `INSERT ... SELECT ... WHERE NOT EXISTS`, nie `VALUES`. Każdy parametr
+# ma jawny CAST, bo w `SELECT` Postgres nie wyprowadza typu parametru z kolumny
+# docelowej. `{tombstone_guard}` = warunek nagrobka albo `true` dla bazy sprzed
+# 0388 (tabela nie istnieje, więc nie da się jej nawet wymienić w zapytaniu).
+# `WHERE` jest obowiązkowe także w wariancie bez nagrobka: rozstrzyga
+# niejednoznaczność `SELECT ... ON CONFLICT` w gramatyce Postgresa.
+_CANDIDATE_TOMBSTONE_GUARD = """
+    WHERE NOT EXISTS (
+        SELECT 1 FROM purged_candidates AS pc
+        WHERE (
+            pc.external_source = CAST(:external_source AS text)
+            AND pc.external_id_hash = CAST(:tombstone_source_hash AS text)
+        ) OR (
+            -- Runda 8 (R8-V2-4): ten sam numer z Traffita żył też pod źródłem
+            -- Talent Radar (`tr_legacy`) — lustro `_is_tombstoned` tam.
+            pc.external_source = 'tr_legacy'
+            AND pc.external_id_hash = CAST(:tombstone_legacy_hash AS text)
+        ) OR (
+            pc.external_source = 'email'
+            AND pc.external_id_hash = CAST(:tombstone_email_hash AS text)
+            -- Żywy kandydat z tym mailem (założony po migawce `email_to_id`)
+            -- to osoba, która wróciła: INSERT trafi w UNIQUE maila, a
+            -- `_late_email_owner` zaadoptuje kartotekę do niego.
+            AND NOT EXISTS (
+                SELECT 1 FROM candidates AS live
+                WHERE live.email = CAST(:email AS text)
+            )
+        )
+    )
+"""
+
+# Runda 10 (R10-N11-9): wersja skrótu zmapowanego payloadu kandydata. Zmiana
+# mappera, która ma przepisać istniejące wiersze, podbija tę wersję — inaczej
+# niezmieniony u źródła rekord nie zostałby przeliczony nową regułą.
+_CANDIDATE_PAYLOAD_SHA_VERSION = "r10-1"
+
+
+# Klucze payloadu poza skrótem. `source_created_at` (0437, „W bazie od”) doszedł
+# do mappera po fakcie: w skrócie zmieniłby go wszystkim ~57 tys. kartotekom
+# i najbliższy pełny bieg przepisałby każdą z nich. Istniejące wiersze uzupełnia
+# jednorazowa naprawa `traffit_added_dates_repair`, nowe dostają datę w INSERT.
+_CANDIDATE_PAYLOAD_SHA_EXCLUDED = frozenset({"source_created_at"})
+
+
+def candidate_payload_sha(payload: dict[str, Any]) -> str:
+    """Skrót zmapowanego rekordu `/employees/` — „czy u źródła coś się zmieniło”."""
+    hashed = {
+        key: value
+        for key, value in payload.items()
+        if key not in _CANDIDATE_PAYLOAD_SHA_EXCLUDED
+    }
+    blob = json.dumps(hashed, sort_keys=True, default=str, ensure_ascii=False)
+    return hashlib.sha256(
+        f"{_CANDIDATE_PAYLOAD_SHA_VERSION}\n{blob}".encode("utf-8")
+    ).hexdigest()[:32]
+
+
+# Runda 10 (R10-N11-9, poprawka po przeglądzie): niezmieniony u źródła
+# kandydat nie dostaje już `updated_at = NOW()` w fazie `candidates`, więc sam
+# warunek `updated_at >= files_since` gubił go w delcie plików/CV. Ponowienie
+# po wstrzymanym `__daily__` (następna noc oddaje te same rekordy) i po
+# przerwanej próbie stało na tym stemplu. Drugi klucz zakresu: znacznik źródła
+# `traffit_source_updated_at >= since` (okno danych biegu) — ten sam zbiór,
+# który feed delty oddaje, czyli dokładnie ten, który dawniej stemplował upsert.
+_SOURCE_SINCE_CLAUSE = """
+    (
+      CAST(:source_since AS timestamptz) IS NOT NULL
+      AND CASE
+            WHEN c.custom_fields #>> '{_nexus_identity,traffit_source_updated_at}'
+                 ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+            THEN CAST(
+                   c.custom_fields #>> '{_nexus_identity,traffit_source_updated_at}'
+                   AS timestamptz
+                 )
+          END >= CAST(:source_since AS timestamptz)
+    )
+"""
+
+
+def _with_manual_locks(sql: str) -> str:
+    """Wstaw warunek znacznika ręcznej edycji zamiast `{manual:<pole>}`.
+
+    Runda 10 (R10-N11-2/3): znaczniki `<pole>_manual` w
+    `custom_fields._nexus_identity` stawia PATCH kandydata
+    (`lock_changed_traffit_synced_fields`). Jedno miejsce, żeby gałąź upsertu
+    i adopcji czytały ten sam warunek.
+    """
+    return re.sub(
+        r"\{manual:(\w+)\}",
+        lambda m: (
+            "(COALESCE(candidates.custom_fields #>> "
+            f"'{{_nexus_identity,{m.group(1)}_manual}}', 'false') = 'true')"
+        ),
+        sql,
+    )
+
+
+_UPSERT_CANDIDATE_SQL = _with_manual_locks(
     """
     INSERT INTO candidates (
         external_id, external_source, name, lastname, email, phone, linkedin,
@@ -529,14 +773,17 @@ _UPSERT_CANDIDATE = text(
         cv_extracted_data, custom_fields, source, created_by,
         notes_count, champion, availability_status,
         linkedin_sync_status,
+        source_created_at,
         created_at, updated_at
-    ) VALUES (
-        :external_id, :external_source,
-        CAST(:name AS text), CAST(:lastname AS text), :email, :phone,
-        :linkedin,
+    )
+    SELECT
+        CAST(:external_id AS text), CAST(:external_source AS text),
+        CAST(:name AS text), CAST(:lastname AS text), CAST(:email AS text),
+        CAST(:phone AS text),
+        CAST(:linkedin AS text),
         CAST(:status AS candidatestatus),
-        :profile_about,
-        :cv_filename,
+        CAST(:profile_about AS text),
+        CAST(:cv_filename AS text),
         CAST(:cv_extracted_data AS JSONB),
         jsonb_build_object(
             '_nexus_identity',
@@ -544,15 +791,17 @@ _UPSERT_CANDIDATE = text(
                 'traffit_name', CAST(:name AS text),
                 'traffit_lastname', CAST(:lastname AS text),
                 'traffit_source_updated_at',
-                    CAST(:traffit_source_updated_at AS text)
+                    CAST(:traffit_source_updated_at AS text),
+                'traffit_payload_sha', CAST(:traffit_payload_sha AS text)
             ))
         ),
-        :source, :created_by,
+        CAST(:source AS text), CAST(:created_by AS integer),
         0, false,
         CAST('unknown' AS availabilitystatus),
         CAST('disabled' AS linkedinsyncstatus),
+        CAST(CAST(:source_created_at AS text) AS timestamptz),
         NOW(), NOW()
-    )
+    {tombstone_guard}
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
     DO UPDATE SET
         -- Ręczna korekta w NEXUS-ie przejmuje własność tylko nad wskazanym
@@ -591,9 +840,20 @@ _UPSERT_CANDIDATE = text(
                               THEN candidates.lastname
                               ELSE EXCLUDED.lastname
                             END,
-        email             = COALESCE(EXCLUDED.email, candidates.email),
-        phone             = COALESCE(EXCLUDED.phone, candidates.phone),
-        linkedin          = COALESCE(EXCLUDED.linkedin, candidates.linkedin),
+        -- Runda 10 (R10-N11-3): pole poprawione w NEXUSIE (znacznik
+        -- `<pole>_manual` z PATCH kandydata) zostaje przy wartości z NEXUSA.
+        email             = CASE WHEN {manual:email}
+                              THEN candidates.email
+                              ELSE COALESCE(EXCLUDED.email, candidates.email)
+                            END,
+        phone             = CASE WHEN {manual:phone}
+                              THEN candidates.phone
+                              ELSE COALESCE(EXCLUDED.phone, candidates.phone)
+                            END,
+        linkedin          = CASE WHEN {manual:linkedin}
+                              THEN candidates.linkedin
+                              ELSE COALESCE(EXCLUDED.linkedin, candidates.linkedin)
+                            END,
         -- Blacklista jest LEPKA. `EXCLUDED.status` niesie to, co przysłał
         -- Traffit, a tam blacklisty nie ma w żadnym polu: jest wklejona
         -- w imię. Bez tego warunku każdy, kogo admin oznaczył ręcznie
@@ -601,16 +861,23 @@ _UPSERT_CANDIDATE = text(
         -- cichy powrót do proponowania osoby, której proponować nie wolno.
         -- Zdjęcie blacklisty jest świadomą decyzją człowieka i musi się
         -- odbyć w Nexusie, a nie przez brak markera w cudzym systemie.
+        --
+        -- Runda 10 (R10-N11-2): w drugą stronę też — zdjęcie blacklisty
+        -- w NEXUSIE (znacznik `status_manual`) nie wraca z markera w imieniu.
         status            = CASE
                               WHEN candidates.status
                                    = CAST('blacklisted' AS candidatestatus)
+                                OR {manual:status}
                               THEN candidates.status
                               ELSE EXCLUDED.status
                             END,
-        profile_about     = COALESCE(
-            EXCLUDED.profile_about,
-            candidates.profile_about
-        ),
+        profile_about     = CASE WHEN {manual:profile_about}
+                              THEN candidates.profile_about
+                              ELSE COALESCE(
+                                EXCLUDED.profile_about,
+                                candidates.profile_about
+                              )
+                            END,
         cv_filename       = COALESCE(EXCLUDED.cv_filename, candidates.cv_filename),
         cv_extracted_data = candidates.cv_extracted_data
                             || EXCLUDED.cv_extracted_data
@@ -706,15 +973,45 @@ _UPSERT_CANDIDATE = text(
                                  END,
                               true
                             ),
+        -- 0437: data dodania u źródła się nie zmienia; brak w payloadzie
+        -- (stary mapper, ręczny payload) nie kasuje zapisanej. Parametr idzie
+        -- jako tekst ISO (jak `traffit_source_updated_at`) — asyncpg przy
+        -- CAST(… AS timestamptz) wymagałby obiektu datetime.
+        source_created_at = COALESCE(
+                              EXCLUDED.source_created_at,
+                              candidates.source_created_at
+                            ),
         updated_at        = NOW(),
         -- Kandydat jest w żywym feedzie `/employees/`, więc ewentualny
         -- nagrobek jest nieaktualny. Bez tego czyszczenia pojedyncze 404
         -- (chwilowa awaria Traffita, rekord przywrócony z kosza) zostawiałoby
         -- trwałe „usunięty u źródła" na wskroś żywym profilu.
         external_deleted_at = NULL
+    -- Runda 10 (R10-N11-9): rekord Traffita bez zmian (ten sam skrót
+    -- zmapowanego payloadu) nie jest przepisywany — pełny bieg stemplował
+    -- `updated_at` ~57 tys. kandydatów co tydzień, a trigger przeliczał korpus
+    -- słów kluczowych (tsvector z CV) dla każdego z nich. Brak wiersza
+    -- w RETURNING = „bez zmian”.
+    WHERE candidates.custom_fields #>> '{_nexus_identity,traffit_payload_sha}'
+            IS DISTINCT FROM CAST(:traffit_payload_sha AS text)
+       OR candidates.external_deleted_at IS NOT NULL
     RETURNING id, (xmax = 0) AS was_insert
     """
 )
+
+# 0437: data dodania w Traffit jest opcjonalna — brak klucza w parametrach
+# (payload sprzed „W bazie od”, ręczny słownik) znaczy „nie znamy”, a COALESCE
+# w SQL-u zostawia wtedy zapisaną wartość.
+_SOURCE_CREATED_AT_DEFAULT = bindparam("source_created_at", value=None)
+
+_UPSERT_CANDIDATE = text(
+    _UPSERT_CANDIDATE_SQL.replace("{tombstone_guard}", _CANDIDATE_TOMBSTONE_GUARD)
+).bindparams(_SOURCE_CREATED_AT_DEFAULT)
+# Baza bez tabeli `purged_candidates` (sprzed 0388) — wybierane w fazie po
+# `to_regclass`, patrz `_candidate_tombstones`.
+_UPSERT_CANDIDATE_NO_TOMBSTONES = text(
+    _UPSERT_CANDIDATE_SQL.replace("{tombstone_guard}", "WHERE true")
+).bindparams(_SOURCE_CREATED_AT_DEFAULT)
 
 
 _CANDIDATE_EMAIL_UNIQUE = ("ix_candidates_email", "candidates_email_key")
@@ -725,7 +1022,8 @@ _CANDIDATE_EMAIL_UNIQUE = ("ix_candidates_email", "candidates_email_key")
 # stash the previous external_source under cv_extracted_data.legacy_source
 # so we don't lose origin attribution.
 _UPDATE_CANDIDATE_ADOPT = text(
-    """
+    _with_manual_locks(
+        """
     UPDATE candidates
     SET external_source = CAST(:external_source AS text),
         external_id     = CAST(:external_id AS text),
@@ -763,8 +1061,16 @@ _UPDATE_CANDIDATE_ADOPT = text(
                             THEN candidates.lastname
                             ELSE CAST(:lastname AS text)
                           END,
-        phone           = COALESCE(CAST(:phone AS text), candidates.phone),
-        linkedin        = COALESCE(CAST(:linkedin AS text), candidates.linkedin),
+        -- Runda 10 (R10-N11-3): lustro gałęzi upsertu.
+        phone           = CASE WHEN {manual:phone}
+                            THEN candidates.phone
+                            ELSE COALESCE(CAST(:phone AS text), candidates.phone)
+                          END,
+        linkedin        = CASE WHEN {manual:linkedin}
+                            THEN candidates.linkedin
+                            ELSE COALESCE(CAST(:linkedin AS text),
+                                          candidates.linkedin)
+                          END,
         -- Blacklista jest LEPKA — dokładnie tak jak w gałęzi upsertu wyżej.
         -- Bez tego warunku nocny sync ZDEJMOWAŁBY blacklisty założone
         -- w NEXUSIE: Traffit nie zna tego stanu (jest wklejony w imię), więc
@@ -778,13 +1084,17 @@ _UPDATE_CANDIDATE_ADOPT = text(
         status          = CASE
                             WHEN candidates.status
                                  = CAST('blacklisted' AS candidatestatus)
+                              OR {manual:status}
                             THEN candidates.status
                             ELSE CAST(:status AS candidatestatus)
                           END,
-        profile_about   = COALESCE(
-            CAST(:profile_about AS text),
-            candidates.profile_about
-        ),
+        profile_about   = CASE WHEN {manual:profile_about}
+                            THEN candidates.profile_about
+                            ELSE COALESCE(
+                              CAST(:profile_about AS text),
+                              candidates.profile_about
+                            )
+                          END,
         cv_filename     = COALESCE(CAST(:cv_filename AS text),
                                    candidates.cv_filename),
         cv_extracted_data = candidates.cv_extracted_data
@@ -873,7 +1183,9 @@ _UPDATE_CANDIDATE_ADOPT = text(
                                END
                             || jsonb_build_object(
                                  'traffit_name', CAST(:name AS text),
-                                 'traffit_lastname', CAST(:lastname AS text)
+                                 'traffit_lastname', CAST(:lastname AS text),
+                                 'traffit_payload_sha',
+                                   CAST(:traffit_payload_sha AS text)
                                )
                             || CASE
                                  WHEN CAST(:traffit_source_updated_at AS text)
@@ -886,6 +1198,12 @@ _UPDATE_CANDIDATE_ADOPT = text(
                                END,
                             true
                           ),
+        -- 0437: data dodania w Traffit; „w bazie od” bierze wcześniejszą
+        -- z niej i z `created_at` adoptowanego wiersza.
+        source_created_at = COALESCE(
+                              CAST(CAST(:source_created_at AS text) AS timestamptz),
+                              candidates.source_created_at
+                            ),
         updated_at      = NOW(),
         -- Kandydat jest w żywym feedzie `/employees/`, więc nagrobek jest
         -- nieaktualny — lustro gałęzi upsertu wyżej. To NIE jest kosmetyka:
@@ -901,9 +1219,20 @@ _UPDATE_CANDIDATE_ADOPT = text(
         -- przy najbliższym syncu — bez migracji danych.
         external_deleted_at = NULL
     WHERE id = :nexus_id
+      -- Runda 10 (R10-N11-9): lustro WHERE upsertu — bez zmiany u źródła
+      -- (i bez przejęcia z innego źródła) wiersz nie jest przepisywany.
+      AND (
+        candidates.custom_fields #>> '{_nexus_identity,traffit_payload_sha}'
+          IS DISTINCT FROM CAST(:traffit_payload_sha AS text)
+        OR candidates.external_deleted_at IS NOT NULL
+        OR candidates.external_id IS DISTINCT FROM CAST(:external_id AS text)
+        OR candidates.external_source
+             IS DISTINCT FROM CAST(:external_source AS text)
+      )
     RETURNING id
     """
-)
+    )
+).bindparams(_SOURCE_CREATED_AT_DEFAULT)
 
 
 # Lista `DO UPDATE SET` niżej MUSI równać się sumie `SYNC_WRITABLE`
@@ -934,9 +1263,12 @@ _UPDATE_CANDIDATE_ADOPT = text(
 # `status` i `closed_at` (etapy prowadzi już NEXUS, więc „zamknięta w Traffitcie"
 # nie może jej zamknąć ani przemianować). Unieważnienie wymagań jest wtedy
 # wyłączone, bo tytuł się nie zmienia — inaczej każdy bieg kasowałby kryteria
-# tylko dlatego, że Traffit ma inne brzmienie niż zatrzymany tytuł. Pozostałe
-# kolumny bez zmian: COALESCE (`deadline`, `opened_at`, `client_id`…) nadal
-# dopełnia puste pola, a `custom_fields` scala JSONB.
+# tylko dlatego, że Traffit ma inne brzmienie niż zatrzymany tytuł. `client_id`,
+# `pipeline_template_id`, `reference_number`, `deadline` i `opened_at` przełączonej
+# rekrutacji Traffit tylko DOPEŁNIA (Runda 9, R9-N15-1: do tej rundy
+# `COALESCE(EXCLUDED, jobs)` nadpisywał termin czy klienta ustawione w NEXUSIE);
+# rekrutacji nieprzełączonej nadal nadpisuje je wartością z Traffita.
+# `custom_fields` scala JSONB.
 _UPSERT_JOB = text(
     """
     INSERT INTO jobs (
@@ -976,17 +1308,23 @@ _UPSERT_JOB = text(
             ELSE jobs.requirements_reviewed END,
         status               = CASE WHEN jobs.managed_in_nexus THEN jobs.status
                                    ELSE EXCLUDED.status END,
-        client_id            = COALESCE(EXCLUDED.client_id, jobs.client_id),
-        pipeline_template_id = COALESCE(
-            EXCLUDED.pipeline_template_id, jobs.pipeline_template_id
-        ),
+        client_id            = CASE WHEN jobs.managed_in_nexus
+                                   THEN COALESCE(jobs.client_id, EXCLUDED.client_id)
+                                   ELSE COALESCE(EXCLUDED.client_id, jobs.client_id) END,
+        pipeline_template_id = CASE WHEN jobs.managed_in_nexus
+                                   THEN COALESCE(jobs.pipeline_template_id, EXCLUDED.pipeline_template_id)
+                                   ELSE COALESCE(EXCLUDED.pipeline_template_id, jobs.pipeline_template_id) END,
         recruiter_id         = CASE WHEN jobs.is_open THEN jobs.recruiter_id
                                    ELSE COALESCE(jobs.recruiter_id, EXCLUDED.recruiter_id) END,
-        reference_number     = COALESCE(
-            EXCLUDED.reference_number, jobs.reference_number
-        ),
-        deadline             = COALESCE(EXCLUDED.deadline, jobs.deadline),
-        opened_at            = COALESCE(EXCLUDED.opened_at, jobs.opened_at),
+        reference_number     = CASE WHEN jobs.managed_in_nexus
+                                   THEN COALESCE(jobs.reference_number, EXCLUDED.reference_number)
+                                   ELSE COALESCE(EXCLUDED.reference_number, jobs.reference_number) END,
+        deadline             = CASE WHEN jobs.managed_in_nexus
+                                   THEN COALESCE(jobs.deadline, EXCLUDED.deadline)
+                                   ELSE COALESCE(EXCLUDED.deadline, jobs.deadline) END,
+        opened_at            = CASE WHEN jobs.managed_in_nexus
+                                   THEN COALESCE(jobs.opened_at, EXCLUDED.opened_at)
+                                   ELSE COALESCE(EXCLUDED.opened_at, jobs.opened_at) END,
         closed_at            = CASE WHEN jobs.managed_in_nexus THEN jobs.closed_at
                                    ELSE EXCLUDED.closed_at END,
         custom_fields        = jobs.custom_fields || EXCLUDED.custom_fields,
@@ -1005,18 +1343,22 @@ _UPSERT_JOB = text(
             )
         )
         OR (EXCLUDED.client_id IS NOT NULL
-            AND jobs.client_id IS DISTINCT FROM EXCLUDED.client_id)
+            AND jobs.client_id IS DISTINCT FROM EXCLUDED.client_id
+            AND (NOT jobs.managed_in_nexus OR jobs.client_id IS NULL))
         OR (EXCLUDED.pipeline_template_id IS NOT NULL
-            AND jobs.pipeline_template_id IS DISTINCT FROM
-                EXCLUDED.pipeline_template_id)
+            AND jobs.pipeline_template_id IS DISTINCT FROM EXCLUDED.pipeline_template_id
+            AND (NOT jobs.managed_in_nexus OR jobs.pipeline_template_id IS NULL))
         OR (NOT jobs.is_open AND jobs.recruiter_id IS NULL
             AND EXCLUDED.recruiter_id IS NOT NULL)
         OR (EXCLUDED.reference_number IS NOT NULL
-            AND jobs.reference_number IS DISTINCT FROM EXCLUDED.reference_number)
+            AND jobs.reference_number IS DISTINCT FROM EXCLUDED.reference_number
+            AND (NOT jobs.managed_in_nexus OR jobs.reference_number IS NULL))
         OR (EXCLUDED.deadline IS NOT NULL
-            AND jobs.deadline IS DISTINCT FROM EXCLUDED.deadline)
+            AND jobs.deadline IS DISTINCT FROM EXCLUDED.deadline
+            AND (NOT jobs.managed_in_nexus OR jobs.deadline IS NULL))
         OR (EXCLUDED.opened_at IS NOT NULL
-            AND jobs.opened_at IS DISTINCT FROM EXCLUDED.opened_at)
+            AND jobs.opened_at IS DISTINCT FROM EXCLUDED.opened_at
+            AND (NOT jobs.managed_in_nexus OR jobs.opened_at IS NULL))
         OR NOT (COALESCE(jobs.custom_fields, '{}'::jsonb) @> EXCLUDED.custom_fields)
     RETURNING id, (xmax = 0) AS was_insert, managed_in_nexus
     """
@@ -1034,7 +1376,9 @@ _UPSERT_TALENT_POOL = text(
     )
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
     DO UPDATE SET
-        name        = EXCLUDED.name,
+        -- Runda 10 (R10-N11-7): nazwę prowadzi NEXUS — przemianowanie puli
+        -- w NEXUSIE nie jest cofane nocnym syncem; import tylko dopełnia.
+        name        = COALESCE(NULLIF(talent_pools.name, ''), EXCLUDED.name),
         description = COALESCE(EXCLUDED.description, talent_pools.description)
     RETURNING id, (xmax = 0) AS was_insert
     """
@@ -1067,11 +1411,21 @@ _UPSERT_USER = text(
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
     DO UPDATE SET
         name      = EXCLUDED.name,
-        role      = EXCLUDED.role,
-        is_active = EXCLUDED.is_active,
+        -- Runda 10 (R10-N11-11): rolę i aktywność prowadzi Traffit WYŁĄCZNIE
+        -- dla kont zastępczych z importu (hash-zaślepka, bez SSO). Konto
+        -- zaadoptowane w NEXUSIE trafia tu, gdy w Traffit zmieni się mail
+        -- (nie pasuje do mapy adresów) — bez warunku sync wyłączał je albo
+        -- zmieniał mu rolę.
+        role      = CASE WHEN {placeholder} THEN EXCLUDED.role ELSE users.role END,
+        is_active = CASE WHEN {placeholder} THEN EXCLUDED.is_active
+                         ELSE users.is_active END,
         updated_at = NOW()
     RETURNING id, (xmax = 0) AS was_insert
-    """
+    """.replace(
+        "{placeholder}",
+        "(users.password_hash = '!imported-from-traffit-no-login!' "
+        "AND users.azure_oid IS NULL AND users.microsoft_upn IS NULL)",
+    )
 )
 
 # Mark istniejącego (po email) Nexus usera jako Traffit-imported. Nie zmienia
@@ -1115,11 +1469,47 @@ def needs_session_rollback(error: BaseException, *, past_savepoint: bool) -> boo
     `is_active` i `in_transaction()` do rozróżnienia się NIE nadają: przy martwym
     połączeniu raportują to samo co przy zdrowym (zmierzone). Robi to
     `connection_invalidated`, ustawiane przez SQLAlchemy na `DBAPIError`.
+
+    `PendingRollbackError` też wymaga rollbacku: sesja już jest w stanie
+    „do cofnięcia” — zerwanie połączenia złapał krok bez tej decyzji (np. log
+    i dalej), a pierwsze kolejne `begin_nested()` dostaje właśnie ten wyjątek,
+    bez `connection_invalidated`. Bez tej gałęzi łańcuch się urywał i faza
+    padała na commicie (audyt 25.09.2026, runda 2).
     """
 
     if past_savepoint:
         return True
+    if isinstance(error, PendingRollbackError):
+        return True
     return bool(getattr(error, "connection_invalidated", False))
+
+
+def safe_db_error(error: BaseException) -> str:
+    """Opis błędu bazy BEZ wartości z wiersza (audyt 25.09.2026).
+
+    ``repr(IntegrityError)`` niesie `DETAIL: Key (email)=(jan@…) already
+    exists` — adres kandydata lądował w logu kontenera (→ Loki) i w
+    `error_samples` fazy, czyli w `/sync/status`. Dla błędów bazy zostaje
+    klasa i nazwa ograniczenia; to wystarcza do diagnozy (wiersz wskazuje
+    `ext=` w komunikacie), a treść wiersza sprawdza się w bazie.
+    """
+    orig = getattr(error, "orig", None)
+    if orig is None:
+        # Runda 10 (R10-N11-5): błąd spoza bazy to SAMA klasa. Wyjątki
+        # botocore (`EndpointConnectionError`, `ReadTimeoutError`) niosą w
+        # treści URL obiektu, czyli klucz `cv/…/<uuid>-Jan_Kowalski_CV.pdf`,
+        # a httpx — adres z parametrami. Kod odpowiedzi HTTP zostaje, bo
+        # niczego osobowego nie niesie, a odróżnia 404 od 503.
+        status = getattr(getattr(error, "response", None), "status_code", None)
+        if isinstance(status, int):
+            return f"{type(error).__name__}(HTTP {status})"
+        return type(error).__name__
+    constraint = getattr(orig, "constraint_name", None)
+    if constraint is None:
+        diag = getattr(orig, "diag", None)
+        constraint = getattr(diag, "constraint_name", None)
+    kind = type(orig).__name__
+    return f"{type(error).__name__}({kind}, constraint={constraint or '?'})"
 
 
 _UPSERT_CANDIDATE_DOCUMENT = text(
@@ -1157,6 +1547,26 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
 )
 
 
+# Typy aktywności Traffita, które są notatką kandydata (promocja do `notes`).
+TRAFFIT_NOTE_ACTIONS: tuple[str, ...] = (
+    "traffit:Notatka",
+    "traffit:Email",
+    "traffit:Reply",
+    "traffit:Rozmowa telefoniczna",
+    "traffit:Spotkanie",
+)
+
+# Data aktywności z Traffita jako `timestamptz` (29.09.2026). Traffit podaje
+# czas LOKALNY firmy bez strefy — ta sama reguła co `_parse_traffit_datetime`
+# i backfill odrzuceń. `pg_input_is_valid` (PG16): zepsuta data daje NULL
+# zamiast wywracać cały `INSERT ... SELECT`. Alias tabeli aktywności: `a`.
+ACTIVITY_AT_SQL = (
+    "CASE WHEN pg_input_is_valid(a.details ->> 'activity_date', 'timestamp') "
+    "THEN ((a.details ->> 'activity_date')::timestamp AT TIME ZONE 'Europe/Warsaw') "
+    "END"
+)
+
+
 # Promote Traffit candidate notes (held in `activities`) into the dedicated
 # `notes` table so the candidate "Notatki" UI shows them. This is the exact
 # logic from Alembic 0077 — lifted here so it runs on every sync (the migration
@@ -1168,21 +1578,26 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
 _PROMOTE_NOTES_SQL = """
 INSERT INTO notes (
     candidate_id, content, note_type, author_id, source_ref,
-    created_at, updated_at
+    created_at, source_created_at, updated_at
 )
 SELECT
     a.entity_id,
+    -- `note_unwrap_json` (0385): Traffit wysyła treść jako NAPIS z obiektem
+    -- JSON w środku; do 25.09.2026 zapisywaliśmy go w całości, więc
+    -- wyszukiwanie widziało kody znaków zamiast polskich liter. Rozpakowanie
+    -- PRZED `LEFT` — ucięty JSON nie dałby się już odczytać.
     LEFT(
-        COALESCE(
+        note_unwrap_json(COALESCE(
             a.details #>> '{content,content}',
             a.details ->> 'content',
             ''
-        ),
+        )),
         50000
     ),
     CASE
         WHEN a.action = 'traffit:Email' THEN 'email'::notetype
-        WHEN a.action = 'traffit:Reply' THEN 'email'::notetype
+        -- „Reply” to odpowiedź na notatkę (rozmowa zespołu), nie mail (0412):
+        -- jako mail liczyła się w follow-upie za kontakt z kandydatem.
         WHEN a.action = 'traffit:Rozmowa telefoniczna' THEN 'call'::notetype
         WHEN a.action = 'traffit:Spotkanie' THEN 'meeting'::notetype
         WHEN a.details ->> 'traffit_type_value' ILIKE '%interview%'
@@ -1191,7 +1606,10 @@ SELECT
     END,
     a.user_id,
     'traffit:activity:' || a.external_id,
-    a.created_at,
+    -- Data notatki = data aktywności w Traffit (29.09.2026), nie chwila
+    -- importu. Aktywność bez daty zostaje przy `a.created_at`.
+    COALESCE(/*ACTIVITY_AT*/, a.created_at),
+    /*ACTIVITY_AT*/,
     a.updated_at
 FROM activities a
 WHERE a.external_source = 'traffit'
@@ -1218,11 +1636,11 @@ WHERE a.external_source = 'traffit'
   -- sync dopisze notatkę. Mechanizm jest samoleczący, w przeciwieństwie do
   -- przewracania całej fazy.
   AND EXISTS (SELECT 1 FROM candidates c WHERE c.id = a.entity_id)
-  AND COALESCE(
+  AND note_unwrap_json(COALESCE(
       a.details #>> '{content,content}',
       a.details ->> 'content',
       ''
-  ) <> ''
+  )) <> ''
   /*SINCE*/
   -- Dedup on the SOURCE ROW's identity, with the old timestamp match kept as
   -- a fallback. `source_ref` is what actually identifies the activity; the
@@ -1247,10 +1665,155 @@ WHERE a.external_source = 'traffit'
             OR (n.source_ref IS NULL AND n.created_at = a.created_at)
         )
   )
-"""
+  -- Runda 10 (R10-N6-1): notatka usunięta w NEXUSIE zostawia nagrobek
+  -- (`deleted_note_sources`, 0391). Bez niego NOT EXISTS wyżej nie widział
+  -- już notatki i pełny bieg zakładał ją od nowa.
+  AND NOT EXISTS (
+      SELECT 1 FROM deleted_note_sources t
+      WHERE t.source_ref = 'traffit:activity:' || a.external_id
+  )
+RETURNING id
+""".replace("/*ACTIVITY_AT*/", ACTIVITY_AT_SQL)
+
+
+async def rewrite_note_mentions(
+    db: AsyncSession, note_ids: list[int], labels: dict[str, str]
+) -> int:
+    """Zamień `$$user_NN$$` na `@Imię Nazwisko` w notatkach ``note_ids``.
+
+    Zapis wyłącznie kolumny `content` surowym SQL-em — `updated_at` zostaje
+    nietknięty (od niego zależy odcisk nocnej analizy notatek przez AI).
+    Zwraca liczbę zmienionych notatek. Bez commitu — robi go wołający.
+    """
+    if not note_ids or not labels:
+        return 0
+    rows = await db.execute(
+        text(
+            "SELECT id, content FROM notes "
+            "WHERE id = ANY(CAST(:ids AS integer[])) "
+            "AND strpos(content, '$$user_') > 0"
+        ),
+        {"ids": list(note_ids)},
+    )
+    updates: list[dict[str, Any]] = []
+    for note_id, content in rows.all():
+        rewritten = rewrite_traffit_mentions(content, labels)
+        if rewritten != content:
+            updates.append({"id": int(note_id), "content": rewritten})
+    if updates:
+        await db.execute(
+            text("UPDATE notes SET content = :content WHERE id = :id"), updates
+        )
+    return len(updates)
+
+
+async def link_note_recruitments(
+    traffit: Any,
+    db: AsyncSession,
+    candidates: list[tuple[int, str]],
+    *,
+    job_map: Optional[dict[str, int]] = None,
+    dry_run: bool = False,
+) -> dict[str, int]:
+    """Dopisz `notes.job_id` z aktywności kandydata w Traffit (29.09.2026).
+
+    Globalny feed `/employees/activities` nie niesie rekrutacji — ma ją tylko
+    lista aktywności jednej osoby (`/employees/{id}/activities`, pole
+    `recruitment.id`). ``candidates`` = pary (id kandydata w NEXUSIE, id osoby
+    w Traffit). Notatkę dopasowuje `source_ref` aktywności; zapis wyłącznie
+    tam, gdzie `job_id` jest pusty (ręczne podpięcie w NEXUSIE wygrywa) —
+    kolumny `content`/`updated_at` nietknięte. Awaria jednej osoby to licznik
+    `failed`, nie wyjątek: rekrutacja przy notatce jest wzbogaceniem, a nie
+    danymi, bez których notatki nie ma. Commit per osoba (poza ``dry_run``).
+    """
+    stats = {"candidates": 0, "linked": 0, "found": 0, "failed": 0, "no_job": 0}
+    if not candidates:
+        return stats
+    if job_map is None:
+        rows = await db.execute(
+            text(
+                "SELECT id, external_id FROM jobs "
+                "WHERE external_source='traffit' AND external_id IS NOT NULL"
+            )
+        )
+        job_map = {str(r.external_id): int(r.id) for r in rows}
+    for candidate_id, traffit_employee_id in candidates:
+        stats["candidates"] += 1
+        pairs: list[dict[str, Any]] = []
+        try:
+            async for item in traffit.get_paginated(
+                f"/employees/{traffit_employee_id}/activities", page_size=100
+            ):
+                recruitment = item.get("recruitment")
+                rid = (
+                    recruitment.get("id")
+                    if isinstance(recruitment, dict)
+                    else recruitment
+                )
+                activity_id = item.get("id")
+                if rid is None or activity_id is None:
+                    continue
+                job_id = job_map.get(str(rid))
+                if job_id is None:
+                    stats["no_job"] += 1
+                    continue
+                pairs.append(
+                    {
+                        "cid": candidate_id,
+                        "ref": f"traffit:activity:{activity_id}",
+                        "job": job_id,
+                    }
+                )
+        except Exception as exc:  # noqa: BLE001
+            stats["failed"] += 1
+            logger.warning(
+                "Note recruitments: candidate %s fetch failed: %s",
+                candidate_id,
+                type(exc).__name__,
+            )
+            continue
+        stats["found"] += len(pairs)
+        if dry_run or not pairs:
+            continue
+        try:
+            async with db.begin_nested():
+                for pair in pairs:
+                    result = await db.execute(
+                        text(
+                            "UPDATE notes SET job_id = :job "
+                            "WHERE candidate_id = :cid AND source_ref = :ref "
+                            "AND job_id IS NULL"
+                        ),
+                        pair,
+                    )
+                    stats["linked"] += result.rowcount or 0
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            stats["failed"] += 1
+            logger.warning(
+                "Note recruitments: candidate %s write failed: %s",
+                candidate_id,
+                safe_db_error(exc),
+            )
+            await db.rollback()
+    return stats
 
 
 # ── Importer ─────────────────────────────────────────────────────────────────
+
+
+def _canonical_client_id(client_id: int, merged_into: dict[int, int]) -> int:
+    """Follow ``merged_into_client_id`` to the end of the chain (cycle-safe)."""
+
+    seen = {client_id}
+    current = client_id
+    while current in merged_into:
+        nxt = merged_into[current]
+        if nxt in seen:
+            break
+        seen.add(nxt)
+        current = nxt
+    return current
 
 
 class TraffitImporter:
@@ -1289,23 +1852,45 @@ class TraffitImporter:
             }
         }
 
-    async def promote_notes(self, since: Optional[datetime] = None) -> int:
+    async def promote_notes(
+        self,
+        since: Optional[datetime] = None,
+        *,
+        mention_labels: Optional[dict[str, str]] = None,
+    ) -> int:
         """Promote Traffit candidate activities → `notes` table (idempotent).
 
         Replicates Alembic 0077 so new Traffit notes/emails/calls/meetings reach
         the candidate "Notatki" UI on every sync. Returns rows inserted.
+
+        ``mention_labels`` (id użytkownika Traffita → imię i nazwisko z
+        Traffit `/users/`) zamienia w nowych notatkach `$$user_NN$$` na
+        `@Imię Nazwisko`. Bez mapy tokeny zostają (render w UI je rozwiąże).
         """
         if self.dry_run:
             return 0
         since_clause = ""
         params: dict[str, Any] = {}
         if since is not None:
-            since_clause = "AND a.created_at >= :since"
+            # Po `updated_at` (chwila zapisu w tym biegu), nie po `created_at`:
+            # od 29.09.2026 `created_at` to data aktywności w Traffit, a ta
+            # bywa starsza niż okno delty (notatka z rozmowy wpisana później
+            # z datą rozmowy) — taka aktywność nigdy by się nie promowała.
+            since_clause = "AND a.updated_at >= :since"
             params["since"] = since
         sql = _PROMOTE_NOTES_SQL.replace("/*SINCE*/", since_clause)
         result = await self.db.execute(text(sql), params)
+        new_ids = [int(r[0]) for r in result.fetchall()]
+        if new_ids and mention_labels:
+            await rewrite_note_mentions(self.db, new_ids, mention_labels)
+        if new_ids:
+            # 0412: ta promocja to surowy SQL, więc rodzaju nie nada nasłuch
+            # modelu — a bez niego AI czytałoby np. „Wyślijmy za 161 zł/h”.
+            from app.services.note_kind_backfill import classify_notes
+
+            await classify_notes(self.db, new_ids)
         await self.db.commit()
-        return result.rowcount or 0
+        return len(new_ids)
 
     # ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -1428,14 +2013,67 @@ class TraffitImporter:
         return orphan_id
 
     async def _build_client_external_id_map(self) -> dict[str, int]:
-        """Pull current Nexus state: external_id (Traffit) → Nexus client.id."""
+        """Pull current Nexus state: external_id (Traffit) → Nexus client.id.
+
+        A client merged into another (``merged_into_client_id``) keeps its
+        Traffit ``external_id`` as a hidden tombstone; its contacts and jobs
+        land on the CANONICAL client. Until 25.09.2026 the map ignored the
+        merge, so every night moved 24 jobs of Traffit client 150 back onto
+        the hidden duplicate 37721 (E-Zdrowie → eZdrowie 115).
+        """
         result = await self.db.execute(
             select(Client.id, Client.external_id).where(
                 Client.external_source == "traffit",
                 Client.external_id.is_not(None),
             )
         )
-        return {ext: nid for nid, ext in result.all() if ext is not None}
+        rows = {ext: nid for nid, ext in result.all() if ext is not None}
+        merged = dict(
+            (
+                await self.db.execute(
+                    select(Client.id, Client.merged_into_client_id).where(
+                        Client.merged_into_client_id.is_not(None)
+                    )
+                )
+            ).all()
+        )
+        return {ext: _canonical_client_id(nid, merged) for ext, nid in rows.items()}
+
+    async def _recover_session(
+        self,
+        progress: PhaseProgress,
+        error: BaseException,
+        *,
+        batch: str,
+        staged: int,
+        past_savepoint: bool = False,
+    ) -> bool:
+        """Podnieś sesję po błędzie zapisu wiersza, jeśli trzeba; True = podniesiona.
+
+        Decyzję podejmuje `needs_session_rollback`: zwykły błąd instrukcji cofnął
+        już savepoint i sesji ruszać nie wolno. Po utracie połączenia
+        (`connection_invalidated`) `ROLLBACK TO SAVEPOINT` nie ma dokąd pójść —
+        bez `rollback()` każde kolejne `begin_nested()` rzuca
+        `PendingRollbackError`, reszta fazy to błędy przypisane wierszom,
+        a commit na końcu wywraca fazę (audyt 25.09.2026, runda 2).
+
+        Rollback zabiera wiersze zapisane od ostatniego commita. Jeśli jakieś
+        były (`staged`), faza dostaje błąd NIEPRZYPISANY — ten sam, co przy
+        padniętym commicie paczki — więc watermark stoi i kolejny bieg je
+        powtórzy. Bez niego wiersz, na którym zerwało połączenie, trafiłby po
+        kilku biegach do kwarantanny, a watermark przesunąłby się nad paczką,
+        której nikt nie zapisał. Wołający zeruje swój licznik paczki.
+        """
+
+        if not needs_session_rollback(error, past_savepoint=past_savepoint):
+            return False
+        await self.db.rollback()
+        if staged > 0:
+            progress.add_error(
+                f"{batch} batch rolled back after lost connection "
+                f"({staged} rows): {safe_db_error(error)}"
+            )
+        return True
 
     async def _probe_total(self, path: str, phase: str) -> int:
         """Best-effort ``total_source`` probe. Never gates the phase.
@@ -1457,7 +2095,7 @@ class TraffitImporter:
         try:
             return await self.traffit.total_count(path)
         except Exception as e:  # noqa: BLE001
-            logger.warning("%s total_count probe failed: %r", phase, e)
+            logger.warning("%s total_count probe failed: %s", phase, safe_db_error(e))
             return 0
 
     # ── Phase: clients ──────────────────────────────────────────────────────
@@ -1477,7 +2115,7 @@ class TraffitImporter:
             try:
                 payload = traffit_client_to_nexus(raw)
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map client id={raw.get('id')}: {e!r}")
+                progress.add_error(f"map client id={raw.get('id')}: {safe_db_error(e)}")
                 continue
             if payload["external_id"] in tombstoned:
                 progress.skipped += 1
@@ -1502,14 +2140,21 @@ class TraffitImporter:
                         was_insert = bool(row[1])
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
-                    f"upsert client ext={payload.get('external_id')}: {e!r}"
+                    f"upsert client ext={payload.get('external_id')}: {safe_db_error(e)}"
                 )
                 # Savepoint już cofnął sam zapis, więc transakcja zewnętrzna
                 # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
                 # ją tylko przy utracie połączenia — wtedy `ROLLBACK TO SAVEPOINT`
                 # nie ma dokąd pójść i każdy kolejny wiersz fazy padnie.
-                if needs_session_rollback(e, past_savepoint=False):
-                    await self.db.rollback()
+                # Faza commituje raz, na końcu — rollback zabiera wszystko,
+                # co zapisała do tej pory, więc liczniki wracają do zera.
+                if await self._recover_session(
+                    progress,
+                    e,
+                    batch="clients",
+                    staged=progress.inserted + progress.updated,
+                ):
+                    progress.inserted = progress.updated = 0
                 continue
             # Liczone dopiero, gdy savepoint się utrzymał — inkrementacja w
             # środku jest tym, co na prodzie kazało statystykom opisywać PRÓBY
@@ -1540,15 +2185,31 @@ class TraffitImporter:
 
         client_map = await self._build_client_external_id_map()
         orphan_id = await self._ensure_orphan_client()
+        # Rekordy Traffita scalone w inny kontakt (ta sama osoba dwa razy
+        # w Trafficie). Bez tego upsert po external_id odtwarzałby co noc
+        # usunięty duplikat — `services/contact_duplicate_merge.py`.
+        from app.services.contact_duplicate_merge import (
+            load_deleted_traffit_contacts,
+            load_traffit_contact_aliases,
+        )
+
+        merged_ids = set(await load_traffit_contact_aliases(self.db))
+        # Runda 10 (R10-N11-4): kontakty usunięte w NEXUSIE nie wracają.
+        merged_ids |= await load_deleted_traffit_contacts(self.db)
 
         async for raw in self.traffit.get_paginated(
             "/crm_persons/", page_size=self.batch_size
         ):
             progress.processed += 1
+            if str(raw.get("id")) in merged_ids:
+                progress.skipped += 1
+                continue
             try:
                 payload = traffit_crm_person_to_nexus(raw, client_map, orphan_id)
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map crm_person id={raw.get('id')}: {e!r}")
+                progress.add_error(
+                    f"map crm_person id={raw.get('id')}: {safe_db_error(e)}"
+                )
                 continue
             if self.dry_run:
                 progress.inserted += 1
@@ -1564,20 +2225,29 @@ class TraffitImporter:
                 # opisano dla `workflows`: `processed: 2, updated: 2, errors: 1`
                 # znaczyło „0 z 2 zapisanych", 23 biegi z rzędu.
                 async with self.db.begin_nested():
-                    result = await self.db.execute(_UPSERT_CONTACT, payload)
+                    result = await self.db.execute(
+                        _UPSERT_CONTACT, {**payload, "orphan_client_id": orphan_id}
+                    )
                     row = result.fetchone()
                     if row is not None:
                         was_insert = bool(row[1])
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
-                    f"upsert contact ext={payload.get('external_id')}: {e!r}"
+                    f"upsert contact ext={payload.get('external_id')}: {safe_db_error(e)}"
                 )
                 # Savepoint już cofnął sam zapis, więc transakcja zewnętrzna
                 # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
                 # ją tylko przy utracie połączenia — wtedy `ROLLBACK TO SAVEPOINT`
                 # nie ma dokąd pójść i każdy kolejny wiersz fazy padnie.
-                if needs_session_rollback(e, past_savepoint=False):
-                    await self.db.rollback()
+                # Faza commituje raz, na końcu — rollback zabiera wszystko,
+                # co zapisała do tej pory, więc liczniki wracają do zera.
+                if await self._recover_session(
+                    progress,
+                    e,
+                    batch="contacts",
+                    staged=progress.inserted + progress.updated,
+                ):
+                    progress.inserted = progress.updated = 0
                 continue
             if was_insert is None:
                 continue
@@ -1611,7 +2281,7 @@ class TraffitImporter:
             try:
                 t_count = await self.traffit.total_count(traffit_path)
             except Exception as e:  # noqa: BLE001
-                report[entity] = {"error": f"traffit count failed: {e!r}"}
+                report[entity] = {"error": f"traffit count failed: {safe_db_error(e)}"}
                 continue
             n_count = await self.db.scalar(
                 text(
@@ -1637,6 +2307,9 @@ class TraffitImporter:
         traffit_users: list[dict[str, Any]] = []
         async for u in self.traffit.get_paginated("/users/", page_size=self.batch_size):
             traffit_users.append(u)
+        # Ta sama lista zasila etykiety wzmianek (`traffit_user_labels`) —
+        # bez drugiego pobrania `/users/` w tym samym biegu.
+        self._traffit_users = traffit_users
 
         emails = [
             (u.get("id"), (u.get("email") or "").strip().lower())
@@ -1657,6 +2330,22 @@ class TraffitImporter:
             for traffit_id, email in emails
             if email in nexus_by_email
         }
+
+    def traffit_user_labels(self) -> dict[str, str]:
+        """Id użytkownika Traffita → imię i nazwisko (z Traffit `/users/`).
+
+        Czyta listę pobraną przez :meth:`build_user_id_map` w tym biegu; bez
+        niej — pusta mapa (wzmianki zostają, patrz `rewrite_traffit_mentions`).
+        """
+        labels: dict[str, str] = {}
+        for u in getattr(self, "_traffit_users", None) or []:
+            uid = u.get("id")
+            if uid is None:
+                continue
+            label = clean_mention_label(traffit_user_display_name(u))
+            if label:
+                labels[str(uid)] = label
+        return labels
 
     # ── Faza A: users import ────────────────────────────────────────────────
 
@@ -1697,11 +2386,11 @@ class TraffitImporter:
                 progress.skipped += 1
                 if len(progress.error_samples) < 20:
                     progress.error_samples.append(
-                        f"skip user id={raw.get('id')}: {e!s}"
+                        f"skip user id={raw.get('id')}: {safe_db_error(e)}"
                     )
                 continue
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map user id={raw.get('id')}: {e!r}")
+                progress.add_error(f"map user id={raw.get('id')}: {safe_db_error(e)}")
                 continue
 
             if self.dry_run:
@@ -1742,7 +2431,7 @@ class TraffitImporter:
                             else:
                                 outcome = "updated"
             except Exception as e:  # noqa: BLE001
-                msg = f"upsert user ext={payload['external_id']}: {e!r}"
+                msg = f"upsert user ext={payload['external_id']}: {safe_db_error(e)}"
                 progress.add_error(msg)
                 if progress.errors <= 5:
                     logger.warning("User upsert error: %s", msg[:300])
@@ -1750,8 +2439,15 @@ class TraffitImporter:
                 # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
                 # ją tylko przy utracie połączenia — wtedy `ROLLBACK TO SAVEPOINT`
                 # nie ma dokąd pójść i każdy kolejny wiersz fazy padnie.
-                if needs_session_rollback(e, past_savepoint=False):
-                    await self.db.rollback()
+                # Faza commituje raz, na końcu — rollback zabiera wszystko,
+                # co zapisała do tej pory, więc liczniki wracają do zera.
+                if await self._recover_session(
+                    progress,
+                    e,
+                    batch="users",
+                    staged=progress.inserted + progress.updated,
+                ):
+                    progress.inserted = progress.updated = 0
                 continue
             if outcome == "inserted":
                 progress.inserted += 1
@@ -1800,14 +2496,20 @@ class TraffitImporter:
                     f"/workflows/{wf_id}", page=1, page_size=1
                 )
                 if detail_resp.status_code != 200:
+                    # Format `<czynność> <encja> id=<ID>` (runda 6 audytu):
+                    # bez klucza wiersza błąd był nieprzypisany i wstrzymywał
+                    # `__daily__` bez końca. `workflow id=` — ten sam wiersz
+                    # co `map workflow id=` niżej.
                     progress.add_error(
-                        f"workflow {wf_id} detail HTTP {detail_resp.status_code}"
+                        f"detail workflow id={wf_id}: HTTP {detail_resp.status_code}"
                     )
                     continue
                 detail = detail_resp.json()
                 template_payload = traffit_workflow_to_template(detail)
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map workflow id={raw.get('id')}: {e!r}")
+                progress.add_error(
+                    f"map workflow id={raw.get('id')}: {safe_db_error(e)}"
+                )
                 continue
 
             if self.dry_run:
@@ -1838,8 +2540,18 @@ class TraffitImporter:
                     await self._rewrite_template_stage_defs(template_id, states_sorted)
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
-                    f"upsert workflow ext={template_payload.get('external_id')}: {e!r}"
+                    f"upsert workflow ext={template_payload.get('external_id')}: {safe_db_error(e)}"
                 )
+                # Faza commituje raz, na końcu — po rollbacku po utracie
+                # połączenia wcześniejsze szablony tego biegu przepadają.
+                if await self._recover_session(
+                    progress,
+                    e,
+                    batch="workflows",
+                    staged=progress.inserted + progress.updated,
+                ):
+                    # Liczniki opisują ZAPISY, a tych już nie ma.
+                    progress.inserted = progress.updated = 0
                 continue
 
             # Counted only once the savepoint actually held. Incrementing
@@ -2051,6 +2763,23 @@ class TraffitImporter:
         # (dedup_service), nie importera.
         ext_to_id = await self._build_candidate_external_id_map()
         logger.info("Candidates: existing ext_to_id size=%d", len(ext_to_id))
+        # Runda 10 (R10-N11-1): odwrotna mapa (id wiersza → numer Traffita),
+        # żeby adopcja po mailu nie przestemplowała wiersza, który już należy
+        # do INNEGO żywego rekordu Traffita (dwie kartoteki z jednym mailem).
+        id_to_ext: dict[int, str] = {v: k for k, v in ext_to_id.items()}
+        gone_ids = await self._traffit_candidates_gone_upstream()
+        # Nagrobki twardo usuniętych kandydatów (0388, art. 17 RODO). Faza robi
+        # pełny skan `/employees/`, więc bez tego usunięta osoba wracała przy
+        # najbliższym syncu razem z etapami, notatkami i plikami (dalsze fazy
+        # wiążą rekordy przez `ext_to_id`, więc wystarczy nie założyć wiersza)
+        # (runda 6 audytu). Od rundy 7 także nagrobki maila (druga kartoteka
+        # tej samej osoby) — `None` = baza sprzed 0388 albo brak klucza HMAC.
+        tombstones = await self._candidate_tombstones()
+        upsert_sql = (
+            _UPSERT_CANDIDATE
+            if tombstones is not None
+            else _UPSERT_CANDIDATE_NO_TOMBSTONES
+        )
 
         commit_every = 100
         since_commit = 0
@@ -2096,6 +2825,10 @@ class TraffitImporter:
         ):
             start_page = max(1, int(_cursor.get("page") or 1))
             logger.info("Candidates: resuming from page %d", start_page)
+            # Błędy wierszy sprzed przerwania wracają z kursora — inaczej
+            # wznowiony, „czysty” przebieg przesunąłby watermark nad nimi.
+            progress.absorb_carried_errors(_cursor.get("carried_errors"))
+            progress.absorb_carried_collisions(_cursor.get("carried_collisions"))
 
         current_page = start_page
         saw_fallback = False
@@ -2118,15 +2851,50 @@ class TraffitImporter:
                 try:
                     payload = traffit_employee_to_candidate(raw, user_map)
                 except Exception as e:  # noqa: BLE001
-                    progress.add_error(f"map employee id={raw.get('id')}: {e!r}")
+                    progress.add_error(
+                        f"map employee id={raw.get('id')}: {safe_db_error(e)}"
+                    )
                     continue
+                # Przed ścieżką adopcji po mailu: usunięta osoba nie może też
+                # „wrócić” jako stempel `external_id` na cudzym wierszu.
+                source_hash: Optional[str] = None
+                legacy_hash: Optional[str] = None
+                email_hash: Optional[str] = None
+                if tombstones is not None:
+                    source_hash = candidate_source_tombstone(
+                        payload["external_source"], payload["external_id"]
+                    )
+                    # Runda 8 (R8-V2-4): usunięty kandydat Talent Radar
+                    # (`tr_legacy`, ten sam numer z Traffita) też nie wraca.
+                    legacy_hash = candidate_source_tombstone(
+                        TALENT_RADAR_TOMBSTONE_SOURCE, payload["external_id"]
+                    )
+                    if source_hash in tombstones[0] or legacy_hash in tombstones[0]:
+                        progress.skipped += 1
+                        continue
+
+                email_lc = (payload.get("email") or "").strip().lower()
+                owner_id = ext_to_id.get(str(payload["external_id"]))
+                # Runda 7 audytu (R7-V2-2): druga kartoteka tej samej osoby
+                # (ten sam mail, inny id) — nagrobek maila. Tylko gdy ani
+                # `external_id`, ani mail nie ma żywego właściciela: żywy wiersz
+                # z tym mailem to osoba, która wróciła (np. zgłoszeniem ze
+                # strony kariery) — kartoteka adoptuje się do niej normalnie.
+                if (
+                    tombstones is not None
+                    and owner_id is None
+                    and (not email_lc or email_to_id.get(email_lc) is None)
+                ):
+                    email_hash = candidate_email_tombstone(email_lc)
+                    if email_hash is not None and email_hash in tombstones[1]:
+                        progress.skipped += 1
+                        continue
                 if self.dry_run:
                     progress.inserted += 1
                     continue
 
-                email_lc = (payload.get("email") or "").strip().lower()
+                payload_sha = candidate_payload_sha(payload)
                 existing_id = email_to_id.get(email_lc) if email_lc else None
-                owner_id = ext_to_id.get(str(payload["external_id"]))
                 if (
                     existing_id is not None
                     and owner_id is not None
@@ -2145,6 +2913,32 @@ class TraffitImporter:
                         )
                     collisions += 1
                     existing_id = owner_id
+                elif (
+                    existing_id is not None
+                    and owner_id is None
+                    and id_to_ext.get(existing_id)
+                    not in (None, str(payload["external_id"]))
+                    and existing_id not in gone_ids
+                ):
+                    # Runda 10 (R10-N11-1): mail pasuje do wiersza, który jest
+                    # kartoteką INNEGO żywego rekordu Traffita. Przestemplowanie
+                    # przerzucało tożsamość między dwiema kartotekami przy
+                    # każdym biegu, a etapy, aktywności i pliki jednej z nich
+                    # były po cichu pomijane. Scalenie to decyzja dedupu, nie
+                    # importera. Od 05.10.2026 kolizja jest DORADCZA (licznik
+                    # i pary ID w statystykach, bez `add_error`) — ponowienie
+                    # jej nie naprawi, a jako błąd wstrzymywała `__daily__`
+                    # od 28.09 (kwarantanna jej nie parkowała, patrz
+                    # `PhaseProgress.email_collisions`).
+                    progress.add_email_collision(payload["external_id"], existing_id)
+                    if progress.email_collision_count <= 5:
+                        logger.warning(
+                            "Candidates ext=%s: mail należy do kandydata id=%s "
+                            "z innym numerem Traffita — pominięty (kolizja)",
+                            payload["external_id"],
+                            existing_id,
+                        )
+                    continue
 
                 # Rozróżnia dwie ścieżki błędu w tym samym `except`: awaria
                 # ZAPISU WIERSZA jest już cofnięta przez savepoint, więc transakcja
@@ -2167,11 +2961,13 @@ class TraffitImporter:
                             params["cv_extracted_data"] = json.dumps(
                                 payload["cv_extracted_data"]
                             )
+                            params["tombstone_source_hash"] = source_hash
+                            params["tombstone_legacy_hash"] = legacy_hash
+                            params["tombstone_email_hash"] = email_hash
+                            params["traffit_payload_sha"] = payload_sha
                             try:
                                 async with self.db.begin_nested():
-                                    result = await self.db.execute(
-                                        _UPSERT_CANDIDATE, params
-                                    )
+                                    result = await self.db.execute(upsert_sql, params)
                                     row = result.fetchone()
                             except IntegrityError as ie:
                                 late_email_id = await self._late_email_owner(
@@ -2201,6 +2997,7 @@ class TraffitImporter:
                                 "traffit_source_updated_at": payload.get(
                                     "traffit_source_updated_at"
                                 ),
+                                "source_created_at": payload.get("source_created_at"),
                                 "phone": payload.get("phone"),
                                 "linkedin": payload.get("linkedin"),
                                 "status": payload["status"],
@@ -2209,20 +3006,32 @@ class TraffitImporter:
                                 "cv_extracted_data": json.dumps(
                                     payload["cv_extracted_data"]
                                 ),
+                                "traffit_payload_sha": payload_sha,
                             }
                             result = await self.db.execute(
                                 _UPDATE_CANDIDATE_ADOPT, params
                             )
                             row = result.fetchone()
                             if row is None:
+                                # R10-N11-9: WHERE odrzucił zapis — bez zmian.
+                                progress.unchanged += 1
                                 continue
                             candidate_id = row[0]
                             progress.updated += 1
                             adopted += 1
+                            ext_to_id[str(payload["external_id"])] = candidate_id
+                            id_to_ext[candidate_id] = str(payload["external_id"])
                             if record_updates:
                                 updated_candidate_ids.append(candidate_id)
                         else:
                             if row is None:
+                                if owner_id is not None:
+                                    # R10-N11-9: konflikt po `external_id`,
+                                    # a WHERE odrzucił zapis — bez zmian.
+                                    progress.unchanged += 1
+                                    continue
+                                # Nagrobek postawiony w trakcie fazy (R7-V2-3).
+                                progress.skipped += 1
                                 continue
                             candidate_id = row[0]
                             if row[1]:
@@ -2234,6 +3043,7 @@ class TraffitImporter:
                                 # ...i jego external_id, żeby kolejny rekord o tym
                                 # samym ext nie próbował go ukraść innemu wierszowi.
                                 ext_to_id[str(payload["external_id"])] = row[0]
+                                id_to_ext[row[0]] = str(payload["external_id"])
                                 # Kandydat, którego jeszcze nie było w Nexusie, nie ma
                                 # też wektora — a bez wektora nie istnieje w
                                 # rekomendacjach, hybrid searchu ani w Marketplace.
@@ -2283,24 +3093,31 @@ class TraffitImporter:
                                     "page": current_page,
                                     "since": since_iso,
                                     "page_size": self.batch_size,
+                                    "carried_errors": progress.error_carry(),
+                                    "carried_collisions": progress.collision_carry(),
                                 },
                             )
                         await self.db.commit()
                         since_commit = 0
                         logger.info(
                             "Candidates progress: %d/%d "
-                            "(inserted=%d updated=%d adopted=%d ext_collisions=%d "
-                            "errors=%d)",
+                            "(inserted=%d updated=%d unchanged=%d adopted=%d "
+                            "ext_collisions=%d email_collisions=%d errors=%d)",
                             progress.processed,
                             progress.total_source,
                             progress.inserted,
                             progress.updated,
+                            progress.unchanged,
                             adopted,
                             collisions,
+                            progress.email_collision_count,
                             progress.errors,
                         )
                 except Exception as e:  # noqa: BLE001
-                    msg = f"upsert candidate ext={payload.get('external_id')}: {e!r}"
+                    msg = (
+                        f"upsert candidate ext={payload.get('external_id')}: "
+                        f"{safe_db_error(e)}"
+                    )
                     progress.add_error(msg)
                     if progress.errors <= 5 or progress.errors % 200 == 0:
                         logger.warning("Candidates upsert error: %s", msg[:300])
@@ -2324,10 +3141,13 @@ class TraffitImporter:
                     # nadają — przy martwym połączeniu raportują dokładnie to samo
                     # co przy zdrowym (zmierzone). Robi to `connection_invalidated`:
                     # False dla błędu instrukcji, True dla utraty połączenia.
-                    if needs_session_rollback(
-                        e, past_savepoint=row_committed_to_savepoint
+                    if await self._recover_session(
+                        progress,
+                        e,
+                        batch="candidates",
+                        staged=since_commit,
+                        past_savepoint=row_committed_to_savepoint,
                     ):
-                        await self.db.rollback()
                         since_commit = 0
 
         if not self.dry_run:
@@ -2398,9 +3218,9 @@ class TraffitImporter:
                 "candidates: %s",
                 len(new_ids),
                 len(updated_ids),
-                e,
+                safe_db_error(e),
             )
-            progress.add_error(f"index intent: {e!r}")
+            progress.add_error(f"index intent: {safe_db_error(e)}")
         finally:
             new_ids.clear()
             updated_ids.clear()
@@ -2431,6 +3251,10 @@ class TraffitImporter:
         # DATA-01: opublikowane rekrutacje nowe albo ze zmienionym
         # tytułem/statusem — zdarzenie dla automatów.
         event_job_ids: list[int] = []
+        # Runda 9 (R9-N15-7): rekrutacje nowe albo ze zmienionym tytułem —
+        # tytuł dla rekrutera (`working_title`) liczy się też z `title`, a
+        # import go nie przeliczał.
+        working_title_job_ids: list[int] = []
         logger.info(
             "Jobs lookup maps: clients=%d workflows=%d users=%d",
             len(client_map),
@@ -2443,8 +3267,9 @@ class TraffitImporter:
         # racing the uq_jobs_reference_number constraint mid-loop.
         existing_refs_result = await self.db.execute(
             text(
-                "SELECT reference_number, external_id FROM jobs "
-                "WHERE reference_number IS NOT NULL"
+                "SELECT reference_number, "
+                "CASE WHEN external_source = 'traffit' THEN external_id END "
+                "FROM jobs WHERE reference_number IS NOT NULL"
             )
         )
         # ref -> external_id of the row that already owns it (None if it was
@@ -2470,6 +3295,151 @@ class TraffitImporter:
             ).fetchall()
         }
 
+        # Commit paczkami (audyt 25.09.2026). Faza trzymała JEDNĄ transakcję
+        # przez cały feed — przy pełnym biegu ~4,3 tys. zapytań HTTP o detal
+        # rekrutacji (5 rps ≈ 15 min) z otwartą transakcją i blokadami wierszy
+        # `jobs`. Wszystko, co dotąd szło „po fazie” i dotyczy zapisanych
+        # wierszy (zdarzenia dla automatów, intencje indeksu, archiwum,
+        # kategorie), idzie teraz z KAŻDĄ paczką, w tej samej transakcji co jej
+        # wiersze — bo stan „przed importem” (`before_import`) jest migawką ze
+        # startu fazy: rekrutacja zapisana w przerwanym biegu nie byłaby w
+        # następnym „zmieniona” i nie dostałaby już intencji ani zdarzenia.
+        commit_every = 200
+        since_commit = 0
+
+        async def _flush_batch() -> None:
+            nonlocal since_commit
+            # Audyt 22.09 r2 (DATA-01/PROD-03): import Traffita (99% rekrutacji)
+            # NIE zapisywał zdarzeń rekrutacji, więc nocny przegląd bazy,
+            # auto-match nowej rekrutacji i dzwonek „Moi ludzie" nie ruszyły
+            # ani razu od 21.09 (0 wierszy z `job_id` w kolejce).
+            from app.services.auto_match_outbox import enqueue_job
+
+            for job_id in list(event_job_ids):
+                try:
+                    # Runda 10 (R10-N11-12): savepoint — błąd bazy w zapisie
+                    # zdarzenia nie może zostawić przerwanej transakcji, którą
+                    # commit paczki niżej po cichu wycofałby razem z 200
+                    # zapisanymi rekrutacjami.
+                    async with self.db.begin_nested():
+                        await enqueue_job(self.db, job_id=job_id, trigger="traffit_job")
+                    progress.job_events += 1
+                except Exception as exc:  # noqa: BLE001
+                    # Brak zdarzenia = rekrutacja poczeka na ręczną zmianę;
+                    # nie wywracamy importu rekrutacji.
+                    logger.warning(
+                        "Jobs: enqueue_job job=%s failed: %s",
+                        job_id,
+                        safe_db_error(exc),
+                    )
+                    if await self._recover_session(
+                        progress, exc, batch="jobs", staged=since_commit
+                    ):
+                        touched_job_ids.clear()
+                        inserted_job_ids.clear()
+                        working_title_job_ids.clear()
+                        since_commit = 0
+                        break
+            event_job_ids.clear()
+
+            # Intencja przeindeksowania rekrutacji — jak dla kandydatów.
+            # `_UPSERT_JOB` nadpisuje `title`, a tytuł WCHODZI do tekstu
+            # embeddingu (`_build_job_text`), więc każda nocna zmiana tytułu
+            # zostawiała wektor nieaktualny NA STAŁE. Audyt 18.09.2026: 128 z 307
+            # opublikowanych rekrutacji (41,7%) bez wektora.
+            #
+            # Zapis PRZED commitem, w tej samej transakcji — import wycofany nie
+            # może zostawić intencji dla wierszy, których nie ma.
+            if touched_job_ids:
+                from app.services.index_outbox_service import (
+                    JOB,
+                    record_bulk_reindex,
+                )
+
+                try:
+                    # Runda 10 (R10-N11-12): savepoint, jak archiwum i kategorie
+                    # niżej — bez niego błąd bazy zostawiał przerwaną transakcję.
+                    async with self.db.begin_nested():
+                        progress.index_intents += await record_bulk_reindex(
+                            self.db, JOB, list(touched_job_ids)
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    # Brak intencji to opóźniony wektor, nie utracony import —
+                    # reconciler i tak go dogoni.
+                    progress.add_error(
+                        f"record job reindex intent: {safe_db_error(exc)}"
+                    )
+                    if await self._recover_session(
+                        progress, exc, batch="jobs", staged=since_commit
+                    ):
+                        inserted_job_ids.clear()
+                        working_title_job_ids.clear()
+                        since_commit = 0
+                touched_job_ids.clear()
+
+            # Archiwum z Traffita: stan „Zakończony” i `is_open=false` to kolumny
+            # NEXUSA, więc nie pisze ich `_UPSERT_JOB` (test własności kolumn) —
+            # robi to ten krok. Przełączone „Prowadzona w NEXUSIE” pomija.
+            # Idempotentny UPDATE — z każdą paczką, żeby zatwierdzona paczka nie
+            # pokazała rekrutacji z Traffita jako otwartych do końca fazy.
+            from app.services.traffit_job_archive import archive_traffit_jobs
+
+            try:
+                async with self.db.begin_nested():
+                    progress.archived += await archive_traffit_jobs(self.db)
+            except Exception as exc:  # noqa: BLE001
+                progress.add_error(f"archive traffit jobs: {safe_db_error(exc)}")
+                # Utrata połączenia — bez rollbacku commit paczki niżej rzuca
+                # `PendingRollbackError` i wywraca fazę.
+                if await self._recover_session(
+                    progress, exc, batch="jobs", staged=since_commit
+                ):
+                    inserted_job_ids.clear()
+                    since_commit = 0
+
+            # Kategoria kompetencji dla nowych rekrutacji z Traffita — import jej
+            # nie nadawał, więc 734 rekrutacje (24.09.2026) nie miały kategorii,
+            # a „Podobne rekrutacje” liczą wspólną kategorię.
+            if inserted_job_ids:
+                from app.services.job_cc import classify_missing_job_ccs
+
+                try:
+                    async with self.db.begin_nested():
+                        progress.categorised += await classify_missing_job_ccs(
+                            self.db, list(inserted_job_ids)
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    progress.add_error(f"classify job categories: {safe_db_error(exc)}")
+                    await self._recover_session(
+                        progress, exc, batch="jobs", staged=since_commit
+                    )
+                inserted_job_ids.clear()
+
+            if working_title_job_ids:
+                from app.services.job_working_title import (
+                    refresh_working_titles_for_ids,
+                )
+
+                try:
+                    async with self.db.begin_nested():
+                        progress.working_titles += await refresh_working_titles_for_ids(
+                            self.db, list(working_title_job_ids)
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    # Tytuł dla rekrutera jest pomocniczy — jego awaria nie
+                    # zatrzymuje importu ani watermarku.
+                    logger.warning(
+                        "Jobs: przeliczenie tytułów dla rekrutera nie powiodło się (%s)",
+                        type(exc).__name__,
+                    )
+                    await self._recover_session(
+                        progress, exc, batch="jobs", staged=since_commit
+                    )
+                working_title_job_ids.clear()
+
+            await self.db.commit()
+            since_commit = 0
+
         async for raw in self.traffit.get_paginated(
             "/recruitments/",
             page_size=self.batch_size,
@@ -2481,7 +3451,9 @@ class TraffitImporter:
                     raw, client_map, workflow_map, user_map
                 )
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map recruitment id={raw.get('id')}: {e!r}")
+                progress.add_error(
+                    f"map recruitment id={raw.get('id')}: {safe_db_error(e)}"
+                )
                 continue
             # Rekrutacja z Traffita jest w NEXUSIE archiwum (decyzja Artura
             # 24.09.2026, `services/traffit_job_archive.py`): status ZAWSZE
@@ -2533,7 +3505,9 @@ class TraffitImporter:
                     # inny wiersz, więc kwarantanna nigdy by go nie zwolniła.
                     progress.recruiter_detail_failed += 1
                     logger.warning(
-                        "Traffit recruitment %s detail failed: %r", ext_id, e
+                        "Traffit recruitment %s detail failed: %s",
+                        ext_id,
+                        safe_db_error(e),
                     )
 
             # Rekrutacje bez znanego klienta lądują u sieroty, nie w koszu.
@@ -2598,7 +3572,10 @@ class TraffitImporter:
             ext_id = payload["external_id"]
             if ref:
                 owner = ref_owner.get(ref)
-                if owner is not None and owner != ext_id:
+                # Runda 10 (R10-N11-8): numer zajęty przez rekrutację spoza
+                # Traffita (właściciel `None`) też wymaga sufiksu — inaczej
+                # UNIQUE pada co noc, a rekrutacja nigdy nie wchodzi.
+                if ref in ref_owner and owner != ext_id:
                     suffixed = f"{ref} (#{ext_id})"[:100]
                     payload["reference_number"] = suffixed
                     ref_owner[suffixed] = ext_id
@@ -2638,20 +3615,35 @@ class TraffitImporter:
                                 )
                             )
                         )
+                        if was_insert or (
+                            not managed
+                            and previous is not None
+                            and previous[1] != payload.get("title")
+                        ):
+                            working_title_job_ids.append(int(row[0]))
                         if meaningful:
                             touched_job_ids.append(int(row[0]))
                             if not managed and payload.get("status") == "published":
                                 event_job_ids.append(int(row[0]))
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
-                    f"upsert job ext={payload.get('external_id')}: {e!r}"
+                    f"upsert job ext={payload.get('external_id')}: {safe_db_error(e)}"
                 )
                 # Savepoint już cofnął sam zapis, więc transakcja zewnętrzna
                 # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
                 # ją tylko przy utracie połączenia — wtedy `ROLLBACK TO SAVEPOINT`
                 # nie ma dokąd pójść i każdy kolejny wiersz fazy padnie.
-                if needs_session_rollback(e, past_savepoint=False):
-                    await self.db.rollback()
+                if await self._recover_session(
+                    progress, e, batch="jobs", staged=since_commit
+                ):
+                    # Id z cofniętej paczki nie istnieją (wstawione) albo nie
+                    # mają już zmiany — zdarzenie dla automatów na nieistniejącą
+                    # rekrutację wywróciłoby transakcję następnej paczki.
+                    event_job_ids.clear()
+                    touched_job_ids.clear()
+                    inserted_job_ids.clear()
+                    working_title_job_ids.clear()
+                    since_commit = 0
                 continue
             if was_insert is None:
                 # WHERE w `_UPSERT_JOB` odrzucił zapis — nic się nie zmieniło.
@@ -2661,70 +3653,12 @@ class TraffitImporter:
                 progress.inserted += 1
             else:
                 progress.updated += 1
+            since_commit += 1
+            if since_commit >= commit_every:
+                await _flush_batch()
 
         if not self.dry_run:
-            # Audyt 22.09 r2 (DATA-01/PROD-03): import Traffita (99% rekrutacji)
-            # NIE zapisywał zdarzeń rekrutacji, więc nocny przegląd bazy,
-            # auto-match nowej rekrutacji i dzwonek „Moi ludzie" nie ruszyły
-            # ani razu od 21.09 (0 wierszy z `job_id` w kolejce).
-            from app.services.auto_match_outbox import enqueue_job
-
-            for job_id in event_job_ids:
-                try:
-                    await enqueue_job(self.db, job_id=job_id, trigger="traffit_job")
-                    progress.job_events += 1
-                except Exception as exc:  # noqa: BLE001
-                    # Brak zdarzenia = rekrutacja poczeka na ręczną zmianę;
-                    # nie wywracamy importu rekrutacji.
-                    logger.warning("Jobs: enqueue_job job=%s failed: %r", job_id, exc)
-
-        # Intencja przeindeksowania rekrutacji — jak dla kandydatów.
-        # `_UPSERT_JOB` nadpisuje `title`, a tytuł WCHODZI do tekstu embeddingu
-        # (`_build_job_text`), więc każda nocna zmiana tytułu zostawiała wektor
-        # nieaktualny NA STAŁE: importer nie zapisywał dla ofert żadnej
-        # intencji, a reconciler, który by to wyłapał, był wyłączony. Audyt
-        # 18.09.2026: 128 z 307 opublikowanych rekrutacji (41,7%) bez wektora.
-        #
-        # Zapis PRZED commitem, w tej samej transakcji — import wycofany nie
-        # może zostawić intencji dla wierszy, których nie ma.
-        if touched_job_ids and not self.dry_run:
-            from app.services.index_outbox_service import JOB, record_bulk_reindex
-
-            try:
-                progress.index_intents = await record_bulk_reindex(
-                    self.db, JOB, touched_job_ids
-                )
-            except Exception as exc:  # noqa: BLE001
-                # Brak intencji to opóźniony wektor, nie utracony import —
-                # reconciler i tak go dogoni. Wywrócenie fazy kosztowałoby
-                # wszystkie rekrutacje zapisane w tym biegu.
-                progress.add_error(f"record job reindex intent: {exc!r}")
-
-        # Archiwum z Traffita: stan „Zakończony” i `is_open=false` to kolumny
-        # NEXUSA, więc nie pisze ich `_UPSERT_JOB` (test własności kolumn) —
-        # robi to ten krok, po fazie. Przełączone „Prowadzona w NEXUSIE” pomija.
-        if not self.dry_run:
-            from app.services.traffit_job_archive import archive_traffit_jobs
-
-            try:
-                async with self.db.begin_nested():
-                    progress.archived = await archive_traffit_jobs(self.db)
-            except Exception as exc:  # noqa: BLE001
-                progress.add_error(f"archive traffit jobs: {exc!r}")
-
-        # Kategoria kompetencji dla nowych rekrutacji z Traffita — import jej
-        # nie nadawał, więc 734 rekrutacje (24.09.2026) nie miały kategorii,
-        # a „Podobne rekrutacje” liczą wspólną kategorię.
-        if inserted_job_ids and not self.dry_run:
-            from app.services.job_cc import classify_missing_job_ccs
-
-            try:
-                async with self.db.begin_nested():
-                    progress.categorised = await classify_missing_job_ccs(
-                        self.db, inserted_job_ids
-                    )
-            except Exception as exc:  # noqa: BLE001
-                progress.add_error(f"classify job categories: {exc!r}")
+            await _flush_batch()
 
         # Rekrutacja z Traffita nie niesie Delivery Leada — dostaje głównego
         # DL-a klienta (decyzja Artura 24.09.2026). Uzupełnienie, nie nadpis.
@@ -2737,7 +3671,16 @@ class TraffitImporter:
                 async with self.db.begin_nested():
                     await fill_missing_job_delivery_leads(self.db)
             except Exception as exc:  # noqa: BLE001
-                progress.add_error(f"fill job delivery leads: {exc!r}")
+                # Runda 7 (N7): uzupełnienie DL-a nie jest importem — jego
+                # awaria nie może zatrzymać `__daily__` (błąd nieprzypisany)
+                # ani wrzucić `repr` wyjątku do próbek `/sync/status`.
+                logger.warning(
+                    "Nie udało się uzupełnić DL-a rekrutacji po imporcie (%s)",
+                    type(exc).__name__,
+                )
+                # Paczki są już zacommitowane — rollback podnosi tylko sesję,
+                # żeby commit niżej nie wywrócił fazy.
+                await self._recover_session(progress, exc, batch="jobs", staged=0)
 
         if not self.dry_run:
             await self.db.commit()
@@ -2755,15 +3698,22 @@ class TraffitImporter:
         progress.total_source = await self._probe_total("/talents/", "Talents")
 
         user_map = await self.build_user_id_map()
+        from app.services.traffit.pool_tombstones import load_deleted_traffit_pools
+
+        deleted_pools = await load_deleted_traffit_pools(self.db)
 
         async for raw in self.traffit.get_paginated(
             "/talents/", page_size=self.batch_size
         ):
             progress.processed += 1
+            if str(raw.get("id")) in deleted_pools:
+                # Runda 10 (R10-N11-7): pula usunięta w NEXUSIE nie wraca.
+                progress.skipped += 1
+                continue
             try:
                 payload = traffit_talent_to_pool(raw, user_map)
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map talent id={raw.get('id')}: {e!r}")
+                progress.add_error(f"map talent id={raw.get('id')}: {safe_db_error(e)}")
                 continue
             if self.dry_run:
                 progress.inserted += 1
@@ -2785,14 +3735,21 @@ class TraffitImporter:
                         was_insert = bool(row[1])
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
-                    f"upsert talent ext={payload.get('external_id')}: {e!r}"
+                    f"upsert talent ext={payload.get('external_id')}: {safe_db_error(e)}"
                 )
                 # Savepoint już cofnął sam zapis, więc transakcja zewnętrzna
                 # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
                 # ją tylko przy utracie połączenia — wtedy `ROLLBACK TO SAVEPOINT`
                 # nie ma dokąd pójść i każdy kolejny wiersz fazy padnie.
-                if needs_session_rollback(e, past_savepoint=False):
-                    await self.db.rollback()
+                # Faza commituje raz, na końcu — rollback zabiera wszystko,
+                # co zapisała do tej pory, więc liczniki wracają do zera.
+                if await self._recover_session(
+                    progress,
+                    e,
+                    batch="talents",
+                    staged=progress.inserted + progress.updated,
+                ):
+                    progress.inserted = progress.updated = 0
                 continue
             if was_insert is None:
                 continue
@@ -2931,6 +3888,44 @@ class TraffitImporter:
         )
         return result.scalar_one_or_none()
 
+    async def _candidate_tombstones(
+        self,
+    ) -> Optional[tuple[set[str], set[str]]]:
+        """Nagrobki kandydatów (0388): (HMAC-e id Traffita, HMAC-e maili).
+
+        `None` = baza sprzed 0388 (brak tabeli) albo brak klucza HMAC — faza
+        idzie wtedy bez nagrobków i wariantem upsertu, który tabeli nie
+        wymienia (patrz `_UPSERT_CANDIDATE`). Bez klucza usunięcie kandydata
+        i tak nie postawi nagrobka (fail-closed w `candidate_audit`).
+        """
+        if not settings.CANDIDATE_IDENTITY_FINGERPRINT_KEY.strip():
+            return None
+        hashes = await purged_candidate_hashes(
+            self.db, ("traffit", TALENT_RADAR_TOMBSTONE_SOURCE, EMAIL_TOMBSTONE_SOURCE)
+        )
+        if hashes is None:
+            return None
+        # HMAC niesie nazwę źródła, więc suma zbiorów nie myli źródeł (R8-V2-4).
+        return (
+            hashes["traffit"] | hashes[TALENT_RADAR_TOMBSTONE_SOURCE],
+            hashes[EMAIL_TOMBSTONE_SOURCE],
+        )
+
+    async def _traffit_candidates_gone_upstream(self) -> set[int]:
+        """Wiersze kandydatów z nagrobkiem Traffita (404/410 u źródła).
+
+        Runda 10 (R10-N11-1): kartoteka, której rekord zniknął w Traffit, może
+        zostać przejęta po mailu przez nowy rekord tej samej osoby — tylko
+        żywa kartoteka blokuje przestemplowanie.
+        """
+        result = await self.db.execute(
+            text(
+                "SELECT id FROM candidates WHERE external_source='traffit' "
+                "AND external_id IS NOT NULL AND external_deleted_at IS NOT NULL"
+            )
+        )
+        return {row[0] for row in result}
+
     async def _build_candidate_external_id_map(self) -> dict[str, int]:
         result = await self.db.execute(
             text(
@@ -2981,12 +3976,15 @@ class TraffitImporter:
     # ── Faza 5b: candidates-cv (binary CV download) ─────────────────────────
 
     async def import_candidates_cv(
-        self, since: Optional[datetime] = None
+        self,
+        since: Optional[datetime] = None,
+        source_since: Optional[datetime] = None,
     ) -> PhaseProgress:
         """Pobiera primary CV dla Traffit candidates bez ustawionego CV pointera.
 
         Idempotent: bierze tylko kandydatów z `cv_storage_key IS NULL`. W trybie
-        delta (`since`) zawęża do kandydatów zmienionych od ostatniego syncu —
+        delta (`since`) zawęża do kandydatów zmienionych od ostatniego syncu
+        i „zaległych CV” z przerwanych biegów (`_delta_cv_targets`) —
         nowy kandydat dostaje CV; faktyczne (multi-)pliki ogarnia
         import_candidate_files (które w delta podmienia/dodaje nowe pliki).
         Per-kandydat: GET /employees/{id}/files → primary → /content (binary).
@@ -2995,8 +3993,9 @@ class TraffitImporter:
             phase="candidates_cv", started_at=datetime.now(timezone.utc)
         )
 
-        since_clause = "AND updated_at >= :since" if since is not None else ""
-        cv_params: dict[str, Any] = {"since": since} if since is not None else {}
+        # Delta: `_delta_cv_targets` (zmienieni w biegu + zaległe CV).
+        since_clause = ""
+        cv_params: dict[str, Any] = {}
 
         # Full reconcile only: re-point `candidates.cv_*` at the CURRENT primary
         # CV before downloading anything.
@@ -3044,21 +4043,28 @@ class TraffitImporter:
             cv_params["limit"] = scan_limit
             since_clause += " AND id > :after_id"
 
-        result = await self.db.execute(
-            text(
-                f"""
-                SELECT id, external_id FROM candidates
-                WHERE external_source='traffit'
-                  AND external_id IS NOT NULL
-                  AND cv_file_content IS NULL
-                  AND cv_storage_key IS NULL
-                  {since_clause}
-                ORDER BY id
-                {"LIMIT :limit" if scan_limit is not None else ""}
-                """
-            ),
-            cv_params,
-        )
+        if since is not None:
+            result = await (
+                self._delta_cv_targets(since)
+                if source_since is None
+                else self._delta_cv_targets(since, source_since)
+            )
+        else:
+            result = await self.db.execute(
+                text(
+                    f"""
+                    SELECT id, external_id FROM candidates
+                    WHERE external_source='traffit'
+                      AND external_id IS NOT NULL
+                      AND cv_file_content IS NULL
+                      AND cv_storage_key IS NULL
+                      {since_clause}
+                    ORDER BY id
+                    {"LIMIT :limit" if scan_limit is not None else ""}
+                    """
+                ),
+                cv_params,
+            )
         targets = list(result)
         progress.total_source = len(targets)
         exhausted = scan_limit is None or len(targets) < scan_limit
@@ -3093,9 +4099,10 @@ class TraffitImporter:
                     # sobie nie mówi NIKOMU, że tej osoby już u źródła nie ma.
                     # Nagrobek zostaje na wierszu.
                     if not self.dry_run:
-                        res = await self.db.execute(
-                            _TOMBSTONE_CANDIDATE, {"id": row.id}
-                        )
+                        async with self.db.begin_nested():
+                            res = await self.db.execute(
+                                _TOMBSTONE_CANDIDATE, {"id": row.id}
+                            )
                         if res.rowcount:
                             progress.tombstoned += 1
                     continue
@@ -3160,25 +4167,54 @@ class TraffitImporter:
                     content_type=None,
                 )
 
-                await self.db.execute(
-                    text(
-                        """
-                        UPDATE candidates SET
-                            cv_storage_key = :storage_key,
-                            cv_filename = :filename,
-                            updated_at = NOW()
-                        WHERE id = :id
-                        """
-                    ),
-                    {
-                        "storage_key": cv_storage_key,
-                        "filename": filename,
-                        "id": row.id,
-                    },
-                )
+                # SAVEPOINT per wiersz (audyt 25.09.2026): błąd jednego zapisu
+                # cofa tylko ten wiersz. Do tej zmiany `rollback()` sesji
+                # zabierał całą paczkę (do 99 wskaźników CV, których pliki już
+                # leżały w magazynie).
+                async with self.db.begin_nested():
+                    # Runda 10 (R10-N11-6): cele wybrano na starcie fazy, która
+                    # trwa godzinami. CV wgrane w NEXUSIE w tym czasie wygrywa —
+                    # wskaźnik z Traffita zapisujemy tylko do pustego miejsca.
+                    # Pobrany plik zostaje w magazynie (CV się nie kasuje).
+                    stored = await self.db.execute(
+                        text(
+                            """
+                            UPDATE candidates SET
+                                cv_storage_key = :storage_key,
+                                cv_filename = :filename,
+                                updated_at = NOW()
+                            WHERE id = :id
+                              AND cv_storage_key IS NULL
+                              AND cv_file_content IS NULL
+                            """
+                        ),
+                        {
+                            "storage_key": cv_storage_key,
+                            "filename": filename,
+                            "id": row.id,
+                        },
+                    )
+                if not stored.rowcount:
+                    progress.skipped += 1
+                    continue
                 progress.inserted += 1
-                since_commit += 1
-                if since_commit >= commit_every:
+            except Exception as e:  # noqa: BLE001
+                # `ext=` w komunikacie: `_ERROR_REF_RE` przypisuje błąd do
+                # wiersza, więc kwarantanna może go zaparkować. Dawne
+                # „emp {id}: …” było nieprzypisane i zamrażało `__daily__`
+                # na stałe przy jednym trwale zepsutym kandydacie.
+                progress.add_error(f"cv candidate ext={traffit_id}: {safe_db_error(e)}")
+                # Utrata połączenia w savepoincie (zapis wskaźnika albo
+                # nagrobek) — bez rollbacku sesji padłby każdy kolejny kandydat.
+                if await self._recover_session(
+                    progress, e, batch="cv", staged=since_commit
+                ):
+                    since_commit = 0
+                continue
+
+            since_commit += 1
+            if since_commit >= commit_every:
+                try:
                     if cursor_phase is not None:
                         # Same transaction as the rows it accounts for.
                         #
@@ -3194,16 +4230,17 @@ class TraffitImporter:
                             cursor_phase, {"after_id": row.id}
                         )
                     await self.db.commit()
-                    since_commit = 0
-                    logger.info(
-                        "CV download progress: %d/%d",
-                        progress.processed,
-                        progress.total_source,
-                    )
-            except Exception as e:  # noqa: BLE001
-                progress.add_error(f"emp {traffit_id}: {e!r}")
-                await self.db.rollback()
+                except Exception as e:  # noqa: BLE001
+                    # Padnięty commit cofa paczkę — błąd całej paczki, nie
+                    # wiersza, więc (nieprzypisany) trzyma watermark.
+                    progress.add_error(f"cv batch commit: {safe_db_error(e)}")
+                    await self.db.rollback()
                 since_commit = 0
+                logger.info(
+                    "CV download progress: %d/%d",
+                    progress.processed,
+                    progress.total_source,
+                )
 
         if not self.dry_run:
             if cursor_phase is not None:
@@ -3402,7 +4439,16 @@ class TraffitImporter:
             # zaparkować — dokładnie ta pułapka, którą ta faza już raz dostała.
             # Nieodświeżony indeks jest gorszy od aktualnego, ale zatrzymany
             # sync jest gorszy od obu.
-            logger.warning("Enrich missing names: reindex intent failed: %s", e)
+            #
+            # Runda 9 (R9-X1-8): bez rollbacku sesja zostawała w przerwanej
+            # transakcji i pierwsze kolejne zapytanie fazy (zapis kursora,
+            # commit) padało `PendingRollbackError` — log „best-effort” był
+            # więc kłamstwem, bo wywracał fazę. Backfill commituje każdy wiersz
+            # sam, więc rollback nie zabiera tu niczego poza tą intencją.
+            await self.db.rollback()
+            logger.warning(
+                "Enrich missing names: reindex intent failed: %s", safe_db_error(e)
+            )
 
     # ── Faza A: candidates-files (multi-file CV w candidate_documents) ──────
 
@@ -3435,6 +4481,11 @@ class TraffitImporter:
                               AND is_primary IS TRUE
                               AND source_deleted_at IS NULL
                               AND external_id IS DISTINCT FROM :external_id
+                              -- Tylko kopie z Traffita: CV wgrane w NEXUSIE nie
+                              -- ustępuje plikowi z importu (runda 6 audytu,
+                              -- lustro reguły wskaźnika CV). Kolizja z nim
+                              -- kończy się niżej zapisem pliku jako pobocznego.
+                              AND external_source = 'traffit'
                             """
                         ),
                         {
@@ -3468,7 +4519,85 @@ class TraffitImporter:
                     {**doc_params, "is_primary": False},
                 )
 
-    async def _delta_file_targets(self, since: datetime):
+    async def _employee_file_upload_dates(
+        self, traffit_id: Any
+    ) -> dict[str, Optional[datetime]]:
+        """Daty wgrania plików osoby z detalu `/employees/{id}` (29.09.2026).
+
+        Data to wzbogacenie, nie warunek zapisu pliku: awaria detalu daje
+        pusty słownik (dokument bez `uploaded_at`, jak dotąd), a nie błąd fazy,
+        który wstrzymałby watermark. Naprawę istniejących dokumentów robi
+        `traffit_file_dates_repair`.
+        """
+        try:
+            resp = await self.traffit._get_raw(  # noqa: SLF001
+                f"/employees/{traffit_id}", page=1, page_size=1
+            )
+            if resp.status_code != 200:
+                return {}
+            return traffit_file_upload_dates(employee_files_from_detail(resp.json()))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Traffit employee %s detail for file dates failed: %s",
+                traffit_id,
+                type(exc).__name__,
+            )
+            return {}
+
+    async def _delta_cv_targets(
+        self, since: datetime, source_since: Optional[datetime] = None
+    ):
+        """Cele fazy ``candidates_cv`` w delcie: (id, external_id).
+
+        Kandydaci zmienieni w tym biegu PLUS „zaległe CV” (runda 6 audytu):
+        kandydat Traffita z nazwą CV, bez wskaźnika ``cv_storage_key``,
+        założony w oknie ``TRAFFIT_SYNC_PENDING_FILES_DAYS``. Lustro
+        „zaległych plików” z ``_delta_file_targets``: kandydat upsertowany
+        w biegu, który deploy zabił przed tą fazą, nie spełnia
+        ``updated_at >= since`` w żadnym kolejnym — faza plików pobierała mu
+        dokumenty, ale wskaźnika nie ustawiał nikt poza tą fazą, więc nocne
+        fazy tekstu CV i imion (czytają ``cv_storage_key``) go nie widziały.
+        Bez warunku „brak dokumentów”, bo faza plików mogła je już pobrać.
+        """
+        return await self.db.execute(
+            text(
+                """
+                SELECT c.id, c.external_id
+                FROM candidates c
+                WHERE c.external_source = 'traffit'
+                  AND c.external_id IS NOT NULL
+                  AND c.cv_file_content IS NULL
+                  AND c.cv_storage_key IS NULL
+                  AND (c.updated_at >= :since OR {source_since_clause})
+                UNION
+                SELECT p.id, p.external_id
+                FROM (
+                    SELECT c.id, c.external_id
+                    FROM candidates c
+                    WHERE c.external_source = 'traffit'
+                      AND c.external_id IS NOT NULL
+                      AND c.cv_file_content IS NULL
+                      AND c.cv_storage_key IS NULL
+                      AND NULLIF(btrim(c.cv_filename), '') IS NOT NULL
+                      AND c.created_at >= :pending_since
+                    ORDER BY c.id DESC
+                    LIMIT :pending_limit
+                ) p
+                ORDER BY id
+                """.replace("{source_since_clause}", _SOURCE_SINCE_CLAUSE)
+            ),
+            {
+                "since": since,
+                "source_since": source_since,
+                "pending_since": datetime.now(timezone.utc)
+                - timedelta(days=max(0, int(settings.TRAFFIT_SYNC_PENDING_FILES_DAYS))),
+                "pending_limit": max(0, int(settings.TRAFFIT_SYNC_PENDING_FILES_LIMIT)),
+            },
+        )
+
+    async def _delta_file_targets(
+        self, since: datetime, source_since: Optional[datetime] = None
+    ):
         """Cele fazy plików w delcie: (id, external_id) kandydatów Traffita."""
         # Delta mode: recently-changed candidates regardless of existing
         # files; we skip already-present file_ids per candidate below.
@@ -3486,7 +4615,7 @@ class TraffitImporter:
                 FROM candidates c
                 WHERE c.external_source = 'traffit'
                   AND c.external_id IS NOT NULL
-                  AND c.updated_at >= :since
+                  AND (c.updated_at >= :since OR {source_since_clause})
                 UNION
                 SELECT p.id, p.external_id
                 FROM (
@@ -3505,10 +4634,11 @@ class TraffitImporter:
                     LIMIT :pending_limit
                 ) p
                 ORDER BY id
-                """
+                """.replace("{source_since_clause}", _SOURCE_SINCE_CLAUSE)
             ),
             {
                 "since": since,
+                "source_since": source_since,
                 "pending_since": datetime.now(timezone.utc)
                 - timedelta(days=max(0, int(settings.TRAFFIT_SYNC_PENDING_FILES_DAYS))),
                 "pending_limit": max(0, int(settings.TRAFFIT_SYNC_PENDING_FILES_LIMIT)),
@@ -3516,7 +4646,9 @@ class TraffitImporter:
         )
 
     async def import_candidate_files(
-        self, since: Optional[datetime] = None
+        self,
+        since: Optional[datetime] = None,
+        source_since: Optional[datetime] = None,
     ) -> PhaseProgress:
         """Pobiera pliki kandydatów Traffit do `candidate_documents`.
 
@@ -3592,7 +4724,11 @@ class TraffitImporter:
                 {"after_id": after_id, "limit": scan_limit},
             )
         else:
-            result = await self._delta_file_targets(since)
+            result = await (
+                self._delta_file_targets(since)
+                if source_since is None
+                else self._delta_file_targets(since, source_since)
+            )
         targets = list(result)
         progress.total_source = len(targets)
         # A short batch means the sweep reached the last candidate: the pass is
@@ -3654,9 +4790,10 @@ class TraffitImporter:
                     # sobie nie mówi NIKOMU, że tej osoby już u źródła nie ma.
                     # Nagrobek zostaje na wierszu.
                     if not self.dry_run:
-                        res = await self.db.execute(
-                            _TOMBSTONE_CANDIDATE, {"id": row.id}
-                        )
+                        async with self.db.begin_nested():
+                            res = await self.db.execute(
+                                _TOMBSTONE_CANDIDATE, {"id": row.id}
+                            )
                         if res.rowcount:
                             progress.tombstoned += 1
                     continue
@@ -3683,6 +4820,9 @@ class TraffitImporter:
                     progress.inserted += len(files_sorted)
                     continue
 
+                # Daty wgrania z detalu osoby — pobierane raz, dopiero gdy
+                # jest nowy plik bez daty na liście (29.09.2026).
+                detail_dates: Optional[dict[str, Optional[datetime]]] = None
                 # Pobierz binary dla każdego pliku
                 for f in files_sorted:
                     file_id = f["id"]
@@ -3693,75 +4833,119 @@ class TraffitImporter:
                         continue
                     filename = f.get("name") or f"file-{file_id}"
                     is_primary = bool(f.get("is_primary", False))
-                    uploaded_at_raw = f.get("file_uploaded") or f.get("created_at")
-
-                    token = await self.traffit._ensure_token()  # noqa: SLF001
-                    url = (
-                        f"{self.traffit.config.api_base}"
-                        f"/employees/{traffit_id}/files/{file_id}/content"
+                    # Lista `/files` nie niesie daty wgrania — ma ją detal
+                    # osoby (`files: [{filename, file_uploaded}]`, bez id
+                    # pliku, więc łączenie po nazwie). Bez niej dokument
+                    # pokazywał dzień importu jako „dodano”.
+                    uploaded_at = _parse_traffit_datetime(
+                        f.get("file_uploaded") or f.get("created_at")
                     )
-                    await self.traffit._throttle()  # noqa: SLF001
-                    content_resp = await self.traffit._http.get(  # noqa: SLF001
-                        url,
-                        headers={"Authorization": f"Bearer {token}"},
-                    )
-                    if content_resp.status_code in _GONE_STATUS_CODES:
-                        # File removed in Traffit between listing and fetch.
-                        progress.gone_upstream += 1
-                        continue
-                    if content_resp.status_code != 200:
-                        progress.add_error(
-                            f"fetch file {file_id} candidate ext={traffit_id}: "
-                            f"HTTP {content_resp.status_code}"
+                    if uploaded_at is None:
+                        if detail_dates is None:
+                            detail_dates = await self._employee_file_upload_dates(
+                                traffit_id
+                            )
+                        uploaded_at = traffit_file_upload_date(
+                            f.get("name"), detail_dates
                         )
+                    try:
+                        token = await self.traffit._ensure_token()  # noqa: SLF001
+                        url = (
+                            f"{self.traffit.config.api_base}"
+                            f"/employees/{traffit_id}/files/{file_id}/content"
+                        )
+                        await self.traffit._throttle()  # noqa: SLF001
+                        content_resp = await self.traffit._http.get(  # noqa: SLF001
+                            url,
+                            headers={"Authorization": f"Bearer {token}"},
+                        )
+                        if content_resp.status_code in _GONE_STATUS_CODES:
+                            # File removed in Traffit between listing and fetch.
+                            progress.gone_upstream += 1
+                            continue
+                        if content_resp.status_code != 200:
+                            progress.add_error(
+                                f"fetch file {file_id} candidate ext={traffit_id}: "
+                                f"HTTP {content_resp.status_code}"
+                            )
+                            continue
+
+                        file_bytes = content_resp.content
+                        content_type = content_resp.headers.get("content-type", "")
+                        # Strip charset suffix (e.g. "application/pdf; charset=utf-8")
+                        if ";" in content_type:
+                            content_type = content_type.split(";", 1)[0].strip()
+
+                        # Upload do Hetzner Object Storage (audit-2026-05-07 Faza 3).
+                        # Bez S3 envów — fallback na BYTEA byłby tutaj kuszący ale
+                        # mamy 49k rekordów już w S3, więc dla spójności wymagamy
+                        # storage_key set. Brak envów → propagated wyjątek z upload_cv,
+                        # cron retry później gdy env vars są dostępne.
+                        from app.services.object_storage import upload_cv
+
+                        # Sync boto3 put — offload off the event loop.
+                        storage_key = await run_in_threadpool(
+                            upload_cv,
+                            content=file_bytes,
+                            filename=filename[:500],
+                            content_type=content_type[:100] if content_type else None,
+                        )
+
+                        doc_params = {
+                            "candidate_id": row.id,
+                            "filename": filename[:500],
+                            "storage_key": storage_key,
+                            "content_type": content_type[:100]
+                            if content_type
+                            else None,
+                            "size_bytes": len(file_bytes),
+                            "document_kind": _traffit_document_kind(
+                                filename,
+                                is_primary=is_primary,
+                            ),
+                            "is_primary": is_primary,
+                            "uploaded_at": uploaded_at,
+                            "external_id": ext_id,
+                            "external_source": "traffit",
+                        }
+                        # SAVEPOINT per plik: plik już leży w magazynie, więc
+                        # błąd zapisu jednego dokumentu nie może cofnąć
+                        # dokumentów zapisanych wcześniej w tej paczce.
+                        async with self.db.begin_nested():
+                            await self._upsert_candidate_document(doc_params)
+                    except Exception as e:  # noqa: BLE001
+                        progress.add_error(
+                            f"store file {file_id} candidate ext={traffit_id}: {safe_db_error(e)}"
+                        )
+                        # Utrata połączenia: savepoint nie cofnął się, więc
+                        # sesję podnosi dopiero rollback — inaczej padnie
+                        # każdy kolejny plik i kandydat fazy.
+                        if await self._recover_session(
+                            progress, e, batch="files", staged=since_commit
+                        ):
+                            since_commit = 0
                         continue
-
-                    file_bytes = content_resp.content
-                    content_type = content_resp.headers.get("content-type", "")
-                    # Strip charset suffix (e.g. "application/pdf; charset=utf-8")
-                    if ";" in content_type:
-                        content_type = content_type.split(";", 1)[0].strip()
-
-                    # Parse uploaded_at z formatu Traffita
-                    from app.services.traffit.mappers import _parse_traffit_datetime
-
-                    uploaded_at = _parse_traffit_datetime(uploaded_at_raw)
-
-                    # Upload do Hetzner Object Storage (audit-2026-05-07 Faza 3).
-                    # Bez S3 envów — fallback na BYTEA byłby tutaj kuszący ale
-                    # mamy 49k rekordów już w S3, więc dla spójności wymagamy
-                    # storage_key set. Brak envów → propagated wyjątek z upload_cv,
-                    # cron retry później gdy env vars są dostępne.
-                    from app.services.object_storage import upload_cv
-
-                    # Sync boto3 put — offload off the event loop.
-                    storage_key = await run_in_threadpool(
-                        upload_cv,
-                        content=file_bytes,
-                        filename=filename[:500],
-                        content_type=content_type[:100] if content_type else None,
-                    )
-
-                    doc_params = {
-                        "candidate_id": row.id,
-                        "filename": filename[:500],
-                        "storage_key": storage_key,
-                        "content_type": content_type[:100] if content_type else None,
-                        "size_bytes": len(file_bytes),
-                        "document_kind": _traffit_document_kind(
-                            filename,
-                            is_primary=is_primary,
-                        ),
-                        "is_primary": is_primary,
-                        "uploaded_at": uploaded_at,
-                        "external_id": ext_id,
-                        "external_source": "traffit",
-                    }
-                    await self._upsert_candidate_document(doc_params)
                     progress.inserted += 1
 
-                since_commit += 1
-                if since_commit >= commit_every:
+            except Exception as e:  # noqa: BLE001
+                # `ext=` w komunikacie (audyt 25.09.2026): dawne „emp {id}: …”
+                # nie pasowało do `_ERROR_REF_RE`, więc błąd był nieprzypisany
+                # i zamrażał `__daily__` na stałe, a `rollback()` sesji cofał
+                # dokumenty całej paczki, których pliki już były w magazynie.
+                # Zapisy mają własne savepointy, więc po błędzie instrukcji
+                # sesja jest zdrowa — ale nie po utracie połączenia (nagrobek).
+                progress.add_error(
+                    f"files candidate ext={traffit_id}: {safe_db_error(e)}"
+                )
+                if await self._recover_session(
+                    progress, e, batch="files", staged=since_commit
+                ):
+                    since_commit = 0
+                continue
+
+            since_commit += 1
+            if since_commit >= commit_every:
+                try:
                     if cursor_phase is not None:
                         # Stage the sweep cursor in the SAME transaction as the
                         # documents it accounts for. Committing them separately
@@ -3771,20 +4955,21 @@ class TraffitImporter:
                             cursor_phase, {"after_id": row.id}
                         )
                     await self.db.commit()
-                    since_commit = 0
-                    logger.info(
-                        "Files import progress: %d/%d candidates "
-                        "(inserted=%d skipped=%d errors=%d)",
-                        progress.processed,
-                        progress.total_source,
-                        progress.inserted,
-                        progress.skipped,
-                        progress.errors,
-                    )
-            except Exception as e:  # noqa: BLE001
-                progress.add_error(f"emp {traffit_id}: {e!r}")
-                await self.db.rollback()
+                except Exception as e:  # noqa: BLE001
+                    # Padnięty commit cofa paczkę — błąd paczki, nie wiersza,
+                    # więc (nieprzypisany) trzyma watermark.
+                    progress.add_error(f"files batch commit: {safe_db_error(e)}")
+                    await self.db.rollback()
                 since_commit = 0
+                logger.info(
+                    "Files import progress: %d/%d candidates "
+                    "(inserted=%d skipped=%d errors=%d)",
+                    progress.processed,
+                    progress.total_source,
+                    progress.inserted,
+                    progress.skipped,
+                    progress.errors,
+                )
 
         if not self.dry_run:
             if cursor_phase is not None:
@@ -3875,7 +5060,9 @@ class TraffitImporter:
                     raw, cand_map, job_map, sd_id_map, sd_legacy_map, user_map
                 )
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map history id={raw.get('id')}: {e!r}")
+                progress.add_error(
+                    f"map history id={raw.get('id')}: {safe_db_error(e)}"
+                )
                 return
             if payload is None:
                 progress.skipped += 1
@@ -3923,10 +5110,20 @@ class TraffitImporter:
             try:
                 was_insert = await self._upsert_stage_row(payload, rejection_reason_id)
             except Exception as e:  # noqa: BLE001
-                msg = f"upsert stage ext={payload.get('external_id')}: {e!r}"
+                msg = (
+                    f"upsert stage ext={payload.get('external_id')}: {safe_db_error(e)}"
+                )
                 progress.add_error(msg)
                 if progress.errors <= 5 or progress.errors % 500 == 0:
                     logger.warning("Pipelines upsert error: %s", msg[:300])
+                # Utrata połączenia: savepoint nie cofnął się, a bez rollbacku
+                # każdy kolejny wiersz rzuca `PendingRollbackError` aż do flushu.
+                # Wsad sprzed zerwania trzyma `pending_rows`, więc zamiast go
+                # tracić odtwarzamy go wiersz po wierszu (ta sama ścieżka co
+                # przy padniętym commicie wsadu — ona robi rollback sesji).
+                if needs_session_rollback(e, past_savepoint=False):
+                    await self._replay_stage_rows(progress, pending_rows)
+                    pending_rows.clear()
                 return
 
             if was_insert is None:
@@ -4033,6 +5230,9 @@ class TraffitImporter:
                 # never skips.
                 start_page = max(1, int(_cursor.get("page") or 1))
                 logger.info("Pipelines: resuming from page %d", start_page)
+                # Błędy wierszy sprzed przerwania wracają z kursora — inaczej
+                # wznowiony, „czysty” przebieg przesunąłby watermark nad nimi.
+                progress.absorb_carried_errors(_cursor.get("carried_errors"))
 
             current_page = start_page
             # If the tenant rejects the filter (HTTP 400) the client drops it
@@ -4049,6 +5249,7 @@ class TraffitImporter:
                     "page": current_page,
                     "since": since_iso,
                     "page_size": self.batch_size,
+                    "carried_errors": progress.error_carry(),
                 }
 
             async for page_no, items in self.traffit.get_pages(
@@ -4206,10 +5407,10 @@ class TraffitImporter:
             # jeden zamiast całego wsadu, a błąd niesie `ext=<id>`.
             logger.warning(
                 "Pipelines batch commit failed (%d pairs) — replaying %d rows "
-                "individually: %r",
+                "individually: %s",
                 len(pairs),
                 len(pending_rows),
-                e,
+                safe_db_error(e),
             )
             await self._replay_stage_rows(progress, pending_rows)
             return
@@ -4219,26 +5420,44 @@ class TraffitImporter:
             else:
                 progress.updated += 1
 
-        # ZA commitem etapów i świadomie best-effort: awaria skutku nie może
-        # cofnąć zaimportowanego wiersza ani zatrzymać fazy. Domyślnie
-        # wyłączone (`TRAFFIT_IMPORT_SIDE_EFFECTS_ENABLED`).
-        #
-        # Ten `except` NIE jest martwy, choć hook łapie własne wyjątki per
-        # wiersz: parsowanie payloadu (`int(r["job_id"])`) i zbiorczy odczyt
-        # ofert stoją POZA tamtymi blokami, więc zniekształcony wsad albo
-        # awaria bazy przechodzą tędy. Pilnuje tego
-        # `test_the_hook_can_raise_so_the_callers_guard_is_not_dead`.
+        await self._run_stage_side_effects(
+            progress, [(payload, was_insert) for payload, _, was_insert in pending_rows]
+        )
+
+    async def _run_stage_side_effects(
+        self,
+        progress: PhaseProgress,
+        committed: list[tuple[dict[str, Any], bool]],
+    ) -> None:
+        """Skutki etapów ZA commitem — wspólne dla wsadu i jego odtworzenia.
+
+        Świadomie best-effort: awaria skutku nie może cofnąć zaimportowanego
+        wiersza ani zatrzymać fazy. Do rundy 7 (N2-3) wołał je tylko wsad,
+        który przeszedł za pierwszym razem — wiersz odtworzony przez
+        `_replay_stage_rows` nie przepinał nigdy, bo kolejny bieg widzi go już
+        jako UPDATE.
+
+        Ten `except` NIE jest martwy, choć hook łapie własne wyjątki per
+        wiersz: parsowanie payloadu (`int(r["job_id"])`) i zbiorczy odczyt
+        ofert stoją POZA tamtymi blokami, więc zniekształcony wsad albo
+        awaria bazy przechodzą tędy. Pilnuje tego
+        `test_the_hook_can_raise_so_the_callers_guard_is_not_dead`.
+        """
+        if not committed:
+            return
         try:
             applied = await apply_imported_stage_side_effects(
                 self.db,
-                rows=[payload for payload, _, _ in pending_rows],
+                rows=[payload for payload, _ in committed],
                 inserted_rows=[
-                    payload for payload, _, was_insert in pending_rows if was_insert
+                    payload for payload, was_insert in committed if was_insert
                 ],
             )
             progress.reassigned += int((applied or {}).get("reassigned") or 0)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Imported-stage side effects failed: %r", exc)
+            logger.warning(
+                "Imported-stage side effects failed (%s)", type(exc).__name__
+            )
             try:
                 await self.db.rollback()
             except Exception:  # noqa: BLE001
@@ -4252,6 +5471,7 @@ class TraffitImporter:
         """Odtwórz wsad wiersz po wierszu, każdy w osobnej transakcji."""
 
         await self.db.rollback()
+        committed: list[tuple[dict[str, Any], bool]] = []
         for payload, rejection_reason_id, _ in pending_rows:
             try:
                 was_insert = await self._upsert_stage_row(payload, rejection_reason_id)
@@ -4266,15 +5486,19 @@ class TraffitImporter:
                 await self.db.rollback()
                 # Format `<verb> <entity> ext=<id>` — patrz `_ERROR_REF_RE`:
                 # bez niego błąd jest nieprzypisywalny i blokuje watermark.
-                msg = f"replay stage ext={payload.get('external_id')}: {e!r}"
+                msg = (
+                    f"replay stage ext={payload.get('external_id')}: {safe_db_error(e)}"
+                )
                 progress.add_error(msg)
                 if progress.errors <= 5 or progress.errors % 500 == 0:
                     logger.warning("Pipelines replay error: %s", msg[:300])
                 continue
+            committed.append((payload, bool(was_insert)))
             if was_insert:
                 progress.inserted += 1
             else:
                 progress.updated += 1
+        await self._run_stage_side_effects(progress, committed)
 
     # ── Faza 5b: candidate activities ───────────────────────────────────────
 
@@ -4408,7 +5632,7 @@ class TraffitImporter:
             # failure must NOT be recorded as a blocking error — otherwise an
             # otherwise-complete run would freeze the watermark and stay
             # `degraded`. The pagination loop below has its own failure path.
-            logger.warning("Activities total_count probe failed: %r", e)
+            logger.warning("Activities total_count probe failed: %s", safe_db_error(e))
             progress.total_source = 0
 
         cand_map = await self._build_candidate_external_id_map()
@@ -4421,6 +5645,9 @@ class TraffitImporter:
 
         commit_every = 500
         since_commit = 0
+        # Kandydaci, których aktywności-notatki przyszły w tym biegu (id NEXUSA
+        # → id osoby w Traffit) — po promocji dociągamy im rekrutację notatek.
+        note_candidates: dict[int, str] = {}
 
         # Stage 3 — resumable page cursor. A large catch-up (days of history) is
         # slow and a Coolify deploy restart kills the run mid-stream; without a
@@ -4440,6 +5667,9 @@ class TraffitImporter:
             # ON CONFLICT) rather than page+1, so a mid-page commit never skips.
             start_page = max(1, int(_cursor.get("page") or 1))
             logger.info("Activities: resuming from page %d", start_page)
+            # Błędy wierszy sprzed przerwania wracają z kursora — inaczej
+            # wznowiony, „czysty” przebieg przesunąłby watermark nad nimi.
+            progress.absorb_carried_errors(_cursor.get("carried_errors"))
 
         # Wrap the paginated fetch so a terminal transport failure mid-stream
         # (httpx.ReadTimeout on a large catch-up page, or a non-200 page raised
@@ -4478,7 +5708,9 @@ class TraffitImporter:
             try:
                 payload = traffit_activity_to_activity(raw, cand_map, user_map)
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map activity id={raw.get('id')}: {e!r}")
+                progress.add_error(
+                    f"map activity id={raw.get('id')}: {safe_db_error(e)}"
+                )
                 continue
             if payload is None:
                 progress.skipped += 1
@@ -4486,52 +5718,96 @@ class TraffitImporter:
             if self.dry_run:
                 progress.inserted += 1
                 continue
+            # SAVEPOINT per wiersz (audyt 25.09.2026). Do tej zmiany błąd
+            # jednego wiersza robił `rollback()` CAŁEJ paczki (do 499 aktywności
+            # od ostatniego commitu), a licznik błędów wskazywał tylko ten jeden
+            # wiersz — kwarantanna parkowała go po kilku biegach i watermark
+            # przesuwał się nad resztą paczki, której nikt już nie importował.
             try:
-                result = await self.db.execute(
-                    text(
-                        """
-                        INSERT INTO activities (
-                            external_id, external_source,
-                            entity_type, entity_id, action, details,
-                            user_id, created_at, updated_at
-                        ) VALUES (
-                            :external_id, 'traffit',
-                            :entity_type, :entity_id, :action,
-                            CAST(:details AS JSONB),
-                            :user_id, NOW(), NOW()
-                        )
-                        ON CONFLICT (external_source, external_id)
-                        WHERE external_id IS NOT NULL
-                        DO UPDATE SET
-                            details   = EXCLUDED.details,
-                            user_id   = COALESCE(EXCLUDED.user_id, activities.user_id),
-                            updated_at = NOW()
-                        RETURNING id, (xmax = 0) AS was_insert
-                        """
-                    ),
-                    {
-                        "external_id": payload["external_id"],
-                        "entity_type": payload["entity_type"],
-                        "entity_id": payload["entity_id"],
-                        "action": payload["action"],
-                        "details": json.dumps(payload["details"]),
-                        "user_id": payload["user_id"],
-                    },
+                async with self.db.begin_nested():
+                    result = await self.db.execute(
+                        text(
+                            """
+                            INSERT INTO activities (
+                                external_id, external_source,
+                                entity_type, entity_id, action, details,
+                                user_id, created_at, updated_at
+                            ) VALUES (
+                                :external_id, 'traffit',
+                                :entity_type, :entity_id, :action,
+                                CAST(:details AS JSONB),
+                                :user_id,
+                                COALESCE(CAST(:activity_at AS timestamptz), NOW()),
+                                NOW()
+                            )
+                            ON CONFLICT (external_source, external_id)
+                            WHERE external_id IS NOT NULL
+                            DO UPDATE SET
+                                details   = EXCLUDED.details,
+                                user_id   = COALESCE(EXCLUDED.user_id, activities.user_id),
+                                -- Data aktywności z Traffita (29.09.2026) — ALE
+                                -- nie tam, gdzie notatka z migracji 0077 (bez
+                                -- `source_ref`) jest dopasowywana do aktywności
+                                -- po znaczniku czasu: przesunięcie go zrobiłoby
+                                -- z niej przy promocji duplikat, a z nagrobka
+                                -- usuniętej notatki — martwy wpis. Taka notatka
+                                -- dostaje `source_ref` w naprawie z panelu
+                                -- admina, a następny bieg przestawi datę.
+                                created_at = CASE
+                                    WHEN CAST(:activity_at AS timestamptz) IS NULL
+                                        THEN activities.created_at
+                                    WHEN EXISTS (
+                                        SELECT 1 FROM notes n
+                                        WHERE n.source_ref IS NULL
+                                          AND n.candidate_id = activities.entity_id
+                                          AND n.created_at = activities.created_at
+                                    ) THEN activities.created_at
+                                    ELSE CAST(:activity_at AS timestamptz)
+                                END,
+                                updated_at = NOW()
+                            RETURNING id, (xmax = 0) AS was_insert
+                            """
+                        ),
+                        {
+                            "external_id": payload["external_id"],
+                            "entity_type": payload["entity_type"],
+                            "entity_id": payload["entity_id"],
+                            "action": payload["action"],
+                            "details": json.dumps(payload["details"]),
+                            "user_id": payload["user_id"],
+                            "activity_at": payload.get("created_at"),
+                        },
+                    )
+                    row = result.fetchone()
+            except Exception as e:  # noqa: BLE001
+                progress.add_error(
+                    f"upsert activity ext={payload.get('external_id')}: {safe_db_error(e)}"
                 )
-                row = result.fetchone()
-                if row is None:
-                    continue
-                if row[1]:
-                    progress.inserted += 1
-                else:
-                    progress.updated += 1
-                since_commit += 1
-                if since_commit >= commit_every:
+                if await self._recover_session(
+                    progress, e, batch="activities", staged=since_commit
+                ):
+                    since_commit = 0
+                continue
+            if row is None:
+                continue
+            if row[1]:
+                progress.inserted += 1
+            else:
+                progress.updated += 1
+            # Tylko NOWE aktywności — pełny bieg dotyka wszystkich, a budżet
+            # zapytań per osoba ma iść na notatki, które właśnie powstały.
+            if row[1] and payload.get("action") in TRAFFIT_NOTE_ACTIONS:
+                employee = raw.get("employee")
+                emp_id = employee.get("id") if isinstance(employee, dict) else None
+                if emp_id is not None:
+                    note_candidates[int(payload["entity_id"])] = str(emp_id)
+            since_commit += 1
+            if since_commit >= commit_every:
+                try:
                     # Stage the resume cursor in the SAME transaction as the row
-                    # batch, then one commit → rows + cursor persist atomically
-                    # (a row-error rollback drops both, leaving the last good
-                    # cursor). Skip once the filter was dropped (page numbers no
-                    # longer map to since_iso).
+                    # batch, then one commit → rows + cursor persist atomically.
+                    # Skip once the filter was dropped (page numbers no longer
+                    # map to since_iso).
                     if not saw_fallback:
                         await self._write_mode_cursor(
                             _ACTIVITIES_CURSOR_PHASE,
@@ -4540,22 +5816,22 @@ class TraffitImporter:
                                 "page": current_page,
                                 "since": since_iso,
                                 "page_size": self.batch_size,
+                                "carried_errors": progress.error_carry(),
                             },
                         )
                     await self.db.commit()
-                    since_commit = 0
-                    logger.info(
-                        "Activities progress: %d/%d (page %d)",
-                        progress.processed,
-                        progress.total_source,
-                        current_page,
-                    )
-            except Exception as e:  # noqa: BLE001
-                progress.add_error(
-                    f"upsert activity ext={payload.get('external_id')}: {e!r}"
-                )
-                await self.db.rollback()
+                except Exception as e:  # noqa: BLE001
+                    # Padnięty commit cofa całą paczkę — błąd nieprzypisany do
+                    # wiersza, więc trzyma watermark (kolejny bieg ją powtórzy).
+                    progress.add_error(f"activities batch commit: {safe_db_error(e)}")
+                    await self.db.rollback()
                 since_commit = 0
+                logger.info(
+                    "Activities progress: %d/%d (page %d)",
+                    progress.processed,
+                    progress.total_source,
+                    current_page,
+                )
 
         if not self.dry_run and since_commit > 0:
             if not saw_fallback:
@@ -4566,21 +5842,22 @@ class TraffitImporter:
                         "page": current_page,
                         "since": since_iso,
                         "page_size": self.batch_size,
+                        "carried_errors": progress.error_carry(),
                     },
                 )
             await self.db.commit()
 
         if pagination_error is not None:
             logger.warning(
-                "Activities pagination aborted after %d processed: %r — "
+                "Activities pagination aborted after %d processed: %s — "
                 "committed partial batch (cursor at page %d), notes still "
                 "promoted, watermark frozen; next run resumes from the cursor",
                 progress.processed,
-                pagination_error,
+                safe_db_error(pagination_error),
                 current_page,
             )
             progress.add_error(
-                f"activities pagination incomplete: {pagination_error!r}"
+                f"activities pagination incomplete: {safe_db_error(pagination_error)}"
             )
         elif not self.dry_run:
             # Full, uninterrupted fetch — clear the cursor so the next run (after
@@ -4608,12 +5885,34 @@ class TraffitImporter:
         # missing" true on every recurring run, not just the one-time migration.
         if not self.dry_run:
             try:
-                promoted = await self.promote_notes(since)
+                promoted = await self.promote_notes(
+                    since, mention_labels=self.traffit_user_labels()
+                )
                 progress.notes_promoted = promoted
                 logger.info("Activities: promoted %d notes → notes table", promoted)
             except Exception as e:  # noqa: BLE001
                 await self.db.rollback()
-                progress.add_error(f"promote_notes: {e!r}")
+                progress.add_error(f"promote_notes: {safe_db_error(e)}")
+
+        # Rekrutacja notatek (29.09.2026): globalny feed jej nie niesie, więc
+        # dla kandydatów z nowymi notatkami tego biegu pytamy o ich własną
+        # listę aktywności — w budżecie (5 zapytań/s do Traffita). Kandydaci
+        # ponad budżet i awarie nie blokują watermarku; resztę domyka
+        # naprawa z panelu admina (`/api/admin/traffit/notes-repair/recruitments`).
+        limit = int(getattr(settings, "TRAFFIT_SYNC_NOTE_RECRUITMENT_LIMIT", 0) or 0)
+        if not self.dry_run and note_candidates and limit > 0:
+            try:
+                picked = sorted(note_candidates.items())[:limit]
+                stats = await link_note_recruitments(self.traffit, self.db, picked)
+                progress.note_recruitments = {
+                    **stats,
+                    "over_budget": max(0, len(note_candidates) - limit),
+                }
+            except Exception as e:  # noqa: BLE001
+                await self.db.rollback()
+                logger.warning(
+                    "Activities: note recruitments skipped: %s", safe_db_error(e)
+                )
 
         # Self-heal: the rejection *reason* lives only on these activities
         # (details.content.rejection.name), never on the recruitment_history
@@ -4631,7 +5930,7 @@ class TraffitImporter:
                 )
             except Exception as e:  # noqa: BLE001
                 await self.db.rollback()
-                progress.add_error(f"rejection_note backfill: {e!r}")
+                progress.add_error(f"rejection_note backfill: {safe_db_error(e)}")
 
             # Second self-heal: stitch the recruiter's free-text rejection comment
             # (content.description) onto candidate_stages.notes so the "Powód
@@ -4647,7 +5946,9 @@ class TraffitImporter:
                 )
             except Exception as e:  # noqa: BLE001
                 await self.db.rollback()
-                progress.add_error(f"rejection description backfill: {e!r}")
+                progress.add_error(
+                    f"rejection description backfill: {safe_db_error(e)}"
+                )
 
         progress.finished_at = datetime.now(timezone.utc)
         logger.info(
@@ -4714,7 +6015,7 @@ class TraffitImporter:
             try:
                 mapped = traffit_source_to_candidate_tag(raw, cand_map)
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"map source id={raw.get('id')}: {e!r}")
+                progress.add_error(f"map source id={raw.get('id')}: {safe_db_error(e)}")
                 continue
             if mapped is None:
                 progress.skipped += 1
@@ -4778,11 +6079,24 @@ class TraffitImporter:
                         imported_at=progress.started_at or datetime.now(timezone.utc),
                     )
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"merge tags candidate={candidate_id}: {e!r}")
+                # Runda 6 audytu: `candidate=` nie pasowało do `_ERROR_REF_RE`
+                # (błąd nieprzypisany = wstrzymany `__daily__`). Encja celowo
+                # nie jest gołym „candidate” — tu jest id NEXUSA, faza
+                # `candidates` kluczuje po id Traffita.
+                progress.add_error(
+                    f"merge tags candidate_source id={candidate_id}: {safe_db_error(e)}"
+                )
                 # Savepoint już cofnął zapis; sesję podnosimy tylko przy utracie
                 # połączenia (`ROLLBACK TO SAVEPOINT` nie ma wtedy dokąd pójść).
-                if needs_session_rollback(e, past_savepoint=False):
-                    await self.db.rollback()
+                # Faza commituje raz, na końcu — rollback zabiera wszystko,
+                # co zapisała do tej pory, więc liczniki wracają do zera.
+                if await self._recover_session(
+                    progress,
+                    e,
+                    batch="sources",
+                    staged=progress.inserted + progress.updated,
+                ):
+                    progress.inserted = progress.updated = 0
                 continue
             # Liczone po utrzymaniu się savepointu, nie w jego środku.
             # `inserted` = tagi (jak dotąd), `updated` = zdarzenia źródeł.

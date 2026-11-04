@@ -59,9 +59,7 @@ RANK_ORDER = {
     PriorityRank.E: 5,
 }
 OPERATIONAL_ROLES = {
-    UserRole.sourcer,
     UserRole.recruiter,
-    UserRole.tac,
 }
 _DEMAND_STATUS_TRANSITIONS_DL = {
     PriorityDemandStatus.open: {
@@ -141,6 +139,21 @@ async def ensure_priority_state(
     if row is None:  # pragma: no cover - guarded by the upsert
         raise RuntimeError("Recruitment Priority state could not be initialized")
     return row
+
+
+async def read_priority_state(
+    db: AsyncSession,
+) -> Optional[RecruitmentPriorityState]:
+    """Read the singleton state row without creating it.
+
+    Read paths (every GET, the panel on each recruitment) must not write: the
+    upsert in `ensure_priority_state` turned each panel view into an INSERT,
+    so the request transaction counted as a write. A missing row means the
+    same as a fresh one — no current plan and no metrics.
+    """
+    return await db.scalar(
+        select(RecruitmentPriorityState).where(RecruitmentPriorityState.id == 1)
+    )
 
 
 def audit_event(
@@ -322,8 +335,8 @@ async def load_plan(
 
 
 async def current_plan(db: AsyncSession) -> Optional[RecruitmentPriorityPlan]:
-    state = await ensure_priority_state(db)
-    if state.current_plan_id is None:
+    state = await read_priority_state(db)
+    if state is None or state.current_plan_id is None:
         return None
     return await load_plan(db, state.current_plan_id)
 
@@ -412,19 +425,15 @@ def role_values(user: User) -> set[str]:
 
 
 def allowed_channels(user: User) -> set[PriorityChannel]:
-    roles = role_values(user)
-    if UserRole.tac.value in roles:
+    # Od 0411 jest jedna rola „Rekruter” (dawniej sourcer = baza, rekruter =
+    # LinkedIn, TAC = wszystko) — rekruter pracuje każdym kanałem.
+    if UserRole.recruiter.value in role_values(user):
         return {
             PriorityChannel.database,
             PriorityChannel.linkedin,
             PriorityChannel.mixed,
         }
-    allowed: set[PriorityChannel] = set()
-    if UserRole.sourcer.value in roles:
-        allowed.add(PriorityChannel.database)
-    if UserRole.recruiter.value in roles:
-        allowed.add(PriorityChannel.linkedin)
-    return allowed
+    return set()
 
 
 async def _validate_member_inputs(
@@ -462,7 +471,7 @@ async def _validate_member_inputs(
         if not (role_values(user) & {role.value for role in OPERATIONAL_ROLES}):
             raise HTTPException(
                 422,
-                f"User #{member.user_id} nie ma roli recruiter/sourcer/TAC",
+                f"User #{member.user_id} nie ma roli recruiter",
             )
 
         if member.status == PriorityMemberStatus.paused:

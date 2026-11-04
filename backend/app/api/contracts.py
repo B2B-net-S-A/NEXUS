@@ -1,4 +1,5 @@
 import calendar
+import hashlib
 import logging
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -12,18 +13,22 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
+    Response,
     UploadFile,
     status,
 )
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from jinja2 import TemplateError
+from pydantic import BaseModel
 from sqlalchemy import String, case, cast, distinct, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-from app.api.contract_templates import _contract_vars, _jinja_env
+from app.api.candidate_access import NOT_READ_ONLY
+from app.api.contract_templates import _contract_vars, render_contract_template
 from app.core.printable_html import (
     AUTOPRINT_HASH,
     AUTOPRINT_JS,
@@ -31,7 +36,9 @@ from app.core.printable_html import (
     printable_document,
 )
 from app.core.database import get_db
+from app.core.export_safety import safe_row
 from app.core.scheduling import business_today
+from app.core.upload_filename import fit_filename_column
 from app.core.work_time import HOURS_PER_MONTH, MD_PER_MONTH
 from app.models.activity import Activity
 from app.models.call import Call
@@ -42,7 +49,9 @@ from app.models.contract import (
     Contract,
     ContractStatus,
     ContractTerminationReason,
+    ContractType,
     EngagementModel,
+    ProlongationStatus,
     RateUnit,
 )
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
@@ -52,6 +61,7 @@ from app.models.contract_framework_rate import ContractFrameworkRate
 from app.models.contract_equipment import ContractEquipment, EquipmentReturnStatus
 from app.models.contract_onboarding import ContractOnboardingItem
 from app.models.contract_document import ContractDocument, ContractDocumentType
+from app.models.document_signature import DocumentSignature
 from app.models.contract_template import ContractTemplate
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.job import Job
@@ -68,6 +78,7 @@ from app.schemas.contract import (
     ContractFrameworkRateEntry,
     ContractCreate,
     AgreementTerminationPayload,
+    ClientManagerHint,
     ContractDetailResponse,
     ContractEurPlnRate,
     ContractDraftFinalizeResponse,
@@ -87,14 +98,17 @@ from app.schemas.contract import (
     ContractBulkTerminateRequest,
     ContractTemplateBrief,
     ContractTerminateRequest,
+    ContractNoteCreate,
     ContractTimelineItem,
     ContractUpdate,
     ContractVoidRequest,
     RegisterSubcategoriesResponse,
 )
 from app.schemas.contract_amendment import (
+    AmendmentDocument,
     ContractAmendmentCreate,
     ContractAmendmentResponse,
+    ContractAnnexDocument,
 )
 from app.schemas.contract_document import (
     ContractDocumentResponse,
@@ -110,7 +124,7 @@ from app.schemas.contract_onboarding import (
     OnboardingItemResponse,
     OnboardingItemUpdate,
 )
-from app.services import storage_service
+from app.services import contract_document_folders, storage_service
 from app.services.b2b_contract_end_date import (
     B2B_END_DATE_MESSAGE,
     B2B_END_DATE_REASON,
@@ -122,8 +136,10 @@ from app.services.b2b_contract_end_date import (
 from app.services.critical_events import DeletionAudit, audited_deletion
 from app.services.contract_lifecycle import (
     activate_contract as lifecycle_activate_contract,
+    assert_contract_client_not_deleted,
     assert_transition,
     auto_activate_complete_draft,
+    clear_undone_termination,
     hard_delete_contract,
     move_to_ready_for_signature,
     reopen_contract,
@@ -136,6 +152,7 @@ from app.services.contract_order_sync import (
     apply_manual_client_rate,
     resync_contract_safely,
 )
+from app.services.client_access import assert_client_assignable
 from app.services.client_identity import (
     client_display_name,
     client_display_name_expression,
@@ -147,6 +164,9 @@ from app.services.contract_candidate_contact import (
     phone_too_long,
     resolve_for_contract as resolve_candidate_contact,
 )
+from app.services import contract_client_manager
+from app.services import contract_placements_export as placements
+from app.services.hr import payroll_access
 from app.services.contract_rates import effective_rate_fields
 from app.services.contractor_identity import contractor_identity_sql_expression
 from app.services.contract_service import (
@@ -170,11 +190,19 @@ from app.services.contract_termination_reversal import (
 from app.services.order_write_errors import commit_order_write
 from app.services.contract_termination_sync import (
     AgreementTermination,
+    close_rows_after_recorded_termination,
     contract_agreement_termination,
+    contract_dissolved_by_agreement,
     set_contract_agreement_termination,
     sync_generator_after_contract_ended,
+    undo_contract_termination,
 )
 from app.services.cost_orders import is_cost_order_client
+from app.services.order_line_takeover import (
+    TAKEOVER_CANCEL_EXTENDED,
+    TAKEOVER_CANCEL_TERMINATION_UNDONE,
+    cancel_scheduled_takeovers_for_contract,
+)
 from app.services.order_rate_snapshots import (
     CONTRACT_RATE_SCALE,
     convert_order_rate,
@@ -187,51 +215,64 @@ from app.services.polish_ilike import (
     polish_folded_ilike,
 )
 from app.tasks.contract_alerts import run_contract_alerts_cycle
-from app.api.deps import AdminUser, DeliveryLeadPlus, get_current_user, require_roles
+from app.api.deps import (
+    AdminUser,
+    FinanceModuleUser,
+    require_roles,
+)
 from app.api.financial_access import (
     FinanceReadUser,
-    assert_finance_manager_touches_only_amounts,
+    assert_amounts_only,
     can_manage_finance_amounts,
     can_read_client_finance,
     has_financial_access,
-    require_financial_access,
-    require_roles_or_finance_manager,
     redact_feed_activity,
     redact_financial_fields,
 )
+from app.api.permission_access import (
+    AmountsViewUser,
+    ContractStatusUser,
+    ContractsOrdersEditUser,
+    ContractsOrdersOrAmountsEditUser,
+    DeliveryViewUser,
+)
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
+from app.api.write_policy import UserWritePolicy, WritePolicy
 from app.services.access_scope import (
+    DL_CLIENT_OUT_OF_SCOPE_DETAIL,
     apply_delivery_lead_client_scope,
     assert_delivery_lead_client_visible,
-    resolve_delivery_lead_assigned_client_ids,
+    is_delivery_lead_governed,
     resolve_delivery_lead_client_ids,
     resolve_delivery_lead_finance_client_ids,
 )
+from app.services.action_permissions import ProductAction, has_permission
+from app.services.permission_denial import ensure_permission, permission_denied
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
-# Mutacje kontraktów stoją na `DeliveryLeadPlus` (admin + Delivery Lead). Do
-# 22.09.2026 było tu `TacPlus`, ale TAC nie ma sekcji Delivery, więc bramka
-# routera i tak go odcinała (audyt U7) — alias mówił coś, czego kod nie robił.
-logger = logging.getLogger(__name__)
+# Górne granice filtrów liczbowych listy/eksportu. Bez nich FastAPI przyjmuje
+# dowolnie duży int, który asyncpg próbuje zakodować jako parametr i wybucha
+# OverflowError → 500 (NEXUS-BE-4N). Z granicami zły input dostaje 422.
+# Kolumny id to Integer (int4); stawki/marża to Numeric(16, 6) → max < 10^10.
+_INT32_MAX = 2_147_483_647
+_NUMERIC_16_6_MAX = 9_999_999_999
 
-# Structured contract readers admitted by the Delivery section. TCM receives a
-# finance-redacted projection; the organization-wide Finance business reader
-# keeps its existing access. This alias is used only by GET handlers; contract
-# commands keep their existing ``DeliveryLeadPlus``/``AdminUser`` dependencies and the
-# section-level write gate narrows their effective audience to Admin/DL.
-ContractReadUser = Annotated[
-    User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.delivery_lead,
-            UserRole.talent_community_manager,
-            UserRole.tac,
-            UserRole.finance,
-        )
-    ),
-]
+# Trasy kontraktów pytają o UPRAWNIENIE z ekranu Osoby i role (aliasy
+# z ``permission_access``), nie o rolę — to, co administrator zaznaczy, decyduje:
+#   * odczyt rejestru i szczegółów — „Klienci, kontrakty i zamówienia: podgląd”
+#     (kwoty w odpowiedzi redaguje ``can_read_client_finance``),
+#   * tworzenie, edycja, aktywacja, unieważnienie, usunięcie, aneksy, sprzęt,
+#     onboarding, notatki — „Kontrakty i zamówienia: tworzenie i edycja”,
+#   * zmiana statusu i zakończenie współpracy — „Zakończenie współpracy,
+#     zmiana statusu kontraktu”,
+#   * szkic umowy i pliki — „Stawki i kwoty: podgląd” (treści nie da się
+#     zredagować, więc bez podglądu kwot nie ma do niej dostępu),
+#   * kwoty kontraktu — „Stawki i kwoty: zmiana”.
+# Zakres klientów zostaje w handlerach: konto z rolą Delivery Leada działa
+# u swoich klientów (``_ensure_delivery_lead_contract_visible``), pozostali
+# posiadacze — u wszystkich.
+logger = logging.getLogger(__name__)
 
 # „Cofnij zakończenie" i „Powrót po przerwie" (ticket 09.2026): Admin, Finanse
 # i Talent Community Manager. Świadomie BEZ Delivery Leada — to korekta
@@ -249,52 +290,6 @@ ContractTerminationRecoveryUser = Annotated[
     ),
 ]
 
-
-ContractStatusWriteUser = Annotated[
-    User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.delivery_lead,
-            UserRole.talent_community_manager,
-        )
-    ),
-]
-
-
-# Contract drafts and uploaded files are opaque legal artefacts: their HTML or
-# binary content can contain rates even when the structured API response is
-# redacted. TCM may read the operational Delivery register, but cannot cross
-# the Finance boundary through an unstructured document. Delivery Lead keeps
-# document access but opaque content remains scoped to assigned clients by the
-# dedicated guard below.
-async def require_contract_document_read_access(
-    current_user: User = Depends(get_current_user),
-) -> User:
-    """Guard opaque contract documents without making Finance a role shortcut.
-
-    Admin and Delivery Lead keep their established legal-document personas.
-    Finance is admitted only while its effective Finance section still grants
-    read access.  An individual Finance grant does not by itself expose legal
-    documents to a recruiter/sourcer: the document persona remains a separate
-    boundary and the concrete client scope is resolved by the handler.
-    """
-
-    if current_user.has_any_role(UserRole.admin, UserRole.delivery_lead):
-        return current_user
-    if current_user.has_role(UserRole.finance):
-        require_financial_access(current_user)
-        return current_user
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Contract documents require Admin, Delivery Lead or Finance access",
-    )
-
-
-ContractDocumentReadUser = Annotated[
-    User,
-    Depends(require_contract_document_read_access),
-]
 
 # Upload limit — nothing fancy, we're storing contracts + PDFs, not media.
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
@@ -350,6 +345,68 @@ def _framework_schedule_entries(
             contract.framework_rate_schedule or [], key=lambda e: e.effective_from
         )
     ]
+
+
+def _amendment_baseline_from(
+    start_date: Optional[date], effective_date: date, today: date
+) -> Optional[date]:
+    """Data kroku bazowego („Stawka początkowa”) przy pierwszym aneksie stawki.
+
+    ``None`` = kroku bazowego nie trzeba. Umowa, która zaczyna się PÓŹNIEJ niż
+    aneks, nigdy nie miała starej stawki w mocy — krok bazowy od jej startu
+    wygrywał z aneksem (resolver bierze krok o najpóźniejszym
+    ``effective_from`` ≤ dzień), więc od pierwszego dnia umowy obowiązywała
+    stara kwota i aneks nie działał wcale (runda 6 audytu). Przy starcie
+    równym dacie aneksu krok bazowy zostaje: remis rozstrzyga kolejność
+    dopisania, więc aneks wygrywa, a historia pokazuje stawkę początkową.
+
+    Kontrakt bez daty rozpoczęcia dawał IntegrityError (500) po stronie
+    kandydata (audyt 24.09, N1), a krok „od dziś” przykrywał aneks wsteczny —
+    stąd najwcześniejsza znana data.
+    """
+    if start_date is None:
+        return min(effective_date, today)
+    if start_date > effective_date:
+        return None
+    return start_date
+
+
+def _amendment_step_from(
+    schedule: object, start_date: Optional[date], effective_date: date
+) -> date:
+    """Data kroku harmonogramu dla aneksu stawki.
+
+    Aneks sprzed startu umowy ma działać od startu. Gdy harmonogram ma już
+    krok między datą aneksu a startem (stawka progresywna z generatora, krok
+    klienta od startu zamówienia), resolver brał krok o najpóźniejszym
+    ``effective_from`` ≤ dzień — stary krok wygrywał od startu i aneks nie
+    działał ani dnia (runda 7, R7-V4-2; runda 6 poprawiła tylko pusty
+    harmonogram). Krok aneksu staje wtedy na dacie ostatniego takiego kroku:
+    remis rozstrzyga kolejność dopisania, więc wygrywa aneks. Kroki PO
+    starcie to późniejsze zmiany i zostają nadrzędne.
+    """
+    if start_date is None or effective_date >= start_date:
+        return effective_date
+    blocking = [
+        step.effective_from
+        for step in (schedule or [])
+        if effective_date < step.effective_from <= start_date
+    ]
+    return max(blocking, default=effective_date)
+
+
+def _extension_end_date_passed(contract: Contract, new_end: date) -> bool:
+    """Czy przedłużenie zakończonej/kończącej się umowy celuje w miniony dzień.
+
+    Takie przedłużenie niczego nie przedłuża: ``reopen_contract`` przywraca
+    „Aktywny”, a cron ``_promote_statuses`` kończy umowę następnej nocy
+    ponownie (runda 6 audytu). Umów w innych statusach nie dotyczy — ich
+    przedłużenie nie przechodzi przez ``reopen_contract``.
+    """
+    return (
+        contract.status in (ContractStatus.ended, ContractStatus.ending)
+        and new_end < business_today()
+    )
 
 
 def _synced_client_order_end(
@@ -458,6 +515,11 @@ async def _assert_b2b_end_date_update(
         _reject_b2b_end_date()
 
 
+# Okno „Kończący się” nocnego crona (`contract_alerts._promote_statuses`:
+# active → ending, gdy data końca wypada w ciągu 30 dni).
+_ENDING_WINDOW_DAYS = 30
+
+
 def _status_after_end_date_change(
     status: ContractStatus, end_date: Optional[date], today: date
 ) -> ContractStatus:
@@ -476,6 +538,41 @@ def _status_after_end_date_change(
     if status == ContractStatus.ending and end_date is None:
         return ContractStatus.active
     return status
+
+
+END_BEFORE_START_REASON = "end_date_before_start_date"
+
+
+def _reject_end_before_start(
+    start: Optional[date], end: Optional[date], *, termination: bool
+) -> None:
+    """422, gdy koniec wypada przed startem kontraktu — PRZED jakimkolwiek zapisem.
+
+    Runda 10 (F27): „Zakończ współpracę” z domyślną datą „dziś” na kontrakcie,
+    który startuje za miesiąc, zapisywał okres „01.11.2026–27.09.2026”, status
+    „Kończący się” i anulował planowane zamówienie. Okres z końcem przed
+    początkiem nie opisuje żadnej współpracy. Koniec w dniu startu jest
+    poprawny (jednodniowy projekt); współpraca, która się nie zaczęła, to
+    unieważnienie kontraktu, nie zakończenie.
+    """
+    if start is None or end is None or end >= start:
+        return
+    what = "Data zakończenia projektu" if termination else "Data zakończenia umowy"
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={
+            "code": END_BEFORE_START_REASON,
+            "reason": END_BEFORE_START_REASON,
+            "message": (
+                f"{what} ({_pl_date(end)}) jest wcześniejsza niż data "
+                f"rozpoczęcia kontraktu ({_pl_date(start)}). Wybierz datę nie "
+                "wcześniejszą niż start. Jeśli współpraca w ogóle się nie "
+                "zaczęła, unieważnij kontrakt zamiast go kończyć."
+            ),
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+        },
+    )
 
 
 def _status_after_termination(
@@ -792,6 +889,9 @@ async def _apply_termination_to_contract(
     """
     previous_end_date = contract.end_date
     state_before = ContractStateBefore.of(contract)
+    # Runda 10 (F27): koniec przed startem odrzucany, zanim cokolwiek (także
+    # zamówienia) zostanie ruszone — bulk odrzuca wtedy całą partię.
+    _reject_end_before_start(contract.start_date, when, termination=True)
     # Odmowa PRZED jakimkolwiek zapisem (także zamówień i ścieżki powtórzenia):
     # unieważniona umowa nie może wrócić przez „Zakończ współpracę".
     effective_end = (
@@ -914,6 +1014,10 @@ async def _apply_termination_to_contract(
     # Data zakończenia projektu z przeszłości = „Zakończony” od razu, więc
     # Generator przestawia umowę teraz; przyszła data — w nocy, dzień po niej.
     await sync_generator_after_contract_ended(db, contract, actor_id=actor_id)
+    # „Ludzie w NEXUSIE”: premie przed terminem anulowane, odbiór sprzętu.
+    from app.services.hr import contract_hooks
+
+    await contract_hooks.contract_ended(db, contract)
 
 
 def _normalize_contract_currency(value: object, field: str) -> str:
@@ -1321,6 +1425,7 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
         "candidate_phone_source": contact.phone_source,
         "client_pm_name": contract.client_pm_name,
         "client_pm_email": contract.client_pm_email,
+        "client_pm_contact_id": contract.client_pm_contact_id,
         "line_manager": contract.line_manager,
         "work_mode": contract.work_mode,
         "office_location": contract.office_location,
@@ -1365,6 +1470,18 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
     return ContractDetailResponse(**data)
 
 
+async def _fill_client_manager(
+    db: AsyncSession, contract: Contract, detail: ContractDetailResponse
+) -> None:
+    """„Menedżer u klienta” (D8): imię i stanowisko kontaktu albo podpowiedź."""
+
+    fields = await contract_client_manager.detail_fields(db, contract)
+    detail.client_pm_contact_name = fields["client_pm_contact_name"]
+    detail.client_pm_contact_position = fields["client_pm_contact_position"]
+    hint = fields["client_pm_contact_hint"]
+    detail.client_pm_contact_hint = ClientManagerHint(**hint) if hint else None
+
+
 def _apply_contract_list_filters(
     query,
     *,
@@ -1386,6 +1503,7 @@ def _apply_contract_list_filters(
     subcategory: Optional[list[str]] = None,
     order_end_from: Optional[date] = None,
     order_end_to: Optional[date] = None,
+    agreement_not_terminated: bool = False,
 ):
     """Apply the shared contract list/export filters to ``query`` and return it.
 
@@ -1485,6 +1603,17 @@ def _apply_contract_list_filters(
             Contract.end_date.isnot(None),
             Contract.end_date <= cutoff,
             Contract.end_date >= today,
+        )
+    if agreement_not_terminated:
+        # „Umowa nierozwiązana” (decyzja Artura 28.10.2026): projekt B2B
+        # zakończony albo kończący się, a umowa bez zapisanego rozwiązania —
+        # lista zaległych porozumień/wypowiedzeń. Od 23.09 pole wypełnia okno
+        # „Zakończ współpracę” albo podpis porozumienia w generatorze. Łączy się
+        # z filtrem statusu przez AND.
+        query = query.where(
+            Contract.contract_type == ContractType.b2b,
+            Contract.status.in_((ContractStatus.ended, ContractStatus.ending)),
+            Contract.agreement_termination_mode.is_(None),
         )
     return query
 
@@ -1696,10 +1825,11 @@ async def _latest_order_end_dates(
     return {row[0]: row[1] for row in rows.all()}
 
 
-# P0.12: pola kwotowe kontraktu widzą tylko role z VIEW_FINANCE
-# (Admin/Finance). TAC i Delivery Lead zachowują
-# operacyjny widok listy/detalu, ale bez stawek, marży, harmonogramów oraz
-# parametrów interpretacji kwoty.
+# P0.12: pola kwotowe kontraktu widzi wyłącznie posiadacz podglądu kwot tego
+# klienta (``can_read_client_finance``: „Moduł Finanse” albo „Stawki i kwoty:
+# podgląd” w swoim zakresie). Pozostali czytelnicy zachowują operacyjny widok
+# listy/detalu, ale bez stawek, marży, harmonogramów oraz parametrów
+# interpretacji kwoty.
 _CONTRACT_FINANCE_SCALARS = (
     "rate_candidate",
     "rate_client",
@@ -1751,24 +1881,47 @@ _CONTRACT_FINANCE_WRITE_FIELDS = frozenset(
 )
 
 
-def _assert_contract_finance_write_allowed(
+async def _assert_contract_finance_write_allowed(
     current_user: User,
     supplied_fields,
+    *,
+    client_id: Optional[int],
+    db: AsyncSession,
 ) -> None:
-    """Reject hidden finance writes instead of merely redacting the response."""
+    """Reject hidden finance writes instead of merely redacting the response.
+
+    Kwoty kontraktu zmienia uprawnienie „Stawki i kwoty: zmiana” (domyślnie
+    Finanse, decyzja Artura 22.09.2026) — sama edycja kontraktów ich nie
+    daje. Konto z rolą Delivery Leada, któremu administrator nadał to
+    uprawnienie, zmienia kwoty wyłącznie u klienta z przypisania.
+    """
 
     forbidden = sorted(
         set(supplied_fields).intersection(_CONTRACT_FINANCE_WRITE_FIELDS)
     )
-    # Kwoty kontraktu zmienia admin albo osoba z MANAGE_FINANCE (Finanse,
-    # decyzja Artura 22.09.2026). Delivery Lead, TCM, TAC i reszta — nie.
-    if forbidden and not can_manage_finance_amounts(current_user):
+    if not forbidden:
+        return
+    if not has_permission(current_user, ProductAction.amounts_edit):
+        # Kod i lista pól zostają (czyta je front); nazwa brakującego
+        # uprawnienia i zdanie dla użytkownika — jak w każdej odmowie bramki.
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
+                **permission_denied(ProductAction.amounts_edit).detail,
                 "code": "finance_fields_forbidden",
                 "fields": forbidden,
             },
+        )
+    if not can_manage_finance_amounts(
+        current_user,
+        client_id=client_id,
+        delivery_lead_finance_client_ids=(
+            await resolve_delivery_lead_finance_client_ids(current_user, db)
+        ),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=DL_CLIENT_OUT_OF_SCOPE_DETAIL,
         )
 
 
@@ -1800,6 +1953,15 @@ def _redact_contract_finance(
             member.rate_client_currency = None
             member.rate_candidate_currency = None
     return item
+
+
+def _hide_company_margin(item: Any) -> None:
+    """Lista bez marży dla posiadacza kwot całej firmy bez „Wyników firmy”."""
+    for field in ("margin", "monthly_margin"):
+        if hasattr(item, field):
+            setattr(item, field, None)
+    for member in getattr(item, "group_members", None) or []:
+        member.margin = None
 
 
 # Kolejność członków w zgrupowanym wierszu i rodzeństwa w szczegółach: żywe
@@ -1905,24 +2067,15 @@ async def _assert_contract_document_client_access(
 
     Structured contract data is safe to expose organization-wide after its
     financial fields are redacted. Draft HTML and uploaded files cannot be
-    redacted reliably, so a plain Delivery Lead still needs ownership of the
-    concrete client. Admin and the Finance reader retain their existing global
-    access.
+    redacted reliably, so they follow the same rule as the amounts of this
+    client: „Stawki i kwoty: podgląd”, and for an account with the Delivery
+    Lead role — only at an assigned client.
     """
 
-    if current_user.has_role(UserRole.admin):
+    if await _can_read_contract_finance(contract, current_user, db):
         return
-    if current_user.has_role(UserRole.finance) and has_financial_access(current_user):
-        return
-    if current_user.has_role(UserRole.delivery_lead):
-        assigned_client_ids = await resolve_delivery_lead_assigned_client_ids(
-            current_user, db
-        )
-        if (
-            assigned_client_ids is not None
-            and contract.client_id in assigned_client_ids
-        ):
-            return
+    if not has_permission(current_user, ProductAction.amounts_view):
+        raise permission_denied(ProductAction.amounts_view)
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Dokument umowy wymaga przypisania Delivery Leada do klienta",
@@ -1945,11 +2098,36 @@ async def _can_read_contract_finance(
     )
 
 
+async def _contract_finance_read_scope(
+    current_user: User,
+    db: AsyncSession,
+) -> tuple[bool, frozenset[int]]:
+    """Kwoty na LIŚCIE kontraktów — ta sama reguła co w szczegółach.
+
+    Zwraca ``(kwoty każdego klienta, klienci z widocznymi kwotami)``, czyli
+    ``can_read_client_finance`` policzone raz dla całej strony wyników:
+    „Moduł Finanse” albo „Stawki i kwoty: podgląd” bez portfela Delivery
+    Leada = kwoty każdego klienta, konto z rolą DL = klienci z przypisania,
+    bez podglądu kwot = nic. Dwie różne reguły dałyby listę i szczegóły, które
+    pokazują inne kwoty tego samego kontraktu.
+    """
+
+    if has_financial_access(current_user):
+        return True, frozenset()
+    if not has_permission(current_user, ProductAction.amounts_view):
+        return False, frozenset()
+    if not is_delivery_lead_governed(current_user):
+        return True, frozenset()
+    return False, (
+        await resolve_delivery_lead_finance_client_ids(current_user, db) or frozenset()
+    )
+
+
 @router.get("", response_model=ContractList)
 async def list_contracts(
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=_INT32_MAX),
     page_size: int = Query(20, ge=1, le=100),
     q: Optional[str] = Query(
         None,
@@ -1966,8 +2144,8 @@ async def list_contracts(
             "multi-select (e.g. `?status=active&status=ending`). OR-combined."
         ),
     ),
-    client_id: Optional[int] = None,
-    candidate_id: Optional[int] = None,
+    client_id: Optional[int] = Query(None, ge=0, le=_INT32_MAX),
+    candidate_id: Optional[int] = Query(None, ge=0, le=_INT32_MAX),
     contract_type: Optional[list[str]] = Query(
         None,
         description=(
@@ -1998,9 +2176,11 @@ async def list_contracts(
             "dla multi-select, OR-łączony. Kontrakty bez rekrutacji są wykluczane."
         ),
     ),
-    rate_client_min: Optional[int] = Query(None, ge=0),
-    rate_client_max: Optional[int] = Query(None, ge=0),
-    margin_min: Optional[int] = Query(None),
+    rate_client_min: Optional[int] = Query(None, ge=0, le=_NUMERIC_16_6_MAX),
+    rate_client_max: Optional[int] = Query(None, ge=0, le=_NUMERIC_16_6_MAX),
+    margin_min: Optional[int] = Query(
+        None, ge=-_NUMERIC_16_6_MAX, le=_NUMERIC_16_6_MAX
+    ),
     expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
     order_end_from: Optional[date] = Query(
         None,
@@ -2011,6 +2191,14 @@ async def list_contracts(
     ),
     order_end_to: Optional[date] = Query(
         None, description="Koniec zamówienia u klienta — górna granica."
+    ),
+    agreement_not_terminated: bool = Query(
+        False,
+        description=(
+            "„Umowa nierozwiązana”: kontrakty B2B „Zakończone” albo „Kończące "
+            "się” bez zapisanego rozwiązania umowy "
+            "(`agreement_termination_mode` puste). Łączy się ze `status` (AND)."
+        ),
     ),
     sort_by: Optional[ContractSortKey] = Query(
         None,
@@ -2035,18 +2223,16 @@ async def list_contracts(
 ):
     """List contracts with advanced filters (Phase 9 C5)."""
     allowed_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
-    finance_client_ids = (
-        await resolve_delivery_lead_finance_client_ids(current_user, db) or frozenset()
+    global_finance, finance_client_ids = await _contract_finance_read_scope(
+        current_user, db
     )
-    global_finance = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
     has_finance_filter = any(
         value is not None for value in (rate_client_min, rate_client_max, margin_min)
     )
+    # Niepusty zbiór ma wyłącznie konto z rolą Delivery Leada i podglądem kwot:
+    # filtr po stawce działa u niego tylko na klientach z przypisania.
     restrict_finance_filter_to_assigned = (
-        not global_finance
-        and current_user.has_role(UserRole.delivery_lead)
-        and bool(finance_client_ids)
-        and has_finance_filter
+        not global_finance and bool(finance_client_ids) and has_finance_filter
     )
     if not global_finance and not restrict_finance_filter_to_assigned:
         # F-13: the amount fields are redacted from the response below. The
@@ -2054,6 +2240,15 @@ async def list_contracts(
         # caller can binary-search a hidden rate/margin by watching which rows
         # survive the filter (an oracle). Drop them before building the query.
         rate_client_min = rate_client_max = margin_min = None
+    # Marża przy każdym wierszu i ranking po niej to wynik całej firmy (decyzja
+    # Artura 02.11.2026). Stawki zostają; portfel Delivery Leada bez zmian.
+    company_margin_hidden = global_finance and not has_permission(
+        current_user, ProductAction.company_results
+    )
+    if company_margin_hidden:
+        margin_min = None
+        if sort_by == "margin":
+            sort_by = None
     if not global_finance and sort_by in _FINANCE_SORT_KEYS:
         # Ta sama wyrocznia co przy filtrach kwot: kolejność wierszy po ukrytej
         # stawce pozwala ją odtworzyć. Rola bez finansów dostaje kolejność domyślną.
@@ -2078,6 +2273,7 @@ async def list_contracts(
         expiring_in_days=expiring_in_days,
         order_end_from=order_end_from,
         order_end_to=order_end_to,
+        agreement_not_terminated=agreement_not_terminated,
     )
     sort_expr = (
         _contract_sort_expression(sort_by, business_today()) if sort_by else None
@@ -2246,6 +2442,9 @@ async def list_contracts(
     if not global_finance:
         for item in items:
             _redact_contract_finance(item, finance_client_ids)
+    if company_margin_hidden:
+        for item in items:
+            _hide_company_margin(item)
     return ContractList(
         items=items,
         total=total,
@@ -2395,8 +2594,8 @@ async def export_contracts(
     format: str = Query("xlsx", pattern="^(csv|xlsx)$"),
     q: Optional[str] = Query(None),
     status: Optional[list[ContractStatus]] = Query(None),
-    client_id: Optional[int] = None,
-    candidate_id: Optional[int] = None,
+    client_id: Optional[int] = Query(None, ge=0, le=_INT32_MAX),
+    candidate_id: Optional[int] = Query(None, ge=0, le=_INT32_MAX),
     contract_type: Optional[list[str]] = Query(None),
     start_from: Optional[date] = Query(None),
     start_to: Optional[date] = Query(None),
@@ -2405,12 +2604,15 @@ async def export_contracts(
     period_from: Optional[date] = Query(None),
     period_to: Optional[date] = Query(None),
     subcategory: Optional[list[str]] = Query(None),
-    rate_client_min: Optional[int] = Query(None, ge=0),
-    rate_client_max: Optional[int] = Query(None, ge=0),
-    margin_min: Optional[int] = Query(None),
+    rate_client_min: Optional[int] = Query(None, ge=0, le=_NUMERIC_16_6_MAX),
+    rate_client_max: Optional[int] = Query(None, ge=0, le=_NUMERIC_16_6_MAX),
+    margin_min: Optional[int] = Query(
+        None, ge=-_NUMERIC_16_6_MAX, le=_NUMERIC_16_6_MAX
+    ),
     expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
     order_end_from: Optional[date] = Query(None),
     order_end_to: Optional[date] = Query(None),
+    agreement_not_terminated: bool = Query(False),
     limit: int = Query(10000, ge=1, le=50000),
 ):
     """Export contracts to CSV or Excel — client, rates, order dates and more.
@@ -2418,6 +2620,10 @@ async def export_contracts(
     Honours every filter the list endpoint accepts (so "export what I see" holds)
     but ignores pagination — all matching rows up to ``limit``. Defaults to XLSX.
     """
+    # Plik z całą firmą to zbiorczy wynik (decyzja Artura 02.11.2026): bez
+    # „Wyników firmy” eksport obejmuje jednego klienta.
+    if client_id is None:
+        ensure_permission(current_user, ProductAction.company_results)
     # Eksport zawiera dane kandydata razem ze stawkami i marżą. Finance ma
     # jawny organization-wide business read; zapis i lifecycle kontraktu nadal
     # pozostają poza tą zależnością.
@@ -2449,6 +2655,7 @@ async def export_contracts(
         expiring_in_days=expiring_in_days,
         order_end_from=order_end_from,
         order_end_to=order_end_to,
+        agreement_not_terminated=agreement_not_terminated,
     )
     query = query.order_by(Contract.id).limit(limit)
     result = await db.execute(query)
@@ -2473,7 +2680,7 @@ async def export_contracts(
             cell.font = Font(bold=True)
         ws.freeze_panes = "A2"  # keep the header row visible while scrolling
         for row in rows:
-            ws.append(row)
+            ws.append(safe_row(row))
 
         buf = BytesIO()
         wb.save(buf)
@@ -2494,11 +2701,75 @@ async def export_contracts(
     writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
     writer.writerow(_CONTRACT_EXPORT_COLUMNS)
     for row in rows:
-        writer.writerow(row)
+        writer.writerow(safe_row(row))
     filename = f"kontrakty_{ts}.csv"
     return StreamingResponse(
         iter(["\ufeff" + buf.getvalue()]),
         media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export/placements")
+async def export_placements(
+    current_user: FinanceReadUser,
+    db: AsyncSession = Depends(get_db),
+    start_from: date = Query(...),
+    start_to: date = Query(...),
+):
+    """Kontrakty ze startem w okresie w uk\u0142adzie arkusza \u201ePlacementy\u201d (XLSX).
+
+    Ta sama bramka co ``/export`` (stawki i mar\u017ca). Regu\u0142y kolumn:
+    ``services/contract_placements_export.py``.
+    """
+    if start_to < start_from:
+        raise HTTPException(
+            status_code=422,
+            detail="Data \u201edo\u201d jest wcze\u015bniejsza ni\u017c \u201eod\u201d.",
+        )
+    if (start_to - start_from).days > placements.MAX_RANGE_DAYS:
+        raise HTTPException(
+            status_code=422,
+            detail="Okres eksportu mo\u017ce mie\u0107 najwy\u017cej 10 lat.",
+        )
+    contracts = await placements.load_placement_contracts(db, start_from, start_to)
+    # Premie innych osób tylko dla tych, którzy widzą je w Płacach — bramka
+    # trasy przepuszcza też „Moduł Finanse” bez uprawnienia „Płace”.
+    viewer = await payroll_access.load_viewer(db, current_user)
+    rows = await placements.build_placement_rows(
+        db, contracts, business_today(), sees_bonus_of=viewer.sees_person
+    )
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Placementy"
+    # Arkusz roboczy zostaje dla całego okresu, ale bez marży, jeśli konto nie ma
+    # „Wyników firmy” (decyzja Artura 02.11.2026).
+    columns: tuple[str, ...] = placements.PLACEMENT_EXPORT_COLUMNS
+    if not has_permission(current_user, ProductAction.company_results):
+        columns, rows = placements.without_margin_columns(rows)
+    ws.append(list(columns))
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    ws.freeze_panes = "A2"
+    date_columns = [
+        idx + 1 for idx, name in enumerate(columns) if name in placements.DATE_COLUMNS
+    ]
+    for row in rows:
+        ws.append(safe_row(row))
+        for col in date_columns:
+            ws.cell(row=ws.max_row, column=col).number_format = "DD.MM.YYYY"
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"placementy_{start_from.isoformat()}_{start_to.isoformat()}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -2586,9 +2857,9 @@ def _register_export_row(c: Contract) -> list:
     ]
 
 
-@router.get("/register/export")
+@router.get("/register/export", dependencies=NOT_READ_ONLY)
 async def export_client_register(
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
     client_id: int = Query(
         ...,
@@ -2658,7 +2929,7 @@ async def export_client_register(
         cell.font = Font(bold=True)
     ws.freeze_panes = "A2"  # nag\u0142\u00f3wek widoczny przy przewijaniu
     for row in rows:
-        ws.append(row)
+        ws.append(safe_row(row))
 
     buf = BytesIO()
     wb.save(buf)
@@ -2685,16 +2956,15 @@ async def contract_order_sync_report(
     Nie ma przycisku w interfejsie: raport jest jednorazowy, a pełne stawki
     wszystkich klientów widzi tylko administrator.
     """
-    from app.models.app_setting import AppSetting
-    from app.services.contract_order_sync import REPAIR_MARKER
     from app.services.contract_order_sync_repair import (
         build_reconciliation_rows,
         build_reconciliation_workbook,
+        load_repair_details,
         repair_contract_names,
     )
 
-    receipt = await db.get(AppSetting, REPAIR_MARKER)
-    if receipt is None:
+    loaded = await load_repair_details(db)
+    if loaded is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -2702,10 +2972,9 @@ async def contract_order_sync_report(
                 "migawka stanu sprzed wdrożenia nie istnieje."
             ),
         )
-    value = receipt.value or {}
-    repaired = value.get("repaired") or []
+    value, snapshot, repaired = loaded
     content = build_reconciliation_workbook(
-        snapshot=value.get("snapshot") or [],
+        snapshot=snapshot,
         repaired=repaired,
         repair_names=await repair_contract_names(
             db, [item["contract_id"] for item in repaired]
@@ -2716,8 +2985,8 @@ async def contract_order_sync_report(
     filename = (
         f"zgodnosc-zamowienie-kontrakt_{value.get('business_day', 'raport')}.xlsx"
     )
-    return StreamingResponse(
-        BytesIO(content),
+    return Response(
+        content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -2808,8 +3077,43 @@ async def contract_candidate_contact_report(
     )
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"braki-kontaktu-konsultantow_{ts}.xlsx"
-    return StreamingResponse(
-        BytesIO(content),
+    return Response(
+        content,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/missing-orders-report")
+async def contract_missing_orders_report(
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Kontrakty bez podpiętego zamówienia w zakładce „Dokumenty" (XLSX).
+
+    Reguła i kolumny: ``services/contract_missing_orders_report``. Admin
+    i Finanse — plik niesie nazwiska konsultantów wszystkich klientów.
+    """
+    from app.core.config import settings
+    from app.core.scheduling import local_now
+    from app.services.contract_missing_orders_report import (
+        build_missing_orders_workbook,
+        load_missing_orders_report,
+    )
+
+    report = await load_missing_orders_report(db)
+    generated_at = local_now()
+    content = await run_in_threadpool(
+        build_missing_orders_workbook,
+        report,
+        base_url=settings.PUBLIC_BASE_URL,
+        generated_at=generated_at,
+    )
+    filename = f"kontrakty-bez-zamowienia_{generated_at:%Y%m%d_%H%M%S}.xlsx"
+    return Response(
+        content,
         media_type=(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ),
@@ -2819,7 +3123,7 @@ async def contract_candidate_contact_report(
 
 @router.get("/register/subcategories", response_model=RegisterSubcategoriesResponse)
 async def list_client_register_subcategories(
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
     client_id: int = Query(
         ..., description="Klient, którego podkategorie rekrutacji zwracamy — WYMAGANY."
@@ -3008,10 +3312,15 @@ async def _create_manual_project_order_draft(
 @router.post("", response_model=ContractResponse, status_code=status.HTTP_201_CREATED)
 async def create_contract(
     data: ContractCreate,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
-    _assert_contract_finance_write_allowed(current_user, data.model_fields_set)
+    await _assert_contract_finance_write_allowed(
+        current_user,
+        data.model_fields_set,
+        client_id=data.client_id,
+        db=db,
+    )
     assert_delivery_lead_client_visible(
         data.client_id,
         await resolve_delivery_lead_client_ids(current_user, db),
@@ -3039,6 +3348,9 @@ async def create_contract(
                 "message": "Wybrany klient nie istnieje.",
             },
         )
+    # Runda 7 (R7-X5-4): kontrakt u usuniętego albo scalonego klienta liczyłby
+    # się do MRR, a nie byłoby go w żadnym rejestrze.
+    await assert_client_assignable(db, client.id)
     if data.job_id is not None:
         job = await db.get(Job, data.job_id)
         if job is None:
@@ -3093,6 +3405,8 @@ async def create_contract(
                 },
             )
     await _assert_no_duplicate_contract(db, candidate=candidate, client=client)
+    # Runda 10 (F27): lustro PATCH-a i „Zakończ współpracę”.
+    _reject_end_before_start(data.start_date, data.end_date, termination=False)
     # Nowa umowa B2B rodzi się bezterminowa; datę niesie tylko wpis umowy już
     # zakończonej (rejestr importowanej historii).
     if not end_date_allowed(
@@ -3118,6 +3432,12 @@ async def create_contract(
     framework_schedule_input = payload.pop("framework_rate_schedule", None) or []
     _prepare_create_rate_currencies(payload, set(data.model_fields_set))
     contract = Contract(**payload)
+    if data.job_id is not None:
+        # D8: kontrakt z rekrutacji dostaje jej hiring managera jako menedżera
+        # u klienta — o ile to kontakt klienta tego kontraktu.
+        contract.client_pm_contact_id = await contract_client_manager.default_from_job(
+            db, job=job, client_id=client.id
+        )
     if schedule_input:
         # Schedule drives the candidate rate over time; persist each step.
         contract.candidate_rate_schedule = [
@@ -3215,7 +3535,9 @@ async def create_contract(
             selectinload(Contract.framework_rate_schedule),
         )
     )
-    detail = _to_detail(result.scalar_one())
+    created = result.scalar_one()
+    detail = _to_detail(created)
+    await _fill_client_manager(db, created, detail)
     detail.draft_order_id = draft_order.id if draft_order is not None else None
     # Operacyjny create bez pól finansowych nie grantuje ich odczytu. Wyjątkiem
     # pozostaje DL u przypisanego klienta; globalnej capability nadal nie ma.
@@ -3253,7 +3575,7 @@ def _add_months_keeping_month_end(day: date, months: int) -> date:
 
 @router.post("/bulk-extend", status_code=status.HTTP_200_OK)
 async def bulk_extend_contracts(
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
     contract_ids: list[int] = Query(..., alias="ids"),
     months: int = Query(..., ge=1, le=24, description="Extension in months"),
@@ -3275,15 +3597,38 @@ async def bulk_extend_contracts(
     contracts = list(result.scalars().all())
     for contract in contracts:
         await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+        _assert_ended_revival_allowed(current_user, contract)
     extended_ids: list[int] = []
     skipped: list[int] = []
     skipped_void: list[int] = []
+    skipped_end_date_passed: list[int] = []
+    skipped_client_deleted: list[int] = []
+    # Runda 8 (R8-V1-1): kontraktu usuniętego klienta nie przedłużamy —
+    # `reopen_contract` odmówiłby 422 i wywrócił całą paczkę.
+    deleted_client_ids = set(
+        (
+            await db.scalars(
+                select(Client.id).where(
+                    Client.id.in_({c.client_id for c in contracts}),
+                    or_(
+                        Client.deleted_at.is_not(None),
+                        # Scalony duplikat jest ukryty jak usunięty klient.
+                        Client.merged_into_client_id.is_not(None),
+                    ),
+                )
+            )
+        ).all()
+    )
     for c in contracts:
         # Anulowanej umowy nie przedłużamy: `reopen_contract` odmówiłby 409
         # i wywrócił całą paczkę (audyt 24.09, S7).
         if c.status == ContractStatus.void:
             skipped.append(c.id)
             skipped_void.append(c.id)
+            continue
+        if c.client_id in deleted_client_ids:
+            skipped.append(c.id)
+            skipped_client_deleted.append(c.id)
             continue
         # Umowa B2B bez zakończenia nie ma czego przedłużać — jest bezterminowa
         # (`b2b_contract_end_date`). Przedłużyć można wyłącznie datę umowy
@@ -3294,7 +3639,18 @@ async def bulk_extend_contracts(
             skipped.append(c.id)
             continue
         new_end = _add_months_keeping_month_end(c.end_date, months)
+        # Zakończona umowa przedłużona do daty wciąż minionej wróciłaby na
+        # „Aktywny” i nocny cron zakończyłby ją drugi raz — pomijamy ją
+        # z powodem (lustro aneksu, runda 6 audytu).
+        if _extension_end_date_passed(c, new_end):
+            skipped_end_date_passed.append(c.id)
+            continue
         c.end_date = new_end
+        # Przedłużona osoba zostaje na zamówieniu — zaplanowane „Wejdź za
+        # konsultanta” za nią odpada (decyzja Artura 25.09.2026).
+        await cancel_scheduled_takeovers_for_contract(
+            db, c, code=TAKEOVER_CANCEL_EXTENDED, actor_id=current_user.id
+        )
         # Client order is renewed together with the contract — keep its end date
         # in sync (only when the contract already tracks one). Mirrors the
         # extension-amendment path.
@@ -3336,13 +3692,17 @@ async def bulk_extend_contracts(
         "extended": len(extended_ids),
         "skipped_no_end_date": skipped,
         "skipped_void": skipped_void,
+        "skipped_end_date_passed": skipped_end_date_passed,
+        "skipped_client_deleted": skipped_client_deleted,
     }
 
 
 @router.post("/bulk-mark-ended", status_code=status.HTTP_200_OK)
 async def bulk_mark_ended(
     data: ContractBulkTerminateRequest,
-    current_user: DeliveryLeadPlus,
+    # To samo uprawnienie co pojedyncze „Zakończ współpracę” (`/terminate`):
+    # dyspozycja zbiorcza zapisuje dokładnie to samo zdarzenie na N umowach.
+    current_user: ContractStatusUser,
     db: AsyncSession = Depends(get_db),
     contract_ids: list[int] = Query(..., alias="ids"),
 ):
@@ -3403,7 +3763,7 @@ async def bulk_mark_ended(
 
 @router.get("/expiring", response_model=List[ContractResponse])
 async def expiring_contracts(
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
     days: int = Query(EXPIRY_WARNING_DAYS, ge=1, le=90),
 ):
@@ -3459,9 +3819,8 @@ async def expiring_contracts(
     ]
     # Banner is operational and all-client. TCM sees dates without rates; DL
     # sees rates only for rows in its still-assigned finance portfolio.
-    global_finance = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
-    finance_client_ids = (
-        await resolve_delivery_lead_finance_client_ids(current_user, db) or frozenset()
+    global_finance, finance_client_ids = await _contract_finance_read_scope(
+        current_user, db
     )
     if not global_finance:
         for item in items:
@@ -3469,9 +3828,80 @@ async def expiring_contracts(
     return items
 
 
+class EndingConsultant(BaseModel):
+    """Wiersz „Kończą u klientów” w panelu „Moi ludzie” Delivery Leada."""
+
+    contract_id: int
+    candidate_id: int
+    candidate_name: Optional[str] = None
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None
+    job_title: Optional[str] = None
+    end_date: date
+    prolongation_status: Optional[str] = None
+
+
+@router.get("/ending-consultants", response_model=List[EndingConsultant])
+async def ending_consultants(
+    current_user: DeliveryViewUser,
+    db: AsyncSession = Depends(get_db),
+    days: int = Query(60, ge=1, le=90),
+):
+    """Konsultanci u klientów z umową kończącą się w ``days`` dni (decyzja 25.10.2026).
+
+    Zakładka „Kończą u klientów” w „Moich ludziach”: kogo przepiąć, zanim
+    odejdzie. Ten sam zbiór co ``/expiring`` (aktywne + „Kończące się”, zakres
+    klientów Delivery Leada), bez potwierdzonych przedłużeń i bez kwot — sam
+    termin, klient i rekrutacja, więc nic do redakcji finansowej.
+    """
+    today = business_today()
+    query = (
+        select(Contract)
+        .where(
+            Contract.end_date <= today + timedelta(days=days),
+            Contract.end_date >= today,
+            Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
+            Contract.prolongation_status != ProlongationStatus.yes,
+        )
+        .options(
+            selectinload(Contract.candidate),
+            selectinload(Contract.client),
+            selectinload(Contract.job),
+        )
+        .order_by(Contract.end_date, Contract.id)
+    )
+    allowed_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
+    query = apply_delivery_lead_client_scope(
+        query, Contract.client_id, allowed_client_ids
+    )
+    rows = (await db.execute(query)).scalars().all()
+    return [
+        EndingConsultant(
+            contract_id=c.id,
+            candidate_id=c.candidate_id,
+            candidate_name=(
+                f"{c.candidate.name} {c.candidate.lastname}".strip()
+                if c.candidate
+                else None
+            ),
+            client_id=c.client_id,
+            client_name=client_display_name(c.client) if c.client else None,
+            job_title=c.job.title if c.job else None,
+            end_date=c.end_date,
+            prolongation_status=(
+                c.prolongation_status.value
+                if hasattr(c.prolongation_status, "value")
+                else c.prolongation_status
+            ),
+        )
+        for c in rows
+        if c.candidate_id is not None
+    ]
+
+
 @router.get("/{contract_id}", response_model=ContractDetailResponse)
 async def get_contract(
-    contract_id: int, current_user: ContractReadUser, db: AsyncSession = Depends(get_db)
+    contract_id: int, current_user: DeliveryViewUser, db: AsyncSession = Depends(get_db)
 ):
     """Return contract with denormalized candidate/client/job names."""
     result = await db.execute(
@@ -3491,6 +3921,7 @@ async def get_contract(
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     detail = _to_detail(contract)
+    await _fill_client_manager(db, contract, detail)
     detail.related_contracts = await _related_contracts_for(db, contract, current_user)
     await _fill_termination_recovery(db, contract, detail)
     can_view_finance = can_read_client_finance(
@@ -3526,7 +3957,7 @@ async def _related_contracts_for(
     """Pozostałe kontrakty tej samej osoby — zasilają zakładki per klient.
 
     Bez `void` (anulowane nie są zakładką do przeglądania) i w operacyjnym
-    scope Delivery Leada, który obejmuje wszystkich klientów. Referencje nie
+    scope Delivery Leada (klienci z portfela, 25.09.2026). Referencje nie
     niosą kwot; pełny detal redaguje je niezależnie per klient. Kolejność:
     żywe przed papierowymi, w obrębie statusu najnowsza pierwsza.
     """
@@ -3566,7 +3997,7 @@ async def _related_contracts_for(
 @router.get("/{contract_id}/activities", response_model=List[ContractActivityEntry])
 async def contract_activities(
     contract_id: int,
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -3610,7 +4041,78 @@ async def contract_activities(
                 created_at=activity.created_at,
             )
         )
-    return entries
+    entries.extend(await _order_line_technical_entries(db, contract_id, limit))
+    entries.sort(key=lambda entry: entry.created_at, reverse=True)
+    return entries[:limit]
+
+
+async def _order_line_technical_entries(
+    db: AsyncSession, contract_id: int, limit: int
+) -> list[ContractActivityEntry]:
+    """Techniczne zmiany pól linii zamówień tego kontraktu (ticket 7, 09.2026).
+
+    Historia zamówienia pokazuje wyłącznie zdarzenia biznesowe — waluty,
+    jednostka stawki czy dzielnik godzin trafiają TU, z polskimi nazwami pól.
+    Źródłem jest dziennik zamówienia (jeden zapis, dwa widoki), więc także
+    wpisy sprzed tej zmiany są widoczne. ``id`` ujemne = wpis spoza tabeli
+    ``activities`` (klucz listy, nie odsyłacz).
+    """
+    from app.models.client_order_group import ClientOrderGroup, ClientOrderGroupEvent
+    from app.services.multi_consultant_orders import EVENT_MANUAL_EDIT
+    from app.services.order_history import RawEvent, technical_changes
+
+    rows = await db.execute(
+        select(ClientOrderGroupEvent, ClientOrderGroup.order_number, User.email)
+        .join(ClientOrder, ClientOrder.id == ClientOrderGroupEvent.order_id)
+        .join(ClientOrderGroup, ClientOrderGroup.id == ClientOrderGroupEvent.group_id)
+        .outerjoin(User, User.id == ClientOrderGroupEvent.created_by_user_id)
+        .where(
+            ClientOrder.contract_id == contract_id,
+            ClientOrderGroupEvent.event_type == EVENT_MANUAL_EDIT,
+        )
+        .order_by(ClientOrderGroupEvent.created_at.desc())
+        .limit(limit * 4)
+    )
+    out: list[ContractActivityEntry] = []
+    for event, order_number, user_email in rows.all():
+        changes = technical_changes(
+            RawEvent(
+                id=event.id,
+                event_type=event.event_type,
+                description=event.description,
+                order_id=event.order_id,
+                payload=event.payload,
+                created_at=event.created_at,
+                author_id=event.created_by_user_id,
+                author_name=user_email,
+            )
+        )
+        if not changes:
+            continue
+        details: dict = {
+            "order_number": order_number,
+            "fields": [change.label for change in changes],
+        }
+        described = [
+            f"{change.label}: {change.before or '—'} → {change.after or '—'}"
+            for change in changes
+            if change.before is not None or change.after is not None
+        ]
+        if described:
+            details["changes"] = described
+        out.append(
+            ContractActivityEntry(
+                id=-event.id,
+                action="order_line_fields_changed",
+                details=details,
+                user_id=event.created_by_user_id,
+                user_name=user_email,
+                created_at=event.created_at,
+            )
+        )
+        if len(out) >= limit:
+            break
+    return out
 
 
 @router.get(
@@ -3618,7 +4120,7 @@ async def contract_activities(
 )
 async def contract_rate_history(
     contract_id: int,
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Return rate history for this contract's candidate+client combination."""
@@ -3665,29 +4167,104 @@ async def contract_rate_history(
     ]
 
 
-# PATCH kontraktu: admin / Delivery Lead albo Finanse z MANAGE_FINANCE — te
-# ostatnie wyłącznie dla pól kwot (22.09.2026).
-_CONTRACT_PATCH_OPERATIONAL_ROLES = (UserRole.delivery_lead,)
-ContractPatchUser = Annotated[
-    User,
-    Depends(require_roles_or_finance_manager(*_CONTRACT_PATCH_OPERATIONAL_ROLES)),
-]
+# Pola zakończenia współpracy, które niesie zwykły PATCH kontraktu — te same,
+# które zapisuje okno „Zakończ współpracę”.
+_CONTRACT_TERMINATION_FIELDS = (
+    "termination_reason",
+    "termination_lessons",
+    "terminated_at",
+)
+
+
+def _assert_contract_status_change_allowed(
+    current_user: User, contract: Contract, data: ContractUpdate
+) -> None:
+    """Zmiana statusu albo danych zakończenia w zwykłym PATCH-u wymaga
+    uprawnienia „Zakończenie współpracy, zmiana statusu kontraktu”.
+
+    Liczy się wyłącznie wartość INNA niż zapisana: formularz edycji odsyła
+    ``status`` przy każdym zapisie, więc niezmieniony status nie może żądać
+    uprawnienia, którego ta edycja nie dotyka. Bez tej bramki osoba z samą
+    edycją kontraktów zmieniałaby status tutaj, omijając ``/status``
+    i ``/terminate``.
+    """
+
+    if contract_update_changes_status(contract, data):
+        ensure_permission(current_user, ProductAction.contract_status)
+
+
+def contract_update_changes_status(contract: Contract, data: ContractUpdate) -> bool:
+    """Czy PATCH kontraktu zmienia status albo zakończenie współpracy.
+
+    Jedna reguła dla ekranu (uprawnienie „Status kontraktu”) i API v1
+    (scope ``contracts:status``).
+    """
+
+    changed = "status" in data.model_fields_set and data.status != contract.status
+    changed = changed or any(
+        field in data.model_fields_set
+        and getattr(data, field) != getattr(contract, field)
+        for field in _CONTRACT_TERMINATION_FIELDS
+    )
+    if "end_date" in data.model_fields_set and data.end_date != contract.end_date:
+        # Data końca też zmienia status: nowa data na „Zakończonym” przywraca
+        # współpracę (albo poprawia jej koniec), wyczyszczona na „Kończącym się”
+        # odwołuje zakończenie, a wsteczna na trwającej umowie kończy ją przy
+        # najbliższym biegu nocnym. Termin w przyszłości zostaje zwykłą edycją.
+        live = contract.status in (ContractStatus.active, ContractStatus.ending)
+        changed = changed or (
+            contract.status == ContractStatus.ended
+            or (contract.status == ContractStatus.ending and data.end_date is None)
+            or (live and data.end_date is not None and data.end_date < business_today())
+        )
+    return changed
+
+
+def _assert_ended_revival_allowed(current_user: User, contract: Contract) -> None:
+    """Przedłużenie „Zakończonego” kontraktu przywraca współpracę — to zmiana
+    statusu, więc wymaga tego samego uprawnienia co ``/status``. Przedłużenie
+    trwającej umowy zostaje edycją kontraktu."""
+
+    if contract.status == ContractStatus.ended:
+        ensure_permission(current_user, ProductAction.contract_status)
 
 
 @router.patch("/{contract_id}", response_model=ContractDetailResponse)
 async def update_contract(
     contract_id: int,
     data: ContractUpdate,
-    current_user: ContractPatchUser,
+    # Trasa mieszana: edycja kontraktu ALBO sama zmiana kwot.
+    current_user: ContractsOrdersOrAmountsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
-    assert_finance_manager_touches_only_amounts(
-        current_user,
+    contract, detail = await apply_contract_update(
+        contract_id, data, db=db, policy=UserWritePolicy(current_user, db)
+    )
+    # Operacyjny PATCH bez pól finansowych pozostaje dostępny. Kwoty z
+    # odpowiedzi widzi tylko globalna rola finansowa albo DL tego klienta.
+    if not await _can_read_contract_finance(contract, current_user, db):
+        _redact_contract_finance(detail)
+    return detail
+
+
+async def apply_contract_update(
+    contract_id: int,
+    data: ContractUpdate,
+    *,
+    db: AsyncSession,
+    policy: WritePolicy,
+) -> tuple[Contract, ContractDetailResponse]:
+    """PATCH kontraktu — ciało trasy ekranu i API v1 (``policy``: kto i co).
+
+    Zwraca kontrakt i pełny widok (bez redakcji kwot — robi ją wołający).
+    Bez commita: zapis zatwierdza ``get_db`` (ekran) albo paragon v1.
+    """
+    # Kto nie ma edycji kontraktów (wszedł samą zmianą kwot), zmienia tylko kwoty.
+    assert_amounts_only(
         data.model_fields_set,
         _CONTRACT_FINANCE_WRITE_FIELDS,
-        operational_roles=_CONTRACT_PATCH_OPERATIONAL_ROLES,
+        can_edit_record=policy.can_edit_contracts(),
     )
-    _assert_contract_finance_write_allowed(current_user, data.model_fields_set)
     # FOR UPDATE na rodzicu — ta sama racja co w `update_contract_status`
     # (ocena statusu z pamięci obchodziła `void`), ten sam porządek blokad.
     # Znany dług (audyt 14.09): writery zamówień (`commit_order_write` →
@@ -3711,7 +4288,13 @@ async def update_contract(
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
-    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    await policy.assert_contract_visible(contract)
+    # Obie bramki po odczycie wiersza: kwoty zależą od klienta kontraktu,
+    # a status — od wartości zapisanej (liczy się tylko realna zmiana).
+    await policy.assert_contract_amounts_writable(
+        data.model_fields_set, client_id=contract.client_id
+    )
+    policy.assert_contract_status_change_allowed(contract, data)
     previous_end_date = contract.end_date
     previous_start_date = contract.start_date
     state_before = ContractStateBefore.of(contract)
@@ -3725,6 +4308,29 @@ async def update_contract(
     )
     updates = data.model_dump(exclude_unset=True)
     _normalize_candidate_contact_updates(updates)
+    # „Menedżer u klienta” (D8): kontakt klienta TEGO kontraktu albo nowa osoba
+    # zakładana jako jego kontakt. Sprawdzamy tylko realną zmianę — formularz
+    # z dawnym kontaktem innego klienta nie może zablokować zapisu innych pól.
+    new_manager = updates.pop("client_pm_new_person", None)
+    if new_manager is not None:
+        contact = await contract_client_manager.resolve_new_person(
+            db,
+            contract,
+            name=new_manager["name"],
+            position=new_manager.get("position"),
+            email=new_manager.get("email"),
+            actor_id=policy.actor_id,
+        )
+        updates["client_pm_contact_id"] = contact.id
+    elif (
+        updates.get("client_pm_contact_id") is not None
+        and updates["client_pm_contact_id"] != contract.client_pm_contact_id
+    ):
+        await contract_client_manager.assert_contact_of_client(
+            db,
+            contact_id=updates["client_pm_contact_id"],
+            client_id=contract.client_id,
+        )
     _prepare_update_rate_currencies(contract, updates, set(data.model_fields_set))
     # The candidate-rate schedule ("stawka progresywna") is a relationship, not a
     # scalar column — pull it out of the setattr loop and replace it explicitly.
@@ -3742,6 +4348,16 @@ async def update_contract(
     # `_apply_contract_status_change` opisuje komplet skutków.
     status_sent = "status" in updates
     status_target = updates.pop("status", None)
+    # Runda 10 (F27): tylko gdy TO żądanie zmienia start albo koniec — zapis
+    # innego pola nie może się wywrócić na starym, już odwróconym wierszu.
+    if ("start_date" in updates and updates["start_date"] != contract.start_date) or (
+        "end_date" in updates and updates["end_date"] != contract.end_date
+    ):
+        _reject_end_before_start(
+            updates.get("start_date", contract.start_date),
+            updates.get("end_date", contract.end_date),
+            termination=False,
+        )
     await _assert_b2b_end_date_update(contract, updates, status_target, db)
     requested_unit = (
         RateUnit(updates["rate_unit"]) if updates.get("rate_unit") is not None else None
@@ -3778,7 +4394,7 @@ async def update_contract(
             ContractCandidateRate,
             contract.candidate_rate_schedule,
             schedule_input,
-            actor_id=current_user.id,
+            actor_id=policy.actor_id,
         )
         # A non-empty schedule is authoritative for the cached rate; an empty
         # schedule clears history and defers to the plain `rate_candidate` field
@@ -3792,7 +4408,7 @@ async def update_contract(
             ContractFrameworkRate,
             contract.framework_rate_schedule,
             framework_input,
-            actor_id=current_user.id,
+            actor_id=policy.actor_id,
         )
         # A non-empty schedule drives the cached framework_rate; an empty schedule
         # clears history and defers to the plain `framework_rate` field (set by the
@@ -3837,7 +4453,7 @@ async def update_contract(
             db,
             contract,
             ContractStatus(status_target),
-            actor_id=current_user.id,
+            actor_id=policy.actor_id,
         )
         # Umowa B2B przywrócona z „Zakończony"/„Kończący się" na „Aktywny"
         # wraca BEZTERMINOWA — ta sama reguła co wskrzeszenie zamówieniem
@@ -3853,6 +4469,7 @@ async def update_contract(
         ):
             contract.end_date = None
             updates["end_date"] = None
+            clear_undone_termination(db, contract, actor_id=policy.actor_id)
         # Audyt ma nieść WYNIK przejścia, nie żądaną wartość — przejście
         # potrafi wylądować gdzie indziej niż na wprost przysłanej wartości.
         updates["status"] = contract.status.value
@@ -3864,7 +4481,7 @@ async def update_contract(
         auto_activated = await auto_activate_complete_draft(
             db,
             contract,
-            actor_id=current_user.id,
+            actor_id=policy.actor_id,
             status_explicit=False,
         )
         if auto_activated:
@@ -3882,13 +4499,130 @@ async def update_contract(
     # jest heurystyką. Bez tego wyjątku wybranie „Zakończony" dla umowy
     # bezterminowej zostałoby natychmiast cofnięte na `active` w tym samym
     # żądaniu — zapis zwracałby 200 i nie robił nic.
-    if not status_sent:
-        coerced_status = _status_after_end_date_change(
-            contract.status, contract.end_date, business_today()
+    # Data końca przesunięta W PRZÓD albo wyczyszczona (bezterminowo) = osoba
+    # pracuje dłużej niż do dnia, od którego zaplanowano „Wejdź za
+    # konsultanta”. Lustro aneksu przedłużenia i `/bulk-extend`: zastępstwo
+    # odpada z wpisem w historii zamówienia, zanim gałęzie niżej (korekta
+    # daty rozwiązanej umowy, reaktywacja, odwołanie „Kończącego się”) zdążą
+    # je pominąć. Do 25.09.2026 (audyt, runda 5) PATCH daty go nie ruszał —
+    # nocne wejście przenosiło pulę wstecz z dawną datą wejścia, a okresy
+    # obu osób nakładały się.
+    if (
+        "end_date" in data.model_fields_set
+        and previous_end_date is not None
+        and (contract.end_date is None or contract.end_date > previous_end_date)
+        and not (status_sent and contract.status == ContractStatus.ended)
+    ):
+        await cancel_scheduled_takeovers_for_contract(
+            db,
+            contract,
+            code=(
+                TAKEOVER_CANCEL_EXTENDED
+                if contract.end_date is not None
+                else TAKEOVER_CANCEL_TERMINATION_UNDONE
+            ),
+            actor_id=policy.actor_id,
         )
-        if coerced_status != contract.status:
+    reopened_by_end_date = False
+    if not status_sent:
+        today = business_today()
+        coerced_status = _status_after_end_date_change(
+            contract.status, contract.end_date, today
+        )
+        # Runda 8 (R8-V1-1): każda gałąź niżej wyprowadza „Zakończony” —
+        # u usuniętego klienta kontrakt nie wraca (422 zamiast wskrzeszenia).
+        if (
+            contract.status == ContractStatus.ended
+            and coerced_status != contract.status
+        ):
+            await assert_contract_client_not_deleted(db, contract)
+        # Obie gałęzie niżej (korekta daty rozwiązanej umowy i reaktywacja przez
+        # `reopen_contract`) są odpowiedzią na ZMIANĘ daty końca w tym żądaniu.
+        # PATCH innego pola (notatka, stawka) na zakończonej umowie z pustą albo
+        # przyszłą datą szedł nimi również i `undo_contract_termination`
+        # kasował podpisane rozwiązanie i przestawiał wiersz Generatora (audyt
+        # 25.09.2026, runda 2). Bez zmiany daty zostaje dawne leczenie samego
+        # statusu (ostatnia gałąź), jak przed PR #1833.
+        end_date_changed = (
+            "end_date" in data.model_fields_set
+            and contract.end_date != previous_end_date
+        )
+        # Rozwiązanie umowy żyje na kontrakcie (okno „Zakończ współpracę”)
+        # ALBO wyłącznie na wierszu rejestru B2B (porozumienie, wypowiedzenie
+        # Partnera / B2B.net z Generatora) — jedna reguła dla obu źródeł
+        # (audyt 25.09.2026, runda 4: dokument pochodny szedł reaktywacją).
+        dissolved = (
+            coerced_status != contract.status
+            and contract.status == ContractStatus.ended
+            and await contract_dissolved_by_agreement(db, contract)
+        )
+        if (
+            end_date_changed
+            and coerced_status != contract.status
+            and contract.status == ContractStatus.ended
+            and dissolved
+            and contract.end_date is not None
+        ):
+            # Umowa z ROZWIĄZANIEM (wypowiedzenie albo porozumienie) i nową,
+            # późniejszą datą końca to korekta daty, nie reaktywacja: dane
+            # rozwiązania, wiersz Generatora B2B („Zakończone”) i migawka
+            # zostają (przegląd PR #1833 — `undo_contract_termination` kasował
+            # podpisane rozwiązanie, a status i tak wracał na „Kończący się”,
+            # więc po nowej dacie Generator trafiał do „Umów bez projektu”).
+            # Do tej daty umowa pracuje: `ended → active → ending`.
+            assert_transition(contract.status, ContractStatus.active)
+            contract.status = ContractStatus.active
+            assert_transition(contract.status, ContractStatus.ending)
+            contract.status = ContractStatus.ending
+            updates["status"] = contract.status.value
+        elif (
+            end_date_changed
+            and coerced_status != contract.status
+            and contract.status == ContractStatus.ended
+        ):
+            # Nowa data końca wskrzesza ZAKOŃCZONĄ umowę — to reaktywacja jak
+            # przy aneksie przedłużającym, więc idzie przez `reopen_contract`:
+            # wpis `contract_reopened`, Generator B2B i dane rozwiązania umowy
+            # wracają (`undo_contract_termination`), migawka zakończenia
+            # zamknięta. Do 25.09.2026 był tu surowy zapis statusu — umowa
+            # wracała do aktywnych, a Generator zostawał w „Zakończonych”.
+            await reopen_contract(db, contract, actor_id=policy.actor_id)
+            reopened_by_end_date = True
+            # Status z daty jak po zakończeniu z datą przyszłą
+            # (`_status_after_termination`): umowa wypowiedziana albo kończąca
+            # się w oknie nocnego crona (30 dni) jest „Kończący się”, nie
+            # „Aktywny”.
+            if contract.end_date is not None and (
+                contract.terminated_at is not None
+                or contract.end_date <= today + timedelta(days=_ENDING_WINDOW_DAYS)
+            ):
+                assert_transition(contract.status, ContractStatus.ending)
+                contract.status = ContractStatus.ending
+            updates["status"] = contract.status.value
+        elif coerced_status != contract.status and not (
+            contract.status == ContractStatus.ended
+            and (contract.terminated_at is not None or dissolved)
+        ):
+            # Samoleczenie „Zakończony” bez zmiany daty obejmuje tylko umowę
+            # BEZ śladów zakończenia (np. źle oznaczoną ręcznie). Umowa
+            # zakończona przez „Zakończ współpracę” (`terminated_at`,
+            # rozwiązanie) wraca wyłącznie przez nową datę albo „Cofnij
+            # zakończenie” — surowy zapis statusu zostawiał wypowiedzenie,
+            # rozwiązanie i otwartą migawkę przy „Aktywnym” (przegląd PR #1836).
+            clears_ending = (
+                contract.status == ContractStatus.ending and contract.end_date is None
+            )
             contract.status = coerced_status
             updates["status"] = coerced_status.value  # reflect the outcome in audit
+            if clears_ending:
+                # „Kończący się” → „Aktywny” przez wyczyszczenie daty końca to
+                # odwołanie zakończenia: czekające rozwiązanie z dokumentu
+                # (znacznik na wierszu rejestru), dane rozwiązania na kontrakcie
+                # i zaplanowane „Wejdź za konsultanta” odpadają. Znacznik
+                # zostawiony tutaj zamknąłby wiersz jako „rozwiązany” przy
+                # późniejszym, zwykłym zakończeniu (audyt 25.09.2026, runda 4).
+                await undo_contract_termination(db, contract, actor_id=policy.actor_id)
+                clear_undone_termination(db, contract, actor_id=policy.actor_id)
     # Reguła zakładki „Zakończeni" (09.2026): data końca umowy wpisana w module
     # Kontrakty jest zarazem datą końca ZAMÓWIENIA tej osoby. Otwarte
     # zamówienia dostają tę samą datę (zaczynające się później — anulowane),
@@ -3909,8 +4643,11 @@ async def update_contract(
             db,
             contract.id,
             contract.end_date,
-            actor_id=current_user.id,
-            contract_before=state_before,
+            actor_id=policy.actor_id,
+            # Po reaktywacji stan „przed” opisuje ZAKOŃCZONĄ umowę — nowa
+            # migawka z nim pozwoliłaby „Cofnij zakończenie” wrócić do
+            # zakończenia, które właśnie cofnięto.
+            contract_before=None if reopened_by_end_date else state_before,
         )
     # Ręczna stawka przychodowa w kontrakcie z harmonogramem — krok od dziś,
     # inaczej resolver (czytający harmonogram, nie kolumnę) by ją zignorował.
@@ -3932,7 +4669,7 @@ async def update_contract(
                 if normalized_from_daily
                 else data.rate_client
             ),
-            actor_id=current_user.id,
+            actor_id=policy.actor_id,
             today=business_today(),
         )
     # Synchronizacja z zamówieniami tej osoby: kontrakt jest źródłem stawki
@@ -3944,7 +4681,7 @@ async def update_contract(
         order_sync = await resync_contract_safely(
             db,
             contract,
-            actor_id=current_user.id,
+            actor_id=policy.actor_id,
             auto_activate=not status_sent,
             follow_order_unit="rate_unit" not in data.model_fields_set,
             follow_order_currency=not (
@@ -3960,7 +4697,7 @@ async def update_contract(
             entity_type="contract",
             entity_id=contract_id,
             action="updated",
-            user_id=current_user.id,
+            user_id=policy.actor_id,
             details={
                 **{
                     k: (v.isoformat() if hasattr(v, "isoformat") else v)
@@ -4030,22 +4767,39 @@ async def update_contract(
     else:
         await db.refresh(contract)
         detail = _to_detail(contract)
-    # Operacyjny PATCH bez pól finansowych pozostaje dostępny. Kwoty z
-    # odpowiedzi widzi tylko globalna rola finansowa albo DL tego klienta.
-    if not await _can_read_contract_finance(contract, current_user, db):
-        _redact_contract_finance(detail)
-    return detail
+    await _fill_client_manager(db, contract, detail)
+    return contract, detail
 
 
 @router.patch("/{contract_id}/status", response_model=ContractDetailResponse)
 async def update_contract_status(
     contract_id: int,
     data: ContractStatusUpdate,
-    current_user: ContractStatusWriteUser,
+    current_user: ContractStatusUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Change only the operational status; TCM cannot mutate other fields."""
 
+    contract = await apply_contract_status(
+        contract_id, data, db=db, policy=UserWritePolicy(current_user, db)
+    )
+    detail = _to_detail(contract)
+    if not await _can_read_contract_finance(contract, current_user, db):
+        _redact_contract_finance(detail)
+    return detail
+
+
+async def apply_contract_status(
+    contract_id: int,
+    data: ContractStatusUpdate,
+    *,
+    db: AsyncSession,
+    policy: WritePolicy,
+) -> Contract:
+    """Zmiana samego statusu kontraktu — ciało trasy ekranu i API v1.
+
+    Bez commita (jak dotąd: ``get_db`` ekranu albo paragon v1).
+    """
     # FOR UPDATE na wierszu `contracts`: maszyna stanów (`assert_transition`,
     # `revert_contract`, `void_contract`) ocenia `contract.status` Z PAMIĘCI,
     # więc dwie równoległe sesje mogły obejść terminalny `void` — pierwsza
@@ -4071,11 +4825,11 @@ async def update_contract_status(
     contract = result.scalar_one_or_none()
     if contract is None:
         raise HTTPException(status_code=404, detail="Contract not found")
-    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    await policy.assert_contract_status_writable(contract)
 
     previous_status = contract.status
     await _apply_contract_status_change(
-        db, contract, data.status, actor_id=current_user.id
+        db, contract, data.status, actor_id=policy.actor_id
     )
     # „Cofnij zakończenie” z listy statusu: umowa B2B wraca BEZTERMINOWA —
     # lustro PATCH-a kontraktu. Ze starą datą nocny cron zakończyłby ją
@@ -4087,12 +4841,13 @@ async def update_contract_status(
         and contract.end_date is not None
     ):
         contract.end_date = None
+        clear_undone_termination(db, contract, actor_id=policy.actor_id)
     db.add(
         Activity(
             entity_type="contract",
             entity_id=contract_id,
             action="status_updated",
-            user_id=current_user.id,
+            user_id=policy.actor_id,
             details={
                 "from_status": previous_status.value,
                 "to_status": contract.status.value,
@@ -4101,17 +4856,14 @@ async def update_contract_status(
     )
     await db.flush()
     await db.refresh(contract)
-    detail = _to_detail(contract)
-    if not await _can_read_contract_finance(contract, current_user, db):
-        _redact_contract_finance(detail)
-    return detail
+    return contract
 
 
 @router.post("/{contract_id}/activate", response_model=ContractDetailResponse)
 async def activate_contract(
     contract_id: int,
     _: ContractActivateRequest,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Explicitly flip a draft contract to ``active`` after validation.
@@ -4229,14 +4981,15 @@ def _render_draft_body(template: ContractTemplate, contract: Contract) -> str:
     """Render Jinja template against contract context. Returns raw HTML body
     (no <html> wrap — that's added by the printable endpoint)."""
     try:
-        return _jinja_env.from_string(template.content_jinja).render(
-            **_contract_vars(contract)
+        return render_contract_template(
+            template.content_jinja,
+            _contract_vars(contract, language=template.language),
         )
     except TemplateError as exc:
         raise HTTPException(status_code=422, detail=f"Template render error: {exc}")
 
 
-# Draft/contract HTML is authored by DeliveryLeadPlus (non-admin) users and served
+# Draft/contract HTML is authored by contract editors (non-admin users) and served
 # same-origin for preview. An explicit restrictive CSP is the browser-side
 # trust boundary against stored XSS (M5-P0.10): every script is blocked EXCEPT
 # our own auto-print snippet, allowed by its SHA-256 hash. Inline styles +
@@ -4305,16 +5058,18 @@ def _draft_response(
 @router.get("/{contract_id}/draft", response_model=ContractDraftResponse)
 async def get_contract_draft(
     contract_id: int,
-    current_user: ContractDocumentReadUser,
+    request: Request,
+    current_user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Return draft state for a contract.
 
     First call (`draft_content_html IS NULL`) lazy-renders the default
-    template for this `contract_type`. Existing write roles preserve the legacy
-    persisted initialization; Finance receives the same rendered preview
-    without mutating the contract or activity log. If no default exists, the
-    response carries an empty body.
+    template for this `contract_type`. A caller who may edit contracts
+    („Kontrakty i zamówienia: tworzenie i edycja”) gets the persisted
+    initialization; a reader with only the amounts view receives the same
+    rendered preview without mutating the contract or activity log. If no
+    default exists, the response carries an empty body.
     """
     contract = await _load_contract_with_relations(db, contract_id, current_user)
     await _assert_contract_document_client_access(contract, current_user, db)
@@ -4333,8 +5088,14 @@ async def get_contract_draft(
         if default is not None:
             rendered_from_default = True
             rendered = _render_draft_body(default, contract)
-            if current_user.has_role(UserRole.finance) and has_financial_access(
-                current_user
+            # Szkic zapisuje wyłącznie osoba, która może edytować kontrakty —
+            # czytelnik (sam podgląd kwot) dostaje podgląd bez zapisu.
+            # Runda 9 (R9-N1-2): „podgląd jako” jest tylko do odczytu — admin
+            # dostaje ten sam podgląd, bez zapisu szkicu z autorem = osoba
+            # podglądana i bez wpisu w historii kontraktu.
+            previewing = getattr(request.state, "impersonator_id", None) is not None
+            if previewing or not has_permission(
+                current_user, ProductAction.contracts_orders_edit
             ):
                 preview_content_html = rendered
                 preview_template_id = default.id
@@ -4377,7 +5138,7 @@ async def get_contract_draft(
 async def update_contract_draft(
     contract_id: int,
     payload: ContractDraftUpdate,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Update the draft body. Two mutually exclusive modes:
@@ -4446,7 +5207,7 @@ async def update_contract_draft(
 @router.get("/{contract_id}/draft/render-pdf", response_class=HTMLResponse)
 async def render_draft_for_print(
     contract_id: int,
-    current_user: ContractDocumentReadUser,
+    current_user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Return the draft body wrapped in a printable HTML page.
@@ -4458,10 +5219,10 @@ async def render_draft_for_print(
     contract = await _load_contract_with_relations(db, contract_id, current_user)
     await _assert_contract_document_client_access(contract, current_user, db)
     body = contract.draft_content_html
-    if (
-        not body
-        and current_user.has_role(UserRole.finance)
-        and has_financial_access(current_user)
+    # Czytelnik bez edycji kontraktów nie ma zapisanego szkicu (GET /draft dał
+    # mu podgląd bez zapisu) — drukuje ten sam podgląd z domyślnego szablonu.
+    if not body and not has_permission(
+        current_user, ProductAction.contracts_orders_edit
     ):
         contract_type_value = (
             contract.contract_type.value
@@ -4495,7 +5256,7 @@ async def render_draft_for_print(
 )
 async def finalize_contract_draft(
     contract_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Snapshot the draft as a `ContractDocument(doc_type=contract)` and move
@@ -4593,7 +5354,7 @@ async def finalize_contract_draft(
 async def reopen_contract_endpoint(
     contract_id: int,
     data: ContractReopenRequest,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Audited revert to `draft` — the guarded replacement for free status writes.
@@ -4635,7 +5396,7 @@ async def reopen_contract_endpoint(
 async def void_contract_endpoint(
     contract_id: int,
     data: ContractVoidRequest,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Soft-delete (annul) a contract, preserving documents + signature evidence.
@@ -4673,7 +5434,9 @@ async def void_contract_endpoint(
 
 @router.delete("/{contract_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_contract(
-    contract_id: int, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
+    contract_id: int,
+    current_user: ContractsOrdersEditUser,
+    db: AsyncSession = Depends(get_db),
 ):
     """Trwale usuń kontrakt z modułu Kontrakty — i TYLKO ten rekord.
 
@@ -4770,6 +5533,18 @@ async def force_delete_signed_contract(
 # ── Documents (Phase 9 A4) ────────────────────────────────────────────────────
 
 
+def _stored_file_sha256(relative_path: str) -> Optional[str]:
+    try:
+        path = storage_service.get_contract_document_path(relative_path)
+    except FileNotFoundError:
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 64), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 async def _assert_contract(
     db: AsyncSession,
     contract_id: int,
@@ -4801,6 +5576,11 @@ async def _document_to_response(
         uploaded_by=doc.uploaded_by,
         uploaded_by_email=user_email,
         created_at=doc.created_at,
+        source=doc.source,
+        sharepoint_item_id=doc.sharepoint_item_id,
+        sharepoint_push_status=doc.sharepoint_push_status,
+        sharepoint_push_error=doc.sharepoint_push_error,
+        folder_id=doc.folder_id,
     )
 
 
@@ -4810,7 +5590,7 @@ async def _document_to_response(
 )
 async def list_contract_documents(
     contract_id: int,
-    current_user: ContractDocumentReadUser,
+    current_user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _assert_contract(db, contract_id, current_user)
@@ -4831,14 +5611,24 @@ async def list_contract_documents(
 )
 async def upload_contract_document(
     contract_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
     doc_type: ContractDocumentType = Form(ContractDocumentType.other),
     expiry_date: Optional[date] = Form(None),
+    folder_id: Optional[int] = Form(None),
 ):
-    contract = await _assert_contract(db, contract_id, current_user)
-    await _assert_contract_document_client_access(contract, current_user, db)
+    # Dodanie pliku niczego nie odsłania, więc wystarcza edycja kontraktów
+    # w zakresie konta (DL: klient z przypisania). Lista, pobranie, zmiana
+    # i usunięcie zostają za podglądem kwot (zgłoszenie 22.10.2026:
+    # wypowiedzenie przy „Zakończ współpracę” nie trafiało do Dokumentów).
+    await _assert_contract(db, contract_id, current_user)
+    # 0494: zamówienie zawsze leży w folderze „Zamówienia” — o tym decyduje
+    # typ, więc wybrany folder pomijamy. Inny folder musi być tego kontraktu.
+    if doc_type == ContractDocumentType.order:
+        folder_id = None
+    if folder_id is not None:
+        await contract_document_folders.get_user_folder(db, contract_id, folder_id)
 
     # Rudimentary size guard — FastAPI's UploadFile is a SpooledTemporaryFile,
     # so we only know the true size after reading. We read via storage_service
@@ -4857,13 +5647,20 @@ async def upload_contract_document(
 
     doc = ContractDocument(
         contract_id=contract_id,
-        filename=file.filename or "file",
+        # Runda 9 (R9-N7-4): kolumna ma 255 znaków — dłuższa nazwa z przeglądarki
+        # kończyła się DataError (500) i plikiem osieroconym na dysku.
+        filename=fit_filename_column(file.filename or "file"),
         file_path=relative_path,
         content_type=file.content_type,
         size_bytes=size,
         doc_type=doc_type,
         expiry_date=expiry_date,
         uploaded_by=current_user.id,
+        # 0402: skrót treści — synchronizacja z SharePointem nie dokłada
+        # drugiej kopii tego samego pliku.
+        content_sha256=_stored_file_sha256(relative_path),
+        source="upload",
+        folder_id=folder_id,
     )
     db.add(doc)
     db.add(
@@ -4881,7 +5678,11 @@ async def upload_contract_document(
             },
         )
     )
-    await db.flush()
+    try:
+        await db.flush()
+    except Exception:
+        storage_service.delete_contract_document(relative_path)
+        raise
     await db.refresh(doc)
     return await _document_to_response(db, doc)
 
@@ -4894,7 +5695,7 @@ async def update_contract_document(
     contract_id: int,
     document_id: int,
     data: ContractDocumentUpdate,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _assert_contract(db, contract_id, current_user)
@@ -4920,7 +5721,7 @@ async def update_contract_document(
 async def download_contract_document(
     contract_id: int,
     document_id: int,
-    current_user: ContractDocumentReadUser,
+    current_user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _assert_contract(db, contract_id, current_user)
@@ -4952,7 +5753,7 @@ async def download_contract_document(
 async def delete_contract_document(
     contract_id: int,
     document_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _assert_contract(db, contract_id, current_user)
@@ -4966,7 +5767,24 @@ async def delete_contract_document(
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    storage_service.delete_contract_document(doc.file_path)
+    # Runda 9 (R9-N7-5): plik znikał PRZED commitem. Wysłany do podpisu snapshot
+    # (`document_signatures.contract_document_id`, FK RESTRICT) wywracał commit
+    # już po odpowiedzi 204 — zostawał wiersz bez pliku. Najpierw baza, plik
+    # dopiero po udanym commicie.
+    signed_snapshot = await db.scalar(
+        select(DocumentSignature.id)
+        .where(DocumentSignature.contract_document_id == doc.id)
+        .limit(1)
+    )
+    if signed_snapshot is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Tego dokumentu nie można usunąć — został wysłany do podpisu "
+                "i jest zapisem tego, co podpisano."
+            ),
+        )
+    file_path = doc.file_path
     db.add(
         Activity(
             entity_type="contract",
@@ -4977,6 +5795,17 @@ async def delete_contract_document(
         )
     )
     await db.delete(doc)
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Tego dokumentu nie można usunąć — wskazują na niego inne zapisy.",
+        ) from exc
+    await db.commit()
+    if file_path:
+        storage_service.delete_contract_document(file_path)
 
 
 # ── Amendments (Phase 9 B3) ──────────────────────────────────────────────────
@@ -4988,32 +5817,94 @@ async def _amendment_to_response(
     *,
     finance_ok: bool,
 ) -> ContractAmendmentResponse:
-    user_email: Optional[str] = None
-    if amendment.created_by:
-        user_email = await db.scalar(
-            select(User.email).where(User.id == amendment.created_by)
+    return (await _amendments_to_responses(db, [amendment], finance_ok=finance_ok))[0]
+
+
+async def _amendments_to_responses(
+    db: AsyncSession,
+    amendments: list[ContractAmendment],
+    *,
+    finance_ok: bool,
+) -> list[ContractAmendmentResponse]:
+    """Aneksy jednego kontraktu w kształcie zakładki „Aneksy”.
+
+    Autorzy, pliki i dokumenty generatora jednym zapytaniem na rodzaj danych
+    (do 13.10.2026 e-mail autora szedł osobnym zapytaniem na wiersz). Plik
+    aneksu tylko dla osób z wglądem w stawki klienta — ta sama reguła co
+    dokumenty kontraktu (``_assert_contract_document_client_access``)."""
+    # Import leniwy: `effects` (zależność tego modułu) woła ten router.
+    from app.services.b2b_documents import contract_annexes, effects, signed_scan
+
+    if not amendments:
+        return []
+    authors: dict[int, tuple[str | None, str | None]] = {}
+    author_ids = {a.created_by for a in amendments if a.created_by}
+    if author_ids:
+        found = await db.execute(
+            select(User.id, User.email, User.name).where(User.id.in_(author_ids))
         )
-    return ContractAmendmentResponse(
-        id=amendment.id,
-        contract_id=amendment.contract_id,
-        amendment_type=amendment.amendment_type,
-        old_values=(
-            amendment.old_values
-            if finance_ok
-            else redact_financial_fields(amendment.old_values)
-        ),
-        new_values=(
-            amendment.new_values
-            if finance_ok
-            else redact_financial_fields(amendment.new_values)
-        ),
-        effective_date=amendment.effective_date,
-        reason=amendment.reason,
-        document_id=amendment.document_id,
-        created_by=amendment.created_by,
-        created_by_email=user_email,
-        created_at=amendment.created_at,
+        authors = {uid: (email, name) for uid, email, name in found.all()}
+    files: dict[int, ContractDocument] = {}
+    file_ids = {a.document_id for a in amendments if a.document_id}
+    if finance_ok and file_ids:
+        found_files = await db.scalars(
+            select(ContractDocument).where(ContractDocument.id.in_(file_ids))
+        )
+        files = {f.id: f for f in found_files.all()}
+    sources = contract_annexes.documents_by_amendment(
+        await contract_annexes.annex_documents_for_contract(
+            db, amendments[0].contract_id
+        )
     )
+    today = business_today()
+    responses: list[ContractAmendmentResponse] = []
+    for amendment in amendments:
+        email, name = authors.get(amendment.created_by or -1, (None, None))
+        source = sources.get(amendment.id)
+        file = files.get(amendment.document_id or -1)
+        responses.append(
+            ContractAmendmentResponse(
+                id=amendment.id,
+                contract_id=amendment.contract_id,
+                amendment_type=amendment.amendment_type,
+                old_values=(
+                    amendment.old_values
+                    if finance_ok
+                    else redact_financial_fields(amendment.old_values)
+                ),
+                new_values=(
+                    amendment.new_values
+                    if finance_ok
+                    else redact_financial_fields(amendment.new_values)
+                ),
+                effective_date=amendment.effective_date,
+                reason=amendment.reason,
+                document_id=amendment.document_id,
+                created_by=amendment.created_by,
+                created_by_email=email,
+                created_at=amendment.created_at,
+                created_by_name=name,
+                source="generator" if source is not None else "manual",
+                b2b_document_id=source.id if source is not None else None,
+                state=effects.annex_state(
+                    status="signed",
+                    signature_status="signed_both",
+                    effective=amendment.effective_date,
+                    today=today,
+                ),
+                document=(
+                    AmendmentDocument(
+                        id=file.id,
+                        filename=file.filename,
+                        is_signed_scan=source is not None
+                        and signed_scan.signed_scan_id(source) == file.id,
+                    )
+                    if file is not None
+                    else None
+                ),
+            )
+        )
+    return responses
 
 
 @router.get(
@@ -5022,7 +5913,7 @@ async def _amendment_to_response(
 )
 async def list_contract_amendments(
     contract_id: int,
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _assert_contract(db, contract_id, current_user)
@@ -5033,9 +5924,94 @@ async def list_contract_amendments(
     )
     amendments = list(result.scalars().all())
     finance_ok = await _can_read_contract_finance(contract, current_user, db)
-    return [
-        await _amendment_to_response(db, a, finance_ok=finance_ok) for a in amendments
-    ]
+    return await _amendments_to_responses(db, amendments, finance_ok=finance_ok)
+
+
+@router.get(
+    "/{contract_id}/annex-documents",
+    response_model=List[ContractAnnexDocument],
+)
+async def list_contract_annex_documents(
+    contract_id: int,
+    current_user: DeliveryViewUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Aneksy z Generatora aneksów, których nie ma jeszcze w historii kontraktu.
+
+    Kontrakt pokazywał aneks dopiero po podpisie. Aneks czekający na podpis
+    (i anulowany) jest tu RZUTEM dokumentu z generatora — nie wierszem
+    ``contract_amendments``, bo tamtą tabelę czytają jako zmiany już
+    zastosowane analityka, fakty zamówień i Finanse."""
+    # Import leniwy: `effects` (zależność tych modułów) woła ten router.
+    from app.services.b2b_documents import annex_register, contract_annexes, effects
+    from app.services.b2b_documents.annex_summary import annex_change
+    from app.services.b2b_documents.registry import TYPES
+
+    contract = await _assert_contract(db, contract_id, current_user)
+    finance_ok = await _can_read_contract_finance(contract, current_user, db)
+    recorded = set(
+        (
+            await db.scalars(
+                select(ContractAmendment.id).where(
+                    ContractAmendment.contract_id == contract_id
+                )
+            )
+        ).all()
+    )
+    documents = contract_annexes.without_amendment(
+        await contract_annexes.annex_documents_for_contract(db, contract_id), recorded
+    )
+    authors: dict[int, str | None] = {}
+    author_ids = {doc.created_by for doc, _parent in documents if doc.created_by}
+    if author_ids:
+        found = await db.execute(
+            select(User.id, User.name).where(User.id.in_(author_ids))
+        )
+        authors = dict(found.all())
+    today = business_today()
+    rows: list[ContractAnnexDocument] = []
+    for doc, parent in documents:
+        doc_type = TYPES[doc.document_type]
+        effective = contract_annexes.effective_date_of(
+            doc, contract_client_id=contract.client_id
+        )
+        rates_before: list[dict] | None = None
+        if finance_ok and doc.document_type == "annex_rate_change":
+            rates_before = annex_register.rates_before(doc, parent)
+            if (
+                not rates_before
+                and doc.effect_applied_at is None
+                and contract.rate_candidate is not None
+            ):
+                # Aneks do umowy spoza NEXUSA: „przed” to bieżąca stawka
+                # kontraktu — tu widzi ją tylko osoba z wglądem w stawki klienta.
+                rates_before = [
+                    {"rate": float(contract.rate_candidate), "from": None, "to": None}
+                ]
+        rows.append(
+            ContractAnnexDocument(
+                document_id=doc.id,
+                document_type=doc.document_type,
+                type_label=doc_type.label,
+                state=effects.annex_state(
+                    status=doc.status,
+                    signature_status=doc.signature_status,
+                    effective=effective,
+                    today=today,
+                ),
+                effective_date=effective,
+                change=annex_change(
+                    doc.document_type,
+                    contract_annexes.values_of(doc),
+                    rates_visible=finance_ok,
+                    rates_before=rates_before,
+                ),
+                cancelled_reason=doc.cancelled_reason,
+                created_at=doc.created_at,
+                created_by_name=authors.get(doc.created_by or -1),
+            )
+        )
+    return rows
 
 
 @router.post(
@@ -5046,13 +6022,100 @@ async def list_contract_amendments(
 async def create_contract_amendment(
     contract_id: int,
     data: ContractAmendmentCreate,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
+    return await apply_contract_amendment(
+        contract_id=contract_id, data=data, current_user=current_user, db=db
+    )
+
+
+@router.post(
+    "/{contract_id}/amendments/{amendment_id}/document",
+    response_model=ContractAmendmentResponse,
+)
+async def attach_amendment_signed_scan(
+    contract_id: int,
+    amendment_id: int,
+    current_user: ContractsOrdersEditUser,
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+):
+    """Dołącz skan podpisanego aneksu z Generatora aneksów („Dołącz skan”).
+
+    Do 13.10.2026 aneks z generatora miał w kontrakcie wygenerowany DOCX —
+    plik bez podpisów — albo nic. Skan trafia do Dokumentów kontraktu i od tej
+    chwili wskazują na niego wszystkie aneksy kontraktu utworzone przez ten
+    sam dokument (stawka progresywna to kilka wpisów jednego aneksu).
+
+    Tylko aneksy z generatora: plik przedłużenia dodanego ręcznie zasila
+    Finanse → Zamówienia PDF i ma własną ścieżkę (zakładka Dokumenty)."""
+    # Import leniwy: `effects` (zależność tych modułów) woła ten router.
+    from app.models.b2b_contract_document import B2BContractDocument
+    from app.services.b2b_documents import contract_annexes, signed_scan
+
+    contract = await _assert_contract(db, contract_id, current_user)
+    await _assert_contract_document_client_access(contract, current_user, db)
+    # Kolejność blokad jak przy podpisie dokumentu: kontrakt, potem dokument.
+    await db.execute(
+        select(Contract.id).where(Contract.id == contract_id).with_for_update()
+    )
+    amendment = await db.scalar(
+        select(ContractAmendment).where(
+            ContractAmendment.id == amendment_id,
+            ContractAmendment.contract_id == contract_id,
+        )
+    )
+    if amendment is None:
+        raise HTTPException(status_code=404, detail="Aneks nie istnieje.")
+    source = await contract_annexes.document_for_amendment(db, amendment)
+    if source is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Skan dołącza się do aneksu z Generatora aneksów. Plik do "
+                "innego aneksu dodaj w zakładce Dokumenty."
+            ),
+        )
+    document = await db.scalar(
+        select(B2BContractDocument)
+        .where(B2BContractDocument.id == source.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    name, content_type, data = await signed_scan.read_scan(file)
+    replaced_path = await signed_scan.attach(
+        db,
+        doc=document,
+        filename=name,
+        content_type=content_type,
+        data=data,
+        actor_id=current_user.id,
+    )
+    await db.commit()
+    signed_scan.discard(replaced_path)
+    await db.refresh(amendment)
+    finance_ok = await _can_read_contract_finance(contract, current_user, db)
+    return await _amendment_to_response(db, amendment, finance_ok=finance_ok)
+
+
+async def apply_contract_amendment(
+    *,
+    contract_id: int,
+    data: ContractAmendmentCreate,
+    current_user: User,
+    db: AsyncSession,
+    finance_write_authorized: bool = False,
+):
+    """Aneks kontraktu — ciało trasy ``POST /{id}/amendments``.
+
+    ``finance_write_authorized=True`` wyłącznie dla wołającego, który sam
+    sprawdził bramkę kwot: podpisany aneks stawki z Generatora potwierdza
+    także Delivery Lead u klienta z portfela (decyzja Artura 27.09.2026,
+    ``b2b_documents.effects.can_confirm_rate_annex``)."""
     supplied_fields = set(data.model_fields_set)
     if data.amendment_type == ContractAmendmentType.rate_change:
         supplied_fields.add("rate_change")
-    _assert_contract_finance_write_allowed(current_user, supplied_fields)
 
     # FOR UPDATE: aneks przedłużający i wcześniejsze zakończenie zmieniają
     # status — oceniany musi być ten po commicie równoległego `void` (F03).
@@ -5070,6 +6133,36 @@ async def create_contract_amendment(
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    # Bramka kwot po odczycie wiersza — zależy od klienta kontraktu.
+    if not finance_write_authorized:
+        await _assert_contract_finance_write_allowed(
+            current_user,
+            supplied_fields,
+            client_id=contract.client_id,
+            db=db,
+        )
+    # Runda 8 (R8-N6-4): dokument aneksu musi należeć do TEGO kontraktu.
+    # Dotąd przyjmowany był dowolny `document_id` — plik innego klienta
+    # lądował w „Zamówieniach PDF” pod tym klientem i osobą, a nieistniejące
+    # id kończyło się 500 (naruszenie FK przy flushu).
+    if data.document_id is not None:
+        owned = await db.scalar(
+            select(ContractDocument.id).where(
+                ContractDocument.id == data.document_id,
+                ContractDocument.contract_id == contract.id,
+            )
+        )
+        if owned is None:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "reason": "amendment_document_not_on_contract",
+                    "message": (
+                        "Wskazany dokument nie należy do tego kontraktu — "
+                        "wgraj go w dokumentach kontraktu i wybierz ponownie."
+                    ),
+                },
+            )
 
     # Snapshot only the fields that might change, for audit.
     old_values: dict = {
@@ -5100,6 +6193,7 @@ async def create_contract_amendment(
                 status_code=422,
                 detail="new_end_date is required for extension amendment",
             )
+        _assert_ended_revival_allowed(current_user, contract)
         # Aneks przedłużający dawał umowie B2B datę, której nikt nie
         # wypowiedział — dokładnie ten stan, który korekta 09.2026 czyści.
         # Zakończoną ręcznie umowę B2B wolno przedłużyć (przesunięcie końca).
@@ -5107,7 +6201,31 @@ async def create_contract_amendment(
             db, contract
         ):
             _reject_b2b_end_date()
+        # Umowę zakończoną/kończącą się przedłużoną do daty, która JUŻ minęła,
+        # `reopen_contract` stawiał na „Aktywny” (a `undo_contract_termination`
+        # czyścił rozwiązanie), po czym nocny cron kończył ją drugi raz —
+        # z drugim offboardingiem zamówień. Lustro blokera `end_date_passed`
+        # z „Cofnij zakończenie” (runda 6 audytu).
+        if _extension_end_date_passed(contract, data.new_end_date):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "reason": "extension_end_date_passed",
+                    "message": (
+                        "Nowa data zakończenia "
+                        f"{data.new_end_date.strftime('%d.%m.%Y')} już minęła — "
+                        "przedłużenie musi sięgać co najmniej do dziś."
+                    ),
+                },
+            )
         contract.end_date = data.new_end_date
+        # Przedłużona osoba zostaje na zamówieniu — zaplanowane „Wejdź za
+        # konsultanta” za nią odpada, zanim `reopen_contract` (przez
+        # `undo_contract_termination`) opisze je jako cofnięte zakończenie
+        # (decyzja Artura 25.09.2026).
+        await cancel_scheduled_takeovers_for_contract(
+            db, contract, code=TAKEOVER_CANCEL_EXTENDED, actor_id=current_user.id
+        )
         # Keep "Koniec zamówienia u klienta" in step with the new contract end —
         # an extension renews the client's order alongside the contract. Only
         # touch it when the contract already tracks an order end (see helper).
@@ -5159,12 +6277,8 @@ async def create_contract_amendment(
                     ),
                 )
             new_values["rate_unit"] = data.new_rate_unit
-        # Krok bazowy harmonogramu potrzebuje daty. Kontrakt bez daty
-        # rozpoczęcia dawał dotąd IntegrityError (500) po stronie kandydata
-        # (audyt 24.09, N1), a po stronie klienta krok bazowy „od dziś"
-        # przykrywał aneks wsteczny. Najwcześniejsza znana data wygrywa.
-        baseline_from = contract.start_date or min(
-            data.effective_date, business_today()
+        baseline_from = _amendment_baseline_from(
+            contract.start_date, data.effective_date, business_today()
         )
         if data.new_rate_candidate is not None:
             # The candidate rate lives in the schedule. Seed a baseline step
@@ -5174,6 +6288,7 @@ async def create_contract_amendment(
             if (
                 not contract.candidate_rate_schedule
                 and contract.rate_candidate is not None
+                and baseline_from is not None
             ):
                 contract.candidate_rate_schedule.append(
                     ContractCandidateRate(
@@ -5186,7 +6301,11 @@ async def create_contract_amendment(
             contract.candidate_rate_schedule.append(
                 ContractCandidateRate(
                     rate=data.new_rate_candidate,
-                    effective_from=data.effective_date,
+                    effective_from=_amendment_step_from(
+                        contract.candidate_rate_schedule,
+                        contract.start_date,
+                        data.effective_date,
+                    ),
                     note=data.reason,
                     created_by=current_user.id,
                 )
@@ -5200,7 +6319,11 @@ async def create_contract_amendment(
             # new order. Seed a baseline step (current rate from the contract's
             # start) the first time we touch the schedule so history stays
             # complete; then append the new step.
-            if not contract.client_rate_schedule and contract.rate_client is not None:
+            if (
+                not contract.client_rate_schedule
+                and contract.rate_client is not None
+                and baseline_from is not None
+            ):
                 contract.client_rate_schedule.append(
                     ContractClientRate(
                         rate=contract.rate_client,
@@ -5212,7 +6335,11 @@ async def create_contract_amendment(
             contract.client_rate_schedule.append(
                 ContractClientRate(
                     rate=data.new_rate_client,
-                    effective_from=data.effective_date,
+                    effective_from=_amendment_step_from(
+                        contract.client_rate_schedule,
+                        contract.start_date,
+                        data.effective_date,
+                    ),
                     note=data.reason,
                     created_by=current_user.id,
                 )
@@ -5316,6 +6443,26 @@ async def create_contract_amendment(
 
 
 # ── Onboarding checklist (Phase 9 B6) ────────────────────────────────────────
+#
+# Od etapu 3 „Ludzi w NEXUSIE” (O1, 17.10.2026) wejście konsultanta to jedna
+# lista ze ścieżki „Konsultant u klienta” i pakietu klienta
+# (``/api/hr/lifecycle/contracts/{id}/entry``). Przy włączonym module
+# „Wejście i odejście” stare pozycje są tylko do odczytu, a nowe kontrakty
+# nie dostają już ośmiu stałych pozycji; wyłączony moduł = jak dotąd.
+
+LEGACY_ONBOARDING_READ_ONLY = (
+    "Lista wejścia powstaje teraz ze ścieżki „Konsultant u klienta” i pakietu "
+    "klienta (zakładka „Wejście”). Stare pozycje są tylko do odczytu."
+)
+
+
+async def _ensure_legacy_onboarding_writable(db: AsyncSession) -> None:
+    from app.services.hr.modules import HrModule, load_modules  # noqa: PLC0415
+
+    if (await load_modules(db)).get(HrModule.lifecycle):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=LEGACY_ONBOARDING_READ_ONLY
+        )
 
 
 @router.get(
@@ -5324,7 +6471,7 @@ async def create_contract_amendment(
 )
 async def list_onboarding_items(
     contract_id: int,
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -5344,10 +6491,11 @@ async def list_onboarding_items(
 async def create_onboarding_item(
     contract_id: int,
     data: OnboardingItemCreate,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
+    await _ensure_legacy_onboarding_writable(db)
     item = ContractOnboardingItem(contract_id=contract_id, **data.model_dump())
     db.add(item)
     await db.flush()
@@ -5376,7 +6524,7 @@ DEFAULT_ONBOARDING_ITEMS: tuple[str, ...] = (
 )
 async def seed_onboarding_items(
     contract_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Załóż domyślną listę onboardingową — atomowo i idempotentnie.
@@ -5386,6 +6534,7 @@ async def seed_onboarding_items(
     zamiast dopisywać drugi komplet. Lista niepusta = nic nie jest dodawane.
     """
     await _assert_contract(db, contract_id, current_user)
+    await _ensure_legacy_onboarding_writable(db)
     await db.execute(
         select(Contract.id).where(Contract.id == contract_id).with_for_update()
     )
@@ -5413,10 +6562,11 @@ async def update_onboarding_item(
     contract_id: int,
     item_id: int,
     data: OnboardingItemUpdate,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
+    await _ensure_legacy_onboarding_writable(db)
     item = await db.scalar(
         select(ContractOnboardingItem).where(
             ContractOnboardingItem.id == item_id,
@@ -5439,10 +6589,11 @@ async def update_onboarding_item(
 async def delete_onboarding_item(
     contract_id: int,
     item_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
+    await _ensure_legacy_onboarding_writable(db)
     item = await db.scalar(
         select(ContractOnboardingItem).where(
             ContractOnboardingItem.id == item_id,
@@ -5456,6 +6607,40 @@ async def delete_onboarding_item(
 
 # ── Equipment (Kontrakty expansion: ewidencja sprzętu) ──────────────────────
 
+#: Pola pozycji wydanej z magazynu, które opisuje rejestr „Sprzęt” (0464).
+_REGISTER_OWNED_FIELDS = frozenset(
+    {"return_status", "returned_date", "item_type", "owner", "serial_number"}
+)
+REGISTER_BYPASS_DETAIL = (
+    "Ta pozycja jest wydana z magazynu — zwrot przyjmuje recepcja w module "
+    "„Sprzęt” (powstaje protokół zwrotu)."
+)
+
+
+async def _refuse_register_bypass(
+    db: AsyncSession, item: ContractEquipment, updates: Optional[dict]
+) -> None:
+    """Pozycja z aktywnym wydaniem z rejestru nie zmienia stanu obok rejestru.
+
+    Inaczej zakładka mówiłaby „zwrócony”, a rejestr dalej „wydany” u tej osoby.
+    Termin zwrotu, opis i kaucję można zmieniać jak dotąd; ``updates=None`` =
+    usunięcie pozycji.
+    """
+    if item.assignment_id is None:
+        return
+    if updates is not None and not (_REGISTER_OWNED_FIELDS & set(updates)):
+        return
+    from app.models.equipment import EquipmentAssignment
+
+    active = await db.scalar(
+        select(EquipmentAssignment.id).where(
+            EquipmentAssignment.id == item.assignment_id,
+            EquipmentAssignment.returned_at.is_(None),
+        )
+    )
+    if active is not None:
+        raise HTTPException(status_code=409, detail=REGISTER_BYPASS_DETAIL)
+
 
 @router.get(
     "/{contract_id}/equipment",
@@ -5463,7 +6648,7 @@ async def delete_onboarding_item(
 )
 async def list_contract_equipment(
     contract_id: int,
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -5483,7 +6668,7 @@ async def list_contract_equipment(
 async def create_contract_equipment(
     contract_id: int,
     data: ContractEquipmentCreate,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     contract_res = await db.execute(select(Contract).where(Contract.id == contract_id))
@@ -5530,7 +6715,7 @@ async def update_contract_equipment(
     contract_id: int,
     equipment_id: int,
     data: ContractEquipmentUpdate,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -5543,6 +6728,7 @@ async def update_contract_equipment(
     if not item:
         raise HTTPException(status_code=404, detail="Equipment item not found")
     updates = data.model_dump(exclude_unset=True)
+    await _refuse_register_bypass(db, item, updates)
     for k, v in updates.items():
         setattr(item, k, v)
     # Guard: returned_date requires return_status=returned (mark as returned).
@@ -5575,7 +6761,7 @@ async def update_contract_equipment(
 async def delete_contract_equipment(
     contract_id: int,
     equipment_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: ContractsOrdersEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -5587,6 +6773,7 @@ async def delete_contract_equipment(
     )
     if not item:
         raise HTTPException(status_code=404, detail="Equipment item not found")
+    await _refuse_register_bypass(db, item, None)
     db.add(
         Activity(
             entity_type="contract",
@@ -5609,10 +6796,11 @@ async def delete_contract_equipment(
 async def terminate_contract(
     contract_id: int,
     data: ContractTerminateRequest,
-    # Te same role co lista statusu (`PATCH /{id}/status`): od 09.2026
-    # „Zakończony” z listy otwiera to okno, więc TCM — który mógł zakończyć
-    # kontrakt listą — musi móc je zapisać (decyzja 10.09: TCM w całej org.).
-    current_user: ContractStatusWriteUser,
+    # To samo uprawnienie co lista statusu (`PATCH /{id}/status`): od 09.2026
+    # „Zakończony” z listy otwiera to okno, więc kto mógł zakończyć kontrakt
+    # listą (domyślnie także TCM, w całej organizacji — decyzja 10.09), musi
+    # móc je zapisać.
+    current_user: ContractStatusUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Mark the contract as ended with a structured reason and optional lessons.
@@ -5650,6 +6838,105 @@ async def terminate_contract(
         termination_lessons=data.termination_lessons,
         actor_id=current_user.id,
         agreement_termination=_agreement_termination(data.agreement_termination),
+    )
+    await db.flush()
+    await db.refresh(contract)
+    detail = _to_detail(contract)
+    if not await _can_read_contract_finance(contract, current_user, db):
+        _redact_contract_finance(detail)
+    return detail
+
+
+@router.put(
+    "/{contract_id}/agreement-termination",
+    response_model=ContractDetailResponse,
+)
+async def record_agreement_termination(
+    contract_id: int,
+    data: AgreementTerminationPayload,
+    # To samo uprawnienie co „Zakończ współpracę”: dane rozwiązania umowy
+    # zapisuje dziś tylko tamto okno.
+    current_user: ContractStatusUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Rozwiązanie umowy B2B podpisane poza NEXUSEM (zgłoszenie 29.10.2026).
+
+    Kontrakt zakończony bez danych rozwiązania nie miał gdzie ich dopisać:
+    okno „Zakończ współpracę” działa przy kończeniu, a podpis porozumienia —
+    tylko dla umowy z Generatora. Zapis rusza wyłącznie dane umowy (i umowę
+    w Generatorze zawieszoną tym zakończeniem); koniec projektu, zamówienia
+    i status zostają bez zmian.
+    """
+    result = await db.execute(
+        select(Contract)
+        .where(Contract.id == contract_id)
+        .options(
+            selectinload(Contract.candidate),
+            selectinload(Contract.client),
+            selectinload(Contract.job),
+            selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
+        )
+        .with_for_update()
+    )
+    contract = result.scalar_one_or_none()
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    if contract.contract_type != ContractType.b2b:
+        raise HTTPException(
+            status_code=422,
+            detail="Rozwiązanie umowy zapisuje się tylko przy umowie B2B.",
+        )
+    # Także „Zakończony” nocną zmianą po dacie końca, bez okna (bez
+    # `terminated_at`) — lista „Umowa nierozwiązana” liczy je tak samo.
+    if contract.status not in (ContractStatus.ended, ContractStatus.ending):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Najpierw zakończ współpracę — rozwiązanie umowy dopisuje się "
+                "do zakończonego projektu."
+            ),
+        )
+    # Zapisane rozwiązanie zmienia się przez „Cofnij zakończenie”, nie tu:
+    # nadpisanie rozjechałoby kontrakt z zamkniętą już umową w Generatorze.
+    if contract_agreement_termination(contract) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Rozwiązanie umowy jest już zapisane na tym kontrakcie.",
+        )
+    termination = AgreementTermination(
+        mode=data.mode,
+        party=data.party,
+        signed_on=data.signed_on,
+        last_day=data.last_day,
+    )
+    set_contract_agreement_termination(contract, termination)
+    # Umowa zawieszona tym zakończeniem → „Zakończone”; pozostałe (bez migawki
+    # tego kontraktu) zamyka ta sama synchronizacja co okno z rozwiązaniem.
+    closed_rows = await close_rows_after_recorded_termination(
+        db, contract, termination, actor_id=current_user.id
+    )
+    closed_rows += await sync_generator_after_contract_ended(
+        db, contract, actor_id=current_user.id
+    )
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract.id,
+            action="agreement_termination_recorded",
+            user_id=current_user.id,
+            details={
+                "agreement_termination": {
+                    "mode": termination.mode,
+                    "party": termination.party,
+                    "signed_on": termination.signed_on.isoformat(),
+                    "last_day": termination.last_day.isoformat(),
+                },
+                "generator_rows_closed": closed_rows,
+            },
+        )
     )
     await db.flush()
     await db.refresh(contract)
@@ -5758,6 +7045,9 @@ async def reverse_termination(
             },
         ) from exc
     result = plan.as_json()
+    from app.services.hr import contract_hooks
+
+    await contract_hooks.contract_end_undone(db, contract)
     await commit_order_write(db, actor_id=current_user.id)
     return ContractTerminationReversalPlanRead(**result, executed=True)
 
@@ -5799,7 +7089,7 @@ async def return_after_break(
 )
 async def contract_timeline(
     contract_id: int,
-    current_user: ContractReadUser,
+    current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(100, ge=1, le=500),
 ):
@@ -5810,6 +7100,9 @@ async def contract_timeline(
         select(Note, User.email)
         .outerjoin(User, Note.author_id == User.id)
         .where(Note.contract_id == contract_id)
+        # 0399: odpowiedzi pisze się trasą notatek kandydata (bez bramki
+        # Delivery) — na oś kontraktu nie trafiają nigdy.
+        .where(Note.parent_note_id.is_(None))
         .order_by(Note.created_at.desc())
         .limit(limit)
     )
@@ -5823,18 +7116,21 @@ async def contract_timeline(
 
     items: list[ContractTimelineItem] = []
 
-    for note, author_email in notes_res.all():
+    # Decyzja C (14.10.2026): notatka DL-a z wysyłki („Wysłany 150/100-110”)
+    # niesie cenę dla klienta — zakryta jak w profilu kandydata.
+    from app.api.candidate_access import hidden_send_note_ids
+
+    note_rows = notes_res.all()
+    send_ids = await hidden_send_note_ids(
+        db, current_user, [note.id for note, _ in note_rows]
+    )
+    for note, author_email in note_rows:
         items.append(
-            ContractTimelineItem(
-                id=note.id,
-                kind="note",
-                at=note.created_at,
-                content=note.content,
-                sub_type=note.note_type.value
-                if hasattr(note.note_type, "value")
-                else str(note.note_type),
-                author_id=note.author_id,
-                author_name=author_email,
+            _note_timeline_item(
+                note,
+                author_email,
+                viewer=current_user,
+                send_note=note.id in send_ids,
             )
         )
 
@@ -5860,6 +7156,79 @@ async def contract_timeline(
 
     items.sort(key=lambda i: i.at, reverse=True)
     return items[:limit]
+
+
+def _note_timeline_item(
+    note: Note,
+    author_email: Optional[str],
+    *,
+    viewer: Optional[User] = None,
+    send_note: bool = False,
+) -> ContractTimelineItem:
+    # Notatka kontraktu niesie też candidate_id — w profilu kandydata wpis
+    # o stawce do klienta (0412) jest zakryty, więc na osi kontraktu też
+    # (podgląd Delivery da się nadać rekruterowi). Audyt 05.10.2026.
+    # `send_note` — notatka DL-a z wysyłki (decyzja C, 14.10.2026).
+    from app.api.candidate_access import visible_note_content
+
+    return ContractTimelineItem(
+        id=note.id,
+        kind="note",
+        at=note.created_at,
+        content=visible_note_content(viewer, note, send_note=send_note)
+        if viewer is not None
+        else note.content,
+        sub_type=note.note_type.value
+        if hasattr(note.note_type, "value")
+        else str(note.note_type),
+        author_id=note.author_id,
+        author_name=author_email,
+    )
+
+
+@router.post(
+    "/{contract_id}/notes",
+    response_model=ContractTimelineItem,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_contract_note(
+    contract_id: int,
+    data: ContractNoteCreate,
+    current_user: ContractsOrdersEditUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Notatka przy kontrakcie — widoczna tu i w profilu kandydata.
+
+    Runda 10 (F03): bramka jak przy sprzęcie kontraktu (edycja kontraktów +
+    zakres klienta DL), nie `POST /api/notes` — tamta trasa stoi za zapisem
+    kandydatów, czyli w innej domenie uprawnień niż umowa.
+    """
+    contract = await _assert_contract(db, contract_id, current_user)
+    note = Note(
+        content=data.content,
+        note_type=data.note_type,
+        candidate_id=contract.candidate_id,
+        contract_id=contract.id,
+        author_id=current_user.id,
+    )
+    db.add(note)
+    if contract.candidate_id is not None:
+        candidate = await db.get(Candidate, contract.candidate_id)
+        if candidate is not None:
+            candidate.notes_count = (candidate.notes_count or 0) + 1
+    await db.flush()
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract.id,
+            action="note_added",
+            user_id=current_user.id,
+            details={"note_id": note.id},
+        )
+    )
+    await db.flush()
+    await db.refresh(note)
+    return _note_timeline_item(note, current_user.email)
 
 
 # ── Benchmark comparison (rate vs internal avg vs market) ────────────────────

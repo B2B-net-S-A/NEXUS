@@ -112,6 +112,7 @@ async def _seed_stage(
     *,
     moved_at: datetime | None = None,
     moved_by: int | None = None,
+    stage_def_id: int | None = None,
 ) -> int:
     """Insert a CandidateStage row at the given pipeline stage.
 
@@ -130,6 +131,7 @@ async def _seed_stage(
             stage=PipelineStage(stage_value),
             moved_at=moved_at or datetime.now(timezone.utc),
             moved_by=moved_by,
+            stage_def_id=stage_def_id,
         )
         db.add(stage)
         await db.commit()
@@ -495,14 +497,15 @@ async def test_filter_stage_moved_before_is_inclusive_of_whole_day(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """A move late on the `stage_moved_before` day is still included (the bound
-    is the start of the NEXT day, exclusive)."""
+    is the start of the NEXT day, exclusive). Doba w kalendarzu firmy:
+    21:30 UTC = 23:30 w Warszawie (CEST) 31.05."""
     job_id = await _seed_job()
     cand = await _seed_candidate()
     await _seed_stage(
         cand,
         job_id,
         "verified",
-        moved_at=datetime(2026, 5, 31, 23, 30, tzinfo=timezone.utc),
+        moved_at=datetime(2026, 5, 31, 21, 30, tzinfo=timezone.utc),
     )
     try:
         r = await app_client.get(
@@ -853,14 +856,15 @@ async def test_filter_sent_to_client_to_is_inclusive_of_whole_day(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """A `cv_sent` move late on the `sent_to_client_to` day is still included
-    (the upper bound is the start of the NEXT day, exclusive)."""
+    (the upper bound is the start of the NEXT day, exclusive). 21:30 UTC =
+    23:30 w Warszawie 31.05."""
     job_id = await _seed_job()
     cand = await _seed_candidate()
     await _seed_stage(
         cand,
         job_id,
         "cv_sent",
-        moved_at=datetime(2026, 5, 31, 23, 30, tzinfo=timezone.utc),
+        moved_at=datetime(2026, 5, 31, 21, 30, tzinfo=timezone.utc),
     )
     try:
         r = await app_client.get(
@@ -982,3 +986,338 @@ async def test_active_recruitments_includes_terminal_stage(
         assert rec["stage"] == "rejected"
     finally:
         await _cleanup(candidate_ids=[cand], job_ids=[job_id])
+
+
+# ── Doba filtrów dat = kalendarz firmy (Europe/Warsaw), jak „kontakt” ───────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "stage, day_param",
+    [
+        ("cv_sent", "sent_to_client"),
+        ("verified", "stage_moved"),
+    ],
+)
+async def test_date_filters_count_the_day_in_warsaw_not_utc(
+    app_client: AsyncClient, app_auth_headers: dict, stage, day_param
+):
+    """00:30 w Warszawie 1.06 to 22:30 UTC 31.05. Liczone w UTC wpadało do maja,
+    a filtr „kontakt” (Warszawa) liczył je w czerwcu — jedna lista, dwie doby."""
+    job_id = await _seed_job()
+    cand = await _seed_candidate()
+    await _seed_stage(
+        cand,
+        job_id,
+        stage,
+        moved_at=datetime(2026, 5, 31, 22, 30, tzinfo=timezone.utc),
+    )
+    if day_param == "sent_to_client":
+        may = "sent_to_client_to=2026-05-31"
+        june = "sent_to_client_from=2026-06-01"
+    else:
+        may = f"pipeline_stage={stage}&stage_moved_before=2026-05-31"
+        june = f"pipeline_stage={stage}&stage_moved_after=2026-06-01"
+    try:
+        r_may = await app_client.get(
+            f"/api/candidates?{may}&page_size=100", headers=app_auth_headers
+        )
+        r_june = await app_client.get(
+            f"/api/candidates?{june}&page_size=100", headers=app_auth_headers
+        )
+        assert r_may.status_code == 200, r_may.text
+        assert r_june.status_code == 200, r_june.text
+        assert cand not in [item["id"] for item in r_may.json()["items"]]
+        assert cand in [item["id"] for item in r_june.json()["items"]]
+    finally:
+        await _cleanup(candidate_ids=[cand], job_ids=[job_id])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "param",
+    [
+        "stage_moved_before=9999-12-31",
+        "stage_moved_after=9999-12-31",
+        "sent_to_client_to=9999-12-31",
+        "contacted=yes&contacted_to=9999-12-31",
+        "contacted=no&contacted_from=0001-01-01",
+    ],
+)
+async def test_out_of_range_filter_date_is_422_not_500(
+    app_client: AsyncClient, app_auth_headers: dict, param
+):
+    """`9999-12-31 + 1 dzień` przepełniało `date` → 500 bez CORS."""
+    r = await app_client.get(
+        f"/api/candidates?{param}&page_size=1", headers=app_auth_headers
+    )
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_out_of_range_filter_date_in_export_body_is_422(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    r = await app_client.post(
+        "/api/candidates/export",
+        json={
+            "format": "csv",
+            "scope": "filtered",
+            "filters": {"sent_to_client_to": "9999-12-31"},
+            "candidate_ids": [],
+            "limit": 10,
+        },
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 422, r.text
+
+
+def test_business_date_range_is_warsaw_and_never_overflows():
+    from datetime import date
+
+    from app.services.candidate_search_predicates import business_date_range
+
+    start, end = business_date_range(date(2026, 6, 1), date(2026, 6, 1))
+    assert start == datetime(2026, 5, 31, 22, 0, tzinfo=timezone.utc)
+    assert end == datetime(2026, 6, 1, 22, 0, tzinfo=timezone.utc)
+    # Zima: CET = UTC+1.
+    start, _ = business_date_range(date(2026, 1, 15), None)
+    assert start == datetime(2026, 1, 14, 23, 0, tzinfo=timezone.utc)
+    # Koniec kalendarza: brak górnej granicy zamiast OverflowError.
+    assert business_date_range(None, date.max) == (None, None)
+
+
+# ── „Dodany na etap” po kolumnach Tablicy (19.10.2026) ──────────────────────
+
+
+async def _seed_board_template() -> tuple[int, int, int]:
+    """Szablon z etapem „QC CV” (kod `interview`) i „Rozmowa techniczna” (też
+    `interview`). Zwraca `(template_id, qc_def_id, tech_def_id)`."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.pipeline_template import (
+        PipelineStageDef,
+        PipelineTemplate,
+        StageCategoryEnum,
+    )
+
+    async with AsyncSessionLocal() as db:
+        tpl = PipelineTemplate(name=f"StageCol-{uuid.uuid4().hex[:8]}")
+        db.add(tpl)
+        await db.flush()
+        qc = PipelineStageDef(
+            template_id=tpl.id,
+            name="QC CV",
+            order=1,
+            category=StageCategoryEnum.internal,
+            legacy_enum_value="interview",
+        )
+        tech = PipelineStageDef(
+            template_id=tpl.id,
+            name="Rozmowa techniczna",
+            order=2,
+            category=StageCategoryEnum.internal,
+            legacy_enum_value="interview",
+        )
+        db.add_all([qc, tech])
+        await db.commit()
+        return tpl.id, qc.id, tech.id
+
+
+async def _cleanup_template(template_id: int) -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
+    from sqlalchemy import delete
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(PipelineStageDef).where(PipelineStageDef.template_id == template_id)
+        )
+        await db.execute(
+            delete(PipelineTemplate).where(PipelineTemplate.id == template_id)
+        )
+        await db.commit()
+
+
+def _at(day: int, month: int = 10) -> datetime:
+    return datetime(2026, month, day, 10, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_stage_column_cv_qc_follows_template_name_not_code(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """„QC CV” to etap szablonu po NAZWIE — rozmowa techniczna z tym samym kodem
+    `interview` i wiersz bez etapu szablonu są w „Zweryfikowanym”."""
+    tpl_id, qc_id, tech_id = await _seed_board_template()
+    job_id = await _seed_job()
+    on_qc = await _seed_candidate(name_suffix="-QC")
+    on_tech = await _seed_candidate(name_suffix="-TECH")
+    no_def = await _seed_candidate(name_suffix="-NODEF")
+    await _seed_stage(on_qc, job_id, "interview", stage_def_id=qc_id)
+    await _seed_stage(on_tech, job_id, "interview", stage_def_id=tech_id)
+    await _seed_stage(no_def, job_id, "interview")
+    try:
+        r = await app_client.get(
+            "/api/candidates?stage_column=cv_qc&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = [item["id"] for item in r.json()["items"]]
+        assert on_qc in ids
+        assert on_tech not in ids
+        assert no_def not in ids
+
+        r2 = await app_client.get(
+            "/api/candidates?stage_column=verified&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r2.status_code == 200, r2.text
+        ids2 = [item["id"] for item in r2.json()["items"]]
+        assert on_tech in ids2
+        assert no_def in ids2
+        assert on_qc not in ids2
+    finally:
+        await _cleanup(candidate_ids=[on_qc, on_tech, no_def], job_ids=[job_id])
+        await _cleanup_template(tpl_id)
+
+
+@pytest.mark.asyncio
+async def test_stage_column_unknown_value_is_422(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    r = await app_client.get(
+        "/api/candidates?stage_column=qc&page_size=1", headers=app_auth_headers
+    )
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_stage_column_mover_and_dates_on_the_same_move(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Olaf: „Dodany na etap: QC CV · Dodany przez: Jan · od 01.10 do 15.10”.
+
+    Etap, osoba i data dotyczą TEGO SAMEGO przejścia. Nie pasuje: QC CV od
+    innej osoby (choć Jan ruszał tę osobę na inny etap w oknie) ani QC CV od
+    Jana poza datami. Pasuje osoba, która po QC CV poszła dalej (historia)."""
+    tpl_id, qc_id, _tech_id = await _seed_board_template()
+    job_id = await _seed_job()
+    jan = await _seed_user()
+    other = await _seed_user()
+    hit = await _seed_candidate(name_suffix="-HIT")
+    other_mover = await _seed_candidate(name_suffix="-OTHER")
+    out_of_range = await _seed_candidate(name_suffix="-OLD")
+    await _seed_stage(hit, job_id, "screening", moved_at=_at(2), moved_by=other)
+    await _seed_stage(
+        hit, job_id, "interview", moved_at=_at(5), moved_by=jan, stage_def_id=qc_id
+    )
+    await _seed_stage(hit, job_id, "cv_sent", moved_at=_at(8), moved_by=other)
+    await _seed_stage(other_mover, job_id, "screening", moved_at=_at(4), moved_by=jan)
+    await _seed_stage(
+        other_mover,
+        job_id,
+        "interview",
+        moved_at=_at(6),
+        moved_by=other,
+        stage_def_id=qc_id,
+    )
+    await _seed_stage(
+        out_of_range,
+        job_id,
+        "interview",
+        moved_at=_at(20, month=9),
+        moved_by=jan,
+        stage_def_id=qc_id,
+    )
+    try:
+        r = await app_client.get(
+            "/api/candidates?stage_column=cv_qc"
+            f"&stage_moved_by={jan}"
+            "&stage_moved_after=2026-10-01&stage_moved_before=2026-10-15"
+            "&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        items = {item["id"]: item for item in r.json()["items"]}
+        assert hit in items
+        assert other_mover not in items
+        assert out_of_range not in items
+
+        match = items[hit]["stage_match"]
+        assert match is not None
+        assert match["column"] == "cv_qc"
+        assert match["job_id"] == job_id
+        assert match["moved_by_name"].startswith("Mover ")
+        assert match["moved_at"].startswith("2026-10-05")
+        assert match["job_title"].startswith("Stage-Job-")
+        assert match["client_name"].startswith("StageClient-")
+    finally:
+        await _cleanup(
+            candidate_ids=[hit, other_mover, out_of_range],
+            job_ids=[job_id],
+            user_ids=[jan, other],
+        )
+        await _cleanup_template(tpl_id)
+
+
+@pytest.mark.asyncio
+async def test_stage_match_is_the_newest_matching_move(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Dwa przejścia na QC CV w dwóch rekrutacjach — podpis mówi o nowszym."""
+    tpl_id, qc_id, _tech_id = await _seed_board_template()
+    job_old = await _seed_job()
+    job_new = await _seed_job()
+    mover = await _seed_user()
+    cand = await _seed_candidate()
+    await _seed_stage(
+        cand, job_old, "interview", moved_at=_at(3), moved_by=mover, stage_def_id=qc_id
+    )
+    await _seed_stage(
+        cand, job_new, "interview", moved_at=_at(7), moved_by=mover, stage_def_id=qc_id
+    )
+    try:
+        r = await app_client.get(
+            f"/api/candidates?stage_column=cv_qc&stage_moved_by={mover}&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        items = {item["id"]: item for item in r.json()["items"]}
+        assert items[cand]["stage_match"]["job_id"] == job_new
+    finally:
+        await _cleanup(
+            candidate_ids=[cand], job_ids=[job_old, job_new], user_ids=[mover]
+        )
+        await _cleanup_template(tpl_id)
+
+
+@pytest.mark.asyncio
+async def test_stage_column_or_pipeline_stage_and_no_stage_match_without_filter(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Stary `pipeline_stage` działa dalej i łączy się z kolumną przez LUB;
+    bez filtra etapu odpowiedź nie niesie `stage_match`."""
+    tpl_id, qc_id, _tech_id = await _seed_board_template()
+    job_id = await _seed_job()
+    on_qc = await _seed_candidate(name_suffix="-QC")
+    on_sent = await _seed_candidate(name_suffix="-SENT")
+    await _seed_stage(on_qc, job_id, "interview", stage_def_id=qc_id)
+    await _seed_stage(on_sent, job_id, "cv_sent")
+    try:
+        r = await app_client.get(
+            "/api/candidates?stage_column=cv_qc&pipeline_stage=cv_sent&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        items = {item["id"]: item for item in r.json()["items"]}
+        assert on_qc in items and on_sent in items
+        assert items[on_sent]["stage_match"]["column"] == "cv_sent"
+
+        plain = await app_client.get(
+            "/api/candidates?page_size=20", headers=app_auth_headers
+        )
+        assert plain.status_code == 200, plain.text
+        assert all(item.get("stage_match") is None for item in plain.json()["items"])
+    finally:
+        await _cleanup(candidate_ids=[on_qc, on_sent], job_ids=[job_id])
+        await _cleanup_template(tpl_id)

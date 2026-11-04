@@ -16,21 +16,28 @@ Przebudowa Insights z 24.09.2026 (makiety: widok Zespół). Trzy rzeczy, które
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import TYPE_CHECKING, Iterable, Optional
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.analytics.periods import Period
+from app.analytics.periods import Period, PeriodKind
+from app.models.user import User
+from app.services.insights_in_flight import in_flight_by_verifier
 from app.services.insights_person_scope import (
     OUTSIDE_SCOPE_LABEL,
     outside_scope_user_ids,
 )
+from app.services.kpi_targets import resolve_kpi_targets_bulk
 from app.services.kpi_team import TeamPanelResult, compute_team_panel
 from app.services.order_burn_rate import workdays_between
+from app.services.person_workdays import prorated_targets, workdays_by_user
 from app.services.request_work_state import WORK_STATES
+
+if TYPE_CHECKING:
+    from app.services.board_tasks import BoardTask
 
 # Rekrutacja opublikowana bez żadnego ruchu w pipeline od tylu dni.
 STALE_JOB_DAYS = 14
@@ -94,6 +101,14 @@ class TeamPeople:
     # Konta bez roli rekrutacyjnej (admin, Finanse…) — poza tabelą osób,
     # jednym wierszem (reguła Hall of Fame, `insights_person_scope`).
     outside_user_ids: frozenset[int] = frozenset()
+    # Cel placementów osoby — tylko w oknie miesiąca (cel jest miesięczny;
+    # przy kwartale czy roku „2 / 1” byłoby porównaniem dwóch różnych okien).
+    placements_targets: Optional[dict[int, int]] = None
+    # Pary w drodze dziś (pierwszy weryfikujący) — stan, nie okno.
+    in_flight: dict[int, int] = field(default_factory=dict)
+    # Dni pracy osoby w oknie do dziś (dni robocze minus zatwierdzona
+    # nieobecność, `person_workdays`) — mianownik „Weryf. / dzień”.
+    workdays_by_user: dict[int, float] = field(default_factory=dict)
 
 
 async def current_team_panel(
@@ -115,12 +130,44 @@ async def team_people(
     outside = await outside_scope_user_ids(
         db, [r.user_id for r in current.rows] + [r.user_id for r in previous.rows]
     )
+    targets: Optional[dict[int, int]] = None
+    if period.kind is PeriodKind.month:
+        users = list(
+            (
+                await db.scalars(
+                    select(User).where(User.id.in_([r.user_id for r in current.rows]))
+                )
+            ).all()
+        )
+        resolved = await resolve_kpi_targets_bulk(db, users, ["monthly_placements"])
+        # Cel miesiąca w proporcji do dni pracy całego miesiąca — także
+        # zaplanowana nieobecność (decyzja Artura 28.10.2026).
+        targets = await prorated_targets(
+            db,
+            {
+                uid: per_kpi.get("monthly_placements", 0)
+                for uid, per_kpi in resolved.items()
+            },
+            period.start.date(),
+            (period.end - timedelta(microseconds=1)).date(),
+        )
+    window_last = min((period.end - timedelta(microseconds=1)).date(), today)
     return TeamPeople(
         current=current,
         previous=previous,
         workdays=workdays_in_window(period.start, period.end, today),
         outside_user_ids=frozenset(outside),
+        placements_targets=targets,
+        in_flight=await in_flight_by_verifier(db),
+        workdays_by_user=await workdays_by_user(
+            db, [r.user_id for r in current.rows], period.start.date(), window_last
+        ),
     )
+
+
+def _per_workday(verifications: int, workdays: float) -> Optional[float]:
+    """Weryfikacje na dzień pracy; zero dni pracy = „nie policzono”, nie 0."""
+    return round(verifications / workdays, 1) if workdays else None
 
 
 def people_payload(people: TeamPeople) -> dict:
@@ -132,6 +179,7 @@ def people_payload(people: TeamPeople) -> dict:
         "verifications": 0,
         "recommendations": 0,
         "interviews": 0,
+        "acceptances": 0,
         "placements": 0,
         "previous_placements": sum(
             r.placementy for r in people.previous.rows if r.user_id in outside
@@ -147,6 +195,7 @@ def people_payload(people: TeamPeople) -> dict:
             outside_row["verifications"] += r.weryfikacje
             outside_row["recommendations"] += r.rekomendacje
             outside_row["interviews"] += r.interview
+            outside_row["acceptances"] += r.akceptacje
             outside_row["placements"] += r.placementy
             continue
         prev = previous.get(r.user_id)
@@ -159,12 +208,18 @@ def people_payload(people: TeamPeople) -> dict:
                 "verifications": r.weryfikacje,
                 "recommendations": r.rekomendacje,
                 "interviews": r.interview,
+                "acceptances": r.akceptacje,
                 "placements": r.placementy,
-                "previous_placements": prev.placementy if prev else 0,
-                "verifications_per_workday": (
-                    round(r.weryfikacje / people.workdays, 1)
-                    if people.workdays
+                "placements_target": (
+                    people.placements_targets.get(r.user_id)
+                    if people.placements_targets is not None
                     else None
+                ),
+                "in_flight": people.in_flight.get(r.user_id, 0),
+                "previous_placements": prev.placementy if prev else 0,
+                "verifications_per_workday": _per_workday(
+                    r.weryfikacje,
+                    people.workdays_by_user.get(r.user_id, people.workdays),
                 ),
                 # Kohorta: z par zweryfikowanych w 30 dniach, ile ma „CV wysłane"
                 # (≤ 100%). None = mniej niż 5 weryfikacji, „nie policzono".
@@ -186,7 +241,10 @@ def people_payload(people: TeamPeople) -> dict:
                 "verifications": 0,
                 "recommendations": 0,
                 "interviews": 0,
+                "acceptances": 0,
                 "placements": 0,
+                "placements_target": None,
+                "in_flight": people.in_flight.get(p.user_id, 0),
                 "previous_placements": p.placementy,
                 "verifications_per_workday": 0.0 if people.workdays else None,
                 "precision_pct": p.precision_pct,
@@ -195,9 +253,19 @@ def people_payload(people: TeamPeople) -> dict:
     rows.sort(key=lambda row: (-row["placements"], -row["verifications"], row["name"]))
     totals = people.current.totals
     prev_totals = people.previous.totals
+    # Wiersz „Bez osoby z zasługą” (17.10.2026): kamienie, które nie liczą się
+    # nikomu. Bez niego suma wierszy osób nie zgadzała się z sumą firmy.
+    unattributed = dict(totals.unattributed_by_stage)
     return {
         "rows": rows,
         "outside_scope": outside_row,
+        "unattributed": {
+            "verifications": unattributed.get("verified", 0),
+            "recommendations": unattributed.get("cv_sent", 0),
+            "interviews": unattributed.get("client_interview", 0),
+            "acceptances": unattributed.get("acceptance", 0),
+            "placements": unattributed.get("hired", 0),
+        },
         "workdays": people.workdays,
         "precision_target_pct": people.current.precision_target_pct,
         "low_precision_pct": LOW_PRECISION_PCT,
@@ -205,6 +273,7 @@ def people_payload(people: TeamPeople) -> dict:
             "verifications": totals.weryfikacje,
             "recommendations": totals.rekomendacje,
             "interviews": totals.interview,
+            "acceptances": totals.akceptacje,
             "placements": totals.placementy,
             "precision_pct": totals.precision_pct,
             "people": totals.people,
@@ -214,6 +283,7 @@ def people_payload(people: TeamPeople) -> dict:
             "verifications": prev_totals.weryfikacje,
             "recommendations": prev_totals.rekomendacje,
             "interviews": prev_totals.interview,
+            "acceptances": prev_totals.akceptacje,
             "placements": prev_totals.placementy,
         },
     }
@@ -292,8 +362,110 @@ async def stale_jobs(
     return out
 
 
+# Pulpit Heada i admina — „Gdzie stoi” (04.10.2026). Progi zgodne z makietą:
+# rekrutacja bez nikogo u klienta po 14 dniach, zgłoszenia w Ogłoszeniach
+# czekające ponad 3 dni.
+NO_ONE_SENT_DAYS = 14
+STALE_POSTING_DAYS = 3
+
+_FLOW_SIGNALS_SQL = text(
+    """
+    WITH work AS (
+        SELECT j.id, j.deadline, COALESCE(j.opened_at, j.created_at) AS opened
+          FROM jobs j
+         WHERE j.status = 'published'
+           AND j.work_state = ANY(CAST(:work_states AS text[]))
+    ),
+    sent AS (
+        SELECT DISTINCT cs.job_id
+          FROM candidate_stages cs
+         WHERE cs.job_id IN (SELECT id FROM work)
+           AND CAST(cs.stage AS text) = ANY(CAST(:client_stages AS text[]))
+    ),
+    latest AS (
+        SELECT DISTINCT ON (cs.candidate_id, cs.job_id)
+               cs.job_id, CAST(cs.stage AS text) AS stage, cs.moved_at
+          FROM candidate_stages cs
+         WHERE cs.job_id IN (SELECT id FROM work)
+         ORDER BY cs.candidate_id, cs.job_id, cs.moved_at DESC, cs.id DESC
+    )
+    SELECT
+      (SELECT count(*) FROM work w
+        WHERE w.opened < :sent_cutoff
+          AND NOT EXISTS (SELECT 1 FROM sent s WHERE s.job_id = w.id)
+      ) AS no_one_sent,
+      (SELECT count(*) FROM work w WHERE w.deadline < :today) AS overdue,
+      (SELECT count(*) FROM latest l
+        WHERE l.stage = 'posting' AND l.moved_at < :posting_cutoff
+      ) AS stale_postings,
+      (SELECT count(DISTINCT l.job_id) FROM latest l
+        WHERE l.stage = 'posting' AND l.moved_at < :posting_cutoff
+      ) AS stale_postings_jobs
+    """
+)
+
+
+async def flow_signals(
+    db: AsyncSession, *, now: datetime, today: date
+) -> dict[str, int]:
+    """Liczby „Gdzie stoi” dla rekrutacji w pracy (``IN_WORK_STATES``).
+
+    Jedno zapytanie: rekrutacje bez nikogo u klienta, po terminie klienta
+    i zgłoszenia z ogłoszeń, które nikt nie przejrzał od kilku dni.
+    """
+    from app.services.job_similarity import CLIENT_STAGES  # noqa: PLC0415
+    from app.services.request_work_state import IN_WORK_STATES  # noqa: PLC0415
+
+    row = (
+        await db.execute(
+            _FLOW_SIGNALS_SQL,
+            {
+                "work_states": list(IN_WORK_STATES),
+                "client_stages": [getattr(s, "value", s) for s in CLIENT_STAGES],
+                "sent_cutoff": now - timedelta(days=NO_ONE_SENT_DAYS),
+                "posting_cutoff": now - timedelta(days=STALE_POSTING_DAYS),
+                "today": today,
+            },
+        )
+    ).one()
+    return {
+        "no_one_sent": int(row.no_one_sent or 0),
+        "overdue": int(row.overdue or 0),
+        "stale_postings": int(row.stale_postings or 0),
+        "stale_postings_jobs": int(row.stale_postings_jobs or 0),
+    }
+
+
+def dl_send_stale_count(tasks: Iterable[BoardTask]) -> int:
+    """Ile osób gotowych do wysłania czeka u Delivery Leadów ``STALE_WORKDAYS``
+    dni roboczych albo dłużej.
+
+    Liczy z wierszy kolejki „Do wysłania do klienta” tą samą regułą co pas na
+    pulpicie Delivery Leada (`dl_send_queue.ready_job_counts`): QC do poprawy
+    i etapy z importu Traffita nie wchodzą, a czas biegnie od gotowości.
+    """
+    from app.services.dl_send_queue import (  # noqa: PLC0415
+        STALE_WORKDAYS,
+        ready_job_counts,
+    )
+
+    return sum(ready_job_counts(tasks, min_workdays=STALE_WORKDAYS).values())
+
+
+async def dl_send_stale(db: AsyncSession, *, now: datetime) -> int:
+    """Sygnał „Gdzie stoi”: gotowe CV czekające na wysyłkę w całej firmie."""
+    from app.services import dl_send_queue  # noqa: PLC0415
+
+    return dl_send_stale_count(await dl_send_queue.load_rows(db, now=now))
+
+
 __all__ = [
     "LOW_PRECISION_PCT",
+    "NO_ONE_SENT_DAYS",
+    "STALE_POSTING_DAYS",
+    "dl_send_stale",
+    "dl_send_stale_count",
+    "flow_signals",
     "current_team_panel",
     "QUIET_WORK_STATES",
     "STALE_JOB_DAYS",

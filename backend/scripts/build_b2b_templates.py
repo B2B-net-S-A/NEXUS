@@ -14,6 +14,16 @@ jeden zestaw danych zasila zarówno DOCX (docxtpl) jak i HTML (draft/PDF/Autenti
 Uruchom raz; wynik jest commitowany. NIE jest częścią ścieżki produkcyjnej.
 
     python scripts/build_b2b_templates.py [pl_src.docx en_src.docx]
+
+Wariant umowy dla spółki (ticket 8, 28.09.2026) — ``add_company_variant``
+dokłada do komparycji warunek ``b2b.is_company``. ``build`` robi to zawsze;
+na już zacommitowanych szablonach (źródła prawnika nie leżą w repo):
+
+    python scripts/build_b2b_templates.py --company-variant
+
+Stawka progresywna jako podpunkty a) b) (dział umów, 03.11.2026) — tak samo:
+
+    python scripts/build_b2b_templates.py --rate-lines
 """
 
 from __future__ import annotations
@@ -21,11 +31,13 @@ from __future__ import annotations
 import html as _html
 import re
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 import docx
 from docx.document import Document as _DocType
 from docx.oxml.ns import qn
+from docx.shared import Twips
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 
@@ -299,6 +311,229 @@ def format_komparycja(doc: _DocType) -> None:
             break
 
 
+# ── Wariant dla spółki: komparycja z KRS zamiast „Panem … prowadzącym …” ────
+#
+# Komparycja JDG to dwa runy: pogrubione „Panem Jan Kowalski ” i zwykły opis
+# działalności. W obu dokładamy ``{% if b2b.is_company %}…{% else %}…{% endif %}``
+# — cały warunek mieści się w JEDNYM runie, więc XML zostaje poprawny, a umowa
+# JDG renderuje się znak w znak jak przed zmianą. To samo w stronach umowy
+# powierzenia (Załącznik nr 2). § 12 i Załącznik nr 3 dokłada render
+# (``company_variant``), nie szablon.
+
+_COMPANY_MARK = "b2b.is_company"
+
+_COMPANY_HEAD = "{{ candidate.legal_name or '" + _DOTS + "' }} "
+
+_COMPANY_BODY = {
+    "pl": (
+        "z siedzibą {{ b2b.company.seat or '" + _DOTS + "' }}, pod adresem "
+        "{{ candidate.business_address or '" + _DOTS + "' }}, wpisaną do Rejestru "
+        "Przedsiębiorców Krajowego Rejestru Sądowego, prowadzonego przez "
+        "{{ b2b.company.registry_court or '" + _DOTS + "' }}, pod numerem KRS: "
+        "{{ b2b.company.krs or '" + _DOTS + "' }}, NIP: "
+        "{{ candidate.nip or '" + _DOTS + "' }}, REGON: "
+        "{{ candidate.regon or '" + _DOTS + "' }}, o kapitale zakładowym "
+        "{{ b2b.company.share_capital or '" + _DOTS + "' }}, reprezentowaną przez "
+        "{{ b2b.company.representation or '" + _DOTS + "' }}, "
+    ),
+    "en": (
+        "with its registered office in {{ b2b.company.seat or '" + _DOTS + "' }}, "
+        "at the address: {{ candidate.business_address or '" + _DOTS + "' }}, "
+        "entered in the Register of Entrepreneurs of the National Court Register "
+        "kept by {{ b2b.company.registry_court or '" + _DOTS + "' }}, under KRS "
+        "number: {{ b2b.company.krs or '" + _DOTS + "' }}, NIP: "
+        "{{ candidate.nip or '" + _DOTS + "' }}, REGON: "
+        "{{ candidate.regon or '" + _DOTS + "' }}, with share capital of "
+        "{{ b2b.company.share_capital or '" + _DOTS + "' }}, represented by "
+        "{{ b2b.company.representation or '" + _DOTS + "' }}, "
+    ),
+}
+
+# Opis spółki po treści runu z warunkiem — łatka HTML składa warunek od nowa
+# (bez końcowej spacji), więc potrzebuje samego opisu spółki.
+_COMPANY_BODY_BY_JDG: dict[str, str] = {}
+
+_JDG_HEAD_MARK = {"pl": "{{ b2b.g_pan }}", "en": "{{ b2b.g_mr }}"}
+_JDG_BODY_MARK = {"pl": "pod firmą:", "en": "under the name:"}
+
+
+def _company_if(company: str, jdg: str) -> str:
+    # `is defined` — ten sam HTML renderuje też „Generuj z szablonu” na
+    # kontrakcie (`_contract_vars`, StrictUndefined), który wariantu nie zna.
+    cond = f"{_COMPANY_MARK} is defined and {_COMPANY_MARK}"
+    return f"{{% if {cond} %}}{company}{{% else %}}{jdg}{{% endif %}}"
+
+
+def company_variant_pairs(doc: _DocType, lang: str) -> list[tuple[str, str]]:
+    """(tekst runu JDG → tekst z warunkiem) dla komparycji umowy i DPA."""
+    pairs: list[tuple[str, str]] = []
+    for p in doc.paragraphs:
+        runs = p.runs
+        for head, body in zip(runs, runs[1:]):
+            if (
+                head.text.startswith(_JDG_HEAD_MARK[lang])
+                and _JDG_BODY_MARK[lang] in body.text
+                and _COMPANY_MARK not in head.text
+            ):
+                pairs.append((head.text, _company_if(_COMPANY_HEAD, head.text)))
+                wrapped_body = _company_if(_COMPANY_BODY[lang], body.text)
+                _COMPANY_BODY_BY_JDG[wrapped_body] = _COMPANY_BODY[lang]
+                pairs.append((body.text, wrapped_body))
+    return pairs
+
+
+def add_company_variant(doc: _DocType, lang: str) -> int:
+    """Owiń komparycję JDG warunkiem wariantu spółki. Zwraca liczbę komparycji."""
+    wrapped = 0
+    for p in doc.paragraphs:
+        runs = p.runs
+        for head, body in zip(runs, runs[1:]):
+            if (
+                head.text.startswith(_JDG_HEAD_MARK[lang])
+                and _JDG_BODY_MARK[lang] in body.text
+                and _COMPANY_MARK not in head.text
+            ):
+                head.text = _company_if(_COMPANY_HEAD, head.text)
+                body.text = _company_if(_COMPANY_BODY[lang], body.text)
+                wrapped += 1
+    return wrapped
+
+
+def add_company_variant_html(html: str, pairs: list[tuple[str, str]]) -> str:
+    """To samo w lustrze HTML.
+
+    Lustro nie jest kopią runów 1:1 — w umowie głównej po „REGON: …,” stoi od
+    razu ``{% if b2b.correspondence_address %}`` (bez spacji z końca runu), więc
+    szukamy CAŁEJ komparycji ``<strong>nagłówek</strong>opis`` bez końcowych
+    białych znaków i podmieniamy każde wystąpienie osobno. Zwykłe
+    ``str.replace`` samego runu trafiało tylko w umowę powierzenia, a nagłówek
+    (identyczny w obu miejscach) owijało dwa razy."""
+    heads = dict(pairs[0::2])
+    bodies = dict(pairs[1::2])
+    wrapped = 0
+    for head_old, head_new in heads.items():
+        for body_old, body_new in bodies.items():
+            old = f"<strong>{_esc(head_old)}</strong>{_esc(body_old).rstrip()}"
+            new = f"<strong>{_esc(head_new)}</strong>" + _esc(
+                _company_if(_COMPANY_BODY_BY_JDG[body_new].rstrip(), body_old.rstrip())
+            )
+            count = html.count(old)
+            html = html.replace(old, new)
+            wrapped += count
+    if wrapped != 2:
+        raise RuntimeError(
+            f"Oczekiwano 2 komparycji w HTML (umowa + DPA), podmieniono {wrapped}"
+        )
+    return html
+
+
+def patch_company_variant() -> None:
+    """Dołóż wariant spółki do ZACOMMITOWANYCH szablonów (idempotentnie)."""
+    for lang in ("pl", "en"):
+        docx_path = OUT_DIR / f"umowa_b2b_{lang}.docx"
+        html_path = OUT_DIR / f"umowa_b2b_{lang}.html"
+        doc = docx.Document(str(docx_path))
+        pairs = company_variant_pairs(doc, lang)
+        if not pairs:
+            print(f"[{lang}] wariant spółki już jest — bez zmian")
+            continue
+        wrapped = add_company_variant(doc, lang)
+        if wrapped != 2:
+            raise SystemExit(
+                f"[{lang}] oczekiwano 2 komparycji (umowa + DPA), jest {wrapped}"
+            )
+        doc.save(str(docx_path))
+        html = add_company_variant_html(html_path.read_text(encoding="utf-8"), pairs)
+        html_path.write_text(html, encoding="utf-8")
+        print(f"[{lang}] ✅ wariant spółki: {wrapped} komparycje")
+
+
+# ── Stawka progresywna: podpunkty a) b) ───────────────────────────────────────
+
+_RATE_MARK = "{{ b2b.rate_clause }}"
+_RATE_LINES = "b2b.rate_lines | default([])"
+# Końcówka zdania o stawce; po niej zdanie się kończy, więc idzie za ostatni podpunkt.
+_RATE_ENDING = {
+    "pl": " netto + VAT.",
+    "en": " net + VAT in accordance with the applicable regulations.",
+}
+
+
+def _rate_sentence(lang: str) -> tuple[str, str]:
+    """(„w wysokości {{ stawka }} netto + VAT.” → to samo z warunkiem listy)."""
+    old = f" {_RATE_MARK}{_RATE_ENDING[lang]}"
+    new = (
+        f"{{% if {_RATE_LINES} %}}:{{% else %}}"
+        f" {_RATE_MARK}{_RATE_ENDING[lang]}{{% endif %}}"
+    )
+    return old, new
+
+
+def _line_text(lang: str) -> str:
+    return f"{{{{ line }}}}{{% if loop.last %}}{_RATE_ENDING[lang]}{{% endif %}}"
+
+
+def add_rate_lines(doc: _DocType, lang: str) -> bool:
+    """Po zdaniu o stawce dołóż pętlę akapitów z podpunktami. Zwraca, czy zmienił."""
+    old, new = _rate_sentence(lang)
+    for p in doc.paragraphs:
+        for run in p.runs:
+            if old not in run.text or _RATE_LINES in run.text:
+                continue
+            run.text = run.text.replace(old, new)
+            anchor = p._p
+            for text in (
+                f"{{%p for line in {_RATE_LINES} %}}",
+                _line_text(lang),
+                "{%p endfor %}",
+            ):
+                line = deepcopy(p._p)
+                # Identyfikatory akapitu Worda muszą zostać jednoznaczne.
+                for attr in [
+                    a for a in line.attrib if a.endswith(("paraId", "textId"))
+                ]:
+                    del line.attrib[attr]
+                anchor.addnext(line)
+                anchor = line
+                para = Paragraph(line, p._parent)
+                para.runs[0].text = text
+                # Podpunkt nie jest kolejnym ustępem: bez numeracji, tekst pod
+                # tekstem ustępu (wcięcie z poziomu 0 listy numId 5).
+                p_pr = line.get_or_add_pPr()
+                p_pr.remove(p_pr.numPr)
+                para.paragraph_format.left_indent = Twips(360)
+                para.paragraph_format.first_line_indent = Twips(0)
+            return True
+    return False
+
+
+def add_rate_lines_html(html: str, lang: str) -> str:
+    old, new = _rate_sentence(lang)
+    if html.count(old) != 1:
+        raise RuntimeError(f"[{lang}] oczekiwano 1 zdania o stawce w HTML")
+    head, tail = html.split(old)
+    end = tail.index("</p>") + len("</p>")
+    lines = (
+        f"\n{{% for line in {_RATE_LINES} %}}<p>{_line_text(lang)}</p>{{% endfor %}}"
+    )
+    return f"{head}{new}{tail[:end]}{lines}{tail[end:]}"
+
+
+def patch_rate_lines() -> None:
+    """Dołóż podpunkty stawki do ZACOMMITOWANYCH szablonów (idempotentnie)."""
+    for lang in ("pl", "en"):
+        docx_path = OUT_DIR / f"umowa_b2b_{lang}.docx"
+        html_path = OUT_DIR / f"umowa_b2b_{lang}.html"
+        doc = docx.Document(str(docx_path))
+        if not add_rate_lines(doc, lang):
+            print(f"[{lang}] podpunkty stawki już są — bez zmian")
+            continue
+        doc.save(str(docx_path))
+        html = add_rate_lines_html(html_path.read_text(encoding="utf-8"), lang)
+        html_path.write_text(html, encoding="utf-8")
+        print(f"[{lang}] ✅ podpunkty stawki")
+
+
 def _lowercase_net_in_paragraph(p: Paragraph, target: str = "B2B.NET") -> int:
     """Zamień „NET" na „net" w każdym wystąpieniu „B2B.NET" w akapicie.
 
@@ -438,6 +673,7 @@ def build(lang: str, src: Path, rules) -> None:
     patch_appendix_table(doc, lang)
     unbold_partner(doc)
     format_komparycja(doc)  # bold tylko „Pan/Pani + imię i nazwisko"
+    add_company_variant(doc, lang)  # komparycja spółki (ticket 8) — po podziale runów
     normalize_company_name(
         doc
     )  # „B2B.NET S.A." → „B2B.net S.A." (skrót „B2BNET" bez zmian)
@@ -445,8 +681,10 @@ def build(lang: str, src: Path, rules) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     docx_path = OUT_DIR / f"umowa_b2b_{lang}.docx"
     html_path = OUT_DIR / f"umowa_b2b_{lang}.html"
+    # Podpunkty stawki po `doc_to_html`: lustro HTML ma pętlę Jinja, nie `{%p %}`.
+    html = add_rate_lines_html(doc_to_html(doc), lang)
+    add_rate_lines(doc, lang)
     doc.save(str(docx_path))
-    html = doc_to_html(doc)
     html_path.write_text(html, encoding="utf-8")
 
     # ── Weryfikacja ──
@@ -473,6 +711,12 @@ def build(lang: str, src: Path, rules) -> None:
 
 
 def main() -> None:
+    if "--company-variant" in sys.argv[1:]:
+        patch_company_variant()
+        return
+    if "--rate-lines" in sys.argv[1:]:
+        patch_rate_lines()
+        return
     pl_src = Path(sys.argv[1]) if len(sys.argv) > 2 else DEFAULT_PL
     en_src = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_EN
     for path in (pl_src, en_src):

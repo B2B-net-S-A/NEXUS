@@ -171,7 +171,8 @@ def test_non_finite_or_absurd_md_goes_to_skipped_rows(md_cell, reason_fragment):
     assert reason_fragment in skipped["reason"]
 
 
-def test_non_finite_invoice_amount_goes_to_skipped_rows():
+def test_non_finite_invoice_amount_keeps_md_and_flags_the_invoice():
+    """Runda 10 (R10-N5-5): MD zostają, kwota faktury NIE jest używana."""
     content = _book(
         [
             ["Konsultant", "MD", "Uwagi", "Faktura"],
@@ -180,15 +181,18 @@ def test_non_finite_invoice_amount_goes_to_skipped_rows():
         ]
     )
     parsed = parse_md_sheet(content)
-    assert [row.consultant_name for row in parsed.rows] == ["Jan Kowalski"]
-    assert parsed.rows[0].invoice_amount == Decimal("1000.00")
-    assert parsed.skipped_rows == [
-        {
-            "row": 3,
-            "reason": "kwota faktury nie jest skończoną liczbą ('NaN')",
-            "consultant_name": "Anna Nowak",
-        }
+    assert [row.consultant_name for row in parsed.rows] == [
+        "Jan Kowalski",
+        "Anna Nowak",
     ]
+    assert parsed.rows[0].invoice_amount == Decimal("1000.00")
+    assert parsed.rows[0].invoice_problem is None
+    assert parsed.rows[1].md_reported == Decimal("5")
+    assert parsed.rows[1].invoice_amount is None
+    assert parsed.rows[1].invoice_problem == (
+        "kwota faktury nie jest skończoną liczbą ('NaN')"
+    )
+    assert parsed.skipped_rows == []
 
 
 def test_md_boundaries_are_inclusive():
@@ -218,8 +222,9 @@ def test_money_with_thousand_dots_or_english_format_is_read(raw, expected):
     assert parse_money_value(raw) == expected
 
 
-def test_unreadable_invoice_cell_goes_to_skipped_rows_with_a_reason():
-    """Niepusta, nieczytelna kwota faktury nie znika po cichu."""
+def test_unreadable_invoice_cell_is_flagged_and_md_stays():
+    """Niepusta, nieczytelna kwota faktury nie znika po cichu — a od rundy 10
+    (R10-N5-5) nie zabiera też ze sobą poprawnej liczby MD."""
     content = _book(
         [
             ["Konsultant", "MD", "Uwagi", "Faktura"],
@@ -229,16 +234,21 @@ def test_unreadable_invoice_cell_goes_to_skipped_rows_with_a_reason():
         ]
     )
     parsed = parse_md_sheet(content)
-    assert [row.consultant_name for row in parsed.rows] == ["Jan Kowalski", "Ewa Lis"]
-    assert parsed.rows[0].invoice_amount == Decimal("20900.00")
-    assert parsed.rows[1].invoice_amount is None
-    assert parsed.skipped_rows == [
-        {
-            "row": 3,
-            "reason": "nieczytelna kwota faktury ('do ustalenia')",
-            "consultant_name": "Anna Nowak",
-        }
+    assert [row.consultant_name for row in parsed.rows] == [
+        "Jan Kowalski",
+        "Anna Nowak",
+        "Ewa Lis",
     ]
+    assert parsed.rows[0].invoice_amount == Decimal("20900.00")
+    assert parsed.rows[1].md_reported == Decimal("5")
+    assert parsed.rows[1].invoice_amount is None
+    assert parsed.rows[1].invoice_problem == (
+        "nieczytelna kwota faktury ('do ustalenia')"
+    )
+    # Kreska to świadomie pusta faktura, nie nieczytelna.
+    assert parsed.rows[2].invoice_amount is None
+    assert parsed.rows[2].invoice_problem is None
+    assert parsed.skipped_rows == []
 
 
 def test_import_route_parses_the_sheet_off_the_event_loop():

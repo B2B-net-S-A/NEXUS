@@ -12,8 +12,11 @@ from sqlalchemy.dialects import postgresql
 from app.models.m365 import M365Connection, M365SyncStatus
 from app.models.recruitment_pipeline import PipelineStage
 from app.models.rejection_email import RejectionEmailStatus
+from app.models.app_setting import AppSetting
 from app.models.section_permission import (
+    RoleActionPermission,
     RoleSectionPermission,
+    UserActionOverride,
     UserSectionOverride,
 )
 from app.models.user import User, UserRole
@@ -26,6 +29,17 @@ from app.services.section_permissions import (
     ProductSection,
 )
 from app.tasks import m365_cv_parse, microsoft365_sync
+
+# Resolver dostępu czyta sekcje i akcje jednym wejściem. Atrapa zwraca tylko
+# wiersze sekcji — rola bez wierszy akcji jest liczona regułą zasiewu.
+POLICY_ENTITIES = {
+    # Wiersz „Kto co dostaje” (powiadomienia wyłączone dla roli) — pusty.
+    AppSetting,
+    RoleActionPermission,
+    RoleSectionPermission,
+    UserActionOverride,
+    UserSectionOverride,
+}
 
 
 def _user(role: UserRole) -> User:
@@ -71,7 +85,7 @@ def _policy_db() -> AsyncMock:
     async def _scalars(statement):
         entity = statement.column_descriptions[0].get("entity")
         rows = role_rows if entity is RoleSectionPermission else []
-        assert entity in {RoleSectionPermission, UserSectionOverride}
+        assert entity in POLICY_ENTITIES
         return SimpleNamespace(all=lambda: rows)
 
     db.scalars.side_effect = _scalars
@@ -86,7 +100,7 @@ async def test_cv_worker_commits_result_outside_graph_sync(monkeypatch) -> None:
         email_id=72,
         parsed_candidate_id=None,
     )
-    email = SimpleNamespace(id=72, candidate_id=37)
+    email = SimpleNamespace(id=72, candidate_id=37, match_method=None)
     db = AsyncMock()
     db.scalar.return_value = attachment
     db.get.return_value = email
@@ -384,6 +398,10 @@ async def test_rejection_worker_treats_role_change_at_send_as_terminal_skip(
     db.get.return_value = _user(UserRole.recruiter)
     send_new = AsyncMock(side_effect=M365OwnerIneligible("role changed"))
     monkeypatch.setattr(sender, "send_new", send_new)
+    # Wspólny mail (17.10.2026, D3): ten wiersz nie ma dołączonych maili.
+    monkeypatch.setattr(
+        rejection_email_scheduler, "covered_job_ids", AsyncMock(return_value=[80])
+    )
 
     await rejection_email_scheduler.dispatch(db, row.id)
 

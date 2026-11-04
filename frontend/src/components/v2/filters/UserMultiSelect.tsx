@@ -16,6 +16,7 @@ import {
  CommandList,
  CommandSeparator,
 } from"@/components/ui/command";
+import { PickerQueryState } from"@/components/v2/filters/PickerQueryState";
 
 interface UserBrief {
  id: number;
@@ -39,6 +40,10 @@ interface UserMultiSelectProps {
   * drugiego zapytania i bez nowego klucza cache.
   */
  onlyRoles?: readonly string[];
+ /** Osoby, których nie da się wybrać (np. prowadzący przy współpracownikach). */
+ excludeIds?: readonly number[];
+ /** Dostępna nazwa przycisku, gdy obok nie ma widocznej etykiety `<label>`. */
+ ariaLabel?: string;
 }
 
 const DEFAULT_TRIGGER_WIDTH ="w-[220px]";
@@ -56,17 +61,20 @@ export function UserMultiSelect({
  searchPlaceholder ="Szukaj rekrutera…",
  triggerWidthClass = DEFAULT_TRIGGER_WIDTH,
  onlyRoles,
+ excludeIds,
+ ariaLabel,
 }: UserMultiSelectProps) {
  const [open, setOpen] = useState(false);
- const { data } = useQuery<UserBrief[]>({
+ const { data, isPending, isError, isSuccess, refetch } = useQuery<UserBrief[]>({
  queryKey: ["users-directory"],
  queryFn: () => api.get("/api/users").then((r) => r.data),
  staleTime: 60_000,
  });
  const users = (data ?? []).filter(
  (u) =>
- !onlyRoles ||
- onlyRoles.some((r) => u.role === r || (u.roles ?? []).includes(r)),
+ (!onlyRoles ||
+ onlyRoles.some((r) => u.role === r || (u.roles ?? []).includes(r))) &&
+ !(excludeIds ?? []).includes(u.id),
  );
  const selected = new Set(value);
 
@@ -96,6 +104,7 @@ export function UserMultiSelect({
  variant="outline"
  className={cn("justify-between", triggerWidthClass)}
  aria-expanded={open}
+ aria-label={ariaLabel ? `${ariaLabel}: ${label}` : undefined}
  >
  <span className="flex items-center gap-2 truncate">
  <UserCircle className="h-4 w-4" /> {label}
@@ -107,7 +116,14 @@ export function UserMultiSelect({
  <Command>
  <CommandInput placeholder={searchPlaceholder} />
  <CommandList>
- <CommandEmpty>Brak użytkowników.</CommandEmpty>
+ <PickerQueryState
+ isPending={isPending}
+ isError={isError}
+ onRetry={() => void refetch()}
+ loadingLabel="Ładowanie listy osób…"
+ errorLabel="Nie udało się pobrać listy osób."
+ />
+ {isSuccess && <CommandEmpty>Brak użytkowników.</CommandEmpty>}
  <CommandGroup>
  {users.map((u) => {
  const isSelected = selected.has(u.id);

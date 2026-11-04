@@ -7,6 +7,7 @@ import { cloudtalkApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useToast } from "@/components/Toast";
 
+import { formatPhone } from "@/lib/phone-format";
 interface CallButtonProps {
   candidateId: number;
   phone: string | null;
@@ -80,7 +81,7 @@ export default function CallButton({
         ) : (
           <Phone className="h-3.5 w-3.5 text-muted-foreground" />
         )}
-        {phone}
+        {formatPhone(phone)}
       </button>
     );
   }

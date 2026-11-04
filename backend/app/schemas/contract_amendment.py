@@ -25,6 +25,16 @@ class ContractAmendmentCreate(BaseModel):
     new_team_name: Optional[str] = None
 
 
+class AmendmentDocument(BaseModel):
+    """Plik aneksu w Dokumentach kontraktu."""
+
+    id: int
+    filename: str
+    #: Skan z podpisami wgrany przez człowieka, a nie DOCX wygenerowany przez
+    #: NEXUS (ten jest wersją roboczą, bez podpisów).
+    is_signed_scan: bool = False
+
+
 class ContractAmendmentResponse(BaseModel):
     id: int
     contract_id: int
@@ -37,5 +47,31 @@ class ContractAmendmentResponse(BaseModel):
     created_by: Optional[int] = None
     created_by_email: Optional[str] = None
     created_at: datetime
+    # Zakładka „Aneksy” jako tabela (13.10.2026) — pola dokładane, stare zostają.
+    created_by_name: Optional[str] = None
+    #: ``generator`` = aneks podpisany w Generatorze aneksów, ``manual`` =
+    #: dodany przyciskami w kontrakcie.
+    source: str = "manual"
+    b2b_document_id: Optional[int] = None
+    #: ``in_force`` albo ``signed_pending`` (dzień wejścia w życie nie nadszedł).
+    state: str = "in_force"
+    document: Optional[AmendmentDocument] = None
 
     model_config = {"from_attributes": True}
+
+
+class ContractAnnexDocument(BaseModel):
+    """Aneks z Generatora aneksów, którego historia kontraktu jeszcze (albo
+    wcale) nie zapisała: czeka na podpis, anulowany, podpisany bez zmiany
+    w kontrakcie. Rzut dokumentu — nie wiersz ``contract_amendments``."""
+
+    document_id: int
+    document_type: str
+    type_label: str
+    state: str
+    effective_date: Optional[date] = None
+    #: ``annex_summary.annex_change`` — kwoty tylko z wglądem w stawki klienta.
+    change: Optional[dict] = None
+    cancelled_reason: Optional[str] = None
+    created_at: Optional[datetime] = None
+    created_by_name: Optional[str] = None

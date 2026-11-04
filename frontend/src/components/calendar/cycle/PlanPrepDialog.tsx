@@ -6,22 +6,40 @@ import { Video } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
 import ScheduleInterviewModal from "@/components/calendar/ScheduleInterviewModal";
+import { PrepPeoplePicker } from "@/components/calendar/cycle/PrepPeoplePicker";
 import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
-import { prepMeetingsApi, usePrepOptions } from "@/lib/api/prepMeetings";
+import {
+  PREP_FOLLOWUP_REASON_LABELS,
+  followupInvitationLine,
+  isPrepSlotBusy,
+  prepMeetingsApi,
+  usePrepOptions,
+} from "@/lib/api/prepMeetings";
 import { candidateLabel, pairContext, type PairInfo } from "@/lib/interview-cycle";
+import {
+  looksLikeRoleCode,
+  renderInvitationPreview,
+  roleSectionHeading,
+} from "@/lib/prep-invitation";
+import {
+  NO_INVITEES,
+  invitablePeople,
+  recommendedPeople,
+  removeUser,
+  type Invitees,
+} from "@/lib/prep-people";
+import {
+  defaultPrepStart,
+  prepStartInPast,
+  prepTimingWarning,
+  type PrepInterview,
+} from "@/lib/prep-timing";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/auth";
 
 const INPUT =
   "w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
-
-function nextWorkdayAt(hour: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(hour)}:00`;
-}
 
 /** Czyste: organizator podpowiadany przez serwer dla tego prepu (albo brak). */
 export function defaultOrganizerId(
@@ -39,30 +57,63 @@ export function defaultOrganizerId(
  *
  * Gdy integracja z Teams nie jest włączona (serwer: `enabled=false`), okno
  * ustępuje dotychczasowemu zaproszeniu przez połączone konto M365 twórcy.
+ *
+ * `interview` — rozmowa u klienta, do której robi się prep (runda 10, F08):
+ * termin podpowiada się PRZED nią, a nakładanie się albo prep po rozmowie
+ * dają ostrzeżenie. Termin jeszcze niepotwierdzony (`tentative`) działa tak
+ * samo. Bez rozmowy — jutro, 10:00.
+ *
+ * Okno pokazuje dokładnie to, co dostanie kandydat (tytuł i treść z serwera),
+ * i mówi wprost, w czyim kalendarzu powstaje spotkanie i kto dostaje
+ * zaproszenie — 02.10.2026 osoba planująca prep „dla DL” spodziewała się go
+ * u siebie. Od 17.10.2026 (D1, D3) zaprasza się kogokolwiek z NEXUSA albo
+ * dowolny adres, a planujący za kogoś jest na liście od razu — spotkanie
+ * ma też u siebie.
+ *
+ * Od 26.10.2026 (D1–D3) zaproszenie niesie stanowisko i opis roli z Profilu
+ * Championa. Oba da się poprawić tylko dla tego zaproszenia; stanowisko,
+ * które wygląda jak kod klienta („…_TP#40379”), dostaje ostrzeżenie.
  */
 export function PlanPrepDialog({
   open,
   onOpenChange,
   pair,
   prepNo,
+  interview = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pair: PairInfo;
   prepNo: 1 | 2;
+  interview?: PrepInterview | null;
 }) {
   const toast = useToast();
   const qc = useQueryClient();
   const options = usePrepOptions(open ? pair.candidate_id : null, open ? pair.job_id : null);
+  const currentUserId = useAuthStore((st) => st.user?.id ?? null);
   const [organizerId, setOrganizerId] = useState<number | null>(null);
-  const [attendees, setAttendees] = useState<number[]>([]);
-  const [start, setStart] = useState(nextWorkdayAt(10));
+  const [invitees, setInvitees] = useState<Invitees>(NO_INVITEES);
+  const [start, setStart] = useState(() => defaultPrepStart(interview, prepNo, 45));
   const [duration, setDuration] = useState(45);
   const [note, setNote] = useState("");
+  const [addFollowupLine, setAddFollowupLine] = useState(false);
+  // Stanowisko i opis z okna; `null` = wartość z serwera (Champion).
+  const [roleTitleEdit, setRoleTitleEdit] = useState<string | null>(null);
+  const [roleTextEdit, setRoleTextEdit] = useState<string | null>(null);
+  const [withRole, setWithRole] = useState(true);
+  const [editingRole, setEditingRole] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 409 PREP_SLOT_BUSY: prowadzący ma wtedy zajęte — „Zapisz mimo to” (22.10.2026).
+  const [busyClash, setBusyClash] = useState(false);
   // Stały identyfikator próby — ponowienie po utracie odpowiedzi nie założy
   // drugiego spotkania (serwer → `transactionId` w Graphie).
   const requestId = useRef<string>("");
+
+  // „Zapisz mimo to” dotyczy terminu i prowadzącego z odpowiedzi 409 — po
+  // zmianie któregoś z nich ostrzeżenie już nie pasuje.
+  useEffect(() => {
+    setBusyClash(false);
+  }, [start, duration, organizerId]);
 
   useEffect(() => {
     if (!open) return;
@@ -70,22 +121,70 @@ export function PlanPrepDialog({
       typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random()}`;
-    setStart(nextWorkdayAt(10));
+    setStart(defaultPrepStart(interview, prepNo, 45));
     setDuration(45);
     setNote("");
+    setAddFollowupLine(false);
+    setRoleTitleEdit(null);
+    setRoleTextEdit(null);
+    setWithRole(true);
+    setEditingRole(false);
     setError(null);
-    setAttendees([]);
-  }, [open, prepNo, pair.candidate_id, pair.job_id]);
+    setInvitees(NO_INVITEES);
+    // `interview?.start`, nie obiekt — wołający składa go przy każdym renderze.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, prepNo, pair.candidate_id, pair.job_id, interview?.start, interview?.end]);
 
   useEffect(() => {
-    if (options.data) setOrganizerId(defaultOrganizerId(options.data.suggested, prepNo));
-  }, [options.data, prepNo]);
+    if (!options.data) return;
+    const organizer = defaultOrganizerId(options.data.suggested, prepNo);
+    setOrganizerId(organizer);
+    // Planujący za kogoś jest zaproszony od razu — spotkanie ma też u siebie
+    // (D3); może się usunąć z listy.
+    setInvitees(
+      currentUserId != null && currentUserId !== organizer
+        ? { userIds: [currentUserId], emails: [] }
+        : NO_INVITEES,
+    );
+  }, [options.data, prepNo, currentUserId]);
+
+  const timingWarning = prepTimingWarning(start, duration, interview);
+  const startInPast = prepStartInPast(start);
 
   const team = useMemo(() => options.data?.team ?? [], [options.data]);
-  const others = team.filter((p) => p.id !== organizerId);
+  const people = useMemo(() => invitablePeople(options.data), [options.data]);
+  const organizerName = team.find((p) => p.id === organizerId)?.name ?? "";
+  const excluded = useMemo(
+    () => new Set(organizerId != null ? [organizerId] : []),
+    [organizerId],
+  );
+  const recommended = recommendedPeople(
+    options.data?.suggested,
+    people,
+    new Set([...excluded, ...invitees.userIds]),
+  );
+  const invitation = options.data?.invitation?.[String(prepNo)] ?? null;
+  // Serwer wpisuje termin rozmowy do treści tylko, gdy prep jest przed nią.
+  // Prep 2: notatka z oceny Prepu 1 i opcjonalne zdanie do zaproszenia (bez ocen).
+  const followup = prepNo === 2 ? (options.data?.prep1_followup ?? []) : [];
+  const followupLine = followupInvitationLine(followup);
+  const invitationNote = [note.trim(), addFollowupLine && followupLine ? followupLine : ""]
+    .filter(Boolean)
+    .join("\n\n");
+
+  // Starszy serwer nie zna stanowiska i opisu — okno ich wtedy nie pokazuje.
+  const roleKnown = options.data?.role_title !== undefined;
+  const roleTitle = roleTitleEdit ?? options.data?.role_title ?? "";
+  const roleText = roleTextEdit ?? options.data?.role_description ?? "";
+  const hasRoleText = roleText.trim() !== "";
+  const roleIncluded = roleKnown && withRole && hasRoleText;
+  const roleFindings = roleTextEdit == null ? (options.data?.role_description_findings ?? []) : [];
+
+  const beforeInterview =
+    !interview || interview.tentative || new Date(start) < new Date(interview.start);
 
   const mutation = useMutation({
-    mutationFn: () => {
+    mutationFn: (acceptBusy: boolean) => {
       const startDate = new Date(start);
       const end = new Date(startDate.getTime() + duration * 60_000);
       return prepMeetingsApi.create({
@@ -95,9 +194,14 @@ export function PlanPrepDialog({
         organizer_user_id: organizerId as number,
         start: startDate.toISOString(),
         end: end.toISOString(),
-        attendee_user_ids: attendees,
-        note: note.trim() || null,
+        attendee_user_ids: invitees.userIds.filter((id) => id !== organizerId),
+        attendee_emails: invitees.emails,
+        note: invitationNote || null,
         client_request_id: requestId.current,
+        accept_busy: acceptBusy,
+        ...(roleKnown
+          ? { role_title: roleTitle.trim() || null, role_description: roleIncluded ? roleText : "" }
+          : {}),
       });
     },
     onSuccess: (prep) => {
@@ -110,7 +214,10 @@ export function PlanPrepDialog({
       );
       onOpenChange(false);
     },
-    onError: (err) => setError(apiErrorMessage(err, "Nie udało się zaplanować prepu.")),
+    onError: (err) => {
+      setBusyClash(isPrepSlotBusy(err));
+      setError(apiErrorMessage(err, "Nie udało się zaplanować prepu."));
+    },
   });
 
   if (!open) return null;
@@ -125,13 +232,19 @@ export function PlanPrepDialog({
         candidateEmail={pair.candidate_email}
         defaultJobId={pair.job_id}
         defaultEventType="prep_call"
-        defaultTitle={`Prep ${prepNo}: ${candidateLabel(pair)}`}
+        defaultTitle={
+          options.data.invitation?.[String(prepNo)]?.title ??
+          `Przygotowanie do spotkania z Klientem - ${candidateLabel(pair)}`
+        }
+        defaultStart={defaultPrepStart(interview, prepNo, 45)}
+        prepFor={interview}
       />
     );
   }
 
-  const submit = () => {
+  const submit = (acceptBusy = false) => {
     setError(null);
+    setBusyClash(false);
     if (organizerId == null) {
       setError("Wybierz, kto prowadzi prep.");
       return;
@@ -140,7 +253,7 @@ export function PlanPrepDialog({
       setError("Podaj termin prepu.");
       return;
     }
-    mutation.mutate();
+    mutation.mutate(acceptBusy);
   };
 
   return (
@@ -158,9 +271,19 @@ export function PlanPrepDialog({
           >
             Anuluj
           </button>
+          {busyClash ? (
+            <button
+              type="button"
+              onClick={() => submit(true)}
+              disabled={mutation.isPending}
+              className="h-9 rounded-md border border-border bg-card px-4 text-sm font-semibold hover:bg-muted disabled:opacity-50"
+            >
+              Zapisz mimo to
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={submit}
+            onClick={() => submit()}
             disabled={mutation.isPending || options.isPending}
             className="h-9 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
@@ -184,7 +307,11 @@ export function PlanPrepDialog({
             <select
               id="prep-organizer"
               value={organizerId ?? ""}
-              onChange={(e) => setOrganizerId(e.target.value ? Number(e.target.value) : null)}
+              onChange={(e) => {
+                const next = e.target.value ? Number(e.target.value) : null;
+                setOrganizerId(next);
+                if (next != null) setInvitees((v) => removeUser(v, next));
+              }}
               className={INPUT}
             >
               <option value="">Wybierz osobę</option>
@@ -195,40 +322,24 @@ export function PlanPrepDialog({
                 </option>
               ))}
             </select>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Spotkanie powstanie w kalendarzu tej osoby (Outlook i Teams). Zaproszenie dostanie
+              kandydat i osoby z pola „Zaproś”.
+              {organizerId != null && currentUserId != null && organizerId !== currentUserId
+                ? " Planujesz za nią — jesteś na liście zaproszonych, więc spotkanie będzie też u Ciebie."
+                : ""}
+            </p>
           </div>
-          {others.length > 0 ? (
-            <fieldset>
-              <legend className="mb-1 text-xs font-semibold text-muted-foreground">
-                Dołączają też (opcjonalnie)
-              </legend>
-              <div className="flex flex-wrap gap-2">
-                {others.map((p) => {
-                  const checked = attendees.includes(p.id);
-                  return (
-                    <label
-                      key={p.id}
-                      className={cn(
-                        "inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs",
-                        checked ? "border-primary bg-primary/10 text-primary" : "border-border",
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        className="sr-only"
-                        checked={checked}
-                        onChange={() =>
-                          setAttendees((a) =>
-                            checked ? a.filter((id) => id !== p.id) : [...a, p.id],
-                          )
-                        }
-                      />
-                      {p.name}
-                    </label>
-                  );
-                })}
-              </div>
-            </fieldset>
-          ) : null}
+          <PrepPeoplePicker
+            id="prep-invitees"
+            label="Zaproś (opcjonalnie)"
+            people={people}
+            value={invitees}
+            onChange={setInvitees}
+            exclude={excluded}
+            currentUserId={currentUserId}
+            recommended={recommended}
+          />
           <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
             <div>
               <label htmlFor="prep-start" className="mb-1 block text-xs font-semibold text-muted-foreground">
@@ -260,9 +371,65 @@ export function PlanPrepDialog({
               </select>
             </div>
           </div>
+          {startInPast ? (
+            <p
+              role="status"
+              data-testid="prep-past-warning"
+              className="rounded-md bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
+            >
+              Ten termin już minął. Sprawdź datę i godzinę — kandydat dostałby zaproszenie na
+              spotkanie w przeszłości.
+            </p>
+          ) : null}
+          {timingWarning ? (
+            <p
+              role="status"
+              data-testid="prep-timing-warning"
+              className="rounded-md bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
+            >
+              {timingWarning}
+            </p>
+          ) : null}
+          {followup.length > 0 ? (
+            <section
+              aria-label="Notatka do follow-upu"
+              data-testid="prep2-followup-note"
+              className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm"
+            >
+              <h3 className="font-semibold text-foreground">
+                Notatka do follow-upu <span className="font-normal text-muted-foreground">· widzi tylko zespół</span>
+              </h3>
+              <p className="text-xs text-muted-foreground">Z oceny Prepu 1 — te punkty AI sprawdzi na Prepie 2.</p>
+              <ol className="mt-2 flex flex-col gap-1.5">
+                {followup.map((item, i) => (
+                  <li key={item.key}>
+                    <div className="flex items-start gap-2">
+                      <span className="tabular-nums text-muted-foreground">{i + 1}.</span>
+                      <span className="min-w-0 flex-1 text-foreground">{item.label}</span>
+                      {item.reason ? (
+                        <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs font-semibold text-foreground">
+                          {PREP_FOLLOWUP_REASON_LABELS[item.reason]}
+                        </span>
+                      ) : null}
+                    </div>
+                    {item.note ? <p className="pl-5 text-xs text-muted-foreground">Przećwicz: {item.note}</p> : null}
+                  </li>
+                ))}
+              </ol>
+              <label className="mt-3 flex items-start gap-2 text-xs text-foreground">
+                <input
+                  type="checkbox"
+                  checked={addFollowupLine}
+                  onChange={(e) => setAddFollowupLine(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>Dopisz do zaproszenia kandydata „{followupLine}” — bez ocen</span>
+              </label>
+            </section>
+          ) : null}
           <div>
             <label htmlFor="prep-note" className="mb-1 block text-xs font-semibold text-muted-foreground">
-              Wiadomość w zaproszeniu (opcjonalnie)
+              Dopisek do zaproszenia (opcjonalnie)
             </label>
             <textarea
               id="prep-note"
@@ -273,6 +440,128 @@ export function PlanPrepDialog({
               className={cn(INPUT, "resize-none")}
             />
           </div>
+          {roleKnown ? (
+            <div data-testid="prep-role">
+              <label htmlFor="prep-role-title" className="mb-1 block text-xs font-semibold text-muted-foreground">
+                Stanowisko w zaproszeniu
+              </label>
+              <input
+                id="prep-role-title"
+                value={roleTitle}
+                maxLength={200}
+                onChange={(e) => setRoleTitleEdit(e.target.value)}
+                className={cn(INPUT, looksLikeRoleCode(roleTitle) && "border-warning")}
+              />
+              {looksLikeRoleCode(roleTitle) ? (
+                <p
+                  role="status"
+                  data-testid="prep-role-title-warning"
+                  className="mt-1 rounded-md bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+                >
+                  To nie wygląda na nazwę roli. Wpisz stanowisko, które kandydat zrozumie. Poprawka
+                  dotyczy tylko tego zaproszenia.
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {options.data?.role_title_source === "champion"
+                    ? "Z Profilu Championa."
+                    : "Z nazwy rekrutacji od klienta, bez numerów."}{" "}
+                  Poprawka dotyczy tylko tego zaproszenia.
+                </p>
+              )}
+              {options.data?.role_description ? (
+                <div className="mt-3 space-y-2">
+                  <label className="flex items-start gap-2 text-sm text-foreground">
+                    <input
+                      id="prep-role-include"
+                      type="checkbox"
+                      checked={withRole}
+                      onChange={(e) => setWithRole(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <span className="font-semibold">Dołącz opis roli</span>{" "}
+                      <span className="text-xs text-muted-foreground">
+                        · z Profilu Championa, bez stawki
+                      </span>
+                    </span>
+                  </label>
+                  {withRole && !editingRole ? (
+                    <button
+                      type="button"
+                      onClick={() => setEditingRole(true)}
+                      className="text-xs font-semibold text-primary hover:underline"
+                    >
+                      Edytuj w tym zaproszeniu
+                    </button>
+                  ) : null}
+                  {withRole && editingRole ? (
+                    <textarea
+                      id="prep-role-text"
+                      aria-label="Opis roli w zaproszeniu"
+                      rows={8}
+                      maxLength={4000}
+                      value={roleText}
+                      onChange={(e) => setRoleTextEdit(e.target.value)}
+                      className={INPUT}
+                    />
+                  ) : null}
+                  {withRole && roleFindings.length > 0 ? (
+                    <p
+                      role="status"
+                      className="rounded-md bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+                    >
+                      Opis z Championa zawiera treść, której nie wysyłamy kandydatowi:{" "}
+                      {roleFindings.map((f) => `„${f.excerpt}”`).join(", ")}. Popraw go w edycji albo
+                      wyłącz opis.
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <p
+                  role="status"
+                  data-testid="prep-role-missing"
+                  className="mt-3 rounded-md bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+                >
+                  Profil Championa nie ma opisu projektu ani obowiązków, więc zaproszenie pójdzie bez
+                  opisu roli.{" "}
+                  <a href={`/jobs/${pair.job_id}?tab=champion`} className="font-semibold underline">
+                    Uzupełnij Championa
+                  </a>
+                </p>
+              )}
+            </div>
+          ) : null}
+          {invitation ? (
+            <section
+              aria-label="Podgląd zaproszenia"
+              data-testid="prep-invitation-preview"
+              className="rounded-lg border border-border p-3 text-xs"
+            >
+              <h3 className="mb-1 font-semibold text-muted-foreground">Kandydat dostanie</h3>
+              <p className="text-sm font-semibold text-foreground">{invitation.title}</p>
+              <p className="mt-2 whitespace-pre-line text-foreground">
+                {renderInvitationPreview(invitation, {
+                  note: invitationNote,
+                  organizer: organizerName || "(prowadzący)",
+                  beforeInterview,
+                  role: roleKnown ? roleTitle : "",
+                  withRole: roleIncluded,
+                })}
+              </p>
+              {roleIncluded ? (
+                <details data-testid="prep-invitation-role" className="mt-2 border-t border-border pt-2">
+                  <summary className="cursor-pointer font-semibold text-foreground">
+                    {roleSectionHeading(roleTitle)}
+                  </summary>
+                  <p className="mt-1 whitespace-pre-line text-foreground">{roleText.trim()}</p>
+                </details>
+              ) : null}
+              <p className="mt-2 border-t border-border pt-2 italic text-muted-foreground">
+                {options.data?.notice}
+              </p>
+            </section>
+          ) : null}
           <div className="flex gap-2 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
             <Video className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
             <div className="space-y-1">
@@ -282,11 +571,23 @@ export function PlanPrepDialog({
                   : "Włącz transkrypcję w Teams na początku rozmowy."}{" "}
                 Po spotkaniu NEXUS zapisze notatkę i oceni prep.
               </p>
-              <p>Kandydat dostanie w zaproszeniu informację: „{options.data?.notice}”</p>
+              <p>
+                Zmienić albo odwołać prep mogą: prowadzący, Delivery Lead rekrutacji, rekruter
+                kandydata i osoba, która go planuje.
+              </p>
+              {invitation ? null : (
+                <p>Kandydat dostanie w zaproszeniu informację: „{options.data?.notice}”</p>
+              )}
             </div>
           </div>
           {error ? (
-            <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <p
+              role="alert"
+              className={cn(
+                "rounded-md px-3 py-2 text-sm",
+                busyClash ? "bg-warning-muted text-warning-muted-foreground" : "bg-destructive/10 text-destructive",
+              )}
+            >
               {error}
             </p>
           ) : null}

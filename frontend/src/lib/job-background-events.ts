@@ -17,7 +17,11 @@ export type JobBackgroundEventKind =
   | "new_cv_proposals_failed"
   | "cv_auto_generate"
   | "cv_auto_generate_skipped"
-  | "cv_auto_generate_failed";
+  | "cv_auto_generate_failed"
+  // 23.10.2026: silnik „System trzyma Nowych na 20” dodał `count` osób.
+  | "autofill"
+  // 25.10.2026: system zdjął swoje nietknięte karty ponad budżetem.
+  | "autofill_withdrawn";
 
 export interface JobBackgroundEvent {
   id: number;
@@ -28,6 +32,8 @@ export interface JobBackgroundEvent {
   proposals?: number | null;
   eligible?: number | null;
   count?: number | null;
+  /** `autofill_withdrawn`: dlaczego system wycofał osoby. */
+  why?: "budget" | "client" | "not_looking" | "far" | (string & {}) | null;
   trigger?: string | null;
   /** Kod powodu (pominięcie albo awaria). */
   reason?: string | null;
@@ -82,6 +88,10 @@ const SKIP_REASON_PL: Record<string, string> = {
   // AI-06 (audyt 22.09 r2): powrót karty na „Zweryfikowany” z tym samym CV.
   already_generated:
     "CV z tego samego pliku już wygenerowano w tej rekrutacji — nowego nie tworzono",
+  // 09.10.2026: CV firmowe wybrane wcześniej (np. w screeningu z profilu).
+  pair_cv_exists: "CV firmowe tej osoby już jest w tej rekrutacji — nowego nie generowano",
+  // 0521: klient bierze własny formularz CV zamiast CV firmowego.
+  client_form: "klient bierze swój formularz CV — CV firmowego nie generowano",
 };
 
 /** Polski powód pominięcia auto-CV; nieznany kod nie udaje znanego. */
@@ -118,6 +128,22 @@ export function backgroundEventMessage(event: JobBackgroundEvent): string {
       return event.eligible != null
         ? `${head} (wymagania spełnia ${countPl(event.eligible, "osoba", "osoby", "osób")}).`
         : `${head}.`;
+    }
+    case "autofill":
+      return `System dodał do „Nowych” ${countPl(event.count ?? 0, "osobę", "osoby", "osób")} — kolumna trzyma się na 20.`;
+    case "autofill_withdrawn": {
+      const people = countPl(event.count ?? 0, "swoją osobę", "swoje osoby", "swoich osób");
+      // `why` (28.10.2026): budżet, cały klient albo „Nie szuka pracy”;
+      // 29.10.2026: odległość od biura.
+      const why =
+        event.why === "client"
+          ? "odrzucenie na cały klient w innej rekrutacji"
+          : event.why === "not_looking"
+            ? "„Nie szuka pracy” z innej rekrutacji"
+            : event.why === "far"
+              ? "mieszkają dalej niż 100 km od biura"
+              : "stawka ponad budżetem";
+      return `System wycofał z „Nowych” ${people} — ${why}.`;
     }
     case "new_cv_proposals": {
       const source =

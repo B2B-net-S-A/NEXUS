@@ -124,7 +124,7 @@ async def seed():
             {
                 "email": "tomasz@b2bnet.pl",
                 "name": "Tomasz Wierzbicki",
-                "role": UserRole.sourcer,
+                "role": UserRole.recruiter,
                 "password": _DEMO_PWD,
             },
             {

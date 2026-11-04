@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronUp, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import {
   AdvancedSearchPopover,
   type AdvancedSearchValue,
+  type ChipFieldSuggest,
 } from "@/components/v2/filters/AdvancedSearchPopover";
 import { CompetenceCategoryFilter } from "@/components/v2/filters/CompetenceCategoryFilter";
 import { SkillBucketsField } from "@/components/v2/candidates/SkillBucketsField";
@@ -48,6 +49,17 @@ interface FiltersPanelProps {
    * pod polem pojawia się „Szukaj jak z requestu", które woła tę funkcję.
    */
   onUseAsRequest?: (text: string) => void;
+  /**
+   * „Szukaj” — rodzic trzyma `value` jako szkic i dopiero tu go stosuje
+   * (25.09.2026). Bez tego panel działa jak dotąd (zmiana = wyszukiwanie).
+   */
+  onSearch?: () => void;
+  /** Liczba zmian czekających na „Szukaj”. */
+  pendingCount?: number;
+  /** Podpowiedzi w polach słów i umiejętności (np. z rekrutacji). */
+  suggest?: ChipFieldSuggest;
+  /** Zmiana trybu tekstu z linii „Rozumiem to jako…” — stosuje się od razu. */
+  onTextModeApply?: (mode: "auto" | "literal" | "semantic") => void;
 }
 
 const STATUS_OPTIONS: { value: CandidateStatusValue; label: string }[] = [
@@ -101,6 +113,10 @@ export function FiltersPanel({
   className,
   textInterpretation,
   onUseAsRequest,
+  onSearch,
+  pendingCount = 0,
+  suggest,
+  onTextModeApply,
 }: FiltersPanelProps) {
   // Zmiana klucza przemontowuje pole umiejętności — „Wyczyść" zdejmuje też
   // niezatwierdzony tekst, który inaczej zamieniłby się w chip przy blurze.
@@ -261,6 +277,13 @@ export function FiltersPanel({
             <Input
               value={value.q ?? ""}
               onChange={(e) => patch({ q: e.target.value || null })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && onSearch) {
+                  e.preventDefault();
+                  onSearch();
+                }
+              }}
+              aria-label="Szukaj kandydatów"
               maxLength={SEARCH_QUERY_MAX_LENGTH}
               aria-describedby="candidate-search-q-counter"
               placeholder="Imię i nazwisko, e-mail, telefon albo opis, kogo szukasz…"
@@ -281,6 +304,28 @@ export function FiltersPanel({
           <Button variant="ghost" size="sm" onClick={clearAll}>
             Wyczyść
           </Button>
+          {onSearch && (
+            <Button
+              type="button"
+              variant="primary"
+              onClick={onSearch}
+              className={cn("gap-2", pendingCount > 0 && "ring-4 ring-primary/20")}
+            >
+              <Search className="h-4 w-4" aria-hidden />
+              Szukaj
+              {pendingCount > 0 && (
+                <>
+                  <span
+                    aria-hidden
+                    className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-foreground px-1.5 text-xs font-bold text-primary"
+                  >
+                    {pendingCount}
+                  </span>
+                  <span className="sr-only">(niezastosowane zmiany: {pendingCount})</span>
+                </>
+              )}
+            </Button>
+          )}
         </div>
         {/* „Rozumiem to jako…" — tryb tekstu wybiera automat backendu
             (osoba → dosłownie, opis → po znaczeniu); przełącznik go nadpisuje. */}
@@ -290,7 +335,9 @@ export function FiltersPanel({
             interpretation={textInterpretation.interpretation}
             textMode={value.text_mode ?? "auto"}
             onTextModeChange={(mode) =>
-              patch({ text_mode: mode === "auto" ? null : mode })
+              onTextModeApply
+                ? onTextModeApply(mode)
+                : patch({ text_mode: mode === "auto" ? null : mode })
             }
           />
         )}
@@ -311,7 +358,12 @@ export function FiltersPanel({
             </Button>
           </div>
         )}
-        <AdvancedSearchPopover value={advanced} onChange={setAdvanced} />
+        <AdvancedSearchPopover
+          value={advanced}
+          onChange={setAdvanced}
+          suggest={suggest}
+          onSubmitEmpty={onSearch}
+        />
       </div>
 
       {/* Competence Category — flagship filter */}
@@ -342,6 +394,8 @@ export function FiltersPanel({
             preferred: value.skills_preferred ?? [],
             excluded: value.skills_excluded ?? [],
           }}
+          suggest={suggest ? { ...suggest, skillsOnly: true } : undefined}
+          onSubmitEmpty={onSearch}
           onChange={(next) =>
             patch({
               skills_required: next.required,

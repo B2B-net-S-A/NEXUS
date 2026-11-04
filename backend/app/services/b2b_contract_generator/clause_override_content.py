@@ -2693,9 +2693,49 @@ def _bik_appendix_en() -> tuple[Block, ...]:
     )
 
 
+# § 13 ust. 6 — lista załączników dopisuje Załącznik nr 4 (ticket 8, 09.2026).
+# Kotwica to początek zdania, nie numer paragrafu: w umowie spółki ten
+# paragraf ma numer 14 (`company_variant`).
+_BIK_ATTACHMENTS_ANCHOR_PL = (
+    "Integralną część niniejszej Umowy stanowią następujące załączniki"
+)
+_BIK_ATTACHMENTS_PL = (
+    "Integralną część niniejszej Umowy stanowią następujące załączniki: "
+    "Załącznik nr 1 – Deklaracja Poufności, Załącznik nr 2 – Umowa Powierzenia "
+    "Przetwarzania Danych Osobowych (DPA), Załącznik nr 3 – Klient Projektu, "
+    "Załącznik nr 4 – Szczególne wymagania dotyczące realizacji usług na rzecz "
+    "Klienta Projektu – Biuro Informacji Kredytowej S.A."
+)
+_BIK_ATTACHMENTS_ANCHOR_EN = (
+    "The following appendices form an integral part of this Agreement"
+)
+_BIK_ATTACHMENTS_EN = (
+    "The following appendices form an integral part of this Agreement: "
+    "Appendix 1 – Confidentiality Agreement, Appendix No. 2 – Data Processing "
+    "Agreement (DPA), Appendix No. 3 – Project Customer, Appendix No. 4 – "
+    "Special requirements for the provision of services to the Project "
+    "Customer – Biuro Informacji Kredytowej S.A."
+)
+
+
 def _ops_bik(lang: str) -> list[Op]:
-    blocks = _bik_appendix_en() if lang == "en" else _bik_appendix_pl()
-    return [("append_appendix", None, blocks)]
+    if lang == "en":
+        return [
+            (
+                "replace_paragraph",
+                _BIK_ATTACHMENTS_ANCHOR_EN,
+                (("p", _BIK_ATTACHMENTS_EN),),
+            ),
+            ("append_appendix", None, _bik_appendix_en()),
+        ]
+    return [
+        (
+            "replace_paragraph",
+            _BIK_ATTACHMENTS_ANCHOR_PL,
+            (("p", _BIK_ATTACHMENTS_PL),),
+        ),
+        ("append_appendix", None, _bik_appendix_pl()),
+    ]
 
 
 def _ops_none(lang: str) -> list[Op]:

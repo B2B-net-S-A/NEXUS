@@ -627,3 +627,35 @@ async def test_pending_md_alert_cannot_be_manually_marked_handled():
 
     assert exc.value.status_code == 409
     assert alert.status == DL_ALERT_STATUS_NEW
+
+
+async def test_order_ids_limit_offboarding_to_the_given_orders(monkeypatch):
+    """R9-V1-3: „Przywróć anulowane” kończy tylko przywracane linie."""
+
+    today = date(2026, 8, 30)
+    contract = _contract()
+    restored = _order(1, contract=contract, order_type="periodic")
+    future = _order(
+        2,
+        contract=contract,
+        order_type="periodic",
+        starts=today + timedelta(days=30),
+    )
+    db = _FakeDb([], [restored, future])
+    monkeypatch.setattr(
+        offboarding, "emit_md_consultant_ended", AsyncMock(return_value=[])
+    )
+
+    result = await offboarding.apply_contract_order_offboarding(
+        db,
+        contract_id=contract.id,
+        effective_date=today,
+        today=today,
+        order_ids={restored.id},
+    )
+
+    assert result.affected_orders == 1
+    assert result.cancelled_future == 0
+    assert restored.status == ClientOrderStatus.completed
+    assert future.status == ClientOrderStatus.active
+    assert future.end_date == date(2026, 12, 31)

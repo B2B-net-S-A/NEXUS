@@ -113,6 +113,10 @@ def _api_base_url() -> str:
 
 
 def _confirmation_url(token: str) -> str:
+    # Runda 7 (R7-N5-5): trasa `POST /api/public/interview-confirmation` jest
+    # usunięta (karta nie była nigdzie wysyłana, a jej GET dawał 405). Kto
+    # przywraca `send_interview_invitation`, zakłada też trasę na nowo — GET,
+    # ze sprawdzeniem statusu wydarzenia i osobnym kluczem podpisu.
     qs = urlencode({"token": token})
     return f"{_api_base_url()}/api/public/interview-confirmation?{qs}"
 

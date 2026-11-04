@@ -11,7 +11,7 @@ from app.services.action_permissions import (
     DEFAULT_ROLE_ACTION_ACCESS,
     ProductAction,
 )
-
+from app.services.role_merge import MERGED_ROLE_VALUE, RETIRED_ROLE_VALUES
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_PATH = BACKEND_ROOT / "alembic/versions/0273_action_permissions.py"
@@ -32,7 +32,21 @@ SEED_DIVERGENCE_AFTER_0273: dict[str, tuple[str, str]] = {
 # Role dodane po 0273 — ich wiersze zasiewa ich własna migracja.
 ROLES_ADDED_AFTER_0273: dict[str, str] = {
     UserRole.trainee.value: "0374_trainee_call_lists.py",
+    UserRole.automation.value: "0446_automation_role.py",
+    UserRole.employee.value: "0456_hr_access.py",
+    UserRole.board.value: "0490_board_role.py",
 }
+
+# Migracje, których SQL stoi w module schematu (to samo źródło czyta
+# entrypoint przez `hr_schema_bundle`) — test czyta migrację razem z nim.
+MIGRATION_SQL_MODULES: dict[str, str] = {
+    "0456_hr_access.py": "app/services/hr_access_schema.py",
+    "0490_board_role.py": "app/services/board_role_schema.py",
+}
+
+# Role wycofane w 0411 (sourcer, TAC → rekruter). Zamrożona migracja 0273 nadal
+# je zasiewa — z tym samym poziomem generatora B2B co rekruter.
+ROLES_RETIRED_AFTER_0273: tuple[str, ...] = RETIRED_ROLE_VALUES
 
 
 def _seeded_generator_access(role: UserRole) -> str:
@@ -64,6 +78,8 @@ def test_migration_seed_exactly_matches_bootstrap_matrix() -> None:
         for role in UserRole
         if role.value not in ROLES_ADDED_AFTER_0273
     }
+    for retired in ROLES_RETIRED_AFTER_0273:
+        expected[retired] = expected[MERGED_ROLE_VALUE]
     assert migration.ACTION == action.value
     assert migration.ROLE_DEFAULTS == expected
     upgrade_source = inspect.getsource(migration.upgrade)
@@ -118,9 +134,20 @@ def test_signature_recovery_uses_migration_only_when_policy_is_missing() -> None
 def test_roles_added_after_0273_are_seeded_by_their_own_migration() -> None:
     for role, migration_file in ROLES_ADDED_AFTER_0273.items():
         source = (MIGRATION_PATH.parent / migration_file).read_text()
+        module = MIGRATION_SQL_MODULES.get(migration_file)
+        if module is not None:
+            assert f"import {Path(module).stem}" in source
+            source += (BACKEND_ROOT / module).read_text()
         assert "INSERT INTO rbac_role_action_permissions" in source
-        assert f"SELECT DISTINCT '{role}', action, 'none'" in source
-        assert all(
-            access.name == "none"
-            for access in DEFAULT_ROLE_ACTION_ACCESS[UserRole(role)].values()
-        )
+        assert f"SELECT DISTINCT '{role}', action" in source
+        # Komplet wierszy dla każdej akcji; „manage” dokładnie tam, gdzie daje
+        # je domyślna polityka roli (0446: podgląd Delivery „Automatyzacji”).
+        granted = {
+            action.value
+            for action, access in DEFAULT_ROLE_ACTION_ACCESS[UserRole(role)].items()
+            if access.name != "none"
+        }
+        for action in granted:
+            assert f"WHEN action = '{action}' THEN 'manage'" in source
+        if not granted:
+            assert f"SELECT DISTINCT '{role}', action, 'none'" in source

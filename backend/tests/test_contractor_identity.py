@@ -210,7 +210,10 @@ async def test_contractor_stats_deduplicates_active_people_but_keeps_contract_co
             candidate=duplicate_profile,
         ),
     ]
+    # Roster wymaga podglądu Delivery (0410) — admin ma go zawsze; bez migawki
+    # polityki decydują domyślne uprawnienia roli.
     user = SimpleNamespace(
+        get_all_roles=lambda: [UserRole.admin],
         has_role=lambda role: role is UserRole.admin,
         has_any_role=lambda *roles: UserRole.admin in roles,
     )

@@ -23,24 +23,36 @@ Trzy decyzje, które trzymają ten moduł uczciwym:
 """
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.analytics.periods import ANALYTICS_TIMEZONE, PeriodError, resolve_period
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, LinkResultsManager
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
+from app.core.scheduling import (
+    business_date,
+    business_today,
+    local_day_start_utc,
+    local_now,
+)
+from app.models.user import UserRole
+from app.services import competition_history
 from app.services.funnel_coverage import STAGES_WITHOUT_TRAFFIT_COVERAGE
 from app.services.insights_competence_matrix import compute_competence_matrix
+from app.services.insights_in_flight import compute_in_flight
+from app.services.integration_insights import company_team_goals
 from app.services.insights_person_scope import (
     OUTSIDE_SCOPE_LABEL,
     outside_scope_user_ids,
 )
+from app.services.insights_link_people import compute_link_people
 from app.services.insights_invite_links import (
     compute_invite_link_channels,
     count_invite_link_candidates,
@@ -51,6 +63,11 @@ from app.services.insights_seniority_journal import (
     load_open_regressions,
 )
 from app.services.insights_team_activity import compute_team_activity
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    section_access_for_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -104,8 +121,14 @@ FUNNEL_STAGES: list[dict] = [
         "in_milestones": True,
     },
     {
+        # Kod `interview` to od v5 etap „QC CV” (przed wysłaniem CV), nie
+        # rozmowa — rozmowy liczy `client_interview` (R8-V2-2). Lejek liczy
+        # jednak po KODZIE, a import Traffita nadal zapisuje tym kodem etapy
+        # rozmów („Interview”, „Po Interview”), więc sama etykieta „QC CV”
+        # mówiła nieprawdę (runda 10, R10-N2-5). Regułę z nazwy ma raport
+        # „Lejek po etapach”.
         "stage": "interview",
-        "label": "Rozmowa",
+        "label": "QC CV lub rozmowa z Traffita (kod „interview”)",
         "in_milestones": True,
     },
     {
@@ -161,6 +184,11 @@ _STAGE_LOG_STAGES = [x["stage"] for x in FUNNEL_STAGES if not x["in_milestones"]
 # Konwersje liczone z TYCH SAMYCH liczników co kafle wyżej. Gdy mianownik jest
 # zerem, wynik to None (luka), nigdy 0.0 — „nie da się policzyć" to co innego
 # niż „policzone i wyszło zero".
+#
+# Runda 8 (R8-V2-2): „Rozmowy” to `client_interview` (decyzja właściciela
+# 26.09.2026: Interview w KPI/Insights = wyłącznie rozmowa u klienta). Kod
+# `interview` to od v5 QC CV — konwersja „CV wysłane → QC” nie znaczyła nic
+# i potrafiła przekroczyć 100%. Klucze zostają (kontrakt API).
 CONVERSIONS: list[dict] = [
     {
         "key": "verified_to_cv_sent",
@@ -170,15 +198,15 @@ CONVERSIONS: list[dict] = [
     },
     {
         "key": "cv_sent_to_interview",
-        "label": "Rekomendacje → Rozmowy",
-        "numerator": "interview",
+        "label": "Rekomendacje → Rozmowy u klienta",
+        "numerator": "client_interview",
         "denominator": "cv_sent",
     },
     {
         "key": "interview_to_hired",
-        "label": "Rozmowy → Zatrudnienia",
+        "label": "Rozmowy u klienta → Zatrudnienia",
         "numerator": "hired",
-        "denominator": "interview",
+        "denominator": "client_interview",
     },
     {
         "key": "verified_to_hired",
@@ -186,7 +214,37 @@ CONVERSIONS: list[dict] = [
         "numerator": "hired",
         "denominator": "verified",
     },
+    # Akceptacje (22.10.2026): etap odnotowywany tylko na Tablicy, od 12.10.2026.
+    {
+        "key": "interview_to_acceptance",
+        "label": "Rozmowy u klienta → Akceptacje",
+        "numerator": "acceptance",
+        "denominator": "client_interview",
+    },
+    {
+        "key": "acceptance_to_hired",
+        "label": "Akceptacje → Zatrudnienia",
+        "numerator": "hired",
+        "denominator": "acceptance",
+    },
 ]
+
+# Etapy, które przed 12.10.2026 mają liczby z DynaReportera (widok
+# `analytics_kpi_milestones`). Pozostałe liczą się wyłącznie z Tablicy, więc
+# w oknie zaczynającym się wcześniej obejmują tylko jego część — i to musi
+# jechać w odpowiedzi, bo inaczej „0 akceptacji we wrześniu” czyta się jak
+# obserwacja, a to brak ewidencji.
+HISTORY_STAGES = frozenset({"verified", "cv_sent", "client_interview", "hired"})
+
+
+def stage_counted_from(stage: str, window_start: datetime) -> date | None:
+    """Dzień, od którego etap jest liczony w oknie (`None` = całe okno)."""
+
+    if stage in HISTORY_STAGES:
+        return None
+    if window_start >= competition_history.cutover_utc():
+        return None
+    return competition_history.RESULTS_CUTOVER
 
 
 def _ratio(numerator: int, denominator: int) -> float | None:
@@ -202,6 +260,10 @@ def _ratio(numerator: int, denominator: int) -> float | None:
     return round(numerator / denominator * 100, 1)
 
 
+def _iso(day: date | None) -> str | None:
+    return day.isoformat() if day is not None else None
+
+
 def _resolve(kind: str, offset: int, anchor: date | None, date_from, date_to):
     try:
         return resolve_period(
@@ -211,6 +273,35 @@ def _resolve(kind: str, offset: int, anchor: date | None, date_from, date_to):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+
+
+async def _milestone_counts(
+    db: AsyncSession, start: datetime, end: datetime
+) -> dict[str, int]:
+    """Pierwsze wejścia par na etap w oknie, cała firma, bez atrybucji."""
+
+    # Półotwarte [start, end) — ta sama semantyka co w periods.py. Brak górnej
+    # granicy (jak w legacy `_period_start`) sprawiał, że „poprzedni miesiąc"
+    # oznaczał w praktyce „od poprzedniego miesiąca do dziś".
+    rows = (
+        (
+            await db.execute(
+                text(
+                    """
+                SELECT fm.stage AS stage, count(*) AS cnt
+                FROM analytics_kpi_milestones fm
+                WHERE fm.first_reached_at >= :start
+                  AND fm.first_reached_at < :end
+                GROUP BY fm.stage
+                """
+                ),
+                {"start": start, "end": end},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return {r["stage"]: int(r["cnt"]) for r in rows}
 
 
 @router.get("/funnel")
@@ -232,36 +323,20 @@ async def insights_recruitment_funnel(
 
     # Klucz cache'u NIESIE OKNO. Bez tego liczby jednego okresu wyszłyby pod
     # etykietą drugiego — i nikt by się nie dowiedział, bo obie są wiarygodne.
-    cache_key = f"insights:recruitment:funnel:v1:{resolved.cache_suffix}"
+    cache_key = f"insights:recruitment:funnel:v3:{resolved.cache_suffix}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached
 
-        params = {"start": resolved.start, "end": resolved.end}
+        counts = await _milestone_counts(db, resolved.start, resolved.end)
 
-        # Półotwarte [start, end) — ta sama semantyka co w periods.py. Brak górnej
-        # granicy (jak w legacy `_period_start`) sprawiał, że „poprzedni miesiąc"
-        # oznaczał w praktyce „od poprzedniego miesiąca do dziś".
-        rows = (
-            (
-                await db.execute(
-                    text(
-                        """
-                    SELECT fm.stage AS stage, count(*) AS cnt
-                    FROM analytics_first_milestones fm
-                    WHERE fm.first_reached_at >= :start
-                      AND fm.first_reached_at < :end
-                    GROUP BY fm.stage
-                    """
-                    ),
-                    params,
-                )
-            )
-            .mappings()
-            .all()
-        )
-        counts = {r["stage"]: int(r["cnt"]) for r in rows}
+        # Ruchy Tablicy liczymy od 12.10.2026 (decyzja Artura 18.10.2026) —
+        # wcześniej reszty lejka DynaReporter nie prowadził: brak danych.
+        board_params = {
+            "start": competition_history.board_start(resolved.start),
+            "end": resolved.end,
+        }
 
         # Zrodlo 2 — reszta lejka wprost z `candidate_stages`, DEDUPLIKOWANA TAK
         # SAMO jak widok: pierwsze wystapienie per (kandydat, oferta, etap). Bez
@@ -286,7 +361,7 @@ async def insights_recruitment_funnel(
                         GROUP BY stage
                         """
                     ),
-                    {**params, "stages": _STAGE_LOG_STAGES},
+                    {**board_params, "stages": _STAGE_LOG_STAGES},
                 )
             )
             .mappings()
@@ -311,7 +386,7 @@ async def insights_recruitment_funnel(
                     WHERE cs.moved_at >= :start AND cs.moved_at < :end
                     """
                     ),
-                    params,
+                    board_params,
                 )
             )
             .mappings()
@@ -335,22 +410,30 @@ async def insights_recruitment_funnel(
                 "source": "milestones" if s["in_milestones"] else "stage_log",
                 # Udział względem najliczniejszego etapu — do szerokości paska.
                 "share_pct": _ratio(counts.get(s["stage"], 0), max_count),
+                # Etap liczony tylko od tego dnia (część okna) — `None` = całe.
+                "counted_from": _iso(stage_counted_from(s["stage"], resolved.start)),
             }
             for s in FUNNEL_STAGES
         ]
 
-        conversions = [
-            {
+        def _conversion(c: dict) -> dict:
+            numerator = counts.get(c["numerator"], 0)
+            denominator = counts.get(c["denominator"], 0)
+            # Etapy liczone z różnych części okna nie dają ilorazu: 0 akceptacji
+            # z 1–11.10 przeciw rozmowom z całego miesiąca to nie konwersja.
+            partial = stage_counted_from(
+                c["numerator"], resolved.start
+            ) != stage_counted_from(c["denominator"], resolved.start)
+            return {
                 "key": c["key"],
                 "label": c["label"],
-                "numerator": counts.get(c["numerator"], 0),
-                "denominator": counts.get(c["denominator"], 0),
-                "pct": _ratio(
-                    counts.get(c["numerator"], 0), counts.get(c["denominator"], 0)
-                ),
+                "numerator": numerator,
+                "denominator": denominator,
+                "pct": None if partial else _ratio(numerator, denominator),
+                "partial_window": partial,
             }
-            for c in CONVERSIONS
-        ]
+
+        conversions = [_conversion(c) for c in CONVERSIONS]
 
         result = {
             "period": resolved.as_payload(),
@@ -368,6 +451,179 @@ async def insights_recruitment_funnel(
                     s["stage"] for s in FUNNEL_STAGES if not s["mapped_from_traffit"]
                 ],
             },
+        }
+        await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+        return result
+
+
+@router.get("/in-flight")
+async def insights_recruitment_in_flight(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """„W drodze” — co stoi dziś za weryfikacją i ile może z tego wpaść.
+
+    Liczby kolumn i prognoza — każdy, kto widzi Insights (jak lejek, bez
+    nazwisk). Lista akceptacji niesie klientów, rekrutacje i Delivery Leadów,
+    więc tylko z ``VIEW_TEAM_KPI`` (liderzy, Finanse, admin, Rada) — tak jak
+    tabela ludzi w widoku Zespół. Nazwisk kandydatów nie ma nigdy.
+    """
+    with_acceptances = user_has_capability(
+        current_user, AnalyticsCapability.VIEW_TEAM_KPI
+    )
+    today = business_today()
+    scope = "list" if with_acceptances else "counts"
+    cache_key = f"insights:recruitment:in-flight:v1:{scope}:{today.isoformat()}"
+    async with cache_single_flight(cache_key, db=db):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
+        result = await compute_in_flight(
+            db,
+            today=today,
+            now=local_now(),
+            with_acceptances=with_acceptances,
+        )
+        await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+        return result
+
+
+@router.get("/in-flight/me")
+async def insights_recruitment_in_flight_me(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    scope: str = Query("mine", pattern="^(mine|portfolio)$"),
+):
+    """„Moje osoby w drodze” do widoku „Mój miesiąc”.
+
+    ``mine`` — pary, które osoba zweryfikowała (zasługa jak w celach i
+    wyścigach); ``portfolio`` — rekrutacje Delivery Leada (tylko ta rola).
+    Nazwiska kandydatów jadą tylko z odczytem sekcji Rekrutacja — konto bez
+    niej dostaje same rekrutacje.
+    """
+    if scope == "portfolio" and not current_user.has_role(UserRole.delivery_lead):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Portfel rekrutacji ma tylko Delivery Lead.",
+        )
+    owner = (
+        ("delivery_lead", current_user.id)
+        if scope == "portfolio"
+        else ("verifier", current_user.id)
+    )
+    result = await compute_in_flight(
+        db,
+        today=business_today(),
+        now=local_now(),
+        with_acceptances=False,
+        owner=owner,
+        with_people=True,
+    )
+    if (
+        section_access_for_user(current_user, ProductSection.pipeline)
+        < SectionAccess.read
+    ):
+        for person in result["people"]:
+            person["candidate_id"] = None
+            person["candidate_name"] = None
+    return result
+
+
+@router.get("/team-goals")
+async def insights_recruitment_team_goals(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Cele zespołu rekrutacji — te same sumy, które Head of Recruitment ma
+    w liczniku górnego paska (`integration_insights.company_team_goals`).
+
+    Dla każdego, kto widzi Insights: same sumy celów i pracy, bez osób.
+
+    `company_month_placements` to placementy całej firmy w tym miesiącu —
+    ta sama liczba co lejek (26.10.2026). Cel placementów sumuje tylko osoby
+    z tym celem, więc prognoza miesiąca i dopisek „w całej firmie” liczą
+    z tej liczby, a nie z celu.
+    """
+    result = await company_team_goals(db, now=local_now())
+    month = _resolve("month", 0, None, None, None)
+    cache_key = f"insights:recruitment:company-placements:v1:{month.cache_suffix}"
+    placements = await cache_get(cache_key)
+    if placements is None:
+        counts = await _milestone_counts(db, month.start, month.end)
+        placements = counts.get("hired", 0)
+        await cache_set(cache_key, placements, ttl_seconds=CACHE_TTL_SECONDS)
+    return {**result.as_dict(), "company_month_placements": placements}
+
+
+TREND_STAGES = ("verified", "cv_sent", "client_interview", "acceptance", "hired")
+
+
+def trend_weeks(today: date, weeks: int) -> list[date]:
+    """Poniedziałki ostatnich `weeks` tygodni, ostatni = bieżący tydzień."""
+
+    monday = today - timedelta(days=today.weekday())
+    return [monday - timedelta(weeks=weeks - 1 - i) for i in range(weeks)]
+
+
+@router.get("/weekly-trend")
+async def insights_recruitment_weekly_trend(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    weeks: int = Query(8, ge=4, le=26),
+):
+    """Ostatnie tygodnie lejka: pierwsze wejścia par na etap w tygodniu.
+
+    Tydzień od poniedziałku w Europe/Warsaw, bieżący oznaczony `partial`.
+    Akceptacje sprzed 12.10.2026 to `None` (nikt ich nie odnotowywał), nie 0.
+    """
+    today = business_today()
+    mondays = trend_weeks(today, weeks)
+    start = local_day_start_utc(mondays[0])
+    end = local_day_start_utc(mondays[-1] + timedelta(days=7))
+    cache_key = f"insights:recruitment:weekly-trend:v1:{weeks}:{today.isoformat()}"
+    async with cache_single_flight(cache_key, db=db):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
+        rows = (
+            await db.execute(
+                text(
+                    """
+                    SELECT (date_trunc(
+                              'week', fm.first_reached_at AT TIME ZONE 'Europe/Warsaw'
+                           ))::date AS week_start,
+                           fm.stage::text AS stage,
+                           count(*) AS cnt
+                    FROM analytics_kpi_milestones fm
+                    WHERE fm.first_reached_at >= :start
+                      AND fm.first_reached_at < :end
+                      AND fm.stage::text = ANY(:stages)
+                    GROUP BY 1, 2
+                    """
+                ),
+                {"start": start, "end": end, "stages": list(TREND_STAGES)},
+            )
+        ).all()
+        counts: dict[tuple[date, str], int] = {
+            (week, stage): int(cnt) for week, stage, cnt in rows
+        }
+        cutover = competition_history.RESULTS_CUTOVER
+        result = {
+            "weeks": [
+                {
+                    "week_start": monday.isoformat(),
+                    "partial": monday + timedelta(days=7) > today,
+                    "counts": {
+                        stage: (
+                            None
+                            if stage not in HISTORY_STAGES and monday < cutover
+                            else counts.get((monday, stage), 0)
+                        )
+                        for stage in TREND_STAGES
+                    },
+                }
+                for monday in mondays
+            ],
         }
         await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
         return result
@@ -465,6 +721,9 @@ async def insights_time_to_hire(
                                fm.first_moved_by
                         FROM analytics_first_milestones fm
                         WHERE fm.stage = 'hired'
+                          -- Zatrudnienia od 12.10.2026 (Tablica); DynaReporter
+                          -- nie zapisywał startu procesu, więc wcześniejszych
+                          -- dni nie liczymy. Start pary — z całej historii.
                           AND fm.first_reached_at >= :start
                           AND fm.first_reached_at < :end
                     ),
@@ -498,7 +757,10 @@ async def insights_time_to_hire(
                     GROUP BY user_id
                     """
                     ),
-                    {"start": resolved.start, "end": resolved.end},
+                    {
+                        "start": competition_history.board_start(resolved.start),
+                        "end": resolved.end,
+                    },
                 )
             )
             .mappings()
@@ -613,7 +875,8 @@ async def insights_team_activity(
     # Klucz NIESIE OKNO i `limit` — obcięta lista pod kluczem pełnej dałaby
     # liczby jednego zapytania pod etykietą drugiego.
     # v2 (24.09.2026): konta administracyjne poza rankingiem osób.
-    cache_key = f"insights:recruitment:team-activity:v2:{resolved.cache_suffix}:{limit}"
+    # v3 (runda 10): kolumny z prawdziwych źródeł.
+    cache_key = f"insights:recruitment:team-activity:v4:{resolved.cache_suffix}:{limit}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
@@ -644,6 +907,7 @@ async def insights_team_activity(
                 "interviews": r.interviews,
                 "placements": r.placements,
                 "calls": r.calls,
+                "link_candidates": r.link_candidates,
                 "total_actions": r.total_actions,
                 "share_pct": _ratio(r.total_actions, max_actions),
             }
@@ -670,15 +934,16 @@ async def insights_team_activity(
                 "placements": sum(r.placements for r in outside_rows),
             },
             "coverage": {
-                "source": "user_activities",
-                # Bez tego zdania pusty ranking czyta się jako „zespół nic nie
-                # robił". `user_activities` zapisuje wyłącznie czynności wykonane
-                # W NEXUSIE — import z Traffita nie tworzy tam ani jednego wiersza.
+                # Runda 10 (R10-N2-1): kolumny liczone z prawdziwych źródeł
+                # (opis w `services/insights_team_activity.py`).
+                "source": "mixed",
                 "note": (
-                    "Liczone są wyłącznie czynności wykonane w NEXUSIE. "
-                    "Ruch zaimportowany z Traffita nie zasila tej tabeli, więc "
-                    "zero przy osobie znaczy „nie pracowała w NEXUSIE”, "
-                    "a nie „nie pracowała”."
+                    "Kandydaci, screeningi, telefony i kolumna „Razem” to "
+                    "czynności wykonane w NEXUSIE. Rozmowy u klienta "
+                    "i placementy liczą pierwsze wejście pary na etap, "
+                    "przypisane osobie, która ją przesunęła — także ruchy "
+                    "z importu Traffita, tak jak w tabeli „Performance per "
+                    "osoba”."
                 ),
             },
         }
@@ -699,6 +964,32 @@ async def insights_competence_matrix(
     Dostęp jak reszta /insights (D7).
     """
     return await compute_competence_matrix(db)
+
+
+@router.get("/link-people")
+async def insights_link_people(
+    current_user: LinkResultsManager,
+    db: AsyncSession = Depends(get_db),
+    period: str = Query("month", pattern="^(day|week|month|quarter|year|custom)$"),
+    offset: int = Query(0, description="0 = bieżący okres, -1 = poprzedni zamknięty"),
+    anchor: date | None = Query(None, description="dowolny dzień wewnątrz okresu"),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+):
+    """Kto co przyniósł z linków, na osobę (makieta D, decyzja Artura 02.11.2026).
+
+    Dane imienne bez D7: tylko admin, Head of Recruitment i Delivery Lead. Rekruter
+    widzi swoje wyniki w oknie „Udostępnij”.
+    """
+    resolved = _resolve(period, offset, anchor, date_from, date_to)
+    result = await compute_link_people(
+        db,
+        since=resolved.start,
+        until=resolved.end,
+        since_day=business_date(resolved.start),
+        until_day=business_date(resolved.end),
+    )
+    return {"period": resolved.as_payload(), **result}
 
 
 @router.get("/invite-links")
@@ -905,7 +1196,7 @@ async def insights_seniority(
             "outside_pool_placements": computed.outside_pool_placements,
             "note": (
                 "Poziom liczymy wyłącznie z placementów przypisanych do "
-                "aktywnych kont w rolach sourcer / TAC / rekruter. Placementy "
+                "aktywnych kont w roli rekrutera. Placementy "
                 "bez przypisanego operatora oraz przypisane do kont spoza tej "
                 "puli (w tym kont założonych przez import Traffita dla "
                 "operatorów bez odpowiednika w NEXUSIE) są liczone osobno."

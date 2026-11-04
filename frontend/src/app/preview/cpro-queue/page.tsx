@@ -37,6 +37,7 @@ const SENDER: CproSender = {
   fallback_user_name: null,
   set_by_name: "Marta Kowalska",
   set_at: daysAgo(5),
+  can_set: true,
 };
 
 const item = (over: Partial<CproQueueItem>): CproQueueItem => ({
@@ -53,6 +54,11 @@ const item = (over: Partial<CproQueueItem>): CproQueueItem => ({
   availability: null,
   qc_status: "passed",
   cv: { generated_document_id: 5, document_id: null },
+  // 13.10.2026: do kolejki wkłada Delivery Lead po akceptacji.
+  accepted: true,
+  accepted_by_name: "Marek Przykładowy",
+  accepted_at: daysAgo(1),
+  dl_note: null,
   ...over,
 });
 
@@ -63,19 +69,20 @@ const QUEUE: CproQueueResponse = {
     {
       job_id: 1,
       job_title: "Java Backend Developer",
-      client_name: "Nordea",
+      client_name: "Bank Północny",
       oldest_since: daysAgo(2),
       items: [
-        item({ stage_id: 11, candidate_id: 21, candidate_name: "Robert Przykładowy", since: daysAgo(2), client_rate_value: 158, availability: "2026-11-01" }),
+        item({ stage_id: 11, candidate_id: 21, candidate_name: "Robert Przykładowy", since: daysAgo(2), client_rate_value: 158, availability: "2026-11-01", dl_note: "Dostępny od listopada, tylko zdalnie" }),
         item({ stage_id: 12, candidate_id: 22, candidate_name: "Magdalena Testowa", since: daysAgo(1), client_rate_value: 149 }),
         item({ stage_id: 13, candidate_id: 23, candidate_name: "Jan Wzorcowy", since: daysAgo(1), client_rate_value: 162, qc_status: "overridden" }),
-        item({ stage_id: 14, candidate_id: 24, candidate_name: "Ewa Fikcyjna", since: daysAgo(0), client_rate_value: 140, cv: { generated_document_id: null, document_id: 9 } }),
+        // Karta sprzed 13.10.2026: do kolejki przesunął ją rekruter, bez stawki.
+        item({ stage_id: 14, candidate_id: 24, candidate_name: "Ewa Fikcyjna", since: daysAgo(0), client_rate_value: null, cv: { generated_document_id: null, document_id: 9 }, accepted: false, accepted_by_name: "Anna Rekruterska" }),
       ],
     },
     {
       job_id: 2,
       job_title: "Data Engineer (Azure)",
-      client_name: "Nordea",
+      client_name: "Bank Północny",
       oldest_since: daysAgo(0),
       items: [
         item({ stage_id: 15, candidate_id: 25, candidate_name: "Piotr Próbny", client_rate_value: 170, availability: "2026-10-15" }),
@@ -85,7 +92,7 @@ const QUEUE: CproQueueResponse = {
     {
       job_id: 3,
       job_title: "Test Automation Engineer",
-      client_name: "Nordea",
+      client_name: "Bank Północny",
       oldest_since: daysAgo(0),
       items: [item({ stage_id: 17, candidate_id: 27, candidate_name: "Tomasz Wzór", client_rate_value: 130, cv: null })],
     },
@@ -100,7 +107,7 @@ const row = (over: Partial<BoardTaskRow>): BoardTaskRow => ({
   job_id: 1,
   job_title: "Java Backend Developer",
   client_id: 5,
-  client_name: "Nordea",
+  client_name: "Bank Północny",
   since: daysAgo(1),
   process_state_version: 1,
   target_stage_def_id: 44,
@@ -117,6 +124,22 @@ const BOARD_TASKS: BoardTasksResponse = {
     ),
   ),
   cpro_sent: [row({ kind: "cpro_sent", stage_id: 31, candidate_id: 41, candidate_name: "Paweł Wysłany", since: daysAgo(6), target_stage_def_id: null })],
+  // Prep 1 zaplanowany, brakuje Prepu 2 — plakietka mówi którego (18.10.2026).
+  prep_attention: [
+    {
+      reason: "missing",
+      prep_no: 2,
+      candidate_id: 51,
+      candidate_name: "Marta Przedrozmową",
+      job_id: 7,
+      job_title: "Data Engineer",
+      interview_event_id: 901,
+      interview_start: new Date(Date.now() + 3 * 86_400_000).toISOString(),
+      prep_event_id: null,
+      owner_id: 1,
+      urgent: false,
+    },
+  ],
 };
 
 export default function CproQueuePreviewPage() {

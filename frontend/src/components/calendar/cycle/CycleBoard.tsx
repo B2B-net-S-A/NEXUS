@@ -38,8 +38,10 @@ const TODO_STEP: Partial<Record<TodoEntry["kind"], StepKey[]>> = {
   slots_missing: ["slots"],
   slots_pick: ["choice"],
   slots_confirm: ["choice"],
+  slots_reply: ["choice"],
   prep_missing: ["prep"],
   prep2_missing: ["prep2"],
+  precall_due: ["prep2"],
   call_now: ["call", "debrief"],
   debrief_overdue: ["call", "debrief"],
 };

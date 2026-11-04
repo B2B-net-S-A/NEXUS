@@ -15,6 +15,7 @@ Na żywej bazie, z atrapą Graph:
 from __future__ import annotations
 
 import asyncio
+import base64
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -40,10 +41,13 @@ class _Graph:
 
     def __init__(self) -> None:
         self.posts: list[str] = []
+        self.bodies: list[tuple[str, Any]] = []
         self.sends = 0
         self.draft_gate: asyncio.Event | None = None
         self.fail_send: BaseException | None = None
         self.fail_draft: BaseException | None = None
+        self.draft_body: dict | None = None
+        self.patches: list[Any] = []
         self._n = 0
 
     def factory(self):
@@ -63,10 +67,14 @@ class _Graph:
                 return {"value": []}
 
             async def patch(self, url: str, json: Any = None) -> Any:
+                graph.patches.append(json)
                 return {}
 
             async def post(self, url: str, json: Any = None, **_kw: Any) -> Any:
                 graph.posts.append(url)
+                graph.bodies.append((url, json))
+                if url.endswith("/attachments"):
+                    return {}
                 if url.endswith("/send"):
                     if graph.fail_send is not None:
                         raise graph.fail_send
@@ -79,11 +87,14 @@ class _Graph:
                     await graph.draft_gate.wait()
                 graph._n += 1
                 token = uuid.uuid4().hex[:10]
-                return {
+                draft = {
                     "id": f"draft-{token}",
                     "conversationId": f"conv-{token}",
                     "internetMessageId": f"<{token}@nexus.test>",
                 }
+                if graph.draft_body is not None and url.endswith("/createReply"):
+                    draft["body"] = graph.draft_body
+                return draft
 
         return _Client
 
@@ -338,6 +349,47 @@ async def test_reply_is_reserved_and_stores_internet_message_id(mailbox):
 
 
 @pytest.mark.asyncio
+async def test_reply_keeps_quoted_thread_history(mailbox):
+    """Runda 7 (R7-V1-3): PATCH `body` zastępuje całą treść szkicu, więc
+    cytat z createReply musi trafić do PATCH-a razem z odpowiedzią."""
+    ids, graph = mailbox
+    graph.draft_body = {
+        "contentType": "html",
+        "content": (
+            "<html><head></head><body><div id=\"divRplyFwdMsg\">Od: kandydat"
+            "</div><div>Poprzednia wiadomość kandydata</div></body></html>"
+        ),
+    }
+    async with AsyncSessionLocal() as db:
+        original = Email(
+            user_id=ids.user_id,
+            candidate_id=ids.candidate_id,
+            m365_message_id=f"orig-{uuid.uuid4().hex}",
+            m365_conversation_id="conv-orig",
+            subject="Pytanie",
+            from_address="kandydat@example.com",
+            received_at=datetime.now(timezone.utc),
+            direction=EmailDirection.received,
+        )
+        db.add(original)
+        await db.commit()
+        conn = await db.get(M365Connection, ids.connection_id)
+        await sender_mod.reply(
+            db,
+            conn,
+            email_row=original,
+            body_html="<p>Odpowiedź</p>",
+            client_request_id=str(uuid.uuid4()),
+            commit_reservation=True,
+        )
+        await db.commit()
+    content = graph.patches[-1]["body"]["content"]
+    assert "Odpowiedź" in content
+    assert "Poprzednia wiadomość kandydata" in content
+    assert content.index("Odpowiedź") < content.index("divRplyFwdMsg")
+
+
+@pytest.mark.asyncio
 async def test_compose_for_missing_candidate_is_404_without_graph(mailbox, monkeypatch):
     from app.api import email_threads
 
@@ -364,3 +416,68 @@ async def test_compose_for_missing_candidate_is_404_without_graph(mailbox, monke
     assert info.value.status_code == 404
     assert graph.posts == []
     assert await _rows(ids.user_id) == []
+
+
+@pytest.mark.asyncio
+async def test_file_attachment_goes_into_the_draft_before_send(mailbox):
+    """Kopia umowy dla kontraktora (26.10.2026): plik w szkicu, potem /send."""
+    ids, graph = mailbox
+    async with AsyncSessionLocal() as db:
+        conn = await db.get(M365Connection, ids.connection_id)
+        row = await sender_mod.send_new(
+            db,
+            conn,
+            to=["kandydat@example.com"],
+            subject="Umowa B2B 1-2026 podpisana przez obie strony",
+            body_html="<p>W załączniku umowa.</p>",
+            candidate_id=ids.candidate_id,
+            client_request_id=str(uuid.uuid4()),
+            commit_reservation=True,
+            attachments=[
+                sender_mod.FileAttachment(
+                    name="Umowa B2B 1-2026 Kowalski Jan podpisana.pdf",
+                    content_type="application/pdf",
+                    data=b"%PDF-1.7 podpisana",
+                )
+            ],
+        )
+        await db.commit()
+        assert row.has_attachments is True
+    urls = [url for url, _ in graph.bodies]
+    attached = [body for url, body in graph.bodies if url.endswith("/attachments")]
+    assert len(attached) == 1
+    assert attached[0]["name"] == "Umowa B2B 1-2026 Kowalski Jan podpisana.pdf"
+    assert attached[0]["isInline"] is False
+    assert base64.b64decode(attached[0]["contentBytes"]) == b"%PDF-1.7 podpisana"
+    send_at = next(i for i, url in enumerate(urls) if url.endswith("/send"))
+    attach_at = next(i for i, url in enumerate(urls) if url.endswith("/attachments"))
+    assert attach_at < send_at
+    assert graph.sends == 1
+
+
+@pytest.mark.asyncio
+async def test_template_body_keeps_styles_typed_body_does_not(mailbox):
+    """Maile podpisu umów (27.10.2026): szablon NEXUSA wychodzi ze stylami,
+    tekst wpisany przez człowieka dalej bez nich."""
+    ids, graph = mailbox
+    styled = '<p style="color: #c8102e">Treść szablonu</p>'
+    async with AsyncSessionLocal() as db:
+        conn = await db.get(M365Connection, ids.connection_id)
+        await sender_mod.send_new(
+            db,
+            conn,
+            to=["kandydat@example.com"],
+            subject="Szablon",
+            body_html=styled,
+            commit_reservation=True,
+            styled_body=True,
+        )
+        await db.commit()
+    await _send(ids, body=styled)
+    drafts = [
+        body["body"]["content"]
+        for url, body in graph.bodies
+        if not url.endswith(("/send", "/attachments"))
+    ]
+    assert "color: #c8102e" in drafts[0]
+    assert "style=" not in drafts[1]

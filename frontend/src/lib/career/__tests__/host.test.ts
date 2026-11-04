@@ -7,6 +7,7 @@ import {
   careerMetadataBase,
   careerVisibleUrl,
   isCareerHost,
+  legacyCareerRedirectPath,
   normalizeHost,
   requestDisplayHost,
   requestHost,
@@ -128,5 +129,28 @@ describe("adresy z nagłówków żądania (metadataBase, stopka, grafika OG)", (
     expect(careerVisibleUrl("nexus.dynaminds.pl", "/kariera", { to: "home" })).toBe(
       "nexus.dynaminds.pl",
     );
+  });
+});
+
+describe("legacyCareerRedirectPath", () => {
+  it.each([
+    ["/kariera", "/"],
+    ["/kariera/", "/"],
+    ["/kariera/rodo", "/rodo"],
+    ["/kariera/r/Senior-Java-7kq2", "/r/senior-java-7kq2"],
+    ["/kariera/p/marta-n", "/marta-n"],
+  ])("%s → %s", (path, expected) => {
+    expect(legacyCareerRedirectPath(path)).toBe(expected);
+  });
+
+  it.each([
+    "/kariera/r/senior-java-7kq2/opengraph-image",
+    "/kariera/p/marta-n/opengraph-image",
+    "/kariera/nie-znaleziono",
+    "/kariera/r/x",
+    "/kariera-cokolwiek",
+    "/dashboard",
+  ])("%s zostaje na hoście aplikacji", (path) => {
+    expect(legacyCareerRedirectPath(path)).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 """Raporty KPI mailem (plan PR3, 23.09.2026).
 
-Dwa rodzaje, oba w `notification_delivery.CATALOG` i domyślnie WYŁĄCZONE
+Trzy rodzaje, wszystkie w `notification_delivery.CATALOG` i domyślnie WYŁĄCZONE
 (poczta M365 aplikacji ma dziś 403 — włączenie to decyzja admina
 w Ustawieniach → Powiadomienia):
 
@@ -12,12 +12,20 @@ w Ustawieniach → Powiadomienia):
   z dodatkową rolą recruiter (reaudyt 14.09, R01).
 * ``board_monthly_report`` — **1. dzień roboczy miesiąca od 8:00**:
   podsumowanie Rady za zamknięty miesiąc (`insights_board.compute_board`
-  + tabela rok-do-roku) do admina i Finansów (= `BoardReader`; Head of
-  Recruitment nie dostaje kwot od 24.09.2026).
+  + tabela rok-do-roku) wyłącznie do Rady nadzorczej i osób z imiennym nadaniem
+  (decyzja Artura 02.11.2026; ani rola admin, ani „Moduł Finanse” go nie otwierają).
+* ``board_placement_alert`` — **każdy tick** (co 10 min): mail „Nowy
+  placement” do Rady nadzorczej przy pierwszym „Zatrudniony” pary
+  (`services/board_placement_alerts.py`, decyzja Artura 22.10.2026); klucz
+  znacznika = ``<kandydat>:<rekrutacja>``, więc jeden mail na parę, a tylko
+  placementy po dacie „wysyłaj od” tego rodzaju — bez wysyłki historii.
 
 Bez duplikatu po restarcie: przed wysyłką pętla ZAKŁADA wiersz
-`kpi_email_report_runs` (UNIQUE kind+period_key). Deploy w trakcie wysyłki
-zostawia wiersz `claimed` — raport przepada zamiast wyjść drugi raz.
+`kpi_email_report_runs` (UNIQUE kind+period_key). Od rundy 9 (R9-N6-3) raport
+nie przepada: znacznik po padniętym liczeniu albo `claimed` starszy niż
+`STALE_CLAIM_MINUTES` przejmuje kolejny tick w oknie należności, a postęp
+wysyłki (kto jeszcze nie dostał maila) leży w `app_settings`, więc restart
+w połowie wysyłki ponawia tylko resztę.
 Wyłączony rodzaj niczego nie zakłada, więc włączenie go tego samego dnia
 wyśle raport przy następnym ticku. `send_email` jest synchroniczne →
 `asyncio.to_thread(guarded_send, ...)`; `guarded_send` sprawdza politykę
@@ -33,16 +41,20 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Awaitable, Callable, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import DEFAULT_TZ, is_business_day, local_now
+from app.models.app_setting import AppSetting
 from app.models.kpi_email_report_run import KpiEmailReportRun
 from app.models.user import User, UserRole
 from app.services import loop_heartbeat
+from app.services.action_permissions import receives_company_results
+from app.services.effective_access import resolve_effective_access
+from app.services.notification_delivery import email_opted_out
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -53,12 +65,14 @@ logger = logging.getLogger(__name__)
 
 WEEKLY_KIND = "kpi_weekly_report"
 MONTHLY_KIND = "board_monthly_report"
+# Lustro `board_placement_alerts.KIND` (bez importu na poziomie modułu).
+PLACEMENT_KIND = "board_placement_alert"
 SEND_HOUR = 8
 CHECK_INTERVAL_SECONDS = 600
 
-# Bez Head of Recruitment (decyzja Artura 24.09.2026): mail niesie przychód
-# i marżę, a HoR nie widzi pieniędzy — lustro `BoardReader`.
-_BOARD_ROLES = (UserRole.admin, UserRole.finance)
+# Polityka dostępu jest doczytywana z bazy paczkami — lista kont trafia do
+# zapytań jako parametry, a asyncpg przyjmuje ich najwyżej 32 767.
+_ACCESS_BATCH = 1000
 _MONTHS_PL = (
     "styczeń",
     "luty",
@@ -240,6 +254,44 @@ async def _recipients(db: AsyncSession, roles: tuple[UserRole, ...]) -> list[Use
     ]
 
 
+def _board_readers(users: list[User]) -> list[User]:
+    """Kto z listy dostaje mail zarządu — konta z dołączoną polityką dostępu.
+
+    Mail niesie zbiorczy przychód i marżę firmy, więc idzie wyłącznie do Rady
+    nadzorczej i osób z imiennym nadaniem (decyzja Artura 02.11.2026). Odczyt
+    sekcji Insights jak przy raporcie tygodniowym.
+    """
+    return [
+        u
+        for u in users
+        if receives_company_results(u)
+        and section_access_for_user(u, ProductSection.insights) >= SectionAccess.read
+    ]
+
+
+async def _board_recipients(db: AsyncSession) -> list[User]:
+    """Aktywna Rada i osoby z imiennym nadaniem, z odczytem sekcji Insights.
+
+    Pętla w tle nie przechodzi przez uwierzytelnienie żądania, więc politykę
+    sekcji dołączamy z bazy sami — bez tego odczyt Insights liczyłby się
+    z wartości startowych z kodu, a nie z tego, co admin ustawił na ekranie.
+    """
+    users = list(
+        (
+            await db.execute(
+                select(User)
+                .where(User.is_active.is_(True), User.email.is_not(None))
+                .order_by(User.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for start in range(0, len(users), _ACCESS_BATCH):
+        await resolve_effective_access(db, users[start : start + _ACCESS_BATCH])
+    return _board_readers(users)
+
+
 async def claim_report(db: AsyncSession, kind: str, period_key: str) -> Optional[int]:
     """Załóż znacznik raportu; `None` = inny kontener albo wcześniejszy bieg już go ma."""
     run_id = await db.scalar(
@@ -273,12 +325,13 @@ class _Mail:
     to: str
     subject: str
     text: str
+    html: Optional[str] = None
 
 
 async def _weekly_mails(db: AsyncSession, now_local: datetime) -> list[_Mail]:
     from app.analytics import metrics
     from app.analytics.periods import resolve_period
-    from app.services.access_scope import resolve_dashboard_scope
+    from app.services.access_scope import ScopeKind, resolve_dashboard_scope
 
     period = resolve_period("week", offset=-1, now=now_local)
     zone = ZoneInfo(DEFAULT_TZ)
@@ -287,11 +340,23 @@ async def _weekly_mails(db: AsyncSession, now_local: datetime) -> list[_Mail]:
     label = f"{first_day:%d.%m}–{last_day:%d.%m.%Y}"
     mails: list[_Mail] = []
     for user in await _recipients(db, (UserRole.head_of_recruitment,)):
+        # Własny wyłącznik maila („Maile do Ciebie”).
+        if email_opted_out(user, "kpi_weekly_report"):
+            continue
         scope = await resolve_dashboard_scope(user, db)
+        # Runda 9 (R9-N6-5): zakres `organization` (HoR z rolą admin) ma pusty
+        # `allowed_operator_user_ids` — pusty zbiór to TWARDY zakres „nikt”,
+        # więc raport wychodził z pustym zespołem. `None` = cała organizacja,
+        # tak jak w `/api/analytics/v1/team/kpis`.
+        user_ids = (
+            None
+            if scope.kind is ScopeKind.organization
+            else frozenset(scope.allowed_operator_user_ids or ())
+        )
         team = await metrics.team_kpis(
             db,
             period,
-            user_ids=frozenset(scope.allowed_operator_user_ids or ()),
+            user_ids=user_ids,
             operational_roles_only=False,
         )
         subject, text = render_weekly(team, label)
@@ -306,7 +371,12 @@ async def _monthly_mails(
     from app.services.insights_board import compute_board
     from app.services.insights_board_yoy import compute_board_yoy, resolve_years
 
-    recipients = await _recipients(db, _BOARD_ROLES)
+    recipients = [
+        user
+        for user in await _board_recipients(db)
+        # Własny wyłącznik maila („Maile do Ciebie”).
+        if not email_opted_out(user, "board_monthly_report")
+    ]
     if not recipients:
         return []
     year, month = (int(part) for part in period_key.split("-"))
@@ -322,14 +392,257 @@ async def _monthly_mails(
     return [_Mail(u.email, subject, text) for u in recipients]
 
 
+# Runda 7 (R7-N5-2): mail, którego nadawca na pewno NIE wysłał z przejściowego
+# powodu (bezpiecznik zamknięty po 429/503, 403 w trakcie incydentu), czeka
+# w `app_settings` na kolejny tick tego samego dnia. Znacznik raportu zostaje
+# (bez duplikatu po restarcie); ponawiamy wyłącznie tych odbiorców.
+_SENT, _DEFERRED, _FAILED = "sent", "deferred", "failed"
+_PENDING_PREFIX = "kpi_email_report_pending:"
+
+
+def _pending_key(kind: str, period_key: str) -> str:
+    return f"{_PENDING_PREFIX}{kind}:{period_key}"
+
+
+def _deliver(kind: str, now_utc: datetime, mail: _Mail) -> str:
+    """Jedna wysyłka w wątku roboczym (flagi nadawcy są per wątek)."""
+    from app.services.email import send_email
+    from app.services.notification_delivery import (
+        guarded_send,
+        last_send_policy_blocked,
+    )
+
+    if guarded_send(
+        kind, now_utc, send_email, mail.to, mail.subject, mail.text, mail.html
+    ):
+        return _SENT
+    if settings.M365_APP_MAIL_ENABLED and not last_send_policy_blocked():
+        from app.services.m365.app_mail import last_delivery_deferred
+
+        if last_delivery_deferred():
+            return _DEFERRED
+    return _FAILED
+
+
+async def _send_mails(
+    kind: str,
+    now_utc: datetime,
+    mails: list[_Mail],
+    on_progress: Optional[Callable[[list[str]], Awaitable[None]]] = None,
+) -> tuple[int, list[str]]:
+    sent = 0
+    deferred: list[str] = []
+    for index, mail in enumerate(mails):
+        try:
+            outcome = await asyncio.to_thread(_deliver, kind, now_utc, mail)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "kpi_email_reports: wysyłka %s: %s", kind, type(exc).__name__
+            )
+            outcome = _FAILED
+        if outcome == _SENT:
+            sent += 1
+        elif outcome == _DEFERRED:
+            deferred.append(mail.to)
+        if on_progress is not None:
+            await on_progress([m.to for m in mails[index + 1 :]] + deferred)
+    return sent, deferred
+
+
+async def _store_deferred(
+    db: AsyncSession, kind: str, period_key: str, addresses: list[str]
+) -> None:
+    stmt = pg_insert(AppSetting).values(
+        key=_pending_key(kind, period_key), value={"to": addresses}
+    )
+    await db.execute(
+        stmt.on_conflict_do_update(
+            index_elements=[AppSetting.key], set_={"value": stmt.excluded.value}
+        )
+    )
+    await db.commit()
+    logger.warning(
+        "kpi_email_reports %s %s: %s mail(e) do ponowienia",
+        kind,
+        period_key,
+        len(addresses),
+    )
+
+
+async def _set_pending(
+    db: AsyncSession, kind: str, period_key: str, addresses: list[str]
+) -> None:
+    """Postęp wysyłki: kto jeszcze nie dostał raportu (bez logu; pusta = usuń)."""
+    key = _pending_key(kind, period_key)
+    if not addresses:
+        await db.execute(delete(AppSetting).where(AppSetting.key == key))
+    else:
+        stmt = pg_insert(AppSetting).values(key=key, value={"to": addresses})
+        await db.execute(
+            stmt.on_conflict_do_update(
+                index_elements=[AppSetting.key], set_={"value": stmt.excluded.value}
+            )
+        )
+    await db.commit()
+
+
+# Runda 9 (R9-N6-3): znacznik `claimed` bez `finished_at` starszy niż ten próg
+# to bieg przerwany restartem (deploy) — raport przejmuje kolejny tick w oknie
+# należności zamiast gubić go na cały okres.
+STALE_CLAIM_MINUTES = 30
+
+
+async def _reclaim_report(db: AsyncSession, kind: str, period_key: str) -> str:
+    """Co zrobić ze znacznikiem, który już istnieje.
+
+    ``reclaimed:<id>`` — nic nie wyszło (liczenie padło albo restart przed
+    wysyłką): liczymy i wysyłamy od nowa pod tym samym znacznikiem;
+    ``in_progress`` — inny kontener właśnie wysyła; ``retry`` — reszta
+    (odroczeni albo przerwana wysyłka z zapisanym postępem).
+    """
+    run = await db.scalar(
+        select(KpiEmailReportRun)
+        .where(
+            KpiEmailReportRun.kind == kind,
+            KpiEmailReportRun.period_key == period_key,
+        )
+        .with_for_update()
+    )
+    if run is None:  # pragma: no cover — konflikt bez wiersza
+        await db.commit()
+        return "in_progress"
+    pending = await db.get(AppSetting, _pending_key(kind, period_key))
+    stale_before = await db.scalar(
+        select(func.now() - timedelta(minutes=STALE_CLAIM_MINUTES))
+    )
+    interrupted = run.status == "claimed" and run.finished_at is None
+    if interrupted and run.claimed_at > stale_before:
+        await db.commit()
+        return "in_progress"
+    build_failed = run.status == "failed" and run.recipients == 0 and run.sent == 0
+    if pending is None and (interrupted or build_failed):
+        run.status = "claimed"
+        run.finished_at = None
+        run.claimed_at = await db.scalar(select(func.now()))
+        run_id = run.id
+        await db.commit()
+        return f"reclaimed:{run_id}"
+    if interrupted:
+        # Wysyłka przerwana w połowie: postęp jest w `pending`, domknij znacznik
+        # i ponów tylko tych, którzy raportu jeszcze nie dostali.
+        run.status = "failed"
+        run.finished_at = await db.scalar(select(func.now()))
+    await db.commit()
+    return "retry"
+
+
+def drops_stale_pending(kind: str) -> bool:
+    """Czy nowy klucz sprząta odroczonych poprzednich kluczy tego rodzaju.
+
+    Raporty okresowe: tak — nowy okres zastępuje stary. Mail „Nowy placement”:
+    nie — każda para ma własny klucz i własnych odroczonych, więc sprzątanie
+    przy parze B kasowało ponowienie pary A (przegląd 23.10.2026). Jego stare
+    wpisy sprząta `_drop_expired_placement_pending`.
+    """
+    return kind != PLACEMENT_KIND
+
+
+async def _drop_expired_placement_pending(db: AsyncSession, floor: datetime) -> None:
+    """Odroczeni par starszych niż okno maila nie mają już ponowienia."""
+    await db.execute(
+        text(
+            """
+            DELETE FROM app_settings s
+            USING kpi_email_report_runs r
+            WHERE r.kind = :kind
+              AND r.claimed_at < :floor
+              AND s.key = :prefix || r.period_key
+            """
+        ),
+        {
+            "kind": PLACEMENT_KIND,
+            "floor": floor,
+            "prefix": f"{_PENDING_PREFIX}{PLACEMENT_KIND}:",
+        },
+    )
+    await db.commit()
+
+
+async def _drop_stale_pending(db: AsyncSession, kind: str, period_key: str) -> None:
+    """Runda 8 (R8-V3-10): odroczeni odbiorcy STAREGO okresu nie mają już
+    ponowienia (klucz okresu się zmienił), a wpis zostawał w `app_settings`
+    na zawsze. Nowy okres danego raportu sprząta poprzednie."""
+    await db.execute(
+        delete(AppSetting).where(
+            AppSetting.key.startswith(f"{_PENDING_PREFIX}{kind}:", autoescape=True),
+            AppSetting.key != _pending_key(kind, period_key),
+        )
+    )
+    await db.commit()
+
+
+async def _retry_deferred(
+    db: AsyncSession,
+    kind: str,
+    period_key: str,
+    build: Callable[[AsyncSession], Awaitable[list[_Mail]]],
+    now_utc: datetime,
+) -> str:
+    """Ponowienie odroczonych odbiorców; brak odroczonych = `already_claimed`."""
+    # DELETE … RETURNING = jedno przejęcie listy nawet przy dwóch kontenerach.
+    value = await db.scalar(
+        delete(AppSetting)
+        .where(AppSetting.key == _pending_key(kind, period_key))
+        .returning(AppSetting.value)
+    )
+    await db.commit()
+    addresses = set((value or {}).get("to") or [])
+    if not addresses:
+        return "already_claimed"
+    try:
+        mails = [m for m in await build(db) if m.to in addresses]
+    except Exception:
+        logger.exception(
+            "kpi_email_reports: %s %s — liczenie padło (ponowienie)", kind, period_key
+        )
+        await db.rollback()
+        await _store_deferred(db, kind, period_key, sorted(addresses))
+        return _FAILED
+    sent, deferred = await _send_mails(kind, now_utc, mails)
+    if sent:
+        await db.execute(
+            update(KpiEmailReportRun)
+            .where(
+                KpiEmailReportRun.kind == kind,
+                KpiEmailReportRun.period_key == period_key,
+            )
+            .values(
+                status="sent",
+                sent=KpiEmailReportRun.sent + sent,
+                finished_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+    if deferred:
+        await _store_deferred(db, kind, period_key, deferred)
+    logger.info(
+        "kpi_email_reports %s %s (ponowienie): %s/%s",
+        kind,
+        period_key,
+        sent,
+        len(mails),
+    )
+    return _SENT if sent else (_DEFERRED if deferred else _FAILED)
+
+
 async def _send_report(
     kind: str,
     period_key: str,
     build: Callable[[AsyncSession], Awaitable[list[_Mail]]],
     now_utc: datetime,
 ) -> str:
-    from app.services.email import email_channel_enabled, send_email
-    from app.services.notification_delivery import guarded_send, load_policy
+    from app.services.email import email_channel_enabled
+    from app.services.notification_delivery import load_policy
 
     async with AsyncSessionLocal() as db:
         policy = await load_policy(db)
@@ -339,7 +652,14 @@ async def _send_report(
             return "no_channel"
         run_id = await claim_report(db, kind, period_key)
         if run_id is None:
-            return "already_claimed"
+            decision = await _reclaim_report(db, kind, period_key)
+            if decision == "in_progress":
+                return "already_claimed"
+            if decision == "retry":
+                return await _retry_deferred(db, kind, period_key, build, now_utc)
+            run_id = int(decision.split(":", 1)[1])
+        if drops_stale_pending(kind):
+            await _drop_stale_pending(db, kind, period_key)
         try:
             mails = await build(db)
         except Exception:
@@ -349,31 +669,75 @@ async def _send_report(
             await db.rollback()
             await _finish(db, run_id, status="failed", recipients=0, sent=0)
             return "failed"
-        sent = 0
-        for mail in mails:
-            try:
-                ok = await asyncio.to_thread(
-                    guarded_send,
-                    kind,
-                    now_utc,
-                    send_email,
-                    mail.to,
-                    mail.subject,
-                    mail.text,
-                    None,
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "kpi_email_reports: wysyłka %s: %s", kind, type(exc).__name__
-                )
-                ok = False
-            sent += 1 if ok else 0
+
+        # Postęp wysyłki zapisany przed pierwszym mailem: restart w trakcie
+        # wysyłki ponawia wyłącznie tych, którzy raportu jeszcze nie dostali.
+        async def _progress(remaining: list[str]) -> None:
+            await _set_pending(db, kind, period_key, remaining)
+
+        await _set_pending(db, kind, period_key, [m.to for m in mails])
+        sent, deferred = await _send_mails(kind, now_utc, mails, _progress)
         status = "skipped" if not mails else ("sent" if sent else "failed")
         await _finish(db, run_id, status=status, recipients=len(mails), sent=sent)
+        if deferred:
+            await _store_deferred(db, kind, period_key, deferred)
         logger.info(
             "kpi_email_reports %s %s: %s/%s", kind, period_key, sent, len(mails)
         )
         return status
+
+
+async def _placement_mails(
+    db: AsyncSession, placement, now_local: datetime
+) -> list[_Mail]:
+    from app.services import board_placement_alerts as alerts
+
+    recipients = [
+        user
+        for user in await alerts.board_members(db)
+        # Własny wyłącznik maila („Maile do Ciebie”).
+        if not email_opted_out(user, alerts.KIND)
+    ]
+    if not recipients:
+        return []
+    facts = await alerts.placement_facts(
+        db, placement, today=now_local.date(), now=now_local
+    )
+    subject, text_body = alerts.render_placement_alert(
+        facts, _link("/insights?tab=firma")
+    )
+    return [_Mail(u.email, subject, text_body) for u in recipients]
+
+
+async def _send_placement_alerts(now_local: datetime, now_utc: datetime) -> str:
+    """Mail „Nowy placement” do Rady — jeden na parę, tylko po dacie „wysyłaj od”."""
+    from app.services import board_placement_alerts as alerts
+    from app.services.notification_delivery import load_policy
+
+    async with AsyncSessionLocal() as db:
+        policy = await load_policy(db)
+        if not policy.kind_enabled(alerts.KIND):
+            return "disabled"
+        cutoff = policy.cutoff_for(alerts.KIND)
+        if cutoff is None:
+            return "disabled"
+        await _drop_expired_placement_pending(db, now_utc - alerts.LOOKBACK)
+        pending = await alerts.pending_placements(
+            db,
+            since=cutoff,
+            now=now_utc,
+            pending_prefix=f"{_PENDING_PREFIX}{alerts.KIND}:",
+        )
+    results = [
+        await _send_report(
+            alerts.KIND,
+            alerts.pair_key(p.candidate_id, p.job_id),
+            lambda db, p=p: _placement_mails(db, p, now_local),
+            now_utc,
+        )
+        for p in pending
+    ]
+    return ",".join(results) if results else "nothing"
 
 
 async def run_once(now: Optional[datetime] = None) -> dict[str, str]:
@@ -397,6 +761,11 @@ async def run_once(now: Optional[datetime] = None) -> dict[str, str]:
             lambda db: _monthly_mails(db, now_local, monthly_key),
             now_utc,
         )
+    # Wyłączony rodzaj i tick bez nowych placementów nie wchodzą do wyniku —
+    # jak raport poza terminem.
+    placements = await _send_placement_alerts(now_local, now_utc)
+    if placements not in ("disabled", "nothing"):
+        out[PLACEMENT_KIND] = placements
     return out
 
 

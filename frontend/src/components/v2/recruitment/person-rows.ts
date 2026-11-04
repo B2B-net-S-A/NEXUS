@@ -9,6 +9,9 @@
  * tabeli z kilkuset wierszami.
  */
 
+import { eligibilityWarningBadges } from "@/lib/eligibility-reason-labels";
+import { cvStateBadge, offLimitsCardBadge, preContractCardBadge, type CardBadgeTone } from "@/lib/board-card-badges";
+import { placeStage } from "@/lib/board-stages";
 import {
   colId,
   columnLabel,
@@ -31,6 +34,11 @@ import {
 import { isInterviewStage, type FlowColumn } from "@/lib/job-flow-stages";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { formatDate } from "@/lib/utils";
+import {
+  contractAvailability,
+  contractAvailabilityText,
+  localIsoDay,
+} from "@/lib/contract-availability";
 
 import type {
   PersonRow,
@@ -116,11 +124,20 @@ function offTemplateColumn(bucket: OffTemplateBucket): KanbanColumn {
 /**
  * Etykieta dostępności: data wygrywa ze statusem (jest konkretniejsza),
  * data miniona znaczy „od razu". `unknown` i brak pól = `null` („—").
+ * Osoba z żywą umową (15.10.2026): termin z umowy — data ze screeningu sprzed
+ * zatrudnienia dawała tu „od razu” u konsultanta, który pracuje u klienta.
  */
 export function availabilityLabelFor(
-  item: Pick<KanbanItem, "availability_status" | "availability_date">,
+  item: Pick<KanbanItem, "availability_status" | "availability_date"> &
+    Partial<Pick<KanbanItem, "employment_marker">>,
   today: Date = new Date(),
 ): string | null {
+  const contract = contractAvailability(
+    item.employment_marker,
+    item.availability_date,
+    localIsoDay(today),
+  );
+  if (contract) return contractAvailabilityText(contract);
   if (item.availability_date) {
     const date = new Date(item.availability_date);
     if (!Number.isNaN(date.getTime())) {
@@ -235,11 +252,25 @@ export function buildProcessRows(
 export type RowBadgeTone = "warning" | "danger" | "info";
 
 export interface RowBadge {
-  key: "over-budget" | "screening" | "scorecard" | "hm-veto" | "auto-cv";
+  key:
+    | "over-budget"
+    | "screening"
+    | "scorecard"
+    | "hm-veto"
+    | "auto-cv"
+    | "off-limits"
+    | "pre-contract"
+    | `warning:${string}`;
   label: string;
   tone: RowBadgeTone;
   title: string;
 }
+
+/** Tabela ma trzy tony — reszta tonów karty czyta się tu jak informacja. */
+const ROW_TONE_BY_CARD_TONE: Partial<Record<CardBadgeTone, RowBadgeTone>> = {
+  wait: "warning",
+  urgent: "danger",
+};
 
 export interface RowBadgeContext {
   /** Definicje etapów ze scorecardem (z szablonu rekrutacji). */
@@ -271,14 +302,46 @@ export function rowBadges(row: ProcessPersonRow, ctx: RowBadgeContext = {}): Row
       title: "Stawka ponad budżet rekrutacji — informacja, nie blokada.",
     });
   }
-  // `=== true`: odznaka obiecuje gotowy dokument, więc brak pola jej nie daje.
-  if (item.auto_cv_ready === true) {
+  // Pozostałe ostrzeżenia pary (konflikt z klientem, czarna lista) — chip
+  // „Ostrzeżenia” liczył je od zawsze, ale wiersz nie mówił, o co chodzi.
+  for (const warning of eligibilityWarningBadges(row.warnings, item.employment_marker)) {
+    out.push({
+      key: `warning:${warning.code}`,
+      label: warning.label,
+      tone: warning.tone,
+      title: warning.title,
+    });
+  }
+  // Off-limits (21.10.2026): ślad potwierdzenia „sam(a) się zgłosił(a)”.
+  const offLimits = offLimitsCardBadge(item.entry_off_limits);
+  if (offLimits) {
+    out.push({
+      key: "off-limits",
+      label: offLimits.label,
+      tone: "warning",
+      title: offLimits.title ?? offLimits.label,
+    });
+  }
+  // Umowa przedwstępna (0506) — ta sama plakietka co karta Tablicy.
+  const preContract = preContractCardBadge(item.pre_contract);
+  if (preContract) {
+    out.push({
+      key: "pre-contract",
+      label: preContract.label,
+      tone: ROW_TONE_BY_CARD_TONE[preContract.tone] ?? "info",
+      title: preContract.title ?? preContract.label,
+    });
+  }
+  // Stan CV firmowego (14.10.2026) — ta sama reguła co karta Tablicy
+  // (`cvStateBadge`): „CV w przygotowaniu…”, „CV gotowe · QC: N do poprawy” /
+  // „QC bez uwag” na „Zweryfikowanym”, „CV gotowe w tle”, gdy QC jeszcze nie biegło.
+  const cv = cvStateBadge(item, placeStage(column).column);
+  if (cv) {
     out.push({
       key: "auto-cv",
-      label: "CV gotowe w tle",
-      tone: "info",
-      title:
-        "CV wygenerowane automatycznie po weryfikacji czeka w sekcji „CV do klienta” — sprawdź je przed wysyłką.",
+      label: cv.label,
+      tone: ROW_TONE_BY_CARD_TONE[cv.tone] ?? "info",
+      title: cv.title ?? cv.label,
     });
   }
   if (SCREENING_BADGE_STAGES.has(item.stage) && item.screening_done === false) {
@@ -286,7 +349,10 @@ export function rowBadges(row: ProcessPersonRow, ctx: RowBadgeContext = {}): Row
       key: "screening",
       label: "Uzupełnij screening",
       tone: "info",
-      title: "Arkusz screeningu na tym etapie nie jest jeszcze zapisany.",
+      title:
+        item.screening_requirement === "why_candidate"
+          ? "Ta rekrutacja nie ma pytań screeningowych — wpisz „Dlaczego ten kandydat” w screeningu."
+          : "Arkusz screeningu na tym etapie nie jest jeszcze zapisany.",
     });
   }
   if (
@@ -699,6 +765,10 @@ export function defaultPanelSectionFor(
   // 21.09.2026). Tam właściwa jest sekcja CV (co i kiedy poszło do klienta).
   if (group === "client" && column && !isInterviewStage(column)) return "cv";
   switch (group) {
+    // 0424 (D3, 07.10.2026): osoba w „Nowych” otwiera się od razu przy
+    // formularzu screeningu — profil przed telefonem i CV obok.
+    case "posting":
+    case "intake":
     case "screening":
       return "screening";
     case "verification":

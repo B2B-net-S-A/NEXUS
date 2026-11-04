@@ -28,6 +28,7 @@ import {
  proceduresApi,
 } from"@/lib/api/procedures";
 import { ProcedureEditorModal } from"@/components/v2/modals/ProcedureEditorModal";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { TabsContent } from"@/components/ui/tabs";
 import { TabbedNav, TabbedNavItem } from"@/components/ds/TabbedNav";
 import { HelpMaterial } from"@/lib/api/help-materials";
@@ -93,6 +94,7 @@ export function HelpPageV2() {
  const [selectedId, setSelectedId] = useState<number | null>(null);
  const [editorOpen, setEditorOpen] = useState(false);
  const [editorTarget, setEditorTarget] = useState<Procedure | null>(null);
+ const { askConfirm, confirmDialog } = useConfirmV2();
  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(
  null
  );
@@ -184,11 +186,14 @@ export function HelpPageV2() {
  }
  };
 
- const handleDelete = (proc: Procedure) => {
- if (typeof window !== "undefined") {
- const ok = window.confirm(`Usunąć procedurę"${proc.title}"? Operacja nieodwracalna.`);
+ const handleDelete = async (proc: Procedure) => {
+ const ok = await askConfirm({
+ title: `Usunąć procedurę "${proc.title}"?`,
+ description: "Operacja nieodwracalna.",
+ confirmLabel: "Usuń",
+ variant: "destructive",
+ });
  if (!ok) return;
- }
  deleteMutation.mutate(proc.id);
  };
 
@@ -210,6 +215,7 @@ export function HelpPageV2() {
 
  return (
  <div className="max-w-[1400px] mx-auto space-y-4">
+ {confirmDialog}
  {/* Header */}
  <div className="flex items-end justify-between flex-wrap gap-3">
  <div>

@@ -2,10 +2,11 @@
 
 P0.11 containment (historia): B2B generator + contract-template render
 używały bare ``CurrentUser``, więc read-only viewer (`user`) oraz
-recruiter/sourcer mogli generować/mutować/pobierać umowy prawne. Fix z tamtego
+rekruter mogli generować/mutować/pobierać umowy prawne. Fix z tamtego
 audytu wprowadził wspólną ``ContractLegalAccess`` (admin / head_of_recruitment
-/ delivery_lead / tac — grono legal-team, spójne z
-``client_access.can_view_legal_documents``) dla OBU powierzchni naraz.
+/ delivery_lead — grono legal-team, spójne z
+``client_access.can_view_legal_documents``; do 0411 także rola TAC) dla OBU
+powierzchni naraz.
 
 Generator B2B ma własną, konfigurowalną bramkę akcji wewnątrz Sourcingu.
 Domyślny poziom zachowuje dotychczasowe operacje wszystkich ról poza TCM i
@@ -39,10 +40,8 @@ ALL_ROLES = [
     "head_of_recruitment",
     "delivery_lead",
     "talent_community_manager",
-    "tac",
     "finance",
     "recruiter",
-    "sourcer",
 ]
 UNSCOPED_ROLES = [role for role in ALL_ROLES if role != "delivery_lead"]
 
@@ -78,10 +77,7 @@ async def _headers_for(
     from app.core.database import AsyncSessionLocal
     from app.core.security import hash_password
     from app.models.client import Client
-    from app.models.team_structure import (
-        ClientTacAssignment,
-        DeliveryLeadClientAssignment,
-    )
+    from app.models.team_structure import DeliveryLeadClientAssignment
     from app.models.user import User, UserRole
 
     email = f"legal-{role_value}-{uuid.uuid4().hex[:8]}@example.com"
@@ -99,24 +95,16 @@ async def _headers_for(
         )
         db.add(user)
         await db.flush()
-        if assign_client and role in (UserRole.delivery_lead, UserRole.tac):
+        if assign_client and role is UserRole.delivery_lead:
             client = Client(name=f"Legal scope {uuid.uuid4().hex[:8]}")
             db.add(client)
             await db.flush()
-            if role is UserRole.delivery_lead:
-                db.add(
-                    DeliveryLeadClientAssignment(
-                        delivery_lead_user_id=user.id,
-                        client_id=client.id,
-                    )
+            db.add(
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=user.id,
+                    client_id=client.id,
                 )
-            else:
-                db.add(
-                    ClientTacAssignment(
-                        tac_user_id=user.id,
-                        client_id=client.id,
-                    )
-                )
+            )
         await db.commit()
 
     login = await app_client.post(

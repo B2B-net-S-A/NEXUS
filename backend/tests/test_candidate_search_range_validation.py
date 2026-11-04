@@ -66,3 +66,61 @@ async def test_search_endpoint_answers_422_with_the_message(
     assert resp.status_code == 422, resp.text
     detail = resp.json()["detail"]
     assert any(EXPERIENCE_RANGE_REVERSED_MSG in str(item) for item in detail)
+
+
+# ── Lista kandydatów (runda 2 audytu 25.09.2026) ─────────────────────────────
+
+
+def test_list_filter_spec_rejects_reversed_ranges() -> None:
+    from app.api.candidates import CandidateFilterSpec
+
+    with pytest.raises(ValidationError) as excinfo:
+        CandidateFilterSpec(min_experience=10, max_experience=2)
+    assert EXPERIENCE_RANGE_REVERSED_MSG in [e["msg"] for e in excinfo.value.errors()]
+    with pytest.raises(ValidationError) as excinfo:
+        CandidateFilterSpec(min_rate=200, max_rate=100)
+    assert RATE_RANGE_REVERSED_MSG in [e["msg"] for e in excinfo.value.errors()]
+    assert CandidateFilterSpec(min_rate=100, max_rate=100, min_experience=3)
+
+
+def test_reversed_range_message_is_shared() -> None:
+    from app.schemas.candidate_search import reversed_range_message
+
+    assert reversed_range_message(experience_min=5, experience_max=1) == (
+        EXPERIENCE_RANGE_REVERSED_MSG
+    )
+    assert reversed_range_message(rate_min=200, rate_max=100) == RATE_RANGE_REVERSED_MSG
+    assert reversed_range_message(rate_min=None, rate_max=100) is None
+
+
+@pytest.mark.asyncio
+async def test_list_endpoint_answers_422_for_reversed_ranges(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    resp = await app_client.get(
+        "/api/candidates",
+        params={"min_rate": 200, "max_rate": 100},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"] == RATE_RANGE_REVERSED_MSG
+
+    resp = await app_client.get(
+        "/api/candidates",
+        params={"min_experience": 10, "max_experience": 2},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"] == EXPERIENCE_RANGE_REVERSED_MSG
+
+    export = await app_client.post(
+        "/api/candidates/export",
+        json={
+            "format": "csv",
+            "scope": "filtered",
+            "filters": {"min_experience": 10, "max_experience": 2},
+        },
+        headers=app_auth_headers,
+    )
+    assert export.status_code == 422, export.text
+    assert EXPERIENCE_RANGE_REVERSED_MSG in export.text

@@ -36,6 +36,7 @@ from app.models.order_change_check import (
 )
 from app.models.order_change_event import OrderChangeEvent
 from app.models.order_mail import OrderMailDocument
+from app.models.service_account import ServiceAccount
 from app.models.user import User
 from app.schemas.finance_order_changes import (
     OrderChangeItem,
@@ -110,7 +111,12 @@ def item_key(tab: str, item) -> str:
         # Bez werdyktu: „kończy się" przechodzi w „brak kolejnego" samym
         # upływem daty — to nie jest nowa zmiana do rozliczenia.
         return f"ending:{item.order_id}:{item.end_date.isoformat()}"
-    return f"gap:{item.gap_id}:{item.status}"
+    # Runda 10 (R10-N4-3): brak przywrócony na „open” (następca zniknął) to
+    # nowa sprawa — bez epizodu w kluczu dziedziczył „Zrobione” z pierwszego
+    # epizodu. Epizod 0 zachowuje stary kształt klucza (istniejące odhaczenia).
+    episode = getattr(item, "episode", 0) or 0
+    suffix = f":e{episode}" if episode else ""
+    return f"gap:{item.gap_id}:{item.status}{suffix}"
 
 
 def item_summary(tab: str, item) -> str:
@@ -480,8 +486,10 @@ def _event_summary(event: OrderChangeEvent) -> str:
         if event.field == "rate_cost"
         else "Zmiana stawki przychodowej"
     )
+    # Stara strona w SWOJEJ walucie — zmiana samej waluty też jest zmianą.
+    old_currency = event.old_currency or event.currency
     return (
-        f"{label}: {_rate(event.old_amount, event.old_unit, event.currency)} → "
+        f"{label}: {_rate(event.old_amount, event.old_unit, old_currency)} → "
         f"{_rate(event.new_amount, event.new_unit, event.currency)}"
     )
 
@@ -531,13 +539,37 @@ async def order_history(
         if authors_ids
         else {}
     )
+    # 0443: zmiana zapisana kluczem API — autorem konto serwisowe.
+    integration_ids = {
+        e.created_by_service_account_id
+        for e in events
+        if e.created_by_service_account_id
+    }
+    integrations = (
+        {
+            account_id: f"Integracja: {name}"
+            for account_id, name in (
+                await db.execute(
+                    select(ServiceAccount.id, ServiceAccount.name).where(
+                        ServiceAccount.id.in_(sorted(integration_ids))
+                    )
+                )
+            ).all()
+        }
+        if integration_ids
+        else {}
+    )
     checks = (await db.scalars(select(OrderChangeCheck).where(or_(*check_scope)))).all()
     history = [
         OrderHistoryEntry(
             at=event.created_at,
             kind="change",
             summary=_event_summary(event),
-            by_name=authors.get(event.created_by_user_id),
+            by_name=(
+                integrations.get(event.created_by_service_account_id, "Integracja")
+                if event.source == "integration"
+                else authors.get(event.created_by_user_id)
+            ),
             automatic=event.source == "system",
         )
         for event in events

@@ -143,7 +143,7 @@ export function buildRadaCsvExport(
     ["KPI", "Placementy", k.placements, "", "", "", ""],
     ["KPI", "Weryfikacje", k.verified, "", "", "", ""],
     ["KPI", "Rekomendacje", k.cv_sent, "", "", "", ""],
-    ["KPI", "Interviews", k.interview, "", "", "", ""],
+    ["KPI", "Rozmowy u klienta", k.interview, "", "", "", ""],
     ["KPI", "Efektywność lejka %", k.funnel_efficiency_pct, "", "", "", ""],
     ["KPI", "Rekrutacje zamknięte", k.jobs_closed, "", "", "", ""],
     ["KPI", "…w tym z placementem", k.jobs_closed_with_placement, "", "", "", ""],

@@ -6,9 +6,13 @@ co 5 min. Idempotentność zapewnia unique partial index `ix_notif_dedup_daily`
 (user, type, entity, lokalny dzień Warsaw) + `emit()` łapiący IntegrityError.
 
 Triggery:
-  1. check_dl_stage_stale_6h     — kandydat w `cv_sent` > 6h bez ruchu → alert do DL.
-  2. check_client_feedback_eobd  — o 16:30 dla `client_interview` zakończonego dziś
-                                   bez feedbacku (brak ScreeningNote po end_time).
+  1. (usunięty 13.10.2026) alert do DL o karcie stojącej w `cv_sent` > 6h —
+     przypominał o CV już wysłanym do klienta (4 695 wpisów dzwonka w 30 dni).
+     Kolejkę Delivery Leada liczy `services/dl_send_queue.py`. Typ
+     `dl_stage_stale_6h` zostaje dla historycznych powiadomień.
+  2. check_client_feedback_eobd  — o 16:30 dla rozmowy u klienta zakończonej dziś
+                                   bez feedbacku (ScreeningNote, werdykt HM ani
+                                   debrief po end_time).
   3. (usunięty 23.09.2026) raport PowerCalling 11:45 — bez telefonii mierzył
      rozmowy, których system nie rejestruje. Typ `powercalling_kpi` zostaje
      dla historycznych powiadomień.
@@ -23,11 +27,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,7 +52,10 @@ from app.models.screening_note import ScreeningNote
 from app.models.user import User, UserRole
 from app.schemas.pipeline import STAGE_LABELS
 from app.services.calendar_auto_complete import mark_ended_interviews_completed
+from app.services.job_previous_recruiters import working_owner_id
 from app.services.notification_access import notification_recipient_has_access
+from app.services.notification_ws_after_commit import queue_ws_notification
+from app.services.job_working_title import display_title
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +123,10 @@ async def emit(
 
     Zwraca utworzoną Notification lub None (duplikat albo brak adresata).
     """
+    # Mail obowiązkowy (26.10.2026): przy wyciszonej kategorii wiersz i tak
+    # powstaje, bo z niego wychodzi mail (`notification_email_outbox`). Dzwonek
+    # go nie pokazuje (`notification_visibility_predicate`), a dymka nie ma.
+    mail_only = False
     if not await notification_recipient_has_access(
         db,
         user_id,
@@ -123,12 +134,23 @@ async def emit(
         related_entity_type=related_entity_type,
         link=link,
     ):
-        logger.debug(
-            "notification skipped: user=%s type=%s — inactive or no access",
-            user_id,
-            ntype.value,
+        mail_only = _feeds_required_mail(ntype) and (
+            await notification_recipient_has_access(
+                db,
+                user_id,
+                ntype,
+                related_entity_type=related_entity_type,
+                link=link,
+                ignore_personal_mutes=True,
+            )
         )
-        return None
+        if not mail_only:
+            logger.debug(
+                "notification skipped: user=%s type=%s — inactive or no access",
+                user_id,
+                ntype.value,
+            )
+            return None
 
     notif = Notification(
         user_id=user_id,
@@ -152,35 +174,48 @@ async def emit(
         )
         return None
 
+    if mail_only:
+        return notif
+
     # Best-effort WS push — brak odbiorcy online = brak problemu (poll to złapie).
-    try:
-        await ws_manager.notify_user(
-            user_id,
-            {
-                "type": "notification",
-                "data": {
-                    "id": notif.id,
-                    "title": notif.title,
-                    "message": notif.message,
-                    "link": notif.link,
-                    "notification_type": ntype.value,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                },
-            },
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("WS push failed for user=%s: %s", user_id, exc)
+    # Runda 9 (R9-N2-5): dopiero po commicie; pętla triggerów commituje raz,
+    # po wszystkich triggerach, a wycofany wiersz nie może trafić do dzwonka.
+    payload = {
+        "type": "notification",
+        "data": {
+            "id": notif.id,
+            "title": notif.title,
+            "message": notif.message,
+            "link": notif.link,
+            "notification_type": ntype.value,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+    if not queue_ws_notification(db, user_id=user_id, event_payload=payload, row=notif):
+        try:
+            await ws_manager.notify_user(user_id, payload)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("WS push failed for user=%s: %s", user_id, exc)
     return notif
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
+def _feeds_required_mail(ntype: NotificationType) -> bool:
+    from app.services.notification_delivery import (
+        REQUIRED_KINDS,
+        notification_kind,
+    )
+
+    return notification_kind(ntype) in REQUIRED_KINDS
+
+
 @dataclass(frozen=True, slots=True)
 class LatestStage:
     """Lekki snapshot najnowszego `CandidateStage` dla pary (kandydat, oferta).
 
-    Triggery używają wyłącznie tych pięciu pól. Pełny obiekt ORM ciągnie też
+    Triggery używają wyłącznie tych sześciu pól. Pełny obiekt ORM ciągnie też
     `notes` (Text) + `scorecard_answers`/`screening_answers` (JSONB) — przy
     ~158k wierszy to setki MB w kontenerze z limitem ~1 GB.
     """
@@ -190,6 +225,7 @@ class LatestStage:
     job_id: int
     stage: PipelineStage
     moved_at: datetime
+    external_source: Optional[str] = None
 
 
 LatestStageMap = dict[tuple[int, int], LatestStage]
@@ -224,6 +260,7 @@ async def _latest_stage_per_pair(
             CandidateStage.job_id,
             CandidateStage.stage,
             CandidateStage.moved_at,
+            CandidateStage.external_source,
         )
         .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
         .order_by(
@@ -240,9 +277,23 @@ async def _latest_stage_per_pair(
             job_id=row.job_id,
             stage=row.stage,
             moved_at=row.moved_at,
+            external_source=row.external_source,
         )
         for row in rows
     }
+
+
+def _set_in_nexus(stage: LatestStage) -> bool:
+    """Czy bieżący etap pary ustawił ktoś w NEXUSIE (a nie import Traffita).
+
+    Przypomnienia o wieku etapu liczą czas od ruchu, który zespół zrobił TUTAJ.
+    Rekrutacja przeniesiona z Traffita (11.10.2026) otwiera się z kartami
+    stojącymi od dni na etapach z importu: przy pierwszej fali jedna osoba
+    dostałaby 146 przypomnień o kartach, których w NEXUSIE nikt jeszcze nie
+    dotknął. Etap z Traffita zaczyna budzić po pierwszym ruchu karty w NEXUSIE
+    (decyzja Artura 11.10.2026).
+    """
+    return stage.external_source != "traffit"
 
 
 async def _open_jobs_by_id(db: AsyncSession, job_ids: Iterable[int]) -> dict[int, Job]:
@@ -250,8 +301,9 @@ async def _open_jobs_by_id(db: AsyncSession, job_ids: Iterable[int]) -> dict[int
 
     JEDEN helper, świadomie: do 09.2026 obok tego stała nieprzefiltrowana
     `_jobs_by_id`, a poprawka z 17.09 (#1593) objęła tylko jedną z dwóch
-    ścieżek — mimo że docstring `check_stage_stuck_7d` nazywa siebie „lustrem"
-    `check_dl_stage_stale_6h`. Zmierzone tego skutki na produkcji:
+    ścieżek — mimo że docstring `check_stage_stuck_7d` nazywał siebie „lustrem"
+    `check_dl_stage_stale_6h` (trigger usunięty 13.10.2026). Zmierzone tego
+    skutki na produkcji:
 
         dl_stage_stale_6h   52 263 powiadomień, 30 993 (59,3%) o rekrutacjach
                             ZAMKNIĘTYCH, przeczytane: 1
@@ -300,67 +352,39 @@ async def _delivery_lead_targets(db: AsyncSession, job: Job) -> list[int]:
     return list(rows.scalars().all())
 
 
+async def _user_is_active(db: AsyncSession, user_id: int) -> bool:
+    return bool(await db.scalar(select(User.is_active).where(User.id == user_id)))
+
+
+async def _operational_recipient(
+    db: AsyncSession, owner_ids: Iterable[Optional[int]]
+) -> Optional[int]:
+    """Pierwszy właściciel z listy, za którego ktoś faktycznie pracuje.
+
+    Zastępstwo z COMPASS-a (``effective_owner_id``) wygrywa z właścicielem
+    nominalnym — jak przypomnienie o wydarzeniu w ``api/calendar.py``. Konto
+    nieaktywne to brak osoby (runda 6 audytu): przechodzimy do następnego
+    kandydata na adresata, a wołający do zapasu (DL rekrutacji / HoR).
+    """
+    from app.services.workforce_availability import effective_owner_id
+
+    seen: set[int] = set()
+    for owner in owner_ids:
+        if not owner or owner in seen:
+            continue
+        seen.add(owner)
+        performer = await effective_owner_id(db, owner)
+        if performer and await _user_is_active(db, performer):
+            return performer
+    return None
+
+
 def _moved_at_utc(stage: LatestStage) -> datetime:
     """`CandidateStage.moved_at` jako aware UTC."""
     moved = stage.moved_at
     if moved.tzinfo is None:
         return moved.replace(tzinfo=timezone.utc)
     return moved.astimezone(timezone.utc)
-
-
-# ── Trigger 1: DL_STAGE_STALE_6H ──────────────────────────────────────────────
-
-
-async def check_dl_stage_stale_6h(
-    db: AsyncSession, now: datetime, latest: Optional[LatestStageMap] = None
-) -> int:
-    """Kandydat w `cv_sent` od ≥6h (ale nie starszy niż MAX_DAYS) → alert do DL."""
-    latest = await _latest_stage_per_pair(db, latest)
-    now_utc = now.astimezone(timezone.utc)
-    cutoff = now_utc - timedelta(hours=settings.DL_STAGE_STALE_HOURS)
-    floor = now_utc - timedelta(days=settings.DL_STAGE_STALE_MAX_DAYS)
-    # Okno: zaległy ≥6h, ale ≤MAX_DAYS. Bez dolnej granicy historyczny backlog
-    # (kandydaci z importów wiszący w cv_sent miesiącami) odpalał alert codziennie
-    # — patrz incydent notifications 2026-05-22.
-    candidates = [
-        s
-        for s in latest.values()
-        if s.stage == PipelineStage.cv_sent and floor <= _moved_at_utc(s) <= cutoff
-    ]
-    if not candidates:
-        return 0
-
-    jobs = await _open_jobs_by_id(db, (s.job_id for s in candidates))
-    emitted = 0
-    for stage in candidates:
-        job = jobs.get(stage.job_id)
-        if not job:
-            continue
-        targets = await _delivery_lead_targets(db, job)
-        if not targets:
-            continue
-        hours = int(
-            (now.astimezone(timezone.utc) - _moved_at_utc(stage)).total_seconds()
-            // 3600
-        )
-        for dl_id in targets:
-            result = await emit(
-                db,
-                user_id=dl_id,
-                title="Kandydat czeka na decyzję DL",
-                message=(
-                    f"Kandydat #{stage.candidate_id} siedzi w etapie 'CV wysłane' "
-                    f"od {hours}h w ofercie '{job.title}' (#{job.id}). "
-                    "Przepuść go dalej albo odrzuć."
-                ),
-                link=f"/jobs/{job.id}?candidate={stage.candidate_id}",
-                ntype=NotificationType.dl_stage_stale_6h,
-                related_entity_type="candidate_stage",
-                related_entity_id=stage.id,
-            )
-            if result is not None:
-                emitted += 1
-    return emitted
 
 
 # ── Trigger 2: CLIENT_FEEDBACK_EOBD ───────────────────────────────────────────
@@ -378,10 +402,12 @@ async def check_client_feedback_eobd(
         return 0
 
     day = local_day_bounds(now)
-    # Wszystkie dzisiejsze zakończone interview (event_type=interview, status=completed).
+    # Wszystkie dzisiejsze zakończone rozmowy u klienta. Runda 8 (R8-X1-2):
+    # cykl 0338 zakłada je jako `client_interview` — samo `interview` (stare
+    # wydarzenia) pomijało każdą rozmowę z potwierdzonego terminu od klienta.
     ev_rows = await db.execute(
         select(CalendarEvent).where(
-            CalendarEvent.event_type == EventType.interview,
+            CalendarEvent.event_type.in_(_POST_INTERVIEW_EVENT_TYPES),
             CalendarEvent.status == EventStatus.completed,
             CalendarEvent.end_time.isnot(None),
             CalendarEvent.end_time >= day.start_utc,
@@ -416,6 +442,26 @@ async def check_client_feedback_eobd(
         )
         if (fb.scalar() or 0) > 0:
             continue
+        # Feedback = też werdykt hiring managera (`client_side`) i debrief
+        # (`candidate_side`) zapisane po rozmowie — cykl 0338 zapisuje tam,
+        # nie w ScreeningNote (runda 8, R8-X1-2).
+        verdict = await db.execute(
+            select(func.count())
+            .select_from(InterviewFeedback)
+            .where(
+                InterviewFeedback.candidate_id == event.candidate_id,
+                InterviewFeedback.job_id == event.job_id,
+                or_(
+                    InterviewFeedback.updated_at > event.end_time,
+                    and_(
+                        InterviewFeedback.calendar_event_id == event.id,
+                        InterviewFeedback.updated_at >= event.start_time,
+                    ),
+                ),
+            )
+        )
+        if (verdict.scalar() or 0) > 0:
+            continue
         targets = await _delivery_lead_targets(db, job)
         for dl_id in targets:
             result = await emit(
@@ -424,7 +470,7 @@ async def check_client_feedback_eobd(
                 title="Zapytaj klienta o feedback",
                 message=(
                     f"Kandydat #{event.candidate_id} miał dziś rozmowę u klienta "
-                    f"w ofercie '{job.title}' (#{job.id}). Brak zanotowanego "
+                    f"w ofercie '{display_title(job)}' (#{job.id}). Brak zanotowanego "
                     "feedbacku — złap go do końca dnia pracy."
                 ),
                 link=f"/jobs/{job.id}?candidate={event.candidate_id}",
@@ -489,62 +535,9 @@ async def check_candidate_feedback_1h(db: AsyncSession, now: datetime) -> int:
     return emitted
 
 
-# ── Trigger: poranny skrót kolejki „Czeka na Ciebie" (0348) ──────────────────
-
-# Pierwszy dzień (lokalny), dla którego skrót już policzono w tym procesie.
-# Migawka kolejki to jeden przebieg po etapach opublikowanych rekrutacji —
-# liczymy ją RAZ dziennie, a nie co 5 minut; restart procesu powtórzy bieg,
-# a duplikat zatrzyma indeks `ix_notif_dedup_daily`.
-_BOARD_TASKS_DIGEST_DONE_FOR: Optional[date] = None
-BOARD_TASKS_DIGEST_FROM_HOUR = 8
-BOARD_TASKS_DIGEST_UNTIL_HOUR = 17
-
-
-async def check_board_tasks_digest(db: AsyncSession, now: datetime) -> int:
-    """Rano JEDEN wpis na osobę: przegląd DL, kolejka Cpro i follow-upy z kandydatami."""
-
-    global _BOARD_TASKS_DIGEST_DONE_FOR
-    local = now.astimezone(ZoneInfo(settings.BUSINESS_TZ))
-    if not (BOARD_TASKS_DIGEST_FROM_HOUR <= local.hour < BOARD_TASKS_DIGEST_UNTIL_HOUR):
-        return 0
-    if _BOARD_TASKS_DIGEST_DONE_FOR == local.date():
-        return 0
-
-    from app.services import board_tasks, candidate_followups  # noqa: PLC0415
-
-    # Skrót dzieli transakcję z pozostałymi triggerami ticku — jego awaria
-    # (savepoint + log) nie może zatrzymać przypomnień o rozmowach i KPI.
-    try:
-        async with db.begin_nested():
-            snapshot = await board_tasks.load_snapshot(db, now=now)
-            followups = await candidate_followups.load_followups(db, now=now)
-            counts = await board_tasks.digest_counts(
-                db,
-                snapshot,
-                followups=candidate_followups.digest_counts(
-                    followups, today=local.date()
-                ),
-            )
-    except Exception:  # noqa: BLE001
-        logger.exception("board_tasks_digest: nie udało się policzyć kolejki")
-        return 0
-    emitted = 0
-    for user_id, line in counts.items():
-        if line.total == 0:
-            continue
-        created = await emit(
-            db,
-            user_id=user_id,
-            title="Czeka na Ciebie na Tablicach",
-            message=board_tasks.digest_message(line),
-            ntype=NotificationType.board_tasks_digest,
-            related_entity_type="user",
-            related_entity_id=user_id,
-            link="/dashboard#czeka-na-ciebie",
-        )
-        emitted += int(created is not None)
-    _BOARD_TASKS_DIGEST_DONE_FOR = local.date()
-    return emitted
+# Poranny skrót kolejki „Czeka na Ciebie” w dzwonku (0348) wyłączony 16.10.2026:
+# dzwonka nie ma, a ta sama kolejka jest na pulpicie i w porannym mailu
+# (`daily_digest_email`). Typ `board_tasks_digest` zostaje w enumie i mapach.
 
 
 # ── Trigger: prep wymaga uwagi (0370) ────────────────────────────────────────
@@ -584,9 +577,11 @@ async def _already_notified(
 
 
 async def check_prep_attention(db: AsyncSession, now: datetime) -> int:
-    """Prep słaby / bez nagrania od razu, brak prepu na dobę przed rozmową.
+    """Prep słaby / bez nagrania / po rozmowie od razu, brak prepu na dobę przed.
 
-    Do organizatora prepu i każdego Head of Recruitment (decyzja 23.09.2026).
+    Do organizatora prepu i każdego Head of Recruitment (decyzja 23.09.2026),
+    a od 17.10.2026 (D7) także do Delivery Leada rekrutacji — przy Prepie 2
+    (prowadzi rekruter) DL nie dowiadywał się o niczym.
     """
     global _PREP_ATTENTION_LAST_RUN
     if (
@@ -601,6 +596,20 @@ async def check_prep_attention(db: AsyncSession, now: datetime) -> int:
             items = await prep_attention.load_prep_attention(db, now)
             names, titles = await prep_attention.labels(db, items)
             hor = await _hor_user_ids(db)
+            job_ids = {item.job_id for item in items}
+            leads = (
+                dict(
+                    (
+                        await db.execute(
+                            select(Job.id, Job.delivery_lead_id).where(
+                                Job.id.in_(job_ids)
+                            )
+                        )
+                    ).all()
+                )
+                if job_ids
+                else {}
+            )
     except Exception:  # noqa: BLE001 — dzwonek nie może zatrzymać reszty ticku
         logger.exception("prep_attention: nie udało się policzyć prepów")
         return 0
@@ -613,20 +622,27 @@ async def check_prep_attention(db: AsyncSession, now: datetime) -> int:
         if item.reason == "missing":
             title = f"Brak Prepu {item.prep_no} przed rozmową u klienta"
             message = f"{who} — {what}: rozmowa u klienta w ciągu doby, a Prepu {item.prep_no} nie ma w kalendarzu."
+        elif item.reason == "late":
+            title = f"Prep {item.prep_no} wypada po rozmowie u klienta"
+            message = f"{who} — {what}: Prep {item.prep_no} jest zaplanowany po rozmowie u klienta. Przełóż go przed rozmowę."
         elif item.reason == "weak":
             title = f"Prep {item.prep_no} słaby"
             message = f"{who} — {what}: ocena prepu jest słaba. Sprawdź, co zostało do przygotowania przed rozmową u klienta."
         else:
             title = f"Prep {item.prep_no} bez nagrania"
             message = f"{who} — {what}: z prepu nie ma transkryptu, więc nie da się go ocenić."
-        recipients = {*hor, *([item.owner_id] if item.owner_id else [])}
+        recipients = {
+            *hor,
+            *(uid for uid in (item.owner_id, leads.get(item.job_id)) if uid),
+        }
         # Brak Prepu 1 i brak Prepu 2 wiszą na tej samej rozmowie — osobny typ
         # encji, żeby jeden dzwonek nie zjadał drugiego.
-        entity_type = (
-            f"interview_prep{item.prep_no}"
-            if item.reason == "missing"
-            else "calendar_event"
-        )
+        # Spóźniony prep też dostaje własny typ: ten sam prep, przełożony
+        # i odbyty, może potem wypaść słabo — to osobny dzwonek.
+        entity_type = {
+            "missing": f"interview_prep{item.prep_no}",
+            "late": f"interview_prep{item.prep_no}_late",
+        }.get(item.reason, "calendar_event")
         for uid in sorted(recipients):
             if await _already_notified(
                 db, user_id=uid, entity_type=entity_type, entity_id=item.entity_event_id
@@ -659,9 +675,9 @@ async def check_stage_stuck_7d(
     rekrutacji, a dedup był dobowy: każdy kandydat zaległy od miesięcy
     (historyczny import, zamknięte rekrutacje) dostawał nowy wiersz każdego
     dnia — stąd „ponad tysiąc nieprzeczytanych" u rekruterów. Teraz:
-    okno ``[now - STAGE_STUCK_MAX_DAYS, now - STAGE_STUCK_DAYS]`` (lustro
-    ``check_dl_stage_stale_6h``), tylko rekrutacje niezamknięte i najwyżej
-    jedno przypomnienie na etap w tygodniu ISO (Europe/Warsaw).
+    okno ``[now - STAGE_STUCK_MAX_DAYS, now - STAGE_STUCK_DAYS]``, tylko
+    rekrutacje niezamknięte i najwyżej jedno przypomnienie na etap w tygodniu
+    ISO (Europe/Warsaw).
     """
     latest = await _latest_stage_per_pair(db, latest)
     now_utc = now.astimezone(timezone.utc)
@@ -670,7 +686,9 @@ async def check_stage_stuck_7d(
     stale = [
         s
         for s in latest.values()
-        if s.stage in _NON_TERMINAL_STAGES and floor <= _moved_at_utc(s) <= cutoff
+        if s.stage in _NON_TERMINAL_STAGES
+        and _set_in_nexus(s)
+        and floor <= _moved_at_utc(s) <= cutoff
     ]
     if not stale:
         return 0
@@ -696,28 +714,42 @@ async def check_stage_stuck_7d(
 
     names = await _candidate_names(db, (s.candidate_id for s in stale))
     emitted = 0
+    recipients_by_job: dict[int, list[int]] = {}
     for stage in stale:
         job = jobs[stage.job_id]
-        if (job.recruiter_id, stage.id) in reminded_this_week:
-            continue
+        # Rekruter (albo jego zastępca z COMPASS-a); konto nieaktywne = brak
+        # osoby → zapas jak przy alertach DL-owych (runda 6 audytu). Do tej
+        # pory 65% tych przypomnień szło na konta nieaktywne i przepadało.
+        if job.id not in recipients_by_job:
+            # „Poprzedni rekruter” (14.10.2026) = brak osoby → zapas na DL-a.
+            recruiter = await _operational_recipient(
+                db, [await working_owner_id(db, job)]
+            )
+            recipients_by_job[job.id] = (
+                [recruiter] if recruiter else await _delivery_lead_targets(db, job)
+            )
         days = int((now_utc - _moved_at_utc(stage)).total_seconds() // 86400)
         who = names.get(stage.candidate_id) or "Kandydat"
         label = STAGE_LABELS.get(stage.stage, stage.stage.value)
-        result = await emit(
-            db,
-            user_id=job.recruiter_id,
-            title="Kandydat utknął na etapie",
-            message=(
-                f"{who} od {days} dni na etapie „{label}” w rekrutacji "
-                f"„{job.title}” — zadzwoń i sprawdź, czy dalej jest zainteresowany."
-            ),
-            link=f"/jobs/{job.id}?candidate={stage.candidate_id}",
-            ntype=NotificationType.stage_stuck_7d,
-            related_entity_type="candidate_stage",
-            related_entity_id=stage.id,
-        )
-        if result is not None:
-            emitted += 1
+        for user_id in recipients_by_job[job.id]:
+            if (user_id, stage.id) in reminded_this_week:
+                continue
+            result = await emit(
+                db,
+                user_id=user_id,
+                title="Kandydat utknął na etapie",
+                message=(
+                    f"{who} od {days} dni na etapie „{label}” w rekrutacji "
+                    f"„{display_title(job)}” — zadzwoń i sprawdź, czy dalej jest "
+                    "zainteresowany."
+                ),
+                link=f"/jobs/{job.id}?candidate={stage.candidate_id}",
+                ntype=NotificationType.stage_stuck_7d,
+                related_entity_type="candidate_stage",
+                related_entity_id=stage.id,
+            )
+            if result is not None:
+                emitted += 1
     return emitted
 
 
@@ -774,26 +806,51 @@ def _post_interview_side(event: CalendarEvent, stage: "LatestStage | None") -> b
     return _is_client_side(stage)
 
 
-def _post_interview_recipients(
-    event: CalendarEvent, job: "Job | None", *, client_side: bool
+async def _post_interview_recipients(
+    db: AsyncSession,
+    event: CalendarEvent,
+    job: "Job | None",
+    *,
+    client_side: bool,
 ) -> list[int]:
     """Kto dzwoni: przy rozmowie u klienta — rekruter kandydata (właściciel
-    wydarzenia z cyklu), w pozostałych — rekruter rekrutacji jak dotąd."""
+    wydarzenia z cyklu), w pozostałych — rekruter rekrutacji jak dotąd.
+
+    Każdy adresat przechodzi zastępstwo z COMPASS-a i sprawdzenie ``is_active``
+    (runda 6 audytu): telefon T+15/T+45 do osoby, która odeszła, nie dzwonił
+    nikomu. Bez aktywnej osoby — DL rekrutacji, a bez niego HoR
+    (``_delivery_lead_targets``).
+    """
     recipients: list[int] = []
     if event.event_type == EventType.client_interview:
-        owner = event.operational_owner_id or event.created_by
+        owner = await _operational_recipient(
+            db,
+            [
+                event.operational_owner_id or event.created_by,
+                await working_owner_id(db, job) if job else None,
+            ],
+        )
         if owner:
-            recipients.append(owner)
-        elif job and job.recruiter_id:
-            recipients.append(job.recruiter_id)
-        return recipients
-    if job and job.recruiter_id:
-        recipients.append(job.recruiter_id)
+            return [owner]
+        return await _delivery_lead_targets(db, job) if job is not None else []
+    recruiter = await _operational_recipient(
+        db, [await working_owner_id(db, job) if job else None]
+    )
+    if recruiter:
+        recipients.append(recruiter)
     if client_side and job and job.delivery_lead_id:
-        recipients.append(job.delivery_lead_id)
-    if not recipients and event.created_by:
-        # Fallback: twórca eventu, jeśli nie ma job.recruiter_id
-        recipients.append(event.created_by)
+        recipients.extend(
+            uid
+            for uid in await _delivery_lead_targets(db, job)
+            if uid not in recipients
+        )
+    if not recipients:
+        # Fallback: twórca eventu, jeśli nie ma aktywnego rekrutera.
+        creator = await _operational_recipient(db, [event.created_by])
+        if creator:
+            recipients.append(creator)
+        elif job is not None:
+            recipients.extend(await _delivery_lead_targets(db, job))
     return recipients
 
 
@@ -828,6 +885,47 @@ async def _feedback_exists(
         )
     )
     return (res.scalar() or 0) > 0
+
+
+async def _post_interview_feedback_done(
+    db: AsyncSession, event: CalendarEvent, source: FeedbackSource
+) -> bool:
+    """Czy przypomnienie po rozmowie ma zgasnąć.
+
+    Runda 8 (CAL2): dla rozmowy u klienta po stronie kandydata gasi je
+    WYŁĄCZNIE kompletny debrief (`debrief_gate.debrief_closes_round`) — ta sama
+    reguła co bramka i ekran. Feedback bez pytań klienta zostawiał bramkę
+    zamkniętą, a dzwonek milczał.
+    """
+    if not (
+        event.event_type == EventType.client_interview
+        and source == FeedbackSource.candidate_side
+    ):
+        return await _feedback_exists(db, event.id, source)
+    from app.services.debrief_gate import debrief_closes_round
+
+    rows = (
+        await db.execute(
+            select(
+                InterviewFeedback.client_questions,
+                InterviewFeedback.no_client_questions,
+                InterviewFeedback.updated_at,
+            ).where(
+                InterviewFeedback.calendar_event_id == event.id,
+                InterviewFeedback.feedback_source == source,
+            )
+        )
+    ).all()
+
+    def _aware(value):
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+
+    return any(
+        debrief_closes_round(r[0], r[1], _aware(r[2]), _aware(event.start_time))
+        for r in rows
+    )
 
 
 def _is_client_side(stage: LatestStage | None) -> bool:
@@ -893,11 +991,13 @@ async def check_post_interview_t15(
         source = (
             FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
         )
-        if await _feedback_exists(db, event.id, source):
+        if await _post_interview_feedback_done(db, event, source):
             continue
 
         job = jobs.get(event.job_id) if event.job_id else None
-        recipients = _post_interview_recipients(event, job, client_side=client_side)
+        recipients = await _post_interview_recipients(
+            db, event, job, client_side=client_side
+        )
 
         if event.event_type == EventType.client_interview:
             title = "Zadzwoń do kandydata po rozmowie u klienta"
@@ -943,11 +1043,13 @@ async def check_post_interview_t45(
         source = (
             FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
         )
-        if await _feedback_exists(db, event.id, source):
+        if await _post_interview_feedback_done(db, event, source):
             continue
 
         job = jobs.get(event.job_id) if event.job_id else None
-        recipients = _post_interview_recipients(event, job, client_side=client_side)
+        recipients = await _post_interview_recipients(
+            db, event, job, client_side=client_side
+        )
 
         side_label = "klienta" if client_side else "kandydata"
         emitted += await _post_interview_emit(
@@ -983,7 +1085,7 @@ async def check_post_interview_t2h_escalation(
         source = (
             FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
         )
-        if await _feedback_exists(db, event.id, source):
+        if await _post_interview_feedback_done(db, event, source):
             continue
 
         job = jobs.get(event.job_id) if event.job_id else None
@@ -1008,7 +1110,7 @@ async def check_post_interview_t2h_escalation(
             message=(
                 f"Minęły 2 godziny od interview z kandydatem #{event.candidate_id} "
                 f"— nadal brakuje feedbacku od {side_label}. "
-                "Zajrzyj do karty kandydata i przyciśnij rekrutera."
+                "Zajrzyj do karty kandydata i sprawdź, czego brakuje."
             ),
         )
     return emitted
@@ -1030,7 +1132,6 @@ async def run_all_triggers(db: AsyncSession, now: datetime) -> dict[str, int]:
     latest = await _latest_stage_per_pair(db)
 
     return {
-        "dl_stage_stale_6h": await check_dl_stage_stale_6h(db, now, latest),
         "stage_stuck_7d": await check_stage_stuck_7d(db, now, latest),
         "candidate_feedback_1h": await check_candidate_feedback_1h(db, now),
         "client_feedback_eobd": await check_client_feedback_eobd(db, now, latest),
@@ -1039,18 +1140,70 @@ async def run_all_triggers(db: AsyncSession, now: datetime) -> dict[str, int]:
         "post_interview_t2h_escalation": await check_post_interview_t2h_escalation(
             db, now, latest
         ),
-        "board_tasks_digest": await check_board_tasks_digest(db, now),
+        "proposals_morning": await _proposals_morning(db, now),
+        "autofill_decisions": await _autofill_decisions(db, now),
+        "autofill_quality_report": await _autofill_quality_report(db, now),
         "prep_attention": await check_prep_attention(db, now),
+        "rate_change_reminders": await _rate_change_reminders(db, now),
+        "client_job_opened": await _client_job_opened(db, now),
+        "job_ad_reminders": await _job_ad_reminders(db, now),
+        "departed_care": await _departed_care(db, now),
     }
+
+
+async def _proposals_morning(db: AsyncSession, now: datetime) -> int:
+    """Poranny dzwonek „Do przejrzenia” dla Rekruterów rekrutacji (R3)."""
+    from app.services.proposals_morning_bell import send_morning_bells  # noqa: PLC0415
+
+    return await send_morning_bells(db, now)
+
+
+async def _autofill_decisions(db: AsyncSession, now: datetime) -> int:
+    """Poranny dzwonek o osobach od systemu po terminie decyzji (23.10.2026)."""
+    from app.services.autofill_decisions_bell import send_decision_bells  # noqa: PLC0415
+
+    return await send_decision_bells(db, now)
+
+
+async def _autofill_quality_report(db: AsyncSession, now: datetime) -> int:
+    """Raport poniedziałkowy „Jakość podpowiedzi systemu” (23.10.2026)."""
+    from app.services.autofill_quality import send_weekly_report  # noqa: PLC0415
+
+    return await send_weekly_report(db, now)
+
+
+async def _rate_change_reminders(db: AsyncSession, now: datetime) -> int:
+    from app.services.candidate_rate_change import send_reminders  # noqa: PLC0415
+
+    return await send_reminders(db, now)
+
+
+async def _client_job_opened(db: AsyncSession, now: datetime) -> int:
+    """„Nowa rekrutacja u Twojego klienta” dla Delivery Leada (26.10.2026)."""
+    from app.services.client_job_opened import emit_opened  # noqa: PLC0415
+
+    return await emit_opened(db, now)
+
+
+async def _job_ad_reminders(db: AsyncSession, now: datetime) -> int:
+    """Codzienne przypomnienia o brakujących ogłoszeniach (27.10.2026)."""
+    from app.services.job_ad.reminders import send_daily  # noqa: PLC0415
+
+    return await send_daily(db, now)
+
+
+async def _departed_care(db: AsyncSession, now: datetime) -> int:
+    """Odejście rekrutera: nadrobione przekazania i przypomnienia (28.10.2026)."""
+    from app.services.departure_care import run  # noqa: PLC0415
+
+    return await run(db, now)
 
 
 __all__ = [
     "LatestStage",
-    "check_board_tasks_digest",
     "LatestStageMap",
     "check_candidate_feedback_1h",
     "check_client_feedback_eobd",
-    "check_dl_stage_stale_6h",
     "check_post_interview_t15",
     "check_post_interview_t45",
     "check_post_interview_t2h_escalation",

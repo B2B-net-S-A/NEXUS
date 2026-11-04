@@ -50,13 +50,21 @@ from app.core.config import settings
 from app.core.scheduling import business_today
 from app.core.database import AsyncSessionLocal
 from app.models.job import Job
-from app.models.job_collaborator import JobCollaborator
+from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services.email import email_channel_enabled, send_email
-from app.services.notification_delivery import guarded_send, load_policy
+from app.services.job_previous_recruiters import load_parked
+from app.services.notification_delivery import (
+    email_queue_clause,
+    email_wanted,
+    guarded_send,
+    load_policy,
+)
 from app.services.m365.system_mail import (
     get_system_sender_connection,
+    DELIVERY_UNCERTAIN,
+    app_mail_send_outcome,
     send_system_email,
 )
 
@@ -96,18 +104,24 @@ async def _assigned_user_ids(db: AsyncSession, job: Job) -> list[int]:
     owner recruiter + DL + TAC + aktywni collaboratorzy, przefiltrowani do
     kont aktywnych z dostępem do domeny kandydatów (ten sam kontrakt co Job Chat).
     """
+    # „Poprzedni rekruter” (14.10.2026) nie dostaje alertu o terminie — ani
+    # jako prowadzący, ani jako ręcznie dopisany; DL i TAC zostają.
+    parked = (await load_parked(db, [job.id])).get(job.id, set())
+    owner_id = job.recruiter_id if job.recruiter_id not in parked else None
     candidate_ids: set[int] = set()
-    for uid in (job.recruiter_id, job.delivery_lead_id, job.tac_id):
+    for uid in (owner_id, job.delivery_lead_id, job.tac_id):
         if uid:
             candidate_ids.add(uid)
 
+    # Uczestnicy z kategorii (`auto_cc`) nie dostają dzwonków rekrutacji (D7).
     rows = await db.execute(
         select(JobCollaborator.user_id)
         .where(JobCollaborator.job_id == job.id)
         .where(JobCollaborator.removed_from_auto_cc.is_(False))
+        .where(JobCollaborator.source != JobCollaboratorSource.auto_cc)
     )
     for (uid,) in rows.all():
-        if uid:
+        if uid and uid not in parked:
             candidate_ids.add(uid)
 
     if not candidate_ids:
@@ -219,6 +233,7 @@ async def _claim_email(db: AsyncSession, notif_id: int) -> bool:
         .where(
             Notification.id == notif_id,
             Notification.email_sent_at.is_(None),
+            Notification.email_delivery_uncertain.is_(False),
             or_(
                 Notification.email_send_started_at.is_(None),
                 Notification.email_send_started_at <= stale_cutoff,
@@ -237,6 +252,22 @@ async def _mark_email_sent(db: AsyncSession, notif_id: int) -> None:
         update(Notification)
         .where(Notification.id == notif_id)
         .values(email_sent_at=func.now())
+    )
+    await db.commit()
+
+
+async def _mark_email_uncertain(db: AsyncSession, notif_id: int) -> None:
+    """Wynik wysyłki nieznany — rezerwacja ZOSTAJE, wiersz wypada z kolejki.
+
+    Zwolnienie rezerwacji (jak przy porażce) oznaczało drugą wysyłkę tego
+    samego alertu w kolejnym przebiegu, choć pierwsza mogła dojść. Ta sama
+    flaga co w chat fallbacku (`email_delivery_uncertain`); zdejmuje ją
+    człowiek po ustaleniu wyniku.
+    """
+    await db.execute(
+        update(Notification)
+        .where(Notification.id == notif_id)
+        .values(email_delivery_uncertain=True)
     )
     await db.commit()
 
@@ -274,7 +305,11 @@ async def _dispatch_emails(db: AsyncSession) -> int:
         .where(Notification.notification_type.in_(_DEADLINE_NTYPES))
         .where(User.is_active.is_(True))
         .where(Notification.email_sent_at.is_(None))
+        .where(Notification.email_delivery_uncertain.is_(False))
         .where(Notification.created_at >= policy.cutoff_for("job_deadline"))
+        # Własny wyłącznik maila („Maile do Ciebie”) — w zapytaniu, żeby
+        # wiersze takich kont nie zajęły paczki.
+        .where(email_queue_clause("job_deadline", Notification.created_at))
         .where(
             or_(
                 Notification.email_send_started_at.is_(None),
@@ -296,6 +331,8 @@ async def _dispatch_emails(db: AsyncSession) -> int:
         # Re-check bieżących uprawnień do domeny kandydatów zanim poleci PII.
         if (
             not user.email
+            # Własny wyłącznik maila („Maile do Ciebie”); dzwonek zostaje.
+            or not email_wanted(user, "job_deadline", notif.created_at)
             or not user_can_access_candidate_domain(user)
             or not user_can_receive_notification(
                 user,
@@ -308,10 +345,13 @@ async def _dispatch_emails(db: AsyncSession) -> int:
         if not await _claim_email(db, notif.id):
             continue
         # Stan roli/konta mógł się zmienić między SELECT-em a claimem.
-        await db.refresh(user, attribute_names=["role", "roles", "is_active"])
+        await db.refresh(
+            user, attribute_names=["role", "roles", "is_active", "email_opt_outs"]
+        )
         await resolve_effective_section_access(db, user)
         if (
             not user.is_active
+            or not email_wanted(user, "job_deadline", notif.created_at)
             or not user_can_access_candidate_domain(user)
             or not user_can_receive_notification(
                 user,
@@ -332,7 +372,7 @@ async def _dispatch_emails(db: AsyncSession) -> int:
             f"Otwórz w Nexusie: {link}\n\n"
             "— Nexus ATS"
         )
-        ok = False
+        ok: bool | None = False
         try:
             if not (await load_policy(db)).allows("job_deadline", notif.created_at):
                 await _release_email_claim(db, notif.id)
@@ -349,24 +389,37 @@ async def _dispatch_emails(db: AsyncSession) -> int:
                     event_at=notif.created_at,
                 )
             else:
-                # Blocking smtplib/app-only — offload z event loopa.
-                ok = await asyncio.to_thread(
-                    guarded_send,
-                    "job_deadline",
-                    notif.created_at,
-                    send_email,
-                    user.email,
-                    subject,
-                    text_body,
-                    None,
-                )
+                # Blocking smtplib/app-only — offload z event loopa. Wynik
+                # „nie wiadomo” żyje we fladze wątku wysyłki, więc liczymy go
+                # w tym samym wątku.
+                to_addr = user.email
+
+                def _send_app_only(
+                    created_at=notif.created_at, to_addr=to_addr
+                ) -> bool | None:
+                    return app_mail_send_outcome(
+                        guarded_send(
+                            "job_deadline",
+                            created_at,
+                            send_email,
+                            to_addr,
+                            subject,
+                            text_body,
+                            None,
+                        )
+                    )
+
+                ok = await asyncio.to_thread(_send_app_only)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "job_deadline_alerts email failed notif=%d: %s",
                 notif.id,
                 type(exc).__name__,
             )
-        if ok:
+        if ok is DELIVERY_UNCERTAIN:
+            # Mail mógł wyjść — bez zwalniania rezerwacji i bez ponowienia.
+            await _mark_email_uncertain(db, notif.id)
+        elif ok:
             await _mark_email_sent(db, notif.id)
             sent += 1
         else:
@@ -375,7 +428,15 @@ async def _dispatch_emails(db: AsyncSession) -> int:
 
 
 async def run_once() -> dict:
-    """Jeden przebieg: creation + email dispatch. Zwraca summary dict."""
+    """Jeden przebieg: creation + email dispatch. Zwraca summary dict.
+
+    Przed alertami: jednorazowe zamknięcie starych szkiców 7 dni po wdrożeniu
+    rekrutacji bez szkiców (`services/legacy_draft_autoclose.py`) — niezależnie
+    od wyłącznika alertów, pod blokadą doradczą, nigdy nie rzuca.
+    """
+    from app.services.legacy_draft_autoclose import run_once_safely
+
+    await run_once_safely()
     if not settings.JOB_DEADLINE_ALERTS_ENABLED:
         return {"enabled": False, "created": 0, "emails_sent": 0}
 

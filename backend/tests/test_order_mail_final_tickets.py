@@ -85,10 +85,17 @@ def test_pfron_independent_concern_remains():
 
 
 @pytest.mark.parametrize(
-    "text", [CERTIFICATE, "", "A signature audit trail without procurement details"]
+    "text", [CERTIFICATE, "A signature audit trail without procurement details"]
 )
 def test_nordea_non_orders_are_classified_by_content(text):
     assert non_order_reason(text)
+
+
+@pytest.mark.parametrize("text", ["", "   \n\f ", "Page 1 of 3"])
+def test_unreadable_nordea_text_is_not_evidence_of_a_non_order(text):
+    """Runda 10 (R10-N3-3): pusty odczyt (limit czasu procesu PDF, OCR) nie
+    mówi, że dokument nie jest zamówieniem — nie wolno go po cichu odrzucić."""
+    assert non_order_reason(text) is None
 
 
 @pytest.mark.parametrize("text", [ORDER, ORDER + CERTIFICATE, CERTIFICATE + ORDER])

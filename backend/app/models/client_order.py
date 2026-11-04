@@ -32,6 +32,7 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -229,6 +230,16 @@ class ClientOrder(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
 
+    # Nordea: gotowa pozycja faktury cyklicznej odczytana z PDF-a (0382,
+    # ``nordea_invoice_lines``) — NIIDS, osoba kontaktowa z „Invoice
+    # reference" i linia na każdą osobę z tabeli „Consultant(s)", razem
+    # z ręczną poprawką. NULL = jeszcze nie odczytano albo inny klient.
+    # ``none_as_null``: przypisanie None ma dać SQL NULL, nie JSON ``null``
+    # — pętla ``fill_missing`` szuka ``IS NULL`` (runda 6 audytu).
+    invoice_lines: Mapped[Optional[dict]] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+
     created_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -251,11 +262,13 @@ class ClientOrder(Base, TimestampMixin):
     # `Contract.rate_unit` (h/dzień/mc) i zasilają marżę miesięczną w widokach
     # jednoosobowych. Wpisanie tu stawki dziennej do pola czytanego jako
     # miesięczne dałoby cichy, 22-krotny błąd marży u trzech klientów.
+    # Numeric(12,3) od 0419 — stawki z zamówień bywają trzymiejscowe
+    # (36.375 PLN/h ↔ 291 PLN/MD), a do 0419 trzecie miejsce ginęło przy zapisie.
     md_rate_cost: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(12, 2), nullable=True
+        Numeric(12, 3), nullable=True
     )
     md_rate_revenue: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(12, 2), nullable=True
+        Numeric(12, 3), nullable=True
     )
 
     md_input_mode: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)

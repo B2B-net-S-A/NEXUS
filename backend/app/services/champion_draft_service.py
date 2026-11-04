@@ -13,8 +13,7 @@ Two review actions finalise the suggestion:
 
 Design notes
 ------------
-* All LLM calls go through :func:`_call_claude_json`, which mirrors the pattern
-  in `app/api/ai_writer.py::_generate_with_claude` but is generic (caller
+* All LLM calls go through :func:`_call_claude_json`, which is generic (caller
   supplies prompt + system prompt + model).
 * LLM output is validated against `ChampionProfile` schema — hallucinated
   fields raise ValidationError and the suggestion is persisted with
@@ -40,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.activity import Activity
 from app.models.ai_feature import AIFeatureKey
 from app.services.ai_quota import ai_feature
+from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.models.champion_suggestion import (
     ChampionProfileSuggestion,
     SuggestionSource,
@@ -52,8 +52,6 @@ from app.schemas.champion import (
     ChampionBasics,
     ChampionProfile,
     ChampionProjectContext,
-    RecommendedSearch,
-    RecommendedSearchParamsIn,
     ScreeningQuestion,
     SourcingStrategy,
 )
@@ -301,6 +299,108 @@ async def _summarize_transcript_for_champion(
     return "\n\n".join(summaries)
 
 
+# ── Stawka ze szkicu: budżet liczy kod z cytatu, nie model ──────────────────
+#
+# Lustro `job_request_intake.normalize_model_output` (REC-07): model podaje
+# DOSŁOWNY fragment źródła ze stawką (`basics.rate_raw`), a liczbę budżetu
+# wylicza `champion_intake.pln_hourly_bounds` (górna granica przedziału).
+# Do rundy 3 audytu (25.09.2026) `rate_value` modelu szedł wprost do budżetu
+# (`jobs.rate_budget_hourly`), a z nim zakres przeliczony na środek albo stawka
+# za MD podzielona „na oko” — dealbreaker czytał to jako sufit kandydata.
+
+_RATE_NO_QUOTE_NOTE = (
+    "Szkic podał stawkę, ale nie wskazał jej dosłownie w źródle — budżet "
+    "zostaje pusty. Wpisz go ręcznie."
+)
+
+
+def _folded_text(value: Any) -> str:
+    from app.services.champion_document import folded
+
+    return " ".join(folded(str(value or "")).split())
+
+
+def _grounded_rate(quote: Any) -> Optional[tuple[float, bool]]:
+    """``(budżet PLN/h, czy to przedział)`` z cytatu albo None."""
+    from app.services import champion_intake
+
+    if not isinstance(quote, str) or not quote.strip():
+        return None
+    bounds = champion_intake.pln_hourly_bounds(quote)
+    if not bounds:
+        return None
+    value = champion_intake.rate(bounds[1])
+    if value is None:
+        return None
+    return value, 0 < bounds[0] < bounds[1]
+
+
+def _ground_basics_rate(basics: dict[str, Any], source_text: str) -> Optional[str]:
+    """Ustaw stawkę sekcji 1 szkicu wyłącznie z cytatu obecnego w źródle.
+
+    Zwraca notatkę dla Delivery Leada albo None. Mutuje ``basics``: brak
+    dowodu = ``rate_value`` i ``rate_raw`` puste.
+    """
+    quote = basics.get("rate_raw")
+    quote = quote.strip() if isinstance(quote, str) else ""
+    if basics.get("rate_value") in (None, "") and not quote:
+        return None  # szkic nie mówi nic o stawce — sekcji nie dotykamy
+    basics["rate_value"] = None
+    basics["rate_raw"] = None
+    if not quote or _folded_text(quote) not in _folded_text(source_text):
+        return _RATE_NO_QUOTE_NOTE
+    # Runda 8 (R8-N12-2): sąsiedztwo cytatu (brutto, MD, inna waluta) — ta sama
+    # reguła co odczyt maila na /jobs/new.
+    from app.services.job_request_intake import rate_quote_context_conflict
+
+    conflict = rate_quote_context_conflict(quote, source_text)
+    if conflict:
+        return (
+            f"W źródle obok „{quote}” jest „{conflict}” — to nie jest stawka "
+            "w PLN/h netto. Wpisz budżet ręcznie."
+        )
+    grounded = _grounded_rate(quote)
+    if grounded is None:
+        # 06.10.2026: goły przedział w paśmie godzinowym (lustro odczytu maila
+        # na /jobs/new) — `rate_raw` dostaje kanoniczny tekst „60–80 zł/h”,
+        # bo ten czytają `prepare_profile` i ekrany (inaczej normalizacja
+        # stawki odrzuciłaby go przy zapisie).
+        from app.services import champion_intake
+
+        bare = champion_intake.bare_hourly_range(quote)
+        if bare is not None:
+            basics["rate_value"] = bare[1]
+            basics["rate_raw"] = champion_intake.range_label(*bare)
+            return (
+                f"W źródle jest „{quote}” bez waluty i jednostki — przyjęto jako "
+                f"PLN/h netto, budżetem jest górna granica {bare[1]:g}. Sprawdź."
+            )
+        return (
+            f"W źródle jest „{quote}” — to nie jest stawka w PLN/h netto "
+            "(brak waluty albo jednostki godzinowej). Wpisz budżet ręcznie."
+        )
+    value, is_range = grounded
+    basics["rate_value"] = value
+    basics["rate_raw"] = quote[:255]
+    if is_range:
+        return f"„{quote}” — przyjęto górną granicę jako budżet."
+    return None
+
+
+def _ground_payload_rate(payload: dict[str, Any], source_text: str) -> None:
+    """Stawka w sekcji `basics` propozycji — tylko z cytatu. Notatka trafia
+    do uzasadnienia sekcji, które Delivery Lead widzi przy przeglądzie."""
+    entry = payload.get("basics")
+    if not isinstance(entry, dict) or not isinstance(entry.get("value"), dict):
+        return
+    basics = dict(entry["value"])
+    note = _ground_basics_rate(basics, source_text)
+    entry["value"] = basics
+    if note:
+        rationale = str(entry.get("rationale") or "").strip()
+        entry["rationale"] = f"{rationale} {note}".strip() if rationale else note
+
+
 # ── Core: generate / apply / reject ─────────────────────────────────────────
 
 
@@ -385,6 +485,7 @@ async def generate_from_jd(
         confidence = raw.pop("_confidence", {}) or {}
         profile = ChampionProfile.model_validate(raw)
         payload = payload_from_profile(profile, confidence=confidence)
+        _ground_payload_rate(payload, raw_description)
     except ValidationError as exc:
         logger.warning(
             "champion_draft: ChampionProfile validation failed for job %s: %s",
@@ -424,6 +525,7 @@ async def _generate_enrichment_suggestion(
     source_type: SuggestionSource,
     source_ref: Optional[str],
     user_id: Optional[int],
+    source_text: str = "",
 ) -> ChampionProfileSuggestion:
     """Shared path for Fireflies / CloudTalk enrichment.
 
@@ -454,6 +556,7 @@ async def _generate_enrichment_suggestion(
                 "confidence": float(entry.get("confidence") or 0.0),
                 "rationale": str(entry.get("rationale") or ""),
             }
+        _ground_payload_rate(payload, source_text)
         if not payload:
             # No recognisable sections = nothing to review. Skip creation.
             logger.info(
@@ -513,8 +616,10 @@ async def enrich_from_meeting(
 
         # Long transcripts (>MAX_TRANSCRIPT_CHARS) go through map-reduce so we
         # don't silently lose context past the cutoff.
+        # 0413: notatka podpięta ręcznie bywa kartą rekomendacji — narodowość
+        # z niej nie trafia do modelu.
         transcript_text = await _summarize_transcript_for_champion(
-            meeting_transcript or ""
+            redact_card_text(meeting_transcript, AI_HIDDEN_FIELDS)
         )
         return await _generate_enrichment_suggestion(
             db,
@@ -531,6 +636,9 @@ async def enrich_from_meeting(
             source_type=SuggestionSource.fireflies_meeting,
             source_ref=source_ref,
             user_id=user_id,
+            source_text="\n".join(
+                (meeting_title or "", meeting_summary or "", transcript_text)
+            ),
         )
 
 
@@ -571,6 +679,7 @@ async def enrich_from_call(
             source_type=SuggestionSource.cloudtalk_call,
             source_ref=source_ref,
             user_id=user_id,
+            source_text="\n".join((call_summary or "", transcript_text)),
         )
 
 
@@ -761,6 +870,9 @@ async def generate_from_historical_jobs(
                     "confidence": float(entry.get("confidence") or 0.0),
                     "rationale": str(entry.get("rationale") or ""),
                 }
+            # Stawka wyłącznie z opisu TEJ rekrutacji — stawki z historycznych
+            # ról nie są dowodem budżetu nowej.
+            _ground_payload_rate(payload, effective_description)
             if not payload:
                 status_val = SuggestionStatus.rejected
                 error_message = (
@@ -851,8 +963,6 @@ def _merge_basics(current: dict[str, Any], proposed: dict[str, Any]) -> dict[str
     for field in (
         "role_name",
         "seniority_min_years",
-        "rate_value",
-        "rate_raw",
         "work_mode",
         "onsite_days_per_week",
         "candidate_location_pref",
@@ -863,24 +973,60 @@ def _merge_basics(current: dict[str, Any], proposed: dict[str, Any]) -> dict[str
         proposed_val = proposed.get(field)
         if proposed_val is not None and proposed_val != "":
             merged[field] = proposed_val
+    # Stawka tylko z cytatu, z którego ją wyliczył kod (`_ground_basics_rate`).
+    # Propozycje sprzed rundy 3 audytu niosą samą liczbę modelu — tej nie
+    # przenosimy do budżetu, obecna stawka zostaje.
+    quote = proposed.get("rate_raw")
+    grounded = _grounded_rate(quote)
+    value = proposed.get("rate_value")
+    if (
+        grounded is not None
+        and isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and abs(float(value) - grounded[0]) < 1e-6
+    ):
+        merged["rate_value"] = grounded[0]
+        merged["rate_raw"] = quote
     return merged
+
+
+def _question_key(question: Any) -> str:
+    """Treść pytania do porównań: bez wielkości liter, polskich znaków,
+    wielokrotnych spacji i końcowej interpunkcji."""
+    from app.services.champion_document import folded
+
+    text = " ".join(folded(str(question or "")).split())
+    return text.rstrip(" ?!.:;")
 
 
 def _merge_screening_questions(
     current: list[dict[str, Any]], proposed: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Append proposed questions, dedup by `id` (current wins on conflict)."""
-    existing_ids = {q.get("id") for q in (current or []) if isinstance(q, dict)}
-    out = list(current or [])
+    """Dopisz pytania ze szkicu, bez duplikatów po TREŚCI pytania.
+
+    Id pytań (``q1``, ``q2``…) nadaje osobno każde źródło — profil i szkic AI
+    mają swoje ``q1`` o zupełnie innej treści. Do rundy 3 audytu (25.09.2026)
+    dedup szedł po ``id``, więc profil z q1–q3 i szkic z ośmioma pytaniami
+    dawał pięć pytań, a trzy nowe znikały po cichu. Istniejące pytania
+    zachowują swoje id (odpowiedzi ze screeningu mogą się do nich odwoływać);
+    dopisane dostają kolejne wolne ``qN``.
+    """
+    out = [q for q in (current or []) if isinstance(q, dict)]
+    seen = {_question_key(q.get("question")) for q in out}
+    taken = {str(q.get("id")) for q in out if q.get("id")}
+    next_number = 1
     for q in proposed or []:
         if not isinstance(q, dict):
             continue
-        qid = q.get("id")
-        if qid and qid in existing_ids:
+        key = _question_key(q.get("question"))
+        if not key or key in seen:
             continue
-        out.append(q)
-        if qid:
-            existing_ids.add(qid)
+        seen.add(key)
+        while f"q{next_number}" in taken:
+            next_number += 1
+        new_id = f"q{next_number}"
+        taken.add(new_id)
+        out.append({**q, "id": new_id})
     return out
 
 
@@ -1017,6 +1163,11 @@ async def apply_suggestion(
         user_edit(job.champion_profile, validated.model_dump(mode="json"), user_id),
     )
     _sync_job_columns_from_applied_sections(job, merged_sections)
+    # Tytuł dla rekrutera składa się z Championa (rola, must, lata, dziedzina)
+    # — lustro zapisu z edytora w `api/jobs.py` (audyt 25.09.2026, runda 4).
+    from app.services.job_working_title import refresh_working_title
+
+    await refresh_working_title(db, job)
 
     # Status: full accept iff all sections with value=non-null were accepted,
     # otherwise partially_accepted.
@@ -1097,207 +1248,6 @@ async def reject_suggestion(
     return suggestion
 
 
-# ── Recommended searches (AI-proposed sourcing strategies) ──────────────────
-
-
-async def _count_matching_candidates(db: AsyncSession, params) -> int:
-    """How many candidates the structured part of a proposal matches.
-
-    Deliberately ignores `q` / `search_mode`: the semantic leg would need a
-    Voyage embedding per proposal, and this number exists to catch the
-    "filters describe nobody" case, which is a property of the structured
-    chips alone. A hybrid search can only ever return MORE than this.
-    """
-    from sqlalchemy import func, select as _select
-
-    from app.models.candidate import Candidate, CandidateStatus
-    from app.schemas.candidate_search import CandidateSearchRequest
-    from app.services.advanced_candidate_search import build_advanced_filter
-    from app.services.structured_candidate_search import build_structured_filter
-
-    req = CandidateSearchRequest(**params.model_dump(exclude_none=True))
-    clauses = list(build_structured_filter(req))
-    boolean = build_advanced_filter(req.q_all, req.q_any, req.q_none, req.q_any_groups)
-    if boolean is not None:
-        clauses.append(boolean)
-    # Mirror the endpoint: blacklisted candidates are never offered.
-    clauses.append(Candidate.status != CandidateStatus.blacklisted)
-
-    stmt = _select(func.count(Candidate.id)).select_from(Candidate).where(*clauses)
-    return int((await db.execute(stmt)).scalar() or 0)
-
-
-async def generate_recommended_searches(
-    db: AsyncSession,
-    *,
-    job_id: int,
-    user_id: Optional[int],
-) -> dict[str, Any]:
-    """Generate 2-3 candidate-search proposals from the Champion Profile.
-
-    The LLM emits a strict whitelisted subset of `CandidateSearchRequest`
-    (validated via `RecommendedSearchParams` — invalid or empty proposals are
-    dropped, never persisted). Proposals replace previous *proposed* entries;
-    approved/rejected history is kept. Returns the updated champion_profile.
-    """
-    from app.services.llm_prompts import CHAMPION_RECOMMENDED_SEARCHES
-
-    job_res = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
-    job = job_res.scalar_one_or_none()
-    if not job:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND, detail="Job not found"
-        )
-    client_name = ""
-    if job.client_id:
-        client = await db.scalar(select(Client).where(Client.id == job.client_id))
-        client_name = client.name if client else ""
-
-    # Znormalizowany, bo ~949 ofert trzyma jeszcze kształt sprzed 09.2026;
-    # czytanie samych nowych kluczy dałoby tam pusty wycinek i prompt bez
-    # jakiejkolwiek wiedzy o ofercie.
-    profile: dict[str, Any] = ChampionProfile.model_validate(
-        job.champion_profile or {}
-    ).model_dump(mode="json")
-    champion_excerpt = {
-        k: profile.get(k)
-        for k in (
-            "basics",
-            "search",
-            "stack",
-            # Przed `project`/`client`: wycinek jest cięty do 6000 znaków,
-            # a dziedzina i certyfikaty to twarde wymagania, nie proza.
-            "experience",
-            "project",
-            "client",
-        )
-        if profile.get(k)
-    }
-    experience = champion_view.experience(profile)
-    if not any(experience[key] for key in ("domains", "certifications", "regulations")):
-        champion_excerpt.pop("experience", None)
-
-    # Measured density of every searchable column, injected into the prompt so
-    # the model stops proposing filters over columns nobody fills in. Best
-    # effort: a failure here must not block generating searches, it only makes
-    # them less informed.
-    try:
-        from app.services.candidate_column_coverage import candidate_column_coverage
-
-        coverage_block = (await candidate_column_coverage(db)).as_prompt_block()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("recommended_searches: column coverage unavailable: %s", exc)
-        coverage_block = ""
-
-    from app.services.skill_normalize import iter_skill_names
-
-    prompt = CHAMPION_RECOMMENDED_SEARCHES.render(
-        column_coverage=coverage_block,
-        job_title=job.title or "",
-        client_name=client_name,
-        requirements=(job.requirements or "")[:4000],
-        must_skills=", ".join(iter_skill_names(job.must_skills)),
-        nice_skills=", ".join(iter_skill_names(job.nice_skills)),
-        champion_profile_json=json.dumps(
-            champion_excerpt, ensure_ascii=False, indent=1
-        )[:6000],
-    )
-    parsed = await _call_claude_json(
-        prompt=prompt,
-        system_prompt=CHAMPION_RECOMMENDED_SEARCHES.system_prompt or "",
-        max_tokens=2000,
-    )
-
-    from datetime import datetime, timezone
-
-    now = datetime.now(timezone.utc)
-    fresh: list[RecommendedSearch] = []
-    dropped: list[str] = []
-    for i, raw in enumerate((parsed.get("searches") or [])[:3]):
-        if not isinstance(raw, dict):
-            dropped.append(f"#{i}: not an object")
-            continue
-        try:
-            rs = RecommendedSearch(
-                id=f"rs-{int(now.timestamp())}-{i}",
-                name=str(raw.get("name") or "").strip()[:100] or f"Strategia {i + 1}",
-                rationale=str(raw.get("rationale") or "").strip(),
-                # Ingest schema: `extra="forbid"`, so a filter the LLM invented
-                # is a parse error we can see, not a field silently dropped.
-                params=RecommendedSearchParamsIn.model_validate(
-                    raw.get("params") or {}
-                ),
-                status="proposed",
-                generated_at=now,
-            )
-        except Exception as exc:  # noqa: BLE001
-            # Named, not counted: a prompt that starts hallucinating parameters
-            # used to look identical to one that simply returned fewer
-            # strategies. The reason has to reach the log or nobody finds out.
-            dropped.append(f"#{i}: {type(exc).__name__}: {str(exc)[:200]}")
-            continue
-        if rs.params.is_empty():
-            dropped.append(f"#{i}: every filter empty")
-            continue
-        fresh.append(rs)
-
-    # Count each surviving strategy BEFORE storing it. The DL review UI was
-    # always meant to show a live result count; taking it here means a strategy
-    # that matches nobody arrives labelled as such, instead of as an empty list
-    # the recruiter finds three clicks later and reads as "we have no such
-    # people". Structured filters only — the semantic leg needs an embedding
-    # call per proposal, which is not worth it for a preflight number.
-    for rs in fresh:
-        try:
-            rs.estimated_results = await _count_matching_candidates(db, rs.params)
-        except Exception as exc:  # noqa: BLE001
-            # None, never 0: an unavailable count must not read as "no matches".
-            logger.warning(
-                "recommended_searches: preflight count failed for %s: %s", rs.id, exc
-            )
-            rs.estimated_results = None
-
-    if dropped:
-        logger.warning(
-            "recommended_searches job=%s: kept %d of %d proposals; dropped -> %s",
-            job_id,
-            len(fresh),
-            len(parsed.get("searches") or []),
-            "; ".join(dropped),
-        )
-
-    # Keep decided history, replace pending proposals.
-    existing: list[RecommendedSearch] = []
-    for entry in profile.get("recommended_searches") or []:
-        try:
-            existing.append(RecommendedSearch.model_validate(entry))
-        except Exception:  # noqa: BLE001
-            continue
-    kept = [e for e in existing if e.status != "proposed"]
-
-    defaults = ChampionProfile().model_dump(mode="json")
-    for k, v in defaults.items():
-        profile.setdefault(k, v)
-    profile["recommended_searches"] = [
-        e.model_dump(mode="json") for e in [*kept, *fresh]
-    ]
-    validated = ChampionProfile.model_validate(profile)
-    job.champion_profile = validated.model_dump(mode="json")
-
-    db.add(
-        Activity(
-            entity_type="job",
-            entity_id=job_id,
-            action="champion_recommended_searches_generated",
-            user_id=user_id,
-            details={"proposed": len(fresh)},
-        )
-    )
-    await db.commit()
-    await db.refresh(job)
-    return job.champion_profile
-
-
 # ── Explicit re-exports for tests / callers ─────────────────────────────────
 
 __all__ = [
@@ -1308,7 +1258,6 @@ __all__ = [
     "enrich_from_call",
     "apply_suggestion",
     "reject_suggestion",
-    "generate_recommended_searches",
     "_call_claude_json",
     "_merge_section",
     "_merge_screening_questions",

@@ -17,6 +17,9 @@ from app.services import embedding_service as embeddings
 _QUERY_CACHE_LIMIT = 128
 _QUERY_CACHE_TTL = 300
 _QUERY_VECTOR_VERSION = "chunk-8000-mean-v1"
+_CHUNK = 8000
+# 32 kawałki po 8000 znaków mieszczą się w limicie tokenów jednego wywołania.
+_WARM_BATCH = 32
 _YIELD_EVERY = 32
 # The only payload keys that decide whether a stored vector is a verified
 # measurement of the CURRENT candidate text; nothing else is transferred.
@@ -73,12 +76,15 @@ def cosine(left, right) -> float | None:
     )
 
 
-async def request_vector(text: str) -> list[float] | None:
-    key = (
+def _cache_key(text: str) -> tuple[str, str, str]:
+    return (
         _QUERY_VECTOR_VERSION,
         embeddings._voyage_model(),
         hashlib.sha256(text.encode()).hexdigest(),
     )
+
+
+def _cached(key) -> list[float] | None:
     cached = _query_cache.get(key)
     if cached is not None:
         expires, vector = cached
@@ -86,9 +92,17 @@ async def request_vector(text: str) -> list[float] | None:
             _query_cache.move_to_end(key)
             return list(vector)
         del _query_cache[key]
+    return None
+
+
+async def request_vector(text: str) -> list[float] | None:
+    key = _cache_key(text)
+    cached = _cached(key)
+    if cached is not None:
+        return cached
     # Every character is represented, including requirements after long prose.
     # Bounded chunks avoid the provider's implicit truncation of long requests.
-    chunks = [text[i : i + 8000] for i in range(0, len(text), 8000)]
+    chunks = [text[i : i + _CHUNK] for i in range(0, len(text), _CHUNK)]
     if not chunks:
         return None
     vectors = []
@@ -98,6 +112,54 @@ async def request_vector(text: str) -> list[float] | None:
         if not measured or len(measured) != len(part) or any(not v for v in measured):
             return None
         vectors.extend(measured)
+    return _remember(key, vectors)
+
+
+async def warm_request_vectors(texts) -> None:
+    """Wektory wielu zapytań paczkami — jedno wywołanie Voyage na
+    ``_WARM_BATCH`` kawałków zamiast jednego na tekst (21.10.2026).
+
+    Wynik jest ten sam co z ``request_vector`` (te same kawałki, ta sama
+    średnia i normalizacja) i trafia do tej samej pamięci podręcznej. Tekst
+    dłuższy niż kawałek idzie w tej samej paczce co krótkie (27.10.2026:
+    co trzecia rekrutacja w „Pasuje też do” ma ponad 8000 znaków i bez tego
+    pytała Voyage osobno). Tekst z nieudanym kawałkiem zostaje dla
+    ``request_vector``. Wołający ogrzewa najwyżej ``_QUERY_CACHE_LIMIT``
+    tekstów naraz, inaczej wypchnie własne.
+    """
+    pending: dict[tuple[str, str, str], str] = {}
+    for text in texts:
+        if not text:
+            continue
+        key = _cache_key(text)
+        if key not in pending and _cached(key) is None:
+            pending[key] = text
+    chunks = [
+        (key, text[i : i + _CHUNK])
+        for key, text in pending.items()
+        for i in range(0, len(text), _CHUNK)
+    ]
+    measured_by_key: dict[tuple[str, str, str], list[list[float]]] = {}
+    failed: set[tuple[str, str, str]] = set()
+    for start in range(0, len(chunks), _WARM_BATCH):
+        part = chunks[start : start + _WARM_BATCH]
+        measured = await embeddings._voyage_embed_batch(
+            [chunk for _, chunk in part], input_type="query"
+        )
+        if not measured or len(measured) != len(part):
+            failed.update(key for key, _ in part)
+            continue
+        for (key, _), vector in zip(part, measured):
+            if vector:
+                measured_by_key.setdefault(key, []).append(vector)
+            else:
+                failed.add(key)
+    for key, vectors in measured_by_key.items():
+        if key not in failed:
+            _remember(key, vectors)
+
+
+def _remember(key, vectors) -> list[float] | None:
     size = len(vectors[0])
     if any(len(v) != size for v in vectors):
         return None

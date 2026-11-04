@@ -47,6 +47,8 @@ from fastapi import Depends, HTTPException, status
 
 from app.api.deps import ROLE_DENIED_DETAIL, get_current_user
 from app.models.user import User, UserRole
+from app.services.action_permissions import ProductAction, has_permission
+from app.services.permission_denial import permission_denied
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -61,14 +63,30 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
-    UserRole.sourcer,
 )
 
-CANDIDATE_READ_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
-CANDIDATE_DOCUMENT_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
+# 0446: „Automatyzacje” czytają kandydatów i CV jak reszta firmy (decyzja
+# Artura 14.10.2026), ale nie ma ich w żadnym zbiorze zapisu ani eksportu,
+# a sekcje Sourcing i Pipeline mają tylko do odczytu.
+READ_ONLY_ROLES: tuple[UserRole, ...] = (UserRole.automation,)
+
+CANDIDATE_READ_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.delivery_lead,
+    UserRole.talent_community_manager,
+    UserRole.recruiter,
+    UserRole.finance,
+    UserRole.automation,
+)
+CANDIDATE_DOCUMENT_ROLES: tuple[UserRole, ...] = CANDIDATE_READ_ROLES
+# Paczka ZIP: bez samej roli rekrutera (decyzja Artura 02.11.2026). Rekruter
+# z rolą dodatkową przechodzi, bo bramka pyta o dowolną z ról.
+CANDIDATE_BULK_CV_ROLES: tuple[UserRole, ...] = tuple(
+    role for role in CANDIDATE_READ_ROLES if role != UserRole.recruiter
+)
 
 # Parity with deps.RecruiterPlus. Od 2026-09-17 obejmuje head_of_recruitment
 # (decyzja Artura: HoR = pełny parytet z rekruterem; wcześniej FE bramkował
@@ -78,10 +96,8 @@ CANDIDATE_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
-    UserRole.sourcer,
 )
 
 CANDIDATE_EXPORT_ROLES: tuple[UserRole, ...] = (
@@ -89,7 +105,6 @@ CANDIDATE_EXPORT_ROLES: tuple[UserRole, ...] = (
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.finance,
 )
 
@@ -98,16 +113,15 @@ CANDIDATE_FINANCE_ROLES: tuple[UserRole, ...] = (UserRole.admin,)
 
 # „Stawka do klienta" (cena, za jaką kandydat idzie do klienta) — decyzje
 # Artura 23.09.2026 (Pipeline v4 + „rekrutacje widzą wszyscy”): stawkę ustala
-# i wpisuje WYŁĄCZNIE Delivery Lead (i admin). Rekruter, sourcer i TAC jej NIE
-# WIDZĄ — mają oczekiwania kandydata i budżet Championa. Widzą ją role
-# zarządcze (HoR, TCM) i Finanse. Osoba z kilkoma rolami widzi, jeśli
-# którakolwiek z nich jest na liście (``has_any_role``). Stawka KANDYDATA
-# (``expected_rate_*``) to inne pole i widzą ją wszyscy. Do 23.09 zapisywały
-# też HoR/TCM/TAC/Finanse i właściciel rekrutacji.
-CLIENT_RATE_WRITE_ROLES: tuple[UserRole, ...] = (
-    UserRole.admin,
-    UserRole.delivery_lead,
-)
+# i wpisuje WYŁĄCZNIE Delivery Lead (i admin) — od 02.10.2026 jako część
+# uprawnienia „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”
+# (``recruitment_manage``), tego samego, które wysyła CV. Rekruter, sourcer
+# i TAC jej NIE WIDZĄ — mają oczekiwania kandydata i budżet Championa. Widzą
+# ją role zarządcze (HoR, TCM) i Finanse; PODGLĄD zostaje przy rolach. Osoba
+# z kilkoma rolami widzi, jeśli którakolwiek z nich jest na liście
+# (``has_any_role``). Stawka KANDYDATA (``expected_rate_*``) to inne pole
+# i widzą ją wszyscy. Do 23.09 zapisywały też HoR/TCM/TAC/Finanse
+# i właściciel rekrutacji.
 CLIENT_RATE_VIEW_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.head_of_recruitment,
@@ -118,22 +132,101 @@ CLIENT_RATE_VIEW_ROLES: tuple[UserRole, ...] = (
 
 
 def user_can_view_client_rate(user: Optional[User]) -> bool:
-    """Czy `user` widzi stawkę do klienta (karty tablicy, historia rekrutacji)."""
-    return user is not None and user.has_any_role(*CLIENT_RATE_VIEW_ROLES)
+    """Czy `user` widzi stawkę do klienta (karty tablicy, historia rekrutacji).
+
+    Role z listy albo każdy, kto tę stawkę zapisuje — osoba z nadanym
+    uprawnieniem do wysyłki CV musi widzieć kwotę, którą sama wpisała.
+    """
+    if user is None:
+        return False
+    return user.has_any_role(*CLIENT_RATE_VIEW_ROLES) or has_permission(
+        user, ProductAction.recruitment_manage
+    )
+
+
+def note_content_hidden(
+    user: Optional[User],
+    *,
+    kind: Optional[str],
+    author_id: Optional[int],
+    send_note: bool = False,
+) -> bool:
+    """Czy treść notatki jest dla `user` zakryta (0412).
+
+    Krótki wpis Delivery Leada „Wyślijmy za 161 zł/h” niesie stawkę do
+    klienta, a notatki czyta każdy — bez tego decyzja z 23.09.2026 (rekruter
+    tej stawki nie widzi) nie działała. Autor zawsze widzi własną notatkę.
+
+    ``send_note`` — zwykła notatka DL-a z wysyłki („Wysłany 150/100-110”),
+    rozpoznana przez ``hidden_send_note_ids`` (decyzja C, 14.10.2026). Notatki
+    o stawce KANDYDATA zostają jawne.
+    """
+    from app.services import note_kinds
+
+    if not (note_kinds.hides_client_rate(kind) or send_note):
+        return False
+    if user is not None and author_id is not None and author_id == user.id:
+        return False
+    return not user_can_view_client_rate(user)
+
+
+def visible_note_content(user: Optional[User], note, *, send_note: bool = False) -> str:
+    """Treść notatki albo zdanie zastępcze, gdy rola jej nie widzi."""
+    from app.services import note_kinds
+
+    if note_content_hidden(
+        user, kind=note.kind, author_id=note.author_id, send_note=send_note
+    ):
+        return note_kinds.CLIENT_RATE_PLACEHOLDER
+    return note.content
+
+
+async def hidden_send_note_ids(db, user: Optional[User], note_ids) -> frozenset[int]:
+    """Notatki z wysyłki z ceną dla klienta, których `user` nie widzi (decyzja C).
+
+    Rola ze stawką do klienta nie płaci za zapytanie. Każda powierzchnia, która
+    pokazuje treść notatek osobie bez tej stawki, woła to przed
+    ``note_content_hidden`` / ``visible_note_content`` (``send_note=``).
+    """
+    if user_can_view_client_rate(user):
+        return frozenset()
+    from app.services import recruitment_rate_hints
+
+    return await recruitment_rate_hints.send_note_ids(db, note_ids)
+
+
+def note_rate_visibility_clause(user: Optional[User]):
+    """Warunek zapytania po ``Note``: bez notatek, których treść jest zakryta.
+
+    Dla wycinków wyszukiwania — tam zdanie zastępcze nie ma sensu, notatka
+    po prostu nie jest źródłem wycinka.
+    """
+    from sqlalchemy import or_, true
+
+    from app.models.note import Note
+    from app.services import note_kinds
+
+    if user_can_view_client_rate(user):
+        return true()
+    hidden = sorted(note_kinds.CLIENT_RATE_KINDS)
+    visible = or_(Note.kind.is_(None), Note.kind.notin_(hidden))
+    if user is None:
+        return visible
+    return or_(visible, Note.author_id == user.id)
 
 
 def user_can_write_client_rate(user: User, job=None) -> bool:
     """Czy `user` może ustawić stawkę do klienta.
 
-    Wyłącznie rola z `CLIENT_RATE_WRITE_ROLES` — własność rekrutacji nie nadaje
-    zapisu. Jedna funkcja dla bramki PATCH `…/client-rate`, ruchu na
+    Wyłącznie uprawnienie `recruitment_manage` — własność rekrutacji nie
+    nadaje zapisu. Jedna funkcja dla bramki PATCH `…/client-rate`, ruchu na
     „CV wysłane" i pola `can_write_client_rate` w `GET /api/jobs/{id}`.
     """
-    return user.has_any_role(*CLIENT_RATE_WRITE_ROLES)
+    return has_permission(user, ProductAction.recruitment_manage)
 
 
 def client_rate_write_allowed(user: User) -> bool:
-    """Rola z zapisem stawki do klienta + zapis w sekcji kandydatów/pipeline'u."""
+    """Uprawnienie do stawki do klienta + zapis w sekcji kandydatów/pipeline'u."""
     if not user_can_write_client_rate(user):
         return False
     if user.has_role(UserRole.admin):
@@ -148,7 +241,7 @@ def client_rate_write_allowed(user: User) -> bool:
 async def resolve_client_rate_write(db, user: User, job) -> bool:
     """Pełna decyzja zapisu stawki do klienta — lustro `PATCH …/client-rate`.
 
-    Rola i sekcja (`client_rate_write_allowed`). Członkostwo w rekrutacji nie
+    Uprawnienie i sekcja (`client_rate_write_allowed`). Członkostwo w rekrutacji nie
     jest już wymagane (23.09.2026 — rekrutacje widzi i obsługuje każdy). Jedna
     funkcja dla bramki i `can_write_client_rate` w `GET /api/jobs/{id}` — pole
     nie może obiecywać zapisu, który skończy się 403.
@@ -156,6 +249,16 @@ async def resolve_client_rate_write(db, user: User, job) -> bool:
     if job is None:
         return False
     return client_rate_write_allowed(user)
+
+
+def client_rate_write_denied() -> HTTPException:
+    """403 zapisu stawki do klienta — z nazwą brakującego uprawnienia.
+
+    Trasy, które pytają `resolve_client_rate_write` (PATCH `…/client-rate`,
+    `/move`, `/bulk-move`), stoją już za zapisem sekcji kandydatów albo
+    pipeline'u, więc odmowa oznacza tam brak uprawnienia, nie sekcji.
+    """
+    return permission_denied(ProductAction.recruitment_manage)
 
 
 # Global Talent 360 facts are a deliberately broader write capability than
@@ -208,6 +311,8 @@ _VIEWER_REDACTED_JOB_FIELDS: tuple[str, ...] = (
     "salary_max",
     "rate_budget_hourly",
     "effective_budget_hourly",
+    "rate_budget_hourly_min",
+    "effective_budget_hourly_min",
     "champion_profile",
     "close_notes",
     "close_reason",
@@ -220,6 +325,9 @@ _VIEWER_REDACTED_JOB_FIELDS: tuple[str, ...] = (
     # Kiedy DL oznaczył „Mamy championa" — informacja wewnętrzna; status
     # requestu (`request_status`) viewer widzi i bez tego znacznika (22.09.2026).
     "champion_found_at",
+    # 0450: imiona championów to dane kandydatów — viewer widzi sam status.
+    "champions",
+    "champion_seats",
 )
 
 
@@ -243,6 +351,11 @@ def redact_job_for_viewer(job_dict: dict, user: User) -> dict:
         job_dict["primary_owner"] = None
     if "collaborators" in job_dict:
         job_dict["collaborators"] = []
+    # Rola „Rekruter” (02.10.2026) to ta sama obsada pod inną nazwą.
+    if "recruiters" in job_dict:
+        job_dict["recruiters"] = []
+    if "previous_recruiters" in job_dict:
+        job_dict["previous_recruiters"] = []
     return job_dict
 
 
@@ -313,6 +426,28 @@ def require_candidate_roles(
     return _check
 
 
+async def forbid_read_only_roles(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """0446: odmowa dla roli tylko do odczytu na trasie z bramką odczytu.
+
+    Kilka tras za ``CandidatePIIAccess``/``CandidateDocumentAccess`` coś
+    zmienia albo wynosi dane hurtem (pobranie wielu CV, telefon przez
+    CloudTalk, podłączenie i synchronizacja poczty, przypięcia „Moich ludzi”).
+    Rekruterowi wystarcza do nich odczyt; „Automatyzacje” nie robią ich wcale.
+    """
+
+    if current_user.has_any_role(*READ_ONLY_ROLES):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ROLE_DENIED_DETAIL,
+        )
+    return current_user
+
+
+NOT_READ_ONLY = [Depends(forbid_read_only_roles)]
+
+
 # Callable-style dependencies for routes using the `= Depends(...)` idiom
 # (keeps signatures with already-defaulted params valid without reordering).
 require_candidate_read = require_candidate_roles(*CANDIDATE_READ_ROLES)
@@ -356,6 +491,10 @@ CandidatePIIAccess = Annotated[
 # CV + document listing/content/presigned URLs/ZIP.
 CandidateDocumentAccess = Annotated[
     User, Depends(require_candidate_roles(*CANDIDATE_DOCUMENT_ROLES))
+]
+
+CandidateBulkCvAccess = Annotated[
+    User, Depends(require_candidate_roles(*CANDIDATE_BULK_CV_ROLES))
 ]
 
 # Mutations: notes, source events, talent pools, tags, engagement, location.
@@ -419,6 +558,25 @@ CandidateHardDeleteAccess = Annotated[
     Depends(
         require_candidate_roles(
             UserRole.admin,
+            required_access=SectionAccess.write,
+        )
+    ),
+]
+
+# „Usuń z profilu” przy pliku kandydata (decyzja Artura 13.10.2026): admin
+# i Head of Recruitment. Węziej niż `CandidateWriteAccess` (wgranie pliku,
+# rodzaj, „nieaktualne”), bo usunięty plik znika z profilu, generatora i QC,
+# a przywrócić go może dziś tylko administrator bazy.
+CANDIDATE_DOCUMENT_REMOVE_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+)
+
+CandidateDocumentRemoveAccess = Annotated[
+    User,
+    Depends(
+        require_candidate_roles(
+            *CANDIDATE_DOCUMENT_REMOVE_ROLES,
             required_access=SectionAccess.write,
         )
     ),

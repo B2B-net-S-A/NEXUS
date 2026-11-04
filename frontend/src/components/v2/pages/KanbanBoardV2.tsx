@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from"react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from"react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from"react";
+import { invalidatePreContract, preContractsApi } from "@/lib/api/preContracts";
 import { useQueryClient } from"@tanstack/react-query";
 import Link from"next/link";
 import { Alert } from"@/components/ui/alert";
@@ -15,30 +16,37 @@ import {
  AlertCircle,
  AlertTriangle,
  ArrowRight,
+ Ban,
+ ClipboardList,
  ChevronLeft,
  ChevronRight,
+ CircleCheck,
  Clock,
  FileArchive,
  FileSignature,
  FileText,
  Flag,
  HelpCircle,
- LayoutGrid,
  Loader2,
+ Lock,
+ LogOut,
  Mail,
  MoveRight,
  Phone,
- Rows3,
  Send,
  Sparkles,
  Star,
  Trash2,
+ Unlock,
+ UserPlus,
  UserX,
  XCircle,
+ PhoneCall,
 } from"lucide-react";
 import {
  api,
  candidatesApi,
+ hiringManagerFeedbackApi,
  pipelineApi,
 } from"@/lib/api";
 import { candidatePipelinesQueryKey } from"@/components/CandidatePipelinesWidget";
@@ -56,8 +64,11 @@ import {
  downloadBulkCvs,
 } from"@/lib/bulk-cv-download";
 import { cn, formatDate } from"@/lib/utils";
+import { EmploymentPill } from "@/components/ds/EmploymentMarker";
+import { isPlainLeftClick } from "@/lib/plain-left-click";
+import { markerLabel } from "@/lib/employment-marker";
+import { eligibilityWarningBadges } from "@/lib/eligibility-reason-labels";
 import { encodeJobBackRef } from"@/lib/url-filters";
-import { useUiStore } from"@/store/ui";
 import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
 import { Card } from"@/components/ui/card";
@@ -73,19 +84,47 @@ import { Tooltip, TooltipContent, TooltipTrigger } from"@/components/ui/tooltip"
 import { ScorecardV2 } from"@/components/v2/modals/ScorecardV2";
 import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { useToast } from"@/components/Toast";
-import { BoardReviewSection } from "@/components/v2/jobs/BoardReviewSection";
 import { SlotRequestDialog } from "@/components/calendar/cycle/SlotDialogs";
-import { InterviewCycleProgress } from "@/components/calendar/cycle/InterviewCycleProgress";
-import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
+import { DlReviewBody } from "@/components/v2/recruitment/DlReviewPanel";
+import { DlReviewQueueDialog } from "@/components/v2/recruitment/dl-review/DlReviewQueueDialog";
+import { PersonPanelShell, type PersonPanelSize } from "@/components/v2/person/PersonPanelShell";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { MoveNextDialog } from "@/components/v2/recruitment/MoveNextDialog";
-import { dockNavigationOrder } from "@/lib/board-dock-order";
+import { MinimumFieldsDialog } from "@/components/v2/recruitment/MinimumFieldsDialog";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { ClientAcceptedDialog, type ClientAcceptanceValues } from "@/components/v2/recruitment/ClientAcceptedDialog";
+import {
+ acceptanceLine,
+ acceptanceTitle,
+ acceptedToast,
+ contractStepCounts,
+ type ClientAcceptanceRecipient,
+ type ContractStepCounts,
+} from "@/lib/client-acceptance";
+import {
+ dockNavigationOrder,
+ nextColumnWithPeople,
+ queueColumnAfterOpen,
+ returnToQueueTarget,
+} from "@/lib/board-dock-order";
+import {
+ ADDED_BY_ALL,
+ addedByEmptyColumnText,
+ addedByOptions,
+ addedByQueueSuffix,
+ matchesAddedBy,
+ peopleInProgress,
+ type AddedByFilter,
+} from "@/lib/board-added-by";
+import { cardCareLabel } from "@/lib/departed-care";
+import { myWaitingItems } from "@/lib/job-closed-waiting";
+import { ClosedJobWaitingBanner } from "@/components/v2/jobs/ClosedJobWaitingBanner";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import {
  MOVE_REQUIREMENTS_PREFIX,
  type MoveRequirementAction,
 } from "@/lib/api/moveRequirements";
-import type { BoardTaskRow } from "@/lib/api/boardTasks";
+import { CPRO_REVIEW_LABEL, fetchDlReviewRow, type BoardTaskRow } from "@/lib/api/boardTasks";
 import type { PairInfo } from "@/lib/interview-cycle";
 import {
  SETTABLE_BADGES,
@@ -94,28 +133,51 @@ import {
  boardColumnStep,
  foldBoardColumns,
  impliedBadges,
+ isCproStageName,
  placeStage,
  type BoardColumnKey,
  type StageBadgeKey,
 } from "@/lib/board-stages";
 import { boardColumnPurpose } from "@/lib/board-column-purpose";
+import { CALL_FIRST_COUNT, knownFactLabels, newColumnSection, orderNewColumn, type NewColumnSection } from "@/lib/new-column-queue";
+import { HiredColumnHelp } from "@/components/v2/jobs/HiredColumnHelp";
+import { hasPermission } from "@/lib/permissions";
 import { hasRole, useAuthStore } from "@/store/auth";
+import { isRecruiterOnly } from "@/lib/cv-download-access";
 import {
  CARD_BADGE_TONE_CLASS,
  cardBadges,
+ cardStageBadge,
  cardNextStep,
  claimAction,
+ fillGapsText,
  knownForwardGap,
+ minimumOnlyGap,
+ requirementsSkippedBadge,
  qcChip,
  type CardNextStep,
  type QcChipTone,
+ compactCardBadge,
+ cardOwner,
+ cardShortName,
+ criticalGapBadge,
+ cvStateBadge,
+ dlSendQueue,
+ isReadyForDlSend,
+ shortStepLabel,
 } from "@/lib/board-card-badges";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
- BoardWorkbenchDrawer,
+ PersonWorkbenchTabs,
+ usePersonRow,
+ workbenchDefaultSection,
+ workbenchSectionOwnsMove,
  type BoardWorkbenchContext,
-} from "@/components/v2/recruitment/BoardWorkbenchDrawer";
-import type { KanbanQueryState } from "@/components/v2/recruitment/PersonPanel";
+ type KanbanQueryState,
+ type NextInColumn,
+} from "@/components/v2/person/PersonWorkbenchTabs";
+import { createNoteFillChannel } from "@/lib/note-fill-channel";
+import { screeningFormQueryKey } from "@/lib/api/screeningForm";
 import { buildProcessRows } from "@/components/v2/recruitment/person-rows";
 import type { PersonPanelSection } from "@/components/v2/recruitment/types";
 import { useBulkCvHandoff } from "@/components/v2/recruitment/useBulkCvHandoff";
@@ -125,12 +187,13 @@ import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import {
  usePipelineMove,
  type PipelineMoveConfirmedPatch,
+ type RejectFollowUp,
 } from "@/hooks/usePipelineMove";
-import { PipelineFilterBar } from "@/components/v2/jobs/PipelineFiltersRail";
 import {
  PipelineCandidateDock,
  type PipelineMoveTarget,
 } from "@/components/v2/jobs/PipelineCandidateDock";
+import { PersonPanelErrorBoundary } from "@/components/v2/jobs/PersonPanelErrorBoundary";
 import {
  colId,
  columnLabel,
@@ -138,6 +201,8 @@ import {
  type KanbanColumn,
  type KanbanItem,
 } from "@/components/v2/pages/kanban-shared";
+import { OtherJobsChip, showsOtherJobsChip } from "@/components/v2/pages/kanban-other-jobs-chip";
+import { useJointScreeningIntent } from "@/store/joint-screening";
 import {
  CV_SENT_STAGE,
  findStageColumn,
@@ -151,15 +216,16 @@ import {
 } from "@/lib/pipeline-flow";
 import {
  columnSlaHint,
- hasNoNextAction,
  nextActionFor,
  oldestDaysInColumn,
  type NextAction,
  type NextActionKind,
 } from "@/lib/pipeline-next-action";
+import { closedReason } from "@/lib/closed-reason";
 import { useClientPlaybook } from "@/lib/client-playbooks";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { useJobPipelineTemplate } from "@/hooks/useJobPipelineTemplate";
+import { useReviewSequence } from "@/hooks/useReviewSequence";
 import {
  kanbanViewToggleVisible,
  resolveKanbanViewMode,
@@ -187,6 +253,9 @@ interface KanbanBoardV2Props {
  // Kept as a candidate-keyed map (not embedded in items) so it survives the
  // optimistic-move / "verified" item rebuilds below.
  scoreMap?: Map<number, number>;
+ /** Krytyczne bez śladu u osoby (`/pipeline-scores` → `exclusions`) —
+  *  plakietka „brak: …” na karcie (16.10.2026). */
+ criticalGapMap?: Map<number, string[]>;
  // True while the scores query is first resolving → cards show a placeholder
  // ring instead of nothing (cold pipelines don't look broken).
  scoresLoading?: boolean;
@@ -210,6 +279,9 @@ interface KanbanBoardV2Props {
  /** Woła się raz po obsłużeniu `initialDockCandidateId` — niezależnie od tego,
   *  czy karta była na tablicy — żeby strona zdjęła parametr z adresu. */
  onInitialDockHandled?: () => void;
+ /** `?candidate=<id>&review=1` (dzwonek „CV do przeglądu”): poza dokiem
+  *  otwiera też przegląd DL tej osoby, gdy czeka na niego w „QC CV”. */
+ initialDockOpensReview?: boolean;
  /** Kto jest teraz w doku — strona trzyma go w adresie (`?candidate=`). */
  onDockCandidateChange?: (candidateId: number | null) => void;
  /**
@@ -225,12 +297,25 @@ interface KanbanBoardV2Props {
  /** Nordea (`job.cpro_enabled`): „CV wysłane" = „Wysłane do Cpro", znacznik
   *  „W kolejce Cpro" w kolumnie „QC CV". */
  cproEnabled?: boolean;
- /** Panel „Dodaj kandydatów" (Rekrutacja v5) — otwiera go strona; bez tej
-  *  funkcji kolumna „Nowi" pokazuje dawne karty propozycji. */
- onOpenAddCandidates?: (tab: "search" | "proposals") => void;
- /** „Ścieżka rekrutacji" w nagłówku: przewiń do kolumny Tablicy i podświetl
-  *  ją na chwilę. `seq` rozróżnia kolejne kliknięcia tej samej kolumny. */
- focusColumnRequest?: { column: BoardColumnKey; seq: number } | null;
+ /** Przegląd przed wysłaniem do klienta w tej rekrutacji NALEŻY do patrzącego
+  *  (serwer: `viewer_owns_dl_review` — Delivery Lead rekrutacji, a bez niego
+  *  portfel klienta). Nie mylić z prawem wysyłki (`recruitment_manage`), które
+  *  ma admin i każdy DL: ono daje przycisk, to — „Czeka na Ciebie”. */
+ viewerOwnsDlReview?: boolean;
+ /**
+  * Pasek nad tablicą (02.10.2026: kafle „Kandydaci do dodania”). Dostaje
+  * przełącznik widoku tablicy — widoczny tylko przy bardzo szerokim szablonie.
+  */
+ renderAbove?: (viewControls: React.ReactNode) => React.ReactNode;
+ /** Zamknięta rekrutacja (28.10.2026): pasek z osobami patrzącego od „CV wysłane”. */
+ closedJob?: { closedOn: string | null; reasonLabel: string | null } | null;
+ /** Filtr „Kto dodał” (14.10.2026): strona trzyma go w adresie (`?added_by=`).
+  *  Chowa karty innych osób w kolumnach w toku i zawęża kolejkę panelu.
+  *  Obiekt ma być stabilny między renderami (strona go memoizuje). */
+ addedBy?: AddedByFilter;
+ /** Zmiana filtra z Tablicy („Pokaż wszystkich” w pustej kolumnie, pasek końca
+  *  kolejki) i z menu etykiety kolejki w panelu. Bez niego tych miejsc nie ma. */
+ onAddedByChange?: (filter: AddedByFilter) => void;
 }
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -293,6 +378,36 @@ export const composeColumns = (
  name: offTemplate.name,
  },
  ];
+};
+
+/**
+ * Ruchy strzałką „→” czekające na wysłanie (14.10.2026) na świeżym stanie
+ * z serwera. Serwer jeszcze o nich nie wie — odświeżenie tablicy w ciągu tych
+ * 10 s cofałoby kartę na stare miejsce, a potem przesuwało ją drugi raz.
+ */
+export const withPendingMoves = (
+ cols: KanbanColumn[],
+ pending: ReadonlyArray<{ candidateId: number; toColumn: KanbanColumn }>
+): KanbanColumn[] => {
+ let next = cols;
+ for (const { candidateId, toColumn } of pending) {
+ const target = colId(toColumn);
+ const from = next.find((c) => c.items.some((i) => i.candidate_id === candidateId));
+ if (!from || colId(from) === target || !next.some((c) => colId(c) === target)) continue;
+ const moved = from.items.find((i) => i.candidate_id === candidateId) as KanbanItem;
+ next = next.map((c) => {
+ if (c === from) {
+ const items = c.items.filter((i) => i.candidate_id !== candidateId);
+ return { ...c, items, count: items.length };
+ }
+ if (colId(c) !== target) return c;
+ // Świeże wejście na etap = góra kolumny, jak po odświeżeniu (`compareNewestFirst`).
+ const entered = { ...moved, stage: c.stage, days_in_stage: 0, moved_at: new Date().toISOString() };
+ const items = [entered, ...c.items];
+ return { ...c, items, count: items.length };
+ });
+ }
+ return next;
 };
 
 const defaultFocusColumnId = (cols: KanbanColumn[]) => {
@@ -405,17 +520,13 @@ const StageFocusNavigator = memo(function StageFocusNavigator({
  );
 });
 
-/** Przełączniki widoku (kafelki/kolumny) i gęstości — w pasku filtrów Tablicy. */
+/** Przełącznik widoku (kafelki/kolumny) — w pasku filtrów Tablicy. */
 function BoardViewControls({
  viewMode,
  onSetViewMode,
- density,
- onToggleDensity,
 }: {
  viewMode: KanbanViewMode | null;
  onSetViewMode: (next: KanbanViewMode) => void;
- density: "cozy" | "compact";
- onToggleDensity: () => void;
 }) {
  return (
  <>
@@ -448,27 +559,6 @@ function BoardViewControls({
  </div>
  )}
 
- <Tooltip>
-
- <TooltipTrigger asChild>
- <Button
- type="button"
- size="icon-sm"
- variant="ghost"
- onClick={onToggleDensity}
- aria-label={`Gęstość: ${density === "compact" ? "kompaktowa" : "cozy"}`}
- >
- {density === "compact" ? (
- <LayoutGrid className="h-4 w-4" />
- ) : (
- <Rows3 className="h-4 w-4" />
- )}
- </Button>
- </TooltipTrigger>
- <TooltipContent>
- Gęstość: {density === "compact" ? "kompaktowa" : "cozy"}
- </TooltipContent>
- </Tooltip>
  </>
  );
 }
@@ -539,6 +629,8 @@ function NextActionRow({
  step,
  hidden,
  advance,
+ days,
+ hideWho = false,
 }: {
  action: NextAction;
  /** „Kto ma ruch" + co zrobić (Rekrutacja v5) — `null` = sama etykieta akcji. */
@@ -546,8 +638,13 @@ function NextActionRow({
  hidden?: boolean;
  /** Strzałka „→" na końcu wiersza. */
  advance?: React.ReactNode;
+ /** Dni na etapie — „piłka” mówi, od kiedy leży (PR 4, 04.10.2026). */
+ days?: number | null;
+ /** Imię osoby z ruchem stoi już wiersz wyżej (dodał ją ta sama osoba). */
+ hideWho?: boolean;
 }) {
- if (action.kind === "none" && !step && !advance) return null;
+ if (action.kind === "none" && !step && !advance && !(days != null && days >= 1)) return null;
+ const daysTone = days == null ? null : days >= 7 ? "danger" : days >= 3 ? "warning" : "neutral";
  const Icon = action.tone === "normal" ? NEXT_ACTION_ICON[action.kind] : AlertTriangle;
  const label = step?.label ?? action.label;
  return (
@@ -559,7 +656,7 @@ function NextActionRow({
  hidden && "xl:pointer-fine:hidden"
  )}
  >
- {step ? (
+ {step && !hideWho ? (
   <span
    data-testid="card-next-who"
    className={cn(
@@ -572,23 +669,26 @@ function NextActionRow({
  ) : label ? (
   <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
  ) : null}
- {/* Dwie linie zamiast ucinania: „Twój ruch" / imię zabiera miejsce,
- a „Przygotuj C…" nie mówi, co zrobić. */}
- <span className="min-w-0 flex-1 line-clamp-2" title={label}>{label}</span>
+ {/* Krótka nazwa kroku (`shortStepLabel`) — pełna w `title`; dwie linie
+ zostają jako zapas dla własnych etapów szablonu. */}
+ <span className="min-w-0 flex-1 line-clamp-2" title={label}>{shortStepLabel(label)}</span>
+ {/* „0 d” nic nie mówi — dni od pierwszego pełnego dnia na etapie. */}
+ {days != null && days >= 1 && (
+  <span
+   data-testid="card-days"
+   className={cn(
+    "shrink-0 tabular-nums text-muted-foreground",
+    daysTone === "danger" && "font-semibold text-destructive",
+    daysTone === "warning" && "font-semibold text-warning"
+   )}
+   title={`Na tym etapie od ${days} dni`}
+  >
+   {days} d
+  </span>
+ )}
  {advance}
  </div>
  );
-}
-
-/** Zwykły klik lewym przyciskiem — bez modyfikatorów „otwórz w nowej karcie". */
-export function isPlainLeftClick(e: {
- button: number;
- metaKey: boolean;
- ctrlKey: boolean;
- shiftKey: boolean;
- altKey: boolean;
-}): boolean {
- return e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 }
 
 /** Ton chipu QC — tokeny, jak odznaki karty. */
@@ -605,7 +705,6 @@ interface CardProps {
  selected: boolean;
  onToggleSelect: (id: number) => void;
  onOpenScreening: (stageId: number, name: string) => void;
- density: "cozy" |"compact";
  canScreen: boolean;
  /** Arkusz screeningu na tym etapie jeszcze niezapisany (17.09.2026). */
  screeningDue: boolean;
@@ -614,6 +713,12 @@ interface CardProps {
  onOpenScorecard: (item: KanbanItem) => void;
  /** Stawka z karty ponad budżet PLN/h rekrutacji — odznaka, nie blokada. */
  overBudget: boolean;
+ /** Krytyczne bez śladu w profilu, CV i notatkach — odznaka, nie blokada. */
+ criticalGaps?: string[];
+ /** Miejsce w „Zadzwoń najpierw” kolumny „Nowi” (`lib/new-column-queue.ts`). */
+ callFirstRank?: number;
+ /** Przeskoczył na co 5. miejsce jako osoba bez procesu (`freshSlots`). */
+ freshSlot?: boolean;
  matchScore?: number;
  scoresLoading?: boolean;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
@@ -625,11 +730,6 @@ interface CardProps {
  /** Krok 04 Pipeline (flow C2, PR 3/7): klik na kartę otwiera dok „Karta w
   *  procesie" obok tablicy — wszędzie poza checkboxem i linkiem do profilu. */
  onOpenDock: (item: KanbanItem) => void;
- /** Karta nie pasuje aktywnym filtrom lewej kolumny — przyciemniona, ale
-  *  NADAL w DOM-ie i przeciągalna: usunięcie jej z listy zepsułoby indeksy
-  *  `@hello-pangea/dnd`, na których stoi `onDragEnd`. Ukrywanie liczników w
-  *  rail'u (nie tutaj) jest tym, co czyni przyciemnienie „nie cichym". */
- dimmed?: boolean;
  /** Wiersz „co dalej" — liczony z etapu i wieku karty, patrz
   *  `lib/pipeline-next-action.ts`. Przekazywany gotowy (a nie liczony tutaj),
   *  bo tylko kolumna zna grupę etapu policzoną nad CAŁĄ tablicą. */
@@ -637,6 +737,12 @@ interface CardProps {
  /** Odznaka z etapu szablonu złożonego w tę kolumnę (DZ, Cpro, prep, umowa…). */
  stageBadge?: StageBadgeKey | null;
 }
+
+/** Kroki umowy w doku („+ Umowa wysłana”), gdzie skrót „wysłana” nie wystarcza. */
+const SETTABLE_BADGE_TOGGLE_LABEL: Partial<Record<StageBadgeKey, string>> = {
+ contract_sent: "Umowa wysłana",
+ contract_signed: "Umowa podpisana",
+};
 
 const STAGE_BADGE_TONE: Record<StageBadgeKey, string> = {
  posting: "bg-muted text-muted-foreground",
@@ -695,12 +801,40 @@ interface BoardV4Ctx {
  onTake: (item: KanbanItem) => void;
  /** Rekrutacja v5: następna kolumna Tablicy karty (`null` = brak strzałki). */
  nextColumnLabel: (item: KanbanItem) => string | null;
- /** Strzałka „→" — okno „Przesuń dalej". */
+ /** Strzałka „→": ruch od razu z „Cofnij” albo okno „Przesuń dalej" (14.10.2026). */
  onAdvance: (item: KanbanItem) => void;
  /** Chip QC — okno QC CV. */
  onOpenQc: (item: KanbanItem) => void;
+ /** Patrzący MOŻE wysłać CV do klienta (`recruitment_manage`). */
+ canReviewAsDl: boolean;
+ /** Patrzący przesuwa bez bramek pól (`/api/auth/me` → `skips_fill_gates`). */
+ skipsFillGates: boolean;
+ /** Przegląd tej rekrutacji NALEŻY do patrzącego (serwer). */
+ viewerOwnsDlReview: boolean;
+ /** „Przejrzyj i wyślij” — przegląd przed wysłaniem do klienta. */
+ onReviewSend: (item: KanbanItem) => void;
+ /** Otwórz panel osoby jak klik w kartę („Screening razem” z okienka karty). */
+ onOpenPerson: (item: KanbanItem) => void;
+ /** D1 (16.10.2026): „Klient zaakceptował” — okno akceptacji; `null` = szablon
+  *  bez etapu „Akceptacja” albo tylko odczyt (przycisku nie ma). */
+ onClientAccept: ((item: KanbanItem) => void) | null;
 }
 const BoardV4Context = React.createContext<BoardV4Ctx | null>(null);
+
+/** Klucz osoby w kolejce przeglądu „po kolei” (stała funkcja — zależność haka). */
+const candidateIdOf = (item: KanbanItem): number => item.candidate_id;
+
+/** PR 6 (04.10.2026): zamiast nowej karty z kalendarzem — co zrobić w panelu. */
+export const SLOTS_BY_OTHERS_MESSAGE =
+ "Terminy od klienta wpisuje osoba z uprawnieniem do terminów (zwykle Delivery Lead). Gdy je doda, wybierzesz termin z kandydatem w panelu osoby.";
+
+/** Ikony skróconych plakietek karty (`compactCardBadge`). */
+const COMPACT_BADGE_ICON: Record<string, typeof Lock> = {
+ source: UserPlus,
+ claim: Lock,
+ recommendation_card: ClipboardList,
+ booked_call: PhoneCall,
+};
 
 function CardV4Badges({
  item,
@@ -719,43 +853,74 @@ function CardV4Badges({
   viewerId: v4.viewerId,
   now: new Date(),
   stageBadge,
+  viewerOwnsDlReview: v4.viewerOwnsDlReview,
  };
  const badges = cardBadges(item, ctx);
  const action = v4.readOnly ? null : claimAction(item, ctx);
  if (badges.length === 0 && !action) return null;
  return (
   <>
-   {badges.map((b) => (
-    <span
-     key={b.key}
-     data-testid={`card-badge-${b.key}`}
-     className={cn(
-      "inline-flex max-w-full items-center truncate rounded px-1 text-[10px] font-semibold",
-      CARD_BADGE_TONE_CLASS[b.tone]
-     )}
-     title={b.title}
-    >
-     {b.label}
-    </span>
-   ))}
-   {item.interview_badge?.steps?.length ? (
-    <InterviewCycleProgress steps={item.interview_badge.steps} className="mt-0.5 w-full" />
-   ) : null}
-   {action && (
-    <button
-     type="button"
-     onClick={(e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      v4.onTake(item);
-     }}
-     disabled={v4.takingIds.has(item.id)}
-     className="inline-flex items-center rounded border border-primary/40 px-1.5 text-[10px] font-semibold text-primary hover:bg-primary/10 disabled:opacity-50"
-     aria-label={`${action === "takeover" ? "Przejmij" : "Biorę"} ${fullName} — na 12 h`}
-    >
-     {action === "takeover" ? "Przejmij" : "Biorę"}
-    </button>
-   )}
+   {badges.map((b) => {
+    const compact = compactCardBadge(b);
+    if (compact) {
+     // Źródło, blokada 12 h i karta rekomendacji: ikona + krótki dopisek,
+     // pełna treść w podpowiedzi i dla czytnika ekranu (PR 4, 04.10.2026).
+     const Icon =
+      b.key === "claim" && b.tone === "free" ? Unlock : (COMPACT_BADGE_ICON[b.key] ?? HelpCircle);
+     return (
+      <span
+       key={b.key}
+       data-testid={`card-badge-${b.key}`}
+       className={cn(
+        "inline-flex max-w-full items-center gap-0.5 truncate rounded px-1 text-[10px] font-semibold",
+        CARD_BADGE_TONE_CLASS[b.tone]
+       )}
+       title={compact.full}
+      >
+       <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+       {compact.short ? <span aria-hidden="true">{compact.short}</span> : null}
+       <span className="sr-only">{b.label}</span>
+      </span>
+     );
+    }
+    return (
+     <span
+      key={b.key}
+      data-testid={`card-badge-${b.key}`}
+      className={cn(
+       "inline-flex max-w-full items-center truncate rounded px-1 text-[10px] font-semibold",
+       CARD_BADGE_TONE_CLASS[b.tone]
+      )}
+      title={b.title}
+     >
+      {b.label}
+     </span>
+    );
+   })}
+   {action && (() => {
+    // Osoba od systemu (23.10.2026): „Biorę” to decyzja „Dzwonię”.
+    const takeLabel =
+     action === "takeover"
+      ? "Przejmij"
+      : item.entry_source === "system" && !item.entry_autofill?.decided
+       ? "Dzwonię"
+       : "Biorę";
+    return (
+     <button
+      type="button"
+      onClick={(e) => {
+       e.stopPropagation();
+       e.preventDefault();
+       v4.onTake(item);
+      }}
+      disabled={v4.takingIds.has(item.id)}
+      className="inline-flex items-center rounded border border-primary/40 px-1.5 text-[10px] font-semibold text-primary hover:bg-primary/10 disabled:opacity-50"
+      aria-label={`${takeLabel} ${fullName} — na 12 h`}
+     >
+      {takeLabel}
+     </button>
+    );
+   })()}
   </>
  );
 }
@@ -766,12 +931,14 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  selected,
  onToggleSelect,
  onOpenScreening,
- density,
  canScreen,
  screeningDue,
  scorecardDue,
  onOpenScorecard,
  overBudget,
+ criticalGaps,
+ callFirstRank,
+ freshSlot,
  matchScore,
  scoresLoading,
  onRemoveFromRecruitment,
@@ -779,7 +946,6 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  desktopOverview,
  readOnly,
  onOpenDock,
- dimmed,
  nextAction,
  stageBadge = null,
 }: CardProps) {
@@ -788,49 +954,93 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  const v5 = React.useContext(BoardV4Context);
  const boardKey = v5?.columnByItemId.get(item.id) ?? null;
  const nextStep = v5
- ? cardNextStep(nextAction, item, { column: boardKey, cproEnabled: v5.cproEnabled, stageBadge, viewerId: v5.viewerId })
+ ? cardNextStep(nextAction, item, { column: boardKey, cproEnabled: v5.cproEnabled, stageBadge, viewerId: v5.viewerId, viewerOwnsDlReview: v5.viewerOwnsDlReview })
  : null;
  const nextColumnLabel = v5 && !readOnly ? v5.nextColumnLabel(item) : null;
- const forwardGap = nextColumnLabel ? knownForwardGap(item, boardKey) : null;
+ // „Do wysłania do klienta” (13.10.2026): kto może wysłać, dostaje na gotowej
+ // karcie przycisk przeglądu zamiast strzałki — strzałka otwierała okno
+ // „Przesuń dalej”, a dopiero z niego przegląd.
+ const reviewSend = Boolean(
+ v5 && !readOnly && v5.canReviewAsDl && isReadyForDlSend(item, boardKey, stageBadge === "cpro")
+ );
+ const forwardGap = nextColumnLabel
+ ? knownForwardGap(item, boardKey, { skipsFillGates: v5?.skipsFillGates })
+ : null;
  const qc = boardKey === "cv_qc" ? qcChip(item) : null;
+ const cvBadge = cvStateBadge(item, boardKey);
+ // 22.10.2026: karta przeszła dalej mimo braków, bo przesunął ją DL.
+ const skippedBadge = requirementsSkippedBadge(item, boardKey);
  const normalizedMatchScore =
  typeof matchScore === "number" && Number.isFinite(matchScore)
  ? Math.max(0, Math.min(100, Math.round(matchScore)))
  : null;
- const daysBadge =
- item.days_in_stage == null
- ? null
- : item.days_in_stage >= 7
- ?"danger"
- : item.days_in_stage >= 3
- ?"warning"
- :"neutral";
  const detailsId = `kanban-candidate-details-${item.id}`;
  const hasAddedByName = Boolean(item.added_to_job_by_name?.trim());
  const addedByDisplayName = item.added_to_job_by_name?.trim() || "brak danych";
- const addedByShortName = item.added_to_job_by_name?.trim()
- ? item.added_to_job_by_name.trim().split(/\s+/)[0]
- : "Brak danych";
+ // Od „Zweryfikowanego” karta pokazuje osobę, która zweryfikowała (20.10.2026).
+ const owner = cardOwner(item, boardKey);
+ const hasOwnerName = owner.name != null;
+ const ownerShortName = cardShortName(owner.name) ?? "Brak danych";
  // Awatar WŁAŚCICIELA karty, nie kandydata — makieta kroku 04 pyta „czyja to
  // karta", a nazwisko kandydata i tak stoi wiersz wyżej.
- const ownerInitials = item.added_to_job_by_name?.trim()
- ? item.added_to_job_by_name
- .trim()
+ const ownerInitials = owner.name
+ ? owner.name
  .split(/\s+/)
  .map((w) => w[0])
  .slice(0, 2)
  .join("")
  .toUpperCase()
  : "?";
- const addedAttribution = hasAddedByName
+ const addedLine = item.entry_source === "system"
+ ? `Dodał system („Nowi” na 20)${
+ item.added_to_job_at ? ` · ${formatDate(item.added_to_job_at)}` : ""
+ }`
+ : hasAddedByName
  ? `Dodano do rekrutacji przez: ${addedByDisplayName}${
  item.added_to_job_at ? ` · ${formatDate(item.added_to_job_at)}` : ""
  }`
  : `Brak danych o osobie dodającej${
  item.added_to_job_at ? ` · dodano ${formatDate(item.added_to_job_at)}` : ""
  }`;
+ const addedAttribution =
+ owner.role === "assigned"
+ ? `Prowadzi: ${owner.name}${
+ item.owner_assigned_by_name ? ` · przypisał(a) ${item.owner_assigned_by_name}` : ""
+ }\n${addedLine}`
+ : owner.role === "taken"
+ ? `Wziął(-ęła) „Biorę”: ${owner.name}\n${addedLine}`
+ : owner.role === "verified"
+ ? `Zweryfikował(a): ${owner.name}${
+ item.verified_at ? ` · ${formatDate(item.verified_at)}` : ""
+ }\n${addedLine}`
+ : addedLine;
+ // Konflikty z klientem i czarna lista: serwer niesie je w `warnings`,
+ // a karta do 12.10.2026 rysowała tylko weto HM i „ponad budżet”.
+ const warningBadges = eligibilityWarningBadges(item.warnings, item.employment_marker);
+ const criticalGap = criticalGapBadge(criticalGaps);
+ // Odejście z firmy (28.10.2026): para osoby z wyłączonym kontem, którą
+ // domyka Delivery Lead — „Prowadzi” zostaje przy osobie, która odeszła.
+ const care =
+ item.care_user_id != null && item.care_departed_name
+ ? cardCareLabel(item.care_departed_name, item.care_user_id, item.care_user_name, v5?.viewerId ?? null)
+ : null;
+ // Kolumny zamknięte (19.10.2026): powód widać bez otwierania karty, komentarz
+ // i kto zamknął — w dymku i w opisie karty dla czytnika.
+ const closed = closedReason(item);
+ const closedSummary = closed
+ ? `${closed.verb}: ${closed.reasonText}${closed.comment ? ` — ${closed.comment}` : ""}`
+ : null;
+ const closedTitle = closed
+ ? [
+ closedSummary,
+ [closed.by, closed.at ? formatDate(closed.at) : null].filter(Boolean).join(" · ") || null,
+ ]
+ .filter(Boolean)
+ .join("\n")
+ : undefined;
  const accessibleDetails = [
  overBudget ? "Stawka ponad budżet rekrutacji." : null,
+ criticalGap ? criticalGap.title : null,
  screeningDue ? "Screening do uzupełnienia." : null,
  scorecardDue ? "Scorecard do uzupełnienia." : null,
  normalizedMatchScore != null
@@ -846,8 +1056,12 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  item.days_in_stage != null
  ? `W etapie od ${item.days_in_stage} dni.`
  : null,
- `${addedAttribution}.`,
+ `${addedAttribution.replace("\n", ". ")}.`,
+ closedSummary ? `${closedSummary}.` : null,
  item.hm_veto ? "Ostrzeżenie: weto hiring managera." : null,
+ ...warningBadges.map((w) => `Ostrzeżenie: ${w.label}.`),
+ care ? `${care.departed}, ${care.caretaker}.` : null,
+ item.employment_marker ? `${markerLabel(item.employment_marker)}.` : null,
  // Na końcu, nie w środku — „następny krok" jest podsumowaniem karty, a nie
  // kolejnym faktem o kandydacie.
  nextAction.kind !== "none" ? `Następny krok: ${nextAction.label}.` : null,
@@ -877,20 +1091,22 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  return (
  <div
  data-kanban-card=""
+ data-tour="jobs.board.card"
  data-candidate-id={item.candidate_id}
+ data-champion={item.is_champion ? "true" : undefined}
  onClick={handleCardClick}
  className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-xs hover:border-primary/40",
+ // Champion (D3, 15.10.2026): złota obwódka; zaznaczenie i weto HM wygrywają.
+ item.is_champion &&"border-medal-gold-foreground/40",
+ callFirstRank != null &&"border-primary/50",
  selected &&"ring-2 ring-primary border-primary",
  // Makieta kroku 04 daje karcie ~9 px oddechu; stare `p-5` (20 px) zjadało
  // przy 176 px kolumny ćwierć jej szerokości na sam padding.
- density === "compact" ?"p-2" :"p-3",
+ "p-3",
  desktopOverview &&"xl:pointer-fine:min-h-[68px] xl:pointer-fine:rounded-md xl:pointer-fine:p-1 xl:pointer-fine:pb-6 xl:pointer-fine:pt-6",
  // Świadomie bez grayscale/opacity — czytałoby się jako „nieaktywny". Ten
  // kandydat jest aktywny; weto to ostrzeżenie (17.09.2026), nie blokada.
- item.hm_veto &&"border-destructive/50",
- // Filtr lewej kolumny nie pasuje — przyciemnij, ale zostaw w DOM-ie
- // (patrz komentarz `dimmed` w `CardProps`).
- dimmed &&"opacity-35"
+ item.hm_veto &&"border-destructive/50"
  )}
  title={
  [
@@ -939,6 +1155,16 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  />
  )}
 
+ {callFirstRank != null ? (
+ <span
+ data-testid="card-call-first-rank"
+ aria-label={`Zadzwoń najpierw, miejsce ${callFirstRank}`}
+ className="absolute -left-1.5 -top-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold leading-none text-primary-foreground"
+ >
+ {callFirstRank}
+ </span>
+ ) : null}
+
  {desktopOverview && (
  <div className="absolute right-0 top-0 hidden h-6 min-w-6 items-center justify-center xl:pointer-fine:flex">
  <OverviewScoreBadge
@@ -959,10 +1185,10 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  z jednolinijkowym nazwiskiem — przy ~176 px szerokości kolumny to on
  zabierał miejsce, przez które nazwisko trzeba było uciąć. */}
  {/* Wcięcie DOKŁADNIE pod checkbox: jego pole wizualne (`before:inset-1`)
- kończy się 20 px od lewej krawędzi karty, a padding karty to 12 px
- (cozy) / 8 px (compact). Stare `pl-5` zostawiało nazwisku 64 z 158 px
+ kończy się 20 px od lewej krawędzi karty, a padding karty to 12 px.
+ Stare `pl-5` zostawiało nazwisku 64 z 158 px
  karty — stąd „Wojcie/ch" łamane w środku wyrazu. */}
- <div className={cn("flex items-start gap-2", density === "compact" ? "pl-3" : "pl-2", desktopOverview &&"xl:pointer-fine:items-center xl:pointer-fine:gap-1 xl:pointer-fine:pl-0")}>
+ <div className={cn("flex items-start gap-2", "pl-2", desktopOverview &&"xl:pointer-fine:items-center xl:pointer-fine:gap-1 xl:pointer-fine:pl-0")}>
  <div className="min-w-0 flex-1">
  <Link
  href={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
@@ -983,7 +1209,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  // w środku wyrazu przy ~176 px kolumny („Wojcie/ch Wyleżoł"), czyli robi
  // dokładnie to, czego ta karta miała się pozbyć.
  className={cn("block font-semibold text-foreground hover:underline break-words line-clamp-2",
- density === "compact" ?"text-[11px] leading-tight" :"text-[13px] leading-snug",
+ "text-[13px] leading-snug",
  desktopOverview &&"xl:pointer-fine:whitespace-normal xl:pointer-fine:break-words xl:pointer-fine:text-[10px] xl:pointer-fine:font-semibold xl:pointer-fine:leading-3",
  // W kafelku nazwisko zajmuje CAŁĄ kartę (39x87 px), więc link do profilu
  // przechwytywał każde kliknięcie i dok był nieosiągalny. `pointer-events-none`
@@ -998,12 +1224,27 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {(normalizedMatchScore != null || scoresLoading) && (
  <div className={cn(desktopOverview &&"xl:pointer-fine:hidden")}>
  {/* Zawsze `compact`: kolumna kanbana ma ~176 px, a pierścień „cozy"
- (40 px) zabierał ćwierć tej szerokości nazwisku obok. Gęstość
- steruje tu paddingiem i krojem, nie rozmiarem pierścienia. */}
+ (40 px) zabierał ćwierć tej szerokości nazwisku obok. */}
  <ScoreRing score={normalizedMatchScore} density="compact" />
  </div>
  )}
  </div>
+
+ {/* D2 (16.10.2026): akceptacja klienta — kiedy i kto zaznaczył. Tylko
+ w kolumnie „Akceptacja i umowa”; karta cofnięta do rozmowy jej nie ma. */}
+ {boardKey === "contract" && item.client_acceptance && (
+ <p
+ data-testid="card-client-acceptance"
+ title={acceptanceTitle(item.client_acceptance) ?? undefined}
+ className={cn(
+ // Dwie linie zamiast ucinania: przy 1280 px „· Olga W.” spadało za brzeg.
+ "mt-1 line-clamp-2 break-words rounded px-1.5 py-0.5 text-[10.5px] font-semibold leading-snug bg-success-muted text-success-muted-foreground",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ >
+ {acceptanceLine(item.client_acceptance)}
+ </p>
+ )}
 
  {/* Wiersz 2 makiety: właściciel karty po lewej, wiek na etapie po prawej. */}
  <div
@@ -1018,7 +1259,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <span
  className={cn(
  "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[7px] font-semibold",
- hasAddedByName
+ hasOwnerName
  ? "bg-primary/10 text-primary"
  : "bg-warning/15 text-warning",
  desktopOverview && "xl:pointer-fine:hidden"
@@ -1030,16 +1271,16 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <span
  className={cn(
  "min-w-0 truncate",
- !hasAddedByName && "text-warning",
+ !hasOwnerName && "text-warning",
  desktopOverview && "xl:pointer-fine:hidden"
  )}
  aria-hidden="true"
  >
- {addedByShortName}
+ {ownerShortName}
  </span>
  {desktopOverview && (
  <span className="hidden truncate xl:pointer-fine:inline" aria-hidden="true">
- R: {addedByShortName}
+ R: {ownerShortName}
  </span>
  )}
  {item.rating != null && item.rating > 0 && (
@@ -1087,7 +1328,50 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ponad budżet
  </span>
  )}
- {impliedBadges(stageBadge).map((badge) => (
+ {criticalGap && (
+ <span
+ data-testid="card-critical-gap"
+ className={cn(
+ "inline-flex min-w-0 max-w-full items-center gap-0.5 rounded px-1 text-[10px] font-semibold uppercase tracking-wide bg-warning/15 text-warning",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ title={criticalGap.title}
+ >
+ <AlertTriangle className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+ <span className="truncate" aria-hidden="true">{criticalGap.label}</span>
+ </span>
+ )}
+ {warningBadges.map((w) => (
+ <span
+ key={w.code}
+ data-testid={`card-warning-${w.code}`}
+ className={cn(
+ "inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-semibold uppercase tracking-wide",
+ w.tone === "danger" ? "bg-destructive/10 text-destructive" : "bg-warning/15 text-warning",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ title={w.title}
+ >
+ <AlertTriangle className="h-2.5 w-2.5" aria-hidden="true" />
+ <span aria-hidden="true">{w.label}</span>
+ </span>
+ ))}
+ {care && (
+ <span
+ data-testid="card-departed-care"
+ className={cn(
+ "inline-flex min-w-0 max-w-full items-center gap-0.5 rounded px-1 text-[10px] font-semibold bg-muted text-foreground",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ title={`${care.departed} (odejście z firmy) — ${care.caretaker}. „Prowadzi” bez zmian: nie liczy się do Ligi, KPI ani premii.`}
+ >
+ <UserX className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+ <span className="truncate" aria-hidden="true">{care.caretaker}</span>
+ </span>
+ )}
+ {impliedBadges(cardStageBadge(item, stageBadge))
+ .filter((badge) => !(badge === "acceptance" && boardKey === "contract" && item.client_acceptance))
+ .map((badge) => (
  <span
  key={badge}
  className={cn(
@@ -1120,18 +1404,61 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {qc.label}
  </button>
  )}
+ {showsOtherJobsChip(item, boardKey) && (
+ <OtherJobsChip
+ item={item}
+ fullName={fullName}
+ className={cn(desktopOverview && "xl:pointer-fine:hidden")}
+ onScreenTogether={
+ v5 && !readOnly
+ ? (jobIds) => {
+ useJointScreeningIntent.getState().setIntent(item.candidate_id, jobIds);
+ v5.onOpenPerson(item);
+ }
+ : undefined
+ }
+ />
+ )}
  <CardV4Badges item={item} fullName={fullName} stageBadge={stageBadge} />
- {/* `=== true`: odznaka obiecuje gotowy dokument (dawna odznaka
- kolumny „Następny krok" w Tabeli). */}
- {item.auto_cv_ready === true && (
+ {/* Osobny wiersz na końcu: u kogo osoba u nas pracuje i do kiedy.
+ Treść dla czytnika jest w opisie karty (`accessibleDetails`). */}
+ {item.employment_marker && (
+ <EmploymentPill
+ marker={item.employment_marker}
+ appearance="text"
+ label={{ clients: "count", date: "short" }}
+ aria-hidden="true"
+ data-testid="card-employment"
+ className={cn("basis-full text-[10.5px]", desktopOverview && "xl:pointer-fine:hidden")}
+ />
+ )}
+ {/* Stan CV firmowego (14.10.2026, `cvStateBadge` — ta sama reguła
+ co wiersz tabeli): automat pisze CV, „CV gotowe · QC: N do poprawy” /
+ „bez uwag” po QC na „Zweryfikowanym”, „CV gotowe w tle” przed QC. */}
+ {skippedBadge && (
  <span
+ data-testid="card-requirements-skipped"
  className={cn(
- "inline-flex items-center rounded px-1 text-[10px] font-semibold bg-info/15 text-info",
+ "inline-flex items-center rounded px-1 text-[10px] font-semibold",
+ CARD_BADGE_TONE_CLASS[skippedBadge.tone],
  desktopOverview && "xl:pointer-fine:hidden"
  )}
- title="CV wygenerowane automatycznie po weryfikacji czeka w warsztacie CV — sprawdź je przed wysyłką."
+ title={skippedBadge.title}
  >
- CV gotowe w tle
+ {skippedBadge.label}
+ </span>
+ )}
+ {cvBadge && (
+ <span
+ data-testid="card-cv-state"
+ className={cn(
+ "inline-flex items-center rounded px-1 text-[10px] font-semibold",
+ CARD_BADGE_TONE_CLASS[cvBadge.tone],
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ title={cvBadge.title}
+ >
+ {cvBadge.label}
  </span>
  )}
  {!readOnly && scorecardDue && (
@@ -1153,22 +1480,6 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  Scorecard
  </button>
  )}
- {daysBadge && (
- <span
- className={cn(
- "ml-auto shrink-0 tabular-nums",
- daysBadge === "danger"
- ? "font-semibold text-destructive"
- : daysBadge === "warning"
- ? "font-semibold text-warning"
- : "",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- aria-hidden="true"
- >
- {item.days_in_stage} d
- </span>
- )}
  </div>
 
  {contactFeatureEnabled ? (
@@ -1177,13 +1488,55 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  </div>
  ) : null}
 
+ {closed ? (
+ <p
+ data-testid="card-closed-reason"
+ data-tone={closed.tone}
+ title={closedTitle}
+ aria-hidden="true"
+ className={cn(
+ "mt-1 flex min-w-0 items-center gap-1 text-[11px] leading-snug",
+ closed.tone === "danger" ? "text-destructive" : "text-muted-foreground"
+ )}
+ >
+ {closed.kind === "withdrawn" ? (
+ <LogOut className="h-3 w-3 shrink-0" aria-hidden="true" />
+ ) : (
+ <Ban className="h-3 w-3 shrink-0" aria-hidden="true" />
+ )}
+ <span className="truncate">{closed.reason ?? "Powód nie zapisany"}</span>
+ </p>
+ ) : null}
+
  {/* Wiersz 3 makiety: kto ma ruch, co zrobić i strzałka „→" (v5). */}
+ {callFirstRank != null && (freshSlot || knownFactLabels(item.entry_autofill?.known).length > 0) ? (
+ <div data-testid="card-known-facts" className="mt-1 flex flex-wrap gap-1 pl-2">
+ {knownFactLabels(item.entry_autofill?.known).map((label) => (
+ <span key={label} className="rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold leading-4 text-primary">
+ {label}
+ </span>
+ ))}
+ {freshSlot ? (
+ <span
+ data-testid="card-fresh-slot"
+ title="Co piąte miejsce w kolejce należy do najlepszej osoby, która nie była jeszcze w żadnej rekrutacji."
+ className="rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold leading-4 text-primary"
+ >
+ Jeszcze bez procesu
+ </span>
+ ) : null}
+ </div>
+ ) : null}
  <NextActionRow
  action={nextAction}
  step={nextStep}
+ days={item.days_in_stage ?? null}
  hidden={desktopOverview}
+ // Osoba z karty (dodała albo zweryfikowała) ma ruch — jej imię stoi wiersz wyżej
+ // (dawniej „Integracje:” dwa razy na jednej karcie, 04.10.2026).
+ hideWho={Boolean(nextStep && !nextStep.mine && hasOwnerName && nextStep.who === ownerShortName)}
  advance={
- nextColumnLabel && v5 ? (
+ nextColumnLabel && v5 && !reviewSend ? (
  <button
  type="button"
  data-testid="card-advance"
@@ -1212,6 +1565,57 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  }
  />
 
+ {/* D1 (16.10.2026): „Klient zaakceptował” na karcie po rozmowie u klienta —
+ okno akceptacji (data, debrief, kto dostanie dzwonek), potem ruch. */}
+ {boardKey === "client_interview" && v5?.onClientAccept && !readOnly && (
+ <button
+ type="button"
+ data-testid="card-client-accept"
+ onClick={(e) => {
+ e.stopPropagation();
+ e.preventDefault();
+ v5.onClientAccept?.(item);
+ }}
+ aria-label={`Klient zaakceptował: ${fullName}`}
+ className={cn(
+ "mt-1.5 flex h-7 w-full items-center justify-center gap-1 rounded-md border border-success/40 bg-success-muted text-[11px] font-semibold text-success-muted-foreground transition-colors hover:bg-success/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-9",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ >
+ <CircleCheck className="h-3.5 w-3.5" aria-hidden="true" />
+ Klient zaakceptował
+ </button>
+ )}
+
+ {/* „Przejrzyj i wyślij” — własny wiersz pod „kto ma ruch” (jak pigułka
+ Screeningu niżej, nigdy `absolute`). Wypełniony u Delivery Leada tej
+ rekrutacji, obrysowany u pozostałych z prawem wysyłki. */}
+ {reviewSend && v5 && (
+ <div className={cn("mt-1 flex justify-end", desktopOverview && "xl:pointer-fine:hidden")}>
+ <button
+ type="button"
+ data-testid="card-review-send"
+ data-owner={v5.viewerOwnsDlReview ? "true" : "false"}
+ onClick={(e) => {
+ e.stopPropagation();
+ e.preventDefault();
+ v5.onReviewSend(item);
+ }}
+ aria-label={`${v5.cproEnabled ? "Przejrzyj i zaakceptuj do Cpro" : "Przejrzyj i wyślij"}: ${fullName}`}
+ className={cn(
+ "inline-flex max-w-full items-center rounded border px-1.5 text-[10px] font-semibold transition-colors pointer-coarse:min-h-8 pointer-coarse:px-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+ v5.viewerOwnsDlReview
+ ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+ : "border-primary/40 text-primary hover:bg-primary/10"
+ )}
+ >
+ {/* Nordea (14.10.2026): nic nie idzie do klienta — przegląd kończy
+ akceptacja do kolejki Cpro. */}
+ <span className="truncate">{v5.cproEnabled ? CPRO_REVIEW_LABEL : "Przejrzyj i wyślij"}</span>
+ </button>
+ </div>
+ )}
+
  {/* Usuń z rekrutacji — akcja korekcyjna („dodano nie tego kandydata").
  Hover-revealed, żeby nie zaśmiecać karty. */}
  {!readOnly && <button
@@ -1222,7 +1626,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onRemoveFromRecruitment(item);
  }}
  className={cn("absolute right-1 z-10 inline-flex items-center justify-center rounded-md bg-card/80 text-muted-foreground transition-opacity pointer-fine:opacity-0","hover:bg-destructive/10 hover:text-destructive pointer-fine:group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-hidden",
- density === "compact" ?"h-5 w-5" :"h-6 w-6",
+ "h-6 w-6",
  desktopOverview &&"xl:pointer-fine:h-6 xl:pointer-fine:w-6",
  "top-1",
  desktopOverview &&"xl:pointer-fine:bottom-0 xl:pointer-fine:left-0 xl:pointer-fine:right-auto xl:pointer-fine:top-auto"
@@ -1230,7 +1634,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  title="Usuń kandydata z tej rekrutacji"
  aria-label={`Usuń ${fullName} z rekrutacji`}
  >
- <Trash2 className={density === "compact" ?"h-3 w-3" :"h-3.5 w-3.5"} />
+ <Trash2 className="h-3.5 w-3.5" />
  </button>}
 
  {/* Screening jest WIERSZEM karty, nie elementem na `absolute bottom-1
@@ -1273,8 +1677,10 @@ interface ColProps {
  selectedIds: Set<number>;
  onToggleSelect: (id: number) => void;
  onOpenScreening: (stageId: number, name: string) => void;
- density: "cozy" |"compact";
  scoreMap?: Map<number, number>;
+ criticalGapMap?: Map<number, string[]>;
+ /** Kolejka kolumny „Nowi”: miejsca kart od systemu, `null` w innych kolumnach. */
+ newQueue?: { ranks: Map<number, number>; total: number; freshFirst: boolean; freshSlots: Set<number> } | null;
  scoresLoading?: boolean;
  /** Definicje etapów ze scorecardem — odznaka „Scorecard" (17.09.2026). */
  stagesWithScorecard: Set<number>;
@@ -1291,8 +1697,6 @@ interface ColProps {
   *  na przypadkowy etap). */
  dropDisabled?: boolean;
  onOpenDock: (item: KanbanItem) => void;
- /** `true` = karta nie pasuje aktywnym filtrom lewej kolumny (przyciemnij). */
- isDimmed: (item: KanbanItem) => boolean;
  /** Grupa etapu policzona nad CAŁĄ tablicą — bez niej własny etap wewnętrzny
   *  po screeningu byłby nie do odróżnienia od etapu wejściowego. */
  group?: PipelineGroupKey;
@@ -1300,19 +1704,75 @@ interface ColProps {
  slaDays: number | null;
  /** Nagłówek kolumny zamiast nazwy etapu (kolumna „Do przejrzenia"). */
  titleOverride?: string;
- /** Treść nad kartami etapu — propozycje i przepięcia w „Do przejrzenia". */
- prepend?: React.ReactNode;
  /** Odznaki kart z etapów złożonych w tę kolumnę (klucz: id karty). */
  badgeByItemId?: ReadonlyMap<number, StageBadgeKey>;
- /** Dolicz do licznika w nagłówku (propozycje w „Do przejrzenia"). */
- extraCount?: number;
  /** Numer kroku procesu (1–8) w nagłówku kolumny Tablicy; `null` = bez numeru. */
  step?: number | null;
  /** „Co tu robisz" pod nazwą kolumny (`lib/board-column-purpose.ts`);
   *  `null` = własny etap szablonu — zostaje dawna linia SLA. */
  purpose?: string | null;
- /** Krótkie podświetlenie po skoku ze „Ścieżki rekrutacji". */
- highlighted?: boolean;
+ /** Akcja w nagłówku kolumny (D10: „Porównaj (N)” w „QC CV” dla DL). */
+ headerAction?: React.ReactNode;
+ /** Filtr „Kto dodał” (14.10.2026): liczba osób w kolumnie BEZ filtra. Gdy
+  *  filtr coś schował, licznik mówi „N z M”. Bez filtra — `undefined`. */
+ totalCount?: number;
+ /** Filtr schował wszystkich z tej kolumny: napis i „Pokaż wszystkich (M)”. */
+ filterEmpty?: { text: string; onShowAll: () => void } | null;
+ /** Zamiast „co tu robisz” w drugiej linii nagłówka („Przejrzyj po kolei (N)”
+  *  w „QC CV” u Delivery Leada tej rekrutacji) — ta sama linia, bez dodatkowej
+  *  wysokości. */
+ purposeAction?: React.ReactNode;
+ /** Trzecia linia nagłówka: liczniki kroków w „Akceptacja i umowa” (D2). */
+ headerExtra?: React.ReactNode;
+}
+
+/** Liczniki kroków w nagłówku kolumny „Akceptacja i umowa” (D2, 16.10.2026). */
+function ContractStepChips({ counts }: { counts: ContractStepCounts }) {
+ const chips: Array<{ key: string; label: string; n: number; tone: string }> = [
+ { key: "accepted", label: "Zaakceptowani", n: counts.accepted, tone: "border-success/40 bg-success-muted text-success-muted-foreground" },
+ { key: "sent", label: "Umowa wysłana", n: counts.sent, tone: "border-border bg-card text-muted-foreground" },
+ { key: "signed", label: "Podpisana", n: counts.signed, tone: "border-border bg-card text-muted-foreground" },
+ ];
+ return (
+ <>
+ {chips.map((c) => (
+ <span
+ key={c.key}
+ data-testid={`contract-step-${c.key}`}
+ className={cn("inline-flex items-center gap-1 rounded-full border px-1.5 text-[10px] font-medium leading-4", c.tone)}
+ >
+ {c.label} <span className="font-semibold tabular-nums">{c.n}</span>
+ </span>
+ ))}
+ </>
+ );
+}
+
+/** Podział kolumny „Nowi” (`lib/new-column-queue.ts`). */
+function NewColumnSectionHeader({ section, total, freshFirst }: { section: NewColumnSection; total: number; freshFirst: boolean }) {
+ const callFirst = Math.min(total, CALL_FIRST_COUNT);
+ const label =
+ section === "team"
+ ? "Dodani przez zespół"
+ : section === "call_first"
+ ? `Zadzwoń najpierw · ${callFirst} z ${total}`
+ : `Dalej w kolejce · ${total - callFirst}`;
+ return (
+ <div
+ data-testid={`new-column-section-${section}`}
+ data-tour={section === "call_first" ? "board.new-queue" : undefined}
+ className="px-0.5 pt-1 text-[11px] leading-tight"
+ >
+ <div className={cn("font-semibold", section === "call_first" ? "text-primary" : "text-muted-foreground")}>
+ {label}
+ </div>
+ {section === "call_first" ? (
+ <div className="mt-0.5 text-[10.5px] text-muted-foreground">
+ {freshFirst ? "Najpierw nowi w bazie, potem wynik i to, co o osobie wiemy" : "Wynik plus to, co o osobie wiemy"}
+ </div>
+ ) : null}
+ </div>
+ );
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -1321,8 +1781,9 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  selectedIds,
  onToggleSelect,
  onOpenScreening,
- density,
  scoreMap,
+ criticalGapMap,
+ newQueue = null,
  scoresLoading,
  stagesWithScorecard,
  onOpenScorecard,
@@ -1334,23 +1795,29 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  readOnly,
  dropDisabled,
  onOpenDock,
- isDimmed,
  group,
  slaDays,
  titleOverride,
- prepend,
  badgeByItemId,
- extraCount = 0,
  step = null,
  purpose = null,
- highlighted = false,
+ headerAction = null,
+ purposeAction = null,
+ headerExtra = null,
+ totalCount,
+ filterEmpty = null,
 }: ColProps) {
- const headerCount = col.count + extraCount;
+ const headerCount = col.count;
+ // Kolumna pusta przez filtr „Kto dodał” nie jest wąska — mieści napis
+ // „Brak osób dodanych przez…” i „Pokaż wszystkich”.
+ const peopleCount = totalCount ?? headerCount;
+ const hiddenByFilter = totalCount != null && totalCount !== headerCount;
+ const countText = hiddenByFilter ? `${headerCount} z ${totalCount}` : String(headerCount);
  // Pusta kolumna jest WĄSKA (24.09.2026): przy 1440 px osiem kolumn mieści się
  // bez przewijania, gdy połowa jest pusta. Tylko na desktopie z myszą i poza
  // trybem kafelków (tam kolumny i tak dzielą szerokość); `droppableId`
  // i indeksy kart się nie zmieniają, więc upuszczanie działa jak dotąd.
- const narrow = headerCount === 0 && prepend == null;
+ const narrow = peopleCount === 0;
  const dropId = colId(col);
  // `Boolean(...)` obowiązkowo — @hello-pangea/dnd ma twardy invariant
  // („isDropDisabled must be a boolean"), a `undefined` wywala całą tablicę.
@@ -1372,10 +1839,9 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  data-colid={dropId}
  data-drop-disabled={noDrop}
  role="group"
- aria-label={`${titleOverride ?? columnLabel(col)}, liczba kandydatów: ${headerCount}`}
+ aria-label={`${titleOverride ?? columnLabel(col)}, liczba kandydatów: ${countText}`}
  className={cn(
  "flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 snap-start flex-col rounded-lg border border-border bg-background/60 sm:min-w-[19rem]",
- prepend != null && "border-dashed border-primary/40",
  // NIE ściskamy kolumn do zera. Podłoga 12,5 rem (200 px) mieści pełną
  // kartę (nazwisko do dwóch linii, właściciel, wiek, następna akcja)
  // niezależnie od liczby kolumn. Board ma `overflow-auto`, więc nadmiar
@@ -1387,12 +1853,11 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  // Podłoga 11,5 rem (184 px) — przy 12,5 rem cztery kolumny z kartami
  // i cztery wąskie puste nie mieściły się w 1440 px z przypiętym paskiem.
  fullPipelineDesktop && !desktopOverview && !narrow &&"xl:pointer-fine:w-auto xl:pointer-fine:min-w-[11.5rem] xl:pointer-fine:basis-[11.5rem] xl:pointer-fine:grow",
- !desktopOverview && narrow &&"xl:pointer-fine:w-24 xl:pointer-fine:min-w-24 xl:pointer-fine:basis-24 xl:pointer-fine:grow-0",
- highlighted &&"ring-2 ring-primary"
+ !desktopOverview && narrow &&"xl:pointer-fine:w-24 xl:pointer-fine:min-w-24 xl:pointer-fine:basis-24 xl:pointer-fine:grow-0"
  )}
  data-narrow={narrow && !desktopOverview ? "true" : undefined}
  >
- <div className={cn("sticky top-0 z-10 rounded-t-lg bg-background/95 backdrop-blur-xs border-b border-border flex items-center gap-2", density === "compact" ?"px-3 py-2" :"px-4 py-3", desktopOverview &&"xl:pointer-fine:min-h-14 xl:pointer-fine:flex-col xl:pointer-fine:items-stretch xl:pointer-fine:gap-1 xl:pointer-fine:px-1 xl:pointer-fine:py-1.5", !desktopOverview && narrow &&"xl:pointer-fine:flex-wrap xl:pointer-fine:gap-1 xl:pointer-fine:px-2")}>
+ <div className={cn("sticky top-0 z-10 rounded-t-lg bg-background/95 backdrop-blur-xs border-b border-border flex items-center gap-2", "px-3 py-2", desktopOverview &&"xl:pointer-fine:min-h-14 xl:pointer-fine:flex-col xl:pointer-fine:items-stretch xl:pointer-fine:gap-1 xl:pointer-fine:px-1 xl:pointer-fine:py-1.5", !desktopOverview && narrow &&"xl:pointer-fine:flex-wrap xl:pointer-fine:gap-1 xl:pointer-fine:px-2")}>
  {col.category && (
  <Tooltip>
  <TooltipTrigger asChild>
@@ -1419,16 +1884,18 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  {step}
  </span>
  )}
- {/* Nazwa etapu zawija się na spacjach, a słowo dłuższe niż kolumna —
- w środku (dzielenie po polsku, `lang="pl"`). „Zweryfikowany" ucinało się
- do „Zweryfikowan" w wąskiej pustej kolumnie (96 px) i w pełnej przy 1440 px
- (audyt 24.09.2026). Pełna nazwa zostaje w `title`. */}
- <h3 className={cn("text-foreground flex-1 min-w-0 line-clamp-2 leading-tight hyphens-auto [overflow-wrap:break-word]", density === "compact" ?"text-sm font-medium" :"text-base font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]", !desktopOverview && narrow &&"xl:pointer-fine:order-last xl:pointer-fine:basis-full xl:pointer-fine:text-xs xl:pointer-fine:font-medium xl:pointer-fine:line-clamp-3 xl:pointer-fine:hyphens-auto xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)} lang="pl">
+ {/* Nazwa etapu: jeden rozmiar i jedna linia w kolumnie z kartami
+ (04.10.2026 — przy 1280 px duża nazwa łamała się na „Zweryfi-kowany”
+ i „CV wysłane”); pełna nazwa w `title`. Wąska pusta kolumna (96 px) dalej
+ zawija nazwę, także w środku słowa (dzielenie po polsku, `lang="pl"`,
+ audyt 24.09.2026). */}
+ <h3 className={cn("text-foreground flex-1 min-w-0 truncate leading-tight", "text-[13px] font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]", !desktopOverview && narrow &&"xl:pointer-fine:order-last xl:pointer-fine:basis-full xl:pointer-fine:whitespace-normal xl:pointer-fine:text-xs xl:pointer-fine:line-clamp-3 xl:pointer-fine:hyphens-auto xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)} lang="pl">
  {titleOverride ?? columnLabel(col)}
  </h3>
- <Badge size="sm" variant={headerCount > 0 ?"soft" :"outline"} className={cn(desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[10px]")}>
- {headerCount}
+ <Badge size="sm" variant={headerCount > 0 ?"soft" :"outline"} className={cn("tabular-nums", desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[10px]")} data-testid="column-count">
+ {countText}
  </Badge>
+ {headerAction}
  </div>
 
  {/* Druga linia nagłówka (24.09.2026): „co tu robisz" po lewej, SLA
@@ -1444,17 +1911,20 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  desktopOverview && "xl:pointer-fine:hidden"
  )}
  >
+ {purposeAction ?? (
  <span
  data-column-purpose={purpose ? "true" : undefined}
  className={cn(
  "min-w-0",
- // Wąska pusta kolumna (96 px) potrzebuje trzech linii na „Prep → rozmowa → telefon”.
- purpose ? cn(narrow ? "line-clamp-3" : "line-clamp-2", "font-medium leading-snug text-foreground/80") : "truncate",
+ // Wąska pusta kolumna (96 px) potrzebuje trzech linii na „Prep → rozmowa → telefon”;
+ // w kolumnie z kartami jedna linia, pełny tekst w `title` (04.10.2026).
+ purpose ? cn(narrow ? "line-clamp-3" : "truncate", "font-medium leading-snug text-foreground/80") : "truncate",
  )}
  title={purpose ?? undefined}
  >
  {purpose ?? slaHint.left}
  </span>
+ )}
  {slaHint.right && (
  <span
  className={cn(
@@ -1470,15 +1940,23 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  </span>
  )}
  </div>
+ {headerExtra && (
+ <div
+ data-testid="column-header-extra"
+ className={cn("flex flex-wrap gap-1 border-b border-border px-3 py-1", desktopOverview && "xl:pointer-fine:hidden")}
+ >
+ {headerExtra}
+ </div>
+ )}
 
- {prepend}
  <Droppable droppableId={dropId} isDropDisabled={noDrop}>
  {(provided, snapshot) => (
  <div
  ref={provided.innerRef}
  {...provided.droppableProps}
  className={cn(
- // Kolumna wypełnia wysokość boardu (flex-1), a sam board (przodek) jest
+ // Kolumna wypełnia wysokość pasa kolumn (flex-1) — czyli najdłuższej
+ // kolumny, nie tylko okna boardu — a sam board (przodek) jest
  // JEDYNYM scroll-kontenerem (oba kierunki). Dzięki temu @hello-pangea/dnd
  // śledzi scroll boardu i trafienia dropa zgadzają się z kursorem nawet po
  // auto-scrollu. Brak własnego overflow-y kolumny = brak zagnieżdżonego
@@ -1489,9 +1967,19 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  snapshot.isDraggingOver &&"bg-primary/10"
  )}
  >
- {col.items.map((item, index) => (
+ {col.items.map((item, index) => {
+ const section = newQueue && newQueue.total > 0 ? newColumnSection(newQueue.ranks.get(item.id)) : null;
+ const previous = index > 0 ? col.items[index - 1] : null;
+ const startsSection =
+ section != null &&
+ (previous == null || newColumnSection(newQueue?.ranks.get(previous.id)) !== section);
+ const rank = newQueue?.ranks.get(item.id);
+ return (
+ <Fragment key={String(item.id)}>
+ {startsSection && newQueue ? (
+ <NewColumnSectionHeader section={section} total={newQueue.total} freshFirst={newQueue.freshFirst} />
+ ) : null}
  <Draggable
- key={String(item.id)}
  draggableId={String(item.id)}
  index={index}
  isDragDisabled={readOnly}
@@ -1511,7 +1999,6 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  selected={selectedIds.has(item.candidate_id)}
  onToggleSelect={onToggleSelect}
  onOpenScreening={onOpenScreening}
- density={density}
  canScreen={SCREENING_BADGE_STAGES.has(item.stage)}
  // `=== false`, nie `!`: odpowiedź bez pola (starszy serwer) nie
  // pokazuje odznaki, której nie umie uzasadnić.
@@ -1524,6 +2011,9 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  }
  onOpenScorecard={(it) => onOpenScorecard(it, col)}
  overBudget={isOverHourlyBudget(item, jobBudgetHourly)}
+ criticalGaps={criticalGapMap?.get(item.candidate_id)}
+ callFirstRank={rank != null && rank <= CALL_FIRST_COUNT ? rank : undefined}
+ freshSlot={newQueue?.freshSlots.has(item.id) ?? false}
  matchScore={scoreMap?.get(item.candidate_id)}
  scoresLoading={scoresLoading}
  onRemoveFromRecruitment={onRemoveFromRecruitment}
@@ -1531,20 +2021,36 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  desktopOverview={desktopOverview}
  readOnly={readOnly}
  onOpenDock={onOpenDock}
- dimmed={isDimmed(item)}
  nextAction={nextActions[index]}
  stageBadge={badgeByItemId?.get(item.id) ?? null}
  />
  </div>
  )}
  </Draggable>
- ))}
- {headerCount === 0 && !snapshot.isDraggingOver && !readOnly && !noDrop && (
+ </Fragment>
+ );
+ })}
+ {/* Ramka „upuść tutaj” pojawia się dopiero w trakcie przeciągania
+ karty (`data-dragging` na korzeniu tablicy) — w spoczynku pusta
+ kolumna jest po prostu pusta (04.10.2026). */}
+ {filterEmpty && headerCount === 0 ? (
+ <div data-testid="column-filter-empty" className="space-y-1 px-1 py-3 text-xs text-muted-foreground">
+ <p>{filterEmpty.text}</p>
+ <button
+ type="button"
+ onClick={filterEmpty.onShowAll}
+ className="font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+ >
+ Pokaż wszystkich ({peopleCount})
+ </button>
+ </div>
+ ) : null}
+ {peopleCount === 0 && !snapshot.isDraggingOver && !readOnly && !noDrop && (
  <div
  aria-hidden="true"
  data-testid="column-drop-hint"
  className={cn(
- "rounded-md border border-dashed border-border px-1 py-6 text-center text-[10px] text-muted-foreground",
+ "hidden rounded-md border border-dashed border-border px-1 py-6 text-center text-[10px] text-muted-foreground group-data-[dragging=true]/board:block",
  desktopOverview && "xl:pointer-fine:hidden"
  )}
  >
@@ -1562,6 +2068,19 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
 
 // ── Board ────────────────────────────────────────────────────────────
 
+/** Kolumna z kartami, które przechodzą filtr „Kto dodał” (14.10.2026).
+ *  `boardKey` = kolumna Tablicy — od „Zweryfikowanego” liczy się osoba,
+ *  która zweryfikowała, jak na karcie (29.10.2026). */
+function withAddedByFilter<C extends { items: KanbanItem[]; count: number }>(
+ col: C,
+ filter: AddedByFilter,
+ boardKey: BoardColumnKey | null
+): C {
+ if (filter.kind === "all") return col;
+ const items = col.items.filter((item) => matchesAddedBy(item, filter, boardKey));
+ return { ...col, items, count: items.length };
+}
+
 // Dół boardu: pb-4 kontenera (16px) + dolny padding <main> (24px). Tyle zostawiamy
 // pod kolumnami, żeby strona nie scrollowała się w pionie pod pipeline.
 const BOARD_BOTTOM_GAP = 40;
@@ -1570,20 +2089,14 @@ const MIN_COLUMN_HEIGHT = 280;
 // `p-4` obszaru treści powłoki (góra + dół) — patrz pomiar planszy na telefonie.
 const MOBILE_MAIN_PADDING_Y = 32;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, onOpenAddCandidates, focusColumnRequest = null }: KanbanBoardV2Props) {
- const density = useUiStore((s) => s.density);
- const setDensity = useUiStore((s) => s.setDensity);
- // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik, jak `density` —
- // świadomie nie per-job.
- const hideEmptyColumns = useUiStore((s) => s.hideEmptyKanbanColumns);
- const setHideEmptyColumns = useUiStore((s) => s.setHideEmptyKanbanColumns);
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange, closedJob = null }: KanbanBoardV2Props) {
  // Widok tablicy: kafelki ↔ kolumny. Reguła automatyczna (szeroki szablon
  // otwiera się kafelkowo) jest WARTOŚCIĄ DOMYŚLNĄ, wybór użytkownika ją
  // nadpisuje i jest pamiętany — patrz `lib/kanban-view-preferences.ts`.
  const [viewPreference, setViewPreference] = useKanbanViewPreference();
  const queryClient = useQueryClient();
  const contactFeature = useCandidateContactFeature();
- const { showSuccess, showError } = useToast();
+ const { showSuccess, showError, showInfo, showActionToast } = useToast();
  const [cols, setCols] = useState(() => composeColumns(columns, offTemplate));
  // Kolumny SZABLONU — wszystko, co wybiera cel ruchu albo mierzy pipeline,
  // musi iść po tej liście, nie po `cols` (w `cols` siedzi też kubełek).
@@ -1596,19 +2109,60 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  () => foldBoardColumns(stageCols, { cproEnabled }),
  [stageCols, cproEnabled]
  );
+ // Kolejka w „Nowych” (02.11.2026): zespół na górze, potem karty od systemu
+ // od najwyższego wyniku. Liczona przed filtrem „Kto dodał”, żeby miejsce
+ // karty nie zależało od filtra.
+ const newColumnQueue = useMemo(
+ () =>
+ orderNewColumn(
+ boardFold.columns.find((f) => f.key === "new")?.items ?? [],
+ criticalGapMap
+ ),
+ [boardFold, criticalGapMap]
+ );
+ const allDisplayCols = useMemo(
+ () =>
+ boardFold.columns.map((f) => ({
+ ...f.host,
+ items: f.key === "new" ? newColumnQueue.items : f.items,
+ count: f.count,
+ })),
+ [boardFold, newColumnQueue]
+ );
+ // Filtr „Kto dodał” (14.10.2026) chowa karty w kolumnach w toku. Liczony
+ // PRZED przeciąganiem: indeksy kart w kolumnie to indeksy widocznej listy.
+ // `count` = widoczne karty, liczba bez filtra — `totalCountByColId`.
  const displayCols = useMemo(
  () =>
- boardFold.columns.map((f) => ({ ...f.host, items: f.items, count: f.count })),
- [boardFold]
+ allDisplayCols.map((c, i) =>
+ withAddedByFilter(c, addedBy, boardFold.columns[i]?.key ?? null)
+ ),
+ [allDisplayCols, addedBy, boardFold]
  );
  const boardKeyByColId = useMemo(() => {
  const m = new Map<string, BoardColumnKey>();
  for (const f of boardFold.columns) if (f.key) m.set(colId(f.host), f.key);
  return m;
  }, [boardFold]);
+ // Nordea: kolumna „Do Cpro” (kolejka osoby od Cpro) — ten sam klucz
+ // `cv_qc` co „QC CV”, ale bez przeglądu DL i bez numeru kroku.
+ const cproQueueColIds = useMemo(
+ () => new Set(boardFold.columns.filter((f) => f.cproQueue).map((f) => colId(f.host))),
+ [boardFold]
+ );
  const boardLabelByColId = useMemo(() => {
  const m = new Map<string, string>();
  for (const f of boardFold.columns) m.set(colId(f.host), f.label);
+ return m;
+ }, [boardFold]);
+ // D2 (16.10.2026): liczniki kroków w nagłówku „Akceptacja i umowa” — ile
+ // osób po akceptacji, z wysłaną i z podpisaną umową (bez filtra „Kto dodał”).
+ const contractCountsByColId = useMemo(() => {
+ const m = new Map<string, ContractStepCounts>();
+ for (const f of boardFold.columns) {
+ if (f.key !== "contract" || f.items.length === 0) continue;
+ m.set(colId(f.host), contractStepCounts(f.items.map((it) => boardFold.badgeByItemId.get(it.id))));
+ }
  return m;
  }, [boardFold]);
  // Prawdziwy etap → gospodarz jego kolumny Tablicy (tam trafia ruch).
@@ -1629,23 +2183,24 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  );
  // Odrzuceni / wycofani / rezerwa — pasek pod tablicą, rozwijany na kolumny.
  const [showClosed, setShowClosed] = useState(false);
- // Propozycje z bazy i przepięcia w „Do przejrzenia" — licznik kolumny liczy
- // je razem z kartami etapu „Ogłoszenia" (do 23.09 nagłówek mówił „0" nad
- // czternastoma propozycjami).
- const [reviewTotal, setReviewTotal] = useState<number | null>(null);
  const authUser = useAuthStore((st) => st.user);
  const isDlOrHor =
  hasRole(authUser, "admin") ||
  hasRole(authUser, "delivery_lead") ||
  hasRole(authUser, "head_of_recruitment");
- // Poza Nordeą CV do klienta wysyła DL albo admin (lustro
- // `pipeline_move_rules.CLIENT_SEND_ROLES`).
- const canReviewAsDl = hasRole(authUser, "admin") || hasRole(authUser, "delivery_lead");
+ // Poza klientem z kolejką Cpro CV wysyła osoba z uprawnieniem „Rekrutacje:
+ // zakładanie, zamykanie, wysyłka CV do klienta” (lustro
+ // `pipeline_move_rules.assert_client_send_allowed`) — ona dostaje pełny
+ // przegląd przed wysyłką zamiast okna „Przesuń dalej”.
+ const canReviewAsDl = hasPermission(authUser, "recruitment_manage");
+ // Delivery Lead przesuwa bez bramek pól (22.10.2026) tylko wtedy, gdy serwer
+ // też go przepuszcza: flaga z `/api/auth/me` liczy uprawnienie i wyłącznik
+ // `DL_SKIPS_FILL_GATES` (audyt 22.10.2026, F109). Przy wyłączonym DL ma
+ // szarą strzałkę, okno minimum i okno stawki jak rekruter.
+ const skipsFillGates = authUser?.skips_fill_gates === true;
  // Terminy od klienta dodaje DL (lustro bramki `interview_slots`: admin, HoR,
- // DL, TAC z członkostwem — serwer i tak sprawdza członkostwo).
- const canAddClientSlots =
- !readOnly &&
- (isDlOrHor || hasRole(authUser, "tac"));
+ // DL z członkostwem — serwer i tak sprawdza członkostwo).
+ const canAddClientSlots = !readOnly && isDlOrHor;
  const [slotPair, setSlotPair] = useState<PairInfo | null>(null);
  // Pipeline v4: kolumna Tablicy każdej karty (odznaki) i „Biorę/Przejmij".
  const columnByItemId = useMemo(() => {
@@ -1676,6 +2231,40 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  (item: KanbanItem) => nextFoldByItemId.get(item.id)?.label ?? null,
  [nextFoldByItemId]
  );
+ // D1 (16.10.2026): etap „Akceptacja” szablonu — cel „Klient zaakceptował”;
+ // gospodarz „Rozmowy u klienta” — cel „Cofnij akceptację klienta”.
+ const acceptanceStageCol = useMemo(
+ () =>
+ boardFold.columns
+ .find((f) => f.key === "contract")
+ ?.members.find((c) => placeStage(c).badge === "acceptance") ?? null,
+ [boardFold]
+ );
+ const clientInterviewHost = useMemo(
+ () => boardFold.columns.find((f) => f.key === "client_interview")?.host ?? null,
+ [boardFold]
+ );
+ // Okno „Klient zaakceptował”: osoba i notatka wpisana już w werdykcie
+ // („Akceptuje” z zakładki „Rozmowy”).
+ const [acceptFor, setAcceptFor] = useState<{ item: KanbanItem; note: string | null } | null>(null);
+ const openClientAccept = useCallback(
+ (item: KanbanItem, note?: string | null) => setAcceptFor({ item, note: note ?? null }),
+ []
+ );
+ const onClientAccept = acceptanceStageCol && !readOnly ? openClientAccept : null;
+ // Każdy ruch z „Rozmowy u klienta” na „Akceptację i umowę” (strzałka,
+ // przeciągnięcie, „Następny etap”, „Inny etap…”) idzie przez to samo okno —
+ // jedna droga akceptacji zamiast dwóch przycisków obok siebie.
+ const acceptInsteadOfMove = useCallback(
+ (item: KanbanItem, dst: KanbanColumn): boolean => {
+ if (!onClientAccept || columnByItemId.get(item.id) !== "client_interview") return false;
+ const fold = boardFold.columns.find((f) => f.host === dst || f.members.includes(dst));
+ if (fold?.key !== "contract") return false;
+ onClientAccept(item);
+ return true;
+ },
+ [onClientAccept, columnByItemId, boardFold]
+ );
  // Okno „Przesuń dalej" i okno QC CV (F2: `CvQcDialog`).
  const [moveNext, setMoveNext] = useState<{
  item: KanbanItem;
@@ -1690,9 +2279,16 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const [moveNextOpen, setMoveNextOpen] = useState(false);
  const moveNextSuspended = useRef(false);
  const [qcStageId, setQcStageId] = useState<number | null>(null);
- const [debriefFor, setDebriefFor] = useState<{ eventId: number; name: string } | null>(null);
+ // `eventId = null` — rozmowy nie ma w kalendarzu NEXUSA; okno pyta, kiedy
+ // była, i zapisuje pytania pary (20.10.2026).
+ const [debriefFor, setDebriefFor] = useState<{
+ eventId: number | null;
+ candidateId: number;
+ name: string;
+ } | null>(null);
  const openMoveNext = useCallback(
  (item: KanbanItem, srcColId: string, target: KanbanColumn) => {
+ if (acceptInsteadOfMove(item, target)) return;
  const fold = boardFold.columns.find((f) => f.host === target || f.members.includes(target));
  const host = fold?.host ?? target;
  setMoveNext({
@@ -1706,7 +2302,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  moveNextSuspended.current = false;
  setMoveNextOpen(true);
  },
- [boardFold, columnByItemId]
+ [boardFold, columnByItemId, acceptInsteadOfMove]
  );
  const onAdvance = useCallback(
  (item: KanbanItem) => {
@@ -1717,7 +2313,58 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  },
  [nextFoldByItemId, cols, openMoveNext]
  );
+ // Strzałka „→” na karcie (D7, 14.10.2026) — ciało niżej, po `usePipelineMove`.
+ const arrowAdvanceRef = useRef<(item: KanbanItem) => void>(() => undefined);
+ const onArrowAdvance = useCallback((item: KanbanItem) => arrowAdvanceRef.current(item), []);
  const onOpenQc = useCallback((item: KanbanItem) => setQcStageId(item.id), []);
+ // Przegląd przed wysłaniem do klienta (`openDlReviewIfSending`) powstaje
+ // niżej — potrzebuje kolumn zamkniętych; karta i przeciągnięcie wołają go
+ // przez ref.
+ const openDlReviewRef = useRef<(item: KanbanItem, dst: KanbanColumn) => boolean>(() => false);
+ // Gospodarz kolumny „CV wysłane” — cel wysyłki z przeglądu.
+ const cvSentHost = useMemo(
+ () => boardFold.columns.find((f) => f.key === "cv_sent")?.host ?? null,
+ [boardFold]
+ );
+ // U Nordei przegląd kończy akceptacja do kolejki Cpro (13.10.2026): celem
+ // jest etap „Wysłać do Cpro” szablonu (w tej samej kolumnie „QC CV”).
+ const cproStageCol = useMemo(
+ () => (cproEnabled ? (stageCols.find((c) => isCproStageName(c.name)) ?? null) : null),
+ [cproEnabled, stageCols]
+ );
+ const dlSendTarget = cproEnabled ? (cproStageCol ?? cvSentHost) : cvSentHost;
+ // „Przejrzyj i wyślij” na karcie: od razu przegląd. Gdy przegląd się nie
+ // należy (np. QC zdążyło spaść) — okno „Przesuń dalej”, jak strzałka.
+ const onReviewSend = useCallback(
+ (item: KanbanItem) => {
+ if (dlSendTarget && openDlReviewRef.current(item, dlSendTarget)) return;
+ onAdvance(item);
+ },
+ [dlSendTarget, onAdvance]
+ );
+ // „Przejrzyj po kolei” (13.10.2026): gotowe karty „QC CV”, najdłużej
+ // czekające pierwsze. Kolejka trzyma osoby po `candidate_id` — id wiersza
+ // etapu zmienia się przy każdym ruchu.
+ const dlReadyItems = useMemo(
+ () =>
+ dlSendQueue(
+ boardFold.columns.find((f) => f.key === "cv_qc")?.items ?? [],
+ (item) => boardFold.badgeByItemId.get(item.id) === "cpro",
+ new Date()
+ ),
+ [boardFold]
+ );
+ const {
+ active: sequenceActive,
+ current: sequenceCurrent,
+ position: sequencePosition,
+ total: sequenceTotal,
+ start: startSequence,
+ advance: advanceSequence,
+ skip: skipSequence,
+ skipped: sequenceSkipped,
+ finish: finishSequence,
+ } = useReviewSequence(dlReadyItems, candidateIdOf);
  const [takingIds, setTakingIds] = useState<ReadonlySet<number>>(() => new Set());
  const takeCandidate = useCallback(
  async (item: KanbanItem) => {
@@ -1744,6 +2391,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  },
  [jobId, queryClient, showSuccess, showError]
  );
+ // `openDock` powstaje niżej (zależy od kolumn i warsztatu) — kontekst karty
+ // woła go przez ref, żeby „Screening razem” z okienka karty otwierał panel.
+ const openDockRef = useRef<((item: KanbanItem) => void) | null>(null);
+ const openPersonViaRef = useCallback((item: KanbanItem) => openDockRef.current?.(item), []);
  const boardV4 = useMemo<BoardV4Ctx>(
  () => ({
  columnByItemId,
@@ -1753,15 +2404,16 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  takingIds,
  onTake: takeCandidate,
  nextColumnLabel,
- onAdvance,
+ onAdvance: onArrowAdvance,
  onOpenQc,
+ canReviewAsDl,
+ skipsFillGates,
+ viewerOwnsDlReview,
+ onReviewSend,
+ onOpenPerson: openPersonViaRef,
+ onClientAccept,
  }),
- [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onAdvance, onOpenQc]
- );
- // Osoby już na tablicy — „Do przejrzenia" nie proponuje ich drugi raz.
- const boardCandidateIds = useMemo(
- () => cols.flatMap((c) => c.items.map((i) => i.candidate_id)),
- [cols]
+ [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onArrowAdvance, onOpenQc, canReviewAsDl, skipsFillGates, viewerOwnsDlReview, onReviewSend, openPersonViaRef, onClientAccept]
  );
  const [focusedColId, setFocusedColId] = useState<string | null>(() =>
  defaultFocusColumnId(columns)
@@ -1793,31 +2445,67 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // wiersz). Po candidate_id dok „podąża" za kandydatem przez ruchy bez żadnej
  // dodatkowej synchronizacji.
  const [dockCandidateId, setDockCandidateId] = useState<number | null>(null);
- const openDock = useCallback((item: KanbanItem) => {
- setDockCandidateId(item.candidate_id);
- }, []);
  const closeDock = useCallback(() => setDockCandidateId(null), []);
- // Warsztat osoby (szeroki panel z dawnej „Tabeli") — nad Tablicą.
+ // Kolumna kolejki strzałek „‹ N z M ›” (D1, 14.10.2026) i osoba, dla której
+ // ją ostatnio wyznaczono — liczona niżej, przy `dockOrder`. `forCandidate:
+ // null` = „wyznacz od nowa przy następnym renderze”.
+ const [queue, setQueue] = useState<{ colId: string | null; forCandidate: number | null }>({
+ colId: null,
+ forCandidate: null,
+ });
+ // Pełne narzędzia osoby (dawny warsztat „Tabeli") — od 04.10.2026 to
+ // rozwinięty panel osoby („Rozwiń”), nie osobne okno. `open: false` =
+ // zwinięty, ale zakładki zostają zamontowane (wpisany tekst przeżywa).
  const [workbench, setWorkbench] = useState<{
  candidateId: number;
  section: PersonPanelSection;
+ open: boolean;
  } | null>(null);
+ // Rozwinięcie dotyczy jednej osoby — inna osoba w panelu zaczyna zwinięta.
+ useEffect(() => {
+ setWorkbench((w) => (w && w.candidateId !== dockCandidateId ? null : w));
+ }, [dockCandidateId]);
+ const openWorkbench = useCallback((candidateId: number, section: PersonPanelSection) => {
+ setDockCandidateId(candidateId);
+ setWorkbench({ candidateId, section, open: true });
+ }, []);
+ // „Zapisz i przekaż dalej” w formularzu screeningu przeszło (14.10.2026):
+ // panel tej osoby przechodzi na „CV”, a karta CV pokazuje postęp (CV → QC).
+ // Inna osoba w panelu — znacznik znika.
+ const [forwardedCandidateId, setForwardedCandidateId] = useState<number | null>(null);
+ useEffect(() => {
+ setForwardedCandidateId((id) => (id != null && id !== dockCandidateId ? null : id));
+ }, [dockCandidateId]);
+ const onWorkbenchForwarded = useCallback((candidateId: number) => {
+ setForwardedCandidateId(candidateId);
+ setWorkbench((prev) => (prev && prev.candidateId === candidateId ? { ...prev, section: "cv" } : prev));
+ }, []);
+ // D3: pole notatki w doku wypełnia otwarty formularz screeningu tej osoby —
+ // jeden kanał na Tablicę (dok i formularz są w różnych gałęziach panelu).
+ const noteFill = useMemo(() => createNoteFillChannel(), []);
+ // 0424 (D3 „od razu z boku”): osoba z „Nowych” i „Screeningu” otwiera się
+ // od razu w panelu dzielonym — formularz screeningu (albo profil przed
+ // telefonem) i CV obok. „Zwiń” wraca do doku 380 px. Bez kontekstu
+ // warsztatów (harness, testy tablicy) zostaje sam dok.
+ const canSplit = Boolean(workbenchContext && kanbanQueryState);
+ const openDock = useCallback(
+ (item: KanbanItem) => {
+ // Klik w kartę wyznacza kolejkę od nowa: ta sama osoba, która w tym czasie
+ // przeszła do innej kolumny, ma dostać kolejkę tej kolumny (14.10.2026).
+ setQueue((q) => (q.forCandidate == null ? q : { ...q, forCandidate: null }));
+ const key = columnByItemId.get(item.id);
+ if (canSplit && (key === "new" || key === "screening")) {
+ openWorkbench(item.candidate_id, "screening");
+ return;
+ }
+ setDockCandidateId(item.candidate_id);
+ },
+ [canSplit, columnByItemId, openWorkbench]
+ );
+ openDockRef.current = openDock;
  useEffect(() => {
  onDockCandidateChange?.(dockCandidateId);
  }, [dockCandidateId, onDockCandidateChange]);
-
- // Lewa kolumna: filtry NIE usuwają kart z `cols` (zepsułoby to indeksy
- // `@hello-pangea/dnd`, na których stoi `onDragEnd` — patrz `PipelineFiltersRail`).
- // Przyciemniają niepasujące karty; `isDimmed` musi mieć stabilną referencję
- // (memo na `KanbanColumnV2`/`CandidateKanbanCard` — patrz komentarz niżej przy
- // `toggleSelect`), stąd `useCallback` z zależnościami tylko od samych filtrów.
- const [stuckFilter, setStuckFilter] = useState(false);
- const [blockedFilter, setBlockedFilter] = useState(false);
- const [noActionFilter, setNoActionFilter] = useState(false);
- const [recruiterFilter, setRecruiterFilter] = useState<string | null>(null);
- // Pasek filtrów (22.09.2026): „Mój ruch" i szukanie po nazwisku.
- const [myMoveFilter, setMyMoveFilter] = useState(false);
- const [nameQuery, setNameQuery] = useState("");
 
  // Grupy etapów — jedno źródło dla lewej kolumny, zwijania pustych grup na
  // tablicy i „następnej akcji" na karcie (bez grupy własny etap wewnętrzny po
@@ -1890,13 +2578,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  };
  }, [measureColumnHeight]);
  // Re-pomiar gdy cokolwiek nad/wewnątrz boardu może przesunąć jego pozycję:
- // zwinięcie nagłówka (prop), zmiana gęstości, status-baru lub liczby kolumn.
+ // zwinięcie nagłówka (prop), zmiana status-baru lub liczby kolumn.
  useEffect(() => {
  measureColumnHeight();
  }, [
  measureColumnHeight,
  headerCollapsed,
- density,
  statusMessage,
  cols.length,
  selected.size,
@@ -1908,17 +2595,46 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  stageDefId: number;
  stageName: string;
  } | null>(null);
+ // Minimum dla Delivery Leada (21.10.2026): małe okno z brakującymi polami.
+ // `move` = ruch czeka na zapis (strzałka, przeciągnięcie), `retry` = serwer
+ // odmówił ruchu na „Zweryfikowany”, `resume` = wracamy do „Przesuń dalej”.
+ const [minimumPrompt, setMinimumPrompt] = useState<{
+ item: KanbanItem;
+ mode: "move" | "retry" | "resume";
+ srcColId?: string;
+ dst?: KanbanColumn;
+ } | null>(null);
+ // Formularz screeningu w oknie — tylko bez panelu osoby (harness, testy).
  const [screeningPrompt, setScreeningPrompt] = useState<{
- stageId: number;
+ candidateId: number;
  candidateName: string;
  } | null>(null);
+ // 0424: „Screening” na karcie, „Otwórz arkusz” / „Uzupełnij w screeningu”
+ // z listy braków i odmowa „Zweryfikowany” bez arkusza otwierają JEDEN
+ // formularz screeningu — w panelu osoby, na sekcji „Screening”.
+ const openScreeningFor = useCallback(
+ (item: KanbanItem) => {
+ if (canSplit) {
+ openWorkbench(item.candidate_id, "screening");
+ return;
+ }
+ setScreeningPrompt({
+ candidateId: item.candidate_id,
+ candidateName: itemFullName(item),
+ });
+ },
+ [canSplit, openWorkbench]
+ );
  // „Usuń z rekrutacji" — korekta (dodano nie tego kandydata / nie na tę
  // ofertę). Modal potwierdzenia trzyma board, karta tylko sygnalizuje intencję.
  const [pendingRemoval, setPendingRemoval] = useState<KanbanItem | null>(null);
  const [removeBusy, setRemoveBusy] = useState(false);
 
+ // Odłożone ruchy strzałką „→” — `usePipelineMove` niżej; ref, bo synchronizacja
+ // ze stanem serwera stoi wyżej niż hak.
+ const pendingMovesRef = useRef<() => ReadonlyArray<{ candidateId: number; toColumn: KanbanColumn }>>(() => []);
  useEffect(() => {
- setCols(composeColumns(columns, offTemplate));
+ setCols(withPendingMoves(composeColumns(columns, offTemplate), pendingMovesRef.current()));
  setFocusedColId((current) =>
  current && columns.some((col) => colId(col) === current)
  ? current
@@ -1950,24 +2666,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  [scrollToColumn]
  );
 
- // Skok ze „Ścieżki rekrutacji" (nagłówek strony): przewiń i podświetl.
- const [highlightColId, setHighlightColId] = useState<string | null>(null);
- const handledFocusSeq = useRef<number | null>(null);
- useEffect(() => {
- if (!focusColumnRequest || handledFocusSeq.current === focusColumnRequest.seq) return;
- const fold = boardFold.columns.find((f) => f.key === focusColumnRequest.column);
- if (!fold) return;
- handledFocusSeq.current = focusColumnRequest.seq;
- const id = colId(fold.host);
- focusColumn(id);
- setHighlightColId(id);
- }, [focusColumnRequest, boardFold, focusColumn]);
- useEffect(() => {
- if (!highlightColId) return;
- const timer = window.setTimeout(() => setHighlightColId(null), 1600);
- return () => window.clearTimeout(timer);
- }, [highlightColId]);
-
  const initialFocusApplied = useRef(false);
  useEffect(() => {
  if (!focusedColId) return;
@@ -1992,17 +2690,34 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  const applyOptimistic = useCallback(
  (item: KanbanItem, srcId: string, dst: KanbanColumn) => {
+ let index = -1;
  setCols((prev) =>
  prev.map((c) => {
  if (colId(c) === srcId) {
+ index = c.items.findIndex((i) => i.id === item.id);
  const items = c.items.filter((i) => i.id !== item.id);
  return { ...c, items, count: items.length };
  }
  if (colId(c) === colId(dst)) {
- const items = [...c.items, { ...item, stage: c.stage, days_in_stage: 0 }];
+ const entered = { ...item, stage: c.stage, days_in_stage: 0, moved_at: new Date().toISOString() };
+ const items = [entered, ...c.items];
  return { ...c, items, count: items.length };
  }
  return c;
+ })
+ );
+ // „Cofnij” po strzałce „→” (14.10.2026): karta wraca na swoje miejsce
+ // w kolumnie źródłowej, bez żądania (także po odświeżeniu w międzyczasie).
+ return () =>
+ setCols((prev) =>
+ prev.map((c) => {
+ const items = c.items.filter((i) => i.candidate_id !== item.candidate_id);
+ if (colId(c) !== srcId) {
+ return items.length === c.items.length ? c : { ...c, items, count: items.length };
+ }
+ const at = index >= 0 ? Math.min(index, items.length) : items.length;
+ const restored = [...items.slice(0, at), item, ...items.slice(at)];
+ return { ...c, items: restored, count: restored.length };
  })
  );
  },
@@ -2018,9 +2733,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const fresh = await pipelineApi.kanban(jobId);
  if (Array.isArray(fresh.data?.columns)) {
  setCols(
+ withPendingMoves(
  composeColumns(
  fresh.data.columns as KanbanColumn[],
  fresh.data.off_template as OffTemplateColumn | null
+ ),
+ pendingMovesRef.current()
  )
  );
  }
@@ -2058,7 +2776,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  items: c.items.map((i) => (i.id === item.id ? { ...i, ...patch } : i)),
  };
  }
- const items = [...c.items, { ...item, ...patch }];
+ const items = [{ ...item, moved_at: new Date().toISOString(), ...patch }, ...c.items];
  return { ...c, items, count: items.length };
  })
  );
@@ -2085,36 +2803,185 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  },
  // 409 CV_QC_FAILED (także z przeciągnięcia) → okno QC CV tej pary.
  onCvQcFailed: (failure, item) => setQcStageId(failure.stageId ?? item.id),
+ // D1 (04.10.2026): „Zweryfikowany” bez arkusza albo stawki → formularz
+ // screeningu tej pary (0424: arkusz i stawka są w jednym miejscu).
+ onVerifiedRequirementsMissing: (info, item) => {
+ if (info.missing.length === 0) {
+ // Brakuje tylko pól minimum dla DL — małe okno, potem ruch jeszcze raz.
+ if (info.cardFields.length > 0) setMinimumPrompt({ item, mode: "retry" });
+ return;
+ }
+ openScreeningFor(item);
+ },
  });
- const { requestMove, requestReject } = move;
+ const { requestMove, requestReject, canMoveWithoutDialog, deferMove, commitPendingMove } = move;
+ // D1/D6 (16.10.2026): akceptacja = ruch na etap „Akceptacja” wspólną ścieżką
+ // (data i start w tym samym żądaniu, dzwonki wysyła serwer), a po ruchu
+ // werdykt klienta „Akceptuje” z tym, co powiedział klient.
+ const confirmClientAccept = useCallback(
+ (values: ClientAcceptanceValues, recipients: ClientAcceptanceRecipient[]) => {
+ const item = acceptFor?.item;
+ setAcceptFor(null);
+ if (!item || !acceptanceStageCol) return;
+ const src = cols.find((c) => c.items.some((i) => i.candidate_id === item.candidate_id));
+ if (!src) return;
+ const name = `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat";
+ requestMove(item, colId(src), acceptanceStageCol, {
+ clientAcceptance: { acceptedOn: values.acceptedOn, plannedStartOn: values.plannedStartOn },
+ onMoved: () => {
+ showSuccess(acceptedToast(name, recipients));
+ if (values.requestPreContract) {
+ // 0506: prośba o przedwstępną „przed umową B2B” z okna akceptacji.
+ preContractsApi
+ .create({ candidate_id: item.candidate_id, job_id: jobId, needed_before: "b2b_contract" })
+ .then(() => invalidatePreContract(queryClient, jobId))
+ .catch((e) =>
+ showError(`Akceptacja zapisana, ale prośba o przedwstępną nie: ${apiErrorMessage(e, "poproś w panelu osoby.")}`)
+ );
+ }
+ hiringManagerFeedbackApi
+ .record(jobId, {
+ candidate_id: item.candidate_id,
+ decision: "advance",
+ rejection_reason_id: null,
+ note: values.clientNote,
+ })
+ .then(() => queryClient.invalidateQueries({ queryKey: ["hiring-manager-feedback", jobId] }))
+ .catch((e) =>
+ showError(
+ `Akceptacja zapisana, ale werdykt klienta nie: ${apiErrorMessage(e, "zapisz go w zakładce „Rozmowy”.")}`
+ )
+ );
+ },
+ });
+ },
+ [acceptFor, acceptanceStageCol, cols, requestMove, showSuccess, showError, jobId, queryClient]
+ );
+ // „Cofnij akceptację klienta” (menu „⋯” w panelu osoby): karta wraca na
+ // „Rozmowę u klienta”, serwer gasi nieprzeczytane dzwonki akceptacji.
+ const { askConfirm: askUndoAcceptance, confirmDialog: undoAcceptanceDialog } = useConfirmV2();
+ const undoClientAccept = useCallback(
+ async (item: KanbanItem) => {
+ if (!clientInterviewHost) return;
+ const src = cols.find((c) => c.items.some((i) => i.candidate_id === item.candidate_id));
+ if (!src) return;
+ const ok = await askUndoAcceptance({
+ title: "Cofnąć akceptację klienta?",
+ description:
+ "Karta wróci do „Rozmowy u klienta”. Powiadomienia „Klient zaakceptował”, których nikt jeszcze nie otworzył, zgasną.",
+ confirmLabel: "Cofnij akceptację",
+ });
+ // Rozmowa się odbyła — bez „Kiedy rozmowa u klienta?” (audyt 21.10.2026).
+ if (ok) requestMove(item, colId(src), clientInterviewHost, { skipInterviewDate: true });
+ },
+ [askUndoAcceptance, clientInterviewHost, cols, requestMove]
+ );
+ pendingMovesRef.current = move.pendingMoves;
+ // Osoba z odłożonym ruchem strzałką otwarta w panelu: ruch idzie od razu —
+ // formularz screeningu i wymagania czytają stan z serwera, który jeszcze go
+ // nie zna (inaczej „Zapisz i przekaż dalej” trafiał na konflikt wersji).
+ useEffect(() => {
+ if (dockCandidateId == null) return;
+ void commitPendingMove(dockCandidateId).then((sent) => {
+ if (sent) {
+ void queryClient.invalidateQueries({ queryKey: screeningFormQueryKey(jobId, dockCandidateId) });
+ }
+ });
+ }, [dockCandidateId, commitPendingMove, queryClient, jobId]);
 
  // Rekrutacja v5: ruch NAPRZÓD przez Tablicę. Na sąsiednią kolumnę bez
  // znanych braków — od razu (`usePipelineMove`, jak dotąd). Dalej niż
  // o jedną kolumnę, przy znanym braku albo na „CV wysłane" (bramka QC,
  // wysyłka przez DL / kolejka Cpro) — najpierw okno „Przesuń dalej".
  // Ruchy wstecz i na etapy-znaczniki w tej samej kolumnie idą od razu.
- const routeMove = useCallback(
- (item: KanbanItem, srcColId: string, dst: KanbanColumn) => {
- const fromIndex = foldIndexByColId.get(srcColId);
- const toIndex = foldIndexByColId.get(colId(dst));
- if (fromIndex == null || toIndex == null || toIndex <= fromIndex) {
- requestMove(item, srcColId, dst);
- return;
- }
+ // Przegląd przed wysłaniem do klienta woła przez `openDlReviewRef` (wyżej).
+ const forwardNeedsMoveNext = useCallback(
+ (item: KanbanItem, fromIndex: number, toIndex: number): boolean => {
  const fromKey = boardFold.columns[fromIndex]?.key ?? null;
  const toKey = boardFold.columns[toIndex]?.key ?? null;
  const stageBadge = boardFold.badgeByItemId.get(item.id) ?? null;
  const directToClient =
  toKey === "cv_sent" &&
  !(cproEnabled ? stageBadge === "cpro" : canReviewAsDl && item.qc?.status !== "failed");
- if (toIndex - fromIndex > 1 || knownForwardGap(item, fromKey) || directToClient) {
+ return (
+ toIndex - fromIndex > 1 ||
+ knownForwardGap(item, fromKey, { skipsFillGates }) != null ||
+ directToClient
+ );
+ },
+ [boardFold, cproEnabled, canReviewAsDl, skipsFillGates]
+ );
+ // Minimum dla DL (21.10.2026): ze „Screeningu” na „Zweryfikowany” brakuje
+ // tylko pól karty — zamiast „Przesuń dalej” małe okno z tymi polami.
+ // Delivery Lead przesuwa bez bramek pól (22.10.2026) — okna nie dostaje.
+ const minimumGapBeforeVerified = useCallback(
+ (item: KanbanItem, fromIndex: number, toIndex: number): boolean =>
+ !skipsFillGates &&
+ boardFold.columns[fromIndex]?.key === "screening" &&
+ boardFold.columns[toIndex]?.key === "verified" &&
+ minimumOnlyGap(item),
+ [boardFold, skipsFillGates]
+ );
+ const routeMove = useCallback(
+ (item: KanbanItem, srcColId: string, dst: KanbanColumn) => {
+ if (acceptInsteadOfMove(item, dst)) return;
+ const fromIndex = foldIndexByColId.get(srcColId);
+ const toIndex = foldIndexByColId.get(colId(dst));
+ if (fromIndex == null || toIndex == null || toIndex <= fromIndex) {
+ requestMove(item, srcColId, dst);
+ return;
+ }
+ if (openDlReviewRef.current(item, dst)) return;
+ if (minimumGapBeforeVerified(item, fromIndex, toIndex)) {
+ setMinimumPrompt({ item, mode: "move", srcColId, dst });
+ return;
+ }
+ if (forwardNeedsMoveNext(item, fromIndex, toIndex)) {
  openMoveNext(item, srcColId, dst);
  return;
  }
  requestMove(item, srcColId, dst);
  },
- [foldIndexByColId, boardFold, cproEnabled, canReviewAsDl, openMoveNext, requestMove]
+ [foldIndexByColId, forwardNeedsMoveNext, minimumGapBeforeVerified, openMoveNext, requestMove, acceptInsteadOfMove]
  );
+ // Strzałka „→” na karcie (D7, decyzja Artura 14.10.2026): ta sama reguła co
+ // przeciągnięcie na sąsiednią kolumnę, ale ruch, który nie potrzebuje
+ // żadnego okna (stawka, wysyłka, zatrudnienie) ani nie ma znanego braku,
+ // idzie bez okna „Przesuń dalej” — karta przechodzi od razu, a komunikat
+ // ma 10 s na „Cofnij” (`deferMove`). Reszta — okno „Przesuń dalej” jak dotąd.
+ // Przeciąganie zostaje natychmiastowe; dok i okno QC wołają `onAdvance`.
+ arrowAdvanceRef.current = (item: KanbanItem) => {
+ const next = nextFoldByItemId.get(item.id);
+ const src = cols.find((c) => c.items.some((i) => i.id === item.id));
+ if (!next || !src) return;
+ if (acceptInsteadOfMove(item, next.host)) return;
+ const fromIndex = foldIndexByColId.get(colId(src));
+ const toIndex = foldIndexByColId.get(colId(next.host));
+ if (fromIndex != null && toIndex != null && minimumGapBeforeVerified(item, fromIndex, toIndex)) {
+ setMinimumPrompt({ item, mode: "move", srcColId: colId(src), dst: next.host });
+ return;
+ }
+ if (
+ fromIndex != null &&
+ toIndex != null &&
+ !forwardNeedsMoveNext(item, fromIndex, toIndex) &&
+ canMoveWithoutDialog(item, next.host)
+ ) {
+ deferMove(item, colId(src), next.host, {
+ targetLabel: next.label,
+ // Delivery Lead przesuwa mimo braków (22.10.2026) — komunikat je wymienia.
+ detail: skipsFillGates
+ ? fillGapsText(
+ item,
+ boardFold.columns[fromIndex]?.key ?? null,
+ boardFold.columns[toIndex]?.key ?? null
+ )
+ : null,
+ });
+ return;
+ }
+ openMoveNext(item, colId(src), next.host);
+ };
 
  const onDragEnd = useCallback(
  (res: DropResult) => {
@@ -2131,7 +2998,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // `stageCols`, nie `cols` — kubełek nie jest celem ruchu.
  const dst = stageCols.find((c) => colId(c) === dstId);
  if (!srcDisplay || !dst || colId(srcDisplay) === colId(dst)) return;
- const item = srcDisplay.items[res.source.index];
+ // Po numerze karty, nie po `res.source.index`: filtr „Kto dodał” chowa
+ // część kart, a indeks liczy się po liście, którą widać (14.10.2026).
+ const item = srcDisplay.items.find((i) => String(i.id) === res.draggableId);
  if (!item) return;
  const realSrc = cols.find((c) => c.items.some((i) => i.id === item.id));
  if (!realSrc || hostByColId.get(colId(realSrc)) === dst) return;
@@ -2204,9 +3073,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  });
  }, []);
 
- const handleOpenScreening = useCallback((stageId: number, name: string) => {
- setScreeningPrompt({ stageId, candidateName: name });
- }, []);
+ // Karta i dok podają wiersz etapu — osobę szukamy na Tablicy (ref, żeby
+ // kolumny nie dostawały nowej funkcji przy każdym odświeżeniu tablicy).
+ const colsRef = useRef(cols);
+ colsRef.current = cols;
+ const handleOpenScreening = useCallback(
+ (stageId: number) => {
+ const item = colsRef.current.flatMap((c) => c.items).find((i) => i.id === stageId);
+ if (item) openScreeningFor(item);
+ },
+ [openScreeningFor]
+ );
 
  const handleOpenScorecard = useCallback(
  (item: KanbanItem, col: KanbanColumn) => {
@@ -2225,46 +3102,72 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setPendingRemoval(item);
  }, []);
 
+ // Przeciąganie karty: znacznik na korzeniu tablicy zamiast stanu Reacta —
+ // pokazuje ramki „upuść tutaj” w pustych kolumnach bez przerenderowania
+ // kolumn w trakcie ruchu (04.10.2026).
+ const boardRootRef = useRef<HTMLDivElement>(null);
+ const handleDragStart = useCallback(() => {
+ boardRootRef.current?.setAttribute("data-dragging", "true");
+ }, []);
+ const handleDragEnd = useCallback(
+ (res: DropResult) => {
+ boardRootRef.current?.removeAttribute("data-dragging");
+ onDragEnd(res);
+ },
+ [onDragEnd]
+ );
+
  // ── Krok 04 Pipeline (flow C2, PR 3/7): dok „Karta w procesie" ─────────
  //
  // `dockItem` szuka po `candidate_id`, nie po `id` (patrz komentarz przy
  // `dockCandidateId`). Jedno przejście po `cols` starcza na trójkę: samą
  // kartę, id kolumny w której dziś stoi (do wykluczenia z pigułek ruchu i
  // do `requestMove`) i etykietę tej kolumny (do nagłówka „Etap ·" w doku).
+ // Ta sama reguła służy zapowiedzi następnej osoby w oknie odrzucenia.
+ const locateCandidate = useCallback(
+ (candidateId: number): { item: KanbanItem; colId: string; label: string } | null => {
+ for (const c of cols) {
+ const found = c.items.find((i) => i.candidate_id === candidateId);
+ if (found) {
+ const host = hostByColId.get(colId(c));
+ return {
+ item: found,
+ colId: colId(c),
+ label: (host ? boardLabelByColId.get(colId(host)) : undefined) ?? columnLabel(c),
+ };
+ }
+ }
+ return null;
+ },
+ [cols, hostByColId, boardLabelByColId]
+ );
  const { dockItem, dockItemColId, dockItemColLabel } = useMemo((): {
  dockItem: KanbanItem | null;
  dockItemColId: string | null;
  dockItemColLabel: string | null;
  } => {
- if (dockCandidateId != null) {
- for (const c of cols) {
- const found = c.items.find((i) => i.candidate_id === dockCandidateId);
- if (found) {
- const host = hostByColId.get(colId(c));
- return {
- dockItem: found,
- dockItemColId: colId(c),
- dockItemColLabel:
- (host ? boardLabelByColId.get(colId(host)) : undefined) ?? columnLabel(c),
- };
- }
- }
- }
- return { dockItem: null, dockItemColId: null, dockItemColLabel: null };
- }, [cols, dockCandidateId, hostByColId, boardLabelByColId]);
+ const place = dockCandidateId != null ? locateCandidate(dockCandidateId) : null;
+ return place
+ ? { dockItem: place.item, dockItemColId: place.colId, dockItemColLabel: place.label }
+ : { dockItem: null, dockItemColId: null, dockItemColLabel: null };
+ }, [dockCandidateId, locateCandidate]);
 
- // Dok jest nakładką z prawej — Escape go zamyka, chyba że otwarty jest
- // dialog (modal powodu odrzucenia, stawki itp.): wtedy Escape należy do niego.
+ // Panel osoby zabiera tablicy 380 px z prawej (`lg:pr-[380px]`) — po jego
+ // otwarciu i przy „‹ ›” w panelu tablica przewija się tak, żeby karta
+ // wybranej osoby została na widoku. Na laptopie 1280 px osoba z „CV
+ // wysłane” chowała się pod własnym panelem (04.10.2026). Tylko przy zmianie
+ // osoby — odświeżenie tablicy nie przewija jej pod rekruterem.
+ const dockOpen = dockItem != null && dockItemColLabel !== null;
  useEffect(() => {
- if (!dockItem) return;
- const onKey = (e: KeyboardEvent) => {
- if (e.key !== "Escape" || e.defaultPrevented) return;
- if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return;
- closeDock();
- };
- window.addEventListener("keydown", onKey);
- return () => window.removeEventListener("keydown", onKey);
- }, [dockItem, closeDock]);
+ if (!dockOpen || dockCandidateId == null) return;
+ const frame = window.requestAnimationFrame(() => {
+ document
+ .querySelector<HTMLElement>(`[data-candidate-id="${dockCandidateId}"]`)
+ ?.scrollIntoView?.({ block: "nearest", inline: "nearest", behavior: "smooth" });
+ });
+ return () => window.cancelAnimationFrame(frame);
+ }, [dockCandidateId, dockOpen]);
+
 
  // Deep link `?candidate=&panel=` (dawne linki do sekcji panelu „Tabeli" —
  // m.in. zapisane w powiadomieniach): otwiera warsztat osoby, gdy jest na
@@ -2279,9 +3182,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  );
  if (!onBoard && cols.length === 0) return;
  handledWorkbenchRef.current = key;
- if (onBoard) setWorkbench(initialWorkbench);
+ if (onBoard) openWorkbench(initialWorkbench.candidateId, initialWorkbench.section);
  onInitialWorkbenchHandled?.();
- }, [initialWorkbench, workbenchContext, cols, onInitialWorkbenchHandled]);
+ }, [initialWorkbench, workbenchContext, cols, onInitialWorkbenchHandled, openWorkbench]);
 
  // Zbiorcza wysyłka CV (dawny pasek zbiorczy „Tabeli"): per osoba ruch na
  // „CV Wysłane" → link dla klienta → stawka, na końcu jedno okno z linkami.
@@ -2304,6 +3207,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // Ref trzyma obsłużone id, żeby przebudowa `cols` (ruch, odświeżenie) nie
  // otwierała doku ponownie po tym, jak użytkownik go zamknął.
  const handledInitialDockRef = useRef<number | null>(null);
+ // `review=1`: przegląd otwiera osobny efekt niżej — `openDlReviewIfSending`
+ // powstaje później w tym komponencie.
+ const [pendingReviewCandidateId, setPendingReviewCandidateId] = useState<number | null>(null);
  useEffect(() => {
  if (initialDockCandidateId == null) {
  handledInitialDockRef.current = null;
@@ -2320,9 +3226,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  `[data-candidate-id="${initialDockCandidateId}"]`
  );
  card?.scrollIntoView?.({ block: "center", inline: "center" });
+ if (initialDockOpensReview) setPendingReviewCandidateId(initialDockCandidateId);
  }
  onInitialDockHandled?.();
- }, [initialDockCandidateId, cols, onInitialDockHandled]);
+ }, [initialDockCandidateId, initialDockOpensReview, cols, onInitialDockHandled]);
 
  // Kolumna terminala „Odrzucony" tego szablonu — potrzebna zarówno „Odrzuć
  // z powodem" w doku, jak i sprawdzeniu, czy dana karta w ogóle DA się
@@ -2331,6 +3238,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const rejectedTemplateCol = useMemo(
  () => stageCols.find((c) => terminalOf(c) === "rejected"),
  [stageCols]
+ );
+ // Zamknięta rekrutacja (28.10.2026): osoby patrzącego od „CV wysłane”, którym
+ // trzeba dać znać — ta sama osoba karty co dzwonek z serwera.
+ const myWaiting = useMemo(
+ () => (closedJob ? myWaitingItems(stageCols, authUser?.id) : []),
+ [closedJob, stageCols, authUser?.id]
  );
  const dockItemColumn = dockItemColId
  ? (cols.find((c) => colId(c) === dockItemColId) ?? null)
@@ -2416,7 +3329,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const active = impliedBadges(currentBadge).includes(badge);
  toggles.push({
  key: badge,
- label: STAGE_BADGE_LABEL[badge],
+ // Przełącznik w doku mówi pełnym krokiem („Umowa wysłana”), karta — skrótem.
+ label: SETTABLE_BADGE_TOGGLE_LABEL[badge] ?? STAGE_BADGE_LABEL[badge],
  active,
  disabledReason: readOnly ? "Tylko odczyt." : null,
  onToggle: () => requestMove(dockItem, dockItemColId, active ? dockHost : member),
@@ -2437,48 +3351,194 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  // Pipeline v4 (decyzja 23.09.2026): DL wysyłający osobę ze „Zweryfikowanego"
  // do klienta dostaje ten sam pełny przegląd co na pulpicie (stawka kandydata,
- // CV, screening, stawka do klienta — bez marży), a nie samo okno stawki.
+ // CV, screening, stawka do klienta), a nie samo okno stawki. Od 08.10.2026
+ // (D9) przegląd pokazuje budżet i marżę na żywo — decyzja „bez marży” z 23.09
+ // jest odwrócona.
  const [dlReviewTask, setDlReviewTask] = useState<BoardTaskRow | null>(null);
- const handleDockMove = useCallback(
- (dst: KanbanColumn) => {
- if (!dockItem || !dockItemColId) return;
+ // Jeden panel osoby (04.10.2026): przegląd DL otwiera się W panelu osoby
+ // jako szeroki tryb; dok tej samej (albo innej) osoby zostaje pod nim
+ // zamontowany i ukryty, a po zamknięciu przeglądu wraca z niewysłaną
+ // notatką.
+ const reviewOpen = dlReviewTask !== null;
+ // Przegląd nie jest oknem z pułapką fokusu — po zamknięciu fokus wraca
+ // tam, skąd przegląd otwarto (karta, menu doku, okno „Przesuń dalej”).
+ const reviewReturnFocusRef = useRef<HTMLElement | null>(null);
+ const closeDlReview = useCallback(() => {
+ // Każde zamknięcie przeglądu (X, Esc, klik w tło, konflikt wersji) kończy
+ // też kolejkę „po kolei” — inaczej następna osoba otworzyłaby się sama.
+ finishSequence();
+ setDlReviewTask(null);
+ const back = reviewReturnFocusRef.current;
+ reviewReturnFocusRef.current = null;
+ window.setTimeout(() => {
+ // Element, który otworzył przegląd (pozycja menu, okno „Przesuń dalej”),
+ // bywa już odmontowany — wtedy fokus idzie do panelu osoby.
+ const target =
+ back && back.isConnected
+ ? back
+ : document.querySelector<HTMLElement>('[data-testid="person-panel-dock"]');
+ target?.focus();
+ }, 0);
+ }, [finishSequence]);
+ // Prawo wysyłki z wiersza serwera; do jego przyjścia — ta sama reguła
+ // w przeglądarce (`recruitment_manage`).
+ const [dlReviewCanSend, setDlReviewCanSend] = useState<boolean | undefined>(undefined);
+ // Jedna droga dla doku, strzałki na karcie i przeciągnięcia: wysyłka z „QC
+ // CV" przez osobę z prawem wysyłki otwiera przegląd (karta, uwagi dla
+ // rekrutera, „Wróć do poprawy"). Test na produkcji 03.10.2026: strzałka
+ // otwierała samo okno stawki i omijała przegląd.
+ // U Nordei (13.10.2026) ta sama droga kończy się akceptacją do kolejki
+ // Cpro: wysyłką jest ruch na „Wysłane do Cpro” albo na etap Cpro, a celem
+ // przeglądu — etap Cpro. Karta już w kolejce czeka na osobę od Cpro.
+ const openDlReviewIfSending = useCallback(
+ (item: KanbanItem, dst: KanbanColumn): boolean => {
+ const from = columnByItemId.get(item.id);
+ // Kolumna „Do Cpro” (etap kolejki), nie „Wysłane do Cpro” — obie mają
+ // „Cpro” w nazwie.
+ const toCpro = cproStageCol != null && colId(dst) === colId(cproStageCol);
+ // Nordea: DL tej rekrutacji odkłada kartę na „QC CV” — przegląd czekałby
+ // na niego samego (dzwonek do siebie resolver odsiewa), a osoba od Cpro nic
+ // by nie dostała (26.10.2026). Akceptacja od razu.
+ const qcHost = boardFold.columns.find((f) => f.key === "cv_qc" && !f.cproQueue)?.host;
+ const ownQcDrop =
+ cproEnabled && viewerOwnsDlReview && qcHost != null && colId(dst) === colId(qcHost);
+ const sendTarget = cproEnabled
+ ? dst.stage === "cv_sent" || toCpro || ownQcDrop
+ : dst.stage === "cv_sent";
+ const fromOk =
+ from === "cv_qc" ||
+ (cproEnabled && (toCpro || ownQcDrop) && (from === "new" || from === "screening" || from === "verified"));
  if (
- dst.stage === "cv_sent" &&
- !cproEnabled &&
- canReviewAsDl &&
- dockHostKey === "cv_qc" &&
- dockItem.qc?.status !== "failed"
+ !sendTarget ||
+ !canReviewAsDl ||
+ !fromOk ||
+ boardFold.badgeByItemId.get(item.id) === "cpro" ||
+ item.qc?.status === "failed"
  ) {
+ return false;
+ }
+ if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+ reviewReturnFocusRef.current = document.activeElement;
+ }
+ // Przegląd zajmuje szeroki panel — rozwinięte narzędzia zwijają się
+ // (zostają zamontowane pod spodem).
+ setWorkbench((w) => (w ? { ...w, open: false } : w));
  setDlReviewTask({
  kind: "dl_review",
- stage_id: dockItem.id,
- candidate_id: dockItem.candidate_id,
- candidate_name: itemFullName(dockItem),
+ stage_id: item.id,
+ candidate_id: item.candidate_id,
+ candidate_name: itemFullName(item),
  job_id: jobId,
  job_title: jobTitle ?? "",
  client_id: clientId ?? null,
  client_name: null,
- since: dockItem.moved_at ?? new Date().toISOString(),
- process_state_version: dockItem.process_state_version ?? 0,
- target_stage_def_id: dst.stage_def_id ?? null,
+ since: item.moved_at ?? new Date().toISOString(),
+ process_state_version: item.process_state_version ?? 0,
+ target_stage_def_id: cproEnabled
+ ? (cproStageCol?.stage_def_id ?? null)
+ : (dst.stage_def_id ?? null),
+ cpro: cproEnabled,
  rejected_stage_def_id: rejectedTemplateCol?.stage_def_id ?? null,
+ // „Wróć do poprawy": gospodarz kolumny „Zweryfikowany".
+ return_stage_def_id:
+   boardFold.columns.find((f) => f.key === "verified")?.host.stage_def_id ?? null,
  assignee_id: null,
  assignee_name: null,
- verified_at: dockItem.moved_at ?? null,
+ verified_at: item.moved_at ?? null,
  expected_rate_value:
- dockItem.expected_rate_value != null ? Number(dockItem.expected_rate_value) : null,
- expected_rate_unit: dockItem.expected_rate_unit ?? null,
- expected_rate_currency: dockItem.expected_rate_currency ?? null,
+ item.expected_rate_value != null ? Number(item.expected_rate_value) : null,
+ expected_rate_unit: item.expected_rate_unit ?? null,
+ expected_rate_currency: item.expected_rate_currency ?? null,
  // Serwer czyta arkusz pary (także z „Nowych"), gdy etap nie ma własnego.
- screening_stage_id: dockItem.id,
+ screening_stage_id: item.id,
  });
+ setDlReviewCanSend(undefined);
+ // Wiersz z serwera (ta sama reguła co pulpit): etap CV po QC, kto
+ // zweryfikował, klient, stan karty. Do jego przyjścia przegląd stoi na
+ // wierszu z tablicy; błąd zostawia ten wiersz (04.10.2026).
+ const candidateId = item.candidate_id;
+ void fetchDlReviewRow(candidateId, jobId)
+ .then((res) => {
+ setDlReviewTask((cur) =>
+ cur && cur.candidate_id === candidateId ? { ...cur, ...res.row } : cur
+ );
+ setDlReviewCanSend(res.can_send_to_client);
+ })
+ .catch(() => undefined);
+ return true;
+ },
+ [cproEnabled, cproStageCol, canReviewAsDl, columnByItemId, jobId, jobTitle, clientId, rejectedTemplateCol, boardFold, viewerOwnsDlReview]
+ );
+ useEffect(() => {
+ openDlReviewRef.current = openDlReviewIfSending;
+ }, [openDlReviewIfSending]);
+ // „Przejrzyj po kolei”: przegląd bieżącej osoby kolejki otwiera się sam —
+ // na starcie i po każdej decyzji albo „Pomiń”. Efekt biegnie też przy
+ // odświeżeniu tablicy; przegląd osoby, która już jest otwarta, zostaje
+ // nietknięty (wpisana stawka i uwagi).
+ const reviewCandidateId = dlReviewTask?.candidate_id ?? null;
+ useEffect(() => {
+ if (!sequenceActive) return;
+ if (sequenceCurrent === null) {
+ closeDlReview();
+ // Pominięte osoby dalej czekają — komunikat nie może mówić, że nikogo nie ma.
+ showInfo(
+ sequenceSkipped > 0
+ ? `Koniec kolejki — pominięte osoby dalej czekają: ${sequenceSkipped}.`
+ : "Kolejka przejrzana — nikt więcej nie czeka w tej rekrutacji."
+ );
  return;
  }
+ if (reviewCandidateId === sequenceCurrent.candidate_id) return;
+ // Fokus po całej kolejce wraca tam, skąd ją uruchomiono, nie do przycisku
+ // z przeglądu poprzedniej osoby.
+ const back = reviewReturnFocusRef.current;
+ const opened = dlSendTarget !== null && openDlReviewIfSending(sequenceCurrent, dlSendTarget);
+ if (back) reviewReturnFocusRef.current = back;
+ if (!opened) closeDlReview();
+ }, [sequenceActive, sequenceCurrent, sequenceSkipped, reviewCandidateId, dlSendTarget, openDlReviewIfSending, closeDlReview, showInfo]);
+ const startReviewSequence = useCallback(
+ () => startSequence(dlReadyItems),
+ [startSequence, dlReadyItems]
+ );
+ // D10 (08.10.2026): porównanie osób w „QC CV” tej rekrutacji — klik w osobę
+ // otwiera jej przegląd z wiersza kolejki (ten sam co na pulpicie).
+ const [compareOpen, setCompareOpen] = useState(false);
+ const openDlReviewForTask = useCallback((task: BoardTaskRow) => {
+ if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+ reviewReturnFocusRef.current = document.activeElement;
+ }
+ setWorkbench((w) => (w ? { ...w, open: false } : w));
+ setDlReviewTask(task);
+ setDlReviewCanSend(undefined);
+ }, []);
+ // `?candidate=&review=1` — dzwonek „CV do przeglądu” prowadzi prosto do
+ // przeglądu, nie do samego doku (04.10.2026).
+ useEffect(() => {
+ if (pendingReviewCandidateId == null) return;
+ setPendingReviewCandidateId(null);
+ const item = cols
+ .flatMap((c) => c.items)
+ .find((i) => i.candidate_id === pendingReviewCandidateId);
+ const reviewTarget = cproEnabled ? (cproStageCol ?? cvSentColumn) : cvSentColumn;
+ if (!item || !reviewTarget || !openDlReviewIfSending(item, reviewTarget)) {
+ showInfo(
+ cproEnabled
+ ? "Ta osoba nie czeka teraz na akceptację do kolejki Cpro."
+ : "Ta osoba nie czeka teraz na przegląd przed wysłaniem do klienta."
+ );
+ }
+ }, [pendingReviewCandidateId, cols, cproEnabled, cproStageCol, cvSentColumn, openDlReviewIfSending, showInfo]);
+ const handleDockMove = useCallback(
+ (dst: KanbanColumn) => {
+ if (!dockItem || !dockItemColId) return;
+ if (acceptInsteadOfMove(dockItem, dst)) return;
+ if (openDlReviewIfSending(dockItem, dst)) return;
  // Wybór etapu z doku jest jawny — ruch od razu (serwer i tak pilnuje
  // bramki QC; 409 CV_QC_FAILED otwiera okno QC CV).
  requestMove(dockItem, dockItemColId, dst);
  },
- [dockItem, dockItemColId, requestMove, cproEnabled, canReviewAsDl, dockHostKey, jobId, jobTitle, clientId, rejectedTemplateCol]
+ [dockItem, dockItemColId, requestMove, openDlReviewIfSending, acceptInsteadOfMove]
  );
  // Ramka „Następny etap": przekazanie na etap wskazany przez serwer
  // (`primary.target_stage_def_id` — „QC CV" dla DL, „Wysłać do Cpro").
@@ -2491,19 +3551,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  showError("Nie znaleziono tego etapu w szablonie tej rekrutacji.");
  return;
  }
+ // Akceptacja do kolejki Cpro (Delivery Lead) idzie przez przegląd —
+ // ze stawką do Cpro, nie gołym ruchem.
+ if (openDlReviewIfSending(dockItem, dst)) return;
  requestMove(dockItem, dockItemColId, dst);
  },
- [dockItem, dockItemColId, stageCols, requestMove, showError]
+ [dockItem, dockItemColId, stageCols, requestMove, showError, openDlReviewIfSending]
  );
-
- const handleDockReject = useCallback(() => {
- if (!dockItem || !dockItemColId || !rejectedTemplateCol) return;
- requestReject(dockItem, rejectedTemplateCol);
- }, [dockItem, dockItemColId, rejectedTemplateCol, requestReject]);
- const handleDockWithdraw = useCallback(() => {
- if (!dockItem) return;
- move.requestWithdraw(dockItem);
- }, [dockItem, move]);
 
  // ── Okno „Przesuń dalej" (Rekrutacja v5) ────────────────────────────────
  const refreshMoveRequirements = useCallback(() => {
@@ -2521,6 +3575,83 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  moveNextSuspended.current = true;
  setMoveNextOpen(false);
  }, []);
+ // Rozwinięte narzędzia tej osoby (tylko dla osoby otwartej w panelu).
+ const activeWorkbench =
+ workbench && dockItem && workbench.candidateId === dockItem.candidate_id ? workbench : null;
+ const workbenchOpen = activeWorkbench?.open === true;
+ const dockRow = usePersonRow(stageCols, dockItem?.candidate_id ?? null, jobBudgetHourlyValue ?? null);
+ // „Zwiń” / Esc / klik w tło: narzędzia zostają zamontowane.
+ const collapseWorkbench = useCallback(() => {
+ setWorkbench((w) => (w ? { ...w, open: false } : w));
+ }, []);
+ // Okno „Przesuń dalej”, z którego rozwinięto panel (akcja „Wygeneruj CV”,
+ // rozmowy), wraca przy KAŻDYM wyjściu z szerokiego panelu: „Zwiń”, Esc,
+ // zamknięcie karty, inna osoba, a po przeglądzie DL — po jego zamknięciu.
+ // Dawny warsztat w oknie miał jedno wyjście; panel ma kilka (przegląd kodu
+ // 04.10.2026). `resumeMoveNext` bez zawieszenia tylko odświeża wymagania.
+ const wideBefore = useRef(false);
+ const panelWide = workbenchOpen || reviewOpen;
+ // Szerokość panelu osoby: przegląd DL i rozwinięte narzędzia zajmują całą
+ // szerokość okna. Od 09.10.2026 każda zakładka ma podgląd po lewej (także
+ // umowa, dopasowanie i notatki) — do tej daty te trzy miały panel 760 px
+ // i pasek zakładek przesuwał się w bok przy przejściu między zakładkami.
+ const screeningSplit = workbenchOpen && activeWorkbench?.section === "screening";
+ const panelSize: PersonPanelSize = reviewOpen ? "review" : workbenchOpen ? "split" : "dock";
+ useEffect(() => {
+ if (wideBefore.current && !panelWide) resumeMoveNext();
+ wideBefore.current = panelWide;
+ }, [panelWide, resumeMoveNext]);
+ const toggleWorkbench = useCallback(() => {
+ if (!dockItem) return;
+ if (workbenchOpen) {
+ collapseWorkbench();
+ return;
+ }
+ setWorkbench((w) =>
+ w && w.candidateId === dockItem.candidate_id
+ ? { ...w, open: true }
+ : {
+ candidateId: dockItem.candidate_id,
+ section: dockRow ? workbenchDefaultSection(dockRow) : "notes",
+ open: true,
+ },
+ );
+ }, [dockItem, dockRow, workbenchOpen, collapseWorkbench]);
+ // Panel osoby jest nakładką z prawej — Escape zamyka jego najwyższą warstwę
+ // (przegląd DL, potem rozwinięte narzędzia, potem dok), chyba że otwarty jest dialog (modal powodu
+ // odrzucenia, stawki itp.): wtedy Escape należy do niego.
+ useEffect(() => {
+ if (!dockItem && !dlReviewTask) return;
+ const onKey = (e: KeyboardEvent) => {
+ if (e.key !== "Escape" || e.defaultPrevented) return;
+ if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return;
+ // Duże okno notatki w doku jest warstwą nad panelem — zmniejsza je sam
+ // dok (`DockNoteComposer`), a panel zostaje otwarty. Okno w doku ukrytym
+ // pod przeglądem DL warstwą nie jest.
+ const noteWindow = document.querySelector("[data-note-enlarged]");
+ if (noteWindow && !noteWindow.closest("[hidden]")) return;
+ if (dlReviewTask) closeDlReview();
+ else if (workbenchOpen) collapseWorkbench();
+ else closeDock();
+ };
+ window.addEventListener("keydown", onKey);
+ return () => window.removeEventListener("keydown", onKey);
+ }, [dockItem, dlReviewTask, workbenchOpen, closeDlReview, collapseWorkbench, closeDock]);
+
+ // „Przesuń dalej" z okna QC: okno otwarte z listy braków wraca do swojego
+ // „Przesuń dalej", otwarte z karty — otwiera je dla następnej kolumny. Ruch
+ // etapu ma jedną drogę (`MoveNextDialog` → `usePipelineMove`).
+ const handleQcMoveNext = useCallback(
+ (candidateId: number) => {
+ const suspended = moveNextSuspended.current;
+ setQcStageId(null);
+ resumeMoveNext();
+ if (suspended) return;
+ const item = cols.flatMap((c) => c.items).find((i) => i.candidate_id === candidateId);
+ if (item) onAdvance(item);
+ },
+ [cols, onAdvance, resumeMoveNext]
+ );
  const handleMoveNextAction = useCallback(
  (action: MoveRequirementAction, item: KanbanItem) => {
  const name = itemFullName(item);
@@ -2528,11 +3659,29 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  switch (action.kind) {
  case "open_screening":
  suspendMoveNext();
- setScreeningPrompt({ stageId, candidateName: name });
+ openScreeningFor(item);
  return;
  case "open_qc":
  suspendMoveNext();
  setQcStageId(stageId);
+ return;
+ case "open_card":
+ // 0424: pola karty rekomendacji są w formularzu screeningu. Brak samego
+ // minimum dla DL (21.10.2026) — małe okno z tymi polami.
+ suspendMoveNext();
+ if (item.minimum_missing?.length) {
+ setMinimumPrompt({ item, mode: "resume" });
+ return;
+ }
+ openScreeningFor(item);
+ return;
+ case "reject":
+ // Odpowiedź narusza „Odpada, gdy…" — okno odrzucenia z notatką od
+ // serwera (które pytanie i co padło). Ruch „Przesuń mimo to" zostaje.
+ moveNextSuspended.current = false;
+ setMoveNextOpen(false);
+ setMoveNext(null);
+ requestReject(item, rejectedTemplateCol, { notes: action.note ?? null });
  return;
  case "set_candidate_rate": {
  // Stawkę kandydata zapisuje ruch na „Zweryfikowany" (okno stawki
@@ -2545,27 +3694,54 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }
  case "generate_cv":
  case "set_client_rate":
+ if (action.kind === "set_client_rate") {
+ // Stawkę do klienta (u Nordei — do Cpro) wpisuje się w przeglądzie —
+ // razem z kartą i uwagami dla rekrutera.
+ if (dlSendTarget && openDlReviewIfSending(item, dlSendTarget)) {
+ setMoveNextOpen(false);
+ return;
+ }
+ }
  if (workbenchContext) {
  suspendMoveNext();
- setWorkbench({ candidateId: item.candidate_id, section: "cv" });
+ openWorkbench(item.candidate_id, "cv");
  } else {
+ // Osobnego ekranu generatora nie ma od 13.10.2026 — panel osoby
+ // ma kartę „CV do klienta” z „Generuj CV”.
  window.open(
- `/cv-generator?candidate_id=${item.candidate_id}&job_id=${jobId}`,
+ `/jobs/${jobId}?candidate=${item.candidate_id}`,
  "_blank",
  "noopener"
  );
  }
  return;
+ case "open_client_form":
+ // 0521: formularz CV klienta do uzupełnienia — sekcja CV panelu osoby.
+ if (workbenchContext) {
+ suspendMoveNext();
+ openWorkbench(item.candidate_id, "cv");
+ } else {
+ window.open(`/jobs/${jobId}?candidate=${item.candidate_id}`, "_blank", "noopener");
+ }
+ return;
+ case "open_pre_contract":
+ // 0506: umowa przedwstępna niepodpisana — sekcja w zakładce „Umowa”.
+ // Ruch „Przesuń mimo braku” zostaje (ostrzeżenie, nie bramka).
+ if (workbenchContext) {
+ suspendMoveNext();
+ openWorkbench(item.candidate_id, "contract");
+ } else {
+ window.open(`/jobs/${jobId}?candidate=${item.candidate_id}`, "_blank", "noopener");
+ }
+ return;
  case "open_debrief":
  suspendMoveNext();
- if (action.event_id != null) {
- setDebriefFor({ eventId: action.event_id, name });
- } else if (workbenchContext) {
- setWorkbench({ candidateId: item.candidate_id, section: "interviews" });
- } else {
- moveNextSuspended.current = false;
- window.open(`/calendar?cycle=${item.candidate_id}-${jobId}`, "_blank", "noopener");
- }
+ // Bez terminu w NEXUSIE okno pytań pyta, kiedy była rozmowa (20.10.2026).
+ setDebriefFor({
+ eventId: action.event_id ?? null,
+ candidateId: item.candidate_id,
+ name,
+ });
  return;
  case "request_slots":
  if (canAddClientSlots) {
@@ -2580,21 +3756,29 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  client_name: null,
  });
  } else {
- window.open(`/calendar?cycle=${item.candidate_id}-${jobId}`, "_blank", "noopener");
+ showInfo(SLOTS_BY_OTHERS_MESSAGE);
  }
  return;
  default:
  return;
  }
  },
- [suspendMoveNext, boardFold, cols, requestMove, workbenchContext, jobId, jobTitle, clientId, canAddClientSlots]
+ [suspendMoveNext, boardFold, cols, requestMove, requestReject, rejectedTemplateCol, workbenchContext, jobId, jobTitle, clientId, canAddClientSlots, dlSendTarget, openDlReviewIfSending, showInfo, openWorkbench, openScreeningFor]
  );
  const handleMoveNextMove = useCallback(
  (target: KanbanColumn) => {
  if (!moveNext) return;
+ // Okno pamięta kartę z chwili otwarcia; QC mogło się w międzyczasie
+ // zaliczyć (poprawka albo „Przepuść mimo QC” z listy braków).
+ const item =
+ cols.flatMap((c) => c.items).find((i) => i.id === moveNext.item.id) ?? moveNext.item;
+ if (openDlReviewIfSending(item, target)) {
+ setMoveNextOpen(false);
+ return;
+ }
  requestMove(moveNext.item, moveNext.srcColId, target);
  },
- [moveNext, requestMove]
+ [moveNext, cols, requestMove, openDlReviewIfSending]
  );
  const handleHandToCpro = useCallback(
  (stageDefId: number) => {
@@ -2604,129 +3788,182 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  showError("Nie znaleziono tego etapu w szablonie tej rekrutacji.");
  return;
  }
+ // Delivery Lead akceptuje do kolejki Cpro w przeglądzie (stawka do Cpro).
+ // Okno pamięta kartę z chwili otwarcia — QC mogło się w międzyczasie
+ // zaliczyć albo zostać przepuszczone (jak w `handleMoveNextMove`).
+ const item =
+ cols.flatMap((c) => c.items).find((i) => i.id === moveNext.item.id) ?? moveNext.item;
+ if (openDlReviewIfSending(item, cpro)) return;
  requestMove(moveNext.item, moveNext.srcColId, cpro);
  },
- [moveNext, stageCols, requestMove, showError]
- );
-
- // Filtry lewej kolumny — liczone raz nad WSZYSTKIMI kartami (łącznie z
- // kubełkiem „Poza szablonem": to nadal realni kandydaci w procesie).
- const allItems = useMemo(() => cols.flatMap((c) => c.items), [cols]);
- // „Utknęli > 7 d" BEZ kolumn terminalnych (B-B05): odrzucony czy zatrudniony
- // „stoi" na swoim etapie bezterminowo i nie jest sprawą do załatwienia.
- // Ta sama reguła co `countStalled` w KPI jobbara tuż nad tablicą — do
- // 09.2026 filtr liczył wszystkie karty i pokazywał 80 obok KPI „26" pod
- // tą samą etykietą.
- const stuckIds = useMemo(() => {
- const ids = new Set<number>();
- for (const col of cols) {
- if (col.category === "terminal") continue;
- for (const item of col.items) {
- if ((item.days_in_stage ?? 0) > 7) ids.add(item.id);
- }
- }
- return ids;
- }, [cols]);
- const stuckCount = stuckIds.size;
- // Karty bez podpowiedzi „co dalej" — liczone tą samą funkcją, którą karta
- // renderuje, więc licznik w rail'u nie może rozjechać się z tablicą.
- const noActionIds = useMemo(() => {
- const ids = new Set<number>();
- for (const col of cols) {
- const group = groupByColId.get(colId(col));
- for (const item of col.items) {
- if (hasNoNextAction(nextActionFor(item, col, { slaDays, group }))) {
- ids.add(item.id);
- }
- }
- }
- return ids;
- }, [cols, groupByColId, slaDays]);
- // „Mój ruch" — karty, na których plakietka mówi „Twój ruch" (`cardNextStep`
- // — ta sama funkcja i te same kolumny Tablicy co karta). Do 24.09.2026 filtr
- // liczył każdą kartę z ruchem po stronie rekrutera, także tę z imieniem innego
- // rekrutera albo z „DL" w QC CV. Karty w „Nowi" też się liczą — ich
- // plakietka mówi „Twój ruch" (albo imię osoby, która wzięła je na 12 h).
- const myMoveIds = useMemo(() => {
- const ids = new Set<number>();
- for (const col of [...displayCols, ...cols.filter((c) => isOffTemplate(c))]) {
- if (col.category === "terminal") continue;
- const group = groupByColId.get(colId(col));
- const column = boardKeyByColId.get(colId(col)) ?? null;
- for (const item of col.items) {
- const action = nextActionFor(item, col, { slaDays, group });
- const step = cardNextStep(action, item, {
- column,
- cproEnabled,
- stageBadge: boardFold.badgeByItemId.get(item.id) ?? null,
- viewerId: authUser?.id ?? null,
- });
- if (step?.mine) ids.add(item.id);
- }
- }
- return ids;
- }, [displayCols, cols, groupByColId, boardKeyByColId, boardFold, slaDays, cproEnabled, authUser?.id]);
- // „Ostrzeżenia" = weto hiring managera. Od 17.09.2026 nic nie BLOKUJE ruchu
- // (karta „Oczekuje" nie powstaje), więc filtr pokazuje karty z ostrzeżeniem.
- const blockedCount = useMemo(
- () => allItems.filter((i) => Boolean(i.hm_veto)).length,
- [allItems]
- );
- const recruiterNames = useMemo(() => {
- const names = new Set<string>();
- for (const i of allItems) {
- const n = i.added_to_job_by_name?.trim();
- if (n) names.add(n);
- }
- return Array.from(names).sort((a, b) => a.localeCompare(b, "pl"));
- }, [allItems]);
-
- // Stabilna referencja — patrz komentarz nad `toggleSelect` (memo na
- // kolumnach/kartach). Zmienia tożsamość WYŁĄCZNIE gdy zmieni się któryś
- // z trzech filtrów, nigdy przy niepowiązanym re-renderze (np. checkbox).
- const isDimmed = useCallback(
- (item: KanbanItem) => {
- if (stuckFilter && !stuckIds.has(item.id)) return true;
- if (blockedFilter && !item.hm_veto) return true;
- if (noActionFilter && !noActionIds.has(item.id)) return true;
- if (recruiterFilter && item.added_to_job_by_name !== recruiterFilter) {
- return true;
- }
- if (myMoveFilter && !myMoveIds.has(item.id)) return true;
- const q = nameQuery.trim().toLocaleLowerCase("pl");
- if (q && !`${item.name ?? ""} ${item.lastname ?? ""}`.toLocaleLowerCase("pl").includes(q)) {
- return true;
- }
- return false;
- },
- [stuckFilter, stuckIds, blockedFilter, noActionFilter, noActionIds, recruiterFilter, myMoveFilter, myMoveIds, nameQuery]
+ [moveNext, cols, stageCols, requestMove, showError, openDlReviewIfSending]
  );
 
  // Kolumny do renderu: 8 kolumn Tablicy (+ rozwinięci zamknięci + kubełek
- // „Poza szablonem"). „Ukryj puste kolumny" usuwa CAŁE kolumny bez kart —
- // bezpieczne dla `@hello-pangea/dnd` (pusta kolumna nie ma indeksów).
- // „Do przejrzenia" nie znika nigdy: niesie propozycje spoza kanbana.
- const offTemplateCols = useMemo(() => cols.filter((c) => isOffTemplate(c)), [cols]);
- const visibleCols = useMemo(() => {
- const base = [
- ...displayCols,
- ...(showClosed ? boardFold.closed : []),
- ...offTemplateCols,
- ];
- return hideEmptyColumns
- ? base.filter((c) => c.count > 0 || boardKeyByColId.get(colId(c)) === "new")
- : base;
- }, [displayCols, boardFold, showClosed, offTemplateCols, hideEmptyColumns, boardKeyByColId]);
-
- // Nawigator doku „‹ N z M ›" — kolejność WIDOCZNEJ Tablicy: kolumny od
- // lewej (także rozwinięci zamknięci i „Poza szablonem"), karty od góry,
- // bez kart przygaszonych filtrem (`dockNavigationOrder`). Klucz to
- // `candidate_id` (stabilny przez ruchy), dokładnie jak `dockCandidateId`.
- const dockOrder = useMemo(
- () => dockNavigationOrder(visibleCols, isDimmed, dockCandidateId),
- [visibleCols, isDimmed, dockCandidateId]
+ // „Poza szablonem"). Puste kolumny są zawsze widoczne, bez przełącznika
+ // (decyzja Artura 25.10.2026) — do tego dnia domyślnie je chowano, a Tablica
+ // nie mówiła, że coś ukryła.
+ const allOffTemplateCols = useMemo(() => cols.filter((c) => isOffTemplate(c)), [cols]);
+ const offTemplateCols = useMemo(
+ () => allOffTemplateCols.map((c) => withAddedByFilter(c, addedBy, null)),
+ [allOffTemplateCols, addedBy]
  );
+ // Liczba osób w kolumnie bez filtra „Kto dodał” — licznik „N z M” i napis
+ // w kolumnie pustej przez filtr (mówi, że filtr schował wszystkich).
+ const totalCountByColId = useMemo(() => {
+ const m = new Map<string, number>();
+ for (const c of [...allDisplayCols, ...allOffTemplateCols]) m.set(colId(c), c.count);
+ return m;
+ }, [allDisplayCols, allOffTemplateCols]);
+ const visibleCols = useMemo(
+ () => [...displayCols, ...(showClosed ? boardFold.closed : []), ...offTemplateCols],
+ [displayCols, boardFold, showClosed, offTemplateCols]
+ );
+ // Filtr schował część osób — zaznaczenie ich nie trzyma, żeby pasek
+ // zaznaczonych nie działał na kimś, kogo nie widać.
+ useEffect(() => {
+ if (addedBy.kind === "all") return;
+ setSelected((prev) => {
+ if (prev.size === 0) return prev;
+ const hidden = new Set<number>();
+ allDisplayCols.forEach((c, i) => {
+ const key = boardFold.columns[i]?.key ?? null;
+ for (const item of c.items) if (!matchesAddedBy(item, addedBy, key)) hidden.add(item.candidate_id);
+ });
+ for (const c of allOffTemplateCols) {
+ for (const item of c.items) if (!matchesAddedBy(item, addedBy, null)) hidden.add(item.candidate_id);
+ }
+ const next = new Set(Array.from(prev).filter((id) => !hidden.has(id)));
+ return next.size === prev.size ? prev : next;
+ });
+ }, [addedBy, allDisplayCols, allOffTemplateCols, boardFold]);
+ // Menu „Kto dodał” w panelu osoby — te same liczby co przycisk w nagłówku
+ // (osoby w toku, `lib/board-added-by.ts`), z żywego stanu Tablicy.
+ const addedByMenuOptions = useMemo(
+ () =>
+ addedByOptions(peopleInProgress(cols), {
+ id: authUser?.id ?? null,
+ name: authUser?.name ?? null,
+ }),
+ [cols, authUser?.id, authUser?.name]
+ );
+
+ // ── Kolejka panelu „‹ N z M ›” (D1, 14.10.2026) ────────────────────────
+ // Strzałki chodzą po JEDNEJ kolumnie Tablicy — kolumnie otwartej osoby,
+ // z filtrem „Kto dodał” — nie po całej Tablicy (rekruter widział „1 z 66”,
+ // gdy w „Nowych” było 43). Kolejka zostaje, gdy panel idzie dalej w tej
+ // kolumnie (strzałki, przejście po odrzuceniu) albo osoba z niej wypada
+ // (ruch, zamknięcie, „Pokaż”); zmienia się, gdy otworzysz osobę z innej
+ // kolumny. Zamknięci nie są kolejką. Klucz to `candidate_id` (stabilny przez
+ // ruchy), dokładnie jak `dockCandidateId`.
+ // Zasady: docs/claude/rekrutacja-tablica/nastepna-osoba-po-odrzuceniu.md („Kolejka w kolumnie…”).
+ const columnOfCandidate = useMemo(() => {
+ const m = new Map<number, string>();
+ for (const c of [...allDisplayCols, ...allOffTemplateCols]) {
+ for (const item of c.items) if (!m.has(item.candidate_id)) m.set(item.candidate_id, colId(c));
+ }
+ return m;
+ }, [allDisplayCols, allOffTemplateCols]);
+ const queueCol = useMemo(
+ () => [...displayCols, ...offTemplateCols].find((c) => colId(c) === queue.colId) ?? null,
+ [displayCols, offTemplateCols, queue.colId]
+ );
+ // Kotwica liczona w renderze (stan pochodny, bez efektu — panel nie miga
+ // licznikiem poprzedniej kolumny). Po ustawieniu warunek jest fałszywy,
+ // więc render się nie zapętla. Zamknięty panel zostawia kolumnę, ale
+ // ponowne otwarcie (także tej samej osoby) wyznacza kolejkę od nowa.
+ if (dockCandidateId == null) {
+ if (queue.forCandidate != null) setQueue({ colId: queue.colId, forCandidate: null });
+ } else {
+ const ownColumn = columnOfCandidate.get(dockCandidateId) ?? null;
+ if (queue.forCandidate !== dockCandidateId || (queueCol == null && ownColumn != null)) {
+ const nextColId = queueColumnAfterOpen(
+ queueCol ? queue.colId : null,
+ dockCandidateId,
+ queueCol ? dockNavigationOrder([queueCol]) : [],
+ ownColumn
+ );
+ if (nextColId !== queue.colId || queue.forCandidate !== dockCandidateId) {
+ setQueue({ colId: nextColId, forCandidate: dockCandidateId });
+ }
+ }
+ }
+ const dockOrder = useMemo(() => (queueCol ? dockNavigationOrder([queueCol]) : []), [queueCol]);
  const dockIndex = dockItem ? dockOrder.indexOf(dockItem.candidate_id) : -1;
+ // Cała widoczna Tablica (z filtrem) — „Następna w Screeningu” w karcie CV.
+ const boardOrder = useMemo(() => dockNavigationOrder(visibleCols), [visibleCols]);
+ const queueColumnName = queueCol
+ ? boardLabelByColId.get(colId(queueCol)) ?? columnLabel(queueCol)
+ : null;
+ const queueSuffix = addedByQueueSuffix(addedBy, addedByMenuOptions);
+ const queueLabel = queueColumnName
+ ? queueSuffix
+ ? `${queueColumnName} · ${queueSuffix}`
+ : queueColumnName
+ : null;
+ // Kto stał za osobą z panelu, zanim wypadła z kolejki — „Wróć do kolejki”.
+ const formerlyAfterRef = useRef<number[]>([]);
+ useEffect(() => {
+ if (dockIndex >= 0) formerlyAfterRef.current = dockOrder.slice(dockIndex + 1);
+ }, [dockIndex, dockOrder]);
+ // 0424: w panelu dzielonym „‹ ›” po „Nowych” i „Screeningu” zostaje przy
+ // formularzu — rekruter przechodzi kolejkę bez zwijania panelu. Ta sama
+ // reguła po odrzuceniu z panelu (niżej).
+ const showInDock = useCallback(
+ (nextId: number) => {
+ if (screeningSplit) {
+ const nextItem = cols.flatMap((c) => c.items).find((i) => i.candidate_id === nextId);
+ const key = nextItem ? columnByItemId.get(nextItem.id) : null;
+ if (key === "new" || key === "screening") {
+ openWorkbench(nextId, "screening");
+ return;
+ }
+ }
+ setDockCandidateId(nextId);
+ },
+ [screeningSplit, cols, columnByItemId, openWorkbench]
+ );
+ // „Następna w Screeningu” w karcie CV panelu (14.10.2026): kolejność „›”
+ // zawężona do jednej kolumny Tablicy — pierwsza osoba za wskazaną, a gdy za
+ // nią nikogo nie ma, pierwsza od góry tej kolumny.
+ const nextInColumn = useCallback(
+ (candidateId: number, column: BoardColumnKey): NextInColumn | null => {
+ const byCandidate = new Map<number, KanbanItem>();
+ for (const c of cols) for (const i of c.items) byCandidate.set(i.candidate_id, i);
+ const inColumn = boardOrder.filter((id) => {
+ const found = byCandidate.get(id);
+ return id !== candidateId && found != null && columnByItemId.get(found.id) === column;
+ });
+ if (inColumn.length === 0) return null;
+ const at = boardOrder.indexOf(candidateId);
+ const nextId = (at >= 0 ? inColumn.find((id) => boardOrder.indexOf(id) > at) : undefined) ?? inColumn[0];
+ const next = byCandidate.get(nextId) as KanbanItem;
+ const days = next.days_in_stage;
+ return {
+ candidateId: nextId,
+ name: itemFullName(next),
+ detail:
+ days == null ? null : days <= 0 ? "czeka od dziś" : days === 1 ? "czeka 1 dzień" : `czeka ${days} dni`,
+ };
+ },
+ [cols, boardOrder, columnByItemId]
+ );
+ // „Otwórz” przy następnej osobie w karcie CV: osoba z „Nowych”/„Screeningu”
+ // dostaje formularz w panelu dzielonym (jak klik w kartę) — rekruter zwykle
+ // przechodzi wtedy do kolejnego screeningu, a panel stoi na „CV”, więc samo
+ // „›” dałoby wąski dok. Inna kolumna — jak „›”.
+ const openPersonInPanel = useCallback(
+ (candidateId: number) => {
+ const found = cols.flatMap((c) => c.items).find((i) => i.candidate_id === candidateId);
+ const key = found ? columnByItemId.get(found.id) : null;
+ if (canSplit && (key === "new" || key === "screening")) {
+ openWorkbench(candidateId, "screening");
+ return;
+ }
+ showInDock(candidateId);
+ },
+ [cols, columnByItemId, canSplit, openWorkbench, showInDock]
+ );
  const selectAdjacentDockCard = useCallback(
  (delta: -1 | 1) => {
  if (dockOrder.length === 0) return;
@@ -2734,10 +3971,152 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  if (current < 0) return;
  const next = current + delta;
  if (next < 0 || next >= dockOrder.length) return;
- setDockCandidateId(dockOrder[next]);
+ showInDock(dockOrder[next]);
  },
- [dockOrder, dockIndex]
+ [dockOrder, dockIndex, showInDock]
  );
+
+ // ── Po odrzuceniu albo rezygnacji z panelu: następna osoba (13.10.2026) ──
+ // Prośba rekrutera, decyzje Artura D1–D4: panel pokazuje osobę, która stała
+ // za zamkniętą w kolejności „›”. Dopiero po ruchu potwierdzonym przez serwer
+ // — wcześniej może wyskoczyć „Przenieś mimo to” albo debrief dla tej samej
+ // osoby. Po ostatniej osobie panel się zamyka z komunikatem.
+ // Zasady: docs/claude/rekrutacja-tablica/nastepna-osoba-po-odrzuceniu.md.
+ type ClosedVerb = "Odrzucono" | "Rezygnacja";
+ const [afterClose, setAfterClose] = useState<{
+ closedId: number;
+ name: string;
+ verb: ClosedVerb;
+ reason: string | null;
+ nextId: number;
+ /** Wiersz etapu następnej osoby — po jej ruchu pasek znika. */
+ nextStageId: number;
+ } | null>(null);
+ const advanceAfterClose = useCallback(
+ (
+ closed: KanbanItem,
+ verb: ClosedVerb,
+ after: readonly number[],
+ reason: string | null,
+ queueName: string | null
+ ) => {
+ // Rekruter zdążył otworzyć kogoś innego albo zamknąć panel — nie skaczemy.
+ if (dockCandidateId !== closed.candidate_id) return;
+ const live = new Set(dockOrder);
+ const nextId = after.find((id) => id !== closed.candidate_id && live.has(id));
+ const next = nextId != null ? locateCandidate(nextId) : null;
+ const name = itemFullName(closed);
+ if (nextId == null || !next) {
+ closeDock();
+ showActionToast(
+ queueName
+ ? `${verb}: ${name}. To była ostatnia osoba w kolejce „${queueName}”.`
+ : `${verb}: ${name}. To była ostatnia osoba w kolejce.`,
+ {
+ actionLabel: "Pokaż",
+ onAction: () => setDockCandidateId(closed.candidate_id),
+ }
+ );
+ return;
+ }
+ setAfterClose({ closedId: closed.candidate_id, name, verb, reason, nextId, nextStageId: next.item.id });
+ showInDock(nextId);
+ },
+ [dockCandidateId, dockOrder, locateCandidate, closeDock, showActionToast, showInDock]
+ );
+ // `onMoved` przychodzi po odpowiedzi serwera — czyta stan z tej chwili.
+ const advanceAfterCloseRef = useRef(advanceAfterClose);
+ useEffect(() => {
+ advanceAfterCloseRef.current = advanceAfterClose;
+ }, [advanceAfterClose]);
+ useEffect(() => {
+ if (afterClose && dockCandidateId !== afterClose.closedId && dockCandidateId !== afterClose.nextId) {
+ setAfterClose(null);
+ }
+ }, [afterClose, dockCandidateId]);
+ // Migawka kolejki w chwili otwarcia okna: kto stoi za zamykaną osobą
+ // (od 14.10.2026 w tej samej kolumnie i z tym samym filtrem — D1).
+ const dockFollowUp = useCallback(
+ (closed: KanbanItem, verb: ClosedVerb): RejectFollowUp | undefined => {
+ if (dockIndex < 0) return undefined;
+ const after = dockOrder.slice(dockIndex + 1);
+ const preview = after.length > 0 ? locateCandidate(after[0]) : null;
+ return {
+ stageLabel: dockItemColLabel,
+ next: preview ? { name: itemFullName(preview.item), stageLabel: preview.label } : null,
+ onMoved: ({ reasonLabel }) =>
+ advanceAfterCloseRef.current(closed, verb, after, reasonLabel, queueLabel),
+ };
+ },
+ [dockIndex, dockOrder, locateCandidate, dockItemColLabel, queueLabel]
+ );
+ const handleDockReject = useCallback(
+ (options?: { notes?: string | null }) => {
+ if (!dockItem || !dockItemColId || !rejectedTemplateCol) return;
+ requestReject(dockItem, rejectedTemplateCol, {
+ notes: options?.notes ?? null,
+ followUp: dockFollowUp(dockItem, "Odrzucono"),
+ });
+ },
+ [dockItem, dockItemColId, rejectedTemplateCol, requestReject, dockFollowUp]
+ );
+ const handleDockWithdraw = useCallback(() => {
+ if (!dockItem) return;
+ move.requestWithdraw(dockItem, { followUp: dockFollowUp(dockItem, "Rezygnacja") });
+ }, [dockItem, move, dockFollowUp]);
+ // „Odrzuć” w formularzu screeningu (panel „Rozwiń”) ma własny ruch —
+ // ta sama migawka, ten sam skok po udanym ruchu.
+ const workbenchRejectFollowUp = useCallback(
+ (candidateId: number) =>
+ dockItem && dockItem.candidate_id === candidateId ? dockFollowUp(dockItem, "Odrzucono") : undefined,
+ [dockItem, dockFollowUp]
+ );
+ const dockClosedNotice =
+ afterClose &&
+ dockItem?.candidate_id === afterClose.nextId &&
+ dockItem.id === afterClose.nextStageId
+ ? {
+ verb: afterClose.verb,
+ name: afterClose.name,
+ reason: afterClose.reason,
+ onShow: () => setDockCandidateId(afterClose.closedId),
+ }
+ : null;
+ // Osoba z panelu jest poza kolejką (zamknięta z panelu, przesunięta dalej,
+ // schowana filtrem): „Wróć do kolejki” — po odrzuceniu do osoby, która
+ // przejęła panel, inaczej do tej, która stała za nią w kolejce.
+ const returnToQueueId =
+ dockItem && dockIndex < 0
+ ? afterClose && dockItem.candidate_id === afterClose.closedId
+ ? afterClose.nextId
+ : returnToQueueTarget(dockOrder, formerlyAfterRef.current)
+ : null;
+ const returnToQueueItem =
+ returnToQueueId != null ? locateCandidate(returnToQueueId)?.item ?? null : null;
+ // Koniec kolejki (D4): „›” jest nieaktywna, pasek mówi, że to ostatnia
+ // osoba, i daje „Od pierwszej”, „Wszyscy (N)” (gdy filtr coś schował)
+ // oraz „Dalej: <kolumna>” — do pierwszej kolumny na prawo, w której ktoś jest.
+ const queueEnd = useMemo(() => {
+ if (!queueCol || dockIndex < 0 || dockIndex !== dockOrder.length - 1) return null;
+ const queueColId = colId(queueCol);
+ const total = totalCountByColId.get(queueColId) ?? queueCol.count;
+ const at = displayCols.findIndex((c) => colId(c) === queueColId);
+ const next = at >= 0 ? nextColumnWithPeople(displayCols, at) : null;
+ return {
+ count: dockOrder.length,
+ onFirst: dockOrder.length > 1 ? () => showInDock(dockOrder[0]) : undefined,
+ showAll:
+ onAddedByChange && addedBy.kind !== "all" && total > dockOrder.length
+ ? { label: `Wszyscy (${total})`, onClick: () => onAddedByChange(ADDED_BY_ALL) }
+ : undefined,
+ next: next
+ ? {
+ label: `Dalej: ${boardLabelByColId.get(colId(next)) ?? columnLabel(next)} (${next.items.length})`,
+ onClick: () => showInDock(next.items[0].candidate_id),
+ }
+ : undefined,
+ };
+ }, [queueCol, dockIndex, dockOrder, totalCountByColId, displayCols, showInDock, onAddedByChange, addedBy, boardLabelByColId]);
 
  const boardEntries = useMemo(
  () => visibleCols.map((col) => ({ kind: "column" as const, key: colId(col), col })),
@@ -2807,22 +4186,25 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  });
  const desktopOverview = viewMode === "tiles";
 
- // Zamknięci w JEDNEJ linii z filtrami (24.09.2026): „Zamknięci:" + chipy.
- // Każdy chip jest celem upuszczenia (odrzucenie z powodem jak dotąd), klik
- // rozwija ich pełne kolumny na końcu tablicy.
- const closedBar =
+ // Zamknięci jako wąska kolumna obok tablicy (02.10.2026; do tego dnia chipy
+ // w pasku filtrów). Każda strefa jest celem upuszczenia — odrzucenie z powodem
+ // jak dotąd — a klik rozwija pełne kolumny zamkniętych na końcu tablicy.
+ // Stoi POZA przewijaną tablicą: przy ośmiu kolumnach byłaby poza ekranem.
+ const closedColumn =
  boardFold.closed.length > 0 ? (
- <span
- data-testid="board-closed-bar"
+ <section
+ aria-label="Zamknięci"
+ data-testid="board-closed-column"
  data-help="jobs.board.closed"
- className="inline-flex flex-wrap items-center gap-1 text-[11px]"
+ className="flex shrink-0 flex-row flex-wrap items-center gap-1.5 rounded-lg border border-border bg-muted/40 p-2 text-[11px] max-lg:order-first lg:w-32 lg:flex-col lg:flex-nowrap lg:items-stretch"
  >
- <span className="text-muted-foreground">Zamknięci:</span>
+ <h3 className="text-sm font-medium text-foreground">Zamknięci</h3>
+ <p className="text-muted-foreground max-lg:hidden">Odrzuceni i rezygnacje</p>
  {showClosed ? (
  <button
  type="button"
  onClick={() => setShowClosed(false)}
- className="rounded-full border border-border px-2 py-0.5 text-muted-foreground hover:bg-accent pointer-coarse:min-h-9"
+ className="rounded-md border border-border px-2 py-1 text-muted-foreground hover:bg-accent pointer-coarse:min-h-9"
  >
  Zwiń zamkniętych
  </button>
@@ -2834,7 +4216,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  ref={provided.innerRef}
  {...provided.droppableProps}
  className={cn(
- "inline-flex rounded-full border border-dashed border-border transition-colors",
+ "flex rounded-md border border-dashed border-border transition-colors",
  snapshot.isDraggingOver && "border-destructive bg-destructive/10"
  )}
  >
@@ -2843,9 +4225,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onClick={() => setShowClosed(true)}
  aria-label={`${label}: ${count} — pokaż kolumny zamkniętych`}
  title={`${label} — upuść tu kartę albo kliknij, żeby zobaczyć osoby`}
- className="px-2 py-0.5 text-muted-foreground hover:text-foreground pointer-coarse:min-h-9"
+ className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-muted-foreground hover:text-foreground pointer-coarse:min-h-9"
  >
- {short}{" "}
+ {short}
  <span className="font-semibold tabular-nums text-foreground">{count}</span>
  </button>
  <span className="hidden">{provided.placeholder}</span>
@@ -2854,61 +4236,42 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  </Droppable>
  ))
  )}
- </span>
+ </section>
+ ) : null;
+
+ const viewControls = viewToggleVisible ? (
+ <BoardViewControls viewMode={viewMode} onSetViewMode={setViewPreference} />
  ) : null;
 
  return (
  <BoardV4Context.Provider value={boardV4}>
- <div className="relative space-y-3">
- {/* DragDropContext obejmuje też pasek filtrów: chipy zamkniętych stoją
- w nim (jedna linia, 24.09.2026) i są celami upuszczenia. */}
- <DragDropContext onDragEnd={onDragEnd}>
- {/* Krok 04 Pipeline: lewa kolumna filtrów i tablica. Dok „Karta
- kandydata" NIE zajmuje kolumny siatki — wysuwa się z prawej dopiero po
- kliknięciu karty (przegląd UX 17.09.2026: stała trzecia kolumna zjadała
- tablicy 360 px nawet wtedy, gdy nic nie było wybrane). */}
+ <div ref={boardRootRef} className="group/board relative space-y-3">
+ {/* DragDropContext obejmuje też kolumnę „Zamknięci" obok tablicy — jej
+ strefy są celami upuszczenia. */}
+ <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+ {/* Dok „Karta kandydata" NIE zajmuje kolumny siatki — wysuwa się z prawej
+ dopiero po kliknięciu karty (przegląd UX 17.09.2026: stała trzecia kolumna
+ zjadała tablicy 360 px nawet wtedy, gdy nic nie było wybrane). */}
  <div className="space-y-3">
- <PipelineFilterBar
- nameQuery={nameQuery}
- onNameQueryChange={setNameQuery}
- myMoveFilter={myMoveFilter}
- onToggleMyMoveFilter={() => setMyMoveFilter((v) => !v)}
- myMoveCount={myMoveIds.size}
- offTemplateCount={offTemplate?.count ?? 0}
- onFocusOffTemplate={() => focusColumn(`stage:${OFF_TEMPLATE_STAGE}`)}
- stuckFilter={stuckFilter}
- onToggleStuckFilter={() => setStuckFilter((v) => !v)}
- stuckCount={stuckCount}
- noActionFilter={noActionFilter}
- onToggleNoActionFilter={() => setNoActionFilter((v) => !v)}
- noActionCount={noActionIds.size}
- blockedFilter={blockedFilter}
- onToggleBlockedFilter={() => setBlockedFilter((v) => !v)}
- blockedCount={blockedCount}
- recruiters={recruiterNames}
- recruiterFilter={recruiterFilter}
- onSetRecruiterFilter={setRecruiterFilter}
- hideEmptyColumns={hideEmptyColumns}
- onToggleHideEmptyColumns={() => setHideEmptyColumns(!hideEmptyColumns)}
- slaDays={slaDays}
- slaClientName={playbookQuery.data?.client_name ?? null}
- slaLoading={playbookQuery.isLoading}
- trailing={
- <BoardViewControls
- viewMode={viewToggleVisible ? viewMode : null}
- onSetViewMode={setViewPreference}
- density={density}
- onToggleDensity={() => setDensity(density === "cozy" ? "compact" : "cozy")}
- />
- }
- inProcessCount={stageCols.reduce(
- (sum, c) => sum + (c.category === "terminal" ? 0 : c.count),
- 0
- )}
- closed={closedBar}
- />
+ {renderAbove ? (
+ renderAbove(viewControls)
+ ) : viewControls ? (
+ <div className="flex justify-end">{viewControls}</div>
+ ) : null}
 
  <div className={cn("min-w-0 space-y-3", dockItem && dockItemColLabel !== null &&"lg:pr-[380px]")}>
+ {closedJob ? (
+ <ClosedJobWaitingBanner
+ closedOn={closedJob.closedOn}
+ reasonLabel={closedJob.reasonLabel}
+ people={myWaiting.map((item) => [item.name, item.lastname].filter(Boolean).join(" ") || `Kandydat #${item.candidate_id}`)}
+ onRejectFirst={
+ !readOnly && rejectedTemplateCol && myWaiting.length > 0
+ ? () => requestReject(myWaiting[0], rejectedTemplateCol)
+ : undefined
+ }
+ />
+ ) : null}
  {offTemplate && offTemplate.count > 0 && (
  <Alert
  variant="warning"
@@ -2988,6 +4351,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  Wyślij CV do klienta
  </Button>
  )}
+ {isRecruiterOnly(authUser) ? null : (
  <Button
  size="sm"
  variant="secondary"
@@ -3001,6 +4365,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  )}{""}
  CV (ZIP)
  </Button>
+ )}
  {/* Skrót do tej samej ścieżki, co wybór „Odrzucony" z listy wyżej —
  `bulkMove` otwiera wspólny modal powodu (`RejectionV2`). Żadnej nowej
  mutacji: bez kolumny terminalnej „Odrzucony" w szablonie przycisku
@@ -3036,7 +4401,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  </div>
  )}
 
- {/* Board */}
+ {/* Board + „Zamknięci" obok */}
+ <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
  <div
  ref={boardRef}
  data-testid="pipeline-board"
@@ -3048,57 +4414,34 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // śledzi jego scroll i auto-scrolluje go natywnie (drop trafia pod kursor,
  // skrajne kolumny osiągalne — bez ręcznego rAF). Definite height wypełnia
  // viewport; calc fallback działa do pierwszego pomiaru (SSR/pierwszy render).
- "flex gap-3 overflow-auto pb-4 min-h-[280px]",
+ // `lg:flex-1`, nie `flex-1`: poniżej `lg` opakowanie jest kolumną bez
+ // określonej wysokości — tam `flex: 1 1 0%` zastąpiłoby wysokość z `style`
+ // i tablica urosłaby do najdłuższej kolumny (bez własnego przewijania).
+ "min-w-0 overflow-auto pb-4 min-h-[280px] lg:flex-1",
  // Na dotyku kolumna dociąga do krawędzi (17 rem przy 343 px ekranu =
  // jedna kolumna + skrawek). `proximity`, nie `mandatory`: mandatory
  // walczy z auto-scrollem @hello-pangea/dnd przy przeciąganiu karty.
  "pointer-coarse:snap-x pointer-coarse:snap-proximity",
- fullPipelineDesktop &&"xl:pointer-fine:gap-1",
  columnHeight == null && "h-[calc(100dvh-4rem)] md:h-[calc(100dvh-240px)]"
  )}
  style={columnHeight != null ? { height: columnHeight } : undefined}
  >
- {/* „Nowi" (z propozycjami na górze) zawsze stoi pierwsza — także gdy
- szablon nie ma etapu „Nowi" albo jego pusta kolumna jest ukryta. */}
- {!boardEntries.some((e) => boardKeyByColId.get(e.key) === "new") && (
- <div className="flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 snap-start flex-col rounded-lg border border-dashed border-primary/40 bg-background/60 sm:min-w-[19rem] xl:pointer-fine:min-w-[12.5rem]">
- <div className="flex items-center gap-2 border-b border-border px-3 py-2">
- <h3 className="flex-1 truncate text-sm font-medium text-foreground">Nowi</h3>
- {reviewTotal != null && (
- <Badge size="sm" variant={reviewTotal > 0 ? "soft" : "outline"}>
- {reviewTotal}
- </Badge>
- )}
- </div>
- <BoardReviewSection
- jobId={jobId}
- readOnly={readOnly}
- showPostingHeading={false}
- onTotalChange={setReviewTotal}
- pipelineCandidateIds={boardCandidateIds}
- budgetHourly={jobBudgetHourlyValue ?? null}
- compact={Boolean(onOpenAddCandidates)}
- onOpenPanel={onOpenAddCandidates}
- />
- </div>
- )}
+ {/* Pas kolumn (17.10.2026, zgłoszenie z filmikiem): rząd flex BEZ
+ własnej wysokości (`min-h-full` = co najmniej okno tablicy), więc ma
+ wysokość najdłuższej kolumny, a każda kolumna rozciąga się do niej.
+ Wcześniej rzędem był sam board o stałej wysokości: kolumny kończyły się
+ na dole okna, 29 kart „Screeningu” wystawało poza obrys, a po
+ przewinięciu w dół pod kartą nie było pola upuszczenia „Zweryfikowanego”
+ (trzeba było przewijać do góry). Pas nie przewija się sam — scroll
+ zostaje na boardzie, jedynym scroll-kontenerze dla @hello-pangea/dnd. */}
+ <div
+ data-testid="pipeline-board-track"
+ className={cn("flex min-h-full gap-3", fullPipelineDesktop && "xl:pointer-fine:gap-1")}
+ >
  {boardEntries.length === 0 ? (
  <div className="flex-1 py-12 text-center text-sm text-muted-foreground">
  <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-40" />
- {cols.length === 0 ? (
- "Brak kolumn w tej kategorii."
- ) : (
- <>
- Wszystkie kolumny są dziś puste.{" "}
- <button
- type="button"
- className="underline underline-offset-2 font-medium"
- onClick={() => setHideEmptyColumns(false)}
- >
- Pokaż puste kolumny
- </button>
- </>
- )}
+ Brak kolumn w tej kategorii.
  </div>
  ) : (
  <>
@@ -3110,8 +4453,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  selectedIds={selected}
  onToggleSelect={toggleSelect}
  onOpenScreening={handleOpenScreening}
- density={density}
  scoreMap={scoreMap}
+ criticalGapMap={criticalGapMap}
+ newQueue={boardKeyByColId.get(entry.key) === "new" ? newColumnQueue : null}
  scoresLoading={scoresLoading}
  stagesWithScorecard={stagesWithScorecard}
  onOpenScorecard={handleOpenScorecard}
@@ -3123,37 +4467,61 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  readOnly={readOnly}
  dropDisabled={isOffTemplate(entry.col)}
  onOpenDock={openDock}
- isDimmed={isDimmed}
  group={groupByColId.get(entry.key)}
  slaDays={slaDays}
  badgeByItemId={boardFold.badgeByItemId}
- step={boardColumnStep(boardKeyByColId.get(entry.key))}
- purpose={boardColumnPurpose(boardKeyByColId.get(entry.key), {
+ step={cproQueueColIds.has(entry.key) ? null : boardColumnStep(boardKeyByColId.get(entry.key))}
+ totalCount={addedBy.kind === "all" ? undefined : totalCountByColId.get(entry.key)}
+ filterEmpty={
+ onAddedByChange && addedBy.kind !== "all" && (totalCountByColId.get(entry.key) ?? 0) > 0
+ ? {
+ text: addedByEmptyColumnText(addedBy, addedByMenuOptions),
+ onShowAll: () => onAddedByChange(ADDED_BY_ALL),
+ }
+ : null
+ }
+headerAction={
+ boardKeyByColId.get(entry.key) === "cv_qc" && !cproQueueColIds.has(entry.key) && canReviewAsDl && (totalCountByColId.get(entry.key) ?? entry.col.count) >= 2 && !readOnly ? (
+ <Button
+ type="button"
+ size="sm"
+ variant="outline"
+ className="h-6 shrink-0 px-2 text-[11px]"
+ onClick={() => setCompareOpen(true)}
+ data-testid="dl-review-compare"
+ data-help="jobs.board.dl-compare"
+ >
+ Porównaj ({totalCountByColId.get(entry.key) ?? entry.col.count})
+ </Button>
+ ) : boardKeyByColId.get(entry.key) === "hired" ? (
+ <HiredColumnHelp />
+ ) : null
+ }
+ // „Przejrzyj po kolei (N)” w miejscu tekstu „co tu robisz” — tylko
+ // u Delivery Leada tej rekrutacji i od dwóch gotowych osób (jedną
+ // otwiera przycisk na karcie). Nic nie dochodzi nad tablicą.
+ purposeAction={
+ boardKeyByColId.get(entry.key) === "cv_qc" && !cproQueueColIds.has(entry.key) && viewerOwnsDlReview && canReviewAsDl && !readOnly && dlReadyItems.length >= 2 ? (
+ <button
+ type="button"
+ onClick={startReviewSequence}
+ data-testid="dl-review-sequence-start"
+ className="min-w-0 truncate text-left font-semibold leading-snug text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+ >
+ Przejrzyj po kolei ({dlReadyItems.length})
+ </button>
+ ) : null
+ }
+ headerExtra={contractCountsByColId.has(entry.key) ? (
+ <ContractStepChips counts={contractCountsByColId.get(entry.key)!} />
+ ) : null}
+ purpose={cproQueueColIds.has(entry.key) ? "Wrzuca osoba od Cpro" : boardColumnPurpose(boardKeyByColId.get(entry.key), {
  cproEnabled,
- hired: entry.col.count,
+ hired: totalCountByColId.get(entry.key) ?? entry.col.count,
  headcount: workbenchContext?.headcount ?? null,
  })}
- highlighted={highlightColId === entry.key}
  {...(boardLabelByColId.has(entry.key)
  ? { titleOverride: boardLabelByColId.get(entry.key) }
- : {})}
- {...(boardKeyByColId.get(entry.key) === "new"
- ? {
- // v5: propozycje mają własne pole nad kartami — nagłówek liczy ludzi w kolumnie.
- extraCount: onOpenAddCandidates ? 0 : (reviewTotal ?? 0),
- prepend: (
- <BoardReviewSection
- jobId={jobId}
- readOnly={readOnly}
- showPostingHeading={false}
- onTotalChange={setReviewTotal}
- pipelineCandidateIds={boardCandidateIds}
- budgetHourly={jobBudgetHourlyValue ?? null}
- compact={Boolean(onOpenAddCandidates)}
- onOpenPanel={onOpenAddCandidates}
- />
- ),
- }
  : {})}
  />
  ))}
@@ -3161,33 +4529,39 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  )}
  </div>
  </div>
+ {closedColumn}
+ </div>
+ </div>
 
  </div>
  </DragDropContext>
 
- {dockItem && dockItemColLabel !== null && (
- // Tablet (768–1023): dok nakrywa prawe kolumny planszy, a plansza nie ma
- // rezerwy miejsca (ta jest od `lg`), więc dok jest nakładką z tłem —
- // klik w tło zamyka kartę. Na telefonie dok ma pełną szerokość.
- <div
- aria-hidden="true"
- data-testid="pipeline-dock-backdrop"
- className="fixed inset-x-0 bottom-0 top-12 z-20 hidden bg-card/50 backdrop-blur-[2px] md:block lg:hidden"
- style={chromeTop != null ? { top: chromeTop } : undefined}
- onClick={closeDock}
- />
- )}
- {dockItem && dockItemColLabel !== null && (
- <aside
- aria-label="Karta kandydata"
- data-help="jobs.person.dock"
- className="fixed right-0 top-12 bottom-0 z-30 flex w-full max-w-[380px] flex-col border-l border-border bg-background shadow-xl"
- style={chromeTop != null ? { top: chromeTop } : undefined}
+ {((dockItem && dockItemColLabel !== null) || dlReviewTask) && (
+ <PersonPanelShell
+ size={panelSize}
+ chromeTop={chromeTop}
+ // Klik w tło zamyka najwyższą warstwę: przegląd, rozwinięcie, kartę.
+ onBackdropClick={reviewOpen ? closeDlReview : workbenchOpen ? collapseWorkbench : closeDock}
  >
+ {dockItem && dockItemColLabel !== null && (
+ // Pod przeglądem dok jest UKRYTY, nie odmontowany: niewysłana
+ // notatka, otwarte sekcje i miejsce powrotu fokusu muszą przeżyć.
+ <div
+ className="flex min-h-0 flex-1 flex-col focus:outline-none"
+ data-testid="person-panel-dock"
+ tabIndex={-1}
+ hidden={reviewOpen}
+ inert={reviewOpen || undefined}
+ >
+ <PersonPanelErrorBoundary key={dockItem.candidate_id} onClose={closeDock}>
  <PipelineCandidateDock
  key={dockItem.candidate_id}
  item={dockItem}
+ noteFill={noteFill}
  jobId={jobId}
+ onOpenQc={() => setQcStageId(dockItem.id)}
+ onTake={readOnly ? undefined : () => void takeCandidate(dockItem)}
+ clientId={clientId ?? null}
  currentStageLabel={dockItemColLabel}
  jobTitle={jobTitle}
  matchScore={scoreMap?.get(dockItem.candidate_id)}
@@ -3202,9 +4576,19 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  total={dockOrder.length}
  onSelectPrevious={() => selectAdjacentDockCard(-1)}
  onSelectNext={() => selectAdjacentDockCard(1)}
+ closedNotice={dockClosedNotice}
+ onReturnToQueue={returnToQueueItem ? () => openDock(returnToQueueItem) : undefined}
+ queueLabel={queueLabel}
+ addedByMenu={
+ onAddedByChange
+ ? { options: addedByMenuOptions, value: addedBy, onChange: onAddedByChange }
+ : undefined
+ }
+ queueEnd={queueEnd}
  nextAction={dockNextAction}
  primaryTarget={dockPrimaryMove?.target ?? null}
  primaryBlocked={dockPrimaryMove?.blocked ?? null}
+ onAdvance={readOnly ? undefined : () => onAdvance(dockItem)}
  onClose={closeDock}
  onMoveTo={handleDockMove}
  onMoveToStageDef={handleDockMoveToStageDef}
@@ -3227,23 +4611,105 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  : undefined
  }
  badgeToggles={dockBadgeToggles}
- onOpenWorkbench={
- workbenchContext
- ? (section) =>
- setWorkbench({ candidateId: dockItem.candidate_id, section })
+ onClientAccept={
+ onClientAccept && dockHostKey === "client_interview" ? () => onClientAccept(dockItem) : undefined
+ }
+ clientAcceptance={dockHostKey === "contract" ? (dockItem.client_acceptance ?? null) : null}
+ onUndoClientAcceptance={
+ !readOnly && clientInterviewHost && boardFold.badgeByItemId.get(dockItem.id) === "acceptance"
+ ? () => void undoClientAccept(dockItem)
  : undefined
  }
- />
- </aside>
- )}
-
- <DlReviewPanel
- task={dlReviewTask}
- open={dlReviewTask !== null}
- onOpenChange={(open) => {
- if (!open) setDlReviewTask(null);
+ onOpenWorkbench={
+ workbenchContext
+ ? (section) => openWorkbench(dockItem.candidate_id, section)
+ : undefined
+ }
+ expanded={workbenchOpen}
+ split={screeningSplit}
+ onToggleExpanded={workbenchContext && kanbanQueryState ? toggleWorkbench : undefined}
+ hidePrimaryMove={
+ workbenchOpen &&
+ dockRow != null &&
+ workbenchSectionOwnsMove({
+ row: dockRow,
+ section: activeWorkbench.section,
+ columns: stageCols,
+ readOnly,
+ budgetHourly: jobBudgetHourlyValue ?? null,
+ })
+ }
+ workbench={
+ activeWorkbench && dockRow && workbenchContext && kanbanQueryState ? (
+ <PersonWorkbenchTabs
+ row={dockRow}
+ jobId={jobId}
+ columns={stageCols}
+ readOnly={readOnly}
+ canWriteClientRate={canWriteClientRate}
+ section={activeWorkbench.section}
+ onSectionChange={(section) =>
+ setWorkbench((prev) => (prev ? { ...prev, section } : prev))
+ }
+ workbenchContext={{
+ ...workbenchContext,
+ jobTitle: jobTitle ?? undefined,
+ cproEnabled,
+ budgetHourly: jobBudgetHourlyValue ?? null,
+ kanbanQueryState,
+ onTake: readOnly ? undefined : (item) => void takeCandidate(item),
+ rejectFollowUp: workbenchRejectFollowUp,
+ onForwarded: onWorkbenchForwarded,
+ forwardedCandidateId,
+ nextInColumn,
+ openPerson: openPersonInPanel,
+ noteFill,
+ onClientAccept: onClientAccept
+ ? (candidateId, note) => {
+ const it = cols.flatMap((c) => c.items).find((i) => i.candidate_id === candidateId);
+ if (it) openClientAccept(it, note);
+ }
+ : undefined,
  }}
  />
+ ) : null
+ }
+ />
+ </PersonPanelErrorBoundary>
+ </div>
+ )}
+ {dlReviewTask ? (
+ <DlReviewBody
+ task={dlReviewTask}
+ canSendToClient={dlReviewCanSend}
+ onClose={closeDlReview}
+ layout="panel"
+ // Kolejka „po kolei”: po decyzji następna osoba zamiast zamknięcia;
+ // poza kolejką przegląd zamyka się jak dotąd.
+ {...(sequenceActive
+ ? {
+ onDecided: advanceSequence,
+ sequence: {
+ position: sequencePosition,
+ total: sequenceTotal,
+ onSkip: skipSequence,
+ onFinish: closeDlReview,
+ },
+ }
+ : {})}
+ />
+ ) : null}
+ </PersonPanelShell>
+ )}
+
+ <DlReviewQueueDialog
+ jobId={compareOpen ? jobId : null}
+ jobTitle={jobTitle ?? null}
+ open={compareOpen}
+ onOpenChange={setCompareOpen}
+ onReview={openDlReviewForTask}
+ />
+
  <SlotRequestDialog
  open={slotPair !== null}
  pair={slotPair}
@@ -3256,6 +4722,20 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  resumeMoveNext();
  }}
  />
+ <ClientAcceptedDialog
+ open={acceptFor !== null}
+ onOpenChange={(open) => {
+ if (!open) setAcceptFor(null);
+ }}
+ jobId={jobId}
+ candidateId={acceptFor?.item.candidate_id ?? 0}
+ candidateName={`${acceptFor?.item.name ?? ""} ${acceptFor?.item.lastname ?? ""}`.trim() || "Kandydat"}
+ initialNote={acceptFor?.note ?? null}
+ context={jobTitle ?? null}
+ acceptanceStageDefId={acceptanceStageCol?.stage_def_id ?? null}
+ onConfirm={confirmClientAccept}
+ />
+ {undoAcceptanceDialog}
  <MoveNextDialog
  open={moveNextOpen && moveNext !== null}
  onOpenChange={(open) => {
@@ -3281,6 +4761,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setQcStageId(null);
  resumeMoveNext();
  }}
+ onMoveNext={readOnly ? undefined : (result) => handleQcMoveNext(result.candidate_id)}
  onChanged={() => {
  queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
  queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
@@ -3296,35 +4777,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  resumeMoveNext();
  }}
  eventId={debriefFor.eventId}
+ candidateId={debriefFor.candidateId}
  candidateName={debriefFor.name}
  jobId={jobId}
  onSaved={() => {
  setDebriefFor(null);
  resumeMoveNext();
  }}
- />
- )}
- {workbench && workbenchContext && kanbanQueryState && (
- <BoardWorkbenchDrawer
- jobId={jobId}
- jobTitle={jobTitle ?? null}
- columns={stageCols}
- candidateId={workbench.candidateId}
- section={workbench.section}
- onSectionChange={(section) =>
- setWorkbench((prev) => (prev ? { ...prev, section } : prev))
- }
- onClose={() => {
- setWorkbench(null);
- resumeMoveNext();
- }}
- readOnly={readOnly}
- canWriteClientRate={canWriteClientRate}
- budgetHourly={jobBudgetHourlyValue ?? null}
- rejectionReasons={rejectionReasons}
- workbenchContext={workbenchContext}
- kanbanQueryState={kanbanQueryState}
- cproEnabled={cproEnabled}
  />
  )}
  {bulkCv.dialogs}
@@ -3346,6 +4805,38 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  />
  )}
 
+ {minimumPrompt && (
+ <MinimumFieldsDialog
+ open={true}
+ candidateId={minimumPrompt.item.candidate_id}
+ jobId={jobId}
+ candidateName={itemFullName(minimumPrompt.item)}
+ actionLabel={minimumPrompt.mode === "resume" ? "Zapisz" : "Zapisz i przesuń"}
+ onDone={() => {
+ const prompt = minimumPrompt;
+ setMinimumPrompt(null);
+ if (prompt.mode === "resume") {
+ resumeMoveNext();
+ return;
+ }
+ const dst = prompt.dst ?? boardFold.columns.find((f) => f.key === "verified")?.host;
+ const src = cols.find((c) => c.items.some((i) => i.id === prompt.item.id));
+ const srcColId = prompt.srcColId ?? (src ? colId(src) : null);
+ if (dst && srcColId) requestMove(prompt.item, srcColId, dst);
+ }}
+ onOpenFull={() => {
+ const item = minimumPrompt.item;
+ setMinimumPrompt(null);
+ openScreeningFor(item);
+ }}
+ onClose={() => {
+ const resume = minimumPrompt.mode === "resume";
+ setMinimumPrompt(null);
+ if (resume) resumeMoveNext();
+ }}
+ />
+ )}
+
  {screeningPrompt && (
  <ScreeningSheet
  open={true}
@@ -3354,12 +4845,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setScreeningPrompt(null);
  resumeMoveNext();
  }}
- stageId={screeningPrompt.stageId}
+ candidateId={screeningPrompt.candidateId}
+ jobId={jobId}
  candidateName={screeningPrompt.candidateName}
- onSubmitted={() => {
- setScreeningPrompt(null);
- resumeMoveNext();
- }}
+ jobBudgetHourly={jobBudgetHourlyValue ?? null}
+ readOnly={readOnly}
+ // Zapis zamyka okno (`onOpenChange`), a ono wraca do „Przesuń dalej”.
+ onMoved={() => void refreshBoardFromServer()}
  />
  )}
 

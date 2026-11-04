@@ -14,7 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 from app.models.document_signature import SignatureStatus
 
 SignatureType = Literal["SES", "AdES", "QES"]
-# In-house QES rail providers (Faza 1, migracja 0133).
+# Dostawcy w ``document_signatures.provider``: Autenti i historia toru in-house
+# z czerwca 2026 (migracja 0133, usunięty 21.10.2026) — wiersze zostają.
 SigningProvider = Literal["szafir_sdk", "mszafir_oneshot", "upload_validate", "autenti"]
 
 
@@ -33,39 +34,6 @@ class AutentiSendRequest(BaseModel):
     # Where to redirect the signer back after they finish. Defaults to
     # ``settings.PUBLIC_BASE_URL`` plus a "thanks" page when omitted.
     return_url: Optional[str] = Field(default=None, max_length=1000)
-
-
-class SignForSignatureRequest(BaseModel):
-    """``POST /api/signing/contracts/{contract_id}/send-for-signature`` body.
-
-    In-house QES rail (Faza 2+). Defaults to QES via the Szafir SDK pas;
-    the consultant may fall back to mSzafir One Shot on the signing page.
-    """
-
-    signature_type: SignatureType = "QES"
-    provider: Literal["szafir_sdk", "mszafir_oneshot", "upload_validate"] = "szafir_sdk"
-    expires_in_days: int = Field(default=14, ge=1, le=90)
-    # Imienny reprezentant spółki podpisujący stronę B2B Network (kartą przez
-    # Szafir). ``None`` = strona firmy nieuruchamiana w tym wywołaniu.
-    company_signer_user_id: Optional[int] = None
-    # Optional Polish cover message shown to the signer in the e-mail.
-    message_pl: Optional[str] = Field(default=None, max_length=2000)
-
-
-class SignForSignatureResponse(BaseModel):
-    """``POST /api/signing/contracts/{id}/send-for-signature`` → 202.
-
-    Returns the shareable public signing link synchronously so the recruiter
-    can hand it to the consultant immediately.
-    """
-
-    signature_id: int
-    contract_id: int
-    status: SignatureStatus
-    sign_url: str
-
-
-# ── Response shapes ────────────────────────────────────────────────────────
 
 
 class AutentiSendResponse(BaseModel):

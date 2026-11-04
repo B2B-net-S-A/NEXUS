@@ -64,6 +64,62 @@ async def assign_primary_cc_if_empty(candidate: Candidate, db: AsyncSession) -> 
         logger.warning("[cv_cc] classify failed candidate=%s: %s", candidate.id, exc)
 
 
+async def _without_taken_email(
+    db: AsyncSession, candidate: Candidate, parsed: dict[str, Any]
+) -> dict[str, Any]:
+    """Pomiń e-mail z CV, który należy już do innej osoby (runda 6 audytu).
+
+    ``candidates.email`` jest UNIQUE. FILL_EMPTY wpisywał adres z CV do pustego
+    pola, a gdy ten sam adres miał już inny kandydat, flush padał i cofał
+    cały zapis profilu (w pętli CV z maila — co kilka sekund, płatnie). Ta sama
+    ochrona stoi w biegach masowych (``cv_backfill``, ``cv_field_backfill``).
+    """
+    from sqlalchemy import func, select
+
+    from app.services.cv_enrichment import _is_blank_name
+
+    email = str(parsed.get("email") or "").strip().lower()
+    if not email or not _is_blank_name(getattr(candidate, "email", None)):
+        return parsed
+    clash = await db.scalar(
+        select(Candidate.id)
+        .where(func.lower(Candidate.email) == email, Candidate.id != candidate.id)
+        .limit(1)
+    )
+    if clash is None:
+        return parsed
+    logger.info(
+        "[cv_ingest] candidate=%s: e-mail z CV należy do innego kandydata — pominięty",
+        candidate.id,
+    )
+    return {k: v for k, v in parsed.items() if k != "email"}
+
+
+async def _fill_email_unless_taken(
+    db: AsyncSession, candidate: Candidate, email: str
+) -> None:
+    """Wpisz adres z CV; gdy w międzyczasie zajęła go inna osoba — pomiń.
+
+    Reszta profilu jest już zapisana (flush przed savepointem). Cofnięcie
+    savepointu wygasza wiersz kandydata, więc odświeżamy go z bazy — sesja
+    asynchroniczna nie doczyta wygaszonych pól sama.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        async with db.begin_nested():
+            candidate.email = email
+            await db.flush()
+    except IntegrityError as exc:
+        if "email" not in str(exc.orig):
+            raise
+        await db.refresh(candidate)
+        logger.info(
+            "[cv_ingest] candidate=%s: e-mail z CV zajęty równolegle — pominięty",
+            candidate.id,
+        )
+
+
 async def finish_cv_ingest(
     db: AsyncSession,
     *,
@@ -88,6 +144,8 @@ async def finish_cv_ingest(
     from app.services.match_score_cache import mark_stale_for_candidate
     from app.services.profile_projection import replace_skill_usage
 
+    parsed = await _without_taken_email(db, candidate, parsed)
+    email_before = getattr(candidate, "email", None)
     written = _apply_cv_enrichment(
         candidate,
         parsed,
@@ -95,6 +153,14 @@ async def finish_cv_ingest(
         source_hash=source_hash,
         policy=policy,
     )
+    # Adres uzupełniony z CV idzie osobnym zapisem w SAVEPOINCIE (niżej):
+    # sito wyżej nie widzi niezacommitowanego wiersza równoległej transakcji,
+    # a unikalny indeks wywracał wtedy cały zapis profilu (audyt 13.10.2026).
+    filled_email = getattr(candidate, "email", None)
+    if filled_email == email_before:
+        filled_email = None
+    else:
+        candidate.email = email_before
     if parsed.get("languages"):
         await sync_candidate_languages_from_source(
             db,
@@ -110,6 +176,8 @@ async def finish_cv_ingest(
             ),
         )
     await db.flush()
+    if filled_email:
+        await _fill_email_unless_taken(db, candidate, filled_email)
 
     usage_rows = 0
     try:
@@ -121,7 +189,9 @@ async def finish_cv_ingest(
         )
 
     # Wektor PRZED kategorią: klasyfikator czyta aktualny profil, a przy
-    # wyłączonym outboxie wektor liczy się tu inline.
+    # wyłączonym outboxie wektor liczy się tu inline. Przy włączonym outboxie
+    # wektora jeszcze nie ma — kategorię uzupełnia worker po zapisaniu punktu
+    # (`index_outbox_service.assign_cc_after_embed`).
     embedded = False
     try:
         async with db.begin_nested():
@@ -131,6 +201,7 @@ async def finish_cv_ingest(
 
     # Każdy dodatek w SAVEPOINCIE: błąd bazy w jednym z nich nie może zatruć
     # sesji, w której leży zapis profilu — commit wołającego by go zgubił.
+    cc_before = getattr(candidate, "competence_category_id", None)
     try:
         async with db.begin_nested():
             await assign_primary_cc_if_empty(candidate, db)
@@ -138,6 +209,20 @@ async def finish_cv_ingest(
         logger.warning(
             "[cv_ingest] CC savepoint failed candidate=%s: %s", candidate.id, exc
         )
+
+    # Kategoria jest w tekście wektora: przypisana po nim robi go nieaktualnym
+    # (inline przy wyłączonym outboxie; przy włączonym — intencja z hashem
+    # sprzed kategorii). Ponowne zgłoszenie liczy hash z kategorią.
+    if getattr(candidate, "competence_category_id", None) != cc_before:
+        try:
+            async with db.begin_nested():
+                await schedule_or_embed_candidate(candidate.id, db)
+        except Exception as exc:  # noqa: BLE001 — wektor dogoni reconciler
+            logger.warning(
+                "[cv_ingest] re-embed after CC failed candidate=%s: %s",
+                candidate.id,
+                exc,
+            )
 
     try:
         async with db.begin_nested():

@@ -24,6 +24,7 @@ Umiejętności        „Musi mieć" = filtr TWARDY · „Mile widziane" = tylko
                     ranking · „Wyklucz" = filtr TWARDY. Bez kubełka → „Musi
                     mieć". Pola legacy zachowują dotychczasowe znaczenie
                     (patrz ``skill_buckets_from_list`` / ``…_from_search``).
+                    v2: także umiejętności potwierdzone w screeningu.
 Tekst ``q``         auto: nazwisko / e-mail / telefon → dopasowanie dosłowne,
                     reszta → dotychczasowa ścieżka silnika. Jawne ``text_mode``.
 „Otwarty na"        LUB (którykolwiek z zaznaczonych).
@@ -45,16 +46,32 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from functools import reduce
 from typing import Any, Iterable, Literal, Optional, Sequence
 
-from sqlalchemy import String, and_, case, cast, func, literal, not_, or_, select, text
+from sqlalchemy import (
+    String,
+    Text,
+    and_,
+    case,
+    cast,
+    func,
+    literal,
+    not_,
+    or_,
+    select,
+    text,
+)
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.sql import ColumnElement
 
 from app.models.candidate import Candidate
 from app.services.advanced_candidate_search import (
     build_advanced_filter,
+    screening_skill_rows,
+    short_literal_match,
     single_phrase_filter,
 )
 from app.services.candidate_profile_rate import (
@@ -92,6 +109,13 @@ class Semantics:
     version: int
     engine: Engine
     hide_unknown: Optional[bool] = None
+    # Węższe przełączniki (D5, 19.10.2026): „Osoby bez stawki / bez miasta
+    # w profilu: ukryj” w okienku samego filtru. ``True`` ukrywa braki TYLKO
+    # tego filtru; ``None``/``False`` = los jak bez przełącznika (globalny
+    # ``hide_unknown`` i wersja). Same nigdy nie poszerzają wyniku, więc v1
+    # i dotychczasowe ``hide_unknown`` dają dokładnie to co przed nimi.
+    hide_unknown_rate: Optional[bool] = None
+    hide_unknown_location: Optional[bool] = None
 
     @property
     def unified(self) -> bool:
@@ -99,7 +123,7 @@ class Semantics:
 
     @property
     def unknown(self) -> UnknownValues:
-        """Los osoby bez danych dla filtrów lokalizacji i stażu."""
+        """Los osoby bez danych dla filtra stażu (i bazowy dla lokalizacji)."""
         if self.hide_unknown is not None:
             return "exclude" if self.hide_unknown else "include"
         if self.unified:
@@ -107,9 +131,19 @@ class Semantics:
         return "exclude" if self.engine == "list" else "include"
 
     @property
+    def location_unknown(self) -> UnknownValues:
+        """Los osoby bez miasta / kraju — ``unknown`` zawężone przełącznikiem
+        ``hide_unknown_location``."""
+        if self.hide_unknown_location:
+            return "exclude"
+        return self.unknown
+
+    @property
     def rate_unknown(self) -> UnknownValues:
         """Los osoby bez (porównywalnej) stawki. Wyszukiwarka zostawiała ją od
         zawsze; lista v1 wycina — na tym stoją dzisiejsze alerty."""
+        if self.hide_unknown_rate:
+            return "exclude"
         if self.hide_unknown is not None:
             return "exclude" if self.hide_unknown else "include"
         if self.unified or self.engine == "search":
@@ -118,12 +152,19 @@ class Semantics:
 
 
 def semantics_for(
-    engine: Engine, version: Optional[int], hide_unknown: Optional[bool] = None
+    engine: Engine,
+    version: Optional[int],
+    hide_unknown: Optional[bool] = None,
+    *,
+    hide_unknown_rate: Optional[bool] = None,
+    hide_unknown_location: Optional[bool] = None,
 ) -> Semantics:
     return Semantics(
         version=SEMANTICS_UNIFIED if (version or 1) >= 2 else SEMANTICS_LEGACY,
         engine=engine,
         hide_unknown=hide_unknown,
+        hide_unknown_rate=hide_unknown_rate,
+        hide_unknown_location=hide_unknown_location,
     )
 
 
@@ -170,7 +211,7 @@ def _json_token_match(blob: ColumnElement, needles: Sequence[str]) -> ColumnElem
     return or_(*conditions)
 
 
-def skill_match(skill: str) -> ColumnElement:
+def skill_match(skill: str, sem: Optional[Semantics] = None) -> ColumnElement:
     """Kandydat MA umiejętność — cały token, oba kodowania, rodzina aliasów.
 
     Zmierzone na produkcji 28.07.2026: goły ``%Go%`` przy „nie ma Go" wycinał
@@ -190,7 +231,21 @@ def skill_match(skill: str) -> ColumnElement:
     from app.services.scoring_service import skill_name_variants
 
     needles = [w for w in skill_name_variants([skill]) if w] or [skill.lower()]
-    return _json_token_match(func.lower(skills_text()), needles)
+    match = _json_token_match(func.lower(skills_text()), needles)
+    if sem is None or not sem.unified:
+        # v1 (i wołający bez semantyki): DOKŁADNIE dotychczasowy zbiór kolumn.
+        return match
+    # v2 — runda 12 (SEARCH): także umiejętności potwierdzone w screeningu
+    # (profil pokazuje je z ✓ w „Umiejętnościach”, a runda 11 dołożyła je do
+    # słów kluczowych). Cała nazwa bez wielkości liter — ten sam test „całego
+    # tokenu” co zrzut JSON; poziomy basic/none się nie liczą.
+    rows = screening_skill_rows()
+    screening = Candidate.id.in_(
+        select(rows.c.candidate_id).where(
+            func.lower(func.btrim(rows.c.skill)).in_(needles)
+        )
+    )
+    return or_(match, screening)
 
 
 def split_pipe_group(value: str) -> list[str]:
@@ -460,25 +515,31 @@ def skill_buckets_from_search(req: Any) -> SkillBuckets:
     return _normalize_buckets(required, groups, preferred, excluded)
 
 
-def skills_required_clauses(buckets: SkillBuckets) -> list[ColumnElement]:
+def skills_required_clauses(
+    buckets: SkillBuckets, sem: Optional[Semantics] = None
+) -> list[ColumnElement]:
     """„Musi mieć": każda umiejętność + z każdej grupy co najmniej jedna."""
-    clauses: list[ColumnElement] = [skill_match(s) for s in buckets.required]
+    clauses: list[ColumnElement] = [skill_match(s, sem) for s in buckets.required]
     for group in buckets.required_any_groups:
-        clauses.append(or_(*[skill_match(s) for s in group]))
+        clauses.append(or_(*[skill_match(s, sem) for s in group]))
     return clauses
 
 
-def skills_excluded_clauses(buckets: SkillBuckets) -> list[ColumnElement]:
+def skills_excluded_clauses(
+    buckets: SkillBuckets, sem: Optional[Semantics] = None
+) -> list[ColumnElement]:
     """„Wyklucz": żadnej z wymienionych."""
-    return [not_(skill_match(s)) for s in buckets.excluded]
+    return [not_(skill_match(s, sem)) for s in buckets.excluded]
 
 
-def skills_preferred_rank(buckets: SkillBuckets) -> Optional[ColumnElement]:
+def skills_preferred_rank(
+    buckets: SkillBuckets, sem: Optional[Semantics] = None
+) -> Optional[ColumnElement]:
     """ORDER BY: ile pozycji „Mile widziane" kandydat spełnia. Nigdy nie tnie."""
     if not buckets.preferred:
         return None
     points = [
-        case((or_(*[skill_match(s) for s in group]), 1), else_=0)
+        case((or_(*[skill_match(s, sem) for s in group]), 1), else_=0)
         for group in buckets.preferred
     ]
     return reduce(lambda a, b: a + b, points)
@@ -494,6 +555,22 @@ _EMAIL_RE = re.compile(r"^[^@\s]*@[^@\s]*$")
 _PHONE_QUERY_RE = re.compile(r"^\+?[\d\s().\-/]+$")
 _PHONE_QUERY_MIN_DIGITS = 6
 _NAME_TOKEN_RE = re.compile(r"^[^\W\d_]+(?:[-'’][^\W\d_]+)*$", re.UNICODE)
+# Jedno słowo z literami I cyframi („UIAZ20260926”, nazwisko z importu z numerem
+# albo znacznik) — nie wygląda na imię, ale bywa CAŁYM nazwiskiem w bazie.
+# Runda 10 (F06): takie słowo szło od razu po znaczeniu (199 osób), choć
+# dosłownie był dokładnie jeden kandydat. Teraz o trybie rozstrzyga baza,
+# tak jak przy zwykłym pojedynczym słowie.
+_ALNUM_TOKEN_RE = re.compile(r"^[^\W_]+(?:[-'’][^\W_]+)*$", re.UNICODE)
+
+
+def _alnum_name_candidate(token: str) -> bool:
+    return (
+        bool(_ALNUM_TOKEN_RE.match(token))
+        and any(ch.isalpha() for ch in token)
+        and any(ch.isdigit() for ch in token)
+    )
+
+
 _MAX_NAME_TOKENS = 3
 
 # Słowa, które wyglądają jak imię/nazwisko (same litery), a opisują rolę,
@@ -615,8 +692,9 @@ def detect_text_mode(q: Optional[str]) -> TextInterpretation:
     osoba" zabiera wyszukiwaniu semantykę, fałszywe „to opis" kosztuje najwyżej
     gorszą kolejność. Osoba = 1–3 wyrazy z samych liter (myślnik/apostrof
     dozwolony), z których żaden nie jest znaną umiejętnością, miastem ani
-    słowem roli. POJEDYNCZE słowo dostaje tu regułę ``single_word_unchecked`` —
-    o tym, czy to naprawdę czyjeś imię/nazwisko, rozstrzyga ``interpret_text``.
+    słowem roli. POJEDYNCZE słowo (także z cyframi, np. „UIAZ20260926”)
+    dostaje tu regułę ``single_word_unchecked`` — o tym, czy to naprawdę
+    czyjeś imię/nazwisko, rozstrzyga ``interpret_text``.
     """
     raw = (q or "").strip()
     if not raw:
@@ -643,7 +721,10 @@ def detect_text_mode(q: Optional[str]) -> TextInterpretation:
         and not skills
         and not locations
         and not role_words
-        and all(_NAME_TOKEN_RE.match(t) for t in tokens)
+        and (
+            all(_NAME_TOKEN_RE.match(t) for t in tokens)
+            or (len(tokens) == 1 and _alnum_name_candidate(tokens[0]))
+        )
     )
     if looks_like_name:
         return TextInterpretation(
@@ -757,6 +838,234 @@ async def interpret_text(db: Any, q: Optional[str]) -> TextInterpretation:
     )
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Nazwisko: najpierw dokładnie, podobne tylko, gdy nikogo takiego nie ma
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Zgłoszenie 09.2026: „Składanowski” w górnym polu listy dawało też
+# Stefanowskiego, Baranowskiego, Bazanowskiego i SKŁADOWSKIEGO — gałąź
+# literówek (trigramy, próg 0,2) jest przy jednym słowie tak luźna, że łapie
+# każde „-anowski”. Decyzja Artura: „tylko dokładne”. W v2 z ``text_mode=auto``
+# tekst wyglądający na osobę idzie więc BEZ gałęzi literówek, jeśli w bazie
+# jest ktoś o dokładnie takim imieniu/nazwisku; podobne pokazujemy wyłącznie
+# wtedy, gdy nikogo takiego nie ma — i odpowiedź to mówi (``text_match``).
+# v1 i żądania bez ``text_mode`` (alerty zapisanych wyszukiwań) — bez zmian.
+
+PersonTextMatch = Literal["exact", "similar"]
+
+# Końcówki, po których jedno nieznane słowo traktujemy jako nazwisko (a nie
+# opis w rodzaju „księgowa”) i szukamy podobnych nazwisk zamiast znaczenia.
+_SURNAME_SUFFIXES = (
+    "ski",
+    "ska",
+    "cki",
+    "cka",
+    "dzki",
+    "dzka",
+    "wicz",
+    "czyk",
+    "czuk",
+    "czak",
+)
+# Przymiotniki na „-ski/-cki”, które są opisem (języki, regiony, miasta), nie
+# nazwiskiem — bez trafienia dokładnego idą po znaczeniu, nie jako „podobne”.
+_NOT_SURNAME_STEMS = frozenset(
+    """
+    angielsk niemieck francusk polsk rosyjsk hiszpansk wlosk ukrainsk czesk
+    slowack szwedzk dunsk norwesk finsk japonsk chinsk koreansk portugalsk
+    holendersk wegiersk rumunsk bulgarsk chorwack serbsk litewsk lotewsk
+    estonsk greck tureck arabsk hebrajsk europejsk miejsk wiejsk morsk
+    warszawsk slask dolnoslask gornoslask mazowieck pomorsk zachodniopomorsk
+    malopolsk wielkopolsk podlask lubelsk lodzk krakowsk gdansk gdynsk sopock
+    poznansk wroclawsk katowick szczecinsk bydgosk torunsk rzeszowsk kieleck
+    opolsk olsztynsk bialostock czestochowsk radomsk zielonogorsk
+    swietokrzysk podkarpack kujawsk lubusk warminsk mazursk kaszubsk
+    """.split()
+)
+
+
+def looks_like_surname(token: str) -> bool:
+    """Jedno słowo z typową końcówką polskiego nazwiska (bez języków)."""
+    from app.services.advanced_candidate_search import fold_polish
+
+    folded = fold_polish(token.strip()).lower()
+    if len(folded) < 5 or not _NAME_TOKEN_RE.match(token.strip()):
+        return False
+    if not folded.endswith(_SURNAME_SUFFIXES):
+        return False
+    return folded[:-1] not in _NOT_SURNAME_STEMS
+
+
+def _fold_person_col(col: Any) -> ColumnElement:
+    from app.services.advanced_candidate_search import (
+        _POLISH_FOLD_DST,
+        _POLISH_FOLD_SRC,
+    )
+
+    return func.lower(
+        func.translate(func.coalesce(col, ""), _POLISH_FOLD_SRC, _POLISH_FOLD_DST)
+    )
+
+
+def _folded_name_tokens(tokens: Sequence[str]) -> list[str]:
+    """Wyrazy zapytania bez polskich znaków, małymi literami, myślnik = odstęp."""
+    from app.services.advanced_candidate_search import fold_polish
+
+    out: list[str] = []
+    for token in tokens:
+        out.extend(
+            part for part in re.split(r"[\s\-]+", fold_polish(token).lower()) if part
+        )
+    return out
+
+
+def exact_person_clause(tokens: Sequence[str]) -> Optional[ColumnElement]:
+    """Kandydat, którego imię i nazwisko DOKŁADNIE odpowiada wpisanym wyrazom.
+
+    * jedno słowo: imię, nazwisko albo jeden człon nazwiska dwuczłonowego
+      (ta sama reguła co ``person_token_exists``),
+    * 2–3 słowa: każde jest osobnym wyrazem imienia lub nazwiska, w dowolnej
+      kolejności („Kowalski Jan” = „Jan Kowalski”).
+    """
+    from app.services.advanced_candidate_search import fold_polish
+
+    cleaned = [t.strip() for t in tokens if t and t.strip()]
+    if not cleaned:
+        return None
+    if len(cleaned) == 1:
+        folded = fold_polish(cleaned[0]).lower()
+        return or_(
+            _fold_person_col(Candidate.name) == folded,
+            _fold_person_col(Candidate.lastname) == folded,
+            literal(folded)
+            == func.any(
+                func.string_to_array(_fold_person_col(Candidate.lastname), "-")
+            ),
+        )
+    words = _folded_name_tokens(cleaned)
+    person_words = func.string_to_array(
+        func.regexp_replace(
+            func.btrim(
+                _fold_person_col(Candidate.name)
+                + " "
+                + _fold_person_col(Candidate.lastname)
+            ),
+            r"[[:space:]-]+",
+            " ",
+            "g",
+        ),
+        " ",
+    )
+    return person_words.op("@>")(literal(words, type_=ARRAY(Text)))
+
+
+def _exact_person_prefilter(tokens: Sequence[str]) -> list[ColumnElement]:
+    """``search_doc_unaccented ILIKE '%słowo%'`` dla każdego wyrazu.
+
+    Ten warunek zawęża wiersze indeksem trigramowym
+    ``ix_candidates_search_doc_unaccent_trgm`` (migracja 0159) — równość imienia
+    i nazwiska sprawdzamy już tylko na nich, bez skanu całej tabeli.
+    """
+    from app.services.advanced_candidate_search import (
+        _SEARCH_DOC_UNACCENT,
+        _escape_like,
+    )
+
+    return [
+        _SEARCH_DOC_UNACCENT.ilike(f"%{_escape_like(word)}%", escape="\\")
+        for word in _folded_name_tokens(tokens)
+    ]
+
+
+def exact_person_filter(tokens: Sequence[str]) -> Optional[ColumnElement]:
+    """WYŁĄCZNIE osoby o dokładnie takim imieniu/nazwisku (decyzja 29.09.2026).
+
+    ``candidates.id IN (SELECT id … WHERE <trigram ILIKE po słowach> AND
+    <równość imienia/nazwiska>)`` — samodzielny warunek, nigdy w ``OR``
+    z innymi gałęziami: ``OR`` na najwyższym poziomie z ``IN (UNION …)``
+    wyłącza semi-join i daje skan całej tabeli (patrz ``_phrase_match``).
+    Bez frazy w e-mailu, firmie, CV i notatkach — „Nowak” nie daje
+    „Nowakowskiego”.
+    """
+    clause = exact_person_clause(tokens)
+    if clause is None:
+        return None
+    subquery = (
+        select(Candidate.id)
+        .where(*_exact_person_prefilter(tokens), clause)
+        .correlate(None)
+    )
+    return Candidate.id.in_(subquery)
+
+
+_person_name_cache: dict[str, tuple[float, bool]] = {}
+
+
+async def person_name_exists(db: Any, tokens: Sequence[str]) -> bool:
+    """Czy w bazie jest osoba o dokładnie takim imieniu/nazwisku (1–3 wyrazy).
+
+    Jedno słowo = ``person_token_exists``. Kilka słów: jedno zapytanie
+    ``LIMIT 1`` zawężone indeksem trigramowym ``search_doc_unaccented`` po
+    każdym wyrazie, a dokładność sprawdza ``exact_person_clause``.
+    """
+    import time
+
+    cleaned = [t.strip() for t in tokens if t and t.strip()]
+    if not cleaned:
+        return False
+    if len(cleaned) == 1:
+        return await person_token_exists(db, cleaned[0])
+    words = _folded_name_tokens(cleaned)
+    key = " ".join(words)
+    now = time.monotonic()
+    cached = _person_name_cache.get(key)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+    clause = exact_person_clause(cleaned)
+    stmt = (
+        select(Candidate.id).where(*_exact_person_prefilter(cleaned), clause).limit(1)
+    )
+    exists = (await db.execute(stmt)).first() is not None
+    if len(_person_name_cache) >= _PERSON_TOKEN_CACHE_MAX:
+        _person_name_cache.clear()
+    _person_name_cache[key] = (now + _PERSON_TOKEN_TTL_SECONDS, exists)
+    return exists
+
+
+def person_text_applies(sem: "Semantics", requested: Optional[str]) -> bool:
+    """Reguła „najpierw dokładnie” działa WYŁĄCZNIE w v2 z ``text_mode=auto``."""
+    return bool(sem.unified) and requested == "auto"
+
+
+async def person_text_match(
+    db: Any, q: Optional[str], sem: "Semantics", requested: Optional[str]
+) -> Optional[PersonTextMatch]:
+    """``exact`` / ``similar`` albo ``None`` (bez zmian w dopasowaniu).
+
+    * ``exact`` — tekst wygląda na osobę i jest ktoś o dokładnie takim imieniu
+      /nazwisku: dopasowanie dosłowne BEZ gałęzi literówek,
+    * ``similar`` — tekst wygląda na osobę, a takiej osoby nie ma: gałąź
+      literówek zostaje (podobne nazwiska) i odpowiedź to mówi. Jedno słowo
+      tylko przy końcówce nazwiska — reszta („księgowa”) idzie jak dotąd
+      ścieżką semantyczną,
+    * ``None`` — v1, brak ``text_mode=auto`` albo tekst nie wygląda na osobę.
+    """
+    if not person_text_applies(sem, requested):
+        return None
+    stripped = (q or "").strip()
+    if not stripped:
+        return None
+    found = detect_text_mode(stripped)
+    if found.kind != "name" or not found.name_tokens:
+        return None
+    tokens = found.name_tokens
+    if await person_name_exists(db, tokens):
+        return "exact"
+    if len(tokens) > 1:
+        return "similar"
+    return "similar" if looks_like_surname(tokens[0]) else None
+
+
 def text_mode_to_apply(
     sem: Semantics, requested: Optional[str], interpretation: TextInterpretation
 ) -> Optional[Literal["literal", "semantic"]]:
@@ -779,23 +1088,50 @@ def text_mode_to_apply(
 
 
 def literal_text_threshold(q: str) -> Optional[float]:
-    """Próg trigramowy gałęzi literówek albo ``None``, gdy jej nie ma."""
+    """Próg trigramowy gałęzi literówek albo ``None``, gdy jej nie ma.
+
+    Adres e-mail nie ma literówek (20.10.2026): przy progu 0,2 trygramy domeny
+    wystarczały, by ``borysiewicz@onet.pl`` dawał 476 osób z ``@onet.pl``,
+    a właściwa ginęła pod nimi. Adres trafia podłańcuch w polach, CV i notatkach.
+    """
     stripped = (q or "").strip()
-    if len(stripped) < 3:
+    if len(stripped) < 3 or detect_text_mode(stripped).kind == "email":
         return None
     return 0.5 if " " in stripped else 0.2
 
 
-def literal_text_clause(q: str) -> Optional[ColumnElement]:
+def literal_text_clause(
+    q: str,
+    *,
+    person_match: Optional[PersonTextMatch] = None,
+    short_whole_word: bool = False,
+) -> Optional[ColumnElement]:
     """Dopasowanie DOSŁOWNE — to samo w L i w S.
+
+    ``person_match="exact"`` (v2 + auto, osoba istnieje) = sam
+    ``exact_person_filter``: wyłącznie dokładne imię/nazwisko.
 
     Fraza w dowolnym przeszukiwanym polu (``single_phrase_filter``: FTS-prefiks
     albo podłańcuch, wariant bez polskich znaków, notatki) + literówki
     w imieniu/nazwisku/e-mailu (gdy ≥3 znaki) + numer telefonu niezależny od
     zapisu. Wołający MUSI wcześniej ustawić próg trigramowy
     (``prepare_literal_text``). ``None`` = fraza za krótka, by filtrować.
+
+    ``short_whole_word`` (v2, 07.10.2026): tekst ≤ 2 znaki szuka całego słowa
+    przez indeks (``short_literal_match``) zamiast podłańcucha bez indeksu.
+    v1 (alerty zapisanych wyszukiwań) zostaje przy podłańcuchu.
     """
     stripped = (q or "").strip()
+    if short_whole_word and person_match != "exact":
+        short = short_literal_match(stripped)
+        if short is not None:
+            return short
+    if person_match == "exact":
+        # Jest ktoś o dokładnie takim imieniu/nazwisku: pokazujemy WYŁĄCZNIE
+        # takie osoby (decyzja 29.09.2026) — bez literówek („Składanowski” nie
+        # daje Baranowskiego), bez prefiksu („Nowak” nie daje Nowakowskiego)
+        # i bez trafień w e-mailu, firmie czy notatkach.
+        return exact_person_filter(detect_text_mode(stripped).name_tokens)
     phrase = single_phrase_filter(
         stripped, fuzzy=literal_text_threshold(stripped) is not None
     )
@@ -805,13 +1141,41 @@ def literal_text_clause(q: str) -> Optional[ColumnElement]:
     return phrase if phrase is not None else phone
 
 
-async def prepare_literal_text(db: Any, q: str) -> Optional[ColumnElement]:
-    """Ustawia ``pg_trgm.similarity_threshold`` (SET LOCAL) i zwraca klauzulę."""
+LITERAL_TEXT_TOO_SHORT_MSG = "Wpisz co najmniej 2 znaki."
+
+
+class LiteralTextTooShort(ValueError):
+    """Niepusty tekst dosłowny, który nie daje żadnego warunku (1 znak)."""
+
+
+async def prepare_literal_text(
+    db: Any,
+    q: str,
+    *,
+    person_match: Optional[PersonTextMatch] = None,
+    short_whole_word: bool = False,
+) -> Optional[ColumnElement]:
+    """Ustawia ``pg_trgm.similarity_threshold`` (SET LOCAL) i zwraca klauzulę.
+
+    Niepusty tekst, z którego nie powstaje warunek (np. jedna litera), to
+    ``LiteralTextTooShort`` — wołający odpowiada 422. Do rundy 2 audytu
+    (25.09.2026) ``None`` znaczyło „brak warunku”, więc `q="a"` w trybie
+    dosłownym zwracało CAŁĄ bazę. Pusty tekst nadal daje ``None``.
+    """
+    clause = literal_text_clause(
+        q, person_match=person_match, short_whole_word=short_whole_word
+    )
+    if clause is None:
+        if (q or "").strip():
+            raise LiteralTextTooShort(LITERAL_TEXT_TOO_SHORT_MSG)
+        return None
+    if person_match == "exact":
+        return clause
     threshold = literal_text_threshold(q)
     if threshold is not None:
         # Wartość jest jedną z dwóch stałych powyżej — nie pochodzi z wejścia.
         await db.execute(text(f"SET LOCAL pg_trgm.similarity_threshold = {threshold}"))
-    return literal_text_clause(q)
+    return clause
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -848,6 +1212,8 @@ class QGroups:
             [list(g) for g in self.extra_any_groups],
             whole_words=unified,
             scope=(scope or "all") if unified else "all",
+            # v2: jednoliterowe słowo to 422 ze zdaniem (przegląd PR #2056).
+            reject_short=unified,
         )
 
     def as_lists(self) -> Optional[list[list[str]]]:
@@ -1054,18 +1420,26 @@ def hourly_rate_clause(
     """
     if rate_min is None and rate_max is None:
         return None
+    # „Stawka od” (0414): najniższa stawka z 18 miesięcy, a przed
+    # przeliczeniem kandydata — stawka profilu (jedno źródło w `candidate_rate_from`).
+    from app.services.candidate_rate_from import (
+        effective_currency_sql,
+        effective_rate_sql,
+    )
+
+    rate = effective_rate_sql(Candidate)
     bounds: list[ColumnElement] = []
     if rate_min is not None:
-        bounds.append(Candidate.expected_rate_hourly >= rate_min)
+        bounds.append(rate >= rate_min)
     if rate_max is not None:
-        bounds.append(Candidate.expected_rate_hourly <= rate_max)
+        bounds.append(rate <= rate_max)
     comparable = canonical_profile_rate_currency_clause(
-        Candidate.expected_rate_currency
+        effective_currency_sql(Candidate)
     )
     known_and_matching = comparable & and_(*bounds)
     if sem.rate_unknown == "exclude":
         return known_and_matching
-    return Candidate.expected_rate_hourly.is_(None) | ~comparable | known_and_matching
+    return rate.is_(None) | ~comparable | known_and_matching
 
 
 def _experience_interval() -> tuple[ColumnElement, ColumnElement]:
@@ -1209,7 +1583,7 @@ def location_clauses(
 ) -> list[ColumnElement]:
     """Miasto (którekolwiek z podanych) i kraj (kod ISO, którykolwiek).
 
-    ``sem.unknown``: los kandydata BEZ lokalizacji / kraju. Znana-i-niepasująca
+    ``sem.location_unknown``: los kandydata BEZ lokalizacji / kraju. Znana-i-niepasująca
     odpada zawsze. v1 listy zostaje przy dotychczasowym ``location ILIKE
     '%fraza%'`` — sama kolumna ``location``, bez foldu polskich znaków i bez
     escapowania (``%``/``_`` działają tam jak wieloznaczniki; poprawka jest w v2).
@@ -1230,13 +1604,13 @@ def location_clauses(
                 for c in wanted_cities
             ]
         )
-        if sem.unknown == "include":
+        if sem.location_unknown == "include":
             clauses.append(or_(Candidate.location.is_(None), matched))
         else:
             clauses.append(matched)
     elif wanted_cities:
         matched = or_(*city_match_clauses(wanted_cities))
-        if sem.unknown == "include":
+        if sem.location_unknown == "include":
             nowhere = and_(Candidate.city.is_(None), Candidate.location.is_(None))
             clauses.append(or_(nowhere, matched))
         else:
@@ -1247,7 +1621,7 @@ def location_clauses(
             in_country = Candidate.country.in_(wanted)
         else:
             in_country = func.upper(Candidate.country).in_(wanted)
-        if sem.unknown == "include":
+        if sem.location_unknown == "include":
             clauses.append(or_(Candidate.country.is_(None), in_country))
         else:
             clauses.append(in_country)
@@ -1311,14 +1685,19 @@ def unknown_count_rank(
             )
         )
     if rate_active:
+        from app.services.candidate_rate_from import (
+            effective_currency_sql,
+            effective_rate_sql,
+        )
+
         currency = func.upper(
-            func.trim(func.coalesce(Candidate.expected_rate_currency, ""))
+            func.trim(func.coalesce(effective_currency_sql(Candidate), ""))
         )
         parts.append(
             case(
                 (
                     or_(
-                        Candidate.expected_rate_hourly.is_(None),
+                        effective_rate_sql(Candidate).is_(None),
                         currency.not_in(["", "PLN"]),
                     ),
                     1,
@@ -1363,13 +1742,12 @@ def unknown_fields_for(
         )
         if bucket not in _TRAFFIT_EXPERIENCE_BUCKETS:
             out.append("experience")
-    if rate_active and (
-        getattr(candidate, "expected_rate_hourly", None) is None
-        or not is_canonical_profile_rate_currency(
-            getattr(candidate, "expected_rate_currency", None)
-        )
-    ):
-        out.append("rate")
+    if rate_active:
+        from app.services.candidate_rate_from import effective_rate
+
+        amount, currency = effective_rate(candidate)
+        if amount is None or not is_canonical_profile_rate_currency(currency):
+            out.append("rate")
     return out
 
 
@@ -1394,11 +1772,8 @@ def geo_clause(
     pierwszy człon ``location``) z listą nazw wyliczoną z ``pl_places`` —
     kandydaci nie mają współrzędnych. Kandydat z innym krajem niż PL odpada:
     zagraniczna nazwa bywa równa polskiej wsi. Osoba bez lokalizacji: jak
-    w filtrze miasta (``sem.unknown``).
+    w filtrze miasta (``sem.location_unknown``).
     """
-    from sqlalchemy import Text, any_
-    from sqlalchemy.dialects.postgresql import ARRAY
-
     from app.services import pl_places
 
     key_sets: list[set[str]] = []
@@ -1426,9 +1801,26 @@ def geo_clause(
         return None
     # Promień i województwo naraz = część wspólna (np. „Kraków + 100 km”,
     # ale tylko małopolskie).
-    keys = sorted(set.intersection(*key_sets))
-    arr = literal(keys, type_=ARRAY(Text))
-    matched = and_(
+    matched = _place_keys_match(set.intersection(*key_sets))
+    if sem.location_unknown == "include":
+        nowhere = and_(
+            func.coalesce(Candidate.city, "") == "",
+            func.coalesce(Candidate.location, "") == "",
+        )
+        return or_(nowhere, matched)
+    return matched
+
+
+def _place_keys_match(keys: set[str]) -> ColumnElement:
+    """Miejscowość kandydata (``city`` albo pierwszy człon ``location``) jest
+    na liście kluczy ``pl_places``, a kraj to Polska albo brak kraju."""
+    from sqlalchemy import Text, any_
+    from sqlalchemy.dialects.postgresql import ARRAY
+
+    from app.services import pl_places
+
+    arr = literal(sorted(keys), type_=ARRAY(Text))
+    return and_(
         or_(
             pl_places.place_key_sql(Candidate.city) == any_(arr),
             pl_places.place_key_sql(Candidate.location) == any_(arr),
@@ -1439,18 +1831,195 @@ def geo_clause(
             func.upper(Candidate.country) == "PL",
         ),
     )
-    if sem.unknown == "include":
-        nowhere = and_(
-            func.coalesce(Candidate.city, "") == "",
-            func.coalesce(Candidate.location, "") == "",
+
+
+# ── Kilka miejscowości, każda z własnym promieniem (D6, 19.10.2026) ─────────
+
+MAX_LOCATION_PLACES = 10
+
+
+class InvalidLocationPlaces(ValueError):
+    """Lista ``location_places`` ma zły kształt (za dużo miast, zły promień)."""
+
+
+@dataclass(frozen=True)
+class LocationPlace:
+    """Miasto z okienka „Lokalizacja kandydata” i jego promień (``None`` =
+    samo miasto, dopasowanie tekstu jak w ``location_cities``)."""
+
+    city: str
+    radius_km: Optional[int] = None
+
+
+def parse_location_places(values: Optional[Iterable[str]]) -> list[LocationPlace]:
+    """``["Warszawa:30", "Łódź"]`` → pary miasto–promień.
+
+    Promień to liczba po OSTATNIM dwukropku (nazwy miejscowości dwukropka nie
+    mają); bez niej cała wartość jest miastem. Puste wartości odpadają,
+    powtórzenia (ta sama nazwa bez polskich znaków i ten sam promień) liczą się
+    raz. Więcej niż ``MAX_LOCATION_PLACES`` miast albo promień spoza 1–300 km
+    = ``InvalidLocationPlaces`` (422 z tym zdaniem).
+    """
+    from app.services import pl_places
+
+    out: list[LocationPlace] = []
+    seen: set[tuple[str, Optional[int]]] = set()
+    for raw in values or []:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        city, sep, tail = text.rpartition(":")
+        radius: Optional[int] = None
+        if sep and tail.strip().isdigit() and city.strip():
+            radius = int(tail.strip())
+            if not 1 <= radius <= pl_places.MAX_RADIUS_KM:
+                raise InvalidLocationPlaces(
+                    f"Promień przy „{city.strip()}” musi mieć od 1 do "
+                    f"{pl_places.MAX_RADIUS_KM} km."
+                )
+            text = city.strip()
+        elif sep and not tail.strip() and city.strip():
+            # „Warszawa:” — pusty promień = samo miasto.
+            text = city.strip()
+        key = (pl_places.place_key(text) or text.lower(), radius)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(LocationPlace(city=text, radius_km=radius))
+    if len(out) > MAX_LOCATION_PLACES:
+        raise InvalidLocationPlaces(
+            f"Lokalizacja przyjmuje najwyżej {MAX_LOCATION_PLACES} miast."
         )
+    return out
+
+
+def location_places_clause(
+    places: Sequence[LocationPlace],
+    voivodeships: Optional[Sequence[str]],
+    sem: Semantics,
+) -> Optional[ColumnElement]:
+    """Nowy kształt lokalizacji — SUMA: miasto kandydata pasuje do
+    któregokolwiek miasta bez promienia (``city_match_clauses``), leży
+    w promieniu któregokolwiek środka albo w którymkolwiek z województw.
+
+    Dotychczasowy kształt (jedno ``location`` + ``voivodeship``) łączy miasto
+    i województwo koniunkcją (``location_clauses`` i ``geo_clause`` to dwa
+    osobne warunki) — tamten zostaje bez zmian dla starych adresów i alertów.
+    Osoba bez miasta: ``sem.location_unknown``. Nowe pole, więc bez wariantu
+    v1 — w v1 osoba bez miasta odpada jak w filtrze miasta listy.
+    """
+    from app.services import pl_places
+
+    text_cities = [p.city for p in places if not p.radius_km]
+    keys: set[str] = set()
+    for place in places:
+        if not place.radius_km:
+            continue
+        center = pl_places.resolve(place.city)
+        if center is None:
+            raise UnknownPlace(
+                f"Nie znam miejscowości „{place.city}” — wybierz ją "
+                "z podpowiedzi albo usuń promień."
+            )
+        keys |= set(
+            pl_places.keys_within(center, min(place.radius_km, pl_places.MAX_RADIUS_KM))
+        )
+    wanted_voivodeships = [
+        v.strip().lower() for v in (voivodeships or []) if v and v.strip()
+    ]
+    unknown_voivodeships = sorted(
+        set(wanted_voivodeships) - set(pl_places.VOIVODESHIPS)
+    )
+    if unknown_voivodeships:
+        raise UnknownPlace(f"Nie znam województwa: {', '.join(unknown_voivodeships)}.")
+    if wanted_voivodeships:
+        keys |= set(pl_places.keys_in_voivodeships(wanted_voivodeships))
+    parts: list[ColumnElement] = list(city_match_clauses(text_cities))
+    if keys:
+        parts.append(_place_keys_match(keys))
+    if not parts:
+        return None
+    matched = or_(*parts)
+    if sem.location_unknown == "include":
+        nowhere = and_(Candidate.city.is_(None), Candidate.location.is_(None))
         return or_(nowhere, matched)
     return matched
+
+
+def place_distance(
+    candidate: Any, places: Sequence[LocationPlace]
+) -> Optional[dict[str, Any]]:
+    """„Pruszków · 16 km od Warszawy” dla wiersza listy: najbliższy środek
+    promienia, w którego zasięgu leży miejscowość kandydata. ``None``, gdy
+    miejscowości nie ma w spisie, kandydat mieszka w samym środku albo poza
+    każdym promieniem (przeszedł przez miasto bez promienia / województwo).
+    Liczone w Pythonie dla wierszy jednej strony — bez zapytań."""
+    from app.services import pl_places
+
+    centers = [(p, pl_places.resolve(p.city)) for p in places if p.radius_km]
+    if not centers:
+        return None
+    own = None
+    for value in (
+        getattr(candidate, "city", None),
+        getattr(candidate, "location", None),
+    ):
+        own = pl_places.resolve(value)
+        if own is not None:
+            break
+    if own is None:
+        return None
+    best: Optional[tuple[float, Any]] = None
+    for place, center in centers:
+        if center is None:
+            continue
+        if center.id == own.id:
+            return None
+        km = pl_places.distance_km(center, own)
+        if km <= (place.radius_km or 0) and (best is None or km < best[0]):
+            best = (km, center)
+    if best is None:
+        return None
+    return {"place": own.name, "km": int(round(best[0])), "center": best[1].name}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Kontakt z kandydatem (lista) — notatki, rozmowy, maile z Traffita
 # ═══════════════════════════════════════════════════════════════════════════
+
+
+# Filtry dat listy („kontakt w okresie”, „przesunięty na etap”, „wysłany do
+# klienta”) przyjmują daty z tego zakresu — dalej 422. `9999-12-31 + 1 dzień`
+# przepełniało `date` i kończyło żądanie 500 (bez CORS: „Network Error”).
+FILTER_DATE_MIN = date(1900, 1, 1)
+FILTER_DATE_MAX = date(2100, 12, 31)
+
+
+def business_date_range(
+    date_from: Optional[date], date_to: Optional[date]
+) -> tuple[Optional[datetime], Optional[datetime]]:
+    """Półotwarte okno ``[date_from 00:00, date_to + 1 dzień 00:00)``.
+
+    Doba liczy się w kalendarzu firmy (Europe/Warsaw), nie w UTC — jedna reguła
+    dla wszystkich filtrów dat listy (do 25.09.2026 „kontakt” liczył Warszawę,
+    a „etap” i „wysłany do klienta” UTC, więc ruch o 00:30 w nocy wpadał do
+    dnia poprzedniego). Górna granica przy dacie końca kalendarza jest pusta
+    zamiast przepełnienia — walidacja wejścia i tak odrzuca takie daty.
+    """
+    from zoneinfo import ZoneInfo
+
+    from app.core.scheduling import DEFAULT_TZ
+
+    zone = ZoneInfo(DEFAULT_TZ)
+    start = datetime.combine(date_from, time.min, tzinfo=zone) if date_from else None
+    end = None
+    if date_to is not None and date_to < date.max:
+        end = datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=zone)
+    return start, end
+
+
+# Wyniki połączenia, które nie są rozmową z kandydatem.
+_NO_CONTACT_OUTCOMES = ("no_answer", "wrong_number")
 
 
 def contact_clause(
@@ -1459,6 +2028,7 @@ def contact_clause(
     date_from: Optional[Any],
     date_to: Optional[Any],
     by_user_ids: Optional[Sequence[int]],
+    real_contact_only: bool = False,
 ) -> Optional[ColumnElement]:
     """„Kontaktowaliśmy się” (``mode='yes'``) albo „nie kontaktowaliśmy się”
     (``'no'``) w okresie ``[date_from, date_to]`` (daty włącznie, w strefie
@@ -1469,23 +2039,21 @@ def contact_clause(
     (``TraffitImporter.promote_notes``), więc osobna gałąź aktywności byłaby
     duplikatem — i kosztowała 3 s na skanie indeksu aktywności (zmierzone
     22.09.2026). ``NOT EXISTS`` na źródło, nie ``NOT IN`` na sumie zbiorów.
+
+    ``real_contact_only`` (nowa semantyka, 03.10.2026): „nie odbiera”, wpis
+    automatu, uwaga Delivery Leada i sama wzmianka nie są kontaktem
+    (``note_kinds.real_contact_clause``), a połączenie liczy się tylko
+    odebrane (status „completed”, wynik inny niż „nie odebrał” i „zły
+    numer”). v1 — na niej stoją alerty zapisanych
+    wyszukiwań — liczy każdą notatkę jak dotąd.
     """
     if mode not in ("yes", "no"):
         return None
-    from datetime import datetime, time, timedelta
-    from zoneinfo import ZoneInfo
-
-    from app.core.scheduling import DEFAULT_TZ
-    from app.models.call import Call
+    from app.models.call import Call, CallStatus
     from app.models.note import Note
+    from app.services import note_kinds
 
-    zone = ZoneInfo(DEFAULT_TZ)
-    start = datetime.combine(date_from, time.min, tzinfo=zone) if date_from else None
-    end = (
-        datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=zone)
-        if date_to
-        else None
-    )
+    start, end = business_date_range(date_from, date_to)
     users = list(dict.fromkeys(by_user_ids or []))
 
     def window(at_col, user_col) -> list[ColumnElement]:
@@ -1502,14 +2070,33 @@ def contact_clause(
     note_exists = (
         select(Note.id)
         .where(
-            Note.candidate_id == Candidate.id, *window(Note.created_at, Note.author_id)
+            Note.candidate_id == Candidate.id,
+            *window(Note.created_at, Note.author_id),
+            *([note_kinds.real_contact_clause()] if real_contact_only else []),
         )
         .correlate(Candidate)
         .exists()
     )
+    # Połączenie nieodebrane, nieudane albo samo rozpoczęcie to też „nie
+    # odebrał” — tak zapisują je koordynacja kontaktu i lista praktykanta.
+    answered = (
+        [
+            Call.status == CallStatus.completed,
+            or_(
+                Call.contact_outcome.is_(None),
+                Call.contact_outcome.notin_(_NO_CONTACT_OUTCOMES),
+            ),
+        ]
+        if real_contact_only
+        else []
+    )
     call_exists = (
         select(Call.id)
-        .where(Call.candidate_id == Candidate.id, *window(call_at, Call.user_id))
+        .where(
+            Call.candidate_id == Candidate.id,
+            *window(call_at, Call.user_id),
+            *answered,
+        )
         .correlate(Candidate)
         .exists()
     )

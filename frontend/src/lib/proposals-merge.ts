@@ -6,12 +6,14 @@
  *  - wynik dopasowania NIGDY nie jest zmyślany: nieznany = `null`. Kolumna
  *    „Dop." niesie WYŁĄCZNIE kanoniczne dopasowanie (żywy przegląd bazy
  *    i skrzynka propozycji); punktacja „z podobnych projektów"
- *    (`historical_score`) ani `total_score` rekomendacji do niej nie trafiają;
+ *    (`historical_score`), `total_score` rekomendacji ani wynik scrapera
+ *    portalu (`board_score`) do niej nie trafiają;
  *  - osoba już w pipeline'ie znika z listy niezależnie od źródła;
  *  - kolejność jest stabilna (dopasowanie ↓, nowe, nazwisko, id), żeby
  *    odświeżenie w tle nie przetasowywało tabeli pod kursorem.
  */
 
+import { OFFICE_DAYS_WARNING, REMOTE_ONLY_WARNING } from "@/lib/fit-badges";
 import type {
   HistoricalCandidate,
   MatchEligibility,
@@ -21,11 +23,19 @@ import type {
 } from "@/lib/api";
 import type { CandidateSearchRow } from "@/lib/full-candidate-search-api";
 import type {
+  ProposalHistory,
   ProposalInboxItem,
   ProposalReassignFrom,
   ProposalTraineeHandover,
 } from "@/lib/job-proposals-api";
 import { SEARCH_AVAILABILITY_OPTIONS } from "@/lib/search-availability";
+import type { EmploymentMarker } from "@/lib/employment-marker";
+import {
+  contractAvailability,
+  contractAvailabilityText,
+  localIsoDay,
+} from "@/lib/contract-availability";
+import { warsawDateOf } from "@/lib/warsaw-date";
 import {
   PROPOSAL_SOURCE_LABEL,
   type ProposalPersonRow,
@@ -43,6 +53,8 @@ export interface ProposalRequirement {
   status: RequirementStatus;
   /** Potwierdzone w weryfikacji rekrutera (tylko z żywego przeglądu). */
   verified: boolean;
+  /** Technologia ostatnio używana ponad 3 lata temu — „?” z rokiem (27.10.2026). */
+  lastUsedYear?: number;
 }
 
 export interface ProposalSimilarProject {
@@ -63,10 +75,14 @@ export interface ProposalDetail {
   availabilityDate: string | null;
   requirements: ProposalRequirement[];
   eligibility: MatchEligibility | null;
+  /** Znacznik „Pracuje u nas” — tylko gdy osoba ma sygnał zatrudnienia. */
+  employment?: EmploymentMarker;
   rateFit: RateFit | null;
   officeFit: string | null;
   /** Sprzeczny wymiar pracy (plakietka, nie ukrycie) — z żywego przeglądu. */
   workTimeFit?: WorkTimeFit | null;
+  /** „Tylko zdalnie” przy hybrydzie (07.10.2026) — plakietka. */
+  remoteFit?: string | null;
   similarProjects: ProposalSimilarProject[];
   /** Ten sam klient już tę osobę rozważał / odrzucił (z podobnych projektów). */
   sameClient: boolean;
@@ -85,6 +101,16 @@ export interface ProposalDetail {
   reassignFrom: ProposalReassignFrom | null;
   /** Praktykant przekazał osobę po rozmowie (0374). */
   traineeHandover?: ProposalTraineeHandover | null;
+  /** Przyszła z ogłoszenia w ostatnich 7 dniach (liczy serwer) — zakładka „Nowi z ogłoszeń”. */
+  postingRecent?: boolean;
+  postingSeenAt?: string | null;
+  /**
+   * Najlepsze 40 (28.10.2026): skrzynka mówi, że osoba jest spod progu (sam
+   * nocny przegląd). Czytaj przez `isBelowThreshold` — inne źródło osoby to znosi.
+   */
+  belowThreshold?: boolean;
+  /** Nowi w bazie najpierw: data wejścia do bazy osoby z pierwszeństwem na liście. */
+  newInBaseAt?: string | null;
 }
 
 export interface ProposalEntry {
@@ -106,6 +132,13 @@ export interface MergeProposalsInput {
     degraded: boolean;
   } | null;
   pipelineCandidateIds?: Iterable<number>;
+  /**
+   * Osoby pominięte w tej rekrutacji („Pomiń" z dowolnego źródła) — odsiewane
+   * ze WSZYSTKICH źródeł, tak jak osoby już w rekrutacji. Bez tego pominięty
+   * wracał po odświeżeniu z żywego przeglądu, podobnych projektów albo
+   * rekomendacji (runda 10, R10-N7-1).
+   */
+  dismissedCandidateIds?: Iterable<number>;
   budgetHourly?: number | null;
 }
 
@@ -137,12 +170,19 @@ export function formatHourlyRate(value: number | null): string | null {
   return `${Math.round(value)} zł/h`;
 }
 
-/** „Dostępny od razu" = aktywnie szuka bez daty albo data już minęła. */
+/**
+ * „Dostępny od razu" = aktywnie szuka bez daty albo data już minęła.
+ * Osoba z żywą umową (15.10.2026) — dopiero po końcu pracy u nas.
+ */
 export function isAvailableNow(
   status: string | null,
   date: string | null,
   now: Date = new Date(),
+  marker?: EmploymentMarker | null,
 ): boolean {
+  const today = localIsoDay(now);
+  const contract = contractAvailability(marker, date, today);
+  if (contract) return contract.kind === "date" && contract.date <= today;
   if (date) {
     const parsed = new Date(date);
     if (!Number.isNaN(parsed.getTime())) return parsed.getTime() <= now.getTime();
@@ -154,7 +194,10 @@ export function availabilityLabel(
   status: string | null,
   date: string | null,
   now: Date = new Date(),
+  marker?: EmploymentMarker | null,
 ): string | null {
+  const contract = contractAvailability(marker, date, localIsoDay(now));
+  if (contract) return contractAvailabilityText(contract, "short");
   if (date) {
     const parsed = new Date(date);
     if (!Number.isNaN(parsed.getTime())) {
@@ -173,11 +216,15 @@ interface Draft {
   sources: Set<ProposalSource>;
   origins: Set<ProposalOrigin>;
   scores: number[];
+  boardScore: number | null;
   /** Powody w kolejności bogactwa: przegląd → podobny projekt → rekomendacja → inbox. */
   reasons: Partial<Record<ProposalOrigin, string>>;
   isNew: boolean;
   previouslyDismissed: boolean;
   runId: string | null;
+  /** Znani zespołowi (07.10.2026): punkty tylko do kolejności i ich powód. */
+  historyPoints: number;
+  historyReason: string | null;
   detail: ProposalDetail;
 }
 
@@ -195,6 +242,7 @@ function emptyDetail(candidateId: number): ProposalDetail {
     rateFit: null,
     officeFit: null,
     workTimeFit: null,
+    remoteFit: null,
     similarProjects: [],
     sameClient: false,
     rejectedBySameClient: false,
@@ -210,9 +258,33 @@ function emptyDetail(candidateId: number): ProposalDetail {
 /** „Od praktykanta: Ola Kamińska · 24.09". Notatka idzie osobną linią. */
 export function traineeHandoverReason(handover: ProposalTraineeHandover): string {
   const who = handover.by_name?.trim() || "praktykant";
-  const day = handover.at ? handover.at.slice(0, 10).split("-") : null;
+  const day = warsawDateOf(handover.at)?.split("-") ?? null;
   const when = day && day.length === 3 ? ` · ${day[2]}.${day[1]}` : "";
   return `Od praktykanta: ${who}${when}`;
+}
+
+/**
+ * Znani zespołowi (07.10.2026): „Zweryfikowany(a) przy podobnej rekrutacji:
+ * PKO BP · Analityk systemowy · 07.2026” albo, bez podobnej rekrutacji,
+ * „Zweryfikowany(a) 24.09 w innej rekrutacji: Nordea · Business Analyst”.
+ */
+export function historyReason(history: ProposalHistory): string | null {
+  const where = (ref: { client_name: string | null; title: string }) =>
+    [ref.client_name, ref.title].filter(Boolean).join(" · ");
+  const similar = history.similar?.[0];
+  if (similar) {
+    const day = warsawDateOf(similar.at)?.split("-") ?? null;
+    const when = day && day.length === 3 ? ` · ${day[1]}.${day[0]}` : "";
+    const more = history.similar.length > 1 ? ` (+${history.similar.length - 1})` : "";
+    return `Zweryfikowany(a) przy podobnej rekrutacji: ${where(similar)}${when}${more}`;
+  }
+  const recent = history.recent;
+  if (recent) {
+    const day = warsawDateOf(recent.at)?.split("-") ?? null;
+    const when = day && day.length === 3 ? ` ${day[2]}.${day[1]}` : "";
+    return `Zweryfikowany(a)${when} w innej rekrutacji: ${where(recent)}`;
+  }
+  return null;
 }
 
 /** „Wysłany do PKO BP · Senior Java Developer · 26.08.2026". */
@@ -246,7 +318,13 @@ function inboxRequirements(item: ProposalInboxItem): ProposalRequirement[] {
   for (const r of evidence.requirements ?? []) {
     const label = r.name ?? r.any_of?.join(" lub ") ?? r.key;
     if (!label || (r.level !== "must" && r.level !== "nice")) continue;
-    out.push({ label, level: r.level, status: reqStatus(r.status), verified: false });
+    out.push({
+      label,
+      level: r.level,
+      status: reqStatus(r.status),
+      verified: false,
+      ...(typeof r.last_used_year === "number" ? { lastUsedYear: r.last_used_year } : {}),
+    });
   }
   if (out.length > 0) return out;
   // Starszy kształt dowodu: same listy nazw, bez statusów per wymaganie.
@@ -260,7 +338,11 @@ function inboxRequirements(item: ProposalInboxItem): ProposalRequirement[] {
 }
 
 export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
-  const inPipeline = new Set<number>(input.pipelineCandidateIds ?? []);
+  // Osoby w rekrutacji ORAZ pominięte — żadne źródło ich nie proponuje.
+  const inPipeline = new Set<number>([
+    ...(input.pipelineCandidateIds ?? []),
+    ...(input.dismissedCandidateIds ?? []),
+  ]);
   const drafts = new Map<number, Draft>();
   const draft = (id: number, name?: string | null, lastname?: string | null): Draft => {
     let d = drafts.get(id);
@@ -272,10 +354,13 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
         sources: new Set(),
         origins: new Set(),
         scores: [],
+        boardScore: null,
         reasons: {},
         isNew: false,
         previouslyDismissed: false,
         runId: null,
+        historyPoints: 0,
+        historyReason: null,
         detail: emptyDetail(id),
       };
       drafts.set(id, d);
@@ -296,6 +381,7 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     d.origins.add("inbox");
     for (const s of item.sources) if (KNOWN_SOURCES.has(s)) d.sources.add(s as ProposalSource);
     addScore(d, item.score);
+    d.boardScore ??= normalizeFitScore(item.board_score);
     d.isNew ||= item.is_new;
     d.previouslyDismissed ||= item.evidence?.previously_dismissed === true;
     d.detail.title ??= c.title;
@@ -305,7 +391,12 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     d.detail.availabilityStatus ??= c.availability_status;
     d.detail.availabilityDate ??= c.availability_date;
     d.detail.eligibility ??= item.eligibility;
+    if (item.employment_marker) d.detail.employment ??= item.employment_marker;
     d.detail.firstSeenAt ??= item.first_seen_at;
+    if (item.posting_recent === true) d.detail.postingRecent = true;
+    if (item.below_threshold === true) d.detail.belowThreshold = true;
+    d.detail.newInBaseAt ??= item.new_in_base_at ?? null;
+    d.detail.postingSeenAt ??= item.posting_seen_at ?? null;
     // Przegląd, który tę osobę zaproponował — telemetria dodania (żywy
     // przegląd użytkownika, jeśli jest, nadpisze go niżej).
     d.runId ??= item.run_id ?? null;
@@ -320,6 +411,11 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     if (item.reassign_from) {
       d.detail.reassignFrom ??= item.reassign_from;
       d.reasons.inbox = reassignReason(item.reassign_from);
+    }
+    if (item.history) {
+      const points = Number(item.history.points);
+      if (Number.isFinite(points) && points > d.historyPoints) d.historyPoints = points;
+      d.historyReason ??= historyReason(item.history);
     }
   }
 
@@ -340,9 +436,11 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
       if (rate != null && pln) d.detail.rateHourly ??= rate;
       // Żywy przegląd jest świeższy niż zapis w skrzynce — nadpisuje plakietkę.
       if (row.eligibility) d.detail.eligibility = row.eligibility;
+      if (row.employment_marker) d.detail.employment = row.employment_marker;
       d.detail.rateFit = row.match?.rate_fit ?? d.detail.rateFit;
       d.detail.officeFit = row.match?.office_fit ?? d.detail.officeFit;
       d.detail.workTimeFit = row.match?.work_time_fit ?? d.detail.workTimeFit;
+      d.detail.remoteFit = row.match?.remote_fit ?? d.detail.remoteFit;
       const summary = row.match?.candidate.ai_summary?.trim();
       if (summary) d.detail.aiSummary = summary;
       d.detail.missingMustGate = (row.match?.missing_must ?? []).filter(Boolean);
@@ -353,6 +451,7 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
           level: r.level as "must" | "nice",
           status: r.status,
           verified: r.evidence_basis === "reviewed" || Boolean(r.verified_at),
+          ...(typeof r.last_used_year === "number" ? { lastUsedYear: r.last_used_year } : {}),
         }));
       if (reqs.length > 0) d.detail.requirements = reqs;
       const reason = reasonFromRequirements(reqs);
@@ -417,6 +516,12 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     if (detail.workTimeFit === "part_time_only" || detail.workTimeFit === "full_time_only") {
       warnings.push(detail.workTimeFit);
     }
+    // Inne miasto przy hybrydzie 1–3 dni nie ukrywa (27.09.2026) — plakietka.
+    if (detail.officeFit === "city_mismatch") warnings.push("city_mismatch");
+    // 30.09.2026: dni w biurze już nie ukrywają — plakietka „mniej dni w biurze”.
+    if (detail.officeFit === "days_exceeded") warnings.push(OFFICE_DAYS_WARNING);
+    if (detail.remoteFit === REMOTE_ONLY_WARNING) warnings.push(REMOTE_ONLY_WARNING);
+    if (detail.traineeHandover?.employment_only) warnings.push("employment_only");
     const handoverNote = detail.traineeHandover?.note?.trim() || null;
     entries.push({
       row: {
@@ -425,7 +530,12 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
         candidateId: d.candidateId,
         fullName: proposalFullName(d.name, d.lastname, d.candidateId),
         rateLabel: formatHourlyRate(detail.rateHourly),
-        availabilityLabel: availabilityLabel(detail.availabilityStatus, detail.availabilityDate),
+        availabilityLabel: availabilityLabel(
+          detail.availabilityStatus,
+          detail.availabilityDate,
+          undefined,
+          detail.employment,
+        ),
         fitScore: d.scores.length ? Math.max(...d.scores) : null,
         warnings,
         sources: SOURCE_ORDER.filter((s) => d.sources.has(s)),
@@ -434,11 +544,19 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
         reason:
           detail.reassignFrom || detail.traineeHandover
             ? (d.reasons.inbox ?? null)
-            : (d.reasons.run ?? d.reasons.similar ?? d.reasons.recommendation ?? d.reasons.inbox ?? null),
+            : (d.historyReason ??
+              d.reasons.run ??
+              d.reasons.similar ??
+              d.reasons.recommendation ??
+              d.reasons.inbox ??
+              null),
         isNew: d.isNew,
         previouslyDismissed: d.previouslyDismissed,
         runId: d.runId,
+        ...(detail.employment ? { employment: detail.employment } : {}),
         ...(handoverNote ? { handoverNote } : {}),
+        ...(d.historyPoints > 0 ? { historyPoints: d.historyPoints } : {}),
+        ...(d.boardScore !== null ? { boardScore: d.boardScore } : {}),
       },
       detail,
     });
@@ -448,10 +566,18 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
 
 /** Etykiety plakietki sprzecznego wymiaru pracy (tylko przypadki ostrzegawcze,
  *  decyzja 24.09.2026: plakietka, nie ukrycie). Klucz = kod ostrzeżenia wiersza. */
+/** Plakietka innego miasta przy hybrydzie (decyzja 27.09.2026: ostrzeżenie,
+ *  ukrycie dopiero od 4 dni w biurze). */
+export const CITY_MISMATCH_WARNING_PL = "Inne miasto — dojazd lub relokacja?";
+
 export const WORK_TIME_FIT_WARNING_PL: Partial<Record<WorkTimeFit, string>> = {
   part_time_only: "Szuka części etatu",
   full_time_only: "Tylko pełny etat",
 };
+
+/** Plakietka przekazania od praktykanta: osoba chce wyłącznie umowy o pracę
+ *  (decyzja 25.09.2026 — przekazanie przechodzi, rekruter ma to widzieć). */
+export const EMPLOYMENT_ONLY_WARNING_PL = "Tylko umowa o pracę";
 
 export function compareProposals(a: ProposalEntry, b: ProposalEntry): number {
   // Przepięcia (osoby już wysłane do klienta) zawsze na górze kolejki.
@@ -462,8 +588,10 @@ export function compareProposals(a: ProposalEntry, b: ProposalEntry): number {
   const ta = a.row.sources.includes("trainee");
   const tb = b.row.sources.includes("trainee");
   if (ta !== tb) return ta ? -1 : 1;
-  const sa = a.row.fitScore;
-  const sb = b.row.fitScore;
+  // Znani zespołowi wyżej (07.10.2026): punkty historii tylko w kolejności —
+  // pokazywane dopasowanie zostaje bez nich (ta sama reguła co serwer).
+  const sa = a.row.fitScore === null ? null : a.row.fitScore + (a.row.historyPoints ?? 0);
+  const sb = b.row.fitScore === null ? null : b.row.fitScore + (b.row.historyPoints ?? 0);
   if (sa !== sb) {
     if (sa === null) return 1;
     if (sb === null) return -1;
@@ -540,11 +668,55 @@ export function filterProposals(
     // nie „ponad budżet", a takich osób jest w bazie większość.
     if (filters.inBudget && fit === "over") return false;
     if (filters.rate !== "all" && fit !== filters.rate) return false;
-    if (filters.availableNow && !isAvailableNow(detail.availabilityStatus, detail.availabilityDate, ctx.now)) return false;
+    if (
+      filters.availableNow &&
+      !isAvailableNow(detail.availabilityStatus, detail.availabilityDate, ctx.now, detail.employment)
+    ) {
+      return false;
+    }
     if (location && !fold(detail.city ?? "").includes(location)) return false;
     if (skill && !detail.requirements.some((r) => r.status === "met" && fold(r.label).includes(skill))) return false;
     return true;
   });
+}
+
+/**
+ * Podział scalonej listy na zakładki okna „Kandydaci do dodania”: osoby
+ * z ogłoszeń z ostatnich 7 dni osobno, cała reszta w „Propozycjach z bazy”.
+ * Każda osoba trafia do dokładnie jednej zakładki — nic nie wypada.
+ */
+export function splitByPostings(entries: readonly ProposalEntry[]): {
+  postings: ProposalEntry[];
+  base: ProposalEntry[];
+} {
+  const postings: ProposalEntry[] = [];
+  const base: ProposalEntry[] = [];
+  for (const entry of entries) (entry.detail.postingRecent ? postings : base).push(entry);
+  return { postings, base };
+}
+
+/** Próg propozycji, gdy serwer go nie podał (`AUTO_FULL_REVIEW_MIN_SCORE`). */
+export const DEFAULT_PROPOSAL_THRESHOLD = 70;
+
+/**
+ * Osoba spod progu (najlepsze 40, 28.10.2026): przyszła wyłącznie z przeglądu
+ * bazy (skrzynka `full_base` albo strona żywego przeglądu) i ma wynik poniżej
+ * progu — skrzynka mówi to wprost (`below_threshold`), wiersz przeglądu przez
+ * wynik. Stoi pod separatorem „Poniżej N%” i nie liczy się do liczby na kaflu
+ * ani zakładce, jak w porannym dzwonku. Podobne projekty i rekomendacje mają
+ * własne reguły — nigdy nie są „spod progu”.
+ */
+export function isBelowThreshold(
+  entry: ProposalEntry,
+  threshold: number = DEFAULT_PROPOSAL_THRESHOLD,
+): boolean {
+  const { origins } = entry.detail;
+  if (!origins.every((origin) => origin === "inbox" || origin === "run")) return false;
+  // Nowe CV, portal, przepięcie, praktykant — własne progi albo decyzja człowieka.
+  if (!entry.row.sources.every((source) => source === "full_base")) return false;
+  if (!origins.includes("run")) return entry.detail.belowThreshold === true;
+  const score = entry.row.fitScore;
+  return score != null && score < threshold;
 }
 
 export function countBySource(

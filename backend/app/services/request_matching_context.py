@@ -101,7 +101,33 @@ def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext
         stored_contract,
     )
 
+    from app.services.critical_skills import (
+        critical_gate_options,
+        effective_critical,
+        gate_mode,
+    )
+
     values = {name: getattr(job, name, None) for name in _JOB_FIELDS}
+    # Krytyczne zamrożone w żądaniu (30.09.2026): profil niżej traci pole
+    # `stack.critical` (nie zmienia wymagań roli), a podpowiedź z historii
+    # zmienia się po cotygodniowym przeliczeniu — zapisany przegląd nie może
+    # udawać aktualnego, a worker musi bramkować tym samym zestawem.
+    resolution = effective_critical(job)
+    values["critical_effective"] = {
+        "labels": list(resolution.labels),
+        "source": resolution.source,
+        "suggested": list(resolution.suggested),
+        "decided": resolution.decided,
+    }
+    # Słowa wierszy krytycznych z wyboru DL (09.10.2026) — klucz tylko wtedy,
+    # gdy coś niesie. Odcisk KAŻDEJ rekrutacji zmienia i tak podbicie
+    # `MUST_GATE_POLICY_VERSION` (v11), ale kolejne zmiany słów wiersza
+    # dotykają już tylko rekrutacji z wyborem Delivery Leada.
+    gate_options = critical_gate_options(job)
+    if gate_options:
+        values["critical_effective"]["options"] = {
+            label: list(words) for label, words in gate_options.items()
+        }
     if isinstance(values["champion_profile"], dict):
         from app.services import champion_view
 
@@ -128,13 +154,20 @@ def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext
     versions = {
         **current_version_trace().as_dict(),
         "request_schema": "request-full-v2",
-        "result_schema": "full-result-filters-v1",
+        "result_schema": "full-result-filters-v2",
         "fit_profile": "base-fit-v1",
         "evidence_gate": "reviewed-evidence-v3",
         # Which candidates the must-have gate hides; a ranking built under an
         # older policy must not be served as the current one.
         "must_gate_policy": MUST_GATE_POLICY_VERSION,
+        "must_gate_mode": gate_mode(),
     }
+    from app.services import prior_screening
+
+    # Warstwa wcześniejszych rozmów (07.10.2026) zmienia ranking, więc wchodzi
+    # do odcisku — ale tylko włączona: przy OFF odcisk zostaje bajt w bajt.
+    if prior_screening.enabled():
+        versions["prior_screening"] = prior_screening.VERSION
     fingerprint = hashlib.sha256(
         json.dumps(
             {"job": values, "weights": weights, "versions": versions, "query": query},
@@ -143,6 +176,17 @@ def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext
             separators=(",", ":"),
         ).encode()
     ).hexdigest()
+    # Słowa wierszy „musi mieć” do oceny (02.11.2026): profil wyżej nie ma
+    # `stack.rows`, a bez nich wiersz liczył samą etykietę. Celowo po odcisku: inny
+    # wariant słowa nie jest zmianą wymagań (`champion_view.without_critical`), więc
+    # gotowy przegląd nie dostaje 409. Bramka czyta tylko `critical_effective`.
+    from app.services.critical_skills import must_evidence_options
+
+    evidence_options = must_evidence_options(job)
+    if evidence_options:
+        values["must_evidence_options"] = {
+            label: list(words) for label, words in evidence_options.items()
+        }
     has_brief = bool(
         values["description"]
         or values["requirements"]

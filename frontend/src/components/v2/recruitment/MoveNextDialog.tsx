@@ -34,6 +34,8 @@ import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shar
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   isBlockingGap,
+  isDealBreakerWarning,
+  isPreContractWarning,
   useMoveRequirements,
   type MoveRequirementAction,
 } from "@/lib/api/moveRequirements";
@@ -44,6 +46,7 @@ import {
 } from "@/lib/board-stages";
 import { itemFullName } from "@/lib/pipeline-flow";
 import { planPrimaryStep } from "@/lib/move-primary";
+import { dlWaitingStatus } from "@/lib/board-card-badges";
 import { MoveRequirementList } from "@/components/v2/recruitment/MoveRequirementList";
 import { cn } from "@/lib/utils";
 
@@ -179,6 +182,14 @@ export function MoveNextDialog({
     () => (data?.items ?? []).filter((i) => isBlockingGap(i, askedDuringMove)),
     [data, askedDuringMove],
   );
+  // „Odpada, gdy…” naruszone: ruch nadal przechodzi (serwer go nie zatrzymuje),
+  // ale przycisk mówi wprost, że idziemy wbrew odpowiedzi kandydata.
+  const dealBreaker = useMemo(
+    () => (data?.items ?? []).some((i) => i.key === "deal_breaker" && isDealBreakerWarning(i)),
+    [data],
+  );
+  // 0506: umowa przedwstępna niepodpisana — ostrzeżenie, ruch przechodzi.
+  const preContract = useMemo(() => (data?.items ?? []).some(isPreContractWarning), [data]);
   const fullName = item ? itemFullName(item) : "";
   const shownTargetLabel =
     targetLabel ?? (targetKey ? boardColumnLabel(targetKey, { cproEnabled }) : null) ?? target?.name ?? "";
@@ -186,6 +197,9 @@ export function MoveNextDialog({
   const close = () => onOpenChange(false);
 
   const step = planPrimaryStep(data, gaps.length);
+  // Osoba już w „QC CV” — dalej prowadzi ją Delivery Lead (14.10.2026): stan
+  // zamiast przycisku, który nic nie przesuwał.
+  const waiting = step.type === "waiting" ? dlWaitingStatus(item, new Date()) : null;
   const runPrimary = () => {
     if (!item || !target || !primary || readOnly) return;
     switch (step.type) {
@@ -193,10 +207,6 @@ export function MoveNextDialog({
         close();
         onHandToCpro(step.stageDefId);
         if (step.notice) showSuccess(step.notice);
-        return;
-      case "notice":
-        showSuccess(step.message);
-        close();
         return;
       case "error":
         showError(step.message);
@@ -215,7 +225,17 @@ export function MoveNextDialog({
     ? "Tylko odczyt."
     : primary?.kind === "blocked" || (primary?.kind === "move" && gaps.length > 0)
       ? `Najpierw uzupełnij: ${gaps.map((g) => g.label).join(", ") || "braki z listy"}.`
-      : null;
+      : dealBreaker && primary?.kind === "move"
+        ? "Odpowiedź kandydata wyklucza go z tej rekrutacji — możesz go odrzucić albo przesunąć mimo to."
+        : preContract && primary?.kind === "move"
+          ? "Umowa przedwstępna nie jest podpisana — ruch zapisze się z tą informacją, a proszący dostanie dzwonek."
+          : null;
+  const primaryLabel =
+    dealBreaker && primary?.kind === "move"
+      ? "Przesuń mimo to"
+      : preContract && primary?.kind === "move"
+        ? "Przesuń mimo braku umowy"
+        : (primary?.label ?? "");
 
   return (
     <Dialog open={open && item != null && target != null} onOpenChange={onOpenChange}>
@@ -294,11 +314,25 @@ export function MoveNextDialog({
                   }}
                 />
               )}
-              {data.owner_note && (
+              {waiting ? (
+                <p
+                  role="status"
+                  data-testid="move-next-waiting"
+                  data-ready={waiting.ready ? "true" : "false"}
+                  className={cn(
+                    "rounded-md border px-3 py-2 text-sm",
+                    waiting.ready
+                      ? "border-primary/30 bg-primary/5 text-foreground"
+                      : "border-warning/40 bg-warning/10 text-warning",
+                  )}
+                >
+                  {waiting.text}
+                </p>
+              ) : data.owner_note ? (
                 <p data-testid="move-next-owner-note" className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
                   {data.owner_note}
                 </p>
-              )}
+              ) : null}
             </>
           ) : null}
         </DialogBody>
@@ -309,16 +343,16 @@ export function MoveNextDialog({
             </p>
           )}
           <Button variant="ghost" onClick={close}>
-            Anuluj
+            {waiting ? "Zamknij" : "Anuluj"}
           </Button>
-          {primary && (
+          {primary && !waiting && (
             <Button
               data-testid="move-next-primary"
               onClick={runPrimary}
               disabled={primaryDisabled}
               aria-describedby={primaryHint ? "move-next-primary-hint" : undefined}
             >
-              {primary.label}
+              {primaryLabel}
               {primary.kind !== "hand_to_dl" && <ArrowRight className="h-4 w-4" aria-hidden="true" />}
             </Button>
           )}

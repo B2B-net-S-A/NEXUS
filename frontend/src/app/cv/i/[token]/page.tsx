@@ -639,7 +639,7 @@ function ChatPanel({
           onChange={(e) => setInput(e.target.value)}
           maxLength={500}
           placeholder={t.chatPlaceholder}
-          className="min-w-0 flex-1 h-10 md:h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/40"
+          className="w-0 min-w-0 flex-1 h-10 md:h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/40"
         />
         <button
           type="submit"

@@ -1,0 +1,15 @@
+{
+  "odpis": {
+    "rodzaj": "Pełny",
+    "naglowekP": {
+      "rejestr": "RejP",
+      "numerKRS": "0000123456",
+      "wpis": [
+        {"numerWpisu": 1, "oznaczenieSaduDokonujacegoWpisu": "SĄD  REJONOWY  W OLSZTYNIE, VIII  WYDZIAŁ GOSPODARCZY  KRAJOWEGO REJESTRU SĄDOWEGO"},
+        {"numerWpisu": 2, "oznaczenieSaduDokonujacegoWpisu": "SĄD REJONOWY DLA M.ST. WARSZAWY W WARSZAWIE, XIV WYDZIAŁ GOSPODARCZY KRAJOWEGO REJESTRU SĄDOWEGO"},
+        {"numerWpisu": 3, "oznaczenieSaduDokonujacegoWpisu": "SYSTEM"},
+        {"numerWpisu": 4, "oznaczenieSaduDokonujacegoWpisu": "SYSTEM"}
+      ]
+    }
+  }
+}

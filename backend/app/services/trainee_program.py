@@ -11,13 +11,15 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import and_, exists, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import settings
@@ -32,6 +34,8 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.models.trainee import TraineeCallItem, TraineeCallList, TraineeProgram
 from app.models.user import User, UserRole
 from app.services import trainee_call_list as lists
+from app.services.candidate_added_date import added_to_base_of
+from app.services.role_merge import normalize_role_value
 from app.services import trainee_rules as rules_mod
 
 logger = logging.getLogger(__name__)
@@ -44,6 +48,8 @@ QUALITY_SAMPLE_SIZE = 5
 B2B_VALUES = ("b2b", "would_switch", "employment_only")
 WORK_TIME_VALUES = ("full_time_only", "also_part_time", "part_time_only")
 AVAILABILITY_DAYS = {"now": 0, "within_1m": 30, "within_3m": 90}
+# „Później” (niż za 3 miesiące) — najwcześniejsza data dostępności (R4-12).
+AVAILABILITY_LATER_MIN_DAYS = 91
 OPEN_TO_STATUS = {
     "yes": AvailabilityStatus.actively_looking,
     "maybe": AvailabilityStatus.open_to_offers,
@@ -203,6 +209,7 @@ def _facts(candidate: Candidate) -> dict[str, Any]:
 
 def item_row(item: TraineeCallItem, candidate: Candidate) -> dict[str, Any]:
     first = _first_experience(candidate)
+    in_base = added_to_base_of(candidate)
     name = " ".join(p for p in (candidate.name, candidate.lastname) if p).strip()
     reasons = dict(item.reasons or {})
     reasons.pop("job_ids", None)
@@ -217,7 +224,14 @@ def item_row(item: TraineeCallItem, candidate: Candidate) -> dict[str, Any]:
         "company": first.get("company") or candidate.linkedin_current_company,
         "city": candidate.city or candidate.location,
         "phone": candidate.phone,
-        "in_base_since": candidate.created_at.year if candidate.created_at else None,
+        # „W bazie od” (0437): niedokładna data (import z Traffita bez daty
+        # u źródła) to dzień importu — lepiej nic niż fałszywy rok. Rok
+        # w kalendarzu firmy: sylwester po 23:00 to już nowy rok.
+        "in_base_since": (
+            in_base.at.astimezone(ZoneInfo(settings.BUSINESS_TZ)).year
+            if in_base.exact and in_base.at is not None
+            else None
+        ),
         "last_contact_at": candidate.last_contacted_at.isoformat()
         if candidate.last_contacted_at
         else None,
@@ -303,6 +317,8 @@ async def today_view(
         "day": view["day"],
         "total_days": view["total_days"],
         "status": program.status,
+        # Ostatni dzień programu — górna granica „telefonu innego dnia”.
+        "end_date": view["end_date"],
     }
     if program.status != "active":
         return {**base, "status": "program_finished"}
@@ -494,6 +510,17 @@ def call_note(facts: CallFacts, *, hourly: Any) -> str:
     return "\n".join(lines)
 
 
+def _minimum_changed(rate_audit: dict[str, Any]) -> bool:
+    """Czy telefon zapisał INNE minimum niż to w profilu (kwota albo waluta)."""
+    old = rate_audit.get("old_amount")
+    new = rate_audit.get("new_amount")
+    if old is None or new is None:
+        return old != new
+    if Decimal(old) != Decimal(new):
+        return True
+    return rate_audit.get("old_currency") != rate_audit.get("new_currency")
+
+
 def _apply_facts(candidate: Candidate, facts: CallFacts, user: User) -> dict[str, Any]:
     """Fakty z rozmowy → profil. Zwraca audyt stawki (albo pusty słownik)."""
     from app.services.candidate_notes_facts import (  # noqa: PLC0415
@@ -531,13 +558,26 @@ def _apply_facts(candidate: Candidate, facts: CallFacts, user: User) -> dict[str
         flag_modified(candidate, "cv_extracted_data")
     if facts.accepts_below_min_rate is not None:
         candidate.accepts_below_min_rate = facts.accepts_below_min_rate
+    elif (
+        rate_audit
+        and _minimum_changed(rate_audit)
+        and candidate.accepts_below_min_rate is not None
+    ):
+        # Nowe minimum bez odpowiedzi o zgodzie (R4-10): stara zgoda „można
+        # dzwonić poniżej minimum” dotyczyła POPRZEDNIEJ kwoty. `write_profile_rate`
+        # jej nie czyści dla źródła `trainee_call`, bo zwykle ta sama rozmowa
+        # odpowiada na oba pytania — tu odpowiedzi nie było.
+        rate_audit["accepts_below_min_rate_cleared"] = candidate.accepts_below_min_rate
+        candidate.accepts_below_min_rate = None
     if facts.remote_modes or facts.max_onsite_days is not None:
         modes = list(facts.remote_modes) or modes_for_office_days(
             facts.max_onsite_days or 0
         )
         days = facts.max_onsite_days
         if days is None:
-            days = candidate.max_onsite_days_per_week
+            days = rules_mod.onsite_days_for_call_modes(
+                modes, candidate.max_onsite_days_per_week
+            )
         set_profile_work_mode(candidate, modes=modes, max_onsite_days=days)
     if facts.accepts_more_office_days is not None:
         candidate.accepts_more_office_days = facts.accepts_more_office_days
@@ -549,6 +589,17 @@ def _apply_facts(candidate: Candidate, facts: CallFacts, user: User) -> dict[str
         candidate.availability_date = business_today() + timedelta(
             days=AVAILABILITY_DAYS[facts.availability]
         )
+    elif facts.availability == "later":
+        # „Później” = nie wcześniej niż za 3 miesiące (R4-12). Stara data
+        # zostawała — przeszła znaczyła dla scoringu „od zaraz”. Dolna granica,
+        # a nie pusta data: `_score_availability` bez daty zdejmuje warstwę
+        # z budżetu (neutralnie), więc „później” wypadałoby LEPIEJ niż
+        # „w ciągu 3 miesięcy” (+90 dni, kara za spóźnienie). Dalsza znana data
+        # zostaje.
+        floor = business_today() + timedelta(days=AVAILABILITY_LATER_MIN_DAYS)
+        current = candidate.availability_date
+        if current is None or current < floor:
+            candidate.availability_date = floor
     if facts.open_to_offers in OPEN_TO_STATUS:
         candidate.availability_status = OPEN_TO_STATUS[facts.open_to_offers]
     return rate_audit
@@ -668,6 +719,17 @@ async def record_outcome(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 "Wybierz dzień roboczy.",
             )
+        # Oddzwonienie po końcu programu przepadało: lista powstaje tylko dla
+        # aktywnego programu, a kandydat był zablokowany dla praktykantów na
+        # 60 dni (audyt 25.09.2026, R4-9).
+        program = await program_for(db, user.id)
+        if program is not None:
+            end = rules_mod.program_end_date(program.start_date, program.total_workdays)
+            if later_date > end:
+                raise _http(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    f"Wybierz dzień do końca programu ({end.strftime('%d.%m.%Y')}).",
+                )
         call = _add_call(
             db,
             candidate=candidate,
@@ -746,6 +808,19 @@ def _ensure_handover_allowed(item: TraineeCallItem) -> None:
         )
 
 
+async def _jobs_with_candidate(db: AsyncSession, candidate_id: int) -> set[int]:
+    """Rekrutacje, w których osoba ma już jakikolwiek etap (R10-N7-9)."""
+    return set(
+        (
+            await db.scalars(
+                select(CandidateStage.job_id)
+                .where(CandidateStage.candidate_id == candidate_id)
+                .distinct()
+            )
+        ).all()
+    )
+
+
 async def open_jobs(db: AsyncSession, user: User, item_id: int) -> list[dict[str, Any]]:
     from app.services.job_similarity import _load_pool  # noqa: PLC0415
 
@@ -754,9 +829,14 @@ async def open_jobs(db: AsyncSession, user: User, item_id: int) -> list[dict[str
     candidate = await db.get(Candidate, item.candidate_id)
     skills, display = lists._candidate_skills(candidate.skills if candidate else None)
     pool = await _load_pool(db)
+    # Runda 10 (R10-N7-9): osoba już w rekrutacji nie jest propozycją —
+    # skrzynka jej nie pokaże, a notatka praktykanta by przepadła.
+    already_in = await _jobs_with_candidate(db, item.candidate_id)
     matched: list[tuple[int, list[str]]] = []
     for job in pool.jobs.values():
         if job.status != JobStatus.published.value:
+            continue
+        if job.id in already_in:
             continue
         demand_job = rules_mod.DemandJob(
             id=job.id,
@@ -800,6 +880,12 @@ async def handover(
     from app.services import candidate_audit  # noqa: PLC0415
     from app.services.job_proposals import upsert_proposals  # noqa: PLC0415
 
+    own = await _own_item(db, user, item_id)
+    if job_id in await _jobs_with_candidate(db, own.candidate_id):
+        raise _http(
+            status.HTTP_409_CONFLICT,
+            "Ta osoba jest już w tej rekrutacji — rekruter ją widzi na tablicy.",
+        )
     allowed = {row["job_id"] for row in await open_jobs(db, user, item_id)}
     if job_id not in allowed:
         raise _http(
@@ -807,6 +893,7 @@ async def handover(
             "Tej rekrutacji nie ma na liście pasujących otwartych rekrutacji.",
         )
     item = await _own_item(db, user, item_id)
+    candidate = await db.get(Candidate, item.candidate_id)
     statuses = set(
         (
             await db.scalars(
@@ -822,13 +909,20 @@ async def handover(
             status.HTTP_409_CONFLICT,
             "Ta osoba jest już dodana do tej rekrutacji.",
         )
+    trainee_evidence: dict[str, Any] = {"user_id": user.id, "note": note or ""}
+    # Decyzja Artura (runda 2 audytu 25.09.2026): osobę „tylko umowa o pracę”
+    # praktykant przekazuje dalej, ale rekruter widzi to na karcie propozycji
+    # — bramka `employment_only` chowa ją przed dopasowaniami, a przekazanie
+    # przechodziło bez słowa.
+    if candidate is not None and candidate.b2b_willingness == "employment_only":
+        trainee_evidence["employment_only"] = True
     await upsert_proposals(
         db,
         job_id,
         [
             {
                 "candidate_id": item.candidate_id,
-                "evidence": {"trainee": {"user_id": user.id, "note": note or ""}},
+                "evidence": {"trainee": trainee_evidence},
             }
         ],
         source="trainee",
@@ -894,6 +988,16 @@ async def _trainee_users(db: AsyncSession) -> list[tuple[User, TraineeProgram]]:
     return [(user, program) for user, program in rows]
 
 
+def _panel_program_view(
+    user: User, program: TraineeProgram, *, today: date
+) -> dict[str, Any]:
+    """Program w panelu HoR — konto wyłączone nie czeka na decyzję (R8-X1-4)."""
+    view = program_view(program, today=today)
+    if not user.is_active:
+        view["decision_due"] = False
+    return view
+
+
 async def _item_stats(db: AsyncSession, user_ids: list[int], today: date) -> dict:
     if not user_ids:
         return {}
@@ -934,6 +1038,9 @@ async def _item_stats(db: AsyncSession, user_ids: list[int], today: date) -> dic
                 func.count(TraineeCallItem.id).filter(
                     TraineeCallItem.outcome.is_(None)
                 ),
+                func.count(TraineeCallItem.id).filter(
+                    TraineeCallItem.outcome == "call"
+                ),
             )
             .outerjoin(TraineeCallItem, TraineeCallItem.list_id == TraineeCallList.id)
             .where(
@@ -943,10 +1050,16 @@ async def _item_stats(db: AsyncSession, user_ids: list[int], today: date) -> dic
             .group_by(TraineeCallList.user_id, TraineeCallList.list_date)
         )
     ).all()
-    for uid, list_date, total, open_n in per_list:
+    for uid, list_date, total, open_n, calls_n in per_list:
+        # R8-N3-3: norma liczy dni ZAMKNIĘTE — dzisiejsza lista w trakcie
+        # wchodzi dopiero po zaliczeniu, a lista bez pozycji (pula pusta, nie
+        # wina praktykanta) nie wchodzi wcale.
+        if not total or (list_date >= today and open_n):
+            continue
         entry = stats.setdefault(uid, {})
         entry["days_with_list"] = entry.get("days_with_list", 0) + 1
-        if total and not open_n:
+        entry["calls_on_counted_days"] = entry.get("calls_on_counted_days", 0) + calls_n
+        if not open_n:
             entry["days_completed"] = entry.get("days_completed", 0) + 1
     complete = (
         await db.execute(
@@ -1031,10 +1144,10 @@ async def overview(db: AsyncSession) -> dict[str, Any]:
                 "user_id": user.id,
                 "name": user.name,
                 "is_active": user.is_active,
-                "program": program_view(program, today=today),
+                "program": _panel_program_view(user, program, today=today),
                 "days_with_list": days,
                 "days_completed": int(entry.get("days_completed", 0)),
-                "calls_per_day": round(entry.get("calls", 0) / days, 1)
+                "calls_per_day": round(entry.get("calls_on_counted_days", 0) / days, 1)
                 if days
                 else None,
                 "answered_pct": answered,
@@ -1155,6 +1268,34 @@ async def _pin_people(db: AsyncSession, trainee_id: int) -> int:
         )
     ).scalars()
     ids = set(rows.all())
+    # Oddzwonienia, do których nie doszło (R4-9): kandydat prosił o telefon
+    # innego dnia, a program skończył się przed nim — bez przypięcia ta
+    # relacja przepadała razem z listą praktykanta.
+    later_item = aliased(TraineeCallItem)
+    followup = aliased(TraineeCallItem)
+    open_later = (
+        await db.execute(
+            select(func.distinct(later_item.candidate_id))
+            .join(Candidate, Candidate.id == later_item.candidate_id)
+            .where(
+                later_item.user_id == trainee_id,
+                later_item.outcome == "later",
+                or_(
+                    Candidate.b2b_willingness.is_(None),
+                    Candidate.b2b_willingness != "employment_only",
+                ),
+                ~exists().where(
+                    followup.user_id == trainee_id,
+                    followup.candidate_id == later_item.candidate_id,
+                    followup.list_date > later_item.list_date,
+                    # R8-N3-4: pozycja oddzwonienia, której nikt nie zamknął,
+                    # nie jest rozmową — relacja nadal czeka.
+                    followup.outcome.is_not(None),
+                ),
+            )
+        )
+    ).scalars()
+    ids |= set(open_later.all())
     if not ids:
         return 0
     owners = await owners_by_candidate(db)
@@ -1174,7 +1315,7 @@ async def _pin_people(db: AsyncSession, trainee_id: int) -> int:
     return len(free)
 
 
-PROMOTE_ROLES = (UserRole.sourcer, UserRole.recruiter)
+PROMOTE_ROLE = UserRole.recruiter
 
 
 async def decide(
@@ -1196,7 +1337,15 @@ async def decide(
     if action == "extend":
         if program.status != "active":
             raise _http(status.HTTP_409_CONFLICT, "Program jest już zakończony.")
-        program.extended_days = (program.extended_days or 0) + extend_days
+        total_extension = (program.extended_days or 0) + extend_days
+        if total_extension > rules_mod.MAX_EXTENDED_DAYS:
+            # R8-N3-5: CHECK w bazie odrzuciłby sumę dopiero przy commicie (500).
+            raise _http(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Program można przedłużyć łącznie najwyżej o "
+                f"{rules_mod.MAX_EXTENDED_DAYS} dni roboczych.",
+            )
+        program.extended_days = total_extension
         program.decision = "extended"
         program.decided_at = now
         program.decided_by_user_id = actor.id
@@ -1207,18 +1356,13 @@ async def decide(
         program.decided_at = now
         program.decided_by_user_id = actor.id
     elif action == "promote":
-        try:
-            new_role = UserRole(role or "")
-        except ValueError as exc:
+        # ``role`` zostaje w wejściu dla starych klientów; puste = rekruter.
+        if normalize_role_value(role or PROMOTE_ROLE.value) != PROMOTE_ROLE.value:
             raise _http(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "Awans tylko na sourcera albo rekrutera.",
-            ) from exc
-        if new_role not in PROMOTE_ROLES:
-            raise _http(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "Awans tylko na sourcera albo rekrutera.",
+                "Awans tylko na rekrutera.",
             )
+        new_role = PROMOTE_ROLE
         if {r.value for r in target.get_all_roles()} != {UserRole.trainee.value}:
             raise _http(status.HTTP_409_CONFLICT, "Ta osoba nie jest już praktykantem.")
         original = target.role
@@ -1361,7 +1505,9 @@ async def notify_due_decisions(db: AsyncSession, *, today: date) -> int:
         if not view["decision_due"]:
             continue
         trainee = await db.get(User, program.user_id)
-        if trainee is None:
+        if trainee is None or not trainee.is_active:
+            # R8-X1-4: konto wyłączone (odejście) — bez decyzji o kimś, kogo nie
+            # ma. Bez stempla: po ponownym włączeniu konta powiadomienie wyjdzie.
             continue
         for recipient in recipients:
             await emit(

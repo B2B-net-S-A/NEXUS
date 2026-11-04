@@ -9,8 +9,8 @@ Każdy test dowodzi jednego kontraktu, który łatwo cofnąć „przy okazji":
 3. Odczyt karty i przeglądu jest org-wide dla ról operacyjnych (karta
    zastępuje wzory Word czytane w Pomocy przez każdego); zapis i historia
    wymagają sekcji Delivery, a każdy DL może zarządzać każdym klientem.
-4. ``off_limits`` z umowy ramowej jedzie tylko do ról z odczytem sekcji
-   Delivery.
+4. Karta NIE niesie ``off_limits`` — funkcja usunięta 27.09.2026 decyzją
+   Artura (runda 9, R9-N4-8); kolumny w ``client_contract_terms`` zostają.
 5. Seed w repo (14 kart) i lustro DDL/seeda w ``entrypoint.sh`` są spójne
    z migracją — prod alembic jest osierocony, więc lustro jest wdrożeniem.
 """
@@ -152,7 +152,7 @@ async def test_get_without_row_returns_empty_card_not_404(app_client: AsyncClien
         assert body["exists"] is False
         assert body["version"] == 0
         assert body["documents"] == []
-        assert body["off_limits"] is None
+        assert "off_limits" not in body
         assert body["client_name"] == "Pusty Bank"
     finally:
         await _cleanup([cid])
@@ -303,6 +303,50 @@ async def test_put_rejects_out_of_range_numbers_and_bad_document_urls(
         await _cleanup([cid])
 
 
+@pytest.mark.asyncio
+async def test_put_stores_verified_required_fields_and_gate_reads_them(
+    app_client: AsyncClient,
+):
+    """D3 (21.10.2026): pola dołożone do minimum przed „Zweryfikowany”."""
+    from app.core.database import AsyncSessionLocal
+    from app.services.move_requirements import client_required_fields
+
+    cid = await _make_client(_unique("Playbook minimum"))
+    try:
+        headers = await _headers_for(
+            app_client, "delivery_lead", assigned_client_id=cid
+        )
+        bad = await app_client.put(
+            URL.format(cid=cid),
+            json=_full_payload(verified_required_fields=["location", "salary"]),
+            headers=headers,
+        )
+        assert bad.status_code == 422, bad.text
+
+        r = await app_client.put(
+            URL.format(cid=cid),
+            json=_full_payload(
+                verified_required_fields=["english", "motivation", "english"]
+            ),
+            headers=headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["verified_required_fields"] == ["motivation", "english"]
+
+        async with AsyncSessionLocal() as db:
+            fields, name = await client_required_fields(db, cid)
+        assert fields == ("motivation", "english")
+        assert name
+
+        h = await app_client.get(URL.format(cid=cid) + "/history", headers=headers)
+        assert h.json()[0]["changes"]["verified_required_fields"] == {
+            "from": [],
+            "to": ["motivation", "english"],
+        }
+    finally:
+        await _cleanup([cid])
+
+
 # ── Uprawnienia ─────────────────────────────────────────────────────────────
 
 
@@ -313,7 +357,7 @@ async def test_write_needs_delivery_section_write_read_is_operational(
     """Zapis = sekcja Delivery (write); odczyt karty i przeglądu = każda rola operacyjna."""
     cid = await _make_client(_unique("Playbook roles"))
     try:
-        for role in ("tac", "recruiter", "head_of_recruitment"):
+        for role in ("recruiter", "head_of_recruitment"):
             headers = await _headers_for(app_client, role)
             r = await app_client.put(
                 URL.format(cid=cid), json=_full_payload(), headers=headers
@@ -326,11 +370,10 @@ async def test_write_needs_delivery_section_write_read_is_operational(
         )
         assert r.status_code == 200, r.text
 
-        tac = await _headers_for(app_client, "tac")
-        h = await app_client.get(URL.format(cid=cid) + "/history", headers=tac)
+        recruiter = await _headers_for(app_client, "recruiter")
+        h = await app_client.get(URL.format(cid=cid) + "/history", headers=recruiter)
         assert h.status_code == 403, h.text
 
-        recruiter = await _headers_for(app_client, "recruiter")
         g = await app_client.get(URL.format(cid=cid), headers=recruiter)
         assert g.status_code == 200, g.text
         assert g.json()["exists"] is True
@@ -345,6 +388,12 @@ async def test_write_needs_delivery_section_write_read_is_operational(
 async def test_delivery_lead_writes_for_all_clients(
     app_client: AsyncClient,
 ):
+    """Karta klienta zostaje org-wide dla DL (``purpose="org"``).
+
+    Zawężenie DL do przypisanych klientów w modułach Delivery (25.09.2026)
+    świadomie nie obejmuje karty — zastępuje ona wzory z Pomocy i DL
+    prowadzi ją dla rekrutacji u dowolnego klienta.
+    """
     cid = await _make_client(_unique("Playbook portfolio"))
     try:
         stranger = await _headers_for(app_client, "delivery_lead")
@@ -378,7 +427,13 @@ async def test_delivery_lead_writes_for_all_clients(
 
 
 @pytest.mark.asyncio
-async def test_off_limits_only_for_delivery_readers(app_client: AsyncClient):
+async def test_card_carries_no_off_limits_for_any_role(app_client: AsyncClient):
+    """Runda 9 (R9-N4-8): off-limits usunięte decyzją Artura 27.09.2026.
+
+    Warunki umowy mają wartość off-limit w bazie, a mimo to karta (odczyt,
+    odpowiedź zapisu) i przegląd nie oddają jej żadnej roli — także adminowi
+    i DL-owi z portfela. Zapis karty nie rusza kolumn w bazie.
+    """
     from app.core.database import AsyncSessionLocal
     from app.models.client_contract_terms import ClientContractTerms
 
@@ -397,23 +452,15 @@ async def test_off_limits_only_for_delivery_readers(app_client: AsyncClient):
             URL.format(cid=cid), json=_full_payload(), headers=owner
         )
         assert r.status_code == 200, r.text
-        assert r.json()["off_limits"] == {
-            "months": 12,
-            "scope": "cały bank",
-            "notes": None,
-        }
-        g = await app_client.get(URL.format(cid=cid), headers=owner)
-        assert g.json()["off_limits"]["months"] == 12
+        assert "off_limits" not in r.json()
+        for role_headers in (owner, await _headers_for(app_client, "admin")):
+            g = await app_client.get(URL.format(cid=cid), headers=role_headers)
+            assert g.status_code == 200, g.text
+            assert "off_limits" not in g.json()
+            o = await app_client.get(OVERVIEW_URL, headers=role_headers)
+            row = [i for i in o.json()["items"] if i["client_id"] == cid]
+            assert row and "off_limits" not in row[0]
 
-        recruiter = await _headers_for(app_client, "recruiter")
-        g = await app_client.get(URL.format(cid=cid), headers=recruiter)
-        assert g.status_code == 200, g.text
-        assert g.json()["off_limits"] is None
-        o = await app_client.get(OVERVIEW_URL, headers=recruiter)
-        mine = [i for i in o.json()["items"] if i["client_id"] == cid]
-        assert mine and mine[0]["off_limits"] is None
-
-        # Zapis karty nie dotyka warunków umowy.
         async with AsyncSessionLocal() as db:
             terms = (
                 await db.execute(
@@ -550,7 +597,7 @@ async def test_seed_backfill_needs_delivery_write_same_as_put(app_client: AsyncC
     cid = await _make_client(_unique("Playbook seed authz"))
     admin_cid = await _make_client(_unique("Playbook seed admin authz"))
     try:
-        for role in ("tac", "recruiter", "head_of_recruitment"):
+        for role in ("recruiter", "head_of_recruitment"):
             headers = await _headers_for(app_client, role)
             r = await app_client.post(
                 SEED_URL.format(cid=cid), json={"seed_key": SEED_KEY}, headers=headers
@@ -761,3 +808,11 @@ def test_seed_never_names_another_client_in_card_text():
             continue
         text = " ".join(str(entry.get(field) or "") for field in text_fields)
         assert "Nordea" not in text, entry["seed_key"]
+
+
+def test_playbook_read_schema_has_no_off_limits():
+    """Bez bazy: runda 9 (R9-N4-8) — kształt odpowiedzi karty bez off-limits."""
+    from app.api import client_playbooks as api
+
+    assert "off_limits" not in api.ClientPlaybookRead.model_fields
+    assert not hasattr(api, "OffLimitsRead")

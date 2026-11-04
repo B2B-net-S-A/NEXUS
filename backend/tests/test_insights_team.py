@@ -64,7 +64,9 @@ URL = "/api/insights/team-table"
 # liczniki, czyli awaria wygląda na błąd atrybucji w kodzie, a jest zderzeniem
 # okien. 200 lat × 300 dni startów czyni takie zderzenie nieistotnie rzadkim.
 _DAY_SEQUENCE = itertools.count()
-_WINDOW_EPOCH = date(1300 + int(uuid.uuid4().hex[:4], 16) % 200, 1, 1) + timedelta(
+# Lata po 12.10.2026 — wcześniejsze ruchy Tablicy nie liczą się do statystyk
+# (migracja 0467), a ten plik sprawdza ich atrybucję.
+_WINDOW_EPOCH = date(3000 + int(uuid.uuid4().hex[:4], 16) % 200, 1, 1) + timedelta(
     days=int(uuid.uuid4().hex[4:8], 16) % 300
 )
 
@@ -87,7 +89,7 @@ def _params(day: date) -> dict[str, str]:
 
 
 async def _seed_user(
-    role: UserRole = UserRole.sourcer,
+    role: UserRole = UserRole.recruiter,
     *,
     name: str | None = None,
     is_active: bool = True,
@@ -217,10 +219,8 @@ async def test_table_is_reachable_for_every_logged_in_role(
     """Decyzja D7: /insights widzi KAŻDA zalogowana rola, także `sourcer`."""
     for role in (
         UserRole.admin,
-        UserRole.sourcer,
         UserRole.recruiter,
         UserRole.finance,
-        UserRole.tac,
     ):
         _, email, password = await _seed_user(role)
         headers = await _headers(fx_login, email, password)
@@ -240,15 +240,18 @@ async def test_four_columns_are_attributed_to_the_person_who_moved_the_stage(
     fx_app: AsyncClient, fx_login: AsyncClient
 ):
     day = _next_window()
-    owner_id, email, password = await _seed_user(UserRole.tac, name="Zenon Atrybut")
-    other_id, _, _ = await _seed_user(UserRole.sourcer, name="Alicja Druga")
+    owner_id, email, password = await _seed_user(UserRole.recruiter, name="Zenon Atrybut")
+    other_id, _, _ = await _seed_user(UserRole.recruiter, name="Alicja Druga")
     cand, job = await _seed_pair()
     cand2, job2 = await _seed_pair()
 
     for stage in (
         PipelineStage.verified,
         PipelineStage.cv_sent,
+        # R8-V2-2: „Rozmowy” = rozmowa u klienta. Kod `interview` to od v5
+        # QC CV i nie może wejść do tej kolumny.
         PipelineStage.interview,
+        PipelineStage.client_interview,
         PipelineStage.hired,
     ):
         await _seed_stage(
@@ -258,6 +261,14 @@ async def test_four_columns_are_attributed_to_the_person_who_moved_the_stage(
             moved_at=_at(day),
             moved_by=owner_id,
         )
+    cand3, job3 = await _seed_pair()
+    await _seed_stage(
+        candidate_id=cand3,
+        job_id=job3,
+        stage=PipelineStage.interview,
+        moved_at=_at(day),
+        moved_by=owner_id,
+    )
     await _seed_stage(
         candidate_id=cand2,
         job_id=job2,
@@ -274,8 +285,8 @@ async def test_four_columns_are_attributed_to_the_person_who_moved_the_stage(
     assert rows[owner_id]["recommendations"] == 1
     assert rows[owner_id]["interviews"] == 1
     assert rows[owner_id]["placements"] == 1
-    assert rows[owner_id]["role"] == "tac"
-    assert rows[owner_id]["role_label"] == "TAC"
+    assert rows[owner_id]["role"] == "recruiter"
+    assert rows[owner_id]["role_label"] == "Rekruter"
     # Kolumny sąsiada zostają zerami — atrybucja nie rozlewa się po zespole.
     assert rows[other_id]["verifications"] == 1
     assert rows[other_id]["placements"] == 0
@@ -289,7 +300,7 @@ async def test_unattributed_milestones_are_reported_per_stage_never_dropped(
 ):
     """Kamień bez autora nie ma wiersza, ale MUSI wejść w sumę kolumny."""
     day = _next_window()
-    owner_id, email, password = await _seed_user(UserRole.sourcer)
+    owner_id, email, password = await _seed_user(UserRole.recruiter)
     cand, job = await _seed_pair()
     ghost_c, ghost_j = await _seed_pair()
 
@@ -339,7 +350,7 @@ async def test_former_employee_with_results_stays_in_the_table(
     """Odejście z firmy nie kasuje wstecz wyników osiągniętych w oknie."""
     day = _next_window()
     gone_id, _, _ = await _seed_user(
-        UserRole.sourcer, name="Odeszla Osoba", is_active=False
+        UserRole.recruiter, name="Odeszla Osoba", is_active=False
     )
     _, email, password = await _seed_user(UserRole.admin)
     cand, job = await _seed_pair()
@@ -368,7 +379,7 @@ async def test_second_hired_for_the_same_pair_does_not_count_twice(
 ):
     """Placement = D2: PIERWSZE `hired` dla pary (kandydat, oferta)."""
     day = _next_window()
-    owner_id, email, password = await _seed_user(UserRole.tac)
+    owner_id, email, password = await _seed_user(UserRole.recruiter)
     cand, job = await _seed_pair()
     await _seed_stage(
         candidate_id=cand,
@@ -404,7 +415,7 @@ async def test_pending_verification_is_not_counted(
     na tym samym widoku.
     """
     day = _next_window()
-    owner_id, email, password = await _seed_user(UserRole.sourcer)
+    owner_id, email, password = await _seed_user(UserRole.recruiter)
     cand, job = await _seed_pair()
     await _seed_stage(
         candidate_id=cand,
@@ -433,7 +444,7 @@ async def test_window_is_half_open_and_lives_in_the_cache_key(
     """
     day = _next_window()
     next_day = _next_window()
-    owner_id, email, password = await _seed_user(UserRole.sourcer)
+    owner_id, email, password = await _seed_user(UserRole.recruiter)
     cand, job = await _seed_pair()
     await _seed_stage(
         candidate_id=cand,
@@ -534,3 +545,50 @@ async def test_talent_community_manager_stays_in_the_people_table(
 
     assert tcm_id in [r["user_id"] for r in body["rows"]]
     assert body["totals"]["outside_scope"]["placements"] == 0
+
+
+@pytest.mark.asyncio
+async def test_anchored_average_uses_the_same_attribution_as_my_month(
+    fx_app: AsyncClient, fx_login: AsyncClient
+):
+    """Runda 6 audytu: „Mój miesiąc” porównuje własne CV wysłane (kredyt
+    pierwszego weryfikatora) ze średnią zespołu. Średnia z wierszy tabeli
+    liczyła „kto kliknął” (`first_moved_by`) — inna atrybucja. Tu A i B
+    weryfikują po jednej parze, a oba CV wysyła B: tabela daje B = 2 (średnia
+    2), atrybucja weryfikatora A = 1, B = 1 (średnia 1)."""
+    day = _next_window()
+    a_id, email, password = await _seed_user(UserRole.recruiter)
+    b_id, _, _ = await _seed_user(UserRole.recruiter)
+    for verifier in (a_id, b_id):
+        cand, job = await _seed_pair()
+        await _seed_stage(
+            candidate_id=cand,
+            job_id=job,
+            stage=PipelineStage.verified,
+            moved_at=_at(day),
+            moved_by=verifier,
+        )
+        await _seed_stage(
+            candidate_id=cand,
+            job_id=job,
+            stage=PipelineStage.cv_sent,
+            moved_at=_at(day) + timedelta(hours=1),
+            moved_by=b_id,
+        )
+
+    headers = await _headers(fx_login, email, password)
+    plain = (await fx_app.get(URL, headers=headers, params=_params(day))).json()
+    assert "anchored_average" not in plain
+    assert {r["user_id"]: r for r in plain["rows"]}[b_id]["recommendations"] == 2
+
+    body = (
+        await fx_app.get(
+            URL,
+            headers=headers,
+            params={**_params(day), "anchored_average": "true"},
+        )
+    ).json()
+    average = body["anchored_average"]
+    assert average["attribution"] == "verifier_anchored"
+    assert average["people"] == 2
+    assert average["recommendations"] == 1.0

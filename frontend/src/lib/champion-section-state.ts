@@ -58,7 +58,9 @@ export const CHAMPION_SECTIONS: readonly ChampionSectionMeta[] = [
   {
     id: "experience",
     anchor: "champion-section-experience",
-    label: "4 · Doświadczenie poza stackiem",
+    // 13.10.2026 (wariant A): druga lista wymagań — rzeczy, których nie
+    // znajdziemy w CV słowem (zdania, branża, certyfikaty, poziom).
+    label: "4 · Rekruter sprawdza w rozmowie",
   },
   { id: "search", anchor: "champion-section-search", label: "2 · Co wpisać (search)" },
   { id: "project", anchor: "champion-section-project", label: "5 · O projekcie" },
@@ -77,6 +79,13 @@ export const CHAMPION_SECTIONS: readonly ChampionSectionMeta[] = [
  * komponencie, żeby chip „N z 3 sekcji puste" i kolejność renderowania liczyły
  * się z tej samej listy.
  */
+/**
+ * Kotwica karty „Wymagania do wyszukiwania w bazie” (część sekcji 2, osobna
+ * karta od 25.09.2026) — cel linku z braku „wymagania do wyszukiwania”
+ * w oknie Zlecenie (`order-readiness`).
+ */
+export const SEARCH_REQUIREMENTS_ANCHOR = "champion-search-requirements";
+
 export const CHAMPION_PROSE_SECTION_IDS: readonly ChampionSectionId[] = [
   "search",
   "project",
@@ -121,6 +130,7 @@ function isSectionFilled(id: ChampionSectionId, profile: ChampionProfile): boole
     case "search": {
       const s = profile.search;
       return (
+        (s.requirements ?? []).some((row) => row.some((word) => word.trim())) ||
         hasText(s.keywords) ||
         hasText(s.target_companies) ||
         hasItems(s.disqualifiers) ||
@@ -144,6 +154,7 @@ function isSectionFilled(id: ChampionSectionId, profile: ChampionProfile): boole
           (hasItems(e.domains) ||
             hasItems(e.certifications) ||
             hasItems(e.regulations) ||
+            hasItems(e.skills) ||
             hasText(e.notes)),
       );
     }

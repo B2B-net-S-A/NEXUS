@@ -19,12 +19,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import { countPl } from "@/lib/plural-pl";
-import { RECRUITMENT_TYPE_LABEL } from "@/lib/recruitment-type";
 
 export interface JobSummaryCardJob {
   title: string;
   client_name?: string | null;
-  recruitment_type?: string | null;
   salary_min?: number | null;
   salary_max?: number | null;
   location?: string | null;
@@ -32,6 +30,8 @@ export interface JobSummaryCardJob {
   remote_policy?: string | null;
   /** `JobResponse.onsite_days_per_week` — dopisywane WYŁĄCZNIE przy hybrydzie. */
   onsite_days_per_week?: number | null;
+  /** 0407: klient liczy na miesiąc („1 dzień w miesiącu”). */
+  onsite_days_per_month?: number | null;
   deadline?: string | null;
 }
 
@@ -60,10 +60,13 @@ export function formatJobLocation(job: JobSummaryCardJob): string {
   if (policy) {
     const label = REMOTE_POLICY_LABEL[policy] ?? policy;
     const days = job.onsite_days_per_week;
+    const perMonth = job.onsite_days_per_month;
     parts.push(
-      policy === "hybrid" && typeof days === "number" && days > 0
-        ? `${label} ${countPl(days, "dzień", "dni", "dni")}`
-        : label,
+      policy === "hybrid" && typeof perMonth === "number" && perMonth > 0
+        ? `${label} ${countPl(perMonth, "dzień", "dni", "dni")}/mies.`
+        : policy === "hybrid" && typeof days === "number" && days > 0
+          ? `${label} ${countPl(days, "dzień", "dni", "dni")}`
+          : label,
     );
   }
 
@@ -91,12 +94,6 @@ export function JobSummaryCard({ job, onEdit }: JobSummaryCardProps) {
   const fields: Array<{ label: string; value: string }> = [
     { label: "Tytuł", value: job.title?.trim() || "—" },
     { label: "Klient", value: job.client_name?.trim() || "—" },
-    {
-      label: "Typ",
-      value: job.recruitment_type
-        ? (RECRUITMENT_TYPE_LABEL[job.recruitment_type] ?? job.recruitment_type)
-        : "—",
-    },
     {
       // Makieta podpisuje to pole „Widełki klienta" — świadomie NIE przejmujemy
       // tej etykiety. `salary_min/max` to WYNAGRODZENIE Z OFERTY (patrz wyżej);

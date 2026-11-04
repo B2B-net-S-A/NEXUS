@@ -7,8 +7,9 @@ Dwa routery:
   admin/delivery_lead.
 
 - ``client_router`` (mount pod ``/api/clients``) — overrides per klient,
-  wypierają baseline. Sekcja Delivery plus autorytatywny graf klienta:
-  admin i Delivery Lead globalnie.
+  wypierają baseline. Sekcja Delivery plus autorytatywny graf klienta: zapis
+  wymaga uprawnienia „Klienci: dodawanie i edycja” (domyślnie admin
+  i Delivery Lead u klientów z portfela).
 
 Walidacje cross-field żyją w schematach Pydantic (`schemas/stage_notification.py`),
 dodatkowo CHECK constraints w DB pełnią rolę safety net.
@@ -19,10 +20,13 @@ from __future__ import annotations
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.body_validation import invalid_body
 from app.api.deps import CurrentUser, ManagerOrAdmin
+from app.api.permission_access import ClientsEditUser
 from app.api.section_access import (
     DELIVERY_SECTION_DEPENDENCIES,
     PIPELINE_SECTION_DEPENDENCIES,
@@ -47,6 +51,35 @@ from app.services.client_access import deny, resolve_client_access
 
 template_router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 client_router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
+
+
+INCONSISTENT_RULE = (
+    "Reguła powiadomienia jest niespójna: konkretny użytkownik wymaga wskazania "
+    "osoby, rola — roli z listy, pozostali odbiorcy nie mają ani osoby, ani roli, "
+    "a co najmniej jeden kanał (in-app albo e-mail) musi być włączony."
+)
+
+
+def _ensure_consistent(
+    row: StageNotificationRule | ClientStageNotificationOverride,
+) -> None:
+    """Cały stan reguły po PATCH-u przez walidatory schematu tworzenia.
+
+    CHECK-i w bazie i tak by go odrzuciły, ale jako 500. Model budowany ręcznie
+    rzuca ``ValidationError``, którego FastAPI nie zamienia na 422 — do
+    02.10.2026 ta „lepsza odmowa” też kończyła się 500.
+    """
+    try:
+        StageNotificationRuleCreate(
+            recipient_type=row.recipient_type,
+            specific_user_id=row.specific_user_id,
+            role=row.role,
+            notify_inapp=row.notify_inapp,
+            notify_email=row.notify_email,
+            is_active=row.is_active,
+        )
+    except ValidationError as exc:
+        raise invalid_body(exc, INCONSISTENT_RULE) from None
 
 
 # ── Template-level baseline rules ────────────────────────────────────────────
@@ -147,17 +180,7 @@ async def update_rule(
     data = payload.model_dump(exclude_unset=True)
     for field, value in data.items():
         setattr(rule, field, value)
-
-    # Re-validate full state via Pydantic — CHECK constraints i tak złapią,
-    # ale lepszy komunikat z 422 niż 500 z IntegrityError.
-    StageNotificationRuleCreate(
-        recipient_type=rule.recipient_type,
-        specific_user_id=rule.specific_user_id,
-        role=rule.role,
-        notify_inapp=rule.notify_inapp,
-        notify_email=rule.notify_email,
-        is_active=rule.is_active,
-    )
+    _ensure_consistent(rule)
 
     await db.commit()
     await db.refresh(rule)
@@ -219,8 +242,12 @@ async def _require_client_override_access(
     access = await resolve_client_access(db, current_user, client_id)
     allowed = access.can_edit_knowledge if write else access.can_view_knowledge
     if not allowed:
-        action = "edycja" if write else "odczyt"
-        raise deny(f"{action} reguł powiadomień klienta jest niedozwolony")
+        if write:
+            # Brak „Klienci: dodawanie i edycja” — odmowa nazywa uprawnienie.
+            raise access.edit_denial(
+                "edycja reguł powiadomień klienta jest niedozwolona"
+            )
+        raise deny("odczyt reguł powiadomień klienta jest niedozwolony")
 
 
 @client_router.get(
@@ -256,7 +283,7 @@ async def list_overrides(
 async def create_override(
     client_id: int,
     payload: ClientStageOverrideCreate,
-    current_user: CurrentUser,
+    current_user: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _ensure_client_exists(db, client_id)
@@ -294,7 +321,7 @@ async def update_override(
     client_id: int,
     override_id: int,
     payload: ClientStageOverrideUpdate,
-    current_user: CurrentUser,
+    current_user: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _ensure_client_exists(db, client_id)
@@ -311,16 +338,7 @@ async def update_override(
     data = payload.model_dump(exclude_unset=True)
     for field, value in data.items():
         setattr(override, field, value)
-
-    # Re-validate spójność po update (lepszy komunikat niż 500 z CHECK).
-    StageNotificationRuleCreate(
-        recipient_type=override.recipient_type,
-        specific_user_id=override.specific_user_id,
-        role=override.role,
-        notify_inapp=override.notify_inapp,
-        notify_email=override.notify_email,
-        is_active=override.is_active,
-    )
+    _ensure_consistent(override)
 
     await db.commit()
     await db.refresh(override)
@@ -334,7 +352,7 @@ async def update_override(
 async def delete_override(
     client_id: int,
     override_id: int,
-    current_user: CurrentUser,
+    current_user: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _ensure_client_exists(db, client_id)

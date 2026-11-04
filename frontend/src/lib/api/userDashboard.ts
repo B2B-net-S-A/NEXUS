@@ -9,6 +9,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { BOARD_TASKS_QUERY_KEY } from "@/lib/api/boardTasks";
+import type { DashboardPanelKey } from "@/lib/dashboard-panels";
 
 export const TILE_TYPES = [
   "my_tasks",
@@ -19,6 +21,10 @@ export const TILE_TYPES = [
   "my_kpis_today",
   "my_onboarding",
   "my_recruitments",
+  "closing_candidates",
+  "to_complete",
+  "board_tasks",
+  "pre_contracts",
   "recruitment_activity",
   "recruitment_competence",
   "team_workload",
@@ -28,6 +34,17 @@ export const TILE_TYPES = [
   "my_clients_alerts",
   "dl_alerts",
   "calendar_today",
+  "today_cycle",
+  "team_signals",
+  "system_status",
+  "my_week",
+  "team_results",
+  "hr_substitution",
+  "hr_my_time",
+  "hr_approvals",
+  "equipment_tasks",
+  "care_mine",
+  "care_at_risk",
   "metric_number",
   "metric_chart",
   "metric_funnel",
@@ -95,7 +112,12 @@ export interface TileConfig {
   text?: string | null;
   links?: NoteLink[];
   link_to?: string | null;
+  /** „Requesty i obłożenie”: filtr startowy, gdy adres nie niesie własnego. */
+  board_scope?: RequestBoardScope | null;
 }
+
+/** Zakres startowy kafelka „Requesty i obłożenie” — lustro `TileConfig.board_scope`. */
+export type RequestBoardScope = "all" | "my_category" | "my_lead";
 
 export interface DashboardTile {
   id: string;
@@ -111,7 +133,15 @@ export interface UserDashboardResponse {
   tiles: DashboardTile[];
   version: number;
   dropped_tiles: { id: string | null; type: string | null }[];
+  /** Listy nad kafelkami usunięte z pulpitu („Usuń z pulpitu”). */
+  hidden_panels?: DashboardPanelKey[];
+  /** Brak zapisanych kafelków i brak świadomie pustego układu = układ roli. */
+  uses_role_layout?: boolean;
 }
+
+/** Listy panelu „Czeka na Ciebie”, które da się usunąć z pulpitu
+ *  (`lib/dashboard-panels.ts`, lustro `PANEL_KEYS` w backendzie). */
+export type { DashboardPanelKey } from "@/lib/dashboard-panels";
 
 export const USER_DASHBOARD_QUERY_KEY = ["user-dashboard"] as const;
 
@@ -124,6 +154,10 @@ export const userDashboardApi = {
         tiles,
         expected_version: expectedVersion,
       })
+      .then((r) => r.data),
+  setPanelHidden: (panel: DashboardPanelKey, hidden: boolean) =>
+    api
+      .put<UserDashboardResponse>(`/api/users/me/dashboard/panels/${panel}`, { hidden })
       .then((r) => r.data),
 };
 
@@ -142,6 +176,20 @@ export function useSaveUserDashboard() {
       userDashboardApi.save(tiles, version),
     onSuccess: (data) => {
       queryClient.setQueryData(USER_DASHBOARD_QUERY_KEY, data);
+    },
+  });
+}
+
+/** „Usuń z pulpitu” / „Przywróć” listy nad kafelkami — zapis na koncie. */
+export function useSetDashboardPanelHidden() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ panel, hidden }: { panel: DashboardPanelKey; hidden: boolean }) =>
+      userDashboardApi.setPanelHidden(panel, hidden),
+    onSuccess: (data) => {
+      queryClient.setQueryData(USER_DASHBOARD_QUERY_KEY, data);
+      // Listę liczy `GET /api/board-tasks` — po zmianie ma zniknąć albo wrócić.
+      void queryClient.invalidateQueries({ queryKey: BOARD_TASKS_QUERY_KEY });
     },
   });
 }

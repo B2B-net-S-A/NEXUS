@@ -8,6 +8,8 @@
  * wcześniej z notatek), nadal mówi, jak kandydat może pracować.
  */
 
+import { formatIsoDatePl } from "@/lib/date-pl";
+
 export type WorkMode = "remote" | "hybrid" | "onsite";
 
 export const WORK_MODES: readonly WorkMode[] = ["remote", "hybrid", "onsite"];
@@ -109,4 +111,94 @@ export function workModeValidationError(
     return "0 dni w biurze oznacza pracę wyłącznie zdalną — odznacz hybrydę i pracę stacjonarną albo podaj liczbę dni.";
   }
   return null;
+}
+
+// ── Odrzucenie „Nie akceptuje trybu pracy” (14.10.2026) ────────────────────
+
+/** Najwięcej dni w biurze do wyboru w oknie odrzucenia — 5 to już biuro. */
+export const MAX_REJECTION_OFFICE_DAYS = 4;
+
+/**
+ * Ile dni w biurze można wskazać przy odrzuceniu za tryb pracy: tylko mniej,
+ * niż wymaga rekrutacja (tyle samo albo więcej nie byłoby powodem), a gdy
+ * wymóg jest nieznany — od 0 do 4.
+ */
+export function officeDaysChoices(requiredDays: number | null | undefined): number[] {
+  const known =
+    typeof requiredDays === "number" && Number.isInteger(requiredDays) && requiredDays >= 1;
+  const top = known
+    ? Math.min(requiredDays - 1, MAX_REJECTION_OFFICE_DAYS)
+    : MAX_REJECTION_OFFICE_DAYS;
+  return Array.from({ length: top + 1 }, (_, days) => days);
+}
+
+/** „Tylko zdalnie”, „Do 1 dnia”, „Do 3 dni”. */
+export function officeDaysChoiceLabel(days: number): string {
+  if (days === 0) return "Tylko zdalnie";
+  return days === 1 ? "Do 1 dnia" : `Do ${days} dni`;
+}
+
+/** Tryb pracy zapisany na profilu po odrzuceniu z wybraną liczbą dni. */
+export function workModeAfterRejection(days: number): string {
+  return formatWorkMode(modesForOfficeDays(days), days) ?? "";
+}
+
+const JOB_POLICY_LABELS: Record<WorkMode, string> = {
+  remote: "zdalnie",
+  hybrid: "hybrydowo",
+  onsite: "stacjonarnie",
+};
+
+/** „hybrydowo · 2 dni w biurze w tygodniu” — `null`, gdy nic nie wiadomo. */
+export function jobWorkModeLine(
+  remotePolicy: string | null | undefined,
+  onsiteDays: number | null | undefined,
+): string | null {
+  const policy =
+    remotePolicy && remotePolicy in JOB_POLICY_LABELS
+      ? JOB_POLICY_LABELS[remotePolicy as WorkMode]
+      : null;
+  const days =
+    typeof onsiteDays === "number" && onsiteDays > 0
+      ? onsiteDays === 1
+        ? "1 dzień w biurze w tygodniu"
+        : `${onsiteDays} dni w biurze w tygodniu`
+      : null;
+  const parts = [policy, days].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+/** Klucz źródła trybu pracy w `preferences` — lustro `WORK_MODE_ORIGIN_KEY`. */
+export const WORK_MODE_ORIGIN_KEY = "_work_mode_origin";
+
+/**
+ * „z odrzucenia · 14.10.2026 · Java Developer” pod „Tryb pracy” na profilu.
+ * Serwer zdejmuje źródło przy każdej innej zmianie trybu pracy, więc jego
+ * obecność znaczy, że wartość wciąż pochodzi z tego odrzucenia.
+ */
+export function rejectionWorkModeOrigin(
+  preferences: unknown,
+): { text: string; title: string } | undefined {
+  if (!preferences || typeof preferences !== "object" || Array.isArray(preferences)) {
+    return undefined;
+  }
+  const origin = (preferences as Record<string, unknown>)[WORK_MODE_ORIGIN_KEY];
+  if (!origin || typeof origin !== "object") return undefined;
+  const { source, at, job_title: jobTitle, by_name: byName } = origin as Record<
+    string,
+    unknown
+  >;
+  if (source !== "rejection") return undefined;
+  const date = typeof at === "string" ? formatIsoDatePl(at) : null;
+  const title = typeof jobTitle === "string" && jobTitle.trim() ? jobTitle.trim() : null;
+  const text = ["z odrzucenia", date && date !== "—" ? date : null, title]
+    .filter(Boolean)
+    .join(" · ");
+  const author = typeof byName === "string" && byName.trim() ? byName.trim() : null;
+  return {
+    text,
+    title: ["Powód odrzucenia: Nie akceptuje trybu pracy", author, title]
+      .filter(Boolean)
+      .join(" · "),
+  };
 }

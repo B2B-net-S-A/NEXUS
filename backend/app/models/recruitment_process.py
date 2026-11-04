@@ -37,9 +37,12 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    case,
+    select,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, column_property, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
@@ -177,13 +180,17 @@ class RecruitmentProcess(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
     # Skąd osoba weszła do rekrutacji: added_manual | application | proposal |
-    # reassign | auto_match | import. NULL = proces sprzed 0352.
+    # reassign | auto_match | import | system (0515). NULL = proces sprzed 0352.
     entry_source: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
     # Przepięcie: rekrutacja, z której osoba przyszła (jej odpowiedzi ze
     # screeningu podpowiada Luna). FK istnieje w bazie (ON DELETE SET NULL,
     # 0352), ale NIE w modelu: druga ścieżka processes → jobs robi z każdego
     # `select(...).join(Job)` bez warunku AmbiguousForeignKeysError.
     reassign_from_job_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # 0399: dane wejścia z automatu zamiast notatki („Auto-match 67/100 · JJIT”)
+    # — {"kind": "auto_match", "score", "source", "must_hit", "must_total"}.
+    # Do 29.09.2026 automaty pisały to jako notatkę w historii kandydata.
+    entry_meta: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
     opened_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -212,3 +219,25 @@ class RecruitmentProcess(Base, TimestampMixin):
             f"<RecruitmentProcess cand={self.candidate_id} job={self.job_id} "
             f"attempt={self.attempt_no} status={self.status.value}>"
         )
+
+
+# Poprzednia próba pary, wczytywana razem z procesem (28.10.2026). Powrót
+# osoby nie później niż 30 dni po zamknięciu poprzedniej próby to ta sama
+# rozmowa — pola karty z tamtej próby liczą się dalej
+# (``recommendation_cards.attempt_started``). Bez osobnej kolumny: decyduje
+# ``previous_process_id``, więc reguła działa też dla par sprzed zmiany.
+_processes = RecruitmentProcess.__table__
+_previous = _processes.alias("previous_process")
+RecruitmentProcess.previous_closed_at = column_property(
+    select(_previous.c.closed_at)
+    .where(_previous.c.id == _processes.c.previous_process_id)
+    .correlate_except(_previous)
+    .scalar_subquery()
+)
+# Początek poprzedniej próby, gdy sama była powrotem; ``None`` = próba 1.
+RecruitmentProcess.previous_opened_at = column_property(
+    select(case((_previous.c.attempt_no > 1, _previous.c.opened_at), else_=None))
+    .where(_previous.c.id == _processes.c.previous_process_id)
+    .correlate_except(_previous)
+    .scalar_subquery()
+)

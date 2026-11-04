@@ -69,6 +69,27 @@ describe("finance order changes formatting", () => {
     expect(formatRate(null, "hourly", "PLN")).toBe("—");
   });
 
+  it("renders the old side of a rate change in its own currency", () => {
+    // Sama zmiana waluty (1000 PLN → 1000 EUR) jest zmianą pieniędzy — obie
+    // strony w walucie nowej dawały „1000 EUR → 1000 EUR”.
+    expect(
+      changeValue(
+        change({
+          old_amount: 1000,
+          new_amount: 1000,
+          old_unit: "daily",
+          new_unit: "daily",
+          currency: "EUR",
+          old_currency: "PLN",
+        }),
+      ),
+    ).toBe("1000,00 zł/dzień → 1000,00 EUR/dzień");
+    // Wpis bez waluty starej strony — ta sama co nowej.
+    expect(changeValue(change({ currency: "EUR", old_currency: null }))).toBe(
+      "152,00 EUR/h → 170,00 EUR/h",
+    );
+  });
+
   it("describes old → new values, including an open-ended order", () => {
     expect(changeValue(change({}))).toBe("152,00 zł/h → 170,00 zł/h");
     expect(

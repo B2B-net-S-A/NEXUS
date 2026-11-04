@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 
 import { EntityHeader, FilterBar, MatchScoreBadge } from "@/components/ds"
+import { formatPhone } from "@/lib/phone-format"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -106,7 +107,7 @@ export function CandidateListPreview() {
                   </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">
                     <p className="flex items-center gap-1.5"><Mail aria-hidden className="size-3.5" />{candidate.email}</p>
-                    <p className="mt-1 flex items-center gap-1.5"><Phone aria-hidden className="size-3.5" />{candidate.phone}</p>
+                    <p className="mt-1 flex items-center gap-1.5"><Phone aria-hidden className="size-3.5" />{formatPhone(candidate.phone)}</p>
                     <p className="mt-1 flex items-center gap-1.5"><FileText aria-hidden className="size-3.5" />{candidate.cvName ?? "Brak CV"}</p>
                   </td>
                   <td className="px-4 py-3">

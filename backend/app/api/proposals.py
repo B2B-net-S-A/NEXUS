@@ -42,6 +42,7 @@ from app.schemas.proposal import (
 from app.tasks.compute_proposals import (
     compute_proposal_for_job,
     create_pending_snapshot,
+    effective_snapshot_status,
 )
 
 logger = logging.getLogger(__name__)
@@ -185,15 +186,18 @@ async def get_latest_proposal(
     candidates_stale = any(
         item.breakdown.get("measurement") == "candidate_changed" for item in items
     )
+    # R10-N7-8: porzucony `pending` (deploy w trakcie liczenia) = `failed`,
+    # inaczej front odpytuje go co 3 s bez końca.
+    status, abandoned_message = effective_snapshot_status(snap.status, snap.created_at)
     return ProposalSnapshotResponse(
         id=snap.id,
         job_id=snap.job_id,
-        status=snap.status,
+        status=status,
         source=snap.source,
         top_k=snap.top_k,
         profile_id=snap.profile_id,
         created_at=snap.created_at,
-        error_message=snap.error_message,
+        error_message=abandoned_message or snap.error_message,
         degraded=snap.degraded or context_stale or candidates_stale,
         stale=context_stale or candidates_stale,
         hidden=snap.hidden,

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type UIEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -10,24 +10,29 @@ import {
 } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   Columns3,
   Download,
   FileArchive,
   FileText,
+  History,
   Link as LinkIcon,
   Lock,
   Plus,
   Search,
-  Sparkles,
   Upload,
   UserPlus,
   Users,
+  X,
   XCircle,
 } from "lucide-react";
 import api, { savedSearchesApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { candidateListsApi } from "@/lib/api/candidateLists";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { useToast } from "@/components/Toast";
 import {
   BulkCvDownloadError,
@@ -40,9 +45,10 @@ import {
 } from "@/lib/candidate-export";
 import { filtersFromCandidateSavedSearch } from "@/lib/candidate-saved-search";
 import { cn } from "@/lib/utils";
+import { addedToBaseView } from "@/lib/added-to-base";
+import { lastTalkCell } from "@/lib/candidate-last-talk";
 import { AddCandidateModal } from "@/components/AppShell";
 import { ImportCandidatesV2 } from "@/components/v2/modals/ImportCandidatesV2";
-import { AddCandidateFromCVModal } from "@/components/v2/modals/AddCandidateFromCVModal";
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { CandidateQuickView } from "@/components/v2/pages/CandidateQuickView";
@@ -53,6 +59,29 @@ import {
 } from "@/components/v2/pages/candidate-list-query";
 import { useCandidateSearchDebounce } from "@/hooks/useCandidateSearchDebounce";
 import {
+  carryImmediate,
+  filterChangeCount,
+  isBareListQuery,
+  listSearchKeywords,
+  listSearchLabel,
+  resolveInitialListParams,
+  sameCriteria,
+} from "@/lib/candidate-list-staging";
+import {
+  clearJobSearch,
+  clearListSearch,
+  pushRecentSearch,
+  readJobSearch,
+  readListSearch,
+  writeJobSearch,
+  writeListSearch,
+  readCvSeen,
+  markCvSeen,
+  readJobSearchReturn,
+  writeJobSearchReturn,
+} from "@/lib/search-memory";
+import { RecentSearchesMenu } from "@/components/v2/filters/RecentSearchesMenu";
+import {
   FieldSnippets,
   MAX_FIELD_SNIPPETS,
   MatchSnippet,
@@ -61,17 +90,44 @@ import {
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { CANDIDATES_PAGE_SIZES, useUiStore, type CandidatesPageSize } from "@/store/ui";
 import {
-  CANDIDATE_COLUMNS,
+  CANDIDATE_JOB_SEARCH_PREFS_KEY,
   CANDIDATE_TABLE_PREFS_KEY,
   candidateGridLayout,
+  selectableCandidateColumns,
   toggleCandidateColumn,
+  CANDIDATE_WIDE_DEFAULT_QUERY,
   visibleCandidateColumns,
+  withStageMatchColumn,
 } from "@/lib/candidate-table-columns";
+import { hasStageFilter, type StageMatch } from "@/lib/stage-filter";
+import { CandidateStageMatchCell } from "@/components/v2/candidates/CandidateStageMatchCell";
+import { useVisibleMatchScores } from "@/hooks/useVisibleMatchScores";
+import { scoreBadgeClass } from "@/lib/match-score-badge";
+import { proposalsBulkApi } from "@/lib/candidate-search-api";
+import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { CandidateCvCell } from "@/components/v2/candidates/CandidateCvCell";
+import {
+  CandidateCvBrowser,
+  type CvBrowserPerson,
+} from "@/components/v2/candidates/CandidateCvBrowser";
 import { CandidatePhoneCell } from "@/components/v2/candidates/CandidatePhoneCell";
 import { CandidateProcessCell } from "@/components/v2/candidates/CandidateProcessCell";
+import { AvailabilityPill } from "@/components/ds/AvailabilityPill";
+import { EmploymentPill } from "@/components/ds/EmploymentMarker";
+import { BlacklistBadge } from "@/components/v2/candidate-profile/BlacklistDialogs";
+import { UnknownFieldBadges } from "@/components/v2/candidates/UnknownFieldBadges";
+import {
+  dividerIndex,
+  dividerTitle,
+  hideUnknownPatch,
+  knownSplitLabel,
+  unknownFieldsBelow,
+} from "@/lib/unknown-divider";
+import type { EmploymentMarker } from "@/lib/employment-marker";
+import { hidesAvailabilityStatus } from "@/lib/contract-availability";
+import type { EmployedPerson } from "@/components/v2/employment/EmploymentNotice";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -93,7 +149,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { AvailabilityStatus, EmploymentInfo } from "@/components/v2/CandidateHighlights";
+import { candidatesListFiltersForQuery } from "@/lib/job-search-filters";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
+import { isRecruiterOnly } from "@/lib/cv-download-access";
 import { ActiveFilterChips } from "@/components/v2/filters/ActiveFilterChips";
 import type { StageFilterValue } from "@/components/v2/filters/StageFilterPanel";
 import {
@@ -107,10 +165,12 @@ import {
   decodeSelectedIds,
   decodeSkillsExpr,
   effectiveSort,
+  matchSortAvailable,
   encodeCompareHref,
   encodeFilterCriteria,
   encodeFilters,
   encodeNavContext,
+  withJobSearchBackRef,
   filtersEqual,
   filtersToApiParams,
   parseRateBound,
@@ -121,12 +181,15 @@ import {
   type AvailabilityFilter,
   type CandidateFilters,
   type CandidateStatusFilter,
+  EMPLOYMENT_FILTER_VALUES,
   type EmploymentFilter,
   type PipelineStageFilter,
   type RecruitmentMatch,
   type RecentlyChangedJobs,
   type TextModeFilter,
 } from "@/lib/url-filters";
+import { cleanRows } from "@/lib/keyword-requirements";
+import { classificationRows, classifyKeywords, mayBeSkillList } from "@/lib/keyword-suggest";
 import {
   countSkillConstraints,
   parseSkillExpression,
@@ -135,6 +198,7 @@ import {
 import { looksLikePastedRequest, type SkillBucketsValue } from "@/lib/candidate-search-semantics";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
 import type { CandidateContactSummary } from "@/lib/candidate-contact";
+import type { AvailabilityFromNotes } from "@/lib/notes-facts";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import {
   candidateRowTestId,
@@ -145,7 +209,7 @@ import {
   getCurrentTitle,
   isRowActivationKey,
 } from "@/components/v2/pages/candidate-list-helpers";
-import { PinnedCandidatesBar } from "@/components/v2/filters/PinnedCandidatesBar";
+import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
 import { SavedSearchesMenu } from "@/components/v2/filters/SavedSearchesMenu";
 import type { SearchTextInterpretation } from "@/lib/candidate-search-api";
 import { CandidateFilterBar } from "@/components/v2/candidates/CandidateFilterBar";
@@ -155,10 +219,14 @@ import {
   type ListTextModeApplied,
 } from "@/components/v2/candidates/ListSearchInterpretation";
 import { CandidateBulkBar } from "@/components/v2/candidates/CandidateBulkBar";
+import { AssessWithAiButton } from "@/components/v2/recruitment/AiAssessmentPanel";
+import { PageNumberButtons } from "@/components/v2/candidates/PageNumberButtons";
 import { RequestSearchDialog } from "@/components/v2/candidates/RequestSearchDialog";
 import {
+  availabilityCellSecondLine,
   availabilityCellText,
   candidatesCountLabel,
+  rateCellSecondLine,
   rateCellText,
 } from "@/components/v2/candidates/candidate-row-format";
 import type { TalentRadarInitialRequest } from "@/components/talent-radar/TalentRadarWorkspace";
@@ -169,7 +237,6 @@ const EXPORT_ROLES: UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "finance",
 ];
 
@@ -178,6 +245,8 @@ const LIST_COLUMN_IDS: ReadonlySet<string> = new Set(["process"]);
 const ROW_HEIGHT = 64;
 /** Wysokość nagłówka kolumn (`h-10`) — przesunięcie wierszy w kontenerze przewijania. */
 const LIST_HEADER_HEIGHT = 40;
+// Kreska „Bez stawki albo miasta w profilu · N” nad osobami bez danych (D5).
+const UNKNOWN_DIVIDER_HEIGHT = 36;
 
 const SORT_LABELS: Record<CandidateFilters["sort"], string> = {
   relevance: "Trafność",
@@ -185,7 +254,14 @@ const SORT_LABELS: Record<CandidateFilters["sort"], string> = {
   oldest: "Najstarsi",
   // Backend sortuje po NAZWISKU, potem imieniu, bez polskich znaków.
   name: "Nazwisko A–Z",
+  // Podobieństwo do wierszy wymagań; w „Szukaj ręcznie” — do rekrutacji
+  // (`sortLabel`). Backend: `services/candidate_match_order.py`.
+  match: "Dopasowanie do wymagań",
 };
+
+function sortLabel(value: CandidateFilters["sort"], inRecruitment: boolean): string {
+  return value === "match" && inRecruitment ? "Dopasowanie do rekrutacji" : SORT_LABELS[value];
+}
 
 // Deterministyczna kolorystyka awatara wg ID kandydata (ten sam kandydat =
 // ten sam kolor między odświeżeniami).
@@ -200,6 +276,11 @@ const AVATAR_COLOR_CLASSES = [
 
 function avatarColorClass(id: number): string {
   return AVATAR_COLOR_CLASSES[Math.abs(id) % AVATAR_COLOR_CLASSES.length];
+}
+
+/** Imię i nazwisko jak w wierszu listy. */
+function candidateFullName(candidate: Pick<Candidate, "name" | "lastname">): string {
+  return `${candidate.name ?? ""} ${candidate.lastname ?? ""}`.trim() || "Kandydat";
 }
 
 function parseEnumCsv<T extends string>(
@@ -225,9 +306,13 @@ interface Candidate {
   status?: "active" | "passive" | "blacklisted";
   availability_status?: AvailabilityStatus;
   availability_date?: string | null;
+  /** Datę wpisały notatki — „z notatki · stan na” w kolumnie „Dostępność”. */
+  availability_from_notes?: AvailabilityFromNotes | null;
   notice_period?: number | null;
   notice_period_unit?: "days" | "weeks" | "months" | null;
   employment?: EmploymentInfo;
+  /** Znacznik „Pracuje u nas” — pod nazwiskiem i w oknach dodawania. */
+  employment_marker?: EmploymentMarker | null;
   location?: string;
   city?: string | null;
   competence_category?: string | null;
@@ -237,6 +322,11 @@ interface Candidate {
   linkedin_current_company?: string | null;
   linkedin_current_title?: string | null;
   last_contacted_at?: string | null;
+  /** „Ostatnia rozmowa” — tylko przy `include_last_talk` (lista je wysyła). */
+  last_talk_at?: string | null;
+  last_talk_by?: string | null;
+  last_talk_preview?: string | null;
+  contact_attempts?: number | null;
   years_it_experience?: number | null;
   /** Nazwa pliku głównego CV — kolumna „CV” (podgląd po kliknięciu). */
   cv_filename?: string | null;
@@ -244,22 +334,38 @@ interface Candidate {
   has_cv_document?: boolean | null;
   created_at?: string;
   updated_at?: string;
+  /** „W bazie od” (0437) — kolumna „Dodano” i kolejność „Najnowsi”. */
+  added_to_base_at?: string | null;
+  added_to_base_exact?: boolean;
   match_snippet?: string | null;
   /** v2: każde pole z trafieniem słowa kluczowego (z zakresami pogrubień). */
   match_snippets?: FieldSnippet[] | null;
   active_recruitments?: Array<{
     job_id: number;
     job_title: string;
+    job_working_title?: string | null;
+    job_client_reference?: string | null;
     client_name?: string | null;
     stage: string;
     moved_at?: string | null;
     moved_by_name?: string | null;
   }> | null;
+  /** Filtr etapu: najnowsze pasujące przejście (kiedy, kto, rekrutacja). */
+  stage_match?: StageMatch | null;
   expected_rate_hourly?: number | string | null;
   expected_rate_currency?: string | null;
+  // „Stawka od” (0414) — po niej filtruje lista.
+  rate_from_hourly?: number | string | null;
+  rate_from_at?: string | null;
+  rate_from_stale?: boolean | null;
+  rate_latest_hourly?: number | string | null;
+  rate_latest_at?: string | null;
+  rate_observation_count?: number | null;
   contact_case?: CandidateContactSummary | null;
   /** Semantyka v2: filtry przejście wyłącznie przez brak danych. */
   unknown_fields?: string[];
+  /** D6: „Pruszków · 16 km (Warszawa)” — osoba przeszła przez promień. */
+  location_distance?: { place: string; km: number; center: string } | null;
 }
 
 interface CandidateListResponse {
@@ -274,6 +380,14 @@ interface CandidateListResponse {
   search_degraded?: boolean;
   /** Pula wyników po znaczeniu jest przycięta. */
   result_cap_reached?: boolean;
+  /** Kolejność faktycznie użyta (przy braku wektorów „match” → „newest”). */
+  sort_applied?: string | null;
+  /** Tekst wyglądający na osobę: „exact” = jest ktoś o tym nazwisku,
+   *  „similar” = nie ma nikogo takiego, pokazujemy podobne nazwiska. */
+  text_match?: "exact" | "similar" | null;
+  /** D5: ile z `total` spełnia filtr stawki/miasta/stażu Z DANYMI;
+   *  `null` = żaden z tych filtrów nie zostawia osób bez danych. */
+  known_match_count?: number | null;
 }
 
 /**
@@ -293,6 +407,8 @@ export function candidatesListApiParams(
     include_match_stats: includeMatchStats || undefined,
     include_active_recruitments: includeActiveRecruitments,
     include_last_activity: includeLastActivity || undefined,
+    // Kolumna „Ostatnia rozmowa”: dwa lekkie zapytania na stronę.
+    include_last_talk: true,
   });
 }
 
@@ -305,6 +421,31 @@ export const CANDIDATES_BASE_TOTAL_QUERY_KEY = ["candidates-v2", "base-total"] a
 const CANDIDATES_BASE_TOTAL_PARAMS = { page: 1, page_size: 1, semantics_version: 2 };
 
 /** „22.09.2026” albo `null` dla braku / nieczytelnej daty. */
+/**
+ * Kolumna „Dodano” = „w bazie od” (13.10.2026). Osoba z Traffita bez daty
+ * u źródła ma w `created_at` dzień importu — wtedy „przed …” z dymkiem.
+ * Odpowiedź bez nowych pól (stary serwer) pokazuje `created_at` jak dotąd.
+ */
+function AddedToBaseCell({
+  candidate,
+}: {
+  candidate: Pick<Candidate, "created_at" | "added_to_base_at" | "added_to_base_exact">;
+}) {
+  const view =
+    candidate.added_to_base_at !== undefined
+      ? addedToBaseView({ at: candidate.added_to_base_at, exact: candidate.added_to_base_exact })
+      : null;
+  const text = view ? view.dateLabel : formatShortDate(candidate.created_at);
+  return (
+    <div
+      className={cn("min-w-0 truncate text-sm", view && !view.exact ? "text-muted-foreground" : "text-foreground")}
+      title={view && !view.exact ? `Import z Traffita — w bazie ${view.dateLabel}, dokładnej daty nie znamy` : undefined}
+    >
+      {text ?? <Missing />}
+    </div>
+  );
+}
+
 function formatShortDate(value: string | null | undefined): string | null {
   if (!value) return null;
   const ts = Date.parse(value);
@@ -316,9 +457,113 @@ function formatShortDate(value: string | null | undefined): string | null {
   });
 }
 
+/**
+ * „Ostatnia rozmowa”: data i autor najnowszej notatki z rozmowy; bez rozmowy —
+ * „bez rozmowy” i liczba prób kontaktu. Dymek pokazuje początek notatki.
+ */
+function CandidateLastTalkCell({
+  candidate,
+}: {
+  candidate: Pick<
+    Candidate,
+    "last_talk_at" | "last_talk_by" | "last_talk_preview" | "contact_attempts"
+  >;
+}) {
+  const talk = lastTalkCell(candidate);
+  return (
+    <div className="min-w-0 text-sm" title={talk.title ?? undefined}>
+      <div className={cn("truncate", talk.muted ? "text-muted-foreground" : "text-foreground")}>
+        {talk.primary}
+      </div>
+      {talk.secondary ? (
+        <div className="truncate text-xs text-muted-foreground">{talk.secondary}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function subscribeWideViewport(onChange: () => void): () => void {
+  const query = window.matchMedia?.(CANDIDATE_WIDE_DEFAULT_QUERY);
+  if (!query) return () => undefined;
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+/** Czy okno jest na tyle szerokie, żeby domyślnie pokazać dodatkową kolumnę. */
+function useWideViewport(): boolean {
+  return useSyncExternalStore(
+    subscribeWideViewport,
+    () => window.matchMedia?.(CANDIDATE_WIDE_DEFAULT_QUERY)?.matches === true,
+    () => false,
+  );
+}
+
 /** Wyszarzone „brak" — brak danych nie może wyglądać jak wartość. */
 function Missing() {
   return <span className="text-xs text-muted-foreground/80">brak</span>;
+}
+
+/**
+ * Dopasowanie do rekrutacji w „Szukaj ręcznie”. Wiersz wirtualizowanej
+ * listy montuje się dopiero na ekranie, więc montaż = „wiersz widoczny”
+ * i dopiero wtedy prosimy o wynik. Brak wyniku nigdy nie wygląda jak zero.
+ */
+function FitScoreCell({
+  candidateId,
+  score,
+  failure,
+  answered,
+  onVisible,
+  onRetry,
+}: {
+  candidateId: number;
+  score: number | null | undefined;
+  failure: "forbidden" | "retry" | undefined;
+  answered: boolean;
+  onVisible: (id: number) => void;
+  onRetry: () => void;
+}) {
+  useEffect(() => {
+    onVisible(candidateId);
+  }, [candidateId, onVisible]);
+  if (typeof score === "number") {
+    return (
+      <span
+        className={cn(
+          "inline-flex h-6 w-9 items-center justify-center rounded-md text-xs font-semibold tabular-nums",
+          scoreBadgeClass(score),
+        )}
+        title="Dopasowanie do tej rekrutacji"
+      >
+        {Math.round(score)}
+      </span>
+    );
+  }
+  if (failure === "forbidden") {
+    return <span className="text-xs text-muted-foreground">brak dostępu</span>;
+  }
+  if (failure === "retry") {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onRetry();
+        }}
+        className="text-xs font-medium text-primary hover:underline"
+      >
+        ponów
+      </button>
+    );
+  }
+  if (answered) {
+    return (
+      <span className="text-xs text-muted-foreground" title="Ocena niepełna — brak zmierzonego dopasowania">
+        niepełna
+      </span>
+    );
+  }
+  return <span className="text-xs text-muted-foreground">…</span>;
 }
 
 /** Ścieżka, pod którą lista pisze swój stan do adresu. */
@@ -338,28 +583,122 @@ export function isHistoryNeutralChange(
  return filtersEqual({ ...previous, ...neutral }, { ...next, ...neutral });
 }
 
+/**
+ * „Szukaj ręcznie” z rekrutacji (25.09.2026) — ta sama lista, osadzona
+ * w oknie rekrutacji. Filtry startują z rekrutacji zamiast z adresu, osoby
+ * już w rekrutacji są ukryte na stałe (poza chipami i „Wyczyść”), w tabeli
+ * dochodzi dopasowanie do tej rekrutacji, a „Przypisz” dodaje wprost do
+ * „Nowych”. Adres strony rekrutacji nie jest ani czytany, ani pisany.
+ */
+export interface CandidatesListEmbed {
+  jobId: number;
+  jobTitle: string;
+  initialFilters: CandidateFilters;
+  readOnly?: boolean;
+  /**
+   * Po udanym dodaniu: kogo naprawdę dodano (odświeżenie tablicy rekrutacji,
+   * „Dodani teraz” z „Cofnij” w oknie). Imię z wczytanych wierszy listy.
+   */
+  onAdded?: (added: CandidatesListAddedPerson[]) => void;
+  /** Zdanie nad słowami kluczowymi, gdy wiersze przyszły z rekrutacji. */
+  keywordsNote?: string;
+  /** Wiersze „musi mieć” spoza krytycznych — chip „Musi mieć (nie wycina)”. */
+  mustRows?: readonly (readonly string[])[];
+  /**
+   * Osoby, którym „Cofnij” w „Dodani teraz” zdjęło dodanie — wiersz znów
+   * dostaje „Dodaj” zamiast „Dodano” (15.10.2026).
+   */
+  undone?: ReadonlySet<number>;
+  /**
+   * „✦ Oceń z AI” na zaznaczonych (28.10.2026): okno pokazuje panel oceny,
+   * a „Dodaj „Dzwoń” do Nowych” wraca przez `add` — tę samą drogę co
+   * „Dodaj N do Nowych” (dodani schodzą z zaznaczenia i z listy).
+   */
+  onAssessWithAi?: (request: CandidatesListAiRequest) => void;
+}
+
+/** Zaznaczone osoby do „Oceń z AI” i dodanie tą samą drogą co lista. */
+export interface CandidatesListAiRequest {
+  people: CandidatesListAddedPerson[];
+  add: (candidateIds: number[]) => Promise<readonly number[]>;
+}
+
+/** Osoba dodana z listy osadzonej w rekrutacji. */
+export interface CandidatesListAddedPerson {
+  candidateId: number;
+  fullName: string;
+}
+
 export interface CandidatesListV2Props {
   /**
    * „Z requestu": dane z okna idą do rodzica (ekran „Kandydaci"), który
    * pokazuje wyniki. Bez tego przycisk się nie renderuje.
    */
   onRequestSearch?: (request: TalentRadarInitialRequest) => void;
+  embed?: CandidatesListEmbed;
 }
 
-export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}) {
+// Wspólne z oknem „Kandydaci do dodania” — `lib/job-search-filters.ts`.
+export { candidatesListFiltersForQuery };
+
+export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Props = {}) {
   const router = useRouter();
-  const { showSuccess } = useToast();
-  const searchParams = useSearchParams();
+  const { showSuccess, showError } = useToast();
+  const routeSearchParams = useSearchParams();
+  // W trybie osadzonym stan startuje z filtrów rekrutacji — nie z adresu
+  // strony rekrutacji (tam `q`, `page`, `sel` znaczą co innego). Jednorazowo,
+  // jak odczyt adresu przy montowaniu.
+  const [embedSeed] = useState(() => (embed ? encodeFilters(embed.initialFilters) : null));
+  // Pamięć wyszukiwania (`search-memory`): lista — goły adres (menu, „Wróć”,
+  // inna strona) wraca do ostatniego wyszukiwania karty; okno rekrutacji —
+  // ostatnie wyszukiwanie tej osoby w tej rekrutacji. Pamięć listy nigdy nie
+  // trafia do okna rekrutacji i odwrotnie.
+  const [initialList] = useState(() => {
+    if (embed) {
+      const userId = useAuthStore.getState().user?.id ?? null;
+      const saved = readJobSearch(userId, embed.jobId);
+      const query = typeof saved?.request.query === "string" ? saved.request.query : null;
+      // Pamięć niesie odcisk filtrów startowych rekrutacji: inny odcisk =
+      // DL zmienił wymagania po ostatnim wyszukiwaniu tej osoby. Zostaje jej
+      // wyszukiwanie (decyzja 25.09.2026), baner mówi o zmianie.
+      const seed = saved?.request.seed;
+      return {
+        params: query !== null ? new URLSearchParams(query) : (embedSeed as URLSearchParams),
+        restored: query !== null,
+        restoredAt: query !== null ? saved?.at ?? null : null,
+        seedChanged:
+          query !== null && typeof seed === "string" && seed !== embedSeed?.toString(),
+        memory: null,
+      };
+    }
+    const memory = readListSearch();
+    return {
+      ...resolveInitialListParams(new URLSearchParams(routeSearchParams?.toString() ?? ""), memory),
+      restoredAt: null,
+      seedChanged: false,
+      memory,
+    };
+  });
+  const searchParams: Pick<URLSearchParams, "get" | "getAll" | "toString"> = initialList.params;
+  const routeParams = routeSearchParams;
+  const [restoredBanner, setRestoredBanner] = useState(initialList.restored);
+  const forJob = Boolean(embed);
+  const columnPrefsKey = forJob ? CANDIDATE_JOB_SEARCH_PREFS_KEY : CANDIDATE_TABLE_PREFS_KEY;
   const candidatesPageSize = useUiStore((s) => s.candidatesPageSize);
   const setCandidatesPageSize = useUiStore((s) => s.setCandidatesPageSize);
   // Kolumny tabeli — wybór każdej osoby (lista ukrytych, w przeglądarce).
   const hiddenColumns = useUiStore(
-    (s) => s.columnPreferences[CANDIDATE_TABLE_PREFS_KEY] ?? null,
+    (s) => s.columnPreferences[columnPrefsKey] ?? null,
   );
   const setColumnPreference = useUiStore((s) => s.setColumnPreference);
   const clearColumnPreference = useUiStore((s) => s.clearColumnPreference);
-  const visibleColumns = useMemo(() => visibleCandidateColumns(hiddenColumns), [hiddenColumns]);
-  const gridLayout = useMemo(() => candidateGridLayout(visibleColumns), [visibleColumns]);
+  // Szeroki ekran pokazuje domyślnie także „Ostatnią rozmowę”; na laptopie
+  // domyślna tabela mieści się na styk, więc kolumnę włącza się w „Kolumny”.
+  const wide = useWideViewport();
+  const visibleColumns = useMemo(
+    () => visibleCandidateColumns(hiddenColumns, { forJob, wide }),
+    [hiddenColumns, forJob, wide],
+  );
   const parentRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const contactFeature = useCandidateContactFeature();
@@ -376,7 +715,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  );
  const [sortBy, setSortBy] = useState<CandidateFilters["sort"]>(() => {
  const raw = searchParams.get("sort");
- return raw === "oldest" || raw === "name" || raw === "relevance"
+ return raw === "oldest" || raw === "name" || raw === "relevance" || raw === "match"
  ? raw
  : "newest";
  });
@@ -409,10 +748,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  [skillExpr],
  );
  const [employmentFilter, setEmploymentFilter] = useState<EmploymentFilter[]>(
- parseEnumCsv(
- searchParams.get("employment"),
- ["at_client","available"] as const,
- ),
+ parseEnumCsv(searchParams.get("employment"), EMPLOYMENT_FILTER_VALUES),
  );
  const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter[]>(
  parseEnumCsv(
@@ -554,6 +890,18 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  .map((x) => x.trim())
  .filter(Boolean),
  );
+ // „Mile widziane” poza umiejętnościami (miasta, kategorie, wiersze słów) —
+ // tylko kolejność. Źródło: „Szukaj ręcznie” albo zapisany adres.
+ const [preferredInit] = useState(() =>
+ decodeFilters(new URLSearchParams(searchParams.toString())),
+ );
+ const [locationPreferred, setLocationPreferred] = useState<string[]>(
+ preferredInit.locationPreferred,
+ );
+ const [competenceCategoryPreferred, setCompetenceCategoryPreferred] = useState<number[]>(
+ preferredInit.competenceCategoryPreferred,
+ );
+ const [qPreferred, setQPreferred] = useState<string[][]>(preferredInit.qPreferred);
  const [hideUnknown, setHideUnknown] = useState<boolean>(
  searchParams.get("hu") === "1",
  );
@@ -570,20 +918,15 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  v === "side_projects" || v === "sales_support" || v === "expert_consult"
  )
  );
- // Traffit-style boolean buckets — pipe-separated in URL, serialized as repeating
- // query params when calling the API.
- const [qAll, setQAll] = useState<string[]>(
- (searchParams.get("q_all") ??"").split("|").filter(Boolean)
+ // Słowa kluczowe = lista wymagań (`lib/keyword-requirements`). Adres czyta
+ // jeden parser (`decodeFilters`) — stare `q_all` wraca jako wiersze na
+ // początku, więc kolejność wierszy i licznik zmian są te same co w adresie.
+ const [initialKeywords] = useState(() =>
+ decodeFilters(new URLSearchParams(searchParams.toString())),
  );
- const [qAny, setQAny] = useState<string[][]>(
- searchParams
- .getAll("q_any")
- .map((g) => g.split("|").map((s) => s.trim()).filter(Boolean))
- .filter((g) => g.length > 0)
- );
- const [qNone, setQNone] = useState<string[]>(
- (searchParams.get("q_none") ??"").split("|").filter(Boolean)
- );
+ const [qAll, setQAll] = useState<string[]>(initialKeywords.qAll);
+ const [qAny, setQAny] = useState<string[][]>(initialKeywords.qAny);
+ const [qNone, setQNone] = useState<string[]>(initialKeywords.qNone);
  // Cleaned ANY OR-groups: drop empty strings + empty groups. The popover may
  // hold a transient empty group (an open input row); strip those before they
  // reach the URL, the API query, or the active-filter count.
@@ -609,12 +952,6 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  committed: search,
  onCommit: commitSearchValue,
  });
-
- const commitSearch = () => {
- if (searchDraft === search) return;
- setSearch(searchDraft);
- setPage(1);
- };
 
  // Saved-search alerty — aktywny zapisany search (z menu „Zapisane” lub z
  // linku powiadomienia `?ss=`) + znacznik czasu sprzed bieżącego otwarcia
@@ -679,6 +1016,9 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  remote: remoteFilter as CandidateFilters["remote"],
  skillsExpr: skillExpr,
  skillsPreferred,
+ locationPreferred,
+ competenceCategoryPreferred,
+ qPreferred,
  hideUnknown,
  locationScope,
  location: locationFilter,
@@ -728,6 +1068,9 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  remoteFilter,
  skillExpr,
  skillsPreferred,
+ locationPreferred,
+ competenceCategoryPreferred,
+ qPreferred,
  hideUnknown,
  locationScope,
  locationFilter,
@@ -762,6 +1105,190 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  ],
  );
 
+ // Filtry robocze (`filtersSnapshot`) kontra zastosowane (`applied`): zmiany
+ // czekają na „Szukaj” (decyzja 25.09.2026). Od razu działa tylko sortowanie
+ // i strona przy tych samych kryteriach (`carryImmediate`). Zapytanie, adres,
+ // eksport, zapis wyszukiwania i linki do profilu czytają `applied`.
+ const [applied, setApplied] = useState<CandidateFilters>(filtersSnapshot);
+ const [applyTick, setApplyTick] = useState(0);
+ const applyRequestedRef = useRef(false);
+ // Okno rekrutacji zapisuje pamięć dopiero po działaniu osoby — nietknięte
+ // filtry z rekrutacji nie mogą przykryć nowych wymagań Championa.
+ const rememberRef = useRef(false);
+ const requestApply = useCallback(() => {
+ rememberRef.current = true;
+ applyRequestedRef.current = true;
+ setApplyTick((t) => t + 1);
+ }, []);
+ useEffect(() => {
+ if (applyRequestedRef.current) {
+ applyRequestedRef.current = false;
+ setApplied(filtersSnapshot);
+ return;
+ }
+ setApplied((prev) => carryImmediate(prev, filtersSnapshot));
+ }, [filtersSnapshot, applyTick]);
+ const resultsPage = applied.page;
+ const goToPage = useCallback((next: number) => {
+ rememberRef.current = true;
+ setPage(next);
+ setApplied((prev) => ({ ...prev, page: next }));
+ }, []);
+ const draftForCompare = useMemo(
+ () => ({ ...filtersSnapshot, q: searchDraft }),
+ [filtersSnapshot, searchDraft],
+ );
+ const pendingCount = useMemo(
+ () => filterChangeCount(draftForCompare, applied),
+ [draftForCompare, applied],
+ );
+ // Górne pole: same nazwy technologii → wiersze wymagań (decyzja 25.09.2026).
+ const [convertedText, setConvertedText] = useState<{
+ text: string;
+ skills: string[];
+ previousRows: string[][];
+ } | null>(null);
+ const runSearch = async () => {
+ let text = searchDraft;
+ let rows = qAny;
+ setConvertedText(null);
+ if (textMode === "auto" && mayBeSkillList(text)) {
+ const result = await classifyKeywords(text.trim(), "top");
+ if (result?.as_requirements && result.skills.length > 0) {
+ const existing = new Set(qAny.flat().map((word) => word.toLowerCase()));
+ const added = classificationRows(result).filter(
+ (row) => !row.some((word) => existing.has(word.toLowerCase())),
+ );
+ setConvertedText({ text, skills: result.skills, previousRows: qAny });
+ // Bez pustego wiersza roboczego — zostawał w środku listy z polem do pisania.
+ rows = [...cleanRows(qAny), ...added];
+ setQAny(rows);
+ setSearchDraft("");
+ text = "";
+ }
+ }
+ if (text !== search) setSearch(text);
+ setPage(1);
+ requestApply();
+ const next = { ...filtersSnapshot, q: text, qAny: rows, page: 1 };
+ pushRecentSearch(currentUser?.id, {
+ kind: embed ? "job" : "list",
+ jobId: embed?.jobId ?? null,
+ label: listSearchLabel(next),
+ query: encodeFilterCriteria(next).toString(),
+ keywords: listSearchKeywords(next),
+ total: null,
+ });
+ };
+ const searchByMeaning = () => {
+ if (!convertedText) return;
+ setQAny(convertedText.previousRows);
+ setSearchDraft(convertedText.text);
+ setSearch(convertedText.text);
+ setTextMode("semantic");
+ setConvertedText(null);
+ setPage(1);
+ requestApply();
+ };
+ const undoPending = () => {
+ setSearchDraft(applied.q);
+ applyFiltersPatch({ ...applied });
+ };
+
+ // Pamięć tej karty: ostatnie zastosowane wyszukiwanie (powrót z profilu).
+ const memoryQuery = useMemo(
+ () => encodeFilters({ ...applied, savedSearchId: null, view: "list" }).toString(),
+ [applied],
+ );
+ const embedMemoryJobId = embed?.jobId ?? null;
+ useEffect(() => {
+ if (embedMemoryJobId === null) {
+ writeListSearch({ query: memoryQuery });
+ return;
+ }
+ if (!rememberRef.current) return;
+ writeJobSearch(currentUser?.id, embedMemoryJobId, {
+ query: memoryQuery,
+ seed: embedSeed?.toString() ?? null,
+ });
+ }, [memoryQuery, embedMemoryJobId, currentUser?.id, embedSeed]);
+ // Menu „Kandydaci” na otwartej liście zdejmuje parametry z adresu, ale
+ // komponent zostaje — oddajemy adres zamiast rozjazdu z tym, co widać.
+ const skipRouteRestoreRef = useRef(false);
+ useEffect(() => {
+ if (skipRouteRestoreRef.current) {
+ skipRouteRestoreRef.current = false;
+ return;
+ }
+ if (typeof window === "undefined" || window.location.pathname !== CANDIDATES_LIST_PATH) return;
+ const route = new URLSearchParams(routeParams?.toString() ?? "");
+ if (!isBareListQuery(route) || !memoryQuery) return;
+ window.history.replaceState(null, "", `${CANDIDATES_LIST_PATH}?${encodeFilters(applied).toString()}`);
+ setRestoredBanner(true);
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [routeParams]);
+ // Baner listy mówi „Filtry… są takie, jak je zostawiłeś” — po zastosowaniu
+ // innych kryteriów (zapis z „Zapisanych”, „Szukaj”, „Wstecz”) przestałby mówić
+ // prawdę. Strona i sortowanie go nie zdejmują. Okno rekrutacji zostawia swój
+ // baner: „Przywrócono…” opisuje zdarzenie, a „Wróć do filtrów z rekrutacji”
+ // jest jedyną drogą do filtrów startowych.
+ const restoredCriteriaRef = useRef<CandidateFilters | null>(null);
+ useEffect(() => {
+ if (!restoredBanner || forJob) {
+ restoredCriteriaRef.current = null;
+ return;
+ }
+ if (restoredCriteriaRef.current === null) {
+ restoredCriteriaRef.current = applied;
+ return;
+ }
+ if (!sameCriteria(restoredCriteriaRef.current, applied)) setRestoredBanner(false);
+ }, [applied, restoredBanner, forJob]);
+ // Przewinięcie listy i ostatnio otwarta osoba — przywracane po powrocie.
+ const [lastOpenedId] = useState<number | null>(() =>
+ embed
+ ? readJobSearchReturn(embed.jobId).lastOpenedId
+ : initialList.restored || initialList.memory?.query === encodeFilters({ ...filtersSnapshot, savedSearchId: null, view: "list" }).toString()
+ ? initialList.memory?.lastOpenedId ?? null
+ : null,
+ );
+ // CV oglądane w tej karcie: ✓ przy „CV” i pasek przy ostatnim (bez plakietki —
+ // ta ściskała nazwisko przy 1280 px).
+ const [cvSeen, setCvSeen] = useState<Record<number, number>>(() => readCvSeen());
+ const [lastCvId, setLastCvId] = useState<number | null>(() => {
+ const seen = Object.entries(cvSeen);
+ if (!seen.length) return null;
+ return Number(seen.reduce((a, b) => (b[1] > a[1] ? b : a))[0]);
+ });
+ const [cvPerson, setCvPerson] = useState<CvBrowserPerson | null>(null);
+ const [cvLoadingId, setCvLoadingId] = useState<number | null>(null);
+ const onCvOpened = (candidateId: number) => {
+ setCvSeen(markCvSeen(candidateId));
+ setLastCvId(candidateId);
+ };
+ const scrollSavedAtRef = useRef(0);
+ const onListScroll = (event: UIEvent<HTMLDivElement>) => {
+ if (embed) return;
+ const now = Date.now();
+ if (now - scrollSavedAtRef.current < 200) return;
+ scrollSavedAtRef.current = now;
+ writeListSearch({ query: memoryQuery, scrollTop: event.currentTarget.scrollTop });
+ };
+ const startNewSearch = () => {
+ setRestoredBanner(false);
+ if (embed) {
+ // „Wróć do filtrów z rekrutacji”: pamięć tej rekrutacji znika.
+ clearJobSearch(currentUser?.id, embed.jobId);
+ applyFiltersPatch({ ...embed.initialFilters, page: 1 });
+ requestApply();
+ rememberRef.current = false;
+ return;
+ }
+ clearListSearch();
+ resetAllFilters();
+ requestApply();
+ };
+
  // Sync URL -----------------------------------------------------
  // Pierwszy zapis i zmiany „neutralne" (pole wyszukiwania, strona, widok) →
  // replaceState; zmiana filtra/sortowania → pushState, więc „Wstecz" cofa
@@ -775,32 +1302,51 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  const restoringHistoryRef = useRef(false);
  useEffect(() => {
  const previous = lastSyncedFiltersRef.current;
- lastSyncedFiltersRef.current = filtersSnapshot;
+ lastSyncedFiltersRef.current = applied;
  const restoring = restoringHistoryRef.current;
  restoringHistoryRef.current = false;
  // Lista mogła zostać opuszczona (Wstecz do profilu) — nie nadpisujemy
  // cudzego adresu.
  if (window.location.pathname !== CANDIDATES_LIST_PATH) return;
- const qs = encodeFilters(filtersSnapshot).toString();
+ const qs = encodeFilters(applied).toString();
  const target = qs ? `${CANDIDATES_LIST_PATH}?${qs}` : CANDIDATES_LIST_PATH;
  const current = `${window.location.pathname}${window.location.search}`;
  if (
  previous === null ||
  restoring ||
  target === current ||
- isHistoryNeutralChange(previous, filtersSnapshot)
+ isHistoryNeutralChange(previous, applied)
  ) {
  window.history.replaceState(null, "", target);
  } else {
  window.history.pushState(null, "", target);
  }
- }, [filtersSnapshot]);
+ }, [applied]);
 
  // Data --------------------------------------------------------
- const candidatesApiParams = useMemo(
- () => candidatesListApiParams(filtersSnapshot, page, candidatesPageSize),
- [filtersSnapshot, page, candidatesPageSize],
+ const embedJobId = embed?.jobId ?? null;
+ // Filtry, którymi lista NAPRAWDĘ pyta API — w oknie rekrutacji z ukryciem
+ // osób z tej rekrutacji. Te same idą do podglądu (poprzedni/następny)
+ // i linku profilu, inaczej sąsiednia strona pokazałaby osoby z rekrutacji.
+ const queryFilters = useMemo(
+ () =>
+ candidatesListFiltersForQuery(
+ applied,
+ embedJobId != null ? { jobId: embedJobId } : null,
+ ),
+ [applied, embedJobId],
  );
+ const candidatesApiParams = useMemo(
+ () => candidatesListApiParams(queryFilters, queryFilters.page, candidatesPageSize),
+ [queryFilters, candidatesPageSize],
+ );
+ // „Dodany na etap” — kolumna tylko wtedy, gdy lista pyta o etap.
+ const stageMatchShown = hasStageFilter(queryFilters);
+ const tableColumns = useMemo(
+ () => withStageMatchColumn(visibleColumns, stageMatchShown, { wide }),
+ [visibleColumns, stageMatchShown, wide],
+ );
+ const gridLayout = useMemo(() => candidateGridLayout(tableColumns), [tableColumns]);
  const {
  data,
  isLoading,
@@ -814,9 +1360,41 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  fetchCandidateListPage<CandidateListResponse>(candidatesApiParams, signal),
  placeholderData: keepPreviousData,
  staleTime: 30_000,
+ // Wynik zmienia tylko „Szukaj” albo strona; powrót na kartę nie ma
+ // powodu liczyć wyszukiwania od nowa (audyt szybkości 25.09.2026).
+ refetchOnWindowFocus: false,
  });
 
  const items: Candidate[] = data?.items ?? [];
+ // Zaznaczenie przeżywa zmianę strony, a wiersze nie — osoby ze znacznikiem
+ // „Pracuje u nas” zapamiętujemy, żeby okno „Dodaj do rekrutacji” znało je
+ // także wtedy, gdy zaznaczono je na innej stronie listy.
+ const [employedSeen, setEmployedSeen] = useState<Map<number, EmployedPerson>>(new Map());
+ const pageItems = data?.items;
+ useEffect(() => {
+ if (!pageItems) return;
+ setEmployedSeen((prev) => {
+ let next = prev;
+ for (const c of pageItems as Candidate[]) {
+ if (!c.employment_marker || prev.has(c.id)) continue;
+ if (next === prev) next = new Map(prev);
+ next.set(c.id, {
+ id: c.id,
+ name: `${c.name ?? ""} ${c.lastname ?? ""}`.trim() || `Kandydat #${c.id}`,
+ marker: c.employment_marker,
+ });
+ }
+ return next;
+ });
+ }, [pageItems]);
+ // Z tego samego powodu imiona: dodanie z okna rekrutacji podaje osoby
+ // z imieniem także wtedy, gdy zaznaczono je na innej stronie.
+ const namesSeen = useRef(new Map<number, string>());
+ useEffect(() => {
+ for (const c of (pageItems ?? []) as Candidate[]) {
+ namesSeen.current.set(c.id, candidateFullName(c));
+ }
+ }, [pageItems]);
  const listViewState = getCandidateListViewState({
  isLoading,
  isError,
@@ -831,14 +1409,25 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  useEffect(() => {
  if (!data || isFetching || data.items.length > 0 || data.total <= 0) return;
  const lastPage = Math.max(1, Math.ceil(data.total / data.page_size));
- if (data.page > lastPage) setPage(lastPage);
+ if (data.page > lastPage) goToPage(lastPage);
+ }, [data, isFetching, goToPage]);
+ // Powrót do listy: przewinięcie z pamięci tej karty, raz, po pierwszych danych.
+ const scrollRestoredRef = useRef(false);
+ useEffect(() => {
+ if (scrollRestoredRef.current || !data || isFetching) return;
+ scrollRestoredRef.current = true;
+ const memory = initialList.memory;
+ if (!memory || memory.scrollTop <= 0 || memory.query !== memoryQuery) return;
+ const el = parentRef.current;
+ if (el) el.scrollTop = memory.scrollTop;
+ // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [data, isFetching]);
 
  // Płaska, odduplikowana lista fraz wyszukiwania (q + q_all + q_any) — używana
  // do podświetlenia <mark> w snippetach CV. `q_none` celowo pomijamy: fraz
  // wykluczających nie podświetlamy. Tokeny <2 znaki odpadają (zaśmiecają mark).
  const searchTerms = useMemo(() => {
- const raw = [...search.split(/\s+/), ...qAll, ...qAnyGroups.flat()];
+ const raw = [...applied.q.split(/\s+/), ...applied.qAll, ...applied.qAny.flat()];
  const seen = new Set<string>();
  const out: string[] = [];
  for (const term of raw) {
@@ -850,7 +1439,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  out.push(norm);
  }
  return out;
- }, [search, qAll, qAnyGroups]);
+ }, [applied]);
  const hasSearchTerms = searchTerms.length > 0;
 
  // Virtualization ---------------------------------------------
@@ -871,6 +1460,22 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  if (fields > 0) return 11 + 18 * Math.min(fields, MAX_FIELD_SNIPPETS);
  return c?.match_snippet ? SNIPPET_AREA : 0;
  };
+ // D5 (19.10.2026): kreska „Bez stawki albo miasta w profilu” nad pierwszą
+ // osobą, która przeszła filtr na brak danych — tylko przy układzie „z danymi,
+ // potem bez” (`lib/unknown-divider.ts`). Wiersz pod kreską rośnie o jej wysokość.
+ const knownCount = data?.known_match_count ?? null;
+ const unknownDividerAt = dividerIndex(items, {
+ offset: (resultsPage - 1) * pageSize,
+ knownCount,
+ });
+ const unknownBelow =
+ unknownDividerAt === null ? [] : unknownFieldsBelow(items, unknownDividerAt);
+ const unknownBelowCount =
+ unknownDividerAt === null
+ ? 0
+ : knownCount !== null
+ ? Math.max(0, total - knownCount)
+ : items.length - unknownDividerAt;
  const virtualizer = useVirtualizer({
  count: items.length,
  getScrollElement: () => parentRef.current,
@@ -879,7 +1484,11 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  scrollMargin: LIST_HEADER_HEIGHT,
  estimateSize: (index) => {
  const c = items[index];
- return rowHeight + (hasSearchTerms ? snippetAreaFor(c) : 0);
+ return (
+ rowHeight +
+ (hasSearchTerms ? snippetAreaFor(c) : 0) +
+ (index === unknownDividerAt ? UNKNOWN_DIVIDER_HEIGHT : 0)
+ );
  },
  overscan: 10,
  });
@@ -891,13 +1500,51 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  useEffect(() => {
  virtualizer.measure();
  }, [virtualizer, data, hasSearchTerms]);
+ // Powrót z profilu do okna rekrutacji: lista staje na ostatnio otwartej osobie.
+ const scrolledToLastRef = useRef(false);
+ useEffect(() => {
+ if (!embed || scrolledToLastRef.current || lastOpenedId === null || !data || isFetching) return;
+ scrolledToLastRef.current = true;
+ const idx = items.findIndex((c) => c.id === lastOpenedId);
+ if (idx < 0) return;
+ virtualizer.scrollToIndex(idx, { align: "center" });
+ // Lista w oknie zwykle zaczyna się pod filtrami — przewijamy też samo okno.
+ window.setTimeout(() => {
+ parentRef.current
+ ?.querySelector(`a[href^="/candidates/${lastOpenedId}?"]`)
+ ?.scrollIntoView({ block: "center" });
+ }, 300);
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [data, isFetching]);
+ // Okno CV przechodzi po osobach z CV z bieżącej strony, w kolejności listy.
+ const cvPeople = useMemo<CvBrowserPerson[]>(
+ () =>
+ items
+ .filter((c) => c.has_cv_document ?? Boolean(c.cv_filename))
+ .map((c) => ({ id: c.id, name: candidateFullName(c) })),
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+ [data],
+ );
+ const changeCvPerson = (person: CvBrowserPerson | null) => {
+ setCvPerson(person);
+ if (!person) return;
+ // Wiersz oglądanej osoby w zasięgu wirtualizacji — po zamknięciu okna
+ // fokus i pasek trafiają na niego, a nie na pierwszego otwartego.
+ const index = items.findIndex((c) => c.id === person.id);
+ if (index >= 0) virtualizer.scrollToIndex(index, { align: "center" });
+ };
 
  // Selection ---------------------------------------------------
  // `?sel=` odtwarza zaznaczenie po powrocie z porównania (UAT B21) — czytane
  // przy montowaniu, jak reszta stanu listy; `encodeFilters` go nie zapisuje,
  // więc pierwszy zapis adresu (zawsze replaceState, wyżej) zdejmuje parametr.
  const [selectedIds, setSelectedIds] = useState<Set<number>>(
- () => new Set(decodeSelectedIds(new URLSearchParams(searchParams.toString())))
+ () =>
+ new Set([
+ ...decodeSelectedIds(new URLSearchParams(searchParams.toString())),
+ // Osoby „wybrane” na profilu otwartym z tego okna wracają zaznaczone.
+ ...(embed ? readJobSearchReturn(embed.jobId).picked : []),
+ ])
  );
  const toggleId = useCallback((id: number) => {
  setSelectedIds((prev) => {
@@ -908,13 +1555,103 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  });
  }, []);
  const clearSelection = () => setSelectedIds(new Set());
+ // Zaznaczenie w oknie i „Wybieram” na profilu to jeden zbiór: profil widzi,
+ // kogo już zaznaczono, a dodani do „Nowych” znikają z obu miejsc.
+ useEffect(() => {
+ if (embedJobId === null) return;
+ writeJobSearchReturn(embedJobId, { picked: Array.from(selectedIds) });
+ }, [embedJobId, selectedIds]);
+
+ // „Szukaj ręcznie” z rekrutacji: dopasowanie do TEJ rekrutacji (tylko
+ // wiersze na ekranie, paczki po 20) i dodanie wprost do „Nowych” — ta sama
+ // trasa co wyszukiwarka dotąd (`proposals/bulk`, źródło `manual_search`).
+ // U5 (audyt 06.10.2026): pierwsza strona okna zapisuje wyświetlenia.
+ const matchScores = useVisibleMatchScores(embedJobId, embed ? items : null, {
+ impressionSurface: embed && page === 1 ? "manual_search" : undefined,
+ });
+ const [addingIds, setAddingIds] = useState<ReadonlySet<number>>(() => new Set());
+ // U4 (audyt 06.10.2026): dodana osoba zostaje na liście, zanim odświeżenie
+ // ją zdejmie — do tego czasu wiersz mówi „Dodano” zamiast drugiego „Dodaj”.
+ const [addedIds, setAddedIds] = useState<ReadonlySet<number>>(() => new Set());
+ const embedOnAdded = embed?.onAdded;
+ const embedUndone = embed?.undone;
+ useEffect(() => {
+ if (!embedUndone?.size) return;
+ setAddedIds((prev) => {
+ if (![...embedUndone].some((id) => prev.has(id))) return prev;
+ return new Set([...prev].filter((id) => !embedUndone.has(id)));
+ });
+ }, [embedUndone]);
+ const addToEmbedJob = useCallback(
+ async (candidateIds: number[], chunkSize?: number): Promise<readonly number[]> => {
+ if (embedJobId == null || candidateIds.length === 0) return [];
+ setAddingIds((prev) => new Set([...prev, ...candidateIds]));
+ try {
+ // U3: zaznaczenie przeżywa zmianę strony — paczki po 100.
+ const body = {
+ candidate_ids: candidateIds,
+ initial_stage_legacy: "new",
+ source: "manual_search" as const,
+ };
+ // `chunkSize` tylko z „Oceń z AI” (po jednej osobie); zwykłe dodanie bez zmian.
+ const result = chunkSize
+ ? await proposalsBulkApi.addInChunks(embedJobId, body, chunkSize)
+ : await proposalsBulkApi.addInChunks(embedJobId, body);
+ const summary = summarizeBulkResult(result);
+ const parts = [
+ result.total_added > 0
+ ? `Dodano do Nowych: ${result.total_added}.`
+ : "Nikogo nie dodano.",
+ ];
+ if (summary.skipped.length > 0) {
+ parts.push(`Pominięto: ${formatReasonCounts(summary.skipped)}.`);
+ }
+ if (summary.warnings.length > 0) {
+ parts.push(`Uwaga: ${formatReasonCounts(summary.warnings)}.`);
+ }
+ if (result.total_added > 0) showSuccess(parts.join(" "));
+ else showError(parts.join(" "));
+ // Z zaznaczenia schodzą dodani ORAZ osoby, które już są w rekrutacji.
+ const gone = new Set<number>(result.added);
+ result.skipped
+ .filter((row) => row.reason === "already_in_job")
+ .forEach((row) => gone.add(row.candidate_id));
+ setAddedIds((prev) => new Set([...prev, ...gone]));
+ setSelectedIds((prev) => new Set([...prev].filter((id) => !gone.has(id))));
+ void queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
+ void queryClient.invalidateQueries({ queryKey: ["kanban", String(embedJobId)] });
+ void queryClient.invalidateQueries({ queryKey: ["kanban", embedJobId] });
+ void queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
+ if (result.total_added > 0) {
+ // Nowej osoby z „dodaj nowego kandydata” na liście nie ma — imienia nie znamy.
+ embedOnAdded?.(
+ result.added.map((candidateId) => ({
+ candidateId,
+ fullName: namesSeen.current.get(candidateId) ?? `Kandydat #${candidateId}`,
+ })),
+ );
+ }
+ return result.added;
+ } catch (err) {
+ showError(apiErrorMessage(err, "Nie udało się dodać kandydatów do rekrutacji."));
+ return [];
+ } finally {
+ setAddingIds((prev) => {
+ const next = new Set(prev);
+ for (const id of candidateIds) next.delete(id);
+ return next;
+ });
+ }
+ },
+ [embedJobId, embedOnAdded, queryClient, showError, showSuccess],
+ );
  const selectionCriteriaKey = useMemo(
  () =>
  encodeFilterCriteria({
- ...filtersSnapshot,
+ ...applied,
  sort: "newest",
  }).toString(),
- [filtersSnapshot],
+ [applied],
  );
  const previousSelectionCriteria = useRef(selectionCriteriaKey);
  useEffect(() => {
@@ -944,12 +1681,15 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  // Modals + assigns -------------------------------------------
  const [showAdd, setShowAdd] = useState(false);
  const [showImport, setShowImport] = useState(false);
- const [showAddFromCV, setShowAddFromCV] = useState(false);
  const [showInvite, setShowInvite] = useState(false);
  const [showBulkPool, setShowBulkPool] = useState(false);
  const [showBulkRecruitment, setShowBulkRecruitment] = useState(false);
  const [bulkPoolPending, setBulkPoolPending] = useState(false);
- const [assignFor, setAssignFor] = useState<{ id: number; name: string } | null>(null);
+ const [assignFor, setAssignFor] = useState<{
+ id: number;
+ name: string;
+ employment?: EmploymentMarker | null;
+ } | null>(null);
  const [detailId, setDetailId] = useState<number | null>(null);
  // Ostatnio oglądany kandydat — cel powrotu fokusu po zamknięciu podglądu
  // (UAT B22). Ref, bo przy zamykaniu `detailId` jest już `null`.
@@ -1023,7 +1763,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  if (scope === "selected" && selectedIds.size === 0) return;
  try {
  const request = buildCandidateExportRequest(
- filtersSnapshot,
+ applied,
  format,
  scope,
  selectedIds,
@@ -1090,6 +1830,9 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  remoteFilter.length +
  countSkillConstraints(skillBuckets) +
  skillsPreferred.length +
+ locationPreferred.length +
+ competenceCategoryPreferred.length +
+ qPreferred.length +
  (hideUnknown ? 1 : 0) +
  (locationFilter ? 1 : 0) +
  poolIds.length +
@@ -1101,6 +1844,9 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  tagsFilter.length +
  workedAtClientIds.length +
  recruitmentIds.length +
+ traffitExtras.recruitmentClientIds.length +
+ (traffitExtras.recruitmentPresence ? 1 : 0) +
+ traffitExtras.stageColumns.length +
  (experienceMin !== null || experienceMax !== null ? 1 : 0) +
  (rateMin !== null || rateMax !== null ? 1 : 0) +
  stageMovedByIds.length +
@@ -1115,6 +1861,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  languages.length +
  (traffitExtras.locationRadiusKm !== null && locationFilter ? 1 : 0) +
  traffitExtras.voivodeships.length +
+ traffitExtras.locationPlaces.length +
  (traffitExtras.contacted ? 1 : 0) +
  (traffitExtras.contacted ? traffitExtras.contactedByIds.length : 0);
 
@@ -1137,6 +1884,10 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  setSkillExpr(patch.skillsExpr);
  }
  if (patch.skillsPreferred !== undefined) setSkillsPreferred(patch.skillsPreferred);
+ if (patch.locationPreferred !== undefined) setLocationPreferred(patch.locationPreferred);
+ if (patch.competenceCategoryPreferred !== undefined)
+ setCompetenceCategoryPreferred(patch.competenceCategoryPreferred);
+ if (patch.qPreferred !== undefined) setQPreferred(patch.qPreferred);
  if (patch.hideUnknown !== undefined) setHideUnknown(patch.hideUnknown);
  if (patch.locationScope !== undefined) setLocationScope(patch.locationScope);
  if (patch.location !== undefined) setLocationFilter(patch.location);
@@ -1195,16 +1946,20 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  const current = lastSyncedFiltersRef.current;
  if (current && filtersEqual({ ...current, ...decoded }, current)) return;
  restoringHistoryRef.current = true;
+ // „Wstecz” do gołego wpisu listy to cofnięcie filtra, nie powrót z innej strony.
+ skipRouteRestoreRef.current = true;
  applyFiltersPatchRef.current(decoded);
+ requestApply();
  };
  window.addEventListener("popstate", onPopState);
  return () => window.removeEventListener("popstate", onPopState);
- }, []);
+ }, [requestApply]);
 
  // Współdzielone przez szufladę „Filtry" i skróty w pasku narzędzi.
  const patchFiltersFromFields = (patch: Partial<CandidateFilters>) =>
  applyFiltersPatch({ ...patch, page: 1 });
  const stageFilterValue: StageFilterValue = {
+ columns: traffitExtras.stageColumns,
  stages: pipelineStageFilter,
  currentOnly: stageCurrentOnly,
  clientIds: stageClientIds,
@@ -1213,6 +1968,8 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  movedBefore: stageMovedBefore,
  };
  const onStageFilterChange = (patch: Partial<StageFilterValue>) => {
+ const { columns } = patch;
+ if (columns !== undefined) setTraffitExtras((prev) => ({ ...prev, stageColumns: columns }));
  if (patch.stages !== undefined) setPipelineStageFilter(patch.stages);
  if (patch.currentOnly !== undefined) setStageCurrentOnly(patch.currentOnly);
  if (patch.clientIds !== undefined) setStageClientIds(patch.clientIds);
@@ -1237,6 +1994,9 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  setRemoteFilter([]);
  setSkillExpr("");
  setSkillsPreferred([]);
+ setLocationPreferred([]);
+ setCompetenceCategoryPreferred([]);
+ setQPreferred([]);
  setHideUnknown(false);
  setLocationScope("");
  setLocationFilter("");
@@ -1314,10 +2074,25 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  variant="outline"
  size="sm"
  className="mt-3"
- onClick={resetAllFilters}
+ onClick={() => {
+ resetAllFilters();
+ requestApply();
+ }}
  >
  Wyczyść filtry
  </Button>
+ {embed && !embed.readOnly ? (
+ <p className="mt-3">
+ Nie ma tej osoby w bazie?{" "}
+ <button
+ className="text-primary hover:underline"
+ onClick={() => setShowAdd(true)}
+ >
+ dodaj nowego kandydata
+ </button>{" "}
+ — trafi też do „Nowych” tej rekrutacji.
+ </p>
+ ) : null}
  </>
  ) : (
  <>
@@ -1350,10 +2125,13 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  </div>
  );
   // Liczba całej bazy do nagłówka — osobne, tanie zapytanie (1 wiersz).
+  // W oknie „Szukaj ręcznie” nagłówka nie ma, więc nie pytamy.
   const { data: baseTotalData } = useQuery({
     queryKey: CANDIDATES_BASE_TOTAL_QUERY_KEY,
     queryFn: ({ signal }) =>
       fetchCandidateListPage<CandidateListResponse>(CANDIDATES_BASE_TOTAL_PARAMS, signal),
+    enabled: !embed,
+    refetchOnWindowFocus: false,
     staleTime: 5 * 60_000,
   });
   const baseTotal = baseTotalData?.total ?? null;
@@ -1367,17 +2145,24 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
     excluded: skillBuckets.none,
   };
   const canExport = hasRole(currentUser, ...EXPORT_ROLES);
-  const shownSort = effectiveSort(filtersSnapshot);
-  const hasText = search.trim().length >= 2;
-  const sortOptions = (["relevance", "newest", "oldest", "name"] as const).filter(
-    (value) => value !== "relevance" || hasText || sortBy === "relevance",
+  const sortContext = candidatesListFiltersForQuery(
+    filtersSnapshot,
+    embedJobId != null ? { jobId: embedJobId } : null,
+  );
+  const shownSort = effectiveSort(sortContext);
+  const hasText = applied.q.trim().length >= 2;
+  const canMatch = matchSortAvailable(sortContext);
+  const sortOptions = (["match", "relevance", "newest", "oldest", "name"] as const).filter(
+    (value) =>
+      (value !== "relevance" || hasText || sortBy === "relevance") &&
+      (value !== "match" || canMatch || sortBy === "match"),
   );
   const pastedRequest = looksLikePastedRequest(searchDraft);
 
   const openDetailAt = (candidateId: number) => {
     setDetailId(candidateId);
     const idx = items.findIndex((c) => c.id === candidateId);
-    if (idx >= 0) setDetailPosition((page - 1) * pageSize + idx + 1);
+    if (idx >= 0) setDetailPosition((resultsPage - 1) * pageSize + idx + 1);
   };
 
   const filterBar = (
@@ -1393,69 +2178,34 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
       activeCount={totalActiveFilters}
       onClearAll={resetAllFilters}
       resultLabel={isLoading ? undefined : candidatesCountLabel(total)}
+      pendingCount={pendingCount}
+      onSearch={runSearch}
+      recruitmentFilterLocked={forJob}
+      keywordsSourceNote={embed?.keywordsNote}
     />
   );
 
   return (
-    <div className="mx-auto max-w-[2400px] space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="flex items-baseline gap-3">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">Kandydaci</h1>
-          {baseTotal !== null && (
-            <span className="text-sm text-muted-foreground">
-              {baseTotal.toLocaleString("pl-PL")} w bazie
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="outline">
-                <Upload className="h-4 w-4" /> Importuj <ChevronDown className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-60">
-              <DropdownMenuItem onSelect={() => setShowImport(true)}>
-                <Upload className="h-4 w-4" /> Import CSV
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setShowAddFromCV(true)}>
-                <Sparkles className="h-4 w-4" /> Dodaj z CV
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/candidates/bulk-import">
-                  <FileArchive className="h-4 w-4" /> Masowy import CV
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setShowInvite(true)}>
-                <LinkIcon className="h-4 w-4" /> Wygeneruj link
-              </DropdownMenuItem>
-              {canExport && (
-                <>
-                  {/* Eksport CAŁEGO wyniku (nie tylko zaznaczenia) — role jak w
-                      `CANDIDATE_EXPORT_ROLES`; backend zwraca 403 pozostałym. */}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => void doExport("csv", "filtered")}>
-                    <Download className="h-4 w-4" /> Eksportuj wyniki (CSV)
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void doExport("xlsx", "filtered")}>
-                    <FileText className="h-4 w-4" /> Eksportuj wyniki (XLSX)
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button size="sm" variant="primary" onClick={() => setShowAdd(true)}>
-            <Plus className="h-4 w-4" />
-            Dodaj kandydata
-          </Button>
-        </div>
-      </div>
-
+    <div className="space-y-4">
       <div>
         <div className="min-w-0 space-y-3">
           <div className="space-y-1.5">
+            {/* Tytuł, pole wyszukiwania i akcje w JEDNYM rzędzie poniżej
+                1800 px (laptop z Windows, okno ≈ 1280 × 650 — dwa rzędy
+                zabierały liście ~50 px, 28.09.2026). Od 1800 px `order`
+                i łamanie odtwarzają układ w dwóch rzędach. */}
             <div className="flex flex-wrap items-center gap-2">
-              <div className="min-w-[240px] flex-1">
+              {!embed && (
+              <div className="flex items-baseline gap-3 min-[1800px]:order-1 min-[1800px]:mr-auto">
+                <h1 className="text-xl font-semibold tracking-tight text-foreground">Kandydaci</h1>
+                {baseTotal !== null && (
+                  <span className="text-sm text-muted-foreground">
+                    {baseTotal.toLocaleString("pl-PL")} w bazie
+                  </span>
+                )}
+              </div>
+              )}
+              <div className="min-w-[240px] flex-1 min-[1800px]:order-4">
                 <Input
                   leadingIcon={<Search className="h-4 w-4" />}
                   placeholder="Nazwisko, e-mail, telefon albo opis, kogo szukasz…"
@@ -1464,20 +2214,64 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                   value={searchDraft}
                   onChange={(e) => setSearchDraft(e.target.value)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter") commitSearch();
+                    if (event.key === "Enter") runSearch();
                   }}
                 />
               </div>
               {onRequestSearch && (
                 <Button
                   variant="outline"
-                  className="h-10"
+                  className="h-10 min-[1800px]:order-5"
                   onClick={() => setRequestOpen(true)}
                   title="Wklej request klienta, wgraj profil Championa albo wybierz rekrutację"
                   data-help="candidates.list.request"
                 >
                   <FileText className="h-4 w-4" /> Z requestu
                 </Button>
+              )}
+              {!embed && (
+              <div className="flex items-center gap-2 min-[1800px]:order-2">
+                <DropdownMenu modal={false}>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="outline">
+                      <Upload className="h-4 w-4" /> Importuj <ChevronDown className="h-3.5 w-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-60">
+                    <DropdownMenuItem onSelect={() => setShowImport(true)}>
+                      <Upload className="h-4 w-4" /> Import CSV
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href="/candidates/bulk-import">
+                        <FileArchive className="h-4 w-4" /> Masowy import CV
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setShowInvite(true)}>
+                      <LinkIcon className="h-4 w-4" /> Wygeneruj link
+                    </DropdownMenuItem>
+                    {canExport && (
+                      <>
+                        {/* Eksport CAŁEGO wyniku (nie tylko zaznaczenia) — role jak w
+                            `CANDIDATE_EXPORT_ROLES`; backend zwraca 403 pozostałym. */}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onSelect={() => void doExport("csv", "filtered")}>
+                          <Download className="h-4 w-4" /> Eksportuj wyniki (CSV)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => void doExport("xlsx", "filtered")}>
+                          <FileText className="h-4 w-4" /> Eksportuj wyniki (XLSX)
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button size="sm" variant="primary" onClick={() => setShowAdd(true)}>
+                  <Plus className="h-4 w-4" />
+                  Dodaj kandydata
+                </Button>
+              </div>
+              )}
+              {!embed && (
+                <div aria-hidden className="hidden min-[1800px]:order-3 min-[1800px]:block min-[1800px]:basis-full" />
               )}
             </div>
             {pastedRequest && onRequestSearch ? (
@@ -1501,12 +2295,105 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                 onTextModeChange={(mode) => {
                   setTextMode(mode);
                   setPage(1);
+                  requestApply();
                 }}
               />
             ) : null}
+            {hasText && data?.text_match === "similar" ? (
+              <p className="text-xs text-muted-foreground" role="status">
+                Nie ma nikogo o tym nazwisku — pokazujemy podobne.
+              </p>
+            ) : null}
+            {data?.sort_applied === "newest" && effectiveSort(queryFilters) === "match" ? (
+              <p className="text-xs text-muted-foreground" role="status">
+                Kolejność według dopasowania jest chwilowo niedostępna — pokazujemy najnowszych.
+              </p>
+            ) : null}
+            {convertedText && applied.q === "" ? (
+              <p className="text-xs text-muted-foreground" role="status">
+                Czytam jako wymagania: {convertedText.skills.join(", ")}.{" "}
+                <button
+                  type="button"
+                  className="font-medium text-primary underline-offset-2 hover:underline"
+                  onClick={searchByMeaning}
+                >
+                  Szukaj „{convertedText.text}” po znaczeniu
+                </button>
+              </p>
+            ) : null}
           </div>
 
+          {restoredBanner && (
+            <div
+              role="status"
+              className={cn(
+                "flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2 text-sm",
+                initialList.seedChanged
+                  ? "border-warning/40 bg-warning-muted text-warning-muted-foreground"
+                  : "border-success/30 bg-success-muted text-success-muted-foreground",
+              )}
+            >
+              <History className="h-4 w-4 shrink-0" aria-hidden />
+              {embed ? (
+                <span className="min-w-0 flex-1">
+                  <strong className="font-semibold">
+                    Przywrócono Twoje ostatnie wyszukiwanie w tej rekrutacji
+                  </strong>
+                  {initialList.restoredAt
+                    ? ` (${new Date(initialList.restoredAt).toLocaleString("pl-PL", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })})`
+                    : ""}
+                  .
+                  {initialList.seedChanged &&
+                    " Wymagania rekrutacji zmieniły się od tego czasu."}
+                </span>
+              ) : (
+                <span className="min-w-0 flex-1">
+                  <strong className="font-semibold">Wróciłeś do swojego wyszukiwania.</strong>{" "}
+                  Filtry, strona i miejsce na liście są takie, jak je zostawiłeś.
+                </span>
+              )}
+              <Button variant="outline" size="sm" onClick={startNewSearch}>
+                {embed ? "Wróć do filtrów z rekrutacji" : "Nowe wyszukiwanie"}
+              </Button>
+              <button
+                type="button"
+                aria-label="Zamknij informację"
+                onClick={() => setRestoredBanner(false)}
+                className="hit-area rounded-sm p-0.5 hover:bg-foreground/10"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
+          )}
+
           {filterBar}
+
+          {pendingCount > 0 && (
+            <div
+              role="status"
+              className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
+            >
+              <span className="min-w-0 flex-1">
+                <strong className="font-semibold">
+                  {pendingCount === 1
+                    ? "1 zmiana czeka na „Szukaj”"
+                    : `${pendingCount} zmian${pendingCount < 5 ? "y czekają" : " czeka"} na „Szukaj”`}
+                </strong>{" "}
+                — tabela pokazuje jeszcze wyniki dla poprzednich filtrów.
+              </span>
+              <Button variant="outline" size="sm" onClick={undoPending}>
+                Cofnij zmiany
+              </Button>
+              <Button variant="primary" size="sm" onClick={runSearch}>
+                <Search className="h-4 w-4" aria-hidden /> Szukaj
+              </Button>
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center gap-2" aria-live="polite">
             <span className="text-sm font-medium text-foreground">
@@ -1514,7 +2401,8 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                 ? "Ładowanie…"
                 : isError && items.length === 0
                   ? "Nie udało się pobrać danych"
-                  : candidatesCountLabel(total)}
+                  : (knownSplitLabel(total, data?.known_match_count) ??
+                    candidatesCountLabel(total))}
             </span>
             {isFetching && !isLoading && (
               <span className="text-xs text-muted-foreground">aktualizuję…</span>
@@ -1523,10 +2411,25 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
               filters={filtersSnapshot}
               onUpdate={applyFiltersPatch}
               omitKey={isChipShownOnFilterBar}
+              mustRows={embed?.mustRows}
             />
             <div className="ml-auto flex flex-wrap items-center gap-2" data-help="candidates.list.saved">
+              <RecentSearchesMenu
+                kind={embed ? "job" : "list"}
+                jobId={embedJobId}
+                onPick={(entry) => {
+                  const decoded: Partial<CandidateFilters> = decodeFilters(
+                    new URLSearchParams(entry.query),
+                  );
+                  delete decoded.view;
+                  applyFiltersPatch({ ...decoded, page: 1, savedSearchId: null });
+                  requestApply();
+                  clearSelection();
+                }}
+              />
+              {!embed && (
               <SavedSearchesMenu
-                currentQs={encodeFilterCriteria(filtersSnapshot).toString()}
+                currentQs={encodeFilterCriteria(applied).toString()}
                 onApply={(qs, ssId, previousViewedAt, newCandidateIds) => {
                   setNewSince(previousViewedAt);
                   setNewMatchIds(new Set(newCandidateIds));
@@ -1536,13 +2439,16 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                     page: 1,
                     savedSearchId: ssId,
                   });
+                  requestApply();
                   clearSelection();
                 }}
               />
+              )}
               <Select
                 value={shownSort}
                 onValueChange={(value) => {
                   const next = value as CandidateFilters["sort"];
+                  rememberRef.current = true;
                   setSortBy(next);
                   setSortExplicit(next === "newest");
                 }}
@@ -1553,7 +2459,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                 <SelectContent>
                   {sortOptions.map((value) => (
                     <SelectItem key={value} value={value}>
-                      {SORT_LABELS[value]}
+                      {sortLabel(value, embedJobId != null)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1567,7 +2473,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
                   <DropdownMenuLabel>Kolumny w tabeli</DropdownMenuLabel>
-                  {CANDIDATE_COLUMNS.filter((col) => !col.required).map((col) => (
+                  {selectableCandidateColumns({ forJob }).filter((col) => !col.required).map((col) => (
                     <DropdownMenuCheckboxItem
                       key={col.id}
                       checked={visibleColumns.some((v) => v.id === col.id)}
@@ -1575,8 +2481,8 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                       onSelect={(e) => e.preventDefault()}
                       onCheckedChange={() =>
                         setColumnPreference(
-                          CANDIDATE_TABLE_PREFS_KEY,
-                          toggleCandidateColumn(hiddenColumns, col.id),
+                          columnPrefsKey,
+                          toggleCandidateColumn(hiddenColumns, col.id, { forJob, wide }),
                         )
                       }
                     >
@@ -1584,7 +2490,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                     </DropdownMenuCheckboxItem>
                   ))}
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => clearColumnPreference(CANDIDATE_TABLE_PREFS_KEY)}>
+                  <DropdownMenuItem onSelect={() => clearColumnPreference(columnPrefsKey)}>
                     Przywróć domyślne
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -1592,15 +2498,8 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
             </div>
           </div>
 
-          <PinnedCandidatesBar
-            onOpenCandidate={(id) => {
-              setDetailId(id);
-              const idx = items.findIndex((c) => c.id === id);
-              // Przypięty spoza bieżącej strony nie ma pozycji na liście —
-              // podgląd bez „poprzedni/następny".
-              setDetailPosition(idx >= 0 ? (page - 1) * pageSize + idx + 1 : 0);
-            }}
-          />
+          {/* Pasek „obserwowanych” zdjęty 13.10.2026 (D1): bez „Obserwuj” na
+              profilu nic nie tworzy przypięć — przez całą historię 0. */}
 
           {listViewState === "refresh-error" && (
             <div
@@ -1616,7 +2515,12 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
             </div>
           )}
 
-          <div className="overflow-hidden rounded-lg border border-border bg-card">
+          <div
+            className={cn(
+              "overflow-hidden rounded-lg border border-border bg-card transition-opacity",
+              pendingCount > 0 && "opacity-50",
+            )}
+          >
             {/* Jeden kontener przewija w obu osiach: nagłówek jest przyklejony
                 u góry, kolumna „Kandydat” (poniżej lg) przy lewej krawędzi.
                 Na telefonie kontener nie ma własnej wysokości — przewija się
@@ -1624,6 +2528,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
             <div
               ref={parentRef}
               data-testid="candidate-list-scroll"
+              onScroll={onListScroll}
               className="relative overflow-auto md:h-[calc(100dvh-300px)] md:min-h-[360px]"
             >
             {/* Nagłówek kolumn to zwykłe etykiety, bez ról tabeli: wiersze są
@@ -1648,7 +2553,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                   aria-label="Zaznacz stronę"
                 />
               </div>
-              {visibleColumns.map((col) => (
+              {tableColumns.map((col) => (
                 <div
                   key={col.id}
                   data-column-header
@@ -1681,8 +2586,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                 >
                   {virtualizer.getVirtualItems().map((virtualRow) => {
                     const candidate = items[virtualRow.index];
-                    const fullName =
-                      `${candidate.name ?? ""} ${candidate.lastname ?? ""}`.trim() || "Kandydat";
+                    const fullName = candidateFullName(candidate);
                     const initials = getCandidateInitials(candidate) || "?";
                     const isSelected = selectedIds.has(candidate.id);
                     // Wiersz nowy od ostatniego otwarcia zapisanego wyszukiwania —
@@ -1694,7 +2598,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                       (newSinceTs !== null &&
                         !!candidate.created_at &&
                         Date.parse(candidate.created_at) > newSinceTs);
-                    const position = (page - 1) * pageSize + virtualRow.index + 1;
+                    const position = (resultsPage - 1) * pageSize + virtualRow.index + 1;
                     const openDetail = () => openDetailAt(candidate.id);
                     const snippet = hasSearchTerms ? candidate.match_snippet : null;
                     const fieldSnippets = hasSearchTerms ? candidate.match_snippets ?? [] : [];
@@ -1702,8 +2606,57 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                     const company = getCurrentCompany(candidate);
                     const location = formatCandidateLocation(candidate.city ?? candidate.location ?? null);
                     const availability = availabilityCellText(candidate);
+                    const availabilitySecond = availabilityCellSecondLine(candidate);
                     const rate = rateCellText(candidate);
+                    const rateSecond = rateCellSecondLine(candidate);
+                    const divider = virtualRow.index === unknownDividerAt ? UNKNOWN_DIVIDER_HEIGHT : 0;
+                    const distance = candidate.location_distance;
+                    const locationText =
+                      location && distance
+                        ? `${location} · ${distance.km} km (${distance.center})`
+                        : location;
+                    const locationTitle =
+                      location && distance
+                        ? `${location} — ${distance.km} km od miejscowości ${distance.center}`
+                        : location ?? undefined;
+                    const noLocationBadge = candidate.unknown_fields?.includes("location") ?? false;
                     return (
+                      <Fragment key={candidate.id}>
+                      {divider > 0 && (
+                        <div
+                          data-testid="unknown-divider"
+                          role="group"
+                          aria-label="Osoby bez danych"
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            width: "100%",
+                            height: `${divider}px`,
+                            transform: `translateY(${virtualRow.start - LIST_HEADER_HEIGHT}px)`,
+                          }}
+                          className="flex items-center gap-2 border-b border-t border-dashed border-border bg-muted/50 px-4 text-xs text-muted-foreground"
+                        >
+                          <span className="min-w-0 truncate">
+                            <span className="font-medium text-foreground">{dividerTitle(unknownBelow)}</span>
+                            {" · "}
+                            {unknownBelowCount.toLocaleString("pl-PL")}
+                            {" · mogą pasować, zapytaj w rozmowie"}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="ml-auto h-7 shrink-0 px-2 text-xs"
+                            onClick={() => {
+                              applyFiltersPatch({ ...hideUnknownPatch(unknownBelow), page: 1 });
+                              requestApply();
+                            }}
+                          >
+                            Ukryj
+                          </Button>
+                        </div>
+                      )}
                       <div
                         key={candidate.id}
                         data-testid={candidateRowTestId(candidate.id)}
@@ -1724,8 +2677,8 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                           top: 0,
                           left: 0,
                           width: "100%",
-                          height: `${virtualRow.size}px`,
-                          transform: `translateY(${virtualRow.start - LIST_HEADER_HEIGHT}px)`,
+                          height: `${virtualRow.size - divider}px`,
+                          transform: `translateY(${virtualRow.start - LIST_HEADER_HEIGHT + divider}px)`,
                         }}
                         className={cn(
                           // `overflow-clip`, nie `hidden`: `hidden` robi z wiersza
@@ -1734,6 +2687,8 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                           "group flex cursor-pointer flex-col overflow-clip border-b border-border transition-colors",
                           "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                           isNewMatch ? "bg-success-muted/40" : "bg-card",
+                          (candidate.id === lastOpenedId || candidate.id === lastCvId) &&
+                            "bg-primary/5 shadow-[inset_3px_0_0_var(--primary)]",
                           "hover:bg-muted/50",
                           isSelected && "bg-primary/5!",
                         )}
@@ -1747,9 +2702,10 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                               checked={isSelected}
                               onCheckedChange={() => toggleId(candidate.id)}
                               aria-label={`Zaznacz ${fullName}`}
+                              data-tour="candidates.list.select"
                             />
                           </div>
-                          {visibleColumns.map((col) => {
+                          {tableColumns.map((col) => {
                             const cell = (() => {
                               switch (col.id) {
                                 case "candidate":
@@ -1765,8 +2721,19 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                             <div className="min-w-0">
                               <div className="flex min-w-0 items-center gap-1.5">
                                 <Link
-                                  href={`/candidates/${candidate.id}?${encodeNavContext(filtersSnapshot, position).toString()}`}
-                                  onClick={(e) => e.stopPropagation()}
+                                  data-tour="candidates.list.name"
+                                  href={`/candidates/${candidate.id}?${(embed
+                                    ? withJobSearchBackRef(encodeNavContext(queryFilters, position), embed.jobId)
+                                    : encodeNavContext(queryFilters, position)
+                                  ).toString()}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (!embed) {
+                                      writeListSearch({ query: memoryQuery, lastOpenedId: candidate.id });
+                                      return;
+                                    }
+                                    writeJobSearchReturn(embed.jobId, { lastOpenedId: candidate.id });
+                                  }}
                                   className="min-w-0 truncate font-medium text-foreground hover:text-primary hover:underline"
                                   title={fullName}
                                 >
@@ -1779,16 +2746,47 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                                     Nowy
                                   </Badge>
                                 ) : null}
+                                {/* W oknie rekrutacji wystarcza pasek z lewej — plakietka ściskała nazwisko przy 1280. */}
+                                {candidate.id === lastOpenedId && !embed ? (
+                                  <Badge size="sm" variant="info" className="shrink-0">
+                                    Ostatnio otwarta
+                                  </Badge>
+                                ) : null}
                                 {contactFeature.enabled ? (
                                   <ContactStatusBadge contactCase={candidate.contact_case} className="shrink-0" />
                                 ) : null}
                               </div>
-                              <p className="truncate text-xs text-muted-foreground" title={location ?? undefined}>
-                                {location ?? "brak lokalizacji"}
+                              {/* Jedna linia (wiersz ma stałą wysokość): „szuka
+                                  aktywnie” (D4, 13.10.2026) i znacznik
+                                  zatrudnienia mają pierwszeństwo, lokalizacja
+                                  ustępuje im miejsca; pełna treść w dymku. */}
+                              <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                                {/* Czarna lista „u nas” (17.10.2026) zastępuje „szuka
+                                    aktywnie” — obok siebie nie mieszczą się w kolumnie,
+                                    a przy czarnej liście dostępność nie ma znaczenia.
+                                    Kto i dlaczego — w profilu. */}
+                                {candidate.status === "blacklisted" ? (
+                                  <BlacklistBadge />
+                                ) : hidesAvailabilityStatus(candidate.employment_marker) ? null : (
+                                  <AvailabilityPill status={candidate.availability_status} appearance="text" />
+                                )}
+                                {candidate.employment_marker ? (
+                                  <EmploymentPill marker={candidate.employment_marker} appearance="text" />
+                                ) : null}
+                                {/* D5: „brak stawki / lokalizacji / stażu” — osoba
+                                    przeszła filtr tylko dlatego, że nie mamy danych. */}
+                                <UnknownFieldBadges fields={candidate.unknown_fields} className="shrink-0 flex-nowrap" />
+                                {noLocationBadge && !location ? null : (
+                                  <span className="min-w-0 shrink-[100] truncate" title={locationTitle}>
+                                    {locationText ?? "brak lokalizacji"}
+                                  </span>
+                                )}
                               </p>
                             </div>
                           </div>
                                   );
+                                case "stage_match":
+                                  return <CandidateStageMatchCell match={candidate.stage_match} />;
                                 case "position":
                                   return (
 <div className="min-w-0">
@@ -1816,14 +2814,33 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                                   );
                                 case "rate":
                                   return (
-<div className="min-w-0 truncate text-sm text-foreground" title="Stawka z profilu kandydata">
-                            {rate ?? <Missing />}
+<div
+                            className="min-w-0 text-sm text-foreground"
+                            title="Najniższa stawka podana w ostatnich 18 miesiącach — po niej filtruje lista"
+                          >
+                            <div className="truncate">{rate ?? <Missing />}</div>
+                            {rateSecond ? (
+                              <div
+                                className="truncate text-xs text-muted-foreground"
+                                title={rateSecond.title}
+                              >
+                                {rateSecond.text}
+                              </div>
+                            ) : null}
                           </div>
                                   );
                                 case "availability":
                                   return (
-<div className="min-w-0 truncate text-sm text-foreground">
-                            {availability ?? <Missing />}
+<div className="min-w-0 text-sm text-foreground">
+                            <div className="truncate">{availability ?? <Missing />}</div>
+                            {availabilitySecond ? (
+                              <div
+                                className="truncate text-xs text-muted-foreground"
+                                title={availabilitySecond.title}
+                              >
+                                {availabilitySecond.text}
+                              </div>
+                            ) : null}
                           </div>
                                   );
                                 case "process":
@@ -1831,7 +2848,6 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
 <div className="min-w-0" onClick={(e) => e.stopPropagation()}>
                             <CandidateProcessCell
                               candidateName={fullName}
-                              employment={candidate.employment}
                               recruitments={candidate.active_recruitments}
                             />
                           </div>
@@ -1840,14 +2856,63 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                                   return (
 <div className="min-w-0">
                             <CandidateCvCell
-                              candidateId={candidate.id}
                               candidateName={fullName}
                               hasCv={candidate.has_cv_document ?? Boolean(candidate.cv_filename)}
+                              seenAt={cvSeen[candidate.id] ?? null}
+                              loading={cvLoadingId === candidate.id}
+                              onOpen={() => setCvPerson({ id: candidate.id, name: fullName })}
+                            />
+                          </div>
+                                  );
+                                case "fit":
+                                  return (
+<div className="flex">
+                            <FitScoreCell
+                              candidateId={candidate.id}
+                              score={matchScores.scores[String(candidate.id)]}
+                              failure={matchScores.failures[String(candidate.id)]}
+                              answered={Boolean(matchScores.breakdowns[String(candidate.id)])}
+                              onVisible={matchScores.onRowVisible}
+                              onRetry={matchScores.retry}
                             />
                           </div>
                                   );
                                 case "assign":
-                                  return (
+                                  return embed ? (
+<div className="flex">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 gap-1 border-primary/40 bg-primary/5 px-2 text-primary hover:bg-primary hover:text-primary-foreground"
+                              disabled={
+                                embed.readOnly ||
+                                addingIds.has(candidate.id) ||
+                                addedIds.has(candidate.id)
+                              }
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void addToEmbedJob([candidate.id]);
+                              }}
+                              aria-label={
+                                addedIds.has(candidate.id)
+                                  ? `${fullName} — dodano do Nowych`
+                                  : `Dodaj ${fullName} do Nowych`
+                              }
+                              title={`Dodaj do „Nowych” w „${embed.jobTitle}”`}
+                            >
+                              {addedIds.has(candidate.id) ? (
+                                <Check className="h-3.5 w-3.5" aria-hidden />
+                              ) : (
+                                <UserPlus className="h-3.5 w-3.5" aria-hidden />
+                              )}
+                              {addedIds.has(candidate.id)
+                                ? "Dodano"
+                                : addingIds.has(candidate.id)
+                                  ? "Dodaję…"
+                                  : "Dodaj"}
+                            </Button>
+                          </div>
+                                  ) : (
 <div className="flex">
                             <Button
                               size="sm"
@@ -1855,7 +2920,11 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                               className="h-8 gap-1 border-primary/40 bg-primary/5 px-2 text-primary hover:bg-primary hover:text-primary-foreground"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setAssignFor({ id: candidate.id, name: fullName });
+                                setAssignFor({
+                                  id: candidate.id,
+                                  name: fullName,
+                                  employment: candidate.employment_marker,
+                                });
                               }}
                               aria-label={`Przypisz ${fullName} do rekrutacji`}
                               title="Przypisz do rekrutacji"
@@ -1873,8 +2942,8 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                                   );
                                 case "location":
                                   return (
-<div className="min-w-0 truncate text-sm text-foreground" title={location ?? undefined}>
-                            {location ?? <Missing />}
+<div className="min-w-0 truncate text-sm text-foreground" title={locationTitle}>
+                            {locationText ?? <Missing />}
                           </div>
                                   );
                                 case "experience":
@@ -1885,15 +2954,11 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                                   );
                                 case "last_contact":
                                   return (
-<div className="min-w-0 truncate text-sm text-foreground">
-                            {formatShortDate(candidate.last_contacted_at) ?? <Missing />}
-                          </div>
+<CandidateLastTalkCell candidate={candidate} />
                                   );
                                 case "added":
                                   return (
-<div className="min-w-0 truncate text-sm text-foreground">
-                            {formatShortDate(candidate.created_at) ?? <Missing />}
-                          </div>
+<AddedToBaseCell candidate={candidate} />
                                   );
                               }
                             })();
@@ -1924,6 +2989,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                           </button>
                         ) : null}
                       </div>
+                      </Fragment>
                     );
                   })}
                 </div>
@@ -1933,7 +2999,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
             {!isLoading && items.length > 0 && (
               <div className="flex min-h-12 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border bg-muted/40 px-4 py-2 text-sm">
                 <span className="whitespace-nowrap text-muted-foreground">
-                  {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} z{" "}
+                  {(resultsPage - 1) * pageSize + 1}–{Math.min(resultsPage * pageSize, total)} z{" "}
                   {total.toLocaleString("pl-PL")}
                 </span>
                 <div className="flex flex-wrap items-center gap-2">
@@ -1943,7 +3009,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                       const next = Number(value) as CandidatesPageSize;
                       if (!CANDIDATES_PAGE_SIZES.includes(next)) return;
                       setCandidatesPageSize(next);
-                      applyFiltersPatch({ page: 1 });
+                      goToPage(1);
                     }}
                   >
                     <SelectTrigger aria-label="Liczba kandydatów na stronie" className="h-9 w-auto whitespace-nowrap rounded-md sm:h-8 sm:w-[152px]">
@@ -1960,16 +3026,21 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={page <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={resultsPage <= 1}
+                    onClick={() => goToPage(Math.max(1, resultsPage - 1))}
                   >
                     Poprzednia
                   </Button>
+                  <PageNumberButtons
+                    page={resultsPage}
+                    totalPages={totalPages}
+                    onPageChange={goToPage}
+                  />
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={page >= totalPages}
-                    onClick={() => setPage((p) => p + 1)}
+                    disabled={resultsPage >= totalPages}
+                    onClick={() => goToPage(resultsPage + 1)}
                   >
                     Następna <ChevronRight className="h-3.5 w-3.5" />
                   </Button>
@@ -1980,27 +3051,74 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
         </div>
       </div>
 
+      {embed ? (
+        selectedIds.size > 0 ? (
+          <div
+            role="region"
+            aria-label="Akcje zaznaczonych kandydatów"
+            className="sticky bottom-0 z-30 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 shadow-md"
+          >
+            <span className="text-sm">
+              <span className="font-semibold">{selectedIds.size}</span> zaznaczonych
+            </span>
+            <Button
+              size="sm"
+              // Makieta C (28.10.2026): obok „Oceń z AI” dodanie jest drugą akcją.
+              variant={embed.onAssessWithAi ? "outline" : "primary"}
+              className="ml-auto"
+              disabled={embed.readOnly || addingIds.size > 0}
+              onClick={() => void addToEmbedJob(Array.from(selectedIds))}
+            >
+              <UserPlus className="h-3.5 w-3.5" aria-hidden /> Dodaj {selectedIds.size} do Nowych
+            </Button>
+            {embed.onAssessWithAi ? (
+              <AssessWithAiButton
+                primary
+                count={selectedIds.size}
+                disabled={embed.readOnly}
+                onClick={() =>
+                  embed.onAssessWithAi?.({
+                    people: Array.from(selectedIds, (candidateId) => ({
+                      candidateId,
+                      fullName: namesSeen.current.get(candidateId) ?? `Kandydat #${candidateId}`,
+                    })),
+                    // Po jednej osobie, w kolejności podanej przez panel.
+                    add: (ids) => addToEmbedJob(ids, 1),
+                  })
+                }
+              />
+            ) : null}
+            <Button size="sm" variant="ghost" onClick={clearSelection}>
+              Wyczyść
+            </Button>
+          </div>
+        ) : null
+      ) : (
       <CandidateBulkBar
         count={selectedIds.size}
         onAddToRecruitment={() => setShowBulkRecruitment(true)}
         onCompare={() =>
           // Link niesie kontekst listy — „Wróć do kandydatów" oddaje filtry,
           // stronę i zaznaczenie (UAT B21).
-          router.push(encodeCompareHref(filtersSnapshot, Array.from(selectedIds)))
+          router.push(encodeCompareHref(applied, Array.from(selectedIds)))
         }
-        onDownloadCvs={() => void doBulkDownloadCvs()}
+        onDownloadCvs={isRecruiterOnly(currentUser) ? undefined : () => void doBulkDownloadCvs()}
         downloadingCvs={isDownloadingZip}
         onAddToPool={() => setShowBulkPool(true)}
         addingToPool={bulkPoolPending}
         onExportSelected={canExport ? () => void doExport("csv", "selected") : undefined}
         onClear={clearSelection}
       />
+      )}
 
       <AddToRecruitmentDialog
         open={showBulkRecruitment}
         onOpenChange={setShowBulkRecruitment}
         candidateIds={Array.from(selectedIds)}
         source="candidate_list"
+        employed={Array.from(selectedIds)
+          .map((id) => employedSeen.get(id))
+          .filter((person): person is EmployedPerson => person !== undefined)}
         onAdded={(result) => {
           showSuccess(addToRecruitmentSummary(result));
           clearSelection();
@@ -2028,17 +3146,25 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
       )}
 
       {showAdd && (
-        <AddCandidateModal onClose={() => setShowAdd(false)} onSuccess={toastOnSuccess} />
+        <AddCandidateModal
+          onClose={() => setShowAdd(false)}
+          onSuccess={toastOnSuccess}
+          // U8 (audyt 06.10.2026): nowy kandydat dodany z okna rekrutacji
+          // trafia też do tej rekrutacji („Nowi”), nie tylko do bazy.
+          onCreated={
+            embedJobId != null && !embed?.readOnly
+              ? (candidateId, fullName) => {
+                  if (fullName) namesSeen.current.set(candidateId, fullName);
+                  void addToEmbedJob([candidateId]);
+                }
+              : undefined
+          }
+        />
       )}
       <ImportCandidatesV2
         open={showImport}
         onOpenChange={setShowImport}
         onImported={() => toastOnSuccess("Import zakończony.")}
-      />
-      <AddCandidateFromCVModal
-        open={showAddFromCV}
-        onOpenChange={setShowAddFromCV}
-        onAdded={() => toastOnSuccess("Kandydat dodany z CV.")}
       />
       <GenerateInviteLinkV2 open={showInvite} onOpenChange={setShowInvite} />
       <QuickAssignV2
@@ -2046,7 +3172,31 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
         onOpenChange={(v) => !v && setAssignFor(null)}
         candidateId={assignFor?.id ?? 0}
         candidateName={assignFor?.name ?? ""}
-        onAssigned={() => toastOnSuccess("Kandydat przypisany.")}
+        employment={assignFor?.employment}
+        onAssigned={() => {
+          toastOnSuccess("Kandydat przypisany.");
+          // Runda 10 (R10-N15-5): kolumna „W procesie” — jak profil i podgląd.
+          if (assignFor) invalidateCandidateMutation(queryClient, assignFor.id, "assignment");
+        }}
+      />
+
+      <CandidateCvBrowser
+        people={cvPeople}
+        current={cvPerson}
+        onChange={changeCvPerson}
+        onOpened={(person) => onCvOpened(person.id)}
+        onLoadingChange={setCvLoadingId}
+        onAssign={
+          embed
+            ? undefined
+            : (person) =>
+                setAssignFor({
+                  id: person.id,
+                  name: person.name,
+                  employment: items.find((c) => c.id === person.id)?.employment_marker,
+                })
+        }
+        focusPerson={(candidateId) => focusCandidateRow(candidateId)}
       />
 
       {/* Szybki podgląd kandydata. */}
@@ -2074,7 +3224,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                 detailPosition <= 0
                   ? undefined
                   : {
-                      filters: filtersSnapshot,
+                      filters: queryFilters,
                       position: detailPosition,
                       pageItems: items.map((c) => ({
                         id: c.id,
@@ -2084,7 +3234,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                       total,
                       // Przy keepPreviousData strona odpowiedzi może być inna niż
                       // strona kontrolek — nawigacja liczy z odpowiedzi.
-                      pageNumber: data?.page ?? page,
+                      pageNumber: data?.page ?? resultsPage,
                       pageSize,
                       onNavigate: ({ candidateId, position }) => {
                         setDetailId(candidateId);
@@ -2092,7 +3242,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                         // Lista idzie za nawigacją, żeby po zamknięciu podglądu
                         // stała na stronie, na której ta się skończyła.
                         const nextListPage = Math.floor((position - 1) / pageSize) + 1;
-                        if (nextListPage !== page) setPage(nextListPage);
+                        if (nextListPage !== resultsPage) goToPage(nextListPage);
                       },
                     }
               }
@@ -2112,7 +3262,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
 
 // ── Bulk add-to-pool modal (Phase „Otwartość" Faza 2.5) ─────────────────────
 
-function BulkAddToPoolModal({
+export function BulkAddToPoolModal({
  selectedCount,
  onCancel,
  onConfirm,
@@ -2126,7 +3276,7 @@ function BulkAddToPoolModal({
  const [filter, setFilter] = useState("");
  const currentUser = useAuthStore((s) => s.user);
  const isAdmin = hasRole(currentUser, "admin");
- const { data, isLoading } = useQuery({
+ const { data, isLoading, isError, error, isSuccess, refetch } = useQuery({
  queryKey: ["talent-pools","bulk-modal"],
  queryFn: () => api.get("/api/talent-pools").then((r) => r.data),
  });
@@ -2137,14 +3287,50 @@ function BulkAddToPoolModal({
  is_personal?: boolean;
  owner_id?: number | null;
  owner_name?: string | null;
- }> = Array.isArray(data) ? data : data?.items ?? [];
+ is_marketplace?: boolean;
+ }> = (Array.isArray(data) ? data : data?.items ?? []).filter(
+ // Targ kandydatów ma własne trasy z terminem — ogólne bulk-add daje 409
+ // (runda 10, R10-N7-4), więc tej puli tu nie proponujemy.
+ (p: { is_marketplace?: boolean }) => !p.is_marketplace,
+ );
  // Pula osobista innego usera = tylko podgląd (backend zwróci 403 na bulk-add).
  // Pokazujemy ją (jest team-visible), ale wyłączoną + z oznaczeniem właściciela.
  const canUsePool = (p: { is_personal?: boolean; owner_id?: number | null }) =>
  !p.is_personal || isAdmin || p.owner_id === (currentUser?.id ?? -1);
- const filtered = pools.filter((p) =>
- p.name.toLowerCase().includes(filter.toLowerCase())
- );
+ const isMyList = (p: { is_personal?: boolean; owner_id?: number | null }) =>
+ !!p.is_personal && p.owner_id === (currentUser?.id ?? -1);
+ // Moje listy (25.10.2026, „Moi ludzie” → „Listy”) na górze — tam zwykle
+ // trafia zaznaczenie; pule firmowe i listy zespołu pod nimi.
+ const filtered = pools
+ .filter((p) => p.name.toLowerCase().includes(filter.toLowerCase()))
+ .sort((a, b) => Number(isMyList(b)) - Number(isMyList(a)));
+ const firstShared = filtered.findIndex((p) => !isMyList(p));
+ const [newListName, setNewListName] = useState("");
+ const [creatingList, setCreatingList] = useState(false);
+ const [createError, setCreateError] = useState<string | null>(null);
+ const createAndAdd = async () => {
+ const name = newListName.trim();
+ if (!name || creatingList) return;
+ setCreatingList(true);
+ setCreateError(null);
+ try {
+ const list = await candidateListsApi.create(name);
+ onConfirm(list.id);
+ } catch (e) {
+ setCreateError(apiErrorMessage(e, "Nie udało się utworzyć listy."));
+ } finally {
+ setCreatingList(false);
+ }
+ };
+ // Awaria pobrania NIE może wyglądać jak „Brak pul” — pusta lista czyta się
+ // jak brak danych, a rekruter zakładałby duplikat puli.
+ const poolsView = resolveViewState({
+ isLoading,
+ isError,
+ error,
+ isEmpty: pools.length === 0,
+ isSuccess,
+ });
 
  return (
  <div
@@ -2156,28 +3342,52 @@ function BulkAddToPoolModal({
  onClick={(e) => e.stopPropagation()}
  >
  <h3 className="text-base font-semibold">
- Dodaj {selectedCount} {selectedCount === 1 ?"kandydata" :"kandydatów"} do puli
+ Dodaj {selectedCount} {selectedCount === 1 ?"kandydata" :"kandydatów"} na listę albo do puli
  </h3>
  <Input
- placeholder="Szukaj puli…"
+ placeholder="Szukaj listy albo puli…"
  value={filter}
  onChange={(e) => setFilter(e.target.value)}
  autoFocus
  />
  <div className="max-h-[50dvh] overflow-y-auto space-y-1">
- {isLoading && (
+ {poolsView === "loading" && (
  <div className="text-xs text-muted-foreground py-4 text-center">Ładowanie pul…</div>
  )}
- {!isLoading && filtered.length === 0 && (
+ {isBlockingViewState(poolsView) && (
+ <QueryStateNotice
+ state={poolsView as "forbidden" | "not_found" | "error"}
+ description={
+ poolsView === "error"
+ ? "Nie udało się pobrać listy pul. Pule mogą istnieć — spróbuj ponownie."
+ : undefined
+ }
+ onRetry={() => void refetch()}
+ className="py-6"
+ />
+ )}
+ {(poolsView === "empty" || poolsView === "ready") && filtered.length === 0 && (
  <div className="text-xs text-muted-foreground py-4 text-center">
- Brak pul dla „{filter}". <Link href="/talents" className="underline">Stwórz nową</Link>.
+ {pools.length === 0 ? "Nie ma jeszcze żadnej puli." : `Brak pul dla „${filter}".`}{" "}
+ Załóż nową listę poniżej.
  </div>
  )}
- {filtered.map((p) => {
+ {(poolsView === "empty" || poolsView === "ready") && filtered.map((p, index) => {
  const usable = canUsePool(p);
+ const heading =
+ index === 0 && isMyList(p)
+ ? "Moje listy"
+ : index === firstShared
+ ? "Pule i listy zespołu"
+ : null;
  return (
+ <Fragment key={p.id}>
+ {heading ? (
+ <p className="px-3 pb-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+ {heading}
+ </p>
+ ) : null}
  <button
- key={p.id}
  type="button"
  onClick={() => usable && onConfirm(p.id)}
  disabled={pending || !usable}
@@ -2201,9 +3411,38 @@ function BulkAddToPoolModal({
  {p.candidate_count} {p.candidate_count === 1 ?"kandydat" :"kandydatów"}
  </span>
  </button>
+ </Fragment>
  );
  })}
  </div>
+ <form
+ className="flex gap-2 border-t border-border pt-3"
+ onSubmit={(e) => {
+ e.preventDefault();
+ void createAndAdd();
+ }}
+ >
+ <Input
+ value={newListName}
+ maxLength={255}
+ onChange={(e) => setNewListName(e.target.value)}
+ placeholder="Nowa lista (widzisz ją tylko Ty)…"
+ aria-label="Nazwa nowej listy"
+ />
+ <Button
+ type="submit"
+ size="sm"
+ loading={creatingList}
+ disabled={!newListName.trim() || pending}
+ >
+ Utwórz i dodaj
+ </Button>
+ </form>
+ {createError ? (
+ <p role="alert" className="text-xs text-destructive">
+ {createError}
+ </p>
+ ) : null}
  <div className="flex justify-end gap-2 pt-2 border-t border-border dark:border-border">
  <Button size="sm" variant="ghost" onClick={onCancel} disabled={pending}>
  Anuluj

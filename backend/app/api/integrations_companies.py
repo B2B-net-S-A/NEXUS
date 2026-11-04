@@ -65,7 +65,6 @@ pretending to be complete.
 
 import logging
 import re
-import unicodedata
 from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -89,9 +88,14 @@ from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.client import Client
+from app.models.client_directory import ClientAlias
 from app.models.contract import Contract
 from app.models.oauth_client import OAuthScope
 from app.services.contract_service import placed_contract_clause
+from app.services.company_names import (
+    entry_says_current as _entry_says_current,
+    normalize_company_name,
+)
 from app.services.experience_end import is_current_end
 
 logger = logging.getLogger(__name__)
@@ -124,53 +128,6 @@ _MAX_NAME_CHARS = 500
 # Hard ceiling on returned people. A company like a large bank legitimately has
 # hundreds of matches; the caller renders a panel, not an export.
 _MAX_PEOPLE = 200
-
-# Ported verbatim from ATLAS `src/services/company_service.py` so both sides
-# agree byte-for-byte on what "the same company" means. Any change here MUST be
-# mirrored there, otherwise matches silently diverge between the two systems.
-_SUFFIXES = [
-    " sp. z o.o.",
-    " sp.z o.o.",
-    " sp z oo",
-    " sp. z o. o.",
-    " spolka z o.o.",
-    " sp. j.",
-    " sp.j.",
-    " s.a.",
-    " sa",
-    " s.k.",
-    " sp k",
-    " sp. k.",
-    " s.c.",
-    " s. c.",
-    " sp. komandytowa",
-    " spółka z ograniczoną odpowiedzialnością",
-    " spolka z ograniczona odpowiedzialnoscia",
-    " inc",
-    " inc.",
-    " ltd",
-    " ltd.",
-    " gmbh",
-]
-
-
-def normalize_company_name(name: str) -> str:
-    """Canonical form used for cross-system company matching.
-
-    Keep in lockstep with ATLAS ``src/services/company_service.py``.
-    """
-    if not name:
-        return ""
-    s = name.strip().lower()
-    s = unicodedata.normalize("NFKD", s)
-    s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    s = s.replace("ł", "l")
-    for suf in _SUFFIXES:
-        if s.endswith(suf):
-            s = s[: -len(suf)].rstrip()
-    s = re.sub(r"[^a-z0-9]+", " ", s).strip()
-    s = re.sub(r"\s+", " ", s)
-    return s
 
 
 def _normalize_nip(nip: Optional[str]) -> str:
@@ -357,21 +314,6 @@ def _match_experience(
     return None, None
 
 
-def _entry_says_current(entry: dict[str, Any]) -> bool:
-    """Open-ended entry that carries evidence, not just a missing date.
-
-    Called only for entries where ``is_current_end(end)`` already holds. A
-    ``start`` date means the CV listed a period that has not closed; a word
-    like "present"/"obecnie" in ``end`` says it outright. A blank ``end`` with
-    no ``start`` says nothing.
-    """
-    start = entry.get("start")
-    if isinstance(start, str) and start.strip():
-        return True
-    end = entry.get("end")
-    return isinstance(end, str) and bool(end.strip())
-
-
 def _profile_url(candidate_id: int) -> Optional[str]:
     """Deep link into the NEXUS UI, so ATLAS can hand the user a way back."""
     base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
@@ -423,9 +365,11 @@ async def _resolve_client(
     # folded into another. Matching either would hand back an id whose contracts
     # live on the surviving row, so `via_us` would silently come back empty.
     # Ordering puts the canonical row first when a name still matches several.
+    # Runda 9 (R9-N9-5): a deleted client (`deleted_at`) is not a NEXUS client
+    # any more — CRM must not be told the company is ours.
     labels = (
         select(Client.id, Client.name, Client.legal_name, Client.display_name)
-        .where(Client.merged_into_client_id.is_(None))
+        .where(Client.merged_into_client_id.is_(None), Client.deleted_at.is_(None))
         .order_by(Client.hidden.asc(), Client.id.asc())
     )
 
@@ -443,36 +387,107 @@ async def _resolve_client(
         if row is not None:
             return MatchedClient(id=row.id, name=row.display_name or row.name)
 
-    for row in (await db.execute(labels)).all():
-        for label in (row.name, row.legal_name, row.display_name):
-            if label and normalize_company_name(label) in canonical_names:
-                return MatchedClient(id=row.id, name=row.display_name or row.name)
+    for client_id, display, names in await _client_label_index(db, labels):
+        if names & canonical_names:
+            return MatchedClient(id=client_id, name=display)
     return None
 
 
-# ── Route ────────────────────────────────────────────────────────────────────
+# Runda 9 (R9-N9-12): the name pass used to re-normalise every client label on
+# every call (60/min per integration). The normalised index is cached and
+# rebuilt only when the client table changes — the fingerprint (row count,
+# last `updated_at`, highest id) is one cheap aggregate, so a new, renamed,
+# deleted or merged client is visible on the very next call.
+_LABEL_INDEX: dict[str, Any] = {"fingerprint": None, "rows": []}
 
 
-@router.post(
-    "/companies/people",
-    response_model=CompanyPeopleResponse,
-    summary="People from the NEXUS base connected to a company",
-)
-# Every call scans candidates through the JSONB predicates, so the scope check
-# alone is not a throughput bound. 60/min is far above a CRM panel's real need
-# (ATLAS caches each answer for 5 minutes) and far below useful enumeration.
-@limiter.limit("60/minute")
-async def company_people(
-    payload: CompanyPeopleRequest,
-    request: Request,  # required by slowapi limiter
-    principal: ClientPrincipal = Depends(require_scope(OAuthScope.candidate_read)),
-    db: AsyncSession = Depends(get_db),
+async def _client_label_index(
+    db: AsyncSession, labels
+) -> list[tuple[int, str, frozenset[str]]]:
+    fingerprint = tuple(
+        (
+            await db.execute(
+                select(
+                    func.count(Client.id),
+                    func.max(Client.updated_at),
+                    func.max(Client.id),
+                )
+            )
+        ).one()
+    ) + tuple(
+        (
+            await db.execute(
+                select(
+                    func.count(ClientAlias.id),
+                    func.max(ClientAlias.updated_at),
+                    func.max(ClientAlias.id),
+                )
+            )
+        ).one()
+    )
+    if _LABEL_INDEX["fingerprint"] == fingerprint:
+        return _LABEL_INDEX["rows"]
+    aliases = await _active_aliases(db)
+    rows: list[tuple[int, str, frozenset[str]]] = []
+    for row in (await db.execute(labels)).all():
+        names = frozenset(
+            normalize_company_name(label)
+            for label in (
+                row.name,
+                row.legal_name,
+                row.display_name,
+                *aliases.get(row.id, ()),
+            )
+            if label
+        )
+        rows.append((row.id, row.display_name or row.name, names))
+    _LABEL_INDEX["fingerprint"] = fingerprint
+    _LABEL_INDEX["rows"] = rows
+    return rows
+
+
+async def _active_aliases(
+    db: AsyncSession, client_id: Optional[int] = None
+) -> dict[int, list[str]]:
+    """Raw spellings from ``client_aliases`` (old names, short forms) per client.
+
+    The raw ``alias`` is read, not ``normalized_alias``: the import keys it with
+    its own normaliser, and this module compares ``normalize_company_name``.
+    Archived aliases are history, not a name the company answers to.
+    """
+    query = select(ClientAlias.client_id, ClientAlias.alias).where(
+        ClientAlias.archived_at.is_(None)
+    )
+    if client_id is not None:
+        query = query.where(ClientAlias.client_id == client_id)
+    by_client: dict[int, list[str]] = {}
+    for owner_id, alias in (await db.execute(query.order_by(ClientAlias.id))).all():
+        by_client.setdefault(owner_id, []).append(alias)
+    return by_client
+
+
+async def _client_known_names(db: AsyncSession, client_id: int) -> list[str]:
+    """Every raw name of one client — its labels plus active aliases."""
+    row = (
+        await db.execute(
+            select(Client.name, Client.legal_name, Client.display_name).where(
+                Client.id == client_id
+            )
+        )
+    ).one()
+    aliases = (await _active_aliases(db, client_id)).get(client_id, [])
+    return [label for label in (*row, *aliases) if label]
+
+
+async def lookup_company_people(
+    db: AsyncSession, payload: CompanyPeopleRequest, *, limit: Optional[int] = None
 ) -> CompanyPeopleResponse:
-    """Return candidates who work / worked at the given company.
+    """Osoby z bazy przy firmie — wspólne dla CRM (OAuth) i Sprzedaży w NEXUSIE.
 
-    Buckets are mutually exclusive and ranked
-    ``via_us > current > past > unknown`` — a candidate placed there through us
-    is reported as ``via_us`` even when the CV also lists the company.
+    Walidacja nazw (422), limit czasu zapytania (503) i kubełki jak w trasie
+    ``/companies/people``; wołający decyduje o dopisaniu dat w tle.
+    ``limit`` ponad ``payload.limit`` jest dla wewnętrznych wołających (lista
+    wszystkich osób „bez dat” do uzupełnienia), nie dla API.
     """
     raw_names = [n.strip() for n in payload.names if n and n.strip()]
     if not raw_names:
@@ -500,6 +515,7 @@ async def company_people(
             raw_names=raw_names,
             canonical_by_raw=canonical_by_raw,
             canonical_names=canonical_names,
+            limit=limit or payload.limit,
         )
     except DBAPIError as exc:
         if not _is_statement_timeout(exc):
@@ -514,7 +530,34 @@ async def company_people(
                 "hint": "Lookup exceeded the time budget — retry with a more specific company name.",
             },
         ) from exc
+    return result
 
+
+# ── Route ────────────────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/companies/people",
+    response_model=CompanyPeopleResponse,
+    summary="People from the NEXUS base connected to a company",
+)
+# Every call scans candidates through the JSONB predicates, so the scope check
+# alone is not a throughput bound. 60/min is far above a CRM panel's real need
+# (ATLAS caches each answer for 5 minutes) and far below useful enumeration.
+@limiter.limit("60/minute")
+async def company_people(
+    payload: CompanyPeopleRequest,
+    request: Request,  # required by slowapi limiter
+    principal: ClientPrincipal = Depends(require_scope(OAuthScope.candidate_read)),
+    db: AsyncSession = Depends(get_db),
+) -> CompanyPeopleResponse:
+    """Return candidates who work / worked at the given company.
+
+    Buckets are mutually exclusive and ranked
+    ``via_us > current > past > unknown`` — a candidate placed there through us
+    is reported as ``via_us`` even when the CV also lists the company.
+    """
+    result = await lookup_company_people(db, payload)
     _schedule_missing_dates(result)
     return result
 
@@ -566,6 +609,7 @@ async def _lookup_company_people(
     raw_names: list[str],
     canonical_by_raw: dict[str, str],
     canonical_names: set[str],
+    limit: int,
 ) -> CompanyPeopleResponse:
     """The bounded lookup itself — every query below runs under the timeout."""
     # Transaction-local: resets on commit/rollback, never leaks to the pool.
@@ -575,6 +619,18 @@ async def _lookup_company_people(
 
     client = await _resolve_client(db, canonical_names, _normalize_nip(payload.nip))
     capped = False
+
+    # A resolved client widens the CV match to all its names: people who list
+    # the old name ("BRE Bank") worked at the same company as "mBank". Local
+    # copies — the response still echoes the canonical form of what was asked.
+    match_names = set(canonical_names)
+    raw_by_canonical = dict(canonical_by_raw)
+    if client is not None:
+        for raw in await _client_known_names(db, client.id):
+            canonical = normalize_company_name(raw)
+            if len(canonical) >= _MIN_NAME_LEN:
+                match_names.add(canonical)
+                raw_by_canonical.setdefault(raw, canonical)
 
     # ── via_us: authoritative, from contracts that ran — independent of CV ──
     via_us: list[Candidate] = []
@@ -636,10 +692,8 @@ async def _lookup_company_people(
     # "Żabka" in a CV only matches the raw spelling — but ONLY when their
     # canonical twin passed the minimum length. Before, a raw alias bypassed
     # that rule and "IT" went out as `LIKE '%it%'`.
-    name_list = sorted(canonical_names) + [
-        raw
-        for raw, canonical in canonical_by_raw.items()
-        if canonical in canonical_names
+    name_list = sorted(match_names) + [
+        raw for raw, canonical in raw_by_canonical.items() if canonical in match_names
     ]
     cv_rows = list(
         (
@@ -666,7 +720,7 @@ async def _lookup_company_people(
     counts = {"via_us": 0, "current": 0, "past": 0, "unknown": 0}
 
     for candidate in via_us:
-        _, entry = _match_experience(candidate, canonical_names)
+        _, entry = _match_experience(candidate, match_names)
         if entry is None and client is not None:
             # Placed there on a contract but the CV never mentions it — common
             # for body-leasing. Without this the row would render with a blank
@@ -679,7 +733,7 @@ async def _lookup_company_people(
     for candidate in cv_rows:
         if candidate.id in reported:
             continue  # already reported under the stronger bucket
-        relationship, entry = _match_experience(candidate, canonical_names)
+        relationship, entry = _match_experience(candidate, match_names)
         if relationship is None:
             continue  # substring prefilter hit, canonical comparison rejected
         if relationship in ("past", "unknown") and conflict_active.get(candidate.id):
@@ -716,12 +770,12 @@ async def _lookup_company_people(
     order = {"via_us": 0, "current": 1, "past": 2, "unknown": 3}
     people.sort(key=lambda p: (order[p.relationship], p.lastname or "", p.name or ""))
 
-    truncated = capped or len(people) > payload.limit
+    truncated = capped or len(people) > limit
     return CompanyPeopleResponse(
         query=raw_names[0],
         canonical=sorted(canonical_names)[0],
         matched_client=client,
         counts=counts,
         truncated=truncated,
-        people=people[: payload.limit],
+        people=people[:limit],
     )

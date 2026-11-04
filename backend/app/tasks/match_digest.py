@@ -2,8 +2,8 @@
 
 Adopcja rekomendacji w NEXUS-ie to ułamek procenta ruchów pipeline'u:
 najlepszy ranking nic nie daje, jeśli nikt nie wchodzi w zakładkę. Digest
-odwraca kierunek — raz w tygodniu (poniedziałek 06:00 UTC) każdy rekruter
-i TAC opublikowanej rekrutacji dostaje in-app notyfikację z top ŚWIEŻYCH
+odwraca kierunek — raz w tygodniu (poniedziałek 06:00 UTC) prowadzący
+rekrutacji w pracy (albo jej DL, gdy prowadzącego nie ma) dostaje in-app notyfikację z top ŚWIEŻYCH
 dopasowań (kandydaci spoza pipeline'u tej rekrutacji, score >= progu).
 
 Świadome wybory:
@@ -109,6 +109,7 @@ def _is_due(last_synced_at: Optional[datetime], now: datetime) -> bool:
         last = last.replace(tzinfo=timezone.utc)
     if (now - last).days < 6:
         return False
+    # Dzień UTC celowo: dzień i godzina (MATCH_DIGEST_HOUR_UTC) w jednej strefie.
     if now.weekday() != int(settings.MATCH_DIGEST_WEEKDAY):
         return False
     return now.hour >= int(settings.MATCH_DIGEST_HOUR_UTC)
@@ -189,9 +190,13 @@ async def _fresh_top_matches(
     candidates = await filter_eligible_candidates(
         db, job=job, candidates=candidates, now=datetime.now(timezone.utc)
     )
-    candidates = apply_dealbreakers(
-        candidates, inputs=search_dealbreaker_inputs(job)
-    ).kept
+    job_inputs = search_dealbreaker_inputs(job)
+    from app.services.must_text_evidence import attach_gate_evidence
+
+    await attach_gate_evidence(
+        db, candidates, job_inputs.gate_evidence_labels, options=job_inputs.gate_options
+    )
+    candidates = apply_dealbreakers(candidates, inputs=job_inputs).kept
     if not candidates:
         return []
 
@@ -208,9 +213,27 @@ async def _fresh_top_matches(
     return ranked[: int(settings.MATCH_DIGEST_TOP_N)]
 
 
+async def _digest_recipients(db, job: Job) -> set[int]:
+    """Prowadzący przez zastępstwo z COMPASS; bez nikogo — DL rekrutacji
+    (a bez niego Head of Recruitment). Lustro ``similar_job_notify._recipients``
+    (R8-X1-6). TAC wypadł — funkcji TAC nie używamy (22.09.2026)."""
+    from app.services.job_previous_recruiters import working_owner_id
+    from app.services.notification_triggers import (
+        _delivery_lead_targets,
+        _operational_recipient,
+    )
+
+    # „Poprzedni rekruter” (14.10.2026) nie dostaje digestu — idzie do DL-a.
+    performer = await _operational_recipient(db, [await working_owner_id(db, job)])
+    if performer is not None:
+        return {performer}
+    return set(await _delivery_lead_targets(db, job))
+
+
 async def run_match_digest() -> dict[str, Any]:
     """Jeden bieg: opublikowane rekrutacje → top świeżych → notyfikacje."""
     from app.services.notification_triggers import emit
+    from app.services.request_work_state import IN_WORK_STATES
 
     stats: dict[str, Any] = {
         "status": "ok",
@@ -229,7 +252,10 @@ async def run_match_digest() -> dict[str, Any]:
                         # w NEXUSIE (0270). Na `status` wysyłałby maile o ~305
                         # ofertach z Traffita, których nikt tu nie obsługuje.
                         Job.is_open.is_(True),
-                        (Job.recruiter_id.isnot(None)) | (Job.tac_id.isnot(None)),
+                        # Runda 10 (R10-N7-7): automaty tylko dla requestów
+                        # w pracy — „Zakończony" i „Klient milczy" odpadają
+                        # (`is_open` zostaje wtedy `true`).
+                        Job.work_state.in_(IN_WORK_STATES),
                     )
                 )
             )
@@ -246,11 +272,7 @@ async def run_match_digest() -> dict[str, Any]:
                 ).scalar_one_or_none()
                 if job_row is None:
                     continue
-                recipients = {
-                    uid
-                    for uid in (job_row.recruiter_id, job_row.tac_id)
-                    if uid is not None
-                }
+                recipients = await _digest_recipients(db, job_row)
                 job_has_matches = False
                 for uid in sorted(recipients):
                     top = await _fresh_top_matches(db, job_row, user_id=uid)

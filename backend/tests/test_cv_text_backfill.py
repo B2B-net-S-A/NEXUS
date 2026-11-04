@@ -8,7 +8,10 @@ already proved unreadable.
 
 from __future__ import annotations
 
+import io
+
 import pytest
+from docx import Document
 
 from app.services import cv_text_backfill as svc
 from app.services.cv_text_backfill import (
@@ -31,6 +34,7 @@ def _candidate(**kw) -> Candidate:
         lastname="Kowalski",
         cv_extracted_data=kw.get("cv_extracted_data", {}),
         raw_cv_text=kw.get("raw_cv_text"),
+        cv_storage_key=kw.get("cv_storage_key", "cv/1.pdf"),
     )
 
 
@@ -69,14 +73,74 @@ _OLE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 64
 _PDF = b"%PDF-1.4\n%fake"
 
 
-def test_legacy_doc_is_recognised_by_its_bytes(monkeypatch):
-    """The image ships neither libreoffice nor antiword, so real OLE2 Word
-    always fails — classified as `legacy_doc` from the BYTES, not the name."""
-    monkeypatch.setattr(svc, "download_cv", lambda key: _OLE)
+@pytest.mark.parametrize("name", ["stary.doc", "cv.docx"])
+def test_binary_word_is_read_through_libreoffice(monkeypatch, name):
+    """#2979: `extract_text` czyta binarny Word przez LibreOffice, więc 68 `.doc`
+    z pustym tekstem (kopia produkcji 04.11.2026) nie może dostać `legacy_doc`.
+    Format idzie z bajtów, więc nazwa `.docx` nic tu nie zmienia."""
+    from app.services import cv_text_extractor as cte
 
-    assert extract_one("cv/2026/01/abc", "stary.doc").outcome == "legacy_doc"
-    # A `.docx` name does not rescue binary Word either.
-    assert extract_one("cv/2026/01/abc", "cv.docx").outcome == "legacy_doc"
+    monkeypatch.setattr(svc, "download_cv", lambda key: _OLE)
+    monkeypatch.setattr(cte, "_extract_word_via_pdf", lambda _p: "Senior QA Engineer")
+
+    result = extract_one("cv/2026/01/abc", name)
+
+    assert result.outcome == "extracted"
+    assert "Senior QA Engineer" in result.text
+
+
+def _docx_without_text() -> bytes:
+    """Prawdziwy `.docx`, z którego python-docx nic nie odczytuje."""
+    buffer = io.BytesIO()
+    Document().save(buffer)
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize("blob", [_OLE, _docx_without_text()], ids=["doc", "docx"])
+def test_word_without_text_is_retried_not_final(monkeypatch, blob):
+    """`extract_text` oddaje "" także wtedy, gdy LibreOffice'a nie ma, był zajęty
+    albo padł. Końcowe `empty` odcięłoby takie CV od każdego następnego biegu."""
+    from app.services import cv_text_extractor as cte
+
+    monkeypatch.setattr(svc, "download_cv", lambda key: blob)
+    monkeypatch.setattr(cte, "_extract_word_via_pdf", lambda _p: None)
+
+    result = extract_one("cv/2026/01/abc", "cv.doc")
+
+    assert result.outcome == "error"
+    assert result.outcome not in svc._TERMINAL_OUTCOMES
+
+
+def test_rtf_named_doc_stays_final_without_text(monkeypatch):
+    """RTF i HTML pod nazwą `.doc` celowo nie idą do LibreOffice'a (SSRF, reguła
+    `odczyt-worda-przez-libreoffice.md`), więc ponawianie nic by nie dało."""
+    from app.services import cv_text_extractor as cte
+
+    monkeypatch.setattr(svc, "download_cv", lambda key: b"{\\rtf1 cv}")
+    monkeypatch.setattr(cte, "_extract_word_via_pdf", lambda _p: None)
+
+    assert extract_one("cv/2026/01/abc", "cv.doc").outcome == "empty"
+
+
+def test_old_legacy_doc_marker_goes_back_to_the_scope():
+    """Znacznik sprzed #2979 mówił „nie ma czym czytać”, a teraz jest czym."""
+    from types import SimpleNamespace
+
+    from app.services.must_text_evidence import cv_waiting_for_text
+
+    assert "legacy_doc" not in svc._TERMINAL_OUTCOMES
+    marker = {"outcome": "legacy_doc", "chars": 0, "sniffed": True}
+    old = _candidate(cv_extracted_data={"_cv_text_extraction": dict(marker)})
+    assert _terminal_marker(old) is None
+    assert "legacy_doc" not in _sql(svc._pending_candidates_stmt(10))
+
+    marker["storage_key"] = "cv/1.doc"
+    waiting = SimpleNamespace(
+        cv_storage_key="cv/1.doc",
+        raw_cv_text=None,
+        cv_extracted_data={"_cv_text_extraction": marker},
+    )
+    assert cv_waiting_for_text(waiting) is True
 
 
 def test_pdf_named_docx_is_read_as_pdf(monkeypatch):
@@ -144,8 +208,8 @@ def test_download_failure_is_retryable_not_terminal(monkeypatch):
 
 def test_terminal_marker_skips_only_hopeless_outcomes():
     hopeless = _candidate(cv_extracted_data={})
-    _record_marker(hopeless, "legacy_doc", 0)
-    assert _terminal_marker(hopeless) == "legacy_doc"
+    _record_marker(hopeless, "junk", 0)
+    assert _terminal_marker(hopeless) == "junk"
 
     retryable = _candidate(cv_extracted_data={})
     _record_marker(retryable, "download_failed", 0)
@@ -172,14 +236,14 @@ def test_marker_preserves_other_extracted_data():
 def test_stats_report_a_taxonomy_not_a_single_rate():
     """ "77,5% extracted" cannot tell you whether the rest is fixable."""
     stats = BackfillStats()
-    stats.legacy_doc = 3
+    stats.unsupported_format = 3
     stats.junk = 2
     stats.candidate_ids_written = [7, 9]
 
     payload = stats.as_dict()
 
     assert payload["written"] == 2
-    for bucket in ("legacy_doc", "junk", "empty", "download_failed", "error"):
+    for bucket in ("unsupported_format", "junk", "empty", "download_failed", "error"):
         assert bucket in payload
 
 
@@ -198,7 +262,8 @@ def test_random_sample_changes_ordering_not_scope():
     by_id = str(svc._pending_candidates_stmt(30))
     random_ = str(svc._pending_candidates_stmt(30, random_sample=True))
 
-    assert "ORDER BY candidates.id" in by_id
+    # Runda 6 audytu: najpierw wiersze bez znacznika, potem po id.
+    assert "candidates.id ASC" in by_id
     assert "random()" in random_
     # Same population either way — only the draw order differs.
     for clause in ("cv_storage_key IS NOT NULL", "LIMIT"):
@@ -254,7 +319,9 @@ def test_terminal_rows_are_excluded_in_sql_not_just_in_the_loop():
         "scope no longer filters on the extraction marker — tranches will stall "
         "on rows that can never succeed"
     )
-    assert "legacy_doc" in sql, "terminal outcomes are not part of the predicate"
+    assert "unsupported_format" in sql, (
+        "terminal outcomes are not part of the predicate"
+    )
     # The retryable outcomes must NOT be excluded, or a transient S3 blip would
     # permanently drop the candidate.
     for retryable in ("download_failed", "error"):
@@ -284,12 +351,12 @@ def test_retry_outcomes_reopens_only_the_named_terminal_classes():
 
     default_sql = _sql()
     assert "'empty'" in default_sql, "domyślnie empty jest wykluczone"
-    assert "'legacy_doc'" in default_sql
+    assert "'unsupported_format'" in default_sql
 
     retry_sql = _sql(retry_outcomes=frozenset({"empty", "junk"}))
     assert "'empty'" not in retry_sql, "retry zdejmuje empty z listy wykluczeń"
     assert "'junk'" not in retry_sql
-    assert "'legacy_doc'" in retry_sql, "niewymienione klasy zostają wykluczone"
+    assert "'unsupported_format'" in retry_sql, "niewymienione klasy zostają wykluczone"
 
 
 def test_retry_outcomes_open_the_loop_guard_not_just_sql():
@@ -335,3 +402,91 @@ def test_retry_outcomes_open_the_loop_guard_not_just_sql():
         "pętla run_backfill musi przekazywać retry_outcomes do strażnika — "
         "inaczej SQL wpuszcza wiersze, a pętla je po cichu wyrzuca"
     )
+
+
+# ── Runda 6 audytu (T6-4): przejściowe wyniki nie blokują kolejki ───────────
+
+
+def _sql(stmt) -> str:
+    from sqlalchemy.dialects import postgresql
+
+    return str(
+        stmt.compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+
+
+@pytest.mark.parametrize("outcome", ["download_failed", "no_file", "error"])
+def test_transient_outcome_is_deferred_with_growing_backoff(outcome):
+    """Do 26.09.2026 `download_failed`/`no_file`/`error` wracały co noc na
+    czoło `ORDER BY id LIMIT 1000`, a nowe CV nie mieściły się w budżecie."""
+    from datetime import datetime, timezone
+
+    c = _candidate(cv_extracted_data={})
+    _record_marker(c, outcome, 0)
+    first = c.cv_extracted_data["_cv_text_extraction"]
+    assert first["attempts"] == 1
+    assert first["storage_key"] == "cv/1.pdf"
+    after_1 = datetime.fromisoformat(first["retry_after"])
+    assert after_1 > datetime.now(timezone.utc)
+
+    _record_marker(c, outcome, 0)
+    second = c.cv_extracted_data["_cv_text_extraction"]
+    assert second["attempts"] == 2
+    assert datetime.fromisoformat(second["retry_after"]) > after_1
+    # Nadal nieterminalny — po odroczeniu dostaje kolejną próbę.
+    assert _terminal_marker(c) is None
+
+
+def test_attempts_restart_for_a_new_cv_file():
+    c = _candidate(cv_extracted_data={})
+    _record_marker(c, "download_failed", 0)
+    _record_marker(c, "download_failed", 0)
+    c.cv_storage_key = "cv/2.pdf"
+    _record_marker(c, "download_failed", 0)
+    assert c.cv_extracted_data["_cv_text_extraction"]["attempts"] == 1
+
+
+def test_pending_scope_respects_deferral_and_puts_new_cvs_first():
+    sql = _sql(svc._pending_candidates_stmt(1000))
+    assert "retry_after" in sql, "odroczenie ponowień nie jest częścią zakresu"
+    order_by = sql.split("ORDER BY", 1)[1]
+    # Wiersze bez znacznika (nowe CV) przed ponowieniami.
+    assert "IS NOT NULL" in order_by
+    assert order_by.index("IS NOT NULL") < order_by.index("candidates.id")
+
+
+def test_glued_scope_respects_deferral():
+    assert "retry_after" in _sql(svc._glued_candidates_stmt(1000))
+
+
+def test_terminal_verdict_does_not_stick_to_a_replaced_file():
+    c = _candidate(cv_extracted_data={})
+    _record_marker(c, "empty", 0)
+    assert _terminal_marker(c) == "empty"
+    c.cv_storage_key = "cv/nowy.pdf"
+    assert _terminal_marker(c) is None, "nowy plik nie dziedziczy wyroku starego"
+    assert "storage_key" in _sql(svc._pending_candidates_stmt(10))
+
+
+def test_cv_text_phase_stats_survive_the_watermark_summary():
+    """`_CvTextPhaseResult.as_dict` miało klucze, których `_summarize` nie
+    przepuszczał — faza wyglądała w `/sync/status` jak pusta."""
+    from datetime import datetime, timezone
+
+    from app.tasks.traffit_sync import _CvTextPhaseResult, _summarize
+
+    stats = BackfillStats()
+    stats.scanned = 10
+    stats.extracted = 4
+    stats.download_failed = 2
+    summary = stats.as_dict()
+    summary["glued"] = BackfillStats().as_dict()
+    now = datetime.now(timezone.utc)
+    out = _summarize(_CvTextPhaseResult(summary, now, now).as_dict())
+    assert out["scanned"] == 10
+    assert out["extracted"] == 4
+    assert out["download_failed"] == 2
+    assert out["written"] == 0
+    assert "glued" in out

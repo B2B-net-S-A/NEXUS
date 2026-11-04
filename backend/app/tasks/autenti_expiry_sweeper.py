@@ -29,6 +29,7 @@ from sqlalchemy import func, select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.log_safety import safe_storage_key
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.notification import NotificationType
@@ -284,7 +285,7 @@ async def _retry_signed_downloads() -> int:
                     logger.exception(
                         "Sweeper: attaching signed PDF failed sig=%d; file %s removed",
                         sig_id,
-                        relative_path,
+                        safe_storage_key(relative_path),
                     )
                     continue
                 touched += 1

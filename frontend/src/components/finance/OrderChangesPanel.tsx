@@ -159,13 +159,15 @@ export function OrderChangesPanel({
   const chips = filterChips(subTab, filters);
 
   return (
-    <section className="space-y-4 rounded-xl border border-border bg-card p-4 shadow-xs sm:p-5">
-      {/* Poniżej `2xl` podzakładki idą w osobnym wierszu nad postępem, miesiącem
-          i eksportem — w jednym wierszu „Braki" chowały się za przewijaniem
-          (~1000 px), a od paska „Zrobione we wrześniu" także przy 1512 px
-          („Bra", audyt 24.09.2026). Zakładki się zawijają, nigdy nie ucinają. */}
+    // Bez wspólnej ramki wokół całości (makieta 02.10.2026): paski narzędzi
+    // stoją na tle strony, ramkę mają dopiero lista klientów i karta zamówień.
+    <section className="space-y-3">
+      {/* Od `xl` podzakładki, postęp, miesiąc i eksport stoją w jednym rzędzie;
+          poniżej podzakładki idą w osobnym wierszu. Zakładki się zawijają,
+          nigdy nie ucinają — w jednym wierszu „Braki" chowały się za
+          przewijaniem (audyt 24.09.2026). */}
       <div
-        className="flex flex-col gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between"
+        className="flex flex-col gap-x-4 gap-y-2.5 xl:flex-row xl:items-center xl:justify-between"
         data-help="finance.order_changes"
       >
         <TabbedNav
@@ -174,10 +176,11 @@ export function OrderChangesPanel({
           onValueChange={(next) => onSubTabChange(next as OrderChangesSubTab)}
           ariaLabel="Rodzaj zmian w zamówieniach"
           overflow="wrap"
-          className="min-w-0 2xl:w-auto 2xl:flex-1"
+          dense
+          className="min-w-0 xl:w-auto xl:flex-1"
           listClassName="w-auto"
         />
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           {data && statusCounts ? (
             <DoneProgress
               month={data.period.month}
@@ -189,7 +192,7 @@ export function OrderChangesPanel({
             aria-label="Miesiąc rozliczeniowy"
             value={month}
             onChange={(event) => onMonthChange(event.target.value)}
-            className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground"
+            className="h-8 rounded-md border border-border bg-background px-2.5 text-sm font-medium text-foreground pointer-coarse:h-10"
           >
             {months.map((option) => (
               <option key={option.value} value={option.value}>
@@ -203,69 +206,73 @@ export function OrderChangesPanel({
             disabled={exporting || !data}
             aria-label={`Eksport do Excela: ${SUB_TAB_LABELS[subTab]}`}
             data-help="finance.export"
-            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50 pointer-coarse:min-h-10"
           >
             {exporting ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
             ) : (
-              <Download className="h-4 w-4" aria-hidden />
+              <Download className="h-3.5 w-3.5" aria-hidden />
             )}
             Eksport zakładki do Excela
           </button>
         </div>
       </div>
-      {onStatusChange ? (
-        <StatusSwitch
-          value={status}
-          counts={statusCounts}
-          onChange={onStatusChange}
+      {/* Status i filtry w jednym rzędzie, gdy się mieszczą.
+          Filtry zawężają WSZYSTKIE zakładki i ich liczniki, a eksport bierze
+          dokładnie to, co widać — liczy je serwer, jedną funkcją. */}
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-2.5">
+        {onStatusChange ? (
+          <StatusSwitch
+            value={status}
+            counts={statusCounts}
+            onChange={onStatusChange}
+          />
+        ) : null}
+        <FilterBar
+          className="min-w-0 flex-1 basis-[26rem]"
+          ariaLabel="Filtry audytu zamówień"
+          search={{
+            value: filters.search,
+            onChange: filters.onSearchChange,
+            onClear: () => filters.onSearchChange(""),
+            placeholder:
+              "Szukaj po konsultancie, kliencie lub numerze zamówienia…",
+            ariaLabel: "Szukaj w audycie zamówień",
+          }}
+          filters={
+            <>
+              {filters.clientPicker}
+              <div
+                className="flex w-full items-center gap-1.5 sm:w-auto"
+                role="group"
+                aria-label={`${DATE_FILTER_LABELS[subTab]} (zakres)`}
+              >
+                <Input
+                  type="date"
+                  aria-label={`${DATE_FILTER_LABELS[subTab]} od`}
+                  value={filters.dateFrom}
+                  onChange={(event) =>
+                    filters.onDateFromChange(event.target.value)
+                  }
+                  className="h-9 min-w-0 flex-1 sm:w-[150px] sm:flex-none"
+                />
+                <span className="text-sm text-muted-foreground" aria-hidden>
+                  –
+                </span>
+                <Input
+                  type="date"
+                  aria-label={`${DATE_FILTER_LABELS[subTab]} do`}
+                  value={filters.dateTo}
+                  onChange={(event) => filters.onDateToChange(event.target.value)}
+                  className="h-9 min-w-0 flex-1 sm:w-[150px] sm:flex-none"
+                />
+              </div>
+            </>
+          }
+          chips={chips}
+          onClearAll={chips.length > 0 ? filters.onClearAll : undefined}
         />
-      ) : null}
-      {/* Filtry zawężają WSZYSTKIE cztery zakładki i ich liczniki, a eksport
-          bierze dokładnie to, co widać — liczy je serwer, jedną funkcją. */}
-      <FilterBar
-        ariaLabel="Filtry audytu zamówień"
-        search={{
-          value: filters.search,
-          onChange: filters.onSearchChange,
-          onClear: () => filters.onSearchChange(""),
-          placeholder:
-            "Szukaj po konsultancie, kliencie lub numerze zamówienia…",
-          ariaLabel: "Szukaj w audycie zamówień",
-        }}
-        filters={
-          <>
-            {filters.clientPicker}
-            <div
-              className="flex w-full items-center gap-1.5 sm:w-auto"
-              role="group"
-              aria-label={`${DATE_FILTER_LABELS[subTab]} (zakres)`}
-            >
-              <Input
-                type="date"
-                aria-label={`${DATE_FILTER_LABELS[subTab]} od`}
-                value={filters.dateFrom}
-                onChange={(event) =>
-                  filters.onDateFromChange(event.target.value)
-                }
-                className="h-9 min-w-0 flex-1 sm:w-[150px] sm:flex-none"
-              />
-              <span className="text-sm text-muted-foreground" aria-hidden>
-                –
-              </span>
-              <Input
-                type="date"
-                aria-label={`${DATE_FILTER_LABELS[subTab]} do`}
-                value={filters.dateTo}
-                onChange={(event) => filters.onDateToChange(event.target.value)}
-                className="h-9 min-w-0 flex-1 sm:w-[150px] sm:flex-none"
-              />
-            </div>
-          </>
-        }
-        chips={chips}
-        onClearAll={chips.length > 0 ? filters.onClearAll : undefined}
-      />
+      </div>
       {body}
     </section>
   );
@@ -284,26 +291,28 @@ function DoneProgress({
   const label = doneInMonthLabel(month);
   const percent = total > 0 ? Math.round((done / total) * 100) : 0;
   return (
-    <div className="min-w-[180px]" aria-label={`${label}: ${done} z ${total}`}>
-      <div className="flex items-baseline justify-between gap-3 text-xs">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-semibold tabular-nums text-foreground">
-          {done} / {total}
-        </span>
-      </div>
+    // Jedna linia: podpis, pasek, „X / Y" — nie zabiera drugiego wiersza.
+    <div
+      className="flex min-w-[220px] items-center gap-2 text-xs"
+      aria-label={`${label}: ${done} z ${total}`}
+    >
+      <span className="whitespace-nowrap text-muted-foreground">{label}</span>
       <div
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={total}
         aria-valuenow={done}
         aria-label={label}
-        className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+        className="h-1.5 min-w-[60px] flex-1 overflow-hidden rounded-full bg-muted"
       >
         <div
           className="h-full rounded-full bg-primary transition-all"
           style={{ width: `${percent}%` }}
         />
       </div>
+      <span className="whitespace-nowrap font-semibold tabular-nums text-foreground">
+        {done} / {total}
+      </span>
     </div>
   );
 }
@@ -323,7 +332,7 @@ function StatusSwitch({
     <div
       role="radiogroup"
       aria-label="Status pozycji"
-      className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-border bg-muted/40 p-1"
+      className="inline-flex flex-wrap items-center gap-1.5"
     >
       {STATUS_ORDER.map((option) => {
         const active = option === value;
@@ -335,11 +344,12 @@ function StatusSwitch({
             role="radio"
             aria-checked={active}
             onClick={() => onChange(option)}
+            // Pigułki (makieta 02.10.2026): wybrana ciemna, reszta z obwódką.
             className={cn(
-              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              "inline-flex h-9 items-center whitespace-nowrap rounded-full border px-3 text-xs font-medium tabular-nums transition-colors pointer-coarse:min-h-10",
               active
-                ? "bg-primary text-primary-foreground shadow-xs"
-                : "text-muted-foreground hover:text-foreground",
+                ? "border-foreground bg-foreground text-background"
+                : "border-border bg-card text-muted-foreground hover:text-foreground",
             )}
           >
             {STATUS_FILTER_LABELS[option]}
@@ -362,9 +372,9 @@ function GapsBanner({
   return (
     <div
       role="status"
-      className="flex items-start gap-2 rounded-lg border border-warning/25 bg-warning-muted px-3 py-2.5 text-sm text-warning-muted-foreground"
+      className="flex items-start gap-2 rounded-lg bg-warning-muted px-3 py-1.5 text-[13px] text-warning-muted-foreground"
     >
-      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
       <span>
         {peopleLabel(count)} zakończone zamówienie bez nowego wpisu —{" "}
         <button

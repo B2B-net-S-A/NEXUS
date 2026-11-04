@@ -5,6 +5,7 @@
 
 import { api } from "@/lib/api";
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
+import type { RecruitmentRate } from "@/lib/api/recruitmentRates";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -171,6 +172,9 @@ export interface ContractWithOrdersRead {
   /** Dni do końca NAJBLIŻSZEGO zamówienia bez kontynuacji (bez horyzontu) —
    *  filtr „kończy się w ciągu N dni" czyta regułę serwera (audyt 24.09, M6). */
   next_ending_without_successor_days?: number | null;
+  /** Stawki z rekrutacji tej osoby (D7) — podpowiedź w oknie zamówienia.
+   *  `null` bez podglądu kwot klienta albo bez stawek w rekrutacji. */
+  recruitment_rates?: RecruitmentRate | null;
   orders: ClientOrderRead[];
 }
 
@@ -424,6 +428,8 @@ export interface DlKpiRow {
   total_revenue: string | number | null;
   active_revenue: string | number | null;
   monthly_margin_total: number | null;
+  /** Klienci z obecnym kontraktem bez wyceny — marża DL-a jest wtedy częściowa. */
+  monthly_margin_unpriced_clients?: number;
   active_orders_count: number;
   active_consultants: number;
   active_contracts: number;
@@ -446,7 +452,12 @@ export const dlPortalApi = {
     api.post<FrameworkContractRead>(
       `/api/clients/${clientId}/framework-contracts`,
       formData,
-      { headers: { "Content-Type": "multipart/form-data" } }
+      {
+        headers: { "Content-Type": "multipart/form-data" },
+        // Skan podpisanej umowy (do 25 MB) na wolniejszym łączu nie mieści się
+        // w 30 s instancji — przeglądarka zrywała wysyłkę (23.10.2026).
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      }
     ),
 
   updateFrameworkContract: (clientId: number, fcId: number, payload: FrameworkContractUpdate) =>
@@ -468,7 +479,11 @@ export const dlPortalApi = {
     api.post<AmendmentRead>(
       `/api/clients/${clientId}/framework-contracts/${fcId}/amendments`,
       formData,
-      { headers: { "Content-Type": "multipart/form-data" } }
+      {
+        headers: { "Content-Type": "multipart/form-data" },
+        // Jak umowa ramowa: skan aneksu nie mieści się w 30 s instancji.
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      }
     ),
 
   deleteAmendment: (clientId: number, fcId: number, amendmentId: number) =>

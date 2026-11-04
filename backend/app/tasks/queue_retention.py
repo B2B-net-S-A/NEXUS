@@ -17,9 +17,23 @@ Trzy tabele rosły bez końca:
   on mówi reconcilerowi dryfu, co naprawdę jest w indeksie. Skasowanie go
   zamieniłoby encję w „nieznaną” i wyłączyło wykrywanie dryfu.
 
+Od 04.10.2026 (0416) ta sama pętla kasuje niedokończone formularze
+„Nowa rekrutacja” (``job_intake_forms``) bez zmian przez
+``job_intake_forms.RETENTION_DAYS`` (30) dni — formularz niesie treść maila
+klienta, więc nie leży bez końca.
+
+Od 07.10.2026 (0422) pętla czyści też dowody wygasłych propozycji nocnego
+przeglądu (``job_proposals.status = 'expired'``) starszych niż
+``job_proposals.EXPIRED_EVIDENCE_RETENTION_DAYS`` (30) dni — sam wiersz
+zostaje, bo ``request_allocation`` czyta istnienie ``full_base`` jako dowód,
+że przegląd był, a publikacja bez limitu zostawia ich setki.
+
 Kasujemy paczkami po ``BATCH_SIZE`` z commitem po każdej, najwyżej
 ``MAX_BATCHES`` paczek na tabelę w jednym cyklu — zaległość po wdrożeniu
 schodzi w kilka cykli zamiast jednej wielominutowej transakcji.
+
+Od 02.11.2026 (0639) pętla kasuje wiersze dziennika wejść panelu klienta
+(``client_panel_views``) starsze niż 180 dni.
 """
 
 from __future__ import annotations
@@ -32,6 +46,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.services import job_files, job_intake_forms, job_proposals
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +103,22 @@ _PRUNE_INDEX_OUTBOX = text(
 )
 
 
+# Dziennik wejść panelu klienta (0639): wie, kto i kiedy otworzył link.
+CLIENT_PANEL_VIEWS_RETENTION_DAYS = 180
+_PRUNE_CLIENT_PANEL_VIEWS = text(
+    """
+    DELETE FROM client_panel_views
+     WHERE id IN (
+        SELECT id
+          FROM client_panel_views
+         WHERE created_at < :cutoff
+         ORDER BY created_at
+         LIMIT :batch
+     )
+    """
+)
+
+
 def _outbox_days() -> int:
     """Nie krócej niż okno zdarzeń nocnego przeglądu + zapas."""
     floor = int(getattr(settings, "AUTO_FULL_REVIEW_EVENT_LOOKBACK_DAYS", 14)) + 1
@@ -119,7 +150,34 @@ async def prune_once(*, now: datetime | None = None) -> dict[str, int]:
         "auto_match_log": await _prune(_PRUNE_AUTO_MATCH_LOG, cutoff=log_cutoff),
         "match_outbox": await _prune(_PRUNE_MATCH_OUTBOX, cutoff=outbox_cutoff),
         "index_outbox": await _prune(_PRUNE_INDEX_OUTBOX, cutoff=outbox_cutoff),
+        "job_intake_forms": await _prune(
+            job_intake_forms.PRUNE_STATEMENT,
+            cutoff=now - timedelta(days=job_intake_forms.RETENTION_DAYS),
+        ),
+        # UPDATE, nie DELETE — ta sama pętla paczek (`:cutoff`, `:batch`).
+        "expired_proposal_evidence": await _prune(
+            job_proposals.PRUNE_EXPIRED_EVIDENCE,
+            cutoff=now - timedelta(days=job_proposals.EXPIRED_EVIDENCE_RETENTION_DAYS),
+        ),
+        "client_panel_views": await _prune(
+            _PRUNE_CLIENT_PANEL_VIEWS,
+            cutoff=now - timedelta(days=CLIENT_PANEL_VIEWS_RETENTION_DAYS),
+        ),
+        # 0428: pliki formularza, który autor usunął albo który zniknął wyżej
+        # po 30 dniach — wiersz i plik na dysku (dlatego nie surowy DELETE).
+        "orphan_job_files": await _sweep_orphan_job_files(),
     }
+
+
+async def _sweep_orphan_job_files() -> int:
+    deleted = 0
+    for _ in range(MAX_BATCHES):
+        async with AsyncSessionLocal() as db:
+            rows = await job_files.sweep_orphans(db)
+        deleted += rows
+        if rows < job_files.ORPHAN_BATCH:
+            break
+    return deleted
 
 
 async def queue_retention_loop() -> None:

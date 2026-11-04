@@ -40,8 +40,15 @@ KINDS: dict[str, tuple[str, int]] = {
     KIND_AUTO_CV: ("Auto-CV po „Zweryfikowany”", 3),
 }
 
+# Przegląd bazy bez wektora zapytania (runda 6 audytu) — `auto_full_review`.
+NO_QUERY_VECTOR = "no_query_vector"
+
 # Polskie powody do „Pracy w tle". Klucz = klasa wyjątku albo kod stanu.
 _REASONS_PL = {
+    NO_QUERY_VECTOR: (
+        "Wyszukiwanie semantyczne było niedostępne — przegląd nie ocenił "
+        "dopasowania i zostanie powtórzony."
+    ),
     "stalled": "Przegląd stanął bez postępu i został przerwany.",
     "attempts_exhausted": "Przegląd był wielokrotnie przerywany (np. wdrożeniami).",
     "candidate_erased": "W trakcie przeglądu usunięto kandydata — przegląd przerwano.",

@@ -288,6 +288,26 @@ def test_drill_verifies_the_cv_mirror_against_restored_rows() -> None:
     )
 
 
+def test_drill_never_prints_raw_cv_storage_keys() -> None:
+    """Klucz CV niesie oryginalną nazwę pliku (imię i nazwisko), a log Actions
+    publicznego repo widzi każdy — brakujący plik drukujemy skrótem (runda 6)."""
+    workflow = yaml.safe_load(_DRILL.read_text(encoding="utf-8"))
+    runs = "\n".join(
+        step.get("run", "")
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+    )
+    printing = [
+        line
+        for line in _uncommented(runs).splitlines()
+        if re.search(r"\b(echo|printf)\b", line)
+        and re.search(r"\$\{?key\b", line)
+        and "sha256sum" not in line
+    ]
+    assert not printing, "surowy klucz CV w logu drilla:\n" + "\n".join(printing)
+    assert "sha256sum" in runs
+
+
 def test_drill_fails_when_it_cannot_run() -> None:
     drill = _DRILL.read_text(encoding="utf-8")
     assert "drill cannot run (FAIL)" in drill and "exit 1" in drill, (

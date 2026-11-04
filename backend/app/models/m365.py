@@ -56,7 +56,8 @@ class EmailMatchMethod(str, enum.Enum):
     smart_name = "smart_name"
     manual = "manual"
     # 0324: mail z CV od nieznanego nadawcy podpięty do kandydata po tożsamości
-    # z TREŚCI CV (e-mail/telefon/LinkedIn/nazwisko), albo założony z tego CV.
+    # z TREŚCI CV (od 12.10.2026: ten sam e-mail albo ten sam plik), albo
+    # założony z tego CV.
     cv_identity = "cv_identity"
     unmatched = "unmatched"
 
@@ -202,6 +203,8 @@ class Email(Base, TimestampMixin):
     body_html: Mapped[Optional[str]] = mapped_column(Text)
     body_text: Mapped[Optional[str]] = mapped_column(Text)
     body_preview: Mapped[Optional[str]] = mapped_column(String(255))
+    # 0624 — Graph ``webLink`` („Otwórz w Outlooku”).
+    web_link: Mapped[Optional[str]] = mapped_column(String(2000))
 
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     received_at: Mapped[datetime] = mapped_column(

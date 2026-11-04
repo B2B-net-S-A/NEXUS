@@ -9,29 +9,80 @@ import { useCallback, useEffect, useState } from "react";
 
 export type ClientTab =
   | "profil"
-  // Karta klienta („Zasady współpracy") — cel linku „Edytuj kartę" ze strony
-  // rekrutacji i z Pomocy → Klienci (`/clients/{id}?tab=zasady`).
+  // Karta klienta („Zasady współpracy"). Link „Edytuj kartę" ze strony
+  // rekrutacji i z Pomocy prowadzi od rundy 6 audytu do Ustawień
+  // (`clientPlaybookEditHref`), bo DL nie widzi profilu cudzego klienta.
   | "zasady"
+  // Pakiet klienta „Wejście u klienta”: sprzęt, pierwszy dzień, dokumenty
+  // i dostępy dla wejścia konsultanta (etap 3, 17.10.2026).
+  | "wejscie"
   | "projekty"
   | "kontakty"
   | "umowy-ramowe"
   | "zamowienia"
+  // Importy zużycia MD, które dotknęły zamówień klienta (ticket 7, 09.2026);
+  // cel odsyłacza „Otwórz import →" z historii zamówienia.
+  | "importy-md"
+  // Faktury do klientów z KSeF dopasowane do zamówień (etap 5, E8).
+  | "faktury"
   | "analityka"
-  | "zespol";
+  // „Ludzie i technologie” (22.10.2026): działy, drzewo osób i mapa
+  // technologii w jednej zakładce. Zastępuje „Strukturę u klienta”
+  // (`struktura`, 17.10.2026) i „Technologie” (`technologie`, 16.10.2026) —
+  // dawne klucze w adresie prowadzą tu (`LEGACY_CLIENT_TABS`).
+  | "ludzie"
+  | "zespol"
+  // Sprzedaż (27.10.2026): powiązana firma sprzedaży i jej szanse — tylko
+  // z uprawnieniem „Sprzedaż: podgląd”.
+  | "sprzedaz";
 
 export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "profil",
   "zasady",
+  "wejscie",
   "projekty",
   "kontakty",
   "umowy-ramowe",
   "zamowienia",
+  "importy-md",
+  "faktury",
   "analityka",
+  "ludzie",
   "zespol",
+  "sprzedaz",
 ] as const;
+
+/**
+ * Rzadkie zakładki pod „Więcej” w pasku (22.10.2026). Wybrana z menu stoi
+ * w pasku, dopóki jest aktywna — inaczej nie byłoby widać, gdzie się jest.
+ * „Delivery Lead” (`zespol`) też tu jest (makieta P5): DL widać w nagłówku,
+ * a notatki o stacku mają jedno wejście w „Ludziach i technologiach”.
+ */
+export const CLIENT_MORE_TABS: readonly ClientTab[] = [
+  "zespol",
+  "importy-md",
+  "faktury",
+  "analityka",
+  "sprzedaz",
+];
+
+/**
+ * Dawne zakładki → „Ludzie i technologie” z widokiem (linki z powiadomień,
+ * historii opinii kontraktu i opieki sprzed 22.10.2026).
+ */
+export const LEGACY_CLIENT_TABS: Readonly<Record<string, "drzewo" | "mapa">> = {
+  struktura: "drzewo",
+  technologie: "mapa",
+};
 
 export function isClientTab(value: string | null): value is ClientTab {
   return value !== null && (CLIENT_TAB_KEYS as readonly string[]).includes(value);
+}
+
+/** Zakładka z adresu z dawnymi kluczami („struktura”, „technologie” → „ludzie”). */
+export function clientTabFrom(value: string | null): ClientTab | null {
+  if (value !== null && value in LEGACY_CLIENT_TABS) return "ludzie";
+  return isClientTab(value) ? value : null;
 }
 
 /**
@@ -56,11 +107,12 @@ export function useClientTab(
   // WARTOŚCI parametru, więc efekt niżej nie wchodził i zakładka stała.
   onSelectTab?: (tab: ClientTab) => void,
 ): readonly [ClientTab, (tab: ClientTab) => void, (tab: ClientTab) => void] {
-  const [activeTab, setActiveTab] = useState<ClientTab>(() =>
-    isClientTab(requestedTab) ? requestedTab : "profil",
+  const [activeTab, setActiveTab] = useState<ClientTab>(
+    () => clientTabFrom(requestedTab) ?? "profil",
   );
   useEffect(() => {
-    if (isClientTab(requestedTab)) setActiveTab(requestedTab);
+    const tab = clientTabFrom(requestedTab);
+    if (tab) setActiveTab(tab);
   }, [requestedTab]);
   const selectTab = useCallback(
     (tab: ClientTab) => {

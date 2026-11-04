@@ -22,12 +22,14 @@ from sqlalchemy import case, delete, func, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.candidate_access import CandidateSearchAccess
+from app.api.candidate_access import NOT_READ_ONLY, CandidateSearchAccess
+from app.api.deps import HeadOfRecruitmentPlus
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.candidate import Candidate
 from app.models.my_people import MyPeopleOverride
+from app.schemas.candidate import EmploymentMarker
 from app.services import my_people as svc
 
 router = APIRouter()
@@ -51,10 +53,12 @@ class MyPeopleRow(BaseModel):
     source: Literal["auto", "pinned"] = "auto"
     active_processes: int = 0
     working: bool = False
+    employment_marker: Optional[EmploymentMarker] = None
     snoozed: bool = False
     snooze_reason: Optional[str] = None
     snoozed_at: Optional[datetime] = None
     new_matches: int = 0
+    from_link: bool = False
 
 
 class MyPeopleResponse(BaseModel):
@@ -129,12 +133,23 @@ def _row(r: svc.PersonRow) -> MyPeopleRow:
     return MyPeopleRow(**r.__dict__)
 
 
-@router.get("", response_model=MyPeopleResponse)
-async def list_my_people(
-    user: CandidateSearchAccess,
-    db: AsyncSession = Depends(get_db),
-) -> MyPeopleResponse:
-    people = await svc.load_my_people(db, user.id)
+class TeamMember(BaseModel):
+    user_id: int
+    name: str
+    roles: list[str]
+    total: int
+    working: int
+    idle: int
+    new_matches: int
+    jobs_with_matches: int
+
+
+class TeamResponse(BaseModel):
+    members: list[TeamMember]
+    idle_days: int = svc.IDLE_DAYS
+
+
+def _response(people: svc.MyPeople) -> MyPeopleResponse:
     return MyPeopleResponse(
         rows=[_row(r) for r in people.rows],
         total=len(people.rows),
@@ -145,6 +160,56 @@ async def list_my_people(
     )
 
 
+@router.get("", response_model=MyPeopleResponse)
+async def list_my_people(
+    user: CandidateSearchAccess,
+    db: AsyncSession = Depends(get_db),
+) -> MyPeopleResponse:
+    return _response(await svc.load_my_people(db, user.id))
+
+
+@router.get("/team", response_model=TeamResponse)
+@limiter.limit("10/minute", key_func=user_or_ip_key)
+async def my_people_team(
+    request: Request,
+    user: CandidateSearchAccess,
+    _lead: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> TeamResponse:
+    """„Zespół” (25.10.2026): czyja lista „Moi ludzie” leży — dla HoR i admina.
+
+    Liczby z tych samych definicji co dymek osoby: aktywni, pracujący,
+    czekający dłużej niż ``IDLE_DAYS`` bez procesu, nieobejrzane dopasowania.
+    """
+    team = await svc.team_members(db)
+    # Zbiorczo, nie `load_my_people` po kolei — to trwało 20 s (26.10.2026).
+    counts = await svc.team_counts(db, [m.id for m in team])
+    return TeamResponse(
+        members=[
+            TeamMember(
+                user_id=m.id,
+                name=m.name,
+                roles=sorted(r.value for r in m.get_all_roles()),
+                **counts.get(m.id, svc.TeamCounts()).__dict__,
+            )
+            for m in team
+        ]
+    )
+
+
+@router.get("/team/{user_id}", response_model=MyPeopleResponse)
+async def my_people_of_member(
+    user_id: int,
+    user: CandidateSearchAccess,
+    _lead: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> MyPeopleResponse:
+    """Lista „Moi ludzie” osoby z zespołu — podgląd dla HoR i admina."""
+    if user_id not in {m.id for m in await svc.team_members(db)}:
+        raise HTTPException(404, "Ta osoba nie ma listy „Moi ludzie”.")
+    return _response(await svc.load_my_people(db, user_id))
+
+
 @router.get("/summary", response_model=MyPeopleSummary)
 async def my_people_summary(
     user: CandidateSearchAccess,
@@ -152,16 +217,7 @@ async def my_people_summary(
 ) -> MyPeopleSummary:
     people = await svc.load_my_people(db, user.id)
     active = people.active
-    idle = sorted(
-        (
-            r
-            for r in active
-            if r.active_processes == 0
-            and r.days_since_last_send is not None
-            and r.days_since_last_send > svc.IDLE_DAYS
-        ),
-        key=lambda r: r.days_since_last_send or 0,
-    )
+    idle = people.idle
     new_matches, jobs = await svc.unseen_totals(db, user.id)
     latest = await svc.unseen_matches(db, user.id)
     return MyPeopleSummary(
@@ -170,8 +226,8 @@ async def my_people_summary(
         jobs_with_matches=jobs,
         latest_matches=[UnseenMatch(**m) for m in latest],
         idle_count=len(idle),
-        # Najkrócej czekający najpierw: tych jeszcze da się „odzyskać" jednym
-        # telefonem; osoby sprzed dwóch lat nie są pilne tego samego dnia.
+        # Najkrócej czekający najpierw (`MyPeople.idle`): tych jeszcze da się
+        # „odzyskać" jednym telefonem.
         idle_top=[
             IdlePerson(
                 candidate_id=r.candidate_id,
@@ -244,7 +300,7 @@ async def _clear_override(
     )
 
 
-@router.post("/{candidate_id}/snooze", status_code=204)
+@router.post("/{candidate_id}/snooze", status_code=204, dependencies=NOT_READ_ONLY)
 async def snooze_person(
     candidate_id: int,
     body: SnoozeRequest,
@@ -263,7 +319,7 @@ async def snooze_person(
     await db.commit()
 
 
-@router.delete("/{candidate_id}/snooze", status_code=204)
+@router.delete("/{candidate_id}/snooze", status_code=204, dependencies=NOT_READ_ONLY)
 async def unsnooze_person(
     candidate_id: int,
     user: CandidateSearchAccess,
@@ -293,7 +349,7 @@ async def unsnooze_person(
     await db.commit()
 
 
-@router.post("/{candidate_id}/pin", status_code=204)
+@router.post("/{candidate_id}/pin", status_code=204, dependencies=NOT_READ_ONLY)
 async def pin_person(
     candidate_id: int,
     user: CandidateSearchAccess,
@@ -304,7 +360,7 @@ async def pin_person(
     await db.commit()
 
 
-@router.delete("/{candidate_id}/pin", status_code=204)
+@router.delete("/{candidate_id}/pin", status_code=204, dependencies=NOT_READ_ONLY)
 async def unpin_person(
     candidate_id: int,
     user: CandidateSearchAccess,
@@ -324,7 +380,7 @@ async def unpin_person(
     await db.commit()
 
 
-@router.post("/matches/seen", status_code=200)
+@router.post("/matches/seen", status_code=200, dependencies=NOT_READ_ONLY)
 async def mark_seen(
     body: SeenRequest,
     user: CandidateSearchAccess,

@@ -35,43 +35,95 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import pathlib
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import BackgroundTasks, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import DEFAULT_TZ
 from app.models.activity import Activity
 from app.models.application_submission import (
     ApplicationSubmission,
     ApplicationSubmissionStatus,
 )
 from app.models.candidate import Candidate, CandidateStatus
-from app.models.candidate_consent import CONSENT_KIND_RECRUITMENT, CandidateConsent
+from app.models.candidate_consent import (
+    CONSENT_KIND_CURRENT,
+    CONSENT_KIND_FUTURE,
+    CandidateConsent,
+)
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job
+from app.models.candidate_source_event import SourceChannel
 from app.models.my_people import MyPeopleOverride
 from app.models.notification import NotificationType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.recruitment_priority import PriorityOriginKind
 from app.models.user_activity import UserActionType, UserActivity
+from app.services.candidate_name_rules import without_name_markers
 from app.services.career_consent import (
-    CONSENT_TEXT_SHA256,
+    CONSENT_CURRENT_TEXT_SHA256,
+    CONSENT_FUTURE_TEXT_SHA256,
     CONSENT_TEXT_VERSION,
     consent_given,
+    consent_kinds,
+)
+from app.services.application_screening import (
+    ExistingCard,
+    existing_card,
+    pair_in_job,
+    record_pending,
+    screening_applies,
 )
 
 logger = logging.getLogger(__name__)
+
+_WARSAW = ZoneInfo(DEFAULT_TZ)
 
 WORK_MODES = ("remote", "hybrid", "onsite", "any")
 RATE_MIN = Decimal("1")
 RATE_MAX = Decimal("10000")
 CITY_MAX = 120
+
+
+# Runda 10 (R10-N10-7): `content_type` części multipart pisze przeglądarka
+# (albo skrypt) — ponad 100 znaków (`String(100)` w obu tabelach) dawało 500,
+# a w gałęzi nowego kandydata plik CV zostawał już zapisany na dysku. Do bazy
+# idzie wyłącznie typ z białej listy albo typ wyprowadzony z rozszerzenia.
+_CV_TYPE_BY_EXT = {
+    ".pdf": "application/pdf",
+    ".doc": "application/msword",
+    ".docx": (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ),
+}
+
+
+def cv_content_type(cv: UploadFile) -> str:
+    """MIME CV do zapisu: z białej listy formularza albo z rozszerzenia."""
+    from app.api import public_share
+
+    declared = (cv.content_type or "").split(";", 1)[0].strip().lower()
+    if declared in public_share._ALLOWED_CV_MIME:
+        return declared
+    ext = pathlib.PurePath((cv.filename or "").lower()).suffix
+    return _CV_TYPE_BY_EXT.get(ext, "application/octet-stream")
+
+
+def cv_display_filename(cv: UploadFile) -> str:
+    """Nazwa CV do zapisu w bazie — bez katalogów, przycięta jak na dysku."""
+    from app.api import public_share
+
+    name = pathlib.PurePath((cv.filename or "").strip().replace("\\", "/")).name
+    return public_share._fit_filename(name or "cv.pdf")
 
 
 def field_error(field_name: str, message: str, value: Any = None) -> HTTPException:
@@ -116,6 +168,9 @@ class ApplicantInput:
     city: Optional[str] = None
     work_mode: Optional[str] = None
     utm: dict[str, Optional[str]] = field(default_factory=dict)
+    # Dobrowolna zgoda na przyszłe rekrutacje (obowiązkową sprawdza
+    # ``require_consent`` przed zbudowaniem zgłoszenia).
+    consent_future: bool = False
 
 
 def parse_optional_fields(
@@ -179,6 +234,15 @@ def parse_optional_fields(
     return out
 
 
+def _link_channel(link: CandidateInviteLink) -> SourceChannel:
+    """Kanał zdarzenia źródła: link ogólny albo link do rekrutacji, osobno od portali."""
+    return (
+        SourceChannel.career_link_job
+        if link.job_id is not None
+        else SourceChannel.career_link_general
+    )
+
+
 def link_key(link: CandidateInviteLink) -> str:
     """Nie-sekretny klucz linku: SHA-256 sekretu (v2) albo PK (legacy)."""
     if link.token_sha256:
@@ -220,15 +284,33 @@ def _optional_payload(applicant: ApplicantInput) -> dict[str, Any]:
     }
 
 
-def _consent_row(ref: LinkRef, **subject: int) -> CandidateConsent:
-    return CandidateConsent(
-        kind=CONSENT_KIND_RECRUITMENT,
-        text_version=CONSENT_TEXT_VERSION,
-        text_sha256=CONSENT_TEXT_SHA256,
-        given_at=datetime.now(timezone.utc),
-        invite_link_key=ref.digest,
-        **subject,
-    )
+def _consent_rows(
+    ref: LinkRef, applicant: ApplicantInput, **subject: int
+) -> list[CandidateConsent]:
+    """Obowiązkowa zgoda linku i — na linku rekrutacji, gdy zaznaczona — na
+    przyszłe. Link rekrutera ma tylko zgodę na przyszłe (``consent_kinds``)."""
+    sha_by_kind = {
+        CONSENT_KIND_CURRENT: CONSENT_CURRENT_TEXT_SHA256,
+        CONSENT_KIND_FUTURE: CONSENT_FUTURE_TEXT_SHA256,
+    }
+    given = [
+        (kind, sha_by_kind[kind])
+        for kind in consent_kinds(
+            ref.link.kind, consent_future=applicant.consent_future
+        )
+    ]
+    now = datetime.now(timezone.utc)
+    return [
+        CandidateConsent(
+            kind=kind,
+            text_version=CONSENT_TEXT_VERSION,
+            text_sha256=sha,
+            given_at=now,
+            invite_link_key=ref.digest,
+            **subject,
+        )
+        for kind, sha in given
+    ]
 
 
 async def submit_application(
@@ -244,14 +326,32 @@ async def submit_application(
     from app.api import public_share
 
     link = ref.link
+    # Runda 9 (R9-X1-4): nieudane powiadomienie robi ``rollback()``, który
+    # wygasza ``link`` — odczyt ``link.job_id`` po nim leciał w leniwe
+    # doładowanie (MissingGreenlet, 500 po ZAPISANYM zgłoszeniu).
+    link_job_id = link.job_id
     normalized_email = applicant.email.strip().lower()
     existing = await db.scalar(
         select(Candidate).where(func.lower(Candidate.email) == normalized_email)
     )
 
+    # 0404: zgłoszenie z linku rekrutacji czeka na przegląd AI w tle — proces
+    # w „Nowi” i dzwonek dla właściciela linku dopiero po decyzji pętli
+    # `application_screening`. Stały link rekrutera i wyłączona flaga — jak
+    # dotąd.
+    screening = screening_applies(link)
+
     if existing is not None:
         existing_id = existing.id
         blacklisted = existing.status == CandidateStatus.blacklisted
+        # Etap 2 linków (19.10.2026): osoba już w tej rekrutacji — karta bez
+        # zmian, dzwonek mówi, kto ją prowadzi. Sprawdzone PRZED zapisem, bo
+        # zapis sam otwiera kartę osobie spoza rekrutacji.
+        in_job_before = (
+            not screening
+            and link_job_id is not None
+            and await pair_in_job(db, candidate_id=existing_id, job_id=link_job_id)
+        )
         _submission_id, blocked_reason = await _record_duplicate_application(
             db,
             ref=ref,
@@ -260,42 +360,79 @@ async def submit_application(
             content=content,
             existing=existing,
             blacklisted=blacklisted,
+            screening=screening,
         )
         await db.commit()
+        if not screening:
+            in_job = (
+                await existing_card(db, candidate_id=existing_id, job_id=link_job_id)
+                if in_job_before
+                else None
+            )
+            await _notify_owner(
+                db,
+                link=link,
+                applicant=applicant,
+                related_entity_type="candidate",
+                related_entity_id=existing_id,
+                target=f"/candidates/{existing_id}",
+                duplicate=True,
+                blacklisted=blacklisted,
+                blocked_reason=blocked_reason,
+                in_job=in_job,
+            )
+        await _confirm_to_applicant(
+            db,
+            ref=ref,
+            job_id=link_job_id,
+            applicant=applicant,
+            background_tasks=background_tasks,
+        )
+        return {"ok": True, "status": "received"}
+
+    # Nagrobek nie blokuje zgłoszenia: osoba sama wysyła CV i daje nową zgodę.
+    # Zostaje ślad w historii, a dzwonek powtarza go w `_notify_owner`.
+    from app.services.candidate_erasure_leftovers import (
+        VIA_SELF_APPLICATION,
+        email_was_erased,
+        record_recreated_after_erasure,
+    )
+
+    erased_email = await email_was_erased(db, normalized_email)
+    candidate = await _create_candidate(
+        db,
+        ref=ref,
+        applicant=applicant,
+        cv=cv,
+        content=content,
+        screening=screening,
+        erased_before=erased_email,
+    )
+    if erased_email:
+        record_recreated_after_erasure(
+            db, candidate.id, user_id=None, via=VIA_SELF_APPLICATION
+        )
+    await db.commit()
+    candidate_id = candidate.id
+
+    if not screening:
         await _notify_owner(
             db,
             link=link,
             applicant=applicant,
             related_entity_type="candidate",
-            related_entity_id=existing_id,
-            target=f"/candidates/{existing_id}",
-            duplicate=True,
-            blacklisted=blacklisted,
-            blocked_reason=blocked_reason,
+            related_entity_id=candidate_id,
+            target=f"/candidates/{candidate_id}",
+            duplicate=False,
+            erased_before=erased_email,
         )
-        await _confirm_to_applicant(
-            db, ref=ref, applicant=applicant, background_tasks=background_tasks
-        )
-        return {"ok": True, "status": "received"}
-
-    candidate = await _create_candidate(
-        db, ref=ref, applicant=applicant, cv=cv, content=content
-    )
-    await db.commit()
-    candidate_id = candidate.id
-
-    await _notify_owner(
-        db,
-        link=link,
-        applicant=applicant,
-        related_entity_type="candidate",
-        related_entity_id=candidate_id,
-        target=f"/candidates/{candidate_id}",
-        duplicate=False,
-    )
 
     await _confirm_to_applicant(
-        db, ref=ref, applicant=applicant, background_tasks=background_tasks
+        db,
+        ref=ref,
+        job_id=link_job_id,
+        applicant=applicant,
+        background_tasks=background_tasks,
     )
 
     # Lookup przez moduł (nie import nazwy): testy podmieniają
@@ -308,6 +445,7 @@ async def _confirm_to_applicant(
     db: AsyncSession,
     *,
     ref: LinkRef,
+    job_id: Optional[int],
     applicant: ApplicantInput,
     background_tasks: BackgroundTasks,
 ) -> None:
@@ -323,7 +461,7 @@ async def _confirm_to_applicant(
         background_tasks=background_tasks,
         email=applicant.email,
         first_name=applicant.first_name,
-        job_id=ref.link.job_id,
+        job_id=job_id,
         link_key=ref.digest,
     )
 
@@ -337,8 +475,15 @@ async def _record_duplicate_application(
     content: bytes,
     existing: Candidate,
     blacklisted: bool,
+    screening: bool = False,
 ) -> tuple[int, Optional[str]]:
-    """Zwraca (id zgłoszenia, powód nieotwarcia procesu albo ``None``)."""
+    """Zwraca (id zgłoszenia, powód nieotwarcia procesu albo ``None``).
+
+    ``screening`` (0404): link rekrutacji przy włączonym przeglądzie AI —
+    zamiast procesu wiersz ``application_screenings`` (``pending``); bramki
+    twarde (czarna lista, weto HM) sprawdza pętla przy decyzji.
+    """
+    from app.models.candidate_source_event import CandidateSourceEvent
     from app.api import public_share
     from app.api.application_submissions import (
         _attach_cv_as_document,
@@ -366,8 +511,8 @@ async def _record_duplicate_application(
         matched_candidate_id=existing.id,
         cv_object_key=object_key,
         cv_file_content=cv_bytes,
-        cv_filename=(cv.filename or "cv.pdf"),
-        cv_content_type=cv.content_type,
+        cv_filename=cv_display_filename(cv),
+        cv_content_type=cv_content_type(cv),
         cv_size_bytes=len(content),
         raw_cv_text=raw_text,
         raw_payload={
@@ -383,7 +528,9 @@ async def _record_duplicate_application(
             "link_kind": link.kind,
             "via": ref.via,
             "consent": {
-                "kind": CONSENT_KIND_RECRUITMENT,
+                "kinds": consent_kinds(
+                    link.kind, consent_future=applicant.consent_future
+                ),
                 "text_version": CONSENT_TEXT_VERSION,
             },
             "utm": {
@@ -397,14 +544,27 @@ async def _record_duplicate_application(
     )
     db.add(submission)
     await db.flush()
-    db.add(_consent_row(ref, application_submission_id=submission.id))
+    db.add_all(_consent_rows(ref, applicant, application_submission_id=submission.id))
 
     # CV jako dodatkowy dokument — nigdy główny: e-mail to za mało, żeby
     # cudzy plik zastąpił CV, na którym pracuje zespół.
     await _attach_cv_as_document(db, existing.id, submission)
     opened_stage = None
     blocked_reason: Optional[str] = None
-    if not blacklisted:
+    if screening:
+        record_pending(
+            db,
+            candidate_id=existing.id,
+            job_id=link.job_id,
+            submission_id=submission.id,
+            cv_text=raw_text,
+            link=link,
+            via=ref.via,
+            first_name=applicant.first_name,
+            last_name=applicant.last_name,
+            utm_source=applicant.utm.get("source"),
+        )
+    elif not blacklisted:
         if link.job_id is not None:
             # Audyt 22.09 r2 (CAND-01): weto hiring managera tej rekrutacji
             # (ta sama bramka co przypisanie) — CV zostaje przy profilu, proces
@@ -419,6 +579,7 @@ async def _record_duplicate_application(
                 submission=submission,
                 candidate_id=existing.id,
                 actor_user_id=link.created_by,
+                link_owner_id=link.created_by,
             )
         elif link.job_id is None:
             await db.execute(
@@ -458,7 +619,22 @@ async def _record_duplicate_application(
                 "process_opened": opened_stage is not None,
                 "blacklisted": blacklisted,
                 "process_blocked": blocked_reason is not None,
+                "screening": "pending" if screening else None,
             },
+        )
+    )
+    # Źródło także dla osoby już w bazie (0404) — raport źródeł ma widzieć
+    # kanał (UTM) każdego zgłoszenia, nie tylko pierwszego.
+    db.add(
+        CandidateSourceEvent(
+            candidate_id=existing.id,
+            channel=_link_channel(link),
+            job_id=link.job_id,
+            utm_source=applicant.utm.get("source"),
+            utm_medium=applicant.utm.get("medium"),
+            utm_campaign=applicant.utm.get("campaign"),
+            utm_term=applicant.utm.get("term"),
+            utm_content=applicant.utm.get("content"),
         )
     )
     link.use_count += 1
@@ -473,14 +649,15 @@ async def _create_candidate(
     applicant: ApplicantInput,
     cv: UploadFile,
     content: bytes,
+    screening: bool = False,
+    erased_before: bool = False,
 ) -> Candidate:
     from app.api import public_share
-    from app.models.candidate_source_event import (
-        CandidateSourceEvent,
-        SourceChannel,
-    )
+    from app.models.candidate_source_event import CandidateSourceEvent
     from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
     from app.services.candidate_stage_cv_service import create_original_cv_snapshot
+    from app.services.candidate_claim import link_claim_kwargs
+    from app.services.process_entry_meta import application_link_entry_meta
     from app.services.recruitment_process_commands import open_process
 
     link = ref.link
@@ -498,8 +675,10 @@ async def _create_candidate(
             "profile_rate_updated_at": now,
         }
     candidate = Candidate(
-        name=applicant.first_name,
-        lastname=applicant.last_name,
+        # Kandydat wpisuje imię sam — dopisek w nawiasie znika bez odmowy
+        # (D6, 13.10.2026), zgłoszenie przechodzi.
+        name=without_name_markers(applicant.first_name),
+        lastname=without_name_markers(applicant.last_name),
         email=applicant.email,
         phone=applicant.phone,
         linkedin=applicant.linkedin,
@@ -527,9 +706,9 @@ async def _create_candidate(
         logger.warning(
             "[apply] index intent failed candidate=%s: %s", candidate.id, exc
         )
-    db.add(_consent_row(ref, candidate_id=candidate.id))
+    db.add_all(_consent_rows(ref, applicant, candidate_id=candidate.id))
 
-    stored_filename, _raw_text = await public_share._persist_cv(
+    stored_filename, raw_text = await public_share._persist_cv(
         candidate.id, cv, content
     )
     db.add(
@@ -537,7 +716,7 @@ async def _create_candidate(
             candidate_id=candidate.id,
             filename=stored_filename,
             file_content=content,
-            content_type=cv.content_type,
+            content_type=cv_content_type(cv),
             size_bytes=len(content),
             document_kind=CandidateDocumentKind.cv,
             is_primary=True,
@@ -548,7 +727,22 @@ async def _create_candidate(
     )
     await db.flush()
 
-    if link.job_id is not None:
+    if screening:
+        # 0404: proces otworzy pętla przeglądu AI po odczycie CV.
+        record_pending(
+            db,
+            candidate_id=candidate.id,
+            job_id=link.job_id,
+            submission_id=None,
+            cv_text=raw_text,
+            link=link,
+            via=ref.via,
+            first_name=applicant.first_name,
+            last_name=applicant.last_name,
+            utm_source=applicant.utm.get("source"),
+            erased_before=erased_before,
+        )
+    elif link.job_id is not None:
         stage_exists = await db.scalar(
             select(CandidateStage).where(
                 CandidateStage.candidate_id == candidate.id,
@@ -566,6 +760,10 @@ async def _create_candidate(
                 frozen_origin_assignment_id=link.origin_assignment_id,
                 frozen_priority_compliant=link.priority_compliant_at_create,
                 entry_source="application",
+                entry_meta=application_link_entry_meta(link.created_by),
+                # Etap 2 linków (19.10.2026): osoba z linku jest właściciela
+                # linku — blokada 12 h i właściciel procesu.
+                **await link_claim_kwargs(db, link.created_by),
                 notes=(
                     "Aplikacja przez stronę kariery"
                     if ref.via == "career"
@@ -602,6 +800,7 @@ async def _create_candidate(
                 "link_kind": link.kind,
                 "via": ref.via,
                 "was_duplicate": False,
+                "screening": "pending" if screening else None,
             },
         )
     )
@@ -625,7 +824,7 @@ async def _create_candidate(
     db.add(
         CandidateSourceEvent(
             candidate_id=candidate.id,
-            channel=SourceChannel.posting,
+            channel=_link_channel(link),
             job_id=link.job_id,
             utm_source=applicant.utm.get("source"),
             utm_medium=applicant.utm.get("medium"),
@@ -635,6 +834,29 @@ async def _create_candidate(
         )
     )
     return candidate
+
+
+def _in_job_sentence(card: ExistingCard, *, owner_id: Optional[int]) -> str:
+    """„Ta osoba jest już w tej rekrutacji — prowadzi Marta N., etap Screening.”"""
+    stage = f"etap {card.stage_label}" if card.stage_label else None
+    if not card.is_open:
+        where = f" ({stage})" if stage else ""
+        return (
+            f" Ta osoba była już w tej rekrutacji{where} — karta bez zmian, "
+            "nowe CV dołączono do profilu."
+        )
+    if card.lead_id is not None and card.lead_id == owner_id:
+        who = "prowadzisz ją Ty"
+    elif card.lead_name:
+        who = f"prowadzi {card.lead_name}"
+    else:
+        who = None
+    details = ", ".join(part for part in (who, stage) if part)
+    return (
+        " Ta osoba jest już w tej rekrutacji"
+        + (f" — {details}" if details else "")
+        + ". Karta bez zmian, nowe CV dołączono do profilu."
+    )
 
 
 async def _notify_owner(
@@ -648,29 +870,47 @@ async def _notify_owner(
     duplicate: bool,
     blacklisted: bool = False,
     blocked_reason: Optional[str] = None,
+    extra: Optional[str] = None,
+    in_job: Optional[ExistingCard] = None,
+    erased_before: bool = False,
 ) -> None:
     """Dzwonek dla właściciela linku. Po commicie, nigdy nie rzuca.
+
+    ``erased_before`` = TO zgłoszenie założyło profil na adres z nagrobka;
+    kolejne zgłoszenia tej osoby tego zdania już nie powtarzają.
 
     audyt 22.09 r2 (SEC-06): gdy właściciel linku do rekrutacji jest już
     nieaktywny, zgłoszenie dostaje rekruter i Delivery Lead tej rekrutacji —
     ``emit`` pomija konta nieaktywne, więc dzwonek przepadał w ciszy.
+
+    Etap 2 linków (19.10.2026): nowa karta z blokadą właściciela linku
+    dopisuje „jest Twoja do HH:MM”. ``in_job`` = osoba już była w tej
+    rekrutacji: dzwonek mówi, kto ją prowadzi i na jakim etapie, a
+    prowadzący (gdy to ktoś inny) dostaje własny dzwonek o ponownym
+    zgłoszeniu.
     """
     owner_id = link.created_by
     job_id = link.job_id
     try:
         from app.models.user import User
+        from app.services import candidate_claim
+        from app.services.job_previous_recruiters import working_owner_id
         from app.services.notification_triggers import emit
 
         job_title: Optional[str] = None
+        owner: Optional[User] = None
         recipients: list[int] = [owner_id] if owner_id is not None else []
         if job_id is not None:
             job = await db.get(Job, job_id)
             job_title = job.title if job else None
             owner = await db.get(User, owner_id) if owner_id is not None else None
             if job is not None and not (owner and owner.is_active):
+                # „Poprzedni rekruter” (14.10.2026) nie dostaje zgłoszeń z cudzego
+                # linku — zostaje Delivery Lead.
+                working_id = await working_owner_id(db, job)
                 recipients = [
                     uid
-                    for uid in dict.fromkeys((job.recruiter_id, job.delivery_lead_id))
+                    for uid in dict.fromkeys((working_id, job.delivery_lead_id))
                     if uid is not None and uid != owner_id
                 ]
         person = f"{applicant.first_name} {applicant.last_name}".strip()
@@ -685,6 +925,8 @@ async def _notify_owner(
                 " Ta osoba jest na czarnej liście — CV dołączono do profilu, "
                 "ale nie dodano jej do rekrutacji."
             )
+        elif in_job is not None:
+            message += _in_job_sentence(in_job, owner_id=owner_id)
         elif blocked_reason:
             message += (
                 " CV dołączono do profilu, ale nie dodano tej osoby do "
@@ -694,6 +936,58 @@ async def _notify_owner(
             message += (
                 " Ta osoba była już w bazie — nowe CV dołączono do jej profilu "
                 "jako dodatkowy dokument, dane profilu bez zmian."
+            )
+        if erased_before:
+            message += (
+                " Profil z tym adresem był już trwale usunięty; osoba "
+                "zgłosiła się sama."
+            )
+        if (
+            job_id is not None
+            and in_job is None
+            and not blacklisted
+            and not blocked_reason
+            and owner is not None
+            and owner.is_active
+        ):
+            process = await candidate_claim.load_process(
+                db, candidate_id=related_entity_id, job_id=job_id
+            )
+            if (
+                process is not None
+                and process.claimed_by_user_id == owner_id
+                and process.claimed_until is not None
+                and process.claimed_until > candidate_claim.utcnow()
+            ):
+                until = process.claimed_until.astimezone(_WARSAW).strftime("%H:%M")
+                message += f" Jest w „Nowi” i jest Twoja do {until}."
+        if extra:
+            message += extra
+        if (
+            in_job is not None
+            and in_job.lead_id is not None
+            and in_job.lead_id != owner_id
+            and in_job.lead_id not in recipients
+        ):
+            owner_name = ((owner.name or "").strip() or None) if owner else None
+            via = (
+                f"przez link, który udostępnił(a) {owner_name}"
+                if owner_name
+                else "przez link do rekrutacji"
+            )
+            await emit(
+                db,
+                user_id=in_job.lead_id,
+                title="Twoja osoba zgłosiła się ponownie",
+                message=(
+                    f"{person} (Twoja osoba w „{job_title or 'rekrutacji'}”) "
+                    f"zgłosił(a) się ponownie {via}. Nowe CV dołączono do "
+                    "profilu, karta bez zmian."
+                ),
+                ntype=NotificationType.new_application,
+                related_entity_type=related_entity_type,
+                related_entity_id=related_entity_id,
+                link=target,
             )
         for recipient_id in recipients:
             await emit(

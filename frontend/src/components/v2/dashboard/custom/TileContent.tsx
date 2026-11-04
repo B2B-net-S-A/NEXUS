@@ -5,6 +5,7 @@
 // swoich bramek. Kafelek, na który konto straciło uprawnienia, pokazuje
 // powód zamiast serii błędów 403.
 
+import type { ReactNode } from "react"
 import { Lock } from "lucide-react"
 
 import { ContactOversightPanel } from "@/components/candidate-contact/ContactOversightPanel"
@@ -15,10 +16,7 @@ import { MyNextStepsSection } from "@/components/v2/dashboard/MyNextStepsSection
 import { MyOnboardingTasks } from "@/components/v2/dashboard/MyOnboardingTasks"
 import { MyTasksDashboard } from "@/components/v2/dashboard/MyTasksDashboard"
 import { RecruitmentActivityDashboard } from "@/components/v2/dashboard/RecruitmentActivityDashboard"
-import {
-  MyAssignedRecruitments,
-  RecruitmentCompetenceDashboard,
-} from "@/components/v2/dashboard/RecruitmentCompetenceDashboard"
+import { RecruitmentCompetenceDashboard } from "@/components/v2/dashboard/RecruitmentCompetenceDashboard"
 import { MyKpiWidget } from "@/components/v2/kpi/MyKpiWidget"
 import { MyPriorityQueue, TeamAllocationBoard } from "@/components/v2/priority-work"
 import { RequestBoard } from "@/components/v2/request-board/RequestBoard"
@@ -26,10 +24,27 @@ import { AllocationWorkloadBoard } from "@/components/v2/priority-work/Allocatio
 import type { DashboardTile } from "@/lib/api/userDashboard"
 import { TILE_DEFINITIONS } from "@/lib/dashboard-tiles/catalog"
 import { getDefaultDashboardPreset } from "@/lib/dashboard-presets"
+import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature"
 import { useAuthStore } from "@/store/auth"
 
+import { CareAtRiskTile, CareMineTile } from "./CareTiles"
+import { ClosingCandidatesTile } from "./ClosingCandidatesTile"
+import { EquipmentTasksTile } from "./EquipmentTasksTile"
+import { HrApprovalsTile } from "./HrApprovalsTile"
+import { HrMyTimeTile } from "./HrMyTimeTile"
+import { HrSubstitutionTile } from "./HrSubstitutionTile"
+import { HrTileGate } from "./HrTileGate"
 import { MetricTileBody } from "./MetricTileBody"
+import { MyRecruitmentsTile } from "./MyRecruitmentsTile"
+import { MyWeekTile } from "./MyWeekTile"
+import { TeamResultsTile } from "./TeamResultsTile"
 import { CalendarTodayBody, MyPeopleBody, NoteBody } from "./SmallTiles"
+import { SystemStatusTile } from "./SystemStatusTile"
+import { TeamSignalsTile } from "./TeamSignalsTile"
+import { TodayCycleTile } from "./TodayCycleTile"
+import { PreContractsTile } from "./PreContractsTile"
+import { ToCompleteTile } from "./ToCompleteTile"
+import { BoardTasksTile } from "./BoardTasksTile"
 
 function Unavailable({ reason }: { reason: string }) {
   return (
@@ -42,6 +57,24 @@ function Unavailable({ reason }: { reason: string }) {
       <p className="text-xs text-muted-foreground">{reason}</p>
     </div>
   )
+}
+
+/**
+ * Widżety kontaktu z kandydatem zwracają `null` przy wyłączonej funkcji —
+ * kafelek mówi wtedy, dlaczego jest pusty.
+ */
+function ContactFeatureTile({ children }: { children: ReactNode }) {
+  const feature = useCandidateContactFeature()
+  if (feature.isPending) return null
+  if (!feature.enabled) {
+    return (
+      <p role="status" className="text-sm text-muted-foreground">
+        Kontakt z kandydatami jest wyłączony. Usuń ten kafelek albo poproś
+        administratora o włączenie funkcji.
+      </p>
+    )
+  }
+  return <>{children}</>
 }
 
 export function TileContent({ tile }: { tile: DashboardTile }) {
@@ -63,7 +96,11 @@ export function TileContent({ tile }: { tile: DashboardTile }) {
     case "my_next_steps":
       return <MyNextStepsSection />
     case "my_contact_queue":
-      return <MyContactQueueWidget />
+      return (
+        <ContactFeatureTile>
+          <MyContactQueueWidget />
+        </ContactFeatureTile>
+      )
     case "my_priority_queue":
       return <MyPriorityQueue />
     case "my_people":
@@ -73,7 +110,21 @@ export function TileContent({ tile }: { tile: DashboardTile }) {
     case "my_onboarding":
       return <MyOnboardingTasks />
     case "my_recruitments":
-      return <MyAssignedRecruitments preset={preset} />
+      // 04.10.2026: rekrutacje, w których jestem Rekruterem albo DL-em, z liczbami
+      // w kolumnach Tablicy (dawniej 5 starych etapów z operacji rekrutacji).
+      return <MyRecruitmentsTile />
+    case "closing_candidates":
+      // 20.10.2026: kolumna „Akceptacja i umowa” ze wszystkich rekrutacji z zakresu.
+      return <ClosingCandidatesTile />
+    case "to_complete":
+      // 21.10.2026: trzy listy zaległości z „Czeka na Ciebie” w kafelku.
+      return <ToCompleteTile />
+    case "board_tasks":
+      // 23.10.2026: cały panel „Czeka na Ciebie” w kafelku (HoR i admin).
+      return <BoardTasksTile />
+    case "pre_contracts":
+      // 0506: umowy przedwstępne — liczniki zakładek listy.
+      return <PreContractsTile />
     case "recruitment_activity":
       return <RecruitmentActivityDashboard />
     case "recruitment_competence":
@@ -83,15 +134,46 @@ export function TileContent({ tile }: { tile: DashboardTile }) {
     case "team_allocation":
       return <TeamAllocationBoard />
     case "request_board":
-      return <RequestBoard />
+      return <RequestBoard scope={tile.config.board_scope ?? "all"} />
     case "contact_oversight":
-      return <ContactOversightPanel />
+      return (
+        <ContactFeatureTile>
+          <ContactOversightPanel />
+        </ContactFeatureTile>
+      )
     case "my_clients_alerts":
       return <MyClientsAlertsPanel />
     case "dl_alerts":
       return <DlAlertsSection />
     case "calendar_today":
       return <CalendarTodayBody />
+    case "today_cycle":
+      return <TodayCycleTile />
+    case "team_signals":
+      return <TeamSignalsTile />
+    case "system_status":
+      return <SystemStatusTile />
+    case "my_week":
+      return <MyWeekTile />
+    case "team_results":
+      return <TeamResultsTile tileId={tile.id} />
+    // „Ludzie w NEXUSIE”: moduł, kartotekę i rolę przełożonego zna dopiero
+    // `/api/hr/config` — rozstrzyga `HrTileGate` tą samą regułą co katalog.
+    case "hr_substitution":
+      return <HrTileGate type={tile.type}>{() => <HrSubstitutionTile />}</HrTileGate>
+    case "hr_my_time":
+      return (
+        <HrTileGate type={tile.type}>{(config) => <HrMyTimeTile config={config} />}</HrTileGate>
+      )
+    case "hr_approvals":
+      return <HrTileGate type={tile.type}>{() => <HrApprovalsTile />}</HrTileGate>
+    case "equipment_tasks":
+      return <HrTileGate type={tile.type}>{() => <EquipmentTasksTile />}</HrTileGate>
+    // Opieka (22.10.2026) — moduł `care` rozstrzyga ta sama bramka.
+    case "care_mine":
+      return <HrTileGate type={tile.type}>{() => <CareMineTile />}</HrTileGate>
+    case "care_at_risk":
+      return <HrTileGate type={tile.type}>{() => <CareAtRiskTile />}</HrTileGate>
     case "note":
       return <NoteBody config={tile.config} />
     case "metric_number":

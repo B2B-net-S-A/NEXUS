@@ -15,6 +15,8 @@ import { CV_INTERACTIVE_UI_ENABLED } from "@/lib/cv-generator";
 import type { CvContentMode } from "@/lib/cv-generator";
 
 export type CvHighlightPolicy = "none" | "technologies" | "must" | "must_nice" | "explicit";
+/** Wyrównanie treści CV w pliku Word (decyzja J1, 14.10.2026: domyślnie wyjustowane). */
+export type CvTextAlign = "justify" | "left";
 
 export type CvRuleLanguage = "pl" | "en";
 export type CvRuleSectionKey =
@@ -23,6 +25,8 @@ export type CvRuleSectionKey =
   | "languages"
   | "skills";
 export type CvRuleDateFormat = "MM.YYYY" | "MM/YYYY" | "YYYY-MM" | "YYYY";
+/** 0521: co idzie do klienta — CV firmowe albo jego formularz z Plików rekrutacji. */
+export type CvClientDocument = "company_cv" | "client_form";
 
 export const CV_RULE_SECTIONS: ReadonlyArray<{
   value: CvRuleSectionKey;
@@ -56,6 +60,7 @@ export interface ClientCvRule {
   glossary_options?: (GlossaryEntry & { kind: "role_translation"; source_language: string; target_language: string })[];
   highlight_policy?: CvHighlightPolicy;
   highlight_terms?: string[];
+  cv_text_align?: CvTextAlign;
   edit_revision?: number;
   draft_payload?: Partial<ClientCvRulePayload> | null;
   client_id: number;
@@ -85,6 +90,7 @@ export interface ClientCvRule {
   version: number;
   cv_content_mode_cap: CvContentMode | null;
   cv_interactive_enabled: boolean;
+  cv_client_document?: CvClientDocument;
   seed_key: string | null;
   confirmed_at: string | null;
   confirmed_by_name: string | null;
@@ -117,6 +123,7 @@ export type ClientCvRuleForGeneration = Pick<
   | "require_position"
   | "require_champion"
   | "filename_pattern"
+  | "spaces_to_underscores"
   | "filename_preview"
   | "notes"
   | "generator_instructions"
@@ -143,6 +150,7 @@ export interface CvRulesOverview {
 export interface ClientCvRulePayload {
   highlight_policy?: CvHighlightPolicy;
   highlight_terms?: string[];
+  cv_text_align?: CvTextAlign;
   expected_revision?: number;
   filename_pattern: string | null;
   spaces_to_underscores: boolean;
@@ -168,6 +176,7 @@ export interface ClientCvRulePayload {
   glossary: GlossaryEntry[];
   cv_content_mode_cap: CvContentMode | null;
   cv_interactive_enabled: boolean;
+  cv_client_document: CvClientDocument;
   confirm: boolean;
 }
 
@@ -284,6 +293,7 @@ export function hasStoredRule(rule: ClientCvRule | null | undefined): boolean {
 export interface CvRuleForm {
   highlight_policy: CvHighlightPolicy;
   highlight_terms: string;
+  cv_text_align: CvTextAlign;
   filename_pattern: string;
   spaces_to_underscores: boolean;
   cv_language: "" | CvRuleLanguage;
@@ -308,6 +318,7 @@ export interface CvRuleForm {
   glossary: GlossaryEntry[];
   cv_content_mode_cap: "" | CvContentMode;
   cv_interactive_enabled: boolean;
+  cv_client_document: CvClientDocument;
 }
 
 export function ruleToForm(published: ClientCvRule): CvRuleForm {
@@ -315,6 +326,7 @@ export function ruleToForm(published: ClientCvRule): CvRuleForm {
   return {
     highlight_policy: rule.highlight_policy ?? "technologies",
     highlight_terms: (rule.highlight_terms ?? []).join("\n"),
+    cv_text_align: rule.cv_text_align === "left" ? "left" : "justify",
     filename_pattern: rule.filename_pattern ?? "",
     spaces_to_underscores: rule.spaces_to_underscores,
     cv_language: rule.cv_language ?? "",
@@ -344,6 +356,7 @@ export function ruleToForm(published: ClientCvRule): CvRuleForm {
     glossary: (rule.glossary ?? []).map((g) => ({ from: g.from, to: g.to })),
     cv_content_mode_cap: rule.cv_content_mode_cap ?? "",
     cv_interactive_enabled: rule.cv_interactive_enabled,
+    cv_client_document: rule.cv_client_document ?? "company_cv",
   };
 }
 
@@ -358,6 +371,7 @@ export function formToPayload(form: CvRuleForm, confirm: boolean): ClientCvRuleP
   return {
     highlight_policy: form.highlight_policy,
     highlight_terms: form.highlight_terms.split("\n").map((term) => term.trim()).filter(Boolean),
+    cv_text_align: form.cv_text_align,
     filename_pattern: form.filename_pattern.trim() || null,
     spaces_to_underscores: form.spaces_to_underscores,
     cv_language: form.cv_language || null,
@@ -386,6 +400,7 @@ export function formToPayload(form: CvRuleForm, confirm: boolean): ClientCvRuleP
       .filter((g) => g.from && g.to),
     cv_content_mode_cap: form.cv_content_mode_cap || null,
     cv_interactive_enabled: form.cv_interactive_enabled,
+    cv_client_document: form.cv_client_document,
     confirm,
   };
 }
@@ -439,6 +454,7 @@ export const RULE_FIELD_LABELS: Record<string, string> = {
   require_recommendation_note: "Wymagana notatka rekomendacyjna",
   highlight_policy: "Zasada pogrubiania",
   highlight_terms: "Wyróżniane technologie",
+  cv_text_align: "Wyrównanie tekstu",
   filename_pattern: "Wzór nazwy pliku",
   spaces_to_underscores: "Podkreślenia zamiast spacji",
   cv_language: "Wymagany język",
@@ -463,5 +479,6 @@ export const RULE_FIELD_LABELS: Record<string, string> = {
   glossary: "Słownik",
   cv_content_mode_cap: "Sufit trybu treści",
   cv_interactive_enabled: "Interaktywne CV na linku",
+  cv_client_document: "Dokument do klienta",
   source_client_id: "Skopiowano z klienta",
 };

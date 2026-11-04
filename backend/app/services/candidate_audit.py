@@ -34,6 +34,8 @@ CV_DOWNLOADED = "cv_downloaded"
 BULK_CV_DOWNLOADED = "bulk_cv_downloaded"
 DOCUMENT_DOWNLOADED = "document_downloaded"
 DOCUMENT_URL_ISSUED = "document_url_issued"
+# 0435: „Usuń z profilu” przy pliku kandydata (plik zostaje w magazynie).
+DOCUMENT_REMOVED = "candidate_document_removed"
 SENSITIVE_OPERATION_BLOCKED = "sensitive_operation_blocked"
 # Trwałe usunięcie profilu kandydata (admin). Zapisywane PRZED usunięciem, żeby
 # ślad przetrwał samą operację — po `db.delete()` nie ma już czego audytować.
@@ -44,13 +46,26 @@ BULK_ACTION_EXECUTED = "bulk_action_executed"
 # non-finance-redacted read surface (e.g. the candidate timeline feed).
 CLIENT_RATE_CHANGED = "client_rate_changed"
 PROFILE_RATE_CHANGED = "profile_rate_changed"
+# Cofnięcie stawki wpisanej przez scraper (audyt 06.10.2026, D5) — osobna akcja,
+# żeby nie stała się nową obserwacją „Stawki od” z dzisiejszą datą.
+PROFILE_RATE_SCRAPER_REVERTED = "profile_rate_scraper_reverted"
 LANGUAGES_REPLACED = "candidate_languages_replaced"
 LOCATION_CHANGED = "candidate_location_changed"
 WORK_MODE_CHANGED = "candidate_work_mode_changed"
+# 28.10.2026: odrzucenie osoby od systemu z powodem „Nie szuka pracy” i datą.
+AVAILABILITY_CHANGED = "candidate_availability_changed"
 NOTES_FACT_APPLIED = "candidate_notes_fact_applied"
 # 0374: telefon praktykanta zapisał fakty w profilu / przekazał osobę rekruterowi.
 TRAINEE_CALL_SAVED = "candidate_trainee_call_saved"
 TRAINEE_HANDOVER = "candidate_trainee_handover"
+# 12.10.2026: osoba z trwającą umową u innego klienta została zatrudniona
+# w kolejnej rekrutacji — odpowiedź rekrutera „Co z obecną współpracą?”.
+# Osobna akcja na odpowiedź, bo oś czasu profilu nie czyta `details`.
+HIRED_ENGAGEMENT_ACTIONS: dict[str, str] = {
+    "switch": "candidate_hired_engagement_switch",
+    "parallel": "candidate_hired_engagement_parallel",
+    "ask_delivery_lead": "candidate_hired_engagement_ask_dl",
+}
 # Ręczna korekta faktów z telefonu praktykanta (audyt 24.09.2026): stare → nowe.
 CALL_FACTS_CORRECTED = "candidate_call_facts_corrected"
 IDENTITY_SOURCE_QUARANTINED = "candidate_identity_source_quarantined"
@@ -75,17 +90,39 @@ def record_candidate_audit(
     target a single candidate. Caller owns the transaction; endpoints that
     only read (downloads/exports) must ``await db.commit()`` themselves so
     the event survives the request.
+
+    Runda 9 (R9-N1-2): w „podglądzie jako” wołający podaje osobę podglądaną
+    (``current_user``), a pobranie CV czy eksport wykonuje admin. Dziennik
+    zapisuje prawdziwego sprawcę (konto z tokenu, stemplowane w sesji przez
+    ``deps.get_authenticated_user``), a osobę podglądaną w
+    ``details.viewed_as_user_id`` — samo id, bez danych osobowych.
     """
+    payload = dict(details or {})
+    actor_id = _session_actor_id(db)
+    if actor_id is not None and user_id is not None and actor_id != user_id:
+        payload["viewed_as_user_id"] = user_id
+        user_id = actor_id
     db.add(
         Activity(
             entity_type="candidate",
             entity_id=entity_id,
             action=action,
             user_id=user_id,
-            details=details or {},
+            details=payload,
             external_source="audit",
         )
     )
+
+
+def _session_actor_id(db: AsyncSession) -> Optional[int]:
+    """Konto z tokenu żądania (nie podglądane) albo ``None`` poza żądaniem."""
+    from app.services.order_change_audit import ACTOR_INFO_KEY
+
+    info = getattr(db, "info", None)
+    if not isinstance(info, dict):
+        return None
+    actor = info.get(ACTOR_INFO_KEY)
+    return actor if isinstance(actor, int) else None
 
 
 def candidate_subject_reference(candidate_id: int) -> str:
@@ -111,3 +148,54 @@ def candidate_subject_reference(candidate_id: int) -> str:
         )
     message = f"candidate-subject-v1\x00{candidate_id}".encode("utf-8")
     return hmac.new(key.encode("utf-8"), message, hashlib.sha256).hexdigest()[:64]
+
+
+def candidate_source_tombstone(external_source: str, external_id: Any) -> str:
+    """HMAC identyfikatora kandydata w systemie źródłowym — nagrobek (0388).
+
+    Runda 6 audytu (RODO-01): usunięty kandydat z Traffita wracał nocnym
+    syncem, bo importer nie wiedział, że rekord `/employees/{id}` kiedyś
+    usunięto. Nagrobek nie może trzymać surowego `external_id` (to wciąż
+    identyfikator osoby, której dane usuwamy), więc zapisujemy kluczowany
+    HMAC — importer liczy ten sam dla każdego rekordu i porównuje zbiory.
+    Ten sam klucz co `candidate_subject_reference`; rotacja klucza gubi
+    nagrobki tak samo jak pseudonimy umów.
+    """
+    key = settings.CANDIDATE_IDENTITY_FINGERPRINT_KEY.strip()
+    if not key:
+        raise RuntimeError(
+            "CANDIDATE_IDENTITY_FINGERPRINT_KEY is required to tombstone "
+            "a deleted candidate's source record"
+        )
+    source = str(external_source or "").strip()
+    ext = str(external_id or "").strip()
+    message = f"candidate-source-tombstone-v1\x00{source}\x00{ext}".encode("utf-8")
+    return hmac.new(key.encode("utf-8"), message, hashlib.sha256).hexdigest()
+
+
+# `purged_candidates.external_source` dla nagrobka po adresie e-mail — nie
+# jest nazwą żadnego systemu źródłowego, więc nie zderzy się z nagrobkiem
+# identyfikatora (UNIQUE jest na parze źródło + hash).
+EMAIL_TOMBSTONE_SOURCE = "email"
+
+
+def candidate_email_tombstone(email: Any) -> Optional[str]:
+    """HMAC znormalizowanego adresu e-mail usuniętej osoby — nagrobek.
+
+    Runda 7 audytu (R7-V2-2): nagrobek samego `external_id` nie obejmował
+    drugiej kartoteki Traffita tej samej osoby (ten sam mail, inny id) —
+    import zakładał ją od nowa, bo mail zniknął z bazy razem z wierszem.
+    Adres normalizowany tak jak mapa `email_to_id` importera (bez białych
+    znaków, małe litery). Pusty adres = brak nagrobka (`None`).
+    """
+    normalized = str(email or "").strip().lower()
+    if not normalized:
+        return None
+    key = settings.CANDIDATE_IDENTITY_FINGERPRINT_KEY.strip()
+    if not key:
+        raise RuntimeError(
+            "CANDIDATE_IDENTITY_FINGERPRINT_KEY is required to tombstone "
+            "a deleted candidate's email"
+        )
+    message = f"candidate-email-tombstone-v1\x00{normalized}".encode("utf-8")
+    return hmac.new(key.encode("utf-8"), message, hashlib.sha256).hexdigest()

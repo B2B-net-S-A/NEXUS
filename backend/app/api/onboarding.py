@@ -20,12 +20,13 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.body_validation import INVALID_BODY, validated_body
 from app.api.deps import AuthenticatedUser, ensure_exclusive_role_configuration
 from app.api.recruitment_access import job_scope_clause
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.job import Job, JobPriority, JobStatus
-from app.models.job_collaborator import JobCollaborator
+from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.user import User, UserRole
 from app.schemas.onboarding import (
     OnboardingJobOption,
@@ -36,6 +37,7 @@ from app.schemas.onboarding import (
 )
 from app.schemas.user import UserResponse
 from app.services.access_scope import ScopeKind, resolve_dashboard_scope
+from app.services.job_priority import record_level_change
 from app.services.onboarding_access import onboarding_persona_for_user
 
 router = APIRouter()
@@ -136,7 +138,7 @@ async def _apply_dl_onboarding(
     user: User,
     persona: UserRole,
 ) -> OnboardingPayloadDL:
-    payload = OnboardingPayloadDL.model_validate(payload_raw)
+    payload = validated_body(OnboardingPayloadDL, payload_raw)
     scoped_jobs = await _load_selected_scoped_jobs(
         db,
         user,
@@ -144,8 +146,25 @@ async def _apply_dl_onboarding(
         payload.priority_job_ids + payload.needs_sourcing_job_ids,
     )
 
-    for job_id in set(payload.priority_job_ids):
-        scoped_jobs[job_id].priority = JobPriority.high
+    if payload.priority_job_ids:
+        # Powrót na P1 przywraca „Poprzednich rekruterów” (14.10.2026) —
+        # przypisania chroni blokada przydziału.
+        from app.services.job_previous_recruiters import (  # noqa: PLC0415
+            apply_priority_transition,
+        )
+        from app.services.recruitment_allocation import (  # noqa: PLC0415
+            allocation_lock,
+        )
+
+        await allocation_lock(db)
+        for job_id in set(payload.priority_job_ids):
+            job = scoped_jobs[job_id]
+            before = job.priority
+            job.priority = JobPriority.high
+            record_level_change(db, job, before=before, actor_id=user.id)
+            await apply_priority_transition(
+                db, job, previous_priority=before, actor_id=user.id
+            )
     for job_id in set(payload.needs_sourcing_job_ids):
         scoped_jobs[job_id].needs_sourcing = True
 
@@ -158,7 +177,7 @@ async def _apply_recruiter_onboarding(
     user: User,
     persona: UserRole,
 ) -> OnboardingPayloadRecruiter:
-    payload = OnboardingPayloadRecruiter.model_validate(payload_raw)
+    payload = validated_body(OnboardingPayloadRecruiter, payload_raw)
     await _load_selected_scoped_jobs(
         db,
         user,
@@ -172,9 +191,25 @@ async def _apply_recruiter_onboarding(
             for jid in set(payload.active_job_ids)
         ]
         stmt = pg_insert(JobCollaborator).values(rows)
-        # UNIQUE(job_id, user_id) — skip rows already present.
-        stmt = stmt.on_conflict_do_nothing(index_elements=["job_id", "user_id"])
+        # UNIQUE(job_id, user_id): istniejący wiersz zostaje, ale własny wybór
+        # robi z niego wiersz ręczny — także z wiersza kategorii (`auto_cc`)
+        # i z osoby wcześniej zdjętej z tej rekrutacji.
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["job_id", "user_id"],
+            set_={
+                "source": JobCollaboratorSource.manual,
+                "removed_from_auto_cc": False,
+                "removed_at": None,
+            },
+        )
         await db.execute(stmt)
+        # Własny wybór = osoba pracuje — także ta wśród „Poprzednich rekruterów”.
+        from app.services.job_previous_recruiters import clear_parked  # noqa: PLC0415
+
+        for jid in set(payload.active_job_ids):
+            await clear_parked(
+                db, job_id=jid, user_id=user.id, reason="readded", actor_id=user.id
+            )
 
     return payload
 
@@ -244,7 +279,12 @@ async def complete_onboarding(
     0031 and should never hit this endpoint.
     """
     persona = _require_incomplete_onboarding_persona(current_user)
-    payload_raw = await request.json()
+    # Kształt ciała zależy od persony, więc trasa czyta je sama — puste albo
+    # ucięte ciało to odmowa, nie nieobsłużony błąd dekodowania.
+    try:
+        payload_raw = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=422, detail=INVALID_BODY) from None
 
     if persona is UserRole.delivery_lead:
         await _apply_dl_onboarding(

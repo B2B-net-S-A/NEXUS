@@ -16,12 +16,13 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import distinct, func, or_, select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, PlainSerializer
 
-from app.api.financial_access import FinanceReadUser
+from app.api.permission_access import CompanyResultsUser
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.schemas.money import to_whole_pln
@@ -43,12 +44,14 @@ from app.services.insights_board_money import (
 from app.services.contractor_identity import (
     candidate_identity_key,
     contractor_identity_sql_expression,
-    current_contracts,
+    current_contract_clause,
+    load_current_contracts,
+    load_fallback_starts,
 )
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 # Money is folded across currencies in Decimal for exactness, but the wire
 # format stays a JSON *number* (rounded to grosze). Pydantic serialises a bare
@@ -106,8 +109,12 @@ def _contract_currencies(contracts) -> set[str]:
 
 
 def _started_by(today: date):
-    """SQL-owe lustro ``is_current_contract``: start nie później niż dziś albo brak daty."""
-    return or_(Contract.start_date.is_(None), Contract.start_date <= today)
+    """SQL-owe lustro ``is_current_contract`` z datą startu z zamówień.
+
+    Kontrakt bez daty startu, którego wszystkie zamówienia startują później,
+    jest planowany — tak liczy profil klienta i katalog (audyt 25.09.2026).
+    """
+    return current_contract_clause(today)
 
 
 async def _load_live_contracts(db: AsyncSession, today: date) -> list[Contract]:
@@ -129,7 +136,9 @@ async def _load_live_contracts(db: AsyncSession, today: date) -> list[Contract]:
         .scalars()
         .all()
     )
-    return current_contracts(rows, today)
+    # Data startu dopowiedziana z zamówień (``load_fallback_starts``) — ta
+    # sama reguła co profil klienta i ``_started_by``.
+    return await load_current_contracts(db, rows, today)
 
 
 async def _resolve_rate_cache(db, currencies) -> dict[str, tuple[Decimal, bool]]:
@@ -164,6 +173,9 @@ class MarginByContractor(BaseModel):
     # Kontrakty z przychodem, ale bez stawki kosztowej: ich przychód jest
     # w ``total_monthly_revenue``, marża — nieznana (poza ``margin_pct``).
     contracts_without_cost_leg: int = 0
+    # Runda 10 (R10-N9-1): kontrakty bez stawki przychodowej (np. umowa B2B
+    # przed pierwszym zamówieniem) — nie ma ich w żadnej kwocie wiersza.
+    contracts_without_revenue_leg: int = 0
 
 
 class MarginByClient(BaseModel):
@@ -175,6 +187,7 @@ class MarginByClient(BaseModel):
     margin_pct: Optional[float]
     fx_missing: bool = False
     contracts_without_cost_leg: int = 0
+    contracts_without_revenue_leg: int = 0
     # Przychód kontraktów ze znaną marżą — mianownik ``margin_pct``.
     # ``None`` = równy ``total_monthly_revenue``.
     revenue_with_margin: Optional[MoneyPLN] = None
@@ -196,6 +209,8 @@ class MarginTotals(BaseModel):
     fx_missing: bool
     # Kafel mówi wprost, ile kontraktów wnosi przychód bez marży.
     contracts_without_cost_leg: int = 0
+    # …i ile kontraktów nie wnosi niczego, bo nie mają stawki przychodowej.
+    contracts_without_revenue_leg: int = 0
 
 
 class UtilizationStats(BaseModel):
@@ -243,7 +258,7 @@ _LIVE_CONTRACT_STATUSES = (ContractStatus.active, ContractStatus.ending)
 
 @router.get("/margin-by-contractor", response_model=List[MarginByContractor])
 async def margin_by_contractor(
-    current_user: FinanceReadUser,
+    current_user: CompanyResultsUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
 ):
@@ -287,6 +302,7 @@ async def margin_by_contractor(
                 margin_pct=_margin_pct(fold),
                 fx_missing=not fold.complete,
                 contracts_without_cost_leg=fold.without_cost_leg,
+                contracts_without_revenue_leg=fold.without_revenue_leg,
             )
         )
     # Rank by PLN-normalised margin (SQL can no longer order/limit — the ranking
@@ -335,6 +351,7 @@ async def _margin_by_client_rows(db: AsyncSession) -> List[MarginByClient]:
                 margin_pct=_margin_pct(fold),
                 fx_missing=not fold.complete,
                 contracts_without_cost_leg=fold.without_cost_leg,
+                contracts_without_revenue_leg=fold.without_revenue_leg,
                 revenue_with_margin=fold.margin_revenue,
             )
         )
@@ -344,7 +361,7 @@ async def _margin_by_client_rows(db: AsyncSession) -> List[MarginByClient]:
 
 @router.get("/margin-by-client", response_model=List[MarginByClient])
 async def margin_by_client(
-    current_user: FinanceReadUser,
+    current_user: CompanyResultsUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
 ):
@@ -355,7 +372,7 @@ async def margin_by_client(
 
 @router.get("/margin-totals", response_model=MarginTotals)
 async def margin_totals(
-    current_user: FinanceReadUser,
+    current_user: CompanyResultsUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Sumy firmowe — po WSZYSTKICH klientach z żywym kontraktem.
@@ -391,12 +408,15 @@ async def margin_totals(
         margin_pct=ratio(margin, revenue_with_margin),
         fx_missing=any(row.fx_missing for row in rows),
         contracts_without_cost_leg=sum(row.contracts_without_cost_leg for row in rows),
+        contracts_without_revenue_leg=sum(
+            row.contracts_without_revenue_leg for row in rows
+        ),
     )
 
 
 @router.get("/utilization", response_model=UtilizationStats)
 async def utilization(
-    current_user: FinanceReadUser,
+    current_user: CompanyResultsUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Utylizacja liczona po POPULACJI KONSULTANTÓW, nie po całej bazie CV.
@@ -432,7 +452,7 @@ async def utilization(
 
 @router.get("/revenue-forecast", response_model=RevenueForecast)
 async def revenue_forecast(
-    current_user: FinanceReadUser,
+    current_user: CompanyResultsUser,
     db: AsyncSession = Depends(get_db),
     horizon_months: int = Query(12, ge=1, le=24),
     convert_currency: bool = Query(
@@ -461,6 +481,19 @@ async def revenue_forecast(
         .scalars()
         .all()
     )
+
+    # Runda 8 (R8-N13-2): kontrakt bez daty startu, którego WSZYSTKIE
+    # zamówienia startują później, jest PLANOWANY (reguła S5 — kafle, profil,
+    # katalog). Prognoza liczyła go od bieżącego miesiąca. Jego start to start
+    # najbliższego zamówienia; start dopowiedziany z zamówienia już trwającego
+    # zostaje „nieznany", czyli obowiązujący.
+    fallback_starts = await load_fallback_starts(db, active_contracts, today)
+
+    def _forecast_start(contract: Contract) -> Optional[date]:
+        if contract.start_date is not None:
+            return contract.start_date
+        fallback = fallback_starts.get(contract.id)
+        return fallback if fallback is not None and fallback > today else None
 
     # Resolve each leg's currency once (all forecast months use today's rate).
     rate_cache = await _resolve_rate_cache(db, _contract_currencies(active_contracts))
@@ -513,7 +546,7 @@ async def revenue_forecast(
             # którymkolwiek dniu miesiąca (także startujący za tydzień albo
             # zakończony w jego trakcie), po stawce z 1. dnia miesiąca albo
             # z dnia startu — kafle to zdjęcie na dziś.
-            if (c.start_date is None or c.start_date < next_month)
+            if ((start := _forecast_start(c)) is None or start < next_month)
             and (c.end_date is None or c.end_date >= month_start)
         ]
         revenue_raw = Decimal("0")
@@ -522,8 +555,9 @@ async def revenue_forecast(
             # Stawka OBOWIĄZUJĄCA w tym miesiącu (harmonogram), nie dzisiejsza
             # kolumna: podwyżka zaplanowana na marzec pokazuje się od marca.
             on = month_start
-            if c.start_date is not None and c.start_date > on:
-                on = c.start_date
+            start = _forecast_start(c)
+            if start is not None and start > on:
+                on = start
             eff = effective_rate_fields(c, on)
             rev = _to_display(eff["monthly_rate_client"], eff["rate_client_currency"])
             cost = _to_display(
@@ -592,7 +626,7 @@ class RoleClientMix(BaseModel):
 
 @router.get("/role-client-mix", response_model=RoleClientMix)
 async def role_client_mix(
-    current_user: FinanceReadUser,
+    current_user: CompanyResultsUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Count unique active people bucketed by role × client.
@@ -707,7 +741,7 @@ class LocationDistribution(BaseModel):
 
 @router.get("/location-distribution", response_model=LocationDistribution)
 async def location_distribution(
-    current_user: FinanceReadUser,
+    current_user: CompanyResultsUser,
     db: AsyncSession = Depends(get_db),
     active_only: bool = Query(
         True, description="If true, only count candidates with an active contract"
@@ -789,7 +823,7 @@ class TerminationAnalysis(BaseModel):
 
 @router.get("/termination-analysis", response_model=TerminationAnalysis)
 async def termination_analysis(
-    current_user: FinanceReadUser,
+    current_user: CompanyResultsUser,
     db: AsyncSession = Depends(get_db),
     window_months: int = Query(
         12, ge=1, le=36, description="Look-back window in months"
@@ -811,7 +845,9 @@ async def termination_analysis(
         .join(Client, Client.id == Contract.client_id)
         .where(
             Contract.status == ContractStatus.ended,
-            func.coalesce(Contract.terminated_at, Contract.end_date) >= window_start,
+            # Runda 8 (R8-N13-1): `end_date` przed `terminated_at` — to drugie
+            # przeżywa aneks przedłużenia i niesie datę pierwszego zakończenia.
+            func.coalesce(Contract.end_date, Contract.terminated_at) >= window_start,
         )
     )
     rows = (await db.execute(ended_q)).all()
@@ -826,7 +862,7 @@ async def termination_analysis(
             else "unspecified"
         )
         reason_counts[reason] = reason_counts.get(reason, 0) + 1
-        duration_end = contract.terminated_at or contract.end_date
+        duration_end = contract.end_date or contract.terminated_at
         if duration_end and contract.start_date:
             reason_durations.setdefault(reason, []).append(
                 (duration_end - contract.start_date).days

@@ -228,7 +228,7 @@ def test_open_engagement_elsewhere_blocks_auto_and_names_the_contract():
 def test_person_absent_from_the_base_waits_for_the_signed_agreement():
     """Zamówienie klienta nie zakłada kontraktora — czeka na podpisaną umowę.
 
-    Zgłoszenie 09.2026 (Nordea, Adam Grono): PO przyszło przed podpisem umowy
+    Zgłoszenie 09.2026 (Nordea): PO przyszło przed podpisem umowy
     B2B, osoby nie było na rosterze klienta, a automat założył kandydata,
     szkic kontraktu i zamówienie. Kontrakt rodzi się z podpisanej umowy,
     a nie z PDF-a klienta.

@@ -9,9 +9,12 @@ from app.core.security import has_usable_password
 from app.models.user import User, UserRole
 from app.schemas.user import DashboardDataScope, DashboardPreset, UserResponse
 from app.services.access_scope import (
+    delivery_lead_scope_is_assigned,
+    delivery_lead_sees_whole_delivery,
     resolve_dashboard_scope,
     resolve_delivery_lead_finance_client_ids,
 )
+from app.services.pipeline_move_rules import skips_fill_gates
 
 
 def _dashboard_presets_for(user: User) -> list[DashboardPreset]:
@@ -34,7 +37,7 @@ def _dashboard_presets_for(user: User) -> list[DashboardPreset]:
         presets.append("head-of-recruitment")
     if UserRole.delivery_lead in roles:
         presets.append("delivery-lead")
-    if roles.intersection({UserRole.sourcer, UserRole.tac, UserRole.recruiter}):
+    if UserRole.recruiter in roles:
         presets.append("my-work")
     return presets
 
@@ -80,6 +83,18 @@ async def build_user_response(user: User, db: AsyncSession) -> UserResponse:
         )
     response.data_scope = DashboardDataScope(**scope_payload)
     response.analytics_v1_mode = settings.ANALYTICS_V1_MODE
+    if user.has_role(UserRole.delivery_lead) and not user.has_any_role(
+        UserRole.admin,
+        UserRole.finance,
+    ):
+        response.delivery_client_scope = (
+            "assigned"
+            if delivery_lead_scope_is_assigned()
+            and not delivery_lead_sees_whole_delivery(user)
+            else "all"
+        )
+    # Wyłącznik `DL_SKIPS_FILL_GATES` działa też na interfejs (F109).
+    response.skips_fill_gates = skips_fill_gates(user)
     response.effective_section_access = dict(
         getattr(user, "effective_section_access", {})
     )

@@ -47,9 +47,9 @@ class EmploymentEngagement(BaseModel):
 class EmploymentInfo(BaseModel):
     """
     Employment snapshot rendered next to every candidate in the list/profile.
-    `source` exposes whether the fact came from a live Contract, a manual
-    CandidateConflict, or the recruitment pipeline (a `hired` stage) so the UI
-    can show a different tooltip.
+    Od 17.10.2026 (decyzja Artura) zatrudnienie wynika wyłącznie z żywej
+    umowy: `source` to `contract` albo `none` — ręczny konflikt i etap
+    „Zatrudniony” bez umowy nie są już źródłem.
     """
 
     state: EmploymentState
@@ -58,11 +58,74 @@ class EmploymentInfo(BaseModel):
     contract_id: Optional[int] = None
     job_id: Optional[int] = None
     contract_end_date: Optional[date] = None
-    source: Literal["contract", "conflict", "pipeline", "none"] = "none"
-    # WSZYSTKIE aktywne kontrakty (ta sama populacja co gałąź `contract` wyżej —
-    # celowo bez `ending`, żeby lista nigdy nie przeczyła pojedynczym polom).
+    source: Literal["contract", "none"] = "none"
+    # WSZYSTKIE żywe kontrakty (`active` i `ending` — ta sama populacja co
+    # gałąź `contract` wyżej, żeby lista nigdy nie przeczyła pojedynczym polom).
     # Pierwszy wpis = ten sam kontrakt co `client_id`/`contract_id`.
     engagements: list[EmploymentEngagement] = []
+
+
+class CandidateBlacklistInfo(BaseModel):
+    """Czarna lista „u nas” (okno „Czarna lista…”, 17.10.2026).
+
+    Obecne tylko przy `status == blacklisted`. Wpisy sprzed zmiany (dopiski
+    z Traffita w imieniu) mają wszystkie pola puste — powodu nikt nie zapisał.
+    """
+
+    since: Optional[datetime] = None
+    by_user_id: Optional[int] = None
+    by_name: Optional[str] = None
+    reason: Optional[str] = None
+
+
+EmploymentPhase = Literal["working", "ending", "starting"]
+# Skąd termin „wolny od” osoby z żywą umową (15.10.2026): `work_end` = dzień
+# po końcu pracy u nas, `no_end_date` = zamówienie bez daty końca albo kolejna
+# umowa po bieżącej, `starting` = wszystkie żywe umowy startują w przyszłości.
+EmploymentFreeFromBasis = Literal["work_end", "no_end_date", "starting"]
+
+
+class EmploymentMarkerClient(BaseModel):
+    """Jeden klient w znaczniku „Pracuje u nas” — bez kwot, widzi każda rola."""
+
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None
+    contract_id: Optional[int] = None
+    phase: EmploymentPhase
+    # Koniec pracy u klienta: koniec łańcucha zamówień bez kontynuacji albo
+    # wcześniejsza data końca umowy (14.10.2026); może być w przeszłości;
+    # None = bez daty końca.
+    order_end_date: Optional[date] = None
+    # Tylko faza `starting`: umowa podpisana, start w przyszłości.
+    starts_on: Optional[date] = None
+    delivery_lead_name: Optional[str] = None
+
+
+class EmploymentMarker(BaseModel):
+    """Znacznik przy osobie na każdym ekranie — `services/employment_marker.py`.
+
+    Istnieje dokładnie wtedy, gdy `EmploymentInfo.state == employed_at_client`;
+    `phase` odróżnia „pracuje” od „zaczyna” i „kończy”, czego stare pole nie
+    umie.
+    """
+
+    phase: EmploymentPhase
+    # Od 17.10.2026 zawsze `contract` — pole zostaje dla kształtu API.
+    source: Literal["contract"] = "contract"
+    # Liczone tylko, gdy znany jest klient rekrutacji: True = któryś z klientów
+    # znacznika jest spoza rodziny klienta tej rekrutacji.
+    elsewhere: Optional[bool] = None
+    clients: list[EmploymentMarkerClient] = []
+    # Pierwszy dzień po pracy u nas (15.10.2026). Dostępność osoby =
+    # późniejsza z tej daty i daty z profilu —
+    # notatki ze screeningu sprzed zatrudnienia jej nie przesuwają.
+    free_from: Optional[date] = None
+    free_from_basis: Optional[EmploymentFreeFromBasis] = None
+    # „Wraca na rynek DD.MM” (22.10.2026): opieka przekazała osobę do front
+    # office albo zdecydowała „przekaż” (wpis „Do przepięcia” w toku) na
+    # każdej trwającej umowie; data = koniec pracy (None = nieznany).
+    returns_to_market: bool = False
+    returns_to_market_on: Optional[date] = None
 
 
 _VALID_SKILL_LEVELS = {"expert", "senior", "mid", "junior", None}
@@ -211,21 +274,23 @@ def _normalize_candidate_preferences(value: Any, *, allow_null_values: bool) -> 
 
 
 class CandidateCreate(BaseModel):
-    name: str
-    lastname: str
+    # Runda 9 (R9-N8-8): limity = długości kolumn; bez nich zbyt długa
+    # wartość kończyła się błędem bazy (500) zamiast 422.
+    name: str = Field(max_length=100)
+    lastname: str = Field(max_length=100)
     email: Optional[EmailStr] = None
-    phone: Optional[str] = None
-    city: Optional[str] = None
+    phone: Optional[str] = Field(default=None, max_length=30)
+    city: Optional[str] = Field(default=None, max_length=120)
     country: Optional[str] = Field(default=None, max_length=2)
-    linkedin: Optional[str] = None
+    linkedin: Optional[str] = Field(default=None, max_length=500)
     availability_date: Optional[date] = None
     notice_period: Optional[int] = None
     notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
-    source: Optional[str] = None
+    source: Optional[str] = Field(default=None, max_length=100)
     status: CandidateStatus = CandidateStatus.active
     availability_status: AvailabilityStatus = AvailabilityStatus.unknown
-    avatar_url: Optional[str] = None
-    competence_category: Optional[str] = None
+    avatar_url: Optional[str] = Field(default=None, max_length=1000)
+    competence_category: Optional[str] = Field(default=None, max_length=100)
     years_it_experience: Optional[int] = None
     ai_summary: Optional[str] = None
     tags: Optional[List[Any]] = None
@@ -286,19 +351,20 @@ class CandidateCreate(BaseModel):
 
 
 class CandidateUpdate(BaseModel):
-    name: Optional[str] = None
-    lastname: Optional[str] = None
+    # Runda 9 (R9-N8-8): limity = długości kolumn (422 zamiast 500).
+    name: Optional[str] = Field(default=None, max_length=100)
+    lastname: Optional[str] = Field(default=None, max_length=100)
     email: Optional[EmailStr] = None
-    phone: Optional[str] = None
-    linkedin: Optional[str] = None
+    phone: Optional[str] = Field(default=None, max_length=30)
+    linkedin: Optional[str] = Field(default=None, max_length=500)
     availability_date: Optional[date] = None
     notice_period: Optional[int] = None
     notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
-    source: Optional[str] = None
+    source: Optional[str] = Field(default=None, max_length=100)
     status: Optional[CandidateStatus] = None
     availability_status: Optional[AvailabilityStatus] = None
-    avatar_url: Optional[str] = None
-    competence_category: Optional[str] = None
+    avatar_url: Optional[str] = Field(default=None, max_length=1000)
+    competence_category: Optional[str] = Field(default=None, max_length=100)
     years_it_experience: Optional[int] = None
     ai_summary: Optional[str] = None
     tags: Optional[List[Any]] = None
@@ -320,11 +386,11 @@ class CandidateUpdate(BaseModel):
     open_to_expert_consult: Optional[bool] = None
     engagement_notes: Optional[str] = None
     # Business entity / JDG (migracja 0058) — używane przy generowaniu umów.
-    legal_name: Optional[str] = None
-    nip: Optional[str] = None
-    regon: Optional[str] = None
+    legal_name: Optional[str] = Field(default=None, max_length=255)
+    nip: Optional[str] = Field(default=None, max_length=32)
+    regon: Optional[str] = Field(default=None, max_length=32)
     business_address: Optional[str] = None
-    business_form: Optional[str] = None
+    business_form: Optional[str] = Field(default=None, max_length=64)
 
     @model_validator(mode="before")
     @classmethod
@@ -445,10 +511,34 @@ class ActiveRecruitmentBrief(BaseModel):
 
     job_id: int
     job_title: str
+    # Trzy nazwy rekrutacji (0380): `job_title` = nazwa od klienta (bez zmiany
+    # znaczenia), te dwa pola = to, co ekran wewnętrzny pokazuje jak nagłówek
+    # rekrutacji — numer u klienta i tytuł dla rekrutera.
+    job_working_title: Optional[str] = None
+    job_client_reference: Optional[str] = None
     client_name: Optional[str] = None
     stage: PipelineStage
     moved_at: Optional[datetime] = None
     moved_by_name: Optional[str] = None
+
+
+class StageMatchBrief(BaseModel):
+    """Przejście, które spełniło filtr „Dodany na etap / przez / od–do” (19.10.2026).
+
+    Najnowszy pasujący wiersz `candidate_stages` osoby: na którą kolumnę
+    Tablicy, kiedy, kto przesunął i w jakiej rekrutacji. Tylko na liście
+    `GET /api/candidates` przy włączonym filtrze etapu, liczone dla osób ze
+    strony wyniku.
+    """
+
+    column: str
+    moved_at: Optional[datetime] = None
+    moved_by_name: Optional[str] = None
+    job_id: int
+    job_title: Optional[str] = None
+    job_working_title: Optional[str] = None
+    job_client_reference: Optional[str] = None
+    client_name: Optional[str] = None
 
 
 class LinkedinSnapshotSummary(BaseModel):
@@ -488,6 +578,15 @@ class InviteSourceBrief(BaseModel):
     created_by_name: str
     applied_at: datetime
     previous_created_by_name: Optional[str] = None
+    # „recruiter” = stały link osoby (strona kariery), „job” = link do
+    # rekrutacji. Profil odróżnia po tym „Link rekrutera” od „Linku do
+    # rekrutacji”; None — wpis sprzed zapisywania rodzaju i link nieznaleziony.
+    link_kind: Optional[Literal["job", "recruiter"]] = None
+    # `utm_source` z adresu, którym osoba weszła na formularz (np. „linkedin”).
+    utm_source: Optional[str] = None
+    # Osoba była już w bazie — zgłoszenie nie utworzyło rekordu, więc nie
+    # mówi, kto ją dodał (profil pokazuje je jako „Zgłosiła się też”).
+    was_duplicate: bool = False
 
 
 CandidateIdentityField = Literal["name", "lastname"]
@@ -541,11 +640,34 @@ class MatchSnippet(BaseModel):
     highlights: list[list[int]] = Field(default_factory=list)
 
 
+class AvailabilityFromNotes(BaseModel):
+    """Datę dostępności wpisały notatki (07.10.2026) — „stan na” i podstawa.
+
+    ``as_of`` — dzień notatki, od którego liczono datę („od zaraz” sprzed lat
+    daje datę z tamtego dnia); ``basis`` — ``date`` | ``month`` | ``notice``
+    | ``asap``. Liczone z ``_notes_insights._availability_from_notes``, dopóki
+    profil ma tę samą datę (``notes_profile_fill.availability_origin``).
+    """
+
+    as_of: Optional[date] = None
+    basis: Optional[str] = None
+
+
+class CandidateLocationDistance(BaseModel):
+    place: str
+    km: int
+    center: str
+
+
 class CandidateResponse(BaseModel):
     # Lista, `semantics_version=2`: które AKTYWNE filtry („location",
     # „experience", „rate") ta osoba przeszła wyłącznie dlatego, że nie mamy
     # o niej danych. Poza listą zawsze puste.
     unknown_fields: list[str] = Field(default_factory=list)
+    # Lista z promieniem (D6, 19.10.2026): „Pruszków · 16 km od Warszawy” —
+    # najbliższy środek, w którego promieniu leży miejscowość osoby. `None`
+    # poza promieniem, w samym środku albo gdy miejscowości nie ma w spisie.
+    location_distance: Optional[CandidateLocationDistance] = None
     id: int
     name: str
     lastname: str
@@ -556,7 +678,25 @@ class CandidateResponse(BaseModel):
     avatar_url: Optional[str] = None
     expected_rate_hourly: Optional[Decimal] = None
     expected_rate_currency: Optional[str] = None
+    # „Stawka od” (0414): najniższa stawka z 18 miesięcy — tę czytają filtry
+    # i AI. `expected_rate_hourly` to dalej stawka zapisana w profilu.
+    rate_from_hourly: Optional[Decimal] = None
+    rate_from_at: Optional[datetime] = None
+    rate_from_stale: bool = False
+    rate_latest_hourly: Optional[Decimal] = None
+    rate_latest_at: Optional[datetime] = None
+    rate_observation_count: Optional[int] = None
+    # Skąd „Stawka od”; `contract` = stawka z żywej umowy (15.10.2026).
+    rate_from_source: Optional[str] = None
+    # Przy żywej umowie: najniższa zadeklarowana stawka, gdy niższa niż umowa
+    # (R4, 17.10.2026) — tylko odpowiedź profilu, listy jej nie liczą.
+    rate_declared_from_hourly: Optional[Decimal] = None
+    rate_declared_from_at: Optional[datetime] = None
+    rate_from_computed_at: Optional[datetime] = Field(default=None, exclude=True)
     availability_date: Optional[date]
+    # Data wpisana z notatek — lista pokazuje „z notatki · stan na” (bez
+    # zapytania per wiersz: liczone z załadowanego `cv_extracted_data`).
+    availability_from_notes: Optional[AvailabilityFromNotes] = None
     notice_period: Optional[int] = None
     notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
     source: Optional[str]
@@ -569,6 +709,12 @@ class CandidateResponse(BaseModel):
     status: CandidateStatus
     availability_status: AvailabilityStatus = AvailabilityStatus.unknown
     employment: EmploymentInfo = EmploymentInfo(state=EmploymentState.unknown)
+    # Znacznik „Pracuje u nas” — lista, szczegóły i szybki podgląd; mutacje
+    # go nie liczą (front nie wkłada ich odpowiedzi do cache szczegółów).
+    employment_marker: Optional[EmploymentMarker] = None
+    # Czarna lista „u nas” z osobą, datą i powodem — tylko szczegóły
+    # (`services/candidate_blacklist.load_blacklist_info`); lista ma `status`.
+    blacklist: Optional[CandidateBlacklistInfo] = None
     tags: Optional[Any]
     skills: Optional[Any]
     experience: Optional[Any]
@@ -649,6 +795,13 @@ class CandidateResponse(BaseModel):
             self.expected_rate_currency = "PLN"
         return self
 
+    @model_validator(mode="after")
+    def _rate_from_summary(self) -> "CandidateResponse":
+        from app.services.candidate_rate_from import rate_summary
+
+        self.__dict__.update(rate_summary(self))
+        return self
+
     # Phase D4: AI-extracted CV data (companies, career_summary, _source tag,
     # manual-override flag). Surfaced to the frontend so the profile view can
     # render "Firmy z CV" / "Podsumowanie AI" sections without a second fetch.
@@ -671,6 +824,14 @@ class CandidateResponse(BaseModel):
     )
     created_at: datetime
     updated_at: datetime
+    # „W bazie od” (0437): data dodania u źródła (Traffit) i wyliczona data
+    # wejścia do bazy z flagą dokładności oraz „skąd”
+    # (`app/services/candidate_added_date.py`). Liczone w walidatorze niżej,
+    # więc lista, detal i odpowiedzi zapisu mają je bez pamiętania w trasach.
+    source_created_at: Optional[datetime] = None
+    added_to_base_at: Optional[datetime] = None
+    added_to_base_exact: bool = False
+    added_via: Optional[str] = None
     # Phase A1: populated only when list endpoint is called with include_match_stats=true
     match_stats: Optional[MatchStats] = None
     # Phase: Snippet highlights (Traffit parity follow-up). Populated when
@@ -690,6 +851,9 @@ class CandidateResponse(BaseModel):
     # {rejected, withdrawn, hired}). Populated TYLKO przez list endpoint
     # z parametrem `include_active_recruitments=true` (osobny lekki query).
     active_recruitments: Optional[list[ActiveRecruitmentBrief]] = None
+    # Filtr etapu na liście: kiedy i kto przesunął osobę na wybrany etap
+    # (najnowsze pasujące przejście). `None` bez filtra etapu.
+    stage_match: Optional[StageMatchBrief] = None
     # Lista kandydatów: czy jest ZAPISANY dokument CV (`candidate_documents`,
     # kind=cv, niewycofany). `cv_filename` tego nie mówi — import z Traffita
     # wpisuje nazwę pliku od razu, a sam plik dociąga osobna faza. Kolumna „CV"
@@ -701,6 +865,12 @@ class CandidateResponse(BaseModel):
     last_note_preview: Optional[str] = None
     last_rejection_reason: Optional[str] = None
     last_rate: Optional[str] = None
+    # „Ostatnia rozmowa” (03.10.2026) — tylko przy `include_last_talk=true`:
+    # najnowsza notatka z zakładki „Rozmowy” i liczba prób kontaktu.
+    last_talk_at: Optional[datetime] = None
+    last_talk_by: Optional[str] = None
+    last_talk_preview: Optional[str] = None
+    contact_attempts: Optional[int] = None
     # Populated only by GET /candidates/{id} — latest invite-link apply event
     # resolved to label + recruiter name (+ previous owner if transferred).
     invite_source: Optional[InviteSourceBrief] = None
@@ -709,6 +879,18 @@ class CandidateResponse(BaseModel):
     contact_case: Optional[ContactCaseSummaryResponse] = None
 
     model_config = {"from_attributes": True, "populate_by_name": True}
+
+    @model_validator(mode="after")
+    def _fill_added_to_base(self) -> "CandidateResponse":
+        from app.services.candidate_added_date import added_to_base, added_via_label
+
+        added = added_to_base(
+            self.created_at, self.source_created_at, self.external_source
+        )
+        self.added_to_base_at = added.at
+        self.added_to_base_exact = added.exact
+        self.added_via = added_via_label(self.tags, self.source, self.external_source)
+        return self
 
 
 class CandidateQuickViewPosition(BaseModel):
@@ -720,6 +902,8 @@ class CandidateQuickViewPosition(BaseModel):
 class CandidateQuickViewAvailability(BaseModel):
     status: AvailabilityStatus = AvailabilityStatus.unknown
     available_from: Optional[date] = None
+    # `available_from` wpisały notatki — „stan na” (jak na liście).
+    available_from_notes: Optional[AvailabilityFromNotes] = None
     notice_period: Optional[int] = None
     notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
 
@@ -733,6 +917,8 @@ class CandidateQuickViewSource(BaseModel):
 class CandidateQuickViewRecruitment(BaseModel):
     job_id: int
     job_title: str
+    job_working_title: Optional[str] = None
+    job_client_reference: Optional[str] = None
     client_name: Optional[str] = None
     stage_id: int
     stage_name: str
@@ -745,6 +931,8 @@ class CandidateQuickViewNote(BaseModel):
     content: str
     created_at: datetime
     author_name: Optional[str] = None
+    # 0399: przypięta notatka (wspólnie dla zespołu) — podgląd stawia ją pierwszą.
+    pinned: bool = False
 
 
 class CandidateCvHighlights(BaseModel):
@@ -766,7 +954,6 @@ class CandidateCvHighlights(BaseModel):
 
 class CandidateQuickViewCapabilities(BaseModel):
     can_assign: bool
-    can_mark_employed: bool
     can_view_documents: bool
     can_open_full_profile: bool
 
@@ -787,6 +974,8 @@ class CandidateQuickViewCandidate(BaseModel):
     location: Optional[str] = None
     status: CandidateStatus
     employment: EmploymentInfo = EmploymentInfo(state=EmploymentState.unknown)
+    employment_marker: Optional[EmploymentMarker] = None
+    blacklist: Optional[CandidateBlacklistInfo] = None
     competence_category_id: Optional[int] = None
     competence_category: Optional[str] = None
     skills: Optional[Any] = None
@@ -796,6 +985,14 @@ class CandidateQuickViewCandidate(BaseModel):
     # stawki w podglądzie był pusty dla osoby spoza bieżącej strony listy.
     expected_rate_hourly: Optional[Decimal] = None
     expected_rate_currency: Optional[str] = None
+    # „Stawka od” (0414) — `candidate_rate_from.rate_summary`.
+    rate_from_hourly: Optional[Decimal] = None
+    rate_from_at: Optional[datetime] = None
+    rate_from_stale: bool = False
+    rate_latest_hourly: Optional[Decimal] = None
+    rate_latest_at: Optional[datetime] = None
+    rate_observation_count: Optional[int] = None
+    rate_from_source: Optional[str] = None
 
 
 class CandidateQuickViewResponse(BaseModel):
@@ -806,7 +1003,12 @@ class CandidateQuickViewResponse(BaseModel):
     current_recruitments: list[CandidateQuickViewRecruitment] = Field(
         default_factory=list
     )
+    # Ile jest wszystkich rekrutacji „w procesie” (lista niesie najwyżej 4) —
+    # „…i N więcej” w „Co już wiemy” (14.10.2026).
+    current_recruitments_total: int = 0
     recent_notes: list[CandidateQuickViewNote] = Field(default_factory=list)
+    # Ile razy zapisano „nie odebrał” — podgląd mówi to obok ostatniej rozmowy.
+    contact_attempts: int = 0
     cv_highlights: CandidateCvHighlights
     capabilities: CandidateQuickViewCapabilities
 
@@ -821,12 +1023,25 @@ class CandidateList(BaseModel):
     # hybrydowy, v2 + jawne `text_mode`), "literal" albo "none" (bez `q`).
     text_mode_applied: Optional[str] = None
     interpretation: Optional[dict] = None
+    # Tekst wyglądający na osobę (v2 + `text_mode=auto`): "exact" = jest ktoś
+    # o dokładnie takim imieniu/nazwisku (bez literówek), "similar" = nie ma
+    # nikogo takiego, pokazujemy podobne; `None` = reguła nie dotyczy.
+    text_match: Optional[Literal["exact", "similar"]] = None
     # Tryb semantyczny: noga gęsta (Qdrant / Voyage) padła, wynik to sam BM25 —
     # krótka lista NIE znaczy „w bazie nikogo nie ma".
     search_degraded: bool = False
     # Tryb semantyczny: pula retrievalu osiągnęła sufit
     # (`SEARCH_HYBRID_POOL_SIZE`) — pasujących osób może być więcej.
     result_cap_reached: bool = False
+    # Kolejność faktycznie użyta. Przy `sort=match` bez wektora (brak kontekstu,
+    # awaria Voyage/Qdranta, przełącznik OFF) lista wraca do "newest" — front
+    # mówi wtedy, że kolejność według dopasowania jest chwilowo niedostępna.
+    sort_applied: Optional[str] = None
+    # D5 (19.10.2026): ile z `total` spełnia aktywne filtry stawki /
+    # lokalizacji / stażu Z DANYMI (bez plakietki „brak …”). `None` = żaden
+    # z tych filtrów nie działa albo osoby bez danych są ukryte — wtedy
+    # `total` to same trafienia.
+    known_match_count: Optional[int] = None
 
 
 class CandidateFromCVDuplicate(BaseModel):
@@ -846,9 +1061,9 @@ class CandidateFromCVResponse(BaseModel):
     The `candidate` field carries the newly-created profile exactly like the
     standard CandidateResponse. `confidence` mirrors the LLM's per-field
     certainty so the UI can flag low-confidence values for manual review.
-    `duplicates` is populated (non-empty) only when the endpoint is called
-    with `?force=true` despite existing matches — the default flow returns
-    HTTP 409 instead.
+    `duplicates` zostaje w kształcie dla dotychczasowych klientów; od
+    12.10.2026 jest zawsze puste — ta sama osoba = ten sam e-mail, a takie
+    trafienie kończy się HTTP 409 (także przy `?force=true`).
     """
 
     candidate: CandidateResponse
@@ -881,6 +1096,11 @@ class CandidateDocumentOut(BaseModel):
     uploaded_at: Optional[datetime] = None
     external_source: Optional[str] = None
     created_at: datetime
+    # 0400: kto wgrał plik i plakietka „nieaktualne”. Nazwiska uzupełnia
+    # handler (`_documents_with_people`) — model nie ładuje relacji.
+    uploaded_by_name: Optional[str] = None
+    outdated_at: Optional[datetime] = None
+    outdated_by_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -890,6 +1110,28 @@ class CandidateDocumentUpdate(BaseModel):
         None
     )
     is_primary: Optional[bool] = None
+    # True = oznacz jako nieaktualne, False = cofnij. Tylko plakietka i blokada
+    # ustawienia jako głównego CV — wyszukiwanie i wektory bez zmian.
+    outdated: Optional[bool] = None
+
+
+class CandidateCVPreview(BaseModel):
+    """Odczyt CV przed zapisem kandydata (`POST /api/candidates/cv/preview`).
+
+    Pola wypełniają formularz „Dodaj kandydata”; `cv_sha256` pozwala
+    `POST /from-cv` użyć tego samego odczytu bez drugiego wywołania modelu.
+    """
+
+    cv_sha256: str
+    name: Optional[str] = None
+    lastname: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    linkedin: Optional[str] = None
+    current_position: Optional[str] = None
+    confidence: dict[str, float] = Field(default_factory=dict)
+    source: Optional[str] = None
 
 
 # ── Chrome extension: POST /api/candidates/from-linkedin ────────────────────

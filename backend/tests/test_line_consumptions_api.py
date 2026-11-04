@@ -203,7 +203,8 @@ async def test_bad_month_is_refused_before_anything_is_written(
 async def test_role_without_order_lifecycle_cannot_write(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """TAC widzi zamówienie w zespole klienta, ale zejść nie prowadzi."""
+    """Rekruter z historycznym przypisaniem opiekuna klienta (do 0411 rola TAC)
+    zejść nie prowadzi."""
     from app.core.database import AsyncSessionLocal
     from app.models.team_structure import ClientTacAssignment
 
@@ -214,7 +215,7 @@ async def test_role_without_order_lifecycle_cannot_write(
     )
     line = group["lines"][0]
 
-    user_id, email, password = await _seed_user("tac")
+    user_id, email, password = await _seed_user("recruiter")
     async with AsyncSessionLocal() as db:
         db.add(ClientTacAssignment(client_id=client_id, tac_user_id=user_id))
         await db.commit()

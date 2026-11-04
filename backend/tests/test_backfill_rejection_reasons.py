@@ -273,3 +273,29 @@ async def test_description_backfill_skips_punctuation_only() -> None:
         assert await _get_stage_notes(stage_id) is None
     finally:
         await _cleanup(candidate_id, job_id, client_id)
+
+
+async def test_backfill_matches_stage_moved_at_parsed_as_warsaw_time() -> None:
+    """Runda 6 audytu: od #1730 mapper etapów czyta czas Traffita jako
+    Europe/Warsaw, więc ``moved_at`` wiersza etapu to 07:44:39 UTC dla
+    aktywności z ``activity_date`` = "2026-05-26 09:44:39". Złączenie po UTC
+    nie trafiało i powody odrzuceń przestały się wypełniać."""
+    from app.services.traffit.mappers import _parse_traffit_datetime
+
+    moved_at = _parse_traffit_datetime(_REJECTED_AT_STR)
+    assert moved_at is not None and moved_at != _REJECTED_AT
+    candidate_id = await _seed_candidate()
+    job_id, client_id = await _seed_job()
+    stage_id = await _seed_rejected_stage(candidate_id, job_id, moved_at=moved_at)
+    await _seed_rejection_activity(
+        candidate_id, "Po CV", description="niezainteresowany"
+    )
+    try:
+        async with AsyncSessionLocal() as db:
+            await backfill_rejection_notes_from_activities(db)
+            await backfill_rejection_descriptions_from_activities(db)
+            await db.commit()
+        assert await _get_rejection_note(stage_id) == "Po CV"
+        assert await _get_stage_notes(stage_id) == "niezainteresowany"
+    finally:
+        await _cleanup(candidate_id, job_id, client_id)

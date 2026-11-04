@@ -20,9 +20,15 @@ export const SCREEN_KEYS = [
   "candidate.profile",
   "calendar",
   "client.orders",
+  "client.people",
   "contracts.order_mail",
   "contracts.b2b_generator",
   "finance",
+  "hr.my_time",
+  "hr.approvals",
+  "hr.team_calendar",
+  "hr.consents",
+  "hr.care",
 ] as const;
 
 export type ScreenKey = (typeof SCREEN_KEYS)[number];
@@ -37,6 +43,15 @@ export function screenKeyFor(pathname: string | null | undefined, search?: strin
   if (path === "/candidates" || path === "/talent-radar") return "candidates.list";
   if (path === "/calendar") return "calendar";
   if (path === "/finance") return "finance";
+  // Zgody (0483): zakładka „Zgody” w Akceptacjach i „Zgody i wydatki” w „Moim
+  // czasie” (dawne „Moje zgody”, `/people/consents` przekierowuje) mają jeden przewodnik.
+  if (path === "/my-time") return params.get("tab") === "consents" ? "hr.consents" : "hr.my_time";
+  if (path === "/people/consents") return "hr.consents";
+  if (path === "/people/approvals") {
+    return params.get("tab") === "consents" ? "hr.consents" : "hr.approvals";
+  }
+  if (path === "/people/calendar") return "hr.team_calendar";
+  if (path === "/care" || path === "/back-office") return "hr.care";
   if (path === "/contracts/b2b-generator") return "contracts.b2b_generator";
   if (path === "/contracts") {
     return resolveContractsView(params.get("view")) === "order-mail" ? "contracts.order_mail" : null;
@@ -46,7 +61,13 @@ export function screenKeyFor(pathname: string | null | undefined, search?: strin
   if (!record) return null;
   const [, kind] = record;
   if (kind === "candidates") return "candidate.profile";
-  if (kind === "clients") return params.get("tab") === "zamowienia" ? "client.orders" : null;
+  if (kind === "clients") {
+    const tab = params.get("tab");
+    if (tab === "zamowienia") return "client.orders";
+    // „Ludzie i technologie” (22.10.2026) — dawne „Struktura” i „Technologie” prowadzą tu.
+    if (tab === "ludzie" || tab === "struktura" || tab === "technologie") return "client.people";
+    return null;
+  }
 
   // /jobs/{id}: ta sama reguła co strona rekrutacji (stare ?tab= w cenie).
   const state = readJobDetailUrlState(params);

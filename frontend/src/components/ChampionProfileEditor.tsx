@@ -26,7 +26,7 @@
  */
 
 import { ChampionImportButton, ChampionImportReview, ChampionTemplateDownload, ChampionValidationPanel } from "./ChampionIntake";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
@@ -48,6 +48,7 @@ import {
   EMPTY_CHAMPION_PROFILE,
   type ChampionBasics,
   type ChampionProfile,
+  type ChampionProfileResponse,
   type ChampionProfileSuggestion,
   type ChampionStack,
   type StackItem,
@@ -67,13 +68,30 @@ import {
 } from "@/lib/champion-job-seed";
 import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner";
 import { ClientPlaybookCard } from "@/components/client-playbook/ClientPlaybookCard";
+import { clientPlaybookEditHref } from "@/lib/client-playbooks";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { screeningQuestionHint } from "@/lib/screening-question-hint";
+import { warsawDateOf } from "@/lib/warsaw-date";
 import { countPl } from "@/lib/plural-pl";
 import { invalidateChampionDependents } from "@/lib/champion-cache";
+import { CriticalSkillsField } from "@/components/champion/CriticalSkillsField";
+import { useCriticalSuggestion } from "@/lib/critical-skills-api";
+import { apiErrorMessage } from "@/lib/api-error";
+import { jobGateRefusal, type JobBlockerItem } from "@/lib/job-gate-errors";
+import {
+  blockerSection,
+  championChangedPayload,
+  championConflictFrom,
+  changedSectionKeys,
+  comparableSection,
+  type ChampionConflict,
+} from "@/lib/champion-save";
+import { useOptionalToast } from "@/components/Toast";
 import {
   CHAMPION_AI_PROVENANCE_LABEL,
   CHAMPION_PROSE_SECTION_IDS,
+  SEARCH_REQUIREMENTS_ANCHOR,
   CHAMPION_SECTION_STATE_LABEL,
   CHAMPION_SECTIONS,
   championSectionState,
@@ -84,10 +102,53 @@ import {
 } from "@/lib/champion-section-state";
 import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionReview";
 import { ChampionExperienceFields } from "@/components/champion/ChampionExperienceFields";
+import { SearchRequirementsEditor } from "@/components/champion/SearchRequirementsEditor";
+import {
+  RequirementRowsEditor,
+  type RequirementSentGaps,
+} from "@/components/champion/RequirementRowsEditor";
+import {
+  useRequirementSentGaps,
+  useRequirementWordHints,
+} from "@/lib/requirement-sent-gaps-api";
+import { TalkSearchWordHints } from "@/components/champion/TalkSearchWordHints";
+import {
+  CRITICAL_PEOPLE_MIN,
+  criticalReachWarning,
+  criticalRows,
+  mustHeads,
+  niceHeads,
+  rowsFromStored,
+  rowsNeedingDecision,
+  searchRows,
+  addTalkSearchRow,
+  talkFromDescriptive,
+  type RequirementRowForm,
+  type TalkItem,
+  type TalkSearchWord,
+} from "@/lib/requirement-rows";
+import { addTalkItem, joinLanguage } from "@/lib/champion-experience";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { RequirementProposalDialog } from "@/components/champion/RequirementProposalDialog";
+import { useRequirementProposal } from "@/lib/requirement-proposal-api";
+import {
+  fetchRowsFromLegacy,
+  useRowCriticalInfo,
+  type LegacyRowsResult,
+} from "@/lib/requirement-rows-api";
 import { ChampionInsightsSection } from "@/components/champion/ChampionInsightsSection";
 import { syncLegacyInsight, type InsightChange } from "@/lib/champion-insights";
 import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
 import { ChampionClientQuestionsPanel } from "./ChampionClientQuestionsPanel";
+import { ChampionSectionNav } from "@/components/v2/jobs/ChampionSectionNav";
+import { RequestHistorySection } from "@/components/RequestHistorySection";
+import { OfficeDaysField } from "@/components/jobs/OfficeDaysField";
+import {
+  parseOfficeDaysInput,
+  weeklyFromMonthly,
+  type OfficeDaysPeriod,
+} from "@/lib/office-days";
+import { blurNumberInputOnWheel } from "@/lib/number-input";
 
 interface ChampionProfileEditorProps {
   jobId: number;
@@ -105,10 +166,58 @@ interface ChampionProfileEditorProps {
   /** Seeduje pole „Wklej opis" treścią `job.description`, gdy panel otwiera
    *  się automatycznie po zapisaniu nowej rekrutacji. */
   intakeSeedText?: string;
+  /**
+   * `workspace` — pełny formularz Profilu Championa (menu „⋯ → Edytuj cały
+   * Profil Championa”, `?mode=edit`; do 04.10.2026 tryb „Edytuj”):
+   * przyklejony pasek (sekcje w kolejności wyświetlania, licznik
+   * niezapisanych zmian, „Anuluj”, „Zapisz”), formularz i obok kolumna
+   * „Wypełnij szybciej” (AI z opisu, plik Word/PDF, podobne role, szkice AI,
+   * rozmowy, wcześniejsze zapytania klienta). `stacked` — dawny jeden słup
+   * (harness `/preview/champion-profile` i testy komponentu). `drawer` —
+   * szuflada edycji jednego bloku Briefu (`onlySections`, `renderDrawer`).
+   */
+  layout?: "stacked" | "workspace" | "drawer";
+  /** Zgłasza, czy są niezapisane zmiany — przełącznik trybu na stronie je pokazuje. */
+  onDirtyChange?: (dirty: boolean) => void;
+  /**
+   * Szuflada edycji bloku (04.10.2026): tylko te sekcje, bez grupy „proza”,
+   * paska sekcji i kolumny „Wypełnij szybciej”. Brak = cały formularz.
+   * Zapis zostaje ten sam: od 06.10.2026 każdy układ wysyła tylko sekcje
+   * zmienione przez użytkownika (`lib/champion-save.ts`), serwer scala resztę.
+   */
+  onlySections?: readonly ChampionSectionId[];
+  /**
+   * Tylko `layout="drawer"`: stopka okna (Anuluj/Zapisz) rysuje się w powłoce
+   * szuflady, nie w treści — edytor oddaje ją tym wywołaniem.
+   */
+  renderDrawer?: (parts: { body: React.ReactNode; footer: React.ReactNode }) => React.ReactNode;
+  /** Po udanym zapisie (szuflada się zamyka). */
+  onSaved?: () => void;
+  /** „Anuluj” w szufladzie — szkic wraca do zapisanego i okno się zamyka. */
+  onCancel?: () => void;
 }
 
 function genId(): string {
   return `q${Date.now().toString(36).slice(-6)}`;
+}
+
+/**
+ * Profil prowadzony wierszami wymagań (02.10.2026): wiersze dostają klucze
+ * i poziom „krytyczne” z `stack.critical`, a `critical` w szkicu znaczy odtąd
+ * tylko „Brak krytycznych” (`[]`) albo brak tej decyzji (`null`).
+ */
+function withEditableRows(profile: ChampionProfile): ChampionProfile {
+  const stored = profile.stack.rows;
+  if (!Array.isArray(stored) || stored.length === 0) return profile;
+  const none = Array.isArray(profile.stack.critical) && profile.stack.critical.length === 0;
+  return {
+    ...profile,
+    stack: {
+      ...profile.stack,
+      rows: rowsFromStored(stored, profile.stack.critical),
+      critical: none ? [] : null,
+    },
+  };
 }
 
 export function ChampionProfileEditor({
@@ -117,7 +226,15 @@ export function ChampionProfileEditor({
   clientId,
   intakeDefaultOpen = false,
   intakeSeedText = "",
+  layout = "stacked",
+  onDirtyChange,
+  onlySections,
+  renderDrawer,
+  onSaved,
+  onCancel,
 }: ChampionProfileEditorProps) {
+  const drawer = layout === "drawer";
+  const show = (id: ChampionSectionId) => !onlySections || onlySections.includes(id);
   const qc = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: ["champion-profile", jobId],
@@ -125,6 +242,9 @@ export function ChampionProfileEditor({
   });
 
   const [draft, setDraft] = useState<ChampionProfile>(EMPTY_CHAMPION_PROFILE);
+  // Profil tak, jak go wczytano (z polami z rekrutacji) — punkt odniesienia
+  // dla licznika niezapisanych zmian i „Anuluj”.
+  const [baseline, setBaseline] = useState<ChampionProfile>(EMPTY_CHAMPION_PROFILE);
   // Stack wczytany z kolumn rekrutacji dla profilu sprzed 09.2026 (M04-B02) —
   // patrz `lib/champion-job-seed.ts`. `null` = profil ma własny stack.
   const [seededStack, setSeededStack] = useState<ChampionStack | null>(null);
@@ -136,6 +256,23 @@ export function ChampionProfileEditor({
   );
   const [reviewOpen, setReviewOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // Audyt 06.10.2026 (N4): 422 `handoff_regression` — braki z sekcjami.
+  const [regressionBlockers, setRegressionBlockers] = useState<JobBlockerItem[] | null>(null);
+  // Audyt 06.10.2026 (N1/N2): profil z serwera, który przyszedł, gdy szkic
+  // miał niezapisane zmiany (odświeżenie albo 409 przy zapisie). Czeka na
+  // decyzję „Przeładuj / Zostaw moje” — szkic zostaje nietknięty.
+  const [pendingServer, setPendingServer] = useState<ChampionConflict | null>(null);
+  // Odcisk przyjętego profilu (`profile_hash`) — jedzie w zapisie jako
+  // `expected_profile_hash`. Ref, bo czyta go efekt i `mutationFn`.
+  const serverHashRef = useRef<string | null>(null);
+  // Zapas, gdy serwer nie podaje odcisku (starszy backend): sam profil.
+  const acceptedProfileRef = useRef<string | null>(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const baselineRef = useRef(baseline);
+  baselineRef.current = baseline;
+  const toast = useOptionalToast();
   const [remoteChange, setRemoteChange] = useState<{
     by: string;
     at: number;
@@ -175,19 +312,157 @@ export function ChampionProfileEditor({
     },
   });
 
+  /** Przyjmuje profil z serwera: szkic, punkt odniesienia i odcisk do zapisu. */
+  const applyServer = useCallback((response: ChampionProfileResponse) => {
+    const loaded = response.champion_profile as Partial<ChampionProfile>;
+    const seed = seedChampionFromJob(
+      { ...EMPTY_CHAMPION_PROFILE, ...loaded },
+      response.job_values,
+      response.job_title,
+    );
+    const profile = withEditableRows(seed.profile);
+    setDraft(profile);
+    setBaseline(profile);
+    setSeededStack(seed.seededStack);
+    setSeededBasics(seed.seededBasics);
+    serverHashRef.current = response.profile_hash ?? null;
+    acceptedProfileRef.current = JSON.stringify(response.champion_profile ?? {});
+    setPendingServer(null);
+  }, []);
+
+  // Audyt 06.10.2026 (N1): do tej daty każde odświeżenie profilu (zapis
+  // terminu w „Zespół”, WebSocket `champion_profile_changed`, powrót do
+  // karty) nadpisywało szkic i kasowało niezapisane zmiany. Teraz profil bez
+  // zmian w szkicu przyjmujemy jak dotąd, a przy zmianach — tylko gdy
+  // zmienił się SAM profil — pytamy banerem.
   useEffect(() => {
-    if (data) {
-      const loaded = data.champion_profile as Partial<ChampionProfile>;
-      const seed = seedChampionFromJob(
-        { ...EMPTY_CHAMPION_PROFILE, ...loaded },
-        data.job_values,
-        data.job_title,
-      );
-      setDraft(seed.profile);
-      setSeededStack(seed.seededStack);
-      setSeededBasics(seed.seededBasics);
+    if (!data) return;
+    const dirty = changedSectionKeys(draftRef.current, baselineRef.current).length > 0;
+    if (!dirty) {
+      applyServer(data);
+      return;
     }
-  }, [data]);
+    const sameProfile =
+      data.profile_hash && serverHashRef.current
+        ? data.profile_hash === serverHashRef.current
+        : JSON.stringify(data.champion_profile ?? {}) === acceptedProfileRef.current;
+    if (sameProfile) return;
+    setPendingServer({ ...data, message: null });
+  }, [data, applyServer]);
+
+  /** „Przeładuj”: zapisany profil zastępuje szkic. */
+  const reloadFromServer = () => {
+    if (!pendingServer) return;
+    const { message: _message, ...response } = pendingServer;
+    applyServer(response);
+    // Po 409 pamięć zapytania ma jeszcze stary profil — podmieniamy ją na
+    // ten, który właśnie przyjęliśmy (bez dodatkowego żądania).
+    qc.setQueryData<ChampionProfileResponse>(["champion-profile", jobId], (old) =>
+      old ? { ...old, ...response } : response,
+    );
+    setSaveError(null);
+    setRegressionBlockers(null);
+    setSaveStatus("idle");
+  };
+  /**
+   * „Zostaw moje”: szkic zostaje, a zapis idzie z odciskiem NOWEGO profilu —
+   * świadome nadpisanie wyłącznie sekcji zmienionych przez użytkownika
+   * (punkt odniesienia zostaje ten, od którego zaczynał).
+   */
+  const keepMine = () => {
+    if (!pendingServer) return;
+    serverHashRef.current = pendingServer.profile_hash ?? null;
+    acceptedProfileRef.current = JSON.stringify(pendingServer.champion_profile ?? {});
+    setPendingServer(null);
+    setSaveError(null);
+    setSaveStatus("idle");
+  };
+  /**
+   * „Anuluj”: szkic wraca do profilu z serwera. Po „Zostaw moje” punkt
+   * odniesienia jest starszy niż zapis kolegi — wtedy bierzemy profil
+   * z pamięci zapytania, nie stary punkt odniesienia.
+   */
+  const discardDraft = () => {
+    if (data) applyServer(data);
+    else setDraft(baseline);
+  };
+
+  // Ile sekcji ma niezapisane zmiany — po kluczach najwyższego poziomu,
+  // czyli po sekcjach, które DL widzi w pasku. Liczone PRZED wczesnymi
+  // `return` (hook zgłaszający stan stronie musi stać zawsze w tym samym miejscu).
+  const dirtySections = (Object.keys(draft) as Array<keyof ChampionProfile>).filter(
+    (key) =>
+      JSON.stringify(comparableSection(key, draft[key]) ?? null) !==
+      JSON.stringify(comparableSection(key, baseline[key]) ?? null),
+  ).length;
+  useEffect(() => {
+    onDirtyChange?.(dirtySections > 0);
+  }, [dirtySections, onDirtyChange]);
+
+  // Krytyczne (30.09.2026): podpowiedź i dopuszczalne pozycje dla BIEŻĄCEJ,
+  // jeszcze niezapisanej listy MUST.
+  const requirementRows = Array.isArray(draft.stack.rows)
+    ? (draft.stack.rows as RequirementRowForm[])
+    : null;
+  const criticalSuggestion = useCriticalSuggestion(
+    (draft.stack.must ?? []).map((item) => item.name),
+    draft.basics.role_name ?? data?.job_title ?? "",
+    { enabled: Boolean(data) && requirementRows == null },
+  );
+  // Profil prowadzony wierszami: etykiety i dopuszczalność krytycznych liczy
+  // serwer dla bieżących, jeszcze niezapisanych wierszy.
+  const rowCriticalInfo = useRowCriticalInfo(
+    requirementRows ?? [],
+    draft.basics.role_name ?? data?.job_title ?? "",
+    { enabled: Boolean(data) && requirementRows != null },
+  );
+  const [simplifying, setSimplifying] = useState(false);
+  const [simplifyError, setSimplifyError] = useState<string | null>(null);
+  // Wariant A (13.10.2026): „Do rozmowy” z edytora wierszy i liczba osób,
+  // które zostawiają krytyczne razem (D2 — zapis pyta poniżej 20).
+  const [criticalReach, setCriticalReach] = useState<number | null | undefined>(undefined);
+  const { askConfirm, confirmDialog } = useConfirmV2();
+  // D4 (13.10.2026): propozycja uporządkowania wymagań tej rekrutacji.
+  const proposalQuery = useRequirementProposal(jobId, Boolean(data));
+  const proposal = proposalQuery.data?.proposal ?? null;
+  const [proposalOpen, setProposalOpen] = useState(false);
+  // 02.11.2026: wiersze „musi mieć”, których nie ma nikt z wysłanych, i słowa z ich CV.
+  const sentGapsQuery = useRequirementSentGaps(jobId, Boolean(data));
+  const wordHints = useRequirementWordHints(jobId);
+  const sentGaps = useMemo<RequirementSentGaps | undefined>(() => {
+    const gaps = sentGapsQuery.data;
+    if (!gaps || gaps.rows.length === 0) return undefined;
+    const hints = wordHints.data?.available ? wordHints.data.rows : null;
+    return {
+      sent: gaps.sent,
+      rows: gaps.rows,
+      // Wiersz nowszy niż odpowiedź modelu: o niego jeszcze nie pytano.
+      wordsFor: (label) => hints?.find((row) => row.label === label)?.words ?? null,
+      canAsk: gaps.can_ask_hints,
+      asking: wordHints.isPending,
+      askError: wordHints.isError
+        ? apiErrorMessage(wordHints.error, "Nie udało się podpowiedzieć słów. Spróbuj ponownie.")
+        : wordHints.data && !wordHints.data.available
+          ? "Nie udało się przeczytać CV. Spróbuj ponownie."
+          : null,
+      onAsk: () => wordHints.mutate(),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `mutate` jest stabilne
+  }, [sentGapsQuery.data, wordHints.data, wordHints.isPending, wordHints.isError, wordHints.error]);
+  const moveToTalk = (item: TalkItem) =>
+    setDraft((d) => {
+      if (item.kind === "language") {
+        return { ...d, basics: { ...d.basics, language: joinLanguage(d.basics.language ?? "", item.name) } };
+      }
+      const experience = d.experience ?? EMPTY_CHAMPION_EXPERIENCE;
+      return {
+        ...d,
+        experience: {
+          ...experience,
+          [item.kind]: addTalkItem(experience[item.kind] ?? [], item.name, item.level),
+        },
+      };
+    });
 
   // Live refresh when another user edits this job's Champion Profile.
   // The WS hook dispatches CHAMPION_PROFILE_CHANGED_EVENT on the window;
@@ -220,21 +495,93 @@ export function ChampionProfileEditor({
     return () => clearTimeout(t);
   }, [remoteChange]);
 
+  // „Zapisano” gaśnie po 3 s. Timer w efekcie, nie w `onSuccess`: odmontowanie
+  // go sprząta — do 21.10.2026 odpalał setState po zamknięciu edytora.
+  useEffect(() => {
+    if (saveStatus !== "saved") return;
+    const t = setTimeout(() => setSaveStatus("idle"), 3000);
+    return () => clearTimeout(t);
+  }, [saveStatus]);
+
   const mutation = useMutation({
+    // Audyt 06.10.2026 (N2/N5): tylko sekcje zmienione względem profilu, od
+    // którego DL zaczynał, i odcisk profilu wczytanego z serwera.
     mutationFn: (p: ChampionProfile) =>
       championApi.put(
         jobId,
-        championSavePayload(p, { seededStack, seededBasics }) as ChampionProfile,
+        championChangedPayload(
+          p,
+          baselineRef.current,
+          { seededStack, seededBasics },
+          serverHashRef.current,
+        ),
       ),
-    onSuccess: () => {
+    onSuccess: (response, saved) => {
+      // To, co wysłaliśmy, jest odtąd zapisane — odświeżony profil z serwera
+      // przyjmie się bez pytania (chyba że DL pisał dalej w trakcie zapisu).
+      setBaseline(saved);
+      const body = response?.data;
+      if (body?.profile_hash) serverHashRef.current = body.profile_hash;
+      if (body?.champion_profile)
+        acceptedProfileRef.current = JSON.stringify(body.champion_profile);
+      setPendingServer(null);
+      setRegressionBlockers(null);
+      for (const notice of body?.notices ?? []) toast?.showInfo(notice);
       // Profil, zlecenie (sync stacku do `must_skills`) i werdykt gotowości
       // „Przekaż do searchu" — patrz `invalidateChampionDependents`.
       invalidateChampionDependents(qc, jobId);
+      setSaveError(null);
       setSaveStatus("saved");
-      setTimeout(() => setSaveStatus("idle"), 3000);
+      onSaved?.();
     },
-    onError: () => setSaveStatus("error"),
+    // Do 28.09.2026 stan „error” nie miał żadnego widoku: DL widział zwolniony
+    // „Zapisz” i myślał, że zapisał. Zmiany zostają w `draft` — nic nie ginie.
+    onError: (error) => {
+      const conflict = championConflictFrom(error);
+      if (conflict) {
+        setPendingServer({ ...conflict, job_title: conflict.job_title ?? data?.job_title });
+        setSaveError(null);
+        setRegressionBlockers(null);
+        setSaveStatus("idle");
+        return;
+      }
+      const refusal = jobGateRefusal(error);
+      if (refusal?.code === "handoff_regression") {
+        setSaveError(refusal.message ?? HANDOFF_REGRESSION_TEXT);
+        setRegressionBlockers(refusal.blockers);
+        setSaveStatus("error");
+        return;
+      }
+      setRegressionBlockers(null);
+      setSaveError(championSaveErrorMessage(error));
+      setSaveStatus("error");
+    },
   });
+
+  /**
+   * „Zapisz” (wariant A, 13.10.2026): zdanie w wierszach czeka na decyzję
+   * (D3), a krytyczne zostawiające mniej niż 20 osób wymagają potwierdzenia (D2).
+   */
+  const requestSave = async () => {
+    if (requirementRows && rowsNeedingDecision(requirementRows, rowCriticalInfo.info).length > 0) {
+      setSaveError("Przy zdaniach w wymaganiach zdecyduj: słowa do szukania czy „Do rozmowy”.");
+      setSaveStatus("error");
+      document
+        .querySelector('[data-testid="requirement-row-decision"]')
+        ?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+      return;
+    }
+    if (criticalReach != null && criticalReach < CRITICAL_PEOPLE_MIN) {
+      const ok = await askConfirm({
+        title: "Krytyczne zostawiają mało osób",
+        description: `${criticalReachWarning(criticalReach)} Zapisać z tymi krytycznymi?`,
+        confirmLabel: "Zapisz mimo to",
+        cancelLabel: "Wróć do wymagań",
+      });
+      if (!ok) return;
+    }
+    mutation.mutate(draft);
+  };
 
   const updateQuestion = (i: number, patch: Partial<ScreeningQuestion>) => {
     setDraft((d) => {
@@ -294,10 +641,126 @@ export function ChampionProfileEditor({
   // edytor nie tknął, nie ma jak zniknąć.
   const patchBasics = (patch: Partial<ChampionProfile["basics"]>) =>
     setDraft((d) => ({ ...d, basics: { ...d.basics, ...patch } }));
+  // 0407: „w tygodniu / w miesiącu”. Wybór jednostki bez liczby trzyma stan
+  // lokalny — sam zapis nie mówi, którą jednostkę ktoś właśnie kliknął.
+  const [officePeriodChoice, setOfficePeriodChoice] =
+    useState<OfficeDaysPeriod | null>(null);
+  const officePeriod: OfficeDaysPeriod =
+    officePeriodChoice ??
+    (draft.basics.onsite_days_per_month != null ? "month" : "week");
+  const officeHybrid = draft.basics.work_mode === "hybrydowo";
+  const patchOfficeDays = (value: string, period: OfficeDaysPeriod) => {
+    const n = parseOfficeDaysInput(value, period);
+    patchBasics(
+      period === "month"
+        ? {
+            onsite_days_per_month: n,
+            onsite_days_per_week: n == null ? null : weeklyFromMonthly(n),
+          }
+        : { onsite_days_per_week: n, onsite_days_per_month: null },
+    );
+  };
   const patchSearch = (patch: Partial<ChampionProfile["search"]>) =>
     setDraft((d) => ({ ...d, search: { ...d.search, ...patch } }));
   const patchStack = (patch: Partial<ChampionProfile["stack"]>) =>
     setDraft((d) => ({ ...d, stack: { ...d.stack, ...patch } }));
+  // Powrót do „nie zdecydowano” przy profilu, który nigdy nie miał decyzji,
+  // zdejmuje klucz — inaczej licznik niezapisanych zmian widziałby różnicę
+  // między brakiem klucza a `null`, choć to ten sam stan.
+  const setCritical = (next: string[] | null) =>
+    setDraft((d) => {
+      const stack: ChampionStack = { ...d.stack, critical: next };
+      if (next === null && baseline.stack.critical === undefined) delete stack.critical;
+      return { ...d, stack };
+    });
+  // Wiersze wymagań są źródłem: must-have, mile widziane i wiersze
+  // wyszukiwania w szkicu idą za nimi (serwer i tak wyprowadza je sam).
+  const setRequirementRows = (rows: RequirementRowForm[]) =>
+    setDraft((d) => ({
+      ...d,
+      stack: {
+        ...d.stack,
+        rows,
+        must: mustHeads(rows).map((name) => ({ name })),
+        nice: niceHeads(rows).map((name) => ({ name })),
+        critical: criticalRows(rows).length > 0 ? null : (d.stack.critical ?? null),
+      },
+      search: { ...d.search, requirements: searchRows(rows) },
+    }));
+  // „To słowo do szukania?” (27.10.2026): technologia z listy do rozmowy
+  // dochodzi jako wiersz; pozycja z poziomem albo komentarzem zostaje na liście.
+  const addTalkSearchWord = (hint: TalkSearchWord) => {
+    if (!requirementRows) return;
+    setRequirementRows(addTalkSearchRow(requirementRows, hint));
+    if (hint.keepItem) return;
+    setDraft((d) => {
+      const experience = d.experience ?? EMPTY_CHAMPION_EXPERIENCE;
+      return {
+        ...d,
+        experience: {
+          ...experience,
+          skills: (experience.skills ?? []).filter((item) => item.name !== hint.item.name),
+        },
+      };
+    });
+  };
+  /**
+   * „Uprość do słów kluczowych”: stare pola (must, mile widziane, wiersze
+   * wyszukiwania) zamienia serwer — technologie zostają wierszami, zdania
+   * klienta trafiają do niuansów i przestają filtrować kandydatów. Nic się
+   * nie zapisuje, dopóki Delivery Lead nie kliknie „Zapisz”.
+   */
+  const simplifyToRows = async () => {
+    setSimplifying(true);
+    setSimplifyError(null);
+    try {
+      // `descriptive_nice` (14.10.2026): zdania z „mile widziane”.
+      const result: LegacyRowsResult & { descriptive_nice?: string[] } =
+        await fetchRowsFromLegacy({
+          must: (draft.stack.must ?? []).map((item) => item.name),
+          nice: (draft.stack.nice ?? []).map((item) => item.name),
+          requirements: draft.search.requirements ?? [],
+          critical: draft.stack.critical ?? null,
+        });
+      const rows = rowsFromStored(result.rows);
+      if (rows.length === 0) {
+        setSimplifyError("Nie ma czego uprościć — dodaj najpierw wymagania.");
+        return;
+      }
+      setDraft((d) => {
+        const experience = d.experience ?? EMPTY_CHAMPION_EXPERIENCE;
+        // Zdania klienta idą do „Rekruter sprawdza w rozmowie” (13.10.2026),
+        // nie do niuansów — w screeningu są punktem do sprawdzenia. Poziom
+        // idzie za listą, a co się nie mieści (20 pozycji, 160 znaków), trafia
+        // do opisu wymagań — audyt 13.10.2026 (pkt 20–21).
+        const talk = talkFromDescriptive(
+          experience.skills ?? [],
+          d.stack.notes ?? "",
+          result.descriptive,
+          result.descriptive_nice ?? [],
+        );
+        return {
+          ...d,
+          stack: {
+            ...d.stack,
+            rows,
+            must: mustHeads(rows).map((name) => ({ name })),
+            nice: niceHeads(rows).map((name) => ({ name })),
+            critical: criticalRows(rows).length === 0 && result.no_critical ? [] : null,
+            notes: talk.notes,
+          },
+          search: { ...d.search, requirements: searchRows(rows) },
+          experience: { ...experience, skills: talk.skills },
+        };
+      });
+    } catch (error) {
+      setSimplifyError(
+        apiErrorMessage(error, "Nie udało się uprościć wymagań — spróbuj ponownie."),
+      );
+    } finally {
+      setSimplifying(false);
+    }
+  };
   const patchProject = (patch: Partial<ChampionProfile["project"]>) =>
     setDraft((d) => ({ ...d, project: { ...d.project, ...patch } }));
   const patchClient = (patch: Partial<ChampionProfile["client"]>) =>
@@ -311,19 +774,19 @@ export function ChampionProfileEditor({
       client: change.client ? { ...d.client, ...change.client } : d.client,
     }));
 
-  if (isLoading)
-    return (
+  if (isLoading || error) {
+    const notice = isLoading ? (
       <div className="flex justify-center py-10">
         <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
-    );
-
-  if (error)
-    return (
+    ) : (
       <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
         Nie udało się pobrać profilu Championa.
       </div>
     );
+    // Szuflada otwiera się od razu — także z kółkiem i z komunikatem awarii.
+    return drawer && renderDrawer ? <>{renderDrawer({ body: notice, footer: null })}</> : notice;
+  }
 
   const disabled = !canEdit;
   /** Etykiety i kotwice z JEDNEGO źródła — patrz `CHAMPION_SECTIONS`. */
@@ -354,49 +817,13 @@ export function ChampionProfileEditor({
         .join(", ")
     : null;
 
-  return (
-    <div className="space-y-6">
-      {/* Poniżej `xl` edytor jest długi, a dok z bramką stoi pod nim — nagłówek
-          z „Zapisz" jest przyklejony, żeby po edycji sekcji 6 nie przewijać
-          całego formularza w górę. */}
-      <div className="sticky top-0 z-20 -mx-2 flex items-start justify-between gap-3 bg-background/95 px-2 py-2 backdrop-blur-sm xl:static xl:mx-0 xl:bg-transparent xl:p-0 xl:backdrop-blur-none">
-        <div className="min-w-0">
-          <h2 className="text-lg font-bold text-foreground dark:text-foreground flex flex-wrap items-center gap-2">
-            <Sparkles className="w-5 h-5 text-purple-500" />
-            Profil Championa
-            {/* Znacznik pochodzenia jest CAŁOPROFILOWY (`_source`/`_parser` z
-                parsera dokumentu) — jeden chip tutaj, nie przy sekcjach, bo
-                backend nie wie, które sekcje ktoś od tego czasu przepisał. */}
-            {hasChampionAiProvenance(draft) ? (
-              <Badge
-                variant="info"
-                size="sm"
-                title={`Profil zaimportowany z dokumentu (parser${draft._parsed_at ? `, ${draft._parsed_at.slice(0, 10)}` : ""}). Sekcje mogły być od tego czasu edytowane ręcznie — sprawdź przed użyciem.`}
-              >
-                {draft._parser?.includes("table-intake") ? "Z importu dokumentu" : CHAMPION_AI_PROVENANCE_LABEL}
-              </Badge>
-            ) : null}
-          </h2>
-          <p className="text-xs text-muted-foreground mt-0.5 hidden sm:block">
-            Delivery Lead opisuje idealnego kandydata. Rekruterzy będą odpowiadać
-            na pytania screeningowe przed wysłaniem CV do klienta.
-          </p>
-        </div>
-        {canEdit && (
-          <button
-            type="button"
-            onClick={() => mutation.mutate(draft)}
-            disabled={mutation.isPending}
-            className="inline-flex shrink-0 items-center gap-1.5 bg-primary hover:bg-primary/90 text-white px-3 py-1.5 pointer-coarse:py-2 rounded-lg text-sm font-medium shadow-xs disabled:opacity-60"
-            data-testid="save-champion-profile"
-          >
-            <Save className="w-4 h-4" />
-            {mutation.isPending ? "Zapisuję…" : "Zapisz"}
-          </button>
-        )}
-      </div>
-
+  const toolsRow = (
+    <>
       <div className="flex gap-2 flex-wrap"><ChampionTemplateDownload />{canEdit && <ChampionImportButton current={importBaseline} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onApply={() => invalidateChampionDependents(qc, jobId)} />}</div>
+    </>
+  );
+  const validationPanel = (
+    <>
       <ChampionValidationPanel
         validation={withoutSeededStackConflict(data?.validation, seededStack)}
         // Ostrzeżenie o polu ze zwiniętej grupy 2·5·6 najpierw ją rozwija —
@@ -407,8 +834,114 @@ export function ChampionProfileEditor({
           }
         }}
       />
+    </>
+  );
+  const reconcileControls = (
+    <>
       {canEdit && <button className="text-sm underline" onClick={() => setReviewOpen(true)} data-help="job.champion.reconcile">Uzgodnij profil i pola rekrutacji</button>}
       {reviewOpen && <ChampionImportReview initial={{ champion_profile: draft, validation: data?.validation }} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onClose={() => setReviewOpen(false)} onApply={() => invalidateChampionDependents(qc, jobId)} />}
+    </>
+  );
+  const saveErrorAlert =
+    saveStatus === "error" && saveError ? (
+      <div
+        role="alert"
+        data-testid="champion-profile-save-error"
+        className="w-full text-xs px-3 py-2 rounded-lg bg-destructive-muted border border-destructive/30 text-destructive-muted-foreground inline-flex items-start gap-1.5"
+      >
+        <AlertTriangle className="w-4 h-4 shrink-0" />
+        <div className="min-w-0">
+          <p>
+            <strong>Nie zapisano profilu.</strong> {saveError}
+          </p>
+          {regressionBlockers && regressionBlockers.length > 0 ? (
+            <ul className="mt-1 flex list-disc flex-col gap-0.5 pl-4">
+              {regressionBlockers.map((blocker, index) => {
+                const section = blockerSection(blocker.code);
+                return (
+                  <li key={`${blocker.code}-${index}`}>
+                    {blocker.message}
+                    {section ? (
+                      <>
+                        {" — "}
+                        <a href={`#${section.anchor}`} className="font-medium underline">
+                          {section.label}
+                        </a>
+                      </>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </div>
+      </div>
+    ) : null;
+  // Audyt 06.10.2026 (N1/N2): profil zmieniony przez kogoś innego, gdy szkic
+  // ma niezapisane zmiany — szkic zostaje, decyzja należy do DL-a.
+  const conflictBanner = pendingServer ? (
+    <div
+      role="alert"
+      data-testid="champion-profile-conflict"
+      className="w-full rounded-lg border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+        <strong className="min-w-0 flex-1">
+          {pendingServer.message ??
+            "Profil zmienił się w międzyczasie — ktoś zapisał zmiany, gdy edytowałeś."}
+        </strong>
+        <button
+          type="button"
+          onClick={reloadFromServer}
+          className="rounded-md border border-warning/40 bg-card px-2 py-1 font-medium text-foreground hover:bg-accent"
+        >
+          Przeładuj
+        </button>
+        <button
+          type="button"
+          onClick={keepMine}
+          className="rounded-md px-2 py-1 font-medium text-foreground hover:bg-accent"
+        >
+          Zostaw moje
+        </button>
+      </div>
+      <p className="mt-1">
+        „Przeładuj” pokaże zapisany profil — Twoje niezapisane zmiany przepadną. „Zostaw moje”
+        zapisze tylko sekcje, które zmieniłeś.
+      </p>
+    </div>
+  ) : null;
+  const proposalBanner = proposal ? (
+    <div
+      role="note"
+      className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-foreground"
+      data-testid="champion-requirement-proposal-banner"
+    >
+      <span className="min-w-0 flex-[1_1_20rem]">
+        <strong>Propozycja uporządkowania wymagań.</strong>{" "}
+        {proposal.reasons.map((reason) => reason.text).join(" · ")}
+      </span>
+      <button
+        type="button"
+        onClick={() => setProposalOpen(true)}
+        className="rounded-md border border-border bg-card px-2 py-1 text-xs font-medium text-foreground hover:bg-accent"
+      >
+        Pokaż zmiany
+      </button>
+      <RequirementProposalDialog
+        jobId={jobId}
+        open={proposalOpen}
+        onOpenChange={setProposalOpen}
+      />
+    </div>
+  ) : null;
+  const statusBanners = (
+    <>
+      {confirmDialog}
+      {proposalBanner}
+      {conflictBanner}
+      {saveErrorAlert}
 
       {saveStatus === "saved" && (
         <div className="text-xs px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 inline-flex items-center gap-1.5">
@@ -416,7 +949,7 @@ export function ChampionProfileEditor({
         </div>
       )}
 
-      {remoteChange && (
+      {remoteChange && !pendingServer && (
         <div
           className="text-xs px-3 py-2 rounded-lg bg-primary/10 border border-primary/20 text-primary inline-flex items-center gap-1.5"
           role="status"
@@ -426,7 +959,10 @@ export function ChampionProfileEditor({
           {remoteChange.by} zaktualizował profil — odświeżono
         </div>
       )}
-
+    </>
+  );
+  const intakePanel = (
+    <>
       {/* AI Intake (Phase 14): paste JD → draft Championa.
           Od fali 3 wejściem jest BANER na górze formularza (makieta kroku 02),
           a nie wiersz-akordeon między sekcjami: to pierwsza rzecz, którą robi
@@ -442,7 +978,10 @@ export function ChampionProfileEditor({
               className="w-4 h-4 shrink-0 text-info-muted-foreground"
               aria-hidden="true"
             />
-            <p className="min-w-0 flex-1 text-xs text-info-muted-foreground">
+            {/* `basis-48`: w wąskim panelu „Wypełnij szybciej" przycisk
+                schodzi do nowej linii, zamiast ściskać tekst do kolumny
+                po jednym słowie. */}
+            <p className="min-w-0 flex-1 basis-48 text-xs text-info-muted-foreground">
               Profil można wygenerować z opisu klienta (AI) i poprawić ręcznie —
               import zostawia znacznik pochodzenia na całym profilu.
             </p>
@@ -501,14 +1040,20 @@ export function ChampionProfileEditor({
               {generateMutation.error && (
                 <div className="text-xs px-2 py-1 rounded bg-destructive/10 border border-destructive/20 text-destructive inline-flex items-center gap-1.5">
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  Nie udało się wygenerować draftu.
+                  {apiErrorMessage(
+                    generateMutation.error,
+                    "Nie udało się wygenerować draftu.",
+                  )}
                 </div>
               )}
             </div>
           )}
         </div>
       )}
-
+    </>
+  );
+  const suggestionModal = (
+    <>
       {activeSuggestion && (
         <ChampionProfileSuggestionReview
           jobId={jobId}
@@ -517,325 +1062,18 @@ export function ChampionProfileEditor({
           onClose={() => setActiveSuggestion(null)}
         />
       )}
-
-      {/* 1. Podstawowe informacje */}
-      <Section
-        title={meta("basics").label}
-        anchor={meta("basics").anchor}
-        state={championSectionState("basics", draft)}
-      >
-        {seededBasicsLabels ? (
-          <p
-            className="mb-2 text-xs text-muted-foreground"
-            data-testid="champion-basics-seeded-from-job"
-          >
-            Pola {seededBasicsLabels} wczytane z rekrutacji — zapiszą się w
-            profilu dopiero, gdy je zmienisz. Wartość rekrutacji zmienisz w
-            zleceniu.
-          </p>
-        ) : null}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <Labeled label="Nazwa roli" field="basics.role_name">
-            <input
-              type="text"
-              disabled={disabled}
-              value={draft.basics.role_name ?? ""}
-              onChange={(e) => patchBasics({ role_name: e.target.value })}
-              placeholder="np. Senior Java Developer"
-              className={inputClass}
-            />
-          </Labeled>
-          <Labeled label="Doświadczenie łącznie w IT (lata)" field="basics.seniority_min_years">
-            <input
-              type="number"
-              min={0}
-              max={60}
-              disabled={disabled}
-              value={draft.basics.seniority_min_years ?? ""}
-              onChange={(e) =>
-                patchBasics({
-                  seniority_min_years:
-                    e.target.value === "" ? null : Number(e.target.value),
-                })
-              }
-              className={inputClass}
-            />
-          </Labeled>
-          {/* Ta stawka nie jest opisem — filtr odrzuca po niej kandydatów
-              powyżej progu, bez marginesu. Podpis mówi o tym wprost, bo pole
-              wyglądające jak notatka, a działające jak filtr, jest pułapką. */}
-          <Labeled label="Maksymalna stawka PLN/h — twardy sufit" field="basics.rate_value">
-            <input
-              type="number"
-              min={0}
-              max={2000}
-              step="0.01"
-              disabled={disabled}
-              value={draft.basics.rate_value ?? ""}
-              onChange={(e) =>
-                patchBasics({
-                  rate_value: e.target.value === "" ? null : Number(e.target.value),
-                })
-              }
-              placeholder="np. 122.50"
-              className={inputClass}
-            />
-          </Labeled>
-          <Labeled label="Tryb pracy" field="basics.work_mode">
-            <select disabled={disabled} value={draft.basics.work_mode ?? ""} onChange={e => patchBasics({work_mode: e.target.value || null})} className={inputClass}>
-              <option value="">Wybierz tryb pracy</option>
-              <option value="zdalnie">Zdalnie</option><option value="hybrydowo">Hybrydowo</option><option value="stacjonarnie">Stacjonarnie</option>
-              {draft.basics.work_mode && !["zdalnie", "hybrydowo", "stacjonarnie"].includes(draft.basics.work_mode) && <option value={draft.basics.work_mode}>{draft.basics.work_mode} — zapis wcześniejszy</option>}
-            </select>
-          </Labeled>
-          <Labeled label="Dni stacjonarne / tydzień" field="basics.onsite_days_per_week">
-            <input
-              type="number"
-              min={0}
-              max={7}
-              disabled={disabled}
-              value={draft.basics.onsite_days_per_week ?? ""}
-              onChange={(e) =>
-                patchBasics({
-                  onsite_days_per_week:
-                    e.target.value === "" ? null : Number(e.target.value),
-                })
-              }
-              className={inputClass}
-            />
-          </Labeled>
-          <Labeled label="Lokalizacja biura" field="basics.candidate_location_pref">
-            <input
-              type="text"
-              disabled={disabled}
-              value={draft.basics.candidate_location_pref ?? ""}
-              onChange={(e) =>
-                patchBasics({ candidate_location_pref: e.target.value })
-              }
-              placeholder="Jedno miasto, np. Warszawa"
-              className={inputClass}
-            />
-          </Labeled>
-          <Labeled label="Język pracy (od kandydata)" field="basics.language">
-            <input
-              type="text"
-              disabled={disabled}
-              value={draft.basics.language ?? ""}
-              onChange={(e) => patchBasics({ language: e.target.value })}
-              placeholder="np. PL, EN B2+"
-              className={inputClass}
-            />
-          </Labeled>
-          <Labeled label="Start" field="basics.start_date">
-            <input
-              type="text"
-              disabled={disabled}
-              value={draft.basics.start_date ?? ""}
-              onChange={(e) => patchBasics({ start_date: e.target.value })}
-              placeholder="RRRR-MM-DD, np. 2026-10-01"
-              className={inputClass}
-            />
-          </Labeled>
-          <Labeled label="Deadline na kandydatów" field="basics.deadline">
-            <input
-              type="text"
-              disabled={disabled}
-              value={draft.basics.deadline ?? ""}
-              onChange={(e) => patchBasics({ deadline: e.target.value })}
-              placeholder="RRRR-MM-DD, np. 2026-09-18"
-              className={inputClass}
-            />
-          </Labeled>
-          {/* Język CV — TYLKO DO ODCZYTU, z reguł CV klienta.
-              To jedyna wartość, której słucha generator; edytowalne pole obok
-              niej byłoby drugim źródłem prawdy, które przy pierwszej zmianie
-              zaczęłoby kłamać. Pusto = klient nie stawia wymogu. */}
-          <Labeled label="Język CV (z reguł klienta)">
-            <div
-              className={cn(inputClass, "flex items-center bg-muted/60")}
-              data-testid="champion-cv-language"
-            >
-              {cvLanguage ? (
-                <span className="uppercase">{cvLanguage}</span>
-              ) : (
-                <span className="text-muted-foreground">
-                  {clientId ? "klient nie wymusza" : "wybierz klienta"}
-                </span>
-              )}
-            </div>
-          </Labeled>
-          <Labeled label="Długość kontraktu" field="basics.contract_length">
-            <input
-              type="text"
-              disabled={disabled}
-              value={draft.basics.contract_length ?? ""}
-              onChange={(e) => patchBasics({ contract_length: e.target.value })}
-              placeholder="np. 3-5 mies. z przedłużeniem"
-              className={inputClass}
-            />
-          </Labeled>
-        </div>
-      </Section>
-
-      {/* 3. Stack technologiczny — ZARAZ po podstawach, przed prozą: to on
-          zasila `must_skills`/`nice_skills`, czyli ranking C2, kafelki
-          interaktywnego CV i filtry wyszukiwarki. Numer w tytule zostaje
-          szablonowy (wzór Word), kolejność jest robocza. */}
-      <Section
-        title={meta("stack").label}
-        anchor={meta("stack").anchor}
-        state={championSectionState("stack", draft)}
-      >
-        {seededStack ? (
-          <p
-            className="mb-2 text-xs text-muted-foreground"
-            data-testid="champion-stack-seeded-from-job"
-          >
-            Wymagania wczytane z pól rekrutacji — ten profil powstał przed
-            przebudową i nie miał własnego stacku. Zapiszą się w profilu
-            dopiero, gdy je zmienisz.
-          </p>
-        ) : null}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <StackField
-            label={`Musi mieć · ${(draft.stack.must || []).length}`}
-            testId="champion-stack-must"
-            field="stack.must"
-            value={draft.stack.must}
-            disabled={disabled}
-            onChange={(items) => patchStack({ must: items })}
-          />
-          <StackField
-            label={`Mile widziane · ${(draft.stack.nice || []).length}`}
-            testId="champion-stack-nice"
-            field="stack.nice"
-            value={draft.stack.nice}
-            disabled={disabled}
-            onChange={(items) => patchStack({ nice: items })}
-          />
-        </div>
-        <div className="mt-3">
-          <Labeled label="Niuanse wersji / zakresu" field="stack.notes">
-            <input
-              type="text"
-              disabled={disabled}
-              value={draft.stack.notes}
-              onChange={(e) => patchStack({ notes: e.target.value })}
-              placeholder="np. Java 17+, Java 8 nie interesuje"
-              className={inputClass}
-            />
-          </Labeled>
-        </div>
-        <p className="text-[11px] text-muted-foreground mt-3">
-          MUST to wymagania obowiązkowe, NICE to atuty opcjonalne. Oddzielaj wpisy nową linią.
-          Alternatywę zapisz w jednej pozycji jako „A lub B” — wystarczy jedna z tych umiejętności.
-        </p>
-      </Section>
-
-      {/* 4. Doświadczenie poza stackiem — dziedzina, certyfikaty, regulacje.
-          Po stacku, bo to też wymagania; w wynikach wyszukiwania dają
-          plakietki „ślad w CV”, nie bramkę (decyzja 23.09.2026). */}
-      <Section
-        title={meta("experience").label}
-        anchor={meta("experience").anchor}
-        state={championSectionState("experience", draft)}
-      >
-        <p className="mb-3 text-xs text-muted-foreground">
-          Dziedzina to obszar, w którym kandydat pracował (np. płatności kartowe),
-          nie technologia. Kandydat bez śladu w CV nie znika z wyników — dostaje
-          plakietkę „brak danych”, a rekruter dopyta w screeningu.
-        </p>
-        <ChampionExperienceFields
-          value={draft.experience ?? EMPTY_CHAMPION_EXPERIENCE}
-          onChange={(experience) => setDraft((d) => ({ ...d, experience }))}
-          disabled={disabled}
-          notesClassName={inputClass}
-        />
-      </Section>
-
-      {/* 2 · 5 · 6 — jeden blok „proza". Trzy osobne karty pustych pól były
-          trzema ekranami niczego; chip nagłówka mówi, ilu z nich brakuje. */}
-      <SectionGroup
-        title={CHAMPION_PROSE_SECTION_IDS.map((id) => meta(id).label).join("  ·  ")}
-        // Kotwica sekcji 2 siedzi na karcie grupy WYŁĄCZNIE gdy jest zwinięta —
-        // po rozwinięciu nosi ją własna sekcja niżej, a dwa te same `id`
-        // w dokumencie sprawiają, że skok do kotwicy trafia raz tu, raz tam.
-        anchor={showFullProse ? undefined : meta("search").anchor}
-        emptyCount={proseEmptyCount}
-        total={CHAMPION_PROSE_SECTION_IDS.length}
-      >
-        {showFullProse ? null : (
-          <>
-            {/* Kotwice sekcji zwiniętych — `ChampionSectionNav` linkuje do
-                każdej z osobna, a link prowadzący donikąd jest gorszy niż brak
-                linku. Klik ląduje na tej karcie, czyli tam, gdzie ta sekcja
-                naprawdę jest. */}
-            <span
-              id={meta("project").anchor}
-              className="block scroll-mt-4"
-              aria-hidden="true"
-            />
-            <span
-              id={meta("screening_questions").anchor}
-              className="block scroll-mt-4"
-              aria-hidden="true"
-            />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Labeled label="Frazy do searchu" field="search.keywords">
-                <textarea
-                  disabled={disabled}
-                  value={draft.search.keywords}
-                  onChange={(e) => patchSearch({ keywords: e.target.value })}
-                  placeholder="java, spring boot, kafka, mikroserwisy"
-                  rows={2}
-                  className={textareaClass}
-                  data-testid="champion-search-keywords"
-                />
-              </Labeled>
-              <Labeled label="O projekcie (2 zdania)" field="project.about">
-                <textarea
-                  disabled={disabled}
-                  value={draft.project.about}
-                  onChange={(e) => patchProject({ about: e.target.value })}
-                  placeholder="Cel i charakter projektu. Dwa zdania wystarczą."
-                  rows={2}
-                  className={textareaClass}
-                  data-testid="champion-project-about"
-                />
-              </Labeled>
-            </div>
-            <button
-              type="button"
-              onClick={() => setProseExpanded(true)}
-              className="self-start text-xs font-medium text-primary hover:underline"
-              data-testid="expand-champion-prose"
-            >
-              Rozwiń pełne sekcje
-            </button>
-          </>
-        )}
-
-        {showFullProse ? (
-          <>
+    </>
+  );
+  const searchSection = (
+    <>
       {/* 2. Co wpisać (search) */}
       <Section
         title={meta("search").label}
         anchor={meta("search").anchor}
         state={championSectionState("search", draft)}
-        nested
+        nested={!drawer}
       >
         <div className="space-y-3">
-          <Labeled label="Frazy do wyszukiwarki — dokładnie tak, jak je wpisujesz" field="search.keywords">
-            <textarea
-              disabled={disabled}
-              value={draft.search.keywords}
-              onChange={(e) => patchSearch({ keywords: e.target.value })}
-              placeholder="java, spring boot, kafka, mikroserwisy"
-              rows={2}
-              className={textareaClass}
-              data-testid="champion-search-keywords"
-            />
-          </Labeled>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Labeled label="Firmy docelowe" field="search.target_companies">
               <textarea
@@ -871,13 +1109,16 @@ export function ChampionProfileEditor({
           </Labeled>
         </div>
       </Section>
-
+    </>
+  );
+  const projectSection = (
+    <>
       {/* 4. O projekcie */}
       <Section
         title={meta("project").label}
         anchor={meta("project").anchor}
         state={championSectionState("project", draft)}
-        nested
+        nested={!drawer}
       >
         <div className="space-y-3">
           <Labeled label="Czym jest projekt — maksymalnie 2 zdania" field="project.about">
@@ -912,13 +1153,16 @@ export function ChampionProfileEditor({
           </Labeled>
         </div>
       </Section>
-
+    </>
+  );
+  const screeningSection = (
+    <>
       {/* 5. Pytania screeningowe */}
       <Section
         title={meta("screening_questions").label}
         anchor={meta("screening_questions").anchor}
         state={championSectionState("screening_questions", draft)}
-        nested
+        nested={!drawer}
         action={
           canEdit && (
             <button
@@ -968,7 +1212,12 @@ export function ChampionProfileEditor({
                   </button>
                 )}
               </div>
-              <Labeled label="Idealna odpowiedź">
+              {canEdit && screeningQuestionHint(q.question) ? (
+                <p className="text-xs text-warning-muted-foreground">
+                  {screeningQuestionHint(q.question)}
+                </p>
+              ) : null}
+              <Labeled label="Dobra odpowiedź">
                 <textarea
                   disabled={disabled}
                   value={q.ideal_answer}
@@ -977,7 +1226,7 @@ export function ChampionProfileEditor({
                   className={textareaClass}
                 />
               </Labeled>
-              <Labeled label="Deal-breaker (kiedy odpada)">
+              <Labeled label="Odpada, gdy… (wymagane przed przekazaniem do searchu)">
                 <textarea
                   disabled={disabled}
                   value={q.deal_breaker}
@@ -990,9 +1239,471 @@ export function ChampionProfileEditor({
           ))}
         </div>
       </Section>
+    </>
+  );
+  const formSections = (
+    <>
+      {/* 1. Podstawowe informacje */}
+      {show("basics") ? (
+      <Section
+        title={meta("basics").label}
+        anchor={meta("basics").anchor}
+        state={championSectionState("basics", draft)}
+      >
+        {seededBasicsLabels ? (
+          <p
+            className="mb-2 text-xs text-muted-foreground"
+            data-testid="champion-basics-seeded-from-job"
+          >
+            Pola {seededBasicsLabels} wczytane z rekrutacji — zapiszą się w
+            profilu dopiero, gdy je zmienisz. Zmiana budżetu, trybu pracy, dni
+            w biurze albo miasta biura zmienia też rekrutację.
+          </p>
+        ) : null}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <Labeled label="Nazwa roli" field="basics.role_name">
+              <input
+                type="text"
+                disabled={disabled}
+                value={draft.basics.role_name ?? ""}
+                onChange={(e) => patchBasics({ role_name: e.target.value })}
+                placeholder="np. Senior Java Developer"
+                className={inputClass}
+              />
+            </Labeled>
+            {/* Mylona z „Nazwą od klienta” (zgłoszenie 21.10.2026) — ta jest
+                kolumną rekrutacji i zmienia się w oknie edycji rekrutacji. */}
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Nazwa w profilu. Nazwę od klienta zmienisz w rekrutacji: ⋯ → Edytuj.
+            </p>
+          </div>
+          <Labeled label="Doświadczenie łącznie w IT (lata)" field="basics.seniority_min_years">
+            <input
+              type="number"
+              onWheel={blurNumberInputOnWheel}
+              min={0}
+              max={60}
+              disabled={disabled}
+              value={draft.basics.seniority_min_years ?? ""}
+              onChange={(e) =>
+                patchBasics({
+                  seniority_min_years:
+                    e.target.value === "" ? null : Number(e.target.value),
+                })
+              }
+              className={inputClass}
+            />
+          </Labeled>
+          {/* Ta stawka nie jest opisem — filtr odrzuca po niej kandydatów
+              powyżej progu, bez marginesu. Podpis mówi o tym wprost, bo pole
+              wyglądające jak notatka, a działające jak filtr, jest pułapką. */}
+          <Labeled label="Maksymalna stawka PLN/h — twardy sufit" field="basics.rate_value">
+            <input
+              type="number"
+              onWheel={blurNumberInputOnWheel}
+              min={0}
+              max={2000}
+              step="0.01"
+              disabled={disabled}
+              value={draft.basics.rate_value ?? ""}
+              onChange={(e) =>
+                patchBasics({
+                  rate_value: e.target.value === "" ? null : Number(e.target.value),
+                })
+              }
+              placeholder="np. 122.50"
+              className={inputClass}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Przedział (np. 60–80) — tu górna granica, „od” wpiszesz w edycji rekrutacji.
+            </p>
+          </Labeled>
+          <Labeled label="Tryb pracy" field="basics.work_mode">
+            <select disabled={disabled} value={draft.basics.work_mode ?? ""} onChange={e => patchBasics({work_mode: e.target.value || null})} className={inputClass}>
+              <option value="">Wybierz tryb pracy</option>
+              <option value="zdalnie">Zdalnie</option><option value="hybrydowo">Hybrydowo</option><option value="stacjonarnie">Stacjonarnie</option>
+              {draft.basics.work_mode && !["zdalnie", "hybrydowo", "stacjonarnie"].includes(draft.basics.work_mode) && <option value={draft.basics.work_mode}>{draft.basics.work_mode} — zapis wcześniejszy</option>}
+            </select>
+          </Labeled>
+          <Labeled label="Dni w biurze" field="basics.onsite_days_per_week">
+            <OfficeDaysField
+              disabled={disabled}
+              allowMonth={officeHybrid || officePeriod === "month"}
+              value={String(
+                (officePeriod === "month"
+                  ? draft.basics.onsite_days_per_month
+                  : draft.basics.onsite_days_per_week) ?? "",
+              )}
+              period={officePeriod}
+              onValueChange={(v) => patchOfficeDays(v, officePeriod)}
+              onPeriodChange={(p) => {
+                setOfficePeriodChoice(p);
+                patchOfficeDays("", p);
+              }}
+            />
+          </Labeled>
+          <Labeled label="Lokalizacja biura" field="basics.candidate_location_pref">
+            <input
+              type="text"
+              disabled={disabled}
+              value={draft.basics.candidate_location_pref ?? ""}
+              onChange={(e) =>
+                patchBasics({ candidate_location_pref: e.target.value })
+              }
+              placeholder="Jedno miasto, np. Warszawa"
+              className={inputClass}
+            />
+          </Labeled>
+          <Labeled label="Język pracy (od kandydata)" field="basics.language">
+            <input
+              type="text"
+              disabled={disabled}
+              value={draft.basics.language ?? ""}
+              onChange={(e) => patchBasics({ language: e.target.value })}
+              placeholder="np. PL, EN B2+"
+              className={inputClass}
+            />
+          </Labeled>
+          <Labeled label="Start" field="basics.start_date">
+            <input
+              type="text"
+              disabled={disabled}
+              value={draft.basics.start_date ?? ""}
+              onChange={(e) => patchBasics({ start_date: e.target.value })}
+              placeholder="RRRR-MM-DD, np. 2026-10-01"
+              className={inputClass}
+            />
+          </Labeled>
+          <Labeled label="Deadline na kandydatów" field="basics.deadline">
+            <span className="flex gap-1">
+              <input
+                type="text"
+                disabled={disabled}
+                value={draft.basics.deadline ?? ""}
+                onChange={(e) =>
+                  patchBasics(
+                    e.target.value
+                      ? { deadline: e.target.value }
+                      : { deadline: "", deadline_time: "" },
+                  )
+                }
+                placeholder="RRRR-MM-DD, np. 2026-09-18"
+                className={cn(inputClass, "w-0 min-w-0 flex-1")}
+              />
+              <input
+                type="time"
+                aria-label="Godzina deadline'u (opcjonalnie)"
+                disabled={disabled || !draft.basics.deadline}
+                value={draft.basics.deadline_time ?? ""}
+                onChange={(e) => patchBasics({ deadline_time: e.target.value })}
+                className={cn(inputClass, "w-[5rem] shrink-0 px-1.5")}
+              />
+            </span>
+          </Labeled>
+          {/* Język CV — TYLKO DO ODCZYTU, z reguł CV klienta.
+              To jedyna wartość, której słucha generator; edytowalne pole obok
+              niej byłoby drugim źródłem prawdy, które przy pierwszej zmianie
+              zaczęłoby kłamać. Pusto = klient nie stawia wymogu. */}
+          <Labeled label="Język CV (z reguł klienta)">
+            <div
+              className={cn(inputClass, "flex items-center bg-muted/60")}
+              data-testid="champion-cv-language"
+            >
+              {cvLanguage ? (
+                <span className="uppercase">{cvLanguage}</span>
+              ) : (
+                <span className="text-muted-foreground">
+                  {clientId ? "klient nie wymusza" : "wybierz klienta"}
+                </span>
+              )}
+            </div>
+          </Labeled>
+          <Labeled label="Długość kontraktu" field="basics.contract_length">
+            <input
+              type="text"
+              disabled={disabled}
+              value={draft.basics.contract_length ?? ""}
+              onChange={(e) => patchBasics({ contract_length: e.target.value })}
+              placeholder="np. 3-5 mies. z przedłużeniem"
+              className={inputClass}
+            />
+          </Labeled>
+        </div>
+      </Section>
+      ) : null}
+
+      {/* 3. Stack technologiczny — ZARAZ po podstawach, przed prozą: to on
+          zasila `must_skills`/`nice_skills`, czyli ranking C2, kafelki
+          interaktywnego CV i filtry wyszukiwarki. Numer w tytule zostaje
+          szablonowy (wzór Word), kolejność jest robocza. */}
+      {show("stack") ? (
+      <Section
+        title={meta("stack").label}
+        anchor={meta("stack").anchor}
+        state={championSectionState("stack", draft)}
+      >
+        {seededStack ? (
+          <p
+            className="mb-2 text-xs text-muted-foreground"
+            data-testid="champion-stack-seeded-from-job"
+          >
+            Wymagania wczytane z pól rekrutacji — ten profil powstał przed
+            przebudową i nie miał własnego stacku. Zapiszą się w profilu
+            dopiero, gdy je zmienisz.
+          </p>
+        ) : null}
+        {requirementRows != null ? (
+          <>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Jedna lista słów kluczowych. Po nich szukamy w bazie, a krytyczne
+              ukrywają w propozycjach AI osoby, które ich nie mają. Słowa w jednym
+              wierszu to warianty — wystarczy jedno.
+            </p>
+            {/* Kotwica „wymagań do wyszukiwania” — w tym trybie są to te same wiersze. */}
+            <span
+              id={SEARCH_REQUIREMENTS_ANCHOR}
+              className="block scroll-mt-4"
+              aria-hidden="true"
+            />
+            <div data-champion-field="stack.rows" data-testid="champion-requirement-rows">
+              <RequirementRowsEditor
+                rows={requirementRows}
+                onRowsChange={setRequirementRows}
+                noCritical={
+                  Array.isArray(draft.stack.critical) && draft.stack.critical.length === 0
+                }
+                onNoCriticalChange={(value) => patchStack({ critical: value ? [] : null })}
+                exclude={draft.search.exclude ?? []}
+                onExcludeChange={(exclude) => patchSearch({ exclude })}
+                critical={rowCriticalInfo}
+                disabled={disabled}
+                onMoveToTalk={moveToTalk}
+                onCriticalCountChange={setCriticalReach}
+                sentGaps={disabled ? undefined : sentGaps}
+              />
+            </div>
+            <div className="mt-3">
+              <Labeled label="Zdania klienta i niuanse — nie filtrują kandydatów" field="stack.notes">
+                <textarea
+                  disabled={disabled}
+                  value={draft.stack.notes}
+                  onChange={(e) => patchStack({ notes: e.target.value })}
+                  placeholder="np. Java 17+, Java 8 nie interesuje"
+                  rows={2}
+                  className={textareaClass}
+                />
+              </Labeled>
+            </div>
+          </>
+        ) : (
+          <>
+            <CriticalSkillsField
+              className="mb-3"
+              must={(draft.stack.must || []).map((item) => item.name)}
+              value={draft.stack.critical ?? null}
+              onChange={setCritical}
+              suggestion={criticalSuggestion}
+              disabled={disabled}
+            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <StackField
+                label={`Musi mieć · ${(draft.stack.must || []).length}`}
+                testId="champion-stack-must"
+                field="stack.must"
+                value={draft.stack.must}
+                disabled={disabled}
+                onChange={(items) => patchStack({ must: items })}
+              />
+              <StackField
+                label={`Mile widziane · ${(draft.stack.nice || []).length}`}
+                testId="champion-stack-nice"
+                field="stack.nice"
+                value={draft.stack.nice}
+                disabled={disabled}
+                onChange={(items) => patchStack({ nice: items })}
+              />
+            </div>
+            <div className="mt-3">
+              <Labeled label="Niuanse wersji / zakresu" field="stack.notes">
+                <input
+                  type="text"
+                  disabled={disabled}
+                  value={draft.stack.notes}
+                  onChange={(e) => patchStack({ notes: e.target.value })}
+                  placeholder="np. Java 17+, Java 8 nie interesuje"
+                  className={inputClass}
+                />
+              </Labeled>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-3">
+              MUST to wymagania obowiązkowe, NICE to atuty opcjonalne. Oddzielaj wpisy nową linią.
+              Alternatywę zapisz w jednej pozycji jako „A lub B” — wystarczy jedna z tych umiejętności.
+            </p>
+            {canEdit && (draft.stack.must ?? []).length > 0 ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-muted px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => void simplifyToRows()}
+                  disabled={simplifying}
+                  className="text-xs font-medium text-primary hover:underline disabled:opacity-60"
+                  data-testid="champion-simplify-requirements"
+                >
+                  {simplifying ? "Upraszczam…" : "Uprość do słów kluczowych"}
+                </button>
+                <span className="min-w-0 flex-1 text-[11px] text-muted-foreground">
+                  Jedna lista zamiast trzech pól: technologie zostają słowami
+                  kluczowymi, zdania klienta przechodzą do niuansów. Zapiszesz
+                  dopiero przyciskiem „Zapisz”.
+                </span>
+                {simplifyError ? (
+                  <span role="alert" className="w-full text-xs text-destructive">
+                    {simplifyError}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+          </>
+        )}
+      </Section>
+      ) : null}
+
+      {/* 4. Doświadczenie poza stackiem — dziedzina, certyfikaty, regulacje.
+          Po stacku, bo to też wymagania; w wynikach wyszukiwania dają
+          plakietki „ślad w CV”, nie bramkę (decyzja 23.09.2026). */}
+      {show("experience") ? (
+      <Section
+        title={meta("experience").label}
+        anchor={meta("experience").anchor}
+        state={championSectionState("experience", draft)}
+      >
+        <p className="mb-3 text-xs text-muted-foreground">
+          Dziedzina to obszar, w którym kandydat pracował (np. płatności kartowe),
+          nie technologia. Kandydat bez śladu w CV nie znika z wyników — dostaje
+          plakietkę „brak danych”, a rekruter dopyta w screeningu.
+        </p>
+        <ChampionExperienceFields
+          value={draft.experience ?? EMPTY_CHAMPION_EXPERIENCE}
+          onChange={(experience) => setDraft((d) => ({ ...d, experience }))}
+          disabled={disabled}
+          notesClassName={inputClass}
+          skillsFooter={
+            requirementRows != null ? (
+              <TalkSearchWordHints
+                items={draft.experience?.skills ?? []}
+                rows={requirementRows}
+                onAdd={addTalkSearchWord}
+                disabled={disabled}
+                enabled={Boolean(data)}
+              />
+            ) : null
+          }
+        />
+      </Section>
+      ) : null}
+
+      {/* Wymagania do wyszukiwania w bazie (część sekcji 2, 25.09.2026) — od
+          nich rekruter zaczyna „Szukaj ręcznie”, a „Przekaż do searchu” wymaga
+          co najmniej jednego. OSOBNA karta, poza grupą „proza”: pierwszy
+          wiersz przełącza tę grupę ze skrótu na pełne sekcje, a pole w środku
+          przełącznika montowało się od nowa i gubiło fokus po pierwszym słowie. */}
+      {requirementRows != null || !(show("stack") || show("search")) ? null : (
+      <Section
+        title="Wymagania do wyszukiwania w bazie"
+        anchor={SEARCH_REQUIREMENTS_ANCHOR}
+        state={
+          (draft.search.requirements ?? []).some((row) => row.length > 0)
+            ? "filled"
+            : "empty"
+        }
+      >
+        <p className="mb-3 text-xs text-muted-foreground">
+          Rekruter zaczyna od nich „Szukaj ręcznie”. Słowa w jednym wierszu to
+          warianty — wystarczy jedno z nich. Obowiązkowe są tylko umiejętności
+          krytyczne, pozostałe wiersze podnoszą w kolejności. Wymagane do
+          „Przekaż do searchu”.
+        </p>
+        <div data-champion-field="search.requirements">
+          <SearchRequirementsEditor
+            rows={draft.search.requirements ?? []}
+            exclude={draft.search.exclude ?? []}
+            onChange={({ rows, exclude }) =>
+              patchSearch({ requirements: rows, exclude })
+            }
+            readOnly={disabled}
+            critical={data?.critical_resolution ?? null}
+          />
+        </div>
+      </Section>
+      )}
+
+      {/* 2 · 5 · 6 — jeden blok „proza". Trzy osobne karty pustych pól były
+          trzema ekranami niczego; chip nagłówka mówi, ilu z nich brakuje. */}
+      {drawer ? (
+        <>
+          {show("search") ? searchSection : null}
+          {show("project") ? projectSection : null}
+          {show("screening_questions") ? screeningSection : null}
+        </>
+      ) : (
+      <SectionGroup
+        title={CHAMPION_PROSE_SECTION_IDS.map((id) => meta(id).label).join("  ·  ")}
+        // Kotwica sekcji 2 siedzi na karcie grupy WYŁĄCZNIE gdy jest zwinięta —
+        // po rozwinięciu nosi ją własna sekcja niżej, a dwa te same `id`
+        // w dokumencie sprawiają, że skok do kotwicy trafia raz tu, raz tam.
+        anchor={showFullProse ? undefined : meta("search").anchor}
+        emptyCount={proseEmptyCount}
+        total={CHAMPION_PROSE_SECTION_IDS.length}
+      >
+        {showFullProse ? null : (
+          <>
+            {/* Kotwice sekcji zwiniętych — `ChampionSectionNav` linkuje do
+                każdej z osobna, a link prowadzący donikąd jest gorszy niż brak
+                linku. Klik ląduje na tej karcie, czyli tam, gdzie ta sekcja
+                naprawdę jest. */}
+            <span
+              id={meta("project").anchor}
+              className="block scroll-mt-4"
+              aria-hidden="true"
+            />
+            <span
+              id={meta("screening_questions").anchor}
+              className="block scroll-mt-4"
+              aria-hidden="true"
+            />
+            <div className="grid grid-cols-1 gap-3">
+              <Labeled label="O projekcie (2 zdania)" field="project.about">
+                <textarea
+                  disabled={disabled}
+                  value={draft.project.about}
+                  onChange={(e) => patchProject({ about: e.target.value })}
+                  placeholder="Cel i charakter projektu. Dwa zdania wystarczą."
+                  rows={2}
+                  className={textareaClass}
+                  data-testid="champion-project-about"
+                />
+              </Labeled>
+            </div>
+            <button
+              type="button"
+              onClick={() => setProseExpanded(true)}
+              className="self-start text-xs font-medium text-primary hover:underline"
+              data-testid="expand-champion-prose"
+            >
+              Rozwiń pełne sekcje
+            </button>
+          </>
+        )}
+
+        {showFullProse ? (
+          <>
+      {searchSection}
+      {projectSection}
+      {screeningSection}
           </>
         ) : null}
       </SectionGroup>
+      )}
 
       {/* 7. O kliencie — fakty o kliencie (SLA, limity, off-limit, dokumenty,
           „co powiedzieć kandydatowi", reguły priorytetu) żyją w KARCIE KLIENTA
@@ -1001,6 +1712,7 @@ export function ChampionProfileEditor({
           `client.about/priority_rules/contract_type/offlimit` i `documents`
           zostają w `draft` i jadą w PUT nietknięte (serwer scala płytko) —
           usunięcie kontrolek NIE kasuje zapisanych danych. */}
+      {show("client") ? (
       <Section
         title={meta("client").label}
         anchor={meta("client").anchor}
@@ -1073,7 +1785,7 @@ export function ChampionProfileEditor({
               <ClientPlaybookCard
                 clientId={clientId}
                 variant="compact"
-                editHref={`/clients/${clientId}?tab=zasady`}
+                editHref={clientPlaybookEditHref(clientId)}
               />
             ) : (
               <p
@@ -1086,9 +1798,11 @@ export function ChampionProfileEditor({
           </div>
         </div>
       </Section>
+      ) : null}
 
       {/* 8. Wiedza z rozmów — smaczki od klienta i od naszego konsultanta
           + podsumowanie historii klienta (AI). */}
+      {show("insights") ? (
       <Section
         title={meta("insights").label}
         anchor={meta("insights").anchor}
@@ -1106,14 +1820,21 @@ export function ChampionProfileEditor({
           }
         />
       </Section>
-
+      ) : null}
+    </>
+  );
+  const readOnlyNotice = (
+    <>
       {!canEdit && (
         <div className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
           <AlertTriangle className="w-4 h-4" />
           Podgląd — edycja wymaga roli Delivery Lead lub Admin.
         </div>
       )}
-
+    </>
+  );
+  const sourcesPanel = (
+    <>
       {/* Phase 14: Fireflies / CloudTalk sources + pending AI suggestions */}
       {canEdit && (
         <div className="border-t border-border dark:border-border pt-6 mt-6">
@@ -1124,6 +1845,203 @@ export function ChampionProfileEditor({
           />
         </div>
       )}
+    </>
+  );
+
+  const renderWorkspace = () => (
+    // Kotwice sekcji lądują POD przyklejonym paskiem sekcji (ok. 50 px) —
+    // samo `scroll-mt-4` zostawiało nagłówek sekcji pod paskiem.
+    <div className="space-y-4 [&_[id]]:scroll-mt-20" data-testid="champion-editor-workspace">
+      <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card/95 px-3 py-2 backdrop-blur-sm">
+        <div className="min-w-0 flex-1">
+          <ChampionSectionNav jobId={jobId} orientation="horizontal" />
+        </div>
+        {canEdit ? (
+          <div className="flex shrink-0 items-center gap-2">
+            {dirtySections > 0 ? (
+              <span
+                className="text-xs font-medium text-warning-muted-foreground"
+                data-testid="champion-unsaved-count"
+              >
+                ● {countPl(dirtySections, "niezapisana zmiana", "niezapisane zmiany", "niezapisanych zmian")}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              onClick={discardDraft}
+              disabled={dirtySections === 0 || mutation.isPending}
+              className="rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted-foreground hover:bg-accent disabled:opacity-50"
+              data-testid="cancel-champion-profile"
+            >
+              Anuluj
+            </button>
+            <button
+              type="button"
+              onClick={() => void requestSave()}
+              disabled={mutation.isPending}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white shadow-xs hover:bg-primary/90 disabled:opacity-60"
+              data-testid="save-champion-profile"
+            >
+              <Save className="h-4 w-4" />
+              {mutation.isPending ? "Zapisuję…" : "Zapisz"}
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      {validationPanel}
+      {statusBanners}
+      {suggestionModal}
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="min-w-0 space-y-6">
+          {formSections}
+          {readOnlyNotice}
+        </div>
+        {canEdit ? (
+          <aside
+            aria-label="Wypełnij szybciej"
+            className="space-y-3 xl:sticky xl:top-16 xl:max-h-[calc(100dvh-5rem)] xl:self-start xl:overflow-y-auto"
+          >
+            <div className="space-y-3 rounded-xl border border-border bg-card p-4">
+              <h3 className="text-[15px] font-semibold text-foreground">Wypełnij szybciej</h3>
+              {intakePanel}
+              <div className="space-y-2 rounded-lg border border-border p-3">
+                <p className="text-[13px] font-semibold text-foreground">Z pliku Word / PDF</p>
+                {toolsRow}
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                {reconcileControls}
+              </div>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-4">
+              <h3 className="mb-2 text-[13px] font-semibold text-foreground">
+                Wcześniejsze zapytania klienta
+              </h3>
+              <RequestHistorySection
+                jobId={jobId}
+                clientId={clientId ?? null}
+                readOnly={!canEdit}
+                compact
+                narrow
+                maxItems={3}
+              />
+            </div>
+            <div className="rounded-xl border border-border bg-card p-4">{sourcesPanel}</div>
+          </aside>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  if (layout === "workspace") {
+    return renderWorkspace();
+  }
+
+  if (drawer) {
+    const body = (
+      <div className="space-y-4 [&_[id]]:scroll-mt-4" data-testid="champion-editor-drawer">
+        {formSections}
+        {readOnlyNotice}
+      </div>
+    );
+    const footer = canEdit ? (
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {/* Błąd zapisu i konflikt stoją przy „Zapisz” — w treści szuflady
+            mogłyby być poza widokiem. */}
+        {conflictBanner}
+        {saveErrorAlert}
+        {dirtySections > 0 ? (
+          <span
+            className="mr-auto text-xs font-medium text-warning-muted-foreground"
+            data-testid="champion-unsaved-count"
+          >
+            ● {countPl(dirtySections, "niezapisana zmiana", "niezapisane zmiany", "niezapisanych zmian")}
+          </span>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => {
+            discardDraft();
+            onCancel?.();
+          }}
+          disabled={mutation.isPending}
+          className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-accent disabled:opacity-50"
+          data-testid="cancel-champion-profile"
+        >
+          Anuluj
+        </button>
+        <button
+          type="button"
+          onClick={() => void requestSave()}
+          disabled={mutation.isPending || dirtySections === 0}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white shadow-xs hover:bg-primary/90 disabled:opacity-60"
+          data-testid="save-champion-profile"
+        >
+          <Save className="h-4 w-4" />
+          {mutation.isPending ? "Zapisuję…" : "Zapisz"}
+        </button>
+      </div>
+    ) : null;
+    return renderDrawer ? <>{renderDrawer({ body, footer })}</> : (
+      <div className="space-y-4">
+        {body}
+        {footer}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Poniżej `xl` edytor jest długi, a dok z bramką stoi pod nim — nagłówek
+          z „Zapisz" jest przyklejony, żeby po edycji sekcji 6 nie przewijać
+          całego formularza w górę. */}
+      <div className="sticky top-0 z-20 -mx-2 flex items-start justify-between gap-3 bg-background/95 px-2 py-2 backdrop-blur-sm xl:static xl:mx-0 xl:bg-transparent xl:p-0 xl:backdrop-blur-none">
+        <div className="min-w-0">
+          <h2 className="text-lg font-bold text-foreground dark:text-foreground flex flex-wrap items-center gap-2">
+            <Sparkles className="w-5 h-5 text-purple-500" />
+            Profil Championa
+            {/* Znacznik pochodzenia jest CAŁOPROFILOWY (`_source`/`_parser` z
+                parsera dokumentu) — jeden chip tutaj, nie przy sekcjach, bo
+                backend nie wie, które sekcje ktoś od tego czasu przepisał. */}
+            {hasChampionAiProvenance(draft) ? (
+              <Badge
+                variant="info"
+                size="sm"
+                title={`Profil zaimportowany z dokumentu (parser${draft._parsed_at ? `, ${warsawDateOf(draft._parsed_at) ?? draft._parsed_at}` : ""}). Sekcje mogły być od tego czasu edytowane ręcznie — sprawdź przed użyciem.`}
+              >
+                {draft._parser?.includes("table-intake") ? "Z importu dokumentu" : CHAMPION_AI_PROVENANCE_LABEL}
+              </Badge>
+            ) : null}
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5 hidden sm:block">
+            Delivery Lead opisuje idealnego kandydata. Rekruterzy będą odpowiadać
+            na pytania screeningowe przed wysłaniem CV do klienta.
+          </p>
+        </div>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => void requestSave()}
+            disabled={mutation.isPending}
+            className="inline-flex shrink-0 items-center gap-1.5 bg-primary hover:bg-primary/90 text-white px-3 py-1.5 pointer-coarse:py-2 rounded-lg text-sm font-medium shadow-xs disabled:opacity-60"
+            data-testid="save-champion-profile"
+          >
+            <Save className="w-4 h-4" />
+            {mutation.isPending ? "Zapisuję…" : "Zapisz"}
+          </button>
+        )}
+      </div>
+
+      {toolsRow}
+      {validationPanel}
+      {reconcileControls}
+      {statusBanners}
+      {intakePanel}
+      {suggestionModal}
+      {formSections}
+      {readOnlyNotice}
+      {sourcesPanel}
     </div>
   );
 }
@@ -1341,4 +2259,24 @@ function Labeled({
       {children}
     </label>
   );
+}
+
+/**
+ * Zdanie dla DL-a po odrzuconym zapisie profilu. 409 = rekrutacja zmieniła się
+ * pod spodem; 5xx i brak odpowiedzi = awaria, a nie treść do pokazania
+ * („Internal Server Error” niczego nie mówi). Resztę mówi serwer.
+ */
+const HANDOFF_REGRESSION_TEXT =
+  "Tej zmiany nie da się zapisać — rekrutacja w pracy straciłaby wymaganą informację.";
+
+function championSaveErrorMessage(error: unknown): string {
+  const status = (error as { response?: { status?: unknown } } | null)?.response
+    ?.status;
+  if (status === 409) {
+    return "Ktoś zmienił tę rekrutację w międzyczasie — odśwież stronę i wprowadź zmianę ponownie. Twoje zmiany są nadal w formularzu.";
+  }
+  if (typeof status !== "number" || status >= 500) {
+    return "Serwer nie odpowiedział poprawnie — spróbuj zapisać ponownie. Twoje zmiany są nadal w formularzu.";
+  }
+  return apiErrorMessage(error, "Spróbuj zapisać ponownie.");
 }

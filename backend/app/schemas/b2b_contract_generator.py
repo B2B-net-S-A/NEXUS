@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal, Optional
 
@@ -253,7 +253,35 @@ class B2BContractDetailResponse(BaseModel):
     scope_items_override: Optional[list[str]] = None
 
 
-class B2BRenderRequest(BaseModel):
+_FTE_VALUES = (Decimal("1"), Decimal("0.75"), Decimal("0.5"), Decimal("0.25"))
+
+
+class AgreementAdminDetails(BaseModel):
+    """„Szczegóły administracyjne” umowy (0524, decyzje Artura 26.10.2026).
+
+    Wpisuje się replacement i wymiar FTE; rekrutera i DL-a NIE — to odbiorcy
+    premii z reguły automatu (``admin_details.placement_people``). Opcjonalne
+    w schemacie, bo ``render_payload`` sprzed 0524 odtwarza się przy każdym
+    ponownym pobraniu DOCX; obowiązkowość przy umowie z rekrutacją sprawdza
+    handler (``admin_details.apply_admin_details``).
+    """
+
+    is_replacement: Optional[bool] = None
+    replaced_contract_id: Optional[int] = Field(None, ge=1, le=2_147_483_647)
+    fte: Optional[Decimal] = None
+
+    @field_validator("fte")
+    @classmethod
+    def _known_fte(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+        if v is None:
+            return None
+        for known in _FTE_VALUES:
+            if v == known:
+                return known
+        raise ValueError("Wymiar FTE: 1, 0,75, 0,5 albo 0,25.")
+
+
+class B2BRenderRequest(AgreementAdminDetails):
     """Standalone render — wszystkie pola wprost z formularza (bez `Contract`)."""
 
     # Source entity links are optional for truly standalone documents, but when
@@ -275,6 +303,10 @@ class B2BRenderRequest(BaseModel):
     partner_instrumental: Optional[str] = None
     partner_legal_name: Optional[str] = Field(None, max_length=255)
     partner_business_address: Optional[str] = None
+    # JDG bez stałego miejsca wykonywania działalności w CEIDG — jedynym
+    # adresem wpisu jest adres do doręczeń, więc komparycja i DPA mówią
+    # „pod adresem do doręczeń”. Ustawia lookup z CEIDG, człowiek może zmienić.
+    partner_address_for_service: bool = False
     partner_correspondence_address: Optional[str] = None
     partner_nip: Optional[str] = None
     partner_regon: Optional[str] = None
@@ -292,6 +324,31 @@ class B2BRenderRequest(BaseModel):
     partner_entity_type: Optional[str] = None
     partner_email: Optional[str] = None
     partner_phone: Optional[str] = None
+    # Wariant umowy (ticket 8, 28.09.2026): „jdg” = wzór dotychczasowy,
+    # „company” = komparycja z KRS, § 12 o osobach skierowanych i osoba
+    # skierowana w Załączniku nr 3. Domyślne „jdg” = każdy zapisany payload
+    # renderuje się jak dotąd. Przełączenie wariantu nie czyści pól poniżej —
+    # zmienia wyłącznie sposób, w jaki trafiają do umowy.
+    contract_variant: Literal["jdg", "company"] = "jdg"
+    # Dane spółki do komparycji (tylko wariant „company”).
+    partner_krs: Optional[str] = Field(None, max_length=32)
+    # Siedziba: miejscowość (mianownik, z KRS) i fraza po „z siedzibą”
+    # („w Warszawie”, „we Wrocławiu”) — odmiany nie zgadujemy w backendzie.
+    partner_seat: Optional[str] = Field(None, max_length=120)
+    partner_seat_locative: Optional[str] = Field(None, max_length=160)
+    # Sąd rejestrowy RAZEM z wydziałem („Sąd Rejonowy dla m.st. Warszawy
+    # w Warszawie, XIV Wydział Gospodarczy Krajowego Rejestru Sądowego”).
+    partner_registry_court: Optional[str] = Field(None, max_length=400)
+    partner_share_capital: Optional[str] = Field(None, max_length=60)
+    # Osoba reprezentująca spółkę — NIE osoba skierowana do realizacji usług.
+    partner_representative_name: Optional[str] = Field(None, max_length=255)
+    partner_representative_function: Optional[str] = Field(None, max_length=255)
+    # Fraza po „reprezentowaną przez” w bierniku („Pana Jana Kowalskiego –
+    # Prezesa Zarządu”); liczona na froncie i edytowalna, jak narzędnik JDG.
+    partner_representation: Optional[str] = Field(None, max_length=600)
+    # Osoba skierowana (Załącznik nr 3). Przy umowie powiązanej z rekrutacją
+    # serwer nadpisuje ją imieniem i nazwiskiem kandydata z tej rekrutacji.
+    assigned_person_name: Optional[str] = Field(None, max_length=255)
     # Klient + projekt
     client_name: Optional[str] = Field(None, max_length=255)
     project_city: Optional[str] = None
@@ -347,6 +404,65 @@ class B2BRenderRequest(BaseModel):
         return self
 
 
+class B2BMandateRenderRequest(AgreementAdminDetails):
+    """Umowa zlecenia z generatora (26.10.2026) — formularz bez firmy Partnera.
+
+    ``home_address``, ``id_document`` i ``pesel`` trafiają WYŁĄCZNIE do pliku:
+    serwer nie zapisuje ich w ``render_payload`` (``mandate.stored_payload``).
+    Puste = w pliku zostają kropki do wpisania ręcznie."""
+
+    candidate_id: Optional[int] = None
+    job_id: Optional[int] = None
+    client_name: Optional[str] = Field(None, max_length=255)
+    signing_date: date
+    period_from: date
+    period_to: date
+    gender: Literal["m", "f"] = "m"
+    partner_name: str = Field(min_length=1, max_length=255)
+    partner_instrumental: Optional[str] = Field(None, max_length=255)
+    partner_email: Optional[str] = Field(None, max_length=255)
+    partner_phone: Optional[str] = Field(None, max_length=64)
+    home_address: Optional[str] = Field(None, max_length=400)
+    id_document: Optional[str] = Field(None, max_length=32)
+    pesel: Optional[str] = Field(None, max_length=11)
+    tasks: list[str] = Field(min_length=1, max_length=10)
+    gross_hourly_rate: float = Field(gt=0, le=9999.99)
+    with_dpa: bool = True
+    dpa_purpose: Optional[str] = Field(None, max_length=2000)
+
+    @field_validator("partner_name")
+    @classmethod
+    def _name_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Wpisz imię i nazwisko Zleceniobiorcy.")
+        return v.strip()
+
+    @field_validator("tasks")
+    @classmethod
+    def _tasks_filled(cls, v: list[str]) -> list[str]:
+        items = [t.strip() for t in v if t and t.strip()]
+        if not items:
+            raise ValueError("Wpisz co najmniej jedną czynność z § 1.")
+        if any(len(t) > 1000 for t in items):
+            raise ValueError("Czynność może mieć najwyżej 1000 znaków.")
+        return items
+
+    @field_validator("gross_hourly_rate")
+    @classmethod
+    def _rate_in_grosze(cls, v: float) -> float:
+        return _round_to_grosze(v)
+
+    @model_validator(mode="after")
+    def _period_and_links(self) -> "B2BMandateRenderRequest":
+        if (self.candidate_id is None) != (self.job_id is None):
+            raise ValueError(
+                "candidate_id i job_id muszą być przekazane razem albo pominięte"
+            )
+        if self.period_to < self.period_from:
+            raise ValueError("Koniec zlecenia nie może być przed jego początkiem.")
+        return self
+
+
 class B2BRenderHtmlResponse(BaseModel):
     html: str
     contract_number: Optional[str] = None
@@ -356,6 +472,98 @@ class B2BNextNumberResponse(BaseModel):
     contract_number: str
     year: int
     seq: int
+
+
+class B2BPrefillRate(BaseModel):
+    value: float
+    # card | this_job | rate_from
+    source: str
+    at: Optional[str] = None
+
+
+class B2BPrefillClientRate(BaseModel):
+    value: float
+    unit: Optional[str] = None
+    currency: Optional[str] = None
+
+
+class B2BPrefillRecruitmentRate(BaseModel):
+    """Stawka kandydata z etapu rekrutacji (D7) — punkt odniesienia dla stawki umowy.
+
+    Wyłącznie z rekrutacji (okno „Zweryfikowany”, zmiana stawki w procesie),
+    nigdy „Stawka od”. Różnica ze stawką w formularzu to notka pod polem,
+    nie walidacja.
+    """
+
+    value: float
+    unit: Optional[str] = None
+    currency: Optional[str] = None
+    at: Optional[str] = None
+    job_title: Optional[str] = None
+
+
+class B2BPrefillExisting(BaseModel):
+    id: int
+    contract_number: str
+    contract_status: str
+    signature_status: str
+
+
+class B2BPlacementPerson(BaseModel):
+    """Odbiorca premii z placementu — pokazany w kafelku, nie wybierany."""
+
+    user_id: int
+    name: str
+    # pair_owner | verifier (rekruter); job | job_lead | client_head |
+    # client_assignment (DL) — jak ``placement_bonuses``.
+    source: str
+    source_label: str
+
+
+class B2BReplaceableContract(BaseModel):
+    """Kontraktor do „Replacement za kogo” — bez kwot."""
+
+    contract_id: int
+    candidate_id: Optional[int] = None
+    client_id: Optional[int] = None
+    name: str
+    client_name: Optional[str] = None
+    job_title: Optional[str] = None
+    status: str
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+
+
+class B2BAgreementAdminDefaults(BaseModel):
+    # Klient rekrutacji — lista „Replacement za kogo” zaczyna od jego ludzi.
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None
+    recruiter: Optional[B2BPlacementPerson] = None
+    delivery_lead: Optional[B2BPlacementPerson] = None
+    # Tytuł rekrutacji mówi o zastępstwie; ``replaced`` tylko przy jednym
+    # pasującym kontraktorze u klienta.
+    replacement_from_title: bool = False
+    replaced: Optional[B2BReplaceableContract] = None
+
+
+class B2BAgreementPrefillResponse(BaseModel):
+    """Podpowiedzi formularza umowy z rekrutacji (panel osoby i Generator)."""
+
+    candidate_id: int
+    job_id: int
+    rate: Optional[B2BPrefillRate] = None
+    start_date: Optional[date] = None
+    availability_text: Optional[str] = None
+    client_rate: Optional[B2BPrefillClientRate] = None
+    client_rate_redacted: bool = False
+    recruitment_rate: Optional[B2BPrefillRecruitmentRate] = None
+    existing: Optional[B2BPrefillExisting] = None
+    admin: Optional[B2BAgreementAdminDefaults] = None
+
+
+class B2BCompanyRepresentative(BaseModel):
+    name: Optional[str] = None
+    function: Optional[str] = None
 
 
 class B2BCompanyLookupResponse(BaseModel):
@@ -368,6 +576,10 @@ class B2BCompanyLookupResponse(BaseModel):
     regon: Optional[str] = None
     krs: Optional[str] = None
     address: Optional[str] = None
+    # Rodzaj adresu z CEIDG: „place_of_business” (stałe miejsce wykonywania
+    # działalności) albo „service” (wpisany tylko adres do doręczeń).
+    # None = rejestr tego nie powiedział (Biała Lista, spółka, awaria).
+    address_kind: Optional[str] = None
     source: Optional[str] = None
     # Klasyfikacja gotowa, nie surowe `source`/`krs` do interpretacji na
     # frontendzie: `source` przychodzi w czterech niespójnych formatach
@@ -375,6 +587,45 @@ class B2BCompanyLookupResponse(BaseModel):
     # jednocześnie ma tylko `_merge`. Przepisanie tej tabeli prawdy do TS-a
     # znaczyłoby jej wieczne pilnowanie w dwóch miejscach.
     entity_type: Optional[B2BPartnerEntityType] = None
+    # Dane komparycji spółki z odpisów KRS (tylko spółki z numerem KRS).
+    seat: Optional[str] = None
+    registry_court: Optional[str] = None
+    share_capital: Optional[str] = None
+    # Skład organu reprezentującego. Publiczne API KRS maskuje imiona
+    # i nazwiska („K*****”) — wtedy `name` jest puste, a osobę wpisuje człowiek.
+    representatives: list[B2BCompanyRepresentative] = []
+    representation_method: Optional[str] = None
+
+
+class B2BRegistryWarning(BaseModel):
+    code: str
+    message: str
+
+
+class B2BRegistryCompany(BaseModel):
+    name: Optional[str] = None
+    person: Optional[str] = None
+    nip: Optional[str] = None
+    regon: Optional[str] = None
+    krs: Optional[str] = None
+    address: Optional[str] = None
+    entity_type: Optional[B2BPartnerEntityType] = None
+
+
+class B2BCompanyVerificationResponse(BaseModel):
+    """Sprawdzenie firmy w CEIDG/KRS tuż przed wygenerowaniem umowy.
+
+    Wyłącznie informacja: `warnings` (zawieszenie, wykreślenie, likwidacja,
+    upadłość) i `status = unverified` nie blokują generowania.
+    """
+
+    status: Literal["verified", "unverified"]
+    registry: Optional[Literal["ceidg", "krs"]] = None
+    checked_at: str
+    company: Optional[B2BRegistryCompany] = None
+    warnings: list[B2BRegistryWarning] = Field(default_factory=list)
+    # Powód braku weryfikacji (rejestr niedostępny, brak firmy, brak NIP-u).
+    message: Optional[str] = None
 
 
 class B2BUopCheckRequest(BaseModel):
@@ -395,6 +646,36 @@ class B2BUopCheckResponse(BaseModel):
     issues: list[B2BUopIssue] = []
     rewritten: str = ""
     summary: str = ""
+
+
+class B2BRegisterAnnex(BaseModel):
+    """Najnowszy aneks do umowy — etykieta w „Umowach bieżących”. Bez kwot:
+    stawkę z aneksu niesie ``annex_rates`` pod własną bramką widoczności."""
+
+    document_id: int
+    document_type: str
+    #: ``effects.ANNEX_STATES`` bez ``cancelled`` (anulowany nie jest etykietą).
+    state: str
+    effective_date: Optional[date] = None
+
+
+class B2BGeneratedEsign(BaseModel):
+    """Ostatni wniosek o podpis w NEXUSIE przy wierszu (0499) — bez kwot i maili."""
+
+    request_id: int
+    status: Literal["sent", "contractor_signed", "completed", "withdrawn", "expired"]
+    contractor_signed_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    expires_at: datetime
+    company_signer_name: Optional[str] = None
+    # Kontraktor z wygasłego linku poprosił o nowy (27.10.2026), bez odpowiedzi.
+    renewal_requested_at: Optional[datetime] = None
+    # Osoby z NEXUSA w DW wysyłki (27.10.2026).
+    cc_names: list[str] = Field(default_factory=list)
+    # Kto obsługuje wysyłkę i czy jest dziś na urlopie (moduł „Urlopy”).
+    handled_by_name: Optional[str] = None
+    handler_absent_until: Optional[date] = None
+    handler_substitute_name: Optional[str] = None
 
 
 class B2BGeneratedContractItem(BaseModel):
@@ -426,9 +707,15 @@ class B2BGeneratedContractItem(BaseModel):
     created_at: Optional[str] = None
     # Imię i nazwisko osoby, która wygenerowała umowę (z users.name).
     created_by_name: Optional[str] = None
+    # Rola główna autora (filtr „Wygenerowane przez rekruterów”, 04.10.2026).
+    created_by_role: Optional[str] = None
+    # Kolumna Tablicy pary w tej rekrutacji (`board_column_for`); None = brak
+    # pary albo procesu.
+    pair_column: Optional[str] = None
     # Czy bieżący użytkownik może usunąć ten wpis (autor wpisu lub admin).
     can_delete: bool = False
-    # Czy bieżący użytkownik może edytować ten wpis (autor wpisu lub admin).
+    # Czy bieżący użytkownik może poprawić ten wpis pod tym samym numerem:
+    # autor, rekruterzy i DL rekrutacji, TCM, admin — przy widocznych stawkach.
     can_edit: bool = False
     # Czy umowę da się pobrać ponownie (jest zapisany payload do re-renderu).
     can_download: bool = False
@@ -457,6 +744,19 @@ class B2BGeneratedContractItem(BaseModel):
     job_id: Optional[int] = None
     client_id: Optional[int] = None
     contract_id: Optional[int] = None
+    # Stawki z ostatniego aneksu zmiany stawki (Generator aneksów, 0401) —
+    # tylko dla osób, które widzą stawki tej umowy; inaczej None.
+    annex_rates: Optional[list[dict]] = None
+    # Etykieta pod nazwą Partnera (13.10.2026): najnowszy nieanulowany aneks
+    # do umowy i liczba takich aneksów. Do tej pory firma, NIP i data startu
+    # zmieniały się w wierszu po cichu przy wygenerowaniu aneksu.
+    latest_annex: Optional[B2BRegisterAnnex] = None
+    annex_count: int = 0
+    # Data rozpoczęcia sprzed aneksu zmiany daty startu i stan tego aneksu —
+    # przed podpisem wiersz pokazuje „stara → nowa”, po podpisie starą
+    # przekreśloną. ``None`` = daty startu nie zmienił żaden aktywny aneks.
+    start_date_before: Optional[date] = None
+    start_date_annex_state: Optional[str] = None
     # Stan kontraktu powiązanego z umową (``ContractStatus``) i jego data końca.
     # Rejestr nie zmienia się sam, gdy kontrakt się skończy — lista pokazuje
     # ostrzeżenie. ``None`` przy ``contract_id`` = kontraktu brak.
@@ -466,12 +766,35 @@ class B2BGeneratedContractItem(BaseModel):
     job_title: Optional[str] = None
     canonical_client_name: Optional[str] = None
     signed_at: Optional[str] = None
+    # 0514: dzień podpisu umowy; ``signed_at`` to chwila oznaczenia w NEXUSIE.
+    signed_on: Optional[date] = None
     signed_by_name: Optional[str] = None
     can_confirm_signed: bool = False
     blocked_reason: Optional[str] = None
+    # 0496: podpisany egzemplarz w Dokumentach kontraktu (``None`` = brak albo
+    # usunięty) i czy to konto może go dołączyć lub podmienić — ta sama osoba,
+    # która może oznaczyć podpis tego wiersza.
+    signed_document_id: Optional[int] = None
+    can_attach_signed_file: bool = False
+    # Podpis w NEXUSIE (0499): stan ostatniej wysyłki i co to konto może zrobić.
+    esign: Optional[B2BGeneratedEsign] = None
+    can_send_esign: bool = False
+    can_withdraw_esign: bool = False
+    # „Przedłuż termin” (link działa) i „Wyślij nowy link” (po terminie, ten
+    # sam PDF, umowa bez poprawek) — 27.10.2026.
+    can_extend_esign: bool = False
+    can_relink_esign: bool = False
+    # „Przejmij obsługę” — wysyłka w toku albo po terminie, obsługuje ktoś inny.
+    can_take_over_esign: bool = False
+    # Plik podpisany przez obie strony (``GET /esign/{id}/signed-pdf``) — dla
+    # nadawcy i reprezentanta, gdy automatyka nie założyła kontraktu.
+    can_download_signed_esign: bool = False
     # Rejestr z Excela działu (0363). `excel` = wiersz z pliku, tylko do odczytu
     # poza statusem handlowym; `generator` = umowa wydana w NEXUSIE.
     source: Literal["generator", "excel"] = "generator"
+    # Wersja wzoru umowy (0362). NULL = nieznana (wiersz z Excela) — okno
+    # wypowiedzenia Partnera wymaga wtedy daty (runda 6 audytu, DOC-3).
+    template_version: Optional[str] = None
     # Numer dokładnie jak w Excelu („264A”, „bez numeru”) — `contract_number`
     # jest wtedy tym samym tekstem.
     raw_contract_number: Optional[str] = None
@@ -625,6 +948,11 @@ class B2BStatusEventItem(BaseModel):
     # projektu i dane rozwiązania umowy (tryb, strona, daty). NULL dla
     # ręcznych zmian w Generatorze.
     details: Optional[dict] = None
+    # Etap 1b (21.10.2026): wpis z wysyłki do podpisu w NEXUSIE — wtedy
+    # ``to_status`` = „esign”, a treść niesie ``label`` (id ujemne, bez wiersza
+    # w dzienniku statusów).
+    kind: Literal["status", "esign"] = "status"
+    label: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -642,6 +970,15 @@ class B2BLinkContractResponse(BaseModel):
     document_note: Optional[str] = None
 
 
+class B2BSignatureRequestResponse(BaseModel):
+    """Prośba o potwierdzenie podpisu (rekruter → DL / TCM)."""
+
+    # False = prośba sprzed mniej niż doby; dzwonek nie poszedł drugi raz.
+    sent: bool
+    requested_at: Optional[str] = None
+    recipient_names: list[str] = Field(default_factory=list)
+
+
 class B2BConfirmFullySignedRequest(BaseModel):
     """One-time legacy binding supplied only when the generated row lacks IDs.
 
@@ -657,6 +994,9 @@ class B2BConfirmFullySignedRequest(BaseModel):
     candidate_id: Optional[int] = None
     job_id: Optional[int] = None
     keep_existing_contract_terms: bool = False
+    # 0514: dzień podpisu (``None`` = dziś w kalendarzu firmy). Nie z przyszłości
+    # i nie sprzed wygenerowania umowy — sprawdza trasa, bo zna wiersz.
+    signed_on: Optional[date] = None
 
     @model_validator(mode="after")
     def _source_links_are_a_pair(self) -> "B2BConfirmFullySignedRequest":

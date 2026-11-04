@@ -24,7 +24,15 @@ export type MoveRequirementActionKind =
   | "open_qc"
   | "set_client_rate"
   | "open_debrief"
-  | "request_slots";
+  | "request_slots"
+  // 0413: braki karty rekomendacji — otwiera całą kartę.
+  | "open_card"
+  // Odpowiedź narusza „Odpada, gdy…” z Championa — okno odrzucenia z notatką.
+  | "reject"
+  // 0506: umowa przedwstępna niepodpisana — panel osoby, zakładka „Umowa”.
+  | "open_pre_contract"
+  // 0521: formularz CV klienta do uzupełnienia — panel osoby, sekcja CV.
+  | "open_client_form";
 
 export interface MoveRequirementAction {
   kind: MoveRequirementActionKind | null;
@@ -33,6 +41,8 @@ export interface MoveRequirementAction {
   stage_id?: number | null;
   /** Rozmowa u klienta, pod którą zapisuje się debrief (gdy serwer ją zna). */
   event_id?: number | null;
+  /** `reject`: notatka wpisana do okna odrzucenia (które pytanie, co padło). */
+  note?: string | null;
 }
 
 export interface MoveRequirementItem {
@@ -133,6 +143,20 @@ export interface RequirementsSummary {
   enforced: MoveRequirementItem[];
   /** Braki, które są tylko przypomnieniem. */
   reminders: MoveRequirementItem[];
+}
+
+/**
+ * Odpowiedź z rozmowy narusza „Odpada, gdy…” Championa (pozycja
+ * `deal_breaker`). Nie blokuje ruchu — to ostrzeżenie z gotowym odrzuceniem.
+ */
+export function isDealBreakerWarning(item: MoveRequirementItem): boolean {
+  return item.status === "missing" && !item.blocking && item.action?.kind === "reject";
+}
+
+/** 0506: umowa przedwstępna niepodpisana — ostrzeżenie (nie bramka), ten sam
+ *  wygląd co deal-breaker i „Przesuń mimo braku” na przycisku. */
+export function isPreContractWarning(item: MoveRequirementItem): boolean {
+  return item.key === "pre_contract" && item.status === "missing" && !item.blocking;
 }
 
 /** Licznik „brakuje X z Y” i podział braków na bramki serwera i przypomnienia. */

@@ -1,0 +1,178 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  addToRow,
+  ambiguousWord,
+  cleanRows,
+  describeKeywordSearch,
+  enterKeywordRows,
+  experienceRangeLabel,
+  keywordHints,
+  MAX_REQUIREMENT_ROWS,
+  requirementRows,
+  sanitizeKeyword,
+  seniorityRange,
+  splitAlternatives,
+  splitWordInRow,
+  withoutWord,
+} from "@/lib/keyword-requirements";
+
+describe("wiersze wymagań", () => {
+  it("stare „wszystkie” to wiersze jednowyrazowe na początku, potem grupy", () => {
+    expect(requirementRows(["Java", "Kafka"], [["Spring", "Quarkus"]])).toEqual([
+      ["Java"],
+      ["Kafka"],
+      ["Spring", "Quarkus"],
+    ]);
+  });
+
+  it("do zapytania idą wiersze bez pustych słów i pustych wierszy", () => {
+    expect(cleanRows([["Java", " "], [], ["a|b"]])).toEqual([["Java"], ["a b"]]);
+  });
+
+  it("`|` w słowie zamienia się na spację (w adresie rozdziela słowa)", () => {
+    expect(sanitizeKeyword("  React|Vue  ")).toBe("React Vue");
+  });
+
+  it("dołączanie do wiersza bez duplikatów (wielkość liter bez znaczenia)", () => {
+    expect(addToRow([["Spring Boot"]], 0, ["spring boot", "Springboot", "x"])).toEqual([
+      ["Spring Boot", "Springboot"],
+    ]);
+  });
+
+  it("usunięcie ostatniego słowa usuwa wiersz", () => {
+    expect(withoutWord([["Java"], ["Warszawa"]], 1, "Warszawa")).toEqual([["Java"]]);
+    expect(withoutWord([["Java", "Kotlin"]], 0, "Kotlin")).toEqual([["Java"]]);
+  });
+});
+
+describe("zdanie podsumowania", () => {
+  it("wiersze łączy „i”, warianty „lub”, na końcu wykluczenia i zakres", () => {
+    expect(
+      describeKeywordSearch({
+        rows: [["Java", "Kotlin"], ["Kafka"], []],
+        exclude: ["junior"],
+        scopeLabel: "cały profil",
+      }),
+    ).toBe(
+      "Szukamy osób, które mają (Java lub Kotlin) i Kafka, bez słów: junior. Szukamy w: cały profil.",
+    );
+  });
+
+  it("bez słów mówi, że decydują pozostałe filtry — nie „cała baza”", () => {
+    expect(describeKeywordSearch({ rows: [[]], exclude: [], scopeLabel: "cały profil" })).toBe(
+      "Brak słów kluczowych — o wynikach decydują pozostałe filtry.",
+    );
+  });
+
+  it("same wykluczenia i bez zakresu (edytor Championa)", () => {
+    expect(describeKeywordSearch({ rows: [], exclude: ["junior"], scopeLabel: null })).toBe(
+      "Szukamy osób, bez słów: junior.",
+    );
+  });
+});
+
+describe("podpowiedzi przy pomyłkach", () => {
+  it("staż zapisany słowem → zakres lat", () => {
+    expect(seniorityRange("Senior")).toEqual({ min: 5, max: null });
+    expect(seniorityRange("stażysta")).toEqual({ min: null, max: 1 });
+    expect(seniorityRange("Java")).toBeNull();
+    expect(experienceRangeLabel({ min: 5, max: null })).toBe("5+ lat");
+    expect(experienceRangeLabel({ min: 2, max: 5 })).toBe("2–5 lat");
+    expect(experienceRangeLabel({ min: null, max: 1 })).toBe("do 1 roku");
+  });
+
+  it("warianty w jednym słowie — ukośnik tylko ze spacjami", () => {
+    expect(splitAlternatives("React / Vue")).toEqual(["React", "Vue"]);
+    expect(splitAlternatives("React lub Vue")).toEqual(["React", "Vue"]);
+    expect(splitAlternatives("Kafka OR RabbitMQ")).toEqual(["Kafka", "RabbitMQ"]);
+    expect(splitAlternatives("CI/CD")).toBeNull();
+    expect(splitAlternatives("PL/SQL")).toBeNull();
+  });
+
+  it("rozdzielenie zostawia inne słowa wiersza i nie dubluje", () => {
+    expect(splitWordInRow([["Angular", "React / Vue", "vue"]], 0, "React / Vue", ["React", "Vue"])).toEqual([
+      ["Angular", "React", "Vue"],
+    ]);
+  });
+
+  it("zbiera podpowiedzi z numerem wiersza", () => {
+    expect(keywordHints([["Java"], ["senior"], ["React / Vue"]])).toEqual([
+      { kind: "seniority", row: 1, word: "senior", range: { min: 5, max: null } },
+      { kind: "split", row: 2, word: "React / Vue", parts: ["React", "Vue"] },
+    ]);
+  });
+
+  it("krótkie słowo wieloznaczne → ostrzeżenie, zamiennik tylko tam, gdzie istnieje", () => {
+    // Produkcja 26.09.2026: „r” łapie „2016 r.” z klauzuli RODO w 20 845 CV.
+    expect(ambiguousWord("GO")).toEqual({ catches: "„go-live”", instead: "golang" });
+    expect(ambiguousWord("r")?.instead).toBe("język R");
+    expect(ambiguousWord("ML")?.instead).toBe("machine learning");
+    expect(ambiguousWord("it")).toEqual({ catches: "każde „IT” w opisie firmy" });
+    // Cały chip, nie fragment: „golang”, „R&D” i „Go lang” nie są wieloznaczne.
+    expect(ambiguousWord("golang")).toBeNull();
+    expect(ambiguousWord("R&D")).toBeNull();
+    expect(ambiguousWord("go lang")).toBeNull();
+    expect(keywordHints([["Java", "go"], ["net"]])).toEqual([
+      { kind: "ambiguous", row: 0, word: "go", catches: "„go-live”", instead: "golang" },
+      { kind: "ambiguous", row: 1, word: "net", catches: "nazwy firm, np. „EURO NET”" },
+    ]);
+  });
+});
+
+describe("enterKeywordRows — wpis w pustym wierszu listy kandydatów (11.10.2026)", () => {
+  it("pierwsza grupa wypełnia wiersz, kolejne dochodzą pod nim, kursor idzie do pustego wiersza", () => {
+    const result = enterKeywordRows([[]], 0, [["Java"], ["Spring"], ["SQL"]]);
+    expect(result.rows).toEqual([["Java"], ["Spring"], ["SQL"], []]);
+    expect(result.added).toBe(3);
+    expect(result.focusRow).toBe(3);
+  });
+
+  it("grupa z wariantami to jeden wiersz; wiersze obok zostają na miejscach", () => {
+    const result = enterKeywordRows([["Java"], [], ["AWS"]], 1, [["Kafka", "RabbitMQ"], ["Redis"]]);
+    expect(result.rows).toEqual([["Java"], ["Kafka", "RabbitMQ"], ["Redis"], ["AWS"], []]);
+    expect(result.focusRow).toBe(4);
+  });
+
+  it("istniejący pusty wiersz na końcu dostaje kursor — drugi nie powstaje", () => {
+    const result = enterKeywordRows([[], []], 0, [["Java"]]);
+    expect(result.rows).toEqual([["Java"], []]);
+    expect(result.focusRow).toBe(1);
+  });
+
+  it("wyjście z pola nie dokłada pustego wiersza", () => {
+    const result = enterKeywordRows([[]], 0, [["Java"]], { trailing: false });
+    expect(result.rows).toEqual([["Java"]]);
+    expect(result.focusRow).toBeNull();
+  });
+
+  it("to samo wymaganie drugi raz jest pomijane (bez wielkości liter i kolejności wariantów)", () => {
+    const result = enterKeywordRows([["Java"], ["Kafka", "RabbitMQ"], []], 2, [
+      ["java"],
+      ["rabbitmq", "KAFKA"],
+      ["SQL"],
+    ]);
+    expect(result.rows).toEqual([["Java"], ["Kafka", "RabbitMQ"], ["SQL"], []]);
+    expect(result.added).toBe(1);
+    expect(result.duplicates).toEqual(["java", "rabbitmq"]);
+  });
+
+  it("limit wierszy: nadmiar wraca w `overLimit`, a pustego wiersza już nie ma gdzie dodać", () => {
+    const nine = Array.from({ length: 9 }, (_, i) => [`s${i}`]);
+    const result = enterKeywordRows([...nine, []], 9, [["Java"], ["Spring"], ["Kafka", "Redis"]]);
+    expect(result.rows).toEqual([...nine, ["Java"]]);
+    expect(result.rows).toHaveLength(MAX_REQUIREMENT_ROWS);
+    expect(result.overLimit).toEqual(["Spring", "Kafka lub Redis"]);
+    expect(result.focusRow).toBeNull();
+  });
+
+  it("bez grup albo z wierszem spoza listy nic się nie zmienia", () => {
+    expect(enterKeywordRows([["Java"]], 0, []).added).toBe(0);
+    expect(enterKeywordRows([["Java"]], 5, [["SQL"]]).rows).toEqual([["Java"]]);
+  });
+
+  it("wpis w WYPEŁNIONYM wierszu nie zmienia go — nowe wymagania dochodzą pod nim", () => {
+    const result = enterKeywordRows([["Java"]], 0, [["Spring"]]);
+    expect(result.rows).toEqual([["Java"], ["Spring"], []]);
+  });
+});

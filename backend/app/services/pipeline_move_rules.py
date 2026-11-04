@@ -3,11 +3,22 @@
 Dwa wyjątki od „kanbanu bez bramek" (17.09.2026), oba świadome:
 
 * **„CV wysłane" poza Nordeą wysyła Delivery Lead i wpisuje stawkę do
-  klienta.** Stawka, za którą osobę wysłano, jest potrzebna później do
-  umowy i zamówienia — a do 23.09 była opcjonalna i zwykle pusta. Nordea
-  zostaje przy swojej ścieżce QC CV → kolejka Cpro (wysyła jedna osoba od
-  Cpro na firmę, `services/cpro_sender.py`). Zatwierdzenia DZ od 24.09.2026
-  nie ma — przed wysłaniem liczy się QC CV (`services/cv_qc.py`).
+  klienta.** O tym, kto wysyła, decyduje uprawnienie „Rekrutacje:
+  zakładanie, zamykanie, wysyłka CV do klienta” (``recruitment_manage``;
+  domyślnie Delivery Lead i admin). Stawka, za którą osobę wysłano, jest
+  punktem odniesienia dla zamówienia klienta (przychód); do umowy B2B idzie
+  stawka kandydata (D7, 08.10.2026: różnica = „do sprawdzenia”, nie blokada,
+  `services/recruitment_rate_check.py`). Do 23.09 była opcjonalna i zwykle
+  pusta. U Nordei tym samym krokiem jest akceptacja do kolejki Cpro
+  (13.10.2026): na etap „Wysłać do Cpro” przesuwa wyłącznie osoba z tym
+  uprawnieniem i wpisuje stawkę do Cpro; dalej wrzuca jedna osoba od Cpro na
+  firmę (`services/cpro_sender.py`). Zatwierdzenia DZ od 24.09.2026 nie ma —
+  przed wysłaniem liczy się QC CV (`services/cv_qc.py`).
+* **Delivery Lead przesuwa bez bramek pól** (decyzja Artura 22.10.2026).
+  DL czasem sam przeprowadza osobę, którą rekruter pominął (pasuje też na
+  inny request). Arkusz, stawka, minimum, CV firmowe i debrief go nie
+  zatrzymują (``skips_fill_gates``) — braki zostają przypomnieniem, a ruch
+  zostawia ``Activity(requirements_skipped)``. Rekruter dalej uzupełnia.
 * **Zamknięcie procesu mówi, kto je zakończył** — kandydat, my, Delivery Lead
   albo klient. Bez tego „odrzucony przez klienta" i „przez nas" wyglądały
   w statystykach tak samo.
@@ -18,19 +29,25 @@ dotyczy.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
-from app.services.board_stage_badges import cpro_enabled_for_client
-
-# Kto może przenieść osobę na „CV wysłane" poza Nordeą.
-CLIENT_SEND_ROLES: tuple[UserRole, ...] = (UserRole.admin, UserRole.delivery_lead)
+from app.services.action_permissions import ProductAction, has_permission
+from app.services.board_stage_badges import (
+    BOARD_COLUMN_ORDER,
+    board_column_for,
+    cpro_enabled_for_client,
+    is_cpro_stage,
+)
+from app.services.permission_denial import ensure_permission, permission_denied
 
 # Kto może zapisać „Odrzucony przez DL".
 DL_REJECT_ROLES: tuple[UserRole, ...] = (
@@ -56,24 +73,398 @@ PRE_CONTRACT_COLUMNS = frozenset(
 )
 
 
-async def assert_debrief_before_contract(
-    db: AsyncSession, *, candidate_id: int, job_id: int, target_column: str
+async def gate_stage_row(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> tuple[Optional[CandidateStage], str]:
+    """Wiersz etapu pary i jego kolumna, względem których liczą się bramki ruchu.
+
+    Zwykle to najnowszy wiersz pary. Gdy para stoi w „Zamkniętych"
+    (odrzucony, wycofany, rezerwa), bramki (QC CV, Cpro, debrief) liczą się
+    względem OSTATNIEJ kolumny sprzed zamknięcia — inaczej droga „Nowi →
+    Odrzucony → CV wysłane" albo „Rozmowa u klienta → Odrzucony → Umowa"
+    omijała każdą z nich (audyt 25.09.2026). Para bez żadnego wiersza spoza
+    „Zamkniętych" zaczyna drogę od początku („new", jak ``_index`` w
+    ``move_requirements``). Para BEZ wierszy też stoi na początku drogi:
+    ``(None, "new")`` — do rundy 2 audytu (25.09.2026) wracało ``(None, None)``
+    i świeży kandydat wysłany przez API wprost na „CV wysłane"/Cpro omijał
+    QC i osobę od Cpro.
+
+    Kolumny liczy jedno zapytanie o definicje etapów pary, nie zapytanie na
+    wiersz — para z długą historią importu z Traffita ma dziesiątki wierszy.
+    Reguła ta sama co ``candidate_claim.stage_column``.
+    """
+    rows = (
+        await db.scalars(
+            select(CandidateStage)
+            .where(
+                CandidateStage.candidate_id == candidate_id,
+                CandidateStage.job_id == job_id,
+            )
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        )
+    ).all()
+    if not rows:
+        return None, "new"
+    def_ids = {r.stage_def_id for r in rows if r.stage_def_id is not None}
+    defs: dict[int, tuple] = {}
+    if def_ids:
+        for d in (
+            await db.execute(
+                select(
+                    PipelineStageDef.id,
+                    PipelineStageDef.name,
+                    PipelineStageDef.category,
+                    PipelineStageDef.terminal_type,
+                ).where(PipelineStageDef.id.in_(def_ids))
+            )
+        ).all():
+            defs[d.id] = (
+                d.name,
+                getattr(d.category, "value", d.category),
+                getattr(d.terminal_type, "value", d.terminal_type),
+            )
+    for row in rows:
+        name, category, terminal_type = defs.get(row.stage_def_id, (None, None, None))
+        column = board_column_for(
+            name,
+            getattr(row.stage, "value", row.stage),
+            category=category,
+            terminal_type=terminal_type,
+        )
+        if column != "closed":
+            return row, column
+    return rows[0], "new"
+
+
+# Kolumny, z których wejście na „Zweryfikowany” jest bramkowane (D1). Zwrot
+# z „QC CV” i dalszych („Wróć do poprawy”) przechodzi bez sprawdzenia.
+VERIFIED_GATE_FROM_COLUMNS = frozenset({"new", "screening"})
+
+# Kolumny docelowe objęte bramką: „Zweryfikowany” i każda dalsza — skok
+# z Nowych/Screeningu ponad „Zweryfikowany” (API, Jarvis, ruch zbiorczy)
+# omijał arkusz i stawkę, a para bez wiersza `verified` traciła kredyt
+# weryfikacji w KPI, wyścigach i Lidze (audyt 05.10.2026). Front blokował
+# taki skok od początku (`move_requirements` liczy pominięte kolumny).
+VERIFIED_GATE_TARGETS = frozenset(
+    BOARD_COLUMN_ORDER[BOARD_COLUMN_ORDER.index("verified") :]
+)
+
+VERIFIED_REQUIREMENT_LABELS = {
+    "screening_sheet": "arkusz screeningu",
+    # Rekrutacja bez pytań screeningowych — komunikat mówi, co da się wpisać,
+    # zamiast kazać uzupełnić arkusz, którego tam nie ma (12.10.2026).
+    "why_candidate": (
+        "„Dlaczego ten kandydat” w screeningu "
+        "(ta rekrutacja nie ma pytań screeningowych)"
+    ),
+    "candidate_rate": "stawka kandydata",
+}
+
+
+# Ślad ruchu Delivery Leada mimo braków — Tablica pokazuje z niego odznakę.
+REQUIREMENTS_SKIPPED_ACTION = "requirements_skipped"
+
+
+def skips_fill_gates(user: Any) -> bool:
+    """Czy konto przesuwa bez bramek pól (arkusz, stawka, minimum, CV
+    firmowe, debrief) — decyzja Artura 22.10.2026.
+
+    Uprawnienie „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta”
+    (domyślnie Delivery Lead i admin) — to samo, które decyduje o wysyłce CV,
+    więc nie dochodzi nowa rola. Konto serwisowe API nie ma uprawnień
+    (``NO_RIGHTS_VIEWER``), więc integracja bramek nie omija.
+    """
+    from app.core.config import settings  # noqa: PLC0415
+
+    return settings.DL_SKIPS_FILL_GATES and has_permission(
+        user, ProductAction.recruitment_manage
+    )
+
+
+def verified_requirement_label(key: str) -> str:
+    """Nazwa braku w komunikacie 409 — pola karty po nazwie z formularza."""
+    from app.services.move_requirements import card_field_label  # noqa: PLC0415
+
+    if key in VERIFIED_REQUIREMENT_LABELS:
+        return VERIFIED_REQUIREMENT_LABELS[key]
+    return f"„{card_field_label(key)}”"
+
+
+async def assert_verified_requirements(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job: Any,
+    user: User,
+    target_column: str,
+    pending_rate: bool,
+    allow_skip: bool = True,
+) -> list[str]:
+    """409 `VERIFIED_REQUIREMENTS_MISSING` — wejście na „Zweryfikowany” bez
+    arkusza screeningu albo bez stawki kandydata (decyzja Artura 04.10.2026).
+
+    Braki liczy ``move_requirements.load_pair_facts`` — ta sama reguła co
+    okno „Przesuń dalej” i ramka „Następny etap”, więc ekran i serwer nie
+    mogą się rozjechać. Arkusz = zapisany arkusz pary albo odpowiedzi
+    w karcie rekomendacji; w rekrutacji bez pytań screeningowych zamiast
+    arkusza wystarcza „Dlaczego ten kandydat”
+    (``move_requirements.screening_requirement``). Stawka = profil,
+    wcześniejszy etap pary albo ta w żądaniu (``pending_rate``). Para
+    w „Zamkniętych” liczy się kolumną sprzed zamknięcia (``gate_stage_row``).
+    Od 21.10.2026 także minimum dla Delivery Leada — pola karty
+    (``move_requirements.minimum_missing``, wyłącznik
+    ``VERIFIED_MINIMUM_FIELDS_ENABLED``). Od 22.10.2026 Delivery Lead
+    (``skips_fill_gates``) przechodzi mimo braków: funkcja zwraca je
+    wołającemu do śladu ruchu zamiast odmowy. Pusta lista = nic nie brakuje.
+    ``allow_skip=False`` (ruch zbiorczy — bez śladu i bez okna) odmawia
+    każdemu.
+    """
+    from app.core.config import settings  # noqa: PLC0415
+    from app.models.candidate import Candidate  # noqa: PLC0415
+    from app.services import move_requirements  # noqa: PLC0415
+
+    if not settings.VERIFIED_GATE_ENABLED or target_column not in VERIFIED_GATE_TARGETS:
+        return []
+    _row, column = await gate_stage_row(db, candidate_id=candidate_id, job_id=job.id)
+    if column not in VERIFIED_GATE_FROM_COLUMNS:
+        return []
+    candidate = await db.get(Candidate, candidate_id)
+    if candidate is None:
+        return []
+    facts = await move_requirements.load_pair_facts(
+        db, candidate=candidate, job=job, user=user
+    )
+    missing: list[str] = []
+    screening_key, screening_met = move_requirements.screening_requirement(facts)
+    if not screening_met:
+        missing.append(screening_key)
+    if not (facts.candidate_rate or pending_rate):
+        missing.append("candidate_rate")
+    # Minimum dla DL (21.10.2026): pola karty — klucze jak w formularzu.
+    card_missing = move_requirements.minimum_missing(facts)
+    missing.extend(card_missing)
+    if not missing or (allow_skip and skips_fill_gates(user)):
+        return missing
+    labels = [verified_requirement_label(key) for key in missing]
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "VERIFIED_REQUIREMENTS_MISSING",
+            "missing": missing,
+            # Pola karty z listy `missing` — okno na Tablicy pyta tylko o nie.
+            "card_fields": card_missing,
+            "client_required": list(facts.client_required_fields),
+            "screening_stage_id": facts.screening_stage_id,
+            "message": "Przed „Zweryfikowany” uzupełnij: " + ", ".join(labels) + ".",
+        },
+    )
+
+
+HIRED_SIGNED_VIA = ("b2b_offline", "uop", "zlecenie", "other")
+
+
+def assert_client_acceptance_dates(
+    target: PipelineStage,
+    accepted_on: Optional[date],
+    planned_start_on: Optional[date],
+    *,
+    today: date,
 ) -> None:
+    """Data akceptacji klienta i planowany start (16.10.2026, D1).
+
+    Pola niesie wyłącznie okno „Klient zaakceptował” — przy każdym innym
+    ruchu to pomyłka wołającego, nie informacja do pominięcia. Akceptacja
+    nie bywa z przyszłości, a start nie wypada przed akceptacją.
+    """
+
+    if target != PipelineStage.acceptance:
+        if accepted_on is not None or planned_start_on is not None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Datę akceptacji i planowany start podaje się tylko przy "
+                    "oznaczeniu „Klient zaakceptował”."
+                ),
+            )
+        return
+    if accepted_on is not None and accepted_on > today:
+        raise HTTPException(
+            status_code=422,
+            detail="Data akceptacji klienta nie może być z przyszłości.",
+        )
+    if planned_start_on is not None and planned_start_on < (accepted_on or today):
+        raise HTTPException(
+            status_code=422,
+            detail="Planowany start nie może wypaść przed akceptacją klienta.",
+        )
+
+
+def assert_hired_signed_via(
+    target: PipelineStage, signed_via: Optional[str], note: Optional[str]
+) -> None:
+    """Ręczny ruch na „Zatrudniony” mówi, jak podpisano umowę (D2, 04.10.2026).
+
+    Umowa B2B z Generatora przesuwa kartę sama („Oznacz jako podpisaną”).
+    Ręcznie zostają umowy spoza Generatora — wtedy człowiek wybiera rodzaj,
+    a „inny” wymaga opisu.
+    """
+    from app.core.config import settings  # noqa: PLC0415
+
+    if target != PipelineStage.hired or not settings.HIRED_SIGNED_VIA_REQUIRED:
+        return
+    if signed_via not in HIRED_SIGNED_VIA:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "HIRED_SIGNED_VIA_REQUIRED",
+                "message": (
+                    "Napisz, jak podpisano umowę. Umowę B2B z Generatora "
+                    "potwierdź przyciskiem „Oznacz jako podpisaną” — karta "
+                    "przejdzie na „Zatrudniony” sama."
+                ),
+            },
+        )
+    if signed_via == "other" and not (note or "").strip():
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "HIRED_SIGNED_VIA_REQUIRED",
+                "message": "Przy „inna umowa” opisz, jak ją podpisano.",
+            },
+        )
+
+
+async def assert_no_esign_in_progress(
+    db: AsyncSession, *, target: PipelineStage, candidate_id: int, job_id: int
+) -> None:
+    """409 ``ESIGN_IN_PROGRESS``: ręczny „Zatrudniony”, gdy umowa pary jest
+    w podpisie w NEXUSIE (etap 1b, 22.10.2026).
+
+    Link kontraktora dalej by działał, a późniejszy podpis obu stron zrobiłby
+    zatrudnienie drugi raz. Najpierw „Przejdź na zwykłą drogę” w rejestrze."""
+    if target != PipelineStage.hired:
+        return
+    from app.models.b2b_generated_contract import (  # noqa: PLC0415
+        B2BGeneratedContract,
+    )
+    from app.services.b2b_esign import service as esign_service  # noqa: PLC0415
+
+    number = await db.scalar(
+        select(B2BGeneratedContract.contract_number)
+        .where(
+            B2BGeneratedContract.candidate_id == candidate_id,
+            B2BGeneratedContract.job_id == job_id,
+            esign_service.open_request_exists(),
+        )
+        .limit(1)
+    )
+    if number is None:
+        return
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "ESIGN_IN_PROGRESS",
+            "message": (
+                f"Umowa {number} jest w podpisie w NEXUSIE — „Zatrudniony” "
+                "ustawi się sam po podpisie obu stron. Chcesz przesunąć ręcznie? "
+                "Najpierw w rejestrze umów „Przejdź na zwykłą drogę”."
+            ),
+        },
+    )
+
+
+async def assert_debrief_before_contract(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job_id: int,
+    target_column: str,
+    user: Any = None,
+) -> list[str]:
     """409 `DEBRIEF_REQUIRED`, gdy osoba wchodzi do „Umowy"/„Zatrudnionego"
     bez debriefu po rozmowie u klienta — także gdy rozmowa jest dopiero
     zaplanowana (debrief będzie możliwy po niej, ``debrief_gate``).
 
     Liczy się bieżąca kolumna pary, nie tylko „Rozmowa u klienta" — inaczej
-    okrężna droga Rozmowa → CV wysłane → Umowa omijała bramkę. Ruchy wewnątrz
-    „Umowy" i dalej nie są bramkowane (historia sprzed bramki).
+    okrężna droga Rozmowa → CV wysłane → Umowa omijała bramkę. Para
+    w „Zamkniętych" liczy się kolumną sprzed zamknięcia (``gate_stage_row``).
+    Ruchy wewnątrz „Umowy" i dalej nie są bramkowane (historia sprzed bramki).
+    Delivery Lead (``skips_fill_gates``, 22.10.2026) przechodzi bez debriefu
+    — dostaje ``["debrief"]`` do śladu ruchu. Pusta lista = nic nie brakuje.
     """
-    from app.services import candidate_claim
     from app.services.debrief_gate import missing_debrief
 
     if target_column not in ("contract", "hired"):
-        return
-    latest = await db.scalar(
-        select(CandidateStage)
+        return []
+    _row, column = await gate_stage_row(db, candidate_id=candidate_id, job_id=job_id)
+    if column not in PRE_CONTRACT_COLUMNS:
+        return []
+    missing = await missing_debrief(db, candidate_id=candidate_id, job_id=job_id)
+    if missing is None:
+        return []
+    if user is not None and skips_fill_gates(user):
+        return ["debrief"]
+    raise HTTPException(status_code=409, detail=missing)
+
+
+def requires_dl_client_rate(
+    target: PipelineStage,
+    client_id: Optional[int],
+    *,
+    stage_name: Optional[str] = None,
+) -> bool:
+    """Ruch, który wymaga uprawnienia wysyłki i stawki do klienta.
+
+    Poza Nordeą — „CV wysłane”. U Nordei — etap „Wysłać do Cpro”
+    (akceptacja Delivery Leada, 13.10.2026) i „CV wysłane” (= „Wysłane do
+    Cpro”) z pominięciem kolejki: do 12.10 do kolejki wkładał też rekruter,
+    a osoba od Cpro wysyłała z „QC CV” od razu — bez akceptacji DL i bez
+    stawki. „✓ Wrzucone” z kolejki tej bramki nie przechodzi
+    (`arrives_from_before_client_send`). Etap Cpro poznajemy po nazwie (kod
+    etapu bywa pusty albo „new”).
+    """
+
+    if cpro_enabled_for_client(client_id):
+        return is_cpro_stage(stage_name) or target == PipelineStage.cv_sent
+    return target == PipelineStage.cv_sent
+
+
+async def arrives_from_before_client_send(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> bool:
+    """Czy para wchodzi na „CV wysłane” (u Nordei — do kolejki Cpro)
+    z kolumny PRZED wysłaniem.
+
+    Wymóg DL i stawki do klienta dotyczy WYSŁANIA, nie cofnięcia karty
+    z „Rozmowy u klienta” czy „Umowy” — tam osoba już jest u klienta.
+    Kolumna jak przy pozostałych bramkach (``gate_stage_row``: para
+    w „Zamkniętych” liczy się kolumną sprzed zamknięcia, bez wierszy — „Nowi”).
+    Runda 9 (R9-N11-6). Karta, która już stoi w kolejce Cpro (ponowny ruch
+    na ten sam etap, np. z osobą zapasową), została zaakceptowana wcześniej.
+    Para zamknięta z kolejki Cpro w niej nie stoi — wraca przez akceptację
+    Delivery Leada jak każda inna (audyt 13.10.2026: „Przywróć” wkładał ją do
+    kolejki bez DL-a).
+    """
+    row, column = await gate_stage_row(db, candidate_id=candidate_id, job_id=job_id)
+    if column not in BOARD_COLUMN_ORDER:
+        return True
+    if row is not None and row.stage_def_id is not None:
+        name = await db.scalar(
+            select(PipelineStageDef.name).where(PipelineStageDef.id == row.stage_def_id)
+        )
+        if is_cpro_stage(name) and await _is_newest_row(
+            db, row, candidate_id=candidate_id, job_id=job_id
+        ):
+            return False
+    return BOARD_COLUMN_ORDER.index(column) < BOARD_COLUMN_ORDER.index("cv_sent")
+
+
+async def _is_newest_row(
+    db: AsyncSession, row: CandidateStage, *, candidate_id: int, job_id: int
+) -> bool:
+    """Czy ``row`` jest najnowszym wierszem pary (karta na nim stoi)."""
+    newest_id = await db.scalar(
+        select(CandidateStage.id)
         .where(
             CandidateStage.candidate_id == candidate_id,
             CandidateStage.job_id == job_id,
@@ -81,38 +472,47 @@ async def assert_debrief_before_contract(
         .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
         .limit(1)
     )
-    if latest is None:
-        return
-    if await candidate_claim.stage_column(db, latest) not in PRE_CONTRACT_COLUMNS:
-        return
-    missing = await missing_debrief(db, candidate_id=candidate_id, job_id=job_id)
-    if missing is not None:
-        raise HTTPException(status_code=409, detail=missing)
+    return newest_id == row.id
 
 
-def requires_dl_client_rate(target: PipelineStage, client_id: Optional[int]) -> bool:
-    """Ruch na „CV wysłane" u klienta innego niż Nordea."""
+CPRO_ACCEPT_DENIED_MESSAGE = (
+    "Do kolejki Cpro przekazuje Delivery Lead po akceptacji. "
+    "Użyj „Przekaż Delivery Leadowi”."
+)
+CPRO_RATE_REQUIRED_MESSAGE = (
+    "Wpisz stawkę do Cpro — bez niej osoba nie trafi do kolejki Cpro."
+)
 
-    return target == PipelineStage.cv_sent and not cpro_enabled_for_client(client_id)
 
+def assert_client_send_allowed(
+    user: User, rate_value: Optional[Decimal], *, cpro: bool = False
+) -> None:
+    """403 z nazwą uprawnienia, gdy konto nie wysyła CV do klienta; 422 bez
+    dodatniej stawki do klienta.
 
-def assert_client_send_allowed(user: User, rate_value: Optional[Decimal]) -> None:
-    """403 dla roli spoza DL/admina, 422 bez dodatniej stawki do klienta."""
+    Wysyłka do klienta to część uprawnienia „Rekrutacje: zakładanie,
+    zamykanie, wysyłka CV do klienta” — kto go nie ma, przekazuje osobę do
+    przeglądu (zostaje w „QC CV”). ``cpro`` = akceptacja do kolejki Cpro
+    u Nordei: ta sama reguła, komunikaty mówią o Cpro.
+    """
 
-    if not user.has_any_role(*CLIENT_SEND_ROLES):
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "Do klienta wysyła Delivery Lead — przekaż osobę do przeglądu "
-                "(zostaje w „QC CV”)."
-            ),
-        )
+    if cpro:
+        if not has_permission(user, ProductAction.recruitment_manage):
+            denied = permission_denied(ProductAction.recruitment_manage)
+            denied.detail["message"] = CPRO_ACCEPT_DENIED_MESSAGE
+            raise denied
+    else:
+        ensure_permission(user, ProductAction.recruitment_manage)
     if rate_value is None or Decimal(rate_value) <= 0:
         raise HTTPException(
             status_code=422,
             detail=(
-                "Wpisz stawkę, za którą wysyłasz kandydata do klienta — bez niej "
-                "nie przeniesiesz na „CV wysłane”."
+                CPRO_RATE_REQUIRED_MESSAGE
+                if cpro
+                else (
+                    "Wpisz stawkę, za którą wysyłasz kandydata do klienta — bez "
+                    "niej nie przeniesiesz na „CV wysłane”."
+                )
             ),
         )
 

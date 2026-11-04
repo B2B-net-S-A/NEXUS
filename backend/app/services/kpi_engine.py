@@ -16,16 +16,23 @@ skalowanie idzie po dniach pon-pt i w obrębie dnia.
 
 from __future__ import annotations
 
+import calendar
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, func, select, text
+from sqlalchemy import and_, bindparam, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cache import (
+    cache_get,
+    cache_invalidate,
+    cache_set,
+    cache_single_flight,
+)
+from app.core.scheduling import is_business_day
 from app.models.call import Call, CallStatus
-from app.models.candidate import Candidate
 from app.models.user import User, UserRole
 from app.services.kpi_catalog import (
     KPI_CATALOG,
@@ -67,6 +74,10 @@ class KpiResult:
     progress_pct: float  # 0.0-100.0+ (może przekroczyć 100 przy over-hit)
     state: KpiState
     deadline_hours_left: float
+    short_title_pl: str = ""
+    # Ile powinno być zrobione „na teraz” (cel × tempo okresu) — kreska tempa
+    # na pasku postępu i zdanie „na tę godzinę wychodzą 2”.
+    expected_count: float = 0.0
 
 
 # ── Granice czasu ────────────────────────────────────────────────────────
@@ -103,6 +114,54 @@ def period_bounds(period: KpiPeriod, now: datetime) -> tuple[datetime, datetime]
     return start, now_w
 
 
+def period_dates(period: KpiPeriod, now: datetime) -> tuple[date, date]:
+    """Cały okres KPI jako dni kalendarza (domknięte) — do skali celu.
+
+    W odróżnieniu od ``period_bounds`` koniec to ostatni dzień okresu, nie
+    „teraz”: cel tygodnia i miesiąca przelicza się na dni pracy CAŁEGO okresu,
+    także na zaplanowaną nieobecność.
+    """
+    today = _as_warsaw(now).date()
+    if period == KpiPeriod.day:
+        return today, today
+    if period == KpiPeriod.week:
+        monday = today - timedelta(days=today.weekday())
+        return monday, monday + timedelta(days=6)
+    if period == KpiPeriod.month:
+        first = today.replace(day=1)
+        return first, first.replace(day=calendar.monthrange(first.year, first.month)[1])
+    raise ValueError(f"Unknown period: {period}")  # pragma: no cover
+
+
+async def absence_for_periods(
+    db: AsyncSession, user_ids: list[int], now: datetime
+) -> dict[int, dict[date, float]]:
+    """Zatwierdzona nieobecność osób w bieżącym tygodniu i miesiącu."""
+    from app.services.person_workdays import absence_by_user
+
+    windows = [period_dates(p, now) for p in (KpiPeriod.week, KpiPeriod.month)]
+    return await absence_by_user(
+        db,
+        user_ids,
+        min(start for start, _ in windows),
+        max(end for _, end in windows),
+    )
+
+
+def target_on_workdays(
+    target: int, period: KpiPeriod, now: datetime, absence: dict[date, float]
+) -> int:
+    """Cel KPI w proporcji do dni pracy okresu (decyzja Artura 28.10.2026).
+
+    Dzień nieobecności = cel dnia 0; tydzień z dwoma dniami nieobecności =
+    3/5 celu, w górę do pełnej sztuki.
+    """
+    from app.services.person_workdays import target_for_window
+
+    start, end = period_dates(period, now)
+    return target_for_window(target, start, end, absence)
+
+
 def period_bucket_label(period: KpiPeriod, now: datetime) -> str:
     """Deduplikacyjny klucz okresu.
 
@@ -121,15 +180,23 @@ def period_bucket_label(period: KpiPeriod, now: datetime) -> str:
     raise ValueError(f"Unknown period: {period}")  # pragma: no cover
 
 
-def expected_progress_ratio(period: KpiPeriod, now: datetime) -> float:
+def expected_progress_ratio(
+    period: KpiPeriod, now: datetime, days_off: frozenset[date] = frozenset()
+) -> float:
     """Jakie % target powinno być zrobione w tym momencie.
 
     - day: 0% przed 9:00, 100% po 17:30, liniowo w środku.
     - week: (zakończone_dni_robocze * 1.0 + bieżący_ratio_dnia) / 5; cap 1.0
       dla weekendu.
-    - month: (day_of_month - 1 + ratio_dnia) / days_in_month.
+    - month: (zakończone_dni_robocze + ratio_dnia) / dni_robocze_miesiąca.
+
+    ``days_off`` — pełne dni urlopu osoby („Ludzie w NEXUSIE”, krok 6): nie są
+    dniami pracy, więc tydzień urlopu nie daje „poniżej tempa”.
     """
     now_w = _as_warsaw(now)
+
+    def _workday(moment: datetime) -> bool:
+        return is_business_day(moment) and moment.date() not in days_off
 
     def _intraday_ratio(n: datetime) -> float:
         """Ratio dnia roboczego w chwili `n`."""
@@ -143,30 +210,47 @@ def expected_progress_ratio(period: KpiPeriod, now: datetime) -> float:
         )
         return minutes / _WORKDAY_MINUTES
 
+    # Runda 9 (R9-N6-6): święto (Boże Ciało, 1 i 3 maja…) liczyło się jak
+    # dzień roboczy — w święto dzienny KPI był „behind”, a tygodniowy oczekiwał
+    # pięciu dni pracy w tygodniu z czterema. Dzień roboczy = `is_business_day`
+    # (Pon–Pt bez polskich świąt ustawowych).
     if period == KpiPeriod.day:
+        if not _workday(now_w):
+            return 0.0  # dzień wolny albo urlop — nic nie jest oczekiwane
         return _intraday_ratio(now_w)
 
     if period == KpiPeriod.week:
         weekday = now_w.weekday()  # 0=pon, 6=niedz
         if weekday >= _WORKDAYS_PER_WEEK:
             return 1.0  # weekend — okres praktycznie "zamknięty"
-        completed_days = weekday  # pon=0, wt=1 (czyli 1 dzień się skończył)
-        today_ratio = _intraday_ratio(now_w)
-        return min(1.0, (completed_days + today_ratio) / _WORKDAYS_PER_WEEK)
+        monday = now_w - timedelta(days=weekday)
+        workdays = [
+            day
+            for day in (monday + timedelta(days=i) for i in range(_WORKDAYS_PER_WEEK))
+            if _workday(day)
+        ]
+        if not workdays:
+            return 0.0
+        completed_days = sum(1 for day in workdays if day.date() < now_w.date())
+        today_ratio = _intraday_ratio(now_w) if _workday(now_w) else 0.0
+        return min(1.0, (completed_days + today_ratio) / len(workdays))
 
     if period == KpiPeriod.month:
-        # Ile dni w miesiącu
-        if now_w.month == 12:
-            next_month = now_w.replace(year=now_w.year + 1, month=1, day=1)
-        else:
-            next_month = now_w.replace(month=now_w.month + 1, day=1)
-        days_in_month = (
-            next_month.replace(hour=0, minute=0, second=0, microsecond=0)
-            - now_w.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        ).days
-        completed_days = now_w.day - 1
-        today_ratio = _intraday_ratio(now_w)
-        return min(1.0, (completed_days + today_ratio) / max(days_in_month, 1))
+        # Runda 10 (R10-V1-5): miesiąc liczył dni KALENDARZOWE — 4 maja rano
+        # (po 1–3 maja) oczekiwał ~10% celu przy zerze dni roboczych, więc
+        # KPI był „behind” i coach ponaglał. Ta sama reguła co tydzień.
+        days_in_month = calendar.monthrange(now_w.year, now_w.month)[1]
+        first = now_w.replace(day=1)
+        workdays = [
+            day
+            for day in (first + timedelta(days=i) for i in range(days_in_month))
+            if _workday(day)
+        ]
+        if not workdays:
+            return 0.0
+        completed_days = sum(1 for day in workdays if day.date() < now_w.date())
+        today_ratio = _intraday_ratio(now_w) if _workday(now_w) else 0.0
+        return min(1.0, (completed_days + today_ratio) / len(workdays))
 
     raise ValueError(f"Unknown period: {period}")  # pragma: no cover
 
@@ -183,6 +267,12 @@ def derive_state(*, current: int, target: int, expected_ratio: float) -> KpiStat
       wytykać).
     - w przeciwnym razie porównujemy `current` z `target * expected_ratio`
       (expected_count) z tolerancją ±20%.
+    - "behind" dopiero, gdy do tempa brakuje CAŁEJ sztuki (13.10.2026). Do tego
+      dnia wynik 0 był „poniżej tempa” od 9:01, a placement miesiąca (cel 1)
+      przez cały miesiąc — znaczek świecił się prawie zawsze i nic nie mówił.
+      Przy celu 1 oczekiwana wartość nigdy nie dochodzi do 1 przed końcem
+      okresu, więc taki cel nie ma tempa: jest "on_track", potem "hit" albo
+      "missed".
     """
     if target <= 0:
         return "hit"
@@ -197,7 +287,7 @@ def derive_state(*, current: int, target: int, expected_ratio: float) -> KpiStat
     # ±20% wokół oczekiwanej wartości — akceptowalny korytarz on_track.
     low = expected_count * 0.8
     high = expected_count * 1.2
-    if current < low:
+    if current < low and expected_count - current >= 1:
         return "behind"
     if current >= high:
         return "ahead"
@@ -237,8 +327,7 @@ async def count_canonical_metric(
     - first_*: pierwsze milestone'y z atrybucją verifier-anchored
       (``VERIFIER_ANCHORED_CTE`` — rodzina atrybucji A: zasługę dostaje
       pierwszy zaakceptowany weryfikator pary; widok
-      ``analytics_first_milestones`` jest tylko źródłem gałęzi ``legacy``),
-    - new_candidates: candidates.created_by.
+      ``analytics_first_milestones`` jest tylko źródłem gałęzi ``legacy``).
 
     UWAGA: to NIE jest ta sama atrybucja co Analytics v1 / Insights (rodzina B:
     ``analytics_first_milestones.first_moved_by`` = osoba, która kliknęła
@@ -260,26 +349,17 @@ async def count_canonical_metric(
         )
         return int(result or 0)
 
-    if metric is KpiMetric.new_candidates:
-        result = await db.scalar(
-            select(func.count(Candidate.id)).where(
-                and_(
-                    Candidate.created_by == user_id,
-                    Candidate.created_at >= since,
-                    Candidate.created_at < until,
-                )
-            )
-        )
-        return int(result or 0)
-
     stage = _MILESTONE_STAGE[metric]
     # Import lokalny — kpi_panel importuje z tego modułu (WARSAW,
     # period_bounds), więc top-level import byłby cyklem.
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+    from app.services.credited_snapshot import (
+        CREDITED_FROM_SNAPSHOT_CTE,
+        credited_bind,
+    )
 
     result = await db.scalar(
         text(
-            VERIFIER_ANCHORED_CTE
+            CREDITED_FROM_SNAPSHOT_CTE
             + """
             SELECT count(*) FROM credited
             WHERE credit_user = :uid
@@ -288,9 +368,117 @@ async def count_canonical_metric(
               AND reached_at < :until
             """
         ),
-        {"uid": user_id, "stage": stage, "since": since, "until": until},
+        {
+            "uid": user_id,
+            "stage": stage,
+            "since": since,
+            "until": until,
+            **await credited_bind(
+                db, credit_user=user_id, stage=stage, since=since, until=until
+            ),
+        },
     )
     return int(result or 0)
+
+
+_MILESTONE_SNAPSHOT_TTL_SECONDS = 60
+_MILESTONE_KEY_PREFIX = "kpi:milestones:v2:"
+
+
+async def _milestone_snapshot(
+    db: AsyncSession,
+    windows: dict[KpiPeriod, tuple[datetime, datetime]],
+) -> dict[tuple[int, str, str], int]:
+    """Kamienie milowe (osoba, etap, okres) całej firmy — jedno CTE na minutę.
+
+    Runda 7 (R7-N10-1): `/api/kpis/me/today` liczył osobne pełne
+    `VERIFIER_ANCHORED_CTE` na każdą metrykę (3 × 5–7 s) przy każdym wejściu,
+    a przebieg coacha robił to po kolei dla każdej osoby. Filtr osoby i tak
+    działał dopiero na wyniku CTE, więc liczymy wszystkich naraz i trzymamy
+    wynik 60 s z jednym wykonawcą. Ta sama atrybucja co
+    ``count_canonical_metric``.
+    """
+
+    from app.services.credited_snapshot import (
+        CREDITED_FROM_SNAPSHOT_CTE,
+        credited_bind,
+    )
+
+    ordered = sorted(windows.items(), key=lambda item: item[0].value)
+    # Runda 9 (R9-N6-1): koniec okna to „teraz” z mikrosekundami, więc klucz
+    # z końcem był inny przy każdym wejściu — cache nigdy nie trafiał, a każdy
+    # wpis zostawał w `_cache` na zawsze (wygasłe wpisy usuwa tylko odczyt tego
+    # samego klucza). Klucz niesie same POCZĄTKI okien; migawka pamięta, do
+    # kiedy liczyła, i służy wywołaniom, których „teraz” leży w granicach TTL.
+    key = _MILESTONE_KEY_PREFIX + "|".join(
+        f"{period.value}={start.isoformat()}" for period, (start, _) in ordered
+    )
+    until = max(end for _, (_, end) in ordered)
+
+    def _fresh(entry: object) -> Optional[dict[tuple[int, str, str], int]]:
+        if not isinstance(entry, tuple) or len(entry) != 2:
+            return None
+        computed_until, snapshot = entry
+        if abs((until - computed_until).total_seconds()) > (
+            _MILESTONE_SNAPSHOT_TTL_SECONDS
+        ):
+            return None
+        return snapshot
+
+    cached = _fresh(await cache_get(key))
+    if cached is not None:
+        return cached
+    async with cache_single_flight(key, db=db):
+        cached = _fresh(await cache_get(key))
+        if cached is not None:
+            return cached
+        params: dict[str, object] = {
+            "stages": sorted(set(_MILESTONE_STAGE.values())),
+            "min_start": min(start for _, (start, _) in ordered),
+            "max_end": max(end for _, (_, end) in ordered),
+        }
+        filters = []
+        for index, (period, (start, end)) in enumerate(ordered):
+            params[f"s{index}"] = start
+            params[f"e{index}"] = end
+            filters.append(
+                f"count(*) FILTER (WHERE reached_at >= :s{index} "
+                f"AND reached_at < :e{index}) AS p{index}"
+            )
+        statement = text(
+            CREDITED_FROM_SNAPSHOT_CTE
+            + f"""
+            SELECT credit_user, stage, {", ".join(filters)}
+            FROM credited
+            WHERE credit_user IS NOT NULL
+              AND stage IN :stages
+              AND reached_at >= :min_start
+              AND reached_at < :max_end
+            GROUP BY credit_user, stage
+            """
+        ).bindparams(bindparam("stages", expanding=True))
+        params.update(
+            await credited_bind(db, since=params["min_start"], until=params["max_end"])
+        )
+        rows = (await db.execute(statement, params)).mappings().all()
+        snapshot: dict[tuple[int, str, str], int] = {}
+        for row in rows:
+            for index, (period, _) in enumerate(ordered):
+                count = int(row[f"p{index}"] or 0)
+                if count:
+                    snapshot[
+                        (int(row["credit_user"]), str(row["stage"]), period.value)
+                    ] = count
+        # Najwyżej jeden wpis migawki naraz: starsze (wczorajszy początek dnia,
+        # historyczne „teraz” z przebiegu coacha) znikają przy każdym zapisie.
+        await cache_invalidate(_MILESTONE_KEY_PREFIX)
+        await cache_set(
+            key,
+            (until, snapshot),
+            ttl_seconds=_MILESTONE_SNAPSHOT_TTL_SECONDS,
+            jitter_seconds=10,
+        )
+        return snapshot
 
 
 def _hours_until_period_end(period: KpiPeriod, now: datetime) -> float:
@@ -324,6 +512,29 @@ def _hours_until_period_end(period: KpiPeriod, now: datetime) -> float:
 # ── Główne API ──────────────────────────────────────────────────────────
 
 
+async def personal_days_off(
+    db: AsyncSession, user_id: int, now: datetime
+) -> frozenset[date]:
+    """Pełne dni urlopu osoby w bieżącym tygodniu i miesiącu.
+
+    Tylko gdy dostępność liczy się z urlopów NEXUSA; inaczej pusty zbiór —
+    tempo liczy się jak dotąd z samego kalendarza firmy.
+    """
+    from app.services.hr.availability_local import days_off_for, local_source_active
+
+    if not local_source_active():
+        return frozenset()
+    now_w = _as_warsaw(now)
+    month_start = now_w.date().replace(day=1)
+    month_end = month_start.replace(
+        day=calendar.monthrange(month_start.year, month_start.month)[1]
+    )
+    week_start = now_w.date() - timedelta(days=now_w.weekday())
+    start = min(month_start, week_start)
+    end = max(month_end, week_start + timedelta(days=6))
+    return await days_off_for(db, user_id, start, end)
+
+
 async def evaluate_user_kpis(
     db: AsyncSession, *, user: User, now: Optional[datetime] = None
 ) -> list[KpiResult]:
@@ -342,22 +553,40 @@ async def evaluate_user_kpis(
     # Precyzja (`in_coach=False`) to wskaźnik jakości z okna kroczącego, nie
     # licznik narastający w okresie — widget i nudge'e jej nie pokazują.
     coach_kpis = [k for k in KPI_CATALOG if k.in_coach and kpi_available(k)]
+    days_off = await personal_days_off(db, user.id, now)
+    absence = (await absence_for_periods(db, [user.id], now)).get(user.id, {})
     targets = (
         await resolve_kpi_targets_bulk(db, [user], [k.kpi_id for k in coach_kpis])
     )[user.id]
 
+    milestone_windows = {
+        k.period: period_bounds(k.period, now)
+        for k in coach_kpis
+        if k.metric in _MILESTONE_STAGE
+    }
+    milestones = (
+        await _milestone_snapshot(db, milestone_windows) if milestone_windows else {}
+    )
+
     results: list[KpiResult] = []
     for kpi_def in coach_kpis:
-        target = targets[kpi_def.kpi_id]
-        start, end = period_bounds(kpi_def.period, now)
-        current = await count_canonical_metric(
-            db,
-            user_id=user.id,
-            metric=kpi_def.metric,
-            since=start,
-            until=end,
+        target = target_on_workdays(
+            targets[kpi_def.kpi_id], kpi_def.period, now, absence
         )
-        ratio = expected_progress_ratio(kpi_def.period, now)
+        start, end = period_bounds(kpi_def.period, now)
+        if kpi_def.metric in _MILESTONE_STAGE:
+            current = milestones.get(
+                (user.id, _MILESTONE_STAGE[kpi_def.metric], kpi_def.period.value), 0
+            )
+        else:
+            current = await count_canonical_metric(
+                db,
+                user_id=user.id,
+                metric=kpi_def.metric,
+                since=start,
+                until=end,
+            )
+        ratio = expected_progress_ratio(kpi_def.period, now, days_off)
         state = derive_state(current=current, target=target, expected_ratio=ratio)
         progress = (current / target * 100.0) if target > 0 else 0.0
         hours_left = _hours_until_period_end(kpi_def.period, now)
@@ -373,6 +602,8 @@ async def evaluate_user_kpis(
                 progress_pct=progress,
                 state=state,
                 deadline_hours_left=hours_left,
+                short_title_pl=kpi_def.short_title_pl,
+                expected_count=target * ratio,
             )
         )
 
@@ -388,6 +619,8 @@ __all__ = [
     "evaluate_user_kpis",
     "expected_progress_ratio",
     "period_bounds",
+    "period_dates",
+    "target_on_workdays",
     "period_bucket_label",
     "resolve_target",
 ]

@@ -22,6 +22,8 @@ function field(key: string, label: string, extra: Partial<DocumentFieldDef> = {}
     options: [],
     show_if: null,
     group: "document",
+    lookup: null,
+    lookup_fills: [],
     ...extra,
   };
 }
@@ -36,6 +38,8 @@ const TYPE: DocumentTypeDef = {
   effect_label: "",
   signatories: "both",
   uses_refs: true,
+  allows_external: false,
+  legacy_languages: [],
   fields: [
     field("document_date", "Data dokumentu", { kind: "date", required: true, help: "Domyślnie dziś." }),
     field("gender", "Płeć Partnera", { kind: "gender", required: true, group: "partner" }),

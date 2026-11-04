@@ -12,8 +12,9 @@ czyta wyłącznie reguły zatwierdzone (``resolve_client_rule``), więc zasiane
 dopasowanie po nazwie klienta nie może wejść w życie bez decyzji człowieka.
 Własną regułę autor zatwierdza tym samym zapisem (``confirm=true``).
 
-Bramka zarządzania to centralne uprawnienie sekcji Delivery oraz resolver
-dostępu do konkretnego klienta. Admin i Delivery Lead mają zasięg globalny.
+Bramka zarządzania to sekcja Delivery oraz resolver dostępu do konkretnego
+klienta: zapis wymaga uprawnienia „Klienci: dodawanie i edycja” (domyślnie
+admin i Delivery Lead, obaj z zasięgiem globalnym — ``purpose="org"``).
 Pojedynczy odczyt
 reguły pozostaje dostępny z Pipeline dla rekrutera pracującego przy Jobie tego
 klienta — nadal przez ten sam resolver, nigdy organizacyjnie.
@@ -48,6 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.api.deps import OperationalUser
+from app.api.permission_access import require_permission
 from app.api.section_access import DeliverySectionUser
 from app.core.database import get_db
 from app.models.ai_feature import AIFeatureKey
@@ -59,11 +61,14 @@ from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.help_material import HelpMaterial
 from app.models.user import User
 from app.services.cv_generator_b2b.language_aliases import alias_catalog, resolve_alias
+from app.services.action_permissions import ProductAction
 from app.services.client_access import (
+    assert_client_assignable,
     deny,
     resolve_client_access,
     resolve_client_visible_client_ids,
 )
+from app.services.client_form_schema import CLIENT_DOCUMENTS, COMPANY_CV
 from app.services.ai_quota import (
     AIQuotaExceeded,
     QuotaState,
@@ -91,6 +96,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["client-cv-rules"])
 
+# Zapis reguły wymaga uprawnienia „Klienci: dodawanie i edycja”. Deklaruje je
+# TRASA (dekorator), nie parametr handlera: odmowa nazywa brakującą pozycję,
+# zanim sięgniemy do bazy — także wtedy, gdy zatrzymuje bramka sekcji —
+# a handlery zachowują sygnaturę (testy jednostkowe wołają je wprost).
+# U kogo wolno, rozstrzyga dalej ``_require_client_rule_access``.
+CLIENTS_EDIT_DEPENDENCIES = [Depends(require_permission(ProductAction.clients_edit))]
+
 # Slugi szablonów „Profil Championa — per klient" z migracji 0219. Ekran
 # weryfikacji pokazuje WSZYSTKIE czternaście, także te, dla których seed nie
 # stworzył wiersza (nazwa klienta wieloznaczna) — inaczej brakująca reguła
@@ -113,7 +125,8 @@ CHAMPION_SEED_KEYS: tuple[tuple[str, str], ...] = (
 )
 
 # Pola reguły objęte wersjonowaniem i diffem w historii. Kolejność = kolejność
-# w `changes`; flagi klienta (`cv_content_mode_cap`, `cv_interactive_enabled`)
+# w `changes`; flagi klienta (`cv_content_mode_cap`, `cv_interactive_enabled`,
+# `cv_client_document`)
 # są zapisywane NA KLIENCIE, ale w diffie idą razem — jeden ekran, jedna historia.
 RULE_FIELDS: tuple[str, ...] = (
     "filename_pattern",
@@ -140,8 +153,13 @@ RULE_FIELDS: tuple[str, ...] = (
     "glossary",
     "highlight_policy",
     "highlight_terms",
+    "cv_text_align",
 )
-CLIENT_FLAG_FIELDS: tuple[str, ...] = ("cv_content_mode_cap", "cv_interactive_enabled")
+CLIENT_FLAG_FIELDS: tuple[str, ...] = (
+    "cv_content_mode_cap",
+    "cv_interactive_enabled",
+    "cv_client_document",
+)
 
 # Prefiksy ostrzeżeń, którymi model zgłasza pominiętą instrukcję klienta
 # (prompt PL/EN) — sygnał zwrotny dla DL liczy je per instrukcja.
@@ -176,6 +194,7 @@ class ClientCvRulePayload(BaseModel):
         "none", "technologies", "must", "must_nice", "explicit"
     ] = "technologies"
     highlight_terms: list[str] = Field(default_factory=list, max_length=50)
+    cv_text_align: Literal["justify", "left"] = "justify"
 
     @model_validator(mode="after")
     def _explicit_highlights_for_publication(self) -> "ClientCvRulePayload":
@@ -235,6 +254,9 @@ class ClientCvRulePayload(BaseModel):
     # link i sufit działały bez zmian — a Delivery Lead miał jeden ekran.
     cv_content_mode_cap: Optional[str] = None
     cv_interactive_enabled: Optional[bool] = None
+    # Co idzie do klienta: CV firmowe albo formularz klienta z Plików
+    # rekrutacji (0521, ``client_form_schema.py``).
+    cv_client_document: Optional[str] = None
     # Zatwierdź tym samym zapisem. Osobne kliknięcie „Zatwierdź" chroniło
     # PROPOZYCJE z seeda (dopasowane po nazwie, więc możliwie błędne). Reguła,
     # którą Delivery Lead właśnie wpisał ręcznie, JEST jego decyzją.
@@ -257,6 +279,17 @@ class ClientCvRulePayload(BaseModel):
         if value not in CONTENT_MODES:
             raise ValueError(
                 "Tryb obróbki treści może być tylko: " + ", ".join(CONTENT_MODES) + "."
+            )
+        return value
+
+    @field_validator("cv_client_document")
+    @classmethod
+    def _known_client_document(cls, value: Optional[str]) -> Optional[str]:
+        if value in (None, ""):
+            return None
+        if value not in CLIENT_DOCUMENTS:
+            raise ValueError(
+                "Dokument do klienta może być tylko: CV firmowe albo formularz klienta."
             )
         return value
 
@@ -339,6 +372,7 @@ class ClientCvRuleRead(BaseModel):
     glossary_options: list[dict[str, str]] = Field(default_factory=alias_catalog)
     highlight_policy: str = "technologies"
     highlight_terms: list[str] = Field(default_factory=list)
+    cv_text_align: str = "justify"
     edit_revision: int = 0
     draft_payload: Optional[dict[str, Any]] = None
     client_id: int
@@ -369,6 +403,7 @@ class ClientCvRuleRead(BaseModel):
     # Flagi z karty klienta — prowadzone z tego samego ekranu.
     cv_content_mode_cap: Optional[str] = None
     cv_interactive_enabled: bool = True
+    cv_client_document: str = COMPANY_CV
     seed_key: Optional[str] = None
     confirmed_at: Optional[str] = None
     confirmed_by_name: Optional[str] = None
@@ -509,6 +544,7 @@ def _to_read(
     flags = {
         "cv_content_mode_cap": getattr(client, "cv_content_mode_cap", None),
         "cv_interactive_enabled": bool(getattr(client, "cv_interactive_enabled", True)),
+        "cv_client_document": getattr(client, "cv_client_document", None) or COMPANY_CV,
     }
     if rule is None:
         return ClientCvRuleRead(
@@ -550,6 +586,7 @@ def _to_read(
         version=int(rule.version or 1),
         highlight_policy=rule.highlight_policy or "technologies",
         highlight_terms=list(rule.highlight_terms or []),
+        cv_text_align=rule.cv_text_align or "justify",
         edit_revision=int(rule.edit_revision or 1),
         draft_payload=rule.draft_payload,
         seed_key=rule.seed_key,
@@ -568,6 +605,18 @@ async def _client_or_404(db: AsyncSession, client_id: int) -> Client:
     client = await db.get(Client, client_id)
     if client is None:
         raise HTTPException(status_code=404, detail="Klient nie został znaleziony.")
+    return client
+
+
+async def _writable_client_or_404(db: AsyncSession, client_id: int) -> Client:
+    """Klient, któremu wolno zapisać regułę CV.
+
+    Runda 9 (R9-N4-7): reguła zapisana klientowi usuniętemu albo scalonemu
+    nie działa nigdzie (brak żywych rekrutacji, profil ukryty), a scalony
+    rekord główny zostawał bez reguły. 422 z nazwą rekordu głównego.
+    """
+    client = await _client_or_404(db, client_id)
+    await assert_client_assignable(db, client.id)
     return client
 
 
@@ -602,18 +651,26 @@ async def _require_client_rule_access(
     client_id: int,
     *,
     write: bool,
+    central_lock: bool = True,
 ) -> None:
-    """Enforce the authoritative client graph below the section ceiling."""
+    """Enforce the authoritative client graph below the section ceiling.
+
+    ``central_lock=False`` — zapis spoza katalogu zasad centralnych (wzór
+    „Karty przed CV”, ``cover_sheets.py``): katalog go nie prowadzi, więc
+    blokada zasad centralnych go nie dotyczy; graf klienta tak.
+    """
 
     from app.services.cv_generator_b2b import central_policies
 
-    if write and central_policies.enabled():
+    if write and central_lock and central_policies.enabled():
         raise HTTPException(403, "Reguły CV są zarządzane centralnie w backendzie.")
-    access = await resolve_client_access(db, user, client_id)
+    access = await resolve_client_access(db, user, client_id, purpose="org")
     allowed = access.can_edit_knowledge if write else access.can_view_knowledge
     if not allowed:
-        action = "edycja" if write else "odczyt"
-        raise deny(f"{action} reguł CV klienta jest niedozwolony")
+        if write:
+            # Brak „Klienci: dodawanie i edycja” — odmowa nazywa uprawnienie.
+            raise access.edit_denial("edycja reguł CV klienta jest niedozwolona")
+        raise deny("odczyt reguł CV klienta jest niedozwolony")
 
 
 def _client_label(client: Client) -> str:
@@ -637,9 +694,12 @@ def _rule_state(rule: Optional[ClientCvRule], client: Client) -> dict[str, Any]:
             value = list(value or [])
         if field == "highlight_policy":
             value = value or "technologies"
+        if field == "cv_text_align":
+            value = value or "justify"
         state[field] = value
     for field in CLIENT_FLAG_FIELDS:
         state[field] = getattr(client, field, None)
+    state["cv_client_document"] = state["cv_client_document"] or COMPANY_CV
     return state
 
 
@@ -691,6 +751,7 @@ def _record_event(
 def _apply_payload(rule: ClientCvRule, payload: ClientCvRulePayload) -> None:
     rule.highlight_policy = payload.highlight_policy
     rule.highlight_terms = list(payload.highlight_terms) or None
+    rule.cv_text_align = payload.cv_text_align
     rule.filename_pattern = payload.filename_pattern
     rule.spaces_to_underscores = payload.spaces_to_underscores
     rule.cv_language = payload.cv_language
@@ -735,6 +796,30 @@ def _validated_recipe(
         ) from error
 
 
+def _restorable_recipe(recipe: dict[str, Any] | None) -> dict[str, Any]:
+    """Recepta opublikowanej wersji w kształcie formularza edycji.
+
+    Publikacja z centralnego katalogu (`central_policies.recipe_for`) zapisuje
+    `None` dla pól listowych (`omit_sections`, `glossary`, `highlight_terms`)
+    i dokłada metadane `managed_policy`. `ClientCvRulePayload` odrzucał to
+    jako „Input should be a valid list”, więc przywrócenie każdej wersji
+    opublikowanej centralnie kończyło się 422 (audyt 25.09.2026, r3). `None`
+    w polu z wartością domyślną inną niż `None` znaczy „brak” — bierzemy
+    wartość domyślną.
+    """
+    out: dict[str, Any] = {}
+    for key, value in (recipe or {}).items():
+        field = ClientCvRulePayload.model_fields.get(key)
+        if field is None:
+            continue  # metadane (`managed_policy`) — nie są polem reguły
+        if value is None and (
+            field.default_factory is not None or field.default is not None
+        ):
+            continue
+        out[key] = value
+    return out
+
+
 def _editable_rule(rule: ClientCvRule | None) -> ClientCvRule | None:
     if rule is None or not rule.draft_payload:
         return rule
@@ -772,6 +857,10 @@ def _recipe_payload(payload: ClientCvRulePayload, client: Client) -> dict[str, A
         recipe["cv_content_mode_cap"] = client.cv_content_mode_cap
     if payload.cv_interactive_enabled is None:
         recipe["cv_interactive_enabled"] = bool(client.cv_interactive_enabled)
+    if payload.cv_client_document is None:
+        recipe["cv_client_document"] = (
+            getattr(client, "cv_client_document", None) or COMPANY_CV
+        )
     return recipe
 
 
@@ -879,7 +968,11 @@ async def get_client_cv_rule(
     )
 
 
-@router.put("/clients/{client_id}/cv-rule", response_model=ClientCvRuleRead)
+@router.put(
+    "/clients/{client_id}/cv-rule",
+    response_model=ClientCvRuleRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def upsert_client_cv_rule(
     client_id: int,
     payload: ClientCvRulePayload,
@@ -887,7 +980,7 @@ async def upsert_client_cv_rule(
     db: AsyncSession = Depends(get_db),
 ) -> ClientCvRuleRead:
     """Save an independent draft, or atomically publish the complete recipe."""
-    client = await _client_or_404(db, client_id)
+    client = await _writable_client_or_404(db, client_id)
     await _require_client_rule_access(db, current_user, client.id, write=True)
     rule = await _lock_rule_edit(db, client, payload.expected_revision)
     rule = await _store_recipe(db, client, rule, payload, current_user)
@@ -900,7 +993,11 @@ async def upsert_client_cv_rule(
     )
 
 
-@router.post("/clients/{client_id}/cv-rule/confirm", response_model=ClientCvRuleRead)
+@router.post(
+    "/clients/{client_id}/cv-rule/confirm",
+    response_model=ClientCvRuleRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def confirm_client_cv_rule(
     client_id: int,
     current_user: DeliverySectionUser,
@@ -908,7 +1005,7 @@ async def confirm_client_cv_rule(
     expected_revision: Optional[int] = Query(None, ge=0),
 ) -> ClientCvRuleRead:
     """Publish the saved draft and its client flags as one version."""
-    client = await _client_or_404(db, client_id)
+    client = await _writable_client_or_404(db, client_id)
     await _require_client_rule_access(db, current_user, client.id, write=True)
     rule = await _lock_rule_edit(db, client, expected_revision)
     if rule is None:
@@ -928,7 +1025,11 @@ async def confirm_client_cv_rule(
     )
 
 
-@router.delete("/clients/{client_id}/cv-rule", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/clients/{client_id}/cv-rule",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def delete_client_cv_rule(
     client_id: int,
     current_user: DeliverySectionUser,
@@ -952,11 +1053,16 @@ async def delete_client_cv_rule(
                     "from": client.cv_interactive_enabled,
                     "to": True,
                 },
+                "cv_client_document": {
+                    "from": getattr(client, "cv_client_document", None) or COMPANY_CV,
+                    "to": COMPANY_CV,
+                },
             },
             actor=current_user,
         )
         client.cv_content_mode_cap = None
         client.cv_interactive_enabled = True
+        client.cv_client_document = COMPANY_CV
         client.cv_rule_edit_revision = (
             max(
                 int(rule.edit_revision or 0),
@@ -971,6 +1077,7 @@ async def delete_client_cv_rule(
 @router.post(
     "/clients/{client_id}/cv-rule/copy-from/{source_client_id}",
     response_model=ClientCvRuleRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
 )
 async def copy_client_cv_rule(
     client_id: int,
@@ -991,7 +1098,7 @@ async def copy_client_cv_rule(
         raise HTTPException(
             status_code=422, detail="Wskaż innego klienta niż docelowy."
         )
-    client = await _client_or_404(db, client_id)
+    client = await _writable_client_or_404(db, client_id)
     await _require_client_rule_access(db, current_user, client.id, write=True)
     source_client = await _client_or_404(db, source_client_id)
     await _require_client_rule_access(db, current_user, source_client.id, write=False)
@@ -1041,6 +1148,7 @@ async def list_cv_rule_versions(
 @router.post(
     "/clients/{client_id}/cv-rule/versions/{version}/restore",
     response_model=ClientCvRuleRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
 )
 async def restore_cv_rule_version(
     client_id: int,
@@ -1050,7 +1158,7 @@ async def restore_cv_rule_version(
     expected_revision: Optional[int] = Query(None, ge=0),
 ) -> ClientCvRuleRead:
     """Restore an immutable publication into a draft, never silently activate it."""
-    client = await _client_or_404(db, client_id)
+    client = await _writable_client_or_404(db, client_id)
     await _require_client_rule_access(db, current_user, client_id, write=True)
     rule = await _lock_rule_edit(db, client, expected_revision)
     publication = await db.get(ClientCvRulePublication, (client_id, version))
@@ -1058,7 +1166,7 @@ async def restore_cv_rule_version(
         raise HTTPException(
             status_code=404, detail="Nie znaleziono opublikowanej wersji."
         )
-    payload = _validated_recipe(publication.recipe)
+    payload = _validated_recipe(_restorable_recipe(publication.recipe))
     rule = await _store_recipe(
         db,
         client,
@@ -1189,7 +1297,11 @@ async def client_cv_rule_feedback(
     )
 
 
-@router.post("/clients/{client_id}/cv-rule/lint", response_model=LintResponse)
+@router.post(
+    "/clients/{client_id}/cv-rule/lint",
+    response_model=LintResponse,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def lint_client_cv_rule(
     client_id: int,
     payload: LintRequest,
@@ -1338,7 +1450,9 @@ async def cv_rules_overview(
     """
     seed_labels = dict(CHAMPION_SEED_KEYS)
     seed_keys = list(seed_labels)
-    visible_client_ids = await resolve_client_visible_client_ids(db, current_user)
+    visible_client_ids = await resolve_client_visible_client_ids(
+        db, current_user, purpose="org"
+    )
 
     confirmed_by_user = aliased(User)
     rules_stmt = (

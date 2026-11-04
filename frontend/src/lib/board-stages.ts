@@ -16,8 +16,8 @@
  *   QC CV                    → „QC CV" (gospodarz kolumny, bez znacznika)
  *   Wysłać do Cpro           → „QC CV" + „W kolejce Cpro" (Nordea)
  *   Preparation Meeting      → „Rozmowa u klienta" + „Prep"
- *   Akceptacja               → „Umowa" + „Akceptacja"
- *   Umowa wysłana/podpisana  → „Umowa" + „wysłana"/„podpisana"
+ *   Akceptacja               → „Akceptacja i umowa" + „Akceptacja"
+ *   Umowa wysłana/podpisana  → „Akceptacja i umowa" + „wysłana"/„podpisana"
  *   Onboarding               → „Zatrudniony" + „Onboarding"
  *   Odrzucony, Wycofany      → pasek pod tablicą
  *
@@ -66,7 +66,9 @@ export const BOARD_COLUMN_LABEL: Record<BoardColumnKey, string> = {
   cv_qc: "QC CV",
   cv_sent: "CV wysłane",
   client_interview: "Rozmowa u klienta",
-  contract: "Umowa",
+  // 16.10.2026 (D2): do tej kolumny trafia osoba zaakceptowana przez klienta
+  // („Klient zaakceptował”) — sama „Umowa” nie mówiła, że tu jest akceptacja.
+  contract: "Akceptacja i umowa",
   hired: "Zatrudniony",
   closed: "Zamknięci",
 };
@@ -75,8 +77,14 @@ export const BOARD_COLUMN_LABEL: Record<BoardColumnKey, string> = {
  *  22.09.2026) — ta sama kolumna, inna nazwa. */
 export const CPRO_SENT_COLUMN_LABEL = "Wysłane do Cpro";
 
+/** U Nordei kolejka osoby od Cpro („Wysłać do Cpro”) to osobna kolumna
+ *  zaraz po „QC CV” — wcześniej siedziała w „QC CV” jako znacznik i DL-e
+ *  odkładali karty na „QC CV”, myśląc, że trafiają do osoby od Cpro. */
+export const CPRO_QUEUE_COLUMN_LABEL = "Do Cpro";
+
 export interface FoldBoardOptions {
-  /** Rekrutacja Nordei (`job.cpro_enabled`): „CV wysłane" → „Wysłane do Cpro". */
+  /** Rekrutacja Nordei (`job.cpro_enabled`): „CV wysłane" → „Wysłane do Cpro",
+   *  a kolejka Cpro to własna kolumna „Do Cpro". */
   cproEnabled?: boolean;
 }
 
@@ -90,6 +98,15 @@ export function boardColumnStep(key: BoardColumnKey | null | undefined): number 
   if (!key) return null;
   const at = BOARD_COLUMN_ORDER.indexOf(key);
   return at < 0 ? null : at + 1;
+}
+
+/**
+ * Osoba jest już u klienta: „CV wysłane” i dalsze kolumny (rozmowa, umowa,
+ * zatrudniony). Zamknięci (`closed`) nie — z kolumny nie wynika, czy CV wyszło.
+ */
+export function isAtClientColumn(key: BoardColumnKey | null | undefined): boolean {
+  const step = boardColumnStep(key);
+  return step != null && step >= BOARD_COLUMN_ORDER.indexOf("cv_sent") + 1;
 }
 
 export const STAGE_BADGE_LABEL: Record<StageBadgeKey, string> = {
@@ -169,6 +186,11 @@ const BY_ENUM: Record<string, BoardColumnKey> = {
   withdrawn: "closed",
 };
 
+/** Etap z bazy (enum) → kolumna Tablicy; nieznany etap = `null`. */
+export function boardColumnForEnum(stage: string): BoardColumnKey | null {
+  return BY_ENUM[stage] ?? null;
+}
+
 /** Etap szablonu → kolumna Tablicy i znacznik (bez znacznika = `null`). */
 export function placeStage(col: StageLike): StagePlacement {
   const raw = col.label ?? col.name ?? "";
@@ -202,8 +224,29 @@ export function placeStage(col: StageLike): StagePlacement {
 }
 
 export interface FoldableColumn extends StageLike {
-  items: ReadonlyArray<{ id: number }>;
+  items: ReadonlyArray<{ id: number; moved_at?: string | null }>;
   count: number;
+}
+
+function movedAtMs(item: { moved_at?: string | null }): number {
+  const ms = item.moved_at ? Date.parse(item.moved_at) : NaN;
+  return Number.isNaN(ms) ? -Infinity : ms;
+}
+
+/**
+ * Kolejność kart w kolumnie Tablicy — ten sam klucz co serwer
+ * (`_newest_first` w `api/pipeline.py`): najświeższe wejście na etap na
+ * górze, remis czasu → wyższy numer karty. Karta bez czasu stoi pod kartami
+ * z czasem, w kolejności z serwera (ticket rekrutera 15.10.2026).
+ */
+export function compareNewestFirst(
+  a: { id: number; moved_at?: string | null },
+  b: { id: number; moved_at?: string | null },
+): number {
+  const ta = movedAtMs(a);
+  const tb = movedAtMs(b);
+  if (ta === tb) return ta === -Infinity ? 0 : b.id - a.id;
+  return tb > ta ? 1 : -1;
 }
 
 export interface BoardColumnFold<C extends FoldableColumn> {
@@ -215,9 +258,11 @@ export interface BoardColumnFold<C extends FoldableColumn> {
   host: C;
   /** Wszystkie kolumny szablonu wpadające do tej kolumny Tablicy. */
   members: C[];
-  /** Karty w kolejności kolumn szablonu (host pierwszy). */
+  /** Karty wszystkich etapów kolumny od najświeższego wejścia na etap (`compareNewestFirst`). */
   items: C["items"][number][];
   count: number;
+  /** Nordea: kolumna kolejki Cpro (klucz `cv_qc`, osobny nagłówek). */
+  cproQueue?: boolean;
 }
 
 const CANONICAL_ENUM: Partial<Record<BoardColumnKey, string>> = {
@@ -254,7 +299,7 @@ export function foldBoardColumns<C extends FoldableColumn>(
   const folds: BoardColumnFold<C>[] = [];
   const hostByKey = new Map<BoardColumnKey, BoardColumnFold<C>>();
   const foldByBaseName = new Map<string, BoardColumnFold<C>>();
-  const pendingBadged: Array<{ col: C; key: BoardColumnKey }> = [];
+  const pendingBadged: Array<{ col: C; key: BoardColumnKey; badge: StageBadgeKey }> = [];
   let seenNew = false;
 
   for (const col of columns) {
@@ -265,7 +310,7 @@ export function foldBoardColumns<C extends FoldableColumn>(
       continue;
     }
     if (badge) {
-      pendingBadged.push({ col, key: column });
+      pendingBadged.push({ col, key: column, badge });
       continue;
     }
     const duplicate = foldByBaseName.get(baseName(col));
@@ -303,21 +348,24 @@ export function foldBoardColumns<C extends FoldableColumn>(
 
   // Etap-odznaka dołącza do kolumny swojego znaczenia; gdy szablon jej nie
   // ma, zostaje własną kolumną (nie znika).
-  for (const { col, key } of pendingBadged) {
+  // Wyjątek: u Nordei kolejka Cpro to własna kolumna „Do Cpro” (26.10.2026).
+  for (const { col, key, badge } of pendingBadged) {
     const host = hostByKey.get(key);
-    if (host) {
+    const ownCproColumn = options.cproEnabled === true && badge === "cpro";
+    if (host && !ownCproColumn) {
       host.members.push(col);
       continue;
     }
     const fold: BoardColumnFold<C> = {
       key,
-      label: boardColumnLabel(key, options),
+      label: ownCproColumn ? CPRO_QUEUE_COLUMN_LABEL : boardColumnLabel(key, options),
       host: col,
       members: [col],
       items: [],
       count: 0,
+      ...(ownCproColumn ? { cproQueue: true } : {}),
     };
-    hostByKey.set(key, fold);
+    if (!ownCproColumn) hostByKey.set(key, fold);
     // Wstaw w kolejności szablonu (przed pierwszą kolumną, która stoi dalej).
     const order = columns.indexOf(col);
     const at = folds.findIndex((f) => columns.indexOf(f.host) > order);
@@ -329,7 +377,7 @@ export function foldBoardColumns<C extends FoldableColumn>(
     fold.members.sort((a, b) => columns.indexOf(a) - columns.indexOf(b));
     // Gospodarz na początek: to on jest celem upuszczenia.
     fold.members = [fold.host, ...fold.members.filter((m) => m !== fold.host)];
-    fold.items = fold.members.flatMap((c) => [...c.items]);
+    fold.items = fold.members.flatMap((c) => [...c.items]).sort(compareNewestFirst);
     fold.count = fold.members.reduce((sum, c) => sum + c.count, 0);
   }
   return { columns: folds, closed, badgeByItemId };
@@ -337,11 +385,11 @@ export function foldBoardColumns<C extends FoldableColumn>(
 
 /**
  * Znaczniki, które da się ustawić z panelu osoby: etap-znacznik z tej samej
- * kolumny Tablicy (ruch na ten etap). Od Rekrutacji v5 zostaje tylko
- * „Umowa podpisana" — Cpro ustawia się strzałką „Przesuń dalej" →
- * „Przekaż do Cpro", a DZ stał się kolumną „QC CV".
+ * kolumny Tablicy (ruch na ten etap). Od Rekrutacji v5 zostają kroki umowy
+ * („Umowa wysłana” od 16.10.2026, „Umowa podpisana”) — Cpro ustawia się
+ * strzałką „Przesuń dalej" → „Przekaż do Cpro", a DZ stał się kolumną „QC CV".
  */
-export const SETTABLE_BADGES: readonly StageBadgeKey[] = ["contract_signed"];
+export const SETTABLE_BADGES: readonly StageBadgeKey[] = ["contract_sent", "contract_signed"];
 
 /** Znaczniki widoczne na karcie dla etapu-znacznika. */
 export function impliedBadges(badge: StageBadgeKey | null | undefined): StageBadgeKey[] {

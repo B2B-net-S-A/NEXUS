@@ -1,610 +1,572 @@
 "use client";
 
 /**
- * Zakładka „Profil” (domyślna). Kolumna główna: jedna karta AI
- * („Podsumowanie”), wiersz CV, umiejętności, doświadczenie i zwinięte
- * „Edukacja, certyfikaty i szczegóły”. Prawa kolumna: „W procesie”
- * i „Ostatnia aktywność”.
+ * Zakładka „Przegląd” (domyślna). Od 13.10.2026 (decyzja E2) odpowiada na
+ * pytanie „kim jest i co trzeba zrobić” — do tej pory była kopią procesów
+ * z „Rekrutacji” i przy osobie bez procesu prawie pusta:
  *
- * Fakty z nagłówka (lokalizacja, dostępność, stawka, języki) NIE są tu
- * powtarzane — mają jedno miejsce: pasek faktów pod nagłówkiem.
+ * - „W skrócie” (karta AI albo opis z CV) i „Ostatnio” (3 ostatnie stanowiska),
+ * - 8 głównych umiejętności (wszystkie w zakładce „CV”),
+ * - „Do zrobienia” — zaległy telefon po ciszy klienta i TYLKO procesy, w których
+ *   ruch jest po naszej stronie (pełna lista procesów: „Rekrutacje”),
+ * - pasek „Z nami” (w toku, zakończone, ostatnia rozmowa, próby kontaktu,
+ *   w bazie od),
+ * - „Ostatnia rozmowa” zwinięta do 3 linii.
+ *
+ * Fakty do propozycji (dostępność, stawka, praca, języki) stoją w karcie
+ * „Do propozycji” w lewej kolumnie — tu ich nie powtarzamy.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  FileText,
-  GraduationCap,
-  Link2,
-  Sparkles,
-} from "lucide-react";
+import { ArrowRight, ChevronDown, MessageSquare, PhoneCall } from "lucide-react";
 
-import api from "@/lib/api";
-import { useToast } from "@/components/Toast";
+import { skillsApi } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ExpandableText } from "@/components/v2/ExpandableText";
-import { LinkedinSyncPanel } from "@/components/v2/LinkedinSyncPanel";
-import {
-  CvRichProfileSections,
-  CvTechnologyChips,
-} from "@/components/candidates/CvRichProfileSections";
-import { CandidateEngagementPanel } from "@/components/candidates/CandidateEngagementPanel";
-import { CandidateLocationPanel } from "@/components/candidates/CandidateLocationPanel";
-import { CandidateSourcesPanel } from "@/components/candidates/CandidateSourcesPanel";
-import { CvReparseAction } from "@/components/candidates/CvReparseAction";
-import {
-  FilePreviewModal,
-  downloadDocumentBlob,
-  type CandidateDocument,
-} from "@/components/v2/files/FilePreviewModal";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CandidateActivitySummaryCard } from "@/components/v2/pages/CandidateActivitySummaryCard";
-import { CandidateNotesFactsCard } from "@/components/v2/pages/CandidateNotesFactsCard";
-import { CandidateRecentRecruitmentsCard } from "@/components/v2/pages/CandidateRecentRecruitmentsCard";
+import { formatExperienceDate } from "@/components/v2/pages/candidate-profile-helpers";
+import { CandidateFollowupDialog } from "@/components/v2/followups/CandidateFollowupDialog";
+import { candidateStageLabel } from "@/components/v2/pages/candidate-timeline-labels";
+import { useCandidateFollowup } from "@/lib/api/candidateFollowups";
+import { addedToBaseView, type AddedToBaseView } from "@/lib/added-to-base";
+import { candidateOrigin, originSummary, type CandidateOrigin } from "@/lib/candidate-origin";
 import {
-  formatEducationYears,
-  formatExperienceDate,
-  getCvProjectionNotice,
-  getEducationList,
-  getExperienceDetails,
-  getRichCvProfile,
-} from "@/components/v2/pages/candidate-profile-helpers";
-import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+  followupDueLabel,
+  followupTone,
+  shortPersonName,
+} from "@/lib/candidate-followup";
+import {
+  daysSince,
+  latestTalkNote,
+  nextActionOwnerLabel,
+  recentRoles,
+  recruitmentsAwaitingUs,
+} from "@/lib/candidate-overview";
+import { collapsedNotePreview, noteDateLabel } from "@/lib/candidate-notes-view";
+import { pluralPl } from "@/lib/plural-pl";
+import { recruitmentOutcome, recruitmentStageLabel } from "@/lib/recruitment-stage-label";
+import { displaySkills, skillDictionaryIndex } from "@/lib/skill-display";
 import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
-import { JDGPanel } from "./JdgPanel";
-import { RecentActivityList } from "./Timeline";
-import { screeningConfirmedSkills } from "./profile-helpers";
-import { SectionHeading } from "./profile-shared";
+import {
+  candidateBoardHref,
+  screeningConfirmedSkills,
+  splitRecruitments,
+} from "./profile-helpers";
+import { SectionError, SectionHeading, unwrapNoteContent } from "./profile-shared";
 
-/* eslint-disable @typescript-eslint/no-explicit-any -- payload kandydata jest luźno typowany (importy Traffit, CV) */
-
-const SKILL_LEVEL_VARIANT: Record<string, "burgundy" | "success" | "warning" | "neutral"> = {
-  expert: "burgundy",
-  senior: "success",
-  mid: "warning",
-  junior: "neutral",
-};
+/* eslint-disable @typescript-eslint/no-explicit-any -- payload historii i notatek jest luźno typowany */
 
 export type ProfileNavigate = (
   target:
     | { section: "recruitments" }
-    | { section: "activity" }
+    | { section: "activity"; noteId?: number; activity?: "contact" }
+    | { section: "cv" }
     | { section: "documents" },
 ) => void;
 
 export interface ProfileTabProps {
   candidate: any;
   readOnly: boolean;
-  embedded?: boolean;
-  recentActivity: { items: any[]; isPending: boolean };
+  /** `/history` — te same dane co zakładka Rekrutacje. */
+  recruitments: {
+    items: any[];
+    isPending: boolean;
+    isError: boolean;
+    refetch: () => void;
+  };
+  /** `/api/notes?candidate_id=` — ten sam klucz co lista w zakładce „Notatki”. */
+  notes: {
+    items: any[];
+    groupCounts?: Record<string, number> | null;
+    isPending: boolean;
+    isError: boolean;
+    refetch: () => void;
+  };
   onNavigate: ProfileNavigate;
-  /** Otwiera okno generatora CV. Brak = brak prawa zapisu. */
-  onGenerateCv?: () => void;
-  /** >0 = rozwiń szczegóły i przewiń do „Dane do umowy” (z zakładki Umowy). */
-  jdgFocusRequest?: number;
-  onJdgFocusHandled?: () => void;
 }
 
-export function ProfileTab({
-  candidate,
-  readOnly,
-  embedded = false,
-  recentActivity,
-  onNavigate,
-  onGenerateCv,
-  jdgFocusRequest = 0,
-  onJdgFocusHandled,
-}: ProfileTabProps) {
-  return (
-    <div
-      className={cn(
-        "grid items-start gap-5",
-        !embedded && "@4xl:grid-cols-[minmax(0,1fr)_320px]",
-      )}
-    >
-      <div className="min-w-0 space-y-6">
-        <CandidateActivitySummaryCard
-          candidateId={candidate.id}
-          cvSummary={candidate.ai_summary ?? null}
-          title="Podsumowanie"
-        />
-        <CandidateNotesFactsCard candidateId={candidate.id} readOnly={readOnly} />
-        <CvRow
-          candidate={candidate}
-          readOnly={readOnly}
-          onGenerateCv={onGenerateCv}
-          onOpenFiles={() => onNavigate({ section: "documents" })}
-        />
-        <SkillsSection candidate={candidate} />
-        <ExperienceSection candidate={candidate} />
-        <DetailsSection
-          candidate={candidate}
-          readOnly={readOnly}
-          jdgFocusRequest={jdgFocusRequest}
-          onJdgFocusHandled={onJdgFocusHandled}
-        />
-      </div>
+/** Ile umiejętności na Przeglądzie — reszta w zakładce „CV”. */
+const OVERVIEW_SKILLS = 8;
+/** Ile procesów w „Do zrobienia” — reszta w „Rekrutacjach”. */
+const OVERVIEW_TODO = 3;
 
-      <aside
-        className={cn("space-y-4", !embedded && "@4xl:sticky @4xl:top-4")}
-        aria-label="Kontekst profilu kandydata"
-      >
-        <CandidateRecentRecruitmentsCard
-          candidateId={candidate.id}
-          title="Ostatnie rekrutacje"
-          onShowAll={() => onNavigate({ section: "recruitments" })}
+export function ProfileTab({ candidate, readOnly, recruitments, notes, onNavigate }: ProfileTabProps) {
+  return (
+    <div className="min-w-0 space-y-6">
+      <div className="grid min-w-0 gap-4 @2xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+        <CandidateActivitySummaryCard
+          candidateId={Number(candidate.id)}
+          cvSummary={candidate.ai_summary ?? null}
+          variant="compact"
         />
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-2">
-              <CardTitle>Ostatnia aktywność</CardTitle>
-              <button
-                type="button"
-                onClick={() => onNavigate({ section: "activity" })}
-                className="inline-flex min-h-9 items-center px-1 text-xs font-medium text-primary hover:underline"
-              >
-                Historia →
-              </button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {recentActivity.isPending ? (
-              <p className="text-sm text-muted-foreground">Ładowanie…</p>
-            ) : (
-              <RecentActivityList items={recentActivity.items.slice(0, 2)} />
-            )}
-          </CardContent>
-        </Card>
-      </aside>
+        <RecentRolesSection candidate={candidate} onNavigate={onNavigate} />
+      </div>
+      <TopSkillsSection candidate={candidate} onNavigate={onNavigate} />
+      <NowSection
+        candidateId={Number(candidate.id)}
+        readOnly={readOnly}
+        recruitments={recruitments}
+        onNavigate={onNavigate}
+      />
+      <WithUsStrip candidate={candidate} recruitments={recruitments} notes={notes} onNavigate={onNavigate} />
+      <LastTalkSection notes={notes} onNavigate={onNavigate} />
     </div>
   );
 }
 
-/** Wiersz CV: plik, data, podgląd, generator CV, ponowny odczyt. */
-function CvRow({
+function RecentRolesSection({
   candidate,
-  readOnly,
-  onGenerateCv,
-  onOpenFiles,
+  onNavigate,
 }: {
   candidate: any;
-  readOnly: boolean;
-  onGenerateCv?: () => void;
-  onOpenFiles: () => void;
+  onNavigate: ProfileNavigate;
 }) {
-  const { showError } = useToast();
-  // Podgląd w modalu (PDF/DOCX/obraz) zamiast pobierania — przeglądarka nie
-  // renderuje DOCX inline, więc `window.open` wymuszał download.
-  const { data: cvDocs } = useQuery<CandidateDocument[]>({
-    queryKey: candidateQueryKeys.cvDocuments(candidate.id),
-    queryFn: async () => {
-      const res = await api.get<CandidateDocument[]>(
-        `/api/candidates/${candidate.id}/documents?kind=cv`,
-      );
-      return res.data;
-    },
-    enabled: !!candidate.id,
-    staleTime: 30_000,
-  });
-  const [previewDoc, setPreviewDoc] = useState<CandidateDocument | null>(null);
-  const openCv = () => {
-    const docs = cvDocs ?? [];
-    const primary =
-      docs.find((d) => d.is_primary) ??
-      docs.find((d) => d.filename === candidate.cv_filename) ??
-      docs[0];
-    if (primary) setPreviewDoc(primary);
-    else onOpenFiles();
-  };
-  const notice = getCvProjectionNotice(candidate);
-
+  const roles = useMemo(
+    () => recentRoles(candidate.experience, formatExperienceDate),
+    [candidate.experience],
+  );
+  if (roles.length === 0) return null;
   return (
-    <section aria-label="CV kandydata">
-      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-background/40 p-3">
-        <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
-        <div className="min-w-0 flex-1">
-          {candidate.cv_filename ? (
-            <>
-              <div className="truncate text-sm font-medium text-foreground">
-                {candidate.cv_filename}
-              </div>
-              {candidate.cv_parsed_at ? (
-                <div className="text-[11px] text-muted-foreground">
-                  Odczytane {formatRelativeTime(candidate.cv_parsed_at)}
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <span className="text-sm text-muted-foreground">Brak CV w profilu</span>
-          )}
-        </div>
-        {candidate.cv_filename ? (
-          <Button size="sm" variant="outline" onClick={openCv}>
-            Podgląd
-          </Button>
-        ) : (
-          <Button size="sm" variant="ghost" onClick={onOpenFiles}>
-            Pliki →
-          </Button>
-        )}
-        {!readOnly && onGenerateCv ? (
-          <Button size="sm" variant="outline" onClick={onGenerateCv}>
-            <Sparkles className="h-3.5 w-3.5" />
-            Generuj CV
-          </Button>
-        ) : null}
-      </div>
-      {notice ? (
-        <p
-          role="status"
-          className={cn(
-            "mt-2 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs",
-            notice.tone === "warning"
-              ? "border-warning/30 bg-warning-muted text-warning-muted-foreground"
-              : "border-border bg-muted/40 text-muted-foreground",
-          )}
-        >
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span className="space-y-2">
-            <span className="block">{notice.text}</span>
-            {notice.kind === "not_parsed" && !readOnly ? (
-              <CvReparseAction candidateId={candidate.id} />
-            ) : null}
-          </span>
-        </p>
-      ) : null}
-      <FilePreviewModal
-        documents={cvDocs ?? []}
-        initialDocumentId={previewDoc?.id ?? null}
-        candidateId={candidate.id}
-        onClose={() => setPreviewDoc(null)}
-        onDownload={(d) =>
-          downloadDocumentBlob(candidate.id, d).catch(() =>
-            showError("Nie udało się pobrać pliku."),
-          )
-        }
-      />
-    </section>
-  );
-}
-
-/**
- * Umiejętności z CV z zaznaczeniem potwierdzonych na screeningu (profil
- * `verified_tech` + agregat screeningów). Potwierdzona technologia spoza CV
- * dostaje własny chip — nie może zniknąć tylko dlatego, że CV jej nie ma.
- */
-function SkillsSection({ candidate }: { candidate: any }) {
-  const skills: any[] = Array.isArray(candidate.skills) ? candidate.skills : [];
-  const aiProfileQuery = useQuery<any>({
-    queryKey: candidateQueryKeys.aiProfile(candidate.id),
-    queryFn: ({ signal }) =>
-      api
-        .get(`/api/candidates/${candidate.id}/ai-profile`, { signal })
-        .then((r) => r.data),
-    enabled: !!candidate.id,
-    staleTime: 60_000,
-  });
-  const confirmed = useMemo(
-    () =>
-      screeningConfirmedSkills(
-        candidate.verified_tech,
-        aiProfileQuery.data?.verified_skills_aggregate,
-      ),
-    [candidate.verified_tech, aiProfileQuery.data],
-  );
-  const confirmedSet = useMemo(
-    () => new Set(confirmed.map((name) => name.toLowerCase())),
-    [confirmed],
-  );
-  const skillNames = new Set(
-    skills.map((s: any) => String(s?.name ?? "").toLowerCase()).filter(Boolean),
-  );
-  const confirmedOnly = confirmed.filter((name) => !skillNames.has(name.toLowerCase()));
-
-  if (skills.length === 0 && confirmed.length === 0) return null;
-
-  return (
-    <section aria-labelledby="candidate-skills-heading">
-      <SectionHeading id="candidate-skills-heading">Umiejętności</SectionHeading>
-      <ul className="flex flex-wrap gap-2">
-        {skills.map((s: any, i: number) => {
-          const isConfirmed = s?.name && confirmedSet.has(String(s.name).toLowerCase());
-          return (
-            <li
-              key={`${s?.name ?? "skill"}-${i}`}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5"
-            >
-              {isConfirmed ? (
-                <CheckCircle2
-                  className="h-3.5 w-3.5 text-success"
-                  aria-label="potwierdzone na screeningu"
-                />
-              ) : null}
-              <span className="text-sm font-medium text-foreground">{s?.name}</span>
-              {s?.level ? (
-                <Badge size="sm" variant={SKILL_LEVEL_VARIANT[s.level] ?? "neutral"}>
-                  {s.level}
-                </Badge>
-              ) : null}
-              {s?.years ? (
-                <span className="text-[10px] text-muted-foreground">{s.years} l.</span>
-              ) : null}
-            </li>
-          );
-        })}
-        {confirmedOnly.map((name) => (
-          <li
-            key={`confirmed-${name}`}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5"
+    <section aria-labelledby="candidate-recent-roles-heading" className="min-w-0 space-y-2">
+      <SectionHeading
+        id="candidate-recent-roles-heading"
+        action={
+          <button
+            type="button"
+            className="text-xs font-medium text-primary hover:underline"
+            onClick={() => onNavigate({ section: "cv" })}
           >
-            <CheckCircle2
-              className="h-3.5 w-3.5 text-success"
-              aria-label="potwierdzone na screeningu"
-            />
-            <span className="text-sm font-medium text-foreground">{name}</span>
+            Pełne CV
+          </button>
+        }
+      >
+        Ostatnio
+      </SectionHeading>
+      <ul className="space-y-1.5" data-testid="recent-roles">
+        {roles.map((role, index) => (
+          <li key={index} className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-2 text-sm">
+            <span className="text-xs tabular-nums text-muted-foreground">{role.period}</span>
+            <span className="min-w-0">
+              {role.role ? <span className="font-medium text-foreground">{role.role}</span> : null}
+              {role.role && role.company ? <span className="text-muted-foreground"> · </span> : null}
+              {role.company ? <span className="text-muted-foreground">{role.company}</span> : null}
+            </span>
           </li>
         ))}
       </ul>
-      {confirmed.length > 0 ? (
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <CheckCircle2 className="h-3 w-3 text-success" aria-hidden="true" />
-          potwierdzone na screeningu
-        </p>
-      ) : null}
-    </section>
-  );
-}
-
-function ExperienceSection({ candidate }: { candidate: any }) {
-  // Backfill (maj 2026) wstawia pusty placeholder na experience[0] dla
-  // kandydatów z Traffita — bez pustej karty.
-  const experience: any[] = (
-    Array.isArray(candidate.experience) ? candidate.experience : []
-  ).filter((e: any) => {
-    if (!e || typeof e !== "object") return false;
-    return Boolean(
-      e.role || e.title || e.company || e.start || e.start_date ||
-        e.end || e.end_date || e.desc || e.description,
-    );
-  });
-  if (experience.length === 0) return null;
-  const aiSource: string = candidate.cv_extracted_data?._source ?? "";
-  const aiBadge = aiSource.startsWith("claude") || aiSource.startsWith("ollama");
-
-  return (
-    <section aria-labelledby="candidate-experience-heading">
-      <SectionHeading
-        id="candidate-experience-heading"
-        action={
-          aiBadge ? (
-            <Badge size="sm" variant="info">
-              z CV (AI)
-            </Badge>
-          ) : undefined
-        }
-      >
-        Doświadczenie
-      </SectionHeading>
-      <div className="space-y-3">
-        {experience.map((exp: any, i: number) => {
-          const role = exp.role ?? exp.title ?? "";
-          const company = exp.company ?? "";
-          const start = exp.start ?? exp.start_date ?? "";
-          const end = exp.end ?? exp.end_date ?? "";
-          const desc = exp.desc ?? exp.description ?? "";
-          const expLoc = exp.location ?? "";
-          const details = getExperienceDetails(exp);
-          return (
-            <div key={i} className="rounded-lg border border-border bg-background/40 p-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0">
-                  {role ? <div className="font-medium text-foreground">{role}</div> : null}
-                  <div className="text-xs text-muted-foreground">
-                    {company}
-                    {details.client ? ` (dla: ${details.client})` : ""}
-                    {expLoc ? ` · ${expLoc}` : ""}
-                    {details.employmentType ? ` · ${details.employmentType}` : ""}
-                  </div>
-                </div>
-                {start || end ? (
-                  <div className="whitespace-nowrap text-xs text-muted-foreground">
-                    {formatExperienceDate(start)} —{" "}
-                    {formatExperienceDate(end) || "obecnie"}
-                  </div>
-                ) : null}
-              </div>
-              {desc ? <ExpandableText text={desc} maxLines={2} className="mt-2" /> : null}
-              <CvTechnologyChips items={details.technologies} />
-            </div>
-          );
-        })}
-      </div>
     </section>
   );
 }
 
 /**
- * Zwinięte „Edukacja, certyfikaty i szczegóły”: edukacja, pełny profil
- * z odczytu CV v7, „O sobie”, źródło zaproszenia, a dla osób z prawem zapisu
- * panele administracyjne (zaangażowanie, lokalizacja szczegółowa, źródła,
- * dane do umowy JDG, synchronizacja LinkedIn).
+ * Główne umiejętności — ten sam słownik nazw (klucz `["skills-dictionary", 500]`)
+ * co zakładka „CV”, więc jedno pobranie. Potwierdzone na screeningu bierzemy
+ * z profilu (`verified_tech`) — bez dodatkowego zapytania o profil AI na
+ * domyślnej zakładce.
  */
-function DetailsSection({
-  candidate,
+function TopSkillsSection({ candidate, onNavigate }: { candidate: any; onNavigate: ProfileNavigate }) {
+  const dictionaryQuery = useQuery({
+    queryKey: ["skills-dictionary", 500],
+    queryFn: () => skillsApi.list(500).then((r) => r.data.items),
+    staleTime: 60 * 60 * 1000,
+    retry: false,
+  });
+  const items = useMemo(
+    () =>
+      displaySkills(Array.isArray(candidate.skills) ? candidate.skills : [], {
+        dictionary: skillDictionaryIndex(dictionaryQuery.data),
+        confirmed: screeningConfirmedSkills(candidate.verified_tech, undefined),
+      }),
+    [candidate.skills, candidate.verified_tech, dictionaryQuery.data],
+  );
+  if (items.length === 0) return null;
+  const rest = items.length - OVERVIEW_SKILLS;
+  return (
+    <section aria-label="Główne umiejętności" className="flex flex-wrap items-center gap-1.5">
+      {items.slice(0, OVERVIEW_SKILLS).map((skill) => (
+        <span
+          key={skill.name}
+          title={skill.variants.length > 1 ? `W CV jako: ${skill.variants.join(", ")}` : undefined}
+          className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-0.5 text-xs text-foreground"
+        >
+          {skill.name}
+          {skill.years ? (
+            <span className="text-[11px] text-muted-foreground">{skill.years} l.</span>
+          ) : null}
+        </span>
+      ))}
+      {rest > 0 ? (
+        <button
+          type="button"
+          className="text-xs font-medium text-primary hover:underline"
+          onClick={() => onNavigate({ section: "cv" })}
+        >
+          +{rest} w zakładce CV
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+const FOLLOWUP_TONE_CLASS = {
+  danger: "border-destructive/30 bg-destructive/10 text-destructive",
+  warning: "border-warning/30 bg-warning-muted text-warning-muted-foreground",
+  neutral: "border-border bg-muted/40 text-foreground",
+} as const;
+
+export function NowSection({
+  candidateId,
   readOnly,
-  jdgFocusRequest,
-  onJdgFocusHandled,
+  recruitments,
+  onNavigate,
 }: {
-  candidate: any;
+  candidateId: number;
   readOnly: boolean;
-  jdgFocusRequest: number;
-  onJdgFocusHandled?: () => void;
+  recruitments: ProfileTabProps["recruitments"];
+  onNavigate: ProfileNavigate;
 }) {
-  const [open, setOpen] = useState(false);
-  const education = getEducationList(candidate);
-  const richCvProfile = getRichCvProfile(candidate);
-
-  // „Uzupełnij dane do umowy” z zakładki Umowy: rozwiń i przewiń do JDG.
-  const handledRef = useRef(0);
-  useEffect(() => {
-    if (jdgFocusRequest <= 0 || readOnly) return;
-    if (!open) {
-      setOpen(true);
-      return;
-    }
-    if (handledRef.current === jdgFocusRequest) return;
-    const el = document.getElementById("candidate-jdg-panel");
-    if (!el) return;
-    handledRef.current = jdgFocusRequest;
-    el.scrollIntoView?.({ block: "start" });
-    el.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
-    onJdgFocusHandled?.();
-  }, [jdgFocusRequest, open, readOnly, onJdgFocusHandled]);
-
-  // Stabilne referencje — nowy literał w każdym renderze resetował wpisywany
-  // tekst (panele synchronizują się z `initial`).
-  const engagementInitial = useMemo(
-    () => ({
-      is_ambassador: candidate.is_ambassador,
-      wants_to_verify_candidates: candidate.wants_to_verify_candidates,
-      open_to_side_projects: candidate.open_to_side_projects,
-      open_to_sales_support: candidate.open_to_sales_support,
-      open_to_expert_consult: candidate.open_to_expert_consult,
-      open_to_side_projects_updated_at: candidate.open_to_side_projects_updated_at,
-      open_to_sales_support_updated_at: candidate.open_to_sales_support_updated_at,
-      open_to_expert_consult_updated_at: candidate.open_to_expert_consult_updated_at,
-      engagement_notes: candidate.engagement_notes,
-    }),
-    [
-      candidate.is_ambassador,
-      candidate.wants_to_verify_candidates,
-      candidate.open_to_side_projects,
-      candidate.open_to_sales_support,
-      candidate.open_to_expert_consult,
-      candidate.open_to_side_projects_updated_at,
-      candidate.open_to_sales_support_updated_at,
-      candidate.open_to_expert_consult_updated_at,
-      candidate.engagement_notes,
-    ],
+  const followupQuery = useCandidateFollowup(candidateId);
+  const followup = followupQuery.data?.followup ?? null;
+  const [followupOpen, setFollowupOpen] = useState(false);
+  const { active, ended } = useMemo(
+    () => splitRecruitments(recruitments.items ?? []),
+    [recruitments.items],
   );
-  const locationInitial = useMemo(
-    () => ({
-      city: candidate.city,
-      country: candidate.country,
-      region: candidate.region,
-      hub_city: candidate.hub_city,
-    }),
-    [candidate.city, candidate.country, candidate.region, candidate.hub_city],
-  );
-  const jdgInitial = useMemo(
-    () => ({
-      legal_name: candidate.legal_name,
-      nip: candidate.nip,
-      regon: candidate.regon,
-      business_address: candidate.business_address,
-      business_form: candidate.business_form,
-    }),
-    [
-      candidate.legal_name,
-      candidate.nip,
-      candidate.regon,
-      candidate.business_address,
-      candidate.business_form,
-    ],
-  );
-
-  const invite = candidate.invite_source;
-  const hasContent =
-    !readOnly ||
-    education.length > 0 ||
-    Boolean(richCvProfile) ||
-    Boolean(candidate.about) ||
-    Boolean(invite);
-  if (!hasContent) return null;
+  const awaiting = useMemo(() => recruitmentsAwaitingUs(active), [active]);
+  const lastEnded = ended[0] ?? null;
 
   return (
-    <section className="rounded-lg border border-border" aria-labelledby="candidate-details-toggle">
-      <button
-        id="candidate-details-toggle"
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex min-h-11 w-full items-center justify-between px-3 text-sm font-medium text-foreground hover:bg-background/40"
-        aria-expanded={open}
-      >
-        Edukacja, certyfikaty i szczegóły
-        {open ? (
-          <ChevronUp className="h-4 w-4 text-muted-foreground" />
-        ) : (
-          <ChevronDown className="h-4 w-4 text-muted-foreground" />
-        )}
-      </button>
-      {open ? (
-        <div className="space-y-5 border-t border-border p-3">
-          {education.length > 0 ? (
-            <div>
-              <SectionHeading>
-                <span className="inline-flex items-center gap-2">
-                  <GraduationCap className="h-3.5 w-3.5" />
-                  Wykształcenie
-                </span>
-              </SectionHeading>
-              <div className="space-y-2">
-                {education.map((edu, i) => (
-                  <div key={i} className="rounded-lg border border-border bg-background/40 p-3">
-                    <div className="text-sm font-medium text-foreground">
-                      {edu.degree || edu.field || "—"}
-                      {edu.field && edu.degree ? ` · ${edu.field}` : ""}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {edu.school}
-                      {formatEducationYears(edu) ? ` · ${formatEducationYears(edu)}` : ""}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
+    <section aria-labelledby="candidate-now-heading" className="space-y-3">
+      <SectionHeading id="candidate-now-heading">Do zrobienia</SectionHeading>
 
-          {richCvProfile ? <CvRichProfileSections profile={richCvProfile} /> : null}
-
-          {candidate.about ? (
-            <div>
-              <SectionHeading>O sobie</SectionHeading>
-              <ExpandableText text={candidate.about} maxLines={3} />
-            </div>
-          ) : null}
-
-          {invite ? (
-            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
-              {invite.previous_created_by_name
-                ? `Przez link rekrutera — przejęty: ${invite.previous_created_by_name} → ${invite.created_by_name}`
-                : `Dodany przez link rekrutera: ${invite.created_by_name}`}
-              {invite.label ? ` · ${invite.label}` : ""}
-              {invite.applied_at ? ` (${formatDate(invite.applied_at)})` : ""}
-            </p>
-          ) : null}
-
+      {followup ? (
+        <div
+          data-testid="now-followup"
+          className={cn(
+            "flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-sm",
+            FOLLOWUP_TONE_CLASS[followupTone(followup.state)],
+          )}
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <PhoneCall className="size-4 shrink-0" aria-hidden />
+            <span className="min-w-0">
+              <span className="font-medium">
+                Telefon po ciszy klienta: {followupDueLabel(followup)}
+              </span>
+              {followup.caller_name ? (
+                <span> · dzwoni {shortPersonName(followup.caller_name)}</span>
+              ) : null}
+              <span className="text-muted-foreground">
+                {" "}
+                · {followup.processes.length}{" "}
+                {pluralPl(followup.processes.length, "proces czeka", "procesy czekają", "procesów czeka")}
+              </span>
+            </span>
+          </span>
           {!readOnly ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <CandidateEngagementPanel candidateId={candidate.id} initial={engagementInitial} />
-                <CandidateLocationPanel candidateId={candidate.id} initial={locationInitial} />
-              </div>
-              <div className="rounded-xl border border-border bg-card p-4">
-                <CandidateSourcesPanel candidateId={candidate.id} />
-              </div>
-              <JDGPanel candidateId={candidate.id} initial={jdgInitial} />
-              <LinkedinSyncPanel candidate={candidate} />
-            </div>
+            <Button size="sm" variant="outline" onClick={() => setFollowupOpen(true)}>
+              Zapisz wynik telefonu
+            </Button>
           ) : null}
         </div>
       ) : null}
+
+      {recruitments.isError ? (
+        <SectionError title="Nie udało się wczytać rekrutacji." onRetry={recruitments.refetch} />
+      ) : recruitments.isPending ? (
+        <p className="text-sm text-muted-foreground" aria-busy="true">
+          Wczytuję rekrutacje…
+        </p>
+      ) : active.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Nie jest teraz w żadnej rekrutacji.
+          {lastEnded ? (
+            <>
+              {" "}
+              Ostatnio: {recruitmentOutcome(lastEnded).label.toLowerCase()} ·{" "}
+              {typeof lastEnded.job_id === "number" ? (
+                <Link
+                  href={candidateBoardHref(lastEnded.job_id, candidateId)}
+                  className="text-foreground hover:text-primary hover:underline"
+                >
+                  {lastEnded.job_title ?? "rekrutacja"}
+                </Link>
+              ) : (
+                (lastEnded.job_title ?? "rekrutacja")
+              )}
+              {lastEnded.last_seen ? ` (${formatDate(lastEnded.last_seen)})` : ""}.{" "}
+            </>
+          ) : (
+            " "
+          )}
+          {(recruitments.items ?? []).length > 0 ? (
+            <button
+              type="button"
+              className="font-medium text-primary underline-offset-2 hover:underline"
+              onClick={() => onNavigate({ section: "recruitments" })}
+            >
+              Zakończone rekrutacje ({recruitments.items.length})
+            </button>
+          ) : null}
+        </p>
+      ) : awaiting.length === 0 ? (
+        <p className="text-sm text-muted-foreground" data-testid="now-nothing-on-us">
+          W {active.length} {pluralPl(active.length, "procesie", "procesach", "procesach")} ruch jest
+          po stronie klienta albo kandydata.{" "}
+          <button
+            type="button"
+            className="font-medium text-primary underline-offset-2 hover:underline"
+            onClick={() => onNavigate({ section: "recruitments" })}
+          >
+            Rekrutacje w toku ({active.length})
+          </button>
+        </p>
+      ) : (
+        <>
+          <ul className="divide-y divide-border rounded-lg border border-border" data-testid="now-recruitments">
+            {awaiting.slice(0, OVERVIEW_TODO).map((job: any) => (
+              <NowRecruitmentRow key={job.job_id} candidateId={candidateId} job={job} />
+            ))}
+          </ul>
+          {active.length > Math.min(awaiting.length, OVERVIEW_TODO) ? (
+            <button
+              type="button"
+              className="text-xs font-medium text-primary hover:underline"
+              onClick={() => onNavigate({ section: "recruitments" })}
+            >
+              Wszystkie w toku ({active.length}) w zakładce Rekrutacje
+            </button>
+          ) : null}
+        </>
+      )}
+
+      {followupOpen ? (
+        <CandidateFollowupDialog
+          candidateId={candidateId}
+          open={followupOpen}
+          onOpenChange={setFollowupOpen}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function NowRecruitmentRow({ candidateId, job }: { candidateId: number; job: any }) {
+  const stage = recruitmentStageLabel(job.latest_stage, job.latest_stage_name, candidateStageLabel);
+  const owner = nextActionOwnerLabel(job.next_action_owner);
+  const days = daysSince(job.last_seen);
+  return (
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm">
+      <span className="min-w-0 flex-1">
+        <Link
+          href={candidateBoardHref(job.job_id, candidateId)}
+          className="font-medium text-foreground hover:text-primary hover:underline"
+        >
+          {job.job_title ?? "Rekrutacja"}
+        </Link>
+        {job.client_name ? (
+          <span className="text-muted-foreground"> · {job.client_name}</span>
+        ) : null}
+      </span>
+      <Badge variant="neutral">{stage}</Badge>
+      {owner ? (
+        <span className="text-xs text-muted-foreground">
+          ruch: <span className="font-medium text-foreground">{owner}</span>
+          {days != null ? ` · ${days} ${pluralPl(days, "dzień", "dni", "dni")}` : null}
+        </span>
+      ) : null}
+      <Link
+        href={candidateBoardHref(job.job_id, candidateId)}
+        className="inline-flex min-h-8 items-center gap-1 text-xs font-medium text-primary hover:underline"
+      >
+        Tablica <ArrowRight className="size-3" aria-hidden />
+      </Link>
+    </li>
+  );
+}
+
+/** Pasek „Z nami” — liczby i daty, każda prowadzi do swojej zakładki. */
+function WithUsStrip({
+  candidate,
+  recruitments,
+  notes,
+  onNavigate,
+}: {
+  candidate: any;
+  recruitments: ProfileTabProps["recruitments"];
+  notes: ProfileTabProps["notes"];
+  onNavigate: ProfileNavigate;
+}) {
+  const { active, ended } = useMemo(
+    () => splitRecruitments(recruitments.items ?? []),
+    [recruitments.items],
+  );
+  const lastTalk = useMemo(() => latestTalkNote(notes.items ?? []), [notes.items]);
+  const attempts = Number(notes.groupCounts?.contact ?? 0);
+  // Data i „skąd” jak w „Osobie w bazie” na Tablicy: wejście do bazy liczy
+  // serwer (z datą z Traffita), a nie samo `created_at` rekordu.
+  const inBase =
+    addedToBaseView({ at: candidate.added_to_base_at, exact: candidate.added_to_base_exact }) ??
+    addedToBaseView({ at: candidate.created_at, exact: true });
+  const fromTraffit = candidate.external_source === "traffit" || candidate.source === "traffit";
+  const origin = candidateOrigin({
+    ...candidate,
+    added_via: candidate.added_via ?? (fromTraffit ? "Traffit" : null),
+  });
+  const originText = originSummary(origin);
+  const linkClass = "font-medium text-primary hover:underline";
+  return (
+    <p
+      aria-label="Z nami"
+      className="flex flex-wrap gap-x-5 gap-y-1 border-y border-border py-2 text-xs text-muted-foreground"
+    >
+      {!recruitments.isPending && !recruitments.isError ? (
+        <>
+          <button type="button" className={linkClass} onClick={() => onNavigate({ section: "recruitments" })}>
+            W toku: <span className="tabular-nums">{active.length}</span>
+          </button>
+          <span>
+            Zakończone: <span className="tabular-nums font-medium text-foreground">{ended.length}</span>
+          </span>
+        </>
+      ) : null}
+      {lastTalk ? (
+        <span>
+          Ostatnia rozmowa:{" "}
+          <span className="font-medium text-foreground">
+            {formatDate(lastTalk.created_at ?? lastTalk.timestamp)}
+          </span>
+          {lastTalk.author_name ? ` · ${shortPersonName(lastTalk.author_name)}` : ""}
+        </span>
+      ) : null}
+      {attempts > 0 ? (
+        <button type="button" className={linkClass} onClick={() => onNavigate({ section: "activity", activity: "contact" })}>
+          Prób kontaktu: <span className="tabular-nums">{attempts}</span>
+        </button>
+      ) : null}
+      {inBase ? (
+        <span>
+          W bazie od <span className="font-medium text-foreground">{inBase.dateLabel}</span>
+        </span>
+      ) : null}
+      {originText ? (
+        <OriginPopover origin={origin} summary={originText} inBase={inBase} />
+      ) : null}
+    </p>
+  );
+}
+
+/**
+ * „Skąd: Link rekrutera · Jan Kowalski” w pasku „Z nami”, po kliknięciu
+ * szczegóły: kto, jak, nazwa linku, skąd weszła osoba i kiedy. Prośba
+ * rekrutera 19.10.2026 — wcześniej widać było tylko datę.
+ */
+function OriginPopover({
+  origin,
+  summary,
+  inBase,
+}: {
+  origin: CandidateOrigin;
+  summary: string;
+  inBase: AddedToBaseView | null;
+}) {
+  const rows: Array<[string, string | null]> = [
+    ["Dodał(a)", origin.by ?? "nie wiemy, kto dodał"],
+    ["Sposób", origin.viaLink ? `${origin.how} — osoba sama wypełniła formularz` : origin.how],
+    ["Nazwa linku", origin.linkLabel],
+    ["Wejście z", origin.entryFrom],
+    ["Przejęta od", origin.previousBy],
+    ["Zgłosiła się też", origin.laterApply],
+    ["Kiedy", inBase ? `${inBase.dateLabel} · ${inBase.ageLabel}` : null],
+  ];
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded text-left hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          Skąd: <span className="font-medium text-foreground">{summary}</span>
+          <ChevronDown className="h-3 w-3" aria-hidden="true" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent aria-label="Skąd ta osoba jest w bazie" className="w-80 text-xs">
+        <p className="mb-2 text-sm font-medium text-foreground">Skąd ta osoba jest w bazie</p>
+        <dl className="grid grid-cols-[6.5rem_1fr] gap-x-3 gap-y-1.5">
+          {rows
+            .filter(([, value]) => Boolean(value))
+            .map(([label, value]) => (
+              <Fragment key={label}>
+                <dt className="text-muted-foreground">{label}</dt>
+                <dd className="text-foreground">{value}</dd>
+              </Fragment>
+            ))}
+        </dl>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export function LastTalkSection({
+  notes,
+  onNavigate,
+}: {
+  notes: ProfileTabProps["notes"];
+  onNavigate: ProfileNavigate;
+}) {
+  const note = useMemo(() => latestTalkNote(notes.items ?? []), [notes.items]);
+  const text = note ? collapsedNotePreview(unwrapNoteContent(note.content_rendered ?? note.content)) : "";
+  const dateIso = note?.created_at ?? note?.timestamp ?? null;
+
+  return (
+    <section aria-labelledby="candidate-last-talk-heading" className="space-y-3">
+      <SectionHeading
+        id="candidate-last-talk-heading"
+        action={
+          <button
+            type="button"
+            className="text-xs font-medium text-primary hover:underline"
+            onClick={() => onNavigate({ section: "activity" })}
+          >
+            Wszystkie notatki
+          </button>
+        }
+      >
+        Ostatnia rozmowa
+      </SectionHeading>
+      {notes.isError ? (
+        <SectionError title="Nie udało się wczytać notatek." onRetry={notes.refetch} />
+      ) : notes.isPending ? (
+        <p className="text-sm text-muted-foreground" aria-busy="true">
+          Wczytuję notatki…
+        </p>
+      ) : note ? (
+        <article className="rounded-lg border border-border px-3 py-2.5" data-testid="last-talk">
+          <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+            <MessageSquare className="size-3.5" aria-hidden />
+            <span className="font-medium text-foreground">{note.author_name ?? "Import z Traffita"}</span>
+            {dateIso ? (
+              <time dateTime={dateIso}>{noteDateLabel(dateIso, new Date(), formatRelativeTime)}</time>
+            ) : null}
+            {note.job_title ? <span>· {note.job_title}</span> : null}
+          </p>
+          <p className="mt-1.5 line-clamp-3 whitespace-pre-line text-sm text-foreground">{text}</p>
+          <button
+            type="button"
+            className="mt-1.5 text-xs font-medium text-primary hover:underline"
+            onClick={() =>
+              onNavigate({ section: "activity", noteId: Number(note.id) || undefined })
+            }
+          >
+            Otwórz notatkę
+          </button>
+        </article>
+      ) : (
+        <p className="text-sm text-muted-foreground">Nikt jeszcze nie zapisał rozmowy z tą osobą.</p>
+      )}
     </section>
   );
 }

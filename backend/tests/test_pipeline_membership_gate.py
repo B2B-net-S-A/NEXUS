@@ -433,6 +433,19 @@ async def test_blacklisted_candidate_warns_on_move_and_blocks_bulk(
     job_id, _client_id = await _seed_job(owner_id=None)
     expected = _REASON_LABELS_PL[EligibilityReason.blacklisted]
 
+    # Runda 9 (R9-N11-4): osoby spoza rekrutacji z czarnej listy NIE dodaje się
+    # ruchem karty — twarda bramka jak przy bulk-add, potwierdzenie nie pomaga.
+    fresh_job, _ = await _seed_job(owner_id=None)
+    fresh = await app_client.post(
+        MOVE,
+        json={**_move_body(cand, fresh_job), "acknowledge_eligibility": True},
+        headers=app_auth_headers,
+    )
+    assert fresh.status_code == 409, fresh.text
+    assert expected in fresh.json()["detail"]
+
+    # Osoba już w rekrutacji — ruch karty ostrzega (17.09.2026).
+    await _seed_stage(cand, job_id, "new")
     # Pojedynczy /move (17.09.2026): ostrzeżenie do potwierdzenia, nie blokada.
     move = await app_client.post(
         MOVE, json=_move_body(cand, job_id), headers=app_auth_headers

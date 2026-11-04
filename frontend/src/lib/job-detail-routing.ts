@@ -17,10 +17,12 @@
  *   &wintab=<…>                  zakładka/sekcja startowa okna
  */
 
-import type {
-  PersonPanelSection,
-  RecruitmentSegment,
-  RecruitmentSlideOver,
+import {
+  CANDIDATE_WINDOW_TABS,
+  type CandidateWindowTab,
+  type PersonPanelSection,
+  type RecruitmentSegment,
+  type RecruitmentSlideOver,
 } from "@/components/v2/recruitment/types";
 
 export type JobDetailView = "people" | "board" | "champion";
@@ -33,7 +35,7 @@ export const JOB_DETAIL_DEFAULT_VIEW: JobDetailView = "board";
 /** Zakładka startowa okna „Historia i czat" (lustro `HistoryChatTab`). */
 export type JobHistoryChatTab = "all" | "chat" | "moves" | "request" | "background";
 /** Sekcja startowa okna „Zlecenie" (lustro `OrderSlideOverSection`). */
-export type JobOrderSection = "team" | "close";
+export type JobOrderSection = "team" | "close" | "portals";
 
 export interface LegacyJobTabTarget {
   view: JobDetailView;
@@ -52,11 +54,16 @@ const LEGACY_TAB_TARGETS: Readonly<Record<string, LegacyJobTabTarget>> = {
   contract: { view: "people", segment: "group:contract", panelSection: "contract" },
   notes: { view: "people", panelSection: "notes" },
   "ai-matching": { view: "people", segment: "proposals" },
+  // Zostaje przy „Do przejrzenia”: `?tab=similar` niosą powiadomienia
+  // o propozycjach AI (auto_match_service, candidate_search_worker,
+  // similar_job_notify). Panel przepięć otwiera `?win=similar`.
   similar: { view: "people", segment: "proposals" },
+  // Od 14.10.2026 „Szukaj ręcznie” to zakładka okna „Kandydaci do dodania”
+  // (`readJobDetailUrlState` czyta `manual-search` jako `add` + `manual`).
   "manual-search": { view: "people", slideOver: "manual-search" },
-  // Symulowane portale ogłoszeniowe usunięte 23.09.2026 — stary link otwiera
-  // samo okno zlecenia (sekcja „Ogłoszenie i link aplikacyjny" jest w nim).
-  portals: { view: "people", slideOver: "order" },
+  // Okno zlecenia z rozwiniętą i przewiniętą sekcją „Portale ogłoszeniowe”
+  // (link z /jobs/new po nieudanej publikacji na portalu).
+  portals: { view: "people", slideOver: "order", orderSection: "portals" },
   questions: { view: "people", slideOver: "questions" },
   history: { view: "people", slideOver: "history-chat", slideOverTab: "request" },
   chat: { view: "people", slideOver: "history-chat", slideOverTab: "chat" },
@@ -103,8 +110,12 @@ const PANEL_SECTIONS: readonly PersonPanelSection[] = [
 const SLIDE_OVERS: readonly RecruitmentSlideOver[] = [
   "order",
   "questions",
+  "files",
+  "client-panel",
   "history-chat",
   "manual-search",
+  "similar",
+  "add",
 ];
 const HISTORY_TABS: readonly JobHistoryChatTab[] = [
   "all",
@@ -113,7 +124,7 @@ const HISTORY_TABS: readonly JobHistoryChatTab[] = [
   "request",
   "background",
 ];
-const ORDER_SECTIONS: readonly JobOrderSection[] = ["team", "close"];
+const ORDER_SECTIONS: readonly JobOrderSection[] = ["team", "close", "portals"];
 
 function oneOf<T extends string>(raw: string | null | undefined, allowed: readonly T[]): T | null {
   if (raw == null) return null;
@@ -159,6 +170,8 @@ export interface JobDetailUrlState {
   slideOver: RecruitmentSlideOver | null;
   slideOverTab: JobHistoryChatTab | null;
   orderSection: JobOrderSection | null;
+  /** Zakładka okna „Kandydaci do dodania” (`?win=add&wintab=…`). */
+  sourceTab: CandidateWindowTab | null;
   /** `?highlight=ai-proposals` — podświetl segment propozycji po wejściu. */
   highlightProposals: boolean;
 }
@@ -175,7 +188,11 @@ export function readJobDetailUrlState(params: ParamReader | null | undefined): J
   const view = parseJobDetailView(rawTab);
   const legacy = view ? null : resolveLegacyJobTab(rawTab);
   const highlightProposals = get("highlight") === "ai-proposals";
-  const slideOver = parseRecruitmentSlideOver(get("win")) ?? legacy?.slideOver ?? null;
+  const rawSlideOver = parseRecruitmentSlideOver(get("win")) ?? legacy?.slideOver ?? null;
+  // Dawne `?win=similar` (panel przepięć) = okno źródeł na „Podobnych rekrutacjach”,
+  // dawne `?win=manual-search` / `?tab=manual-search` = zakładka „Szukaj ręcznie”.
+  const slideOver: RecruitmentSlideOver | null =
+    rawSlideOver === "similar" || rawSlideOver === "manual-search" ? "add" : rawSlideOver;
   const rawWinTab = get("wintab");
   return {
     view:
@@ -195,6 +212,14 @@ export function readJobDetailUrlState(params: ParamReader | null | undefined): J
     orderSection:
       slideOver === "order"
         ? (oneOf(rawWinTab, ORDER_SECTIONS) ?? legacy?.orderSection ?? null)
+        : null,
+    sourceTab:
+      slideOver === "add"
+        ? rawSlideOver === "similar"
+          ? "similar"
+          : rawSlideOver === "manual-search"
+            ? "manual"
+            : (oneOf(rawWinTab, CANDIDATE_WINDOW_TABS) ?? "base")
         : null,
     highlightProposals,
   };
@@ -216,7 +241,9 @@ export function rewriteLegacyJobParams(
   const legacy = isLegacyTab ? resolveLegacyJobTab(rawTab) : null;
   // `champion` jest poprawnym nowym widokiem — nie ma czego przepisywać.
   const highlight = params.get("highlight") === "ai-proposals";
-  if (!isLegacyTab && !highlight) return null;
+  // Dawne okno „Szukaj ręcznie” (`?win=manual-search`) = zakładka okna źródeł.
+  const legacyWin = params.get("win") === "manual-search";
+  if (!isLegacyTab && !highlight && !legacyWin) return null;
 
   const next = new URLSearchParams(
     "toString" in params ? (params as URLSearchParams).toString() : "",
@@ -229,7 +256,7 @@ export function rewriteLegacyJobParams(
   if (state.segment) next.set("seg", state.segment);
   if (state.panelSection) next.set("panel", state.panelSection);
   if (state.slideOver) next.set("win", state.slideOver);
-  const winTab = state.slideOverTab ?? state.orderSection;
+  const winTab = state.slideOverTab ?? state.orderSection ?? state.sourceTab;
   if (winTab) next.set("wintab", winTab);
   return next;
 }

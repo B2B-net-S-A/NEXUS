@@ -13,7 +13,7 @@ klienta kontraktu.
 Kształt: podgląd → zgoda → wykonanie
 ------------------------------------
 * :func:`build_plan` liczy, co zostanie przeniesione (zamówienia kontraktu,
-  wygenerowane umowy B2B, otwarte braki zamówień), które alerty Delivery Leada
+  wygenerowane umowy B2B i ich dokumenty pochodne, otwarte braki zamówień), które alerty Delivery Leada
   zostaną zamknięte i co blokuje operację. Plan ma odcisk SHA-256.
 * :func:`execute_reassign` blokuje wiersz kontraktu (``FOR UPDATE``), potem jego
   zamówienia — kolejność kontrakt → zamówienia, jak cykl życia kontraktu —
@@ -46,16 +46,18 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
+from app.models.b2b_contract_document import B2BContractDocument
 from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder
 from app.models.client_order_offboarding import ClientOrderOffboardingCase
 from app.models.contact import Contact
-from app.models.contract import Contract
+from app.models.contract import Contract, ContractStatus
 from app.models.contract_framework_rate import ContractFrameworkRate
 from app.models.dl_alert import (
     DL_ALERT_STATUS_HANDLED,
@@ -77,6 +79,17 @@ BLOCKER_ORDER_GROUP_LINE = "order_group_line"
 BLOCKER_ORDER_OTHER_CLIENT = "order_other_client"
 BLOCKER_PM_CONTACT = "pm_contact_other_client"
 BLOCKER_OFFBOARDING_PENDING = "offboarding_pending"
+BLOCKER_DUPLICATE_AT_TARGET = "duplicate_contract_at_target"
+
+# Lustro ``_DUPLICATE_GUARD_STATUSES`` z ``app/api/contracts.py`` (blokada
+# duplikatu kontraktora przy zakładaniu kontraktu) — import routera zamknąłby
+# cykl importów; zgodność pilnuje test.
+LIVE_CONTRACT_STATUSES = (
+    ContractStatus.draft,
+    ContractStatus.ready_for_signature,
+    ContractStatus.active,
+    ContractStatus.ending,
+)
 
 WARNING_JOB_CLIENT = "job_client_differs"
 WARNING_B2B_PRINTED_NAME = "b2b_printed_client_name"
@@ -102,6 +115,10 @@ class ReassignPlan:
     contract_status: str
     orders: list[dict[str, Any]] = field(default_factory=list)
     b2b_documents: list[dict[str, Any]] = field(default_factory=list)
+    # Dokumenty pochodne (aneksy, rozwiązania) przenoszonych umów B2B i tego
+    # kontraktu — bramka dostępu dokumentu czyta jego własne ``client_id``
+    # (runda 6 audytu, REA-1).
+    b2b_derived_documents: list[dict[str, Any]] = field(default_factory=list)
     open_gaps: list[dict[str, Any]] = field(default_factory=list)
     alerts: list[dict[str, Any]] = field(default_factory=list)
     blockers: list[dict[str, Any]] = field(default_factory=list)
@@ -124,6 +141,7 @@ class ReassignPlan:
             "to_client": self.to_client,
             "orders": self.orders,
             "b2b_documents": self.b2b_documents,
+            "b2b_derived_documents": self.b2b_derived_documents,
             "open_gaps": self.open_gaps,
             "alerts": self.alerts,
             "blockers": self.blockers,
@@ -154,6 +172,7 @@ def _fingerprint(plan: ReassignPlan) -> str:
         "to_client_id": plan.to_client["id"],
         "orders": sorted((o["id"], o["client_id"], o["status"]) for o in plan.orders),
         "b2b": sorted((d["id"], d["client_id"]) for d in plan.b2b_documents),
+        "b2b_derived": sorted(d["id"] for d in plan.b2b_derived_documents),
         "gaps": sorted(g["id"] for g in plan.open_gaps),
         "alerts": sorted(a["id"] for a in plan.alerts),
         "handled_alerts": sorted(plan.handled_alert_ids),
@@ -232,6 +251,41 @@ async def _load_target(
             "Klient docelowy jest zarchiwizowany — wybierz aktywny rekord.",
         )
     return target
+
+
+async def _live_contract_at_target(
+    db: AsyncSession, contract: Contract, target_client_id: int
+) -> Optional[int]:
+    """Żywy kontrakt TEJ SAMEJ osoby u klienta docelowego (audyt 25.09.2026).
+
+    Ta sama reguła tożsamości co blokada duplikatu przy zakładaniu kontraktu
+    (``_assert_no_duplicate_contract``): ``candidate_id`` albo e-mail bez
+    wielkości liter i białych znaków. Dotyczy tylko przepinania kontraktu
+    żywego — zakończony obok żywego to historia, nie duplikat.
+    """
+    if contract.status not in LIVE_CONTRACT_STATUSES:
+        return None
+    email = await db.scalar(
+        select(Candidate.email).where(Candidate.id == contract.candidate_id)
+    )
+    email_norm = (email or "").strip().lower()
+    identity = [Contract.candidate_id == contract.candidate_id]
+    if email_norm:
+        identity.append(
+            func.lower(func.btrim(Candidate.email, " \t\r\n")) == email_norm
+        )
+    return await db.scalar(
+        select(Contract.id)
+        .join(Candidate, Candidate.id == Contract.candidate_id)
+        .where(
+            Contract.client_id == target_client_id,
+            Contract.id != contract.id,
+            Contract.status.in_(LIVE_CONTRACT_STATUSES),
+            or_(*identity),
+        )
+        .order_by(Contract.id)
+        .limit(1)
+    )
 
 
 async def build_plan(
@@ -368,12 +422,27 @@ async def build_plan(
                     "code": BLOCKER_PM_CONTACT,
                     "ids": [contract.client_pm_contact_id],
                     "message": (
-                        "PM po stronie klienta jest kontaktem innego klienta "
+                        "Menedżer u klienta jest kontaktem innego klienta "
                         f"(kontakt #{contract.client_pm_contact_id}). Zmień albo usuń "
-                        "PM w edycji kontraktu przed przepięciem."
+                        "menedżera u klienta w edycji kontraktu przed przepięciem."
                     ),
                 }
             )
+
+    duplicate_id = await _live_contract_at_target(db, contract, target.id)
+    if duplicate_id is not None:
+        plan.blockers.append(
+            {
+                "code": BLOCKER_DUPLICATE_AT_TARGET,
+                "ids": [duplicate_id],
+                "message": (
+                    "Ta osoba ma już żywy kontrakt u klienta docelowego "
+                    f"(Kontrakt #{duplicate_id}). Przepięcie dałoby dwa "
+                    "kontrakty tej samej osoby u jednego klienta — najpierw "
+                    "zakończ albo scal jeden z nich."
+                ),
+            }
+        )
 
     pending_cases = list(
         (
@@ -424,6 +493,35 @@ async def build_plan(
             printed_mismatch = True
         elif doc.client_id not in (None, target.id):
             other_docs.append(doc.id)
+    # Dokumenty pochodne idą za swoją umową B2B (albo za kontraktem, gdy
+    # dokument nie ma umowy bazowej): DL nowego klienta dostawał 403 na aneksie
+    # umowy, która już jest u niego (runda 6 audytu, REA-1).
+    moved_parent_ids = [d["id"] for d in plan.b2b_documents]
+    derived_owner = [B2BContractDocument.contract_id == contract.id]
+    if moved_parent_ids:
+        derived_owner.append(
+            B2BContractDocument.parent_generated_contract_id.in_(moved_parent_ids)
+        )
+    derived = list(
+        (
+            await db.scalars(
+                select(B2BContractDocument)
+                .where(B2BContractDocument.client_id == old_id, or_(*derived_owner))
+                .order_by(B2BContractDocument.id)
+            )
+        ).all()
+    )
+    for derived_doc in derived:
+        plan.b2b_derived_documents.append(
+            {
+                "id": derived_doc.id,
+                "document_type": derived_doc.document_type,
+                "parent_generated_contract_id": (
+                    derived_doc.parent_generated_contract_id
+                ),
+                "client_id": derived_doc.client_id,
+            }
+        )
     if printed_mismatch:
         plan.warnings.append(
             {
@@ -618,6 +716,17 @@ async def execute_reassign(
             .values(client_id=new_id)
             .execution_options(synchronize_session=False)
         )
+    derived_ids = [d["id"] for d in plan.b2b_derived_documents]
+    if derived_ids:
+        await db.execute(
+            update(B2BContractDocument)
+            .where(
+                B2BContractDocument.id.in_(derived_ids),
+                B2BContractDocument.client_id == old_id,
+            )
+            .values(client_id=new_id)
+            .execution_options(synchronize_session=False)
+        )
     gap_ids = [g["id"] for g in plan.open_gaps]
     if gap_ids:
         await db.execute(
@@ -662,6 +771,7 @@ async def execute_reassign(
                 "to_client_name": plan.to_client["name"],
                 "moved_order_ids": moved_order_ids,
                 "moved_b2b_ids": moved_doc_ids,
+                "moved_b2b_document_ids": derived_ids,
                 "moved_gap_ids": gap_ids,
                 "closed_alerts": len(alert_ids),
             },

@@ -11,7 +11,7 @@ import { UserRole, hasMinRole, hasRole, useAuthStore } from "@/store/auth"
  *
  * Dwa tryby:
  *   <RequireRole roles={["admin", "delivery_lead"]}>  — exact match z listy
- *   <RequireRole minRole="tac">                       — hierarchiczne >= tac
+ *   <RequireRole minRole="delivery_lead">             — hierarchiczne >= delivery_lead
  *
  * Użyj `fallback` aby wyświetlić komunikat zamiast niczego (np. tooltip-like).
  *

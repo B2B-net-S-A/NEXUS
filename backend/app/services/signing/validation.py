@@ -6,7 +6,7 @@ List of Trusted Lists (LOTL). We run it as a Java sidecar (Coolify service,
 profile ``signing``) and call it over HTTP from here. When the sidecar URL is
 unset we fall back to pyHanko's local trust-chain check (non-authoritative).
 
-Plan: ``docs/in-house-qes-signature-plan.md`` §4, §7, §11 (Faza 4).
+Używa go podpis umowy B2B w NEXUSIE (``B2B_ESIGN_VALIDATOR=dss``).
 """
 
 from __future__ import annotations
@@ -32,6 +32,12 @@ class ValidationService:
     @property
     def has_dss(self) -> bool:
         return bool(self._dss_url)
+
+    @property
+    def authoritative(self) -> bool:
+        """Werdykt „kwalifikowany” ma tylko DSS — lokalny pyHanko bez listy
+        zaufanych dostawców nie (podpis umowy B2B w NEXUSIE, 0499)."""
+        return self.has_dss
 
     async def validate(self, signed_pdf: bytes) -> ValidationReport:
         """Return the QES verdict for ``signed_pdf``.
@@ -139,10 +145,13 @@ class ValidationService:
                 ]
                 # SIG-01: wynik KAŻDEGO podpisu, nie tylko pierwszego — drugi
                 # podpis z TOTAL_FAILED nie może się schować za pierwszym.
+                # Poziom KAŻDEGO podpisu (podpis umowy B2B w NEXUSIE, 0499):
+                # kwalifikowany musi być każdy, nie tylko pierwszy.
                 results = [
                     {
                         "signer": s.get("signedBy") or s.get("SignedBy"),
                         "indication": s.get("indication") or s.get("Indication"),
+                        "level": s.get("signatureLevel") or s.get("SignatureLevel"),
                     }
                     for s in approval_sigs
                 ]

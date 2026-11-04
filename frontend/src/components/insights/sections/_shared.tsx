@@ -3,11 +3,15 @@
 import type { ElementType, ReactNode } from "react";
 import {
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ChevronsUpDown,
   HelpCircle,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { SortDirection } from "@/lib/insights-people-table";
 import { httpStatusFromError, resolveViewState } from "@/lib/view-state";
 import type { DashboardQualityStatus } from "@/lib/dashboard-v2-api";
 import {
@@ -395,5 +399,62 @@ export function NotAssessable({
         <p className="mt-2 text-xs text-muted-foreground">{footnote}</p>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Nagłówek kolumny, który sortuje tabelę osób (przycisk w `<th>`
+ * i `aria-sort`). Stan sortowania trzyma tabela — `nextColumnSort`
+ * z `lib/insights-people-table`. `sortKey === null` = kolejność z API.
+ * `className` nadpisuje odstępy komórki (tabele mają różne siatki).
+ */
+export function SortableHeader<Key extends string>({
+  label,
+  columnKey,
+  sortKey,
+  sortDir,
+  onSort,
+  align,
+  className,
+}: {
+  label: string;
+  columnKey: Key;
+  sortKey: Key | null;
+  sortDir: SortDirection;
+  onSort: (key: Key) => void;
+  align: "left" | "right";
+  className?: string;
+}) {
+  const active = sortKey === columnKey;
+  const Icon = !active
+    ? ChevronsUpDown
+    : sortDir === "asc"
+      ? ArrowUp
+      : ArrowDown;
+  return (
+    <th
+      scope="col"
+      className={cn(
+        "py-2 font-medium",
+        align === "right" ? "px-2 text-right" : "pr-3 text-left",
+        className,
+      )}
+      aria-sort={
+        active ? (sortDir === "asc" ? "ascending" : "descending") : "none"
+      }
+    >
+      <button
+        type="button"
+        onClick={() => onSort(columnKey)}
+        className={cn(
+          "inline-flex items-center gap-1 rounded-sm uppercase hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          align === "right" ? "flex-row-reverse" : "",
+          active ? "text-foreground" : "",
+        )}
+      >
+        {label}
+        <Icon className="h-3 w-3" aria-hidden="true" />
+      </button>
+    </th>
   );
 }

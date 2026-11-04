@@ -62,8 +62,9 @@ const STAGES: Array<{
   { key: "new", label: "Nowy" },
   { key: "screening", label: "Screening" },
   { key: "cv_sent", label: "Wysłany do klienta" },
-  { key: "client_interview", label: "Interview" },
-  { key: "acceptance", label: "Akceptacje" },
+  // Liczniki = kolumny Tablicy (runda 7, R7-N9-4).
+  { key: "client_interview", label: "Rozmowa u klienta" },
+  { key: "acceptance", label: "Umowa" },
 ]
 
 function friendlyStage(stage: string): string {

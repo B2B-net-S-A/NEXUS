@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import JobChatTab from "@/components/v2/pages/JobChatTab";
@@ -25,9 +25,32 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({ jobChatApi: chatApi }));
+vi.mock("@/hooks/useMentionableUsers", () => ({
+  useMentionableUsers: () => ({
+    data: [{ id: 9, name: "Jan Kowalski", email: "jan@example.com", role: "recruiter" }],
+  }),
+}));
 vi.mock("@/components/v2/forms/MentionTextarea", () => ({
-  MentionTextarea: ({ ariaLabel }: { ariaLabel: string }) => (
-    <textarea aria-label={ariaLabel} />
+  MentionTextarea: ({
+    ariaLabel,
+    value,
+    onChange,
+    onKeyDown,
+    autoGrow,
+  }: {
+    ariaLabel: string;
+    value?: string;
+    onChange?: (v: string) => void;
+    onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+    autoGrow?: boolean;
+  }) => (
+    <textarea
+      aria-label={ariaLabel}
+      data-autogrow={String(autoGrow)}
+      value={value ?? ""}
+      onChange={(e) => onChange?.(e.target.value)}
+      onKeyDown={onKeyDown}
+    />
   ),
 }));
 
@@ -55,13 +78,13 @@ const message = {
   updated_at: "2026-09-02T08:00:00Z",
 };
 
-function renderChat() {
+function renderChat(readOnly = true) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <JobChatTab jobId={12} readOnly />
+      <JobChatTab jobId={12} readOnly={readOnly} />
     </QueryClientProvider>,
   );
 }
@@ -131,5 +154,106 @@ describe("JobChatTab — link z powiadomienia `&msg=`", () => {
     );
     expect(scrollIntoView).toHaveBeenCalled();
     expect(window.location.search).toBe("?tab=chat");
+  });
+});
+
+describe("JobChatTab — zespół i wzmianki", () => {
+  it("nie pokazuje „0” w trakcie ładowania zespołu, a wzmiankę pokazuje nazwiskiem", async () => {
+    let resolveMembers: (value: { data: unknown[] }) => void = () => undefined;
+    chatApi.getMembers.mockReturnValue(
+      new Promise((resolve) => {
+        resolveMembers = resolve;
+      }),
+    );
+    chatApi.getPinned.mockResolvedValue({ data: [] });
+    chatApi.listMessages.mockResolvedValue({
+      data: {
+        items: [{ ...message, pinned: false, content: "@jan@example.com zerknij proszę" }],
+        has_more: false,
+        next_before_id: null,
+      },
+    });
+
+    renderChat();
+
+    expect(await screen.findByText("@Jan Kowalski")).toBeInTheDocument();
+    expect(screen.queryByText(/zespół:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/członków/)).not.toBeInTheDocument();
+
+    resolveMembers({ data: [message.author] });
+    expect(await screen.findByText("zespół: 1")).toBeInTheDocument();
+  });
+});
+
+describe("JobChatTab — brak dostępu", () => {
+  it("403 mówi o dostępie konta do rekrutacji, nie o zespole rekrutacji", async () => {
+    // Od 23.09.2026 czat czyta każda rola wewnętrzna — „tylko dla zespołu”
+    // wprowadzało w błąd osobę, której konto nie ma dostępu do rekrutacji.
+    const forbidden = { response: { status: 403 } };
+    chatApi.getMembers.mockRejectedValue(forbidden);
+    chatApi.getPinned.mockRejectedValue(forbidden);
+    chatApi.listMessages.mockRejectedValue(forbidden);
+
+    renderChat();
+
+    expect(await screen.findByText("Brak dostępu do czatu")).toBeInTheDocument();
+    expect(screen.getByText(/Twoje konto nie ma dostępu do rekrutacji/)).toBeInTheDocument();
+    expect(screen.queryByText(/zespołu/)).not.toBeInTheDocument();
+  });
+});
+
+// Zgłoszenie Klaudii 29.10.2026: pole wiadomości rośnie z tekstem, a przycisk
+// rozwija je na całe okno czatu (Enter = nowa linia, Ctrl+Enter wysyła).
+describe("JobChatTab — rozwijane pole wiadomości", () => {
+  it("rozwija pole zamiast listy, Enter nie wysyła, Ctrl+Enter wysyła i zwija", async () => {
+    chatApi.getMembers.mockResolvedValue({ data: [message.author] });
+    chatApi.getPinned.mockResolvedValue({ data: [] });
+    chatApi.listMessages.mockResolvedValue({
+      data: { items: [{ ...message, pinned: false }], has_more: false, next_before_id: null },
+    });
+    chatApi.markRead.mockResolvedValue({ data: { notifications_cleared: 0 } });
+    chatApi.sendMessage.mockResolvedValue({ data: { id: 99 } });
+
+    renderChat(false);
+    expect(await screen.findByText("Kandydat gotowy do rozmowy z klientem.")).toBeVisible();
+    const field = screen.getByLabelText("Treść wiadomości chatu");
+    expect(field).toHaveAttribute("data-autogrow", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Rozwiń pole" }));
+    expect(screen.queryByText("Kandydat gotowy do rozmowy z klientem.")).not.toBeVisible();
+    expect(screen.getByText(/Ctrl\+Enter wysyła/)).toBeInTheDocument();
+    expect(field).toHaveAttribute("data-autogrow", "false");
+
+    fireEvent.change(field, { target: { value: "Linia 1\nLinia 2" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(chatApi.sendMessage).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(field, { key: "Enter", ctrlKey: true });
+    await waitFor(() =>
+      expect(chatApi.sendMessage).toHaveBeenCalledWith(12, {
+        content: "Linia 1\nLinia 2",
+        reply_to_message_id: null,
+      }),
+    );
+    expect(await screen.findByRole("button", { name: "Rozwiń pole" })).toBeInTheDocument();
+    expect(screen.getByText("Kandydat gotowy do rozmowy z klientem.")).toBeVisible();
+  });
+
+  it("Esc zwija rozwinięte pole i zostawia napisany tekst", async () => {
+    chatApi.getMembers.mockResolvedValue({ data: [message.author] });
+    chatApi.getPinned.mockResolvedValue({ data: [] });
+    chatApi.listMessages.mockResolvedValue({
+      data: { items: [], has_more: false, next_before_id: null },
+    });
+    chatApi.markRead.mockResolvedValue({ data: { notifications_cleared: 0 } });
+
+    renderChat(false);
+    fireEvent.click(await screen.findByRole("button", { name: "Rozwiń pole" }));
+    const field = screen.getByLabelText("Treść wiadomości chatu");
+    fireEvent.change(field, { target: { value: "Szkic" } });
+    fireEvent.keyDown(field, { key: "Escape" });
+
+    expect(screen.getByRole("button", { name: "Rozwiń pole" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Treść wiadomości chatu")).toHaveValue("Szkic");
   });
 });

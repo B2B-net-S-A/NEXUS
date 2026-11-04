@@ -137,6 +137,12 @@ export interface JobContractTabProps extends WorkbenchPanelProps {
    * Domyślnie widoczna — także w panelu.
    */
   hideCloseJob?: boolean;
+  /**
+   * Panel osoby ma nad tą zakładką własną umowę (`AgreementPanelTab`,
+   * 04.10.2026): generowanie i podpis są tam, więc tu znikają linki do
+   * Generatora i rejestru — zostaje historia podpisu i przekazanie do Delivery.
+   */
+  agreementInPanel?: boolean;
 }
 
 interface ContractEntry {
@@ -156,6 +162,7 @@ export function JobContractTab({
   onColumnsRetry,
   canCloseJob,
   hideCloseJob = false,
+  agreementInPanel = false,
   layout = "full",
   focusCandidateId = null,
 }: JobContractTabProps) {
@@ -279,11 +286,13 @@ export function JobContractTab({
                 ) : null;
   const headActions = (
                 <>
-                  <ModuleLink
-                    href={generatorHref}
-                    label="Otwórz w Generatorze B2B"
-                    variant="button"
-                  />
+                  {agreementInPanel ? null : (
+                    <ModuleLink
+                      href={generatorHref}
+                      label="Otwórz w Generatorze B2B"
+                      variant="button"
+                    />
+                  )}
                   {primaryContract?.contract_id != null && (
                     <ModuleLink
                       href={`/contracts/${primaryContract.contract_id}`}
@@ -548,7 +557,7 @@ export function JobContractTab({
                 </Button>
               ) : (
                 <p className="col-span-2 text-[11px] text-muted-foreground">
-                  Zamknięcie rekrutacji wymaga roli TAC, Delivery Leada albo
+                  Zamknięcie rekrutacji wymaga roli Delivery Leada albo
                   administratora.
                 </p>
               )}
@@ -579,7 +588,7 @@ export function JobContractTab({
         jobId={jobId}
         jobTitle={jobTitle}
         clientId={clientId}
-        defaultReason={hiredCount > 0 ? "filled_by_us" : "other"}
+        defaultReason={hiredCount > 0 ? "filled_by_us" : null}
       />
   );
 
@@ -607,9 +616,9 @@ export function JobContractTab({
     if (!selected) {
       return (
         <p className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">
-          Umowa i przekazanie do Delivery są dostępne na etapach „Umowa
-          wysłana”, „Umowa podpisana”, „Zatrudniony” i „Onboarding”. Ta osoba
-          jest dziś na innym etapie tej rekrutacji.
+          {agreementInPanel ? "Przekazanie do Delivery jest" : "Umowa i przekazanie do Delivery są"}{" "}
+          dostępne na etapach „Umowa wysłana”, „Umowa podpisana”, „Zatrudniony”
+          i „Onboarding”. Ta osoba jest dziś na innym etapie tej rekrutacji.
         </p>
       );
     }
@@ -636,18 +645,22 @@ export function JobContractTab({
 
         {contractsNotice}
 
-        <section
-          aria-label="Podpis"
-          className="space-y-2 rounded-xl border border-border bg-card p-3"
-        >
-          {signingBody}
-          {primaryContract && <SigningStatusHistory contract={primaryContract} />}
-          {alternativesBody}
-          <p className="text-[10.5px] text-muted-foreground">
-            Potwierdzenie podpisu mieszka w rejestrze Generatora Umów B2B — tu
-            jest do niego wejście, nie jego kopia.
-          </p>
-        </section>
+        {agreementInPanel && !primaryContract ? null : (
+          <section
+            aria-label="Podpis"
+            className="space-y-2 rounded-xl border border-border bg-card p-3"
+          >
+            {agreementInPanel ? null : signingBody}
+            {primaryContract && <SigningStatusHistory contract={primaryContract} />}
+            {agreementInPanel ? null : alternativesBody}
+            {agreementInPanel ? null : (
+              <p className="text-[10.5px] text-muted-foreground">
+                Potwierdzenie podpisu mieszka w rejestrze Generatora Umów B2B — tu
+                jest do niego wejście, nie jego kopia.
+              </p>
+            )}
+          </section>
+        )}
 
         <section
           aria-label="Przekazanie do Delivery"
@@ -935,7 +948,9 @@ function SigningStatusHistory({
             >
               <span>
                 <span className="font-medium text-foreground">
-                  {CONTRACT_STATUS_LABEL[event.to_status] ?? event.to_status}
+                  {event.kind === "esign"
+                    ? event.label
+                    : (CONTRACT_STATUS_LABEL[event.to_status] ?? event.to_status)}
                 </span>
                 {event.from_status
                   ? ` ← ${CONTRACT_STATUS_LABEL[event.from_status] ?? event.from_status}`

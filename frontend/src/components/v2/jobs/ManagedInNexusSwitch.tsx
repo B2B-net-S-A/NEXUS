@@ -15,8 +15,9 @@
  *   są jeszcze przełączone. Ruch na tablicy jest dozwolony zawsze; plakietka
  *   uprzedza, że nocny import go nadpisze. Do 24.09.2026 był to duży baner
  *   nad Tablicą (~110 px), który spychał kolumny pod ekran.
- * - `ManagedInNexusChip` — w nagłówku, WYŁĄCZNIE dla przełączonych. Powrót do
- *   Traffita tylko admin / Delivery Lead (backend odpowiada 403 pozostałym).
+ * - `ManagedInNexusChip` — w nagłówku, WYŁĄCZNIE dla przełączonych. Od 14.10.2026
+ *   bez powrotu do Traffita: Traffit jest wyłączony na stałe (decyzja Artura),
+ *   backend odpowiada 410 na `enabled=false`, więc chip jest samą informacją.
  *
  * Teksty mieszkają tutaj, nie w `@/lib/api` — testy komponentów mockują
  * `@/lib/api` w całości.
@@ -36,21 +37,15 @@ import { formatDate } from "@/lib/utils";
 export const MANAGED_IN_NEXUS_LABELS = {
   notice: "Archiwum z Traffita — nowe rekrutacje zakładaj w NEXUSIE",
   noticeHint:
-    "Rekrutacje z Traffita są w NEXUSIE zamknięte (od 25.09.2026): zostają źródłem podobnych rekrutacji, przepięć i profilu Championa, a nocny import dopisuje ich historię. Żeby prowadzić tę rekrutację tutaj, przełącz ją do NEXUSA i otwórz ponownie.",
+    "Rekrutacje z Traffita są w NEXUSIE zamknięte (od 25.09.2026): zostają źródłem podobnych rekrutacji, przepięć i profilu Championa. Żeby prowadzić tę rekrutację tutaj, przełącz ją do NEXUSA i otwórz ponownie (menu „⋯” → „Otwórz ponownie”).",
   switchButton: "Przełącz do NEXUSA",
   enableTitle: "Przełączyć rekrutację do NEXUSA?",
   enableDescription:
-    "Od tej chwili etapy tej rekrutacji zmieniasz tylko w NEXUSIE; import z Traffita ich nie ruszy ani jej nie zamknie. Tytuł, status i data zamknięcia przestaną być pobierane z Traffita. Rekrutacja jest zamknięta — po przełączeniu otwórz ją ponownie w edycji rekrutacji (status).",
+    "Od tej chwili etapy tej rekrutacji zmieniasz tylko w NEXUSIE; import z Traffita ich nie ruszy ani jej nie zamknie. Tytuł, status i data zamknięcia przestaną być pobierane z Traffita. Rekrutacja jest zamknięta — po przełączeniu otwórz ją ponownie: menu „⋯” → „Otwórz ponownie”.",
   enableConfirm: "Przełącz do NEXUSA",
   cancel: "Anuluj",
   chip: (since: string) => `Prowadzona w NEXUSIE od ${since}`,
-  chipRevertHint: "Wróć do Traffita",
-  revertTitle: "Wrócić do prowadzenia w Traffitcie?",
-  revertDescription:
-    "Najbliższy nocny import znów zapisze etapy z Traffita i nadpisze ruchy wykonane w NEXUSIE.",
-  revertConfirm: "Wróć do Traffita",
   enabledToast: "Rekrutacja jest teraz prowadzona w NEXUSIE.",
-  revertedToast: "Rekrutacja wróciła do Traffita.",
   errorFallback: "Nie udało się zmienić sposobu prowadzenia rekrutacji.",
 } as const;
 
@@ -63,16 +58,12 @@ function useManagedMutation(jobId: number, onDone: () => void) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   return useMutation({
-    mutationFn: (enabled: boolean) => jobsApi.setManagedInNexus(jobId, enabled),
-    onSuccess: (_response, enabled) => {
+    mutationFn: () => jobsApi.setManagedInNexus(jobId, true),
+    onSuccess: () => {
       // Strona rekrutacji trzyma `id` z `useParams` jako string.
       queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] });
       queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-      showSuccess(
-        enabled
-          ? MANAGED_IN_NEXUS_LABELS.enabledToast
-          : MANAGED_IN_NEXUS_LABELS.revertedToast,
-      );
+      showSuccess(MANAGED_IN_NEXUS_LABELS.enabledToast);
       onDone();
     },
     onError: (error) =>
@@ -128,7 +119,7 @@ export function ManagedInTraffitNotice({ job, canSwitch }: ManagedInTraffitNotic
               type="button"
               data-testid="managed-in-nexus-confirm"
               loading={mutation.isPending}
-              onClick={() => mutation.mutate(true)}
+              onClick={() => mutation.mutate()}
             >
               {MANAGED_IN_NEXUS_LABELS.enableConfirm}
             </Button>
@@ -145,72 +136,28 @@ export function ManagedInTraffitNotice({ job, canSwitch }: ManagedInTraffitNotic
 
 export interface ManagedInNexusChipProps {
   job: ManagedJob;
-  /** Admin / Delivery Lead (poza trybem podglądu) — jedyne role, które mogą wrócić do Traffita. */
-  canRevert: boolean;
+  /**
+   * Bez skutku od 14.10.2026 — powrotu do Traffita nie ma (Traffit wyłączony,
+   * backend odpowiada 410). Zostaje, żeby strona rekrutacji kompilowała się
+   * bez zmian; do usunięcia razem z przekazaniem w `app/jobs/[id]/page.tsx`.
+   */
+  canRevert?: boolean;
 }
 
-export function ManagedInNexusChip({ job, canRevert }: ManagedInNexusChipProps) {
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const mutation = useManagedMutation(job.id, () => setConfirmOpen(false));
-
+export function ManagedInNexusChip({ job }: ManagedInNexusChipProps) {
   if (!job.managed_in_nexus) return null;
-
   const label = MANAGED_IN_NEXUS_LABELS.chip(formatDate(job.managed_in_nexus_at));
 
   return (
-    <>
-      <Badge
-        variant="success"
-        data-testid="managed-in-nexus-chip"
-        title={canRevert ? MANAGED_IN_NEXUS_LABELS.chipRevertHint : undefined}
-        role={canRevert ? "button" : undefined}
-        tabIndex={canRevert ? 0 : undefined}
-        className={canRevert ? "cursor-pointer" : undefined}
-        onClick={canRevert ? () => setConfirmOpen(true) : undefined}
-        onKeyDown={
-          canRevert
-            ? (event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  setConfirmOpen(true);
-                }
-              }
-            : undefined
-        }
-      >
-        {label}
-      </Badge>
-      {canRevert ? (
-        <AppModal
-          open={confirmOpen}
-          onOpenChange={setConfirmOpen}
-          title={MANAGED_IN_NEXUS_LABELS.revertTitle}
-          footer={
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setConfirmOpen(false)}
-              >
-                {MANAGED_IN_NEXUS_LABELS.cancel}
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                data-testid="managed-in-nexus-revert-confirm"
-                loading={mutation.isPending}
-                onClick={() => mutation.mutate(false)}
-              >
-                {MANAGED_IN_NEXUS_LABELS.revertConfirm}
-              </Button>
-            </>
-          }
-        >
-          <p className="text-sm text-muted-foreground">
-            {MANAGED_IN_NEXUS_LABELS.revertDescription}
-          </p>
-        </AppModal>
-      ) : null}
-    </>
+    // W wąskiej kolumnie nagłówka skraca się z wielokropkiem (pełny tekst
+    // w dymku), zamiast wychodzić pod zakładki (28.10.2026).
+    <Badge
+      variant="success"
+      className="max-w-full"
+      title={label}
+      data-testid="managed-in-nexus-chip"
+    >
+      <span className="min-w-0 truncate">{label}</span>
+    </Badge>
   );
 }

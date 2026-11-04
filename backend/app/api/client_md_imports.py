@@ -1,0 +1,522 @@
+"""„Importy MD" na profilu klienta (ticket 7, 25.09.2026).
+
+Import zużycia MD z Finansów był widoczny wyłącznie jako wpisy historii
+poszczególnych zamówień, a pełny podgląd importu (``/api/md-consumption``)
+jest za bramką Finansów. Delivery Lead nie miał gdzie zobaczyć, co jeden
+arkusz zrobił z zamówieniami JEGO klienta.
+
+Ten router pokazuje importy, które dotknęły klienta, i WYŁĄCZNIE wiersze tego
+klienta: zaksięgowane na jego zamówienia, czekające na wybór między jego
+liniami albo niosące w „Uwagach" numer jego zamówienia. Wiersze innych
+klientów (nazwiska, kwoty) nie wychodzą — ta sama bramka co karta zamówień
+(``_require_safe_group_read``), kwoty tylko z dostępem do finansów klienta.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from collections import defaultdict
+from datetime import datetime
+from decimal import Decimal
+from io import BytesIO
+from typing import Literal, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.candidate_access import NOT_READ_ONLY
+from app.api.client_order_groups import (
+    _assert_multi_client,
+    _can_see_finance,
+    _require_safe_group_read,
+)
+from app.api.md_consumption import (
+    _reason_context,
+    _row_status_label,
+    _unmatched_reason,
+)
+from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
+from app.api.permission_access import DeliveryViewUser
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
+from app.core.database import get_db
+from app.core.export_safety import safe_row
+from app.models.candidate import Candidate
+from app.models.client import Client
+from app.models.client_order import ClientOrder
+from app.models.client_order_group import ClientOrderGroup
+from app.models.contract import Contract
+from app.models.md_consumption import (
+    COST_ROW_APPLIED,
+    IMPORT_ROW_APPLIED,
+    IMPORT_ROW_AWAITING_ORDER,
+    IMPORT_ROW_COST_ONLY,
+    IMPORT_ROW_NEEDS_ASSIGNMENT,
+    IMPORT_ROW_OVERFLOW,
+    IMPORT_ROW_UNMATCHED,
+    MdConsumptionImport,
+    MdConsumptionImportRow,
+)
+from app.models.user import User
+from app.schemas.client_order_group import MdValue, MoneyPLN
+from app.services import finance_order_matching
+from app.services.client_identity import client_display_name
+from app.services.client_order_lines import name_tokens
+from app.services.finance_order_pdfs import ascii_slug
+from app.services.md_consumption_view import (
+    binds_as_order_number,
+    is_foreign_number,
+    same_order_number,
+)
+
+router = APIRouter(
+    dependencies=[*DELIVERY_SECTION_DEPENDENCIES, *DELIVERY_CLIENT_SCOPE_DEPENDENCIES]
+)
+
+RowState = Literal["booked", "to_verify", "error", "neutral", "awaiting"]
+
+ROW_STATE_LABELS: dict[str, str] = {
+    "booked": "Zaksięgowano",
+    "to_verify": "Do weryfikacji",
+    "error": "Błąd",
+    "neutral": "Bez zamówienia MD",
+    "awaiting": "Oczekuje na zamówienie",
+}
+
+
+class ClientMdImportSummary(BaseModel):
+    id: int
+    period_month: str
+    filename: Optional[str] = None
+    created_at: datetime
+    uploaded_by_name: Optional[str] = None
+    rows_total: int = 0
+    rows_booked: int = 0
+    rows_to_verify: int = 0
+    rows_error: int = 0
+    md_booked: MdValue = Decimal("0")
+
+
+class ClientMdImportRow(BaseModel):
+    id: int
+    row_number: int
+    consultant_name: str
+    order_number_hint: Optional[str] = None
+    target_order_number: Optional[str] = None
+    target_group_id: Optional[int] = None
+    md_reported: MdValue
+    invoice_amount: Optional[MoneyPLN] = None
+    state: RowState
+    state_label: str
+    status_label: str
+    status_reason: Optional[str] = None
+    number_mismatch: bool = False
+    """Numer z „Uwag" różni się od zamówienia, na które trafił wiersz."""
+
+
+class ClientMdImportDetail(ClientMdImportSummary):
+    rows: list[ClientMdImportRow] = Field(default_factory=list)
+
+
+class ClientMdImportListResponse(BaseModel):
+    imports: list[ClientMdImportSummary] = Field(default_factory=list)
+
+
+def row_state(row: MdConsumptionImportRow, has_reason: bool) -> RowState:
+    """Lustro ``importRowTone`` (``lib/md-import-row-tone.ts``) w trzech stanach."""
+    if row.status == IMPORT_ROW_APPLIED:
+        return "booked"
+    if row.status in (IMPORT_ROW_NEEDS_ASSIGNMENT, IMPORT_ROW_OVERFLOW):
+        return "to_verify"
+    if row.status == IMPORT_ROW_AWAITING_ORDER:
+        return "awaiting"
+    if row.cost_status == COST_ROW_APPLIED:
+        return "booked"
+    if has_reason or row.cost_status is not None:
+        return "error"
+    if row.status == IMPORT_ROW_COST_ONLY:
+        return "error"
+    return "neutral"
+
+
+class _ClientScope:
+    """Zamówienia klienta: linie, grupy i numery — do zawężenia wierszy."""
+
+    def __init__(
+        self,
+        line_group: dict[int, int],
+        groups: dict[int, str],
+        *,
+        client_id: Optional[int] = None,
+        people: frozenset[frozenset[str]] = frozenset(),
+    ) -> None:
+        self.line_group = line_group
+        self.groups = groups
+        self.client_id = client_id
+        # Osoby z linią w zamówieniu tego klienta (dowolny status).
+        self.people = people
+        self.order_numbers = finance_order_matching.build_order_number_index(
+            (client_id, number) for number in groups.values()
+        )
+
+    def _names_this_clients_order(self, row: MdConsumptionImportRow) -> bool:
+        """Wiersz niezaksięgowany należy do klienta tylko przez WIĄŻĄCY numer
+        jego zamówienia i osobę, która ma u niego linię.
+
+        Runda 7 (R7-N4-2): „Uwagi" niosą też inne liczby („delegacja 445",
+        „08/2026"), a numer „445" istnieje u kilku klientów naraz. Samo
+        porównanie cyfr pokazywało DL-owi klienta B nazwisko i kwotę faktury
+        konsultanta klienta A. Numer musi wiązać regułą importu
+        (``binds_as_order_number``), a osoba — mieć linię u tego klienta.
+        """
+        if not row.order_number_hint:
+            return False
+        wanted = name_tokens(row.consultant_name)
+        if not wanted or wanted not in self.people:
+            return False
+        if not binds_as_order_number(
+            row.order_number_hint,
+            client_id=self.client_id,
+            order_numbers=self.order_numbers,
+        ):
+            return False
+        return any(
+            same_order_number(row.order_number_hint, number)
+            for number in self.groups.values()
+        )
+
+    def target_group(self, row: MdConsumptionImportRow) -> Optional[int]:
+        if row.matched_order_id is not None and row.matched_order_id in self.line_group:
+            return self.line_group[row.matched_order_id]
+        if row.matched_group_id is not None and row.matched_group_id in self.groups:
+            return row.matched_group_id
+        return None
+
+    def touches(self, row: MdConsumptionImportRow) -> bool:
+        if self.target_group(row) is not None:
+            return True
+        # Wiersz czekający na kolejne zamówienie po zamówieniu tego klienta.
+        if (
+            row.matched_order_id is None
+            and row.awaiting_origin_order_id in self.line_group
+        ):
+            return True
+        # Wiersz zaksięgowany u INNEGO klienta nigdy nie jest wierszem tego
+        # klienta — niezależnie od numeru w „Uwagach" (przegląd 25.09.2026:
+        # luźne porównanie numerów pokazywało cudze faktury).
+        if row.matched_order_id is not None or row.matched_group_id is not None:
+            return False
+        for oid in row.candidate_order_ids or []:
+            try:
+                if int(oid) in self.line_group:
+                    return True
+            except (TypeError, ValueError):
+                continue
+        if row.status in (IMPORT_ROW_UNMATCHED, IMPORT_ROW_COST_ONLY):
+            return self._names_this_clients_order(row)
+        return False
+
+
+async def _client_scope(db: AsyncSession, client_id: int) -> _ClientScope:
+    groups = {
+        gid: number
+        for gid, number in (
+            await db.execute(
+                select(ClientOrderGroup.id, ClientOrderGroup.order_number).where(
+                    ClientOrderGroup.client_id == client_id
+                )
+            )
+        ).all()
+    }
+    line_group: dict[int, int] = {}
+    people: set[frozenset[str]] = set()
+    for oid, gid, first_name, last_name in (
+        await db.execute(
+            select(
+                ClientOrder.id,
+                ClientOrder.order_group_id,
+                Candidate.name,
+                Candidate.lastname,
+            )
+            .outerjoin(Contract, Contract.id == ClientOrder.contract_id)
+            .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
+            .where(
+                ClientOrder.client_id == client_id,
+                ClientOrder.order_group_id.isnot(None),
+            )
+        )
+    ).all():
+        line_group[oid] = gid
+        tokens = name_tokens(f"{first_name or ''} {last_name or ''}")
+        if tokens:
+            people.add(tokens)
+    return _ClientScope(
+        line_group, groups, client_id=client_id, people=frozenset(people)
+    )
+
+
+def _summary(
+    batch: MdConsumptionImport,
+    uploader: Optional[str],
+    rows: list[tuple[MdConsumptionImportRow, RowState]],
+) -> ClientMdImportSummary:
+    return ClientMdImportSummary(
+        id=batch.id,
+        period_month=batch.period_month,
+        filename=batch.filename,
+        created_at=batch.created_at,
+        uploaded_by_name=uploader,
+        rows_total=len(rows),
+        rows_booked=sum(1 for _, state in rows if state == "booked"),
+        rows_to_verify=sum(1 for _, state in rows if state == "to_verify"),
+        rows_error=sum(1 for _, state in rows if state == "error"),
+        md_booked=sum(
+            (
+                Decimal(str(row.md_reported))
+                for row, state in rows
+                if state == "booked" and row.status == IMPORT_ROW_APPLIED
+            ),
+            Decimal("0"),
+        ),
+    )
+
+
+@router.get(
+    "/{client_id}/md-imports",
+    response_model=ClientMdImportListResponse,
+)
+async def list_client_md_imports(
+    client_id: int,
+    user: DeliveryViewUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Importy MD, które dotknęły zamówień klienta — od najnowszego."""
+    await _require_safe_group_read(db, user, client_id)
+    _assert_multi_client(client_id)
+    scope = await _client_scope(db, client_id)
+    if not scope.groups:
+        return ClientMdImportListResponse()
+    batches = (
+        await db.execute(
+            select(MdConsumptionImport, User.name)
+            .outerjoin(User, User.id == MdConsumptionImport.uploaded_by_user_id)
+            .order_by(
+                MdConsumptionImport.created_at.desc(), MdConsumptionImport.id.desc()
+            )
+            .limit(200)
+        )
+    ).all()
+    if not batches:
+        return ClientMdImportListResponse()
+    rows = (
+        await db.scalars(
+            select(MdConsumptionImportRow).where(
+                MdConsumptionImportRow.import_id.in_([b.id for b, _ in batches])
+            )
+        )
+    ).all()
+    touched = [row for row in rows if scope.touches(row)]
+    # Stan wiersza liczy TA SAMA reguła co widok szczegółów (z opisem
+    # przyczyny) — inaczej lista i szczegóły podawałyby różne liczby błędów.
+    context = (
+        await _reason_context(db)
+        if any(r.status == IMPORT_ROW_UNMATCHED and r.notes_raw for r in touched)
+        else None
+    )
+    period = {batch.id: batch.period_month for batch, _ in batches}
+    by_import: dict[int, list[tuple[MdConsumptionImportRow, RowState]]] = defaultdict(
+        list
+    )
+    for row in touched:
+        reason = _unmatched_reason(row, period.get(row.import_id), context)
+        by_import[row.import_id].append((row, row_state(row, reason is not None)))
+    return ClientMdImportListResponse(
+        imports=[
+            _summary(batch, uploader, by_import[batch.id])
+            for batch, uploader in batches
+            if by_import.get(batch.id)
+        ]
+    )
+
+
+async def _load_detail(
+    db: AsyncSession, user: User, client_id: int, import_id: int
+) -> ClientMdImportDetail:
+    """Wiersze jednego importu dla klienta — jedno źródło ekranu i eksportu."""
+    await _require_safe_group_read(db, user, client_id)
+    _assert_multi_client(client_id)
+    found = (
+        await db.execute(
+            select(MdConsumptionImport, User.name)
+            .outerjoin(User, User.id == MdConsumptionImport.uploaded_by_user_id)
+            .where(MdConsumptionImport.id == import_id)
+        )
+    ).first()
+    if found is None:
+        raise HTTPException(404, detail="Import nie istnieje")
+    batch, uploader = found
+    scope = await _client_scope(db, client_id)
+    order_numbers = scope.order_numbers
+    stored = [
+        row
+        for row in (
+            await db.scalars(
+                select(MdConsumptionImportRow)
+                .where(MdConsumptionImportRow.import_id == import_id)
+                .order_by(MdConsumptionImportRow.row_number.asc())
+            )
+        ).all()
+        if scope.touches(row)
+    ]
+    if not stored:
+        # Import istnieje, ale nie dotyczy tego klienta — dla tego widoku
+        # to brak importu, nie pusta tabela.
+        raise HTTPException(404, detail="Ten import nie dotyczy zamówień klienta")
+    with_finance = await _can_see_finance(db, user, client_id)
+    context = (
+        await _reason_context(db)
+        if any(r.status == IMPORT_ROW_UNMATCHED and r.notes_raw for r in stored)
+        else None
+    )
+    states: list[tuple[MdConsumptionImportRow, RowState]] = []
+    reads: list[ClientMdImportRow] = []
+    for row in stored:
+        reason = _unmatched_reason(row, batch.period_month, context)
+        state = row_state(row, reason is not None)
+        states.append((row, state))
+        target_group = scope.target_group(row)
+        target_number = scope.groups.get(target_group) if target_group else None
+        reads.append(
+            ClientMdImportRow(
+                id=row.id,
+                row_number=row.row_number,
+                consultant_name=row.consultant_name,
+                order_number_hint=row.order_number_hint,
+                target_order_number=target_number,
+                target_group_id=target_group,
+                md_reported=row.md_reported,
+                invoice_amount=row.invoice_amount if with_finance else None,
+                state=state,
+                state_label=ROW_STATE_LABELS[state],
+                status_label=_row_status_label(row, reason[0] if reason else None),
+                status_reason=reason[1] if reason else None,
+                number_mismatch=bool(
+                    target_number
+                    and is_foreign_number(
+                        row.order_number_hint,
+                        target_number,
+                        client_id=client_id,
+                        order_numbers=order_numbers,
+                    )
+                ),
+            )
+        )
+    summary = _summary(batch, uploader, states)
+    return ClientMdImportDetail(**summary.model_dump(), rows=reads)
+
+
+@router.get(
+    "/{client_id}/md-imports/{import_id}",
+    response_model=ClientMdImportDetail,
+)
+async def get_client_md_import(
+    client_id: int,
+    import_id: int,
+    user: DeliveryViewUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Wiersze jednego importu — wyłącznie te, które dotyczą klienta."""
+    return await _load_detail(db, user, client_id, import_id)
+
+
+_XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_EXPORT_HEADER = (
+    "Wiersz",
+    "Osoba",
+    "Nr z importu",
+    "Zamówienie docelowe",
+    "MD",
+    "Kwota (PLN)",
+    "Status",
+    "Uwagi",
+)
+_EXPORT_WIDTHS = (9, 32, 18, 24, 10, 16, 18, 60)
+_MISMATCH_NOTE = "Numer z importu inny niż zamówienie docelowe"
+
+
+def _export_note(row: ClientMdImportRow) -> Optional[str]:
+    """To, co ekran pokazuje pod statusem i przy numerze („inny numer")."""
+    notes = []
+    if row.number_mismatch:
+        notes.append(_MISMATCH_NOTE)
+    if row.state != "booked":
+        notes.append(row.status_reason or row.status_label)
+    return "; ".join(note for note in notes if note) or None
+
+
+def _build_export_xlsx(detail: ClientMdImportDetail) -> BytesIO:
+    """Arkusz importu — CPU (openpyxl), wołane przez ``asyncio.to_thread``."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = f"Import MD {detail.period_month}"
+    sheet.append(_EXPORT_HEADER)
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+    for index, width in enumerate(_EXPORT_WIDTHS, start=1):
+        sheet.column_dimensions[get_column_letter(index)].width = width
+    sheet.freeze_panes = "A2"
+    for row in detail.rows:
+        # Nazwisko i numer z „Uwag" pochodzą z cudzego arkusza — tekst nie
+        # może zostać formułą (safe_row); MD i kwota zostają liczbami.
+        sheet.append(
+            safe_row(
+                [
+                    row.row_number,
+                    row.consultant_name,
+                    row.order_number_hint,
+                    row.target_order_number,
+                    row.md_reported,
+                    row.invoice_amount,
+                    row.state_label,
+                    _export_note(row),
+                ]
+            )
+        )
+        sheet.cell(row=sheet.max_row, column=5).number_format = "#,##0.###"
+        sheet.cell(row=sheet.max_row, column=6).number_format = "#,##0.00"
+    sheet.auto_filter.ref = sheet.dimensions
+    buffer = BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def export_filename(client_name: Optional[str], period_month: str) -> str:
+    return f"Import_MD_{ascii_slug(client_name) or 'Klient'}_{period_month}.xlsx"
+
+
+@router.get("/{client_id}/md-imports/{import_id}/export", dependencies=NOT_READ_ONLY)
+async def export_client_md_import(
+    client_id: int,
+    import_id: int,
+    user: DeliveryViewUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Otwarty import w XLSX — te same wiersze i ta sama redakcja kwot co ekran."""
+    detail = await _load_detail(db, user, client_id, import_id)
+    client = await db.get(Client, client_id)
+    buffer = await asyncio.to_thread(_build_export_xlsx, detail)
+    filename = export_filename(
+        client_display_name(client) if client else None, detail.period_month
+    )
+    return StreamingResponse(
+        buffer,
+        media_type=_XLSX_MEDIA,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

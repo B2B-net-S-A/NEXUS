@@ -395,7 +395,9 @@ class CompetitionRankingEntry(DashboardModel):
     kontraktu `extra="forbid"`.
     """
 
-    rank: int
+    # `None` = osoba w rankingu bez miejsca w klasyfikacji nagrodowej
+    # (niezakwalifikowana albo wykluczony lider kwartału).
+    rank: int | None
     user_id: int
     name: str
     metric_value: float | int
@@ -445,7 +447,9 @@ class RecruitmentMonthlyRaces(DashboardModel):
 
 
 class RecruitmentHallOfFameHistoryEntry(DashboardModel):
-    rank: int
+    # `None` = osoba w rankingu bez miejsca w klasyfikacji nagrodowej
+    # (niezakwalifikowana albo wykluczony lider kwartału).
+    rank: int | None
     user_id: int
     name: str
     metric_value: float | int | None = None

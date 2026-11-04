@@ -31,6 +31,13 @@ EXPECTED = {
     "work_mode": job_readiness.MSG_WORK_MODE,
     "office_days": job_readiness.MSG_OFFICE_DAYS,
     "office_city": job_readiness.MSG_OFFICE_CITY,
+    "critical": job_readiness.MSG_CRITICAL,
+    "search": job_readiness.MSG_SEARCH_REQUIREMENTS,
+    "deal_breaker": job_readiness.MSG_DEAL_BREAKER,
+    "hiring_manager": job_readiness.MSG_HIRING_MANAGER,
+    "deadline": job_readiness.MSG_DEADLINE,
+    "category": job_readiness.MSG_CATEGORY,
+    "headcount": job_readiness.MSG_HEADCOUNT,
 }
 
 
@@ -49,3 +56,9 @@ def test_every_backend_message_constant_is_mirrored():
         name for name in constants if getattr(job_readiness, name) in EXPECTED.values()
     }
     assert constants == mirrored
+
+
+def test_blocker_codes_are_the_mirror_keys():
+    """Kody braków w odpowiedzi 422 (`job_not_ready`, `handoff_regression`)
+    to klucze lustra — formularz `/jobs/new` mapuje po nich brak na sekcję."""
+    assert job_readiness.BLOCKER_CODES == EXPECTED

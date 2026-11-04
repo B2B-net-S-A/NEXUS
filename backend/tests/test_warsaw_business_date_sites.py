@@ -212,3 +212,25 @@ async def test_white_list_lookup_asks_for_warsaw_day(monkeypatch):
         assert await registry_lookup.lookup_by_nip("5260250274") is None
 
     assert seen == {"date": "2026-09-25"}
+
+
+def test_local_day_start_is_warsaw_midnight():
+    from app.core.scheduling import local_day_start_utc
+
+    # 25.09.2026 00:00 w Warszawie (CEST) = 24.09 22:00 UTC.
+    assert local_day_start_utc(date(2026, 9, 25)) == datetime(
+        2026, 9, 24, 22, 0, tzinfo=timezone.utc
+    )
+    # Zimą (CET) przesunięcie o godzinę.
+    assert local_day_start_utc(date(2026, 12, 1)) == datetime(
+        2026, 11, 30, 23, 0, tzinfo=timezone.utc
+    )
+
+
+def test_activity_stats_today_starts_at_warsaw_midnight():
+    from app.api.activities import _period_start
+
+    with time_machine.travel(AFTER_WARSAW_MIDNIGHT, tick=False):
+        assert _period_start("today") == datetime(
+            2026, 9, 24, 22, 0, tzinfo=timezone.utc
+        )

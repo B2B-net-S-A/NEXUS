@@ -155,7 +155,7 @@ function AllTimeBlock() {
                       osoba" dwie sekcje wyżej. */}
                   {entry.is_active === false && (
                     <span className="ml-2 rounded-full border border-border bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                      były pracownik
+                      był(a) w zespole
                     </span>
                   )}
                 </span>

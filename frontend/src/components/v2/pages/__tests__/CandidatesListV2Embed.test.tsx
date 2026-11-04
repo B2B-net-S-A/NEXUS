@@ -1,0 +1,523 @@
+import type { AnchorHTMLAttributes } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const push = vi.fn();
+const showSuccess = vi.fn();
+const showError = vi.fn();
+const bulkAdd = vi.fn();
+const scoreArgs = vi.fn();
+const onRowVisible = vi.fn();
+let urlParams = new URLSearchParams();
+let listItems: Array<Record<string, unknown> & { id: number }> = [];
+let listTotal = 0;
+let listExtra: Record<string, unknown> = {};
+
+vi.mock("next/link", () => ({
+  default: ({
+    href,
+    children,
+    ...props
+  }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push, replace: vi.fn(), prefetch: vi.fn() }),
+  useSearchParams: () => urlParams,
+}));
+
+vi.mock("@/lib/api", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/api")>();
+  const get = vi.fn((url: string) => {
+    if (url === "/api/candidates") {
+      return Promise.resolve({
+        data: {
+          items: listItems,
+          total: listTotal,
+          page: 1,
+          page_size: 50,
+          ...listExtra,
+        },
+      });
+    }
+    return Promise.resolve({ data: [] });
+  });
+  return {
+    ...original,
+    default: { get, post: vi.fn(), put: vi.fn() },
+    competenceCategoriesApi: {
+      list: vi.fn(() => Promise.resolve([])),
+    },
+  };
+});
+
+vi.mock("@/components/Toast", () => ({
+  useToast: () => ({ showSuccess, showError, showToast: vi.fn() }),
+}));
+vi.mock("@/lib/candidate-search-api", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/candidate-search-api")>();
+  return {
+    ...original,
+    proposalsBulkApi: {
+      add: (...a: unknown[]) => bulkAdd(...a),
+      addInChunks: (...a: unknown[]) => bulkAdd(...a),
+    },
+  };
+});
+vi.mock("@/hooks/useVisibleMatchScores", () => ({
+  useVisibleMatchScores: (jobId: number | null, items: unknown) => {
+    scoreArgs(jobId, items);
+    return {
+      scores: { "1": 82 },
+      breakdowns: {},
+      failures: {},
+      onRowVisible: onRowVisible,
+      retry: vi.fn(),
+    };
+  },
+}));
+vi.mock("@/hooks/useCandidateContactFeature", () => ({
+  useCandidateContactFeature: () => ({ enabled: false }),
+}));
+vi.mock("@/components/AppShell", () => ({
+  AddCandidateModal: ({ onCreated }: { onCreated?: (id: number, fullName?: string) => void }) => (
+    <button type="button" onClick={() => onCreated?.(99, "Nowa Testowa")}>
+      Zapisz nowego kandydata
+    </button>
+  ),
+}));
+vi.mock("@/components/v2/modals/ImportCandidatesV2", () => ({
+  ImportCandidatesV2: () => null,
+}));
+vi.mock("@/components/v2/modals/QuickAssignV2", () => ({ QuickAssignV2: () => null }));
+vi.mock("@/components/v2/modals/GenerateInviteLinkV2", () => ({
+  GenerateInviteLinkV2: () => null,
+}));
+vi.mock("@/components/v2/pages/CandidateQuickView", () => ({
+  CandidateQuickView: () => null,
+}));
+vi.mock("@/components/v2/filters/SavedSearchesMenu", () => ({
+  SavedSearchesMenu: () => null,
+}));
+vi.mock("@/components/v2/filters/CompetenceCategoryMultiSelect", () => ({
+  CompetenceCategoryMultiSelect: () => null,
+}));
+// jsdom nie ma wymiarów — wirtualizacja renderuje wszystkie wiersze strony.
+vi.mock("@tanstack/react-virtual", () => ({
+  useVirtualizer: ({ count }: { count: number }) => ({
+    getTotalSize: () => count * 64,
+    getVirtualItems: () =>
+      Array.from({ length: count }, (_, index) => ({ index, start: index * 64, size: 64 })),
+    measure: () => undefined,
+  }),
+}));
+vi.mock("@/components/v2/candidates/RequestSearchDialog", () => ({
+  RequestSearchDialog: ({
+    open,
+    initialText,
+    onSubmit,
+  }: {
+    open: boolean;
+    initialText?: string;
+    onSubmit: (r: unknown) => void;
+  }) =>
+    open ? (
+      <div role="dialog" aria-label="Szukaj z requestu">
+        <span data-testid="request-initial-text">{initialText}</span>
+        <button type="button" onClick={() => onSubmit({ source: "text", text: "x" })}>
+          Dalej
+        </button>
+      </div>
+    ) : null,
+}));
+vi.mock("@/components/v2/recruitment/AddToRecruitmentDialog", () => ({
+  addToRecruitmentSummary: () => "Dodano 4 osoby.",
+  AddToRecruitmentDialog: ({
+    open,
+    candidateIds,
+    source,
+    onAdded,
+  }: {
+    open: boolean;
+    candidateIds: number[];
+    source: string;
+    onAdded?: (result: unknown) => void;
+  }) =>
+    open ? (
+      <div role="dialog" aria-label="Dodaj do rekrutacji">
+        <span>
+          {source}:{candidateIds.join(",")}
+        </span>
+        <button type="button" onClick={() => onAdded?.({})}>
+          Potwierdź dodanie
+        </button>
+      </div>
+    ) : null,
+}));
+
+import { useUiStore } from "@/store/ui";
+import { useAuthStore } from "@/store/auth";
+import {
+  clearSearchMemory,
+  readJobSearch,
+  readJobSearchReturn,
+  writeJobSearchReturn,
+  writeListSearch,
+} from "@/lib/search-memory";
+import { CandidatesListV2 } from "@/components/v2/pages/CandidatesListV2";
+import { DEFAULT_FILTERS, type CandidateFilters } from "@/lib/url-filters";
+
+const onAdded = vi.fn();
+
+function renderEmbedded(seed: Partial<CandidateFilters> = {}) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <CandidatesListV2
+        embed={{
+          jobId: 7,
+          jobTitle: "Analityk Systemowy",
+          initialFilters: {
+            ...DEFAULT_FILTERS,
+            q: "Analityk Systemowy",
+            textMode: "semantic",
+            status: ["active", "passive"],
+            ...seed,
+          },
+          onAdded,
+        }}
+      />
+    </QueryClientProvider>,
+  );
+}
+
+async function listParams(): Promise<Record<string, unknown>> {
+  const api = (await import("@/lib/api")).default as unknown as {
+    get: ReturnType<typeof vi.fn>;
+  };
+  const calls = api.get.mock.calls.filter(
+    (call) =>
+      call[0] === "/api/candidates" &&
+      (call[1] as { params: { page_size?: number } }).params.page_size !== 1,
+  );
+  return (calls.at(-1)?.[1] as { params: Record<string, unknown> }).params;
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  cleanup();
+  // Adres strony rekrutacji — lista w oknie nie może go czytać.
+  urlParams = new URLSearchParams("q=inny-tekst&page=4&tab=people");
+  listItems = [
+    { id: 1, name: "Ewa", lastname: "Marczak", status: "active" },
+    { id: 2, name: "Piotr", lastname: "Lis", status: "active" },
+  ];
+  listTotal = 2;
+  listExtra = {};
+  useUiStore.setState({ columnPreferences: {} });
+});
+
+afterEach(() => cleanup());
+
+describe("CandidatesListV2 — „Szukaj ręcznie” z rekrutacji (embed)", () => {
+  it("startuje z filtrów rekrutacji, nie z adresu, i ukrywa osoby z rekrutacji", async () => {
+    renderEmbedded();
+    await screen.findByText("Ewa Marczak");
+    const params = await listParams();
+    expect(params.q).toBe("Analityk Systemowy");
+    expect(params.page).toBe(1);
+    expect(params.recruitment_id).toEqual([7]);
+    expect(params.recruitment_match).toBe("not_assigned");
+    expect(params.status).toEqual(["active", "passive"]);
+    // Ukrycie osób z rekrutacji nie jest chipem do zdjęcia.
+    expect(screen.queryByText(/Rekrutacja: /)).not.toBeInTheDocument();
+  });
+
+  it("bez nagłówka strony Kandydatów, z dopasowaniem do rekrutacji", async () => {
+    renderEmbedded();
+    await screen.findByText("Ewa Marczak");
+    expect(screen.queryByRole("heading", { name: "Kandydaci" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Dodaj kandydata/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Dop.")).toBeInTheDocument();
+    expect(screen.getByTitle("Dopasowanie do tej rekrutacji")).toHaveTextContent("82");
+    expect(scoreArgs).toHaveBeenCalledWith(7, expect.any(Array));
+    expect(onRowVisible).toHaveBeenCalledWith(1);
+  });
+
+  it("„Dodaj” wpisuje osobę do Nowych tej rekrutacji", async () => {
+    bulkAdd.mockResolvedValue({
+      added: [1],
+      skipped: [],
+      warnings: [],
+      total_added: 1,
+      total_skipped: 0,
+    });
+    renderEmbedded();
+    fireEvent.click(await screen.findByRole("button", { name: "Dodaj Ewa Marczak do Nowych" }));
+    await waitFor(() =>
+      expect(bulkAdd).toHaveBeenCalledWith(7, {
+        candidate_ids: [1],
+        initial_stage_legacy: "new",
+        source: "manual_search",
+      }),
+    );
+    // Okno rekrutacji dostaje dodanych z imieniem jak w wierszu listy
+    // („Dodani teraz” z „Cofnij” i „Pasuje też do”).
+    await waitFor(() =>
+      expect(onAdded).toHaveBeenCalledWith([{ candidateId: 1, fullName: "Ewa Marczak" }]),
+    );
+    expect(showSuccess).toHaveBeenCalledWith("Dodano do Nowych: 1.");
+    // U4 (audyt 06.10.2026): do odświeżenia listy wiersz mówi „Dodano”
+    // i drugie kliknięcie nie jest możliwe.
+    const done = screen.getByRole("button", { name: "Ewa Marczak — dodano do Nowych" });
+    expect(done).toBeDisabled();
+    expect(done).toHaveTextContent("Dodano");
+  });
+
+  it("„dodaj nowego kandydata” z okna rekrutacji wpisuje go też do Nowych (U8)", async () => {
+    listItems = [];
+    listTotal = 0;
+    bulkAdd.mockResolvedValue({
+      added: [99],
+      skipped: [],
+      warnings: [],
+      total_added: 1,
+      total_skipped: 0,
+    });
+    renderEmbedded();
+    fireEvent.click(await screen.findByRole("button", { name: "dodaj nowego kandydata" }));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz nowego kandydata" }));
+    await waitFor(() =>
+      expect(bulkAdd).toHaveBeenCalledWith(7, {
+        candidate_ids: [99],
+        initial_stage_legacy: "new",
+        source: "manual_search",
+      }),
+    );
+    // Nowej osoby nie ma na liście — imienia nie znamy.
+    await waitFor(() =>
+      expect(onAdded).toHaveBeenCalledWith([{ candidateId: 99, fullName: "Nowa Testowa" }]),
+    );
+  });
+
+  it("zbiorczo: „Dodaj N do Nowych” z zaznaczonych", async () => {
+    bulkAdd.mockResolvedValue({
+      added: [1],
+      skipped: [{ candidate_id: 2, reason: "already_in_job" }],
+      warnings: [],
+      total_added: 1,
+      total_skipped: 1,
+    });
+    renderEmbedded();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Zaznacz Ewa Marczak" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Zaznacz Piotr Lis" }));
+    fireEvent.click(screen.getByRole("button", { name: /Dodaj 2 do Nowych/ }));
+    await waitFor(() =>
+      expect(bulkAdd).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_ids: [1, 2] })),
+    );
+    await waitFor(() => expect(showSuccess).toHaveBeenCalled());
+    expect(showSuccess.mock.calls[0][0]).toContain("Pominięto:");
+    // Do okna idą tylko naprawdę dodani — „już w rekrutacji” nie.
+    expect(onAdded).toHaveBeenCalledWith([{ candidateId: 1, fullName: "Ewa Marczak" }]);
+    // „Już w rekrutacji” też schodzi z zaznaczenia (U4).
+    expect(screen.queryByRole("button", { name: /Dodaj \d+ do Nowych/ })).toBeNull();
+  });
+
+  it("filtr „Brał udział w rekrutacji” jest tu zablokowany zdaniem, nie udaje działania", async () => {
+    renderEmbedded();
+    await screen.findByText("Ewa Marczak");
+    const bar = screen.getByRole("region", { name: "Filtry kandydatów" });
+    fireEvent.click(within(bar).getByRole("button", { name: /Rekrutacje i historia/ }));
+    expect(await screen.findByTestId("recruitment-filter-locked")).toHaveTextContent(
+      "osoby, które już w niej są, są ukryte",
+    );
+    // Podpowiedź z listy Kandydatów („wybierz rekrutację”) tu by myliła.
+    expect(screen.queryByText(/Żeby ukryć osoby/)).toBeNull();
+  });
+});
+
+describe("„Szukaj ręcznie” — blok „Rekrutacje” (12.10.2026)", () => {
+  it("tryb dochodzi do wymuszonego „nie w tej rekrutacji”, listy rekrutacji tu nie ma", async () => {
+    renderEmbedded();
+    await screen.findByText("Ewa Marczak");
+    const bar = screen.getByRole("region", { name: "Filtry kandydatów" });
+    fireEvent.click(within(bar).getByRole("button", { name: /Rekrutacje i historia/ }));
+    const history = await screen.findByRole("dialog");
+    fireEvent.click(within(history).getByRole("radio", { name: "Nie brał udziału" }));
+    expect(within(history).queryByRole("button", { name: /Wszystkie rekrutacje/ })).toBeNull();
+    fireEvent.click(within(history).getByRole("radio", { name: "Bez procesu w toku" }));
+    fireEvent.keyDown(history, { key: "Escape" });
+    fireEvent.click(within(bar).getByRole("button", { name: /^Szukaj(?! w)/ }));
+    await waitFor(async () => {
+      const params = await listParams();
+      expect(params.recruitment_presence).toBe("not_in_process");
+      expect(params.recruitment_id).toEqual([7]);
+      expect(params.recruitment_match).toBe("not_assigned");
+      expect(params.recruitment_client_id).toBeUndefined();
+    });
+  });
+});
+
+describe("„Szukaj ręcznie” — przycisk Szukaj i pamięć rekrutacji (25.09.2026)", () => {
+  beforeEach(() => {
+    clearSearchMemory();
+    useAuthStore.setState({ user: { id: 11 } } as never);
+  });
+  afterEach(() => clearSearchMemory());
+
+  it("samo otwarcie okna niczego nie zapisuje", async () => {
+    renderEmbedded();
+    await screen.findByText("Ewa Marczak");
+    expect(readJobSearch(11, 7)).toBeNull();
+  });
+
+  it("po „Szukaj” okno pamięta wyszukiwanie, a „Wróć do filtrów z rekrutacji” je zdejmuje", async () => {
+    renderEmbedded();
+    await screen.findByText("Ewa Marczak");
+    const must = screen.getByLabelText("Wymaganie 1 — słowo albo wariant");
+    fireEvent.change(must, { target: { value: "Kafka" } });
+    fireEvent.keyDown(must, { key: "Enter" });
+    // Kursor stoi już w następnym, pustym wierszu — Enter w nim to „Szukaj”.
+    fireEvent.keyDown(screen.getByLabelText("Wymaganie 2 — słowo albo wariant"), { key: "Enter" });
+    await waitFor(async () => expect((await listParams()).q_any_group).toEqual(["Kafka"]));
+    await waitFor(() => expect(readJobSearch(11, 7)?.request.query).toContain("q_any=Kafka"));
+    cleanup();
+
+    renderEmbedded();
+    expect(
+      await screen.findByText("Przywrócono Twoje ostatnie wyszukiwanie w tej rekrutacji"),
+    ).toBeInTheDocument();
+    await waitFor(async () => {
+      const params = await listParams();
+      expect(params.q_any_group).toEqual(["Kafka"]);
+      expect(params.recruitment_match).toBe("not_assigned");
+    });
+    // Wymagania rekrutacji się nie zmieniły — bez zdania o zmianie.
+    expect(screen.queryByText(/Wymagania rekrutacji zmieniły się/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Wróć do filtrów z rekrutacji" }));
+    await waitFor(async () => expect((await listParams()).q_any_group).toBeUndefined());
+    expect(readJobSearch(11, 7)).toBeNull();
+  });
+
+  it("gdy DL zmienił wymagania, zostaje wyszukiwanie osoby i baner o zmianie", async () => {
+    renderEmbedded();
+    await screen.findByText("Ewa Marczak");
+    const must = screen.getByLabelText("Wymaganie 1 — słowo albo wariant");
+    fireEvent.change(must, { target: { value: "Kafka" } });
+    fireEvent.keyDown(must, { key: "Enter" });
+    // Kursor stoi już w następnym, pustym wierszu — Enter w nim to „Szukaj”.
+    fireEvent.keyDown(screen.getByLabelText("Wymaganie 2 — słowo albo wariant"), { key: "Enter" });
+    await waitFor(() => expect(readJobSearch(11, 7)?.request.query).toContain("q_any=Kafka"));
+    cleanup();
+
+    // Nowe wymagania z Championa (inne filtry startowe tej rekrutacji).
+    renderEmbedded({ q: "", qAny: [["Java"], ["Spring Boot"]] });
+    expect(
+      await screen.findByText(/Wymagania rekrutacji zmieniły się od tego czasu/),
+    ).toBeInTheDocument();
+    await waitFor(async () => expect((await listParams()).q_any_group).toEqual(["Kafka"]));
+
+    fireEvent.click(screen.getByRole("button", { name: "Wróć do filtrów z rekrutacji" }));
+    await waitFor(async () =>
+      expect((await listParams()).q_any_group).toEqual(["Java", "Spring Boot"]),
+    );
+  });
+
+  it("pamięć listy Kandydatów nie trafia do okna rekrutacji", async () => {
+    writeListSearch({ query: "q_all=Python" });
+    renderEmbedded();
+    await screen.findByText("Ewa Marczak");
+    const params = await listParams();
+    expect(params.q_all).toBeUndefined();
+    expect(params.q_any_group).toBeUndefined();
+    expect(params.q).toBe("Analityk Systemowy");
+    expect(
+      screen.queryByText("Przywrócono Twoje ostatnie wyszukiwanie w tej rekrutacji"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("po „Cofnij” w „Dodani teraz” osoba wraca do wyników z „Dodaj”, nie z „Dodano”", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const embed = (undone: ReadonlySet<number>) => ({
+      jobId: 7,
+      jobTitle: "Analityk Systemowy",
+      initialFilters: { ...DEFAULT_FILTERS, status: ["active", "passive"] } as CandidateFilters,
+      onAdded,
+      undone,
+    });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <CandidatesListV2 embed={embed(new Set())} />
+      </QueryClientProvider>,
+    );
+    // Po dodaniu serwer ukrywa Ewę (`recruitment_match=not_assigned`).
+    bulkAdd.mockImplementation(async () => {
+      listItems = [{ id: 2, name: "Piotr", lastname: "Lis", status: "active" }];
+      listTotal = 1;
+      return { added: [1], skipped: [], warnings: [], total_added: 1, total_skipped: 0 };
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Dodaj Ewa Marczak do Nowych" }));
+    await waitFor(() => expect(onAdded).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText("Ewa Marczak")).not.toBeInTheDocument());
+    // „Cofnij” w pasku: Ewa znów poza rekrutacją, lista ją pokazuje.
+    listItems = [
+      { id: 1, name: "Ewa", lastname: "Marczak", status: "active" },
+      { id: 2, name: "Piotr", lastname: "Lis", status: "active" },
+    ];
+    listTotal = 2;
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <CandidatesListV2 embed={embed(new Set([1]))} />
+      </QueryClientProvider>,
+    );
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["candidates-v2"] });
+    });
+    expect(await screen.findByRole("button", { name: "Dodaj Ewa Marczak do Nowych" })).toBeEnabled();
+  });
+});
+
+
+// Zgłoszenie 28.10.2026: z profilu otwartego w oknie „Wróć” lądował na całej bazie.
+describe("„Szukaj ręcznie” — powrót z profilu (28.10.2026)", () => {
+  beforeEach(() => clearSearchMemory());
+
+  it("nazwisko otwiera profil z adresem powrotu do tej rekrutacji i zapamiętuje osobę", async () => {
+    renderEmbedded();
+    const link = await screen.findByRole("link", { name: "Ewa Marczak" });
+    const params = new URLSearchParams(link.getAttribute("href")!.split("?")[1]);
+    expect(params.get("from")).toBe("job-search");
+    expect(params.get("jobId")).toBe("7");
+    expect(params.get("nav")).toBe("search");
+    fireEvent.click(link);
+    expect(readJobSearchReturn(7).lastOpenedId).toBe(1);
+  });
+
+  it("osoby „wybrane” na profilu wracają zaznaczone, gotowe do dodania", async () => {
+    writeJobSearchReturn(7, { picked: [1, 2] });
+    renderEmbedded();
+    await screen.findByText("Ewa Marczak");
+    expect(screen.getByRole("checkbox", { name: "Zaznacz Ewa Marczak" })).toBeChecked();
+    expect(screen.getByRole("button", { name: /Dodaj 2 do Nowych/ })).toBeInTheDocument();
+  });
+
+  it("zaznaczenie w oknie wraca do pamięci, więc profil widzi ten sam zbiór", async () => {
+    renderEmbedded();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Zaznacz Piotr Lis" }));
+    await waitFor(() => expect(readJobSearchReturn(7).picked).toEqual([2]));
+  });
+});

@@ -30,6 +30,7 @@ from app.models.service_account import (
     ServiceAccount,
     ServiceAccountKey,
     ServiceScope,
+    implied_scopes,
 )
 from app.services.service_account_auth import (
     ServiceKeyError,
@@ -114,14 +115,84 @@ class TestExpiryPolicy:
 
 class TestScopeVocabulary:
     def test_no_candidate_data_scope_exists(self):
-        """Klucz do syncu Traffita nie ma jak sięgnąć po dane kandydatów.
+        """Klucz nie ma jak sięgnąć po dane kandydatów.
 
         To nie jest kwestia ostrożnej konfiguracji konta — takiego uprawnienia
         po prostu nie ma w słowniku, więc nikt nie może go przyznać.
+
+        Od 14.10.2026 (API integracyjne v1) słownik ma scope'y rozliczeń,
+        w tym ``clients:read`` — świadomie: automatyzacja rozliczeń musi znać
+        klienta (nazwa, NIP, Delivery Lead). Otwiera on wyłącznie trasy
+        ``/api/integrations/v1/clients*``, a nie ``/api/clients`` ekranów
+        (``test_key_cannot_reach_domain_data``). Kandydaci, rekrutacje
+        i notatki nadal nie mają żadnego scope'u.
         """
         values = {scope.value for scope in ServiceScope}
         for forbidden in ("candidate:read", "candidate:write", "client:read"):
             assert forbidden not in values
+        # 15.10.2026 (decyzja Artura): API v1 obejmuje też rekrutację
+        # i kandydatów — wyłącznie przez te scope'y, z danymi osobowymi
+        # podzielonymi na profil, kontakt, CV i notatki. Każdy inny scope
+        # tych zasobów to nowa decyzja, nie dopisek.
+        personal = {
+            value
+            for value in values
+            if value.split(":", 1)[0]
+            in {
+                "candidate",
+                "candidates",
+                "jobs",
+                "job",
+                "notes",
+                "recruitments",
+                "cv",
+                "calendar",
+                "applications",
+                "academy",
+            }
+        }
+        assert personal == {
+            "recruitments:read",
+            "recruitments:write",
+            "recruitments:create",
+            "candidates:read",
+            "candidates:contact",
+            "candidates:cv",
+            "candidates:write",
+            "notes:read",
+            "notes:write",
+            "cv:generate",
+            "calendar:read",
+            "applications:read",
+            "applications:write",
+            "academy:read",
+        }
+
+    def test_write_scope_implies_read_scope(self):
+        assert implied_scopes(frozenset({"md:write"})) == {"md:write", "md:read"}
+        assert implied_scopes(frozenset({"traffit:sync"})) == {"traffit:sync"}
+        # Zapis bez odpowiadającego odczytu w słowniku niczego nie dokłada.
+        assert implied_scopes(frozenset({"bogus:write"})) == {"bogus:write"}
+
+    def test_all_amounts_include_sales_amounts_but_not_the_other_way(self):
+        """Decyzja Artura 14.10.2026: koszty i marża tylko z ``amounts:read``,
+        który obejmuje kwoty sprzedaży; ``sales_amounts:read`` nie daje kosztów."""
+        assert implied_scopes(frozenset({"amounts:read"})) == {
+            "amounts:read",
+            "sales_amounts:read",
+        }
+        assert implied_scopes(frozenset({"amounts:write"})) == {
+            "amounts:write",
+            "amounts:read",
+            "sales_amounts:read",
+        }
+        assert implied_scopes(frozenset({"sales_amounts:read"})) == {
+            "sales_amounts:read"
+        }
+        assert SCOPE_LABELS[ServiceScope.sales_amounts_read].startswith(
+            "Kwoty sprzedaży"
+        )
+        assert SCOPE_LABELS[ServiceScope.amounts_read].startswith("Wszystkie kwoty")
 
     def test_every_scope_has_polish_label(self):
         for scope in ServiceScope:

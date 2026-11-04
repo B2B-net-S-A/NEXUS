@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Check } from "lucide-react";
 
 import {
@@ -50,12 +51,15 @@ export function CycleStepper({
   steps,
   action,
   onPrepReview,
+  renderExtra,
 }: {
   steps: CycleStep[];
   /** Akcja dla kroku bieżącego (np. „Zapisz debrief”). */
   action?: { stepKey: CycleStep["key"]; label: string; onClick: () => void } | null;
   /** 0370: odbyty prep z NEXUSA (Teams) — otwiera ocenę prepu. */
   onPrepReview?: (eventId: number) => void;
+  /** Treść pod krokiem (ocena prepu, notatka na Prep 2); zastępuje link do oceny. */
+  renderExtra?: (step: CycleStep) => ReactNode;
 }) {
   return (
     <ol className="flex flex-col" aria-label="Kroki rozmowy u klienta">
@@ -102,7 +106,8 @@ export function CycleStepper({
                     </span>
                   ) : null}
                 </div>
-                {step.quality && step.event_id != null && onPrepReview ? (
+                {renderExtra?.(step) ??
+                (step.quality && step.event_id != null && onPrepReview ? (
                   <button
                     type="button"
                     onClick={() => onPrepReview(step.event_id as number)}
@@ -110,7 +115,7 @@ export function CycleStepper({
                   >
                     Zobacz ocenę i transkrypt
                   </button>
-                ) : null}
+                ) : null)}
               </div>
               {action && action.stepKey === step.key ? (
                 <button

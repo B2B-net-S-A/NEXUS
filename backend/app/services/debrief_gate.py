@@ -14,15 +14,21 @@ rozmowy (``updated_at < start``) się nie liczy: po rozmowie, której jeszcze ni
 było, nie ma czego raportować (zapis blokuje dziś ``PUT …/debrief``, ale takie
 wiersze powstały, zanim ta blokada weszła).
 
-Bramka dotyczy wyłącznie par, które mają rozmowę ``client_interview``
-w kalendarzu NEXUSA. Proces prowadzony w Trafficie takiej rozmowy nie ma i nie
-da się go tym zablokować — to świadome (brak wydarzenia = brak bramki).
+Do 20.10.2026 bramka dotyczyła wyłącznie par z rozmową ``client_interview``
+w kalendarzu NEXUSA. Rozmowę zakłada tylko ścieżka „Terminy od klienta”, a
+karty przesuwa się bez niej: w 30 dniach 88 z 99 par weszło w „Rozmowę
+z klientem” bez wydarzenia i przeszło do „Umowy” bez jednego pytania (pytania
+lądowały w notatkach). Teraz para, która była w etapie „Rozmowa z klientem”,
+też musi mieć pytania — odmowa ma wtedy ``event_id = None`` i
+``needs_interview_date``, a okno pytań pyta, kiedy była rozmowa
+(``PUT /api/interview-cycle/pairs/{c}/{j}/debrief`` zakłada wydarzenie
+i zapisuje debrief razem). Wyłącznik: ``DEBRIEF_GATE_WITHOUT_EVENT``.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, select
@@ -31,10 +37,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.interview_feedback import FeedbackSource, InterviewFeedback
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 
 DEBRIEF_REQUIRED_CODE = "DEBRIEF_REQUIRED"
 DEBRIEF_REQUIRED_MESSAGE = (
     "Najpierw zadzwoń do kandydata po rozmowie i zapisz pytania klienta."
+)
+QUESTIONS_REQUIRED_MESSAGE = (
+    "Najpierw zapisz pytania z rozmowy u klienta — o co pytał klient "
+    "(albo zaznacz, że nie pytał)."
 )
 
 
@@ -70,6 +81,77 @@ def debrief_is_complete(
     return any(line.strip() for line in (client_questions or "").splitlines())
 
 
+def debrief_closes_round(
+    client_questions: Optional[str],
+    no_client_questions: Optional[bool],
+    saved_at: Optional[datetime],
+    start: Optional[datetime],
+) -> bool:
+    """Czy debrief ZAMYKA rundę rozmowy u klienta — jedna reguła dla bramki,
+    ekranu „Rozmowy u klienta”, plakietki Tablicy i kolejki prepów.
+
+    Zamyka wyłącznie debrief kompletny (pytania klienta albo jawne „nie
+    pytał”) i zapisany po rozpoczęciu rozmowy. Runda 8 (CAL2): ekran liczył
+    dotąd każdy feedback strony kandydata — ogólny ``POST
+    /api/interview-feedback`` zapisuje go bez pytań — więc pokazywał „Debrief
+    ✓”, a bramka dalej odmawiała ruchu i wskazywała inną rundę.
+    """
+    return debrief_is_complete(
+        client_questions, no_client_questions
+    ) and debrief_saved_after_start(saved_at, start)
+
+
+def pick_prep_round(rounds: Sequence[datetime], now: datetime) -> Optional[int]:
+    """Indeks rundy, do której robi się PREPY: najbliższa rozmowa w przyszłości,
+    a gdy żadnej nie ma — ostatnia (ta sama co ``pick_current_round``).
+
+    ``rounds`` = starty rozmów posortowane rosnąco, bez odwołanych. Runda 8
+    (CAL2, decyzja Artura 27.09.2026): zaległy debrief rundy odbytej i braki
+    prepów do następnej rundy przypominają się RÓWNOLEGLE — runda do debriefu
+    (``pick_current_round``) może być wcześniejsza niż runda do prepów.
+    """
+    if not rounds:
+        return None
+    for i, start in enumerate(rounds):
+        if start > now:
+            return i
+    return len(rounds) - 1
+
+
+def pick_current_round(
+    rounds: Sequence[tuple[datetime, bool]], now: datetime
+) -> Optional[int]:
+    """Indeks BIEŻĄCEJ rundy rozmów u klienta pary albo ``None`` (brak rozmów).
+
+    ``rounds`` = ``(start, debrief_zamknięty)`` posortowane rosnąco po starcie,
+    bez odwołanych. Jedna reguła „rundy do debriefu” dla ekranu „Rozmowy
+    u klienta” (kroki, telefon, debrief), plakietki Tablicy i bramki debriefu;
+    prepy liczą się do rundy z ``pick_prep_round`` (runda 8, CAL2):
+
+    1. ostatnia rozmowa, która już się zaczęła, bez debriefu — telefon
+       i debrief po niej są pilniejsze niż kolejna runda (prepy do kolejnej
+       przypominają się obok, nie zamiast);
+    2. inaczej najwcześniejsza rozmowa w przyszłości;
+    3. inaczej ostatnia odbyta (wszystko zamknięte).
+
+    Runda 8 (R8-N9-3): od decyzji IC-1 (26.09.2026) para może mieć kilka
+    zaplanowanych rund naraz. Dotąd „bieżąca” była najpóźniejsza rozmowa,
+    także przyszła — telefon po rundzie, która właśnie się skończyła, znikał,
+    a planowanie prepu i ekran liczyły rundę inaczej (409 przy zadaniu
+    „Brak prepu”).
+    """
+    if not rounds:
+        return None
+    started = [i for i, (start, _closed) in enumerate(rounds) if start <= now]
+    last_started = started[-1] if started else None
+    if last_started is not None and not rounds[last_started][1]:
+        return last_started
+    upcoming = [i for i, (start, _closed) in enumerate(rounds) if start > now]
+    if upcoming:
+        return upcoming[0]
+    return last_started
+
+
 async def missing_debrief(
     db: AsyncSession,
     *,
@@ -80,12 +162,15 @@ async def missing_debrief(
     """Zwraca szczegół odmowy 409, gdy brakuje debriefu po rozmowie u klienta.
 
     ``None`` = bramka nie dotyczy pary (brak rozmowy u klienta w kalendarzu
-    poza odwołanymi) albo debrief NAJNOWSZEJ rozmowy jest kompletny i zapisany
-    po jej rozpoczęciu. Najnowsza rozmowa w przyszłości = odmowa z flagą
-    ``interview_pending`` (debrief będzie możliwy po rozmowie). Jedno zapytanie.
+    poza odwołanymi i para nigdy nie była w etapie „Rozmowa z klientem”) albo
+    debrief BIEŻĄCEJ rundy (``pick_current_round``) jest kompletny i zapisany
+    po jej rozpoczęciu. Bieżąca runda w przyszłości = odmowa z flagą
+    ``interview_pending`` (debrief będzie możliwy po rozmowie). Para z etapem
+    „Rozmowa z klientem”, ale bez rozmowy w kalendarzu = odmowa z
+    ``event_id = None`` i ``needs_interview_date`` (20.10.2026).
     """
     now = now or datetime.now(timezone.utc)
-    row = (
+    rows = (
         await db.execute(
             select(
                 CalendarEvent.id,
@@ -107,19 +192,41 @@ async def missing_debrief(
                 CalendarEvent.event_type == EventType.client_interview,
                 CalendarEvent.status != EventStatus.cancelled,
             )
-            .order_by(CalendarEvent.start_time.desc(), CalendarEvent.id.desc())
-            .limit(1)
+            .order_by(CalendarEvent.start_time.asc(), CalendarEvent.id.asc())
         )
-    ).first()
-    if row is None:
-        return None
-    event_id, event_start, questions, no_questions, saved_at = row
+    ).all()
+    if not rows:
+        if not settings.DEBRIEF_GATE_WITHOUT_EVENT:
+            return None
+        if not await was_in_client_interview(
+            db, candidate_id=candidate_id, job_id=job_id
+        ):
+            return None
+        return {
+            "code": DEBRIEF_REQUIRED_CODE,
+            "message": QUESTIONS_REQUIRED_MESSAGE,
+            "interview_pending": False,
+            "needs_interview_date": True,
+            "event_id": None,
+            "event_start": None,
+            "candidate_id": candidate_id,
+            "job_id": job_id,
+        }
+
+    def _aware(value: Optional[datetime]) -> Optional[datetime]:
+        if value is None or value.tzinfo is not None:
+            return value
+        return value.replace(tzinfo=timezone.utc)
+
+    def _closed(row) -> bool:
+        return debrief_closes_round(row[2], row[3], _aware(row[4]), _aware(row[1]))
+
+    # Runda 8 (R8-N9-3): ta sama „bieżąca runda” co ekran i planowanie prepu.
+    index = pick_current_round([(_aware(r[1]) or now, _closed(r)) for r in rows], now)
+    row = rows[index]
+    event_id, event_start = row[0], _aware(row[1])
     pending = event_start is not None and event_start > now
-    if (
-        not pending
-        and debrief_is_complete(questions, no_questions)
-        and debrief_saved_after_start(saved_at, event_start)
-    ):
+    if not pending and _closed(row):
         return None
     return {
         "code": DEBRIEF_REQUIRED_CODE,
@@ -129,8 +236,29 @@ async def missing_debrief(
             else DEBRIEF_REQUIRED_MESSAGE
         ),
         "interview_pending": pending,
+        "needs_interview_date": False,
         "event_id": event_id,
         "event_start": event_start.isoformat() if event_start else None,
         "candidate_id": candidate_id,
         "job_id": job_id,
     }
+
+
+async def was_in_client_interview(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> bool:
+    """Czy para była w tej rekrutacji w etapie „Rozmowa z klientem”.
+
+    Ten sam znacznik etapu co para „w cyklu” na ekranie „Rozmowy u klienta”
+    (``interview_cycle._scope_pairs``: ``stage == client_interview``).
+    """
+    found = await db.scalar(
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job_id,
+            CandidateStage.stage == PipelineStage.client_interview,
+        )
+        .limit(1)
+    )
+    return found is not None

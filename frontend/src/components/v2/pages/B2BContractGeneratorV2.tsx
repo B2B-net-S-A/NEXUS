@@ -4,6 +4,7 @@ import * as React from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import {
   useInfiniteQuery,
   useMutation,
@@ -22,14 +23,17 @@ import {
   Eye,
   ExternalLink,
   FilePen,
+  FileCheck2,
   FileSignature,
   Loader2,
+  Paperclip,
   History,
   PauseCircle,
   Pencil,
   Plus,
   Printer,
   Save,
+  Send,
   Search,
   Sparkles,
   Trash2,
@@ -57,7 +61,11 @@ import {
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Dialog,
   DialogBody,
@@ -76,6 +84,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/Toast";
@@ -83,16 +92,27 @@ import api, {
   b2bGeneratorApi,
   extractErrorMsg,
   type B2BClosureReason,
+  type B2BCompanyRepresentative,
+  type B2BContractVariant,
   type B2BConfirmFullySignedResult,
   type B2BContractStatus,
   type B2BGeneratedContractRow,
   type B2BGeneratedContractUpdate,
   type B2BGeneratedListParams,
   type B2BRenderPayload,
+  type B2BReplaceableContract,
   type B2BRole,
   type B2BUopCheckResult,
   type AgreementTerminationMode,
 } from "@/lib/api";
+import { readDocumentError } from "@/lib/b2b-documents";
+import {
+  boardFunctions,
+  boardSummary,
+  companyVariantMissing,
+  representationPl,
+  seatLocativePl,
+} from "@/lib/b2b-company-variant";
 import { downloadBlob, parseDispositionFilename } from "@/lib/cv-generator";
 import { hasActionAccess } from "@/lib/action-access";
 import { hasSectionAccess } from "@/lib/section-access";
@@ -105,14 +125,54 @@ import {
   agreementModeLabel,
   statusEventDetailsText,
 } from "@/lib/contract-termination";
-import { warsawToday } from "@/lib/warsaw-date";
+import { warsawDateOf, warsawToday } from "@/lib/warsaw-date";
 import { countPl } from "@/lib/plural-pl";
 import { positiveIntParam } from "@/lib/client-tab";
 import { DocumentsTab } from "@/components/v2/b2b-generator/documents/DocumentsTab";
 import { RegisterNewDocumentMenu } from "@/components/v2/b2b-generator/documents/RegisterNewDocumentMenu";
+import { AnnexGeneratorTab } from "@/components/v2/b2b-generator/documents/AnnexGeneratorTab";
+import {
+  ScanFileField,
+  scanFileProblem,
+} from "@/components/v2/b2b-generator/documents/DocumentDialogs";
+import { apiErrorMessage } from "@/lib/api-error";
+import { CompanySignaturesPanel } from "@/components/v2/b2b-generator/esign/CompanySignaturesPanel";
+import {
+  EsignRowStatus,
+  EsignSignedPdfButton,
+} from "@/components/v2/b2b-generator/esign/EsignRowStatus";
+import { SendForSignatureDialog } from "@/components/v2/b2b-generator/esign/SendForSignatureDialog";
+import {
+  RegisterAnnexLabel,
+  RegisterStartDate,
+} from "@/components/v2/b2b-generator/RegisterAnnexLabel";
+import { RegistryCheckDialog } from "@/components/v2/b2b-generator/RegistryCheckDialog";
+import { MandateAgreementForm } from "@/components/v2/b2b-generator/MandateAgreementForm";
+import { AgreementAdminDetailsCard } from "@/components/v2/b2b-generator/AgreementAdminDetailsCard";
+import {
+  adminFromSaved,
+  adminPayload,
+  EMPTY_ADMIN_VALUE,
+  isAdminComplete,
+  type AgreementAdminValue,
+} from "@/lib/agreement-admin-details";
+import {
+  PREVIEW_STYLE,
+  instrumentalPl,
+  printHtml,
+} from "@/lib/b2b-agreement-preview";
+import {
+  needsRegistryDialog,
+  registryDiffs,
+  registryOverrides,
+  verificationFailed,
+  type CompanyVerification,
+  type RegistryDiff,
+} from "@/lib/b2b-registry-check";
 import {
   B2B_CURRENCIES,
   B2B_REGISTER_PAGE_SIZE,
+  annexRatesSummary,
   canCorrectInForm,
   contractStatusOptions,
   existingContractFor,
@@ -126,13 +186,21 @@ import {
   registerSearchHref,
   type GeneratorTab,
 } from "@/lib/b2b-generator-register";
+import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
+import {
+  agreementProjectDescription,
+  pairColumnLabel,
+  prefillRateSource,
+} from "@/lib/b2b-agreement";
+import { contractRateNote } from "@/lib/recruitment-rate-hint";
 
 // Router generatora ma szeroką bramkę Sourcing, ale operacje na dokumentach
 // ze stawką mają osobne, konfigurowalne uprawnienie. Poziom `view` dostaje
 // wyłącznie bezpieczny, pozbawiony finansów rejestr.
 function isForbidden(error: unknown): boolean {
   return (
-    (error as { response?: { status?: number } } | null)?.response?.status === 403
+    (error as { response?: { status?: number } } | null)?.response?.status ===
+    403
   );
 }
 
@@ -230,6 +298,10 @@ type JobDetail = {
   description?: string | null;
   location?: string | null;
   client_name?: string | null;
+  // Źródło rekrutacji i Profil Championa — opis projektu do umowy wybiera
+  // `agreementProjectDescription` (surowy mail klienta nie trafia do § 1).
+  external_source?: string | null;
+  champion_profile?: unknown;
 };
 
 type Lang = "pl" | "en";
@@ -239,6 +311,8 @@ type LookupStatus = "idle" | "loading" | "ok" | "none";
 type RateStageForm = { rate: string; from: string; to: string };
 
 const MAX_RATE_STAGES = 6;
+/** Kod 409 z `/render`: numer umowy zajęty (lustro `_NUMBER_TAKEN_CODE`). */
+const CONTRACT_NUMBER_TAKEN = "contract_number_taken";
 
 const emptyRateStage = (): RateStageForm => ({ rate: "", from: "", to: "" });
 
@@ -254,9 +328,12 @@ function todayISO(): string {
   return warsawToday();
 }
 
-
 /** Smart-prefill „Opis projektu" z roli (gdy brak oferty z rekrutacji). */
-function smartDescription(role: B2BRole, lang: Lang, clientName: string): string {
+function smartDescription(
+  role: B2BRole,
+  lang: Lang,
+  clientName: string,
+): string {
   const area = lang === "pl" ? role.area_label_pl : role.area_label_en;
   const scope = (lang === "pl" ? role.scope_pl : role.scope_en).slice(0, 3);
   const client = clientName.trim();
@@ -426,71 +503,6 @@ export function reuseOrGenerateContractId({
   return pending;
 }
 
-/** Heurystyczna odmiana imienia i nazwiska do narzędnika („z Panem Janem
- * Kowalskim"). Best-effort — przy nietypowych/obcych nazwiskach pole jest
- * edytowalne. */
-function titleCase(w: string): string {
-  return w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w;
-}
-
-function declineInstrumentalToken(raw: string, gender: "m" | "k"): string {
-  const w = titleCase(raw);
-  const lw = w.toLowerCase();
-  const cut = (n: number, suf: string) => w.slice(0, w.length - n) + suf;
-  if (gender === "k") {
-    if (lw.endsWith("ska") || lw.endsWith("cka") || lw.endsWith("dzka"))
-      return cut(1, "ą");
-    if (lw.endsWith("a")) return cut(1, "ą");
-    return w; // nazwisko żeńskie zakończone spółgłoską — nieodmienne
-  }
-  if (lw.endsWith("ski") || lw.endsWith("cki") || lw.endsWith("dzki"))
-    return cut(1, "im");
-  if (lw.endsWith("y")) return cut(1, "ym");
-  if (lw.endsWith("ek")) return cut(2, "kiem");
-  if (lw.endsWith("eł")) return cut(2, "łem");
-  if (lw.endsWith("k") || lw.endsWith("g")) return w + "iem";
-  if (lw.endsWith("a")) return cut(1, "ą");
-  if (
-    lw.endsWith("o") ||
-    lw.endsWith("i") ||
-    lw.endsWith("e") ||
-    lw.endsWith("u")
-  )
-    return w; // nieoczywiste zakończenie → zostaw (sprawdź ręcznie)
-  return w + "em"; // typowa spółgłoska twarda
-}
-
-function instrumentalPl(fullName: string, gender: "m" | "k"): string {
-  const tokens = (fullName || "").trim().split(/\s+/).filter(Boolean);
-  if (!tokens.length) return "";
-  return tokens.map((t) => declineInstrumentalToken(t, gender)).join(" ");
-}
-
-function printHtml(bodyHtml: string, title: string) {
-  const w = window.open("", "_blank", "width=820,height=1000");
-  if (!w) return;
-  w.document.write(
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>` +
-      "<style>body{font-family:Helvetica,Arial,sans-serif;max-width:780px;margin:24px auto;" +
-      "line-height:1.55;color:#222;padding:0 20px}h1,h2,h3{color:#111}" +
-      // §nagłówek nie zostaje sam na końcu strony (#4)
-      "h1,h2,h3{break-after:avoid;page-break-after:avoid;break-inside:avoid}" +
-      "table{border-collapse:collapse;width:100%;margin:1em 0}" +
-      "th,td{border:1px solid #ccc;padding:6px 10px;text-align:left}" +
-      "@media print{body{margin:0;padding:0}}</style>" +
-      "<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),300))</script>" +
-      `</head><body>${bodyHtml}</body></html>`,
-  );
-  w.document.close();
-}
-
-const PREVIEW_STYLE =
-  "body{font-family:Helvetica,Arial,sans-serif;margin:18px;line-height:1.5;color:#222;font-size:13px}" +
-  "h1{font-size:18px}h2{font-size:15px;margin-top:1.4em}h3{font-size:13px}" +
-  "h1,h2,h3{break-after:avoid;page-break-after:avoid;break-inside:avoid}" +
-  "table{border-collapse:collapse;width:100%;margin:1em 0}" +
-  "th,td{border:1px solid #ccc;padding:5px 8px;text-align:left;vertical-align:top}";
-
 // Prefiksy telefoniczne do wyboru przed numerem (#2). +48 domyślnie.
 const PHONE_PREFIXES = [
   "+48",
@@ -513,11 +525,7 @@ const PHONE_PREFIXES = [
 export function B2BContractGeneratorV2() {
   const { user } = useAuthStore();
   const isAdmin = hasRole(user, "admin");
-  const canView = hasActionAccess(
-    user,
-    "b2b_contract_generator",
-    "view",
-  );
+  const canView = hasActionAccess(user, "b2b_contract_generator", "view");
   const canGenerate =
     hasSectionAccess(user, "sourcing", "write") &&
     hasActionAccess(user, "b2b_contract_generator", "generate");
@@ -527,10 +535,12 @@ export function B2BContractGeneratorV2() {
   // prowadzą wprost na miejsce, a F5 nie wraca na „Generator”.
   const searchParams = useSearchParams();
   const pathname = usePathname();
-  const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   const tabParam = searchParams?.get("tab") ?? null;
   const qParam = searchParams?.get("q") ?? null;
-  const candidateParam = positiveIntParam(searchParams?.get("candidate") ?? null);
+  const candidateParam = positiveIntParam(
+    searchParams?.get("candidate") ?? null,
+  );
   const jobParam = positiveIntParam(searchParams?.get("job") ?? null);
   // `?edit=<id>` — „Popraw umowę” z wiersza rejestru: formularz wczytuje
   // zapisany payload i poprawia ten sam wiersz pod tym samym numerem.
@@ -538,6 +548,9 @@ export function B2BContractGeneratorV2() {
   const defaultTab: GeneratorTab = canGenerate ? "generator" : "generated";
   const allowedTab = (tab: GeneratorTab | null): GeneratorTab | null => {
     if (!tab) return null;
+    // „Generator aneksów” widzi każdy: rejestr aneksów jest tam, a aneks
+    // potwierdzają osoby bez prawa generowania (podpis, Finanse). Sam kreator
+    // w zakładce nadal wymaga uprawnienia „Generowanie”.
     if (tab === "generator" && !canGenerate) return null;
     if (tab === "roles" && !isAdmin) return null;
     return tab;
@@ -546,6 +559,14 @@ export function B2BContractGeneratorV2() {
   const [activeTab, setActiveTab] = useState<GeneratorTab>(
     requestedTab ?? defaultTab,
   );
+  // Umowa zlecenia (26.10.2026) — ten sam rejestr, własny formularz. Wejście
+  // z rekrutacji (`?candidate=`, `?edit=`) dotyczy umowy B2B.
+  const [agreementKind, setAgreementKind] = useState<"b2b" | "mandate">("b2b");
+  // „Popraw” i link z rekrutacji to miękka nawigacja — bez tego formularz B2B
+  // wczytałby umowę pod ukrytym formularzem zlecenia.
+  useEffect(() => {
+    if (editParam || candidateParam) setAgreementKind("b2b");
+  }, [editParam, candidateParam]);
   // Efekt na WARTOŚCI parametru — sam inicjalizator useState nie zobaczy
   // miękkiej nawigacji (link na tej samej stronie nie odmontowuje komponentu).
   useEffect(() => {
@@ -560,7 +581,7 @@ export function B2BContractGeneratorV2() {
     // Fraza dotyczy zakładki, z której przyszła — w innej zawęziłaby listę
     // po cichu. Para (kandydat, rekrutacja) należy do formularza i zostaje.
     params.delete("q");
-    router.replace(`${pathname ?? ""}?${params.toString()}`, { scroll: false });
+    replaceUrl(`${pathname ?? ""}?${params.toString()}`);
   };
 
   return (
@@ -579,8 +600,8 @@ export function B2BContractGeneratorV2() {
         <div>
           <h1 className="text-2xl font-semibold">Generator Umów B2B</h1>
           <p className="text-sm text-muted-foreground">
-            Wpisz dane ręcznie lub zaciągnij z kandydata/rekrutacji, wybierz rolę
-            z gotowym zakresem usług → pobierz DOCX / PDF.
+            Wpisz dane ręcznie lub zaciągnij z kandydata/rekrutacji, wybierz
+            rolę z gotowym zakresem usług → pobierz DOCX / PDF.
           </p>
         </div>
       </div>
@@ -598,20 +619,59 @@ export function B2BContractGeneratorV2() {
           ) : null}
 
           <Tabs value={activeTab} onValueChange={selectTab}>
-            <TabsList className="mb-4 overflow-x-auto" data-help="contracts.b2b_generator.tabs">
+            <TabsList
+              className="mb-4 overflow-x-auto"
+              data-help="contracts.b2b_generator.tabs"
+            >
               {canGenerate ? (
-                <TabsTrigger value="generator" className="shrink-0 whitespace-nowrap">Generator</TabsTrigger>
+                <TabsTrigger
+                  value="generator"
+                  className="shrink-0 whitespace-nowrap"
+                >
+                  Generator
+                </TabsTrigger>
               ) : null}
               {/* „Umowy bieżące", nie „aktywne i w trakcie podpisu": od 0328
                   siedzą tu także umowy anulowane (wiersz zostaje pod ręką, żeby
                   dało się go cofnąć na „W trakcie", gdy Partner wróci).
                   Nagłówek wyliczający statusy przestałby być prawdziwy. */}
-              <TabsTrigger value="generated" className="shrink-0 whitespace-nowrap">Umowy bieżące</TabsTrigger>
-              <TabsTrigger value="no-project" className="shrink-0 whitespace-nowrap">Umowy bez projektu</TabsTrigger>
-              <TabsTrigger value="closed" className="shrink-0 whitespace-nowrap">Zakończone umowy</TabsTrigger>
-              <TabsTrigger value="documents" className="shrink-0 whitespace-nowrap">Dokumenty</TabsTrigger>
+              <TabsTrigger
+                value="generated"
+                className="shrink-0 whitespace-nowrap"
+              >
+                Umowy bieżące
+              </TabsTrigger>
+              <TabsTrigger
+                value="no-project"
+                className="shrink-0 whitespace-nowrap"
+              >
+                Umowy bez projektu
+              </TabsTrigger>
+              <TabsTrigger
+                value="closed"
+                className="shrink-0 whitespace-nowrap"
+              >
+                Zakończone umowy
+              </TabsTrigger>
+              <TabsTrigger
+                value="annexes"
+                className="shrink-0 whitespace-nowrap"
+              >
+                Generator aneksów
+              </TabsTrigger>
+              <TabsTrigger
+                value="documents"
+                className="shrink-0 whitespace-nowrap"
+              >
+                Dokumenty
+              </TabsTrigger>
               {isAdmin ? (
-                <TabsTrigger value="roles" className="shrink-0 whitespace-nowrap">Zakresy ról (admin)</TabsTrigger>
+                <TabsTrigger
+                  value="roles"
+                  className="shrink-0 whitespace-nowrap"
+                >
+                  Zakresy ról (admin)
+                </TabsTrigger>
               ) : null}
             </TabsList>
             {/* forceMount: nie odmontowuj formularza przy przejściu na inną
@@ -622,6 +682,27 @@ export function B2BContractGeneratorV2() {
                 forceMount
                 className="data-[state=inactive]:hidden"
               >
+                <div className="mb-4 flex flex-wrap items-center gap-3">
+                  <span
+                    id="b2b-agreement-kind-label"
+                    className="text-sm font-medium"
+                  >
+                    Rodzaj umowy
+                  </span>
+                  <SegmentedRadio<"b2b" | "mandate">
+                    labelledBy="b2b-agreement-kind-label"
+                    value={agreementKind}
+                    onChange={setAgreementKind}
+                    options={[
+                      { value: "b2b", label: "B2B" },
+                      { value: "mandate", label: "Zlecenie" },
+                    ]}
+                  />
+                </div>
+                <div className={agreementKind === "mandate" ? undefined : "hidden"}>
+                  <MandateAgreementForm />
+                </div>
+                <div className={agreementKind === "b2b" ? undefined : "hidden"}>
                 <GeneratorForm
                   prefillCandidateId={candidateParam}
                   prefillJobId={jobParam}
@@ -635,10 +716,7 @@ export function B2BContractGeneratorV2() {
                     if (!params.has("edit")) return;
                     params.delete("edit");
                     const query = params.toString();
-                    router.replace(
-                      query ? `${pathname ?? ""}?${query}` : (pathname ?? ""),
-                      { scroll: false },
-                    );
+                    replaceUrl(query ? `${pathname ?? ""}?${query}` : (pathname ?? ""));
                   }}
                   onClearPrefill={() => {
                     if (!candidateParam && !jobParam) return;
@@ -648,12 +726,10 @@ export function B2BContractGeneratorV2() {
                     params.delete("candidate");
                     params.delete("job");
                     const query = params.toString();
-                    router.replace(
-                      query ? `${pathname ?? ""}?${query}` : (pathname ?? ""),
-                      { scroll: false },
-                    );
+                    replaceUrl(query ? `${pathname ?? ""}?${query}` : (pathname ?? ""));
                   }}
                 />
+                </div>
               </TabsContent>
             ) : null}
             <TabsContent value="generated">
@@ -672,6 +748,9 @@ export function B2BContractGeneratorV2() {
                 searchParam={activeTab === "closed" ? qParam : null}
               />
             </TabsContent>
+            <TabsContent value="annexes">
+              <AnnexGeneratorTab canGenerate={canGenerate} />
+            </TabsContent>
             <TabsContent value="documents">
               <DocumentsTab canGenerate={canGenerate} />
             </TabsContent>
@@ -689,7 +768,11 @@ export function B2BContractGeneratorV2() {
 
 // ── Zakładka: wygenerowane umowy (numery) ───────────────────────────────────
 
-function ConfirmFullySignedDialog({
+/** Ta sama odmowa formatu co na serwerze (``signed_file.MSG_FORMAT``). */
+const SIGNED_FILE_FORMAT_MESSAGE =
+  "Podpisana umowa musi być plikiem PDF, JPG albo PNG.";
+
+export function ConfirmFullySignedDialog({
   row,
   open,
   onOpenChange,
@@ -712,6 +795,24 @@ function ConfirmFullySignedDialog({
   // (stawka dzienna w kontrakcie vs godzinowa w dokumencie) nigdy nie
   // dotarłby do operatora.
   const [keepExistingTerms, setKeepExistingTerms] = useState(false);
+  // Podpisany egzemplarz (0496) — dobrowolny; trafia do Dokumentów kontraktu
+  // dopiero PO udanym podpisie, bo to podpis zakłada kontrakt.
+  const [signedFile, setSignedFile] = useState<File | null>(null);
+  const signedFileProblem = signedFile
+    ? scanFileProblem(signedFile, SIGNED_FILE_FORMAT_MESSAGE)
+    : null;
+  // Dzień podpisu umowy (0514) — nie dzień kliknięcia. Te same granice co na
+  // serwerze: nie z przyszłości, nie sprzed wygenerowania umowy.
+  const [signedOn, setSignedOn] = useState(() => warsawToday());
+  const today = warsawToday();
+  const generatedOn = warsawDateOf(row.created_at);
+  const signedOnProblem = !signedOn
+    ? "Podaj datę podpisu."
+    : signedOn > today
+      ? "Data podpisu nie może być z przyszłości."
+      : generatedOn && signedOn < generatedOn
+        ? `Data podpisu nie może być wcześniejsza niż wygenerowanie umowy (${formatIsoDatePl(generatedOn)}).`
+        : null;
 
   useEffect(() => {
     if (!open) return;
@@ -721,6 +822,8 @@ function ConfirmFullySignedDialog({
     setStageId("");
     setSubmitError(null);
     setKeepExistingTerms(false);
+    setSignedFile(null);
+    setSignedOn(warsawToday());
   }, [open, row.id]);
 
   const effectiveCandidateId = row.candidate_id ?? candidate?.id ?? null;
@@ -730,9 +833,12 @@ function ConfirmFullySignedDialog({
   const candidatesQuery = useQuery({
     queryKey: ["b2b-signature-candidates", debouncedCandidateQuery],
     queryFn: async () => {
-      const res = await api.get<CandidateOption[]>("/api/cv-generator/candidates", {
-        params: { q: debouncedCandidateQuery, limit: 20 },
-      });
+      const res = await api.get<CandidateOption[]>(
+        "/api/cv-generator/candidates",
+        {
+          params: { q: debouncedCandidateQuery, limit: 20 },
+        },
+      );
       return res.data;
     },
     enabled: open && !row.candidate_id && candidateOpen,
@@ -797,13 +903,14 @@ function ConfirmFullySignedDialog({
 
   const confirmMut = useMutation({
     onMutate: () => setSubmitError(null),
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!effectiveCandidateId || !effectiveJobId) {
         throw new Error("Wybierz kandydata i konkretną rekrutację.");
       }
-      return b2bGeneratorApi.confirmFullySigned(row.id, {
+      const result = await b2bGeneratorApi.confirmFullySigned(row.id, {
         candidate_id: effectiveCandidateId,
         job_id: effectiveJobId,
+        signed_on: signedOn,
         // Klucz dopiero po świadomym zaznaczeniu — `false` nie leci wcale,
         // żeby zwykłe potwierdzenie było bajt w bajt tym samym żądaniem co
         // przed tą zmianą. Czytamy WYŁĄCZNIE stan checkboxa: `onMutate`
@@ -811,9 +918,26 @@ function ConfirmFullySignedDialog({
         // na błędzie w tym miejscu widziałby już `null` i gubił flagę.
         ...(keepExistingTerms ? { keep_existing_contract_terms: true } : {}),
       });
+      if (!signedFile) return { result, fileError: null };
+      // Podpis jest już zapisany — nieudana wysyłka pliku go nie cofa, plik
+      // da się dołączyć z wiersza rejestru.
+      try {
+        await b2bGeneratorApi.attachSignedFile(row.id, signedFile);
+        return { result, fileError: null };
+      } catch (error) {
+        return {
+          result,
+          fileError: apiErrorMessage(error, "Nie udało się zapisać pliku."),
+        };
+      }
     },
-    onSuccess: (result) => {
+    onSuccess: ({ result, fileError }) => {
       onConfirmed(result);
+      if (fileError) {
+        toast.showError(
+          `Umowa oznaczona jako podpisana, ale plik nie został zapisany: ${fileError} Dołącz go z wiersza rejestru („Dołącz podpisaną umowę”).`,
+        );
+      }
       onOpenChange(false);
     },
     onError: (error) => {
@@ -867,6 +991,8 @@ function ConfirmFullySignedDialog({
     !!effectiveJobId &&
     jobQuery.isSuccess &&
     !canonicalClientMismatch &&
+    !signedFileProblem &&
+    !signedOnProblem &&
     !confirmMut.isPending;
 
   return (
@@ -918,11 +1044,15 @@ function ConfirmFullySignedDialog({
                       onValueChange={setCandidateQuery}
                     />
                     <CommandList>
-                      {candidatesQuery.isLoading ? (
-                        <div className="p-3 text-sm text-muted-foreground">
-                          Szukam…
-                        </div>
-                      ) : (
+                      {/* Awaria wyszukiwania ≠ „nikogo nie ma”: pusty stan tylko przy sukcesie. */}
+                      <PickerQueryState
+                        isPending={candidatesQuery.isLoading}
+                        isError={candidatesQuery.isError}
+                        onRetry={() => void candidatesQuery.refetch()}
+                        loadingLabel="Szukam…"
+                        errorLabel="Nie udało się wyszukać kandydatów."
+                      />
+                      {candidatesQuery.isSuccess && (
                         <CommandEmpty>Brak wyników.</CommandEmpty>
                       )}
                       <CommandGroup>
@@ -1043,10 +1173,53 @@ function ConfirmFullySignedDialog({
             />
           ) : null}
 
+          <div className="space-y-1">
+            <Label htmlFor={`b2b-signed-on-${row.id}`} className="mb-1.5 block">
+              Data podpisu umowy
+            </Label>
+            <Input
+              id={`b2b-signed-on-${row.id}`}
+              type="date"
+              className="w-44"
+              value={signedOn}
+              min={generatedOn ?? undefined}
+              max={today}
+              disabled={confirmMut.isPending}
+              aria-invalid={signedOnProblem ? true : undefined}
+              aria-describedby={`b2b-signed-on-help-${row.id}`}
+              onChange={(e) => setSignedOn(e.target.value)}
+            />
+            <p
+              id={`b2b-signed-on-help-${row.id}`}
+              className={cn(
+                "text-xs",
+                signedOnProblem ? "text-destructive" : "text-muted-foreground",
+              )}
+            >
+              {signedOnProblem ??
+                "Dzień, w którym umowę podpisano, nie dzień oznaczenia w NEXUSIE."}
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <ScanFileField
+              id={`b2b-signed-file-${row.id}`}
+              file={signedFile}
+              onFile={setSignedFile}
+              disabled={confirmMut.isPending}
+              label="Podpisana umowa (opcjonalnie)"
+              formatMessage={SIGNED_FILE_FORMAT_MESSAGE}
+            />
+            <p className="text-xs text-muted-foreground">
+              Bez pliku potwierdzenie działa jak dotąd — plik dołączysz później
+              z wiersza rejestru.
+            </p>
+          </div>
+
           <Alert
             variant="warning"
             title="To nie jest walidacja podpisu elektronicznego"
-            description="Potwierdzenie zapisze autora i czas deklaracji, ale nie utworzy pliku podpisanej umowy ani wpisu QES."
+            description="Potwierdzenie zapisze autora i czas deklaracji. Dołączony plik trafi do Dokumentów kontraktu, ale NEXUS nie sprawdza podpisów w nim."
           />
 
           {submitError ? (
@@ -1098,11 +1271,11 @@ function ConfirmFullySignedDialog({
                     {submitError.contractIds.length === 1
                       ? ` #${submitError.contractIds[0]}`
                       : ""}{" "}
-                    i potwierdź podpisanie mimo różnic. Umowa zostanie
-                    powiązana z kontraktem, ale stawka, jednostka, harmonogram
-                    ani daty w kontrakcie nie zmienią się — podpisany dokument
-                    pozostaje zapisem tego, co strony podpisały; kontrakt
-                    popraw ręcznie, jeśli trzeba.
+                    i potwierdź podpisanie mimo różnic. Umowa zostanie powiązana
+                    z kontraktem, ale stawka, jednostka, harmonogram ani daty w
+                    kontrakcie nie zmienią się — podpisany dokument pozostaje
+                    zapisem tego, co strony podpisały; kontrakt popraw ręcznie,
+                    jeśli trzeba.
                   </Label>
                 </div>
               ) : null}
@@ -1116,7 +1289,8 @@ function ConfirmFullySignedDialog({
             <ul className="mt-2 space-y-1.5 text-sm text-muted-foreground">
               <li>
                 • utworzy albo powiąże kontraktora jako <strong>aktywny</strong>{" "}
-                kontrakt (start z umowy → bezterminowo, stawka godzinowa z umowy),
+                kontrakt (start z umowy → bezterminowo, stawka godzinowa z
+                umowy),
               </li>
               <li>• zapewni szkic zamówienia klienta,</li>
               <li>
@@ -1158,7 +1332,90 @@ function ConfirmFullySignedDialog({
                 gdy flaga właśnie leci. Checkbox istnieje tylko po 409
                 z podpowiedzią i jest zerowany przy każdej innej odmowie oraz
                 przy zmianie pary, więc `true` zawsze znaczy świadomą zgodę. */}
-            {keepExistingTerms ? "Potwierdź mimo różnic" : "Potwierdź podpisanie"}
+            {keepExistingTerms
+              ? "Potwierdź mimo różnic"
+              : "Potwierdź podpisanie"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** „Dołącz podpisaną umowę” przy wierszu podpisanym bez pliku (0496). */
+export function AttachSignedFileDialog({
+  row,
+  onClose,
+}: {
+  row: B2BGeneratedContractRow;
+  onClose: () => void;
+}) {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const [file, setFile] = useState<File | null>(null);
+  const problem = file ? scanFileProblem(file, SIGNED_FILE_FORMAT_MESSAGE) : null;
+  const attach = useMutation({
+    mutationFn: (picked: File) => b2bGeneratorApi.attachSignedFile(row.id, picked),
+    onSuccess: () => {
+      toast.showSuccess("Podpisana umowa zapisana w Dokumentach kontraktu.");
+      queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+      queryClient.invalidateQueries({ queryKey: ["contract-documents"] });
+      onClose();
+    },
+  });
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next && !attach.isPending) onClose();
+      }}
+    >
+      <DialogContent size="md">
+        <DialogHeader>
+          <DialogTitle>Dołącz podpisaną umowę</DialogTitle>
+          <DialogDescription>
+            Umowa {row.contract_number}
+            {row.candidate_name ? ` · ${row.candidate_name}` : ""}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="space-y-3">
+          <ScanFileField
+            id={`b2b-attach-signed-${row.id}`}
+            file={file}
+            onFile={setFile}
+            disabled={attach.isPending}
+            label="Podpisana umowa"
+            formatMessage={SIGNED_FILE_FORMAT_MESSAGE}
+          />
+          {attach.isError ? (
+            <Alert
+              variant="error"
+              title="Nie udało się zapisać pliku"
+              description={apiErrorMessage(attach.error, "Spróbuj ponownie.")}
+            />
+          ) : null}
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={attach.isPending}
+            onClick={onClose}
+          >
+            Anuluj
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            disabled={!file || Boolean(problem) || attach.isPending}
+            onClick={() => file && attach.mutate(file)}
+          >
+            {attach.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Paperclip className="h-4 w-4" />
+            )}
+            Zapisz plik
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1281,7 +1538,9 @@ function StartDateRangeFilter({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 space-y-3">
         <div className="space-y-1.5">
-          <p className="text-xs font-medium text-muted-foreground">Zakres dat</p>
+          <p className="text-xs font-medium text-muted-foreground">
+            Zakres dat
+          </p>
           <div className="flex items-center gap-2">
             <Input
               type="date"
@@ -1426,7 +1685,9 @@ export function ContractStatusDialog({
   const [reason, setReason] = useState<B2BClosureReason | "">(
     row.closure_reason ?? "",
   );
-  const [reasonOther, setReasonOther] = useState(row.closure_reason_other ?? "");
+  const [reasonOther, setReasonOther] = useState(
+    row.closure_reason_other ?? "",
+  );
   const [closureDate, setClosureDate] = useState(row.closure_date ?? "");
 
   // Ponowne otwarcie dialogu na tym samym wierszu ma pokazać stan z serwera,
@@ -1457,7 +1718,9 @@ export function ContractStatusDialog({
                 : "Umowa oznaczona jako aktywna.",
       );
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
-      queryClient.invalidateQueries({ queryKey: ["b2b-status-history", row.id] });
+      queryClient.invalidateQueries({
+        queryKey: ["b2b-status-history", row.id],
+      });
       onOpenChange(false);
     },
     onError: (e) => toast.showError(extractErrorMsg(e)),
@@ -1549,10 +1812,10 @@ export function ContractStatusDialog({
             ) : null}
             {status === "cancelled" ? (
               <p className="text-xs text-muted-foreground">
-                Umowa nie doszła do skutku — Partner wycofał się przed
-                podpisem. Wpis zostaje na tej liście (numer jest już zużyty
-                i nie wraca do puli), ale nie da się go oznaczyć jako
-                podpisanego. Jeśli Partner wróci, ustaw status „W trakcie”.
+                Umowa nie doszła do skutku — Partner wycofał się przed podpisem.
+                Wpis zostaje na tej liście (numer jest już zużyty i nie wraca do
+                puli), ale nie da się go oznaczyć jako podpisanego. Jeśli
+                Partner wróci, ustaw status „W trakcie”.
               </p>
             ) : null}
             {status === "in_progress" && canReturnToProgress ? (
@@ -1695,7 +1958,9 @@ export function ReactivateContractDialog({
           params: {
             open_only: true,
             page_size: 50,
-            ...(debouncedJobQuery.trim() ? { q: debouncedJobQuery.trim() } : {}),
+            ...(debouncedJobQuery.trim()
+              ? { q: debouncedJobQuery.trim() }
+              : {}),
           },
         })
         .then((r) => (Array.isArray(r.data) ? r.data : (r.data.items ?? []))),
@@ -1704,8 +1969,7 @@ export function ReactivateContractDialog({
 
   const selectedJob = useQuery({
     queryKey: ["b2b-reactivate-job", jobId],
-    queryFn: () =>
-      api.get<JobDetail>(`/api/jobs/${jobId}`).then((r) => r.data),
+    queryFn: () => api.get<JobDetail>(`/api/jobs/${jobId}`).then((r) => r.data),
     enabled: open && !!jobId,
   });
 
@@ -1721,7 +1985,9 @@ export function ReactivateContractDialog({
           "o poprzednim projekcie dopisano w Kontraktach.",
       );
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
-      queryClient.invalidateQueries({ queryKey: ["b2b-status-history", row.id] });
+      queryClient.invalidateQueries({
+        queryKey: ["b2b-status-history", row.id],
+      });
       onOpenChange(false);
     },
     onError: (e) => toast.showError(extractErrorMsg(e)),
@@ -1746,8 +2012,8 @@ export function ReactivateContractDialog({
         <DialogHeader>
           <DialogTitle>Przywróć umowę {row.contract_number}</DialogTitle>
           <DialogDescription>
-            Kontraktor wraca do pracy. Wskaż projekt — klient dociągnie się
-            z niego automatycznie, a data i powód zakończenia poprzedniego
+            Kontraktor wraca do pracy. Wskaż projekt — klient dociągnie się z
+            niego automatycznie, a data i powód zakończenia poprzedniego
             projektu trafią jako notatka do powiązanego kontraktu.
           </DialogDescription>
         </DialogHeader>
@@ -1826,7 +2092,9 @@ export function ReactivateContractDialog({
             <Label htmlFor="b2b-reactivate-client">Klient</Label>
             <Input
               id="b2b-reactivate-client"
-              value={selectedJob.isLoading && jobId ? "Ładowanie…" : clientLabel}
+              value={
+                selectedJob.isLoading && jobId ? "Ładowanie…" : clientLabel
+              }
               readOnly
               disabled
             />
@@ -1889,7 +2157,7 @@ export function StatusHistoryDialog({
           <DialogTitle>Historia statusów {row.contract_number}</DialogTitle>
           <DialogDescription>
             Zapis wszystkich zmian statusu tej umowy wraz z datą i powodem
-            zakończenia projektu.
+            zakończenia projektu, a także wysyłek do podpisu w NEXUSIE.
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -1917,7 +2185,21 @@ export function StatusHistoryDialog({
             </p>
           ) : (
             <ol className="space-y-3">
-              {(q.data ?? []).map((e) => (
+              {(q.data ?? []).map((e) =>
+                e.kind === "esign" ? (
+                  <li key={e.id} className="border-l-2 border-primary/40 pl-3">
+                    <p className="text-sm font-medium">{e.label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {[
+                        "Podpis w NEXUSIE",
+                        e.changed_by_name,
+                        e.created_at ? formatDateTimePl(e.created_at) : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  </li>
+                ) : (
                 <li key={e.id} className="border-l-2 border-border pl-3">
                   <p className="text-sm font-medium">
                     {e.from_status
@@ -1954,14 +2236,17 @@ export function StatusHistoryDialog({
                   <p className="text-xs text-muted-foreground">
                     {[
                       e.changed_by_name ??
-                        (e.details?.source ? "System (zakończenie kontraktu)" : null),
+                        (e.details?.source
+                          ? "System (zakończenie kontraktu)"
+                          : null),
                       e.created_at ? formatDateTimePl(e.created_at) : null,
                     ]
                       .filter(Boolean)
                       .join(" · ")}
                   </p>
                 </li>
-              ))}
+                ),
+              )}
             </ol>
           )}
         </DialogBody>
@@ -2069,7 +2354,8 @@ function LinkContractAction({ row }: { row: B2BGeneratedContractRow }) {
   });
 
   const mut = useMutation({
-    mutationFn: () => b2bGeneratorApi.linkContract(row.id, contractId as number),
+    mutationFn: () =>
+      b2bGeneratorApi.linkContract(row.id, contractId as number),
     onSuccess: (res) => {
       toast.showSuccess(
         res.document_attached
@@ -2077,7 +2363,9 @@ function LinkContractAction({ row }: { row: B2BGeneratedContractRow }) {
           : `Umowa ${row.contract_number} powiązana z kontraktem #${contractId}. ${res.document_note ?? ""}`,
       );
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
-      queryClient.invalidateQueries({ queryKey: ["b2b-status-history", row.id] });
+      queryClient.invalidateQueries({
+        queryKey: ["b2b-status-history", row.id],
+      });
       setOpen(false);
     },
     onError: (e) => toast.showError(extractErrorMsg(e)),
@@ -2103,10 +2391,12 @@ function LinkContractAction({ row }: { row: B2BGeneratedContractRow }) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Powiąż umowę {row.contract_number} z kontraktem</DialogTitle>
+            <DialogTitle>
+              Powiąż umowę {row.contract_number} z kontraktem
+            </DialogTitle>
             <DialogDescription>
-              Numer, statusy, podpis i daty umowy się nie zmienią. Osoba i klient
-              umowy przyjmą wartości z kontraktu, dokument umowy trafi do
+              Numer, statusy, podpis i daty umowy się nie zmienią. Osoba i
+              klient umowy przyjmą wartości z kontraktu, dokument umowy trafi do
               zakładki Dokumenty kontraktu, a w historii umowy zostanie wpis.
             </DialogDescription>
           </DialogHeader>
@@ -2122,8 +2412,12 @@ function LinkContractAction({ row }: { row: B2BGeneratedContractRow }) {
             {contractId != null && preview.isSuccess ? (
               <p className="text-sm">
                 Kontrakt #{preview.data.id}
-                {preview.data.candidate_name ? ` · ${preview.data.candidate_name}` : ""}
-                {preview.data.client_name ? ` · ${preview.data.client_name}` : ""}
+                {preview.data.candidate_name
+                  ? ` · ${preview.data.candidate_name}`
+                  : ""}
+                {preview.data.client_name
+                  ? ` · ${preview.data.client_name}`
+                  : ""}
                 {preview.data.start_date
                   ? ` · od ${formatIsoDatePl(preview.data.start_date)}`
                   : ""}
@@ -2131,20 +2425,29 @@ function LinkContractAction({ row }: { row: B2BGeneratedContractRow }) {
             ) : null}
             {contractId != null && preview.isError ? (
               <p className="text-sm text-destructive">
-                Nie znaleziono kontraktu #{contractId} albo nie masz do niego dostępu.
+                Nie znaleziono kontraktu #{contractId} albo nie masz do niego
+                dostępu.
               </p>
             ) : null}
           </div>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setOpen(false)}
+            >
               Anuluj
             </Button>
             <Button
               type="button"
-              disabled={contractId == null || !preview.isSuccess || mut.isPending}
+              disabled={
+                contractId == null || !preview.isSuccess || mut.isPending
+              }
               onClick={() => mut.mutate()}
             >
-              {mut.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+              {mut.isPending ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : null}
               Powiąż
             </Button>
           </DialogFooter>
@@ -2168,9 +2471,15 @@ export function GeneratedContractsTab({
 } = {}) {
   const toast = useToast();
   const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   const queryClient = useQueryClient();
   const [signatureRow, setSignatureRow] =
     useState<B2BGeneratedContractRow | null>(null);
+  const [signedFileRow, setSignedFileRow] =
+    useState<B2BGeneratedContractRow | null>(null);
+  const [esignRow, setEsignRow] = useState<B2BGeneratedContractRow | null>(
+    null,
+  );
   const [statusRow, setStatusRow] = useState<B2BGeneratedContractRow | null>(
     null,
   );
@@ -2196,6 +2505,8 @@ export function GeneratedContractsTab({
   const [startFrom, setStartFrom] = useState("");
   const [startTo, setStartTo] = useState("");
   const dateFilterActive = Boolean(startFrom || startTo);
+  // 04.10.2026: umowy generują też rekruterzy — TCM przegląda je osobno.
+  const [onlyRecruiters, setOnlyRecruiters] = useState(false);
   // Debounce, żeby nie strzelać zapytaniem na każdą literę wpisaną w szukajkę.
   const debouncedSearch = useDebouncedValue(search, 300);
   const q = useInfiniteQuery({
@@ -2211,6 +2522,7 @@ export function GeneratedContractsTab({
       statusFilter,
       startFrom,
       startTo,
+      onlyRecruiters,
     ],
     initialPageParam: 0,
     getNextPageParam: (
@@ -2229,6 +2541,7 @@ export function GeneratedContractsTab({
             : [statusFilter],
         startFrom: startFrom || undefined,
         startTo: startTo || undefined,
+        ...(onlyRecruiters ? { author: "recruiter" as const } : {}),
         ...(pageParam ? { offset: pageParam } : {}),
       }),
     staleTime: 10_000,
@@ -2270,10 +2583,7 @@ export function GeneratedContractsTab({
     },
     onError: (e) => toast.showError(extractErrorMsg(e)),
   });
-  const rows = useMemo(
-    () => mergeRegisterPages(q.data?.pages ?? []),
-    [q.data],
-  );
+  const rows = useMemo(() => mergeRegisterPages(q.data?.pages ?? []), [q.data]);
 
   const handleConfirmed = (result: B2BConfirmFullySignedResult) => {
     const fallbackMessage =
@@ -2290,7 +2600,9 @@ export function GeneratedContractsTab({
     queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
     queryClient.invalidateQueries({ queryKey: ["contractors-v2"] });
     queryClient.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
-    queryClient.invalidateQueries({ queryKey: ["candidate", result.candidate_id] });
+    queryClient.invalidateQueries({
+      queryKey: ["candidate", result.candidate_id],
+    });
     queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
     queryClient.invalidateQueries({ queryKey: ["candidate-pipelines"] });
   };
@@ -2322,6 +2634,8 @@ export function GeneratedContractsTab({
     : "";
 
   return (
+    <>
+    <CompanySignaturesPanel />
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Umowy bieżące</CardTitle>
@@ -2359,7 +2673,10 @@ export function GeneratedContractsTab({
                 )
               }
             >
-              <SelectTrigger className="w-full sm:w-56" aria-label="Filtr statusu umowy">
+              <SelectTrigger
+                className="w-full sm:w-56"
+                aria-label="Filtr statusu umowy"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2380,6 +2697,14 @@ export function GeneratedContractsTab({
                 </SelectItem>
               </SelectContent>
             </Select>
+            <label className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+              <Checkbox
+                checked={onlyRecruiters}
+                onCheckedChange={(v) => setOnlyRecruiters(v === true)}
+                aria-label="Tylko umowy wygenerowane przez rekruterów"
+              />
+              Wygenerowane przez rekruterów
+            </label>
             {dateFilterActive ? (
               <button
                 type="button"
@@ -2430,7 +2755,9 @@ export function GeneratedContractsTab({
                 Filtr daty MUSI być w tym warunku: bez niego odfiltrowana lista
                 twierdziłaby „Brak wygenerowanych umów", czyli awaria
                 wyrenderowałaby się jako utrata danych. */}
-            {debouncedSearch.trim() || statusFilter !== "all" || dateFilterActive
+            {debouncedSearch.trim() ||
+            statusFilter !== "all" ||
+            dateFilterActive
               ? "Brak umów pasujących do wyszukiwania."
               : "Brak umów bieżących."}
           </p>
@@ -2505,18 +2832,37 @@ export function GeneratedContractsTab({
                           (rollback jednej strony) — bez niego cała kolumna dałaby „—". */}
                       <td className="py-2 pr-4">
                         <div className="flex flex-col gap-0.5">
-                          <span>{r.partner_display_name || r.partner_name || "—"}</span>
+                          <span>
+                            {r.partner_display_name || r.partner_name || "—"}
+                          </span>
                           {r.partner_secondary_line ? (
                             <span className="text-xs text-muted-foreground">
                               {r.partner_secondary_line}
                             </span>
                           ) : null}
+                          {/* Aneks zmienia wiersz już przy wygenerowaniu —
+                              etykieta mówi, skąd zmiana i czy aneks jest
+                              podpisany. Stawka w etykiecie tylko dla osób,
+                              które widzą stawki tej umowy. Odpowiedź starszego
+                              backendu (bez `latest_annex`) zostaje przy samej
+                              stawce z aneksu. */}
+                          {r.latest_annex ? (
+                            <RegisterAnnexLabel row={r} />
+                          ) : annexRatesSummary(r.annex_rates) ? (
+                            <span className="text-xs text-muted-foreground">
+                              Stawka z aneksu: {annexRatesSummary(r.annex_rates)}
+                            </span>
+                          ) : null}
                         </div>
                       </td>
-                      <td className="py-2 pr-4 tabular-nums">{r.partner_nip || "—"}</td>
+                      <td className="py-2 pr-4 tabular-nums">
+                        {r.partner_nip || "—"}
+                      </td>
                       {/* Data ROZPOCZĘCIA USŁUG — surowe ISO, bez godziny (kontrast:
                           „Wygenerowano" niżej celowo pokazuje czas). */}
-                      <td className="py-2 pr-4 tabular-nums">{formatIsoDatePl(r.start_date)}</td>
+                      <td className="py-2 pr-4 tabular-nums">
+                        <RegisterStartDate row={r} />
+                      </td>
                       <td className="py-2 pr-4">
                         {editing ? (
                           <Input
@@ -2581,7 +2927,9 @@ export function GeneratedContractsTab({
                                 r.closure_reason,
                                 r.closure_reason_other,
                               )}
-                              {r.closure_date ? ` · ${formatIsoDatePl(r.closure_date)}` : ""}
+                              {r.closure_date
+                                ? ` · ${formatIsoDatePl(r.closure_date)}`
+                                : ""}
                             </span>
                           ) : null}
                           <RegisterRowWarnings row={r} />
@@ -2637,6 +2985,9 @@ export function GeneratedContractsTab({
                             title={
                               signed
                                 ? [
+                                    r.signed_on
+                                      ? `Podpisana: ${formatIsoDatePl(r.signed_on)}`
+                                      : null,
                                     r.signed_by_name
                                       ? `Potwierdził: ${r.signed_by_name}`
                                       : null,
@@ -2656,9 +3007,7 @@ export function GeneratedContractsTab({
                             ) : (
                               <CircleDashed className="h-3.5 w-3.5" />
                             )}
-                            {signed
-                              ? "Podpisana obustronnie"
-                              : "Niepodpisana"}
+                            {signed ? "Podpisana obustronnie" : "Niepodpisana"}
                           </Badge>
 
                           {signed ? (
@@ -2680,6 +3029,58 @@ export function GeneratedContractsTab({
                                   Kontraktor
                                   <ExternalLink className="h-3 w-3" />
                                 </Link>
+                              ) : null}
+                              {r.signed_document_id && r.contract_id ? (
+                                <Link
+                                  href={`/contracts/${r.contract_id}?tab=documents`}
+                                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                                  aria-label={`Podpisana umowa ${r.contract_number} w Dokumentach kontraktu`}
+                                >
+                                  <FileCheck2 className="h-3 w-3" aria-hidden="true" />
+                                  Podpisana umowa
+                                </Link>
+                              ) : r.can_attach_signed_file ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setSignedFileRow(r)}
+                                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                                >
+                                  <Paperclip className="h-3 w-3" aria-hidden="true" />
+                                  Dołącz podpisaną umowę
+                                </button>
+                              ) : null}
+                              {/* Podpis w NEXUSIE bez założonego kontraktu albo
+                                  pliku: skąd wziąć plik do „Dołącz” (F45). */}
+                              {r.signed_document_id ? null : <EsignSignedPdfButton row={r} />}
+                            </div>
+                          ) : r.esign || r.can_send_esign ? (
+                            <div className="flex flex-col items-start gap-1.5">
+                              {r.esign ? <EsignRowStatus row={r} /> : null}
+                              {/* Po terminie „Wyślij nowy link” (ten sam PDF)
+                                  zastępuje nową wysyłkę z nowym PDF-em. */}
+                              {r.can_send_esign && !r.can_relink_esign ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => setEsignRow(r)}
+                                >
+                                  <Send className="h-4 w-4" />
+                                  Wyślij do podpisu
+                                </Button>
+                              ) : null}
+                              {r.can_confirm_signed ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => setSignatureRow(r)}
+                                >
+                                  <FileSignature className="h-4 w-4" />
+                                  Oznacz jako podpisaną
+                                </Button>
                               ) : null}
                             </div>
                           ) : r.can_confirm_signed ? (
@@ -2707,7 +3108,20 @@ export function GeneratedContractsTab({
                           </span>
                           <span className="text-muted-foreground">
                             {r.created_by_name || "—"}
+                            {r.created_by_role === "recruiter" ? " · rekruter" : ""}
                           </span>
+                          {r.job_id && r.candidate_id ? (
+                            <Link
+                              href={`/jobs/${r.job_id}?candidate=${r.candidate_id}`}
+                              className="text-xs text-primary hover:underline"
+                              title="Otwórz osobę w rekrutacji"
+                            >
+                              {r.job_title ?? `Rekrutacja #${r.job_id}`}
+                              {pairColumnLabel(r.pair_column)
+                                ? ` · ${pairColumnLabel(r.pair_column)}`
+                                : ""}
+                            </Link>
+                          ) : null}
                         </div>
                       </td>
                       <td className="bg-card py-2 pl-2 text-right shadow-[inset_1px_0_0_hsl(var(--border))] md:sticky md:right-0 md:z-10">
@@ -2758,9 +3172,7 @@ export function GeneratedContractsTab({
                                   size="sm"
                                   className="h-8 w-8 p-0 pointer-coarse:h-10 pointer-coarse:w-10"
                                   onClick={() =>
-                                    router.replace(generatorEditHref(r.id), {
-                                      scroll: false,
-                                    })
+                                    replaceUrl(generatorEditHref(r.id))
                                   }
                                   title="Popraw umowę (ten sam numer)"
                                   aria-label={`Popraw umowę ${r.contract_number}`}
@@ -2855,6 +3267,15 @@ export function GeneratedContractsTab({
           onConfirmed={handleConfirmed}
         />
       ) : null}
+      {esignRow ? (
+        <SendForSignatureDialog row={esignRow} onClose={() => setEsignRow(null)} />
+      ) : null}
+      {signedFileRow ? (
+        <AttachSignedFileDialog
+          row={signedFileRow}
+          onClose={() => setSignedFileRow(null)}
+        />
+      ) : null}
       {statusRow ? (
         <ContractStatusDialog
           row={statusRow}
@@ -2883,8 +3304,8 @@ export function GeneratedContractsTab({
           <DialogHeader>
             <DialogTitle>Usunąć umowę z rejestru?</DialogTitle>
             <DialogDescription>
-              „{deleteLabel}” zniknie z listy. Tej operacji nie można cofnąć,
-              a numer nie wróci do puli.
+              „{deleteLabel}” zniknie z listy. Tej operacji nie można cofnąć, a
+              numer nie wróci do puli.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -2905,6 +3326,7 @@ export function GeneratedContractsTab({
         </DialogContent>
       </Dialog>
     </Card>
+    </>
   );
 }
 
@@ -2949,9 +3371,9 @@ function LifecycleContractsTab({
   showTermination?: boolean;
 }) {
   const [search, setSearch] = useState(searchParam ?? "");
-  const [modeFilter, setModeFilter] = useState<AgreementTerminationMode | "all">(
-    "all",
-  );
+  const [modeFilter, setModeFilter] = useState<
+    AgreementTerminationMode | "all"
+  >("all");
   useEffect(() => {
     if (searchParam) setSearch(searchParam);
   }, [searchParam]);
@@ -3003,10 +3425,7 @@ function LifecycleContractsTab({
       }),
     staleTime: 10_000,
   });
-  const rows = useMemo(
-    () => mergeRegisterPages(q.data?.pages ?? []),
-    [q.data],
-  );
+  const rows = useMemo(() => mergeRegisterPages(q.data?.pages ?? []), [q.data]);
   const showActionsColumn = allowActions || allowStatusChange;
   const filtersActive =
     Boolean(debouncedSearch.trim()) ||
@@ -3120,7 +3539,9 @@ function LifecycleContractsTab({
           </div>
         ) : rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            {filtersActive ? "Brak umów pasujących do wyszukiwania." : emptyLabel}
+            {filtersActive
+              ? "Brak umów pasujących do wyszukiwania."
+              : emptyLabel}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -3205,7 +3626,9 @@ function LifecycleContractsTab({
                     <td className="py-2 pr-4">
                       <div className="flex flex-col items-start gap-1">
                         <Badge
-                          variant={B2B_CONTRACT_STATUS_VARIANT[r.contract_status]}
+                          variant={
+                            B2B_CONTRACT_STATUS_VARIANT[r.contract_status]
+                          }
                           size="md"
                         >
                           <StatusIcon status={r.contract_status} />
@@ -3442,7 +3865,16 @@ export function GeneratorForm({
   editGeneratedId = null,
   onClearPrefill,
   onEditConsumed,
+  lockedPair = false,
+  onSaved,
 }: {
+  /**
+   * Panel osoby w rekrutacji (04.10.2026): kandydat i rekrutacja są ustalone
+   * z panelu — pickerów nie da się zmienić, „Nowa umowa” znika.
+   */
+  lockedPair?: boolean;
+  /** Po zapisie w rejestrze (pobranie albo poprawka) — panel pokazuje stan umowy. */
+  onSaved?: (saved: { id: number; number: string }) => void;
   /** `?candidate=` z adresu — link „Otwórz w Generatorze” z kroku „Umowa”. */
   prefillCandidateId?: number | null;
   /** `?job=` — rekrutacja do wybrania, gdy kandydat w niej jest. */
@@ -3473,6 +3905,14 @@ export function GeneratorForm({
   // Debounce jak w rejestrze — bez niego każda litera to osobne zapytanie.
   const debouncedCandidateQuery = useDebouncedValue(candidateQuery, 300);
   const [stageId, setStageId] = useState<string>("");
+  // „Szczegóły administracyjne” (0524): replacement i FTE. `restoredAdminPair`
+  // = para wczytana z zapisanej umowy — kafelek nie nadpisuje jej podpowiedziami.
+  const [adminValue, setAdminValue] =
+    useState<AgreementAdminValue>(EMPTY_ADMIN_VALUE);
+  const [restoredAdminPair, setRestoredAdminPair] = useState<string | null>(
+    null,
+  );
+  const [showAdminErrors, setShowAdminErrors] = useState(false);
 
   // Rola + zakres
   const [roleId, setRoleId] = useState<string>("");
@@ -3483,6 +3923,13 @@ export function GeneratorForm({
   const [partnerNip, setPartnerNip] = useState("");
   const [partnerRegon, setPartnerRegon] = useState("");
   const [partnerBusinessAddress, setPartnerBusinessAddress] = useState("");
+  // JDG bez stałego miejsca wykonywania działalności w CEIDG: umowa i DPA
+  // mówią „pod adresem do doręczeń”. `fromRegistry` = ustawił to lookup.
+  const [partnerAddressForService, setPartnerAddressForService] =
+    useState(false);
+  const [addressKindFromRegistry, setAddressKindFromRegistry] = useState<
+    "place_of_business" | "service" | null
+  >(null);
   const [partnerCorrespondenceAddress, setPartnerCorrespondenceAddress] =
     useState("");
   const [partnerEmail, setPartnerEmail] = useState("");
@@ -3509,6 +3956,10 @@ export function GeneratorForm({
     emptyRateStage(),
   ]);
   const [currency, setCurrency] = useState("PLN");
+  // Podpowiedzi z rekrutacji: dla której pary już zastosowane i czy człowiek
+  // zmienił datę rozpoczęcia (wtedy jej nie nadpisujemy).
+  const prefillAppliedFor = useRef<string | null>(null);
+  const startTouched = useRef(false);
 
   const setRateStage = (index: number, patch: Partial<RateStageForm>) =>
     setRateStages((prev) =>
@@ -3547,6 +3998,32 @@ export function GeneratorForm({
     "sole_trader" | "company" | null
   >(null);
 
+  // Wariant umowy (ticket 8): JDG (domyślny) albo spółka. Przełączenie NIE
+  // czyści żadnego pola — zmienia tylko to, jak dane trafiają do umowy.
+  const [contractVariant, setContractVariant] =
+    useState<B2BContractVariant>("jdg");
+  const isCompany = contractVariant === "company";
+  const [partnerKrs, setPartnerKrs] = useState("");
+  const [partnerSeat, setPartnerSeat] = useState("");
+  const [partnerSeatLocative, setPartnerSeatLocative] = useState("");
+  const [partnerRegistryCourt, setPartnerRegistryCourt] = useState("");
+  const [partnerShareCapital, setPartnerShareCapital] = useState("");
+  const [representativeName, setRepresentativeName] = useState("");
+  const [representativeFunction, setRepresentativeFunction] = useState("");
+  const [representation, setRepresentation] = useState("");
+  const [krsLookup, setKrsLookup] = useState<LookupStatus>("idle");
+  // Skład zarządu z odpisu KRS — imiona i nazwiska API maskuje, więc to
+  // podpowiedź (funkcje, sposób reprezentacji), nie wypełnienie.
+  const [krsBoard, setKrsBoard] = useState<{
+    people: B2BCompanyRepresentative[];
+    method: string | null;
+  } | null>(null);
+  // Ręcznie poprawiona fraza reprezentacji / siedziby → bez auto-odmiany.
+  const representationTouched = useRef(false);
+  const seatLocativeTouched = useRef(false);
+  // KRS, którego dane już mamy (z lookupu NIP-u albo z zapisanej umowy).
+  const krsLookupSkip = useRef<string | null>(null);
+
   const [previewHtml, setPreviewHtml] = useState<string>("");
   const [savedContract, setSavedContract] = useState<SavedContract | null>(
     null,
@@ -3575,9 +4052,12 @@ export function GeneratorForm({
   const candidatesQuery = useQuery({
     queryKey: ["b2b-gen-candidates", debouncedCandidateQuery],
     queryFn: async () => {
-      const res = await api.get<CandidateOption[]>("/api/cv-generator/candidates", {
-        params: { q: debouncedCandidateQuery, limit: 20 },
-      });
+      const res = await api.get<CandidateOption[]>(
+        "/api/cv-generator/candidates",
+        {
+          params: { q: debouncedCandidateQuery, limit: 20 },
+        },
+      );
       return res.data;
     },
     enabled: candidateOpen,
@@ -3621,7 +4101,8 @@ export function GeneratorForm({
   );
   const selectedRecruitment = useMemo(
     () =>
-      recruitmentsQuery.data?.find((r) => String(r.stage_id) === stageId) ?? null,
+      recruitmentsQuery.data?.find((r) => String(r.stage_id) === stageId) ??
+      null,
     [recruitmentsQuery.data, stageId],
   );
 
@@ -3630,7 +4111,9 @@ export function GeneratorForm({
     queryKey: ["b2b-cand-detail", candidate?.id],
     queryFn: async () => {
       if (!candidate) return null;
-      const res = await api.get<CandidateDetail>(`/api/candidates/${candidate.id}`);
+      const res = await api.get<CandidateDetail>(
+        `/api/candidates/${candidate.id}`,
+      );
       return res.data;
     },
     enabled: !!candidate,
@@ -3642,7 +4125,9 @@ export function GeneratorForm({
     if (!c || !candidate || prefilledCand.current === candidate.id) return;
     prefilledCand.current = candidate.id;
     setPartnerName(
-      c.full_name || `${c.name ?? ""} ${c.lastname ?? ""}`.trim() || candidate.full_name,
+      c.full_name ||
+        `${c.name ?? ""} ${c.lastname ?? ""}`.trim() ||
+        candidate.full_name,
     );
     setPartnerLegalName(c.legal_name || "");
     setPartnerNip(c.nip || "");
@@ -3680,8 +4165,9 @@ export function GeneratorForm({
     // inaczej umowa dostawała miasto i klienta z poprzednio wybranej.
     const replace = jobFieldsFromJob.current;
     jobFieldsFromJob.current = true;
-    if (j.description) {
-      setProjectDescription(j.description);
+    const jobDescription = agreementProjectDescription(j);
+    if (jobDescription) {
+      setProjectDescription(jobDescription);
       descTouched.current = true; // opis z rekrutacji ma priorytet nad smart-prefillem
     } else if (replace) {
       descTouched.current = false;
@@ -3723,6 +4209,47 @@ export function GeneratorForm({
     setPartnerInstrumental(instrumentalPl(partnerName, gender));
   }, [partnerName, gender]);
 
+  // Spółka: „reprezentowaną przez Pana Jana Kowalskiego – Prezesa Zarządu”
+  // (biernik liczony z osoby, funkcji i płci — do poprawy ręcznie).
+  useEffect(() => {
+    if (representationTouched.current) return;
+    setRepresentation(
+      representationPl(representativeName, representativeFunction, gender),
+    );
+  }, [representativeName, representativeFunction, gender]);
+
+  // Spółka: „z siedzibą w Warszawie” — miejscownik z miejscowości z KRS.
+  useEffect(() => {
+    if (seatLocativeTouched.current) return;
+    setPartnerSeatLocative(seatLocativePl(partnerSeat).phrase);
+  }, [partnerSeat]);
+
+  // Dane komparycji spółki z odpisu KRS (siedziba, kapitał, sąd, zarząd).
+  // Dane rejestrowe nadpisują pola — jak przy lookupie po NIP-ie.
+  const applyKrsDetails = (d: {
+    krs?: string | null;
+    seat?: string | null;
+    registry_court?: string | null;
+    share_capital?: string | null;
+    representatives?: B2BCompanyRepresentative[];
+    representation_method?: string | null;
+  }) => {
+    if (d.krs) {
+      const digits = d.krs.replace(/\D/g, "");
+      krsLookupSkip.current = digits;
+      setPartnerKrs(digits);
+    }
+    if (d.seat) setPartnerSeat(d.seat);
+    if (d.registry_court) setPartnerRegistryCourt(d.registry_court);
+    if (d.share_capital) setPartnerShareCapital(d.share_capital);
+    if (d.representatives?.length || d.representation_method) {
+      setKrsBoard({
+        people: d.representatives ?? [],
+        method: d.representation_method ?? null,
+      });
+    }
+  };
+
   // Auto numer umowy (pierwsze załadowanie, jeśli puste).
   useEffect(() => {
     if (nextNumberQuery.data && !contractNumber) {
@@ -3744,6 +4271,7 @@ export function GeneratorForm({
     // To najcichszy możliwy błąd w tej ścieżce: nic nie zgłasza awarii, a lista
     // pokazuje zdublowane nazwisko.
     setPartnerEntityType(null);
+    setAddressKindFromRegistry(null);
     if (nip.length !== 10) {
       setPartnerLookup("idle");
       return;
@@ -3765,7 +4293,11 @@ export function GeneratorForm({
         if (d.name) setPartnerLegalName(d.name);
         if (d.regon) setPartnerRegon(d.regon);
         if (d.address) setPartnerBusinessAddress(d.address);
+        setAddressKindFromRegistry(d.address_kind ?? null);
+        if (d.address_kind)
+          setPartnerAddressForService(d.address_kind === "service");
         setPartnerEntityType(d.entity_type ?? null);
+        if (d.entity_type === "company") applyKrsDetails(d);
         setPartnerLookup("ok");
       } catch {
         if (!cancelled) setPartnerLookup("none");
@@ -3776,6 +4308,39 @@ export function GeneratorForm({
       clearTimeout(timer);
     };
   }, [partnerNip]);
+
+  // Lookup po numerze KRS (wariant spółki) — gdy KRS wpisano ręcznie albo
+  // lookup NIP-u nie znalazł spółki. Uzupełnia wyłącznie puste dane firmy.
+  useEffect(() => {
+    const krs = partnerKrs.replace(/\D/g, "");
+    if (!isCompany || krs.length < 6 || krs.length > 10) {
+      setKrsLookup("idle");
+      return;
+    }
+    if (krsLookupSkip.current !== null && krsLookupSkip.current === krs) {
+      setKrsLookup("idle");
+      return;
+    }
+    let cancelled = false;
+    setKrsLookup("loading");
+    const timer = setTimeout(async () => {
+      try {
+        const d = await b2bGeneratorApi.companyLookup({ krs });
+        if (cancelled) return;
+        applyKrsDetails({ ...d, krs });
+        setPartnerLegalName((prev) => prev || d.name || "");
+        setPartnerRegon((prev) => prev || d.regon || "");
+        setPartnerBusinessAddress((prev) => prev || d.address || "");
+        setKrsLookup("ok");
+      } catch {
+        if (!cancelled) setKrsLookup("none");
+      }
+    }, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [partnerKrs, isCompany]);
 
   const groupedRoles = useMemo(() => {
     const map = new Map<string, { label: string; items: B2BRole[] }>();
@@ -3794,9 +4359,7 @@ export function GeneratorForm({
   const filteredClients = useMemo(() => {
     const all = clientsQuery.data ?? [];
     const q = clientQuery.trim().toLowerCase();
-    const list = q
-      ? all.filter((c) => c.name.toLowerCase().includes(q))
-      : all;
+    const list = q ? all.filter((c) => c.name.toLowerCase().includes(q)) : all;
     // Lista jest już kuratorska (featured=true → ~17 nazw); cap wysoki, żeby
     // nigdy nie ucinać w pół alfabetu (wcześniej slice(0,50) gubił > litery „D").
     return list.slice(0, 200);
@@ -3825,6 +4388,7 @@ export function GeneratorForm({
       setPartnerNip("");
       setPartnerRegon("");
       setPartnerBusinessAddress("");
+      setPartnerAddressForService(false);
       setPartnerCorrespondenceAddress("");
       setPartnerEmail("");
       setPartnerPhone("");
@@ -3921,7 +4485,7 @@ export function GeneratorForm({
     let cancelled = false;
     (async () => {
       try {
-        const { id, contract_number, form } =
+        const { id, contract_number, form, replaced } =
           await b2bGeneratorApi.generatedForm(editGeneratedId);
         let candidateOption: CandidateOption | null = null;
         if (form.candidate_id) {
@@ -3940,7 +4504,7 @@ export function GeneratorForm({
           };
         }
         if (cancelled) return;
-        applySavedForm(id, contract_number, form, candidateOption);
+        applySavedForm(id, contract_number, form, candidateOption, replaced);
       } catch (e: unknown) {
         if (!cancelled) toast.showError(extractErrorMsg(e));
       } finally {
@@ -3973,6 +4537,45 @@ export function GeneratorForm({
     savedContract.jobId === selectedJobId
       ? savedContract
       : null;
+  // Podpowiedzi z rekrutacji (04.10.2026): te same co w panelu osoby.
+  // Wypełniają WYŁĄCZNIE pola nietknięte; zapisany formularz (poprawka) wygrywa.
+  const prefillQuery = useQuery({
+    queryKey: ["b2b-prefill", candidate?.id ?? null, selectedJobId],
+    queryFn: () => b2bGeneratorApi.prefill(candidate!.id, selectedJobId!),
+    enabled: !!candidate && selectedJobId !== null,
+    staleTime: 60_000,
+    retry: false,
+  });
+  useEffect(() => {
+    const p = prefillQuery.data;
+    if (!p) return;
+    const key = `${p.candidate_id}:${p.job_id}`;
+    if (prefillAppliedFor.current === key) return;
+    prefillAppliedFor.current = key;
+    if (activeSaved || editGeneratedId) return;
+    if (p.rate && rateStages.length === 1 && !rateStages[0]?.rate) {
+      setRateStage(0, { rate: String(p.rate.value) });
+    }
+    if (p.start_date && !startTouched.current && p.start_date >= todayISO()) {
+      setStartDate(p.start_date);
+    }
+    // Tylko na nowe podpowiedzi — reszta to stan chwili wyboru pary.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillQuery.data]);
+  const prefillRateHint =
+    prefillQuery.data?.rate &&
+    rateStages.length === 1 &&
+    rateStages[0]?.rate === String(prefillQuery.data.rate.value)
+      ? prefillRateSource(prefillQuery.data.rate)
+      : null;
+  // D7: stawka kandydata z rekrutacji vs pierwszy etap stawki umowy — notka
+  // pod polem, nie walidacja i nie toast.
+  const recruitmentRateNote = contractRateNote(
+    prefillQuery.data?.recruitment_rate,
+    rateStages[0]?.rate,
+    currency,
+  );
+
   const existingContract = existingContractFor(
     jobContractsQuery.data ?? [],
     candidate?.id,
@@ -3989,6 +4592,7 @@ export function GeneratorForm({
     partner_instrumental: partnerInstrumental.trim() || null,
     partner_legal_name: partnerLegalName.trim() || null,
     partner_business_address: partnerBusinessAddress.trim() || null,
+    partner_address_for_service: !isCompany && partnerAddressForService,
     partner_correspondence_address: partnerCorrespondenceAddress.trim() || null,
     partner_nip: partnerNip.trim() || null,
     // Podpowiedź wyświetlania, nie dane umowy: backend zapisuje ją jako
@@ -3996,6 +4600,18 @@ export function GeneratorForm({
     partner_entity_type: partnerEntityType,
     partner_regon: partnerRegon.trim() || null,
     partner_email: partnerEmail.trim() || null,
+    contract_variant: contractVariant,
+    partner_krs: partnerKrs.trim() || null,
+    partner_seat: partnerSeat.trim() || null,
+    partner_seat_locative: partnerSeatLocative.trim() || null,
+    partner_registry_court: partnerRegistryCourt.trim() || null,
+    partner_share_capital: partnerShareCapital.trim() || null,
+    partner_representative_name: representativeName.trim() || null,
+    partner_representative_function: representativeFunction.trim() || null,
+    partner_representation: representation.trim() || null,
+    // Osoba skierowana = kandydat z rekrutacji (serwer i tak to wymusza).
+    assigned_person_name:
+      candidate?.full_name?.trim() || partnerName.trim() || null,
     partner_phone: partnerPhone.trim()
       ? partnerPhone.trim().startsWith("+")
         ? partnerPhone.trim()
@@ -4023,6 +4639,7 @@ export function GeneratorForm({
         : null,
     currency: currency.trim() || "PLN",
     ...(scopeItemsOverride ? { scope_items_override: scopeItemsOverride } : {}),
+    ...adminPayload(adminValue),
   });
 
   // Podgląd opisuje dane z chwili kliknięcia — po każdej zmianie formularza
@@ -4037,12 +4654,28 @@ export function GeneratorForm({
     if (!candidate) missing.push("Kandydat");
     if (!selectedRecruitment) missing.push("Rekrutacja");
     if (!selectedRole) missing.push("Rola / stanowisko");
-    if (!partnerName.trim()) missing.push("Imię i nazwisko Partnera");
-    if (!partnerInstrumental.trim()) missing.push("Imię i nazwisko (narzędnik)");
+    if (isCompany) {
+      missing.push(
+        ...companyVariantMissing({
+          krs: partnerKrs,
+          seatLocative: partnerSeatLocative,
+          registryCourt: partnerRegistryCourt,
+          shareCapital: partnerShareCapital,
+          representativeName,
+          representativeFunction,
+          representation,
+        }),
+      );
+    } else {
+      if (!partnerName.trim()) missing.push("Imię i nazwisko Partnera");
+      if (!partnerInstrumental.trim())
+        missing.push("Imię i nazwisko (narzędnik)");
+    }
     if (!partnerLegalName.trim()) missing.push("Nazwa Firmy");
     if (!partnerNip.trim()) missing.push("NIP");
     if (!partnerRegon.trim()) missing.push("REGON");
-    if (!partnerBusinessAddress.trim()) missing.push("Adres siedziby firmy");
+    if (!partnerBusinessAddress.trim())
+      missing.push(isCompany ? "Adres siedziby firmy" : "Adres z CEIDG");
     if (!partnerEmail.trim()) missing.push("E-mail");
     if (!partnerPhone.trim()) missing.push("Telefon");
     if (!clientName.trim()) missing.push("Pełna nazwa Klienta");
@@ -4059,7 +4692,8 @@ export function GeneratorForm({
       // „Obowiązuje od" (inaczej okresy w umowie są nierozstrzygalne).
       rateStages.forEach((s, i) => {
         const rate = parseRate(s.rate);
-        if (!rate || rate <= 0) missing.push(`Stawka godzinowa (etap ${i + 1})`);
+        if (!rate || rate <= 0)
+          missing.push(`Stawka godzinowa (etap ${i + 1})`);
         if (i > 0 && !s.from) missing.push(`„Obowiązuje od” (etap ${i + 1})`);
       });
     }
@@ -4086,9 +4720,30 @@ export function GeneratorForm({
     return true;
   };
 
+  // Sprawdzenie firmy w CEIDG/KRS przy KAŻDYM „Pobierz DOCX” (ticket 6).
+  // Okno pokazuje ostrzeżenia, brak weryfikacji i różnice danych; niczego nie
+  // blokuje. `registryCheck === null` = okno zamknięte.
+  const [registryCheck, setRegistryCheck] = useState<{
+    verification: CompanyVerification;
+    diffs: RegistryDiff[];
+  } | null>(null);
+  const [applyRegistry, setApplyRegistry] = useState(true);
+  const verifyMut = useMutation({
+    mutationFn: () =>
+      b2bGeneratorApi.companyVerification({
+        nip: partnerNip.replace(/\D/g, "") || undefined,
+        // Umowa spółki: spółka wpisana samym KRS też ma być sprawdzona.
+        krs: isCompany ? partnerKrs.replace(/\D/g, "") || undefined : undefined,
+      }),
+  });
+
   const docxMut = useMutation({
-    mutationFn: async () => {
-      const payload = buildPayload(language);
+    mutationFn: async (
+      registryData: ReturnType<typeof registryOverrides> | void,
+    ) => {
+      // Dane z rejestru nakładamy na ładunek wprost: stan formularza
+      // zaktualizuje się dopiero przy następnym renderze.
+      const payload = { ...buildPayload(language), ...(registryData ?? {}) };
       // Formularz opisuje zapisaną umowę → poprawka tego samego wiersza pod
       // tym samym numerem. Inaczej — nowy wpis w rejestrze.
       const saved = activeSaved;
@@ -4120,33 +4775,40 @@ export function GeneratorForm({
           candidateId: candidate?.id ?? null,
           jobId: selectedRecruitment?.job_id ?? null,
         });
+        onSaved?.({ id: result.id, number: result.number });
       }
+      // Karta Tablicy i panel osoby czytają stan umowy z rejestru.
+      queryClient.invalidateQueries({ queryKey: ["kanban"] });
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
       // Podpowiedź „następny wolny numer” w polu numeru; samego numeru nie
       // podmieniamy — formularz nadal opisuje właśnie zapisaną umowę.
       void nextNumberQuery.refetch();
     },
-    onError: (e) => {
-      const status = (e as { response?: { status?: number } })?.response?.status;
-      // 409 przy PIERWSZYM pobraniu = numer zajęty. Nie podmieniamy go po
-      // cichu: komunikat mówi, jaki numer podstawiono, i prosi o ponowne
-      // kliknięcie — użytkownik musi wiedzieć, pod jakim numerem wyjdzie umowa.
-      if (status === 409 && !activeSaved) {
+    onError: async (e) => {
+      // DOCX idzie z `responseType: "blob"`, więc ciało błędu też jest Blobem —
+      // bez odczytu toast mówił „Request failed with status code 409”.
+      const err = await readDocumentError(e, extractErrorMsg(e));
+      // Numer podmieniamy WYŁĄCZNIE przy 409 „numer zajęty” (kod z backendu,
+      // runda 8 R8-X2-5). Inne 409 z `/render` — kandydat spoza rekrutacji,
+      // powiązania zmienione w trakcie zapisu — nie dotyczą numeru, a cicha
+      // podmiana zmieniała numer wpisany przez użytkownika. Komunikat mówi,
+      // jaki numer podstawiono, i prosi o ponowne kliknięcie — użytkownik musi
+      // wiedzieć, pod jakim numerem wyjdzie umowa.
+      if (err.code === CONTRACT_NUMBER_TAKEN && !activeSaved) {
         const taken = contractNumber.trim();
-        void nextNumberQuery.refetch().then((r) => {
-          const next = r.data?.contract_number;
-          if (next && next !== taken) {
-            setContractNumber(next);
-            toast.showError(
-              `${extractErrorMsg(e)} Podstawiono numer ${next} — sprawdź go i kliknij „Pobierz DOCX” ponownie.`,
-            );
-          } else {
-            toast.showError(extractErrorMsg(e));
-          }
-        });
+        const r = await nextNumberQuery.refetch();
+        const next = r.data?.contract_number;
+        if (next && next !== taken) {
+          setContractNumber(next);
+          toast.showError(
+            `${err.message} Podstawiono numer ${next} — sprawdź go i kliknij „Pobierz DOCX” ponownie.`,
+          );
+        } else {
+          toast.showError(err.message);
+        }
         return;
       }
-      toast.showError(extractErrorMsg(e));
+      toast.showError(err.message);
     },
   });
 
@@ -4161,9 +4823,16 @@ export function GeneratorForm({
     number: string,
     form: B2BRenderPayload,
     candidateOption: CandidateOption | null,
+    replaced: B2BReplaceableContract | null = null,
   ) => {
     const candidateId = candidateOption?.id ?? null;
     const jobId = form.job_id ?? null;
+    const savedAdmin = adminFromSaved(form, replaced);
+    setRestoredAdminPair(
+      savedAdmin && candidateId && jobId ? `${candidateId}:${jobId}` : null,
+    );
+    setAdminValue(savedAdmin ?? EMPTY_ADMIN_VALUE);
+    setShowAdminErrors(false);
     prefilledCand.current = candidateId;
     prefilledJob.current = jobId;
     jobFieldsFromJob.current = true;
@@ -4187,8 +4856,23 @@ export function GeneratorForm({
     setPartnerNip(form.partner_nip ?? "");
     setPartnerRegon(form.partner_regon ?? "");
     setPartnerBusinessAddress(form.partner_business_address ?? "");
+    setPartnerAddressForService(Boolean(form.partner_address_for_service));
     setPartnerCorrespondenceAddress(form.partner_correspondence_address ?? "");
     setPartnerEntityType(form.partner_entity_type ?? null);
+    setContractVariant(form.contract_variant === "company" ? "company" : "jdg");
+    const krsDigits = (form.partner_krs ?? "").replace(/\D/g, "");
+    krsLookupSkip.current = krsDigits || null;
+    representationTouched.current = true;
+    seatLocativeTouched.current = true;
+    setPartnerKrs(form.partner_krs ?? "");
+    setPartnerSeat(form.partner_seat ?? "");
+    setPartnerSeatLocative(form.partner_seat_locative ?? "");
+    setPartnerRegistryCourt(form.partner_registry_court ?? "");
+    setPartnerShareCapital(form.partner_share_capital ?? "");
+    setRepresentativeName(form.partner_representative_name ?? "");
+    setRepresentativeFunction(form.partner_representative_function ?? "");
+    setRepresentation(form.partner_representation ?? "");
+    setKrsBoard(null);
     setPartnerEmail(form.partner_email ?? "");
     const phone = splitPhone(form.partner_phone);
     setPhonePrefix(phone.prefix);
@@ -4243,6 +4927,7 @@ export function GeneratorForm({
     setPartnerNip("");
     setPartnerRegon("");
     setPartnerBusinessAddress("");
+    setPartnerAddressForService(false);
     setPartnerCorrespondenceAddress("");
     setPartnerEmail("");
     setPartnerPhone("");
@@ -4260,6 +4945,19 @@ export function GeneratorForm({
     setGender("m");
     setPartnerInstrumental("");
     setPartnerEntityType(null);
+    setContractVariant("jdg");
+    setPartnerKrs("");
+    setPartnerSeat("");
+    setPartnerSeatLocative("");
+    setPartnerRegistryCourt("");
+    setPartnerShareCapital("");
+    setRepresentativeName("");
+    setRepresentativeFunction("");
+    setRepresentation("");
+    setKrsBoard(null);
+    representationTouched.current = false;
+    seatLocativeTouched.current = false;
+    krsLookupSkip.current = null;
     setScopeItemsOverride(null);
     nipLookupSkip.current = null;
     setPreviewHtml("");
@@ -4268,6 +4966,8 @@ export function GeneratorForm({
     descTouched.current = false;
     instrTouched.current = false;
     jobFieldsFromJob.current = false;
+    prefillAppliedFor.current = null;
+    startTouched.current = false;
     setContractNumber("");
     void nextNumberQuery.refetch().then((r) => {
       if (r.data) setContractNumber(r.data.contract_number);
@@ -4291,9 +4991,57 @@ export function GeneratorForm({
     onError: (e) => toast.showError(extractErrorMsg(e)),
   });
 
-  const onDocx = () => {
-    if (validate()) docxMut.mutate();
+  const onDocx = async () => {
+    if (!validate()) return;
+    // Replacement i FTE są obowiązkowe przy umowie z rekrutacją (serwer: 422).
+    if (selectedRecruitment && !isAdminComplete(adminValue)) {
+      setShowAdminErrors(true);
+      toast.showError(
+        "Uzupełnij „Szczegóły administracyjne”: replacement i wymiar FTE.",
+      );
+      document
+        .querySelector('[data-testid="agreement-admin-details"]')
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    let verification: CompanyVerification;
+    try {
+      verification = await verifyMut.mutateAsync();
+    } catch {
+      verification = verificationFailed();
+    }
+    const diffs = registryDiffs(
+      {
+        legalName: partnerLegalName,
+        address: partnerBusinessAddress,
+        regon: partnerRegon,
+      },
+      verification.company,
+    );
+    if (!needsRegistryDialog(verification, diffs)) {
+      docxMut.mutate();
+      return;
+    }
+    setApplyRegistry(true);
+    setRegistryCheck({ verification, diffs });
   };
+  const confirmRegistryCheck = () => {
+    const diffs = registryCheck?.diffs ?? [];
+    setRegistryCheck(null);
+    if (!applyRegistry || diffs.length === 0) {
+      docxMut.mutate();
+      return;
+    }
+    // Formularz też dostaje dane z rejestru — kolejne pobranie i podgląd
+    // opisują to, co trafiło do umowy.
+    for (const d of diffs) {
+      if (d.field === "legalName") setPartnerLegalName(d.registry);
+      if (d.field === "address") setPartnerBusinessAddress(d.registry);
+      if (d.field === "regon") setPartnerRegon(d.registry);
+    }
+    docxMut.mutate(registryOverrides(diffs));
+  };
+  const docxBusy = docxMut.isPending || verifyMut.isPending;
   const onPreview = () => {
     if (validate()) previewMut.mutate();
   };
@@ -4314,7 +5062,10 @@ export function GeneratorForm({
   }
 
   return (
-    <div className="space-y-4">
+    // `@container`: pola układają się po szerokości formularza, nie okna —
+    // w panelu osoby (kolumna 460–520 px) jedno pole w rzędzie, na stronie
+    // Generatora dwa albo trzy jak dotąd.
+    <div className="@container space-y-4">
       {activeSaved ? (
         <Alert
           variant="success"
@@ -4329,26 +5080,28 @@ export function GeneratorForm({
             <Button
               type="button"
               size="sm"
-              disabled={docxMut.isPending}
+              disabled={docxBusy}
               onClick={onDocx}
             >
-              {docxMut.isPending ? (
+              {docxBusy ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Download className="h-4 w-4" />
               )}
               Popraw i pobierz ponownie
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={docxMut.isPending}
-              onClick={resetForm}
-            >
-              <Plus className="h-4 w-4" />
-              Nowa umowa
-            </Button>
+            {lockedPair ? null : (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={docxBusy}
+                onClick={resetForm}
+              >
+                <Plus className="h-4 w-4" />
+                Nowa umowa
+              </Button>
+            )}
           </div>
         </Alert>
       ) : null}
@@ -4399,7 +5152,7 @@ export function GeneratorForm({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 @xl:grid-cols-2">
             <div>
               <Label className="mb-1.5 block" htmlFor={candidatePickerId}>
                 Kandydat <span className="text-destructive">*</span>
@@ -4411,6 +5164,7 @@ export function GeneratorForm({
                       id={candidatePickerId}
                       variant="outline"
                       role="combobox"
+                      disabled={lockedPair}
                       aria-expanded={candidateOpen}
                       className="w-full justify-between font-normal"
                     >
@@ -4432,11 +5186,15 @@ export function GeneratorForm({
                         onValueChange={setCandidateQuery}
                       />
                       <CommandList>
-                        {candidatesQuery.isLoading ? (
-                          <div className="p-3 text-sm text-muted-foreground">
-                            Szukam…
-                          </div>
-                        ) : (
+                        {/* Awaria wyszukiwania ≠ „nikogo nie ma”: pusty stan tylko przy sukcesie. */}
+                        <PickerQueryState
+                          isPending={candidatesQuery.isLoading}
+                          isError={candidatesQuery.isError}
+                          onRetry={() => void candidatesQuery.refetch()}
+                          loadingLabel="Szukam…"
+                          errorLabel="Nie udało się wyszukać kandydatów."
+                        />
+                        {candidatesQuery.isSuccess && (
                           <CommandEmpty>Brak wyników.</CommandEmpty>
                         )}
                         <CommandGroup>
@@ -4495,6 +5253,7 @@ export function GeneratorForm({
                 value={stageId}
                 onValueChange={selectStage}
                 disabled={
+                  lockedPair ||
                   !candidate ||
                   !recruitmentsQuery.isSuccess ||
                   recruitmentsQuery.data.length === 0
@@ -4551,21 +5310,72 @@ export function GeneratorForm({
         </CardContent>
       </Card>
 
+      <AgreementAdminDetailsCard
+        candidateId={candidate?.id ?? null}
+        jobId={selectedRecruitment?.job_id ?? null}
+        value={adminValue}
+        onChange={setAdminValue}
+        showErrors={showAdminErrors}
+        restoredPair={restoredAdminPair}
+      />
+
       {/* Dane Partnera (firma) */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Dane Partnera (firma)</CardTitle>
           <CardDescription>
             Wpisz NIP → nazwa firmy, REGON i adres zaciągną się z rejestru
-            (biznes.gov.pl + Biała Lista MF). Działa dla JDG i spółek — dla
-            spółki pole „Imię i nazwisko" zostaje puste (umowa jest pod JDG).
-            Pre-fill też z profilu kandydata. Wszystkie pola wymagane, edytowalne.
+            (biznes.gov.pl + Biała Lista MF, dla spółki także odpis KRS).
+            Pre-fill też z profilu kandydata. Wszystkie pola wymagane,
+            edytowalne.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2">
+        <CardContent className="grid gap-4 @xl:grid-cols-2">
+          <div className="@xl:col-span-2">
+            <Label className="mb-1.5 block">Wariant umowy</Label>
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  ["jdg", "Umowa JDG"],
+                  ["company", "Umowa spółka"],
+                ] as const
+              ).map(([v, lbl]) => (
+                <Button
+                  key={v}
+                  type="button"
+                  size="sm"
+                  variant={contractVariant === v ? "primary" : "outline"}
+                  aria-pressed={contractVariant === v}
+                  onClick={() => setContractVariant(v)}
+                >
+                  {lbl}
+                </Button>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {isCompany
+                ? "Komparycja z danymi z KRS, § 12 „Osoby skierowane do realizacji Usług” (kolejne paragrafy przesuwają się o jeden) i osoba skierowana w Załączniku nr 3."
+                : "Wzór dla jednoosobowej działalności gospodarczej. Zmiana wariantu nie usuwa wpisanych danych."}
+            </p>
+            {!isCompany && partnerEntityType === "company" ? (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
+                Rejestr wskazuje, że Partner jest spółką.{" "}
+                <button
+                  type="button"
+                  className="underline underline-offset-2"
+                  onClick={() => setContractVariant("company")}
+                >
+                  Przełącz na „Umowa spółka”
+                </button>
+              </p>
+            ) : null}
+          </div>
+          <div className="@xl:col-span-2">
             <Label className="mb-1.5 block">
-              Płeć Partnera<span className="text-destructive"> *</span>
+              {isCompany
+                ? "Płeć osoby reprezentującej spółkę"
+                : "Płeć Partnera"}
+              <span className="text-destructive"> *</span>
             </Label>
             <div className="flex gap-2">
               {(
@@ -4587,30 +5397,47 @@ export function GeneratorForm({
               ))}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Dobiera formy w umowie (Panem/ią, prowadzącym/cą, zwany/a,
-              zapoznałem/am).
+              {isCompany
+                ? "Dobiera formy „Pana/Panią” w reprezentacji i „zapoznałem/am” w deklaracji poufności."
+                : "Dobiera formy w umowie (Panem/ią, prowadzącym/cą, zwany/a, zapoznałem/am)."}
             </p>
           </div>
-          <Field label="Imię i nazwisko" required>
-            <Input
-              value={partnerName}
-              onChange={(e) => setPartnerName(e.target.value)}
-              placeholder="np. Jan Kowalski"
-            />
-          </Field>
-          <Field label="Imię i nazwisko — narzędnik (komparycja)" required>
-            <Input
-              value={partnerInstrumental}
-              onChange={(e) => {
-                instrTouched.current = true;
-                setPartnerInstrumental(e.target.value);
-              }}
-              placeholder="np. Janem Kowalskim"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              „z Panem/ią …" — auto-odmiana; popraw przy nietypowych nazwiskach.
-            </p>
-          </Field>
+          {isCompany ? (
+            <div className="@xl:col-span-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+              <span className="text-muted-foreground">
+                Osoba skierowana do realizacji usług (Załącznik nr 3, z
+                rekrutacji):{" "}
+              </span>
+              <span className="font-medium">
+                {candidate?.full_name || "wybierz kandydata i rekrutację"}
+              </span>
+            </div>
+          ) : null}
+          {!isCompany ? (
+            <>
+              <Field label="Imię i nazwisko" required>
+                <Input
+                  value={partnerName}
+                  onChange={(e) => setPartnerName(e.target.value)}
+                  placeholder="np. Jan Kowalski"
+                />
+              </Field>
+              <Field label="Imię i nazwisko — narzędnik (komparycja)" required>
+                <Input
+                  value={partnerInstrumental}
+                  onChange={(e) => {
+                    instrTouched.current = true;
+                    setPartnerInstrumental(e.target.value);
+                  }}
+                  placeholder="np. Janem Kowalskim"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  „z Panem/ią …" — auto-odmiana; popraw przy nietypowych
+                  nazwiskach.
+                </p>
+              </Field>
+            </>
+          ) : null}
           <Field label="Nazwa Firmy" required>
             <Input
               value={partnerLegalName}
@@ -4626,19 +5453,144 @@ export function GeneratorForm({
             />
             <div className="mt-1 h-4">{lookupHint(partnerLookup)}</div>
           </Field>
+          {isCompany ? (
+            <Field label="KRS" required>
+              <Input
+                value={partnerKrs}
+                onChange={(e) => setPartnerKrs(e.target.value)}
+                placeholder="np. 0000123456"
+              />
+              <div className="mt-1 h-4">{lookupHint(krsLookup)}</div>
+            </Field>
+          ) : null}
           <Field label="REGON" required>
             <Input
               value={partnerRegon}
               onChange={(e) => setPartnerRegon(e.target.value)}
             />
           </Field>
-          <Field label="Adres siedziby firmy" full required>
+          <Field
+            label={isCompany ? "Adres siedziby firmy" : "Adres z CEIDG"}
+            full
+            required
+          >
             <Input
               value={partnerBusinessAddress}
               onChange={(e) => setPartnerBusinessAddress(e.target.value)}
               placeholder="ul., kod, miasto"
             />
+            {!isCompany ? (
+              <AddressKindSwitch
+                forService={partnerAddressForService}
+                fromRegistry={addressKindFromRegistry}
+                onChange={setPartnerAddressForService}
+              />
+            ) : null}
           </Field>
+          {isCompany ? (
+            <>
+              <Field label="Siedziba spółki (miejscowość)" required>
+                <Input
+                  value={partnerSeat}
+                  onChange={(e) => setPartnerSeat(e.target.value)}
+                  placeholder="np. Warszawa"
+                />
+              </Field>
+              <Field label="Siedziba w umowie („z siedzibą …”)" required>
+                <Input
+                  value={partnerSeatLocative}
+                  onChange={(e) => {
+                    seatLocativeTouched.current = true;
+                    setPartnerSeatLocative(e.target.value);
+                  }}
+                  placeholder="np. w Warszawie"
+                />
+                {partnerSeat.trim() && !seatLocativePl(partnerSeat).known ? (
+                  <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
+                    Sprawdź odmianę nazwy miejscowości.
+                  </p>
+                ) : null}
+              </Field>
+              <Field label="Sąd rejestrowy i wydział" full required>
+                <Input
+                  value={partnerRegistryCourt}
+                  onChange={(e) => setPartnerRegistryCourt(e.target.value)}
+                  placeholder="np. Sąd Rejonowy dla m.st. Warszawy w Warszawie, XII Wydział Gospodarczy Krajowego Rejestru Sądowego"
+                />
+              </Field>
+              <Field label="Kapitał zakładowy (zł)" required>
+                <Input
+                  value={partnerShareCapital}
+                  onChange={(e) => setPartnerShareCapital(e.target.value)}
+                  placeholder="np. 5.000,00"
+                />
+              </Field>
+              <div className="hidden sm:block" />
+              <Field label="Osoba reprezentująca spółkę" required>
+                <Input
+                  value={representativeName}
+                  onChange={(e) => setRepresentativeName(e.target.value)}
+                  placeholder="np. Jan Kowalski"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Członek zarządu / prokurent — nie musi być osobą skierowaną.
+                </p>
+              </Field>
+              <Field label="Funkcja" required>
+                <Input
+                  value={representativeFunction}
+                  onChange={(e) => setRepresentativeFunction(e.target.value)}
+                  placeholder="np. Prezes Zarządu"
+                />
+                {krsBoard && boardFunctions(krsBoard.people).length ? (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {boardFunctions(krsBoard.people).map((fn) => (
+                      <Button
+                        key={fn}
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setRepresentativeFunction(fn)}
+                      >
+                        {fn}
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
+              </Field>
+              {krsBoard ? (
+                <p className="@xl:col-span-2 text-xs text-muted-foreground">
+                  W KRS: {boardSummary(krsBoard.people) || "brak składu organu"}
+                  {krsBoard.people.some((p) => !p.name)
+                    ? " (imiona i nazwiska są ukryte w publicznym API KRS — wpisz osobę ręcznie)"
+                    : ""}
+                  .
+                  {krsBoard.method
+                    ? ` Sposób reprezentacji: ${krsBoard.method}.`
+                    : ""}
+                </p>
+              ) : null}
+              <Field
+                label="Reprezentacja w komparycji („reprezentowaną przez …”)"
+                full
+                required
+              >
+                <Input
+                  value={representation}
+                  onChange={(e) => {
+                    representationTouched.current = true;
+                    setRepresentation(e.target.value);
+                  }}
+                  placeholder="np. Pana Jana Kowalskiego – Prezesa Zarządu"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Auto-odmiana (biernik); popraw przy nietypowych nazwiskach
+                  albo reprezentacji łącznej.
+                </p>
+              </Field>
+            </>
+          ) : null}
           <Field label="Adres do korespondencji (opcjonalnie)" full>
             <Input
               value={partnerCorrespondenceAddress}
@@ -4681,7 +5633,7 @@ export function GeneratorForm({
         <CardHeader>
           <CardTitle className="text-base">Klient i projekt</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
+        <CardContent className="grid gap-4 @xl:grid-cols-2">
           <Field label="Pełna nazwa Klienta" required htmlFor={clientPickerId}>
             <Popover open={clientOpen} onOpenChange={setClientOpen}>
               <PopoverTrigger asChild>
@@ -4709,7 +5661,17 @@ export function GeneratorForm({
                     onValueChange={setClientQuery}
                   />
                   <CommandList>
-                    <CommandEmpty>Brak klientów na liście.</CommandEmpty>
+                    {/* Awaria listy klientów ≠ „brak klientów”: pusty stan tylko przy sukcesie. */}
+                    <PickerQueryState
+                      isPending={clientsQuery.isPending}
+                      isError={clientsQuery.isError}
+                      onRetry={() => void clientsQuery.refetch()}
+                      loadingLabel="Ładowanie klientów…"
+                      errorLabel="Nie udało się pobrać listy klientów."
+                    />
+                    {clientsQuery.isSuccess && (
+                      <CommandEmpty>Brak klientów na liście.</CommandEmpty>
+                    )}
                     {clientQuery.trim() ? (
                       <CommandGroup heading="Własna nazwa">
                         <CommandItem
@@ -4736,7 +5698,9 @@ export function GeneratorForm({
                           <Check
                             className={cn(
                               "mr-2 h-4 w-4",
-                              clientName === c.name ? "opacity-100" : "opacity-0",
+                              clientName === c.name
+                                ? "opacity-100"
+                                : "opacity-0",
                             )}
                           />
                           <span className="truncate">{c.name}</span>
@@ -4843,7 +5807,7 @@ export function GeneratorForm({
         <CardHeader>
           <CardTitle className="text-base">Warunki umowy</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
+        <CardContent className="grid gap-4 @xl:grid-cols-2">
           <Field label="Numer umowy (auto)" required>
             <Input
               value={activeSaved ? activeSaved.number : contractNumber}
@@ -4892,13 +5856,21 @@ export function GeneratorForm({
                 id={startDateId}
                 type="date"
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                onChange={(e) => {
+                  startTouched.current = true;
+                  setStartDate(e.target.value);
+                }}
               />
             </div>
+            {prefillQuery.data?.availability_text ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Dostępność ze screeningu: {prefillQuery.data.availability_text}
+              </p>
+            ) : null}
           </Field>
-          <div className="space-y-3 sm:col-span-2">
+          <div className="space-y-3 @xl:col-span-2">
             {rateStages.length === 1 ? (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2">
                 <Field label="Stawka godz. (netto)" required>
                   <Input
                     type="number"
@@ -4906,6 +5878,20 @@ export function GeneratorForm({
                     onChange={(e) => setRateStage(0, { rate: e.target.value })}
                     placeholder="np. 150"
                   />
+                  {prefillRateHint ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Stawka {prefillRateHint}
+                    </p>
+                  ) : null}
+                  {recruitmentRateNote ? (
+                    <p
+                      role="status"
+                      data-testid="b2b-recruitment-rate-note"
+                      className="mt-1 text-xs text-warning"
+                    >
+                      {recruitmentRateNote}
+                    </p>
+                  ) : null}
                 </Field>
                 <Field label="Waluta" htmlFor={currencyId}>
                   <CurrencySelect
@@ -4919,28 +5905,46 @@ export function GeneratorForm({
               <>
                 {rateStages.map((stage, i) => (
                   <div key={i} className="flex items-end gap-2">
-                    <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-3">
-                      <Field label={`Stawka godz. (netto) — etap ${i + 1}`} required>
+                    <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 @xl:grid-cols-3">
+                      <Field
+                        label={`Stawka godz. (netto) — etap ${i + 1}`}
+                        required
+                      >
                         <Input
                           type="number"
                           value={stage.rate}
-                          onChange={(e) => setRateStage(i, { rate: e.target.value })}
+                          onChange={(e) =>
+                            setRateStage(i, { rate: e.target.value })
+                          }
                           placeholder="np. 150"
                         />
+                        {i === 0 && recruitmentRateNote ? (
+                          <p
+                            role="status"
+                            data-testid="b2b-recruitment-rate-note"
+                            className="mt-1 text-xs text-warning"
+                          >
+                            {recruitmentRateNote}
+                          </p>
+                        ) : null}
                       </Field>
                       {/* Pierwszy etap bez „od" obowiązuje od rozpoczęcia usług. */}
                       <Field label="Obowiązuje od" required={i > 0}>
                         <Input
                           type="date"
                           value={stage.from}
-                          onChange={(e) => setRateStage(i, { from: e.target.value })}
+                          onChange={(e) =>
+                            setRateStage(i, { from: e.target.value })
+                          }
                         />
                       </Field>
                       <Field label="Obowiązuje do">
                         <Input
                           type="date"
                           value={stage.to}
-                          onChange={(e) => setRateStage(i, { to: e.target.value })}
+                          onChange={(e) =>
+                            setRateStage(i, { to: e.target.value })
+                          }
                         />
                       </Field>
                     </div>
@@ -4957,7 +5961,7 @@ export function GeneratorForm({
                     </Button>
                   </div>
                 ))}
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3 @xl:grid-cols-3">
                   <Field label="Waluta" htmlFor={currencyId}>
                     <CurrencySelect
                       id={currencyId}
@@ -4979,7 +5983,7 @@ export function GeneratorForm({
               Dodaj etap stawki
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground sm:col-span-2">
+          <p className="text-xs text-muted-foreground @xl:col-span-2">
             „Stawka słownie" liczy się automatycznie z kwoty.
             {rateStages.length > 1
               ? " Stawka progresywna: umowa wypisze każdy etap z okresem obowiązywania; etap 1 bez „od” obowiązuje od rozpoczęcia usług."
@@ -5004,8 +6008,8 @@ export function GeneratorForm({
         {/* Jeden przycisk w języku z „Język umowy”. Dwa (PL/EN) zakładały dwa
             wiersze rejestru i dwa numery dla jednej umowy; teraz druga wersja
             językowa to poprawka zapisanej umowy pod tym samym numerem. */}
-        <Button disabled={docxMut.isPending} onClick={onDocx} data-help="contracts.b2b_generator.docx">
-          {docxMut.isPending ? (
+        <Button disabled={docxBusy} onClick={onDocx} data-help="contracts.b2b_generator.docx">
+          {docxBusy ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
             <Download className="mr-2 h-4 w-4" />
@@ -5014,18 +6018,31 @@ export function GeneratorForm({
             ? "Popraw i pobierz ponownie"
             : `Pobierz DOCX (${language === "pl" ? "PL" : "EN"})`}
         </Button>
-        {activeSaved ? (
+        {activeSaved && !lockedPair ? (
           <Button
             type="button"
             variant="outline"
-            disabled={docxMut.isPending}
+            disabled={docxBusy}
             onClick={resetForm}
           >
             <Plus className="mr-2 h-4 w-4" />
             Nowa umowa
           </Button>
         ) : null}
+        {verifyMut.isPending ? (
+          <span role="status" className="text-xs text-muted-foreground">
+            Sprawdzam firmę w rejestrze (CEIDG / KRS)…
+          </span>
+        ) : null}
       </div>
+      <RegistryCheckDialog
+        verification={registryCheck?.verification ?? null}
+        diffs={registryCheck?.diffs ?? []}
+        applyRegistry={applyRegistry}
+        onApplyRegistryChange={setApplyRegistry}
+        onConfirm={confirmRegistryCheck}
+        onCancel={() => setRegistryCheck(null)}
+      />
 
       {/* Podgląd */}
       {previewHtml ? (
@@ -5062,13 +6079,69 @@ export function GeneratorForm({
   );
 }
 
+/** Rodzaj adresu JDG w CEIDG — decyduje o „pod adresem” / „pod adresem do
+ *  doręczeń” w komparycji umowy i w Załączniku nr 2 (DPA). */
+function AddressKindSwitch({
+  forService,
+  fromRegistry,
+  onChange,
+}: {
+  forService: boolean;
+  fromRegistry: "place_of_business" | "service" | null;
+  onChange: (forService: boolean) => void;
+}) {
+  const options = [
+    [false, "Stałe miejsce wykonywania działalności"],
+    [true, "Tylko adres do doręczeń"],
+  ] as const;
+  const registryMatches =
+    fromRegistry !== null && (fromRegistry === "service") === forService;
+  return (
+    <div className="mt-2">
+      <div className="flex flex-wrap gap-2">
+        {options.map(([value, label]) => (
+          <Button
+            key={label}
+            type="button"
+            size="sm"
+            variant={forService === value ? "primary" : "outline"}
+            aria-pressed={forService === value}
+            onClick={() => onChange(value)}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {registryMatches ? (
+          <span className="text-emerald-600">
+            {fromRegistry === "service"
+              ? "✓ CEIDG: brak stałego miejsca wykonywania działalności, wpisany tylko adres do doręczeń. "
+              : "✓ CEIDG: wpisane stałe miejsce wykonywania działalności. "}
+          </span>
+        ) : fromRegistry !== null ? (
+          <span className="text-amber-600">
+            Zmienione ręcznie — CEIDG mówi co innego.{" "}
+          </span>
+        ) : null}
+        W umowie i w DPA: „zarejestrowaną w CEIDG pod adresem
+        {forService ? " do doręczeń" : ""}: …”.
+      </p>
+    </div>
+  );
+}
+
 function lookupHint(status: LookupStatus) {
   if (status === "loading")
     return (
-      <span className="text-xs text-muted-foreground">Pobieram z rejestru…</span>
+      <span className="text-xs text-muted-foreground">
+        Pobieram z rejestru…
+      </span>
     );
   if (status === "ok")
-    return <span className="text-xs text-emerald-600">✓ pobrano z rejestru</span>;
+    return (
+      <span className="text-xs text-emerald-600">✓ pobrano z rejestru</span>
+    );
   if (status === "none")
     return (
       <span className="text-xs text-amber-600">
@@ -5181,10 +6254,12 @@ function Field({
         }
         assigned = true;
         linkedId = child.props.id ?? autoId;
-        return child.props.id ? child : React.cloneElement(child, { id: autoId });
+        return child.props.id
+          ? child
+          : React.cloneElement(child, { id: autoId });
       });
   return (
-    <div className={full ? "sm:col-span-2" : undefined}>
+    <div className={full ? "@xl:col-span-2" : undefined}>
       <Label className="mb-1.5 block" htmlFor={linkedId}>
         {label}
         {required ? <span className="text-destructive"> *</span> : null}
@@ -5261,8 +6336,14 @@ function RoleScopeEditor() {
         name_en: nameEn,
         area_label_pl: areaPl,
         area_label_en: areaEn,
-        scope_pl: scopePl.split("\n").map((l) => l.trim()).filter(Boolean),
-        scope_en: scopeEn.split("\n").map((l) => l.trim()).filter(Boolean),
+        scope_pl: scopePl
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean),
+        scope_en: scopeEn
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean),
       });
     },
     onSuccess: () => {
@@ -5284,12 +6365,13 @@ function RoleScopeEditor() {
   }, [roles]);
 
   return (
-    <Card>
+    <Card className="@container">
       <CardHeader>
         <CardTitle className="text-base">Zakresy ról (edytowalne)</CardTitle>
         <CardDescription>
-          Zmiany zapisują się od razu i obowiązują dla nowych umów (bez deployu).
-          Pamiętaj: język rezultatu/usługi — bez znamion umowy o pracę.
+          Zmiany zapisują się od razu i obowiązują dla nowych umów (bez
+          deployu). Pamiętaj: język rezultatu/usługi — bez znamion umowy o
+          pracę.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -5321,18 +6403,30 @@ function RoleScopeEditor() {
 
         {selected ? (
           <>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 @xl:grid-cols-2">
               <Field label="Nazwa (PL)">
-                <Input value={namePl} onChange={(e) => setNamePl(e.target.value)} />
+                <Input
+                  value={namePl}
+                  onChange={(e) => setNamePl(e.target.value)}
+                />
               </Field>
               <Field label="Nazwa (EN)">
-                <Input value={nameEn} onChange={(e) => setNameEn(e.target.value)} />
+                <Input
+                  value={nameEn}
+                  onChange={(e) => setNameEn(e.target.value)}
+                />
               </Field>
               <Field label="Obszar usług §1 (PL)">
-                <Input value={areaPl} onChange={(e) => setAreaPl(e.target.value)} />
+                <Input
+                  value={areaPl}
+                  onChange={(e) => setAreaPl(e.target.value)}
+                />
               </Field>
               <Field label="Obszar usług §1 (EN)">
-                <Input value={areaEn} onChange={(e) => setAreaEn(e.target.value)} />
+                <Input
+                  value={areaEn}
+                  onChange={(e) => setAreaEn(e.target.value)}
+                />
               </Field>
               <Field label="Zakres usług (PL) — 1 punkt/linia" full>
                 <Textarea
@@ -5357,7 +6451,10 @@ function RoleScopeEditor() {
               description="Unikaj sformułowań o podporządkowaniu, godzinach pracy, urlopie czy poleceniach przełożonego — to znamiona umowy o pracę (art. 22 §1 KP)."
             />
             <div className="flex justify-end">
-              <Button disabled={saveMut.isPending} onClick={() => saveMut.mutate()}>
+              <Button
+                disabled={saveMut.isPending}
+                onClick={() => saveMut.mutate()}
+              >
                 {saveMut.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (

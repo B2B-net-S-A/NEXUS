@@ -126,6 +126,51 @@ describe("modale wspólnego budżetu MD", () => {
     expect(screen.queryByText("Przeliczenie MD")).not.toBeInTheDocument();
   });
 
+  it("zamiana kontraktora wysyła walutę stawek, a MD w EUR liczy serwer", async () => {
+    vi.mocked(dlPortalApi.listActiveContractsForExtension).mockResolvedValue({
+      data: [{ contract_id: 200, candidate_name: "Anna Nowa" }],
+    } as never);
+    const onSubmit = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    provider(
+      <SwapConsultantModal
+        open
+        onOpenChange={vi.fn()}
+        clientId={38339}
+        group={{ ...SHARED_MD_GROUP, md_budget_mode: "per_person", is_md_budget_based: false }}
+        line={{ ...LINE, md_total: 50, md_remaining: 20, pool_unit: "amount" } as OrderLineRead}
+        submitting={false}
+        error={null}
+        onSubmit={onSubmit}
+      />,
+    );
+    await screen.findByRole("option", { name: "Anna Nowa" });
+    await user.selectOptions(screen.getByLabelText("Nowy konsultant *"), "200");
+    await user.type(screen.getByLabelText(/Stawka kosztowa/), "250");
+    await user.type(screen.getByLabelText(/Stawka przychodowa/), "300");
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Waluta stawki kosztowej" }),
+      "EUR",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Waluta stawki przychodowej" }),
+      "EUR",
+    );
+    expect(screen.getByText("po kursie przy zapisie")).toBeInTheDocument();
+    await user.click(screen.getByLabelText(/po stawce osoby przychodzącej/i));
+    await user.click(screen.getByRole("button", { name: "Zamień kontraktora" }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contract_id: 200,
+        rate_cost: 250,
+        rate_revenue: 300,
+        rate_candidate_currency: "EUR",
+        rate_client_currency: "EUR",
+        md_transfer_method: "incoming_rate",
+      }),
+    );
+  });
+
   it("przedłużenie wymaga nowej puli grupy i nie wysyła MD przy linii", async () => {
     const onSubmit = vi.fn();
     const user = userEvent.setup({ pointerEventsCheck: 0 });

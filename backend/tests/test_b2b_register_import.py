@@ -383,7 +383,9 @@ async def test_generator_refuses_a_number_already_in_the_excel_register(
         },
     )
     assert resp.status_code == 409, resp.text
-    assert "Excela" in resp.json()["detail"]
+    detail = resp.json()["detail"]
+    assert detail["code"] == "contract_number_taken"
+    assert "Excela" in detail["message"]
 
 
 async def test_next_seq_counts_excel_numbers(app_client, app_auth_headers):
@@ -518,3 +520,376 @@ async def test_non_xlsx_upload_is_refused(app_client, app_auth_headers):
         files={"file": ("rejestr.csv", b"a;b", "text/csv")},
     )
     assert resp.status_code == 422
+
+
+# ── Runda 6 audytu (XLS-1): zmiany z dokumentów i usunięte rekordy ──────────
+
+
+async def _signed_start_date_annex(row_id: int, new_start: date) -> None:
+    """Podpisany aneks daty startu — tak, jak zostawia go ``effects.apply``."""
+    from datetime import datetime, timezone
+
+    from app.models.b2b_contract_document import B2BContractDocument
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            B2BContractDocument(
+                document_type="annex_start_date",
+                parent_generated_contract_id=row_id,
+                document_date=new_start,
+                render_payload={"values": {"new_start_date": new_start.isoformat()}},
+                template_key="annex_start_date_pl",
+                status="signed",
+                signature_status="signed_both",
+                effect_applied_at=datetime.now(timezone.utc),
+            )
+        )
+        row = await db.get(B2BGeneratedContract, row_id)
+        row.start_date = new_start
+        await db.commit()
+
+
+def _anna_with_position(base: int, tag: str, position: str) -> bytes:
+    return build_register(
+        [
+            contract_row(
+                f"{tag}a Anna",
+                base,
+                signing=date(2025, 3, 1),
+                start=date(2025, 3, 10),
+                position=position,
+            )
+        ]
+    )
+
+
+async def test_reimport_keeps_a_start_date_changed_by_a_signed_annex(
+    app_client, app_auth_headers
+):
+    base, tag = _base(), _tag()
+    payload = _file(base, tag)
+    await _preview_and_apply(app_client, app_auth_headers, payload)
+    anna = (await _rows([str(base)]))[str(base)]
+    await _signed_start_date_annex(anna.id, date(2025, 4, 1))
+
+    await _preview_and_apply(app_client, app_auth_headers, payload)
+    anna = (await _rows([str(base)]))[str(base)]
+    assert anna.start_date == date(2025, 4, 1)
+
+
+async def test_rollback_keeps_a_start_date_changed_by_a_signed_annex(
+    app_client, app_auth_headers
+):
+    base, tag = _base(), _tag()
+    await _preview_and_apply(app_client, app_auth_headers, _file(base, tag))
+    body = await _preview_and_apply(
+        app_client, app_auth_headers, _anna_with_position(base, tag, "PM")
+    )
+    anna = (await _rows([str(base)]))[str(base)]
+    await _signed_start_date_annex(anna.id, date(2025, 5, 1))
+
+    resp = await app_client.post(
+        f"{IMPORT}/runs/{body['run_id']}/rollback", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    anna = (await _rows([str(base)]))[str(base)]
+    assert anna.position == "tester manualny"
+    assert anna.start_date == date(2025, 5, 1)
+
+
+async def test_rollback_does_not_restore_a_deleted_candidate(
+    app_client, app_auth_headers
+):
+    """Kandydat z migawki „przed” scalony po imporcie — przywrócenie jego id
+    kończyło się 500 na kluczu obcym."""
+    from sqlalchemy import delete
+
+    base, tag = _base(), _tag()
+    await _preview_and_apply(app_client, app_auth_headers, _file(base, tag))
+    anna = (await _rows([str(base)]))[str(base)]
+    async with AsyncSessionLocal() as db:
+        merged = Candidate(
+            name="Scalony", lastname=_tag(), email=f"{_tag().lower()}@example.com"
+        )
+        survivor = Candidate(
+            name="Ocalały", lastname=_tag(), email=f"{_tag().lower()}@example.com"
+        )
+        db.add_all([merged, survivor])
+        await db.flush()
+        row = await db.get(B2BGeneratedContract, anna.id)
+        row.candidate_id = merged.id
+        await db.commit()
+        merged_id, survivor_id = merged.id, survivor.id
+
+    body = await _preview_and_apply(
+        app_client, app_auth_headers, _anna_with_position(base, tag, "PM")
+    )
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, anna.id)
+        assert row.candidate_id == merged_id
+        row.candidate_id = survivor_id
+        await db.flush()
+        await db.execute(delete(Candidate).where(Candidate.id == merged_id))
+        await db.commit()
+
+    resp = await app_client.post(
+        f"{IMPORT}/runs/{body['run_id']}/rollback", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    anna = (await _rows([str(base)]))[str(base)]
+    assert anna.position == "tester manualny"
+    assert anna.candidate_id == survivor_id
+
+
+# ── Runda 7 audytu (N3) ──────────────────────────────────────────────────────
+
+
+async def _generator_row(base: int, partner: str) -> int:
+    async with AsyncSessionLocal() as db:
+        generator = B2BGeneratedContract(
+            year=2026,
+            seq=base,
+            contract_number=f"{base}/2026",
+            partner_name=partner,
+            client_name="Klient Testowy",
+            language="pl",
+            signature_status="signed_both",
+            contract_status="active",
+        )
+        db.add(generator)
+        await db.commit()
+        await db.refresh(generator)
+        return generator.id
+
+
+async def test_no_business_sheet_flags_a_contract_issued_in_nexus(
+    app_client, app_auth_headers
+):
+    """Decyzja Artura 26.09.2026: flaga „Aneks uzupełnienia danych do
+    zrobienia” trafia też na umowę z NEXUSA — reszta wiersza bez zmian."""
+    base, tag = _base(), _tag()
+    generator_id = await _generator_row(base, f"Ala {tag}")
+    payload = build_register(
+        [contract_row(f"{tag} Ala", base, signing=date(2026, 5, 1))],
+        no_business=[no_business_row(f"Ala {tag}", date(2026, 5, 4))],
+    )
+    body = await _preview_and_apply(app_client, app_auth_headers, payload)
+    assert body["counters"]["generator_annex_flagged"] == 1
+    async with AsyncSessionLocal() as db:
+        fresh = await db.get(B2BGeneratedContract, generator_id)
+    assert fresh.needs_business_data_annex is True
+    assert fresh.source == "generator" and fresh.partner_name == f"Ala {tag}"
+    queue = await app_client.get(
+        f"{BASE}/generated",
+        headers=app_auth_headers,
+        params={"business_data_annex_pending": "true", "q": f"{base}/2026"},
+    )
+    assert queue.status_code == 200, queue.text
+    assert [item["id"] for item in queue.json()] == [generator_id]
+
+    resp = await app_client.post(
+        f"{IMPORT}/runs/{body['run_id']}/rollback", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    async with AsyncSessionLocal() as db:
+        fresh = await db.get(B2BGeneratedContract, generator_id)
+    assert fresh.needs_business_data_annex is False
+
+
+async def test_number_with_year_suffix_matches_the_contract_issued_in_nexus(
+    app_client, app_auth_headers
+):
+    base, tag = _base(), _tag()
+    await _generator_row(base, f"Beata {tag}")
+    payload = build_register(
+        [contract_row(f"{tag} Beata", f"{base}/2026", signing=date(2026, 5, 1))]
+    )
+    body = await _preview_and_apply(app_client, app_auth_headers, payload)
+    assert body["counters"]["created"] == 0
+    assert body["counters"]["generator_matches"] == 1
+    async with AsyncSessionLocal() as db:
+        count = await db.scalar(
+            select(func.count(B2BGeneratedContract.id)).where(
+                B2BGeneratedContract.seq == base
+            )
+        )
+    assert count == 1
+
+
+async def test_sorted_sheet_does_not_swap_two_contracts_without_number(
+    app_client, app_auth_headers
+):
+    tag = _tag()
+    older = contract_row(
+        f"{tag} Celina", "zlecenie", kind="zlecenie", signing=date(2023, 1, 5)
+    )
+    newer = contract_row(
+        f"{tag} Celina", "zlecenie", kind="zlecenie", signing=date(2025, 3, 1)
+    )
+    await _preview_and_apply(
+        app_client, app_auth_headers, build_register([older, newer])
+    )
+
+    async def by_signing() -> dict[date, int]:
+        async with AsyncSessionLocal() as db:
+            rows = (
+                await db.execute(
+                    select(B2BGeneratedContract).where(
+                        B2BGeneratedContract.partner_name.ilike(f"%{tag}%")
+                    )
+                )
+            ).scalars()
+            return {row.signing_date: row.id for row in rows}
+
+    before = await by_signing()
+    body = await _preview_and_apply(
+        app_client, app_auth_headers, build_register([newer, older])
+    )
+    assert body["counters"]["created"] == 0
+    assert body["counters"]["updated"] == 0
+    assert await by_signing() == before
+
+
+async def test_undated_done_annex_leaves_the_queue_and_removal_clears_the_flag(
+    app_client, app_auth_headers
+):
+    base, tag = _base(), _tag()
+    rows = [
+        contract_row(f"{tag}a Dorota", base, signing=date(2025, 2, 1)),
+        contract_row(f"{tag}b Edyta", base + 1, signing=date(2025, 2, 2)),
+    ]
+    first = build_register(
+        rows,
+        no_business=[
+            no_business_row(f"Dorota {tag}a", date(2025, 2, 3), annex=None, green=True),
+            no_business_row(f"Edyta {tag}b", date(2025, 2, 4)),
+        ],
+    )
+    await _preview_and_apply(app_client, app_auth_headers, first)
+    stored = await _rows([str(base), str(base + 1)])
+    assert stored[str(base)].needs_business_data_annex is False
+    assert "business_annex_done_undated" in stored[str(base)].legacy_data["flags"]
+    assert stored[str(base + 1)].needs_business_data_annex is True
+
+    second = build_register(
+        rows, no_business=[no_business_row(f"Ktoś {tag}c", date(2025, 3, 1))]
+    )
+    body = await _preview_and_apply(app_client, app_auth_headers, second)
+    assert body["counters"]["annex_cleared"] == 1
+    stored = await _rows([str(base + 1)])
+    assert stored[str(base + 1)].needs_business_data_annex is False
+
+
+async def test_unparsed_signing_date_is_counted_in_the_report(
+    app_client, app_auth_headers
+):
+    base, tag = _base(), _tag()
+    payload = build_register(
+        [contract_row(f"{tag} Fela", base, signing="pierwszy luty dwa tysiące")]
+    )
+    resp = await _upload(app_client, app_auth_headers, payload, dry_run=True)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["counters"]["signing_dates_unparsed"] == 1
+    assert body["unparsed_dates"] == [{"row": 2, "number": str(base)}]
+
+
+def test_import_and_rollback_lock_register_rows():
+    """PATCH statusu w trakcie przebiegu nie może zostać nadpisany (N3-10)."""
+    import inspect
+
+    from app.services.b2b_register_import import service
+
+    assert "with_for_update()" in inspect.getsource(service._apply)
+    assert "with_for_update()" in inspect.getsource(service.rollback_run)
+
+
+# ── Runda 8 audytu (V1) ──────────────────────────────────────────────────────
+
+
+async def _annex_flag(generator_id: int) -> bool:
+    async with AsyncSessionLocal() as db:
+        fresh = await db.get(B2BGeneratedContract, generator_id)
+    return fresh.needs_business_data_annex
+
+
+async def test_done_or_removed_annex_clears_the_flag_on_a_nexus_contract(
+    app_client, app_auth_headers
+):
+    """R8-V1-2: flaga postawiona przez import na umowie z NEXUSA schodzi, gdy
+    dział oznaczy aneks jako zrobiony albo osoby nie ma już w arkuszu."""
+    base, tag = _base(), _tag()
+    done_id = await _generator_row(base, f"Gosia {tag}a")
+    gone_id = await _generator_row(base + 1, f"Hania {tag}b")
+    rows = [
+        contract_row(f"{tag}a Gosia", base, signing=date(2026, 5, 1)),
+        contract_row(f"{tag}b Hania", base + 1, signing=date(2026, 5, 2)),
+    ]
+    first = build_register(
+        rows,
+        no_business=[
+            no_business_row(f"Gosia {tag}a", date(2026, 5, 4)),
+            no_business_row(f"Hania {tag}b", date(2026, 5, 5)),
+        ],
+    )
+    body = await _preview_and_apply(app_client, app_auth_headers, first)
+    assert body["counters"]["generator_annex_flagged"] == 2
+    assert await _annex_flag(done_id) and await _annex_flag(gone_id)
+
+    second = build_register(
+        rows,
+        no_business=[
+            no_business_row(f"Gosia {tag}a", date(2026, 5, 4), annex=None, green=True)
+        ],
+    )
+    body = await _preview_and_apply(app_client, app_auth_headers, second)
+    assert body["counters"]["annex_cleared"] == 2
+    assert not await _annex_flag(done_id)
+    assert not await _annex_flag(gone_id)
+    queue = await app_client.get(
+        f"{BASE}/generated",
+        headers=app_auth_headers,
+        params={"business_data_annex_pending": "true", "q": tag},
+    )
+    assert queue.status_code == 200, queue.text
+    assert queue.json() == []
+
+    # Cofnięcie przebiegu, który zdjął flagi, przywraca je.
+    resp = await app_client.post(
+        f"{IMPORT}/runs/{body['run_id']}/rollback", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert await _annex_flag(done_id) and await _annex_flag(gone_id)
+
+
+async def test_legacy_excel_duplicate_of_a_nexus_number_is_marked_missing(
+    app_client, app_auth_headers
+):
+    """R8-V1-7: wiersz z Excela zapisany kluczem legacy („1517/2026”) obok
+    umowy z NEXUSA o tym numerze nie jest „obecny w pliku” na zawsze."""
+    base, tag = _base(), _tag()
+    await _generator_row(base, f"Iga {tag}")
+    async with AsyncSessionLocal() as db:
+        duplicate = B2BGeneratedContract(
+            source="excel",
+            source_key=f"n:{base}/2026",
+            contract_number=f"{base}/2026",
+            raw_contract_number=f"{base}/2026",
+            partner_name=f"Iga {tag}",
+            client_name="Klient Testowy",
+            language="pl",
+            signature_status="signed_both",
+            contract_status="active",
+        )
+        db.add(duplicate)
+        await db.commit()
+        await db.refresh(duplicate)
+        duplicate_id = duplicate.id
+    payload = build_register(
+        [contract_row(f"{tag} Iga", f"{base}/2026", signing=date(2026, 5, 1))]
+    )
+    body = await _preview_and_apply(app_client, app_auth_headers, payload)
+    assert body["counters"]["generator_matches"] == 1
+    async with AsyncSessionLocal() as db:
+        fresh = await db.get(B2BGeneratedContract, duplicate_id)
+    assert fresh.excel_missing_since is not None

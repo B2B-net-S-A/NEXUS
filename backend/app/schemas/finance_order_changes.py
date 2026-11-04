@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.finance import MoneyPLN
 
@@ -75,6 +75,30 @@ class OrderRef(BaseModel):
     from_order_mail: bool = False
 
 
+class InvoiceLine(BaseModel):
+    """Pozycja faktury cyklicznej Nordei zapisana przy zamówieniu (ticket 8).
+
+    ``index`` to pozycja linii w zapisie zamówienia — pod nim idzie ręczna
+    poprawka. ``[brak]`` w ``text`` = pole nieodczytane z PDF-a.
+    """
+
+    index: int
+    consultant: Optional[str] = None
+    text: str
+    edited_by_name: Optional[str] = None
+    edited_at: Optional[datetime] = None
+
+
+class InvoiceLineUpdate(BaseModel):
+    index: int = Field(ge=0)
+    text: str = Field(min_length=1, max_length=500)
+
+
+class InvoiceLinesResponse(BaseModel):
+    order_id: int
+    lines: list[InvoiceLine]
+
+
 class OrderEntryItem(OrderRef):
     """Wejście = osoba, która zaczyna z nami współpracę po raz pierwszy.
 
@@ -96,6 +120,8 @@ class OrderEntryItem(OrderRef):
     currency: Optional[str] = None
     order_type: OrderTypeCode
     status: str
+    # Tylko Nordea: gotowa pozycja faktury (``None`` = inny klient).
+    invoice_lines: Optional[list[InvoiceLine]] = None
 
 
 # Bez „continuation": osoba, która pracuje dalej (następca albo linia MD
@@ -147,10 +173,16 @@ class OrderChangeItem(OrderRef):
     old_unit: Optional[str] = None
     new_unit: Optional[str] = None
     currency: Optional[str] = None
+    # Waluta STAREJ strony zmiany stawki (``order_change_events.old_currency``).
+    # Zmiana waluty bez zmiany kwoty jest zmianą — bez tego pola obie strony
+    # renderowały się w nowej walucie („100 EUR → 100 EUR”). ``None`` = ta
+    # sama co ``currency`` (wpisy sprzed zapisu waluty starej strony).
+    old_currency: Optional[str] = None
     old_date: Optional[date] = None
     new_date: Optional[date] = None
     is_whole_order: bool = False
-    source: Optional[Literal["user", "system"]] = None
+    # 0443: ``integration`` = zapis kluczem API v1 (autor „Integracja: <nazwa>”).
+    source: Optional[Literal["user", "system", "integration"]] = None
     author_name: Optional[str] = None
     # Nowe zamówienie w trwającej współpracy (dodatkowy projekt, kontynuacja,
     # zmiana klienta): stawki nowego zamówienia, dane poprzedniego zamówienia
@@ -181,6 +213,8 @@ class OrderGapItem(OrderRef):
     resolved_order_number: Optional[str] = None
     resolved_at: Optional[datetime] = None
     delay_days: Optional[int] = None
+    # Licznik przywróceń braku na „open” — część klucza odhaczenia (R10-N4-3).
+    episode: int = 0
 
 
 OrderChangesTabCode = Literal["changes", "entries", "exits", "ending", "gaps"]

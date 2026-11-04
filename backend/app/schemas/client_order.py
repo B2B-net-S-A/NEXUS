@@ -155,6 +155,39 @@ class ClientOrderDefaultRateUnit(BaseModel):
     rate_unit: RateUnit
 
 
+class RecruitmentRateRead(BaseModel):
+    """Stawki z rekrutacji dla zamówienia i umowy (D7, 08.10.2026).
+
+    ``client_rate_*`` = stawka do klienta, za którą Delivery Lead wysłał osobę
+    (punkt odniesienia dla przychodu w zamówieniu), ``candidate_rate_*`` =
+    stawka kandydata od rekrutera (punkt odniesienia dla kosztu). Stawka do
+    klienta jest pusta i ``client_rate_redacted`` = true dla ról, które jej nie
+    widzą (``user_can_view_client_rate``). Różnica niczego nie blokuje — to
+    podpowiedź „sprawdź”.
+    """
+
+    candidate_id: int
+    job_id: int
+    job_title: Optional[str] = None
+    client_rate_value: Optional[Decimal] = None
+    client_rate_unit: Optional[str] = None
+    client_rate_currency: Optional[str] = None
+    client_rate_at: Optional[datetime] = None
+    client_rate_by_name: Optional[str] = None
+    client_rate_redacted: bool = False
+    candidate_rate_value: Optional[Decimal] = None
+    candidate_rate_unit: Optional[str] = None
+    candidate_rate_currency: Optional[str] = None
+    candidate_rate_at: Optional[datetime] = None
+
+
+class RecruitmentRateLookupResponse(BaseModel):
+    """`GET /api/clients/{client_id}/recruitment-rates` — `rate` = null, gdy brak."""
+
+    rate: Optional[RecruitmentRateRead] = None
+    amounts_redacted: bool = False
+
+
 class ContractWithOrdersRead(BaseModel):
     """Wynik `GET /api/clients/{client_id}/orders` — grupowane po Contract.
 
@@ -202,6 +235,10 @@ class ContractWithOrdersRead(BaseModel):
     górnej granicy horyzontu. Czyta go filtr „kończy się w ciągu N dni” — ta
     sama reguła serwera co pigułka, także u ról, którym kwoty są redagowane
     (audyt 24.09.2026, M6)."""
+
+    recruitment_rates: Optional[RecruitmentRateRead] = None
+    """Stawki z rekrutacji tej osoby (D7) — podpowiedź „Z rekrutacji…” w oknie
+    zamówienia. Redagowane jak pozostałe kwoty karty."""
 
     orders: list[ClientOrderRead] = []
 

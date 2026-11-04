@@ -1,8 +1,17 @@
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    event,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,6 +34,21 @@ class EventStatus(str, enum.Enum):
     scheduled = "scheduled"
     completed = "completed"
     cancelled = "cancelled"
+
+
+# Umówiony telefon na screening (decyzja Artura 03.11.2026): zwykłe wydarzenie
+# `screening` z tym miejscem. Bez nowej wartości enuma i bez migracji; reguły
+# siedzą w `services/screening_calls.py`.
+BOOKED_CALL_LOCATION = "Telefon"
+
+
+def is_booked_call(event: "CalendarEvent") -> bool:
+    """Czy wydarzenie to telefon umówiony z panelu osoby."""
+    return (
+        getattr(event, "event_type", None) == EventType.screening
+        and getattr(event, "location", None) == BOOKED_CALL_LOCATION
+        and getattr(event, "operational_owner_id", None) is not None
+    )
 
 
 class CalendarEvent(Base, TimestampMixin):
@@ -90,6 +114,8 @@ class CalendarEvent(Base, TimestampMixin):
         String(255), index=True
     )
     m365_change_key: Mapped[Optional[str]] = mapped_column(String(100))
+    # 0624 — ``iCalUId``: to samo spotkanie we wszystkich skrzynkach (Sprzedaż).
+    m365_ical_uid: Mapped[Optional[str]] = mapped_column(String(255))
 
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
     # Operational responsibility can differ from the immutable meeting creator.
@@ -140,3 +166,26 @@ class CalendarEvent(Base, TimestampMixin):
         return (
             f"<CalendarEvent id={self.id} title={self.title!r} type={self.event_type}>"
         )
+
+
+def _aware(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+@event.listens_for(CalendarEvent.start_time, "set")
+def _rearm_reminder_on_reschedule(target, value, oldvalue, _initiator):
+    """Przełożenie na przyszły termin = przypomnienie T-15 min wysyła się znowu.
+
+    Runda 8 (R8-N9-7): stempel ``reminder_sent_at`` stawia wyłącznie pętla
+    przypomnień i nic go nie zerowało — rozmowa przełożona z 10:00 na 14:00
+    (edycja w NEXUSIE, synchronizacja Outlooka, odświeżenie prepu z Teams)
+    nie dostawała przypomnienia o nowym terminie. Listener na atrybucie
+    obejmuje każdą ścieżkę zapisu. Nieznana stara wartość (atrybut
+    niezaładowany) i ten sam termin niczego nie zmieniają.
+    """
+    if not isinstance(value, datetime) or not isinstance(oldvalue, datetime):
+        return
+    if _aware(value) == _aware(oldvalue):
+        return
+    if _aware(value) > datetime.now(timezone.utc):
+        target.reminder_sent_at = None

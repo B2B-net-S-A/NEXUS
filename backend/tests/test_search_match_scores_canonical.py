@@ -135,6 +135,97 @@ async def test_visible_rows_get_the_same_number_as_the_c2_screens(wiring):
     assert [c.id for c in wiring.measure.await_args.args[1]] == [1, 2]
 
 
+@pytest.mark.asyncio
+async def test_manual_search_first_page_is_recorded_as_impressions(
+    wiring, monkeypatch
+):
+    """U5 (audyt 06.10.2026): okno „Szukaj ręcznie” nie zapisywało
+    wyświetleń, więc dodania ze źródłem `manual_search` nie miały mianownika.
+    Pierwsza strona zapisuje się jako wyświetlenia z lekkim identyfikatorem
+    przebiegu (rekrutacja, dzień, osoba) — bez trwałego przeglądu."""
+    recorded: list[dict] = []
+
+    async def fake_record(db, **kwargs):
+        recorded.append(kwargs)
+        return len(kwargs["entries"])
+
+    monkeypatch.setattr(
+        "app.services.match_telemetry_service.record_impressions", fake_record
+    )
+    job = make_job(id=7, client_id=8, must_skills=["Python"], description="Django")
+    wiring.access.return_value = job
+    candidates = [make_candidate(id=i, skills=["Python"]) for i in (1, 2)]
+    user = SimpleNamespace(id=42)
+
+    await candidate_match_scores(
+        None,
+        MatchScoresRequest(job_id=7, candidate_ids=[2, 1]),
+        current_user=user,
+        db=_db(candidates),
+    )
+    assert recorded == []
+
+    await candidate_match_scores(
+        None,
+        MatchScoresRequest(
+            job_id=7, candidate_ids=[2, 1], impression_surface="manual_search"
+        ),
+        current_user=user,
+        db=_db(candidates),
+    )
+    assert len(recorded) == 1
+    call = recorded[0]
+    assert call["surface"] == "manual_search"
+    assert call["job_id"] == 7 and call["user_id"] == 42
+    assert call["run_id"].startswith("manual_search:7:")
+    assert len(call["run_id"]) <= 64
+    assert [(e.candidate_id, e.rank) for e in call["entries"]] == [(2, 1), (1, 2)]
+
+    # Pozycje na stronie z przeglądarki (zapytanie o wiersze widoczne niżej).
+    await candidate_match_scores(
+        None,
+        MatchScoresRequest(
+            job_id=7,
+            candidate_ids=[2, 1],
+            impression_surface="manual_search",
+            impression_ranks=[14, 15],
+        ),
+        current_user=user,
+        db=_db(candidates),
+    )
+    assert [(e.candidate_id, e.rank) for e in recorded[1]["entries"]] == [
+        (2, 14),
+        (1, 15),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_must_items_that_are_not_technologies_are_named(wiring):
+    # Produkcja 02.10.2026: must-have wpisane zdaniem dawało w podglądzie osoby
+    # plakietkę „… — nie znaleziono”. Zdania nie da się znaleźć w CV, więc
+    # odpowiedź mówi, których pozycji ekran ma nie pokazywać.
+    prose = "Umiejętność dekompozycji wymagań na zadania"
+    job = make_job(id=7, client_id=8, must_skills=["Python", "Kafka", prose])
+    wiring.access.return_value = job
+    db = _db([make_candidate(id=1, skills=["Python"])])
+
+    response = await candidate_match_scores(
+        None,
+        MatchScoresRequest(job_id=7, candidate_ids=[1]),
+        current_user=SimpleNamespace(id=42),
+        db=db,
+    )
+
+    detail = response.breakdowns["1"]
+    shown = detail["matching_must"] + detail["gap_must"]
+    hidden = response.non_technology_must
+    assert [label.lower() for label in hidden] == [prose.lower()]
+    assert set(hidden) <= set(shown)
+    # Technologie zostają — także ta, której kandydat nie ma.
+    assert len(shown) == 3
+    assert not any("python" in label.lower() for label in hidden)
+
+
 def test_profile_key_moves_with_the_weights_not_only_the_profile_id():
     """An admin editing a profile's weights keeps its id; scores computed
     before the edit must not be served as current."""

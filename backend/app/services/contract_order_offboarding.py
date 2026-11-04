@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Optional
+from typing import Iterable, Optional
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -286,6 +286,7 @@ async def apply_contract_order_offboarding(
     actor_id: Optional[int] = None,
     today: Optional[date] = None,
     contract_before: Optional[ContractStateBefore] = None,
+    order_ids: Optional[Iterable[int]] = None,
 ) -> ContractOrderOffboardingResult:
     """Apply all type-specific order effects for one ended Contract.
 
@@ -295,14 +296,22 @@ async def apply_contract_order_offboarding(
     ``contract_before`` to stan kontraktu odczytany przez wołającego PRZED
     zakończeniem — trafia do migawki (0368), z której „Cofnij zakończenie"
     przywraca kontrakt i każde ruszone tu zamówienie.
+
+    ``order_ids`` zawęża zakończenie do wskazanych zamówień kontraktu.
+    Runda 9 (R9-V1-3): „Przywróć anulowane” zamówienie MD kończyło przez tę
+    funkcję WSZYSTKIE otwarte zamówienia kontraktu — także cudze przyszłe
+    zamówienie (anulowane jako „niezaczęte”) i szkic przedłużenia.
     """
 
     materialization_day = today or business_today()
+    scope = None if order_ids is None else frozenset(order_ids)
     existing_cases = (
         await _pending_cases(db, contract_id=contract_id, effective_date=effective_date)
         if effective_date <= materialization_day
         else []
     )
+    if scope is not None:
+        existing_cases = [case for case in existing_cases if case.order_id in scope]
     case_context: dict[
         int,
         tuple[
@@ -318,6 +327,8 @@ async def apply_contract_order_offboarding(
     existing_by_order = {case.order_id: case for case in existing_cases}
 
     orders = await _open_orders(db, contract_id)
+    if scope is not None:
+        orders = [order for order in orders if order.id in scope]
     before_state = {
         order.id: (
             str(order.status.value),

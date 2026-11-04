@@ -30,9 +30,15 @@ logger = logging.getLogger(__name__)
 # includes ~30 fields per row) and rely on `@odata.type` to filter out
 # `#microsoft.graph.directoryRole` entries — only groups can grant NEXUS
 # roles, not Azure AD admin roles.
+# Runda 7 (R7-N5-7): `transitiveMemberOf` — `memberOf` nie zwraca grup
+# zagnieżdżonych, choć ta funkcja obiecywała członkostwo przechodnie.
 _GRAPH_MEMBEROF_URL = (
-    "https://graph.microsoft.com/v1.0/me/memberOf?$select=id,displayName"
+    "https://graph.microsoft.com/v1.0/me/transitiveMemberOf?$select=id,displayName"
 )
+_GRAPH_ORIGIN = "https://graph.microsoft.com/"
+# Graph oddaje po 100 pozycji na stronę. Sufit stron chroni logowanie przed
+# pętlą; lista niepełna = błąd (logowanie odmawia), nigdy odebranie ról.
+_MAX_PAGES = 50
 # Hard ceiling on a single Graph call. Same rationale as graph_client._HARD_TIMEOUT_SECONDS:
 # a hung Graph endpoint must not block the SSO redirect indefinitely. Login
 # UX tolerates ~15s before the browser feels broken, so 10s leaves headroom
@@ -46,9 +52,8 @@ async def fetch_user_groups(access_token: str) -> list[dict]:
     Returns a list of ``{"id": "<guid>", "displayName": "..."}`` dicts.
     Only entries whose ``@odata.type`` is ``#microsoft.graph.group`` are kept
     — directory roles (Global Admin, etc.) live in the same collection but
-    don't grant NEXUS roles. We don't follow ``@odata.nextLink`` because for
-    a realistic NEXUS user (≤ a few dozen group memberships) the first page
-    is always complete; if that assumption breaks we'll add pagination here.
+    don't grant NEXUS roles. Pages are followed via ``@odata.nextLink``
+    (runda 7 — Teams/M365 memberships easily exceed one 100-row page).
 
     Raises:
         httpx.HTTPError: network / timeout / unexpected non-200 response.
@@ -59,11 +64,23 @@ async def fetch_user_groups(access_token: str) -> list[dict]:
             requesting it during OAuth authorize.
     """
     headers = {"Authorization": f"Bearer {access_token}"}
+    raw_rows: list[dict] = []
+    url: Optional[str] = _GRAPH_MEMBEROF_URL
     async with httpx.AsyncClient(timeout=_GRAPH_TIMEOUT_SECONDS) as client:
-        resp = await client.get(_GRAPH_MEMBEROF_URL, headers=headers)
-    resp.raise_for_status()
-    payload = resp.json() or {}
-    raw_rows = payload.get("value") or []
+        for _page in range(_MAX_PAGES):
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            payload = resp.json() or {}
+            raw_rows.extend(payload.get("value") or [])
+            # Runda 7 (R7-N5-7): grupa NEXUS na drugiej stronie wyników
+            # (ponad 100 członkostw) oznaczała dezaktywację albo niższe role.
+            url = payload.get("@odata.nextLink")
+            if not url:
+                break
+            if not str(url).startswith(_GRAPH_ORIGIN):
+                raise ValueError("unexpected Graph nextLink origin")
+        else:
+            raise ValueError("AAD group membership exceeds page limit")
     groups: list[dict] = []
     for row in raw_rows:
         if row.get("@odata.type") != "#microsoft.graph.group":

@@ -323,6 +323,54 @@ async def load_fallback_starts(
     return {cid: representative_start(values, today) for cid, values in starts.items()}
 
 
+def current_contract_clause(as_of: date) -> Any:
+    """SQL-owe lustro ``is_current_contract`` z ``load_fallback_starts``.
+
+    Kontrakt obowiązuje w ``as_of``, gdy ma start nie później niż ten dzień,
+    a kontrakt BEZ daty startu — gdy nie ma nieanulowanych zamówień albo
+    któreś z nich już się zaczęło (pusta data zamówienia = zaczęte). Planowany
+    jest wyłącznie kontrakt bez daty, którego WSZYSTKIE zamówienia startują
+    później (``representative_start``, audyt 24.09.2026, S5). Jedna definicja
+    dla katalogu klientów, analityki kontraktów i populacji konsultantów —
+    do 25.09.2026 dwie ostatnie liczyły taki kontrakt jako obecny.
+    Wyrażenie koreluje się z ``Contract`` z zewnętrznego zapytania.
+    """
+
+    # Import leniwy: modele zamówień importują pośrednio ten moduł.
+    from sqlalchemy import or_, select
+
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.contract import Contract
+
+    def live_orders():
+        return (
+            select(ClientOrder.id)
+            .where(
+                ClientOrder.contract_id == Contract.id,
+                ClientOrder.status != ClientOrderStatus.cancelled,
+            )
+            .correlate(Contract)
+        )
+
+    return or_(
+        Contract.start_date <= as_of,
+        and_(
+            Contract.start_date.is_(None),
+            or_(
+                ~live_orders().exists(),
+                live_orders()
+                .where(
+                    or_(
+                        ClientOrder.start_date.is_(None),
+                        ClientOrder.start_date <= as_of,
+                    )
+                )
+                .exists(),
+            ),
+        ),
+    )
+
+
 async def load_current_contracts(
     db: Any, contracts: Iterable[Any], today: date
 ) -> list[Any]:

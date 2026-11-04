@@ -419,15 +419,10 @@ def test_paused_member_requires_reason_and_cannot_receive_new_work() -> None:
 @pytest.mark.parametrize(
     ("role", "roles", "expected"),
     [
-        (UserRole.sourcer, [], {PriorityChannel.database}),
-        (UserRole.recruiter, [], {PriorityChannel.linkedin}),
+        # Od 0411 jedna rola „Rekruter” pracuje każdym kanałem (dawniej
+        # sourcer = baza, rekruter = LinkedIn, TAC = wszystkie trzy).
         (
             UserRole.recruiter,
-            [UserRole.sourcer.value],
-            {PriorityChannel.database, PriorityChannel.linkedin},
-        ),
-        (
-            UserRole.tac,
             [],
             {
                 PriorityChannel.database,
@@ -435,9 +430,20 @@ def test_paused_member_requires_reason_and_cannot_receive_new_work() -> None:
                 PriorityChannel.mixed,
             },
         ),
+        (
+            UserRole.delivery_lead,
+            [UserRole.delivery_lead.value, UserRole.recruiter.value],
+            {
+                PriorityChannel.database,
+                PriorityChannel.linkedin,
+                PriorityChannel.mixed,
+            },
+        ),
+        (UserRole.delivery_lead, [], set()),
+        (UserRole.head_of_recruitment, [], set()),
     ],
 )
-def test_channels_follow_operational_specialisation(
+def test_every_channel_is_open_to_the_recruiter_role_only(
     role: UserRole,
     roles: list[str],
     expected: set[PriorityChannel],

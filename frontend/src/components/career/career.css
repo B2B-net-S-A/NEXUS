@@ -1,5 +1,5 @@
 /*
- * Motyw terminala strony kariery (kariera.dynaminds.pl).
+ * Motyw terminala strony kariery (kariera.b2bnetwork.pl).
  *
  * Wszystko pod `.kr-root` — plik ładuje layout `/kariera` i harness
  * `/preview/kariera`, a w App Routerze CSS z layoutu zostaje w dokumencie po
@@ -15,17 +15,31 @@
   --kr-text: #f5f5f5;
   --kr-white: #ffffff;
   --kr-gray: #8b8b8b;
-  --kr-comment: #737373;
+  --kr-comment: #787878;
   --kr-para: #a5a5a5;
   --kr-line: #1a1a1a;
   --kr-line-strong: #262626;
   --kr-dim: #5c5c5c;
   --kr-bordo: #9a142d;
   --kr-bar: #7e222d;
-  --kr-red: #c8384f;
+  /* Kolory dzielone z `palette.ts` (OG_COLORS) — test pilnuje zgodności.
+     `--kr-red` 19.10.2026: #c8384f (4,1:1) → #d14a5f (4,9:1) dla drobnego tekstu. */
+  --kr-red: #d14a5f;
+  /* Czerwony tytułów: bordo dawało 2,5:1 na czarnym (etap 5). */
+  --kr-title: #f06a80;
   --kr-link: #d14a5f;
   --kr-link-hover: #f07a8c;
   --kr-err: #e0677a;
+  /* Powierzchnie i przycisk — osobne tokeny od 0478 (szablony graficzne,
+     `themes.ts`), żeby jasny szablon nie dziedziczył czerni ani bieli. */
+  --kr-form-bg: #030303;
+  --kr-input-bg: #050505;
+  --kr-tint: #0e0406;
+  --kr-tint-strong: #120407;
+  --kr-btn: #9a142d;
+  --kr-btn-hover: #ad1834;
+  --kr-btn-text: #ffffff;
+  --kr-scheme: dark;
 
   /* svh: stopka (`margin-top: auto`) nie ląduje pod dolnym paskiem
      przeglądarki na telefonie; 100vh zostaje jako zapas. */
@@ -33,19 +47,17 @@
   min-height: 100svh;
   display: flex;
   flex-direction: column;
+  /* Bez siatki pod całą stroną (audyt etapu 7, 21.10.2026): pod tablicą,
+     stroną rekrutera i RODO była ozdobnikiem. Szablony rekrutacji malują
+     własne tło w `.kr-scope`, a siatka w scenach jest częścią rysunku. */
   background-color: var(--kr-bg);
-  background-image:
-    linear-gradient(90deg, var(--kr-grid) 1px, transparent 1px),
-    linear-gradient(var(--kr-grid) 1px, transparent 1px);
-  background-size: 78px 78px;
   color: var(--kr-text);
-  font-family: var(--font-kr-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Krój terminala zostaje domyślny (komendy, dane, sceny); tekst do
+     czytania przechodzi na Geist przez `--kr-sans` niżej (D4, 21.10.2026). */
+  --kr-mono: var(--font-kr-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --kr-sans: var(--font-kr-display), system-ui, sans-serif;
+  font-family: var(--kr-mono);
   -webkit-font-smoothing: antialiased;
-}
-@media (min-width: 1024px) {
-  .kr-root {
-    background-size: 120px 120px;
-  }
 }
 
 /* Tło dokumentu pod stroną kariery: bez tego przy „przeciągnięciu poza
@@ -54,6 +66,24 @@
 html:has(.kr-root[data-kr-page]),
 html:has(.kr-root[data-kr-page]) body {
   background: #000000;
+}
+
+/* Szablon graficzny rekrutacji (0478): `CareerThemeScope` nadpisuje zmienne
+   `--kr-*` inline i maluje własne tło na całą wysokość — tło `.kr-root` pod
+   spodem zostaje czarne tylko dla Terminala. */
+.kr-scope {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100svh;
+  background-color: var(--kr-bg);
+  color: var(--kr-text);
+}
+/* Jasny szablon: przewinięcie poza stronę na iOS nie pokazuje czerni. */
+html:has(.kr-scope[data-kr-light]),
+html:has(.kr-scope[data-kr-light]) body {
+  background: #f5f3ee;
 }
 
 .kr-root *,
@@ -74,85 +104,12 @@ html:has(.kr-root[data-kr-page]) body {
 
 /* ── kolory tekstu ─────────────────────────────────────────────── */
 .kr-g { color: var(--kr-gray); }
-.kr-c { color: var(--kr-comment); font-style: italic; }
+.kr-c { color: var(--kr-comment); font-style: italic; font-family: var(--kr-mono); }
 .kr-r { color: var(--kr-red); }
 .kr-w { color: var(--kr-text); }
 .kr-dim { color: var(--kr-dim); }
-.kr-sr {
-  position: absolute !important;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-/* ── pasek okna ───────────────────────────────────────────────── */
-.kr-chrome {
-  height: 40px;
-  padding: 0 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  background: var(--kr-bg);
-  border-bottom: 1px solid var(--kr-line);
-  font-size: 11px;
-  color: var(--kr-comment);
-}
-.kr-chrome-left {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
-}
-.kr-chrome-path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.kr-dots {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-}
-.kr-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  border: 1px solid var(--kr-dim);
-}
-.kr-dot-on {
-  border: 0;
-  background: var(--kr-bordo);
-}
-.kr-chrome-right {
-  display: none;
-  letter-spacing: 0.16em;
-  white-space: nowrap;
-}
-.kr-chrome-right .kr-bullet {
-  color: var(--kr-bordo);
-}
-@media (min-width: 1024px) {
-  .kr-chrome {
-    padding: 0 20px;
-    font-size: 12px;
-  }
-  .kr-chrome-left { gap: 20px; }
-  .kr-dots { gap: 7px; }
-  .kr-dot { width: 11px; height: 11px; }
-  .kr-chrome-right { display: inline; }
-}
 
 /* ── górna sekcja: hero + parametry ───────────────────────────── */
-.kr-top {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
 .kr-hero {
   padding: 32px 16px 8px;
   display: flex;
@@ -175,65 +132,16 @@ html:has(.kr-root[data-kr-page]) body {
   hyphens: auto;
 }
 .kr-title-a { color: var(--kr-white); }
-.kr-title-b { color: var(--kr-bordo); }
+.kr-title-b { color: var(--kr-title); }
 .kr-cursor {
   display: inline-block;
   width: 0.42em;
   height: 0.8em;
   margin-left: 6px;
-  background: var(--kr-bordo);
+  background: var(--kr-title);
   vertical-align: -0.04em;
 }
-.kr-params {
-  padding: 16px 16px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  font-size: 13px;
-}
-.kr-params-head {
-  font-size: 12px;
-  letter-spacing: 0.16em;
-  color: var(--kr-red);
-}
-.kr-kv {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.kr-kv-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-.kr-kv-row > * {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.kr-kv-row > :last-child {
-  text-align: right;
-}
-.kr-kv-bar {
-  height: 2px;
-  background: var(--kr-bar);
-}
-.kr-cta-mobile {
-  margin-top: 6px;
-  height: 52px;
-  background: var(--kr-bordo);
-  color: var(--kr-white) !important;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 15px;
-  font-weight: 700;
-  text-decoration: none;
-}
 @media (min-width: 1024px) {
-  .kr-top {
-    grid-template-columns: minmax(0, 1fr) 360px;
-    border-bottom: 1px solid var(--kr-line);
-  }
   .kr-hero {
     padding: 56px 40px 48px;
     gap: 10px;
@@ -243,18 +151,13 @@ html:has(.kr-root[data-kr-page]) body {
     margin: 18px 0 14px;
     font-size: 72px;
     line-height: 0.96;
+    /* Na komputerze tytuł się mieści — „kolej-nego” na stronie rekrutera
+       (audyt etapu 7). Na telefonie dzielenie zostaje dla długich słów. */
+    -webkit-hyphens: manual;
+    hyphens: manual;
+    text-wrap: balance;
   }
   .kr-cursor { margin-left: 10px; }
-  .kr-side { border-left: 1px solid var(--kr-line); }
-  .kr-cta-wrap { display: none; }
-  .kr-params {
-    padding: 72px 32px 40px;
-    gap: 18px;
-    font-size: 14px;
-  }
-  .kr-kv { padding-bottom: 18px; }
-  .kr-kv:last-of-type { padding-bottom: 0; }
-  .kr-cta-mobile { display: none; }
 }
 
 /* ── treść: opis, wymagania, proces + formularz ───────────────── */
@@ -299,35 +202,9 @@ html:has(.kr-root[data-kr-page]) body {
   line-height: 1.5;
 }
 .kr-ok > :first-child { flex-shrink: 0; }
-.kr-steps {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  border: 1px solid var(--kr-line);
-  font-size: 14px;
-}
-.kr-step {
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border-right: 1px solid var(--kr-line);
-  border-bottom: 1px solid var(--kr-line);
-}
-.kr-step:nth-child(2n) { border-right: 0; }
-.kr-step:nth-child(n + 3) { border-bottom: 0; }
-.kr-step .kr-c { font-size: 13px; }
-.kr-manifesto {
-  margin: 0 0 10px;
-  font-family: var(--font-kr-display), system-ui, sans-serif;
-  font-size: 32px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-}
-.kr-desktop-only { display: none; }
 /* Tablet pionowo (640–1023 px): bez ograniczenia akapity mono miały ~90
    znaków w linii, a formularz rozciągał się na całą szerokość. */
 @media (min-width: 640px) and (max-width: 1023px) {
-  .kr-top,
   .kr-main {
     max-width: 720px;
     margin-inline: auto;
@@ -351,8 +228,6 @@ html:has(.kr-root[data-kr-page]) body {
   .kr-cmd { margin-bottom: 14px; font-size: 16px; }
   .kr-para { font-size: 16px; line-height: 1.8; }
   .kr-ok { font-size: 17px; }
-  .kr-manifesto { font-size: 40px; }
-  .kr-desktop-only { display: block; }
 }
 @media (min-width: 1280px) {
   .kr-main {
@@ -360,17 +235,15 @@ html:has(.kr-root[data-kr-page]) body {
     grid-template-columns: minmax(0, 1fr) 500px;
     gap: 72px;
   }
-  .kr-steps { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .kr-step { border-bottom: 0; }
-  .kr-step:nth-child(2n) { border-right: 1px solid var(--kr-line); }
-  .kr-step:last-child { border-right: 0; }
 }
 
 /* ── formularz ─────────────────────────────────────────────────── */
+/* Cel kotwicy „Aplikuj” (`tabIndex={-1}`) — fokus programowy, bez obwódki. */
+.kr-form-box:focus { outline: none; }
 .kr-form-box {
   margin: 0 12px;
   border: 1px solid var(--kr-line-strong);
-  background: #030303;
+  background: var(--kr-form-bg);
   scroll-margin-top: 16px;
 }
 .kr-form-bar {
@@ -395,9 +268,8 @@ html:has(.kr-root[data-kr-page]) body {
 }
 .kr-label {
   display: block;
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--kr-gray);
   margin-bottom: 6px;
 }
@@ -407,11 +279,11 @@ html:has(.kr-root[data-kr-page]) body {
   padding: 0 12px;
   border: 1px solid var(--kr-line-strong);
   border-radius: 0;
-  background: #050505;
+  background: var(--kr-input-bg);
   font: inherit;
   font-size: 16px;
   color: var(--kr-text);
-  color-scheme: dark;
+  color-scheme: var(--kr-scheme);
   appearance: none;
 }
 /* iOS Safari przy `appearance: none` pokazuje puste pole daty bez wzorca. */
@@ -454,7 +326,7 @@ select.kr-input {
   cursor: pointer;
   overflow-wrap: anywhere;
 }
-.kr-file-drag { background: #0e0406; border-style: solid; }
+.kr-file-drag { background: var(--kr-tint); border-style: solid; }
 .kr-file[data-invalid="true"] { border-color: var(--kr-red); }
 .kr-file:focus-within {
   outline: 2px solid var(--kr-red);
@@ -509,8 +381,8 @@ select.kr-input {
 .kr-submit {
   height: 52px;
   border: 0;
-  background: var(--kr-bordo);
-  color: var(--kr-white);
+  background: var(--kr-btn);
+  color: var(--kr-btn-text);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -520,13 +392,13 @@ select.kr-input {
   font-weight: 700;
   cursor: pointer;
 }
-.kr-submit:hover:not(:disabled) { background: #ad1834; }
+.kr-submit:hover:not(:disabled) { background: var(--kr-btn-hover); }
 .kr-submit:disabled { opacity: 0.7; cursor: progress; }
 .kr-kbd {
   /* Tylko od `sm` (640px) — na telefonie nie ma klawisza ENTER przy przycisku. */
   display: none;
   padding: 2px 6px;
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  border: 1px solid color-mix(in srgb, var(--kr-btn-text) 60%, transparent);
   font-size: 11px;
   font-weight: 500;
 }
@@ -536,7 +408,7 @@ select.kr-input {
 .kr-alert {
   padding: 12px;
   border: 1px solid var(--kr-bar);
-  background: #120407;
+  background: var(--kr-tint-strong);
   font-size: 13px;
   line-height: 1.6;
   display: flex;
@@ -579,189 +451,12 @@ select.kr-input {
   .kr-consent input { width: 18px; height: 18px; margin-top: 2px; }
 }
 
-/* ── lista rekrutacji (stały link rekrutera) ──────────────────── */
-.kr-list { border-top: 1px solid var(--kr-line); }
-.kr-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 4px 16px;
-  align-items: center;
-  min-height: 44px;
-  padding: 14px 12px;
-  border-bottom: 1px solid var(--kr-line);
-  font-size: 14px;
-  color: var(--kr-text) !important;
-  text-decoration: none;
+/* ── krój tekstu do czytania (etap 7, D4 = A, 21.10.2026) ──────────
+   Opisy, kroki i formularz w Geist. Mono zostaje przy
+   komendach (`$ …`), komentarzach `// …` i parametrach. */
+.kr-para,
+.kr-form,
+.kr-alert {
+  font-family: var(--kr-sans);
 }
-a.kr-row:hover { background: #0e0406; color: var(--kr-white) !important; }
-.kr-row-head {
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  color: var(--kr-comment) !important;
-  padding-top: 10px;
-  padding-bottom: 10px;
-}
-.kr-row-loc { grid-column: 1; grid-row: 2; }
-.kr-row-open { grid-column: 2; grid-row: 1 / span 2; }
-.kr-row-head .kr-row-loc { display: none; }
-@media (min-width: 1024px) {
-  .kr-row {
-    grid-template-columns: minmax(0, 1fr) 220px 110px;
-    padding: 16px 18px;
-    font-size: 15px;
-  }
-  .kr-row-loc, .kr-row-open { grid-column: auto; grid-row: auto; }
-  .kr-row-head .kr-row-loc { display: block; }
-  .kr-row-head { font-size: 11px; }
-}
-
-/* ── strony-komunikaty: podziękowanie, zamknięta, 404 ─────────── */
-.kr-log {
-  flex-grow: 1;
-  padding: 40px 16px 48px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 14px;
-  line-height: 1.7;
-  overflow-wrap: anywhere;
-}
-.kr-log-title {
-  margin: 20px 0 10px;
-  font-family: var(--font-kr-display), system-ui, sans-serif;
-  font-size: 40px;
-  line-height: 1;
-  font-weight: 800;
-  letter-spacing: -0.045em;
-}
-.kr-log-text { color: var(--kr-para); max-width: 900px; }
-.kr-btn {
-  margin-top: 22px;
-  align-self: flex-start;
-  min-height: 52px;
-  padding: 12px 24px;
-  background: var(--kr-bordo);
-  color: var(--kr-white) !important;
-  display: flex;
-  align-items: center;
-  font-size: 15px;
-  font-weight: 700;
-  text-decoration: none;
-}
-.kr-btn-outline {
-  margin-top: 22px;
-  align-self: flex-start;
-  min-height: 48px;
-  padding: 10px 20px;
-  border: 1px solid var(--kr-bar);
-  display: flex;
-  align-items: center;
-  font-size: 15px;
-  text-decoration: none;
-}
-@media (min-width: 1024px) {
-  .kr-log {
-    padding: 88px 160px;
-    font-size: 17px;
-  }
-  .kr-log-title { margin-top: 28px; font-size: 64px; }
-  .kr-log-title-lg { font-size: 72px; }
-}
-
-/* ── RODO ─────────────────────────────────────────────────────── */
-.kr-doc {
-  flex-grow: 1;
-  padding: 32px 16px 48px;
-  max-width: 980px;
-  font-size: 14px;
-  line-height: 1.75;
-  color: var(--kr-para);
-}
-.kr-doc h1 {
-  margin: 12px 0 24px;
-  font-family: var(--font-kr-display), system-ui, sans-serif;
-  font-size: 34px;
-  line-height: 1.05;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: var(--kr-white);
-}
-.kr-doc h2 {
-  margin: 28px 0 8px;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--kr-text);
-}
-.kr-doc p, .kr-doc li { margin: 0 0 10px; }
-.kr-doc ul { padding-left: 20px; margin: 0 0 10px; }
-.kr-draft {
-  margin: 0 0 20px;
-  padding: 12px;
-  border: 1px solid var(--kr-bar);
-  background: #120407;
-  color: var(--kr-text);
-  font-size: 13px;
-}
-@media (min-width: 1024px) {
-  .kr-doc { padding: 64px 80px; font-size: 15px; }
-  .kr-doc h1 { font-size: 56px; }
-}
-
-/* ── stopka ───────────────────────────────────────────────────── */
-.kr-footer {
-  margin-top: auto;
-  padding: 24px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--kr-comment);
-  background: var(--kr-bg);
-  /* Adres strony (np. /r/senior-java-developer-…) nie ma spacji. */
-  overflow-wrap: anywhere;
-}
-/* Link „klauzula_rodo” (11 px) — cel dotykowy bez zmiany wyglądu. */
-.kr-footer-rodo {
-  display: inline-block;
-  padding: 12px 0;
-  margin: -12px 0;
-}
-.kr-footer-top {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.kr-footer-brand {
-  color: var(--kr-text);
-  font-weight: 700;
-  letter-spacing: 0.14em;
-}
-@media (min-width: 1024px) {
-  .kr-footer {
-    padding: 24px 80px;
-    border-top: 1px solid var(--kr-line);
-    gap: 8px;
-    font-size: 12px;
-  }
-  .kr-footer-top { flex-direction: row; justify-content: space-between; }
-}
-
-/* ── strona stałego linku rekrutera: hero wewnątrz kolumny ─────── */
-.kr-main-general .kr-hero { padding: 32px 0 0; }
-@media (min-width: 1024px) {
-  .kr-main-general { padding: 48px 40px; }
-  .kr-main-general .kr-col { gap: 52px; }
-  .kr-main-general .kr-hero { padding: 0; }
-  .kr-main-general .kr-title { font-size: 60px; line-height: 0.98; }
-}
-
-/* 1280 px+: pełne marginesy i wielkości z makiety (1024–1279 ma węższe). */
-@media (min-width: 1280px) {
-  .kr-hero { padding: 72px 80px 64px; }
-  .kr-title { font-size: 96px; }
-  .kr-main-general { padding: 72px 80px 64px; }
-  .kr-main-general .kr-title { font-size: 76px; }
-}
+.kr-kbd { font-family: var(--kr-mono); }

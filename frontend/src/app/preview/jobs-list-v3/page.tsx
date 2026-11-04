@@ -8,12 +8,28 @@
  *
  * Klucze listy i liczników pochodzą z TYCH SAMYCH funkcji co w komponencie
  * (`jobsListQueryKey`, `jobsQuickCountsQueryKey`) — zasiew nie może się z nim
- * rozjechać. Zasiane są trzy zakresy: domyślne „Moje" (sort „Wymaga uwagi"),
- * „Otwarte" i „Wszystkie" (sort „Od najnowszej"), więc przełącznik zakresu
- * działa.
+ * rozjechać. Zasiane są cztery zakresy: domyślne „Moje" (sort „Wymaga uwagi"),
+ * „Moja kategoria", „Otwarte" i „Wszystkie" (sort „Od najnowszej"), więc
+ * przełącznik zakresu działa.
  *
- * Bezpiecznik sieci: dok „Podgląd" i rozwijane filtry mają własne zapytania,
- * których tu nie zasiewamy. Na czas życia harnessu interceptor odrzuca KAŻDE
+ * Wiersz to nazwa stanowiska, a pod nią kategoria, klient i tryb pracy
+ * (02.10.2026); wymagania, numery i podobne rekrutacje stoją w Podglądzie
+ * (ikona oka) — dok ma zasiane zlecenie i gotowość każdej otwieralnej rekrutacji.
+ *
+ * Wiersze pokazują kolumnę „Rekruter” w każdym stanie (jedna osoba, dwie
+ * z „+1”, sama propozycja automatu, nikt) oraz priorytety P1 i „Przyjmujemy”.
+ * Oglądający to admin, więc klik w osoby otwiera okienko edycji Rekrutera —
+ * katalog osób i obłożenie są zasiane, a zapisy zatrzymuje bezpiecznik sieci
+ * (wtedy lista odświeża się z błędem — ścieżki zapisu sprawdzają testy).
+ * Dwa pierwsze mają osoby gotowe do wysłania do klienta (`dl_send_ready_count`
+ * — wypełniona komórka „QC”), a filtr „Do wysłania do klienta” z „Więcej
+ * filtrów” ma zasiane oba warianty (`?tosend=mine`, `?tosend=stale`).
+ * Po lewej stoi szyna „Otwarte karty” — ta sama co w `app/jobs/layout.tsx`,
+ * tylko z fikcyjnymi kartami podanymi wprost (prawdziwa czyta store zapisywany
+ * w `localStorage`, którego harness nie może nadpisać oglądającemu).
+ *
+ * Bezpiecznik sieci: pozostałe zakładki doku „Podgląd" i rozwijane filtry mają
+ * własne zapytania, których tu nie zasiewamy. Na czas życia harnessu interceptor odrzuca KAŻDE
  * żądanie axiosa lokalnie (bez wyjścia do sieci, bez ponowień) — dok pokazuje
  * wtedy swój stan błędu zamiast strzelić w API i przerzucić na /login.
  */
@@ -25,12 +41,23 @@ import { AxiosError } from "axios";
 import api from "@/lib/api";
 import { ToastProvider } from "@/components/Toast";
 import {
+  JOBS_LIST_RAIL_GAP_CLASS,
+  JobTabsRailView,
+} from "@/components/v2/jobs/JobTabsRail";
+import {
   JobsListV2,
   jobsListQueryKey,
   jobsQuickCountsQueryKey,
   type JobsListQueryState,
 } from "@/components/v2/pages/JobsListV2";
+import {
+  OPEN_TABS_RAIL_CLASS,
+  OpenTabsRailFrame,
+} from "@/components/v2/shell/OpenTabsRail";
+import { REQUEST_BOARD_QUERY_KEY, type RequestBoard } from "@/lib/api/requestAllocation";
+import type { JobRecruiter } from "@/lib/job-team";
 import { useAuthStore } from "@/store/auth";
+import type { Tab } from "@/store/tabs";
 
 const column = (
   stage: string,
@@ -67,25 +94,78 @@ const inDays = (days: number) => {
   return d.toISOString().slice(0, 10);
 };
 
+/** Zalogowana osoba harnessu. */
+const VIEWER_ID = 1;
+/** Osoba, po której filtruje `/preview/jobs-list-v3?who=71`. */
+const FILTERED_PERSON = 71;
+
+/** Osoba w roli „Rekruter” — kształt z `GET /api/jobs` (`recruiters[]`). */
+const recruiter = (
+  user_id: number,
+  name: string,
+  extra: Partial<JobRecruiter> = {},
+): JobRecruiter => ({
+  user_id,
+  name,
+  via: "owner",
+  proposed: false,
+  assigned_by_name: null,
+  ...extra,
+});
+
 const MINE = [
   {
     id: 901,
     request_status: "champion",
+    request_stage: "champion",
+    // Championi (15.10.2026): imiona w dymku statusu, P1 wstrzymany.
+    champions: [
+      { candidate_id: 1, name: "Karol Wzorcowy" },
+      { candidate_id: 2, name: "Bartek Testowy" },
+    ],
+    priority_paused: true,
     similar: {
       linked_count: 1,
       linked_first: { id: 7712, title: "Java Developer (Spring)", reference_number: "REF-2026-0712" },
       reassigned_count: 3,
       suggested: null,
     },
-    title: "Senior Java Developer",
+    title: "Programista Java — płatności (ZOB 48213)",
+    working_title: "Senior Java Developer · Java, Kafka · 5+ lat · Płatności",
+    client_reference: "ZOB 48213",
     reference_number: "REF-2026-0901",
-    recruitment_type: "body_leasing",
-    location: "Warszawa",
+    working_title_auto: true,
+    must_skills: ["Java", "Kafka", "Spring Boot", "PostgreSQL"],
+    remote_policy: "hybrid",
+    onsite_days_per_week: 2,
+    location: "Warszawa, Gdańsk, Gdynia",
     seniority: "Senior",
     client_name: "Bank Przykładowy",
+    competence_category_id: 2,
+    opened_at: inDays(-14),
     status: "published",
     tac_id: 3,
-    primary_owner: { name: "Marta Kowalska" },
+    // Kolumna „Rekruter”: trzy osoby, oglądający jest trzeci → komórka pokazuje
+    // jego i pierwszą osobę, resztę jako „+1”. Z `?who=71` pierwsza stoi osoba
+    // z filtra.
+    recruiters: [
+      recruiter(41, "Marta Kowalska"),
+      recruiter(FILTERED_PERSON, "Anna Współpracowniczka", { via: "collaborator" }),
+      recruiter(VIEWER_ID, "Preview Rekruter", { via: "assignment" }),
+    ],
+    // Kolumna „Ogłoszenia”: Pracuj.pl z linkiem, JustJoin.IT do aktualizacji.
+    ad_publications: [
+      {
+        portal: "pracuj",
+        url: "https://www.pracuj.pl/praca/przyklad,oferta,1000000001",
+        outdated: false,
+      },
+      { portal: "jjit", url: null, outdated: true },
+    ],
+    delivery_lead_user: { id: 9, name: "Ewa Przykładowa" },
+    priority: "urgent",
+    priority_level: "p1",
+    opened_effective_at: inDays(-14),
     deadline: inDays(5),
     created_at: inDays(-12),
     headcount: 2,
@@ -93,11 +173,14 @@ const MINE = [
     needs_action_count: 7,
     review_count: 431,
     open_proposals_count: 3,
+    // Obie osoby z „QC CV” czekają na wysyłkę oglądającego Delivery Leada.
+    dl_send_ready_count: 2,
     stage_columns: pipeline([4, 1, 3, 2, 2, 3, 1, 1, 0, 6]),
   },
   {
     id: 902,
     request_status: "searching",
+    request_stage: "searching",
     similar: {
       linked_count: 0,
       linked_first: null,
@@ -105,42 +188,73 @@ const MINE = [
       suggested: { count: 2, sent_count: 5, first: { id: 7690, title: "Platform Engineer", reference_number: "REF-2026-0690" } },
     },
     title: "DevOps Engineer (Azure)",
+    working_title: "DevOps Engineer · Azure, Terraform · 4+ lata",
+    client_reference: "SAP 4500123456",
     reference_number: "REF-2026-0902",
-    recruitment_type: "body_leasing",
+    working_title_auto: true,
+    must_skills: [
+      "Azure",
+      "Terraform",
+      "Kubernetes",
+      "Minimum 4 lata doświadczenia w utrzymaniu środowisk produkcyjnych w chmurze",
+    ],
+    remote_policy: "remote",
     location: "Zdalnie",
     seniority: "Mid",
     client_name: "Ubezpieczenia Demo",
+    competence_category_id: 1,
+    opened_at: inDays(-30),
     status: "published",
     tac_id: null,
     needs_sourcing: true,
-    primary_owner: { name: "Marta Kowalska" },
+    recruiters: [recruiter(41, "Marta Kowalska")],
+    delivery_lead_user: { id: 9, name: "Ewa Przykładowa" },
+    priority: "low",
+    priority_level: "accepting",
+    opened_effective_at: inDays(-30),
     deadline: inDays(-2),
     created_at: inDays(-30),
     headcount: 1,
     candidate_count: 6,
     needs_action_count: 2,
     open_proposals_count: 1,
-    stage_columns: pipeline([2, 0, 1, 0, 1, 2, 0, 0, 0, 3]),
+    dl_send_ready_count: 1,
+    stage_columns: pipeline([2, 0, 1, 1, 1, 2, 0, 0, 0, 3]),
     priority_assignment: { id: 1, rank: "A", channel: "database" },
   },
   {
     id: 903,
     request_status: "contract",
+    request_stage: "contract",
     similar: { linked_count: 0, linked_first: null, reassigned_count: 0, suggested: null },
     title: "Analityk biznesowy",
+    // Dwa zapytania klienta w jednej rekrutacji — znacznik „41228 +1”.
+    client_reference: "41228, 41227",
     reference_number: "REF-2026-0903",
-    recruitment_type: "sales_project",
+    remote_policy: "hybrid",
+    onsite_days_per_month: 2,
     location: "Kraków",
     client_name: "Telekom Demo",
+    competence_category_id: 4,
+    opened_at: inDays(-3),
     status: "published",
     tac_id: 3,
-    primary_owner: null,
+    // Sama propozycja automatu — to jeszcze nie praca („Bez rekrutera” w filtrze).
+    recruiters: [
+      recruiter(72, "Piotr Przykładowy", { via: "assignment", proposed: true }),
+    ],
+    delivery_lead_user: { id: 9, name: "Ewa Przykładowa" },
+    priority: "medium",
+    priority_level: "p2",
+    opened_effective_at: inDays(-3),
     deadline: null,
     created_at: inDays(-3),
     headcount: 1,
     candidate_count: 4,
     needs_action_count: 0,
     open_proposals_count: 0,
+    // Zero = Delivery Lead, na którego w tej rekrutacji nikt nie czeka.
+    dl_send_ready_count: 0,
     stage_columns: pipeline([0, 0, 0, 0, 0, 3, 1, 0, 1, 0]),
   },
 ];
@@ -150,15 +264,21 @@ const OPEN = [
   {
     id: 904,
     request_status: "incomplete",
+    request_stage: "incomplete",
     similar: { linked_count: 0, linked_first: null, reassigned_count: 0, suggested: null },
     title: "Tester automatyzujący",
     reference_number: "REF-2026-0904",
-    recruitment_type: "tender",
     location: "Gdańsk",
     client_name: "Urząd Demo",
+    competence_category_id: 2,
     status: "draft",
     tac_id: 5,
-    primary_owner: { name: "Jan Nowak" },
+    // Nikt nie pracuje i nie ma propozycji → „Bez rekrutera”.
+    recruiters: [],
+    delivery_lead_user: { id: 10, name: "Jan Nowak" },
+    priority: "urgent",
+    priority_level: "p1",
+    opened_effective_at: inDays(-1),
     deadline: inDays(21),
     created_at: inDays(-1),
     headcount: 3,
@@ -168,17 +288,56 @@ const OPEN = [
     stage_columns: pipeline([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
   },
   {
+    id: 912,
+    request_status: "searching",
+    request_stage: "searching",
+    similar: { linked_count: 0, linked_first: null, reassigned_count: 0, suggested: null },
+    title: "Inżynier DevOps",
+    reference_number: "REF-2026-0912",
+    location: "Kraków",
+    client_name: "Bank Przykładowy",
+    competence_category_id: 2,
+    status: "published",
+    tac_id: 5,
+    // Zeszła z P1 — zespół wśród „Poprzednich rekruterów” (14.10.2026).
+    recruiters: [],
+    previous_recruiters: [
+      {
+        user_id: 71,
+        name: "Tomasz Testowy",
+        via: "owner",
+        reason: "priority",
+        parked_at: `${inDays(-2)}T13:02:00Z`,
+        parked_by_name: "Jan Nowak",
+        will_return: true,
+      },
+    ],
+    delivery_lead_user: { id: 10, name: "Jan Nowak" },
+    priority: "medium",
+    priority_level: "p2",
+    opened_effective_at: inDays(-30),
+    deadline: inDays(14),
+    created_at: inDays(-30),
+    headcount: 1,
+    candidate_count: 4,
+    needs_action_count: 0,
+    open_proposals_count: 0,
+    stage_columns: pipeline([0, 1, 1, 0, 0, 1, 0, 0, 1, 0]),
+  },
+  {
     id: 905,
     request_status: "searching",
+    request_stage: "searching",
     similar: { linked_count: 0, linked_first: null, reassigned_count: 0, suggested: null },
     title: "Architekt rozwiązań (cudza, bez dostępu)",
     reference_number: "REF-2026-0905",
-    recruitment_type: "body_leasing",
     client_name: "Bank Przykładowy",
     status: "published",
     tac_id: 5,
     can_open: false,
-    primary_owner: { name: "Jan Nowak" },
+    recruiters: [recruiter(10, "Jan Nowak")],
+    priority_level: "p2",
+    opened_effective_at: inDays(-60),
     deadline: inDays(40),
     created_at: inDays(-60),
     headcount: 1,
@@ -194,14 +353,24 @@ const ALL = [
   {
     id: 906,
     request_status: "closed",
+    request_stage: "closed",
     similar: { linked_count: 0, linked_first: null, reassigned_count: 0, suggested: null },
     title: "Frontend Developer React (zamknięta, z Traffita)",
     reference_number: "REF-2025-0142",
-    recruitment_type: "body_leasing",
     client_name: "Bank Przykładowy",
     status: "closed",
     tac_id: 5,
-    primary_owner: { name: "Jan Nowak" },
+    recruiters: [recruiter(10, "Jan Nowak")],
+    // Zamknięta, a ogłoszenie nadal wisi — plakietka przypomina o zdjęciu.
+    ad_publications: [
+      {
+        portal: "jjit",
+        url: "https://justjoin.it/job-offer/przyklad-frontend-developer",
+        outdated: false,
+      },
+    ],
+    priority_level: "p2",
+    opened_effective_at: inDays(-400),
     deadline: inDays(-200),
     created_at: inDays(-400),
     headcount: 1,
@@ -212,20 +381,71 @@ const ALL = [
   },
 ];
 
+/** Zakres „Moja kategoria”: niezamknięte rekrutacje z kategorii oglądającego (Development). */
+const MY_CATEGORY = OPEN.filter((job) => job.competence_category_id === 2);
+
+/** Fikcyjne karty szyny „Otwarte karty” — rekrutacje z listy niżej. */
+const OPEN_TABS: Tab[] = [
+  { id: "job-901", type: "job", entityId: 901, title: "Senior Java Developer · Java, Kafka", url: "/jobs/901", reference: "ZOB 48213" },
+  { id: "job-902", type: "job", entityId: 902, title: "DevOps Engineer · Azure, Terraform", url: "/jobs/902", reference: "SAP 4500123456" },
+  { id: "job-903", type: "job", entityId: 903, title: "Analityk biznesowy", url: "/jobs/903", reference: "41228, 41227" },
+  { id: "job-904", type: "job", entityId: 904, title: "Tester automatyzujący", url: "/jobs/904" },
+];
+
+/** Własny klucz — „Pokaż” / „Ukryj” w harnessie nie zmienia preferencji z aplikacji. */
+const RAIL_STORAGE_KEY = "nexus.preview.jobTabsRail.collapsed";
+
+/**
+ * Własny klucz pamięci filtrów — harness loguje fikcyjne konto o id 1 i nie
+ * może czytać ani nadpisywać ostatniego widoku prawdziwej osoby o tym id.
+ */
+const LIST_MEMORY_KEY = "nexus.preview.jobs-list-filters";
+
 const BASE: Omit<JobsListQueryState, "mine" | "openOnly" | "sort"> = {
   search: "",
-  status: [],
-  type: "all",
-  responsibleIds: [],
+  page: 1,
+  stages: [],
   clientIds: [],
   ccIds: [],
-  needsSourcing: false,
-  activeInSearch: false,
+  deliveryLeadIds: [],
+  workedBy: [],
+  nobodyWorking: false,
   deadline: "any",
-  noOwnerOnly: false,
-  priorityWork: "any",
-  page: 1,
 };
+
+/**
+ * Katalog osób (`/api/users`) do okienka kolumny „Rekruter”: rekruterzy
+ * z wierszy, jedna osoba spoza obłożenia (bez liczby) i Delivery Lead bez
+ * roli rekrutera — tego lista wyboru nie pokazuje.
+ */
+const DIRECTORY = [
+  { id: VIEWER_ID, name: "Preview Rekruter", role: "admin", roles: ["admin", "recruiter", "delivery_lead"] },
+  { id: 10, name: "Jan Nowak", role: "recruiter", roles: ["recruiter"] },
+  { id: 41, name: "Marta Kowalska", role: "recruiter", roles: ["recruiter"] },
+  { id: FILTERED_PERSON, name: "Anna Współpracowniczka", role: "recruiter", roles: ["recruiter"] },
+  { id: 72, name: "Piotr Przykładowy", role: "recruiter", roles: ["recruiter"] },
+  { id: 73, name: "Zenon Makietowy", role: "recruiter", roles: ["recruiter"] },
+  { id: 75, name: "Damian Liderowy", role: "delivery_lead", roles: ["delivery_lead"] },
+];
+
+/** Obłożenie P1 z pulpitu „Requesty i obłożenie” — liczby „N P1” przy osobach w okienku. */
+const REQUEST_BOARD: RequestBoard = {
+  mode: "shadow",
+  // Jak na produkcji bez Compassa: okienko mówi, że urlopów nie zna.
+  availability_known: false,
+  groups: [],
+  requests: [],
+  changes: [],
+  load: [
+    { user_id: 10, name: "Jan Nowak", count: 3, leave_until: null, requests: [] },
+    { user_id: 41, name: "Marta Kowalska", count: 2, leave_until: null, requests: [] },
+    { user_id: FILTERED_PERSON, name: "Anna Współpracowniczka", count: 1, leave_until: null, requests: [] },
+    { user_id: 72, name: "Piotr Przykładowy", count: 0, proposed: 1, leave_until: null, requests: [] },
+    { user_id: VIEWER_ID, name: "Preview Rekruter", count: 1, leave_until: null, requests: [] },
+  ],
+};
+
+const SEED_FRESH_UNTIL = Date.now() + 24 * 60 * 60 * 1000;
 
 const page = (items: unknown[]) => ({
   items,
@@ -246,8 +466,45 @@ function seededClient(): QueryClient {
     },
   });
   qc.setQueryData(
-    jobsListQueryKey({ ...BASE, mine: true, openOnly: false, sort: "attention" }),
+    jobsListQueryKey({ ...BASE, mine: true, openOnly: true, sort: "attention" }),
     page(MINE),
+  );
+  // `?who=71`: filtr „Rekruter” po osobie, która w rekrutacji jest druga.
+  qc.setQueryData(
+    jobsListQueryKey({
+      ...BASE,
+      workedBy: [FILTERED_PERSON],
+      mine: true,
+      openOnly: true,
+      sort: "attention",
+    }),
+    page(
+      MINE.filter((job) =>
+        (job.recruiters as readonly JobRecruiter[]).some(
+          (person) => person.user_id === FILTERED_PERSON,
+        ),
+      ),
+    ),
+  );
+  // „Do wysłania do klienta”: „Czeka na mnie” = rekrutacje z gotową osobą,
+  // „Czeka 3+ dni robocze” = tylko pierwsza. W „Moich” (domyślny zakres) i w
+  // „Otwartych” — na ten zakres prowadzi licznik z górnego paska (`?open=1`).
+  for (const scope of [
+    { mine: true, openOnly: true, sort: "attention" },
+    { mine: false, openOnly: true, sort: "newest" },
+  ] as const) {
+    qc.setQueryData(
+      jobsListQueryKey({ ...BASE, ...scope, toSend: "mine" }),
+      page(MINE.filter((job) => job.dl_send_ready_count > 0)),
+    );
+    qc.setQueryData(
+      jobsListQueryKey({ ...BASE, ...scope, toSend: "stale" }),
+      page(MINE.slice(0, 1)),
+    );
+  }
+  qc.setQueryData(
+    jobsListQueryKey({ ...BASE, mine: false, myCategory: true, openOnly: false, sort: "newest" }),
+    page(MY_CATEGORY),
   );
   qc.setQueryData(
     jobsListQueryKey({ ...BASE, mine: false, openOnly: true, sort: "newest" }),
@@ -260,6 +517,8 @@ function seededClient(): QueryClient {
   qc.setQueryData(jobsQuickCountsQueryKey(), {
     all: 4286,
     mine: MINE.length,
+    // Liczba = oglądający ma kategorię, więc przełącznik pokazuje „Moja kategoria”.
+    my_category: MY_CATEGORY.length,
     open: 318,
     needs_sourcing: 41,
     active_in_search: 27,
@@ -281,18 +540,64 @@ function seededClient(): QueryClient {
       incomplete: 0,
       closed: 0,
     },
+    request_stage: {
+      incomplete: 3,
+      to_review: 4,
+      searching: 6,
+      champion: 1,
+      contract: 1,
+      client_silent: 2,
+    },
+    request_stage_mine: {
+      incomplete: 0,
+      to_review: 1,
+      searching: 1,
+      champion: 1,
+      contract: 1,
+      client_silent: 0,
+    },
+    attention: { overdue: 1, nobody_working: 2, nobody_sent: 5 },
+    attention_mine: { overdue: 1, nobody_working: 0, nobody_sent: 1 },
   });
-  // Rozwijane filtry kolumny (klucze z samych literałów — pilnuje ich
+  // Dok „Podgląd”: zlecenie i werdykt bramki każdej rekrutacji, którą da się
+  // otworzyć — te same klucze co `JobReadinessDock`.
+  for (const job of ALL) {
+    if ("can_open" in job && job.can_open === false) continue;
+    qc.setQueryData(["job", String(job.id)], { ...job, nice_skills: [] });
+    qc.setQueryData(["job-readiness", job.id], {
+      job_id: job.id,
+      ready: false,
+      blockers: [],
+      closed: job.status === "closed",
+      already_handed_off: job.status === "published",
+    });
+  }
+  // Okienka paska filtrów (klucze z samych literałów — pilnuje ich
   // `harness-seeds.test.ts`).
   qc.setQueryData(["clients-lookup"], []);
-  qc.setQueryData(["users-directory"], []);
-  qc.setQueryData(["competence-categories-active"], []);
+  // Katalog osób czyta też okienko kolumny „Rekruter” (oglądający to admin).
+  // Znacznik czasu w przyszłości: okienko ma własny `staleTime`, a bez tego
+  // otwarcie po minucie pytałoby sieć.
+  qc.setQueryData(["users-directory"], DIRECTORY, { updatedAt: SEED_FRESH_UNTIL });
+  qc.setQueryData<RequestBoard>(REQUEST_BOARD_QUERY_KEY, REQUEST_BOARD, {
+    updatedAt: SEED_FRESH_UNTIL,
+  });
+  // Krótka plakietka kategorii pod tytułem czyta ten katalog.
+  qc.setQueryData(
+    ["competence-categories-active"],
+    [
+      { id: 1, slug: "infrastructure_operations", name_pl: "Infra & Operations & Security / Data & AI" },
+      { id: 2, slug: "software_development", name_pl: "Development" },
+      { id: 4, slug: "management_delivery", name_pl: "Management & Delivery (PM & BA)" },
+    ],
+  );
   return qc;
 }
 
 export default function JobsListV3Preview() {
   const [ready, setReady] = useState(false);
   const [qc] = useState(seededClient);
+  const [tabs, setTabs] = useState(OPEN_TABS);
 
   useEffect(() => {
     const blocker = api.interceptors.request.use((config) =>
@@ -304,13 +609,15 @@ export default function JobsListV3Preview() {
     );
     useAuthStore.setState({
       user: {
-        id: 1,
+        id: VIEWER_ID,
         email: "preview@example.com",
         name: "Preview Rekruter",
         // Wielorolowe: `admin` daje „Nowa rekrutacja", `recruiter` — domyślny
-        // zakres „Moje" (`defaultScopeForUser`).
+        // zakres „Moje" (`defaultScopeForUser`), `delivery_lead` — pozycję
+        // „Czeka na mnie” w „Więcej filtrów” (tylko ta rola dostaje z serwera
+        // `dl_send_ready_count`).
         role: "admin",
-        roles: ["admin", "recruiter"],
+        roles: ["admin", "recruiter", "delivery_lead"],
         profile_completed: true,
         profile_completed_at: null,
         force_password_change: false,
@@ -330,7 +637,25 @@ export default function JobsListV3Preview() {
     <ToastProvider>
       <QueryClientProvider client={qc}>
         <div className="min-h-dvh bg-background p-6">
-          <JobsListV2 />
+          {/* Układ jak w `app/jobs/layout.tsx`: szyna po lewej, lista obok. */}
+          <OpenTabsRailFrame
+            className={JOBS_LIST_RAIL_GAP_CLASS}
+            rail={
+              <JobTabsRailView
+                tabs={tabs}
+                currentId={null}
+                variant="list"
+                storageKey={RAIL_STORAGE_KEY}
+                // Klik w kartę nie nawiguje — harness nie ma stron rekrutacji.
+                onOpen={() => undefined}
+                onClose={(tab) => setTabs((prev) => prev.filter((t) => t.id !== tab.id))}
+                onCloseAll={() => setTabs([])}
+                className={OPEN_TABS_RAIL_CLASS}
+              />
+            }
+          >
+            <JobsListV2 memoryKey={LIST_MEMORY_KEY} />
+          </OpenTabsRailFrame>
         </div>
       </QueryClientProvider>
     </ToastProvider>

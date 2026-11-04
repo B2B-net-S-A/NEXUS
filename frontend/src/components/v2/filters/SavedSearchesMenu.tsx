@@ -14,12 +14,14 @@ import {
 import { savedSearchesApi, type SavedSearchRow } from "@/lib/api";
 import { detectSavedSearchFormat } from "@/lib/saved-search-format";
 import {
+ alertPayloadFromSavedSearch,
  buildCandidateSavedSearchPayload,
  listQsFromSavedSearch,
 } from "@/lib/candidate-saved-search";
 import { semanticsReapproval } from "@/lib/saved-search-reapproval";
 import { SemanticsReapprovalPanel } from "@/components/v2/filters/SemanticsReapprovalPanel";
 import { useAuthStore } from "@/store/auth";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -55,6 +57,9 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  const [notifyOnSave, setNotifyOnSave] = useState(true);
  // Zapis wstrzymany przez migrację semantyki filtrów — panel decyzji w menu.
  const [reviewId, setReviewId] = useState<number | null>(null);
+ // Wyjaśnienie w menu zamiast natywnego `alert()`, który zamrażał kartę.
+ const [notice, setNotice] = useState<string | null>(null);
+ const { askConfirm, confirmDialog } = useConfirmV2();
  const currentUser = useAuthStore((s) => s.user);
  const queryClient = useQueryClient();
 
@@ -91,24 +96,25 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  // Toggle dzwonka. Przy włączaniu odświeżamy też filters.api z zapisanego
  // qs — starsze searche mają tylko {qs}, a skaner potrzebuje parametrów API.
  const alertMutation = useMutation({
- mutationFn: (ss: SavedSearchRow) => {
+ mutationFn: async (ss: SavedSearchRow) => {
  const enable = !ss.notify_new_matches;
  if (
  enable &&
  ss.requires_reapproval &&
- !confirm(
- `Zapis „${ss.name}" zawierał wycofane miesięczne kryteria stawki. Zostały usunięte bez konwersji. Czy zatwierdzasz pozostałe filtry i chcesz ponownie włączyć alert?`,
- )
+ !(await askConfirm({
+ title: `Włączyć ponownie alert dla „${ss.name}"?`,
+ description: `Zapis „${ss.name}" zawierał wycofane miesięczne kryteria stawki. Zostały usunięte bez konwersji. Czy zatwierdzasz pozostałe filtry i chcesz ponownie włączyć alert?`,
+ confirmLabel: "Zatwierdź i włącz",
+ }))
  ) {
- return Promise.resolve(null);
+ return null;
  }
- const qs = listQsFromSavedSearch(ss.filters);
  return savedSearchesApi.update(
  ss.id,
  enable
  ? {
  notify_new_matches: true,
- filters: buildCandidateSavedSearchPayload(qs),
+ filters: alertPayloadFromSavedSearch(ss.filters),
  confirm_reapproval: ss.requires_reapproval,
  }
  : { notify_new_matches: false },
@@ -144,18 +150,15 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  };
 
  const applyRow = async (ss: SavedSearchRow, isMine: boolean) => {
- // SEARCH-P0-05 containment: zapisy z manualnego wyszukiwania (surowy
- // CandidateSearchRequest) nie mają `qs` — otwarcie ich tutaj po cichu
- // aplikowało PUSTE filtry. Wykryj i pokieruj zamiast otwierać domyślne.
- const format = detectSavedSearchFormat(ss.filters);
- if (format !== "candidates_list") {
- alert(
- format === "search_request"
- ? `Zapis „${ss.name}" pochodzi z wyszukiwania manualnego — otwórz go w zakładce „Wyszukaj manualnie" rekrutacji.`
- : `Zapis „${ss.name}" ma nieobsługiwany format — nie został otwarty.`,
- );
+ // Zapis z dawnej wyszukiwarki ręcznej (surowe żądanie, bez `qs`) otwiera
+ // się jako wiersze wymagań — `listQsFromSavedSearch` przekłada go tym
+ // samym adapterem co stare adresy. Do 25.09.2026 lista odsyłała go do
+ // „Wyszukaj manualnie” rekrutacji, a tego ekranu już nie ma.
+ if (detectSavedSearchFormat(ss.filters) === "unknown") {
+ setNotice(`Zapis „${ss.name}” ma nieobsługiwany format — nie został otwarty.`);
  return;
  }
+ setNotice(null);
  // `sv=1` (zapis przypięty do dawnych zasad) i `hu=1` (v3) nie żyją w `qs`.
  const qs = listQsFromSavedSearch(ss.filters);
  let previousViewedAt: string | null = null;
@@ -237,10 +240,15 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  onClick={(e) => {
  e.stopPropagation();
  // Włączenie dzwonka przebudowuje filters z `qs` — dla zapisu z
- // wyszukiwania manualnego NADPISAŁOBY (skasowało) jego filtry, a
- // skaner alertów i tak czyta tylko format listy. Zablokuj.
- if (detectSavedSearchFormat(ss.filters) !== "candidates_list") {
- alert("Alerty są dostępne tylko dla zapisów z listy kandydatów.");
+ // wyszukiwania manualnego NADPISAŁOBY jego filtry, a skaner alertów
+ // i tak czyta tylko format listy. Wyłączenie niczego nie przebudowuje.
+ const format = detectSavedSearchFormat(ss.filters);
+ if (!ss.notify_new_matches && format !== "candidates_list") {
+ setNotice(
+ format === "search_request"
+ ? `Powiadomienia działają dla zapisów z listy. Zapis „${ss.name}” pochodzi z dawnej wyszukiwarki — otwórz go i zapisz ponownie, a nowy zapis dostanie dzwonek.`
+ : `Zapis „${ss.name}” ma nieobsługiwany format — powiadomień nie da się włączyć.`,
+ );
  return;
  }
  if (ss.requires_reapproval && semanticsReapproval(ss.filters)) {
@@ -270,9 +278,15 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  </button>
  <button
  type="button"
- onClick={(e) => {
+ onClick={async (e) => {
  e.stopPropagation();
- if (confirm(`Usunąć zapisane wyszukiwanie „${ss.name}"?`)) {
+ if (
+ await askConfirm({
+ title: `Usunąć zapisane wyszukiwanie „${ss.name}"?`,
+ confirmLabel: "Usuń",
+ variant: "destructive",
+ })
+ ) {
  deleteMutation.mutate(ss.id);
  }
  }}
@@ -292,7 +306,13 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  const totalUnseen = mine.reduce((acc, s) => acc + (s.unseen_count || 0), 0);
 
  return (
- <Popover open={open} onOpenChange={setOpen}>
+ <Popover
+ open={open}
+ onOpenChange={(next) => {
+ setOpen(next);
+ if (!next) setNotice(null);
+ }}
+ >
  <PopoverTrigger asChild>
  <Button size="md" variant="outline" className="relative">
  <Bookmark className="h-4 w-4" /> Zapisane
@@ -310,6 +330,17 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  </Button>
  </PopoverTrigger>
  <PopoverContent align="start" className="w-72 p-2">
+ {/* W treści popovera: okno potwierdzenia jest wtedy warstwą-dzieckiem
+     i nie zamyka menu przy przejęciu fokusu. */}
+ {confirmDialog}
+ {notice && (
+ <p
+ role="status"
+ className="mb-2 rounded-md bg-muted px-2 py-1.5 text-xs leading-snug text-foreground"
+ >
+ {notice}
+ </p>
+ )}
  {mine.length === 0 && shared.length === 0 && (
  <p className="text-xs text-muted-foreground px-2 py-3 text-center">
  Brak zapisanych wyszukiwań. Ustaw filtry i zapisz poniżej.

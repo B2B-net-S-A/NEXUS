@@ -36,15 +36,16 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.periods import ANALYTICS_TIMEZONE, PeriodError, resolve_period
-from app.services.metric_definitions import FIRST_HIRED_PER_CANDIDATE_JOB
 from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
+from app.services.history_client_placements import client_placements
 from app.services.insights_person_scope import (
     OUTSIDE_SCOPE_LABEL,
     outside_scope_user_ids,
 )
+from app.services.metric_definitions import FIRST_HIRED_PER_CANDIDATE_JOB
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,14 @@ _TZ = ZoneInfo(ANALYTICS_TIMEZONE)
 YEARLY_SERIES: list[dict] = [
     {"key": "verified", "label": "Weryfikacje", "stage": "verified", "axis": "left"},
     {"key": "cv_sent", "label": "Rekomendacje", "stage": "cv_sent", "axis": "left"},
-    {"key": "interview", "label": "Interviews", "stage": "interview", "axis": "left"},
+    # Runda 8 (R8-V2-2): rozmowy = `client_interview`; kod `interview` to od v5
+    # QC CV. Klucz `interview` zostaje (kontrakt API).
+    {
+        "key": "interview",
+        "label": "Rozmowy u klienta",
+        "stage": "client_interview",
+        "axis": "left",
+    },
     {"key": "hired", "label": "Placements", "stage": "hired", "axis": "right"},
 ]
 
@@ -82,15 +90,15 @@ YEARLY_CONVERSIONS: list[dict] = [
     },
     {
         "key": "cv_sent_to_interview",
-        "label": "Rekomendacje → Interviews",
-        "numerator": "interview",
+        "label": "Rekomendacje → Rozmowy u klienta",
+        "numerator": "client_interview",
         "denominator": "cv_sent",
     },
     {
         "key": "interview_to_hired",
-        "label": "Interviews → Placements",
+        "label": "Rozmowy u klienta → Placements",
         "numerator": "hired",
-        "denominator": "interview",
+        "denominator": "client_interview",
     },
     {
         "key": "verified_to_hired",
@@ -204,7 +212,7 @@ async def insights_yearly_stats(
     # się z upływem czasu, więc odpowiedź sprzed pierwszego stycznia nie
     # opisuje tego samego zbioru co odpowiedź z drugiego.
     cache_key = (
-        f"insights:charts:yearly:v1:{resolved.cache_suffix}"
+        f"insights:charts:yearly:v2:{resolved.cache_suffix}"
         f":{reference.year}-{reference.month:02d}"
     )
     async with cache_single_flight(cache_key, db=db):
@@ -223,7 +231,7 @@ async def insights_yearly_stats(
                                )::date AS month,
                                fm.stage::text AS stage,
                                count(*) AS cnt
-                        FROM analytics_first_milestones fm
+                        FROM analytics_kpi_milestones fm
                         WHERE fm.first_reached_at >= :start
                           AND fm.first_reached_at < :end
                           AND fm.stage::text = ANY(:stages)
@@ -312,7 +320,8 @@ async def insights_placement_analysis(
     resolved = _resolve(period, offset, anchor, date_from, date_to)
 
     # v2 (24.09.2026): konta administracyjne jednym wycinkiem.
-    cache_key = f"insights:charts:placements:v2:{resolved.cache_suffix}"
+    # v5 (18.10.2026): przed 12.10.2026 osoby, suma i klienci z DynaReportera.
+    cache_key = f"insights:charts:placements:v5:{resolved.cache_suffix}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
@@ -328,7 +337,7 @@ async def insights_placement_analysis(
                         SELECT fm.first_moved_by AS user_id,
                                u.name AS user_name,
                                count(*) AS cnt
-                        FROM analytics_first_milestones fm
+                        FROM analytics_kpi_milestones fm
                         LEFT JOIN users u ON u.id = fm.first_moved_by
                         WHERE fm.stage = 'hired'
                           AND fm.first_reached_at >= :start
@@ -348,31 +357,23 @@ async def insights_placement_analysis(
         # nadal jest placementem. INNER wyciąłby go z donuta, ale nie z kafla
         # „Suma placementów" — donut przestałby sumować się do liczby nad sobą,
         # co czyta się jak błąd zaokrąglenia, a jest utratą wiersza.
-        client_rows = (
-            (
-                await db.execute(
-                    text(
-                        """
-                        SELECT c.id AS client_id,
-                               c.name AS client_name,
-                               (j.id IS NULL) AS job_missing,
-                               count(*) AS cnt
-                        FROM analytics_first_milestones fm
-                        LEFT JOIN jobs j ON j.id = fm.job_id
-                        LEFT JOIN clients c ON c.id = j.client_id
-                        WHERE fm.stage = 'hired'
-                          AND fm.first_reached_at >= :start
-                          AND fm.first_reached_at < :end
-                        GROUP BY 1, 2, 3
-                        ORDER BY count(*) DESC, 2 NULLS LAST
-                        """
-                    ),
-                    params,
-                )
+        # Klienci: od 12.10.2026 pary Tablicy, wcześniej placementy z klientem
+        # z DynaReportera (decyzja Artura 18.10.2026) — `history_client_placements`.
+        by_key: dict[tuple, int] = {}
+        for item in await client_placements(db, resolved.start, resolved.end):
+            key = (item.client_id, item.client_name, item.job_missing)
+            by_key[key] = by_key.get(key, 0) + item.count
+        client_rows = [
+            {
+                "client_id": client_id,
+                "client_name": client_name,
+                "job_missing": job_missing,
+                "cnt": cnt,
+            }
+            for (client_id, client_name, job_missing), cnt in sorted(
+                by_key.items(), key=lambda kv: (-kv[1], kv[0][1] or "")
             )
-            .mappings()
-            .all()
-        )
+        ]
 
         total = sum(int(r["cnt"]) for r in people_rows)
 
@@ -422,19 +423,22 @@ async def insights_placement_analysis(
         # Klient bez wiersza w `clients` i placement bez oferty lądują w tym samym
         # koszyku „(bez klienta)" — z osobnym licznikiem `placements_without_job`,
         # żeby dało się odróżnić lukę w danych od oferty bez przypisanego klienta.
-        by_client_acc: dict[int | None, dict] = {}
+        # Donut klientów ma własną sumę (`client_placements`): przed 12.10.2026
+        # „Suma placementów” liczy tygodniowe wpisy rekruterów, a klientów —
+        # placementy z klientem z DynaReportera; liczby bywają różne.
+        client_total = sum(int(r["cnt"]) for r in client_rows)
+        by_client_acc: dict[object, dict] = {}
         placements_without_job = 0
         for r in client_rows:
             if r["job_missing"]:
                 placements_without_job += int(r["cnt"])
-            key = r["client_id"]
+            name = (r["client_name"] or "").strip() or NO_CLIENT_LABEL
+            # Klient DynaReportera bez odpowiednika w NEXUS-ie nie ma `client_id`
+            # — osobny wycinek po nazwie, nie wspólny koszyk z innymi.
+            key = r["client_id"] if r["client_id"] is not None else ("name", name)
             entry = by_client_acc.setdefault(
                 key,
-                {
-                    "client_id": key,
-                    "name": (r["client_name"] or "").strip() or NO_CLIENT_LABEL,
-                    "placements": 0,
-                },
+                {"client_id": r["client_id"], "name": name, "placements": 0},
             )
             entry["placements"] += int(r["cnt"])
 
@@ -442,8 +446,8 @@ async def insights_placement_analysis(
             (
                 {
                     **entry,
-                    "share_pct": _ratio(entry["placements"], total),
-                    "attributed": entry["client_id"] is not None,
+                    "share_pct": _ratio(entry["placements"], client_total),
+                    "attributed": entry["name"] != NO_CLIENT_LABEL,
                 }
                 for entry in by_client_acc.values()
             ),
@@ -467,6 +471,9 @@ async def insights_placement_analysis(
                 # Placementy kont administracyjnych — w donucie jednym wycinkiem.
                 "outside_scope_placements": outside_placements,
                 "placements_without_job": placements_without_job,
+                # Suma donutu klientów (pary Tablicy). Różni się od
+                # `placements` tylko w dniach z DynaReportera.
+                "client_placements": client_total,
             },
             "by_person": by_person,
             "by_client": by_client,

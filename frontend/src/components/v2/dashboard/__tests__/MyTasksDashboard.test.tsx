@@ -20,6 +20,10 @@ const listNotifications = vi.mocked(notificationsApi.listRecruitment)
 const listAllNotifications = vi.mocked(notificationsApi.list)
 const markRead = vi.mocked(notificationsApi.markRead)
 
+// Licznik i lista biorą tylko powiadomienia z ostatnich 7 dni.
+const recent = new Date(Date.now() - 2 * 3_600_000).toISOString()
+const old = new Date(Date.now() - 9 * 86_400_000).toISOString()
+
 function renderDashboard(recruitmentNotificationsOnly = true) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -101,7 +105,7 @@ describe("MyTasksDashboard", () => {
             link: "/jobs/7",
             notification_type: "stage_stuck_7d",
             is_read: false,
-            created_at: "2026-09-02T07:00:00Z",
+            created_at: recent,
           },
           {
             id: 8,
@@ -170,6 +174,24 @@ describe("MyTasksDashboard", () => {
     } as Awaited<ReturnType<typeof notificationsApi.listRecruitment>>)
     renderDashboard()
     expect(await screen.findByText("w zastępstwie za Anna Nowak")).toBeVisible()
+  })
+
+  it("powiadomienie starsze niż 7 dni nie liczy się i nie stoi na liście", async () => {
+    const response = await listNotifications(20)
+    const stale = {
+      ...response.data.items[0],
+      id: 10,
+      title: "Etap stoi od tygodni",
+      created_at: old,
+    }
+    listNotifications.mockResolvedValue({
+      ...response,
+      data: { items: [stale, ...response.data.items], unread_count: 13339 },
+    } as Awaited<ReturnType<typeof notificationsApi.listRecruitment>>)
+    renderDashboard()
+    expect(await screen.findByText("Kandydat czeka na decyzję")).toBeVisible()
+    expect(screen.queryByText("Etap stoi od tygodni")).toBeNull()
+    expect(screen.getByRole("region", { name: "Powiadomienia z 7 dni" })).toHaveTextContent(/^Powiadomienia z 7 dni1/)
   })
 
   it("allows the whole personal-work section to be collapsed", async () => {

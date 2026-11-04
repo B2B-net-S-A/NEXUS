@@ -12,6 +12,7 @@
 // Kafelki metryk nie mają tu reguł źródeł — o nich mówi serwerowy katalog
 // (`/api/dashboard-metrics/catalog`).
 
+import type { HrConfig } from "@/lib/api/hr";
 import type {
   DashboardTile,
   MetricDefinition,
@@ -19,8 +20,10 @@ import type {
   TileType,
 } from "@/lib/api/userDashboard";
 import { hasCapability } from "@/lib/capabilities";
+import { canCustomizeBoardPanel } from "@/lib/dashboard-panels";
+import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { hasSectionAccess } from "@/lib/section-access";
-import { getUserRoles, type User, type UserRole } from "@/store/auth";
+import { getUserRoles, hasRole, type User, type UserRole } from "@/store/auth";
 
 export type TileCategory =
   | "my_work"
@@ -29,6 +32,7 @@ export type TileCategory =
   | "finance"
   | "team"
   | "calendar"
+  | "people"
   | "universal";
 
 export const TILE_CATEGORY_LABELS: Record<TileCategory, string> = {
@@ -38,6 +42,7 @@ export const TILE_CATEGORY_LABELS: Record<TileCategory, string> = {
   finance: "Finanse",
   team: "Zespół",
   calendar: "Kalendarz",
+  people: "Czas i ludzie",
   universal: "Uniwersalne",
 };
 
@@ -54,6 +59,11 @@ export interface TileDefinition {
   minSize: Size;
   /** Widżet ma własną kartę z nagłówkiem — ramka kafelka go nie dubluje. */
   ownChrome: boolean;
+  /**
+   * Kafelek ma wysokość swojej treści i nie przewija się w sobie — przewija się
+   * pulpit. Rozmiar zmienia się tylko w poziomie (decyzja Artura 30.10.2026).
+   */
+  fitContent?: boolean;
   availability: (user: User | null | undefined) => TileAvailability;
 }
 
@@ -91,19 +101,14 @@ function both(
   };
 }
 
-// Lustro `DlAlertsUser` (backend/app/api/dl_alerts.py).
-const DL_ALERTS_ROLES: UserRole[] = [
-  "admin",
-  "head_of_recruitment",
-  "delivery_lead",
-  "finance",
-];
+// Lustro `DlAlertsUser` (backend/app/api/dl_alerts.py). Head of Recruitment
+// zdjęty tam 22.09.2026 (audyt U7); tu został — kafelek dawał mu 403
+// zamiast „Brak dostępu” (Runda 10, R10-N1-8).
+const DL_ALERTS_ROLES: UserRole[] = ["admin", "delivery_lead", "finance"];
 
 const CONTACT_CALLER_ROLES: UserRole[] = [
   "talent_community_manager",
   "recruiter",
-  "sourcer",
-  "tac",
 ];
 
 export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
@@ -137,7 +142,7 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     ownChrome: true,
     availability: needsRole(
       CONTACT_CALLER_ROLES,
-      "Dla rekruterów, sourcerów, TAC i TCM",
+      "Dla rekruterów i TCM",
     ),
   },
   my_priority_queue: {
@@ -148,10 +153,7 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     defaultSize: { w: 6, h: 4 },
     minSize: { w: 4, h: 3 },
     ownChrome: true,
-    availability: needsRole(
-      ["recruiter", "sourcer", "tac"],
-      "Dla rekruterów, sourcerów i TAC",
-    ),
+    availability: needsRole(["recruiter"], "Dla rekruterów"),
   },
   my_people: {
     type: "my_people",
@@ -193,17 +195,75 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     category: "recruitment",
     defaultSize: { w: 6, h: 5 },
     minSize: { w: 4, h: 3 },
-    ownChrome: true,
+    ownChrome: false,
     availability: needsSection("pipeline", "Rekrutacje"),
+  },
+  closing_candidates: {
+    type: "closing_candidates",
+    label: "Kandydaci do zamknięcia",
+    description:
+      "Osoby w „Akceptacja i umowa”: klient, koszt, przychód, marża, Delivery Lead i rekruter.",
+    category: "recruitment",
+    defaultSize: { w: 12, h: 6 },
+    minSize: { w: 6, h: 3 },
+    ownChrome: false,
+    availability: needsSection("pipeline", "Rekrutacje"),
+  },
+  to_complete: {
+    type: "to_complete",
+    label: "Do uzupełnienia",
+    description:
+      "Umowy do zamknięcia, rekrutacje do dokończenia i wymagania do poprawy — poza „Czeka na Ciebie”.",
+    category: "my_work",
+    defaultSize: { w: 12, h: 5 },
+    minSize: { w: 4, h: 3 },
+    ownChrome: false,
+    availability: needsSection("pipeline", "Rekrutacje"),
+  },
+  pre_contracts: {
+    type: "pre_contracts",
+    label: "Umowy przedwstępne",
+    description:
+      "Prośby o umowę przedwstępną do wystawienia i podpisu, umowy wygasające, terminy umowy B2B i decyzje o karze.",
+    category: "my_work",
+    defaultSize: { w: 4, h: 4 },
+    minSize: { w: 3, h: 3 },
+    ownChrome: false,
+    // Bramka API przedwstępnych, nie sekcja: Viewer ma odczyt Rekrutacji, a API
+    // mu odmawia; Rada sekcji nie ma, a przedwstępne prowadzi (22.10.2026).
+    availability: (user) =>
+      hasCapability(user, "pre_contract.work")
+        ? { ok: true }
+        : { ok: false, reason: "Wymaga dostępu do umów przedwstępnych" },
+  },
+  board_tasks: {
+    type: "board_tasks",
+    label: "Czeka na Ciebie",
+    description:
+      "Panel „Czeka na Ciebie” jako kafelek — przesuwasz go i usuwasz jak inne. Gdy stoi na pulpicie, nie ma go nad kafelkami.",
+    category: "my_work",
+    defaultSize: { w: 12, h: 6 },
+    // Panel układa listy w trzy kolumny od szerokości ekranu `lg` — węższy
+    // kafelek ścisnąłby je do nieczytelności.
+    minSize: { w: 6, h: 3 },
+    ownChrome: true,
+    // Ta sama reguła co usuwanie list panelu (`canCustomizeBoardPanel`).
+    availability: (user) =>
+      canCustomizeBoardPanel(user)
+        ? { ok: true }
+        : { ok: false, reason: "Dla Head of Recruitment i admina" },
   },
   recruitment_activity: {
     type: "recruitment_activity",
     label: "Aktywność rekrutacyjna",
-    description: "Dzienne i miesięczne liczby: weryfikacje, CV, rozmowy.",
+    description: "Liczby za wybrany okres: weryfikacje, CV, rozmowy.",
     category: "recruitment",
     defaultSize: { w: 12, h: 5 },
     minSize: { w: 6, h: 3 },
     ownChrome: true,
+    // Tabela osób zespołu w okienku 22 rem z przewijaniem w kafelku pokazywała
+    // 6 z 23 osób przy 1280 × 720 (Artur, 30.10.2026).
+    fitContent: true,
     availability: needsSection("pipeline", "Rekrutacje"),
   },
   recruitment_competence: {
@@ -278,7 +338,7 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     // sekcja Delivery (np. TCM) dawała kafelek kończący się 403.
     availability: both(
       needsSection("delivery", "Delivery"),
-      needsRole(DL_ALERTS_ROLES, "Dla Delivery Leadów, adminów, Head of Recruitment i Finansów"),
+      needsRole(DL_ALERTS_ROLES, "Dla Delivery Leadów, adminów i Finansów"),
     ),
   },
   dl_alerts: {
@@ -303,6 +363,178 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     minSize: { w: 3, h: 2 },
     ownChrome: false,
     availability: ANY,
+  },
+  today_cycle: {
+    type: "today_cycle",
+    label: "Dziś",
+    description:
+      "Rozmowy u klienta, prepy i telefon do kandydata po rozmowie — z tego, co jest na dziś do zrobienia.",
+    category: "calendar",
+    defaultSize: { w: 4, h: 5 },
+    minSize: { w: 3, h: 3 },
+    ownChrome: false,
+    // Lustro bramki /calendar (`PIPELINE_OPERATIONAL_ROLES` w middleware)
+    // i `RecruitmentReadAccess` na `GET /api/interview-cycle`.
+    availability: both(
+      needsSection("pipeline", "Rekrutacje"),
+      needsRole(
+        [
+          "admin",
+          "head_of_recruitment",
+          "delivery_lead",
+          "recruiter",
+          "talent_community_manager",
+          "finance",
+        ],
+        "Dla osób pracujących przy rekrutacjach",
+      ),
+    ),
+  },
+  team_signals: {
+    type: "team_signals",
+    label: "Gdzie stoi",
+    description:
+      "Rekrutacje bez ruchu, bez nikogo u klienta, po terminie i nieprzejrzane Ogłoszenia — tylko ponad próg.",
+    category: "team",
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+    ownChrome: false,
+    // Lustro `VIEW_TEAM_KPI` na `GET /api/insights/team/attention`.
+    availability: both(
+      needsSection("insights", "Insights"),
+      needsRole(
+        [
+          "admin",
+          "head_of_recruitment",
+          "delivery_lead",
+          "talent_community_manager",
+          "finance",
+        ],
+        "Dla liderów zespołu",
+      ),
+    ),
+  },
+  system_status: {
+    type: "system_status",
+    label: "Stan systemu",
+    description:
+      "Synchronizacja Traffita, poczta zamówień, automaty, migracje i usługi AI — z publicznej sondy zdrowia.",
+    category: "team",
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+    ownChrome: false,
+    availability: needsRole(["admin"], "Dla administratora"),
+  },
+  my_week: {
+    type: "my_week",
+    label: "Twój tydzień",
+    description: "Weryfikacje, CV do klienta i placementy względem Twoich celów KPI.",
+    category: "my_work",
+    defaultSize: { w: 5, h: 2 },
+    minSize: { w: 4, h: 2 },
+    ownChrome: false,
+    availability: needsSection("insights", "Insights"),
+  },
+  // Prośba Head of Recruitment 23.10.2026: okres na kafelku i lista osób
+  // pod liczbą. Lustro `_TEAM_DETAIL_ROLES` trasy listy „Kto się liczy”.
+  team_results: {
+    type: "team_results",
+    label: "Wyniki zespołu",
+    description:
+      "Weryfikacje, rekomendacje, akceptacje i placementy zespołu w wybranym okresie — kliknij liczbę, żeby zobaczyć osoby.",
+    category: "team",
+    defaultSize: { w: 8, h: 6 },
+    minSize: { w: 5, h: 3 },
+    ownChrome: false,
+    availability: both(
+      needsSection("insights", "Insights"),
+      needsRole(
+        ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "finance"],
+        "Dla liderów zespołu",
+      ),
+    ),
+  },
+  // „Ludzie w NEXUSIE” (17.10.2026). Moduł i kartotekę zna dopiero
+  // `/api/hr/config` — rozstrzyga je `hrTileGate`; tu tylko to, co widać z konta.
+  hr_substitution: {
+    type: "hr_substitution",
+    label: "W zastępstwie",
+    description:
+      "Praca kolegi, którego dziś zastępujesz: jego rekrutacje, rozmowy u klienta i kandydaci w procesie.",
+    category: "people",
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+    ownChrome: false,
+    availability: ANY,
+  },
+  hr_my_time: {
+    type: "hr_my_time",
+    label: "Moja współpraca",
+    description: "Ile urlopu zostało, najbliższy urlop i godziny wpisane w tym miesiącu.",
+    category: "people",
+    defaultSize: { w: 6, h: 3 },
+    minSize: { w: 4, h: 3 },
+    ownChrome: false,
+    availability: ANY,
+  },
+  hr_approvals: {
+    type: "hr_approvals",
+    label: "Do akceptacji",
+    description: "Zgłoszenia i raporty godzin do potwierdzenia.",
+    category: "people",
+    defaultSize: { w: 4, h: 3 },
+    minSize: { w: 3, h: 2 },
+    ownChrome: false,
+    availability: ANY,
+  },
+  // Opieka nad konsultantami (22.10.2026). Moduł zna `/api/hr/config` —
+  // rozstrzyga `hrTileGate`; tu rola i sekcja jak bramki tras opieki.
+  care_mine: {
+    type: "care_mine",
+    label: "Moja opieka",
+    description:
+      "Rozmowy z konsultantami i opinie menedżerów po terminie i do piątku — z tablicy „Do zrobienia” w Opiece.",
+    category: "people",
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+    ownChrome: false,
+    // Lustro `require_hr_care_reader`: sekcja Delivery (rola Automatyzacje odpada na serwerze).
+    availability: needsSection("delivery", "Delivery"),
+  },
+  care_at_risk: {
+    type: "care_at_risk",
+    label: "Zagrożeni konsultanci",
+    description:
+      "Konsultanci ze zdrowiem relacji „Ryzyko” w Twoim zakresie — z powodem i linkiem do karty.",
+    category: "people",
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+    ownChrome: false,
+    // Zdrowie widzi krąg D11 (opiekun, DL, HoR, admin); lista — sekcja Delivery.
+    availability: both(
+      needsSection("delivery", "Delivery"),
+      needsRole(
+        ["admin", "delivery_lead", "talent_community_manager", "head_of_recruitment"],
+        "Dla opiekunów, Delivery Leadów i Head of Recruitment",
+      ),
+    ),
+  },
+  equipment_tasks: {
+    type: "equipment_tasks",
+    label: "Sprzęt do zrobienia",
+    description: "Zestawy do przygotowania, zwroty i protokoły czekające na podpis — najbliższe terminy.",
+    category: "people",
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+    ownChrome: false,
+    // Lustro `_manager` w `backend/app/api/equipment.py` (uprawnienie „Sprzęt”).
+    availability: (user) =>
+      hasPermission(user, "equipment")
+        ? { ok: true }
+        : {
+            ok: false,
+            reason: `Wymaga uprawnienia „${permissionLabel("equipment")}”`,
+          },
   },
   metric_number: {
     type: "metric_number",
@@ -525,6 +757,98 @@ export const TILE_TEMPLATES: TileTemplate[] = [
     metricSection: "finance",
   },
   {
+    key: "orders_ending_count",
+    type: "metric_number",
+    label: "Zamówienia kończące się w 30 dni",
+    description: "Ile zamówień Twoich klientów kończy się w ciągu 30 dni.",
+    category: "clients",
+    config: {
+      title: "Zamówienia kończące się w 30 dni",
+      link_to: "/clients?mine=1",
+      metric: {
+        source: "orders",
+        measure: "ending_30_days",
+        filters: { author: "all" },
+        group_by: "none",
+        period: "last_30_days",
+      },
+    },
+    metricSection: "delivery",
+  },
+  {
+    key: "margin_number",
+    type: "metric_number",
+    label: "Marża miesięczna (liczba)",
+    description: "Dzisiejsza marża miesięczna z kontraktów (PLN), w Twoim zakresie klientów.",
+    category: "finance",
+    config: {
+      title: "Marża / mc",
+      metric: {
+        source: "finance",
+        measure: "margin",
+        filters: { author: "all" },
+        group_by: "none",
+        period: "this_month",
+      },
+    },
+    metricSection: "finance",
+  },
+  {
+    key: "hired_month_all",
+    type: "metric_number",
+    label: "Zatrudnieni w firmie",
+    description: "Placementy całej firmy w tym miesiącu, z porównaniem do poprzedniego.",
+    category: "recruitment",
+    config: {
+      title: "Placementy w tym miesiącu",
+      metric: {
+        source: "pipeline_moves",
+        measure: "first_reach",
+        stage: "hired",
+        filters: { author: "all" },
+        group_by: "none",
+        period: "this_month",
+        compare_previous: true,
+      },
+    },
+    metricSection: "pipeline",
+  },
+  {
+    key: "team_funnel_week",
+    type: "metric_funnel",
+    label: "Lejek zespołu · tydzień",
+    description: "Ile osób zespół przeprowadził przez każdy etap w ostatnich 7 dniach.",
+    category: "team",
+    config: {
+      title: "Lejek zespołu · 7 dni",
+      metric: {
+        source: "pipeline_moves",
+        measure: "first_reach",
+        stage: null,
+        filters: { author: "team" },
+        group_by: "stage",
+        period: "last_7_days",
+      },
+    },
+    metricSection: "pipeline",
+  },
+  {
+    key: "request_board_my_category",
+    type: "request_board",
+    label: "Requesty i obłożenie · moja kategoria",
+    description: "Ta sama tablica co na daily, z filtrem ustawionym na Twoją kategorię.",
+    category: "team",
+    config: { board_scope: "my_category" },
+  },
+  {
+    key: "request_board_my_lead",
+    type: "request_board",
+    label: "Requesty i obłożenie · moje requesty",
+    description: "Ta sama tablica co na daily, z filtrem „Delivery Lead: ja”.",
+    category: "team",
+    config: { board_scope: "my_lead" },
+  },
+  {
     key: "note",
     type: "note",
     label: "Notatka i linki",
@@ -534,71 +858,91 @@ export const TILE_TEMPLATES: TileTemplate[] = [
   },
 ];
 
-// ── Polecane dla roli (pusty pulpit) ─────────────────────────────────────────
+// ── „Ludzie w NEXUSIE”: moduł, kartoteka, przełożony ──────────────────────────
 
-const RECOMMENDED_BY_ROLE: Partial<Record<UserRole, string[]>> = {
-  recruiter: ["request_board", "cv_sent_week", "my_recruitments", "my_next_steps", "calendar_today"],
-  sourcer: ["request_board", "cv_sent_week", "my_recruitments", "my_next_steps", "calendar_today"],
-  tac: ["request_board", "cv_sent_week", "my_recruitments", "my_next_steps", "calendar_today"],
-  talent_community_manager: [
-    "recruitment_activity",
-    "funnel",
-    "my_contact_queue",
-    "calendar_today",
-  ],
-  head_of_recruitment: [
-    "request_board",
-    "recruitment_activity",
-    "team_workload",
-    "funnel",
-    "contact_oversight",
-  ],
-  delivery_lead: [
-    "request_board",
-    "my_clients_alerts",
-    "orders_ending",
-    "active_contracts",
-    "calendar_today",
-  ],
-  finance: ["margin_monthly", "margin_by_client", "active_contracts", "orders_ending"],
-  admin: ["recruitment_competence", "orders_ending", "active_contracts", "margin_monthly"],
-};
+/** Stan modułów i praw osoby z `/api/hr/config`; brak = jeszcze nie wiadomo albo awaria. */
+export type TileHrContext = Pick<HrConfig, "open_modules" | "me"> | null | undefined;
 
-// Kolejność ról: pierwsza pasująca decyduje (konto wielorolowe dostaje
-// podpowiedzi najszerszej persony).
-const ROLE_PRIORITY: UserRole[] = [
-  "admin",
-  "finance",
-  "head_of_recruitment",
-  "delivery_lead",
-  "talent_community_manager",
-  "tac",
-  "recruiter",
-  "sourcer",
-];
+export const HR_TILE_TYPES: ReadonlySet<TileType> = new Set<TileType>([
+  "hr_substitution",
+  "hr_my_time",
+  "hr_approvals",
+  "equipment_tasks",
+  "care_mine",
+  "care_at_risk",
+]);
 
-export const ROLE_LABELS_PL: Partial<Record<UserRole, string>> = {
-  admin: "Administrator",
-  finance: "Finanse",
-  head_of_recruitment: "Head of Recruitment",
-  delivery_lead: "Delivery Lead",
-  talent_community_manager: "Talent Community Manager",
-  tac: "TAC",
-  recruiter: "Rekruter",
-  sourcer: "Sourcer",
-};
+const OK: TileAvailability = { ok: true };
+
+/**
+ * Kafelki „Ludzi w NEXUSIE”: przy wyłączonym module (albo nieznanym stanie
+ * modułów) nie ma ich w katalogu ani w układzie roli — `"hidden"`, bo funkcja
+ * nie istnieje, a nie brakuje do niej uprawnień. Gdy moduł działa, część
+ * kafelków wymaga kartoteki albo roli przełożonego — wtedy powód, jak przy
+ * innych kafelkach. Lustro bramek tras: `require_hr_self_service`,
+ * `require_hr_leave_approver` / `require_hr_time_approver`,
+ * `require_hr_substitution_reader`, `require_hr_equipment`, a dla opieki
+ * (`care_mine`, `care_at_risk`) — moduł `care` (`require_hr_care_reader`).
+ */
+export function hrTileGate(type: TileType, hr: TileHrContext): TileAvailability | "hidden" {
+  if (!HR_TILE_TYPES.has(type)) return OK;
+  if (!hr) return "hidden";
+  const { open_modules: open, me } = hr;
+  switch (type) {
+    case "hr_substitution":
+      return open.leave ? OK : "hidden";
+    case "hr_my_time":
+      if (!open.leave && !open.time) return "hidden";
+      return me.has_profile
+        ? OK
+        : { ok: false, reason: "Dla osób z kartoteką w NEXUSIE — założy ją Administracja współpracy" };
+    case "hr_approvals":
+      if (!open.leave && !open.time) return "hidden";
+      return me.is_admin || me.people_admin || me.timesheets === true || me.is_manager
+        ? OK
+        : { ok: false, reason: "Dla koordynatorów i Administracji współpracy" };
+    case "equipment_tasks":
+      return open.equipment ? OK : "hidden";
+    case "care_mine":
+    case "care_at_risk":
+      return open.care ? OK : "hidden";
+    default:
+      return OK;
+  }
+}
+
+/** Czy szablon w ogóle istnieje dla tej osoby (wyłączony moduł = nie ma go w katalogu). */
+export function isTemplateOffered(template: TileTemplate, hr: TileHrContext): boolean {
+  return hrTileGate(template.type, hr) !== "hidden";
+}
 
 export function templateAvailability(
   template: TileTemplate,
   user: User | null | undefined,
+  hr?: TileHrContext,
 ): TileAvailability {
   const base = TILE_DEFINITIONS[template.type].availability(user);
   if (!base.ok) return base;
+  const gate = hrTileGate(template.type, hr);
+  if (gate === "hidden") return { ok: false, reason: "Moduł „Ludzi w NEXUSIE” jest wyłączony" };
+  if (!gate.ok) return gate;
   if (template.metricSection === "finance") {
-    const roles = getUserRoles(user);
-    return roles.some((r) => ["admin", "finance", "delivery_lead"].includes(r))
+    // Całą firmę liczy „Wyniki firmy”. Bez niego kwoty ma tylko Delivery Lead,
+    // u swoich klientów (liczy serwer przy każdym zapytaniu metryki) — lustro
+    // `custom_metrics/engine.source_denial`.
+    if (hasPermission(user, "company_results")) return { ok: true };
+    if (!hasRole(user, "delivery_lead")) {
+      return {
+        ok: false,
+        reason: `Wymaga uprawnienia „${permissionLabel("company_results")}”`,
+      };
+    }
+    return hasPermission(user, "amounts_view")
       ? { ok: true }
-      : { ok: false, reason: "Kwoty widzą Finanse, administrator i Delivery Lead" };
+      : {
+          ok: false,
+          reason: `Wymaga uprawnienia „${permissionLabel("amounts_view")}”`,
+        };
   }
   if (template.metricSection) {
     const labels = {
@@ -614,20 +958,6 @@ export function templateAvailability(
         };
   }
   return { ok: true };
-}
-
-export function recommendedTemplates(user: User | null | undefined): {
-  roleLabel: string | null;
-  templates: TileTemplate[];
-} {
-  const roles = getUserRoles(user);
-  const role = ROLE_PRIORITY.find((r) => roles.includes(r)) ?? null;
-  const keys = (role && RECOMMENDED_BY_ROLE[role]) || ["calendar_today", "note"];
-  const templates = keys
-    .map((key) => TILE_TEMPLATES.find((t) => t.key === key))
-    .filter((t): t is TileTemplate => Boolean(t))
-    .filter((t) => templateAvailability(t, user).ok);
-  return { roleLabel: role ? (ROLE_LABELS_PL[role] ?? null) : null, templates };
 }
 
 export function tileTitle(tile: Pick<DashboardTile, "type" | "config">): string {

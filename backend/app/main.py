@@ -1,23 +1,37 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES, GZipMiddleware
 
 from app.core.config import settings
+
+if settings.NEXUS_ENV == "staging":
+    from app.core.staging import install_egress_guard
+
+    install_egress_guard(settings.STAGING_EXTRA_ALLOWED_HOSTS.split(","))
+
 from app.core.database import engine, Base
 from app.core.http_headers import apply_credentialed_cache_policy
 from app.core.logging_config import configure_json_logging
 from app.core.rate_limit import limiter
+from app.core.integer_range import OUT_OF_RANGE, is_integer_out_of_range
 from app.core.null_character_guard import NullCharacterGuardMiddleware
 from app.core.body_size_limit import BodySizeLimitMiddleware
+from app.core.access_usage_middleware import AccessUsageMiddleware
 from app.core.request_correlation import RequestCorrelationMiddleware
+from app.services.client_off_limits import (
+    OffLimitsConfirmationMiddleware,
+    OffLimitsConfirmationRequired,
+)
 from app.core.sentry_privacy import scrub_event
 
 # Eager-import the models package so every ORM class is registered in the
@@ -26,6 +40,14 @@ from app.core.sentry_privacy import scrub_event
 # → Email from m365) fail to resolve when no imported router pulled in the
 # target class.
 import app.models  # noqa: F401
+
+# 0448: listener ORM zdarzeń API integracyjnego v1 (rejestracja przy imporcie,
+# raz na proces) — kandydat, ruch karty, notatka itd. dopisują zdarzenie
+# w transakcji zmiany.
+import app.services.integration_events  # noqa: F401
+
+# Kartoteka idzie za kontem (listener ``after_flush`` na ``users.is_active``).
+import app.services.hr.account_profiles  # noqa: F401
 
 from app.api import (
     auth,
@@ -38,6 +60,7 @@ from app.api import (
     candidate_activity_summary,
     candidate_identity_quarantine,
     candidate_profile_facts,
+    candidate_rates,
     jobs,
     clients,
     client_directory,
@@ -80,8 +103,10 @@ from app.models.insights_seniority_snapshot import InsightsSenioritySnapshot
 from app.models.user_performance_flag import UserPerformanceFlag
 from app.models.recruitment_campaign import RecruitmentCampaign
 from app.api import insights_recruitment
+from app.api import insights_sources as insights_sources_api
 from app.api import insights_stage_breakdown
 from app.api import insights_board
+from app.api import autofill_quality as autofill_quality_api
 from app.api import insights_clients
 from app.api import insights_delivery_leads
 from app.api import insights_scoring
@@ -89,27 +114,41 @@ from app.api import insights_campaigns
 from app.api import insights_charts
 from app.api import insights_reconciliation
 from app.api import integrations_compass
+from app.api import integrations_v1
+from app.api.integrations_v1.common import (
+    IntegrationApiError,
+    integration_error_handler,
+)
 from app.api import insights_performance_flags
 from app.api import insights_team
 from app.api import insights_team_signals
+from app.api import insights_work_rhythm
+from app.api import insights_proposals
 from app.api import client_knowledge
 from app.api import client_materials
 from app.api import client_framework_contracts
 from app.api import client_executive_contracts
 from app.api import client_contract_amendments
 from app.api import client_order_groups as client_order_groups_api
+from app.api import client_md_imports as client_md_imports_api
 from app.api import client_orders as client_orders_api
 from app.api import dl_alerts as dl_alerts_api
 from app.api import md_consumption as md_consumption_api
 from app.api import my_clients as my_clients_api
 from app.api import my_relationships as my_relationships_api
 from app.api import my_people as my_people_api
+from app.api import also_fits as also_fits_api
+from app.api import dl_match as dl_match_api
+from app.api import candidate_similar as candidate_similar_api
 from app.api import academy as academy_api
+from app.api import academy_edition as academy_edition_api
 from app.api import trainee as trainee_api
 from app.api import board_tasks as board_tasks_api
 from app.api import candidate_followups as candidate_followups_api
+from app.api import screening_calls as screening_calls_api
 from app.api import interview_cycle as interview_cycle_api
 from app.api import prep_meetings as prep_meetings_api
+from app.api import prep_review_config as prep_review_config_api
 from app.api import hiring_managers_analytics as hiring_managers_api
 from app.api import admin_client_mixups
 from app.api import admin_clients_overview as admin_clients_overview_api
@@ -122,6 +161,8 @@ from app.api import admin_candidate_pii_orphans
 from app.api import admin_index_coverage, admin_schema_drift
 from app.api import admin_index_cleanup
 from app.api import admin_match_score_repair
+from app.api import admin_job_board_cards
+from app.api import admin_screening_note_backfill
 from app.api import admin_workflows
 from app.api import admin_recruitment_processes
 from app.api import ai_matching_diagnostics
@@ -139,16 +180,23 @@ from app.api import required_documents
 from app.api import screenings
 from app.api import contacts
 from app.api import prep_kit
-from app.api import ai_writer
 from app.api import talent_pools
 from app.api import public_engagement
-from app.api import public_interview_confirmation
 from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
 from app.api import b2b_documents
+from app.api import b2b_esign
+from app.api import pre_contracts as pre_contracts_api
+from app.api import pair_owners as pair_owners_api
 from app.api import b2b_register_import
+from app.api import contract_folder_docs
 from app.api import jarvis as jarvis_api
 from app.api import candidate_stage_cv as candidate_stage_cv_api
+from app.api import client_forms as client_forms_api
+from app.api import cover_sheets as cover_sheets_api
+from app.api import cv_editor_import as cv_editor_import_api
+from app.api import cv_pdf_preview as cv_pdf_preview_api
+from app.api import cv_ai_sources as cv_ai_sources_api
 from app.api import calendar
 from app.api import notifications
 from app.api import import_export
@@ -167,22 +215,87 @@ from app.api import phase3
 from app.api import phase4
 from app.api import phase5
 from app.api import candidate_conflicts as candidate_conflicts_api
+from app.api import candidate_blacklist as candidate_blacklist_api
 from app.api import admin_import
 from app.api import kpis as kpis_api
 from app.api import kpi_targets_admin as kpi_targets_admin_api
+
+# „Ludzie w NEXUSIE” (16.10.2026): kartoteka, katalog ludzi, Kadry.
+from app.api import hr_admin as hr_admin_api
+from app.api import hr_approval_finance as hr_approval_finance_api
+from app.api import hr_approvals as hr_approvals_api
+from app.api import hr_counts as hr_counts_api
+from app.api import hr_dashboard as hr_dashboard_api
+from app.api import hr_import as hr_import_api
+from app.api import hr_structure as hr_structure_api
+from app.api import hr_team as hr_team_api
+from app.api import hr_people as hr_people_api
+from app.api import hr_m365 as hr_m365_api
+from app.api import hr_leave as hr_leave_api
+from app.api import hr_time as hr_time_api
+from app.api import hr_payroll as hr_payroll_api
+from app.api import hr_settlements as hr_settlements_api
+from app.api import hr_ksef as hr_ksef_api
+from app.api import hr_payments as hr_payments_api
+from app.api import hr_documents as hr_documents_api
+from app.api import hr_agreements as hr_agreements_api
+from app.api import client_sales_invoices as client_sales_invoices_api
+from app.api import hr_lifecycle as hr_lifecycle_api
+from app.api import contract_care as contract_care_api
+from app.api import care_atlas as care_atlas_api
+from app.api import care_skills as care_skills_api
+from app.api import care_announcements as care_announcements_api
+from app.api import public_consultant_mail as public_consultant_mail_api
+from app.api import admin_cases as admin_cases_api
+from app.api import back_office as back_office_api
+from app.api import consultant_portal as consultant_portal_api
+from app.api import consultant_portal_staff as consultant_portal_staff_api
+from app.api import equipment as equipment_api
+from app.api import sales_companies as sales_companies_api
+from app.api import sales_company_people as sales_company_people_api
+from app.api import sales_activities as sales_activities_api
+from app.api import sales_clients as sales_clients_api
+from app.api import sales_contacts as sales_contacts_api
+from app.api import sales_files as sales_files_api
+from app.api import sales_leads as sales_leads_api
+from app.api import sales_kpi as sales_kpi_api
+from app.api import sales_opportunities as sales_opportunities_api
+from app.api import client_onboarding as client_onboarding_api
+from app.api import equipment_intune as equipment_intune_api
+from app.api import equipment_public as equipment_public_api
+from app.services.hr.program import require_hr_program
 from app.api import onboarding as onboarding_api
 from app.api import procedures as procedures_api
 from app.api import help_screens as help_screens_api
+from app.api import novelties as novelties_api
+from app.api import cv_generator_feedback as cv_generator_feedback_api
 from app.api import help_materials as help_materials_api
 from app.api import proposals as proposals_api
 from app.api import job_shortlist as job_shortlist_api
 from app.api import hiring_manager_feedback as hiring_manager_feedback_api
 from app.api import proposals_bulk as proposals_bulk_api
 from app.api import job_proposals as job_proposals_api
+from app.api import application_screenings as application_screenings_api
+from app.api import candidate_ai_assessments as candidate_ai_assessments_api
+from app.api import recommendation_cards as recommendation_cards_api
+from app.api import recommendation_card_assist as recommendation_card_assist_api
+from app.api import candidate_rate_changes as candidate_rate_changes_api
+from app.api import screening_form as screening_form_api
+from app.api import dl_review as dl_review_api
 from app.api import job_similar as job_similar_api
+from app.api import job_twins as job_twins_api
+from app.api import job_champions as job_champions_api
+from app.api import cpro_mail as cpro_mail_api
+from app.api import job_idle as job_idle_api
+from app.api import job_p0 as job_p0_api
+from app.api import plain_brief as plain_brief_api
+from app.api import plain_brief_refresh as plain_brief_refresh_api
+from app.api import role_profiles as role_profiles_api
 from app.api import invite_links as invite_links_api
 from app.api import career_links as career_links_api
 from app.api import public_career as public_career_api
+from app.api import public_client_panel as public_client_panel_api
+from app.api import client_panel as client_panel_api
 from app.api import application_submissions as application_submissions_api
 from app.api import users as users_api
 from app.api import user_dashboard as user_dashboard_api
@@ -190,7 +303,11 @@ from app.api import dashboard_metrics as dashboard_metrics_api
 from app.api import settings as app_settings_api
 from app.api import champion_intake as champion_intake_api
 from app.api import job_request_intake as job_request_intake_api
+from app.api import job_files as job_files_api
+from app.api import job_ads as job_ads_api
+from app.api import job_intake_forms as job_intake_forms_api
 from app.api import screening_reassign as screening_reassign_api
+from app.api import cv_editor_ai as cv_editor_ai_api
 from app.api import cv_qc as cv_qc_api
 from app.api import pipeline_requirements as pipeline_requirements_api
 from app.api import champion_suggestions as champion_suggestions_api
@@ -211,15 +328,16 @@ from app.api import candidate_chat as candidate_chat_api
 from app.api import admin_chats as admin_chats_api
 from app.api import stage_notification_rules as stage_notification_rules_api
 from app.api import autenti as autenti_api
-from app.api import public_signing as public_signing_api
-from app.api import signing as signing_api
 from app.api import ai_settings as ai_settings_api
 from app.api import integrations_companies as integrations_companies_api
 from app.api import oauth_clients as oauth_clients_api
 from app.api import oauth_token as oauth_token_api
 from app.api import service_accounts as service_accounts_api
+from app.api import linkedin_extension as linkedin_extension_api
 from app.api import candidate_sources as candidate_sources_api
 from app.api import contract_client_reassign as contract_client_reassign_api
+from app.api import contract_document_folders as contract_document_folders_api
+from app.api import job_board_connection as job_board_connection_api
 from app.api import job_portals as job_portals_api
 from app.api import candidates_bulk as candidates_bulk_api
 from app.api import dictionaries as dictionaries_api
@@ -228,6 +346,8 @@ from app.api import teams_channels as teams_channels_api
 from app.api import priority_work as priority_work_api
 from app.api import recruitment_allocation as recruitment_allocation_api
 from app.api import competence_team as competence_team_api
+from app.api import people_setup as people_setup_api
+from app.api import announcements as announcements_api
 from app.api import request_work_states as request_work_states_api
 from app.api import request_board as request_board_api
 
@@ -280,6 +400,19 @@ def _is_transient_anthropic_exc(exc: BaseException) -> bool:
     return err_type in _TRANSIENT_ANTHROPIC_TYPES
 
 
+def _is_graceful_shutdown_cancel(hint: dict | None) -> bool:
+    """Uvicorn przy zamykaniu kontenera (każdy deploy) loguje na ERROR, że
+    ucina żądania dłuższe niż UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN. To świadomy
+    limit (patrz CLAUDE.md, „Backend zamyka się łagodnie”), nie błąd — do
+    25.09.2026 jedno zdarzenie Sentry na deploy (NEXUS-BE-3S)."""
+    record = hint.get("log_record") if hint else None
+    return (
+        record is not None
+        and getattr(record, "name", "") == "uvicorn.error"
+        and "timeout graceful shutdown exceeded" in str(getattr(record, "msg", ""))
+    )
+
+
 def _sentry_before_send(event: dict, hint: dict) -> dict | None:
     """Drop transient Anthropic 429/529 errors auto-captured by Sentry's
     AnthropicIntegration at the raw ``messages.create`` boundary.
@@ -295,6 +428,8 @@ def _sentry_before_send(event: dict, hint: dict) -> dict | None:
     events that (a) carry a transient Anthropic exception and (b) came through
     the anthropic mechanism; never swallow errors raised by our own code.
     """
+    if _is_graceful_shutdown_cancel(hint):
+        return None
     exc_info = hint.get("exc_info") if hint else None
     if (
         exc_info
@@ -304,6 +439,11 @@ def _sentry_before_send(event: dict, hint: dict) -> dict | None:
         return None
     if not (exc_info and len(exc_info) >= 2):
         return scrub_event(event)
+    # Anulowanie (klient zamknął kartę w trakcie uploadu CV, restart kontenera)
+    # to nie błąd kodu, ale SQLAlchemy i uvicorn logują je na ERROR — do
+    # 25.09.2026 kilka zdarzeń dziennie (NEXUS-BE-3Q/3R/47).
+    if isinstance(exc_info[1], asyncio.CancelledError):
+        return None
     if not _is_transient_anthropic_exc(exc_info[1]):
         return scrub_event(event)
     for value in (event.get("exception") or {}).get("values", []):
@@ -378,6 +518,14 @@ class UnhandledErrorMiddleware(BaseHTTPMiddleware):
         try:
             return await call_next(request)
         except Exception as exc:  # noqa: BLE001 - to jest sieć bezpieczeństwa
+            if is_integer_out_of_range(exc):
+                # Liczba z żądania większa niż kolumna (int4): asyncpg nie
+                # wysłał zapytania, więc to błąd żądania. Jedno miejsce zamiast
+                # górnej granicy na każdym parametrze i polu każdej trasy.
+                logger.warning(
+                    "Integer out of range on %s %s", request.method, request.url.path
+                )
+                return JSONResponse(status_code=422, content={"detail": OUT_OF_RANGE})
             logger.exception(
                 "Unhandled error on %s %s", request.method, request.url.path
             )
@@ -580,6 +728,21 @@ async def lifespan(app: FastAPI):
             "Job delivery lead fill failed: %s", type(exc).__name__, exc_info=True
         )
 
+    # Maile obowiązkowe (26.10.2026) włączają się same, bez zaległości;
+    # idempotentne i nigdy nie blokuje startu.
+    try:
+        from app.services.notification_delivery import ensure_required_kinds
+
+        async with AsyncSessionLocal() as _required_mail_db:
+            turned_on = await ensure_required_kinds(_required_mail_db)
+        logger.info("Required notification emails turned on: %s", turned_on)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "Required notification emails check failed: %s",
+            type(exc).__name__,
+            exc_info=True,
+        )
+
     # Startup: ensure Qdrant collection exists
     import asyncio
     from app.services.embedding_service import init_qdrant_collection
@@ -624,7 +787,11 @@ async def lifespan(app: FastAPI):
     from app.tasks.match_history_ttl import match_history_ttl_loop
     from app.tasks.slack_sla_alerts import slack_sla_alerts_loop
     from app.tasks.ai_spend_alerts import ai_spend_alerts_loop
+    from app.tasks.candidate_data_access_alerts import (
+        candidate_data_access_alerts_loop,
+    )
     from app.tasks.contract_alerts import contract_alerts_loop
+    from app.tasks.teams_prep_scope_alerts import teams_prep_scope_alerts_loop
     from app.tasks.competition_autofreeze import competition_autofreeze_loop
     from app.tasks.cc_centroid_sync import cc_centroid_sync_loop
     from app.tasks.kpi_coach_nudger import kpi_coach_nudger_loop
@@ -644,10 +811,20 @@ async def lifespan(app: FastAPI):
     from app.tasks.marketplace_sweeper import marketplace_sweeper_loop
     from app.tasks.saved_search_alerts import saved_search_alerts_loop
     from app.tasks.keyword_corpus_backfill import keyword_corpus_backfill_loop
+    from app.tasks.note_kind_backfill import note_kind_backfill_loop
+    from app.tasks.requirement_row_counts import requirement_row_counts_loop
+    from app.tasks.cv_qc_recompute import cv_qc_recompute_loop
+    from app.tasks.qc_quality_daily import qc_quality_daily_loop
+    from app.tasks.job_ad_prepare import job_ad_prepare_loop
+    from app.tasks.recommendation_card_import import (
+        recommendation_card_import_loop,
+    )
+    from app.tasks.candidate_rate_from import candidate_rate_from_loop
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
-    from app.tasks.signing_sweeper import signing_sweeper_loop
     from app.tasks.signature_reconciler import signature_reconciler_loop
+    from app.tasks.b2b_esign_sweeper import b2b_esign_sweeper_loop
+    from app.tasks.pre_contract_sweeper import pre_contract_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
@@ -655,18 +832,25 @@ async def lifespan(app: FastAPI):
     from app.tasks.integration_stale_alerts import (
         integration_stale_alerts_loop,
     )
+    from app.tasks.integration_webhooks import integration_webhooks_loop
     from app.tasks.insights_seniority_journal import (
         insights_seniority_journal_loop,
     )
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
+    from app.tasks.cpro_mail import cpro_mail_loop
+    from app.tasks.job_idle import job_idle_loop
     from app.tasks.kpi_email_reports import kpi_email_reports_loop
+    from app.tasks.daily_digest_email import daily_digest_email_loop
+    from app.tasks.notification_email_outbox import notification_email_outbox_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
     from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
+    from app.tasks.m365_account_sweep import m365_account_sweep_loop
     from app.tasks.job_portal_worker import job_portal_worker_loop
     from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.order_mail_ingest import order_mail_ingest_loop
     from app.tasks.teams_prep_transcripts import teams_prep_transcripts_loop
+    from app.tasks.contract_docs_sharepoint import contract_docs_sharepoint_loop
     from app.tasks.notes_insights_sync import notes_insights_sync_loop
     from app.tasks.weekly_eval import weekly_eval_loop
     from app.tasks.match_digest import match_digest_loop
@@ -676,20 +860,25 @@ async def lifespan(app: FastAPI):
     from app.tasks.index_outbox_worker import index_outbox_loop
     from app.tasks.candidate_auto_match import candidate_auto_match_loop
     from app.tasks.auto_full_review import auto_full_review_loop
+    from app.tasks.new_column_autofill import new_column_autofill_loop
     from app.tasks.candidate_search_worker import candidate_search_loop
     from app.tasks.candidate_search_retention import candidate_search_retention_loop
     from app.tasks.jarvis_retention import jarvis_retention_loop
     from app.tasks.academy_intake import academy_intake_loop
+    from app.tasks.application_screening import application_screening_loop
     from app.tasks.trainee_call_lists import trainee_call_lists_loop
+    from app.tasks.cc_participants_sync import cc_participants_sync_loop
 
     # audyt 22.09 r2 (DATA-03/04/PROD-10): retencja kolejek i dziennika automatów.
     from app.tasks.queue_retention import queue_retention_loop
+    from app.tasks.access_usage import access_usage_loop
     from app.tasks.priority_work import priority_work_loop
     from app.tasks.recruitment_allocation import (
         availability_loop,
         allocation_loop,
         allocation_matching_loop,
     )
+    from app.tasks import hr_loops
     from app.services.recruitment_allocation_events import register_allocation_events
 
     register_allocation_events()
@@ -711,145 +900,314 @@ async def lifespan(app: FastAPI):
     except Exception as _bootstrap_exc:  # noqa: BLE001 — nie może ubić startu
         logger.warning("compass_bootstrap: pominięty po wyjątku: %s", _bootstrap_exc)
 
-    # Background tasks registry — exposed via app.state so /api/admin/snapshot
-    # can introspect running/expected counts. Order matches shutdown order.
-    # Autenti sweeper exits immediately when AUTENTI_ENABLED=false; safe to
-    # spawn unconditionally (mirrors LinkedIn/M365 patterns).
-    app.state.background_tasks = {
-        "cv_generation": asyncio.create_task(cv_recovery_loop()),
-        "cv_approval": asyncio.create_task(cv_approval_loop()),
-        "cv_source_cleanup": asyncio.create_task(cv_source_cleanup_loop()),
-        "cv_version_maps": asyncio.create_task(cv_version_map_loop()),
-        "candidate_search": asyncio.create_task(candidate_search_loop()),
-        # 7 dni, ale najnowszy przegląd z wynikami na (autor, rekrutacja/
-        # request) zostaje (decyzja 10.09). Kill-switch sprawdzany PRZED pętlą.
-        "candidate_search_retention": asyncio.create_task(
-            candidate_search_retention_loop()
-        ),
-        # Jarvis (0330): retencja rozmów (dane osobowe) i wygaszanie propozycji.
-        "jarvis_retention": asyncio.create_task(jarvis_retention_loop()),
-        "academy_intake": asyncio.create_task(academy_intake_loop()),
-        "trainee_call_lists": asyncio.create_task(trainee_call_lists_loop()),
-        # audyt 22.09 r2 (DATA-03/04/PROD-10): dziennik auto-matcha, kolejki.
-        "queue_retention": asyncio.create_task(queue_retention_loop()),
-        "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
-        "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),
-        "slack_sla_alerts": asyncio.create_task(slack_sla_alerts_loop()),
-        "ai_spend_alerts": asyncio.create_task(ai_spend_alerts_loop()),
-        "contract_alerts": asyncio.create_task(contract_alerts_loop()),
-        "fx_refresh": asyncio.create_task(fx_refresh_loop()),
-        "competition_autofreeze": asyncio.create_task(competition_autofreeze_loop()),
-        "cc_centroid_sync": asyncio.create_task(cc_centroid_sync_loop()),
-        "kpi_coach_nudger": asyncio.create_task(kpi_coach_nudger_loop()),
-        "notification_triggers": asyncio.create_task(notification_triggers_loop()),
-        "notification_volume_monitor": asyncio.create_task(
-            notification_volume_monitor_loop()
-        ),
-        # Opóźnienie pętli zdarzeń + obciążenie puli połączeń co minutę
-        # (`runtime_metrics` w Loki) — pomiar przed zmianą puli/procesów (F06).
-        "runtime_metrics": asyncio.create_task(runtime_metrics_monitor_loop()),
-        "app_mail_monitor": asyncio.create_task(app_mail_monitor_loop()),
-        "rejection_email": asyncio.create_task(rejection_email_loop()),
-        "linkedin_sync": asyncio.create_task(linkedin_sync_loop()),
-        "microsoft365_sync": asyncio.create_task(microsoft365_sync_loop()),
-        "m365_cv_parse": asyncio.create_task(m365_cv_parse_loop()),
-        "m365_rematch": asyncio.create_task(rematch_unlinked_emails_loop()),
-        "m365_webhook_renewal": asyncio.create_task(graph_subscription_renewal_loop()),
-        "m365_recording_discovery": asyncio.create_task(
-            meeting_recording_discovery_loop()
-        ),
-        "marketplace_sweeper": asyncio.create_task(marketplace_sweeper_loop()),
-        "saved_search_alerts": asyncio.create_task(saved_search_alerts_loop()),
-        # Korpus słów kluczowych (0346) dla wierszy sprzed migracji; kończy się
-        # sama, gdy nie zostaje nic do policzenia.
-        "keyword_corpus_backfill": asyncio.create_task(keyword_corpus_backfill_loop()),
-        "chat_email_fallback": asyncio.create_task(chat_email_fallback_loop()),
-        "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
-        "signing_sweeper": asyncio.create_task(signing_sweeper_loop()),
-        "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
-        "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
-        "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
-        # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
-        # Rodzaje domyślnie OFF w Ustawieniach → Powiadomienia; znacznik w bazie.
-        "kpi_email_reports": asyncio.create_task(kpi_email_reports_loop()),
-        # Powiadomienia Delivery Leada (0233). Kill-switch sprawdzany PRZED
-        # pętlą — wyłączona funkcja kończy zadanie, a nie budzi procesu co
-        # 24 h po to, żeby sprawdzić tę samą flagę.
-        "dl_alerts": asyncio.create_task(dl_alerts_loop()),
-        # Finanse → Braki (0308): zamówienie zakończone bez następcy. Biegnie
-        # po północy w Warszawie; kill-switch ORDER_GAPS_ENABLED przed pętlą.
-        "order_gaps": asyncio.create_task(order_gaps_loop()),
-        "insights_seniority_journal": asyncio.create_task(
-            insights_seniority_journal_loop()
-        ),
-        # Zastój scraperów pracuj/JJIT → Slack (cooldown w DB). Kill-switch
-        # INTEGRATION_STALE_ALERTS_ENABLED przed pętlą.
-        "integration_stale_alerts": asyncio.create_task(
-            integration_stale_alerts_loop()
-        ),
-        # Import JJIT/RocketJobs (etap 2): codziennie 13:00 Europe/Warsaw,
-        # kill-switch JJIT_ENABLED przed pętlą; ręczny start przez admina.
-        "jjit_import": asyncio.create_task(jjit_import_loop()),
-        "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
-        "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
-        "order_mail_ingest": asyncio.create_task(order_mail_ingest_loop()),
-        # 0370: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
-        # przed pętlą przy TEAMS_PREP_TRANSCRIPTS_ENABLED=false.
-        "teams_prep_transcripts": asyncio.create_task(teams_prep_transcripts_loop()),
-        # D5: mianownik wskaznikow „na dzien". Petla KONCZY sie przed
-        # pierwszym odczekaniem, gdy wylaczona — nie budzi sie co interwal
-        # tylko po to, zeby sprawdzic te sama flage.
-        "compass_workdays_sync": asyncio.create_task(compass_workdays_sync_loop()),
-        "compass_lifecycle_sync": asyncio.create_task(compass_lifecycle_sync_loop()),
-        # 0360: kolejka publikacji na portalach — kończy się przed pętlą,
-        # gdy żaden portal nie jest włączony.
-        "job_portal_worker": asyncio.create_task(job_portal_worker_loop()),
-        "notes_insights_sync": asyncio.create_task(notes_insights_sync_loop()),
-        "weekly_eval": asyncio.create_task(weekly_eval_loop()),
-        "match_digest": asyncio.create_task(match_digest_loop()),
-        "candidate_contact_queue": asyncio.create_task(candidate_contact_queue_loop()),
-        "candidate_contact_traffit": asyncio.create_task(traffit_contact_intake_loop()),
-        "index_outbox": asyncio.create_task(index_outbox_loop()),
-        "candidate_auto_match": asyncio.create_task(candidate_auto_match_loop()),
-        # 21.09.2026: nocny automatyczny pełny przegląd bazy → „Propozycje".
-        "auto_full_review": asyncio.create_task(auto_full_review_loop()),
-        "index_drift_reconciler": asyncio.create_task(index_drift_reconciler_loop()),
-        "priority_work": asyncio.create_task(priority_work_loop()),
-        "workforce_availability": asyncio.create_task(availability_loop()),
-        "recruitment_allocation": asyncio.create_task(allocation_loop()),
-        "allocation_matching": asyncio.create_task(allocation_matching_loop()),
-    }
+    # Pętle ma jeden proces naraz (rolling update trzyma chwilę dwa kontenery).
+    # Wolna blokada = start jak dawniej, przed `yield`. Wyłącznik awaryjny:
+    # BACKGROUND_LEADER_LOCK_ENABLED=false.
+    def _start_background_tasks() -> None:
+        # Background tasks registry — exposed via app.state so /api/admin/snapshot
+        # can introspect running/expected counts. Order matches shutdown order.
+        # Autenti sweeper exits immediately when AUTENTI_ENABLED=false; safe to
+        # spawn unconditionally (mirrors LinkedIn/M365 patterns).
+        app.state.background_tasks = {
+            "cv_generation": asyncio.create_task(cv_recovery_loop()),
+            "cv_approval": asyncio.create_task(cv_approval_loop()),
+            "cv_source_cleanup": asyncio.create_task(cv_source_cleanup_loop()),
+            "cv_version_maps": asyncio.create_task(cv_version_map_loop()),
+            "candidate_search": asyncio.create_task(candidate_search_loop()),
+            # 7 dni, ale najnowszy przegląd z wynikami na (autor, rekrutacja/
+            # request) zostaje (decyzja 10.09). Kill-switch sprawdzany PRZED pętlą.
+            "candidate_search_retention": asyncio.create_task(
+                candidate_search_retention_loop()
+            ),
+            # Jarvis (0330): retencja rozmów (dane osobowe) i wygaszanie propozycji.
+            "jarvis_retention": asyncio.create_task(jarvis_retention_loop()),
+            "academy_intake": asyncio.create_task(academy_intake_loop()),
+            # 0404: zgłoszenia z linku rekrutacji — przegląd AI przed „Nowi”.
+            "application_screening": asyncio.create_task(application_screening_loop()),
+            "trainee_call_lists": asyncio.create_task(trainee_call_lists_loop()),
+            # Uczestnicy rekrutacji = osoby jej kategorii kompetencji; co godzinę
+            # wyrównanie po zmianach ról, kont i importach.
+            "cc_participants_sync": asyncio.create_task(cc_participants_sync_loop()),
+            # audyt 22.09 r2 (DATA-03/04/PROD-10): dziennik auto-matcha, kolejki.
+            "queue_retention": asyncio.create_task(queue_retention_loop()),
+            # 0632: zapis i retencja licznika użycia obszarów.
+            "access_usage": asyncio.create_task(access_usage_loop()),
+            "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
+            "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),
+            "slack_sla_alerts": asyncio.create_task(slack_sla_alerts_loop()),
+            "ai_spend_alerts": asyncio.create_task(ai_spend_alerts_loop()),
+            "candidate_data_access_alerts": asyncio.create_task(
+                candidate_data_access_alerts_loop()
+            ),
+            "contract_alerts": asyncio.create_task(contract_alerts_loop()),
+            # 0510: kto jest poza zakresem aplikacji prepów w Teams (do adminów).
+            "teams_prep_scope_alerts": asyncio.create_task(
+                teams_prep_scope_alerts_loop()
+            ),
+            "fx_refresh": asyncio.create_task(fx_refresh_loop()),
+            "competition_autofreeze": asyncio.create_task(
+                competition_autofreeze_loop()
+            ),
+            "cc_centroid_sync": asyncio.create_task(cc_centroid_sync_loop()),
+            "kpi_coach_nudger": asyncio.create_task(kpi_coach_nudger_loop()),
+            "notification_triggers": asyncio.create_task(notification_triggers_loop()),
+            "notification_volume_monitor": asyncio.create_task(
+                notification_volume_monitor_loop()
+            ),
+            # Opóźnienie pętli zdarzeń + obciążenie puli połączeń co minutę
+            # (`runtime_metrics` w Loki) — pomiar przed zmianą puli/procesów (F06).
+            "runtime_metrics": asyncio.create_task(runtime_metrics_monitor_loop()),
+            "app_mail_monitor": asyncio.create_task(app_mail_monitor_loop()),
+            "rejection_email": asyncio.create_task(rejection_email_loop()),
+            "linkedin_sync": asyncio.create_task(linkedin_sync_loop()),
+            "microsoft365_sync": asyncio.create_task(microsoft365_sync_loop()),
+            "m365_cv_parse": asyncio.create_task(m365_cv_parse_loop()),
+            "m365_rematch": asyncio.create_task(rematch_unlinked_emails_loop()),
+            "m365_webhook_renewal": asyncio.create_task(
+                graph_subscription_renewal_loop()
+            ),
+            "m365_recording_discovery": asyncio.create_task(
+                meeting_recording_discovery_loop()
+            ),
+            "marketplace_sweeper": asyncio.create_task(marketplace_sweeper_loop()),
+            "saved_search_alerts": asyncio.create_task(saved_search_alerts_loop()),
+            # Korpus słów kluczowych (0346) dla wierszy sprzed migracji; kończy się
+            # sama, gdy nie zostaje nic do policzenia.
+            "keyword_corpus_backfill": asyncio.create_task(
+                keyword_corpus_backfill_loop()
+            ),
+            "note_kind_backfill": asyncio.create_task(note_kind_backfill_loop()),
+            # „Wymagania do poprawy” (rare_word, 27.10.2026): liczby osób wierszy
+            # otwartych rekrutacji co godzinę do pamięci — pulpit ich nie liczy.
+            "requirement_row_counts": asyncio.create_task(
+                requirement_row_counts_loop()
+            ),
+            # QC CV: nieudane przebiegi sprzed zmiany reguł (plakietki na Tablicy);
+            # kończy się samo po jednym przejściu.
+            "cv_qc_recompute": asyncio.create_task(cv_qc_recompute_loop()),
+            # „Jakość QC” (D6): trafność sprawdzeń z „To nieprawda”, raz na dobę.
+            "qc_quality_daily": asyncio.create_task(qc_quality_daily_loop()),
+            # Ogłoszenia (21.10.2026): w nocy treść dla otwartych rekrutacji bez
+            # ogłoszenia — rano kolejka „Strona kariery do uzupełnienia”.
+            "job_ad_prepare": asyncio.create_task(job_ad_prepare_loop()),
+            # 0413: karty rekomendacji z notatek; wyłączona flagą kończy się od razu.
+            "recommendation_card_import": asyncio.create_task(
+                recommendation_card_import_loop()
+            ),
+            # 0414: „Stawka od” — przeliczenia z kolejki zasilanej wyzwalaczami.
+            "candidate_rate_from": asyncio.create_task(candidate_rate_from_loop()),
+            "chat_email_fallback": asyncio.create_task(chat_email_fallback_loop()),
+            "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
+            "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
+            "b2b_esign_sweeper": asyncio.create_task(b2b_esign_sweeper_loop()),
+            # 0506: umowa przedwstępna — wygasanie, przypomnienia, termin B2B.
+            "pre_contract_sweeper": asyncio.create_task(pre_contract_sweeper_loop()),
+            "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
+            "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
+            # 28.10.2026: rekrutacje bez ruchu — przypomnienia DL/HoR, zamknięcie po 28 dniach.
+            "job_idle": asyncio.create_task(job_idle_loop()),
+            # 02.11.2026: maile CPro od Nordei — zamknięcia, odrzucenia, dzwonki.
+            "cpro_mail": asyncio.create_task(cpro_mail_loop()),
+            # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
+            # Rodzaje domyślnie OFF w Ustawieniach → Powiadomienia; znacznik w bazie.
+            "kpi_email_reports": asyncio.create_task(kpi_email_reports_loop()),
+            # Maile do zespołu (07.10.2026): poranny skrót i kilka maili od razu.
+            # Co wychodzi, decyduje admin w Ustawieniach → Powiadomienia.
+            "daily_digest_email": asyncio.create_task(daily_digest_email_loop()),
+            "notification_email_outbox": asyncio.create_task(
+                notification_email_outbox_loop()
+            ),
+            # Powiadomienia Delivery Leada (0233). Kill-switch sprawdzany PRZED
+            # pętlą — wyłączona funkcja kończy zadanie, a nie budzi procesu co
+            # 24 h po to, żeby sprawdzić tę samą flagę.
+            "dl_alerts": asyncio.create_task(dl_alerts_loop()),
+            # Finanse → Braki (0308): zamówienie zakończone bez następcy. Biegnie
+            # po północy w Warszawie; kill-switch ORDER_GAPS_ENABLED przed pętlą.
+            "order_gaps": asyncio.create_task(order_gaps_loop()),
+            "insights_seniority_journal": asyncio.create_task(
+                insights_seniority_journal_loop()
+            ),
+            # Zastój scraperów pracuj/JJIT → Slack (cooldown w DB). Kill-switch
+            # INTEGRATION_STALE_ALERTS_ENABLED przed pętlą.
+            "integration_stale_alerts": asyncio.create_task(
+                integration_stale_alerts_loop()
+            ),
+            # 0448: API v1 — publikacja zdarzeń do kanału (kursor), retencja
+            # 30 dni i wysyłka webhooków kont serwisowych.
+            "integration_webhooks": asyncio.create_task(integration_webhooks_loop()),
+            # Import JJIT/RocketJobs (etap 2): codziennie 13:00 Europe/Warsaw,
+            # kill-switch JJIT_ENABLED przed pętlą; ręczny start przez admina.
+            "jjit_import": asyncio.create_task(jjit_import_loop()),
+            "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
+            # Traffit wyłączony na stałe (14.10.2026) — `traffit_sync`
+            # i `candidate_contact_traffit` kończą się przed pierwszym
+            # odczekaniem, bez względu na flagi (`services/traffit_retired.py`).
+            "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
+            "order_mail_ingest": asyncio.create_task(order_mail_ingest_loop()),
+            # 0370: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
+            # przed pętlą przy TEAMS_PREP_TRANSCRIPTS_ENABLED=false.
+            "teams_prep_transcripts": asyncio.create_task(
+                teams_prep_transcripts_loop()
+            ),
+            # 0402: dokumenty kontraktów z SharePointa — wznowienie pierwszego
+            # pobrania i synchronizacja w obie strony. Bez rejestracji Azure
+            # kończy się przed pętlą.
+            "contract_docs_sharepoint": asyncio.create_task(
+                contract_docs_sharepoint_loop()
+            ),
+            # D5: mianownik wskaznikow „na dzien". Petla KONCZY sie przed
+            # pierwszym odczekaniem, gdy wylaczona — nie budzi sie co interwal
+            # tylko po to, zeby sprawdzic te sama flage.
+            "compass_workdays_sync": asyncio.create_task(compass_workdays_sync_loop()),
+            "compass_lifecycle_sync": asyncio.create_task(
+                compass_lifecycle_sync_loop()
+            ),
+            # 22.10.2026: konto NEXUSA idzie za kontem M365 (404 / accountEnabled
+            # = false → wyłączone). Niezależna od HR_PROGRAM_ENABLED; kończy się
+            # przed pętlą przy M365_ACCOUNT_SWEEP_MODE=off.
+            "m365_account_sweep": asyncio.create_task(m365_account_sweep_loop()),
+            # 0360: kolejka publikacji na portalach — kończy się przed pętlą,
+            # gdy żaden portal nie jest włączony.
+            "job_portal_worker": asyncio.create_task(job_portal_worker_loop()),
+            "notes_insights_sync": asyncio.create_task(notes_insights_sync_loop()),
+            "weekly_eval": asyncio.create_task(weekly_eval_loop()),
+            "match_digest": asyncio.create_task(match_digest_loop()),
+            "candidate_contact_queue": asyncio.create_task(
+                candidate_contact_queue_loop()
+            ),
+            "candidate_contact_traffit": asyncio.create_task(
+                traffit_contact_intake_loop()
+            ),
+            "index_outbox": asyncio.create_task(index_outbox_loop()),
+            "candidate_auto_match": asyncio.create_task(candidate_auto_match_loop()),
+            # 21.09.2026: nocny automatyczny pełny przegląd bazy → „Propozycje".
+            "auto_full_review": asyncio.create_task(auto_full_review_loop()),
+            # 23.10.2026: „System trzyma Nowych na 20” — kończy się przed pętlą
+            # przy NEW_COLUMN_AUTOFILL_ENABLED=false.
+            "new_column_autofill": asyncio.create_task(new_column_autofill_loop()),
+            "index_drift_reconciler": asyncio.create_task(
+                index_drift_reconciler_loop()
+            ),
+            "priority_work": asyncio.create_task(priority_work_loop()),
+            "workforce_availability": asyncio.create_task(availability_loop()),
+            "recruitment_allocation": asyncio.create_task(allocation_loop()),
+            "allocation_matching": asyncio.create_task(allocation_matching_loop()),
+            # „Ludzie w NEXUSIE” — pętle modułów kadrowych (`app/tasks/hr_loops.py`);
+            # kończą się na `HR_LOOPS_ENABLED=false`, moduły pilnują przełączników.
+            "hr_workdays": asyncio.create_task(hr_loops.hr_workdays_loop()),
+            "hr_m365_outbox": asyncio.create_task(hr_loops.hr_m365_outbox_loop()),
+            "hr_m365_reconcile": asyncio.create_task(hr_loops.hr_m365_reconcile_loop()),
+            "hr_m365_daily": asyncio.create_task(hr_loops.hr_m365_daily_loop()),
+            "hr_timesheet_reminder": asyncio.create_task(
+                hr_loops.hr_timesheet_reminder_loop()
+            ),
+            "care_reminders": asyncio.create_task(hr_loops.care_reminders_loop()),
+            "care_announcements_send": asyncio.create_task(
+                hr_loops.care_announcements_send_loop()
+            ),
+            "ksef_fetch": asyncio.create_task(hr_loops.ksef_fetch_loop()),
+            "sales_ksef_fetch": asyncio.create_task(hr_loops.sales_ksef_fetch_loop()),
+            "hr_agreements_signing": asyncio.create_task(
+                hr_loops.agreements_signing_loop()
+            ),
+            "hr_lifecycle": asyncio.create_task(hr_loops.hr_lifecycle_loop()),
+            "hr_contract_hooks": asyncio.create_task(hr_loops.hr_contract_hooks_loop()),
+            "hr_bonus_proposals": asyncio.create_task(
+                hr_loops.hr_bonus_proposals_loop()
+            ),
+            "equipment_reminders": asyncio.create_task(
+                hr_loops.equipment_reminders_loop()
+            ),
+            "equipment_intune_sync": asyncio.create_task(
+                hr_loops.equipment_intune_sync_loop()
+            ),
+            "back_office_sync": asyncio.create_task(hr_loops.back_office_sync_loop()),
+            "consultant_portal_transcripts": asyncio.create_task(
+                hr_loops.consultant_portal_transcripts_loop()
+            ),
+            "consultant_portal_ratings": asyncio.create_task(
+                hr_loops.consultant_portal_ratings_loop()
+            ),
+            "consultant_portal_mailbox": asyncio.create_task(
+                hr_loops.consultant_portal_mailbox_loop()
+            ),
+            "admin_cases_mail_ingest": asyncio.create_task(
+                hr_loops.admin_cases_mail_ingest_loop()
+            ),
+            "hr_approval_mail_replies": asyncio.create_task(
+                hr_loops.hr_approval_mail_replies_loop()
+            ),
+        }
+        # Staging (pełna kopia produkcji): przed pierwszym `await`, więc zatrzymana
+        # pętla nie wykona ani jednej linii — lista w `app/core/staging.py`.
+        if settings.NEXUS_ENV == "staging":
+            from app.core.staging import stop_blocked_background_tasks
 
-    # Śmierć pętli musi być ZDARZENIEM, nie zmianą ułamka „running/expected".
-    # Ten ułamek jest z założenia nierówny — 23 z 34 pętli kończą się celowo na
-    # własnym kill-switchu — więc `running: 21` zamiast 22 jest nieodróżnialne
-    # od zdrowego stanu i nikt tego nie umie zinterpretować. Callback loguje na
-    # ERROR w CHWILI śmierci, czyli wtedy, gdy Sentry (`event_level=ERROR`)
-    # jeszcze może zrobić z tego alert. Ma to też drugi skutek: silna referencja
-    # w rejestrze tłumi wbudowany log asyncio „Task exception was never
-    # retrieved", więc bez tego callbacku wyjątek nie pojawiłby się NIGDZIE.
-    def _log_task_death(name: str):
-        def _cb(task: "asyncio.Task") -> None:
-            if task.cancelled():
-                return
-            exc = task.exception()
-            if exc is not None:
-                logger.error(
-                    "background task %r died: %r — nic go nie restartuje "
-                    "do najbliższego deployu",
-                    name,
-                    exc,
-                    exc_info=exc,
-                )
+            stop_blocked_background_tasks(app.state.background_tasks)
 
-        return _cb
+        # Śmierć pętli musi być ZDARZENIEM, nie zmianą ułamka „running/expected".
+        # Ten ułamek jest z założenia nierówny — 23 z 34 pętli kończą się celowo na
+        # własnym kill-switchu — więc `running: 21` zamiast 22 jest nieodróżnialne
+        # od zdrowego stanu i nikt tego nie umie zinterpretować. Callback loguje na
+        # ERROR w CHWILI śmierci, czyli wtedy, gdy Sentry (`event_level=ERROR`)
+        # jeszcze może zrobić z tego alert. Ma to też drugi skutek: silna referencja
+        # w rejestrze tłumi wbudowany log asyncio „Task exception was never
+        # retrieved", więc bez tego callbacku wyjątek nie pojawiłby się NIGDZIE.
+        def _log_task_death(name: str):
+            def _cb(task: "asyncio.Task") -> None:
+                if task.cancelled():
+                    return
+                exc = task.exception()
+                if exc is not None:
+                    logger.error(
+                        "background task %r died: %r — nic go nie restartuje "
+                        "do najbliższego deployu",
+                        name,
+                        exc,
+                        exc_info=exc,
+                    )
 
-    for _name, _task in app.state.background_tasks.items():
-        _task.add_done_callback(_log_task_death(_name))
+            return _cb
+
+        for _name, _task in app.state.background_tasks.items():
+            _task.add_done_callback(_log_task_death(_name))
+
+    async def _on_background_leader_acquired() -> None:
+        from app.services.m365.startup_reset import reset_interrupted_m365_state
+
+        try:
+            async with engine.begin() as _m365_reset_conn:
+                await reset_interrupted_m365_state(_m365_reset_conn)
+        except Exception as _m365_reset_exc:  # noqa: BLE001 — nie blokuje pętli
+            logger.warning("m365 reset pominięty: %r", _m365_reset_exc)
+        _start_background_tasks()
+
+    async def _on_background_leader_lost() -> None:
+        _lost = tuple(app.state.background_tasks.values())
+        for _lost_task in _lost:
+            _lost_task.cancel()
+        await asyncio.gather(*_lost, return_exceptions=True)
+        app.state.background_tasks = {}
+
+    app.state.background_tasks = {}
+    app.state.background_leader = None
+    if settings.BACKGROUND_LEADER_LOCK_ENABLED:
+        from app.core.background_leader import BackgroundLeader
+
+        app.state.background_leader = BackgroundLeader(
+            settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://"),
+            on_acquired=_on_background_leader_acquired,
+            on_lost=_on_background_leader_lost,
+        )
+        await app.state.background_leader.start()
+    else:
+        await _on_background_leader_acquired()
 
     yield
 
     # Shutdown
+    if app.state.background_leader is not None:
+        await app.state.background_leader.stop_watching()
     tasks = tuple(app.state.background_tasks.values())
     for t in tasks:
         t.cancel()
@@ -858,6 +1216,9 @@ async def lifespan(app: FastAPI):
     # ponownie i przerywał zamykanie — pozostałe taski nie były doczekane, a
     # `engine.dispose()` nie leciało wcale.
     await asyncio.gather(*tasks, return_exceptions=True)
+    # Po zatrzymaniu pętli: następca rusza w chwili zwolnienia blokady.
+    if app.state.background_leader is not None:
+        await app.state.background_leader.release()
     await engine.dispose()
 
 
@@ -891,12 +1252,33 @@ app = FastAPI(
 # Rate limiter (attach first so it wraps everything)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# API integracyjne v1: błąd trasy v1 jest WYJĄTKIEM (rollback sesji żądania),
+# a kopertę `{"error": …}` oddaje ten handler (`integrations_v1.common`).
+app.add_exception_handler(IntegrationApiError, integration_error_handler)
+
+
+async def _off_limits_confirmation_handler(
+    request: Request, exc: OffLimitsConfirmationRequired
+) -> JSONResponse:
+    """409 z listą osób do potwierdzenia „sama się zgłosiła” (21.10.2026).
+
+    Wyjątek, nie odpowiedź z trasy: sesja żądania robi rollback, więc
+    przerwana partia nie zostawia połowy kart."""
+    return JSONResponse(status_code=409, content={"detail": exc.detail()})
+
+
+app.add_exception_handler(
+    OffLimitsConfirmationRequired, _off_limits_confirmation_handler
+)
 
 # KOLEJNOŚĆ MA ZNACZENIE: `add_middleware` dokłada na zewnątrz, więc dodane
 # jako PIERWSZE jest najgłębiej. `UnhandledErrorMiddleware` musi być pod
 # `CORSMiddleware`, żeby zwrócone przez nie 500 przeszło przez CORS i dotarło
 # do przeglądarki z nagłówkami (inaczej wraca „Network Error" — patrz docstring).
 app.add_middleware(UnhandledErrorMiddleware)
+# Potwierdzenie „sama się zgłosiła” z nagłówka do kontekstu żądania — bramkę
+# off-limits sprawdza serwis procesu, nie trasa (``client_off_limits``).
+app.add_middleware(OffLimitsConfirmationMiddleware)
 # NUL (U+0000) w query, ścieżce albo ciele JSON → 422 zanim dotknie PostgreSQL-a
 # (asyncpg odrzuca NUL w `text`, bez tego każdy taki parametr kończył się 500).
 # Nad `UnhandledErrorMiddleware`, ale pod CORS: odrzucenie musi dostać nagłówki
@@ -910,9 +1292,38 @@ app.add_middleware(
     max_bytes=settings.MAX_REQUEST_BODY_MB * 1024 * 1024,
     path_limits={"/api/cv-generator/generate-upload": 101 * 1024 * 1024},
 )
+# Licznik użycia obszarów, domyślnie wyłączony (`ACCESS_USAGE_COUNTER_ENABLED`):
+# tylko dolicza w pamięci, zapis robi pętla `access_usage`.
+app.add_middleware(AccessUsageMiddleware)
 app.add_middleware(RequestCorrelationMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(LegacyStatsDeprecationMiddleware)
+
+# Kompresja odpowiedzi (25.09.2026). Przed nią nic po drodze nie kompresowało
+# (API nie stoi za Cloudflare, Traefik bez middleware `compress`): jedno
+# wyszukiwanie na liście kandydatów ściągało 0,4–1 MB JSON-a. Tuż pod CORS,
+# nad resztą stosu — kompresuje gotową odpowiedź każdej trasy.
+# SSE Jarvisa (`text/event-stream`) jest w domyślnych wyjątkach Starlette —
+# kompresja buforowałaby strumień. Pliki biurowe i PDF są już skompresowane.
+app.add_middleware(
+    GZipMiddleware,
+    minimum_size=1024,
+    compresslevel=5,
+    exclude_content_types=(
+        *DEFAULT_EXCLUDED_CONTENT_TYPES,
+        # Runda 9 (R9-N7-7): pliki już skompresowane (ZIP paczki CV, obrazy)
+        # i dokumenty Worda nie są kompresowane na pętli jedynego procesu —
+        # jawnie, niezależnie od wersji Starlette (starsze znały tylko SSE).
+        "application/zip",
+        "application/x-zip-compressed",
+        "application/msword",
+        "image/*",
+        "application/pdf",
+        "application/octet-stream",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ),
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -929,6 +1340,10 @@ app.add_middleware(
         "X-Requested-With",
         # Admin „podgląd jako użytkownik" — patrz app/api/deps.py.
         "X-Impersonate-User-Id",
+        # Klucz wtyczki LinkedIn (app/api/extension_deps.py). Panel wtyczki
+        # z host_permissions CORS-u nie przechodzi; to dla stron z listy
+        # originów (podgląd panelu na stagingu).
+        "X-Extension-Key",
         # Durable de-duplication for manually logged phone outcomes.
         "Idempotency-Key",
         # Optimistic concurrency for typed candidate profile facts.
@@ -936,26 +1351,59 @@ app.add_middleware(
         "sentry-trace",
         "baggage",
         "X-Operation-Id",
+        # Off-limits: „sama się zgłosiła” przy dodaniu do rekrutacji.
+        "X-Off-Limits-Confirmation",
+        # Ekran dla licznika użycia (`services/access_usage`). Front wysyła go
+        # dopiero, gdy `/api/health` niesie `usageCounter: true`.
+        "X-Nexus-Screen",
+        # Sesja portalu konsultanta: osobna od JWT pracownika (api/consultant_portal).
+        "X-Portal-Session",
     ],
     # `Content-Disposition` carries server-generated export filenames. Without
     # exposing it, cross-origin frontend fetches can download the bytes but
     # cannot read the required client/date filename. `X-Export-Truncated`
     # tells the clients export that the file was cut at the row limit —
     # without exposing it the "partial export" warning never shows (FE-01).
+    # The middleware OVERWRITES a route's own `Access-Control-Expose-Headers`,
+    # so every header a route exposes to the frontend must be listed here too
+    # (guard: tests/test_cors_expose_headers.py). Ids of saved rows let the
+    # contract and document generators fix the same row on the next download
+    # instead of creating a new one.
     expose_headers=[
         "ETag",
         "Content-Disposition",
         "X-Request-Id",
         "X-Export-Truncated",
+        # Generator Umów B2B (b2b_contract_generator.py).
+        "X-Contract-Number",
+        "X-Generated-Contract-Id",
+        # Dokumenty B2B i umowa przedwstępna (b2b_documents.py).
+        "X-Document-Id",
+        # Paczka CV (candidates.py).
+        "X-Included-Count",
+        "X-Skipped-Count",
+        # Generator CV (cv_generator_b2b.py).
+        "X-Generated-Id",
+        "X-Generator-Candidate-Name",
+        "X-Generator-Warnings",
+        "X-Generator-Processing-Ms",
     ],
 )
 
 # Register routers
 app.include_router(champion_intake_api.router, prefix="/api", tags=["champion"])
 app.include_router(job_request_intake_api.router, prefix="/api", tags=["jobs"])
+# 0416: niedokończone formularze „Nowa rekrutacja” na koncie autora.
+app.include_router(job_intake_forms_api.router, prefix="/api", tags=["jobs"])
+app.include_router(job_files_api.router, prefix="/api", tags=["jobs"])
+# 0506: umowa przedwstępna przy osobie w rekrutacji (prośba, podpisy, lista).
+app.include_router(pre_contracts_api.router, prefix="/api", tags=["pipeline"])
+# 0430: ogłoszenie do wklejenia na portale (zastąpiło `ai_writer`).
+app.include_router(job_ads_api.router, prefix="/api", tags=["jobs"])
 app.include_router(screening_reassign_api.router, prefix="/api", tags=["pipeline"])
 # Rekrutacja v5: QC CV (bramka przed „CV wysłane”/Cpro, poprawki AI).
 app.include_router(cv_qc_api.router, prefix="/api/pipeline", tags=["pipeline"])
+app.include_router(cv_editor_ai_api.router, prefix="/api/pipeline", tags=["pipeline"])
 # Rekrutacja v5: wymagania przejścia na kolumnę (okno „Przesuń dalej”).
 app.include_router(
     pipeline_requirements_api.router, prefix="/api/pipeline", tags=["pipeline"]
@@ -983,6 +1431,11 @@ app.include_router(
     tags=["candidate-profile-facts"],
 )
 app.include_router(
+    candidate_rates.router,
+    prefix="/api/candidates",
+    tags=["candidate-rates"],
+)
+app.include_router(
     candidate_identity_quarantine.router,
     prefix="/api/candidates",
     tags=["candidate-identity-quarantine"],
@@ -1001,11 +1454,6 @@ app.include_router(
     tags=["candidate-activity-summary"],
 )
 app.include_router(public_engagement.router, prefix="/api", tags=["public-engagement"])
-app.include_router(
-    public_interview_confirmation.router,
-    prefix="/api",
-    tags=["public-interview-confirmation"],
-)
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 # Static `/directory` must be registered before `clients`' catch-all
 # `/{client_id}` route.
@@ -1067,6 +1515,11 @@ app.include_router(
     tags=["client-order-groups"],
 )
 app.include_router(
+    client_md_imports_api.router,
+    prefix="/api/clients",
+    tags=["client-md-imports"],
+)
+app.include_router(
     md_consumption_api.router,
     prefix="/api/md-consumption",
     tags=["md-consumption"],
@@ -1101,8 +1554,19 @@ app.include_router(
     prefix="/api/my-people",
     tags=["my-people"],
 )
+app.include_router(also_fits_api.router, prefix="/api", tags=["also-fits"])
+app.include_router(dl_match_api.router, prefix="/api", tags=["dl-match"])
+app.include_router(
+    candidate_similar_api.router, prefix="/api", tags=["candidate-similar"]
+)
 app.include_router(
     academy_api.router,
+    prefix="/api/academy",
+    tags=["academy"],
+)
+# Edycja Akademii od strony recepcji (0465): /editions, /programs/{id}/editions/{yyyy-mm}.
+app.include_router(
+    academy_edition_api.router,
     prefix="/api/academy",
     tags=["academy"],
 )
@@ -1121,6 +1585,12 @@ app.include_router(
     candidate_followups_api.router,
     prefix="/api/candidate-followups",
     tags=["candidate-followups"],
+)
+# Umówiony telefon na screening (03.11.2026).
+app.include_router(
+    screening_calls_api.router,
+    prefix="/api/screening-calls",
+    tags=["screening-calls"],
 )
 app.include_router(
     interview_cycle_api.router,
@@ -1194,6 +1664,16 @@ app.include_router(
     tags=["admin-match-score-repair"],
 )
 app.include_router(
+    admin_job_board_cards.router,
+    prefix="/api/admin",
+    tags=["admin-job-board-cards"],
+)
+app.include_router(
+    admin_screening_note_backfill.router,
+    prefix="/api/admin",
+    tags=["admin-screening-note-backfill"],
+)
+app.include_router(
     admin_workflows.router,
     prefix="/api/admin",
     tags=["admin-workflows"],
@@ -1209,6 +1689,7 @@ app.include_router(
     tags=["ai-matching-diagnostics"],
 )
 app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
+app.include_router(pair_owners_api.router, prefix="/api/pipeline", tags=["pipeline"])
 app.include_router(
     rejection_emails_api.router,
     prefix="/api/rejection-emails",
@@ -1218,9 +1699,14 @@ app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
 app.include_router(contracts.router, prefix="/api/contracts", tags=["contracts"])
 # Multiposting (0360): szkielet Pracuj.pl + JustJoinIT za flagami OFF.
 app.include_router(job_portals_api.router, prefix="/api", tags=["job-portals"])
+app.include_router(job_board_connection_api.router, prefix="/api", tags=["job-portals"])
 # Przepięcie kontraktu na innego klienta (admin) — jedyna droga zmiany klienta.
 app.include_router(
     contract_client_reassign_api.router, prefix="/api/contracts", tags=["contracts"]
+)
+# Foldery w zakładce Dokumenty kontraktu (0494).
+app.include_router(
+    contract_document_folders_api.router, prefix="/api/contracts", tags=["contracts"]
 )
 app.include_router(contractors.router, prefix="/api/contractors", tags=["contractors"])
 app.include_router(rate_cards.router, prefix="/api/rate-cards", tags=["rate-cards"])
@@ -1244,10 +1730,24 @@ app.include_router(
     prefix="/api/b2b-generator",
     tags=["b2b-generator"],
 )
+# Podpis umowy B2B w NEXUSIE (0499) — za przełącznikiem app_settings['b2b_esign'].
+app.include_router(
+    b2b_esign.router,
+    prefix="/api/b2b-generator",
+    tags=["b2b-generator"],
+)
+app.include_router(
+    b2b_esign.public_router, prefix="/api/public", tags=["public-b2b-sign"]
+)
 app.include_router(
     b2b_register_import.router,
     prefix="/api/b2b-generator",
     tags=["b2b-generator"],
+)
+app.include_router(
+    contract_folder_docs.router,
+    prefix="/api/contract-docs-sharepoint",
+    tags=["contracts"],
 )
 app.include_router(invoices.router, prefix="/api/invoices", tags=["invoices"])
 app.include_router(fx.router, prefix="/api/fx", tags=["fx"])
@@ -1315,11 +1815,20 @@ app.include_router(
     tags=["insights"],
 )
 app.include_router(
+    insights_sources_api.router,
+    prefix="/api/insights",
+    tags=["insights"],
+)
+app.include_router(
     insights_stage_breakdown.router,
     prefix="/api/insights/recruitment",
     tags=["insights"],
 )
 app.include_router(insights_board.router, prefix="/api/insights", tags=["insights"])
+# 23.10.2026: „Jakość podpowiedzi systemu” (silnik „Nowi na 20”).
+app.include_router(
+    autofill_quality_api.router, prefix="/api/autofill-quality", tags=["insights"]
+)
 app.include_router(
     insights_clients.router, prefix="/api/insights/clients", tags=["insights"]
 )
@@ -1348,6 +1857,20 @@ app.include_router(
 # Capability VIEW_TEAM_KPI — imienne wyniki cudzej pracy.
 app.include_router(
     insights_team_signals.router,
+    prefix="/api/insights",
+    tags=["insights"],
+)
+# Rytm dnia (28.10.2026): rytm i intensywność rekruterów widzi cały zespół;
+# CV do klienta i podpowiedź tylko liderzy, reguły zmienia HoR i admin.
+app.include_router(
+    insights_work_rhythm.router,
+    prefix="/api/insights",
+    tags=["insights"],
+)
+# Raport „Propozycje AI" (30.09.2026): decyzje o propozycjach z bazy.
+# Admin/HoR — cała firma, Delivery Lead — swoje rekrutacje i portfel.
+app.include_router(
+    insights_proposals.router,
     prefix="/api/insights",
     tags=["insights"],
 )
@@ -1389,6 +1912,15 @@ app.include_router(
     prefix="/api/integrations/compass",
     tags=["integrations"],
 )
+# API integracyjne v1 (0443, decyzja Artura 14.10.2026): automatyzacje
+# procesów firmy (na start rozliczanie klientów) na kluczach `X-API-Key`.
+# Osobna warstwa obok tras ekranów — te dla klucza nadal są 401.
+for _integrations_v1_router in integrations_v1.ROUTERS:
+    app.include_router(
+        _integrations_v1_router,
+        prefix=integrations_v1.PREFIX,
+        tags=["integrations-v1"],
+    )
 # Plakietki ostrzeżeń i baner kampanii — obie powierzchnie mają ODCZYT dla
 # każdego zalogowanego (D7) i ZAPIS zawężony wewnątrz modułu. Ostrzeżenie
 # widoczne tylko dla wystawiającego nie zmienia niczyjego zachowania.
@@ -1415,13 +1947,24 @@ app.include_router(prep_kit.router, prefix="/api", tags=["prep-kit"])
 app.include_router(
     interview_questions_api.router, prefix="/api", tags=["interview-questions"]
 )
-app.include_router(ai_writer.router, prefix="/api", tags=["ai-writer"])
 app.include_router(talent_pools.router, prefix="/api", tags=["talent-pools"])
 app.include_router(marketplace_api.router, prefix="/api", tags=["marketplace"])
 app.include_router(cv_generator_b2b.router, prefix="/api", tags=["cv-generator-b2b"])
 app.include_router(
     candidate_stage_cv_api.router, prefix="/api", tags=["candidate-stage-cv"]
 )
+app.include_router(client_forms_api.router, prefix="/api", tags=["client-forms"])
+# 0626: „Karta przed CV” (Credit Agricole) — wzór klienta i karta pary.
+app.include_router(cover_sheets_api.router, prefix="/api", tags=["cover-sheets"])
+# Edytor CV 2 (PR 5): podgląd importu Worda — trasa z limitem, osobny moduł.
+app.include_router(
+    cv_editor_import_api.router, prefix="/api", tags=["candidate-stage-cv"]
+)
+# Edytor CV 3 (J2): strony PDF z pliku Word — trasy z limitem, osobny moduł.
+app.include_router(
+    cv_pdf_preview_api.router, prefix="/api", tags=["candidate-stage-cv"]
+)
+app.include_router(cv_ai_sources_api.router, prefix="/api", tags=["candidate-stage-cv"])
 app.include_router(calendar.router, prefix="/api", tags=["calendar"])
 app.include_router(notifications.router, prefix="/api", tags=["notifications"])
 app.include_router(import_export.router, prefix="/api", tags=["import-export"])
@@ -1443,6 +1986,11 @@ app.include_router(
     tags=["scoring-weights"],
 )
 app.include_router(
+    prep_review_config_api.router,
+    prefix="/api/prep-review-config",
+    tags=["prep-review-config"],
+)
+app.include_router(
     public_share_api.router,
     prefix="/api/public",
     tags=["public-share"],
@@ -1451,6 +1999,16 @@ app.include_router(
     public_career_api.router,
     prefix="/api/public/career",
     tags=["public-career"],
+)
+app.include_router(
+    public_client_panel_api.router,
+    prefix="/api/public/panel",
+    tags=["public-client-panel"],
+)
+app.include_router(
+    client_panel_api.router,
+    prefix="/api/client-panel",
+    tags=["client-panel"],
 )
 app.include_router(
     pipeline_templates.router,
@@ -1481,11 +2039,221 @@ app.include_router(phase5.router, prefix="/api", tags=["phase5"])
 app.include_router(
     candidate_conflicts_api.router, prefix="/api", tags=["candidate-conflicts"]
 )
+app.include_router(
+    candidate_blacklist_api.router, prefix="/api", tags=["candidate-blacklist"]
+)
 app.include_router(admin_import.router, prefix="/api", tags=["admin-import"])
 app.include_router(kpis_api.router, prefix="/api/kpis", tags=["kpis"])
 # Ustawienia → Cele KPI (plan PR3): edytor odstępstw ról i osobistych celów.
 app.include_router(
     kpi_targets_admin_api.router, prefix="/api/kpi-targets", tags=["kpis"]
+)
+# „Ludzie w NEXUSIE” — moduł kadrowy (bramki w `app/api/hr_gates.py`).
+# Każdy router programu stoi za głównym wyłącznikiem `HR_PROGRAM_ENABLED`
+# (`app/services/hr/program.py`): wyłączony = 404 dla wszystkich, także admina.
+_HR_PROGRAM = [Depends(require_hr_program)]
+app.include_router(
+    hr_import_api.router,
+    prefix="/api/hr/admin/import",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    hr_admin_api.router, prefix="/api/hr/admin", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    hr_counts_api.router, prefix="/api/hr/counts", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    hr_approvals_api.router,
+    prefix="/api/hr/approval-requests",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+# Zgody, etap 3 (0486): Finanse → „Wydatki ze zgodą”.
+app.include_router(
+    hr_approval_finance_api.router,
+    prefix="/api/finance/approved-expenses",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    hr_dashboard_api.router,
+    prefix="/api/hr/dashboard",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    hr_structure_api.router,
+    prefix="/api/hr/structure",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    hr_team_api.router, prefix="/api/hr/team", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    hr_people_api.router, prefix="/api/hr", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    hr_m365_api.router,
+    prefix="/api/hr/admin/m365",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    hr_leave_api.router, prefix="/api/hr/leave", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    hr_time_api.router, prefix="/api/hr/time", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    hr_payroll_api.router,
+    prefix="/api/hr/payroll",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+# Rozliczenia zespołu (etap 4): rozliczenia miesiąca, faktury z KSeF, przelewy i Symfonia.
+app.include_router(
+    hr_settlements_api.router,
+    prefix="/api/hr/settlements",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    hr_ksef_api.router, prefix="/api/hr/ksef", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    hr_payments_api.router,
+    prefix="/api/hr/payments",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+# Etap 5: e-teczka, umowy z ludźmi, faktury do klientów z KSeF.
+app.include_router(
+    hr_documents_api.router,
+    prefix="/api/hr/documents",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    hr_agreements_api.router,
+    prefix="/api/hr/agreements",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    client_sales_invoices_api.router,
+    prefix="/api/clients",
+    tags=["client-invoicing"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    client_sales_invoices_api.finance_router,
+    prefix="/api/finance/sales-invoices",
+    tags=["client-invoicing"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    hr_lifecycle_api.router,
+    prefix="/api/hr/lifecycle",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    contract_care_api.router, prefix="/api/care", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    care_skills_api.router, prefix="/api/care", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    care_atlas_api.router, prefix="/api/care", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    care_announcements_api.router,
+    prefix="/api/care/announcements",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    public_consultant_mail_api.router,
+    prefix="/api/public/consultant-mail",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    admin_cases_api.router, prefix="/api/cases", tags=["hr"], dependencies=_HR_PROGRAM
+)
+app.include_router(
+    back_office_api.router,
+    prefix="/api/back-office",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    equipment_api.router, prefix="/api/equipment", tags=["hr"], dependencies=_HR_PROGRAM
+)
+# Sprzedaż (Atlas → NEXUS, 26.10.2026): bramki „Sprzedaż: podgląd / edycja”
+# na każdej trasie (`require_permission`), bez osobnej sekcji produktu.
+app.include_router(
+    sales_companies_api.router, prefix="/api/sales/companies", tags=["sales"]
+)
+app.include_router(
+    sales_company_people_api.router, prefix="/api/sales/companies", tags=["sales"]
+)
+app.include_router(
+    sales_opportunities_api.pipelines_router,
+    prefix="/api/sales/pipelines",
+    tags=["sales"],
+)
+app.include_router(
+    sales_opportunities_api.router, prefix="/api/sales/opportunities", tags=["sales"]
+)
+app.include_router(
+    sales_opportunities_api.summary_router, prefix="/api/sales/summary", tags=["sales"]
+)
+app.include_router(sales_kpi_api.router, prefix="/api/sales/kpi", tags=["sales"])
+app.include_router(
+    sales_contacts_api.router, prefix="/api/sales/contacts", tags=["sales"]
+)
+app.include_router(
+    sales_activities_api.router, prefix="/api/sales/activities", tags=["sales"]
+)
+app.include_router(sales_leads_api.router, prefix="/api/sales/leads", tags=["sales"])
+app.include_router(sales_files_api.router, prefix="/api/sales/files", tags=["sales"])
+app.include_router(
+    sales_clients_api.router, prefix="/api/sales/clients", tags=["sales"]
+)
+app.include_router(
+    client_onboarding_api.router,
+    prefix="/api/client-onboarding",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    equipment_intune_api.router,
+    prefix="/api/equipment/intune",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+# Portal konsultanta: publiczne trasy z własnym wyłącznikiem i sesją (opis w module).
+app.include_router(
+    consultant_portal_api.router,
+    prefix="/api/public/consultant-portal",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    consultant_portal_staff_api.router,
+    prefix="/api/back-office/portal",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    equipment_public_api.router,
+    prefix="/api/public/equipment-protocols",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
 )
 # Analytics v1 (plan 2026-07-16, PR 3) — wersjonowany kontrakt statystyk.
 # Endpointy 503 przy ANALYTICS_V1_MODE=off; RBAC/capabilities niezależnie.
@@ -1516,11 +2284,42 @@ app.include_router(
 app.include_router(users_api.router, prefix="/api/users", tags=["users"])
 app.include_router(procedures_api.router, prefix="/api", tags=["procedures"])
 app.include_router(help_screens_api.router, prefix="/api", tags=["help"])
+app.include_router(novelties_api.router, prefix="/api", tags=["novelties"])
+app.include_router(
+    cv_generator_feedback_api.router, prefix="/api", tags=["cv-generator-feedback"]
+)
 app.include_router(help_materials_api.router, prefix="/api", tags=["help-materials"])
 app.include_router(proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(proposals_bulk_api.router, prefix="/api", tags=["proposals"])
 app.include_router(job_proposals_api.router, prefix="/api", tags=["proposals"])
+app.include_router(application_screenings_api.router, prefix="/api", tags=["proposals"])
+app.include_router(
+    candidate_ai_assessments_api.router, prefix="/api", tags=["proposals"]
+)
+app.include_router(
+    recommendation_cards_api.router, prefix="/api", tags=["recommendation-cards"]
+)
+app.include_router(
+    recommendation_card_assist_api.router,
+    prefix="/api",
+    tags=["recommendation-cards"],
+)
+app.include_router(
+    candidate_rate_changes_api.router, prefix="/api", tags=["rate-changes"]
+)
+# 0424: jeden formularz screeningu (arkusz + karta + stawka) z historią wersji.
+app.include_router(screening_form_api.router, prefix="/api", tags=["screening-form"])
+# D6/D9/D10 (08.10.2026): kontekst przeglądu DL i porównanie kolejki rekrutacji.
+app.include_router(dl_review_api.router, prefix="/api", tags=["dl-review"])
 app.include_router(job_similar_api.router, prefix="/api", tags=["similar-jobs"])
+app.include_router(job_twins_api.router, prefix="/api", tags=["job-twins"])
+app.include_router(job_champions_api.router, prefix="/api", tags=["job-champions"])
+app.include_router(job_p0_api.router, prefix="/api", tags=["job-p0"])
+app.include_router(job_idle_api.router, prefix="/api", tags=["job-idle"])
+app.include_router(cpro_mail_api.router, prefix="/api", tags=["cpro-mail"])
+app.include_router(plain_brief_api.router, prefix="/api", tags=["plain-brief"])
+app.include_router(plain_brief_refresh_api.router, prefix="/api", tags=["plain-brief"])
+app.include_router(role_profiles_api.router, prefix="/api", tags=["role-profiles"])
 app.include_router(job_shortlist_api.router, prefix="/api", tags=["shortlist"])
 app.include_router(
     hiring_manager_feedback_api.router,
@@ -1562,6 +2361,18 @@ app.include_router(
     competence_team_api.router,
     prefix="/api/competence-team",
     tags=["competence-team"],
+)
+# 0612: okno „Ustaw nową osobę” (HoR i admin) — `api/people_setup.py`.
+app.include_router(
+    people_setup_api.router,
+    prefix="/api/people-setup",
+    tags=["people-setup"],
+)
+# 0619: „Ogłoszenia” na pulpicie (publikują HoR i admin) — `api/announcements.py`.
+app.include_router(
+    announcements_api.router,
+    prefix="/api/announcements",
+    tags=["announcements"],
 )
 app.include_router(
     request_work_states_api.router,
@@ -1612,14 +2423,6 @@ if settings.M365_INTEGRATION_ENABLED:
 # GETs stay live so the FE can show empty timelines.
 app.include_router(autenti_api.router, prefix="/api/autenti", tags=["autenti"])
 
-# In-house QES signing (drop Autenti, single-vendor KIR + OSS upload-validate).
-# Router mounted unconditionally; write/IO handlers call _require_enabled()
-# (503 when SIGNING_ENABLED=false). Public signing page under /api/public.
-app.include_router(signing_api.router, prefix="/api/signing", tags=["signing"])
-app.include_router(
-    public_signing_api.router, prefix="/api/public", tags=["public-signing"]
-)
-
 # AI features panel (Settings → AI). Admin-only. Routes mounted at
 # /api/settings/ai (prefix is declared on the router itself; we add /api here).
 app.include_router(ai_settings_api.router, prefix="/api", tags=["ai-settings"])
@@ -1641,6 +2444,14 @@ app.include_router(oauth_token_api.router, prefix="/api", tags=["oauth-token"])
 # i jest wpięte w chronione endpointy, nie w ten router.
 app.include_router(
     service_accounts_api.router, prefix="/api", tags=["service-accounts"]
+)
+
+# Wtyczka LinkedIn (28.10.2026): połączenie i Ustawienia na JWT, reszta na
+# kluczu ``X-Extension-Key`` (``api/extension_deps.py``). Bramka sekcji
+# Sourcing siedzi na trasach, nie na routerze: ``require_section_access`` czyta
+# JWT, a trasy z kluczem liczą ten sam sufit w ``ExtensionReader``/``Writer``.
+app.include_router(
+    linkedin_extension_api.router, prefix="/api/extension", tags=["linkedin-extension"]
 )
 
 # Multi-source attribution (#4): /api/candidates/{cid}/sources + reports.
@@ -1988,44 +2799,14 @@ async def api_health_check():
     else:
         checks["autenti"] = "healthy"
 
-    # Traffit daily sync — informational. Reads the persisted watermark so the
-    # check reflects whether the scheduled import is actually running, not just
-    # whether the flag is on. `unconfigured` (off) / `misconfigured` (no creds)
-    # / `degraded` (enabled but no fresh successful run) / `healthy`.
-    if not settings.TRAFFIT_SYNC_ENABLED:
-        checks["traffit"] = "unconfigured"
-    elif not (
-        os.environ.get("TRAFFIT_CLIENT_SECRET") and os.environ.get("TRAFFIT_TENANT")
-    ):
-        checks["traffit"] = "misconfigured"
-    else:
-        try:
-            from datetime import datetime as _dt
-            from datetime import timedelta as _td
-            from datetime import timezone as _tz
+    # Traffit — wyłączony na stałe od 14.10.2026 (decyzja Artura,
+    # `services/traffit_retired.py`). Stała wartość: bez zapytania o znacznik
+    # `__daily__` i bez łączenia się z Traffitem. `disabled` = „Wyłączone” na
+    # kafelku „Stan systemu” (jak dawne `unconfigured`) i ostrzeżenie, nie
+    # alarm, w uptime-probe. Do 14.10 sonda czytała świeżość `__daily__`.
+    from app.services.traffit_retired import TRAFFIT_HEALTH_VALUE
 
-            async with AsyncSessionLocal() as session:
-                row = await asyncio.wait_for(
-                    session.execute(
-                        text(
-                            "SELECT last_run_finished_at, last_status "
-                            "FROM traffit_sync_state WHERE phase = '__daily__'"
-                        )
-                    ),
-                    timeout=1.0,
-                )
-            r = row.fetchone()
-            if r is None or r[0] is None:
-                checks["traffit"] = "degraded"  # enabled, no successful run yet
-            elif (_dt.now(_tz.utc) - r[0]) > _td(hours=36) or r[1] not in (
-                "ok",
-                None,
-            ):
-                checks["traffit"] = "degraded"
-            else:
-                checks["traffit"] = "healthy"
-        except Exception:
-            checks["traffit"] = "degraded"
+    checks["traffit"] = TRAFFIT_HEALTH_VALUE
 
     # Zamówienia z maila — świeżość ostatniego biegu pobierania (0264). Ta
     # sama drabina co traffit: `unconfigured` (wyłączone) / `misconfigured`
@@ -2047,6 +2828,19 @@ async def api_health_check():
     except Exception:
         checks["teams_prep"] = "degraded"
 
+    # 0402: dokumenty kontraktów z SharePointa (ticket 9). Informacyjna.
+    try:
+        from app.services.contract_folder_docs.sync import (
+            health_status as _contract_docs_sp_health,
+        )
+
+        async with AsyncSessionLocal() as session:
+            checks["contract_docs_sharepoint"] = await asyncio.wait_for(
+                _contract_docs_sp_health(session), timeout=1.0
+            )
+    except Exception:
+        checks["contract_docs_sharepoint"] = "degraded"
+
     if not settings.ORDER_MAIL_INGEST_ENABLED:
         checks["order_mail"] = "unconfigured"
     elif not settings.ORDER_MAIL_UPN:
@@ -2063,29 +2857,30 @@ async def api_health_check():
     else:
         try:
             from datetime import datetime as _dt
-            from datetime import timedelta as _td
             from datetime import timezone as _tz
 
             async with AsyncSessionLocal() as session:
                 row = await asyncio.wait_for(
                     session.execute(
                         text(
-                            "SELECT last_run_finished_at, last_status "
+                            "SELECT last_run_finished_at, last_status, "
+                            "COALESCE((stats->>'unprocessed_messages')::int, 0), "
+                            "COALESCE((stats->>'recheck_failures_in_row')::int, 0) "
                             "FROM order_mail_sync_state WHERE id = 1"
                         )
                     ),
                     timeout=1.0,
                 )
             r = row.fetchone()
-            from app.services.order_mail_ingest import poll_interval_minutes
+            from app.services.order_mail_ingest import order_mail_health_verdict
 
-            stale_after = _td(minutes=max(3 * poll_interval_minutes(), 180))
-            if r is None or r[0] is None:
-                checks["order_mail"] = "degraded"
-            elif (_dt.now(_tz.utc) - r[0]) > stale_after or r[1] == "error":
-                checks["order_mail"] = "degraded"
-            else:
-                checks["order_mail"] = "healthy"
+            checks["order_mail"] = order_mail_health_verdict(
+                finished_at=r[0] if r is not None else None,
+                last_status=r[1] if r is not None else None,
+                unprocessed_messages=int(r[2] or 0) if r is not None else 0,
+                now=_dt.now(_tz.utc),
+                recheck_failures_in_row=int(r[3] or 0) if r is not None else 0,
+            )
         except Exception:
             checks["order_mail"] = "degraded"
 
@@ -2141,19 +2936,24 @@ async def api_health_check():
     # instalacji, a osoba `exited` zachowywała dostęp. Stempel ostatniego
     # biegu żyje w `app_settings['compass_lifecycle_state']`
     # (`record_sync_outcome`). Sonda informacyjna — nigdy `unhealthy`.
-    # 0360: multiposting — informacyjne, nie zmienia `status`. Dziś wszystkie
-    # portale są wyłączone (brak dokumentacji API), więc `unconfigured`.
+    # 0360/0381: multiposting — informacyjne, nie zmienia `status`. Przy
+    # wyłączonych flagach `unconfigured`; konto JustJoin.IT/RocketJobs do
+    # ponownego połączenia albo nieudane publikacje = `degraded`.
     try:
         from app.services import job_portals as _job_portals
 
         if not _job_portals.any_enabled():
             checks["job_portals"] = "unconfigured"
         else:
-            from app.services.job_portals.service import failed_recently
+            from app.services.job_portals.service import portal_health_inputs
 
             async with AsyncSessionLocal() as session:
-                _failed = await asyncio.wait_for(failed_recently(session), timeout=1.0)
-            checks["job_portals"] = _job_portals.health_state(_failed)
+                _failed, _reconnect, _connected = await asyncio.wait_for(
+                    portal_health_inputs(session), timeout=1.0
+                )
+            checks["job_portals"] = _job_portals.health_state(
+                _failed, reconnect_required=_reconnect, connected=_connected
+            )
     except Exception:  # noqa: BLE001 — sonda informacyjna
         checks["job_portals"] = "unknown"
     if not settings.COMPASS_LIFECYCLE_ENABLED:
@@ -2185,6 +2985,31 @@ async def api_health_check():
             )
         except Exception:
             checks["compass_lifecycle"] = "degraded"
+
+    # Runda 9 (R9-N9-9): klucze kont serwisowych — aktywne konto bez ważnego
+    # klucza albo z kluczem wygasającym w 14 dni = `degraded`. Informacyjna,
+    # nie zmienia `status` (patrz `services/service_account_health.py`).
+    if not settings.SERVICE_ACCOUNTS_ENABLED:
+        checks["service_account_keys"] = "disabled"
+    else:
+        try:
+            from datetime import datetime as _dt
+            from datetime import timezone as _tz
+
+            from app.services.service_account_health import (
+                load_latest_valid_expiry,
+                service_account_keys_verdict,
+            )
+
+            async with AsyncSessionLocal() as session:
+                _expiries = await asyncio.wait_for(
+                    load_latest_valid_expiry(session), timeout=1.0
+                )
+            checks["service_account_keys"] = service_account_keys_verdict(
+                _expiries, now=_dt.now(_tz.utc)
+            )
+        except Exception:  # noqa: BLE001 — sonda informacyjna
+            checks["service_account_keys"] = "degraded"
 
     # Qdrant — patrz `_probe_qdrant` po uzasadnienie kształtu tej sondy.
     #
@@ -2240,8 +3065,10 @@ async def api_health_check():
         except Exception:
             checks["priority_work"] = "degraded"
 
+    from app.services.hr.availability_local import availability_enabled
+
     for flag, key, model_name in (
-        (settings.COMPASS_AVAILABILITY_ENABLED, "workforce_availability", "source"),
+        (availability_enabled(), "workforce_availability", "source"),
         (
             settings.RECRUITMENT_ALLOCATION_ENABLED,
             "recruitment_allocation",
@@ -2284,6 +3111,37 @@ async def api_health_check():
                     )
             except Exception:
                 checks[key] = "degraded"
+
+    # Sprzęt ↔ Intune (etap 4, D9): disabled przy EQUIPMENT_INTUNE_MODE=off; healthy =
+    # udany odczyt < 26 h i bez błędu; inaczej degraded. Informacyjna.
+    from app.services.equipment import intune_graph as _intune_graph
+
+    if _intune_graph.current_mode() == "off":
+        checks["equipment_intune"] = "disabled"
+    else:
+        try:
+            from app.services.equipment import intune as _equipment_intune
+
+            async with AsyncSessionLocal() as session:
+                checks["equipment_intune"] = await asyncio.wait_for(
+                    _equipment_intune.health_state(session), timeout=1.0
+                )
+        except Exception:  # noqa: BLE001 — sonda informacyjna
+            checks["equipment_intune"] = "degraded"
+
+    # „Ludzie w NEXUSIE”: kolejka M365 urlopów, czytnik administracja@, przebiegi
+    # pętli HR (``app/services/hr/health.py``). Informacyjne — przy przełączeniu
+    # z Compassa pokazują, że coś utknęło, zanim zauważą to ludzie.
+    from app.services.hr import health as _hr_health
+
+    for _probe_key, _probe in _hr_health.PROBES:
+        try:
+            async with AsyncSessionLocal() as session:
+                checks[_probe_key] = await asyncio.wait_for(
+                    _probe(session), timeout=1.0
+                )
+        except Exception:  # noqa: BLE001 — sonda informacyjna
+            checks[_probe_key] = "degraded"
 
     # Anthropic key — config-only probe. Bez klucza generator CV (i każdy
     # feature na Claude API) wstaje, ale pierwsza generacja kończy się 502
@@ -2365,7 +3223,13 @@ async def api_health_check():
 
         _webhook_set = bool(os.environ.get("SLACK_WEBHOOK_URL", "").strip())
         _cls = classify_background_tasks(getattr(app.state, "background_tasks", None))
-        checks["ai_features"] = spend_alarm_status(_cls, webhook_set=_webhook_set)
+        _leader = getattr(app.state, "background_leader", None)
+        # Pętli nie ma tu z założenia, a długi `standby` alarmuje `background_tasks`.
+        checks["ai_features"] = (
+            "standby"
+            if _leader is not None and not _leader.is_leader
+            else spend_alarm_status(_cls, webhook_set=_webhook_set)
+        )
     except Exception as exc:
         logger.warning("[health] ai_features check failed: %s", exc)
         checks["ai_features"] = "unknown"
@@ -2428,12 +3292,23 @@ async def api_health_check():
     try:
         from app.services.background_task_health import (
             classify_background_tasks,
+            leader_check_value,
             stopped_webhook_alarms,
         )
 
         _bg = getattr(app.state, "background_tasks", None)
+        _leader = getattr(app.state, "background_leader", None)
+        _standby = (
+            leader_check_value(
+                is_leader=_leader.is_leader, standby_seconds=_leader.standby_seconds
+            )
+            if _leader is not None
+            else None
+        )
         if not isinstance(_bg, dict):
             checks["background_tasks"] = "unknown"
+        elif _standby is not None:
+            checks["background_tasks"] = _standby
         else:
             _cls = classify_background_tasks(_bg)
             _webhook_set = bool(os.environ.get("SLACK_WEBHOOK_URL", "").strip())
@@ -2502,6 +3377,10 @@ async def api_health_check():
             "status": overall,
             "version": os.environ.get("GIT_SHA", "unknown"),
             "deployedAt": _resolve_deployed_at(),
+            # Front dokleja `X-Nexus-Screen` dopiero po tym sygnale: stara wersja
+            # API odrzuciłaby nieznany nagłówek w CORS, a wyłączony licznik nie
+            # ma w ruchu żadnego śladu.
+            "usageCounter": settings.ACCESS_USAGE_COUNTER_ENABLED,
             "diskPercent": disk_percent,
             "backupVolumePercent": backup_volume_percent,
             "backupVolumeCheckedAt": backup_volume_checked_at,
@@ -2597,6 +3476,12 @@ async def api_health_deep_check():
     from app.models.cv_share_token import CVShareToken
     from app.models.client_playbook import ClientPlaybook
     from app.models.client_playbook_event import ClientPlaybookEvent
+    from app.models.plain_knowledge import (
+        JobPlainBrief,
+        PlainKnowledgeEvent,
+        PlainTerm,
+        RoleProfile,
+    )
     from app.models.client_executive_contract import ClientExecutiveContract
     from app.models.client_cleanup import ClientCleanupRun, PurgedClient
     from app.models.critical_event import CriticalEvent
@@ -2670,6 +3555,7 @@ async def api_health_deep_check():
         JarvisAction,
         JarvisConversation,
         JarvisConversationEntity,
+        JarvisGap,
         JarvisMessage,
         JarvisUiEvent,
     )
@@ -2687,12 +3573,104 @@ async def api_health_deep_check():
     from app.models.job_public_profile import JobPublicProfile
     from app.models.candidate_consent import CandidateConsent
     from app.models.placement_exclusion import PlacementExclusion
-    from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
+    from app.models.prep_meeting import (
+        Prep2Skip,
+        PrepMeeting,
+        PrepReview,
+        PrepReviewConfigVersion,
+        PrepTranscript,
+    )
+    from app.models.b2b_signing_request import B2BSigningRequest
+    from app.models.pre_contract import (
+        PreContractEvent,
+        PreContractRequest,
+        PreContractWatcher,
+    )
+    from app.services.care.board_state import CARE_BOARD_STATES
+    from app.models.access_usage import AccessUsageDaily
+    from app.models.novelty import NoveltyProgress
+    from app.models.candidate_job_owner import CandidateJobOwner
+    from app.models.pair_departure_care import PairDepartureCare
+    from app.models.job_board_connection import JobBoardConnection
     from app.models.trainee import TraineeCallItem, TraineeCallList, TraineeProgram
     from app.models.candidate_followup import CandidateFollowup
+    from app.models.followup_meeting import FollowupMeeting
+    from app.models.purged_candidate import PurgedCandidate
+    from app.models.retained_candidate_file import RetainedCandidateFile
     from app.models.b2b_contract_document import B2BContractDocument
     from app.models.b2b_register_import import B2BRegisterImportRun
+    from app.models.contract_doc_sharepoint import ContractDocSpItem, ContractDocSpRun
+    from app.models.contract_document import ContractDocument, ContractDocumentFolder
+    from app.models.scoring_weight_change import (
+        ScoringWeightChange,
+        ScoringWeightMeasurement,
+    )
     from app.models.cv_qc_run import CvQcRun
+    from app.models.application_screening import ApplicationScreening
+    from app.models.requirement_cleanup import RequirementCleanupDecision
+    from app.models.recommendation_card import RecommendationCard
+    from app.models.candidate_rate_change import CandidateRateChange
+    from app.models.screening_form_version import ScreeningFormVersion
+    from app.models.client_contract_amendment import ClientContractAmendment
+    from app.models.client_framework_contract import ClientFrameworkContract
+    from app.models.client_framework_contract_chunk import (
+        ClientFrameworkContractChunk,
+    )
+    from app.models.job_file import JobFile
+    from app.models.candidate_client_form import CandidateClientForm
+    from app.models.client_cover_sheet_template import ClientCoverSheetTemplate
+    from app.models.client_panel import (
+        ClientPanel,
+        ClientPanelCandidate,
+        ClientPanelRequest,
+        ClientPanelView,
+    )
+    from app.models.job_ad import JobAd
+    from app.models.job_ad_channel_skip import JobAdChannelSkip
+    from app.models.job_ad_publication import JobAdPublication
+    from app.models.integration_event import (
+        IntegrationEvent,
+        IntegrationEventOutbox,
+        IntegrationWebhook,
+    )
+    from app.models.admin_case import AdminCase
+    from app.models.contract_care import CareConversation, TechCard
+    from app.models.equipment import (
+        EquipmentAssignment,
+        EquipmentItem,
+        EquipmentProtocol,
+        EquipmentTask,
+    )
+    from app.models.academy_logistics import (
+        AcademyEditionChecklistItem,
+        AcademyParticipantLogistics,
+    )
+    from app.models.equipment_intune import EquipmentIntuneDevice
+    from app.models.hr_approval import (
+        ApprovalDocument,
+        ApprovalFixedCostSeller,
+        ApprovalRequest,
+    )
+    from app.models.hr_leave import HrM365Operation, LeaveRequest
+    from app.models.hr_lifecycle import LifecycleCase, WorkHandover
+    from app.models.contract_care import ClientFeedbackSession
+    from app.models.hr_ops import HrAuditEvent, HrImportBatch, HrImportUpload, HrJobRun
+    from app.models.hr_payroll import EmployeeRate, HrBonus, PayrollPeriod
+    from app.models.hr_time import Timesheet, TimesheetEntry
+    from app.models.hr_profile import (
+        CompanyDayOff,
+        EmployeeProfile,
+        LeaveEntitlement,
+    )
+    from app.models.invite_link import CandidateInviteLinkVisitDay
+    from app.models.sales import (
+        SalesActivity,
+        SalesCompany,
+        SalesMeetingTranscript,
+        SalesOpportunity,
+        SalesPipelineStage,
+        SalesTarget,
+    )
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -2717,6 +3695,17 @@ async def api_health_deep_check():
         # importu rejestru z Excela.
         ("b2b_contract_documents", B2BContractDocument),
         ("b2b_register_import_runs", B2BRegisterImportRun),
+        # 0402: dokumenty kontraktów z SharePointa. `contract_documents`
+        # sprawdza przy okazji nowe kolumny (skrót, źródło, stan wysyłki).
+        ("contract_documents", ContractDocument),
+        ("contract_doc_sp_runs", ContractDocSpRun),
+        ("contract_doc_sp_items", ContractDocSpItem),
+        # Foldery zakładki Dokumenty (0494); sonda ``contract_documents`` wyżej
+        # sprawdza przy okazji kolumnę ``folder_id``.
+        ("contract_document_folders", ContractDocumentFolder),
+        # Panel „Ranking kandydatów” (0501): historia zmian i pomiary.
+        ("scoring_weight_changes", ScoringWeightChange),
+        ("scoring_weight_measurements", ScoringWeightMeasurement),
         # Zamówienia wielo-konsultantowe (0227). Bez tych sond zakładka
         # „Zamówienia" trzech klientów rozliczanych na MD wywalałaby
         # UndefinedTable przy zielonym deployu — dokładnie tryb awarii
@@ -2754,6 +3743,12 @@ async def api_health_deep_check():
         # jako 500 na profilu klienta i w Pomocy → Klienci. Sonda jest dowodem.
         ("client_playbooks", ClientPlaybook),
         ("client_playbook_events", ClientPlaybookEvent),
+        # 0403: „Champion po ludzku”. Brak tabel = 500 na Podglądzie Championa
+        # i w doku osoby (ściąga do rozmowy).
+        ("plain_terms", PlainTerm),
+        ("role_profiles", RoleProfile),
+        ("job_plain_briefs", JobPlainBrief),
+        ("plain_knowledge_events", PlainKnowledgeEvent),
         # 0312: umowy wykonawcze Centrum e-Zdrowia. Brak tabeli wyszedłby jako
         # 500 na profilu klienta 115 i w każdym formularzu zamówienia CeZ.
         ("client_executive_contracts", ClientExecutiveContract),
@@ -2856,6 +3851,7 @@ async def api_health_deep_check():
         ("jarvis_actions", JarvisAction),
         ("jarvis_conversation_entities", JarvisConversationEntity),
         # 0355: telemetria pomocy na ekranie — brak tabeli = 500 na każdym dymku.
+        ("jarvis_gaps", JarvisGap),
         ("jarvis_ui_events", JarvisUiEvent),
         # 0333: skrzynka „Propozycje". Lista rekrutacji liczy z niej
         # `open_proposals_count`, a dodanie kandydata do rekrutacji ją stempluje.
@@ -2885,18 +3881,143 @@ async def api_health_deep_check():
         ("placement_exclusions", PlacementExclusion),
         # 0370: prepy w Teams — agenda „Rozmowy u klienta” czyta je przy
         # każdym wejściu, więc brak tabeli = pusty ekran kalendarza.
+        # 0381: konto RocketJobs/JustJoin.IT — konfiguracja portali czyta je
+        # przy każdym otwarciu okna Zlecenie, gdy portal jest włączony.
+        ("job_board_connections", JobBoardConnection),
         ("prep_meetings", PrepMeeting),
         ("trainee_programs", TraineeProgram),
         ("trainee_call_lists", TraineeCallList),
         ("trainee_call_items", TraineeCallItem),
         ("prep_transcripts", PrepTranscript),
         ("prep_reviews", PrepReview),
+        # 0505: ustawienia oceny prepów — czyta je każda ocena prepu.
+        ("prep_review_configs", PrepReviewConfigVersion),
+        # 0482: rozmowa u klienta bez Prepu 2 — agenda i cykl rozmowy czytają
+        # wyjątki, więc brak tabeli = 500 przy „Pomiń Prep 2” i w kalendarzu.
+        ("prep2_skips", Prep2Skip),
         # 0372: follow-up z kandydatem — „Czeka na Ciebie” i Tablica czytają
         # wyniki telefonów, więc brak tabeli = pulpit i kanban 500.
         ("candidate_followups", CandidateFollowup),
+        ("followup_meetings", FollowupMeeting),
+        # 0388: usunięcie kandydata zapisuje nagrobek — brak tabeli = 500
+        # przy każdym DELETE /api/candidates/{id} (runda 6 audytu).
+        ("purged_candidates", PurgedCandidate),
+        # 0390: usunięcie kandydata zapisuje wskaźniki do jego CV — brak
+        # tabeli = 500 przy każdym DELETE /api/candidates/{id} (runda 9).
+        ("retained_candidate_files", RetainedCandidateFile),
         # 0361: QC CV — tablica czyta stan QC każdej karty, a ruch na
         # „CV wysłane” zapisuje przebieg, więc brak tabeli = kanban 500.
         ("cv_qc_runs", CvQcRun),
+        # 0404: każde zgłoszenie z linku rekrutacji zapisuje ocenę AI — brak
+        # tabeli = 500 przy każdym zgłoszeniu ze strony kariery.
+        ("application_screenings", ApplicationScreening),
+        # 0413: karta rekomendacji — odcisk `notes.card_parsed_hash` obejmuje
+        # sonda `notes`, a tabelę kart czyta dok osoby i „Przesuń dalej”.
+        ("recommendation_cards", RecommendationCard),
+        # 0418: każda zmiana stawki kandydata w procesie (debrief, panel osoby,
+        # profil) zapisuje sprawę — brak tabeli = 500 przy zapisie stawki.
+        ("candidate_rate_changes", CandidateRateChange),
+        # 0424: każdy zapis formularza screeningu dopisuje wersję — brak
+        # tabeli = 500 przy otwarciu i zapisie formularza.
+        ("screening_form_versions", ScreeningFormVersion),
+        # 0426: Jarvis czyta umowy ramowe — kolumny `text_*` stanu odczytu
+        # i tabela fragmentów; brak = 500 przy pytaniu o umowę klienta.
+        ("client_framework_contracts", ClientFrameworkContract),
+        ("client_framework_contract_chunks", ClientFrameworkContractChunk),
+        # 0627: Jarvis czyta aneksy — stan odczytu i `amendment_id` fragmentu.
+        ("client_contract_amendments", ClientContractAmendment),
+        # 0428: pliki rekrutacji — brak tabeli = 500 przy „Utwórz i przekaż”
+        # (przepięcie plików formularza) i w menu „⋯” → „Pliki”.
+        ("job_files", JobFile),
+        # 0522: formularz CV klienta pary — brak tabeli = 500 w karcie osoby.
+        ("candidate_client_forms", CandidateClientForm),
+        # 0626: wzór „Karty przed CV” — brak tabeli = 500 w przeglądzie DL-a.
+        ("client_cover_sheet_templates", ClientCoverSheetTemplate),
+        # 0639: panel klienta — brak tabeli = 500 pod linkiem z CV i w „⋯” rekrutacji.
+        ("client_panels", ClientPanel),
+        ("client_panel_candidates", ClientPanelCandidate),
+        ("client_panel_requests", ClientPanelRequest),
+        ("client_panel_views", ClientPanelView),
+        # 0430: ogłoszenie do wklejenia na portale — brak tabeli = 500 przy
+        # „Przygotuj ogłoszenie” w rekrutacji.
+        ("job_ads", JobAd),
+        ("job_ad_publications", JobAdPublication),
+        # 0526: „Nie publikujemy” i codzienne przypomnienia o ogłoszeniach.
+        ("job_ad_channel_skips", JobAdChannelSkip),
+        # 0438: „Wymagania do poprawy” — zatwierdzenie i odrzucenie propozycji
+        # zapisują decyzję; brak tabeli = 500 przy obu.
+        ("requirement_cleanup_decisions", RequirementCleanupDecision),
+        # 0448: zdarzenia API v1. Brak poczekalni nie wywraca zapisów (listener
+        # pisze w SAVEPOINT-cie), ale zdarzenia giną po cichu — sonda to pokazuje.
+        ("integration_event_outbox", IntegrationEventOutbox),
+        ("integration_events", IntegrationEvent),
+        ("integration_webhooks", IntegrationWebhook),
+        # 0455: „Ludzie w NEXUSIE” — kartoteka i rezerwacje zadań HR. Brak
+        # tabeli = 500 na „Mój czas” / „Ludzie” i dublowane przebiegi zadań.
+        # 0601: Sprzedaż — bez tych tabel cała sekcja daje 500.
+        ("sales_companies", SalesCompany),
+        ("sales_pipeline_stages", SalesPipelineStage),
+        ("sales_opportunities", SalesOpportunity),
+        ("sales_activities", SalesActivity),
+        # 0623: cele i KPI tygodniowe handlowców.
+        ("sales_targets", SalesTarget),
+        ("sales_meeting_transcripts", SalesMeetingTranscript),
+        # 0640: dzienne wejścia na linki — każde wejście na stronę kariery je zapisuje.
+        ("candidate_invite_link_visit_days", CandidateInviteLinkVisitDay),
+        ("employee_profiles", EmployeeProfile),
+        ("leave_entitlements", LeaveEntitlement),
+        ("company_days_off", CompanyDayOff),
+        ("hr_audit_events", HrAuditEvent),
+        ("hr_job_runs", HrJobRun),
+        ("hr_import_batches", HrImportBatch),
+        ("hr_import_uploads", HrImportUpload),
+        ("client_feedback_sessions", ClientFeedbackSession),
+        # 0457–0465: moduły „Ludzi w NEXUSIE” — po jednej-dwie tabele, bez
+        # których główny ekran modułu daje 500 (pozostałe pilnuje dryf schematu).
+        ("leave_requests", LeaveRequest),
+        ("hr_m365_operations", HrM365Operation),
+        ("timesheets", Timesheet),
+        ("timesheet_entries", TimesheetEntry),
+        ("employee_rates", EmployeeRate),
+        ("hr_bonuses", HrBonus),
+        ("payroll_periods", PayrollPeriod),
+        ("lifecycle_cases", LifecycleCase),
+        ("work_handovers", WorkHandover),
+        ("tech_cards", TechCard),
+        ("care_conversations", CareConversation),
+        ("admin_cases", AdminCase),
+        ("equipment_items", EquipmentItem),
+        ("equipment_assignments", EquipmentAssignment),
+        ("equipment_protocols", EquipmentProtocol),
+        ("equipment_tasks", EquipmentTask),
+        # 0465: Intune (rozjazdy z ewidencją) i edycja Akademii od strony recepcji.
+        ("equipment_intune_devices", EquipmentIntuneDevice),
+        ("academy_edition_checklist", AcademyEditionChecklistItem),
+        ("academy_participant_logistics", AcademyParticipantLogistics),
+        # 0483 i 0486: zgody na wydatki i premie poza umową oraz ich rozliczenie
+        # w Finansach (dokumenty wydatków, sprzedawcy „stały koszt”).
+        ("approval_requests", ApprovalRequest),
+        ("approval_documents", ApprovalDocument),
+        ("approval_fixed_cost_sellers", ApprovalFixedCostSeller),
+        # 0499: podpis umowy B2B w NEXUSIE — brak tabeli = 500 przy wysłaniu
+        # do podpisu i w zakładce umowy (audyt 22.10, F79).
+        ("b2b_signing_requests", B2BSigningRequest),
+        # 0506: umowa przedwstępna w rekrutacji — prośba, obserwujący, historia.
+        ("pre_contract_requests", PreContractRequest),
+        ("pre_contract_watchers", PreContractWatcher),
+        ("pre_contract_events", PreContractEvent),
+        # 0509: tablica opieki — tabela bez modelu ORM; lekkie `table()` z
+        # `board_state` też wymusza rozwiązanie każdej kolumny.
+        ("care_board_states", CARE_BOARD_STATES),
+        # 0519: przypisania „Prowadzi” — karta, premia i Liga czytają je co ruch.
+        ("candidate_job_owners", CandidateJobOwner),
+        # 0621: opieka po odejściu — Tablica i follow-upy czytają ją co ruch.
+        ("pair_departure_care", PairDepartureCare),
+        # 0625: nowości do przeklikania — kropki i lista „Nowości” czytają ją
+        # przy każdym wejściu.
+        ("novelty_progress", NoveltyProgress),
+        # 0632: licznik użycia obszarów — pętla zapisuje tu co minutę.
+        ("access_usage_daily", AccessUsageDaily),
     ]
 
     checks: dict[str, str] = {}

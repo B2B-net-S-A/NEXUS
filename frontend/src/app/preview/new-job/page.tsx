@@ -3,9 +3,36 @@
 /**
  * Harness `/preview/new-job` — strona „Nowa rekrutacja” na danych fikcyjnych.
  *
- * `?state=request|review|gaps`. Zero zapytań: klucze klientów i rekruterów są
- * zasiane w cache (patrz `app/preview/__tests__`), a baner podobnych
- * rekrutacji nie renderuje się w trybie podglądu.
+ * `?state=request|noclient|resume|manual|attempted|review|gaps|offers|champion|servererror|portals|shadow|passive|off|readings`.
+ * `readings` (13.10.2026, wariant A) = zdanie w wymaganiach czekające na decyzję
+ * („przetarg*” · „Do rozmowy”), technologia z komentarzem w nawiasie
+ * („Rozdziel teraz”) i panel „Rekruter sprawdza w rozmowie”.
+ * Zero zapytań: klucze klientów, rekruterów, konfiguracji portali i słownika
+ * RocketJobs są zasiane w cache (patrz `app/preview/__tests__`), kategorie,
+ * wiedza o wierszach wymagań i lista rekrutacji-szablonów przychodzą w stanie
+ * podglądu, a baner podobnych rekrutacji nie renderuje się w trybie podglądu.
+ *
+ * Od 10.10.2026 strona ma jeden ekran: formularz w sześciu sekcjach stoi na
+ * niej zawsze, a źródła to akcje „Wypełnij z:” nad nim. `request` = panel
+ * „Wklej treść” otwarty z treścią jeszcze nieodczytaną, `noclient` = bez
+ * klienta (kliknięcie akcji albo „Utwórz i opublikuj” pokazuje komunikat przy
+ * polu klienta), `manual` = pusty formularz na całą szerokość, `attempted` =
+ * to samo po kliknięciu „Utwórz i opublikuj” (braki podświetlone w polach),
+ * `review` = po odczycie maila (treść obok formularza), `gaps` = po odczycie
+ * z brakami (budżet, krytyczne, deal breaker, kategoria), `offers` = odczyt
+ * w formularzu, w którym część pól była już wpisana (propozycje „W mailu: …”
+ * przy polach i pasek „wypełniono N pól” z „Cofnij wypełnienie”), `champion` =
+ * po odczycie wgranego wzoru Profilu Championa (chipy „z dokumentu”, notka
+ * „przepisany bez AI”). `portals` = sekcja „Ogłoszenie na portalach”
+ * z gotowym szkicem (na produkcji portale są dziś wyłączone flagami). Automat
+ * przydziału jest w podglądzie włączony w trybie „auto” („Przydzieli automat”);
+ * `shadow` = automat tylko proponuje, `passive` = priorytet „Przyjmujemy
+ * kandydatów” (automat wtedy nikogo nie przydziela), `off` = automat
+ * wyłączony. `gaps` pokazuje też rekrutera wskazanego ręcznie. `resume` =
+ * pusta strona z listą niedokończonych formularzy, `servererror` = odmowa
+ * serwera (422 `job_not_ready`) z listą braków w stopce. Karta „Pliki” (0428)
+ * ma w `review` plik requestu i załącznik (pod treścią requestu), w `manual`
+ * jest pusta (po sekcji 6). Nieznany `state` pokazuje `review`.
  */
 
 import { Suspense, useState } from "react";
@@ -16,11 +43,20 @@ import {
   NewJobPage,
   type NewJobPagePreview,
 } from "@/components/v2/jobs/new/NewJobPage";
+import type { CategoryOption } from "@/components/v2/jobs/new/NewJobTeamStep";
 import { EMPTY_INTAKE_FORM, type IntakeForm } from "@/lib/job-request-intake";
+import type { RequirementRowForm, RowCriticalState } from "@/lib/requirement-rows";
+import {
+  EMPTY_LISTING_OPTIONS,
+  jobPortalKeys,
+  type BoardDictionaries,
+  type PortalConfigResponse,
+} from "@/lib/api/jobPortals";
 
 const CLIENT = { id: 1, name: "[Klient testowy]" };
 
 const REQUEST = `Cześć,
+zapytanie ZOB 48213 „Programista Java — płatności kartowe (ZOB 48213)”:
 szukamy Senior Java Developera do zespołu płatności kartowych (projekt migracji core'u na mikroserwisy, ok. 12 miesięcy z opcją przedłużenia).
 
 Wymagania: Java 17+, Spring Boot, Kafka, doświadczenie z PostgreSQL. Mile widziane: Kubernetes.
@@ -28,22 +64,70 @@ Min. 5 lat doświadczenia komercyjnego.
 
 Praca hybrydowa — 2 dni w tygodniu w biurze w Warszawie.
 Budżet do 170 zł/h netto B2B. Start najlepiej 1 listopada.
+Potrzebujemy 2 osób, kandydatów prosimy do 20 października.
 
 Na rozmowie zapytamy o transakcyjność w systemach rozproszonych.
 
-Pozdrawiam`;
+Pozdrawiam
+Anna Przykładowa
+Kierownik Zespołu Płatności`;
+
+// Wymagania jako słowa kluczowe (02.10.2026): wiersz = wymaganie, słowa =
+// warianty. Krytyczne: DL użył podpowiedzi z historii.
+const ROWS: RequirementRowForm[] = [
+  { key: "r-java", words: ["Java"], level: "critical" },
+  { key: "r-spring", words: ["Spring Boot"], level: "must" },
+  { key: "r-kafka", words: ["Kafka", "RabbitMQ"], level: "must" },
+  { key: "r-postgres", words: ["PostgreSQL"], level: "must" },
+  { key: "r-payments", words: ["płatności", "płatnoś*", "payments"], level: "must" },
+  { key: "r-k8s", words: ["Kubernetes", "k8s"], level: "nice" },
+];
+
+/** To, co serwer mówi o wierszach: etykieta, czy technologia, podpowiedź. */
+const CRITICAL_INFO: RowCriticalState = {
+  info: {
+    "r-java": { label: "Java", eligible: true, suggested: true, stat: { rate: 0.96, jobs: 41 } },
+    "r-spring": { label: "Spring Boot", eligible: true, suggested: false, stat: { rate: 0.71, jobs: 41 } },
+    // RabbitMQ i „płatności” są spoza słownika: wiersz wolno oznaczyć jak
+    // każdy inny (decyduje Delivery Lead, 09.10.2026), ale nie są „technologią
+    // ze słownika” dla podpowiedzi z historii i tytułu.
+    "r-kafka": { label: "Kafka lub RabbitMQ", eligible: false, suggested: false },
+    "r-postgres": { label: "PostgreSQL", eligible: true, suggested: false },
+    "r-payments": { label: "płatności", eligible: false, suggested: false },
+  },
+  isLoading: false,
+  isError: false,
+  retry: () => undefined,
+};
+
+const CATEGORIES: CategoryOption[] = [
+  { id: 1, slug: "infrastructure_operations", name: "Infra & Operations & Security / Data & AI", participants: 7 },
+  { id: 2, slug: "software_development", name: "Development", participants: 7 },
+  { id: 4, slug: "security_quality", name: "QA", participants: 3 },
+  { id: 5, slug: "management_delivery", name: "Management & Delivery (PM & BA)", participants: 3 },
+];
 
 const FULL_FORM: IntakeForm = {
   ...EMPTY_INTAKE_FORM,
   title: "Senior Java Developer",
-  must: ["Java 17+", "Spring Boot", "Kafka", "PostgreSQL"],
-  nice: ["Kubernetes"],
+  clientTitle: "Programista Java — płatności kartowe (ZOB 48213)",
+  referenceHint: "ZOB 48213",
+  rows: ROWS,
+  descriptive: ["Min. 5 lat doświadczenia komercyjnego"],
+  competenceCategoryId: 2,
+  suggestedCategoryId: 2,
+  categoryConfirmed: true,
   seniorityYears: 5,
   rateBudget: "170",
   remotePolicy: "hybrid",
   onsiteDays: "2",
-  city: "Warszawa",
+  city: "Warszawa, Gdańsk",
+  intakeNotes: ["„Min. 5 lat” zapisane w polu „Lata doświadczenia”."],
+  // Audyt 06.10.2026 (N3): wiersze, które nie zmieściły się nawet w „mile widziane”.
+  droppedRequirements: ["Terraform"],
   startDate: "2026-11-01",
+  deadline: "2026-10-20",
+  headcount: "2",
   about:
     "Migracja systemu płatności kartowych z monolitu na mikroserwisy. Projekt na ok. 12 miesięcy z opcją przedłużenia.",
   questions: [
@@ -51,13 +135,17 @@ const FULL_FORM: IntakeForm = {
       key: "p1",
       question: "Jak zapewniałeś transakcyjność w systemie rozproszonym?",
       idealAnswer: "Saga / outbox, idempotencja, przykład z produkcji.",
+      dealBreaker: "Nie zna pojęcia transakcji rozproszonej, zawsze jedna baza.",
       origin: "request",
+      approved: true,
     },
     {
       key: "p2",
-      question: "Czy możesz pracować 2 dni w tygodniu z biura w Warszawie?",
-      idealAnswer: "",
+      question: "Czy możesz pracować 2 dni w tygodniu z biura w Warszawie albo Gdańsku?",
+      idealAnswer: "Tak, mieszka w zasięgu dojazdu albo dojeżdża regularnie.",
+      dealBreaker: "Tylko praca w pełni zdalna.",
       origin: "ai",
+      approved: false,
     },
   ],
   // Propozycja v2 (23.09.2026): reszta profilu z chipami źródła.
@@ -67,7 +155,7 @@ const FULL_FORM: IntakeForm = {
     regulations: [{ name: "PCI DSS", level: "nice", min_years: null, note: "" }],
     notes: "",
   },
-  searchKeywords: "Senior Java Developer, Spring Boot, Kafka, płatności kartowe",
+  searchExclude: [],
   targetCompanies: "Asseco, Comarch, Nets",
   disqualifiers: [],
   sellingPoints: "Greenfield na mikroserwisach, projekt na 12 miesięcy z opcją przedłużenia.",
@@ -77,14 +165,24 @@ const FULL_FORM: IntakeForm = {
     { key: "a1", text: "Ile etapów ma rekrutacja i kto decyduje?" },
     { key: "a2", text: "Jak duży jest zespół i w jakim języku pracuje?" },
   ],
+  // 25.09.2026: hiring manager z podpisu maila — nowa osoba dla klienta.
+  hiringManager: {
+    kind: "new",
+    name: "Anna Przykładowa",
+    position: "Kierownik Zespołu Płatności",
+    email: null,
+  },
   provenance: {
+    hiring_manager: "request",
+    deadline: "request",
+    headcount: "request",
     role: "request",
-    must: "request",
-    nice: "request",
+    client_title: "request",
+    requirements: "request",
     rate: "request",
     about: "request",
     experience: "request",
-    search_keywords: "ai",
+    questions: "ai",
     target_companies: "client_history",
     selling_points: "client_history",
     ask_client: "ai",
@@ -102,41 +200,429 @@ const EVIDENCE = [
   "Warszawie",
   "do 170 zł/h netto",
   "1 listopada",
+  "Potrzebujemy 2 osób",
+  "do 20 października",
   "transakcyjność w systemach rozproszonych",
 ];
 
+/** Karta „Pliki”: plik requestu i jeden załącznik (nazwy fikcyjne). */
+const FILES_LIMITS = { max_files: 20, max_file_bytes: 20 * 1024 * 1024 };
+const REQUEST_FILES: NonNullable<NewJobPagePreview["files"]> = {
+  ...FILES_LIMITS,
+  items: [
+    {
+      id: 1,
+      filename: "Zapytanie - Java Developer.pdf",
+      content_type: "application/pdf",
+      size_bytes: 212_400,
+      source: "request",
+      uploaded_by: 41,
+      uploaded_by_name: "[Delivery Lead A]",
+      created_at: "2026-10-09T08:15:00Z",
+    },
+    {
+      id: 2,
+      filename: "Opis projektu.docx",
+      content_type:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      size_bytes: 48_100,
+      source: "upload",
+      uploaded_by: 41,
+      uploaded_by_name: "[Delivery Lead A]",
+      created_at: "2026-10-09T08:17:00Z",
+    },
+  ],
+};
+
+// Wariant A (13.10.2026): zdanie w wymaganiach czeka na decyzję, technologia
+// z komentarzem w nawiasie da się rozdzielić — odczyt jak z `critical-suggestion`.
+const READING_ROWS: RequirementRowForm[] = [
+  ...ROWS.filter((row) => row.level !== "nice"),
+  { key: "r-tender", words: ["doświadczenie w przetargach"], level: "must" },
+  { key: "r-sql", words: ["SQL (bardzo dobra znajomość)"], level: "must" },
+  ...ROWS.filter((row) => row.level === "nice"),
+];
+
+const READING = {
+  keyword: null,
+  comment: null,
+  talk: null,
+  talk_text: null,
+  suggestions: [],
+  needs_decision: false,
+};
+
+const READINGS_INFO: RowCriticalState = {
+  ...CRITICAL_INFO,
+  info: {
+    ...CRITICAL_INFO.info,
+    "r-tender": {
+      label: "doświadczenie w przetargach",
+      eligible: false,
+      suggested: false,
+      readings: [
+        {
+          ...READING,
+          text: "doświadczenie w przetargach",
+          kind: "prose",
+          talk: "skills",
+          talk_text: "doświadczenie w przetargach",
+          suggestions: ["przetarg*", "PZP", "SIWZ"],
+          needs_decision: true,
+        },
+      ],
+    },
+    "r-sql": {
+      label: "SQL (bardzo dobra znajomość)",
+      eligible: false,
+      suggested: false,
+      readings: [
+        {
+          ...READING,
+          text: "SQL (bardzo dobra znajomość)",
+          kind: "technology",
+          keyword: "SQL",
+          comment: "bardzo dobra znajomość",
+          talk: "skills",
+          talk_text: "SQL — bardzo dobra znajomość",
+        },
+      ],
+    },
+  },
+};
+
 const STATES: Record<string, NewJobPagePreview> = {
+  readings: {
+    client: CLIENT,
+    source: "text",
+    requestText: REQUEST,
+    form: {
+      ...FULL_FORM,
+      rows: READING_ROWS,
+      language: "polski",
+      experience: {
+        ...FULL_FORM.experience,
+        skills: [
+          { name: "komunikacja z klientem biznesowym", level: "nice", min_years: null, note: "" },
+        ],
+      },
+    },
+    evidence: EVIDENCE,
+    categories: CATEGORIES,
+    criticalInfo: READINGS_INFO,
+  },
   request: {
     step: "request",
     client: CLIENT,
     requestText: REQUEST,
     form: EMPTY_INTAKE_FORM,
     evidence: [],
+    categories: CATEGORIES,
+    criticalInfo: { ...CRITICAL_INFO, info: {} },
+  },
+  noclient: {
+    client: null,
+    source: "manual",
+    requestText: "",
+    form: EMPTY_INTAKE_FORM,
+    evidence: [],
+    categories: CATEGORIES,
+    criticalInfo: { ...CRITICAL_INFO, info: {} },
+  },
+  manual: {
+    client: CLIENT,
+    source: "manual",
+    requestText: "",
+    form: EMPTY_INTAKE_FORM,
+    evidence: [],
+    categories: CATEGORIES,
+    criticalInfo: { ...CRITICAL_INFO, info: {} },
+    files: { ...FILES_LIMITS, items: [] },
   },
   review: {
-    step: "review",
     client: CLIENT,
+    source: "text",
     requestText: REQUEST,
     form: FULL_FORM,
     evidence: EVIDENCE,
-    recruiterId: 31,
+    categories: CATEGORIES,
+    criticalInfo: CRITICAL_INFO,
+    files: REQUEST_FILES,
   },
   gaps: {
-    step: "review",
     client: CLIENT,
+    source: "text",
     requestText: REQUEST.replace("Budżet do 170 zł/h netto B2B. ", ""),
     form: {
       ...FULL_FORM,
       rateBudget: "",
-      questions: FULL_FORM.questions.slice(0, 1),
+      // Brak decyzji o krytycznych — blokuje przekazanie do searchu.
+      rows: ROWS.map((row) => (row.level === "critical" ? { ...row, level: "must" } : row)),
+      // Pytanie bez odpowiedzi, która odpada, i niepotwierdzona kategoria.
+      questions: FULL_FORM.questions.map((q, i) =>
+        i === 1 ? { ...q, dealBreaker: "", approved: false } : q,
+      ),
+      categoryConfirmed: false,
+      // Klient nie podał hiring managera ani terminu — DL jeszcze nie zdecydował.
+      hiringManager: null,
+      deadline: "",
     },
     evidence: EVIDENCE.filter((e) => e !== "do 170 zł/h netto"),
+    categories: CATEGORIES,
+    criticalInfo: CRITICAL_INFO,
+    // Delivery Lead wskazał prowadzącego sam.
+    recruiterId: 31,
   },
 };
 
+const PORTALS_OFF: PortalConfigResponse = {
+  any_ready: false,
+  portals: [
+    { portal: "rocketjobs", label: "RocketJobs", state: "disabled", enabled: false },
+    { portal: "justjoinit", label: "JustJoin.IT", state: "disabled", enabled: false },
+  ],
+};
+
+const PORTALS_ON: PortalConfigResponse = {
+  any_ready: true,
+  portals: [
+    { portal: "rocketjobs", label: "RocketJobs", state: "ready", enabled: true },
+    { portal: "justjoinit", label: "JustJoin.IT", state: "ready", enabled: true },
+  ],
+};
+
+const DICTIONARY: BoardDictionaries = {
+  categories: [
+    { key: "java", name: "Java" },
+    { key: "devops", name: "DevOps" },
+    { key: "testing", name: "Testing" },
+  ],
+  experience_levels: [
+    { key: "junior", name: "Junior" },
+    { key: "mid", name: "Mid" },
+    { key: "senior", name: "Senior" },
+  ],
+  working_times: [
+    { key: "full_time", name: "Pełny etat" },
+    { key: "freelance", name: "Freelance" },
+  ],
+  workplace_types: [
+    { key: "remote", name: "Zdalnie" },
+    { key: "hybrid", name: "Hybrydowo" },
+    { key: "office", name: "Biuro" },
+  ],
+};
+
+STATES.portals = {
+  ...STATES.review,
+  portalPlan: {
+    portals: ["rocketjobs", "justjoinit"],
+    draft: {
+      publicTitle: "Senior Java Developer — płatności kartowe",
+      subtitle: "Migracja na mikroserwisy, 12 miesięcy, hybrydowo w Warszawie",
+      about:
+        "Dołączysz do zespołu, który przenosi system płatności kartowych z monolitu na mikroserwisy (Java 17, Spring Boot, Kafka). Projekt na ok. 12 miesięcy z opcją przedłużenia, 2 dni w tygodniu w biurze w Warszawie.",
+    },
+    options: {
+      ...EMPTY_LISTING_OPTIONS,
+      experience_level: "senior",
+      working_time: "freelance",
+      workplace_type: "hybrid",
+      office_days: 2,
+      city: "Warszawa",
+    },
+  },
+  portalFindings: [
+    {
+      code: "money",
+      message: "Opis zawiera kwotę — stawek nie publikujemy w treści ogłoszenia.",
+      excerpt: "do 170 zł/h",
+    },
+  ],
+};
+
+STATES.resume = {
+  // Lista stoi na pustej stronie: bez klienta, treści i wpisanych pól.
+  ...STATES.noclient,
+  unfinishedForms: [
+    {
+      id: 91,
+      label: "Programista Java — płatności kartowe (ZOB 48213)",
+      client_id: 1,
+      client_name: "[Klient testowy]",
+      source: "text",
+      updated_at: "2026-10-03T14:12:00Z",
+      expires_at: "2026-11-02T14:12:00Z",
+      missing_count: 3,
+    },
+    {
+      id: 92,
+      label: "Analityk biznesowy",
+      client_id: 1,
+      client_name: "[Klient testowy]",
+      source: "manual",
+      updated_at: "2026-09-12T09:40:00Z",
+      expires_at: "2026-10-12T09:40:00Z",
+      missing_count: 6,
+    },
+  ],
+};
+
+STATES.servererror = {
+  ...STATES.review,
+  autosave: { status: "saved", at: "2026-10-04T10:42:00Z" },
+  serverBlockers: [
+    {
+      code: "office_city",
+      message: "Podaj miasto biura w lokalizacji oferty (tryb hybrydowy/stacjonarny).",
+    },
+    {
+      code: "champion:rate_unresolved",
+      message: "Stawka w profilu nie jest kwotą PLN/h — popraw ją w Profilu Championa.",
+    },
+  ],
+};
+
+STATES.review = {
+  ...STATES.review,
+  autosave: { status: "saved", at: "2026-10-04T10:42:00Z" },
+};
+
+// Ręczne wypełnianie po „Utwórz i opublikuj”: braki podświetlone w polach
+// ze zdaniem „Uzupełnij przed publikacją”.
+STATES.attempted = {
+  ...STATES.manual,
+  form: { ...EMPTY_INTAKE_FORM, title: "Senior Java Developer" },
+  createAttempted: true,
+};
+
+// Odczyt maila w formularzu, w którym Delivery Lead wpisał wcześniej rolę,
+// budżet i tryb pracy: wpisane zostają, a wartości z maila czekają przy polach.
+STATES.offers = {
+  ...STATES.review,
+  form: {
+    ...FULL_FORM,
+    title: "Java Developer",
+    rateBudget: "160",
+    remotePolicy: "remote",
+    onsiteDays: "",
+    city: "",
+    provenance: { ...FULL_FORM.provenance, role: "manual", rate: "manual" },
+  },
+  fill: { source: "request", sourceName: null, filled: 11 },
+  offers: [
+    {
+      id: "title",
+      unit: "title",
+      source: "request",
+      label: "Rola",
+      text: "Senior Java Developer",
+      basis: "request",
+      patch: { title: "Senior Java Developer" },
+    },
+    {
+      id: "budget",
+      unit: "budget",
+      source: "request",
+      label: "Budżet PLN/h",
+      text: "170 PLN/h",
+      basis: "request",
+      patch: { rateBudget: "170", rateBudgetMin: "", rateNote: null },
+    },
+    {
+      id: "workMode",
+      unit: "workMode",
+      source: "request",
+      label: "Tryb pracy",
+      text: "Hybrydowo, 2 dni w tygodniu",
+      basis: "request",
+      patch: { remotePolicy: "hybrid", onsiteDays: "2", onsiteDaysPeriod: "week" },
+    },
+    {
+      id: "rows",
+      unit: "rows",
+      source: "request",
+      label: "Wymagania",
+      text: "jeszcze 1 wymaganie: Redis",
+      basis: "request",
+      rows: [{ words: ["Redis"], level: "nice" }],
+    },
+  ],
+  // Panel „Inna rekrutacja” w tym stanie ma listę do obejrzenia.
+  templateJobs: [
+    {
+      id: 301,
+      title: "Programista Java — bankowość detaliczna (ZOB 47110)",
+      working_title: "Java Developer · Java, Spring Boot · 4+ lat",
+      client_name: "[Klient testowy]",
+      status: "closed",
+      opened_at: "2026-06-02T08:00:00Z",
+    },
+    {
+      id: 302,
+      title: "Tester automatyzujący (ZOB 47302)",
+      client_name: "[Klient testowy]",
+      status: "published",
+      opened_at: "2026-09-15T08:00:00Z",
+    },
+  ],
+};
+
+// Po odczycie wgranego wzoru Profilu Championa (10.10.2026): pola przepisał
+// kod, bez modelu — chipy mówią „z dokumentu”, a sekcje bez pola w formularzu
+// (frazy do searchu, wiedza z rozmów) jadą w formularzu do zapisu profilu.
+STATES.champion = {
+  ...STATES.review,
+  source: "file",
+  form: {
+    ...FULL_FORM,
+    provenance: Object.fromEntries(
+      Object.keys(FULL_FORM.provenance).map((key) => [key, "document"]),
+    ),
+    championExtras: {
+      search: { keywords: ["java developer bankowość"], notes: "Zacznij od osób z sektora finansowego." },
+      client: { consultant_insight: "Zespół ceni samodzielność.", sectors: ["bankowość"] },
+      insights: [
+        {
+          id: "doc-1",
+          source: "client",
+          topic: "other",
+          audience: "team",
+          text: "Klient pyta na rozmowie o doświadczenie z regulacjami.",
+          done: false,
+          origin: "document",
+        },
+      ],
+    },
+  },
+  fill: {
+    source: "file",
+    sourceName: "Profil Championa - Java.docx",
+    filled: 14,
+    championForm: true,
+    championSections: "taken",
+  },
+};
+
+// Bez `assignment`: Delivery Lead niczego nie zaznaczył, więc działa automat.
+STATES.shadow = STATES.review;
+STATES.off = STATES.review;
+
+STATES.passive = {
+  ...STATES.review,
+  priorityLevel: "accepting",
+};
+
+/** Tryb automatu przydziału w danym stanie podglądu (`null` = wyłączony). */
+function allocationMode(stateKey: string): "auto" | "shadow" | null {
+  if (stateKey === "off") return null;
+  return stateKey === "shadow" ? "shadow" : "auto";
+}
+
 function Harness() {
   const params = useSearchParams();
-  const state = STATES[params?.get("state") ?? "review"] ?? STATES.review;
+  const stateKey = params?.get("state") ?? "review";
+  const state = STATES[stateKey] ?? STATES.review;
   const [client] = useState(() => {
     const qc = new QueryClient({
       defaultOptions: { queries: { staleTime: Infinity, retry: false } },
@@ -149,11 +635,44 @@ function Harness() {
         { id: 32, name: "[Rekruter B]" },
       ],
     );
+    qc.setQueryData(
+      jobPortalKeys.config,
+      stateKey === "portals" ? PORTALS_ON : PORTALS_OFF,
+    );
+    qc.setQueryData(jobPortalKeys.dictionaries("rocketjobs"), DICTIONARY);
+    // Pole „Rekruter prowadzący”: czy automat przydziału da się wybrać i w jakim trybie.
+    qc.setQueryData(
+      ["job-intake-handoff-options"],
+      allocationMode(stateKey)
+        ? { automatic_enabled: true, mode: allocationMode(stateKey) }
+        : { automatic_enabled: false, mode: "off" },
+    );
+    // Pole „Delivery Lead”: osoba domyślna dla klienta i katalog do zmiany.
+    qc.setQueryData(["job-intake-delivery-lead", CLIENT.id], {
+      user_id: 41,
+      name: "[Delivery Lead A]",
+      source: "creator",
+    });
+    qc.setQueryData(
+      ["users-directory", "delivery-lead-roles"],
+      [
+        { id: 41, name: "[Delivery Lead A]" },
+        { id: 42, name: "[Delivery Lead B]" },
+      ],
+    );
+    // Lista kontaktów klienta w polu „Hiring manager” (`hiringManagerOptionsKey`).
+    qc.setQueryData(["hiring-manager-options", 1], [
+      { id: 501, name: "Tomasz Przykładowy", position: "Dyrektor IT" },
+      { id: 502, name: "Ewa Wzorcowa", position: null },
+    ]);
     return qc;
   });
   return (
     <QueryClientProvider client={client}>
-      <div className="min-h-dvh bg-background">
+      {/* Te same odstępy co `<main>` w `AppShellV2` (`p-4 md:p-6`) — stopka
+          strony wychodzi na krawędź ujemnym marginesem liczonym pod nie;
+          bez nich harness dawał poziomy scroll, którego na produkcji nie ma. */}
+      <div className="min-h-dvh bg-background p-4 pb-24 md:p-6">
         <NewJobPage key={params?.get("state") ?? "review"} preview={state} />
       </div>
     </QueryClientProvider>

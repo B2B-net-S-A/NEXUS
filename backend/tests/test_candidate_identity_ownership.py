@@ -556,6 +556,9 @@ async def test_adopt_path_preserves_lock_and_refreshes_source_snapshot(db) -> No
             "profile_about": None,
             "cv_filename": None,
             "cv_extracted_data": "{}",
+            # Runda 10 (R10-N11-9): skrót rekordu źródła — adopcja przepisuje
+            # wiersz tylko przy innym skrócie niż zapisany.
+            "traffit_payload_sha": f"sha-{suffix}",
         },
     )
     await db.commit()
@@ -578,5 +581,6 @@ async def test_adopt_path_preserves_lock_and_refreshes_source_snapshot(db) -> No
     assert metadata["lastname_manual"] is True
     assert metadata["lastname_ownership_reason"] == "bootstrap_mismatch"
     assert metadata["traffit_name"] == "Anna Source"
+    assert metadata["traffit_payload_sha"] == f"sha-{suffix}"
     assert metadata["traffit_lastname"] == "Kowalska Source"
     assert metadata["traffit_source_updated_at"] == "2026-08-28T10:15:00+00:00"

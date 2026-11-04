@@ -27,13 +27,16 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Hashable
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
 from app.services.contract_rates import REVENUE_BEARING_STATUSES
-from app.services.contractor_identity import candidate_identity_key
+from app.services.contractor_identity import (
+    candidate_identity_key,
+    current_contract_clause,
+)
 from app.core.scheduling import business_today
 
 _LIVE_STATUSES = frozenset({ContractStatus.active, ContractStatus.ending})
@@ -105,7 +108,9 @@ async def consultant_population(
     reguła co ``contractor_identity.is_current_contract`` (18.09.2026) i kafel
     „aktywne kontrakty” obok (``_started_by``). Do 24.09.2026 był tu pomijany,
     więc osoba z żywym kontraktem bez daty była w kaflu kontraktów, a w
-    utylizacji nie było jej wcale.
+    utylizacji nie było jej wcale. Kontrakt bez daty, którego wszystkie
+    zamówienia startują później, jest planowany (``current_contract_clause``,
+    audyt 25.09.2026) — jak na profilu klienta.
 
     Na dziś (i później) aktywny jest tylko kontrakt w żywym statusie: ``ended``
     bez daty końca albo z datą w przyszłości to zakończona współpraca, a kafel
@@ -128,7 +133,7 @@ async def consultant_population(
             .join(Contract, Contract.candidate_id == Candidate.id)
             .where(
                 Contract.status.in_(REVENUE_BEARING_STATUSES),
-                or_(Contract.start_date.is_(None), Contract.start_date <= on),
+                current_contract_clause(on),
             )
         )
     ).all()

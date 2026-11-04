@@ -32,21 +32,27 @@ import {
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { SettingsBreadcrumb } from "@/components/settings/SettingsBreadcrumb";
+import { SettingsSideNav } from "@/components/settings/SettingsSideNav";
 import Microsoft365Card from "@/components/settings/Microsoft365Card";
 import { TeamsPrepStatusCard } from "@/components/settings/TeamsPrepStatusCard";
+import { NotificationsSettings } from "@/components/settings/NotificationsSettings";
 import { NotificationPreferencesPanel } from "@/components/settings/NotificationPreferencesPanel";
+import { USER_PREFERENCES_QUERY_KEY, type UserPreferences } from "@/lib/api/userPreferences";
 import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard";
 import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
-import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
-import NotificationDeliverySettings from "@/components/settings/NotificationDeliverySettings";
+import JobAdFixedBlocksCard from "@/components/settings/JobAdFixedBlocksCard";
+import JobBoardsCard from "@/components/settings/JobBoardsCard";
+import { IntegrationsSettings } from "@/components/settings/IntegrationsSettings";
+import { useHrProgram } from "@/lib/api/hr";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
 import { resetScreenSeen } from "@/lib/jarvis/bubble-budget";
 import { openJarvis } from "@/lib/jarvis/events";
 import {
   findSettingsArea,
+  groupedAreaItems,
   isFinanceReadOnly,
   listedSettingsAreas,
-  listedSettingsItems,
+  type SettingsContext,
   resolveSettingsView,
   searchSettingsItems,
   settingsItemHref,
@@ -89,8 +95,41 @@ const SkillDictionaryTab = dynamic(
     loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
   }
 );
+const ConversationSkillNamesTab = dynamic(
+  () =>
+    import("@/components/settings/SkillDictionaryTab").then(
+      (m) => m.ConversationSkillNamesSection,
+    ),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
+  }
+);
+const RoleLibraryTab = dynamic(
+  () => import("@/components/settings/RoleLibraryTab"),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
+  }
+);
+const ImportsSettings = dynamic(
+  () => import("@/components/settings/ImportsSettings"),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
+  }
+);
+
 const PlacementExclusionsTab = dynamic(
   () => import("@/components/settings/PlacementExclusionsTab"),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
+  }
+);
+
+const MailTemplatesSettings = dynamic(
+  () => import("@/components/settings/MailTemplatesSettings"),
   {
     ssr: false,
     loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
@@ -134,8 +173,8 @@ const ADVANCED_LINKS: Array<{
   },
   {
     href: "/settings/scoring",
-    title: "Profile wag scoringu",
-    description: "Tunowanie semantic / skills / salary / location / availability per klient.",
+    title: "Ranking kandydatów",
+    description: "Co liczy się najbardziej przy dopasowaniu kandydata.",
     icon: <Sliders className="w-5 h-5" />,
     roles: ["admin", "delivery_lead"],
     section: "insights",
@@ -169,8 +208,8 @@ const ADVANCED_LINKS: Array<{
   },
   {
     href: "/settings/ai",
-    title: "Funkcje AI",
-    description: "Globalny wyłącznik + miesięczne limity dla scoringu, generatora ogłoszeń, parsera CV i podsumowań.",
+    title: "Koszty AI",
+    description: "Który model robi co i ile to kosztuje w tym miesiącu.",
     icon: <Sparkles className="w-5 h-5" />,
     roles: ["admin"],
     section: "system_admin",
@@ -210,7 +249,7 @@ const ADVANCED_LINKS: Array<{
   {
     href: "/settings/team-structure",
     title: "Kompetencje i odpowiedzialności",
-    description: "Kompetencje Sourcerów, TAC-ów i Rekruterów oraz przypisania Delivery Leadów do klientów.",
+    description: "Kompetencje Rekruterów oraz przypisania Delivery Leadów do klientów.",
     icon: <Network className="w-5 h-5" />,
     roles: ["admin", "head_of_recruitment", "finance"],
   },
@@ -226,7 +265,7 @@ const ADVANCED_LINKS: Array<{
     title: "Przegląd klientów",
     description: "Ranking klientów + leaderboard delivery leadów.",
     icon: <BarChart3 className="w-5 h-5" />,
-    roles: ["admin", "finance"],
+    roles: ["admin"],
     section: "finance",
   },
   {
@@ -255,7 +294,6 @@ const FINANCE_READ_ONLY_LINKS = new Set([
   "/settings/contract-templates",
   "/settings/team-structure",
   "/settings/chats",
-  "/settings/clients-overview",
   "/settings/client-portfolio-preview",
   "/settings/hiring-managers",
 ]);
@@ -302,9 +340,17 @@ function SettingsItemRows({ items, showArea = false }: { items: SettingsItem[]; 
   );
 }
 
-function SettingsHome({ areas, user }: { areas: SettingsArea[]; user: Parameters<typeof searchSettingsItems>[0] }) {
+function SettingsHome({
+  areas,
+  user,
+  context,
+}: {
+  areas: SettingsArea[];
+  user: Parameters<typeof searchSettingsItems>[0];
+  context: SettingsContext;
+}) {
   const [query, setQuery] = useState("");
-  const results = searchSettingsItems(user, query);
+  const results = searchSettingsItems(user, query, context);
   const searching = query.trim() !== "";
   return (
     <>
@@ -353,38 +399,54 @@ function SettingsHome({ areas, user }: { areas: SettingsArea[]; user: Parameters
 
 function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters<typeof hasSectionAccess>[0] }) {
   switch (item.id) {
+    // Obie pozycje to ten sam ekran „Powiadomienia” — różni je zakładka startowa.
     case "notifications":
-      return <NotificationDeliverySettings />;
+      return <NotificationsSettings defaultTab="role" />;
     case "outlook":
       return <Microsoft365Card />;
+    // Ekran osobisty bez zakładek administratora (Kto co dostaje, Maile,
+    // Reguły etapów) — te są w System › Powiadomienia (20.10.2026).
     case "my-notifications":
-      return <NotificationPreferencesPanel />;
+      return (
+        <div className="space-y-6">
+          {/* Karta ma własny tytuł „Microsoft 365”. */}
+          <Microsoft365Card />
+          <section aria-labelledby="my-notifications" className="space-y-2">
+            <h2 id="my-notifications" className="text-base font-semibold text-foreground">
+              Moje powiadomienia
+            </h2>
+            <NotificationPreferencesPanel />
+          </section>
+        </div>
+      );
     case "people":
       return <AdminUsersTab embedded />;
     case "stages":
       return <PipelineTemplatesTab />;
     case "mail":
-      return (
-        <div className="space-y-4">
-          <EmailTemplatesCard />
-          <div className="rounded-2xl border border-border bg-card p-5 text-sm text-muted-foreground">
-            Szablony odrzuceń mają własny edytor:{" "}
-            <Link href="/settings/templates" className="font-medium text-primary hover:underline">
-              otwórz szablony odrzuceń
-            </Link>
-          </div>
-        </div>
-      );
+      return <MailTemplatesSettings />;
     case "skills":
       return <SkillDictionaryTab />;
+    case "skills-review":
+      return <ConversationSkillNamesTab />;
+    case "job-ad-blocks":
+      return <JobAdFixedBlocksCard />;
+    case "roles":
+      return <RoleLibraryTab />;
     case "traffit":
       return <TraffitSyncCard />;
+    case "integrations":
+      return <IntegrationsSettings />;
+    case "job-boards":
+      return <JobBoardsCard />;
     case "teams-prep":
       return <TeamsPrepStatusCard />;
     case "history":
       return <EventHistoryTab />;
     case "placements":
       return <PlacementExclusionsTab />;
+    case "imports":
+      return <ImportsSettings />;
     case "teams":
       return <TeamsNotificationsCard />;
     case "coaching":
@@ -433,6 +495,8 @@ function AdvancedLinksGrid({ user }: { user: Parameters<typeof hasSectionAccess>
 
 export default function SettingsPage() {
   const { user, hydrated } = useAuthStore();
+  // Pozycje „Ludzi w NEXUSIE” tylko przy włączonym programie (Artur 18.10.2026).
+  const settingsContext: SettingsContext = { hrProgram: useHrProgram(Boolean(user)) };
   const searchParams = useSearchParams();
 
   // The auth store hydrates `user` from localStorage in a post-mount effect
@@ -442,44 +506,70 @@ export default function SettingsPage() {
     return <div className="p-6 text-muted-foreground">Ładowanie…</div>;
   }
 
-  const view = resolveSettingsView(user, {
-    item: searchParams?.get("item"),
-    area: searchParams?.get("area"),
-    tab: searchParams?.get("tab"),
-  });
+  const view = resolveSettingsView(
+    user,
+    {
+      item: searchParams?.get("item"),
+      area: searchParams?.get("area"),
+      tab: searchParams?.get("tab"),
+    },
+    settingsContext,
+  );
+  if (view.kind === "home") {
+    return (
+      <div className="mx-auto max-w-4xl space-y-6">
+        <SettingsHome
+          areas={listedSettingsAreas(user, settingsContext)}
+          user={user}
+          context={settingsContext}
+        />
+      </div>
+    );
+  }
+
   const wide = view.kind === "item" && view.item.wide;
-
   return (
-    <div className={cn("mx-auto space-y-6", wide ? "max-w-7xl" : "max-w-4xl")}>
-      {view.kind === "home" && (
-        <SettingsHome areas={listedSettingsAreas(user)} user={user} />
-      )}
-
-      {view.kind === "area" && (
-        <>
-          <SettingsBreadcrumb area={view.area} />
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">{view.area.name}</h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">{view.area.hint}</p>
-          </div>
-          <SettingsItemRows
-            items={listedSettingsItems(user).filter((i) => i.area === view.area.id)}
-          />
-        </>
-      )}
-
-      {view.kind === "item" && (
-        <>
-          <SettingsBreadcrumb area={view.area} item={view.item} />
-          {!view.item.ownHeader && (
+    <div className="mx-auto max-w-7xl lg:flex lg:gap-8">
+      <SettingsSideNav
+        user={user}
+        areaId={view.area.id}
+        itemId={view.kind === "item" ? view.item.id : undefined}
+        context={settingsContext}
+      />
+      <div className={cn("min-w-0 flex-1 space-y-6", !wide && "max-w-4xl")}>
+        {view.kind === "area" && (
+          <>
+            <SettingsBreadcrumb area={view.area} />
             <div>
-              <h1 className="text-2xl font-bold text-foreground">{view.item.title}</h1>
-              <p className="mt-0.5 text-sm text-muted-foreground">{view.item.description}</p>
+              <h1 className="text-2xl font-bold text-foreground">{view.area.name}</h1>
+              <p className="mt-0.5 text-sm text-muted-foreground">{view.area.hint}</p>
             </div>
-          )}
-          <SettingsItemBody item={view.item} user={user} />
-        </>
-      )}
+            {groupedAreaItems(user, view.area.id, settingsContext).map((group, _i, groups) => (
+              <section key={group.name} aria-label={group.name || view.area.name} className="space-y-2">
+                {groups.length > 1 && group.name && (
+                  <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {group.name}
+                  </h2>
+                )}
+                <SettingsItemRows items={group.items} />
+              </section>
+            ))}
+          </>
+        )}
+
+        {view.kind === "item" && (
+          <>
+            <SettingsBreadcrumb area={view.area} item={view.item} />
+            {!view.item.ownHeader && (
+              <div>
+                <h1 className="text-2xl font-bold text-foreground">{view.item.title}</h1>
+                <p className="mt-0.5 text-sm text-muted-foreground">{view.item.description}</p>
+              </div>
+            )}
+            <SettingsItemBody item={view.item} user={user} />
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -489,9 +579,9 @@ function CoachingSettings() {
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["user-preferences", "me"],
+    queryKey: USER_PREFERENCES_QUERY_KEY,
     queryFn: () =>
-      api.get("/api/users/me/preferences").then((r) => r.data as { kpi_coach_enabled: boolean }),
+      api.get("/api/users/me/preferences").then((r) => r.data as UserPreferences),
     staleTime: 60 * 1000,
   });
 
@@ -499,9 +589,9 @@ function CoachingSettings() {
     mutationFn: (kpi_coach_enabled: boolean) =>
       api
         .patch("/api/users/me/preferences", { kpi_coach_enabled })
-        .then((r) => r.data as { kpi_coach_enabled: boolean }),
+        .then((r) => r.data as UserPreferences),
     onSuccess: (next) => {
-      queryClient.setQueryData(["user-preferences", "me"], next);
+      queryClient.setQueryData(USER_PREFERENCES_QUERY_KEY, next);
     },
   });
 
@@ -530,7 +620,7 @@ function CoachingSettings() {
             Włącz coaching
           </p>
           <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5">
-            Toast + powiadomienie w dzwonku. Bez spamu — dedup per KPI / okres,
+            Dymek na ekranie. Bez spamu — dedup per KPI / okres,
             max 3 przypomnienia dziennie per wskaźnik.
           </p>
         </div>

@@ -19,11 +19,16 @@ import app.models  # noqa: F401
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token, hash_password
-from app.models.calendar_event import CalendarEvent, EventType
+from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.note import Note
 from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
 from app.models.user import User, UserRole
-from app.services import prep_review, prep_transcripts
+from app.services import (
+    prep_availability,
+    prep_review,
+    prep_review_config,
+    prep_transcripts,
+)
 from app.services.m365 import teams_prep_auth, teams_prep_graph
 from app.services.m365.graph_client import GraphRequestError
 
@@ -38,6 +43,11 @@ class FakeGraph:
         self.event_state: dict = {}
         self.fail_list_with: int | None = None
         self.patched = 0
+        # Zajętość z kalendarzy (adres → bloki; brak adresu = kalendarz nieznany).
+        self.busy: dict[str, list[tuple[datetime, datetime]]] = {}
+
+    async def busy_blocks(self, emails, *, start, end):
+        return {e.lower(): self.busy.get(e.lower()) for e in emails}
 
     async def create_event(self, upn, payload):
         self.created.append((upn, payload))
@@ -81,6 +91,7 @@ def graph(monkeypatch):
         "transcript_vtt",
     ):
         monkeypatch.setattr(teams_prep_graph, name, getattr(fake, name))
+    monkeypatch.setattr(prep_availability, "busy_blocks", fake.busy_blocks)
     monkeypatch.setattr(settings, "TEAMS_PREP_APP_ONLY_ENABLED", True)
     monkeypatch.setattr(teams_prep_auth, "credentials_configured", lambda: True)
     return fake
@@ -168,6 +179,13 @@ async def test_prep1_is_created_in_the_dl_calendar_with_teams_and_notice(
     assert body["enabled"] is True
     assert body["suggested"]["1"]["id"] == dl_id
     assert body["suggested"]["2"]["id"] == rec_id
+    # Okno pokazuje dokładnie to zaproszenie, które serwer wyśle kandydatowi.
+    preview = body["invitation"]["1"]
+    assert preview["title"].startswith(
+        "Przygotowanie do spotkania z Klientem PrepClient-"
+    )
+    assert "{note}" in preview["body"] and preview["body"].endswith("{organizer}")
+    assert body["invitation"]["2"]["title"].endswith("(spotkanie 2)")
 
     resp = await _create(
         app_client,
@@ -179,6 +197,7 @@ async def test_prep1_is_created_in_the_dl_calendar_with_teams_and_notice(
         start=_at(24),
         end=_at(24.75),
         attendee_user_ids=[rec_id],
+        note="Proszę o włączoną kamerę.",
         client_request_id="req-1",
     )
     assert resp.status_code == 201, resp.text
@@ -195,14 +214,31 @@ async def test_prep1_is_created_in_the_dl_calendar_with_teams_and_notice(
     addresses = [a["emailAddress"]["address"] for a in payload["attendees"]]
     assert any(a.startswith("prep-cand-") for a in addresses)
     assert any(a.startswith("prep-recruiter-") for a in addresses)
-    assert "nagrywana i transkrybowana" in payload["body"]["content"]
-    # Klient nie trafia do tytułu, który widzi kandydat.
-    assert "PrepClient" not in payload["subject"]
+    # Tytuł jak w dotychczasowych zaproszeniach zespołu (zgłoszenie DL
+    # 02.10.2026): klient i kandydat, bez „Prep” i bez półpauz.
+    subject = payload["subject"]
+    assert subject.startswith("Przygotowanie do spotkania z Klientem PrepClient-")
+    assert " - Jan Prepowy" in subject
+    assert "Prep 1" not in subject and "—" not in subject
+    # Treść w akapitach; informacja o nagrywaniu i administratorze danych
+    # niżej, pod kreską — do 02.10.2026 sklejała się z dopiskiem w jeden akapit.
+    content = payload["body"]["content"]
+    main, _, annotation = content.partition("<hr>")
+    assert "<p>Dzień dobry,</p>" in main
+    assert "<p>Proszę o włączoną kamerę.</p>" in main
+    assert "<p>Pozdrawiam<br>Kasia Lead</p>" in main
+    assert "Administratorem danych" not in main
+    assert "nagrywana i transkrybowana" in annotation
+    assert "—" not in content
 
     async with AsyncSessionLocal() as db:
         ev = await db.get(CalendarEvent, out["event_id"])
         assert ev.event_type == EventType.prep_call
         assert ev.operational_owner_id == dl_id
+        assert ev.title == subject
+        # W NEXUSIE ta sama treść jako zwykły tekst, bez znaczników.
+        assert ev.description.startswith("Dzień dobry,\n\nZapraszam")
+        assert "<p>" not in ev.description
         prep = await db.scalar(
             select(PrepMeeting).where(PrepMeeting.calendar_event_id == ev.id)
         )
@@ -222,6 +258,260 @@ async def test_prep1_is_created_in_the_dl_calendar_with_teams_and_notice(
     )
     assert dup.status_code == 409
     assert dup.json()["detail"]["code"] == "PREP_ALREADY_SCHEDULED"
+
+
+async def test_busy_organizer_needs_accept_busy_and_hears_about_the_clash(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """„Inna godzina…” (22.10.2026): kolizja z kalendarza = 409, chyba że
+    planujący świadomie zapisuje mimo to — wtedy DL dostaje dzwonek o kolizji."""
+    from app.models.notification import Notification, NotificationType
+
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Rekruter")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia Lead")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    async with AsyncSessionLocal() as db:
+        dl_email = (await db.get(User, dl_id)).email.lower()
+    start = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=24)
+    graph.busy[dl_email] = [
+        (start - timedelta(minutes=15), start + timedelta(minutes=30))
+    ]
+    body = dict(
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=start.isoformat(),
+        end=(start + timedelta(minutes=45)).isoformat(),
+        client_request_id="req-busy",
+    )
+
+    refused = await _create(app_client, rec_h, **body)
+    assert refused.status_code == 409, refused.text
+    detail = refused.json()["detail"]
+    assert detail["code"] == "PREP_SLOT_BUSY"
+    assert detail["message"].startswith("Kasia Lead ma wtedy zajęte (")
+    assert graph.created == []
+
+    accepted = await _create(app_client, rec_h, **body, accept_busy=True)
+    assert accepted.status_code == 201, accepted.text
+    async with AsyncSessionLocal() as db:
+        notes = (
+            await db.scalars(
+                select(Notification).where(
+                    Notification.user_id == dl_id,
+                    Notification.notification_type
+                    == NotificationType.prep_changed_yours,
+                )
+            )
+        ).all()
+    assert len(notes) == 1
+    assert "Nachodzi na inne spotkanie w Twoim kalendarzu" in notes[0].message
+
+
+async def test_retry_is_not_busy_with_its_own_orphan_meeting(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Outlook przyjął spotkanie, a NEXUS go nie zapisał: powtórka z tym samym
+    ``client_request_id`` widzi w kalendarzu „siebie” — to nie kolizja."""
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola R")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia L")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    async with AsyncSessionLocal() as db:
+        dl_email = (await db.get(User, dl_id)).email.lower()
+    start = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=24)
+    end = start + timedelta(minutes=45)
+    graph.busy[dl_email] = [(start, end)]
+    resp = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=start.isoformat(),
+        end=end.isoformat(),
+        client_request_id="req-retry",
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_other_prep_of_the_same_organizer_at_the_same_time_is_busy(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Audyt 22.10, F32: dwóch rekruterów klika tę samą podpowiedź dla
+    różnych kandydatów u tego samego DL — drugi zapis to kolizja (409),
+    choć w kalendarzu blok ma ten sam początek i koniec co nowy prep."""
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola R")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia L")
+    job_a, cand_a = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    job_b, cand_b = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    async with AsyncSessionLocal() as db:
+        dl_email = (await db.get(User, dl_id)).email.lower()
+    start = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=24)
+    end = start + timedelta(minutes=45)
+    first = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_a,
+        job_id=job_a,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=start.isoformat(),
+        end=end.isoformat(),
+    )
+    assert first.status_code == 201, first.text
+    # Outlook DL ma teraz prep kandydata A dokładnie w tym przedziale.
+    graph.busy[dl_email] = [(start, end)]
+    second = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_b,
+        job_id=job_b,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=start.isoformat(),
+        end=end.isoformat(),
+    )
+    assert second.status_code == 409, second.text
+    assert second.json()["detail"]["code"] == "PREP_SLOT_BUSY"
+
+
+async def test_unknown_or_free_calendar_saves_without_accept_busy(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola R")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia L")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    # Brak wpisu w graph.busy = kalendarza nie widać → nie ma czym blokować.
+    resp = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=_at(24),
+        end=_at(24.75),
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_invitation_names_the_role_without_the_client_request_number(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Zgłoszenie 22.10.2026: zaproszenie do kandydata niosło numer zapytania
+    klienta („… na stanowisko Threat Identification & Prioritization (42874)”).
+    Kandydat dostaje samą nazwę roli — tę samą, co w nagłówku CV."""
+    from app.models.job import Job
+
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Rekruter")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia Lead")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.title = "Threat Identification & Prioritization (42874)"
+        job.client_reference = "42874"
+        await db.commit()
+
+    opts = await app_client.get(
+        f"/api/interview-cycle/preps/options?candidate_id={cand_id}&job_id={job_id}",
+        headers=rec_h,
+    )
+    assert opts.status_code == 200, opts.text
+    # Od 26.10.2026 stanowisko jest polem okna (do poprawki), a treść ma
+    # w tym miejscu ``{role}``.
+    assert opts.json()["role_title"] == "Threat Identification & Prioritization"
+    assert opts.json()["role_title_needs_fix"] is False
+    for preview in opts.json()["invitation"].values():
+        assert "na stanowisko {role}." in preview["body"]
+        assert "42874" not in preview["body"] + preview["title"]
+
+    resp = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=_at(24),
+        end=_at(24.75),
+    )
+    assert resp.status_code == 201, resp.text
+    _, payload = graph.created[-1]
+    assert "42874" not in payload["subject"]
+    assert "42874" not in payload["body"]["content"]
+    assert "Threat Identification &amp; Prioritization." in payload["body"]["content"]
+
+
+async def test_invitation_carries_the_role_description_from_the_champion(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """26.10.2026 (D1–D3): stanowisko z Championa zamiast kodu Nordei
+    („PL_IT_Developer_expert_TP#40379”) i opis roli pod podpisem, bez stawki.
+    Okno może je poprawić; opis z kwotą nie wychodzi do kandydata."""
+    from app.models.job import Job
+
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Rekruter")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia Lead")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.title = "PL_IT_Developer_expert_TP#40379 (43020)"
+        job.client_reference = "43020"
+        job.champion_profile = {
+            "basics": {"role_name": "Senior ETL Engineer", "rate_value": 180.0},
+            "project": {
+                "about": "Projekt hurtowni danych.",
+                "responsibilities": "Procesy ETL; analiza wymagań",
+            },
+            "stack": {"must": [{"name": "Snowflake"}]},
+        }
+        await db.commit()
+
+    opts = (
+        await app_client.get(
+            f"/api/interview-cycle/preps/options?candidate_id={cand_id}&job_id={job_id}",
+            headers=rec_h,
+        )
+    ).json()
+    assert opts["role_title"] == "Senior ETL Engineer"
+    assert opts["role_title_source"] == "champion"
+    assert "• Procesy ETL" in opts["role_description"]
+    assert opts["role_description_findings"] == []
+    assert "{role_hint}" in opts["invitation"]["1"]["body"]
+
+    async def create(prep_no: int, hours: float, **extra):
+        return await _create(
+            app_client,
+            rec_h,
+            candidate_id=cand_id,
+            job_id=job_id,
+            prep_no=prep_no,
+            organizer_user_id=dl_id,
+            start=_at(hours),
+            end=_at(hours + 0.75),
+            **extra,
+        )
+
+    refused = await create(1, 24, role_description="Stawka 180 zł/h netto.")
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"]["code"] == "PREP_ROLE_DESCRIPTION_FINDINGS"
+    assert graph.created == []
+
+    resp = await create(1, 24)
+    assert resp.status_code == 201, resp.text
+    content = graph.created[-1][1]["body"]["content"]
+    assert "na stanowisko Senior ETL Engineer." in content
+    assert "<strong>O roli: Senior ETL Engineer</strong>" in content
+    assert "Projekt hurtowni danych." in content
+    assert "TP#40379" not in content and "180" not in content
+
+    resp = await create(2, 48, role_title="ETL Engineer", role_description="")
+    assert resp.status_code == 201, resp.text
+    content = graph.created[-1][1]["body"]["content"]
+    assert "na stanowisko ETL Engineer." in content
+    assert "O roli" not in content and "opis roli" not in content
 
 
 async def test_organizer_outside_the_team_is_rejected(
@@ -313,18 +603,31 @@ async def test_transcript_is_fetched_graded_and_summarised_in_a_note(
 
     def fake_model(chain, prompt):
         assert "<transcript>" in prompt or "transcript" in prompt
+        # Tematy prowadzącego z ustawień startowych (0505) — wszystkie padły.
+        topics = [
+            {
+                "key": f"topic:{i}",
+                "status": "covered",
+                "quote": "W banku przez dwa lata",
+            }
+            for i in range(len(prep_review_config.defaults().prep1.topics))
+        ]
         return json.dumps(
             {
                 "summary": "Kandydat opowiedział o Kafce.",
-                "must_haves": [
+                "topics": topics,
+                "answers": [
                     {
                         "key": "must:Kafka",
-                        "status": "covered",
+                        "grade": "strong",
                         "quote": "budowałem integracje na Kafce",
+                        "note": None,
                     },
-                    {"key": "must:Kubernetes", "status": "missing", "quote": None},
+                    {"key": "must:Kubernetes", "grade": "missing", "quote": None},
                 ],
-                "client_questions": [],
+                "went_well": ["Konkretny projekt na Kafce"],
+                "went_wrong": ["Kubernetes nie padł"],
+                "improve": [],
                 "own_projects": {"told": True, "quote": "W banku przez dwa lata"},
             },
             ensure_ascii=False,
@@ -348,14 +651,16 @@ async def test_transcript_is_fetched_graded_and_summarised_in_a_note(
             select(PrepReview).where(PrepReview.prep_meeting_id == prep_id)
         )
         assert review.status == "ok"
-        # Kubernetes nie omówiony → pokrycie 50% = słaby (próg 50% to OK, poniżej słaby).
-        assert float(review.coverage) == 0.5
-        assert review.level in ("ok", "weak")
+        # Tematy 100 × 25, must-have (Kafka mocna, Kubernetes nie było) 50 × 40,
+        # udział kandydata 75% ≥ 45% → 100 × 15; brak pytań klienta → bez wagi.
+        assert float(review.coverage) == 0.75
+        assert review.level == "ok"
         assert review.remaining == ["Kubernetes"]
+        assert review.criteria["followup"][0]["reason"] == "missing"
         note = await db.get(Note, tr.summary_note_id)
         assert note.candidate_id == cand_id
         assert "Prep 1 — podsumowanie z Teams" in note.content
-        assert "Na Prep 2 zostało: Kubernetes" in note.content
+        assert "Do powtórzenia na Prep 2: 1) Kubernetes — nie omówiono" in note.content
         # Notatka nie niesie surowego transkryptu.
         assert "Zwiększam liczbę partycji" not in note.content
 
@@ -367,6 +672,9 @@ async def test_transcript_is_fetched_graded_and_summarised_in_a_note(
     )
     assert text.status_code == 200
     assert "Zwiększam liczbę partycji" in text.json()["text"]
+    cues = text.json()["cues"]
+    assert {c["role"] for c in cues} >= {"candidate", "staff"}
+    assert all(isinstance(c["start"], int) for c in cues)
 
     # Od #1742 (decyzja 23.09.2026) rekrutację widzi każda rola wewnętrzna,
     # także rekruter spoza zespołu — transkrypt stoi za tą samą bramką.
@@ -454,6 +762,27 @@ async def test_outlook_cancellation_stops_waiting(
     async with AsyncSessionLocal() as db:
         prep = await db.get(PrepMeeting, prep_id)
         assert prep.transcript_status == "cancelled"
+
+
+async def test_held_prep_deleted_in_outlook_still_gets_its_transcript(
+    app_client: AsyncClient, graph: FakeGraph, monkeypatch
+):
+    """Runda 8 (R8-N9-8): usunięcie odbytego prepu w Outlooku to porządki
+    w kalendarzu — transkrypt jest, więc prep nie zostaje „odwołany”."""
+    prep_id, event_id, *_ = await _past_prep(app_client, graph)
+    graph.event_state = {"isCancelled": True, "start": None, "end": None}
+    graph.transcripts = [teams_prep_graph.TranscriptRef(id="t1", created=None)]
+    graph.vtt = VTT
+    monkeypatch.setattr(
+        "app.services.llm_providers.api_key_configured", lambda model: False
+    )
+    async with AsyncSessionLocal() as db:
+        await prep_transcripts.run_once(db)
+    async with AsyncSessionLocal() as db:
+        prep = await db.get(PrepMeeting, prep_id)
+        assert prep.transcript_status == "fetched"
+        event = await db.get(CalendarEvent, event_id)
+        assert event.status != EventStatus.cancelled
 
 
 async def test_deleting_the_candidate_erases_transcript_and_review(
@@ -561,8 +890,10 @@ async def test_a_new_interview_round_allows_new_preps(
     async with AsyncSessionLocal() as db:
         prep = await db.get(PrepMeeting, prep_id)
         job_id, dl_id = prep.job_id, prep.organizer_user_id
-    await _interview(cand_id, job_id, dl_id, hours=-24)  # runda 1 za nami
+    first = await _interview(cand_id, job_id, dl_id, hours=-24)  # runda 1 za nami
     await _interview(cand_id, job_id, dl_id, hours=72)  # runda 2 przed nami
+    # Runda 8 (CAL2, decyzja Artura 27.09.2026): runda 1 bez debriefu nie
+    # chowa braku prepu do rundy 2 — oba przypomnienia idą równolegle.
 
     overview = await app_client.get("/api/interview-cycle?scope=jobs", headers=rec_h)
     item = next(i for i in overview.json()["items"] if i["candidate_id"] == cand_id)
@@ -570,6 +901,8 @@ async def test_a_new_interview_round_allows_new_preps(
         t["kind"] for t in overview.json()["todos"] if t["candidate_id"] == cand_id
     }
     assert "prep_missing" in kinds, item["steps"]
+    assert "debrief_overdue" in kinds  # zaległy debrief rundy 1 zostaje
+    assert item["interview_event_id"] == first
 
     again = await _create(
         app_client,
@@ -582,6 +915,87 @@ async def test_a_new_interview_round_allows_new_preps(
         end=_at(25),
     )
     assert again.status_code == 201, again.text
+
+
+async def test_prep_planned_before_the_interview_was_confirmed_is_not_asked_for_twice(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Zgłoszenie 02.10.2026: rekruter zaplanował Prep 1, zanim DL potwierdził
+    termin rozmowy — na dzień PO niej. Prep nie należał do żadnej rundy: ekran
+    pokazał „Prep 1 bez terminu”, serwer założył drugi i kandydat dostał dwa
+    zaproszenia. Prep po ostatniej zaplanowanej rozmowie należy do jej rundy:
+    do przełożenia, nie do zaplanowania od nowa."""
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Rekruter")
+    dl_id, dl_h = await _user(UserRole.delivery_lead, "Kasia Lead")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+
+    first = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=_at(120),
+        end=_at(120.5),
+    )
+    assert first.status_code == 201, first.text
+    late_event_id = first.json()["event_id"]
+    # DL potwierdza rozmowę u klienta na dwa dni PRZED tym prepem.
+    await _interview(cand_id, job_id, rec_id, hours=72)
+
+    overview = await app_client.get("/api/interview-cycle?scope=jobs", headers=dl_h)
+    assert overview.status_code == 200, overview.text
+    data = overview.json()
+    item = next(i for i in data["items"] if i["candidate_id"] == cand_id)
+    prep_step = next(s for s in item["steps"] if s["key"] == "prep")
+    assert (prep_step["state"], prep_step["event_id"]) == ("overdue", late_event_id)
+    todos = [
+        (t["kind"], t["event_id"])
+        for t in data["todos"]
+        if t["candidate_id"] == cand_id
+    ]
+    assert ("prep_late", late_event_id) in todos
+    assert "prep_missing" not in [kind for kind, _ in todos]
+    late_rows = [
+        a
+        for a in data["agenda"]
+        if a["candidate_id"] == cand_id and a["event_id"] == late_event_id
+    ]
+    assert [a["late"] for a in late_rows] == [True]
+
+    again = await _create(
+        app_client,
+        dl_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=_at(48),
+        end=_at(48.75),
+    )
+    assert again.status_code == 409, again.text
+    detail = again.json()["detail"]
+    assert detail["code"] == "PREP_ALREADY_SCHEDULED"
+    assert detail["event_id"] == late_event_id
+    assert "po rozmowie u klienta" in detail["message"]
+    assert len(graph.created) == 1  # drugie zaproszenie nie wyszło
+
+    # Prep 2 przed rozmową planuje się normalnie i zapowiada jej termin.
+    second = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=2,
+        organizer_user_id=rec_id,
+        start=_at(60),
+        end=_at(60.5),
+    )
+    assert second.status_code == 201, second.text
+    assert "Termin rozmowy z Klientem:" in graph.created[-1][1]["body"]["content"]
+    # Pierwszy prep powstał, gdy rozmowy jeszcze nie było — nie zapowiadał jej.
+    assert "Termin rozmowy" not in graph.created[0][1]["body"]["content"]
 
 
 async def test_unrecorded_prep_does_not_block_planning_it_again(
@@ -640,3 +1054,359 @@ async def test_empty_transcript_is_unrecorded_not_weak(
             )
         ) is None
     assert called == []
+
+
+# ── Runda 6 audytu: RODO, przepięcie, termin z Outlooka, follow-up ──────────
+
+
+async def _future_prep(app_client, graph, **extra):
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Rekruter")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia Lead")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    resp = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=_at(24),
+        end=_at(24.75),
+        **extra,
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["event_id"], cand_id, job_id
+
+
+async def test_deleting_the_candidate_cancels_future_teams_prep_and_scrubs_the_event(
+    app_client: AsyncClient, graph: FakeGraph, monkeypatch
+):
+    """IC-4: `calendar_events.candidate_id` to SET NULL — tytuł „Prep 1: Imię
+    Nazwisko…” i e-mail w uczestnikach przeżywały usunięcie, a kandydat miał
+    dalej zaproszenie w Teams."""
+    from app.services.followup_meetings import ERASED_EVENT_TITLE
+
+    event_id, cand_id, _job_id = await _future_prep(app_client, graph)
+    cancelled: list[tuple[str, str]] = []
+
+    async def cancel_event(upn, graph_event_id, comment):
+        cancelled.append((upn, graph_event_id))
+        return "cancelled"
+
+    monkeypatch.setattr(teams_prep_graph, "cancel_event", cancel_event)
+    async with AsyncSessionLocal() as db:
+        ev = await db.get(CalendarEvent, event_id)
+        graph_id = ev.external_id
+
+    _admin_id, admin_h = await _user(UserRole.admin, "Admin Prep")
+    resp = await app_client.delete(f"/api/candidates/{cand_id}", headers=admin_h)
+    assert resp.status_code in (200, 204), resp.text
+
+    assert [g for _u, g in cancelled] == [graph_id]
+    async with AsyncSessionLocal() as db:
+        ev = await db.get(CalendarEvent, event_id)
+        assert ev.status.value == "cancelled"
+        assert ev.title == ERASED_EVENT_TITLE
+        assert ev.description is None
+        addresses = [
+            (a.get("address") if isinstance(a, dict) else a) for a in ev.attendees
+        ]
+        assert not any(str(a).startswith("prep-cand-") for a in addresses)
+
+
+async def test_prep_event_cannot_be_relinked_to_another_candidate(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """IC-6: przepięcie wydarzenia rozjeżdżało `prep_meetings.candidate_id`."""
+    from app.models.candidate import Candidate, CandidateStatus
+
+    event_id, _cand_id, _job_id = await _future_prep(app_client, graph)
+    async with AsyncSessionLocal() as db:
+        other = Candidate(
+            name="Inny", lastname="Kandydat", status=CandidateStatus.active
+        )
+        db.add(other)
+        await db.commit()
+        other_id = other.id
+    _admin_id, admin_h = await _user(UserRole.admin, "Admin Prep")
+    resp = await app_client.patch(
+        f"/api/calendar/events/{event_id}",
+        headers=admin_h,
+        json={"candidate_id": other_id},
+    )
+    assert resp.status_code == 409, resp.text
+
+
+async def test_prep_keeps_the_term_outlook_saved_and_fingerprints_the_intent(
+    app_client: AsyncClient, graph: FakeGraph, monkeypatch
+):
+    """IC-5: powtórzony `transactionId` oddaje ISTNIEJĄCE spotkanie — zapisujemy
+    jego termin, a zmiana terminu/organizatora daje nową intencję."""
+    from app.services import prep_meetings
+
+    intents: list[str] = []
+    real = prep_meetings.event_transaction_id
+
+    def spy(**kwargs):
+        intents.append(kwargs.get("intent_id") or "")
+        return real(**kwargs)
+
+    monkeypatch.setattr(prep_meetings, "event_transaction_id", spy)
+    outlook_start = (datetime.now(timezone.utc) + timedelta(hours=48)).replace(
+        microsecond=0
+    )
+
+    async def create_event(upn, payload):
+        graph.created.append((upn, payload))
+        return teams_prep_graph.CreatedPrepEvent(
+            graph_event_id=f"g-{uuid.uuid4().hex[:8]}",
+            change_key="ck1",
+            join_url="https://teams.microsoft.com/l/meetup-join/abc",
+            start=outlook_start,
+            end=outlook_start + timedelta(minutes=45),
+        )
+
+    monkeypatch.setattr(teams_prep_graph, "create_event", create_event)
+    event_id, _cand_id, _job_id = await _future_prep(
+        app_client, graph, client_request_id="same-window"
+    )
+    # prep|kandydat|rekrutacja|numer|żądanie|organizator|start|koniec
+    parts = intents[-1].split("|")
+    assert parts[4] == "same-window" and len(parts) == 8
+    async with AsyncSessionLocal() as db:
+        ev = await db.get(CalendarEvent, event_id)
+        assert ev.start_time == outlook_start
+
+
+def test_graph_time_is_read_in_its_time_zone():
+    t = teams_prep_graph.graph_time_utc(
+        {"dateTime": "2026-10-05T10:00:00.0000000", "timeZone": "Europe/Warsaw"}
+    )
+    assert t == datetime(2026, 10, 5, 8, 0, tzinfo=timezone.utc)
+    assert (
+        teams_prep_graph.graph_time_utc(
+            {"dateTime": "2026-10-05T10:00:00", "timeZone": "W. Europe Standard Time"}
+        )
+        is None
+    )
+
+
+async def test_teams_followup_is_moved_and_cancelled_in_the_organizer_calendar(
+    app_client: AsyncClient, graph: FakeGraph, monkeypatch
+):
+    """X4: follow-up z aplikacji „NEXUS Teams Prep” — zmiana terminu dawała
+    409, a „Odwołaj” działało tylko w NEXUSIE (kandydat miał zaproszenie)."""
+    from app.models.candidate import Candidate, CandidateStatus
+    from app.services import followup_meetings
+
+    updates: list[str] = []
+    cancels: list[str] = []
+
+    async def update_event(upn, graph_event_id, payload):
+        updates.append(graph_event_id)
+        return "ck2"
+
+    async def cancel_event(upn, graph_event_id, comment):
+        cancels.append(graph_event_id)
+        return "cancelled"
+
+    monkeypatch.setattr(teams_prep_graph, "update_event", update_event)
+    monkeypatch.setattr(teams_prep_graph, "cancel_event", cancel_event)
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Follow")
+    tag = uuid.uuid4().hex[:8]
+    start = datetime.now(timezone.utc) + timedelta(days=2)
+    async with AsyncSessionLocal() as db:
+        organizer = await db.get(User, rec_id)
+        cand = Candidate(
+            name="Jan",
+            lastname=f"Follow{tag}",
+            email=f"follow-{tag}@example.com",
+            status=CandidateStatus.active,
+        )
+        db.add(cand)
+        await db.flush()
+        meeting = await followup_meetings.create_followup_meeting(
+            db,
+            candidate=cand,
+            organizer=organizer,
+            start=start,
+            end=start + timedelta(minutes=30),
+            client_request_id=f"fu-{tag}",
+        )
+        await db.commit()
+        event_id = meeting.calendar_event_id
+        graph_id = (await db.get(CalendarEvent, event_id)).external_id
+
+    moved = await app_client.patch(
+        f"/api/calendar/events/{event_id}",
+        headers=rec_h,
+        json={
+            "start_time": (start + timedelta(hours=1)).isoformat(),
+            "end_time": (start + timedelta(hours=1, minutes=30)).isoformat(),
+        },
+    )
+    assert moved.status_code == 200, moved.text
+    assert updates == [graph_id]
+
+    cancelled = await app_client.post(
+        f"/api/calendar/events/{event_id}/cancel", headers=rec_h
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["outlook"] == "cancelled"
+    assert cancels == [graph_id]
+
+
+# ── Audyt 22.10.2026 (F42): notatka na Prep 2 tylko z Prepu 1 tej rundy ──────
+
+
+async def _prep_row(
+    cand_id: int,
+    job_id: int,
+    owner_id: int,
+    *,
+    prep_no: int,
+    hours: float,
+    review: str | None = None,
+    followup: list[dict] | None = None,
+) -> int:
+    """Prep w kalendarzu (bez Grapha) z oceną o danym statusie."""
+    async with AsyncSessionLocal() as db:
+        start = datetime.now(timezone.utc) + timedelta(hours=hours)
+        ev = CalendarEvent(
+            title=f"Prep {prep_no}",
+            event_type=EventType.prep_call,
+            start_time=start,
+            end_time=start + timedelta(minutes=45),
+            candidate_id=cand_id,
+            job_id=job_id,
+            created_by=owner_id,
+            operational_owner_id=owner_id,
+        )
+        db.add(ev)
+        await db.flush()
+        prep = PrepMeeting(
+            calendar_event_id=ev.id,
+            candidate_id=cand_id,
+            job_id=job_id,
+            prep_no=prep_no,
+            organizer_user_id=owner_id,
+            organizer_upn=f"prep-owner-{owner_id}@example.com",
+            transcript_status="fetched" if review else "waiting",
+        )
+        db.add(prep)
+        await db.flush()
+        if review is not None:
+            db.add(
+                PrepReview(
+                    prep_meeting_id=prep.id,
+                    candidate_id=cand_id,
+                    job_id=job_id,
+                    status=review,
+                    level="ok" if review == "ok" else None,
+                    criteria={"followup": followup or []},
+                    remaining=[],
+                )
+            )
+        await db.commit()
+        return prep.id
+
+
+def _point(label: str) -> dict:
+    return {"key": f"must:{label}", "label": label, "kind": "must", "reason": "weak"}
+
+
+async def test_prep2_note_comes_only_from_prep1_of_the_current_round(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Decyzja Artura 22.10.2026 (F42): runda 2 ma Prep 1 bez udanej oceny —
+    notatka na Prep 2 i ocena Prepu 2 są puste, nie biorą punktów z rundy 1."""
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Rekruter")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia Lead")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    await _prep_row(
+        cand_id,
+        job_id,
+        dl_id,
+        prep_no=1,
+        hours=-72,
+        review="ok",
+        followup=[_point("Kubernetes")],
+    )
+    await _interview(cand_id, job_id, dl_id, hours=-48)  # runda 1 za nami
+    round2_prep1 = await _prep_row(
+        cand_id, job_id, dl_id, prep_no=1, hours=-2, review="unavailable"
+    )
+    await _interview(cand_id, job_id, dl_id, hours=48)  # runda 2 przed nami
+    prep2 = await _prep_row(cand_id, job_id, rec_id, prep_no=2, hours=24)
+
+    url = f"/api/interview-cycle/preps/options?candidate_id={cand_id}&job_id={job_id}"
+    opts = await app_client.get(url, headers=rec_h)
+    assert opts.status_code == 200, opts.text
+    assert opts.json()["prep1_followup"] == []
+    async with AsyncSessionLocal() as db:
+        prep = await db.get(PrepMeeting, prep2)
+        assert await prep_review._prep1_review(db, prep) is None
+
+    # Ocena Prepu 1 rundy 2 się udała — notatka idzie z niej, nie z rundy 1.
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(PrepReview).where(PrepReview.prep_meeting_id == round2_prep1)
+        )
+        row.status, row.level = "ok", "ok"
+        row.criteria = {"followup": [_point("Kafka")]}
+        await db.commit()
+    opts = await app_client.get(url, headers=rec_h)
+    assert [f["key"] for f in opts.json()["prep1_followup"]] == ["must:Kafka"]
+    async with AsyncSessionLocal() as db:
+        prep = await db.get(PrepMeeting, prep2)
+        review = await prep_review._prep1_review(db, prep)
+        assert review is not None and review.prep_meeting_id == round2_prep1
+
+
+# ── Audyt 22.10.2026 (F37): prep do terminu, który czeka na DL-a ─────────────
+
+
+async def test_prep_for_a_slot_awaiting_dl_names_the_chosen_interview_term(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Decyzja Artura 22.10.2026 (F37): klient przenosi rozmowę z 30.10 na
+    27.10, wybór czeka na DL-a, a prepy idą od razu. Zaproszenie kandydata
+    podaje NOWY termin z okna, nie starą rozmowę z kalendarza."""
+    from app.services.prep_invitation import interview_line
+
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Rekruter")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia Lead")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    await _interview(cand_id, job_id, dl_id, hours=120)  # stara rozmowa
+    chosen = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=48)
+
+    resp = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=_at(24),
+        end=_at(24.75),
+        interview_start=chosen.isoformat(),
+    )
+    assert resp.status_code == 201, resp.text
+    content = graph.created[-1][1]["body"]["content"]
+    assert interview_line(chosen) in content
+    assert content.count("Termin rozmowy z Klientem:") == 1
+
+    # Prep po wybranym terminie nie zapowiada rozmowy (jak dotąd).
+    late = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=2,
+        organizer_user_id=rec_id,
+        start=_at(60),
+        end=_at(60.5),
+        interview_start=chosen.isoformat(),
+    )
+    assert late.status_code == 201, late.text
+    assert "Termin rozmowy" not in graph.created[-1][1]["body"]["content"]

@@ -11,13 +11,15 @@
  * zapytania do innych endpointów, niepowiązane z tym, co testujemy tutaj.
  */
 
-import type { ComponentProps } from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { useContext, type ComponentProps, type ReactNode } from "react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const getForStage = vi.fn();
+// 09.10.2026: sekcja „Screening” czyta stan formularza pary
+// (`GET /api/screening-form`), nie arkusz etapu.
+const formGet = vi.fn();
 const originalGet = vi.fn();
 const brandedGet = vi.fn();
 const candidatesGet = vi.fn();
@@ -32,7 +34,8 @@ vi.mock("next/dynamic", () => ({ default: () => () => null }));
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   default: {
-    get: (...a: unknown[]) => apiGet(...a),
+    get: (url: string, ...rest: unknown[]) =>
+      url === "/api/screening-form" ? formGet(url, ...rest) : apiGet(url, ...rest),
     post: (...a: unknown[]) => apiPost(...a),
   },
   candidatesApi: {
@@ -41,9 +44,6 @@ vi.mock("@/lib/api", () => ({
   candidateStageCvApi: {
     original: { get: (...a: unknown[]) => originalGet(...a) },
     branded: { get: (...a: unknown[]) => brandedGet(...a) },
-  },
-  screeningApi: {
-    getForStage: (...a: unknown[]) => getForStage(...a),
   },
   extractErrorMsg: (e: unknown) => (e instanceof Error ? e.message : "Błąd"),
 }));
@@ -59,14 +59,27 @@ vi.mock("@/components/Toast", () => ({
 
 // Modale CV/email mają WŁASNE zapytania (inne endpointy) — dok tylko je
 // otwiera/zamyka, więc dla testów doku wystarczy pusty stub.
+// „Ściąga do rozmowy” ma własne zapytanie (wyjaśnienie „po ludzku”) i testy.
+vi.mock("@/components/v2/jobs/DockCallCheatsheet", () => ({
+  DockCallCheatsheet: () => null,
+}));
+vi.mock("@/components/v2/modals/QuickAssignV2", () => ({
+  QuickAssignV2: ({ candidateName }: { candidateName: string }) => (
+    <h2>Przypisz do rekrutacji — {candidateName}</h2>
+  ),
+}));
 vi.mock("@/components/v2/modals/CVOriginalPreviewModal", () => ({
   CVOriginalPreviewModal: () => null,
 }));
 vi.mock("@/components/v2/modals/CVShareLinkModal", () => ({
   CVShareLinkModal: () => null,
 }));
-vi.mock("@/components/v2/modals/SendEmailV2", () => ({
-  SendEmailV2: () => null,
+const composeDialog = vi.fn();
+vi.mock("@/components/emails/EmailCompose", () => ({
+  default: (props: Record<string, unknown>) => {
+    composeDialog(props);
+    return <div data-testid="m365-compose-dialog" />;
+  },
 }));
 // Okno generatora CV (v3) — dok tylko je otwiera z osobą i rekrutacją.
 const generatorDialog = vi.fn();
@@ -94,9 +107,33 @@ vi.mock("@/components/v2/recruitment/DebriefRequiredDialog", () => ({
   DebriefRequiredDialog: () => <div data-testid="debrief-dialog" />,
 }));
 
-import { PipelineCandidateDock, nowSectionForStage } from "@/components/v2/jobs/PipelineCandidateDock";
+// „Pobierz Word / PDF” w sekcji CV (D1, 14.10.2026) — plik CV etapu i zapis na dysk.
+const stageCvFile = vi.fn();
+const stageCvPdf = vi.fn();
+vi.mock("@/lib/stage-cv-file", () => ({
+  fetchStageCvFile: (...a: unknown[]) => stageCvFile(...a),
+  fetchStageCvPdf: (...a: unknown[]) => stageCvPdf(...a),
+}));
+const savedFiles = vi.fn();
+vi.mock("@/lib/authenticated-files", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/authenticated-files")>()),
+  downloadBlob: (...a: unknown[]) => savedFiles(...a),
+}));
+
+import { PipelineCandidateDock, nowSectionForStage, earlyQcSentence } from "@/components/v2/jobs/PipelineCandidateDock";
+import { PersonPanelColumn, PersonPanelSideProvider } from "@/components/v2/person/PersonPanelSide";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelowTabs";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
+import { formState } from "@/components/v2/screening-form/__tests__/screening-form-fixtures";
+import type { ScreeningFormState } from "@/lib/api/screeningForm";
+import { createNoteFillChannel, type NoteFillReceiver } from "@/lib/note-fill-channel";
+import { useAuthStore } from "@/store/auth";
+
+/** Stan formularza screeningu pary z doku (kandydat 42, rekrutacja 10, wiersz etapu 501). */
+function dockForm(overrides: Partial<ScreeningFormState> = {}): ScreeningFormState {
+  return formState({ candidate_id: 42, job_id: 10, stage_id: 501, ...overrides });
+}
 
 function baseItem(overrides: Partial<KanbanItem> = {}): KanbanItem {
   return {
@@ -132,7 +169,7 @@ type DockProps = ComponentProps<typeof PipelineCandidateDock>;
 
 let lastQueryClient: QueryClient | null = null;
 
-function renderDock(overrides: Partial<DockProps> = {}) {
+function renderDock(overrides: Partial<DockProps> = {}, wrap: (dock: ReactNode) => ReactNode = (dock) => dock) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   lastQueryClient = qc;
   const props: DockProps = {
@@ -151,9 +188,7 @@ function renderDock(overrides: Partial<DockProps> = {}) {
   };
   render(
     <QueryClientProvider client={qc}>
-      <TooltipProvider>
-        <PipelineCandidateDock {...props} />
-      </TooltipProvider>
+      <TooltipProvider>{wrap(<PipelineCandidateDock {...props} />)}</TooltipProvider>
     </QueryClientProvider>
   );
   return props;
@@ -162,15 +197,7 @@ function renderDock(overrides: Partial<DockProps> = {}) {
 describe("PipelineCandidateDock", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getForStage.mockResolvedValue({
-      data: {
-        stage_id: 501,
-        candidate_id: 42,
-        job_id: 10,
-        champion_profile: {},
-        screening_answers: null,
-      },
-    });
+    formGet.mockResolvedValue({ data: dockForm() });
     originalGet.mockResolvedValue({
       data: {
         candidate_stage_id: 501,
@@ -287,6 +314,34 @@ describe("PipelineCandidateDock", () => {
     expect(screen.queryByRole("button", { name: "Zrezygnował" })).toBeNull();
   });
 
+  it("pasek po zamknięciu poprzedniej osoby: kto i dlaczego, „Pokaż” wraca do niej (13.10.2026)", async () => {
+    const user = userEvent.setup();
+    const onShow = vi.fn();
+    renderDock({
+      position: 1,
+      total: 2,
+      closedNotice: { verb: "Odrzucono", name: "Michał Zieliński", reason: "Brak Azure", onShow },
+    });
+    const notice = screen.getByRole("status", { name: "Poprzednia osoba" });
+    expect(notice).toHaveTextContent("Odrzucono: Michał Zieliński · Brak Azure");
+    await user.click(within(notice).getByRole("button", { name: "Pokaż" }));
+    expect(onShow).toHaveBeenCalledTimes(1);
+  });
+
+  it("bez paska nie ma statusu poprzedniej osoby", () => {
+    renderDock({ position: 1, total: 2 });
+    expect(screen.queryByRole("status", { name: "Poprzednia osoba" })).toBeNull();
+  });
+
+  it("osoba spoza kolejności z „Wróć do kolejki” zamiast napisu „Panel osoby”", async () => {
+    const user = userEvent.setup();
+    const onReturnToQueue = vi.fn();
+    renderDock({ position: null, total: 2, onReturnToQueue });
+    await user.click(screen.getByRole("button", { name: "Wróć do kolejki" }));
+    expect(onReturnToQueue).toHaveBeenCalledTimes(1);
+    expect(within(screen.getByTestId("dock-person-bar")).queryByText("Panel osoby")).toBeNull();
+  });
+
   it("chowa „Odrzuć z powodem”, gdy canReject=false (np. kandydat już terminalny)", () => {
     renderDock({ canReject: false });
     expect(screen.queryByRole("button", { name: /Odrzuć z powodem/ })).toBeNull();
@@ -357,6 +412,43 @@ describe("PipelineCandidateDock", () => {
     expect(screen.getByText("Weto HM")).toBeTruthy();
   });
 
+  it("głowa panelu: krótka pigułka „Pracuje u nas”, szczegóły w dymku po kliknięciu", async () => {
+    const user = userEvent.setup();
+    renderDock({
+      item: baseItem({
+        employment_marker: {
+          phase: "working",
+          source: "contract",
+          elsewhere: true,
+          clients: [
+            {
+              client_id: 4,
+              client_name: "Bank Przykładowy",
+              contract_id: 40,
+              phase: "working",
+              order_end_date: "2026-12-31",
+              delivery_lead_name: "Karol Wzorcowy",
+            },
+          ],
+        },
+      }),
+    });
+
+    // Bez nazwy klienta — głowa panelu nie może rosnąć (zapas na treść pod nią).
+    const pill = screen.getByRole("button", { name: "Pracuje u nas · do 31.12" });
+    expect(screen.queryByRole("note")).toBeNull();
+
+    await user.click(pill);
+    const notice = screen.getByRole("note");
+    expect(notice).toHaveTextContent("Pracuje u nas · Bank Przykładowy");
+    expect(notice).toHaveTextContent("Zamówienie do 31.12.2026 · Delivery Lead: Karol Wzorcowy");
+  });
+
+  it("bez znacznika głowa panelu nie ma pigułki zatrudnienia", () => {
+    renderDock();
+    expect(screen.queryByRole("button", { name: /Pracuje u nas/ })).toBeNull();
+  });
+
   it("zakładka Screening otwiera Screening Championa przez onOpenScreening", async () => {
     const user = userEvent.setup();
     const onOpenScreening = vi.fn();
@@ -364,10 +456,27 @@ describe("PipelineCandidateDock", () => {
 
     await user.click(screen.getByRole("button", { name: /^Screening/ }));
     await user.click(
-      screen.getByRole("button", { name: /Otwórz Screening Championa/ })
+      screen.getByRole("button", { name: /Otwórz rozmowę z kandydatem/ })
     );
 
     expect(onOpenScreening).toHaveBeenCalledWith(501, "Anna Kowalska");
+  });
+
+  it("akcja maila otwiera kompozytor M365 z pobranym adresem i kontekstem rekrutacji", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    await user.click(screen.getByRole("button", { name: "Więcej akcji osoby" }));
+    await user.click(screen.getByRole("menuitem", { name: "Wyślij wiadomość" }));
+    await screen.findByTestId("m365-compose-dialog");
+    expect(composeDialog).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        mode: "new",
+        candidateId: 42,
+        candidateName: "Anna Kowalska",
+        defaultTo: "anna@example.com",
+        requestId: 10,
+      }),
+    );
   });
   it("warsztaty z dawnej Tabeli (CV do klienta, rozmowy, umowa) otwierają się z doku", async () => {
     const user = userEvent.setup();
@@ -385,10 +494,91 @@ describe("PipelineCandidateDock", () => {
     expect(onOpenWorkbench).toHaveBeenLastCalledWith("contract");
   });
 
+  it("poza „Zweryfikowanym” link do karty CV nie obiecuje stawki i wysyłki (D3)", async () => {
+    const user = userEvent.setup();
+    const onOpenWorkbench = vi.fn();
+    renderDock({ onOpenWorkbench, item: baseItem({ stage: "cv_sent" }) });
+    await user.click(screen.getByRole("button", { name: /^CV/ }));
+    await user.click(await screen.findByRole("button", { name: /CV do klienta: strony i wersje/ }));
+    expect(onOpenWorkbench).toHaveBeenLastCalledWith("cv");
+    expect(screen.queryByRole("button", { name: /Wysyłka CV do klienta/ })).toBeNull();
+  });
+
   it("bez kontekstu warsztatów dok nie pokazuje ich przycisków", async () => {
     renderDock({ item: { ...baseItem(), stage: "verified" } });
     await screen.findByText(/Oryginał CV:/);
     expect(screen.queryByRole("button", { name: /Wysyłka CV do klienta/ })).toBeNull();
+  });
+
+  // 17.10.2026: „Pracuje u nas” liczy się wyłącznie z umowy w Kontraktach.
+  it("karta na „Zatrudniony” bez umowy: pigułka „Brak umowy w Kontraktach” z wyjaśnieniem", () => {
+    renderDock({ item: baseItem({ stage: "hired", missing_contract: true }) });
+    const pill = screen.getByTestId("dock-missing-contract");
+    expect(pill).toHaveTextContent("Brak umowy w Kontraktach");
+    expect(pill.getAttribute("title")).toContain("„Pracuje u nas” pojawi się po wpisaniu umowy.");
+    cleanup();
+    renderDock({ item: baseItem({ stage: "hired" }) });
+    expect(screen.queryByTestId("dock-missing-contract")).toBeNull();
+  });
+
+  it("czarna lista u nas: pigułka, a w dymku kto, kiedy i dlaczego (17.10.2026)", async () => {
+    const user = userEvent.setup();
+    candidatesGet.mockResolvedValue({
+      data: {
+        email: "anna@example.com",
+        status: "blacklisted",
+        blacklist: {
+          since: "2026-10-17T08:30:00Z",
+          by_user_id: 5,
+          by_name: "Ola Rekruterka",
+          reason: "zrezygnowała dzień przed startem",
+        },
+      },
+    });
+    renderDock();
+    await user.click(await screen.findByRole("button", { name: "Czarna lista — szczegóły" }));
+    expect(await screen.findByText("Nie współpracujemy z tą osobą")).toBeInTheDocument();
+    expect(screen.getByText("Od 17.10.2026 · dodał(a) Ola Rekruterka")).toBeInTheDocument();
+    expect(screen.getByText("Powód: zrezygnowała dzień przed startem")).toBeInTheDocument();
+  });
+
+  it("„⋯ → Czarna lista…” z prawem zapisu otwiera okno czarnej listy", async () => {
+    const user = userEvent.setup();
+    useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } } as never);
+    try {
+      renderDock();
+      await user.click(screen.getByRole("button", { name: "Więcej akcji osoby" }));
+      await user.click(await screen.findByRole("menuitem", { name: /Czarna lista…/ }));
+      expect(
+        await screen.findByRole("heading", { name: "Czarna lista — Anna Kowalska" }),
+      ).toBeInTheDocument();
+    } finally {
+      useAuthStore.setState({ user: null } as never);
+    }
+  });
+
+  it("bez prawa zapisu profilu menu „⋯” nie ma „Czarnej listy…”", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    await user.click(screen.getByRole("button", { name: "Więcej akcji osoby" }));
+    await screen.findByRole("menuitem", { name: /Otwórz CV/ });
+    expect(screen.queryByRole("menuitem", { name: /Czarna lista/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Dodaj też do rekrutacji/ })).toBeNull();
+  });
+
+  it("„⋯ → Dodaj też do rekrutacji…” otwiera okno „Przypisz do rekrutacji” (29.10.2026)", async () => {
+    const user = userEvent.setup();
+    useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } } as never);
+    try {
+      renderDock();
+      await user.click(screen.getByRole("button", { name: "Więcej akcji osoby" }));
+      await user.click(await screen.findByRole("menuitem", { name: /Dodaj też do rekrutacji…/ }));
+      expect(
+        await screen.findByRole("heading", { name: "Przypisz do rekrutacji — Anna Kowalska" }),
+      ).toBeInTheDocument();
+    } finally {
+      useAuthStore.setState({ user: null } as never);
+    }
   });
 });
 
@@ -397,7 +587,7 @@ describe("PipelineCandidateDock", () => {
 describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getForStage.mockResolvedValue({ data: { screening_answers: null } });
+    formGet.mockResolvedValue({ data: dockForm() });
     originalGet.mockResolvedValue({ data: { has_snapshot: false } });
     brandedGet.mockResolvedValue({ data: { status: "none" } });
     candidatesGet.mockResolvedValue({
@@ -418,7 +608,7 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
   it("bez podanej pozycji nie zgaduje nawigatora „N z M”", () => {
     renderDock();
     expect(screen.queryByRole("button", { name: "Następna karta" })).toBeNull();
-    expect(screen.getByText("Karta w procesie")).toBeTruthy();
+    expect(screen.getByText("Panel osoby")).toBeTruthy();
   });
 
   it("nawigator pokazuje pozycję w kolejności tablicy i woła sąsiadów", async () => {
@@ -435,6 +625,65 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
     await user.click(screen.getAllByRole("button", { name: /Następn/ })[0]);
     expect(onSelectNext).toHaveBeenCalled();
     expect(onSelectPrevious).not.toHaveBeenCalled();
+  });
+
+  it("za licznikiem stoi nazwa kolejki; z menu „Kto dodał” zmienia filtr (14.10.2026)", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderDock({
+      position: 1,
+      total: 2,
+      queueLabel: "Nowi · dodani przez Ciebie",
+      addedByMenu: {
+        options: [
+          { filter: { kind: "all" }, key: "all", label: "Wszyscy", count: 5, isViewer: false },
+          { filter: { kind: "user", userId: 7 }, key: "user:7", label: "Ty", count: 2, isViewer: true },
+        ],
+        value: { kind: "user", userId: 7 },
+        onChange,
+      },
+    });
+    const label = screen.getByTestId("dock-queue-label");
+    expect(label).toHaveTextContent("Nowi · dodani przez Ciebie");
+    await user.click(label);
+    const menu = await screen.findByRole("menu");
+    await user.click(within(menu).getByTestId("added-by-option-all"));
+    expect(onChange).toHaveBeenCalledWith({ kind: "all" });
+  });
+
+  it("bez menu nazwa kolejki jest zwykłym tekstem; przy „Wróć do kolejki” też jest", () => {
+    renderDock({ position: null, total: 2, onReturnToQueue: vi.fn(), queueLabel: "Screening" });
+    expect(screen.getByRole("button", { name: "Wróć do kolejki" })).toBeTruthy();
+    expect(screen.getByTestId("dock-queue-label").tagName).toBe("SPAN");
+    expect(screen.getByTestId("dock-queue-label")).toHaveTextContent("Screening");
+  });
+
+  it("koniec kolejki: pasek z „Od pierwszej”, „Wszyscy (N)” i „Dalej” (D4)", async () => {
+    const user = userEvent.setup();
+    const onFirst = vi.fn();
+    const showAll = vi.fn();
+    const next = vi.fn();
+    renderDock({
+      position: 3,
+      total: 3,
+      queueEnd: {
+        count: 3,
+        onFirst,
+        showAll: { label: "Wszyscy (8)", onClick: showAll },
+        next: { label: "Dalej: Screening (4)", onClick: next },
+      },
+    });
+    const end = screen.getByRole("status", { name: "Koniec kolejki" });
+    expect(end).toHaveTextContent("To ostatnia z 3 osób w kolejce.");
+    await user.click(within(end).getByRole("button", { name: "Od pierwszej" }));
+    await user.click(within(end).getByRole("button", { name: "Wszyscy (8)" }));
+    await user.click(within(end).getByRole("button", { name: "Dalej: Screening (4)" }));
+    expect([onFirst, showAll, next].map((fn) => fn.mock.calls.length)).toEqual([1, 1, 1]);
+  });
+
+  it("jedyna osoba w kolejce i nic dalej — bez paska końca", () => {
+    renderDock({ position: 1, total: 1, queueEnd: { count: 1 } });
+    expect(screen.queryByRole("status", { name: "Koniec kolejki" })).toBeNull();
   });
 
   it("podtytuł składa się wyłącznie ze znanych członów", async () => {
@@ -505,8 +754,120 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
 
     expect(await screen.findByText("Dostępność")).toBeTruthy();
     expect(screen.getByText("Tryb")).toBeTruthy();
-    expect(screen.getByText("Pokrycie must")).toBeTruthy();
     expect(screen.getByText("brak stawki")).toBeTruthy();
+  });
+
+  // PR 5 (04.10.2026): fakty o osobie stoją raz, pod nazwiskiem — także gdy
+  // sekcja „W procesie” jest zwinięta.
+  it("fakty o osobie stoją pod nazwiskiem, nie w zwiniętej sekcji", async () => {
+    renderDock({ item: baseItem({ stage: "new", expected_rate_value: 140, expected_rate_unit: "hourly" }) });
+    const facts = await screen.findByTestId("dock-facts");
+    expect(within(facts).getByText("Dostępność")).toBeTruthy();
+    expect(within(facts).getByText(/140/)).toBeTruthy();
+  });
+
+  it("okres wypowiedzenia bez jednostki liczy się w dniach (jak przed wspólnymi faktami)", async () => {
+    candidatesGet.mockResolvedValue({
+      data: { email: "a@b.pl", notice_period: 30, notice_period_unit: null },
+    });
+    renderDock();
+    const facts = await screen.findByTestId("dock-facts");
+    expect(await within(facts).findByText("wypowiedzenie 30 dni")).toBeTruthy();
+  });
+
+  it("w „Nowych” panel daje „Biorę” i „Nie odebrał” (notatka-próba kontaktu)", async () => {
+    apiPost.mockResolvedValue({ data: {} });
+    const onTake = vi.fn();
+    const user = userEvent.setup();
+    renderDock({
+      item: baseItem({ stage: "new", can_take: true, claim_user_id: null }),
+      onTake,
+    });
+    const row = await screen.findByTestId("dock-contact-row");
+    await user.click(within(row).getByRole("button", { name: /Biorę/ }));
+    expect(onTake).toHaveBeenCalledTimes(1);
+    await user.click(within(row).getByRole("button", { name: "Nie odebrał" }));
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith(
+        "/api/notes",
+        expect.objectContaining({ kind: "contact_attempt", job_id: 10, candidate_id: 42 }),
+      ),
+    );
+  });
+
+  it("po „Screeningu” panel nie pokazuje wiersza telefonu", async () => {
+    renderDock({ item: baseItem({ stage: "cv_sent" }) });
+    await screen.findByTestId("dock-facts");
+    expect(screen.queryByTestId("dock-contact-row")).toBeNull();
+  });
+
+  it("stawka do klienta pojawia się tylko, gdy serwer ją przysłał", async () => {
+    renderDock({
+      item: baseItem({ client_rate_value: "180", client_rate_unit: "hourly", client_rate_currency: "PLN" }),
+    });
+    const facts = await screen.findByTestId("dock-facts");
+    expect(within(facts).getByText("Do klienta")).toBeTruthy();
+  });
+
+  // 12.10.2026: para z czasów Traffita ma etapy bez kwot — stawki leżą
+  // w karcie rekomendacji i w notatce Delivery Leada z dnia wysyłki.
+  const rateHints = {
+    candidate_id: 42,
+    job_id: 10,
+    expected_rate_hint: {
+      amount_hourly: 90,
+      raw: "90 zł/h",
+      at: "2026-09-21T10:00:00+00:00",
+      source: "card",
+      author_name: "Anna Nowak",
+    },
+    client_rate_note: {
+      note_id: 7,
+      text: "Wysłany 150/100-110",
+      at: "2026-09-22T09:53:00+00:00",
+      author_name: "Ewa Lis",
+    },
+  };
+  const withRateHints = () =>
+    apiGet.mockImplementation((url: string) =>
+      Promise.resolve({
+        data: url.endsWith("/recruitment-rate-hints") ? rateHints : { items: [] },
+      }),
+    );
+
+  it("bez stawki na etapie pokazuje stawkę z karty i notatkę z wysyłki, z informacją skąd są", async () => {
+    withRateHints();
+    renderDock();
+    const facts = await screen.findByTestId("dock-facts");
+    expect(await within(facts).findByTestId("dock-rate-hint")).toHaveTextContent("90 zł/h");
+    expect(within(facts).getByText("Screening (z notatki) · Anna Nowak · 21.09.2026")).toBeTruthy();
+    expect(within(facts).queryByText("brak stawki", { selector: "span.text-muted-foreground" })).toBeTruthy();
+    expect(
+      within(facts).getByText("Notatka z wysyłki · Ewa Lis · 22.09.2026: „Wysłany 150/100-110”"),
+    ).toBeTruthy();
+    expect(apiGet).toHaveBeenCalledWith("/api/candidates/42/recruitment-rate-hints", {
+      params: { job_id: 10 },
+    });
+  });
+
+  it("stawki zapisane na etapie wygrywają i dok o podpowiedzi nie pyta", async () => {
+    withRateHints();
+    renderDock({
+      item: baseItem({
+        expected_rate_value: "120",
+        expected_rate_unit: "hourly",
+        expected_rate_currency: "PLN",
+        client_rate_value: "180",
+        client_rate_unit: "hourly",
+        client_rate_currency: "PLN",
+      }),
+    });
+    const facts = await screen.findByTestId("dock-facts");
+    expect(within(facts).queryByTestId("dock-rate-hint")).toBeNull();
+    expect(within(facts).queryByText(/Notatka z wysyłki/)).toBeNull();
+    expect(
+      apiGet.mock.calls.some(([url]) => String(url).endsWith("/recruitment-rate-hints")),
+    ).toBe(false);
   });
 
   it("stawka ponad budżet jest nazwana wprost", async () => {
@@ -628,7 +989,7 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    getForStage.mockResolvedValue({ data: { screening_answers: null } });
+    formGet.mockResolvedValue({ data: dockForm() });
     originalGet.mockResolvedValue({ data: { has_snapshot: false } });
     brandedGet.mockResolvedValue({ data: { status: "none" } });
     candidatesGet.mockResolvedValue({ data: { email: "anna@example.com" } });
@@ -714,13 +1075,13 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining("Delivery Leada"));
   });
 
-  it("hand_to_cpro (Nordea): przycisk wrzuca do kolejki Cpro, nie na „Wysłane do Cpro”", async () => {
+  it("hand_to_cpro (Delivery Lead Nordei): przycisk prowadzi na etap Cpro, nie na „Wysłane do Cpro”", async () => {
     routeApiGet({
       requirements: requirements({
         from_column: "cv_qc",
         to_column: "cv_sent",
         items: [{ key: "cpro_upload", label: "Wrzucenie do Cpro", status: "waiting", blocking: false }],
-        primary: { kind: "hand_to_cpro", label: "Przekaż do kolejki Cpro", target_stage_def_id: 45 },
+        primary: { kind: "hand_to_cpro", label: "Przejrzyj i zaakceptuj do Cpro", target_stage_def_id: 45 },
       }),
     });
     const user = userEvent.setup();
@@ -732,7 +1093,7 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
       onMoveToStageDef,
       item: baseItem({ stage: "interview" }),
     });
-    await user.click(await screen.findByRole("button", { name: "Przekaż do kolejki Cpro" }));
+    await user.click(await screen.findByRole("button", { name: "Przejrzyj i zaakceptuj do Cpro" }));
     expect(onMoveToStageDef).toHaveBeenCalledWith(45);
     expect(onMoveTo).not.toHaveBeenCalled();
   });
@@ -756,10 +1117,11 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     expect(screen.getByText("Arkusz screeningu")).toBeInTheDocument();
   });
 
-  it("etap bez własnego CV (404) przy CV firmowym pary: bez „nie udało się sprawdzić” i bez „brak”", async () => {
-    // Produkcja 24.09.2026: `…/cv/branded` → 404 (etap bez wiersza CV),
-    // a ramka „Następny etap” mówiła ✓ „CV firmowe” — dok przeczył sam sobie.
-    brandedGet.mockRejectedValue({ response: { status: 404 } });
+  it("etap bez CV etapu, a lista wymagań liczy CV firmowe z plików: „gotowe”, nie „brak”", async () => {
+    // Produkcja 24.09.2026: ramka „Następny etap” mówiła ✓ „CV firmowe”, a dok
+    // „brak” — dok przeczył sam sobie. CV z generatora albo plik „…B2B…” leży
+    // w plikach kandydata, więc zdanie to mówi (D2, 14.10.2026).
+    brandedGet.mockResolvedValue({ data: { status: "none" } });
     routeApiGet({
       requirements: requirements({
         to_column: "cv_qc",
@@ -775,10 +1137,98 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     const cvToggle = screen.getByRole("button", { name: /^CV/ });
     if (cvToggle.getAttribute("aria-expanded") !== "true") await user.click(cvToggle);
     await waitFor(() =>
-      expect(screen.getAllByText("CV firmowe: gotowe (nie podpięte do tego etapu)").length).toBeGreaterThanOrEqual(1),
+      expect(screen.getAllByText("CV firmowe: gotowe (w plikach kandydata)").length).toBeGreaterThanOrEqual(1),
     );
-    expect(screen.queryByText("CV firmowe: nie udało się sprawdzić")).toBeNull();
     expect(screen.queryByText("CV firmowe: brak")).toBeNull();
+    // Nie ma CV etapu, więc nie ma czego pobrać z rekrutacji.
+    expect(screen.queryByRole("button", { name: /Pobierz Word/ })).toBeNull();
+  });
+
+  it("po ruchu dalej: CV firmowe pary z poprzedniego etapu — zdanie bez „nie podpięte”, pobranie i edycja tamtego wiersza", async () => {
+    // Produkcja 26.09.2026: po przejściu na „CV wysłane” dok mówił „CV firmowe:
+    // brak”, choć zatwierdzone CV leżało na „QC CV” (ruch zakłada nowy wiersz
+    // etapu bez CV). Serwer wskazuje tamten wiersz (`pair_source_stage_id`).
+    brandedGet.mockImplementation((stageId: number) =>
+      Promise.resolve({
+        data:
+          stageId === 777
+            ? { status: "finalized", from_generator: true, finalized_at: "2026-09-26T10:00:00Z", version: 2 }
+            : { status: "none", pair_source_stage_id: 777, pair_source_status: "finalized" },
+      }),
+    );
+    const blob = new Blob(["docx"]);
+    stageCvFile.mockResolvedValue({ blob, filename: "CV_Anna_Kowalska.docx" });
+    stageCvPdf.mockResolvedValue({ blob, filename: "CV_Anna_Kowalska.pdf" });
+    routeApiGet({ requirements: requirements({ to_column: "client_interview", items: [] }) });
+    const user = userEvent.setup();
+    renderDock({
+      primaryTarget: stageCol("client_interview", "Rozmowa u klienta", { stage_def_id: 9 }),
+      item: baseItem({ stage: "cv_sent" }),
+    });
+    const cvToggle = await screen.findByRole("button", { name: /^CV/ });
+    if (cvToggle.getAttribute("aria-expanded") !== "true") await user.click(cvToggle);
+    const section = await screen.findByTestId("dock-company-cv");
+    await waitFor(() => expect(section).toHaveTextContent("CV firmowe: zatwierdzone 26.09.2026"));
+    expect(section).not.toHaveTextContent(/podpięte|z etapu/);
+    expect(within(section).getByRole("button", { name: "Edytuj CV" })).toBeInTheDocument();
+    expect(within(section).queryByRole("button", { name: /Generuj CV/ })).toBeNull();
+
+    await user.click(within(section).getByRole("button", { name: /Pobierz Word/ }));
+    await waitFor(() => expect(savedFiles).toHaveBeenCalledWith(blob, "CV_Anna_Kowalska.docx"));
+    expect(stageCvFile).toHaveBeenCalledWith(777, { download: "dock" });
+
+    await user.click(within(section).getByRole("button", { name: "Pobierz PDF" }));
+    await waitFor(() => expect(savedFiles).toHaveBeenLastCalledWith(blob, "CV_Anna_Kowalska.pdf"));
+    expect(stageCvPdf).toHaveBeenCalledWith(777, { download: "dock" });
+  });
+
+  it("bez zrzutu zgody RODO pobieranie jest wyłączone i dok mówi dlaczego", async () => {
+    brandedGet.mockResolvedValue({
+      data: { status: "draft", from_generator: true, edit_revision: 1, version: 1, consent_missing: true },
+    });
+    const onOpenWorkbench = vi.fn();
+    const user = userEvent.setup();
+    renderDock({ onOpenWorkbench });
+    await user.click(screen.getByRole("button", { name: /^CV/ }));
+    const section = await screen.findByTestId("dock-company-cv");
+    await waitFor(() => expect(within(section).getByRole("button", { name: /Pobierz Word/ })).toBeDisabled());
+    expect(within(section).getByRole("button", { name: "Pobierz PDF" })).toBeDisabled();
+    expect(screen.getByTestId("dock-company-cv-consent")).toHaveTextContent(
+      "Bez zrzutu zgody RODO nie pobierzesz CV.",
+    );
+    await user.click(screen.getByRole("button", { name: /Dołącz go w karcie „CV do klienta”/ }));
+    expect(onOpenWorkbench).toHaveBeenLastCalledWith("cv");
+    expect(stageCvFile).not.toHaveBeenCalled();
+  });
+
+  it("nieudane pobranie: komunikat serwera w toaście", async () => {
+    brandedGet.mockResolvedValue({ data: { status: "draft", from_generator: true, edit_revision: 1, version: 1 } });
+    stageCvFile.mockRejectedValue(
+      Object.assign(new Error("x"), {
+        response: { status: 503, data: { detail: "Plik CV jest chwilowo niedostępny." } },
+      }),
+    );
+    const user = userEvent.setup();
+    renderDock();
+    await user.click(screen.getByRole("button", { name: /^CV/ }));
+    await user.click(await screen.findByRole("button", { name: /Pobierz Word/ }));
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls.at(-1)?.[0])).toMatch(/chwilowo niedostępny/);
+    expect(savedFiles).not.toHaveBeenCalled();
+  });
+
+  it("awaria odczytu CV firmowego nie udaje braku: bez pobierania i bez „Generuj CV”, z „Ponów”", async () => {
+    brandedGet.mockRejectedValue({ response: { status: 500 } });
+    const user = userEvent.setup();
+    renderDock();
+    await user.click(screen.getByRole("button", { name: /^CV/ }));
+    const section = await screen.findByTestId("dock-company-cv");
+    await waitFor(() => expect(section).toHaveTextContent("CV firmowe: nie udało się sprawdzić"));
+    expect(within(section).queryByRole("button", { name: /Pobierz Word/ })).toBeNull();
+    expect(within(section).queryByRole("button", { name: /Generuj CV/ })).toBeNull();
+    brandedGet.mockResolvedValue({ data: { status: "none" } });
+    await user.click(within(section).getByRole("button", { name: "Ponów" }));
+    await waitFor(() => expect(section).toHaveTextContent("CV firmowe: brak"));
   });
 
   it("brak pilnowany przez serwer (QC CV) jest nazwany wprost", async () => {
@@ -805,6 +1255,33 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     await user.click(screen.getByRole("button", { name: "Otwórz QC CV" }));
     expect(screen.getByTestId("cv-qc-dialog")).toBeInTheDocument();
     expect(qcDialog).toHaveBeenLastCalledWith(expect.objectContaining({ stageId: 501 }));
+    // Dok bez `onAdvance` nie umie przesunąć — okno QC nie dostaje przycisku ruchu.
+    expect(qcDialog.mock.lastCall![0].onMoveNext).toBeUndefined();
+  });
+
+  it("„Przesuń dalej” z okna QC zamyka je i woła ruch Tablicy", async () => {
+    routeApiGet({
+      requirements: requirements({
+        to_column: "cv_sent",
+        items: [
+          {
+            key: "cv_qc",
+            label: "QC CV",
+            status: "missing",
+            blocking: true,
+            action: { kind: "open_qc", label: "Otwórz QC CV", stage_id: 501 },
+          },
+        ],
+      }),
+    });
+    const user = userEvent.setup();
+    const onAdvance = vi.fn();
+    renderDock({ primaryTarget: stageCol("cv_sent", "CV wysłane", { stage_def_id: 9 }), onAdvance });
+    await user.click(await screen.findByRole("button", { name: "Otwórz QC CV" }));
+    const onMoveNext = qcDialog.mock.lastCall![0].onMoveNext as () => void;
+    act(() => onMoveNext());
+    expect(onAdvance).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByTestId("cv-qc-dialog")).toBeNull());
   });
 
   it("przycisk, którego dok nie umie obsłużyć, się nie renderuje", async () => {
@@ -899,5 +1376,937 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     expect(await screen.findByText(/Oryginał CV: dołączony do zgłoszenia · 20\.08\.2026/)).toBeInTheDocument();
     expect(await screen.findByText("CV firmowe: zatwierdzone 2.09.2026")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Pokaż CV oryginalne/ })).toBeInTheDocument();
+  });
+
+  // PR 4 (04.10.2026): QC CV widać już na „Zweryfikowanym” — rekruter poprawia
+  // CV, zanim przekaże kartę do „QC CV”.
+  it("Zweryfikowany z CV firmowym: dok pokazuje wynik QC i otwiera okno QC", async () => {
+    routeApiGet({});
+    const fallback = apiGet.getMockImplementation()!;
+    apiGet.mockImplementation((url: string) =>
+      url === "/api/pipeline/stages/501/qc"
+        ? Promise.resolve({ data: { passed: false, blocking_failed: 2, override: null, checks: [] } })
+        : fallback(url),
+    );
+    brandedGet.mockResolvedValue({
+      data: { status: "finalized", from_generator: true, finalized_at: "2026-09-02T08:00:00Z" },
+    });
+    const onOpenQc = vi.fn();
+    const user = userEvent.setup();
+    // Na „Zweryfikowanym” sekcja CV jest „Teraz” — otwarta od startu.
+    renderDock({ item: baseItem({ stage: "verified" }), onOpenQc });
+    expect(
+      await screen.findByText("QC CV: 2 rzeczy do poprawy przed wysłaniem"),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Otwórz QC" }));
+    expect(onOpenQc).toHaveBeenCalledTimes(1);
+  });
+
+  // 18.10.2026 (Kalwala, 789131): karta „QC: 2 do poprawy”, panel „1 rzecz” — panel
+  // dopisuje nieblokujące uwagi tą samą regułą co plakietka karty.
+  it("zdanie QC dopisuje uwagi nieblokujące — te same liczby co karta", () => {
+    expect(earlyQcSentence(false, { passed: false, blocking_failed: 1, warnings_count: 1, override: null })).toBe(
+      "QC CV: 1 rzecz do poprawy przed wysłaniem · 1 uwaga (nie blokuje)",
+    );
+    expect(earlyQcSentence(false, { passed: true, blocking_failed: 0, warnings_count: 3, override: null })).toBe(
+      "QC CV: bez blokad — można przekazać dalej · 3 uwagi (nie blokuje)",
+    );
+    expect(earlyQcSentence(false, { passed: false, blocking_failed: 2, override: null })).toBe(
+      "QC CV: 2 rzeczy do poprawy przed wysłaniem",
+    );
+  });
+
+  it("bez CV firmowego dok nie liczy QC", async () => {
+    routeApiGet({});
+    renderDock({ item: baseItem({ stage: "verified" }), onOpenQc: vi.fn() });
+    await screen.findByText("CV firmowe: brak");
+    expect(screen.queryByTestId("dock-early-qc")).toBeNull();
+    expect(apiGet).not.toHaveBeenCalledWith("/api/pipeline/stages/501/qc");
+  });
+
+  // 13.10.2026 (zgłoszenie rekruterki): wgrywanie CV „na wierzchu” — w sekcji
+  // CV panelu osoby, bez przechodzenia do profilu.
+  describe("Wgraj nowe CV", () => {
+    afterEach(() => {
+      useAuthStore.setState({ user: null } as never);
+    });
+
+    it("osoba bez CV: kafelek „Wgraj CV” zamiast linku do profilu", async () => {
+      useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } } as never);
+      routeApiGet({ profileDocs: [] });
+      const user = userEvent.setup();
+      renderDock();
+      await user.click(screen.getByRole("button", { name: /^CV/ }));
+
+      await screen.findByText("Oryginał CV: brak pliku — ani w zgłoszeniu, ani w profilu kandydata");
+      expect(screen.getByLabelText(/^Wgraj CV/)).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Dodaj CV w profilu kandydata/ })).toBeNull();
+    });
+
+    it("osoba z CV: kafelek „Wgraj nowe CV” obok kopii ze zgłoszenia", async () => {
+      useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } } as never);
+      routeApiGet({});
+      originalGet.mockResolvedValue({
+        data: { has_snapshot: true, original_snapshot_at: "2026-08-20T08:00:00Z", original_cv_filename: "a.pdf" },
+      });
+      const user = userEvent.setup();
+      renderDock();
+      await user.click(screen.getByRole("button", { name: /^CV/ }));
+
+      await screen.findByText(/Oryginał CV: dołączony do zgłoszenia · 20\.08\.2026/);
+      expect(screen.getByLabelText(/^Wgraj nowe CV/)).toBeInTheDocument();
+    });
+
+    it("tylko do odczytu: bez kafelka, zostaje link do profilu", async () => {
+      useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } } as never);
+      routeApiGet({ profileDocs: [] });
+      const user = userEvent.setup();
+      renderDock({ readOnly: true });
+      await user.click(screen.getByRole("button", { name: /^CV/ }));
+
+      expect(await screen.findByRole("link", { name: /Dodaj CV w profilu kandydata/ })).toBeInTheDocument();
+      expect(screen.queryByLabelText(/Wgraj/)).toBeNull();
+    });
+
+    it("nowsze CV w profilu niż kopia ze zgłoszenia: ramka „Użyj w tej rekrutacji”", async () => {
+      useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } } as never);
+      routeApiGet({
+        profileDocs: [
+          {
+            id: 9,
+            filename: "Anna_CV_2026.pdf",
+            is_primary: true,
+            uploaded_at: "2026-10-13T09:00:00Z",
+            created_at: "2026-10-13T09:00:00Z",
+            content_type: "application/pdf",
+            size_bytes: 10,
+            document_kind: "cv",
+            external_source: "m365",
+          },
+        ],
+      });
+      originalGet.mockResolvedValue({
+        data: { has_snapshot: true, original_snapshot_at: "2026-08-20T08:00:00Z", original_cv_filename: "a.pdf" },
+      });
+      const user = userEvent.setup();
+      renderDock();
+      await user.click(screen.getByRole("button", { name: /^CV/ }));
+
+      expect(await screen.findByText("W profilu jest nowsze CV")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Użyj w tej rekrutacji/ })).toBeInTheDocument();
+    });
+  });
+});
+
+// Runda 10 (R10-N15-3): awaria odczytu w doku to komunikat z „Ponów”, nie
+// „Brak …” — rekruter dopisywał notatkę albo robił screening drugi raz.
+describe("PipelineCandidateDock — awaria odczytu to nie pustka", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    originalGet.mockResolvedValue({ data: { has_snapshot: false } });
+    brandedGet.mockResolvedValue({ data: { status: "none" } });
+    candidatesGet.mockResolvedValue({ data: { email: "anna@example.com" } });
+    apiPost.mockResolvedValue({ data: {} });
+  });
+
+  it("screening: 500 daje „Nie udało się wczytać” z Ponów", async () => {
+    const user = userEvent.setup();
+    formGet.mockRejectedValue(new Error("500"));
+    apiGet.mockResolvedValue({ data: { items: [] } });
+    renderDock({ item: baseItem({ stage: "new" }) });
+
+    expect(await screen.findByText(/Nie udało się wczytać: screening/)).toBeTruthy();
+    // Awaria nie wygląda jak pusty screening.
+    expect(screen.queryByTestId("screening-form-readonly")).toBeNull();
+
+    formGet.mockResolvedValue({ data: dockForm() });
+    await user.click(screen.getByRole("button", { name: "Ponów" }));
+    expect(await screen.findByTestId("screening-form-readonly")).toBeTruthy();
+  });
+
+  // 02.10.2026: dok mówił tylko „Odpowiedziano na N pytań” — rekruter nie
+  // widział, co kandydat odpowiedział, bez otwierania arkusza.
+  // 09.10.2026: jedna sekcja „Screening” — warunki, odpowiedzi i ocena razem,
+  // bez osobnej „Karty rekomendacji”.
+  it("screening: jedna sekcja z warunkami, odpowiedziami i oceną — bez „Karty rekomendacji”", async () => {
+    apiGet.mockResolvedValue({ data: { items: [] } });
+    formGet.mockResolvedValue({
+      data: dockForm({
+        sheet: {
+          answers: [
+            {
+              question_id: "q1",
+              question_text: "Ile lat pracujesz z Javą?",
+              response: "Tak, 3 lata. Kafka i Spring Boot.",
+              deal_breaker_hit: false,
+            },
+            { question_id: "q2", question_text: "Czy pracowałeś z Kafką?", response: "", deal_breaker_hit: false, skipped: true },
+          ],
+          experience_checks: [{ kind: "domains", name: "Bankowość", status: "confirmed", note: "" }],
+          overall_fit: "fit",
+          notes: "Dobra komunikacja.",
+          internal_note: null,
+          answered_at: "2026-09-30T10:00:00Z",
+        },
+        legacy_notes: "Dobra komunikacja.",
+        questions: [
+          {
+            number: 1,
+            question: "Ile lat pracujesz z Javą?",
+            answer: "Tak, 3 lata. Kafka i Spring Boot.",
+            source: "sheet",
+            question_id: "q1",
+            deal_breaker: "Poniżej 2 lat",
+            deal_breaker_hit: false,
+          },
+          {
+            number: 2,
+            question: "Czy pracowałeś z Kafką?",
+            answer: "",
+            source: null,
+            question_id: "q2",
+            deal_breaker: null,
+            deal_breaker_hit: false,
+          },
+        ],
+        card: {
+          fields: { availability: { raw: "od 1 listopada", source: "manual", by_name: "Marta Testowa" } },
+          previous: { work_mode: { raw: "zdalnie" } },
+          suggestions: {},
+          completeness: { status: "partial", filled: 2, total: 10, missing: ["work_mode", "recommendation"] },
+          labels: {
+            availability: "Dostępność",
+            work_mode: "Tryb pracy",
+            recommendation: "Notatka",
+            red_flags: "Red flags",
+          },
+          editable_fields: ["availability", "work_mode", "rate", "recommendation", "red_flags"],
+        },
+        rate: { amount: 140, unit: "hourly", currency: "PLN", source: "stage", at: null },
+      }),
+    });
+    renderDock({ item: baseItem({ stage: "new" }) });
+
+    const view = await screen.findByTestId("screening-form-readonly");
+    expect(within(view).getByTestId("screening-summary-status")).toHaveTextContent("Pasuje");
+    expect(within(view).getByTestId("screening-summary-status")).toHaveTextContent("Odpowiedzi: 1 z 2");
+    expect(within(view).getByTestId("screening-summary-status")).toHaveTextContent("Brakuje pól: 2");
+    // Warunki: stawka z etapu, pole z formularza i podpowiedź z poprzedniej próby.
+    const terms = within(view).getByTestId("screening-form-readonly-terms");
+    expect(terms).toHaveTextContent("140 zł/h");
+    expect(terms).toHaveTextContent("od 1 listopada");
+    expect(terms).toHaveTextContent("brak — ostatnio: zdalnie");
+    // Odpowiedzi z „Odpada, gdy…” pod pytaniem.
+    const answers = within(view).getByRole("list", { name: "Pytania i odpowiedzi" });
+    expect(within(answers).getByText(/Ile lat pracujesz z Javą\?/)).toBeTruthy();
+    expect(within(answers).getByText("Tak, 3 lata. Kafka i Spring Boot.")).toBeTruthy();
+    expect(within(answers).getByText("Odpada, gdy: Poniżej 2 lat")).toBeTruthy();
+    expect(within(answers).getByText("— pominięte —")).toBeTruthy();
+    expect(screen.getByText("Sprawdzone w rozmowie")).toBeTruthy();
+    expect(screen.getByText("Dobra komunikacja.")).toBeTruthy();
+    // Ocena w tym samym widoku; osobnej sekcji i nazwy „Karta rekomendacji” nie ma.
+    expect(within(view).getByTestId("screening-form-readonly-assessment")).toHaveTextContent("Dlaczego ten kandydat");
+    expect(screen.queryByText("Karta rekomendacji")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Karta/ })).toBeNull();
+    // Tekst w starym formacie jest pod ręką, ale zapytanie idzie dopiero po rozwinięciu.
+    expect(within(view).getByRole("button", { name: "W starym formacie" })).toHaveAttribute("aria-expanded", "false");
+    expect(apiGet.mock.calls.some(([url]) => String(url).startsWith("/api/recommendation-cards"))).toBe(false);
+  });
+
+  // Dok zostaje zamontowany po ruchu karty, a stan screeningu jest per para —
+  // bez odświeżenia pokazywałby stawkę i kolumnę sprzed ruchu.
+  it("screening: po ruchu karty (inny wiersz etapu) stan odświeża się raz, nie w pętli", async () => {
+    apiGet.mockResolvedValue({ data: { items: [] } });
+    formGet.mockResolvedValue({ data: dockForm({ stage_id: 400 }) });
+    renderDock({ item: baseItem({ stage: "new" }) });
+
+    await screen.findByTestId("screening-form-readonly");
+    await waitFor(() => expect(formGet).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(formGet).toHaveBeenCalledTimes(2);
+  });
+
+  it("notatki: 500 daje „Nie udało się wczytać”, nie „Brak notatek”", async () => {
+    const user = userEvent.setup();
+    formGet.mockResolvedValue({ data: dockForm() });
+    apiGet.mockImplementation((url: string) =>
+      url.startsWith("/api/notes")
+        ? Promise.reject(new Error("500"))
+        : Promise.resolve({ data: { items: [] } }),
+    );
+    renderDock();
+
+    await user.click(screen.getByRole("button", { name: /^Notatki/ }));
+    expect(await screen.findByText(/Nie udało się wczytać: notatki/)).toBeTruthy();
+    expect(screen.queryByText(/Brak notatek dla tej rekrutacji/)).toBeNull();
+    expect(screen.queryByText(/jeszcze nic nie zapisano/)).toBeNull();
+  });
+
+  it("notatki: podpis sekcji mówi o historii poza rekrutacją, a „Cała historia” otwiera zakładkę", async () => {
+    const user = userEvent.setup();
+    const onOpenWorkbench = vi.fn();
+    apiGet.mockImplementation((url: string) =>
+      url === "/api/notes?candidate_id=42"
+        ? Promise.resolve({
+            data: {
+              items: [
+                { id: 1, job_id: 77, job_title: "Analityk systemowy", content: "Feedback klienta.", author_name: "Piotr Wrona", created_at: "2025-04-02T09:40:00Z", group: "talks", replies: [] },
+                { id: 2, job_id: null, content: "Nie dzwonić przed 10:00.", author_name: null, created_at: "2023-05-11T07:12:00Z", group: "talks", replies: [] },
+                { id: 3, job_id: 77, content: "Auto-match 70/100.", is_system: true, group: "automat", created_at: "2025-03-01T00:00:00Z", replies: [] },
+              ],
+            },
+          })
+        : Promise.resolve({ data: { items: [] } }),
+    );
+    renderDock({ onOpenWorkbench });
+
+    // Zwinięta sekcja od razu mówi, że osoba ma u nas historię (12.10.2026:
+    // 1 417 otwartych kart pokazywało „0 w tej rekrutacji” mimo notatek gdzie indziej).
+    expect(await screen.findByRole("button", { name: /^Notatki.*0 tu · 2 wcześniej/ })).toBeTruthy();
+    // Jedno zapytanie o wszystkie notatki osoby, bez `job_id`.
+    expect(apiGet.mock.calls.some(([url]) => String(url).includes("job_id="))).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: /^Notatki/ }));
+    expect(await screen.findByText("W tej rekrutacji jeszcze nic nie zapisano.")).toBeTruthy();
+    expect(screen.getByText("Feedback klienta.")).toBeTruthy();
+    expect(screen.queryByText(/Auto-match 70/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Cała historia (2)" }));
+    expect(onOpenWorkbench).toHaveBeenLastCalledWith("notes");
+  });
+
+  it("notatki: bez historii poza rekrutacją podpis zostaje „N w tej rekrutacji”", async () => {
+    apiGet.mockImplementation((url: string) =>
+      url === "/api/notes?candidate_id=42"
+        ? Promise.resolve({
+            data: {
+              items: [
+                { id: 1, job_id: 10, content: "Umówiony telefon.", author_name: "Anna Kowalczyk", created_at: "2026-10-12T08:00:00Z", group: "talks", replies: [] },
+              ],
+            },
+          })
+        : Promise.resolve({ data: { items: [] } }),
+    );
+    renderDock();
+    expect(await screen.findByRole("button", { name: /^Notatki.*1 w tej rekrutacji/ })).toBeTruthy();
+  });
+});
+
+// ── Rozwinięty panel: pasek zakładek stoi w miejscu, kontakt pod nazwiskiem
+//    (09.10.2026, zgłoszenie rekruterów) ─────────────────────────────────
+
+/** Zastępuje `PersonWorkbenchTabs`: pokazuje to, co dok podaje pod pasek zakładek. */
+function WorkbenchSlot() {
+  return <div data-testid="workbench-slot">{useContext(WorkbenchBelowTabsContext)}</div>;
+}
+
+describe("PipelineCandidateDock — rozwinięty panel i dane kontaktowe (09.10.2026)", () => {
+  const target = stageCol("verified", "Zweryfikowany", { stage_def_id: 5 });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    formGet.mockResolvedValue({ data: dockForm() });
+    originalGet.mockResolvedValue({ data: { has_snapshot: false } });
+    brandedGet.mockResolvedValue({ data: { status: "none" } });
+    candidatesGet.mockResolvedValue({
+      data: { city: "Lublin", email: "anna@example.com", phone: "+48 600 100 200" },
+    });
+    apiPost.mockResolvedValue({ data: {} });
+    apiGet.mockImplementation((url: string) => {
+      if (url.startsWith("/api/pipeline/move-requirements")) {
+        return Promise.resolve({
+          data: {
+            from_column: "new",
+            to_column: "verified",
+            skipped_columns: ["screening"],
+            items: [
+              { key: "screening_sheet", label: "Arkusz screeningu", status: "missing", blocking: false },
+              { key: "availability", label: "Dostępność", status: "ok", blocking: false },
+            ],
+            primary: { kind: "move", label: "Przesuń na „Zweryfikowany”" },
+            owner_note: null,
+          },
+        });
+      }
+      return Promise.resolve({ data: { items: [] } });
+    });
+  });
+
+  it("telefon i e-mail stoją pod nazwiskiem; numer dzwoni, ikony kopiują", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    // Po `userEvent.setup()` — ten podmienia schowek własną atrapą.
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    renderDock({ item: baseItem({ stage: "new" }) });
+
+    const line = await screen.findByTestId("person-contact-line");
+    expect(within(line).getByRole("link", { name: "+48 600 100 200" })).toHaveAttribute(
+      "href",
+      "tel:+48600100200",
+    );
+    expect(within(line).getByText("anna@example.com")).toBeTruthy();
+    await user.click(within(line).getByRole("button", { name: "Kopiuj numer: Anna Kowalska" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("+48 600 100 200"));
+    await user.click(within(line).getByRole("button", { name: "Kopiuj adres e-mail: Anna Kowalska" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("anna@example.com"));
+    expect(toastSuccess).toHaveBeenCalledWith("Skopiowano adres e-mail");
+  });
+
+  it("„Nowy w bazie · N dni” w głowie panelu — tylko osoba dodana w ostatnich 14 dniach", async () => {
+    candidatesGet.mockResolvedValue({
+      data: {
+        city: "Lublin",
+        added_to_base_at: new Date(Date.now() - 3 * 24 * 3_600_000).toISOString(),
+        added_to_base_exact: true,
+        added_via: "CV upload",
+        created_by_user: { id: 7, name: "Marta Nowak" },
+      },
+    });
+    renderDock({ item: baseItem({ stage: "new" }) });
+
+    const pill = await within(screen.getByTestId("dock-person-bar")).findByTestId("new-in-base-pill");
+    expect(pill).toHaveTextContent(/^Nowy w bazie · \d+ dni$/);
+    expect(pill.getAttribute("title")).toMatch(/^W bazie od \d{2}\.\d{2}\.\d{4} · dodał\(a\) Marta Nowak · CV upload$/);
+  });
+
+  it("bez pigułki dla osoby dawno w bazie i dla daty niedokładnej z importu", async () => {
+    candidatesGet.mockResolvedValue({
+      data: { city: "Lublin", added_to_base_at: "2019-05-11T22:00:00Z", added_to_base_exact: true },
+    });
+    renderDock({ item: baseItem({ stage: "new" }) });
+    expect(await screen.findByText(/Lublin/)).toBeTruthy();
+    expect(screen.queryByTestId("new-in-base-pill")).toBeNull();
+
+    cleanup();
+    candidatesGet.mockResolvedValue({
+      data: {
+        city: "Lublin",
+        added_to_base_at: new Date(Date.now() - 24 * 3_600_000).toISOString(),
+        added_to_base_exact: false,
+      },
+    });
+    renderDock({ item: baseItem({ stage: "new" }) });
+    expect(await screen.findByText(/Lublin/)).toBeTruthy();
+    expect(screen.queryByTestId("new-in-base-pill")).toBeNull();
+  });
+
+  it("profil bez telefonu i adresu nie pokazuje pustej linii kontaktu", async () => {
+    candidatesGet.mockResolvedValue({ data: { city: "Lublin" } });
+    renderDock({ item: baseItem({ stage: "new" }) });
+    expect(await screen.findByText(/Lublin/)).toBeTruthy();
+    expect(screen.queryByTestId("person-contact-line")).toBeNull();
+  });
+
+  it("po „Rozwiń” głowa nie ma faktów ani „Następnego etapu” — stoją w zwiniętej linii pod zakładkami", async () => {
+    const user = userEvent.setup();
+    renderDock({
+      item: baseItem({ stage: "new" }),
+      primaryTarget: target,
+      expanded: true,
+      workbench: <WorkbenchSlot />,
+    });
+
+    const slot = await screen.findByTestId("workbench-slot");
+    const fold = within(slot).getByTestId("dock-stage-fold");
+    const toggle = within(fold).getByRole("button", { name: /Warunki i następny etap/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(await within(fold).findByText("Zweryfikowany · brakuje 1 z 2")).toBeTruthy();
+    // Zwinięta: żadnego z trzech bloków nie ma ani w głowie, ani pod zakładkami.
+    expect(screen.queryByTestId("dock-facts")).toBeNull();
+    expect(screen.queryByTestId("dock-contact-row")).toBeNull();
+    expect(screen.queryByTestId("dock-next-stage")).toBeNull();
+    // Rząd akcji zostaje w głowie: stoi nad paskiem zakładek i nie przewija
+    // się z treścią zakładki.
+    const reject = screen.getByRole("button", { name: /Odrzuć z powodem/ });
+    expect(reject.closest("[data-person-scroll]")).toBeNull();
+    expect(slot.closest("[data-person-scroll]")).not.toBeNull();
+    expect(document.querySelectorAll("[data-person-scroll]")).toHaveLength(1);
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(within(fold).getByTestId("dock-facts")).toBeTruthy();
+    expect(within(fold).getByTestId("dock-contact-row")).toBeTruthy();
+    expect(await within(fold).findByTestId("dock-next-stage")).toBeTruthy();
+  });
+
+  describe("Tryb rozmowy (29.10.2026)", () => {
+    const originalMatchMedia = window.matchMedia;
+    function inPanel(split: boolean) {
+      return function InPanel(dock: ReactNode) {
+        return (
+          <PersonPanelSideProvider>
+            <PersonPanelColumn split={split}>{dock}</PersonPanelColumn>
+          </PersonPanelSideProvider>
+        );
+      };
+    }
+
+    beforeEach(() => {
+      window.matchMedia = ((query: string) => ({
+        matches: true,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })) as unknown as typeof window.matchMedia;
+      window.localStorage.clear();
+    });
+
+    afterEach(() => {
+      window.matchMedia = originalMatchMedia;
+      window.localStorage.clear();
+    });
+
+    it("rozwinięty panel ma przełącznik obok „Zwiń”; klik ustawia tryb na kolumnie", async () => {
+      const user = userEvent.setup();
+      renderDock(
+        { item: baseItem({ stage: "screening" }), expanded: true, split: true, onToggleExpanded: vi.fn() },
+        inPanel(true),
+      );
+      const toggle = screen.getByRole("button", { name: "Tryb rozmowy" });
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
+      expect(screen.getByRole("button", { name: "Zwiń" })).toBeTruthy();
+
+      await user.click(toggle);
+      expect(screen.getByRole("button", { name: "Tryb rozmowy" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByTestId("person-panel-column")).toHaveAttribute("data-compact", "");
+      // Rząd akcji etapu zostaje w trybie rozmowy.
+      expect(screen.getByRole("button", { name: /Odrzuć z powodem/ })).toBeTruthy();
+    });
+
+    it("wąski dok i dok poza panelem nie mają przełącznika", () => {
+      renderDock({ item: baseItem({ stage: "screening" }), expanded: false, onToggleExpanded: vi.fn() }, inPanel(false));
+      expect(screen.queryByRole("button", { name: "Tryb rozmowy" })).toBeNull();
+      cleanup();
+      renderDock({ item: baseItem({ stage: "screening" }), expanded: true, onToggleExpanded: vi.fn() });
+      expect(screen.queryByRole("button", { name: "Tryb rozmowy" })).toBeNull();
+    });
+  });
+
+  it("zakładka z własnym ruchem i własnymi warunkami (Screening w „Nowych”) nie ma linii", async () => {
+    renderDock({
+      item: baseItem({ stage: "new" }),
+      primaryTarget: target,
+      expanded: true,
+      split: true,
+      hidePrimaryMove: true,
+      workbench: <WorkbenchSlot />,
+    });
+    const slot = await screen.findByTestId("workbench-slot");
+    expect(await screen.findByText(/Lublin/)).toBeTruthy();
+    expect(within(slot).queryByTestId("dock-stage-fold")).toBeNull();
+    expect(screen.queryByTestId("dock-next-stage")).toBeNull();
+  });
+
+  it("zakładka z własnym ruchem, ale bez własnych warunków, ma linię samych „Warunków”", async () => {
+    renderDock({
+      item: baseItem({ stage: "verified" }),
+      primaryTarget: target,
+      expanded: true,
+      hidePrimaryMove: true,
+      workbench: <WorkbenchSlot />,
+    });
+    const slot = await screen.findByTestId("workbench-slot");
+    expect(within(slot).getByRole("button", { name: "Warunki wobec rekrutacji" })).toBeTruthy();
+  });
+
+  it("wąski dok (bez „Rozwiń”) pokazuje fakty i „Następny etap” wprost, bez zwiniętej linii", async () => {
+    renderDock({
+      item: baseItem({ stage: "new" }),
+      primaryTarget: target,
+      expanded: false,
+      workbench: <WorkbenchSlot />,
+    });
+    expect(await screen.findByTestId("dock-facts")).toBeTruthy();
+    expect(await screen.findByTestId("dock-next-stage")).toBeTruthy();
+    expect(screen.queryByTestId("dock-stage-fold")).toBeNull();
+  });
+
+  // 09.10.2026 (zgłoszenie z laptopa 1280 × 650): cała głowa wąskiego doku
+  // stała w miejscu i na sekcje zostawało 92 px. W miejscu stoi już tylko
+  // pasek osoby i pole notatki — reszta przewija się razem.
+  it("wąski dok przewija się w całości: fakty, „Następny etap”, przyciski i sekcje w jednym obszarze", async () => {
+    renderDock({
+      item: baseItem({ stage: "new" }),
+      primaryTarget: target,
+      expanded: false,
+      workbench: <WorkbenchSlot />,
+    });
+    const facts = await screen.findByTestId("dock-facts");
+    const scrollAreas = document.querySelectorAll("[data-person-scroll]");
+    expect(scrollAreas).toHaveLength(1);
+    const scroll = scrollAreas[0];
+    expect(scroll.contains(facts)).toBe(true);
+    expect(scroll.contains(await screen.findByTestId("dock-next-stage"))).toBe(true);
+    expect(scroll.contains(screen.getByRole("button", { name: /Odrzuć z powodem/ }))).toBe(true);
+    expect(scroll.contains(screen.getByTestId("dock-sections"))).toBe(true);
+    // W miejscu zostaje pasek osoby (nazwisko, „Rozwiń”, zamknij) i notatka.
+    const bar = screen.getByTestId("dock-person-bar");
+    expect(scroll.contains(bar)).toBe(false);
+    expect(within(bar).getByRole("button", { name: "Zamknij dok" })).toBeTruthy();
+    expect(scroll.contains(screen.getByLabelText("Dodaj notatkę"))).toBe(false);
+  });
+});
+
+// ── Pole notatki: rośnie, duże okno pisania, szkic (12.10.2026, zgłoszenie
+//    rekruterów: jedna linia 230 px, tekst znikał po przejściu do innej osoby)
+
+describe("PipelineCandidateDock — pole notatki: duże okno i szkic (12.10.2026)", () => {
+  const DRAFT_KEY = "nexus:note-draft:v1:7:10:42";
+  const HINT = "Enter dodaje notatkę · Shift+Enter nowa linia";
+  const HINT_BIG = "Enter nowa linia · Ctrl+Enter dodaje";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } } as never);
+    formGet.mockResolvedValue({ data: dockForm() });
+    originalGet.mockResolvedValue({ data: { has_snapshot: false } });
+    brandedGet.mockResolvedValue({ data: { status: "none" } });
+    candidatesGet.mockResolvedValue({ data: { email: "anna@example.com" } });
+    apiGet.mockResolvedValue({ data: { items: [] } });
+    apiPost.mockResolvedValue({ data: {} });
+  });
+
+  afterEach(() => {
+    useAuthStore.setState({ user: null } as never);
+    sessionStorage.clear();
+  });
+
+  const noteBox = () => screen.getByRole("textbox", { name: "Dodaj notatkę" });
+  const enlargeButton = () => screen.queryByRole("button", { name: "Powiększ pole notatki" });
+  const notePosts = () => apiPost.mock.calls.filter(([url]) => url === "/api/notes");
+
+  /** Dok z własnym klientem zapytań — do ponownego montażu i zmiany propsów. */
+  function dockTree(
+    overrides: Partial<DockProps> = {},
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  ) {
+    const props: DockProps = {
+      item: baseItem(),
+      jobId: 10,
+      currentStageLabel: "Nowi / Analiza CV",
+      moveTargets: [],
+      readOnly: false,
+      contactFeatureEnabled: false,
+      canReject: true,
+      onClose: vi.fn(),
+      onMoveTo: vi.fn(),
+      onOpenScreening: vi.fn(),
+      onReject: vi.fn(),
+      ...overrides,
+    };
+    return (
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <PipelineCandidateDock {...props} />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+
+  async function enlarge(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(noteBox());
+    await user.click(screen.getByRole("button", { name: "Powiększ pole notatki" }));
+  }
+
+  it("w spoczynku jest zwarte; po wejściu pokazuje klawisze i „Powiększ”, a Tab nie zwija rzędu", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    expect(enlargeButton()).toBeNull();
+    expect(screen.queryByText(HINT)).toBeNull();
+    expect(screen.getByRole("button", { name: "Dodaj notatkę — wyślij" })).toBeDisabled();
+
+    await user.click(noteBox());
+    expect(screen.getByText(HINT)).toBeTruthy();
+    expect(enlargeButton()).toBeTruthy();
+
+    await user.tab();
+    expect(enlargeButton()).toHaveFocus();
+  });
+
+  it("puste pole po wyjściu wraca do zwartego, pole z tekstem zostaje otwarte", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    await user.type(noteBox(), "Chce hybrydę");
+    await user.click(screen.getByText("Anna Kowalska"));
+    expect(enlargeButton()).toBeTruthy();
+
+    await user.clear(noteBox());
+    await user.click(screen.getByText("Anna Kowalska"));
+    expect(enlargeButton()).toBeNull();
+  });
+
+  it("„Powiększ”: pole dostaje fokus, reszta doku jest ukryta (nie odmontowana), Enter robi nową linię", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    const body = screen.getByTestId("dock-body");
+    await user.type(noteBox(), "Rozmowa 12.10");
+    await user.click(screen.getByRole("button", { name: "Powiększ pole notatki" }));
+
+    expect(screen.getByTestId("dock-body")).toBe(body);
+    expect(body).not.toBeVisible();
+    expect(body).toHaveAttribute("inert");
+    expect(screen.getByTestId("dock-person-bar")).toBeVisible();
+    expect(noteBox()).toHaveFocus();
+    expect(noteBox()).toHaveValue("Rozmowa 12.10");
+    expect(screen.getByText(HINT_BIG)).toBeTruthy();
+
+    await user.type(noteBox(), "{Enter}Selenium: 4 lata");
+    expect(noteBox()).toHaveValue("Rozmowa 12.10\nSelenium: 4 lata");
+    expect(notePosts()).toHaveLength(0);
+  });
+
+  it("w dużym oknie Ctrl+Enter dodaje notatkę i wraca zwykłe pole", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    await enlarge(user);
+    await user.type(noteBox(), "Rozmowa 12.10{Enter}Dostępny od listopada");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith("/api/notes", {
+        candidate_id: 42,
+        job_id: 10,
+        content: "Rozmowa 12.10\nDostępny od listopada",
+        note_type: "general",
+      }),
+    );
+    await waitFor(() => expect(screen.getByTestId("dock-body")).toBeVisible());
+    expect(noteBox()).toHaveValue("");
+  });
+
+  it("w dużym oknie notatkę dodaje też przycisk; „Zmniejsz” zostawia tekst", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    await enlarge(user);
+    await user.type(noteBox(), "Oddzwonić po 15");
+    await user.click(screen.getByRole("button", { name: "Zmniejsz" }));
+    expect(screen.getByTestId("dock-body")).toBeVisible();
+    expect(noteBox()).toHaveValue("Oddzwonić po 15");
+
+    await user.click(screen.getByRole("button", { name: "Powiększ pole notatki" }));
+    await user.click(screen.getByRole("button", { name: "Dodaj notatkę" }));
+    await waitFor(() => expect(notePosts()).toHaveLength(1));
+  });
+
+  it("Esc zmniejsza duże okno także wtedy, gdy fokus jest poza polem", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    await enlarge(user);
+    await user.type(noteBox(), "Oddzwonić");
+    act(() => (document.activeElement as HTMLElement).blur());
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.getByTestId("dock-body")).toBeVisible());
+    expect(noteBox()).toHaveValue("Oddzwonić");
+  });
+
+  it("Esc w dużym oknie jest oznaczony jako obsłużony — nasłuch Tablicy go pominie w każdej kolejności", async () => {
+    // W przeglądarce React przerysowuje między dwoma nasłuchami `window`: gdy
+    // ten z doku działa pierwszy, znacznik dużego okna znika, zanim Tablica go
+    // sprawdzi. Zostaje jej tylko `defaultPrevented` (przegląd kodu 12.10.2026).
+    const user = userEvent.setup();
+    renderDock();
+    await enlarge(user);
+    const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    act(() => {
+      window.dispatchEvent(escape);
+    });
+    expect(escape.defaultPrevented).toBe(true);
+    expect(screen.getByTestId("dock-body")).toBeVisible();
+  });
+
+  it("duże okno w ukrytym doku (przegląd DL nad panelem) nie przechwytuje Esc", async () => {
+    const user = userEvent.setup();
+    const view = render(dockTree());
+    await enlarge(user);
+    view.container.hidden = true;
+    const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    act(() => {
+      window.dispatchEvent(escape);
+    });
+    expect(escape.defaultPrevented).toBe(false);
+    expect(screen.getByTestId("dock-body")).toHaveAttribute("hidden");
+  });
+
+  it("dok tylko do odczytu nie zostaje pustym panelem po dużym oknie", async () => {
+    const user = userEvent.setup();
+    // Ten sam klient zapytań i to samo miejsce w drzewie — zmienia się tylko `readOnly`.
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(dockTree({}, qc));
+    await enlarge(user);
+    expect(screen.getByTestId("dock-body")).not.toBeVisible();
+
+    view.rerender(dockTree({ readOnly: true }, qc));
+    expect(screen.queryByRole("textbox", { name: "Dodaj notatkę" })).toBeNull();
+    expect(screen.getByTestId("dock-body")).toBeVisible();
+  });
+
+  it("szkic wraca po ponownym otwarciu tej samej osoby i nie pojawia się u innej", async () => {
+    const user = userEvent.setup();
+    const first = render(dockTree());
+    await user.type(noteBox(), "Oddzwonić po 15");
+    expect(sessionStorage.getItem(DRAFT_KEY)).toBe("Oddzwonić po 15");
+    first.unmount();
+
+    const other = render(dockTree({ item: baseItem({ id: 502, candidate_id: 43, name: "Jan", lastname: "Nowak" }) }));
+    expect(noteBox()).toHaveValue("");
+    other.unmount();
+
+    render(dockTree());
+    expect(noteBox()).toHaveValue("Oddzwonić po 15");
+    // Szkic otwiera pole — widać, że coś czeka na wysłanie.
+    expect(enlargeButton()).toBeTruthy();
+  });
+
+  it("po udanym dodaniu szkicu nie ma", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    await user.type(noteBox(), "Chce hybrydę{Enter}");
+    await waitFor(() => expect(noteBox()).toHaveValue(""));
+    expect(sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+  });
+
+  describe("„Zapisz notatkę i wypełnij formularz” (D3, 14.10.2026)", () => {
+    const FILL = "Zapisz notatkę i wypełnij formularz";
+
+    function withReceiver(receiver: NoteFillReceiver) {
+      const channel = createNoteFillChannel();
+      channel.register(42, receiver);
+      return channel;
+    }
+
+    it("przycisk jest tylko wtedy, gdy formularz tej osoby czeka na notatkę", async () => {
+      const user = userEvent.setup();
+      const view = render(dockTree());
+      await user.type(noteBox(), "Rozmowa: Java 6 lat");
+      expect(screen.queryByRole("button", { name: FILL })).toBeNull();
+      view.unmount();
+
+      const other = createNoteFillChannel();
+      other.register(43, vi.fn());
+      render(dockTree({ noteFill: other }));
+      await user.click(noteBox());
+      expect(screen.queryByRole("button", { name: FILL })).toBeNull();
+    });
+
+    it("zapisuje notatkę zwykłą drogą i przekazuje jej numer i treść formularzowi", async () => {
+      apiPost.mockImplementation((url: string) =>
+        url === "/api/notes" ? Promise.resolve({ data: { id: 77 } }) : Promise.resolve({ data: {} }),
+      );
+      const receiver = vi.fn().mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(dockTree({ noteFill: withReceiver(receiver) }));
+      await user.type(noteBox(), "Rozmowa: Java 6 lat, od zaraz");
+      await user.click(screen.getByRole("button", { name: FILL }));
+
+      await waitFor(() => expect(receiver).toHaveBeenCalledWith({ noteId: 77, text: "Rozmowa: Java 6 lat, od zaraz" }));
+      expect(notePosts()).toEqual([
+        [
+          "/api/notes",
+          { candidate_id: 42, job_id: 10, content: "Rozmowa: Java 6 lat, od zaraz", note_type: "general" },
+        ],
+      ]);
+      await waitFor(() =>
+        expect(toastSuccess).toHaveBeenCalledWith(
+          "Notatka dodana i przekazana do formularza screeningu — sprawdź pola i zapisz formularz.",
+        ),
+      );
+      expect(toastSuccess).not.toHaveBeenCalledWith("Notatka dodana.");
+      expect(noteBox()).toHaveValue("");
+    });
+
+    it("gdy formularz notatki nie przyjął, notatka i tak jest zapisana — komunikat to mówi", async () => {
+      apiPost.mockImplementation((url: string) =>
+        url === "/api/notes" ? Promise.resolve({ data: { id: 78 } }) : Promise.resolve({ data: {} }),
+      );
+      const receiver = vi.fn().mockRejectedValue(new Error("Luna nie odpowiada"));
+      const user = userEvent.setup();
+      render(dockTree({ noteFill: withReceiver(receiver) }));
+      await user.type(noteBox(), "Rozmowa: Java 6 lat");
+      await user.click(screen.getByRole("button", { name: FILL }));
+
+      await waitFor(() =>
+        expect(toastError).toHaveBeenCalledWith(
+          "Notatka dodana i zostaje w historii, ale formularza z niej nie wypełniłem.",
+        ),
+      );
+      expect(notePosts()).toHaveLength(1);
+      expect(sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+    });
+
+    it("Enter dalej tylko dodaje notatkę", async () => {
+      apiPost.mockImplementation(() => Promise.resolve({ data: { id: 79 } }));
+      const receiver = vi.fn().mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(dockTree({ noteFill: withReceiver(receiver) }));
+      await user.type(noteBox(), "Oddzwonić po 15{Enter}");
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Notatka dodana."));
+      expect(receiver).not.toHaveBeenCalled();
+    });
+  });
+
+  it("szkic znika z pamięci w chwili wysłania, a po błędzie zapisu wraca", async () => {
+    // `onSuccess` działa też po odmontowaniu doku: gdyby szkic czekał w pamięci
+    // do odpowiedzi serwera, „wyślij, wyjdź, wróć” oddawałoby wysłany tekst.
+    let fail!: (error: Error) => void;
+    apiPost.mockImplementation((url: string) =>
+      url === "/api/notes"
+        ? new Promise((_resolve, reject) => {
+            fail = reject;
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    const user = userEvent.setup();
+    renderDock();
+    await user.type(noteBox(), "Chce hybrydę{Enter}");
+    await waitFor(() => expect(notePosts()).toHaveLength(1));
+    expect(sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+
+    await act(async () => fail(new Error("Błąd sieci")));
+    await waitFor(() => expect(sessionStorage.getItem(DRAFT_KEY)).toBe("Chce hybrydę"));
+    expect(noteBox()).toHaveValue("Chce hybrydę");
+    expect(toastError).toHaveBeenCalled();
+  });
+
+  describe("powód odrzucenia w panelu osoby (19.10.2026)", () => {
+    it("odrzucona osoba: ramka z powodem, komentarzem, kto i kiedy — nad warunkami", () => {
+      renderDock({
+        currentStageLabel: "Odrzucony",
+        item: baseItem({
+          stage: "rejected",
+          moved_at: "2026-10-16T10:00:00Z",
+          rejection_reason_name: "Za wysokie oczekiwania finansowe",
+          closed_by_name: "Julia Swidkiewicz",
+          notes: "Oczekuje 190 zł/h, budżet do 150.",
+        }),
+      });
+      const box = screen.getByTestId("dock-closed-reason");
+      expect(box).toHaveAttribute("data-tone", "danger");
+      expect(box).toHaveTextContent("Odrzucony: Za wysokie oczekiwania finansowe");
+      expect(box).toHaveTextContent("Oczekuje 190 zł/h, budżet do 150.");
+      expect(box).toHaveTextContent("Julia Swidkiewicz · 16.10.2026");
+      // Pierwsza rzecz w sekcji akcji — widać ją bez przewijania.
+      expect(screen.getByTestId("dock-actions").firstElementChild).toBe(box);
+      // Oś czasu mówi, kiedy i dlaczego, zamiast „W etapie od 3 dni”.
+      expect(screen.getByText("Odrzucony · Za wysokie oczekiwania finansowe")).toBeInTheDocument();
+      expect(screen.queryByText(/W etapie od/)).not.toBeInTheDocument();
+    });
+
+    it("rezygnacja i brak powodu: szara ramka, bez zgadywania", () => {
+      renderDock({
+        currentStageLabel: "Rezygnacja",
+        item: baseItem({ stage: "withdrawn", rejection_reason_name: null, notes: null }),
+      });
+      const box = screen.getByTestId("dock-closed-reason");
+      expect(box).toHaveAttribute("data-tone", "neutral");
+      expect(box).toHaveTextContent("Rezygnacja: powód nie został zapisany");
+    });
+
+    it("osoba w toku: bez ramki", () => {
+      renderDock({ item: baseItem({ notes: "Notatka z ruchu" }) });
+      expect(screen.queryByTestId("dock-closed-reason")).not.toBeInTheDocument();
+    });
   });
 });

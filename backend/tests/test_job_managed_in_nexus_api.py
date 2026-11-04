@@ -2,11 +2,14 @@
 
 Kontrakt (decyzja Artura 17.09.2026, od 23.09.2026 bez roli TAC i bez
 wymogu członkostwa w zespole rekrutacji — „nie musisz być przypisany”):
-włączenie = RecruiterPlus; wyłączenie (powrót do Traffita, po którym nocny
-import znów nadpisze ruchy) tylko admin / Delivery Lead; każda realna zmiana zostawia wpis
+włączenie = RecruiterPlus; każda realna zmiana zostawia wpis
 `activities.action='managed_in_nexus_changed'` z poprzednią wartością;
 ponowne wywołanie z tą samą wartością nie dopisuje historii. Rekrutacja spoza
 Traffita → 409, brak oferty → 404.
+
+Wyłączenie („Wróć do Traffita”) od 14.10.2026 odpowiada 410 — Traffit jest
+wyłączony na stałe (decyzja Artura). Bramka uprawnienia zostaje przed 410:
+bez niego 403, z nim (admin / Delivery Lead) 410, w obu przypadkach bez zapisu.
 
 In-process `app_client`; baza testowa wspólna i nieczyszczona — asercje tylko
 na własnych wierszach (uuid).
@@ -177,9 +180,11 @@ async def test_recruiter_member_can_enable_but_not_revert(app_client: AsyncClien
 
 
 @pytest.mark.asyncio
-async def test_admin_reverts_to_traffit(
+async def test_admin_can_no_longer_revert_to_traffit(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):
+    """Od 14.10.2026 Traffit jest wyłączony — powrót odpowiada 410 i nic nie
+    zapisuje, także dla admina."""
     job_id = await _seed_job()
 
     await app_client.post(
@@ -189,13 +194,16 @@ async def test_admin_reverts_to_traffit(
         _url(job_id), json={"enabled": False}, headers=app_auth_headers
     )
 
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["managed_in_nexus"] is False
+    assert resp.status_code == 410, resp.text
+    assert resp.json()["detail"] == (
+        "Traffit jest wyłączony od 14.10.2026 — rekrutacja zostaje prowadzona "
+        "w NEXUSIE."
+    )
     rows = await _activity_rows(job_id)
-    assert [(r["enabled"], r["previous"]) for r in rows] == [
-        ("true", "false"),
-        ("false", "true"),
-    ]
+    assert [(r["enabled"], r["previous"]) for r in rows] == [("true", "false")]
+    detail = await app_client.get(f"/api/jobs/{job_id}", headers=app_auth_headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["managed_in_nexus"] is True
 
 
 @pytest.mark.asyncio

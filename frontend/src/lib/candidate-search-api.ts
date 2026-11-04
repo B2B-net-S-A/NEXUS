@@ -8,6 +8,7 @@
 
 import { api, type MatchEligibility } from "@/lib/api";
 import type { MatchBreakdown } from "@/lib/match-breakdown";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 
 export type SortMode = "relevance" | "recent" | "name";
 export type AiStatus = "ok" | "degraded" | "down";
@@ -143,12 +144,47 @@ export interface CandidateSearchItem {
    * conflict is a warning (`assignment_allowed: true`); only a veto blocks.
    */
   eligibility?: MatchEligibility | null;
+  /** Znacznik „Pracuje u nas”; `elsewhere` tylko przy `exclude_in_job_id`. */
+  employment_marker?: EmploymentMarker | null;
   /**
    * Semantyka v2: aktywne filtry (lokalizacja / staż / stawka), które osoba
    * przeszła WYŁĄCZNIE dlatego, że nie mamy jej danych — `location`,
    * `experience`, `rate`. UI pokazuje je jako plakietki „brak …".
    */
   unknown_fields?: string[];
+  /**
+   * Tylko przy `exclude_in_job_id`: ostatnia rekrutacja osoby gdzie indziej
+   * (w zakresie rekrutacji widocznych dla pytającego). `null` = bez historii.
+   */
+  last_recruitment?: LastRecruitment | null;
+}
+
+/** Lustro `LastRecruitment` — ostatni ruch karty w innej rekrutacji. */
+export interface LastRecruitment {
+  job_id: number;
+  /** Już tytuł dla rekrutera (a bez niego nazwa od klienta) — `latest_cards`. */
+  job_title: string;
+  job_client_reference?: string | null;
+  stage_label: string;
+  column: string;
+  /** Dzień ruchu w kalendarzu firmy, `YYYY-MM-DD`. */
+  moved_on: string;
+}
+
+/**
+ * Osoba pasująca do frazy, która JUŻ ma kartę w tej rekrutacji (lustro
+ * `InJobMatch`). `closed` tylko przy karcie w „Zamkniętych” — cel „Przywróć”.
+ */
+export interface InJobMatch {
+  id: number;
+  name: string;
+  lastname: string;
+  email: string | null;
+  phone: string | null;
+  location: string | null;
+  card_label: string;
+  card_column: string;
+  closed?: BulkClosedCard | null;
 }
 
 export interface CompetenceCategoryFacet {
@@ -214,6 +250,11 @@ export interface CandidateSearchResponse {
   items: CandidateSearchItem[];
   facets: SearchFacets;
   meta: SearchMeta;
+  /**
+   * Tylko przy `exclude_in_job_id`, dosłownej frazie (osoba, telefon, e-mail)
+   * i dostępie do rekrutacji; najwyżej 5 osób.
+   */
+  in_job_matches?: InJobMatch[];
 }
 
 export interface WaterfallStage {
@@ -259,12 +300,25 @@ export const candidateSearchApi = {
   matchScores: (
     jobId: number,
     candidateIds: number[],
-    options?: { signal?: AbortSignal },
+    options?: {
+      signal?: AbortSignal;
+      /** U5: wyświetlenia pierwszej strony „Szukaj ręcznie” (pozycje na stronie). */
+      impression?: { surface: "manual_search"; ranks: number[] };
+    },
   ): Promise<MatchScoresResponse> =>
     api
       .post<MatchScoresResponse>(
         "/api/search/candidates/scores",
-        { job_id: jobId, candidate_ids: candidateIds },
+        {
+          job_id: jobId,
+          candidate_ids: candidateIds,
+          ...(options?.impression
+            ? {
+                impression_surface: options.impression.surface,
+                impression_ranks: options.impression.ranks,
+              }
+            : {}),
+        },
         { signal: options?.signal },
       )
       .then((r) => r.data),
@@ -279,13 +333,22 @@ export interface MatchScoresResponse {
    * keyed by it. `null`/absent when nothing was scored.
    */
   profile_key?: string | null;
+  /**
+   * Pozycje must z `breakdowns`, które nie są technologią (zdanie, branża,
+   * język, rola). Brak pola (starszy serwer) = nic nie wiadomo.
+   */
+  non_technology_must?: string[];
 }
 
 export type BulkSkipReason =
   | "already_in_job"
+  // Karta osoby stoi w „Zamkniętych” tej rekrutacji — wiersz niesie `closed`.
+  | "closed_in_job"
   | "blacklisted"
   | "candidate_not_found"
-  | "rejected_by_hiring_manager";
+  | "rejected_by_hiring_manager"
+  // Off-limits (21.10.2026): w oknie padło „Nie, to my się odezwaliśmy”.
+  | "off_limits_declined";
 
 /**
  * Candidates that WERE added but carry a soft warning. Client conflicts
@@ -311,7 +374,13 @@ export type BulkAddSource =
   // Rekrutacja v3: skrzynka „Propozycje z bazy" i karta rekomendacji.
   | "proposal_inbox"
   | "recommendation"
-  | "my_people";
+  | "my_people"
+  // 14.10.2026: „Pasuje też do” pod osobą dodaną do innej rekrutacji.
+  | "also_fits"
+  // 29.10.2026: „+ Dodaj inną rekrutację” w „Screening dla” (wskazana ręcznie).
+  | "also_manual"
+  // 22.10.2026: zakładka „Podobni” na profilu kandydata.
+  | "similar_candidates";
 
 export interface BulkProposalsRequest {
   candidate_ids: number[];
@@ -327,12 +396,32 @@ export interface BulkProposalsRequest {
    */
   run_id?: string | null;
   source?: BulkAddSource | null;
+  /** „Pasuje też do”: rekrutacja, przy której padła podpowiedź (historia i dzwonek). */
+  origin_job_id?: number | null;
+  /**
+   * „Podobni”: zdanie „dlaczego mimo to” dla osoby bez umiejętności krytycznej
+   * (tylko przy `similar_candidates`; bez niego serwer odpowiada 422).
+   */
+  reasons?: Record<number, string>;
+}
+
+/**
+ * Zamknięta karta osoby w tej rekrutacji — lustro `ClosedCardInfo`.
+ * Przywrócenie to ruch karty na `restore_stage` / `restore_stage_def_id`
+ * z `state_version` jako `expected_state_version`.
+ */
+export interface BulkClosedCard {
+  candidate_name: string;
+  state_version: number;
+  restore_stage: string;
+  restore_stage_def_id?: number | null;
 }
 
 export interface BulkSkippedRow {
   candidate_id: number;
   reason: BulkSkipReason;
   reason_label?: string | null;
+  closed?: BulkClosedCard | null;
 }
 
 export interface BulkWarningRow {
@@ -347,12 +436,31 @@ export interface BulkProposalsResponse {
   warnings?: BulkWarningRow[];
   total_added: number;
   total_skipped: number;
+  /** Osoby z przepięcia, którym przeniesiono CV z rekrutacji źródłowej. */
+  cv_carried?: number[];
 }
 
 export interface AssignableStage {
   id: number;
   name: string;
   order: number;
+}
+
+/** Serwer przyjmuje najwyżej tyle osób w jednym żądaniu (`proposals_bulk.py`). */
+export const BULK_ADD_CHUNK = 100;
+
+/** Suma odpowiedzi z kilku paczek dodania. */
+export function mergeBulkResponses(parts: BulkProposalsResponse[]): BulkProposalsResponse {
+  return parts.reduce<BulkProposalsResponse>(
+    (acc, part) => ({
+      added: [...acc.added, ...part.added],
+      skipped: [...acc.skipped, ...part.skipped],
+      warnings: [...(acc.warnings ?? []), ...(part.warnings ?? [])],
+      total_added: acc.total_added + part.total_added,
+      total_skipped: acc.total_skipped + part.total_skipped,
+    }),
+    { added: [], skipped: [], warnings: [], total_added: 0, total_skipped: 0 },
+  );
 }
 
 export const proposalsBulkApi = {
@@ -363,6 +471,30 @@ export const proposalsBulkApi = {
     api
       .post<BulkProposalsResponse>(`/api/jobs/${jobId}/proposals/bulk`, body)
       .then((r) => r.data),
+  /**
+   * U3 (audyt 06.10.2026): zaznaczenie przeżywa zmianę strony, więc bywa
+   * większe niż 100 osób — serwer odpowiadał wtedy angielskim 422
+   * („List should have at most 100 items”). Paczki po 100, jedna po drugiej.
+   */
+  addInChunks: async (
+    jobId: number,
+    body: BulkProposalsRequest,
+    // 1 = osoba po osobie w podanej kolejności („Oceń z AI”: Tablica stawia
+    // najnowsze wejście na górze, a jedno żądanie dodaje w kolejności id).
+    chunkSize: number = BULK_ADD_CHUNK,
+  ): Promise<BulkProposalsResponse> => {
+    const ids = [...new Set(body.candidate_ids)];
+    const parts: BulkProposalsResponse[] = [];
+    for (let start = 0; start < ids.length; start += chunkSize) {
+      parts.push(
+        await proposalsBulkApi.add(jobId, {
+          ...body,
+          candidate_ids: ids.slice(start, start + chunkSize),
+        }),
+      );
+    }
+    return mergeBulkResponses(parts);
+  },
   assignableStages: (jobId: number): Promise<AssignableStage[]> =>
     api
       .get<AssignableStage[]>(`/api/jobs/${jobId}/assignable-stages`)

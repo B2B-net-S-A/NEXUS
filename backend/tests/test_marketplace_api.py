@@ -188,8 +188,8 @@ async def test_remove_from_marketplace(
 # więc rekruter/sourcer dostawał 403 mimo że UI pokazuje im przycisk.
 
 
-@pytest.mark.parametrize("role", [UserRole.recruiter, UserRole.sourcer])
-async def test_recruiter_and_sourcer_can_add_to_marketplace(
+@pytest.mark.parametrize("role", [UserRole.recruiter])
+async def test_recruiter_can_add_to_marketplace(
     app_client: AsyncClient, seeded_candidate: int, role: UserRole
 ):
     headers, uid = await _seed_user_headers(app_client, role)

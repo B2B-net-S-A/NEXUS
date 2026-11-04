@@ -18,9 +18,11 @@ from app.services.cv_approved_docx import (
     render_approved_docx,
     ApprovedDocxError,
     RENDERER_VERSION,
+    cv_text_align,
 )
 from app.services.cv_generator_b2b.public_view import build_public_payload
 from app.services.cv_generator_b2b.html_export import render_interactive_html
+from app.services.cv_rodo_clause import keep_rodo_clause
 from app.services.html_sanitizer import sanitize_cv_html
 
 
@@ -100,6 +102,7 @@ def state(draft):
         "presentation_review": editor_rule_feedback(
             draft.branded_draft_html, draft.branded_render_metadata
         ),
+        "text_align": cv_text_align(draft.branded_render_metadata),
         "docx_available": draft.branded_status == "finalized",
         "docx_filename": draft.branded_docx_filename,
         "updated_at": None,
@@ -128,7 +131,7 @@ def save(draft, expected_revision, html):
     check_revision(draft, expected_revision)
     if draft.branded_status != "draft":
         raise HTTPException(409, "Utwórz nowy szkic przed edycją zatwierdzonego CV.")
-    cleaned = sanitize_cv_html(html)
+    cleaned = keep_rodo_clause(draft.branded_draft_html, sanitize_cv_html(html))
     if not cleaned.strip():
         raise HTTPException(422, "CV nie może być puste.")
     draft.branded_draft_html = cleaned
@@ -148,10 +151,12 @@ async def render(draft, html):
     try:
         return await run_in_threadpool(
             render_approved_docx,
-            sanitize_cv_html(html),
+            # Podgląd i szkic do pobrania pokazują to, co zostanie zatwierdzone.
+            keep_rodo_clause(draft.branded_draft_html, sanitize_cv_html(html)),
             draft.branded_template_content,
             consent=draft.branded_consent_content,
             language=draft.branded_language,
+            text_align=cv_text_align(draft.branded_render_metadata),
         )
     except ApprovedDocxError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -161,7 +166,7 @@ async def finalize(db, draft, expected_revision, html, user_id):
     check_revision(draft, expected_revision)
     if draft.branded_status != "draft":
         raise HTTPException(409, "CV jest już zatwierdzone.")
-    cleaned = sanitize_cv_html(html)
+    cleaned = keep_rodo_clause(draft.branded_draft_html, sanitize_cv_html(html))
     if not cleaned.strip():
         raise HTTPException(422, "CV nie może być puste.")
     docx = await render(draft, cleaned)
@@ -177,6 +182,13 @@ async def finalize(db, draft, expected_revision, html, user_id):
         "renderer_version": RENDERER_VERSION,
         "template_sha256": hashlib.sha256(draft.branded_template_content).hexdigest(),
     }
+    # Runda 9 (R9-N3-3): nagłówek linku `/cv/i/` czyta imię i stanowisko
+    # z WERSJI — bez nich zatwierdzenie z edytora dawało pusty nagłówek. Te
+    # same pola co przy zatwierdzeniu bez edycji (`cv_standalone_approval`).
+    from app.models.cv_generated_document import CvGeneratedDocument
+
+    generated = await db.get(CvGeneratedDocument, draft.generated_document_id)
+    public = build_public_payload(getattr(generated, "render_payload", None))
     version = CvDocumentVersion(
         generated_owner_id=draft.generated_document_id,
         generated_document_id=draft.generated_document_id,
@@ -191,6 +203,8 @@ async def finalize(db, draft, expected_revision, html, user_id):
         render_metadata=metadata,
         language=draft.branded_language,
         template=draft.branded_template,
+        candidate_first_name=public["candidate_name"] or None,
+        job_title=public["position"] or None,
         approved_at=datetime.now(timezone.utc),
         approved_by=user_id,
     )

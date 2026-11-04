@@ -1,9 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 
 import {
+  CLIENT_MORE_TABS,
+  LEGACY_CLIENT_TABS,
   positiveIntParam,
   useClientTab,
   useForbiddenTabFallback,
@@ -15,10 +18,29 @@ import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import {
+  ClientPeopleTechTab,
+  PeopleTechHeaderActions,
+} from "@/components/care/client/ClientPeopleTechTab";
+import { ClientSalesTab } from "@/components/sales/ClientSalesTab";
+import {
+  ContactOrgFields,
+  EMPTY_CONTACT_ORG,
+  contactOrgDraftFor,
+  contactOrgPayload,
+  type ContactOrgDraft,
+} from "@/components/care/client/ContactOrgFields";
+import { peopleViewFrom, type PeopleView } from "@/components/care/client/people-tech-format";
+import {
+  canReadClientPeople,
+  useClientOrg,
+  useUpdateContactOrg,
+} from "@/lib/api/client-people";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useHrConfig } from "@/lib/api/hr";
+import { hasAnyPermission } from "@/lib/permissions";
+import {
   ArrowLeft,
   Building2,
-  Mail,
-  Phone,
   Globe,
   CheckCircle,
   XCircle,
@@ -34,20 +56,43 @@ import {
   Info,
   Crown,
   Pencil,
-  Briefcase,
-  FileText,
   DollarSign,
   FolderOpen,
-  LayoutDashboard,
-  UserSquare2,
   Trash2,
   AlertOctagon,
+  Ellipsis,
+  ChevronDown,
 } from "lucide-react";
+import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { CALM_EMPTY, CALM_HEAD, CALM_SUBLINE } from "@/lib/calm-table";
+import { hitRatioTone } from "@/lib/client-hit-ratio";
+import { formatIsoDatePl } from "@/lib/date-pl";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { clientTeamApi, type ClientTeamResponse } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { DeleteButton } from "@/components/ConfirmDialog";
 import { EditClientModal } from "@/components/AppShell";
 import { RateCardsTab } from "@/components/RateCardsTab";
 import { MaterialsTab } from "./MaterialsTab";
+import { OnboardingPackTab } from "./OnboardingPackTab";
+import { ClientEquipmentProviderField } from "@/components/equipment/ClientEquipmentProviderField";
 import { OwnersTab } from "./OwnersTab";
 import { ProfileTab } from "./ProfileTab";
 import { ProjectsTab } from "./ProjectsTab";
@@ -56,12 +101,17 @@ import { ProjectsTab } from "./ProjectsTab";
 // topbarze (NotificationsDropdown) wystarcza.
 import { FrameworkContractsTab } from "@/components/FrameworkContractsTab";
 import { MultiConsultantOrdersTab } from "@/components/client-profile/orders/MultiConsultantOrdersTab";
+import { ClientMdImportsTab } from "@/components/client-profile/orders/ClientMdImportsTab";
 import { AnalyticsTab } from "@/components/AnalyticsTab";
 import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
 import { ClientPlaybookTab } from "@/components/client-playbook/ClientPlaybookTab";
 import { DeleteClientDialog } from "@/components/client-profile/DeleteClientDialog";
 import { ClientConflictsSection } from "@/components/client-profile/ClientConflictsSection";
-import { canManageClientDelivery } from "@/components/client-profile/permissions";
+import { ClientHeaderStats } from "@/components/client-profile/SummaryBar";
+import {
+  canEditClientLegalDocuments,
+  canManageClientDelivery,
+} from "@/components/client-profile/permissions";
 import { TAC_UI_ENABLED } from "@/lib/tac-ui";
 import {
   RELATIONSHIP_STRENGTH_COLORS,
@@ -69,11 +119,13 @@ import {
 } from "@/components/clients/KeyRelationshipsPanel";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
-import { hasSectionAccess } from "@/lib/section-access";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { canViewClientFinance, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { useCanonicalClientRedirect } from "@/hooks/useCanonicalClientRedirect";
+import { ClientInvoicingTab } from "@/components/clients/invoicing/ClientInvoicingTab";
+import { useInvoicingModule } from "@/lib/api/client-invoicing";
 
+import { formatPhone } from "@/lib/phone-format";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ClientKnowledge {
@@ -112,10 +164,10 @@ type KnowledgeCategory = "selling_points" | "interview_questions" | "tech_stack"
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const STATUS_COLORS: Record<string, string> = {
-  active: "bg-green-100 text-green-700",
-  inactive: "bg-muted text-muted-foreground",
-  prospect: "bg-primary/15 text-primary",
+const STATUS_TONES: Record<string, StatusDotTone> = {
+  active: "success",
+  inactive: "neutral",
+  prospect: "neutral",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -135,8 +187,8 @@ const KNOWLEDGE_CATEGORIES: {
     key: "selling_points",
     label: "Atuty klienta",
     icon: <Star className="w-4 h-4" />,
-    color: "text-amber-600",
-    bg: "bg-amber-50",
+    color: "text-warning-muted-foreground",
+    bg: "bg-warning-muted",
   },
   {
     key: "interview_questions",
@@ -149,15 +201,15 @@ const KNOWLEDGE_CATEGORIES: {
     key: "tech_stack",
     label: "Stack technologiczny",
     icon: <Code className="w-4 h-4" />,
-    color: "text-violet-600",
-    bg: "bg-violet-50",
+    color: "text-info-muted-foreground",
+    bg: "bg-info-muted",
   },
   {
     key: "culture",
     label: "Kultura pracy",
     icon: <Lightbulb className="w-4 h-4" />,
-    color: "text-emerald-600",
-    bg: "bg-emerald-50",
+    color: "text-success-muted-foreground",
+    bg: "bg-success-muted",
   },
   {
     key: "general",
@@ -185,6 +237,11 @@ const KNOWLEDGE_CATEGORIES: {
  * zwinięciu: ponowne zwijanie nie ma kasować stanu formularzy ani zmuszać do
  * powtórnego pobrania danych.
  *
+ * `defaultOpen` (02.10.2026): sekcje, które na makiecie są rozwiniętymi
+ * kartami obok treści (informacje, materiały, konflikty, wiedza, cennik),
+ * startują otwarte i montują dziecko od razu — tylko dla zakładki, na której
+ * stoją. Sekcja bez `defaultOpen` zachowuje leniwe montowanie.
+ *
  * Uwaga przy pisaniu testów: zdarzenie `toggle` jest ZAKOLEJKOWANE (spec HTML),
  * więc w jsdom klik w <summary> ustawia `open`, ale handler odpala się dopiero
  * w kolejnym zadaniu — asercja tuż po `fireEvent.click` zobaczy jeszcze pustkę.
@@ -192,27 +249,32 @@ const KNOWLEDGE_CATEGORIES: {
 function LazyDetails({
   icon,
   title,
-  contentClassName = "p-4 pt-0 border-t border-border",
+  contentClassName = "border-t border-border p-4",
+  defaultOpen = false,
   children,
 }: {
   icon: React.ReactNode;
   title: React.ReactNode;
   contentClassName?: string;
+  /** Karta od razu rozwinięta — dziecko montuje się przy pierwszym renderze. */
+  defaultOpen?: boolean;
   children: React.ReactNode;
 }) {
-  const [mounted, setMounted] = useState(false);
+  const [mounted, setMounted] = useState(defaultOpen);
 
   return (
     <details
-      className="border border-border rounded-lg group"
+      className="group min-w-0 rounded-lg border border-border bg-card"
+      open={defaultOpen}
       onToggle={(e) => {
         if (e.currentTarget.open) setMounted(true);
       }}
     >
-      <summary className="cursor-pointer p-4 font-medium flex items-center gap-2 hover:bg-accent/30">
+      <summary className="flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2.5 text-[13px] font-semibold text-foreground hover:bg-accent/30 pointer-coarse:min-h-10">
         {icon}
         {title}
-        <span className="ml-auto text-xs text-muted-foreground group-open:hidden">rozwiń</span>
+        <span className="ml-auto text-xs font-normal text-muted-foreground group-open:hidden">rozwiń</span>
+        <span className="ml-auto hidden text-xs font-normal text-muted-foreground group-open:inline">zwiń</span>
       </summary>
       <div className={contentClassName}>{mounted ? children : null}</div>
     </details>
@@ -221,7 +283,16 @@ function LazyDetails({
 
 // ── Knowledge Tab ─────────────────────────────────────────────────────────────
 
-function KnowledgeTab({ clientId }: { clientId: number }) {
+function KnowledgeTab({
+  clientId,
+  stackHref,
+}: {
+  clientId: number;
+  // Notatki o stacku mają jedno wejście (R2, 22.10.2026): przy module opieki
+  // dopisuje się je w „Ludziach i technologiach” z działem, tu zostają do
+  // czytania. `null` = moduł opieki wyłączony, kategoria jak dawniej.
+  stackHref: string | null;
+}) {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ category: "general" as KnowledgeCategory, content: "", source: "" });
   const queryClient = useQueryClient();
@@ -269,19 +340,19 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
     ...cat,
     entries: entries.filter((e) => e.category === cat.key),
   }));
+  const formCategories = stackHref
+    ? KNOWLEDGE_CATEGORIES.filter((cat) => cat.key !== "tech_stack")
+    : KNOWLEDGE_CATEGORIES;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">Baza wiedzy o kliencie</p>
         {canEditKnowledge ? (
-          <button
-            onClick={() => setShowAdd(!showAdd)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-lg transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
+          <Button size="sm" variant="primary" onClick={() => setShowAdd(!showAdd)}>
+            <Plus className="w-3.5 h-3.5" aria-hidden="true" />
             Dodaj wiedzę
-          </button>
+          </Button>
         ) : null}
       </div>
 
@@ -318,7 +389,7 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
                 onChange={(e) => setForm({ ...form, category: e.target.value as KnowledgeCategory })}
                 className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
               >
-                {KNOWLEDGE_CATEGORIES.map((c) => (
+                {formCategories.map((c) => (
                   <option key={c.key} value={c.key}>
                     {c.label}
                   </option>
@@ -353,7 +424,7 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
             <button
               onClick={() => addMutation.mutate(form)}
               disabled={!form.content || addMutation.isPending}
-              className="px-3 py-1.5 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50"
+              className="px-3 py-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold rounded-lg transition-colors disabled:opacity-50"
             >
               {addMutation.isPending ? "Zapisuję..." : "Zapisz"}
             </button>
@@ -363,13 +434,20 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
 
       {/* Grouped entries */}
       {grouped.map((cat) =>
-        cat.entries.length === 0 ? null : (
+        cat.entries.length === 0 && !(stackHref && cat.key === "tech_stack") ? null : (
           <div key={cat.key} className="space-y-2">
-            <div className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg w-fit", cat.bg)}>
-              <span className={cat.color}>{cat.icon}</span>
-              <span className={cn("text-xs font-bold uppercase tracking-wide", cat.color)}>
-                {cat.label}
-              </span>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg w-fit", cat.bg)}>
+                <span className={cat.color}>{cat.icon}</span>
+                <span className={cn("text-xs font-bold uppercase tracking-wide", cat.color)}>
+                  {cat.label}
+                </span>
+              </div>
+              {stackHref && cat.key === "tech_stack" ? (
+                <Link href={stackHref} className="text-xs font-medium text-primary hover:underline">
+                  Dopisz w Ludziach i technologiach
+                </Link>
+              ) : null}
             </div>
             {cat.entries.map((entry) => (
               <div key={entry.id} className="bg-card dark:bg-muted border border-border dark:border-border rounded-xl p-4 group">
@@ -427,12 +505,19 @@ function ContactForm({
   onSubmit,
   onCancel,
   isLoading,
+  orgFields,
 }: {
   form: ContactFormData;
   setForm: React.Dispatch<React.SetStateAction<ContactFormData>>;
   onSubmit: () => void;
   onCancel: () => void;
   isLoading: boolean;
+  /**
+   * Przy otwartym module opieki (22.10.2026): „Dział” ze słownika działów
+   * klienta i „Podlega pod” zamiast pola tekstowego „Dział”; tekst zostaje
+   * w kontakcie i stoi pod listą jako podpowiedź.
+   */
+  orgFields?: React.ReactNode;
 }) {
   return (
     <div className="space-y-3">
@@ -475,23 +560,26 @@ function ContactForm({
           />
         </div>
       </div>
+      {orgFields}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div>
-          <label className="text-xs font-semibold text-muted-foreground block mb-1">Dział</label>
-          <input
-            value={form.department}
-            onChange={(e) => setForm({ ...form, department: e.target.value })}
-            className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
-            placeholder="IT / HR"
-          />
-        </div>
+        {orgFields ? null : (
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">Dział</label>
+            <input
+              value={form.department}
+              onChange={(e) => setForm({ ...form, department: e.target.value })}
+              className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
+              placeholder="IT / HR"
+            />
+          </div>
+        )}
         <div className="flex items-end pb-1.5">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
               checked={form.is_decision_maker}
               onChange={(e) => setForm({ ...form, is_decision_maker: e.target.checked })}
-              className="w-4 h-4 rounded accent-blue-600"
+              className="w-4 h-4 rounded accent-primary"
             />
             <span className="text-sm text-foreground">Decydent</span>
           </label>
@@ -513,7 +601,7 @@ function ContactForm({
         <button
           onClick={onSubmit}
           disabled={!form.name || isLoading}
-          className="px-3 py-1.5 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-lg disabled:opacity-50"
+          className="px-3 py-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold rounded-lg disabled:opacity-50"
         >
           {isLoading ? "Zapisuję..." : "Zapisz"}
         </button>
@@ -542,6 +630,50 @@ function ContactsTab({ clientId }: { clientId: number }) {
   // przecięte z zapisem sekcji Delivery. Zostają Admin i Delivery Lead;
   // pozostali czytelnicy nie dostają formularza prowadzącego w 403 (F-19).
   const canCreateContact = useCapability("contact.create");
+  // „Dział” ze słownika działów klienta i „Podlega pod” (22.10.2026): przy
+  // otwartym module opieki i dla kręgu D11 — drzewo osób (`GET …/org`) czyta
+  // tylko on. Inaczej formularz jak dotąd (tekstowe „Dział”).
+  const user = useAuthStore((state) => state.user);
+  const careOpen = useHrConfig().data?.open_modules.care === true;
+  const orgOn = careOpen && canCreateContact && canReadClientPeople(user);
+  const formOpen = showAdd || editContact !== null;
+  const orgQuery = useClientOrg(clientId, orgOn && formOpen);
+  const updateOrg = useUpdateContactOrg(clientId);
+  const [orgDraft, setOrgDraft] = useState<ContactOrgDraft | null>(null);
+  const orgInitial = orgQuery.data
+    ? contactOrgDraftFor(orgQuery.data, editContact?.id ?? null)
+    : EMPTY_CONTACT_ORG;
+  const orgCurrent = orgDraft ?? orgInitial;
+  /** Dział i przełożony idą osobną trasą PO zapisie kontaktu. */
+  const saveContactOrg = (contactId: number | undefined, payload: ReturnType<typeof contactOrgPayload>) => {
+    if (!contactId || !payload) return;
+    updateOrg.mutate(
+      { contactId, payload },
+      {
+        onError: (err) =>
+          showError(
+            `Kontakt zapisany, ale dział i „Podlega pod” nie: ${apiErrorMessage(err, "spróbuj ponownie w edycji kontaktu.")}`,
+          ),
+      },
+    );
+  };
+  const orgFields =
+    orgOn && orgQuery.data ? (
+      <ContactOrgFields
+        // `key`: wpisany nowy dział należy do tego formularza, nie następnego.
+        key={editContact?.id ?? "new"}
+        org={orgQuery.data}
+        contactId={editContact?.id ?? null}
+        departmentText={editContact?.department ?? (form.department || null)}
+        draft={orgCurrent}
+        onChange={setOrgDraft}
+        disabled={updateOrg.isPending}
+      />
+    ) : orgOn && orgQuery.isError ? (
+      <p role="alert" className="text-xs text-destructive">
+        Nie udało się wczytać działów klienta — zapisze się sam kontakt.
+      </p>
+    ) : undefined;
 
   const contactsQuery = useQuery<Contact[]>({
     queryKey: ["client-contacts", clientId],
@@ -606,6 +738,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
     setForm({ name: "", email: "", phone: "", position: "", department: "", is_decision_maker: false, notes: "" });
 
   const openEdit = (c: Contact) => {
+    setOrgDraft(null);
     setEditContact(c);
     setForm({
       name: c.name,
@@ -619,32 +752,51 @@ function ContactsTab({ clientId }: { clientId: number }) {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">Osoby kontaktowe</p>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
+          Osoby kontaktowe
+          {contactsState === "ready" || contactsState === "empty" ? (
+            <span className="rounded-full bg-muted px-1.5 text-[11px] font-semibold leading-[18px] text-muted-foreground tabular-nums">
+              {contacts.length}
+            </span>
+          ) : null}
+        </h2>
         {canCreateContact && (
-          <button
-            onClick={() => { setShowAdd(true); setEditContact(null); }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-lg transition-colors"
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => { setOrgDraft(null); setShowAdd(true); setEditContact(null); }}
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-3.5 h-3.5" aria-hidden="true" />
             Dodaj kontakt
-          </button>
+          </Button>
         )}
       </div>
 
       {showAdd && !editContact && (
-        <div className="bg-primary/10 border border-primary/20 rounded-xl p-4">
+        <div className="bg-primary/10 border border-primary/20 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-primary">Nowy kontakt</h3>
-            <button onClick={() => setShowAdd(false)} className="text-primary hover:text-primary">
+            <button
+              onClick={() => setShowAdd(false)}
+              aria-label="Zamknij"
+              className="hit-area text-primary hover:text-primary"
+            >
               <X className="w-4 h-4" />
             </button>
           </div>
           <ContactForm
             form={form}
             setForm={setForm}
-            onSubmit={() => createMutation.mutate(form)}
+            orgFields={orgFields}
+            onSubmit={() => {
+              const payload = orgOn ? contactOrgPayload(orgCurrent, EMPTY_CONTACT_ORG) : null;
+              createMutation.mutate(form, {
+                onSuccess: (response) =>
+                  saveContactOrg((response?.data as { id?: number } | undefined)?.id, payload),
+              });
+            }}
             onCancel={() => setShowAdd(false)}
             isLoading={createMutation.isPending}
           />
@@ -671,144 +823,216 @@ function ContactsTab({ clientId }: { clientId: number }) {
           <Users className="w-10 h-10 mx-auto mb-3 opacity-40" />
           <p className="text-sm">Brak kontaktów dla tego klienta</p>
         </div>
-      ) : (
-        <div className="space-y-3">
-          {contacts.map((contact) => (
-            <div key={contact.id} className="bg-card dark:bg-muted border border-border dark:border-border rounded-xl">
-              {editContact?.id === contact.id ? (
-                <div className="p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-foreground">Edytuj kontakt</h3>
-                    <button onClick={() => setEditContact(null)} className="text-muted-foreground hover:text-muted-foreground">
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <ContactForm
-                    form={form}
-                    setForm={setForm}
-                    onSubmit={() => updateMutation.mutate({ id: contact.id, data: form })}
-                    onCancel={() => setEditContact(null)}
-                    isLoading={updateMutation.isPending}
-                  />
-                </div>
-              ) : (
-                <div className="p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3 min-w-0">
-                      <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center shrink-0">
-                        <span className="text-sm font-semibold text-muted-foreground">
-                          {contact.name.charAt(0).toUpperCase()}
+      ) : contacts.length === 0 ? null : (
+        <Table density="compact" className="min-w-[900px]">
+          <TableHeader>
+            <TableRow>
+              <TableHead className={CALM_HEAD}>Osoba</TableHead>
+              <TableHead className={CALM_HEAD}>E-mail</TableHead>
+              <TableHead className={CALM_HEAD}>Telefon</TableHead>
+              <TableHead className={CALM_HEAD}>Siła relacji</TableHead>
+              <TableHead className={CALM_HEAD}>Ostatni kontakt</TableHead>
+              {canCreateContact ? (
+                <TableHead className={cn(CALM_HEAD, "text-right")}>Akcje</TableHead>
+              ) : null}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {contacts.map((contact) => {
+              if (editContact?.id === contact.id) {
+                return (
+                  <TableRow key={contact.id}>
+                    <TableCell colSpan={canCreateContact ? 6 : 5} className="p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-semibold text-foreground">Edytuj kontakt</h3>
+                        <button
+                          onClick={() => setEditContact(null)}
+                          aria-label="Zamknij"
+                          className="hit-area text-muted-foreground hover:text-foreground"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <ContactForm
+                        form={form}
+                        setForm={setForm}
+                        orgFields={orgFields}
+                        onSubmit={() => {
+                          const payload = orgOn ? contactOrgPayload(orgCurrent, orgInitial) : null;
+                          updateMutation.mutate(
+                            { id: contact.id, data: form },
+                            { onSuccess: () => saveContactOrg(contact.id, payload) },
+                          );
+                        }}
+                        onCancel={() => setEditContact(null)}
+                        isLoading={updateMutation.isPending}
+                      />
+                    </TableCell>
+                  </TableRow>
+                );
+              }
+              const lastContact =
+                contact.last_personal_touchpoint_at ?? contact.last_contacted_at;
+              const relationshipNote =
+                contact.is_key_relationship && contact.relationship_notes
+                  ? contact.relationship_notes
+                  : null;
+              const hasNotes = Boolean(contact.notes || relationshipNote);
+              return (
+                <Fragment key={contact.id}>
+                  <TableRow className={cn("h-[54px]", hasNotes && "border-b-0")}>
+                    <TableCell>
+                      <div className="flex items-center gap-2.5">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted">
+                          <span className="text-[10.5px] font-semibold text-muted-foreground">
+                            {contact.name.charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            {contact.is_key_relationship && (
+                              <Star
+                                className="h-3.5 w-3.5 shrink-0 fill-warning text-warning"
+                                aria-hidden="true"
+                              />
+                            )}
+                            <span className="font-semibold text-foreground">{contact.name}</span>
+                            {contact.is_key_relationship && (
+                              <Badge size="sm" variant="soft">
+                                Kluczowa relacja
+                              </Badge>
+                            )}
+                            {contact.is_decision_maker && (
+                              <Badge size="sm" variant="warning">
+                                <Crown className="h-2.5 w-2.5" aria-hidden="true" />
+                                Decydent
+                              </Badge>
+                            )}
+                          </div>
+                          {contact.position || contact.department ? (
+                            <span className={CALM_SUBLINE}>
+                              {[contact.position, contact.department]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {contact.email ? (
+                        <a
+                          href={`mailto:${contact.email}`}
+                          title={contact.email}
+                          // Jedna linia z wielokropkiem — łamany w pół słowa adres
+                          // („…exampl / e”) trudniej przeczytać niż przycięty.
+                          className="block max-w-[19rem] truncate font-medium text-primary hover:underline pointer-coarse:flex pointer-coarse:min-h-10 pointer-coarse:items-center"
+                        >
+                          {contact.email}
+                        </a>
+                      ) : (
+                        <span className={CALM_EMPTY}>—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap tabular-nums">
+                      {contact.phone ? (
+                        <a
+                          href={`tel:${contact.phone}`}
+                          className="hover:underline pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center"
+                        >
+                          {formatPhone(contact.phone)}
+                        </a>
+                      ) : (
+                        <span className={CALM_EMPTY}>—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {contact.relationship_strength ? (
+                        <span
+                          className={cn(
+                            "inline-flex whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-medium",
+                            RELATIONSHIP_STRENGTH_COLORS[
+                              contact.relationship_strength
+                            ] ?? "bg-muted text-muted-foreground",
+                          )}
+                        >
+                          {/* Etykiety jak w „Kluczowych relacjach” zamiast
+                              surowego „warm”/„champion” (audyt N9). */}
+                          {RELATIONSHIP_STRENGTH_LABELS[
+                            contact.relationship_strength
+                          ] ?? contact.relationship_strength}
                         </span>
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {contact.is_key_relationship && (
-                            <Star
-                              className="w-4 h-4 text-yellow-500 fill-yellow-500"
-                              aria-label="Kluczowa relacja"
-                            />
-                          )}
-                          <span className="text-sm font-semibold text-foreground">{contact.name}</span>
-                          {contact.is_decision_maker && (
-                            <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-semibold">
-                              <Crown className="w-3 h-3" />
-                              Decydent
-                            </span>
-                          )}
-                          {contact.relationship_strength && (
-                            <span
-                              className={cn(
-                                "text-xs px-1.5 py-0.5 rounded-full",
-                                RELATIONSHIP_STRENGTH_COLORS[
-                                  contact.relationship_strength
-                                ] ?? "bg-pink-50 text-pink-700",
-                              )}
-                            >
-                              {/* Etykiety jak w „Kluczowych relacjach” zamiast
-                                  surowego „warm”/„champion” (audyt N9). */}
-                              {RELATIONSHIP_STRENGTH_LABELS[
-                                contact.relationship_strength
-                              ] ?? contact.relationship_strength}
-                            </span>
-                          )}
-                        </div>
-                        {contact.position && (
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {contact.position}
-                            {contact.department && ` · ${contact.department}`}
-                          </p>
-                        )}
-                        <div className="flex flex-wrap gap-3 mt-2">
-                          {contact.email && (
-                            <a
-                              href={`mailto:${contact.email}`}
-                              className="flex min-w-0 max-w-full items-center gap-1 text-xs text-primary hover:underline pointer-coarse:min-h-10"
-                            >
-                              <Mail className="w-3 h-3 shrink-0" />
-                              <span className="break-all">{contact.email}</span>
-                            </a>
-                          )}
-                          {contact.phone && (
-                            <a
-                              href={`tel:${contact.phone}`}
-                              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground pointer-coarse:min-h-10"
-                            >
-                              <Phone className="w-3 h-3" />
-                              {contact.phone}
-                            </a>
-                          )}
-                        </div>
-                        {contact.notes && (
-                          <p className="text-xs text-muted-foreground mt-2 italic">{contact.notes}</p>
-                        )}
-                      </div>
-                    </div>
+                      ) : (
+                        <span className={CALM_EMPTY}>—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap tabular-nums">
+                      {lastContact ? (
+                        formatIsoDatePl(lastContact)
+                      ) : (
+                        <span className={CALM_EMPTY}>—</span>
+                      )}
+                    </TableCell>
                     {/* Edycja i usunięcie = `ClientAccess.can_edit_contacts`
                         — ta sama bramka co „Dodaj kontakt” (audyt S11). */}
                     {canCreateContact ? (
-                      <div className="flex items-center gap-2 pointer-coarse:gap-4 shrink-0">
-                        <button
-                          onClick={() => setEditingKeyRelationship(contact)}
-                          aria-label="Edytuj relację"
-                          className={
-                            "hit-area transition-colors " +
-                            (contact.is_key_relationship
-                              ? "text-pink-600 hover:text-pink-700"
-                              : "text-muted-foreground hover:text-pink-600")
-                          }
-                          title="Edytuj relację (klucz, siła, notatki)"
-                        >
-                          <Heart
-                            className={
-                              "w-4 h-4 " +
-                              (contact.is_key_relationship ? "fill-pink-200" : "")
-                            }
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setEditingKeyRelationship(contact)}
+                            aria-label="Edytuj relację"
+                            title="Edytuj relację (klucz, siła, notatki)"
+                          >
+                            <Heart
+                              className={cn(
+                                "h-3.5 w-3.5",
+                                contact.is_key_relationship && "fill-primary/30 text-primary",
+                              )}
+                              aria-hidden="true"
+                            />
+                            Relacja
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openEdit(contact)}
+                            aria-label="Edytuj kontakt"
+                          >
+                            <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                            Edytuj
+                          </Button>
+                          <DeleteButton
+                            onConfirm={() => deleteMutation.mutate(contact.id)}
+                            iconOnly={false}
+                            label="Usuń"
+                            className={buttonVariants({ variant: "quiet", size: "sm" })}
                           />
-                        </button>
-                        <button
-                          onClick={() => openEdit(contact)}
-                          aria-label="Edytuj kontakt"
-                          className="hit-area text-muted-foreground hover:text-primary transition-colors"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <DeleteButton
-                          onConfirm={() => deleteMutation.mutate(contact.id)}
-                          className="hit-area"
-                        />
-                      </div>
+                        </div>
+                      </TableCell>
                     ) : null}
-                  </div>
-                  {contact.is_key_relationship && contact.relationship_notes && (
-                    <div className="mt-3 text-xs text-pink-700 italic border-l-2 border-pink-200 pl-3 ml-0 sm:ml-12">
-                      {contact.relationship_notes}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+                  </TableRow>
+                  {hasNotes ? (
+                    <TableRow className="h-auto">
+                      <TableCell
+                        colSpan={canCreateContact ? 6 : 5}
+                        className="pb-2.5 pl-[50px] pt-0 text-xs text-muted-foreground"
+                      >
+                        {contact.notes ? <p>{contact.notes}</p> : null}
+                        {relationshipNote ? (
+                          <p className="mt-0.5 border-l-2 border-primary/30 pl-2 italic">
+                            {relationshipNote}
+                          </p>
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                </Fragment>
+              );
+            })}
+          </TableBody>
+        </Table>
       )}
 
       {editingKeyRelationship && (
@@ -847,17 +1071,16 @@ function ContactsTab({ clientId }: { clientId: number }) {
 export default function ClientDetailPage() {
   const { id } = useParams();
   const user = useAuthStore((state) => state.user);
-  // Rola + zapis w sekcji Delivery (U8): DL z odebraną sekcją nie widzi
-  // przycisków, które kończą się 403.
-  const canEditDelivery =
-    hasRole(user, "admin", "delivery_lead") &&
-    hasSectionAccess(user, "delivery", "write");
-  const canViewDeliveryLegal = hasRole(
-    user,
-    "admin",
-    "delivery_lead",
-    "finance",
-  );
+  // Materiały sprzedażowe klienta: ta sama bramka co wiedza o kliencie
+  // („Klienci: dodawanie i edycja”) — bez niej przyciski kończą się 403.
+  const canEditDelivery = canManageClientDelivery(user);
+  // Umowy ramowe, cennik i warunki umowy niosą stawki, więc widzi je ten, kto
+  // widzi kwoty TEGO klienta („Stawki i kwoty: podgląd”; Delivery Lead —
+  // u klientów z przypisania). Serwer odmawia tak samo.
+  const canViewDeliveryLegal = canViewClientFinance(user, Number(id));
+  // Zapis warunków kontraktowych to dokumenty prawne klienta, nie edycja
+  // klienta: „Kontrakty i zamówienia” + podgląd kwot (lustro backendu).
+  const canEditDeliveryLegal = canEditClientLegalDocuments(user, Number(id));
   // `?tab=` NIE jest ozdobnikiem — trzy źródła powiadomień linkują wprost do
   // zakładki, w której jest sprawa do załatwienia: skaner alertów Delivery
   // Leada (`dl_alerts_scanner.py`), skaner wygasania zamówień
@@ -868,6 +1091,7 @@ export default function ClientDetailPage() {
   // czego nie robił.
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   // Kliknięcie zakładki zapisuje ją w adresie (replace, bez nowego wpisu
   // w historii) — F5 odtwarza zakładkę, a kolejny link z powiadomienia do
   // `?tab=zamowienia` zmienia wartość parametru i naprawdę przełącza widok.
@@ -875,14 +1099,45 @@ export default function ClientDetailPage() {
     (tab: ClientTab) => {
       const next = new URLSearchParams(searchParams.toString());
       next.set("tab", tab);
-      router.replace(`/clients/${id}?${next.toString()}`, { scroll: false });
+      replaceUrl(`/clients/${id}?${next.toString()}`);
     },
-    [router, id, searchParams],
+    [replaceUrl, id, searchParams],
   );
-  const [activeTab, setActiveTab, selectTab] = useClientTab(
-    searchParams.get("tab"),
-    writeTabToUrl,
+  const tabParam = searchParams.get("tab");
+  const [activeTab, setActiveTab, selectTab] = useClientTab(tabParam, writeTabToUrl);
+  // „Ludzie i technologie” (22.10.2026): widok z `?view=`; dawne
+  // `?tab=struktura` / `?tab=technologie` otwierają drzewo / mapę, a adres
+  // przechodzi na nowy klucz (F5 i kolejny link nie wracają do starego).
+  const peopleView = peopleViewFrom(searchParams.get("view"), tabParam);
+  const selectPeopleView = useCallback(
+    (view: PeopleView) => {
+      const next = new URLSearchParams(searchParams.toString());
+      next.set("tab", "ludzie");
+      if (view === "dzialy") next.delete("view");
+      else next.set("view", view);
+      replaceUrl(`/clients/${id}?${next.toString()}`);
+    },
+    [replaceUrl, id, searchParams],
   );
+  useEffect(() => {
+    if (tabParam && tabParam in LEGACY_CLIENT_TABS) selectPeopleView(peopleView);
+  }, [tabParam, peopleView, selectPeopleView]);
+  // „Ludzie i technologie” tylko przy włączonym module opieki (admin widzi
+  // zawsze); „Sprzęt od nas / od klienta” — przy włączonym module sprzętu.
+  const hrConfigQuery = useHrConfig();
+  const hrConfig = hrConfigQuery.data;
+  const careOpen = hrConfig?.open_modules.care === true;
+  // Sprzedaż (27.10.2026): zakładka z powiązaną firmą sprzedaży i jej szansami.
+  const canViewSales = hasAnyPermission(user, "sales_view");
+  const equipmentOpen = hrConfig?.open_modules.equipment === true;
+  // „Wejście u klienta” — moduł wejścia i odejścia; czyta podgląd Delivery
+  // (Delivery Lead u swoich klientów) i recepcja („Sprzęt”).
+  const packOpen =
+    hrConfig?.open_modules.lifecycle === true &&
+    hasAnyPermission(user, "delivery_view", "equipment");
+  // „Faktury” (E8) — moduł faktur do klientów, konto z podglądem kwot klienta.
+  const invoicingOpen =
+    useInvoicingModule(canViewDeliveryLegal).data?.open === true;
   const orderMailDocParam = Number(searchParams.get("orderMailDoc"));
   const orderMailDocId =
     Number.isInteger(orderMailDocParam) && orderMailDocParam > 0
@@ -891,29 +1146,47 @@ export default function ClientDetailPage() {
   // Dokument z maila obsłużony albo porzucony — parametr znika z adresu, żeby
   // odświeżenie strony nie otwierało okna zamówienia drugi raz.
   const clearOrderMailDoc = useCallback(() => {
-    router.replace(`/clients/${id}?tab=zamowienia`, { scroll: false });
-  }, [router, id]);
+    replaceUrl(`/clients/${id}?tab=zamowienia`);
+  }, [replaceUrl, id]);
   // Deep linki z panelu „Moi klienci": konkretne zamówienie (`?order=`),
   // zamówienie MD/kosztowe (`?group=`) albo umowa ramowa (`?framework=`).
   // Zakładka czyta WARTOŚĆ parametru (miękka nawigacja nie odmontowuje
   // strony), a po obsłużeniu parametr znika z adresu — F5 nie otwiera
   // okna uzupełniania drugi raz.
+  // „Otwórz import →" z historii zamówienia: `?tab=importy-md&import={id}`.
+  const selectedImportId = positiveIntParam(searchParams.get("import"));
+  const selectImport = useCallback(
+    (importId: number | null) => {
+      const next = new URLSearchParams(searchParams.toString());
+      next.set("tab", "importy-md");
+      if (importId == null) next.delete("import");
+      else next.set("import", String(importId));
+      replaceUrl(`/clients/${id}?${next.toString()}`);
+    },
+    [replaceUrl, id, searchParams],
+  );
   const focusOrderId = positiveIntParam(searchParams.get("order"));
   const focusGroupId = positiveIntParam(searchParams.get("group"));
   const focusFrameworkId = positiveIntParam(searchParams.get("framework"));
+  // `?contract=` — panel kontraktora bez zamówienia w zakładce „Zamówienia”
+  // (wersja B). Zakładka sama pisze `?order=`/`?group=`/`?contract=` przy
+  // wyborze wiersza, więc otwarty panel przeżywa odświeżenie strony.
+  const focusContractId = positiveIntParam(searchParams.get("contract"));
   const clearFocusParams = useCallback(() => {
     const next = new URLSearchParams(searchParams.toString());
     next.delete("order");
     next.delete("group");
+    next.delete("contract");
     next.delete("framework");
-    router.replace(`/clients/${id}?${next.toString()}`, { scroll: false });
-  }, [router, id, searchParams]);
+    replaceUrl(`/clients/${id}?${next.toString()}`);
+  }, [replaceUrl, id, searchParams]);
   const [showEdit, setShowEdit] = useState(false);
   const openTab = useTabsStore((s) => s.openTab);
   const queryClient = useQueryClient();
   const { showSuccess } = useToast();
-  // PATCH /api/clients/{id} → TacPlus. Bez bramki nie-TAC widział "Edytuj"
-  // i dostawał 403 dopiero na zapisie (czytało się jak "zapis nie działa").
+  // PATCH /api/clients/{id} wymaga uprawnienia „Klienci: dodawanie i edycja”.
+  // Bez bramki konto bez niego widziało "Edytuj" i dostawało 403 dopiero na
+  // zapisie (czytało się jak "zapis nie działa").
   const canUpdateClient = useCapability("client.update");
   // Imienne uprawnienie (0307) — nie wynika z roli. W trybie podglądu jako
   // inny użytkownik backend i tak odmówi, więc przycisku też nie pokazujemy.
@@ -936,6 +1209,16 @@ export default function ClientDetailPage() {
     canViewDeliveryLegal,
     authHydrated,
   );
+  useForbiddenTabFallback(activeTab, setActiveTab, "sprzedaz", canViewSales, authHydrated);
+  // Moduł opieki zamknięty — „Ludzie i technologie” nie istnieje; czekamy na
+  // odpowiedź `/api/hr/config` (wcześniej „brak” to brak wiedzy, nie odmowa).
+  useForbiddenTabFallback(
+    activeTab,
+    setActiveTab,
+    "ludzie",
+    careOpen,
+    hrConfigQuery.isSuccess || hrConfigQuery.isError,
+  );
 
   const {
     data: client,
@@ -949,6 +1232,21 @@ export default function ClientDetailPage() {
   });
 
   useCanonicalClientRedirect(id, client?.id);
+
+  // Główny Delivery Lead w nagłówku — ten sam klucz co zakładka „Delivery
+  // Lead” (`OwnersTab`), więc cache jest wspólny. Awaria = brak chipa,
+  // nie komunikat: nagłówek to skrót, pełna informacja jest w zakładce.
+  const teamQuery = useQuery<ClientTeamResponse>({
+    queryKey: ["client-team", Number(id)],
+    queryFn: () => clientTeamApi.get(Number(id)).then((r) => r.data),
+    enabled: Number.isFinite(Number(id)),
+  });
+  const headDeliveryLead = (() => {
+    const leads = teamQuery.data?.delivery_leads ?? [];
+    const head = leads.find((lead) => lead.is_head) ?? leads[0];
+    if (!head) return null;
+    return leads.length > 1 ? `${head.name} +${leads.length - 1}` : head.name;
+  })();
 
   // Pasek 8 zakładek jest na telefonie szerszy niż ekran. Wejście z
   // powiadomienia (`?tab=zamowienia`) albo klik w częściowo widoczną zakładkę
@@ -986,7 +1284,7 @@ export default function ClientDetailPage() {
   if (clientViewState === "loading")
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
-        <div className="w-6 h-6 border-2 border-purple-400 border-t-transparent rounded-full animate-spin mr-3" />
+        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mr-3" />
         Ładowanie klienta...
       </div>
     );
@@ -996,140 +1294,222 @@ export default function ClientDetailPage() {
         <QueryStateNotice
           state={clientViewState === "empty" ? "not_found" : clientViewState}
           description={
-            clientViewState === "forbidden"
-              ? "Nie masz uprawnień do tego klienta. Rekord istnieje — poproś administratora o dostęp."
-              : undefined
+            clientViewState !== "forbidden"
+              ? undefined
+              : user?.delivery_client_scope === "assigned"
+                ? // Od 25.09.2026 DL widzi w Klientach, Kontraktach i Zamówieniach
+                  // tylko klientów z przypisania; rekrutacje zostają otwarte.
+                  "Ten klient jest poza Twoim portfelem. Jego rekrutacje znajdziesz w module Rekrutacje, a o przypisanie klienta poproś administratora albo Head of Recruitment."
+                : "Nie masz uprawnień do tego klienta. Rekord istnieje — poproś administratora o dostęp."
           }
           onRetry={() => void refetch()}
         />
       </div>
     );
 
-  const allTabs: { key: ClientTab; label: string; icon: React.ReactNode }[] = [
-    { key: "profil", label: "Profil", icon: <LayoutDashboard className="w-4 h-4" /> },
+  const allTabs: { key: ClientTab; label: string }[] = [
+    { key: "profil", label: "Profil" },
     // Karta klienta — bez filtra po roli: rola `user` dostanie 403 z backendu
     // i karta pokaże „Brak uprawnień", nie pustkę (zamierzone).
-    { key: "zasady", label: "Zasady współpracy", icon: <BookOpen className="w-4 h-4" /> },
-    { key: "projekty", label: "Projekty", icon: <Briefcase className="w-4 h-4" /> },
-    { key: "zamowienia", label: "Zamówienia", icon: <DollarSign className="w-4 h-4" /> },
-    { key: "zespol", label: "Delivery Lead", icon: <Users className="w-4 h-4" /> },
-    { key: "kontakty", label: "Kontakty klienta", icon: <UserSquare2 className="w-4 h-4" /> },
-    { key: "umowy-ramowe", label: "Umowy", icon: <FileText className="w-4 h-4" /> },
-    { key: "analityka", label: "Analityka", icon: <LayoutDashboard className="w-4 h-4" /> },
+    { key: "zasady", label: "Zasady współpracy" },
+    { key: "kontakty", label: "Kontakty klienta" },
+    // Zaraz po kontaktach (decyzja 5, 22.10.2026): działy, drzewo osób i mapa
+    // technologii. Drzewo i opinie widzi krąg D11 — zakładka sama to rozstrzyga.
+    { key: "ludzie", label: "Ludzie i technologie" },
+    { key: "wejscie", label: "Wejście u klienta" },
+    { key: "projekty", label: "Projekty" },
+    { key: "zamowienia", label: "Zamówienia" },
+    { key: "umowy-ramowe", label: "Umowy" },
+    // Rzadkie — pod „Więcej” (`CLIENT_MORE_TABS`, makieta P5): DL klienta
+    // stoi też w nagłówku, wiedza o kliencie ma wejście z „Ludzi i technologii”.
+    { key: "zespol", label: "Delivery Lead" },
+    { key: "importy-md", label: "Importy MD" },
+    { key: "faktury", label: "Faktury" },
+    { key: "analityka", label: "Analityka" },
+    { key: "sprzedaz", label: "Sprzedaż" },
   ];
   const TABS = allTabs.filter(
-    (tab) => canViewDeliveryLegal || tab.key !== "umowy-ramowe",
+    (tab) =>
+      (canViewDeliveryLegal || tab.key !== "umowy-ramowe") &&
+      (careOpen || tab.key !== "ludzie") &&
+      (packOpen || tab.key !== "wejscie") &&
+      (invoicingOpen || tab.key !== "faktury") &&
+      (canViewSales || tab.key !== "sprzedaz"),
+  );
+  const moreTabs = TABS.filter((tab) => CLIENT_MORE_TABS.includes(tab.key));
+  // Zakładka wybrana z „Więcej” stoi w pasku, dopóki jest aktywna.
+  const stripTabs = TABS.filter(
+    (tab) => !CLIENT_MORE_TABS.includes(tab.key) || tab.key === activeTab,
   );
 
   return (
-    <div className="space-y-4">
-      <Link
-        href="/clients"
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" /> Wróć do klientów
-      </Link>
-
-      <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-xs overflow-hidden">
-        <div className="h-1.5 bg-linear-to-r from-purple-600 via-violet-500 to-purple-400" />
-
-        <div className="p-4 sm:p-6">
-          <div className="flex items-start gap-4">
-            <div className="hidden sm:flex w-14 h-14 bg-purple-100 rounded-2xl items-center justify-center shrink-0">
-              <Building2 className="w-7 h-7 text-purple-600" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="min-w-0">
-                  <h1 className="text-2xl font-bold text-foreground break-words">{client.name}</h1>
-                  {client.industry && (
-                    <p className="text-sm text-purple-600 font-medium mt-0.5">{client.industry}</p>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {client.status && (
-                    <span
-                      className={`px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_COLORS[client.status] || "bg-muted text-muted-foreground"}`}
+    <div className="space-y-3">
+      <div className="bg-card dark:bg-muted rounded-xl border border-border shadow-xs overflow-hidden">
+        {/* Nagłówek w jednej linii (wersja B, 29.09.2026): nazwa, status,
+            Delivery Lead i menu. Do 09.2026 karta miała ~130 px (ikona 56 px,
+            tytuł 24 px, osobne rzędy WWW i NDA), więc zamówienia zaczynały się
+            w połowie ekranu laptopa. WWW, NDA i „Usuń klienta” są w menu „⋯”. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 sm:px-5" data-client-header>
+          <Link
+            href="/clients"
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            aria-label="Wróć do klientów"
+            title="Wróć do klientów"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" /> Klienci
+          </Link>
+          <span aria-hidden="true" className="text-xs text-muted-foreground">/</span>
+          <h1 className="min-w-0 break-words font-display text-lg font-semibold text-foreground">{client.name}</h1>
+          {client.status && (
+            <StatusDot tone={STATUS_TONES[client.status] ?? "neutral"}>
+              {STATUS_LABELS[client.status] || client.status}
+            </StatusDot>
+          )}
+          {client.industry && (
+            <span className="text-xs text-muted-foreground">{client.industry}</span>
+          )}
+          {headDeliveryLead && (
+            <span
+              className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+              data-client-header-dl
+            >
+              DL: <span className="font-medium text-foreground">{headDeliveryLead}</span>
+            </span>
+          )}
+          {/* Liczby klienta na KAŻDEJ zakładce (dawniej dwa kafle w zakładce
+              Profil). To samo zapytanie co `ProfileTab` — jeden klucz. */}
+          <ClientHeaderStats
+            clientId={Number(id)}
+            className="ml-auto justify-end max-sm:order-last max-sm:ml-0 max-sm:w-full max-sm:justify-start"
+          />
+          <div className="flex flex-wrap items-center justify-end gap-1.5 max-sm:ml-auto">
+            {/* „Ludzie i technologie”: akcje zakładki w nagłówku (makieta P5). */}
+            {careOpen && activeTab === "ludzie" ? <PeopleTechHeaderActions clientId={Number(id)} /> : null}
+            {canUpdateClient && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowEdit(true)}
+                title="Edytuj firmę"
+              >
+                <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
+                Edytuj
+              </Button>
+            )}
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Więcej o kliencie"
+                  title="Strona WWW, NDA i więcej"
+                  className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground pointer-coarse:h-10 pointer-coarse:w-10"
+                >
+                  <Ellipsis className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel className="truncate">{client.name}</DropdownMenuLabel>
+                {client.website ? (
+                  <DropdownMenuItem asChild>
+                    <a
+                      href={client.website.startsWith("http") ? client.website : `https://${client.website}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
                     >
-                      {STATUS_LABELS[client.status] || client.status}
-                    </span>
-                  )}
-                  {canUpdateClient && (
-                    <button
-                      onClick={() => setShowEdit(true)}
-                      title="Edytuj firmę"
-                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-md transition-colors pointer-coarse:min-h-10"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                      Edytuj
-                    </button>
-                  )}
-                  {canDeleteClient && (
-                    <button
-                      onClick={() => setShowDelete(true)}
-                      title="Usuń klienta"
-                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors pointer-coarse:min-h-10"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Usuń klienta
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-4 mt-3 text-sm text-muted-foreground">
-                {client.website && (
-                  <a
-                    href={client.website.startsWith("http") ? client.website : `https://${client.website}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex min-w-0 max-w-full items-center gap-1.5 hover:text-purple-600 transition-colors"
-                  >
-                    <Globe className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                    <span className="break-all">{client.website}</span>
-                  </a>
+                      <Globe className="h-4 w-4 shrink-0" />
+                      <span className="break-all">{client.website}</span>
+                    </a>
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem disabled>
+                    <Globe className="h-4 w-4" />
+                    Brak strony WWW
+                  </DropdownMenuItem>
                 )}
-              </div>
-
-              <div className="flex items-center gap-3 mt-3">
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <DropdownMenuItem disabled className="opacity-100">
                   {client.nda_signed ? (
-                    <CheckCircle className="w-4 h-4 text-green-500" />
+                    <CheckCircle className="h-4 w-4 text-success" />
                   ) : (
-                    <XCircle className="w-4 h-4 text-muted-foreground" />
+                    <XCircle className="h-4 w-4 text-muted-foreground" />
                   )}
                   NDA {client.nda_signed ? "podpisane" : "niepodpisane"}
-                </span>
-              </div>
-            </div>
+                </DropdownMenuItem>
+                {canDeleteClient && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={() => window.setTimeout(() => setShowDelete(true), 0)}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Usuń klienta
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
         {/* Tabs — horizontal scroll z visible scrollbar (macOS hide by default
             ukrywa scrollbar i user nie wie że można scrollować). Mniejszy
             padding px-3 (vs 4) + krótsze labele mieszczą wszystkie 12 tabów. */}
-        <div className="border-t border-border min-w-0">
+        <div className="flex min-w-0 items-stretch border-t border-border pr-3 sm:pr-5">
           <div
-            className="flex gap-0 px-3 sm:px-6 pt-0 overflow-x-auto whitespace-nowrap min-w-0"
+            role="tablist"
+            aria-label="Sekcje klienta"
+            className="flex min-w-0 gap-0.5 overflow-x-auto whitespace-nowrap px-3 pt-0 sm:px-5"
             style={{ scrollbarWidth: "thin" }}
           >
-            {TABS.map((tab) => (
+            {stripTabs.map((tab) => (
               <button
                 key={tab.key}
+                type="button"
+                role="tab"
+                id={`client-tab-${tab.key}`}
+                aria-selected={activeTab === tab.key}
+                aria-controls="client-tab-panel"
                 ref={activeTab === tab.key ? activeTabRef : undefined}
                 onClick={() => selectTab(tab.key)}
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-3 text-sm font-medium border-b-2 transition-colors shrink-0",
+                  "shrink-0 border-b-2 px-3 py-2 text-[13px] transition-colors pointer-coarse:min-h-10",
                   activeTab === tab.key
-                    ? "border-purple-600 text-purple-600"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
+                    ? "border-primary font-semibold text-foreground"
+                    : "border-transparent font-medium text-muted-foreground hover:text-foreground"
                 )}
               >
-                {tab.icon}
                 {tab.label}
               </button>
             ))}
           </div>
+          {/* „Więcej” poza listą zakładek — to przycisk menu, nie zakładka;
+              Radix daje strzałki, Enter i Escape z klawiatury. */}
+          {moreTabs.length ? (
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Więcej sekcji klienta"
+                  className="flex shrink-0 items-center gap-1 border-b-2 border-transparent px-3 py-2 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground pointer-coarse:min-h-10"
+                >
+                  Więcej
+                  <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-48">
+                {moreTabs.map((tab) => (
+                  <DropdownMenuItem
+                    key={tab.key}
+                    onSelect={() => selectTab(tab.key)}
+                    aria-current={activeTab === tab.key ? "page" : undefined}
+                    className={cn(activeTab === tab.key && "font-semibold")}
+                  >
+                    {tab.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </div>
 
         {/* Tab content — po konsolidacji 12→6 tabów reszta sekcji wbudowana
@@ -1137,50 +1517,71 @@ export default function ClientDetailPage() {
             dziecko montuje się dopiero po pierwszym otwarciu (LazyDetails) —
             zwinięty <details> montuje treść i odpalał zapytania paneli, których
             nikt nie ogląda. */}
-        <div className="p-4 sm:p-6">
+        <div
+          id="client-tab-panel"
+          role="tabpanel"
+          aria-labelledby={`client-tab-${activeTab}`}
+          className="p-3 sm:p-4"
+        >
           {activeTab === "profil" && (
-            <div className="space-y-4">
+            // Od `xl` dwie kolumny: konsultanci po lewej, po prawej rozwinięte
+            // karty (informacje, materiały, konflikty). Węziej — karty pod tabelą.
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start">
               <ProfileTab clientId={Number(id)} />
 
-              <LazyDetails
-                icon={<Building2 className="w-4 h-4 text-muted-foreground" />}
-                title="Informacje + statystyki współpracy"
-                contentClassName="p-4 pt-0 space-y-6 border-t border-border"
-              >
-                <CooperationStatsSection clientId={Number(id)} />
-                <div>
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                    Notatki
-                  </p>
-                  {client.notes ? (
-                    <p className="text-sm text-foreground whitespace-pre-line">{client.notes}</p>
-                  ) : (
-                    <p className="text-sm text-muted-foreground italic">Brak dodatkowych notatek.</p>
-                  )}
-                </div>
-              </LazyDetails>
+              <aside className="@container grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3" aria-label="Informacje o kliencie">
+                {equipmentOpen ? (
+                  <ClientEquipmentProviderField
+                    clientId={Number(id)}
+                    canEdit={canEditDelivery || hrConfig?.me.equipment === true}
+                  />
+                ) : null}
+                <LazyDetails
+                  defaultOpen
+                  icon={<Building2 className="w-4 h-4 text-muted-foreground" />}
+                  title="Informacje + statystyki współpracy"
+                  contentClassName="space-y-4 border-t border-border p-4"
+                >
+                  <CooperationStatsSection clientId={Number(id)} />
+                  <div>
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
+                      Notatki
+                    </p>
+                    {client.notes ? (
+                      <p className="text-sm text-foreground whitespace-pre-line">{client.notes}</p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground italic">Brak dodatkowych notatek.</p>
+                    )}
+                  </div>
+                </LazyDetails>
 
-              <LazyDetails
-                icon={<FolderOpen className="w-4 h-4 text-muted-foreground" />}
-                title="Materiały sprzedażowe"
-              >
-                <MaterialsTab
-                  clientId={Number(id)}
-                  readOnly={!canEditDelivery}
-                  showContractTerms={canViewDeliveryLegal}
-                />
-              </LazyDetails>
+                <LazyDetails
+                  defaultOpen
+                  icon={<FolderOpen className="w-4 h-4 text-muted-foreground" />}
+                  title="Materiały sprzedażowe"
+                >
+                  <MaterialsTab
+                    clientId={Number(id)}
+                    readOnly={!canEditDelivery}
+                    showContractTerms={canViewDeliveryLegal}
+                    contractTermsReadOnly={!canEditDeliveryLegal}
+                  />
+                </LazyDetails>
 
-              <LazyDetails
-                icon={<AlertOctagon className="w-4 h-4 text-muted-foreground" />}
-                title="Konflikty z kandydatami"
-              >
-                <ClientConflictsSection clientId={Number(id)} />
-              </LazyDetails>
+                <LazyDetails
+                  defaultOpen
+                  icon={<AlertOctagon className="w-4 h-4 text-muted-foreground" />}
+                  title="Konflikty z kandydatami"
+                >
+                  <ClientConflictsSection clientId={Number(id)} />
+                </LazyDetails>
+              </aside>
             </div>
           )}
 
           {activeTab === "zasady" && <ClientPlaybookTab clientId={Number(id)} />}
+
+          {packOpen && activeTab === "wejscie" && <OnboardingPackTab clientId={Number(id)} />}
 
           {activeTab === "projekty" && <ProjectsTab clientId={Number(id)} />}
 
@@ -1195,6 +1596,7 @@ export default function ClientDetailPage() {
               />
 
               <LazyDetails
+                defaultOpen
                 icon={<DollarSign className="w-4 h-4 text-muted-foreground" />}
                 title="Cennik (rate cards)"
               >
@@ -1203,9 +1605,8 @@ export default function ClientDetailPage() {
             </div>
           )}
 
-          {/* Jeden rejestr dla wszystkich klientów: zamówienia okresowe nadal
-              korzystają z dotychczasowych kart kontraktorów, a kosztowe i MD
-              z grup ze wspólnym budżetem. */}
+          {/* Jeden rejestr dla wszystkich klientów: tabela zamówień okresowych,
+              kosztowych i MD z panelem szczegółów po prawej (wersja B). */}
           {activeTab === "zamowienia" && (
             <MultiConsultantOrdersTab
               clientId={Number(id)}
@@ -1218,25 +1619,48 @@ export default function ClientDetailPage() {
               onOrderMailDocDone={clearOrderMailDoc}
               focusOrderId={focusOrderId}
               focusGroupId={focusGroupId}
+              focusContractId={focusContractId}
               onFocusHandled={clearFocusParams}
             />
           )}
+          {invoicingOpen && activeTab === "faktury" && (
+            <ClientInvoicingTab clientId={Number(id)} />
+          )}
+          {activeTab === "importy-md" && (
+            <ClientMdImportsTab
+              clientId={Number(id)}
+              selectedImportId={selectedImportId}
+              onSelectImport={selectImport}
+            />
+          )}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}
+          {canViewSales && activeTab === "sprzedaz" && <ClientSalesTab clientId={Number(id)} />}
+          {careOpen && activeTab === "ludzie" && (
+            <ClientPeopleTechTab
+              clientId={Number(id)}
+              view={peopleView}
+              onViewChange={selectPeopleView}
+            />
+          )}
 
           {activeTab === "zespol" && (
             <div className="space-y-4">
               <div>
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+                <h3 className="mb-2 text-[13px] font-semibold text-foreground">
                   {TAC_UI_ENABLED ? "Opiekunowie (TAC + Delivery Lead)" : "Delivery Lead"}
                 </h3>
                 <OwnersTab clientId={Number(id)} />
               </div>
 
               <LazyDetails
+                defaultOpen
                 icon={<BookOpen className="w-4 h-4 text-muted-foreground" />}
                 title="Wiedza o kliencie (selling points, tech stack, kultura)"
               >
-                <KnowledgeTab clientId={Number(id)} />
+                <KnowledgeTab
+                  clientId={Number(id)}
+                  stackHref={careOpen ? `/clients/${id}?tab=ludzie` : null}
+                />
               </LazyDetails>
             </div>
           )}
@@ -1326,15 +1750,6 @@ interface CoopTrendResponse {
   trend: CoopTrendPoint[];
 }
 
-/** Kolor pigułki hit ratio względem CELU z backendu (`hit_ratio_target_pct`,
- *  dziś 30%) — do 24.09.2026 progi 50/20 były wpisane na sztywno i klient na
- *  celu świecił na bursztynowo (audyt N8). */
-export function hitRatioTone(hitRatio: number, targetPct: number): string {
-  if (hitRatio >= targetPct) return "bg-green-100 text-green-800";
-  if (hitRatio >= targetPct / 2) return "bg-amber-100 text-amber-800";
-  return "bg-destructive/15 text-red-800";
-}
-
 function CooperationStatsSection({ clientId }: { clientId: number }) {
   // Raport nie przyjmuje `client_id` (backend `/api/reports/clients` liczy
   // wszystkich klientów) — filtrujemy wiersz po stronie przeglądarki. Zawężenie
@@ -1400,78 +1815,73 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
 
   return (
     <section>
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
           Statystyki współpracy
         </p>
-        <span className="text-xs text-muted-foreground">Ostatnie 12 mies.</span>
+        <span className="text-[11px] text-muted-foreground">Ostatnie 12 mies.</span>
       </div>
 
       {!hasData ? (
-        <div className="rounded-lg border border-dashed border-border dark:border-border p-6 text-center text-sm text-muted-foreground">
+        <div className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
           Brak zamkniętych zapytań w ostatnich 12 miesiącach.
         </div>
       ) : (
         <>
-          {/* Trzy kafle, nie cztery: „Aktywne projekty" (`row.active_jobs`)
+          {/* Trzy liczby, nie cztery: „Aktywne projekty" (`row.active_jobs`)
               zdjęte, bo było trzecim miejscem z tą samą informacją — przy
-              przełączniku w zakładce Projekty i w SummaryBarze — i to liczonym
-              jeszcze inaczej (tu tylko `published`, tam `draft` + `published`).
-              Zostają METRYKI skuteczności: bez „N obsadzonych · N przegranych"
-              sekcja hit-ratio traci kontekst, a to nie jest lista rekrutacji. */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
-              <div className="text-xs text-muted-foreground mb-1">Zamknięte zapytania</div>
-              <div className="text-2xl font-bold text-foreground dark:text-foreground">
-                {row!.closed_jobs}
-              </div>
-              <div className="text-xs text-muted-foreground mt-0.5">
+              przełączniku w zakładce Projekty i w nagłówku klienta — i to
+              liczonym jeszcze inaczej (tu tylko `published`, tam `draft` +
+              `published`). Zostają METRYKI skuteczności: bez „N obsadzonych ·
+              N przegranych" hit ratio traci kontekst. Lista faktów w karcie
+              zamiast trzech dużych kafli (makieta 02.10.2026). */}
+          <dl className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
+            <dt className="text-muted-foreground">Zamknięte zapytania</dt>
+            <dd className="min-w-0">
+              <span className="font-semibold tabular-nums text-foreground">{row!.closed_jobs}</span>
+              <span className={CALM_SUBLINE}>
                 {row!.filled_jobs} obsadzonych · {row!.closed_jobs - row!.filled_jobs} przegranych
-              </div>
-            </div>
-            <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
-              <div className="text-xs text-muted-foreground mb-1">Zatrudnienia</div>
-              <div className="text-2xl font-bold text-foreground dark:text-foreground">
-                {row!.placements}
-              </div>
-              <div className="text-xs text-muted-foreground mt-0.5">
+              </span>
+            </dd>
+            <dt className="text-muted-foreground">Zatrudnienia</dt>
+            <dd className="min-w-0">
+              <span className="font-semibold tabular-nums text-foreground">{row!.placements}</span>
+              <span className={CALM_SUBLINE}>
                 {row!.fill_rate !== null && row!.total_vacancies > 0
                   ? `z ${row!.total_vacancies} miejsc · fill ${row!.fill_rate.toFixed(1)}%`
                   : "brak zadeklarowanych etatów"}
-              </div>
-            </div>
-            <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
-              <div className="text-xs text-muted-foreground mb-1">Hit ratio</div>
-              <div className="flex items-baseline gap-2">
-                <span className={`text-2xl font-bold px-2 py-0.5 rounded ${tonePill}`}>
-                  {row!.closed_jobs >= 3 ? `${row!.hit_ratio.toFixed(1)}%` : `${row!.filled_jobs} / ${row!.closed_jobs}`}
-                </span>
-              </div>
-              <div className="text-xs text-muted-foreground mt-0.5">
+              </span>
+            </dd>
+            <dt className="text-muted-foreground">Hit ratio</dt>
+            <dd className="min-w-0">
+              <span className={`inline-flex rounded-md px-1.5 py-0.5 text-sm font-semibold tabular-nums ${tonePill}`}>
+                {row!.closed_jobs >= 3 ? `${row!.hit_ratio.toFixed(1)}%` : `${row!.filled_jobs} / ${row!.closed_jobs}`}
+              </span>
+              <span className={CALM_SUBLINE}>
                 {row!.closed_jobs >= 3
                   ? row!.target_achieved
                     ? `cel ≥${hitData!.overall.hit_ratio_target_pct}% ✓`
                     : `cel ≥${hitData!.overall.hit_ratio_target_pct}%`
                   : "Za mało danych (min. 3)"}
-              </div>
-            </div>
-          </div>
+              </span>
+            </dd>
+          </dl>
 
           {trendValues.length > 0 && (
-            <div className="mt-4 bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
+            <div className="mt-3 rounded-lg bg-muted/40 p-3">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-muted-foreground">Trend hit ratio · 6M</p>
-                <span className="text-xs text-muted-foreground">
+                <p className="text-[11px] font-semibold text-muted-foreground">Trend hit ratio · 6M</p>
+                <span className="text-[11px] text-muted-foreground">
                   max {Math.round(trendMax)}% · min {Math.round(Math.min(...trendValues))}%
                 </span>
               </div>
-              <div className="flex items-end gap-1 h-16">
+              <div className="flex items-end gap-1 h-14">
                 {trendData!.trend.map((p) => {
                   const tone =
                     p.hit_ratio >= 50
-                      ? "bg-green-500"
+                      ? "bg-success"
                       : p.hit_ratio >= 20
-                        ? "bg-amber-500"
+                        ? "bg-warning"
                         : p.hit_ratio > 0
                           ? "bg-destructive"
                           : "bg-muted";
@@ -1479,13 +1889,17 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
                   return (
                     <div
                       key={p.month}
-                      className="flex-1 flex flex-col items-center justify-end gap-1"
+                      // `h-full`: wysokość słupka w procentach liczy się od
+                      // rodzica o określonej wysokości — bez niej słupki miały 0 px.
+                      className="flex h-full flex-1 flex-col items-center gap-1"
                       title={`${p.month_label}: ${p.hit_ratio.toFixed(1)}% (${p.filled_jobs}/${p.closed_jobs})`}
                     >
-                      <div
-                        className={`w-full rounded-t ${tone}`}
-                        style={{ height: `${heightPct}%` }}
-                      />
+                      <div className="flex min-h-0 w-full flex-1 items-end">
+                        <div
+                          className={`w-full rounded-t ${tone}`}
+                          style={{ height: `${heightPct}%` }}
+                        />
+                      </div>
                       <span className="text-[10px] text-muted-foreground">
                         {p.month_label.split(" ")[0]}
                       </span>

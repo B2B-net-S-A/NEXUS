@@ -9,8 +9,10 @@ import {
   bottomRow,
   duplicateTile,
   metricChip,
+  orderedMetricNotes,
   readingOrder,
   removeTile,
+  rowsForHeight,
 } from "@/lib/dashboard-tiles/layout";
 
 function tile(over: Partial<DashboardTile>): DashboardTile {
@@ -121,5 +123,69 @@ describe("etykiety ustawień", () => {
     expect(describeMetric(byKey("funnel").config.metric!, { clients: ["Nordea"] })).toContain(
       "u klienta Nordea",
     );
+  });
+});
+
+describe("finanse z okresem „poprzedni miesiąc” (R10-N1-4)", () => {
+  const lastMonth = {
+    source: "finance",
+    measure: "margin",
+    group_by: "none",
+    period: "last_month",
+  } as never;
+
+  it("chip i zdanie nie mówią „dziś” o kwocie z końca poprzedniego miesiąca", () => {
+    expect(metricChip(lastMonth)).toBe("Kwoty PLN · koniec poprzedniego miesiąca");
+    expect(describeMetric(lastMonth)).toContain("— stan na koniec poprzedniego miesiąca");
+    expect(describeMetric(lastMonth)).not.toContain("stan na dziś");
+  });
+
+  it("okres w toku zostaje „dziś”", () => {
+    const thisMonth = { ...(lastMonth as object), period: "this_month" } as never;
+    expect(metricChip(thisMonth)).toBe("Kwoty PLN · dziś");
+  });
+
+  it("nota z datą wyceny idzie pierwsza, choć serwer sortuje noty alfabetycznie", () => {
+    expect(
+      orderedMetricNotes([
+        "Kwoty liczone z kontraktów.",
+        "Kwoty według stanu na 31.08.2026.",
+      ]),
+    ).toEqual(["Kwoty według stanu na 31.08.2026.", "Kwoty liczone z kontraktów."]);
+    expect(orderedMetricNotes(["A", "B"])).toEqual(["A", "B"]);
+  });
+});
+
+describe("prependTemplate", () => {
+  it("stawia kafelek na górze pełną szerokością i przesuwa resztę w dół", async () => {
+    const { prependTemplate } = await import("@/lib/dashboard-tiles/layout");
+    const { TILE_TEMPLATES } = await import("@/lib/dashboard-tiles/catalog");
+    const template = TILE_TEMPLATES.find((t) => t.key === "request_board")!;
+    const existing = [
+      { id: "a", type: "note", x: 0, y: 0, w: 6, h: 2, config: {} },
+      { id: "b", type: "calendar_today", x: 6, y: 1, w: 6, h: 3, config: {} },
+    ] as never;
+    const out = prependTemplate(existing, template);
+    expect(out[0]).toMatchObject({ type: "request_board", x: 0, y: 0, w: 12, h: 8 });
+    expect(out.slice(1).map((t) => [t.id, t.x, t.y])).toEqual([
+      ["a", 0, 8],
+      ["b", 6, 9],
+    ]);
+  });
+});
+
+describe("rowsForHeight — kafelek z wysokością treści", () => {
+  it("liczy rzędy razem z odstępem między nimi", () => {
+    // Rząd 88 px, odstęp 16 px: 2 rzędy = 192 px.
+    expect(rowsForHeight(88)).toBe(1);
+    expect(rowsForHeight(89)).toBe(2);
+    expect(rowsForHeight(192)).toBe(2);
+    expect(rowsForHeight(193)).toBe(3);
+  });
+
+  it("nie schodzi poniżej jednego rzędu i nie przekracza górnej granicy", () => {
+    expect(rowsForHeight(0)).toBe(1);
+    expect(rowsForHeight(Number.NaN)).toBe(1);
+    expect(rowsForHeight(100_000)).toBe(60);
   });
 });

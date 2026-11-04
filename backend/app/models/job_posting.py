@@ -1,8 +1,9 @@
 import enum
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -12,6 +13,8 @@ from app.models.base import TimestampMixin
 class Portal(str, enum.Enum):
     pracuj_pl = "pracuj_pl"
     justjoinit = "justjoinit"
+    # 0381: to samo API dostawcy co JustJoin.IT (`jobBoard`).
+    rocketjobs = "rocketjobs"
     linkedin = "linkedin"
     nofluffjobs = "nofluffjobs"
     bulldogjob = "bulldogjob"
@@ -81,6 +84,15 @@ class JobPosting(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     last_synced_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # 0381 — ustawienia ogłoszenia (kategoria, poziom, wymiar, miasto,
+    # widełki wpisane przez DL), akcja czekająca na worker
+    # (`publish|update|close`), ostatni stan z portalu i backoff.
+    options: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    pending_action: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    remote_state: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    next_attempt_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 

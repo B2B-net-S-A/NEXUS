@@ -11,16 +11,111 @@ Postgresa, ani async. Commit 3: testy behawioru wpiętego w zapis Championa
 from __future__ import annotations
 
 import uuid
+from datetime import date, time, timedelta
 
 from httpx import AsyncClient
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.models.job import Job, RemotePolicy
 from app.services.champion_job_sync import (
     WORK_MODE_PREFIXES,
     champion_work_mode_to_remote,
     fill_job_columns_from_champion,
+    overwrite_edited_job_columns,
 )
+
+
+# ── „Deadline na kandydatów” → termin rekrutacji (08.10.2026) ───────────────
+#
+# Bramka przekazania pyta o `jobs.deadline`, a edytor Championa ma własne pole
+# terminu. Do 08.10.2026 wpisana tam data zostawała w profilu: brak „Ustaw
+# termin” wisiał mimo wypełnionego pola.
+
+
+def _edit_deadline(job: Job, old: dict, new: dict) -> list[str]:
+    return overwrite_edited_job_columns(job, old, new, set_deadline=True)
+
+
+def _fill_deadline(job: Job, value: str) -> list[str]:
+    return fill_job_columns_from_champion(job, {"deadline": value}, set_deadline=True)
+
+
+def test_edited_champion_deadline_becomes_the_recruitment_term():
+    job = _bare_job()
+    job.deadline_not_provided = True
+    changed = overwrite_edited_job_columns(
+        job, {"deadline": None}, {"deadline": "2026-11-15"}, set_deadline=True
+    )
+    assert changed == ["deadline"]
+    assert job.deadline == date(2026, 11, 15)
+    # Data zdejmuje decyzję „Klient nie podał”.
+    assert job.deadline_not_provided is False
+
+
+def test_edited_champion_deadline_replaces_an_older_recruitment_term():
+    job = _bare_job()
+    job.deadline = date(2026, 10, 20)
+    changed = overwrite_edited_job_columns(
+        job, {"deadline": "2026-10-20"}, {"deadline": "2026-11-15"}, set_deadline=True
+    )
+    assert changed == ["deadline"]
+    assert job.deadline == date(2026, 11, 15)
+
+
+def test_untouched_or_unreadable_champion_deadline_leaves_the_term_alone():
+    job = _bare_job()
+    job.deadline = date(2026, 10, 20)
+    same = {"deadline": "2026-11-15"}
+    # Nietknięte w tym zapisie — starszy rozjazd zostaje.
+    assert _edit_deadline(job, same, dict(same)) == []
+    # Wyczyszczone pole nie kasuje terminu rekrutacji (byłby to nowy brak).
+    assert _edit_deadline(job, same, {"deadline": None}) == []
+    # Tekst, którego normalizator nie odczytał jako daty.
+    assert _edit_deadline(job, same, {"deadline": "ASAP"}) == []
+    assert job.deadline == date(2026, 10, 20)
+
+
+def test_champion_deadline_stays_in_the_profile_without_full_job_edit():
+    """Termin to pole cyklu życia — zapis treści przez rekrutera go nie rusza."""
+    upcoming = (business_today() + timedelta(days=30)).isoformat()
+    job = _bare_job()
+    # Domyślnie wyłączone: import pliku i akceptacja szkicu AI też go nie ruszają.
+    assert (
+        overwrite_edited_job_columns(job, {"deadline": None}, {"deadline": upcoming})
+        == []
+    )
+    assert fill_job_columns_from_champion(job, {"deadline": upcoming}) == []
+    assert job.deadline is None
+
+
+def test_fill_empty_takes_an_upcoming_champion_deadline():
+    upcoming = business_today() + timedelta(days=30)
+    job = _bare_job()
+    filled = _fill_deadline(job, upcoming.isoformat())
+    assert filled == ["deadline"]
+    assert job.deadline == upcoming
+    assert job.deadline_not_provided is False
+
+
+def test_fill_empty_deadline_respects_the_term_and_the_decision():
+    upcoming = (business_today() + timedelta(days=30)).isoformat()
+    # Termin rekrutacji już jest.
+    with_term = _bare_job()
+    with_term.deadline = date(2026, 10, 20)
+    assert _fill_deadline(with_term, upcoming) == []
+    assert with_term.deadline == date(2026, 10, 20)
+    # „Klient nie podał” to decyzja człowieka — data ze starego profilu jej
+    # nie cofa (zmienia ją dopiero edycja pola w tym zapisie).
+    decided = _bare_job()
+    decided.deadline_not_provided = True
+    assert _fill_deadline(decided, upcoming) == []
+    assert decided.deadline is None
+    # Miniona data ze starego profilu nie robi z rekrutacji „po terminie”.
+    past = (business_today() - timedelta(days=1)).isoformat()
+    stale = _bare_job()
+    assert _fill_deadline(stale, past) == []
+    assert stale.deadline is None
 
 
 def _bare_job(**overrides) -> Job:
@@ -153,7 +248,9 @@ def test_rate_out_of_range_and_days_bool_ignored():
 def test_location_truncated_to_255():
     job = _bare_job()
     long_value = "Warszawa " * 40  # > 255 znaków
-    filled = fill_job_columns_from_champion(job, {"candidate_location_pref": long_value})
+    filled = fill_job_columns_from_champion(
+        job, {"candidate_location_pref": long_value}
+    )
 
     assert filled == ["location"]
     assert job.location == long_value.strip()[:255]
@@ -161,7 +258,9 @@ def test_location_truncated_to_255():
 
     # Sam biały znak nie jest lokalizacją — nie wypełnia.
     job2 = _bare_job()
-    assert fill_job_columns_from_champion(job2, {"candidate_location_pref": "   "}) == []
+    assert (
+        fill_job_columns_from_champion(job2, {"candidate_location_pref": "   "}) == []
+    )
     assert job2.location is None
 
 
@@ -212,6 +311,8 @@ def test_boolean_is_never_a_rate_even_though_bool_is_an_int():
 
     assert fill_job_columns_from_champion(job, {"rate_value": True}) == []
     assert job.rate_budget_hourly is None
+
+
 # ── wpięcie w zapis Championa (commit 3): update_champion_profile + ingest ──
 
 
@@ -386,3 +487,275 @@ async def test_ingest_reports_no_columns_filled_when_nothing_to_fill():
 
     assert outcome["outcome"] == "champion_skipped_nonempty"
     assert outcome["columns_filled"] == []
+
+
+# ── Ręczna zmiana w edytorze nadpisuje kolumnę (30.09.2026) ─────────────────
+
+
+def test_edited_rubric_overwrites_filled_column():
+    job = _bare_job(onsite_days_per_week=0, remote_policy=RemotePolicy.hybrid)
+    changed = overwrite_edited_job_columns(
+        job,
+        {"onsite_days_per_week": 0, "work_mode": "hybrydowo"},
+        {"onsite_days_per_week": 1, "work_mode": "hybrydowo"},
+    )
+    assert changed == ["onsite_days_per_week"]
+    assert job.onsite_days_per_week == 1
+    assert job.remote_policy == RemotePolicy.hybrid
+
+
+def test_weekly_edit_clears_the_monthly_entry():
+    """Audyt 05.10.2026: wpis tygodniowy czyści miesięczny, jak w PATCH."""
+    job = _bare_job(onsite_days_per_week=1, remote_policy=RemotePolicy.hybrid)
+    job.onsite_days_per_month = 2
+    changed = overwrite_edited_job_columns(
+        job,
+        {"onsite_days_per_week": 1, "onsite_days_per_month": 2},
+        {"onsite_days_per_week": 3},
+    )
+    assert sorted(changed) == ["onsite_days_per_month", "onsite_days_per_week"]
+    assert job.onsite_days_per_week == 3
+    assert job.onsite_days_per_month is None
+
+
+def test_monthly_edit_reaches_the_recruitment_even_with_the_same_weekly_count():
+    job = _bare_job(onsite_days_per_week=1, remote_policy=RemotePolicy.hybrid)
+    changed = overwrite_edited_job_columns(
+        job,
+        {"onsite_days_per_week": 1},
+        {"onsite_days_per_week": 1, "onsite_days_per_month": 4},
+    )
+    assert changed == ["onsite_days_per_month"]
+    assert job.onsite_days_per_month == 4
+    assert job.onsite_days_per_week == 1
+
+
+def test_untouched_rubric_keeps_an_older_mismatch():
+    # Profil 140, kolumna 150 z formularza zlecenia: zapis innego pola nie
+    # rozstrzyga rozjazdu po cichu.
+    job = _bare_job(rate_budget_hourly=150)
+    basics = {"rate_value": 140, "candidate_location_pref": "Kraków"}
+    assert overwrite_edited_job_columns(job, basics, dict(basics)) == []
+    assert job.rate_budget_hourly == 150
+
+
+def test_cleared_or_invalid_edit_leaves_the_column():
+    job = _bare_job(
+        rate_budget_hourly=150,
+        onsite_days_per_week=2,
+        remote_policy=RemotePolicy.onsite,
+        location="Gdańsk",
+    )
+    changed = overwrite_edited_job_columns(
+        job,
+        {
+            "rate_value": 150,
+            "onsite_days_per_week": 2,
+            "work_mode": "stacjonarnie",
+            "candidate_location_pref": "Gdańsk",
+        },
+        {
+            "rate_value": 5000,
+            "onsite_days_per_week": None,
+            "work_mode": "raz tak, raz tak",
+            "candidate_location_pref": "",
+        },
+    )
+    assert changed == []
+    assert job.rate_budget_hourly == 150
+    assert job.onsite_days_per_week == 2
+    assert job.remote_policy == RemotePolicy.onsite
+    assert job.location == "Gdańsk"
+
+
+def test_edited_rubrics_overwrite_all_four_columns():
+    job = _bare_job(
+        rate_budget_hourly=150,
+        onsite_days_per_week=0,
+        remote_policy=RemotePolicy.onsite,
+        location="Gdańsk",
+    )
+    changed = overwrite_edited_job_columns(
+        job,
+        {
+            "rate_value": 150,
+            "onsite_days_per_week": 0,
+            "work_mode": "stacjonarnie",
+            "candidate_location_pref": "Gdańsk",
+        },
+        {
+            "rate_value": 120,
+            "onsite_days_per_week": 2,
+            "work_mode": "hybrydowo",
+            "candidate_location_pref": "Warszawa",
+        },
+    )
+    assert sorted(changed) == [
+        "location",
+        "onsite_days_per_week",
+        "rate_budget_hourly",
+        "remote_policy",
+    ]
+    assert job.rate_budget_hourly == 120
+    assert job.onsite_days_per_week == 2
+    assert job.remote_policy == RemotePolicy.hybrid
+    assert job.location == "Warszawa"
+
+
+async def test_editor_fix_of_office_days_reaches_the_recruitment(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Zgłoszenie 30.09.2026: rekrutacja powstała z 0 dni przy hybrydzie,
+    rekruterka wpisała 1 w edytorze Championa, „Zapisano” — a kolumna została 0
+    i walidacja dalej mówiła „podaj dodatnią liczbę dni” (plus konflikt
+    profilu z rekrutacją)."""
+    import app.services.job_matching_refresh as job_matching_refresh_module
+
+    async def _fake_refresh(job_id: int, db) -> None:
+        return None
+
+    monkeypatch.setattr(
+        job_matching_refresh_module, "refresh_job_matching", _fake_refresh
+    )
+
+    job_id = await _seed_job_for_sync(
+        rate_budget_hourly=120,
+        onsite_days_per_week=0,
+        remote_policy=RemotePolicy.hybrid,
+        location="warszawa",
+        champion_profile={
+            "basics": {
+                "role_name": "Senior Software Developer",
+                "rate_value": 120,
+                "onsite_days_per_week": 0,
+                "work_mode": "hybrydowo",
+                "candidate_location_pref": "warszawa",
+            }
+        },
+    )
+
+    resp = await app_client.put(
+        f"/api/jobs/{job_id}/champion-profile",
+        headers=app_auth_headers,
+        json={"basics": {"onsite_days_per_week": 1}},
+    )
+    assert resp.status_code == 200, resp.text
+    codes = {
+        (issue.get("code"), issue.get("path"))
+        for issue in (resp.json().get("validation") or {}).get("issues", [])
+    }
+    assert ("missing_office_days", "basics.onsite_days_per_week") not in codes
+    assert ("column_conflict", "basics.onsite_days_per_week") not in codes
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        assert job.onsite_days_per_week == 1
+        assert job.rate_budget_hourly == 120
+        assert job.remote_policy == RemotePolicy.hybrid
+
+
+async def test_deadline_typed_in_the_champion_editor_closes_the_term_gap(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Zgłoszenie 08.10.2026: bramka pytała „Ustaw termin”, a data wpisana
+    w „Deadline na kandydatów” zostawała w profilu."""
+    import app.services.job_matching_refresh as job_matching_refresh_module
+
+    async def _fake_refresh(job_id: int, db) -> None:
+        return None
+
+    monkeypatch.setattr(
+        job_matching_refresh_module, "refresh_job_matching", _fake_refresh
+    )
+
+    job_id = await _seed_job_for_sync(deadline_not_provided=True)
+    upcoming = business_today() + timedelta(days=30)
+
+    resp = await app_client.put(
+        f"/api/jobs/{job_id}/champion-profile",
+        headers=app_auth_headers,
+        json={"basics": {"deadline": upcoming.isoformat()}},
+    )
+    assert resp.status_code == 200, resp.text
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        assert job.deadline == upcoming
+        assert job.deadline_not_provided is False
+
+
+# ── Godzina „Deadline na kandydatów” → `jobs.deadline_time` (02.11.2026) ─────
+#
+# Delivery Lead wpisuje w Championie termin na rekomendacje z godziną. Godzina
+# należy do daty: nowa data bez godziny nie dziedziczy starej.
+
+
+def test_edited_champion_deadline_carries_its_time():
+    job = Job()
+    changed = _edit_deadline(
+        job,
+        {"deadline": None},
+        {"deadline": "2026-11-15", "deadline_time": "12:30"},
+    )
+    assert set(changed) == {"deadline", "deadline_time"}
+    assert job.deadline == date(2026, 11, 15)
+    assert job.deadline_time == time(12, 30)
+
+
+def test_new_champion_deadline_without_time_drops_the_old_time():
+    job = Job()
+    job.deadline = date(2026, 10, 20)
+    job.deadline_time = time(16, 0)
+    _edit_deadline(job, {"deadline": "2026-10-20"}, {"deadline": "2026-11-15"})
+    assert job.deadline == date(2026, 11, 15)
+    assert job.deadline_time is None
+
+
+def test_champion_time_alone_changes_only_on_the_same_day():
+    job = Job()
+    job.deadline = date(2026, 11, 15)
+    same_day = {"deadline": "2026-11-15"}
+    assert _edit_deadline(job, same_day, {**same_day, "deadline_time": "09:15"}) == [
+        "deadline_time"
+    ]
+    assert job.deadline_time == time(9, 15)
+    # Wyczyszczona godzina schodzi z rekrutacji, data zostaje.
+    _edit_deadline(
+        job,
+        {**same_day, "deadline_time": "09:15"},
+        {**same_day, "deadline_time": None},
+    )
+    assert job.deadline_time is None
+    assert job.deadline == date(2026, 11, 15)
+
+
+def test_champion_time_for_another_day_does_not_touch_the_term():
+    job = Job()
+    job.deadline = date(2026, 12, 1)
+    job.deadline_time = time(16, 0)
+    stale = {"deadline": "2026-11-15"}
+    assert _edit_deadline(job, stale, {**stale, "deadline_time": "09:15"}) == []
+    assert job.deadline_time == time(16, 0)
+
+
+def test_champion_time_stays_in_the_profile_without_full_job_edit():
+    job = Job()
+    job.deadline = date(2026, 11, 15)
+    same_day = {"deadline": "2026-11-15"}
+    assert (
+        overwrite_edited_job_columns(
+            job, same_day, {**same_day, "deadline_time": "09:15"}
+        )
+        == []
+    )
+    assert job.deadline_time is None
+
+
+def test_fill_empty_takes_the_champion_time_with_the_date():
+    job = Job()
+    upcoming = (business_today() + timedelta(days=7)).isoformat()
+    filled = fill_job_columns_from_champion(
+        job, {"deadline": upcoming, "deadline_time": "12:30"}, set_deadline=True
+    )
+    assert filled == ["deadline"]
+    assert job.deadline_time == time(12, 30)

@@ -15,7 +15,8 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import { Users, X } from "lucide-react";
 
 import { useMyPeopleSummary } from "@/lib/api/myPeople";
@@ -99,7 +100,12 @@ export function MyPeopleBuddyView({
   animate?: boolean;
 }) {
   return (
-    <div className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-[calc(1.25rem+env(safe-area-inset-right))] z-30 flex items-end gap-2">
+    // `data-floating-corner`: na czas przeklikania nowości postać i dymek
+    // znikają, bo przy 1280×720 zasłaniają stopkę panelu (`NoveltyLayer`).
+    <div
+      data-floating-corner
+      className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-[calc(1.25rem+env(safe-area-inset-right))] z-30 flex items-end gap-2"
+    >
       {showBubble && sentences.length ? (
         <div
           role="status"
@@ -249,7 +255,7 @@ function MyPeopleBuddy() {
 /** `?people=1` (link z dzwonka) otwiera panel i znika z adresu. */
 function PeopleParamOpener() {
   const params = useSearchParams();
-  const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   const pathname = usePathname();
   const openPanel = useMyPeoplePanel((s) => s.openPanel);
   const flag = params?.get("people");
@@ -259,7 +265,7 @@ function PeopleParamOpener() {
     const next = new URLSearchParams(params?.toString() ?? "");
     next.delete("people");
     const qs = next.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    replaceUrl(qs ? `${pathname}?${qs}` : pathname);
     // Efekt na WARTOŚCI parametru — miękka nawigacja nie odmontowuje shella.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flag, pathname]);

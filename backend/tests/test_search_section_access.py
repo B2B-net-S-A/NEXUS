@@ -50,6 +50,12 @@ async def test_global_search_skips_every_denied_bucket_without_querying_db() -> 
         "jobs": [],
         "clients": [],
         "contacts": [],
+        # Jarvis (27.10.2026): pusta kategoria bez dostępu to „nie widzisz”, nie „nie ma”.
+        "skipped": [
+            {"category": "candidates", "section": "Kandydaci"},
+            {"category": "jobs", "section": "Rekrutacje"},
+            {"category": "clients", "section": "Klienci"},
+        ],
     }
     db.execute.assert_not_awaited()
 

@@ -215,6 +215,9 @@ def _priority_scope_visible(
     assignment_status: str | None = None,
     process_status: str | None = None,
     process_compliant: bool | None = True,
+    work_assignment_state: str | None = None,
+    work_assignment_source: str = "manual",
+    user_active: bool = True,
 ) -> bool:
     """Evaluate the generated list-scope SQL against a minimal real schema.
 
@@ -249,6 +252,12 @@ def _priority_scope_visible(
             "CREATE TABLE recruitment_processes ("
             "id INTEGER PRIMARY KEY, job_id INTEGER, owner_user_id INTEGER, "
             "status VARCHAR(20), priority_compliant_at_open BOOLEAN)",
+            # Runda 10 (R10-V2-3): zakres osobisty liczy też aktywne przypisanie
+            # z przydziału requestów (``_live_work_assignment_job_ids``).
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, is_active BOOLEAN)",
+            "CREATE TABLE job_work_assignments ("
+            "id INTEGER PRIMARY KEY, job_id INTEGER, user_id INTEGER, "
+            "state VARCHAR(20), source VARCHAR(20))",
         ):
             connection.exec_driver_sql(ddl)
         connection.exec_driver_sql(
@@ -276,6 +285,15 @@ def _priority_scope_visible(
                 "VALUES (4, 77, 41, ?, ?)",
                 (process_status, process_compliant),
             )
+        if work_assignment_state is not None:
+            connection.exec_driver_sql(
+                "INSERT INTO users (id, is_active) VALUES (41, ?)", (user_active,)
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO job_work_assignments "
+                "(id, job_id, user_id, state, source) VALUES (5, 77, 41, ?, ?)",
+                (work_assignment_state, work_assignment_source),
+            )
         if user_mode is not None:
             connection.exec_driver_sql(
                 "INSERT INTO recruitment_priority_user_modes (user_id, mode) "
@@ -289,6 +307,36 @@ def _priority_scope_visible(
             oversight_bypass=False,
         )
         return connection.scalar(select(literal(1)).where(clause)) == 1
+
+
+@pytest.mark.parametrize(
+    ("state", "source", "active", "visible"),
+    [
+        ("active", "manual", True, True),
+        ("active", "auto", True, True),
+        # 02.10.2026: propozycja automatu czeka na akceptację Head of
+        # Recruitment — to jeszcze nie praca, więc zakresu nie daje.
+        ("proposed", "auto", True, False),
+        # Wiersz `owner` to lustro prowadzącego; tu rekrutacja go nie ma.
+        ("active", "owner", True, False),
+        ("released", "manual", True, False),
+        ("active", "manual", False, False),
+    ],
+)
+def test_personal_scope_counts_active_work_assignment(
+    monkeypatch, state: str, source: str, active: bool, visible: bool
+) -> None:
+    """Runda 10 (R10-V2-3): „moje” liczy aktywne przypisanie z przydziału."""
+    assert (
+        _priority_scope_visible(
+            monkeypatch,
+            global_mode=PriorityMode.off,
+            work_assignment_state=state,
+            work_assignment_source=source,
+            user_active=active,
+        )
+        is visible
+    )
 
 
 def test_default_list_scope_shows_every_job_to_a_recruiter() -> None:

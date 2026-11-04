@@ -36,7 +36,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
-WORK_ROLES = ("recruiter", "sourcer")
+# Od 0411 jedna rola pracy. CHECK niżej zostaje szeroki — to lustro więzu
+# w bazie, a wiersze `sourcer` przepisała migracja.
+WORK_ROLE = "recruiter"
 WORK_SOURCES = ("auto", "manual", "owner")
 WORK_STATES = ("proposed", "active", "released")
 

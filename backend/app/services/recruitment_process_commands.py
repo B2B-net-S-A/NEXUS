@@ -11,12 +11,12 @@ and commit behaviour.  Commands flush, but never commit.
 
 from __future__ import annotations
 
-from app.services import candidate_claim
+from app.services import candidate_claim, client_off_limits
 from app.services.operational_tasks import nominal_task_owner
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import HTTPException, status
@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
 from app.models.job import Job
+from app.models.job_proposal import JobProposal
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import (
     CandidateStage,
@@ -330,6 +331,211 @@ async def update_latest_client_rate(
     return stage, previous
 
 
+async def fill_missing_client_rate(
+    db: AsyncSession,
+    *,
+    stage_id: int,
+    rate_value: Any,
+    rate_unit: str,
+    rate_currency: str,
+) -> bool:
+    """Wpisz stawkę do klienta na wskazany wiersz etapu, gdy para jej nie ma.
+
+    Uzupełnienie z archiwum (wpisy Delivery Leada z notatek): niczego nie
+    nadpisuje. Para (kandydat, rekrutacja), która ma stawkę na którymkolwiek
+    wierszu etapu, zostaje bez zmian i funkcja zwraca ``False``.
+    """
+
+    target = await db.get(CandidateStage, stage_id)
+    if target is None:
+        return False
+    rows = (
+        await db.scalars(
+            select(CandidateStage)
+            .where(
+                CandidateStage.candidate_id == target.candidate_id,
+                CandidateStage.job_id == target.job_id,
+            )
+            .order_by(CandidateStage.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).all()
+    if any(row.client_rate_value is not None for row in rows):
+        return False
+    stage = next((row for row in rows if row.id == stage_id), None)
+    if stage is None:
+        return False
+    stage.client_rate_value = rate_value
+    stage.client_rate_unit = rate_unit
+    stage.client_rate_currency = rate_currency
+    await db.flush()
+    return True
+
+
+async def promote_external_stage_row(
+    db: AsyncSession, *, stage_id: int, job_id: int, moved_at: datetime
+) -> bool:
+    """Wysuń wiersz etapu z Traffita, który przegrał remis czasu.
+
+    Traffit zapisuje dwa wpisy historii z tą samą datą, a bieżący etap pary
+    liczy się po ``(moved_at, id)``; import czyta historię od najnowszych, więc
+    nowszy wpis dostaje niższe ``id`` i przegrywa. Przeniesienie rekrutacji do
+    NEXUSA (``traffit_transfer``) zna właściwy stan z listy osób Traffita
+    i przesuwa TEN wiersz tuż za remis — bez nowego zdarzenia w statystykach.
+    Tylko wiersz z Traffita wskazanej rekrutacji; synchronizację procesu woła
+    wołający (``sync_external_observed_processes``).
+    """
+
+    stage = (
+        await db.scalars(
+            select(CandidateStage)
+            .where(CandidateStage.id == stage_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).first()
+    if stage is None or stage.job_id != job_id or stage.external_source != "traffit":
+        return False
+    stage.moved_at = moved_at
+    await db.flush()
+    return True
+
+
+async def note_external_stage_row(
+    db: AsyncSession, *, external_id: str, rejection_note: str
+) -> bool:
+    """Dopisz notatkę do wiersza etapu z Traffita (po kluczu importu), gdy jest pusta.
+
+    Importer zapisuje wiersz bez notatki; przeniesienie rekrutacji oznacza nią
+    kartę osoby zdjętej z rekrutacji w Traffit. Istniejącej notatki nie rusza.
+    """
+
+    stage = (
+        await db.scalars(
+            select(CandidateStage)
+            .where(
+                CandidateStage.external_source == "traffit",
+                CandidateStage.external_id == external_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).first()
+    if stage is None or stage.rejection_note is not None:
+        return False
+    stage.rejection_note = rejection_note
+    await db.flush()
+    return True
+
+
+async def move_pairs_to_job(
+    db: AsyncSession,
+    *,
+    source_job_id: int,
+    target_job_id: int,
+    candidate_ids: Iterable[int],
+) -> list[int]:
+    """Przepnij historię par (kandydat, rekrutacja) do innej rekrutacji.
+
+    Scalanie duplikatów po migracji z Traffita (12.10.2026): ten sam request
+    istniał jako rekrutacja założona w NEXUSIE i jako kopia z Traffita,
+    w której byli kandydaci. Wiersze etapów i procesy pary zmieniają tylko
+    ``job_id`` — każde zdarzenie zostaje policzone raz, a operację odwraca
+    to samo wywołanie w drugą stronę.
+
+    Para przechodzi wyłącznie wtedy, gdy w rekrutacji docelowej kandydat nie
+    ma żadnego wiersza etapu ani procesu innego niż unieważniony. Kto jest
+    w obu, zostaje, gdzie był: dwóch historii jednej osoby nie sklejamy
+    w ciemno. Numer próby przechodzi ZA unieważnione próby docelowej
+    (``uq_process_attempt``), więc przeniesiony proces zostaje najnowszym.
+    Zwraca id kandydatów faktycznie przeniesionych. Bez commitu.
+    """
+
+    ids = canonical_candidate_lock_order(candidate_ids)
+    if not ids or source_job_id == target_job_id:
+        return []
+    await db.execute(lock_candidates_stmt(ids))
+    in_target = set(
+        (
+            await db.scalars(
+                select(CandidateStage.candidate_id).where(
+                    CandidateStage.job_id == target_job_id,
+                    CandidateStage.candidate_id.in_(ids),
+                )
+            )
+        ).all()
+    )
+    in_target |= set(
+        (
+            await db.scalars(
+                select(RecruitmentProcess.candidate_id).where(
+                    RecruitmentProcess.job_id == target_job_id,
+                    RecruitmentProcess.candidate_id.in_(ids),
+                    RecruitmentProcess.status != ProcessStatus.voided,
+                )
+            )
+        ).all()
+    )
+    movable = [candidate_id for candidate_id in ids if candidate_id not in in_target]
+    if not movable:
+        return []
+    offsets = {
+        int(candidate_id): int(last or 0)
+        for candidate_id, last in (
+            await db.execute(
+                select(
+                    RecruitmentProcess.candidate_id,
+                    func.max(RecruitmentProcess.attempt_no),
+                )
+                .where(
+                    RecruitmentProcess.job_id == target_job_id,
+                    RecruitmentProcess.candidate_id.in_(movable),
+                )
+                .group_by(RecruitmentProcess.candidate_id)
+            )
+        ).all()
+    }
+    await db.execute(
+        update(CandidateStage)
+        .where(
+            CandidateStage.job_id == source_job_id,
+            CandidateStage.candidate_id.in_(movable),
+        )
+        # `updated_at` zostaje: po nim „ostatnio ruszany etap” wybierają
+        # telefonia i kolejka Priority Work, a przepięcie nie jest ruchem.
+        .values(job_id=target_job_id, updated_at=CandidateStage.updated_at)
+        .execution_options(synchronize_session=False)
+    )
+    plain = [candidate_id for candidate_id in movable if candidate_id not in offsets]
+    if plain:
+        await db.execute(
+            update(RecruitmentProcess)
+            .where(
+                RecruitmentProcess.job_id == source_job_id,
+                RecruitmentProcess.candidate_id.in_(plain),
+            )
+            .values(job_id=target_job_id, updated_at=RecruitmentProcess.updated_at)
+            .execution_options(synchronize_session=False)
+        )
+    for candidate_id, offset in offsets.items():
+        await db.execute(
+            update(RecruitmentProcess)
+            .where(
+                RecruitmentProcess.job_id == source_job_id,
+                RecruitmentProcess.candidate_id == candidate_id,
+            )
+            .values(
+                job_id=target_job_id,
+                attempt_no=RecruitmentProcess.attempt_no + offset,
+                updated_at=RecruitmentProcess.updated_at,
+            )
+            .execution_options(synchronize_session=False)
+        )
+    await db.flush()
+    return movable
+
+
 async def update_latest_expected_rate(
     db: AsyncSession,
     *,
@@ -392,9 +598,17 @@ async def _create_process(
     origin_kind: PriorityOriginKind,
     source_authority: str,
     semantics: _StageSemantics,
+    owner_user_id: Optional[int] = None,
 ) -> RecruitmentProcess:
     opened_at = stage.moved_at or datetime.now(timezone.utc)
     terminal = semantics.is_terminal
+    # Jawny właściciel (zgłoszenie z linku rekrutacji, 19.10.2026) wygrywa
+    # z właścicielem z planu priorytetów; kredyt KPI zostaje przy weryfikacji.
+    owner_actor_id = (
+        owner_user_id
+        if owner_user_id is not None
+        else decision.assignment_owner_user_id
+    )
     process = RecruitmentProcess(
         candidate_id=stage.candidate_id,
         job_id=stage.job_id,
@@ -410,11 +624,11 @@ async def _create_process(
         owner_user_id=(
             await nominal_task_owner(
                 db,
-                actor_id=decision.assignment_owner_user_id,
+                actor_id=owner_actor_id,
                 job_id=job.id,
                 candidate_id=stage.candidate_id,
             )
-            if decision.assignment_owner_user_id is not None
+            if owner_actor_id is not None
             else None
         ),
         source_authority=source_authority,
@@ -578,29 +792,135 @@ def _screening_filled(payload: object) -> bool:
     return any(value not in (None, "", [], {}) for value in payload.values())
 
 
+# Powrót z „Zamkniętych” krótko po zamknięciu poprzedniej próby to ta sama
+# rozmowa z kandydatem — arkusz idzie z nim. Po dłuższej przerwie osoba wraca
+# jako nowa próba i musi przejść screening od nowa (audyt 05.10.2026: osoba
+# odrzucona rok temu wchodziła na „Zweryfikowany” ze starym arkuszem).
+SCREENING_REOPEN_GRACE = timedelta(days=30)
+
+
+@dataclass(frozen=True)
+class ScreeningWindow:
+    """Które wiersze etapów pary niosą arkusz screeningu bieżącej próby.
+
+    ``counts`` = False: żaden zapisany arkusz się nie liczy (następny ruch
+    otworzy nową próbę po długiej przerwie). ``since`` = początek próby, od
+    którego liczą się wiersze; ``None`` = wszystkie wiersze pary.
+    """
+
+    counts: bool
+    since: Optional[datetime]
+
+    def covers(self, moved_at: Optional[datetime]) -> bool:
+        if not self.counts:
+            return False
+        if self.since is None:
+            return True
+        if moved_at is None:
+            return False
+        return _aware(moved_at) >= _aware(self.since)
+
+
+def _aware(moment: datetime) -> datetime:
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=timezone.utc)
+
+
+def screening_window(
+    process: Optional[RecruitmentProcess], *, at: Optional[datetime] = None
+) -> ScreeningWindow:
+    """Okno arkusza screeningu dla NAJNOWSZEJ próby pary.
+
+    Jedna reguła dla przeniesienia arkusza przy ruchu (``transition_process``)
+    i wymagań ruchu (``move_requirements.load_pair_facts``):
+
+    * proces otwarty — wiersze od początku tej próby (próba 1 = wszystkie,
+      lustro ``recommendation_cards.attempt_started``);
+    * proces zamknięty krócej niż ``SCREENING_REOPEN_GRACE`` temu — ruch
+      otworzy nową próbę, ale arkusz poprzedniej przechodzi z osobą;
+    * zamknięty dawniej — żaden stary arkusz się nie liczy.
+    """
+    if process is None:
+        return ScreeningWindow(counts=True, since=None)
+    started = process.opened_at if (process.attempt_no or 1) > 1 else None
+    if process.status == ProcessStatus.open:
+        return ScreeningWindow(counts=True, since=started)
+    closed_at = process.closed_at or process.opened_at
+    if closed_at is None:
+        return ScreeningWindow(counts=False, since=None)
+    moment = _aware(at or datetime.now(timezone.utc))
+    if moment - _aware(closed_at) <= SCREENING_REOPEN_GRACE:
+        return ScreeningWindow(counts=True, since=started)
+    return ScreeningWindow(counts=False, since=None)
+
+
 async def _latest_screening_answers(
-    db: AsyncSession, *, candidate_id: int, job_id: int
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job_id: int,
+    window: ScreeningWindow,
 ) -> Optional[dict]:
     """Najnowszy wypełniony arkusz screeningu pary (Pipeline v4, 23.09.2026).
 
     Screening robi się w „Nowych", a portal klienta, generator CV i przegląd
     DL czytają arkusz z BIEŻĄCEGO wiersza etapu — bez przeniesienia odpowiedzi
-    znikały po pierwszym ruchu. Arkusz należy do pary, nie do etapu.
+    znikały po pierwszym ruchu. Arkusz należy do pary, nie do etapu — ale
+    tylko do bieżącej próby (``screening_window``).
     """
+    if not window.counts:
+        return None
+    query = select(CandidateStage.screening_answers).where(
+        CandidateStage.candidate_id == candidate_id,
+        CandidateStage.job_id == job_id,
+        CandidateStage.screening_answers.isnot(None),
+    )
+    if window.since is not None:
+        query = query.where(CandidateStage.moved_at >= window.since)
     rows = await db.execute(
-        select(CandidateStage.screening_answers)
-        .where(
-            CandidateStage.candidate_id == candidate_id,
-            CandidateStage.job_id == job_id,
-            CandidateStage.screening_answers.isnot(None),
+        query.order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc()).limit(
+            20
         )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-        .limit(20)
     )
     for (answers,) in rows.all():
         if _screening_filled(answers):
             return dict(answers)
     return None
+
+
+async def open_reassign_sources(
+    db: AsyncSession, *, job_id: int, candidate_ids: Iterable[int]
+) -> dict[int, Optional[int]]:
+    """Kandydat → rekrutacja, z której przyszło otwarte przepięcie.
+
+    Otwarta propozycja ``source='reassign'`` daje procesowi wejście
+    „przepięcie” niezależnie od ekranu dodania (0352). Wartość ``None`` =
+    przepięcie bez znanej rekrutacji źródłowej.
+    """
+    ids = sorted({int(c) for c in candidate_ids})
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(JobProposal.candidate_id, JobProposal.evidence).where(
+                JobProposal.job_id == job_id,
+                JobProposal.candidate_id.in_(ids),
+                JobProposal.source == "reassign",
+                JobProposal.status == "proposed",
+            )
+        )
+    ).all()
+    out: dict[int, Optional[int]] = {}
+    for candidate_id, evidence in rows:
+        reassign = (evidence or {}).get("reassign") or {}
+        source_job = reassign.get("job_id") if isinstance(reassign, dict) else None
+        out[candidate_id] = source_job if isinstance(source_job, int) else None
+    return out
+
+
+# Źródła wejścia, które rozpoznanie przepięcia może doprecyzować: brak
+# źródła i zwykłe ręczne dodanie. Jawne źródła (zgłoszenie, propozycja,
+# automat, import) zostają, jak podał wołający.
+_REASSIGN_DETECTABLE_SOURCES = frozenset({None, candidate_claim.ENTRY_ADDED_MANUAL})
 
 
 async def transition_process(
@@ -621,7 +941,9 @@ async def transition_process(
     expected_state_version: Optional[int] = None,
     entry_source: Optional[str] = None,
     claim_for_user_id: Optional[int] = None,
+    process_owner_user_id: Optional[int] = None,
     reassign_from_job_id: Optional[int] = None,
+    entry_meta: Optional[dict] = None,
     _strict_open: bool = False,
     **candidate_stage_values: Any,
 ) -> CandidateStage:
@@ -630,7 +952,9 @@ async def transition_process(
     Pipeline v4 (0352): ``entry_source``/``reassign_from_job_id`` stemplują
     NOWY proces (skąd osoba weszła), ``claim_for_user_id`` zakłada blokadę
     12 h, gdy nowy proces zaczyna się w kolumnie „Nowi". Ruch poza „Nowych"
-    zdejmuje blokadę (``candidate_claim``).
+    zdejmuje blokadę (``candidate_claim``). ``process_owner_user_id`` ustawia
+    właściciela NOWEGO procesu wprost (zgłoszenie z linku rekrutacji =
+    właściciel linku, 19.10.2026) — bez wpływu na ``kpi_eligible`` i kredyt.
 
     ``require_existing`` is used by signing/contract automation: such hooks may
     advance carry-over, but may never manufacture a fresh recruitment.
@@ -729,6 +1053,36 @@ async def transition_process(
         # zdecydowanej większości nikt nie przekazał do searchu.
         job_is_open=job.is_open,
     )
+    # Off-limits (21.10.2026): człowiek otwiera NOWY proces osobie z firmy
+    # z aktywnym zamówieniem — tylko z potwierdzeniem „sama się zgłosiła”.
+    # Przed zapisem etapu; przepięcie z naszej rekrutacji pytania nie ma.
+    off_limits_meta: Optional[dict] = None
+    if (
+        not continuation_exists
+        and source_authority == "live_command"
+        and entry_source in candidate_claim.HUMAN_ENTRY_SOURCES
+        and entry_source != candidate_claim.ENTRY_REASSIGN
+        and reassign_from_job_id is None
+    ):
+        try:
+            off_limits_meta = await client_off_limits.confirm_or_raise(
+                db,
+                candidate_id=candidate_id,
+                job_id=job_id,
+                actor_user_id=actor_user_id,
+            )
+        except client_off_limits.OffLimitsConfirmationRequired:
+            # Ruch ``/move`` nie wie z góry o przepięciu (wykrywa je niżej).
+            reassign = await open_reassign_sources(
+                db, job_id=job_id, candidate_ids=[candidate_id]
+            )
+            if candidate_id not in reassign:
+                raise
+        if off_limits_meta is not None:
+            entry_meta = {
+                **(entry_meta or {}),
+                client_off_limits.OFF_LIMITS_META_KEY: off_limits_meta,
+            }
 
     values = dict(candidate_stage_values)
     # The command owns identity/timestamp fields; silently accepting duplicates
@@ -744,7 +1098,10 @@ async def transition_process(
         values.pop(owned, None)
     if not values.get("screening_answers"):
         carried = await _latest_screening_answers(
-            db, candidate_id=candidate_id, job_id=job_id
+            db,
+            candidate_id=candidate_id,
+            job_id=job_id,
+            window=screening_window(previous_process, at=moved_at),
         )
         if carried is not None:
             values["screening_answers"] = carried
@@ -778,11 +1135,26 @@ async def transition_process(
             origin_kind=origin_kind,
             source_authority=source_authority,
             semantics=semantics,
+            owner_user_id=process_owner_user_id,
         )
+        if (
+            entry_source in _REASSIGN_DETECTABLE_SOURCES
+            and reassign_from_job_id is None
+            and source_authority == "live_command"
+        ):
+            reassign = await open_reassign_sources(
+                db, job_id=job_id, candidate_ids=[candidate_id]
+            )
+            if candidate_id in reassign:
+                entry_source = candidate_claim.ENTRY_REASSIGN
+                reassign_from_job_id = reassign[candidate_id]
         if entry_source is not None:
             process.entry_source = entry_source
         if reassign_from_job_id is not None:
             process.reassign_from_job_id = reassign_from_job_id
+        if entry_meta is not None:
+            # 0399: wynik automatu przy procesie zamiast notatki.
+            process.entry_meta = entry_meta
         if (
             claim_for_user_id is not None
             and process.status == ProcessStatus.open
@@ -819,11 +1191,31 @@ async def transition_process(
 
 async def open_process(
     db: AsyncSession,
+    *,
+    mark_proposals: Optional[bool] = None,
     **kwargs: Any,
 ) -> CandidateStage:
-    """Named entry command for assign/import endpoints."""
+    """Named entry command for assign/import endpoints.
 
-    return await transition_process(db, _strict_open=True, **kwargs)
+    Audyt 06.10.2026 (R5): dodanie osoby do rekrutacji przez CZŁOWIEKA zamyka
+    jej propozycję w „Do przejrzenia” (``added``) — do tej daty robił to tylko
+    ``proposals_bulk``, więc po „Usuń z rekrutacji” osoba dodana inną drogą
+    (ruch karty, przypisanie z listy) wracała do propozycji. ``added`` stawia
+    wyłącznie człowiek (decyzja 07.10.2026): bez jawnego ``mark_proposals``
+    decyduje źródło wejścia (``HUMAN_ENTRY_SOURCES``); integracja i automat —
+    nie. Savepoint: awaria stempla nie cofa dodania.
+    """
+    from app.services.candidate_claim import HUMAN_ENTRY_SOURCES  # noqa: PLC0415
+    from app.services.job_proposals import mark_added_fail_soft  # noqa: PLC0415
+
+    stage = await transition_process(db, _strict_open=True, **kwargs)
+    if mark_proposals is None:
+        mark_proposals = kwargs.get("entry_source") in HUMAN_ENTRY_SOURCES
+    if mark_proposals:
+        await mark_added_fail_soft(
+            db, job_id=stage.job_id, candidate_ids=[stage.candidate_id]
+        )
+    return stage
 
 
 async def record_accepted_verification(
@@ -963,13 +1355,14 @@ async def void_process(
     *,
     candidate_id: int,
     job_id: int,
-    actor_user: User,
+    actor_user: Optional[User],
 ) -> Optional[RecruitmentProcess]:
     """Mark the canonical process void before the legacy corrective delete.
 
     Under enforcement this is a HoR correction only.  ``off`` and
     ``shadow`` retain the old endpoint behaviour while still leaving a durable
-    canonical audit record.
+    canonical audit record.  ``actor_user=None`` = system withdraws its own
+    untouched card (``autofill_withdraw``) — no person, no priority check.
     """
 
     locked_candidate = await db.scalar(
@@ -978,9 +1371,11 @@ async def void_process(
     if locked_candidate is None:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
-    mode = await effective_priority_mode(db, actor_user.id)
-    if mode is PriorityMode.enforce and not actor_user.has_role(
-        UserRole.head_of_recruitment
+    mode = await effective_priority_mode(db, actor_user.id) if actor_user else None
+    if (
+        actor_user is not None
+        and mode is PriorityMode.enforce
+        and not actor_user.has_role(UserRole.head_of_recruitment)
     ):
         decision = PriorityWorkDecision(
             allowed=False,
@@ -1045,6 +1440,10 @@ async def delete_voided_stage_history(
             CandidateStage.job_id == job_id,
         )
     )
+    # Przypisanie „Prowadzi” należy do pary — znika razem z jej historią.
+    from app.services.pair_owner import forget_pair
+
+    await forget_pair(db, candidate_id=candidate_id, job_id=job_id)
     return int(result.rowcount or 0)
 
 
@@ -1103,13 +1502,11 @@ async def handoff_process(
         )
     )
     if new_owner is None or not new_owner.has_any_role(
-        UserRole.sourcer,
         UserRole.recruiter,
-        UserRole.tac,
     ):
         raise HTTPException(
             status_code=422,
-            detail="Nowy właściciel nie jest aktywnym rekruterem, sourcerem ani TAC.",
+            detail="Nowy właściciel nie jest aktywnym rekruterem.",
         )
     process = await _latest_process(db, candidate_id=candidate_id, job_id=job_id)
     if process is None or process.status != ProcessStatus.open:

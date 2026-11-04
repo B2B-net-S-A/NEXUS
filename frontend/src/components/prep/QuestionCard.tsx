@@ -13,6 +13,7 @@ const TIER_LABELS: Record<SuggestionTier, { label: string; variant: "soft" |"inf
  pinned: { label: "Przypięte", variant: "success" },
  legacy_champion: { label: "Champion profile", variant: "soft" },
  client_debrief: { label: "Klient pytał na rozmowie", variant: "warning" },
+ client_archive: { label: "Klient pytał (archiwum rozmów)", variant: "warning" },
  tier_1_same_cc: { label: "Z podobnego projektu (ta sama CC)", variant: "info" },
  tier_2_secondary_cc: { label: "Z podobnego projektu (secondary CC)", variant: "info" },
  tier_3_client_knowledge: { label: "Baza wiedzy o kliencie", variant: "soft" },

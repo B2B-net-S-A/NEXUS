@@ -26,6 +26,8 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 from lxml import etree
 
+from app.core.docx_metadata import clear_author_metadata
+from app.services.cv_text_align import cv_text_align
 from app.services.skill_normalize import is_taxonomy_technology, tech_alias_forms
 
 logger = logging.getLogger(__name__)
@@ -1162,8 +1164,30 @@ def add_consent_screenshot(doc: Any, image_bytes: bytes, heading: str) -> bool:
         return False
 
 
-def add_bottom_pinned_rodo(doc: Any, rodo_text: str) -> Any:
+def _rodo_run_xml(text: str, bold: bool, italic: bool, underline: bool) -> str:
+    emphasis = (
+        ("<w:b/>" if bold else "")
+        + ("<w:i/>" if italic else "")
+        + ('<w:u w:val="single"/>' if underline else "")
+    )
+    return (
+        '<w:r><w:rPr><w:rFonts w:ascii="Montserrat" w:hAnsi="Montserrat"/>'
+        f"{emphasis}"
+        '<w:color w:val="373535"/><w:sz w:val="10"/><w:szCs w:val="10"/></w:rPr>'
+        f'<w:t xml:space="preserve">{escape(text)}</w:t></w:r>'
+    )
+
+
+def add_bottom_pinned_rodo(
+    doc: Any,
+    rodo_text: str,
+    runs: list[tuple[str, bool, bool, bool]] | None = None,
+) -> Any:
     """Pin the RODO consent clause to the bottom of the last page.
+
+    ``runs`` — ``(text, bold, italic, underline)`` — carries a clause edited
+    in the recruitment editor with its emphasis (``cv_approved_docx``); the
+    generator passes plain ``rodo_text``.
 
     The clause lives inside a floating text box anchored to the bottom page
     margin, so — no matter where the CV body ends — it always lands at the foot
@@ -1225,10 +1249,14 @@ def add_bottom_pinned_rodo(doc: Any, rodo_text: str) -> Any:
             '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln>',
             "</wps:spPr><wps:txbx><w:txbxContent><w:p><w:pPr>",
             '<w:spacing w:before="40" w:after="0"/><w:jc w:val="both"/></w:pPr>',
-            '<w:r><w:rPr><w:rFonts w:ascii="Montserrat" w:hAnsi="Montserrat"/>',
-            '<w:color w:val="373535"/><w:sz w:val="10"/><w:szCs w:val="10"/></w:rPr>',
-            f'<w:t xml:space="preserve">{escape(rodo_text)}</w:t>',
-            "</w:r></w:p></w:txbxContent></wps:txbx>",
+            (
+                "".join(_rodo_run_xml(*run) for run in runs)
+                if runs is not None
+                else '<w:r><w:rPr><w:rFonts w:ascii="Montserrat" w:hAnsi="Montserrat"/>'
+                '<w:color w:val="373535"/><w:sz w:val="10"/><w:szCs w:val="10"/></w:rPr>'
+                f'<w:t xml:space="preserve">{escape(rodo_text)}</w:t></w:r>'
+            ),
+            "</w:p></w:txbxContent></wps:txbx>",
             '<wps:bodyPr rot="0" vert="horz" wrap="square" lIns="0" tIns="0"'
             ' rIns="0" bIns="0" anchor="b" anchorCtr="0"><a:spAutoFit/></wps:bodyPr>',
             "</wps:wsp></a:graphicData></a:graphic></wp:anchor></w:drawing>",
@@ -1243,7 +1271,8 @@ def add_bottom_pinned_rodo(doc: Any, rodo_text: str) -> Any:
 def add_section_header(doc: Any, text: str) -> Any:
     """Add a section header with divider above and Montserrat SemiBold title.
 
-    Paragraphs carry no ``keep_with_next`` / ``keep_together`` cohesion: the
+    Paragraphs carry no ``keep_with_next`` / ``keep_together`` cohesion (the
+    only exception is the role header in the experience section): the
     document flows line-by-line under Word's default widow/orphan handling so a
     recruiter hand-tuning page breaks moves content one line per Enter, instead
     of a glued block jumping a whole section across the page boundary.
@@ -1267,6 +1296,7 @@ def add_bullet_point(
     punctuation: str = "",
     highlight_keywords: list[str] | None = None,
     patterns: list[re.Pattern[str]] | None = None,
+    alignment: Any = None,
 ) -> Any:
     """Add a Word numbered bullet point with optional keyword bolding."""
     text = text.rstrip(".,;")
@@ -1290,6 +1320,8 @@ def add_bullet_point(
     para.paragraph_format.space_before = Pt(1)
     para.paragraph_format.space_after = Pt(1)
     para.paragraph_format.line_spacing = 1.5
+    if alignment is not None:
+        para.paragraph_format.alignment = alignment
     return para
 
 
@@ -1298,12 +1330,112 @@ def add_bullet_list(
     items: list[str],
     highlight_keywords: list[str] | None = None,
     patterns: list[re.Pattern[str]] | None = None,
+    alignment: Any = None,
 ) -> None:
     """Add a bullet list with commas between items and a period at the end."""
     for i, item in enumerate(items):
         is_last = i == len(items) - 1
         punctuation = "." if is_last else ","
-        add_bullet_point(doc, item, punctuation, highlight_keywords, patterns=patterns)
+        add_bullet_point(
+            doc,
+            item,
+            punctuation,
+            highlight_keywords,
+            patterns=patterns,
+            alignment=alignment,
+        )
+
+
+def add_education_table(doc: Any, row_count: int, t: dict[str, str]) -> Any:
+    """Education table frame: grey header row, light borders, cell padding.
+
+    Shared with the approved-CV renderer (``cv_approved_docx``) so a CV edited
+    in the recruitment editor keeps the same table as one downloaded from the
+    generator. Rows ``1..row_count`` are left empty for the caller, who fills
+    them and then calls :func:`style_education_row`.
+    """
+    table = doc.add_table(rows=row_count + 1, cols=2)
+    table.style = "Table Grid"
+    table.alignment = WD_TABLE_ALIGNMENT.LEFT
+    table.columns[0].width = Inches(1.8)
+    table.columns[1].width = Inches(5.0)
+
+    tbl = table._tbl
+    tblPr = tbl.tblPr if tbl.tblPr is not None else OxmlElement("w:tblPr")
+
+    tblBorders = OxmlElement("w:tblBorders")
+    for border_name in ["top", "left", "bottom", "right", "insideH", "insideV"]:
+        border = OxmlElement(f"w:{border_name}")
+        border.set(qn("w:val"), "single")
+        border.set(qn("w:sz"), "4")
+        border.set(qn("w:color"), "CCCCCC")
+        tblBorders.append(border)
+    tblPr.append(tblBorders)
+
+    tblCellMar = OxmlElement("w:tblCellMar")
+    for margin_name in ["top", "bottom"]:
+        margin = OxmlElement(f"w:{margin_name}")
+        margin.set(qn("w:w"), "80")
+        margin.set(qn("w:type"), "dxa")
+        tblCellMar.append(margin)
+    for margin_name in ["left", "right"]:
+        margin = OxmlElement(f"w:{margin_name}")
+        margin.set(qn("w:w"), "120")
+        margin.set(qn("w:type"), "dxa")
+        tblCellMar.append(margin)
+    tblPr.append(tblCellMar)
+
+    header_cells = table.rows[0].cells
+    header_cells[0].text = t["dates"]
+    header_cells[1].text = t["education_header"]
+
+    for cell in header_cells:
+        shading_elm = OxmlElement("w:shd")
+        shading_elm.set(qn("w:fill"), "E8E8E8")
+        shading_elm.set(qn("w:val"), "clear")
+        cell._element.get_or_add_tcPr().append(shading_elm)
+
+        for paragraph in cell.paragraphs:
+            paragraph.paragraph_format.space_before = Pt(4)
+            paragraph.paragraph_format.space_after = Pt(4)
+            for run in paragraph.runs:
+                run.font.name = "Montserrat"
+                run.font.bold = True
+                run.font.color.rgb = COLOR_TEXT
+                run.font.size = Pt(10)
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    return table
+
+
+def style_education_row(row_cells: Any, index: int) -> None:
+    """Zebra shading, spacing and 9 pt Montserrat for one filled education row.
+
+    Sets font face, colour and size only — bold/italic chosen by the caller
+    (institution in bold) survive.
+    """
+    if index % 2 == 0:
+        for cell in row_cells:
+            shading_elm = OxmlElement("w:shd")
+            shading_elm.set(qn("w:fill"), "F8F8F8")
+            shading_elm.set(qn("w:val"), "clear")
+            cell._element.get_or_add_tcPr().append(shading_elm)
+
+    for cell in row_cells:
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        for paragraph in cell.paragraphs:
+            paragraph.paragraph_format.space_before = Pt(6)
+            paragraph.paragraph_format.space_after = Pt(6)
+            paragraph.paragraph_format.line_spacing = 1.5
+            for run in paragraph.runs:
+                run.font.name = "Montserrat"
+                run.font.color.rgb = COLOR_TEXT
+                run.font.size = Pt(9)
+
+    for para in row_cells[0].paragraphs:
+        for run in para.runs:
+            run.font.name = "Montserrat"
+            run.font.color.rgb = COLOR_TEXT
+            run.font.size = Pt(9)
 
 
 def normalize_letterhead_layout(doc: Any) -> None:
@@ -1411,10 +1543,19 @@ def render_cv_to_bytes(
                 job["company"] = f"Firma z branży {industry}" if industry else "Firma"
 
     logger.info(
-        "[cv_generator_b2b] Rendering CV name=%s lang=%s blind=%s",
-        candidate_data.get("name"),
+        # runda 6 audytu: długość zamiast imienia i nazwiska kandydata
+        "[cv_generator_b2b] Rendering CV name_len=%d lang=%s blind=%s",
+        len(str(candidate_data.get("name") or "")),
         language,
         blind_cv,
+    )
+
+    # Treść (punkty, umiejętności, technologie) wyrównana wg reguły klienta
+    # zamrożonej w payloadzie; tytuł, nagłówki sekcji i tabela edukacji — nie.
+    body_align = (
+        WD_ALIGN_PARAGRAPH.JUSTIFY
+        if cv_text_align(candidate_data) == "justify"
+        else None
     )
 
     doc = Document(template_path)
@@ -1482,63 +1623,18 @@ def render_cv_to_bytes(
     patterns = compile_keyword_patterns(highlight_keywords)
 
     add_bullet_list(
-        doc, candidate_data.get("why_points", []), highlight_keywords, patterns=patterns
+        doc,
+        candidate_data.get("why_points", []),
+        highlight_keywords,
+        patterns=patterns,
+        alignment=body_align,
     )
 
     # === EDUKACJA / EDUCATION ===
     if candidate_data.get("education"):
         add_section_header(doc, t["education"])
 
-        table = doc.add_table(rows=len(candidate_data["education"]) + 1, cols=2)
-        table.style = "Table Grid"
-        table.alignment = WD_TABLE_ALIGNMENT.LEFT
-        table.columns[0].width = Inches(1.8)
-        table.columns[1].width = Inches(5.0)
-
-        tbl = table._tbl
-        tblPr = tbl.tblPr if tbl.tblPr is not None else OxmlElement("w:tblPr")
-
-        tblBorders = OxmlElement("w:tblBorders")
-        for border_name in ["top", "left", "bottom", "right", "insideH", "insideV"]:
-            border = OxmlElement(f"w:{border_name}")
-            border.set(qn("w:val"), "single")
-            border.set(qn("w:sz"), "4")
-            border.set(qn("w:color"), "CCCCCC")
-            tblBorders.append(border)
-        tblPr.append(tblBorders)
-
-        tblCellMar = OxmlElement("w:tblCellMar")
-        for margin_name in ["top", "bottom"]:
-            margin = OxmlElement(f"w:{margin_name}")
-            margin.set(qn("w:w"), "80")
-            margin.set(qn("w:type"), "dxa")
-            tblCellMar.append(margin)
-        for margin_name in ["left", "right"]:
-            margin = OxmlElement(f"w:{margin_name}")
-            margin.set(qn("w:w"), "120")
-            margin.set(qn("w:type"), "dxa")
-            tblCellMar.append(margin)
-        tblPr.append(tblCellMar)
-
-        header_cells = table.rows[0].cells
-        header_cells[0].text = t["dates"]
-        header_cells[1].text = t["education_header"]
-
-        for cell in header_cells:
-            shading_elm = OxmlElement("w:shd")
-            shading_elm.set(qn("w:fill"), "E8E8E8")
-            shading_elm.set(qn("w:val"), "clear")
-            cell._element.get_or_add_tcPr().append(shading_elm)
-
-            for paragraph in cell.paragraphs:
-                paragraph.paragraph_format.space_before = Pt(4)
-                paragraph.paragraph_format.space_after = Pt(4)
-                for run in paragraph.runs:
-                    run.font.name = "Montserrat"
-                    run.font.bold = True
-                    run.font.color.rgb = COLOR_TEXT
-                    run.font.size = Pt(10)
-            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        table = add_education_table(doc, len(candidate_data["education"]), t)
 
         for i, edu in enumerate(candidate_data["education"], start=1):
             row_cells = table.rows[i].cells
@@ -1562,29 +1658,7 @@ def render_cv_to_bytes(
             run_degree.font.color.rgb = COLOR_TEXT
             run_degree.font.size = Pt(9)
 
-            if i % 2 == 0:
-                for cell in row_cells:
-                    shading_elm = OxmlElement("w:shd")
-                    shading_elm.set(qn("w:fill"), "F8F8F8")
-                    shading_elm.set(qn("w:val"), "clear")
-                    cell._element.get_or_add_tcPr().append(shading_elm)
-
-            for cell in row_cells:
-                cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-                for paragraph in cell.paragraphs:
-                    paragraph.paragraph_format.space_before = Pt(6)
-                    paragraph.paragraph_format.space_after = Pt(6)
-                    paragraph.paragraph_format.line_spacing = 1.5
-                    for run in paragraph.runs:
-                        run.font.name = "Montserrat"
-                        run.font.color.rgb = COLOR_TEXT
-                        run.font.size = Pt(9)
-
-            for para in row_cells[0].paragraphs:
-                for run in para.runs:
-                    run.font.name = "Montserrat"
-                    run.font.color.rgb = COLOR_TEXT
-                    run.font.size = Pt(9)
+            style_education_row(row_cells, i)
 
         doc.add_paragraph()
 
@@ -1622,6 +1696,8 @@ def render_cv_to_bytes(
         para.paragraph_format.space_before = Pt(1)
         para.paragraph_format.space_after = Pt(1)
         para.paragraph_format.line_spacing = 1.5
+        if body_align is not None:
+            para.paragraph_format.alignment = body_align
 
     # === CERTYFIKATY / CERTIFICATIONS ===
     if candidate_data.get("certifications"):
@@ -1631,6 +1707,7 @@ def render_cv_to_bytes(
             candidate_data.get("certifications", []),
             highlight_keywords,
             patterns=patterns,
+            alignment=body_align,
         )
 
     # === JĘZYKI / LANGUAGES ===
@@ -1641,6 +1718,7 @@ def render_cv_to_bytes(
             candidate_data.get("languages", []),
             highlight_keywords,
             patterns=patterns,
+            alignment=body_align,
         )
 
     # === DOŚWIADCZENIE / EXPERIENCE ===
@@ -1651,9 +1729,10 @@ def render_cv_to_bytes(
         if i > 0:
             add_horizontal_line(doc)
 
-        # Role header (dates → company → position → "Zakres zadań:") flows
-        # naturally without keep_with_next cohesion, so manual page-break edits
-        # in Word move one line at a time instead of jumping the whole block.
+        # Role header (dates → company → position → "Zakres zadań:") keeps
+        # with the first task, so the dates never sit alone at the bottom of a
+        # page. Tasks themselves flow line by line (manual page-break edits in
+        # Word move one line at a time, #503).
         para = doc.add_paragraph()
         run = para.add_run(job["dates"])
         run.font.name = "Montserrat"
@@ -1662,6 +1741,7 @@ def render_cv_to_bytes(
         run.font.bold = True
         para.paragraph_format.space_before = Pt(1)
         para.paragraph_format.space_after = Pt(0)
+        para.paragraph_format.keep_with_next = True
 
         para = doc.add_paragraph()
         run1 = para.add_run(t["company_name"] + " ")
@@ -1675,6 +1755,7 @@ def render_cv_to_bytes(
         run2.font.bold = True
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(0)
+        para.paragraph_format.keep_with_next = True
 
         para = doc.add_paragraph()
         run1 = para.add_run(t["position"] + " ")
@@ -1688,6 +1769,7 @@ def render_cv_to_bytes(
         run2.font.bold = True
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(0)
+        para.paragraph_format.keep_with_next = True
 
         para = doc.add_paragraph()
         run = para.add_run(t["responsibilities"])
@@ -1698,9 +1780,14 @@ def render_cv_to_bytes(
         run.font.underline = True
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(1)
+        para.paragraph_format.keep_with_next = True
 
         add_bullet_list(
-            doc, job.get("responsibilities", []), highlight_keywords, patterns=patterns
+            doc,
+            job.get("responsibilities", []),
+            highlight_keywords,
+            patterns=patterns,
+            alignment=body_align,
         )
 
         if job.get("technologies"):
@@ -1719,6 +1806,8 @@ def render_cv_to_bytes(
             )
             para.paragraph_format.space_before = Pt(4)
             para.paragraph_format.space_after = Pt(2)
+            if body_align is not None:
+                para.paragraph_format.alignment = body_align
 
     # === KLAUZULA RODO / GDPR ===
     # The consent clause is always justified and always pinned to the foot of the
@@ -1752,6 +1841,8 @@ def render_cv_to_bytes(
         add_consent_screenshot(doc, _consent["_bytes"], t["consent_heading"])
 
     add_bottom_pinned_rodo(doc, t["rodo"])
+    # Plik idzie do klienta: bez autora z szablonu.
+    clear_author_metadata(doc)
 
     out = io.BytesIO()
     doc.save(out)

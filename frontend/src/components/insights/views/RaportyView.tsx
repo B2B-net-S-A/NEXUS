@@ -13,16 +13,20 @@ import {
   REPORT_GROUPS,
   reportById,
   reportHref,
+  seesBoardTrend,
   visibleReports,
   type ReportDef,
   type ReportId,
 } from "@/lib/insights-reports";
+import { holdsCapabilityGrant } from "@/lib/capabilities";
+import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { PeriodPicker } from "@/components/insights/PeriodPicker";
 import { useInsightsPeriod } from "@/components/insights/useInsightsPeriod";
 import { CompetenceMatrix } from "@/components/insights/sections/CompetenceMatrix";
 import { InsightsBoardYoY } from "@/components/insights/sections/InsightsBoardYoY";
 import { InsightsClientsRanking } from "@/components/insights/sections/InsightsClientsRanking";
+import { HitRatioClosures } from "@/components/insights/sections/HitRatioClosures";
 import {
   DlPortfolioTiles,
   InsightsDlPortfolio,
@@ -31,6 +35,7 @@ import { InsightsHallOfFame } from "@/components/insights/sections/InsightsHallO
 import { InsightsIntegrations } from "@/components/insights/sections/InsightsIntegrations";
 import { InsightsInviteLinks } from "@/components/insights/sections/InsightsInviteLinks";
 import { InsightsPlacementAnalysis } from "@/components/insights/sections/InsightsPlacementAnalysis";
+import { InsightsLinkPeople } from "@/components/insights/sections/InsightsLinkPeople";
 import { InsightsTeamActivity } from "@/components/insights/sections/InsightsTeamActivity";
 import { InsightsTeamPerformance } from "@/components/insights/sections/InsightsTeamPerformance";
 import { InsightsTimeToHire } from "@/components/insights/sections/InsightsTimeToHire";
@@ -41,6 +46,8 @@ import { SourcesFunnelSection } from "@/components/insights/sections/SourcesFunn
 import { PrepQualitySection } from "@/components/insights/chapters/PrepQualitySection";
 import { StageBreakdownSection } from "@/components/insights/chapters/StageBreakdownSection";
 import { AllocationWorkloadBoard } from "@/components/v2/priority-work/AllocationWorkloadBoard";
+import { AcceptancesReport } from "./AcceptancesReport";
+import { ProposalOutcomesReport } from "./ProposalOutcomesReport";
 import { StaleJobsReport } from "./StaleJobsReport";
 import { ViewHeader } from "./ViewKit";
 
@@ -177,6 +184,8 @@ function ReportBody({
   switch (id) {
     case "lejek-etapy":
       return <StageBreakdownSection period={p} />;
+    case "akceptacje-w-toku":
+      return <AcceptancesReport />;
     case "czas-konwersje":
       return (
         <div className="space-y-4">
@@ -188,6 +197,8 @@ function ReportBody({
       return <InsightsPlacementAnalysis period={p} />;
     case "kompetencje":
       return <CompetenceMatrix />;
+    case "propozycje-ai":
+      return <ProposalOutcomesReport />;
     case "aktywnosc-zespolu":
       return (
         <div className="space-y-6">
@@ -205,8 +216,22 @@ function ReportBody({
       return (
         <div className="space-y-6">
           <InsightsIntegrations />
-          <SourcesFunnelSection />
-          <InviteLinksWithPeriod />
+          {/* Lustro `CandidatePIIAccess` z GET /api/reports/sources: rola
+              z odczytem kandydatów i sekcja Sourcing albo Pipeline. Rada
+              nadzorcza go nie ma (audyt 22.10.2026) — notka zamiast 403. */}
+          {holdsCapabilityGrant(user, "nav.candidates") &&
+          (hasSectionAccess(user, "sourcing") || hasSectionAccess(user, "pipeline")) ? (
+            <SourcesFunnelSection />
+          ) : (
+            <p className="rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+              Źródła kandydatów nie są dostępne dla tej roli.
+            </p>
+          )}
+          {hasRole(user, "admin", "head_of_recruitment", "delivery_lead") ? (
+            <LinkPeopleWithPeriod />
+          ) : (
+            <InviteLinksWithPeriod />
+          )}
         </div>
       );
     case "portfele-dl":
@@ -216,14 +241,17 @@ function ReportBody({
           <InsightsDlPortfolio period={p} />
         </div>
       );
+    case "zamkniecia-hit-ratio":
+      return <HitRatioClosures />;
     case "ranking-klientow":
       return <InsightsClientsRanking period={p} />;
     case "rok-do-roku":
       return (
         <div className="space-y-6">
-          {hasRole(user, "admin", "finance", "head_of_recruitment") ? (
-            <InsightsBoardYoY />
-          ) : null}
+          {/* Tabele Rady: „Moduł Finanse”, Rada nadzorcza albo Head of
+              Recruitment (bez kwot — redaguje serwer). Pozostali widzą same
+              statystyki roczne. */}
+          {seesBoardTrend(user) ? <InsightsBoardYoY /> : null}
           <InsightsYearlyStats />
         </div>
       );
@@ -235,6 +263,22 @@ function ReportBody({
 }
 
 const INVITE_LINKS_DEFAULT: InsightsPeriodParams = { period: "month", offset: -1 };
+
+const LINK_PEOPLE_DEFAULT: InsightsPeriodParams = { period: "month", offset: 0 };
+
+/** Kto co przyniósł z linków, z własnym okresem; zastępuje kanały dla ról z wglądem w cudze wyniki. */
+function LinkPeopleWithPeriod() {
+  const { period, setPeriod } = useInsightsPeriod(LINK_PEOPLE_DEFAULT);
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-base font-semibold text-foreground">Linki aplikacyjne</h3>
+        <PeriodPicker value={period} onChange={setPeriod} defaultValue={LINK_PEOPLE_DEFAULT} />
+      </div>
+      <InsightsLinkPeople period={period} />
+    </section>
+  );
+}
 
 /** Linki aplikacyjne mają własny okres — pozostałe części raportu liczą 7/30/90 dni. */
 function InviteLinksWithPeriod() {

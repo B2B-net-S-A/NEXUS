@@ -4,8 +4,10 @@ Dwa konsumenty jednej oceny:
 
 - zakładka „Do tej rekrutacji" panelu (``GET /api/my-people/for-job/{id}``),
   liczona na żądanie dla osoby, która patrzy;
-- dzwonek po publikacji rekrutacji (:func:`run_for_job`, wołane z workera
-  auto-matcha) — jeden wpis na (odbiorca, rekrutacja).
+- zdarzenie na żywo po publikacji rekrutacji (:func:`run_for_job`, wołane
+  z workera auto-matcha) — jedno na (odbiorca, rekrutacja). Od 16.10.2026 bez
+  wiersza powiadomienia: licznik ikony „Moi ludzie” liczy się z
+  ``my_people_job_matches``, a zdarzenie tylko go odświeża i budzi Jarvisa.
 
 Liczba to KANONICZNY FIT (``canonical_fit.score_candidates``), czyli ta sama,
 którą rekruter widzi na ekranach C2 i w kolumnie „Dopasowanie" wyszukiwarki.
@@ -35,10 +37,11 @@ from app.models.job import Job, JobStatus
 from app.models.my_people import MyPeopleJobMatch
 from app.models.recruitment_pipeline import CandidateStage
 from app.services.auto_match_service import AutoMatchUnavailable, scoped_similarity
-from app.services.candidate_job_eligibility import Visibility
+from app.services.candidate_job_eligibility import Severity, Visibility
 from app.services.current_employment import current_employment_client_ids
 from app.services.dealbreaker_filters import employment_only_refuses_b2b
 from app.services.eligibility_annotation import eligibility_annotation
+from app.services.job_working_title import display_title
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +55,113 @@ class ScoredPerson:
     measurement: str
     eligibility: Optional[dict]
     hidden: bool = False
+
+
+@dataclass
+class JobFit:
+    """Ocena jednej osoby w jednej rekrutacji — ta sama dla „Moich ludzi”
+    i „Pasuje też do” (``also_fits``)."""
+
+    candidate_id: int
+    score: Optional[int]
+    measurement: str
+    decision: object
+    hidden: bool
+    breakdown: object
+
+
+async def warm_job_queries(
+    db: AsyncSession, *, jobs: Iterable[Job], profile_user_id: Optional[int]
+) -> None:
+    """Wektory zapytań kilku rekrutacji jednym wywołaniem Voyage, zanim
+    :func:`fits_for_job` oceni każdą z nich (27.10.2026).
+
+    Ten sam profil wag i tekst zapytania co w :func:`fits_for_job`, więc wektor
+    trafia do pamięci podręcznej ``request_vector``. Nieudane ogrzanie nic nie
+    psuje: :func:`fits_for_job` pyta wtedy o wektor sam, jak wcześniej.
+    """
+    from app.services.full_search_measurement import warm_request_vectors
+    from app.services.request_matching_context import build_request_context
+    from app.services.scoring_service import resolve_active_profile
+
+    texts = []
+    for job in jobs:
+        profile = await resolve_active_profile(
+            db, user_id=profile_user_id, client_id=job.client_id
+        )
+        texts.append(build_request_context(job, profile).query_text)
+    await warm_request_vectors(texts)
+
+
+async def fits_for_job(
+    db: AsyncSession,
+    *,
+    job: Job,
+    candidates: list,
+    profile_user_id: Optional[int],
+) -> list[JobFit]:
+    """Kanoniczny fit + kwalifikowalność + dealbreakery wskazanych osób w rekrutacji.
+
+    ``hidden`` = osoba, którą przegląd bazy tej rekrutacji by ukrył (weto,
+    czarna lista, „tylko umowa o pracę”, bramka must i pozostałe dealbreakery).
+    Pulę zawęża wołający.
+    """
+    from app.services.canonical_fit import display_score, score_candidates
+    from app.services.pipeline_eligibility import evaluate_candidates_for_job
+    from app.services.request_matching_context import build_request_context
+    from app.services.requirement_verification import load_verified_requirements
+    from app.services.scoring_service import resolve_active_profile
+
+    profile = await resolve_active_profile(
+        db, user_id=profile_user_id, client_id=job.client_id
+    )
+    context = build_request_context(job, profile)
+    if candidates:
+        from app.services.must_text_evidence import attach_gate_evidence
+        from app.services.requirement_contract import search_dealbreaker_inputs
+
+        # Dowód z CV i notatek PRZED oceną (30.09.2026): ocena umiejętności
+        # czyta go tak samo jak bramka.
+        await load_verified_requirements(db, job, candidates)
+        gate_inputs = search_dealbreaker_inputs(job)
+        await attach_gate_evidence(
+            db,
+            candidates,
+            gate_inputs.gate_evidence_labels,
+            options=gate_inputs.gate_options,
+        )
+    fits = await score_candidates(db, context, candidates) if candidates else []
+    decisions = await evaluate_candidates_for_job(
+        db,
+        job=job,
+        candidate_ids=[c.id for c in candidates],
+        now=datetime.now(timezone.utc),
+    )
+
+    dealbreaker_hidden = dealbreaker_exclusions(job, candidates, decisions)
+
+    by_id = {c.id: c for c in candidates}
+    out: list[JobFit] = []
+    for i, fit in enumerate(fits):
+        cid = int(fit.breakdown.candidate_id)
+        decision = decisions.get(cid)
+        out.append(
+            JobFit(
+                candidate_id=cid,
+                score=display_score(fit.fit_score),
+                measurement=fit.measurement,
+                decision=decision,
+                # „Tylko umowa o pracę" z rozmowy praktykanta: pracujemy na
+                # B2B, więc tej osoby nie proponujemy do żadnej rekrutacji.
+                hidden=bool(decision and decision.visibility is Visibility.hidden)
+                or employment_only_refuses_b2b(by_id.get(cid))
+                or cid in dealbreaker_hidden,
+                breakdown=fit.breakdown,
+            )
+        )
+        if (i + 1) % YIELD_EVERY == 0:
+            await asyncio.sleep(0)
+    return out
 
 
 async def candidates_in_job(
@@ -105,11 +215,7 @@ async def score_people_for_job(
     części puli nie dostają wyniku (``measurement="not_in_pool"``) — to
     „nie liczyliśmy", nie „nie pasuje".
     """
-    from app.services.canonical_fit import display_score, score_candidates
     from app.services.embedding_service import _build_job_text
-    from app.services.pipeline_eligibility import evaluate_candidates_for_job
-    from app.services.request_matching_context import build_request_context
-    from app.services.scoring_service import resolve_active_profile
 
     ids = sorted({int(i) for i in candidate_ids})
     if not ids:
@@ -125,37 +231,18 @@ async def score_people_for_job(
         if pool
         else []
     )
-    profile = await resolve_active_profile(
-        db, user_id=profile_user_id, client_id=job.client_id
-    )
-    context = build_request_context(job, profile)
-    fits = await score_candidates(db, context, candidates) if candidates else []
-    decisions = await evaluate_candidates_for_job(
-        db,
-        job=job,
-        candidate_ids=[c.id for c in candidates],
-        now=datetime.now(timezone.utc),
-    )
-
-    by_id = {c.id: c for c in candidates}
-    out: list[ScoredPerson] = []
-    for i, fit in enumerate(fits):
-        cid = int(fit.breakdown.candidate_id)
-        decision = decisions.get(cid)
-        out.append(
-            ScoredPerson(
-                candidate_id=cid,
-                score=display_score(fit.fit_score),
-                measurement=fit.measurement,
-                eligibility=eligibility_annotation(decision),
-                # „Tylko umowa o pracę" z rozmowy praktykanta: pracujemy na
-                # B2B, więc tej osoby nie proponujemy do żadnej rekrutacji.
-                hidden=bool(decision and decision.visibility is Visibility.hidden)
-                or employment_only_refuses_b2b(by_id.get(cid)),
-            )
+    out = [
+        ScoredPerson(
+            candidate_id=f.candidate_id,
+            score=f.score,
+            measurement=f.measurement,
+            eligibility=eligibility_annotation(f.decision),
+            hidden=f.hidden,
         )
-        if (i + 1) % YIELD_EVERY == 0:
-            await asyncio.sleep(0)
+        for f in await fits_for_job(
+            db, job=job, candidates=candidates, profile_user_id=profile_user_id
+        )
+    ]
     scored_ids = {p.candidate_id for p in out}
     out.extend(
         ScoredPerson(
@@ -167,22 +254,57 @@ async def score_people_for_job(
     return out
 
 
-async def run_for_job(db: AsyncSession, job: Job) -> dict:
-    """Publikacja rekrutacji → dzwonek do rekruterów, których ludzie pasują.
+def dealbreaker_exclusions(job, candidates: list, decisions: dict) -> dict[int, str]:
+    """Kogo przegląd bazy tej rekrutacji UKRYŁBY dealbreakerem (id → powód).
 
-    Idempotentne: dopasowanie jest zapisywane raz (UNIQUE na trójce), a dzwonek
-    idzie tylko przy NOWYCH dopasowaniach — istotna zmiana rekrutacji, która
-    odpala zdarzenie drugi raz, nie budzi rekrutera tymi samymi nazwiskami.
+    Runda 9 (R9-N5-2): „Moi ludzie" liczyli sam kanoniczny fit, więc dzwonek
+    „pasuje" szedł o osobie, którą każda powierzchnia wyszukiwania tej
+    rekrutacji chowa (ponad budżet, brak must-have, dni/miasto biura, tylko
+    zdalnie). Ta sama polityka co wyszukiwanie (`search_dealbreaker_inputs`)
+    i ten sam wyjątek co `_gate_and_dealbreakers`: weto HM (twarde, ale
+    widoczne) nie jest wchłaniane przez dealbreakery.
     """
-    from app.models.notification import NotificationType
+    from app.services.dealbreaker_filters import apply_dealbreakers
+    from app.services.requirement_contract import search_dealbreaker_inputs
+
+    if not candidates:
+        return {}
+    exempt = {
+        c.id
+        for c in candidates
+        if (d := decisions.get(c.id)) is not None
+        and d.severity is Severity.hard
+        and d.visibility is Visibility.warn
+        and not employment_only_refuses_b2b(c)
+    }
+    # Dowód must z CV i notatek dołącza wołający (`attach_gate_evidence`).
+    result = apply_dealbreakers(
+        [c for c in candidates if c.id not in exempt],
+        inputs=search_dealbreaker_inputs(job),
+    )
+    return dict(result.exclusion_reasons)
+
+
+async def run_for_job(db: AsyncSession, job: Job) -> dict:
+    """Publikacja rekrutacji → zdarzenie do rekruterów, których ludzie pasują.
+
+    Idempotentne: dopasowanie jest zapisywane raz (UNIQUE na trójce), a
+    zdarzenie idzie tylko przy NOWYCH dopasowaniach — istotna zmiana
+    rekrutacji, która odpala zdarzenie drugi raz, nie budzi rekrutera tymi
+    samymi nazwiskami. Zdarzenie wychodzi po commicie wołającego.
+    """
     from app.models.user import User
     from app.services.my_people import owners_by_candidate
-    from app.services.notification_triggers import emit
+    from app.services.notification_ws_after_commit import queue_ws_event
 
     if not settings.MY_PEOPLE_MATCH_ENABLED:
         return {"skipped": "disabled"}
     if job.status != JobStatus.published:
         return {"skipped": "job_not_published"}
+    from app.services.request_work_state import IN_WORK_STATES
+
+    if job.work_state not in IN_WORK_STATES:
+        return {"skipped": "job_not_in_work"}
 
     owners = await owners_by_candidate(db)
     if not owners:
@@ -256,7 +378,7 @@ async def run_for_job(db: AsyncSession, job: Job) -> dict:
         for uid in owners.get(cid, ()):
             per_user.setdefault(uid, []).append(person)
 
-    notified = 0
+    events: list[tuple[int, dict]] = []
     stored = 0
     for uid, people in per_user.items():
         people.sort(key=lambda p: p.score or 0, reverse=True)
@@ -293,28 +415,41 @@ async def run_for_job(db: AsyncSession, job: Job) -> dict:
             f"{names.get(p.candidate_id) or 'kandydat'} ({p.score})" for p in fresh[:3]
         )
         more = f" i {len(fresh) - 3} więcej" if len(fresh) > 3 else ""
-        try:
-            created = await emit(
-                db,
-                user_id=uid,
-                title=f"Nowa rekrutacja: {job.title} — {_people_phrase(len(fresh))} pasuje",
-                message=f"Z Twojej listy „Moi ludzie”: {top}{more}.",
-                ntype=NotificationType.my_people_match,
-                related_entity_type="job",
-                related_entity_id=job.id,
-                link=f"/jobs/{job.id}?people=1",
+        events.append(
+            (
+                uid,
+                {
+                    "type": "my_people:match",
+                    "data": {
+                        "job_id": job.id,
+                        "title": f"Nowa rekrutacja: {display_title(job)} — {_people_phrase(len(fresh))} pasuje",
+                        "message": f"Z Twojej listy „Moi ludzie”: {top}{more}.",
+                        "link": f"/jobs/{job.id}?people=1",
+                    },
+                },
             )
-            notified += int(created is not None)
-        except Exception as exc:  # noqa: BLE001 — jeden odbiorca nie psuje reszty
-            logger.warning(
-                "[my_people] notify failed user=%s job=%s: %s", uid, job.id, exc
-            )
+        )
+    # Po pętli: wycofany savepoint wołającego nie odwoła zakolejkowanego
+    # zdarzenia, więc kolejkujemy dopiero po zapisie wszystkich dopasowań.
+    for uid, event in events:
+        if not queue_ws_event(db, user_id=uid, event_payload=event):
+            await _push_now(uid, event)
     return {
         "pool": len(ids),
         "matched": len(good),
         "stored": stored,
-        "notified": notified,
+        "notified": len(events),
     }
+
+
+async def _push_now(user_id: int, event: dict) -> None:
+    """Atrapa sesji (test) — bez commitu, więc od razu; best-effort."""
+    from app.api import ws as ws_manager
+
+    try:
+        await ws_manager.notify_user(user_id, event)
+    except Exception as exc:  # noqa: BLE001 — licznik i tak się odświeży
+        logger.warning("[my_people] WS push failed user=%s: %s", user_id, exc)
 
 
 def _people_phrase(n: int) -> str:
@@ -323,9 +458,12 @@ def _people_phrase(n: int) -> str:
 
 
 __all__ = [
+    "dealbreaker_exclusions",
     "AutoMatchUnavailable",
+    "JobFit",
     "ScoredPerson",
     "candidates_in_job",
+    "fits_for_job",
     "last_sent_to_client",
     "run_for_job",
     "score_people_for_job",

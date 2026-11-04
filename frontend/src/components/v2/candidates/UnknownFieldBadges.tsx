@@ -62,3 +62,53 @@ export function HideUnknownToggle({
     </label>
   );
 }
+
+/**
+ * D5 (19.10.2026): „Osoby bez stawki / bez miasta w profilu: pokaż na końcu
+ * listy / ukryj” w okienku samego filtru — węższe niż „Ukryj osoby bez
+ * danych”, które działa na stawkę, miasto i staż naraz.
+ */
+export function HideUnknownChoice({
+  label,
+  hidden,
+  onChange,
+  className,
+}: {
+  /** „Osoby bez stawki”, „Osoby bez miasta w profilu”. */
+  label: string;
+  hidden: boolean;
+  onChange: (hidden: boolean) => void;
+  className?: string;
+}) {
+  const choices = [
+    { value: false, text: "pokaż na końcu listy" },
+    { value: true, text: "ukryj" },
+  ] as const;
+  return (
+    <div className={cn("space-y-1", className)}>
+      <span className="block text-[11px] font-medium text-foreground">{label}</span>
+      <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1.5">
+        {choices.map((choice) => {
+          const checked = hidden === choice.value;
+          return (
+            <button
+              key={choice.text}
+              type="button"
+              role="radio"
+              aria-checked={checked}
+              onClick={() => onChange(choice.value)}
+              className={cn(
+                "rounded-full border px-2.5 py-0.5 text-xs transition-colors",
+                checked
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-card text-foreground hover:bg-accent",
+              )}
+            >
+              {choice.text}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

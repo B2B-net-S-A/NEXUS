@@ -1,0 +1,512 @@
+"""Kto dostaje dzwonek, gdy karta przechodzi z rąk do rąk (02.10.2026).
+
+Reguły etapów (`stage_notification_rules`, 0066) są przypięte do wiersza
+definicji etapu i zasiane raz, w kwietniu: etap „QC CV” (0361) nie ma żadnej,
+a „CV wysłane” zna tylko prowadzącego z pola rekrutacji. Zgłoszenie z testów
+(02.10.2026): rekruter przekazał CV do QC, Delivery Lead wysłał je do klienta
+i żadna z dwóch osób nie dostała powiadomienia — dzwonek trafił do osoby
+z `jobs.recruiter_id`, która tego kandydata nie prowadziła.
+
+Przekazania wynikają z samego przepływu, więc nie zależą od tego, czy
+ktoś dopisał regułę do etapu:
+
+* „QC CV” → Delivery Lead rekrutacji (ta sama reguła co kolejka
+  „Czeka na Twój przegląd”, `board_tasks._sees_dl_review`); u Nordei od
+  13.10.2026 to prośba o akceptację do kolejki Cpro;
+* kolejka Cpro u Nordei → osoba od Cpro (`board_tasks`: firmowa, bez niej
+  zapasowa z rekrutacji) — kartę wkłada tam wyłącznie Delivery Lead
+  (`pipeline_move_rules.requires_dl_client_rate`);
+* zwrot z kolejki Cpro do „QC CV” → osoba, która kartę tam przekazała,
+  i Delivery Lead rekrutacji, bo karta wraca do jego przeglądu;
+* „CV wysłane” → rekruter, który prowadzi kandydata w tej rekrutacji
+  (`interview_slots.default_recruiter_id`: właściciel procesu → pierwszy
+  weryfikator → prowadzący rekrutację) ORAZ osoba, która przekazała kartę
+  do wysłania — bywa nią ktoś inny niż pierwszy weryfikator;
+* etapy-odznaki bez własnej reguły („Preparation Meeting”, „Umowa wysłana”,
+  „Umowa podpisana”) → prowadzący rekrutację, rekruter kandydata i Delivery
+  Lead rekrutacji — ci sami ludzie, którzy dowiadują się o sąsiednich etapach;
+* „Akceptacja” (klient zaakceptował, 16.10.2026) → prowadzący, rekruter
+  kandydata, Delivery Lead rekrutacji i każdy aktywny Head of Recruitment.
+
+Pierwsze trzy to imienne zadania (`TASK_REASONS`): idą typem
+``board_task_waiting`` (kategoria „Wzmianki”, nie do wyciszenia). „CV wysłane”
+i etapy-odznaki są informacją i zostają przy ``stage_rule``. Akceptacja ma
+własny typ ``client_accepted`` w kategorii „Akceptacje klienta”, której nie
+da się wyciszyć (D5 z makiet 16.10.2026).
+
+Osoba, która sama przesunęła kartę, jest odsiewana w resolverze.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+from sqlalchemy import or_, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.job import Job
+from app.models.notification import Notification, NotificationType
+from app.models.pipeline_template import PipelineStageDef
+from app.models.recruitment_pipeline import CandidateStage
+from app.models.team_structure import DeliveryLeadClientAssignment
+from app.models.user import User, UserRole
+from app.services import cpro_sender
+from app.services.board_stage_badges import (
+    BOARD_COLUMN_ORDER,
+    CV_QC_COLUMN,
+    board_column_for,
+    cpro_enabled_for_client,
+    is_cpro_stage,
+    stage_badge_kind,
+)
+
+REASON_DL_REVIEW = "dl_review"
+REASON_CPRO_QUEUE = "cpro_queue"
+REASON_CPRO_RETURNED = "cpro_returned"
+REASON_CV_SENT = "cv_sent"
+# Karta cofnięta z „QC CV” do wcześniejszej kolumny (poza Nordeą) — „Wróć do
+# poprawy” w przeglądzie Delivery Leada albo zwykłe przeciągnięcie.
+REASON_QC_RETURNED = "qc_returned"
+REASON_STAGE_REACHED = "stage_reached"
+# Karta weszła na etap „Akceptacja” — klient zaakceptował osobę.
+REASON_CLIENT_ACCEPTED = "client_accepted"
+
+# Karta czeka na odbiorcę — zadanie, nie informacja o ruchu.
+TASK_REASONS = frozenset(
+    {REASON_DL_REVIEW, REASON_CPRO_QUEUE, REASON_CPRO_RETURNED, REASON_QC_RETURNED}
+)
+# Przekazania, które SĄ ruchem wstecz — resolver ich nie odsiewa.
+BACKWARD_REASONS = frozenset({REASON_CPRO_RETURNED, REASON_QC_RETURNED})
+
+# Początki tytułów dzwonka zadania. Wiersz powiadomienia nie niesie powodu,
+# a kolejka maili (`tasks/notification_email_outbox.py`) odróżnia po nich
+# „CV czeka na przegląd” od „CV wróciło do poprawy” — oba miejsca czytają
+# te same stałe.
+TITLE_DL_REVIEW = "CV do przeglądu:"
+TITLE_CPRO_QUEUE = "Do wrzucenia do Cpro:"
+TITLE_CPRO_RETURNED = "Wrócił z kolejki Cpro:"
+TITLE_QC_RETURNED = "Wróciło do poprawy:"
+# „Przypomnij” rekrutera (13.10.2026): gotowe CV czeka u Delivery Leada. To
+# zadanie dla DL, nie zwrot — poza `RETURNED_TITLE_PREFIXES`, żeby mail szedł
+# jako „CV czeka na przegląd”.
+TITLE_DL_NUDGE = "Wciąż czeka na wysyłkę:"
+# QC po przekazaniu do „QC CV” nie przeszło (14.10.2026, `cv_qc.run_after_move`)
+# — zadanie dla REKRUTERA: poprawić CV, zanim Delivery Lead je wyśle. Mailem
+# idzie jak zwrot do poprawy (ten sam adresat i ta sama czynność), nie jako
+# „CV czeka na przegląd”, który jest mailem Delivery Leada.
+TITLE_QC_FAILED = "QC CV do poprawy:"
+RETURNED_TITLE_PREFIXES = (TITLE_CPRO_RETURNED, TITLE_QC_RETURNED, TITLE_QC_FAILED)
+TITLE_CLIENT_ACCEPTED = "Klient zaakceptował:"
+
+CV_SENT_COLUMN = "cv_sent"
+# Kolumny, z których ruch na „CV wysłane” jest wysłaniem karty przekazanej
+# przez poprzednią osobę.
+_BEFORE_SEND_COLUMNS = frozenset({"new", "screening", "verified", CV_QC_COLUMN})
+_BEFORE_QC_COLUMNS = _BEFORE_SEND_COLUMNS - {CV_QC_COLUMN}
+# Etapy-odznaki (rozpoznawane po nazwie, jak na Tablicy), które nie dostały
+# reguły przy zasiewie: przygotowanie do rozmowy i dwa kroki umowy.
+_INFO_BADGE_KINDS = frozenset({"prep", "contract_sent", "contract_signed"})
+# Kierunek ruchu między szablonami: kolejność kolumn Tablicy, zamknięci na końcu.
+_DIRECTION_STEP = {
+    column: step for step, column in enumerate((*BOARD_COLUMN_ORDER, "closed"))
+}
+
+
+def _value(raw: object) -> Optional[str]:
+    """Wartość enuma albo napis — definicja etapu niesie oba kształty."""
+
+    if raw is None:
+        return None
+    return str(getattr(raw, "value", raw))
+
+
+def _column(stage_def: PipelineStageDef, stage_code: Optional[str] = None) -> str:
+    return board_column_for(
+        stage_def.name,
+        stage_code or stage_def.legacy_enum_value,
+        category=_value(stage_def.category),
+        terminal_type=_value(stage_def.terminal_type),
+    )
+
+
+def _is_cpro_queue(stage_def: Optional[PipelineStageDef]) -> bool:
+    return (
+        stage_def is not None
+        and _column(stage_def) == CV_QC_COLUMN
+        and stage_badge_kind(stage_def.name) == "cpro"
+    )
+
+
+def is_client_acceptance(
+    stage_def: PipelineStageDef, stage_code: Optional[str] = None
+) -> bool:
+    """Etap „Akceptacja” (kod ``acceptance``) — także „Zaakceptowany”
+    z szablonu Traffita, który niesie ten sam kod."""
+
+    return (
+        _value(stage_code or stage_def.legacy_enum_value) == "acceptance"
+        and _value(stage_def.category) != "terminal"
+    )
+
+
+def is_backward_move(
+    previous_def: Optional[PipelineStageDef],
+    stage_def: PipelineStageDef,
+    *,
+    stage_code: Optional[str] = None,
+) -> bool:
+    """Czy ruch jest cofnięciem (albo ruchem w bok) — wtedy reguły etapów
+    milczą.
+
+    ``order`` porównujemy wyłącznie w obrębie jednego szablonu. Karty
+    przeniesione z Traffita stoją na etapach szablonu Traffita (np. „Po
+    Interview”, order 11), a rekrutacja jest na szablonie domyślnym
+    („Akceptacja”, order 9) — porównanie liczb z dwóch szablonów brało ruch
+    dalej za cofnięcie i nikt nie dostawał dzwonka (16.10.2026: 4 ostatnie
+    akceptacje, 0 dzwonków). Między szablonami decyduje kolumna Tablicy.
+    """
+
+    if previous_def is None:
+        return False
+    if previous_def.template_id == stage_def.template_id:
+        return previous_def.order >= stage_def.order
+    # Zamknięci stoją za „Zatrudnionym”, jak etapy końcowe na końcu szablonu.
+    previous_step = _DIRECTION_STEP.get(_column(previous_def), 0)
+    return previous_step >= _DIRECTION_STEP.get(_column(stage_def, stage_code), 0)
+
+
+def handoff_kind(
+    stage_def: PipelineStageDef,
+    *,
+    client_id: Optional[int],
+    stage_code: Optional[str] = None,
+    previous_def: Optional[PipelineStageDef] = None,
+) -> Optional[str]:
+    """Które przekazanie oznacza wejście na ten etap (albo żadne).
+
+    ``stage_code`` to kod zapisany w wierszu ruchu — ten sam, z którego ruch
+    liczy kolumnę docelową; bez niego kod definicji etapu. ``previous_def``
+    (etap, z którego karta przyszła) rozpoznaje zwrot z kolejki Cpro.
+    """
+
+    column = _column(stage_def, stage_code)
+    nordea = cpro_enabled_for_client(client_id)
+    if (
+        column in _BEFORE_QC_COLUMNS
+        and previous_def is not None
+        and _column(previous_def) == CV_QC_COLUMN
+    ):
+        return REASON_QC_RETURNED
+    if column == CV_QC_COLUMN:
+        if stage_badge_kind(stage_def.name) == "cpro":
+            return REASON_CPRO_QUEUE if nordea else None
+        if nordea and _is_cpro_queue(previous_def):
+            return REASON_CPRO_RETURNED
+        # U Nordei „QC CV” to też przegląd Delivery Leada: akceptacja do
+        # kolejki Cpro zamiast wysyłki do klienta (13.10.2026).
+        return REASON_DL_REVIEW
+    if column == CV_SENT_COLUMN:
+        return REASON_CV_SENT
+    if is_client_acceptance(stage_def, stage_code):
+        return REASON_CLIENT_ACCEPTED
+    if (
+        stage_badge_kind(stage_def.name) in _INFO_BADGE_KINDS
+        and _value(stage_def.category) != "terminal"
+    ):
+        return REASON_STAGE_REACHED
+    return None
+
+
+async def _dl_reviewers(db: AsyncSession, job: Job) -> list[int]:
+    """Delivery Lead rekrutacji; bez niego (albo z martwym kontem) — DL-e
+    z portfelem klienta."""
+
+    is_dl = or_(
+        User.role == UserRole.delivery_lead,
+        User.roles.contains([UserRole.delivery_lead.value]),
+    )
+    if job.delivery_lead_id is not None:
+        lead = await db.execute(
+            select(User.id, is_dl).where(
+                User.id == job.delivery_lead_id, User.is_active.is_(True)
+            )
+        )
+        row = lead.first()
+        if row is not None:
+            # Aktywny DL wpisany w rekrutacji wygrywa. Bez roli DL kolejka
+            # przeglądu nikomu tego zadania nie pokazuje — dzwonek też nie.
+            return [row[0]] if row[1] else []
+    if job.client_id is None:
+        return []
+    rows = await db.scalars(
+        select(User.id)
+        .join(
+            DeliveryLeadClientAssignment,
+            DeliveryLeadClientAssignment.delivery_lead_user_id == User.id,
+        )
+        .where(
+            DeliveryLeadClientAssignment.client_id == job.client_id,
+            User.is_active.is_(True),
+            is_dl,
+        )
+    )
+    return sorted(set(rows.all()))
+
+
+async def _heads_of_recruitment(db: AsyncSession) -> list[int]:
+    """Aktywni Head of Recruitment — rola główna albo dodatkowa."""
+
+    rows = await db.scalars(
+        select(User.id).where(
+            User.is_active.is_(True),
+            or_(
+                User.role == UserRole.head_of_recruitment,
+                User.roles.contains([UserRole.head_of_recruitment.value]),
+            ),
+        )
+    )
+    return sorted(set(rows.all()))
+
+
+async def client_acceptance_recipients(
+    db: AsyncSession, *, job: Job, candidate_id: int
+) -> list[tuple[int, str]]:
+    """``(osoba, rola przy akceptacji)`` — kogo powiadamia „Klient
+    zaakceptował”. To samo czyta dzwonek i podgląd w oknie akceptacji
+    (`GET /api/pipeline/client-acceptance/recipients`).
+
+    Kolejność: rekruter kandydata, prowadzący, Delivery Lead, Head of
+    Recruitment; osoba w kilku rolach występuje raz, z pierwszą.
+    """
+
+    from app.services.job_previous_recruiters import (  # noqa: PLC0415
+        working_owner_id,
+    )
+
+    tagged: list[tuple[Optional[int], str]] = [
+        (
+            await pair_recruiter_id(db, candidate_id=candidate_id, job_id=job.id),
+            "recruiter",
+        ),
+        (await working_owner_id(db, job), "owner"),
+        *((uid, "delivery_lead") for uid in await _dl_reviewers(db, job)),
+        *((uid, "head_of_recruitment") for uid in await _heads_of_recruitment(db)),
+    ]
+    seen: dict[int, str] = {}
+    for uid, role in tagged:
+        if uid is not None and uid not in seen:
+            seen[uid] = role
+    return list(seen.items())
+
+
+async def _cpro_senders(db: AsyncSession, job: Job) -> list[int]:
+    firm = (await cpro_sender.effective_sender(db)).user_id
+    if firm is not None:
+        return [firm]
+    if job.cpro_sender_id is None:
+        return []
+    return sorted(await cpro_sender.active_user_ids(db, [job.cpro_sender_id]))
+
+
+async def pair_recruiter_id(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> Optional[int]:
+    """Rekruter prowadzący kandydata w tej rekrutacji."""
+
+    from app.services.interview_slots import (  # noqa: PLC0415 — cykl importu
+        default_recruiter_id,
+    )
+
+    return await default_recruiter_id(db, candidate_id=candidate_id, job_id=job_id)
+
+
+def _handed_over_by(
+    previous_stage: Optional[CandidateStage], previous_def: Optional[PipelineStageDef]
+) -> Optional[int]:
+    """Kto przekazał kartę do wysłania: autor poprzedniego ruchu, jeśli karta
+    stała w kolumnie sprzed „CV wysłane”."""
+
+    if previous_stage is None or previous_stage.moved_by is None:
+        return None
+    code = _value(previous_stage.stage)
+    column = (
+        _column(previous_def, code)
+        if previous_def is not None
+        else board_column_for(None, code)
+    )
+    return previous_stage.moved_by if column in _BEFORE_SEND_COLUMNS else None
+
+
+async def handoff_recipients(
+    db: AsyncSession,
+    *,
+    stage_def: PipelineStageDef,
+    job: Job,
+    candidate_id: int,
+    stage_code: Optional[str] = None,
+    previous_stage: Optional[CandidateStage] = None,
+    previous_def: Optional[PipelineStageDef] = None,
+) -> tuple[Optional[str], list[int]]:
+    """``(powód, odbiorcy)`` przekazania; ``(None, [])``, gdy etap nim nie jest."""
+
+    kind = handoff_kind(
+        stage_def,
+        client_id=job.client_id,
+        stage_code=stage_code,
+        previous_def=previous_def,
+    )
+    if kind == REASON_DL_REVIEW:
+        return kind, await _dl_reviewers(db, job)
+    if kind == REASON_CPRO_QUEUE:
+        return kind, await _cpro_senders(db, job)
+    if kind == REASON_CPRO_RETURNED:
+        # Kto włożył kartę do kolejki (od 13.10.2026 akceptujący DL) i DL
+        # rekrutacji — karta wraca do jego przeglądu.
+        sender = previous_stage.moved_by if previous_stage is not None else None
+        ids = (sender, *await _dl_reviewers(db, job))
+        return kind, [uid for uid in dict.fromkeys(ids) if uid is not None]
+    if kind == REASON_QC_RETURNED:
+        # Kto przekazał kartę do QC i rekruter kandydata — to oni poprawiają.
+        recruiter = await pair_recruiter_id(
+            db, candidate_id=candidate_id, job_id=job.id
+        )
+        sender = previous_stage.moved_by if previous_stage is not None else None
+        if (
+            sender is not None
+            and cpro_enabled_for_client(job.client_id)
+            and sender in await _cpro_senders(db, job)
+        ):
+            # Karta wróciła do „QC CV” z kolejki Cpro — autorem tamtego ruchu
+            # jest osoba od Cpro, która CV nie poprawia.
+            sender = None
+        return kind, [
+            uid for uid in dict.fromkeys((sender, recruiter)) if uid is not None
+        ]
+    if kind == REASON_CV_SENT:
+        recruiter = await pair_recruiter_id(
+            db, candidate_id=candidate_id, job_id=job.id
+        )
+        ids = (recruiter, _handed_over_by(previous_stage, previous_def))
+        return kind, [uid for uid in dict.fromkeys(ids) if uid is not None]
+    if kind == REASON_STAGE_REACHED:
+        recruiter = await pair_recruiter_id(
+            db, candidate_id=candidate_id, job_id=job.id
+        )
+        # „Poprzedni rekruter” (14.10.2026) dostaje dzwonek tylko jako
+        # rekruter pary.
+        from app.services.job_previous_recruiters import (  # noqa: PLC0415
+            working_owner_id,
+        )
+
+        ids = (
+            await working_owner_id(db, job),
+            recruiter,
+            *await _dl_reviewers(db, job),
+        )
+        return kind, [uid for uid in dict.fromkeys(ids) if uid is not None]
+    if kind == REASON_CLIENT_ACCEPTED:
+        return kind, [
+            uid
+            for uid, _role in await client_acceptance_recipients(
+                db, job=job, candidate_id=candidate_id
+            )
+        ]
+    return None, []
+
+
+async def close_cpro_queue_bells(
+    db: AsyncSession,
+    *,
+    previous: Optional[CandidateStage],
+    target_name: Optional[str],
+) -> int:
+    """Karta wyszła z kolejki Cpro — dzwonek „Do wrzucenia do Cpro” gaśnie.
+
+    Pomiar 12–13.10.2026: Delivery Lead oznaczał „Wysłane do Cpro” sam
+    (8 z 10 ruchów), a osoba od Cpro zostawała z nieprzeczytanym zadaniem
+    o kimś, kto już był wysłany. Gaszone są tylko dzwonki tego wiersza
+    kolejki (encja = wiersz etapu); przypomnienie po imporcie Traffita
+    (encja = osoba) zostaje. Ponowny ruch na etap Cpro niczego nie gasi.
+    """
+
+    if previous is None or previous.stage_def_id is None or is_cpro_stage(target_name):
+        return 0
+    previous_name = await db.scalar(
+        select(PipelineStageDef.name).where(
+            PipelineStageDef.id == previous.stage_def_id
+        )
+    )
+    if not is_cpro_stage(previous_name):
+        return 0
+    result = await db.execute(
+        update(Notification)
+        .where(
+            Notification.notification_type == NotificationType.board_task_waiting,
+            Notification.related_entity_type == "candidate_stage",
+            Notification.related_entity_id == previous.id,
+            Notification.title.startswith(TITLE_CPRO_QUEUE),
+            Notification.is_read.is_(False),
+        )
+        .values(is_read=True)
+        .execution_options(synchronize_session=False)
+    )
+    return result.rowcount or 0
+
+
+async def close_client_acceptance_bells(
+    db: AsyncSession,
+    *,
+    previous: Optional[CandidateStage],
+    target_column: str,
+) -> int:
+    """„Cofnij akceptację klienta” — dzwonki, których nikt nie otworzył, gasną.
+
+    Gasną tylko przy powrocie karty PRZED „Akceptację i umowę” (pomyłka
+    w oznaczeniu). Ruch dalej (umowa) albo zamknięcie po akceptacji zostawia
+    dzwonek: akceptacja była prawdą. Encja dzwonka = wiersz etapu akceptacji;
+    gasimy dzwonki każdego wiersza akceptacji pary, bo karta mogła po drodze
+    pochodzić po krokach umowy (nowy wiersz akceptacji bez dzwonków).
+    """
+
+    if previous is None or _value(previous.stage) != "acceptance":
+        return 0
+    if _DIRECTION_STEP.get(target_column, 0) >= _DIRECTION_STEP["contract"]:
+        return 0
+    acceptance_rows = select(CandidateStage.id).where(
+        CandidateStage.candidate_id == previous.candidate_id,
+        CandidateStage.job_id == previous.job_id,
+        CandidateStage.stage == previous.stage,
+    )
+    result = await db.execute(
+        update(Notification)
+        .where(
+            Notification.notification_type == NotificationType.client_accepted,
+            Notification.related_entity_type == "candidate_stage",
+            Notification.related_entity_id.in_(acceptance_rows),
+            Notification.is_read.is_(False),
+        )
+        .values(is_read=True)
+        .execution_options(synchronize_session=False)
+    )
+    return result.rowcount or 0
+
+
+__all__ = [
+    "REASON_CLIENT_ACCEPTED",
+    "REASON_CPRO_QUEUE",
+    "REASON_CPRO_RETURNED",
+    "REASON_CV_SENT",
+    "REASON_DL_REVIEW",
+    "REASON_QC_RETURNED",
+    "BACKWARD_REASONS",
+    "REASON_STAGE_REACHED",
+    "TASK_REASONS",
+    "client_acceptance_recipients",
+    "close_client_acceptance_bells",
+    "close_cpro_queue_bells",
+    "is_backward_move",
+    "is_client_acceptance",
+    "handoff_kind",
+    "handoff_recipients",
+    "pair_recruiter_id",
+]

@@ -4,7 +4,7 @@
  * sterowania i pozwala podać wynik wyszukiwania tak, jak robi to pdf.js.
  */
 import * as React from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
@@ -37,6 +37,7 @@ vi.mock("@/components/v2/files/PdfDocumentViewer", async () => {
   };
 });
 
+import { FilePreviewContent } from "@/components/v2/files/FilePreviewModal";
 import { SearchablePdfPreview } from "@/components/v2/files/SearchablePdfPreview";
 
 function renderPreview(scope: "dialog" | "container" = "dialog") {
@@ -93,12 +94,87 @@ describe("SearchablePdfPreview", () => {
     ).toBeDisabled();
   });
 
+  // „Szukaj w CV” przy wymaganiu (16.10.2026): pole pokazuje nazwę wymagania,
+  // pdf.js dostaje listę słów, a linia pod paskiem mówi, czego lupa szuka.
+  it("searches the requirement's words and says what it searched for", () => {
+    const file = new Blob(["%PDF"], { type: "application/pdf" });
+    render(
+      <div style={{ position: "relative", height: 600 }}>
+        <SearchablePdfPreview
+          file={file}
+          query=".NET lub C#"
+          onQueryChange={vi.fn()}
+          terms={[".NET", "C#"]}
+        />
+      </div>,
+    );
+    act(() => viewer.props?.onTextAvailability?.("has_text"));
+    act(() => vi.advanceTimersByTime(250));
+    expect(viewer.handle.search).toHaveBeenLastCalledWith([".NET", "C#"]);
+    const line = screen.getByTestId("document-search-terms");
+    expect(line).toHaveTextContent("Szukam:");
+    expect(within(line).getByText(".NET")).toBeInTheDocument();
+    expect(within(line).getByText("C#")).toBeInTheDocument();
+
+    act(() => viewer.props?.onFindResult?.({ current: 0, total: 0, pending: false }));
+    expect(line).toHaveTextContent("Szukałem:");
+    expect(line).toHaveTextContent("nie ma w CV");
+  });
+
+  it("a requirement search uses its words until the user types something else", async () => {
+    const pdf = new Blob(["%PDF"], { type: "application/pdf" });
+    render(
+      <div style={{ position: "relative", height: 600 }}>
+        <FilePreviewContent
+          doc={{
+            id: 1,
+            filename: "CV.pdf",
+            content_type: "application/pdf",
+            size_bytes: 4,
+            document_kind: "cv",
+            is_primary: true,
+            uploaded_at: "2026-10-16T08:00:00Z",
+            external_source: null,
+            created_at: "2026-10-16T08:00:00Z",
+          }}
+          candidateId={7}
+          onDownload={vi.fn()}
+          loadDocumentBlob={async () => pdf}
+          searchRequest={{ text: ".NET lub C#", nonce: 1, terms: [".NET", "C#"] }}
+        />
+      </div>,
+    );
+    await act(async () => {});
+    act(() => viewer.props?.onTextAvailability?.("has_text"));
+    act(() => vi.advanceTimersByTime(250));
+    const input = screen.getByRole("searchbox", { name: "Szukaj w CV" }) as HTMLInputElement;
+    expect(input.value).toBe(".NET lub C#");
+    expect(viewer.handle.search).toHaveBeenLastCalledWith([".NET", "C#"]);
+    expect(screen.getByTestId("document-search-terms")).toBeInTheDocument();
+
+    // Ręcznie wpisany tekst to znowu zwykła fraza — bez linii „Szukam:”.
+    fireEvent.change(input, { target: { value: "Azure" } });
+    act(() => vi.advanceTimersByTime(250));
+    expect(viewer.handle.search).toHaveBeenLastCalledWith("Azure");
+    expect(screen.queryByTestId("document-search-terms")).toBeNull();
+  });
+
   it("tells the user a scanned PDF has no text to search", () => {
     renderPreview();
     act(() => viewer.props?.onTextAvailability?.("no_text"));
     expect(
       screen.getByText("Ten plik to skan — nie ma w nim tekstu do przeszukania"),
     ).toBeInTheDocument();
+  });
+
+  it("long scan notice truncates instead of crushing the search field in a narrow pane", () => {
+    renderPreview();
+    act(() => viewer.props?.onTextAvailability?.("no_text"));
+    const notice = screen.getByText("Ten plik to skan — nie ma w nim tekstu do przeszukania");
+    expect(notice).toHaveClass("min-w-0", "truncate");
+    expect(notice).not.toHaveClass("shrink-0");
+    expect(notice).toHaveAttribute("title", "Ten plik to skan — nie ma w nim tekstu do przeszukania");
+    expect(screen.getByRole("searchbox").parentElement).toHaveClass("min-w-44");
   });
 
   it("Escape clears the query before anything else", () => {
@@ -119,7 +195,7 @@ describe("SearchablePdfPreview", () => {
       cancelable: true,
     });
     act(() => {
-      window.dispatchEvent(event);
+      document.body.dispatchEvent(event);
     });
     expect(event.defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(input);
@@ -134,7 +210,7 @@ describe("SearchablePdfPreview", () => {
       cancelable: true,
     });
     act(() => {
-      window.dispatchEvent(event);
+      document.body.dispatchEvent(event);
     });
     expect(event.defaultPrevented).toBe(false);
     expect(document.activeElement).not.toBe(screen.getByRole("searchbox"));

@@ -33,6 +33,7 @@ export function makeCvRule(overrides: Partial<ClientCvRule> = {}): ClientCvRule 
     version: 1,
     cv_content_mode_cap: null,
     cv_interactive_enabled: true,
+    cv_client_document: "company_cv",
     seed_key: null,
     confirmed_at: "2026-08-31T10:00:00Z",
     confirmed_by_name: "Artur",

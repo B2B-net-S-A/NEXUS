@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import {
   CONTRACT_TERMINATION_REASONS,
+  contractEquipmentApi,
   contractsApi,
   type AgreementTerminationMode,
   type AgreementTerminationParty,
@@ -14,20 +15,28 @@ import {
 import { AppModal } from "@/components/ds/AppModal";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
+  AGREEMENT_PLANS,
   AGREEMENT_TERMINATION_MODES,
   AGREEMENT_TERMINATION_PARTIES,
   agreementTerminationPayload,
   attachmentDocType,
+  defaultNonCompetePlan,
   emptyTerminationForm,
   missingTerminationFields,
   signedOnLabel,
   suggestedLastDay,
   terminationFormError,
   terminationWarnings,
+  type AgreementPlan,
   type TerminationFormState,
 } from "@/lib/contract-termination";
 import { warsawToday } from "@/lib/warsaw-date";
 import { documentsHref } from "@/lib/b2b-documents";
+import {
+  useContractEquipmentRegister,
+  useCreateReturnTask,
+} from "@/lib/api/equipment";
+import { assignmentLabel } from "@/components/equipment/equipment-format";
 
 interface Props {
   /** Jedna umowa = „Zakończ współpracę"; kilka = „Oznacz zakończone" w rejestrze. */
@@ -73,15 +82,20 @@ export function ContractTerminationDialog({
   onSuccess,
 }: Props) {
   const qc = useQueryClient();
+  const router = useRouter();
   const bulk = bulkProp ?? contractIds.length > 1;
   // Karta kontraktora i lista kontraktorów nie niosą okresu wypowiedzenia ani
   // końca zamówienia — dialog doczytuje je z kontraktu (ten sam klucz co karta
   // kontraktu, więc tam nie ma drugiego zapytania).
-  const needsContract =
-    !bulk && (noticePeriodProp === undefined || orderEndProp === undefined);
+  // Runda 10 (F27): przy jednej umowie dialog czyta ZAWSZE kontrakt — data
+  // startu blokuje koniec projektu przed nią (ten sam klucz co karta
+  // kontraktu, więc tam nie ma drugiego zapytania).
+  const needsContract = !bulk;
   const contractQuery = useQuery<{
     notice_period_months?: number | null;
     client_order_end_date?: string | null;
+    start_date?: string | null;
+    client_name?: string | null;
   }>({
     queryKey: ["contract", contractIds[0]],
     queryFn: () => contractsApi.get(contractIds[0]).then((r) => r.data),
@@ -110,9 +124,34 @@ export function ContractTerminationDialog({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [changed, setChanged] = useState(0);
 
+  // „Zwrot sprzętu” (moduł „Sprzęt”, „Ludzie w NEXUSIE”): co konsultant ma
+  // oddać i zadanie odbioru dla recepcji. Wyłączony moduł (404) i brak
+  // uprawnień (403) chowają sekcję — zakończenie działa jak dotąd.
+  const equipmentRegister = useContractEquipmentRegister(contractIds[0], !bulk);
+  const manualEquipment = useQuery({
+    queryKey: ["contract-equipment", contractIds[0]],
+    queryFn: () => contractEquipmentApi.list(contractIds[0]).then((r) => r.data),
+    enabled: !bulk,
+    retry: false,
+  });
+  const createReturnTask = useCreateReturnTask();
+  const [planReturn, setPlanReturn] = useState(true);
+  const [returnTaskError, setReturnTaskError] = useState<string | null>(null);
+  const registerActive = equipmentRegister.data?.active ?? [];
+  const manualPending = (manualEquipment.data ?? []).filter(
+    (row) =>
+      row.return_status === "pending" &&
+      (row as { assignment_id?: number | null }).assignment_id == null,
+  );
+  const hasEquipmentToReturn = registerActive.length + manualPending.length > 0;
+  const canPlanReturn = !bulk && equipmentRegister.isSuccess && hasEquipmentToReturn;
+
   const set = (patch: Partial<TerminationFormState>) =>
     setForm((prev) => {
       const next = { ...prev, ...patch };
+      if ("reason" in patch && !next.nonCompeteTouched) {
+        next.nonCompete = defaultNonCompetePlan(next.reason);
+      }
       if (!lastDayTouched && ("signedOn" in patch || "mode" in patch)) {
         next.lastDay =
           next.mode === "notice"
@@ -132,6 +171,7 @@ export function ContractTerminationDialog({
     // Rejestr (`staleTime` 30 s) i panel „Kończące się" (5 min) — bez tego
     // zakończony kontrakt dalej wisiał jako aktywny w oknie 30 dni.
     qc.invalidateQueries({ queryKey: ["contracts-v2"] });
+    qc.invalidateQueries({ queryKey: ["client-register"] });
     qc.invalidateQueries({ queryKey: ["contracts-expiring-v2"] });
     qc.invalidateQueries({ queryKey: ["contractors-v2"] });
     qc.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
@@ -164,6 +204,19 @@ export function ContractTerminationDialog({
           agreement_termination: agreement,
         });
       }
+      // Zadanie odbioru sprzętu dla recepcji — jak załącznik: zakończenie jest
+      // już zapisane, więc błąd tylko się pokazuje.
+      let returnError: string | null = null;
+      if (canPlanReturn && planReturn) {
+        try {
+          await createReturnTask.mutateAsync(contractIds[0]);
+        } catch (error: unknown) {
+          returnError = apiErrorMessage(
+            error,
+            "Nie udało się założyć zadania odbioru sprzętu.",
+          );
+        }
+      }
       // Załącznik osobnym żądaniem — zakończenie jest już zapisane, więc
       // padnięty upload nie może go cofnąć ani udawać, że nic się nie stało.
       let uploadError: string | null = null;
@@ -179,21 +232,53 @@ export function ContractTerminationDialog({
           }
         }
       }
-      return { count, uploadError };
+      return { count, uploadError, returnError };
     },
-    onSuccess: ({ count, uploadError }) => {
+    onSuccess: ({ count, uploadError, returnError }) => {
       invalidate();
-      if (uploadError) {
+      if (uploadError || returnError) {
         setChanged(count);
         setAttachmentError(uploadError);
+        setReturnTaskError(returnError);
         return;
       }
       onSuccess({ changed: count });
+      if (preparesAgreement) router.push(agreementHref);
     },
   });
 
-  const missing = missingTerminationFields(form);
-  const blocking = terminationFormError(form);
+  const clientName = contractQuery.data?.client_name ?? null;
+  // „Przygotuj porozumienie”: zakończenie zapisuje się jak dotąd (umowa
+  // czeka w „Umowach bez projektu”), a podpis porozumienia w generatorze
+  // zamyka ją z datą rozwiązania — kolejność „najpierw koniec, potem dokument”
+  // obsługuje `effects.apply` (projekt już zakończony = kontrakt bez zmian).
+  const preparesAgreement = !bulk && form.agreementPlan === "prepare";
+  const agreementHref = documentsHref({
+    newType: "termination_agreement",
+    contractId: contractIds[0],
+    values: {
+      termination_date: form.projectEndDate,
+      last_service_date: form.projectEndDate,
+      release_non_compete: form.nonCompete === "release",
+      non_compete_client_name: form.nonCompete === "release" ? clientName ?? "" : "",
+    },
+  });
+  const choosePlan = (plan: AgreementPlan) => {
+    setLastDayTouched(false);
+    setFile(null);
+    setForm((prev) => ({
+      ...prev,
+      agreementPlan: plan,
+      agreementTerminated: plan === "done",
+      mode: "",
+      party: "",
+      signedOn: "",
+      lastDay: "",
+    }));
+  };
+  const missing = missingTerminationFields(form, { requirePlan: !bulk });
+  const contractStart = bulk ? null : contractQuery.data?.start_date ?? null;
+  const blocking = terminationFormError(form, contractStart);
   const warnings = terminationWarnings(form, orderEndDate);
   const ready = missing.length === 0 && !blocking;
   const formId = `contract-termination-${contractIds.join("-")}`;
@@ -202,141 +287,7 @@ export function ContractTerminationDialog({
       ? "Umowa nie ma zapisanego okresu wypowiedzenia — wpisz datę ręcznie."
       : "Koniec okresu wypowiedzenia lub dzień wskazany w porozumieniu";
 
-  if (attachmentError) {
-    return (
-      <AppModal
-        open
-        onOpenChange={(next) => {
-          if (!next) onSuccess({ changed });
-        }}
-        title="Zakończenie zapisane"
-        footer={
-          <button
-            type="button"
-            onClick={() => onSuccess({ changed })}
-            className="text-sm bg-primary text-primary-foreground rounded-md px-4 py-2"
-          >
-            Zamknij
-          </button>
-        }
-      >
-        <p role="alert" className="text-sm text-destructive">
-          Zakończenie współpracy jest zapisane, ale załącznik nie trafił do
-          dokumentów kontraktu: {attachmentError} Dodaj go w zakładce „Dokumenty".
-        </p>
-      </AppModal>
-    );
-  }
-
-  return (
-    <AppModal
-      open
-      onOpenChange={(next) => {
-        if (!next) onClose();
-      }}
-      title="Zakończ współpracę"
-      description={
-        bulk
-          ? `Dane zostaną zapisane na ${contractIds.length} zaznaczonych kontraktach.`
-          : candidateName
-            ? `Konsultant: ${candidateName}`
-            : undefined
-      }
-      footer={
-        <>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={mut.isPending}
-            className="text-sm text-muted-foreground hover:underline disabled:opacity-50"
-          >
-            Anuluj
-          </button>
-          <button
-            type="submit"
-            form={formId}
-            disabled={!ready || mut.isPending}
-            title={missing.length ? `Uzupełnij: ${missing.join(", ")}` : undefined}
-            className="text-sm bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md px-4 py-2"
-          >
-            {mut.isPending ? "Zapisywanie…" : "Zakończ"}
-          </button>
-        </>
-      }
-    >
-      <form
-        id={formId}
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!ready) return;
-          mut.mutate();
-        }}
-      >
-        <label className="block">
-          <span className="text-xs text-muted-foreground">Powód zakończenia *</span>
-          <select
-            value={form.reason}
-            required
-            onChange={(e) =>
-              set({ reason: e.target.value as ContractTerminationReason | "" })
-            }
-            className={FIELD}
-          >
-            <option value="">— wybierz powód —</option>
-            {CONTRACT_TERMINATION_REASONS.map((r) => (
-              <option key={r.value} value={r.value}>
-                {r.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block">
-          <span className="text-xs text-muted-foreground">
-            Data zakończenia projektu *
-          </span>
-          <input
-            type="date"
-            value={form.projectEndDate}
-            required
-            onChange={(e) => set({ projectEndDate: e.target.value })}
-            className={FIELD}
-          />
-          <span className="mt-1 block text-xs text-muted-foreground">
-            Ostatni dzień pracy konsultanta na zamówieniu. Do tego dnia kontrakt
-            jest „Kończący się”, od następnego — „Zakończony”.
-          </span>
-        </label>
-
-        <div className="rounded-md border border-border p-3 space-y-3">
-          <label className="flex items-start gap-2">
-            <input
-              type="checkbox"
-              checked={form.agreementTerminated}
-              onChange={(e) => {
-                // Odznaczenie zdejmuje dodatkowe pola i ich wartości.
-                setLastDayTouched(false);
-                setFile(null);
-                setForm((prev) => ({
-                  ...prev,
-                  agreementTerminated: e.target.checked,
-                  mode: "",
-                  party: "",
-                  signedOn: "",
-                  lastDay: "",
-                }));
-              }}
-              className="mt-0.5"
-            />
-            <span className="text-sm">
-              <span className="font-medium">Rozwiązanie umowy</span>
-              <span className="block text-xs text-muted-foreground">
-                Umowa B2B została wypowiedziana lub rozwiązana za porozumieniem
-              </span>
-            </span>
-          </label>
-
-          {form.agreementTerminated && (
+  const agreementFields = (
             <div className="space-y-3 pl-6">
               <fieldset>
                 <legend className="text-xs text-muted-foreground">Tryb *</legend>
@@ -418,8 +369,261 @@ export function ContractTerminationDialog({
                 />
               </label>
             </div>
-          )}
+  );
+
+  if (attachmentError || returnTaskError) {
+    return (
+      <AppModal
+        open
+        onOpenChange={(next) => {
+          if (!next) onSuccess({ changed });
+        }}
+        title="Zakończenie zapisane"
+        footer={
+          <button
+            type="button"
+            onClick={() => onSuccess({ changed })}
+            className="text-sm bg-primary text-primary-foreground rounded-md px-4 py-2"
+          >
+            Zamknij
+          </button>
+        }
+      >
+        {attachmentError ? (
+          <p role="alert" className="text-sm text-destructive">
+            Zakończenie współpracy jest zapisane, ale załącznik nie trafił do
+            dokumentów kontraktu: {attachmentError} Dodaj go w zakładce „Dokumenty".
+          </p>
+        ) : null}
+        {returnTaskError ? (
+          <p role="alert" className="text-sm text-destructive">
+            Zakończenie współpracy jest zapisane, ale recepcja nie dostała
+            zadania odbioru sprzętu: {returnTaskError} Daj znać recepcji, że
+            sprzęt jest do odebrania.
+          </p>
+        ) : null}
+      </AppModal>
+    );
+  }
+
+  return (
+    <AppModal
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+      title="Zakończ współpracę"
+      description={
+        bulk
+          ? `Dane zostaną zapisane na ${contractIds.length} zaznaczonych kontraktach.`
+          : candidateName
+            ? `Konsultant: ${candidateName}`
+            : undefined
+      }
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={mut.isPending}
+            className="text-sm text-muted-foreground hover:underline disabled:opacity-50"
+          >
+            Anuluj
+          </button>
+          <button
+            type="submit"
+            form={formId}
+            disabled={!ready || mut.isPending}
+            title={missing.length ? `Uzupełnij: ${missing.join(", ")}` : undefined}
+            className="text-sm bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md px-4 py-2"
+          >
+            {mut.isPending
+              ? "Zapisywanie…"
+              : preparesAgreement
+                ? "Zakończ i przygotuj porozumienie"
+                : "Zakończ"}
+          </button>
+        </>
+      }
+    >
+      <form
+        id={formId}
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!ready) return;
+          mut.mutate();
+        }}
+      >
+        <label className="block">
+          <span className="text-xs text-muted-foreground">Powód zakończenia *</span>
+          <select
+            value={form.reason}
+            required
+            onChange={(e) =>
+              set({ reason: e.target.value as ContractTerminationReason | "" })
+            }
+            className={FIELD}
+          >
+            <option value="">— wybierz powód —</option>
+            {CONTRACT_TERMINATION_REASONS.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-xs text-muted-foreground">
+            Data zakończenia projektu *
+          </span>
+          <input
+            type="date"
+            value={form.projectEndDate}
+            required
+            min={contractStart ?? undefined}
+            onChange={(e) => set({ projectEndDate: e.target.value })}
+            className={FIELD}
+          />
+          <span className="mt-1 block text-xs text-muted-foreground">
+            Ostatni dzień pracy konsultanta na zamówieniu. Do tego dnia kontrakt
+            jest „Kończący się”, od następnego — „Zakończony”.
+          </span>
+        </label>
+
+        {!bulk && (
+          <fieldset
+            className="rounded-md border border-border p-3 space-y-2"
+            data-tour="contract.end.b2b-question"
+          >
+            <legend className="px-1 text-sm font-medium">Co z umową B2B? *</legend>
+            {AGREEMENT_PLANS.map((plan) => (
+              <div key={plan.value}>
+                <label className="flex items-start gap-2">
+                  <input
+                    type="radio"
+                    name={`${formId}-plan`}
+                    value={plan.value}
+                    checked={form.agreementPlan === plan.value}
+                    onChange={() => choosePlan(plan.value)}
+                    className="mt-1"
+                  />
+                  <span className="text-sm">
+                    {plan.label}
+                    {plan.value === "prepare" && (
+                      <span className="ml-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
+                        zalecane
+                      </span>
+                    )}
+                    <span className="block text-xs text-muted-foreground">{plan.hint}</span>
+                  </span>
+                </label>
+                {plan.value === "prepare" && form.agreementPlan === "prepare" && (
+                  <fieldset className="mt-2 ml-6 space-y-1">
+                    <legend className="text-xs text-muted-foreground">
+                      Zakaz konkurencji w porozumieniu *
+                    </legend>
+                    {(
+                      [
+                        ["keep", "Zostaje — jak w umowie"],
+                        [
+                          "release",
+                          `Zdejmujemy — Partner może przejść bezpośrednio do ${
+                            clientName ?? "klienta"
+                          }`,
+                        ],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <label key={value} className="flex items-center gap-1.5 text-sm">
+                        <input
+                          type="radio"
+                          name={`${formId}-noncompete`}
+                          value={value}
+                          checked={form.nonCompete === value}
+                          onChange={() =>
+                            setForm((prev) => ({
+                              ...prev,
+                              nonCompete: value,
+                              nonCompeteTouched: true,
+                            }))
+                          }
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
+                {plan.value === "done" && form.agreementTerminated && agreementFields}
+              </div>
+            ))}
+          </fieldset>
+        )}
+
+        {bulk && (
+        <div className="rounded-md border border-border p-3 space-y-3">
+          <label className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              checked={form.agreementTerminated}
+              onChange={(e) => {
+                // Odznaczenie zdejmuje dodatkowe pola i ich wartości.
+                setLastDayTouched(false);
+                setFile(null);
+                setForm((prev) => ({
+                  ...prev,
+                  agreementTerminated: e.target.checked,
+                  mode: "",
+                  party: "",
+                  signedOn: "",
+                  lastDay: "",
+                }));
+              }}
+              className="mt-0.5"
+            />
+            <span className="text-sm">
+              <span className="font-medium">Rozwiązanie umowy</span>
+              <span className="block text-xs text-muted-foreground">
+                Umowa B2B została wypowiedziana lub rozwiązana za porozumieniem
+              </span>
+            </span>
+          </label>
+
+          {form.agreementTerminated && agreementFields}
         </div>
+        )}
+
+        {/* Sekcja modułu „Sprzęt” — bez rejestru (moduł wyłączony, 404) jej nie ma. */}
+        {canPlanReturn ? (
+          <div className="rounded-md border border-border p-3 space-y-2">
+            <p className="text-sm font-medium">Zwrot sprzętu</p>
+            <ul className="space-y-0.5 text-xs text-muted-foreground">
+              {registerActive.map((row) => (
+                <li key={`r-${row.assignment_id}`}>
+                  {assignmentLabel(row)}
+                  {row.ownership === "klienta" ? " · zwrot do klienta" : ""}
+                </li>
+              ))}
+              {manualPending.map((row) => (
+                <li key={`m-${row.id}`}>
+                  {row.brand_model || "Sprzęt"}
+                  {row.serial_number ? ` · ${row.serial_number}` : ""}
+                  {row.owner === "client" ? " · sprzęt klienta" : ""}
+                </li>
+              ))}
+            </ul>
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                checked={planReturn}
+                onChange={(e) => setPlanReturn(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span className="text-sm">
+                Załóż recepcji zadanie odbioru sprzętu na dzień zakończenia
+              </span>
+            </label>
+          </div>
+        ) : null}
 
         <label className="block">
           <span className="text-xs text-muted-foreground">
@@ -454,23 +658,6 @@ export function ContractTerminationDialog({
         {blocking && (
           <p role="alert" className="text-xs text-destructive">
             {blocking}
-          </p>
-        )}
-        {/* Dokument do podpisu (porozumienie / wypowiedzenie) powstaje
-            w generatorze dokumentów — ten dialog zapisuje sam fakt końca.
-            Przy zakończeniu zbiorczym link nie ma jednej umowy bazowej. */}
-        {!bulk && (
-          <p className="text-xs text-muted-foreground">
-            Potrzebujesz dokumentu do podpisu?{" "}
-            <Link
-              href={documentsHref({
-                newType: "termination_agreement",
-                contractId: contractIds[0],
-              })}
-              className="text-primary underline-offset-4 hover:underline"
-            >
-              Wygeneruj porozumienie / wypowiedzenie
-            </Link>
           </p>
         )}
         {mut.isError && (

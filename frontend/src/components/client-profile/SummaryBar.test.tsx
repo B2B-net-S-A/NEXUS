@@ -48,6 +48,25 @@ describe("SummaryBar — Aktywne MRR", () => {
     expect(screen.queryByText("Brak stawek")).not.toBeInTheDocument();
   });
 
+  // Runda 10 (R10-N9-4): brak kursu NBP nie może udawać braku stawek.
+  it("brak kursu na wycenionym kontrakcie = „Brak kursu”, nie „Brak stawek”", () => {
+    render(
+      <SummaryBar
+        summary={{
+          ...base,
+          active_mrr: null,
+          active_mrr_unpriced_contracts: 1,
+          active_mrr_fx_missing_contracts: 1,
+        }}
+      />,
+    );
+    expect(screen.getByText("Brak kursu")).toBeInTheDocument();
+    expect(screen.queryByText("Brak stawek")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Aktywne MRR").closest("[title]")?.getAttribute("title"),
+    ).toContain("brak kursu NBP dla 1 aktywny kontrakt");
+  });
+
   it("podpis kafla odmienia „kontrakt” (N4)", () => {
     render(<SummaryBar summary={{ ...base, active_contracts: 1 }} />);
     expect(

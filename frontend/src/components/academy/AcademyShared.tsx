@@ -409,6 +409,7 @@ export function PersonActions({
           >
             Zmień edycję
           </Button>
+          {withdraw}
         </div>
       );
     case "rejected":

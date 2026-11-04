@@ -91,6 +91,10 @@ class NotificationType(str, enum.Enum):
     signature_signed = "signature_signed"
     signature_rejected = "signature_rejected"
     signature_failed = "signature_failed"
+    # 0603: kontraktor z wygasłego linku prosi o nowy (podpis w NEXUSIE,
+    # 27.10.2026). Własny typ, bo dzienny dedup (user+typ+wniosek) zjadałby go
+    # razem z dzwonkiem o wygaśnięciu z tego samego dnia.
+    signature_renewal_requested = "signature_renewal_requested"
     # Client framework contract (MSA) lifecycle (migracja 0092).
     # Daily scheduler emituje 30/14/7 dni przed `expiry_date` do każdego DL
     # przypisanego do klienta + admin/HoR. Dedup przez (type, related_entity_id, lokalny dzień).
@@ -149,6 +153,32 @@ class NotificationType(str, enum.Enum):
     # na serię, wyłącznie dla adminów (`services/automation_failures.py`).
     # Rekruterzy nie dostają nic: awaria jest wpisem w „Pracy w tle".
     automation_failing = "automation_failing"
+    # 0508: ktoś przegląda albo zapisuje na dysk CV kandydatów ponad normę —
+    # alarm bez blokady do adminów i Head of Recruitment, mail od razu
+    # (`services/candidate_data_access_alerts.py`).
+    candidate_data_access_alert = "candidate_data_access_alert"
+    # 0612 (28.10.2026): ktoś zalogował się pierwszy raz przez Microsoft —
+    # Head of Recruitment i admini decydują, kim jest, i ustawiają rekrutera;
+    # mail od razu (`services/new_person_setup.py`).
+    new_person_signed_in = "new_person_signed_in"
+    # 0619 (28.10.2026): Head of Recruitment albo admin opublikował ogłoszenie
+    # oznaczone „ważne” — do odbiorców ogłoszenia (wszyscy albo wybrane role),
+    # bez autora; related_entity=(announcement, id). Mail obowiązkowy
+    # (`services/announcements.py`).
+    announcement_important = "announcement_important"
+    # 0639 (02.11.2026): klient z panelu pod linkiem z CV zadał pytanie, poprosił
+    # o rozmowę, napisał „nie pasuje” albo zmianę wymagań — do Delivery Leada;
+    # related_entity=(client_panel_request, id). Mail obowiązkowy jak rozmowy.
+    client_panel_request = "client_panel_request"
+    # 0510: aplikacja „NEXUS Teams Prep” nie ma dostępu do kalendarza DL-a,
+    # rekrutera albo Head of Recruitment (poza grupą NEXUS-Meetings-Scope) —
+    # dzienna lista do dopisania, tylko admini, mail od razu
+    # (`services/teams_prep_scope.py`).
+    teams_prep_scope_missing = "teams_prep_scope_missing"
+    # 0633: aplikacja „NEXUS Kadry” nie czyta skrzynki aktywnej osoby (poza
+    # grupą zakresu) — lista do dopisania po uzgadnianiu o 7:00, tylko admini,
+    # mail od razu (`services/hr/m365/scope_alerts.py`).
+    hr_m365_scope_missing = "hr_m365_scope_missing"
     # 0336: zapisane wyszukiwanie po migracji na wspólną semantykę filtrów
     # zwraca inny zbiór osób — alert wstrzymany do akceptacji właściciela.
     saved_search_reapproval = "saved_search_reapproval"
@@ -163,11 +193,30 @@ class NotificationType(str, enum.Enum):
     interview_debrief_saved = "interview_debrief_saved"
     # 0348: kolejka „Czeka na Ciebie" (Tablica). Rano JEDEN zbiorczy wpis na
     # osobę („4 osoby czekają na DZ, 1 do wysłania do Cpro") — dedup dobowy po
-    # related_entity=(user, id). Emitowane przez `check_board_tasks_digest`.
+    # related_entity=(user, id). Od 16.10.2026 nie powstaje (bez dzwonka).
     board_tasks_digest = "board_tasks_digest"
     # 0348: ktoś wytypował Cię do wysłania osoby do Cpro (Nordea) —
     # related_entity=(candidate_stage, id).
     cpro_send_assigned = "cpro_send_assigned"
+    # 0408: karta właśnie trafiła do TWOJEJ kolejki na Tablicy — przegląd
+    # Delivery Leada, kolejka Cpro albo zwrot z kolejki Cpro
+    # (`stage_handoff_recipients.TASK_REASONS`). Imienne zadanie, więc osobny
+    # typ poza wyciszalnym `stage_rule`; related_entity=(candidate_stage, id).
+    board_task_waiting = "board_task_waiting"
+    # 0417: rekruter prosi o potwierdzenie podpisu umowy B2B z Generatora —
+    # do DL-a rekrutacji (albo portfela / TCM); related_entity=(b2b_generated_contract, id).
+    b2b_signature_requested = "b2b_signature_requested"
+    # 0524: umowę z Generatora wygenerował ktoś inny niż osoba prowadząca
+    # kandydata w rekrutacji — dzwonek do prowadzącego (placement, premia
+    # i pilnowanie podpisu są jego); related_entity=(b2b_generated_contract, id).
+    b2b_agreement_ready = "b2b_agreement_ready"
+    # 0418: zmiana stawki kandydata w procesie (od „Zweryfikowany”) — informacja
+    # dla DL, Head of Recruitment i rekrutera kandydata; related_entity=
+    # (candidate_rate_change, id).
+    candidate_rate_change = "candidate_rate_change"
+    # 0418: wzrost stawki po wysłaniu CV — zadanie Delivery Leada (decyzja
+    # o stawce do klienta albo negocjacja). Kategoria obowiązkowa.
+    candidate_rate_change_task = "candidate_rate_change_task"
     # 0352: ktoś przejął Twoją osobę w „Nowych" (przed upływem 12 h tylko
     # DL/HoR/admin) — related_entity=(recruitment_process, id).
     candidate_claim_taken = "candidate_claim_taken"
@@ -178,13 +227,92 @@ class NotificationType(str, enum.Enum):
     # na dobę przed rozmową u klienta. Do organizatora prepu i Head of
     # Recruitment; related_entity=(calendar_event, id) — jeden wpis na sprawę.
     prep_attention = "prep_attention"
+    # 0453 (17.10.2026, D5–D8): odpowiedź kandydata na zaproszenie na prep
+    # (przyjął / może — sam licznik; odmówił albo proponuje inny termin —
+    # dymek), zmiana prepu przez kogoś z pary (`prep_changed_yours` do
+    # prowadzącego, w którego kalendarzu stoi spotkanie — dymek; reszta pary
+    # `prep_changed` — licznik) i brak odpowiedzi na dobę przed prepem.
+    # related_entity=(<rodzaj zdarzenia>, calendar_event.id); zmiany prepu
+    # (`prep_changed*`) bez id — dzienny dedup zjadałby drugą zmianę w dniu.
+    prep_candidate_response = "prep_candidate_response"
+    prep_candidate_declined = "prep_candidate_declined"
+    prep_changed = "prep_changed"
+    prep_changed_yours = "prep_changed_yours"
+    prep_no_response = "prep_no_response"
+    # 0482 (20.10.2026): rozmowa u klienta bez Prepu 2 — do Delivery Leada
+    # rekrutacji (licznik), related_entity=(prep2_skip, id); przekroczony próg
+    # pominięć w 30 dniach — do Head of Recruitment, related_entity=(user, id),
+    # raz na 30 dni na osobę.
+    prep2_skipped = "prep2_skipped"
+    prep2_skip_threshold = "prep2_skip_threshold"
+    # 0500 (21.10.2026): rozmowa u klienta przełożona albo odwołana w NEXUSIE —
+    # do Delivery Leada, rekrutera pary i właściciela wydarzenia, bez autora
+    # zmiany (dymek). related_entity=(client_interview_<rodzaj>, None), link
+    # do pary — jak ``prep_changed*``: dzienny dedup zjadałby drugą zmianę.
+    interview_changed = "interview_changed"
+    # 0507 (22.10.2026): ocena prepu gotowa — do ludzi pary (prowadzący,
+    # planujący, DL rekrutacji, rekruter kandydata), licznik bez dymka.
+    # related_entity=(prep_review, calendar_event.id), dedup dobowy.
+    prep_review_ready = "prep_review_ready"
+    # 0506 (21.10.2026): umowa przedwstępna — prośba, wystawienie, podpisy,
+    # wygasanie, rezygnacja kandydata, termin umowy B2B. Do proszących,
+    # obserwujących i wystawiającego, bez autora zmiany.
+    # related_entity=(pre_contract_event, id) — każdy krok to osobne
+    # zdarzenie, więc dzienny dedup nie zjada drugiego kroku tego samego dnia.
+    pre_contract = "pre_contract"
     # 0371: automat przydziału requestów — rano JEDEN wpis na osobę („Od dziś:
     # X. Zwolnione: Y (champion)”); related_entity=(user, id), dedup dobowy.
+    # Od 02.10.2026 także od razu po akceptacji propozycji: „Nowy request do
+    # pracy”, related_entity=(job, id).
     request_assignment_changed = "request_assignment_changed"
     # 0371: request do decyzji DL — nowy z Traffita „Do przejrzenia”, „Klient
     # milczy” od 14 dni albo „Szukamy” bez pracy od 30 dni;
     # related_entity=(user, id), jeden zbiorczy wpis na odbiorcę i dzień.
     request_review_needed = "request_review_needed"
+    # 0523 (26.10.2026): ktoś (także sam DL) otworzył rekrutację (założył
+    # albo otworzył ponownie) u klienta Delivery Leada — do DL-a rekrutacji,
+    # bez niego do Head of Recruitment; related_entity=(job, id). Mail
+    # obowiązkowy „Nowa rekrutacja u Twojego klienta”, kilka w 10 minut
+    # jednym mailem (`services/client_job_opened.py`).
+    client_job_opened = "client_job_opened"
+    # 0526 (27.10.2026): przypomnienia o brakujących ogłoszeniach (strona
+    # kariery, Pracuj.pl, JustJoin.IT) — mail obowiązkowy, codziennie rano
+    # (`services/job_ad/reminders.py`). `job_ad_missing` — rekrutacja otwarta
+    # po starcie przypomnień, related_entity=(job, id); `job_ad_backlog` —
+    # zbiorczy o rekrutacjach sprzed startu, related_entity=(user, id);
+    # `job_ad_nudge` — DL prosi rekrutera o stronę kariery,
+    # related_entity=(job, id).
+    job_ad_missing = "job_ad_missing"
+    job_ad_backlog = "job_ad_backlog"
+    job_ad_nudge = "job_ad_nudge"
+    # 0525 (27.10.2026): Head of Recruitment albo admin ustawił rekrutacji P0
+    # (ultrapilne przez 24 h) — do rekruterów i Delivery Leada rekrutacji,
+    # bez osoby, która ustawiła; related_entity=(job, id). Mail obowiązkowy
+    # „P0 na rekrutacji” (`services/job_p0.py`).
+    job_p0_set = "job_p0_set"
+    # 0607 (28.10.2026): ktoś zamknął rekrutację, w której Twoje osoby stoją
+    # od „CV wysłane” w górę — daj im znać; related_entity=(job, id), bez
+    # osoby, która zamknęła. Mail obowiązkowy „Rekrutacja zamknięta — Twoje
+    # osoby czekają” (`services/job_closed_notices.py`).
+    job_closed_people_waiting = "job_closed_people_waiting"
+    # 0635: zdarzenia z maili CPro (`services/cpro_mail.py`).
+    cpro_candidate_rejected = "cpro_candidate_rejected"
+    cpro_interview_change = "cpro_interview_change"
+    cpro_close_needs_decision = "cpro_close_needs_decision"
+    # 0621 (28.10.2026): rekruter odszedł z firmy (konto wyłączone), a jego
+    # osoby w Twoich rekrutacjach domykasz Ty; related_entity=(user, id osoby,
+    # która odeszła). Od razu i przypomnienie po 5 dniach roboczych. Mail
+    # obowiązkowy „Kandydaci po osobie, która odeszła” (`services/departure_care.py`).
+    departed_pairs_care = "departed_pairs_care"
+    # 0610 (28.10.2026): Delivery Lead prosi o P0 dla swojej rekrutacji —
+    # do Head of Recruitment (zatwierdza albo odrzuca); related_entity=(job, id).
+    # Mail obowiązkowy jak przy P0 (`services/job_p0.py`).
+    job_p0_requested = "job_p0_requested"
+    # 0617 (28.10.2026): rekrutacje bez ruchu Delivery Leada — JEDEN wpis
+    # dziennie na osobę: DL (14 i 21 dni), Head of Recruitment (21 dni)
+    # i oboje przy zamknięciu przez NEXUS (28 dni); related_entity=(user, id).
+    # Mail obowiązkowy (`services/job_idle.py`).
+    job_idle_reminder = "job_idle_reminder"
     # 0374: praktykant kończy program wdrożenia (5 dni roboczych przed końcem)
     # — decyzja Head of Recruitment; related_entity=(user, id), raz na program.
     trainee_program_decision = "trainee_program_decision"
@@ -192,6 +320,130 @@ class NotificationType(str, enum.Enum):
     # z procesu, dostępność) — do właściciela procesu; related_entity=
     # (candidate, id).
     candidate_followup_signal = "candidate_followup_signal"
+    # 0399: ktoś odpowiedział na Twoją notatkę — link prowadzi do notatki
+    # głównej; related_entity=(note, id odpowiedzi).
+    note_reply = "note_reply"
+    # 0404: rano JEDEN skrót na rekrutację — „N zgłoszeń odrzuconych przez AI”
+    # (poprzednie dni). Do prowadzącego rekrutację; related_entity=(job, id).
+    application_screening_digest = "application_screening_digest"
+    # 0409: propozycje automatu przydziału czekają na akceptację — JEDEN wpis
+    # dziennie na Head of Recruitment z aktualną liczbą; related_entity=
+    # (user, id). Osoba z propozycji nie dostaje nic, dopóki ktoś jej nie
+    # zaakceptuje (wtedy `request_assignment_changed`).
+    request_allocation_proposals = "request_allocation_proposals"
+    # 0431: osoba, która u nas pracuje, została zatrudniona w innej rekrutacji
+    # albo jej CV poszło do innego klienta — do Delivery Leada klienta,
+    # u którego pracuje (admini jako zapas); related_entity=
+    # (candidate_stage, id wiersza etapu). Bez maila.
+    consultant_in_other_recruitment = "consultant_in_other_recruitment"
+    # 0440: automat auto-CV podpiął CV firmowe po ruchu na „Zweryfikowany”
+    # i QC je policzyło („CV gotowe do sprawdzenia”) albo automat go nie zrobił
+    # z powodem, przy którym rekruter musi zadziałać sam. Do osoby, która
+    # przesunęła kartę; related_entity=(candidate_stage, id). Bez maila.
+    cv_ready = "cv_ready"
+    # 0444: ktoś dodał osobę do rekrutacji z podpowiedzi „Pasuje też do”
+    # (okno „Kandydaci do dodania” innej rekrutacji). Do rekruterów tej
+    # rekrutacji, bez osoby, która dodała; related_entity=(candidate, id).
+    # Bez maila.
+    also_fits_added = "also_fits_added"
+    # 0517 (23.10.2026): osoby od silnika „Nowi na 20” czekają ponad 2 dni
+    # robocze na decyzję („Dzwonię” albo odrzucenie z powodem). Jeden poranny
+    # dzwonek na Rekrutera; related_entity=(user, id). Bez maila.
+    autofill_decisions_due = "autofill_decisions_due"
+    # 0518 (23.10.2026): raport poniedziałkowy „Jakość podpowiedzi systemu”
+    # gotowy — do odbiorców raportu; related_entity=(autofill_quality_report, id).
+    autofill_quality_report = "autofill_quality_report"
+    # 0447: „Poprzedni rekruter” — rekrutacja zeszła z P1, osoba przeszła do
+    # poprzednich rekruterów (``recruiter_parked``) albo wróciła na P1 i osoba
+    # znowu nad nią pracuje (``recruiter_restored``). Do osób z zespołu poza
+    # tą, która zmieniła priorytet; related_entity=(job, id). Bez maila.
+    recruiter_parked = "recruiter_parked"
+    recruiter_restored = "recruiter_restored"
+    # 0450: championi rekrutacji (D8, 15.10.2026) — Delivery Lead zapisał
+    # listę championów (``champions_changed``) albo odpadł ostatni champion
+    # i rekrutacja wraca do szukania (``champion_search_resumed``). Do
+    # rekruterów i Delivery Leada rekrutacji poza osobą, która zmieniła listę;
+    # related_entity=(job, id). Bez maila.
+    champions_changed = "champions_changed"
+    champion_search_resumed = "champion_search_resumed"
+    # 0615: bliźniacze rekrutacje (28.10.2026) — ktoś połączył rekrutację
+    # z bliźniakiem. Do rekruterów i Delivery Leadów obu rekrutacji poza
+    # osobą, która połączyła; link do rekrutacji. Bez maila.
+    job_twin_linked = "job_twin_linked"
+    # 0451: karta weszła na etap „Akceptacja” — klient zaakceptował osobę
+    # (D1–D6, 16.10.2026). Do rekrutera kandydata, prowadzącego, Delivery
+    # Leada rekrutacji i każdego Head of Recruitment poza osobą, która
+    # zaznaczyła; related_entity=(candidate_stage, id). Kategoria „Akceptacje
+    # klienta” nie do wyciszenia; od 22.10.2026 także mail (`client_accepted`
+    # w `notification_delivery.BELL_MAIL_TYPES`).
+    client_accepted = "client_accepted"
+    # 0452: ręczne „Potwierdź zatrudnienie”, a w Kontraktach nie ma umowy osoby
+    # u klienta rekrutacji — „Pracuje u nas” liczy się wyłącznie z umowy
+    # (17.10.2026). Do Delivery Leadów klienta, raz na parę osoba–rekrutacja;
+    # related_entity=(candidate_stage, id). `services/hire_contract_reminder.py`.
+    hire_missing_contract = "hire_missing_contract"
+    # 0457: „Ludzie w NEXUSIE” — moduły kadrowe. Osobiste (odbiorcę wybiera
+    # reguła modułu, nie sekcja): urlopy, timesheety, premie i stawki,
+    # wejście/odejście, sprawy administracja@, sprzęt. Opieka nad konsultantem
+    # (``care_contact_due``) prowadzi do kontraktu — sekcja Delivery. Lista
+    # wartości: ``app/services/hr_notification_schema.py``.
+    hr_leave_requested = "hr_leave_requested"
+    hr_leave_decided = "hr_leave_decided"
+    hr_leave_cancelled = "hr_leave_cancelled"
+    hr_leave_substitute = "hr_leave_substitute"
+    hr_absence_reported = "hr_absence_reported"
+    hr_leave_conflict = "hr_leave_conflict"
+    hr_timesheet_submitted = "hr_timesheet_submitted"
+    hr_timesheet_decided = "hr_timesheet_decided"
+    hr_timesheet_reminder = "hr_timesheet_reminder"
+    hr_bonus_assigned = "hr_bonus_assigned"
+    hr_rate_changed = "hr_rate_changed"
+    hr_lifecycle_task = "hr_lifecycle_task"
+    hr_work_handover = "hr_work_handover"
+    admin_case_assigned = "admin_case_assigned"
+    # 0637: kolejka back office'u.
+    back_office_escalated = "back_office_escalated"
+    back_office_assigned = "back_office_assigned"
+    portal_low_rating = "portal_low_rating"
+    portal_monthly_review = "portal_monthly_review"
+    equipment_task = "equipment_task"
+    equipment_protocol_signed = "equipment_protocol_signed"
+    # 0479: „Przypomnij” o zwrocie sprzętu — recepcja → posiadacz z kontem.
+    equipment_return_reminder = "equipment_return_reminder"
+    # „Przekaż do front office” (D15): konsultant kończy projekt albo chce
+    # zmiany — head pionu front office, Head of Recruitment i Delivery Leadzi;
+    # osobisty (bez sekcji), bo front office nie ma sekcji Delivery.
+    care_front_office_handoff = "care_front_office_handoff"
+    # 0466: komunikat do konsultantów (O12) — do zatwierdzenia (head back
+    # office, admin), decyzja (autor), odbity mail (opiekun: „popraw e-mail”).
+    # Osobisty, link do `/care?tab=announcements` albo do kontraktu.
+    care_announcement = "care_announcement"
+    # 0466: rozliczenia zespołu — prośba o korektę faktury (osoba), rozliczenie
+    # opłacone (osoba), rozbieżność / uznanie różnicy do drugiej osoby (Płace).
+    # Bez kwot w tytule i treści; link do „Mojego czasu” albo kolejki Płac.
+    hr_settlement_correction = "hr_settlement_correction"
+    hr_settlement_paid = "hr_settlement_paid"
+    hr_settlement_review = "hr_settlement_review"
+    hr_agreement_update = "hr_agreement_update"
+    # 0483: zgody na wydatki i premie poza umową — zgoda do decyzji
+    # (przełożony albo zatwierdzający z Ustawień, mail z kwotą i przyciskami)
+    # i decyzja do autora. Osobiste, link do „Ludzie → Akceptacje → Zgody”.
+    hr_approval_requested = "hr_approval_requested"
+    hr_approval_decided = "hr_approval_decided"
+    # 0486: rozliczenie zgód — prośba o dopłatę (faktura wyższa o więcej niż
+    # 10%) do zatwierdzającego i pytanie o odnowienie rocznej subskrypcji do
+    # jej opiekuna. Link do „Akceptacji → Zgody” albo „Moich zgód”.
+    hr_approval_topup_requested = "hr_approval_topup_requested"
+    hr_subscription_renewal = "hr_subscription_renewal"
+    care_contact_due = "care_contact_due"
+    # 0475: „uzupełnij strukturę klienta X” — konsultanci bez menedżera
+    # u klienta (propozycje automatu czekają na akcept Delivery Leada).
+    # Sekcja Delivery, link do `/care?tab=structure&client=<id>`.
+    care_client_structure = "care_client_structure"
+    # 0509: „klient zatrudnia” z rozmowy opiekuna — karta „Popyt do
+    # sprawdzenia” u Delivery Leada klienta. Sekcja Delivery, link
+    # `/care?card=<klucz karty>`.
+    care_demand_signal = "care_demand_signal"
 
 
 class Notification(Base, TimestampMixin):

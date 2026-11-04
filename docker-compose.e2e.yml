@@ -67,10 +67,12 @@ services:
       COMPASS_LIFECYCLE_ENABLED: "false"
       COMPASS_WORKDAYS_ENABLED: "false"
       CLOUDTALK_ENABLED: "false"
-      SIGNING_ENABLED: "false"
       SMTP_ENABLED: "false"
       SELF_REGISTRATION_ENABLED: "false"
       SENTRY_DSN: ""
+      # „Ludzie w NEXUSIE”: na produkcji program wyłączony (Artur 18.10.2026),
+      # a scenariusz @stack `flow-hr-leave.spec.ts` sprawdza jego działanie.
+      HR_PROGRAM_ENABLED: "true"
     ports:
       - "8000:8000"
     depends_on:
@@ -91,6 +93,9 @@ services:
       args:
         NEXT_PUBLIC_API_URL: http://localhost:8000
         NEXT_PUBLIC_GIT_SHA: ${GIT_SHA:-e2e}
+        # Harnessy /preview/* bez logowania (nocny `preview-chromium` na tym
+        # stacku). Na produkcji harnessy wymagają sesji — runda 10, R10-N10-1.
+        NEXT_PUBLIC_PREVIEW_PUBLIC: "1"
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
       INTERNAL_API_URL: http://backend:8000

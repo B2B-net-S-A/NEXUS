@@ -4,8 +4,9 @@ Runs once a day. Responsibilities:
     1. Promote active → ending when end_date - today ≤ 30.
     2. Promote ending → ended when end_date < today.
     3. For each active/ending contract with end_date at T-60/30/14/7 days,
-       create in-app Notification rows for active admins and authorised,
-       client-assigned Delivery Leads, then post one summary message to Slack
+       create in-app Notification rows for authorised, client-assigned
+       Delivery Leads (admins only when the client has none — 09.10.2026),
+       then post one summary message to Slack
        (if SLACK_WEBHOOK_URL set).
     4. Dedup: Notification rows are keyed by (user, contract, threshold_days).
        We never re-notify for the same triple.
@@ -125,39 +126,56 @@ async def _promote_statuses(db: AsyncSession) -> tuple[int, int]:
         .scalars()
         .all()
     )
+    promoted = 0
     for contract in ended_contracts:
-        state_before = ContractStateBefore.of(contract)
-        previous_status = contract.status
-        contract.status = ContractStatus.ended
-        # Automatyczne przejście jest w historii kontraktu (ticket 09.2026,
-        # pkt 8.2) — bez autora, z datą zakończenia projektu, która je dała.
-        db.add(
-            Activity(
-                entity_type="contract",
-                entity_id=contract.id,
-                action="status_auto_changed",
-                user_id=None,
-                details={
-                    "from_status": previous_status.value,
-                    "to_status": ContractStatus.ended.value,
-                    "end_date": contract.end_date.isoformat(),
-                },
+        contract_id = contract.id
+        try:
+            # Savepoint per kontrakt (runda 6 audytu): offboarding zamówień
+            # i synchronizacja Generatora jednego wiersza, której nie da się
+            # wykonać, wycofywała dotąd CAŁĄ transakcję — co noc, więc żaden
+            # kontrakt nie przechodził na „Zakończony” i nie szły alerty.
+            # Wzór: `run_daily_order_cost_sync`.
+            async with db.begin_nested():
+                state_before = ContractStateBefore.of(contract)
+                previous_status = contract.status
+                contract.status = ContractStatus.ended
+                # Automatyczne przejście jest w historii kontraktu (ticket 09.2026,
+                # pkt 8.2) — bez autora, z datą zakończenia projektu, która je dała.
+                db.add(
+                    Activity(
+                        entity_type="contract",
+                        entity_id=contract.id,
+                        action="status_auto_changed",
+                        user_id=None,
+                        details={
+                            "from_status": previous_status.value,
+                            "to_status": ContractStatus.ended.value,
+                            "end_date": contract.end_date.isoformat(),
+                        },
+                    )
+                )
+                await apply_contract_order_offboarding(
+                    db,
+                    contract_id=contract.id,
+                    effective_date=contract.end_date,
+                    actor_id=None,
+                    today=today,
+                    contract_before=state_before,
+                )
+                # Generator umów B2B przestawia umowę w chwili, w której kontrakt
+                # przechodzi na „Zakończony" — dzień po dacie zakończenia projektu.
+                await sync_generator_after_contract_ended(
+                    db, contract, actor_id=None, today=today
+                )
+        except Exception:  # noqa: BLE001
+            # Tylko identyfikator — bez nazwisk (log trafia do Loki/Sentry).
+            logger.exception(
+                "contract_alerts: promotion to ended skipped contract_id=%s",
+                contract_id,
             )
-        )
-        await apply_contract_order_offboarding(
-            db,
-            contract_id=contract.id,
-            effective_date=contract.end_date,
-            actor_id=None,
-            today=today,
-            contract_before=state_before,
-        )
-        # Generator umów B2B przestawia umowę w chwili, w której kontrakt
-        # przechodzi na „Zakończony" — dzień po dacie zakończenia projektu.
-        await sync_generator_after_contract_ended(
-            db, contract, actor_id=None, today=today
-        )
-    return (ending_count.rowcount or 0, len(ended_contracts))
+            continue
+        promoted += 1
+    return (ending_count.rowcount or 0, promoted)
 
 
 async def _client_ids_by_contract_id(
@@ -296,20 +314,29 @@ async def _contract_labels(
 
 
 async def _contracts_at_threshold(db: AsyncSession, threshold: int) -> list[Contract]:
-    """Contracts whose end_date falls within (threshold-1, threshold] days from today.
+    """Kontrakty, dla których ``threshold`` jest NAJCIAŚNIEJSZYM progiem.
 
-    A tighter match (exact T-30 day only) would be fragile if the cron misses
-    a day; instead we use a one-day window per threshold, combined with the
-    already-notified dedup, so each contract alerts exactly once per window.
+    Pasmo progu to ``(poprzedni_mniejszy_próg, threshold]`` dni do końca,
+    a dla najmniejszego progu ``[0, threshold]``. Do rundy 6 audytu okno
+    miało jeden dzień (``(threshold-1, threshold]``), więc dzień bez biegu
+    pętli (restart przy deployu, awaria) albo umowa wpisana/przedłużona na
+    krócej niż próg gubiła alert bezpowrotnie. Lustro
+    ``dl_portal_expiry_scanner._threshold_bucket``; powtórce w kolejnych
+    biegach tego samego pasma zapobiega dedup epizodu (próg, id, data końca).
     """
     today = business_today()
     target = today + timedelta(days=threshold)
-    window_start = target - timedelta(days=1)
+    lower = [t for t in THRESHOLDS_DAYS if t < threshold]
+    if lower:
+        # Koniec dalej niż następny, mniejszy próg — bliższy należy do niego.
+        end_date_floor = Contract.end_date > today + timedelta(days=max(lower))
+    else:
+        end_date_floor = Contract.end_date >= today
     res = await db.execute(
         select(Contract).where(
             Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
             Contract.end_date.isnot(None),
-            Contract.end_date > window_start,
+            end_date_floor,
             Contract.end_date <= target,
         )
     )
@@ -327,21 +354,28 @@ async def _post_slack_summary(webhook: str, events: list[tuple[int, Contract]]) 
     if not webhook or not events:
         return False
     lines = []
-    for threshold, c in events:
+    today = business_today()
+    for _threshold, c in events:
+        # Faktyczna liczba dni — próg bywa wysłany w środku pasma (runda 6).
         lines.append(
             f"• <https://nexus.dynaminds.pl/contracts/{c.id}|Kontrakt #{c.id}> "
-            f"kończy się za *{threshold} dni* ({c.end_date})"
+            f"kończy się za *{(c.end_date - today).days} dni* ({c.end_date})"
         )
     text = (
         ":hourglass_flowing_sand: *Wygasające kontrakty* — "
         f"{len(events)} nadchodzące terminy:\n" + "\n".join(lines)
     )
+    # Do logu idzie wyłącznie kod HTTP albo klasa wyjątku: adres webhooka
+    # Slacka JEST sekretem, a `raise_for_status()` i część błędów transportu
+    # niosą pełny URL w treści wyjątku (log → Loki/Sentry).
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(webhook, json={"text": text})
-            resp.raise_for_status()
     except Exception as e:  # noqa: BLE001
-        logger.warning("contract_alerts: slack post failed %s", e)
+        logger.warning("contract_alerts: slack post failed (%s)", type(e).__name__)
+        return False
+    if resp.status_code >= 400:
+        logger.warning("contract_alerts: slack post failed (HTTP %s)", resp.status_code)
         return False
     return True
 
@@ -356,6 +390,9 @@ async def _compliance_documents_expiring(db: AsyncSession) -> list[ContractDocum
             ContractDocument.expiry_date.isnot(None),
             ContractDocument.expiry_date <= cutoff,
             ContractDocument.expiry_date >= today,
+            # 0494: plik w folderze (np. „Poprzednia umowa”) to archiwum —
+            # stara polisa nie alarmuje na aktywnym kontrakcie.
+            ContractDocument.folder_id.is_(None),
         )
     )
     return list(res.scalars().all())
@@ -546,7 +583,7 @@ async def run_contract_alerts_cycle() -> dict:
             )
             labels = await _contract_labels(db, fresh)
             for c in fresh:
-                recipient_ids = recipient_scope.for_client(c.client_id)
+                recipient_ids = recipient_scope.bell_recipients(c.client_id, notif_type)
                 if not recipient_ids:
                     continue
                 # Claim key carries the end_date too, so the atomic ledger re-arms on
@@ -562,24 +599,26 @@ async def run_contract_alerts_cycle() -> dict:
                 title = (
                     f"[{threshold}d|{c.end_date.isoformat()}] Kontrakt wygasa: {label}"
                 )
+                # Faktyczna liczba dni, nie numer progu: przy paśmie próg 30
+                # bywa wysłany przy 22 dniach (runda 6 audytu).
+                days_left = (c.end_date - business_today()).days
                 message = (
                     f"Kontrakt #{c.id} ({label}) kończy się {c.end_date} — "
-                    f"zostało {threshold} dni. Rozważ przedłużenie lub kontakt z klientem."
+                    f"zostało {days_left} dni. Rozważ przedłużenie lub kontakt z klientem."
                 )
                 link = f"/contracts/{c.id}"
                 for uid in recipient_ids:
-                    db.add(
-                        Notification(
-                            user_id=uid,
-                            title=title,
-                            message=message,
-                            link=link,
-                            notification_type=notif_type,
-                            related_entity_type="contract",
-                            related_entity_id=c.id,
-                        )
-                    )
-                    stats["notifications_created"] += 1
+                    if await _insert_dedup_notification(
+                        db,
+                        user_id=uid,
+                        title=title,
+                        message=message,
+                        link=link,
+                        notification_type=notif_type,
+                        related_entity_type="contract",
+                        related_entity_id=c.id,
+                    ):
+                        stats["notifications_created"] += 1
                 to_slack.append((threshold, c))
         await db.commit()
 
@@ -601,8 +640,8 @@ async def run_contract_alerts_cycle() -> dict:
                 and (d.id, d.expiry_date.isoformat()) not in already
             ]
             for doc in fresh:
-                recipient_ids = recipient_scope.for_client(
-                    client_ids.get(doc.contract_id)
+                recipient_ids = recipient_scope.bell_recipients(
+                    client_ids.get(doc.contract_id), NotificationType.contract_ending
                 )
                 if not recipient_ids:
                     continue
@@ -649,8 +688,9 @@ async def run_contract_alerts_cycle() -> dict:
                 and (item.id, item.return_due_date.isoformat()) not in already
             ]
             for item in fresh:
-                recipient_ids = recipient_scope.for_client(
-                    client_ids.get(item.contract_id)
+                recipient_ids = recipient_scope.bell_recipients(
+                    client_ids.get(item.contract_id),
+                    NotificationType.equipment_return_due_14d,
                 )
                 if not recipient_ids:
                     continue
@@ -668,16 +708,15 @@ async def run_contract_alerts_cycle() -> dict:
                     f"{item.return_due_date} ({days_left} dni)."
                 )
                 for uid in recipient_ids:
-                    db.add(
-                        Notification(
-                            user_id=uid,
-                            title=title,
-                            message=message,
-                            link=f"/contracts/{item.contract_id}?tab=equipment",
-                            notification_type=NotificationType.equipment_return_due_14d,
-                            related_entity_type="contract_equipment",
-                            related_entity_id=item.id,
-                        )
+                    await _insert_dedup_notification(
+                        db,
+                        user_id=uid,
+                        title=title,
+                        message=message,
+                        link=f"/contracts/{item.contract_id}?tab=equipment",
+                        notification_type=NotificationType.equipment_return_due_14d,
+                        related_entity_type="contract_equipment",
+                        related_entity_id=item.id,
                     )
                 stats["equipment_return_alerts"] += 1
         await db.commit()
@@ -697,7 +736,9 @@ async def run_contract_alerts_cycle() -> dict:
                 and (c.id, c.client_order_end_date.isoformat()) not in already
             ]
             for c in fresh:
-                recipient_ids = recipient_scope.for_client(c.client_id)
+                recipient_ids = recipient_scope.bell_recipients(
+                    c.client_id, NotificationType.client_order_ending_30d
+                )
                 if not recipient_ids:
                     continue
                 episode = c.client_order_end_date.isoformat()
@@ -716,16 +757,15 @@ async def run_contract_alerts_cycle() -> dict:
                     f"Skontaktuj się z klientem w sprawie przedłużenia."
                 )
                 for uid in recipient_ids:
-                    db.add(
-                        Notification(
-                            user_id=uid,
-                            title=title,
-                            message=message,
-                            link=f"/contracts/{c.id}",
-                            notification_type=NotificationType.client_order_ending_30d,
-                            related_entity_type="contract",
-                            related_entity_id=c.id,
-                        )
+                    await _insert_dedup_notification(
+                        db,
+                        user_id=uid,
+                        title=title,
+                        message=message,
+                        link=f"/contracts/{c.id}",
+                        notification_type=NotificationType.client_order_ending_30d,
+                        related_entity_type="contract",
+                        related_entity_id=c.id,
                     )
                 stats["client_order_alerts"] += 1
         await db.commit()
@@ -737,6 +777,20 @@ async def run_contract_alerts_cycle() -> dict:
 
     logger.info("contract_alerts: cycle done %s", stats)
     return stats
+
+
+async def _insert_dedup_notification(db: AsyncSession, **values: object) -> bool:
+    """Wstaw powiadomienie; kolizja z ``ix_notif_dedup_daily`` = pominięcie.
+
+    Runda 9 (R9-N12-5): zwykłe ``db.add`` wywracało CAŁY cykl na commicie,
+    gdy tego samego dnia powstawał drugi wpis o tej samej encji — np. próg
+    kontraktu po zmianie daty końca albo ``client_order_ending_30d`` dla
+    kontraktu #N obok dzwonka zamówienia #N ze skanera portalu DL (indeks nie
+    zna typu encji). Ten sam ``ON CONFLICT DO NOTHING`` co w skanerze portalu.
+    """
+    from app.tasks.dl_portal_expiry_scanner import _insert_notification
+
+    return await _insert_notification(db, **values)
 
 
 async def contract_alerts_loop(interval_hours: float = _DEFAULT_INTERVAL_HOURS) -> None:

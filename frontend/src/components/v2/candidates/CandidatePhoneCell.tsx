@@ -3,6 +3,7 @@
 import { Copy } from "lucide-react";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { useToast } from "@/components/Toast";
+import { formatPhone } from "@/lib/phone-format";
 
 /** `tel:` bez spacji i myślników — „+48 601 204 118" → „+48601204118". */
 export function telHref(phone: string): string {
@@ -33,7 +34,7 @@ export function CandidatePhoneCell({
         className="truncate font-mono text-xs tabular-nums text-foreground hover:text-primary hover:underline"
         title={`Zadzwoń: ${value}`}
       >
-        {value}
+        {formatPhone(value)}
       </a>
       <button
         type="button"

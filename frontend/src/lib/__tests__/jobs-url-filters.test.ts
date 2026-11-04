@@ -13,49 +13,49 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  JOB_SCOPE_VALUES,
   deadlineQueryParams,
   defaultScopeForUser,
   defaultSortForScope,
+  effectiveScopeOverride,
   encodeJobsListUrl,
+  hasJobsListParams,
   initialDeadlineFromUrl,
   initialDeadlineRangeFromUrl,
+  initialIdsFromUrl,
+  initialOpenedRangeFromUrl,
+  initialPriorityLevelsFromUrl,
   initialSentFromUrl,
+  initialToSendFromUrl,
+  isFilterDate,
+  openedQueryParams,
+  openedRangeReversed,
   resolveScope,
   scopeOverrideFromUrl,
   scopeQueryFlags,
   sentQueryParams,
   sortOverrideFromUrl,
-  initialStatusFromUrl,
-  initialTypeFromUrl,
-  scopeForStatuses,
-  statusesForScope,
+  toSendQueryParams,
 } from "@/lib/jobs-url-filters";
+import { initialStagesFromUrl } from "@/lib/request-stage";
 
-describe("initialStatusFromUrl", () => {
-  it("czyta pojedynczy status z deep-linka pulpitu", () => {
+describe("stan requestu w adresie (pasek filtrów, 25.09.2026)", () => {
+  it("czyta pigułki `stage` (powtarzalne, bez duplikatów)", () => {
     expect(
-      initialStatusFromUrl(new URLSearchParams("mine=0&status=published")),
-    ).toEqual(["published"]);
+      initialStagesFromUrl(new URLSearchParams("stage=searching&stage=client_silent&stage=searching")),
+    ).toEqual(["searching", "client_silent"]);
   });
 
-  it("czyta wielokrotny status (API łączy je przez OR)", () => {
+  it("stare `rs` / `ws` mapują się na pigułki, a wartości bez pigułki odpadają", () => {
     expect(
-      initialStatusFromUrl(new URLSearchParams("status=published&status=draft")),
-    ).toEqual(["published", "draft"]);
-  });
-
-  it("odrzuca wartości spoza kontraktu zamiast wysyłać je do API", () => {
-    // Ręcznie podrasowany URL ma dać pusty filtr, nie 422 z backendu.
-    expect(
-      initialStatusFromUrl(
-        new URLSearchParams("status=archived&status=published&status="),
+      initialStagesFromUrl(
+        new URLSearchParams("rs=champion&rs=filled&ws=to_review&ws=finished&ws=searching"),
       ),
-    ).toEqual(["published"]);
+    ).toEqual(["champion", "to_review", "searching"]);
   });
 
-  it("brak parametru = brak filtra", () => {
-    expect(initialStatusFromUrl(new URLSearchParams(""))).toEqual([]);
-    expect(initialStatusFromUrl(new URLSearchParams("mine=1"))).toEqual([]);
+  it("nieznana wartość to brak zawężenia, nie 422", () => {
+    expect(initialStagesFromUrl(new URLSearchParams("stage=cokolwiek&stage=closed"))).toEqual([]);
   });
 });
 
@@ -66,8 +66,6 @@ describe("domyślny zakres zależy od ROLI (lista v5: Moje | Otwarte | Wszystkie
   it("role prowadzące rekrutacje startują w „Moich”", () => {
     for (const role of [
       "recruiter",
-      "sourcer",
-      "tac",
       "talent_community_manager",
       "delivery_lead",
     ]) {
@@ -106,14 +104,22 @@ describe("domyślny zakres zależy od ROLI (lista v5: Moje | Otwarte | Wszystkie
     expect(resolveScope(null, userOf("admin"))).toBe("open");
   });
 
-  it("zakres → parametry API: „Otwarte” = open_only, „Wszystkie” = bez zawężenia", () => {
-    expect(scopeQueryFlags("mine")).toEqual({ mine: true, openOnly: false });
-    expect(scopeQueryFlags("open")).toEqual({ mine: false, openOnly: true });
-    expect(scopeQueryFlags("all")).toEqual({ mine: false, openOnly: false });
+  it("zakres → parametry API: „Moje” i „Otwarte” = open_only, „Wszystkie” = bez zawężenia", () => {
+    expect(scopeQueryFlags("mine")).toEqual({ mine: true, myCategory: false, openOnly: true });
+    expect(scopeQueryFlags("open")).toEqual({ mine: false, myCategory: false, openOnly: true });
+    expect(scopeQueryFlags("all")).toEqual({ mine: false, myCategory: false, openOnly: false });
+  });
+
+  it("„Moja kategoria” idzie do API sama — bez `mine` i bez `open_only`", () => {
+    expect(scopeQueryFlags("category")).toEqual({
+      mine: false,
+      myCategory: true,
+      openOnly: false,
+    });
   });
 
   it("do adresu trafia tylko zakres INNY niż domyślny roli — i przeżywa odczyt", () => {
-    const base = { status: [], type: "all", deadline: "any" } as const;
+    const base = { status: [], deadline: "any" } as const;
     // rekruter (domyślnie „Moje”)
     expect(
       encodeJobsListUrl({ ...base, scope: "all", defaultScope: "mine", sort: "newest" }),
@@ -134,10 +140,61 @@ describe("domyślny zakres zależy od ROLI (lista v5: Moje | Otwarte | Wszystkie
     expect(
       encodeJobsListUrl({ ...base, scope: "open", defaultScope: "open", sort: "newest" }),
     ).toBe("");
-    for (const scope of ["mine", "open", "all"] as const) {
+    for (const scope of JOB_SCOPE_VALUES) {
       const qs = encodeJobsListUrl({ ...base, scope, defaultScope: "mine", sort: "newest" });
       expect(scopeOverrideFromUrl(new URLSearchParams(qs)) ?? "mine", scope).toBe(scope);
     }
+  });
+});
+
+describe("zakres „Moja kategoria” (02.10.2026)", () => {
+  it("stoi na przełączniku między „Moje” a „Otwarte”", () => {
+    expect(JOB_SCOPE_VALUES).toEqual(["mine", "category", "open", "all"]);
+  });
+
+  it("`mycat=1` w adresie = „Moja kategoria”; zapis i odczyt dają to samo", () => {
+    expect(scopeOverrideFromUrl(new URLSearchParams("mycat=1"))).toBe("category");
+    expect(scopeOverrideFromUrl(new URLSearchParams("mycat=0"))).toBeNull();
+    const base = { deadline: "any", sort: "newest" } as const;
+    // Zakres roli nigdy nie jest „Moją kategorią”, więc trafia do adresu u każdego.
+    expect(encodeJobsListUrl({ ...base, scope: "category", defaultScope: "mine" })).toBe("mycat=1");
+    expect(encodeJobsListUrl({ ...base, scope: "category", defaultScope: "open" })).toBe("mycat=1");
+    // Zmiana zakresu zdejmuje `mycat` z adresu.
+    expect(
+      encodeJobsListUrl(
+        { ...base, scope: "open", defaultScope: "mine" },
+        new URLSearchParams("mycat=1"),
+      ),
+    ).toBe("open=1");
+  });
+
+  it("przy kilku kluczach naraz wygrywa węższy zakres", () => {
+    expect(scopeOverrideFromUrl(new URLSearchParams("mine=1&mycat=1"))).toBe("mine");
+    expect(scopeOverrideFromUrl(new URLSearchParams("mycat=1&open=1"))).toBe("category");
+    expect(scopeOverrideFromUrl(new URLSearchParams("mine=0&mycat=1"))).toBe("category");
+  });
+
+  it("osoba bez kategorii: `mycat=1` wraca do zakresu domyślnego roli", () => {
+    expect(effectiveScopeOverride("category", "unavailable")).toBeNull();
+    expect(resolveScope(effectiveScopeOverride("category", "unavailable"), userOf("recruiter"))).toBe(
+      "mine",
+    );
+    expect(resolveScope(effectiveScopeOverride("category", "unavailable"), userOf("admin"))).toBe(
+      "open",
+    );
+    // Z kategorią — i dopóki liczniki nie przyszły — wybór zostaje.
+    expect(effectiveScopeOverride("category", "available")).toBe("category");
+    expect(effectiveScopeOverride("category", "pending")).toBe("category");
+    // Pozostałych zakresów brak kategorii nie dotyczy.
+    expect(effectiveScopeOverride("all", "unavailable")).toBe("all");
+    expect(effectiveScopeOverride(null, "unavailable")).toBeNull();
+  });
+
+  it("role nadal startują w „Moich” albo „Otwartych” — nigdy w „Mojej kategorii”", () => {
+    for (const role of ["recruiter", "delivery_lead", "admin", "head_of_recruitment"]) {
+      expect(defaultScopeForUser(userOf(role)), role).not.toBe("category");
+    }
+    expect(defaultSortForScope("category")).toBe("newest");
   });
 });
 
@@ -151,7 +208,7 @@ describe("domyślne sortowanie idzie za zakresem", () => {
   });
 
   it("domyślne sortowanie zakresu nie trafia do adresu, inne — tak", () => {
-    const base = { status: [], type: "all", deadline: "any", defaultScope: "mine" } as const;
+    const base = { status: [], deadline: "any", defaultScope: "mine" } as const;
     expect(encodeJobsListUrl({ ...base, scope: "mine", sort: "attention" })).toBe("");
     expect(encodeJobsListUrl({ ...base, scope: "mine", sort: "newest" })).toBe("sort=newest");
     expect(encodeJobsListUrl({ ...base, scope: "all", sort: "attention" })).toBe(
@@ -160,19 +217,17 @@ describe("domyślne sortowanie idzie za zakresem", () => {
   });
 });
 
-// M03-B01: typ, termin i sortowanie żyły tylko w `useState` — F5 zwracało
+// M03-B01: termin i sortowanie żyły tylko w `useState` — F5 zwracało
 // pełną listę. Test sprawdza obie strony: zapis do URL-a i odtworzenie.
-describe("typ, termin, sortowanie w URL-u", () => {
-  it("odtwarza wszystkie trzy filtry z adresu", () => {
-    const params = new URLSearchParams("type=tender&deadline=none&sort=oldest");
-    expect(initialTypeFromUrl(params)).toBe("tender");
+describe("termin, sortowanie w URL-u", () => {
+  it("odtwarza filtry z adresu", () => {
+    const params = new URLSearchParams("deadline=none&sort=oldest");
     expect(initialDeadlineFromUrl(params)).toBe("none");
     expect(sortOverrideFromUrl(params)).toBe("oldest");
   });
 
   it("brak albo nieznana wartość = domyślna, nie 422", () => {
-    const params = new URLSearchParams("type=sales&deadline=jutro&sort=");
-    expect(initialTypeFromUrl(params)).toBe("all");
+    const params = new URLSearchParams("deadline=jutro&sort=");
     expect(initialDeadlineFromUrl(params)).toBe("any");
     // Brak wyboru = sortowanie idzie za zakresem.
     expect(sortOverrideFromUrl(params)).toBeNull();
@@ -180,17 +235,13 @@ describe("typ, termin, sortowanie w URL-u", () => {
 
   it("zapis → odczyt daje ten sam stan (przeżywa F5)", () => {
     const qs = encodeJobsListUrl({
-      status: ["published", "draft"],
       scope: "mine",
       defaultScope: "open",
-      type: "body_leasing",
       deadline: "next7",
       sort: "deadline",
     });
     const params = new URLSearchParams(qs);
-    expect(initialStatusFromUrl(params)).toEqual(["published", "draft"]);
     expect(scopeOverrideFromUrl(params)).toBe("mine");
-    expect(initialTypeFromUrl(params)).toBe("body_leasing");
     expect(initialDeadlineFromUrl(params)).toBe("next7");
     expect(sortOverrideFromUrl(params)).toBe("deadline");
   });
@@ -198,10 +249,8 @@ describe("typ, termin, sortowanie w URL-u", () => {
   it("wartości domyślne nie zaśmiecają adresu", () => {
     expect(
       encodeJobsListUrl({
-        status: [],
         scope: "mine",
         defaultScope: "mine",
-        type: "all",
         deadline: "any",
         sort: "attention",
       }),
@@ -210,14 +259,29 @@ describe("typ, termin, sortowanie w URL-u", () => {
 
   it("zdejmuje nieaktualne wartości, zostawia cudze parametry", () => {
     const qs = encodeJobsListUrl(
-      { status: [], scope: "all", defaultScope: "mine", type: "tender", deadline: "any", sort: "newest" },
-      new URLSearchParams("mine=0&status=published&type=body_leasing&foo=bar"),
+      { scope: "all", defaultScope: "mine", deadline: "any", sort: "newest" },
+      new URLSearchParams(
+        "mine=0&status=published&type=body_leasing&responsible=4&sourcing=1" +
+          "&active_search=1&no_owner=1&priority=assigned&rs=filled&ws=finished&foo=bar",
+      ),
     );
     const params = new URLSearchParams(qs);
     expect(params.getAll("status")).toEqual([]);
     // Jawne „Wszystkie" ZOSTAJE w adresie (inaczej F5 wracałoby do „Moich").
     expect(params.get("mine")).toBe("0");
-    expect(params.get("type")).toBe("tender");
+    // Kolumna filtrów sprzed 25.09.2026: stare klucze znikają z adresu.
+    for (const key of [
+      "type",
+      "responsible",
+      "sourcing",
+      "active_search",
+      "no_owner",
+      "priority",
+      "rs",
+      "ws",
+    ]) {
+      expect(params.get(key), key).toBeNull();
+    }
     expect(params.get("foo")).toBe("bar");
   });
 });
@@ -226,74 +290,73 @@ describe("pozostałe filtry listy w URL-u (audyt 17.09.2026)", () => {
   it("zapisuje i odtwarza wszystkie filtry", async () => {
     const mod = await import("@/lib/jobs-url-filters");
     const qs = mod.encodeJobsListUrl({
-      status: ["published"],
       scope: "open",
       defaultScope: "mine",
-      type: "tender",
       deadline: "range",
       deadlineRange: { from: "2026-10-01", to: "2026-10-31" },
       sort: "oldest",
       q: "  java  ",
-      responsibleIds: [4, 9],
+      stages: ["searching", "client_silent"],
       clientIds: [12],
       ccIds: [3],
       deliveryLeadIds: [21, 22],
+      workedBy: [4, 9],
+      nobodyWorking: true,
       sent: "3",
-      needsSourcing: true,
-      activeInSearch: true,
-      noOwnerOnly: true,
-      priorityWork: "carry_over",
+      priorityLevels: ["p1", "accepting"],
+      openedRange: { from: "2026-09-01", to: "2026-09-30" },
     });
     const params = new URLSearchParams(qs);
-    expect(mod.initialStatusFromUrl(params)).toEqual(["published"]);
     expect(mod.scopeOverrideFromUrl(params)).toBe("open");
-    expect(mod.initialTypeFromUrl(params)).toBe("tender");
     expect(mod.initialDeadlineFromUrl(params)).toBe("range");
     expect(mod.initialDeadlineRangeFromUrl(params)).toEqual({
       from: "2026-10-01",
       to: "2026-10-31",
     });
+    expect(initialStagesFromUrl(params)).toEqual(["searching", "client_silent"]);
     expect(mod.initialIdsFromUrl(params, "lead")).toEqual([21, 22]);
     expect(mod.initialSentFromUrl(params)).toBe("3");
     expect(mod.sortOverrideFromUrl(params)).toBe("oldest");
     expect(mod.initialSearchFromUrl(params)).toBe("java");
-    expect(mod.initialIdsFromUrl(params, "responsible")).toEqual([4, 9]);
+    expect(mod.initialIdsFromUrl(params, "who")).toEqual([4, 9]);
     expect(mod.initialIdsFromUrl(params, "client")).toEqual([12]);
     expect(mod.initialIdsFromUrl(params, "cc")).toEqual([3]);
-    expect(mod.initialFlagFromUrl(params, "sourcing")).toBe(true);
-    expect(mod.initialFlagFromUrl(params, "active_search")).toBe(true);
-    expect(mod.initialFlagFromUrl(params, "no_owner")).toBe(true);
-    expect(mod.initialPriorityWorkFromUrl(params)).toBe("carry_over");
+    expect(mod.initialFlagFromUrl(params, "nobody")).toBe(true);
+    expect(mod.initialPriorityLevelsFromUrl(params)).toEqual(["p1", "accepting"]);
+    expect(mod.initialOpenedRangeFromUrl(params)).toEqual({
+      from: "2026-09-01",
+      to: "2026-09-30",
+    });
   });
 
   it("wartości domyślne nie trafiają do adresu, a obce parametry zostają", async () => {
     const mod = await import("@/lib/jobs-url-filters");
     const qs = mod.encodeJobsListUrl(
       {
-        status: [],
         scope: "mine",
         defaultScope: "mine",
-        type: "all",
         deadline: "any",
         sort: "attention",
         q: "",
-        responsibleIds: [],
+        stages: [],
         clientIds: [],
         ccIds: [],
-        priorityWork: "any",
+        workedBy: [],
+        nobodyWorking: false,
       },
-      new URLSearchParams("q=stare&client=5&lead=3&sent=1&dl_from=2026-01-01&utm=x"),
+      new URLSearchParams(
+        "q=stare&client=5&lead=3&sent=1&dl_from=2026-01-01&stage=searching&who=2&nobody=1" +
+          "&mycat=1&prio=p1&op_from=2026-09-01&op_to=2026-09-30&utm=x",
+      ),
     );
     expect(qs).toBe("utm=x");
   });
 
-  it("śmieci w identyfikatorach i priorytecie to brak zawężenia", async () => {
+  it("śmieci w identyfikatorach i przełączniku to brak zawężenia", async () => {
     const mod = await import("@/lib/jobs-url-filters");
-    const params = new URLSearchParams(
-      "client=abc&client=-2&client=7&client=7&priority=hack",
-    );
+    const params = new URLSearchParams("client=abc&client=-2&client=7&client=7&nobody=tak");
     expect(mod.initialIdsFromUrl(params, "client")).toEqual([7]);
-    expect(mod.initialPriorityWorkFromUrl(params)).toBe("any");
+    expect(mod.initialFlagFromUrl(params, "nobody")).toBe(false);
   });
 });
 
@@ -361,6 +424,112 @@ describe("termin: presety → parametry API (lista v5)", () => {
   });
 });
 
+describe("priorytet w adresie: klucz `prio`, nie `priority`", () => {
+  it("czyta poziomy po przecinku, w kolejności ekranu, bez duplikatów i śmieci", () => {
+    expect(initialPriorityLevelsFromUrl(new URLSearchParams("prio=accepting,p1"))).toEqual([
+      "p1",
+      "accepting",
+    ]);
+    expect(
+      initialPriorityLevelsFromUrl(new URLSearchParams("prio=p1,p1,urgent,,p2")),
+    ).toEqual(["p1", "p2"]);
+    expect(initialPriorityLevelsFromUrl(new URLSearchParams(""))).toEqual([]);
+  });
+
+  it("stary klucz `priority` nie jest priorytetem rekrutacji i znika z adresu", () => {
+    const legacy = new URLSearchParams("priority=p1&priority=assigned");
+    expect(initialPriorityLevelsFromUrl(legacy)).toEqual([]);
+    const qs = encodeJobsListUrl(
+      {
+        scope: "mine",
+        defaultScope: "mine",
+        deadline: "any",
+        sort: "attention",
+        priorityLevels: ["p1"],
+      },
+      legacy,
+    );
+    const params = new URLSearchParams(qs);
+    expect(params.get("priority")).toBeNull();
+    expect(params.get("prio")).toBe("p1");
+  });
+
+  it("zapis → odczyt daje ten sam stan, pusty wybór nie zostawia klucza", () => {
+    const base = { scope: "mine", defaultScope: "mine", deadline: "any", sort: "attention" } as const;
+    const qs = encodeJobsListUrl({ ...base, priorityLevels: ["accepting", "p1"] });
+    expect(new URLSearchParams(qs).get("prio")).toBe("p1,accepting");
+    expect(initialPriorityLevelsFromUrl(new URLSearchParams(qs))).toEqual(["p1", "accepting"]);
+    expect(encodeJobsListUrl({ ...base, priorityLevels: [] }, new URLSearchParams("prio=p1"))).toBe("");
+  });
+});
+
+describe("„Data otwarcia”: `op_from` / `op_to` → `opened_from` / `opened_to`", () => {
+  it("zapis → odczyt → parametry API", () => {
+    const qs = encodeJobsListUrl({
+      scope: "mine",
+      defaultScope: "mine",
+      deadline: "any",
+      sort: "attention",
+      openedRange: { from: "2026-09-01", to: "2026-09-30" },
+    });
+    expect(qs).toBe("op_from=2026-09-01&op_to=2026-09-30");
+    const range = initialOpenedRangeFromUrl(new URLSearchParams(qs));
+    expect(range).toEqual({ from: "2026-09-01", to: "2026-09-30" });
+    expect(openedQueryParams(range)).toEqual({
+      opened_from: "2026-09-01",
+      opened_to: "2026-09-30",
+    });
+  });
+
+  it("sama granica „od” albo „do” też filtruje", () => {
+    expect(openedQueryParams({ from: "2026-09-01" })).toEqual({ opened_from: "2026-09-01" });
+    expect(openedQueryParams({ to: "2026-09-30" })).toEqual({ opened_to: "2026-09-30" });
+    expect(openedQueryParams({})).toEqual({});
+    expect(openedQueryParams()).toEqual({});
+  });
+
+  it("odwrócony zakres nie idzie do serwera wcale (serwer odpowiada 422)", () => {
+    const reversed = { from: "2026-09-30", to: "2026-09-01" };
+    expect(openedRangeReversed(reversed)).toBe(true);
+    expect(openedQueryParams(reversed)).toEqual({});
+    // Ten sam dzień po obu stronach to poprawny, jednodniowy zakres.
+    expect(openedRangeReversed({ from: "2026-09-01", to: "2026-09-01" })).toBe(false);
+    expect(openedQueryParams({ from: "2026-09-01", to: "2026-09-01" })).toEqual({
+      opened_from: "2026-09-01",
+      opened_to: "2026-09-01",
+    });
+  });
+
+  it("niedokończona data (rok w trakcie wpisywania) i data spoza 1900–2100 nie są wysyłane", () => {
+    expect(isFilterDate("0002-10-01")).toBe(false);
+    expect(isFilterDate("2101-01-01")).toBe(false);
+    expect(isFilterDate("2026-02-31")).toBe(false);
+    expect(isFilterDate("jutro")).toBe(false);
+    expect(isFilterDate(undefined)).toBe(false);
+    expect(isFilterDate("2026-10-01")).toBe(true);
+    expect(openedQueryParams({ from: "0002-10-01", to: "2026-10-31" })).toEqual({
+      opened_to: "2026-10-31",
+    });
+    // Niepełna data nie czyni zakresu „odwróconym”.
+    expect(openedRangeReversed({ from: "2026-10-01", to: "0002-10-31" })).toBe(false);
+  });
+
+  it("śmieci w adresie to brak zawężenia; do adresu trafiają tylko poprawne daty", () => {
+    expect(
+      initialOpenedRangeFromUrl(new URLSearchParams("op_from=wczoraj&op_to=2026-13-45")),
+    ).toEqual({ from: undefined, to: undefined });
+    expect(
+      encodeJobsListUrl({
+        scope: "mine",
+        defaultScope: "mine",
+        deadline: "any",
+        sort: "attention",
+        openedRange: { from: "0002-10-01", to: "2026-10-31" },
+      }),
+    ).toBe("op_to=2026-10-31");
+  });
+});
+
 describe("„Wysłanych do klienta” → min_sent / max_sent", () => {
   it("mapuje wartości filtra na parametry backendu (liczba OSÓB)", () => {
     expect(sentQueryParams("any")).toEqual({});
@@ -376,16 +545,100 @@ describe("„Wysłanych do klienta” → min_sent / max_sent", () => {
   });
 });
 
-describe("zakres a status „Zamknięta”", () => {
-  it("„Otwarte” + „Zamknięta” = „Wszystkie”; „Moje” i „Wszystkie” bez zmian", () => {
-    expect(scopeForStatuses("open", ["closed"])).toBe("all");
-    expect(scopeForStatuses("open", ["published"])).toBe("open");
-    expect(scopeForStatuses("mine", ["closed"])).toBe("mine");
-    expect(scopeForStatuses("all", ["closed"])).toBe("all");
+describe("„Do wysłania do klienta”: `tosend` → `dl_send`", () => {
+  const base = { scope: "mine", defaultScope: "mine", deadline: "any", sort: "attention" } as const;
+
+  it("zapis → odczyt → parametr API dla obu wartości", () => {
+    for (const value of ["mine", "stale"] as const) {
+      const qs = encodeJobsListUrl({ ...base, toSend: value });
+      expect(qs).toBe(`tosend=${value}`);
+      expect(initialToSendFromUrl(new URLSearchParams(qs))).toBe(value);
+      expect(toSendQueryParams(value)).toEqual({ dl_send: value });
+    }
   });
 
-  it("jawne „Otwarte” zdejmuje „Zamknięta”, inne zakresy zostawiają status", () => {
-    expect(statusesForScope("open", ["closed", "draft"])).toEqual(["draft"]);
-    expect(statusesForScope("mine", ["closed"])).toEqual(["closed"]);
+  it("adresy z górnego paska i z sygnału dla Head of Recruitment ustawiają zakres i filtr", () => {
+    const mine = new URLSearchParams("open=1&tosend=mine");
+    expect(scopeOverrideFromUrl(mine)).toBe("open");
+    expect(initialToSendFromUrl(mine)).toBe("mine");
+    expect(initialToSendFromUrl(new URLSearchParams("open=1&tosend=stale"))).toBe("stale");
+    // Zakres inny niż domyślny roli zostaje w adresie razem z filtrem.
+    expect(encodeJobsListUrl({ ...base, scope: "open", sort: "newest", toSend: "mine" })).toBe(
+      "open=1&tosend=mine",
+    );
+  });
+
+  it("„dowolnie” nie zostawia klucza ani parametru; nieznana wartość = dowolnie", () => {
+    expect(encodeJobsListUrl({ ...base, toSend: "" }, new URLSearchParams("tosend=mine"))).toBe("");
+    expect(encodeJobsListUrl(base, new URLSearchParams("tosend=stale"))).toBe("");
+    expect(toSendQueryParams("")).toEqual({});
+    expect(toSendQueryParams(undefined)).toEqual({});
+    expect(initialToSendFromUrl(new URLSearchParams(""))).toBe("");
+    expect(initialToSendFromUrl(new URLSearchParams("tosend=everyone"))).toBe("");
+  });
+});
+
+describe("goły adres czy link z widokiem (pamięć listy, 13.10.2026)", () => {
+  it("adres z kluczem, który lista czyta, jest linkiem", () => {
+    for (const query of [
+      "mine=1",
+      "mine=0",
+      "open=1",
+      "mycat=1",
+      "stage=searching",
+      "q=java",
+      "client=5",
+      "who=7",
+      "prio=p1",
+      "sort=oldest",
+      "deadline=overdue",
+      "op_from=2026-10-01",
+      "rs=champion",
+      "ws=searching",
+    ]) {
+      expect(hasJobsListParams(new URLSearchParams(query)), query).toBe(true);
+    }
+  });
+
+  it("goły adres, obce parametry i martwe klucze sprzed 25.09.2026 to nie link", () => {
+    for (const query of [
+      "",
+      "utm_source=mail",
+      "status=published",
+      "type=sales&responsible=3",
+      "priority=1&sourcing=1&active_search=1&no_owner=1",
+    ]) {
+      expect(hasJobsListParams(new URLSearchParams(query)), query).toBe(false);
+    }
+  });
+
+  it("`keepScope` zostawia w adresie zakres równy domyślnemu roli", () => {
+    const state = {
+      scope: "mine" as const,
+      defaultScope: "mine" as const,
+      deadline: "any" as const,
+      sort: "attention" as const,
+    };
+    expect(encodeJobsListUrl(state)).toBe("");
+    expect(encodeJobsListUrl({ ...state, keepScope: true })).toBe("mine=1");
+    expect(
+      encodeJobsListUrl({ ...state, scope: "open", defaultScope: "open", sort: "newest", keepScope: true }),
+    ).toBe("open=1");
+  });
+
+  it("zapis widoku jest stabilny: odczyt i ponowny zapis dają ten sam napis", () => {
+    const query = "open=1&deadline=overdue&stage=champion&stage=searching&client=5&who=7&prio=p1";
+    const params = new URLSearchParams(query);
+    const again = encodeJobsListUrl({
+      scope: scopeOverrideFromUrl(params) ?? "mine",
+      defaultScope: "mine",
+      deadline: initialDeadlineFromUrl(params),
+      sort: sortOverrideFromUrl(params) ?? "newest",
+      stages: initialStagesFromUrl(params),
+      clientIds: initialIdsFromUrl(params, "client"),
+      workedBy: initialIdsFromUrl(params, "who"),
+      priorityLevels: initialPriorityLevelsFromUrl(params),
+    });
+    expect(again).toBe(query);
   });
 });

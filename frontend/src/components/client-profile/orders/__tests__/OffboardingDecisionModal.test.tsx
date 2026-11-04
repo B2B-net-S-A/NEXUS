@@ -352,6 +352,8 @@ describe("przejęcie pozostałych MD w decyzji (ticket 09.2026, B1/A5)", () => {
       entry_date: "2026-09-01",
       rate_cost: 680,
       rate_revenue: 800,
+      rate_candidate_currency: "PLN",
+      rate_client_currency: "PLN",
       md_transfer_method: "one_to_one",
       expected_case_version: 1,
     });

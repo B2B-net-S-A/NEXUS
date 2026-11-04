@@ -4,13 +4,32 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 
+import { DebriefDialog } from "@/components/calendar/cycle/DebriefDialog";
 import { InterviewCycleProgress } from "@/components/calendar/cycle/InterviewCycleProgress";
 import { PlanPrepDialog } from "@/components/calendar/cycle/PlanPrepDialog";
+import { Prep2SkipControls } from "@/components/calendar/cycle/Prep2Skip";
+import { PrepEditButtons } from "@/components/calendar/cycle/PrepEditButtons";
+import { PrepResponseChip } from "@/components/calendar/cycle/PrepResponseChip";
+import { PrepReviewDialog } from "@/components/calendar/cycle/PrepReviewDialog";
+import { SlotDecisionDialog } from "@/components/calendar/cycle/SlotDialogs";
+import { ReschedulePrepDialog } from "@/components/calendar/cycle/ReschedulePrepDialog";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
-import type { PairInfo, StepState } from "@/lib/interview-cycle";
+import {
+  candidateLabel,
+  debriefSummaryLine,
+  formatDayLabel,
+  formatTime,
+  pairContext,
+  type PairInfo,
+  type StepState,
+} from "@/lib/interview-cycle";
+import { scheduledInterviewFromSteps } from "@/lib/prep-timing";
 import { cn } from "@/lib/utils";
 
 const OPEN_STEP: ReadonlySet<StepState> = new Set(["todo", "current", "overdue"]);
+// Prep „po terminie” to prep zaplanowany po rozmowie u klienta — spotkanie już
+// istnieje, więc nie jest krokiem do zaplanowania (od tego jest „Przełóż”).
+const PREP_TO_PLAN: ReadonlySet<StepState> = new Set(["todo", "current"]);
 
 const TONE: Record<NonNullable<KanbanItem["interview_badge"]>["tone"], string> = {
   urgent: "bg-destructive/10 text-destructive",
@@ -39,14 +58,33 @@ export function DockInterviewCycle({
   onAddClientSlots?: () => void;
 }) {
   const [prepNo, setPrepNo] = useState<1 | 2 | null>(null);
+  // PR 6 (04.10.2026): wybór i potwierdzenie terminu oraz ocena prepu w panelu
+  // osoby — do tej pory wyłącznie w kalendarzu „Rozmowy u klienta”.
+  const [slotMode, setSlotMode] = useState<"pick" | "confirm" | null>(null);
+  const [reviewPrepId, setReviewPrepId] = useState<number | null>(null);
+  const [viewDebrief, setViewDebrief] = useState(false);
+  const debrief = badge.debrief ?? null;
+  const slotRequest = badge.slot_request ?? null;
+  const canPickSlot = slotRequest?.status === "awaiting_recruiter";
+  // Termin potwierdza osoba z prawem do terminów od klienta (ta sama, która je
+  // dodaje) — przycisk „Terminy od klienta” jest tym samym sygnałem.
+  const canConfirmSlot = slotRequest?.status === "awaiting_dl" && Boolean(onAddClientSlots);
+  // Prep z oceną (także „niedostępna”) — okno mówi, co z niej wynika.
+  const reviewedPreps = (badge.preps ?? []).filter((p) => p.review_status != null);
+  // „Przełóż” (prep po rozmowie), „Zmień” i „Odwołaj” otwierają to samo okno.
+  const [editing, setEditing] = useState<{
+    eventId: number;
+    prepNo: 1 | 2;
+    mode: "late" | "edit" | "cancel";
+  } | null>(null);
   const steps = badge.steps ?? [];
   const state = (key: string) => steps.find((s) => s.key === key)?.state;
   const interviewDone = state("interview") === "done";
   const nextPrep: 1 | 2 | null = interviewDone
     ? null
-    : OPEN_STEP.has(state("prep") ?? "done")
+    : PREP_TO_PLAN.has(state("prep") ?? "done")
       ? 1
-      : OPEN_STEP.has(state("prep2") ?? "done")
+      : PREP_TO_PLAN.has(state("prep2") ?? "done")
         ? 2
         : null;
   const debriefOpen =
@@ -55,6 +93,23 @@ export function DockInterviewCycle({
     interviewDone;
   const slotsOpen = OPEN_STEP.has(state("slots") ?? "done");
   const calendarHref = `/calendar?cycle=${pair.candidate_id}-${pair.job_id}`;
+  // Prep po rozmowie u klienta: krok jest „po terminie”, ale spotkanie już
+  // istnieje — przekładamy TO spotkanie (nowy termin), zamiast zakładać drugie.
+  const latePrepId = badge.late_prep_event_id ?? null;
+  const latePrepNo: 1 | 2 = state("prep") !== "overdue" && state("prep2") === "overdue" ? 2 : 1;
+  // Zaplanowane prepy z terminem i akcjami (17.10.2026, D2) — do tej daty
+  // zaplanowany prep nie miał w doku żadnej akcji.
+  const scheduledPreps = steps.flatMap((s) =>
+    (s.key === "prep" || s.key === "prep2") && s.state === "scheduled" && s.event_id != null
+      ? [{ eventId: s.event_id, prepNo: (s.key === "prep2" ? 2 : 1) as 1 | 2, at: s.at ?? null }]
+      : [],
+  );
+  // Termin rozmowy bywa dopiero proponowany — okno prepu liczy względem niego.
+  const prepInterview =
+    scheduledInterviewFromSteps(steps) ??
+    (badge.tentative_interview_at
+      ? { start: badge.tentative_interview_at, tentative: true }
+      : null);
 
   return (
     <div
@@ -75,8 +130,55 @@ export function DockInterviewCycle({
       </div>
       <div className={cn("rounded-md px-2 py-1 font-semibold", TONE[badge.tone])}>{badge.label}</div>
       {steps.length ? <InterviewCycleProgress steps={steps} labels /> : null}
-      {!readOnly && (debriefOpen || nextPrep || (slotsOpen && onAddClientSlots)) ? (
+      {!readOnly && scheduledPreps.length ? (
+        <ul className="space-y-1" data-testid="dock-scheduled-preps">
+          {scheduledPreps.map((p) => (
+            <li
+              key={p.eventId}
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border px-2 py-1"
+            >
+              <span className="font-semibold text-foreground">Prep {p.prepNo}</span>
+              {p.at ? (
+                <span className="tabular-nums text-muted-foreground">
+                  {formatDayLabel(p.at)}, {formatTime(p.at)}
+                </span>
+              ) : null}
+              <PrepResponseChip eventId={p.eventId} />
+              <PrepEditButtons
+                className="ml-auto"
+                eventId={p.eventId}
+                onEdit={(mode) => setEditing({ eventId: p.eventId, prepNo: p.prepNo, mode })}
+              />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {!readOnly &&
+      (debriefOpen ||
+        nextPrep ||
+        latePrepId ||
+        canPickSlot ||
+        canConfirmSlot ||
+        (slotsOpen && onAddClientSlots && !slotRequest)) ? (
         <div className="flex flex-wrap gap-2 pt-0.5">
+          {canPickSlot ? (
+            <button
+              type="button"
+              onClick={() => setSlotMode("pick")}
+              className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+            >
+              Wybierz termin z kandydatem
+            </button>
+          ) : null}
+          {canConfirmSlot ? (
+            <button
+              type="button"
+              onClick={() => setSlotMode("confirm")}
+              className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+            >
+              Potwierdź termin
+            </button>
+          ) : null}
           {debriefOpen ? (
             <button
               type="button"
@@ -84,6 +186,17 @@ export function DockInterviewCycle({
               className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
             >
               Zapisz debrief
+            </button>
+          ) : null}
+          {latePrepId ? (
+            <button
+              type="button"
+              onClick={() =>
+                setEditing({ eventId: latePrepId, prepNo: latePrepNo, mode: "late" })
+              }
+              className="inline-flex h-8 items-center rounded-md border border-destructive/40 bg-card px-3 text-xs font-semibold text-destructive hover:bg-destructive/10"
+            >
+              Przełóż prep (wypada po rozmowie)
             </button>
           ) : null}
           {nextPrep ? (
@@ -95,7 +208,7 @@ export function DockInterviewCycle({
               Zaplanuj Prep {nextPrep}
             </button>
           ) : null}
-          {slotsOpen && onAddClientSlots ? (
+          {slotsOpen && onAddClientSlots && !slotRequest ? (
             <button
               type="button"
               onClick={onAddClientSlots}
@@ -106,8 +219,102 @@ export function DockInterviewCycle({
           ) : null}
         </div>
       ) : null}
+      <Prep2SkipControls
+        pair={pair}
+        status={badge.prep2_skip_status}
+        skip={badge.prep2_skip}
+        remaining={badge.prep1_remaining}
+        interviewAt={steps.find((s) => s.key === "interview")?.at ?? null}
+        readOnly={readOnly}
+      />
+      {debrief && badge.interview_event_id != null ? (
+        // 04.10.2026: po zapisie debriefu dok tracił przycisk i nie pokazywał
+        // niczego — warunek kandydata („chce jednak 125 zł/h”) ginął.
+        <div className="space-y-0.5 rounded-md bg-muted/50 px-2 py-1.5" data-testid="dock-debrief-summary">
+          <div>
+            <span className="font-semibold text-foreground">Debrief:</span>{" "}
+            <span className="text-foreground">{debriefSummaryLine(debrief)}</span>
+          </div>
+          {debrief.acceptance_condition ? (
+            <div className="break-words text-muted-foreground">
+              Warunek: {debrief.acceptance_condition}
+            </div>
+          ) : null}
+          {debrief.candidate_comment ? (
+            <div className="break-words text-muted-foreground">
+              Komentarz kandydata: {debrief.candidate_comment}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setViewDebrief(true)}
+            className="font-medium text-primary hover:underline"
+          >
+            Cały debrief
+          </button>
+        </div>
+      ) : null}
+      {reviewedPreps.length > 0 ? (
+        <div className="flex flex-wrap gap-x-3 gap-y-1">
+          {reviewedPreps.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setReviewPrepId(p.id)}
+              className="font-medium text-primary hover:underline"
+            >
+              Ocena prepu{p.prep_no ? ` ${p.prep_no}` : ""}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {slotMode && slotRequest ? (
+        <SlotDecisionDialog
+          open
+          onOpenChange={(o) => !o && setSlotMode(null)}
+          mode={slotMode}
+          pair={pair}
+          request={slotRequest}
+        />
+      ) : null}
+      {reviewPrepId != null ? (
+        <PrepReviewDialog
+          open
+          onOpenChange={(o) => !o && setReviewPrepId(null)}
+          eventId={reviewPrepId}
+          pair={pair}
+        />
+      ) : null}
+      {viewDebrief && badge.interview_event_id != null ? (
+        <DebriefDialog
+          open
+          onOpenChange={(o) => !o && setViewDebrief(false)}
+          eventId={badge.interview_event_id}
+          title="Debrief po rozmowie u klienta"
+          description={`${candidateLabel(pair)} · ${pairContext(pair)}`}
+          readOnly={readOnly}
+          submitLabel="Zapisz poprawkę"
+        />
+      ) : null}
+      {editing ? (
+        <ReschedulePrepDialog
+          open
+          onOpenChange={(o) => !o && setEditing(null)}
+          eventId={editing.eventId}
+          pair={pair}
+          prepNo={editing.prepNo}
+          mode={editing.mode}
+          interview={prepInterview}
+        />
+      ) : null}
       {prepNo ? (
-        <PlanPrepDialog open onOpenChange={(o) => !o && setPrepNo(null)} pair={pair} prepNo={prepNo} />
+        <PlanPrepDialog
+          open
+          onOpenChange={(o) => !o && setPrepNo(null)}
+          pair={pair}
+          prepNo={prepNo}
+          interview={prepInterview}
+        />
       ) : null}
     </div>
   );

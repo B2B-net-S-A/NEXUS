@@ -18,6 +18,7 @@ from sqlalchemy import select
 import app.models  # noqa: F401  (zarejestruj wszystkie mappery)
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token, hash_password
+from app.models.application_screening import ApplicationScreening
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.client import Client
 from app.models.job import Job, JobStatus
@@ -360,7 +361,7 @@ async def test_open_count_is_team_wide_and_matches_the_visible_list():
         await proposals.upsert_proposals(
             db,
             job_id,
-            [{"candidate_id": c, "score": 50} for c in world["candidate_ids"]],
+            [{"candidate_id": c, "score": 80} for c in world["candidate_ids"]],
             "full_base",
         )
         # Ta sama osoba z dwóch źródeł liczy się RAZ.
@@ -401,6 +402,41 @@ async def test_open_count_is_team_wide_and_matches_the_visible_list():
     assert {r.candidate_id: r.is_new for r in rows} == {first: True, second: False}
 
 
+async def test_board_score_never_becomes_the_shown_match_score():
+    """27.10.2026: punktacja scrapera (`job_board`) to inny algorytm — `score`
+    listy niesie tylko kanoniczne dopasowanie, scraper osobno."""
+    world = await _world(people=3)
+    job_id = world["job_id"]
+    both, board_only, base_only = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [
+                {"candidate_id": both, "score": 78},
+                {"candidate_id": board_only, "score": 77},
+            ],
+            "job_board",
+        )
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [
+                {"candidate_id": both, "score": 71},
+                {"candidate_id": base_only, "score": 74},
+            ],
+            "full_base",
+        )
+        await db.commit()
+        rows, _ = await proposals.list_for_job(db, job_id=job_id)
+    by_id = {r.candidate_id: r for r in rows}
+    assert (by_id[both].score, by_id[both].board_score) == (71.0, 78.0)
+    assert (by_id[board_only].score, by_id[board_only].board_score) == (None, 77.0)
+    assert (by_id[base_only].score, by_id[base_only].board_score) == (74.0, None)
+    # Kto trafia na stronę — bez zmian (najwyższy wynik dowolnego źródła).
+    assert [r.candidate_id for r in rows] == [both, board_only, base_only]
+
+
 def test_evidence_keeps_requirement_names_and_drops_free_text():
     clean = proposals.sanitize_evidence(
         {
@@ -436,11 +472,28 @@ def test_evidence_keeps_requirement_names_and_drops_free_text():
     assert proposals.sanitize_evidence("tekst") is None
 
 
+def test_trainee_evidence_keeps_the_employment_only_flag():
+    clean = proposals.sanitize_evidence(
+        {"trainee": {"user_id": 5, "note": " Szuka ", "employment_only": True}}
+    )
+    assert clean == {
+        "trainee": {"user_id": 5, "note": "Szuka", "employment_only": True}
+    }
+    # Flaga to wyłącznie literalne `True`.
+    assert proposals.sanitize_evidence(
+        {"trainee": {"user_id": 5, "employment_only": "tak"}}
+    ) == {"trainee": {"user_id": 5}}
+
+
 # ── API ─────────────────────────────────────────────────────────────────────
 
 
 def _inbox(job_id: int) -> str:
     return f"/api/jobs/{job_id}/proposal-inbox"
+
+
+# Od 30.09.2026 „Pomiń" wymaga powodu (0405).
+_REASON = {"reason": "too_expensive"}
 
 
 async def _seed_inbox(world: dict) -> None:
@@ -465,7 +518,6 @@ async def _seed_inbox(world: dict) -> None:
     "role,pipeline,expected",
     [
         (UserRole.recruiter, None, 200),
-        (UserRole.sourcer, None, 200),
         # Odebrana sekcja rekrutacji = brak skrzynki, niezależnie od roli.
         (UserRole.recruiter, "none", 403),
         # Finanse: organizacyjny odczyt rekrutacji (bez prawa zapisu).
@@ -494,7 +546,7 @@ async def test_inbox_requires_login_and_an_existing_recruitment(
     assert gone.status_code in (404, 405), gone.text
 
 
-async def test_inbox_lists_narrow_identity_and_redacts_the_rate(
+async def test_inbox_lists_narrow_identity_and_shows_the_candidate_rate(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     world = await _world(people=2)
@@ -517,9 +569,9 @@ async def test_inbox_lists_narrow_identity_and_redacts_the_rate(
     candidate = item["candidate"]
     assert candidate["city"] == "Gdańsk"
     assert "email" not in candidate and "phone" not in candidate
-    # Rekruter nie ma odczytu finansów: stawka zredagowana, klucz zostaje.
-    assert candidate["expected_rate_hourly"] is None
-    assert candidate["expected_rate_redacted"] is True
+    # R10-N7-10: stawka KANDYDATA jawna także dla rekrutera (decyzja 27.09).
+    assert candidate["expected_rate_hourly"] == 150.0
+    assert candidate["expected_rate_redacted"] is False
 
     admin_candidate = as_admin.json()["items"][0]["candidate"]
     assert admin_candidate["expected_rate_hourly"] == 150.0
@@ -539,20 +591,24 @@ async def test_dismiss_flow(app_client: AsyncClient):
     assert [i["is_new"] for i in listed.json()["items"]] == [True, True]
 
     # Stara rola podglądu nie zmienia skrzynki zespołu.
-    refused = await app_client.post(f"{_inbox(job_id)}/{first}/dismiss", headers=viewer)
+    refused = await app_client.post(
+        f"{_inbox(job_id)}/{first}/dismiss", json=_REASON, headers=viewer
+    )
     assert refused.status_code == 403, refused.text
     assert (await _statuses(job_id))[(first, "full_base")] == "proposed"
 
     # Od 23.09.2026 pomija każdy rekruter — także spoza zespołu rekrutacji.
-    done = await app_client.post(f"{_inbox(job_id)}/{first}/dismiss", headers=outsider)
+    done = await app_client.post(
+        f"{_inbox(job_id)}/{first}/dismiss", json=_REASON, headers=outsider
+    )
     assert done.status_code == 200, done.text
     assert done.json()["dismissed"] == 1
     again = await app_client.post(
-        f"{_inbox(job_id)}/{first}/dismiss", headers=recruiter
+        f"{_inbox(job_id)}/{first}/dismiss", json=_REASON, headers=recruiter
     )
     assert again.status_code == 200 and again.json()["dismissed"] == 0
     unknown = await app_client.post(
-        f"{_inbox(job_id)}/2000000000/dismiss", headers=recruiter
+        f"{_inbox(job_id)}/2000000000/dismiss", json=_REASON, headers=recruiter
     )
     assert unknown.status_code == 404, unknown.text
 
@@ -603,31 +659,31 @@ async def test_dismiss_works_for_a_person_the_inbox_never_listed(
     # Ta sama bramka co dotąd: rola wewnętrzna i sekcja rekrutacji (przypisanie
     # do zespołu od 23.09.2026 nie jest wymagane).
     refused = await app_client.post(
-        f"{_inbox(job_id)}/{searched}/dismiss", headers=viewer
+        f"{_inbox(job_id)}/{searched}/dismiss", json=_REASON, headers=viewer
     )
     assert refused.status_code == 403, refused.text
     _, no_pipeline = await _user(UserRole.recruiter, pipeline="none")
     assert (
         await app_client.post(
-            f"{_inbox(job_id)}/{searched}/dismiss", headers=no_pipeline
+            f"{_inbox(job_id)}/{searched}/dismiss", json=_REASON, headers=no_pipeline
         )
     ).status_code == 403
     assert await _statuses(job_id) == {}
 
-    # Bez ciała → domyślne źródło; z ciałem → wskazane; spoza CHECK-a → 422.
+    # Bez źródła → domyślne; ze źródłem → wskazane; spoza CHECK-a → 422.
     plain = await app_client.post(
-        f"{_inbox(job_id)}/{searched}/dismiss", headers=recruiter
+        f"{_inbox(job_id)}/{searched}/dismiss", json=_REASON, headers=recruiter
     )
     assert plain.status_code == 200 and plain.json()["dismissed"] == 1, plain.text
     chosen = await app_client.post(
         f"{_inbox(job_id)}/{recommended}/dismiss",
-        json={"source": "recommendation"},
+        json={"source": "recommendation", "reason": "outdated_cv"},
         headers=recruiter,
     )
     assert chosen.status_code == 200 and chosen.json()["dismissed"] == 1, chosen.text
     bad = await app_client.post(
         f"{_inbox(job_id)}/{recommended}/dismiss",
-        json={"source": "cokolwiek"},
+        json={"source": "cokolwiek", "reason": "outdated_cv"},
         headers=recruiter,
     )
     assert bad.status_code == 422, bad.text
@@ -644,21 +700,36 @@ async def test_dismiss_works_for_a_person_the_inbox_never_listed(
     assert row.dismissed_by == recruiter_id and row.dismissed_at is not None
     assert row.dismissed_cv_revision == "unparsed" == row.cv_revision
 
+    # R10-N7-1: skrzynka niesie listę pominiętych — front odsiewa ich z żywego
+    # przeglądu, podobnych projektów i rekomendacji (te źródła nie czytają
+    # `job_proposals`). Tylko pierwsza strona `proposed`.
+    listed = await app_client.get(_inbox(job_id), headers=recruiter)
+    assert listed.status_code == 200, listed.text
+    assert sorted(listed.json()["dismissed_candidate_ids"]) == sorted(
+        [searched, recommended]
+    )
+    later_page = await app_client.get(
+        _inbox(job_id), params={"offset": 20}, headers=recruiter
+    )
+    assert later_page.json()["dismissed_candidate_ids"] == []
+
     # Idempotentne: druga próba nie zakłada drugiego wiersza.
     again = await app_client.post(
-        f"{_inbox(job_id)}/{searched}/dismiss", headers=recruiter
+        f"{_inbox(job_id)}/{searched}/dismiss", json=_REASON, headers=recruiter
     )
     assert again.status_code == 200 and again.json()["dismissed"] == 0
     assert len(await _statuses(job_id)) == 2
 
     # Osoba już w rekrutacji → 409 po polsku, bez wiersza; brak kandydata → 404.
     conflict = await app_client.post(
-        f"{_inbox(job_id)}/{in_pipeline}/dismiss", headers=recruiter
+        f"{_inbox(job_id)}/{in_pipeline}/dismiss", json=_REASON, headers=recruiter
     )
     assert conflict.status_code == 409, conflict.text
     assert "już w tej rekrutacji" in conflict.json()["detail"]
     assert (
-        await app_client.post(f"{_inbox(job_id)}/2000000000/dismiss", headers=recruiter)
+        await app_client.post(
+            f"{_inbox(job_id)}/2000000000/dismiss", json=_REASON, headers=recruiter
+        )
     ).status_code == 404
     assert len(await _statuses(job_id)) == 2
 
@@ -681,6 +752,74 @@ async def test_dismiss_works_for_a_person_the_inbox_never_listed(
     assert (await _statuses(job_id))[(searched, "full_base")] == "proposed"
 
 
+async def test_dismiss_requires_a_reason_and_stores_it(app_client: AsyncClient):
+    recruiter_id, recruiter = await _user(UserRole.recruiter)
+    world = await _world(people=3, recruiter_id=recruiter_id)
+    await _seed_inbox(world)
+    job_id = world["job_id"]
+    first, second, unlisted = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        # `unlisted` nie ma wiersza — „Pomiń" z wyszukiwarki zakłada go od razu.
+        await db.execute(
+            JobProposal.__table__.delete().where(
+                JobProposal.job_id == job_id, JobProposal.candidate_id == unlisted
+            )
+        )
+        await db.commit()
+
+    # Bez ciała i bez powodu → 422 po polsku, nic się nie zmienia.
+    for payload in (None, {"source": "full_base"}):
+        missing = await app_client.post(
+            f"{_inbox(job_id)}/{first}/dismiss", json=payload, headers=recruiter
+        )
+        assert missing.status_code == 422, missing.text
+        assert "powód" in missing.json()["detail"]
+    unknown = await app_client.post(
+        f"{_inbox(job_id)}/{first}/dismiss",
+        json={"reason": "bo tak"},
+        headers=recruiter,
+    )
+    assert unknown.status_code == 422, unknown.text
+    other = await app_client.post(
+        f"{_inbox(job_id)}/{first}/dismiss",
+        json={"reason": "other", "note": "   "},
+        headers=recruiter,
+    )
+    assert other.status_code == 422 and "Inne" in other.json()["detail"]
+    assert (await _statuses(job_id))[(first, "full_base")] == "proposed"
+
+    ok = await app_client.post(
+        f"{_inbox(job_id)}/{first}/dismiss",
+        json={"reason": "other", "note": "  Klient nie chce freelancerów  "},
+        headers=recruiter,
+    )
+    assert ok.status_code == 200 and ok.json()["dismissed"] == 1, ok.text
+    await app_client.post(
+        f"{_inbox(job_id)}/{second}/dismiss",
+        json={"reason": "missing_critical", "note": ""},
+        headers=recruiter,
+    )
+    await app_client.post(
+        f"{_inbox(job_id)}/{unlisted}/dismiss",
+        json={"reason": "location_office", "source": "recommendation"},
+        headers=recruiter,
+    )
+    async with AsyncSessionLocal() as db:
+        rows = {
+            r.candidate_id: (r.dismiss_reason, r.dismiss_note)
+            for r in (
+                await db.scalars(
+                    select(JobProposal).where(JobProposal.job_id == job_id)
+                )
+            ).all()
+        }
+    assert rows == {
+        first: ("other", "Klient nie chce freelancerów"),
+        second: ("missing_critical", None),
+        unlisted: ("location_office", None),
+    }
+
+
 async def test_restore_undoes_a_dismiss(app_client: AsyncClient):
     recruiter_id, recruiter = await _user(UserRole.recruiter)
     _, outsider = await _user(UserRole.recruiter)
@@ -695,7 +834,9 @@ async def test_restore_undoes_a_dismiss(app_client: AsyncClient):
         )
         await db.commit()
 
-    done = await app_client.post(f"{_inbox(job_id)}/{first}/dismiss", headers=recruiter)
+    done = await app_client.post(
+        f"{_inbox(job_id)}/{first}/dismiss", json=_REASON, headers=recruiter
+    )
     assert done.json()["dismissed"] == 2
 
     refused = await app_client.post(f"{_inbox(job_id)}/{first}/restore", headers=viewer)
@@ -721,6 +862,8 @@ async def test_restore_undoes_a_dismiss(app_client: AsyncClient):
         r.dismissed_at is None
         and r.dismissed_by is None
         and r.dismissed_cv_revision is None
+        and r.dismiss_reason is None
+        and r.dismiss_note is None
         for r in rows
     )
     listed = await app_client.get(_inbox(job_id), headers=recruiter)
@@ -817,7 +960,7 @@ async def test_latest_run_shows_own_and_automatic_runs_only(app_client: AsyncCli
 
     empty = await app_client.get(url, headers=me)
     assert empty.status_code == 200, empty.text
-    assert empty.json() == {"job_id": job_id, "run": None}
+    assert empty.json() == {"job_id": job_id, "run": None, "latest_failure": None}
 
     now = datetime.now(timezone.utc)
 
@@ -856,6 +999,16 @@ async def test_latest_run_shows_own_and_automatic_runs_only(app_client: AsyncCli
     assert body["run"]["run_id"] == auto.id
     assert body["run"]["state"] == "partial"
     assert body["run"]["own"] is False and body["run"]["origin"] == "auto"
+    assert body["latest_failure"] is None
+
+    # Runda 9 (R9-N5-5): nowsza awaria nie przykrywa udanego rankingu.
+    broken = run(other_id, "failed", now, {"origin": "auto"})
+    async with AsyncSessionLocal() as db:
+        db.add(broken)
+        await db.commit()
+    body = (await app_client.get(url, headers=me)).json()
+    assert body["run"]["run_id"] == auto.id
+    assert body["latest_failure"]["run_id"] == broken.id
 
     _, no_pipeline = await _user(UserRole.recruiter, pipeline="none")
     assert (await app_client.get(url, headers=no_pipeline)).status_code == 403
@@ -951,3 +1104,583 @@ def test_entrypoint_mirrors_the_0333_tables():
             ), index.name
     # `run_id` celowo bez FK — przeglądy kasuje retencja.
     assert not JobProposal.__table__.c.run_id.foreign_keys
+
+
+# ── Podział licznika: świeże z ogłoszeń / z bazy (02.10.2026) ───────────────
+
+
+def _counts(job_id: int) -> str:
+    return f"/api/jobs/{job_id}/proposal-counts"
+
+
+async def _age_proposal(job_id: int, candidate_id: int, source: str, days: int) -> None:
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            JobProposal.__table__.update()
+            .where(
+                JobProposal.job_id == job_id,
+                JobProposal.candidate_id == candidate_id,
+                JobProposal.source == source,
+            )
+            .values(first_seen_at=datetime.now(timezone.utc) - timedelta(days=days))
+        )
+        await db.commit()
+
+
+async def _seed_split(world: dict) -> dict[str, int]:
+    """Sześć osób: po jednej na każdy przypadek podziału."""
+    job_id = world["job_id"]
+    fresh_cv, old_cv, base_and_board, base_only, in_pipeline, dismissed = world[
+        "candidate_ids"
+    ]
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [{"candidate_id": c, "score": 60} for c in (fresh_cv, old_cv, dismissed)],
+            "new_cv",
+        )
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [{"candidate_id": c, "score": 70} for c in (base_and_board, base_only)],
+            "full_base",
+        )
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [{"candidate_id": c, "score": 80} for c in (base_and_board, in_pipeline)],
+            "job_board",
+        )
+        db.add(
+            CandidateStage(
+                candidate_id=in_pipeline,
+                job_id=job_id,
+                stage=PipelineStage.new,
+                moved_at=datetime.now(timezone.utc),
+            )
+        )
+        await proposals.dismiss(db, job_id=job_id, candidate_id=dismissed, user_id=None)
+        await db.commit()
+    await _age_proposal(job_id, fresh_cv, "new_cv", 6)
+    await _age_proposal(job_id, old_cv, "new_cv", 8)
+    await _age_proposal(job_id, base_and_board, "full_base", 30)
+    await _age_proposal(job_id, base_only, "full_base", 1)
+    return {
+        "fresh_cv": fresh_cv,
+        "old_cv": old_cv,
+        "base_and_board": base_and_board,
+        "base_only": base_only,
+    }
+
+
+async def test_split_counts_sum_to_the_list_total_and_follow_the_window():
+    world = await _world(people=6)
+    job_id = world["job_id"]
+    people = await _seed_split(world)
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+
+    async with AsyncSessionLocal() as db:
+        split = await proposals.open_split_counts(db, job_id=job_id, since=week_ago)
+        rows, total = await proposals.list_for_job(db, job_id=job_id)
+        wide = await proposals.open_split_counts(
+            db, job_id=job_id, since=datetime.now(timezone.utc) - timedelta(days=10)
+        )
+        empty = await proposals.open_split_counts(db, job_id=-1, since=week_ago)
+
+    # Nowe CV sprzed 6 dni i świeży portal obok starego przeglądu bazy = „z
+    # ogłoszeń”; nowe CV sprzed 8 dni i sam przegląd bazy = „z bazy”. Osoba
+    # w rekrutacji i osoba pominięta nie liczą się wcale — jak na liście.
+    assert split == {"postings_recent": 2, "base": 2, "below_threshold": 0}
+    assert split["postings_recent"] + split["base"] == total == 4
+    # Szersze okno przenosi ósmy dzień na stronę ogłoszeń; suma zostaje.
+    assert wide == {"postings_recent": 3, "base": 1, "below_threshold": 0}
+    assert empty == {"postings_recent": 0, "base": 0, "below_threshold": 0}
+
+    by_id = {row.candidate_id: row for row in rows}
+    assert by_id[people["base_only"]].posting_seen_at is None
+    assert by_id[people["fresh_cv"]].posting_seen_at >= week_ago
+    assert by_id[people["old_cv"]].posting_seen_at < week_ago
+    # Data pochodzi z wiersza OGŁOSZENIA, nie ze starego przeglądu bazy.
+    assert by_id[people["base_and_board"]].posting_seen_at >= week_ago
+    assert by_id[people["base_and_board"]].sources == ["full_base", "job_board"]
+
+
+async def test_inbox_items_and_counts_endpoint_agree_on_postings(
+    app_client: AsyncClient,
+):
+    world = await _world(people=6)
+    job_id = world["job_id"]
+    people = await _seed_split(world)
+    prose = "Minimum 5 lat doświadczenia w analizie biznesowej procesów bankowych"
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.must_skills = ["Python", "Kafka", prose]
+        db.add_all(
+            [
+                ApplicationScreening(
+                    candidate_id=people["fresh_cv"],
+                    job_id=job_id,
+                    status="done",
+                    verdict="not_fit",
+                    outcome="screened_out",
+                ),
+                # Dodana „mimo to” — nie stoi już na liście odrzuconych.
+                ApplicationScreening(
+                    candidate_id=people["old_cv"],
+                    job_id=job_id,
+                    status="done",
+                    verdict="not_fit",
+                    outcome="screened_out",
+                    overridden_at=datetime.now(timezone.utc),
+                ),
+            ]
+        )
+        await db.commit()
+    _, headers = await _user(UserRole.recruiter)
+
+    inbox = await app_client.get(_inbox(job_id), headers=headers)
+    assert inbox.status_code == 200, inbox.text
+    items = {i["candidate"]["id"]: i for i in inbox.json()["items"]}
+    assert items[people["base_only"]]["posting_seen_at"] is None
+    assert items[people["base_only"]]["posting_recent"] is False
+    assert items[people["fresh_cv"]]["posting_recent"] is True
+    assert items[people["old_cv"]]["posting_seen_at"] is not None
+    assert items[people["old_cv"]]["posting_recent"] is False
+    assert items[people["base_and_board"]]["posting_recent"] is True
+
+    response = await app_client.get(_counts(job_id), headers=headers)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert set(body) == {
+        "job_id",
+        "days",
+        "postings_recent",
+        "base",
+        "below_threshold",
+        "threshold",
+        "screened_out",
+        "not_searchable_must",
+        "talk_checks",
+    }
+    assert (body["job_id"], body["days"]) == (job_id, 7)
+    assert (body["postings_recent"], body["base"]) == (2, 2)
+    # Najlepsze 40: osoby spod progu są w `total` listy, nie w liczbach kafli.
+    assert body["below_threshold"] == 0
+    assert body["threshold"] == inbox.json()["threshold"]
+    assert (
+        body["postings_recent"] + body["base"] + body["below_threshold"]
+        == inbox.json()["total"]
+    )
+    assert sum(i["posting_recent"] for i in items.values()) == body["postings_recent"]
+    # Ta sama liczba co `total` listy „Odrzuceni przez AI”.
+    screened = await app_client.get(f"/api/jobs/{job_id}/screened-out", headers=headers)
+    assert body["screened_out"] == screened.json()["total"] == 1
+    # Zdanie nie jest technologią — ta sama reguła co `/scores`.
+    assert [m.lower() for m in body["not_searchable_must"]] == [prose.lower()]
+
+    wide = await app_client.get(_counts(job_id), params={"days": 10}, headers=headers)
+    assert wide.status_code == 200, wide.text
+    assert (wide.json()["days"], wide.json()["postings_recent"]) == (10, 3)
+    assert wide.json()["base"] == 1
+    for days in (0, 31):
+        refused = await app_client.get(
+            _counts(job_id), params={"days": days}, headers=headers
+        )
+        assert refused.status_code == 422, refused.text
+
+
+@pytest.mark.parametrize(
+    "role,pipeline",
+    [
+        (UserRole.recruiter, None),
+        (UserRole.recruiter, "none"),
+        (UserRole.finance, None),
+    ],
+)
+async def test_counts_follow_the_inbox_guard(app_client: AsyncClient, role, pipeline):
+    world = await _world(people=1)
+    await _seed_inbox(world)
+    _, headers = await _user(role, pipeline=pipeline)
+    inbox = await app_client.get(_inbox(world["job_id"]), headers=headers)
+    counts = await app_client.get(_counts(world["job_id"]), headers=headers)
+    assert counts.status_code == inbox.status_code, counts.text
+    assert counts.status_code == (403 if pipeline == "none" else 200)
+
+
+async def test_counts_require_login_and_an_existing_recruitment(
+    app_client: AsyncClient,
+):
+    _, headers = await _user(UserRole.recruiter)
+    assert (await app_client.get(_counts(1))).status_code == 401
+    missing = await app_client.get(_counts(2_000_000_000), headers=headers)
+    assert missing.status_code == 404, missing.text
+
+
+# ── 0422: `expired`, `added` tylko z człowieka, telemetria (07.10.2026) ─────
+
+
+async def _set_status(job_id: int, candidate_id: int, status: str) -> None:
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(JobProposal).where(
+                JobProposal.job_id == job_id,
+                JobProposal.candidate_id == candidate_id,
+                JobProposal.source == "full_base",
+            )
+        )
+        row.status = status
+        await db.commit()
+
+
+async def test_expired_rows_are_invisible_and_revive_on_return():
+    world = await _world(people=3)
+    await _seed_inbox(world)
+    job_id = world["job_id"]
+    gone, kept, mixed = world["candidate_ids"]
+    await _set_status(job_id, gone, "expired")
+    await _set_status(job_id, mixed, "expired")
+    async with AsyncSessionLocal() as db:
+        # Para z żywym wierszem innego źródła nadal czeka — wygasły wiersz
+        # nie głosuje ani nie dokłada wyniku.
+        await proposals.upsert_proposals(
+            db, job_id, [{"candidate_id": mixed, "score": 40}], "new_cv"
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        rows, total = await proposals.list_for_job(db, job_id=job_id)
+        assert total == 2
+        by_id = {r.candidate_id: r for r in rows}
+        assert set(by_id) == {kept, mixed}
+        assert by_id[mixed].sources == ["new_cv"] and by_id[mixed].score == 40.0
+        assert (await proposals.open_counts_for_jobs(db, [job_id]))[job_id] == 2
+        assert (await proposals.open_counts_for_jobs(db, [job_id], source="full_base"))[
+            job_id
+        ] == 1
+        split = await proposals.open_split_counts(
+            db, job_id=job_id, since=datetime.now(timezone.utc) - timedelta(days=7)
+        )
+        assert split["postings_recent"] + split["base"] == 2
+        assert await proposals.dismissed_candidate_ids(db, job_id=job_id) == []
+
+    # Kolejny przegląd znowu proponuje osobę → wraca do skrzynki.
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db, job_id, [{"candidate_id": gone, "score": 77}], "full_base"
+        )
+        await db.commit()
+    assert (await _statuses(job_id))[(gone, "full_base")] == "proposed"
+    # Bez wskrzeszania (zaległa publikacja starszego przeglądu) zostaje wygasła.
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [{"candidate_id": mixed, "score": 77}],
+            "full_base",
+            revive_expired=False,
+        )
+        await db.commit()
+    assert (await _statuses(job_id))[(mixed, "full_base")] == "expired"
+
+
+async def test_expire_full_base_touches_only_open_rows_of_other_runs():
+    world = await _world(people=4)
+    job_id = world["job_id"]
+    current, stale, dismissed, other_source = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [{"candidate_id": c, "score": 80} for c in (stale, dismissed)],
+            "full_base",
+            run_id="run-old",
+        )
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [{"candidate_id": current, "score": 90}],
+            "full_base",
+            run_id="run-new",
+        )
+        await proposals.upsert_proposals(
+            db, job_id, [{"candidate_id": other_source, "score": 70}], "new_cv"
+        )
+        await proposals.dismiss(db, job_id=job_id, candidate_id=dismissed, user_id=None)
+        expired = await proposals.expire_full_base(db, job_id=job_id, run_id="run-new")
+        await db.commit()
+    assert expired == 1
+    statuses = await _statuses(job_id)
+    assert statuses[(current, "full_base")] == "proposed"
+    assert statuses[(stale, "full_base")] == "expired"
+    assert statuses[(dismissed, "full_base")] == "dismissed"
+    assert statuses[(other_source, "new_cv")] == "proposed"
+
+
+async def test_top_open_by_job_uses_the_inbox_visibility():
+    world = await _world(people=5)
+    job_id = world["job_id"]
+    best, second, third, fourth, in_pipeline = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [
+                {"candidate_id": best, "score": 95},
+                {"candidate_id": second, "score": 90},
+                {"candidate_id": third, "score": 85},
+                {"candidate_id": fourth, "score": 80},
+                {"candidate_id": in_pipeline, "score": 99},
+            ],
+            "full_base",
+        )
+        db.add(
+            CandidateStage(
+                candidate_id=in_pipeline, job_id=job_id, stage=PipelineStage.new
+            )
+        )
+        await db.commit()
+    await _set_status(job_id, second, "expired")
+    async with AsyncSessionLocal() as db:
+        top = await proposals.top_open_by_job(db, [job_id], per_job=3)
+    assert [(t.job_id, t.candidate_id, t.score) for t in top] == [
+        (job_id, best, 95.0),
+        (job_id, third, 85.0),
+        (job_id, fourth, 80.0),
+    ]
+
+
+async def test_only_a_human_add_marks_the_proposal_added():
+    from app.api import proposals_bulk
+
+    recruiter_id, _ = await _user(UserRole.recruiter)
+    world = await _world(people=2, recruiter_id=recruiter_id)
+    await _seed_inbox(world)
+    job_id = world["job_id"]
+    by_integration, by_human = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        auto = await proposals_bulk.add_candidates_to_job(
+            db,
+            job=job,
+            candidate_ids=[by_integration],
+            actor_user_id=recruiter_id,
+            entry_source="auto_match",
+            claim=False,
+        )
+        human = await proposals_bulk.add_candidates_to_job(
+            db,
+            job=job,
+            candidate_ids=[by_human],
+            actor_user_id=recruiter_id,
+            mark_proposals=True,
+        )
+        await db.commit()
+    assert auto.added == [by_integration] and human.added == [by_human]
+    statuses = await _statuses(job_id)
+    assert statuses[(by_integration, "full_base")] == "proposed"
+    assert statuses[(by_human, "full_base")] == "added"
+
+
+async def test_opening_the_inbox_is_recorded_once_a_day(app_client: AsyncClient):
+    from app.models.activity import Activity
+
+    recruiter_id, recruiter = await _user(UserRole.recruiter)
+    world = await _world(people=0, recruiter_id=recruiter_id)
+    job_id = world["job_id"]
+    url = f"/api/jobs/{job_id}/proposal-inbox/opened"
+    first = await app_client.post(url, headers=recruiter)
+    assert first.status_code == 200, first.text
+    assert first.json() == {"job_id": job_id, "recorded": True}
+    again = await app_client.post(url, headers=recruiter)
+    assert again.status_code == 200, again.text
+    assert again.json()["recorded"] is False
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(Activity).where(
+                    Activity.entity_type == "job",
+                    Activity.entity_id == job_id,
+                    Activity.action == "proposal_inbox_opened",
+                )
+            )
+        ).all()
+    assert len(rows) == 1 and rows[0].user_id == recruiter_id
+    # GET listy nadal niczego nie zapisuje.
+    listed = await app_client.get(_inbox(job_id), headers=recruiter)
+    assert listed.status_code == 200, listed.text
+
+
+async def test_integration_added_proposals_repair_is_one_shot():
+    from app.models.app_setting import AppSetting
+    from app.models.recruitment_process import RecruitmentProcess
+    from app.services import proposal_added_repair as repair
+
+    recruiter_id, _ = await _user(UserRole.recruiter)
+    world = await _world(people=2, recruiter_id=recruiter_id)
+    await _seed_inbox(world)
+    job_id = world["job_id"]
+    by_card, by_human = world["candidate_ids"]
+    from app.api import proposals_bulk
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        await proposals_bulk.add_candidates_to_job(
+            db,
+            job=job,
+            candidate_ids=[by_card],
+            actor_user_id=recruiter_id,
+            entry_source="auto_match",
+            claim=False,
+        )
+        await proposals_bulk.add_candidates_to_job(
+            db,
+            job=job,
+            candidate_ids=[by_human],
+            actor_user_id=recruiter_id,
+            mark_proposals=True,
+        )
+        # Stan sprzed 07.10.2026: karta z integracji też stawiała `added`.
+        await proposals.mark_added(db, job_id=job_id, candidate_ids=[by_card])
+        await db.commit()
+        sources = dict(
+            (
+                await db.execute(
+                    select(
+                        RecruitmentProcess.candidate_id, RecruitmentProcess.entry_source
+                    ).where(RecruitmentProcess.job_id == job_id)
+                )
+            ).all()
+        )
+    assert sources[by_card] == "auto_match" and sources[by_human] != "auto_match"
+
+    async with AsyncSessionLocal() as db:
+        marker = await db.get(AppSetting, repair.REPAIR_MARKER)
+        if marker is not None:
+            # Baza testowa jest wspólna — wcześniejszy przebieg zostawił znacznik.
+            await db.delete(marker)
+            await db.commit()
+    async with AsyncSessionLocal() as db:
+        summary = await repair.run_proposal_added_repair(db)
+        await db.commit()
+    assert summary is not None and [job_id, by_card] in summary["pair_ids"]
+    assert [job_id, by_human] not in summary["pair_ids"]
+    statuses = await _statuses(job_id)
+    assert statuses[(by_card, "full_base")] == "proposed"
+    assert statuses[(by_human, "full_base")] == "added"
+    async with AsyncSessionLocal() as db:
+        assert await repair.run_proposal_added_repair(db) is None
+
+
+def test_statuses_agree_everywhere() -> None:
+    from app.models.job_proposal import JOB_PROPOSAL_STATUSES
+    from app.services import job_proposal_feedback_schema as schema
+
+    assert tuple(JOB_PROPOSAL_STATUSES) == schema.STATUSES
+    check = next(
+        str(c.sqltext)
+        for c in JobProposal.__table__.constraints
+        if c.name == "ck_job_proposals_status"
+    )
+    for status in schema.STATUSES:
+        assert f"'{status}'" in check
+    entry = (_BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
+    assert "*_JOB_PROPOSAL_STATUS_CONSTRAINTS," in entry
+    assert "status IN ('proposed', 'dismissed', 'added', 'expired')" in entry
+    migration = (_BACKEND / "alembic/versions/0422_job_proposals_expired.py").read_text(
+        encoding="utf-8"
+    )
+    assert "STATUS_CONSTRAINT_DDL" in migration
+
+
+# ── Nowi w bazie najpierw (03.11.2026) ──────────────────────────────────────
+
+
+async def _new_in_base_world(scores: list[float]) -> dict:
+    """Pierwsza osoba jest w bazie od 2 lat, reszta jest świeża."""
+    world = await _world(people=len(scores))
+    async with AsyncSessionLocal() as db:
+        person = await db.get(Candidate, world["candidate_ids"][0])
+        person.created_at = datetime.now(timezone.utc) - timedelta(days=730)
+        await proposals.upsert_proposals(
+            db,
+            world["job_id"],
+            [
+                {"candidate_id": cid, "score": score, "evidence": {}}
+                for cid, score in zip(world["candidate_ids"], scores)
+            ],
+            "full_base",
+        )
+        await db.commit()
+    return world
+
+
+async def test_inbox_puts_new_in_base_before_a_higher_score(
+    app_client: AsyncClient,
+):
+    world = await _new_in_base_world([95.0, 72.0, 74.0])
+    old, low, high = world["candidate_ids"]
+    _, headers = await _user(UserRole.recruiter)
+
+    response = await app_client.get(_inbox(world["job_id"]), headers=headers)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [i["candidate"]["id"] for i in body["items"]] == [high, low, old]
+    assert body["new_in_base_total"] == 2
+    assert body["items"][0]["new_in_base_at"] is not None
+    assert body["items"][2]["new_in_base_at"] is None
+    # Procent zostaje wynikiem osoby: pierwszeństwo zmienia kolejność, nie ocenę.
+    assert body["items"][0]["score"] == 74.0
+
+
+async def test_inbox_new_in_base_total_leaves_out_people_on_the_postings_tab(
+    app_client: AsyncClient,
+):
+    world = await _new_in_base_world([95.0, 72.0, 74.0])
+    _, from_base, from_posting = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            world["job_id"],
+            [{"candidate_id": from_posting, "score": 74.0, "evidence": {}}],
+            "new_cv",
+        )
+        await db.commit()
+    _, headers = await _user(UserRole.recruiter)
+
+    body = (await app_client.get(_inbox(world["job_id"]), headers=headers)).json()
+
+    by_id = {i["candidate"]["id"]: i for i in body["items"]}
+    assert by_id[from_posting]["posting_recent"] is True
+    assert by_id[from_posting]["new_in_base_at"] is not None
+    assert by_id[from_base]["posting_recent"] is False
+    assert body["new_in_base_total"] == 1
+
+
+async def test_inbox_new_in_base_needs_the_threshold(app_client: AsyncClient):
+    world = await _new_in_base_world([80.0, 60.0])
+    old, low = world["candidate_ids"]
+    _, headers = await _user(UserRole.recruiter)
+
+    body = (await app_client.get(_inbox(world["job_id"]), headers=headers)).json()
+
+    assert [i["candidate"]["id"] for i in body["items"]] == [old, low]
+    assert body["new_in_base_total"] == 0
+    assert body["items"][1]["new_in_base_at"] is None
+
+
+async def test_inbox_new_in_base_switch_restores_score_order(
+    app_client: AsyncClient, monkeypatch
+):
+    world = await _new_in_base_world([95.0, 72.0])
+    old, fresh = world["candidate_ids"]
+    _, headers = await _user(UserRole.recruiter)
+    monkeypatch.setattr(
+        "app.services.new_column_autofill.settings.NEW_COLUMN_FRESH_FIRST_ENABLED",
+        False,
+    )
+
+    body = (await app_client.get(_inbox(world["job_id"]), headers=headers)).json()
+
+    assert [i["candidate"]["id"] for i in body["items"]] == [old, fresh]
+    assert body["new_in_base_total"] == 0

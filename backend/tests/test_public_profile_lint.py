@@ -9,7 +9,11 @@ from __future__ import annotations
 import pytest
 
 from app.services import career_slugs
-from app.services.career_consent import CONSENT_TEXT, CONSENT_TEXT_VERSION
+from app.services.career_consent import (
+    CONSENT_CURRENT_TEXT,
+    CONSENT_FUTURE_TEXT,
+    CONSENT_TEXT_VERSION,
+)
 from app.services.public_apply import parse_optional_fields
 from app.services.public_profile_lint import lint_public_texts
 
@@ -86,6 +90,209 @@ def test_contact_and_person_names_are_found():
     )
     assert "contact" in _codes(findings)
     assert "person_name" in _codes(findings)
+
+
+# ── Luki domknięte 13.10.2026 (wcześniej tylko w ogłoszeniu na portale) ─────
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "200 złotych za godzinę",
+        "20 tysięcy złotych",
+        "150 dolarów dziennie",
+        "3000 CZK",
+        "budżet projektu 2 mln PLN",
+        "do 30 tys. netto",
+        "180 netto/h + VAT",
+        "15 000 brutto",
+        "180 ＰＬＮ",
+        # Skrót „tys.” przed wielką literą nie kończy zdania — cięcie w tym
+        # miejscu chowało najzwyklejszy zapis kwoty przed każdym wzorcem.
+        "do 30 tys. PLN",
+        "15 tys. EUR miesięcznie",
+        "30 tys. Netto",
+        "do 30 tys. Złotych miesięcznie",
+        "WYNAGRODZENIE: 15 000 ZŁOTYCH",
+        # Kropka po słowie nie jest częścią liczby.
+        "stawka ok.180 zł",
+        "5 000 brutto",
+        "2 000 netto miesięcznie",
+    ],
+)
+def test_amounts_in_words_and_net_gross_are_found(text: str):
+    assert _codes(lint_public_texts([text])) == ["money"], text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "zadzwoń: 22 555 12 34",
+        "tel. (22) 555-12-34",
+        "+48 22 555 12 34",
+        "+49 170 1234567",
+        "jan [at] produkt-demo",
+        "jan(at)firma(dot)example",
+        "aplikuj: https://przyklad.example/apply",
+        "www.kariera.przyklad.example/oferta/17",
+        "jan＠example.com",
+        "tel22 555 12 34",
+    ],
+)
+def test_links_other_phone_formats_and_spelled_out_addresses_are_found(text: str):
+    """Kandydat aplikuje przez formularz na tej stronie — link albo numer
+    w opisie wysłałby go gdzie indziej (często: na stronę klienta)."""
+    assert _codes(lint_public_texts([f"Rola w zespole platformy. {text}"])) == [
+        "contact"
+    ], text
+
+
+@pytest.mark.parametrize(
+    "text,code",
+    [
+        ("Infrastruktura klienta Kwar\u00adcowy Bank.", "client_name"),
+        ("Infrastruktura klienta Kwar\u200bcowy Bank.", "client_name"),
+        ("stawka 180\u200b zł/h", "money"),
+        ("tel. 600\u200b100\u200b200", "contact"),
+        ("pisz: jan\u200b@example.com", "contact"),
+        # Niewidoczne, a bez kategorii „format”: łącznik grafemów, selektor
+        # wariantu, wypełniacz hangul.
+        ("Infrastruktura klienta Kwar\u034fcowy Bank.", "client_name"),
+        ("stawka 180\ufe0f zł/h", "money"),
+        ("tel. 600\u3164100\u3164200", "contact"),
+    ],
+)
+def test_invisible_characters_do_not_hide_a_finding(text: str, code: str):
+    """Miękki łącznik i spacja zerowej szerokości przychodzą z Worda i PDF-a."""
+    findings = lint_public_texts([text], client_names=["Kwarcowy Bank"])
+    assert code in _codes(findings), text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Praca z ASP.NET, Node.js i socket.io",
+        "Next.js/React, Vue.js, C++ 17 i CI/CD",
+        "2 dni w biurze na miesiąc, zespół 8 osób",
+        "System obsługuje 10 mln użytkowników",
+        "Start: listopad 2026, kontrakt na 12 miesięcy",
+        "Produkt opisuje strona produkt-demo.pl",
+        "ISO 27001, RODO, 3 lata w bankowości",
+        # Przegląd 13.10.2026 — fałszywe alarmy pierwszej wersji wzorców:
+        "Komunikacja z zespołami w Niemczech, Austrii (AT) i Szwajcarii (CH).",
+        "Aktualizacja algorytmu płac wg przepisów 2024 brutto/netto.",
+        "Kalkulator w wersji 2 brutto/netto",
+        "Biuro: Warszawa, 00-120 Złota 59",
+        "Organizujemy 2 zloty firmowe rocznie.",
+        "10k requestów/s, dostępność 24/7, 3/4 etatu",
+    ],
+)
+def test_new_rules_leave_ordinary_text_alone(text: str):
+    assert lint_public_texts([text]) == [], text
+
+
+@pytest.mark.parametrize(
+    "slug",
+    [
+        "senior-java-developer-warszawa-ab12",
+        "tester-22-555-12-34-ab12",
+        "analityk-2-mln-uzytkownikow-x9k2",
+        "devops-180-netto-zespol-a1b2",
+    ],
+)
+def test_job_link_slugs_do_not_trip_the_new_rules(slug: str):
+    """Slug linku rekrutacji też przechodzi kontrolę, a nietrafiony adres jest
+    przy zatwierdzeniu WYMIENIANY (stary daje 404) — nowe reguły nie mogą
+    zacząć łapać rozesłanych już adresów."""
+    assert lint_public_texts([slug]) == [], slug
+
+
+@pytest.mark.parametrize(
+    "slug",
+    [
+        # Końcówki, które trafiały we wzorce kwot: „zl” + cyfra (od początku
+        # istnienia kontroli, raz na ok. 1800 linków) i cyfra + kod waluty.
+        "senior-java-developer-zl1v",
+        "senior-java-developer-41zl",
+        "senior-java-developer-1czk",
+        "rekrutacja-9uah",
+    ],
+)
+def test_random_suffix_of_a_job_slug_is_not_content(slug: str):
+    """Losową końcówkę dopisujemy sami. Kontrola czyta część z tytułu —
+    inaczej zatwierdzenie opisu wymieniało rozesłany adres bez powodu."""
+    assert lint_public_texts([slug]) != []
+    assert lint_public_texts([career_slugs.job_slug_content(slug)]) == []
+
+
+def test_job_slug_content_keeps_what_comes_from_the_title():
+    assert career_slugs.job_slug_content("java-developer-nordea-ab12") == (
+        "java-developer-nordea"
+    )
+    assert career_slugs.job_slug_content("rekrutacja-ab12") == "rekrutacja"
+    assert career_slugs.job_slug_content("rekrutacja") == "rekrutacja"
+    assert career_slugs.job_slug_content(None) == ""
+    # Nazwa klienta w części z tytułu nadal jest znaleziskiem.
+    content = career_slugs.job_slug_content("java-developer-nordea-ab12")
+    assert _codes(lint_public_texts([content], client_names=["Nordea"])) == [
+        "client_name"
+    ]
+
+
+def test_amount_start_guard_does_not_change_what_matches():
+    """Liczba startuje tylko od pierwszej cyfry ciągu (ochrona przed
+    kwadratowym czasem). To nie może zmienić wyniku żadnego wzorca kwoty."""
+    import random
+    import re
+
+    from app.services.public_profile_lint import CERTAIN_MONEY_PATTERNS
+
+    guard = r"(?<!\d)(?<!\d[\s.,])(?<!\d[\s.,][\s.,])"
+    pairs = [
+        (pattern, re.compile(pattern.pattern.replace(guard, ""), pattern.flags))
+        for pattern in CERTAIN_MONEY_PATTERNS
+        # Wzorzec „N netto” bez mnożnika ma własną regułę (nie rok, nie cyfra).
+        if guard in pattern.pattern and "(?!(?:(?:19|20)" not in pattern.pattern
+    ]
+    assert len(pairs) == 5
+    tokens = ["1", "20", "180", "5 000", " ", "  ", ".", ",", "zł", "PLN", "k", "tys.",
+              "mln", "/h", "/ MD", "netto", "złotych", "CZK", "x", "ok.", "wersja", "-"]  # fmt: skip
+    rng = random.Random(20261013)
+    for _ in range(20000):
+        text = "".join(rng.choice(tokens) for _ in range(rng.randint(1, 9)))
+        for guarded, plain in pairs:
+            assert bool(guarded.search(text)) == bool(plain.search(text)), (
+                text,
+                guarded.pattern,
+            )
+
+
+def test_money_patterns_stay_linear_on_long_whitespace():
+    """Liczba, po której idzie długi ciąg spacji bez waluty, liczyła się
+    sześciennie: 800 spacji = kilkanaście sekund na pętli zdarzeń, a opis
+    publiczny przyjmuje 4000 znaków."""
+    import time
+
+    started = time.perf_counter()
+    assert lint_public_texts(["1" + " " * 4000 + "x", "1 " * 2000 + "x"]) == []
+    # Wzorce dopisane 13.10.2026: ciągi, które prawie pasują na całej długości.
+    assert (
+        lint_public_texts(
+            [
+                "ab.+-" * 800,  # adres bez „(at)”
+                "+1" + "  1" * 1300 + "x",  # „+” i cyfry rozdzielone dwiema spacjami
+                "12 345 67 8 " * 330,  # prawie numer stacjonarny
+                "1 " * 1990 + "nett",  # liczby bez „netto”
+                # NFKC wydłuża tekst: „⒛” to „20.”, U+1F101 to „0,” — 4000
+                # takich znaków dawało ponad 2 s, zanim liczba dostała start
+                # tylko od pierwszej cyfry ciągu.
+                "\u249b" * 4000 + "x",
+                "\U0001f101" * 4000 + "x",
+            ]
+        )
+        == []
+    )
+    assert time.perf_counter() - started < 1.0
 
 
 def test_money_message_matches_contract_shape():
@@ -172,12 +379,39 @@ def test_career_url_falls_back_to_kariera_path_on_app_host(monkeypatch):
     )
 
 
+def test_career_url_ignores_stray_punctuation_after_domain(monkeypatch):
+    # 23.10.2026: na produkcji zmienna miała średnik na końcu i wszystkie
+    # linki wychodziły jako „https://kariera.b2bnetwork.pl;/artur-t" —
+    # przeglądarka takiego adresu nie otwiera.
+    from app.core.config import settings
+
+    monkeypatch.setattr(
+        settings, "CAREER_PUBLIC_BASE_URL", " https://kariera.b2bnetwork.pl; "
+    )
+    assert career_slugs.recruiter_link_url("artur-t") == (
+        "https://kariera.b2bnetwork.pl/artur-t"
+    )
+    assert career_slugs.job_link_url("a-1b2c") == (
+        "https://kariera.b2bnetwork.pl/r/a-1b2c"
+    )
+    assert career_slugs.career_base_url() == "https://kariera.b2bnetwork.pl"
+    monkeypatch.setattr(
+        settings, "CAREER_PUBLIC_BASE_URL", "https://kariera.b2bnetwork.pl/,"
+    )
+    assert career_slugs.recruiter_base_url() == "https://kariera.b2bnetwork.pl/"
+
+
 # ── Zgoda i pola opcjonalne ────────────────────────────────────────────────
 
 
-def test_consent_text_names_the_controller():
-    assert "B2B.NET S.A." in CONSENT_TEXT
-    assert CONSENT_TEXT_VERSION == "2026-09-21"
+def test_consent_texts_name_the_controller_and_split_the_purposes():
+    """Decyzja D (19.10.2026): obowiązkowa zgoda nie obejmuje już przyszłych
+    rekrutacji — to osobna, dobrowolna zgoda."""
+    for text in (CONSENT_CURRENT_TEXT, CONSENT_FUTURE_TEXT):
+        assert "B2B.NET S.A." in text
+    assert "przyszł" not in CONSENT_CURRENT_TEXT
+    assert "przyszłych procesów rekrutacyjnych" in CONSENT_FUTURE_TEXT
+    assert CONSENT_TEXT_VERSION == "2026-10-19"
 
 
 def test_optional_fields_accept_blank_strings():
@@ -240,7 +474,7 @@ def test_optional_fields_reject_with_field_loc(kwargs, field):
         (
             "PL - CBP - Solution Architecture - SENIOR T24 ARCHITECT, Pep: 4979 (42827)",
             [],
-            "PL - CBP - Solution Architecture - SENIOR T24 ARCHITECT",
+            "Solution Architecture - SENIOR T24 ARCHITECT",
         ),
         ("Senior Data Architect", ["Nordea Bank Abp"], "Senior Data Architect"),
         ("NORDEA BANK ABP – Java Dev", ["Nordea Bank Abp"], "Java Dev"),
@@ -250,6 +484,54 @@ def test_optional_fields_reject_with_field_loc(kwargs, field):
         ("ING: Tester", ["ING Bank Śląski", "ING"], "Tester"),
         ("Tester (m/k)", [], "Tester (m/k)"),
         ("  Java   17   Developer  ", [], "Java 17 Developer"),
+        # 19.10.2026: numer BNP po podkreślniku szedł na stronę i do adresu.
+        ("Software Developer_RITM0866775", [], "Software Developer"),
+        ("Java Developer_REQ0012345", [], "Java Developer"),
+        ("Power BI_PKN500023226", [], "Power BI"),
+        # Nawias z cyfrą bywa częścią roli — zostaje (jak w nagłówku CV).
+        ("DevOps Engineer (K8s)", [], "DevOps Engineer (K8s)"),
+        ("Administrator (ISO 27001)", [], "Administrator (ISO 27001)"),
+        ("Data Engineer (Python 3)", [], "Data Engineer (Python 3)"),
+        # Kilka numerów zapytań i numer z dopiskiem też schodzą (przegląd 19.10).
+        ("IT Analyst (42928, 42927)", [], "IT Analyst"),
+        ("Java (nr 42835)", [], "Java"),
+        ("Java Developer (ID 4521)", [], "Java Developer"),
+        # 29.10.2026 (Nordea): numer zapotrzebowania „TP#…”, kraj i zespół
+        # u klienta na początku, „Replacement (for …)” na końcu.
+        (
+            "Nordea: PL - MDM - IT Automation Tester Senior - TP#41745 (42553)",
+            ["Nordea Bank Abp", "Nordea"],
+            "IT Automation Tester Senior",
+        ),
+        (
+            "Nordea: PL_KYC_IT Automation Tester Senior_TP#43800 (42524)",
+            ["Nordea Bank Abp"],
+            "IT Automation Tester Senior",
+        ),
+        ("PL_KYC_3 x IT Automation Tester Senior_TP#43719", [], "3 x IT Automation Tester Senior"),
+        (
+            "PL - IT Developer Senior - Recovery Data - TP#45854 (42948)",
+            [],
+            "IT Developer Senior - Recovery Data",
+        ),
+        ("PL-EBSD-IT Analyst Senior - Red Train", [], "IT Analyst Senior - Red Train"),
+        ("PL_IT_Developer_expert_TP#40379", [], "IT_Developer_expert"),
+        ("PL_IngestOps - CoreCDP - Replacement", [], "IngestOps - CoreCDP"),
+        ("PL_IngestOps - CoreCDP - Replacement for Tomasz B", [], "IngestOps - CoreCDP"),
+        ("Senior Automation Tester TP#36384 (42855)", [], "Senior Automation Tester"),
+        (
+            "Replacement- PL- GETFIT Senior Test Automation Engineer TP ID 40942",
+            [],
+            "GETFIT Senior Test Automation Engineer",
+        ),
+        ("Replacement - Manual tester (Pega tester)", [], "Manual tester (Pega tester)"),
+        ("1 X Scrum Master Replacement for Jakub", [], "1 X Scrum Master"),
+        # Bez „Replacement” nie zostałaby rola — zostaje.
+        ("Replacement (open request)", [], "Replacement (open request)"),
+        # „PL” jako część roli albo certyfikatu zostaje.
+        ("PL/SQL Developer", [], "PL/SQL Developer"),
+        ("PL-300 Power BI Analyst", [], "PL-300 Power BI Analyst"),
+        ("Analityk danych PL", [], "Analityk danych PL"),
     ],
 )
 def test_default_public_title(title, clients, expected):
@@ -266,6 +548,89 @@ def test_default_public_title_never_empty():
     assert default_public_title("RITM0857078", []) == "RITM0857078"
     assert default_public_title("", []) == ""
     assert default_public_title(None, []) == ""
+
+
+def test_default_public_title_drops_the_client_reference_anywhere():
+    from app.services.job_public_profile import default_public_title
+
+    assert (
+        default_public_title("Java Developer 42946 Warszawa", [], "42946")
+        == "Java Developer Warszawa"
+    )
+    # Numer „4521” nie wycina kawałka dłuższej liczby.
+    assert default_public_title("Tester 145210", [], "4521") == "Tester 145210"
+    # Kilka numerów w nawiasie: bez resztek „(,)” po wycięciu.
+    assert (
+        default_public_title("IT Analyst (42928, 42927)", [], "42928, 42927")
+        == "IT Analyst"
+    )
+
+
+def test_legacy_default_title_keeps_the_rules_from_before_19_10():
+    from app.services.job_public_profile import legacy_default_public_title
+
+    assert (
+        legacy_default_public_title("Software Developer_RITM0866775", [])
+        == "Software Developer_RITM0866775"
+    )
+    assert legacy_default_public_title("DevOps Engineer (K8s)", []) == (
+        "DevOps Engineer"
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Software Developer_RITM0866775",
+        "Numer zgłoszenia RITM0866775 w opisie.",
+        "Projekt ZOB-3003 trwa rok.",
+        "Wsparcie zespołu (PKN500023226).",
+        "SCTASK0123456",
+        "Tester_PKN/5/000177/26",
+        "IT Automation Tester Senior - TP#41745",
+        "IT Automation Tester Senior_TP#43800",
+        "Senior Test Automation Engineer TP ID 40942",
+    ],
+)
+def test_internal_codes_are_findings(text):
+    from app.services.public_profile_lint import CODE_INTERNAL, lint_internal_codes
+
+    findings = lint_internal_codes([text])
+    assert [f.code for f in findings] == [CODE_INTERNAL]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Java 17, Spring Boot 3 i Kafka.",
+        "Zespół 8 osób, 2 dni w biurze.",
+        "Certyfikat ISO 27001 mile widziany.",
+        "Wersja REQ bez numeru.",
+    ],
+)
+def test_ordinary_text_has_no_internal_codes(text):
+    from app.services.public_profile_lint import lint_internal_codes
+
+    assert lint_internal_codes([text]) == []
+
+
+def test_client_reference_in_text_is_an_internal_code():
+    from app.services.public_profile_lint import lint_internal_codes
+
+    findings = lint_internal_codes(
+        ["Rekrutacja 42946 dla zespołu płatności."], client_reference="42946, 42947"
+    )
+    assert len(findings) == 1 and "42946" in findings[0].message
+    # Krótkie numery (mniej niż 4 znaki) nie są szukane — za dużo trafień.
+    assert lint_internal_codes(["Zespół 123 osób."], client_reference="123") == []
+
+
+def test_internal_codes_do_not_touch_the_slug_check():
+    """Kontrola adresu (``lint_public_texts``) nie zna kodów: znalezisko
+    w adresie wymieniałoby rozesłany link na nowy, a stary dawałby 404."""
+    from app.services.public_profile_lint import lint_public_texts
+
+    assert lint_public_texts(["software-developer-ritm0866775-ab12"]) == []
 
 
 def test_client_prefix_needs_a_separator_and_whole_words():
@@ -341,3 +706,441 @@ def test_draft_material_uses_given_title_and_falls_back_to_description():
     assert out["description"] == "brak" and out["requirements"] == "brak"
     # Bez podanego tytułu: domyślny bez znajomości klienta (kody zdjęte).
     assert out["title"] == "Nordea: Data Engineer"
+
+
+# ── Runda 8 (R8-N4-1): sekcje ukryte przełącznikiem też są publiczne ───────
+
+
+def test_hidden_sections_are_still_linted():
+    from app.services.job_public_profile import _payload_texts
+
+    payload = {
+        "title": "Java Developer",
+        "subtitle": None,
+        "about": None,
+        "must": [{"name": "Znajomość systemów PKO BP", "note": None}],
+        "nice": ["Praca w pko bp"],
+        "params": {"city": "Centrala PKO BP", "start": None, "duration": None},
+        "show": {"must": False, "nice": False, "params": False, "process": True},
+    }
+    findings = lint_public_texts(_payload_texts(payload), client_names=["PKO BP"])
+    assert _codes(findings) == ["client_name"] * 3
+
+
+# ── Runda 8 (decyzja Artura 27.09.2026): ukryta sekcja znika z danych ───────
+
+
+def _hidden_job():
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        champion_profile={
+            "basics": {"start_date": "10.2026", "contract_length": "12 mies."},
+            "stack": {"must": [{"name": "Java 17"}], "nice": [{"name": "Kafka"}]},
+        },
+        must_skills=None,
+        nice_skills=None,
+        location="Warszawa",
+        remote_policy=None,
+        onsite_days_per_week=2,
+        seniority=None,
+    )
+
+
+def _public(sections, **kwargs):
+    from app.services.job_public_profile import public_job_payload
+
+    return public_job_payload(
+        _hidden_job(),
+        title="Java Developer",
+        link_slug="java-dev",
+        subtitle="Rozwój platformy",
+        about="Opis",
+        sections=sections,
+        **kwargs,
+    )
+
+
+_HIDDEN = {"must": False, "nice": False, "params": False, "process": True}
+
+
+def test_hidden_sections_vanish_from_the_public_projection():
+    payload = _public(_HIDDEN)
+    assert payload["must"] == [] and payload["nice"] == []
+    params = payload["params"]
+    for key in ("city", "remote_policy", "onsite_days_per_week", "seniority"):
+        assert params[key] is None, key
+    assert params["start"] is None and params["duration"] is None
+    # Stała firmy, nie dana rekrutacji — czyta ją sekcja „proces”.
+    assert params["contract"] == "B2B"
+    assert payload["show"] == _HIDDEN
+
+
+def test_shown_sections_stay_in_the_public_projection():
+    payload = _public(None)
+    assert payload["must"] == [{"name": "Java 17", "note": None}]
+    assert payload["nice"] == ["Kafka"]
+    assert payload["params"]["city"] == "Warszawa"
+    assert payload["params"]["start"] == "10.2026"
+
+
+def test_hidden_sections_from_the_approval_snapshot_also_vanish():
+    from app.services import job_public_profile as jpp
+
+    full = _public(_HIDDEN, respect_show=False)
+    assert full["must"] == [{"name": "Java 17", "note": None}]
+    stored = jpp.sections_with_approved_content(_HIDDEN, jpp.approved_content(full))
+    # Migawka niesie pełne pola (inaczej edytor widziałby fałszywą „zmianę”)…
+    assert jpp.stored_approved_content(stored)["must"] == ["Java 17"]
+    assert not jpp.approved_content_stale(_hidden_job(), stored)
+    # …ale strona i portale dostają okrojoną projekcję.
+    served = _public(stored)
+    assert served["must"] == [] and served["params"]["city"] is None
+    assert jpp.visible_params(_hidden_job(), stored)["city"] is None
+    assert jpp.visible_params(_hidden_job(), None)["city"] == "Warszawa"
+
+
+def test_portal_refuses_hidden_must_with_a_clear_reason():
+    from app.services.job_portals import jjit_payload
+
+    options = jjit_payload.normalize_options(
+        {
+            "category": "java",
+            "experience_level": "senior",
+            "working_time": "full_time",
+            "workplace_type": "remote",
+            "city": "Warszawa",
+        }
+    )
+    payload = _public(_HIDDEN)
+    assert jjit_payload.skill_split("rocketjobs", payload) == ([], [])
+    problems = jjit_payload.validate("rocketjobs", payload, options)
+    assert any("ukryta" in p for p in problems), problems
+    assert "Szczegóły" not in jjit_payload.build_body(payload)
+    assert jjit_payload.validate("rocketjobs", _public(None), options) == []
+
+
+# ── Strona zostaje na zatwierdzonej wersji (19.10.2026) ────────────────────
+
+
+def _approved_profile(**overrides):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from app.services import job_public_profile as jpp
+
+    subtitle, about, title = "podtytuł", "Opis zatwierdzony.", "Software Developer"
+    show = jpp.normalize_sections(None)
+    payload = {
+        "title": title,
+        "subtitle": subtitle,
+        "about": about,
+        "must": [{"name": "Java 17", "note": None}],
+        "nice": ["Kafka"],
+        "params": {"city": "Warszawa", "start": None, "duration": None},
+        "show": show,
+    }
+    profile = SimpleNamespace(
+        subtitle=subtitle,
+        about=about,
+        public_title=None,
+        approved_at=datetime.now(timezone.utc),
+        approved_hash=jpp.content_hash(subtitle, about, show, title),
+        sections=jpp.sections_with_approved_content(
+            show, jpp.approved_content(payload, client_id=7)
+        ),
+    )
+    for key, value in overrides.items():
+        setattr(profile, key, value)
+    return profile
+
+
+def _job(client_id=7):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(client_id=client_id, title="Software Developer")
+
+
+def test_approved_profile_is_published_as_is():
+    from app.services import job_public_profile as jpp
+
+    profile = _approved_profile()
+    version = jpp.published_from(
+        _job(),
+        profile,
+        status=jpp.STATUS_APPROVED,
+        effective_title="Software Developer",
+    )
+    assert version is not None and version.pending_changes is False
+    assert version.about == "Opis zatwierdzony."
+
+
+def test_edit_after_approval_keeps_the_approved_text_live():
+    from app.services import job_public_profile as jpp
+
+    profile = _approved_profile(about="Nowa treść, jeszcze bez kontroli.")
+    version = jpp.published_from(
+        _job(), profile, status=jpp.STATUS_DRAFT, effective_title="Software Developer"
+    )
+    assert version is not None and version.pending_changes is True
+    assert version.about == "Opis zatwierdzony."
+    assert version.title == "Software Developer"
+    # Migawka must/nice jedzie razem z tekstem — strona dostaje pełne sekcje.
+    payload = jpp.public_job_payload(
+        _job_for_payload(),
+        title=version.title,
+        link_slug="x",
+        subtitle=version.subtitle,
+        about=version.about,
+        sections=version.sections,
+    )
+    assert payload["must"] == [{"name": "Java 17", "note": None}]
+
+
+def _job_for_payload():
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        client_id=7,
+        title="Software Developer",
+        champion_profile={},
+        must_skills=[],
+        nice_skills=[],
+        location="Kraków",
+        remote_policy=None,
+        onsite_days_per_week=None,
+        onsite_days_per_month=None,
+        seniority=None,
+    )
+
+
+def test_tampered_snapshot_is_not_published():
+    from app.services import job_public_profile as jpp
+
+    profile = _approved_profile(about="Nowa treść.")
+    snapshot = jpp.stored_approved_content(profile.sections)
+    snapshot[jpp.APPROVED_TEXT_KEY]["about"] = "Tekst, którego nikt nie zatwierdził."
+    version = jpp.published_from(
+        _job(), profile, status=jpp.STATUS_DRAFT, effective_title="Software Developer"
+    )
+    assert version is None
+
+
+def test_client_change_still_takes_the_page_down():
+    from app.services import job_public_profile as jpp
+
+    profile = _approved_profile(about="Nowa treść.")
+    version = jpp.published_from(
+        _job(client_id=8),
+        profile,
+        status=jpp.STATUS_DRAFT,
+        effective_title="Software Developer",
+    )
+    assert version is None
+
+
+def test_never_approved_profile_is_not_published():
+    from app.services import job_public_profile as jpp
+
+    profile = _approved_profile(approved_at=None, approved_hash=None)
+    assert (
+        jpp.published_from(
+            _job(), profile, status=jpp.STATUS_DRAFT, effective_title="X"
+        )
+        is None
+    )
+
+
+def test_profile_approved_before_19_10_keeps_its_old_default_title():
+    """Opis bez tekstu w migawce, którego tytuł domyślny zmieniły nowe reguły
+    czyszczenia: strona zostaje z tytułem zatwierdzonym."""
+    from app.services import job_public_profile as jpp
+
+    old_title = "Software Developer_RITM0866775"
+    profile = _approved_profile()
+    profile.approved_hash = jpp.content_hash(
+        profile.subtitle, profile.about, profile.sections, old_title
+    )
+    snapshot = jpp.stored_approved_content(profile.sections)
+    snapshot.pop(jpp.APPROVED_TEXT_KEY)
+    version = jpp.published_from(
+        _job(),
+        profile,
+        status=jpp.STATUS_DRAFT,
+        effective_title="Software Developer",
+        legacy_title=old_title,
+    )
+    assert version is not None and version.title == old_title
+    assert version.pending_changes is True
+    # Pierwszy zapis zmian dopisuje tekst do migawki — kolejne zmiany już
+    # nie zdejmują strony.
+    sections = jpp.with_published_text(profile.sections, version)
+    profile.sections = sections
+    profile.about = "Poprawiony opis."
+    again = jpp.published_from(
+        _job(), profile, status=jpp.STATUS_DRAFT, effective_title="Software Developer"
+    )
+    assert again is not None and again.about == "Opis zatwierdzony."
+    assert again.title == old_title
+
+
+def _nordea_job(title="Nordea: PL - MDM - IT Automation Tester Senior - TP#41745"):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(client_id=7, title=title, client_reference=None)
+
+
+def _approved_with_title(title, **overrides):
+    """Opis zatwierdzony z tytułem ``title`` (także w migawce)."""
+    from app.services import job_public_profile as jpp
+
+    profile = _approved_profile(**overrides)
+    profile.approved_hash = jpp.content_hash(
+        "podtytuł", "Opis zatwierdzony.", jpp.normalize_sections(None), title
+    )
+    snapshot = jpp.stored_approved_content(profile.sections)
+    snapshot[jpp.APPROVED_TEXT_KEY]["title"] = title
+    return profile
+
+
+async def test_codes_dropped_by_new_rules_keep_the_approval_and_show_the_new_title():
+    """29.10.2026 (decyzja Artura): opis zatwierdzony z tytułem domyślnym
+    z kodem „TP#…” zostaje zatwierdzony, a strona od razu pokazuje tytuł bez
+    kodów — bez ponownego zatwierdzania."""
+    from app.services import job_public_profile as jpp
+
+    old_title = "PL - MDM - IT Automation Tester Senior - TP#41745"
+    profile = _approved_with_title(old_title)
+    cache = {7: ["Nordea"]}
+    status, default, effective = await jpp.resolve_status(
+        None, _nordea_job(), profile, names_cache=cache
+    )
+    assert default == effective == "IT Automation Tester Senior"
+    assert status == jpp.STATUS_APPROVED
+
+    version = await jpp.published_version(
+        None, _nordea_job(), profile, names_cache=cache
+    )
+    assert version is not None and version.title == "IT Automation Tester Senior"
+    assert version.pending_changes is False
+    # Migawka dostaje tytuł, z którym liczono skrót zatwierdzenia — inaczej
+    # pierwsza zmiana opisu zdjęłaby stronę.
+    sections = jpp.with_published_text(profile.sections, version)
+    text = jpp.stored_approved_content(sections)[jpp.APPROVED_TEXT_KEY]
+    assert text["title"] == old_title
+
+
+async def test_edit_after_approval_shows_the_approved_title_without_codes():
+    from app.services import job_public_profile as jpp
+
+    old_title = "PL - MDM - IT Automation Tester Senior - TP#41745"
+    profile = _approved_with_title(old_title)
+    profile.about = "Nowa treść, jeszcze bez kontroli."
+    cache = {7: ["Nordea"]}
+    status, _default, _effective = await jpp.resolve_status(
+        None, _nordea_job(), profile, names_cache=cache
+    )
+    assert status == jpp.STATUS_DRAFT
+    version = await jpp.published_version(
+        None, _nordea_job(), profile, names_cache=cache
+    )
+    assert version is not None and version.pending_changes is True
+    assert version.about == "Opis zatwierdzony."
+    assert version.title == "IT Automation Tester Senior"
+
+
+async def test_title_change_beyond_codes_still_needs_approval():
+    """Tytuł domyślny, który nie jest zatwierdzonym tytułem bez kodów (zmiana
+    tytułu rekrutacji), nadal wraca do szkicu."""
+    from app.services import job_public_profile as jpp
+
+    profile = _approved_with_title("PL - MDM - IT Automation Tester Senior - TP#41745")
+    status, default, _effective = await jpp.resolve_status(
+        None,
+        _nordea_job("Nordea: PL - MDM - Java Developer - TP#41745"),
+        profile,
+        names_cache={7: ["Nordea"]},
+    )
+    assert default == "Java Developer"
+    assert status == jpp.STATUS_DRAFT
+
+
+async def test_custom_title_is_not_rewritten_by_the_cleanup():
+    from app.services import job_public_profile as jpp
+
+    profile = _approved_with_title("Tester automatyzujący")
+    profile.public_title = "Tester automatyzujący"
+    status, _default, effective = await jpp.resolve_status(
+        None, _nordea_job(), profile, names_cache={7: ["Nordea"]}
+    )
+    assert effective == "Tester automatyzujący"
+    assert status == jpp.STATUS_APPROVED
+
+
+# ── Plakat z kodem QR (etap 3, 19.10.2026) ────────────────────────────────
+
+
+def _poster_payload(**overrides):
+    payload = {
+        "title": "Senior <Java> Developer",
+        "subtitle": "rozwój platformy płatności",
+        "about": "Opis, którego plakat nie pokazuje.",
+        "must": [
+            {"name": n, "note": None} for n in ("Java 17", "Spring", "Kafka", "K8s")
+        ],
+        "nice": [],
+        "params": {"city": "Warszawa", "remote_policy": "hybrid", "contract": "B2B"},
+        "show": {},
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_poster_html_escapes_text_and_embeds_the_qr_as_data_uri():
+    pytest.importorskip("segno")
+    from app.services.career_poster import poster_html
+
+    doc = poster_html(_poster_payload(), "https://kariera.example/r/java-ab12")
+    assert "Senior &lt;Java&gt; Developer" in doc and "<Java>" not in doc
+    assert 'src="data:image/svg+xml' in doc
+    assert "[warszawa · hybryda · b2b]" in doc
+    # Najwyżej trzy wymagania; opis projektu nie trafia na plakat.
+    assert "Kafka" in doc and "K8s" not in doc
+    assert "Opis, którego" not in doc
+    assert "https://kariera.example/r/java-ab12" in doc
+    # Żadnego zasobu spoza data: — renderer i tak by go zablokował.
+    assert "http://" not in doc.replace("https://kariera.example", "")
+
+
+def test_poster_uses_the_recruitment_theme_colors():
+    """Plakat w kolorach szablonu; nieznany szablon (np. dawna scena) = Grafit."""
+    pytest.importorskip("segno")
+    from app.services.career_poster import poster_html
+
+    url = "https://kariera.example/r/java-ab12"
+    light = poster_html(_poster_payload(), url, "jasny")
+    assert "background: #F5F4EC" in light and "color: #C42536" in light
+    fallback = poster_html(_poster_payload(), url, "papier")
+    assert "background: #141414" in fallback and "color: #F05A69" in fallback
+
+
+def test_poster_without_optional_sections_has_no_empty_blocks():
+    pytest.importorskip("segno")
+    from app.services.career_poster import poster_html
+
+    doc = poster_html(
+        _poster_payload(subtitle=None, must=[], params={}), "https://k.example/r/x"
+    )
+    assert '<p class="sub">' not in doc and "<ul>" not in doc
+
+
+def test_poster_pdf_renders_when_weasyprint_is_available():
+    pytest.importorskip("segno")
+    try:
+        import weasyprint  # noqa: F401
+    except (ImportError, OSError):
+        pytest.skip("WeasyPrint bez bibliotek systemowych (pango)")
+    from app.services.career_poster import render_poster_pdf
+
+    pdf = render_poster_pdf(_poster_payload(), "https://kariera.example/r/java-ab12")
+    assert pdf.startswith(b"%PDF")

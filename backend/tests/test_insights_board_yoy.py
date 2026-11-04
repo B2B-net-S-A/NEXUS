@@ -26,7 +26,7 @@ Każdy test broni jednej decyzji, a nie „że endpoint działa":
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
@@ -143,6 +143,37 @@ async def _seed_hire(candidate_id: int, job_id: int, when: datetime) -> None:
                 external_source="manual",
             )
         )
+        await db.commit()
+
+
+async def _seed_dr_board(month: date, clients: list[tuple[str, int]]) -> None:
+    """Przed 2026 placementy i klienci są tylko z raportu Rady DynaReportera
+    (migracja 0467, decyzja Artura 18.10.2026) — ruchy Tablicy się nie liczą.
+    Dopisuje do miesiąca tyle placementów, ilu klientów podano (UNIQUE na
+    miesiąc w raporcie, więc dodajemy, a nie nadpisujemy)."""
+    from sqlalchemy import text
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text(
+                """
+                INSERT INTO dr_board_monthly_report (report_month, placements)
+                VALUES (:month, :n)
+                ON CONFLICT (report_month) DO UPDATE
+                SET placements = dr_board_monthly_report.placements + EXCLUDED.placements
+                """
+            ),
+            {"month": month, "n": sum(n for _, n in clients)},
+        )
+        for name, n in clients:
+            await db.execute(
+                text(
+                    "INSERT INTO dr_board_placement_clients "
+                    "(report_month, client_name, placement_count) "
+                    "VALUES (:month, :name, :n)"
+                ),
+                {"month": month, "name": name, "n": n},
+            )
         await db.commit()
 
 
@@ -397,7 +428,7 @@ async def test_resignations_are_a_subset_of_departures_dated_by_actual_parting(
     """Rezygnacja liczy się w miesiącu ROZSTANIA, nie w pierwotnym terminie.
 
     Kontrakt wypowiedziany w marcu, z umową do grudnia, jest zejściem marcowym.
-    Data zejścia to `COALESCE(terminated_at, end_date)` — ta sama definicja,
+    Data zejścia to `COALESCE(end_date, terminated_at)` — ta sama definicja,
     której używa `contract_analytics.termination_analysis`.
     """
     email, password = await _seed_user(UserRole.admin)
@@ -522,12 +553,11 @@ async def test_client_breakdown_sums_to_the_placement_count(yoy_client: AsyncCli
     email, password = await _seed_user(UserRole.admin)
     headers = await _login(yoy_client, email, password)
     year = BASE_YEAR - 2
-    when = datetime(year, 5, 12, 10, 0, tzinfo=timezone.utc)
-
-    _cli, job_id, cand_id = await _seed_client_job_candidate()
-    await _seed_hire(cand_id, job_id, when)
-    _cli2, job2, cand2 = await _seed_client_job_candidate()
-    await _seed_hire(cand2, job2, when)
+    # Przed 2026 źródłem jest raport Rady DynaReportera (0467).
+    await _seed_dr_board(
+        date(year, 5, 1),
+        [(f"YoyDr-{uuid.uuid4().hex[:6]}", 1), (f"YoyDr-{uuid.uuid4().hex[:6]}", 1)],
+    )
 
     payload = await _yoy(yoy_client, headers, end_year=year, years=2)
     placements = _metric(payload, "placements")["series"][str(year)][4]
@@ -561,6 +591,49 @@ async def test_top_client_share_never_exceeds_one_hundred_percent(
                 assert 0 < value <= 100, value
 
 
+@pytest.mark.asyncio
+async def test_top_client_share_year_is_the_biggest_client_of_the_year(
+    yoy_client: AsyncClient,
+):
+    """Runda 10 (R10-N2-2): rok = największy klient ROKU / placementy roku.
+
+    Σ(lider miesiąca) / Σplacementów zawyżało koncentrację: klient A
+    w styczniu i klient B w lutym dawały „100%" za rok, choć każdy z nich
+    ma połowę placementów.
+    """
+    email, password = await _seed_user(UserRole.admin)
+    headers = await _login(yoy_client, email, password)
+    year = BASE_YEAR - 2
+    for month in (1, 2):
+        await _seed_dr_board(
+            date(year, month, 1), [(f"YoyDr-{uuid.uuid4().hex[:6]}", 1)]
+        )
+
+    payload = await _yoy(yoy_client, headers, end_year=year, years=2)
+    metric = _metric(payload, "top_client_share_pct")
+    assert metric["aggregate"] == "ratio"
+    assert set(metric["yearly"]) == {str(y) for y in payload["years"]}
+
+    parts = payload["component_series"]
+    top_sum = sum(v or 0 for v in parts["top_client_placements"][str(year)])
+    placements = sum(v or 0 for v in parts["placements"][str(year)])
+    yearly = metric["yearly"][str(year)]
+    assert yearly is not None and yearly > 0
+    # Największy klient roku nie ma więcej niż suma liderów miesięcy, a przy
+    # dwóch różnych liderach — ściśle mniej.
+    assert yearly < round(100 * top_sum / placements, 1)
+
+
+def test_top_client_year_share_counts_the_year_not_the_monthly_leaders():
+    from app.services.insights_board_yoy import _top_client_year_share
+
+    # Co miesiąc inny lider z 3 z 4 placementów → 12 klientów po 3, 12 po 1.
+    by_client = {f"L{m}": 3 for m in range(12)} | {f"R{m}": 1 for m in range(12)}
+    assert _top_client_year_share(by_client, 48) == 6.2
+    assert _top_client_year_share({}, 0) is None
+    assert _top_client_year_share(None, None) is None
+
+
 # ── 6. Jedna implementacja pieniędzy ────────────────────────────────────────
 
 
@@ -588,9 +661,12 @@ def test_money_is_the_same_function_as_the_board_tiles_not_a_copy():
 async def test_yoy_is_reachable_only_for_admin_finance_and_hor(
     yoy_client: AsyncClient,
 ):
-    """Rok do roku: admin · finance z kwotami, HoR BEZ kwot (24.09.2026)."""
+    """Rok do roku: admin · Rada z kwotami, HoR i Finanse BEZ kwot (02.11.2026).
+
+    Rada nadzorcza (0490) wchodzi rolą, bez modułu Finanse.
+    """
     params = {"end_year": BASE_YEAR, "years": 2}
-    for role in (UserRole.admin, UserRole.finance):
+    for role in (UserRole.admin, UserRole.board):
         email, password = await _seed_user(role)
         headers = await _login(yoy_client, email, password)
         resp = await yoy_client.get(YOY_URL, headers=headers, params=params)
@@ -607,6 +683,12 @@ async def test_yoy_is_reachable_only_for_admin_finance_and_hor(
     assert {"placements", "hit_ratio_pct", "consultants", "departures"} <= keys
     assert not any(m["unit"] == "pln" for m in body["metrics"])
     assert "margin_pct" not in keys
+
+    email, password = await _seed_user(UserRole.finance)
+    headers = await _login(yoy_client, email, password)
+    resp = await yoy_client.get(YOY_URL, headers=headers, params=params)
+    assert resp.status_code == 200, resp.text
+    assert not any(m["unit"] == "pln" for m in resp.json()["metrics"])
     assert not {
         "margin_monthly_pln",
         "revenue_monthly_pln",
@@ -614,7 +696,7 @@ async def test_yoy_is_reachable_only_for_admin_finance_and_hor(
     } & set(body["component_series"])
     assert body["money_redacted"] is True
 
-    for role in (UserRole.sourcer, UserRole.tac, UserRole.recruiter):
+    for role in (UserRole.recruiter,):
         email, password = await _seed_user(role)
         headers = await _login(yoy_client, email, password)
         resp = await yoy_client.get(YOY_URL, headers=headers, params=params)
@@ -783,3 +865,61 @@ def test_without_money_strips_amounts_and_keeps_cached_result_intact() -> None:
     assert stripped["money_redacted"] is True
     assert len(cached["metrics"]) == 4
     assert "margin_monthly_pln" in cached["component_series"]
+
+
+@pytest.mark.asyncio
+async def test_margin_percent_divides_by_revenue_with_a_known_margin(
+    yoy_client: AsyncClient,
+):
+    """Audyt 25.09.2026: marża % (miesiące i podsumowanie roku z ``components``)
+    dzieliła przez przychód także kontraktów bez stawki kosztowej. Mianownik
+    to ``margin_revenue_pln`` — kwota, więc HoR jej nie dostaje."""
+    email, password = await _seed_user(UserRole.admin)
+    headers = await _login(yoy_client, email, password)
+    client_id, _job, cand_priced = await _seed_client_job_candidate()
+    _c, _j, cand_unpriced = await _seed_client_job_candidate()
+
+    year = BASE_YEAR - 2
+    await _seed_contract(
+        client_id=client_id,
+        candidate_id=cand_priced,
+        start=date(year, 1, 1),
+        end=date(year, 12, 31),
+        rate_client=Decimal("20000"),
+        rate_candidate=Decimal("15000"),
+    )
+    before = await _yoy(yoy_client, headers, end_year=year, years=2)
+    pct_before = _metric(before, "margin_pct")["series"][str(year)][5]
+    assert pct_before is not None
+
+    await _seed_contract(
+        client_id=client_id,
+        candidate_id=cand_unpriced,
+        start=date(year, 1, 1),
+        end=date(year, 12, 31),
+        rate_client=Decimal("9000000"),
+        rate_candidate=None,
+    )
+    after = await _yoy(yoy_client, headers, end_year=year, years=2)
+    metric = _metric(after, "margin_pct")
+    assert metric["components"] == {
+        "numerator": "margin_monthly_pln",
+        "denominator": "margin_revenue_pln",
+    }
+    assert metric["series"][str(year)][5] == pytest.approx(pct_before)
+    revenue = _metric(after, "revenue_monthly_pln")["series"][str(year)][5]
+    known = after["component_series"]["margin_revenue_pln"][str(year)][5]
+    assert revenue >= known + 8_999_999
+
+
+def test_without_money_strips_the_margin_revenue_component() -> None:
+    from app.services.insights_board_yoy import without_money
+
+    stripped = without_money(
+        {
+            "metrics": [],
+            "component_series": {"margin_revenue_pln": {}, "closed_jobs_total": {}},
+            "degraded": None,
+        }
+    )
+    assert set(stripped["component_series"]) == {"closed_jobs_total"}

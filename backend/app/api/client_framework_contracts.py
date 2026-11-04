@@ -1,18 +1,23 @@
 """Router `/api/clients/{client_id}/framework-contracts` — MSA per klient.
 
-Reads (GET) — admin/Finance i Delivery Lead globalnie.
-Talent Community Manager ma bezpieczny odczyt Delivery, ale nie dostaje
-nieprzezroczystych dokumentów prawnych, które mogą zawierać stawki.
-Writes (POST/PATCH/DELETE) — `DlAssignedOrAdmin` (admin globalnie albo DL
-przypisany do klienta). Bramka sekcji odcina HoR/TAC i zapis TCM.
+Umowy ramowe to dokumenty prawne klienta — mogą nieść stawki.
+
+Reads (GET) — uprawnienie „Stawki i kwoty: podgląd” u klienta z zakresu
+(domyślnie admin, Finanse i Delivery Lead u swoich klientów). Talent Community
+Manager ma podgląd Delivery, ale bez kwot, więc tych dokumentów nie dostaje.
+Writes (POST/PATCH/PUT/DELETE) — `LegalDocsWriter`: „Kontrakty i zamówienia:
+tworzenie i edycja” razem z podglądem kwot; konto z rolą Delivery Leada
+zapisuje u klienta z przypisania, pozostali posiadacze (admin, Finanse) —
+u wszystkich. Odmowa nazywa brakujące uprawnienie.
 
 Pattern multipart upload — zaczerpnięte z `client_materials.py` (one-pagers).
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import (
     APIRouter,
@@ -21,6 +26,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     UploadFile,
     status,
 )
@@ -28,15 +34,15 @@ from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import (
-    DlAssignedOrAdmin,
-    get_current_user,
-)
+from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
+from app.api.permission_access import AmountsViewUser, ContractsOrdersEditUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.client_access import (
     assert_client_writable,
-    deny,
     resolve_client_access,
+)
+from app.services.client_portfolio_import import (
+    SOURCE_SYSTEM as PORTFOLIO_MANIFEST_SOURCE_SYSTEM,
 )
 from app.services.critical_events import audited_deletion
 from app.services.autenti.client_contracts_sender import ClientDocSendRequest
@@ -52,18 +58,27 @@ from app.models.client_framework_contract import (
     FrameworkContractStatus,
 )
 from app.models.client_order import ClientOrder
+from app.models.user import User
 from app.schemas.client_framework_contract import (
     ClientFrameworkContractListResponse,
     ClientFrameworkContractRead,
     ClientFrameworkContractUpdate,
+    FrameworkContractAmendmentReading,
+    FrameworkContractPassage,
+    FrameworkContractReading,
+    FrameworkContractSearchResponse,
+    FrameworkContractTextResponse,
 )
-from app.services import storage_service
+from app.services import framework_contract_index, storage_service
+from app.services.framework_contract_text import Passage, read_in_order
 from app.core.scheduling import business_today
 
-router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
+router = APIRouter(
+    dependencies=[*DELIVERY_SECTION_DEPENDENCIES, *DELIVERY_CLIENT_SCOPE_DEPENDENCIES]
+)
 
 
-MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB — MSA bywa duży
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB — skan umowy z załącznikami ma 83 MB
 
 _ALLOWED_MIME = {
     "application/pdf",
@@ -144,18 +159,56 @@ def _validate_text_fields(
 
 async def _require_legal_docs_reader(
     client_id: int,
-    current_user=Depends(get_current_user),
+    current_user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
-):
-    """Odczyt umów ramowych (MSA) = dokumenty prawne klienta."""
+) -> User:
+    """Odczyt umów ramowych (MSA) = dokumenty prawne klienta.
+
+    Dokument może nieść stawki, więc trasa deklaruje „Stawki i kwoty: podgląd”
+    (zależność — odmowa nazywa uprawnienie, zanim sięgniemy do bazy); zakres
+    klientów rozstrzyga ``ClientAccess``.
+    """
     await _assert_client(db, client_id)
     access = await resolve_client_access(db, current_user, client_id)
     if not access.can_view_legal_documents:
-        raise deny("umowy ramowe klienta wymagają dostępu prawnego do klienta")
+        raise access.legal_denial(
+            "umowy ramowe klienta wymagają dostępu prawnego do klienta"
+        )
     return current_user
 
 
 LegalDocsReader = Depends(_require_legal_docs_reader)
+
+
+async def require_client_legal_docs_write(
+    client_id: int,
+    current_user: ContractsOrdersEditUser,
+    _amounts_viewer: AmountsViewUser,
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Zapis umów ramowych i ich aneksów = zapis dokumentów prawnych klienta.
+
+    „Kontrakty i zamówienia: tworzenie i edycja” razem z podglądem kwot
+    (dokument może nieść stawki) — oba uprawnienia trasa deklaruje
+    zależnościami, więc konto bez nich dostaje odmowę z nazwą brakującej
+    pozycji, zanim cokolwiek zapytamy o jego klientów. Konto z rolą Delivery
+    Leada zapisuje u klienta z przypisania
+    (``resolve_delivery_lead_assigned_client_ids`` — razem ze scalonymi
+    duplikatami), każdy inny posiadacz u wszystkich. FastAPI bierze
+    ``client_id`` z parametru ścieżki routera; istnienie klienta sprawdza
+    handler (``assert_client_writable``).
+    """
+
+    access = await resolve_client_access(db, current_user, client_id)
+    if not access.can_edit_legal_documents:
+        raise access.legal_denial(
+            "zapis dokumentów prawnych klienta wymaga jawnego przypisania klienta",
+            write=True,
+        )
+    return current_user
+
+
+LegalDocsWriter = Annotated[User, Depends(require_client_legal_docs_write)]
 
 
 def _validate_upload(file: UploadFile) -> None:
@@ -249,6 +302,183 @@ async def list_framework_contracts(
     return ClientFrameworkContractListResponse(items=items, total=len(items))
 
 
+# ── Treść umów dla Jarvisa (0426) ───────────────────────────────────────────
+
+
+def _reading(
+    fc: ClientFrameworkContract,
+    amendments_count: int = 0,
+    total_chunks: Optional[int] = None,
+    amendments: Sequence[ClientContractAmendment] = (),
+) -> FrameworkContractReading:
+    return FrameworkContractReading(
+        id=fc.id,
+        name=fc.name,
+        status=fc.status,
+        effective_date=fc.effective_date,
+        expiry_date=fc.expiry_date,
+        has_file=fc.file_path is not None,
+        readable=framework_contract_index.has_current_text(fc),
+        pages=fc.text_pages,
+        total_chunks=total_chunks,
+        amendments_count=amendments_count,
+        amendments=[amendment_reading(a) for a in amendments],
+        note=framework_contract_index.reading_note(fc),
+    )
+
+
+def amendment_reading(
+    amendment: ClientContractAmendment, total_chunks: Optional[int] = None
+) -> FrameworkContractAmendmentReading:
+    return FrameworkContractAmendmentReading(
+        id=amendment.id,
+        name=amendment.name,
+        effective_date=amendment.effective_date,
+        has_file=amendment.file_path is not None,
+        readable=framework_contract_index.has_current_text(amendment),
+        pages=amendment.text_pages,
+        total_chunks=total_chunks,
+        note=framework_contract_index.reading_note(amendment),
+    )
+
+
+def contract_passage(
+    fc: ClientFrameworkContract,
+    passage: Passage,
+    amendment: Optional[ClientContractAmendment] = None,
+) -> FrameworkContractPassage:
+    return FrameworkContractPassage(
+        framework_contract_id=fc.id,
+        contract_name=fc.name,
+        contract_status=fc.status,
+        first_chunk=passage.first_chunk,
+        last_chunk=passage.last_chunk,
+        text=passage.text,
+        amendment_id=amendment.id if amendment is not None else None,
+        amendment_name=amendment.name if amendment is not None else None,
+        amendment_effective_date=(
+            amendment.effective_date if amendment is not None else None
+        ),
+    )
+
+
+# Przed trasą `/{fc_id}`: inaczej „search” trafiłoby w nią jako identyfikator.
+@router.get(
+    "/{client_id}/framework-contracts/search",
+    response_model=FrameworkContractSearchResponse,
+)
+async def search_framework_contracts(
+    client_id: int,
+    q: str = Query(..., min_length=2, max_length=300),
+    db: AsyncSession = Depends(get_db),
+    _user=LegalDocsReader,
+):
+    """Fragmenty umów ramowych klienta pasujące do pytania (narzędzie Jarvisa).
+
+    Szuka we wszystkich umowach klienta z wgranym plikiem. Bramka jest ta sama
+    co pobranie pliku — fragment umowy niesie to samo co PDF.
+    """
+    rows = list(
+        (
+            await db.execute(
+                select(ClientFrameworkContract)
+                .where(ClientFrameworkContract.client_id == client_id)
+                .order_by(ClientFrameworkContract.effective_date.desc().nullslast())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    amendments = list(
+        (
+            await db.execute(
+                select(ClientContractAmendment)
+                .where(
+                    ClientContractAmendment.framework_contract_id.in_(
+                        [fc.id for fc in rows]
+                    )
+                )
+                .order_by(ClientContractAmendment.effective_date.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    await framework_contract_index.ensure_indexed(db, [*rows, *amendments])
+    outcome = await framework_contract_index.search(db, rows, q, amendments)
+    by_id = {fc.id: fc for fc in rows}
+    amendment_by_id = {a.id: a for a in amendments}
+    counts = await _amendment_counts(db, [fc.id for fc in rows])
+    note = None
+    if not rows:
+        note = "Ten klient nie ma w NEXUSIE żadnej umowy ramowej."
+    elif outcome.retrieval == framework_contract_index.RETRIEVAL_NONE:
+        note = (
+            "Żadna umowa ramowa tego klienta nie ma treści do przeczytania — "
+            "powody są przy umowach."
+        )
+    elif not outcome.passages:
+        note = "W umowach nie ma fragmentu pasującego do tych słów — zapytaj inaczej."
+    return FrameworkContractSearchResponse(
+        query=q,
+        retrieval=outcome.retrieval,
+        passages=[
+            contract_passage(
+                by_id[p.contract_id], p, amendment_by_id.get(p.amendment_id or 0)
+            )
+            for p in outcome.passages
+        ],
+        contracts=[
+            _reading(
+                fc,
+                counts.get(fc.id, 0),
+                amendments=[a for a in amendments if a.framework_contract_id == fc.id],
+            )
+            for fc in rows
+        ],
+        note=note,
+    )
+
+
+@router.get(
+    "/{client_id}/framework-contracts/{fc_id}/text",
+    response_model=FrameworkContractTextResponse,
+)
+async def read_framework_contract_text(
+    client_id: int,
+    fc_id: int,
+    from_chunk: int = Query(0, ge=0, le=framework_contract_index.MAX_CHUNKS),
+    db: AsyncSession = Depends(get_db),
+    _user=LegalDocsReader,
+):
+    """Treść jednej umowy po kolei, od fragmentu ``from_chunk``."""
+    fc = await db.scalar(
+        select(ClientFrameworkContract).where(
+            ClientFrameworkContract.id == fc_id,
+            ClientFrameworkContract.client_id == client_id,
+        )
+    )
+    if fc is None:
+        raise HTTPException(404, detail="Nie ma takiej umowy ramowej u tego klienta.")
+    await framework_contract_index.ensure_indexed(db, [fc])
+    chunks = (
+        await framework_contract_index.load_chunks(db, [fc.id])
+        if framework_contract_index.has_current_text(fc)
+        else []
+    )
+    passage, next_chunk = read_in_order(chunks, from_chunk=from_chunk)
+    counts = await _amendment_counts(db, [fc.id])
+    note = None
+    if chunks and passage is None:
+        note = "Umowa nie ma dalszych fragmentów — to był koniec treści."
+    return FrameworkContractTextResponse(
+        contract=_reading(fc, counts.get(fc.id, 0), len(chunks) or None),
+        passage=contract_passage(fc, passage) if passage is not None else None,
+        next_chunk=next_chunk,
+        note=note,
+    )
+
+
 @router.get(
     "/{client_id}/framework-contracts/{fc_id}",
     response_model=ClientFrameworkContractRead,
@@ -280,7 +510,7 @@ async def get_framework_contract(
 )
 async def create_framework_contract(
     client_id: int,
-    user: DlAssignedOrAdmin,
+    user: LegalDocsWriter,
     db: AsyncSession = Depends(get_db),
     file: Optional[UploadFile] = File(None),
     name: str = Form(...),
@@ -314,7 +544,7 @@ async def create_framework_contract(
     ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="expiry_date cannot be earlier than effective_date",
+            detail="Data wygaśnięcia nie może być wcześniejsza niż data wejścia w życie.",
         )
 
     relative_path = None
@@ -368,6 +598,8 @@ async def create_framework_contract(
     await db.flush()
     await db.refresh(fc)
     await db.commit()
+    if fc.file_path is not None:
+        framework_contract_index.index_after_upload(fc.id)
     return await _to_read(db, fc)
 
 
@@ -379,7 +611,7 @@ async def update_framework_contract(
     client_id: int,
     fc_id: int,
     payload: ClientFrameworkContractUpdate,
-    user: DlAssignedOrAdmin,
+    user: LegalDocsWriter,
     db: AsyncSession = Depends(get_db),
 ):
     await assert_client_writable(db, client_id)
@@ -393,6 +625,7 @@ async def update_framework_contract(
         raise HTTPException(404, detail="Framework contract not found")
 
     data = payload.model_dump(exclude_unset=True)
+    _assert_manifest_dates_untouched(fc, data)
     await _validate_references(
         db,
         client_id,
@@ -409,7 +642,7 @@ async def update_framework_contract(
     ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="expiry_date cannot be earlier than effective_date",
+            detail="Data wygaśnięcia nie może być wcześniejsza niż data wejścia w życie.",
         )
     for field, value in data.items():
         setattr(fc, field, value)
@@ -426,6 +659,43 @@ async def update_framework_contract(
     await db.commit()
     await db.refresh(fc)
     return await _to_read(db, fc)
+
+
+def _is_manifest_owned(fc: ClientFrameworkContract) -> bool:
+    """Umowa założona przez manifest portfela klientów (``client_excel``)."""
+    return fc.source_system == PORTFOLIO_MANIFEST_SOURCE_SYSTEM
+
+
+def _assert_manifest_dates_untouched(fc: ClientFrameworkContract, data: dict) -> None:
+    """Runda 10 (R10-N12-1): lustro reguły zakresów portfela.
+
+    ``get_client_portfolio_import_health`` porównuje daty umów z manifestu
+    z wierszami importu; zmiana w miejscu dawała ``/api/health/deep`` 503
+    na stałe i czerwony każdy kolejny deploy (drugi przypadek awarii
+    z 03.08). Porównujemy WARTOŚĆ — formularz odsyła komplet pól.
+    Świadomie tylko ``client_excel``: szkielet E-Zdrowia nie ma dat
+    w manifeście i DL je uzupełnia.
+    """
+    if not _is_manifest_owned(fc):
+        return
+    changed = [
+        field
+        for field in ("effective_date", "expiry_date")
+        if field in data and data[field] != getattr(fc, field)
+    ]
+    if changed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "framework_contract_from_manifest",
+                "message": (
+                    "Ta umowa ramowa pochodzi z manifestu portfela klientów — "
+                    "zmiana dat w miejscu rozjechałaby stan z manifestem. "
+                    "Nowe daty wpisz w manifeście portfela."
+                ),
+                "fields": changed,
+            },
+        )
 
 
 async def _draft_delete_blockers(db: AsyncSession, fc_id: int) -> list[str]:
@@ -459,7 +729,7 @@ async def _draft_delete_blockers(db: AsyncSession, fc_id: int) -> list[str]:
 async def delete_framework_contract(
     client_id: int,
     fc_id: int,
-    user: DlAssignedOrAdmin,
+    user: LegalDocsWriter,
     db: AsyncSession = Depends(get_db),
 ):
     """Soft-delete: status → `superseded`. Hard delete tylko gdy `draft`.
@@ -487,6 +757,22 @@ async def delete_framework_contract(
 
         files_to_delete: list[str] = []
         amendment_files: list[str] = []
+        hard_deleted = False
+        if fc.status == FrameworkContractStatus.draft and _is_manifest_owned(fc):
+            # Runda 10 (R10-N12-1): szkic z manifestu portfela (start po dacie
+            # importu) liczy inwariant importu — trwałe usunięcie = 503 na
+            # /api/health/deep bez samonaprawy, jak archiwizacja zakresu.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "framework_contract_from_manifest",
+                    "message": (
+                        "Szkicu z manifestu portfela klientów nie da się usunąć "
+                        "trwale — rozjechałby stan z manifestem. Oznacz umowę "
+                        "jako zastąpioną albo usuń ją z manifestu portfela."
+                    ),
+                },
+            )
         if fc.status == FrameworkContractStatus.draft:
             # Zamówienia i umowy wykonawcze trzymają umowę ramową kluczem
             # RESTRICT — do 24.09.2026 plik znikał z dysku, a potem DELETE
@@ -521,6 +807,7 @@ async def delete_framework_contract(
                 if path
             ]
             await db.delete(fc)
+            hard_deleted = True
             audit.result_note = "Szkic umowy ramowej usunięty trwale."
         else:
             fc.status = FrameworkContractStatus.superseded
@@ -544,6 +831,9 @@ async def delete_framework_contract(
         storage_service.delete_client_framework_contract(path)
     for path in amendment_files:
         storage_service.delete_client_contract_amendment(path)
+    if hard_deleted:
+        # Fragmenty treści znikają kaskadą z wierszem; wektory sprzątamy osobno.
+        framework_contract_index.forget_after_delete(fc_id)
 
 
 # ── File upload (replace) + download ────────────────────────────────────────
@@ -556,7 +846,7 @@ async def delete_framework_contract(
 async def replace_framework_contract_file(
     client_id: int,
     fc_id: int,
-    user: DlAssignedOrAdmin,
+    user: LegalDocsWriter,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
 ):
@@ -594,6 +884,7 @@ async def replace_framework_contract_file(
     if old_path:
         storage_service.delete_client_framework_contract(old_path)
     await db.refresh(fc)
+    framework_contract_index.index_after_upload(fc.id)
     return await _to_read(db, fc)
 
 
@@ -605,7 +896,7 @@ async def send_framework_contract_to_autenti(
     client_id: int,
     fc_id: int,
     payload: ClientDocSendRequest,
-    user: DlAssignedOrAdmin,
+    user: LegalDocsWriter,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):

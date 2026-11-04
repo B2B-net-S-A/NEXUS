@@ -9,7 +9,9 @@ Baza wspólna i nieczyszczona — asercje wyłącznie na własnych wierszach.
 
 from __future__ import annotations
 
+import io
 import uuid
+import zipfile
 from datetime import date
 from decimal import Decimal
 
@@ -17,8 +19,11 @@ import pytest
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.services.b2b_documents.contract_versions import default_refs, notice_end_date
+from app.services.b2b_documents.mandate_forms import FORMS_BY_KEY, MANDATE_FORMS
 from app.services.b2b_documents.registry import TYPES, missing_required, strip_sensitive
+from app.services.b2b_documents.render import template_key
 from tests.test_b2b_generated_contract_status import (
     _admin_user_id,
     _link,
@@ -62,6 +67,18 @@ def _values(**extra) -> dict:
         "gender": "k",
         "partner_name": "Anna Testowa",
         "partner_legal_name": "Anna Testowa IT",
+        # Pola wspólne generatora aneksów (29.09.2026) — innym typom nie
+        # przeszkadzają, bo formularz wysyła tylko pola swojego typu.
+        "contract_number": "1600/2026",
+        "contract_signing_date": "2026-08-03",
+        "effective_date": "2026-10-01",
+        "partner_variant": "sole_trader",
+        "partner_nip": "5270103391",
+        "partner_regon": "012345678",
+        "partner_business_address": "ul. Prosta 1, 00-001 Warszawa",
+        "paragraph": "13",
+        "paragraph_section": "2",
+        "current_start_date": "2026-10-01",
         **extra,
     }
 
@@ -85,7 +102,7 @@ async def _create(app_client, headers, doc_type: str, parent_id: int | None, **v
 
 
 def test_every_type_declares_fields_and_languages():
-    assert len(TYPES) == 10
+    assert len(TYPES) == 12
     for doc_type in TYPES.values():
         assert doc_type.languages
         assert any(f.key == "document_date" for f in doc_type.fields)
@@ -136,6 +153,48 @@ async def test_document_types_endpoint(app_client, app_auth_headers):
     body = resp.json()
     assert {t["key"] for t in body["types"]} == set(TYPES)
     assert body["ref_defaults"]["non_compete_paragraph"] == "§ 10 ust. 1"
+    assert {f["key"] for f in body["mandate_forms"]} == set(FORMS_BY_KEY)
+    assert all("filename" not in f for f in body["mandate_forms"])
+
+
+# ── Oświadczenia i deklaracje do umowy zlecenie ──────────────────────────────
+
+
+def test_every_mandate_form_file_exists_without_author_metadata():
+    for form in MANDATE_FORMS:
+        data = form.path.read_bytes()
+        assert data, form.key
+        if form.media_type == "application/pdf":
+            assert data.startswith(b"%PDF"), form.key
+            # Repo jest publiczne: XMP z autorem wzoru nie może zostać w pliku.
+            assert b"<dc:creator>" not in data, form.key
+        else:
+            with zipfile.ZipFile(io.BytesIO(data)) as docx:
+                core = docx.read("docProps/core.xml").decode("utf-8")
+            assert "<dc:creator></dc:creator>" in core, form.key
+            assert "<cp:lastModifiedBy></cp:lastModifiedBy>" in core, form.key
+
+
+async def test_mandate_form_download(app_client, app_auth_headers):
+    resp = await app_client.get(
+        f"{BASE}/mandate-forms/ppk_resignation", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.content == FORMS_BY_KEY["ppk_resignation"].path.read_bytes()
+    assert "attachment" in resp.headers["content-disposition"]
+
+
+async def test_mandate_form_unknown_key_is_404(app_client, app_auth_headers):
+    resp = await app_client.get(
+        f"{BASE}/mandate-forms/../../main.py", headers=app_auth_headers
+    )
+    assert resp.status_code == 404
+    resp = await app_client.get(
+        f"{BASE}/mandate-forms/nie_ma", headers=app_auth_headers
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Nie ma takiego wzoru."
 
 
 async def test_prefill_uses_the_base_contract(app_client, app_auth_headers):
@@ -211,9 +270,16 @@ async def test_generating_changes_nothing_and_signing_terminates(
         assert contract.terminated_at == date(2026, 10, 31)
         assert contract.termination_reason == ContractTerminationReason.mutual_agreement
         row = await db.get(B2BGeneratedContract, rid)
-        assert row.contract_status == "closed"
-        assert row.closure_reason == "mutual_agreement"
-        assert row.closure_date == date(2026, 10, 31)
+        if date(2026, 10, 31) >= business_today():
+            # Umowa obowiązuje do daty rozwiązania — zamknie ją nocny cron po
+            # zakończeniu kontraktu (audyt 25.09.2026, runda 3). Dokument
+            # zostawia na wierszu tylko tryb rozwiązania.
+            assert row.contract_status == "active"
+            assert row.closure_date is None
+        else:
+            assert row.contract_status == "closed"
+            assert row.closure_date == date(2026, 10, 31)
+        assert row.termination_mode == "mutual_agreement"
 
     again = await app_client.post(
         f"{BASE}/documents/{doc_id}/confirm-signed", headers=app_auth_headers
@@ -238,8 +304,7 @@ async def test_rate_annex_goes_through_the_amendment_path(app_client, app_auth_h
         "annex_rate_change",
         rid,
         effective_date="2026-11-01",
-        new_rate="165",
-        currency="PLN",
+        rate_items=[{"rate": "165"}],
     )
     signed = await app_client.post(
         f"{BASE}/documents/{doc_id}/confirm-signed", headers=app_auth_headers
@@ -334,7 +399,14 @@ async def test_sensitive_values_never_reach_the_database(app_client, app_auth_he
     with_values = await app_client.post(
         f"{BASE}/documents/{doc_id}/docx",
         headers=app_auth_headers,
-        json={"values": {"partner_home_address": "ul. Tajna 1, Warszawa"}},
+        json={
+            "values": {
+                "partner_home_address": "ul. Tajna 1, Warszawa",
+                # Numer dowodu jest w aneksie uzupełnienia danych wymagany
+                # (ticket generatora aneksów) — też go nie przechowujemy.
+                "id_document": "ABC123456",
+            }
+        },
     )
     assert with_values.status_code == 200, with_values.text
 
@@ -379,9 +451,13 @@ async def test_signing_without_sensitive_values_does_not_archive_an_empty_file(
 async def test_signature_permission_alone_does_not_terminate_a_contract(
     app_client, app_auth_headers
 ):
-    """TAC/TCM mają „Oznaczanie podpisu”, ale nie trasy /terminate — podpis
-    dokumentu nie może być bocznymi drzwiami do zmian w kontrakcie."""
+    """Samo „Umowy B2B: oznaczanie jako podpisane” nie kończy współpracy —
+    podpis dokumentu nie może być bocznymi drzwiami do zmian w kontrakcie.
+    Skutek rozwiązania wymaga tego samego uprawnienia co okno „Zakończ
+    współpracę” (02.10.2026; wcześniej: admin albo Delivery Lead)."""
     from app.models.contract import Contract
+    from app.services import permission_catalog
+    from tests._permission_grants import grant_permissions
 
     rid, contract_id = await _signed_parent(app_client)
     doc_id = await _create(
@@ -392,14 +468,133 @@ async def test_signature_permission_alone_does_not_terminate_a_contract(
         termination_date="2026-10-31",
         last_service_date="2026-10-31",
     )
-    tac_headers, _ = await _seed_user(app_client, "tac")
-    resp = await app_client.post(
-        f"{BASE}/documents/{doc_id}/confirm-signed", headers=tac_headers
+    # Rekruter z nadanym oznaczaniem podpisu, bez zakończenia współpracy —
+    # w zespole rekrutacji umowy (19.10.2026: bez tego podpisu nie oznacza).
+    signer_headers, signer_id = await _seed_user(app_client, "recruiter")
+    await grant_permissions(signer_id, "b2b_signature_confirmation")
+    await _put_in_team_of(rid, signer_id)
+
+    effects = await app_client.get(
+        f"{BASE}/documents/{doc_id}/effects", headers=signer_headers
     )
-    assert resp.status_code in (403, 409), resp.text
+    assert effects.status_code == 200, effects.text
+    missing = permission_catalog.label("contract_status")
+    assert any(missing in blocker for blocker in effects.json()["blockers"])
+
+    resp = await app_client.post(
+        f"{BASE}/documents/{doc_id}/confirm-signed", headers=signer_headers
+    )
+    assert resp.status_code == 409, resp.text
+    assert missing in resp.json()["detail"]
     async with AsyncSessionLocal() as db:
         contract = await db.get(Contract, contract_id)
         assert contract.terminated_at is None
+
+    # To samo uprawnienie, które daje „Zakończ współpracę”, odblokowuje skutek.
+    await grant_permissions(signer_id, "contract_status")
+    signed = await app_client.post(
+        f"{BASE}/documents/{doc_id}/confirm-signed", headers=signer_headers
+    )
+    assert signed.status_code == 200, signed.text
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        assert contract.terminated_at == date(2026, 10, 31)
+
+
+async def _put_in_team_of(parent_id: int, recruiter_id: int) -> None:
+    """Umowa bazowa trafia do rekrutacji prowadzonej przez ``recruiter_id``."""
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+    from app.models.job import Job, JobStatus
+
+    async with AsyncSessionLocal() as db:
+        parent = await db.get(B2BGeneratedContract, parent_id)
+        job = Job(
+            title="Podpis dokumentu",
+            status=JobStatus.published,
+            client_id=parent.client_id,
+            recruiter_id=recruiter_id,
+        )
+        db.add(job)
+        await db.flush()
+        parent.job_id = job.id
+        await db.commit()
+
+
+async def _listed_document(app_client, headers, parent_id: int, doc_id: int) -> dict:
+    resp = await app_client.get(
+        f"{BASE}/documents",
+        headers=headers,
+        params={"parent_generated_contract_id": parent_id},
+    )
+    assert resp.status_code == 200, resp.text
+    return next(item for item in resp.json() if item["id"] == doc_id)
+
+
+async def test_signature_holder_confirms_documents_of_own_team_only(
+    app_client, app_auth_headers
+):
+    """Decyzja Artura 19.10.2026: podpis aneksu, wypowiedzenia i porozumienia
+    oznacza ta sama osoba co podpis umowy — autor dokumentu albo umowy, zespół
+    rekrutacji umowy, admin, HoR, TCM albo Delivery Lead. Imienne uprawnienie
+    nie otwiera dokumentów do cudzych umów w całej firmie; lista i endpointy
+    mówią to samo."""
+    from app.api.b2b_documents import _DOCUMENT_SIGNATURE_SCOPE_DENIED
+    from app.models.contract import Contract
+    from tests._permission_grants import grant_permissions
+
+    rid, contract_id = await _signed_parent(app_client)
+    doc_id = await _create(
+        app_client,
+        app_auth_headers,
+        "termination_agreement",
+        rid,
+        termination_date="2026-10-31",
+        last_service_date="2026-10-31",
+    )
+    signer_headers, signer_id = await _seed_user(app_client, "recruiter")
+    await grant_permissions(signer_id, "b2b_signature_confirmation", "contract_status")
+
+    item = await _listed_document(app_client, signer_headers, rid, doc_id)
+    assert item["can_confirm_signed"] is False
+
+    denied = await app_client.post(
+        f"{BASE}/documents/{doc_id}/confirm-signed", headers=signer_headers
+    )
+    assert denied.status_code == 403, denied.text
+    assert denied.json()["detail"] == _DOCUMENT_SIGNATURE_SCOPE_DENIED
+    scan = await app_client.post(
+        f"{BASE}/documents/{doc_id}/signed-scan",
+        headers=signer_headers,
+        files={"file": ("skan.pdf", b"%PDF-1.4 skan", "application/pdf")},
+    )
+    assert scan.status_code == 403, scan.text
+    assert scan.json()["detail"] == _DOCUMENT_SIGNATURE_SCOPE_DENIED
+    notice = await app_client.post(
+        f"{BASE}/documents/partner-notice",
+        headers=signer_headers,
+        json={
+            "parent_generated_contract_id": rid,
+            "delivered_on": "2026-10-01",
+            "termination_date": "2026-10-31",
+        },
+    )
+    assert notice.status_code == 403, notice.text
+    assert notice.json()["detail"] == _DOCUMENT_SIGNATURE_SCOPE_DENIED
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        assert contract.terminated_at is None
+
+    # Ta sama osoba w zespole rekrutacji umowy — przycisk i podpis działają.
+    await _put_in_team_of(rid, signer_id)
+    item = await _listed_document(app_client, signer_headers, rid, doc_id)
+    assert item["can_confirm_signed"] is True
+    signed = await app_client.post(
+        f"{BASE}/documents/{doc_id}/confirm-signed", headers=signer_headers
+    )
+    assert signed.status_code == 200, signed.text
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        assert contract.terminated_at == date(2026, 10, 31)
 
 
 async def test_rate_annex_is_hidden_from_someone_who_cannot_see_the_rate(
@@ -412,8 +607,7 @@ async def test_rate_annex_is_hidden_from_someone_who_cannot_see_the_rate(
         "annex_rate_change",
         rid,
         effective_date="2026-11-01",
-        new_rate="165",
-        currency="PLN",
+        rate_items=[{"rate": "165"}],
     )
     recruiter_headers, _ = await _seed_user(app_client, "recruiter")
     for path in (f"/documents/{doc_id}/effects", f"/documents/{doc_id}/form"):
@@ -443,9 +637,8 @@ async def test_signed_document_is_frozen_and_foreign_edit_is_403(
         "annex_start_date",
         rid,
         new_start_date="2026-11-01",
-        new_start_date_mode="exact",
     )
-    other_h, _ = await _seed_user(app_client, "tac")
+    other_h, _ = await _seed_user(app_client, "recruiter")
     foreign = await app_client.delete(f"{BASE}/documents/{doc_id}", headers=other_h)
     assert foreign.status_code in (403, 404), foreign.text
 
@@ -459,7 +652,7 @@ async def test_signed_document_is_frozen_and_foreign_edit_is_403(
         json={
             "document_type": "annex_start_date",
             "parent_generated_contract_id": rid,
-            "values": _values(new_start_date="2026-12-01", new_start_date_mode="exact"),
+            "values": _values(new_start_date="2026-12-01"),
         },
     )
     assert rerender.status_code == 409, rerender.text
@@ -473,7 +666,6 @@ async def test_documents_list_filters_by_parent(app_client, app_auth_headers):
         "annex_start_date",
         rid,
         new_start_date="2026-11-01",
-        new_start_date_mode="exact",
     )
     resp = await app_client.get(
         f"{BASE}/documents",
@@ -483,22 +675,20 @@ async def test_documents_list_filters_by_parent(app_client, app_auth_headers):
     assert resp.status_code == 200, resp.text
     [item] = resp.json()
     assert item["id"] == doc_id
-    assert item["label"].startswith("Aneks — zmiana daty rozpoczęcia z dnia 23.09.2026")
+    assert item["label"].startswith("Aneks — zmiana daty startu z dnia 23.09.2026")
     assert item["can_edit"] is True
 
 
-async def test_preliminary_requires_a_cez_recruitment(
-    app_client, app_auth_headers, monkeypatch
-):
+async def _seed_recruitment(client_name: str = "Klient") -> tuple[int, int, int]:
+    """Klient, kandydat i rekrutacja z kartą kandydata (klient, kandydat, job)."""
     from app.models.candidate import Candidate
     from app.models.client import Client
     from app.models.job import Job, JobStatus
     from app.models.recruitment_pipeline import CandidateStage, PipelineStage
-    from app.services import ezdrowie
 
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
-        client = Client(name=f"CeZ test {unique}")
+        client = Client(name=f"{client_name} {unique}")
         cand = Candidate(
             name="Ewa", lastname=f"P-{unique}", email=f"p-{unique}@example.com"
         )
@@ -513,9 +703,11 @@ async def test_preliminary_requires_a_cez_recruitment(
             )
         )
         await db.commit()
-        client_id, cand_id, job_id = client.id, cand.id, job.id
+        return client.id, cand.id, job.id
 
-    body = {
+
+def _cez_body(cand_id: int, job_id: int) -> dict:
+    return {
         "document_type": "preliminary_cez",
         "candidate_id": cand_id,
         "job_id": job_id,
@@ -531,6 +723,46 @@ async def test_preliminary_requires_a_cez_recruitment(
             "valid_until": "2026-11-22",
         },
     }
+
+
+def _participation_body(cand_id: int, job_id: int, variant: str = "jdg") -> dict:
+    values = {
+        "document_date": "2026-10-21",
+        "gender": "k",
+        "partner_name": "Ewa P",
+        "project_label": "Klient — Analityk",
+        "hourly_rate": "150",
+        "penalty_amount": "10000",
+        "valid_until": "2026-12-20",
+    }
+    if variant == "jdg":
+        values.update(
+            partner_legal_name="Ewa P IT",
+            partner_business_address="ul. Firmowa 1",
+            partner_nip="5270103391",
+            partner_regon="012345678",
+        )
+    else:
+        values.update(
+            partner_home_address="ul. Domowa 3",
+            id_document="XYZ000111",
+            pesel="91020212345",
+        )
+    return {
+        "document_type": f"preliminary_participation_{variant}",
+        "candidate_id": cand_id,
+        "job_id": job_id,
+        "values": values,
+    }
+
+
+async def test_preliminary_requires_a_cez_recruitment(
+    app_client, app_auth_headers, monkeypatch
+):
+    from app.services import ezdrowie
+
+    client_id, cand_id, job_id = await _seed_recruitment("CeZ test")
+    body = _cez_body(cand_id, job_id)
     wrong = await app_client.post(
         f"{BASE}/documents", headers=app_auth_headers, json=body
     )
@@ -546,3 +778,171 @@ async def test_preliminary_requires_a_cez_recruitment(
         assert "91020212345" not in str(doc.render_payload)
         assert doc.parent_generated_contract_id is None
         assert doc.client_id == client_id
+        # Nowy dokument zapisuje bieżącą rewizję wzoru.
+        assert doc.template_key == template_key("preliminary_cez", "pl", "v2")
+
+
+@pytest.mark.parametrize("variant", ["jdg", "person"])
+async def test_participation_agreement_for_any_client_but_cez(
+    app_client, app_auth_headers, monkeypatch, variant
+):
+    """Decyzja 21.10.2026: CeZ — tylko własny wzór, inni klienci — tylko
+    umowa o udziale w procesie rekrutacyjnym."""
+    from app.models.b2b_contract_document import B2BContractDocument
+    from app.services import ezdrowie
+
+    client_id, cand_id, job_id = await _seed_recruitment()
+    body = _participation_body(cand_id, job_id, variant)
+    ok = await app_client.post(f"{BASE}/documents", headers=app_auth_headers, json=body)
+    assert ok.status_code == 200, ok.text
+    assert ok.content == f"PK-preliminary_participation_{variant}_pl".encode()
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(B2BContractDocument, int(ok.headers["X-Document-Id"]))
+        assert doc.client_id == client_id
+        assert "91020212345" not in str(doc.render_payload)
+        assert doc.render_payload["values"]["penalty_amount"] == "10000"
+
+    cez = await app_client.post(
+        f"{BASE}/documents", headers=app_auth_headers, json=_cez_body(cand_id, job_id)
+    )
+    assert cez.status_code == 422, cez.text
+
+    monkeypatch.setattr(ezdrowie, "EZDROWIE_CLIENT_ID", client_id)
+    at_cez = await app_client.post(
+        f"{BASE}/documents", headers=app_auth_headers, json=body
+    )
+    assert at_cez.status_code == 422, at_cez.text
+    assert "Centrum e-Zdrowia" in at_cez.json()["detail"]
+
+
+async def test_preliminary_options_follow_the_client(
+    app_client, app_auth_headers, monkeypatch
+):
+    from app.services import ezdrowie
+
+    client_id, cand_id, job_id = await _seed_recruitment()
+    params = {"candidate_id": cand_id, "job_id": job_id}
+    general = await app_client.get(
+        f"{BASE}/documents/preliminary-options", headers=app_auth_headers, params=params
+    )
+    assert general.status_code == 200, general.text
+    body = general.json()
+    assert [t["key"] for t in body["types"]] == [
+        "preliminary_participation_jdg",
+        "preliminary_participation_person",
+    ]
+    assert body["default_validity_days"] == 60
+    assert body["b2b_term_business_days"] is None
+
+    monkeypatch.setattr(ezdrowie, "EZDROWIE_CLIENT_ID", client_id)
+    cez = await app_client.get(
+        f"{BASE}/documents/preliminary-options", headers=app_auth_headers, params=params
+    )
+    assert cez.status_code == 200, cez.text
+    assert [t["key"] for t in cez.json()["types"]] == ["preliminary_cez"]
+    assert cez.json()["b2b_term_business_days"] == 5
+
+    _, other_cand, _ = await _seed_recruitment()
+    unlinked = await app_client.get(
+        f"{BASE}/documents/preliminary-options",
+        headers=app_auth_headers,
+        params={"candidate_id": other_cand, "job_id": job_id},
+    )
+    assert unlinked.status_code == 409, unlinked.text
+
+
+async def test_participation_prefill_suggests_project_penalty_and_term(
+    app_client, app_auth_headers
+):
+    from app.models.client import Client
+
+    client_id, cand_id, job_id = await _seed_recruitment()
+    async with AsyncSessionLocal() as db:
+        client_name = (await db.get(Client, client_id)).name
+    resp = await app_client.get(
+        f"{BASE}/documents/prefill",
+        headers=app_auth_headers,
+        params={
+            "document_type": "preliminary_participation_jdg",
+            "candidate_id": cand_id,
+            "job_id": job_id,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    values = resp.json()["values"]
+    assert values["project_label"] == f"{client_name} — Analityk"
+    assert values["penalty_amount"] == 10000
+    today = business_today()
+    assert values["valid_until"] == date.fromordinal(today.toordinal() + 60).isoformat()
+    assert values["partner_name"].startswith("Ewa P-")
+
+
+async def test_redownload_and_pdf_use_the_stored_template(
+    app_client, app_auth_headers, monkeypatch
+):
+    """Wydany dokument pobiera się wzorem, z którego go wydano — zmiana
+    wzoru (nowa rewizja) nie zmienia tekstu umowy, którą ktoś już ma."""
+    from app.api import b2b_documents
+    from app.models.b2b_contract_document import B2BContractDocument
+    from app.services import ezdrowie
+    from app.services.cv_pdf_preview import PdfPreviewUnavailable
+
+    client_id, cand_id, job_id = await _seed_recruitment("CeZ test")
+    monkeypatch.setattr(ezdrowie, "EZDROWIE_CLIENT_ID", client_id)
+    created = await app_client.post(
+        f"{BASE}/documents", headers=app_auth_headers, json=_cez_body(cand_id, job_id)
+    )
+    assert created.status_code == 200, created.text
+    doc_id = int(created.headers["X-Document-Id"])
+    assert created.content == b"PK-preliminary_cez_v2_pl"
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(B2BContractDocument, doc_id)
+        doc.template_key = template_key("preliminary_cez", "pl")  # sprzed v2
+        await db.commit()
+
+    sensitive = {
+        "values": {
+            "partner_home_address": "ul. Domowa 3",
+            "id_document": "XYZ000111",
+            "pesel": "91020212345",
+        }
+    }
+    again = await app_client.post(
+        f"{BASE}/documents/{doc_id}/docx", headers=app_auth_headers, json=sensitive
+    )
+    assert again.status_code == 200, again.text
+    assert again.content == b"PK-preliminary_cez_pl"
+
+    seen: list[bytes] = []
+
+    async def fake_pdf(data: bytes) -> bytes:
+        seen.append(data)
+        return b"%PDF-fake"
+
+    monkeypatch.setattr(b2b_documents, "pdf_from_docx", fake_pdf)
+    pdf = await app_client.post(
+        f"{BASE}/documents/{doc_id}/pdf", headers=app_auth_headers, json=sensitive
+    )
+    assert pdf.status_code == 200, pdf.text
+    assert pdf.content == b"%PDF-fake"
+    assert pdf.headers["content-type"] == "application/pdf"
+    assert ".pdf" in pdf.headers["content-disposition"]
+    assert seen == [b"PK-preliminary_cez_pl"]
+
+    no_values = await app_client.post(
+        f"{BASE}/documents/{doc_id}/pdf", headers=app_auth_headers, json={"values": {}}
+    )
+    assert no_values.status_code == 422, no_values.text
+    assert no_values.json()["detail"]["code"] == "sensitive_values_required"
+
+    async def broken_pdf(data: bytes) -> bytes:
+        raise PdfPreviewUnavailable("no soffice")
+
+    monkeypatch.setattr(b2b_documents, "pdf_from_docx", broken_pdf)
+    unavailable = await app_client.post(
+        f"{BASE}/documents/{doc_id}/pdf", headers=app_auth_headers, json=sensitive
+    )
+    assert unavailable.status_code == 503, unavailable.text
+    assert (
+        unavailable.json()["detail"] == "Nie udało się przygotować PDF — pobierz DOCX."
+    )

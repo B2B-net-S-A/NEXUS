@@ -160,19 +160,24 @@ def test_pick_best_match_prefers_meeting_id_in_name() -> None:
     assert best.name == "Recording-meeting_ZjE5OWQwNWUt.mp4"
 
 
-def test_pick_best_match_falls_back_to_closest_by_time() -> None:
+def test_pick_best_match_never_falls_back_to_closest_by_time() -> None:
+    """Runda 7 (R7-N5-1): bez id spotkania w nazwie pliku nie ma nagrania —
+    „najbliższy w czasie” przypinał nagranie innego (np. prywatnego) spotkania."""
     end_at = datetime(2026, 5, 14, 10, 0, tzinfo=timezone.utc)
     candidates = [
         _cand("Recording-late.mp4", 180),
         _cand("Recording-early.mp4", 45),
     ]
-    best = _pick_best_match(
-        candidates,
-        event_end_at=end_at,
-        meeting_id_fragment=None,
+    assert (
+        _pick_best_match(candidates, event_end_at=end_at, meeting_id_fragment=None)
+        is None
     )
-    assert best is not None
-    assert best.name == "Recording-early.mp4"
+    assert (
+        _pick_best_match(
+            candidates, event_end_at=end_at, meeting_id_fragment="ZjE5OWQwNWUt"
+        )
+        is None
+    )
 
 
 def test_pick_best_match_returns_none_for_empty_list() -> None:
@@ -264,8 +269,8 @@ async def test_find_meeting_recording_rejects_naive_event_end() -> None:
     gc.get.assert_not_called()
 
 
-async def test_find_meeting_recording_falls_back_to_time_when_no_id() -> None:
-    """No meeting URL → no fragment → fall back to closest by time."""
+async def test_find_meeting_recording_without_id_finds_nothing() -> None:
+    """No meeting URL → no fragment → no recording (runda 7, R7-N5-1)."""
     end_at = datetime(2026, 5, 14, 10, 0, tzinfo=timezone.utc)
     gc = _gc_with(
         {
@@ -284,7 +289,7 @@ async def test_find_meeting_recording_falls_back_to_time_when_no_id() -> None:
         }
     )
     url = await find_meeting_recording(gc, online_meeting_url=None, event_end_at=end_at)
-    assert url == "https://onedrive/close.mp4"
+    assert url is None
 
 
 # ── _recording_discovery_pass loop body ─────────────────────────────────────
@@ -324,6 +329,53 @@ def _make_db(rows: list[Any]) -> SimpleNamespace:
         commit=AsyncMock(),
         rollback=AsyncMock(),
     )
+
+
+def _stamped_ids(db: SimpleNamespace) -> list[int]:
+    """Id z UPDATE-u stempla pominiętych wierszy (R8-V3-6)."""
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.sql.dml import Update
+
+    for call in db.execute.await_args_list:
+        stmt = call.args[0]
+        if isinstance(stmt, Update):
+            params = stmt.compile(dialect=postgresql.dialect()).params
+            return sorted(
+                v for k, vs in params.items() if k.startswith("id_") for v in vs
+            )
+    return []
+
+
+async def test_recording_discovery_pass_stamps_failed_connection_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R8-V3-6: wyjątek całej paczki organizatora (np. Graph przy otwieraniu
+    klienta) też stempluje jej wiersze — inaczej przy `nulls_first` te same
+    wydarzenia zajmowały paczkę w każdym przebiegu."""
+    e1 = _make_event(eid=61)
+    e2 = _make_event(eid=62)
+    db = _make_db([e1, e2])
+    monkeypatch.setattr(
+        sync_mod,
+        "_active_connection_for_user",
+        AsyncMock(return_value=SimpleNamespace(id=99, user_id=1, is_active=True)),
+    )
+
+    class _BrokenGC:
+        async def __aenter__(self) -> "_BrokenGC":
+            raise RuntimeError("graph down")
+
+        async def __aexit__(self, *args: Any) -> None:
+            return None
+
+    monkeypatch.setattr(sync_mod, "GraphClient", lambda *_a, **_kw: _BrokenGC())
+
+    stats = await _recording_discovery_pass(db)
+
+    assert stats.processed == 0
+    db.rollback.assert_awaited_once()
+    assert _stamped_ids(db) == [61, 62]
+    db.commit.assert_awaited_once()
 
 
 async def test_recording_discovery_pass_empty_batch(
@@ -416,7 +468,8 @@ async def test_recording_discovery_pass_skips_event_without_organiser(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Event with `created_by=None` (e.g. an iCal import) has no OneDrive to
-    scan — skip it entirely without consulting Graph."""
+    scan — skip it without consulting Graph, but stamp it (R8-V3-6) so it
+    rotates to the back instead of filling every batch."""
     event = _make_event(eid=30, user_id=None)
     db = _make_db([event])
 
@@ -427,13 +480,16 @@ async def test_recording_discovery_pass_skips_event_without_organiser(
 
     assert stats == RecordingDiscoveryStats(processed=0, matched=0)
     spy.assert_not_called()
+    assert _stamped_ids(db) == [30]
+    db.commit.assert_awaited_once()
 
 
 async def test_recording_discovery_pass_skips_when_no_active_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Organiser disconnected M365 → leave the event alone so reconnecting
-    later picks it up automatically. No partial state on the row."""
+    """Organiser disconnected M365 → no Graph call; the row is only stamped
+    (R8-V3-6) so it rotates to the back — `recording_url` stays NULL, so a
+    later pass picks it up once the user reconnects."""
     event = _make_event(eid=40)
     db = _make_db([event])
 
@@ -446,8 +502,9 @@ async def test_recording_discovery_pass_skips_when_no_active_connection(
     stats = await _recording_discovery_pass(db)
 
     assert stats == RecordingDiscoveryStats(processed=0, matched=0)
-    assert event.recording_discovered_at is None  # untouched
-    db.commit.assert_not_called()
+    assert event.recording_url is None
+    assert _stamped_ids(db) == [40]
+    db.commit.assert_awaited_once()
 
 
 async def test_recording_discovery_pass_continues_when_graph_helper_raises(
@@ -490,10 +547,10 @@ async def test_recording_discovery_pass_continues_when_graph_helper_raises(
 
     assert stats.processed == 2
     assert stats.matched == 1
-    # First event crashed → no URL but also no scanned marker (since the
-    # marker write is reached only after the helper returns cleanly).
+    # First event crashed → no URL, but stamped anyway (R8-V3-6): a row that
+    # always fails must not stay at the front of every batch.
     assert e1.recording_url is None
-    assert e1.recording_discovered_at is None
+    assert e1.recording_discovered_at is not None
     # Second event succeeded.
     assert e2.recording_url == "https://onedrive/Recording-good.mp4"
     assert e2.recording_discovered_at is not None
@@ -512,3 +569,5 @@ async def test_recording_discovery_pass_select_filters_match_spec(
     assert "calendar_events.online_meeting_url IS NOT NULL" in sql
     assert "calendar_events.recording_url IS NULL" in sql
     assert "calendar_events.end_time IS NOT NULL" in sql
+    # Runda 7 (R7-N5-1): rotacja — nigdy nie sprawdzane idą pierwsze.
+    assert "calendar_events.recording_discovered_at ASC NULLS FIRST" in sql

@@ -28,7 +28,13 @@ from app.core.cache import cache_invalidate
 from app.models.kpi_target import KpiRoleDefault, UserKpiTarget
 from app.models.kpi_target_event import KpiTargetEvent
 from app.models.user import User, UserRole
-from app.services.kpi_catalog import KPI_CATALOG, canonical_kpi_id, get_kpi
+from app.services.kpi_catalog import (
+    KPI_CATALOG,
+    WITHDRAWN_KPI_TITLES,
+    KpiMetric,
+    canonical_kpi_id,
+    get_kpi,
+)
 from app.services.kpi_targets import (
     KPI_BEARING_ROLES,
     _catalog_default,
@@ -40,8 +46,6 @@ from app.services.kpi_targets import (
 
 ROLE_LABELS_PL: dict[UserRole, str] = {
     UserRole.recruiter: "Rekruter",
-    UserRole.sourcer: "Sourcer",
-    UserRole.tac: "TAC",
 }
 PERIOD_LABELS_PL = {"day": "dziennie", "week": "tygodniowo", "month": "miesięcznie"}
 # Cele, które są progami Wyścigu Rekomendacji (1 500 zł) — `resolve_org_target`
@@ -73,15 +77,23 @@ def _role(value: str) -> UserRole:
     except ValueError as exc:
         raise KpiTargetEditError(f"Nieznana rola: {value}") from exc
     if role not in KPI_BEARING_ROLES:
-        raise KpiTargetEditError(
-            "Cele KPI mają wyłącznie role rekrutacyjne: rekruter, sourcer, TAC."
-        )
+        raise KpiTargetEditError("Cele KPI ma wyłącznie rola rekrutera.")
     return role
 
 
-def _check_value(value: Optional[int]) -> None:
+def _check_value(value: Optional[int], kpi_id: str) -> None:
     if value is not None and (value < 0 or value > 100_000):
         raise KpiTargetEditError("Cel musi być liczbą od 0 do 100 000.")
+    kpi = get_kpi(kpi_id)
+    # Precyzja to procent i próg wyścigu z nagrodą — 150% wyłączałoby nagrodę
+    # dla wszystkich bez żadnego komunikatu (audyt 25.09.2026, R3-15).
+    if (
+        value is not None
+        and kpi is not None
+        and kpi.metric is KpiMetric.precision
+        and value > 100
+    ):
+        raise KpiTargetEditError("Precyzja to procent — podaj liczbę od 0 do 100.")
 
 
 def _actor_name(user: User) -> str:
@@ -99,7 +111,7 @@ async def set_role_default(
     """Ustaw (albo zdejmij) odstępstwo roli od katalogu. Commit robi wołający."""
     canonical = _known_kpi(kpi_id)
     role_enum = _role(role)
-    _check_value(target_value)
+    _check_value(target_value, canonical)
     ids = _ids_for(canonical)
     rows = (
         await db.execute(
@@ -155,7 +167,7 @@ async def set_user_target(
 ) -> EditResult:
     """Ustaw (albo zdejmij `None`) osobisty cel. Commit robi wołający."""
     canonical = _known_kpi(kpi_id)
-    _check_value(target_value)
+    _check_value(target_value, canonical)
     subject = await db.get(User, user_id)
     if subject is None:
         raise LookupError("user_not_found")
@@ -317,6 +329,13 @@ async def history(db: AsyncSession, *, limit: int = 50) -> list[dict]:
         .all()
     )
     titles = {k.kpi_id: k.title_pl for k in KPI_CATALOG}
+    # Wpisy o celu, którego już nie ma w katalogu, zostają w historii z nazwą.
+    titles.update(
+        {
+            kpi_id: f"{title} (cel wycofany)"
+            for kpi_id, title in WITHDRAWN_KPI_TITLES.items()
+        }
+    )
     out = []
     for ev in rows:
         change = (ev.changes or {}).get("target_value") or {}

@@ -456,6 +456,57 @@ class TestMleasing:
         assert r.uncertain is False
 
 
+MLEASING_TWO = """Numer zamówienia DO/CEO/CEO/31/013227
+Lp. Dane pozycji Dostawa IlośćJm Cena jedn. Wartość netto Wartość bruttoMPK / R
+1 Nazwa: Adres dostawy: 225,00dzień 869,92 PLN 195 732,00 PLN 240 750,00 PLN
+BL(mL) - Anna Testowa, Tester mLeasing Sp. z o.o.:
+Opis:
+Okres zatrudnienia od 01.01.2031 r.
+do 31.12.2031 r.
+2 Nazwa: Adres dostawy: 100,00dzień 1 250,00 PLN 125 000,00 PLN 153 750,00 PLN
+BL(mL) - Jan Przykładowy, Analityk mLeasing Sp. z o.o.:
+Opis:
+Okres zatrudnienia od 01.03.2031 r.
+do 30.06.2031 r.
+"""
+
+
+class TestMleasingSeveralPositions:
+    """Runda 7 (R7-N4-1): druga osoba nie dostaje ceny i okresu pierwszej."""
+
+    def test_rows_with_different_prices_are_not_confirmed(self):
+        rows = mleasing.extract_rows(MLEASING_TWO)
+        assert [r.consultant_name for r in rows] == ["Anna Testowa", "Jan Przykładowy"]
+        for row in rows:
+            assert row.rate_client is None
+            assert (row.start_date, row.end_date) == (None, None)
+            assert row.uncertain is True
+            assert mleasing.MULTIPLE_RATES_REASON in row.uncertain_reason
+
+    def test_policy_does_not_present_the_first_price_as_the_document_rate(self):
+        result = OrderExtraction(source="claude")
+        result.rate_client = Decimal("869.92")
+        result, _ = apply_policies(
+            result, PolicyContext(document_text=MLEASING_TWO), [policy_by_key("mleasing")]
+        )
+        assert result.rate_client is None
+        assert result.uncertain is True
+        assert mleasing.MULTIPLE_RATES_REASON in result.uncertain_reasons
+
+    def test_identical_positions_keep_the_shared_price(self):
+        text = MLEASING_TWO.replace("1 250,00 PLN", "869,92 PLN").replace(
+            "od 01.03.2031 r.\ndo 30.06.2031", "od 01.01.2031 r.\ndo 31.12.2031"
+        )
+        rows = mleasing.extract_rows(text)
+        assert [(r.rate_client, r.uncertain) for r in rows] == [
+            (Decimal("869.92"), False),
+            (Decimal("869.92"), False),
+        ]
+        assert {(r.start_date, r.end_date) for r in rows} == {
+            ("2031-01-01", "2031-12-31")
+        }
+
+
 # ── VeloBank ─────────────────────────────────────────────────────────────────
 
 VELO = """Zamówienie nr 3/07/2031/BL
@@ -585,6 +636,56 @@ class TestCardif:
         assert r.md_total is None
         assert (r.start_date, r.end_date) == ("2031-04-27", "2031-12-31")
         assert r.uncertain is False
+
+    # ── Runda 6 audytu ──
+
+    def test_several_rates_are_not_assigned_to_everybody(self):
+        # Pierwsza stawka z prozy trafiała do KAŻDEGO wiersza — Analityk
+        # dostawał stawkę Testera z pewnością reguły.
+        text = CARDIF.replace(
+            "1. Jakub Testowy 27.04.2031 31.12.2031 172\n",
+            "1. Jakub Testowy 27.04.2031 31.12.2031 172\n"
+            "2. Anna Przykładowa 01.05.2031 31.12.2031 100\n",
+        ).replace(
+            "Manualnego (1040 PLN/MD net.).",
+            "Manualnego (1040 PLN/MD net.) oraz Analityka (1 350 PLN/MD net.).",
+        )
+        rows = cardif.extract_rows(text)
+        assert [r.consultant_name for r in rows] == [
+            "Jakub Testowy",
+            "Anna Przykładowa",
+        ]
+        assert all(r.uncertain and r.rate_client is None for r in rows)
+        assert all("1040" in r.uncertain_reason for r in rows)
+        r = _run("cardif", text)
+        assert r.uncertain
+        assert r.rate_client is None
+        assert any("różne stawki" in reason for reason in r.uncertain_reasons)
+
+    def test_same_rate_repeated_is_still_one_rate(self):
+        text = CARDIF + "Stawka (1040 PLN/MD net.) obowiązuje do końca okresu.\n"
+        assert cardif.extract_rows(text)[0].rate_client == Decimal("1040")
+        assert _run("cardif", text).uncertain is False
+
+    def test_model_concerns_survive_the_policy(self):
+        _assert_model_concerns_survive("cardif", CARDIF)
+
+
+def _assert_model_concerns_survive(key: str, text: str) -> None:
+    model = OrderExtraction(
+        source="claude",
+        uncertain=True,
+        uncertain_reasons=[
+            "Nieczytelne nazwisko drugiego specjalisty",
+            "Brak informacji o liczbie MD",
+        ],
+    )
+    r, _ = apply_policies(
+        model, PolicyContext(document_text=text), [policy_by_key(key)]
+    )
+    assert r.uncertain
+    assert "Nieczytelne nazwisko drugiego specjalisty" in r.uncertain_reasons
+    assert "Brak informacji o liczbie MD" not in r.uncertain_reasons
 
 
 # ── Nordea (warstwa dla układu przeplecionego) ──────────────────────────────
@@ -767,6 +868,91 @@ class TestBankPocztowyLayout:
         assert ruled.consultant_rows[0].rate_client_gross is None
 
 
+# Układ z produkcji (29.09.2026): kilkuwyrazowy profil przed nazwiskiem.
+BP_LONG_PROFILE = """Zamówienie nr 248/2031
+Sporządził: Numer pisma 248/2031/ZAM/B2B
+Profil Specjalisty (Stanowisko) Imię i nazwisko
+Programista Power Platform Jan Testowy
+Maksymalna kwota zamówienia nie może przekroczyć: 1160*1,23*63 = 89 888,40 PLN
+Termin rozpoczęcia Planowany termin zakończenia Miejsce świadczenia usług
+01.10.2031 31.12.2031
+"""
+
+
+class TestBankPocztowyRowEvidence:
+    """Zgłoszenie 29.09.2026: każdy dokument BP szedł do weryfikacji.
+
+    Wiersz z tabeli (dowód bramki) nie niósł stawki, a profil dłuższy niż dwa
+    wyrazy oznaczał nazwisko jako niepewne — bramka zgłaszała „niepewny odczyt
+    wiersza" i „stawka nie zgadza się z polem PDF" przy poprawnym odczycie.
+    """
+
+    @staticmethod
+    def _model_read(text: str, rate: str = "1160") -> OrderExtraction:
+        result = OrderExtraction(
+            source="claude",
+            rate_client=Decimal(rate),
+            rate_unit="day",
+            consultant_rows=[
+                ConsultantOrderRow(
+                    consultant_name="Testowy Jan",
+                    rate_client=Decimal(rate),
+                    rate_unit="day",
+                    uncertain=False,
+                )
+            ],
+        )
+        policy = policy_by_key("bank_pocztowy")
+        ruled, _ = apply_policies(result, PolicyContext(document_text=text), [policy])
+        return ruled
+
+    def test_table_row_carries_the_formula_rate_and_a_certain_name(self):
+        (row,) = bank_pocztowy.extract_rows(BP_LONG_PROFILE)
+        assert row.consultant_name == "Jan Testowy"
+        assert (row.rate_client, row.rate_unit) == (Decimal("145.00"), "hour")
+        assert row.uncertain is False
+
+    def test_correct_read_passes_the_row_evidence_check(self):
+        from app.services.order_mail_gate import _row_evidence_reasons
+
+        ruled = self._model_read(BP_LONG_PROFILE)
+        evidence = tuple(bank_pocztowy.extract_rows(BP_LONG_PROFILE))
+        assert _row_evidence_reasons(ruled.consultant_rows, evidence) == []
+
+    def test_model_rate_different_from_the_formula_still_goes_to_review(self):
+        from app.services.order_mail_gate import (
+            CODE_ROW_EVIDENCE_RATE,
+            _row_evidence_reasons,
+        )
+
+        ruled = self._model_read(BP_LONG_PROFILE, rate="1200")
+        evidence = tuple(bank_pocztowy.extract_rows(BP_LONG_PROFILE))
+        codes = [c for c, _ in _row_evidence_reasons(ruled.consultant_rows, evidence)]
+        assert codes == [CODE_ROW_EVIDENCE_RATE]
+
+    def test_document_without_the_formula_has_no_rate_evidence(self):
+        from app.services.order_mail_gate import (
+            CODE_ROW_EVIDENCE_UNCERTAIN,
+            _row_evidence_reasons,
+        )
+
+        text = BP_LONG_PROFILE.replace("*1,23*63 = 89 888,40", " zł netto za MD")
+        (row,) = bank_pocztowy.extract_rows(text)
+        assert row.rate_client is None
+        ruled = self._model_read(text)
+        codes = [c for c, _ in _row_evidence_reasons(ruled.consultant_rows, (row,))]
+        assert CODE_ROW_EVIDENCE_UNCERTAIN in codes
+
+    @pytest.mark.parametrize(
+        "line",
+        ["Programista Java jan testowy", "Kierownik projektu 12345", "Jan"],
+    )
+    def test_name_that_does_not_look_like_a_name_stays_uncertain(self, line):
+        text = BP_LONG_PROFILE.replace("Programista Power Platform Jan Testowy", line)
+        name, uncertain = bank_pocztowy.consultant_name(text)
+        assert uncertain is True
+
+
 CA = """Zamówienie nr 26138 z dnia 2031-08-12 do Umowy Ramowej nr CA/B2B.NET/short/kwalif/2031
 Wynagrodzenie
 Poziom Szacowana
@@ -786,6 +972,14 @@ class TestCreditAgricoleLayout:
         assert (r.start_date, r.end_date) == ("2031-08-18", "2031-10-31")
         assert (r.rate_client, r.rate_unit) == (Decimal("700.00"), "day")
         assert r.consultant_rows[0].consultant_name == "Testowy Wiktor"
+
+
+@pytest.mark.parametrize("key", ["kir", "mleasing", "velobank"])
+def test_twin_policies_keep_model_concerns(key):
+    """Runda 6 audytu: bliźniacze reguły też nie kasują zastrzeżeń modelu."""
+    _assert_model_concerns_survive(
+        key, {"kir": KIR, "mleasing": MLEASING, "velobank": VELO}[key]
+    )
 
 
 # ── Rejestr ──────────────────────────────────────────────────────────────────

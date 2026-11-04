@@ -52,7 +52,7 @@ export function MyTeamTab() {
       <table className="w-full text-sm">
         <thead className="bg-background/60 text-muted-foreground">
           <tr>
-            <th className="text-left px-3 py-2 font-medium">Rekruter (TAC)</th>
+            <th className="text-left px-3 py-2 font-medium">Rekruter</th>
             <th className="text-left px-3 py-2 font-medium">Email</th>
             <th className="text-right px-3 py-2 font-medium">Aktywne joby</th>
             <th className="text-right px-3 py-2 font-medium">Aktywni kandydaci</th>

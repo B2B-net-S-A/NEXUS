@@ -16,6 +16,7 @@ import {
 import { calendarApi, candidatesApi, interviewFeedbackApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 
+import { formatPhone } from "@/lib/phone-format";
 type FeedbackSource = "candidate_side" | "client_side";
 
 type InterviewFeedbackModalProps = {
@@ -343,7 +344,7 @@ export function InterviewFeedbackModal({
                   className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-primary/10 text-primary text-sm font-medium hover:bg-primary/15 transition-colors"
                 >
                   <Phone className="w-4 h-4" />
-                  Zadzwoń: {candidate.phone}
+                  Zadzwoń: {formatPhone(candidate.phone)}
                 </a>
               )}
               {candidate.email && (

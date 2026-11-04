@@ -45,7 +45,9 @@ async def _run_day(today: date) -> dict:
                 db, programs, today=today, ranked=ranked
             )
             await db.commit()
-            stats = await lists.pool_stats(db, rules, today=today)
+            # Ten sam ranking co listy — bez drugiego liczenia puli (runda 6
+            # audytu; pool_stats odejmuje osoby rozdane właśnie na listy).
+            stats = await lists.pool_stats(db, rules, today=today, ranked=ranked)
             await lists.store_pool_stats(db, stats)
             await db.commit()
     return {"notified": notified, "lists": created}

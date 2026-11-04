@@ -24,10 +24,10 @@ interface KeyRelationshipDialogProps {
 }
 
 const STRENGTH_LABELS: Record<RelationshipStrength, string> = {
-  cold: "🥶 Cold — wymiana maili biznesowych",
-  warm: "🌤️ Warm — pamiętają nas, odpowiadają chętnie",
-  strong: "🤝 Strong — spotkania osobiste, znamy się dobrze",
-  champion: "⭐ Champion — wewnętrzny ambasador, poleca nas",
+  cold: "Chłodna — wymiana maili biznesowych",
+  warm: "Ciepła — pamiętają nas, odpowiadają chętnie",
+  strong: "Mocna — spotkania osobiste, znamy się dobrze",
+  champion: "Champion — wewnętrzny ambasador, poleca nas",
 };
 
 /** Modal edycji "kluczowej relacji" — flaga + siła + notatki + last touchpoint. */

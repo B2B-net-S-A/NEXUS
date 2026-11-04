@@ -1,0 +1,169 @@
+<h1>Umowa zlecenia</h1>
+<p>zawarta dnia {{ document_date }} r. w Warszawie (zwana dalej „<strong>Umową</strong>”) pomiędzy:</p>
+<p><strong>{{ company.name }}</strong> z siedzibą w Warszawie, {{ company.address }}, wpisaną do Rejestru Przedsiębiorców prowadzonego przez {{ company.court }}, KRS pod nr {{ company.krs }}, NIP: {{ company.nip }}, o kapitale zakładowym {{ company.share_capital }}, reprezentowaną przez {{ company.representative }},</p>
+<p>zwaną dalej „<strong>Zleceniodawcą</strong>”,</p>
+<p>a</p>
+<p><strong>{{ g.g_pan }} {{ partner.name_instrumental or partner.name or '…' }}</strong>, {{ g.g_zamieszkaly }} pod adresem: {{ partner.home_address or '…' }}, {{ g.g_legitymujacy }} dowodem osobistym o numerze: {{ partner.id_document or '…' }}, PESEL: {{ partner.pesel or '…' }},</p>
+<p>Tel. {{ partner.phone or '…' }}, E-mail: {{ partner.email or '…' }}</p>
+<p>{{ g.g_zwanym | capitalize }} dalej „<strong>Zleceniobiorcą</strong>”.</p>
+<p>Zleceniodawca i Zleceniobiorca dalej łącznie zwani „<strong>Stronami</strong>” a każdy z osobna „<strong>Stroną</strong>”</p>
+<h2>§ 1<br>Przedmiot umowy</h2>
+<ol>
+<li>Na podstawie niniejszej umowy Zleceniodawca zleca, a Zleceniobiorca zobowiązuje się do wykonania następujących czynności (dalej „Zlecenie”):</li>
+{% for t in doc.task_items %}
+</ol>
+<p>{{ t.letter }}) {{ t.text }}{{ t.sep }}</p>
+{% endfor %}
+<ol start="2">
+<li>Czynności, o których mowa w ust. 1, mogą być wykonywane także na rzecz Klientów Zleceniodawcy, wskazanych przez Zleceniodawcę w trakcie trwania Umowy.</li>
+<li>Zleceniobiorca wykonuje Zlecenie z należytą starannością zawodową, zgodnie z posiadaną wiedzą i umiejętnościami, samodzielnie dobierając środki i metody działania, z uwzględnieniem oczekiwanego efektu.</li>
+<li>Zleceniobiorca ponosi pełną odpowiedzialność za organizację własnej pracy, w tym czasu i sposobu realizacji Zlecenia, z poszanowaniem wyznaczonych terminów oraz wymogów organizacyjnych niezbędnych do dostępu do zasobów technicznych (np. systemów). Zleceniobiorca nie jest objęty regulaminem pracy ani normami czasu pracy właściwymi dla stosunku pracy.</li>
+<li>Strony zgodnie oświadczają, że niniejsza Umowa nie stanowi stosunku pracy w rozumieniu art. 22 § 1 Kodeksu pracy.</li>
+</ol>
+<h2>§ 2<br>Miejsce wykonywania Zlecenia i okres obowiązywania Umowy</h2>
+<ol>
+<li>Zleceniobiorca wykonuje Zlecenie w miejscu przez siebie wybranym, w tym zdalnie, chyba że dostęp do określonych zasobów wymaga obecności w lokalizacji Klienta Zleceniodawcy – wówczas miejsce takie jest uzgadniane indywidualnie i nie stanowi elementu podporządkowania.</li>
+<li>Umowa zostaje zawarta na okres od {{ doc.period_from }} r. do {{ doc.period_to }} r.</li>
+<li>Zleceniobiorca jest zobowiązany stosować się do zasad bezpieczeństwa, regulaminów porządkowych oraz zasad ochrony informacji obowiązujących u Zleceniodawcy i u Klienta Zleceniodawcy, o ile zostaną mu przekazane.</li>
+</ol>
+<h2>§ 3<br>Wynagrodzenie</h2>
+<ol>
+<li>Za wykonanie Zlecenia określonego w § 1 Zleceniobiorca otrzyma wynagrodzenie naliczane na podstawie liczby godzin poświęconych na realizację czynności, zgodnie z ustaleniami Stron. Ustala się stawkę w wysokości {{ doc.gross_hourly_rate }} zł brutto za jedną godzinę (słownie: {{ doc.gross_hourly_rate_words }}).</li>
+<li>Zleceniobiorca prowadzi Kartę Realizacji Zlecenia, która ma charakter pomocniczy i służy do rozliczenia wynagrodzenia, bez wprowadzania ewidencji czasu pracy w rozumieniu przepisów prawa pracy. Karta Realizacji Zlecenia jest przekazywana Zleceniodawcy najpóźniej do 5. dnia miesiąca następującego po miesiącu rozliczeniowym.</li>
+<li>Wynagrodzenie jest wypłacane na podstawie rachunku przedstawionego przez Zleceniobiorcę w terminie do 10 dni od daty wystawienia rachunku.</li>
+</ol>
+<h2>§ 4<br>Poufność i zachowanie tajemnicy</h2>
+<ol>
+<li>Zleceniobiorca przyjmuje do wiadomości, że w związku z wykonywaniem Zlecenia może uzyskać dostęp do informacji, które Zleceniodawca lub jego Klienci traktują jako poufne, w szczególności informacji stanowiących tajemnicę przedsiębiorstwa w rozumieniu art. 11 ust. 2 ustawy z dnia 16 kwietnia 1993 r. o zwalczaniu nieuczciwej konkurencji („Informacje Poufne”).</li>
+<li>Do Informacji Poufnych należą w szczególności informacje dotyczące: działalności, procesów, projektów, produktów, rozwiązań technicznych i organizacyjnych, finansów, list klientów i dostawców, danych kontaktowych, stosowanych stawek i warunków handlowych, a także wszelkie inne informacje przekazane Zleceniobiorcy jako poufne lub których poufny charakter wynika z ich treści.</li>
+<li>Zleceniobiorca zobowiązuje się:</li>
+<li>zachować Informacje Poufne w tajemnicy,</li>
+<li>nie ujawniać Informacji Poufnych osobom trzecim bez uprzedniej pisemnej zgody Zleceniodawcy,</li>
+<li>nie wykorzystywać Informacji Poufnych w celach innych niż wykonanie niniejszej Umowy.</li>
+<li>Obowiązek zachowania poufności obowiązuje w trakcie trwania Umowy oraz po jej zakończeniu, bez ograniczenia czasowego, chyba że obowiązek ujawnienia wynika wprost z przepisów prawa lub prawomocnych decyzji właściwych organów.</li>
+<li>Wszystkie dokumenty, materiały, bazy danych, notatki, wydruki, pliki oraz inne nośniki informacji zawierające Informacje Poufne, uzyskane lub wytworzone przez Zleceniobiorcę w związku z wykonywaniem Zlecenia, stanowią własność Zleceniodawcy lub jego Klientów. Zleceniobiorca zobowiązuje się zwrócić je Zleceniodawcy niezwłocznie po zakończeniu współpracy lub na każde żądanie Zleceniodawcy.</li>
+<li>W przypadku zawinionego naruszenia obowiązku poufności przez Zleceniobiorcę, Zleceniodawcy przysługuje prawo dochodzenia odszkodowania na zasadach ogólnych przewidzianych w Kodeksie cywilnym, w tym także odszkodowania przewyższającego ewentualne zastrzeżone kary umowne.</li>
+</ol>
+<h2>§ 5<br>Własność intelektualna</h2>
+<ol>
+<li>Wszelkie utwory w rozumieniu ustawy o prawie autorskim i prawach pokrewnych (np. opracowania, dokumenty, analizy, prezentacje, materiały szkoleniowe, projekty, raporty, kody, konfiguracje), stworzone przez Zleceniobiorcę w związku z wykonywaniem Zlecenia na rzecz Zleceniodawcy lub jego Klienta (dalej „Utwory”), będą tworzone na rzecz Zleceniodawcy / Klienta i z chwilą ich przyjęcia przejdą na Zleceniodawcę (lub wskazanego przez niego Klienta) w zakresie majątkowych praw autorskich.</li>
+<li>Z chwilą przyjęcia Utworu Zleceniodawca nabywa majątkowe prawa autorskie do Utworu na wszystkich znanych w chwili zawarcia Umowy polach eksploatacji, w szczególności:</li>
+<li>utrwalanie i zwielokrotnianie Utworu jakąkolwiek techniką, w tym drukarską, reprograficzną, magnetyczną, cyfrową,</li>
+<li>wprowadzanie do obrotu, użyczenie lub najem egzemplarzy, na których Utwór utrwalono,</li>
+<li>publiczne udostępnianie Utworu w taki sposób, aby każdy mógł mieć do niego dostęp w miejscu i czasie przez siebie wybranym, publiczne wykonywanie, wyświetlanie, odtwarzanie, nadawanie i reemitowanie.</li>
+<li>Zleceniobiorca przenosi na Zleceniodawcę prawo do zezwalania na wykonywanie praw zależnych do Utworów (prawo do opracowań).</li>
+<li>Wynagrodzenie za przeniesienie praw, o których mowa w niniejszym paragrafie, zawiera się w wynagrodzeniu określonym w § 3 Umowy. Zleceniobiorcy nie przysługuje odrębne wynagrodzenie z tego tytułu.</li>
+<li>Zleceniobiorca upoważnia Zleceniodawcę do anonimowego rozpowszechniania Utworów oraz zobowiązuje się nie wykonywać wobec Zleceniodawcy autorskich praw osobistych do Utworów w zakresie, w jakim jest to dopuszczalne przepisami prawa.</li>
+</ol>
+<h2>§ 6<br>Mienie powierzone Zleceniobiorcy</h2>
+<ol>
+<li>Zleceniodawca może powierzyć Zleceniobiorcy do korzystania w związku z wykonywaniem Zlecenia sprzęt lub inne mienie (np. komputer, telefon, dostęp do systemów itp.). Zakres powierzonego mienia będzie każdorazowo potwierdzony protokołem przekazania.</li>
+<li>Zleceniobiorca zobowiązuje się:</li>
+<li>używać powierzonego mienia zgodnie z jego przeznaczeniem i wyłącznie w związku z wykonywaniem Zlecenia,</li>
+<li>dbać o należytą ochronę i stan techniczny mienia,</li>
+<li>niezwłocznie zgłaszać Zleceniodawcy wszelkie uszkodzenia lub utratę mienia.</li>
+<li>Zleceniobiorca ponosi odpowiedzialność za szkodę w powierzonym mieniu wynikłą z jego zawinionego działania lub zaniechania.</li>
+<li>Zleceniobiorca zobowiązuje się zwrócić powierzone mienie niezwłocznie po zakończeniu Umowy lub na żądanie Zleceniodawcy, z uwzględnieniem normalnego zużycia.</li>
+</ol>
+<h2>§ 7<br>Dane Osobowe</h2>
+<ol>
+<li>Administratorem danych osobowych Zleceniobiorcy jest B2B.net S.A., Al. Jerozolimskie 180, 02-486 Warszawa, e-mail: iod@b2bnetwork.pl.</li>
+<li>Dane osobowe Zleceniobiorcy będą przetwarzane:</li>
+</ol>
+<p>a) w celu zawarcia i wykonania Umowy – art. 6 ust. 1 lit. b RODO,</p>
+<p>b) w celu rozliczeń i dochodzenia roszczeń – art. 6 ust. 1 lit. f RODO,</p>
+<p>c) w celu realizacji obowiązków prawnych – art. 6 ust. 1 lit. c RODO.</p>
+<ol>
+<li>Dane mogą być udostępniane Klientom Zleceniodawcy, a także podmiotom świadczącym usługi IT, księgowe, prawne i serwisowe.</li>
+<li>Dane osobowe będą przechowywane przez okres obowiązywania Umowy oraz okres wynikający z przepisów prawa lub uzasadnionego interesu Zleceniodawcy.</li>
+<li>Zleceniobiorcy przysługuje prawo dostępu do danych, ich sprostowania, usunięcia, ograniczenia przetwarzania, sprzeciwu oraz przenoszenia danych, a także prawo wniesienia skargi do Prezesa UODO.</li>
+<li>Dane nie będą profilowane ani poddawane zautomatyzowanemu podejmowaniu decyzji.</li>
+<li>Jeżeli w związku z wykonaniem Zlecenia Zleceniobiorca będzie przetwarzał dane osobowe Klienta lub Zleceniodawcy, zobowiązuje się je chronić zgodnie z RODO oraz zgłaszać naruszenia niezwłocznie po ich wykryciu.</li>
+{% if doc.with_dpa %}
+<li>W przypadku, gdy Zleceniobiorca przetwarza dane osobowe w imieniu Zleceniodawcy lub jego Klientów, Strony zawierają Umowę Powierzenia Przetwarzania Danych Osobowych stanowiącą Załącznik nr 2 do niniejszej Umowy.</li>
+{% endif %}
+</ol>
+<h2>§ 8<br>Zakaz pozyskiwania Klientów i przepisy końcowe</h2>
+<ol>
+<li>Zleceniobiorca zobowiązuje się nie podejmować, bez zgody Zleceniodawcy, współpracy z Klientami, dla których wykonywał Zlecenie, przez okres 12 miesięcy od zakończenia Umowy.</li>
+<li>W przypadku naruszenia zakazu Zleceniodawca może dochodzić odszkodowania na zasadach ogólnych.</li>
+<li>Umowa może zostać wypowiedziana przez każdą ze Stron z jednomiesięcznym okresem wypowiedzenia, ze skutkiem na koniec miesiąca kalendarzowego.</li>
+<li>W sprawach nieuregulowanych Umową stosuje się przepisy Kodeksu cywilnego. Umowa nie stanowi umowy o pracę w rozumieniu art. 22 § 1 Kodeksu pracy.</li>
+<li>W przypadku naruszenia przez Zleceniobiorcę obowiązku poufności, o którym mowa w § 4, Zleceniodawca może naliczyć karę umowną w wysokości 10 000 zł (słownie: dziesięć tysięcy złotych) za każde naruszenie. Zleceniodawca może dochodzić odszkodowania przewyższającego wysokość kary na zasadach ogólnych.</li>
+<li>W przypadku podjęcia przez Zleceniobiorcę współpracy, bez uprzedniej pisemnej zgody Zleceniodawcy, z Klientem, na rzecz którego Zleceniobiorca wykonywał Zlecenie w ramach niniejszej Umowy – z naruszeniem zakazu, o którym mowa w § 8 ust. 1 – Strony ustalają karę umowną w wysokości 15 000 zł (słownie: piętnaście tysięcy złotych). Naliczenie kary nie wyłącza możliwości dochodzenia odszkodowania przewyższającego jej wysokość.</li>
+<li>Strony zgodnie oświadczają, że wysokość kar umownych określonych w niniejszym paragrafie została ustalona z uwzględnieniem rodzaju Zlecenia, zakresu powierzonych informacji oraz ryzyk biznesowych związanych z realizacją Umowy, a także stanowi uzasadnioną, proporcjonalną wartość ekonomiczną potencjalnych naruszeń.</li>
+<li>Adresami Stron dla celów niniejszej Umowy są adresy podane we wstępie do Umowy lub inne adresy wskazane drugiej Stronie na piśmie.</li>
+<li>Wszelkie zmiany lub uzupełnienia niniejszej Umowy wymagają dla swojej ważności formy    pisemnej pod rygorem nieważności.</li>
+<li>Strony ustalają, że niniejsza Umowa może zostać zawarta w formie pisemnej lub w formie elektronicznej z wykorzystaniem kwalifikowanego podpisu elektronicznego, zgodnie z art. 78¹ §1 Kodeksu cywilnego.</li>
+<li>Umowę sporządzono w dwóch jednobrzmiących egzemplarzach, po jednym dla każdej ze Stron, wraz z następującymi załącznikami:</li>
+</ol>
+<p>– Załącznik nr 1 – Deklaracja Poufności</p>
+{% if doc.with_dpa %}
+<p>– Załącznik nr 2 – Umowa Powierzenia Przetwarzania Danych Osobowych</p>
+{% endif %}
+<p>_________________________    _________________________</p>
+<p>podpis Zleceniobiorcy                   podpis Zleceniodawcy</p>
+<p>Załącznik Nr 1 – wzór Deklaracja Poufności</p>
+<p><strong>DEKLARACJA POUFNOŚCI</strong> do umowy zlecenia z dnia {{ document_date }} r.</p>
+<p>1. Zleceniobiorca oświadcza, że w związku z wykonywaniem Umowy może uzyskać dostęp do informacji, które stanowią tajemnicę przedsiębiorstwa Zleceniodawcy lub jego Klientów, w rozumieniu art. 11 ust. 2 ustawy z dnia 16 kwietnia 1993 r. o zwalczaniu nieuczciwej konkurencji („Informacje Poufne”).</p>
+<p>2. Informacje Poufne obejmują w szczególności:</p>
+<p>a) dane organizacyjne, handlowe, techniczne, finansowe i operacyjne,</p>
+<p>b) dane dotyczące Klientów, kandydatów, kontrahentów lub pracowników,</p>
+<p>c) wiedzę techniczną, dokumenty projektowe, procedury, plany, prezentacje oraz materiały robocze,</p>
+<p>d) dane dostępowe, konfiguracje techniczne, informacje o systemach lub procesach,</p>
+<p>e) wszelkie inne informacje, które nie są publicznie dostępne.</p>
+<p>3. Zleceniobiorca zobowiązuje się do:</p>
+<p>a) zachowania Informacji Poufnych w poufności,</p>
+<p>b) niewykorzystywania Informacji Poufnych w celach innych niż wykonanie Umowy,</p>
+<p>c) nieujawniania Informacji Poufnych osobom trzecim bez pisemnej zgody Zleceniodawcy,</p>
+<p>d) podejmowania rozsądnych i adekwatnych środków w celu zabezpieczenia Informacji Poufnych.</p>
+<p>4. Zobowiązanie do zachowania poufności obowiązuje:</p>
+<p>a) przez cały okres trwania Umowy,</p>
+<p>b) bezterminowo po jej zakończeniu – niezależnie od przyczyny rozwiązania.</p>
+<p>5. Wszelkie materiały zawierające Informacje Poufne, w tym dokumenty, notatki, pliki, korespondencja elektroniczna lub nośniki danych, pozostają własnością Zleceniodawcy lub jego Klienta i podlegają zwrotowi na żądanie Zleceniodawcy lub najpóźniej w dniu zakończenia współpracy.</p>
+<p>6. Zleceniobiorca zobowiązuje się do niezwłocznego poinformowania Zleceniodawcy o każdym przypadku ujawnienia, utraty lub podejrzenia naruszenia Informacji Poufnych, a także do współpracy przy wyjaśnianiu incydentu.</p>
+<p>7. Obowiązek poufności nie obejmuje informacji:</p>
+<p>a) które stały się publicznie dostępne bez naruszenia niniejszej deklaracji,</p>
+<p>b) które Zleceniobiorca uzyskał legalnie od osoby trzeciej, nieobjętej zobowiązaniem do poufności,</p>
+<p>c) które Zleceniobiorca musi ujawnić na podstawie przepisów prawa lub decyzji organu – pod warunkiem uprzedniego poinformowania Zleceniodawcy, o ile przepisy na to pozwalają.</p>
+<p>8. Naruszenie niniejszej deklaracji może stanowić podstawę do dochodzenia odszkodowania przez Zleceniodawcę na zasadach określonych w Kodeksie cywilnym oraz w Umowie.</p>
+<p>Oświadczam, że {{ g.g_zapoznal }} się z niniejszą deklaracją, rozumiem jej treść oraz zobowiązuję się do jej przestrzegania.</p>
+<p>_________________________  _________________</p>
+<p>Czytelny podpis Zleceniobiorcy   data</p>
+<p>Deklaracja podpisana w obecności:</p>
+<p>__________________________  ________________</p>
+<p>Przedstawiciel Zleceniodawcy                data</p>
+{% if doc.with_dpa %}
+<p>Załącznik nr 2 – Umowa Powierzenia Przetwarzania Danych Osobowych (DPA)</p>
+<p><strong>UMOWA POWIERZENIA PRZETWARZANIA DANYCH OSOBOWYCH (DPA)</strong></p>
+<p>Zawarta w dniu {{ document_date }} r. w Warszawie pomiędzy:</p>
+<p><strong>{{ company.name }}</strong> z siedzibą w Warszawie, {{ company.address }}, numer NIP: {{ company.nip }}, reprezentowaną przez {{ company.representative }}, jako Administrator Danych Osobowych, zwaną dalej „Administratorem”,</p>
+<p>a</p>
+<p><strong>{{ g.g_pan }} {{ partner.name_instrumental or partner.name or '…' }}</strong>, {{ g.g_zamieszkaly }} pod adresem: {{ partner.home_address or '…' }}, {{ g.g_legitymujacy }} dowodem osobistym o numerze: {{ partner.id_document or '…' }}, PESEL: {{ partner.pesel or '…' }}, {{ g.g_zwanym }} dalej „Podmiotem Przetwarzającym”.</p>
+<h2>§ 1<br>Przedmiot powierzenia</h2>
+<p>1. Na mocy niniejszej Umowy Administrator powierza Podmiotowi Przetwarzającemu do przetwarzania dane osobowe, a Podmiot Przetwarzający zobowiązuje się przetwarzać te dane wyłącznie w celu i zakresie niezbędnym do realizacji przedmiotu Umowy Zlecenia z dnia {{ document_date }} r.</p>
+<p>2. Podmiot Przetwarzający zobowiązuje się przetwarzać powierzone dane zgodnie z Rozporządzeniem Parlamentu Europejskiego i Rady (UE) 2016/679 (RODO) oraz innymi przepisami prawa polskiego dotyczącymi ochrony danych osobowych.</p>
+<h2>§ 2<br>Zakres i cel przetwarzania</h2>
+<p>1. Rodzaje danych (kategorie osób): użytkownicy systemów, aplikacji i infrastruktury Administratora oraz jego Klientów, a także osoby, których dane osobowe znajdują się w utrzymywanych systemach, bazach danych i logach.</p>
+<p>2. Kategorie danych:</p>
+<p>• Dane zwykłe: dane zawarte w systemach, aplikacjach, bazach danych i logach objętych czynnościami utrzymaniowymi (np. identyfikatory i loginy użytkowników, adresy e-mail, dane kontaktowe, adresy IP, dane zawarte w logach systemowych), do których Podmiot Przetwarzający uzyskuje dostęp w zakresie technicznie niezbędnym.</p>
+<p>• Dane szczególnych kategorii: Podmiot Przetwarzający nie przetwarza celowo danych szczególnych kategorii; ewentualny dostęp może mieć charakter wyłącznie incydentalny i techniczny, bez zapoznawania się z treścią danych ponad zakres niezbędny do wykonania Zlecenia.</p>
+<p>3. Cel przetwarzania: {{ doc.dpa_purpose or '…' }}</p>
+<p>4. Charakter operacji przetwarzania: przechowywanie, przeglądanie, dostęp techniczny, kopiowanie na potrzeby diagnostyki, zabezpieczanie oraz – w zakresie technicznie niezbędnym – inne operacje na danych zawartych w utrzymywanych systemach.</p>
+<p>5. Czas trwania przetwarzania: przez czas obowiązywania Umowy Zlecenia oraz do momentu zwrotu/usunięcia danych, zgodnie z postanowieniami niniejszej Umowy.</p>
+<h2>§ 3<br>Obowiązki Podmiotu Przetwarzającego</h2>
+<p>1. Podmiot Przetwarzający przetwarza dane wyłącznie na udokumentowane polecenie Administratora.</p>
+<p>2. Podmiot Przetwarzający zobowiązuje się do stosowania środków technicznych i organizacyjnych mających na celu zabezpieczenie powierzonych do przetwarzania danych osobowych, w szczególności do zapewnienia ochrony przed ich przypadkowym lub niezgodnym z prawem zniszczeniem, utratą, modyfikacją, nieuprawnionym ujawnieniem lub nieuprawnionym dostępem.</p>
+<p>3. Podmiot Przetwarzający dopuszcza do przetwarzania danych wyłącznie osoby pisemnie upoważnione i zobowiązane do zachowania poufności.</p>
+<p>4. Podmiot Przetwarzający pomaga Administratorowi w wypełnianiu obowiązków wynikających z RODO, w szczególności w zakresie odpowiadania na żądania osób, których dane dotyczą.</p>
+<p>5. Podmiot Przetwarzający zawiadamia Administratora o każdym naruszeniu ochrony danych osobowych w terminie 24 godzin od jego stwierdzenia.</p>
+<p>6. Podmiot Przetwarzający poinformuje Administratora, jeżeli jego zdaniem wydane mu polecenie jest sprzeczne z RODO lub innymi przepisami prawa.</p>
+<h2>§ 4<br>Dalsze powierzanie (Podmiot dalszego przetwarzania)</h2>
+<p>Podmiot Przetwarzający nie może bez uprzedniej pisemnej zgody Administratora (w tym w formie wiadomości e-mail) powierzyć przetwarzania danych osobowych innemu podmiotowi (podmiotowi dalszego przetwarzania). Podmiot Przetwarzający ponosi pełną odpowiedzialność wobec Administratora za działania lub zaniechania podmiotu dalszego przetwarzania, tak jak za własne działania lub zaniechania.</p>
+<h2>§ 5<br>Zwrot i usunięcie danych</h2>
+<p>Po zakończeniu świadczenia Zlecenia Podmiot Przetwarzający zobowiązany jest, według decyzji Administratora, do usunięcia lub zwrotu wszelkich powierzonych danych osobowych oraz usunięcia ich istniejących kopii, chyba że przepisy prawa Unii lub państwa członkowskiego nakazują dalsze przechowywanie.</p>
+<h2>§ 6<br>Postanowienia końcowe</h2>
+<p>W sprawach nieuregulowanych niniejszą Umową zastosowanie mają postanowienia Umowy Zlecenia oraz przepisy RODO i Kodeksu cywilnego. Podmiot Przetwarzający i Administrator zobowiązują się do współpracy w zakresie ochrony danych osobowych.</p>
+<p>________________________      ______________________</p>
+<p>(Administrator)       (Podmiot Przetwarzający)</p>
+{% endif %}

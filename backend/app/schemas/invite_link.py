@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 InviteLinkStatus = Literal["active", "used", "revoked", "expired"]
@@ -65,6 +65,8 @@ class CareerLinkBrief(BaseModel):
     public_url: str
     created_at: datetime
     visit_count: int = 0
+    # 0489: „O mnie” na stronie rekrutera (``None`` = nie wpisane).
+    about: Optional[str] = None
 
 
 class CareerLinkStats(BaseModel):
@@ -92,8 +94,85 @@ class CareerLinkResponse(BaseModel):
     jobs: list[CareerLinkJob] = Field(default_factory=list)
 
 
+class CareerLinkResultCounts(BaseModel):
+    """Lejek linku w oknie (etap 4 linków, 19.10.2026). ``visits`` = od początku."""
+
+    visits: int = 0
+    # W wybranym okresie, z dziennych wejść (0640); ``None`` = od początku.
+    visits_in_period: Optional[int] = None
+    applications: int = 0
+    new_candidates: int = 0
+    existing_candidates: int = 0
+    in_process: int = 0
+    verified: int = 0
+    cv_sent: int = 0
+    hired: int = 0
+
+
+class CareerLinkResultRow(CareerLinkResultCounts):
+    kind: Literal["job", "recruiter"]
+    slug: Optional[str] = None
+    public_url: Optional[str] = None
+    job_id: Optional[int] = None
+    # Tytuł dla rekrutera (working_title ?? title) — ekran wewnętrzny.
+    job_title: Optional[str] = None
+    state: Literal["live", "not_live", "closed", "expired", "revoked"]
+
+
+class CareerLinkResults(BaseModel):
+    # ``None`` = od początku.
+    days: Optional[int] = None
+    # Pierwszy dzień z zapisanymi wejściami; starszych dat nie ma.
+    visits_tracked_from: Optional[date] = None
+    totals: CareerLinkResultCounts
+    links: list[CareerLinkResultRow] = Field(default_factory=list)
+
+
+class CareerLinkPerson(BaseModel):
+    """Jedno zgłoszenie z linku osoby (makieta A, 02.11.2026)."""
+
+    candidate_id: int
+    full_name: str
+    applied_at: datetime
+    was_duplicate: bool = False
+    kind: Literal["job", "recruiter"]
+    slug: Optional[str] = None
+    job_id: Optional[int] = None
+    job_title: Optional[str] = None
+    current_stage: Optional[str] = None
+    current_job_id: Optional[int] = None
+    current_job_title: Optional[str] = None
+    screening_status: Optional[str] = None
+    screening_outcome: Optional[str] = None
+    in_my_people: bool = False
+
+
+class CareerLinkPeople(BaseModel):
+    # ``None`` = od początku.
+    days: Optional[int] = None
+    total: int = 0
+    truncated: bool = False
+    people: list[CareerLinkPerson] = Field(default_factory=list)
+
+
+class JobTeamLink(BaseModel):
+    """Link rekrutacji w zespole (makieta C, 02.11.2026)."""
+
+    owner_id: int
+    owner_name: str
+    slug: Optional[str] = None
+    label: Optional[str] = None
+    created_at: datetime
+    visits: int = 0
+    applications: int = 0
+    state: Literal["active", "expired", "revoked"]
+
+
 class CareerLinkUpdate(BaseModel):
     slug: str = Field(..., min_length=1, max_length=64)
+    # 0489: pole pominięte = bez zmiany, pusty napis = usuń. Limit 280 znaków
+    # sprawdza trasa po wycięciu znaków formatujących i zbędnych spacji.
+    about: Optional[str] = Field(None, max_length=2000)
 
 
 class SlugAvailability(BaseModel):
@@ -109,9 +188,23 @@ class PublicSections(BaseModel):
 
 
 class PublicProfileFinding(BaseModel):
-    code: Literal["client_name", "money", "contact", "person_name"]
+    code: Literal["client_name", "money", "contact", "person_name", "internal_code"]
     message: str
     excerpt: str
+
+
+class PublicProfileLive(BaseModel):
+    """Wersja, którą dziś widzi kandydat (19.10.2026).
+
+    ``pending_changes`` = opis w edytorze różni się od opublikowanego; strona
+    pokazuje tę wersję, dopóki nikt nie zatwierdzi nowej. Pola tekstowe służą
+    też do „Odrzuć zmiany” (zapis szkicu z tymi wartościami)."""
+
+    title: str
+    subtitle: Optional[str] = None
+    about: Optional[str] = None
+    sections: PublicSections
+    pending_changes: bool = False
 
 
 class PublicProfileUpdate(BaseModel):
@@ -120,6 +213,17 @@ class PublicProfileUpdate(BaseModel):
     about: Optional[str] = Field(default=None, max_length=4000)
     sections: Optional[PublicSections] = None
     show_on_recruiter_page: Optional[bool] = None
+    # 0478: szablon graficzny; ``null`` = wróć do domyślnego według roli.
+    theme: Optional[str] = Field(default=None, max_length=32)
+
+    @field_validator("theme")
+    @classmethod
+    def _known_theme(cls, value: Optional[str]) -> Optional[str]:
+        from app.services.career_theme import THEMES
+
+        if value is not None and value not in THEMES:
+            raise ValueError("Nieznany szablon strony.")
+        return value
 
 
 class PublicProfileVisibility(BaseModel):
@@ -136,10 +240,20 @@ class PublicProfileResponse(BaseModel):
     about: Optional[str] = None
     sections: PublicSections
     show_on_recruiter_page: bool = True
+    # 0478: wybór rekrutera (``None`` = domyślny) i domyślny według roli.
+    theme: Optional[str] = None
+    theme_default: str = "grafit"
     approved_at: Optional[datetime] = None
     approved_by_name: Optional[str] = None
+    # Zatwierdzony opis, ale must/nice, miasto, start albo długość zmieniły się
+    # w rekrutacji — strona pokazuje stan z zatwierdzenia (migawka), a podgląd
+    # obok to, co wejdzie po ponownym zatwierdzeniu.
+    approved_content_stale: bool = False
     findings: list[PublicProfileFinding] = Field(default_factory=list)
     preview: dict
+    # ``None`` = strona rekrutacji daje 404 (opis nigdy niezatwierdzony albo
+    # zmienił się klient rekrutacji).
+    live: Optional[PublicProfileLive] = None
 
 
 class PublicProfileDraft(BaseModel):

@@ -23,6 +23,8 @@ import {
  SelectValue,
 } from"@/components/ui/select";
 import { contractsApi, type ContractorListItem } from"@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
+import { permissionLabel } from "@/lib/permissions";
 import { contractRateUnitSuffix } from"@/lib/rate-unit";
 import { parseDecimalInput } from "@/lib/utils";
 import { B2B_END_DATE_HOW, b2bEndDateLocked } from "@/lib/contract-end-date";
@@ -136,7 +138,9 @@ export function DraftCompletionModal({
 }: Props) {
  const user = useAuthStore((state) => state.user);
  const canManageFinance = canManageCandidateFinance(user);
- const needsAdminFinance =
+ // Szkicowi brakuje stawek, a to konto ich nie zmienia — zapis kończy się na
+ // danych operacyjnych, stawki dopisze posiadacz zmiany kwot.
+ const needsRatesFromFinance =
  !canManageFinance &&
  contractor.missing_fields.some((field) =>
  ["rate_candidate","rate_client"].includes(field)
@@ -185,7 +189,7 @@ export function DraftCompletionModal({
  // has no new incomplete→complete edge, so the deliberate click on this modal
  // remains its explicit opt-in to activation. The fallback also keeps a rolling
  // frontend/backend deploy safe while an older API version is still serving.
- if (!needsAdminFinance && response.data?.status === "draft") {
+ if (!needsRatesFromFinance && response.data?.status === "draft") {
  await contractsApi.activate(contractor.contract_id);
  }
  },
@@ -202,11 +206,13 @@ export function DraftCompletionModal({
  setError(`Brakuje pól: ${missing.join(",")}`);
  return;
  }
- if (typeof detail === "string") {
- setError(detail);
- return;
- }
- setError("Nie udało się aktywować kontraktu. Sprawdź dane i spróbuj ponownie.");
+ // Odmowa z nazwą brakującego uprawnienia przychodzi w `detail.message`.
+ setError(
+ apiErrorMessage(
+ err,
+ "Nie udało się aktywować kontraktu. Sprawdź dane i spróbuj ponownie.",
+ ),
+ );
  },
  });
 
@@ -232,8 +238,8 @@ export function DraftCompletionModal({
  Uzupełnij kontrakt — {contractorFullName(contractor)}
  </DialogTitle>
  <DialogDescription>
- {needsAdminFinance
- ? "Uzupełnij dane operacyjne. Po uzupełnieniu stawek przez administratora kontrakt aktywuje się automatycznie."
+ {needsRatesFromFinance
+ ? `Uzupełnij dane operacyjne. Stawki wpisuje osoba z uprawnieniem „${permissionLabel("amounts_edit")}” — po ich uzupełnieniu kontrakt aktywuje się automatycznie.`
  : "Wypełnij wymagane pola. Po zapisaniu kontrakt aktywuje się automatycznie i trafia do zakładki „Aktywni”."}
  </DialogDescription>
  </DialogHeader>
@@ -464,7 +470,7 @@ export function DraftCompletionModal({
  onClick={() => saveRequiredFields.mutate()}
  >
  <CheckCircle2 className="h-4 w-4" />{""}
- {needsAdminFinance ? "Zapisz dane operacyjne" : "Aktywuj kontrakt"}
+ {needsRatesFromFinance ? "Zapisz dane operacyjne" : "Aktywuj kontrakt"}
  </Button>
  </DialogFooter>
  </DialogContent>

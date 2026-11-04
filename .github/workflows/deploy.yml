@@ -1,5 +1,11 @@
 name: Deploy
 
+# Bieg z budzika okna wdrożeń ma stały tytuł, bo API GitHuba nie zwraca
+# inputów biegu, a po tytule sonda `uptime-probe` (job `deploy-window-slot`)
+# sprawdza, czy budzik w ogóle działa (29.10.2026: dwa tygodnie bez tokenu
+# i nikt nie zauważył). Pusty `run-name` = domyślny tytuł pozostałych biegów.
+run-name: ${{ github.event_name == 'workflow_dispatch' && (inputs.window_slot == true || inputs.window_slot == 'true') && 'Deploy — slot budzika okna wdrożeń' || '' }}
+
 # Unified deployment workflow per ~/.claude/rules/deployment.md.
 # Identyczny pattern dla wszystkich 3 apek (Compass, NEXUS, LeadGen).
 #
@@ -106,13 +112,44 @@ on:
         description: "Pełna przebudowa bez cache Coolify (np. po zmianie zmiennej build-time)"
         type: boolean
         default: false
-  # PROD-04 (audyt 22.09.2026): poranny przebieg wdraża zmiany odroczone przez
-  # okno ciszy nocnej (DEPLOY_FREEZE_WINDOW, domyślnie 0-7 czasu warszawskiego).
-  # Dwie godziny UTC, bo okno liczy się w czasie warszawskim: 05:15Z to 07:15
-  # latem, ale 06:15 zimą (jeszcze w oknie) — wtedy wdraża przebieg 06:15Z.
+      # Okno wdrożeń 18:00–08:00 pon–pt (decyzja Artura 14.10.2026; weekend bez
+      # okna od 17.10.2026) obowiązuje też ręczny bieg. `emergency` je omija —
+      # WYŁĄCZNIE na polecenie Artura.
+      # Wdraża cały HEAD maina, czyli wszystko scalone w ciągu dnia.
+      emergency:
+        description: "AWARYJNIE: wdróż w dzień roboczy mimo okna 18:00–08:00 (tylko na polecenie Artura)"
+        type: boolean
+        default: false
+      reason:
+        description: "Powód awaryjnego wdrożenia (wymagany przy emergency)"
+        type: string
+        default: ""
+      # Budzik okna wdrożeń (kontener `deploy-window`, 15.10.2026) uruchamia
+      # Deploy przez API z `window_slot=true`. Taki bieg zachowuje się jak
+      # `schedule`: w dzień cicho odracza, pomija rebuild, gdy produkcja ma już
+      # HEAD maina, a porażka zakłada issue (nikt go nie ogląda).
+      window_slot:
+        description: "Slot okna wdrożeń z budzika deploy-window (zachowuje się jak wieczorny cron)"
+        type: boolean
+        default: false
+  # Okno wdrożeń (decyzja Artura 14.10.2026, godziny 18:00–08:00 od 22.10.2026):
+  # pon–pt produkcja przebudowuje się tylko 18:00–08:00 czasu warszawskiego — w dzień wszyscy pracują
+  # w systemie, a deploy to ~2 min przerwy. Merge'e z dnia odracza `select`
+  # (`night_freeze`), a wdrażają je przebiegi w oknie. W sobotę i niedzielę
+  # okna nie ma (17.10.2026): merge wdraża się od razu.
+  #
+  # Głównym wyzwalaczem jest budzik `deploy-window` (18:05, 20:05, 22:05
+  # Warszawa, `window_slot` wyżej). Cron GitHuba zostaje jako zapas, bo w tym
+  # repo przychodzi z 3–9 h opóźnieniem albo wcale: 15.10.2026 sloty 17:23Z
+  # i 18:23Z nie przyszły do 19:30Z, slot 04:23Z przyszedł o 09:15Z (w dzień,
+  # więc odroczony), a godzinny `uptime-probe` odpala się ok. 4 razy na dobę.
+  # 16:23Z = 18:23 latem (zimą 17:23 — jeszcze okno, wdraża slot 17:23Z),
+  # kolejne godziny to zapas, 04:23Z (06:23 latem, 05:23 zimą) to ostatnia
+  # szansa przed 08:00, już po nocnym przeglądzie bazy i kopii 02:30Z.
   # Przebieg, który trafi na wdrożoną już wersję, kończy się na koalescencji.
   schedule:
-    - cron: "15 5,6 * * *"
+    - cron: "23 16,17,18,19,20,21 * * *"
+    - cron: "23 4 * * *"
 
 permissions:
   contents: read
@@ -139,6 +176,9 @@ env:
   # markery otwierają i zamykają alarm — `.github/scripts/alert_issue.sh`.
   HOLD_ALERT_MARKER: "Deploy NEXUS wstrzymany"
   RED_ALERT_MARKER: "Deploy NEXUS jest czerwony"
+  # Bieg z budzika okna wdrożeń (`window_slot`) — w krokach traktowany jak
+  # `schedule`. Porównanie z oboma typami, jak przy `force_rebuild`.
+  WINDOW_SLOT: ${{ github.event_name == 'workflow_dispatch' && (inputs.window_slot == true || inputs.window_slot == 'true') }}
 
 jobs:
   # DEP-01: osobny job, żeby odroczony deploy nie wchodził w żaden krok
@@ -148,7 +188,7 @@ jobs:
     runs-on: ubuntu-latest
     # 15 min grupowania (niżej) + wybór wydania.
     timeout-minutes: 20
-    # OPS-N05: ręczny i poranny bieg wyłącznie z maina — wersja tego pliku
+    # OPS-N05: ręczny i planowy (wieczorny) bieg wyłącznie z maina — wersja tego pliku
     # z innej gałęzi nie może dostać sekretów COOLIFY_*.
     if: ${{ ((github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && github.ref == 'refs/heads/main') || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     permissions:
@@ -162,7 +202,8 @@ jobs:
       # Grupowanie deployów (22.09.2026). Przy wielu sesjach Claude pracujących
       # naraz kolejka merge'ów wypuszcza merge'e seriami, a każdy deploy to
       # ~7 min budowy i ~1,5 min przerwy dla użytkowników. Czekamy, aż na mainie
-      # będzie cisza przez DEPLOY_QUIET_SECONDS (zmienna repo, domyślnie 300 s),
+      # będzie cisza przez DEPLOY_QUIET_SECONDS (zmienna repo, domyślnie 0 = bez
+      # czekania od 26.09.2026; wartość > 0 włącza grupowanie),
       # licząc od OSTATNIEGO PUSHA na maina = startu przebiegu „CI Gate”
       # (event=push). NIE od daty commita: kolejka merge'ów stempluje commit
       # chwilą dodania PR-a do kolejki, ~10–15 min przed wejściem na maina,
@@ -180,12 +221,12 @@ jobs:
         if: ${{ github.event_name != 'workflow_dispatch' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          QUIET: ${{ vars.DEPLOY_QUIET_SECONDS || '300' }}
-          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '0-7' }}
+          QUIET: ${{ vars.DEPLOY_QUIET_SECONDS || '0' }}
+          FREEZE_WINDOW: "8-18"
         run: |
           set -u
           # PROD-04: w oknie ciszy wybór wydania i tak odroczy deploy — nie
-          # płacimy za 5–15 min czekania runnera w nocy.
+          # płacimy za 5–15 min czekania runnera w ciągu dnia.
           if python3 .github/scripts/select_release_sha.py in-freeze --freeze-window "$FREEZE_WINDOW"; then
             echo "Okno ciszy deployu ($FREEZE_WINDOW, czas warszawski) — bez czekania."
             exit 0
@@ -215,17 +256,34 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_UNVERIFIED: ${{ github.event_name == 'workflow_dispatch' && '--target-unverified' || '' }}
-          SCHEDULED: ${{ github.event_name == 'schedule' && '--scheduled' || '' }}
-          # PROD-04: okno ciszy tylko dla deployów automatycznych. `off` w
-          # zmiennej repo wyłącza okno (pusta zmienna = domyślne 0-7).
-          FREEZE_WINDOW: ${{ github.event_name != 'workflow_dispatch' && (vars.DEPLOY_FREEZE_WINDOW || '0-7') || '' }}
+          SCHEDULED: ${{ (github.event_name == 'schedule' || env.WINDOW_SLOT == 'true') && '--scheduled' || '' }}
+          # Okno wdrożeń 18:00–08:00 (14.10.2026): `8-18` = cisza 08:00–17:59
+          # czasu warszawskiego pon–pt (weekend bez ciszy, 17.10.2026), dla
+          # KAŻDEGO zdarzenia, także ręcznego biegu. Godziny tylko tutaj, bez
+          # zmiennej repo: 22.10 zmiana na 8-18 w kodzie nie zadziałała, bo
+          # stara zmienna `DEPLOY_FREEZE_WINDOW=7-19` ją nadpisywała (29.10).
+          FREEZE_WINDOW: "8-18"
+          EMERGENCY: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency && '--emergency' || '' }}
+          # Tekst od człowieka tylko przez `env:` — interpolacja `${{ }}` w `run`
+          # wkleiłaby go do skryptu powłoki.
+          DEPLOY_REASON: ${{ inputs.reason }}
         run: |
           # Pusta flaga ma zniknąć, nie być "" — stąd brak cudzysłowu.
           # shellcheck disable=SC2086
           python3 .github/scripts/select_release_sha.py select \
             --repo "${{ github.repository }}" --branch main \
             --target "$TARGET_SHA" --freeze-window "$FREEZE_WINDOW" \
-            $TARGET_UNVERIFIED $SCHEDULED
+            --reason "$DEPLOY_REASON" \
+            $TARGET_UNVERIFIED $SCHEDULED $EMERGENCY
+          if [ -n "$EMERGENCY" ]; then
+            {
+              echo "### ⚠️ Awaryjne wdrożenie poza oknem 18:00–08:00"
+              echo
+              echo "Uruchomił: \`${GITHUB_ACTOR}\`"
+              echo
+              echo "Powód: ${DEPLOY_REASON}"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Alarm — deploy wstrzymany
         if: ${{ steps.release_select.outputs.hold_alert != '' }}
         env:
@@ -253,7 +311,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash .github/scripts/alert_issue.sh resolve "$HOLD_ALERT_MARKER" "HEAD maina ma zieloną bramkę CI Gate — deploy znów rusza."
       - name: Alarm — wybór wydania padł
-        if: ${{ failure() && github.event_name != 'workflow_dispatch' }}
+        if: ${{ failure() && (github.event_name != 'workflow_dispatch' || env.WINDOW_SLOT == 'true') }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -336,17 +394,28 @@ jobs:
 
       - name: Skip if release already live (burst coalescing)
         id: precheck
-        # Ręczny workflow_dispatch NIGDY nie skipuje — to ścieżka świadomego
-        # redeployu (np. po zmianie env varów), gdzie rebuild jest celem.
-        if: ${{ github.event_name != 'workflow_dispatch' }}
+        # 18.10.2026: dwa rebuildy tego samego commitu = dwie przerwy dla
+        # wszystkich. Rebuild tylko wtedy, gdy od produkcji zmienił się kod
+        # obrazu (merge samych `docs/` nie przebudowuje) albo zmienna w Coolify
+        # od ostatniego udanego wdrożenia — reguła w
+        # `.github/scripts/deploy_needed.py`. Dotyczy też ręcznego biegu: kilka
+        # „Coolify set env” + merge daje jeden rebuild, a Deploy uruchomiony po
+        # wdrożeniu, które zmienne już zabrało, kończy się na tym kroku.
+        # Świadomy rebuild „mimo wszystko”: `force_rebuild=true` (bez sprawdzenia).
+        # Nazwy kroków „Trigger deployment” i „Wait for deployment to finish”
+        # czyta skrypt w historii biegów — zmiana nazwy = zmiana w skrypcie.
+        if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.force_rebuild == true || inputs.force_rebuild == 'true')) }}
         env:
           APP_URL: ${{ vars.APP_URL }}
+          GH_TOKEN: ${{ github.token }}
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          CO_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          # Biegi automatyczne bez odczytu zmiennych zachowują się jak przed
+          # 18.10 (pomijają przy tym samym kodzie); ręczny bieg wtedy wdraża.
+          ENV_UNKNOWN: ${{ (github.event_name != 'workflow_dispatch' || env.WINDOW_SLOT == 'true') && '--env-unknown-is-unchanged' || '' }}
         run: |
-          # Przy burstach merge'y wcześniejszy przebieg zwykle wdrożył już ten
-          # sam RELEASE_SHA (HEAD z zieloną bramką). Kolejny pełny rebuild
-          # niczego wtedy nie zmienia, a rebuild-churn zapychał kolejkę Coolify
-          # (HTTP 429) i dysk serwera. Skip WYŁĄCZNIE przy równości z
-          # RELEASE_SHA. Każdy błąd sondy = fail-open do deployu.
+          # Każdy błąd sondy = fail-open do deployu.
           echo "skip=false" >> "$GITHUB_OUTPUT"
           if [ -z "$APP_URL" ]; then
             echo "APP_URL unset — deploying normally"
@@ -354,12 +423,18 @@ jobs:
           fi
           response=$(curl -fsSL --max-time 15 -A "$SMOKE_UA" "$APP_URL/api/health" 2>/dev/null || echo '')
           version=$(echo "$response" | jq -r '.version // ""' 2>/dev/null || echo '')
-          if [ "$version" = "$RELEASE_SHA" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "✅ Produkcja już serwuje wydanie $RELEASE_SHA — pomijam redundantny rebuild."
-          else
-            echo "Live=${version:-brak}, wydanie=$RELEASE_SHA — deploying normally"
-          fi
+          echo "Live=${version:-brak}, wydanie=$RELEASE_SHA"
+          # Do pliku idą tylko klucze i daty zmian — bez wartości (sekrety).
+          envs_file="$RUNNER_TEMP/env-stamps.json"
+          curl -fsS --max-time 20 -H "Authorization: Bearer $CO_TOKEN" -H "Accept: application/json" \
+            "${CO_URL%/}/api/v1/applications/$CO_APP_UUID/envs" 2>/dev/null \
+            | jq '[.[]? | {key, updated_at}]' > "$envs_file" 2>/dev/null || echo 'null' > "$envs_file"
+          # GITHUB_OUTPUT dopisuje skrypt; ostatni wpis `skip=` wygrywa.
+          # Pusta flaga ma zniknąć, nie być "" — stąd brak cudzysłowu.
+          # shellcheck disable=SC2086
+          python3 .github/scripts/deploy_needed.py --repo "${{ github.repository }}" \
+            --live "$version" --release "$RELEASE_SHA" --envs-file "$envs_file" $ENV_UNKNOWN \
+            || echo "Sprawdzenie padło — wdrażamy."
 
       - name: Configure release metadata from actual Coolify image tags
         if: ${{ steps.precheck.outputs.skip != 'true' }}
@@ -480,10 +555,13 @@ jobs:
           #    (4-6 min cold), not 3 quick retries.
           #  - HTTP 5xx (flaky webhook — audit-2026-05-07) heals within one or
           #    two 30s waits.
+          # Od aktualizacji Coolify (01.10.2026) webhook deployu przyjmuje
+          # wyłącznie POST — GET kończy się 405 „This endpoint has changed to
+          # a POST request” i wstrzymuje każde wdrożenie.
           http_code=""
           response=""
           for attempt in $(seq 1 20); do
-            raw=$(curl -sS -X GET \
+            raw=$(curl -sS -X POST \
               -H "Authorization: Bearer $CO_TOKEN" \
               -H "Accept: application/json" \
               -w $'\nHTTP_CODE:%{http_code}' \
@@ -882,7 +960,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash .github/scripts/alert_issue.sh resolve "$RED_ALERT_MARKER" "Deploy przeszedł smoke, deep health i kontrolę migracji."
       - name: Alarm — czerwony deploy
-        if: ${{ failure() && github.event_name != 'workflow_dispatch' }}
+        if: ${{ failure() && (github.event_name != 'workflow_dispatch' || env.WINDOW_SLOT == 'true') }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}

@@ -35,11 +35,13 @@ from decimal import Decimal
 from typing import Any, Awaitable, Callable, Optional
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import func, inspect as sa_inspect, select, text
+from sqlalchemy import and_, func, inspect as sa_inspect, or_, select, text
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.log_safety import safe_filename
 from app.core.scheduling import business_today
 from app.models.ai_feature import AIFeatureKey
 from app.models.client import Client
@@ -50,6 +52,7 @@ from app.models.order_mail import (
     GATE_AUTO,
     GATE_REVIEW,
     OUTCOME_AUTO_APPLIED,
+    OUTCOME_DISMISSED,
     OUTCOME_DUPLICATE,
     OUTCOME_FAILED,
     OUTCOME_IGNORED_NO_PDF,
@@ -221,6 +224,10 @@ class IngestStats:
     recheck_applied: int = 0
     recheck_held: int = 0
     recheck_alerts: int = 0
+    #: Wpisy „Nieudane” przetworzone ponownie z zachowanego PDF-a
+    #: (``order_mail_recheck.retry_failed_documents``) i ile z nich się udało.
+    failed_retried: int = 0
+    failed_recovered: int = 0
     #: Wpisy z odczytem awaryjnym (bez AI), dla których ponowiono odczyt AI
     #: (``retry_ai_fallback_documents``): ile prób, ile się udało, ile z nich
     #: zapisało się automatem.
@@ -228,12 +235,37 @@ class IngestStats:
     ai_recovered: int = 0
     ai_recovered_auto_applied: int = 0
     max_received_at: Optional[datetime] = None
+    #: Wiadomości, których NIE przetworzono i które nie mają wpisu w dzienniku
+    #: (błąd pobrania załączników, załącznik bez treści). Najwcześniejsza z nich
+    #: zatrzymuje znacznik ostatniego maila — inaczej przesuwał się za nią,
+    #: a nakładka 2 h nie sięgała jej w kolejnych biegach i mail przepadał
+    #: na zawsze (audyt 25.09.2026).
+    unprocessed_messages: int = 0
+    #: Ile biegów Z RZĘDU ponowna weryfikacja wstrzymanych wpisów padła w całości
+    #: (R10-N12-6). Bieg ``partial`` z samego błędu recheku był dla sondy
+    #: zdrowy, więc godzinowo padający recheck — zamówienia czekające na podpis
+    #: nigdy się nie zapisywały — nie dawał żadnego sygnału.
+    recheck_failures_in_row: int = 0
+    earliest_unprocessed_at: Optional[datetime] = None
     errors: list[str] = field(default_factory=list)
+
+    def mark_unprocessed(self, received: Optional[datetime]) -> None:
+        self.unprocessed_messages += 1
+        if received is not None and (
+            self.earliest_unprocessed_at is None
+            or received < self.earliest_unprocessed_at
+        ):
+            self.earliest_unprocessed_at = received
 
     def as_dict(self) -> dict[str, Any]:
         out = dataclasses.asdict(self)
         out["max_received_at"] = (
             self.max_received_at.isoformat() if self.max_received_at else None
+        )
+        out["earliest_unprocessed_at"] = (
+            self.earliest_unprocessed_at.isoformat()
+            if self.earliest_unprocessed_at
+            else None
         )
         out["errors"] = self.errors[:20]
         return out
@@ -344,6 +376,16 @@ async def _canonical_client_ids(
     return {client_id: follow(client_id) for client_id in ids}
 
 
+async def _deleted_client_ids(db: AsyncSession, ids: set[int]) -> set[int]:
+    """Klienci usunięci z profilu (``deleted_at``) — poczta ich nie rozpoznaje."""
+    if not ids:
+        return set()
+    rows = await db.execute(
+        select(Client.id).where(Client.id.in_(ids), Client.deleted_at.isnot(None))
+    )
+    return set(rows.scalars().all())
+
+
 async def build_registry_from_db(db: AsyncSession) -> ClientRegistry:
     """NIP-y z ``clients.nip`` → klucz = ``client_id`` jako tekst; markery/domeny z kodu.
 
@@ -368,10 +410,17 @@ async def build_registry_from_db(db: AsyncSession) -> ClientRegistry:
         if (norm := normalize_registry_id(nip or ""))
     ]
     canonical = await _canonical_client_ids(db, {cid for cid, _ in with_nip})
+    # Runda 7 (R7-X5-1): usunięty klient (``deleted_at``, tryb z historią)
+    # zostaje wierszem z NIP-em. W rejestrze robił z numeru niejednoznaczność
+    # obok żywego duplikatu (każdy mail firmy = „Nie rozpoznano klienta”),
+    # a sam kierował dokumenty do klienta bez profilu.
+    deleted = await _deleted_client_ids(
+        db, {t for t in canonical.values() if t is not None}
+    )
     by_registry: dict[str, set[int]] = {}
     for client_id, norm in with_nip:
         target = canonical.get(client_id)
-        if target is not None:
+        if target is not None and target not in deleted:
             by_registry.setdefault(norm, set()).add(target)
     return ClientRegistry(
         by_registry_id={
@@ -417,6 +466,10 @@ async def resolve_order_client_id(
     """
     client_id, key = resolve_client_id(ident)
     if key != "pfron" and not is_client_in_policy("pfron", client_id):
+        # Runda 7 (R7-X5-1): marker/domena rozwiązywane przez env polityki też
+        # mogą wskazać usuniętego klienta — wtedy „nie rozpoznano”.
+        if client_id is not None and await _deleted_client_ids(db, {client_id}):
+            return None, key
         return client_id, key
     policy = policy_by_key("pfron")
     ids = policy.canonical_client_ids | client_ids_from_env(policy.env_var)
@@ -439,6 +492,7 @@ async def resolve_order_client_id(
                     Client.id.in_(ids),
                     Client.hidden.is_(False),
                     Client.archived_at.is_(None),
+                    Client.deleted_at.is_(None),
                     Client.merged_into_client_id.is_(None),
                     active_scope,
                 )
@@ -554,9 +608,26 @@ def sender_allowed(domain: Optional[str]) -> bool:
     return bool(domain) and domain.lower() in allow
 
 
+def _nul_free(value: Optional[str]) -> Optional[str]:
+    """Tekst bez U+0000 — Postgres odrzuca go w ``text`` i ``jsonb``.
+
+    Runda 10 (R10-N3-5): nadawca spoza firmy (lista przyjmuje zewnętrznych)
+    może przysłać NUL w temacie albo nazwie załącznika. ``DataError`` przy
+    zapisie wpisu dziennika przerywał bieg przed znacznikiem skrzynki, więc
+    każdy kolejny bieg padał na tej samej wiadomości.
+    """
+    return value.replace("\x00", "") if isinstance(value, str) else value
+
+
+def _attachment_name(att: dict[str, Any]) -> str:
+    return (_nul_free(att.get("name")) or "zamowienie.pdf")[:255]
+
+
 def _sender_of(msg: dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
     for key in ("from", "sender"):
-        addr = ((msg.get(key) or {}).get("emailAddress") or {}).get("address")
+        addr = _nul_free(
+            ((msg.get(key) or {}).get("emailAddress") or {}).get("address")
+        )
         if addr:
             addr = addr.strip().lower()
             return addr, addr.rsplit("@", 1)[-1] if "@" in addr else None
@@ -589,10 +660,65 @@ async def _existing(
     return await db.scalar(stmt.limit(1))
 
 
+async def _message_logged(
+    db: AsyncSession, message_id: str, *, attachment_name: Optional[str] = None
+) -> bool:
+    """Czy wiadomość (albo ten jej załącznik) ma już wpis w dzienniku."""
+    stmt = select(OrderMailDocument.id).where(
+        OrderMailDocument.internet_message_id == message_id
+    )
+    if attachment_name is not None:
+        stmt = stmt.where(OrderMailDocument.attachment_name == attachment_name)
+    return await db.scalar(stmt.limit(1)) is not None
+
+
+def dismissed_unprocessed_clause():
+    """Wpis odrzucony, z którego nic nie przeczytano (dawne „Nieudane”).
+
+    Klauzula jest używana z negacją (``~``), więc NIE może dać NULL: brak
+    stempla ``dismissed_from`` porównany wprost dawał ``NULL = 'failed'`` →
+    NULL, a ``NOT NULL`` wyrzucał wpis odrzucony PO odczycie sprzed rundy 3
+    — ponownie przysłany PDF był wtedy czytany od nowa (audyt 25.09.2026,
+    runda 4). Stąd ``coalesce`` przy stemplu.
+    """
+    dismissed_from = OrderMailDocument.document_meta["dismissed_from"].astext
+    return and_(
+        OrderMailDocument.outcome == OUTCOME_DISMISSED,
+        or_(
+            func.coalesce(dismissed_from, "") == OUTCOME_FAILED,
+            and_(
+                dismissed_from.is_(None),
+                func.coalesce(func.jsonb_typeof(OrderMailDocument.extraction), "null")
+                == "null",
+                OrderMailDocument.error.is_not(None),
+            ),
+        ),
+    )
+
+
 async def _first_with_sha(db: AsyncSession, sha: str) -> Optional[OrderMailDocument]:
+    """Pierwszy PRZETWORZONY wpis z tym plikiem — oryginał dla duplikatu.
+
+    Wpis ``failed`` nie jest oryginałem: nic z niego nie powstało, a do
+    25.09.2026 ponownie przysłany PDF lądował jako „duplikat” nieudanego
+    przetworzenia i też nigdy nie był czytany (audyt 25.09.2026).
+    Duplikat też nim nie jest: sam niczego nie przeczytał. Wpisy sprzed tej
+    reguły wskazują jako oryginał wpis ``failed`` — bez tego wykluczenia
+    ponowienie takiego wpisu (``order_mail_recheck``) brało jego duplikat za
+    oryginał i zamieniało jedyny egzemplarz zamówienia w „duplikat” duplikatu,
+    więc PDF nie był czytany nigdy (audyt 25.09.2026, runda 2).
+    Odrzucony wpis „Nieudane” też nie: odrzucenie nie zmienia faktu, że nic
+    z niego nie przeczytano (runda 3). Rozpoznajemy go po stemplu
+    ``dismissed_from`` (od rundy 3), a wpisy odrzucone wcześniej — po kształcie
+    wpisu nieudanego: bez odczytu (``extraction``) i z błędem przetwarzania.
+    """
     return await db.scalar(
         select(OrderMailDocument)
-        .where(OrderMailDocument.attachment_sha256 == sha)
+        .where(
+            OrderMailDocument.attachment_sha256 == sha,
+            OrderMailDocument.outcome.not_in((OUTCOME_FAILED, OUTCOME_DUPLICATE)),
+            ~dismissed_unprocessed_clause(),
+        )
         .order_by(OrderMailDocument.id.asc())
         .limit(1)
     )
@@ -603,13 +729,21 @@ def _base_row(conn: Optional[M365Connection], msg: dict[str, Any]) -> OrderMailD
     return OrderMailDocument(
         # App-only nie ma wiersza połączenia — kolumna jest NULL-owalna od 0264.
         connection_id=conn.id if conn is not None else None,
-        internet_message_id=(msg.get("internetMessageId") or msg.get("id") or "")[:998],
-        m365_message_id=(msg.get("id") or "")[:512] or None,
+        internet_message_id=_nul_free(
+            msg.get("internetMessageId") or msg.get("id") or ""
+        )[:998],
+        m365_message_id=_nul_free(msg.get("id") or "")[:512] or None,
         received_at=_parse_graph_dt(msg.get("receivedDateTime")),
         sender_email=sender,
         sender_domain=domain,
-        subject=(msg.get("subject") or "")[:1000] or None,
+        subject=_nul_free(msg.get("subject") or "")[:1000] or None,
     )
+
+
+UNREADABLE_TEXT_ERROR = (
+    "Nie udało się odczytać tekstu z PDF-a — system ponowi odczyt z zapisanego "
+    "pliku; jeśli się nie uda, wprowadź zamówienie ręcznie."
+)
 
 
 async def process_pdf_bytes(
@@ -646,8 +780,23 @@ async def process_pdf_bytes(
 
     policies = active_policies(client_id) if client_id is not None else []
     if any(p.key == "nordea" for p in policies):
-        from app.services.order_policies.nordea import non_order_reason
+        from app.services.order_policies.nordea import (
+            non_order_reason,
+            text_unreadable,
+        )
 
+        if text_unreadable(doc.text):
+            # Runda 10 (R10-N3-3): pusty tekst (limit czasu procesu PDF, OCR)
+            # był klasyfikowany jako „nie-zamówienie” i znikał bez śladu, a ten
+            # sam PDF przysłany ponownie stawał się jego duplikatem. „Nieudane”
+            # ponawia recheck z zachowanego pliku i nie jest oryginałem SHA.
+            row.outcome = OUTCOME_FAILED
+            row.client_policy = "Nordea"
+            row.extraction = None
+            row.proposal = None
+            row.gate_verdict = None
+            row.error = UNREADABLE_TEXT_ERROR
+            return row
         reason = non_order_reason(doc.text)
         if reason:
             row.outcome = "dismissed"
@@ -658,7 +807,12 @@ async def process_pdf_bytes(
             set_gate_hold(row, [(CODE_NON_ORDER, reason)])
             row.document_meta = {"ignored_non_order": True, "reason": reason}
             return row
-    doc = dataclasses.replace(doc, text=prepare_document_text(doc.text, policies))
+    doc = dataclasses.replace(
+        doc,
+        text=prepare_document_text(
+            doc.text, policies, words=getattr(doc, "words", None)
+        ),
+    )
     extraction = await read_order_with_model(
         db, prepare_parser_text(doc.text, policies), fallback_when_blocked=True
     )
@@ -776,6 +930,42 @@ async def _follow_client_merge(db: AsyncSession, row: OrderMailDocument) -> None
     )
 
 
+async def _confirm_identification(
+    db: AsyncSession, row: OrderMailDocument, text: str
+) -> None:
+    """Podnieś rozpoznanie słabsze niż numer rejestrowy, gdy dziś ten sam klient
+    jest potwierdzony numerem.
+
+    Bramka zapisu czyta ``identification_method`` z wiersza, a „Przelicz plan"
+    poza PFRON-em go nie odświeżał: dokument rozpoznany kiedyś markerem
+    zostawał „do weryfikacji" na zawsze, choć dziś czytnik numerów (nowy format,
+    NIP dopisany klientowi w bazie) potwierdza klienta numerem. Zgłoszenie
+    05.10.2026: Nordea z samym fińskim Business ID „2858394-9".
+
+    Wyłącznie W GÓRĘ i wyłącznie dla tego samego klienta: inny wynik
+    rozpoznania niczego nie zmienia — przepięcie dokumentu na innego klienta
+    nie jest skutkiem ubocznym przeliczenia planu.
+    """
+    if row.identification_method == "registry_id" or not row.client_id:
+        return
+    registry = await build_registry_from_db(db)
+    ident = identify_client(
+        text, registry, sender_email=getattr(row, "sender_email", None)
+    )
+    if ident.method != "registry_id":
+        return
+    client_id, key = await resolve_order_client_id(db, ident)
+    if client_id is None:
+        return
+    canonical = (await _canonical_client_ids(db, {client_id})).get(client_id)
+    if canonical is None or canonical != row.client_id:
+        return
+    row.identification_method = ident.method
+    row.identification_reason = ident.reason
+    if key:
+        row.client_key = key
+
+
 async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
     """Przelicz utrwalony odczyt z PDF-em i bieżącym rosterem, bez writera.
 
@@ -820,8 +1010,14 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
         # rekordu zależy cała reszta przeliczenia. (PFRON rozpoznaje klienta od
         # nowa wyżej, więc nie ma tam czego przenosić.)
         await _follow_client_merge(db, row)
+        await _confirm_identification(db, row, doc.text)
     policies = active_policies(row.client_id)
-    doc = dataclasses.replace(doc, text=prepare_document_text(doc.text, policies))
+    doc = dataclasses.replace(
+        doc,
+        text=prepare_document_text(
+            doc.text, policies, words=getattr(doc, "words", None)
+        ),
+    )
     # Dokument przeczytany ZANIM rozpoznano klienta (ponowna weryfikacja
     # rozpoznała go dopiero później) nie przeszedł reguł klienta: Erste
     # zostawało brutto, Bank Pocztowy w MD, a ``policies_applied`` bramki
@@ -912,6 +1108,14 @@ async def replan_and_apply(
     )
     if result.ok:
         row.outcome = OUTCOME_AUTO_APPLIED
+        # Runda 10 (R10-N3-7): dokument opuścił kolejkę — karta „czeka na
+        # weryfikację” znika od razu („Przelicz plan”, ponowny odczyt AI),
+        # nie po dobowym skanerze. Status ``resolved``: to nie odhaczenie DL.
+        from app.services.dl_alerts import resolve_entity_alerts
+
+        await resolve_entity_alerts(
+            db, alert_type="order_mail_review", entity_key=f"order_mail:{row.id}"
+        )
         return
     error = result.error or "; ".join(r.error for r in result.rows if r.error)
     row.gate_verdict = GATE_REVIEW
@@ -1017,7 +1221,9 @@ async def read_order_with_model(
 def _needs_ai_retry(row: Optional[OrderMailDocument]) -> bool:
     if row is None or row.outcome != OUTCOME_NEEDS_REVIEW or not row.client_id:
         return False
-    if (row.extraction or {}).get("source") != "regex":
+    # Runda 10 (R10-N3-4): także ``none`` — pusty odczyt tekstu (chwilowy
+    # limit czasu procesu PDF) zostawiał dokument z pustym planem na stałe.
+    if (row.extraction or {}).get("source") not in ("regex", "none"):
         return False
     attempts = int((row.document_meta or {}).get("ai_retry_attempts") or 0)
     return attempts < MAX_AI_RETRY_ATTEMPTS and _replannable(row)
@@ -1071,14 +1277,24 @@ async def retry_ai_fallback_documents(db: AsyncSession, stats: IngestStats) -> N
         try:
             doc = await _reread_document_text(row)
             doc = dataclasses.replace(
-                doc, text=prepare_document_text(doc.text, policies)
+                doc,
+                text=prepare_document_text(
+                    doc.text, policies, words=getattr(doc, "words", None)
+                ),
             )
-            parsed = await read_order_with_model(
-                db,
-                prepare_parser_text(doc.text, policies),
-                fallback_when_blocked=False,
-                release_connection=True,
-            )
+            if not doc.text.strip():
+                # Tekst dalej pusty — model nie ma czego czytać; próba się
+                # liczy, a kwota AI nie jest otwierana na darmo.
+                parsed = None
+                failure_if_empty = "pusty tekst dokumentu"
+            else:
+                failure_if_empty = None
+                parsed = await read_order_with_model(
+                    db,
+                    prepare_parser_text(doc.text, policies),
+                    fallback_when_blocked=False,
+                    release_connection=True,
+                )
         except AIQuotaExceeded as exc:
             # Kwota to decyzja administratora, nie awaria dokumentu: próba nie
             # zużywa limitu ponowień, a pozostałe wpisy poczekają na bieg, w
@@ -1093,7 +1309,10 @@ async def retry_ai_fallback_documents(db: AsyncSession, stats: IngestStats) -> N
             parsed = None
             failure = f"błąd ponownego odczytu ({type(exc).__name__})"
         else:
-            failure = parsed.ai_failure if parsed.source != "claude" else None
+            if parsed is None:
+                failure = failure_if_empty
+            else:
+                failure = parsed.ai_failure if parsed.source != "claude" else None
 
         row = await db.get(
             OrderMailDocument, doc_id, with_for_update=True, populate_existing=True
@@ -1128,7 +1347,7 @@ async def retry_ai_fallback_documents(db: AsyncSession, stats: IngestStats) -> N
                 "ai_retry_last_failure": f"błąd zapisu ({type(exc).__name__})",
             }
             await db.commit()
-            stats.errors.append(f"ai retry doc {doc_id}: {exc!r}"[:300])
+            stats.errors.append(f"ai retry doc {doc_id}: {type(exc).__name__}")
 
 
 async def _record_failed_ai_retry(
@@ -1262,6 +1481,8 @@ async def current_proposal(db, extraction, client_id):
                     if hasattr(o.rate_unit, "value")
                     else o.rate_unit,
                     from_order_mail=o.id in mail_order_ids,
+                    order_type=o.order_type,
+                    rate_client_currency=o.rate_client_currency,
                 )
             )
         contracts = (
@@ -1333,6 +1554,55 @@ def _applied_policy_names(row: OrderMailDocument) -> tuple[str, ...]:
     )
 
 
+async def _recruitment_client_rates(db, proposal) -> dict:
+    """contract_id → stawka do klienta z rekrutacji (D7) dla wierszy planu.
+
+    Dociągane przy KAŻDEJ ocenie bramką, więc godzinowa ponowna weryfikacja
+    widzi stawkę poprawioną w rekrutacji bez osobnego kroku. Awaria odczytu
+    nie może zatrzymać dokumentu — porównanie jest kontrolą, nie warunkiem.
+    """
+    from app.models.contract import Contract
+    from app.services import recruitment_rates
+
+    contract_ids = sorted(
+        {r.contract_id for r in proposal.rows if r.contract_id is not None}
+    )
+    if not contract_ids:
+        return {}
+    try:
+        async with db.begin_nested():
+            contracts = (
+                await db.execute(
+                    select(
+                        Contract.id,
+                        Contract.candidate_id,
+                        Contract.job_id,
+                        Contract.client_id,
+                    ).where(Contract.id.in_(contract_ids))
+                )
+            ).all()
+            found = await recruitment_rates.for_contracts(
+                db,
+                [
+                    recruitment_rates.ContractKey(
+                        contract_id=cid,
+                        candidate_id=cand,
+                        job_id=job,
+                        client_id=client,
+                    )
+                    for cid, cand, job, client in contracts
+                ],
+            )
+    except Exception:  # noqa: BLE001 — porównanie stawek jest tylko kontrolą
+        logger.exception("order_mail: stawki z rekrutacji niedostępne")
+        return {}
+    return {
+        cid: ref
+        for cid, rate in found.items()
+        if (ref := rate.client_ref()) is not None
+    }
+
+
 async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) -> None:
     """Dopasuj osoby do rostera, zaplanuj zapis, oceń bramką; zapisz na wierszu."""
     proposal, resolved, current_rates = await current_proposal(
@@ -1343,6 +1613,7 @@ async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) 
         if policy.extract_rows is not None:
             det_rows = policy.extract_rows(doc.text)
             break
+    recruitment_rates = await _recruitment_client_rates(db, proposal)
     verdict = evaluate(
         GateInput(
             identification_method=method,
@@ -1361,6 +1632,7 @@ async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) 
             proposal=proposal,
             deterministic_rows=tuple(det_rows),
             current_rates=current_rates,
+            recruitment_rates=recruitment_rates,
             autoapply_enabled=settings.ORDER_MAIL_AUTOAPPLY_ENABLED,
             excluded_client_ids=client_ids_from_env(
                 "ORDER_MAIL_AUTOAPPLY_EXCLUDE_CLIENT_IDS"
@@ -1445,7 +1717,18 @@ async def notify_review(
         )
     ) or "klienta"
     people = _mail_candidate_names(row)
-    received = row.received_at.date().isoformat() if row.received_at else None
+    # Runda 9 (R9-N12-8): dzień wpłynięcia w kalendarzu firmy, nie UTC —
+    # mail z 00:30 czasu PL nie może być podpisany dniem poprzednim.
+    received = None
+    if row.received_at:
+        from zoneinfo import ZoneInfo
+
+        from app.core.scheduling import DEFAULT_TZ
+
+        moment = row.received_at
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        received = moment.astimezone(ZoneInfo(DEFAULT_TZ)).date().isoformat()
     if people:
         who = ", ".join(people[:3]) + (
             f" i {len(people) - 3} innych" if len(people) > 3 else ""
@@ -1514,6 +1797,16 @@ def _row_fields(row: OrderMailDocument) -> dict[str, Any]:
     return {name: loaded[name] for name in _FAILED_ROW_FIELDS if name in loaded}
 
 
+def processing_error(exc: BaseException) -> str:
+    """Opis błędu dla wpisu „Nieudane” — sama klasa wyjątku, po polsku.
+
+    ``repr`` wyjątku niesie ścieżki z dysku i treść zapytań SQL, a pole
+    ``error`` czyta kolejka (admin, Delivery Lead). Pełny opis idzie wyłącznie
+    do logu (``logger.exception`` przy każdym wołającym).
+    """
+    return f"Błąd przetwarzania: {type(exc).__name__}"
+
+
 def _failed_row(
     identity: dict[str, Any], row: OrderMailDocument, exc: Exception
 ) -> OrderMailDocument:
@@ -1524,8 +1817,107 @@ def _failed_row(
     return OrderMailDocument(
         **{**identity, **_row_fields(row)},
         outcome=OUTCOME_FAILED,
-        error=repr(exc)[:2000],
+        error=processing_error(exc),
     )
+
+
+_JOURNAL_UNIQUE_PREFIX = "uq_order_mail_documents_"
+
+
+def _is_journal_unique_conflict(error: IntegrityError) -> bool:
+    """Czy to konflikt na indeksie unikalnym dziennika wiadomości.
+
+    Tylko ten konflikt znaczy „wpis zapisał już równoległy bieg”. Każdy inny
+    błąd spójności (np. więz zamówienia z ``process_pdf_bytes``) ma przerwać
+    bieg i trafić do logu, a nie po cichu dać „pominięty” (audyt 25.09.2026).
+    """
+    name = getattr(error.orig, "constraint_name", None)
+    if not name:
+        name = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+    if name:
+        return str(name).startswith(_JOURNAL_UNIQUE_PREFIX)
+    return _JOURNAL_UNIQUE_PREFIX in str(error)
+
+
+async def _add_journal_row(db: AsyncSession, row: OrderMailDocument) -> bool:
+    """Dopisz wpis dziennika i zatwierdź; ``False``, gdy już go ktoś zapisał.
+
+    Sprawdzenie „czy wpis jest” przed zapisem nie wyklucza wyścigu (bieg
+    ręczny i z pętli, dwa kontenery przy deployu), a indeksy unikalne
+    wiadomości (``uq_order_mail_documents_message_*``) odrzucają drugi wpis.
+    Zapis w savepoincie: konflikt wycofuje tylko ten wpis, a nie przerywa
+    biegu skrzynki — wiadomość i tak ma już wpis w dzienniku.
+    """
+    try:
+        async with db.begin_nested():
+            db.add(row)
+    except IntegrityError as exc:
+        if not _is_journal_unique_conflict(exc):
+            raise
+        logger.warning(
+            "order_mail: journal row for message not written (already exists)"
+        )
+        await db.commit()
+        return False
+    await db.commit()
+    return True
+
+
+async def _hold_or_record_failed(
+    db: AsyncSession,
+    conn: Optional[M365Connection],
+    msg: dict[str, Any],
+    message_id: str,
+    received: Optional[datetime],
+    stats: IngestStats,
+    *,
+    reason: str,
+    attachment_name: Optional[str] = None,
+) -> bool:
+    """Mail (albo załącznik), którego nie udało się przetworzyć.
+
+    Świeży trzyma znacznik skrzynki (następny bieg zapyta o niego jeszcze raz).
+    Starszy niż ``ORDER_MAIL_UNPROCESSED_HOLD_HOURS`` dostaje wpis „Nieudane”
+    i przestaje trzymać: trwale zepsuta wiadomość nie może zamrozić skrzynki
+    ani kazać co godzinę pobierać załączników wszystkich późniejszych maili.
+    Wiadomość z wpisem w dzienniku (wróciła tylko z nakładki okna) pomijamy.
+    Zwraca True, gdy dopisano wpis.
+    """
+
+    if await _message_logged(db, message_id, attachment_name=attachment_name):
+        return False
+    hold = timedelta(hours=max(settings.ORDER_MAIL_UNPROCESSED_HOLD_HOURS, 1))
+    if received is not None:
+        at = received if received.tzinfo else received.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - at > hold:
+            # Wpis bez pliku (``attachment_sha256`` NULL): indeks
+            # ``uq_order_mail_documents_message_no_attachment`` pozwala na JEDEN
+            # taki wpis na wiadomość. Do rundy 2 audytu 25.09.2026 drugi
+            # załącznik bez treści tej samej wiadomości kończył się
+            # IntegrityError, bieg dostawał „error”, a wiadomość trzymała
+            # znacznik skrzynki na zawsze. Wiadomość ma już wpis → kolejnego
+            # nie zapisujemy i znacznika NIE trzymamy (jest w dzienniku);
+            # nazwa pliku trafia do opisu istniejącego wpisu „Nieudane”.
+            logged = await _existing(db, message_id, None)
+            if logged is not None:
+                if (
+                    logged.outcome == OUTCOME_FAILED
+                    and attachment_name
+                    and attachment_name != logged.attachment_name
+                    and attachment_name not in (logged.error or "")
+                ):
+                    logged.error = (
+                        f"{logged.error or reason} Także załącznik: {attachment_name}."
+                    )[:2000]
+                    await db.commit()
+                return False
+            row = _base_row(conn, msg)
+            row.attachment_name = attachment_name
+            row.outcome = OUTCOME_FAILED
+            row.error = reason[:2000]
+            return await _add_journal_row(db, row)
+    stats.mark_unprocessed(received)
+    return False
 
 
 async def _process_message(
@@ -1551,18 +1943,27 @@ async def _process_message(
         if await _existing(db, message_id, None) is None:
             row = _base_row(conn, msg)
             row.outcome = OUTCOME_IGNORED_SENDER
-            db.add(row)
-            await db.commit()
-            added = True
+            added = await _add_journal_row(db, row)
         stats.ignored_sender += 1
         return added
 
     try:
         page = await gc.get(f"{mailbox_prefix()}/messages/{msg['id']}/attachments")
     except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "order_mail: attachments fetch failed for %s: %r", message_id[:40], exc
+        )
         stats.failed += 1
-        stats.errors.append(f"attachments {message_id[:40]}: {exc!r}"[:300])
-        return False
+        stats.errors.append(f"attachments {message_id[:40]}: {type(exc).__name__}")
+        return await _hold_or_record_failed(
+            db,
+            conn,
+            msg,
+            message_id,
+            received,
+            stats,
+            reason=f"Nie udało się pobrać załączników: {type(exc).__name__}",
+        )
     pdfs = [
         att
         for att in page.get("value", [])
@@ -1576,9 +1977,7 @@ async def _process_message(
         if await _existing(db, message_id, None) is None:
             row = _base_row(conn, msg)
             row.outcome = OUTCOME_IGNORED_NO_PDF
-            db.add(row)
-            await db.commit()
-            added = True
+            added = await _add_journal_row(db, row)
         stats.ignored_no_pdf += 1
         return added
 
@@ -1589,19 +1988,45 @@ async def _process_message(
         if not raw_b64:
             stats.failed += 1
             stats.errors.append(f"no contentBytes {message_id[:40]}")
+            if await _hold_or_record_failed(
+                db,
+                conn,
+                msg,
+                message_id,
+                received,
+                stats,
+                reason="Graph nie zwrócił treści załącznika (brak contentBytes).",
+                attachment_name=_attachment_name(att),
+            ):
+                added = True
             continue
         payload = base64.b64decode(raw_b64)
-        if len(payload) > max_bytes:
-            stats.failed += 1
-            stats.errors.append(f"too large {att.get('name')!r} ({len(payload)} B)")
-            continue
         sha = hashlib.sha256(payload).hexdigest()
         if await _existing(db, message_id, sha) is not None:
             stats.skipped_existing += 1
             continue
+        if len(payload) > max_bytes:
+            stats.failed += 1
+            stats.errors.append(f"too large {att.get('name')!r} ({len(payload)} B)")
+            # Do rundy 2 audytu 25.09.2026 za duży załącznik znikał bez śladu:
+            # ani wpisu w kolejce, ani trzymanego znacznika. Wpis „Nieudane”
+            # (z SHA, bez pliku — ponowienie nic tu nie zmieni) mówi operatorowi,
+            # że zamówienie trzeba wprowadzić ręcznie.
+            too_large = _base_row(conn, msg)
+            too_large.attachment_name = _attachment_name(att)
+            too_large.attachment_sha256 = sha
+            too_large.attachment_size = len(payload)
+            too_large.outcome = OUTCOME_FAILED
+            too_large.error = (
+                "Załącznik przekracza limit "
+                f"{settings.ORDER_MAIL_MAX_ATTACHMENT_MB} MB — nie został zapisany."
+            )
+            if await _add_journal_row(db, too_large):
+                added = True
+            continue
 
         row = _base_row(conn, msg)
-        row.attachment_name = (att.get("name") or "zamowienie.pdf")[:255]
+        row.attachment_name = _attachment_name(att)
         row.attachment_sha256 = sha
         row.attachment_size = len(payload)
 
@@ -1612,10 +2037,11 @@ async def _process_message(
             row.storage_path = original.storage_path
             row.client_id = original.client_id
             row.client_key = original.client_key
-            db.add(row)
-            await db.commit()
-            added = True
-            stats.duplicates += 1
+            if await _add_journal_row(db, row):
+                added = True
+                stats.duplicates += 1
+            else:
+                stats.skipped_existing += 1
             continue
 
         identity = _row_fields(row)
@@ -1629,9 +2055,14 @@ async def _process_message(
             row.storage_path = rel
             identity["storage_path"] = rel
             await process_pdf_bytes(db, row, payload, registry=registry)
+            if row.outcome == OUTCOME_FAILED:
+                stats.failed += 1  # nieczytelny tekst (R10-N3-3)
         except Exception as exc:  # noqa: BLE001
+            # Nazwa załącznika to zwykle imię i nazwisko konsultanta — do logu
+            # idzie jej kształt (runda 7, R7-V5-2 / R7-X2-3).
             logger.exception(
-                "order_mail: processing failed for %s", row.attachment_name
+                "order_mail: processing failed for %s",
+                safe_filename(row.attachment_name),
             )
             # Błąd bazy w środku przetwarzania zostawia sesję w nieudanej
             # transakcji — bez wycofania zapis wiersza FAILED rzucał
@@ -1648,7 +2079,45 @@ async def _process_message(
             row = failed
             stats.failed += 1
         db.add(row)
-        await db.commit()
+        try:
+            await db.commit()
+        except DBAPIError as exc:
+            # Ten sam załącznik zapisał równoległy bieg (bieg ręczny i z pętli,
+            # dwa kontenery przy deployu) — `uq_order_mail_documents_message_*`.
+            # Wycofujemy CAŁĄ transakcję, nie savepoint: `process_pdf_bytes`
+            # mógł już zapisać zamówienie, a bez wpisu w dzienniku zostałby
+            # drugi zapis tego samego zamówienia (przegląd PR #1836).
+            # Każdy inny konflikt (więz zamówienia ujawniony dopiero przy
+            # commicie) NIE jest „wpisem równoległego biegu”: załącznik idzie
+            # do „Nieudanych” z zachowanym plikiem (ponawia go recheck), a bieg
+            # jedzie dalej. Przerwanie biegu zamrażało znacznik skrzynki na tej
+            # wiadomości w każdym kolejnym biegu (przegląd PR #1840).
+            # Runda 10 (R10-N3-5): każdy błąd bazy przy commicie (np.
+            # ``DataError`` na znaku, którego Postgres nie przyjmuje w odczycie
+            # modelu), nie tylko konflikt więzów — wpis „Nieudane” zamiast
+            # przerwanego biegu i znacznika skrzynki stojącego na zawsze.
+            journal_conflict = isinstance(
+                exc, IntegrityError
+            ) and _is_journal_unique_conflict(exc)
+            failed = None if journal_conflict else _failed_row(identity, row, exc)
+            await db.rollback()
+            if conn is not None:
+                await db.refresh(conn)
+            if failed is None:
+                logger.warning(
+                    "order_mail: attachment already journaled by a parallel run"
+                )
+                stats.skipped_existing += 1
+                continue
+            logger.error(
+                "order_mail: database error on commit for %s (%s)",
+                safe_filename(failed.attachment_name),
+                type(exc).__name__,
+            )
+            stats.failed += 1
+            if await _add_journal_row(db, failed):
+                added = True
+            continue
         added = True
         if row.outcome == OUTCOME_NEEDS_REVIEW:
             stats.needs_review += 1
@@ -1784,6 +2253,7 @@ def sync_snapshot(state: Optional[dict[str, Any]], *, running: bool) -> dict[str
             "ignored_no_pdf": int(stats.get("ignored_no_pdf") or 0),
             "ignored_sender": int(stats.get("ignored_sender") or 0),
             "failed": int(stats.get("failed") or 0),
+            "unprocessed_messages": int(stats.get("unprocessed_messages") or 0),
             "rechecked": int(stats.get("rechecked") or 0),
             "recheck_applied": int(stats.get("recheck_applied") or 0),
             "recheck_held": int(stats.get("recheck_held") or 0),
@@ -1839,18 +2309,27 @@ async def run_order_mail_ingest(
             # na starej wersji reguły klienta): przyczyna wstrzymania znika
             # najczęściej gdzie indziej — po podpisaniu umowy albo po
             # uzupełnieniu NIP-u u klienta.
+            previous_recheck_failures = int(
+                ((state or {}).get("stats") or {}).get("recheck_failures_in_row") or 0
+            )
+            stats.recheck_failures_in_row = previous_recheck_failures
             try:
                 from app.services.order_mail_recheck import run_recheck
 
                 recheck = await run_recheck(db, trigger=reason)
+                if getattr(recheck, "ran", True):
+                    stats.recheck_failures_in_row = 0
                 stats.rechecked = recheck.checked
                 stats.recheck_applied = recheck.applied
                 stats.recheck_held = recheck.held
                 stats.recheck_alerts = recheck.alerts
+                stats.failed_retried = recheck.failed_retried
+                stats.failed_recovered = recheck.failed_recovered
             except Exception as exc:  # noqa: BLE001 — przeliczenie nie wywraca biegu
                 logger.exception("order_mail: recheck of held documents failed")
                 await db.rollback()
-                stats.errors.append(f"recheck: {exc!r}"[:300])
+                stats.errors.append(f"recheck: {type(exc).__name__}")
+                stats.recheck_failures_in_row = previous_recheck_failures + 1
             # Potem wpisy z odczytem awaryjnym (AI niedostępne przy odczycie
             # maila) — też lokalnie, z zachowanego PDF-a.
             try:
@@ -1858,7 +2337,7 @@ async def run_order_mail_ingest(
             except Exception as exc:  # noqa: BLE001 — ponowienie nie wywraca biegu
                 logger.exception("order_mail: AI re-read of fallback documents failed")
                 await db.rollback()
-                stats.errors.append(f"ai retry: {exc!r}"[:300])
+                stats.errors.append(f"ai retry: {type(exc).__name__}")
             # Rejestr i okno PRZED wyborem klienta Graph: konstruktor klienta
             # otwiera pulę httpx, więc między nim a `async with` nie może stać
             # nic, co potrafi rzucić (inaczej pula nigdy nie jest zamykana).
@@ -1916,9 +2395,12 @@ async def run_order_mail_ingest(
                     AppGraphClient() if conn is None else GraphClient(conn, db)
                 ) as gc:
                     params = {
+                        # Runda 10 (R10-N3-6): bez ``hasAttachments eq true``
+                        # — Graph nie liczy tam załączników inline, a PDF
+                        # wstawiony w treść maila przepadał bez wpisu.
+                        # Załączniki filtruje ``_process_message``.
                         "$filter": (
                             f"receivedDateTime ge {effective_since.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
-                            " and hasAttachments eq true"
                         ),
                         "$select": _MESSAGE_SELECT,
                         "$orderby": "receivedDateTime asc",
@@ -1932,7 +2414,11 @@ async def run_order_mail_ingest(
                                 db, gc, conn, msg, stats, registry
                             ):
                                 stats.new_messages += 1
-                status = "ok" if not (stats.failed or stats.errors) else "partial"
+                status = (
+                    "ok"
+                    if not (stats.failed or stats.errors or stats.unprocessed_messages)
+                    else "partial"
+                )
                 error = None if status == "ok" else "; ".join(stats.errors[:5])[:2000]
                 finished = datetime.now(timezone.utc)
                 await _write_state(
@@ -1940,12 +2426,8 @@ async def run_order_mail_ingest(
                     last_run_finished_at=finished,
                     last_status=status,
                     last_error=error,
-                    # Watermark nie może się COFNĄĆ: bieg ręczny z jawnym
-                    # ``since`` (backfill) ogląda starsze wiadomości niż
-                    # ostatnio widziana i bez tego przesuwałby okno wstecz.
-                    last_seen_received_at=_latest(
-                        stats.max_received_at,
-                        (state or {}).get("last_seen_received_at"),
+                    last_seen_received_at=next_watermark(
+                        stats, (state or {}).get("last_seen_received_at")
                     ),
                     stats=completed_record(
                         stats,
@@ -1959,7 +2441,10 @@ async def run_order_mail_ingest(
                 raise
             except Exception as exc:  # noqa: BLE001
                 logger.exception("order_mail ingest failed")
-                stats.errors.append(repr(exc)[:300])
+                # Klasa wyjątku, nie ``repr``: stan biegu czyta kolejka (admin,
+                # Delivery Lead), a ``repr`` niesie ścieżki i treść SQL.
+                run_error = f"Błąd sprawdzania skrzynki: {type(exc).__name__}"
+                stats.errors.append(run_error)
                 # Sesja po padniętym zapytaniu wymaga rollbacku — inaczej sam
                 # zapis stanu „error" padnie i wiersz zostanie na „running".
                 try:
@@ -1972,13 +2457,13 @@ async def run_order_mail_ingest(
                         db,
                         last_run_finished_at=finished,
                         last_status="error",
-                        last_error=repr(exc)[:2000],
+                        last_error=run_error,
                         stats=completed_record(
                             stats,
                             started_at=now,
                             finished_at=finished,
                             status="error",
-                            error=repr(exc)[:2000],
+                            error=run_error,
                         ),
                     )
                 except Exception:  # noqa: BLE001
@@ -1990,6 +2475,60 @@ async def run_order_mail_ingest(
     )
     logger.info("order_mail ingest done: errors=%d", len(stats.errors))
     return stats
+
+
+#: Od tylu biegów z rzędu z padniętą ponowną weryfikacją sonda mówi
+#: ``degraded`` (R10-N12-6). Jeden padnięty bieg bywa deployem w trakcie.
+RECHECK_FAILURES_DEGRADED = 3
+
+
+def order_mail_health_verdict(
+    *,
+    finished_at: Optional[datetime],
+    last_status: Optional[str],
+    unprocessed_messages: int,
+    now: datetime,
+    recheck_failures_in_row: int = 0,
+) -> str:
+    """Werdykt ``checks.order_mail`` ze stanu pętli (czysta funkcja).
+
+    ``running`` to brak informacji, nie awaria — koniec poprzedniego biegu
+    i tak mówi, czy skrzynka żyje. Maile bez wpisu w dzienniku z ostatniego
+    zakończonego biegu to ``degraded``: znacznik na nich stoi, ale dopóki się
+    nie przetworzą, zamówienie z maila czeka (audyt 25.09.2026).
+    """
+    if finished_at is None:
+        return "degraded"
+    if finished_at.tzinfo is None:
+        finished_at = finished_at.replace(tzinfo=timezone.utc)
+    stale_after = timedelta(minutes=max(3 * poll_interval_minutes(), 180))
+    if (now - finished_at) > stale_after or last_status == "error":
+        return "degraded"
+    if unprocessed_messages > 0:
+        return "degraded"
+    if recheck_failures_in_row >= RECHECK_FAILURES_DEGRADED:
+        return "degraded"
+    return "healthy"
+
+
+def next_watermark(
+    stats: IngestStats, previous: Optional[datetime]
+) -> Optional[datetime]:
+    """Znacznik ostatniego maila po biegu.
+
+    Nie cofa się przez sam bieg ręczny z jawnym ``since`` (backfill ogląda
+    starsze wiadomości niż ostatnio widziana i bez tego przesuwałby okno
+    wstecz). Wyjątek: wiadomość, której nie przetworzono i która nie ma wpisu
+    w dzienniku — znacznik staje sekundę przed nią (nawet cofając się), żeby
+    następny bieg zapytał o nią jeszcze raz.
+    """
+    mark = _latest(stats.max_received_at, previous)
+    held = stats.earliest_unprocessed_at
+    if held is None or mark is None:
+        return mark
+    if held.tzinfo is None:
+        held = held.replace(tzinfo=timezone.utc)
+    return min(mark, held - timedelta(seconds=1))
 
 
 def _latest(*values: Optional[datetime]) -> Optional[datetime]:

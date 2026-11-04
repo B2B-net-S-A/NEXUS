@@ -39,6 +39,14 @@
   --color-info-muted: hsl(var(--info-muted));
   --color-info-muted-foreground: hsl(var(--info-muted-foreground));
 
+  /* Medale Ligi Mistrzów (przycisk ligi w górnym pasku): tło kółka + numer. */
+  --color-medal-gold: hsl(var(--medal-gold));
+  --color-medal-gold-foreground: hsl(var(--medal-gold-foreground));
+  --color-medal-silver: hsl(var(--medal-silver));
+  --color-medal-silver-foreground: hsl(var(--medal-silver-foreground));
+  --color-medal-bronze: hsl(var(--medal-bronze));
+  --color-medal-bronze-foreground: hsl(var(--medal-bronze-foreground));
+
   --color-brand-linkedin: hsl(var(--brand-linkedin));
   --color-brand-linkedin-foreground: hsl(var(--brand-linkedin-foreground));
 
@@ -259,6 +267,12 @@
     --info-foreground: 0 0% 100%;
     --info-muted: 214 95% 93%;
     --info-muted-foreground: 221 83% 32%;
+    --medal-gold: 45 96% 86%;
+    --medal-gold-foreground: 36 90% 28%;
+    --medal-silver: 215 20% 90%;
+    --medal-silver-foreground: 215 19% 30%;
+    --medal-bronze: 25 85% 90%;
+    --medal-bronze-foreground: 20 70% 32%;
     --brand-linkedin: 201 100% 35%;
     --brand-linkedin-foreground: 0 0% 100%;
 
@@ -312,6 +326,12 @@
     --warning-muted-foreground: 43 90% 70%;
     --destructive-muted: 0 35% 20%;
     --destructive-muted-foreground: 0 84% 75%;
+    --medal-gold: 42 45% 20%;
+    --medal-gold-foreground: 45 90% 70%;
+    --medal-silver: 215 18% 22%;
+    --medal-silver-foreground: 215 25% 82%;
+    --medal-bronze: 22 40% 20%;
+    --medal-bronze-foreground: 24 85% 74%;
     --info: 217 91% 60%;
     --info-foreground: 222 47% 11%;
     --info-muted: 217 35% 20%;
@@ -602,19 +622,22 @@
    [data-soft="true"], inert in the classic flat theme. Inputs/selects/
    textareas are excluded — they already pop as white-on-tinted canvas and
    must keep their own border states (e.g. invalid → border-primary).
+   Table cells are excluded too: a sticky first column carries `bg-card` only
+   to cover the columns scrolling under it, and a card border around a single
+   cell reads as a box inside the row.
    Kept ABOVE the Kids decorative layer so Kids wins when both are on.
    ==================================================================== */
 
 /* Raised section cards: visible hairline border + layered soft shadow.
    :not([data-kids]) makes this layer fully inert under Kids mode (which has
    its own candy borders/shadows), regardless of specificity or order. */
-[data-soft="true"]:not([data-kids="true"]) .bg-card:where(:not(input):not(textarea):not(select)) {
+[data-soft="true"]:not([data-kids="true"]) .bg-card:where(:not(input):not(textarea):not(select):not(td):not(th)) {
   border-width: 1px;
   box-shadow:
     0 1px 2px 0 hsl(222 30% 12% / 0.05),
     0 8px 24px -16px hsl(222 30% 12% / 0.16);
 }
-.dark[data-soft="true"]:not([data-kids="true"]) .bg-card:where(:not(input):not(textarea):not(select)) {
+.dark[data-soft="true"]:not([data-kids="true"]) .bg-card:where(:not(input):not(textarea):not(select):not(td):not(th)) {
   box-shadow:
     0 1px 2px 0 hsl(0 0% 0% / 0.35),
     0 10px 28px -18px hsl(0 0% 0% / 0.6);
@@ -873,4 +896,350 @@
   background: hsl(var(--primary));
   opacity: 0.15;
   border-radius: 0.75rem;
+}
+
+/* Ikona Jarvisa w rogu chowa się, gdy na Tablicy otwarty jest panel osoby:
+   siedziała na jego sekcjach i przycisku wysyłki notatki (04.10.2026).
+   Asystent dalej otwiera się skrótem ⌘J i z palety ⌘K. */
+body:has(aside[data-person-panel]:not([hidden])) [data-jarvis-mascot] {
+  display: none;
+}
+
+/* Postać „Moi ludzie” z dymkiem i ikona Jarvisa chowają się, gdy otwarty
+   jest boczny panel szczegółów (`ListDetailLayout`: Kontrakty, Zamówienia,
+   Kontraktorzy). Przy 1280 × 720 dymek leżał na stopce panelu i nie dało
+   się kliknąć „Zakończ współpracę…” (29.10.2026). Podbicie `z-index` panelu
+   nic nie da — żyje w kontekście warstw treści strony (`animate-fadeIn`).
+   Licznik „Moich ludzi” zostaje w topbarze. */
+body:has([data-list-detail-panel]) :is([data-floating-corner], [data-jarvis-mascot]) {
+  display: none;
+}
+
+/* Panel osoby na całą szerokość okna (podgląd CV po lewej, przegląd Delivery
+   Leada) zakrywa też menu boczne (09.10.2026). Menu ma `z-40`, a panel żyje
+   w kontekście warstw treści strony (`animate-fadeIn`), więc samym `z-index`
+   panelu nie da się go przykryć — na czas otwarcia menu traci swój. Panel
+   Jarvisa i okna dialogowe zostają nad panelem. */
+body:has(aside[data-person-panel][data-cover]:not([hidden])) [data-app-sidebar] {
+  z-index: auto;
+}
+
+/* ============================================================================
+   KARTKA EDYTORA CV (12.10.2026)
+   Treść CV w edytorze w układzie szablonu Worda. Lustro arkusza publicznego
+   linku (`backend/app/services/cv_generator_b2b/html_export.py` + reguły
+   `_EDITED_MARKUP_CSS` w `cv_public_document.py`). Tiptap gubi klasy szablonu,
+   więc selektory idą po `data-cv-section` i po dekoracjach widoku z
+   `lib/cv-editor-structure.ts` (`data-cv-in` = sekcja bloku, `cv-rodo-locked`,
+   `cv-role-current`). Kolory `--cv-doc-*` to kolory DOKUMENTU z szablonu
+   (`docx_renderer.COLOR_HEADER` / `COLOR_TEXT`) — celowo te same w każdym
+   motywie, bo Word klienta jest biały. Czcionka szablonu (Montserrat) jest
+   wgrana niżej pod nazwami z pliku Word, więc kartka i podgląd pliku mają te
+   same litery co Word klienta.
+   ========================================================================== */
+
+/* Montserrat pod nazwami, które piszą pliki CV (`cv_approved_docx`,
+   `docx_renderer`, szablon `szablon_firmowy.docx`): docx-preview wstawia je
+   dosłownie, bez zapasu, więc bez tych deklaracji przeglądarka rysowała CV
+   w Times New Roman (sprawdzone 14.10.2026). Zwykłe `@font-face`, nie
+   `next/font` — ten zmienia nazwę rodziny. Pliki pobierają się dopiero tam,
+   gdzie ta czcionka jest użyta. Źródło i licencja: `fonts/README.md`.
+   Odmiany o stałej grubości mają `font-weight: 400`, żeby pogrubienie w nich
+   przeglądarka dorysowała jak Word. */
+@font-face {
+  font-family: "Montserrat";
+  src: url("./fonts/Montserrat-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Montserrat ExtraLight";
+  src: url("./fonts/Montserrat-200.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Montserrat Medium";
+  src: url("./fonts/Montserrat-500.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Montserrat SemiBold";
+  src: url("./fonts/Montserrat-600.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+.cv-paper {
+  --cv-doc-accent: #e14f4f;
+  --cv-doc-text: #373535;
+  --cv-doc-muted: #808080;
+  --cv-doc-faint: #9a9a9a;
+  --cv-doc-rule: #eeeeee;
+  --cv-doc-paper: #ffffff;
+  /* Tabela edukacji w szablonie Worda: szara linia i szary wiersz nagłówka. */
+  --cv-doc-table-rule: #bfbfbf;
+  --cv-doc-table-head: #d9d9d9;
+}
+.cv-paper .ProseMirror {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 794px; /* A4 przy 96 dpi — tyle samo co strona w podglądzie Word */
+  min-height: 1123px;
+  margin: 0 auto;
+  padding: 34px 40px;
+  background: var(--cv-doc-paper);
+  color: var(--cv-doc-text);
+  caret-color: var(--cv-doc-text);
+  font-family: "Montserrat", "Segoe UI", Arial, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.5;
+  outline: none;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.14);
+}
+.cv-paper .ProseMirror > * {
+  position: relative;
+}
+.cv-paper .ProseMirror p {
+  margin: 3px 0;
+}
+/* Wyrównanie treści jak w pliku Word (decyzja J1, 14.10.2026): domyślne
+   z reguły klienta (`data-cv-align`); akapit z jawnym `text-align` (styl
+   w linii z rozszerzenia TextAlign) wygrywa. Nagłówki zostają do lewej. */
+.cv-paper[data-cv-align="justify"] .ProseMirror p {
+  text-align: justify;
+}
+.cv-paper .ProseMirror strong {
+  font-weight: 600;
+}
+.cv-paper .ProseMirror > h1 {
+  color: var(--cv-doc-accent);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+/* „Rozważany na stanowisko” — akapit tuż pod nagłówkiem dokumentu. */
+.cv-paper .ProseMirror > h1 + p {
+  margin-top: 4px;
+  font-size: 12px;
+}
+.cv-paper .ProseMirror > h1 + p strong {
+  color: var(--cv-doc-accent);
+}
+.cv-paper .ProseMirror > hr {
+  margin: 12px 0 4px;
+  border: 0;
+  border-top: 2px solid var(--cv-doc-accent);
+}
+.cv-paper .ProseMirror > h2 {
+  margin: 18px 0 7px;
+  color: var(--cv-doc-accent);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+/* Edytor CV 3 (PR 3): w pliku sekcje rozdziela czerwona linia — nad każdym
+   nagłówkiem poza pierwszym (pod „Rozważany na stanowisko” stoi już `hr`). */
+.cv-paper .ProseMirror > h2:not(:first-child) {
+  padding-top: 14px;
+  border-top: 2px solid var(--cv-doc-accent);
+}
+.cv-paper .ProseMirror > hr + h2 {
+  padding-top: 0;
+  border-top: 0;
+}
+.cv-paper .ProseMirror h3,
+.cv-paper .ProseMirror h4 {
+  margin: 8px 0 3px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.cv-paper .ProseMirror ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cv-paper .ProseMirror ul > li {
+  position: relative;
+  margin: 3px 0;
+  padding-left: 16px;
+}
+/* Punkt jak w szablonie Worda: mały czerwony kwadrat na wysokości pierwszej linii. */
+.cv-paper .ProseMirror ul > li::before,
+.cv-paper .ProseMirror > p[data-cv-in="skills"]::before,
+.cv-paper .ProseMirror > p[data-cv-in="languages"]::before {
+  content: "";
+  position: absolute;
+  top: calc(0.75em - 2.5px);
+  left: 3px;
+  width: 5px;
+  height: 5px;
+  background: var(--cv-doc-accent);
+}
+.cv-paper .ProseMirror ol {
+  margin: 0;
+  padding-left: 20px;
+  list-style: decimal;
+}
+.cv-paper .ProseMirror li > p {
+  margin: 0;
+}
+/* Edukacja to w Wordzie tabela „Daty | Nazwa uczelni/kierunek” z szarym
+   nagłówkiem — kartka rysuje jej ramkę i wiersz nagłówka (sama dekoracja,
+   treść zostaje akapitami). */
+.cv-paper .ProseMirror > p[data-cv-in="education"] {
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--cv-doc-table-rule);
+  border-top: 0;
+  text-align: left;
+}
+.cv-paper .ProseMirror > h2 + p[data-cv-in="education"] {
+  border-top: 1px solid var(--cv-doc-table-rule);
+}
+.cv-paper .ProseMirror > h2 + p[data-cv-in="education"]::before {
+  display: block;
+  margin: -5px -8px 5px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--cv-doc-table-rule);
+  background: var(--cv-doc-table-head);
+  font-weight: 600;
+  white-space: pre;
+}
+.cv-paper[data-cv-lang="pl"] .ProseMirror > h2 + p[data-cv-in="education"]::before {
+  content: "Daty      Nazwa uczelni/kierunek";
+}
+.cv-paper[data-cv-lang="en"] .ProseMirror > h2 + p[data-cv-in="education"]::before {
+  content: "Dates      Names of University/degrees";
+}
+/* Umiejętności i języki to w Wordzie punkty, choć w edytorze akapity. */
+.cv-paper .ProseMirror > p[data-cv-in="skills"],
+.cv-paper .ProseMirror > p[data-cv-in="languages"] {
+  padding-left: 16px;
+}
+.cv-paper .ProseMirror > p[data-cv-section="role"] {
+  margin-top: 12px;
+  padding-top: 10px;
+  /* W pliku stanowiska rozdziela ta sama czerwona linia co sekcje. */
+  border-top: 2px solid var(--cv-doc-accent);
+  font-size: 14.5px;
+}
+/* Pierwsze stanowisko pod nagłówkiem sekcji nie ma linii nad sobą. */
+.cv-paper .ProseMirror > h2 + p[data-cv-section="role"] {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+/* Word: „Nazwa firmy:” zwykłym pismem, nazwa pogrubiona. */
+.cv-paper .ProseMirror > p[data-cv-section="employer"] {
+  margin: 1px 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+/* Word: etykieta obowiązków podkreślona, w technologiach pogrubione samo słowo
+   „Technologie:” (dekoracja `cv-tech-label`). */
+.cv-paper .ProseMirror > p[data-cv-section="duties_label"] {
+  margin-top: 5px;
+  font-size: 12.5px;
+  text-decoration: underline;
+}
+.cv-paper .ProseMirror > p[data-cv-section="technologies"] {
+  margin-top: 5px;
+  font-size: 12.5px;
+}
+.cv-paper .ProseMirror .cv-tech-label {
+  font-weight: 600;
+}
+/* Etykiety, które Word dopisuje sam — widać je, żeby nikt nie wpisywał ich ręcznie. */
+.cv-paper .ProseMirror > p[data-cv-section="role"]::before,
+.cv-paper .ProseMirror > p[data-cv-section="employer"]::before {
+  color: var(--cv-doc-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.cv-paper[data-cv-lang="pl"] .ProseMirror > p[data-cv-section="role"]::before {
+  content: "Stanowisko: ";
+}
+.cv-paper[data-cv-lang="pl"] .ProseMirror > p[data-cv-section="employer"]::before {
+  content: "Nazwa firmy: ";
+}
+.cv-paper[data-cv-lang="en"] .ProseMirror > p[data-cv-section="role"]::before {
+  content: "Position: ";
+}
+.cv-paper[data-cv-lang="en"] .ProseMirror > p[data-cv-section="employer"]::before {
+  content: "Company: ";
+}
+/* Klauzula zgody: stała treść (decyzja 12.10.2026), stopka dokumentu. */
+.cv-paper .ProseMirror > .cv-rodo-locked {
+  margin-top: 26px;
+  padding-top: 10px;
+  border-top: 1px solid var(--cv-doc-rule);
+  color: var(--cv-doc-faint);
+  font-size: 8.5px;
+  line-height: 1.35;
+  text-align: justify;
+  cursor: not-allowed;
+}
+/* Stanowisko pod kursorem — do niego odnoszą się przyciski „wyżej / niżej / powiel / usuń”. */
+.cv-paper .ProseMirror > .cv-role-current::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -14px;
+  width: 3px;
+  border-radius: 2px;
+  background: hsl(var(--primary) / 0.45);
+}
+/* Uwagi przy tekście (panel „Do poprawy”, `lib/cv-editor-issue-marks.ts`):
+   dekoracje widoku, nie treść. Pasek stoi w cieniu po lewej, więc znacznik
+   nie przesuwa tekstu ani punktora; czerwony = zatrzymuje wysyłkę. */
+.cv-paper .ProseMirror .cv-issue-block {
+  background: hsl(var(--warning) / 0.1);
+  box-shadow: -4px 0 0 0 hsl(var(--warning));
+}
+.cv-paper .ProseMirror .cv-issue-block.cv-issue--blocking {
+  background: hsl(var(--destructive) / 0.07);
+  box-shadow: -4px 0 0 0 hsl(var(--destructive));
+}
+.cv-paper .ProseMirror .cv-issue-term {
+  border-radius: 2px;
+  background: hsl(var(--warning) / 0.16);
+  text-decoration: underline wavy hsl(var(--warning));
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+}
+.cv-paper .ProseMirror .cv-issue-term.cv-issue--blocking {
+  background: hsl(var(--destructive) / 0.1);
+  text-decoration-color: hsl(var(--destructive));
+}
+/* Fragment, dla którego AI przygotowuje albo pokazuje propozycję
+   (`lib/cv-editor-ai.ts`) — dekoracja widoku, nie treść. */
+.cv-paper .ProseMirror .cv-ai-pending {
+  border-radius: 2px;
+  background: hsl(var(--primary) / 0.14);
+  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.35);
+}
+/* Zmiany asystenta (Edytor CV 3, PR 4): treść, którą asystent właśnie zmienił,
+   na zielono — dekoracja widoku, gaśnie przy następnej wiadomości. */
+.cv-paper .ProseMirror .cv-assistant-new {
+  border-radius: 2px;
+  background: hsl(var(--success) / 0.18);
+}
+/* Miejsce wskazane przez „Pokaż w CV” — gaśnie po chwili. */
+.cv-paper .ProseMirror .cv-issue-focus {
+  border-radius: 2px;
+  background: hsl(var(--primary) / 0.16);
+  outline: 2px solid hsl(var(--primary) / 0.7);
+  outline-offset: 1px;
+}
+@media (max-width: 640px) {
+  .cv-paper .ProseMirror {
+    min-height: 0;
+    padding: 20px 16px;
+  }
 }

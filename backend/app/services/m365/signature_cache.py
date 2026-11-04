@@ -29,9 +29,16 @@ three signature formats — we try each in turn:
    in a wrapped plaintext mail). The matched text IS the separator, so the
    extracted tail starts AFTER it.
 
-When multiple matches exist, the **last** one wins — signatures live at the
-tail of the body, and an earlier "--" inside a quoted reply is not the
-signature.
+Runda 6 audytu (26.09.2026): treść jest najpierw ucinana na pierwszym
+znaczniku cytatu (``appendonsend``, ``divRplyFwdMsg``, ``<hr>``,
+``<blockquote>``, nagłówek „From:/Od: … Sent:/Wysłano:”), a w części autora
+wygrywa PIERWSZY znacznik. Fragment z drugim znacznikiem podpisu albo z
+adresem e-mail spoza domeny nadawcy jest odrzucany — bo podpis trafia do
+każdego maila z NEXUSA, a „ostatni znacznik do końca treści” w odpowiedzi
+OWA niósł cytat cudzego maila.
+
+Cache żyje w pamięci procesu, więc wdrożenie (restart backendu) czyści
+podpisy policzone starą regułą.
 
 Cache: in-memory, keyed by ``(user_id, mailbox_upn)``. TTL is
 ``settings.M365_SIGNATURE_CACHE_TTL_SECONDS`` (default 24h). A negative
@@ -45,6 +52,7 @@ but the worst case is one wasted call — values eventually converge.
 
 from __future__ import annotations
 
+import html
 import logging
 import re
 from dataclasses import dataclass
@@ -53,12 +61,31 @@ from typing import Optional
 
 from app.core.config import settings
 from app.services.m365.graph_client import GraphClient, GraphRequestError
+from app.services.m365.html_sanitize import sanitize_signature_html
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class InlineImage:
+    """Obrazek stopki (logo) — załącznik ``isInline`` wskazany przez ``cid:``."""
+
+    content_id: str
+    name: str
+    content_type: str
+    content_bytes: str  # base64, tak jak zwraca i przyjmuje Graph
+
+
+@dataclass(frozen=True)
+class OutlookSignature:
+    """Oczyszczony HTML stopki i obrazki, do których odsyła przez ``cid:``."""
+
+    html: str
+    inline_images: tuple[InlineImage, ...] = ()
+
+
 _CacheKey = tuple[int, str]
-_CacheEntry = tuple[Optional[str], datetime]
+_CacheEntry = tuple[Optional[OutlookSignature], datetime]
 
 # Module-level cache. Negative results are stored as `(None, expires_at)`.
 _cache: dict[_CacheKey, _CacheEntry] = {}
@@ -123,25 +150,213 @@ _SIGSEP_MARKERS: tuple[_SigsepMarker, ...] = (
 _MAX_SIGNATURE_LENGTH = 12000
 
 
-def extract_signature(body_html: str) -> Optional[str]:
+# Początek cytatu w odpowiedzi / przekazaniu (runda 6 audytu). Wszystko od
+# pierwszego takiego znacznika to treść CUDZEGO maila — OWA / nowy Outlook /
+# mobile / Gmail. Do 26.09.2026 podpis brał wszystko od ostatniego znacznika
+# do końca treści, więc cytat maila kandydata A (adres, stawka) trafiał do
+# podpisu i był doklejany do każdego maila z NEXUSA przez 24 h.
+_HR_RE = re.compile(r"<hr\b", re.I)
+_QUOTE_START_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"""<div\b[^>]*\bid\s*=\s*["']?(?:x_)?appendonsend\b""", re.I),
+    re.compile(r"""<div\b[^>]*\bid\s*=\s*["']?(?:x_)?divRplyFwdMsg\b""", re.I),
+    re.compile(
+        r"""<div\b[^>]*\bid\s*=\s*["']?(?:x_)?mail-editor-reference-message-container\b""",
+        re.I,
+    ),
+    re.compile(
+        r"""<div\b[^>]*\bclass\s*=\s*["'][^"']*\bgmail_(?:quote|attr)\b""", re.I
+    ),
+    _HR_RE,
+    re.compile(r"<blockquote\b", re.I),
+    # Nagłówek cytowanego maila: „From: … Sent: / Od: … Wysłano:” (Outlook
+    # desktop i nowy Outlook piszą go zwykłym tekstem, bez id).
+    re.compile(
+        r"\b(?:From|Od|Von|De)\s*:[\s\S]{0,600}?"
+        r"\b(?:Sent|Wysłano|Wysłane|Date|Data|Gesendet|Subject|Temat)\s*:",
+    ),
+    re.compile(
+        r"-{3,}\s*(?:Original Message|Oryginalna wiadomość|Wiadomość oryginalna)", re.I
+    ),
+)
+
+# Runda 7 (R7-V1-5): TLD musi kończyć domenę (bez tego „image001.png@01DA1F2C.
+# AB3E8A90” z ``src="cid:…"`` logo pasowało jako adres z domeną „…AB” i podpis
+# z obrazkiem losowo znikał), a odnośniki ``cid:`` do obrazków w treści maila
+# nie są adresami — usuwamy je przed sprawdzeniem.
+#
+# Runda 8 (R8-V3-4): regex łapie tylko „@” z zachłanną domeną (każdy znak
+# czytany raz), a znak przed „@” i końcówkę domeny sprawdza Python
+# (``_email_domains``). Dawny wzorzec z lookaheadem po ``[A-Za-z]{2,}`` wracał
+# z każdej pozycji — 12 KB podpisu = ok. 2 s w pętli zdarzeń.
+_AT_DOMAIN_RE = re.compile(r"@([A-Za-z0-9.\-]+)")
+_EMAIL_LOCAL_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._%+-"
+)
+_CID_RE = re.compile(r"cid:[^\s\"'<>]+", re.IGNORECASE)
+
+# Runda 7 (R7-V1-1): podpis po tekstowym „--” to krótka stopka na KOŃCU
+# treści autora. Dłuższy fragment to zwykle treść maila, w której „--” było
+# przerywnikiem („--” i pod nim „Kandydat 2: Anna …, 140 zł/h”).
+_MAX_DASH_SIGNATURE_TEXT = 400
+_MAX_DASH_SIGNATURE_LINES = 10
+_TAG_RE = re.compile(r"<[^>]+>")
+_LINE_BREAK_RE = re.compile(r"<br\s*/?>|</(?:p|div|tr|li|h[1-6])\s*>", re.IGNORECASE)
+# „PS.”/„P.S.” pod podpisem to treść maila, nie stopka.
+_POSTSCRIPT_RE = re.compile(r"^\s*p\.?\s*s\.?(?:\s|:|$)", re.IGNORECASE)
+# Domyślna stopka aplikacji mobilnej Outlooka („Get Outlook for iOS”,
+# „Pobierz program Outlook dla systemu Android”) — to nie jest podpis osoby,
+# a jeden mail z telefonu podmieniał nią prawdziwy podpis na 24 h (R7-V1-4).
+_MOBILE_DEFAULT_RE = re.compile(
+    r"^\s*(?:get|pobierz)\b[^\n]{0,40}\boutlook\b[^\n]{0,40}"
+    r"\b(?:ios|android)\b\s*\.?\s*$",
+    re.IGNORECASE,
+)
+_DIV_TAG_RE = re.compile(r"<(/?)div\b[^>]*>", re.IGNORECASE)
+
+
+def _quote_start(body_html: str, *, ignore_hr: bool = False) -> Optional[int]:
+    positions = [
+        m.start()
+        for p in _QUOTE_START_PATTERNS
+        if not (ignore_hr and p is _HR_RE)
+        for m in [p.search(body_html)]
+        if m
+    ]
+    return min(positions) if positions else None
+
+
+def _email_domains(text: str) -> list[str]:
+    """Domeny adresów e-mail w tekście (lustro dawnego ``_EMAIL_RE``)."""
+    out: list[str] = []
+    for match in _AT_DOMAIN_RE.finditer(text):
+        start = match.start()
+        if start == 0 or text[start - 1] not in _EMAIL_LOCAL_CHARS:
+            continue
+        domain = _email_domain(match.group(1))
+        if domain is not None:
+            out.append(domain)
+    return out
+
+
+def _email_domain(candidate: str) -> Optional[str]:
+    """Najdłuższa domena z kandydata, której TLD (≥ 2 litery) kończy domenę.
+
+    Lustro dawnego ``[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}(?![A-Za-z0-9\\-])``: domena
+    może się kończyć tylko na końcu kandydata albo tuż przed kropką.
+    """
+    labels = candidate.split(".")
+    for k in range(len(labels), 1, -1):
+        tld = labels[k - 1]
+        head_empty = k == 2 and not labels[0]
+        if len(tld) >= 2 and tld.isascii() and tld.isalpha() and not head_empty:
+            return ".".join(labels[:k])
+    return None
+
+
+def _allowed_email_domains(owner_email: Optional[str]) -> set[str]:
+    domains = {d.lower() for d in settings.sso_allowed_domains_list}
+    if owner_email and "@" in owner_email:
+        domains.add(owner_email.rsplit("@", 1)[1].strip().lower())
+    return domains
+
+
+def _looks_like_quote(
+    signature: str, owner_email: Optional[str], *, ignore_hr: bool = False
+) -> bool:
+    """Czy fragment niesie cudzą treść (runda 6 audytu).
+
+    Bezpieczniej wysłać mail bez podpisu niż z cytatem cudzego maila, bo
+    podpis jest doklejany do KAŻDEJ wiadomości z NEXUSA (także do maili
+    odrzucenia) — dlatego wątpliwość = brak podpisu.
+    """
+    if _quote_start(signature, ignore_hr=ignore_hr) is not None:
+        return True
+    allowed = _allowed_email_domains(owner_email)
+    for domain in _email_domains(_CID_RE.sub(" ", signature)):
+        if domain.lower() not in allowed:
+            return True
+    return False
+
+
+def _visible_lines(fragment: str) -> list[str]:
+    text = _TAG_RE.sub(" ", _LINE_BREAK_RE.sub("\n", fragment))
+    text = html.unescape(text).replace("\xa0", " ")
+    return [line.strip() for line in text.split("\n") if line.strip()]
+
+
+def _element_end(head: str, start: int) -> Optional[int]:
+    """Koniec elementu ``<div>`` otwartego w ``start`` (zagnieżdżenia liczone)."""
+    depth = 0
+    for tag in _DIV_TAG_RE.finditer(head, start):
+        depth += -1 if tag.group(1) else 1
+        if depth == 0:
+            return tag.end()
+    return None
+
+
+def _is_mobile_default(fragment: str) -> bool:
+    lines = _visible_lines(fragment)
+    return len(lines) == 1 and bool(_MOBILE_DEFAULT_RE.match(lines[0]))
+
+
+def extract_signature(
+    body_html: str, owner_email: Optional[str] = None
+) -> Optional[str]:
     """Pull the signature block off an HTML body.
 
-    Returns the HTML fragment from the last matching marker (using the
-    marker's slicing rule), or ``None`` if no marker is found. Public for
-    unit tests; production callers go through :func:`get_outlook_signature`
-    to benefit from caching.
+    Runda 6 audytu: najpierw ucinamy treść na PIERWSZYM znaczniku cytatu
+    (odpowiedź / przekazanie), bo za nim jest cudzy mail — łącznie z jego
+    ``x_Signature``. W części autora bierzemy PIERWSZY znacznik podpisu;
+    fragment, który zawiera drugi znacznik podpisu, nagłówek cytatu albo
+    adres e-mail spoza domeny nadawcy, jest odrzucany (``None``).
+
+    Runda 7 (R7-V1-1): przy znaczniku z id bierzemy SAM element podpisu (bez
+    tego, co autor dopisał pod nim, np. „PS. …”), a po tekstowym „--” tylko
+    krótką stopkę bez „PS”. Domyślna stopka „Get Outlook for iOS/Android” nie
+    jest podpisem (R7-V1-4).
+
+    Public for unit tests; production callers go through
+    :func:`get_outlook_signature` to benefit from caching.
     """
     if not body_html:
         return None
+    cut = _quote_start(body_html)
+    head = body_html if cut is None else body_html[:cut]
     for marker in _SIGSEP_MARKERS:
-        matches = list(marker.pattern.finditer(body_html))
-        if not matches:
+        first = marker.pattern.search(head)
+        if first is None:
             continue
-        last = matches[-1]
-        pos = last.start() if marker.include_match else last.end()
-        tail = body_html[pos:].strip()
-        if tail and len(tail) <= _MAX_SIGNATURE_LENGTH:
-            return tail
+        if marker.include_match:
+            # Runda 8 (R8-V3-5): koniec elementu szukamy w PEŁNEJ treści —
+            # ``<hr>`` wewnątrz ``<div id="Signature">`` (linia oddzielająca
+            # w podpisie) ucinał ``head`` w środku elementu i mail szedł bez
+            # podpisu. Inny znacznik cytatu w elemencie nadal go odrzuca.
+            end = _element_end(body_html, first.start())
+            if end is None:
+                return None
+            tail = body_html[first.start() : end].strip()
+            # Drugi znacznik podpisu WEWNĄTRZ elementu = zagnieżdżona treść.
+            rest = body_html[first.end() : end]
+        else:
+            tail = head[first.end() :].strip()
+            rest = head[first.end() :]
+            lines = _visible_lines(tail)
+            if (
+                len(lines) > _MAX_DASH_SIGNATURE_LINES
+                or sum(len(line) for line in lines) > _MAX_DASH_SIGNATURE_TEXT
+                or any(_POSTSCRIPT_RE.match(line) for line in lines)
+            ):
+                return None
+        if not tail or len(tail) > _MAX_SIGNATURE_LENGTH:
+            return None
+        # Drugi znacznik podpisu za pierwszym = zagnieżdżona cudza treść.
+        if any(m.pattern.search(rest) for m in _SIGSEP_MARKERS):
+            return None
+        if _looks_like_quote(
+            tail, owner_email, ignore_hr=marker.include_match
+        ) or _is_mobile_default(tail):
+            return None
+        return tail
     return None
 
 
@@ -150,8 +365,8 @@ async def get_outlook_signature(
     *,
     user_id: int,
     mailbox_upn: str,
-) -> Optional[str]:
-    """Return the user's signature HTML, or None when unavailable.
+) -> Optional[OutlookSignature]:
+    """Return the user's signature (HTML + inline logo), or None when unavailable.
 
     On cache hit (within TTL) the cached value (possibly None) is returned
     without touching Graph. On miss we fetch the last sent message, parse
@@ -166,7 +381,7 @@ async def get_outlook_signature(
         if now < expires_at:
             return signature
 
-    signature = await _fetch_signature_from_sent_items(gc)
+    signature = await _fetch_signature_from_sent_items(gc, owner_email=mailbox_upn)
     ttl = max(60, int(settings.M365_SIGNATURE_CACHE_TTL_SECONDS))
     _cache[key] = (signature, now + timedelta(seconds=ttl))
     if signature is None:
@@ -187,7 +402,9 @@ async def get_outlook_signature(
 _SENT_ITEMS_PROBE_DEPTH = 10
 
 
-async def _fetch_signature_from_sent_items(gc: GraphClient) -> Optional[str]:
+async def _fetch_signature_from_sent_items(
+    gc: GraphClient, *, owner_email: Optional[str] = None
+) -> Optional[OutlookSignature]:
     """Find the user's signature by scanning recent sent messages.
 
     Strategy: fetch the last ``_SENT_ITEMS_PROBE_DEPTH`` sent messages in
@@ -201,7 +418,7 @@ async def _fetch_signature_from_sent_items(gc: GraphClient) -> Optional[str]:
             params={
                 "$top": _SENT_ITEMS_PROBE_DEPTH,
                 "$orderby": "sentDateTime desc",
-                "$select": "body",
+                "$select": "id,body",
             },
         )
     except GraphRequestError as exc:
@@ -226,10 +443,88 @@ async def _fetch_signature_from_sent_items(gc: GraphClient) -> Optional[str]:
         content = body.get("content") or ""
         if content_type != "html" or not content:
             continue
-        signature = extract_signature(content)
+        signature = extract_signature(content, owner_email)
         if signature is not None:
-            return signature
+            return await _with_inline_images(gc, msg.get("id"), signature)
     return None
+
+
+# Logo w stopce Outlooka to załącznik ``isInline`` tej samej wiadomości, a HTML
+# odsyła do niego przez ``src="cid:…"``. Do 26.10.2026 NEXUS kopiował sam HTML
+# i odbiorca widział pustą ramkę zamiast logo.
+_IMG_CID_RE = re.compile(
+    r"""<img\b[^>]*\bsrc\s*=\s*["']cid:([^"']+)["'][^>]*>""", re.IGNORECASE
+)
+# Logo stopki ma kilka–kilkadziesiąt KB; większy załącznik „w treści” to
+# zdjęcie z maila, nie stopka.
+_MAX_INLINE_IMAGE_BYTES = 200_000
+_MAX_INLINE_IMAGES = 5
+
+
+async def _with_inline_images(
+    gc: GraphClient, message_id: Optional[str], signature_html: str
+) -> OutlookSignature:
+    """Oczyść stopkę i dobierz jej obrazki; obrazek bez danych wypada z HTML."""
+    clean = sanitize_signature_html(signature_html)
+    wanted = set(_IMG_CID_RE.findall(clean))
+    images: tuple[InlineImage, ...] = ()
+    if wanted and message_id:
+        images = await _fetch_inline_images(gc, message_id, wanted)
+    found = {image.content_id for image in images}
+    clean = _IMG_CID_RE.sub(lambda m: m.group(0) if m.group(1) in found else "", clean)
+    return OutlookSignature(html=clean, inline_images=images)
+
+
+async def _fetch_inline_images(
+    gc: GraphClient, message_id: str, wanted: set[str]
+) -> tuple[InlineImage, ...]:
+    base = f"/me/messages/{message_id}/attachments"
+    images: list[InlineImage] = []
+    try:
+        listing = await gc.get(base, params={"$select": "id,isInline,size"})
+        attachments = listing.get("value") if isinstance(listing, dict) else None
+        for att in attachments or []:
+            if len(images) >= _MAX_INLINE_IMAGES:
+                break
+            if (
+                not att.get("isInline")
+                or not att.get("id")
+                or (att.get("size") or 0) > _MAX_INLINE_IMAGE_BYTES
+            ):
+                continue
+            image = _inline_image(await gc.get(f"{base}/{att['id']}"), wanted)
+            if image is not None:
+                images.append(image)
+    except GraphRequestError as exc:
+        # Bez logo, ale ze stopką — wysyłka nie może od tego zależeć.
+        logger.warning(
+            "signature_cache: Graph %s while fetching signature images", exc.status
+        )
+        return ()
+    except Exception:  # noqa: BLE001 — jak przy pobieraniu wysłanych
+        logger.exception("signature_cache: unexpected error fetching signature images")
+        return ()
+    return tuple(images)
+
+
+def _inline_image(attachment: object, wanted: set[str]) -> Optional[InlineImage]:
+    if not isinstance(attachment, dict):
+        return None
+    content_id = (attachment.get("contentId") or "").strip().strip("<>")
+    content_type = attachment.get("contentType") or ""
+    data = attachment.get("contentBytes")
+    if (
+        content_id not in wanted
+        or not data
+        or not content_type.lower().startswith("image/")
+    ):
+        return None
+    return InlineImage(
+        content_id=content_id,
+        name=attachment.get("name") or content_id,
+        content_type=content_type,
+        content_bytes=data,
+    )
 
 
 def _clear_cache_for_tests() -> None:

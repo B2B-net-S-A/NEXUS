@@ -147,3 +147,25 @@ def test_precedence_infra_over_software() -> None:
     assert classify_job_title_to_cc_slug("Architekt Chmurowy") == INFRA
     # DevOps + Salesforce → infra (devops) before software (salesforce).
     assert classify_job_title_to_cc_slug("DevOps ze znajomością Salesforce") == INFRA
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Architekt danych",
+        "Inżynier danych (ZOB-1234)",
+        "Specjalista ds. analizy danych",
+        "Analityk BI",
+        "Developer hurtowni danych",
+    ],
+)
+def test_polish_data_roles_land_in_the_data_block(title: str) -> None:
+    """Runda 10 (R10-N8-12): polskie role danych należą do grupy Infra/Data."""
+    assert classify_job_title_to_cc_slug(title) == DATA
+
+
+@pytest.mark.unit
+def test_database_administrator_is_still_infra_not_data_rule() -> None:
+    assert classify_job_title_to_cc_slug("Administrator baz danych") == INFRA
+    assert classify_job_title_to_cc_slug("Analityk biznesowy") == MGMT

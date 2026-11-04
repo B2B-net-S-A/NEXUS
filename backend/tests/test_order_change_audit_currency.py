@@ -192,3 +192,95 @@ async def test_foreign_md_line_rate_change_is_logged_in_the_line_currency():
     [event] = [e for e in await _events(order_id) if e.field == "rate_revenue"]
     assert (event.old_amount, event.new_amount) == (Decimal("150"), Decimal("160"))
     assert event.currency == "EUR"
+
+
+# ── Stara strona zmiany w SWOJEJ walucie (audyt 25.09.2026) ─────────────────
+
+
+def _change_item(**overrides):
+    from app.schemas.finance_order_changes import OrderChangeItem
+
+    values = dict(
+        client_name="Klient",
+        consultant_name="Jan Nowak",
+        order_number="PO-1",
+        kind="rate_revenue",
+        old_amount=Decimal("1000"),
+        new_amount=Decimal("1000"),
+        old_unit="daily",
+        new_unit="daily",
+        currency="EUR",
+        old_currency="PLN",
+    )
+    values.update(overrides)
+    return OrderChangeItem(**values)
+
+
+def test_export_renders_the_old_side_in_its_own_currency():
+    from app.services.finance_order_changes import _change_description
+
+    label, before, after = _change_description(_change_item())
+    assert label == "Zmiana stawki przychodowej"
+    assert before == "1 000,00 PLN/dzień"
+    assert after == "1 000,00 EUR/dzień"
+
+
+def test_export_without_old_currency_falls_back_to_the_new_one():
+    from app.services.finance_order_changes import _change_description
+
+    _, before, _ = _change_description(_change_item(old_currency=None))
+    assert before == "1 000,00 EUR/dzień"
+
+
+def test_order_history_summary_renders_the_old_side_in_its_own_currency():
+    from app.services.order_change_checks import _event_summary
+
+    event = SimpleNamespace(
+        field="rate_revenue",
+        old_amount=Decimal("1000"),
+        new_amount=Decimal("1000"),
+        old_unit="daily",
+        new_unit="daily",
+        currency="EUR",
+        old_currency="PLN",
+        old_date=None,
+        new_date=None,
+    )
+    assert _event_summary(event) == (
+        "Zmiana stawki przychodowej: 1 000,00 PLN/dzień → 1 000,00 EUR/dzień"
+    )
+
+
+@pytest.mark.asyncio
+async def test_finance_changes_tab_carries_the_old_currency(
+    app_client, app_auth_headers
+):
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+
+    order_id = await _seed_order(
+        rate_unit=RateUnit.daily,
+        rate_client=Decimal("1000.000"),
+        rate_client_currency="PLN",
+        currency="PLN",
+    )
+    async with AsyncSessionLocal() as db:
+        order = await db.get(ClientOrder, order_id)
+        client_id = order.client_id
+        order.rate_client_currency = "EUR"
+        order.currency = "EUR"
+        await db.commit()
+
+    today = business_today()
+    resp = await app_client.get(
+        "/api/finance/order-changes",
+        params={"year": today.year, "month": today.month, "client_id": client_id},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    [item] = [
+        c
+        for c in resp.json()["changes"]
+        if c["order_id"] == order_id and c["kind"] == "rate_revenue"
+    ]
+    assert (item["old_currency"], item["currency"]) == ("PLN", "EUR")

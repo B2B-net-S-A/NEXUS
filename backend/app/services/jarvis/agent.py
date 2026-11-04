@@ -36,6 +36,7 @@ from app.services.ai_models import fallbacks_for, model_for
 from app.services.jarvis import store
 from app.services.jarvis import web as jarvis_web
 from app.services.jarvis.prompt import SYSTEM_PROMPT, context_block
+from app.services.jarvis.gap_schema import GAP_KINDS, NEED_MAX, WHY_MAX
 from app.services.jarvis.tools import (
     TOOLS_BY_NAME,
     JarvisTool,
@@ -97,12 +98,17 @@ class TurnInput:
     # Poziomy sekcji pytającego — do kotwic ``show_on_screen`` (element, którego
     # ta osoba nie widzi, nie jest podświetlany).
     sections: dict[str, int] = field(default_factory=dict)
+    # Uprawnienia z ekranu „Osoby i role” — przycisk dla ich posiadaczy
+    # (np. „Nowa rekrutacja”) nie jest wskazywany komuś, kto go nie ma.
+    permissions: list[str] = field(default_factory=list)
 
 
 @dataclass
 class _TurnState:
     conversation_id: uuid.UUID
     entities: set[tuple[str, int]] = field(default_factory=set)
+    # Żeton blokady tury (`store.TurnClaim`) — przedłużany z każdym krokiem.
+    claim: Optional[store.TurnClaim] = None
 
 
 # ── pomocniki ──────────────────────────────────────────────────────────────
@@ -203,26 +209,43 @@ def _screen_entities(screen: Optional[dict[str, Any]]) -> set[tuple[str, int]]:
     return set()
 
 
+async def _candidate_name(transport: JarvisTransport, candidate_id: int) -> str:
+    resp = await transport.call(
+        RequestSpec("GET", f"/api/candidates/{candidate_id}/quick-view")
+    )
+    person = (
+        resp.data.get("candidate") if resp.ok and isinstance(resp.data, dict) else None
+    )
+    if not isinstance(person, dict):
+        return ""
+    return " ".join(
+        str(person.get(k) or "").strip() for k in ("name", "lastname")
+    ).strip()
+
+
 async def _display_names(
     transport: JarvisTransport, args: dict[str, Any]
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Nazwy do karty akcji — czytane przez API (sprawdza przy okazji dostęp)."""
-    names: dict[str, str] = {}
+    names: dict[str, Any] = {}
     if isinstance(args.get("candidate_id"), int):
-        resp = await transport.call(
-            RequestSpec("GET", f"/api/candidates/{args['candidate_id']}/quick-view")
-        )
-        person = (
-            resp.data.get("candidate")
-            if resp.ok and isinstance(resp.data, dict)
-            else None
-        )
-        if isinstance(person, dict):
-            full = " ".join(
-                str(person.get(k) or "").strip() for k in ("name", "lastname")
-            ).strip()
-            if full:
-                names["candidate_id"] = full
+        full = await _candidate_name(transport, args["candidate_id"])
+        if full:
+            names["candidate_id"] = full
+    # Runda 8 (R8-N1-2): karta „Dodam 3 kandydatów” nie mówiła, KOGO — człowiek
+    # zatwierdzał listę ID, której nie widział. Nazwiska z odczytu API; brak
+    # dostępu albo nazwy = numer na karcie.
+    candidate_ids = args.get("candidate_ids")
+    if isinstance(candidate_ids, list) and candidate_ids:
+        listed: list[str] = []
+        for cid in candidate_ids[:20]:
+            name = (
+                await _candidate_name(transport, cid)
+                if isinstance(cid, int) and not isinstance(cid, bool)
+                else ""
+            )
+            listed.append(name or f"Kandydat #{cid}")
+        names["candidate_ids"] = listed
     if isinstance(args.get("job_id"), int):
         resp = await transport.call(RequestSpec("GET", f"/api/jobs/{args['job_id']}"))
         if resp.ok and isinstance(resp.data, dict) and resp.data.get("title"):
@@ -232,11 +255,63 @@ async def _display_names(
             names["job_id"] = str(resp.data["title"]) + (
                 f" / {client}" if client else ""
             )
+    # Nazwy puli i sprawy klienta też z odczytu — nigdy z tekstu modelu
+    # (audyt 25.09.2026, R3-4: karta mówiła to, co napisał model).
+    if isinstance(args.get("pool_id"), int):
+        resp = await transport.call(RequestSpec("GET", "/api/talent-pools"))
+        pools = resp.data if resp.ok and isinstance(resp.data, list) else []
+        for pool in pools:
+            if isinstance(pool, dict) and pool.get("id") == args["pool_id"]:
+                if pool.get("name"):
+                    names["pool_id"] = str(pool["name"])
+                break
+    if isinstance(args.get("alert_id"), int):
+        resp = await transport.call(RequestSpec("GET", "/api/dl-alerts/cards"))
+        cards = (
+            resp.data.get("cards") if resp.ok and isinstance(resp.data, dict) else None
+        )
+        for card in cards or []:
+            if isinstance(card, dict) and card.get("id") == args["alert_id"]:
+                if card.get("title"):
+                    names["alert_id"] = str(card["title"])[:80]
+                break
     return names
 
 
 class ProposalRejected(Exception):
     """Propozycja zapisu nie przeszła sprawdzenia serwera — wraca do modelu."""
+
+
+async def _resolve_debrief_event(
+    transport: JarvisTransport, args: dict[str, Any]
+) -> dict[str, Any]:
+    """Kandydat i rekrutacja debriefu — z wydarzenia, nie ze słów modelu.
+
+    Zapis idzie po ``event_id``, więc karta musi opisywać osobę z TEGO
+    wydarzenia. Do 25.09.2026 karta pokazywała ``candidate_id`` podany przez
+    model, a debrief lądował pod inną rozmową (audyt R3-4).
+    """
+    resp = await transport.call(
+        RequestSpec("GET", f"/api/interview-cycle/events/{args['event_id']}")
+    )
+    if not resp.ok or not isinstance(resp.data, dict):
+        raise ProposalRejected(describe_error(resp))
+    candidate_id = resp.data.get("candidate_id")
+    if not isinstance(candidate_id, int):
+        raise ProposalRejected("To wydarzenie nie jest rozmową kandydata u klienta.")
+    claimed = args.get("candidate_id")
+    if claimed is not None and claimed != candidate_id:
+        raise ProposalRejected(
+            f"Wydarzenie #{args['event_id']} dotyczy innego kandydata "
+            f"(#{candidate_id}) — sprawdź event_id w my_interview_cycle."
+        )
+    resolved = {**args, "candidate_id": candidate_id}
+    job_id = resp.data.get("job_id")
+    if isinstance(job_id, int):
+        resolved["job_id"] = job_id
+    else:
+        resolved.pop("job_id", None)
+    return resolved
 
 
 async def _resolve_move_stage(
@@ -290,20 +365,28 @@ async def prepare_proposal(
         resolved = await _resolve_move_stage(transport, args)
         args = resolved["args"]
         extra["from_stage"] = resolved["from_stage"]
+    if tool.name == "save_interview_debrief":
+        args = await _resolve_debrief_event(transport, args)
     display = await _display_names(transport, args)
     text = tool.preview({**args, "_display": display}) if tool.preview else tool.label
     if extra.get("from_stage"):
         text += f" (teraz: {extra['from_stage']})"
     preview = {"text": text, "tool_label": tool.label, "display": display}
-    if tool.detail:
-        preview["body"] = tool.detail(args)
+    body = tool.detail({**args, "_display": display}) if tool.detail else ""
+    if body:
+        preview["body"] = body
     return args, preview
 
 
 async def _merge_notes(
     transport: JarvisTransport, args: dict[str, Any]
 ) -> dict[str, Any]:
-    """Pełna lista pamięci (zapisane + nowa) — PATCH podmienia całą listę."""
+    """Pełna lista pamięci (zapisane + nowa) — PATCH podmienia całą listę.
+
+    Wołane przy propozycji (walidacja karty) i PONOWNIE tuż przed wykonaniem
+    (``actions.confirm_action``) — runda 8 (R8-N1-4): lista z chwili
+    propozycji gubiła notatki zapisane albo usunięte w międzyczasie.
+    """
     from app.services.jarvis.prefs import MAX_NOTES
 
     resp = await transport.call(RequestSpec("GET", "/api/users/me/preferences"))
@@ -343,7 +426,7 @@ def screen_anchor(
     sections = turn.sections or {
         s: 2 for s in ("sourcing", "pipeline", "delivery", "insights", "finance")
     }
-    shaped = guide_for_user(guide, set(turn.roles), sections)
+    shaped = guide_for_user(guide, set(turn.roles), sections, turn.permissions)
     anchors = (shaped or {}).get("anchors") or []
     valid = [a["id"] for a in anchors]
     for anchor in anchors:
@@ -373,29 +456,42 @@ async def execute_read(
 # ── tura ───────────────────────────────────────────────────────────────────
 
 
-async def claim(turn: TurnInput) -> uuid.UUID:
+def _lock_seconds() -> float:
+    return settings.JARVIS_TURN_TIMEOUT_SECONDS + 60
+
+
+async def claim(turn: TurnInput) -> store.TurnClaim:
     """Rezerwuje rozmowę na turę PRZED otwarciem strumienia (409 zamiast SSE)."""
     return await store.claim_turn(
         user_id=turn.user_id,
         conversation_id=turn.conversation_id,
         first_message=turn.message or "Nowa rozmowa",
         context=turn.screen,
-        lock_seconds=settings.JARVIS_TURN_TIMEOUT_SECONDS + 60,
+        lock_seconds=_lock_seconds(),
     )
 
 
 async def run_turn(
-    turn: TurnInput, conversation_id: uuid.UUID
+    turn: TurnInput, claimed: store.TurnClaim
 ) -> AsyncIterator[dict[str, Any]]:
     """Generator zdarzeń tury na zarezerwowanej rozmowie (``claim``).
 
     Pierwsze zdarzenie to zawsze ``conversation``; rezerwacja jest zwalniana
     w ``finally`` — także gdy klient się rozłączył albo model zawiódł.
     """
+    conversation_id = claimed.conversation_id
+    # „Zatrzymaj” kliknięte po końcu poprzedniej tury (albo przy turze, która
+    # padła przed sprzątaniem) nie może przerwać NOWEJ tury tej rozmowy.
+    _CANCEL_REQUESTS.discard(conversation_id)
     state = _TurnState(
-        conversation_id=conversation_id, entities=_screen_entities(turn.screen)
+        conversation_id=conversation_id,
+        entities=_screen_entities(turn.screen),
+        claim=claimed,
     )
     try:
+        # Powiązanie z kandydatem z ekranu od razu — tura ubita w połowie
+        # (deploy) nie może zostawić rozmowy o nim bez powiązania (RODO).
+        await _link_now(state, state.entities)
         yield {"type": "conversation", "conversation_id": str(conversation_id)}
         async for event in _run_loop(turn, state):
             yield event
@@ -411,7 +507,38 @@ async def _finish_turn(state: _TurnState) -> None:
     _CANCEL_REQUESTS.discard(state.conversation_id)
     if state.entities:
         await store.link_entities(state.conversation_id, state.entities)
-    await store.release_turn(state.conversation_id)
+    if state.claim is not None:
+        await store.release_turn(state.claim)
+
+
+async def _link_now(state: _TurnState, entities: set[tuple[str, int]]) -> None:
+    """Zapisz powiązanie rozmowy z kandydatami ZARAZ po narzędziu.
+
+    Wynik narzędzia trafia do historii rozmowy (dane osobowe) przed końcem
+    tury — do 25.09.2026 powiązanie zapisywało dopiero ``_finish_turn``,
+    więc tura ubita w połowie zostawiała rozmowę, której usunięcie kandydata
+    (art. 17) nie kasowało.
+    """
+    if not entities:
+        return
+    try:
+        await store.link_entities(state.conversation_id, entities)
+    except Exception:  # noqa: BLE001 — `_finish_turn` spróbuje jeszcze raz
+        logger.exception(
+            "jarvis: nie udało się powiązać rozmowy %s z kandydatami",
+            state.conversation_id,
+        )
+
+
+async def _extend_lock(state: _TurnState) -> bool:
+    """Przedłuż własną blokadę tury; False = przejęła ją inna tura."""
+    if state.claim is None:
+        return True
+    renewed = await store.extend_turn(state.claim, _lock_seconds())
+    if renewed is None:
+        return False
+    state.claim = renewed
+    return True
 
 
 def _user_content(turn: TurnInput) -> list[dict[str, Any]]:
@@ -511,6 +638,15 @@ async def _steps(
     for step in range(max(1, settings.JARVIS_MAX_STEPS)):
         if _cancelled(state):
             yield {"type": "message", "markdown": CANCELLED_MESSAGE, "final": True}
+            return
+        if not await _extend_lock(state):
+            # Blokada wygasła i rozmowę przejęła inna tura — nie piszemy
+            # równolegle do tej samej historii.
+            yield {
+                "type": "error",
+                "message": "Ta rozmowa jest już obsługiwana w innym oknie — odśwież panel.",
+                "code": "turn_lost",
+            }
             return
         remaining = deadline - time.monotonic()
         if remaining < 5:
@@ -639,6 +775,17 @@ async def _steps(
             )
             for event in events:
                 yield event
+        if not await _extend_lock(state):
+            # Runda 8 (R8-N1-6): blokada wygasła w trakcie narzędzi i rozmowę
+            # przejęła inna tura — dopisanie wyników za jej wiadomościami
+            # zepsułoby historię (tool_result bez pary). Wynik przepada,
+            # ``repair_history`` wstawi „przerwane”.
+            yield {
+                "type": "error",
+                "message": "Ta rozmowa jest już obsługiwana w innym oknie — odśwież panel.",
+                "code": "turn_lost",
+            }
+            return
         await store.append_message(state.conversation_id, "user", results)
         history.append({"role": "user", "content": results})
         if _cancelled(state):
@@ -707,6 +854,48 @@ async def _handle_tool(
         )
         return _tool_result(use_id, f"Podświetliłem użytkownikowi: {anchor['label']}.")
 
+    if tool.name == "draft_email":
+        return await _draft_email(state, transport, tool, args, use_id, events)
+
+    if tool.name == "report_gap":
+        kind = str(args.get("kind") or "")
+        need = str(args.get("need") or "").strip()[:NEED_MAX]
+        why = str(args.get("why") or "").strip()[:WHY_MAX]
+        if kind not in GAP_KINDS or not need or not why:
+            return _tool_result(
+                use_id,
+                f"Podaj kind ({', '.join(GAP_KINDS)}), need i why.",
+                is_error=True,
+            )
+        workaround = str(args.get("workaround") or "").strip()[:WHY_MAX]
+        gap_id = await store.create_gap(
+            conversation_id=state.conversation_id,
+            user_id=turn.user_id,
+            tool_use_id=use_id,
+            kind=kind,
+            need=need,
+            why=why,
+            workaround=workaround,
+        )
+        events.append(
+            {
+                "type": "gap",
+                "gap": {
+                    "id": str(gap_id),
+                    "kind": kind,
+                    "need": need,
+                    "why": why,
+                    "workaround": workaround,
+                    "reported": False,
+                },
+            }
+        )
+        return _tool_result(
+            use_id,
+            "Pokazałem kartę braku z przyciskiem zgłoszenia. Nie powtarzaj jej treści — "
+            "dopisz najwyżej jedno zdanie, jeśli możesz pomóc inaczej.",
+        )
+
     if tool.tier == "link":
         try:
             link = build_screen_link(args)
@@ -715,9 +904,13 @@ async def _handle_tool(
                 use_id, f"Nie udało się zbudować linku: {exc}", is_error=True
             )
         events.append({"type": "deep_link", **link})
+        # Runda 10 (F14): model pisał „Otworzyłem zakładkę”, choć ekran się
+        # nie zmienił — wynik mówi wprost, że to tylko przycisk.
         return _tool_result(
             use_id,
-            f"Pokazałem użytkownikowi przycisk „{link['label']}” ({link['href']}).",
+            f"Pokazałem użytkownikowi przycisk „{link['label']}” ({link['href']}). "
+            "Ekran NIE został otwarty — napisz, żeby użył tego przycisku; "
+            "nie pisz, że coś otworzyłeś.",
         )
 
     if tool.tier == "read":
@@ -738,8 +931,14 @@ async def _handle_tool(
                 "status": "done" if ok else "error",
             }
         )
-        if ok and tool.entity_type == "candidate":
-            state.entities |= collect_entities(tool, args, shaped)
+        if ok:
+            # Każde narzędzie, nie tylko „kandydackie”: `global_search`,
+            # kalendarz i powiadomienia też zwracają nazwiska z `candidate_id`
+            # albo linkiem `/candidates/{id}` (audyt 25.09.2026 — rozmowy po
+            # nich przeżywały usunięcie kandydata).
+            found = collect_entities(tool, args, shaped)
+            state.entities |= found
+            await _link_now(state, found)
         return _tool_result(use_id, content, is_error=not ok)
 
     # write — tylko propozycja
@@ -771,8 +970,9 @@ async def _handle_tool(
         args=final_args,
         preview=preview,
     )
-    if tool.entity_type == "candidate":
-        state.entities |= collect_entities(tool, final_args, None)
+    found = collect_entities(tool, final_args, preview)
+    state.entities |= found
+    await _link_now(state, found)
     events.append(
         {
             "type": "step",
@@ -796,4 +996,59 @@ async def _handle_tool(
         use_id,
         f"Akcja przygotowana (id {action_id}) i CZEKA na zatwierdzenie przez użytkownika na karcie. "
         "Nic jeszcze nie zostało zapisane — nie pisz, że zostało wykonane.",
+    )
+
+
+async def _draft_email(
+    state: "_TurnState",
+    transport: JarvisTransport,
+    tool: JarvisTool,
+    args: dict[str, Any],
+    use_id: str,
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Szkic maila (27.10.2026): adres i nazwisko z odczytu uprawnieniami
+    pytającego, nie ze słów modelu. Wysyła człowiek z okna maila NEXUSA."""
+    try:
+        candidate_id = int(args.get("candidate_id"))
+    except (TypeError, ValueError):
+        return _tool_result(use_id, "Podaj candidate_id.", is_error=True)
+    resp = await transport.call(
+        RequestSpec("GET", f"/api/candidates/{candidate_id}/quick-view")
+    )
+    person = (
+        resp.data.get("candidate") if resp.ok and isinstance(resp.data, dict) else None
+    )
+    if not isinstance(person, dict):
+        return _tool_result(use_id, describe_error(resp), is_error=True)
+    email = str(person.get("email") or "").strip()
+    if not email:
+        return _tool_result(
+            use_id,
+            "Kandydat nie ma adresu e-mail w profilu — szkicu nie da się wysłać. "
+            "Powiedz to użytkownikowi.",
+            is_error=True,
+        )
+    name = " ".join(
+        str(person.get(k) or "").strip() for k in ("name", "lastname")
+    ).strip()
+    found = collect_entities(tool, {"candidate_id": candidate_id}, None)
+    state.entities |= found
+    await _link_now(state, found)
+    events.append(
+        {
+            "type": "mail_draft",
+            "draft": {
+                "candidate_id": candidate_id,
+                "candidate_name": name,
+                "email": email,
+                "subject": str(args.get("subject") or "")[:150],
+                "body": str(args.get("body") or "")[:3000],
+            },
+        }
+    )
+    return _tool_result(
+        use_id,
+        "Pokazałem szkic z przyciskiem „Otwórz w oknie maila”. NIC nie zostało "
+        "wysłane — wyśle użytkownik. Nie powtarzaj treści szkicu.",
     )

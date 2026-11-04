@@ -344,11 +344,11 @@ async def test_bulk_export_is_limited_to_admin_and_finance(app_client: AsyncClie
 
 async def test_export_escapes_formula_injection():
     """Treść alertu niesie nazwy wpisane przez ludzi — to tekst obcy."""
-    from app.api.dl_alerts import _formula_safe
+    from app.core.export_safety import safe_cell
 
-    assert _formula_safe("=1+1") == "'=1+1"
-    assert _formula_safe("@SUM(A1)") == "'@SUM(A1)"
-    assert _formula_safe("Polkomtel") == "Polkomtel"
+    assert safe_cell("=1+1") == "'=1+1"
+    assert safe_cell("@SUM(A1)") == "'@SUM(A1)"
+    assert safe_cell("Polkomtel") == "Polkomtel"
 
 
 # ── Reguły skanera ──────────────────────────────────────────────────────────
@@ -586,7 +586,7 @@ async def test_roles_without_a_reason_to_be_here_are_rejected(app_client: AsyncC
     nieegzekwowany dla następnego handlera dopisanego do tego routera —
     dokładnie to wychwycił `test_route_authz_contract`.
     """
-    for role in ("recruiter", "sourcer", "tac"):
+    for role in ("recruiter",):
         _, email, password = await _seed_user(role)
         headers = await _headers_for(app_client, email, password)
         resp = await app_client.get("/api/dl-alerts", headers=headers)

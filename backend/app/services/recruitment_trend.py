@@ -33,13 +33,13 @@ from app.services.funnel_coverage import (
     uncovered_stages_for_window,
 )
 from app.services.kpi_engine import WARSAW
-from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
 
 # Kubełki miesięczne w Europe/Warsaw (reached_at jest timestamptz w UTC —
 # `AT TIME ZONE` przenosi na czas lokalny PRZED przycięciem do miesiąca,
 # więc zdarzenie z 23:30 UTC ostatniego dnia miesiąca ląduje w następnym).
 _TREND_SQL = text(
-    VERIFIER_ANCHORED_CTE
+    CREDITED_FROM_SNAPSHOT_CTE
     + """
     SELECT to_char(reached_at AT TIME ZONE 'Europe/Warsaw', 'YYYY-MM') AS mo,
            stage,
@@ -149,6 +149,7 @@ async def monthly_milestone_trend(
                 {
                     "from_ts": _window_start(now_w, months),
                     "to_ts": _window_end(now_w),
+                    **await credited_bind(db),
                 },
             )
         )

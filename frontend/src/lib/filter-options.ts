@@ -21,15 +21,6 @@ export const CANDIDATE_STATUS_OPTIONS: ReadonlyArray<
   { value: "blacklisted", label: "Zablokowani" },
 ];
 
-export type EmploymentValue = "at_client" | "available";
-
-export const EMPLOYMENT_OPTIONS: ReadonlyArray<
-  MultiSelectFilterOption<EmploymentValue>
-> = [
-  { value: "at_client", label: "U naszego klienta" },
-  { value: "available", label: "Dostępni (bez projektu)" },
-];
-
 export type AvailabilityValue =
   | "actively_looking"
   | "open_to_offers"
@@ -103,7 +94,8 @@ export const JOB_STATUS_OPTIONS: ReadonlyArray<
   MultiSelectFilterOption<JobStatusValue>
 > = [
   { value: "published", label: "Opublikowane" },
-  { value: "draft", label: "Draft" },
+  // „Draft” zdjęty 04.10.2026: rekrutacja nie bywa już szkicem (stare szkice
+  // zamykają się same po 7 dniach). Typ zostaje — stare adresy z `draft`.
   { value: "closed", label: "Zamknięte" },
 ];
 

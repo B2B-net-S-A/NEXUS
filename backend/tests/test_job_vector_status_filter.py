@@ -16,7 +16,7 @@ def test_job_point_payload_carries_status():
     """Bez `status` w payloadzie filtrowanie po stronie Qdranta nie istnieje."""
     source = open(embedding_service.__file__, encoding="utf-8").read()
     payload_block = source[source.index('"industry": job.industry or ""') :][:1200]
-    assert '"status": getattr(job.status' in payload_block
+    assert '"status": job_status_value(job.status)' in payload_block
 
 
 def test_status_filter_lets_legacy_points_through():
@@ -57,3 +57,15 @@ def test_search_accepts_no_statuses_and_then_filters_nothing():
     sig = inspect.signature(embedding_service.search_jobs_semantic)
     assert sig.parameters["statuses"].default is None
     assert sig.parameters["statuses"].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_search_narrows_to_given_jobs_without_status_filter():
+    """`job_ids` mierzy podobieństwo do konkretnej rekrutacji (pasek wtyczki)."""
+    import inspect
+
+    sig = inspect.signature(embedding_service.search_jobs_semantic)
+    assert sig.parameters["job_ids"].default is None
+    source = open(embedding_service.__file__, encoding="utf-8").read()
+    block = source[source.index("def search_jobs_semantic") :]
+    block = block[: block.index("hits = client.search")]
+    assert "HasIdCondition(has_id=list(job_ids))" in block

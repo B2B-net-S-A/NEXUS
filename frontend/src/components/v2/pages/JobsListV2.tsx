@@ -1,54 +1,42 @@
 "use client";
 
 import { pluralPl } from "@/lib/plural-pl";
-import { useEffect, useMemo, useState } from "react";
-import { TAC_UI_ENABLED } from "@/lib/tac-ui";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ROW_STATE_LABEL,
-  STATE_HINT,
-  STATE_LABEL,
-  VISIBLE_STATES,
-  type VisibleState,
-} from "@/lib/request-work-state";
+  REQUEST_STAGE_CHIPS,
+  REQUEST_STAGE_META,
+  initialStagesFromUrl,
+  type RequestStage,
+} from "@/lib/request-stage";
+import { jobsActiveFilterCount } from "@/lib/jobs-filter-groups";
 import {
-  REQUEST_STATUS_FILTER_ORDER,
-  REQUEST_STATUS_META,
-  requestStatusOf,
-  type RequestStatus,
-} from "@/lib/request-status";
+  JobsFilterBar,
+  type JobsFilterBarValue,
+} from "@/components/v2/jobs/JobsFilterBar";
 import { SimilarJobsDialog } from "@/components/v2/jobs/SimilarJobsDialog";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
-  AlertTriangle,
   Briefcase,
   Building2,
   ChevronRight,
-  DollarSign,
   Eye,
-  LayoutGrid,
   Link2,
-  List,
-  MapPin,
   Plus,
   Search,
-  SlidersHorizontal,
-  Sparkles,
-  UserSquare2,
-  Users,
   X,
 } from "lucide-react";
 import api, { jobsApi } from "@/lib/api";
-import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { resolveViewState } from "@/lib/view-state";
 import { useCapabilities } from "@/hooks/useCapability";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
+import { CareerQueueLink } from "@/components/v2/job-ad/CareerQueueLink";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -65,188 +53,105 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { OwnerBadge } from "@/components/v2/jobs/OwnerBadge";
+import { JobPreviewDetails } from "@/components/v2/jobs/JobPreviewDetails";
 import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
 import {
+  JobAdPublicationsCell,
+  JobCategoryShortBadge,
   JobDeadlineCell,
-  RequestStatusBadge,
-  SimilarJobsCell,
+  JobRecruiterCell,
+  RequestStageBadge,
+  useJobListAbsences,
+  SimilarJobsIconButton,
   JobStageCounts,
   JobStageCountsHeader,
   STAGE_COUNTS_LEGEND,
+  jobOpenedDate,
 } from "@/components/v2/jobs/JobListCells";
-import { UserMultiSelect } from "@/components/v2/filters/UserMultiSelect";
-import { ClientMultiSelect } from "@/components/v2/filters/ClientMultiSelect";
-import { CompetenceCategoryMultiSelect } from "@/components/v2/filters/CompetenceCategoryMultiSelect";
+import { RequestPriorityChip } from "@/components/v2/jobs/RequestPriorityChip";
+import { priorityLevelOf, type PriorityLevel } from "@/lib/request-priority";
+import { TwinSuggestionsButton } from "@/components/v2/jobs/twins/TwinSuggestionsButton";
+import { hasRole, useAuthStore } from "@/store/auth";
 import {
-  JOB_STATUS_OPTIONS,
-  type JobStatusValue,
-} from "@/lib/filter-options";
-import { useAuthStore } from "@/store/auth";
-import { useUiStore } from "@/store/ui";
-import {
+  JOB_SCOPE_VALUES,
   deadlineQueryParams,
   defaultScopeForUser,
   defaultSortForScope,
+  effectiveScopeOverride,
   encodeJobsListUrl,
+  hasJobsListParams,
   initialDeadlineFromUrl,
   initialDeadlineRangeFromUrl,
   initialFlagFromUrl,
   initialIdsFromUrl,
+  initialOpenedRangeFromUrl,
+  initialPriorityLevelsFromUrl,
+  initialSearchFromUrl,
   initialSentFromUrl,
+  initialToSendFromUrl,
+  openedQueryParams,
   resolveScope,
   scopeOverrideFromUrl,
-  scopeForStatuses,
   scopeQueryFlags,
   sentQueryParams,
-  statusesForScope,
-  initialPriorityWorkFromUrl,
-  initialSearchFromUrl,
   sortOverrideFromUrl,
-  initialStatusFromUrl,
-  initialTypeFromUrl,
+  toSendQueryParams,
+  type CategoryScopeState,
   type JobDeadlinePreset,
   type JobDeadlineRange,
+  type JobOpenedRange,
   type JobScope,
   type JobSentFilterValue,
   type JobSortFilterValue,
-  type JobTypeFilterValue,
+  type JobToSendFilterValue,
 } from "@/lib/jobs-url-filters";
-import { extractSkills } from "@/lib/job-skills";
-import { shortenPersonName } from "@/lib/job-header-subtitle";
+import {
+  jobsListMemoryKey,
+  readJobsListMemory,
+  writeJobsListMemory,
+} from "@/lib/jobs-list-memory";
+import { jobClientTitle, jobDisplayTitle } from "@/lib/job-names";
+import { useToast } from "@/components/Toast";
+import {
+  ClientReferenceChip,
+  copyClientReference,
+} from "@/components/v2/jobs/ClientReferenceChip";
+import { jobRowTitle, jobWorkModeParts } from "@/lib/job-row-summary";
 import { stageSummaryOf } from "@/lib/job-pipeline-funnel";
+import { WIDE_TABLE_CONTAINER } from "@/lib/wide-table";
 import type {
   PriorityChannel,
   PriorityRank,
 } from "@/lib/priority-work-api";
-
-// `recruitment_type` z backendu (`RecruitmentType`, `body_leasing` |
-// `sales_project` | `tender`) — do 2026-09 ten filtr wysyłał `"sales"` /
-// `"tenders"`, które nie są prawidłowymi wartościami enuma. FastAPI waliduje
-// query param typu Enum, więc kliknięcie zakładki „Sales" lub „Przetargi"
-// kończyło się 422 i całą listą renderowaną jako awaria — dokładnie ten sam
-// gatunek błędu, który wcześniej naprawiono dla `ContractTypeValue` w
-// `filter-options.ts` (tam wartości też były przepisane z tego enuma).
-// Etykiety zostają PL/EN tak jak dziś — to wartości WYSYŁANE do API się liczą.
-type JobType = JobTypeFilterValue;
-
-const FILTER_TABS: { value: JobType; label: string }[] = [
-  { value: "all", label: "Wszystkie" },
-  { value: "body_leasing", label: "Body leasing" },
-  { value: "sales_project", label: "Sales" },
-  { value: "tender", label: "Przetargi" },
-];
-
-const STATUS_VARIANT: Record<
-  string, "success" | "soft" | "neutral" | "warning" | "danger"
-> = {
-  open: "success",
-  published: "success",
-  closed: "neutral",
-  draft: "soft",
-  on_hold: "warning",
-  lost: "danger",
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  open: "Otwarta",
-  published: "Opublikowana",
-  closed: "Zamknięta",
-  draft: "Draft",
-  on_hold: "Wstrzymana",
-  lost: "Utracona",
-};
-
-type DeadlinePreset = JobDeadlinePreset;
-
-/** Od tej szerokości kolumna filtrów jest domyślnie rozwinięta (Tailwind `2xl`). */
-const FILTERS_AUTO_EXPAND_QUERY = "(min-width: 1536px)";
-
-type FiltersMode = "auto" | "expanded" | "collapsed";
-
-/**
- * Siatka strony dla 3 stanów filtrów × 2 stanów doku. Pełne literały klas
- * (Tailwind nie widzi sklejanych) — `auto` przełącza się CSS-em na `2xl`.
- */
-const LAYOUT_GRID: Record<FiltersMode, { closed: string; open: string }> = {
-  // Trzy kolumny dopiero od `2xl`: przy 1280 px z przypiętym paskiem bocznym
-  // tabela dostawała ~370 px. Na `xl` otwarty dok zajmuje miejsce filtrów
-  // (patrz `FILTERS_ASIDE_VISIBILITY_WITH_DOCK`).
-  expanded: {
-    closed: "lg:grid-cols-[230px_minmax(0,1fr)]",
-    open: "lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[230px_minmax(0,1fr)_360px]",
-  },
-  collapsed: {
-    closed: "",
-    open: "xl:grid-cols-[minmax(0,1fr)_360px]",
-  },
-  // Tryb `auto` z otwartym dokiem CHOWA filtry: trzy kolumny na 1400 px
-  // ucinały tabeli termin i akcje. Jawnie rozwinięte filtry zostają.
-  auto: {
-    closed: "2xl:grid-cols-[230px_minmax(0,1fr)]",
-    open: "xl:grid-cols-[minmax(0,1fr)_360px]",
-  },
-};
-
-const FILTERS_ASIDE_VISIBILITY: Record<FiltersMode, string> = {
-  expanded: "",
-  collapsed: "hidden",
-  auto: "hidden 2xl:block",
-};
-
-const DEADLINE_OPTIONS: { value: DeadlinePreset; label: string }[] = [
-  { value: "any", label: "Termin: dowolny" },
-  { value: "overdue", label: "Po terminie" },
-  { value: "this_week", label: "W tym tygodniu" },
-  { value: "next7", label: "Najbliższe 7 dni" },
-  { value: "next14", label: "Do 14 dni" },
-  { value: "next30", label: "Najbliższe 30 dni" },
-  { value: "has", label: "Z terminem" },
-  { value: "none", label: "Bez terminu" },
-  { value: "range", label: "Zakres dat…" },
-];
-
-/**
- * „Wysłanych do klienta" — OSOBY (nie wiersze etapów), które w rekrutacji
- * doszły do „CV wysłane" albo dalej (backend `min_sent`/`max_sent`).
- */
-const SENT_OPTIONS: { value: JobSentFilterValue; label: string }[] = [
-  { value: "any", label: "Wysłanych: dowolnie" },
-  { value: "none", label: "Nikt jeszcze" },
-  { value: "1", label: "Co najmniej 1 osoba" },
-  { value: "3", label: "Co najmniej 3 osoby" },
-  { value: "5", label: "Co najmniej 5 osób" },
-];
+import { P0Chip } from "@/components/v2/jobs/p0/P0Chip";
+import { isP0Active } from "@/lib/job-p0";
 
 // Bez `title` na przyciskach: w Chrome `title` potrafi przejąć nazwę dostępną
 // przycisku, a nazwa ma zostać „Otwarte 318". Opis idzie w `aria-describedby`.
-const SCOPE_OPTIONS: { value: JobScope; label: string; hint: string }[] = [
-  { value: "mine", label: "Moje", hint: "Prowadzę albo współpracuję." },
-  { value: "open", label: "Otwarte", hint: "Wszystkie poza zamkniętymi (otwarte i szkice)." },
-  { value: "all", label: "Wszystkie", hint: "Cały rejestr, także zamknięte." },
-];
+const SCOPE_META: Record<JobScope, { label: string; hint: string }> = {
+  mine: { label: "Moje", hint: "Jestem Rekruterem albo Delivery Leadem." },
+  // Tylko widok: rekrutacje z mojej kategorii kompetencji, które mogę wziąć.
+  // Opcja jest na przełączniku wyłącznie u osoby, która ma kategorię.
+  category: {
+    label: "Moja kategoria",
+    hint: "Niezamknięte rekrutacje z mojej kategorii kompetencji — do wzięcia, niekoniecznie moje.",
+  },
+  open: { label: "Otwarte", hint: "Wszystkie poza zamkniętymi (otwarte i szkice)." },
+  all: { label: "Wszystkie", hint: "Cały rejestr, także zamknięte." },
+};
 
 type JobSortValue = JobSortFilterValue;
-type PriorityWorkFilter = "any" | "assigned" | "carry_over" | "either";
 
 const SORT_OPTIONS: { value: JobSortValue; label: string }[] = [
   // `sort=attention`: najpierw rekrutacje z największą liczbą kandydatów
   // czekających na ruch rekrutera (backend: `needs_action_count` DESC).
   { value: "attention", label: "Wymaga uwagi" },
+  // Data otwarcia rekrutacji (`opened_at`, bez niej `created_at`) —
+  // u rekrutacji z Traffita `created_at` to chwila importu (20.10.2026).
   { value: "newest", label: "Od najnowszej" },
   { value: "oldest", label: "Od najstarszej" },
   // Termin rosnąco, bez terminu na końcu (backend `sort=deadline`).
   { value: "deadline", label: "Najbliższy termin" },
-];
-
-const PRIORITY_WORK_OPTIONS: {
-  value: PriorityWorkFilter;
-  label: string;
-}[] = [
-  { value: "any", label: "Priority Work: wszystko" },
-  { value: "assigned", label: "Przydzielone w planie" },
-  { value: "carry_over", label: "Tylko carry-over" },
-  { value: "either", label: "Plan lub carry-over" },
 ];
 
 interface JobPriorityWorkSummary {
@@ -299,6 +204,20 @@ export function JobPriorityWorkBadges({
   );
 }
 
+const EMPTY_FILTERS: JobsFilterBarValue = {
+  clientIds: [],
+  deliveryLeadIds: [],
+  workedBy: [],
+  nobodyWorking: false,
+  ccIds: [],
+  deadline: "any",
+  deadlineRange: {},
+  sent: "any",
+  toSend: "",
+  priorityLevels: [],
+  openedRange: {},
+};
+
 /**
  * Klucze react-query listy — eksportowane, żeby harness `/preview/jobs-list-v3`
  * zasiewał cache TYM SAMYM kluczem, którego używa komponent. Ręcznie przepisany
@@ -307,211 +226,82 @@ export function JobPriorityWorkBadges({
  */
 export interface JobsListQueryState {
   search: string;
-  status: readonly JobStatusValue[];
-  type: JobTypeFilterValue;
   mine: boolean;
-  responsibleIds: readonly number[];
+  /** Zakres „Moja kategoria” (`my_category=true`) — idzie bez `mine` i `open_only`. */
+  myCategory?: boolean;
+  openOnly: boolean;
+  sort: JobSortFilterValue;
+  page: number;
+  /** Pigułki „Stan requestu” (`request_stage`, LUB) — pusty = wszystkie. */
+  stages: readonly RequestStage[];
   clientIds: readonly number[];
   ccIds: readonly number[];
-  needsSourcing: boolean;
-  activeInSearch: boolean;
+  /** Delivery Lead rekrutacji (`delivery_lead_id`, LUB). */
+  deliveryLeadIds: readonly number[];
+  /** „Rekruter” — id osób (`worked_by`, LUB). */
+  workedBy: readonly number[];
+  /** „Bez rekrutera” (`nobody_working=true`). */
+  nobodyWorking: boolean;
   deadline: JobDeadlinePreset;
-  openOnly: boolean;
-  noOwnerOnly: boolean;
-  sort: JobSortFilterValue;
-  priorityWork: "any" | "assigned" | "carry_over" | "either";
-  page: number;
-  /** Status requestu (0341) — pusty/brak = wszystkie. */
-  requestStatuses?: readonly RequestStatus[];
-  workStates?: readonly VisibleState[];
   /** Granice presetu terminu `range` — brak = bez zakresu. */
   deadlineRange?: JobDeadlineRange;
-  /** Delivery Lead rekrutacji (`delivery_lead_id`, LUB). */
-  deliveryLeadIds?: readonly number[];
   /** „Wysłanych do klienta" — brak = dowolnie. */
   sent?: JobSentFilterValue;
+  /** „Do wysłania do klienta” (`dl_send`) — brak = dowolnie. */
+  toSend?: JobToSendFilterValue;
+  /** „Priorytet” (`priority_level`, LUB) — pusty = dowolny. */
+  priorityLevels?: readonly PriorityLevel[];
+  /** „Data otwarcia” (`opened_from` / `opened_to`). */
+  openedRange?: JobOpenedRange;
 }
-
-const WORK_STATE_CHIPS: readonly VisibleState[] = [
-  "to_review",
-  "searching",
-  "client_silent",
-  "finished",
-];
 
 export function jobsListQueryKey(state: JobsListQueryState): unknown[] {
   return [
     "jobs-v2",
     state.search,
-    state.status,
-    state.type,
     state.mine ? 1 : 0,
-    state.responsibleIds,
+    state.openOnly ? 1 : 0,
+    state.sort,
+    state.page,
+    state.stages,
     state.clientIds,
     state.ccIds,
-    state.needsSourcing ? 1 : 0,
-    state.activeInSearch ? 1 : 0,
+    state.deliveryLeadIds,
+    state.workedBy,
+    state.nobodyWorking ? 1 : 0,
     state.deadline,
-    state.openOnly ? 1 : 0,
-    state.noOwnerOnly ? 1 : 0,
-    state.sort,
-    state.priorityWork,
-    state.page,
-    state.requestStatuses ?? [],
-    state.workStates ?? [],
     state.deadline === "range"
       ? [state.deadlineRange?.from ?? "", state.deadlineRange?.to ?? ""]
       : [],
-    state.deliveryLeadIds ?? [],
     state.sent ?? "any",
+    state.myCategory ? 1 : 0,
+    state.priorityLevels ?? [],
+    // Daty, które NAPRAWDĘ idą do serwera: odwrócony albo niedokończony
+    // zakres nie zmienia klucza, więc lista nie migocze w trakcie wpisywania.
+    openedKey(state.openedRange),
+    state.toSend ?? "",
   ];
 }
 
-/** Okno „Deadline ≤ 7 dni" liczy przeglądarka — ta sama para dat co filtr. */
+function openedKey(range: JobOpenedRange | undefined): string[] {
+  const sent = openedQueryParams(range);
+  return [sent.opened_from ?? "", sent.opened_to ?? ""];
+}
+
+/**
+ * Liczniki pigułek i przełączników. Okno „Po terminie” (termin do wczoraj)
+ * liczy przeglądarka — ta sama data co filtr, żeby licznik i lista się zgadzały.
+ */
 export function jobsQuickCountsQueryKey(): unknown[] {
-  const next7 = deadlineQueryParams("next7");
-  return ["jobs-quick-counts", next7.deadline_from, next7.deadline_to];
+  return ["jobs-quick-counts", deadlineQueryParams("overdue").deadline_to];
 }
 
-/** Pigułka filtra w lewej kolumnie (makieta `.fp`) — Typ i Status. */
-function FilterPill({
-  active,
-  onClick,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "rounded-full border px-2 py-0.5 text-[11px] transition-colors",
-        active
-          ? "border-primary bg-primary text-primary-foreground"
-          : "border-border bg-background text-foreground hover:bg-accent",
-      )}
-    >
-      {label}
-    </button>
-  );
-}
+// Laptop (tabela poniżej 1100 px): węższe odstępy w krótkich kolumnach, żeby
+// lista mieściła się w oknie 1280 px bez poziomego przewijania (pomiar
+// 02.10.2026: 11 px ponad szerokość przy rozwiniętym menu).
+const NARROW_CELL = "@max-[1099px]:px-2";
 
-/**
- * Wiersz w sekcji "Szybkie" lewej kolumny filtrów (makieta „01 Lista").
- *
- * `count` jest GLOBALNY — pochodzi z `GET /api/jobs/quick-counts`, który liczy
- * wszystkie sześć faset JEDNYM zapytaniem (`count(*) FILTER (WHERE …)`) tymi
- * samymi predykatami, co filtry listy. Do 09.2026 licznik miał tu tylko „Brak
- * ownera requestu" i opisywał WYŁĄCZNIE wczytaną stronę — „63" znaczyło „63
- * na dwudziestu widocznych wierszach", czyli liczbę, której nie dało się
- * zinterpretować.
- *
- * `count === undefined` (liczniki jeszcze się ładują albo ich zapytanie padło)
- * renderuje BRAK liczby, nie zero: zero jest zdaniem o bazie, a nie o tym, że
- * czegoś nie wiemy.
- */
-function QuickFilterRow({
-  active,
-  onClick,
-  label,
-  count,
-  tone = "neutral",
-  title,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  count?: number;
-  tone?: "neutral" | "warning" | "danger";
-  title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      title={title}
-      className={cn(
-        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
-        active
-          ? "bg-primary/10 font-medium text-primary"
-          : "text-foreground hover:bg-accent",
-      )}
-    >
-      <span
-        aria-hidden="true"
-        className={cn(
-          "h-1.5 w-1.5 shrink-0 rounded-full",
-          tone === "warning"
-            ? "bg-warning"
-            : tone === "danger"
-              ? "bg-destructive"
-              : "bg-muted-foreground/40",
-        )}
-      />
-      {/* Etykieta ZAWIJA się zamiast ucinać: przy czterocyfrowym liczniku
-          („Brak opiekuna TAC 4236") `truncate` zostawiał „Brak ownera req…",
-          a to ta sama etykieta, po której użytkownik rozpoznaje filtr. */}
-      <span className="min-w-0 flex-1 leading-snug">{label}</span>
-      {count != null && (
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-          {count}
-        </span>
-      )}
-    </button>
-  );
-}
-
-/**
- * Właściciel prowadzący w wierszu listy (makieta: `Marta K.` / `Nieprzypisany`).
- *
- * Świadomie NIE `OwnerBadge`: ten sam komponent rysuje właściciela w kafelkach,
- * na pulpicie i w nagłówku rekrutacji, a tutaj potrzebne są dwie rzeczy, które
- * tam byłyby regresją — skrócone nazwisko (wiersz ma jedną linię na osobę)
- * i **ton ostrzegawczy przy braku** (na liście „nieprzypisany" jest sprawą do
- * załatwienia, a nie neutralnym faktem: nikt nie dostanie alertów deadline'u).
- */
-function JobOwnerCell({ user }: { user?: { name?: string | null } | null }) {
-  const short = shortenPersonName(user?.name);
-  if (!short) {
-    return (
-      <span
-        className="inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium text-warning"
-        title="Rekrutacja nie ma właściciela prowadzącego — nikt nie dostanie alertów deadline'u"
-      >
-        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-        Nieprzypisany
-      </span>
-    );
-  }
-  return (
-    <span
-      className="inline-flex min-w-0 items-center gap-1.5 text-xs text-foreground"
-      title={user?.name ?? undefined}
-    >
-      <span
-        aria-hidden="true"
-        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground"
-      >
-        {initialsOf(user?.name)}
-      </span>
-      <span className="truncate">{short}</span>
-    </span>
-  );
-}
-
-function initialsOf(name: string | null | undefined): string {
-  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-/** Compact table presentation of the jobs list (alternative to the tile grid). */
+/** Tabela listy rekrutacji — jedyny widok (kafelki usunięte 02.10.2026). */
 function JobsTable({
   items,
   previewId,
@@ -519,6 +309,9 @@ function JobsTable({
   onPreview,
   onInvite,
   onSimilar,
+  workedBy,
+  canStaff,
+  canDecideProposals,
 }: {
   items: any[];
   /** Rekrutacja otwarta w doku podglądu — jej wiersz jest podświetlony. */
@@ -528,29 +321,43 @@ function JobsTable({
   onPreview: (id: number) => void;
   /** `undefined` = brak capability `invite_link.create` — nie renderujemy akcji. */
   onInvite?: (id: number) => void;
-  /** Okno „Podobne rekrutacje" (0341) — plakietka pod tytułem. */
+  /** Okno „Podobne rekrutacje" (0341) — ikona w kolumnie akcji. */
   onSimilar: (id: number) => void;
+  /** Filtr „Rekruter” — te osoby komórka pokazuje z nazwiska jako pierwsze. */
+  workedBy: readonly number[];
+  /** Przydziela i zdejmuje rekruterów (`job.recruiter.assign`) — kolumna „Rekruter” z edycją. */
+  canStaff: boolean;
+  /** Rozstrzyga propozycje automatu (`request.proposal.decide`). */
+  canDecideProposals: boolean;
 }) {
+  const toast = useToast();
+  // Kropka nieobecności przy Rekruterze i DL — jedno zapytanie na stronę listy.
+  const absences = useJobListAbsences(items);
   return (
+    // Jeden układ dla każdej szerokości (02.10.2026): wiersz to numer u klienta
+    // (15.10.2026) i nazwa stanowiska, a pod nią kategoria, klient i tryb pracy.
+    // Wymagania, nazwa od klienta, nasz numer i data otwarcia stoją
+    // w Podglądzie (`JobPreviewDetails`).
+    // `@container` zostaje dla `NARROW_CELL`.
+    <div className={WIDE_TABLE_CONTAINER}>
     <Table>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          {/* Lista v5 (24.09.2026): etapy = osiem kolumn Tablicy ze skrótami
-              RAZ w nagłówku, „Podobne rekrutacje" jako plakietka pod tytułem.
-              „Wymaga ruchu" i „W bazie" zdjęte decyzją Artura (22.09) —
-              kolejność nadal daje sortowanie „Wymaga uwagi". */}
-          {/* Telefon: tabela przewija się w poziomie (6 kolumn ≈ 850 px), więc
-              kolumna „Rekrutacja" stoi przyklejona — bez niej po przewinięciu
-              nie wiadomo, czyj to status i termin. */}
+          {/* Telefon: tabela przewija się w poziomie, więc kolumna „Rekrutacja"
+              stoi przyklejona — bez niej po przewinięciu nie wiadomo, czyj to
+              status i termin. */}
           <TableHead className="max-md:sticky max-md:left-0 max-md:z-20 max-md:bg-background">Rekrutacja</TableHead>
-          <TableHead className="w-[150px]">Status</TableHead>
+          <TableHead className={cn("w-[136px]", NARROW_CELL)}>Status</TableHead>
           <TableHead className="w-[244px] px-2 py-1.5" title={STAGE_COUNTS_LEGEND}>
             <span className="sr-only">Etapy</span>
             <JobStageCountsHeader />
           </TableHead>
-          <TableHead className="w-[120px]">Termin</TableHead>
-          <TableHead className="w-[120px]">Prowadzi</TableHead>
-          <TableHead className="w-[64px]" />
+          <TableHead className={cn("w-[108px]", NARROW_CELL)}>Termin</TableHead>
+          {/* Delivery Lead stoi drobnym drukiem pod osobami — bez własnej kolumny. */}
+          <TableHead className={cn("w-[120px]", NARROW_CELL)}>Rekruter</TableHead>
+          {/* Gdzie wisi ogłoszenie wklejone ręcznie (Pracuj.pl, JustJoin.IT). */}
+          <TableHead className={cn("w-[84px]", NARROW_CELL)}>Ogłoszenia</TableHead>
+          <TableHead className={cn("w-[96px]", NARROW_CELL)} />
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -568,9 +375,12 @@ function JobsTable({
             100,
             Math.round((filledCount / Math.max(1, targetCount)) * 100),
           );
-          // `can_open === false` — ten sam kontrakt co kafelki: wiersz zostaje
+          // `can_open === false`: rejestr pokazuje tę rekrutację (jest świadomie
+          // ogólnofirmowy), ale detal odpowie 403. Wiersz zostaje
           // czytelny, ale nie udaje klikalnego (detal zwróciłby 403).
           const locked = job.can_open === false;
+          const workMode = jobWorkModeParts(job);
+          const opened = jobOpenedDate(job);
           return (
             <TableRow
               key={job.id}
@@ -587,73 +397,122 @@ function JobsTable({
                   ? "Nie masz dostępu do tej rekrutacji — poproś o dodanie Cię do jej zespołu."
                   : undefined
               }
-              className={locked ? "opacity-60" : undefined}
+              className={cn(
+                locked && "opacity-60",
+                // P0 — ultrapilne (27.10.2026): przypięte na górze przez serwer.
+                isP0Active(job) && "bg-destructive-muted hover:bg-destructive-muted/80",
+              )}
+              data-p0={isP0Active(job) ? "true" : undefined}
             >
-              <TableCell className="max-w-[360px] max-md:sticky max-md:left-0 max-md:z-10 max-md:w-[200px] max-md:max-w-[200px] max-md:border-r max-md:border-border/60 max-md:bg-card">
-                {/* `can_open === false` — ta sama reguła co kafelki: rekrutacja
+              {/* `md:w-full md:max-w-0`: kolumna bierze resztę szerokości, a długa
+                  nazwa przycina się wielokropkiem zamiast rozpychać tabelę.
+                  Minimum 200 px: z otwartym Podglądem na laptopie tabela
+                  przewija się w poziomie, zamiast ściskać nazwę do kilku liter. */}
+              <TableCell className="overflow-hidden md:w-full md:min-w-[200px] md:max-w-0 max-md:sticky max-md:left-0 max-md:z-10 max-md:w-[200px] max-md:max-w-[200px] max-md:border-r max-md:border-border/60 max-md:bg-card">
+                {/* Priorytet stoi przy tytule (P2 nie ma plakietki), bez
+                    osobnej kolumny. */}
+                <div className="flex min-w-0 items-center gap-1.5">
+                {isP0Active(job) ? (
+                  <P0Chip until={job.p0_until} reason={job.p0_reason} />
+                ) : (
+                  <RequestPriorityChip
+                    level={priorityLevelOf(job)}
+                    // P1 wstrzymany, bo mamy championa (D6, 15.10.2026).
+                    paused={job.priority_paused === true}
+                    className="shrink-0"
+                  />
+                )}
+                {/* Numer u klienta przed nazwą (prośba DL Nordei, 15.10.2026):
+                    tytuły dla rekrutera są uogólnione i bez numeru nie widać,
+                    który request to który. Poza linkiem — nazwa linku zostaje
+                    tytułem. */}
+                <ClientReferenceChip
+                  reference={job.client_reference}
+                  clientTitle={jobClientTitle(job)}
+                  onCopy={(reference) => void copyClientReference(reference, toast)}
+                  testId="job-row-client-reference"
+                />
+                {/* Pełny tytuł roboczy w dymku stoi na opakowaniu: `title` na
+                    samym linku przejąłby w Chrome jego nazwę dostępną. */}
+                <span className="block min-w-0 truncate" title={jobDisplayTitle(job)}>
+                {/* `can_open === false`: rekrutacja
                     jest w rejestrze, ale detal odpowie 403, więc tytuł nie
                     udaje linku (tabela do 09.2026 prowadziła prosto w ścianę). */}
                 {job.can_open === false ? (
                   <span
                     aria-disabled="true"
                     title="Nie masz dostępu do tej rekrutacji — poproś o dodanie Cię do jej zespołu."
-                    className="line-clamp-2 break-words font-medium leading-snug text-muted-foreground"
+                    className="font-medium leading-snug text-muted-foreground"
                   >
-                    {job.title}
+                    {jobRowTitle(job)}
                   </span>
                 ) : (
-                  // Dwie linie zamiast jednej (lista v5): tytuły z Traffita
-                  // niosą klienta i technologię w nazwie, a ucięte do jednej
-                  // linii wyglądały identycznie.
                   <Link
                     href={`/jobs/${job.id}`}
                     onClick={(e) => e.stopPropagation()}
-                    title={job.title}
-                    className="line-clamp-2 break-words font-medium leading-snug text-foreground hover:text-primary hover:underline"
+                    data-tour="jobs.list.title"
+                    className="font-medium leading-snug text-foreground hover:text-primary hover:underline"
                   >
-                    {job.title}
+                    {jobRowTitle(job)}
                   </Link>
                 )}
-                <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
+                </span>
+                </div>
+                <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                  <JobCategoryShortBadge categoryId={job.competence_category_id} />
                   {job.client_name && (
-                    <span className="inline-flex min-w-0 max-w-[220px] items-center gap-0.5" title="Klient">
+                    <span
+                      className="inline-flex min-w-0 items-center gap-1"
+                      title={`Klient: ${job.client_name}`}
+                      data-testid="job-row-client"
+                    >
                       <Building2 className="h-3 w-3 shrink-0" />
                       <span className="truncate">{job.client_name}</span>
                     </span>
                   )}
-                  {job.reference_number && (
-                    <span className="font-mono text-[10px]" title="Numer referencyjny">
-                      {job.reference_number}
-                    </span>
+                  {/* Gdy brakuje miejsca, najpierw przycina się miasto, potem
+                      klient; nazwa trybu zostaje cała. */}
+                  {(workMode.mode || workMode.city) && (
+                    <>
+                      {job.client_name && <span aria-hidden="true">·</span>}
+                      <span className="contents" data-testid="job-row-work-mode">
+                        {workMode.mode && (
+                          <span
+                            className="shrink-0 whitespace-nowrap"
+                            title={`Tryb pracy: ${[workMode.mode, workMode.city].filter(Boolean).join(" · ")}`}
+                          >
+                            {workMode.mode}
+                          </span>
+                        )}{" "}
+                        {workMode.city && (
+                          <span
+                            className="min-w-0 shrink-[1000] truncate"
+                            title={`Miasto: ${workMode.city}`}
+                          >
+                            {workMode.mode ? "· " : ""}
+                            {workMode.city}
+                          </span>
+                        )}
+                      </span>
+                    </>
                   )}
-                  {job.location && (
-                    <span className="inline-flex min-w-0 max-w-[180px] items-center gap-0.5" title="Lokalizacja">
-                      <MapPin className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{job.location}</span>
-                    </span>
-                  )}
-                  <JobPriorityWorkBadges job={job} />
-                  <SimilarJobsCell
-                    similar={job.similar}
-                    disabled={locked}
-                    onOpen={() => onSimilar(job.id)}
-                  />
                 </div>
               </TableCell>
-              <TableCell>
-                <RequestStatusBadge status={job.request_status} />
-                {job.visible_work_state && job.visible_work_state !== "searching" && (
-                  <span
-                    className="mt-1 block text-[11px] text-muted-foreground"
-                    title="Stan pracy nad requestem (Porządek w requestach)"
-                  >
-                    {ROW_STATE_LABEL[job.visible_work_state as VisibleState]}
-                  </span>
-                )}
+              <TableCell className={NARROW_CELL}>
+                <RequestStageBadge
+                  stage={job.request_stage}
+                  fallbackStatus={job.request_status}
+                  champions={job.champions}
+                />
               </TableCell>
               <TableCell className="px-2">
                 {stageSummary ? (
-                  <JobStageCounts summary={stageSummary} />
+                  <JobStageCounts
+                    summary={stageSummary}
+                    // Tylko u Delivery Leada: gotowi do JEGO wysyłki → wypełniona
+                    // komórka „QC CV” (bez nowej kolumny i drugiej linii).
+                    dlReady={job.dl_send_ready_count}
+                  />
                 ) : (
                   <div className="flex items-center gap-2">
                     <div className="h-1.5 min-w-[48px] flex-1 overflow-hidden rounded-full bg-border/60">
@@ -668,16 +527,41 @@ function JobsTable({
                   </div>
                 )}
               </TableCell>
+              {/* Dymek: data otwarcia, a bez niej data dodania — ta sama
+                  (`opened_effective_at`), po której filtruje „Data otwarcia”. */}
               <TableCell
-                title={job.created_at ? `Dodano ${formatDate(job.created_at)}` : undefined}
+                className={NARROW_CELL}
+                title={opened ? `Otwarta ${formatDate(opened)}` : undefined}
               >
-                <JobDeadlineCell deadline={job.deadline} />
+                <JobDeadlineCell deadline={job.deadline} deadlineTime={job.deadline_time} />
               </TableCell>
-              <TableCell>
-                <JobOwnerCell user={job.primary_owner ?? null} />
+              <TableCell className={NARROW_CELL}>
+                <JobRecruiterCell
+                  job={job}
+                  highlightIds={workedBy}
+                  absences={absences}
+                  // Zamkniętej rekrutacji obsady już się nie zmienia (serwer: 409).
+                  edit={
+                    canStaff && !locked && job.status !== "closed"
+                      ? {
+                          jobId: job.id,
+                          jobTitle: jobDisplayTitle(job),
+                          canDecide: canDecideProposals,
+                        }
+                      : undefined
+                  }
+                />
               </TableCell>
-              <TableCell>
+              <TableCell className={NARROW_CELL}>
+                <JobAdPublicationsCell job={job} />
+              </TableCell>
+              <TableCell className={NARROW_CELL}>
                 <div className="flex items-center justify-end gap-0.5">
+                  <SimilarJobsIconButton
+                    similar={job.similar}
+                    disabled={locked}
+                    onOpen={() => onSimilar(job.id)}
+                  />
                   {job.status === "published" && onInvite && (
                     <button
                       type="button"
@@ -726,102 +610,120 @@ function JobsTable({
         })}
       </TableBody>
     </Table>
+    </div>
   );
 }
 
-export function JobsListV2() {
-  // Stan początkowy z URL-a. Bez tego deep-linki były atrapą: pulpit prowadzi
-  // na `/jobs?mine=0&status=published`, a lista i tak startowała z pustymi
-  // filtrami, więc użytkownik dostawał WSZYSTKIE oferty (z Draftami włącznie)
-  // i nie miał sygnału, że kliknięty filtr nie zadziałał.
-  //
-  // Czytane raz, przy montowaniu. Status, „moje", typ, termin i sortowanie są
-  // potem ZAPISYWANE z powrotem do URL-a (efekt niżej, M03-B01) — inaczej F5
-  // i „Wstecz" z profilu rekrutacji gubiły zawężenie bez słowa.
+/** Wybory osoby odczytane z parametrów listy — z adresu albo z pamięci. */
+interface JobsListView {
+  search: string;
+  scopeChoice: JobScope | null;
+  stages: RequestStage[];
+  filters: JobsFilterBarValue;
+  sortOverride: JobSortValue | null;
+}
+
+function viewFromParams(params: URLSearchParams): JobsListView {
+  return {
+    search: initialSearchFromUrl(params),
+    scopeChoice: scopeOverrideFromUrl(params),
+    stages: initialStagesFromUrl(params),
+    filters: {
+      clientIds: initialIdsFromUrl(params, "client"),
+      deliveryLeadIds: initialIdsFromUrl(params, "lead"),
+      workedBy: initialIdsFromUrl(params, "who"),
+      nobodyWorking: initialFlagFromUrl(params, "nobody"),
+      ccIds: initialIdsFromUrl(params, "cc"),
+      deadline: initialDeadlineFromUrl(params),
+      deadlineRange: initialDeadlineRangeFromUrl(params),
+      sent: initialSentFromUrl(params),
+      toSend: initialToSendFromUrl(params),
+      priorityLevels: initialPriorityLevelsFromUrl(params),
+      openedRange: initialOpenedRangeFromUrl(params),
+    },
+    sortOverride: sortOverrideFromUrl(params),
+  };
+}
+
+/**
+ * Skąd jest widok na ekranie: `link` — z adresu z parametrami, nietknięty;
+ * `restored` — z gołego adresu (pamięć osoby albo domyślne roli), nietknięty;
+ * `user` — osoba coś zmieniła. Tylko `user` zapisuje pamięć: link z pulpitu
+ * nie może jej przykryć samym otwarciem.
+ */
+type ViewOrigin = "link" | "restored" | "user";
+
+export function JobsListV2({
+  memoryKey: memoryKeyProp,
+}: {
+  /** Klucz pamięci widoku; domyślnie wpis zalogowanej osoby, `null` = bez pamięci. */
+  memoryKey?: string | null;
+} = {}) {
   const searchParams = useSearchParams();
-  const [search, setSearch] = useState(() => initialSearchFromUrl(searchParams));
-  const [statusFilter, setStatusFilter] = useState<JobStatusValue[]>(
-    () => initialStatusFromUrl(searchParams)
-  );
-  const [typeFilter, setTypeFilter] = useState<JobType>(() =>
-    initialTypeFromUrl(searchParams),
-  );
   // Zakres i sortowanie trzymamy jako NADPISANIA (`null` = „bez wyboru"):
   // zakres obowiązujący to jawny wybór albo domyślny roli, a sortowanie bez
   // wyboru idzie za zakresem. Dzięki temu lista reaguje na hydratację store'u
   // (rola znana dopiero po mount) bez gubienia jawnego `mine=0/1` z adresu.
   const authUser = useAuthStore((s) => s.user);
   const authHydrated = useAuthStore((s) => s.hydrated);
-  // Zakres: „Moje" | „Otwarte" | „Wszystkie" (lista v5). Role prowadzące
-  // startują w „Moich", nadzorujące (admin, HoR, Finanse, viewer) —
+  const memoryKey =
+    memoryKeyProp !== undefined ? memoryKeyProp : jobsListMemoryKey(authUser?.id);
+  // Stan początkowy czytany raz przy montowaniu, a potem ZAPISYWANY z powrotem
+  // do adresu (efekt niżej) — F5 i „Wstecz" z profilu rekrutacji nie gubią
+  // zawężenia. Adres z parametrami listy to link i wygrywa; goły adres (menu,
+  // okruszek, kafel pulpitu) otwiera ostatni widok osoby
+  // (`lib/jobs-list-memory.ts`). Klucze kolumny filtrów sprzed 25.09.2026
+  // (typ, status, osoba odpowiedzialna, „Szybkie”, Priority Work) nie są już
+  // filtrem i znikają z adresu; `rs`/`ws` mapują się na pigułki stanu.
+  const [entry] = useState(() => {
+    const route = new URLSearchParams(searchParams?.toString() ?? "");
+    const fromLink = hasJobsListParams(route);
+    const params = fromLink ? route : (readJobsListMemory(memoryKey) ?? route);
+    const origin: ViewOrigin = fromLink ? "link" : "restored";
+    return { view: viewFromParams(params), origin };
+  });
+  const [viewOrigin, setViewOrigin] = useState<ViewOrigin>(entry.origin);
+  const [search, setSearch] = useState(entry.view.search);
+
+  // Liczniki zakresu, pigułek stanu i trzech przełączników — JEDNO zapytanie
+  // (`/api/jobs/quick-counts`, marker parytetu „quick-counts”), niezależne od
+  // stronicowania i od pozostałych filtrów. Datę „Po terminie” liczy
+  // PRZEGLĄDARKA — ta sama, którą dostaje filtr terminu. Stoi przed zakresem,
+  // bo to z liczników wiadomo, czy osoba ma kategorię („Moja kategoria”).
+  const overdueTo = deadlineQueryParams("overdue").deadline_to;
+  const { data: quickCounts, isPending: quickCountsPending } = useQuery({
+    queryKey: jobsQuickCountsQueryKey(),
+    queryFn: () => jobsApi.quickCounts({ overdue_to: overdueTo }).then((r) => r.data),
+    staleTime: 60_000,
+  });
+  // Liczba = osoba ma kategorię kompetencji; `null` albo brak pola = nie ma.
+  const categoryCount =
+    typeof quickCounts?.my_category === "number" ? quickCounts.my_category : null;
+  const categoryState: CategoryScopeState =
+    categoryCount !== null ? "available" : quickCountsPending ? "pending" : "unavailable";
+
+  // Zakres: „Moje" | „Moja kategoria" | „Otwarte" | „Wszystkie". Role
+  // prowadzące startują w „Moich", nadzorujące (admin, HoR, Finanse, viewer) —
   // w „Otwartych", nie w całym rejestrze z tysiącami zamkniętych.
   const defaultScope = defaultScopeForUser(authUser);
-  const [scopeOverride, setScopeOverride] = useState<JobScope | null>(() =>
-    scopeOverrideFromUrl(searchParams),
-  );
-  // Status „Zamknięta” przy „Otwartych” przełącza na „Wszystkie” — razem
-  // dawały zawsze pustą listę (audyt 24.09.2026).
-  const scope = scopeForStatuses(resolveScope(scopeOverride, authUser), statusFilter);
-  const { mine, openOnly } = scopeQueryFlags(scope);
-  const [responsibleIds, setResponsibleIds] = useState<number[]>(() =>
-    initialIdsFromUrl(searchParams, "responsible"),
-  );
-  const [clientIds, setClientIds] = useState<number[]>(() =>
-    initialIdsFromUrl(searchParams, "client"),
-  );
-  const [ccIds, setCcIds] = useState<number[]>(() =>
-    initialIdsFromUrl(searchParams, "cc"),
-  );
-  const [needsSourcing, setNeedsSourcing] = useState(() =>
-    initialFlagFromUrl(searchParams, "sourcing"),
-  );
-  const [activeInSearch, setActiveInSearch] = useState(() =>
-    initialFlagFromUrl(searchParams, "active_search"),
-  );
-  const [deadlinePreset, setDeadlinePreset] = useState<DeadlinePreset>(() =>
-    initialDeadlineFromUrl(searchParams),
-  );
-  const [deadlineRange, setDeadlineRange] = useState<JobDeadlineRange>(() =>
-    initialDeadlineRangeFromUrl(searchParams),
-  );
-  const [deliveryLeadIds, setDeliveryLeadIds] = useState<number[]>(() =>
-    initialIdsFromUrl(searchParams, "lead"),
-  );
-  const [sentFilter, setSentFilter] = useState<JobSentFilterValue>(() =>
-    initialSentFromUrl(searchParams),
-  );
-  // "Brak opiekuna TAC" jako FILTR (nie tylko badge, makieta „01 Lista").
-  // Od 09.2026 filtruje SERWER (`owner_missing` w `GET /api/jobs`, predykat
-  // `tac_id IS NULL`). Wcześniej zawężał wyłącznie już wczytaną stronę, więc
-  // „63" obok nazwy filtra opisywało dwadzieścia widocznych wierszy, a nie
-  // bazę — i paginacja pokazywała strony, na których nie było czego zawężać.
-  // Przy wyłączonej funkcji TAC stary link z `?no_owner=1` nie może zawężać
-  // listy ukrytym filtrem, którego nie da się zobaczyć ani zdjąć.
-  const [noOwnerOnly, setNoOwnerOnly] = useState(
-    () => TAC_UI_ENABLED && initialFlagFromUrl(searchParams, "no_owner"),
-  );
-  const [sortOverride, setSort] = useState<JobSortValue | null>(() =>
-    sortOverrideFromUrl(searchParams),
-  );
+  const [scopeChoice, setScopeChoice] = useState(entry.view.scopeChoice);
+  // `?mycat=1` u osoby bez kategorii = brak wyboru (zakres domyślny roli).
+  const scopeOverride = effectiveScopeOverride(scopeChoice, categoryState);
+  const scope = resolveScope(scopeOverride, authUser);
+  // Wejście z `?mycat=1`, zanim przyszły liczniki: jeszcze nie wiadomo, czy
+  // ten zakres w ogóle obowiązuje — lista czeka, zamiast pytać dwa razy.
+  const scopePending = scopeChoice === "category" && categoryState === "pending";
+  const { mine, myCategory, openOnly } = scopeQueryFlags(scope);
+  const [stages, setStages] = useState(entry.view.stages);
+  const [filterValue, setFilterValue] = useState(entry.view.filters);
+  const [sortOverride, setSort] = useState(entry.view.sortOverride);
   const sort: JobSortValue = sortOverride ?? defaultSortForScope(scope);
-  const [priorityWorkFilter, setPriorityWorkFilter] =
-    useState<PriorityWorkFilter>(() => initialPriorityWorkFromUrl(searchParams));
   const [page, setPage] = useState(1);
-  // Status requestu (0341) — adres `rs=` (powtarzalny), jak pozostałe filtry.
-  const [requestStatuses, setRequestStatuses] = useState<RequestStatus[]>(() =>
-    searchParams
-      .getAll("rs")
-      .map(requestStatusOf)
-      .filter((s): s is RequestStatus => s !== null),
-  );
-  // Stan pracy nad requestem (0371) — adres `ws=` (powtarzalny).
-  const [workStates, setWorkStates] = useState<VisibleState[]>(() =>
-    searchParams
-      .getAll("ws")
-      .filter((s): s is VisibleState =>
-        (VISIBLE_STATES as readonly string[]).includes(s),
-      ),
-  );
+  const patchFilters = (patch: Partial<JobsFilterBarValue>) => {
+    setFilterValue((prev) => ({ ...prev, ...patch }));
+    setPage(1);
+    setViewOrigin("user");
+  };
   const [similarForJob, setSimilarForJob] = useState<number | null>(null);
   const [inviteModalForJob, setInviteModalForJob] = useState<number | null>(null);
   // Dok podglądu (gotowość rekrutacji) otwiera ikona „Podgląd" w wierszu —
@@ -831,163 +733,206 @@ export function JobsListV2() {
   // zamyka dok, zamiast zostawić go bez podświetlonego wiersza.
   const [previewJobId, setPreviewJobId] = useState<number | null>(null);
   const router = useRouter();
-  const jobsView = useUiStore((s) => s.jobsView);
-  const setJobsView = useUiStore((s) => s.setJobsView);
-  // Kolumna filtrów: `null` = brak wyboru → domyślne wg szerokości okna
-  // (rozwinięta od `2xl`), liczone CSS-em, więc bez migotania przy hydracji.
-  const filtersPref = useUiStore((s) => s.jobsFiltersCollapsed);
-  const setFiltersCollapsed = useUiStore((s) => s.setJobsFiltersCollapsed);
-  const [wideViewport, setWideViewport] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const media = window.matchMedia(FILTERS_AUTO_EXPAND_QUERY);
-    const sync = () => setWideViewport(media.matches);
-    sync();
-    media.addEventListener("change", sync);
-    return () => media.removeEventListener("change", sync);
-  }, []);
-  // Lista v4: kolumna filtrów domyślnie ZWINIĘTA — codzienne zawężenia
-  // (status, zakres, szukanie) stoją nad tabelą. Rozwinięcie zapamiętuje się.
-  // `as FiltersMode`: tryb „auto" zostaje w typie dla gałęzi układu (dok).
-  const filtersMode = (
-    filtersPref === false ? "expanded" : "collapsed"
-  ) as FiltersMode;
   // Sortowanie bez jawnego wyboru samo idzie za zakresem; jawnie wybrane
   // zostaje. `null` = powrót do domyślnego zakresu roli („Wyczyść").
   const changeScope = (nextScope: JobScope | null) => {
-    setScopeOverride(nextScope);
-    setStatusFilter((prev) => statusesForScope(resolveScope(nextScope, authUser), prev));
+    setScopeChoice(nextScope);
     setPage(1);
+    setViewOrigin("user");
   };
 
   // Do zapytania idzie wartość zdebouncowana, do inputa surowa — inaczej każde
   // naciśnięcie klawisza wysyłało request i przerzucało tabelę w stan ładowania.
   const debouncedSearch = useDebouncedValue(search, 300);
 
+  const urlState = useMemo(
+    () => ({
+      scope,
+      defaultScope,
+      deadline: filterValue.deadline,
+      deadlineRange: filterValue.deadlineRange,
+      sort,
+      stages,
+      clientIds: filterValue.clientIds,
+      ccIds: filterValue.ccIds,
+      deliveryLeadIds: filterValue.deliveryLeadIds,
+      workedBy: filterValue.workedBy,
+      nobodyWorking: filterValue.nobodyWorking,
+      sent: filterValue.sent,
+      toSend: filterValue.toSend,
+      priorityLevels: filterValue.priorityLevels,
+      openedRange: filterValue.openedRange,
+    }),
+    [scope, defaultScope, sort, stages, filterValue],
+  );
+  // Nietknięty link z jawnym zakresem trzyma go w adresie, nawet gdy to zakres
+  // domyślny roli: inaczej `/jobs?mine=1` u rekrutera stawałby się gołym
+  // adresem, a „Wstecz” z rekrutacji otwierałby pamięć zamiast „Moich”.
+  const keepScope = viewOrigin === "link" && scopeOverride !== null;
+  const routeQuery = searchParams?.toString() ?? "";
+
   // Filtry → URL. `replaceState`, nie `router.replace`: zmiana filtra nie jest
   // nawigacją (nie ma zostawiać wpisu w historii ani przebudowywać drzewa),
-  // a stan i tak żyje w komponencie. Lustro `CandidatesListV2`.
+  // a stan i tak żyje w komponencie. Lustro `CandidatesListV2`. `routeQuery`
+  // w zależnościach: po nawigacji routera na goły `/jobs` przy zachowanych
+  // filtrach adres dostaje je z powrotem.
   useEffect(() => {
     const qs = encodeJobsListUrl(
-      {
-        status: statusFilter,
-        scope,
-        defaultScope,
-        type: typeFilter,
-        deadline: deadlinePreset,
-        deadlineRange,
-        sort,
-        q: debouncedSearch,
-        responsibleIds,
-        clientIds,
-        ccIds,
-        deliveryLeadIds,
-        sent: sentFilter,
-        needsSourcing,
-        activeInSearch,
-        noOwnerOnly,
-        priorityWork: priorityWorkFilter,
-      },
+      { ...urlState, q: debouncedSearch, keepScope },
       new URLSearchParams(window.location.search),
     );
-    const withStatus = new URLSearchParams(qs);
-    withStatus.delete("rs");
-    for (const s of requestStatuses) withStatus.append("rs", s);
-    withStatus.delete("ws");
-    for (const s of workStates) withStatus.append("ws", s);
-    const qsFull = withStatus.toString();
-    const target = qsFull
-      ? `${window.location.pathname}?${qsFull}`
-      : window.location.pathname;
+    const target = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
     if (target !== `${window.location.pathname}${window.location.search}`) {
       window.history.replaceState(window.history.state, "", target);
     }
-  }, [
-    statusFilter,
-    scope,
-    defaultScope,
-    typeFilter,
-    deadlinePreset,
-    deadlineRange,
-    sort,
-    debouncedSearch,
-    responsibleIds,
-    clientIds,
-    ccIds,
-    deliveryLeadIds,
-    sentFilter,
-    needsSourcing,
-    activeInSearch,
-    noOwnerOnly,
-    priorityWorkFilter,
-    requestStatuses,
-    workStates,
-  ]);
+  }, [urlState, debouncedSearch, keepScope, routeQuery]);
 
-  const dl = deadlineQueryParams(deadlinePreset, deadlineRange);
+  // Pamięć widoku osoby: to, co na ekranie, bez szukajki. Widok z samymi
+  // wartościami domyślnymi kasuje wpis, więc „Wyczyść” nie ma osobnej ścieżki.
+  const memoryQuery = useMemo(() => encodeJobsListUrl(urlState), [urlState]);
+  useEffect(() => {
+    if (viewOrigin === "user") writeJobsListMemory(memoryKey, memoryQuery);
+  }, [viewOrigin, memoryKey, memoryQuery]);
+
+  const applyView = (view: JobsListView, origin: ViewOrigin, keepSearch = false) => {
+    if (!keepSearch) setSearch(view.search);
+    setScopeChoice(view.scopeChoice);
+    setStages(view.stages);
+    setFilterValue(view.filters);
+    setSort(view.sortOverride);
+    setPage(1);
+    setViewOrigin(origin);
+  };
+
+  // Nawigacja routera przy otwartej liście. Własne zapisy adresu są dla Next
+  // niewidoczne (`history.state` niesie jego znacznik), więc każda zmiana
+  // `useSearchParams` to prawdziwa nawigacja: link z parametrami pokazuje swój
+  // widok, a goły `/jobs` („Rekrutacje” w menu) zostawia filtry osoby — reset
+  // robi wyłącznie „Wyczyść”. Tylko nietknięty widok z linku ustępuje wtedy
+  // ostatniemu widokowi osoby.
+  const [seen, setSeen] = useState({ routeQuery, memoryKey });
+  if (routeQuery !== seen.routeQuery || memoryKey !== seen.memoryKey) {
+    setSeen({ routeQuery, memoryKey });
+    const route = new URLSearchParams(routeQuery);
+    const routeChanged = routeQuery !== seen.routeQuery;
+    const personChanged = memoryKey !== seen.memoryKey && seen.memoryKey !== null;
+    if (routeChanged && hasJobsListParams(route)) {
+      applyView(viewFromParams(route), "link");
+    } else if (personChanged && viewOrigin !== "link") {
+      // Inna osoba przy otwartej liście („podgląd jako”, wylogowanie — tuż
+      // przed przeładowaniem strony): jej widok albo domyślne. Cudze filtry
+      // nie trafiają ani na ekran, ani do jej pamięci.
+      applyView(
+        viewFromParams(readJobsListMemory(memoryKey) ?? new URLSearchParams()),
+        "restored",
+      );
+    } else if (routeChanged) {
+      if (viewOrigin === "link") {
+        applyView(viewFromParams(readJobsListMemory(memoryKey) ?? route), "restored");
+      }
+    } else if (viewOrigin === "restored") {
+      // Store zhydratowany po montowaniu: pamięć wchodzi przed pierwszym
+      // zapytaniem (czeka na `authHydrated`); wpisanego tekstu nie rusza.
+      const saved = readJobsListMemory(memoryKey);
+      if (saved) applyView(viewFromParams(saved), "restored", true);
+    }
+  }
+
+  // Link na adres, który router już zna (sprzed naszych zapisów adresu — te są
+  // dla niego niewidoczne), nie zmienia `useSearchParams`: router uznaje go za
+  // tę samą stronę i lista zostawała przy starym widoku (audyt 13.10.2026).
+  // Taki klik obsługujemy sami, żeby link wygrywał także wtedy. Pozostałe linki
+  // idą zwykłą drogą (blok wyżej); goły `/jobs` filtrów nie rusza.
+  const linkClick = useRef({ routeQuery, applyView });
+  linkClick.current = { routeQuery, applyView };
+  useEffect(() => {
+    const onClick = (event: MouseEvent) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      if ((anchor.target && anchor.target !== "_self") || anchor.hasAttribute("download")) return;
+      const url = new URL(anchor.href, window.location.href);
+      if (url.origin !== window.location.origin || url.pathname !== window.location.pathname) return;
+      if (!hasJobsListParams(url.searchParams)) return;
+      if (url.searchParams.toString() !== linkClick.current.routeQuery) return;
+      linkClick.current.applyView(viewFromParams(url.searchParams), "link");
+    };
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, []);
+
+  const dl =deadlineQueryParams(filterValue.deadline, filterValue.deadlineRange);
 
   // Jeden rejestr capability dla nagłówka, pustego stanu i akcji w wierszach
   // (audyt F-19) — wcześniej gate'owany był tylko przycisk w nagłówku.
   const can = useCapabilities();
   const canCreateJob = can["job.create"];
   const canInvite = can["invite_link.create"];
+  // Kolumna „Rekruter” z edycją: admin, Head of Recruitment, Delivery Lead
+  // (prośba Head of Recruitment, 14.10.2026). Zakres Delivery Leada w rekrutacjach jest
+  // ogólnofirmowy, więc wystarcza capability — `can_staff` szczegółów
+  // rekrutacji dałby ten sam wynik.
+  const canStaff = can["job.recruiter.assign"] === true;
+  const canDecideProposals = can["request.proposal.decide"] === true;
 
   const {
     data,
     isLoading: queryLoading,
     isError,
     isSuccess,
+    isPlaceholderData,
     error,
     refetch,
   } = useQuery({
     // Domyślny zakres zależy od ROLI, a tę znamy dopiero po hydratacji store'u
     // — bez bramki rekruter strzelałby najpierw we „Wszystkie", potem w „Moje".
-    enabled: authHydrated,
+    enabled: authHydrated && !scopePending,
     queryKey: jobsListQueryKey({
       search: debouncedSearch,
-      status: statusFilter,
-      type: typeFilter,
       mine,
-      responsibleIds,
-      clientIds,
-      ccIds,
-      needsSourcing,
-      activeInSearch,
-      deadline: deadlinePreset,
+      myCategory,
       openOnly,
-      noOwnerOnly,
       sort,
-      priorityWork: priorityWorkFilter,
       page,
-      requestStatuses,
-      workStates,
-      deadlineRange,
-      deliveryLeadIds,
-      sent: sentFilter,
+      stages,
+      clientIds: filterValue.clientIds,
+      ccIds: filterValue.ccIds,
+      deliveryLeadIds: filterValue.deliveryLeadIds,
+      workedBy: filterValue.workedBy,
+      nobodyWorking: filterValue.nobodyWorking,
+      deadline: filterValue.deadline,
+      deadlineRange: filterValue.deadlineRange,
+      sent: filterValue.sent,
+      toSend: filterValue.toSend,
+      priorityLevels: filterValue.priorityLevels,
+      openedRange: filterValue.openedRange,
     }),
     queryFn: () =>
       api
         .get("/api/jobs", {
           params: {
             q: debouncedSearch || undefined,
-            status: statusFilter.length ? statusFilter : undefined,
-            recruitment_type: typeFilter !== "all" ? typeFilter : undefined,
             mine: mine ? true : undefined,
-            responsible_id: responsibleIds.length ? responsibleIds : undefined,
-            delivery_lead_id: deliveryLeadIds.length ? deliveryLeadIds : undefined,
-            client_id: clientIds.length ? clientIds : undefined,
-            competence_category_id: ccIds.length ? ccIds : undefined,
-            needs_sourcing: needsSourcing ? true : undefined,
-            active_in_search: activeInSearch ? true : undefined,
+            // „Moja kategoria” idzie sama — serwer sam pomija zamknięte.
+            my_category: myCategory ? true : undefined,
             open_only: openOnly ? true : undefined,
-            owner_missing: noOwnerOnly ? true : undefined,
-            priority_work:
-              priorityWorkFilter === "any" ? undefined : priorityWorkFilter,
-            request_status: requestStatuses.length ? requestStatuses : undefined,
-            work_state: workStates.length ? workStates : undefined,
+            request_stage: stages.length ? stages : undefined,
+            client_id: filterValue.clientIds.length ? filterValue.clientIds : undefined,
+            competence_category_id: filterValue.ccIds.length ? filterValue.ccIds : undefined,
+            delivery_lead_id: filterValue.deliveryLeadIds.length
+              ? filterValue.deliveryLeadIds
+              : undefined,
+            worked_by: filterValue.workedBy.length ? filterValue.workedBy : undefined,
+            nobody_working: filterValue.nobodyWorking ? true : undefined,
+            priority_level: filterValue.priorityLevels.length
+              ? filterValue.priorityLevels
+              : undefined,
             sort,
             ...dl,
-            ...sentQueryParams(sentFilter),
+            ...sentQueryParams(filterValue.sent),
+            ...toSendQueryParams(filterValue.toSend),
+            // Odwrócony zakres nie idzie wcale (serwer odpowiada 422).
+            ...openedQueryParams(filterValue.openedRange),
             page,
             // Osiem kolumn Tablicy w wierszu — JEDNO dodatkowe GROUP BY
             // na całą stronę wyników (`stage_breakdown` per wiersz), zero
@@ -1002,26 +947,44 @@ export function JobsListV2() {
     placeholderData: keepPreviousData,
   });
 
-  // Liczniki sześciu filtrów „Szybkie" — JEDNO zapytanie na całą kolumnę,
-  // niezależne od stronicowania i od pozostałych filtrów (makieta „01 Lista").
-  // Okno „≤ 7 dni" liczy PRZEGLĄDARKA i wysyła je do backendu, żeby licznik
-  // i lista używały tej samej pary dat — serwer w innej strefie czasowej
-  // potrafiłby wypaść o dzień inaczej.
-  const next7 = deadlineQueryParams("next7");
-  const { data: quickCounts } = useQuery({
-    queryKey: jobsQuickCountsQueryKey(),
-    queryFn: () =>
-      jobsApi
-        .quickCounts({
-          deadline_from: next7.deadline_from,
-          deadline_to: next7.deadline_to,
-        })
-        .then((r) => r.data),
-    staleTime: 60_000,
-  });
+  // Liczby przełączników i pigułek stanu są policzone dla „Moich” i dla
+  // rejestru. „Wszystkie” nie ma liczb przełączników (objęłyby archiwum),
+  // a „Moja kategoria” nie ma żadnych: serwer liczy dla niej tylko zakres,
+  // a liczby całego rejestru pod jej nagłówkiem byłyby nieprawdą.
+  const attentionCounts =
+    scope === "mine"
+      ? quickCounts?.attention_mine
+      : scope === "open"
+        ? quickCounts?.attention
+        : undefined;
+  const stageCounts =
+    scope === "mine"
+      ? quickCounts?.request_stage_mine
+      : scope === "category"
+        ? undefined
+        : quickCounts?.request_stage;
+  const scopeCounts: Record<JobScope, number | null | undefined> = {
+    mine: quickCounts?.mine,
+    category: categoryCount,
+    open: quickCounts?.open,
+    all: quickCounts?.all,
+  };
+  // „Moja kategoria” jest na przełączniku tylko u osoby, która ma kategorię.
+  const scopeOptions = JOB_SCOPE_VALUES.filter(
+    (value) => value !== "category" || categoryState === "available",
+  );
 
-  const isLoading = queryLoading || !authHydrated;
   const items = data?.items ?? [];
+  // Pusty wynik POPRZEDNICH filtrów, trzymany do czasu odpowiedzi na nowe
+  // (`keepPreviousData`), to ładowanie, nie „Żadna rekrutacja nie pasuje do
+  // filtrów” (14.10.2026: po zdjęciu „Umowa” przy „Rekruter: X” lista dalej
+  // mówiła „nic”, dopóki serwer — akurat restartowany przy wdrożeniu — nie
+  // odpowiedział; X miał 6 otwartych rekrutacji).
+  const isLoading =
+    queryLoading ||
+    !authHydrated ||
+    scopePending ||
+    (isPlaceholderData && items.length === 0);
   const total = data?.total ?? 0;
   const pageSize = data?.page_size ?? 20;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -1053,26 +1016,6 @@ export function JobsListV2() {
     return () => window.removeEventListener("keydown", onKey);
   }, [dockOpen]);
 
-  // `undefined` = jeszcze nie wiemy (SSR / brak matchMedia) — nie zgadujemy
-  // `aria-expanded`, układ i tak rozstrzyga CSS. W trybie `auto` otwarty dok
-  // chowa filtry (patrz `LAYOUT_GRID`).
-  const autoExpanded = (wide: boolean) => wide && !dockOpen;
-  const filtersExpanded: boolean | undefined =
-    filtersMode === "auto"
-      ? wideViewport == null
-        ? undefined
-        : autoExpanded(wideViewport)
-      : filtersMode === "expanded";
-  const toggleFilters = () => {
-    const expandedNow =
-      filtersMode === "auto"
-        ? typeof window.matchMedia === "function" &&
-          autoExpanded(window.matchMedia(FILTERS_AUTO_EXPAND_QUERY).matches)
-        : filtersMode === "expanded";
-    setFiltersCollapsed(expandedNow);
-  };
-
-
   // Nawigacja „N z M" w doku — strzałki przesuwają wybór po wierszach BIEŻĄCEJ
   // strony (makieta „01 Lista"). Świadomie nie przeskakują na kolejną stronę:
   // dok czyta `stage_breakdown` i `can_open` z wiersza, więc wyjście poza
@@ -1103,26 +1046,9 @@ export function JobsListV2() {
     else router.push(href);
   };
 
-  // „Wszystkie filtry N" (makieta `.allfilters`) — ile zawężeń jest czynnych.
-  // Wyszukiwarka jest POZA tą liczbą: stoi we własnym wierszu narzędzi nad
-  // listą i widać ją bez otwierania kolumny filtrów. ZAKRES („Moje" /
-  // „Otwarte" / „Wszystkie") też: ma własny, zawsze widoczny przełącznik,
-  // a zakres domyślny liczony jako filtr dawałby „Filtry (1)" na starcie.
-  const activeFilterCount =
-    (typeFilter !== "all" ? 1 : 0) +
-    statusFilter.length +
-    (sentFilter !== "any" ? 1 : 0) +
-    deliveryLeadIds.length +
-    (needsSourcing ? 1 : 0) +
-    (activeInSearch ? 1 : 0) +
-    (noOwnerOnly ? 1 : 0) +
-    (deadlinePreset !== "any" ? 1 : 0) +
-    (priorityWorkFilter !== "any" ? 1 : 0) +
-    clientIds.length +
-    ccIds.length +
-    responsibleIds.length +
-    requestStatuses.length +
-    workStates.length;
+  // Ile zawężeń jest ustawionych (pusty stan „Brak wyników dla filtrów”
+  // i „Wyczyść filtry (N)”). Zakres i szukajka poza liczbą — widać je zawsze.
+  const activeFilterCount = jobsActiveFilterCount({ ...filterValue, stages });
 
   // „4 241 · pokazuję 12 moich" (makieta). Pierwsza liczba to ZAWSZE `total`
   // z API — czyli ile rekrutacji pasuje do filtrów, nie ile widać. Druga mówi,
@@ -1160,30 +1086,44 @@ export function JobsListV2() {
     viewState === "error";
 
   const resetFilters = () => {
-    setTypeFilter("all");
-    setStatusFilter([]);
-    setRequestStatuses([]);
-    setWorkStates([]);
-    // „Wyczyść" wraca do domyślnego zakresu ROLI (`defaultMineForUser`).
+    setStages([]);
+    // „Wyczyść" wraca do domyślnego zakresu ROLI.
     changeScope(null);
-    setResponsibleIds([]);
-    setClientIds([]);
-    setCcIds([]);
-    setNeedsSourcing(false);
-    setActiveInSearch(false);
-    setDeadlinePreset("any");
-    setDeadlineRange({});
-    setDeliveryLeadIds([]);
-    setSentFilter("any");
-    setPriorityWorkFilter("any");
-    setNoOwnerOnly(false);
+    setFilterValue(EMPTY_FILTERS);
     setPage(1);
+  };
+
+  // Baner przepięć stoi w rzędzie „Stan requestu” od 1536 px; na węższym
+  // oknie (laptop z Windows, 150%) spychał się tam do osobnej linii, więc
+  // poniżej 1536 px stoi w rzędzie tytułu, gdzie jest wolne miejsce.
+  const similarWithSuggestions = visibleItems.filter(
+    (j: any) => j.similar?.suggested && j.can_open !== false,
+  ).length;
+  const similarBanner = (className: string, short = false) => {
+    if (similarWithSuggestions === 0) return null;
+    const onPage = total > visibleItems.length ? " na tej stronie" : "";
+    // Liczone z wierszy na ekranie — przy wielu stronach mówimy to wprost,
+    // inaczej liczba wyglądała na sumę całej listy.
+    const full = `≈ ${similarWithSuggestions} ${pluralPl(similarWithSuggestions, "rekrutacja", "rekrutacje", "rekrutacji")}${onPage} ${pluralPl(similarWithSuggestions, "ma", "mają", "ma")} podobne z osobami u klienta — przepnij je`;
+    return (
+      <span
+        className={cn(
+          "items-center gap-1 rounded-md border border-dashed border-primary/40 px-2 py-1 text-xs font-medium text-primary",
+          className,
+        )}
+        title={short ? full : undefined}
+      >
+        {/* Poniżej 1536 px w rzędzie tytułu krótko — pełne zdanie łamało
+            ten rząd na dwie linie (produkcja 29.09.2026). */}
+        {short ? `≈ ${similarWithSuggestions} z podobnymi — przepnij` : full}
+      </span>
+    );
   };
 
   return (
     // `pb-24`: maskotka Jarvisa w prawym dolnym rogu zasłaniała ikony akcji
     // ostatnich wierszy — lista musi dać się przewinąć nad nią (audyt 24.09.2026).
-    <div className="max-w-[1400px] mx-auto space-y-3 pb-24" data-testid="jobs-list-page">
+    <div className="space-y-3 pb-24" data-testid="jobs-list-page">
       {/* Nagłówek kompaktowy (makieta „01 Lista", `.lhead`): jedna linia
           zamiast eyebrow + H1 + podpis w trzech wierszach. Lista rekrutacji
           jest ekranem SKANOWANYM — trzy wiersze tytułu zabierały pionową
@@ -1199,7 +1139,28 @@ export function JobsListV2() {
               ? "Nie udało się pobrać listy"
               : listSummary}
         </p>
-        <div className="ml-auto flex items-center gap-2">
+        {similarBanner("inline-flex 2xl:hidden", true)}
+        {/* 0614: pary otwartych rekrutacji różnych DL-i do połączenia jako bliźniaki. */}
+        {hasRole(authUser, "admin", "head_of_recruitment") && <TwinSuggestionsButton />}
+        {/* `flex-wrap`: od „Umów przedwstępnych” (#2545) cztery przyciski
+            nie mieszczą się w rzędzie przy 360 px i rozpychały stronę w poziomie. */}
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          {/* Stany requestów ustawia DL (lustro bramki strony i API
+              `request_work_states`) — bez tego linku ekran był osiągalny
+              wyłącznie z kafelka pulpitu, którego nikt jeszcze nie miał. */}
+          {hasRole(authUser, "admin", "delivery_lead", "head_of_recruitment") && (
+            <Button size="sm" variant="outline" asChild>
+              <Link href="/jobs/review-states">Porządek w requestach</Link>
+            </Button>
+          )}
+          <CareerQueueLink />
+          {/* 0506: umowy przedwstępne przy osobach — bramka API przedwstępnych
+              (Viewer nie; Finanse i Automatyzacje tak, decyzja 22.10.2026). */}
+          {can["pre_contract.work"] && (
+            <Button size="sm" variant="outline" asChild>
+              <Link href="/jobs/umowy-przedwstepne">Umowy przedwstępne</Link>
+            </Button>
+          )}
           {/* Capability `job.create` = backendowy TacPlus (POST /api/jobs). */}
           {canCreateJob && (
             <Button size="sm" variant="primary" onClick={() => router.push("/jobs/new")} data-help="jobs.list.new">
@@ -1209,406 +1170,46 @@ export function JobsListV2() {
         </div>
       </div>
 
-      {/* Grid jak C2: lewa kolumna filtrów, środek, dok gotowości */}
+      {/* Lista + dok gotowości. Filtry stoją paskiem nad tabelą (25.09.2026)
+          — lewa kolumna zabierała tabeli 230 px i znikała przy otwartym doku. */}
       <div
         className={cn(
           "grid grid-cols-1 gap-4",
-          LAYOUT_GRID[filtersMode][dockOpen ? "open" : "closed"],
+          dockOpen && "min-[1680px]:grid-cols-[minmax(0,1fr)_360px]",
         )}
       >
-        {/* ── Lewa kolumna: filtry (zwijana, stan w `store/ui.ts`) ──── */}
-        <aside
-          id="jobs-filters-rail"
-          aria-label="Filtry listy rekrutacji"
-          className={cn(
-            "space-y-4 self-start rounded-xl border border-border bg-card p-4",
-            filtersMode === "auto" && dockOpen
-              ? "hidden"
-              : filtersMode === "expanded" && dockOpen
-                ? "xl:hidden 2xl:block"
-                : FILTERS_ASIDE_VISIBILITY[filtersMode],
-          )}
-        >
-          <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            <SlidersHorizontal className="h-4 w-4 text-primary" />
-            Filtry
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="ml-auto text-[11px] font-normal text-primary hover:underline"
-            >
-              Wyczyść
-            </button>
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">Typ</div>
-            {/* `role="group"` + nazwa: obie grupy pigułek mają pozycję
-                „Wszystkie", więc bez tego dwa różne przyciski miałyby w tym
-                samym widoku identyczną nazwę dostępną. */}
-            <div
-              className="flex flex-wrap gap-1"
-              role="group"
-              aria-label="Filtr: Typ"
-            >
-              {FILTER_TABS.map((tab) => (
-                <FilterPill
-                  key={tab.value}
-                  active={typeFilter === tab.value}
-                  onClick={() => {
-                    setTypeFilter(tab.value);
-                    setPage(1);
-                  }}
-                  label={tab.label}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="border-t border-border" />
-
-          <div className="space-y-1">
-            <div className="px-2 text-[11px] font-medium text-muted-foreground">
-              Szybkie
-            </div>
-            {/* „Moje rekrutacje" i „Niezamknięte" zeszły do przełącznika
-                zakresu nad tabelą (lista v5) — dwa przełączniki tego samego
-                zawężenia rozjeżdżały się ze sobą. */}
-            <QuickFilterRow
-              active={needsSourcing}
-              onClick={() => {
-                setNeedsSourcing((p) => !p);
-                setPage(1);
-              }}
-              label="Potrzebny search"
-              count={quickCounts?.needs_sourcing}
-              tone="warning"
-              title="Wymagają sourcingu"
-            />
-            <QuickFilterRow
-              active={activeInSearch}
-              onClick={() => {
-                setActiveInSearch((p) => !p);
-                setPage(1);
-              }}
-              label="Aktywni w searchu"
-              count={quickCounts?.active_in_search}
-              title="Rekruter aktywnie szuka"
-            />
-            {TAC_UI_ENABLED && (
-            <QuickFilterRow
-              active={noOwnerOnly}
-              onClick={() => {
-                setNoOwnerOnly((p) => !p);
-                setPage(1);
-              }}
-              label="Brak opiekuna TAC"
-              count={quickCounts?.owner_missing}
-              tone="danger"
-              title="Bez opiekuna TAC"
-            />
-            )}
-            <QuickFilterRow
-              active={deadlinePreset === "next7"}
-              onClick={() => {
-                setDeadlinePreset((p) => (p === "next7" ? "any" : "next7"));
-                setPage(1);
-              }}
-              label="Deadline ≤ 7 dni"
-              count={quickCounts?.deadline_7d}
-              tone="warning"
-              title="Termin w ciągu 7 dni"
-            />
-          </div>
-
-          <div className="border-t border-border" />
-
-          {/* Status jako pigułki, nie select (makieta „01 Lista"). Trzy wartości
-              `JobStatus` mieszczą się w rzędzie, a rozwijana lista chowała
-              najczęstsze zawężenie listy za dodatkowym kliknięciem.
-              Etykiety CELOWO te same, co plakietka statusu w wierszu
-              (`STATUS_LABEL`) — pigułka „Szkic" nad wierszami opisanymi
-              „Draft" kazałaby zgadywać, czy to na pewno ten sam stan. */}
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">Status</div>
-            <div
-              className="flex flex-wrap gap-1"
-              role="group"
-              aria-label="Filtr: Status"
-            >
-              <FilterPill
-                active={statusFilter.length === 0}
-                onClick={() => {
-                  setStatusFilter([]);
-                  setPage(1);
-                }}
-                label="Wszystkie"
-              />
-              {JOB_STATUS_OPTIONS.map((option) => (
-                <FilterPill
-                  key={option.value}
-                  active={statusFilter.includes(option.value)}
-                  onClick={() => {
-                    setStatusFilter((previous) =>
-                      previous.includes(option.value)
-                        ? previous.filter((v) => v !== option.value)
-                        : [...previous, option.value],
-                    );
-                    setPage(1);
-                  }}
-                  label={STATUS_LABEL[option.value] ?? option.label}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">Klient</div>
-            <ClientMultiSelect
-              value={clientIds}
-              onChange={(ids) => {
-                setClientIds(ids);
-                setPage(1);
-              }}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">
-              Kategoria
-            </div>
-            <CompetenceCategoryMultiSelect
-              value={ccIds}
-              onChange={(ids) => {
-                setCcIds(ids);
-                setPage(1);
-              }}
-              triggerWidthClass="w-full"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">
-              Osoba odpowiedzialna
-            </div>
-            <UserMultiSelect
-              value={responsibleIds}
-              onChange={(ids) => {
-                setResponsibleIds(ids);
-                setPage(1);
-              }}
-              placeholder="Osoba odpowiedzialna"
-              searchPlaceholder="Szukaj osoby…"
-              triggerWidthClass="w-full"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">
-              Delivery Lead
-            </div>
-            <UserMultiSelect
-              value={deliveryLeadIds}
-              onChange={(ids) => {
-                setDeliveryLeadIds(ids);
-                setPage(1);
-              }}
-              onlyRoles={["delivery_lead"]}
-              placeholder="Dowolny"
-              searchPlaceholder="Szukaj Delivery Leada…"
-              triggerWidthClass="w-full"
-            />
-          </div>
-
-          <div className="border-t border-border" />
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">
-              Priority Work
-            </div>
-            <Select
-              value={priorityWorkFilter}
-              onValueChange={(value) => {
-                setPriorityWorkFilter(value as PriorityWorkFilter);
-                setPage(1);
-              }}
-            >
-              <SelectTrigger
-                className="h-9 w-full font-medium"
-                aria-label="Filtr Priority Work"
-              >
-                <SelectValue placeholder="Priority Work: wszystko" />
-              </SelectTrigger>
-              <SelectContent>
-                {PRIORITY_WORK_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">Termin</div>
-            <Select
-              value={deadlinePreset}
-              onValueChange={(v) => {
-                setDeadlinePreset(v as DeadlinePreset);
-                setPage(1);
-              }}
-            >
-              <SelectTrigger className="h-9 w-full font-medium" aria-label="Filtr: Termin">
-                <SelectValue placeholder="Termin: dowolny" />
-              </SelectTrigger>
-              <SelectContent>
-                {DEADLINE_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {deadlinePreset === "range" && (
-              <div className="space-y-1.5">
-                <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                  <span className="w-5 shrink-0">Od</span>
-                  <Input
-                    type="date"
-                    value={deadlineRange.from ?? ""}
-                    max={deadlineRange.to}
-                    onChange={(e) => {
-                      setDeadlineRange((r) => ({ ...r, from: e.target.value || undefined }));
-                      setPage(1);
-                    }}
-                    aria-label="Termin od"
-                    className="h-8 min-w-0 flex-1 px-2 text-xs"
-                  />
-                </label>
-                <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                  <span className="w-5 shrink-0">Do</span>
-                  <Input
-                    type="date"
-                    value={deadlineRange.to ?? ""}
-                    min={deadlineRange.from}
-                    onChange={(e) => {
-                      setDeadlineRange((r) => ({ ...r, to: e.target.value || undefined }));
-                      setPage(1);
-                    }}
-                    aria-label="Termin do"
-                    className="h-8 min-w-0 flex-1 px-2 text-xs"
-                  />
-                </label>
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">
-              Wysłanych do klienta
-            </div>
-            <Select
-              value={sentFilter}
-              onValueChange={(v) => {
-                setSentFilter(v as JobSentFilterValue);
-                setPage(1);
-              }}
-            >
-              <SelectTrigger
-                className="h-9 w-full font-medium"
-                aria-label="Filtr: Wysłanych do klienta"
-                title="Osoby, które w tej rekrutacji doszły do „CV wysłane” albo dalej"
-              >
-                <SelectValue placeholder="Wysłanych: dowolnie" />
-              </SelectTrigger>
-              <SelectContent>
-                {SENT_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Licznik czynnych zawężeń (makieta `.allfilters`). Kolumna jest
-              długa i przewijana razem ze stroną — bez tej liczby łatwo
-              patrzeć na wynik zawężony filtrem, którego nie widać na ekranie. */}
-          <div
-            className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-2 py-1.5 text-[11px] text-muted-foreground"
-            aria-live="polite"
-          >
-            <SlidersHorizontal className="h-3 w-3" aria-hidden="true" />
-            Wszystkie filtry
-            <span className="font-semibold text-primary tabular-nums">
-              {activeFilterCount}
-            </span>
-          </div>
-
-          {/* Ta sama akcja co w nagłówku (makieta ma ją w obu miejscach) —
-              po przescrollowaniu długiej kolumny filtrów przycisk z nagłówka
-              jest już poza ekranem. */}
-          {canCreateJob && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="w-full"
-              onClick={() => router.push("/jobs/new")}
-            >
-              <Plus className="h-4 w-4" /> Nowa rekrutacja
-            </Button>
-          )}
-        </aside>
-
-        {/* ── Środek: wyszukiwarka, sortowanie, lista/kafelki ───────── */}
+        {/* ── Środek: wyszukiwarka, sortowanie, lista ───────── */}
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={toggleFilters}
-              aria-expanded={filtersExpanded}
-              aria-controls="jobs-filters-rail"
-              data-help="jobs.list.filters"
-              className="h-9"
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              Filtry
-              {activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
-            </Button>
             {/* Zakres: domyślny zależy od roli („Moje" albo „Otwarte"); jawny
                 wybór żyje w adresie (`mine=1` / `open=1` / `mine=0`). Liczniki
                 są GLOBALNE (`/api/jobs/quick-counts`), a ich brak to brak
                 liczby, nie zero. */}
+            {/* Cztery pozycje z licznikami nie mieszczą się w 328 px telefonu —
+                tam przełącznik łamie się na dwa rzędy, zamiast rozpychać stronę. */}
             <div
-              className="flex items-center overflow-hidden rounded-md border border-border"
+              className="relative flex flex-wrap items-center overflow-hidden rounded-md border border-border"
               role="group"
               aria-label="Zakres rekrutacji"
               data-help="jobs.list.scope"
             >
-              {SCOPE_OPTIONS.map((option) => {
-                const count =
-                  option.value === "mine"
-                    ? quickCounts?.mine
-                    : option.value === "open"
-                      ? quickCounts?.open
-                      : quickCounts?.all;
+              {scopeOptions.map((value) => {
+                const count = scopeCounts[value];
                 return (
                   <button
-                    key={option.value}
+                    key={value}
                     type="button"
-                    onClick={() => changeScope(option.value)}
-                    aria-pressed={scope === option.value}
-                    aria-describedby={`jobs-scope-hint-${option.value}`}
+                    onClick={() => changeScope(value)}
+                    aria-pressed={scope === value}
+                    aria-describedby={`jobs-scope-hint-${value}`}
                     className={cn(
-                      "flex h-9 items-center gap-1.5 px-3 text-sm transition-colors",
-                      scope === option.value
+                      "flex h-9 grow items-center justify-center gap-1.5 whitespace-nowrap px-3 text-sm transition-colors",
+                      scope === value
                         ? "bg-primary font-medium text-primary-foreground"
                         : "text-muted-foreground hover:bg-primary/10",
                     )}
                   >
-                    {option.label}
+                    {SCOPE_META[value].label}
                     {count != null && (
                       <span className="text-xs tabular-nums opacity-80">
                         {count.toLocaleString("pl-PL")}
@@ -1617,20 +1218,19 @@ export function JobsListV2() {
                   </button>
                 );
               })}
-              {SCOPE_OPTIONS.map((option) => (
-                <span
-                  key={option.value}
-                  id={`jobs-scope-hint-${option.value}`}
-                  className="sr-only"
-                >
-                  {option.hint}
+              {scopeOptions.map((value) => (
+                <span key={value} id={`jobs-scope-hint-${value}`} className="sr-only">
+                  {SCOPE_META[value].hint}
                 </span>
               ))}
             </div>
-            <div className="min-w-[240px] max-w-lg flex-1" data-help="jobs.list.search">
+            {/* Minimum 160 px: przy ~910 px listy (okno 1280 px, przypięte menu,
+                pasek otwartych kart i pasek przewijania Windows) cały rząd
+                narzędzi z czterema zakresami zostaje w jednej linii. */}
+            <div className="min-w-[160px] max-w-lg flex-1" data-help="jobs.list.search">
               <Input
                 leadingIcon={<Search className="h-4 w-4" />}
-                placeholder="Tytuł, klient, technologia…"
+                placeholder="Numer, tytuł, klient, technologia…"
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
@@ -1643,10 +1243,22 @@ export function JobsListV2() {
               onValueChange={(v) => {
                 setSort(v as JobSortValue);
                 setPage(1);
+                setViewOrigin("user");
               }}
             >
-              <SelectTrigger className="h-9 w-[170px] font-medium" data-help="jobs.list.sort">
-                <SelectValue placeholder="Sortowanie" />
+              {/* „Sortuj:” w przycisku (20.10.2026): sama wartość „Wymaga uwagi”
+                  wyglądała jak filtr i „Od najnowszej” było nie do znalezienia. */}
+              <SelectTrigger
+                className="h-9 w-[220px] font-medium"
+                data-help="jobs.list.sort"
+                aria-label={`Sortuj: ${SORT_OPTIONS.find((o) => o.value === sort)?.label ?? ""}`}
+              >
+                <span className="flex min-w-0 items-center gap-1">
+                  <span className="shrink-0 font-normal text-muted-foreground">Sortuj:</span>
+                  <span className="truncate">
+                    <SelectValue placeholder="Sortowanie" />
+                  </span>
+                </span>
               </SelectTrigger>
               <SelectContent>
                 {SORT_OPTIONS.map((o) => (
@@ -1656,76 +1268,35 @@ export function JobsListV2() {
                 ))}
               </SelectContent>
             </Select>
-            {/* Przełącznik widoku zjechał z nagłówka do wiersza narzędzi
-                (makieta `.tools .rt`) — stoi przy sortowaniu, czyli przy
-                pozostałych decyzjach o TYM, JAK oglądać wyniki, a nie przy
-                akcji tworzącej nową rekrutację. */}
-            <div
-              className="ml-auto flex items-center overflow-hidden rounded-md border border-border"
-              role="group"
-              aria-label="Widok rekrutacji"
-            >
-              <button
-                type="button"
-                onClick={() => setJobsView("list")}
-                title="Widok listy"
-                aria-pressed={jobsView === "list"}
-                className={cn(
-                  "flex h-9 w-9 items-center justify-center transition-colors",
-                  jobsView === "list"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-primary/10",
-                )}
-              >
-                <List className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setJobsView("tiles")}
-                title="Widok kafelków"
-                aria-pressed={jobsView === "tiles"}
-                className={cn(
-                  "flex h-9 w-9 items-center justify-center transition-colors",
-                  jobsView === "tiles"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-primary/10",
-                )}
-              >
-                <LayoutGrid className="h-4 w-4" />
-              </button>
-            </div>
           </div>
 
-          {/* Status requestu (0341) — codzienne zawężenie, zawsze na wierzchu.
-              Klik przełącza; kilka naraz = LUB (serwer: `request_status`). */}
+          {/* Stan requestu (25.09.2026) — JEDEN rząd zamiast „Status:” i „Praca:”.
+              Serwer liczy jedną wartość na rekrutację (`request_stage`), więc
+              kilka pigułek naraz to LUB. Liczby z `/quick-counts` tym samym
+              wyrażeniem: w „Moich” — moje, poza nimi — cały rejestr (pigułki
+              dotyczą wyłącznie niezamkniętych, więc to zarazem „Otwarte”). */}
           <div
             className="flex flex-wrap items-center gap-1.5"
             role="group"
-            aria-label="Status requestu"
+            aria-label="Stan requestu"
             data-help="jobs.list.status"
           >
-            <span className="mr-1 text-xs text-muted-foreground">Status:</span>
-            {REQUEST_STATUS_FILTER_ORDER.map((value) => {
-              const on = requestStatuses.includes(value);
-              // Liczba z `/quick-counts` tym samym wyrażeniem co filtr: w „Moich"
-              // — moje, poza nimi — cały rejestr (statusy z tej listy dotyczą
-              // wyłącznie niezamkniętych, więc to zarazem liczba „Otwartych").
-              const statusCounts =
-                scope === "mine"
-                  ? quickCounts?.request_status_mine
-                  : quickCounts?.request_status;
-              const count = statusCounts?.[value];
+            <span className="mr-1 text-xs text-muted-foreground">Stan requestu</span>
+            {REQUEST_STAGE_CHIPS.map((value) => {
+              const on = stages.includes(value);
+              const count = stageCounts?.[value];
               return (
                 <button
                   key={value}
                   type="button"
                   aria-pressed={on}
-                  title={REQUEST_STATUS_META[value].hint}
+                  title={REQUEST_STAGE_META[value].hint}
                   onClick={() => {
-                    setRequestStatuses((prev) =>
+                    setStages((prev) =>
                       on ? prev.filter((s) => s !== value) : [...prev, value],
                     );
                     setPage(1);
+                    setViewOrigin("user");
                   }}
                   className={cn(
                     "inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors",
@@ -1734,7 +1305,7 @@ export function JobsListV2() {
                       : "border-border text-muted-foreground hover:bg-muted",
                   )}
                 >
-                  {REQUEST_STATUS_META[value].label}
+                  {REQUEST_STAGE_META[value].label}
                   {count != null && (
                     <span
                       className={cn(
@@ -1748,72 +1319,28 @@ export function JobsListV2() {
                 </button>
               );
             })}
-            <span className="ml-3 mr-1 text-xs text-muted-foreground">Praca:</span>
-            {/* „Mamy championa” jest już w statusie wyżej — tu tylko stany
-                prowadzone w „Porządku w requestach”; „Szukamy” jako „W pracy”,
-                żeby nie dublować etykiety statusu. */}
-            {WORK_STATE_CHIPS.map((value) => {
-              const on = workStates.includes(value);
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={on}
-                  title={STATE_HINT[value]}
-                  onClick={() => {
-                    setWorkStates((prev) =>
-                      on ? prev.filter((s) => s !== value) : [...prev, value],
-                    );
-                    setPage(1);
-                  }}
-                  className={cn(
-                    "h-7 rounded-full border px-3 text-xs transition-colors",
-                    on
-                      ? "border-primary/40 bg-primary/10 font-semibold text-primary"
-                      : "border-border text-muted-foreground hover:bg-muted",
-                  )}
-                >
-                  {value === "searching" ? "W pracy" : STATE_LABEL[value]}
-                </button>
-              );
-            })}
-            {(() => {
-              const withSuggestions = visibleItems.filter(
-                (j: any) => j.similar?.suggested && j.can_open !== false,
-              ).length;
-              return withSuggestions > 0 ? (
-                <span className="ml-auto inline-flex items-center gap-1 rounded-md border border-dashed border-primary/40 px-2 py-1 text-xs font-medium text-primary">
-                  ≈ {withSuggestions}{" "}
-                  {pluralPl(withSuggestions, "rekrutacja", "rekrutacje", "rekrutacji")}
-                  {/* Liczone z wierszy na ekranie — przy wielu stronach mówimy to
-                      wprost, inaczej liczba wyglądała na sumę całej listy. */}
-                  {total > visibleItems.length ? " na tej stronie" : ""}{" "}
-                  {pluralPl(withSuggestions, "ma", "mają", "ma")} podobne z osobami u klienta — przepnij je
-                </span>
-              ) : null;
-            })()}
+            {similarBanner("hidden 2xl:ml-auto 2xl:inline-flex")}
           </div>
 
-          {/* Wyniki — kafelki lub lista */}
+          <JobsFilterBar
+            value={filterValue}
+            onPatch={patchFilters}
+            meId={authUser?.id ?? null}
+            attention={attentionCounts}
+            activeCount={activeFilterCount}
+            canClear={activeFilterCount > 0 || scopeOverride !== null}
+            onClearAll={resetFilters}
+          />
+
+          {/* Wyniki — tabela (widok kafelków usunięty 02.10.2026) */}
           {isLoading ? (
-            jobsView === "list" ? (
-              <div className="rounded-lg border border-border bg-card divide-y divide-border/60">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="h-12 flex items-center px-4 animate-pulse">
-                    <div className="h-3 bg-[hsl(var(--border))] rounded w-1/3" />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <Card key={i} className="animate-pulse h-48">
-                    <div className="h-4 bg-[hsl(var(--border))] rounded w-3/4 mb-3" />
-                    <div className="h-3 bg-[hsl(var(--border))] rounded w-1/2" />
-                  </Card>
-                ))}
-              </div>
-            )
+            <div className="rounded-lg border border-border bg-card divide-y divide-border/60">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="h-12 flex items-center px-4 animate-pulse">
+                  <div className="h-3 bg-[hsl(var(--border))] rounded w-1/3" />
+                </div>
+              ))}
+            </div>
           ) : failed ? (
             <QueryStateNotice
               state={viewState as "forbidden" | "not_found" | "error"}
@@ -1835,8 +1362,10 @@ export function JobsListV2() {
                 // rekrutacji nie może zobaczyć tu „Brak rekrutacji".
                 <p className="text-sm text-muted-foreground">
                   {scope === "mine"
-                    ? "Nie prowadzisz teraz żadnej rekrutacji."
-                    : "Nie ma otwartych rekrutacji."}{" "}
+                    ? "Nie masz teraz żadnej otwartej rekrutacji."
+                    : scope === "category"
+                      ? "W Twojej kategorii nie ma teraz otwartych rekrutacji."
+                      : "Nie ma otwartych rekrutacji."}{" "}
                   <button
                     type="button"
                     onClick={() => changeScope("all")}
@@ -1878,7 +1407,7 @@ export function JobsListV2() {
                 </p>
               )}
             </div>
-          ) : jobsView === "list" ? (
+          ) : (
             <JobsTable
               items={visibleItems}
               previewId={effPreviewJobId}
@@ -1888,219 +1417,10 @@ export function JobsListV2() {
               }
               onInvite={canInvite ? (id) => setInviteModalForJob(id) : undefined}
               onSimilar={(id) => setSimilarForJob(id)}
+              workedBy={filterValue.workedBy}
+              canStaff={canStaff}
+              canDecideProposals={canDecideProposals}
             />
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {visibleItems.map((job: any) => {
-                const skills = extractSkills(job.must_skills);
-                const statusVariant = STATUS_VARIANT[job.status] ?? "neutral";
-                const statusLabel = STATUS_LABEL[job.status] ?? job.status;
-                // Te same klucze co w wierszu listy wyżej: `GET /api/jobs`
-                // zwraca `candidate_count` (`list_jobs` w `jobs.py`) i
-                // `headcount` (`JobResponse`). Do 09.2026 kafelek czytał
-                // `candidates_count`/`filled_count`/`target_positions` — pól,
-                // których odpowiedź nigdy nie miała — więc pasek „Kandydaci"
-                // pokazywał na produkcji zawsze 0/N, niezależnie od pipeline'u.
-                const filledCount = job.candidate_count ?? 0;
-                const targetCount = job.headcount ?? 1;
-                const progress = Math.min(
-                  100,
-                  Math.round((filledCount / Math.max(1, targetCount)) * 100)
-                );
-                return (
-                  // `can_open === false`: rejestr pokazuje tę rekrutację (jest
-                  // ŚWIADOMIE ogólnofirmowy — patrz komentarz przy zapytaniu
-                  // w `jobs.py`), ale detal egzekwuje dokładny zakres klient–TAC
-                  // i zwróci 403. Komunikat po 403 jest dobry, tylko przychodzi
-                  // ZA PÓŹNO: Delivery Lead bez przypisań klikał kolejne wiersze
-                  // i za każdym razem trafiał w ścianę. Mówimy o tym ZAWCZASU.
-                  //
-                  // Wiersz zostaje WIDOCZNY i czytelny — flaga nic nie ujawnia,
-                  // bo te rekrutacje i tak są na liście. Zmienia się tylko to, że
-                  // nie udaje klikalnego. `pointer-events-none` + `tabIndex={-1}`
-                  // odcinają myszkę i klawiaturę, `aria-disabled` mówi to samo
-                  // czytnikowi ekranu.
-                  <Link
-                    key={job.id}
-                    href={`/jobs/${job.id}`}
-                    aria-disabled={job.can_open === false || undefined}
-                    tabIndex={job.can_open === false ? -1 : undefined}
-                    title={
-                      job.can_open === false
-                        ? "Nie masz dostępu do tej rekrutacji — poproś o dodanie Cię do jej zespołu."
-                        : undefined
-                    }
-                    className={
-                      job.can_open === false
-                        ? "pointer-events-none opacity-60"
-                        : undefined
-                    }
-                  >
-                    <Card
-                      variant={job.can_open === false ? "default" : "interactive"}
-                      className="h-full flex flex-col"
-                    >
-                      {/* `flex-wrap` + `min-w-[160px]`: w środkowej kolumnie
-                          układu C2 kafelek jest wąski, a plakietki statusu
-                          (`shrink-0`) wypychały tytuł (`flex-1 min-w-0`) do
-                          zerowej szerokości — tytuł znikał z kafelka. */}
-                      <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-                        <div className="min-w-[160px] flex-1">
-                          <h3 className="font-semibold text-foreground text-base truncate">
-                            {job.title}
-                          </h3>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {job.client_name && (
-                              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                                <Building2 className="h-3 w-3" />
-                                {job.client_name}
-                              </p>
-                            )}
-                            {job.reference_number && (
-                              <span
-                                className="font-mono text-[10px] text-muted-foreground/80"
-                                title="Numer referencyjny"
-                              >
-                                {job.reference_number}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          {job.status === "published" && canInvite && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setInviteModalForJob(job.id);
-                              }}
-                              className="p-1 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors pointer-coarse:p-2.5"
-                              title="Wygeneruj link aplikacyjny"
-                              aria-label="Wygeneruj link aplikacyjny"
-                            >
-                              <Link2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                          {job.can_open !== false && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setPreviewJobId((current) =>
-                                  current === job.id ? null : job.id,
-                                );
-                              }}
-                              aria-pressed={effPreviewJobId === job.id}
-                              className={cn(
-                                "rounded-md p-1 transition-colors pointer-coarse:p-2.5",
-                                effPreviewJobId === job.id
-                                  ? "bg-primary/10 text-primary"
-                                  : "text-muted-foreground hover:bg-primary/10 hover:text-primary",
-                              )}
-                              title="Podgląd"
-                              aria-label={`Podgląd: ${job.title}`}
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                          <Badge size="sm" variant={statusVariant}>
-                            {statusLabel}
-                          </Badge>
-                          {TAC_UI_ENABLED && job.tac_id == null && (
-                            <span title="Rekrutacja nie ma jawnie wybranego opiekuna TAC">
-                              <Badge size="sm" variant="warning">
-                                Brak opiekuna TAC
-                              </Badge>
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {(job.priority_assignment ||
-                        (job.priority_carry_over_count ?? 0) > 0) && (
-                        <div className="mb-2">
-                          <JobPriorityWorkBadges job={job} />
-                        </div>
-                      )}
-
-                      <div className="mb-2 flex items-center gap-3 flex-wrap">
-                        <OwnerBadge user={job.primary_owner ?? null} size="sm" />
-                        {job.hiring_manager_name && (
-                          <span
-                            className="inline-flex items-center gap-1 text-xs text-primary bg-primary/10 px-2 py-0.5 rounded"
-                            title="Hiring manager po stronie klienta"
-                          >
-                            <UserSquare2 className="h-3 w-3" />
-                            {job.hiring_manager_name}
-                          </span>
-                        )}
-                      </div>
-
-                      {(job.location || job.seniority) && (
-                        <div className="flex items-center gap-3 text-xs text-foreground mb-2">
-                          {job.location && (
-                            <span className="inline-flex items-center gap-1">
-                              <MapPin className="h-3 w-3" />
-                              {job.location}
-                            </span>
-                          )}
-                          {job.seniority && <Badge size="sm" variant="plum">{job.seniority}</Badge>}
-                        </div>
-                      )}
-
-                      {skills.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-3">
-                          {skills.slice(0, 5).map((s) => (
-                            <span
-                              key={s}
-                              className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary"
-                            >
-                              {s}
-                            </span>
-                          ))}
-                          {skills.length > 5 && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[hsl(var(--border))] text-muted-foreground">
-                              +{skills.length - 5}
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      <div className="mt-auto space-y-2">
-                        {targetCount > 0 && (
-                          <div className="flex items-center gap-2">
-                            <Users className="h-3 w-3 text-muted-foreground" />
-                            <div className="flex-1 h-1.5 rounded-full bg-border/60 overflow-hidden">
-                              <div
-                                className="h-full bg-primary rounded-full transition-all"
-                                style={{ width: `${progress}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] font-mono text-muted-foreground">
-                              {filledCount}/{targetCount}
-                            </span>
-                          </div>
-                        )}
-                        {job.salary_range && (
-                          <div className="flex items-center gap-1.5 text-xs text-foreground">
-                            <DollarSign className="h-3 w-3 text-primary" />
-                            {job.salary_range}
-                          </div>
-                        )}
-                        <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border">
-                          <span>
-                            {job.created_at ? formatRelativeTime(job.created_at) : "—"}
-                          </span>
-                          <Sparkles className="h-3 w-3 text-primary" />
-                        </div>
-                      </div>
-                    </Card>
-                  </Link>
-                );
-              })}
-            </div>
           )}
 
           {viewState === "ready" && total > pageSize && (
@@ -2131,9 +1451,12 @@ export function JobsListV2() {
         </div>
 
         {/* ── Prawy dok: podgląd gotowości — otwiera go ikona „Podgląd" ──
-            Od `xl` dok jest kolumną siatki. Węziej siatka jest jednokolumnowa,
-            więc dok stałby POD całą listą i klik „Podgląd" nie dawałby
-            widocznego efektu — tam dok wysuwa się z prawej jak arkusz. */}
+            Od 1680 px dok jest kolumną siatki: tabela potrzebuje 904 px,
+            dok 376, a przypięte menu z szyną kart ~340. Węziej wysuwa się
+            z prawej jak arkusz NAD listą — kolumna 360 px przy 1280 px
+            zostawiała tabeli ~560 px i akcje uciekały w bok (02.10.2026).
+            Tło przygasa tylko poniżej `xl`; na laptopie lista zostaje
+            czytelna, a po wierszach chodzi się strzałkami w doku. */}
         {dockOpen && (
           <div
             aria-hidden="true"
@@ -2147,9 +1470,13 @@ export function JobsListV2() {
             aria-label="Podgląd rekrutacji"
             className={cn(
               "space-y-2",
-              "fixed inset-y-0 right-0 z-50 w-full overflow-y-auto border-l border-border bg-background p-4 shadow-xl sm:max-w-[420px]",
-              "xl:inset-auto xl:z-auto xl:w-auto xl:max-w-none xl:overflow-visible xl:border-0 xl:bg-transparent xl:p-0 xl:shadow-none",
-              "xl:sticky xl:top-4 xl:self-start",
+              // Zakresy ROZŁĄCZNE (`sm:max-[1679px]:`, `xl:max-[1679px]:`):
+              // Tailwind v4 nie gwarantuje, że `min-[1680px]:` wygra z `sm:`.
+              "fixed inset-y-0 right-0 z-50 w-full overflow-y-auto border-l border-border bg-background p-4 shadow-xl sm:max-[1679px]:max-w-[420px]",
+              // Laptop: arkusz pod górnym paskiem, jak panel w Kontraktach.
+              "xl:max-[1679px]:top-12 xl:max-[1679px]:z-40",
+              "min-[1680px]:inset-auto min-[1680px]:z-auto min-[1680px]:w-auto min-[1680px]:overflow-visible min-[1680px]:border-0 min-[1680px]:bg-transparent min-[1680px]:p-0 min-[1680px]:shadow-none",
+              "min-[1680px]:sticky min-[1680px]:top-4 min-[1680px]:self-start",
             )}
           >
             <div className="flex items-center justify-between gap-2">
@@ -2171,6 +1498,16 @@ export function JobsListV2() {
               stageBreakdown={stageSummaryOf(previewListItem)}
               canOpen={previewListItem?.can_open !== false}
               listNav={listNav}
+              stickyFrom="wide"
+              listDetails={
+                previewListItem ? (
+                  <JobPreviewDetails
+                    job={previewListItem}
+                    onSimilar={() => setSimilarForJob(previewListItem.id)}
+                    extra={<JobPriorityWorkBadges job={previewListItem} />}
+                  />
+                ) : null
+              }
             />
           </aside>
         )}

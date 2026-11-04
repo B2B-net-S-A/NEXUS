@@ -137,6 +137,26 @@ describe("useVisibleMatchScores", () => {
     expect(signalOf(0).aborted).toBe(true);
   });
 
+  it("first page of manual search reports impressions with page ranks (U5)", async () => {
+    matchScores.mockImplementation((_job: number, ids: number[]) =>
+      Promise.resolve(answer(ids)),
+    );
+    const items = rows([11, 12, 13]);
+    const { result } = renderHook(() =>
+      useVisibleMatchScores(7, items, { impressionSurface: "manual_search" }),
+    );
+    act(() => {
+      result.current.onRowVisible(13);
+      result.current.onRowVisible(12);
+    });
+    await settle();
+    expect(matchScores).toHaveBeenCalledTimes(1);
+    expect(matchScores.mock.calls[0][1]).toEqual([12, 13]);
+    expect(matchScores.mock.calls[0][2]).toMatchObject({
+      impression: { surface: "manual_search", ranks: [2, 3] },
+    });
+  });
+
   it("outside a recruitment context never asks", async () => {
     const items = rows([1]);
     const { result } = renderHook(() => useVisibleMatchScores(undefined, items));

@@ -38,6 +38,7 @@ Auth: ``AdminUser`` — raport przekrojowy po całej bazie klientów.
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 import unicodedata
 from typing import Optional
 
@@ -315,8 +316,18 @@ async def client_mixups(
     # UNIKALNE rozjazdy — suma `mismatch_count` liczyła je podwójnie.
     mismatched_contract_ids: set[int] = set()
     mismatched_generated_ids: set[int] = set()
+    # Runda 10 (R10-N8-9): tokeny nazwy umów bez klienta liczone RAZ i indeks
+    # token → umowy. Dotąd każda rodzina liczyła `name_tokens` (NFKD + regex)
+    # dla wszystkich takich umów — F × G wywołań synchronicznie na jedynej
+    # pętli zdarzeń.
+    unassigned_by_token: dict[str, set[int]] = defaultdict(set)
+    for row in generated:
+        if row.client_id is None:
+            for name_token in name_tokens(row.client_name or ""):
+                unassigned_by_token[name_token].add(row.id)
     for token, group in sorted(families_tokens.items()):
         group_ids = {c.id for c in group}
+        family_unassigned = unassigned_by_token.get(token, set())
         rows: list[MixupContractRow] = []
         for contract in contracts:
             if contract.client_id not in group_ids:
@@ -341,7 +352,7 @@ async def client_mixups(
         gen_rows: list[MixupGeneratedContractRow] = []
         for row in generated:
             if row.client_id is None:
-                if token not in name_tokens(row.client_name or ""):
+                if row.id not in family_unassigned:
                     continue
             elif row.client_id not in group_ids:
                 continue

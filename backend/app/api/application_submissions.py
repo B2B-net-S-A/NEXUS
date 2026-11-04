@@ -22,8 +22,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Awaitable, Callable, Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -39,7 +40,16 @@ from app.api.recruitment_access import (
 )
 from app.core.database import get_db
 from app.core.scheduling import business_today
+from app.services.candidate_claim import link_claim_kwargs
+from app.services.candidate_erasure_leftovers import (
+    VIA_SCREEN,
+    email_was_erased,
+    erased_email_conflict,
+    record_recreated_after_erasure,
+)
+from app.services.candidate_name_rules import without_name_markers
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
+from app.services.dedup_service import find_candidate_by_email
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
 from app.models.activity import Activity
 from app.models.application_submission import (
@@ -50,7 +60,9 @@ from app.models.candidate import Candidate, CandidateStatus
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.recruitment_priority import PriorityOriginKind
+from app.services.process_entry_meta import application_link_entry_meta
 from app.services.recruitment_process_commands import open_process
+from app.services.write_author import WriteAuthor
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +96,9 @@ ResolveAction = Literal["link", "merge", "create", "reject"]
 
 class ResolveRequest(BaseModel):
     action: ResolveAction
+    # „Utwórz kandydata” na adres z nagrobka: rekruter wie, że profil był
+    # trwale usunięty (decyzja 03.11.2026).
+    confirm_erased: bool = False
 
 
 class ResolveResponse(BaseModel):
@@ -112,8 +127,11 @@ async def _load_submission_cv_bytes(
                     object_storage.download_cv, submission.cv_object_key
                 )
         except Exception as e:  # pragma: no cover — defensive
+            # Runda 9 (R9-N7-8): wyjątek magazynu niesie klucz z nazwą pliku.
             logger.warning(
-                "[submission] CV fetch failed submission=%s: %s", submission.id, e
+                "[submission] CV fetch failed submission=%s: %s",
+                submission.id,
+                type(e).__name__,
             )
     return None
 
@@ -244,6 +262,7 @@ async def _ensure_submission_process(
     submission: ApplicationSubmission,
     candidate_id: int,
     actor_user_id: int,
+    link_owner_id: Optional[int] = None,
 ) -> Optional[CandidateStage]:
     """Route a resolved job application into the canonical pipeline once.
 
@@ -251,6 +270,11 @@ async def _ensure_submission_process(
     kandydata do rekrutacji, więc przechodzi tę samą twardą bramkę co
     przypisanie — weto hiring managera albo globalna czarna lista = 409
     (cała operacja się wycofuje, nic nie zostaje zapisane).
+
+    ``link_owner_id`` (etap 2 linków, 19.10.2026): zgłoszenie prosto
+    z formularza linku — karta jest właściciela linku (blokada 12 h,
+    właściciel procesu, stempel atrybucji). ``None`` = ręczne rozstrzygnięcie
+    przez recenzenta — bez blokady, jak dotąd.
     """
     if submission.job_id is None:
         return None
@@ -278,6 +302,14 @@ async def _ensure_submission_process(
         frozen_priority_compliant=_priority_compliant_at_create(submission),
         notes="Rozstrzygnięto aplikację (application submission)",
         entry_source="application",
+        **(
+            {
+                "entry_meta": application_link_entry_meta(link_owner_id),
+                **await link_claim_kwargs(db, link_owner_id),
+            }
+            if link_owner_id is not None
+            else {}
+        ),
     )
     return stage
 
@@ -320,40 +352,67 @@ async def list_application_submissions(
     return list(rows)
 
 
-@router.post("/{submission_id}/resolve", response_model=ResolveResponse)
-async def resolve_application_submission(
-    submission_id: int,
-    payload: ResolveRequest,
-    background_tasks: BackgroundTasks,
-    current_user: CandidateWriteAccess,
-    db: AsyncSession = Depends(get_db),
-) -> ResolveResponse:
-    """Resolve a pending submission: link / merge / create / reject.
+@dataclass(frozen=True)
+class SubmissionResolution:
+    """Wynik rozstrzygnięcia przed commitem — czyta go trasa ekranu i API v1."""
 
-    Every action is audited. A submission can only be resolved once — a second
-    attempt returns 409.
+    submission: ApplicationSubmission
+    candidate_id: Optional[int]
+    # Główne CV nowego kandydata (``create``): odczyt AI w tle PO commicie.
+    primary_document: Optional[CandidateDocument]
+    # Karta „Nowi” otwarta tym rozstrzygnięciem (``None`` = proces już był
+    # albo zgłoszenie jest spoza rekrutacji).
+    opened_stage: Optional[CandidateStage]
+
+
+async def resolve_application_submission(
+    db: AsyncSession,
+    submission_id: int,
+    action: ResolveAction,
+    *,
+    author: WriteAuthor,
+    authorize: Callable[[ApplicationSubmission], Awaitable[None]],
+    candidate_id: Optional[int] = None,
+    reason: Optional[str] = None,
+) -> SubmissionResolution:
+    """Ciało rozstrzygnięcia zgłoszenia BEZ commita — ekran i API v1 (15.10.2026).
+
+    Trasa ekranu (``resolve_application_submission_route``) i
+    ``POST /api/integrations/v1/applications/{id}/resolve`` wołają tę samą
+    funkcję; commit i odczyt AI w tle zostają po stronie trasy. Nazwa zostaje
+    po dawnej trasie, bo strażniki czytają to ciało po nazwie: blokada wiersza
+    (``test_reaudit_backend_guards``), snapshot CV po flushu
+    (``test_application_resolve_snapshot``), wejście do pipeline'u
+    (``test_priority_work_api``) i rejestr ścieżek bez indeksu
+    (``test_index_coverage_write_paths``).
+
+    ``authorize`` sprawdza dostęp wołającego do zgłoszenia — pod blokadą
+    wiersza, a przed bramką „już rozstrzygnięte”, żeby obcy nie poznał stanu
+    cudzego zgłoszenia. ``author`` to osoba z ekranu albo konto serwisowe
+    (``WriteAuthor.user_id`` = ``None``: kandydat bez ``created_by``,
+    ``Activity`` bez osoby, stempel ``details.via`` dopisuje sesja klucza).
+    ``candidate_id`` wskazuje kandydata dla ``link``/``merge`` (domyślnie
+    dopasowany po e-mailu przy zgłoszeniu); ``reason`` trafia do wpisu
+    w historii — ekran nie podaje żadnego z nich.
     """
     # F-03: lock the row for the transaction. Resolve reads the submission and
     # then mutates its status; without SELECT ... FOR UPDATE two concurrent
     # resolves both pass the pending_review check and double-process (double
     # link/merge/create). The lock serialises them so the loser sees the
-    # already-resolved status and 409s.
+    # already-resolved status and 409s. `populate_existing`: wołający mógł
+    # wczytać wiersz wcześniej bez blokady (API v1 sprawdza reguły przed
+    # zapisem) — status pod blokadą musi przyjść z bazy, nie z sesji.
     submission = await db.scalar(
         select(ApplicationSubmission)
         .where(ApplicationSubmission.id == submission_id)
         .options(undefer(ApplicationSubmission.cv_file_content))
+        .execution_options(populate_existing=True)
         .with_for_update()
     )
     if submission is None:
         raise HTTPException(status_code=404, detail="Submission not found")
 
-    # Resource scope: rozstrzygnięcie zgłoszenia zakłada kandydata, scala go z
-    # istniejącym albo odrzuca — to działanie NA rekrutacji, nie ogólna operacja
-    # rekrutera. Sprawdzenie idzie PRZED bramką `already resolved`, żeby ta
-    # gałąź nie zdradzała obcemu użytkownikowi stanu cudzego zgłoszenia.
-    # `job_id` jest nullable (zgłoszenie spoza konkretnej oferty) — patrz
-    # `ensure_optional_job_membership`.
-    await ensure_optional_job_membership(db, current_user, submission.job_id)
+    await authorize(submission)
 
     if submission.status != ApplicationSubmissionStatus.pending_review.value:
         raise HTTPException(
@@ -361,7 +420,6 @@ async def resolve_application_submission(
             detail=f"Submission already resolved (status={submission.status})",
         )
 
-    action = payload.action
     resolved_candidate_id: Optional[int] = None
     primary_document: Optional[CandidateDocument] = None
     opened_stage: Optional[CandidateStage] = None
@@ -370,14 +428,17 @@ async def resolve_application_submission(
         submission.status = ApplicationSubmissionStatus.rejected.value
 
     elif action in ("link", "merge"):
-        if submission.matched_candidate_id is None:
+        target_id = (
+            candidate_id
+            if candidate_id is not None
+            else submission.matched_candidate_id
+        )
+        if target_id is None:
             raise HTTPException(
                 status_code=409,
                 detail="No matched candidate to link/merge into",
             )
-        candidate = await db.scalar(
-            select(Candidate).where(Candidate.id == submission.matched_candidate_id)
-        )
+        candidate = await db.scalar(select(Candidate).where(Candidate.id == target_id))
         if candidate is None:
             raise HTTPException(
                 status_code=409, detail="Matched candidate no longer exists"
@@ -401,7 +462,7 @@ async def resolve_application_submission(
             db,
             submission=submission,
             candidate_id=candidate.id,
-            actor_user_id=current_user.id,
+            actor_user_id=author.user_id,
         )
 
     elif action == "create":
@@ -419,14 +480,15 @@ async def resolve_application_submission(
             if clash is not None:
                 email_val = None
         candidate = Candidate(
-            name=submission.submitted_first_name,
-            lastname=submission.submitted_last_name,
+            # Imię wpisane przez kandydata — dopisek znika bez odmowy (D6).
+            name=without_name_markers(submission.submitted_first_name),
+            lastname=without_name_markers(submission.submitted_last_name),
             email=email_val,
             phone=submission.submitted_phone,
             linkedin=submission.submitted_linkedin,
             source="apply_submission",
             status=CandidateStatus.active,
-            created_by=current_user.id,
+            created_by=author.user_id,
             profile_about=submission.submitted_message,
             cv_filename=submission.cv_filename,
             cv_storage_key=submission.cv_object_key,
@@ -447,7 +509,7 @@ async def resolve_application_submission(
             db,
             submission=submission,
             candidate_id=candidate.id,
-            actor_user_id=current_user.id,
+            actor_user_id=author.user_id,
         )
         submission.status = ApplicationSubmissionStatus.created.value
         resolved_candidate_id = candidate.id
@@ -470,9 +532,12 @@ async def resolve_application_submission(
             occurred_at=opened_stage.moved_at,
         )
 
-    submission.reviewed_by = current_user.id
+    submission.reviewed_by = author.user_id
     submission.reviewed_at = datetime.now(timezone.utc)
 
+    # Powód odrzucenia z API v1 — ekran go nie podaje, więc jego wpis jest
+    # taki sam jak przed wydzieleniem.
+    extra = {"reason": reason} if reason else {}
     # Audit: on the affected candidate when there is one, else on the submission.
     if resolved_candidate_id is not None:
         db.add(
@@ -480,11 +545,12 @@ async def resolve_application_submission(
                 entity_type="candidate",
                 entity_id=resolved_candidate_id,
                 action="application_submission_resolved",
-                user_id=current_user.id,
+                user_id=author.user_id,
                 details={
                     "submission_id": submission.id,
                     "resolve_action": action,
                     "matched_candidate_id": submission.matched_candidate_id,
+                    **extra,
                 },
             )
         )
@@ -494,27 +560,87 @@ async def resolve_application_submission(
                 entity_type="application_submission",
                 entity_id=submission.id,
                 action="application_submission_resolved",
-                user_id=current_user.id,
+                user_id=author.user_id,
                 details={
                     "resolve_action": action,
                     "matched_candidate_id": submission.matched_candidate_id,
+                    **extra,
                 },
             )
         )
 
-    await db.commit()
-    if primary_document is not None:
-        from app.api.candidates import _enrich_candidate_from_document_task
+    return SubmissionResolution(
+        submission=submission,
+        candidate_id=resolved_candidate_id,
+        primary_document=primary_document,
+        opened_stage=opened_stage,
+    )
 
-        background_tasks.add_task(
-            _enrich_candidate_from_document_task,
-            resolved_candidate_id,
-            primary_document.id,
-            primary_document.content_sha256,
+
+def schedule_primary_cv_read(
+    background_tasks: BackgroundTasks, resolution: SubmissionResolution
+) -> None:
+    """Po commicie: odczyt AI głównego CV kandydata założonego ze zgłoszenia."""
+    if resolution.primary_document is None:
+        return
+    from app.api.candidates import _enrich_candidate_from_document_task
+
+    background_tasks.add_task(
+        _enrich_candidate_from_document_task,
+        resolution.candidate_id,
+        resolution.primary_document.id,
+        resolution.primary_document.content_sha256,
+    )
+
+
+@router.post("/{submission_id}/resolve", response_model=ResolveResponse)
+async def resolve_application_submission_route(
+    submission_id: int,
+    payload: ResolveRequest,
+    background_tasks: BackgroundTasks,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> ResolveResponse:
+    """Resolve a pending submission: link / merge / create / reject.
+
+    Every action is audited. A submission can only be resolved once — a second
+    attempt returns 409.
+    """
+    erased_email = False
+
+    async def authorize(submission: ApplicationSubmission) -> None:
+        nonlocal erased_email
+        # Resource scope: rozstrzygnięcie zgłoszenia zakłada kandydata, scala
+        # go z istniejącym albo odrzuca — to działanie NA rekrutacji, nie
+        # ogólna operacja rekrutera. `job_id` jest nullable (zgłoszenie spoza
+        # konkretnej oferty) — patrz `ensure_optional_job_membership`.
+        await ensure_optional_job_membership(db, current_user, submission.job_id)
+        # Zgłoszenie sprzed usunięcia zostaje w kolejce bez dopasowania, a
+        # „Utwórz kandydata” przywróciłoby dane osoby jednym kliknięciem.
+        # Adres z żywym właścicielem to nie powrót: profil powstaje bez adresu.
+        if payload.action == "create":
+            erased_email = not await find_candidate_by_email(
+                db, submission.submitted_email
+            ) and await email_was_erased(db, submission.submitted_email)
+            if erased_email and not payload.confirm_erased:
+                raise erased_email_conflict()
+
+    resolution = await resolve_application_submission(
+        db,
+        submission_id,
+        payload.action,
+        author=WriteAuthor.person(current_user),
+        authorize=authorize,
+    )
+    if erased_email and resolution.candidate_id is not None:
+        record_recreated_after_erasure(
+            db, resolution.candidate_id, user_id=current_user.id, via=VIA_SCREEN
         )
+    await db.commit()
+    schedule_primary_cv_read(background_tasks, resolution)
 
     return ResolveResponse(
-        id=submission.id,
-        status=submission.status,
-        candidate_id=resolved_candidate_id,
+        id=resolution.submission.id,
+        status=resolution.submission.status,
+        candidate_id=resolution.candidate_id,
     )

@@ -7,6 +7,8 @@ from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
+
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate
@@ -53,28 +55,29 @@ def _row(
     )
 
 
-async def test_champions_points_score_interview_not_client_interview() -> None:
-    """Skladnik „interview" punktuje `interview`, NIE `client_interview` (D3).
+@pytest.mark.usefixtures("empty_credited_snapshot")
+async def test_champions_points_score_client_interview_not_qc_stage() -> None:
+    """Skladnik „rozmowa" punktuje `client_interview`, NIE etap QC CV (`interview`).
 
-    Odwrocenie wzgledem poprzedniego kontraktu jest swiadome. `client_interview`
-    NIE MA zadnego mapowania z Traffita (`traffit/mappers.py:404-449`), wiec ten
-    skladnik byl w praktyce ZAWSZE ZEROWY — a rozdzielal nagrody 5000/3000/2000 PLN.
-    Wiersz `client_interview` zostaje w tescie jako dowod, ze przestal punktowac.
+    Runda 8 (LEAGUE, decyzja wlasciciela 27.09.2026): od Rekrutacji v5 kod
+    `interview` to kolumna QC CV, wiec punkty „za rozmowe" nalezaly sie za
+    przegladanie CV. Liczy rozmowa u klienta — jak KPI i Insights od rundy 7.
+    Wiersz `interview` zostaje w tescie jako dowod, ze przestal punktowac.
     """
     rows = [
         _row(user_id=1, stage="hired", count=5),
-        _row(user_id=1, stage="interview", count=8),
+        _row(user_id=1, stage="client_interview", count=8),
         _row(user_id=1, stage="cv_sent", count=22),
         _row(user_id=1, stage="verified", count=40),
-        # Martwy skladnik: obecny w danych, nieobecny w punktacji.
-        _row(user_id=1, stage="client_interview", count=999),
+        # Etap QC CV: obecny w danych, nieobecny w punktacji.
+        _row(user_id=1, stage="interview", count=999),
         _row(user_id=2, stage="hired", count=2, name="Below threshold"),
     ]
     db = SimpleNamespace(execute=AsyncMock(return_value=_Result(rows)))
     ranked = await competitions._rank_recruiters_by_points(
         db,
-        start=datetime(2026, 7, 1, tzinfo=timezone.utc),
-        end=datetime(2026, 10, 1, tzinfo=timezone.utc),
+        start=datetime(2027, 1, 1, tzinfo=timezone.utc),
+        end=datetime(2027, 4, 1, tzinfo=timezone.utc),
         weights={"placement": 150, "interview": 15, "recommendation": 5},
         min_placements=3,
     )
@@ -85,7 +88,7 @@ async def test_champions_points_score_interview_not_client_interview() -> None:
 
     top = ranked[0]
     # 5*150 + 8*15 + 22*5 = 750 + 120 + 110 = 980.
-    # Gdyby punktowal `client_interview` (999), liczba bylaby zupelnie inna.
+    # Gdyby punktowal etap QC `interview` (999), liczba bylaby zupelnie inna.
     assert top.metric_value == 980
     assert top.extras["placements"] == 5
     assert top.extras["interviews"] == 8
@@ -96,7 +99,35 @@ async def test_champions_points_score_interview_not_client_interview() -> None:
     assert below.extras["qualified"] is False
     assert "MIN_PLACEMENTS_NOT_MET" in below.extras["disqualification_reasons"]
 
+    # Atrybucja ta sama co KPI: CTE niesie `client_interview`, wiec licznik
+    # ma skad sie wziac (bez tego test na atrapie przechodzilby na pustej bazie).
+    # Od 27.10.2026 Liga czyta `credited` z minutowej migawki tego CTE.
+    from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE
 
+    statement, _params = db.execute.await_args.args
+    assert CREDITED_FROM_SNAPSHOT_CTE in str(statement)
+    assert "'client_interview'" in VERIFIER_ANCHORED_CTE
+
+
+@pytest.mark.usefixtures("empty_credited_snapshot")
+async def test_qc_stage_alone_gives_no_league_points() -> None:
+    """Sam etap QC CV (`interview`) nie daje ani punktow, ani licznika rozmow."""
+    rows = [
+        _row(user_id=1, stage="hired", count=1),
+        _row(user_id=1, stage="interview", count=50),
+    ]
+    db = SimpleNamespace(execute=AsyncMock(return_value=_Result(rows)))
+    ranked = await competitions._rank_recruiters_by_points(
+        db,
+        start=datetime(2027, 1, 1, tzinfo=timezone.utc),
+        end=datetime(2027, 4, 1, tzinfo=timezone.utc),
+        weights={"placement": 150, "interview": 15, "recommendation": 5},
+    )
+    assert ranked[0].metric_value == 150
+    assert ranked[0].extras["interviews"] == 0
+
+
+@pytest.mark.usefixtures("empty_credited_snapshot")
 async def test_champions_weights_change_the_ranking() -> None:
     """Sens D3: zmiana wag NAPRAWDE przestawia podium, a nie tylko napis.
 
@@ -120,8 +151,8 @@ async def test_champions_weights_change_the_ranking() -> None:
         db = SimpleNamespace(execute=AsyncMock(return_value=_Result(rows)))
         return await competitions._rank_recruiters_by_points(
             db,
-            start=datetime(2026, 7, 1, tzinfo=timezone.utc),
-            end=datetime(2026, 10, 1, tzinfo=timezone.utc),
+            start=datetime(2027, 1, 1, tzinfo=timezone.utc),
+            end=datetime(2027, 4, 1, tzinfo=timezone.utc),
             weights=weights,
             min_placements=0,
         )
@@ -143,7 +174,8 @@ async def test_hall_of_fame_counts_placements_like_placement_analysis() -> None:
     Do 2026-09-01 ta funkcja stała na `VERIFIER_ANCHORED_CTE`, przez co dwie
     sąsiadujące sekcje jednego ekranu podpisane „placementy" pokazywały liczby
     policzone dwiema regułami. Teraz obie czytają
-    `analytics_first_milestones.first_moved_by` — czyli PIERWSZE wejście pary
+    `analytics_kpi_milestones.first_moved_by` (od 17.10.2026: dni 1.01–11.10.2026
+    z wpisów DynaReportera, migracja 0454) — czyli PIERWSZE wejście pary
     (kandydat, oferta) na etap „Zatrudniony", przypisane osobie, która ten
     etap przesunęła.
 
@@ -170,7 +202,7 @@ async def test_hall_of_fame_counts_placements_like_placement_analysis() -> None:
 
     statement, params = db.execute.await_args.args
     sql = str(statement)
-    assert "analytics_first_milestones" in sql
+    assert "analytics_kpi_milestones" in sql
     assert "fm.first_moved_by" in sql
     # Stara atrybucja NIE MOŻE wrócić bocznymi drzwiami.
     assert "credited" not in sql
@@ -200,7 +232,7 @@ async def test_hall_of_fame_excludes_admin_accounts_but_keeps_delivery() -> None
     """
     assert "admin" not in competitions.HALL_OF_FAME_ROLES
     assert "finance" not in competitions.HALL_OF_FAME_ROLES
-    for role in ("sourcer", "tac", "recruiter", "delivery_lead", "head_of_recruitment"):
+    for role in ("recruiter", "delivery_lead", "head_of_recruitment"):
         assert role in competitions.HALL_OF_FAME_ROLES
 
     # Wyścigi zostają przy SWOIM, węższym zakresie — mają własną atrybucję
@@ -209,8 +241,8 @@ async def test_hall_of_fame_excludes_admin_accounts_but_keeps_delivery() -> None
     await competitions._rank_recruiters_by_stage(
         db,
         stage=competitions.PipelineStage.hired,
-        start=datetime(2026, 8, 1, tzinfo=timezone.utc),
-        end=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        start=datetime(2027, 2, 1, tzinfo=timezone.utc),
+        end=datetime(2027, 3, 1, tzinfo=timezone.utc),
     )
     race_sql = str(db.execute.await_args.args[0])
     assert "credited" in race_sql, "wyścig zgubił atrybucję konkursową"
@@ -256,6 +288,7 @@ def _pin_race_thresholds(monkeypatch) -> None:
     )
 
 
+@pytest.mark.usefixtures("empty_credited_snapshot")
 async def test_monthly_recommendation_qualification_is_four_per_day_and_75_percent(
     monkeypatch,
 ) -> None:
@@ -289,12 +322,14 @@ async def test_monthly_recommendation_qualification_is_four_per_day_and_75_perce
         "business_days_elapsed_in_month",
         lambda _year, _month: 10,
     )
-    ranked = await competitions.monthly_most_recommendations(db, "2026-07")
+    ranked = await competitions.monthly_most_recommendations(db, "2027-02")
     # Ranking pokazuje wszystkich; nagrodę zawęża dopiero qualified_for_award.
     assert [item.user_id for item in ranked] == [1, 2, 3]
     assert [item.user_id for item in competitions.qualified_for_award(ranked)] == [1]
     assert ranked[0].extras["qualified"] is True
     assert ranked[0].extras["required_verifications"] == 40
+    # Bez urlopów NEXUSA próg jest wspólny — i tak się zamraża.
+    assert ranked[0].extras["threshold_basis"] == "calendar"
     assert ranked[0].extras["precision_pct"] == 75.0
     assert ranked[1].extras["qualified"] is False
     assert ranked[1].extras["disqualification_reasons"] == ["MIN_VERIFICATIONS_NOT_MET"]
@@ -306,13 +341,12 @@ async def test_monthly_recommendation_qualification_is_four_per_day_and_75_perce
     assert "c.stage = 'cv_sent'" in sql
     assert "c.stage = 'verified'" in sql
     assert "c.stage = 'interview'" not in sql
-    assert "u.roles ?| array['sourcer', 'tac', 'recruiter']" in sql
-    assert ":required_verifications" in sql
-    assert ":min_precision_pct" in sql
-    assert params["required_verifications"] == 40
-    assert params["min_precision_pct"] == 75.0
+    assert "u.role::text = 'recruiter'" in sql
+    assert "u.roles ? 'recruiter'" in sql
+    assert "sourcer" not in sql and "'tac'" not in sql
 
 
+@pytest.mark.usefixtures("empty_credited_snapshot")
 async def test_monthly_recommendation_ranking_keeps_unqualified_entrants(
     monkeypatch,
 ) -> None:
@@ -341,52 +375,60 @@ async def test_monthly_recommendation_ranking_keeps_unqualified_entrants(
         lambda _year, _month: 10,
     )
 
-    ranked = await competitions.monthly_most_recommendations(db, "2026-07")
+    ranked = await competitions.monthly_most_recommendations(db, "2027-02")
 
     assert [item.user_id for item in ranked] == [5, 6]
     assert all(item.extras["qualified"] is False for item in ranked)
     assert competitions.qualified_for_award(ranked) == []
 
 
+@pytest.mark.usefixtures("empty_credited_snapshot")
 async def test_monthly_recommendation_qualification_is_not_applied_in_having(
     monkeypatch,
 ) -> None:
-    """Progi nagrody = kolumna `qualified`; HAVING zostaje tylko na >= 1 rekomendacji.
+    """Progi nagrody = flaga `qualified`, nie filtr; w rankingu ≥ 1 rekomendacja.
 
-    Dodatkowo LIMIT jest oknem WYŚWIETLANIA, więc zakwalifikowany spoza TOP 10
-    musi mieć własną furtkę (`rank_in_group`), żeby nie stracić nagrody.
+    Lista ma okno WYŚWIETLANIA (TOP 10), więc zakwalifikowany spoza TOP 10
+    musi mieć własną furtkę, żeby nie stracić nagrody. Od 15.10.2026 warunki
+    i okno liczy Python (po dołożeniu dni z DynaReportera) — test pilnuje
+    wyniku, nie tekstu SQL.
     """
-    db = SimpleNamespace(execute=AsyncMock(return_value=_Result([])))
+    loud = [
+        _race_row(
+            user_id=100 + i,
+            name=f"Głośny {i}",
+            verifications=10,
+            recommendations=60 - i,
+            qualified=False,
+        )
+        for i in range(11)
+    ]
+    quiet_qualified = _race_row(
+        user_id=500, name="Cichy", verifications=40, recommendations=30, qualified=True
+    )
+    no_recommendation = _race_row(
+        user_id=600, name="Zero", verifications=50, recommendations=0, qualified=False
+    )
+    db = SimpleNamespace(
+        execute=AsyncMock(
+            return_value=_Result([*loud, quiet_qualified, no_recommendation])
+        )
+    )
+    _pin_race_thresholds(monkeypatch)
     monkeypatch.setattr(
         competitions,
         "business_days_elapsed_in_month",
         lambda _year, _month: 10,
     )
 
-    await competitions.monthly_most_recommendations(db, "2026-07")
+    ranked = await competitions.monthly_most_recommendations(db, "2027-02")
 
-    statement, params = db.execute.await_args.args
-    sql = " ".join(str(statement).lower().split())
-    having_at = sql.rindex(" having ")
-    having_clause = sql[having_at : sql.index(" ), race_ranked")]
-    assert ":required_verifications" not in having_clause
-    assert ":min_precision_pct" not in having_clause
-    assert "count(*) filter (where c.stage = 'cv_sent') >= 1" in having_clause
-    # Kwalifikacja jako kolumna, nie jako filtr.
-    assert (
-        "count(*) filter (where c.stage = 'verified') >= :required_verifications"
-    ) in sql
-    assert (
-        "100.0 * count(*) filter (where c.stage = 'cv_sent') "
-        ">= cast(:min_precision_pct as numeric) "
-        "* count(*) filter (where c.stage = 'verified')"
-    ) in sql
-    assert ") as qualified" in sql
-    assert (
-        "where display_rank <= :ranking_size "
-        "or (qualified and rank_in_group <= :ranking_size)"
-    ) in sql
-    assert params["ranking_size"] == competitions.MONTHLY_RACE_RANKING_SIZE
+    ids = [r.user_id for r in ranked]
+    assert ids[: competitions.MONTHLY_RACE_RANKING_SIZE] == [100 + i for i in range(10)]
+    assert 110 not in ids  # 11. niezakwalifikowany poza oknem
+    assert 500 in ids  # zakwalifikowany spoza TOP 10 ma furtkę
+    assert 600 not in ids  # bez rekomendacji nie ma w wyścigu
+    assert [r.user_id for r in competitions.qualified_for_award(ranked)] == [500]
 
 
 def test_business_day_counter_handles_weekends_and_future_months() -> None:
@@ -572,6 +614,14 @@ def _no_closure_no_exclusion(monkeypatch) -> None:
     żywym Postgresie w `test_competition_freeze_rules.py`.
     """
     monkeypatch.setattr(competitions, "_period_closure", AsyncMock(return_value=None))
+    # Migawka progów (R3-15) pisze do `app_settings` — sesja-atrapa jej nie zna.
+    monkeypatch.setattr(
+        competitions, "snapshot_monthly_race_thresholds", AsyncMock(return_value=None)
+    )
+    # Migawka punktacji Ligi (R4-16) — też `app_settings`.
+    monkeypatch.setattr(
+        competitions, "snapshot_league_scoring_config", AsyncMock(return_value=None)
+    )
     monkeypatch.setattr(
         competitions,
         "monthly_race_excluded_user_ids",
@@ -781,7 +831,10 @@ async def test_autofreeze_failure_in_one_type_does_not_starve_the_rest(
     session = _FakeFreezeSession()
     monkeypatch.setattr(competition_autofreeze, "AsyncSessionLocal", lambda: session)
 
-    async def _guard(_db, ctype, _period) -> bool:
+    async def _guard(_db, ctype, period) -> bool:
+        # Starsze okresy z przeglądu wstecz (runda 9) są już zamknięte.
+        if period not in {"Q4 2025", "2025-12"}:
+            return True
         if ctype is CompetitionType.monthly_recommendations:
             raise RuntimeError("guard exploded")
         return False
@@ -815,7 +868,7 @@ async def test_autofreeze_failure_in_one_type_does_not_starve_the_rest(
 def test_kpi_defaults_preserve_four_per_day_and_75_percent() -> None:
     verifications = get_kpi("daily_first_verifications")
     precision = get_kpi("monthly_precision")
-    for role in (UserRole.sourcer, UserRole.tac, UserRole.recruiter):
+    for role in (UserRole.recruiter,):
         assert verifications.default_targets[role] == 4
         assert precision.default_targets[role] == 75
 
@@ -851,7 +904,10 @@ def test_classified_process_without_verifier_keeps_pre_anchor_credit() -> None:
     """
     normalized = " ".join(VERIFIER_ANCHORED_CTE.split())
     assert "classified_fallback AS (" in normalized
-    assert "COALESCE(verified.first_mover, mf.first_mover) AS credit_user" in normalized
+    assert (
+        "COALESCE( verified.first_mover, pair_verifier.verifier, mf.first_mover ) "
+        "AS credit_user" in normalized
+    )
     # Rozłączność: fallback bierze wyłącznie procesy bez wiersza w kotwicy.
     assert "LEFT JOIN classified_anchor anchored ON anchored.process_id" in normalized
     assert "anchored.process_id IS NULL" in normalized

@@ -24,8 +24,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.models.m365 import EmailMatchMethod
+from app.models.app_setting import AppSetting
 from app.models.section_permission import (
+    RoleActionPermission,
     RoleSectionPermission,
+    UserActionOverride,
     UserSectionOverride,
 )
 from app.models.user import User, UserRole
@@ -33,6 +36,17 @@ from app.services.m365.provider import MatchResult
 from app.services.section_permissions import DEFAULT_ROLE_SECTION_ACCESS
 from app.tasks import microsoft365_sync as rematch_mod
 from app.tasks.microsoft365_sync import RematchStats, _addresses, _rematch_pass
+
+# Resolver dostępu czyta sekcje i akcje jednym wejściem. Atrapa zwraca tylko
+# wiersze sekcji — rola bez wierszy akcji jest liczona regułą zasiewu.
+POLICY_ENTITIES = {
+    # Wiersz „Kto co dostaje” (powiadomienia wyłączone dla roli) — pusty.
+    AppSetting,
+    RoleActionPermission,
+    RoleSectionPermission,
+    UserActionOverride,
+    UserSectionOverride,
+}
 
 
 # ── _addresses helper ───────────────────────────────────────────────────────
@@ -135,13 +149,15 @@ def _make_db(emails: list[SimpleNamespace]) -> SimpleNamespace:
     async def _scalars(statement: Any) -> SimpleNamespace:
         entity = statement.column_descriptions[0].get("entity")
         rows = role_rows if entity is RoleSectionPermission else []
-        assert entity in {RoleSectionPermission, UserSectionOverride}
+        assert entity in POLICY_ENTITIES
         return SimpleNamespace(all=lambda: rows)
 
     return SimpleNamespace(
         execute=AsyncMock(return_value=result_obj),
         scalars=AsyncMock(side_effect=_scalars),
         get=AsyncMock(side_effect=_get),
+        # Adres skrzynki właściciela (runda 6 audytu) — lustro syncu.
+        scalar=AsyncMock(return_value="owner@b2bnetwork.pl"),
         commit=AsyncMock(),
     )
 
@@ -269,6 +285,10 @@ async def test_rematch_pass_query_filters_by_lookback_and_unmatched(
     assert "emails.candidate_id IS NULL" in sql
     assert "emails.match_method" in sql
     assert "emails.received_at >" in sql
+    # Runda 6 audytu: ręcznie odpięty mail (M365-5) i prywatny (M365-8)
+    # nie wracają do kandydata.
+    assert "emails.matched_by_user_id IS NULL" in sql
+    assert "emails.is_private_filtered IS false" in sql
 
 
 async def test_rematch_pass_skips_row_on_unknown_method(
@@ -340,6 +360,7 @@ async def test_rematch_pass_uses_email_address_jsonb_shape(
         seen["from_address"] = msg.from_address
         seen["to_addresses"] = list(msg.to_addresses)
         seen["cc_addresses"] = list(msg.cc_addresses)
+        seen["owner_address"] = msg.owner_address
         return MatchResult(candidate_id=None, method="unmatched", confidence=None)
 
     monkeypatch.setattr(
@@ -351,3 +372,4 @@ async def test_rematch_pass_uses_email_address_jsonb_shape(
     assert seen["from_address"] == "from@x.com"
     assert seen["to_addresses"] == ["to@x.com"]
     assert seen["cc_addresses"] == ["cc@x.com"]
+    assert seen["owner_address"] == "owner@b2bnetwork.pl"

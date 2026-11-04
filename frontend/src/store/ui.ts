@@ -1,19 +1,14 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type UiDensity = "cozy" | "compact";
 export type CandidatesView = "list" | "tiles";
-export type JobsView = "tiles" | "list";
 /** Rozmiar strony listy kandydatów — zapamiętany w przeglądarce. */
 export type CandidatesPageSize = 20 | 50 | 100;
 export const CANDIDATES_PAGE_SIZES: readonly CandidatesPageSize[] = [20, 50, 100];
 
 interface UiStoreState {
-  density: UiDensity;
   sidebarCollapsed: boolean;
   candidatesView: CandidatesView;
-  /** Jobs list presentation — tile grid (default) vs. compact table. */
-  jobsView: JobsView;
   /**
    * Per-entity column preferences.
    *
@@ -23,51 +18,31 @@ interface UiStoreState {
    * semantics without bumping `version` and writing a migrator.
    */
   columnPreferences: Record<string, string[]>;
-  /** Pipeline kanban (04 „Pipeline" — flow C2 PR3): ukryj kolumny szablonu bez
-   *  kandydatów. Globalne (nie per-job) — świadomie proste, jak `density`.
-   *  Domyślnie włączone od v6 (przegląd UX 17.09.2026). */
-  hideEmptyKanbanColumns: boolean;
   /** Liczba wierszy na stronę listy kandydatów (20 / 50 / 100, domyślnie 50). */
   candidatesPageSize: CandidatesPageSize;
   /** Ukryj postać „Moi ludzie" w rogu — wejście zostaje w topbarze. */
   hideMyPeopleBuddy: boolean;
   setHideMyPeopleBuddy: (v: boolean) => void;
-  /**
-   * Kolumna filtrów listy rekrutacji (rekrutacja v3). `null` = użytkownik nie
-   * wybierał — obowiązuje domyślne wg szerokości okna (rozwinięta od `2xl`,
-   * zwinięta poniżej), liczone CSS-em, bez migotania przy hydracji.
-   */
-  jobsFiltersCollapsed: boolean | null;
-  setDensity: (d: UiDensity) => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (v: boolean) => void;
   setCandidatesView: (v: CandidatesView) => void;
-  setJobsView: (v: JobsView) => void;
   setColumnPreference: (entity: string, hidden: string[]) => void;
   clearColumnPreference: (entity: string) => void;
-  setHideEmptyKanbanColumns: (v: boolean) => void;
   setCandidatesPageSize: (v: CandidatesPageSize) => void;
-  setJobsFiltersCollapsed: (v: boolean) => void;
 }
 
 export const useUiStore = create<UiStoreState>()(
   persist(
     (set) => ({
-      density: "cozy",
       sidebarCollapsed: false,
       candidatesView: "list",
-      jobsView: "list",
       columnPreferences: {},
-      hideEmptyKanbanColumns: true,
       candidatesPageSize: 50,
       hideMyPeopleBuddy: false,
       setHideMyPeopleBuddy: (hideMyPeopleBuddy) => set({ hideMyPeopleBuddy }),
-      jobsFiltersCollapsed: null,
-      setDensity: (density) => set({ density }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
       setCandidatesView: (candidatesView) => set({ candidatesView }),
-      setJobsView: (jobsView) => set({ jobsView }),
       setColumnPreference: (entity, hidden) =>
         set((s) => ({
           columnPreferences: { ...s.columnPreferences, [entity]: hidden },
@@ -78,50 +53,53 @@ export const useUiStore = create<UiStoreState>()(
           delete next[entity];
           return { columnPreferences: next };
         }),
-      setHideEmptyKanbanColumns: (hideEmptyKanbanColumns) =>
-        set({ hideEmptyKanbanColumns }),
       setCandidatesPageSize: (candidatesPageSize) => set({ candidatesPageSize }),
-      setJobsFiltersCollapsed: (jobsFiltersCollapsed) =>
-        set({ jobsFiltersCollapsed }),
     }),
     {
       name: "nexus-ui",
-      version: 7,
+      version: 11,
       migrate: (persisted, fromVersion) => {
         let state = (persisted ?? {}) as Partial<UiStoreState>;
         if (fromVersion < 2) {
           state = { ...state, candidatesView: state.candidatesView ?? "list" };
         }
-        if (fromVersion < 3) {
-          state = { ...state, jobsView: state.jobsView ?? "tiles" };
-        }
-        if (fromVersion < 4) {
-          state = {
-            ...state,
-            hideEmptyKanbanColumns: state.hideEmptyKanbanColumns ?? false,
-          };
-        }
-        if (fromVersion < 5) {
-          // Krok 01 „Lista rekrutacji" (flow C2, PR 4/7): widok listy z
-          // mini-lejkiem i dokiem gotowości jest teraz domyślny. Jednorazowy
-          // reset preferencji — do v4 domyślne „tiles" nie było odróżnialne
-          // od świadomego wyboru; kafelki wracają jednym kliknięciem.
-          state = { ...state, jobsView: "list" };
-        }
         if (fromVersion < 6) {
-          // Przegląd UX rekrutera (17.09.2026): puste kolumny kanbanu są
-          // domyślnie ukryte, a lista kandydatów pokazuje 50 wierszy na stronę.
-          // Jednorazowy reset — do v5 `false` nie odróżniało świadomego wyboru
-          // od starej wartości domyślnej.
-          state = { ...state, hideEmptyKanbanColumns: true, candidatesPageSize: 50 };
+          // Przegląd UX rekrutera (17.09.2026): lista kandydatów pokazuje
+          // 50 wierszy na stronę (jednorazowy reset).
+          state = { ...state, candidatesPageSize: 50 };
         }
-        if (fromVersion < 7) {
-          // Rekrutacja v3: zwijana kolumna filtrów listy rekrutacji. `null` =
-          // brak wyboru → domyślne wg szerokości okna.
-          state = {
-            ...state,
-            jobsFiltersCollapsed: state.jobsFiltersCollapsed ?? null,
+        if (fromVersion < 8) {
+          // 25.09.2026: lista rekrutacji ma pasek filtrów nad tabelą zamiast
+          // zwijanej kolumny (v7 `jobsFiltersCollapsed`) — pole znika.
+          const { jobsFiltersCollapsed: _dropped, ...rest } = state as Partial<UiStoreState> & {
+            jobsFiltersCollapsed?: unknown;
           };
+          state = rest;
+        }
+        if (fromVersion < 9) {
+          // 28.09.2026: Tablica rekrutacji nie ma już przełącznika gęstości
+          // (cozy/kompaktowa) — pole znika.
+          const { density: _dropped, ...rest } = state as Partial<UiStoreState> & {
+            density?: unknown;
+          };
+          state = rest;
+        }
+        if (fromVersion < 10) {
+          // 02.10.2026: lista rekrutacji ma jeden widok (tabela) — wybór
+          // „lista / kafelki” (`jobsView`, v3–v9) znika.
+          const { jobsView: _dropped, ...rest } = state as Partial<UiStoreState> & {
+            jobsView?: unknown;
+          };
+          state = rest;
+        }
+        if (fromVersion < 11) {
+          // 25.10.2026: Tablica rekrutacji zawsze pokazuje puste kolumny —
+          // przełącznik „Ukryj puste kolumny” (`hideEmptyKanbanColumns`,
+          // v4–v10) znika.
+          const { hideEmptyKanbanColumns: _dropped, ...rest } = state as Partial<UiStoreState> & {
+            hideEmptyKanbanColumns?: unknown;
+          };
+          state = rest;
         }
         return state;
       },

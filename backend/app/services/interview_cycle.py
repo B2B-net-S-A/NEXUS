@@ -16,19 +16,22 @@ Moduł ma dwie warstwy:
 Zakres „mine” = pary, w których wołający jest rekruterem wniosku o sloty,
 właścicielem wydarzenia cyklu albo osobą, która przesunęła kandydata na
 „Rozmowa z klientem”. Zakres „jobs” = wszystkie pary w rekrutacjach, do których
-należy (DL/TAC/właściciel/współpracownik). „all” = nadzór (admin/HoR).
+należy (DL/TAC/właściciel/współpracownik) ORAZ pary z „mine” — własne zadanie
+nie może zniknąć z domyślnego widoku. „all” = nadzór (admin/HoR).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta, timezone
-from typing import Iterable, Literal, Optional
+from datetime import date, datetime, timedelta, timezone
+from typing import Iterable, Literal, Optional, Sequence
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.scheduling import is_business_day
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -41,10 +44,15 @@ from app.models.client_interview_slot_request import (
     ClientInterviewSlotRequest,
 )
 from app.models.interview_feedback import FeedbackSource, InterviewFeedback
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User
-from app.services.debrief_gate import debrief_saved_after_start
+from app.services.debrief_gate import (
+    debrief_closes_round,
+    pick_current_round,
+    pick_prep_round,
+)
+from app.services.job_working_title import job_display_title_expr
 
 Scope = Literal["mine", "jobs", "all"]
 StepState = Literal[
@@ -70,6 +78,10 @@ DEFAULT_DAYS_AHEAD = 30
 # z klientem” w tym oknie — dłużej wisząca to już nie agenda, tylko pipeline.
 STAGE_LOOKBACK_DAYS = 30
 MAX_PAIRS = 300
+# Karta zamknięta (kolumna „Zamknięci” Tablicy) — para znika z tablicy cyklu.
+_CLOSED_STAGES = frozenset(
+    {PipelineStage.rejected.value, PipelineStage.withdrawn.value}
+)
 
 
 @dataclass(frozen=True)
@@ -91,6 +103,12 @@ class EventRef:
     review_level: Optional[str] = None
     # Organizator (właściciel operacyjny) — adresat zadania „prep słaby”.
     owner_id: Optional[int] = None
+    # 0453: odpowiedź kandydata z Outlooka prowadzącego i proponowany termin.
+    candidate_response: Optional[str] = None
+    proposed_start: Optional[datetime] = None
+    # Punkty klienta, których prep nie omówił (``prep_reviews.remaining``) —
+    # do omówienia przez telefon, gdy rozmowa odbywa się bez Prepu 2.
+    remaining: tuple[str, ...] = ()
 
 
 def assign_prep_ordinals(preps: list[EventRef]) -> list[EventRef]:
@@ -114,6 +132,39 @@ def assign_prep_ordinals(preps: list[EventRef]) -> list[EventRef]:
     return sorted(out, key=lambda e: (e.ordinal or 99, e.start))
 
 
+def preps_of_round(
+    preps: Sequence[EventRef], starts: Sequence[datetime], index: int
+) -> list[EventRef]:
+    """Prepy rozmowy ``starts[index]`` (starty rosnąco): przed nią, a po
+    poprzedniej rundzie — te po niej należą do następnej rundy, te sprzed
+    poprzedniej do poprzedniej.
+
+    Rozmowa wpisana dwa razy na tę samą godzinę to jedna runda (zgłoszenie
+    03.11.2026): „poprzednia runda” kończyła się wtedy o tej samej godzinie,
+    więc po starcie rozmowy odbyte prepy dostawały „pominięte”.
+    """
+    iv_start = starts[index]
+    prev_start = max((s for s in starts[:index] if s < iv_start), default=None)
+    return [
+        p
+        for p in preps
+        if p.start <= iv_start and (prev_start is None or p.start > prev_start)
+    ]
+
+
+def late_preps_of_round(
+    preps: Sequence[EventRef], starts: Sequence[datetime], index: int, now: datetime
+) -> list[EventRef]:
+    """Prep po OSTATNIEJ zaplanowanej rozmowie pary nie ma innej rundy, do
+    której mógłby należeć — to spóźniony prep tej rozmowy. Między dwiema
+    rozmowami prep należy do następnej (``preps_of_round``), a po rozmowie, która
+    już się odbyła, do kolejnej rundy (jeszcze bez terminu)."""
+    iv_start = starts[index]
+    if iv_start < starts[-1] or iv_start <= now:
+        return []
+    return [p for p in preps if p.start > iv_start]
+
+
 @dataclass(frozen=True)
 class SlotRef:
     id: int
@@ -126,6 +177,11 @@ class SlotRef:
     duration_minutes: int
     note: Optional[str]
     event_id: Optional[int]
+    # 0487: rozmowa wpisana przy wyborze rekrutera, DL jeszcze nie odpisał klientowi.
+    client_reply_pending: bool = False
+    # Rozmowa z wyboru (``event_id``) odwołana w kalendarzu — nie ma czego
+    # potwierdzać klientowi (audyt 22.10, F33).
+    event_cancelled: bool = False
 
 
 @dataclass(frozen=True)
@@ -136,6 +192,27 @@ class DebriefRef:
     acceptance_condition: Optional[str]
     candidate_questions: Optional[str]
     client_questions: Optional[str]
+    # Komentarz kandydata (``concerns``) i jawne „klient nie pytał” — podsumowanie
+    # debriefu w doku osoby i w kalendarzu (04.10.2026: zapisany debrief nie
+    # był nigdzie widoczny).
+    concerns: Optional[str] = None
+    no_client_questions: bool = False
+
+
+@dataclass(frozen=True)
+class SkipRef:
+    """Rozmowa u klienta bez Prepu 2 (``prep2_skips``, 0482)."""
+
+    id: int
+    interview_event_id: int
+    reason: str
+    reason_note: Optional[str]
+    call_at: datetime
+    call_done_at: Optional[datetime]
+    call_note: Optional[str]
+    created_by: Optional[int]
+    created_by_name: Optional[str]
+    created_at: datetime
 
 
 @dataclass
@@ -147,6 +224,38 @@ class PairSnapshot:
     interview: Optional[EventRef] = None
     debrief: Optional[DebriefRef] = None
     latest_stage: Optional[str] = None
+    # Kiedy para weszła w najnowszy etap i kto jest jej rekruterem — zadanie
+    # „Uzupełnij pytania z rozmowy” dla par bez terminu (20.10.2026).
+    latest_stage_at: Optional[datetime] = None
+    recruiter_id: Optional[int] = None
+    # Runda do prepów, gdy jest INNA niż ``interview`` (runda do debriefu):
+    # runda odbyta bez debriefu + zaplanowana kolejna. Runda 8 (CAL2, decyzja
+    # Artura 27.09.2026): zaległy debrief i braki prepów do następnej rundy
+    # przypominają się równolegle. ``None`` = obie rundy to ``interview``.
+    prep_interview: Optional[EventRef] = None
+    prep_round_preps: list[EventRef] = field(default_factory=list)
+    # Zaplanowane prepy, które wypadają PO rozmowie, do której miały
+    # przygotować (termin rozmowy potwierdzono albo przełożono na wcześniej
+    # niż prep). Należą do rundy prepów — do 02.10.2026 nie należały do żadnej,
+    # więc ekran prosił o drugi Prep 1, a serwer pozwalał go założyć.
+    late_preps: list[EventRef] = field(default_factory=list)
+    # Rozmowy bez Prepu 2 (0482) po id rozmowy — każda runda ma własny wpis.
+    prep2_skips: dict[int, SkipRef] = field(default_factory=dict)
+
+    def for_preps(self) -> "PairSnapshot":
+        """Migawka rundy, do której robi się prepy (najbliższa przyszła
+        rozmowa, bez przyszłej — bieżąca). Czytają ją zadania „Brak prepu”,
+        plakietka prepu na Tablicy i kolejka ``prep_attention``."""
+        if self.prep_interview is None:
+            return self
+        return replace(
+            self,
+            interview=self.prep_interview,
+            preps=self.prep_round_preps,
+            debrief=None,
+            prep_interview=None,
+            prep_round_preps=[],
+        )
 
     def prep_slot(self, n: int) -> Optional[EventRef]:
         """Prep numer ``n``. Powtórzony prep (poprzedni bez nagrania) wygrywa
@@ -161,8 +270,132 @@ class PairSnapshot:
             return None
         return max(matching, key=lambda p: (p.transcript_status != "missing", p.start))
 
+    def prep2_skip(self) -> Optional[SkipRef]:
+        """Zapisane pominięcie Prepu 2 przed rozmową tej migawki.
+
+        Rozmowa przełożona na później (ten sam wpis kalendarza — PATCH albo
+        sync Outlooka) poza okno „dziś albo najbliższy dzień roboczy” liczone
+        od dnia zapisu traci wyjątek: Prep 2 znowu jest wymagany. Inaczej
+        jeden zapis „na jutro” zwalniałby z prepu rozmowę za tydzień.
+        """
+        if self.interview is None:
+            return None
+        skip = self.prep2_skips.get(self.interview.id)
+        if skip is None:
+            return None
+        return skip if prep2_skip_valid(skip.created_at, self.interview.start) else None
+
+    def late_prep(self, n: int) -> Optional[EventRef]:
+        """Zaplanowany prep numer ``n``, który wypada po rozmowie u klienta."""
+        matching = [p for p in self.late_preps if (p.ordinal or 0) == n]
+        return min(matching, key=lambda p: p.start) if matching else None
+
 
 LEVEL_LABELS_PL = {"weak": "słaby", "ok": "OK", "good": "dobry"}
+LATE_PREP_META = "zaplanowany po rozmowie u klienta — przełóż"
+SILENT_PREP2_META = "bez zapisanego powodu"
+
+# Rozmowa bez Prepu 2 (0482, decyzja Artura 20.10.2026) — wyjątek, nie wybór.
+# Lustro etykiet: ``lib/interview-cycle.ts`` (``PREP2_SKIP_REASON_LABELS``).
+PREP2_SKIP_REASON_LABELS = {
+    "no_slot": "kandydat nie miał wolnego terminu",
+    "short_notice": "rozmowa umówiona z dnia na dzień",
+    "prep1_covered": "Prep 1 omówił całą listę klienta",
+    "other": "inny powód",
+}
+Prep2SkipStatus = Literal[
+    # Przycisk „Rozmowa bez Prepu 2…” jest aktywny.
+    "allowed",
+    # Pominięcie już zapisane.
+    "skipped",
+    # Nie dotyczy: brak przyszłej rozmowy albo Prep 2 jest w kalendarzu.
+    "not_needed",
+    # Prep 1 się jeszcze nie odbył — najpierw on.
+    "prep1_missing",
+    # Prep 1 słaby albo bez nagrania — Prep 2 jest wtedy obowiązkowy.
+    "prep1_weak",
+    # Do rozmowy więcej niż dzień roboczy — jest czas na Prep 2.
+    "too_early",
+]
+
+
+def _next_business_day(day: date) -> date:
+    zone = ZoneInfo(settings.BUSINESS_TZ)
+    current = day + timedelta(days=1)
+    while not is_business_day(
+        datetime(current.year, current.month, current.day, 12, tzinfo=zone),
+        settings.BUSINESS_TZ,
+    ):
+        current += timedelta(days=1)
+    return current
+
+
+def prep2_skip_valid(created_at: datetime, interview_start: datetime) -> bool:
+    """Wyjątek „bez Prepu 2” obowiązuje rozmowę najpóźniej w najbliższy dzień
+    roboczy po dniu zapisu. Jedna reguła dla ekranu (``PairSnapshot.prep2_skip``),
+    ponownego zapisu (``prep2_skips.create_skip``) i raportu
+    (``prep2_skips.tally_skip_stats``) — rozmowa przełożona dalej traci wyjątek.
+    """
+    deadline = _next_business_day(_local(created_at).date())
+    return _local(interview_start).date() <= deadline
+
+
+def prep2_skip_status(pair: PairSnapshot, now: datetime) -> Prep2SkipStatus:
+    """Czy rozmowę rundy prepów można zapisać jako „bez Prepu 2”.
+
+    Warunki (decyzja Artura 20.10.2026): rozmowa dziś albo w najbliższy dzień
+    roboczy (piątek → poniedziałek też), Prep 1 już się odbył i nie jest
+    słaby ani bez nagrania. Przy rozmowie dalej jest czas na Prep 2, a słaby
+    Prep 1 to dokładnie ten przypadek, w którym Prep 2 jest potrzebny.
+    """
+    rnd = pair.for_preps()
+    iv = rnd.interview
+    if iv is None or iv.start <= now:
+        return "not_needed"
+    if rnd.prep2_skip() is not None:
+        return "skipped"
+    if rnd.prep_slot(2) is not None or rnd.late_prep(2) is not None:
+        return "not_needed"
+    first = rnd.prep_slot(1)
+    if first is None or first.start > now:
+        return "prep1_missing"
+    if prep_quality(first)[1] in ("weak", "unrecorded"):
+        return "prep1_weak"
+    if _local(iv.start).date() > _next_business_day(_local(now).date()):
+        return "too_early"
+    return "allowed"
+
+
+def prep2_skip_meta(skip: SkipRef) -> str:
+    """„kandydat nie miał wolnego terminu · Anna K.” — stepper dopisuje przed
+    tym „pominięte”, więc meta niesie tylko powód i autora."""
+    label = PREP2_SKIP_REASON_LABELS.get(skip.reason, skip.reason)
+    if skip.reason == "other" and skip.reason_note:
+        label = skip.reason_note
+    who = f" · {skip.created_by_name}" if skip.created_by_name else ""
+    return f"{label}{who}"
+
+
+def prep2_skip_payload(skip: SkipRef) -> dict:
+    return {
+        "id": skip.id,
+        "interview_event_id": skip.interview_event_id,
+        "reason": skip.reason,
+        "reason_note": skip.reason_note,
+        # ISO jak reszta odznaki doku (słownik idzie do JSON-a bez schematu).
+        "call_at": _iso(skip.call_at),
+        "call_done_at": _iso(skip.call_done_at),
+        "call_note": skip.call_note,
+        "created_by": skip.created_by,
+        "created_by_name": skip.created_by_name,
+        "created_at": _iso(skip.created_at),
+    }
+
+
+def prep1_remaining(pair: PairSnapshot) -> list[str]:
+    """Punkty klienta, których Prep 1 rundy prepów nie omówił."""
+    first = pair.for_preps().prep_slot(1)
+    return list(first.remaining) if first is not None else []
 
 
 def prep_quality(ev: EventRef) -> tuple[Optional[str], Optional[str]]:
@@ -201,9 +434,36 @@ def compute_steps(
     pair: PairSnapshot, now: datetime, *, call_window_minutes: int
 ) -> list[dict]:
     """Siedem kroków pary. Stan „current” ma najwyżej jeden krok — pierwszy
-    niezamknięty — żeby ekran wiedział, co podświetlić."""
+    niezamknięty — żeby ekran wiedział, co podświetlić.
+
+    Otwarty wniosek o terminy (rekruter wybiera albo DL potwierdza) po rozmowie,
+    która już się odbyła, to NOWA runda (runda 10, F26): kroki opisują ją, nie
+    poprzednią rozmowę — inaczej „Wybór terminu” i „Rozmowa” świeciły jako
+    zrobione z datą starej rozmowy, a bieżącym krokiem był telefon po niej.
+    Zaległy debrief poprzedniej rozmowy zostaje zadaniem (``compute_todos``).
+    Gdy kolejna rozmowa jest już zaplanowana (``prep_interview``), kroki
+    opisują tę rundę.
+    """
     req = pair.slot_request
     iv = pair.interview
+    open_request = req is not None and req.status in (
+        SLOT_STATUS_AWAITING_RECRUITER,
+        SLOT_STATUS_AWAITING_DL,
+    )
+    if open_request and iv is not None and _interview_end(iv) <= now:
+        if pair.prep_interview is not None:
+            pair = pair.for_preps()
+        else:
+            pair = replace(
+                pair,
+                interview=None,
+                preps=[],
+                debrief=None,
+                prep_interview=None,
+                prep_round_preps=[],
+                late_preps=[],
+            )
+        iv = pair.interview
     iv_done = iv is not None and _interview_end(iv) <= now
     steps: list[dict] = []
 
@@ -213,8 +473,11 @@ def compute_steps(
     else:
         steps.append(_step("slots", "todo"))
 
-    # 2. Wybór terminu
-    if iv is not None or (req is not None and req.status == SLOT_STATUS_CONFIRMED):
+    # 2. Wybór terminu — otwarty wniosek wygrywa z zaplanowaną rozmową
+    # (nowe terminy = przełożenie albo kolejna runda, runda 10 F26).
+    if not open_request and (
+        iv is not None or (req is not None and req.status == SLOT_STATUS_CONFIRMED)
+    ):
         steps.append(_step("choice", "done", at=iv.start if iv else None))
     elif req is not None and req.status == SLOT_STATUS_AWAITING_DL:
         chosen = _chosen_slot(req)
@@ -242,7 +505,25 @@ def compute_steps(
     # 3–4. Prep i Prep 2 — oba wymagane (0370); po rozmowie już się nie wydarzą.
     for n, key in ((1, "prep"), (2, "prep2")):
         ev = pair.prep_slot(n)
-        if ev is not None and ev.start > now:
+        # Spóźniony prep dotyczy tylko rundy, której rozmowa jest przed nami.
+        late = (
+            pair.late_prep(n)
+            if ev is None and iv is not None and iv.start > now
+            else None
+        )
+        if late is not None:
+            # Prep JEST w kalendarzu, tylko po rozmowie: „po terminie”
+            # z akcją „Przełóż”, nie „Zaplanuj” (drugi byłby duplikatem).
+            steps.append(
+                _step(
+                    key,
+                    "overdue",
+                    at=late.start,
+                    event_id=late.id,
+                    meta=LATE_PREP_META,
+                )
+            )
+        elif ev is not None and ev.start > now:
             meta = (
                 "transkrypcja nie włączyła się — włącz ją ręcznie w Teams"
                 if ev.transcription_setup == "failed"
@@ -258,8 +539,14 @@ def compute_steps(
                     key, "done", at=ev.start, event_id=ev.id, meta=meta, quality=quality
                 )
             )
+        elif n == 2 and (skip := pair.prep2_skip()) is not None:
+            # 0482: rozmowa bez Prepu 2 z zapisanym powodem — szary krok,
+            # nigdy „zrobione”.
+            steps.append(_step(key, "skipped", meta=prep2_skip_meta(skip)))
         elif iv is not None and iv.start <= now:
-            steps.append(_step(key, "skipped"))
+            steps.append(
+                _step(key, "skipped", meta=SILENT_PREP2_META if n == 2 else None)
+            )
         else:
             steps.append(_step(key, "todo"))
 
@@ -330,20 +617,28 @@ def _chosen_slot(req: SlotRef) -> Optional[dict]:
 TodoKind = Literal[
     "call_now",
     "debrief_overdue",
+    "questions_missing",
     "slots_pick",
     "slots_confirm",
+    "slots_reply",
     "prep_missing",
     "prep2_missing",
+    "prep_late",
     "prep_weak",
     "prep_unrecorded",
     "slots_missing",
+    "precall_due",
 ]
 _TODO_PRIORITY = {
     "call_now": 0,
     "debrief_overdue": 1,
+    "questions_missing": 1,
     "slots_pick": 2,
     "slots_confirm": 3,
+    "slots_reply": 3,
     "prep_missing": 4,
+    "prep_late": 4,
+    "precall_due": 4,
     "slots_missing": 5,
     "prep2_missing": 6,
     "prep_weak": 6,
@@ -360,14 +655,30 @@ def compute_todos(
     call_window_minutes: int,
     user_id: int,
     is_dl_view: bool,
+    acting_for: Optional[Iterable[int]] = None,
+    questions_after_hours: int = 24,
 ) -> list[dict]:
     """Zadania „Do zrobienia” dla pary. Rekruter i DL widzą inne przekazania:
-    wybór terminu należy do rekrutera, potwierdzenie u klienta do DL."""
+    wybór terminu należy do rekrutera, potwierdzenie u klienta do DL.
+
+    ``acting_for`` = osoby, za które wołający pracuje (``operational_owner_ids``
+    — on sam i zastępowani z COMPASS-a). Runda 8 (R8-N9-6): zastępca widział
+    parę w zakresie „mine”, ale nie dostawał „Wybierz termin” ani „Potwierdź”.
+    """
+    me = set(acting_for) if acting_for is not None else {user_id}
     todos: list[dict] = []
     iv = pair.interview
     req = pair.slot_request
 
-    def add(kind: str, *, due=None, event_id=None, slot_request_id=None, urgent=False):
+    def add(
+        kind: str,
+        *,
+        due=None,
+        event_id=None,
+        slot_request_id=None,
+        urgent=False,
+        owner_id: Optional[int] = None,
+    ):
         todos.append(
             {
                 "kind": kind,
@@ -379,6 +690,8 @@ def compute_todos(
                 "event_id": event_id,
                 "slot_request_id": slot_request_id,
                 "urgent": urgent,
+                # Na kogo zadanie czeka — czyta to ``todo_is_mine``.
+                "owner_id": owner_id,
             }
         )
 
@@ -386,38 +699,111 @@ def compute_todos(
         end = _interview_end(iv)
         deadline = end + timedelta(minutes=call_window_minutes)
         if end <= now <= deadline:
-            add("call_now", due=deadline, event_id=iv.id)
+            add("call_now", due=deadline, event_id=iv.id, owner_id=iv.owner_id)
         elif deadline < now:
-            add("debrief_overdue", due=deadline, event_id=iv.id)
+            add("debrief_overdue", due=deadline, event_id=iv.id, owner_id=iv.owner_id)
 
     if req is not None and req.status == SLOT_STATUS_AWAITING_RECRUITER:
-        if is_dl_view or req.recruiter_id in (None, user_id):
-            add("slots_pick", due=req.respond_by, slot_request_id=req.id)
+        if is_dl_view or req.recruiter_id is None or req.recruiter_id in me:
+            add(
+                "slots_pick",
+                due=req.respond_by,
+                slot_request_id=req.id,
+                owner_id=req.recruiter_id,
+            )
     if req is not None and req.status == SLOT_STATUS_AWAITING_DL:
-        if is_dl_view or req.created_by == user_id:
+        if is_dl_view or req.created_by in me:
             chosen = _chosen_slot(req)
             add(
                 "slots_confirm",
                 due=chosen["start"] if chosen else None,
                 slot_request_id=req.id,
+                owner_id=req.created_by,
             )
 
-    if iv is not None and iv.start > now:
-        urgent = iv.start - now <= timedelta(hours=PREP_URGENT_HOURS)
-        first, second = pair.prep_slot(1), pair.prep_slot(2)
+    # 0487: rozmowa już w kalendarzu z wyboru rekrutera — DL odpisuje
+    # klientowi. Po starcie rozmowy odpowiedź nie ma już sensu.
+    if (
+        req is not None
+        and req.status == SLOT_STATUS_CONFIRMED
+        and req.client_reply_pending
+        and not req.event_cancelled
+        and (is_dl_view or req.created_by in me)
+    ):
+        chosen = _chosen_slot(req)
+        chosen_start = (
+            _as_utc(datetime.fromisoformat(chosen["start"])) if chosen else None
+        )
+        if chosen_start is None or chosen_start > now:
+            add(
+                "slots_reply",
+                due=chosen_start,
+                slot_request_id=req.id,
+                owner_id=req.created_by,
+            )
+
+    # Prepy liczą się do rundy prepów (``for_preps``), nie do rundy czekającej
+    # na debrief — oba przypomnienia idą równolegle (runda 8, CAL2).
+    prep_round = pair.for_preps()
+    prep_iv = prep_round.interview
+    if prep_iv is not None and prep_iv.start > now:
+        urgent = prep_iv.start - now <= timedelta(hours=PREP_URGENT_HOURS)
+        first, second = prep_round.prep_slot(1), prep_round.prep_slot(2)
         # Najpierw Prep 1 — dwa zadania naraz to szum; Prep 2 zawsze (0370).
+        # Prep zaplanowany PO rozmowie nie jest brakiem terminu: zadaniem jest
+        # go przełożyć, a „Zaplanuj” założyłoby drugi w kalendarzu organizatora
+        # i kandydata.
         if first is None:
-            add("prep_missing", due=iv.start, event_id=iv.id, urgent=urgent)
-        elif second is None:
-            add("prep2_missing", due=iv.start, event_id=iv.id, urgent=urgent)
+            if prep_round.late_prep(1) is None:
+                add(
+                    "prep_missing",
+                    due=prep_iv.start,
+                    event_id=prep_iv.id,
+                    urgent=urgent,
+                    owner_id=prep_iv.owner_id,
+                )
+        elif second is None and prep_round.late_prep(2) is None:
+            skip = prep_round.prep2_skip()
+            if skip is None:
+                add(
+                    "prep2_missing",
+                    due=prep_iv.start,
+                    event_id=prep_iv.id,
+                    urgent=urgent,
+                    owner_id=prep_iv.owner_id,
+                )
+            elif skip.call_done_at is None:
+                # 0482: bez Prepu 2 zostaje telefon do kandydata przed rozmową.
+                add(
+                    "precall_due",
+                    due=skip.call_at,
+                    event_id=prep_iv.id,
+                    urgent=skip.call_at <= now,
+                    owner_id=skip.created_by,
+                )
+        for ev in prep_round.late_preps:
+            add(
+                "prep_late",
+                due=prep_iv.start,
+                event_id=ev.id,
+                urgent=urgent,
+                owner_id=ev.owner_id,
+            )
         for ev in (first, second):
             if ev is None or ev.start > now:
                 continue
             _meta, quality = prep_quality(ev)
             if quality == "weak":
-                add("prep_weak", due=iv.start, event_id=ev.id)
+                add(
+                    "prep_weak", due=prep_iv.start, event_id=ev.id, owner_id=ev.owner_id
+                )
             elif quality == "unrecorded":
-                add("prep_unrecorded", due=iv.start, event_id=ev.id)
+                add(
+                    "prep_unrecorded",
+                    due=prep_iv.start,
+                    event_id=ev.id,
+                    owner_id=ev.owner_id,
+                )
 
     if (
         is_dl_view
@@ -426,7 +812,55 @@ def compute_todos(
         and pair.latest_stage == PipelineStage.client_interview.value
     ):
         add("slots_missing")
+
+    # 20.10.2026: para w „Rozmowie z klientem” bez rozmowy w kalendarzu (88 z 99
+    # par w 30 dniach) nie dostawała ani telefonu, ani debriefu — pytania
+    # klienta lądowały w notatkach. Po dobie w etapie rekruter dostaje „Uzupełnij
+    # pytania z rozmowy”; otwarty wniosek o terminy znaczy, że rozmowy jeszcze
+    # nie było. Zapis pytań zakłada odbytą rozmowę, więc zadanie gaśnie samo.
+    if (
+        iv is None
+        and (req is None or req.status not in OPEN_SLOT_STATUSES)
+        and pair.latest_stage == PipelineStage.client_interview.value
+        and pair.latest_stage_at is not None
+        and pair.latest_stage_at + timedelta(hours=questions_after_hours) <= now
+    ):
+        add(
+            "questions_missing",
+            due=pair.latest_stage_at + timedelta(hours=questions_after_hours),
+            owner_id=pair.recruiter_id,
+        )
     return todos
+
+
+def todo_is_mine(
+    todo: dict, acting_for: Iterable[int], *, delivery_lead_id: Optional[int] = None
+) -> bool:
+    """Czy zadanie czeka na wołającego albo osobę, którą zastępuje.
+
+    Okienko „Rozmowy” w górnym pasku (13.10.2026) pokazuje tylko takie pozycje:
+    Delivery Lead w zakresie „jobs” widzi na ekranie także sprawy rekruterów,
+    ale nie dostaje ich jako swoich. Zadanie bez wskazanej osoby nie jest
+    niczyje „moje” — adresat zapasowy (nieaktywny właściciel) dostaje
+    powiadomienie, nie zadanie.
+    """
+    me = set(acting_for)
+    kind, owner = todo["kind"], todo.get("owner_id")
+    if kind == "slots_pick":
+        # Wniosek bez rekrutera wybiera dowolny członek zespołu rekrutacji.
+        return owner is None or owner in me
+    if kind == "prep_missing":
+        # Prep 1 prowadzi Delivery Lead, a „Zaplanuj prep z kandydatem” po
+        # potwierdzeniu terminu dostaje rekruter — zadanie jest obu.
+        return delivery_lead_id in me or owner in me
+    if kind == "prep2_missing":
+        return owner in me if owner is not None else delivery_lead_id in me
+    if kind == "slots_missing":
+        return delivery_lead_id in me
+    if kind == "questions_missing":
+        # Para bez rekrutera (konto nieaktywne, brak zespołu) — Delivery Lead.
+        return owner in me if owner is not None else delivery_lead_id in me
+    return owner in me
 
 
 # ── Ładowanie ────────────────────────────────────────────────────────────────
@@ -449,7 +883,9 @@ def _event_ref(ev: CalendarEvent) -> EventRef:
     )
 
 
-def slot_ref(req: ClientInterviewSlotRequest) -> SlotRef:
+def slot_ref(
+    req: ClientInterviewSlotRequest, *, event_cancelled: bool = False
+) -> SlotRef:
     return SlotRef(
         id=req.id,
         status=req.status,
@@ -461,6 +897,8 @@ def slot_ref(req: ClientInterviewSlotRequest) -> SlotRef:
         duration_minutes=req.duration_minutes,
         note=req.note,
         event_id=req.event_id,
+        client_reply_pending=bool(req.client_reply_pending),
+        event_cancelled=event_cancelled,
     )
 
 
@@ -477,20 +915,25 @@ async def _scope_pairs(
     from app.api.recruitment_access import job_scope_clause
     from app.services.workforce_availability import operational_owner_ids
 
+    from app.models.recruitment_process import RecruitmentProcess
+
     owners = sorted(operational_owner_ids(user))
-    job_filter_events = true()
-    job_filter_slots = true()
-    job_filter_stages = true()
-    if scope == "jobs":
-        job_filter_events = job_scope_clause(
-            user, CalendarEvent.job_id, oversight_bypass=False
-        )
-        job_filter_slots = job_scope_clause(
-            user, ClientInterviewSlotRequest.job_id, oversight_bypass=False
-        )
-        job_filter_stages = job_scope_clause(
-            user, CandidateStage.job_id, oversight_bypass=False
-        )
+
+    def in_scope(job_col, mine):
+        """„mine” = własne pary; „jobs” = pary moich rekrutacji ORAZ własne.
+
+        Zgłoszenie 02.10.2026: osoba z rolą TAC (ekran startuje w „Moje
+        rekrutacje”) dostała dzwonek „Terminy rozmowy od klienta” jako rekruter
+        kandydata w cudzej rekrutacji. Zakres rekrutacji tej pary nie zawierał,
+        więc tablica była pusta, a link z dzwonka mówił „nie ma w Twoim
+        zakresie” — choć zadanie było jej. Domyślny widok nie może chować
+        zadania przypisanego osobie imiennie.
+        """
+        if scope == "mine":
+            return mine
+        if scope == "jobs":
+            return or_(job_scope_clause(user, job_col, oversight_bypass=False), mine)
+        return true()
 
     pairs: set[tuple[int, int]] = set()
 
@@ -501,14 +944,13 @@ async def _scope_pairs(
         CalendarEvent.job_id.isnot(None),
         CalendarEvent.start_time >= window_start,
         CalendarEvent.start_time <= window_end,
-        job_filter_events,
-    )
-    if scope == "mine":
-        ev_q = ev_q.where(
+        in_scope(
+            CalendarEvent.job_id,
             func.coalesce(
                 CalendarEvent.operational_owner_id, CalendarEvent.created_by
-            ).in_(owners)
-        )
+            ).in_(owners),
+        ),
+    )
     for cid, jid in (await db.execute(ev_q.limit(MAX_PAIRS))).all():
         pairs.add((cid, jid))
 
@@ -522,19 +964,20 @@ async def _scope_pairs(
                 ClientInterviewSlotRequest.confirmed_at >= window_start,
             ),
         ),
-        job_filter_slots,
-    )
-    if scope == "mine":
-        slot_q = slot_q.where(
+        in_scope(
+            ClientInterviewSlotRequest.job_id,
             or_(
                 ClientInterviewSlotRequest.recruiter_id.in_(owners),
                 ClientInterviewSlotRequest.created_by == user.id,
-            )
-        )
+            ),
+        ),
+    )
     for cid, jid in (await db.execute(slot_q.limit(MAX_PAIRS))).all():
         pairs.add((cid, jid))
 
     # Najnowszy etap pary = „Rozmowa z klientem”, przesunięty niedawno.
+    # Zakres nakładamy na najnowszy wiersz pary (wszystkie jej wiersze mają
+    # tę samą rekrutację, więc wynik jest ten sam, co przy filtrze w środku).
     latest = (
         select(
             CandidateStage.candidate_id,
@@ -544,10 +987,7 @@ async def _scope_pairs(
             CandidateStage.moved_at,
         )
         .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
-        .where(
-            CandidateStage.moved_at >= now - timedelta(days=STAGE_LOOKBACK_DAYS),
-            job_filter_stages,
-        )
+        .where(CandidateStage.moved_at >= now - timedelta(days=STAGE_LOOKBACK_DAYS))
         .order_by(
             CandidateStage.candidate_id,
             CandidateStage.job_id,
@@ -556,22 +996,42 @@ async def _scope_pairs(
         )
         .subquery()
     )
-    stage_q = select(latest.c.candidate_id, latest.c.job_id).where(
-        latest.c.stage == PipelineStage.client_interview
-    )
-    if scope == "mine":
-        from app.models.recruitment_process import RecruitmentProcess
-
-        owned_process = (
-            select(RecruitmentProcess.id)
-            .where(
-                RecruitmentProcess.candidate_id == latest.c.candidate_id,
-                RecruitmentProcess.job_id == latest.c.job_id,
-                RecruitmentProcess.owner_user_id.in_(owners),
-            )
-            .exists()
+    owned_process = (
+        select(RecruitmentProcess.id)
+        .where(
+            RecruitmentProcess.candidate_id == latest.c.candidate_id,
+            RecruitmentProcess.job_id == latest.c.job_id,
+            RecruitmentProcess.owner_user_id.in_(owners),
         )
-        stage_q = stage_q.where(or_(latest.c.moved_by.in_(owners), owned_process))
+        .exists()
+    )
+    # 20.10.2026: rekruter pary to też pierwszy weryfikator i rekruter
+    # rekrutacji (``interview_slots.default_recruiter_ids``) — zadanie „Uzupełnij
+    # pytania z rozmowy” trafia do niego, więc para musi być w jego „mine”.
+    # Na produkcji 5 z 24 takich zadań nie widział nikt.
+    verified_by_me = (
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == latest.c.candidate_id,
+            CandidateStage.job_id == latest.c.job_id,
+            CandidateStage.stage == PipelineStage.verified,
+            CandidateStage.moved_by.in_(owners),
+        )
+        .exists()
+    )
+    my_job = latest.c.job_id.in_(select(Job.id).where(Job.recruiter_id.in_(owners)))
+    stage_q = select(latest.c.candidate_id, latest.c.job_id).where(
+        latest.c.stage == PipelineStage.client_interview,
+        # Runda 8 (R8-N9-5): import Traffita dopisuje etap „Rozmowa z klientem”
+        # rekrutacjom-archiwum i zamkniętym — to nie jest praca DL-a, więc
+        # bez „Brak terminów od klienta” dla nich. Pary z wydarzeniami
+        # i wnioskami o terminy (źródła wyżej) zostają bez zmian.
+        latest.c.job_id.in_(select(Job.id).where(Job.status == JobStatus.published)),
+        in_scope(
+            latest.c.job_id,
+            or_(latest.c.moved_by.in_(owners), owned_process, verified_by_me, my_job),
+        ),
+    )
     for cid, jid in (await db.execute(stage_q.limit(MAX_PAIRS))).all():
         pairs.add((cid, jid))
     return pairs
@@ -583,8 +1043,13 @@ async def load_snapshots(
     *,
     window_start: datetime,
     window_end: datetime,
+    now: Optional[datetime] = None,
 ) -> dict[tuple[int, int], PairSnapshot]:
-    """Migawki par — stała liczba zapytań niezależnie od liczby par."""
+    """Migawki par — stała liczba zapytań niezależnie od liczby par.
+
+    ``now`` rozstrzyga, która runda rozmów jest bieżąca (``pick_current_round``)
+    — wołający podaje ten sam zegar, którym liczy kroki i zadania.
+    """
     keys = sorted(set(pairs))[:MAX_PAIRS]
     snaps = {k: PairSnapshot(candidate_id=k[0], job_id=k[1]) for k in keys}
     if not keys:
@@ -592,26 +1057,30 @@ async def load_snapshots(
     cand_ids = sorted({k[0] for k in keys})
     job_ids = sorted({k[1] for k in keys})
 
-    # Wydarzenia cyklu: prepy i rozmowa u klienta w oknie.
+    # Wydarzenia cyklu: prepy w oknie i WSZYSTKIE rozmowy u klienta pary.
+    # Runda 8 (CAL2): rozmowy bez okna, jak bramka debriefu (``missing_debrief``)
+    # — inaczej rozmowa sprzed 44 dni bez debriefu blokowała ruch karty, a ekran
+    # jej nie widział i wskazywał inną rundę.
     ev_rows = (
         await db.execute(
             select(CalendarEvent)
             .where(
                 CalendarEvent.candidate_id.in_(cand_ids),
                 CalendarEvent.job_id.in_(job_ids),
-                CalendarEvent.event_type.in_(
-                    (EventType.prep_call, EventType.client_interview)
-                ),
                 CalendarEvent.status != EventStatus.cancelled,
-                CalendarEvent.start_time >= window_start - timedelta(days=30),
-                CalendarEvent.start_time <= window_end,
+                or_(
+                    CalendarEvent.event_type == EventType.client_interview,
+                    and_(
+                        CalendarEvent.event_type == EventType.prep_call,
+                        CalendarEvent.start_time >= window_start - timedelta(days=30),
+                        CalendarEvent.start_time <= window_end,
+                    ),
+                ),
             )
-            .order_by(CalendarEvent.start_time)
+            .order_by(CalendarEvent.start_time, CalendarEvent.id)
         )
     ).scalars()
-    interviews: dict[tuple[int, int], CalendarEvent] = {}
-    # Poprzednia rozmowa pary — prepy sprzed niej należą do poprzedniej rundy.
-    previous: dict[tuple[int, int], CalendarEvent] = {}
+    interviews: dict[tuple[int, int], list[CalendarEvent]] = {}
     for ev in ev_rows:
         key = (ev.candidate_id, ev.job_id)
         snap = snaps.get(key)
@@ -620,24 +1089,82 @@ async def load_snapshots(
         if ev.event_type == EventType.prep_call:
             snap.preps.append(_event_ref(ev))
         else:
-            # Najnowsza rozmowa u klienta — kolejne rundy nadpisują poprzednią.
-            if key in interviews:
-                previous[key] = interviews[key]
-            interviews[key] = ev
-    for key, ev in interviews.items():
-        snaps[key].interview = _event_ref(ev)
-        # Prepy liczą się do TEJ rozmowy: te po niej należą do następnej rundy.
-        iv_start = _as_utc(ev.start_time)
-        prev = previous.get(key)
-        prev_start = _as_utc(prev.start_time) if prev is not None else None
-        snaps[key].preps = [
-            p
-            for p in snaps[key].preps
-            if p.start <= iv_start and (prev_start is None or p.start > prev_start)
-        ]
+            interviews.setdefault(key, []).append(ev)
+
+    # Debrief: feedback strony kandydata pod rozmowami u klienta — potrzebny
+    # już do wyboru bieżącej rundy (runda z debriefem jest zamknięta).
+    feedback: dict[int, InterviewFeedback] = {}
+    iv_ids = [ev.id for evs in interviews.values() for ev in evs]
+    if iv_ids:
+        fb_rows = (
+            await db.execute(
+                select(InterviewFeedback).where(
+                    InterviewFeedback.calendar_event_id.in_(iv_ids),
+                    InterviewFeedback.feedback_source == FeedbackSource.candidate_side,
+                )
+            )
+        ).scalars()
+        feedback = {fb.calendar_event_id: fb for fb in fb_rows}
+
+    def _debrief_of(ev: CalendarEvent) -> Optional[InterviewFeedback]:
+        fb = feedback.get(ev.id)
+        # Ta sama reguła „runda zamknięta” co bramka (``debrief_closes_round``):
+        # debrief kompletny i zapisany po rozpoczęciu rozmowy. Feedback bez
+        # pytań klienta (ogólny ``POST /api/interview-feedback``) nie zamyka
+        # kroków „Telefon” i „Debrief” — bramka i tak odrzuciłaby ruch karty.
+        if fb is not None and debrief_closes_round(
+            fb.client_questions,
+            fb.no_client_questions,
+            _as_utc(fb.updated_at) if fb.updated_at else None,
+            _as_utc(ev.start_time),
+        ):
+            return fb
+        return None
+
+    now = _as_utc(now) if now is not None else datetime.now(timezone.utc)
+
+    for key, evs in interviews.items():
+        # Runda 8 (R8-N9-3): runda do debriefu wg jednej reguły z
+        # ``debrief_gate`` (ostatnia rozpoczęta bez debriefu, inaczej
+        # najbliższa przyszła) — nie „najpóźniejsza”, bo przy kilku rundach
+        # naraz telefon po rundzie, która właśnie minęła, znikał z ekranu.
+        index = pick_current_round(
+            [(_as_utc(ev.start_time), _debrief_of(ev) is not None) for ev in evs],
+            now,
+        )
+        # Runda 8 (CAL2): prepy zawsze do najbliższej przyszłej rozmowy — obok
+        # zaległego debriefu rundy odbytej, nie zamiast niego.
+        prep_index = pick_prep_round([_as_utc(ev.start_time) for ev in evs], now)
+        current = evs[index]
+        snap = snaps[key]
+        all_preps = snap.preps
+        starts = [_as_utc(ev.start_time) for ev in evs]
+        snap.interview = _event_ref(current)
+        snap.preps = preps_of_round(all_preps, starts, index)
+        if prep_index is not None and prep_index != index:
+            snap.prep_interview = _event_ref(evs[prep_index])
+            snap.prep_round_preps = preps_of_round(all_preps, starts, prep_index)
+        if prep_index is not None:
+            snap.late_preps = late_preps_of_round(all_preps, starts, prep_index, now)
+        fb = _debrief_of(current)
+        if fb is not None:
+            snap.debrief = DebriefRef(
+                id=fb.id,
+                overall_impression=fb.overall_impression,
+                offer_acceptance=fb.offer_acceptance,
+                acceptance_condition=fb.acceptance_condition,
+                candidate_questions=fb.candidate_questions,
+                client_questions=fb.client_questions,
+                concerns=fb.concerns,
+                no_client_questions=bool(fb.no_client_questions),
+            )
 
     # 0370: stan prepów z NEXUSA (numer, transkrypt, ocena) — jedno zapytanie.
-    prep_ids = [p.id for snap in snaps.values() for p in snap.preps]
+    prep_ids = [
+        p.id
+        for snap in snaps.values()
+        for p in (*snap.preps, *snap.prep_round_preps, *snap.late_preps)
+    ]
     if prep_ids:
         from app.models.prep_meeting import PrepMeeting, PrepReview
 
@@ -650,30 +1177,87 @@ async def load_snapshots(
                         PrepMeeting.prep_no,
                         PrepMeeting.transcription_setup,
                         PrepMeeting.transcript_status,
+                        PrepMeeting.candidate_response,
+                        PrepMeeting.proposed_start,
                         PrepReview.status.label("review_status"),
                         PrepReview.level.label("review_level"),
+                        PrepReview.remaining.label("review_remaining"),
                     )
                     .outerjoin(PrepReview, PrepReview.prep_meeting_id == PrepMeeting.id)
                     .where(PrepMeeting.calendar_event_id.in_(prep_ids))
                 )
             ).all()
         }
+
+        def _with_info(p: EventRef) -> EventRef:
+            if p.id not in info:
+                return p
+            return replace(
+                p,
+                prep_no=info[p.id].prep_no,
+                transcription_setup=info[p.id].transcription_setup,
+                transcript_status=info[p.id].transcript_status,
+                review_status=info[p.id].review_status,
+                review_level=info[p.id].review_level,
+                candidate_response=info[p.id].candidate_response,
+                proposed_start=info[p.id].proposed_start,
+                remaining=tuple(
+                    str(item) for item in (info[p.id].review_remaining or ())
+                ),
+            )
+
         for snap in snaps.values():
-            snap.preps = [
-                replace(
-                    p,
-                    prep_no=info[p.id].prep_no,
-                    transcription_setup=info[p.id].transcription_setup,
-                    transcript_status=info[p.id].transcript_status,
-                    review_status=info[p.id].review_status,
-                    review_level=info[p.id].review_level,
-                )
-                if p.id in info
-                else p
-                for p in snap.preps
-            ]
+            snap.preps = [_with_info(p) for p in snap.preps]
+            snap.prep_round_preps = [_with_info(p) for p in snap.prep_round_preps]
+            snap.late_preps = [_with_info(p) for p in snap.late_preps]
     for snap in snaps.values():
         snap.preps = assign_prep_ordinals(snap.preps)
+        snap.prep_round_preps = assign_prep_ordinals(snap.prep_round_preps)
+        if snap.late_preps:
+            # Spóźnione prepy numerujemy RAZEM z prepami swojej rundy: prep bez
+            # numeru (spoza NEXUSA) nie może zająć numeru prepu, który jest
+            # zaplanowany na czas.
+            on_time = (
+                snap.prep_round_preps if snap.prep_interview is not None else snap.preps
+            )
+            late_ids = {p.id for p in snap.late_preps}
+            snap.late_preps = [
+                p
+                for p in assign_prep_ordinals([*on_time, *snap.late_preps])
+                if p.id in late_ids
+            ]
+
+    # 0482: rozmowy bez Prepu 2 — jedno zapytanie dla wszystkich par.
+    if interviews:
+        from app.models.prep_meeting import Prep2Skip
+
+        skip_rows = (
+            await db.execute(
+                select(Prep2Skip, User.name)
+                .outerjoin(User, User.id == Prep2Skip.created_by)
+                .where(
+                    Prep2Skip.interview_event_id.in_(
+                        [ev.id for evs in interviews.values() for ev in evs]
+                    )
+                )
+            )
+        ).all()
+        for row, author in skip_rows:
+            snap = snaps.get((row.candidate_id, row.job_id))
+            if snap is None:
+                continue
+            snap.prep2_skips[row.interview_event_id] = SkipRef(
+                id=row.id,
+                interview_event_id=row.interview_event_id,
+                reason=row.reason,
+                reason_note=row.reason_note,
+                call_at=_as_utc(row.call_at),
+                call_done_at=_as_utc(row.call_done_at) if row.call_done_at else None,
+                call_note=row.call_note,
+                created_by=row.created_by,
+                created_by_name=author,
+                created_at=_as_utc(row.created_at),
+            )
 
     # Wnioski o sloty: otwarty wygrywa, inaczej najnowszy niezanulowany.
     slot_rows = (
@@ -687,49 +1271,39 @@ async def load_snapshots(
             .order_by(ClientInterviewSlotRequest.created_at)
         )
     ).scalars()
+    slot_rows = list(slot_rows)
+    # Rozmowy z wyboru odwołane w kalendarzu — „Odpisz klientowi” znika (F33).
+    reply_event_ids = {
+        r.event_id for r in slot_rows if r.client_reply_pending and r.event_id
+    }
+    cancelled_events: set[int] = set()
+    if reply_event_ids:
+        cancelled_events = set(
+            await db.scalars(
+                select(CalendarEvent.id).where(
+                    CalendarEvent.id.in_(reply_event_ids),
+                    CalendarEvent.status == EventStatus.cancelled,
+                )
+            )
+        )
     for req in slot_rows:
         snap = snaps.get((req.candidate_id, req.job_id))
         if snap is None:
             continue
         current = snap.slot_request
         if current is None or current.status not in OPEN_SLOT_STATUSES:
-            snap.slot_request = slot_ref(req)
-
-    # Debrief: feedback strony kandydata pod rozmową u klienta.
-    iv_ids = [s.interview.id for s in snaps.values() if s.interview is not None]
-    if iv_ids:
-        fb_rows = (
-            await db.execute(
-                select(InterviewFeedback).where(
-                    InterviewFeedback.calendar_event_id.in_(iv_ids),
-                    InterviewFeedback.feedback_source == FeedbackSource.candidate_side,
-                )
+            snap.slot_request = slot_ref(
+                req, event_cancelled=req.event_id in cancelled_events
             )
-        ).scalars()
-        by_event = {fb.calendar_event_id: fb for fb in fb_rows}
-        for snap in snaps.values():
-            if snap.interview is None:
-                continue
-            fb = by_event.get(snap.interview.id)
-            # Debrief zapisany przed rozpoczęciem rozmowy nie zamyka kroków
-            # „Telefon” i „Debrief” — rozmowy jeszcze nie było (lustro bramki
-            # w ``debrief_gate``; zapis przed startem blokuje ``PUT …/debrief``).
-            if fb is not None and debrief_saved_after_start(
-                _as_utc(fb.updated_at) if fb.updated_at else None,
-                snap.interview.start,
-            ):
-                snap.debrief = DebriefRef(
-                    id=fb.id,
-                    overall_impression=fb.overall_impression,
-                    offer_acceptance=fb.offer_acceptance,
-                    acceptance_condition=fb.acceptance_condition,
-                    candidate_questions=fb.candidate_questions,
-                    client_questions=fb.client_questions,
-                )
 
     # Najnowszy etap pary.
     latest = (
-        select(CandidateStage.candidate_id, CandidateStage.job_id, CandidateStage.stage)
+        select(
+            CandidateStage.candidate_id,
+            CandidateStage.job_id,
+            CandidateStage.stage,
+            CandidateStage.moved_at,
+        )
         .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
         .where(
             CandidateStage.candidate_id.in_(cand_ids),
@@ -742,40 +1316,51 @@ async def load_snapshots(
             CandidateStage.id.desc(),
         )
     )
-    for cid, jid, stage in (await db.execute(latest)).all():
+    for cid, jid, stage, moved_at in (await db.execute(latest)).all():
         snap = snaps.get((cid, jid))
         if snap is not None:
             snap.latest_stage = stage.value if hasattr(stage, "value") else str(stage)
+            snap.latest_stage_at = _as_utc(moved_at) if moved_at else None
     return snaps
 
 
 async def _labels(
     db: AsyncSession, cand_ids: list[int], job_ids: list[int]
 ) -> tuple[
-    dict[int, tuple[Optional[str], Optional[str]]],
-    dict[int, tuple[str, Optional[int], Optional[str]]],
+    dict[int, tuple[Optional[str], Optional[str], Optional[str]]],
+    dict[int, tuple[str, Optional[int], Optional[str], Optional[int]]],
 ]:
-    names: dict[int, tuple[Optional[str], Optional[str]]] = {}
+    names: dict[int, tuple[Optional[str], Optional[str], Optional[str]]] = {}
     if cand_ids:
-        for cid, first, last, email in (
+        for cid, first, last, email, phone in (
             await db.execute(
                 select(
-                    Candidate.id, Candidate.name, Candidate.lastname, Candidate.email
+                    Candidate.id,
+                    Candidate.name,
+                    Candidate.lastname,
+                    Candidate.email,
+                    Candidate.phone,
                 ).where(Candidate.id.in_(cand_ids))
             )
         ).all():
             full = " ".join(part for part in (first, last) if part) or None
-            names[cid] = (full, email)
-    jobs: dict[int, tuple[str, Optional[int], Optional[str]]] = {}
+            names[cid] = (full, email, phone)
+    jobs: dict[int, tuple[str, Optional[int], Optional[str], Optional[int]]] = {}
     if job_ids:
-        for jid, title, client_id, client_name in (
+        for jid, title, client_id, client_name, delivery_lead_id in (
             await db.execute(
-                select(Job.id, Job.title, Job.client_id, Client.name)
+                select(
+                    Job.id,
+                    job_display_title_expr(),
+                    Job.client_id,
+                    Client.name,
+                    Job.delivery_lead_id,
+                )
                 .outerjoin(Client, Client.id == Job.client_id)
                 .where(Job.id.in_(job_ids))
             )
         ).all():
-            jobs[jid] = (title, client_id, client_name)
+            jobs[jid] = (title, client_id, client_name, delivery_lead_id)
     return names, jobs
 
 
@@ -797,30 +1382,58 @@ async def load_overview(
         db, user, scope, window_start=window_start, window_end=window_end, now=now
     )
     snaps = await load_snapshots(
-        db, pair_keys, window_start=window_start, window_end=window_end
+        db, pair_keys, window_start=window_start, window_end=window_end, now=now
     )
     names, jobs = await _labels(
         db,
         sorted({k[0] for k in snaps}),
         sorted({k[1] for k in snaps}),
     )
+    # Rekruter par w „Rozmowie z klientem” bez terminu — adresat zadania
+    # „Uzupełnij pytania z rozmowy” (ta sama reguła co wniosek o terminy).
+    no_interview = [
+        key
+        for key, snap in snaps.items()
+        if snap.interview is None
+        and snap.latest_stage == PipelineStage.client_interview.value
+    ]
+    if no_interview:
+        from app.services.interview_slots import default_recruiter_ids
+
+        for key, rid in (await default_recruiter_ids(db, no_interview)).items():
+            snaps[key].recruiter_id = rid
     is_dl_view = scope != "mine"
+    from app.services.workforce_availability import operational_owner_ids
+
+    acting_for = operational_owner_ids(user)
 
     items: list[dict] = []
     agenda: list[dict] = []
     todos: list[dict] = []
     for key, snap in snaps.items():
+        # 23.10.2026: kandydat zrezygnował, karta poszła na „Wycofany”, a otwarty
+        # wniosek o terminy trzymał go w „Wybór terminu”. Ruch na etap końcowy
+        # wniosku nie zamyka (każda ścieżka ruchu by musiała), więc zamknięta
+        # karta znika stąd; przywrócona wraca z tym samym wnioskiem.
+        if snap.latest_stage in _CLOSED_STAGES:
+            continue
         cid, jid = key
-        title, client_id, client_name = jobs.get(jid, (None, None, None))
-        # Nazwisko i e-mail tylko dla ról czytających kandydatów. E-mail jest
-        # potrzebny do zaproszenia na prep (Teams wysyła je kandydatowi).
-        name, email = (
-            names.get(cid, (None, None)) if can_read_candidates else (None, None)
+        title, client_id, client_name, delivery_lead_id = jobs.get(
+            jid, (None, None, None, None)
+        )
+        # Nazwisko i kontakt tylko dla ról czytających kandydatów. E-mail jest
+        # potrzebny do zaproszenia na prep (Teams wysyła je kandydatowi),
+        # telefon i e-mail stoją w nagłówku panelu — do umawiania terminów.
+        name, email, phone = (
+            names.get(cid, (None, None, None))
+            if can_read_candidates
+            else (None, None, None)
         )
         pair_info = {
             "candidate_id": cid,
             "candidate_name": name,
             "candidate_email": email,
+            "candidate_phone": phone,
             "job_id": jid,
             "job_title": title,
             "client_id": client_id,
@@ -835,8 +1448,10 @@ async def load_overview(
                 "current_step": current_step_key(steps),
                 "latest_stage": snap.latest_stage,
                 "slot_request": _slot_payload(req) if req else None,
+                "tentative_interview_at": tentative_interview_start(req),
                 "interview_event_id": snap.interview.id if snap.interview else None,
                 "debrief": _debrief_payload(snap.debrief) if snap.debrief else None,
+                **_prep2_skip_fields(snap, now),
             }
         )
         for t in compute_todos(
@@ -845,49 +1460,68 @@ async def load_overview(
             call_window_minutes=call_window,
             user_id=user.id,
             is_dl_view=is_dl_view,
+            acting_for=acting_for,
+            questions_after_hours=settings.QUESTIONS_MISSING_AFTER_HOURS,
         ):
-            todos.append({**t, **pair_info})
+            todos.append(
+                {
+                    **t,
+                    **pair_info,
+                    "mine": todo_is_mine(
+                        t, acting_for, delivery_lead_id=delivery_lead_id
+                    ),
+                }
+            )
 
-        for prep in snap.preps:
-            if window_start <= prep.start <= window_end:
-                meta, quality = prep_quality(prep)
+        # Runda do debriefu i — gdy inna (runda 8, CAL2) — runda do prepów:
+        # panel kandydata pokazuje obie rozmowy i prepy do następnej.
+        rounds = [(snap.interview, snap.preps, snap.debrief is not None)]
+        if snap.prep_interview is not None:
+            rounds.append((snap.prep_interview, snap.prep_round_preps, False))
+        # Spóźniony prep zostaje na liście „Prepy i rozmowy” pary — z linkiem
+        # Teams i szczegółami, żeby dało się go przełożyć albo odwołać.
+        agenda.extend(
+            {
+                **_prep_agenda_entry(pair_info, prep, now, late=True),
+                "mine": prep.owner_id in acting_for,
+            }
+            for prep in snap.late_preps
+            if window_start <= prep.start <= window_end
+        )
+        for iv, round_preps, debriefed in rounds:
+            agenda.extend(
+                {
+                    **_prep_agenda_entry(pair_info, prep, now, late=False),
+                    "mine": prep.owner_id in acting_for,
+                }
+                for prep in round_preps
+                if window_start <= prep.start <= window_end
+            )
+            if iv is not None and window_start <= iv.start <= window_end:
                 agenda.append(
                     {
                         **pair_info,
-                        "kind": "prep" if (prep.ordinal or 1) == 1 else "prep2",
-                        "start": prep.start,
-                        "end": prep.end,
-                        "event_id": prep.id,
-                        "online_meeting_url": prep.online_meeting_url,
-                        "from_nexus": prep.prep_no is not None,
-                        "prep_quality": quality,
-                        "prep_meta": meta if prep.start <= now else None,
+                        "kind": "interview",
+                        "start": iv.start,
+                        "end": iv.end,
+                        "event_id": iv.id,
+                        "online_meeting_url": None,
+                        "mine": iv.owner_id in acting_for,
                     }
                 )
-        iv = snap.interview
-        if iv is not None and window_start <= iv.start <= window_end:
-            agenda.append(
-                {
-                    **pair_info,
-                    "kind": "interview",
-                    "start": iv.start,
-                    "end": iv.end,
-                    "event_id": iv.id,
-                    "online_meeting_url": None,
-                }
-            )
-            end = _interview_end(iv)
-            agenda.append(
-                {
-                    **pair_info,
-                    "kind": "call",
-                    "start": end,
-                    "end": end + timedelta(minutes=call_window),
-                    "event_id": iv.id,
-                    "online_meeting_url": None,
-                    "done": snap.debrief is not None,
-                }
-            )
+                end = _interview_end(iv)
+                agenda.append(
+                    {
+                        **pair_info,
+                        "kind": "call",
+                        "start": end,
+                        "end": end + timedelta(minutes=call_window),
+                        "event_id": iv.id,
+                        "online_meeting_url": None,
+                        "done": debriefed,
+                        "mine": iv.owner_id in acting_for,
+                    }
+                )
         if (
             req is not None
             and req.status == SLOT_STATUS_AWAITING_DL
@@ -903,6 +1537,8 @@ async def load_overview(
                     "event_id": None,
                     "slot_request_id": req.id,
                     "online_meeting_url": None,
+                    "mine": req.recruiter_id in acting_for
+                    or req.created_by in acting_for,
                 }
             )
 
@@ -936,6 +1572,56 @@ async def load_overview(
     }
 
 
+def _prep_agenda_entry(
+    pair_info: dict, prep: EventRef, now: datetime, *, late: bool
+) -> dict:
+    meta, quality = prep_quality(prep)
+    return {
+        **pair_info,
+        "kind": "prep" if (prep.ordinal or 1) == 1 else "prep2",
+        "start": prep.start,
+        "end": prep.end,
+        "event_id": prep.id,
+        "online_meeting_url": prep.online_meeting_url,
+        "from_nexus": prep.prep_no is not None,
+        "prep_quality": quality,
+        "prep_meta": meta if prep.start <= now else None,
+        "late": late,
+    }
+
+
+def _prep2_skip_fields(snap: PairSnapshot, now: datetime) -> dict:
+    """Pola „bez Prepu 2” dla pozycji ekranu i odznaki doku (0482)."""
+    rnd = snap.for_preps()
+    skip = rnd.prep2_skip()
+    status = prep2_skip_status(snap, now)
+    return {
+        "prep2_skip_status": status,
+        "prep2_skip": prep2_skip_payload(skip) if skip is not None else None,
+        "prep1_remaining": prep1_remaining(snap)[:8]
+        if status in ("allowed", "skipped")
+        else [],
+    }
+
+
+def tentative_interview_start(req: Optional[SlotRef]) -> Optional[str]:
+    """Termin rozmowy, który jeszcze NIE jest potwierdzony (ISO UTC).
+
+    Wniosek czeka na potwierdzenie DL → termin wybrany z kandydatem; czeka na
+    wybór → najwcześniejsza propozycja klienta. Okno „Zaplanuj prep” ostrzega,
+    gdy prep wypada po nim: 02.10.2026 Prep 1 zaplanowano dwa dni po obu
+    proponowanych terminach, bo okno nie wiedziało o żadnym.
+    """
+    if req is None:
+        return None
+    if req.status == SLOT_STATUS_AWAITING_DL:
+        chosen = _chosen_slot(req)
+        return chosen["start"] if chosen else None
+    if req.status == SLOT_STATUS_AWAITING_RECRUITER and req.slots:
+        return min(slot["start"] for slot in req.slots)
+    return None
+
+
 def _slot_payload(req: SlotRef) -> dict:
     return {
         "id": req.id,
@@ -951,12 +1637,24 @@ def _slot_payload(req: SlotRef) -> dict:
     }
 
 
+_IMPRESSION_TO_OUTCOME = {5: "good", 3: "medium", 1: "bad"}
+
+
 def _debrief_payload(fb: DebriefRef) -> dict:
+    questions = [
+        line.strip()
+        for line in (fb.client_questions or "").splitlines()
+        if line.strip()
+    ]
     return {
         "id": fb.id,
         "overall_impression": fb.overall_impression,
+        "outcome": _IMPRESSION_TO_OUTCOME.get(fb.overall_impression or 0),
         "offer_acceptance": fb.offer_acceptance,
         "acceptance_condition": fb.acceptance_condition,
+        "candidate_comment": fb.concerns,
+        "questions_count": len(questions),
+        "no_client_questions": fb.no_client_questions,
     }
 
 
@@ -976,6 +1674,10 @@ BadgeKind = Literal[
     "prep2",
     "prep_missing",
     "prep_weak",
+    # 0453: kandydat odrzucił zaproszenie na prep albo proponuje inny termin.
+    "prep_refused",
+    # 0482: rozmowa bez Prepu 2 (z powodem) — telefon przed rozmową.
+    "prep2_skipped",
     "call_due",
     "debrief_done",
 ]
@@ -987,8 +1689,6 @@ _WEEKDAYS_PL = ("pon", "wt", "śr", "czw", "pt", "sob", "nd")
 
 
 def _local(dt: datetime) -> datetime:
-    from zoneinfo import ZoneInfo
-
     return _as_utc(dt).astimezone(ZoneInfo(settings.BUSINESS_TZ))
 
 
@@ -1015,6 +1715,11 @@ def _proposals_label(count: int) -> str:
     if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
         return f"{count} propozycje"
     return f"{count} propozycji"
+
+
+def _iso(value) -> Optional[str]:
+    """Termin kroku jako ISO UTC (kroki niosą datę albo gotowy napis slotu)."""
+    return _as_utc(value).isoformat() if isinstance(value, datetime) else value
 
 
 def _badge(kind: str, label: str, tone: str, at: Optional[datetime]) -> dict:
@@ -1063,6 +1768,12 @@ def compute_badge(
         label = f"Czeka na DL · {_when_label(start)}" if start else "Czeka na DL"
         return _badge("awaiting_dl", label, "wait", start)
 
+    # Zbliżająca się rozmowa i jej prepy — runda prepów (runda 8, CAL2): gdy
+    # poprzednia runda jeszcze trwa bez debriefu, a kolejna jest zaplanowana,
+    # plakietka mówi o prepach do kolejnej.
+    if pair.prep_interview is not None:
+        pair = pair.for_preps()
+        iv = pair.interview
     if iv is not None and _interview_end(iv) > now:
         soon = iv.start - now <= timedelta(hours=PREP_URGENT_HOURS)
         past = [p for p in pair.preps if p.start <= now]
@@ -1073,15 +1784,46 @@ def compute_badge(
                 "urgent" if soon else "wait",
                 iv.start,
             )
-        if (
-            soon
-            and iv.start > now
-            and (pair.prep_slot(1) is None or pair.prep_slot(2) is None)
-        ):
+        skip = pair.prep2_skip()
+        prep2_missing = pair.prep_slot(2) is None and skip is None
+        if soon and iv.start > now and (pair.prep_slot(1) is None or prep2_missing):
             return _badge(
                 "prep_missing",
                 f"Brak prepu · rozmowa {_day_label(iv.start, now)}",
                 "urgent",
+                iv.start,
+            )
+        # Kandydat nie przyjdzie na prep (17.10.2026, D5): DL i rekruter mają
+        # ruch — przełożyć prep albo przyjąć termin kandydata.
+        refused = next(
+            (
+                p
+                for p in sorted(pair.preps, key=lambda e: e.start)
+                if p.start > now
+                and (p.candidate_response == "declined" or p.proposed_start is not None)
+            ),
+            None,
+        )
+        if refused is not None:
+            n = refused.ordinal or refused.prep_no or 1
+            label = (
+                f"Prep {n}: kandydat proponuje {_day_label(_as_utc(refused.proposed_start), now)}"
+                if refused.proposed_start is not None
+                else f"Prep {n}: kandydat odrzucił"
+            )
+            return _badge("prep_refused", label, "wait", refused.start)
+        if skip is not None and pair.prep_slot(2) is None and iv.start > now:
+            if skip.call_done_at is None:
+                return _badge(
+                    "prep2_skipped",
+                    f"Bez Prepu 2 · telefon {_day_label(skip.call_at, now)}",
+                    "wait",
+                    skip.call_at,
+                )
+            return _badge(
+                "prep2_skipped",
+                f"Bez Prepu 2 · rozmowa {_day_label(iv.start, now)}",
+                "info",
                 iv.start,
             )
         second = pair.prep_slot(2)
@@ -1098,6 +1840,43 @@ def compute_badge(
     if iv is not None and pair.debrief is not None:
         return _badge("debrief_done", "Debrief ✓", "ok", iv.start)
     return None
+
+
+# Faza cyklu rozmowy dla reguły „kto ma ruch” (``pipeline_next_action``,
+# ``InterviewPhase``) — liczona z TEJ SAMEJ odznaki, więc krok na karcie
+# i plakietka terminarza nie mogą się rozjechać. Lustro frontu czyta pola
+# ``phase``/``interview_date`` odznaki (``lib/pipeline-next-action.ts``).
+_BADGE_PHASE = {
+    "choose_slot": "awaiting_recruiter_pick",
+    "awaiting_dl": "awaiting_dl_confirm",
+    "prep_weak": "scheduled",
+    "prep_missing": "scheduled",
+    "prep_refused": "scheduled",
+    "prep2_skipped": "scheduled",
+    "prep2": "scheduled",
+    "prep_done": "scheduled",
+    "slot": "scheduled",
+    "call_due": "debrief_due",
+    "debrief_done": "debriefed",
+}
+
+
+def badge_phase(
+    pair: PairSnapshot, badge: Optional[dict]
+) -> tuple[Optional[str], Optional[str]]:
+    """``(faza, data rozmowy RRRR-MM-DD w strefie biznesowej)`` dla odznaki pary.
+
+    Data tylko dla fazy ``scheduled`` — rozmowa tej rundy, dla której liczy się
+    prepy (ta sama, którą pokazuje odznaka).
+    """
+    if badge is None:
+        return (None, None)
+    phase = _BADGE_PHASE.get(badge.get("kind"))
+    if phase != "scheduled":
+        return (phase, None)
+    round_pair = pair.for_preps() if pair.prep_interview is not None else pair
+    iv = round_pair.interview
+    return (phase, _local(iv.start).date().isoformat() if iv is not None else None)
 
 
 async def interview_badges_for_job(
@@ -1128,7 +1907,8 @@ async def interview_badges_for_job(
         CalendarEvent.candidate_id.in_(ids),
         CalendarEvent.event_type.in_((EventType.prep_call, EventType.client_interview)),
         CalendarEvent.status != EventStatus.cancelled,
-        # To samo okno co `load_snapshots` (cofa start o 30 dni).
+        # Okno prepów z `load_snapshots` (cofa start o 30 dni) — decyduje tylko,
+        # KTO ma odznakę; rundę migawka wybiera spośród wszystkich rozmów pary.
         CalendarEvent.start_time >= window_start - timedelta(days=30),
         CalendarEvent.start_time <= window_end,
     )
@@ -1152,19 +1932,66 @@ async def interview_badges_for_job(
             [(cid, job_id) for cid in chunk],
             window_start=window_start,
             window_end=window_end,
+            now=now,
         )
         for (cid, _jid), snap in snaps.items():
             badge = compute_badge(snap, now, call_window_minutes=call_window)
             if badge is not None:
                 # Kreski postępu na karcie i sekcja rozmowy w doku osoby —
                 # te same kroki co na ekranie „Rozmowy u klienta”; id rozmowy
-                # otwiera debrief prosto z doku.
+                # otwiera debrief prosto z doku. ``at`` czyta okno „Zaplanuj
+                # prep” w doku (termin rozmowy): bez niego podpowiadało „jutro
+                # 10:00” i nie ostrzegało o prepie po rozmowie. ``event_id``
+                # kroku prepu — dok zmienia i odwołuje TEN prep (17.10.2026).
                 badge["steps"] = [
-                    {"key": s["key"], "state": s["state"]}
+                    {
+                        "key": s["key"],
+                        "state": s["state"],
+                        "at": _iso(s["at"]),
+                        "event_id": s["event_id"],
+                    }
                     for s in compute_steps(snap, now, call_window_minutes=call_window)
                 ]
                 badge["interview_event_id"] = (
                     snap.interview.id if snap.interview is not None else None
                 )
+                # Dok osoby planuje prep bez ekranu „Rozmowy u klienta”: musi
+                # znać termin, który dopiero czeka na potwierdzenie, i prep
+                # zaplanowany po rozmowie (wtedy „Przełóż”, nie „Zaplanuj”).
+                badge["tentative_interview_at"] = tentative_interview_start(
+                    snap.slot_request
+                )
+                badge["late_prep_event_id"] = (
+                    snap.late_preps[0].id if snap.late_preps else None
+                )
+                # PR 6 (04.10.2026): panel osoby wybiera i potwierdza termin od
+                # klienta oraz pokazuje ocenę prepu bez przechodzenia do
+                # kalendarza — potrzebuje otwartego wniosku i prepów pary.
+                badge["slot_request"] = (
+                    _slot_payload(snap.slot_request)
+                    if snap.slot_request is not None
+                    and snap.slot_request.status != SLOT_STATUS_CANCELLED
+                    else None
+                )
+                badge["preps"] = [
+                    {
+                        "id": p.id,
+                        "prep_no": p.prep_no if p.prep_no is not None else p.ordinal,
+                        "start": _iso(p.start),
+                        "review_status": p.review_status,
+                        "transcript_status": p.transcript_status,
+                    }
+                    for p in snap.preps
+                ]
+                # Podsumowanie zapisanego debriefu w doku osoby (04.10.2026):
+                # po zapisie przycisk „Zapisz debrief” znikał i nic go nie
+                # zastępowało — warunek kandydata był niewidoczny.
+                badge["debrief"] = (
+                    _debrief_payload(snap.debrief) if snap.debrief else None
+                )
+                # 0482: rozmowa bez Prepu 2 — przycisk, wpis i telefon w doku.
+                badge.update(_prep2_skip_fields(snap, now))
+                # 05.10.2026: faza cyklu dla kroku na karcie („kto ma ruch”).
+                badge["phase"], badge["interview_date"] = badge_phase(snap, badge)
                 badges[cid] = badge
     return badges

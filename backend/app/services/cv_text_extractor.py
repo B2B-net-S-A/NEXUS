@@ -24,10 +24,18 @@ Usage
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
+import subprocess
+import sys
+import tempfile
+import threading
+from dataclasses import dataclass
 from typing import Optional
+
+from app.core.log_safety import safe_filename
 
 logger = logging.getLogger(__name__)
 
@@ -117,8 +125,13 @@ def _extract_pdf_native(path: str) -> Optional[str]:
         if text:
             return text
     except Exception as e:  # pragma: no cover — defensive
+        # Runda 8 (R8-V3-1): ścieżka na dysku to `…/{uuid8}-{oryginalna_nazwa}`
+        # (zwykle imię i nazwisko), a komunikat wyjątku bywa tą ścieżką — do logu
+        # idzie kształt pliku i klasa wyjątku.
         logger.info(
-            "[cv_text_extractor] pdfplumber failed on %s: %s — trying pdfminer", path, e
+            "[cv_text_extractor] pdfplumber failed on %s: %s — trying pdfminer",
+            safe_filename(path),
+            type(e).__name__,
         )
 
     # Legacy fallback for rare PDFs that pdfplumber chokes on.
@@ -127,7 +140,11 @@ def _extract_pdf_native(path: str) -> Optional[str]:
 
         return _pdfminer_extract(path) or ""
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[cv_text_extractor] pdfminer also failed on %s: %s", path, e)
+        logger.warning(
+            "[cv_text_extractor] pdfminer also failed on %s: %s",
+            safe_filename(path),
+            type(e).__name__,
+        )
         return None
 
 
@@ -142,25 +159,42 @@ def _extract_pdf_ocr(path: str) -> Optional[str]:
         import pytesseract  # type: ignore[import-untyped]
         from pdf2image import convert_from_path  # type: ignore[import-untyped]
 
-        pages = convert_from_path(path, dpi=200, last_page=10)
-        out: list[str] = []
-        for img in pages:
-            txt = pytesseract.image_to_string(img, lang="pol+eng")
-            if txt:
-                out.append(txt)
+        import tempfile
+
+        # Runda 9 (R9-N7-2): `size` ogranicza rozmiar strony w pikselach (MediaBox
+        # 200×200 cali przy 200 dpi to 40 000 × 40 000 px, czyli gigabajty na stronę),
+        # a `output_folder` trzyma strony na dysku zamiast w pamięci procesu.
+        with tempfile.TemporaryDirectory(prefix="nexus-ocr-") as tmpdir:
+            pages = convert_from_path(
+                path,
+                dpi=200,
+                last_page=10,
+                size=_OCR_PAGE_MAX_PX,
+                output_folder=tmpdir,
+            )
+            out: list[str] = []
+            for img in pages:
+                txt = pytesseract.image_to_string(img, lang="pol+eng")
+                if txt:
+                    out.append(txt)
         return "\n\n".join(out) if out else ""
     except (
         Exception
     ) as e:  # pragma: no cover — defensive (system tesseract may be missing)
-        logger.warning("[cv_text_extractor] OCR fallback failed on %s: %s", path, e)
+        logger.warning(
+            "[cv_text_extractor] OCR fallback failed on %s: %s",
+            safe_filename(path),
+            type(e).__name__,
+        )
         return None
 
 
-def _extract_pdf(path: str) -> Optional[str]:
+def _extract_pdf_inprocess(path: str) -> Optional[str]:
     """Extract PDF text — native first (pdfplumber→pdfminer), OCR fallback if
     output is suspiciously short (likely a scan).
 
     Returns None only on total failure so the dispatcher degrades to "".
+    Runs in the sandboxed worker (``_extract_pdf``), never on the web process.
     """
     native = _extract_pdf_native(path)
     if native and len(native.strip()) >= _OCR_FALLBACK_THRESHOLD_CHARS:
@@ -169,32 +203,429 @@ def _extract_pdf(path: str) -> Optional[str]:
     ocr = _extract_pdf_ocr(path)
     if ocr and len(ocr.strip()) >= _OCR_FALLBACK_THRESHOLD_CHARS:
         logger.info(
-            "[cv_text_extractor] PDF %s extracted via OCR (native too short)", path
+            "[cv_text_extractor] PDF %s extracted via OCR (native too short)",
+            safe_filename(path),
         )
         return ocr
     # Return whichever has more content (could still be empty).
     return (native or "") if (len(native or "") >= len(ocr or "")) else (ocr or "")
 
 
+# ── Odczyt PDF w osobnym procesie (runda 9, R9-N7-2) ─────────────────────────
+#
+# pdfminer dekompresuje strumienie PDF bez limitu, a pdf2image renderuje strony
+# w rozmiarze z MediaBox — „bomba” PDF (kilka MB, które rozwijają się do
+# gigabajtów) wgrana z formularza kariery albo z poczty zamówień zabijała
+# OOM-killerem CAŁY backend (jeden proces uvicorna, limit kontenera 4 GB).
+# Dlatego odczyt PDF idzie w podprocesie z limitem pamięci (RLIMIT_AS, dziedziczą
+# go też pdftoppm i tesseract) i limitem czasu; przekroczenie = pusty tekst, jak
+# każdy nieczytelny PDF. Koszt: start interpretera z pdfplumberem (~0,1–0,3 s).
+
+#: Limit przestrzeni adresowej procesu odczytu. Tesseract z pol+eng i strony
+#: A4 przy 200 dpi mieszczą się z zapasem.
+PDF_WORKER_MEMORY_BYTES = 1536 * 1024 * 1024
+#: Limit czasu całego odczytu (natywny + OCR do 10 stron po ~2–5 s).
+PDF_WORKER_TIMEOUT_SECONDS = 150
+#: Najdłuższy bok strony renderowanej do OCR (A4 przy 200 dpi = 2339 px).
+_OCR_PAGE_MAX_PX = 2400
+#: Sufit tekstu oddawanego przez proces odczytu — żadne CV ani zamówienie nie
+#: ma dwóch milionów znaków, a odpowiedź czyta proces webowy.
+_PDF_WORKER_MAX_CHARS = 2_000_000
+_BACKEND_ROOT = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)
+_WORKER_OPS = ("pdf", "native", "pdfminer", "pages", "words", "all_pages", "word")
+#: Sufit liczby słów z położeniem (tabela zamówienia ma ich kilkaset).
+_PDF_WORKER_MAX_WORDS = 50_000
+
+
+def _pdf_worker_command(op: str, path: str) -> list[str]:
+    return [sys.executable, "-m", "app.services.cv_text_extractor", op, path]
+
+
+def _run_pdf_worker(
+    op: str,
+    path: str,
+    *,
+    timeout: float | None = None,
+    memory_bytes: int | None = None,
+) -> Optional[dict]:
+    """Wynik operacji ``op`` z procesu odczytu albo ``None`` (limit, awaria)."""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        p for p in (_BACKEND_ROOT, env.get("PYTHONPATH")) if p
+    )
+    env["NEXUS_PDF_WORKER_MEMORY_BYTES"] = str(memory_bytes or PDF_WORKER_MEMORY_BYTES)
+    try:
+        proc = subprocess.run(
+            _pdf_worker_command(op, os.path.abspath(path)),
+            capture_output=True,
+            timeout=timeout or PDF_WORKER_TIMEOUT_SECONDS,
+            env=env,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            "[cv_text_extractor] PDF %s: odczyt przerwany po limicie czasu (%s)",
+            safe_filename(path),
+            op,
+        )
+        return None
+    except OSError as e:
+        logger.warning(
+            "[cv_text_extractor] PDF %s: proces odczytu nie wystartował: %s",
+            safe_filename(path),
+            type(e).__name__,
+        )
+        return None
+    if proc.returncode != 0:
+        logger.warning(
+            "[cv_text_extractor] PDF %s: proces odczytu zakończył się kodem %s (%s)"
+            " — limit pamięci albo uszkodzony plik",
+            safe_filename(path),
+            proc.returncode,
+            op,
+        )
+        return None
+    # Ostatnia linia wyjścia to wynik; wcześniejsze (gdyby biblioteka coś
+    # wypisała na stdout) pomijamy.
+    lines = proc.stdout.decode("utf-8", "replace").strip().splitlines()
+    try:
+        result = json.loads(lines[-1]) if lines else None
+    except ValueError:
+        return None
+    return result if isinstance(result, dict) else None
+
+
+#: Strona z mniejszą liczbą znaków idzie do OCR (test paczki umów 30.10.2026:
+#: Aneks NBP miał 9 z 13 stron skanem obok tekstu na pozostałych).
+_OCR_PAGE_MIN_CHARS = 50
+#: Sufit odczytu dokumentu prawnego; najdłuższy skan z paczki ma 248 stron.
+ALL_PAGES_MAX = 500
+#: Limit czasu odczytu wszystkich stron: start + sekundy na stronę, z sufitem.
+_ALL_PAGES_TIMEOUT_BASE_SECONDS = 150
+_ALL_PAGES_TIMEOUT_PER_PAGE_SECONDS = 10
+_ALL_PAGES_TIMEOUT_MAX_SECONDS = 3600
+
+
+@dataclass(frozen=True)
+class AllPagesText:
+    """Tekst wszystkich stron PDF-a i to, ile z nich przeczytał OCR."""
+
+    text: str
+    pages: int
+    ocr_pages: int
+
+
+def all_pages_timeout(pages: Optional[int]) -> int:
+    """Skan OCR-uje się kilka sekund na stronę, więc limit rośnie ze stronami."""
+    return min(
+        _ALL_PAGES_TIMEOUT_BASE_SECONDS
+        + _ALL_PAGES_TIMEOUT_PER_PAGE_SECONDS * min(pages or 0, ALL_PAGES_MAX),
+        _ALL_PAGES_TIMEOUT_MAX_SECONDS,
+    )
+
+
+def extract_pdf_all_pages_sandboxed(path: str) -> Optional[AllPagesText]:
+    """Cały PDF dla dokumentów prawnych: tekst stron, a strony bez tekstu z OCR.
+
+    CV i zamówienia zostają przy ``extract_text`` (OCR 10 pierwszych stron).
+    ``None`` = limit czasu, limit pamięci albo uszkodzony plik.
+    """
+    pages = pdf_page_count_sandboxed(path)
+    result = _run_pdf_worker("all_pages", path, timeout=all_pages_timeout(pages))
+    text = result.get("text") if result else None
+    if not isinstance(text, str):
+        return None
+    return AllPagesText(
+        text=text,
+        pages=int(result.get("pages") or 0),
+        ocr_pages=int(result.get("ocr_pages") or 0),
+    )
+
+
+def _extract_pdf(path: str) -> Optional[str]:
+    """Tekst PDF z procesu odczytu z limitem pamięci i czasu (R9-N7-2)."""
+    result = _run_pdf_worker("pdf", path)
+    text = result.get("text") if result else None
+    return text if isinstance(text, str) else None
+
+
+def extract_pdf_native_sandboxed(path: str) -> Optional[str]:
+    """``_extract_pdf_native`` w procesie odczytu (bez OCR)."""
+    result = _run_pdf_worker("native", path)
+    text = result.get("text") if result else None
+    return text if isinstance(text, str) else None
+
+
+def extract_pdfminer_sandboxed(path: str) -> Optional[str]:
+    """Sam pdfminer.six w procesie odczytu (poczta zamówień: literowanie)."""
+    result = _run_pdf_worker("pdfminer", path)
+    text = result.get("text") if result else None
+    return text if isinstance(text, str) and text else None
+
+
+def pdf_page_count_sandboxed(path: str) -> Optional[int]:
+    """Liczba stron PDF z procesu odczytu."""
+    result = _run_pdf_worker("pages", path)
+    pages = result.get("pages") if result else None
+    return pages if isinstance(pages, int) else None
+
+
+def extract_pdf_words_sandboxed(path: str) -> Optional[list]:
+    """Słowa PDF z położeniem z procesu odczytu: ``[strona, x0, x1, góra, dół, tekst]``.
+
+    Tabele, których kolumn nie da się odtworzyć ze zwykłego tekstu (PKO BP:
+    wielolinijkowy profil sklejał się z nazwiskiem), reguła klienta czyta
+    z położenia słów pod nagłówkami.
+    """
+    result = _run_pdf_worker("words", path)
+    words = result.get("words") if result else None
+    return words if isinstance(words, list) else None
+
+
+def _worker_words(path: str) -> Optional[list]:
+    try:
+        import pdfplumber  # type: ignore[import-untyped]
+
+        out: list = []
+        with pdfplumber.open(path) as pdf:
+            for number, page in enumerate(pdf.pages):
+                for word in page.extract_words():
+                    out.append(
+                        [
+                            number,
+                            round(float(word["x0"]), 2),
+                            round(float(word["x1"]), 2),
+                            round(float(word["top"]), 2),
+                            round(float(word["bottom"]), 2),
+                            str(word["text"]).replace("\x00", ""),
+                        ]
+                    )
+                    if len(out) >= _PDF_WORKER_MAX_WORDS:
+                        return out
+        return out
+    except Exception:  # noqa: BLE001 — wynik best-effort
+        return None
+
+
+def _ocr_one_page(path: str, number: int) -> str:
+    """OCR jednej strony (numer od 1); strona na dysku, nie w pamięci procesu."""
+    import tempfile
+
+    import pytesseract  # type: ignore[import-untyped]
+    from pdf2image import convert_from_path  # type: ignore[import-untyped]
+
+    with tempfile.TemporaryDirectory(prefix="nexus-ocr-") as tmpdir:
+        images = convert_from_path(
+            path,
+            dpi=200,
+            first_page=number,
+            last_page=number,
+            size=_OCR_PAGE_MAX_PX,
+            output_folder=tmpdir,
+        )
+        return "\n".join(
+            pytesseract.image_to_string(image, lang="pol+eng") for image in images
+        )
+
+
+def _worker_all_pages(path: str) -> dict:
+    """Strona po stronie: tekst z PDF-a, a gdy go brak, OCR tej strony."""
+    try:
+        import pdfplumber  # type: ignore[import-untyped]
+
+        # Jeden wątek: odczyt skanu nie może zająć wszystkich rdzeni serwera.
+        os.environ["OMP_THREAD_LIMIT"] = "1"
+        parts: list[str] = []
+        ocr_pages = 0
+        with pdfplumber.open(path) as pdf:
+            total = len(pdf.pages)
+            for number, page in enumerate(pdf.pages[:ALL_PAGES_MAX], start=1):
+                text = page.extract_text() or ""
+                if looks_glued(text):
+                    tight = page.extract_text(x_tolerance=1) or ""
+                    if avg_word_length(tight) < avg_word_length(text):
+                        text = tight
+                page.close()
+                if len(text.strip()) < _OCR_PAGE_MIN_CHARS:
+                    try:
+                        scanned = _ocr_one_page(path, number)
+                    except Exception:  # noqa: BLE001 — zostaje tekst strony
+                        scanned = ""
+                    if len(scanned.strip()) > len(text.strip()):
+                        text = scanned
+                        ocr_pages += 1
+                if text.strip():
+                    parts.append(text)
+        return {"text": "\n\n".join(parts), "pages": total, "ocr_pages": ocr_pages}
+    except Exception:  # noqa: BLE001 — wynik best-effort
+        return {"text": None}
+
+
+def _worker_pdfminer(path: str) -> Optional[str]:
+    try:
+        from pdfminer.high_level import extract_text as _pdfminer_extract
+
+        return _pdfminer_extract(path) or None
+    except Exception:  # noqa: BLE001 — wynik best-effort
+        return None
+
+
+def _worker_page_count(path: str) -> Optional[int]:
+    try:
+        import pdfplumber  # type: ignore[import-untyped]
+
+        with pdfplumber.open(path) as pdf:
+            return len(pdf.pages)
+    except Exception:  # noqa: BLE001 — metadane są best-effort
+        return None
+
+
+def _apply_worker_limits() -> None:
+    try:
+        import resource
+
+        limit = int(
+            os.environ.get("NEXUS_PDF_WORKER_MEMORY_BYTES") or PDF_WORKER_MEMORY_BYTES
+        )
+        resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+    except (ImportError, ValueError, OSError):  # pragma: no cover — macOS/Windows
+        pass
+
+
+def _worker_main(argv: list[str]) -> int:
+    if len(argv) != 2 or argv[0] not in _WORKER_OPS:
+        return 2
+    op, path = argv
+    _apply_worker_limits()
+    payload: dict = {}
+    if op == "pdf":
+        payload["text"] = _extract_pdf_inprocess(path)
+    elif op == "native":
+        payload["text"] = _extract_pdf_native(path)
+    elif op == "pdfminer":
+        payload["text"] = _worker_pdfminer(path)
+    elif op == "words":
+        payload["words"] = _worker_words(path)
+    elif op == "all_pages":
+        payload = _worker_all_pages(path)
+    elif op == "word":
+        payload["text"] = _worker_word(path)
+    else:
+        payload["pages"] = _worker_page_count(path)
+    text = payload.get("text")
+    if isinstance(text, str) and len(text) > _PDF_WORKER_MAX_CHARS:
+        payload["text"] = text[:_PDF_WORKER_MAX_CHARS]
+    sys.stdout.write("\n" + json.dumps(payload) + "\n")
+    sys.stdout.flush()
+    return 0
+
+
+#: Tylko prawdziwy Word po bajtach. RTF czy HTML pod nazwą `.doc` zostają bez
+#: tekstu: arkusz stylów z HTML-a wykonywał żądanie mimo blokady linków w profilu.
+_WORD_IMPORT_FILTERS = {".doc": "MS Word 97", ".docx": "MS Word 2007 XML"}
+
+
+def _worker_word(path: str) -> Optional[str]:
+    """Plik Worda przez LibreOffice do PDF-a, dalej zwykły odczyt PDF (z OCR)."""
+    infilter = _WORD_IMPORT_FILTERS.get(sniff_extension(path) or "")
+    if not infilter:
+        return None
+    try:
+        from app.core.zip_guard import assert_safe_ooxml
+        from app.services.cv_pdf_preview import docx_to_pdf
+
+        # `_extract_docx` połyka odmowę strażnika, więc bomba ZIP dochodzi aż tutaj.
+        assert_safe_ooxml(path)
+        with open(path, "rb") as handle:
+            pdf = docx_to_pdf(handle.read(), infilter=infilter)
+        with tempfile.TemporaryDirectory(prefix="nexus-word-") as tmpdir:
+            target = os.path.join(tmpdir, "word.pdf")
+            with open(target, "wb") as handle:
+                handle.write(pdf)
+            return _extract_pdf_inprocess(target)
+    except Exception as e:  # noqa: BLE001 — wynik best-effort
+        logger.warning(
+            "[cv_text_extractor] LibreOffice failed on %s: %s",
+            safe_filename(path),
+            type(e).__name__,
+        )
+        return None
+
+
+# LibreOffice to ciężki proces (`cv_pdf_preview`): jedna zamiana naraz na proces
+# webowy, a kolejka z limitem, żeby seria plików nie zabrała wątków innym trasom.
+_word_slot = threading.BoundedSemaphore(1)
+_WORD_SLOT_WAIT_SECONDS = 60
+#: LibreOffice rezerwuje więcej przestrzeni adresowej niż pdfplumber i tesseract:
+#: prawdziwe CV (69 KB) przy 1,5 GB kończyło się sygnałem 11, od 1,75 GB czytało się.
+WORD_WORKER_MEMORY_BYTES = 2560 * 1024 * 1024
+
+
+def _extract_word_via_pdf(path: str) -> Optional[str]:
+    """Tekst Worda z LibreOffice, w procesie odczytu z limitem pamięci i czasu."""
+    from app.services.cv_pdf_preview import soffice_path
+
+    if not soffice_path():
+        return None
+    if not _word_slot.acquire(timeout=_WORD_SLOT_WAIT_SECONDS):
+        logger.warning(
+            "[cv_text_extractor] %s: LibreOffice zajęty, plik bez odczytu",
+            safe_filename(path),
+        )
+        return None
+    try:
+        result = _run_pdf_worker("word", path, memory_bytes=WORD_WORKER_MEMORY_BYTES)
+    finally:
+        _word_slot.release()
+    text = result.get("text") if result else None
+    return text if isinstance(text, str) else None
+
+
+def _extract_word(path: str) -> Optional[str]:
+    """Word: python-docx, a gdy prawie nic nie odczytał, LibreOffice.
+
+    python-docx odrzuca binarny `.doc`, a w `.docx` pomija pola tekstowe
+    i kontrolki, więc takie CV miało pusty tekst i `/from-cv` odpowiadał 400
+    (03.11.2026, zgłoszenia z Pracuj.pl przepadały). LibreOffice jest tylko
+    ścieżką zapasową, bo wolny: pomiar na kopii produkcji to 0,4–2,6 s na plik.
+    """
+    text = _extract_docx(path)
+    if len((text or "").strip()) >= _OCR_FALLBACK_THRESHOLD_CHARS:
+        return text
+    via_pdf = _extract_word_via_pdf(path)
+    if len(via_pdf or "") > len(text or ""):
+        logger.info(
+            "[cv_text_extractor] %s extracted via LibreOffice (python-docx too short)",
+            safe_filename(path),
+        )
+        return via_pdf
+    return text
+
+
 def _extract_docx(path: str) -> Optional[str]:
-    """Extract text from a DOCX (or legacy .doc, best-effort) via python-docx."""
+    """Extract text from a DOCX via python-docx (binary .doc always fails here)."""
     try:
         from docx import Document  # type: ignore[import-untyped]
 
+        from app.core.docx_cells import grid_cell_texts
         from app.core.zip_guard import assert_safe_ooxml
 
         assert_safe_ooxml(path)
         doc = Document(path)
         lines = [p.text for p in doc.paragraphs if p.text]
         # Include table cells — CVs often layout experience as tables.
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    if cell.text:
-                        lines.append(cell.text)
+        # `grid_cell_texts`, nie `row.cells`: ten sam tekst co dotąd, ale liczby
+        # z pliku (CV z formularza kariery) nie sterują już kosztem odczytu.
+        lines.extend(grid_cell_texts(doc.tables))
         return "\n".join(lines)
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[cv_text_extractor] python-docx failed on %s: %s", path, e)
+        logger.warning(
+            "[cv_text_extractor] python-docx failed on %s: %s",
+            safe_filename(path),
+            type(e).__name__,
+        )
         return None
 
 
@@ -203,7 +634,11 @@ def _extract_txt(path: str) -> Optional[str]:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             return f.read()
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[cv_text_extractor] txt read failed on %s: %s", path, e)
+        logger.warning(
+            "[cv_text_extractor] txt read failed on %s: %s",
+            safe_filename(path),
+            type(e).__name__,
+        )
         return None
 
 
@@ -255,6 +690,32 @@ def sniff_extension(file_path: str) -> Optional[str]:
     return None
 
 
+def sniff_extension_bytes(data: bytes) -> Optional[str]:
+    """``sniff_extension`` dla bajtów w pamięci (generator CV — runda 6 audytu).
+
+    Generator CV dostaje plik jako bajty i do 26.09.2026 wybierał parser po
+    nazwie: PDF zapisany jako ``.docx`` (3 320 takich z Traffita) kończył się
+    „Nie można odczytać dokumentu DOCX.” Ta sama reguła co ``sniff_extension``.
+    """
+    head = bytes(data[:_SNIFF_BYTES]) if data else b""
+    if head.startswith(_OLE_MAGIC):
+        return ".doc"
+    if head.startswith(_ZIP_MAGIC):
+        try:
+            import io
+            import zipfile
+
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                if "word/document.xml" in zf.namelist():
+                    return ".docx"
+        except Exception:  # noqa: BLE001 — broken zip = unknown format
+            return None
+        return None
+    if _PDF_MAGIC in head:
+        return ".pdf"
+    return None
+
+
 def _resolve_extension(file_path: str, filename: str) -> str:
     """Format to parse as: the sniffed one when the bytes say so, otherwise the
     declared extension."""
@@ -263,7 +724,8 @@ def _resolve_extension(file_path: str, filename: str) -> str:
     if sniffed and sniffed != declared:
         logger.info(
             "[cv_text_extractor] %s declared %r but content is %r — using content",
-            filename or file_path,
+            # runda 6 audytu: nazwa pliku CV to zwykle imię i nazwisko
+            safe_filename(filename or file_path),
             declared,
             sniffed,
         )
@@ -300,7 +762,7 @@ def extract_text(file_path: str, filename: str) -> str:
     if ext == ".pdf":
         raw = _extract_pdf(file_path)
     elif ext in (".docx", ".doc"):
-        raw = _extract_docx(file_path)
+        raw = _extract_word(file_path)
     elif ext == ".txt":
         raw = _extract_txt(file_path)
     else:
@@ -310,3 +772,7 @@ def extract_text(file_path: str, filename: str) -> str:
         )
 
     return _normalize(raw or "")
+
+
+if __name__ == "__main__":  # proces odczytu PDF (``_run_pdf_worker``)
+    sys.exit(_worker_main(sys.argv[1:]))

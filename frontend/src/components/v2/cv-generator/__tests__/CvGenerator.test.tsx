@@ -1,19 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ToastProvider } from "@/components/Toast";
 import { useAuthStore } from "@/store/auth";
 
 import { CvGenerator, type CvGeneratorProps } from "../CvGenerator";
+import { NO_RECRUITMENT_MISSING } from "../cv-generator-form";
 
-// Wyszukiwanie z debounce i kaskada zapytań — pod obciążeniem (pełny
-// przebieg na współdzielonej maszynie) domyślna sekunda to za mało.
+// Kaskada zapytań — pod obciążeniem (pełny przebieg na współdzielonej
+// maszynie) domyślna sekunda to za mało.
 configure({ asyncUtilTimeout: 10000 });
 
 vi.mock("@/components/v2/modals/CVBrandedEditModal", () => ({ CVBrandedEditModal: () => null }));
 
-const JAN = { id: 1, name: "Jan", lastname: "Kowalski", full_name: "Jan Kowalski", position: "Senior Java Developer", email: "jan@example.com" };
 const PKO = {
   stage_id: 11, job_id: 501, job_title: "Senior Java Developer", stage: "verified",
   has_champion: true, has_notes: true, has_cv: true, notes_chars: 900, ready: true,
@@ -29,14 +29,28 @@ const POLICY = {
   effective_policy: { key: "x", version: 1, filename_pattern: "CV_{NAZWISKO}.docx", cv_language: null, requires_en_copy: false, require_recommendation_note: false, requires_rodo_consent_block: false, require_project_ref: false },
 };
 
+const AI_SOURCES = {
+  original_cv: { document_id: 31, filename: "glowne.pdf", uploaded_at: "2026-09-01T00:00:00Z" },
+  champion: true,
+  answers: { count: 4, excluded: 0 },
+  notes: { count: 2, excluded: 0 },
+  transcripts: { count: 1, excluded: 0 },
+  prep: { count: 0, excluded: 0 },
+  rate_notes: { count: 1, excluded: 0 },
+  defaults: { answers: true, notes: true, transcripts: false, prep: false },
+  last_used: null,
+};
 let recruitments: unknown[] = [PKO];
+let aiSourcesFail = false;
 const getMock = vi.fn(async (url: string, _config?: unknown): Promise<{ data: unknown }> => {
-  if (url === "/api/cv-generator/candidates") return { data: [JAN] };
   if (url.endsWith("/recruitments")) return { data: recruitments };
+  if (url.endsWith("/cv/ai-sources")) {
+    if (aiSourcesFail) throw Object.assign(new Error("500"), { response: { status: 500 } });
+    return { data: AI_SOURCES };
+  }
   if (url.endsWith("/cv-sources")) return { data: SOURCES };
   if (url === "/api/cv-generator/policy") return { data: POLICY };
   if (url.includes("rule-for-generation")) return { data: { is_active: false } };
-  if (url === "/api/clients-lookup") return { data: [{ id: 15, name: "Polkomtel" }] };
   if (url === "/api/cv-generator/generated") return { data: [] };
   if (url.endsWith("/champion-profile")) return { data: { fingerprint: "f".repeat(64) } };
   throw new Error(`unexpected GET ${url}`);
@@ -48,7 +62,6 @@ const previewMock = vi.fn(async (): Promise<{ data: unknown }> => {
 async function defaultPost(url: string, body?: unknown, _config?: unknown): Promise<{ data: unknown }> {
   if (url === "/api/champion/preview") return previewMock();
   if (url === "/api/champion/validate") return { data: { champion_profile: (body as { profile: unknown }).profile } };
-  if (url === "/api/cv-generator/identify-upload") return { data: { matches: [] } };
   return { data: { id: 77, status: "processing", candidate_name: "Jan Kowalski" } };
 }
 const postMock = vi.fn(defaultPost);
@@ -67,7 +80,6 @@ vi.mock("@/lib/api", async (importOriginal) => {
     api: client,
     cvGeneratorApi: {
       listGenerated: (params: unknown) => client.get("/api/cv-generator/generated", { params }),
-      identifyUpload: (file: File) => client.post("/api/cv-generator/identify-upload", file),
       uploadConsentForGenerated: vi.fn(),
       attachConsent: vi.fn(),
       deleteGenerated: vi.fn(),
@@ -87,12 +99,13 @@ function setUser(access: "read" | "write" = "write", role = "recruiter") {
   });
 }
 
-function renderGenerator(props: CvGeneratorProps = {}) {
+/** Generator żyje tylko w oknie z rekrutacji / profilu — osoba zawsze z góry. */
+function renderGenerator(props: Partial<CvGeneratorProps> = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
   return render(
     <QueryClientProvider client={qc}>
       <ToastProvider>
-        <CvGenerator {...props} />
+        <CvGenerator prefillCandidateId={1} prefillCandidateName="Jan Kowalski" {...props} />
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -118,13 +131,9 @@ async function waitForGenerateEnabled() {
   await waitFor(() => expect(screen.getByRole("button", { name: /Generuj CV/ })).toBeEnabled(), { timeout: 10000 });
 }
 
-async function pickJan() {
-  fireEvent.change(screen.getByLabelText("Znajdź osobę"), { target: { value: "Kowal" } });
-  fireEvent.click(await screen.findByRole("button", { name: /Jan Kowalski/ }));
-}
-
 beforeEach(() => {
   recruitments = [PKO];
+  aiSourcesFail = false;
   setUser();
   getMock.mockClear();
   postMock.mockReset();
@@ -139,11 +148,10 @@ afterEach(() => {
   });
 });
 
-describe("start od osoby", () => {
+describe("generacja w rekrutacji", () => {
   it("jedyny proces wybiera sam, plik główny domyślnie, Champion → Pod rekrutację", async () => {
     renderGenerator();
     expect(screen.getByRole("button", { name: /Generuj CV/ })).toBeDisabled();
-    await pickJan();
     expect(await screen.findByText("Jedyny proces tej osoby, więc wybraliśmy go sami.")).toBeInTheDocument();
     await waitForGenerateEnabled();
     expect(screen.getByRole("button", { name: "Pod rekrutację" })).toHaveAttribute("aria-pressed", "true");
@@ -159,9 +167,54 @@ describe("start od osoby", () => {
     expect(await screen.findByRole("region", { name: "Wynik generacji" })).toHaveTextContent(/jako CV do klienta/);
   });
 
+  it("pole „Stanowisko” i prawa kolumna pokazują to, co pójdzie do klienta", async () => {
+    recruitments = [{ ...PKO, job_title: "ZOB-3103 usługi programistyczne", cv_position: "Senior Java Developer" }];
+    renderGenerator();
+    const rules = await screen.findByRole("region", { name: "Reguły klienta" });
+    await waitFor(() => expect(rules).toHaveTextContent("Senior Java Developer – Jan Kowalski"));
+    fireEvent.click(screen.getByRole("button", { name: /Zaawansowane/ }));
+    const field = screen.getByLabelText(/^Stanowisko/) as HTMLInputElement;
+    expect(field.value).toBe("Senior Java Developer");
+
+    fireEvent.change(field, { target: { value: "ZOB-3103 Architekt" } });
+    expect(rules).toHaveTextContent("Architekt – Jan Kowalski");
+    expect(rules).not.toHaveTextContent("ZOB-3103 Architekt");
+
+    fireEvent.click(screen.getByRole("button", { name: "Przywróć z rekrutacji" }));
+    expect(field.value).toBe("Senior Java Developer");
+  });
+
+  it("„Co jeszcze przeczyta AI”: te same przełączniki co w karcie, wybór idzie jako `sources`", async () => {
+    renderGenerator();
+    const transcripts = await screen.findByRole("switch", { name: "Transkrypty rozmów" });
+    expect(transcripts).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "Odpowiedzi ze screeningu" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Notatki ze stawką — zawsze wycinane" })).toBeDisabled();
+    // Prep bez materiału — przełącznik nic by nie zmienił.
+    expect(screen.getByRole("switch", { name: "Podsumowania prepu" })).toBeDisabled();
+    fireEvent.click(transcripts);
+    await waitForGenerateEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /Generuj CV/ }));
+    await waitFor(() => expect(generatePosts("/api/cv-generator/generate")).toHaveLength(1), { timeout: 10000 });
+    expect(generatePosts("/api/cv-generator/generate")[0][1]).toMatchObject({
+      stage_id: 11,
+      sources: { answers: true, notes: true, transcripts: true, prep: false },
+    });
+  });
+
+  it("awaria odczytu źródeł mówi o ustawieniach domyślnych i nie blokuje generacji", async () => {
+    aiSourcesFail = true;
+    renderGenerator();
+    expect(await screen.findByText(/Nie udało się wczytać źródeł\. CV powstanie z ustawień domyślnych/)).toBeInTheDocument();
+    await waitForGenerateEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /Generuj CV/ }));
+    await waitFor(() => expect(generatePosts("/api/cv-generator/generate")).toHaveLength(1), { timeout: 10000 });
+    // Bez `sources` serwer bierze domyślne — te same, które obiecuje komunikat.
+    expect(generatePosts("/api/cv-generator/generate")[0][1]).not.toHaveProperty("sources");
+  });
+
   it("„Obie” wysyła languages=both jednym kliknięciem", async () => {
     renderGenerator();
-    await pickJan();
     await waitForGenerateEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Obie" }));
     fireEvent.click(screen.getByRole("button", { name: /Generuj CV/ }));
@@ -169,24 +222,20 @@ describe("start od osoby", () => {
     expect(generatePosts("/api/cv-generator/generate")[0][1]).toMatchObject({ language: "pl", languages: "both" });
   });
 
-  it("„Inny klient (bez procesu)” wymaga klienta i wysyła stage_id=null", async () => {
+  it("osoba bez rekrutacji: nie ma „Inny klient (bez procesu)”, CV nie powstanie (13.10.2026)", async () => {
     recruitments = [];
     renderGenerator();
-    await pickJan();
-    expect(await screen.findByText(/Kandydat nie jest w żadnym procesie/)).toBeInTheDocument();
-    expect(screen.getByTestId("cvgen-missing")).toHaveTextContent("Klient");
-    fireEvent.click(screen.getByRole("button", { name: /Wybierz klienta/ }));
-    fireEvent.click(await screen.findByText("Polkomtel"));
-    await waitForGenerateEnabled();
-    fireEvent.click(screen.getByRole("button", { name: /Generuj CV/ }));
-    await waitFor(() => expect(generatePosts("/api/cv-generator/generate")).toHaveLength(1), { timeout: 10000 });
-    expect(generatePosts("/api/cv-generator/generate")[0][1]).toMatchObject({ stage_id: null, client_id: 15, content_mode: "polished" });
+    expect(await screen.findByText(/Ta osoba nie jest w żadnej rekrutacji/)).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Inny klient/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Proces rekrutacyjny")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Treść CV" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("cvgen-missing")).toHaveTextContent(NO_RECRUITMENT_MISSING);
+    expect(screen.getByRole("button", { name: /Generuj CV/ })).toBeDisabled();
   });
 
   it("dopisana notatka zapisuje się w rekrutacji PRZED generacją", async () => {
     recruitments = [NO_CHAMPION];
     renderGenerator();
-    await pickJan();
     fireEvent.change(await screen.findByLabelText("Notatka ze screeningu"), { target: { value: "Zna Kafkę i Kubernetes." } });
     await waitForGenerateEnabled();
     fireEvent.click(screen.getByRole("button", { name: /Generuj CV/ }));
@@ -203,7 +252,6 @@ describe("start od osoby", () => {
       return defaultPost(url, body);
     });
     renderGenerator();
-    await pickJan();
     await screen.findByText("rekrutacja nie ma Championa");
     drop(fileInput(".docx,.pdf"), new File(["x"], "Champion.docx"));
     fireEvent.click(await screen.findByRole("button", { name: "Zastosuj / zapisz szkic" }));
@@ -213,103 +261,57 @@ describe("start od osoby", () => {
     await waitFor(() => expect(generatePosts("/api/cv-generator/generate")).toHaveLength(1), { timeout: 10000 });
     expect(generatePosts("/api/cv-generator/generate")[0][1]).toHaveProperty("champion_profile");
   });
-});
 
-describe("osoba spoza bazy", () => {
-  async function uploadCv() {
-    fireEvent.click(screen.getByRole("button", { name: /Osoby nie ma w bazie/ }));
-    drop(fileInput(".pdf,.docx"), new File(["x"], "Anna_Nowak.pdf"));
-  }
-
-  it("podobna osoba w bazie — „użyj jej” przełącza na ścieżkę osoby", async () => {
-    postMock.mockImplementation(async (url: string, body?: unknown) =>
-      url === "/api/cv-generator/identify-upload"
-        ? { data: { matches: [{ candidate_id: 1, full_name: "Jan Kowalski", match_reasons: ["ten sam telefon"] }] } }
-        : defaultPost(url, body));
+  it("zapis Championa w rekrutacji wysyła tylko pola z dokumentu, bez notatek zespołu", async () => {
+    recruitments = [NO_CHAMPION];
+    previewMock.mockImplementation(async () => {
+      const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+      const profile = structuredClone(actual.EMPTY_CHAMPION_PROFILE) as unknown as Record<string, unknown>;
+      (profile.stack as Record<string, unknown>).must = [{ name: "Java" }];
+      profile.insights = [];
+      return { data: { champion_profile: profile } };
+    });
     renderGenerator();
-    await uploadCv();
-    fireEvent.click(await screen.findByRole("button", { name: /To ta osoba — użyj jej/ }));
-    expect(await screen.findByText("Jan Kowalski")).toBeInTheDocument();
-    expect(await screen.findByText("Jedyny proces tej osoby, więc wybraliśmy go sami.")).toBeInTheDocument();
-  });
-
-  it("bez prawa dodawania kandydatów przycisk „Dodaj do bazy” znika", async () => {
-    setUser("write", "user");
-    renderGenerator();
-    await uploadCv();
-    expect(await screen.findByRole("button", { name: "Generuj bez dodawania" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Dodaj do bazy kandydatów" })).not.toBeInTheDocument();
-  });
-
-  it("„Generuj bez dodawania” wymaga klienta i wysyła multipart z languages", async () => {
-    renderGenerator();
-    await uploadCv();
-    fireEvent.click(await screen.findByRole("button", { name: "Generuj bez dodawania" }));
-    expect(screen.getByTestId("cvgen-missing")).toHaveTextContent("Klient");
-    fireEvent.click(screen.getByRole("button", { name: /Wybierz klienta/ }));
-    fireEvent.click(await screen.findByText("Polkomtel"));
-    await waitForGenerateEnabled();
-    fireEvent.click(screen.getByRole("button", { name: /Generuj CV/ }));
-    await waitFor(() => expect(generatePosts("/api/cv-generator/generate-upload")).toHaveLength(1), { timeout: 10000 });
-    const fd = generatePosts("/api/cv-generator/generate-upload")[0][1] as FormData;
-    expect(fd.get("client_id")).toBe("15");
-    expect(fd.get("languages")).toBe("one");
-    expect(fd.get("must_requirements")).toBeNull();
+    await screen.findByText("rekrutacja nie ma Championa");
+    drop(fileInput(".docx,.pdf"), new File(["x"], "Champion.docx"));
+    fireEvent.click(await screen.findByRole("button", { name: "Zastosuj / zapisz szkic" }));
+    await waitFor(() => expect(generatePosts("/api/jobs/501/champion-profile/apply-import")).toHaveLength(1));
+    const body = generatePosts("/api/jobs/501/champion-profile/apply-import")[0][1] as { profile: Record<string, unknown> };
+    expect(body.profile).not.toHaveProperty("insights");
+    // Mock `/validate` odsyła profil bez normalizacji — liczy się, że pole z
+    // dokumentu jedzie, a puste nie.
+    expect(Object.keys(body.profile.stack as object)).toEqual(["must"]);
+    // Puste sekcje dokumentu nie nadpisują zapisanych pól.
+    expect(body.profile).not.toHaveProperty("project");
+    expect(body.profile).not.toHaveProperty("screening_questions");
   });
 });
 
-// Cytowane w CLAUDE.md („AI w generatorze to dodatek, nigdy bramka”).
+// Cytowane w CLAUDE.md („AI w generatorze to dodatek, nigdy bramka”). Do
+// 13.10.2026 pilnowała tego ścieżka „plik spoza bazy”; generator został tylko
+// w rekrutacji, więc ta sama zasada na jej podglądzie Championa.
 describe("CvGenerator — the AI champion preview is an aid, not a gate", () => {
-  it("keeps the champion attached and generates with it when the preview fails", async () => {
+  it("nieudany podgląd Championa mówi, co dalej, a CV dalej da się wygenerować (Redakcja)", async () => {
+    recruitments = [NO_CHAMPION];
     previewMock.mockRejectedValueOnce(new Error("Nie udało się odczytać profilu: nieparsowalny JSON profilu"));
     renderGenerator();
-    fireEvent.click(screen.getByRole("button", { name: /Osoby nie ma w bazie/ }));
-    drop(fileInput(".pdf,.docx"), new File(["x"], "kandydat.pdf"));
-    fireEvent.click(await screen.findByRole("button", { name: "Generuj bez dodawania" }));
-    const champion = new File(["x"], "ProfilChampiona.docx");
-    drop(fileInput(".docx"), champion);
-
-    expect(await screen.findByText("Profil Championa przypięty bez podglądu")).toBeInTheDocument();
-    expect(screen.getByText(/nieparsowalny JSON profilu/)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /Wybierz klienta/ }));
-    fireEvent.click(await screen.findByText("Polkomtel"));
+    await screen.findByText("rekrutacja nie ma Championa");
+    drop(fileInput(".docx,.pdf"), new File(["x"], "ProfilChampiona.docx"));
+    expect(await screen.findByText(/Nie udało się odczytać pliku Championa \(Nie udało się odczytać profilu: nieparsowalny JSON profilu\)/)).toBeInTheDocument();
     await waitForGenerateEnabled();
+    expect(screen.getByRole("button", { name: "Redakcja" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: /Generuj CV/ }));
-    await waitFor(() => expect(generatePosts("/api/cv-generator/generate-upload")).toHaveLength(1), { timeout: 10000 });
-    const fd = generatePosts("/api/cv-generator/generate-upload")[0][1] as FormData;
-    expect(fd.get("champion_file")).toBe(champion);
-    expect(fd.get("champion_profile_json")).toBeNull();
-  });
-
-  it("drops the preview notice together with the file", async () => {
-    previewMock.mockRejectedValueOnce(new Error("preview down"));
-    renderGenerator();
-    fireEvent.click(screen.getByRole("button", { name: /Osoby nie ma w bazie/ }));
-    drop(fileInput(".pdf,.docx"), new File(["x"], "kandydat.pdf"));
-    fireEvent.click(await screen.findByRole("button", { name: "Generuj bez dodawania" }));
-    drop(fileInput(".docx"), new File(["x"], "ProfilChampiona.docx"));
-    await screen.findByText("Profil Championa przypięty bez podglądu");
-    fireEvent.click(screen.getByRole("button", { name: "Usuń plik Championa" }));
-    await waitFor(() => expect(screen.queryByText("Profil Championa przypięty bez podglądu")).not.toBeInTheDocument());
-  });
-
-  it("rejects a champion that is not .docx with a persistent error", async () => {
-    renderGenerator();
-    fireEvent.click(screen.getByRole("button", { name: /Osoby nie ma w bazie/ }));
-    drop(fileInput(".pdf,.docx"), new File(["x"], "kandydat.pdf"));
-    fireEvent.click(await screen.findByRole("button", { name: "Generuj bez dodawania" }));
-    drop(fileInput(".docx"), new File(["x"], "Champion.pdf"));
-    const region = screen.getByRole("region", { name: "Klient i źródła" });
-    expect(within(region).getByRole("alert")).toHaveTextContent(/Dozwolone formaty/);
+    await waitFor(() => expect(generatePosts("/api/cv-generator/generate")).toHaveLength(1), { timeout: 10000 });
+    expect(generatePosts("/api/cv-generator/generate")[0][1]).not.toHaveProperty("champion_profile");
   });
 });
 
 describe("okno z procesu i uprawnienia", () => {
-  it("osoba ustalona z góry — bez „Zmień” i bez wgrywania pliku, proces z rekrutacji", async () => {
+  it("osoba ustalona z góry — bez szukania, „Zmień” i wgrywania pliku, proces z rekrutacji", async () => {
     recruitments = [{ ...PKO, stage_id: 12, job_id: 900 }, PKO];
-    renderGenerator({ embedded: true, prefillCandidateId: 1, prefillCandidateName: "Jan Kowalski", prefillJobId: 501 });
+    renderGenerator({ prefillJobId: 501 });
     expect(screen.getByText("Jan Kowalski")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Znajdź osobę")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Zmień" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Osoby nie ma w bazie/ })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByLabelText("Proces rekrutacyjny")).toHaveValue("11"));
@@ -324,7 +326,7 @@ describe("okno z procesu i uprawnienia", () => {
 
   it("onEnqueued dostaje id wygenerowanego CV", async () => {
     const onEnqueued = vi.fn();
-    renderGenerator({ embedded: true, prefillCandidateId: 1, prefillCandidateName: "Jan Kowalski", prefillJobId: 501, onEnqueued });
+    renderGenerator({ prefillJobId: 501, onEnqueued });
     await waitForGenerateEnabled();
     fireEvent.click(screen.getByRole("button", { name: /Generuj CV/ }));
     await waitFor(() => expect(onEnqueued).toHaveBeenCalledWith(77), { timeout: 10000 });

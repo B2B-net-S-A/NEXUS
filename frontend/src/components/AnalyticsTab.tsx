@@ -5,7 +5,6 @@
 // stronę `/analytics` usunęliśmy w PR #232; nie przenosić tutaj jej logiki.
 
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, FileText, TrendingUp, Users } from "lucide-react";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type { ClientDashboardResponse, ExpiringAlert } from "@/lib/api/dlPortal";
 import { formatIsoDatePl } from "@/lib/date-pl";
@@ -104,15 +103,28 @@ export function AnalyticsTab({ clientId }: AnalyticsTabProps) {
     );
   }
 
+  const hasCurrencyBreakdown =
+    canSeeFinance && Object.keys(data.currency_breakdown ?? {}).length > 0;
+
   return (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold">{data.client_name} — analityka</h3>
+    <div className="space-y-3">
+      <h3 className="text-[13px] font-semibold text-foreground">
+        {data.client_name} — analityka
+      </h3>
 
       <KpiGrid data={data} showFinance={canSeeFinance} />
 
-      {canSeeFinance ? <CurrencyBreakdown data={data} /> : null}
-
-      <AlertsList alerts={data.alerts} />
+      {/* Waluty i alerty obok siebie; bez walut alerty biorą całą szerokość. */}
+      <div
+        className={
+          hasCurrencyBreakdown
+            ? "grid items-start gap-3 lg:grid-cols-2"
+            : "grid items-start gap-3"
+        }
+      >
+        {canSeeFinance ? <CurrencyBreakdown data={data} /> : null}
+        <AlertsList alerts={data.alerts} />
+      </div>
     </div>
   );
 }
@@ -127,13 +139,12 @@ function KpiGrid({
   const unpriced = data.monthly_margin_unpriced_contracts ?? 0;
   const marginIncomplete = unpriced > 0 && data.monthly_margin_total != null;
   return (
-    <div className="grid grid-cols-1 min-[420px]:grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 gap-2.5 min-[420px]:grid-cols-2 lg:grid-cols-4">
       {showFinance ? (
         <>
           <KpiCard
             label="Przychód łącznie (PLN)"
             value={fmtMoney(data.total_revenue_all_time)}
-            icon={<TrendingUp className="w-4 h-4 text-success-muted-foreground" />}
           />
           {/* `active_revenue` to SUMA WARTOŚCI aktywnych zamówień (PO), nie
               przychód miesięczny — etykieta „przychód" obok „Marża/mc"
@@ -169,7 +180,6 @@ function KpiGrid({
         label="Konsultanci aktywni"
         value={`${data.active_consultants}`}
         sublabel={`${countPl(data.active_contracts, "aktywny kontrakt", "aktywne kontrakty", "aktywnych kontraktów")} · ${data.completed_consultants} zakończonych`}
-        icon={<Users className="w-4 h-4 text-primary" />}
       />
       <KpiCard
         label="Średni czas obsadzenia"
@@ -182,11 +192,7 @@ function KpiGrid({
             : "—"
         }
       />
-      <KpiCard
-        label="Umowy ramowe"
-        value={`${data.framework_contracts_count}`}
-        icon={<FileText className="w-4 h-4 text-primary" />}
-      />
+      <KpiCard label="Umowy ramowe" value={`${data.framework_contracts_count}`} />
       <KpiCard label="Zamówienia aktywne" value={`${data.active_orders_count}`} />
       <KpiCard label="Zamówienia zakończone" value={`${data.completed_orders_count}`} />
     </div>
@@ -197,38 +203,43 @@ interface KpiCardProps {
   label: string;
   value: string;
   sublabel?: string;
-  icon?: React.ReactNode;
   /** Dopisek w natywnym dymku całej karty (np. „suma niepełna”). */
   title?: string;
 }
 
-function KpiCard({ label, value, sublabel, icon, title }: KpiCardProps) {
+// Etykieta, wartość i podpis są BEZPOŚREDNIMI dziećmi karty — testy czytają
+// wartość z rodzica etykiety.
+function KpiCard({ label, value, sublabel, title }: KpiCardProps) {
   return (
-    <div className="min-w-0 border border-border rounded-lg p-3 bg-card" title={title}>
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
-        {icon}
-        {label}
-      </div>
-      {/* Kwoty z twardą spacją się nie zawijają — mniejsza czcionka na telefonie. */}
-      <div className="truncate text-lg font-semibold tabular-nums sm:text-xl" title={value}>
+    <div className="min-w-0 rounded-lg border border-border bg-card px-3 py-2" title={title}>
+      <div className="text-[11px] leading-4 text-muted-foreground">{label}</div>
+      {/* Kwoty z twardą spacją się nie zawijają — stąd `truncate` i dymek. */}
+      <div
+        className="truncate text-base font-semibold leading-6 tabular-nums text-foreground"
+        title={value}
+      >
         {value}
       </div>
-      {sublabel && <div className="text-xs text-muted-foreground mt-0.5">{sublabel}</div>}
+      {sublabel && (
+        <div className="text-[11px] leading-4 text-muted-foreground">{sublabel}</div>
+      )}
     </div>
   );
 }
+
+const CARD_TITLE = "mb-2 flex items-center gap-2 text-[13px] font-semibold text-foreground";
 
 function CurrencyBreakdown({ data }: { data: ClientDashboardResponse }) {
   const entries = Object.entries(data.currency_breakdown ?? {});
   if (entries.length === 0) return null;
   return (
-    <div className="border border-border rounded-lg p-3 bg-card">
-      <h4 className="text-sm font-medium mb-2">Przychód według waluty</h4>
-      <ul className="space-y-1 text-sm">
+    <div className="rounded-lg border border-border bg-card p-3">
+      <h4 className={CARD_TITLE}>Przychód według waluty</h4>
+      <ul className="divide-y divide-border/60 text-[13px]">
         {entries.map(([currency, amount]) => (
-          <li key={currency} className="flex justify-between">
+          <li key={currency} className="flex justify-between gap-3 py-1.5">
             <span className="text-muted-foreground">{currency}</span>
-            <span className="font-medium">{fmtMoney(amount)}</span>
+            <span className="font-medium tabular-nums">{fmtMoney(amount)}</span>
           </li>
         ))}
       </ul>
@@ -239,30 +250,32 @@ function CurrencyBreakdown({ data }: { data: ClientDashboardResponse }) {
 function AlertsList({ alerts }: { alerts: ExpiringAlert[] }) {
   if (alerts.length === 0) {
     return (
-      <div className="border border-border rounded-lg p-3 bg-card text-sm text-muted-foreground">
+      <div className="rounded-lg border border-border bg-card p-3 text-[13px] text-muted-foreground">
         Brak alertów ekspirujących w 30 dni.
       </div>
     );
   }
   return (
-    <div className="border border-border rounded-lg p-3 bg-card">
-      <h4 className="text-sm font-medium mb-2 flex items-center gap-1.5">
-        <AlertTriangle className="w-4 h-4 text-warning" />
+    <div className="rounded-lg border border-border bg-card p-3">
+      <h4 className={CARD_TITLE}>
         Alerty (≤ 30 dni)
+        <span className="rounded-full bg-warning-muted px-1.5 text-[11px] font-semibold leading-[18px] text-warning-muted-foreground tabular-nums">
+          {alerts.length}
+        </span>
       </h4>
-      <ul className="space-y-1.5">
+      <ul className="divide-y divide-border/60">
         {alerts.map((a) => (
           <li
             key={`${a.kind}-${a.entity_id}`}
-            className="flex items-center justify-between text-sm border-l-2 border-warning pl-2"
+            className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-1.5 text-[13px]"
           >
-            <div>
+            <div className="min-w-0">
               <span className="font-medium">{a.label}</span>
-              <span className="text-xs text-muted-foreground ml-2">
+              <span className="ml-2 text-xs text-muted-foreground">
                 {a.kind === "framework_contract" ? "umowa ramowa" : "zamówienie"}
               </span>
             </div>
-            <div className="rounded bg-warning-muted px-2 py-0.5 text-xs text-warning-muted-foreground">
+            <div className="whitespace-nowrap text-xs font-medium text-warning-muted-foreground">
               {countPl(a.days_to_expiry, "dzień", "dni", "dni")} · {formatIsoDatePl(a.expiry_date)}
             </div>
           </li>

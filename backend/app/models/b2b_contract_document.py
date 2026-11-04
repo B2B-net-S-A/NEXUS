@@ -19,7 +19,6 @@ from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
-    JSON,
     CheckConstraint,
     Date,
     DateTime,
@@ -94,9 +93,7 @@ class B2BContractDocument(Base, TimestampMixin):
     # Pola formularza BEZ danych wrażliwych (PESEL, dowód, adres zamieszkania):
     # te trafiają wyłącznie do wydanego pliku. Ponowne pobranie prosi o nie
     # jeszcze raz (``sensitive_fields`` w rejestrze typów).
-    render_payload: Mapped[dict] = mapped_column(
-        JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=dict
-    )
+    render_payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     template_key: Mapped[str] = mapped_column(String(80), nullable=False)
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="issued", server_default="issued"
@@ -114,9 +111,7 @@ class B2BContractDocument(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
     # Co podpis zmienił (id aneksu, kontraktu, daty) — bez kwot i nazwisk.
-    effect_summary: Mapped[Optional[dict]] = mapped_column(
-        JSON().with_variant(JSONB(), "postgresql"), nullable=True
-    )
+    effect_summary: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     cancelled_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

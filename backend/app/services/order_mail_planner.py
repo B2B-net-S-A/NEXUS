@@ -20,7 +20,7 @@ born from a signed B2B agreement, never from the client's purchase order.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 import re
 from typing import Optional
@@ -58,6 +58,12 @@ ACTION_SKIP = "skip"
 #: „Nowe zamówienie" i „Uzupełnij zamówienie"), do którego kolejka prowadzi
 #: z tym PDF-em.
 ACTION_DECIDE_PERSON = "decide_person"
+#: Wybory człowieka dla wiersza ``ACTION_OVERLAP`` (decyzja Artura 27.10.2026):
+#: nowe zamówienie tej osoby zaczyna się przed końcem obecnego.
+#: Albo obecne kończy się dzień przed nowym, albo nowe zaczyna się dzień po
+#: obecnym. Automat nie wybiera — „Zastosuj” wykonuje wybór z panelu.
+OVERLAP_TRIM_PREVIOUS = "trim_previous"
+OVERLAP_START_AFTER = "start_after"
 #: Wartości ``RowProposal.decision_kind`` — patrz opis pola.
 DECISION_NEW = "new"
 DECISION_NEW_AMBIGUOUS = "new_ambiguous"
@@ -93,6 +99,27 @@ REPEATED_PERSON_REASON = (
 )
 
 
+#: Prefiks powodu dla okresu, w którym data od jest późniejsza niż data do
+#: (zgłoszenie 28.09.2026, Alior: zamówienie 01.01.2027 → 31.12.2026). Ten sam
+#: prefiks niesie powód bramki ``CODE_PERIOD_REVERSED``.
+REVERSED_PERIOD_PREFIX = "Do weryfikacji – błędny okres"
+
+
+def reversed_period_reason(start: str, end: str) -> str:
+    """Zdanie dla wiersza z odwróconym okresem (daty ISO → DD.MM.RRRR)."""
+
+    def _pl(value: str) -> str:
+        try:
+            return date.fromisoformat(value).strftime("%d.%m.%Y")
+        except ValueError:
+            return value
+
+    return (
+        f"{REVERSED_PERIOD_PREFIX}: data od {_pl(start)} jest późniejsza niż "
+        f"data do {_pl(end)}"
+    )
+
+
 @dataclass(frozen=True)
 class ExistingOrder:
     id: int
@@ -107,6 +134,8 @@ class ExistingOrder:
     #: Zamówienie zapisane już z dokumentu mailowego (Activity ``order_mail_*``).
     #: Jego szkic niesie TAMTO zamówienie, a nie pusty szkic z zatrudnienia.
     from_order_mail: bool = False
+    order_type: Optional[str] = None
+    rate_client_currency: Optional[str] = None
 
 
 @dataclass
@@ -148,6 +177,23 @@ class RowProposal:
     #: Godzinowa ponowna weryfikacja czyta to pole, więc nie da się go zgadnąć
     #: z tekstu powodu.
     decision_kind: Optional[str] = None
+    #: Ostatnia UZGODNIONA stawka tej osoby u klienta: poprzednie samodzielne
+    #: zamówienie (aktywne, wstrzymane albo zakończone) zaczęte przed okresem
+    #: dokumentu. Przy przedłużeniu to ono, a nie rekrutacja, jest punktem
+    #: odniesienia bramki (decyzja Artura 27.10.2026). ``None`` = pierwsze
+    #: zamówienie kontraktu — wtedy odniesieniem zostaje stawka z rekrutacji.
+    previous_order_id: Optional[int] = None
+    previous_order_title: Optional[str] = None
+    previous_rate_client: Optional[str] = None
+    previous_rate_unit: Optional[str] = None
+    previous_rate_currency: Optional[str] = None
+    #: Przy ``ACTION_OVERLAP``: okres nachodzącego zamówienia i wybory, które
+    #: „Zastosuj” umie wykonać (``OVERLAP_*``). Pusta lista = rozstrzyga okno
+    #: zamówienia (okres wewnątrz obecnego, bezterminowe, kilka zamówień).
+    previous_start_date: Optional[str] = None
+    overlap_options: list[str] = field(default_factory=list)
+    overlap_trim_end: Optional[str] = None
+    overlap_start_after: Optional[str] = None
 
 
 @dataclass
@@ -181,44 +227,119 @@ def _iso(d: Optional[date]) -> Optional[str]:
     return d.isoformat() if d else None
 
 
-def _number_variants(title: Optional[str]) -> set[str]:
-    """Numer pełny i jego krótkie formy (BIK: ``4500030751`` ↔ ``30751``)."""
-    if not title:
-        return set()
-    t = title.strip()
-    out = {t, t.lower()}
-    digits = "".join(ch for ch in t if ch.isdigit())
-    if len(digits) >= 5:
-        out.add(digits)
-        out.add(digits.lstrip("0"))
-        out.add(digits[-5:])
-    return {x for x in out if x}
+def _pl_day(d: date) -> str:
+    return d.strftime("%d.%m.%Y")
+
+
+_ORDER_UNIT_TO_ROW_UNIT = {"hourly": "hour", "daily": "day", "monthly": "month"}
+
+
+def _agreed_previous_order(
+    existing: list[ExistingOrder], new_start: date
+) -> Optional[ExistingOrder]:
+    """Ostatnie samodzielne zamówienie ze stawką, zaczęte przed nowym okresem.
+
+    Szkic i anulowane nie są uzgodnioną stawką; linia grupy MD i zamówienie
+    kosztowe mają kwotę zlecenia albo budżet, nie stawkę osoby.
+    """
+    agreed = [
+        o
+        for o in existing
+        if o.order_group_id is None
+        and o.status in ("active", "paused", "completed")
+        and o.rate_client is not None
+        and o.order_type not in ("cost", "md")
+        and o.start_date is not None
+        and o.start_date < new_start
+    ]
+    return max(agreed, key=lambda o: (o.start_date, o.id), default=None)
+
+
+def _overlap_options(
+    order: ExistingOrder, new_start: date, end: Optional[str]
+) -> list[str]:
+    """Co „Zastosuj” może zrobić z jednym nachodzącym zamówieniem okresowym.
+
+    Tylko przedłużenie: obecne zamówienie zaczęło się wcześniej, ma datę końca,
+    a nowe sięga co najmniej do niej. Okres wewnątrz obecnego albo zamówienie
+    bezterminowe to inna sytuacja — rozstrzyga okno zamówienia.
+    """
+    if (
+        order.status not in ("active", "paused")
+        or order.order_group_id is not None
+        or order.start_date is None
+        or order.end_date is None
+        or order.start_date >= new_start
+    ):
+        return []
+    new_end = date.fromisoformat(end) if end else None
+    if new_end is not None and new_end < order.end_date:
+        return []
+    options = [OVERLAP_TRIM_PREVIOUS]
+    if new_end is None or new_end > order.end_date:
+        options.append(OVERLAP_START_AFTER)
+    return options
+
+
+_PFRON_PREFIX = re.compile(r"^zlecenie\s+nr\.?\s+", re.I)
+
+
+def _digit_core(title: str) -> Optional[str]:
+    """Cyfry numeru, gdy numer składa się WYŁĄCZNIE z cyfr.
+
+    Dopuszczalny jest słowny przedrostek („SAP 4500030751”, „Zamówienie nr
+    4500030751”): same litery, spacje, kropki, „#” i „:”. Ukośnik albo cyfra
+    przed resztą znaczy, że numer ma strukturę („830/2026”) — wtedy ``None``.
+    Pętla zamiast wyrażenia z zagnieżdżonym powtórzeniem, które przy długim
+    tytule szkicu cofałoby się wykładniczo.
+    """
+    i = 0
+    while i < len(title) and (title[i].isalpha() or title[i] in " .#:\t"):
+        i += 1
+    rest = title[i:].replace(" ", "")
+    return rest if rest and rest.isascii() and rest.isdigit() else None
 
 
 def titles_collide(a: Optional[str], b: Optional[str]) -> bool:
+    """Czy dwa numery zamówienia to ten sam numer.
+
+    Końcówka liczy się wyłącznie między numerami z samych cyfr (BIK:
+    ``4500030751`` ↔ ``30751``). Do 25.09.2026 końcówkę brano z cyfr
+    WYCIĄGNIĘTYCH z całego numeru, więc ``830/2026`` był tym samym co
+    ``1830/2026``, a ``3/07/2026/BL`` tym samym co ``13/07/2026/BL`` — mail
+    z nowym zamówieniem trafiał w cudze zamówienie jako jego korekta.
+    Numer z separatorami albo literami porównujemy w całości, bez wielkości
+    liter i spacji.
+    """
     # PFRON's labelled title is the same identity as its historical bare number.
     # Strip only this explicit prefix; generic short digit extraction would
     # conflate unrelated order numbers such as ABC/22 and DEF/22.
-    a = re.sub(r"^zlecenie\s+nr\.?\s+", "", (a or "").strip(), flags=re.I)
-    b = re.sub(r"^zlecenie\s+nr\.?\s+", "", (b or "").strip(), flags=re.I)
-    va, vb = _number_variants(a), _number_variants(b)
-    if not va or not vb:
+    a = _PFRON_PREFIX.sub("", (a or "").strip())
+    b = _PFRON_PREFIX.sub("", (b or "").strip())
+    if not a or not b:
         return False
-    if a and b and a.strip().lower() == b.strip().lower():
+    if re.sub(r"\s+", "", a).lower() == re.sub(r"\s+", "", b).lower():
         return True
-    da = "".join(ch for ch in (a or "") if ch.isdigit())
-    db_ = "".join(ch for ch in (b or "") if ch.isdigit())
+    da, db_ = _digit_core(a), _digit_core(b)
+    if da is None or db_ is None:
+        return False
     if len(da) >= 5 and len(db_) >= 5 and (da.endswith(db_) or db_.endswith(da)):
         return True
     return False
 
 
 def _overlaps(order: ExistingOrder, start: date, end: Optional[str]) -> bool:
-    """Czy okres zamówienia nachodzi na okres z dokumentu (brak końca = bez końca)."""
-    return (order.end_date is None or order.end_date >= start) and (
-        end is None
-        or order.start_date is None
-        or order.start_date <= date.fromisoformat(end)
+    """Czy okres zamówienia nachodzi na okres z dokumentu (brak końca = bez końca).
+
+    Zamówienie zapisane z odwróconym okresem (historyczne, sprzed blokady)
+    liczy się jako przedział od wcześniejszej do późniejszej daty — inaczej
+    nie nachodziłoby na nic i obok niego powstawało drugie zamówienie.
+    """
+    order_start, order_end = order.start_date, order.end_date
+    if order_start is not None and order_end is not None and order_start > order_end:
+        order_start, order_end = order_end, order_start
+    return (order_end is None or order_end >= start) and (
+        end is None or order_start is None or order_start <= date.fromisoformat(end)
     )
 
 
@@ -234,17 +355,16 @@ def _is_draft_shell(
     „niesie zamówienie", gdy zapisano go z maila albo ma dołączony PDF
     zamówienia. Ten sam numer albo nachodzący okres to ten sam dokument (albo
     jego korekta), więc uzupełnienie wolno; rozłączny okres to osobne zamówienie.
-    Linia grupy zostaje przy dotychczasowej ścieżce (``ACTION_GROUP``): osobne
-    zamówienie obok linii MD rozdwoiłoby współpracę.
+    Szkic LINII zamówienia MD/kosztowego nigdy nie jest szkicem do
+    uzupełnienia: ma własny cykl życia (budżet MD, zamiana kontraktora,
+    decyzja po offboardingu), a writer wypełniał go jak zamówienie okresowe —
+    numer, okres i stawka z PDF-a, bez budżetu i bez grupy (audyt 25.09.2026).
+    Takim szkicem zajmuje się ``plan_document`` (``ACTION_GROUP``).
     """
-    if order.status != "draft":
+    if order.status != "draft" or order.order_group_id is not None:
         return False
     carries_order = order.from_order_mail or order.has_file
-    if (
-        order.order_group_id is not None
-        or not carries_order
-        or titles_collide(order.title, number)
-    ):
+    if not carries_order or titles_collide(order.title, number):
         return True
     return _overlaps(order, start, end)
 
@@ -425,9 +545,26 @@ def plan_document(
             rp.reasons.append("Brak daty początku okresu w dokumencie")
             proposal.rows.append(rp)
             continue
+        if end and start > end:
+            # Odwrócony okres nie trafia do bazy żadną drogą — ani automatem
+            # (bramka: CODE_PERIOD_REVERSED), ani ręcznym „Zastosuj”, które
+            # bramki nie czyta, ale przelicza ten plan. Dokument zostaje
+            # w kolejce do weryfikacji; szkicu nie zakładamy (decyzja 28.09.2026).
+            rp.reasons.append(reversed_period_reason(start, end))
+            proposal.rows.append(rp)
+            continue
 
         existing = existing_orders_by_contract.get(res.contract_id, [])
         new_start = date.fromisoformat(start)
+        previous = _agreed_previous_order(existing, new_start)
+        if previous is not None:
+            rp.previous_order_id = previous.id
+            rp.previous_order_title = previous.title
+            rp.previous_rate_client = str(previous.rate_client)
+            rp.previous_rate_unit = _ORDER_UNIT_TO_ROW_UNIT.get(
+                previous.rate_unit or "", previous.rate_unit
+            )
+            rp.previous_rate_currency = previous.rate_client_currency
         # Punkt odniesienia powrotu to wyłącznie samodzielne zamówienie
         # (okresowe/kosztowe). Linia grupy MD ma własny cykl życia (budżet,
         # zamiana kontraktora, decyzja o MD po offboardingu) i nie jest
@@ -490,40 +627,80 @@ def plan_document(
             continue
 
         open_live = [o for o in existing if o.status in ("active", "paused")]
+        group_drafts = [
+            o for o in existing if o.status == "draft" and o.order_group_id is not None
+        ]
         shells = [
             o for o in existing if _is_draft_shell(o, extraction.title, new_start, end)
         ]
         # Szkic z innego PDF-a na rozłączny okres to zaplanowane zamówienie:
         # liczy się jak otwarte, więc ten dokument dostaje osobne zamówienie.
-        mail_drafts = [o for o in existing if o.status == "draft" and o not in shells]
+        # Szkic linii grupy tu nie wchodzi — obsługuje go gałąź ``ACTION_GROUP``.
+        mail_drafts = [
+            o
+            for o in existing
+            if o.status == "draft" and o not in shells and o not in group_drafts
+        ]
+        if group_drafts and not open_live:
+            # Osoba czeka na linii zamówienia MD/kosztowego. Automat nie wypełni
+            # tej linii (budżet i grupę prowadzi okno zamówienia) ani nie założy
+            # obok niej zamówienia okresowego — rozdwoiłby współpracę.
+            rp.action = ACTION_GROUP
+            rp.reasons.append(
+                "Osoba ma szkic linii zamówienia MD/kosztowego "
+                f"(#{group_drafts[0].id}, {group_drafts[0].title}) — uzupełnij go "
+                "w oknie zamówienia u tego klienta"
+            )
+            proposal.rows.append(rp)
+            continue
         if len(shells) > 1 and not open_live:
             rp.reasons.append("Więcej niż jeden draft tej osoby — wybierz zamówienie")
             proposal.rows.append(rp)
             continue
         if shells and not open_live:
-            if shells[0].order_group_id is not None and not titles_collide(
-                shells[0].title, extraction.title
-            ):
-                rp.action = ACTION_GROUP
-                rp.reasons.append(
-                    "Szkic należy do istniejącej grupy o innym numerze — potwierdź przypisanie"
-                )
-                proposal.rows.append(rp)
-                continue
             rp.action = ACTION_FILL_DRAFT
             rp.target_order_id = shells[0].id
             proposal.rows.append(rp)
             continue
 
+        live_group = [o for o in open_live if o.order_group_id is not None]
+        if live_group:
+            # Runda 10 (R10-N3-2): żywa linia zamówienia MD/kosztowego nie
+            # kończy się datą (budżet, zamiana kontraktora), więc zamówienie
+            # „po jej okresie” byłoby drugim zapisem tej samej współpracy obok
+            # linii. Lustro gałęzi szkicu linii wyżej — decyduje człowiek.
+            rp.action = ACTION_GROUP
+            rp.reasons.append(
+                "Osoba jest na linii zamówienia MD/kosztowego "
+                f"(#{live_group[0].id}, {live_group[0].title}) — kolejne "
+                "zamówienie tej osoby zapisz w oknie zamówienia u tego klienta"
+            )
+            proposal.rows.append(rp)
+            continue
         open_orders = open_live + mail_drafts
         overlapping = [o for o in open_orders if _overlaps(o, new_start, end)]
         if overlapping:
+            target = overlapping[0]
             rp.action = ACTION_OVERLAP
-            rp.target_order_id = overlapping[0].id
-            rp.reasons.append(
-                f"Okres nachodzi na otwarte zamówienie #{overlapping[0].id} "
-                f"({overlapping[0].title}, do {_iso(overlapping[0].end_date) or 'bezterminowo'})"
-            )
+            rp.target_order_id = target.id
+            rp.previous_start_date = _iso(target.start_date)
+            rp.previous_end_date = _iso(target.end_date)
+            if len(overlapping) == 1:
+                rp.overlap_options = _overlap_options(target, new_start, end)
+            if rp.overlap_options:
+                rp.overlap_trim_end = _iso(new_start - timedelta(days=1))
+                if OVERLAP_START_AFTER in rp.overlap_options:
+                    rp.overlap_start_after = _iso(target.end_date + timedelta(days=1))
+                rp.reasons.append(
+                    f"Nowe zamówienie zaczyna się {_pl_day(new_start)}, a #{target.id} "
+                    f"({target.title}) trwa do {_pl_day(target.end_date)} — wybierz, "
+                    f"czy skrócić #{target.id}, czy zacząć nowe po nim"
+                )
+            else:
+                rp.reasons.append(
+                    f"Okres nachodzi na otwarte zamówienie #{target.id} "
+                    f"({target.title}, do {_iso(target.end_date) or 'bezterminowo'})"
+                )
             proposal.rows.append(rp)
             continue
         rp.action = ACTION_FUTURE if open_orders else ACTION_NEW

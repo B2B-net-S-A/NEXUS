@@ -6,6 +6,7 @@
  * danych. Zmiana tutaj = zmiana we wszystkich czterech.
  */
 
+import type { EmploymentMarker } from "@/lib/employment-marker";
 import type { ReactNode } from "react";
 
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -40,8 +41,42 @@ export type PersonPanelSection =
 export type RecruitmentSlideOver =
   | "order"
   | "questions"
+  // Pliki rekrutacji: request klienta i załączniki (0428, 09.10.2026).
+  | "files"
+  // Panel klienta pod linkiem z CV: ustawienia i sprawy od klienta (02.11.2026).
+  | "client-panel"
   | "history-chat"
-  | "manual-search";
+  // Od 14.10.2026 zakładka „Szukaj ręcznie” okna „Kandydaci do dodania”;
+  // adres zostaje czytany (stare linki), stan strony zna już tylko `add`.
+  | "manual-search"
+  // Panel „Podobne rekrutacje” — przepięcia jednym kliknięciem (25.09.2026).
+  // Od 02.10.2026 to zakładka okna „Kandydaci do dodania”; adres zostaje
+  // czytany (stare linki), stan strony zna już tylko `add`.
+  | "similar"
+  // Okno „Kandydaci do dodania” — cztery źródła, `?win=add&wintab=<źródło>`.
+  | "add";
+
+/** Źródła kandydatów: kafle nad Tablicą i zakładki okna (02.10.2026). */
+export type CandidateSourceTab = "similar" | "postings" | "base" | "search";
+
+export const CANDIDATE_SOURCE_TABS: readonly CandidateSourceTab[] = [
+  "similar",
+  "postings",
+  "base",
+  "search",
+];
+
+/**
+ * Zakładki okna „Kandydaci do dodania”: źródła z kafli i „Szukaj ręcznie”
+ * (14.10.2026 — dawne osobne okno, `?win=add&wintab=manual`). Kafla nie ma:
+ * do ręcznego szukania prowadzi „Zmień słowa i filtry” i dotychczasowe wejścia.
+ */
+export type CandidateWindowTab = CandidateSourceTab | "manual";
+
+export const CANDIDATE_WINDOW_TABS: readonly CandidateWindowTab[] = [
+  ...CANDIDATE_SOURCE_TABS,
+  "manual",
+];
 
 /** Skąd pochodzi propozycja (kolumna „Źródło"; jedna osoba może mieć kilka). */
 export type ProposalSource =
@@ -51,7 +86,9 @@ export type ProposalSource =
   | "new_cv"
   | "similar_projects"
   | "recommendation"
-  | "marketplace";
+  | "marketplace"
+  // 30.09.2026: dopasowanie ze scrapera JJIT/RocketJobs (dawniej karta na Tablicy).
+  | "job_board";
 
 export const PROPOSAL_SOURCE_LABEL: Record<ProposalSource, string> = {
   // Pierwsze w słowniku = pierwsze w kolumnie „Źródło" i na liście filtrów.
@@ -64,6 +101,7 @@ export const PROPOSAL_SOURCE_LABEL: Record<ProposalSource, string> = {
   similar_projects: "Podobne projekty",
   recommendation: "Rekomendowani",
   marketplace: "Targ",
+  job_board: "Z portalu (JJIT/RocketJobs)",
 };
 
 interface PersonRowBase {
@@ -103,8 +141,20 @@ export interface ProposalPersonRow extends PersonRowBase {
   previouslyDismissed: boolean;
   /** Identyfikator przeglądu bazy, z którego pochodzi wynik (telemetria). */
   runId: string | null;
+  /** Znacznik „Pracuje u nas” — pigułka przy nazwisku w tabeli propozycji. */
+  employment?: EmploymentMarker;
   /** Notatka praktykanta przy przekazaniu (0374) — tylko przy źródle `trainee`. */
   handoverNote?: string | null;
+  /**
+   * Punkty „znany zespołowi” (07.10.2026) — dodawane do dopasowania WYŁĄCZNIE
+   * przy sortowaniu; `fitScore` zostaje bez nich.
+   */
+  historyPoints?: number;
+  /**
+   * Punktacja scrapera portalu ogłoszeń (`job_board`, 27.10.2026) — inny
+   * algorytm niż `fitScore`, pokazywana najwyżej jako dopisek.
+   */
+  boardScore?: number;
 }
 
 export type PersonRow = ProcessPersonRow | ProposalPersonRow;

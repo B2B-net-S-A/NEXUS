@@ -81,3 +81,80 @@ async def get_move_requirements(
         db, candidate=candidate, job=job, user=current_user
     )
     return move_requirements.build_requirements(facts, to_column)
+
+
+_ACCEPTANCE_ROLE_LABELS = {
+    "recruiter": "rekruter kandydata",
+    "owner": "prowadzi rekrutację",
+    "delivery_lead": "Delivery Lead rekrutacji",
+    "head_of_recruitment": "Head of Recruitment",
+}
+
+
+class ClientAcceptanceRecipient(BaseModel):
+    user_id: int
+    name: str
+    role: str
+    role_label: str
+
+
+class ClientAcceptanceRecipientsResponse(BaseModel):
+    recipients: list[ClientAcceptanceRecipient]
+
+
+@router.get(
+    "/client-acceptance/recipients",
+    response_model=ClientAcceptanceRecipientsResponse,
+)
+async def get_client_acceptance_recipients(
+    current_user: OperationalUser,
+    candidate_id: int = Query(..., ge=1),
+    job_id: int = Query(..., ge=1),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Kto dostanie dzwonek „Klient zaakceptował” (okno akceptacji, D1/D4).
+
+    Ta sama lista co dzwonek (`client_acceptance_recipients`) i ta sama
+    bramka odbiorcy (nieaktywni i bez sekcji odpadają), bez osoby, która
+    patrzy — ona zaznacza akceptację i dzwonka nie dostaje.
+    """
+
+    from app.models.notification import NotificationType  # noqa: PLC0415
+    from app.services.notification_access import (  # noqa: PLC0415
+        filter_notification_recipients,
+    )
+    from app.services.stage_handoff_recipients import (  # noqa: PLC0415
+        client_acceptance_recipients,
+    )
+
+    job = await db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Nie ma takiej rekrutacji.")
+    await ensure_job_read_access(db, current_user, job.id)
+    tagged = [
+        (uid, role)
+        for uid, role in await client_acceptance_recipients(
+            db, job=job, candidate_id=candidate_id
+        )
+        if uid != current_user.id
+    ]
+    allowed = await filter_notification_recipients(
+        db,
+        {uid for uid, _role in tagged},
+        NotificationType.client_accepted,
+        related_entity_type="candidate_stage",
+        link=f"/jobs/{job.id}?candidate={candidate_id}",
+    )
+    names = {user.id: user.name or user.email or f"#{user.id}" for user in allowed}
+    return {
+        "recipients": [
+            {
+                "user_id": uid,
+                "name": names[uid],
+                "role": role,
+                "role_label": _ACCEPTANCE_ROLE_LABELS[role],
+            }
+            for uid, role in tagged
+            if uid in names
+        ]
+    }

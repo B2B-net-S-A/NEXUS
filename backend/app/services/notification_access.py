@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
+from app.services import hr_notification_schema
 from app.services.notification_categories import user_muted_types
 from app.services.section_permissions import (
     ProductSection,
@@ -31,15 +32,41 @@ from app.services.section_permissions import (
 logger = logging.getLogger(__name__)
 
 
+# 0457: typy osobiste modułów kadrowych — odbiorcę wybiera reguła modułu
+# (przełożony, zastępca, Kadry, posiadacz „Sprzętu”), nie sekcja produktu.
+# „Pracownik” nie ma sekcji, a musi dostać decyzję o swoim urlopie.
+HR_PERSONAL_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
+    NotificationType(value) for value in hr_notification_schema.PERSONAL_TYPES
+)
+
 ALWAYS_VISIBLE_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
     {
         NotificationType.password_reset_requested,
         NotificationType.password_changed_by_admin,
+        *HR_PERSONAL_NOTIFICATION_TYPES,
+        # 0619: ważne ogłoszenie — odbiorców wybiera rola z ogłoszenia, nie
+        # sekcja (pulpit ma każdy, także „Pracownik” i Rada).
+        NotificationType.announcement_important,
     }
 )
 
 ADMIN_ONLY_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
-    {NotificationType.ai_spend_alert, NotificationType.automation_failing}
+    {
+        NotificationType.ai_spend_alert,
+        NotificationType.automation_failing,
+        NotificationType.teams_prep_scope_missing,
+        NotificationType.hr_m365_scope_missing,
+    }
+)
+
+# 0508: alarm o masowym przeglądaniu CV — admin i Head of Recruitment (rola
+# główna albo dodatkowa), niezależnie od sekcji (decyzja Artura 22.10.2026).
+HEAD_OF_RECRUITMENT_ALERT_TYPES: frozenset[NotificationType] = frozenset(
+    {
+        NotificationType.candidate_data_access_alert,
+        # 0612: nowa osoba po pierwszym logowaniu (decyzja Artura 28.10.2026).
+        NotificationType.new_person_signed_in,
+    }
 )
 
 # Context-sensitive types are handled separately below.  Every other enum
@@ -51,6 +78,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.candidate_added: ProductSection.sourcing,
     NotificationType.stage_changed: ProductSection.pipeline,
     NotificationType.new_application: ProductSection.sourcing,
+    NotificationType.application_screening_digest: ProductSection.pipeline,
     NotificationType.dl_stage_stale_6h: ProductSection.pipeline,
     NotificationType.client_feedback_eobd: ProductSection.pipeline,
     NotificationType.powercalling_kpi: ProductSection.insights,
@@ -74,10 +102,15 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.rejection_email_failed: ProductSection.pipeline,
     NotificationType.marketplace_match: ProductSection.sourcing,
     NotificationType.stage_rule: ProductSection.pipeline,
-    NotificationType.signature_sent: ProductSection.delivery,
-    NotificationType.signature_signed: ProductSection.delivery,
-    NotificationType.signature_rejected: ProductSection.delivery,
-    NotificationType.signature_failed: ProductSection.delivery,
+    # Podpis umów B2B (generator, podpis w NEXUSIE): dzwonki idą do nadawcy —
+    # zwykle rekrutera bez sekcji Delivery — i reprezentanta firmy. Ta sama
+    # bramka co trasy Generatora (Sourcing); do 22.10.2026 była Delivery
+    # i rekruter nie dostawał żadnego dzwonka o swojej umowie.
+    NotificationType.signature_sent: ProductSection.sourcing,
+    NotificationType.signature_signed: ProductSection.sourcing,
+    NotificationType.signature_rejected: ProductSection.sourcing,
+    NotificationType.signature_failed: ProductSection.sourcing,
+    NotificationType.signature_renewal_requested: ProductSection.sourcing,
     NotificationType.framework_contract_expiring_30d: ProductSection.delivery,
     NotificationType.framework_contract_expiring_14d: ProductSection.delivery,
     NotificationType.framework_contract_expiring_7d: ProductSection.delivery,
@@ -101,18 +134,83 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.saved_search_reapproval: ProductSection.sourcing,
     # 0338: cykl rozmowy u klienta (terminy od klienta) — sekcja kalendarza.
     NotificationType.interview_slots_requested: ProductSection.pipeline,
+    # 0639: sprawa z panelu klienta pod linkiem z CV.
+    NotificationType.client_panel_request: ProductSection.pipeline,
     NotificationType.interview_slot_chosen: ProductSection.pipeline,
     NotificationType.interview_slot_confirmed: ProductSection.pipeline,
     NotificationType.interview_debrief_saved: ProductSection.pipeline,
     NotificationType.prep_attention: ProductSection.pipeline,
+    NotificationType.prep_candidate_response: ProductSection.pipeline,
+    NotificationType.prep_candidate_declined: ProductSection.pipeline,
+    NotificationType.prep_changed: ProductSection.pipeline,
+    NotificationType.prep_changed_yours: ProductSection.pipeline,
+    NotificationType.prep_no_response: ProductSection.pipeline,
+    NotificationType.prep2_skipped: ProductSection.pipeline,
+    NotificationType.prep2_skip_threshold: ProductSection.pipeline,
+    NotificationType.interview_changed: ProductSection.pipeline,
+    NotificationType.prep_review_ready: ProductSection.pipeline,
+    NotificationType.pre_contract: ProductSection.pipeline,
     NotificationType.trainee_program_decision: ProductSection.pipeline,
     NotificationType.candidate_followup_signal: ProductSection.pipeline,
+    # 0399: odpowiedź na notatkę — notatki żyją za sekcją Sourcing (router).
+    NotificationType.note_reply: ProductSection.sourcing,
     NotificationType.board_tasks_digest: ProductSection.pipeline,
     NotificationType.cpro_send_assigned: ProductSection.pipeline,
+    NotificationType.board_task_waiting: ProductSection.pipeline,
+    # 0417: link prowadzi do panelu osoby na Tablicy rekrutacji.
+    NotificationType.b2b_signature_requested: ProductSection.pipeline,
+    # 0524: link prowadzi do panelu osoby na Tablicy rekrutacji.
+    NotificationType.b2b_agreement_ready: ProductSection.pipeline,
+    NotificationType.candidate_rate_change: ProductSection.pipeline,
+    NotificationType.candidate_rate_change_task: ProductSection.pipeline,
     NotificationType.request_assignment_changed: ProductSection.pipeline,
+    # 0447: link prowadzi do rekrutacji (panel „Zespół”).
+    NotificationType.recruiter_parked: ProductSection.pipeline,
+    NotificationType.recruiter_restored: ProductSection.pipeline,
+    # 0450: link prowadzi do Tablicy rekrutacji (plakietka „Championi”).
+    NotificationType.champions_changed: ProductSection.pipeline,
+    NotificationType.champion_search_resumed: ProductSection.pipeline,
+    NotificationType.job_twin_linked: ProductSection.pipeline,
     NotificationType.request_review_needed: ProductSection.pipeline,
+    # 0523: link prowadzi do rekrutacji.
+    NotificationType.client_job_opened: ProductSection.pipeline,
+    # 0526: przypomnienia o ogłoszeniach — link prowadzi do rekrutacji
+    # albo do „Ogłoszeń do nadrobienia”.
+    NotificationType.job_ad_missing: ProductSection.pipeline,
+    NotificationType.job_ad_backlog: ProductSection.pipeline,
+    NotificationType.job_ad_nudge: ProductSection.pipeline,
+    NotificationType.job_p0_set: ProductSection.pipeline,
+    NotificationType.job_p0_requested: ProductSection.pipeline,
+    # 0617: rekrutacje bez ruchu — link prowadzi na rekrutację.
+    NotificationType.job_idle_reminder: ProductSection.pipeline,
+    # 0607: link prowadzi na Tablicę zamkniętej rekrutacji.
+    NotificationType.job_closed_people_waiting: ProductSection.pipeline,
+    # 0635: zdarzenia CPro — link prowadzi na Tablicę rekrutacji.
+    NotificationType.cpro_candidate_rejected: ProductSection.pipeline,
+    NotificationType.cpro_interview_change: ProductSection.pipeline,
+    NotificationType.cpro_close_needs_decision: ProductSection.pipeline,
+    # 0621: link prowadzi na listę „Po osobach, które odeszły”.
+    NotificationType.departed_pairs_care: ProductSection.pipeline,
+    NotificationType.request_allocation_proposals: ProductSection.pipeline,
     NotificationType.candidate_claim_taken: ProductSection.pipeline,
     NotificationType.hired_order_missing: ProductSection.finance,
+    NotificationType.consultant_in_other_recruitment: ProductSection.delivery,
+    # 0440: link prowadzi do panelu osoby na Tablicy rekrutacji (sekcja CV).
+    NotificationType.cv_ready: ProductSection.pipeline,
+    # 0444: link prowadzi do panelu osoby na Tablicy rekrutacji, do której dodano.
+    NotificationType.also_fits_added: ProductSection.pipeline,
+    NotificationType.autofill_decisions_due: ProductSection.pipeline,
+    NotificationType.autofill_quality_report: ProductSection.insights,
+    # 0451: link prowadzi do panelu osoby na Tablicy rekrutacji.
+    NotificationType.client_accepted: ProductSection.pipeline,
+    # 0452: link prowadzi do panelu osoby na Tablicy rekrutacji.
+    NotificationType.hire_missing_contract: ProductSection.pipeline,
+    # 0457: opieka nad konsultantem — link do zakładki „Opieka” kontraktu.
+    NotificationType.care_contact_due: ProductSection.delivery,
+    # 0475: link prowadzi do „Struktury u klientów” w Opiece (sekcja Delivery).
+    NotificationType.care_client_structure: ProductSection.delivery,
+    # 0509: popyt z rozmowy opiekuna — karta na tablicy „Do zrobienia” DL.
+    NotificationType.care_demand_signal: ProductSection.delivery,
 }
 
 CONTEXTUAL_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
@@ -196,12 +294,43 @@ def user_can_receive_notification(
     # także administratora. Kategorie obowiązkowe nigdy nie trafiają do zbioru.
     if notification_type in user_muted_types(user):
         return False
+    # Grupa wyłączona dla wszystkich ról konta w tabeli „Kto co dostaje”.
+    if notification_type in role_muted_types_of(user):
+        return False
     return user_may_receive_type(
         user,
         notification_type,
         related_entity_type=related_entity_type,
         link=link,
     )
+
+
+def user_can_receive_required_mail(
+    user: User,
+    notification_type: NotificationType,
+    *,
+    related_entity_type: str | None = None,
+    link: str | None = None,
+) -> bool:
+    """Jak `user_can_receive_notification`, ale bez wyciszeń samego odbiorcy.
+
+    Mail obowiązkowy (26.10.2026) przychodzi mimo wyciszonej kategorii
+    w dzwonku; grupa wyłączona dla roli przez admina i polityka sekcji nadal
+    go zatrzymują.
+    """
+    if not user.is_active or notification_type in role_muted_types_of(user):
+        return False
+    return user_may_receive_type(
+        user,
+        notification_type,
+        related_entity_type=related_entity_type,
+        link=link,
+    )
+
+
+def role_muted_types_of(user: User) -> frozenset[NotificationType]:
+    """Typy wyłączone dla ról konta; konto bez policzonej polityki = nic."""
+    return getattr(user, "role_muted_notification_types", None) or frozenset()
 
 
 def user_may_receive_type(
@@ -220,6 +349,8 @@ def user_may_receive_type(
         return True
     if notification_type in ADMIN_ONLY_NOTIFICATION_TYPES:
         return False
+    if notification_type in HEAD_OF_RECRUITMENT_ALERT_TYPES:
+        return user.has_role(UserRole.head_of_recruitment)
     if notification_type in ALWAYS_VISIBLE_NOTIFICATION_TYPES:
         return True
 
@@ -258,7 +389,7 @@ def notification_visibility_predicate(user: User) -> Any:
     kategoria znika z listy i z licznika nieprzeczytanych.
     """
 
-    muted = user_muted_types(user)
+    muted = user_muted_types(user) | role_muted_types_of(user)
     section_policy = _section_visibility_predicate(user)
     if not muted:
         return section_policy
@@ -275,6 +406,10 @@ def _section_visibility_predicate(user: User) -> Any:
     conditions: list[Any] = [
         Notification.notification_type.in_(ALWAYS_VISIBLE_NOTIFICATION_TYPES)
     ]
+    if user.has_role(UserRole.head_of_recruitment):
+        conditions.append(
+            Notification.notification_type.in_(HEAD_OF_RECRUITMENT_ALERT_TYPES)
+        )
     allowed_fixed_types = [
         notification_type
         for notification_type, section in NOTIFICATION_SECTION_BY_TYPE.items()
@@ -379,6 +514,7 @@ async def notification_recipient_has_access(
     *,
     related_entity_type: str | None = None,
     link: str | None = None,
+    ignore_personal_mutes: bool = False,
 ) -> bool:
     """Re-read a recipient and their effective policy before side effects."""
 
@@ -386,7 +522,12 @@ async def notification_recipient_has_access(
     if user is None:
         return False
     await resolve_effective_section_access(db, user)
-    return user_can_receive_notification(
+    check = (
+        user_can_receive_required_mail
+        if ignore_personal_mutes
+        else user_can_receive_notification
+    )
+    return check(
         user,
         notification_type,
         related_entity_type=related_entity_type,
@@ -431,7 +572,10 @@ def user_can_receive_realtime_event(user: User, event: dict[str, Any]) -> bool:
     """Apply section ceilings to known realtime payload families."""
 
     event_type = str(event.get("type") or "")
-    if event_type == "notification":
+    # ``chat:notify`` / ``candidate-chat:notify`` zapowiadają powiadomienie
+    # czatu (dymek, okienko „Czaty”), więc przechodzą tę samą bramkę co wiersz:
+    # sekcja ORAZ wyciszona kategoria. Sam prefiks ``chat:`` pyta tylko o sekcję.
+    if event_type in {"notification", "chat:notify", "candidate-chat:notify"}:
         data = event.get("data")
         if not isinstance(data, dict):
             return False
@@ -449,6 +593,18 @@ def user_can_receive_realtime_event(user: User, event: dict[str, Any]) -> bool:
             user,
             notification_type,
             related_entity_type=data.get("related_entity_type"),
+            link=data.get("link"),
+        )
+    # „Moi ludzie” (16.10.2026): dopasowanie bez wiersza w bazie — ta sama
+    # bramka co dawny wiersz ``my_people_match`` (sekcja i wyciszenie).
+    if event_type == "my_people:match":
+        data = event.get("data")
+        if not isinstance(data, dict):
+            return False
+        return user_can_receive_notification(
+            user,
+            NotificationType.my_people_match,
+            related_entity_type="job",
             link=data.get("link"),
         )
     if event_type == "kpi_nudge":
@@ -469,6 +625,7 @@ def unmapped_notification_types() -> frozenset[NotificationType]:
     return frozenset(NotificationType) - (
         ALWAYS_VISIBLE_NOTIFICATION_TYPES
         | ADMIN_ONLY_NOTIFICATION_TYPES
+        | HEAD_OF_RECRUITMENT_ALERT_TYPES
         | frozenset(NOTIFICATION_SECTION_BY_TYPE)
         | CONTEXTUAL_NOTIFICATION_TYPES
     )

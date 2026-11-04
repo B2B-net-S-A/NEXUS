@@ -80,7 +80,7 @@ def test_current_title_falls_back_to_the_first_cv_role():
     assert proposal_facts.current_title(linkedin) == ("Architekt", "X")
 
 
-def test_candidate_facts_redacts_the_rate_and_carries_no_contact():
+def test_candidate_facts_show_the_candidate_rate_and_carry_no_contact():
     candidate = SimpleNamespace(
         id=5,
         linkedin_current_title="Dev",
@@ -98,16 +98,37 @@ def test_candidate_facts_redacts_the_rate_and_carries_no_contact():
         email="x@example.com",
         phone="600",
     )
-    facts = proposal_facts.candidate_facts(candidate, include_rate=False, history=None)
-    assert facts["expected_rate_hourly"] is None
-    assert facts["expected_rate_redacted"] is True
+    # R10-N7-10: stawka KANDYDATA jawna dla każdej roli (decyzja 27.09.2026).
+    facts = proposal_facts.candidate_facts(candidate, history=None)
+    assert facts["expected_rate_hourly"] == 160.0
+    assert facts["expected_rate_redacted"] is False
     assert facts["city"] == "Kraków"
     assert facts["remote_modes"] == ["remote"]
     assert facts["availability_status"] == "open_to_offers"
     assert "email" not in facts and "phone" not in facts
-    visible = proposal_facts.candidate_facts(candidate, include_rate=True, history=None)
-    assert visible["expected_rate_hourly"] == 160.0
-    assert visible["expected_rate_currency"] == "PLN"
+    assert facts["expected_rate_currency"] == "PLN"
+
+
+def _facts_for_place(city, location):
+    candidate = SimpleNamespace(
+        id=6,
+        linkedin_current_title=None,
+        linkedin_current_company=None,
+        experience=[],
+        city=city,
+        location=location,
+    )
+    return proposal_facts.candidate_facts(candidate, history=None)
+
+
+def test_a_country_in_the_city_field_is_not_shown_as_a_city():
+    # Produkcja 02.10.2026: karta podglądu pokazywała „Miasto: PL”.
+    assert _facts_for_place("PL", "Wrocław")["city"] == "Wrocław"
+    assert _facts_for_place(" Polska ", None)["city"] is None
+    assert _facts_for_place("PL", "Poland")["city"] is None
+    # Miasto z dopiskiem kraju zostaje takie, jak wpisano.
+    assert _facts_for_place("Gdańsk, Polska", None)["city"] == "Gdańsk, Polska"
+    assert _facts_for_place(None, None)["city"] is None
 
 
 # ── API ─────────────────────────────────────────────────────────────────────
@@ -195,10 +216,58 @@ async def test_proposal_facts_endpoint(app_client: AsyncClient, app_auth_headers
     as_recruiter = await app_client.get(url, params=params, headers=recruiter)
     assert as_recruiter.status_code == 200, as_recruiter.text
     first = next(i for i in as_recruiter.json()["items"] if i["candidate_id"] == ids[0])
-    assert first["expected_rate_hourly"] is None
-    assert first["expected_rate_redacted"] is True
+    # R10-N7-10: rekruter widzi stawkę kandydata (jak na profilu i liście).
+    assert first["expected_rate_hourly"] == 150.0
+    assert first["expected_rate_redacted"] is False
 
     too_many = [("candidate_ids", i) for i in range(1, 102)]
     refused = await app_client.get(url, params=too_many, headers=app_auth_headers)
     assert refused.status_code == 422
     assert (await app_client.get(url, params=params)).status_code == 401
+
+
+async def test_proposal_facts_mark_another_role(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """27.10.2026: tester przy rekrutacji programisty ma `role_mismatch`,
+    programista i osoba bez znanej roli — nie."""
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Role client {tag}")
+        db.add(client)
+        await db.flush()
+        job = Job(
+            title=f"Full Stack Developer (Java, Angular) {tag}",
+            client_id=client.id,
+            status=JobStatus.published,
+        )
+        tester = Candidate(
+            name="Rola",
+            lastname=f"T-{tag}",
+            cv_extracted_data={"current_position": "Senior QA Automation Engineer"},
+        )
+        developer = Candidate(
+            name="Rola",
+            lastname=f"D-{tag}",
+            cv_extracted_data={"current_position": "Java Developer"},
+        )
+        unknown = Candidate(name="Rola", lastname=f"U-{tag}")
+        db.add_all([job, tester, developer, unknown])
+        await db.commit()
+        ids = [tester.id, developer.id, unknown.id]
+        job_id = job.id
+
+    response = await app_client.get(
+        f"/api/jobs/{job_id}/proposal-facts",
+        params=[("candidate_ids", i) for i in ids],
+        headers=app_auth_headers,
+    )
+    assert response.status_code == 200, response.text
+    items = {i["candidate_id"]: i for i in response.json()["items"]}
+    assert items[ids[0]]["role_mismatch"] == {
+        "family": "qa",
+        "label": "tester",
+        "detail": "obecnie Senior QA Automation Engineer",
+    }
+    assert items[ids[1]]["role_mismatch"] is None
+    assert items[ids[2]]["role_mismatch"] is None

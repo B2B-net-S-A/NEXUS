@@ -12,8 +12,12 @@ Trasy:
 * ``POST /api/interview-cycle/slots/{id}/cancel``
 * ``PUT  /api/interview-cycle/events/{event_id}/debrief`` — debrief po
   telefonie do kandydata (jak poszło, pytania klienta, czy przyjmie ofertę).
-* ``GET  /api/interview-cycle/client-questions`` — pytania, które klient
-  zadawał poprzednim kandydatom (z debriefów).
+* ``GET  /api/interview-cycle/client-questions`` — pytania zadane na rozmowach
+  w tej rekrutacji albo (``scope=client``) wszystkie pytania jej klienta.
+* ``POST /api/interview-cycle/client-interviews`` — termin rozmowy podany
+  przy przesunięciu karty na „Rozmowa z klientem” (20.10.2026).
+* ``PUT  /api/interview-cycle/pairs/{candidate_id}/{job_id}/debrief`` — pytania
+  z rozmowy bez wskazania wydarzenia; bez rozmowy w kalendarzu zakłada odbytą.
 
 Uprawnienia nie są nowe: sekcja Pipeline, role zapisu kalendarza i
 członkostwo w rekrutacji (``ensure_job_membership``) jak przy każdym
@@ -22,13 +26,14 @@ wydarzeniu związanym z rekrutacją.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
+from decimal import Decimal
 from typing import Literal, Optional
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 from sqlalchemy import exists, select
@@ -46,9 +51,13 @@ from app.api.recruitment_access import (
     job_read_scope_clause,
 )
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
+from app.core.config import settings
 from app.core.database import get_db
+from app.core.scheduling import business_today
 from app.models.calendar_event import CalendarEvent, EventType
-from app.models.client_interview_slot_request import ClientInterviewSlotRequest
+from app.models.client_interview_slot_request import (
+    ClientInterviewSlotRequest,
+)
 from app.models.interview_feedback import FeedbackSource, InterviewFeedback
 from app.models.interview_question import (
     InterviewQuestion,
@@ -58,29 +67,45 @@ from app.models.interview_question import (
 )
 from app.models.job import Job
 from app.models.notification import NotificationType
-from app.models.recruitment_pipeline import PipelineStage
 from app.models.user import User, UserRole
-from app.services import interview_slots
+from app.services import (
+    client_interview_entry,
+    debrief_from_text,
+    interview_slot_mail,
+    interview_slots,
+)
+from app.services.candidate_claim import is_integration_request
+from app.services.client_questions_asked import (
+    client_questions_with_jobs,
+    question_hash as _question_hash,
+    questions_asked_in_job,
+)
 from app.services.interview_cycle import load_overview
+from app.services.interview_slot_requests import (
+    SlotsAlreadyOpen,
+    after_slot_request_commit,
+    create_slot_request_for_pair,
+)
 from app.services.debrief_gate import interview_not_started_message
-from app.services.pipeline_auto_move import auto_advance
-from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services.workforce_availability import operational_owner_ids
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
-# Terminy od klienta wpisuje osoba prowadząca klienta: DL, TAC albo nadzór.
+# Terminy od klienta wpisuje osoba prowadząca klienta: DL albo nadzór.
 _SLOT_OWNER_ROLES = (
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
-    UserRole.tac,
 )
 _OVERSIGHT_ROLES = (UserRole.admin, UserRole.head_of_recruitment)
 
-MAX_DEBRIEF_QUESTIONS = 20
+# Klient zadaje często kilkanaście pytań (decyzja Artura 04.10.2026: 30).
+# Lustra: ``lib/interview-cycle.ts`` (formularz) i narzędzie Jarvisa
+# ``save_interview_debrief``.
+MAX_DEBRIEF_QUESTIONS = 30
+_DL_NOTICE_CONDITION_CHARS = 200
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
@@ -101,6 +126,8 @@ class CycleStep(BaseModel):
 class SlotItem(BaseModel):
     start: datetime
     end: Optional[datetime] = None
+    # Okno klienta („piątek 9–12”): koniec okna; godzinę wybiera rekruter.
+    window_end: Optional[datetime] = None
 
 
 class SlotRequestOut(BaseModel):
@@ -117,19 +144,49 @@ class SlotRequestOut(BaseModel):
     # Pipeline v4: terminy od klienta przesunęły kartę na „Rozmowa u klienta”
     # (tylko w odpowiedzi na utworzenie wniosku).
     moved_to_client_interview: bool = False
+    # 0487: rozmowa wpisana przy wyborze rekrutera — DL ma odpisać klientowi.
+    client_reply_pending: bool = False
+    client_replied_at: Optional[datetime] = None
+    # Tylko w odpowiedzi na wybór, który od razu potwierdził termin: stan
+    # blokady w Outlooku rekrutera (added | skipped | failed | not_requested).
+    outlook: Optional[str] = None
+    # Runda 10 (F09): powód, dla którego automat ŚWIADOMIE zostawił kartę
+    # (`cv_not_sent` — CV nie zostało jeszcze wysłane do klienta; albo kod
+    # blokady kwalifikacji). `None`, gdy karta pojechała albo już jest dalej.
+    move_skipped_reason: Optional[str] = None
 
 
 class DebriefSummary(BaseModel):
     id: int
     overall_impression: Optional[int] = None
+    outcome: Optional[str] = None
     offer_acceptance: Optional[str] = None
     acceptance_condition: Optional[str] = None
+    candidate_comment: Optional[str] = None
+    questions_count: int = 0
+    no_client_questions: bool = False
+
+
+class Prep2SkipSummary(BaseModel):
+    """Rozmowa bez Prepu 2 (0482): powód, kto i telefon przed rozmową."""
+
+    id: int
+    interview_event_id: int
+    reason: str
+    reason_note: Optional[str] = None
+    call_at: datetime
+    call_done_at: Optional[datetime] = None
+    call_note: Optional[str] = None
+    created_by: Optional[int] = None
+    created_by_name: Optional[str] = None
+    created_at: datetime
 
 
 class PairInfo(BaseModel):
     candidate_id: int
     candidate_name: Optional[str] = None
     candidate_email: Optional[str] = None
+    candidate_phone: Optional[str] = None
     job_id: int
     job_title: Optional[str] = None
     client_id: Optional[int] = None
@@ -141,8 +198,17 @@ class CycleItem(PairInfo):
     current_step: Optional[str] = None
     latest_stage: Optional[str] = None
     slot_request: Optional[SlotRequestOut] = None
+    # Termin rozmowy, który czeka jeszcze na wybór albo potwierdzenie — okno
+    # „Zaplanuj prep” liczy względem niego podpowiedź i ostrzeżenie.
+    tentative_interview_at: Optional[datetime] = None
     interview_event_id: Optional[int] = None
     debrief: Optional[DebriefSummary] = None
+    # 0482: rozmowa bez Prepu 2 — czy da się ją zapisać (``allowed``), czy już
+    # jest, a jeśli nie, to dlaczego (``interview_cycle.prep2_skip_status``).
+    prep2_skip_status: str = "not_needed"
+    prep2_skip: Optional[Prep2SkipSummary] = None
+    # Punkty klienta, których Prep 1 nie omówił — do telefonu przed rozmową.
+    prep1_remaining: list[str] = []
 
 
 class AgendaEntry(PairInfo):
@@ -157,6 +223,11 @@ class AgendaEntry(PairInfo):
     from_nexus: bool = False
     prep_quality: Optional[str] = None
     prep_meta: Optional[str] = None
+    # Prep zaplanowany po rozmowie u klienta, do której miał przygotować.
+    late: bool = False
+    # Wydarzenie wołającego albo osoby, którą zastępuje (organizator prepu,
+    # właściciel rozmowy) — okienko „Rozmowy” liczy z tego „Teraz”.
+    mine: bool = False
 
 
 class TodoEntry(PairInfo):
@@ -167,6 +238,9 @@ class TodoEntry(PairInfo):
     slot_request_id: Optional[int] = None
     # 0370: brak prepu na dobę przed rozmową u klienta.
     urgent: bool = False
+    # Zadanie czeka na wołającego (``interview_cycle.todo_is_mine``); ekran
+    # pokazuje wszystkie z zakresu, okienko „Rozmowy” tylko te.
+    mine: bool = False
 
 
 class CycleOverview(BaseModel):
@@ -189,26 +263,54 @@ class SlotRequestCreate(BaseModel):
     respond_by: Optional[datetime] = None
     note: Optional[str] = Field(None, max_length=1000)
     recruiter_id: Optional[int] = None
+    # „Zmień terminy” (30.10.2026): otwarty wniosek tej pary, który ten zastępuje.
+    replaces_request_id: Optional[int] = None
 
 
 class SlotChoose(BaseModel):
     index: int = Field(..., ge=0)
+    # Godzina rozmowy w oknie klienta (termin z ``window_end``).
+    start: Optional[datetime] = None
 
 
 class SlotConfirm(BaseModel):
     index: Optional[int] = Field(None, ge=0)
     add_to_outlook: bool = True
+    # Rozmowa, którą ten termin przekłada (jawny wybór DL; bez niego nic nie
+    # jest odwoływane — para może mieć kilka rund naraz).
+    supersedes_event_id: Optional[int] = None
 
 
 class SlotConfirmOut(BaseModel):
     request: SlotRequestOut
     event_id: int
     outlook: str
+    cancelled_event_id: Optional[int] = None
+    # Blokada przełożonej rozmowy w Outlooku rekrutera: none | cancelled |
+    # not_connected | failed (runda 7, R7-V3-3) — front mówi prawdę, gdy została.
+    superseded_outlook: Optional[str] = None
+
+
+class ReplaceableInterviewOut(BaseModel):
+    id: int
+    start_time: datetime
+    end_time: Optional[datetime] = None
 
 
 DebriefOutcome = Literal["good", "medium", "bad"]
 OfferAcceptance = Literal["yes", "likely", "no", "unknown"]
 _OUTCOME_TO_IMPRESSION = {"good": 5, "medium": 3, "bad": 1}
+
+
+class DebriefRateChangeIn(BaseModel):
+    """Kandydat po rozmowie podał inną stawkę (0418) — idzie tą samą regułą
+    co każda zmiana stawki w procesie (``services/candidate_rate_change``)."""
+
+    amount: Decimal = Field(gt=0, le=Decimal("1000000"))
+    unit: Literal["hourly", "daily", "monthly"] = "hourly"
+    currency: str = Field("PLN", min_length=3, max_length=3)
+    negotiable: Optional[Literal["no", "maybe", "unknown"]] = None
+    note: Optional[str] = Field(None, max_length=1000)
 
 
 class DebriefIn(BaseModel):
@@ -218,6 +320,8 @@ class DebriefIn(BaseModel):
     offer_acceptance: OfferAcceptance
     acceptance_condition: Optional[str] = Field(None, max_length=2000)
     notify_dl: bool = True
+    # Brak = stawka bez zmian.
+    rate_change: Optional[DebriefRateChangeIn] = None
     # Jawne „klient nie zadawał pytań” — pusta lista bez tej flagi to brak
     # informacji, nie odpowiedź (bramka przed „Umową”, ``services/debrief_gate``).
     no_client_questions: bool = False
@@ -268,6 +372,11 @@ class DebriefOut(BaseModel):
     acceptance_condition: Optional[str] = None
     no_client_questions: bool = False
     questions_saved: int = 0
+    # 0418: bieżąca stawka kandydata w tej rekrutacji („Bez zmian (110 zł/h)”)
+    # i zmiana stawki zapisana tym debriefem.
+    current_rate_label: Optional[str] = None
+    current_rate_hourly: Optional[Decimal] = None
+    rate_change: Optional[dict] = None
 
 
 class InterviewEventOut(BaseModel):
@@ -282,10 +391,24 @@ class InterviewEventOut(BaseModel):
     started: bool
 
 
+class ClientQuestionJobOut(BaseModel):
+    id: int
+    title: str
+
+
 class ClientQuestionOut(BaseModel):
     id: int
     text: str
     created_at: Optional[datetime] = None
+    # Rekrutacje, w których pytanie padło; pusta przy liście jednej rekrutacji.
+    jobs: list[ClientQuestionJobOut] = []
+
+
+class ArchiveQuestionOut(BaseModel):
+    id: int
+    text: str
+    # Technologie tej rekrutacji, o które pyta pytanie — dlaczego je widać.
+    matched: list[str]
 
 
 # ── Pomocnicze ───────────────────────────────────────────────────────────────
@@ -303,6 +426,8 @@ def _slot_out(req: ClientInterviewSlotRequest) -> SlotRequestOut:
         duration_minutes=req.duration_minutes,
         note=req.note,
         event_id=req.event_id,
+        client_reply_pending=bool(req.client_reply_pending),
+        client_replied_at=req.client_replied_at,
     )
 
 
@@ -310,16 +435,57 @@ def _is_owner(user: User, user_id: Optional[int]) -> bool:
     return user_id is not None and user_id in operational_owner_ids(user)
 
 
+async def _ensure_slot_recruiter(db: AsyncSession, user_id: int, job_id: int) -> None:
+    """Wskazany rekruter wniosku: aktywne konto roli wewnętrznej z dostępem
+    do rekrutacji — inaczej 422 po polsku.
+
+    Bez tego nieistniejące id kończyło się naruszeniem klucza obcego, które
+    handler brał za „otwarte terminy" (409), a dowolne konto (także spoza
+    zespołu) dostawało wybór terminu i blokadę w swoim Outlooku (audyt
+    25.09.2026).
+    """
+
+    detail = (
+        "Wybierz aktywną osobę z zespołu rekrutacji, która wybierze termin "
+        "z kandydatem."
+    )
+    if not await interview_slots.slot_recruiter_eligible(db, user_id, job_id):
+        raise HTTPException(status_code=422, detail=detail)
+
+
+async def _can_see_interview(
+    db: AsyncSession, event: CalendarEvent, user: User
+) -> bool:
+    """Właściciel, uczestnik albo rola z odczytem kalendarza — oraz każdy
+    z dostępem do rekrutacji wydarzenia.
+
+    Rekrutacje i kandydatów widzą wszyscy (decyzja Artura 23.09.2026), więc
+    Delivery Lead rekrutacji, który nie jest właścicielem rozmowy, musi móc
+    zapisać debrief — inaczej dostawał 404, a bramka debriefu przed „Umową”
+    (409 `DEBRIEF_REQUIRED`) zatrzymywała go bez wyjścia (audyt 25.09.2026).
+    """
+
+    if user_can_view_event(event, user):
+        return True
+    if event.job_id is None:
+        return False
+    try:
+        await ensure_job_read_access(db, user, event.job_id)
+    except HTTPException:
+        return False
+    return True
+
+
 async def _ensure_slot_owner(
     db: AsyncSession, user: User, req: ClientInterviewSlotRequest
 ) -> None:
-    """Potwierdzić termin u klienta może autor wniosku albo DL/TAC rekrutacji."""
+    """Potwierdzić termin u klienta może autor wniosku albo DL rekrutacji."""
     if _is_owner(user, req.created_by):
         return
     if not user.has_any_role(*_SLOT_OWNER_ROLES):
         raise HTTPException(
             status_code=403,
-            detail="Termin u klienta potwierdza Delivery Lead albo TAC rekrutacji.",
+            detail="Termin u klienta potwierdza Delivery Lead rekrutacji.",
         )
     await ensure_job_membership(db, user, req.job_id)
 
@@ -331,11 +497,6 @@ async def _ensure_recruiter(
     if _is_owner(user, req.recruiter_id):
         return
     await ensure_job_membership(db, user, req.job_id)
-
-
-def _question_hash(text: str) -> str:
-    norm = _WHITESPACE_RE.sub(" ", text.strip().lower())
-    return hashlib.sha256(norm.encode("utf-8")).hexdigest()
 
 
 def _outcome_from_impression(value: Optional[int]) -> Optional[DebriefOutcome]:
@@ -416,6 +577,11 @@ async def _save_client_questions(
                 if question is None:
                     continue
             saved += 1
+        elif question.source == InterviewQuestionSource.legacy_import:
+            # Klient zadał znowu pytanie z archiwum rozmów (0383) — od teraz to
+            # zwykły debrief i trafia do list „co klient pytał ostatnio”.
+            question.source = InterviewQuestionSource.client_debrief
+            saved += 1
         if job_id is not None:
             pinned = await db.scalar(
                 select(JobQuestion.id).where(
@@ -469,6 +635,73 @@ async def get_cycle_overview(
     return CycleOverview(**data)
 
 
+class SlotsFromMailIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=interview_slot_mail.TEXT_MAX)
+    # Dzień wysłania maila — od niego liczą się „jutro” i „w czwartek”.
+    # Bez niego: dziś (kalendarz firmy).
+    mail_date: Optional[date] = None
+
+
+class SlotFromMail(BaseModel):
+    start: datetime
+    end: datetime
+    window: bool = False
+    quote: str
+    # quote_mismatch | weekday_mismatch | weekend | unusual_hour — do sprawdzenia przez DL.
+    warning: Optional[str] = None
+
+
+class SlotsFromMailOut(BaseModel):
+    # ok | empty | unavailable — model nigdy nie daje 5xx.
+    status: str
+    message: Optional[str] = None
+    slots: list[SlotFromMail]
+    extra_slots: int = 0
+    dropped: int = 0
+    duration_minutes: Optional[int] = None
+    respond_by: Optional[datetime] = None
+    format: Optional[str] = None
+    location_note: Optional[str] = None
+    people: Optional[str] = None
+    unclear: list[str] = Field(default_factory=list)
+
+
+@router.post("/interview-cycle/slots/from-mail", response_model=SlotsFromMailOut)
+async def read_slots_from_mail(
+    request: Request,
+    body: SlotsFromMailIn,
+    current_user: CalendarWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> SlotsFromMailOut:
+    """Terminy z wklejonego maila klienta (20.10.2026). Niczego nie zapisuje.
+
+    Ta sama bramka co wpisanie terminów i rozmowy z ruchu karty — wynik to
+    podpowiedź dla formularza, który i tak przechodzi zwykłą walidację przy
+    zapisie. Treść maila nie trafia do bazy ani do logu.
+    """
+    if is_integration_request(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Terminy z maila odczytuje osoba, nie integracja.",
+        )
+    today = business_today()
+    mail_date = body.mail_date or today
+    if mail_date > today:
+        raise HTTPException(
+            status_code=422, detail="Data maila nie może być z przyszłości."
+        )
+    result = await interview_slot_mail.read_slots(
+        db,
+        text=body.text,
+        mail_date=mail_date,
+        today=today,
+        now=datetime.now(timezone.utc),
+        user_id=current_user.id,
+    )
+    await db.commit()
+    return SlotsFromMailOut(**result)
+
+
 @router.post(
     "/interview-cycle/slots",
     response_model=SlotRequestOut,
@@ -482,7 +715,7 @@ async def create_slot_request(
     if not current_user.has_any_role(*_SLOT_OWNER_ROLES):
         raise HTTPException(
             status_code=403,
-            detail="Terminy od klienta dodaje Delivery Lead albo TAC rekrutacji.",
+            detail="Terminy od klienta dodaje Delivery Lead rekrutacji.",
         )
     await ensure_job_membership(db, current_user, body.job_id)
     job = await db.get(Job, body.job_id)
@@ -501,86 +734,58 @@ async def create_slot_request(
         duration_minutes=body.duration_minutes,
         now=now,
     )
-    recruiter_id = body.recruiter_id or await interview_slots.default_recruiter_id(
-        db, candidate_id=body.candidate_id, job_id=body.job_id
-    )
-    req = ClientInterviewSlotRequest(
-        candidate_id=body.candidate_id,
-        job_id=body.job_id,
-        client_id=job.client_id,
-        created_by=current_user.id,
-        recruiter_id=recruiter_id,
-        slots=slots,
-        duration_minutes=body.duration_minutes,
-        respond_by=body.respond_by,
-        note=(body.note or "").strip() or None,
-    )
-    db.add(req)
-    try:
-        await db.flush()
-    except IntegrityError as exc:
-        await db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Ten kandydat ma już otwarte terminy do wyboru w tej rekrutacji — "
-                "anuluj je albo dokończ wybór."
-            ),
-        ) from exc
-    # Pipeline v4 (23.09.2026): terminy od klienta = kandydat JEST w rozmowie
-    # u klienta. Karta jedzie tam sama — wyłącznie do przodu; proces zamknięty
-    # albo karta już dalej zostają bez zmian.
-    # Ruch jest dodatkiem do wniosku: jego awaria (savepoint) zostawia kartę
-    # na miejscu i nie cofa terminów, które DL właśnie wpisał.
-    actor_id = current_user.id
-    moved = None
-    try:
-        async with db.begin_nested():
-            moved = await auto_advance(
-                db,
-                candidate_id=body.candidate_id,
-                job_id=body.job_id,
-                target=PipelineStage.client_interview,
-                actor_user_id=actor_id,
-                source="interview_slots",
-                note="Auto: terminy od klienta",
-            )
-    except Exception:  # noqa: BLE001 — ruch karty nie może wywrócić wniosku
-        moved = None
-        logger.exception(
-            "interview slots: auto move to client_interview failed "
-            "(candidate %s, job %s)",
+    if body.recruiter_id is not None:
+        await _ensure_slot_recruiter(db, body.recruiter_id, body.job_id)
+    # Zmiana terminów = nowy wniosek zamiast edycji w miejscu: wybór rekrutera
+    # idzie po indeksie, więc okno otwarte na starej liście albo link z maila
+    # wskazałyby inny termin niż ten, który rekruter widział. Anulowany wniosek
+    # odpowie im 409, a wybór od razu wpisuje rozmowę do kalendarza.
+    replaced = None
+    if body.replaces_request_id is not None:
+        replaced = await interview_slots.lock_request(db, body.replaces_request_id)
+        if (replaced.candidate_id, replaced.job_id) != (
             body.candidate_id,
             body.job_id,
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Te terminy dotyczą innego kandydata albo rekrutacji.",
+            )
+        interview_slots.cancel(replaced)
+        await db.flush()
+    try:
+        created = await create_slot_request_for_pair(
+            db,
+            job=job,
+            candidate_id=body.candidate_id,
+            slots=slots,
+            duration_minutes=body.duration_minutes,
+            respond_by=body.respond_by,
+            note=body.note,
+            recruiter_id=body.recruiter_id,
+            replaced=replaced,
+            actor=current_user,
         )
-    await interview_slots.notify(
-        db,
-        user_id=recruiter_id,
-        ntype=NotificationType.interview_slots_requested,
-        req=req,
-        title="Terminy rozmowy od klienta",
-        message=(
-            f"{len(slots)} terminy rozmowy u klienta do ustalenia z kandydatem "
-            f"({job.title})."
-        ),
-        actor_id=actor_id,
-    )
-    # 0371: terminy od klienta = klient się odezwał → „Klient milczy” wraca
-    # do „Szukamy kandydatów”. Nigdy nie rzuca.
-    from app.services.request_work_state import (  # noqa: PLC0415
-        wake_on_client_response,
-    )
-
-    await wake_on_client_response(
-        db, job_id=body.job_id, stage=None, reason="client_slots"
-    )
+    except SlotsAlreadyOpen as exc:
+        # Id otwartego wniosku: okno proponuje „Zastąp otwarte terminy” bez
+        # przepisywania tego, co DL już wpisał.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "SLOTS_ALREADY_OPEN",
+                "message": (
+                    "Ten kandydat ma już otwarte terminy do wyboru w tej rekrutacji. "
+                    "Możesz je zastąpić tymi z formularza."
+                ),
+                "open_request_id": exc.open_request_id,
+            },
+        ) from exc
     await db.commit()
-    await db.refresh(req)
-    if moved is not None:
-        # Live kanban: reszta zespołu odświeża tablicę (best-effort).
-        await broadcast_pipeline_changed(db, body.job_id, actor_id)
-    out = _slot_out(req)
-    out.moved_to_client_interview = moved is not None
+    await db.refresh(created.request)
+    out = _slot_out(created.request)
+    await after_slot_request_commit(db, created)
+    out.moved_to_client_interview = created.moved is not None
+    out.move_skipped_reason = created.skip_reasons[0] if created.skip_reasons else None
     return out
 
 
@@ -595,20 +800,62 @@ async def choose_slot(
 ) -> SlotRequestOut:
     req = await interview_slots.lock_request(db, request_id)
     await _ensure_recruiter(db, current_user, req)
-    interview_slots.choose(req, body.index, user_id=current_user.id)
+    interview_slots.choose(req, body.index, user_id=current_user.id, start=body.start)
     await db.flush()
-    await interview_slots.notify(
-        db,
-        user_id=req.created_by,
-        ntype=NotificationType.interview_slot_chosen,
-        req=req,
-        title="Kandydat wybrał termin",
-        message="Rekruter ustalił termin z kandydatem — potwierdź go u klienta.",
-        actor_id=current_user.id,
+    # 0487 (decyzja Artura 20.10.2026): wybór rekrutera od razu wpisuje
+    # rozmowę do kalendarza, a DL tylko odpisuje klientowi. Gdy para ma już
+    # zaplanowaną rozmowę, nowy termin może być jej przełożeniem — o tym
+    # decyduje DL w oknie potwierdzenia, jak dotąd (reguła 26.09.2026).
+    auto_confirm = settings.SLOT_CHOICE_CONFIRMS and not (
+        await interview_slots.replaceable_interviews(db, req)
     )
+    event = None
+    outlook: Optional[str] = None
+    if auto_confirm:
+        event, outlook, _ = await interview_slots.confirm(
+            db, req, user_id=current_user.id, index=None, add_to_outlook=True
+        )
+        req.client_reply_pending = True
+        title = "Odpisz klientowi — termin wybrany"
+        message = (
+            "Rekruter ustalił termin z kandydatem i rozmowa jest już w kalendarzu. "
+            "Potwierdź ją klientowi."
+        )
+    else:
+        title = "Kandydat wybrał termin"
+        message = "Rekruter ustalił termin z kandydatem — potwierdź go u klienta."
+    await db.flush()
+    for recipient in await interview_slots.slot_owner_recipients(db, req):
+        await interview_slots.notify(
+            db,
+            user_id=recipient,
+            ntype=NotificationType.interview_slot_chosen,
+            req=req,
+            title=title,
+            message=message,
+            actor_id=current_user.id,
+        )
+    if event is not None and event.operational_owner_id not in (None, current_user.id):
+        # Termin wybrał ktoś inny niż właściciel rozmowy (np. DL) — rozmowa
+        # trafiła do kalendarza rekrutera, więc rekruter musi o tym wiedzieć
+        # (to samo powiadomienie co po potwierdzeniu DL-a).
+        await interview_slots.notify(
+            db,
+            user_id=event.operational_owner_id,
+            ntype=NotificationType.interview_slot_confirmed,
+            req=req,
+            title="Rozmowa u klienta w Twoim kalendarzu",
+            message=(
+                "Termin rozmowy wybrany z kandydatem jest w Twoim kalendarzu. "
+                "Zaplanuj prepy, jeśli jeszcze ich nie ma."
+            ),
+            actor_id=current_user.id,
+        )
     await db.commit()
     await db.refresh(req)
-    return _slot_out(req)
+    out = _slot_out(req)
+    out.outlook = outlook
+    return out
 
 
 @router.post(
@@ -622,16 +869,21 @@ async def confirm_slot(
 ) -> SlotConfirmOut:
     req = await interview_slots.lock_request(db, request_id)
     await _ensure_slot_owner(db, current_user, req)
-    event, outlook = await interview_slots.confirm(
+    event, outlook, superseded_outlook = await interview_slots.confirm(
         db,
         req,
         user_id=current_user.id,
         index=body.index,
         add_to_outlook=body.add_to_outlook,
+        supersedes_event_id=body.supersedes_event_id,
     )
+    # DL potwierdza termin u klienta — odpowiedź do klienta jest za nim.
+    interview_slots.mark_client_replied(req, user_id=current_user.id)
     await interview_slots.notify(
         db,
-        user_id=req.recruiter_id,
+        # Właściciel rozmowy, nie surowy rekruter wniosku — ten mógł odejść
+        # przed potwierdzeniem (runda 6 audytu).
+        user_id=event.operational_owner_id,
         ntype=NotificationType.interview_slot_confirmed,
         req=req,
         title="Rozmowa u klienta potwierdzona",
@@ -643,7 +895,101 @@ async def confirm_slot(
     )
     await db.commit()
     await db.refresh(req)
-    return SlotConfirmOut(request=_slot_out(req), event_id=event.id, outlook=outlook)
+    return SlotConfirmOut(
+        request=_slot_out(req),
+        event_id=event.id,
+        outlook=outlook,
+        cancelled_event_id=body.supersedes_event_id,
+        superseded_outlook=superseded_outlook,
+    )
+
+
+class SlotChange(BaseModel):
+    index: int = Field(..., ge=0)
+    # Godzina w oknie klienta (termin z ``window_end``).
+    start: Optional[datetime] = None
+
+
+@router.post(
+    "/interview-cycle/slots/{request_id}/client-replied",
+    response_model=SlotRequestOut,
+)
+async def slot_client_replied(
+    request_id: int,
+    current_user: CalendarWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> SlotRequestOut:
+    """„Wysłane klientowi” (0487): DL potwierdził klientowi wybrany termin."""
+    req = await interview_slots.lock_request(db, request_id)
+    await _ensure_slot_owner(db, current_user, req)
+    interview_slots.mark_client_replied(req, user_id=current_user.id)
+    await db.commit()
+    await db.refresh(req)
+    return _slot_out(req)
+
+
+@router.post(
+    "/interview-cycle/slots/{request_id}/change", response_model=SlotConfirmOut
+)
+async def change_slot(
+    request_id: int,
+    body: SlotChange,
+    current_user: CalendarWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> SlotConfirmOut:
+    """„Klient wybrał inny termin” (0487): inny termin z tego samego wniosku."""
+    req = await interview_slots.lock_request(db, request_id)
+    await _ensure_slot_owner(db, current_user, req)
+    old_event_id = req.event_id
+    event, outlook, old_outlook = await interview_slots.change_confirmed_slot(
+        db, req, user_id=current_user.id, index=body.index, start=body.start
+    )
+    await interview_slots.notify(
+        db,
+        user_id=event.operational_owner_id,
+        ntype=NotificationType.interview_slot_confirmed,
+        req=req,
+        title="Klient zmienił termin rozmowy",
+        message=(
+            "Klient wybrał inny z zaproponowanych terminów — rozmowa w kalendarzu "
+            "jest już przestawiona. Sprawdź godziny prepów."
+        ),
+        actor_id=current_user.id,
+        daily_dedup=False,  # audyt 22.10, F100: po potwierdzeniu tego samego dnia
+    )
+    await db.commit()
+    await db.refresh(req)
+    return SlotConfirmOut(
+        request=_slot_out(req),
+        event_id=event.id,
+        outlook=outlook,
+        cancelled_event_id=old_event_id,
+        superseded_outlook=old_outlook,
+    )
+
+
+@router.get(
+    "/interview-cycle/slots/{request_id}/replaceable",
+    response_model=list[ReplaceableInterviewOut],
+)
+async def list_replaceable_interviews(
+    request_id: int,
+    current_user: CalendarWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> list[ReplaceableInterviewOut]:
+    """Nieodbyte rozmowy pary, które potwierdzany termin może przełożyć —
+    okno potwierdzenia pyta DL, czy to przełożenie (runda 6 audytu)."""
+    req = await db.get(ClientInterviewSlotRequest, request_id)
+    if req is None:
+        raise HTTPException(status_code=404, detail="Nie znaleziono wniosku o terminy.")
+    await _ensure_slot_owner(db, current_user, req)
+    rows = await interview_slots.replaceable_interviews(db, req)
+    return [
+        ReplaceableInterviewOut(
+            id=ev.id, start_time=ev.start_time, end_time=ev.end_time
+        )
+        for ev in rows
+    ]
 
 
 @router.post(
@@ -670,7 +1016,7 @@ async def _load_interview_event(
     db: AsyncSession, event_id: int, user: User
 ) -> CalendarEvent:
     event = await db.get(CalendarEvent, event_id)
-    if event is None or not user_can_view_event(event, user):
+    if event is None or not await _can_see_interview(db, event, user):
         raise HTTPException(status_code=404, detail="Nie znaleziono rozmowy.")
     if event.event_type != EventType.client_interview or event.candidate_id is None:
         raise HTTPException(
@@ -724,7 +1070,93 @@ async def get_debrief(
             InterviewFeedback.feedback_source == FeedbackSource.candidate_side,
         )
     )
-    return _debrief_out(fb) if fb is not None else None
+    if fb is None:
+        return None
+    return await _with_rates(db, _debrief_out(fb), fb_id=fb.id)
+
+
+async def _debrief_rate_already_saved(
+    db: AsyncSession, feedback_id: int, rate: "DebriefRateChangeIn"
+) -> bool:
+    """Ta sama stawka, którą ten debrief już zgłosił — ponowny zapis debriefu
+    (np. dopisane pytanie) nie otwiera drugiej sprawy, nie cofa późniejszej
+    korekty i nie powiadamia DL drugi raz."""
+
+    from app.models.candidate_rate_change import CandidateRateChange
+    from app.services import candidate_rate_change as rate_change
+
+    saved = (
+        await db.execute(
+            select(CandidateRateChange)
+            .where(CandidateRateChange.feedback_id == feedback_id)
+            .order_by(
+                CandidateRateChange.created_at.desc(), CandidateRateChange.id.desc()
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if saved is None:
+        return False
+    return rate_change._same_rate(
+        saved.requested_amount,
+        saved.requested_unit,
+        saved.requested_currency,
+        rate.amount,
+        rate.unit,
+        rate.currency,
+    )
+
+
+async def _with_rates(
+    db: AsyncSession, out: DebriefOut, *, fb_id: Optional[int]
+) -> DebriefOut:
+    """Dokleja bieżącą stawkę pary i zmianę stawki zapisaną debriefem."""
+
+    from app.models.candidate_rate_change import CandidateRateChange
+    from app.services import candidate_rate_change as rate_change
+
+    if out.job_id is None:
+        return out
+    rates = await rate_change.pair_rates(
+        db, candidate_id=out.candidate_id, job_id=out.job_id
+    )
+    if rates["amount"] is not None:
+        out.current_rate_label = rate_change.format_rate(
+            rates["amount"], rates["unit"], rates["currency"]
+        )
+        out.current_rate_hourly = rate_change._hourly(
+            rates["amount"], rates["unit"], rates["currency"]
+        )
+    if fb_id is not None:
+        change = await db.scalar(
+            select(CandidateRateChange)
+            .where(CandidateRateChange.feedback_id == fb_id)
+            .order_by(CandidateRateChange.id.desc())
+            .limit(1)
+        )
+        if change is not None:
+            out.rate_change = {
+                "id": change.id,
+                "status": change.status,
+                "requires_decision": change.requires_decision,
+                "previous": rate_change.format_rate(
+                    change.previous_amount,
+                    change.previous_unit,
+                    change.previous_currency,
+                )
+                if change.previous_amount is not None
+                else None,
+                "requested": rate_change.format_rate(
+                    change.requested_amount,
+                    change.requested_unit,
+                    change.requested_currency,
+                ),
+                "requested_amount": str(change.requested_amount),
+                "requested_unit": change.requested_unit,
+                "negotiable": change.negotiable,
+                "note": change.note,
+            }
+    return out
 
 
 @router.put("/interview-cycle/events/{event_id}/debrief", response_model=DebriefOut)
@@ -744,6 +1176,14 @@ async def save_debrief(
     if not _is_owner(current_user, event.operational_owner_id or event.created_by):
         if event.job_id is not None:
             await ensure_job_membership(db, current_user, event.job_id)
+    return await _store_debrief(db, event, body, current_user)
+
+
+async def _store_debrief(
+    db: AsyncSession, event: CalendarEvent, body: DebriefIn, current_user: User
+) -> DebriefOut:
+    """Zapis debriefu pod rozmową — wspólny dla ``PUT …/events/{id}/debrief``
+    i ``PUT …/pairs/{c}/{j}/debrief`` (pytania bez terminu, 20.10.2026)."""
     start = _event_start_utc(event)
     if start > datetime.now(timezone.utc):
         # Debrief to zapis telefonu PO rozmowie — przed jej rozpoczęciem nie ma
@@ -798,6 +1238,39 @@ async def save_debrief(
         user_id=current_user.id,
     )
 
+    rate_emails: list = []
+    new_rate_label: Optional[str] = None
+    if (
+        body.rate_change is not None
+        and event.job_id is not None
+        and not await _debrief_rate_already_saved(db, fb.id, body.rate_change)
+    ):
+        # Zmiana stawki z debriefu idzie wspólną regułą: ślad w historii
+        # stawek, dzwonki DL/HoR, zadanie DL po wysłaniu CV (0418).
+        from app.services import candidate_rate_change as rate_change
+
+        rate_result = await rate_change.change_rate(
+            db,
+            candidate_id=event.candidate_id,
+            job_id=event.job_id,
+            amount=body.rate_change.amount,
+            unit=body.rate_change.unit,
+            currency=body.rate_change.currency,
+            source="debrief",
+            reason="conversation",
+            note=body.rate_change.note,
+            negotiable=body.rate_change.negotiable,
+            feedback_id=fb.id,
+            actor=current_user,
+        )
+        rate_emails = rate_result.emails
+        if rate_result.change is not None:
+            new_rate_label = rate_change.format_rate(
+                body.rate_change.amount,
+                body.rate_change.unit,
+                body.rate_change.currency,
+            )
+
     if body.notify_dl and event.job_id is not None:
         dl_id = await db.scalar(
             select(Job.delivery_lead_id).where(Job.id == event.job_id)
@@ -814,13 +1287,25 @@ async def save_debrief(
             outcome = {"good": "dobrze", "medium": "średnio", "bad": "źle"}[
                 body.outcome
             ]
+            message = f"Rozmowa poszła {outcome}; kandydat {label} ofertę."
+            condition = fb.acceptance_condition
+            if condition:
+                # Warunek kandydata (stawka, druga oferta) to najważniejsza
+                # informacja dla DL — do 04.10.2026 nie trafiała nigdzie.
+                if len(condition) > _DL_NOTICE_CONDITION_CHARS:
+                    condition = (
+                        condition[: _DL_NOTICE_CONDITION_CHARS - 1].rstrip() + "…"
+                    )
+                message += f" Warunek: {condition}"
+            if new_rate_label:
+                message += f" Nowa stawka kandydata: {new_rate_label}."
             try:
                 async with db.begin_nested():
                     await emit(
                         db,
                         user_id=dl_id,
                         title="Debrief po rozmowie u klienta",
-                        message=f"Rozmowa poszła {outcome}; kandydat {label} ofertę.",
+                        message=message,
                         ntype=NotificationType.interview_debrief_saved,
                         related_entity_type="calendar_event",
                         related_entity_id=event.id,
@@ -835,8 +1320,250 @@ async def save_debrief(
                     "debrief notification failed for event %s", event.id
                 )
     await db.commit()
+    if rate_emails:
+        from app.services.candidate_rate_change import send_pending_emails
+
+        await send_pending_emails(rate_emails)
     await db.refresh(fb)
-    return _debrief_out(fb, questions_saved=saved)
+    return await _with_rates(db, _debrief_out(fb, questions_saved=saved), fb_id=fb.id)
+
+
+class ClientInterviewIn(BaseModel):
+    """„Kiedy rozmowa u klienta?” z okna przesunięcia karty (20.10.2026)."""
+
+    candidate_id: int
+    job_id: int
+    start: datetime
+    duration_minutes: int = Field(
+        client_interview_entry.DEFAULT_DURATION_MINUTES,
+        ge=client_interview_entry.MIN_DURATION_MINUTES,
+        le=client_interview_entry.MAX_DURATION_MINUTES,
+    )
+
+
+class ClientInterviewOut(BaseModel):
+    event_id: int
+    start: datetime
+    end: Optional[datetime] = None
+
+
+class PairDebriefIn(DebriefIn):
+    """Pytania z rozmowy, której nie ma w kalendarzu NEXUSA — ``held_on``
+    zakłada odbytą rozmowę (bez godziny: 9:00)."""
+
+    held_on: Optional[date] = None
+    held_at: Optional[time] = None
+
+
+async def _ensure_pair_writer(
+    db: AsyncSession, user: User, *, candidate_id: int, job_id: int
+) -> None:
+    """Rekruter kandydata albo członek zespołu rekrutacji — ta sama granica co
+    zapis debriefu pod rozmową (właściciel albo członkostwo)."""
+    if not await interview_slots.pair_in_pipeline(
+        db, candidate_id=candidate_id, job_id=job_id
+    ):
+        raise HTTPException(
+            status_code=404, detail="Ta osoba nie jest w procesie tej rekrutacji."
+        )
+    recruiter = await interview_slots.default_recruiter_id(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
+    if not _is_owner(user, recruiter):
+        await ensure_job_membership(db, user, job_id)
+
+
+class DebriefFromTextIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=debrief_from_text.TEXT_MAX)
+
+
+class QuotedQuestion(BaseModel):
+    text: str
+    quote: str
+
+
+class QuotedOffer(BaseModel):
+    value: OfferAcceptance
+    condition: Optional[str] = None
+    quote: str
+
+
+class QuotedRate(BaseModel):
+    amount: str
+    unit: Optional[Literal["hourly", "daily", "monthly"]] = None
+    quote: str
+
+
+class QuotedStart(BaseModel):
+    text: str
+    quote: str
+
+
+class DebriefFromTextOut(BaseModel):
+    # ok | empty | unavailable — model nigdy nie daje 5xx.
+    status: str
+    message: Optional[str] = None
+    questions: list[QuotedQuestion] = Field(default_factory=list)
+    offer: Optional[QuotedOffer] = None
+    rate: Optional[QuotedRate] = None
+    start: Optional[QuotedStart] = None
+    dropped: int = 0
+
+
+@router.post("/interview-cycle/debrief/from-text", response_model=DebriefFromTextOut)
+async def debrief_from_note(
+    request: Request,
+    body: DebriefFromTextIn,
+    current_user: RecruitmentAssessmentWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> DebriefFromTextOut:
+    """„Po rozmowie” (20.10.2026): pytania klienta, oferta i stawka z notatki
+    z telefonu do kandydata. Niczego nie zapisuje — wynik wypełnia okno
+    debriefu, które rekruter sprawdza i zapisuje zwykłą trasą."""
+    if is_integration_request(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Notatkę po rozmowie rozpisuje osoba, nie integracja.",
+        )
+    result = await debrief_from_text.read_note(
+        db, text=body.text, user_id=current_user.id
+    )
+    await db.commit()
+    return DebriefFromTextOut(**result)
+
+
+@router.post("/interview-cycle/client-interviews", response_model=ClientInterviewOut)
+async def create_client_interview(
+    body: ClientInterviewIn,
+    current_user: RecruitmentAssessmentWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> ClientInterviewOut:
+    """Termin rozmowy u klienta podany przy przesunięciu karty — bez wniosku
+    o terminy. Para z zaplanowaną rozmową dostaje 409 (przełożenie idzie
+    przez „Terminy od klienta”)."""
+    await _ensure_pair_writer(
+        db, current_user, candidate_id=body.candidate_id, job_id=body.job_id
+    )
+    now = datetime.now(timezone.utc)
+    start = client_interview_entry.validate_planned_start(body.start, now=now)
+    await client_interview_entry.lock_pair(
+        db, candidate_id=body.candidate_id, job_id=body.job_id
+    )
+    upcoming = await client_interview_entry.upcoming_interview(
+        db, candidate_id=body.candidate_id, job_id=body.job_id, now=now
+    )
+    if upcoming is not None:
+        when = _event_start_utc(upcoming).astimezone(ZoneInfo(settings.BUSINESS_TZ))
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Ta osoba ma już zaplanowaną rozmowę u klienta "
+                f"({when:%d.%m.%Y, %H:%M}). Zmień ją w „Kalendarzu”."
+            ),
+        )
+    event = await client_interview_entry.create_interview(
+        db,
+        candidate_id=body.candidate_id,
+        job_id=body.job_id,
+        start=start,
+        duration_minutes=body.duration_minutes,
+        created_by=current_user.id,
+        held=False,
+        now=now,
+    )
+    out = ClientInterviewOut(
+        event_id=event.id, start=event.start_time, end=event.end_time
+    )
+    await db.commit()
+    return out
+
+
+@router.put(
+    "/interview-cycle/pairs/{candidate_id}/{job_id}/debrief", response_model=DebriefOut
+)
+async def save_pair_debrief(
+    candidate_id: int,
+    job_id: int,
+    body: PairDebriefIn,
+    current_user: RecruitmentAssessmentWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> DebriefOut:
+    """Pytania z rozmowy u klienta bez wskazania rozmowy (20.10.2026).
+
+    Bieżąca runda pary bez debriefu (``missing_debrief``) dostaje ten debrief;
+    rozmowa dopiero zaplanowana = 422; brak rozmowy w kalendarzu — „Kiedy była
+    rozmowa?” (``held_on``) zakłada odbytą rozmowę i debrief idzie pod nią,
+    w jednej transakcji. Dalej wszystko jak przy zwykłym debriefie: bank pytań
+    klienta, pin w rekrutacji, bramka przed „Umową”, kroki ekranu.
+    """
+    from app.services.debrief_gate import missing_debrief
+
+    await _ensure_pair_writer(
+        db, current_user, candidate_id=candidate_id, job_id=job_id
+    )
+    await client_interview_entry.lock_pair(db, candidate_id=candidate_id, job_id=job_id)
+    now = datetime.now(timezone.utc)
+    missing = await missing_debrief(
+        db, candidate_id=candidate_id, job_id=job_id, now=now
+    )
+    if missing is not None and missing.get("event_id") is not None:
+        if missing.get("interview_pending"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=missing["message"],
+            )
+        event = await _load_interview_event(db, missing["event_id"], current_user)
+        return await _store_debrief(db, event, body, current_user)
+    if body.held_on is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Podaj, kiedy była rozmowa u klienta.",
+        )
+    start = client_interview_entry.held_interview_start(
+        body.held_on, body.held_at, now=now
+    )
+    # Rozmowa z tego dnia już jest — nie zakładamy drugiej rundy tego samego
+    # dnia. Gdy ma debrief (drugi zapis z innego okna, wyścig z panelem), zapis
+    # odmawia: okno pary startuje od pustego formularza i nadpisałoby pytania,
+    # ocenę i ofertę, których piszący nie widział. Front otwiera ten debrief
+    # do poprawy (decyzja Artura 22.10.2026, audyt F27).
+    same_day = await client_interview_entry.held_interview_on(
+        db, candidate_id=candidate_id, job_id=job_id, day=body.held_on, now=now
+    )
+    if same_day is not None:
+        has_debrief = await db.scalar(
+            select(InterviewFeedback.id).where(
+                InterviewFeedback.calendar_event_id == same_day.id,
+                InterviewFeedback.feedback_source == FeedbackSource.candidate_side,
+            )
+        )
+        if has_debrief is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "DEBRIEF_EXISTS",
+                    "event_id": same_day.id,
+                    "message": (
+                        "Rozmowa u klienta z "
+                        f"{body.held_on:%d.%m.%Y} ma już zapisany debrief. "
+                        "Otwórz go i popraw — zapis bez wskazania rozmowy "
+                        "nadpisałby go w całości."
+                    ),
+                },
+            )
+        event = await _load_interview_event(db, same_day.id, current_user)
+        return await _store_debrief(db, event, body, current_user)
+    event = await client_interview_entry.create_interview(
+        db,
+        candidate_id=candidate_id,
+        job_id=job_id,
+        start=start,
+        duration_minutes=client_interview_entry.DEFAULT_DURATION_MINUTES,
+        created_by=current_user.id,
+        held=True,
+        now=now,
+    )
+    return await _store_debrief(db, event, body, current_user)
 
 
 @router.get("/interview-cycle/client-questions", response_model=list[ClientQuestionOut])
@@ -844,16 +1571,18 @@ async def list_client_questions(
     current_user: RecruitmentReadAccess,
     job_id: Optional[int] = Query(None),
     client_id: Optional[int] = Query(None),
-    limit: int = Query(20, ge=1, le=50),
+    scope: Literal["job", "client"] = Query("job"),
+    limit: int = Query(20, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ) -> list[ClientQuestionOut]:
-    """Pytania, które klient zadawał kandydatom (z debriefów).
+    """Pytania, które klient zadawał kandydatom.
 
-    Zwykle po rekrutacji (``job_id``): dostęp do rekrutacji jest tym, co
-    sprawdzamy wszędzie indziej, a klient wynika z niej. ``client_id`` służy
-    ekranowi nowej rekrutacji (jeszcze bez ``job_id``) — wtedy wołający musi
-    móc czytać choć jedną rekrutację tego klienta; admin/HoR/DL/Finanse czytają
-    je organizacyjnie.
+    ``job_id`` — zadane na rozmowach w tej rekrutacji (zgłoszenie 02.11.2026:
+    lista całego klienta wisiała tak samo pod każdą rekrutacją). ``job_id``
+    + ``scope=client`` — wszystkie pytania jej klienta, z rekrutacją przy
+    pytaniu. ``client_id`` służy ekranowi nowej rekrutacji (jeszcze bez
+    ``job_id``) — wtedy wołający musi móc czytać choć jedną rekrutację tego
+    klienta; admin/HoR/DL/Finanse czytają je organizacyjnie.
     """
     if (job_id is None) == (client_id is None):
         raise HTTPException(
@@ -865,6 +1594,14 @@ async def list_client_questions(
         client_id = await db.scalar(select(Job.client_id).where(Job.id == job_id))
         if client_id is None:
             return []
+        if scope == "job":
+            asked = await questions_asked_in_job(
+                db, job_id=job_id, client_id=client_id, limit=limit
+            )
+            return [
+                ClientQuestionOut(id=q.id, text=q.text, created_at=q.created_at)
+                for q in asked
+            ]
     else:
         readable = await db.scalar(
             select(
@@ -885,17 +1622,54 @@ async def list_client_questions(
                 )
             # Klient bez rekrutacji nie ma debriefów — nie ma czego pokazać.
             return []
-    rows = (
-        await db.execute(
-            select(InterviewQuestion)
-            .where(
-                InterviewQuestion.client_id == client_id,
-                InterviewQuestion.source == InterviewQuestionSource.client_debrief,
-            )
-            .order_by(InterviewQuestion.created_at.desc(), InterviewQuestion.id.desc())
-            .limit(limit)
-        )
-    ).scalars()
+    rows = await client_questions_with_jobs(
+        db,
+        client_id=client_id,
+        job_scope=job_read_scope_clause(current_user, Job.id),
+        limit=limit,
+    )
     return [
-        ClientQuestionOut(id=q.id, text=q.text, created_at=q.created_at) for q in rows
+        ClientQuestionOut(
+            id=row.question.id,
+            text=row.question.text,
+            created_at=row.question.created_at,
+            jobs=[ClientQuestionJobOut(id=j.id, title=j.title) for j in row.jobs],
+        )
+        for row in rows
+    ]
+
+
+@router.get(
+    "/interview-cycle/client-questions/archive",
+    response_model=list[ArchiveQuestionOut],
+)
+async def list_client_question_archive(
+    current_user: RecruitmentReadAccess,
+    job_id: int = Query(...),
+    limit: int = Query(20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+) -> list[ArchiveQuestionOut]:
+    """Archiwum rozmów tego klienta (0383), wybrane po technologiach roli.
+
+    Osobna trasa, a nie pole w ``client-questions``: tamta lista to „co klient
+    pytał ostatnio” i ma zostać taka sama jak przed importem archiwum.
+    """
+    from app.services.client_question_archive import archive_questions_for_role
+    from app.services.question_suggestions import job_requirement_names
+
+    await ensure_job_read_access(db, current_user, job_id)
+    job = await db.get(Job, job_id)
+    if job is None or job.client_id is None:
+        return []
+    matches = await archive_questions_for_role(
+        db,
+        client_id=job.client_id,
+        requirement_names=job_requirement_names(job),
+        limit=limit,
+    )
+    return [
+        ArchiveQuestionOut(
+            id=m.question.id, text=m.question.text, matched=list(m.matched)
+        )
+        for m in matches
     ]

@@ -1,9 +1,11 @@
-"""Publiczne endpointy strony kariery (kariera.dynaminds.pl), bez logowania.
+"""Publiczne endpointy strony kariery (kariera.b2bnetwork.pl), bez logowania.
 
 Prefiks ``/api/public/career``:
 
 * ``GET /r/{slug}`` — strona rekrutacji (tylko ZATWIERDZONY opis publiczny);
 * ``GET /p/{slug}`` — stały link rekrutera i jego otwarte rekrutacje;
+* ``GET /jobs`` — tablica wszystkich otwartych rekrutacji (strona główna,
+  etap 6) i link „Zostaw CV”;
 * ``POST /apply`` — formularz (multipart), link po slugu.
 
 Nigdy nie zwracamy nazwy klienta, stawek, budżetu, nazwiska ani kontaktu
@@ -33,14 +35,17 @@ from fastapi import (
 )
 from pydantic import EmailStr
 from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.rate_limit import limiter
-from app.models.invite_link import CandidateInviteLink
+from app.core.scheduling import business_date, business_today
+from app.models.invite_link import CandidateInviteLink, CandidateInviteLinkVisitDay
 from app.models.job import Job
 from app.models.job_public_profile import JobPublicProfile
 from app.models.user import User
+from app.services import career_theme as ct
 from app.services import job_public_profile as jpp
 from app.services.career_slugs import first_name
 
@@ -49,6 +54,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _NOT_FOUND = "Nie znaleziono strony."
+_CLOSED_TITLE = "Rekrutacja"
 
 
 def _link_active(link: CandidateInviteLink) -> bool:
@@ -124,7 +130,24 @@ async def _bump_visits(
         .where(CandidateInviteLink.token == link.token)
         .values(visit_count=CandidateInviteLink.visit_count + 1)
     )
+    day_row = pg_insert(CandidateInviteLinkVisitDay).values(
+        link_token=link.token, day=business_today(), visits=1
+    )
+    await db.execute(
+        day_row.on_conflict_do_update(
+            index_elements=["link_token", "day"],
+            set_={"visits": CandidateInviteLinkVisitDay.visits + 1},
+        )
+    )
     await db.commit()
+
+
+def _published_on(approved_at: Optional[datetime]) -> Optional[str]:
+    """Dzień zatwierdzenia w kalendarzu firmy (Europe/Warsaw), nie data UTC —
+    zatwierdzenie o 00:30 czasu polskiego to już nowy dzień."""
+    if approved_at is None:
+        return None
+    return business_date(approved_at).isoformat()
 
 
 def _no_cache(response: Response) -> None:
@@ -141,7 +164,12 @@ async def get_career_job(
     slug: str,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Strona rekrutacji. 404 dla nieznanego sluga i niezatwierdzonego opisu."""
+    """Strona rekrutacji: ostatnia ZATWIERDZONA wersja opisu.
+
+    Poprawki po zatwierdzeniu nie zdejmują strony — kandydat widzi wersję
+    zatwierdzoną, dopóki nikt nie zatwierdzi nowej (19.10.2026). 404 dla
+    nieznanego sluga i opisu, którego nikt nigdy nie zatwierdził.
+    """
     link = await _link_by_slug(db, slug, kind="job")
     if link is None or link.job_id is None:
         raise HTTPException(status_code=404, detail=_NOT_FOUND)
@@ -149,44 +177,69 @@ async def get_career_job(
     job = await db.get(Job, link.job_id)
     if job is None or profile is None:
         raise HTTPException(status_code=404, detail=_NOT_FOUND)
-    status_value, _default, title = await jpp.resolve_status(db, job, profile)
-    if status_value != jpp.STATUS_APPROVED:
+    version = await jpp.published_version(db, job, profile)
+    closed = not (_link_active(link) and jpp.job_is_open(job))
+    if version is None and not (closed and profile.approved_at is not None):
         raise HTTPException(status_code=404, detail=_NOT_FOUND)
 
     recruiter = await _recruiter_brief(db, link.created_by)
     _no_cache(response)
-    if not (_link_active(link) and jpp.job_is_open(job)):
+    if closed:
+        # Zamknięta rekrutacja, której opis był kiedyś zatwierdzony, zawsze
+        # pokazuje „proces zakończony” — także gdy po zamknięciu ktoś zaczął
+        # poprawiać opis. Tytuł tylko z opublikowanej wersji.
+        closed_title = version.title if version else _CLOSED_TITLE
         return {
             "status": "closed",
             "recruiter": recruiter,
-            "job": jpp.closed_job_payload(title, link.slug),
+            "theme": ct.resolve_theme(
+                profile.theme, closed_title, await ct.job_category_slug(db, job)
+            ),
+            "job": jpp.closed_job_payload(
+                version.title if version else _CLOSED_TITLE, link.slug
+            ),
+            # Etap 5: odesłanie do innych otwartych rekrutacji tej osoby —
+            # także wtedy, gdy nie ma ona stałego linku.
+            "other_jobs": await _recruiter_open_jobs(
+                db, link.created_by, exclude_job_id=link.job_id
+            ),
         }
 
     payload = jpp.public_job_payload(
         job,
-        title=title,
+        title=version.title,
         link_slug=link.slug,
-        subtitle=profile.subtitle,
-        about=profile.about,
-        sections=profile.sections,
+        subtitle=version.subtitle,
+        about=version.about,
+        sections=version.sections,
+        points=jpp.approved_points(version.sections),
+    )
+    theme = ct.resolve_theme(
+        profile.theme, version.title, await ct.job_category_slug(db, job)
     )
     await _bump_visits(db, link, request)
-    return {"status": "open", "recruiter": recruiter, "job": payload}
+    # Data zatwierdzenia opisu, bez godziny: „datePosted” danych JobPosting
+    # (etap 6 linków, decyzja D3 Artura 20.10.2026 — oferty widoczne w Google).
+    published_at = _published_on(profile.approved_at)
+    from app.services import career_board
+
+    return {
+        "status": "open",
+        "recruiter": recruiter,
+        "theme": theme,
+        "published_at": published_at,
+        # Canonical i identyfikator oferty w Google — link z tablicy.
+        "canonical_slug": await career_board.canonical_job_slug(db, job) or link.slug,
+        "job": payload,
+    }
 
 
-@router.get("/p/{slug}")
-@limiter.limit("60/minute")
-async def get_career_recruiter(
-    request: Request,
-    response: Response,
-    slug: str,
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Stały link rekrutera i jego otwarte, zatwierdzone rekrutacje."""
-    link = await _link_by_slug(db, slug, kind="recruiter")
-    if link is None or not _link_active(link) or not await _owner_active(db, link):
-        raise HTTPException(status_code=404, detail=_NOT_FOUND)
-    owner_id = link.created_by
+async def _recruiter_open_jobs(
+    db: AsyncSession, owner_id: int, *, exclude_job_id: Optional[int] = None
+) -> list[dict]:
+    """Otwarte rekrutacje osoby z opublikowanym opisem i „pokazuj na mojej
+    stronie” — lista na stałym linku i na ekranie zamkniętej rekrutacji."""
+    from app.services.career_board import public_category
 
     rows = (
         await db.execute(
@@ -206,29 +259,94 @@ async def get_career_recruiter(
     jobs: list[dict] = []
     seen: set[int] = set()
     names_cache: dict[Optional[int], list[str]] = {}
+    categories: dict[Optional[int], Optional[str]] = {None: None}
     for job_link, job, profile in rows:
-        if job.id in seen or not _link_active(job_link) or not jpp.job_is_open(job):
+        if (
+            job.id in seen
+            or job.id == exclude_job_id
+            or not _link_active(job_link)
+            or not jpp.job_is_open(job)
+        ):
             continue
-        status_value, _default, title = await jpp.resolve_status(
-            db, job, profile, names_cache=names_cache
-        )
-        if status_value != jpp.STATUS_APPROVED:
+        version = await jpp.published_version(db, job, profile, names_cache=names_cache)
+        if version is None:
             continue
         seen.add(job.id)
-        params = jpp.public_params(job)
+        params = jpp.visible_params(job, version.sections)
+        if job.competence_category_id not in categories:
+            categories[job.competence_category_id] = await ct.job_category_slug(db, job)
+        category = categories[job.competence_category_id]
         jobs.append(
             {
                 "slug": job_link.slug,
-                "title": title,
+                "title": version.title,
                 "city": params["city"],
                 "remote_policy": params["remote_policy"],
+                # Etap 6 (makieta 6d): nazwa sceny przy rekrutacji i plakietki
+                # kategorii — ten sam klucz kategorii co na tablicy.
+                "theme": ct.resolve_theme(profile.theme, version.title, category),
+                "category": public_category(category),
             }
         )
+    return jobs
 
-    recruiter = await _recruiter_brief(db, owner_id)
+
+@router.get("/p/{slug}")
+@limiter.limit("60/minute")
+async def get_career_recruiter(
+    request: Request,
+    response: Response,
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Stały link rekrutera, jego „O mnie” i otwarte, zatwierdzone rekrutacje.
+
+    „O mnie” przeszło kontrolę przy zapisie (``api/career_links.py``) — na
+    stronie nie ma nazwiska, kontaktu, klienta ani kwot.
+    """
+    link = await _link_by_slug(db, slug, kind="recruiter")
+    if link is None or not _link_active(link) or not await _owner_active(db, link):
+        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+    owner_id = link.created_by
+
+    jobs = await _recruiter_open_jobs(db, owner_id)
+    recruiter = {**await _recruiter_brief(db, owner_id), "about": link.about or None}
     await _bump_visits(db, link, request)
     _no_cache(response)
     return {"recruiter": recruiter, "jobs": jobs}
+
+
+# Tablica liczy opublikowany opis KAŻDEJ otwartej rekrutacji — 60/min na adres
+# to za mało, żeby chronić bazę przed wieloma odwiedzającymi naraz.
+_BOARD_CACHE_KEY = "career_board:v2"  # v2: karta niesie must/nice (etap 7)
+_BOARD_TTL_SECONDS = 60
+
+
+@router.get("/jobs")
+@limiter.limit("60/minute")
+async def get_career_board(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Tablica otwartych rekrutacji: karty z linkiem prowadzącego (D2) i stały
+    link Head of Recruitment dla „Zostaw CV” (``cv: None`` = bez CTA)."""
+    from app.core.cache import cache_get, cache_set, cache_single_flight
+    from app.services import career_board
+
+    _no_cache(response)
+    async with cache_single_flight(_BOARD_CACHE_KEY, db=db):
+        cached = await cache_get(_BOARD_CACHE_KEY)
+        if cached is not None:
+            return cached
+        payload = {
+            "jobs": await career_board.board_jobs(db),
+            "cv": await career_board.board_cv_link(db),
+        }
+        await cache_set(
+            _BOARD_CACHE_KEY, payload, _BOARD_TTL_SECONDS, jitter_seconds=10
+        )
+        return payload
 
 
 async def _apply_link(db: AsyncSession, slug: str) -> CandidateInviteLink:
@@ -243,8 +361,7 @@ async def _apply_link(db: AsyncSession, slug: str) -> CandidateInviteLink:
         if not jpp.job_is_open(job):
             raise HTTPException(status_code=404, detail=_NOT_FOUND)
         profile = await db.get(JobPublicProfile, link.job_id)
-        status_value, _default, _title = await jpp.resolve_status(db, job, profile)
-        if status_value != jpp.STATUS_APPROVED:
+        if await jpp.published_version(db, job, profile) is None:
             raise HTTPException(status_code=404, detail=_NOT_FOUND)
     return link
 
@@ -260,6 +377,7 @@ async def submit_career_apply(
     email: EmailStr = Form(...),
     cv: UploadFile = File(...),
     consent: Optional[str] = Form(None, max_length=10),
+    consent_future: Optional[str] = Form(None, max_length=10),
     expected_rate_hourly: Optional[str] = Form(None, max_length=20),
     availability_date: Optional[str] = Form(None, max_length=20),
     city: Optional[str] = Form(None, max_length=200),
@@ -303,6 +421,7 @@ async def submit_career_apply(
             "term": utm_term,
             "content": utm_content,
         },
+        consent_future=public_apply.consent_given(consent_future),
         **optional,
     )
     return await public_apply.submit_application(

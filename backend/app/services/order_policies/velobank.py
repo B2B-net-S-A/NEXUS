@@ -32,6 +32,7 @@ from app.services.order_policies._shared import (
     clean_person_name,
     clear_field,
     labelled_text,
+    model_concerns,
     normalize_amount,
     normalize_date,
     set_field,
@@ -120,7 +121,8 @@ def apply_velobank_order_policy(
     if rows and not result.consultant_rows:
         result.consultant_rows = rows
 
-    reasons: list[str] = []
+    # Zastrzeżenia modelu zostają — reguła ich nie zastępuje (runda 6 audytu).
+    reasons: list[str] = model_concerns(result)
     if result.title is None:
         reasons.append("Nie znaleziono pola „Zamówienie nr” — sprawdź numer zamówienia")
     if not rows:
@@ -130,6 +132,6 @@ def apply_velobank_order_policy(
             "Σ(MD × stawka) z tabeli nie zgadza się z „Wartość zlecenia NETTO” — "
             "sprawdź wiersze osób"
         )
-    result.uncertain_reasons = reasons
+    result.uncertain_reasons = list(dict.fromkeys(reasons))
     result.uncertain = bool(reasons)
     return result

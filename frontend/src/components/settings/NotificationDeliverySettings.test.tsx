@@ -36,6 +36,8 @@ function overview(): NotificationDeliveryOverview {
     enabled: false,
     updated_at: null,
     updated_by: null,
+    updated_by_name: null,
+    daily_digest_recipients: null,
     send_not_before: null,
     provider: {
       kind: "graph_app", sender: "powiadomienia@example.test", configured: true,
@@ -59,9 +61,27 @@ function overview(): NotificationDeliveryOverview {
   };
 }
 
-function renderSettings() {
+/** Wysyłka włączona globalnie, wzmianki włączone i poranny skrót dla 21 osób. */
+function enabledOverview(): NotificationDeliveryOverview {
+  const data = overview();
+  data.enabled = true;
+  data.updated_at = "2026-10-07T08:21:00Z";
+  data.updated_by_name = "Aniela Administrująca";
+  data.daily_digest_recipients = 21;
+  data.types[1] = { ...data.types[1], email_enabled: true, effective_enabled: true };
+  data.types.unshift({
+    ...data.types[0],
+    id: "daily_digest",
+    label: "Poranny skrót",
+    email_enabled: true,
+    effective_enabled: true,
+  });
+  return data;
+}
+
+function renderSettings(props: { onGoToMine?: () => void } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return render(<QueryClientProvider client={client}><NotificationDeliverySettings /></QueryClientProvider>);
+  return render(<QueryClientProvider client={client}><NotificationDeliverySettings {...props} /></QueryClientProvider>);
 }
 
 beforeEach(() => {
@@ -77,6 +97,19 @@ describe("NotificationDeliverySettings", () => {
     expect(screen.getByText("Brak uprawnień")).toBeInTheDocument();
     expect(mocks.get).not.toHaveBeenCalled();
     expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it("pokazuje, kto wyłączył mail sobie — firmowe „włączone” nie znaczy „dostają wszyscy”", async () => {
+    const data = enabledOverview();
+    data.types[0] = { ...data.types[0], self_disabled: ["Daria Dostarczająca", "Roman Rekrutujący"] };
+    data.types[2] = { ...data.types[2], self_disabled: ["Roman Rekrutujący"] };
+    mocks.get.mockResolvedValue(data);
+    renderSettings();
+    expect(await screen.findByText("2 osoby wyłączyły sobie ten mail")).toBeInTheDocument();
+    expect(screen.getByText("Daria Dostarczająca, Roman Rekrutujący")).toBeInTheDocument();
+    expect(screen.getByText("1 osoba wyłączyła sobie ten mail")).toBeInTheDocument();
+    // Pozostałe wiersze nie dostają pustego dopisku.
+    expect(screen.getAllByText(/sobie ten mail$/)).toHaveLength(2);
   });
 
   it("pokazuje pięć wyłączonych typów i trzy wiadomości bezpieczeństwa bez akcji wysyłki", async () => {
@@ -106,8 +139,8 @@ describe("NotificationDeliverySettings", () => {
     renderSettings();
     const row = await screen.findByRole("row", { name: /Alert Delivery/ });
     expect(within(row).getByText("Panel klientów, E-mail")).toBeInTheDocument();
-    expect(within(row).queryByText(/Dzwonek NEXUS/)).not.toBeInTheDocument();
-    expect(within(screen.getByRole("row", { name: /Nieprzeczytana wiadomość/ })).getByText("Dzwonek NEXUS, E-mail")).toBeInTheDocument();
+    expect(within(row).queryByText(/NEXUS \(ikony paska\)/)).not.toBeInTheDocument();
+    expect(within(screen.getByRole("row", { name: /Nieprzeczytana wiadomość/ })).getByText("NEXUS (ikony paska), E-mail")).toBeInTheDocument();
   });
 
   it("zapisuje globalne włączenie bez zmiany typów ani wiadomości bezpieczeństwa i odświeża dane", async () => {
@@ -176,5 +209,168 @@ describe("NotificationDeliverySettings", () => {
     renderSettings();
     expect(await screen.findByText("Masz dostęp tylko do odczytu.")).toBeInTheDocument();
     for (const toggle of screen.getAllByRole("switch")) expect(toggle).toBeDisabled();
+  });
+
+  it("mówi, że przełączniki działają dla całej firmy, i pokazuje zasięg skrótu oraz ostatnią zmianę", async () => {
+    mocks.get.mockResolvedValue(enabledOverview());
+    renderSettings();
+    await screen.findByRole("switch", { name: "Automatyczna wysyłka e-mail" });
+    expect(screen.getByText(/Żeby wyłączyć mail tylko sobie, przejdź do zakładki „Moje”/)).toBeInTheDocument();
+    expect(within(screen.getByRole("row", { name: /Poranny skrót/ })).getByText("cała firma · 21 odbiorców")).toBeInTheDocument();
+    expect(within(screen.getByRole("row", { name: /Wzmianka/ })).getByText("cała firma")).toBeInTheDocument();
+    // Wiadomości bezpieczeństwa nie mają przełącznika, więc i plakietki.
+    expect(within(screen.getByRole("row", { name: /Reset hasła/ })).queryByText(/cała firma/)).toBeNull();
+    expect(screen.getByText(/Ostatnia zmiana: .* · Aniela Administrująca/)).toBeInTheDocument();
+  });
+
+  it("wyłączenie typu pyta o potwierdzenie i zapisuje dopiero po „Wyłącz wszystkim”", async () => {
+    mocks.get.mockResolvedValue(enabledOverview());
+    mocks.update.mockImplementation(async () => enabledOverview());
+    renderSettings();
+    fireEvent.click(await screen.findByRole("switch", { name: "E-mail: Wzmianka" }));
+    const dialog = await screen.findByRole("dialog", { name: "Wyłączasz ten mail całej firmie" });
+    expect(dialog).toHaveTextContent("To nie jest ustawienie Twojego konta.");
+    expect(mocks.update).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Wyłącz wszystkim" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+    const payload = mocks.update.mock.calls[0][0] as NotificationDeliveryUpdate;
+    expect(payload.enabled).toBe(true);
+    expect(payload.types.find((type) => type.id === "mentions")).toEqual({ id: "mentions", email_enabled: false });
+    expect(payload.types.find((type) => type.id === "daily_digest")).toEqual({ id: "daily_digest", email_enabled: true });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("wyłączenie porannego skrótu nazywa liczbę osób; „Anuluj” niczego nie zapisuje", async () => {
+    mocks.get.mockResolvedValue(enabledOverview());
+    renderSettings();
+    fireEvent.click(await screen.findByRole("switch", { name: "E-mail: Poranny skrót" }));
+    const dialog = await screen.findByRole("dialog", { name: "Wyłączasz ten mail 21 osobom" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Anuluj" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(screen.getByRole("switch", { name: "E-mail: Poranny skrót" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("wyłączenie globalne też pyta, a włączenie typu zapisuje od razu", async () => {
+    const data = enabledOverview();
+    data.types[2] = { ...data.types[2], email_enabled: false, effective_enabled: false };
+    mocks.get.mockResolvedValue(data);
+    mocks.update.mockImplementation(async () => data);
+    renderSettings();
+    fireEvent.click(await screen.findByRole("switch", { name: "Automatyczna wysyłka e-mail" }));
+    const dialog = await screen.findByRole("dialog", { name: "Wyłączasz automatyczne maile całej firmie" });
+    expect(mocks.update).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Wyłącz wszystkim" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+    expect((mocks.update.mock.calls[0][0] as NotificationDeliveryUpdate).enabled).toBe(false);
+
+    await waitFor(() => expect(screen.getByRole("switch", { name: "E-mail: Wzmianka" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("switch", { name: "E-mail: Wzmianka" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("„Chcę wyłączyć tylko sobie” zamyka pytanie bez zapisu i prowadzi do zakładki „Moje”", async () => {
+    mocks.get.mockResolvedValue(enabledOverview());
+    const onGoToMine = vi.fn();
+    renderSettings({ onGoToMine });
+    fireEvent.click(await screen.findByRole("switch", { name: "E-mail: Poranny skrót" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Chcę wyłączyć tylko sobie" }));
+    expect(onGoToMine).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it("bez zakładek (ekran osadzony osobno) „tylko sobie” jest linkiem do Moich powiadomień", async () => {
+    mocks.get.mockResolvedValue(enabledOverview());
+    renderSettings();
+    fireEvent.click(await screen.findByRole("switch", { name: "E-mail: Wzmianka" }));
+    expect(await screen.findByRole("link", { name: "Chcę wyłączyć tylko sobie" })).toHaveAttribute(
+      "href",
+      "/settings?item=my-notifications",
+    );
+  });
+
+  it("wstrzymanie maila obowiązkowego wymaga powodu i wysyła go z zapisem", async () => {
+    const data = enabledOverview();
+    data.types = data.types.map((type) =>
+      type.id === "delivery_alert"
+        ? { ...type, required: true, email_enabled: true, effective_enabled: true }
+        : type,
+    );
+    mocks.get.mockResolvedValue(data);
+    mocks.update.mockImplementation(async () => data);
+    renderSettings({ onGoToMine: vi.fn() });
+    expect(await screen.findByText("obowiązkowy")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("switch", { name: "E-mail: Alert Delivery" }));
+    const dialog = await screen.findByRole("dialog", { name: "Wstrzymujesz mail obowiązkowy całej firmie" });
+    // Mail obowiązkowy nie ma „tylko sobie”.
+    expect(within(dialog).queryByRole("button", { name: "Chcę wyłączyć tylko sobie" })).toBeNull();
+    const confirm = within(dialog).getByRole("button", { name: "Wstrzymaj wszystkim" });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText("Powód wstrzymania"), {
+      target: { value: "  awaria skrzynki  " },
+    });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+    const payload = mocks.update.mock.calls[0][0] as NotificationDeliveryUpdate;
+    expect(payload.reason).toBe("awaria skrzynki");
+    expect(payload.types.find((type) => type.id === "delivery_alert")).toEqual({ id: "delivery_alert", email_enabled: false });
+  });
+
+  it("pokazuje powód wstrzymanego maila obowiązkowego", async () => {
+    const data = enabledOverview();
+    data.types = data.types.map((type) =>
+      type.id === "delivery_alert"
+        ? { ...type, required: true, email_enabled: false, effective_enabled: false, paused_reason: "awaria skrzynki" }
+        : type,
+    );
+    mocks.get.mockResolvedValue(data);
+    renderSettings();
+    expect(await screen.findByText("Wstrzymany: awaria skrzynki")).toBeInTheDocument();
+  });
+
+  // 29.10.2026: „Nowa osoba” i „Prep” startowały wyłączone dla firmy i nikt
+  // nie wiedział, że dzwonki nie idą mailem.
+  it("baner wymienia wyłączone rodzaje z dzwonkami; „Włącz” włącza rodzaj", async () => {
+    const data = enabledOverview();
+    data.silenced = [{ id: "job_deadline", label: "Termin rekrutacji", bells: 71, unread: 30 }];
+    data.silenced_window_days = 7;
+    mocks.get.mockResolvedValueOnce(data).mockResolvedValue({ ...data, silenced: [] });
+    mocks.update.mockImplementation(async () => ({ ...data, silenced: [] }));
+    renderSettings();
+    const banner = await screen.findByRole("region", { name: /wyłączone dla całej firmy/ });
+    expect(within(banner).getByText("Termin rekrutacji")).toBeInTheDocument();
+    expect(within(banner).getByText(/71 dzwonków w 7 dni bez maila, 30 nieprzeczytanych/)).toBeInTheDocument();
+    fireEvent.click(within(banner).getByRole("button", { name: "Włącz: Termin rekrutacji" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+    const payload = mocks.update.mock.calls[0][0] as NotificationDeliveryUpdate;
+    expect(payload.types.find((type) => type.id === "job_deadline")).toEqual({ id: "job_deadline", email_enabled: true });
+    expect(payload.keep_off).toBeUndefined();
+    await waitFor(() => expect(screen.queryByRole("region", { name: /wyłączone dla całej firmy/ })).toBeNull());
+  });
+
+  it("„Zostaw wyłączone” zapisuje decyzję bez zmiany przełączników", async () => {
+    const data = enabledOverview();
+    data.silenced = [{ id: "pipeline_stage", label: "Zmiana etapu", bells: 1357, unread: 324 }];
+    data.silenced_window_days = 7;
+    mocks.get.mockResolvedValue(data);
+    mocks.update.mockImplementation(async () => data);
+    renderSettings();
+    const banner = await screen.findByRole("region", { name: /wyłączone dla całej firmy/ });
+    fireEvent.click(within(banner).getByRole("button", { name: "Zostaw wyłączone: Zmiana etapu" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+    const payload = mocks.update.mock.calls[0][0] as NotificationDeliveryUpdate;
+    expect(payload.keep_off).toEqual(["pipeline_stage"]);
+    expect(payload.types.find((type) => type.id === "pipeline_stage")).toEqual({ id: "pipeline_stage", email_enabled: false });
+  });
+
+  it("bez wyciszonych rodzajów nie ma banera", async () => {
+    mocks.get.mockResolvedValue(enabledOverview());
+    renderSettings();
+    expect(await screen.findByText("Rodzaje powiadomień")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /wyłączone dla całej firmy/ })).toBeNull();
   });
 });

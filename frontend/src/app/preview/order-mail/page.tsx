@@ -33,7 +33,7 @@ function doc(id: number, over: Partial<OrderMailDocument>): OrderMailDocument {
     client_name: "Bank A S.A.",
     identification_method: "registry_id",
     identification_reason: "Numer rejestrowy z dokumentu pasuje do jednego klienta.",
-    client_policy: "PKO BP",
+    client_policy: "Bank Kappa",
     gate_verdict: "review",
     gate_reasons: [],
     document_meta: { page_count: 1, ocr_used: false, ocr_capped: false },
@@ -54,23 +54,23 @@ function doc(id: number, over: Partial<OrderMailDocument>): OrderMailDocument {
 const ITEMS: OrderMailDocument[] = [
   doc(1, { gate_verdict: "auto", gate_reasons: [] }),
   doc(2, {
-    client_name: "VeloBank S.A.", client_policy: "VeloBank", subject: "Zamówienie nr 3/07/2031/BL", attachment_name: "3-07-2031-BL.pdf",
-    gate_reasons: ["„Jęczeń Barbara”: Dopasowanie z literówką — potwierdź osobę", "„Likas Aleksandra”: brak żywego (active/ending) kontraktu — automat nie wskrzesza"],
+    client_name: "Bank Omega S.A.", client_policy: "Bank Omega", subject: "Zamówienie nr 9/97/2031/BL", attachment_name: "3-07-2031-BL.pdf",
+    gate_reasons: ["„Szkicowa Barbara”: Dopasowanie z literówką — potwierdź osobę", "„Fikcyjna Aleksandra”: brak żywego (active/ending) kontraktu — automat nie wskrzesza"],
     can_apply: false,
     extraction: {
-      title: "3/07/2031/BL", start_date: "2031-07-01", end_date: "2031-08-31", rate_client: null, rate_unit: "day", md_total: null, currency: "PLN", uncertain: false, uncertain_reasons: [], source: "claude",
+      title: "9/97/2031/BL", start_date: "2031-07-01", end_date: "2031-08-31", rate_client: null, rate_unit: "day", md_total: null, currency: "PLN", uncertain: false, uncertain_reasons: [], source: "claude",
       consultant_rows: [
-        { consultant_name: "Baczewski Marcin", start_date: "2031-07-01", end_date: "2031-08-31", rate_client: null, rate_unit: "day", md_total: "43", uncertain: false, uncertain_reason: null },
-        { consultant_name: "Jęczeń Barbara", start_date: "2031-07-01", end_date: "2031-08-31", rate_client: null, rate_unit: "day", md_total: "43", uncertain: false, uncertain_reason: null },
-        { consultant_name: "Likas Aleksandra", start_date: "2031-07-01", end_date: "2031-08-31", rate_client: null, rate_unit: "day", md_total: "43", uncertain: false, uncertain_reason: null },
+        { consultant_name: "Wzorowy Marcin", start_date: "2031-07-01", end_date: "2031-08-31", rate_client: null, rate_unit: "day", md_total: "43", uncertain: false, uncertain_reason: null },
+        { consultant_name: "Szkicowa Barbara", start_date: "2031-07-01", end_date: "2031-08-31", rate_client: null, rate_unit: "day", md_total: "43", uncertain: false, uncertain_reason: null },
+        { consultant_name: "Fikcyjna Aleksandra", start_date: "2031-07-01", end_date: "2031-08-31", rate_client: null, rate_unit: "day", md_total: "43", uncertain: false, uncertain_reason: null },
       ],
     },
     proposal: {
-      client_id: 2, order_number: "3/07/2031/BL", is_group_client: false, blocking: [],
+      client_id: 2, order_number: "9/97/2031/BL", is_group_client: false, blocking: [],
       rows: [
-        { row_index: 0, row_name: "Baczewski Marcin", action: "new", candidate_id: 1, contract_id: 2, target_order_id: null, title: "3/07/2031/BL", start_date: "2031-07-01", end_date: "2031-08-31", rate_client: null, rate_unit: "day", md_total: "43", reasons: [] },
-        { row_index: 1, row_name: "Jęczeń Barbara", action: "new", candidate_id: 3, contract_id: 4, target_order_id: null, title: "3/07/2031/BL", start_date: "2031-07-01", end_date: "2031-08-31", rate_client: null, rate_unit: "day", md_total: "43", reasons: [] },
-        { row_index: 2, row_name: "Likas Aleksandra", action: "skip", candidate_id: null, contract_id: null, target_order_id: null, title: "3/07/2031/BL", start_date: "2031-07-01", end_date: "2031-08-31", rate_client: null, rate_unit: "day", md_total: "43", reasons: ["Osoba bez kontraktu do zapisu u tego klienta"] },
+        { row_index: 0, row_name: "Wzorowy Marcin", action: "new", candidate_id: 1, contract_id: 2, target_order_id: null, title: "9/97/2031/BL", start_date: "2031-07-01", end_date: "2031-08-31", rate_client: null, rate_unit: "day", md_total: "43", reasons: [] },
+        { row_index: 1, row_name: "Szkicowa Barbara", action: "new", candidate_id: 3, contract_id: 4, target_order_id: null, title: "9/97/2031/BL", start_date: "2031-07-01", end_date: "2031-08-31", rate_client: null, rate_unit: "day", md_total: "43", reasons: [] },
+        { row_index: 2, row_name: "Fikcyjna Aleksandra", action: "skip", candidate_id: null, contract_id: null, target_order_id: null, title: "9/97/2031/BL", start_date: "2031-07-01", end_date: "2031-08-31", rate_client: null, rate_unit: "day", md_total: "43", reasons: ["Osoba bez kontraktu do zapisu u tego klienta"] },
       ],
     },
   }),
@@ -87,12 +87,36 @@ const ITEMS: OrderMailDocument[] = [
       ],
     },
   }),
-  doc(3, {
-    client_name: "Ernst & Young", client_policy: null, identification_method: "registry_id", subject: "Work Order EYWO00016165 Rev. 13", attachment_name: "Work Order - Fieldglass.pdf",
-    gate_reasons: ["Klient nie ma własnej polityki odczytu", "„Makarewicz, Maciej”: revision — Zamówienie o tym numerze już istnieje (#88, 2031-07-01 – 2031-08-31) — porównaj"],
+  // 27.10.2026: przedłużenie z nową stawką, które zaczyna się przed końcem
+  // obecnego zamówienia — „było … (#70)” pod stawką i wybór, co zrobić z #70.
+  doc(5, {
+    client_name: "Bank Delta S.A.", client_policy: "Bank Delta", subject: "Zamówienie 10/2031", attachment_name: "10-2031.pdf",
+    gate_reasons: [
+      "„Jan Przedłużony”: przy przedłużeniu zmienia się stawka do klienta: 120 zł/h → 138 zł/h (+15%) względem zamówienia #70 — potwierdź, że klient przyjął nową stawkę",
+      "„Jan Przedłużony”: Nowe zamówienie zaczyna się 01.12.2031, a #70 (9/2031) trwa do 31.12.2031 — wybierz, czy skrócić #70, czy zacząć nowe po nim",
+    ],
+    extraction: {
+      title: "10/2031", start_date: "2031-12-01", end_date: "2032-05-01", rate_client: "138.00", rate_unit: "hour", md_total: null, currency: "PLN", uncertain: false, uncertain_reasons: [], source: "claude",
+      consultant_rows: [{ consultant_name: "Jan Przedłużony", start_date: "2031-12-01", end_date: "2032-05-01", rate_client: "138.00", rate_unit: "hour", md_total: null, uncertain: false, uncertain_reason: null }],
+    },
     proposal: {
-      client_id: 3, order_number: "EYWO00016165", is_group_client: false, blocking: [],
-      rows: [{ row_index: 0, row_name: "Makarewicz, Maciej", action: "revision", candidate_id: 7, contract_id: 9, target_order_id: 88, title: "EYWO00016165", start_date: "2031-09-01", end_date: "2031-12-31", rate_client: "220.00", rate_unit: "hour", md_total: null, reasons: ["Zamówienie o tym numerze już istnieje (#88, 2031-07-01 – 2031-08-31) — porównaj"] }],
+      client_id: 5, order_number: "10/2031", is_group_client: false, blocking: [],
+      rows: [{
+        row_index: 0, row_name: "Jan Przedłużony", action: "overlap", candidate_id: 13, contract_id: 23, target_order_id: 70, title: "10/2031",
+        start_date: "2031-12-01", end_date: "2032-05-01", rate_client: "138.00", rate_unit: "hour", md_total: null,
+        reasons: ["Nowe zamówienie zaczyna się 01.12.2031, a #70 (9/2031) trwa do 31.12.2031 — wybierz, czy skrócić #70, czy zacząć nowe po nim"],
+        previous_order_id: 70, previous_order_title: "9/2031", previous_rate_client: "120.000", previous_rate_unit: "hour",
+        previous_start_date: "2031-07-01", previous_end_date: "2031-12-31",
+        overlap_options: ["trim_previous", "start_after"], overlap_trim_end: "2031-11-30", overlap_start_after: "2032-01-01",
+      }],
+    },
+  }),
+  doc(3, {
+    client_name: "Doradztwo Przykładowe", client_policy: null, identification_method: "registry_id", subject: "Work Order WO-0000999 Rev. 1", attachment_name: "Work Order - Fieldglass.pdf",
+    gate_reasons: ["Klient nie ma własnej polityki odczytu", "„Wzorcowy, Maciej”: revision — Zamówienie o tym numerze już istnieje (#88, 2031-07-01 – 2031-08-31) — porównaj"],
+    proposal: {
+      client_id: 3, order_number: "WO-0000999", is_group_client: false, blocking: [],
+      rows: [{ row_index: 0, row_name: "Wzorcowy, Maciej", action: "revision", candidate_id: 7, contract_id: 9, target_order_id: 88, title: "WO-0000999", start_date: "2031-09-01", end_date: "2031-12-31", rate_client: "220.00", rate_unit: "hour", md_total: null, reasons: ["Zamówienie o tym numerze już istnieje (#88, 2031-07-01 – 2031-08-31) — porównaj"] }],
     },
   }),
 ];
@@ -128,8 +152,8 @@ const RECHECK_RUNS: OrderMailRecheckRun[] = [
       {
         document_id: 1,
         client_id: 7,
-        client_name: "Bank Pocztowy S.A.",
-        order_number: "OIT/0189/2031/ITVM",
+        client_name: "Bank Sigma S.A.",
+        order_number: "OIT/9901/2031/ITVM",
         people: ["Jan Kowalski"],
         outcome: "applied",
         category: null,
@@ -138,8 +162,8 @@ const RECHECK_RUNS: OrderMailRecheckRun[] = [
       {
         document_id: 2,
         client_id: 7,
-        client_name: "Bank Pocztowy S.A.",
-        order_number: "OIT/0190/2031/ITVM",
+        client_name: "Bank Sigma S.A.",
+        order_number: "OIT/9902/2031/ITVM",
         people: ["Anna Nowa"],
         outcome: "held",
         category: "awaiting_contract",
@@ -150,7 +174,7 @@ const RECHECK_RUNS: OrderMailRecheckRun[] = [
       {
         document_id: 3,
         client_id: 9,
-        client_name: "Nordea Bank Abp",
+        client_name: "Bank Północny Abp",
         order_number: "Call Off 4711",
         people: ["Piotr Zając"],
         outcome: "held",
@@ -174,6 +198,14 @@ const RECHECK_RUNS: OrderMailRecheckRun[] = [
 
 const RECHECK_WINDOW: OrderMailRecheckWindow = { start_hour: 8, end_hour: 18, enabled: true };
 
+// Podgląd w harnessie czyta fikcyjny plik statyczny (ten sam co harness
+// Finansów) — to nie jest wywołanie API.
+async function loadStaticPdf(): Promise<Blob> {
+  const response = await fetch("/preview/cv-search/cv-tekst.pdf");
+  if (!response.ok) throw new Error("brak pliku");
+  return response.blob();
+}
+
 export default function OrderMailPreviewPage() {
   const [outcome, setOutcome] = useState<OrderMailOutcome>("needs_review");
   const [selectedId, setSelectedId] = useState<number | null>(1);
@@ -187,7 +219,10 @@ export default function OrderMailPreviewPage() {
   }, []);
   const items = outcome === "needs_review" ? ITEMS : [];
   return (
+    // Ekran produkcyjny dostaje margines od powłoki; harness jej nie ma.
+    <div className="p-4 sm:p-6">
     <OrderMailQueueView
+      loadPdf={loadStaticPdf}
       mailbox={{
         status: SYNC_STATUS,
         statusError: false,
@@ -220,5 +255,6 @@ export default function OrderMailPreviewPage() {
         onRetry: () => undefined,
       }}
     />
+    </div>
   );
 }

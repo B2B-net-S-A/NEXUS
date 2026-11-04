@@ -67,6 +67,10 @@ class _FakeDB:
     async def commit(self):
         self.commits += 1
 
+    async def rollback(self):
+        # Runda 9 (R9-X1-8): nieudana intencja reindeksu podnosi sesję.
+        self.rollbacks = getattr(self, "rollbacks", 0) + 1
+
 
 def _importer(db) -> TraffitImporter:
     imp = TraffitImporter.__new__(TraffitImporter)

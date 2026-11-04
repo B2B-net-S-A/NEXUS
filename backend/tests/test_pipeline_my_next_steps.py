@@ -1,9 +1,10 @@
 """``GET /api/pipeline/my-next-steps`` — boards of the caller's open recruitments.
 
 Feeds the dashboard section "Następne kroki w moich rekrutacjach" (17.09.2026).
-Scope is "mine" (owner or collaborator), without closed recruitments, and every
-board passes the same read guard as ``/kanban/{job_id}`` — a collaborator removed
-from the team is still matched by ``jobs_mine_clause`` and must be skipped.
+Scope is "mine" (owner or manually added collaborator), without closed
+recruitments, and every board passes the same read guard as ``/kanban/{job_id}``.
+A collaborator removed from the team must not get the board: since 02.10.2026
+``jobs_mine_clause`` leaves such rows out itself, the read guard stays the rule.
 The board is the SAME view as the kanban endpoint (one extraction, two routes).
 """
 
@@ -24,6 +25,25 @@ from app.models.job_collaborator import JobCollaborator
 from app.models.user import User, UserRole
 
 URL = "/api/pipeline/my-next-steps"
+
+
+_CV_STATE_KEYS = ("company_cv", "auto_cv_state")
+
+
+def _without_cv_state(view: dict) -> dict:
+    return {
+        **view,
+        "columns": [
+            {
+                **col,
+                "items": [
+                    {k: v for k, v in item.items() if k not in _CV_STATE_KEYS}
+                    for item in col["items"]
+                ],
+            }
+            for col in view["columns"]
+        ],
+    }
 
 
 async def _seed_user(role: UserRole = UserRole.recruiter) -> tuple[dict, int]:
@@ -118,7 +138,12 @@ async def test_only_open_recruitments_of_the_caller_with_their_boards(
         f"/api/pipeline/kanban/{world['mine']}", headers=headers
     )
     assert board.status_code == 200, board.text
-    assert by_id[world["mine"]]["view"] == board.json()
+    # Stan CV karty (`company_cv`, `auto_cv_state`, 14.10.2026) liczy tylko
+    # Tablica — „Moje następne kroki” pomijają te zapytania (`with_cv_state`),
+    # a `None` niczego tam nie blokuje. Reszta widoku jest ta sama.
+    assert _without_cv_state(by_id[world["mine"]]["view"]) == _without_cv_state(
+        board.json()
+    )
     cards = [
         item["candidate_id"]
         for column in by_id[world["mine"]]["view"]["columns"]

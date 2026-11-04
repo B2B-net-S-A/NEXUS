@@ -1,0 +1,185 @@
+"""Priorytet rekrutacji w trzech poziomach (decyzja Artura 02.10.2026).
+
+Kolumna ``jobs.priority`` ma cztery wartości (``low``/``medium``/``high``/
+``urgent``), a od 22.09.2026 nie było jej na żadnym ekranie — każda rekrutacja
+miała ``medium``. Wraca w trzech poziomach, tak jak zespół prowadził to
+w Traffit („P1 – URGENT”, „WILL ACCEPT CANDIDATES”):
+
+* ``p1`` — „P1 Pilne”: ``urgent`` (i historyczne ``high``); jedyny poziom,
+  do którego automat przydziału dobiera ludzi (od 12.10.2026), i góra
+  sortowania „Wymaga uwagi”;
+* ``p2`` — „Bez priorytetu” (do 12.10.2026 „P2 Standard”): ``medium``; tak
+  czyta się też wartość pustą i nieznaną; rekrutera przypisuje człowiek.
+  Nazwa mówi to, czym poziom jest: nie ma plakietki ani przydziału automatu,
+  więc Delivery Lead „zdejmuje priorytet”, wybierając ten poziom;
+* ``accepting`` — „Przyjmujemy kandydatów”: ``low``; nie szukamy aktywnie,
+  więc automat nikogo do takiego requestu nie proponuje.
+
+Ekrany i filtry mówią poziomami, baza zostaje przy enumie (bez migracji).
+
+Nowa rekrutacja zaczyna od P1 (decyzja Artura 08.10.2026, do tej daty P2):
+``default_priority_for_new_job`` jest domyślną wartością ``POST /api/jobs``,
+a ``/jobs/new`` zaznacza ten sam poziom (``NEW_JOB_PRIORITY_LEVEL`` w
+``frontend/src/lib/request-priority.ts``). Priorytet nie spada sam — zmienia go
+człowiek. Domyślna kolumny w modelu zostaje ``medium``: rekrutacje z importu
+Traffita są archiwum, nie nowymi requestami.
+"""
+
+from __future__ import annotations
+
+from typing import Iterable, Literal, Optional
+
+from sqlalchemy import and_, case, not_, or_
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.activity import Activity
+from app.models.job import Job, JobPriority
+
+PriorityLevel = Literal["p1", "p2", "accepting"]
+
+PRIORITY_LEVELS: tuple[str, ...] = ("p1", "p2", "accepting")
+
+# Poziom, od którego zaczyna rekrutacja zakładana w NEXUSIE.
+NEW_JOB_PRIORITY_LEVEL: PriorityLevel = "p1"
+
+_VALUES_BY_LEVEL: dict[str, tuple[JobPriority, ...]] = {
+    "p1": (JobPriority.urgent, JobPriority.high),
+    "p2": (JobPriority.medium,),
+    "accepting": (JobPriority.low,),
+}
+
+_LEVEL_BY_VALUE: dict[str, str] = {
+    value.value: level for level, values in _VALUES_BY_LEVEL.items() for value in values
+}
+
+
+def default_priority_for_new_job() -> JobPriority:
+    """Wartość kolumny dla rekrutacji zakładanej bez podanego priorytetu."""
+    return _VALUES_BY_LEVEL[NEW_JOB_PRIORITY_LEVEL][0]
+
+
+def _value(priority: object) -> str:
+    return str(getattr(priority, "value", priority) or "")
+
+
+def level_of(priority: object) -> str:
+    """Poziom dla wartości kolumny; nieznana albo pusta = ``p2``."""
+    return _LEVEL_BY_VALUE.get(_value(priority), "p2")
+
+
+def priorities_for_levels(levels: Iterable[str]) -> list[JobPriority]:
+    """Wartości kolumny dla wybranych poziomów (filtr listy)."""
+    out: list[JobPriority] = []
+    for level in levels:
+        for value in _VALUES_BY_LEVEL.get(level, ()):
+            if value not in out:
+                out.append(value)
+    return out
+
+
+def priority_rank(priority: object) -> int:
+    """0 = P1, 1 = reszta — automat przydziału dobiera ludzi tylko do P1."""
+    return 0 if level_of(priority) == "p1" else 1
+
+
+def is_passive(priority: object) -> bool:
+    """„Przyjmujemy kandydatów” — automat nikogo nie proponuje."""
+    return level_of(priority) == "accepting"
+
+
+PRIORITY_CHANGED_ACTION = "priority_changed"
+
+
+def record_level_change(
+    db: AsyncSession, job: Job, *, before: object, actor_id: Optional[int]
+) -> None:
+    """Ślad zmiany poziomu priorytetu (14.10.2026): ``{"from", "to"}`` poziomami.
+
+    Lista „Nowe rekrutacje P1 — kto prowadzi” liczy cykl od wejścia na P1
+    (``new_job_leads``), a wpis ``updated`` niesie tylko nowe wartości — okno
+    edycji odsyła priorytet przy każdym zapisie. Zmiana w obrębie poziomu
+    (``urgent`` → ``high``) nic nie zapisuje.
+    """
+    old, new = level_of(before), level_of(job.priority)
+    if old == new:
+        return
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job.id,
+            action=PRIORITY_CHANGED_ACTION,
+            user_id=actor_id,
+            details={"from": old, "to": new},
+        )
+    )
+
+
+def priority_rank_expr(column: Optional[object] = None):
+    """To samo co ``priority_rank`` w SQL (sortowanie „Wymaga uwagi”)."""
+    target = Job.priority if column is None else column
+    return case((target.in_(_VALUES_BY_LEVEL["p1"]), 0), else_=1)
+
+
+# ── P1 wstrzymany przez championa (D6, 15.10.2026) ───────────────────────────
+#
+# Rekrutacja z championem przy „Szukamy” nie jest pilna: sortowanie „Wymaga
+# uwagi” i filtr poziomu priorytetu na liście traktują jej P1 jak „Bez
+# priorytetu”. Kolumna ``jobs.priority`` się nie zmienia — P1 wraca sam, gdy
+# odpadnie ostatni champion (zapis „Bez priorytetu” przeniósłby zespół do
+# „Poprzedni rekruter”). Automat, „Nowe rekrutacje P1” i API v1 liczą swoje
+# pule osobno (``champion_found_at IS NULL``) i tego nie czytają.
+
+
+def champion_pauses_clause():
+    """Champion widoczny na ekranach: tylko przy „Szukamy” (reguła z 28.09)."""
+    return and_(Job.work_state == "searching", Job.champion_found_at.is_not(None))
+
+
+def priority_paused(job: object) -> bool:
+    """To samo co ``champion_pauses_clause`` dla wczytanego wiersza P1."""
+    return (
+        level_of(getattr(job, "priority", None)) == "p1"
+        and getattr(job, "work_state", None) == "searching"
+        and getattr(job, "champion_found_at", None) is not None
+    )
+
+
+def attention_priority_rank_expr():
+    """Ranga do „Wymaga uwagi”: 0 = P1 bez championa, 1 = reszta."""
+    return case(
+        (
+            and_(
+                Job.priority.in_(_VALUES_BY_LEVEL["p1"]),
+                not_(champion_pauses_clause()),
+            ),
+            0,
+        ),
+        else_=1,
+    )
+
+
+def priority_level_clause(levels: Iterable[str]):
+    """Filtr listy po poziomach: P1 bez wstrzymanych, „Bez priorytetu” razem
+    z wstrzymanymi P1, „Przyjmujemy” bez zmian."""
+    wanted = list(dict.fromkeys(levels))
+    parts = []
+    if "p1" in wanted:
+        parts.append(
+            and_(
+                Job.priority.in_(_VALUES_BY_LEVEL["p1"]),
+                not_(champion_pauses_clause()),
+            )
+        )
+    if "p2" in wanted:
+        parts.append(
+            or_(
+                Job.priority.in_(_VALUES_BY_LEVEL["p2"]),
+                and_(
+                    Job.priority.in_(_VALUES_BY_LEVEL["p1"]),
+                    champion_pauses_clause(),
+                ),
+            )
+        )
+    if "accepting" in wanted:
+        parts.append(Job.priority.in_(_VALUES_BY_LEVEL["accepting"]))
+    return or_(*parts)

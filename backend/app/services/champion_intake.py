@@ -54,7 +54,8 @@ SECTION_KEYS = (
     "insights",
     "documents",
 )
-EXPERIENCE_LISTS = ("domains", "certifications", "regulations")
+# = `schemas.champion.EXPERIENCE_KINDS` (pilnuje `test_experience_skills.py`).
+EXPERIENCE_LISTS = ("domains", "certifications", "regulations", "skills")
 RUBRICS = {
     "rate_value": "rate_budget_hourly",
     "onsite_days_per_week": "onsite_days_per_week",
@@ -198,6 +199,48 @@ def pln_hourly_bounds(value):
     return None
 
 
+# A BARE range in a pasted request ("Stawka: 60-80", 06.10.2026). REC-07 keeps
+# a bare number out of the budget — "1100" is just as often a man-day rate.
+# A range of two numbers that both sit in the usual hourly band is not that
+# ambiguous: the request form ACCEPTS it as a SUGGESTION, always with a
+# "sprawdź" note. One bare number still answers None.
+_BARE_RANGE = re.compile(rf"(?:od\s*)?({_RATE_NUMBER})\s*(?:-|do)\s*({_RATE_NUMBER})")
+BARE_RANGE_MIN = 30.0
+BARE_RANGE_MAX = 400.0
+
+
+def bare_hourly_range(value):
+    """``(low, high)`` of a range written WITHOUT currency and unit, else None.
+
+    Only "60-80", "60 – 80", "od 60 do 80" (optionally after a "Stawka:" label
+    and with "netto"/"B2B"), both numbers within 30–400 and low < high. Any
+    currency or unit, any other word and one single number answer None — a
+    text with its own unit is `pln_hourly_bounds`'s call, never this one.
+    """
+    text = folded(str(value or ""))
+    text = re.sub(r"[\u2010-\u2015\u2212]", "-", text)
+    text = re.sub(r"[\u00a0\u2007\u202f]", " ", text).strip()
+    if _PLN.search(text) or _PER_HOUR.search(text):
+        return None
+    text = _RATE_LABEL.sub("", text, count=1)
+    text = _NET_QUALIFIER.sub(" ", text)
+    text = re.sub(r"\([\s,;/]*\)", " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" .,;:")
+    match = _BARE_RANGE.fullmatch(text)
+    if not match:
+        return None
+    low, high = (_rate_float(v) for v in match.groups())
+    if not BARE_RANGE_MIN <= low < high <= BARE_RANGE_MAX:
+        return None
+    return low, high
+
+
+def range_label(low: float, high: float) -> str:
+    """„60–80 zł/h” — kanoniczny tekst przedziału, który `pln_hourly_bounds`
+    czyta z powrotem (zapis w `basics.rate_raw`)."""
+    return f"{low:g}–{high:g} zł/h"
+
+
 # A rate phrase inside free text (a pasted request, not a rate field): an
 # optional label, an optional bound word, one value or a range, the currency
 # and net qualifiers, then the per-hour unit. Only the WINDOW is found here;
@@ -272,6 +315,13 @@ def date(value):
         except ValueError:
             pass
     return None
+
+
+def hour_minute(value):
+    match = re.fullmatch(
+        r"([01]?\d|2[0-3])[:.]([0-5]\d)(?::[0-5]\d)?", str(value).strip()
+    )
+    return f"{int(match[1]):02d}:{match[2]}" if match else None
 
 
 # A requirement longer than this reads like prose rather than a technology. It
@@ -516,6 +566,18 @@ def normalize_experience_items(value, *, with_years):
     return items
 
 
+# Sekcje profilu, które `prepare_profile` czyta jak słownik.
+_OBJECT_SECTIONS = (
+    "intake",
+    "basics",
+    "stack",
+    "experience",
+    "search",
+    "project",
+    "client",
+)
+
+
 def prepare_profile(
     data,
     *,
@@ -543,7 +605,19 @@ def prepare_profile(
     140 PLN/h from ~949 profiles of the 08.2026 import and, with the sync box
     ticked, from `jobs.rate_budget_hourly`.
     """
+    # Runda 9 (R9-N3-6): wejście z żądania (podgląd Championa w generatorze
+    # CV) bywa dowolnym JSON-em. Sekcja niebędąca obiektem kończyła się
+    # AttributeError → 500; TypeError wołający zamieniają na 422.
+    if data is not None and not isinstance(data, dict):
+        raise TypeError("Champion profile must be a JSON object")
     data = deepcopy(data or {})
+    for section in _OBJECT_SECTIONS:
+        value = data.get(section)
+        if value is None or isinstance(value, dict):
+            continue
+        if value:
+            raise TypeError(f"Champion profile section {section!r} must be an object")
+        data[section] = {}  # pusta lista / napis = pusta sekcja
     old_meta = data.get("intake") or {}
     unresolved = dict(old_meta.get("unresolved") or {})
     advisory = dict(old_meta.get("advisory") or {})
@@ -552,9 +626,12 @@ def prepare_profile(
     normalizers = {
         "seniority_min_years": lambda v: number(v, 60, integer=True),
         "onsite_days_per_week": lambda v: number(v, 7, integer=True),
+        # 0407: „N dni w miesiącu”; zero nie jest wpisem miesięcznym.
+        "onsite_days_per_month": lambda v: number(v, 22, integer=True) or None,
         "work_mode": mode,
         "start_date": date,
         "deadline": date,
+        "deadline_time": hour_minute,
     }
     text_limits = {
         "role_name": 255,
@@ -692,6 +769,33 @@ def prepare_profile(
     return ChampionProfile.model_validate(data).model_dump(mode="json")
 
 
+_OFFICE_SPLIT = re.compile(r"[,;/\n]|\s(?:lub|albo|or|oraz|i)\s", re.I)
+
+
+def office_places(text: object) -> frozenset[str] | None:
+    """Klucze miejsc listy miast biura; ``None``, gdy któregoś miasta nie ma
+    w słowniku (wtedy lista zostaje „do uzgodnienia”)."""
+    from app.services.location_utils import place_keys
+
+    parts = [p.strip() for p in _OFFICE_SPLIT.split(str(text or "")) if p and p.strip()]
+    if not parts:
+        return None
+    keys: set[str] = set()
+    for part in parts:
+        found = place_keys(part)
+        if not found or any(key.startswith("k:") for key in found):
+            return None
+        keys |= found
+    return frozenset(keys)
+
+
+def same_office_places(a: object, b: object) -> bool:
+    """„Warsaw” i „Warszawa”, „Gdańsk, Warszawa” i „Warszawa, Gdańsk” to
+    to samo biuro — nie konflikt profilu z polem rekrutacji."""
+    left, right = office_places(a), office_places(b)
+    return left is not None and left == right
+
+
 def validation(profile, job=None, *, enforce=False):
     """Issues of the profile AS STORED; never rewrites what it is given.
 
@@ -820,16 +924,15 @@ def validation(profile, job=None, *, enforce=False):
             "Uzupełnij rzeczywiste wymagania MUST lub uzgodnij proces z DL.",
             ["search", "handoff"],
         )
-    elif active:
-        from app.services.dealbreaker_filters import gate_eligible_must_skills
+    # Do 30.09.2026 tu stał błąd `ineligible_must` („MUST nie zawiera
+    # wymagania obsługiwanego przez bramkę”). Bramka czyta teraz umiejętności
+    # krytyczne, a „Brak krytycznych” jest świadomą decyzją DL-a.
+    critical = stack.get("critical")
+    if isinstance(critical, list) and critical:
+        from app.services.critical_skills import critical_errors
 
-        if not gate_eligible_must_skills(names):
-            add(
-                "ineligible_must",
-                "stack.must",
-                "MUST nie zawiera wymagania obsługiwanego przez bramkę searchu.",
-                ["search", "handoff"],
-            )
+        for code, message in critical_errors(critical, names):
+            add(code, "stack.critical", message, ["search", "handoff"])
     overlap = {x["name"].casefold() for x in stack["must"]} & {
         x["name"].casefold() for x in stack["nice"]
     }
@@ -843,7 +946,14 @@ def validation(profile, job=None, *, enforce=False):
     alternatives = bool(
         re.search(r"wystarczy jedna z|\s(?:lub|albo|or)\s", notes, re.I)
     )
-    if alternatives and not getattr(job, "requirements_reviewed", False):
+    # Wiersze wymagań (02.10.2026) zapisują alternatywy wprost: słowa wiersza
+    # to warianty. Przy nich „lub” w uwagach nie jest już niczym do
+    # zatwierdzenia — a uwagi tej nie było czym zdjąć w rekrutacji.
+    if (
+        alternatives
+        and not stack.get("rows")
+        and not getattr(job, "requirements_reviewed", False)
+    ):
         add(
             "review_alternatives",
             "stack.notes",
@@ -888,6 +998,10 @@ def validation(profile, job=None, *, enforce=False):
                     original not in (None, "")
                     and str(original).casefold() != str(column_value).casefold()
                     and original != column_value
+                    and not (
+                        key == "candidate_location_pref"
+                        and same_office_places(original, column_value)
+                    )
                 ):
                     add(
                         "column_conflict",
@@ -927,6 +1041,16 @@ def validation(profile, job=None, *, enforce=False):
                 "Podaj miasto biura.",
                 ["search", "handoff"],
             )
+    if values.get("onsite_days_per_month") is not None and work_mode in (
+        "zdalnie",
+        "stacjonarnie",
+    ):
+        add(
+            "conflicting_office_days",
+            "basics.onsite_days_per_month",
+            "Dni w biurze w miesiącu podaje się tylko przy pracy hybrydowej.",
+            ["search", "handoff"],
+        )
     if work_mode == "zdalnie" and days not in (None, 0):
         add(
             "conflicting_office_days",
@@ -935,7 +1059,9 @@ def validation(profile, job=None, *, enforce=False):
             ["search", "handoff"],
         )
     city = str(values.get("candidate_location_pref") or "")
-    if re.search(r"[,;/]|\s(?:lub|albo)\s", city, re.I):
+    # v7 (27.09.2026): lista miast rozpoznanych w słowniku („Warszawa, Gdańsk”)
+    # jest jednoznaczna — bramka biura sprawdza każde miasto osobno.
+    if re.search(r"[,;/]|\s(?:lub|albo)\s", city, re.I) and office_places(city) is None:
         add(
             "ambiguous_office",
             "basics.candidate_location_pref",
@@ -1014,6 +1140,24 @@ def fingerprint(job):
     ).hexdigest()
 
 
+def profile_hash(job) -> str:
+    """Odcisk SAMEGO Profilu Championa (zapis z edytora, N2 audytu 06.10.2026).
+
+    ``fingerprint`` obejmuje też tytuł, termin i kolumny rekrutacji, więc
+    zmiana terminu w „Zespół” dawałaby edytorowi fałszywy konflikt. Edytor
+    potrzebuje odpowiedzi na jedno pytanie: czy ktoś zmienił PROFIL od chwili,
+    gdy go wczytałem.
+    """
+    return hashlib.sha256(
+        json.dumps(
+            getattr(job, "champion_profile", None) or {},
+            sort_keys=True,
+            ensure_ascii=False,
+            default=str,
+        ).encode()
+    ).hexdigest()
+
+
 def _rubric_job_value(job, key, column):
     """A rubric value as offered to the intake form — same source as `validation()`."""
 
@@ -1027,10 +1171,12 @@ def _rubric_job_value(job, key, column):
 
 def response_context(job):
     deadline = getattr(job, "deadline", None)
+    deadline_time = getattr(job, "deadline_time", None)
 
     return {
         "validation": validation(job.champion_profile, job),
         "fingerprint": fingerprint(job),
+        "profile_hash": profile_hash(job),
         "job_values": {
             **{
                 key: _rubric_job_value(job, key, column)
@@ -1042,8 +1188,114 @@ def response_context(job):
             },
             "role_name": getattr(job, "title", None),
             "deadline": deadline.isoformat() if deadline else None,
+            "deadline_time": deadline_time.strftime("%H:%M") if deadline_time else None,
+            # 0407: edytor startuje sekcję 1 z pary pól (tydzień / miesiąc).
+            "onsite_days_per_month": getattr(job, "onsite_days_per_month", None),
         },
+        "critical_resolution": critical_resolution_payload(job),
+        "requirement_find_words": requirement_find_words_payload(job),
+        "requirement_full_labels": requirement_full_labels_payload(job),
     }
+
+
+def critical_resolution_payload(job) -> dict:
+    """Krytyczne dla ekranu: decyzja DL, podpowiedź i to, na czym działa bramka."""
+    from app.services.critical_skills import (
+        critical_gate_options,
+        effective_critical,
+        stored_critical,
+    )
+    from app.services.keyword_suggest import requirement_search_words
+    from app.services.keyword_terms import keyword_long_enough
+
+    resolution = effective_critical(job)
+    by_words = critical_gate_options(job)
+    rows: list[list[str]] = []
+    skipped: list[str] = []
+    for label in resolution.labels:
+        words = list(requirement_search_words(label))
+        # Słowa wiersza krytycznej z wyboru DL (09.10.2026): „Szukaj ręcznie”
+        # wymaga tego samego, czego szuka bramka propozycji AI.
+        seen = {word.casefold() for word in words}
+        for word in by_words.get(label, ()):
+            if word.casefold() not in seen and keyword_long_enough(word):
+                seen.add(word.casefold())
+                words.append(word)
+        if words:
+            rows.append(list(words))
+        else:
+            skipped.append(label)
+    return {
+        "stored": stored_critical(job),
+        "decided": resolution.decided,
+        "effective": list(resolution.labels),
+        "source": resolution.source,
+        "suggested": list(resolution.suggested),
+        # Wiersze obowiązkowe „Szukaj ręcznie” / „Szukaj w bazie” (W1/W4,
+        # audyt 06.10.2026): po jednym na krytyczną, z wariantami nazwy —
+        # ta sama lista, którą propozycje AI ukrywają kandydatów. Opcje czyta
+        # tak jak bramka AI (`must_gate_terms.gate_requirement`).
+        "search_rows": rows,
+        # Krytyczne bez wiersza słów kluczowych („C”, „R” — jedna litera
+        # znajduje prawie całą bazę); bramka AI czyta je z profilu.
+        "search_rows_skipped": skipped,
+    }
+
+
+def requirement_full_labels_payload(job) -> dict[str, str]:
+    """Pełne brzmienie wymagań z zamiennikami (`champion_requirement_rows.full_labels`)."""
+    from app.services.champion_requirement_rows import full_labels
+
+    profile = getattr(job, "champion_profile", None)
+    return full_labels(profile.get("stack") if isinstance(profile, dict) else None)
+
+
+def requirement_find_words_payload(job) -> dict[str, list[str]]:
+    """Słowa lupy „Szukaj w CV” dla każdego wymagania (16.10.2026).
+
+    Etykieta „Musi mieć” albo „Mile widziane” (z profilu i z kolumn rekrutacji
+    — ekran pokazuje jedne albo drugie) → słowa, których lupa szuka w podglądzie
+    CV: opcje i warianty nazw tak jak bramka, a przy krytycznej z wyboru DL
+    także słowa jej wiersza. Do tej daty lupa szukała całej etykiety („.NET lub
+    C#”) jako jednej frazy i nie znajdowała niczego. Od 30.10.2026 także słowa
+    wiersza niekrytycznego: „Agile lub Prince2” szuka obu.
+    """
+    from app.services.champion_requirement_rows import label_row_words
+    from app.services.critical_skills import critical_gate_options, match_must_labels
+    from app.services.keyword_suggest import requirement_find_words
+
+    profile = getattr(job, "champion_profile", None)
+    stack = profile.get("stack") if isinstance(profile, dict) else None
+    labels: list[str] = []
+    for key in STACK_COLUMNS:
+        labels.extend(effective_skill_names(job, key))
+        items = stack.get(key) if isinstance(stack, dict) else None
+        for item in items if isinstance(items, list) else ():
+            if isinstance(item, dict) and isinstance(item.get("name"), str):
+                labels.append(item["name"])
+    row_words = critical_gate_options(job)
+    own_rows = label_row_words(stack)
+    out: dict[str, list[str]] = {}
+    for raw in labels:
+        label = raw.strip()
+        if not label or label in out:
+            continue
+        words = list(requirement_find_words(label))
+        seen = {word.casefold() for word in words}
+        # Krytyczne mają etykiety kanoniczne („kafka”), ekran — pisownię DL-a.
+        extra = next(
+            (w for name, w in row_words.items() if match_must_labels([name], [label])),
+            (),
+        )
+        for word in (*extra, *own_rows.get(label, ())):
+            # Rdzeń „kolejk*” szuka początku słowa — w lupie to po prostu fragment.
+            word = word.strip().rstrip("*")
+            if len(word) >= 2 and word.casefold() not in seen:
+                seen.add(word.casefold())
+                words.append(word)
+        if words:
+            out[label] = words
+    return out
 
 
 async def preview_document(data, filename, *, db=None, model=None, max_text=None):
@@ -1120,6 +1372,44 @@ async def preview_document(data, filename, *, db=None, model=None, max_text=None
     }
 
 
+def _without_search_rows(section, value):
+    """Sekcja bez pól, które nie zmieniają profilu roli: wiersze wyszukiwania
+    (sekcja 2), umiejętności krytyczne (sekcja 3, 30.09.2026) i lista
+    „Rekruter sprawdza w rozmowie” (`experience.skills`, 14.10.2026)."""
+    from app.services.champion_view import without_critical, without_search_rows
+
+    if section == "search":
+        return without_search_rows(value)
+    if section == "stack":
+        return without_critical(value)
+    if section == "experience" and isinstance(value, dict) and "skills" in value:
+        return {k: v for k, v in value.items() if k != "skills"}
+    return value
+
+
+def _prune_critical(stack) -> None:
+    """Krytyczne idą za listą MUST: usunięta z MUST pozycja przestaje być
+    krytyczna, a gdy żadna nie zostanie — decyzja wraca do DL-a (`None`),
+    zamiast po cichu wyłączyć bramkę jak świadome „Brak krytycznych”."""
+    if not isinstance(stack, dict):
+        return
+    critical = stack.get("critical")
+    if not isinstance(critical, list) or not critical:
+        return
+    from app.services.critical_skills import match_must_labels
+
+    must = [
+        item.get("name")
+        for item in stack.get("must") or []
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    ]
+    if not must:
+        # MUST żyje w kolumnach rekrutacji — nie ma tu z czym porównać.
+        return
+    kept = [name for name in critical if match_must_labels([name], must)]
+    stack["critical"] = kept or None
+
+
 def user_edit(old, patch, actor_id, *, imported=False, actor_name=None):
     from app.services.champion_insights import merge_insights
 
@@ -1148,19 +1438,42 @@ def user_edit(old, patch, actor_id, *, imported=False, actor_name=None):
             actor_name=actor_name,
             default_origin="document" if imported else "manual",
         )
+    _prune_critical(merged.get("stack"))
     changed = any(merged[k] != normalized[k] for k in SECTION_KEYS)
     if not changed and not imported and old:
         return normalized
-    # Sama sekcja 8 (notatki) to nie zmiana profilu roli: bez `prepare_profile`,
+    # Sama sekcja 8 (notatki) i same wymagania do wyszukiwania w bazie
+    # (sekcja 2, 25.09.2026) to nie zmiana profilu roli: bez `prepare_profile`,
     # który przestemplowałby `intake.applied_at`. `intake` wchodzi do odcisku
-    # rankingu, więc odhaczenie „do dopytania” unieważniałoby pełny przegląd
-    # bazy (409) — a notatka nie zmienia tego, kogo szukamy.
+    # rankingu, więc odhaczenie „do dopytania” albo dopisanie wiersza
+    # unieważniałoby pełny przegląd bazy (409) — a żadne z nich nie zmienia
+    # tego, kogo szukają automaty. Walidacja normalizuje wiersze, więc pusty
+    # wiersz z edytora daje profil równy zapisanemu (bez zmiany).
+    # Tak samo lista „Rekruter sprawdza w rozmowie” (reguła „Dwie listy
+    # wymagań”: jej edycja nie odpala przeliczeń) — audyt 13.10.2026 pokazał,
+    # że przestemplowany `intake` odpalał przeliczenie i auto-match.
     if (
         not imported
         and old
-        and all(merged[k] == normalized[k] for k in SECTION_KEYS if k != "insights")
+        and all(
+            _without_search_rows(k, merged[k]) == _without_search_rows(k, normalized[k])
+            for k in SECTION_KEYS
+            if k != "insights"
+        )
     ):
-        return ChampionProfile.model_validate(merged).model_dump(mode="json")
+        experience = merged.get("experience")
+        if isinstance(experience, dict) and experience.get("skills") != (
+            normalized.get("experience") or {}
+        ).get("skills"):
+            # Ta sama normalizacja co w `prepare_profile` (limit 20, 160 znaków).
+            merged["experience"] = {
+                **experience,
+                "skills": normalize_experience_items(
+                    experience.get("skills"), with_years=False
+                ),
+            }
+        edited = ChampionProfile.model_validate(merged).model_dump(mode="json")
+        return normalized if edited == normalized else edited
     if imported:
         from app.services.champion_profile_ingest import PARSER_VERSION
 
@@ -1188,6 +1501,14 @@ def user_edit(old, patch, actor_id, *, imported=False, actor_name=None):
                         # and rejoin the list in `prepare_profile`.
                         if path not in ("stack.must", "stack.nice"):
                             unresolved.pop(path, None)
+        patch_stack = patch.get("stack")
+        if isinstance(patch_stack, dict) and patch_stack.get("rows") is not None:
+            # Wiersze wymagań zastępują całą listę: pozycja odłożona przy
+            # dawnym imporcie nie może do niej wrócić — rozjechałaby `must`
+            # z wierszami i profil spadłby do starych pól.
+            for path in ("stack.must", "stack.nice"):
+                unresolved.pop(path, None)
+                advisory.pop(path, None)
         merged["intake"] = {**meta, "unresolved": unresolved, "advisory": advisory}
     patch_basics = patch.get("basics") or {}
     # A stored budget the save leaves UNCHANGED is kept whole by
@@ -1227,8 +1548,15 @@ def copy_profile(profile, actor_id):
     # historii i weryfikacja nie przechodzą do kopii. Stare pola, z których
     # składane są wpisy `legacy:*`, zostają — są częścią opisu klienta.
     stored["insights"] = []
-    for key in ("client_history", "verification"):
+    # Briefing DL-a też należy do zlecenia źródłowego (runda 6 audytu), bo
+    # kopia pokazywała cudzy briefing jako zaliczony, a „Odepnij briefing” na
+    # kopii kasował w magazynie nagranie, którego wciąż słucha źródło.
+    for key in ("client_history", "verification", "briefing"):
         stored.pop(key, None)
+    # Krytyczne wybrał DL rekrutacji źródłowej — kopia czeka na własną
+    # decyzję (przekazanie do searchu jej wymaga, 30.09.2026).
+    if isinstance(stored.get("stack"), dict):
+        stored["stack"].pop("critical", None)
     return user_edit(stored, deepcopy(stored), actor_id, imported=True)
 
 
@@ -1253,6 +1581,9 @@ def sync_selected_rubrics(job, profile, fields):
         if key == "work_mode":
             value = champion_work_mode_to_remote(value)
         apply_requirement_source_update(job, RUBRICS[key], value)
+        if key == "onsite_days_per_week":
+            # 0407: wpis miesięczny idzie w parze z wyliczoną liczbą tygodniową.
+            job.onsite_days_per_month = profile["basics"].get("onsite_days_per_month")
 
 
 def sync_skill_column(job, key, items):

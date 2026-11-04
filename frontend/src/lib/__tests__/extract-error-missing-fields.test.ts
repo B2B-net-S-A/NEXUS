@@ -18,8 +18,8 @@ function axios409(detail: unknown): AxiosError {
  * Lifecycle kontraktu zwraca 409 {message: "Missing required fields",
  * missing: [...]}. Do 2026-08-25 `extractErrorMsg` oddawał surowe `message`
  * i GUBIŁ listę pól — użytkownik formularza „Nowy kontrakt" widział goły
- * angielski banner bez wskazania, czego brakuje (zgłoszony bug: Jakub
- * Jedynak / CARDIF). Teraz nazwy pól tłumaczą się na etykiety formularza.
+ * angielski banner bez wskazania, czego brakuje (zgłoszony bug przy
+ * kontrakcie CARDIF). Teraz nazwy pól tłumaczą się na etykiety formularza.
  */
 describe("extractErrorMsg — 409 z listą brakujących pól", () => {
   it("tłumaczy missing[] na polskie etykiety pól", () => {

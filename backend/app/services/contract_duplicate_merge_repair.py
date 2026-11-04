@@ -29,7 +29,14 @@ zachowanym. Różnice wobec sierpnia są świadome:
   (``complete_signed_mail_drafts``), a kontrakt synchronizuje się z zamówieniami
   jak po zwykłym zapisie zamówienia;
 * **Historia zdarzeń**: usunięcie duplikatu trafia do ``critical_events``
-  (Ustawienia → Historia zdarzeń) obok wpisu w dzienniku kontraktu.
+  (Ustawienia → Historia zdarzeń) obok wpisu w dzienniku kontraktu;
+* **nowe wejście** duplikatu (moduły „Ludzie w NEXUSIE”, 10.2026) nie
+  przechodzi na kontrakt zachowany — to nie nowy placement. Jak przy zwykłym
+  usunięciu (``contract_hooks.contract_deleted``): propozycje premii za
+  placement anulowane z ``contract_deleted``, wpis wejścia usunięty, sprawa
+  wejścia zamknięta; premie za placement i sprawy z automatu zostają bez
+  kontraktu (jak po FK ``SET NULL``), otwarte punkty planu opieki znikają
+  (jak po ``CASCADE``). Sprawy ręczne i historia opieki przechodzą.
 
 Repo jest publiczne: lista NIE zawiera nazwisk — tylko identyfikatory
 kontraktów, rekordów osób i klienta sprawdzone na produkcji. Pozycja, której
@@ -67,13 +74,13 @@ from app.services.contract_merge import (
 from app.services.contract_order_sync import resync_contract_safely
 from app.services.contract_rates import RATE_SCHEDULE_LOADS
 from app.services.critical_events import record_executed
+from app.services.hr import contract_hooks
 from app.services.order_mail_signature import complete_signed_mail_drafts
 
 logger = logging.getLogger(__name__)
 
 REPAIR_MARKER = "0308_contract_duplicate_merge"
 DETAILS_KEY = "repair_details_0308_contract_duplicate_merge"
-SOURCE = REPAIR_MARKER
 
 _LIVE_STATUSES = (ContractStatus.active, ContractStatus.ending)
 
@@ -145,6 +152,24 @@ TICKET_MERGES: tuple[DuplicateContractMerge, ...] = (
         delete_contract_id=656,
         delete_candidate_id=464136,
         client_id=122,
+    ),
+)
+
+# Zgłoszenie z 26.10.2026: drugi kontrakt TEJ SAMEJ osoby u tego samego klienta
+# założony 21.10.2026 z nowego zamówienia (okres 01.10–31.12.2026) zamiast
+# dopięcia zamówienia do umowy trwającej od 10.2025. Na produkcji 26.10.2026:
+# oba aktywne, te same stawki, jednostka i waluta, żadnych podpisów ani umów
+# B2B; duplikat ma jedno zamówienie i krok przychodu z niego. Zostaje starszy
+# kontrakt (data startu, dokumenty, historia). Własny marker — 0308 jest zużyty.
+REPAIR_MARKER_2026_10 = "0521_contract_duplicate_merge_2026_10"
+DETAILS_KEY_2026_10 = "repair_details_0521_contract_duplicate_merge_2026_10"
+TICKET_MERGES_2026_10: tuple[DuplicateContractMerge, ...] = (
+    DuplicateContractMerge(
+        keep_contract_id=487,
+        keep_candidate_id=5472,
+        delete_contract_id=715,
+        delete_candidate_id=5472,
+        client_id=39,
     ),
 )
 
@@ -256,6 +281,37 @@ def _fill_fields(keep: Contract, drop: Contract) -> dict[str, dict[str, Any]]:
     return filled
 
 
+async def _drop_new_entry(db: AsyncSession, drop: Contract) -> dict[str, int]:
+    """Wejście duplikatu znika z nim, zamiast przejść na kontrakt zachowany."""
+
+    hooks = await contract_hooks.contract_deleted(db, drop)
+    failed = {name: outcome for name, outcome in hooks.items() if outcome != "ok"}
+    if failed:
+        # Hak połyka błędy modułów; tu przepięcie przeniosłoby premię na żywy
+        # kontrakt, więc porażka przerywa całe scalenie (rollback).
+        raise RuntimeError(f"contract_deleted hooks failed: {sorted(failed)}")
+    counts: dict[str, int] = {}
+    for key, sql in (
+        (
+            "placement_bonuses_detached",
+            "UPDATE hr_bonuses SET contract_id = NULL"
+            " WHERE contract_id = :c AND source = 'contract_placement'",
+        ),
+        (
+            "automatic_cases_detached",
+            "UPDATE admin_cases SET contract_id = NULL"
+            " WHERE contract_id = :c AND source = 'contract'",
+        ),
+        (
+            "open_care_items_deleted",
+            "DELETE FROM contract_care_plan_items"
+            " WHERE contract_id = :c AND status = 'open'",
+        ),
+    ):
+        counts[key] = int((await db.execute(text(sql), {"c": drop.id})).rowcount or 0)
+    return counts
+
+
 def _snapshot(contract: Contract) -> dict[str, Any]:
     return _stable(
         {
@@ -266,7 +322,7 @@ def _snapshot(contract: Contract) -> dict[str, Any]:
 
 
 async def _merge_one(
-    db: AsyncSession, spec: DuplicateContractMerge
+    db: AsyncSession, spec: DuplicateContractMerge, source: str
 ) -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
     item: dict[str, Any] = {
         "keep_contract_id": spec.keep_contract_id,
@@ -294,6 +350,7 @@ async def _merge_one(
             if not _is_empty(getattr(drop, field))
         },
     }
+    new_entry = await _drop_new_entry(db, drop)
     filled = _fill_fields(keep, drop)
     await db.flush()
     keep_id, drop_id = keep.id, drop.id
@@ -332,15 +389,16 @@ async def _merge_one(
             entity_id=keep_id,
             action="contracts_merged",
             user_id=None,
-            external_source=SOURCE,
+            external_source=source,
             external_id=f"merge:{keep_id}:{drop_id}",
             details={
-                "source": SOURCE,
+                "source": source,
                 "survivor_contract_id": keep_id,
                 "deleted_contract_ids": [drop_id],
                 "deleted_status": drop_status,
                 "filled_fields": sorted(filled),
                 "reparented": moved_counts,
+                "new_entry_dropped": new_entry,
                 "mail_orders_activated": activated,
             },
         )
@@ -361,7 +419,7 @@ async def _merge_one(
         details={
             "merged_into_contract_id": keep_id,
             "reparented": moved_counts,
-            "source": SOURCE,
+            "source": source,
         },
     )
     await db.flush()
@@ -370,6 +428,7 @@ async def _merge_one(
         {
             "filled_fields": sorted(filled),
             "reparented": moved_counts,
+            "new_entry_dropped": new_entry,
             "mail_orders_activated": activated,
         }
     )
@@ -398,7 +457,7 @@ async def run_contract_duplicate_merge_repair(
     results: list[dict[str, Any]] = []
     details: list[dict[str, Any]] = []
     for spec in merges:
-        item, snapshot = await _merge_one(db, spec)
+        item, snapshot = await _merge_one(db, spec, marker)
         results.append(item)
         if snapshot is not None:
             details.append(snapshot)

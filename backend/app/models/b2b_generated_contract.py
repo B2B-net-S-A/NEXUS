@@ -12,6 +12,7 @@ niezależnym od numeru — dlatego constraint NIE jest na (year, contract_number
 """
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
@@ -23,6 +24,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     text,
@@ -248,8 +250,26 @@ class B2BGeneratedContract(Base, TimestampMixin):
     signed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # 0514: dzień podpisu umowy (kalendarz firmy) — z pola „Data podpisu”
+    # w oknie „Oznacz jako podpisaną” albo z podpisu kontraktora w NEXUSIE.
+    # `signed_at` to chwila oznaczenia, zwykle 1–5 dni później. NULL = wiersz
+    # oznaczony przed 0514.
+    signed_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     signed_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # 0417: rekruter bez „Podpis B2B” prosi o potwierdzenie podpisu — kto i
+    # kiedy ostatnio (pulpit DL, karta na Tablicy, przerwa 24 h między prośbami).
+    signature_requested_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    signature_requested_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # 0496: podpisany egzemplarz umowy w Dokumentach kontraktu — dołączony przy
+    # „Oznacz jako podpisaną” albo później z wiersza (``signed_file.attach``).
+    signed_document_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contract_documents.id", ondelete="SET NULL"), nullable=True
     )
     # Surowy payload `/render` (B2BRenderRequest jako JSON) — pozwala odtworzyć i
     # pobrać DOCX ponownie z zakładki „Wygenerowane umowy". NULL = wiersz sprzed
@@ -325,8 +345,20 @@ class B2BGeneratedContract(Base, TimestampMixin):
     termination_party: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     termination_signed_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     project_end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    # `none_as_null`: przypisanie None ma dać SQL NULL, nie JSON `null` —
+    # `_clear_pending_markers` czyta `IS NULL` (runda 7, R7-X1-1).
     termination_restore: Mapped[Optional[dict]] = mapped_column(
-        JSON().with_variant(JSONB(), "postgresql"), nullable=True
+        JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"),
+        nullable=True,
+    )
+    # Stawki z ostatniego wygenerowanego aneksu zmiany stawki (0401, Generator
+    # aneksów): ``{"items": [{rate, from, to, client_id, client_name}],
+    # "document_id", "effective_date"}``. Rejestr zmienia się już przy
+    # wygenerowaniu aneksu (decyzja Artura 29.09.2026) — ``render_payload``
+    # zostaje zapisem PODPISANEJ umowy i nie jest przepisywany.
+    annex_rates: Mapped[Optional[dict]] = mapped_column(
+        JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"),
+        nullable=True,
     )
     # Powrót po przerwie przy rozwiązanej umowie zakłada NOWĄ umowę — ta
     # kolumna wskazuje poprzednią (zostaje w „Zakończonych" bez zmian).
@@ -335,6 +367,16 @@ class B2BGeneratedContract(Base, TimestampMixin):
         nullable=True,
         index=True,
     )
+    # Szczegóły administracyjne (0524): replacement za kontrakt osoby
+    # zastąpionej i wymiar FTE (1/0,75/0,5/0,25). Wpisuje Generator, podpis
+    # kopiuje je do kontraktu. Rekruter i DL nie są tu kolumnami — to odbiorcy
+    # premii z reguły `services/hr/placement_bonuses`; `recruiter_user_id`
+    # wyżej trzyma osobę prowadzącą z chwili wygenerowania (adresat przypomnień).
+    is_replacement: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    replaced_contract_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True
+    )
+    fte: Mapped[Optional[Decimal]] = mapped_column(Numeric(3, 2), nullable=True)
 
     def __repr__(self) -> str:
         return f"<B2BGeneratedContract id={self.id} number={self.contract_number!r}>"

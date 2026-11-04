@@ -8,8 +8,13 @@ mógł zmieniać kontakty i prywatne notatki relacyjne. Teraz decyzje podejmuje
 - odczyt listy jest współdzielony z Pipeline i zawężany grafem klient/Job;
 - ``relationship_notes`` (dane prywatne) tylko admin lub uprawniony owner —
   pozostali dostają projekcję BEZ tego pola (nie ``null``);
-- create/update/delete: admin lub Delivery Lead dla każdego klienta;
-- owner relacji może edytować pola relacyjne swojego kontaktu;
+- create/update/delete: uprawnienie „Klienci: dodawanie i edycja” (domyślnie
+  admin i Delivery Lead); konto z rolą DL — u klientów z portfela. Odmowa
+  nazywa brakujące uprawnienie; tworzenie i usuwanie deklarują je zależnością
+  trasy (``CLIENTS_EDIT_DEPENDENCIES``);
+- owner relacji może edytować pola relacyjne swojego kontaktu — dlatego
+  ``PUT`` NIE deklaruje uprawnienia i rozstrzyga w handlerze
+  (``ClientAccess.edit_denial``);
 - zmiana ``key_relationship_owner_id``: admin (wyjątek: claim None → self);
 - każda mutacja zostawia audit event w ``activities`` (bez wartości pól
   prywatnych — tylko nazwy pól).
@@ -22,31 +27,39 @@ from typing import Annotated, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.database import get_db
 from app.models.contact import Contact, RelationshipStrength
 from app.models.client import Client
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.api.deps import get_current_user
+from app.api.permission_access import require_permission
 from app.api.section_access import (
     DeliverySectionUser,
     ProductSection,
     SectionAccess,
     section_access_for_user,
 )
+from app.services.action_permissions import ProductAction
 from app.services.client_access import (
-    ADMIN_LIKE_ROLES,
+    contact_private_notes_checker,
     ClientAccess,
+    assert_client_assignable,
     assert_client_exists,
     deny,
     record_client_audit,
     resolve_client_access,
-    resolve_client_team_client_ids,
     resolve_client_visible_client_ids,
 )
 
 router = APIRouter()
+
+# Tworzenie i usuwanie kontaktu wymaga uprawnienia „Klienci: dodawanie
+# i edycja”. Deklaruje je TRASA (dekorator), nie parametr handlera: odmowa
+# nazywa brakującą pozycję, zanim sięgniemy do bazy — także wtedy, gdy
+# zatrzymuje bramka sekcji. U kogo wolno, rozstrzyga dalej ``ClientAccess``.
+CLIENTS_EDIT_DEPENDENCIES = [Depends(require_permission(ProductAction.clients_edit))]
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -54,11 +67,12 @@ router = APIRouter()
 
 class ContactCreate(BaseModel):
     client_id: int
-    name: str
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    position: Optional[str] = None
-    department: Optional[str] = None
+    # Runda 9 (R9-N4-5): lustro długości kolumn `contacts` (422 zamiast 500).
+    name: str = Field(max_length=255)
+    email: Optional[str] = Field(None, max_length=255)
+    phone: Optional[str] = Field(None, max_length=50)
+    position: Optional[str] = Field(None, max_length=255)
+    department: Optional[str] = Field(None, max_length=255)
     is_decision_maker: bool = False
     notes: Optional[str] = None
     last_contacted_at: Optional[datetime] = None
@@ -71,11 +85,11 @@ class ContactCreate(BaseModel):
 
 
 class ContactUpdate(BaseModel):
-    name: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    position: Optional[str] = None
-    department: Optional[str] = None
+    name: Optional[str] = Field(None, max_length=255)
+    email: Optional[str] = Field(None, max_length=255)
+    phone: Optional[str] = Field(None, max_length=50)
+    position: Optional[str] = Field(None, max_length=255)
+    department: Optional[str] = Field(None, max_length=255)
     is_decision_maker: Optional[bool] = None
     notes: Optional[str] = None
     last_contacted_at: Optional[datetime] = None
@@ -151,6 +165,24 @@ def _contact_projection(contact: Contact, access: ClientAccess) -> AnyContactRes
     return ContactSafeResponse.model_validate(contact)
 
 
+async def _assert_relationship_owner_exists(
+    db: AsyncSession, user_id: Optional[int]
+) -> None:
+    """422 dla właściciela relacji, którego nie ma albo jest nieaktywny.
+
+    Runda 9 (R9-N4-5): nieistniejące id szło prosto do FK
+    ``contacts.key_relationship_owner_id`` i kończyło się 500 bez CORS.
+    """
+    if user_id is None:
+        return
+    is_active = await db.scalar(select(User.is_active).where(User.id == user_id))
+    if not is_active:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Wskazany właściciel relacji nie istnieje albo jest nieaktywny.",
+        )
+
+
 async def _load_contact(db: AsyncSession, contact_id: int) -> Contact:
     result = await db.execute(select(Contact).where(Contact.id == contact_id))
     contact = result.scalar_one_or_none()
@@ -163,7 +195,6 @@ async def _load_contact(db: AsyncSession, contact_id: int) -> Contact:
 class GlobalContactScope:
     user: User
     visible_client_ids: frozenset[int] | None
-    client_team_ids: frozenset[int] | None
 
 
 def _require_contact_read_section(current_user: User) -> None:
@@ -210,7 +241,6 @@ async def require_global_contact_access(
     return GlobalContactScope(
         user=current_user,
         visible_client_ids=visible_client_ids,
-        client_team_ids=await resolve_client_team_client_ids(db, current_user),
     )
 
 
@@ -232,18 +262,15 @@ async def list_all_contacts(
     """Kontakty cross-client (globalna wyszukiwarka).
 
     Admin, HoR, Finance i TCM widzą organizację w zakresie swojej projekcji.
-    DL widzi wszystkich klientów, TAC swoje jawne przypisania, a
+    DL widzi klientów z portfela (25.09.2026), TAC swoje jawne przypisania, a
     recruiter/sourcer klientów osiągalnych przez Job. Pusty graf relacji jest
     deny-all.
     """
     current_user = scope.user
     visible_client_ids = scope.visible_client_ids
-    is_admin_like = current_user.has_any_role(*ADMIN_LIKE_ROLES)
-    can_write_delivery = (
-        section_access_for_user(current_user, ProductSection.delivery)
-        >= SectionAccess.write
-    )
-    client_team_ids = scope.client_team_ids
+    # Runda 9 (R9-N4-2): ta sama reguła notatek co `GET /clients/{id}/contacts`
+    # (`ClientAccess.can_view_contact_private_notes`), liczona raz na klienta.
+    can_see_private_notes = await contact_private_notes_checker(db, current_user)
 
     query = (
         select(Contact, Client.name.label("client_name"))
@@ -263,25 +290,7 @@ async def list_all_contacts(
     rows = result.all()
     contacts_out: list[AnyContactWithClientResponse] = []
     for contact, client_name in rows:
-        # Ta sama reguła co ClientAccess.can_view_contact_private_notes:
-        # Admin z zapisem Delivery widzi wszystko; uprawniony owner swoje;
-        # nie-zaklaimowane (owner=None)
-        # widzą wyłącznie role edytujące przypisane do tego klienta.
-        can_edit_client = (
-            client_team_ids is None or contact.client_id in client_team_ids
-        )
-        tcm_read_only = current_user.has_role(
-            UserRole.talent_community_manager
-        ) and not current_user.has_any_role(UserRole.admin, UserRole.delivery_lead)
-        can_see_notes = not tcm_read_only and (
-            (is_admin_like and can_write_delivery)
-            or contact.key_relationship_owner_id == current_user.id
-            or (
-                contact.key_relationship_owner_id is None
-                and can_write_delivery
-                and can_edit_client
-            )
-        )
+        can_see_notes = can_see_private_notes(contact)
         model = (
             ContactWithClientResponse
             if can_see_notes
@@ -318,6 +327,7 @@ async def list_client_contacts(
     "/contacts",
     response_model=AnyContactResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
 )
 async def create_contact(
     data: ContactCreate,
@@ -327,13 +337,19 @@ async def create_contact(
     await assert_client_exists(db, data.client_id)
     access = await resolve_client_access(db, current_user, data.client_id)
     if not access.can_edit_contacts:
-        raise deny("tworzenie kontaktów wymaga roli admin lub Delivery Lead")
+        raise access.edit_denial(
+            "tworzenie kontaktów wymaga roli admin lub Delivery Lead"
+        )
+    # Runda 7 (R7-X5-4): kontakt usuniętego albo scalonego klienta nie trafi na
+    # żaden profil.
+    await assert_client_assignable(db, data.client_id)
     if (
         data.key_relationship_owner_id is not None
         and data.key_relationship_owner_id != current_user.id
         and not access.can_reassign_relationship_owner
     ):
         raise deny("ustawienie innego właściciela relacji wymaga roli admin")
+    await _assert_relationship_owner_exists(db, data.key_relationship_owner_id)
 
     contact = Contact(**data.model_dump())
     db.add(contact)
@@ -377,6 +393,9 @@ async def update_contact(
             is_self_claim and access.can_edit_contacts
         ):
             raise deny("zmiana właściciela relacji wymaga roli admin")
+        await _assert_relationship_owner_exists(
+            db, payload["key_relationship_owner_id"]
+        )
 
     # 2. Kto może edytować pozostałe pola.
     if not access.can_edit_contacts:
@@ -392,7 +411,9 @@ async def update_contact(
                     f"swojego kontaktu (niedozwolone: {sorted(illegal)})"
                 )
         else:
-            raise deny("edycja kontaktu wymaga roli admin lub Delivery Lead")
+            raise access.edit_denial(
+                "edycja kontaktu wymaga roli admin lub Delivery Lead"
+            )
 
     for k, v in payload.items():
         setattr(contact, k, v)
@@ -413,7 +434,11 @@ async def update_contact(
     return _contact_projection(contact, access)
 
 
-@router.delete("/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/contacts/{contact_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def delete_contact(
     contact_id: int,
     current_user: DeliverySectionUser,
@@ -422,7 +447,9 @@ async def delete_contact(
     contact = await _load_contact(db, contact_id)
     access = await resolve_client_access(db, current_user, contact.client_id)
     if not access.can_edit_contacts:
-        raise deny("usunięcie kontaktu wymaga roli admin lub Delivery Lead")
+        raise access.edit_denial(
+            "usunięcie kontaktu wymaga roli admin lub Delivery Lead"
+        )
 
     record_client_audit(
         db,
@@ -431,4 +458,11 @@ async def delete_contact(
         action="contact_deleted",
         details={"contact_id": contact.id, "name": contact.name},
     )
+    if contact.external_source == "traffit" and contact.external_id:
+        # Runda 10 (R10-N11-4): nagrobek — nocny import nie odtworzy kontaktu.
+        from app.services.contact_duplicate_merge import (
+            add_deleted_traffit_contact,
+        )
+
+        await add_deleted_traffit_contact(db, str(contact.external_id))
     await db.delete(contact)

@@ -121,6 +121,7 @@ async def auto_add_on_cv_sent(
     user_id: Optional[int],
     candidate: Optional[Candidate] = None,
     extra_activity_details: Optional[dict] = None,
+    log_noops: bool = True,
 ) -> AutoAddResult:
     """Idempotently add the candidate to a talent pool derived from the Job.
 
@@ -135,6 +136,10 @@ async def auto_add_on_cv_sent(
         extra_activity_details: Optional dict merged into every Activity row's
             `details` JSONB. Used by the backfill to tag historical replays with
             ``{"backfill": True}`` so dashboards can filter.
+        log_noops: False = no Activity for results that change nothing
+            (``pool_skip_no_category``, ``candidate_already_in_pool``). The
+            re-runnable backfill replays the whole ``cv_sent`` history and was
+            writing tens of thousands of such rows per run (runda 7, N7-5).
 
     Raises exceptions on unexpected DB errors; the caller should wrap this
     in try/except to avoid blocking the core stage-change operation.
@@ -153,6 +158,8 @@ async def auto_add_on_cv_sent(
     if pool is None:
         pool_name = _derive_pool_name(job)
         if pool_name is None:
+            if not log_noops:
+                return AutoAddResult(status="skipped_no_category")
             db.add(
                 Activity(
                     entity_type="talent_pool",
@@ -230,6 +237,14 @@ async def auto_add_on_cv_sent(
     result = await db.execute(stmt)
     inserted_id = result.scalar()
 
+    if inserted_id is None and not log_noops:
+        return AutoAddResult(
+            status="already_in_pool",
+            pool_id=pool.id,
+            pool_name=pool.name,
+            pool_created=False,
+            resolved_via=resolved_via,
+        )
     if inserted_id is None:
         db.add(
             Activity(

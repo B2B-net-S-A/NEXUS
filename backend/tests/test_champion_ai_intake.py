@@ -91,16 +91,16 @@ def test_merge_screening_questions_appends_with_dedup():
     current = [
         {"id": "q1", "question": "old q1", "ideal_answer": "", "deal_breaker": ""},
     ]
+    # Dedup po TREŚCI, nie po id (audyt 25.09.2026, runda 3): szkic ma
+    # własne q1…, które nie mają nic wspólnego z q1 profilu.
     proposed = [
+        {"id": "q1", "question": "Old Q1?", "ideal_answer": "", "deal_breaker": ""},
         {"id": "q1", "question": "dup", "ideal_answer": "", "deal_breaker": ""},
         {"id": "q2", "question": "new q2", "ideal_answer": "", "deal_breaker": ""},
     ]
     merged = _merge_screening_questions(current, proposed)
-    assert len(merged) == 2
-    ids = [q["id"] for q in merged]
-    assert ids == ["q1", "q2"]
-    # original q1 wins
-    assert merged[0]["question"] == "old q1"
+    assert [q["question"] for q in merged] == ["old q1", "dup", "new q2"]
+    assert [q["id"] for q in merged] == ["q1", "q2", "q3"]
 
 
 def test_merge_section_dispatch_for_object_sections():
@@ -400,7 +400,6 @@ async def test_cloudtalk_webhook_accepts_valid_hmac(app_client, monkeypatch):
     assert resp.status_code == 200, resp.text
     # No candidate with that phone → no Call row created, but status ok.
     assert resp.json()["status"] == "ok"
-
 
 
 @pytest.mark.asyncio

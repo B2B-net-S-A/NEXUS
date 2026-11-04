@@ -1,16 +1,21 @@
 "use client";
 
 /**
- * Oś czasu kandydata (zakładka „Historia” → „Wszystko”) i skrót ostatniej
- * aktywności w prawej kolumnie zakładki „Profil”. Wydzielone z
- * `CandidateDetailV2.tsx`.
+ * Oś czasu kandydata (zakładka „Notatki” → przełącznik „Zmiany etapów
+ * i automaty”). Wydzielone z `CandidateDetailV2.tsx`.
+ *
+ * 13.10.2026 (E4): kolejne pobrania plików z jednego dnia (każdy podgląd PDF
+ * zapisuje „Pobrano plik”) zwijają się do jednej linii „Pobrano pliki · N”
+ * z rozwinięciem — wcześniej potrafiły zająć cały ekran osi.
  */
 
 import * as React from "react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   ArrowRight,
   Calendar,
+  ChevronDown,
+  Download,
   FileText,
   Mail,
   MessageSquare,
@@ -20,13 +25,16 @@ import {
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { cn, formatRelativeTime } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   activityActionLabel,
   candidateStageLabel,
   noteTypeLabel,
   userActivityLabel,
 } from "@/components/v2/pages/candidate-timeline-labels";
+import { JobNameLabel } from "@/components/v2/jobs/JobNameLabel";
+import { candidateJobNames, jobNameText } from "@/lib/job-name-text";
+import { candidateBoardHref } from "./profile-helpers";
 import { unwrapNoteContent } from "./profile-shared";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- payload osi czasu jest luźno typowany (import Traffit + kilka źródeł) */
@@ -64,11 +72,16 @@ function traffitFileName(details: unknown): string | null {
  }
 }
 
+// Rekrutacja wpisu jak w jej nagłówku: numer u klienta i tytuł dla rekrutera.
+function jobSuffix(item: any): string {
+ return item.job_title ? ` (${jobNameText(candidateJobNames(item))})` :"";
+}
+
 export function timelineItemLabel(item: any): string {
  if (item.type === "note")
- return `Notatka${noteTypeLabel(item.note_type) ? ` — ${noteTypeLabel(item.note_type)}` :""}${item.job_title ? ` (${item.job_title})` :""}`;
+ return `Notatka${noteTypeLabel(item.note_type) ? ` — ${noteTypeLabel(item.note_type)}` :""}${jobSuffix(item)}`;
  if (item.type === "stage_change")
- return `Etap: ${candidateStageLabel(item.stage)}${item.job_title ? ` (${item.job_title})` :""}`;
+ return `Etap: ${candidateStageLabel(item.stage)}${jobSuffix(item)}`;
  if (item.type === "activity") {
  if (item.action === "applied_via_invite") {
  const owner = item.user_name ??"rekruter";
@@ -86,6 +99,9 @@ export function timelineItemLabel(item: any): string {
  return name ? `Plik "${name}" ${verb}` : `Plik ${verb}`;
  }
  const rejectionLabel = REJECTION_EMAIL_ACTION_LABELS[item.action];
+ // 13.10.2026: treść poprawiona w oknie odrzucenia (`details.edited`).
+ if (rejectionLabel && item.action === "rejection_email_scheduled" && item.details?.edited === true)
+ return `${rejectionLabel} · treść zmieniona ręcznie`;
  if (rejectionLabel) return rejectionLabel;
  return activityActionLabel(item.action);
  }
@@ -276,7 +292,15 @@ function TimelineHeadline({
   );
 }
 
-function TimelineCard({ item, fromStage }: { item: any; fromStage?: string }) {
+function TimelineCard({
+  item,
+  fromStage,
+  candidateId,
+}: {
+  item: any;
+  fromStage?: string;
+  candidateId?: number;
+}) {
   const actor = timelineActor(item);
   const useAvatar =
     !!actor && (item.type === "stage_change" || item.type === "note");
@@ -323,9 +347,16 @@ function TimelineCard({ item, fromStage }: { item: any; fromStage?: string }) {
         )}
 
         {item.job_title && (
-          <p className="mt-1 truncate text-xs text-muted-foreground">
-            {item.job_title}
-          </p>
+          <JobNameLabel
+            job={candidateJobNames(item)}
+            href={
+              candidateId != null && typeof item.job_id === "number"
+                ? candidateBoardHref(item.job_id, candidateId)
+                : undefined
+            }
+            className="mt-1 text-xs text-muted-foreground"
+            titleClassName="hover:text-primary"
+          />
         )}
 
         {content && (
@@ -333,6 +364,32 @@ function TimelineCard({ item, fromStage }: { item: any; fromStage?: string }) {
             {content}
           </p>
         )}
+
+        {item.type === "note" && item.is_system ? (
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Wpis automatu (systemowy)
+          </p>
+        ) : null}
+
+        {/* 0399: odpowiedzi jadą pod notatką, nie jako osobne wpisy. */}
+        {item.type === "note" && Array.isArray(item.replies) && item.replies.length > 0 ? (
+          <div className="mt-2 space-y-1.5 border-l-2 border-border pl-3">
+            {item.replies.map((reply: any) => (
+              <div key={reply.id} className="text-sm">
+                <span className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">
+                    {reply.author_name ?? "Odpowiedź"}
+                  </span>
+                  {" · "}
+                  {timelineTime(reply.timestamp)}
+                </span>
+                <p className="whitespace-pre-line text-foreground">
+                  {unwrapNoteContent(reply.content_rendered ?? reply.content)}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         {item.notes && (
           <p className="mt-1.5 whitespace-pre-line rounded-md bg-muted/50 px-2.5 py-1.5 text-sm italic text-muted-foreground">
@@ -360,7 +417,89 @@ function TimelineCard({ item, fromStage }: { item: any; fromStage?: string }) {
   );
 }
 
-export function TimelineTab({ items }: { items: any[] }) {
+/** Wpisy pobrania pliku (audyt `candidate_audit`), które zwijamy w jedną linię. */
+const DOWNLOAD_ACTIONS: ReadonlySet<string> = new Set([
+  "document_downloaded",
+  "cv_downloaded",
+  "bulk_cv_downloaded",
+]);
+
+function isDownloadItem(item: any): boolean {
+  return item?.type === "activity" && DOWNLOAD_ACTIONS.has(item.action);
+}
+
+export type TimelineRow =
+  | { kind: "item"; item: any }
+  | { kind: "downloads"; items: any[] };
+
+/**
+ * Wiersze jednego dnia osi: co najmniej dwa pobrania pod rząd to jeden
+ * wiersz `downloads`; pojedyncze pobranie zostaje zwykłą kartą.
+ */
+export function collapseDownloadRuns(items: readonly any[]): TimelineRow[] {
+  const rows: TimelineRow[] = [];
+  let run: any[] = [];
+  const flush = () => {
+    if (run.length >= 2) rows.push({ kind: "downloads", items: run });
+    else for (const item of run) rows.push({ kind: "item", item });
+    run = [];
+  };
+  for (const item of items) {
+    if (isDownloadItem(item)) {
+      run.push(item);
+      continue;
+    }
+    flush();
+    rows.push({ kind: "item", item });
+  }
+  flush();
+  return rows;
+}
+
+function TimelineDownloadRun({ items }: { items: any[] }) {
+  const [open, setOpen] = useState(false);
+  // Oś idzie od najnowszego, więc zakres godzin to ostatni–pierwszy wpis.
+  const first = timelineTime(items[items.length - 1]?.timestamp);
+  const last = timelineTime(items[0]?.timestamp);
+  const range = first && last && first !== last ? `${first}–${last}` : last || first;
+  return (
+    <div className="rounded-xl border border-border bg-card px-3.5 py-2 shadow-xs">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-3 rounded-md text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+          <Download className="h-3.5 w-3.5" />
+        </span>
+        <span className="min-w-0 flex-1 text-sm font-medium text-foreground">
+          Pobrano pliki · {items.length}
+        </span>
+        {range ? (
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{range}</span>
+        ) : null}
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
+          aria-hidden
+        />
+      </button>
+      {open ? (
+        <div className="mt-2 space-y-2">
+          {items.map((item: any, i: number) => (
+            <TimelineCard key={`${item.type}-${item.id}-${i}`} item={item} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** `candidateId` — nazwa rekrutacji wpisu prowadzi na jej Tablicę z otwartą osobą. */
+export function TimelineTab({ items, candidateId }: { items: any[]; candidateId?: number }) {
   const { groups, fromMap } = useMemo(() => {
     const list = Array.isArray(items) ? items : [];
     const stageFrom = buildStageFromMap(list);
@@ -396,57 +535,27 @@ export function TimelineTab({ items }: { items: any[] }) {
             </h4>
             <div className="h-px flex-1 bg-border" />
           </div>
-          {group.items.map((item: any, i: number) => (
-            <TimelineCard
-              key={`${item.type}-${item.id}-${i}`}
-              item={item}
-              fromStage={
-                item.type === "stage_change" && item.id != null
-                  ? fromMap.get(item.id)
-                  : undefined
-              }
-            />
-          ))}
+          {collapseDownloadRuns(group.items).map((row, i: number) =>
+            row.kind === "downloads" ? (
+              <TimelineDownloadRun
+                key={`downloads-${row.items[0]?.id ?? i}-${i}`}
+                items={row.items}
+              />
+            ) : (
+              <TimelineCard
+                key={`${row.item.type}-${row.item.id}-${i}`}
+                item={row.item}
+                candidateId={candidateId}
+                fromStage={
+                  row.item.type === "stage_change" && row.item.id != null
+                    ? fromMap.get(row.item.id)
+                    : undefined
+                }
+              />
+            ),
+          )}
         </section>
       ))}
     </div>
-  );
-}
-
-/**
- * Skrót ostatniej aktywności (1–2 zdarzenia) — prawa kolumna zakładki
- * „Profil”. Pełna oś czasu żyje w zakładce „Historia”.
- */
-export function RecentActivityList({ items }: { items: any[] }) {
-  if (!Array.isArray(items) || items.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">Brak zdarzeń.</p>
-    );
-  }
-  return (
-    <ul className="divide-y divide-border/60">
-      {items.map((item: any, i: number) => {
-        const content = item.content
-          ? unwrapNoteContent(item.content_rendered ?? item.content)
-          : "";
-        return (
-          <li key={`${item.type}-${item.id}-${i}`} className="py-2 first:pt-0 last:pb-0">
-            <div className="flex items-baseline gap-2">
-              <span className="min-w-0 truncate text-xs font-medium text-foreground">
-                {timelineItemLabel(item)}
-              </span>
-              <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
-                {item.timestamp ? formatRelativeTime(item.timestamp) : ""}
-              </span>
-            </div>
-            {content ? (
-              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                {content}
-              </p>
-            ) : null}
-          </li>
-        );
-      })}
-    </ul>
   );
 }

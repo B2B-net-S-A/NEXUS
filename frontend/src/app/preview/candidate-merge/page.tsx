@@ -26,17 +26,17 @@ import {
   type MergePlan,
 } from "@/lib/api/candidateMerge";
 
-const SURVIVOR = { id: 4102, name: "Anna", lastname: "Przykładowa", email: "anna.p@example.com", phone: "+48 600 000 111", linkedin: null };
+const SURVIVOR = { id: 4102, name: "Anna", lastname: "Przykładowa", email: "anna.p@example.com", phone: "+48 000 000 108", linkedin: null };
 
 const PLAN: MergePlan = {
   survivor_id: 4102,
   duplicate_id: 5877,
-  survivor: { id: 4102, name: "Anna", lastname: "Przykładowa", email: "anna.p@example.com", phone: "+48 600 000 111", city: "Warszawa", external_source: "manual", created_at: "2025-11-02T10:00:00Z", updated_at: "2026-09-20T08:00:00Z" },
+  survivor: { id: 4102, name: "Anna", lastname: "Przykładowa", email: "anna.p@example.com", phone: "+48 000 000 108", city: "Warszawa", external_source: "manual", created_at: "2025-11-02T10:00:00Z", updated_at: "2026-09-20T08:00:00Z" },
   duplicate: { id: 5877, name: "Anna", lastname: "Przykładowa-Nowak", email: "anna.nowak@example.com", phone: null, city: "Warszawa", external_source: "traffit", created_at: "2026-03-14T10:00:00Z", updated_at: "2026-09-21T08:00:00Z" },
   fields: [
     { field: "lastname", label: "Nazwisko", survivor: "Przykładowa", duplicate: "Przykładowa-Nowak", conflict: true, default: "survivor" },
     { field: "email", label: "E-mail", survivor: "anna.p@example.com", duplicate: "anna.nowak@example.com", conflict: true, default: "survivor" },
-    { field: "phone", label: "Telefon", survivor: "+48 600 000 111", duplicate: null, conflict: false, default: "survivor" },
+    { field: "phone", label: "Telefon", survivor: "+48 000 000 108", duplicate: null, conflict: false, default: "survivor" },
     { field: "city", label: "Miasto", survivor: "Warszawa", duplicate: "Warszawa", conflict: false, default: "survivor" },
     { field: "availability_date", label: "Dostępny od", survivor: null, duplicate: "2026-11-01", conflict: false, default: "duplicate" },
   ],

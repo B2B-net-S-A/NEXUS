@@ -130,6 +130,12 @@ export function evaluateRateGate({
     };
   }
 
+  // Przeliczenie tylko przy dniu i miesiącu — „140 PLN/h to 140 PLN/h” mówiło to samo dwa razy.
+  const amount =
+    unit === "hourly"
+      ? `${formatPln(numericRate)} PLN/h`
+      : `${formatPln(numericRate)} ${RATE_UNIT_SHORT[unit]} to ${formatPln(normalizedHourly)} PLN/h`;
+
   if (normalizedHourly > jobBudgetHourly) {
     return {
       numericRate,
@@ -137,8 +143,8 @@ export function evaluateRateGate({
       normalizedHourly,
       verdict: "over_budget",
       message:
-        `${formatPln(numericRate)} ${RATE_UNIT_SHORT[unit]} to ${formatPln(normalizedHourly)} PLN/h — ` +
-        `powyżej budżetu ${formatPln(jobBudgetHourly)} PLN/h. Ruch przejdzie, a karta dostanie odznakę „ponad budżet”.`,
+        `${amount} — powyżej budżetu ${formatPln(jobBudgetHourly)} PLN/h. ` +
+        "Ruch przejdzie, a karta dostanie odznakę „ponad budżet”.",
     };
   }
 
@@ -147,8 +153,6 @@ export function evaluateRateGate({
     isValid,
     normalizedHourly,
     verdict: "within_budget",
-    message:
-      `${formatPln(numericRate)} ${RATE_UNIT_SHORT[unit]} to ${formatPln(normalizedHourly)} PLN/h — ` +
-      `mieści się w budżecie ${formatPln(jobBudgetHourly)} PLN/h.`,
+    message: `${amount} — mieści się w budżecie ${formatPln(jobBudgetHourly)} PLN/h.`,
   };
 }

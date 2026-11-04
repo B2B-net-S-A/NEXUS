@@ -3,7 +3,7 @@
 import * as React from"react";
 import { useEffect, useMemo, useState } from"react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Briefcase, CheckCircle2, Search, Sparkles } from"lucide-react";
+import { AlertCircle, AlertTriangle, Briefcase, CheckCircle2, Search, Sparkles } from"lucide-react";
 import api, {
  jobsApi,
  recommendationsApi,
@@ -25,16 +25,22 @@ import { Badge } from"@/components/ui/badge";
 import { Input } from"@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from"@/components/ui/tabs";
 import { RiskBadge } from"@/components/v2/RiskBadge";
-import { assignErrorMessage } from"@/lib/assign-error";
+import { assignErrorMessage, closedCardFromAssignError } from"@/lib/assign-error";
+import { ClosedCardRestore } from "@/components/v2/recruitment/ClosedCardRestore";
+import type { ClosedRow } from "@/components/v2/recruitment/AddToRecruitmentDialog";
 import type { CandidateRiskProfile } from"@/types/candidate-risk";
 import { useTabsStore } from "@/store/tabs";
+import { ADD_ANYWAY_HINT, EmploymentNotice } from "@/components/v2/employment/EmploymentNotice";
+import { sameClientNote, type EmploymentMarker } from "@/lib/employment-marker";
+import { jobDisplayTitle, type JobNames } from "@/lib/job-names";
+import { JobPickName } from "@/components/v2/jobs/JobPickName";
 
-interface JobLite {
+interface JobLite extends JobNames {
  id: number;
- title: string;
+ client_id?: number | null;
  location?: string | null;
  seniority?: string | null;
- status?: string;
+ status?: string | null;
 }
 
 function scoreVariant(
@@ -51,6 +57,8 @@ interface Props {
  onOpenChange: (open: boolean) => void;
  candidateId: number;
  candidateName: string;
+ /** Znacznik „Pracuje u nas” od ekranu, który otwiera okno (lista, profil). */
+ employment?: EmploymentMarker | null;
  onAssigned?: (jobId: number) => void;
 }
 
@@ -59,6 +67,7 @@ export function QuickAssignV2({
  onOpenChange,
  candidateId,
  candidateName,
+ employment,
  onAssigned,
 }: Props) {
  const [matches, setMatches] = useState<JobMatch[]>([]);
@@ -69,6 +78,13 @@ export function QuickAssignV2({
  const [assigning, setAssigning] = useState<number | null>(null);
  const [assignError, setAssignError] = useState<string | null>(null);
  const [assignedIds, setAssignedIds] = useState<Set<number>>(new Set());
+ // 13.10.2026: osoba ma w wybranej rekrutacji kartę w „Zamkniętych” — okno
+ // mówi skąd i od kiedy i daje „Przywróć”, zamiast zielonego „Przypisano”.
+ const [closedCard, setClosedCard] = useState<{
+ job: { id: number; title: string };
+ row: ClosedRow;
+ } | null>(null);
+ const [restoredIds, setRestoredIds] = useState<Set<number>>(new Set());
  // Phase 17 (migracja 0068): risk profile dla ostrzeżenia przy assign'ie.
  const [risk, setRisk] = useState<CandidateRiskProfile | null>(null);
  // "Wszystkie" (domyślny) vs "AI sugestie". Rekruter najczęściej wie, do
@@ -122,6 +138,8 @@ export function QuickAssignV2({
  setAllJobs([]);
  setAllError(null);
  setAssignedIds(new Set());
+ setClosedCard(null);
+ setRestoredIds(new Set());
  }
  }, [open]);
 
@@ -177,19 +195,34 @@ export function QuickAssignV2({
  openTabs
  .filter((t) => t.type ==="job")
  .slice(0, 5)
- .map((t) => ({ id: t.entityId, title: t.title })),
+ // Karta trzyma tytuł dla rekrutera i numer u klienta (jak nagłówek).
+ .map((t) => ({ id: t.entityId, title: t.title, client_reference: t.reference })),
  [openTabs],
  );
  const showShortcuts = !searchQuery.trim();
 
- const handleAssign = async (jobId: number) => {
+ const handleAssign = async (jobId: number, title: string) => {
  setAssigning(jobId);
  setAssignError(null);
+ setClosedCard(null);
  try {
  await recommendationsApi.assignToJob(candidateId, jobId);
  setAssignedIds((prev) => new Set(prev).add(jobId));
  onAssigned?.(jobId);
  } catch (e: unknown) {
+ const closed = closedCardFromAssignError(e);
+ if (closed) {
+ setClosedCard({
+ job: { id: jobId, title },
+ row: {
+ candidate_id: candidateId,
+ reason: "closed_in_job",
+ reason_label: closed.label,
+ closed: closed.closed,
+ },
+ });
+ return;
+ }
  // 409 = eligibility block (blacklist / konflikt klienta) — pokaż powód
  // zamiast cicho połykać błąd (wcześniej wyglądało jak "nic się nie stało").
  setAssignError(assignErrorMessage(e));
@@ -198,13 +231,13 @@ export function QuickAssignV2({
  }
  };
 
- const renderJobRow = (job: {
- id: number;
- title?: string | null;
- location?: string | null;
- seniority?: string | null;
- }, score?: number | null) => {
+ const renderJobRow = (job: JobLite, score?: number | null) => {
  const jobId = job.id;
+ const title = jobDisplayTitle(job);
+ // Druga linia: klient i miejsce (16.10.2026) — przy uogólnionych tytułach
+ // dla rekrutera to klient odróżnia rekrutacje.
+ const meta = [job.client_name, job.location, job.seniority].filter(Boolean).join(" · ");
+ const sameClient = sameClientNote(employment, job.client_id);
  const assigned = assignedIds.has(jobId);
  const isAssigning = assigning === jobId;
  return (
@@ -213,10 +246,8 @@ export function QuickAssignV2({
  className="flex items-start gap-3 p-3 rounded-lg border border-border hover:border-primary/40 transition-colors"
  >
  <div className="flex-1 min-w-0">
- <div className="flex items-center gap-2 flex-wrap">
- <span className="font-medium text-sm text-foreground truncate">
- {job.title ?? `Rekrutacja #${jobId}`}
- </span>
+ <div className="flex items-center gap-2">
+ <JobPickName job={job} className="text-sm" />
  {typeof score === "number" && (
  <Badge variant={scoreVariant(score)} size="sm">
  {Math.round(score)}%
@@ -228,22 +259,26 @@ export function QuickAssignV2({
  </Badge>
  )}
  </div>
- {job.location && (
- <div className="text-xs text-muted-foreground mt-0.5">
- {job.location}
- {job.seniority ? ` · ${job.seniority}` :""}
- </div>
+ {meta && (
+ <div className="text-xs text-muted-foreground mt-0.5 truncate">{meta}</div>
+ )}
+ {sameClient && (
+ <Badge variant="warning" size="md" className="mt-1">
+ <AlertCircle className="h-3 w-3" aria-hidden />
+ {sameClient}
+ </Badge>
  )}
  </div>
  {assigned ? (
  <span className="inline-flex items-center gap-1 text-xs font-medium text-[#1d5e31] shrink-0">
- <CheckCircle2 className="h-3.5 w-3.5" /> Przypisano
+ <CheckCircle2 className="h-3.5 w-3.5" />{" "}
+ {restoredIds.has(jobId) ? "Przywrócono" : "Przypisano"}
  </span>
  ) : (
  <Button
  size="sm"
  variant="outline"
- onClick={() => handleAssign(jobId)}
+ onClick={() => handleAssign(jobId, title)}
  loading={isAssigning}
  >
  Przypisz
@@ -264,6 +299,9 @@ export function QuickAssignV2({
  <SheetDescription>
  Wybierz rekrutację dla <strong>{candidateName}</strong>.
  </SheetDescription>
+ {employment && (
+ <EmploymentNotice marker={employment} hint={ADD_ANYWAY_HINT} className="mt-2" />
+ )}
  {risk && <RiskBadge profile={risk} className="mt-2" />}
  </SheetHeader>
 
@@ -281,6 +319,22 @@ export function QuickAssignV2({
  `, w tym ${risk.breakdown.post_accept}× po akceptacji oferty`}
  . Decyzja należy do Ciebie — system tylko ostrzega.
  </div>
+ </div>
+ )}
+
+ {closedCard && (
+ <div className="mb-3">
+ <ClosedCardRestore
+ job={closedCard.job}
+ row={closedCard.row}
+ onRestored={() => {
+ const jobId = closedCard.job.id;
+ setAssignedIds((prev) => new Set(prev).add(jobId));
+ setRestoredIds((prev) => new Set(prev).add(jobId));
+ setClosedCard(null);
+ onAssigned?.(jobId);
+ }}
+ />
  </div>
  )}
 
@@ -333,7 +387,7 @@ export function QuickAssignV2({
  <div className="space-y-3">
  <Input
  leadingIcon={<Search className="h-4 w-4" />}
- placeholder="Szukaj po tytule rekrutacji…"
+ placeholder="Tytuł, klient albo numer…"
  value={searchQuery}
  onChange={(e) => setSearchQuery(e.target.value)}
  autoFocus

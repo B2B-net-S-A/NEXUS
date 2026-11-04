@@ -12,6 +12,7 @@ from app.api.deps import HeadOfRecruitmentOnly, OperationalUser
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.api.recruitment_access import ensure_job_membership
 from app.core.config import settings
+from app.services.hr.availability_local import availability_enabled
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.contract_onboarding import ContractOnboardingItem, OnboardingItemStatus
@@ -34,6 +35,7 @@ from app.services.recruitment_allocation import (
     load_workloads,
     Workload,
 )
+from app.services.request_allocation_rules import load_rules
 from app.services.workforce_availability import effective_owner_ids, workforce_context
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -150,8 +152,17 @@ async def set_allocation_mode(
         raise HTTPException(409, "Moduł przydziałów nie jest jeszcze uruchomiony")
     await allocation_lock(db)
     context = await workforce_context(db, refresh=True)
-    if body.mode == "auto" and not context.fresh:
-        raise HTTPException(409, "Najpierw przywróć aktualne dane z COMPASS")
+    # Urlopy (Compass albo NEXUS) wyłączone = nie ma danych, na które warto czekać;
+    # automat przydziela wtedy bez nich. Włączone i nieaktualne — odmowa, chyba
+    # że zasady każą przydzielać bez nich („Przydzielaj”).
+    rules = await load_rules(db)
+    if (
+        body.mode == "auto"
+        and availability_enabled()
+        and not context.fresh
+        and rules.leave_policy == "wait"
+    ):
+        raise HTTPException(409, "Najpierw przywróć aktualne dane o urlopach")
     await db.execute(
         insert(RecruitmentAllocationState).values(id=1).on_conflict_do_nothing()
     )
@@ -209,7 +220,7 @@ async def my_work(current_user: OperationalUser, db=Depends(get_db)):
     context = await workforce_context(db)
     loads = await load_workloads(db, context, now=datetime.now(timezone.utc))
     return {
-        "enabled": settings.COMPASS_AVAILABILITY_ENABLED,
+        "enabled": availability_enabled(),
         "workload": loads.get(current_user.id, Workload()).as_payload(),
         "delegations": [
             row.as_payload()

@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { z } from "zod";
+import { z } from "@/lib/zod";
 
 import { messageFromApiResponse } from "@/lib/api-error";
 import { applyFieldErrors } from "@/lib/apply-form-errors";
 import { browserApiBase } from "@/lib/career/api";
 import {
-  CONSENT_TEXT,
+  CONSENT_CURRENT_TEXT,
+  CONSENT_FUTURE_TEXT,
   CV_ACCEPT,
+  copyConsents,
   captureUtm,
   cvProblem,
   type CvProblem,
@@ -133,7 +135,41 @@ export interface CareerApplyFormProps {
     values?: Partial<Record<Exclude<CareerField, "cv" | "consent">, string>>;
     disableSubmit?: boolean;
   };
+  /** `plain` — zwykłe zdania zamiast komentarzy terminala (szablony B2B, 28.10.2026). */
+  tone?: "terminal" | "plain";
 }
+
+/** Napisy formularza zależne od tonu strony; logika i pola są wspólne. */
+const COPY = {
+  terminal: {
+    errPrefix: "// ",
+    alertTag: "[err]",
+    required: "// pola z * są wymagane",
+    fileTypes: "· pdf/doc/docx · 10\u00a0MB",
+    optToggle: "// opcjonalnie",
+    optJob: "// opcjonalnie — przyspieszy rozmowę",
+    optGeneral: "// opcjonalnie",
+    sending: "wysyłanie…",
+    resend: "wyślij ponownie",
+    sendJob: "wyślij aplikację",
+    sendGeneral: "dołącz do bazy",
+    kept: "// wpisane dane i plik zostają — nie musisz zaczynać od nowa",
+  },
+  plain: {
+    errPrefix: "",
+    alertTag: null,
+    required: "Pola oznaczone * są wymagane.",
+    fileTypes: "· PDF, DOC, DOCX do 10\u00a0MB",
+    optToggle: "Opcjonalnie",
+    optJob: "Opcjonalnie — przyspieszy rozmowę",
+    optGeneral: "Opcjonalnie",
+    sending: "Wysyłanie…",
+    resend: "Wyślij ponownie",
+    sendJob: "Wyślij zgłoszenie",
+    sendGeneral: "Dołącz do bazy",
+    kept: "Wpisane dane i plik zostają — nie musisz zaczynać od nowa.",
+  },
+} as const;
 
 type Status = "idle" | "submitting";
 
@@ -144,7 +180,12 @@ export function CareerApplyForm({
   secondaryLink,
   onSuccess,
   preview,
+  tone = "terminal",
 }: CareerApplyFormProps) {
+  const copy = COPY[tone];
+  // Ton `plain` pisze zdaniami — komunikaty walidacji z wielkiej litery.
+  const say = (text: string) =>
+    tone === "plain" && text ? text.charAt(0).toLocaleUpperCase("pl-PL") + text.slice(1) : text;
   const gateSubmit = useCareerSubmitted();
   const uid = useId();
   const id = (name: string) => `${uid}-${name}`;
@@ -218,7 +259,7 @@ export function CareerApplyForm({
     payload.set("last_name", str("last_name").trim());
     payload.set("email", str("email").trim());
     payload.set("cv", fd.get("cv") as File);
-    payload.set("consent", "true");
+    copyConsents(fd, payload);
     const rate = str("expected_rate_hourly").trim().replace(",", ".");
     if (rate) payload.set("expected_rate_hourly", rate);
     const availability = str("availability_date").trim();
@@ -300,8 +341,8 @@ export function CareerApplyForm({
   const fieldError = (field: CareerField) =>
     errors[field] ? (
       <span className="kr-err" id={id(`${field}-err`)}>
-        {"// "}
-        {errors[field]}
+        {copy.errPrefix}
+        {say(errors[field] ?? "")}
       </span>
     ) : null;
 
@@ -329,7 +370,13 @@ export function CareerApplyForm({
   );
 
   return (
-    <form onSubmit={onSubmit} noValidate className="kr-form" aria-label="Formularz aplikacji">
+    <form
+      onSubmit={onSubmit}
+      noValidate
+      className="kr-form"
+      data-kr-tone={tone}
+      aria-label="Formularz aplikacji"
+    >
       {hasProblem ? (
         <div
           ref={summaryRef}
@@ -339,10 +386,14 @@ export function CareerApplyForm({
           data-testid="career-form-summary"
         >
           <span>
-            <span className="kr-r">[err]</span>{" "}
+            {copy.alertTag ? (
+              <>
+                <span className="kr-r">{copy.alertTag}</span>{" "}
+              </>
+            ) : null}
             {invalid.length > 0
-              ? `nie udało się wysłać — popraw ${invalid.length} ${fieldsWord(invalid.length)}:`
-              : `nie udało się wysłać — ${formError}`}
+              ? say(`nie udało się wysłać — popraw ${invalid.length} ${fieldsWord(invalid.length)}:`)
+              : say(`nie udało się wysłać — ${formError}`)}
           </span>
           {invalid.length > 0 ? (
             <span className="kr-g">
@@ -353,16 +404,16 @@ export function CareerApplyForm({
           {invalid.length > 0 && formError ? <span className="kr-g">{formError}</span> : null}
         </div>
       ) : (
-        <span className="kr-c" style={{ fontSize: 13 }}>
-          {"// pola z * są wymagane"}
+        <span className="kr-c kr-required-note" style={tone === "terminal" ? { fontSize: 13 } : undefined}>
+          {copy.required}
         </span>
       )}
 
       <div className="kr-grid2">
-        {textInput("first_name", "imię *", { autoComplete: "given-name", required: true })}
-        {textInput("last_name", "nazwisko *", { autoComplete: "family-name", required: true })}
+        {textInput("first_name", "Imię *", { autoComplete: "given-name", required: true })}
+        {textInput("last_name", "Nazwisko *", { autoComplete: "family-name", required: true })}
       </div>
-      {textInput("email", "e-mail *", {
+      {textInput("email", "E-mail *", {
         type: "email",
         autoComplete: "email",
         inputMode: "email",
@@ -371,7 +422,7 @@ export function CareerApplyForm({
 
       <div>
         <span className="kr-label" id={id("cv-label")}>
-          cv *
+          CV *
         </span>
         <label
           className={dragging ? "kr-file kr-file-drag" : "kr-file"}
@@ -390,10 +441,10 @@ export function CareerApplyForm({
           ) : (
             <>
               <span className="kr-file-hint-desktop">
-                wybierz plik lub przeciągnij{" "}
-                <span className="kr-g">· pdf/doc/docx · 10{"\u00a0"}MB</span>
+                {say("wybierz plik lub przeciągnij")}{" "}
+                <span className="kr-g">{copy.fileTypes}</span>
               </span>
-              <span className="kr-file-hint-mobile">dodaj plik z telefonu</span>
+              <span className="kr-file-hint-mobile">{say("dodaj plik z telefonu")}</span>
             </>
           )}
           <input
@@ -426,10 +477,10 @@ export function CareerApplyForm({
         onClick={() => setOptionalOpen((o) => !o)}
       >
         {optionalOpen ? "▾ " : "▸ "}
-        {"// opcjonalnie"}
+        {copy.optToggle}
       </button>
       <span className="kr-c kr-opt-label">
-        {variant === "job" ? "// opcjonalnie — przyspieszy rozmowę" : "// opcjonalnie"}
+        {variant === "job" ? copy.optJob : copy.optGeneral}
       </span>
       <div
         id={id("optional")}
@@ -438,7 +489,7 @@ export function CareerApplyForm({
       >
         <div>
           <label className="kr-label" htmlFor={id("expected_rate_hourly")}>
-            stawka zł/h netto
+            Stawka zł/h netto
           </label>
           <input
             id={id("expected_rate_hourly")}
@@ -448,7 +499,6 @@ export function CareerApplyForm({
             min={1}
             max={10000}
             step="any"
-            placeholder="170"
             className="kr-input"
             disabled={busy}
             defaultValue={v.expected_rate_hourly}
@@ -459,7 +509,7 @@ export function CareerApplyForm({
         </div>
         <div>
           <label className="kr-label" htmlFor={id("availability_date")}>
-            dostępny od
+            Dostępny od
           </label>
           <input
             id={id("availability_date")}
@@ -473,10 +523,10 @@ export function CareerApplyForm({
           />
           {fieldError("availability_date")}
         </div>
-        {textInput("city", "miasto", { autoComplete: "address-level2", maxLength: 120 })}
+        {textInput("city", "Miasto", { autoComplete: "address-level2", maxLength: 120 })}
         <div>
           <label className="kr-label" htmlFor={id("work_mode")}>
-            tryb pracy
+            Tryb pracy
           </label>
           <select
             id={id("work_mode")}
@@ -521,28 +571,46 @@ export function CareerApplyForm({
             aria-describedby={errId("consent")}
           />
           <span className="kr-consent-text">
-            * {CONSENT_TEXT} <a href={rodoHref}>Klauzula informacyjna</a>
+            {/* Stały link rekrutera („Dołącz do bazy”) nie dotyczy żadnej
+                rekrutacji — obowiązkowa jest tam zgoda na przyszłe procesy
+                (decyzja Artura 19.10.2026, `career_consent.consent_kinds`). */}
+            * {variant === "general" ? CONSENT_FUTURE_TEXT : CONSENT_CURRENT_TEXT}{" "}
+            <a href={rodoHref}>Klauzula informacyjna</a>
           </span>
         </label>
         {fieldError("consent")}
       </div>
 
+      {variant === "general" ? null : (
+        <label className="kr-consent">
+          <input type="checkbox" name="consent_future" value="true" disabled={busy} />
+          <span className="kr-consent-text">
+            <span className="kr-c">(nieobowiązkowe)</span> {CONSENT_FUTURE_TEXT}
+          </span>
+        </label>
+      )}
+
       <button type="submit" className="kr-submit" disabled={busy}>
         {/* Plakietka klawisza nie ma sensu na telefonie — chowamy poniżej `sm`. */}
-        <span className="kr-kbd hidden sm:inline-block" aria-hidden="true">
-          ENTER
-        </span>
+        {tone === "terminal" ? (
+          <span className="kr-kbd hidden sm:inline-block" aria-hidden="true">
+            ENTER
+          </span>
+        ) : null}
         {busy
-          ? "wysyłanie…"
+          ? copy.sending
           : attempted && hasProblem
-            ? "wyślij ponownie"
+            ? copy.resend
             : variant === "job"
-              ? "wyślij aplikację"
-              : "dołącz do bazy"}
+              ? copy.sendJob
+              : copy.sendGeneral}
       </button>
       {attempted && hasProblem ? (
-        <span className="kr-c" style={{ fontSize: 12, textAlign: "center" }}>
-          {"// wpisane dane i plik zostają — nie musisz zaczynać od nowa"}
+        <span
+          className="kr-c kr-kept-note"
+          style={tone === "terminal" ? { fontSize: 12, textAlign: "center" } : undefined}
+        >
+          {copy.kept}
         </span>
       ) : null}
       {secondaryLink ? (

@@ -25,7 +25,6 @@ vi.mock("@/lib/api", () => ({
   b2bGeneratorApi: {},
   extractErrorMsg: (error: unknown) =>
     error instanceof Error ? error.message : "Błąd",
-  signingApi: {},
 }));
 
 import {

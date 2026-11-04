@@ -8,7 +8,11 @@ Trzy źródła, wszystkie już w bazie, żadne nie woła modelu:
   (18 miesięcy), wybranych po wspólnych słowach tytułu z treścią requestu —
   bez wektorów, bo rekrutacja jeszcze nie istnieje;
 * pytania, które klient zadawał na rozmowach (bank `interview_questions`,
-  źródło `client_debrief`).
+  źródło `client_debrief`);
+* pytania z archiwum rozmów (źródło `legacy_import`, 0383) — WYŁĄCZNIE te,
+  które pytają o technologie wymienione w requeście
+  (`client_question_archive`). Nigdy „najnowsze N” archiwum: u Nordei to
+  tysiąc pytań z kilkudziesięciu ról.
 
 Kontekst trafia do modelu jako materiał do PROPOZYCJI (frazy, argumenty,
 pytania), nigdy jako fakty o nowej rekrutacji. Nie niesie nazwisk: z profili
@@ -23,7 +27,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client_playbook import ClientPlaybook
@@ -35,6 +39,7 @@ from app.services.champion_document import folded
 HISTORY_WINDOW_DAYS = 548
 MAX_PAST_PROFILES = 3
 MAX_DEBRIEF_QUESTIONS = 15
+MAX_ARCHIVE_QUESTIONS = 10
 _CANDIDATE_POOL = 40
 _FIELD_CAP = 400
 _WORD = re.compile(r"[a-z0-9+#.]{3,}")
@@ -57,7 +62,6 @@ def _compact_profile(job: Job) -> dict[str, Any]:
     return {
         "title": _cap(job.title, 160),
         "project_about": _cap(project.get("about")),
-        "search_keywords": _cap(search.get("keywords")),
         "target_companies": _cap(search.get("target_companies")),
         "selling_points": _cap(client.get("selling_points")),
         "domains": [item["name"] for item in experience.get("domains") or []][:6],
@@ -87,6 +91,22 @@ async def debrief_questions(db: AsyncSession, client_id: int) -> list[str]:
     return [_cap(text, 300) for text in rows if isinstance(text, str) and text.strip()]
 
 
+async def archive_questions_for_request(
+    db: AsyncSession, client_id: int, request_text: str
+) -> list[str]:
+    """Pytania z archiwum rozmów o technologie, które padają w requeście."""
+    from app.services.client_question_archive import archive_questions_for_role
+    from app.services.question_suggestions import mentioned_technologies
+
+    matches = await archive_questions_for_role(
+        db,
+        client_id=client_id,
+        requirement_names=mentioned_technologies(request_text or ""),
+        limit=MAX_ARCHIVE_QUESTIONS,
+    )
+    return [_cap(m.question.text, 300) for m in matches]
+
+
 async def load_client_context(
     db: AsyncSession, *, client_id: int, request_text: str
 ) -> dict[str, Any]:
@@ -94,6 +114,10 @@ async def load_client_context(
         select(ClientPlaybook).where(ClientPlaybook.client_id == client_id)
     )
     since = datetime.now(timezone.utc) - timedelta(days=HISTORY_WINDOW_DAYS)
+    # Data otwarcia, nie importu: `created_at` rekrutacji z Traffita to maj
+    # 2026 dla całego archiwum, więc okno i „najnowsze” wybierały losowo
+    # (runda 7, R7-V3-1 — bliźniak listy praktykanta).
+    started = func.coalesce(Job.opened_at, Job.created_at)
     jobs = (
         (
             await db.execute(
@@ -101,9 +125,9 @@ async def load_client_context(
                 .where(
                     Job.client_id == client_id,
                     Job.champion_profile.is_not(None),
-                    Job.created_at >= since,
+                    started >= since,
                 )
-                .order_by(Job.created_at.desc())
+                .order_by(started.desc(), Job.id.desc())
                 .limit(_CANDIDATE_POOL)
             )
         )
@@ -127,6 +151,9 @@ async def load_client_context(
         else None,
         "past_profiles": [_compact_profile(job) for job in ranked[:MAX_PAST_PROFILES]],
         "debrief_questions": await debrief_questions(db, client_id),
+        "archive_questions_same_technologies": await archive_questions_for_request(
+            db, client_id, request_text
+        ),
     }
 
 

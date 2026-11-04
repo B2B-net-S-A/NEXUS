@@ -1,0 +1,35 @@
+{
+  "_comment": "Reguła porównania stawki z rekrutacji ze stawką w zamówieniu i umowie (D7, 08.10.2026). Lustro: backend/app/services/recruitment_rate_check.py ↔ frontend/src/lib/recruitment-rate-check.ts. Dzień i MD = 8 h, miesiąc tylko z miesiącem, inna waluta = nieporównywalne, tolerancja 0,01 zł/h.",
+  "compare": [
+    {"name": "ta sama stawka godzinowa", "reference": {"value": "165", "unit": "hourly", "currency": "PLN"}, "actual": {"value": "165.00", "unit": "hour", "currency": "PLN"}, "expected": "equal"},
+    {"name": "inna stawka godzinowa", "reference": {"value": "165", "unit": "hourly", "currency": "PLN"}, "actual": {"value": "160", "unit": "hourly", "currency": "PLN"}, "expected": "differs"},
+    {"name": "MD to 8 godzin", "reference": {"value": "165", "unit": "hourly", "currency": "PLN"}, "actual": {"value": "1320", "unit": "day", "currency": "PLN"}, "expected": "equal"},
+    {"name": "MD z groszami w tolerancji", "reference": {"value": "165.25", "unit": "hourly", "currency": "PLN"}, "actual": {"value": "1322.05", "unit": "daily", "currency": "PLN"}, "expected": "equal"},
+    {"name": "MD poza tolerancją", "reference": {"value": "165", "unit": "hourly", "currency": "PLN"}, "actual": {"value": "1321", "unit": "md", "currency": "PLN"}, "expected": "differs"},
+    {"name": "różnica dokładnie 0,01 zł/h", "reference": {"value": "165.00", "unit": "hourly", "currency": "PLN"}, "actual": {"value": "165.01", "unit": "hourly", "currency": "PLN"}, "expected": "equal"},
+    {"name": "różnica 0,02 zł/h", "reference": {"value": "165.00", "unit": "hourly", "currency": "PLN"}, "actual": {"value": "165.02", "unit": "hourly", "currency": "PLN"}, "expected": "differs"},
+    {"name": "dzień kontra dzień", "reference": {"value": "1200", "unit": "daily", "currency": "PLN"}, "actual": {"value": "1250", "unit": "day", "currency": "PLN"}, "expected": "differs"},
+    {"name": "miesiąc z miesiącem", "reference": {"value": "24000", "unit": "monthly", "currency": "PLN"}, "actual": {"value": "24000", "unit": "month", "currency": "PLN"}, "expected": "equal"},
+    {"name": "miesiąc z godziną nieporównywalny", "reference": {"value": "24000", "unit": "monthly", "currency": "PLN"}, "actual": {"value": "150", "unit": "hourly", "currency": "PLN"}, "expected": "not_comparable"},
+    {"name": "godzina z miesiącem nieporównywalna", "reference": {"value": "150", "unit": "hourly", "currency": "PLN"}, "actual": {"value": "25200", "unit": "monthly", "currency": "PLN"}, "expected": "not_comparable"},
+    {"name": "inna waluta po stronie rekrutacji", "reference": {"value": "40", "unit": "hourly", "currency": "EUR"}, "actual": {"value": "40", "unit": "hourly", "currency": "PLN"}, "expected": "not_comparable"},
+    {"name": "inna waluta po stronie zamówienia", "reference": {"value": "165", "unit": "hourly", "currency": "PLN"}, "actual": {"value": "165", "unit": "hourly", "currency": "eur"}, "expected": "not_comparable"},
+    {"name": "brak waluty liczy się jako PLN", "reference": {"value": "165", "unit": "hourly", "currency": null}, "actual": {"value": "165", "unit": "hourly", "currency": "pln"}, "expected": "equal"},
+    {"name": "brak stawki w rekrutacji", "reference": {"value": null, "unit": "hourly", "currency": "PLN"}, "actual": {"value": "165", "unit": "hourly", "currency": "PLN"}, "expected": "not_comparable"},
+    {"name": "brak jednostki", "reference": {"value": "165", "unit": null, "currency": "PLN"}, "actual": {"value": "165", "unit": "hourly", "currency": "PLN"}, "expected": "not_comparable"},
+    {"name": "nieznana jednostka", "reference": {"value": "165", "unit": "hourly", "currency": "PLN"}, "actual": {"value": "165", "unit": "week", "currency": "PLN"}, "expected": "not_comparable"},
+    {"name": "zero to brak stawki", "reference": {"value": "0", "unit": "hourly", "currency": "PLN"}, "actual": {"value": "0", "unit": "hourly", "currency": "PLN"}, "expected": "not_comparable"},
+    {"name": "przecinek dziesiętny", "reference": {"value": "165,50", "unit": "hourly", "currency": "PLN"}, "actual": {"value": "1324", "unit": "daily", "currency": "PLN"}, "expected": "equal"}
+  ],
+  "hourly": [
+    {"value": "1320", "unit": "daily", "currency": "PLN", "expected": "165"},
+    {"value": "165.5", "unit": "hourly", "currency": "PLN", "expected": "165.5"},
+    {"value": "24000", "unit": "monthly", "currency": "PLN", "expected": null},
+    {"value": "40", "unit": "hourly", "currency": "EUR", "expected": null}
+  ],
+  "format": [
+    {"value": "165", "unit": "hourly", "expected": "165 zł/h"},
+    {"value": "1320.5", "unit": "day", "expected": "1320,50 zł/MD"},
+    {"value": "24000", "unit": "monthly", "expected": "24000 zł/mc"}
+  ]
+}

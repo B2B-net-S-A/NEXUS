@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import false, func, or_, select, update
+from sqlalchemy import exists, false, func, or_, select, tuple_, update
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -29,7 +31,12 @@ from app.services.section_permissions import (
 )
 from app.services.notification_access import user_can_receive_notification
 from app.services.email import send_chat_fallback_email
-from app.services.notification_delivery import DeliveryPolicy, load_policy
+from app.services.notification_delivery import (
+    DeliveryPolicy,
+    email_queue_clause,
+    email_wanted,
+    load_policy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +46,9 @@ OFFLINE_THRESHOLD_MIN = 15
 LOOP_SLEEP_SEC = 60
 # Maksymalna paczka w jednym przebiegu (zapobiega N+1)
 BATCH_SIZE = 100
+# Ile paczek przejrzeć w jednym przebiegu, gdy pierwsza składa się z wierszy
+# odrzuconych w Pythonie (sekcja, rola, osoba online) — runda 9 (R9-N2-1).
+MAX_BATCHES_PER_PASS = 10
 MAX_SENDS_PER_PASS = 10
 RETRY_DELAY_MIN = 5
 # Po ilu minutach rezerwacja porzucona PRZED granicą rozpoczęcia wysyłki
@@ -74,7 +84,6 @@ async def _send_chat_email(user: User, notif: Notification) -> bool:
 
         ok = send_chat_fallback_email(
             to_email=user.email,
-            recipient_name=user.name or user.email,
             notification_title=notif.title,
             notification_message=notif.message or "",
             deep_link_path=notif.link or "/",
@@ -205,16 +214,27 @@ async def _channel_waiting() -> bool:
     return max(state.get("next_attempt_at", 0), state.get("lease_until", 0)) > now
 
 
-def pending_candidate_query(now: datetime, policy: DeliveryPolicy | None = None):
+def pending_candidate_query(
+    now: datetime,
+    policy: DeliveryPolicy | None = None,
+    *,
+    exclude_user_ids: Iterable[int] = (),
+    after: tuple[datetime, int] | None = None,
+):
     """SQL candidate queue; final section access is checked by the worker.
 
     Reused by monitoring so unattempted rows are included in backlog evidence.
     This is an upper bound, not a promise that every row will be emailed.
+
+    ``exclude_user_ids`` — osoby z otwartym gniazdem w tym procesie (są
+    online, choć ``last_seen_at`` stemplujemy co kilka minut); ``after`` —
+    klucz ostatniego obejrzanego wiersza (keyset), żeby przebieg mógł zajrzeć
+    dalej niż pierwsza setka (runda 9, R9-N2-1 i R9-N2-2).
     """
     threshold = now - timedelta(minutes=OFFLINE_THRESHOLD_MIN)
     stale_cutoff = now - timedelta(minutes=CLAIM_STALE_MIN)
     policy = policy or DeliveryPolicy()
-    return (
+    query = (
         select(Notification, User)
         .join(User, User.id == Notification.user_id)
         .where(Notification.notification_type.in_(_CHAT_NOTIF_TYPES))
@@ -247,7 +267,63 @@ def pending_candidate_query(now: datetime, policy: DeliveryPolicy | None = None)
             )
         )
         .where((User.last_seen_at.is_(None)) | (User.last_seen_at <= threshold))
-        .order_by(Notification.created_at.asc())
+        .where(~_newer_in_same_thread())
+        # Admin jest dopisywany do KAŻDEGO czatu rekrutacji („komplet obsady”),
+        # więc mail o zwykłej wiadomości szedłby do niego z całej firmy; mail
+        # dostaje tylko wtedy, gdy ktoś go oznaczył (runda 7, R7-N5-3).
+        .where(
+            or_(
+                Notification.notification_type == NotificationType.job_chat_mention,
+                User.role != UserRole.admin,
+            )
+        )
+        # Wyciszony „Czat" (0349) odpada już w SQL. Do rundy 9 odrzucał go
+        # Python, więc setka takich wierszy na czele kolejki (najstarsze)
+        # blokowała maile czatu wszystkim innym (R9-N2-1). Wzmianki są
+        # kategorią obowiązkową — wyciszyć ich nie można.
+        .where(
+            or_(
+                Notification.notification_type != NotificationType.job_chat_message,
+                ~User.muted_notification_categories.has_key("chat"),
+            )
+        )
+        # Własny wyłącznik maila („Maile do Ciebie”) — z tego samego powodu.
+        .where(email_queue_clause("chat_unread", Notification.created_at))
+        .order_by(Notification.created_at.asc(), Notification.id.asc())
+    )
+    excluded = sorted({int(uid) for uid in exclude_user_ids})
+    if excluded:
+        query = query.where(User.id.not_in(excluded))
+    if after is not None:
+        query = query.where(
+            tuple_(Notification.created_at, Notification.id) > tuple_(*after)
+        )
+    return query
+
+
+def _newer_in_same_thread():
+    """Czy ta osoba ma nowsze powiadomienie z tego samego czatu (runda 7, R7-N5-3).
+
+    Wzmianka to DWA powiadomienia o jednej wiadomości (`job_chat_message`
+    i `job_chat_mention`), a każda kolejna wiadomość w wątku — następne; bez
+    tego osoba offline dostawała osobny mail za każde z nich. Mail idzie tylko
+    o najnowszym powiadomieniu wątku (link bez `&msg=`); przeczytane albo już
+    wysłane nowsze też wystarcza — wątek był otwarty albo zgłoszony.
+    """
+    newer = aliased(Notification)
+    thread = func.split_part(Notification.link, "&msg=", 1)
+    return exists().where(
+        newer.user_id == Notification.user_id,
+        newer.notification_type.in_(_CHAT_NOTIF_TYPES),
+        newer.id > Notification.id,
+        func.split_part(newer.link, "&msg=", 1) == thread,
+        # Nowsze powiadomienie wstrzymuje mail tylko wtedy, gdy samo może
+        # dostać maila — admin dostaje wyłącznie wzmianki, więc zwykła
+        # wiadomość w wątku nie może zjeść jego maila o wzmiance.
+        or_(
+            User.role != UserRole.admin,
+            newer.notification_type == NotificationType.job_chat_mention,
+        ),
     )
 
 
@@ -270,28 +346,77 @@ async def _process_one_pass(db: AsyncSession) -> int:
     #     crashed process ARE picked up again — that is the recovery path)
     # These filters only narrow the batch; the atomic claim below is the real
     # guard against a double send.
-    rows = await db.execute(pending_candidate_query(now, policy).limit(BATCH_SIZE))
-    pairs = rows.all()
-    if not pairs:
-        return 0
-
-    await resolve_effective_section_access_for_users(db, [user for _, user in pairs])
-
+    online = _online_user_ids()
     sent = 0
     attempts = 0
+    after: tuple[datetime, int] | None = None
+    # Keyset po (created_at, id): wiersze odrzucone w Pythonie (sekcja, rola)
+    # nie zajmują już całego przebiegu — kolejna paczka zaczyna się za nimi
+    # (runda 9, R9-N2-1).
+    for _batch in range(MAX_BATCHES_PER_PASS):
+        rows = await db.execute(
+            pending_candidate_query(
+                now, policy, exclude_user_ids=online, after=after
+            ).limit(BATCH_SIZE)
+        )
+        pairs = rows.all()
+        if not pairs:
+            break
+        last_notif = pairs[-1][0]
+        after = (last_notif.created_at, last_notif.id)
+        await resolve_effective_section_access_for_users(
+            db, [user for _, user in pairs]
+        )
+        batch_sent, attempts, stop = await _process_batch(
+            db, pairs, threshold=threshold, attempts=attempts
+        )
+        sent += batch_sent
+        if stop or len(pairs) < BATCH_SIZE:
+            break
+    return sent
+
+
+def _online_user_ids() -> frozenset[int]:
+    """Osoby z otwartym gniazdem powiadomień (runda 9, R9-N2-2).
+
+    ``last_seen_at`` stemplujemy przy połączeniu, rozłączeniu i co kilka
+    minut podtrzymania, ale osoba z otwartą kartą jest online niezależnie od
+    stempla. Backend to jeden proces uvicorna, więc menedżer gniazd zna
+    wszystkich podłączonych.
+    """
+    try:
+        from app.api.ws import manager
+
+        return frozenset(manager.get_connected_user_ids())
+    except Exception:  # noqa: BLE001 — bez menedżera zostaje sam stempel
+        return frozenset()
+
+
+async def _process_batch(
+    db: AsyncSession,
+    pairs,
+    *,
+    threshold: datetime,
+    attempts: int,
+) -> tuple[int, int, bool]:
+    """Obsłuż jedną paczkę. Zwraca (wysłane, próby łącznie, czy przerwać)."""
+    sent = 0
     for notif, user in pairs:
         if attempts >= MAX_SENDS_PER_PASS:
-            break
+            return sent, attempts, True
         # Role changes can race with the SELECT. Re-evaluate the complete,
         # current role union before even claiming the notification; a stale
         # unread chat row must never email candidate/recruitment PII to Finance.
-        if not _eligible_chat_email_recipient(
-            user
-        ) or not user_can_receive_notification(
-            user,
-            notif.notification_type,
-            related_entity_type=notif.related_entity_type,
-            link=notif.link,
+        if (
+            not _eligible_chat_email_recipient(user)
+            # Własny wyłącznik maila („Maile do Ciebie”); dzwonek zostaje.
+            or not email_wanted(user, "chat_unread", notif.created_at)
+            or not user_can_receive_notification(
+                user,
+                notif.notification_type,
+                related_entity_type=notif.related_entity_type,
+                link=notif.link,
+            )
         ):
             continue
         # Reserve the row atomically BEFORE sending so an overlapping pass can't
@@ -303,25 +428,40 @@ async def _process_one_pass(db: AsyncSession) -> int:
         # transition to Finance/viewer (or deactivation) cannot leak the stale
         # notification body.
         await db.refresh(
-            user, attribute_names=["role", "roles", "is_active", "last_seen_at"]
+            user,
+            attribute_names=[
+                "role",
+                "roles",
+                "is_active",
+                "last_seen_at",
+                "email_opt_outs",
+            ],
         )
         await resolve_effective_section_access(db, user)
-        if not _eligible_chat_email_recipient(
-            user
-        ) or not user_can_receive_notification(
-            user,
-            notif.notification_type,
-            related_entity_type=notif.related_entity_type,
-            link=notif.link,
+        if (
+            not _eligible_chat_email_recipient(user)
+            or not email_wanted(user, "chat_unread", notif.created_at)
+            or not user_can_receive_notification(
+                user,
+                notif.notification_type,
+                related_entity_type=notif.related_entity_type,
+                link=notif.link,
+            )
         ):
             await _release_claim(db, notif.id)
             continue
-        await db.refresh(notif, attribute_names=["is_read", "email_sent_at"])
+        # Runda 10 (R10-N6-3): usunięta albo poprawiona wiadomość zmienia
+        # `is_read` / `message` powiadomienia — mail ma nieść stan z bazy.
+        await db.refresh(
+            notif, attribute_names=["is_read", "email_sent_at", "message", "title"]
+        )
         if (
             not user.is_active
             or notif.is_read
             or notif.email_sent_at is not None
             or (user.last_seen_at and user.last_seen_at > threshold)
+            # Kartę mógł otworzyć między SELECT-em a rezerwacją.
+            or user.id in _online_user_ids()
         ):
             await _release_claim(db, notif.id)
             continue
@@ -351,8 +491,8 @@ async def _process_one_pass(db: AsyncSession) -> int:
         else:
             await _defer_notification(db, notif.id)
             if await _channel_waiting():
-                break
-    return sent
+                return sent, attempts, True
+    return sent, attempts, False
 
 
 async def chat_email_fallback_loop() -> None:

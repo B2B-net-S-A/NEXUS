@@ -17,7 +17,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const listFeedback = vi.fn();
 const recordFeedback = vi.fn();
 const getForStage = vi.fn();
-const createShareToken = vi.fn();
 const apiGet = vi.fn();
 const apiPost = vi.fn();
 const templatesGet = vi.fn();
@@ -30,13 +29,15 @@ vi.mock("@/lib/api", () => ({
     post: (...a: unknown[]) => apiPost(...a),
   },
   extractErrorMsg: (e: unknown) => (e instanceof Error ? e.message : "Błąd"),
+  pipelineApi: {
+    move: (data: unknown) => apiPost("/api/pipeline/move", data),
+  },
   hiringManagerFeedbackApi: {
     list: (...a: unknown[]) => listFeedback(...a),
     record: (...a: unknown[]) => recordFeedback(...a),
   },
   screeningApi: {
     getForStage: (...a: unknown[]) => getForStage(...a),
-    createShareToken: (...a: unknown[]) => createShareToken(...a),
   },
   pipelineTemplatesApi: {
     get: (...a: unknown[]) => templatesGet(...a),
@@ -61,7 +62,14 @@ vi.mock("@/components/v2/modals/ScreeningSheet", () => ({
   ScreeningSheet: () => <div data-testid="screening-sheet-stub" />,
 }));
 vi.mock("@/components/v2/modals/RejectionV2", () => ({
-  RejectionV2: () => <div data-testid="rejection-stub" />,
+  // Przycisk w stubie potwierdza odrzucenie z zaznaczonym mailem (R10-V2-1).
+  RejectionV2: (p: { onConfirm: (...a: unknown[]) => void }) => (
+    <div data-testid="rejection-stub">
+      <button type="button" onClick={() => p.onConfirm("3", "", true, null)}>
+        stub: potwierdź odrzucenie z mailem
+      </button>
+    </div>
+  ),
 }));
 vi.mock("@/components/v2/modals/CVOriginalPreviewModal", () => ({
   CVOriginalPreviewModal: () => <div data-testid="cv-original-stub" />,
@@ -71,6 +79,7 @@ vi.mock("@/components/v2/modals/PrepInviteModal", () => ({
 }));
 
 import { JobInterviewsTab, feedbackStatusLabel } from "@/components/v2/jobs/JobInterviewsTab";
+import { rejectionEmailSkipMessage } from "@/lib/rejection-email";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { useAuthStore, type UserRole } from "@/store/auth";
 
@@ -177,9 +186,6 @@ beforeEach(() => {
     veto_blockers: ["Kandydat nie został jeszcze odrzucony na tej rekrutacji."],
   });
   getForStage.mockResolvedValue({ data: { screening_answers: null } });
-  createShareToken.mockResolvedValue({
-    data: { token: "t", expires_at: "", share_url_suffix: "/share/x" },
-  });
   apiGet.mockResolvedValue({ data: { pipeline_template_id: 1 } });
   apiPost.mockResolvedValue({ data: {} });
   templatesGet.mockResolvedValue({
@@ -292,6 +298,39 @@ describe("JobInterviewsTab", () => {
     });
   });
 
+  it("„Akceptuje” na rozmowie u klienta otwiera okno „Klient zaakceptował” (D6, 16.10.2026)", async () => {
+    const onClientAccept = vi.fn();
+    renderTab({ onClientAccept });
+    await editableForm();
+    expect(screen.getByText(/otwiera okno „Klient zaakceptował”/)).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: "Akceptuje" }));
+    expect(onClientAccept).toHaveBeenCalledWith(42, null);
+    // Werdykt zapisze okno razem z ruchem — tu nic nie idzie na serwer.
+    expect(recordFeedback).not.toHaveBeenCalled();
+  });
+
+  it("domyślnie wciśnięte „Akceptuje” + „Zapisz feedback” też otwiera okno — z wpisaną notatką", async () => {
+    const onClientAccept = vi.fn();
+    renderTab({ onClientAccept });
+    await editableForm();
+    expect(screen.getByRole("button", { name: "Akceptuje" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.type(screen.getByLabelText("Notatka z feedbacku"), "Start od listopada.");
+    await userEvent.click(screen.getByRole("button", { name: /Zapisz feedback/ }));
+    expect(onClientAccept).toHaveBeenCalledWith(42, "Start od listopada.");
+    expect(recordFeedback).not.toHaveBeenCalled();
+  });
+
+  it("bez okna akceptacji „Akceptuje” to zwykły werdykt do zapisu", async () => {
+    renderTab();
+    await editableForm();
+    expect(screen.queryByText(/otwiera okno „Klient zaakceptował”/)).toBeNull();
+    await userEvent.click(await screen.findByRole("button", { name: "Odrzuca" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Akceptuje" }));
+    await userEvent.click(screen.getByRole("button", { name: /Zapisz feedback/ }));
+    await waitFor(() => expect(recordFeedback).toHaveBeenCalledTimes(1));
+    expect(recordFeedback).toHaveBeenCalledWith(10, expect.objectContaining({ decision: "advance" }));
+  });
+
   it("readOnly wyłącza formularz i chowa zapis, ale zostawia odczyt", async () => {
     renderTab({ readOnly: true });
     expect(await screen.findByLabelText("Powód (gdy odrzuca)")).toBeDisabled();
@@ -299,7 +338,7 @@ describe("JobInterviewsTab", () => {
     expect(screen.getByText(/Tylko do odczytu/)).toBeTruthy();
   });
 
-  it("„CV Wysłane” jest wyszarzone z powodem — jego modal mieszka na tablicy", async () => {
+  it("„CV wysłane” jest wyszarzone z powodem — jego modal mieszka na tablicy", async () => {
     renderTab();
     const pill = await screen.findByRole("button", { name: "CV Wysłane" });
     expect(pill).toBeDisabled();
@@ -332,7 +371,7 @@ describe("JobInterviewsTab", () => {
     expect(acceptance).not.toBeDisabled();
     expect(acceptance.getAttribute("title") ?? "").not.toMatch(/Hiring manager/);
 
-    // „CV Wysłane" zostaje wyszarzone WYŁĄCZNIE dlatego, że jego modal stawki
+    // „CV wysłane" zostaje wyszarzone WYŁĄCZNIE dlatego, że jego modal stawki
     // mieszka na tablicy — powód weta się nie pojawia.
     const cvSent = screen.getByRole("button", { name: "CV Wysłane" });
     expect(cvSent.getAttribute("title")).toMatch(/stawkę do klienta/);
@@ -343,6 +382,31 @@ describe("JobInterviewsTab", () => {
     expect(
       screen.getByRole("button", { name: /Odrzuć z powodem/ }),
     ).not.toBeDisabled();
+  });
+
+  it("zaznaczony mail, którego serwer nie zaplanował — komunikat z powodem (R10-V2-1)", async () => {
+    apiPost.mockImplementation((url: string) =>
+      url === "/api/pipeline/move"
+        ? Promise.resolve({
+            data: { scheduled_rejection_email_id: null, rejection_email_status: "no_mailbox" },
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    renderTab();
+    await userEvent.click(await screen.findByRole("button", { name: /Odrzuć z powodem/ }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "stub: potwierdź odrzucenie z mailem" }),
+    );
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith(
+        "/api/pipeline/move",
+        expect.objectContaining({ send_rejection_email: true }),
+      ),
+    );
+    await waitFor(() =>
+      expect(showError).toHaveBeenCalledWith(rejectionEmailSkipMessage("no_mailbox")),
+    );
+    expect(showSuccess).toHaveBeenCalledWith("Zapisano decyzję.");
   });
 
   it("F05: ruch z doku wysyła wersję procesu z karty", async () => {
@@ -517,24 +581,12 @@ describe("JobInterviewsTab", () => {
     expect(recordFeedback).not.toHaveBeenCalled();
   });
 
-  it("link do karty Championa: adres zostaje na karcie, a „skopiowany” pada tylko po udanym kopiowaniu", async () => {
-    copyText.mockResolvedValueOnce(false);
-    createShareToken.mockResolvedValueOnce({
-      data: { token: "t", expires_at: "", share_url_suffix: "/share/champion-card/k07" },
-    });
+  it("nie ma karty Championa dla klienta — wycofana (D2, 0424)", async () => {
     renderTab();
-    await userEvent.click(
-      await screen.findByRole("button", { name: /Karta Championa dla klienta/ }),
-    );
-    await waitFor(() => expect(showError).toHaveBeenCalled());
-    expect(showError.mock.calls[0][0]).toContain("nie udało się go skopiować");
-    expect(showSuccess).not.toHaveBeenCalledWith(
-      expect.stringContaining("skopiowany"),
-    );
-    const field = await screen.findByLabelText("Link do karty Championa dla klienta");
-    expect((field as HTMLInputElement).value).toBe(
-      `${window.location.origin}/share/champion-card/k07`,
-    );
+    await screen.findByRole("heading", { name: /Rozmowa u klienta/ });
+    expect(screen.queryByRole("button", { name: /Karta Championa dla klienta/ })).toBeNull();
+    expect(screen.queryByLabelText("Link do karty Championa dla klienta")).toBeNull();
+    expect(screen.queryByText(/Screening Championa dla klienta/)).toBeNull();
   });
 
   it("pusty pipeline mówi „nikt nie jest u klienta”, a nie renderuje pustki", async () => {
@@ -586,18 +638,18 @@ describe("JobInterviewsTab", () => {
       screen.getByRole("link", { name: /Prep-kit \(AI\)/ }),
     ).toHaveAttribute("href", "/jobs/10/prep/42");
     expect(
-      screen.getByRole("button", { name: /Screening Championa dla klienta/ }),
+      screen.getByRole("button", { name: /Formularz screeningu/ }),
     ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /Zaproszenie prep/ }),
     ).toBeTruthy();
   });
 
-  it("„Screening Championa dla klienta” z szyny otwiera TEN SAM arkusz co tablica", async () => {
+  it("„Formularz screeningu” z szyny otwiera TEN SAM formularz co Tablica", async () => {
     renderTab();
     await screen.findByRole("heading", { name: /Rozmowa u klienta/ });
     await userEvent.click(
-      screen.getByRole("button", { name: /Screening Championa dla klienta/ }),
+      screen.getByRole("button", { name: /Formularz screeningu/ }),
     );
     expect(await screen.findByTestId("screening-sheet-stub")).toBeTruthy();
   });
@@ -721,11 +773,11 @@ describe("JobInterviewsTab — layout=\"panel\" (rekrutacja v3)", () => {
     expect(screen.getByRole("button", { name: /Spróbuj ponownie/ })).toBeTruthy();
   });
 
-  it("kluczowe akcje zostają: werdykt HM, karta Championa, arkusz, prep, ruchy i odrzucenie", async () => {
+  it("kluczowe akcje zostają: werdykt HM, formularz screeningu, prep, ruchy i odrzucenie", async () => {
     renderTab({ layout: "panel", focusCandidateId: 42 });
     expect(await screen.findByRole("button", { name: /Zapisz feedback/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Karta Championa dla klienta/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Otwórz arkusz" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Karta Championa dla klienta/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Otwórz formularz" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Pokaż CV obok/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Zaproszenie prep/ })).toBeTruthy();
     expect(

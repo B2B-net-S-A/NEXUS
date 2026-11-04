@@ -9,19 +9,43 @@ PR — nigdy globalny sed, bo ``backend/entrypoint.sh`` i ``CLAUDE.md``
 niosą numery cudzych migracji (np. ``0369: Akademia`` z maina obok
 ``0369: ocena prepu`` z PR-a). Ten skrypt robi to mechanicznie.
 
-Użycie (na gałęzi PR-a, po ``git fetch`` i scaleniu ``origin/main``)::
+Użycie (na gałęzi PR-a, po ``git fetch``; scalenie ``origin/main`` nie
+jest potrzebne — linie PR-a liczymy od merge-base)::
 
     python3 backend/scripts/rechain_migration.py --dry-run   # sam plan
     python3 backend/scripts/rechain_migration.py             # zmiana plików
     python3 backend/scripts/rechain_migration.py --base origin/main
+    python3 backend/scripts/rechain_migration.py --check-heads  # bramka CI
+    python3 backend/scripts/rechain_migration.py --stack-on origin/gałąź-przed-tym
+    python3 backend/scripts/rechain_migration.py --stub-missing-parent  # CI na PR-ze
 
 Skrypt nie commituje — po nim przejrzyj ``git diff``, puść testy lustra
-migracji i zacommituj. Tylko biblioteka standardowa, Python 3.9+.
+migracji i zacommituj. Po każdym pushu na main z nową migracją robi to za
+sesje workflow „Przepnij migracje PR-ów” (``migration-rechain.yml``).
+Tylko biblioteka standardowa, Python 3.9+.
 
-Czego NIE robi: nie przepina odwołań do starego ``down_revision`` poza
-samym plikiem migracji (wypisuje je jako ostrzeżenia), nie obsługuje
-migracji scalających (krotka w ``down_revision``) dodanych przez PR ani
-plików migracji, których nie ma jeszcze w commicie.
+Pełny identyfikator starego rodzica w liniach PR-a ze słowem
+``down_revision`` (np. asercja w teście PR-a) też dostaje nowego rodzica;
+w innych liniach (komentarz „kolumna z 0496_…”) zostaje.
+
+PR zbudowany na gałęzi innego PR-a: po squashu tamtego jego migracja i linie
+są już na mainie, więc nie liczą się jako migracja ani linie tego PR-a.
+
+``--check-heads`` liczy głowy w drzewie roboczym i kończy się kodem 1,
+gdy nie ma dokładnie jednej. Biegnie jako pierwszy krok wymaganego
+„Backend (lint + migrations)”, więc grupa z dwiema głowami wypada z kolejki
+po ~1–2 min, a nie po ~25 min pełnego pytesta.
+
+``--stack-on <ref>`` (pas migracji, 02.11.2026): PR dostaje za rodzica ostatnią
+migrację PR-a przed nim w kolejce i numer o jeden wyższy, więc grupa „main + oba”
+ma jedną głowę. Na samym PR-ze tego rodzica nie ma, dlatego CI na ``pull_request``
+woła ``--stub-missing-parent``, które kładzie pustą migrację o tym id na głowie
+drzewa (plik tylko w kopii roboczej). W ``merge_group`` zaślepki nie ma: gdy PR
+przed nim wypadnie, „Jedna głowa” czerwieni grupę, zanim cokolwiek wejdzie na main.
+
+Czego NIE robi: nie obsługuje migracji scalających (krotka w
+``down_revision``) dodanych przez PR ani plików migracji, których nie ma
+jeszcze w commicie.
 """
 
 from __future__ import annotations
@@ -153,14 +177,132 @@ def heads_of(migrations: Sequence[Migration]) -> List[str]:
     return sorted(m.revision for m in migrations if m.revision not in referenced)
 
 
-def added_migration_paths(repo: str, base: str, versions_dir: str) -> List[str]:
+def load_worktree(repo: str, versions_dir: str) -> List[Migration]:
+    directory = os.path.join(repo, versions_dir)
+    migrations = []
+    for name in sorted(os.listdir(directory)):
+        if not name.endswith(".py") or name.startswith("__"):
+            continue
+        path = f"{versions_dir}/{name}"
+        with open(os.path.join(directory, name), encoding="utf-8") as fh:
+            mig = parse_migration(path, fh.read())
+        if mig is not None:
+            migrations.append(mig)
+    return migrations
+
+
+def check_heads(repo: str, versions_dir: str, out=print) -> int:
+    """Bramka CI: dokładnie jedna głowa w drzewie roboczym, inaczej kod 1."""
+    heads = heads_of(load_worktree(repo, versions_dir))
+    if len(heads) == 1:
+        out(f"Jedna głowa migracji Alembica: {heads[0]}")
+        return 0
+    out(
+        f"::error::{len(heads)} głowy migracji Alembica zamiast jednej: "
+        f"{', '.join(heads) or 'brak'}. Dwie migracje wskazują tego samego "
+        "rodzica — PR, który wszedł później, trzeba przepiąć na głowę maina: "
+        "`python3 backend/scripts/rechain_migration.py` na gałęzi PR-a. "
+        "Po pushu na main robi to sam workflow „Przepnij migracje PR-ów”."
+    )
+    return 1
+
+
+def load_stack(
+    repo: str, base: str, stack_on: str, versions_dir: str
+) -> List[Migration]:
+    """Migracje PR-a przed tym w kolejce: pliki ze ``stack_on``, których nie ma w bazie."""
+    migrations = []
+    for path in added_migration_paths(repo, base, versions_dir, ref=stack_on):
+        mig = parse_migration(path, git(repo, "show", f"{stack_on}:{path}"))
+        if mig is not None:
+            migrations.append(mig)
+    return migrations
+
+
+STUB_TEMPLATE = '''"""Zaślepka migracji z PR-a przed tym w kolejce (tylko CI na PR-ze).
+
+Revision ID: {revision}
+Revises: {down}
+"""
+
+revision = "{revision}"
+down_revision = "{down}"
+branch_labels = None
+depends_on = None
+
+
+def upgrade():
+    pass
+
+
+def downgrade():
+    pass
+'''
+
+
+def stub_missing_parent(repo: str, versions_dir: str, out=print) -> int:
+    """Kładzie pustą migrację o id brakującego rodzica na głowie reszty drzewa.
+
+    Ta głowa to jedyna, której łańcuch nie dochodzi do brakującego rodzica.
+    Więcej niż jeden brakujący rodzic to nie łańcuch pasa, tylko błąd: kod 1.
+    """
+    migrations = load_worktree(repo, versions_dir)
+    by_revision = {m.revision: m for m in migrations}
+    missing = sorted(
+        {down for m in migrations for down in down_list(m.down_revision)}
+        - set(by_revision)
+    )
+    if not missing:
+        out("Wszyscy rodzice migracji są w drzewie — zaślepka niepotrzebna.")
+        return 0
+    if len(missing) > 1:
+        out(f"::error::Kilku brakujących rodziców migracji: {', '.join(missing)}.")
+        return 1
+
+    def reaches_missing(revision: str) -> bool:
+        pending, seen = [revision], set()
+        while pending:
+            current = pending.pop()
+            if current == missing[0]:
+                return True
+            if current in seen or current not in by_revision:
+                continue
+            seen.add(current)
+            pending.extend(down_list(by_revision[current].down_revision))
+        return False
+
+    tips = [h for h in heads_of(migrations) if not reaches_missing(h)]
+    if len(tips) != 1:
+        out(f"::error::Rodzic {missing[0]} nie ma jednej głowy do podpięcia: {tips}.")
+        return 1
+    path = os.path.join(repo, versions_dir, f"{missing[0]}.py")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(STUB_TEMPLATE.format(revision=missing[0], down=tips[0]))
+    out(
+        f"Zaślepka {missing[0]} na głowie {tips[0]}: migracja PR-a stoi na migracji "
+        "PR-a przed nim w kolejce. W kolejce merge'ów zaślepki nie ma."
+    )
+    return 0
+
+
+def added_migration_paths(
+    repo: str, base: str, versions_dir: str, ref: str = "HEAD"
+) -> List[str]:
+    """Pliki migracji z ``ref``, których nie ma na czubku bazy.
+
+    Diff dwukropkowy (drzewo bazy ↔ ``ref``), nie od merge-base: PR zbudowany na
+    gałęzi innego PR-a po squashu tamtego ma jego migrację w historii od
+    merge-base, a ta sama migracja jest już na mainie — to nie jest migracja
+    tego PR-a (#2516 → #2522 → #2524, 21.10.2026).
+    """
     out = git(
         repo,
         "diff",
         "--no-renames",
         "--name-status",
         "--diff-filter=A",
-        f"{base}...HEAD",
+        base,
+        ref,
         "--",
         versions_dir,
     )
@@ -236,8 +378,25 @@ def plan_renames(
 
 
 def added_lines(repo: str, base: str) -> Dict[str, Set[int]]:
-    """Numery linii (1-based, w drzewie roboczym) dodanych względem bazy."""
-    out = git(repo, "diff", "--no-renames", "--no-ext-diff", "--no-color", "-U0", base)
+    """Numery linii (1-based, w drzewie roboczym) dodanych przez PR.
+
+    Część wspólna dwóch diffów. Od merge-base: gałąź bez scalonego maina
+    miałaby inaczej za „dodane” linie, które main usunął po rozgałęzieniu.
+    Od czubka bazy: PR zbudowany na gałęzi innego PR-a po squashu tamtego
+    miałby inaczej za swoje linie, które main już ma. Po scaleniu maina
+    merge-base = czubek bazy, więc wynik jest ten sam co dawniej.
+    """
+    merge_base = git(repo, "merge-base", base, "HEAD").strip()
+    since_fork = _added_lines_against(repo, merge_base)
+    against_tip = _added_lines_against(repo, base)
+    return {
+        path: numbers & against_tip.get(path, set())
+        for path, numbers in since_fork.items()
+    }
+
+
+def _added_lines_against(repo: str, ref: str) -> Dict[str, Set[int]]:
+    out = git(repo, "diff", "--no-renames", "--no-ext-diff", "--no-color", "-U0", ref)
     result: Dict[str, Set[int]] = {}
     current: Optional[str] = None
     hunk = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
@@ -299,6 +458,17 @@ def build_line_rewriter(renames: List[Rename], base_migrations: List[Migration])
     full = {r.migration.revision: r.new_revision for r in renames}
     full.update({r.migration.stem: r.new_path.rsplit("/", 1)[1][:-3] for r in renames})
     full = {old: new for old, new in full.items() if old != new}
+    # Stary rodzic tylko w liniach o rodzicu (asercja `down_revision` w teście
+    # PR-a); w komentarzu „kolumna z 0496_…” to nadal 0496.
+    parent: Dict[str, str] = {}
+    old_parent = renames[0].migration.down_revision
+    if isinstance(old_parent, str) and old_parent != renames[0].new_down_revision:
+        parent[old_parent] = renames[0].new_down_revision
+    parent_re = (
+        re.compile(r"(?<![\w])" + re.escape(old_parent) + r"(?![\w])")
+        if parent
+        else None
+    )
     bare = {r.old_number: r.new_number for r in renames if r.old_number != r.new_number}
     # Nazwy migracji z bazy z tym samym numerem (kolizja) — linia, która je
     # wymienia, mówi o migracji z maina, więc gołego numeru na niej nie ruszamy.
@@ -306,8 +476,14 @@ def build_line_rewriter(renames: List[Rename], base_migrations: List[Migration])
     for mig in base_migrations:
         if mig.number in bare:
             base_names.setdefault(mig.number, []).extend({mig.revision, mig.stem})
+
+    def rewrite_parent(line: str) -> str:
+        if parent_re is None or "down_revision" not in line:
+            return line
+        return parent_re.sub(lambda m: parent[m.group(0)], line)
+
     if not full and not bare:
-        return lambda line: line
+        return rewrite_parent
     alternatives = []
     if full:
         ids = sorted(full, key=len, reverse=True)
@@ -336,35 +512,9 @@ def build_line_rewriter(renames: List[Rename], base_migrations: List[Migration])
                 return num
             return bare[num]
 
-        return pattern.sub(repl, line)
+        return rewrite_parent(pattern.sub(repl, line))
 
     return rewrite
-
-
-def stale_down_references(
-    repo: str, added: Dict[str, Set[int]], renames: List[Rename], skip: Set[str]
-) -> List[str]:
-    """Linie PR-a (poza plikiem migracji) ze starym down_revision korzenia."""
-    old = renames[0].migration.down_revision
-    if not isinstance(old, str) or old == renames[0].new_down_revision:
-        return []
-    hits = []
-    pat = re.compile(r"(?<![\w])" + re.escape(old) + r"(?![\w])")
-    for path, numbers in sorted(added.items()):
-        if path in skip or not numbers:
-            continue
-        full = os.path.join(repo, path)
-        if not os.path.isfile(full):
-            continue
-        try:
-            with open(full, encoding="utf-8") as fh:
-                lines = fh.read().splitlines()
-        except UnicodeDecodeError:
-            continue
-        for no in sorted(numbers):
-            if no <= len(lines) and pat.search(lines[no - 1]):
-                hits.append(f"{path}:{no}: {lines[no - 1].strip()}")
-    return hits
 
 
 def rewrite_added_lines(
@@ -394,13 +544,31 @@ def rewrite_added_lines(
     return changes
 
 
-def run(repo: str, base: str, versions_dir: str, dry_run: bool, out=print) -> int:
+def run(
+    repo: str,
+    base: str,
+    versions_dir: str,
+    dry_run: bool,
+    out=print,
+    stack_on: Optional[str] = None,
+) -> int:
     base_migrations = load_base(repo, base, versions_dir)
+    target = base
+    stack: List[Migration] = []
+    if stack_on:
+        stack = load_stack(repo, base, stack_on, versions_dir)
+        base_migrations += stack
+        target = f"{base} + {stack_on}"
     heads = heads_of(base_migrations)
     if len(heads) != 1:
         raise RechainError(
-            f"{base} ma {len(heads)} głowy migracji ({', '.join(heads) or 'brak'}) "
-            "zamiast jednej — najpierw trzeba to naprawić na mainie."
+            f"{target} ma {len(heads)} głowy migracji ({', '.join(heads) or 'brak'}) "
+            "zamiast jednej — "
+            + (
+                "najpierw trzeba przepiąć PR przed tym w kolejce."
+                if stack_on
+                else "najpierw trzeba to naprawić na mainie."
+            )
         )
     head = heads[0]
 
@@ -415,6 +583,13 @@ def run(repo: str, base: str, versions_dir: str, dry_run: bool, out=print) -> in
         if mig is None:
             raise RechainError(f"{path}: brak `revision` w pliku migracji.")
         pr.append(mig)
+    # PR zbudowany na gałęzi PR-a przed nim ma jego plik u siebie: to nie jego
+    # migracja, a przenumerowana wykonałaby się na produkcji drugi raz.
+    stack_revisions = {m.revision for m in stack}
+    pr = [m for m in pr if m.revision not in stack_revisions]
+    if not pr:
+        out(f"Gałąź nie dodaje własnych migracji względem {target} — nic do zrobienia.")
+        return 0
     chain = order_chain(pr)
 
     base_numbers = {m.number for m in base_migrations if m.number}
@@ -425,7 +600,7 @@ def run(repo: str, base: str, versions_dir: str, dry_run: bool, out=print) -> in
     if chain[0].down_revision == head and not collisions:
         out(
             f"Migracje PR-a ({', '.join(m.revision for m in chain)}) już stoją "
-            f"na głowie {base} ({head}) z wolnymi numerami — nic do zrobienia."
+            f"na głowie {target} ({head}) z wolnymi numerami — nic do zrobienia."
         )
         return 0
 
@@ -436,7 +611,7 @@ def run(repo: str, base: str, versions_dir: str, dry_run: bool, out=print) -> in
         ):
             raise RechainError(f"{r.new_path} już istnieje — przerwano.")
 
-    out(f"Głowa {base}: {head}")
+    out(f"Głowa {target}: {head}")
     out("Plan:" if dry_run else "Zmiany:")
     for r in renames:
         mig = r.migration
@@ -476,15 +651,6 @@ def run(repo: str, base: str, versions_dir: str, dry_run: bool, out=print) -> in
     if not touched:
         out("  (poza plikami migracji żadna linia PR-a nie wymagała zmiany)")
 
-    stale = stale_down_references(repo, added, renames, migration_paths)
-    if stale:
-        out(
-            f"Uwaga: linie PR-a wciąż wskazują stary down_revision "
-            f"({renames[0].migration.down_revision}) — sprawdź je ręcznie:"
-        )
-        for hit in stale:
-            out(f"  {hit}")
-
     if dry_run:
         out("Tryb --dry-run: nic nie zmieniono.")
     else:
@@ -507,10 +673,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default=VERSIONS_DIR,
         help=f"katalog migracji względem korzenia repo (domyślnie {VERSIONS_DIR})",
     )
+    parser.add_argument(
+        "--check-heads",
+        action="store_true",
+        help="tylko sprawdź, że drzewo robocze ma jedną głowę (kod 1, gdy nie)",
+    )
+    parser.add_argument(
+        "--stack-on",
+        help="ref PR-a przed tym w kolejce: rodzicem będzie jego ostatnia migracja",
+    )
+    parser.add_argument(
+        "--stub-missing-parent",
+        action="store_true",
+        help="CI na PR-ze: pusta migracja w miejsce rodzica z PR-a przed tym w kolejce",
+    )
     args = parser.parse_args(argv)
     try:
         repo = git(os.getcwd(), "rev-parse", "--show-toplevel").strip()
-        return run(repo, args.base, args.versions_dir.strip("/"), args.dry_run)
+        versions_dir = args.versions_dir.strip("/")
+        if args.check_heads:
+            return check_heads(repo, versions_dir)
+        if args.stub_missing_parent:
+            return stub_missing_parent(repo, versions_dir)
+        return run(repo, args.base, versions_dir, args.dry_run, stack_on=args.stack_on)
     except RechainError as exc:
         print(f"Błąd: {exc}", file=sys.stderr)
         return 1

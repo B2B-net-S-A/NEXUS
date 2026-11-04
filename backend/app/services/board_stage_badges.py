@@ -240,6 +240,29 @@ def board_column_for(
     return _COLUMN_BY_ENUM.get(stage or "", "new")
 
 
+def is_entry_column(
+    name: Optional[str],
+    stage: Optional[str],
+    *,
+    category: Optional[str] = None,
+    terminal_type: Optional[str] = None,
+) -> bool:
+    """Czy etap leży na wejściu drogi: kolumna „Nowi” albo „Screening”.
+
+    Etap dalszy („CV wysłane”, kolejka Cpro, rozmowa u klienta, zamknięcie)
+    ma bramki ruchu — QC CV, stawkę DL, osobę od Cpro, debrief — które
+    sprawdza wyłącznie ``POST /api/pipeline/move``. Każde wejście, które
+    DODAJE osobę do rekrutacji (bulk-add, wtyczka LinkedIn), przyjmuje więc
+    tylko te dwie kolumny — jedna reguła, żeby żadne wejście nie omijało
+    bramek (audyt 25.09.2026, runda 3).
+    """
+
+    return (
+        board_column_for(name, stage, category=category, terminal_type=terminal_type)
+        in CLAIM_COLUMNS
+    )
+
+
 def cpro_enabled_for_client(client_id: Optional[int]) -> bool:
     """Kolejka Cpro istnieje tylko u Nordei."""
 

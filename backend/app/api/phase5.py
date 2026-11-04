@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import date
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -276,7 +276,15 @@ async def clients_lookup(
         False,
         description=(
             "Gdy true -> zwroc tylko klientow z efektywnej zakladki "
-            "Aktywni albo Relacyjni w katalogu klientow."
+            "Aktywni albo Relacyjni w katalogu klientow (wybor klienta "
+            "w Rekrutacjach i Kontraktach; filtry list biora pelna liste)."
+        ),
+    ),
+    delivery_scope: bool = Query(
+        False,
+        description=(
+            "Gdy true -> Delivery Lead dostaje tylko klientow swojego portfela "
+            "(pickery modulu Kontrakty). Bez parametru lista zostaje org-wide."
         ),
     ),
 ):
@@ -290,7 +298,10 @@ async def clients_lookup(
     marker = istnienie ``display_name``; gdyby kiedyś potrzebny był trwały
     odrębny znacznik, należałoby dodać dedykowaną kolumnę/flagę.
 
-    ``contract_eligible=true`` jest filtrem formularza nowego kontraktu. Używa
+    ``contract_eligible=true`` jest filtrem WYBORU klienta w Rekrutacjach
+    i Kontraktach (nowa rekrutacja, edycja rekrutacji, nowy kontrakt, nowy
+    projekt, przepięcie kontraktu — ticket 30.09.2026); filtry list zostają
+    przy pełnej liście. Używa
     zakładek katalogu klientow (``ClientPortfolioScope``), a nie technicznego
     ``Client.status``. Manualne przeniesienie zakładki ma pierwszeństwo przed
     manifestem, dokładnie tak jak na liście klientow. Zapytanie ``EXISTS`` nie
@@ -309,6 +320,9 @@ async def clients_lookup(
         Client.hidden.is_(False),
         Client.archived_at.is_(None),
         Client.merged_into_client_id.is_(None),
+        # Runda 7: usunięty klient (0307) nie może być do wyboru, nawet gdyby
+        # kiedyś stracił ``archived_at``.
+        Client.deleted_at.is_(None),
     )
     if featured:
         stmt = stmt.where(Client.display_name.isnot(None))
@@ -331,6 +345,20 @@ async def clients_lookup(
                     ),
                 )
             ),
+        )
+    if delivery_scope:
+        # Pickery Kontraktów (runda 6 audytu): zapis kontraktu u klienta spoza
+        # portfela odmawia 403, więc DL nie może go w ogóle wybrać. Pickery
+        # rekrutacji pytają bez parametru — rekrutacje są org-wide.
+        from app.services.access_scope import (
+            apply_delivery_lead_client_scope,
+            resolve_delivery_lead_client_ids,
+        )
+
+        stmt = apply_delivery_lead_client_scope(
+            stmt,
+            Client.id,
+            await resolve_delivery_lead_client_ids(current_user, db),
         )
     rows = await db.execute(stmt.order_by(name_col))
     return [{"id": r[0], "name": r[1]} for r in rows.all()]
@@ -357,3 +385,91 @@ async def jobs_lookup(
         select(Job.id, Job.title).order_by(Job.id.desc()).limit(500)
     )
     return [{"id": r[0], "title": r[1]} for r in rows.all()]
+
+
+class JobLookupItem(BaseModel):
+    id: int
+    title: str
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None
+    status: Literal["open", "closed"]
+
+
+class JobLookupClient(BaseModel):
+    id: int
+    name: str
+    jobs_count: int
+
+
+class JobLookupSearchResponse(BaseModel):
+    items: list[JobLookupItem]
+    clients: list[JobLookupClient]
+    total: int
+
+
+@router.get(
+    "/jobs-lookup/search",
+    response_model=JobLookupSearchResponse,
+    dependencies=[
+        Depends(
+            require_section_access_any_read(
+                ProductSection.pipeline,
+                ProductSection.sourcing,
+                ProductSection.insights,
+            )
+        )
+    ],
+)
+async def jobs_lookup_search(
+    current_user: CurrentUser,
+    q: str = Query("", max_length=100),
+    status_filter: str = Query("open", alias="status", pattern="^(open|closed|all)$"),
+    limit: int = Query(50, ge=1, le=50),
+    ids: Optional[list[int]] = Query(None),
+    client_ids: Optional[list[int]] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lista rekrutacji do wyboru w filtrze kandydatów (blok „Rekrutacje”).
+
+    Bez `ids` / `client_ids` — szukanie po nazwie, kliencie i numerze, zawężone
+    statusem; `clients` to klienci pasujący nazwą („Wszystkie rekrutacje
+    klienta …”). Z `ids` / `client_ids` — same etykiety wybranych pozycji.
+    Lista jest wspólna dla całej firmy, jak pozostałe listy wyboru rekrutacji.
+    """
+    from app.services import job_lookup
+
+    if ids or client_ids:
+        job_ids = list(dict.fromkeys(ids or []))[: job_lookup.MAX_LABEL_IDS]
+        wanted_clients = list(dict.fromkeys(client_ids or []))[
+            : job_lookup.MAX_LABEL_IDS
+        ]
+        job_rows = (
+            (await db.execute(job_lookup.jobs_by_id_statement(job_ids))).all()
+            if job_ids
+            else []
+        )
+        client_rows = (
+            (await db.execute(job_lookup.clients_by_id_statement(wanted_clients))).all()
+            if wanted_clients
+            else []
+        )
+        return {
+            "items": [job_lookup.item_from_row(row) for row in job_rows],
+            "clients": [job_lookup.client_from_row(row) for row in client_rows],
+            "total": len(job_rows),
+        }
+
+    job_rows = (
+        await db.execute(job_lookup.search_statement(q, status_filter, limit))
+    ).all()
+    total = int(
+        await db.scalar(job_lookup.search_total_statement(q, status_filter)) or 0
+    )
+    client_rows = []
+    if len(q.strip()) >= job_lookup.MIN_CLIENT_QUERY:
+        client_rows = (await db.execute(job_lookup.clients_matching_statement(q))).all()
+    return {
+        "items": [job_lookup.item_from_row(row) for row in job_rows],
+        "clients": [job_lookup.client_from_row(row) for row in client_rows],
+        "total": total,
+    }

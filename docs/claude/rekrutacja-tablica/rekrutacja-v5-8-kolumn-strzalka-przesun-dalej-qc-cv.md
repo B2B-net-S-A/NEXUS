@@ -1,0 +1,232 @@
+# Rekrutacja v5 — 8 kolumn, strzałka „Przesuń dalej”, QC CV, firmowa kolejka Cpro (0361, 24.09.2026)
+
+Decyzje Artura 23.09.2026, makiety https://claude.ai/artifact/CG4mBk9xcHZAn3y9jcmMeW,
+kontrakt API `docs/recruitment-v5-contract.md`. Zastępuje przegląd DZ (0353),
+osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
+
+- **8 kolumn:** Nowi · Screening · Zweryfikowany · QC CV · CV wysłane · Rozmowa
+  u klienta · Akceptacja i umowa · Zatrudniony (siódma do 16.10.2026 nazywała
+  się „Umowa” — sekcja „Akceptacja klienta” niżej). Screening (kody `screening`/`prep_call`) to
+  kolumna, nie odznaka. Etap „Przepuszczony przez DZ” / „QC CV” jest GOSPODARZEM
+  kolumny `cv_qc` (mimo kodu `interview`), „Wysłać do Cpro” wpada do niej ze
+  znacznikiem „W kolejce Cpro”. Migracja 0361 zmienia nazwę etapu w szablonach
+  spoza Traffita na „QC CV”; szablon Traffita przepisuje nocny sync, więc reguła
+  rozpoznaje obie nazwy (`is_qc_stage`, kind `"qc"`). Blokada 12 h i arkusz pytań
+  obejmują Nowych i Screening (`CLAIM_COLUMNS`). Lustra: `board-stages.ts` ↔
+  `board_stage_badges.py` na `board-stage-cases.json`; statystyki „Lejek po
+  etapach” mają wiersze `screening`, `qc`, `cpro`.
+- **Strzałka „→” na karcie + okno „Przesuń dalej”** (`MoveNextDialog`): wymagania
+  następnej kolumny (i wszystkich pominiętych) liczy JEDNA reguła
+  `services/move_requirements.py` (`GET /api/pipeline/move-requirements`), każdy
+  brak ma przycisk, który go usuwa. Przeciągnięcie na sąsiednią kolumnę bez braków
+  przesuwa od razu; skok, znany brak albo „CV wysłane” otwiera okno. Serwer
+  wymusza wyłącznie bramkę QC, stawkę DL i debrief — reszta wymagań to podpowiedź.
+  Od 14.10.2026 strzałka bez braków i bez okna ruchu przesuwa od razu z „Cofnij”
+  (10 s) — `rekrutacja-tablica/kanban-bez-bramek.md`, „Mniej kliknięć”.
+  **Znany brak ze „Zweryfikowanego”: CV firmowe** (14.10.2026) — karta
+  z `company_cv === false` ma szarą strzałkę „Brak CV firmowego”, a
+  przeciągnięcie na „QC CV” otwiera okno zamiast wkładać osobę bez CV do
+  kolejki Delivery Leada. Brak pola / `null` = nie wiadomo, bez braku.
+  **Osoba już w „QC CV” (przekazana DL)** — okno i ramka „Następny etap” nie
+  mają przycisku (`planPrimaryStep` → `waiting`): „Czeka u Delivery Leada od
+  N dni” (od gotowości, `dlWaitingStatus`), a przy QC do poprawy albo
+  niesprawdzonym — co rekruter ma zrobić, zanim DL zobaczy CV. Do tej daty
+  przycisk dawał toast o kolejce „Czeka na Ciebie”, której rekruter nie ma.
+  **Stan CV na karcie „Zweryfikowanego”** (`cvStateBadge`, ta sama reguła
+  w tabeli osób): „CV w przygotowaniu…” (`auto_cv_state`), po QC „CV gotowe ·
+  QC: N do poprawy” (blokujące + uwagi, `warnings_count`) albo „· QC bez
+  uwag”, a przed QC dawne „CV gotowe w tle”. Napis mówi „QC”, bo karta CV
+  liczy więcej (QC + uwagi generatora + kontrola AI, „N rzeczy do
+  sprawdzenia”) — goła liczba dawała na jednym ekranie dwie różne wartości
+  (przegląd produkcji 14.10.2026).
+- **QC CV zamiast DZ** (`services/cv_qc.py`, `api/cv_qc.py`, tabela `cv_qc_runs`).
+  **Od 02.10.2026 blokują CZTERY sprawdzenia** (decyzja Artura; do tej daty
+  blokowało siedem i QC przeszła 1 z 8 par, bo „każde must z maila klienta
+  w CV” padało w 7 z 8): brak CV firmowego (`cv_present`), umiejętności
+  krytyczne (`critical_skills` — w CV i OPISANE zdaniem ≥ 6 słów, nie listą
+  technologii, w każdej roli, w której oryginał je OPISUJE w opisie roli; od
+  13.10.2026 sama lista technologii roli to informacja — patrz „QC CV mówi
+  prawdę”), nic must/nice spoza oryginału, notatek i odpowiedzi ze screeningu
+  (`no_unsupported`), reguły klienta (bez stawek
+  i kontaktu, zrzut zgody RODO). Uwagi, które NIE blokują: pozostałe must w CV
+  i w rolach, pogrubienia must i nice, lata w nagłówku, daty ról, pisownia,
+  tytuł, pogrubienia spoza oryginału (CV EN z oryginału PL pogrubia
+  tłumaczenia). Nie przenoś uwag z powrotem do blokad bez decyzji.
+  `blocking_failed` liczy RZECZY do poprawy (różne wymagania), lustro
+  `blockingTasks` w `lib/cv-qc.ts` — chip na Tablicy, okno i 409 podają tę samą
+  liczbę. Wymaganie z wersją („Spring Boot 3.4+”) szuka nazwy bez wersji
+  (`dz_review._without_version`), a wersja wpisana wprost w CV bez pokrycia
+  w oryginale dalej blokuje. Klauzula RODO to osobny blok (`section: "rodo"`,
+  `cv_rodo_clause.is_rodo_text`), nie część ostatniej roli i nie treść CV:
+  wymagań w niej nie szukamy, a kropka z przodu nazwy zostaje („.NET” bez
+  kropki trafiało w „B2B.net S.A.” z klauzuli — fałszywa blokada i fałszywe
+  zaliczenie krytycznej). Krytyczne wymaganie QC czyta nazwami bramki
+  wyszukiwania (`gate_requirement(label).options`): „Bazy danych (Oracle,
+  PostgreSQL)” spełnia którakolwiek z nazw. Blokujące liczy KOD;
+  Luna tylko proponuje zdania z cytatem źródła (serwer odrzuca propozycję bez
+  cytatu obecnego w oryginale/notatkach), rekruter klika „Zastosuj”.
+  **Propozycje nie przenoszą pieniędzy do CV** (13.10.2026): model dostaje
+  notatki bez pól handlowych karty rekomendacji (`CV_HIDDEN_FIELDS`: stawka,
+  red flags, motywacja — osobny odczyt w `generate_fixes`, bo sprawdzenia QC
+  czytają notatki bez samej narodowości), a `parse_fixes` odrzuca propozycję,
+  która wnosi pieniądze spoza CV kandydata (`brings_money`): zdanie albo cytat
+  ze stawką, cytat z notatek z jakąkolwiek kwotą („160 zł/h B2B” wpisane prozą
+  nie znika przy czytaniu notatek i nie ma słowa „stawka”), kwotę, której nie
+  ma w cytacie z oryginału ani w zastępowanym punkcie. Kwota z CV kandydata
+  (wynik projektu) może zostać. Kwotę poznajemy ścisłym `_MONEY`, nie `_AMOUNT`
+  z reguł klienta — ten bierze „3 europejskich” za euro. `load_fix` stosuje tę
+  samą regułę do propozycji zapamiętanych wcześniej (stara karta zna ich id). Poprawki
+  edytują szkic CV firmowego pary; CV spoza NEXUSA (Word/PDF „…B2B…”) = 409
+  `CV_NOT_EDITABLE`. Okno (`CvQcDialog`): „Co sprawdza QC” z nazwami krytycznych
+  i ich źródłem, „Do poprawy przed wysłaniem” (karta na wymaganie z przyciskiem
+  naprawy), „Warto poprawić — nie blokuje”, „W porządku”, w stopce „Przesuń
+  dalej” (ten sam ruch co strzałka na karcie, `handleQcMoveNext`).
+  **Punkt listy po zapisie w edytorze to `<li><p>…</p></li>`** (12.10.2026):
+  `dz_review._BlockParser` czyta go jako jeden blok `li`, a `EditableCv` zna
+  obok zakresu tekstu zakres całego punktu (`item_span`). Dopisanie i usunięcie
+  punktu działają na `<li>`, nie na wewnętrznym akapicie — inaczej „Zastosuj”
+  wstawia listę w liście (w Wordzie wcięty punktor), a usunięta technologia
+  zostawia pusty punkt. Cały `<li>` wolno usunąć tylko wtedy, gdy niesie jeden
+  blok (`item_is_only_this_block`): punkt z podpunktami albo drugim akapitem
+  to więcej niż sam termin. Testy poprawek pisz także na HTML-u w tym kształcie
+  (`EDITED_HTML` w `tests/test_cv_qc.py`).
+  **Poprawka z okna QC a edytor otwarty obok** (12.10.2026): odpowiedź QC
+  niesie `cv.edit_revision`, a `qc/apply` odsyła ją jako `expected_revision`;
+  inna wersja w bazie = 409 `CV_CHANGED` („odśwież listę”), szkic zostaje.
+  Wcześniej poprawka podbijała wersję bez sprawdzenia i edytor dostawał 409 przy
+  autozapisie. Wynik poprawki przechodzi przez `keep_rodo_clause` — pisownia
+  i usuwanie terminu nie ruszają klauzuli zgody.
+  **Rola kończy się na nagłówku sekcji (h1/h2), nie na każdym nagłówku**
+  (`Block.ends_section`, 12.10.2026): śródtytuł h3/h4 w opisie stanowiska
+  zostaje w roli. Wcześniej zamykał rolę i gasił sekcję doświadczenia, więc
+  kolejne stanowiska znikały z QC. Trzy miejsca liczą to samo i muszą się
+  zgadzać: `cv_qc.cv_roles` / `dz.generated_roles`, `segmentCv` w oknie QC
+  i `cvOutline` w edytorze.
+  **Poprawki w edytorze CV** idą przez `qc/transform` (liczone na treści
+  z ekranu, bez zapisu szkicu) — reguły w
+  `generator-cv/edytor-cv-pelny-ekran.md`, sekcja „Panel »Do poprawy«”.
+- **Bramka:** `/move` i `/bulk-move` na „CV wysłane” albo etap Cpro z kolumn
+  przed wysłaniem → 409 `CV_QC_FAILED` (z `stage_id` do otwarcia QC), chyba że QC
+  przechodzi albo ktoś przepuścił parę z powodem — Delivery Lead/admin, a od
+  12.10.2026 w trybie doradczym (`CV_QC_ADVISORY`) każdy, kto przesuwa karty
+  (`QcOverrideDialog`: cztery gotowe powody, opis wymagany tylko przy „Inny
+  powód”, bez minimum znaków — przy minimum 10 znaków powodem bywał ciąg
+  losowych liter; lustro `cv_qc.OVERRIDE_REASONS` ↔ `QC_OVERRIDE_REASONS`;
+  `Activity cv_qc_override` z `reason_code`, ważne dla pary także po zmianie
+  CV). Wyłącznik
+  `CV_QC_GATE_ENABLED`; w testach wyłączony autouse-fixturą (dziesiątki testów
+  przesuwa na „CV wysłane” bez CV firmowego). U Nordei ta sama bramka pilnuje, że
+  na „Wysłane do Cpro” przesuwa osoba od Cpro, admin, DL albo HoR.
+- **Osoba od Cpro = jedna na firmę** (`services/cpro_sender.py`,
+  `app_settings['cpro_sender']`): ustawia WYŁĄCZNIE admin albo Delivery Lead
+  przypisany do klienta Nordei (`cpro_sender.can_set_sender`, decyzja Artura
+  25.09.2026 — do tego dnia zmieniał każdy, a osoba od Cpro widzi stawki do
+  klienta w kolejce, więc rekruter mógł sam się ustawić i je zobaczyć),
+  opcjonalnie z datą „do kiedy” — po niej wraca poprzednia osoba. Nieaktywne
+  konto (także po zastępstwie) liczy się jak „nikt nie ustawiony”.
+  `GET/PUT /api/board-tasks/cpro/sender`, kolejka pogrupowana po rekrutacji
+  `GET /api/board-tasks/cpro/queue` (`CproQueueDialog` na pulpicie: rekrutacja po
+  rekrutacji, „✓ Wrzucone” = zwykły `/move`). `jobs.cpro_sender_id` zostaje w bazie
+  jako zapas, pasek „Do Cpro wysyła” nad Tablicą usunięty.
+- **Przegląd DL** = osoby w kolumnie QC CV (z wynikiem QC), nie osoby
+  w „Zweryfikowanym”. Od 13.10.2026 także u Nordei: przegląd kończy tam
+  akceptacja do kolejki Cpro ze stawką do Cpro, a do kolejki wkłada wyłącznie
+  osoba z uprawnieniem wysyłki CV — `rekrutacja-tablica/nordea-akceptacja-dl-przed-cpro.md`. Od 13.10.2026 Delivery Leada budzą tylko
+  osoby GOTOWE (QC zdane albo przepuszczone); reszta kolumny jest „jeszcze
+  u rekrutera” — `rekrutacja-tablica/do-wyslania-do-klienta-kolejka-delivery-leada.md`.
+- **Kto widzi „Czeka na Ciebie” (decyzja Artura 24.09.2026, `board_tasks._sees_*`):**
+  obie listy Cpro — wyłącznie osoba od Cpro (gdy nikt nie jest ustawiony: listę
+  „do wrzucenia” widzi admin i HoR, bo tylko tam da się kogoś ustawić; DL nigdy);
+  przegląd DL — wyłącznie Delivery Lead rekrutacji (`jobs.delivery_lead_id`
+  wygrywa, bez niego portfel klienta); admin i HoR go nie widzą. Poranny skrót
+  liczy tą samą regułą.
+- **Rekrutacja bez DL-a dostaje głównego DL-a klienta**
+  (`services/job_delivery_lead_fill.py`, 24.09.2026): tylko `draft`/`published`,
+  główny DL (`is_head`, aktywny). DL wpisany ręcznie nigdy nie jest nadpisywany;
+  DL wpisany przez automat (`jobs.delivery_lead_auto_filled`, 0376 — fill i POST
+  z głównym DL-em klienta) idzie za zmianą głównego DL-a, a ręczna zmiana
+  w PATCH zeruje znacznik. Nieaktywny DL rekrutacji = brak DL-a: przegląd DL idzie
+  do portfela klienta, alert DL-owy do HoR. Woła ją start
+  aplikacji, faza `jobs` importu Traffita i przypisanie/zmiana głównego DL-a
+  klienta. Zamkniętych nie rusza — statystyki DL liczą je przez tego samego
+  głównego DL-a. Skutek: alerty DL-owe tych rekrutacji idą do DL-a, nie do HoR.
+- **„Dodaj kandydatów”** (`AddCandidatesPanel`): jedno wejście z nagłówka i z kolumny
+  Nowi, zakładki wyszukiwanie AI z Championa · propozycje · Moi ludzie · ręcznie.
+  *(Od 02.10.2026 okno „Kandydaci do dodania” z czterema źródłami, otwierane
+  z kafli nad Tablicą — sekcja „Prostszy ekran rekrutacji”.)*
+- **Akceptacja klienta (D1–D6, 16.10.2026, makiety
+  https://claude.ai/artifact/DNz7EMuABGztLH81xGtzTc).** Zgłoszenie DL: dostał
+  akceptację od klienta i nie wiedział, gdzie ją zaznaczyć — kolumna nazywała
+  się „Umowa”, a akceptacja była małą plakietką. Teraz:
+  - kolumna „Akceptacja i umowa”, podpis „Klient zaakceptował → umowa →
+    podpis”, w nagłówku liczniki „Zaakceptowani · Umowa wysłana · Podpisana”
+    (`lib/client-acceptance.ts`, `ContractStepChips`); lustro nazwy
+    w `move_requirements.COLUMN_LABEL`. Zadanie karty po rozmowie: „Decyzja po
+    rozmowie” (lustro `pipeline_next_action`);
+  - przycisk „Klient zaakceptował” na karcie w „Rozmowie u klienta”, w panelu
+    osoby i werdykt hiring managera „Akceptuje” (dawniej „Dalej”) otwierają
+    JEDNO okno (`ClientAcceptedDialog`): data akceptacji (domyślnie dziś, nie
+    z przyszłości), planowany start (opcjonalnie, nie przed akceptacją), co
+    powiedział klient, lista osób, które dostaną dzwonek
+    (`GET /api/pipeline/client-acceptance/recipients`). Zapis = ruch na etap
+    „Akceptacja” przez `usePipelineMove` (pola `client_accepted_on`,
+    `planned_start_on` w `StageMove`, 0451; przy innym etapie 422), potem
+    werdykt `advance` z notatką. Werdykt po akceptacji nie dubluje dzwonka
+    „Klient idzie dalej” (`interview_feedback_actions._past_acceptance`);
+  - debrief po rozmowie zostaje bramką serwera (D3), ale okno pokazuje go
+    w sobie: „Uzupełnij debrief” otwiera okno debriefu na wierzchu, zapis
+    akceptacji czeka. Debriefu nie zapisujemy z okna akceptacji sami — to
+    rozmowa z kandydatem (ocena, reakcja na ofertę), nie słowa klienta;
+  - karta i panel w „Akceptacji i umowie” mają zielony wiersz „✓ Klient
+    zaakceptował · data · kto” (`client_acceptance` karty Tablicy = ostatni
+    wiersz etapu `acceptance` pary; front rysuje go tylko w tej kolumnie).
+    Panel: planowany start, przełączniki „+ Umowa wysłana” / „+ Umowa
+    podpisana” i „Cofnij akceptację klienta” w menu „⋯” (powrót na „Rozmowę
+    u klienta”, z potwierdzeniem);
+  - dzwonek — `rekrutacja-tablica/dzwonek-przy-przekazaniu-karty-qc-dl-cv-wyslane.md`.
+
+## Kolejność kart w kolumnie: najświeższe wejście na etap na górze (16.10.2026)
+
+Ticket rekrutera z 15.10.2026: dodani do rekrutacji lądowali „w środku
+pipeline'u”. Przyczyna: `build_kanban_view` czytał wiersze `ORDER BY
+candidate_id` i tak zostawiał karty, więc w kolumnie stały według numeru
+kandydata w bazie (osoba ze starej bazy w środku, nowa w bazie na dole).
+Pomiar z produkcji 15.10: w 370 kolumnach z co najmniej 3 kartami najświeższa
+karta stała na górze tylko w 63. Decyzja Artura 16.10.2026: rekomendacja bez
+zmian (D1–D4).
+
+- **Reguła.** W każdej kolumnie, także „QC CV”, kolejce Cpro, kubełku „Poza
+  szablonem” i paskach Zamkniętych, karty stoją od najświeższego wejścia na
+  obecny etap (`CandidateStage.moved_at` malejąco). Remis czasu → wyżej
+  później zapisany wiersz (`id` malejąco); w 30 dniach było 379 grup tego
+  samego `moved_at` w jednej rekrutacji (dodanie kilku osób naraz).
+- **Czas wejścia na etap, nie data dodania do rekrutacji (D2).** Osoba
+  przeniesiona dziś na „CV wysłane” ma stać na górze tamtej kolumny. Zmiana
+  znacznika w kolumnie złożonej (Prep, Cpro, Umowa wysłana/podpisana,
+  Onboarding) też jest ruchem na etap, więc też podnosi kartę.
+- **Serwer.** `_newest_first` w `api/pipeline.py`, użyte w obu gałęziach
+  `build_kanban_view` przed rozdzieleniem na kolumny. Z tego samego widoku
+  korzystają `GET /api/pipeline/kanban/{job_id}`, „Moje następne kroki” na
+  pulpicie i API integracyjne v1 (`integrations_v1/recruitments.py`).
+- **Front.** `foldBoardColumns` skleja etapy jednej kolumny Tablicy i układa
+  ich karty tym samym kluczem (`compareNewestFirst` w `lib/board-stages.ts`);
+  bez tego karty z etapu-odznaki stały zawsze pod kartami gospodarza. Karta
+  bez `moved_at` stoi pod kartami z czasem, w kolejności z serwera.
+- **Ruch od razu na górę.** Ruch optymistyczny (`applyOptimistic`), ruch
+  czekający 10 s na wysłanie (`withPendingMoves`) i potwierdzenie ruchu bez
+  optymizmu (`confirmMoved`, „Zweryfikowany”) wkładają kartę na początek
+  kolumny z `moved_at` = teraz. Przedtem doklejały ją na koniec, a po
+  odświeżeniu karta przeskakiwała w środek.
+- **Bez ręcznego układania (D1) i bez przełącznika (D4).** Tablica jest
+  wspólna, więc ręczne przestawienie zmieniałoby kolejność wszystkim, a nowa
+  osoba i tak musi gdzieś trafić. Upuszczenie karty w tej samej kolumnie dalej
+  nic nie robi. Przełącznik „najdłużej czekający” dołożymy, gdy poprosi DL.
+- **Co idzie za tym samo.** Strzałki „‹ ›” w panelu osoby, następna osoba po
+  odrzuceniu, „Dalej: …” i filtr „Kto dodał” czytają kolejność z renderu.
+  Kolejka „Do wysłania do klienta” na pulpicie ma własną kolejność i się nie
+  zmienia. Stara karta dalej pokazuje „W etapie: N dni”.
+- **Testy.** `test_newest_entry_to_the_stage_is_on_top_of_the_column`
+  i `test_newest_first_orders_by_moved_at_then_row_id`
+  (`tests/test_kanban_off_template_bucket.py`), „kolejność kart w kolumnie
+  Tablicy” w `lib/__tests__/board-stages.test.ts` i „przesunięta karta staje
+  na górze kolumny docelowej” w `KanbanBoardV2.test.tsx`.

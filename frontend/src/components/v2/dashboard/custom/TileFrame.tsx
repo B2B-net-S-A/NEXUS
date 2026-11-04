@@ -7,6 +7,7 @@
 // dostaje ten sam pasek z uchwytem i akcjami, żeby dało się go przesunąć,
 // ustawić, zduplikować i usunąć niezależnie od tego, co jest w środku.
 
+import { useEffect, useRef } from "react"
 import Link from "next/link"
 import { Copy, GripVertical, MoreHorizontal, Settings2, Trash2 } from "lucide-react"
 
@@ -20,6 +21,7 @@ import {
 import type { DashboardTile } from "@/lib/api/userDashboard"
 import { TILE_DEFINITIONS, tileTitle } from "@/lib/dashboard-tiles/catalog"
 import { metricChip } from "@/lib/dashboard-tiles/layout"
+import { safeInternalPath } from "@/lib/safe-href"
 import { cn } from "@/lib/utils"
 
 import { TileContent } from "./TileContent"
@@ -39,24 +41,49 @@ export function TileFrame({
   editing,
   actions,
   children,
+  onFitHeight,
 }: {
   tile: DashboardTile
   editing: boolean
   actions: TileActions
   /** Podgląd w oknie ustawień podmienia treść na wersję bez odpytywania. */
   children?: React.ReactNode
+  /** Kafelek z `fitContent`: wysokość treści z ramką (px), żeby siatka dała mu tyle rzędów. */
+  onFitHeight?: (px: number) => void
 }) {
   const def = TILE_DEFINITIONS[tile.type]
   const title = tileTitle(tile)
+  // Runda 8 (R8-N10-5): kafelek z zapisanym `/\host` nie wyprowadza poza NEXUS.
+  const linkTo = safeInternalPath(tile.config.link_to)
   const chip = tile.config.metric ? metricChip(tile.config.metric) : null
   const showHeader = editing || !def.ownChrome
   const body = children ?? <TileContent tile={tile} />
+  // Kafelek z `fitContent` nie przewija się w sobie: `overflow-clip` zamiast
+  // `auto`, bo przewijany rodzic zatrzymałby przyklejony nagłówek tabeli
+  // w kafelku zamiast pod górnym paskiem strony.
+  const fit = Boolean(def.fitContent) && !children
+  const sectionRef = useRef<HTMLElement>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const section = sectionRef.current
+    const frameBody = bodyRef.current
+    const content = contentRef.current
+    if (!fit || !onFitHeight || !section || !frameBody || !content) return
+    const report = () =>
+      onFitHeight(content.offsetHeight + section.offsetHeight - frameBody.offsetHeight)
+    const observer = new ResizeObserver(report)
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [fit, onFitHeight])
 
   return (
     <section
+      ref={sectionRef}
       aria-label={title}
       className={cn(
-        "group relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl",
+        "group relative flex h-full min-h-0 flex-col rounded-xl",
+        fit ? "overflow-clip" : "overflow-hidden",
         !def.ownChrome && "border border-border bg-card p-4",
         def.ownChrome && !editing && "bg-transparent",
         editing && "border border-dashed border-primary/50 bg-card p-3",
@@ -79,8 +106,8 @@ export function TileFrame({
           ) : null}
           <div className="min-w-0 flex-1">
             <h3 className="truncate text-sm font-semibold text-foreground">
-              {tile.config.link_to && !editing ? (
-                <Link href={tile.config.link_to} className="hover:underline">
+              {linkTo && !editing ? (
+                <Link href={linkTo} className="hover:underline">
                   {title}
                 </Link>
               ) : (
@@ -144,15 +171,16 @@ export function TileFrame({
         </header>
       ) : null}
       <div
+        ref={bodyRef}
         className={cn(
           // `@container`: widżety w kafelku reagują na szerokość KAFELKA,
           // nie okna (audyt 23.09.2026, P1-02).
           "@container min-h-0 flex-1",
-          tile.type === "metric_number" ? "overflow-hidden" : "overflow-auto",
+          fit ? "overflow-clip" : tile.type === "metric_number" ? "overflow-hidden" : "overflow-auto",
           editing && "pointer-events-none select-none opacity-80",
         )}
       >
-        {body}
+        {fit ? <div ref={contentRef}>{body}</div> : body}
       </div>
       {!showHeader ? (
         // Na dotyku menu jest zawsze widoczne — `group-hover` tam nie działa,

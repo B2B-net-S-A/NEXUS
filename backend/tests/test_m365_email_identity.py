@@ -20,6 +20,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.app_setting import AppSetting
 from app.models.candidate import Candidate, CandidateStatus
+from app.models.cpro_mail import CproMailEvent
 from app.models.m365 import Email, EmailAttachment, EmailDirection
 from app.models.user import User, UserRole
 from app.services import m365_email_dedupe_repair as repair
@@ -147,6 +148,16 @@ async def test_dedupe_repair_keeps_send_row_and_moves_children(owner):
                 size_bytes=10,
             )
         )
+        db.add(
+            CproMailEvent(
+                message_key=imid,
+                email_id=synced.id,
+                kind="closed",
+                received_at=datetime.now(timezone.utc),
+                outcome="manual",
+                outcome_text="test",
+            )
+        )
         await db.commit()
         sent_id, synced_id, solo_id = sent.id, synced.id, solo.id
 
@@ -172,6 +183,10 @@ async def test_dedupe_repair_keeps_send_row_and_moves_children(owner):
                     select(EmailAttachment).where(EmailAttachment.email_id == sent_id)
                 )
             ).all()
+            cpro_email_id = await db.scalar(
+                select(CproMailEvent.email_id).where(CproMailEvent.message_key == imid)
+            )
+        assert cpro_email_id == sent_id
         assert set(rows) == {sent_id, solo_id}
         assert synced_id not in rows
         kept = rows[sent_id]
@@ -185,6 +200,9 @@ async def test_dedupe_repair_keeps_send_row_and_moves_children(owner):
     finally:
         async with AsyncSessionLocal() as db:
             await db.execute(delete(AppSetting).where(AppSetting.key == marker))
+            await db.execute(
+                delete(CproMailEvent).where(CproMailEvent.message_key == imid)
+            )
             await db.commit()
 
 
@@ -264,6 +282,46 @@ async def test_removed_in_outlook_keeps_candidate_linked_email(owner):
     assert linked_id in ids, "mail powiązany z kandydatem zniknął po przeniesieniu"
     assert sent_id in ids, "mail wysłany z NEXUSA zniknął po przeniesieniu"
     assert loose_id not in ids
+
+
+@pytest.mark.asyncio
+async def test_removed_in_outlook_keeps_unlinked_email_with_cv(owner):
+    """Runda 9 (R9-N10-12): ``@removed`` nie kasuje maila z załącznikiem CV,
+    nawet gdy nie jest jeszcze powiązany z kandydatem (CV nigdy nie znika)."""
+    async with AsyncSessionLocal() as db:
+        with_cv = _email(
+            owner.user_id,
+            m365_message_id=f"cv-{owner.suffix}",
+            direction=EmailDirection.received,
+        )
+        db.add(with_cv)
+        await db.flush()
+        db.add(
+            EmailAttachment(
+                email_id=with_cv.id,
+                m365_attachment_id=f"att-{owner.suffix}",
+                filename="cv.pdf",
+                content_type="application/pdf",
+                is_cv_candidate=True,
+            )
+        )
+        await db.commit()
+        with_cv_id = with_cv.id
+
+    conn = SimpleNamespace(id=1, user_id=owner.user_id, mailbox_upn="me@example.com")
+    async with AsyncSessionLocal() as db:
+        await sync_mod._upsert_message(
+            db,
+            None,
+            conn,
+            {"id": f"cv-{owner.suffix}", "@removed": {"reason": "deleted"}},
+            "Inbox",
+        )
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        kept = await db.get(Email, with_cv_id)
+    assert kept is not None, "mail z CV zniknął po przeniesieniu w Outlooku"
 
 
 @pytest.mark.asyncio

@@ -179,8 +179,6 @@ async def test_upsert_contract_terms_creates_then_updates(
         f"/api/clients/{client_id}/contract-terms",
         headers=app_auth_headers,
         json={
-            "off_limits_months": 12,
-            "off_limits_scope": "cała grupa",
             "internalization_fee_pct": "20.00",
             "payment_net_days": 30,
             "payment_currency": "PLN",
@@ -195,13 +193,13 @@ async def test_upsert_contract_terms_creates_then_updates(
         f"/api/clients/{client_id}/contract-terms",
         headers=app_auth_headers,
         json={
-            "off_limits_months": 6,
+            "payment_net_days": 45,
             "other_clauses": "zmiana",
         },
     )
     assert second.status_code == 200, second.text
     assert second.json()["id"] == row_id
-    assert second.json()["off_limits_months"] == 6
+    assert second.json()["payment_net_days"] == 45
     # Fields not included in PUT remain (exclude_unset)
     assert second.json()["payment_currency"] == "PLN"
     assert second.json()["other_clauses"] == "zmiana"
@@ -213,7 +211,52 @@ async def test_upsert_contract_terms_creates_then_updates(
     assert got.status_code == 200
     body = got.json()
     assert body["id"] == row_id
-    assert body["off_limits_months"] == 6
+    assert body["payment_net_days"] == 45
+
+
+async def test_contract_terms_ignore_and_hide_off_limits(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Runda 9 (R9-N4-8): off-limits usunięte decyzją Artura 27.09.2026.
+
+    Pola ``off_limits_*`` w PUT są ignorowane (nie trafiają do bazy), a
+    odpowiedź ich nie niesie. Kolumny w bazie zostają — istniejąca wartość
+    nie jest kasowana, tylko przestaje wychodzić z API.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_contract_terms import ClientContractTerms
+    from sqlalchemy import select
+
+    client_id = await _create_client(app_client, app_auth_headers)
+    resp = await app_client.put(
+        f"/api/clients/{client_id}/contract-terms",
+        headers=app_auth_headers,
+        json={
+            "off_limits_months": 12,
+            "off_limits_scope": "cała grupa",
+            "off_limits_notes": "x",
+            "payment_net_days": 30,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert not any(key.startswith("off_limits") for key in resp.json())
+    async with AsyncSessionLocal() as db:
+        terms = await db.scalar(
+            select(ClientContractTerms).where(
+                ClientContractTerms.client_id == client_id
+            )
+        )
+        assert terms is not None
+        assert terms.off_limits_months is None
+        assert terms.off_limits_scope is None
+        assert terms.payment_net_days == 30
+        terms.off_limits_months = 6
+        await db.commit()
+    got = await app_client.get(
+        f"/api/clients/{client_id}/contract-terms", headers=app_auth_headers
+    )
+    assert got.status_code == 200
+    assert not any(key.startswith("off_limits") for key in got.json())
 
 
 async def test_contract_terms_singleton_enforced_at_db(
@@ -228,12 +271,12 @@ async def test_contract_terms_singleton_enforced_at_db(
     first = await app_client.put(
         f"/api/clients/{client_id}/contract-terms",
         headers=app_auth_headers,
-        json={"off_limits_months": 3},
+        json={"payment_net_days": 3},
     )
     assert first.status_code == 200
 
     async with AsyncSessionLocal() as db:
-        dup = ClientContractTerms(client_id=client_id, off_limits_months=99)
+        dup = ClientContractTerms(client_id=client_id, payment_net_days=99)
         db.add(dup)
         with pytest.raises(IntegrityError):
             await db.commit()

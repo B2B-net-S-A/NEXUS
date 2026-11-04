@@ -28,12 +28,15 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_followup import CandidateFollowup
+from app.models.calendar_event import CalendarEvent
+from app.models.followup_meeting import FollowupMeeting
 from app.models.call import Call, CallDirection
 from app.models.note import Note, NoteType
 from app.models.notification import NotificationType
 from app.models.user import User
 from app.models.user_activity import UserActionType, UserActivity
 from app.services import candidate_followups as svc
+from app.services import followup_meetings, note_kinds
 from app.services.notification_triggers import emit
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -89,10 +92,45 @@ class FollowupHistoryRow(BaseModel):
     has_recording: bool = False
 
 
+class FollowupMeetingOut(BaseModel):
+    id: int
+    start: datetime
+    end: Optional[datetime]
+    join_url: Optional[str]
+    recording_url: Optional[str]
+    transcription_setup: str
+    transcript_status: str
+
+
 class FollowupDetail(BaseModel):
     candidate_id: int
     followup: Optional[FollowupRow] = None
     history: list[FollowupHistoryRow] = []
+    meetings: list[FollowupMeetingOut] = []
+
+
+class FollowupMeetingCreate(BaseModel):
+    start: datetime
+    end: datetime
+    client_request_id: str = Field(min_length=16, max_length=80)
+
+    @model_validator(mode="after")
+    def _valid_window(self) -> "FollowupMeetingCreate":
+        if self.start.tzinfo is None or self.end.tzinfo is None:
+            raise ValueError("Podaj termin ze strefą czasową.")
+        if self.start <= datetime.now(timezone.utc) or self.end <= self.start:
+            raise ValueError(
+                "Spotkanie musi mieć przyszły początek i późniejszy koniec."
+            )
+        if self.end - self.start > timedelta(hours=2):
+            raise ValueError("Spotkanie follow-up może trwać najwyżej 2 godziny.")
+        return self
+
+
+class FollowupTranscriptOut(BaseModel):
+    meeting_id: int
+    text: str
+    fetched_at: datetime
 
 
 class FollowupOutcomeIn(BaseModel):
@@ -154,7 +192,13 @@ async def serialize_rows(
                     Note.author_id,
                     Note.created_at,
                 )
-                .where(Note.candidate_id.in_(cand_ids), Note.job_id.in_(job_ids))
+                .where(
+                    Note.candidate_id.in_(cand_ids),
+                    Note.job_id.in_(job_ids),
+                    # 0412: bez wpisów automatu, „nie odbiera” i stawki do
+                    # klienta — ten fragment czyta każda rola.
+                    note_kinds.ai_readable_clause(),
+                )
                 .distinct(Note.candidate_id, Note.job_id)
                 .order_by(
                     Note.candidate_id,
@@ -278,10 +322,31 @@ async def _detail(db: AsyncSession, candidate_id: int) -> FollowupDetail:
         if followup
         else []
     )
+    meeting_rows = (
+        await db.execute(
+            select(FollowupMeeting, CalendarEvent)
+            .join(CalendarEvent, CalendarEvent.id == FollowupMeeting.calendar_event_id)
+            .where(FollowupMeeting.candidate_id == candidate_id)
+            .order_by(FollowupMeeting.created_at.desc())
+            .limit(10)
+        )
+    ).all()
     return FollowupDetail(
         candidate_id=candidate_id,
         followup=rows[0] if rows else None,
         history=await _history(db, candidate_id),
+        meetings=[
+            FollowupMeetingOut(
+                id=m.id,
+                start=e.start_time,
+                end=e.end_time,
+                join_url=e.online_meeting_url,
+                recording_url=e.recording_url,
+                transcription_setup=m.transcription_setup,
+                transcript_status=m.transcript_status,
+            )
+            for m, e in meeting_rows
+        ],
     )
 
 
@@ -316,6 +381,55 @@ async def get_candidate_followup(
     del current_user
     await _require_candidate(db, candidate_id)
     return await _detail(db, candidate_id)
+
+
+@router.post("/candidates/{candidate_id}/teams-meetings", response_model=FollowupDetail)
+async def schedule_teams_followup(
+    candidate_id: int,
+    body: FollowupMeetingCreate,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> FollowupDetail:
+    candidate = await _require_candidate(db, candidate_id)
+    await _require_waiting(db, candidate_id)
+    await followup_meetings.create_followup_meeting(
+        db,
+        candidate=candidate,
+        organizer=current_user,
+        start=body.start,
+        end=body.end,
+        client_request_id=body.client_request_id,
+    )
+    await db.commit()
+    return await _detail(db, candidate_id)
+
+
+@router.get(
+    "/candidates/{candidate_id}/teams-meetings/{meeting_id}/transcript",
+    response_model=FollowupTranscriptOut,
+)
+async def get_teams_followup_transcript(
+    candidate_id: int,
+    meeting_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> FollowupTranscriptOut:
+    del current_user
+    await _require_candidate(db, candidate_id)
+    meeting = await db.get(FollowupMeeting, meeting_id)
+    if (
+        meeting is None
+        or meeting.candidate_id != candidate_id
+        or not meeting.transcript_text
+    ):
+        raise HTTPException(
+            status_code=404, detail="Transkrypt nie jest jeszcze dostępny."
+        )
+    return FollowupTranscriptOut(
+        meeting_id=meeting.id,
+        text=meeting.transcript_text,
+        fetched_at=meeting.transcript_fetched_at,
+    )
 
 
 def _process_label(p: svc.WaitingProcess) -> str:
@@ -357,17 +471,20 @@ async def _signal_owners(
     do dzisiejszego wpisu i oznaczamy jako nieprzeczytany.
     """
 
+    from app.services.workforce_availability import workforce_context  # noqa: PLC0415
+
+    # Runda 8 (R8-N7-1): właściciel na zastępstwie z COMPASS — sygnał idzie
+    # do osoby, która za niego pracuje (jak telefon w `compute_followup`).
+    workforce = await workforce_context(db)
     flagged = {jid for jid, flag in body.processes.items() if flag == "withdrawing"}
-    targets = [
-        p
-        for p in followup.processes
-        if p.owner_id is not None
-        and p.owner_id != author.id
-        and (not flagged or p.job_id in flagged)
-    ]
     by_owner: dict[int, list[svc.WaitingProcess]] = {}
-    for p in targets:
-        by_owner.setdefault(p.owner_id, []).append(p)
+    for p in followup.processes:
+        if p.owner_id is None or (flagged and p.job_id not in flagged):
+            continue
+        recipient = workforce.performer(p.owner_id)
+        if recipient is None or recipient == author.id:
+            continue
+        by_owner.setdefault(recipient, []).append(p)
 
     sent = 0
     author_name = author.name or author.email

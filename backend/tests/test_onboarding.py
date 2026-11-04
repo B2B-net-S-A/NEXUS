@@ -69,8 +69,9 @@ async def _seed_client_and_jobs(
             tac = User(
                 email=f"pytest-tac-{unique}@example.com",
                 name=f"Pytest TAC {unique}",
-                role=UserRole.tac,
-                roles=[UserRole.tac.value],
+                # Opiekun klienta (`ClientTacAssignment`); roli TAC nie ma od 0411.
+                role=UserRole.head_of_recruitment,
+                roles=[UserRole.head_of_recruitment.value],
                 is_active=True,
                 profile_completed=True,
             )

@@ -29,9 +29,15 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User, UserRole
+from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
 from app.services.kpi_catalog import KpiPeriod
-from app.services.kpi_engine import WARSAW, period_bounds
-from app.services.kpi_targets import resolve_kpi_targets_bulk
+from app.services.kpi_engine import (
+    WARSAW,
+    absence_for_periods,
+    period_bounds,
+    target_on_workdays,
+)
+from app.services.kpi_targets import KPI_BEARING_ROLES, resolve_kpi_targets_bulk
 
 # Minimalna liczba weryfikacji w oknie, by pokazać precision (mniej = szum).
 _PRECISION_MIN_DENOM = 5
@@ -42,8 +48,6 @@ _PRECISION_WINDOW_DAYS = 30
 
 # Role operacyjne — panel pokazuje się zawsze (reszta tylko gdy ma aktywność).
 _OPERATIONAL_ROLES = {
-    UserRole.sourcer,
-    UserRole.tac,
     UserRole.recruiter,
     UserRole.delivery_lead,
 }
@@ -55,7 +59,6 @@ _PANEL_KPI_IDS = (
     "daily_first_verifications",
     "monthly_precision",
     "monthly_placements",
-    "daily_new_candidates",
 )
 
 
@@ -70,12 +73,16 @@ _PANEL_KPI_IDS = (
 # Dla każdej próby procesu (kandydat, job, attempt):
 #   1) `process_windows` — nieprzecinające się okna prób; także voided attempt
 #      wyznacza granicę, żeby jego eventy nie przeciekły do kolejnej próby.
+#      Tylko kolumny czytane niżej (i przez `priority_work_policy`): przy
+#      `rp.*` sortowanie okna niosło całe wiersze procesów (z `entry_meta`)
+#      i na produkcji zrzuciło na dysk ok. 100 GB (27.10.2026).
 #   2) `classified_mf` — pierwszy zaakceptowany milestone w każdym natywnym
 #      attempt. Pending/rejected `verified` nie jest kamieniem milowym KPI,
 #      a akceptacja pending liczy się od `approved_at`, nie od pierwotnego ruchu.
 #   3) `classified_credited` — zamrożone `kpi_eligible=true` (albo obserwacja
-#      z importu, patrz niżej) i `credit_user_id`; handoff ownera nigdy nie
-#      zmienia creditu.
+#      z importu, patrz niżej) i `credit_user_id`; handoff ownera procesu
+#      nie zmienia creditu. Zmienia go dopiero przypisanie „Prowadzi”
+#      (`candidate_job_owners`, 25.10.2026) — nakładane w `credited_nexus`.
 #
 # DECYZJA WŁAŚCICIELA 2026-08-13 — obserwacje z importu LICZĄ SIĘ do KPI.
 # Do tej pory obie gałęzie „classified" wymagały `kpi_eligible IS TRUE`, a
@@ -106,10 +113,25 @@ _PANEL_KPI_IDS = (
 # `hired` par z `placement_exclusions` nie są kredytowane w ŻADNEJ gałęzi —
 # `classified_stage_ranked` filtruje je wprost, a `legacy_mf` czyta widok,
 # który pomija je w definicji. Tylko `hired`; pozostałe etapy bez zmian.
+# Drugie „Zatrudniony" tej samej pary w kolejnej próbie procesu też nie jest
+# placementem (15.10.2026) — próba otwarta po zatrudnieniu nie zatrudnia drugi
+# raz. Weryfikacje i pozostałe etapy kolejnej próby liczą się jak dotąd.
+#
+# PRZED 12.10.2026 WYŁĄCZNIE DYNAREPORTER (decyzje Artura 17 i 18.10.2026):
+# zespół klika w NEXUS-ie od 12.10.2026. `credited` bierze ruchy Tablicy
+# (`credited_nexus`) dopiero od tego dnia, a wcześniej wiersze
+# z `analytics_kpi_milestones` spoza Tablicy (migracje 0454, 0467): wpisy
+# tygodniowe 2026 (osoba z wpisu) i placementy firmy sprzed 2026 z raportu
+# Rady (bez osoby). Bez kandydata i rekrutacji (`candidate_id`/`job_id` = NULL).
+# Konsument, który łączy po parze albo rekrutacji, gubi te wiersze —
+# to świadome: DynaReporter nie zna par ani klientów. Surowe ruchy
+# (diagnostyka adopcji, rekonsyliacja) czytaj z `credited_nexus`.
 # Konsument dokleja własny SELECT … FROM credited.
 VERIFIER_ANCHORED_CTE = """
     WITH process_windows AS (
-        SELECT rp.*,
+        SELECT rp.id, rp.candidate_id, rp.job_id, rp.attempt_no, rp.opened_at,
+               rp.status, rp.origin_kind, rp.credit_user_id, rp.kpi_eligible,
+               rp.eligibility_assignment_id,
                LEAD(rp.opened_at) OVER (
                    PARTITION BY rp.candidate_id, rp.job_id
                    ORDER BY rp.attempt_no, rp.id
@@ -176,6 +198,21 @@ VERIFIER_ANCHORED_CTE = """
                     AND pe.job_id = cs.job_id
               )
           )
+          -- Placement to PIERWSZE „Zatrudniony" pary (D2), także między
+          -- próbami procesu. Bez tego warunku para zatrudniona ręcznie
+          -- w NEXUSIE, a potem jeszcze raz z importu Traffita (nowa próba
+          -- otwarta chwilą importu), miała dwa placementy: na produkcji
+          -- 15.10.2026 cztery pary, październik 19 zamiast 16.
+          AND (
+              cs.stage::text <> 'hired'
+              OR NOT EXISTS (
+                  SELECT 1 FROM candidate_stages earlier
+                  WHERE earlier.candidate_id = cs.candidate_id
+                    AND earlier.job_id = cs.job_id
+                    AND earlier.stage::text = 'hired'
+                    AND earlier.moved_at < cp.opened_at
+              )
+          )
     ),
     classified_mf AS (
         SELECT process_id, candidate_id, job_id, stage, first_mover, reached_at
@@ -206,16 +243,34 @@ VERIFIER_ANCHORED_CTE = """
         WHERE (cp.kpi_eligible IS TRUE OR cp.origin_kind::text = 'external_observed')
           AND mf.reached_at >= verified.reached_at
     ),
+    -- Pierwsza zaakceptowana weryfikacja pary, niezależnie od okna procesu.
+    -- Procesy z Traffita mają start zapisany do ~2 h po pierwszym etapie,
+    -- więc weryfikacja wypadała przed oknem i „Zatrudniony" szło do osoby,
+    -- która je kliknęła (20.10.2026: placement Delivery Leada zamiast
+    -- weryfikującej rekruterki; od 12.10 trzy placementy i siedem etapów).
+    pair_first_verifier AS (
+        SELECT candidate_id, job_id,
+               first_moved_by AS verifier,
+               first_reached_at AS verified_at
+        FROM analytics_first_milestones
+        WHERE stage::text = 'verified'
+    ),
     classified_fallback AS (
         SELECT mf.stage,
                mf.reached_at,
                mf.candidate_id,
                mf.job_id,
-               COALESCE(verified.first_mover, mf.first_mover) AS credit_user
+               COALESCE(
+                   verified.first_mover, pair_verifier.verifier, mf.first_mover
+               ) AS credit_user
         FROM classified_mf mf
         JOIN classified_process cp ON cp.id = mf.process_id
         LEFT JOIN classified_verified verified
           ON verified.process_id = mf.process_id
+        LEFT JOIN pair_first_verifier pair_verifier
+          ON pair_verifier.candidate_id = mf.candidate_id
+         AND pair_verifier.job_id = mf.job_id
+         AND pair_verifier.verified_at <= mf.reached_at
         LEFT JOIN classified_anchor anchored
           ON anchored.process_id = mf.process_id
         WHERE (cp.kpi_eligible IS TRUE OR cp.origin_kind::text = 'external_observed')
@@ -272,12 +327,31 @@ VERIFIER_ANCHORED_CTE = """
         LEFT JOIN legacy_anchor a USING (candidate_id, job_id)
         WHERE a.kpi_eligible IS DISTINCT FROM FALSE
     ),
-    credited AS (
+    credited_derived AS (
         SELECT * FROM classified_credited
         UNION ALL
         SELECT * FROM classified_fallback
         UNION ALL
         SELECT * FROM legacy_credited
+    ),
+    -- „Prowadzi” (decyzja Artura 25.10.2026): osoba przypisana przez admina
+    -- albo HoR przejmuje wszystkie kamienie milowe pary — Liga, cele, KPI.
+    credited_nexus AS (
+        SELECT d.stage, d.reached_at, d.candidate_id, d.job_id,
+               COALESCE(o.owner_user_id, d.credit_user) AS credit_user
+        FROM credited_derived d
+        LEFT JOIN candidate_job_owners o
+          ON o.candidate_id = d.candidate_id AND o.job_id = d.job_id
+    ),
+    credited AS (
+        SELECT * FROM credited_nexus
+        WHERE reached_at
+                >= (TIMESTAMP '2026-10-12 00:00' AT TIME ZONE 'Europe/Warsaw')
+        UNION ALL
+        SELECT dr.stage::text, dr.first_reached_at, dr.candidate_id,
+               dr.job_id, dr.first_moved_by
+        FROM analytics_kpi_milestones dr
+        WHERE dr.source <> 'nexus'
     )
 """
 
@@ -290,6 +364,10 @@ VERIFIER_ANCHORED_CTE = """
 # par zweryfikowanych wcześniej: Insights → Zespół pokazywał 900% (45
 # rekomendacji przy 5 weryfikacjach), 200% i 161%. `credit_user IS NULL`
 # (kamień bez autora) nie ma wiersza w tabeli, więc tu go pomijamy.
+#
+# Dni z DynaReportera (wiersze `credited` bez pary) nie mają kohorty — tam
+# precyzja jest taka jak w DynaReporterze: rekomendacje / weryfikacje wpisów
+# z okna, rekomendacje obcięte do weryfikacji, żeby nie przekroczyć 100%.
 PRECISION_COHORT_CTE = """
     ,
     precision_verified AS (
@@ -298,6 +376,7 @@ PRECISION_COHORT_CTE = """
         WHERE stage = 'verified'
           AND reached_at >= :rolling30
           AND credit_user IS NOT NULL
+          AND candidate_id IS NOT NULL
         GROUP BY credit_user, candidate_id, job_id
     ),
     precision_sent AS (
@@ -305,18 +384,41 @@ PRECISION_COHORT_CTE = """
         FROM credited
         WHERE stage = 'cv_sent'
           AND credit_user IS NOT NULL
+          AND candidate_id IS NOT NULL
         GROUP BY credit_user, candidate_id, job_id
     ),
+    precision_history AS (
+        SELECT credit_user,
+               count(*) FILTER (WHERE stage = 'verified') AS verified_n,
+               count(*) FILTER (WHERE stage = 'cv_sent') AS sent_n
+        FROM credited
+        WHERE candidate_id IS NULL
+          AND credit_user IS NOT NULL
+          AND reached_at >= :rolling30
+          AND stage IN ('verified', 'cv_sent')
+        GROUP BY credit_user
+    ),
     precision_cohort AS (
-        SELECT v.credit_user,
-               count(*) AS verified_pairs,
-               count(*) FILTER (WHERE s.last_sent_at >= v.verified_at) AS sent_pairs
-        FROM precision_verified v
-        LEFT JOIN precision_sent s
-          ON s.credit_user = v.credit_user
-         AND s.candidate_id = v.candidate_id
-         AND s.job_id = v.job_id
-        GROUP BY v.credit_user
+        SELECT credit_user,
+               sum(verified_pairs) AS verified_pairs,
+               sum(sent_pairs) AS sent_pairs
+        FROM (
+            SELECT v.credit_user,
+                   count(*) AS verified_pairs,
+                   count(*) FILTER (
+                       WHERE s.last_sent_at >= v.verified_at
+                   ) AS sent_pairs
+            FROM precision_verified v
+            LEFT JOIN precision_sent s
+              ON s.credit_user = v.credit_user
+             AND s.candidate_id = v.candidate_id
+             AND s.job_id = v.job_id
+            GROUP BY v.credit_user
+            UNION ALL
+            SELECT credit_user, verified_n, LEAST(sent_n, verified_n)
+            FROM precision_history
+        ) parts
+        GROUP BY credit_user
     )
 """
 
@@ -331,9 +433,11 @@ PRECISION_R30_SQL = """
 """
 
 # Per-user: zliczamy kamienie milowe przypisane do :uid w 3 oknach czasu
-# + kohortę precyzji z 30 dni.
+# + kohortę precyzji z 30 dni. `credited` z migawki całej firmy
+# (`credited_snapshot`), zawężonej do :uid — oba odczyty niżej i tak biorą
+# wyłącznie wiersze tej osoby.
 _FUNNEL_SQL = text(
-    VERIFIER_ANCHORED_CTE
+    CREDITED_FROM_SNAPSHOT_CTE
     + PRECISION_COHORT_CTE
     + """
     SELECT f.stage, f.d, f.w, f.mo,
@@ -353,7 +457,8 @@ _FUNNEL_SQL = text(
     """
 )
 
-# „5 CV do bazy / dzień" = nowe rekordy kandydatów utworzone przez usera.
+# „CV do bazy" = nowe rekordy kandydatów utworzone przez usera. Od 13.10.2026
+# sama liczba, bez celu (cel „Nowi kandydaci dziś” wycofany).
 # Import masowy (Traffit/TalentRadar) ma created_by NULL → nie liczy się.
 _CV_SQL = text(
     """
@@ -409,7 +514,6 @@ class PanelResult:
     precision: PrecisionResult
     target_verifications_daily: int
     target_placements_monthly: int
-    target_cv_added_daily: Optional[int]
     target_precision_pct: int
 
 
@@ -427,6 +531,70 @@ def _funnel_counts(row: Optional[dict], *, key_month: str = "mo") -> FunnelCount
 
 
 # ── Główne API ───────────────────────────────────────────────────────────────
+
+
+# Kamienie „Sam przekazał” Delivery Leada (22.10.2026) — klucze odpowiedzi.
+OWN_HANDOFF_STAGES: dict[str, str] = {
+    "verified": "verified",
+    "cv_sent": "cv_sent",
+    "hired": "hired",
+}
+
+
+async def month_own_handoffs(
+    db: AsyncSession, *, user: User, now: Optional[datetime] = None
+) -> dict[str, int]:
+    """Ile procesów zaliczonych ``user`` w tym miesiącu doszło do „Zweryfikowany”,
+    „CV wysłane” i „Zatrudniony” — ta sama atrybucja co „Moje KPI”.
+
+    Proces zalicza się temu, kto pierwszy przesunął na „Zweryfikowany”, więc
+    u Delivery Leada to dokładnie osoby, które przeprowadził sam (decyzja
+    Artura 22.10.2026: licznik „Sam przekazał”, bez celu).
+    """
+    if now is None:
+        now = datetime.now(WARSAW)
+    day_start, _ = period_bounds(KpiPeriod.day, now)
+    week_start, _ = period_bounds(KpiPeriod.week, now)
+    month_start, _ = period_bounds(KpiPeriod.month, now)
+    rows = (
+        await db.execute(
+            _FUNNEL_SQL,
+            {
+                "uid": user.id,
+                "day_start": day_start,
+                "week_start": week_start,
+                "month_start": month_start,
+                "rolling30": now - timedelta(days=_PRECISION_WINDOW_DAYS),
+                **await credited_bind(db, credit_user=user.id),
+            },
+        )
+    ).mappings()
+    by_stage = {row["stage"]: int(row["mo"]) for row in rows}
+    return {key: by_stage.get(stage, 0) for key, stage in OWN_HANDOFF_STAGES.items()}
+
+
+_MATCH_SQL = text(
+    """
+    SELECT count(*) AS n
+    FROM recruitment_processes rp
+    WHERE rp.credit_user_id = :uid
+      AND rp.entry_meta ->> 'via' = 'dl_match'
+      AND rp.opened_at >= :month_start
+    """
+)
+
+
+async def month_match_handoffs(
+    db: AsyncSession, *, user: User, now: Optional[datetime] = None
+) -> int:
+    """Ile z „Sam przekazał” w tym miesiącu powstało z „Match” (22.10.2026) —
+    osoby wysłane przez DL-a z przeglądu do innych jego rekrutacji
+    (``dl_match.MATCH_VIA`` na procesie)."""
+    if now is None:
+        now = datetime.now(WARSAW)
+    month_start, _ = period_bounds(KpiPeriod.month, now)
+    value = await db.scalar(_MATCH_SQL, {"uid": user.id, "month_start": month_start})
+    return int(value or 0)
 
 
 async def compute_my_panel(
@@ -447,13 +615,18 @@ async def compute_my_panel(
         "week_start": week_start,
         "month_start": month_start,
         "rolling30": rolling30,
+        **await credited_bind(db, credit_user=user.id),
     }
     rows = (await db.execute(_FUNNEL_SQL, funnel_params)).mappings().all()
     by_stage: dict[str, dict] = {r["stage"]: dict(r) for r in rows}
 
     weryfikacje = _funnel_counts(by_stage.get("verified"))
     rekomendacje = _funnel_counts(by_stage.get("cv_sent"))
-    interview_month = int(by_stage["interview"]["mo"]) if "interview" in by_stage else 0
+    # Runda 7 (R7-N9-2, decyzja 26.09.2026): „Interview" = rozmowy u klienta
+    # (`client_interview`), nie etap QC CV (kod `interview`).
+    interview_month = (
+        int(by_stage["client_interview"]["mo"]) if "client_interview" in by_stage else 0
+    )
     akceptacje_month = (
         int(by_stage["acceptance"]["mo"]) if "acceptance" in by_stage else 0
     )
@@ -470,10 +643,10 @@ async def compute_my_panel(
         else None
     )
 
-    # CV do bazy — tylko gdy osoba ma cel (którakolwiek z jej ról).
-    cv_target = targets["daily_new_candidates"]
+    # CV do bazy — sama liczba, dla osób z rolą z celami KPI. Do 13.10.2026
+    # warunkiem był cel „Nowi kandydaci dziś” > 0, czyli ta sama grupa.
     cv_to_base: Optional[FunnelCounts] = None
-    if cv_target > 0:
+    if user.has_any_role(*KPI_BEARING_ROLES):
         cv_params = {
             "uid": user.id,
             "day_start": day_start,
@@ -483,8 +656,15 @@ async def compute_my_panel(
         cv_row = (await db.execute(_CV_SQL, cv_params)).mappings().one()
         cv_to_base = _funnel_counts(dict(cv_row))
 
-    verifications_target = targets["daily_first_verifications"]
-    placements_target = targets["monthly_placements"]
+    # Cele w proporcji do dni pracy — te same co w „/me/today” i w Zespole
+    # (decyzja Artura 28.10.2026, `person_workdays`).
+    absence = (await absence_for_periods(db, [user.id], now)).get(user.id, {})
+    verifications_target = target_on_workdays(
+        targets["daily_first_verifications"], KpiPeriod.day, now, absence
+    )
+    placements_target = target_on_workdays(
+        targets["monthly_placements"], KpiPeriod.month, now, absence
+    )
 
     total_activity = (
         weryfikacje.month + rekomendacje.month + interview_month + placementy_month
@@ -509,17 +689,19 @@ async def compute_my_panel(
         ),
         target_verifications_daily=verifications_target,
         target_placements_monthly=placements_target,
-        target_cv_added_daily=(cv_target if cv_to_base is not None else None),
         target_precision_pct=precision_target,
     )
 
 
 __all__ = [
+    "OWN_HANDOFF_STAGES",
     "PRECISION_COHORT_CTE",
     "PRECISION_R30_SQL",
     "FunnelCounts",
     "PanelResult",
     "PrecisionResult",
     "VERIFIER_ANCHORED_CTE",
+    "month_match_handoffs",
+    "month_own_handoffs",
     "compute_my_panel",
 ]

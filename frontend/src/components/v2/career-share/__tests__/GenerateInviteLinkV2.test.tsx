@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider } from "@/components/Toast";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import api from "@/lib/api";
+import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { useAuthStore } from "@/store/auth";
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
@@ -23,6 +25,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 });
 
 vi.mock("@/lib/clipboard", () => ({ copyTextToClipboard: vi.fn() }));
+vi.mock("@/lib/authenticated-files", () => ({ downloadAuthenticatedFile: vi.fn() }));
 
 const JOB = { id: 101, title: "Senior Java Developer", status: "published" };
 
@@ -36,11 +39,36 @@ function profile(overrides: Record<string, unknown> = {}) {
     show_on_recruiter_page: true,
     approved_at: null,
     approved_by_name: null,
+    approved_content_stale: false,
     findings: [],
     preview: null,
     ...overrides,
   };
 }
+
+const LIVE = {
+  title: "Senior Java Developer",
+  subtitle: "rozwój platformy płatności",
+  about: "Zespół przebudowuje platformę płatności.",
+  sections: { must: true, nice: true, params: true, process: true },
+  pending_changes: false,
+};
+
+const CREATED_LINK = {
+  token: "t1",
+  url: "https://kariera.dynaminds.pl/r/senior-java-7kq2",
+  public_url: "https://kariera.dynaminds.pl/r/senior-java-7kq2",
+  kind: "job",
+  slug: "senior-java-7kq2",
+  job: { id: 101, title: JOB.title },
+  label: null,
+  expires_at: null,
+  revoked: false,
+  use_count: 0,
+  last_used_at: null,
+  created_at: "2026-09-21T10:00:00Z",
+  status: "active",
+};
 
 type Routes = Record<string, unknown | (() => unknown)>;
 
@@ -165,7 +193,13 @@ describe("GenerateInviteLinkV2 — Udostępnij rekrutację", () => {
 
   it("utworzenie linku kopiuje go, a toast pojawia się tylko przy udanym kopiowaniu", async () => {
     const user = userEvent.setup();
-    routeGet(baseRoutes);
+    routeGet({
+      ...baseRoutes,
+      "/api/jobs/101/public-profile": profile({
+        status: "approved",
+        live: LIVE,
+      }),
+    });
     const created = {
       token: "t1",
       url: "https://kariera.dynaminds.pl/r/senior-java-7kq2",
@@ -192,14 +226,142 @@ describe("GenerateInviteLinkV2 — Udostępnij rekrutację", () => {
       label: undefined,
       expires_in_days: null,
     });
-    expect(await screen.findByDisplayValue(created.public_url)).toBeInTheDocument();
+    expect(await screen.findByTestId("job-link-url")).toHaveTextContent(created.public_url);
     expect(copyTextToClipboard).toHaveBeenCalledWith(created.public_url);
     expect(await screen.findByText(/Nie udało się skopiować/)).toBeInTheDocument();
     expect(screen.queryByText("Skopiowano link.")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Otwórz stronę/ })).toHaveAttribute(
+      "href",
+      created.public_url,
+    );
 
     vi.mocked(copyTextToClipboard).mockResolvedValueOnce(true);
     await user.click(screen.getByRole("button", { name: "Kopiuj" }));
     expect(await screen.findByText("Skopiowano link.")).toBeInTheDocument();
+  });
+
+  it("przed zatwierdzeniem opisu link powstaje, ale nie da się go skopiować ani otworzyć", async () => {
+    const user = userEvent.setup();
+    routeGet(baseRoutes);
+    vi.mocked(api.post).mockResolvedValue({ data: CREATED_LINK });
+    renderDialog();
+
+    expect(await screen.findByTestId("career-page-state")).toHaveTextContent(
+      "Strona jeszcze nie działa",
+    );
+    await user.click(await screen.findByRole("button", { name: "Wygeneruj link" }));
+
+    expect(await screen.findByTestId("job-link-url")).toHaveTextContent(CREATED_LINK.public_url);
+    expect(copyTextToClipboard).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Kopiuj" })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: /Otwórz stronę/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Plakat z QR" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("link-not-live")).toHaveTextContent(
+      "Link zadziała po zatwierdzeniu opisu",
+    );
+  });
+
+  it("zatwierdzony i niezmieniony opis: przycisk tylko kopiuje link, bez ponownego zatwierdzenia", async () => {
+    const user = userEvent.setup();
+    routeGet({
+      ...baseRoutes,
+      "/api/invite-links": [CREATED_LINK],
+      "/api/jobs/101/public-profile": profile({
+        status: "approved",
+        about: "Zespół przebudowuje platformę płatności.",
+        live: LIVE,
+      }),
+    });
+    vi.mocked(copyTextToClipboard).mockResolvedValue(true);
+    renderDialog();
+
+    await user.click(await screen.findByRole("button", { name: "Skopiuj link" }));
+    await waitFor(() => expect(copyTextToClipboard).toHaveBeenCalledWith(CREATED_LINK.public_url));
+    expect(api.post).not.toHaveBeenCalled();
+    expect(screen.getByTestId("career-page-state")).toHaveTextContent("Strona działa");
+
+    // Plakat z QR — ten sam link, PDF z opublikowanej wersji opisu.
+    await user.click(screen.getByRole("button", { name: "Plakat z QR" }));
+    await waitFor(() =>
+      expect(downloadAuthenticatedFile).toHaveBeenCalledWith(
+        "/api/jobs/101/public-profile/poster.pdf",
+        "plakat-senior-java-7kq2.pdf",
+      ),
+    );
+  });
+
+  it("zmiany po zatwierdzeniu: strona działa na starej wersji, „Odrzuć zmiany” ją przywraca", async () => {
+    const user = userEvent.setup();
+    routeGet({
+      ...baseRoutes,
+      "/api/invite-links": [CREATED_LINK],
+      "/api/jobs/101/public-profile": profile({
+        status: "draft",
+        about: "Poprawiony opis.",
+        approved_at: "2026-10-18T12:20:00Z",
+        default_title: "Senior Java Developer",
+        effective_title: "Senior Java Developer",
+        live: { ...LIVE, pending_changes: true },
+      }),
+    });
+    vi.mocked(api.put).mockResolvedValue({
+      data: profile({ status: "approved", about: LIVE.about, live: LIVE }),
+    });
+    renderDialog();
+
+    const state = await screen.findByTestId("career-page-state");
+    expect(state).toHaveTextContent("Strona działa · są zmiany");
+    expect(state).toHaveTextContent("Zmiany czekają na zatwierdzenie");
+    // Link działa — kopiowanie i „Otwórz stronę” dostępne mimo szkicu.
+    expect(screen.getByRole("button", { name: "Kopiuj" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Zatwierdź zmiany" })).toBeInTheDocument();
+
+    await user.click(within(state).getByRole("button", { name: "Odrzuć zmiany" }));
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith(
+        "/api/jobs/101/public-profile",
+        expect.objectContaining({
+          public_title: null,
+          subtitle: LIVE.subtitle,
+          about: LIVE.about,
+          sections: LIVE.sections,
+        }),
+      ),
+    );
+  });
+
+  it("kontrola nie świeci na zielono, gdy opis jest pusty albo niezapisany", async () => {
+    const user = userEvent.setup();
+    routeGet({
+      ...baseRoutes,
+      "/api/jobs/101/public-profile": profile({ status: "none", subtitle: null, about: null }),
+    });
+    renderDialog();
+    await screen.findByLabelText("O projekcie");
+    const list = screen.getByTestId("public-profile-findings");
+    expect(within(list).getAllByTestId("finding-unchecked")).toHaveLength(4);
+    expect(list).toHaveTextContent("sprawdzę po zapisaniu");
+    await user.type(screen.getByLabelText("O projekcie"), "Zespół płatności.");
+    expect(within(list).getAllByTestId("finding-unchecked")).toHaveLength(4);
+  });
+
+  it("znalezisko spoza pól okna (np. z wymagań) nie znika z listy kontroli", async () => {
+    routeGet({
+      ...baseRoutes,
+      "/api/jobs/101/public-profile": profile({
+        about: "Zespół przebudowuje platformę płatności.",
+        findings: [
+          {
+            code: "client_name",
+            message: "Wykryto nazwę klienta: „Znajomość systemów Nordea”.",
+            excerpt: "Znajomość systemów Nordea",
+          },
+        ],
+      }),
+    });
+    renderDialog();
+    expect(await screen.findByText(/Wykryto nazwę klienta/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zatwierdź i skopiuj link" })).toBeDisabled();
   });
 
   it("„Tytuł na stronie”: placeholder = tytuł domyślny, wpis idzie w PUT i do podglądu posta", async () => {
@@ -235,13 +397,15 @@ describe("GenerateInviteLinkV2 — Udostępnij rekrutację", () => {
     expect(title).toHaveAttribute("placeholder", "Senior Java Developer");
     const preview = screen.getByTestId("linkedin-preview");
     // Podgląd bierze tytuł domyślny, nie surowy tytuł z nazwą klienta.
-    expect(preview).toHaveTextContent("Senior Java Developer — Dynaminds");
+    // Podgląd = prawdziwy post: LinkedIn bierze `og:title` bez dopisku marki.
+    expect(preview).toHaveTextContent("Senior Java Developer");
+    expect(preview).not.toHaveTextContent("Dynaminds");
     expect(preview).not.toHaveTextContent("Nordea");
     await waitFor(() => expect(preview).toHaveTextContent("nexus.dynaminds.pl"));
 
     await user.type(title, "Java Developer w bankowości");
     expect(screen.getByText(/niezapisane zmiany/)).toBeInTheDocument();
-    expect(preview).toHaveTextContent("Java Developer w bankowości — Dynaminds");
+    expect(preview).toHaveTextContent("Java Developer w bankowości");
 
     await user.click(screen.getByRole("button", { name: "Zapisz szkic" }));
     await waitFor(() =>
@@ -332,11 +496,24 @@ describe("GenerateInviteLinkV2 — Mój link ogólny", () => {
   it("statystyki bez danych pokazują kreskę, a nie zero; widoczność zablokowana bez zatwierdzenia", async () => {
     await openGeneral({ "/api/me/career-link": careerLink });
     expect(await screen.findByText("To Twój obecny adres · działa bez terminu, do odwołania")).toBeInTheDocument();
-    const entries = screen.getByText("Wejścia").parentElement as HTMLElement;
+    const entries = screen.getByText("Wejścia od początku").parentElement as HTMLElement;
     expect(within(entries).getByText("—")).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: `Pokaż na stronie: ${JOB.title}` })).toBeEnabled();
     expect(screen.getByRole("switch", { name: "Pokaż na stronie: Analityk biznesowy" })).toBeDisabled();
     expect(screen.getByText("Najpierw zatwierdź opis publiczny tej rekrutacji.")).toBeInTheDocument();
+  });
+
+  it("podgląd posta mówi tym samym językiem co strona: login @b2bnetwork i `og:title` bez marki", async () => {
+    useAuthStore.setState({ user: { name: "Łucja Nowak" } } as never);
+    try {
+      await openGeneral({ "/api/me/career-link": careerLink });
+      const preview = await screen.findByTestId("linkedin-preview");
+      expect(preview).toHaveTextContent("Łucja · rekrutacje IT w B2B Network");
+      expect(preview).toHaveTextContent("Łucja — rekrutacje IT");
+      expect(preview).not.toHaveTextContent(/dynaminds\b(?!\.pl)/i);
+    } finally {
+      useAuthStore.setState({ user: null } as never);
+    }
   });
 
   it("prefiks adresu idzie z `recruiter_base_url` (bez protokołu), nie ze stałej domeny", async () => {
@@ -414,5 +591,173 @@ describe("GenerateInviteLinkV2 — Mój link ogólny", () => {
     expect(await screen.findByText(/Nie udało się wczytać Twojego linku ogólnego/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Utwórz link" })).not.toBeInTheDocument();
     await act(async () => {});
+  });
+});
+
+describe("GenerateInviteLinkV2 — Wyniki", () => {
+  const RESULTS = {
+    days: 30,
+    visits_tracked_from: "2026-11-03",
+    totals: {
+      visits: 212,
+      visits_in_period: 40,
+      applications: 18,
+      new_candidates: 11,
+      existing_candidates: 7,
+      in_process: 9,
+      verified: 4,
+      cv_sent: 2,
+      hired: 0,
+    },
+    links: [
+      {
+        kind: "job",
+        slug: "senior-java-7kq2",
+        public_url: "https://kariera.example/r/senior-java-7kq2",
+        job_id: 101,
+        job_title: "Senior Java Developer",
+        state: "live",
+        visits: 148,
+        applications: 12,
+        new_candidates: 8,
+        existing_candidates: 4,
+        in_process: 7,
+        verified: 3,
+        cv_sent: 2,
+        hired: 0,
+      },
+      {
+        kind: "recruiter",
+        slug: "marta-n",
+        public_url: "https://kariera.example/marta-n",
+        job_id: null,
+        job_title: null,
+        state: "live",
+        visits: 64,
+        applications: 6,
+        new_candidates: 3,
+        existing_candidates: 3,
+        in_process: 2,
+        verified: 1,
+        cv_sent: 0,
+        hired: 0,
+      },
+    ],
+  };
+
+  const PEOPLE = {
+    days: 30,
+    total: 2,
+    truncated: false,
+    people: [
+      {
+        candidate_id: 7,
+        full_name: "Celina Fikcyjna",
+        applied_at: "2026-10-28T09:12:00Z",
+        was_duplicate: false,
+        kind: "job",
+        slug: "senior-java-7kq2",
+        job_id: 101,
+        job_title: "Senior Java Developer",
+        current_stage: "screening",
+        current_job_id: 101,
+        current_job_title: "Senior Java Developer",
+        screening_status: null,
+        screening_outcome: null,
+        in_my_people: false,
+      },
+      {
+        candidate_id: 8,
+        full_name: "Damian Testowy",
+        applied_at: "2026-10-21T14:40:00Z",
+        was_duplicate: true,
+        kind: "recruiter",
+        slug: "marta-n",
+        job_id: null,
+        job_title: null,
+        current_stage: null,
+        current_job_id: null,
+        current_job_title: null,
+        screening_status: null,
+        screening_outcome: null,
+        in_my_people: true,
+      },
+    ],
+  };
+
+  it("pokazuje kafle, osoby i wiersz na każdy link w dwóch grupach; okres idzie do API", async () => {
+    const user = userEvent.setup();
+    routeGet({
+      ...baseRoutes,
+      "/api/me/career-link/results": RESULTS,
+      "/api/me/career-link/people": PEOPLE,
+    });
+    renderDialog();
+    await user.click(screen.getByRole("tab", { name: "Wyniki" }));
+
+    const tiles = await screen.findByTestId("results-tiles");
+    expect(tiles).toHaveTextContent("Wejścia, 30 dni40");
+    expect(screen.getByTestId("results-visits-note")).toHaveTextContent(/zapisujemy od 03 lis 2026/);
+    expect(tiles).toHaveTextContent("Zgłoszenia18");
+    expect(tiles).toHaveTextContent("Nowi w bazie11");
+    const people = await screen.findByTestId("results-people");
+    expect(within(people).getByRole("link", { name: "Celina Fikcyjna" })).toHaveAttribute(
+      "href",
+      "/candidates/7",
+    );
+    expect(within(people).getByText("Screening")).toBeInTheDocument();
+    expect(within(people).getByText("Poza Moimi ludźmi")).toBeInTheDocument();
+    expect(within(people).getByText("W bazie, bez nowej rekrutacji")).toBeInTheDocument();
+    expect(within(people).getByText("W Moich ludziach")).toBeInTheDocument();
+    const table = screen.getByTestId("results-links");
+    expect(within(table).getByText(/Link ogólny: osoba trafia/)).toBeInTheDocument();
+    expect(within(table).getByText(/Linki do rekrutacji: osoba trafia/)).toBeInTheDocument();
+    expect(within(table).getByText("Razem")).toBeInTheDocument();
+    expect(within(table).getByText("Senior Java Developer")).toBeInTheDocument();
+    expect(within(table).getByText("Mój link ogólny")).toBeInTheDocument();
+    expect(within(table).getByText("w tym 4 już w bazie")).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith("/api/me/career-link/results", {
+      params: { days: 30 },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Od początku" }));
+    await waitFor(() =>
+      expect(api.get).toHaveBeenCalledWith("/api/me/career-link/results", {
+        params: { days: 0 },
+      }),
+    );
+    expect(await screen.findByText("Wejścia od początku")).toBeInTheDocument();
+    expect(screen.queryByTestId("results-visits-note")).not.toBeInTheDocument();
+  });
+
+  it("awaria listy osób nie wygląda jak brak zgłoszeń", async () => {
+    const user = userEvent.setup();
+    routeGet({
+      ...baseRoutes,
+      "/api/me/career-link/results": RESULTS,
+      "/api/me/career-link/people": () =>
+        Object.assign(new Error("boom"), { response: { status: 500, data: {} } }),
+    });
+    renderDialog();
+    await user.click(screen.getByRole("tab", { name: "Wyniki" }));
+    expect(await screen.findByText(/Nie udało się wczytać listy osób/)).toBeInTheDocument();
+    expect(screen.queryByText(/nikt nie zgłosił się/)).not.toBeInTheDocument();
+    expect(screen.getByTestId("results-links")).toBeInTheDocument();
+  });
+
+  it("awaria wyników nie wygląda jak brak linków", async () => {
+    const user = userEvent.setup();
+    routeGet({
+      ...baseRoutes,
+      "/api/me/career-link/people": PEOPLE,
+      "/api/me/career-link/results": () =>
+        Object.assign(new Error("boom"), { response: { status: 500, data: {} } }),
+    });
+    renderDialog();
+    await user.click(screen.getByRole("tab", { name: "Wyniki" }));
+    expect(
+      await screen.findByText(/Nie udało się policzyć wyników linków/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Nie masz jeszcze linków/)).not.toBeInTheDocument();
   });
 });

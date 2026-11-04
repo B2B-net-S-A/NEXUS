@@ -422,6 +422,49 @@ async def test_download_endpoint_returns_bytes(
 
 
 @pytest.mark.asyncio
+async def test_download_leaves_audit_event_for_data_access_alarm(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Audyt 22.10 (F25): pobranie i podgląd migawki zostawiają wpis, który
+    liczy alarm masowego przeglądania CV (`candidate_data_access_alerts`)."""
+    cid = await _seed_candidate_with_cv(
+        cv_bytes=b"%PDF-1.4 audit", cv_filename="audit.pdf"
+    )
+    jid = await _seed_job()
+    sid = await _seed_stage(cid, jid)
+    async with AsyncSessionLocal() as db:
+        stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
+        await create_original_cv_snapshot(db, stage)
+        await db.commit()
+
+    url = f"/api/candidates/stages/{sid}/cv/original/download"
+    saved = await app_client.get(url, headers=app_auth_headers)
+    previewed = await app_client.get(
+        url, params={"disposition": "inline"}, headers=app_auth_headers
+    )
+    assert saved.status_code == 200
+    assert previewed.status_code == 200
+
+    async with AsyncSessionLocal() as db:
+        events = (
+            await db.scalars(
+                select(Activity)
+                .where(
+                    Activity.entity_type == "candidate",
+                    Activity.entity_id == cid,
+                    Activity.action == "document_downloaded",
+                )
+                .order_by(Activity.id)
+            )
+        ).all()
+    assert [e.details for e in events] == [
+        {"stage_id": sid, "endpoint": "stage-cv-original", "disposition": d}
+        for d in ("attachment", "inline")
+    ]
+    assert all(e.user_id is not None for e in events)
+
+
+@pytest.mark.asyncio
 async def test_download_404_when_no_snapshot(
     app_client: AsyncClient, app_auth_headers: dict
 ):

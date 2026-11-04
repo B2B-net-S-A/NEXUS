@@ -71,15 +71,34 @@ class ClientIdentification:
 # jest sklejany osobno PRZED skanem, po myślniku na końcu linii.
 # Dolna granica 8 cyfr — fiński Business ID Nordei (FI28583949) ma osiem;
 # polskie numery krótsze niż 10 i tak odpadają na sumie kontrolnej.
+# Prefiks kraju może być oddzielony spacją albo myślnikiem („FI-28583949").
 _REGISTRY_NUMBER_RE = re.compile(
-    r"(?<![A-Za-z0-9])(?:(PL|FI)[ \u00a0]?)?((?:\d[ \u00a0\u202f\-]*){7,12}\d)(?![0-9])",
+    r"(?<![A-Za-z0-9])(?:(PL|FI)[ \u00a0\-]?)?((?:\d[ \u00a0\u202f\-]*){7,12}\d)(?![0-9])",
     re.IGNORECASE,
 )
+# Fiński Business ID (Y-tunnus) w zapisie krajowym: siedem cyfr, myślnik, cyfra
+# kontrolna — „2858394-9" w nagłówku KAŻDEGO zamówienia Nordei („Company
+# number"). Bez prefiksu „FI" wyglądał jak niepoprawny polski NIP i odpadał na
+# sumie kontrolnej, więc Nordea była rozpoznawana tylko markerem — a marker
+# nigdy nie pozwala na automatyczny zapis (zgłoszenie 05.10.2026, zam. 287341).
+# Y-tunnus i fiński VAT to ten sam numer: VAT = „FI" + osiem cyfr bez myślnika.
+_FI_BUSINESS_ID_RE = re.compile(r"^(\d{7})-(\d)$")
+_FI_BUSINESS_ID_WEIGHTS = (7, 9, 10, 5, 8, 4, 2)
 # Numer przełamany myślnikiem na końcu linii: „657-008-\n22-74". Sklejamy
 # PRZED skanem, żeby regex widział ciąg.
 _HYPHEN_LINEBREAK_RE = re.compile(r"(\d)-\s*\n\s*(\d)")
 
 _NIP_WEIGHTS = (6, 5, 7, 2, 3, 4, 5, 6, 7)
+
+# Kody z pola ``KodUE`` faktury FA (Grecja to EL, Irlandia Północna XI). PL jest
+# poza listą, bo polski numer to w rejestrze same cyfry. Lista odróżnia kraj od
+# etykiety: „NIP 123…” i „VAT 123…” po zdjęciu spacji też zaczynają się od liter.
+_EU_VAT_COUNTRIES = frozenset(
+    "AT BE BG CY CZ DE DK EE EL ES FI FR HR HU IE IT LT LU LV MT NL PT RO SE SI SK XI".split()
+)
+# Plus i gwiazdka są w numerze dozwolone przez schemat FA (``TNrVatUE``).
+_EU_VAT_ID_RE = re.compile(r"([A-Z]{2})[A-Z0-9+*]*\d[A-Z0-9+*]*")
+_EU_VAT_SEPARATORS_RE = re.compile(r"[\s.\-]")
 
 
 def normalize_registry_id(value: str) -> str:
@@ -102,12 +121,47 @@ def normalize_registry_id(value: str) -> str:
     return digits
 
 
+def normalize_buyer_number(value: str) -> str:
+    """Numer nabywcy z faktury albo profilu: VAT UE w całości, reszta jak w rejestrze.
+
+    „FR 1A-123456789” → „FR1A123456789”, „ATU12345678” zostaje. VAT z literą to
+    nadal jeden numer jednej firmy, a ``normalize_registry_id`` kończy go na
+    pierwszej literze po cyfrach. Tamta funkcja zostaje dla poczty zamówień:
+    skan tekstu i tak znajduje tylko numery polskie i fińskie.
+    """
+    raw = unicodedata.normalize("NFKC", value or "").upper()
+    compact = _EU_VAT_SEPARATORS_RE.sub("", raw)
+    m = _EU_VAT_ID_RE.fullmatch(compact)
+    if m and m.group(1) in _EU_VAT_COUNTRIES:
+        return compact
+    return normalize_registry_id(raw)
+
+
 def nip_checksum_valid(digits: str) -> bool:
     """Polski NIP: 10 cyfr, ostatnia = suma ważona mod 11 (wynik 10 = nieważny)."""
     if len(digits) != 10 or not digits.isdigit():
         return False
     control = sum(int(d) * w for d, w in zip(digits[:9], _NIP_WEIGHTS)) % 11
     return control != 10 and control == int(digits[9])
+
+
+def fi_business_id_valid(digits: str) -> bool:
+    """Y-tunnus: 8 cyfr, ostatnia = 11 − (suma ważona mod 11); reszta 1 = nieważny."""
+    if len(digits) != 8 or not digits.isdigit():
+        return False
+    rest = sum(int(d) * w for d, w in zip(digits[:7], _FI_BUSINESS_ID_WEIGHTS)) % 11
+    if rest == 1:
+        return False
+    return int(digits[7]) == (0 if rest == 0 else 11 - rest)
+
+
+def _fi_business_id(body: str) -> str | None:
+    """„2858394-9" → „FI28583949"; inny kształt albo zła suma → None."""
+    m = _FI_BUSINESS_ID_RE.match(body.strip())
+    if not m:
+        return None
+    digits = m.group(1) + m.group(2)
+    return f"FI{digits}" if fi_business_id_valid(digits) else None
 
 
 def registry_ids_in_text(
@@ -117,13 +171,17 @@ def registry_ids_in_text(
 
     Polskie NIP-y filtrowane sumą kontrolną; obce (z prefiksem literowym innym
     niż PL) przechodzą bez walidacji — ich poprawność potwierdza dopiero
-    przecięcie z rejestrem.
+    przecięcie z rejestrem. Fiński Business ID w zapisie „NNNNNNN-N" (z poprawną
+    cyfrą kontrolną) jest zamieniany na postać VAT „FI" + 8 cyfr.
     """
     joined = _HYPHEN_LINEBREAK_RE.sub(r"\1\2", text or "")
     excluded = {normalize_registry_id(x) for x in exclude}
     found: list[str] = []
     for prefix, body in _REGISTRY_NUMBER_RE.findall(joined):
         candidate = normalize_registry_id(f"{prefix}{body}")
+        if not prefix and (fi_id := _fi_business_id(body)):
+            # Zapis krajowy fińskiego numeru — ten sam numer co VAT „FI…".
+            candidate = fi_id
         if candidate in excluded or candidate in found:
             continue
         if candidate.isdigit():

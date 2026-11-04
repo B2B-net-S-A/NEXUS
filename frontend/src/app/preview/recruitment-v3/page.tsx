@@ -27,8 +27,11 @@ import { QueryClient, QueryClientProvider, type InfiniteData } from "@tanstack/r
 import { api } from "@/lib/api";
 import { candidateContactQueryKeys } from "@/lib/candidate-contact";
 import {
+  cvToClientIssuesQueryKey,
+  cvToClientQcQueryKey,
   cvToClientRowsQueryKey,
   stageBrandedQueryKey,
+  stageCvSourcesQueryKey,
   type StageGeneratedCvRow,
 } from "@/lib/cv-to-client";
 import {
@@ -66,7 +69,7 @@ const BUDGET_HOURLY = 190;
 
 const FIRST = ["Anna", "Marek", "Ewa", "Paweł", "Katarzyna", "Tomasz", "Ola", "Jan", "Magda", "Piotr", "Zofia", "Adam"];
 const LAST = ["Nowak", "Zieliński", "Pawlak", "Król", "Wójcik", "Lis", "Kot", "Mazur", "Dąbrowska", "Kaczmarek", "Szymański", "Wrona"];
-const RECRUITERS = ["Marta Rekruter", "Igor Sourcer", "Beata TAC"];
+const RECRUITERS = ["Marta Rekruter", "Igor Przykładowy", "Beata Wzorcowa"];
 
 /** Deterministyczny „los" — harness ma wyglądać tak samo przy każdym wejściu. */
 function pick(seed: number, mod: number): number {
@@ -175,7 +178,10 @@ function inboxItem(i: number): ProposalInboxItem {
     evidence: {
       requirements: [
         { name: "Java 17", level: "must", status: "met" },
-        { name: "Spring Boot", level: "must", status: i % 4 === 0 ? "unknown" : "met" },
+        // Technologia sprzed ponad 3 lat: „?” z rokiem ostatniego użycia (27.10.2026).
+        i % 4 === 0
+          ? { name: "Spring Boot", level: "must", status: "unknown", last_used_year: 2021 }
+          : { name: "Spring Boot", level: "must", status: "met" },
         { name: "Kafka", level: "must", status: i % 3 === 0 ? "not_met" : "met" },
         { name: "AWS", level: "nice", status: "unknown" },
       ],
@@ -225,6 +231,16 @@ const SCENARIO_LABEL: Record<ProposalsScenario, string> = {
 };
 
 const noop = () => undefined;
+
+// Wariant A (13.10.2026): „Zapytaj w rozmowie” na karcie osoby — fikcyjne pozycje.
+const TALK = {
+  checks: [
+    { label: "bankowość detaliczna", kind: "domains" },
+    { label: "angielski B2", kind: "language" },
+    { label: "Doświadczenie w zespole rozproszonym", kind: "must" },
+  ],
+  notSearchableMust: ["Doświadczenie w zespole rozproszonym"],
+};
 
 function proposalsState(
   scenario: ProposalsScenario,
@@ -334,16 +350,23 @@ function seededClient(columns: KanbanColumn[]): QueryClient {
         linkedin_current_title: "Java Developer",
         email: null,
       });
-      client.setQueryData([...candidateQueryKeys.notes(item.candidate_id), JOB_ID], {
-        items: [
-          {
-            id: item.candidate_id,
-            content: "Rozmowa wstępna: dostępny od października, preferuje pracę hybrydową.",
-            author_name: "Marta Rekruter",
-            created_at: "2026-09-12T09:30:00Z",
-          },
-        ],
-      });
+      // 12.10.2026: panel czyta WSZYSTKIE notatki osoby i sam wybiera te z tej
+      // rekrutacji (`job_id`); znacznik dzień w przód, bo zapytanie ma własny `staleTime`.
+      client.setQueryData(
+        candidateQueryKeys.notes(item.candidate_id),
+        {
+          items: [
+            {
+              id: item.candidate_id,
+              job_id: JOB_ID,
+              content: "Rozmowa wstępna: dostępny od października, preferuje pracę hybrydową.",
+              author_name: "Marta Rekruter",
+              created_at: "2026-09-12T09:30:00Z",
+            },
+          ],
+        },
+        { updatedAt: Date.now() + 86_400_000 },
+      );
     }
   }
   client.setQueryData(["pipeline-scores", String(JOB_ID)], {
@@ -403,8 +426,38 @@ function seededClient(columns: KanbanColumn[]): QueryClient {
   // Karta „CV do klienta” (sekcja CV panelu osoby): CV etapu, lista
   // wygenerowanych CV pary i plik źródłowy — trzy stany z makiety: gotowe
   // (auto-CV), brak i gotowe bez zgody RODO.
-  verified.forEach((item, index) => {
-    const variant = index % 3;
+  // 12.10.2026: karta jest też w sekcji CV osób z „Nowych” i „Screeningu”
+  // (bez CV), a „Użyj innego CV” pyta o gotowe CV osoby — wszystko zasiane.
+  const early = columns
+    .filter((column) => column.stage === "new" || column.stage === "screening")
+    .flatMap((column) => column.items);
+  const cardPeople = [
+    ...verified.map((item, index) => ({ item, variant: index % 3 })),
+    ...early.map((item) => ({ item, variant: 1 })),
+  ];
+  cardPeople.forEach(({ item, variant }) => {
+    client.setQueryData(
+      stageCvSourcesQueryKey(item.id),
+      variant === 0
+        ? [
+            {
+              job_id: 9000,
+              stage_id: 590,
+              job_title: "Java Developer",
+              reference_number: "REQ-9000",
+              client_name: "Bank Kappa",
+              status: "finalized",
+              version: 2,
+              language: "pl",
+              updated_at: "2026-10-02T09:00:00Z",
+              updated_by_name: "Ewa Rekruterska",
+            },
+          ]
+        : [],
+    );
+    client.setQueryData(candidateQueryKeys.cvDocuments(item.candidate_id), []);
+    client.setQueryData(["candidate-generated-cvs", item.candidate_id], []);
+    client.setQueryData(["central-cv-policy", null, item.id, false], {});
     const generatedId = 9000 + item.id;
     const rows: StageGeneratedCvRow[] =
       variant === 1
@@ -424,6 +477,42 @@ function seededClient(columns: KanbanColumn[]): QueryClient {
             },
           ];
     client.setQueryData(cvToClientRowsQueryKey(item.candidate_id, JOB_ID), rows);
+    if (variant !== 1) {
+      // „N rzeczy do sprawdzenia przed wysłaniem” (13.10.2026): QC karty i uwagi
+      // generatora / kontroli AI — szkic ma wersję 1.
+      const fresh = { updatedAt: Date.now() + 86_400_000 };
+      client.setQueryData(
+        cvToClientQcQueryKey(item.id, 1),
+        {
+          stage_id: item.id,
+          cv: { stage_id: item.id },
+          checks:
+            variant === 0
+              ? [{ key: "must_in_cv", label: "Pozostałe wymagania klienta są w CV", severity: "warning", status: "fail", summary: null, items: [{ requirement: "Kafka", fix: "ai" }] }]
+              : [],
+        },
+        fresh,
+      );
+      client.setQueryData(
+        cvToClientIssuesQueryKey(item.id, 1),
+        {
+          generated_document_id: generatedId,
+          generator_warnings: [],
+          content_review: {
+            status: variant === 0 ? "reviewed" : null,
+            version: variant === 0 ? 1 : null,
+            findings:
+              variant === 0
+                ? [
+                    { text: "Przeglądy kodu i wdrażanie młodszych programistów.", status: "unsupported" },
+                    { text: "Prowadzenie warsztatów z architektury.", status: "contradicted" },
+                  ]
+                : [],
+          },
+        },
+        fresh,
+      );
+    }
     client.setQueryData(stageBrandedQueryKey(item.id), {
       status: variant === 1 ? "none" : "draft",
       from_generator: variant !== 1,
@@ -553,6 +642,7 @@ function Harness() {
           onFiltersChange={setFilters}
           onOpenManualSearch={() => setLastSlideOver("manual-search")}
           onOpenQuickAdd={noop}
+          talk={TALK}
         />
       </div>
     </QueryClientProvider>

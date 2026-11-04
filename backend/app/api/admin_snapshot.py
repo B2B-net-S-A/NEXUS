@@ -18,7 +18,6 @@ Cached 30s to absorb cron + manual reads without DB load.
 from __future__ import annotations
 
 import asyncio
-import hmac
 import os
 from datetime import datetime, timezone
 from typing import Annotated, Any
@@ -32,6 +31,7 @@ from app.api.deps import get_current_user, require_service_scope
 from app.core.cache import cache_get, cache_set
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
+from app.core.security import secrets_equal
 from app.models.service_account import ServiceScope
 from app.models.user import UserRole
 from app.services.dashboard_metrics import compute_kpi_snapshot
@@ -81,7 +81,7 @@ async def _snapshot_auth(
         return "service_account"
 
     if x_snapshot_token and settings.SNAPSHOT_TOKEN:
-        if hmac.compare_digest(x_snapshot_token, settings.SNAPSHOT_TOKEN):
+        if secrets_equal(x_snapshot_token, settings.SNAPSHOT_TOKEN):
             return "token"
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

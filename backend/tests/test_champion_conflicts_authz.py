@@ -41,9 +41,7 @@ ROLES = [
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.finance,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
     UserRole.user,
 ]
 
@@ -55,9 +53,7 @@ OPERATIONAL_ROLES = {
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
 }
 
 

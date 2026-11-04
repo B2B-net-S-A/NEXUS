@@ -74,8 +74,10 @@ from app.models.client_order_group import ClientOrderGroup
 from app.models.contract import Contract, ContractStatus
 from app.models.order_change_event import OrderChangeEvent
 from app.models.order_gap import GAP_STATUS_FILLED_LATE, GAP_STATUS_OPEN, OrderGap
+from app.models.service_account import ServiceAccount
 from app.models.user import User
 from app.schemas.finance_order_changes import (
+    InvoiceLine,
     OrderChangeItem,
     OrderChangesCounts,
     OrderChangesPeriod,
@@ -85,11 +87,11 @@ from app.schemas.finance_order_changes import (
     OrderGapItem,
 )
 from app.services.client_identity import client_display_name_expression
-from app.services.order_excel_export import _safe_text
+from app.core.export_safety import safe_cell
 from app.services.order_facts import (
     INTENT_LABELS,
     OrderFact,
-    effective_end_expr,
+    participation_end_expr,
     effective_start_expr,
     load_ending_intents,
     load_facts,
@@ -101,6 +103,7 @@ from app.services.order_facts import (
     siblings_of,
     successor_of,
 )
+from app.services import nordea_invoice_lines
 from app.services.order_gaps import gap_orders_with_ending_intent
 
 MONTH_LABELS_PL = (
@@ -201,6 +204,7 @@ class Engagement:
     start: date
     end: Optional[date]
     closed: bool
+    contract_id: Optional[int] = None
 
     def runs_on(self, day: date) -> bool:
         if self.end is not None:
@@ -232,6 +236,7 @@ async def _prior_engagements(
     rows = (
         await db.execute(
             select(
+                Contract.id,
                 Contract.candidate_id,
                 Contract.client_id,
                 client_display_name_expression().label("client_name"),
@@ -258,6 +263,7 @@ async def _prior_engagements(
                 end=row.end_date,
                 closed=row.status
                 in (ContractStatus.ended.value, ContractStatus.void.value),
+                contract_id=row.id,
             )
         )
     return result
@@ -391,6 +397,11 @@ async def _classify_entries(
     return result
 
 
+#: Odstęp start umowy → start jej pierwszego zamówienia, do którego umowa
+#: jest początkiem współpracy, a nie dowodem wcześniejszej (runda 6 audytu).
+ENGAGEMENT_NEW_WINDOW_DAYS = 31
+
+
 def _classify_by_engagement(
     fact: OrderFact, engagements: Sequence[Engagement]
 ) -> EntryClass:
@@ -401,6 +412,25 @@ def _classify_by_engagement(
     na końcu współpraca już zamknięta (zmiana klienta).
     """
 
+    # Umowa TEGO zamówienia podpisana tuż przed nim to początek współpracy,
+    # nie dowód wcześniejszej pracy (runda 6 audytu): podpis B2B 25.09
+    # i pierwsze zamówienie od 01.10 dawały we wrześniu szkic ukryty jako
+    # „pokryty”, a w październiku „Kontynuację” — osoba nie trafiała do Wejść
+    # nigdy. Rozstrzyga odstęp start umowy → start zamówienia: do 31 dni (to
+    # samo okno co ``previous_of``) = nowa współpraca. Konsultantka z umową
+    # od grudnia i pierwszym zamówieniem we wrześniu (zgłoszenie 09.2026)
+    # zostaje Zmianą. Umowa, która miała wcześniej zamówienie, nie dochodzi
+    # tu wcale — rozstrzyga ją szczebel zamówień.
+    engagements = [
+        eng
+        for eng in engagements
+        if not (
+            eng.contract_id is not None
+            and eng.contract_id == fact.contract_id
+            and fact.start is not None
+            and (fact.start - eng.start).days <= ENGAGEMENT_NEW_WINDOW_DAYS
+        )
+    ]
     if not engagements:
         return EntryClass("new")
 
@@ -447,6 +477,12 @@ async def _entries(
         for key, group in siblings.items()
         if any(not o.is_draft and not o.is_cancelled for o in group)
     }
+    # Ta sama reguła dla wierszy syntetycznych w Zmianach (runda 6 audytu):
+    # zwracane ``facts`` zasilają tam „Kontynuację”/„Zmianę klienta”, więc
+    # szkic pokrytej współpracy dawał drugi, zdublowany wiersz.
+    facts = [
+        fact for fact in facts if not (fact.is_draft and sibling_key(fact) in covered)
+    ]
     items = [
         OrderEntryItem(
             **_ref(fact),
@@ -461,8 +497,21 @@ async def _entries(
         )
         for fact in facts
         if classes[fact.order_id].kind == "new"
-        and not (fact.is_draft and sibling_key(fact) in covered)
     ]
+    # Nordea: gotowa pozycja faktury cyklicznej z PDF-a (ticket 8).
+    invoice = await nordea_invoice_lines.entry_lines(
+        db,
+        [
+            (item.order_id, item.client_id, item.consultant_name)
+            for item in items
+            if item.order_id is not None and item.client_id is not None
+        ],
+    )
+    for item in items:
+        if item.order_id in invoice:
+            item.invoice_lines = [
+                InvoiceLine.model_validate(line) for line in invoice[item.order_id]
+            ]
     return sorted(items, key=_sort_key), facts, classes
 
 
@@ -482,7 +531,9 @@ async def _exits(
     Trzeci element to klucze współprac (osoba × klient) z Zejść — Braki tego
     miesiąca ich nie pokazują.
     """
-    end = effective_end_expr()
+    # Koniec UDZIAŁU, nie okres dokumentu: linia MD zakończona wyczerpaniem
+    # budżetu schodzi w miesiącu ostatniego zejścia MD (runda 6 audytu).
+    end = participation_end_expr()
     facts = await load_facts(
         db,
         ClientOrder.status.notin_(
@@ -648,6 +699,29 @@ async def _changes(
         if author_ids
         else {}
     )
+    # 0443: zmiana zapisana kluczem API (`source='integration'`) — autorem jest
+    # konto serwisowe, pokazywane jako „Integracja: <nazwa>”.
+    integration_ids = sorted(
+        {
+            e.created_by_service_account_id
+            for e in events
+            if e.created_by_service_account_id
+        }
+    )
+    integrations = (
+        {
+            account_id: f"Integracja: {name}"
+            for account_id, name in (
+                await db.execute(
+                    select(ServiceAccount.id, ServiceAccount.name).where(
+                        ServiceAccount.id.in_(integration_ids)
+                    )
+                )
+            ).all()
+        }
+        if integration_ids
+        else {}
+    )
 
     items: list[OrderChangeItem] = []
     for event in events:
@@ -674,11 +748,16 @@ async def _changes(
                 old_unit=event.old_unit,
                 new_unit=event.new_unit,
                 currency=event.currency,
+                old_currency=event.old_currency,
                 old_date=event.old_date,
                 new_date=event.new_date,
                 is_whole_order=whole,
                 source=event.source,
-                author_name=authors.get(event.created_by_user_id),
+                author_name=(
+                    integrations.get(event.created_by_service_account_id, "Integracja")
+                    if event.source == "integration"
+                    else authors.get(event.created_by_user_id)
+                ),
             )
         )
 
@@ -766,8 +845,8 @@ async def _hidden_gap_ids(
     """Braki zakończonych współprac — JEDNA reguła dla listy i dla banera.
 
     Pomijany jest brak, gdy:
-    * jego zamówienie ma dziś zapisaną intencję zakończenia (wypowiedzenie
-      zapisane PO wykryciu braku);
+    * brak jest otwarty, a jego zamówienie ma dziś zapisaną intencję
+      zakończenia (wypowiedzenie zapisane PO wykryciu braku);
     * jego współpraca stoi w Zejściach tego miesiąca (``exit_keys``);
     * brak jest otwarty, a współpraca skończyła się zapisanym końcem
       (``_ended_cooperations``) — baner nie ma miesiąca, więc tylko ta
@@ -777,12 +856,14 @@ async def _hidden_gap_ids(
 
     if not gaps:
         return set()
-    ended_orders = await gap_orders_with_ending_intent(
-        db, (gap.order_id for gap, _ in gaps)
-    )
     open_ids = sorted(
         {gap.order_id for gap, _ in gaps if gap.status == GAP_STATUS_OPEN}
     )
+    # Runda 10 (R10-N4-2): intencja zakończenia zdejmuje tylko brak OTWARTY
+    # (DL wypowiada umowę, gdy zobaczy brak). Wpis „uzupełnione z opóźnieniem”
+    # to historia zamkniętego miesiąca — późniejsze zakończenie umowy nie może
+    # go wymazać wstecz.
+    ended_orders = await gap_orders_with_ending_intent(db, open_ids)
     ended_coops = (
         await _ended_cooperations(
             db, await load_facts(db, ClientOrder.id.in_(open_ids))
@@ -794,7 +875,7 @@ async def _hidden_gap_ids(
     for gap, candidate_id in gaps:
         key = _gap_key(gap, candidate_id)
         if (
-            gap.order_id in ended_orders
+            (gap.status == GAP_STATUS_OPEN and gap.order_id in ended_orders)
             or key in exit_keys
             or (gap.status == GAP_STATUS_OPEN and key in ended_coops)
         ):
@@ -860,6 +941,7 @@ async def _gaps(
                 resolved_order_number=gap.resolved_order_number,
                 resolved_at=gap.resolved_at,
                 delay_days=max(delay, 0) if delay is not None else None,
+                episode=gap.episode or 0,
             )
         )
     return items
@@ -1119,7 +1201,7 @@ def _change_description(item: OrderChangeItem) -> tuple[str, str, str]:
     )
     return (
         label,
-        _rate(item.old_amount, item.old_unit, item.currency),
+        _rate(item.old_amount, item.old_unit, item.old_currency or item.currency),
         _rate(item.new_amount, item.new_unit, item.currency),
     )
 
@@ -1155,9 +1237,7 @@ def _sheet(
         cell.fill = fill
         cell.alignment = Alignment(vertical="center")
     for row in rows:
-        sheet.append(
-            [_safe_text(value) if isinstance(value, str) else value for value in row]
-        )
+        sheet.append([safe_cell(value) for value in row])
     for index, width in enumerate(widths, start=1):
         sheet.column_dimensions[get_column_letter(index)].width = width
     for row in sheet.iter_rows(min_row=2):
@@ -1280,6 +1360,7 @@ def build_order_changes_workbook(
                 "Typ zamówienia",
                 "Status",
                 "Wprowadził(a)",
+                "Pozycja faktury",
                 *DONE_HEADERS,
             ],
             [
@@ -1296,11 +1377,13 @@ def build_order_changes_workbook(
                     ORDER_TYPE_LABELS.get(item.order_type, item.order_type),
                     "Szkic" if item.status == ClientOrderStatus.draft.value else "",
                     _author_label(item),
+                    # Nordea: jedna pozycja na osobę, każda w osobnej linii komórki.
+                    "\n".join(line.text for line in item.invoice_lines or []),
                     *_done_cells(item, zone),
                 ]
                 for item in data.entries
             ],
-            [28, 28, 22, 16, 16, 16, 18, 11, 9, 15, 10, 22, 11, 22, 18],
+            [28, 28, 22, 16, 16, 16, 18, 11, 9, 15, 10, 22, 70, 11, 22, 18],
         )
     if "exits" in wanted:
         _exit_like_sheet(workbook, f"Zejścia ({data.counts.exits})", data.exits, zone)

@@ -86,6 +86,9 @@ class ChatUnreadCount(BaseModel):
     job_id: int
     unread_count: int
     last_read_message_id: Optional[int]
+    # Ile powiadomień tej rozmowy zgasło przy oznaczeniu czatu jako
+    # przeczytanego — front odświeża okienko „Czaty” tylko, gdy coś zgasło.
+    notifications_cleared: int = 0
 
 
 class ChatPinResponse(BaseModel):

@@ -1,71 +1,95 @@
-import { splitTitle } from "@/lib/career/format";
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+
+import "@/components/career/layouts/brandFonts.css";
+import { OgCard, type OgFact } from "@/components/career/ogCard";
 
 /**
  * Podgląd posta na LinkedInie — miniatura grafiki Open Graph strony kariery.
  *
- * WYJĄTEK OD ZASADY TOKEN-FIRST: górna część karty odwzorowuje ZEWNĘTRZNY
- * obraz (grafikę OG `kariera.dynaminds.pl`, terminal w barwach Dynaminds:
- * czerń, bordo #9A142D, biel). Ma wyglądać tak samo w każdym motywie NEXUSA,
- * bo tak zobaczy go LinkedIn — dlatego kolory są tu zaszyte celowo i tylko
- * w tym komponencie. Podpis pod obrazem (tytuł + domena) to już NEXUS: tokeny.
+ * WYJĄTEK OD ZASADY TOKEN-FIRST: górna część karty to ZEWNĘTRZNY obraz —
+ * ten sam kadr `OgCard`, który rysuje `next/og` (od 29.10.2026, barwy marki
+ * B2B Network), przeskalowany do szerokości karty. Ma wyglądać tak samo
+ * w każdym motywie NEXUSA, bo tak zobaczy go LinkedIn. Podpis pod obrazem
+ * (tytuł + domena) to już NEXUS: tokeny.
  */
 
+const OG_WIDTH = 1200;
+const OG_HEIGHT = 630;
+
 export interface LinkedInPreviewCardProps {
-  /** Linia komendy nad nagłówkiem, bez znaku `$`. */
-  command: string;
-  /** Nagłówek grafiki; ostatnie słowo dostaje bordo (kropkę — tylko po literze/cyfrze). */
+  /** Mały napis nad tytułem grafiki (np. „Rekrutacja IT”). */
+  kicker?: string | null;
+  /** Tytuł grafiki; ostatnie słowo z liter dostaje czerwień marki. */
   headline: string;
-  /** Linia pod nagłówkiem, np. „[warszawa · hybryda · b2b]". */
-  tagline?: string | null;
+  /** Kafle grafiki rekrutacji (Lokalizacja, Tryb pracy, Umowa). */
+  facts?: OgFact[];
+  /** Stały link rekrutera: inicjał i podpis nad tytułem. */
+  person?: { initial: string; name: string } | null;
+  /** Wezwanie w prawym dolnym rogu grafiki. */
+  foot: string;
+  /** Plakietka statusu (rekrutacja otwarta). */
+  status?: { label: string; closed?: boolean } | null;
   /** Tytuł karty pod obrazem. */
   cardTitle: string;
   /** Domena pod tytułem. */
   host: string;
+  /** Szablon graficzny rekrutacji — kolory jak w grafice OG. */
+  theme?: string | null;
 }
 
-
 export function LinkedInPreviewCard({
-  command,
+  kicker,
   headline,
-  tagline,
+  facts,
+  person,
+  foot,
+  status,
   cardTitle,
   host,
+  theme,
 }: LinkedInPreviewCardProps) {
-  // Ta sama reguła co na stronie i grafice OG — podgląd ma wyglądać jak post.
-  const { first: lead, second: last } = splitTitle(headline);
+  const frame = useRef<HTMLDivElement>(null);
+  // Skala kadru 1200×630 do szerokości karty; bez ResizeObserver (jsdom) — typowa szerokość okna.
+  const [scale, setScale] = useState(0.3);
+  useEffect(() => {
+    const node = frame.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      const width = entry.contentRect.width;
+      if (width > 0) setScale(width / OG_WIDTH);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <figure
       className="overflow-hidden rounded-lg border border-border bg-card"
       aria-label="Podgląd posta na LinkedInie"
       data-testid="linkedin-preview"
     >
-      {/* Kolory zaszyte celowo — patrz komentarz na górze pliku. */}
       <div
-        className="flex h-[184px] flex-col font-mono"
-        style={{ backgroundColor: "#000000" }}
+        ref={frame}
+        className="relative w-full overflow-hidden"
+        style={{ aspectRatio: `${OG_WIDTH} / ${OG_HEIGHT}` }}
         aria-hidden="true"
       >
         <div
-          className="flex h-5 items-center gap-1 px-2.5"
-          style={{ borderBottom: "1px solid #1A1A1A" }}
+          className="absolute left-0 top-0 origin-top-left"
+          style={{ width: OG_WIDTH, height: OG_HEIGHT, transform: `scale(${scale})` }}
         >
-          <span className="h-1.5 w-1.5 rounded-full" style={{ border: "1px solid #5C5C5C" }} />
-          <span className="h-1.5 w-1.5 rounded-full" style={{ border: "1px solid #5C5C5C" }} />
-          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "#9A142D" }} />
-        </div>
-        <div className="flex flex-1 flex-col justify-between px-4 py-3">
-          <span className="truncate text-[10px]" style={{ color: "#F5F5F5" }}>
-            <span style={{ color: "#C8384F" }}>$</span> {command}
-          </span>
-          <span
-            className="line-clamp-2 font-sans text-[28px] font-extrabold leading-[0.95] tracking-[-0.04em]"
-          >
-            {lead ? <span style={{ color: "#FFFFFF" }}>{lead} </span> : null}
-            <span style={{ color: "#9A142D" }}>{last}</span>
-          </span>
-          <span className="truncate text-[10px]" style={{ color: "#8B8B8B" }}>
-            {tagline ?? " "}
-          </span>
+          <OgCard
+            theme={theme}
+            status={status}
+            kicker={kicker}
+            title={headline}
+            facts={facts}
+            person={person}
+            foot={foot}
+            host={host}
+          />
         </div>
       </div>
       <figcaption className="px-3 py-2.5">

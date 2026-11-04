@@ -90,3 +90,23 @@ describe("CandidateChatTab — link z powiadomienia `&msg=`", () => {
     expect(window.location.search).toBe("?tab=chat");
   });
 });
+
+describe("CandidateChatTab — brak dostępu", () => {
+  it("403 mówi o dostępie konta do kandydatów, nie o udziale w rekrutacjach", async () => {
+    const forbidden = { response: { status: 403 } };
+    chatApi.getMembers.mockRejectedValue(forbidden);
+    chatApi.getPinned.mockRejectedValue(forbidden);
+    chatApi.listMessages.mockRejectedValue(forbidden);
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <CandidateChatTab candidateId={44} readOnly />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Brak dostępu do czatu")).toBeInTheDocument();
+    expect(screen.getByText(/Twoje konto nie ma dostępu do kandydatów/)).toBeInTheDocument();
+    expect(screen.queryByText(/zaangażowanych/)).not.toBeInTheDocument();
+  });
+});

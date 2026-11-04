@@ -27,6 +27,7 @@ from app.services.b2b_contract_generator.gender import gender_forms
 from app.services.b2b_contract_generator.rate_clause import (
     RateStage,
     build_rate_clause,
+    build_rate_lines,
 )
 
 TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "app" / "templates" / "contract"
@@ -544,9 +545,16 @@ def test_contract_docx_filename_uses_contract_number_and_is_exposed_to_browser()
     )
 
     assert _contract_docx_filename("1472/2026") == "Umowa B2B 1472-2026.docx"
-    response = _docx_response(b"PK\x03\x04 fake docx", "1472/2026")
+    # 26.10.2026 (Sandra): „Umowa B2B [nr umowy] Kowalski Jan”, bez ogonków.
+    assert (
+        _contract_docx_filename("1472/2026", "Jan Kowalski")
+        == "Umowa B2B 1472-2026 Kowalski Jan.docx"
+    )
+    response = _docx_response(
+        b"PK\x03\x04 fake docx", "1472/2026", person_name="Łukasz Żółciński"
+    )
     assert response.headers["Content-Disposition"] == (
-        'attachment; filename="Umowa B2B 1472-2026.docx"'
+        'attachment; filename="Umowa B2B 1472-2026 Zolcinski Lukasz.docx"'
     )
     assert response.headers["X-Contract-Number"] == "1472/2026"
     assert "Content-Disposition" in response.headers["Access-Control-Expose-Headers"]
@@ -792,6 +800,45 @@ def test_injected_clause_paragraphs_have_no_left_indent(client_name, section):
     assert checked > 0, "nie znaleziono akapitów klauzul do weryfikacji wcięcia"
 
 
+@pytest.mark.parametrize("lang", ["pl", "en"])
+def test_bnp_s4_paragraphs_have_no_gaps_like_native_paragraphs(lang):
+    """Umowa BNP: wstawiony § 4 bez odstępów między akapitami (ticket 7).
+
+    Domyślne ustawienia dokumentu dają 8 pt po KAŻDYM akapicie, a natywne
+    paragrafy umowy mają odstęp 0 — wstawione akapity bez jawnego 0
+    rozpychały umowę i przenosiły podpisy na kolejną stronę."""
+    from docx.shared import Pt
+
+    def span(doc):
+        paras = doc.paragraphs
+        start = next(
+            i for i, p in enumerate(paras) if re.fullmatch(r"§\s*4\.?", p.text.strip())
+        )
+        end = next(
+            i for i, p in enumerate(paras) if re.fullmatch(r"§\s*5\.?", p.text.strip())
+        )
+        return paras, start, end
+
+    plain_paras, _, plain_end = span(
+        _render_docx_with_overrides("Inny Klient Sp. z o.o.", lang)
+    )
+    paras, start, end = span(
+        _render_docx_with_overrides("BNP Paribas Bank Polska S.A.", lang)
+    )
+    native_line = plain_paras[plain_end].paragraph_format.line_spacing
+    injected = [p for p in paras[start:end] if (p.text or "").strip()]
+    assert len(injected) > 10
+    for p in injected:
+        pf = p.paragraph_format
+        assert pf.space_before == Pt(0), p.text[:40]
+        assert pf.space_after == Pt(0), p.text[:40]
+        assert pf.line_spacing == native_line, p.text[:40]
+    # Pusta linia przed § 5 jest dokładnie tam, gdzie ma ją szablon (PL tak,
+    # EN nie) — podmiana § 4 jej nie zjada.
+    had_separator = not (plain_paras[plain_end - 1].text or "").strip()
+    assert (not (paras[end - 1].text or "").strip()) == had_separator
+
+
 # ── PATCH /generated/{id} — korekta nazwy Klienta (in-process, real DB) ───────
 
 
@@ -1025,6 +1072,127 @@ class TestCorrespondenceAddress:
 # ── Stawka progresywna (rate_clause + walidacja etapów) ──────────────────────
 
 
+def _progressive_contract_paragraphs(language: str, **overrides) -> list:
+    import io
+
+    from docx import Document
+
+    from app.schemas.b2b_contract_generator import B2BRenderRequest
+    from app.services.b2b_contract_generator.docx_renderer import render_from_context
+    from app.services.b2b_contract_generator.render_context import build_render_context
+
+    req = B2BRenderRequest(
+        language=language,
+        partner_name="Jan Kowalski",
+        partner_business_address="ul. Testowa 1, 00-001 Warszawa",
+        client_name="ACME Bank S.A.",
+        rate_candidate=122,
+        **overrides,
+    )
+    data = render_from_context(build_render_context(req, None), language=language)
+    return list(Document(io.BytesIO(data)).paragraphs)
+
+
+_TWO_STAGES = {
+    "rate_stages": [
+        {
+            "rate": 122,
+            "effective_from": date(2026, 11, 16),
+            "effective_to": date(2027, 5, 31),
+        },
+        {"rate": 127, "effective_from": date(2027, 6, 1)},
+    ]
+}
+
+
+class TestRateLines:
+    """Stawka progresywna jako podpunkty a) b) (zgłoszenie działu umów 03.11.2026)."""
+
+    def test_two_stages_pl(self):
+        assert build_rate_lines(
+            [
+                RateStage(
+                    rate=122,
+                    effective_from=date(2026, 11, 16),
+                    effective_to=date(2027, 5, 31),
+                ),
+                RateStage(rate=127, effective_from=date(2027, 6, 1)),
+            ],
+            language="pl",
+            currency="PLN",
+        ) == [
+            "a) 122 PLN (słownie: sto dwadzieścia dwa złote) w okresie od dnia "
+            "16.11.2026 do dnia 31.05.2027,",
+            "b) 127 PLN (słownie: sto dwadzieścia siedem złotych) od dnia 01.06.2027",
+        ]
+
+    def test_single_stage_has_no_lines(self):
+        assert (
+            build_rate_lines([RateStage(rate=150)], language="pl", currency="PLN") == []
+        )
+
+    def test_docx_pl_matches_the_requested_wording(self):
+        paragraphs = _progressive_contract_paragraphs("pl", **_TWO_STAGES)
+        texts = [p.text for p in paragraphs]
+        at = next(i for i, t in enumerate(texts) if t.startswith("Z tytułu należytego"))
+        assert texts[at] == (
+            "Z tytułu należytego wykonania Usług Partnerowi przysługuje wynagrodzenie "
+            "obliczane jako iloczyn liczby godzin faktycznego świadczenia Usług w "
+            "danym miesiącu oraz stawki godzinowej w wysokości:"
+        )
+        assert texts[at + 1] == (
+            "a) 122 PLN (słownie: sto dwadzieścia dwa złote) w okresie od dnia "
+            "16.11.2026 do dnia 31.05.2027,"
+        )
+        assert texts[at + 2] == (
+            "b) 127 PLN (słownie: sto dwadzieścia siedem złotych) od dnia 01.06.2027 "
+            "netto + VAT."
+        )
+        # Podpunkty nie są kolejnymi ustępami: bez numeracji, a ustęp 2 zostaje 2.
+        assert paragraphs[at]._p.pPr.numPr is not None
+        for line in paragraphs[at + 1 : at + 3]:
+            assert line._p.pPr.numPr is None
+        assert paragraphs[at + 3]._p.pPr.numPr is not None
+
+    def test_docx_en_keeps_its_closing_words(self):
+        texts = [p.text for p in _progressive_contract_paragraphs("en", **_TWO_STAGES)]
+        at = next(i for i, t in enumerate(texts) if t.startswith("For the proper"))
+        assert texts[at].endswith("an hourly rate of:")
+        assert texts[at + 1].startswith("a) 122 PLN (in words:")
+        assert texts[at + 1].endswith(",")
+        assert texts[at + 2].startswith("b) 127 PLN (in words:")
+        assert texts[at + 2].endswith(
+            "net + VAT in accordance with the applicable regulations."
+        )
+
+    @pytest.mark.parametrize("language", ["pl", "en"])
+    def test_docx_single_rate_sentence_is_unchanged(self, language):
+        texts = [p.text for p in _progressive_contract_paragraphs(language)]
+        assert not any(t.startswith("a) 122") for t in texts)
+        phrase = {
+            "pl": "w wysokości 122 PLN (słownie: sto dwadzieścia dwa złote) netto + VAT.",
+            "en": " net + VAT in accordance with the applicable regulations.",
+        }[language]
+        assert any(phrase in t for t in texts)
+
+    @pytest.mark.parametrize("language", ["pl", "en"])
+    def test_html_mirror_has_the_same_lines(self, language):
+        html_path = TEMPLATE_DIR / f"umowa_b2b_{language}.html"
+        template = _jinja_env.from_string(html_path.read_text(encoding="utf-8"))
+        ctx = _sample_context(language)
+        progressive = {
+            **ctx,
+            "b2b": {**ctx["b2b"], "rate_lines": ["a) 1 PLN,", "b) 2 PLN"]},
+        }
+        html = template.render(**progressive)
+        assert "<p>a) 1 PLN,</p>" in html
+        suffix = "netto + VAT." if language == "pl" else "net + VAT"
+        assert f"<p>b) 2 PLN {suffix}" in html
+        # Kontrakt bez listy (`_contract_vars` zawsze ją daje) renderuje zdanie.
+        single = {**ctx, "b2b": {**ctx["b2b"], "rate_lines": []}}
+        assert ctx["b2b"]["rate_clause"] in template.render(**single)
+
+
 class TestRateClause:
     def test_single_rate_matches_legacy_wording(self):
         assert (
@@ -1187,3 +1355,74 @@ class TestRateStagesValidation:
         ]
         with pytest.raises(ValidationError, match="Maksymalnie"):
             B2BRenderRequest(language="pl", rate_stages=stages)
+
+
+@pytest.mark.parametrize("language", ["pl", "en"])
+def test_contract_file_carries_no_author_from_the_template(language):
+    """Szablon umowy B2B ma w docProps autora i osobę, która go zapisała
+    (14.10.2026) — umowa dla Partnera ich nie dziedziczy."""
+    import io
+
+    from docx import Document
+
+    from app.schemas.b2b_contract_generator import B2BRenderRequest
+    from app.services.b2b_contract_generator.docx_renderer import render_from_context
+    from app.services.b2b_contract_generator.render_context import build_render_context
+
+    req = B2BRenderRequest(
+        language=language,
+        partner_name="Jan Kowalski",
+        client_name="ACME Bank S.A.",
+        project_city="Warszawa",
+        project_description="Testowanie systemu bankowego.",
+        contract_number="1472/2026",
+        signing_date=date(2026, 7, 23),
+        start_date=date(2026, 7, 23),
+        rate_candidate=150,
+    )
+    data = render_from_context(build_render_context(req, None), language=language)
+    props = Document(io.BytesIO(data)).core_properties
+    assert (props.author, props.last_modified_by) == ("", "")
+
+
+# ── Adres do doręczeń z CEIDG (JDG bez stałego miejsca działalności) ─────────
+
+
+@pytest.mark.parametrize(
+    "language,phrase",
+    [
+        ("pl", "Gospodarczej pod adresem do doręczeń: ul. Testowa 1"),
+        ("en", "Economic Activity at the address for service: ul. Testowa 1"),
+    ],
+)
+def test_address_for_service_in_comparison_and_dpa(language, phrase):
+    """Komparycja i Załącznik nr 2 (DPA) mówią „pod adresem do doręczeń”,
+    gdy JDG nie ma w CEIDG stałego miejsca wykonywania działalności."""
+    import io
+
+    from docx import Document
+
+    from app.schemas.b2b_contract_generator import B2BRenderRequest
+    from app.services.b2b_contract_generator.docx_renderer import render_from_context
+    from app.services.b2b_contract_generator.render_context import build_render_context
+
+    def text(for_service: bool, variant: str = "jdg") -> str:
+        req = B2BRenderRequest(
+            language=language,
+            partner_name="Jan Kowalski",
+            partner_business_address="ul. Testowa 1, 00-001 Warszawa",
+            partner_address_for_service=for_service,
+            contract_variant=variant,
+            client_name="ACME Bank S.A.",
+            rate_candidate=150,
+        )
+        data = render_from_context(build_render_context(req, None), language=language)
+        return "\n".join(p.text for p in Document(io.BytesIO(data)).paragraphs)
+
+    assert text(True).count(phrase) == 2
+    plain = phrase.replace(" do doręczeń", "").replace(" for service", "")
+    assert text(False).count(plain) == 2
+    assert "do doręczeń" not in text(False) and "for service" not in text(False)
+    # Spółka ma siedzibę z KRS — flaga JDG nie zmienia jej komparycji.
+    company = text(True, "company")
+    assert "do doręczeń" not in company and "for service" not in company

@@ -16,6 +16,7 @@ import {
  CommandList,
  CommandSeparator,
 } from"@/components/ui/command";
+import { PickerQueryState } from"@/components/v2/filters/PickerQueryState";
 
 interface UserBrief {
  id: number;
@@ -42,7 +43,7 @@ export function AddedByMultiSelect({
  emptyLabel ="Wszyscy dodający",
 }: AddedByMultiSelectProps) {
  const [open, setOpen] = useState(false);
- const { data } = useQuery<UserBrief[]>({
+ const { data, isPending, isError, isSuccess, refetch } = useQuery<UserBrief[]>({
  queryKey: ["users-directory"],
  queryFn: () => api.get("/api/users").then((r) => r.data),
  staleTime: 60_000,
@@ -103,8 +104,17 @@ export function AddedByMultiSelect({
  </CommandGroup>
  )}
  {includeSystem && <CommandSeparator />}
+ {/* Pozycja „Import systemowy” jest zawsze na liście, więc bez tego stanu
+ awaria katalogu osób wyglądała jak zespół bez nikogo. */}
+ <PickerQueryState
+ isPending={isPending}
+ isError={isError}
+ onRetry={() => void refetch()}
+ loadingLabel="Ładowanie listy osób…"
+ errorLabel="Nie udało się pobrać listy osób."
+ />
  <CommandGroup heading="Użytkownicy">
- <CommandEmpty>Brak użytkowników.</CommandEmpty>
+ {isSuccess && <CommandEmpty>Brak użytkowników.</CommandEmpty>}
  {users.map((u) => {
  const isSelected = selected.has(u.id);
  return (

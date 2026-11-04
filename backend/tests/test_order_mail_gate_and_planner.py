@@ -308,6 +308,63 @@ class TestPlanner:
         assert titles_collide("4500030751", "4500030752") is False
         assert titles_collide("OIT/0189/2031/ITVM", "OIT/0189/2031/ITVM") is True
 
+    @pytest.mark.parametrize(
+        "a,b,expected",
+        [
+            # Ten sam numer — musi się zgadzać.
+            ("4500030751", "30751", True),
+            ("SAP 4500030751", "4500030751", True),
+            ("Zamówienie nr 4500030751", "30751", True),
+            ("4500 030 751", "4500030751", True),
+            ("830/2031", "830/2031", True),
+            ("oit / 0189/2031/itvm", "OIT/0189/2031/ITVM", True),
+            ("22", "Zlecenie nr 22", True),
+            # Różne numery — nie mogą się zgadzać (audyt 25.09.2026): końcówka
+            # cyfr wyciągniętych z numeru ze strukturą łączyła cudze zamówienia.
+            ("830/2031", "1830/2031", False),
+            ("4/2031", "34/2031", False),
+            ("3/07/2031/BL", "13/07/2031/BL", False),
+            ("ABC/12345", "12345", False),
+            ("4500030751", "4500030752", False),
+            ("1234", "11234", False),
+            ("", "12345", False),
+        ],
+    )
+    def test_titles_collide_table(self, a, b, expected):
+        assert titles_collide(a, b) is expected
+        assert titles_collide(b, a) is expected
+
+    def test_md_group_line_draft_is_never_filled_as_periodic_order(self):
+        """Szkic linii zamówienia MD/kosztowego ma własny cykl życia (budżet,
+        zamiana kontraktora). Wypełniony jak zamówienie okresowe dostawał
+        numer, okres i stawkę z PDF-a automatem (audyt 25.09.2026) — teraz
+        idzie do człowieka (``ACTION_GROUP``), także przy tym samym numerze."""
+        from app.services.order_mail_planner import ACTION_GROUP
+
+        for title in ("7/2031", "445"):
+            p = plan_document(
+                client_id=1,
+                extraction=_extraction([_row("A A")]),
+                resolved=[_resolved(0, "A A", contract_id=10)],
+                existing_orders_by_contract={
+                    10: [
+                        ExistingOrder(
+                            80,
+                            "draft",
+                            title,
+                            date(2031, 4, 1),
+                            None,
+                            order_group_id=77,
+                        )
+                    ]
+                },
+                is_group_client=True,
+                today=TODAY,
+            )
+            assert p.rows[0].action == ACTION_GROUP, title
+            assert p.rows[0].target_order_id is None
+            assert p.auto_eligible_actions is False
+
     def test_group_client_and_unresolved_person(self):
         """Zamówienie MD: osoba nieznaleziona czeka na decyzję DL (ticket 09.2026).
 
@@ -822,8 +879,9 @@ def test_queue_redacts_amounts_and_other_clients_for_roles_without_finance():
     assert dl["rows"][0]["rate_client"] == "900"  # przypisany DL widzi kwoty
     assert "Bank Inny" not in str(dl)
     assert dl["rows"][0]["existing_person_ids"] == [7]
+    # Konto bez „Stawki i kwoty: podgląd” (domyślnie TCM): bezpieczna projekcja.
     tcm = _redact_proposal(
-        proposal, show_finance=False, read_only_tcm=True, hide_other_clients=True
+        proposal, show_finance=False, safe_projection=True, hide_other_clients=True
     )
     row = tcm["rows"][0]
     assert (row["rate_client"], row["total_value"], row["currency"]) == (None,) * 3
@@ -1010,3 +1068,41 @@ def test_cost_order_for_several_people_goes_to_the_queue():
         CODE_COST_SHARED_BUDGET
         not in evaluate(_gate_input(extraction=one, proposal=single)).codes
     )
+
+
+# ── Zgłoszenie 28.09.2026: Alior, zamówienie 01.01 → 31.12 roku wcześniej ────
+
+
+def test_reversed_period_row_is_never_written_even_by_manual_apply():
+    """Wiersz z datą od późniejszą niż data do nie jest zapisywany żadną drogą.
+
+    Ręczne „Zastosuj” nie czyta bramki, ale przelicza ten plan — SKIP nie jest
+    akcją zapisu, więc dokument zostaje w kolejce z powodem „błędny okres”.
+    """
+    from app.services.order_mail_planner import ACTION_SKIP, AUTO_ACTIONS
+
+    ex = _extraction([_row("Jan Kowalski", start="2032-01-01", end="2031-12-31")])
+    prop = _plan(ex, (_resolved(0, "Jan Kowalski"),))
+    (row,) = prop.rows
+    assert row.action == ACTION_SKIP
+    assert row.action not in AUTO_ACTIONS
+    assert row.reasons == [
+        "Do weryfikacji – błędny okres: data od 01.01.2032 jest późniejsza niż "
+        "data do 31.12.2031"
+    ]
+    assert not prop.auto_eligible_actions
+    verdict = evaluate(_gate_input(extraction=ex, proposal=prop))
+    assert verdict.verdict == VERDICT_REVIEW
+    assert any("błędny okres" in reason for reason in verdict.reasons)
+
+
+def test_order_saved_with_reversed_period_still_counts_as_overlapping():
+    """Historyczne zamówienie z odwróconym okresem liczy się jak przedział
+    od wcześniejszej do późniejszej daty — obok niego nie powstaje drugie."""
+    from app.services.order_mail_planner import _overlaps
+
+    reversed_order = ExistingOrder(
+        653, "active", "OIT/0569/2031/ITVM", date(2032, 1, 1), date(2031, 12, 31)
+    )
+    assert _overlaps(reversed_order, date(2031, 10, 1), "2031-12-31")
+    assert not _overlaps(reversed_order, date(2032, 2, 1), "2032-03-31")

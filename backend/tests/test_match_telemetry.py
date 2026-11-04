@@ -442,12 +442,13 @@ async def test_pipeline_addition_never_guesses_a_run(monkeypatch, case):
 
 
 @pytest.mark.asyncio
-async def test_talent_radar_run_without_a_job_never_joins_the_add(monkeypatch):
+async def test_talent_radar_run_joins_the_add_of_its_own_author(monkeypatch):
     """17.09.2026: Talent Radar result cards and the /candidates bulk bar add
-    through the same route. A Radar run has no job, so even when the user WAS
-    shown the candidate in it, the add cannot join that run (``job_id`` of the
-    run never equals the job added to) — ``run_id`` stays NULL, the source is
-    still recorded from the closed vocabulary."""
+    through the same route. A Radar run has no job; until round 9 (R9-N5-6)
+    the add could never join it (``r.job_id = :job_id`` is never true for
+    NULL), so every Radar positive landed without its ranking. Now the
+    author's OWN job-less run that showed the candidate is the attribution;
+    a candidate it did not show still gets ``run_id = NULL``."""
     from app.models.candidate_search_run import CandidateSearchRun
     from app.models.client import Client
     from app.models.job import Job
@@ -506,7 +507,7 @@ async def test_talent_radar_run_without_a_job_never_joins_the_add(monkeypatch):
         )
         rows = await _outcomes(job_id)
         assert [(r.candidate_id, r.run_id, r.reason_code) for r in rows] == [
-            (401, None, "talent_radar"),
+            (401, radar_id, "talent_radar"),
             (402, None, "candidate_list"),
         ]
     finally:

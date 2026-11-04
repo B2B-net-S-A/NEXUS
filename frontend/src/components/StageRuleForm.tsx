@@ -7,7 +7,7 @@ import { api, type RecipientType, type StageNotificationRuleInput } from "@/lib/
 
 const RECIPIENT_LABELS: Record<RecipientType, string> = {
   job_delivery_lead: "Delivery Lead projektu",
-  job_recruiter: "Rekruter projektu",
+  job_recruiter: "Rekruter projektu i kandydata",
   client_head_dl: "Head DL klienta",
   client_primary_tac: "Primary TAC klienta",
   specific_user: "Konkretny użytkownik",
@@ -30,9 +30,7 @@ const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "head_of_recruitment", label: "Head of Recruitment" },
   { value: "delivery_lead", label: "Delivery Lead" },
   { value: "talent_community_manager", label: "Talent Community Manager" },
-  { value: "tac", label: "TAC" },
   { value: "recruiter", label: "Rekruter" },
-  { value: "sourcer", label: "Sourcer" },
 ];
 
 interface UserOption {

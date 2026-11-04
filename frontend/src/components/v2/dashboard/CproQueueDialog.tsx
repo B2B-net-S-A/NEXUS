@@ -4,7 +4,8 @@
  * Kolejka Cpro (Rekrutacja v5, decyzja Artura 23.09.2026) — Nordea.
  *
  * Do Cpro wrzuca JEDNA osoba na całą firmę (nie per rekrutacja); zmienić ją
- * albo ustawić zastępstwo może każdy z zespołu. Okno prowadzi pracę
+ * albo ustawić zastępstwo może admin albo Delivery Lead klienta Nordei
+ * (`cpro_sender.can_set_sender`, od 25.09.2026). Okno prowadzi pracę
  * rekrutacja po rekrutacji: po lewej procesy z licznikami, po prawej osoby
  * po kolei z danymi do przepisania do Cpro. „✓ Wrzucone” i „Zwróć do
  * rekrutera” to ZWYKŁY ruch w pipeline (`POST /api/pipeline/move` z wersją
@@ -21,7 +22,6 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/components/Toast";
-import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   BOARD_TASKS_QUERY_KEY,
@@ -39,13 +39,11 @@ import {
 } from "@/lib/api/boardTasks";
 import { downloadBlob, fetchAuthenticatedDownload } from "@/lib/authenticated-files";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { withDownloadIntent } from "@/lib/cv-download-intent";
+import { fetchStageCvFile } from "@/lib/stage-cv-file";
 import { countPl } from "@/lib/plural-pl";
 import { QC_STATUS_LABEL } from "@/lib/cv-qc";
-import { eligibilityWarningReason, isEligibilityWarning } from "@/lib/pipeline-eligibility-warning";
-import {
-  PIPELINE_VERSION_CONFLICT_MESSAGE,
-  isPipelineVersionConflict,
-} from "@/lib/pipeline-version-conflict";
+import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { resolveViewState } from "@/lib/view-state";
 import { cn, formatDate } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
@@ -73,10 +71,16 @@ export function cproAvailabilityText(value: string | null): string {
 }
 
 /** Tekst do schowka — to samo, co widać w wierszu, bez żadnych ukrytych pól. */
-export function cproCopyText(item: CproQueueItem, job: Pick<CproQueueJob, "job_title">): string {
+export function cproCopyText(
+  item: CproQueueItem,
+  job: Pick<CproQueueJob, "job_title" | "client_reference">,
+): string {
+  // Nazwa i numer od klienta (0380) — tak, jak klient zna swoje zapytanie.
+  const reference = job.client_reference?.trim();
   return [
     item.candidate_name,
     `Rekrutacja: ${job.job_title}`,
+    ...(reference ? [`Numer u klienta: ${reference}`] : []),
     `Stawka do Cpro: ${cproRateText(item)}`,
     `Dostępność: ${cproAvailabilityText(item.availability)}`,
   ].join("\n");
@@ -88,6 +92,37 @@ function invalidateCpro(queryClient: ReturnType<typeof useQueryClient>, jobId?: 
     void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
     void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
   }
+}
+
+// ── Kto zaakceptował (13.10.2026) ────────────────────────────────────────────
+
+/**
+ * Od 13.10.2026 do kolejki wkłada Delivery Lead po akceptacji, ze stawką do
+ * Cpro. Karta włożona wcześniej przez rekrutera ma ostrzeżenie — można ją
+ * zwrócić („Nie da się wrzucić”) i wtedy trafia do przeglądu DL-a.
+ */
+export function CproAcceptance({ item }: { item: CproQueueItem }) {
+  if (item.accepted === undefined) return null;
+  const who = item.accepted_by_name ?? "ktoś z zespołu";
+  const when = item.accepted_at ? ` · ${formatDate(item.accepted_at)}` : "";
+  return (
+    <div className="mt-1 space-y-0.5 text-xs">
+      {item.accepted ? (
+        <p className="text-success-muted-foreground" data-testid="cpro-accepted">
+          ✓ Zaakceptował(a): {who}
+          {when}
+        </p>
+      ) : (
+        <p className="text-warning-muted-foreground" data-testid="cpro-not-accepted">
+          Bez akceptacji DL — do kolejki przekazał(a) {who}
+          {when}
+        </p>
+      )}
+      {item.dl_note ? (
+        <p className="text-foreground [overflow-wrap:anywhere]">Uwaga DL: {item.dl_note}</p>
+      ) : null}
+    </div>
+  );
 }
 
 // ── Kto wrzuca (cała firma) ──────────────────────────────────────────────────
@@ -154,25 +189,26 @@ export function CproSenderControl({ sender, loading = false, compact = false }: 
           </span>
         ) : null}
       </p>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button size="sm" variant={compact ? "ghost" : "outline"} className={cn(compact && "h-7 px-2")}>
-            Zmień
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-80 space-y-3" aria-label="Kto wrzuca do Cpro">
-          <p className="text-sm font-semibold">Kto wrzuca do Cpro</p>
-          <label className="block text-xs font-medium text-muted-foreground">
-            Osoba
-            <select
-              className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
-              value={userId}
-              disabled={options.isLoading}
-              onChange={(e) => setUserId(e.target.value)}
-            >
-              <option value="">{options.isLoading ? "Wczytywanie…" : "Wybierz osobę"}</option>
-              {sender?.user_id != null && !(options.data ?? []).some((o) => o.id === sender.user_id) ? (
-                <option value={sender.user_id}>{sender.user_name ?? "Obecna osoba"}</option>
+      {sender?.can_set ? (
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button size="sm" variant={compact ? "ghost" : "outline"} className={cn(compact && "h-7 px-2")}>
+              Zmień
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-80 space-y-3" aria-label="Kto wrzuca do Cpro">
+            <p className="text-sm font-semibold">Kto wrzuca do Cpro</p>
+            <label className="block text-xs font-medium text-muted-foreground">
+              Osoba
+              <select
+                className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                value={userId}
+                disabled={options.isLoading}
+                onChange={(e) => setUserId(e.target.value)}
+              >
+                <option value="">{options.isLoading ? "Wczytywanie…" : "Wybierz osobę"}</option>
+                {sender?.user_id != null && !(options.data ?? []).some((o) => o.id === sender.user_id) ? (
+                  <option value={sender.user_id}>{sender.user_name ?? "Obecna osoba"}</option>
               ) : null}
               {(options.data ?? []).map((o) => (
                 <option key={o.id} value={o.id}>
@@ -200,7 +236,7 @@ export function CproSenderControl({ sender, loading = false, compact = false }: 
             />
           </label>
           <p className="text-xs text-muted-foreground">
-            Zmienić może każdy z zespołu. Nowa osoba dostaje powiadomienie.
+            Zmienia admin albo Delivery Lead Nordei. Nowa osoba dostaje powiadomienie.
           </p>
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
@@ -213,6 +249,7 @@ export function CproSenderControl({ sender, loading = false, compact = false }: 
           </div>
         </PopoverContent>
       </Popover>
+      ) : null}
     </div>
   );
 }
@@ -301,6 +338,10 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
   const sender = queue.data?.sender ?? senderQuery.data;
   const state = resolveViewState({ isLoading: queue.isLoading, error: queue.error });
 
+  // Ten sam rdzeń ruchu co Tablica: ostrzeżenie „Przenieś mimo to”, QC CV
+  // i konflikt wersji (dotąd ostrzeżenie odsyłało na Tablicę).
+  const moveCore = usePipelineMoveCore({ jobId: job?.job_id ?? 0 });
+
   const markDone = (forJob: number, row: DoneRow) =>
     setDone((prev) => ({ ...prev, [forJob]: [...(prev[forJob] ?? []), row] }));
 
@@ -310,13 +351,23 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
     if (stageDefId == null) return;
     setBusy(item.stage_id);
     try {
-      await api.post("/api/pipeline/move", {
-        candidate_id: item.candidate_id,
-        job_id: job.job_id,
-        stage_def_id: stageDefId,
-        expected_state_version: item.process_state_version,
-        ...(kind === "returned" ? { notes: returnReason.trim() } : {}),
-      });
+      const outcome = await moveCore.send(
+        {
+          candidate_id: item.candidate_id,
+          job_id: job.job_id,
+          stage_def_id: stageDefId,
+          expected_state_version: item.process_state_version ?? undefined,
+          ...(kind === "returned" ? { notes: returnReason.trim() } : {}),
+        },
+        {
+          candidateName: item.candidate_name,
+          fallbackMessage:
+            kind === "sent"
+              ? "Nie udało się przesunąć. Spróbuj ponownie."
+              : "Nie udało się zwrócić. Spróbuj ponownie.",
+        },
+      );
+      if (!outcome.ok) return;
       markDone(job.job_id, { stage_id: item.stage_id, candidate_name: item.candidate_name, outcome: kind });
       showSuccess(
         kind === "sent"
@@ -326,16 +377,6 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
       if (kind === "returned") {
         setReturning(null);
         setReturnReason("");
-      }
-    } catch (error) {
-      if (isEligibilityWarning(error)) {
-        showError(
-          `${eligibilityWarningReason(error) ?? "Serwer ostrzega przed tym ruchem."} Otwórz osobę na Tablicy, żeby zdecydować.`,
-        );
-      } else if (isPipelineVersionConflict(error)) {
-        showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
-      } else {
-        showError(apiErrorMessage(error, kind === "sent" ? "Nie udało się przesunąć. Spróbuj ponownie." : "Nie udało się zwrócić. Spróbuj ponownie."));
       }
     } finally {
       setBusy(null);
@@ -353,8 +394,18 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
 
   const downloadCv = async (item: CproQueueItem) => {
     const cv = item.cv;
+    if (cv?.stage_id) {
+      // CV firmowe etapu — to, co przeszło QC (runda 7, R7-X4-2).
+      try {
+        const { blob, filename } = await fetchStageCvFile(cv.stage_id, { download: "cpro" });
+        downloadBlob(blob, filename ?? `CV ${item.candidate_name}`);
+      } catch (error) {
+        showError(apiErrorMessage(error, "Nie udało się pobrać CV."));
+      }
+      return;
+    }
     const path = cv?.generated_document_id
-      ? `/api/cv-generator/generated/${cv.generated_document_id}/docx`
+      ? withDownloadIntent(`/api/cv-generator/generated/${cv.generated_document_id}/docx`, "cpro")
       : cv?.document_id
         ? `/api/candidates/${item.candidate_id}/documents/${cv.document_id}/content`
         : null;
@@ -382,7 +433,7 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
                 : ""}
             </DialogTitle>
             <DialogDescription id="cpro-queue-desc" className="text-xs text-muted-foreground">
-              Tylko Nordea. Osoby trafiają tu po QC CV.
+              Tylko Nordea. Osoby trafiają tu po akceptacji Delivery Leada.
             </DialogDescription>
           </div>
           <CproSenderControl sender={sender} loading={!sender && (queue.isLoading || senderQuery.isLoading)} />
@@ -491,7 +542,7 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
                   ))}
                   {remaining.map((item, i) => {
                     const isCurrent = item === current;
-                    const hasCv = !!(item.cv?.generated_document_id || item.cv?.document_id);
+                    const hasCv = !!(item.cv?.stage_id || item.cv?.generated_document_id || item.cv?.document_id);
                     return (
                       <li
                         key={item.stage_id}
@@ -516,6 +567,7 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
                             </span>
                             <span>czeka {waitingFor(item.since)}</span>
                           </p>
+                          <CproAcceptance item={item} />
                         </div>
                         <div className="col-span-2 flex flex-wrap gap-1.5 sm:col-span-1 sm:justify-end">
                           <Button
@@ -617,6 +669,7 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
             ) : null}
           </div>
         )}
+        {moveCore.dialogs}
       </DialogContent>
     </Dialog>
   );

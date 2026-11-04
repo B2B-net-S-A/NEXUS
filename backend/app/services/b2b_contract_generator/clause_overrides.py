@@ -8,9 +8,13 @@ pozostaje nietknięta.
 Silnik wspiera operacje (Op = ``(kind, target, blocks)``):
   - ``replace_section``    target=int  → podmień cały § N (np. § 4, § 10)
   - ``append_to_section``  target=int  → dołącz akapity na końcu § N (przed § N+1)
+  - ``insert_before_section`` target=int → nowe akapity tuż PRZED nagłówkiem § N
+    (wariant umowy dla spółki wstawia tak nowy § 12)
   - ``append_appendix``    target=None → nowy Załącznik na końcu dokumentu (page-break)
   - ``after_table``        target=int  → wstaw akapity po tabeli (indeks)
   - ``after_sentence``     target=str  → wstaw akapity po akapicie zawierającym frazę
+  - ``replace_paragraph``  target=str  → podmień TREŚĆ akapitu zawierającego frazę
+    (jeden blok; formatowanie akapitu z szablonu zostaje — np. § 13 ust. 6 BIK)
 
 Blok = ``(kind, text)``. kind: ``h`` nagłówek (centrowany bold), ``sub`` podtytuł
 (centrowany bold), ``sh`` nagłówek sekcji wewnątrz załącznika (bold), ``p``
@@ -181,6 +185,20 @@ def _nth_table_end(rendered: str, idx: int) -> int:
     return pos + len("</table>")
 
 
+def _html_paragraph_inner_span(rendered: str, anchor: str) -> tuple[int, int] | None:
+    """(start, koniec) treści ``<p>`` zawierającego ``anchor`` albo None."""
+    pos = rendered.find(anchor)
+    if pos == -1:
+        return None
+    m = None
+    for m in re.finditer(r"<p(?:\s[^>]*)?>", rendered[:pos]):
+        pass
+    close = rendered.find("</p>", pos)
+    if m is None or close == -1:
+        return None
+    return (m.end(), close)
+
+
 def apply_ops_html_counted(rendered_html: str, ops: list[Op]) -> tuple[str, int]:
     """Jak ``apply_ops_html``, ale zwraca też liczbę WYKONANYCH operacji.
 
@@ -200,6 +218,11 @@ def apply_ops_html_counted(rendered_html: str, ops: list[Op]) -> tuple[str, int]
             if span:
                 out = out[: span[1]] + frag + out[span[1] :]
                 applied += 1
+        elif kind == "insert_before_section":
+            span = _html_section_span(out, int(target))  # type: ignore[arg-type]
+            if span:
+                out = out[: span[0]] + frag + out[span[0] :]
+                applied += 1
         elif kind == "append_appendix":
             out = out.rstrip() + "\n" + frag
             applied += 1
@@ -217,6 +240,12 @@ def apply_ops_html_counted(rendered_html: str, ops: list[Op]) -> tuple[str, int]
                     cut = close + len("</p>")
                     out = out[:cut] + "\n" + frag + out[cut:]
                     applied += 1
+        elif kind == "replace_paragraph":
+            span = _html_paragraph_inner_span(out, str(target))
+            if span:
+                text = html.escape(blocks[0][1], quote=False)
+                out = out[: span[0]] + text + out[span[1] :]
+                applied += 1
     return (out, applied)
 
 
@@ -246,7 +275,10 @@ def _ref_font(paragraph) -> tuple[object, object]:
 
 
 def _doc_ref_styles(doc):
-    """(base_style, head_font, body_font) z reprezentatywnych akapitów umowy."""
+    """(base_style, head_font, body_font, line_spacing) z akapitów umowy.
+
+    Interlinia idzie z natywnego akapitu treści: wstawiony akapit ma wyglądać
+    jak sąsiednie paragrafy umowy, a nie jak domyślne ustawienia dokumentu."""
     base_style = None
     head_p = body_p = None
     for p in doc.paragraphs:
@@ -258,7 +290,8 @@ def _doc_ref_styles(doc):
             body_p = p
         if head_p is not None and body_p is not None:
             break
-    return (base_style, _ref_font(head_p), _ref_font(body_p))
+    line_spacing = body_p.paragraph_format.line_spacing if body_p is not None else None
+    return (base_style, _ref_font(head_p), _ref_font(body_p), line_spacing)
 
 
 def _apply_font(run, font) -> None:
@@ -271,13 +304,21 @@ def _apply_font(run, font) -> None:
 
 def _style_para(para, kind: str, text: str, styles) -> None:
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.shared import Inches
+    from docx.shared import Inches, Pt
 
-    base_style, head_font, body_font = styles
+    base_style, head_font, body_font, line_spacing = styles
     if base_style is not None:
         para.style = base_style
     run = para.add_run(text)
     pf = para.paragraph_format
+    # Domyślne ustawienia szablonu dają 8 pt po KAŻDYM akapicie, a natywne
+    # paragrafy umowy mają odstęp 0 (styl „Default”). Bez jawnego zera wstawione
+    # klauzule (§ 4 BNP, § 10 CeZ/PFRON…) miały przerwy między akapitami,
+    # a umowa BNP przenosiła podpisy na kolejną stronę (ticket 7, 09.2026).
+    pf.space_before = Pt(0)
+    pf.space_after = Pt(0)
+    if line_spacing is not None:
+        pf.line_spacing = line_spacing
     if kind in ("h", "sub"):
         run.bold = True
         para.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -338,6 +379,15 @@ def _find_section_heading_el(doc, n: int):
     return None
 
 
+def _is_empty_para(el) -> bool:
+    from docx.oxml.ns import qn
+
+    if el.tag != qn("w:p"):
+        return False
+    text = "".join(t.text or "" for t in el.iter(qn("w:t")))
+    return not text.strip() and not any(True for _ in el.iter(qn("w:drawing")))
+
+
 def _next_heading_el(doc, start_el):
     """Element następnego nagłówka (§ N / § NA / Załącznik) po ``start_el``."""
     seen = False
@@ -368,13 +418,20 @@ def apply_ops_docx(doc, ops: list[Op]) -> int:
             nxt = _next_heading_el(doc, start)
             if nxt is None:
                 continue
-            # usuń akapity § N (od nagłówka do przed następnym nagłówkiem)
+            # Pusta linia między § N a § N+1 zostaje — nowa treść wchodzi
+            # przed nią, jak w natywnych paragrafach umowy.
+            anchor = nxt
+            prev = nxt.getprevious()
+            while prev is not None and prev is not start and _is_empty_para(prev):
+                anchor = prev
+                prev = prev.getprevious()
+            # usuń akapity § N (od nagłówka do przed pustą linią / nagłówkiem)
             el = start
-            while el is not None and el is not nxt:
+            while el is not None and el is not anchor:
                 to_remove = el
                 el = el.getnext()
                 to_remove.getparent().remove(to_remove)
-            _emit_before(nxt, body_parent, blocks, styles)
+            _emit_before(anchor, body_parent, blocks, styles)
             applied += 1
         elif kind == "append_to_section":
             start = _find_section_heading_el(doc, int(target))  # type: ignore[arg-type]
@@ -384,6 +441,12 @@ def apply_ops_docx(doc, ops: list[Op]) -> int:
             if nxt is None:
                 continue
             _emit_before(nxt, body_parent, blocks, styles)
+            applied += 1
+        elif kind == "insert_before_section":
+            start = _find_section_heading_el(doc, int(target))  # type: ignore[arg-type]
+            if start is None:
+                continue
+            _emit_before(start, body_parent, blocks, styles)
             applied += 1
         elif kind == "append_appendix":
             last_el = doc.paragraphs[-1]._p
@@ -404,4 +467,15 @@ def apply_ops_docx(doc, ops: list[Op]) -> int:
             if ref is not None:
                 _emit_after(ref, body_parent, blocks, styles)
                 applied += 1
+        elif kind == "replace_paragraph":
+            anchor = str(target)
+            for p in doc.paragraphs:
+                if anchor in (p.text or "") and p.runs:
+                    # Pierwszy run niesie formatowanie akapitu z szablonu;
+                    # reszta runów (EN ma ich trzy) zostaje wyczyszczona.
+                    p.runs[0].text = blocks[0][1]
+                    for run in p.runs[1:]:
+                        run.text = ""
+                    applied += 1
+                    break
     return applied

@@ -431,7 +431,7 @@ def test_reversed_document_period_is_a_reason_and_never_auto():
     )
     _, verdict = gate(ex, text, [recruitment_draft()])
     assert not verdict.is_auto
-    assert any("okres odwrócony" in reason for reason in verdict.reasons)
+    assert any("błędny okres" in reason for reason in verdict.reasons)
 
 
 def test_reversed_period_under_the_name_is_never_used():
@@ -743,6 +743,18 @@ def test_targeted_form_picks_the_person_from_the_table():
 def test_targeted_form_for_someone_not_on_the_order_leaves_the_rate_empty():
     ex = read(TICKET, model_reading(person("Łucja Próbna")), target="Anna Obca")
     assert ex.rate_client is None and ex.consultant_rate_matched is False
+    assert any("Anna Obca" in reason for reason in ex.uncertain_reasons)
+
+
+def test_cleared_rate_stays_cleared_on_a_legacy_reading_with_a_gross_amount():
+    # Runda 7 (N4): zapis sprzed reguły Aliora niósł ``rate_client_gross``
+    # dokumentu. ``_clear_rate`` zostawiał go, a ``apply_rate_rules`` zamieniał
+    # go z powrotem w stawkę — obok powodu „wpisz ręcznie”.
+    reading = model_reading(person("Łucja Próbna"))
+    reading.rate_client = Decimal("1029.67")
+    reading.rate_client_gross = Decimal("1266.49")
+    ex = read(TICKET, reading, target="Anna Obca")
+    assert ex.rate_client is None and ex.rate_client_gross is None
     assert any("Anna Obca" in reason for reason in ex.uncertain_reasons)
 
 

@@ -1,0 +1,560 @@
+"""Podpowiedzi słów kluczowych (``GET /api/candidates/keywords/suggest``).
+
+Pokrywa:
+
+- dobór ze słownika: początek nazwy, słowo nazwy, alias, bez polskich znaków,
+  kolejność (początek nazwy przed aliasem i słowem, krótsza nazwa pierwsza);
+- wzorzec „jav*” tylko przy rdzeniu co najmniej 3 znaków;
+- stanowiska w podpowiedziach od początku słowa (jak „git*”), filtr
+  „Stanowisko” dalej po podciągu;
+- trasa nie wpada w ``/{candidate_id}``, liczy osoby z indeksu
+  pełnotekstowego, a w trakcie wypełniania korpusu oddaje ``count: null``;
+- błąd liczenia (np. limit czasu) daje ``null`` i nie psuje sesji.
+
+Baza testowa jest wspólna: słowa w testach z bazą są jednorazowe (``NONCE``).
+"""
+
+from __future__ import annotations
+
+import uuid
+
+import pytest
+
+from app.services import keyword_corpus, keyword_suggest
+
+NONCE = "zs" + "".join(chr(97 + int(c, 16)) for c in uuid.uuid4().hex[:10])
+
+_SKILLS = [
+    (1, "Java", "language"),
+    (2, "JavaScript", "language"),
+    (3, "Java EE", "framework"),
+    (4, "Kubernetes", "devops"),
+    (5, "Spring Boot", "framework"),
+    (6, "Zarządzanie projektem", "methodology"),
+    (7, NONCE.capitalize(), "language"),
+]
+_ALIASES = [(2, "js"), (4, "k8s"), (5, "springboot")]
+
+
+@pytest.fixture
+def catalog():
+    saved = keyword_suggest._catalog
+    keyword_suggest.load_catalog(_SKILLS, _ALIASES)
+    keyword_suggest.clear_count_cache()
+    yield
+    keyword_suggest._catalog = saved
+    keyword_suggest.clear_count_cache()
+
+
+def _labels(query: str, limit: int = 6) -> list[str]:
+    return [m.entry.label for m in keyword_suggest.match_skills(query, limit)]
+
+
+def test_prefix_of_name_comes_first_and_shorter_first(catalog):
+    assert _labels("jav") == ["Java", "Java EE", "JavaScript"]
+
+
+def test_alias_and_word_matches(catalog):
+    matches = keyword_suggest.match_skills("k8", 6)
+    assert [m.entry.label for m in matches] == ["Kubernetes"]
+    assert matches[0].alias == "k8s"
+    assert _labels("boot") == ["Spring Boot"]
+
+
+def test_polish_letters_are_folded(catalog):
+    assert _labels("zarzadz") == ["Zarządzanie projektem"]
+    assert _labels("projekt") == ["Zarządzanie projektem"]
+
+
+def test_empty_query_gives_nothing(catalog):
+    assert keyword_suggest.match_skills("   ", 6) == []
+
+
+def _entry(name: str, aliases: list[str]) -> keyword_suggest.SkillEntry:
+    keyword_suggest.load_catalog([(1, name, "x")], [(1, a) for a in aliases])
+    return keyword_suggest.catalog()[0]
+
+
+def test_variants_skip_short_polish_and_redundant_aliases(catalog):
+    """„+ z wariantami” (25.09.2026): tylko zapisy, których samo słowo nie
+    znajdzie. Dane jak na produkcji: Java ma „java 11”/„core java” (znajdzie
+    je już „java”), Go ma „go” (polskie słowo), PostgreSQL ma „pg”."""
+    assert keyword_suggest.skill_variants(
+        _entry("Spring Boot", ["spring-boot", "springboot", "Spring Boot"])
+    ) == ("spring-boot", "springboot")
+    assert keyword_suggest.skill_variants(
+        _entry("Java", ["core java", "java 11", "j2ee", "jee"])
+    ) == ("j2ee", "jee")
+    assert keyword_suggest.skill_variants(_entry("Go", ["go lang", "golang"])) == (
+        "golang",
+    )
+    assert keyword_suggest.skill_variants(
+        _entry("PostgreSQL", ["pg", "postgres", "psql"])
+    ) == ("postgres", "psql")
+    many = [f"wariant{i}" for i in range(8)]
+    assert len(keyword_suggest.skill_variants(_entry("Nazwa", many))) == (
+        keyword_suggest.MAX_VARIANTS
+    )
+
+
+def test_critical_label_searches_the_name_and_its_variants():
+    """W4 (audyt 06.10.2026): obowiązkowy wiersz „PostgreSQL” szuka też
+    „Postgres” — słowa kluczowe nie rozwijają aliasów same, a krytyczna
+    ukrywa kandydata, więc ~2% osób z samym „postgres” w CV wypadało."""
+    saved = keyword_suggest._catalog
+    keyword_suggest.load_catalog(
+        [(1, "PostgreSQL", "database"), (2, "Apache Kafka", "tool")],
+        [(1, "postgres"), (1, "pg"), (2, "kafka")],
+    )
+    try:
+        assert keyword_suggest.requirement_search_words("PostgreSQL") == (
+            "PostgreSQL",
+            "postgres",
+        )
+        # Wpisany alias prowadzi; nazwa ze słownika dochodzi jako wariant.
+        assert keyword_suggest.requirement_search_words("Postgres") == (
+            "Postgres",
+            "PostgreSQL",
+        )
+        # „A lub B” — każda opcja ze swoimi wariantami.
+        assert keyword_suggest.requirement_search_words("Kafka lub PostgreSQL") == (
+            "Kafka",
+            "Apache Kafka",
+            "PostgreSQL",
+            "postgres",
+        )
+        # Spoza słownika — samo słowo.
+        assert keyword_suggest.requirement_search_words("Pega") == ("Pega",)
+    finally:
+        keyword_suggest._catalog = saved
+
+
+def test_requirement_search_words_read_the_label_like_the_ai_gate():
+    """Blokada przeglądu PR #2056: wiersz obowiązkowy czyta etykietę tak jak
+    bramka AI (``must_gate_terms.gate_requirement``) — bez wersji, z „/”,
+    „lub” i przykładami w nawiasie. Dosłowna etykieta „Java 11+” szukała
+    słowa „Java 11+”, a „Docker/Kubernetes” — jednego słowa z ukośnikiem."""
+    saved = keyword_suggest._catalog
+    keyword_suggest.load_catalog(
+        [(1, "PostgreSQL", "database"), (2, "Apache Kafka", "tool")],
+        [(1, "postgres"), (2, "kafka")],
+    )
+    try:
+        assert keyword_suggest.requirement_search_words("Java 11+") == ("Java",)
+        assert keyword_suggest.requirement_search_words("Docker/Kubernetes") == (
+            "Docker",
+            "Kubernetes",
+        )
+        assert keyword_suggest.requirement_search_words(
+            "Bazy danych (Oracle, PostgreSQL)"
+        ) == ("Oracle", "PostgreSQL", "postgres")
+        assert keyword_suggest.requirement_search_words("Kafka lub RabbitMQ") == (
+            "Kafka",
+            "Apache Kafka",
+            "RabbitMQ",
+        )
+    finally:
+        keyword_suggest._catalog = saved
+
+
+def test_single_letter_requirement_gives_no_keyword_row():
+    """„C” i „R” jako słowo kluczowe znajdują prawie całą bazę („2019 r.”,
+    „C++”) — wiersz z taką opcją nie powstaje (bramka AI czyta je z profilu)."""
+    assert keyword_suggest.requirement_search_words("R") == ()
+    assert keyword_suggest.requirement_search_words("C lub C++") == ()
+
+
+def test_find_words_drop_only_the_single_letter_option():
+    """Lupa „Szukaj w CV” (16.10.2026) podświetla, nie wycina: z „C lub C++”
+    zostaje „C++”, a nie pusty wiersz. Resztę etykiety czyta jak wiersz słów
+    kluczowych — „.NET lub C#” to dwie opcje, nie jedna fraza.
+
+    Pusty katalog jawnie: wcześniejszy test w tym samym shardzie CI potrafi
+    zostawić katalog z odpowiednikami („C++” → „cpp”, „c plus plus”)."""
+    saved = keyword_suggest._catalog
+    keyword_suggest.load_catalog([], [])
+    try:
+        assert keyword_suggest.requirement_find_words("C lub C++") == ("C++",)
+        assert keyword_suggest.requirement_find_words("R") == ()
+        assert keyword_suggest.requirement_find_words(".NET lub C#") == (".NET", "C#")
+        assert keyword_suggest.requirement_find_words("Docker/Kubernetes") == (
+            "Docker",
+            "Kubernetes",
+        )
+    finally:
+        keyword_suggest._catalog = saved
+
+
+def test_find_words_strip_the_wildcard_of_equivalents():
+    """Odpowiednik „bankow*” (``keyword_equivalents.json``) w lupie to fragment
+    słowa: lupa szuka gwiazdki dosłownie, więc „bankow*” nie trafiłby nigdy
+    i lupa mówiłaby „nie ma w CV” przy „sektor bankowy”."""
+    saved = keyword_suggest._catalog
+    keyword_suggest.load_catalog([(1, "Bankowość", "domain")], [])
+    try:
+        words = keyword_suggest.requirement_find_words("Bankowość")
+    finally:
+        keyword_suggest._catalog = saved
+    assert "bankow" in words
+    assert not any("*" in word for word in words)
+
+
+def test_every_equivalent_parses_as_a_keyword():
+    """Kontrakt słownika odpowiedników: każde słowo da się wyszukać, gwiazdka
+    ma co najmniej 3 litery rdzenia, a grupa ma co najmniej dwa słowa."""
+    from app.services.keyword_terms import MIN_WILDCARD_CORE, parse_keyword
+
+    keyword_suggest.equivalent_groups.cache_clear()
+    keyword_suggest._equivalents_index.cache_clear()
+    groups = keyword_suggest.equivalent_groups()
+    assert groups
+    for group in groups:
+        assert len(group) >= 2, group
+        for word in group:
+            term = parse_keyword(word)
+            assert term is not None, word
+            if word.endswith("*"):
+                assert term.open_end, word
+                assert len(word.rstrip("*")) >= MIN_WILDCARD_CORE, word
+
+
+def test_equivalents_join_all_groups_of_a_word():
+    """„QA” jest w dwóch grupach (tester, quality assurance) — dostaje obie."""
+    assert keyword_suggest.equivalents_for("qa") == ("tester", "quality assurance")
+    assert keyword_suggest.equivalents_for("Bankowosc") == ("bankow*", "banking")
+    assert keyword_suggest.equivalents_for("nieznane") == ()
+
+
+def test_skill_variants_start_with_curated_equivalents(catalog):
+    """Odpowiednik ze słownika omija filtr krótkich słów („JS”) i stoi przed
+    aliasami, żeby długa lista aliasów nie wypchnęła go za limit."""
+    assert keyword_suggest.skill_variants(
+        _entry("JavaScript", ["js", "ecmascript"])
+    ) == ("JS", "ecmascript")
+    assert keyword_suggest.skill_variants(_entry("Machine Learning", ["ml"])) == ("ML",)
+    many = [f"wariant{i}" for i in range(8)]
+    variants = keyword_suggest.skill_variants(_entry("QA", many))
+    assert variants[:2] == ("tester", "quality assurance")
+    assert len(variants) == keyword_suggest.MAX_VARIANTS
+
+
+def test_term_suggestion_for_a_word_outside_the_skill_catalog(catalog):
+    """„bankowość” to nie technologia — pozycja ``term`` z odpowiednikami."""
+    terms = keyword_suggest.term_suggestions("bankowość", 2)
+    assert [(t.kind, t.insert, t.variants) for t in terms] == [
+        ("term", "bankowość", ("bankow*", "banking"))
+    ]
+    # Bez polskich znaków i od początku słowa: jedna pozycja na grupę.
+    assert [t.insert for t in keyword_suggest.term_suggestions("bankowo", 2)] == [
+        "bankowość"
+    ]
+    assert [t.insert for t in keyword_suggest.term_suggestions("analyst", 2)] == [
+        "analyst"
+    ]
+    assert keyword_suggest.term_suggestions("ba", 2) == []
+
+
+def test_term_is_skipped_when_the_word_is_a_skill(catalog):
+    """„JavaScript” jest w słowniku umiejętności — odpowiedniki niesie pozycja
+    ``skill`` (``skill_variants``), więc ``term`` by ją dublował."""
+    assert keyword_suggest.term_suggestions("javascript", 2) == []
+    assert keyword_suggest.term_suggestions("js", 2) == []
+
+
+@pytest.mark.asyncio
+async def test_suggest_puts_terms_after_skills(catalog, monkeypatch):
+    async def no_titles(db, q, limit):
+        return []
+
+    async def no_counts(db, values):
+        return {v: None for v in values}
+
+    monkeypatch.setattr(keyword_suggest, "_titles_within_timeout", no_titles)
+    monkeypatch.setattr(keyword_suggest, "count_candidates", no_counts)
+    result = await keyword_suggest.suggest(None, "zarządzanie", 6)
+    assert [(i.kind, i.insert) for i in result.items] == [
+        ("skill", "Zarządzanie projektem"),
+        ("term", "zarządzanie"),
+    ]
+    assert result.items[1].variants == ("zarządz*", "management")
+
+
+def test_alias_that_is_a_word_of_the_name_suggests_that_word(catalog):
+    """Decyzja Artura 25.09.2026: na produkcji „kafka” znajduje 4569 osób,
+    a fraza „Apache Kafka” 1704. Gdy podpowiedź trafia przez alias, który jest
+    osobnym słowem nazwy, wstawiamy to słowo (szersze), a nazwa zostaje
+    wyjaśnieniem. „springboot” i „k8s” nie są słowami nazwy — dalej nazwa."""
+    keyword_suggest.load_catalog(
+        [
+            (1, "Apache Kafka", "x"),
+            (2, "Spring Boot", "x"),
+            (3, "Kubernetes", "x"),
+            (4, "Node.js", "x"),
+        ],
+        [(1, "kafka"), (2, "springboot"), (3, "k8s"), (4, "node")],
+    )
+
+    def first(query: str) -> tuple[str, str, str | None]:
+        s = keyword_suggest.skill_suggestions(query, 6)[0]
+        return s.label, s.insert, s.alias
+
+    assert first("kafka") == ("Kafka", "Kafka", "Apache Kafka")
+    assert first("kaf") == ("Kafka", "Kafka", "Apache Kafka")
+    assert first("apache") == ("Apache Kafka", "Apache Kafka", None)
+    assert first("springboot") == ("Spring Boot", "Spring Boot", "springboot")
+    assert first("k8s") == ("Kubernetes", "Kubernetes", "k8s")
+    assert first("node") == ("Node.js", "Node.js", None)
+
+
+def test_wildcard_needs_three_letters():
+    assert keyword_suggest.wildcard_for("ja") is None
+    assert keyword_suggest.wildcard_for("jav") == "jav*"
+    assert keyword_suggest.wildcard_for("spring boot") is None
+
+
+async def _seed_candidate() -> int:
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate, CandidateStatus
+
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Podpowiedz",
+            lastname="Slowna",
+            email=f"kw-suggest-{uuid.uuid4().hex[:10]}@example.com",
+            status=CandidateStatus.active,
+            raw_cv_text=f"Programista {NONCE} od lat.",
+        )
+        db.add(cand)
+        await db.commit()
+        return cand.id
+
+
+@pytest.mark.asyncio
+async def test_endpoint_counts_from_the_fulltext_index(
+    app_client, app_auth_headers, catalog, monkeypatch
+):
+    await _seed_candidate()
+    monkeypatch.setattr(keyword_corpus, "_ready", True)
+    resp = await app_client.get(
+        "/api/candidates/keywords/suggest",
+        params={"q": NONCE[:6]},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    first = body["items"][0]
+    assert first["label"] == NONCE.capitalize()
+    assert first["kind"] == "skill"
+    assert first["insert"] == NONCE.capitalize()
+    assert first["count"] == 1
+    assert body["wildcard"]["insert"] == NONCE[:6] + "*"
+    assert body["wildcard"]["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_count_is_null_while_the_corpus_backfills(
+    app_client, app_auth_headers, catalog, monkeypatch
+):
+    monkeypatch.setattr(keyword_corpus, "_ready", False)
+    resp = await app_client.get(
+        "/api/candidates/keywords/suggest",
+        params={"q": "jav"},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    items = resp.json()["items"]
+    assert [i["label"] for i in items[:3]] == ["Java", "Java EE", "JavaScript"]
+    assert all(i["count"] is None for i in items)
+
+
+@pytest.mark.asyncio
+async def test_titles_start_a_word_like_the_keyword_prefix(
+    app_client, app_auth_headers, catalog, monkeypatch
+):
+    """„git” nie podpowiada „digital …” (produkcja, 25.09.2026): stanowisko musi
+    mieć słowo zaczynające się od wpisanego tekstu, jak słowo kluczowe ``git*``.
+    Filtr „Stanowisko” (``/titles/suggest``) zostaje przy podciągu."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate, CandidateStatus
+
+    stem = "tq" + "".join(chr(97 + int(c, 16)) for c in uuid.uuid4().hex[:8])
+    starts = f"senior {stem}er engineer"
+    inside = f"di{stem}al designer"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Candidate(
+                name="Podpowiedz",
+                lastname="Stanowisko",
+                email=f"kw-title-{uuid.uuid4().hex[:10]}@example.com",
+                status=CandidateStatus.active,
+                experience=[
+                    {"role": starts.title(), "company": "Firma A"},
+                    {"role": inside.title(), "company": "Firma B"},
+                ],
+            )
+        )
+        await db.commit()
+
+    monkeypatch.setattr(keyword_corpus, "_ready", False)
+    async with AsyncSessionLocal() as db:
+        result = await keyword_suggest.suggest(db, stem, 6)
+    titles = [s.label for s in result.items if s.kind == "title"]
+    assert titles == [starts]
+
+    resp = await app_client.get(
+        "/api/candidates/titles/suggest",
+        params={"q": stem},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert sorted(row["name"] for row in resp.json()) == sorted([starts, inside])
+
+
+@pytest.mark.asyncio
+async def test_real_timeout_inside_count_candidates_returns_nulls(catalog, monkeypatch):
+    from app.core.database import AsyncSessionLocal
+
+    monkeypatch.setattr(keyword_corpus, "_ready", True)
+
+    class _Boom(Exception):
+        pass
+
+    async with AsyncSessionLocal() as db:
+        real_execute = db.execute
+        calls = {"n": 0}
+
+        async def execute(stmt, *args, **kwargs):
+            calls["n"] += 1
+            if "keyword_fts @@" in str(stmt):
+                raise _Boom("canceling statement due to statement timeout")
+            return await real_execute(stmt, *args, **kwargs)
+
+        monkeypatch.setattr(db, "execute", execute)
+        result = await keyword_suggest.count_candidates(db, ["Kubernetes"])
+        assert result == {"Kubernetes": None}
+        monkeypatch.setattr(db, "execute", real_execute)
+        # Sesja nadal przyjmuje zapytania (savepoint wycofany, nie transakcja).
+        from sqlalchemy import text
+
+        assert (await db.execute(text("SELECT 1"))).scalar_one() == 1
+
+
+@pytest.mark.asyncio
+async def test_titles_failure_degrades_to_skills_only(catalog, monkeypatch):
+    """Przegląd stanowisk po limicie czasu: podpowiedzi bez stanowisk, sesja żyje."""
+    from sqlalchemy import text
+
+    from app.core.database import AsyncSessionLocal
+
+    monkeypatch.setattr(keyword_corpus, "_ready", False)
+
+    async with AsyncSessionLocal() as db:
+        real_execute = db.execute
+
+        async def execute(stmt, *args, **kwargs):
+            if "jsonb_array_elements" in str(stmt):
+                raise RuntimeError("canceling statement due to statement timeout")
+            return await real_execute(stmt, *args, **kwargs)
+
+        monkeypatch.setattr(db, "execute", execute)
+        result = await keyword_suggest.suggest(db, "java", 6)
+        assert [s.label for s in result.items] == ["Java", "Java EE", "JavaScript"]
+        assert all(s.kind == "skill" for s in result.items)
+        monkeypatch.setattr(db, "execute", real_execute)
+        assert (await db.execute(text("SELECT 1"))).scalar_one() == 1
+
+
+@pytest.mark.asyncio
+async def test_count_timeout_on_one_word_keeps_the_others(catalog, monkeypatch):
+    """Liczba liczona osobno dla każdego słowa: limit czasu jednego nie zeruje reszty."""
+    from app.core.database import AsyncSessionLocal
+
+    monkeypatch.setattr(keyword_corpus, "_ready", True)
+
+    async with AsyncSessionLocal() as db:
+        real_execute = db.execute
+
+        seen: list[str] = []
+
+        async def execute(stmt, *args, **kwargs):
+            params = args[0] if args else kwargs.get("params") or {}
+            seen.append(str(stmt))
+            if "keyword_fts @@" in str(stmt) and params.get("q") == "Kubernetes":
+                raise RuntimeError("canceling statement due to statement timeout")
+            return await real_execute(stmt, *args, **kwargs)
+
+        monkeypatch.setattr(db, "execute", execute)
+        result = await keyword_suggest.count_candidates(db, ["Kubernetes", NONCE])
+        assert result["Kubernetes"] is None
+        assert isinstance(result[NONCE], int)
+        # Zbiorcze `count(*) FILTER (WHERE keyword_fts @@ …)` trwało na
+        # produkcji 3 s — każde słowo ma własne zapytanie po indeksie.
+        assert not any("FILTER" in sql for sql in seen)
+
+
+@pytest.mark.asyncio
+async def test_phrases_are_not_counted(catalog, monkeypatch):
+    """Fraza liczy się po pozycjach w każdym wierszu (sekundy) — bez liczby."""
+    from app.core.database import AsyncSessionLocal
+
+    monkeypatch.setattr(keyword_corpus, "_ready", True)
+    async with AsyncSessionLocal() as db:
+        real_execute = db.execute
+        seen: list[str] = []
+
+        async def execute(stmt, *args, **kwargs):
+            seen.append(str(stmt))
+            return await real_execute(stmt, *args, **kwargs)
+
+        monkeypatch.setattr(db, "execute", execute)
+        result = await keyword_suggest.count_candidates(
+            db, ["java developer", "Spring Boot"]
+        )
+    assert result == {"java developer": None, "Spring Boot": None}
+    assert not any("keyword_fts @@" in sql for sql in seen)
+
+
+@pytest.mark.asyncio
+async def test_count_cache_keeps_polish_spelling_apart(monkeypatch):
+    """„bankowość” i „bankowosc” to w ``keyword_fts`` różne słowa i liczby."""
+    monkeypatch.setattr(keyword_corpus, "_ready", True)
+    monkeypatch.setattr(keyword_corpus, "folded_search_enabled", lambda: False)
+    keyword_suggest.clear_count_cache()
+    counts = {"bankowość": 7, "bankowosc": 2}
+
+    class _Result:
+        def __init__(self, value):
+            self._value = value
+
+        def scalar_one(self):
+            return self._value
+
+    class FakeSession:
+        def begin_nested(self):
+            return _Nested()
+
+        async def execute(self, stmt, params=None):
+            sql = str(stmt)
+            if "keyword_fts @@" in sql:
+                q = (params or {}).get("q", "")
+                word = "bankowość" if "ść" in q else "bankowosc"
+                return _Result(counts[word])
+            return _Result("0")
+
+    class _Nested:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    try:
+        db = FakeSession()
+        first = await keyword_suggest.count_candidates(db, ["bankowosc"])
+        second = await keyword_suggest.count_candidates(db, ["bankowość"])
+        again = await keyword_suggest.count_candidates(db, ["BANKOWOŚĆ"])
+    finally:
+        keyword_suggest.clear_count_cache()
+    assert first == {"bankowosc": 2}
+    assert second == {"bankowość": 7}
+    assert again == {"BANKOWOŚĆ": 7}

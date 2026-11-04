@@ -1,9 +1,9 @@
 {
-  "entry": "06983cfef3e05163e0469af291e78291008ff2a2013ad096ef4b5273656b3dee",
+  "entry": "5ce9f784667e44545bcbb2bbd09b54f1882bc7fb20585d14b51cf3374f86d548",
   "guide": "calendar",
   "sources": {
-    "frontend/src/components/calendar/cycle/CalendarCycleScreen.tsx": "be94c7582fdbeb265703729d0b21cda81e68c917737d46313e050e3133d5c68c",
-    "frontend/src/components/calendar/cycle/CycleBoard.tsx": "6761c76c464ec6d27524c218ebea28b1aea8402172f988be3a5de99eeb2557b5",
-    "frontend/src/components/calendar/cycle/CycleCandidatePanel.tsx": "5a0478ceba2586449e59ad4b2352729b88c6284c8154aa2c89982ce155941900"
+    "frontend/src/components/calendar/cycle/CalendarCycleScreen.tsx": "e0361589d5ad0b9d6643dfae8f6808e78bd7eb131e2fafd1cbba7255c5d89d54",
+    "frontend/src/components/calendar/cycle/CycleBoard.tsx": "dc5603d770d980b5084760bf5d980050f33e333080ccfb4db5b8d2058d09ee8e",
+    "frontend/src/components/calendar/cycle/CycleCandidatePanel.tsx": "d32505c109abc2efda509a2c87757cc70af36603bd8d2b9b7d197ac06341532f"
   }
 }

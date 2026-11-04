@@ -216,7 +216,7 @@ export function JobAllocationSummary({ jobId }: { jobId: number }) {
   return (
     <div className="space-y-1 rounded border border-border bg-muted/30 p-3 text-sm">
       <p>
-        Prowadzący: <strong>{data.owner_name ?? "Nieprzypisany"}</strong>
+        Rekruter: <strong>{data.owner_name ?? "bez rekrutera"}</strong>
       </p>
       {data.substitution && (
         <p>

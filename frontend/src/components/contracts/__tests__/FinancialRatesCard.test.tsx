@@ -5,6 +5,7 @@ import {
   FinancialRatesCard,
   type FinancialRatesContract,
 } from "@/components/contracts/FinancialRatesCard";
+import type { RecruitmentRate } from "@/lib/api/recruitmentRates";
 
 const BASE_CONTRACT: FinancialRatesContract = {
   rate_candidate: 28,
@@ -245,5 +246,93 @@ describe("FinancialRatesCard — harmonogram z jednym krokiem (UAT B53)", () => 
       />,
     );
     expect(screen.queryByText(/^od /)).not.toBeInTheDocument();
+  });
+});
+
+// Zgłoszenie Klaudii 29.10.2026 (wariant A z makiet): kontrakt bez stawki
+// klienta pokazuje stawkę z rekrutacji jako podpowiedź. Nic się nie zapisuje —
+// przychód nadal przychodzi z zamówienia (decyzja z 04.10.2026).
+describe("FinancialRatesCard — stawka z rekrutacji przed zamówieniem", () => {
+  const PLN_HOURLY: FinancialRatesContract = {
+    ...BASE_CONTRACT,
+    currency: "PLN",
+    rate_candidate: 110,
+    rate_client: null,
+    margin: null,
+    eur_pln_rate: null,
+  };
+  const RATE: RecruitmentRate = {
+    candidate_id: 5,
+    job_id: 7,
+    job_title: "Analityk Systemowy",
+    client_rate_value: "150.00",
+    client_rate_unit: "hourly",
+    client_rate_currency: "PLN",
+    client_rate_at: "2026-10-02T09:00:00Z",
+    client_rate_by_name: "Anna Nowak",
+    client_rate_redacted: false,
+    candidate_rate_value: "110",
+    candidate_rate_unit: "hourly",
+    candidate_rate_currency: "PLN",
+    candidate_rate_at: null,
+  };
+
+  it("pokazuje stawkę z rekrutacji, kto i kiedy ją wpisał, oraz marżę według niej", () => {
+    render(<FinancialRatesCard contract={PLN_HOURLY} recruitmentRate={RATE} />);
+
+    const hint = screen.getByTestId("client-rate-from-recruitment");
+    expect(hint).toHaveTextContent("Z rekrutacji „Analityk Systemowy” (Anna Nowak, 2.10.2026)");
+    expect(hint).toHaveTextContent("150,00 zł/h");
+    expect(hint).toHaveTextContent("Marża wg rekrutacji");
+    expect(hint).toHaveTextContent("40,00 zł/h (26.7%)");
+    expect(hint).toHaveTextContent("Stawka przychodowa wejdzie do kontraktu z zamówieniem klienta.");
+    // Marża kontraktu zostaje pusta — podpowiedź niczego nie udaje.
+    expect(screen.getByText("Marża").closest("div")).toHaveTextContent("—");
+  });
+
+  it("nie pokazuje podpowiedzi, gdy kontrakt ma już stawkę klienta", () => {
+    render(
+      <FinancialRatesCard
+        contract={{ ...PLN_HOURLY, rate_client: 155, margin: 45 }}
+        recruitmentRate={RATE}
+      />,
+    );
+    expect(screen.queryByTestId("client-rate-from-recruitment")).not.toBeInTheDocument();
+  });
+
+  it("nie pokazuje podpowiedzi, gdy stawka do klienta jest ukryta albo pusta", () => {
+    const { rerender } = render(
+      <FinancialRatesCard
+        contract={PLN_HOURLY}
+        recruitmentRate={{ ...RATE, client_rate_value: null, client_rate_redacted: true }}
+      />,
+    );
+    expect(screen.queryByTestId("client-rate-from-recruitment")).not.toBeInTheDocument();
+    rerender(
+      <FinancialRatesCard contract={PLN_HOURLY} recruitmentRate={{ ...RATE, client_rate_value: null }} />,
+    );
+    expect(screen.queryByTestId("client-rate-from-recruitment")).not.toBeInTheDocument();
+  });
+
+  it("bez marży, gdy jednostka albo waluta rekrutacji jest inna niż kontraktu", () => {
+    const { rerender } = render(
+      <FinancialRatesCard
+        contract={PLN_HOURLY}
+        recruitmentRate={{ ...RATE, client_rate_value: "1200", client_rate_unit: "daily" }}
+      />,
+    );
+    let hint = screen.getByTestId("client-rate-from-recruitment");
+    expect(hint).toHaveTextContent("1200,00 zł/MD");
+    expect(hint).not.toHaveTextContent("Marża wg rekrutacji");
+
+    rerender(
+      <FinancialRatesCard
+        contract={PLN_HOURLY}
+        recruitmentRate={{ ...RATE, client_rate_value: "40", client_rate_currency: "EUR" }}
+      />,
+    );
+    hint = screen.getByTestId("client-rate-from-recruitment");
+    expect(hint).toHaveTextContent("40,00 €/h");
+    expect(hint).not.toHaveTextContent("Marża wg rekrutacji");
   });
 });

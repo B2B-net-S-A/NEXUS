@@ -4,7 +4,12 @@ import {
   DEFAULT_FILTERS,
   decodeFilters,
   decodeJobBackRef,
+  decodeJobSearchBackRef,
+  decodeNavContext,
   decodeTalentRadarBackRef,
+  encodeNavContext,
+  listBackHref,
+  withJobSearchBackRef,
   encodeFilterCriteria,
   encodeFilters,
   encodeTalentRadarBackRef,
@@ -24,6 +29,22 @@ describe("url-filters", () => {
     expect(decodeFilters(sp(""))).toEqual(DEFAULT_FILTERS);
   });
 
+  it("sends „Mile widziane” city, category and rows as ranking-only params", () => {
+    const params = filtersToApiParams({
+      ...DEFAULT_FILTERS,
+      locationPreferred: ["Warszawa", "Gdańsk"],
+      competenceCategoryPreferred: [7],
+      qPreferred: [["bankow*", "banking"], ["scrum"]],
+    }, 1);
+    expect(params.location_preferred).toEqual(["Warszawa", "Gdańsk"]);
+    expect(params.competence_category_preferred).toEqual([7]);
+    expect(params.q_preferred_group).toEqual(["bankow*|banking", "scrum"]);
+    // Twarde filtry zostają puste — to tylko kolejność.
+    expect(params.location).toBeUndefined();
+    expect(params.competence_category_id).toBeUndefined();
+    expect(params.q_any_group).toBeUndefined();
+  });
+
   it("round-trips every field", () => {
     const full: CandidateFilters = {
       q: "python dev",
@@ -40,7 +61,12 @@ describe("url-filters", () => {
       remote: ["remote", "hybrid"],
       skillsExpr: "python OR aws",
       skillsPreferred: ["Docker", "Spring|Quarkus"],
+      locationPreferred: ["Warszawa", "Gdańsk"],
+      competenceCategoryPreferred: [7],
+      qPreferred: [["bankow*", "banking"], ["scrum"]],
       hideUnknown: true,
+      hideUnknownRate: true,
+      hideUnknownLocation: true,
       locationScope: "location_only",
       location: "Warszawa",
       poolIds: [3, 5],
@@ -52,6 +78,8 @@ describe("url-filters", () => {
       workedAtClientIds: [10, 11],
       recruitmentIds: [42, 7],
       recruitmentMatch: "not_assigned",
+      recruitmentClientIds: [3, 12],
+      recruitmentPresence: "",
       experienceMin: 2,
       experienceMax: 30,
       rateMin: 80,
@@ -60,6 +88,7 @@ describe("url-filters", () => {
       stageMovedAfter: "2026-05-01",
       stageMovedBefore: "2026-05-29",
       stageClientIds: [21, 33],
+      stageColumns: ["cv_qc", "closed"],
       sentToClientFrom: "2026-06-01",
       sentToClientTo: "2026-06-30",
       stageCurrentOnly: true,
@@ -68,15 +97,18 @@ describe("url-filters", () => {
       semanticsVersion: 1,
       view: "tiles",
       savedSearchId: 7,
-      qAll: ["react native", "typescript"],
-      qAny: [
-        ["next.js", "remix"],
-        ["go", "rust"],
-      ],
+      // Słowa kluczowe to wiersze wymagań (25.09.2026) — adres niesie same
+      // wiersze, więc `qAll` wraca pusty (jego słowa to wiersze na początku).
+      qAll: [],
+      qAny: [["react native"], ["typescript"], ["next.js", "remix"], ["go", "rust"]],
       qNone: ["junior", "stażysta"],
       qScope: "cv",
       locationRadiusKm: 50,
       voivodeships: ["mazowieckie", "łódzkie"],
+      locationPlaces: [
+        { city: "Łódź", radiusKm: null },
+        { city: "Kraków", radiusKm: 30 },
+      ],
       contacted: "no",
       contactedFrom: "2026-08-01",
       contactedTo: "2026-09-01",
@@ -86,14 +118,68 @@ describe("url-filters", () => {
     expect(decodeFilters(encoded)).toEqual(full);
   });
 
+  it("„Dodany na etap” idzie w `stage_col` na końcu adresu i do API jako `stage_column`", () => {
+    const filters: CandidateFilters = {
+      ...DEFAULT_FILTERS,
+      stageColumns: ["cv_qc"],
+      stageMovedByIds: [7],
+      stageMovedAfter: "2026-10-01",
+      stageMovedBefore: "2026-10-15",
+    };
+    const encoded = encodeFilters(filters);
+    expect(encoded.toString()).toBe(
+      "stage_by=7&stage_from=2026-10-01&stage_to=2026-10-15&stage_col=cv_qc",
+    );
+    expect(decodeFilters(encoded)).toEqual(filters);
+    const params = filtersToApiParams(filters, 1);
+    expect(params.stage_column).toEqual(["cv_qc"]);
+    expect(params.stage_moved_by).toEqual([7]);
+    expect(params.pipeline_stage).toBeUndefined();
+  });
+
+  it("stary adres z kodem etapu dekoduje się i koduje bajt w bajt jak dotąd", () => {
+    const legacy =
+      "stage=interview,verified&stage_by=4,0&stage_from=2026-05-01&stage_to=2026-05-29&stage_client=21&stage_current=1";
+    const decoded = decodeFilters(sp(legacy));
+    expect(decoded.pipelineStage).toEqual(["interview", "verified"]);
+    expect(decoded.stageColumns).toEqual([]);
+    expect(encodeFilters(decoded).toString()).toBe(sp(legacy).toString());
+    expect(filtersToApiParams(decoded, 1).stage_column).toBeUndefined();
+  });
+
+  it("nieznana kolumna w `stage_col` jest pomijana", () => {
+    expect(decodeFilters(sp("stage_col=qc,cv_qc,,closed")).stageColumns).toEqual([
+      "cv_qc",
+      "closed",
+    ]);
+  });
+
   it("advanced search buckets use pipe so commas in phrases survive", () => {
     const withCommas: CandidateFilters = {
       ...DEFAULT_FILTERS,
-      qAll: ["Intel, Inc.", "A/B testing"],
+      qAny: [["Intel, Inc.", "A/B testing"]],
     };
     const encoded = encodeFilters(withCommas);
-    expect(encoded.get("q_all")).toBe("Intel, Inc.|A/B testing");
-    expect(decodeFilters(encoded).qAll).toEqual(["Intel, Inc.", "A/B testing"]);
+    expect(encoded.getAll("q_any")).toEqual(["Intel, Inc.|A/B testing"]);
+    expect(decodeFilters(encoded).qAny).toEqual([["Intel, Inc.", "A/B testing"]]);
+  });
+
+  it("stare `qAll` idzie w adresie jako wiersze na początku (to samo znaczenie)", () => {
+    const encoded = encodeFilters({
+      ...DEFAULT_FILTERS,
+      qAll: ["Java", "Kafka"],
+      qAny: [["Spring", "Quarkus"]],
+    });
+    expect(encoded.has("q_all")).toBe(false);
+    expect(encoded.getAll("q_any")).toEqual(["Java", "Kafka", "Spring|Quarkus"]);
+  });
+
+  it("kolejność wierszy przeżywa zapis i odczyt adresu", () => {
+    const filters: CandidateFilters = {
+      ...DEFAULT_FILTERS,
+      qAny: [["Kafka", "RabbitMQ"], ["Java"], ["bank", "finanse"]],
+    };
+    expect(decodeFilters(encodeFilters(filters)).qAny).toEqual(filters.qAny);
   });
 
   it("empty advanced buckets stay out of the URL", () => {
@@ -108,12 +194,12 @@ describe("url-filters", () => {
     expect(encoded.has("q_none")).toBe(false);
   });
 
-  it("decodes advanced buckets from pipe-separated query string", () => {
+  it("stary adres z `q_all` otwiera się jako wiersze wymagań (zakładki, zapisy)", () => {
     const decoded = decodeFilters(
       sp("q_all=react%20native|typescript&q_any=next.js&q_none=junior|stażysta"),
     );
-    expect(decoded.qAll).toEqual(["react native", "typescript"]);
-    expect(decoded.qAny).toEqual([["next.js"]]);
+    expect(decoded.qAll).toEqual([]);
+    expect(decoded.qAny).toEqual([["react native"], ["typescript"], ["next.js"]]);
     expect(decoded.qNone).toEqual(["junior", "stażysta"]);
   });
 
@@ -153,6 +239,12 @@ describe("url-filters", () => {
     expect(decoded.status).toEqual(["active", "passive"]);
     expect(decoded.employment).toEqual(["at_client", "available"]);
     expect(decoded.availability).toEqual(["actively_looking"]);
+  });
+
+  it("employment=ending_soon przechodzi przez adres, nieznana wartość odpada", () => {
+    const decoded = decodeFilters(sp("employment=ending_soon,nieznane"));
+    expect(decoded.employment).toEqual(["ending_soon"]);
+    expect(encodeFilters(decoded).get("employment")).toBe("ending_soon");
   });
 
   it("status filters out unknown values (forward-compat)", () => {
@@ -501,6 +593,37 @@ describe("talent radar back-ref", () => {
   });
 });
 
+// Zgłoszenie 28.10.2026: z profilu otwartego w „Szukaj ręcznie” rekrutacji
+// „Wróć” prowadził na całą bazę zamiast do wyników.
+describe("powrót z profilu do wyszukiwania", () => {
+  const filters: CandidateFilters = { ...DEFAULT_FILTERS, qAny: [["SailPoint", "IdentityIQ"]], page: 2 };
+
+  it("profil z okna rekrutacji niesie rekrutację obok kontekstu listy", () => {
+    const params = withJobSearchBackRef(encodeNavContext(filters, 22), 789171);
+    expect(decodeJobSearchBackRef(params)).toBe(789171);
+    expect(decodeNavContext(params)).toEqual({ filters, position: 22 });
+  });
+
+  it("obcy albo zepsuty `from`/`jobId` → brak powrotu do okna", () => {
+    expect(decodeJobSearchBackRef(sp(""))).toBeNull();
+    expect(decodeJobSearchBackRef(sp("from=job&jobId=5"))).toBeNull();
+    expect(decodeJobSearchBackRef(sp("from=job-search&jobId=abc"))).toBeNull();
+    expect(decodeJobSearchBackRef(sp("from=job-search&jobId=-3"))).toBeNull();
+  });
+
+  it("nie myli się z powrotem do tablicy rekrutacji", () => {
+    expect(decodeJobBackRef(sp("from=job-search&jobId=5"))).toBeNull();
+    expect(decodeTalentRadarBackRef(sp("from=job-search&jobId=5"))).toBe(false);
+  });
+
+  it("powrót na listę oddaje filtry i stronę, a bez filtrów gołą listę", () => {
+    const href = listBackHref(filters);
+    expect(href.startsWith("/candidates?")).toBe(true);
+    expect(decodeFilters(sp(href.split("?")[1]))).toEqual(filters);
+    expect(listBackHref(DEFAULT_FILTERS)).toBe("/candidates");
+  });
+});
+
 describe("lista kandydatów: tekst, sortowanie i języki (22.09.2026)", () => {
   it("tekst bez wybranego sortowania idzie po trafności, jawne „Najnowsi” wygrywa", () => {
     const typed = { ...DEFAULT_FILTERS, q: "java developer" };
@@ -556,7 +679,7 @@ describe("filtry z porównania z Traffitem (22.09.2026)", () => {
       1,
     );
     expect(params).toMatchObject({
-      q_all: ["java"],
+      q_any_group: ["java"],
       q_scope: "title",
       location: "Kraków",
       location_radius_km: 25,
@@ -587,5 +710,55 @@ describe("filtry z porównania z Traffitem (22.09.2026)", () => {
   it("promień spoza 1–300 km w adresie jest odrzucany", () => {
     expect(decodeFilters(new URLSearchParams("loc=Gdańsk&radius=999")).locationRadiusKm).toBeNull();
     expect(decodeFilters(new URLSearchParams("q_in=foo")).qScope).toBe("all");
+  });
+
+  it("blok „Rekrutacje”: tryb i zakres klienta przeżywają adres", () => {
+    for (const presence of ["never", "ever", "not_in_process"] as const) {
+      const filters: CandidateFilters = { ...DEFAULT_FILTERS, recruitmentPresence: presence };
+      expect(encodeFilters(filters).toString()).toBe(`recr_p=${presence}`);
+      expect(decodeFilters(encodeFilters(filters))).toEqual(filters);
+    }
+    const client: CandidateFilters = {
+      ...DEFAULT_FILTERS,
+      recruitmentClientIds: [3, 12],
+      recruitmentMatch: "not_assigned",
+    };
+    const encoded = encodeFilters(client);
+    // Kierunek idzie do adresu także wtedy, gdy zakres to sam klient.
+    expect([...encoded.keys()]).toEqual(["recr_mode", "recr_cl"]);
+    expect(encoded.get("recr_cl")).toBe("3,12");
+    expect(decodeFilters(encoded)).toEqual(client);
+    expect(decodeFilters(sp("recr_p=sometimes")).recruitmentPresence).toBe("");
+  });
+
+  it("blok „Rekrutacje”: stare adresy i zapisy wyglądają jak dotąd", () => {
+    const legacy: CandidateFilters = {
+      ...DEFAULT_FILTERS,
+      recruitmentIds: [17],
+      recruitmentMatch: "not_assigned",
+    };
+    expect([...encodeFilters(legacy).entries()]).toEqual([
+      ["recr", "17"],
+      ["recr_mode", "not_assigned"],
+    ]);
+    expect(decodeFilters(sp("recr=17&recr_mode=not_assigned"))).toEqual(legacy);
+  });
+
+  it("blok „Rekrutacje” → parametry listy", () => {
+    expect(
+      filtersToApiParams({ ...DEFAULT_FILTERS, recruitmentPresence: "not_in_process" }, 1),
+    ).toMatchObject({ recruitment_presence: "not_in_process" });
+    const scoped = filtersToApiParams(
+      { ...DEFAULT_FILTERS, recruitmentClientIds: [3], recruitmentMatch: "not_assigned" },
+      1,
+    );
+    expect(scoped.recruitment_client_id).toEqual([3]);
+    expect(scoped.recruitment_match).toBe("not_assigned");
+    expect(scoped.recruitment_id).toBeUndefined();
+
+    const none = filtersToApiParams(DEFAULT_FILTERS, 1);
+    expect(none.recruitment_presence).toBeUndefined();
+    expect(none.recruitment_client_id).toBeUndefined();
+    expect(none.recruitment_match).toBeUndefined();
   });
 });

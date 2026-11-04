@@ -29,6 +29,34 @@ from httpx import AsyncClient
 
 _APP = Path(__file__).resolve().parents[1] / "app"
 
+_V1_MODULES = tuple(
+    f"api/integrations_v1/{name}.py"
+    for name in (
+        "meta",
+        "clients",
+        "contracts",
+        "contract_writes",
+        "orders",
+        "order_writes",
+        "md",
+        "finance",
+        "invoices",
+        "recruitments",
+        "recruitment_writes",
+        "candidates",
+        "candidate_writes",
+        "recruitment_create",
+        "cv",
+        "calendar",
+        "applications",
+        "insights",
+        "academy",
+        "absences",
+        "equipment",
+        "events",
+    )
+)
+
 # Moduły, w których KAŻDA trasa musi nieść jawny limit.
 _RATE_LIMITED_MODULES = (
     "api/public_share.py",
@@ -41,21 +69,48 @@ _RATE_LIMITED_MODULES = (
     # (to drugie zamienia guard `Annotated` w parametr QUERY, czyli 422 na
     # poprawnym żądaniu).
     "api/integrations_compass.py",
+    # „Ludzie w NEXUSIE”: publiczny link do podpisu protokołu sprzętu (token).
+    "api/equipment_public.py",
     "api/champion_intake.py",
     # Własna metryka pulpitu: każde wywołanie liczy agregat po bazie.
     "api/dashboard_metrics.py",
     # Strona kariery (0339): publiczne GET-y i formularz multipart.
     "api/public_career.py",
+    # Panel klienta (0639): dane kandydatów pod samym linkiem, bez logowania.
+    "api/public_client_panel.py",
     # Odczyt requestu klienta na /jobs/new: każde wywołanie to płatny model.
     "api/job_request_intake.py",
     # Przepięcie (Pipeline v4): podpowiedzi Luny — każde wywołanie to płatny model.
     "api/screening_reassign.py",
     # QC CV: każde wywołanie liczy QC (pobranie i odczyt CV), poprawki = model.
     "api/cv_qc.py",
+    # Strony CV jako PDF (Edytor CV 3): każda zamiana to LibreOffice na serwerze.
+    "api/cv_pdf_preview.py",
+    # Konto JustJoin.IT/RocketJobs (0381): callback OAuth bez sesji NEXUSA.
+    "api/job_board_connection.py",
+    # „Champion po ludzku” (0403): odświeżenie = płatny model i research w internecie.
+    "api/plain_brief_refresh.py",
+    # Karta z notatki i „Ułóż w zdanie” (0421): każde wywołanie to płatny model.
+    "api/recommendation_card_assist.py",
+    # Pliki rekrutacji (0428): upload do 20 MB na żądanie.
+    "api/job_files.py",
+    # AI na zaznaczeniu w edytorze CV (0433): każde wywołanie to płatny model.
+    "api/cv_editor_ai.py",
+    # Podgląd importu Worda w edytorze CV: upload do 10 MB i konwersja na żądanie.
+    "api/cv_editor_import.py",
+    # API integracyjne v1 (0443): powierzchnia dla automatyzacji na kluczach
+    # API — limit per konto serwisowe na każdej trasie.
+    *_V1_MODULES,
 )
 
 # Moduły, których docstringi tras trafiają do publicznego /openapi.json.
-_DOCSTRING_MODULES = ("api/auth.py", "api/candidates.py")
+# v1: docstringi tras trafiają do publikowanej specyfikacji integratora.
+_DOCSTRING_MODULES = (
+    "api/auth.py",
+    "api/candidates.py",
+    "api/public_client_panel.py",
+    *_V1_MODULES,
+)
 
 _FORBIDDEN_IN_PUBLIC_DOCSTRING = re.compile(
     r"break[\s_-]?glass|no .{0,20}rate limit|znany brak|bez sprawdzenia HMAC",

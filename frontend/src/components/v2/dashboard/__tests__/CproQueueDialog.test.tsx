@@ -11,6 +11,7 @@ const showError = vi.fn();
 const copyTextToClipboard = vi.fn();
 const fetchAuthenticatedDownload = vi.fn();
 const downloadBlob = vi.fn();
+const fetchStageCvFile = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
@@ -19,6 +20,9 @@ vi.mock("@/lib/api", () => ({
     post: (...a: unknown[]) => post(...a),
     put: (...a: unknown[]) => put(...a),
   },
+  pipelineApi: {
+    move: (data: unknown) => post("/api/pipeline/move", data),
+  },
 }));
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showSuccess, showError }),
@@ -26,16 +30,30 @@ vi.mock("@/components/Toast", () => ({
 vi.mock("@/lib/clipboard", () => ({
   copyTextToClipboard: (...a: unknown[]) => copyTextToClipboard(...a),
 }));
+vi.mock("@/lib/stage-cv-file", () => ({
+  fetchStageCvFile: (...a: unknown[]) => fetchStageCvFile(...a),
+}));
 vi.mock("@/lib/authenticated-files", () => ({
   fetchAuthenticatedDownload: (...a: unknown[]) => fetchAuthenticatedDownload(...a),
   downloadBlob: (...a: unknown[]) => downloadBlob(...a),
 }));
 
-import { CproQueueDialog } from "@/components/v2/dashboard/CproQueueDialog";
+import { CproAcceptance, CproQueueDialog } from "@/components/v2/dashboard/CproQueueDialog";
 import type { CproQueueItem, CproQueueResponse } from "@/lib/api/boardTasks";
 import { useAuthStore } from "@/store/auth";
 
-const since = new Date(Date.now() - 2 * 86_400_000).toISOString();
+// Dzień kalendarza w Warszawie N dni temu (10:00 UTC), a nie N × 24 h: w tygodniu
+// po zmianie czasu (25.10.2026, doba 25 h) „24 h temu” o 23:30 to jeszcze ten sam
+// dzień i „od wczoraj” zamieniało się w „od dziś”. Zero = teraz.
+const calendarDaysAgo = (days: number): string => {
+  if (days === 0) return new Date().toISOString();
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Warsaw" }).format(new Date());
+  const day = new Date(`${today}T10:00:00Z`);
+  day.setUTCDate(day.getUTCDate() - days);
+  return day.toISOString();
+};
+
+const since = calendarDaysAgo(2);
 
 const item = (over: Partial<CproQueueItem>): CproQueueItem => ({
   stage_id: 1,
@@ -58,7 +76,7 @@ let queue: CproQueueResponse;
 
 function freshQueue(): CproQueueResponse {
   return {
-    sender: { user_id: 5, user_name: "Kinga Sordyl", until: null, fallback_user_id: null, fallback_user_name: null, set_by_name: null, set_at: null },
+    sender: { user_id: 5, user_name: "Kinga Sordyl", until: null, fallback_user_id: null, fallback_user_name: null, set_by_name: null, set_at: null, can_set: true },
     sent_today: 2,
     jobs: [
       {
@@ -186,8 +204,25 @@ describe("CproQueueDialog — kolejka Cpro, jedna osoba na firmę", () => {
       ),
     );
     await userEvent.click(within(dialog).getByRole("button", { name: "Pobierz CV: Robert Zieliński" }));
-    await waitFor(() => expect(fetchAuthenticatedDownload).toHaveBeenCalledWith("/api/cv-generator/generated/5/docx"));
+    await waitFor(() =>
+      expect(fetchAuthenticatedDownload).toHaveBeenCalledWith(
+        "/api/cv-generator/generated/5/docx?intent=download&surface=cpro",
+      ),
+    );
     expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "CV Robert.docx");
+  });
+
+  it("runda 7 (R7-X4-2): CV firmowe etapu (po QC) ma pierwszeństwo przed generatorem", async () => {
+    queue.jobs[0].items[0].cv = { stage_id: 81, generated_document_id: 5, document_id: null };
+    fetchStageCvFile.mockResolvedValue({ blob: new Blob(["po-qc"]), filename: "CV_po_QC.docx" });
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(
+      await within(dialog).findByRole("button", { name: "Pobierz CV: Robert Zieliński" }),
+    );
+    await waitFor(() => expect(fetchStageCvFile).toHaveBeenCalledWith(81, { download: "cpro" }));
+    expect(fetchAuthenticatedDownload).not.toHaveBeenCalled();
+    expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "CV_po_QC.docx");
   });
 
   it("odmowa schowka — komunikat zamiast fałszywego „skopiowano”", async () => {
@@ -218,6 +253,14 @@ describe("CproQueueDialog — kolejka Cpro, jedna osoba na firmę", () => {
     expect(showSuccess).toHaveBeenCalledWith("Do Cpro wrzuca: Ola Nowicka (do 03.10.2026).");
   });
 
+  it("bez uprawnienia (nie admin, nie DL Nordei) nie ma przycisku „Zmień”", async () => {
+    queue = { ...queue, sender: { ...queue.sender, can_set: false } };
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText("Kinga Sordyl")).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: "Zmień" })).toBeNull();
+  });
+
   it("awaria kolejki to komunikat z „Ponów”, nie pustka", async () => {
     get.mockImplementation((url: string) =>
       url === "/api/board-tasks/cpro/queue"
@@ -228,5 +271,39 @@ describe("CproQueueDialog — kolejka Cpro, jedna osoba na firmę", () => {
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText("Nie udało się wczytać kolejki Cpro. Spróbuj ponownie.")).toBeTruthy();
     expect(within(dialog).getByRole("button", { name: "Ponów" })).toBeTruthy();
+  });
+});
+
+// 13.10.2026: do kolejki wkłada Delivery Lead po akceptacji — osoba od Cpro
+// widzi, kto i kiedy zaakceptował, oraz uwagę DL-a.
+describe("CproAcceptance — wiersz akceptacji w kolejce Cpro", () => {
+  it("zaakceptowana osoba: kto, kiedy i uwaga DL-a", () => {
+    render(
+      <CproAcceptance
+        item={item({
+          accepted: true,
+          accepted_by_name: "Marcin Wiśniewski",
+          accepted_at: "2026-10-13T12:33:00Z",
+          dl_note: "Dostępna od listopada",
+        })}
+      />,
+    );
+    expect(screen.getByTestId("cpro-accepted")).toHaveTextContent(
+      "✓ Zaakceptował(a): Marcin Wiśniewski · 13.10.2026",
+    );
+    expect(screen.getByText("Uwaga DL: Dostępna od listopada")).toBeInTheDocument();
+  });
+
+  it("karta sprzed zmiany, włożona przez rekrutera: „Bez akceptacji DL”", () => {
+    render(<CproAcceptance item={item({ accepted: false, accepted_by_name: "Piotr Rekruter" })} />);
+    expect(screen.getByTestId("cpro-not-accepted")).toHaveTextContent(
+      "Bez akceptacji DL — do kolejki przekazał(a) Piotr Rekruter",
+    );
+    expect(screen.queryByTestId("cpro-accepted")).toBeNull();
+  });
+
+  it("starszy serwer bez pól akceptacji — nic nie pokazuje", () => {
+    const { container } = render(<CproAcceptance item={item({})} />);
+    expect(container).toBeEmptyDOMElement();
   });
 });

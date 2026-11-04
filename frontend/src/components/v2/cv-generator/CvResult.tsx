@@ -49,12 +49,14 @@ export interface CvResultViewProps {
   onNew?: () => void;
 }
 
-/** Widok po generacji — ten sam dla „Generuj CV” i „Otwórz” na liście Moje CV. */
+/** Widok po generacji w oknie generatora (profil kandydata, panel osoby). */
 export function CvResultView(props: CvResultViewProps) {
   const main = props.documents.find((doc) => doc.id === props.mainId) ?? props.documents[0] ?? null;
   const processing = !main || props.documents.some((doc) => doc.status === "processing");
   const failed = props.documents.filter((doc) => doc.status === "failed");
   const ready = props.documents.filter((doc) => doc.status === "ready");
+  // Generacja urwana w trakcie (zwykle deploy): serwer wznawia to samo zadanie.
+  const interrupted = main?.status === "failed" && main.job_status === "interrupted";
   const name = main?.candidate_name || props.fallbackTitle?.candidateName || "";
   const jobTitle = main?.job_title ?? main?.position ?? props.fallbackTitle?.jobTitle ?? null;
   const clientName = main?.client_name ?? props.fallbackTitle?.clientName ?? null;
@@ -87,7 +89,7 @@ export function CvResultView(props: CvResultViewProps) {
             {subtitle ? <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p> : null}
             {processing ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                Ok. 40 s. Możesz zamknąć to okno — CV pojawi się na liście Moje CV.
+                Ok. 40 s. Możesz zamknąć to okno — gotowe CV znajdziesz w plikach kandydata.
               </p>
             ) : null}
           </div>
@@ -169,9 +171,9 @@ export function CvResultView(props: CvResultViewProps) {
                 </li>
               ))}
             </ul>
-            {failed.length > 0 && ready.length > 0 && props.onRetryPackage && props.canWrite ? (
+            {((failed.length > 0 && ready.length > 0) || interrupted) && props.onRetryPackage && props.canWrite ? (
               <Button type="button" variant="outline" size="sm" className="mt-2" onClick={props.onRetryPackage}>
-                Ponów brakującą wersję językową
+                {interrupted ? "Ponów generację" : "Ponów brakującą wersję językową"}
               </Button>
             ) : null}
           </div>
@@ -261,9 +263,8 @@ export function CvResultLive(props: CvResultLiveProps) {
   async function remove(doc: GeneratedCvItem) {
     try {
       await cvGeneratorApi.deleteGenerated(doc.id);
-      void queryClient.invalidateQueries({ queryKey: ["cv-my-list"] });
       void queryClient.invalidateQueries({ queryKey: ["cv-generated"] });
-      toast.showSuccess("Usunięto z listy.");
+      toast.showSuccess("Usunięto CV.");
       props.onDeleted?.();
     } catch (error) {
       toast.showError(apiErrorMessage(error, "Nie udało się usunąć wpisu."));
@@ -294,6 +295,7 @@ export function CvResultLive(props: CvResultLiveProps) {
         <CVBrandedEditModal
           open
           generatedId={editItem.id}
+          generatorWarnings={editItem.warnings ?? []}
           candidateName={editItem.candidate_name}
           onRegenerate={() => {
             setEditItem(null);

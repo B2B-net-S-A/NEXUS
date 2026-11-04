@@ -1,0 +1,327 @@
+{
+ "version": 1,
+ "source": "audyt 30.09.2026 (gate_rule_variants.py), etykiety z >=8 rekrutacji",
+ "computed_at": "2026-09-30T00:00:00+00:00",
+ "labels": {
+  ".net": {
+   "rate": 0.947,
+   "jobs": 19
+  },
+  "agile": {
+   "rate": 0.886,
+   "jobs": 9
+  },
+  "angular": {
+   "rate": 0.901,
+   "jobs": 27
+  },
+  "ansible": {
+   "rate": 0.82,
+   "jobs": 13
+  },
+  "apache kafka": {
+   "rate": 0.832,
+   "jobs": 57
+  },
+  "apache spark": {
+   "rate": 0.975,
+   "jobs": 10
+  },
+  "api": {
+   "rate": 0.84,
+   "jobs": 14
+  },
+  "aws": {
+   "rate": 0.861,
+   "jobs": 25
+  },
+  "azure": {
+   "rate": 0.846,
+   "jobs": 25
+  },
+  "backend developer": {
+   "rate": 0.241,
+   "jobs": 11
+  },
+  "bpmn": {
+   "rate": 0.918,
+   "jobs": 14
+  },
+  "business analysis": {
+   "rate": 0.617,
+   "jobs": 226
+  },
+  "c#": {
+   "rate": 0.931,
+   "jobs": 13
+  },
+  "ci/cd": {
+   "rate": 0.772,
+   "jobs": 31
+  },
+  "compliance specialist": {
+   "rate": 0.696,
+   "jobs": 14
+  },
+  "confluence": {
+   "rate": 0.719,
+   "jobs": 49
+  },
+  "cybersecurity": {
+   "rate": 0.541,
+   "jobs": 11
+  },
+  "data analysis": {
+   "rate": 0.834,
+   "jobs": 35
+  },
+  "data engineering": {
+   "rate": 0.318,
+   "jobs": 16
+  },
+  "database administration": {
+   "rate": 0.787,
+   "jobs": 10
+  },
+  "devops engineering": {
+   "rate": 0.902,
+   "jobs": 72
+  },
+  "docker": {
+   "rate": 0.944,
+   "jobs": 35
+  },
+  "enterprise architecture": {
+   "rate": 0.694,
+   "jobs": 20
+  },
+  "etl": {
+   "rate": 0.885,
+   "jobs": 14
+  },
+  "figma": {
+   "rate": 0.914,
+   "jobs": 9
+  },
+  "frontend developer": {
+   "rate": 0.834,
+   "jobs": 33
+  },
+  "fullstack developer": {
+   "rate": 0.502,
+   "jobs": 15
+  },
+  "gcp": {
+   "rate": 0.494,
+   "jobs": 17
+  },
+  "git": {
+   "rate": 0.86,
+   "jobs": 60
+  },
+  "hadoop": {
+   "rate": 0.664,
+   "jobs": 9
+  },
+  "hibernate": {
+   "rate": 0.918,
+   "jobs": 16
+  },
+  "ibm db2": {
+   "rate": 0.74,
+   "jobs": 9
+  },
+  "it analysis": {
+   "rate": 0.031,
+   "jobs": 46
+  },
+  "it consulting": {
+   "rate": 0.325,
+   "jobs": 36
+  },
+  "it operations": {
+   "rate": 0.367,
+   "jobs": 13
+  },
+  "java": {
+   "rate": 0.956,
+   "jobs": 187
+  },
+  "jenkins": {
+   "rate": 0.78,
+   "jobs": 50
+  },
+  "jira": {
+   "rate": 0.849,
+   "jobs": 67
+  },
+  "json": {
+   "rate": 0.658,
+   "jobs": 14
+  },
+  "kotlin": {
+   "rate": 0.896,
+   "jobs": 11
+  },
+  "kubernetes": {
+   "rate": 0.886,
+   "jobs": 37
+  },
+  "linux": {
+   "rate": 0.852,
+   "jobs": 33
+  },
+  "machine learning": {
+   "rate": 0.781,
+   "jobs": 12
+  },
+  "mainframe": {
+   "rate": 0.872,
+   "jobs": 12
+  },
+  "manual testing": {
+   "rate": 0.66,
+   "jobs": 231
+  },
+  "maven": {
+   "rate": 0.754,
+   "jobs": 26
+  },
+  "microservices": {
+   "rate": 0.903,
+   "jobs": 11
+  },
+  "microsoft sql server": {
+   "rate": 0.906,
+   "jobs": 12
+  },
+  "oracle db": {
+   "rate": 0.757,
+   "jobs": 23
+  },
+  "pmo": {
+   "rate": 0.7,
+   "jobs": 29
+  },
+  "postgresql": {
+   "rate": 0.845,
+   "jobs": 16
+  },
+  "postman": {
+   "rate": 0.885,
+   "jobs": 9
+  },
+  "power bi": {
+   "rate": 0.946,
+   "jobs": 13
+  },
+  "power platform": {
+   "rate": 0.839,
+   "jobs": 14
+  },
+  "project management": {
+   "rate": 0.841,
+   "jobs": 183
+  },
+  "python": {
+   "rate": 0.938,
+   "jobs": 70
+  },
+  "qa": {
+   "rate": 0.003,
+   "jobs": 19
+  },
+  "quality assurance": {
+   "rate": 0.246,
+   "jobs": 38
+  },
+  "react": {
+   "rate": 0.968,
+   "jobs": 13
+  },
+  "rest api": {
+   "rate": 0.919,
+   "jobs": 75
+  },
+  "risk management": {
+   "rate": 0.497,
+   "jobs": 14
+  },
+  "robot framework": {
+   "rate": 0.733,
+   "jobs": 11
+  },
+  "scala": {
+   "rate": 0.959,
+   "jobs": 31
+  },
+  "scrum": {
+   "rate": 0.703,
+   "jobs": 27
+  },
+  "scrum master": {
+   "rate": 0.972,
+   "jobs": 37
+  },
+  "selenium": {
+   "rate": 0.922,
+   "jobs": 12
+  },
+  "soap": {
+   "rate": 0.684,
+   "jobs": 15
+  },
+  "software architecture": {
+   "rate": 0.714,
+   "jobs": 18
+  },
+  "software developer": {
+   "rate": 0.894,
+   "jobs": 213
+  },
+  "spring": {
+   "rate": 1.0,
+   "jobs": 22
+  },
+  "spring boot": {
+   "rate": 0.956,
+   "jobs": 39
+  },
+  "sql": {
+   "rate": 0.953,
+   "jobs": 108
+  },
+  "system administration": {
+   "rate": 0.455,
+   "jobs": 20
+  },
+  "systems analysis": {
+   "rate": 0.744,
+   "jobs": 43
+  },
+  "terraform": {
+   "rate": 0.935,
+   "jobs": 9
+  },
+  "test automation": {
+   "rate": 0.894,
+   "jobs": 188
+  },
+  "test engineering": {
+   "rate": 0.0,
+   "jobs": 10
+  },
+  "typescript": {
+   "rate": 0.933,
+   "jobs": 23
+  },
+  "uml": {
+   "rate": 0.981,
+   "jobs": 17
+  },
+  "xml": {
+   "rate": 0.766,
+   "jobs": 10
+  }
+ }
+}

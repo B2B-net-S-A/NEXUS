@@ -147,11 +147,11 @@ def test_the_reviewer_is_a_different_model_than_the_generator(review_on, monkeyp
 
     assert review_on["reviews"], "recenzja w ogóle nie pobiegła"
     for call in review_on["reviews"]:
-        assert call["model_override"] == "gpt-6-luna"
+        assert call["model_override"] == "claude-haiku-5-5"
         assert call["model_override"] != model_for(AIFeatureKey.cv_generator)
-        # Przeciążenie u OpenAI nie może zdejmować funkcji, ale fallback musi
-        # iść na Sonneta, a nie na fallback generatora (Opus).
-        assert list(call["fallback_models"]) == ["claude-sonnet-5"]
+        # Przeciążenie nie może zdejmować funkcji, ale fallback musi iść na
+        # Sonneta 5.5, a nie na fallback generatora (Opus).
+        assert list(call["fallback_models"]) == ["claude-sonnet-5-5"]
 
 
 def test_the_model_override_is_honoured(review_on, monkeypatch):
@@ -172,14 +172,22 @@ def test_a_clean_review_is_stored_and_says_nothing_to_the_recruiter(
 
     report = result.render_payload["factual_verification"]
     assert report["status"] == "verified"
-    assert report["model"] == "gpt-6-luna"
+    assert report["model"] == "claude-haiku-5-5"
     assert not [w for w in result.warnings if "kontrola AI" in w]
+
+
+def _with_responsibility(monkeypatch, text):
+    data = _ai_json()
+    data["experience"][0]["responsibilities"] = [text]
+    monkeypatch.setattr(legacy, "analyze_with_ai", lambda *a, **k: json.dumps(data))
 
 
 def test_findings_reach_the_recruiter_as_warnings_and_never_block(
     review_on, monkeypatch
 ):
     # ``why_points`` to sekcja narracyjna (AI-02) — poza inwentarzem twierdzeń.
+    # Twierdzenie spoza źródeł: zdanie z CV kandydata kod zna sam (D1-A).
+    _with_responsibility(monkeypatch, "Prowadzenie zespołu dziesięciu architektów")
     path = "/experience/0/responsibilities/0"
     _verifier(monkeypatch, review_on, _reject(path))
 
@@ -572,3 +580,199 @@ def test_review_outcome_reads_findings_off_the_saved_version():
     # Wersje sprzed wdrożenia: brak wpisu = brak komunikatu, nie „niedostępna".
     assert review_outcome({}) == (None, None)
     assert review_outcome(None) == (None, None)
+
+
+async def test_edited_cv_review_reaches_the_reviewer_unstubbed(
+    approval_advisory, monkeypatch
+):
+    """Regresja 23.09–12.10.2026: każdy test wyżej podmienia
+    `verify_editor_content`, więc nie widział, że prawdziwe nie podaje
+    recenzentowi żadnego twierdzenia i zatwierdzenie zawsze kończy się
+    `unverified/review_protocol_invalid_review`. Tu podmieniony jest tylko model."""
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    from app.services import cv_approval_review as review_module
+
+    @asynccontextmanager
+    async def quota(*args, **kwargs):
+        yield
+
+    asked = []
+
+    def reviewer(content, request_id, system=None, **kwargs):
+        claims = json.loads(content)["claims"]
+        asked.append(claims)
+        return json.dumps(
+            {
+                "claims": [
+                    {
+                        "path": path,
+                        "status": "supported",
+                        "evidence": [{"source": "cv", "start_line": 1, "end_line": 1}],
+                    }
+                    for path in claims
+                ]
+            }
+        )
+
+    monkeypatch.setattr(review_module, "ai_feature", quota)
+    monkeypatch.setattr(factual_verification, "analyze_with_ai", reviewer)
+    prepared = await _prepared(monkeypatch, review_module)
+
+    result = await review_module.execute_approval_review(AsyncMock(), prepared, 17)
+
+    assert asked == [{"/why_points/0": "Twierdzenie"}]
+    assert result["status"] == "verified"
+    assert "method_detail" not in result
+
+
+# ── D1-A (17.10.2026): kod po recenzencie — to, co stoi w źródłach ──────────
+# Pomiar produkcji: 32% uwag „BRAK POKRYCIA (kontrola AI)” miało cytat
+# dosłownie w oryginale CV (firma, stanowisko, daty), kolejne 38% — ≥ 80% słów.
+
+
+def test_a_claim_that_stands_verbatim_in_the_cv_is_not_a_gap(review_on, monkeypatch):
+    path = "/experience/0/company"
+    _verifier(monkeypatch, review_on, _reject(path))
+
+    result = _run()
+
+    report = result.render_payload["factual_verification"]
+    # Werdykt recenzenta zostaje w raporcie — kod tylko go nie powtarza.
+    assert report["paths"] == [path]
+    assert report["code_coverage"] == {path: "in_source"}
+    assert not any("kontrola AI" in w for w in result.warnings)
+
+
+def test_a_claim_mostly_in_the_sources_is_a_soft_verify(review_on, monkeypatch):
+    _with_responsibility(monkeypatch, "Utrzymanie API w Pythonie i PostgreSQL")
+    path = "/experience/0/responsibilities/0"
+    _verifier(monkeypatch, review_on, _reject(path))
+
+    result = _run()
+
+    report = result.render_payload["factual_verification"]
+    assert report["code_coverage"] == {path: "mostly"}
+    warning = next(w for w in result.warnings if "kontrola AI" in w)
+    assert warning.startswith("WERYFIKUJ (kontrola AI)")
+    assert "prawie to samo" in warning
+    assert not any(w.startswith("BRAK POKRYCIA") for w in result.warnings)
+
+
+def test_a_contradiction_stays_even_when_the_words_are_in_the_cv(
+    review_on, monkeypatch
+):
+    path = "/experience/0/company"
+    _verifier(monkeypatch, review_on, _reject(path, status="contradicted"))
+
+    result = _run()
+
+    assert "code_coverage" not in result.render_payload["factual_verification"]
+    assert any(w.startswith("BRAK POKRYCIA") for w in result.warnings)
+
+
+@pytest.mark.parametrize(
+    ("claim", "kind"),
+    [
+        ("Acme Sp. z o.o.", "in_source"),
+        ("acme  sp. z  o.o.", "in_source"),  # wielkość liter i odstępy
+        ("01.2015 – 07.2019", "in_source"),  # same daty, dość długie
+        ("Python", "in_source"),
+        ("Utrzymanie API w Pythonie i PostgreSQL", "mostly"),
+        # Wszystkie słowa w źródłach, choć nie po kolei — łagodnieje, nie znika.
+        (
+            "Utrzymanie API w Pythonie. Technologie: Python, PostgreSQL. "
+            "Backend Developer",
+            "mostly",
+        ),
+        ("Java", None),  # „JavaScript” to nie Java — granica słowa
+        ("Kafka", None),  # przeczenie z notatek nie jest dowodem
+        ("Kierowanie zespołem dziesięciu architektów", None),
+        ("IT", None),  # za krótkie, żeby przesądzać
+        ("2019", None),
+        ("", None),
+    ],
+)
+def test_coverage_of_one_claim(claim, kind):
+    from app.services.cv_generator_b2b.review_coverage import (
+        ReviewSources,
+        coverage,
+    )
+
+    sources = ReviewSources(
+        _CV_TEXT + "Frontend: JavaScript.\n",
+        "Kandydat potwierdził znajomość Pythona. Nie zna Kafki.",
+    )
+    assert coverage(claim, sources) == kind
+
+
+def test_long_verbatim_claim_softens_instead_of_disappearing():
+    from app.services.cv_generator_b2b.review_coverage import (
+        ReviewSources,
+        coverage,
+    )
+
+    sentence = (
+        "Projektowanie i utrzymanie usług płatności kartowych dla sieci "
+        "sklepów detalicznych w trzech krajach"
+    )
+    assert coverage(sentence, ReviewSources(sentence + ".")) == "mostly"
+
+
+def test_editor_findings_keep_only_what_the_sources_do_not_say():
+    from app.services.cv_generator_b2b.review_coverage import (
+        ReviewSources,
+        editor_findings,
+    )
+
+    lines = [
+        "Acme Sp. z o.o.",
+        "Utrzymanie API w Pythonie i PostgreSQL",
+        "Prowadzenie zespołu dziesięciu architektów",
+        "Acme Sp. z o.o. — Backend Developer",
+    ]
+    paths = [f"/why_points/{i}" for i in range(4)]
+    statuses = {
+        "/why_points/0": "unsupported",
+        "/why_points/1": "unsupported",
+        "/why_points/2": "unsupported",
+        "/why_points/3": "contradicted",
+    }
+    out = editor_findings(paths, statuses, lines, ReviewSources(_CV_TEXT))
+    assert out["paths"] == ["/why_points/1", "/why_points/2", "/why_points/3"]
+    assert out["statuses"] == {
+        "/why_points/1": "weak",
+        "/why_points/2": "unsupported",
+        "/why_points/3": "contradicted",
+    }
+    # Łagodne uwagi nie liczą się do „N uwag” karty CV do klienta.
+    assert out["count"] == 2
+    assert out["code_coverage"] == {
+        "/why_points/0": "in_source",
+        "/why_points/1": "mostly",
+    }
+
+
+def test_coverage_is_linear_on_long_sources():
+    from app.services.cv_generator_b2b.review_coverage import (
+        ReviewSources,
+        coverage,
+    )
+
+    sources = ReviewSources("a " * 200000, "nie " * 50000)
+    start = time.process_time()
+    for _ in range(200):
+        coverage("Utrzymanie API w Pythonie i PostgreSQL " * 3, sources)
+    assert time.process_time() - start < 10
+
+
+def test_soft_suffix_is_mirrored_in_the_frontend():
+    """Front rozpoznaje łagodną uwagę po dopisku — rozjazd = licznik znowu ją liczy."""
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[2] / "frontend/src/lib/cv-generator.ts"
+    ).read_text(encoding="utf-8")
+    for suffix in final_review._MOSTLY_SUFFIX.values():
+        assert f'"({suffix})"' in source

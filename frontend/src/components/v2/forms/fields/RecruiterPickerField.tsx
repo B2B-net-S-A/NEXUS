@@ -28,8 +28,9 @@ interface RecruiterPickerFieldProps {
  allowEmpty?: boolean;
 }
 
-const DEFAULT_ROLES: UserRole[] = ["admin","delivery_lead","tac","recruiter","sourcer",
-];
+// Lustro `_OWNERSHIP_ELIGIBLE_ROLES` (14.10.2026): rekruterem jest tylko rola
+// rekrutera, główna albo dodatkowa.
+const DEFAULT_ROLES: UserRole[] = ["recruiter"];
 
 /**
  * Combobox-style picker that loads active ownership-eligible users from
@@ -85,7 +86,7 @@ export function RecruiterPickerField({
  </SelectTrigger>
  <SelectContent>
  {allowEmpty ? (
- <SelectItem value="__none__">— nieprzypisany —</SelectItem>
+ <SelectItem value="__none__">— bez rekrutera —</SelectItem>
  ) : null}
  {(data ?? []).map((u) => (
  <SelectItem key={u.id} value={String(u.id)}>

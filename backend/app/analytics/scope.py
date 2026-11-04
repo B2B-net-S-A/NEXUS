@@ -101,7 +101,6 @@ async def ensure_client_scope(db: AsyncSession, user: User, client_id: int) -> S
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.finance,
     ):
         return Scope(kind=ScopeKind.client, client_id=client_id)

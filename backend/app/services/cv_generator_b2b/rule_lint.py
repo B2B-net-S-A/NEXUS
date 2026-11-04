@@ -25,7 +25,7 @@ from typing import Literal
 
 from app.services.cv_generator_b2b.provider import CVGeneratorAIError, analyze_with_ai
 from app.models.ai_feature import AIFeatureKey
-from app.services.ai_models import model_for
+from app.services.ai_models import fallbacks_for, model_for
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +162,7 @@ def lint_instructions(text: str, *, request_id: str) -> list[LintFinding]:
             request_id,
             system=LINT_SYSTEM_PROMPT,
             model_override=model_for(AIFeatureKey.cv_rule_lint),
+            fallback_models=list(fallbacks_for(AIFeatureKey.cv_rule_lint)),
             response_schema=LINT_RESPONSE_SCHEMA,
         )
     except CVGeneratorAIError as err:

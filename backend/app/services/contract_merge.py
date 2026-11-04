@@ -26,6 +26,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
+from app.services.contract_care_schema import REDEPLOY_ACTIVE_WHERE
+from app.services.contract_document_folders import (
+    FOLDER_NAME_MAX,
+    ORDERS_FOLDER_DEFAULT_NAME,
+)
 
 
 class ContractMergeError(RuntimeError):
@@ -132,12 +137,39 @@ _FIELD_SOURCE_RE = re.compile(
 # the live PostgreSQL catalog and blocks when a future table is not in this
 # list, so a schema addition cannot turn into an unnoticed CASCADE delete.
 _KNOWN_CONTRACT_FKS = {
+    # „Ludzie w NEXUSIE” (0460–0464). Wszystkie idą za kontraktem zachowanym —
+    # duplikat to ta sama współpraca, więc historia opieki, spraw, sprzętu
+    # i premii należy do niej. Tabele z unikatem albo kluczem automatu po
+    # kontrakcie (plan kontaktów, „Do przepięcia”, zadania recepcji, premie
+    # z placementu) rozstrzyga najpierw ``_resolve_child_duplicates``.
+    # Sprawy administracja@ (wejście/odejście konsultanta): obie zostają.
+    ("admin_cases", "contract_id"),
     ("b2b_contract_details", "contract_id"),
     # Dokumenty pochodne umowy B2B (0362) należą do tej samej współpracy —
     # przy scaleniu duplikatu idą za kontraktem, który zostaje.
     ("b2b_contract_documents", "contract_id"),
     ("b2b_generated_contracts", "contract_id"),
+    # „Replacement za kogo” (0524): umowa wskazująca przegranego wskazuje po
+    # scaleniu na zachowanego (_reparent_fks), jak „Powrót po przerwie”.
+    ("b2b_generated_contracts", "replaced_contract_id"),
     ("calls", "contract_id"),
+    # Odbiorcy komunikatu do konsultantów (etap 3) — ślad wysyłki, unikat
+    # (komunikat, kandydat) nie zależy od kontraktu.
+    ("care_announcement_recipients", "contract_id"),
+    # Rytm kontaktu (etap 3): okresy z powodem i „do kiedy” — bez unikatu,
+    # idą za kontraktem zachowanym razem z historią opieki.
+    ("care_cadence_periods", "contract_id"),
+    # Rozmowy opiekuna z konsultantem — historia, przenoszona w całości.
+    ("care_conversations", "contract_id"),
+    # Oceny konsultanta z opinii klienta (etap 2, D9–D11): idą za kontraktem
+    # zachowanym. UNIQUE (rozmowa, kontrakt) — ta sama rozmowa oceniła oba
+    # duplikaty — rozstrzyga ``_resolve_child_duplicates`` (oceny łączone,
+    # wiersz zachowanego wygrywa); oceny z różnych rozmów przechodzą wszystkie.
+    ("client_feedback_scores", "contract_id"),
+    # „Pomiń” propozycji menedżera u klienta (0475): podpowiedź, nie historia.
+    # Unikat na kontrakt — pominięcia przegranych kasuje
+    # ``_resolve_child_duplicates``, zostaje pominięcie zachowanego.
+    ("client_structure_skips", "contract_id"),
     # Durable offboarding decisions belong to the same candidate/client
     # engagement as their ClientOrder.  During a same-client duplicate merge
     # both rows are reparented to the survivor in this transaction; keeping the
@@ -145,10 +177,23 @@ _KNOWN_CONTRACT_FKS = {
     # audit plan instead of letting the loser DELETE cascade erase the evidence.
     ("client_order_offboarding_cases", "contract_id"),
     ("client_orders", "contract_id"),
+    # Wysłane maile powitalne (etap 3) — historia wysyłki, bez unikatu.
+    ("consultant_welcome_mails", "contract_id"),
     ("contract_amendments", "contract_id"),
     ("contract_candidate_rates", "contract_id"),
+    # Plan kontaktów: UNIQUE (contract_id, kind, seq) — jeden punkt na termin,
+    # rozstrzyga ``_resolve_child_duplicates`` (zrobiony wygrywa z otwartym).
+    ("contract_care_plan_items", "contract_id"),
     ("contract_client_rates", "contract_id"),
     ("contract_documents", "contract_id"),
+    # Foldery zakładki Dokumenty (0494) idą za kontraktem zachowanym razem
+    # z plikami. Dwa foldery o tej samej nazwie (UNIQUE kontrakt + nazwa)
+    # i nazwę „Zamówień” rozstrzyga ``_resolve_child_duplicates``.
+    ("contract_document_folders", "contract_id"),
+    # Wiersze raportu pobrania dokumentów z SharePointa (0402) — idą za
+    # kontraktem jak same dokumenty, żeby raport przebiegu wskazywał kontrakt,
+    # który zostaje.
+    ("contract_doc_sp_run_items", "contract_id"),
     ("contract_equipment", "contract_id"),
     ("contract_framework_rates", "contract_id"),
     ("contract_onboarding_items", "contract_id"),
@@ -158,9 +203,38 @@ _KNOWN_CONTRACT_FKS = {
     # Powiązanie „Powrót po przerwie” (0368): kontrakt, który wskazywał na
     # przegranego, wskazuje po scaleniu na zachowanego (_reparent_fks).
     ("contracts", "returned_from_contract_id"),
+    ("contracts", "replaced_contract_id"),
     ("document_signatures", "contract_id"),
+    # Sprzęt (0464): wydania i protokoły to dowody, wiersze importu — ślad
+    # partii; zadania recepcji z kluczem ``contract:{id}:start|end``
+    # rozstrzyga ``_resolve_child_duplicates``.
+    ("equipment_assignments", "contract_id"),
+    ("equipment_import_rows", "holder_contract_id"),
+    ("equipment_protocols", "contract_id"),
+    ("equipment_tasks", "contract_id"),
+    # Premie (0460): placement ma klucz ``contract:{id}:{rola}``; dwie
+    # zatwierdzone premie tej samej roli blokują scalenie
+    # (``placement_bonus_assigned_twice``), resztę rozstrzyga
+    # ``_resolve_child_duplicates``. Premie ręczne przechodzą bez zmian.
+    ("hr_bonuses", "contract_id"),
     ("invoices", "contract_id"),
     ("notes", "contract_id"),
+    # „Do przepięcia”: jeden aktywny wpis na kontrakt i powód (indeks
+    # częściowy) — nadmiarowy aktywny dostaje ``dismissed``.
+    ("redeploy_queue_items", "contract_id"),
+    # Karty technologiczne — historia rozmów u klienta, przenoszona w całości.
+    ("tech_cards", "contract_id"),
+    # Kolejka back office: ``source_key`` zostaje, więc karta duplikatu zamknie się
+    # przy następnym przebiegu, a karta zachowanego kontraktu powstanie sama.
+    ("bo_cards", "contract_id"),
+    # Portal konsultanta przenoszony w całości; ten sam plik dwóch duplikatów
+    # łączy ``_resolve_child_duplicates``.
+    ("cp_documents", "contract_id"),
+    ("cp_links", "contract_id"),
+    ("cp_meetings", "contract_id"),
+    ("cp_ratings", "contract_id"),
+    ("cp_sessions", "contract_id"),
+    ("cp_sms_codes", "contract_id"),
 }
 
 # Only these scalar fields are eligible for additive (empty <- populated)
@@ -199,6 +273,8 @@ _MERGEABLE_FIELDS = (
     "agreement_termination_signed_on",
     "agreement_last_day",
     "notice_period_months",
+    # Wymiar etatu z umowy (0524) — puste ← wypełnione, różnica to decyzja.
+    "fte",
     "target_rate_min",
     "target_rate_max",
     "project_code",
@@ -212,6 +288,9 @@ _MERGEABLE_FIELDS = (
     "draft_template_id",
     "draft_updated_at",
     "draft_updated_by",
+    # Opiekun kontraktu (0462) — ta sama klasa co `client_pm_contact_id`:
+    # pusty ← wypełniony, dwa różne = decyzja pola przy scaleniu.
+    "care_owner_user_id",
 )
 
 # ``to_jsonb(contracts)`` is deliberately fingerprinted, but a newly added
@@ -246,7 +325,13 @@ _CONTRACT_DERIVED_FIELDS = {"client_order_start_date", "client_order_end_date"}
 _CONTRACT_AUDIT_FIELDS = {"created_at", "updated_at"}
 # Powiązanie z poprzednim kontraktem („Powrót po przerwie”, 0368) należy do
 # wiersza, nie do współpracy — zostaje na kontrakcie zachowanym.
-_CONTRACT_LINEAGE_FIELDS = {"returned_from_contract_id"}
+# Replacement (0524) tak samo: para „czy zastępstwo” + „za kogo” ma CHECK
+# spójności, więc nie składamy jej z dwóch wierszy — zostaje zachowanego.
+_CONTRACT_LINEAGE_FIELDS = {
+    "returned_from_contract_id",
+    "is_replacement",
+    "replaced_contract_id",
+}
 # „Usuń szkic" (0357): stan PREZENTACJI karty w zakładce Zamówienia. Ocalały
 # kontrakt zachowuje własny — schowana karta przegranego nie chowa karty osoby,
 # która po scaleniu ma zamówienia.
@@ -860,10 +945,24 @@ def merge_field_plan(
     survivor = next(row for row in contracts if int(row["id"]) == survivor_id)
     updates: dict[str, Any] = {}
     conflicts: list[dict[str, Any]] = []
+    # Runda 7 (N1-1): lustro ``_NOT_TRANSFERRED`` z korekty 0308 — koniec
+    # współpracy duplikatu (data końca, wypowiedzenie, rozwiązanie umowy) nie
+    # przechodzi na żywy kontrakt. Inaczej nocny cron kończył zachowany kontrakt
+    # datą zakończonego duplikatu i anulował bieżące zamówienia.
+    survivor_live = _enum_text(survivor.get("status")) not in _ENDED_STATUSES
     for field in _MERGEABLE_FIELDS:
+        sources = (
+            [
+                row
+                for row in contracts
+                if int(row["id"]) == survivor_id or _end_field_transfers(row, field)
+            ]
+            if survivor_live and field in _END_OF_COOPERATION_FIELDS
+            else contracts
+        )
         populated = [
             (int(row["id"]), row.get(field))
-            for row in contracts
+            for row in sources
             if not _is_empty(row.get(field))
         ]
         distinct: dict[str, list[int]] = {}
@@ -900,6 +999,69 @@ def merge_field_plan(
             updates[field] = populated[0][1]
     _keep_live_b2b_survivor_indefinite(survivor, updates)
     return updates, conflicts
+
+
+_ENDED_STATUSES = frozenset({"ended", "void"})
+_END_OF_COOPERATION_FIELDS = frozenset(
+    {
+        "end_date",
+        "terminated_at",
+        "termination_reason",
+        "termination_lessons",
+        "agreement_termination_mode",
+        "agreement_termination_party",
+        "agreement_termination_signed_on",
+        "agreement_last_day",
+    }
+)
+
+
+def _carries_cooperation_end(row: Mapping[str, Any]) -> bool:
+    """Kontrakt zakończony albo z zapisanym końcem współpracy (wypowiedzenie,
+    rozwiązanie umowy) — jego daty i powody opisują TAMTĄ decyzję."""
+    return (
+        _enum_text(row.get("status")) in _ENDED_STATUSES
+        or not _is_empty(row.get("terminated_at"))
+        or not _is_empty(row.get("termination_reason"))
+        or not _is_empty(row.get("agreement_termination_mode"))
+    )
+
+
+def _live_termination_is_current(row: Mapping[str, Any]) -> bool:
+    """Żywy kontrakt z TRWAJĄCYM wypowiedzeniem (data końca już ucięta).
+
+    „Zakończ współpracę” zawsze skraca ``end_date`` do dnia zakończenia, więc
+    trwające wypowiedzenie to ``end_date <= terminated_at``. Umowa przedłużona
+    aneksem ma późniejszą albo pustą datę końca — jej ``terminated_at``
+    przeżył aneks i opisuje PIERWSZE, cofnięte zakończenie.
+    """
+    terminated_at = row.get("terminated_at")
+    end_date = row.get("end_date")
+    return (
+        not _is_empty(terminated_at)
+        and not _is_empty(end_date)
+        and _date_value(end_date) <= _date_value(terminated_at)
+    )
+
+
+def _end_field_transfers(row: Mapping[str, Any], field: str) -> bool:
+    """Czy pole końca współpracy przegranego przechodzi na ŻYWY zachowany.
+
+    Runda 8 (R8-V1-6): N1-1 (r7) odrzucał koniec współpracy KAŻDEGO
+    przegranego z zapisanym zakończeniem — także żywego „Kończącego się”
+    z zaplanowanym wypowiedzeniem, którego zamówienia już ucięto do tej daty.
+    Zachowany kontrakt zostawał bezterminowy, a konsultant nie schodził.
+    Odrzucamy więc tylko zakończenie przegranego zakończonego/anulowanego;
+    trwające wypowiedzenie żywego przegranego przechodzi w całości (data końca
+    przez „najpóźniejszą”, reszta przez zwykłe reguły pola — różne wartości
+    to konflikt do rozstrzygnięcia). Przedawnione ślady zakończenia żywego
+    przegranego (umowa przedłużona) nie przechodzą — jego data końca tak.
+    """
+    if _enum_text(row.get("status")) in _ENDED_STATUSES:
+        return False
+    if _live_termination_is_current(row) or not _carries_cooperation_end(row):
+        return True
+    return field == "end_date"
 
 
 def _keep_live_b2b_survivor_indefinite(
@@ -1826,6 +1988,17 @@ async def _unscoped_contract_ids(
     return [int(value) for value in rows]
 
 
+def _returned_after_break_ids(rows: Sequence[Mapping[str, Any]]) -> list[int]:
+    """ID kontraktów grupy połączonych relacją „Powrót po przerwie"."""
+    group_ids = {int(row["id"]) for row in rows}
+    linked: set[int] = set()
+    for row in rows:
+        previous = row.get("returned_from_contract_id")
+        if previous is not None and int(previous) in group_ids:
+            linked.update({int(row["id"]), int(previous)})
+    return sorted(linked)
+
+
 async def build_contract_merge_plan(
     db: AsyncSession,
     manifest: ContractMergeManifest,
@@ -1928,6 +2101,17 @@ async def build_contract_merge_plan(
                 )
         if any(_enum_text(row.get("status")) == "void" for row in rows):
             blockers.append({"code": "void_contract_in_merge_group"})
+        # Runda 7 (N1-5): „Powrót po przerwie" (0368) celowo zakłada DRUGI
+        # kontrakt tej osoby u tego klienta — to kolejna współpraca, nie
+        # duplikat. Scalenie zlałoby dwie umowy w jedną.
+        returned_pairs = _returned_after_break_ids(rows)
+        if returned_pairs:
+            blockers.append(
+                {
+                    "code": "returned_after_break_pair_in_merge_group",
+                    "contract_ids": returned_pairs,
+                }
+            )
         lifecycle_values = {
             field: sorted(
                 {
@@ -2154,6 +2338,15 @@ async def build_contract_merge_plan(
             blockers.append(
                 {"code": "contract_document_unique_collision", "items": doc_collisions}
             )
+        if ("hr_bonuses", "contract_id") in catalog_shape:
+            bonus_conflicts = await _placement_bonus_conflicts(db, group_ids)
+            if bonus_conflicts:
+                blockers.append(
+                    {
+                        "code": "placement_bonus_assigned_twice",
+                        "items": bonus_conflicts,
+                    }
+                )
         notification_repoint_plan = await _notification_repoint_plan(
             db,
             [cid for cid in group_ids if cid != survivor_id],
@@ -2811,13 +3004,475 @@ def _database_value(field: str, value: Any) -> Any:
     return value
 
 
+_AUTOMATION_KEY_RE = re.compile(
+    r"^contract:(?P<contract>[1-9][0-9]*):(?P<slot>[a-z_]+)$"
+)
+# Ranga statusu w konflikcie duplikatów: niższa wygrywa. Rozstrzygnięty
+# wiersz (zrobiony, pominięty, zatwierdzony) wygrywa z otwartym, bo niesie
+# decyzję człowieka; remis — wiersz kontraktu zachowanego, potem najniższe id.
+_PLAN_ITEM_RANK = {"done": 0, "skipped": 1, "open": 2}
+_PORTAL_DOCUMENT_RANK = {"paid": 0, "accepted": 1, "received": 2, "rejected": 3}
+_REDEPLOY_RANK = {"in_progress": 0, "open": 1}
+_EQUIPMENT_TASK_RANK = {"zrobione": 0, "anulowane": 1, "otwarte": 2}
+_PLACEMENT_BONUS_RANK = {"assigned": 0, "proposed": 1, "cancelled": 2}
+
+
+def _automation_slot(row: Mapping[str, Any]) -> str | None:
+    """Rola/etap z klucza automatu ``contract:{id}:{slot}`` własnego kontraktu.
+
+    Klucz z innym id (np. ``…:merged:…`` po wcześniejszym scaleniu) nie jest
+    już kluczem automatu — taki wiersz tylko przechodzi na zachowany kontrakt.
+    """
+    match = _AUTOMATION_KEY_RE.fullmatch(str(row.get("source_key") or ""))
+    if match is None or int(match["contract"]) != int(row["contract_id"]):
+        return None
+    return match["slot"]
+
+
+def _split_slot_duplicates(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    slot_of: Any,
+    rank: Mapping[str, int],
+    survivor_id: int,
+) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]:
+    """(zwycięzcy, przegrani) per slot według ``rank``, remis → zachowany kontrakt."""
+    by_slot: dict[Any, list[Mapping[str, Any]]] = {}
+    for row in rows:
+        slot = slot_of(row)
+        if slot is not None:
+            by_slot.setdefault(slot, []).append(row)
+    winners: list[Mapping[str, Any]] = []
+    losers: list[Mapping[str, Any]] = []
+    for slot in sorted(by_slot, key=str):
+        ordered = sorted(
+            by_slot[slot],
+            key=lambda row: (
+                rank.get(str(row["status"]), len(rank)),
+                int(row["contract_id"]) != survivor_id,
+                int(row["id"]),
+            ),
+        )
+        winners.append(ordered[0])
+        losers.extend(ordered[1:])
+    return winners, losers
+
+
+async def _child_rows(
+    db: AsyncSession, sql: str, contract_ids: Sequence[int]
+) -> list[dict[str, Any]]:
+    rows = (await db.execute(text(sql), {"ids": list(contract_ids)})).mappings().all()
+    return [dict(row) for row in rows]
+
+
+async def _rename_folders_named_like_orders(
+    db: AsyncSession, survivor_id: int, contract_ids: Sequence[int]
+) -> int:
+    """Folder użytkownika przegranego o nazwie „Zamówień” zachowanego.
+
+    Indeks ``uq_contract_document_folders_name`` obejmuje też wiersz
+    ``kind = 'orders'``, a ``_assert_name_free`` pilnuje tej pary tylko w jednym
+    kontrakcie — przepięcie takiego folderu na zachowany dawało IntegrityError
+    (całe scalenie 500) albo dwie sekcje „Zamówienia” przy nazwie domyślnej.
+    Folder dostaje pierwszy wolny dopisek „(2)”, „(3)”… (audyt 22.10.2026, F71).
+    """
+    orders_name = (
+        await db.scalar(
+            text(
+                "SELECT name FROM contract_document_folders "
+                "WHERE kind = 'orders' AND contract_id = :id"
+            ),
+            {"id": survivor_id},
+        )
+        or ORDERS_FOLDER_DEFAULT_NAME
+    )
+    rows = await _child_rows(
+        db,
+        "SELECT id, contract_id, name FROM contract_document_folders "
+        "WHERE kind = 'user' AND contract_id = ANY(:ids) ORDER BY id",
+        contract_ids,
+    )
+    taken = {str(r["name"]).lower() for r in rows} | {orders_name.lower()}
+    renamed = 0
+    for row in rows:
+        name = str(row["name"])
+        if (
+            int(row["contract_id"]) == survivor_id
+            or name.lower() != orders_name.lower()
+        ):
+            continue
+        number = 2
+        while True:
+            suffix = f" ({number})"
+            candidate = name[: FOLDER_NAME_MAX - len(suffix)] + suffix
+            if candidate.lower() not in taken:
+                break
+            number += 1
+        await db.execute(
+            text("UPDATE contract_document_folders SET name = :name WHERE id = :id"),
+            {"name": candidate, "id": int(row["id"])},
+        )
+        taken.add(candidate.lower())
+        renamed += 1
+    return renamed
+
+
+async def _rekey_automation_rows(
+    db: AsyncSession,
+    table: str,
+    winners: Sequence[Mapping[str, Any]],
+    losers: Sequence[Mapping[str, Any]],
+    survivor_id: int,
+    loser_assignments: str,
+) -> None:
+    """Przegrany dostaje klucz ``…:merged:{id}``, zwycięzca klucz zachowanego.
+
+    Najpierw przegrani (zwalniają klucz zachowanego), potem zwycięzcy — klucz
+    automatu jest UNIQUE, więc zamiana w jednej instrukcji mogłaby się zderzyć.
+    """
+    if losers:
+        await db.execute(
+            text(
+                f"UPDATE {table} SET {loser_assignments}, "
+                "source_key = source_key || ':merged:' || id::text, "
+                "updated_at = NOW() WHERE id = ANY(:ids)"
+            ),
+            {"ids": [int(row["id"]) for row in losers]},
+        )
+    for row in winners:
+        key = f"contract:{survivor_id}:{_automation_slot(row)}"
+        if row["source_key"] != key:
+            await db.execute(
+                text(
+                    f"UPDATE {table} SET source_key = :key, updated_at = NOW() "
+                    "WHERE id = :id"
+                ),
+                {"key": key, "id": int(row["id"])},
+            )
+
+
+async def _resolve_child_duplicates(
+    db: AsyncSession,
+    catalog: Sequence[Mapping[str, Any]],
+    loser_ids: Sequence[int],
+    survivor_id: int,
+) -> dict[str, int]:
+    """Reguły duplikatu dla tabel z unikatem albo kluczem automatu po kontrakcie.
+
+    Wywoływane przed przepięciem FK. Historia zostaje: rozmowy opiekuna,
+    zwrócone wydania i zatwierdzone premie przechodzą bez zmian. Znika tylko
+    to, co dubluje termin albo zadanie, i to w najmniej stratnej formie:
+
+    * ``contract_care_plan_items`` — jeden punkt na (rodzaj, termin): zrobiony >
+      pominięty > otwarty; przegrany punkt jest kasowany (to termin, nie
+      historia — rozmowa, która go zamknęła, zostaje w ``care_conversations``),
+    * ``redeploy_queue_items`` — jeden aktywny wpis na powód: „w toku” >
+      „otwarty”; nadmiarowy dostaje ``dismissed`` (wiersz zostaje),
+    * ``equipment_tasks`` z kluczem ``contract:{id}:start|end`` — zrobione >
+      anulowane > otwarte; przegrany otwarty jest anulowany, przegrany dostaje
+      klucz ``…:merged:{id}``, zwycięzca klucz zachowanego kontraktu (automat
+      dalej go aktualizuje zamiast zakładać drugi),
+    * ``hr_bonuses`` z placementu — zatwierdzona > proponowana > anulowana;
+      przegrana propozycja jest anulowana z powodem ``contract_merged``, klucze
+      jak wyżej. Dwie zatwierdzone tej samej roli blokuje plan,
+    * ``client_feedback_scores`` — jedna ocena na (rozmowa, kontrakt): wiersz
+      zachowanego (a bez niego najstarszy) wygrywa i dostaje brakujące oceny
+      z przegranych, przegrane są kasowane. Oceny z innych rozmów (cała
+      historia opinii obu duplikatów) przechodzą bez zmian,
+    * ``client_structure_skips`` — „Pomiń” propozycji menedżera to podpowiedź
+      ekranu, jedna na kontrakt: pominięcia przegranych są kasowane, zachowany
+      trzyma swoje (bez niego propozycja po prostu wraca na listę DL),
+    * ``contract_document_folders`` — foldery o tej samej nazwie (bez względu
+      na wielkość liter) łączą się w jeden: folder zachowanego (a bez niego
+      najstarszy) dostaje pliki pozostałych, te są kasowane. Własna nazwa
+      „Zamówień” przegranych znika — zostaje nazwa zachowanego albo domyślna.
+      Folder przegranego o nazwie „Zamówień” zachowanego dostaje dopisek „(2)”.
+    """
+    present = {(str(fk["table_name"]), str(fk["column_name"])) for fk in catalog}
+    every = [survivor_id, *loser_ids]
+    out: dict[str, int] = {}
+
+    if ("client_structure_skips", "contract_id") in present:
+        removed = await db.execute(
+            text(
+                "DELETE FROM client_structure_skips "
+                "WHERE contract_id = ANY(:ids) RETURNING id"
+            ),
+            {"ids": [int(i) for i in loser_ids]},
+        )
+        out["client_structure_skips_removed"] = len(removed.all())
+
+    if ("contract_document_folders", "contract_id") in present:
+        await db.execute(
+            text(
+                "DELETE FROM contract_document_folders "
+                "WHERE kind = 'orders' AND contract_id = ANY(:ids)"
+            ),
+            {"ids": [int(i) for i in loser_ids]},
+        )
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, lower(name) AS slot FROM contract_document_folders "
+            "WHERE kind = 'user' AND contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        by_slot: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            by_slot.setdefault(str(row["slot"]), []).append(row)
+        merged = 0
+        for group in by_slot.values():
+            if len(group) < 2:
+                continue
+            winner = next(
+                (r for r in group if int(r["contract_id"]) == survivor_id), group[0]
+            )
+            others = [int(r["id"]) for r in group if r is not winner]
+            await db.execute(
+                text(
+                    "UPDATE contract_documents SET folder_id = :winner "
+                    "WHERE folder_id = ANY(:ids)"
+                ),
+                {"winner": int(winner["id"]), "ids": others},
+            )
+            await db.execute(
+                text("DELETE FROM contract_document_folders WHERE id = ANY(:ids)"),
+                {"ids": others},
+            )
+            merged += len(others)
+        out["contract_document_folders_merged"] = merged
+        renamed = await _rename_folders_named_like_orders(db, survivor_id, every)
+        out["contract_document_folders_renamed"] = renamed
+
+    if ("contract_care_plan_items", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, kind, seq, status FROM contract_care_plan_items "
+            "WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: (row["kind"], int(row["seq"])),
+            rank=_PLAN_ITEM_RANK,
+            survivor_id=survivor_id,
+        )
+        if losers:
+            await db.execute(
+                text("DELETE FROM contract_care_plan_items WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["contract_care_plan_items_duplicates_removed"] = len(losers)
+
+    if ("cp_documents", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, kind, period_year, period_month, sha256, status "
+            "FROM cp_documents WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: (
+                row["kind"],
+                int(row["period_year"]),
+                int(row["period_month"]),
+                row["sha256"],
+            ),
+            rank=_PORTAL_DOCUMENT_RANK,
+            survivor_id=survivor_id,
+        )
+        if losers:
+            # Ten sam plik na dysku (nazwa to skrót): znika tylko zdublowany wiersz.
+            await db.execute(
+                text("DELETE FROM cp_documents WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["cp_documents_duplicates_removed"] = len(losers)
+
+    if ("redeploy_queue_items", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, reason, status FROM redeploy_queue_items "
+            f"WHERE contract_id = ANY(:ids) AND {REDEPLOY_ACTIVE_WHERE} ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: row["reason"],
+            rank=_REDEPLOY_RANK,
+            survivor_id=survivor_id,
+        )
+        if losers:
+            await db.execute(
+                text(
+                    "UPDATE redeploy_queue_items SET status = 'dismissed', "
+                    "resolved_at = NOW(), updated_at = NOW() WHERE id = ANY(:ids)"
+                ),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["redeploy_queue_items_duplicates_dismissed"] = len(losers)
+
+    if ("equipment_tasks", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, status, source_key FROM equipment_tasks "
+            "WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        winners, losers = _split_slot_duplicates(
+            rows,
+            slot_of=_automation_slot,
+            rank=_EQUIPMENT_TASK_RANK,
+            survivor_id=survivor_id,
+        )
+        await _rekey_automation_rows(
+            db,
+            "equipment_tasks",
+            winners,
+            losers,
+            survivor_id,
+            "status = CASE WHEN status = 'otwarte' THEN 'anulowane' ELSE status END",
+        )
+        out["equipment_tasks_duplicates_closed"] = len(losers)
+
+    if ("hr_bonuses", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, status, source_key FROM hr_bonuses "
+            "WHERE contract_id = ANY(:ids) AND source = 'contract_placement' "
+            "ORDER BY id",
+            every,
+        )
+        winners, losers = _split_slot_duplicates(
+            rows,
+            slot_of=_automation_slot,
+            rank=_PLACEMENT_BONUS_RANK,
+            survivor_id=survivor_id,
+        )
+        if any(str(row["status"]) == "assigned" for row in losers):
+            # Plan blokuje ten stan (``placement_bonus_assigned_twice``); tu
+            # tylko bezpiecznik, gdyby ktoś zatwierdził premię po audycie.
+            raise ContractMergeError(
+                "two assigned placement bonuses of one role in merge group"
+            )
+        await _rekey_automation_rows(
+            db,
+            "hr_bonuses",
+            winners,
+            losers,
+            survivor_id,
+            "cancel_reason = CASE WHEN status = 'proposed' THEN 'contract_merged' "
+            "ELSE cancel_reason END, "
+            "cancelled_at = CASE WHEN status = 'proposed' THEN NOW() "
+            "ELSE cancelled_at END, "
+            "status = CASE WHEN status = 'proposed' THEN 'cancelled' ELSE status END",
+        )
+        out["hr_bonuses_duplicates_cancelled"] = len(losers)
+
+    if ("client_feedback_scores", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, session_id, contract_id, quality, communication, autonomy "
+            "FROM client_feedback_scores WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        by_session: dict[int, list[dict[str, Any]]] = {}
+        for row in rows:
+            by_session.setdefault(int(row["session_id"]), []).append(row)
+        merged_away: list[int] = []
+        for session_rows in by_session.values():
+            if len(session_rows) < 2:
+                continue
+            winner = min(
+                session_rows,
+                key=lambda row: (
+                    int(row["contract_id"]) != survivor_id,
+                    int(row["id"]),
+                ),
+            )
+            others = [row for row in session_rows if row["id"] != winner["id"]]
+            filled = {
+                field: next(
+                    (row[field] for row in (winner, *others) if row[field] is not None),
+                    None,
+                )
+                for field in ("quality", "communication", "autonomy")
+            }
+            merged_away.extend(int(row["id"]) for row in others)
+            await db.execute(
+                text("DELETE FROM client_feedback_scores WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in others]},
+            )
+            await db.execute(
+                text(
+                    "UPDATE client_feedback_scores SET quality = :quality, "
+                    "communication = :communication, autonomy = :autonomy "
+                    "WHERE id = :id"
+                ),
+                {**filled, "id": int(winner["id"])},
+            )
+        out["client_feedback_scores_duplicates_merged"] = len(merged_away)
+    return out
+
+
+async def _placement_bonus_conflicts(
+    db: AsyncSession, ids: Sequence[int]
+) -> list[dict[str, Any]]:
+    """Role z więcej niż jedną ZATWIERDZONĄ premią z placementu w grupie.
+
+    Dwie zatwierdzone premie za jeden placement to podwójna wypłata — scalenie
+    jej nie cofnie, więc najpierw Płace anulują jedną, potem scalenie.
+    """
+    rows = await _child_rows(
+        db,
+        "SELECT id, contract_id, status, source_key FROM hr_bonuses "
+        "WHERE contract_id = ANY(:ids) AND source = 'contract_placement' "
+        "AND status = 'assigned' ORDER BY id",
+        ids,
+    )
+    by_role: dict[str, list[int]] = {}
+    for row in rows:
+        role = _automation_slot(row)
+        if role is not None:
+            by_role.setdefault(role, []).append(int(row["id"]))
+    return [
+        {"role": role, "bonus_ids": bonus_ids}
+        for role, bonus_ids in sorted(by_role.items())
+        if len(bonus_ids) > 1
+    ]
+
+
 async def _reparent_fks(
     db: AsyncSession,
     catalog: Sequence[Mapping[str, Any]],
     loser_ids: Sequence[int],
     survivor_id: int,
 ) -> dict[str, int]:
-    moved: dict[str, int] = {}
+    moved: dict[str, int] = await _resolve_child_duplicates(
+        db, catalog, loser_ids, survivor_id
+    )
+    if any(
+        (str(fk["table_name"]), str(fk["column_name"]))
+        == ("contract_termination_snapshots", "contract_id")
+        for fk in catalog
+    ):
+        # Runda 7 (N1-3): otwarta migawka zakończenia duplikatu opisuje JEGO
+        # stan sprzed zakończenia. Przepięta jako otwarta zderzyłaby się
+        # z otwartą migawką zachowanego (częściowy UNIQUE) albo — przy
+        # późniejszym zakończeniu zachowanego — podsunęłaby „Cofnij
+        # zakończenie" stan przegranego. Zamykamy ją jak wskrzeszenie inną
+        # drogą (``superseded``); wiersz i tak idzie za zachowanym.
+        superseded = await db.execute(
+            text(
+                "UPDATE contract_termination_snapshots "
+                "SET status = 'superseded', closed_at = NOW() "
+                "WHERE contract_id = ANY(:losers) AND status = 'open'"
+            ),
+            {"losers": list(loser_ids)},
+        )
+        moved["contract_termination_snapshots_superseded"] = int(
+            superseded.rowcount or 0
+        )
     for fk in catalog:
         table, column = str(fk["table_name"]), str(fk["column_name"])
         if int(fk["column_count"]) != 1 or (table, column) not in _KNOWN_CONTRACT_FKS:
@@ -2906,11 +3561,39 @@ async def _repoint_polymorphic(
         if int(updated.rowcount or 0) != 1:
             raise ContractMergeError("notification link drifted while locked")
         link_count += 1
+    # Runda 7 (N1-4): braki zamówień (``order_gaps``) nie mają klucza obcego —
+    # bez przepięcia wskazywały skasowany kontrakt: Finanse → Braki gubiły
+    # osobę, a odświeżenie po zapisie zamówienia następcy nie zamykało braku.
+    gaps = await db.execute(
+        text(
+            "UPDATE order_gaps SET contract_id = :survivor "
+            "WHERE contract_id = ANY(:losers)"
+        ),
+        {"survivor": survivor_id, "losers": list(loser_ids)},
+    )
+    # Runda 7 (N1-3): migawka wiersza Generatora B2B sprzed zakończenia niesie
+    # ``contract_id`` kontraktu, który ją wykonał — „Cofnij zakończenie" na
+    # zachowanym szuka jej po SWOIM id.
+    restores = await db.execute(
+        text(
+            "UPDATE b2b_generated_contracts "
+            "SET termination_restore = jsonb_set(termination_restore::jsonb, "
+            "'{contract_id}', to_jsonb(CAST(:survivor AS integer))) "
+            "WHERE termination_restore IS NOT NULL "
+            "AND termination_restore::jsonb ->> 'contract_id' = ANY(:loser_keys)"
+        ),
+        {
+            "survivor": survivor_id,
+            "loser_keys": [str(int(value)) for value in loser_ids],
+        },
+    )
     return {
         "activities": int(activity.rowcount or 0),
         "notifications": int(notifications.rowcount or 0),
         "notifications_retained_historical": len(retained_ids),
         "notification_links": link_count,
+        "order_gaps": int(gaps.rowcount or 0),
+        "b2b_termination_restores": int(restores.rowcount or 0),
     }
 
 
@@ -2995,29 +3678,83 @@ async def _insert_resolution_rates(
     table: str,
     survivor_id: int,
     trajectory: Sequence[Mapping[str, Any]],
-) -> None:
+    kind: str,
+) -> int:
+    """Dopisz kroki rozstrzygnięcia TYLKO tam, gdzie przepięty harmonogram
+    zachowanego nie daje już wybranej trajektorii.
+
+    Runda 7 (N1-2): do 09.2026 krok ręczny (``source_order_id`` NULL) powstawał
+    na KAŻDEJ dacie granicznej. Przy tej samej dacie resolver bierze krok
+    dodany później, więc rozstrzygnięcie trwale przykrywało kroki z zamówień
+    (0304): poprawka stawki zamówienia nie zmieniała przychodu, a usunięcie
+    zamówienia go nie zdejmowało. Kolejne przebiegi dochodzą do punktu stałego —
+    data z własnym krokiem rozstrzygnięcia rozwiązuje się już zawsze do niego.
+    """
     if table not in {
         "contract_candidate_rates",
         "contract_client_rates",
         "contract_framework_rates",
     }:
         raise ContractMergeError("unsafe rate table")
-    for item in trajectory:
-        if item.get("rate") is None:
-            continue
-        await db.execute(
+    expected = sorted(
+        (
+            (_date_value(item["effective_from"]), Decimal(str(item["rate"])))
+            for item in trajectory
+            if item.get("rate") is not None
+        ),
+        key=lambda pair: pair[0],
+    )
+    if not expected:
+        return 0
+    contract = (await _fetch_contracts(db, [survivor_id], False))[survivor_id]
+    schedule = [dict(row) for row in await _fetch_rows(db, table, [survivor_id])]
+    inserted = 0
+    for _ in range(len(expected) + 1):
+        mismatch = next(
+            (
+                (boundary, rate)
+                for boundary, rate in expected
+                if (
+                    (
+                        actual := _rate_snapshot(
+                            contract, schedule, kind, boundary
+                        ).get("rate")
+                    )
+                    is None
+                    or Decimal(str(actual)) != rate
+                )
+            ),
+            None,
+        )
+        if mismatch is None:
+            return inserted
+        boundary, rate = mismatch
+        new_id = await db.scalar(
             text(
                 f"INSERT INTO {table} "
                 "(contract_id, rate, effective_from, note, created_at, updated_at) "
-                "VALUES (:contract_id, :rate, :effective_from, :note, NOW(), NOW())"
+                "VALUES (:contract_id, :rate, :effective_from, :note, NOW(), NOW()) "
+                "RETURNING id"
             ),
             {
                 "contract_id": survivor_id,
-                "rate": Decimal(str(item["rate"])),
-                "effective_from": _date_value(item["effective_from"]),
+                "rate": rate,
+                "effective_from": boundary,
                 "note": "Rozstrzygnięcie scalania zduplikowanych kontraktów 2026-08",
             },
         )
+        schedule.append(
+            {
+                "id": int(new_id),
+                "contract_id": survivor_id,
+                "rate": rate,
+                "effective_from": boundary,
+            }
+        )
+        inserted += 1
+    raise ContractMergeError(  # pragma: no cover - each boundary is fixed once
+        f"{kind} resolution rates did not converge for {survivor_id}"
+    )
 
 
 async def _assert_no_fk_rows(
@@ -3249,6 +3986,35 @@ async def _assert_contract_postconditions(
                 raise ContractMergeError(
                     f"same-client cardinality postcondition failed for group {group['group_key']}"
                 )
+
+
+async def _resync_survivors_with_orders(
+    db: AsyncSession, survivor_ids: Sequence[int], today: date
+) -> None:
+    """Zachowany kontrakt przelicza się z zamówieniami tak jak po każdym
+    zapisie zamówienia (0304) — tą samą drogą co korekta 0308.
+
+    Runda 7 (N1-2, N1-6): scalenie przepina zamówienia przegranego i jego kroki
+    stawek, a okres zamówienia liczyło własną regułą („bieżące zamówienie").
+    Bez przeliczenia kroki z zamówień przegranego i okres „Koniec zamówienia
+    u klienta" zostawały w stanie, którego synchronizacja nigdy by nie dała.
+    Błąd projekcji nie cofa scalenia (``resync_contract_safely``).
+    """
+    from sqlalchemy import select
+
+    from app.models.contract import Contract
+    from app.services.contract_order_sync import resync_contract_safely
+    from app.services.contract_rates import RATE_SCHEDULE_LOADS
+
+    for survivor_id in survivor_ids:
+        survivor = await db.scalar(
+            select(Contract)
+            .where(Contract.id == survivor_id)
+            .options(*RATE_SCHEDULE_LOADS)
+            .execution_options(populate_existing=True)
+        )
+        if survivor is not None:
+            await resync_contract_safely(db, survivor, actor_id=None, today=today)
 
 
 async def apply_contract_merge_plan(
@@ -3597,13 +4363,21 @@ async def apply_contract_merge_plan(
             moved["contract_alert_dedup_aliases"] = await _alias_alert_dedup(
                 db, loser_ids, survivor_id
             )
+            # Wejście konsultanta (etap 3) wisi na kontrakcie bez FK — przepięte
+            # tu, zanim przegrane kontrakty znikną.
+            from app.services.hr.lifecycle_entry import merge_contract_entries
+
+            entries = await merge_contract_entries(db, list(loser_ids), survivor_id)
+            moved["lifecycle_cases"] = entries["moved"]
+            moved["lifecycle_cases_cancelled"] = entries["cancelled"]
+            moved["lifecycle_tasks_carried"] = entries["tasks_carried"]
             for kind, table in (
                 ("candidate", "contract_candidate_rates"),
                 ("client", "contract_client_rates"),
                 ("framework", "contract_framework_rates"),
             ):
                 trajectory = item["resolution_trajectories"][kind]
-                await _insert_resolution_rates(db, table, survivor_id, trajectory)
+                await _insert_resolution_rates(db, table, survivor_id, trajectory, kind)
                 await _assert_rate_trajectory(db, survivor_id, kind, trajectory)
             await _assert_original_rate_rows_preserved(db, group, survivor_id)
             await _assert_notification_repoint_postconditions(
@@ -3663,6 +4437,15 @@ async def apply_contract_merge_plan(
         )
 
     await _assert_contract_postconditions(db, plan)
+    await _resync_survivors_with_orders(
+        db,
+        [
+            int(item["survivor_id"])
+            for item in applied
+            if item["operation"] == "merge_same_client"
+        ],
+        boundary,
+    )
     result: dict[str, Any] = {
         "mode": "apply",
         "ok": True,

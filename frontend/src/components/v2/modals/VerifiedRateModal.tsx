@@ -7,11 +7,12 @@
  * regułę liczy `evaluateRateGate` — ten sam komponent i ta sama funkcja
  * obsługują dok „Weryfikacja" na stanowisku screeningu.
  *
- * Od 17.09.2026 (decyzja właściciela „żadna bramka nie blokuje przepływu"):
- * stawka jest OPCJONALNA („Pomiń stawkę"), okno podpowiada stawkę z profilu
- * kandydata, a „ponad budżet" to ostrzeżenie w oknie i odznaka na karcie —
- * nic nie trafia na „Oczekuje". Budżet jest godzinowy
- * (`effective_budget_hourly`), ten sam co w nagłówku rekrutacji.
+ * Od 04.10.2026 (decyzja Artura D1) stawka kandydata jest wymagana przy
+ * wejściu na „Zweryfikowany” — serwer odmawia 409 bez niej. „Pomiń stawkę”
+ * zostaje tylko, gdy stawka już jest (profil albo wcześniejszy etap pary;
+ * wołający podaje wtedy `onSkip`). Okno podpowiada stawkę z profilu, a
+ * „ponad budżet” to ostrzeżenie w oknie i odznaka na karcie. Budżet jest
+ * godzinowy (`effective_budget_hourly`), ten sam co w nagłówku rekrutacji.
  */
 
 import { useState } from "react";
@@ -25,6 +26,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { hourlyText, toAmount } from "@/lib/candidate-rate";
+import { formatFormRate, lowerKnownRate, lowerKnownRateText } from "@/lib/screening-form";
 import { VerifiedRateFields } from "@/components/v2/screening/VerifiedRateFields";
 import { evaluateRateGate } from "@/lib/verified-rate-gate";
 import type { RateUnit } from "@/lib/api";
@@ -35,15 +39,23 @@ interface Props {
   candidateName: string;
   /** Budżet PLN/h rekrutacji (`effective_budget_hourly`); `null` = brak. */
   jobBudgetHourly: number | null;
-  /** Stawka z profilu kandydata (PLN/h) — podpowiedź w polu. */
+  /** Stawka z karty tej rekrutacji albo „Stawka od” (PLN/h) — podpowiedź w polu. */
   initialRateHourly?: number | string | null;
+  /** „Stawka od” (0414) — kontekst: najniższa stawka z 18 miesięcy. */
+  rateFromHourly?: number | string | null;
   onConfirm: (payload: {
     rate: number;
     unit: RateUnit;
     currency: string;
+    isMinimum?: boolean;
   }) => void;
-  /** Przesuń bez stawki — stawka jest opcjonalna od 17.09.2026. */
-  onSkip: () => void;
+  /** Przesuń bez nowej stawki — tylko gdy stawka już jest zapisana. */
+  onSkip?: () => void;
+  /**
+   * Ruch jest w drodze. Runda 10 (R10-N15-7): okno zostaje otwarte do
+   * odpowiedzi, więc bez blokady podwójny klik albo Enter wysyłał drugi ruch.
+   */
+  submitting?: boolean;
 }
 
 function initialRateText(value: number | string | null | undefined): string {
@@ -59,15 +71,19 @@ export function VerifiedRateModal({
   candidateName,
   jobBudgetHourly,
   initialRateHourly = null,
+  rateFromHourly = null,
   onConfirm,
   onSkip,
+  submitting = false,
 }: Props) {
   // Okno jest montowane z `key` karty, więc inicjalizator liczy się per kandydat.
   const [rate, setRate] = useState<string>(() =>
     initialRateText(initialRateHourly),
   );
   const [unit, setUnit] = useState<RateUnit>("hourly");
+  const [isMinimum, setIsMinimum] = useState(false);
   const currency = "PLN";
+  const rateFromLabel = hourlyText(rateFromHourly);
 
   const gate = evaluateRateGate({
     rawRate: rate,
@@ -75,10 +91,27 @@ export function VerifiedRateModal({
     currency,
     jobBudgetHourly,
   });
+  // R2 (17.10.2026): ponad budżetem, a „Stawka od” mieści się w budżecie.
+  const rateFromAmount = toAmount(rateFromHourly);
+  const lower = lowerKnownRate(
+    {
+      rate_hints: {
+        card: null,
+        rate_from: rateFromAmount !== null ? { amount: rateFromAmount, unit: "hourly", currency: "PLN" } : null,
+      },
+      suggestions_from_notes: {},
+    },
+    gate.isValid ? { amount: gate.numericRate, unit, currency } : null,
+    jobBudgetHourly,
+  );
 
   const handleSubmit = () => {
-    if (!gate.isValid) return;
-    onConfirm({ rate: gate.numericRate, unit, currency });
+    if (!gate.isValid || submitting) return;
+    onConfirm(
+      isMinimum
+        ? { rate: gate.numericRate, unit, currency, isMinimum: true }
+        : { rate: gate.numericRate, unit, currency },
+    );
   };
 
   return (
@@ -88,7 +121,8 @@ export function VerifiedRateModal({
           <DialogTitle>Przesuń na „Zweryfikowany”</DialogTitle>
           <DialogDescription>
             Stawka kandydata{" "}
-            <span className="font-semibold">{candidateName}</span> (opcjonalnie).
+            <span className="font-semibold">{candidateName}</span>
+            {onSkip ? " (zapisana — możesz ją zmienić)." : " (wymagana)."}
             {jobBudgetHourly !== null && (
               <>
                 {" "}
@@ -108,16 +142,54 @@ export function VerifiedRateModal({
             autoFocus
             onSubmit={handleSubmit}
             idPrefix="verified-rate-modal"
+            overBudgetNote={
+              lower
+                ? {
+                    text: lowerKnownRateText(lower),
+                    useLabel: `Użyj ${formatFormRate(lower.rate)}`,
+                    onUse: () => {
+                      setRate(String(lower.rate.amount));
+                      setUnit("hourly");
+                    },
+                  }
+                : null
+            }
           />
+          {rateFromLabel ? (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Stawka od: <span className="font-medium text-foreground">{rateFromLabel}</span>{" "}
+              (najniższa podana w ostatnich 18 miesiącach).
+            </p>
+          ) : null}
+          <label
+            htmlFor="verified-rate-modal-minimum"
+            className="mt-3 flex items-start gap-2 text-sm"
+          >
+            <Checkbox
+              id="verified-rate-modal-minimum"
+              checked={isMinimum}
+              onCheckedChange={(value) => setIsMinimum(value === true)}
+              className="mt-0.5"
+            />
+            <span>
+              To jego nowe minimum
+              <span className="block text-xs text-muted-foreground">
+                Poniżej tej stawki nie zejdzie na żadną rolę. Niższe stawki podane
+                wcześniej przestaną się liczyć do „Stawki od”.
+              </span>
+            </span>
+          </label>
         </DialogBody>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Anuluj
           </Button>
-          <Button variant="outline" onClick={onSkip}>
-            Pomiń stawkę
-          </Button>
-          <Button onClick={handleSubmit} disabled={!gate.isValid}>
+          {onSkip && (
+            <Button variant="outline" onClick={onSkip} disabled={submitting}>
+              Zostaw zapisaną stawkę
+            </Button>
+          )}
+          <Button onClick={handleSubmit} disabled={!gate.isValid || submitting} loading={submitting}>
             Przesuń
           </Button>
         </DialogFooter>

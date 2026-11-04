@@ -3,6 +3,7 @@
 Mirror `app/schemas/contract.py` (Contract Draft):
 
 * `CVOriginalSnapshotResponse`     — GET /cv/original
+* `StageCvUploadResponse`          — POST /cv/original/upload (CV kandydata albo do klienta)
 * `CVBrandedResponse`              — GET /cv/branded (mirror ContractDraftResponse)
 * `CVBrandedUpdate`                — PATCH /cv/branded (XOR: content_html | template+language)
 * `CVBrandedFinalizeResponse`      — POST /cv/branded/finalize
@@ -23,6 +24,10 @@ BrandedStatusLiteral = Literal["none", "draft", "finalized"]
 TemplateLiteral = Literal["standard", "blind"]
 LanguageLiteral = Literal["pl", "en"]
 
+# Najdłuższa treść CV, jaką przyjmuje zapis z edytora (PATCH, zatwierdzenie).
+# Podgląd importu Worda odmawia dłuższego wyniku — nie dałoby się go zapisać.
+CV_CONTENT_HTML_MAX = 500_000
+
 
 class CVOriginalSnapshotResponse(BaseModel):
     candidate_stage_id: int
@@ -40,14 +45,169 @@ class CVBrandedSelectGenerated(BaseModel):
     expected_revision: int = Field(ge=0)
     generated_document_id: int = Field(ge=1)
     document_version_id: int | None = Field(default=None, ge=1)
+    # „Napisz od nowa” (Edytor CV 3, PR 5): części szkicu poprawione ręcznie
+    # zostają w wersji rekrutera (`services/cv_rewrite_merge.py`).
+    keep_edits: bool = False
+
+
+class CVBrandedRestorePrevious(BaseModel):
+    expected_revision: int = Field(ge=0)
+
+
+class CVBrandedDiscard(BaseModel):
+    """„Odrzuć to CV i zacznij od nowa” (21.10.2026) — wersja, którą rekruter widział."""
+
+    expected_revision: int = Field(ge=0)
+
+
+class CVBrandedRewrite(BaseModel):
+    """Wynik podmiany szkicu nową generacją — zdanie i „Wróć do poprzedniej” w karcie."""
+
+    # Części zostawione w wersji rekrutera, np. „Logistyka 24”, „Języki”.
+    kept: list[str] = Field(default_factory=list)
+    # `False` = ręcznych poprawek nie dało się rozpoznać; szkic to cała nowa wersja.
+    recognized: bool = True
+    # Poprzedni szkic jest w migawce — „Wróć do poprzedniej” zadziała.
+    can_restore: bool = False
+
+
+class CVBrandedSelectDocument(BaseModel):
+    expected_revision: int = Field(ge=0)
+    document_id: int = Field(ge=1)
+
+
+class CVBrandedSelectStageCv(BaseModel):
+    expected_revision: int = Field(ge=0)
+    source_job_id: int = Field(ge=1)
+
+
+class CVBrandedConsentAttach(BaseModel):
+    consent_screenshot_token: str = Field(min_length=1, max_length=4096)
+
+
+class CVBrandedOrigin(BaseModel):
+    """Skąd przyszła treść CV wybranego zamiast generacji (12.10.2026).
+
+    ``selected_at`` to chwila wyboru: karta proponuje „Użyj nowej wersji”
+    tylko dla generacji młodszych od niej — data edycji przesuwa się z każdym
+    zapisem i chowałaby generację, o którą rekruter sam poprosił.
+    """
+
+    kind: Literal[
+        "stage_copy", "reassign", "upload", "profile_file", "generated_other_job"
+    ]
+    label: Optional[str] = None
+    job_id: Optional[int] = None
+    selected_at: Optional[datetime] = None
+
+
+class StageCvSourceItem(BaseModel):
+    """Gotowe CV tej osoby z innej rekrutacji — jedno na rekrutację."""
+
+    job_id: int
+    # Wiersz etapu, na którym leży CV — podgląd idzie zwykłym `GET …/cv/branded`
+    # (z jego bramką zakresu rekrutacji).
+    stage_id: int
+    job_title: Optional[str] = None
+    reference_number: Optional[str] = None
+    client_name: Optional[str] = None
+    status: Literal["draft", "finalized"]
+    version: int = 1
+    language: Optional[str] = None
+    blind: bool = False
+    updated_at: Optional[datetime] = None
+    updated_by_name: Optional[str] = None
+    # Ten sam klient i źródło ma zrzut zgody — pojedzie z kopią.
+    consent_carried: bool = False
+
+
+class StageCvSourcesResponse(BaseModel):
+    items: list[StageCvSourceItem]
+
+
+class CVReviewFinding(BaseModel):
+    """Uwaga kontroli AI z tekstem linii CV, której dotyczy."""
+
+    text: str
+    status: str
+
+
+class CVContentReviewIssues(BaseModel):
+    status: Literal["verified", "reviewed", "unverified"] | None = None
+    # Zatwierdzona wersja, której dotyczy kontrola (biegnie po „Zapisz”).
+    version: int | None = None
+    findings: list[CVReviewFinding] = []
+
+
+class CVEditorDismissal(BaseModel):
+    """Kto, kiedy i dlaczego oznaczył uwagę jako nieprawdziwą (D5)."""
+
+    id: int
+    reason: str
+    reason_label: str
+    note: str | None = None
+    by_name: str | None = None
+    at: datetime
+
+
+class CVEditorDismissed(BaseModel):
+    source: Literal["generator", "review"]
+    text: str
+    status: str | None = None
+    dismissal: CVEditorDismissal
+
+
+class CVEditorIssues(BaseModel):
+    """Dane panelu „Do poprawy” w edytorze CV: uwagi generatora i kontroli AI."""
+
+    generated_document_id: int | None = None
+    generator_warnings: list[str] = []
+    content_review: CVContentReviewIssues = CVContentReviewIssues()
+    # Uwagi oznaczone „To nieprawda” (D5) — poza listą, z przywróceniem.
+    dismissed: list[CVEditorDismissed] = []
+
+
+class CVEditorDismissRequest(BaseModel):
+    source: Literal["generator", "review"]
+    text: str = Field(min_length=1, max_length=1000)
+    status: str | None = Field(default=None, max_length=40)
+    reason: Literal[
+        "in_cv",
+        "other_name",
+        "wrong_place",
+        "not_needed",
+        "other",
+        "kept_order",
+        "kept",
+    ]
+    note: str | None = Field(default=None, max_length=500)
 
 
 class CVBrandedResponse(BaseModel):
     presentation_review: dict | None = None
+    # Domyślne wyrównanie treści w pliku Word (reguła klienta zamrożona przy
+    # generacji, `cv_text_align.py`). Akapit z jawnym `text-align` wygrywa.
+    text_align: Literal["justify", "left"] = "justify"
     docx_available: bool = False
     docx_filename: str | None = None
+    # Nazwa pliku także dla szkicu (`docx_filename` jest tylko przy zatwierdzonym)
+    # i nazwa ze wzoru klienta, gdy ktoś zmienił ją ręcznie (02.11.2026).
+    current_filename: str | None = None
+    pattern_filename: str | None = None
     generated_document_id: int | None = None
     from_generator: bool = False
+    # Skąd treść: generator (także kopia z innej rekrutacji), plik Word
+    # z profilu kandydata albo stary szablon „CV firmowe”.
+    source: Optional[Literal["generator", "document", "legacy"]] = None
+    # Kopia wybrana zamiast generacji: CV etapu z innej rekrutacji, plik
+    # z profilu albo z dysku, przepięcie. ``None`` = CV z generatora tej pary.
+    origin: Optional[CVBrandedOrigin] = None
+    # Wymóg zrzutu zgody RODO zamrożony na CV etapu i to, czy CV ma własny
+    # obraz. Kopia bez dokumentu generatora nie ma innego miejsca, z którego
+    # karta mogłaby to odczytać. ``consent_missing`` liczy wyłącznik blokady.
+    consent_required: bool = False
+    consent_attached: bool = False
+    consent_missing: bool = False
     edit_revision: int = 0
     version: int = 1
     candidate_stage_id: int
@@ -63,6 +223,57 @@ class CVBrandedResponse(BaseModel):
     finalized_by_name: Optional[str] = None
     snapshot_filename: Optional[str] = None
     rendered_from_default: bool = False
+    # Runda 11 (PIPE-3): etap bez własnego CV (``none``) wskazuje wiersz etapu
+    # tej pary, na którym leży CV firmowe (ruch na kolejną kolumnę zakłada nowy
+    # wiersz bez CV) — jak ``screening_source_stage_id`` przy arkuszu.
+    pair_source_stage_id: Optional[int] = None
+    pair_source_status: Optional[BrandedStatusLiteral] = None
+    # Tylko w odpowiedzi na podmianę szkicu nową generacją (PR 5).
+    rewrite: Optional[CVBrandedRewrite] = None
+
+
+class StageCvUploadResponse(CVOriginalSnapshotResponse):
+    """Wynik wgrania CV w rekrutacji (`…/cv/original/upload`, 15.10.2026).
+
+    Pola oryginału zostają na wierzchu jak dotąd. ``outcome`` mówi, czym
+    plik się stał: CV kandydata (``original``), CV do klienta tej rekrutacji
+    (``client_cv``) albo tylko plikiem w profilu, bo klient ma już CV tej
+    osoby (``client_cv_kept``).
+    """
+
+    outcome: Literal["original", "client_cv", "client_cv_kept"] = "original"
+    uploaded_filename: Optional[str] = None
+    client_cv: Optional[CVBrandedResponse] = None
+    # Wiersz etapu z CV do klienta pary — po ruchu karty bywa wcześniejszy.
+    client_cv_stage_id: Optional[int] = None
+    # Co zastąpiło: nic, nieprzejrzane auto-CV albo CV po potwierdzeniu.
+    replaced: Optional[Literal["none", "auto_cv", "confirmed"]] = None
+    # „Cofnij” w komunikacie: tylko gdy nie zastąpiliśmy niczyjej pracy.
+    undo_available: bool = False
+    stored_in_profile: bool = False
+    # Dokument profilu z wgranym plikiem — karta potwierdza go jako plik CV.
+    uploaded_document_id: Optional[int] = None
+    # CV do klienta po nowym CV (29.10.2026, `services/new_cv_company_cv.py`):
+    # generuje się samo, pytamy, czeka na potwierdzenia, zablokowane po
+    # „CV wysłane” albo klient bierze własny formularz. Puste = cofnięcie
+    # wgrania CV do klienta albo plik został CV do klienta.
+    company_cv: Optional[
+        Literal["regenerating", "ask", "confirm", "locked", "none"]
+    ] = None
+    company_cv_stage_id: Optional[int] = None
+    company_cv_status: Optional[str] = None
+    regenerating_document_id: Optional[int] = None
+
+
+class CVBrandedRegenerateFromOriginal(BaseModel):
+    """„Generuj z nowego CV” — rewizja szkicu, który zastąpi gotowa wersja."""
+
+    expected_revision: int = Field(ge=0)
+
+
+class CVBrandedRegenerateResponse(BaseModel):
+    generated_document_id: int
+    company_cv_stage_id: int
 
 
 class CVBrandedUpdate(BaseModel):
@@ -74,7 +285,7 @@ class CVBrandedUpdate(BaseModel):
     """
 
     expected_revision: int = Field(ge=0)
-    content_html: Optional[str] = Field(default=None, max_length=500000)
+    content_html: Optional[str] = Field(default=None, max_length=CV_CONTENT_HTML_MAX)
     template: Optional[TemplateLiteral] = None
     language: Optional[LanguageLiteral] = None
 
@@ -92,7 +303,7 @@ class CVBrandedUpdate(BaseModel):
 
 class CVBrandedFinalize(BaseModel):
     expected_revision: int = Field(ge=0)
-    content_html: str = Field(min_length=1, max_length=500000)
+    content_html: str = Field(min_length=1, max_length=CV_CONTENT_HTML_MAX)
 
 
 class CVBrandedReview(CVBrandedFinalize):
@@ -101,6 +312,42 @@ class CVBrandedReview(CVBrandedFinalize):
 
 class CVBrandedNewDraft(BaseModel):
     expected_revision: int = Field(ge=0)
+
+
+class CVVersionSummary(BaseModel):
+    """Zatwierdzona wersja CV etapu na liście historii w edytorze."""
+
+    version: int
+    # ``None`` tylko dla CV zatwierdzonego bez zapisanej daty (stare wiersze).
+    approved_at: Optional[datetime] = None
+    # Imię i nazwisko z konta, nie e-mail; ``None``, gdy konta już nie ma.
+    approved_by_name: Optional[str] = None
+    language: LanguageLiteral
+    docx_available: bool = False
+    # Wersja, którą etap pokazuje teraz jako zatwierdzoną.
+    is_current: bool = False
+
+
+class CVVersionsResponse(BaseModel):
+    """Od najnowszej. Pusta lista = CV nie było jeszcze zatwierdzone."""
+
+    versions: list[CVVersionSummary]
+
+
+class CVVersionContent(BaseModel):
+    version: int
+    content_html: str
+    language: LanguageLiteral
+    approved_at: Optional[datetime] = None
+
+
+class CVImportPreview(BaseModel):
+    """Plik Word jako HTML edytora — odpowiedź trasy, która nic nie zapisuje."""
+
+    content_html: str
+    filename: str
+    # Plik ma układ szablonu B2B; `False` = wygląda na CV kandydata (29.10.2026).
+    b2b_template: bool = True
 
 
 class CVBrandedFinalizeResponse(BaseModel):
@@ -197,3 +444,12 @@ class PublicCVView(BaseModel):
     job_title: Optional[str] = None
     cv_html: str
     expires_at: Optional[datetime] = None
+
+
+class CVFilenameUpdate(BaseModel):
+    filename: str = Field(min_length=1, max_length=200)
+
+
+class CVFilenameResponse(BaseModel):
+    filename: str
+    pattern_filename: str | None = None

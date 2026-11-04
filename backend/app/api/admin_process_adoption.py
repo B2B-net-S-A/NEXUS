@@ -152,7 +152,8 @@ _CREDITED_MILESTONES_SQL = (
     + f"""
     , windowed AS (
         SELECT stage, reached_at, credit_user
-        FROM credited
+        -- Diagnostyka adopcji: surowe ruchy, bez dni z DynaReportera.
+        FROM credited_nexus
         WHERE reached_at >= :since
     )
     SELECT

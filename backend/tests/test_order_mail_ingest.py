@@ -186,6 +186,70 @@ def test_compute_since_uses_lookback_then_overlap(monkeypatch):
     )
 
 
+def test_unprocessed_mail_holds_the_watermark_before_itself():
+    """Audyt 25.09.2026: mail bez wpisu w dzienniku nie może zostać za znacznikiem.
+
+    Do tej zmiany znacznik rósł do najnowszego maila biegu, także gdy starszy
+    padł na pobraniu załączników — a nakładka 2 h nie sięgała go w kolejnych
+    biegach i zamówienie przepadało na zawsze.
+    """
+    previous = datetime(2031, 3, 3, 6, 0, tzinfo=timezone.utc)
+    lost = datetime(2031, 3, 3, 8, 0, tzinfo=timezone.utc)
+    newest = datetime(2031, 3, 3, 12, 0, tzinfo=timezone.utc)
+
+    clean = svc.IngestStats(max_received_at=newest)
+    assert svc.next_watermark(clean, previous) == newest
+
+    held = svc.IngestStats(max_received_at=newest)
+    held.mark_unprocessed(newest)
+    held.mark_unprocessed(lost)
+    assert held.unprocessed_messages == 2
+    assert held.earliest_unprocessed_at == lost
+    assert svc.next_watermark(held, previous) == lost - timedelta(seconds=1)
+    # Mail z nakładki (starszy niż poprzedni znacznik) cofa znacznik —
+    # inaczej następny bieg też by go nie zobaczył.
+    older = svc.IngestStats(max_received_at=newest)
+    older.mark_unprocessed(previous - timedelta(hours=1))
+    assert svc.next_watermark(older, previous) == previous - timedelta(
+        hours=1, seconds=1
+    )
+    assert held.as_dict()["earliest_unprocessed_at"] == lost.isoformat()
+
+
+def test_order_mail_health_degrades_while_mail_is_unprocessed(monkeypatch):
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_POLL_INTERVAL_MINUTES", 60)
+    now = datetime(2031, 3, 3, 12, 0, tzinfo=timezone.utc)
+    fresh = now - timedelta(minutes=30)
+    verdict = svc.order_mail_health_verdict
+    assert (
+        verdict(finished_at=fresh, last_status="ok", unprocessed_messages=0, now=now)
+        == "healthy"
+    )
+    assert (
+        verdict(
+            finished_at=fresh, last_status="partial", unprocessed_messages=2, now=now
+        )
+        == "degraded"
+    )
+    assert (
+        verdict(finished_at=None, last_status=None, unprocessed_messages=0, now=now)
+        == "degraded"
+    )
+    assert (
+        verdict(
+            finished_at=now - timedelta(hours=4),
+            last_status="ok",
+            unprocessed_messages=0,
+            now=now,
+        )
+        == "degraded"
+    )
+    assert (
+        verdict(finished_at=fresh, last_status="error", unprocessed_messages=0, now=now)
+        == "degraded"
+    )
+
+
 # ── Rozpoznanie → client_id ─────────────────────────────────────────────────
 
 
@@ -661,7 +725,340 @@ async def test_database_error_while_processing_records_failed_row_and_continues(
     assert saved[0].outcome == OUTCOME_FAILED
     assert saved[0].attachment_name == "db.pdf" and saved[0].storage_path
     assert saved[0].client_key == "bank-a"
-    assert "division by zero" in (saved[0].error or "")
+    # Klasa wyjątku po polsku, bez treści SQL i ścieżek (runda 2 audytu 25.09).
+    assert (saved[0].error or "").startswith("Błąd przetwarzania: ")
+    assert "SELECT" not in saved[0].error and "division" not in saved[0].error
+
+
+@pytest.mark.asyncio
+async def test_foreign_integrity_error_on_commit_records_failed_row_and_continues(
+    db_session, monkeypatch, tmp_path
+):
+    """Przegląd PR #1840: błąd spójności innego więzu niż dziennik ujawniony
+    dopiero przy commicie nie przerywa biegu (znacznik skrzynki stałby na tej
+    wiadomości w każdym kolejnym biegu) — załącznik idzie do „Nieudanych”."""
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models.order_mail import OUTCOME_FAILED
+    from app.services import storage_service
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(storage_service, "ORDER_MAIL_DIR", tmp_path / "order_mail")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+
+    async def ok_process(db, row, payload, *, registry):
+        row.client_key = "bank-c"
+
+    monkeypatch.setattr(svc, "process_pdf_bytes", ok_process)
+    real_commit = db_session.commit
+    calls = {"n": 0}
+
+    async def commit_once_broken():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            await db_session.rollback()
+            orig = Exception("violates check constraint")
+            orig.constraint_name = "ck_client_orders_md_coherence"
+            raise IntegrityError("INSERT", {}, orig)
+        await real_commit()
+
+    monkeypatch.setattr(db_session, "commit", commit_once_broken)
+    tag = uuid.uuid4().hex[:8]
+    mid = f"ie{tag}"
+    fake = _FakeGraph([], {f"graph-{mid}": [_pdf("ie.pdf", f"%PDF ie {tag}".encode())]})
+    stats = svc.IngestStats()
+    added = await svc._process_message(
+        db_session,
+        fake,
+        None,
+        _msg(mid),
+        stats,
+        registry=ClientRegistry(by_registry_id={}),
+    )
+    assert added is True and stats.failed == 1 and stats.skipped_existing == 0
+    saved = (
+        await db_session.scalars(
+            select(OrderMailDocument).where(
+                OrderMailDocument.internet_message_id == f"<{mid}-{RUN}@example>"
+            )
+        )
+    ).all()
+    assert len(saved) == 1
+    assert saved[0].outcome == OUTCOME_FAILED
+    assert saved[0].attachment_name == "ie.pdf" and saved[0].storage_path
+
+
+class _BrokenAttachmentsGraph(_FakeGraph):
+    async def get(self, url, params=None):
+        raise RuntimeError("graph 503")
+
+
+@pytest.mark.asyncio
+async def test_mail_without_a_journal_row_is_marked_unprocessed(
+    db_session, monkeypatch
+):
+    """Błąd `/attachments` i załącznik bez treści zatrzymują znacznik.
+
+    Wiadomość, która ma już wpis w dzienniku (wróciła z nakładki okna), nie
+    zatrzymuje go — przetworzył ją wcześniejszy bieg.
+    """
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+    registry = ClientRegistry(by_registry_id={})
+    tag = uuid.uuid4().hex[:8]
+
+    stats = svc.IngestStats()
+    mid = f"att{tag}"
+    added = await svc._process_message(
+        db_session,
+        _BrokenAttachmentsGraph([], {}),
+        None,
+        _msg(mid, received="2031-03-04T08:00:00Z"),
+        stats,
+        registry=registry,
+    )
+    assert added is False and stats.failed == 1
+    assert stats.unprocessed_messages == 1
+    assert stats.earliest_unprocessed_at == datetime(
+        2031, 3, 4, 8, 0, tzinfo=timezone.utc
+    )
+
+    no_bytes = {
+        "@odata.type": "#microsoft.graph.fileAttachment",
+        "name": "bez_tresci.pdf",
+        "contentType": "application/pdf",
+    }
+    mid2 = f"nb{tag}"
+    stats2 = svc.IngestStats()
+    await svc._process_message(
+        db_session,
+        _FakeGraph([], {f"graph-{mid2}": [no_bytes]}),
+        None,
+        _msg(mid2, received="2031-03-04T09:00:00Z"),
+        stats2,
+        registry=registry,
+    )
+    assert stats2.unprocessed_messages == 1
+
+    # Ta sama wiadomość z wpisem w dzienniku — już przetworzona, nie trzyma.
+    logged = svc._base_row(None, _msg(mid, received="2031-03-04T08:00:00Z"))
+    logged.outcome = OUTCOME_IGNORED_NO_PDF
+    db_session.add(logged)
+    await db_session.commit()
+    stats3 = svc.IngestStats()
+    await svc._process_message(
+        db_session,
+        _BrokenAttachmentsGraph([], {}),
+        None,
+        _msg(mid, received="2031-03-04T08:00:00Z"),
+        stats3,
+        registry=registry,
+    )
+    assert stats3.failed == 1 and stats3.unprocessed_messages == 0
+
+
+@pytest.mark.asyncio
+async def test_old_unprocessed_mail_becomes_failed_and_stops_holding(
+    db_session, monkeypatch
+):
+    """Przegląd PR #1833: trwale zepsuty mail nie może trzymać znacznika bez
+    końca — po `ORDER_MAIL_UNPROCESSED_HOLD_HOURS` dostaje wpis „Nieudane”."""
+    from app.models.order_mail import OUTCOME_FAILED
+
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_UNPROCESSED_HOLD_HOURS", 24)
+    registry = ClientRegistry(by_registry_id={})
+    mid = f"old{uuid.uuid4().hex[:8]}"
+    received = (datetime.now(timezone.utc) - timedelta(hours=30)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+
+    stats = svc.IngestStats()
+    added = await svc._process_message(
+        db_session,
+        _BrokenAttachmentsGraph([], {}),
+        None,
+        _msg(mid, received=received),
+        stats,
+        registry=registry,
+    )
+    assert added is True
+    assert stats.unprocessed_messages == 0
+    assert stats.earliest_unprocessed_at is None
+    rows = (
+        await db_session.scalars(
+            select(OrderMailDocument).where(
+                OrderMailDocument.internet_message_id == f"<{mid}-{RUN}@example>"
+            )
+        )
+    ).all()
+    assert [r.outcome for r in rows] == [OUTCOME_FAILED]
+    assert "RuntimeError" in (rows[0].error or "")
+
+
+def _no_bytes(name: str) -> dict:
+    return {
+        "@odata.type": "#microsoft.graph.fileAttachment",
+        "name": name,
+        "contentType": "application/pdf",
+    }
+
+
+def _hours_ago(hours: int) -> str:
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+
+
+async def _rows_of(db_session, mid: str) -> list[OrderMailDocument]:
+    return list(
+        (
+            await db_session.scalars(
+                select(OrderMailDocument)
+                .where(
+                    OrderMailDocument.internet_message_id == f"<{mid}-{RUN}@example>"
+                )
+                .order_by(OrderMailDocument.id)
+            )
+        ).all()
+    )
+
+
+@pytest.mark.asyncio
+async def test_old_mail_with_two_attachments_without_content_gets_one_failed_row(
+    db_session, monkeypatch
+):
+    """Runda 2 audytu 25.09: dwa załączniki bez contentBytes w mailu starszym niż
+    24 h dawały drugi wpis bez SHA → IntegrityError (jeden taki wpis na
+    wiadomość), bieg „error” i znacznik trzymany na zawsze."""
+    from app.models.order_mail import OUTCOME_FAILED
+
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_UNPROCESSED_HOLD_HOURS", 24)
+    registry = ClientRegistry(by_registry_id={})
+    mid = f"two{uuid.uuid4().hex[:8]}"
+    msg = _msg(mid, received=_hours_ago(30))
+    graph = _FakeGraph([], {f"graph-{mid}": [_no_bytes("a.pdf"), _no_bytes("b.pdf")]})
+
+    for _ in range(2):  # drugi bieg = wiadomość wraca z nakładki okna
+        stats = svc.IngestStats()
+        await svc._process_message(db_session, graph, None, msg, stats, registry)
+        assert stats.unprocessed_messages == 0
+        assert stats.earliest_unprocessed_at is None
+
+    rows = await _rows_of(db_session, mid)
+    assert [r.outcome for r in rows] == [OUTCOME_FAILED]
+    assert rows[0].attachment_sha256 is None
+    assert rows[0].attachment_name == "a.pdf"
+    # Drugi plik nie ginie — operator widzi go w opisie wpisu, raz.
+    assert (rows[0].error or "").count("b.pdf") == 1
+
+
+@pytest.mark.asyncio
+async def test_old_mail_failed_on_attachments_then_without_content_does_not_crash(
+    db_session, monkeypatch
+):
+    """Wpis „Nieudane” po błędzie `/attachments`, a w kolejnym biegu załącznik
+    bez treści — ten sam indeks unikalny, bez wyjątku i bez trzymania."""
+    from app.models.order_mail import OUTCOME_FAILED
+
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_UNPROCESSED_HOLD_HOURS", 24)
+    registry = ClientRegistry(by_registry_id={})
+    mid = f"att2{uuid.uuid4().hex[:8]}"
+    msg = _msg(mid, received=_hours_ago(30))
+    await svc._process_message(
+        db_session,
+        _BrokenAttachmentsGraph([], {}),
+        None,
+        msg,
+        svc.IngestStats(),
+        registry,
+    )
+    stats = svc.IngestStats()
+    await svc._process_message(
+        db_session,
+        _FakeGraph([], {f"graph-{mid}": [_no_bytes("c.pdf")]}),
+        None,
+        msg,
+        stats,
+        registry,
+    )
+    assert stats.unprocessed_messages == 0
+    rows = await _rows_of(db_session, mid)
+    assert [r.outcome for r in rows] == [OUTCOME_FAILED]
+
+
+@pytest.mark.asyncio
+async def test_journal_row_race_is_absorbed_not_raised(db_session):
+    """Wpis wiadomości zapisany w międzyczasie (drugi bieg) nie przerywa biegu."""
+    from app.models.order_mail import OUTCOME_FAILED
+
+    mid = f"race{uuid.uuid4().hex[:8]}"
+    first = svc._base_row(None, _msg(mid))
+    first.outcome = OUTCOME_IGNORED_NO_PDF
+    db_session.add(first)
+    await db_session.commit()
+
+    second = svc._base_row(None, _msg(mid))
+    second.outcome = OUTCOME_FAILED
+    assert await svc._add_journal_row(db_session, second) is False
+    # Sesja zdatna do dalszej pracy, w bazie nadal jeden wpis.
+    assert [r.outcome for r in await _rows_of(db_session, mid)] == [
+        OUTCOME_IGNORED_NO_PDF
+    ]
+
+
+@pytest.mark.asyncio
+async def test_too_large_attachment_leaves_a_failed_row_without_a_file(
+    db_session, monkeypatch
+):
+    """Za duży załącznik znikał bez śladu; teraz jest wpis „Nieudane” (raz)."""
+    from app.models.order_mail import OUTCOME_FAILED
+
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_MAX_ATTACHMENT_MB", 0)
+    registry = ClientRegistry(by_registry_id={})
+    mid = f"big{uuid.uuid4().hex[:8]}"
+    graph = _FakeGraph(
+        [], {f"graph-{mid}": [_pdf("duzy.pdf", f"%PDF big {mid}".encode())]}
+    )
+    for _ in range(2):
+        await svc._process_message(
+            db_session, graph, None, _msg(mid), svc.IngestStats(), registry
+        )
+    rows = await _rows_of(db_session, mid)
+    assert [r.outcome for r in rows] == [OUTCOME_FAILED]
+    assert rows[0].attachment_sha256 and rows[0].storage_path is None
+    assert "przekracza limit" in (rows[0].error or "")
+
+
+@pytest.mark.asyncio
+async def test_duplicate_is_never_the_original_of_a_duplicate(db_session):
+    """Runda 2 audytu 25.09: `_first_with_sha` pomija też duplikaty — wpis
+    „Nieudane” z duplikatem sprzed poprawki wskazywał go jako oryginał."""
+    from app.models.order_mail import OUTCOME_FAILED
+
+    sha = uuid.uuid4().hex + uuid.uuid4().hex
+    failed = svc._base_row(None, _msg(f"f{uuid.uuid4().hex[:8]}"))
+    failed.attachment_sha256 = sha
+    failed.outcome = OUTCOME_FAILED
+    db_session.add(failed)
+    await db_session.commit()
+    dup = svc._base_row(None, _msg(f"d{uuid.uuid4().hex[:8]}"))
+    dup.attachment_sha256 = sha
+    dup.outcome = OUTCOME_DUPLICATE
+    dup.duplicate_of_id = failed.id
+    db_session.add(dup)
+    await db_session.commit()
+    assert await svc._first_with_sha(db_session, sha) is None
+
+
+def test_processing_error_names_the_class_not_the_repr():
+    err = svc.processing_error(
+        FileNotFoundError(2, "No such file", "/app/storage/order_mail/x.pdf")
+    )
+    assert err == "Błąd przetwarzania: FileNotFoundError"
+    assert "/app" not in err
 
 
 @pytest.mark.asyncio
@@ -1027,3 +1424,142 @@ async def test_pfron_active_directory_record_controls_roster_and_plan(
     await db_session.flush()
     assert await svc.resolve_order_client_id(db_session, ident) == (None, "pfron")
     await db_session.rollback()
+
+
+# ── Runda 10 audytu (27.09.2026) ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_data_error_on_commit_records_failed_row_and_continues(
+    db_session, monkeypatch, tmp_path
+):
+    """R10-N3-5: ``DataError`` przy commicie (np. znak, którego Postgres nie
+    przyjmuje) nie przerywa biegu — dawniej łapany był tylko
+    ``IntegrityError`` i znacznik skrzynki stał na tej wiadomości na zawsze."""
+    from sqlalchemy.exc import DataError
+
+    from app.models.order_mail import OUTCOME_FAILED
+    from app.services import storage_service
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(storage_service, "ORDER_MAIL_DIR", tmp_path / "order_mail")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+
+    async def ok_process(db, row, payload, *, registry):
+        row.client_key = "bank-d"
+
+    monkeypatch.setattr(svc, "process_pdf_bytes", ok_process)
+    real_commit = db_session.commit
+    calls = {"n": 0}
+
+    async def commit_once_broken():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            await db_session.rollback()
+            raise DataError("INSERT", {}, Exception("invalid byte sequence"))
+        await real_commit()
+
+    monkeypatch.setattr(db_session, "commit", commit_once_broken)
+    tag = uuid.uuid4().hex[:8]
+    mid = f"de{tag}"
+    fake = _FakeGraph([], {f"graph-{mid}": [_pdf("de.pdf", f"%PDF de {tag}".encode())]})
+    stats = svc.IngestStats()
+    added = await svc._process_message(
+        db_session,
+        fake,
+        None,
+        _msg(mid),
+        stats,
+        registry=ClientRegistry(by_registry_id={}),
+    )
+    assert added is True and stats.failed == 1
+    saved = (
+        await db_session.scalars(
+            select(OrderMailDocument).where(
+                OrderMailDocument.internet_message_id == f"<{mid}-{RUN}@example>"
+            )
+        )
+    ).all()
+    assert len(saved) == 1
+    assert saved[0].outcome == OUTCOME_FAILED
+    assert saved[0].error == "Błąd przetwarzania: DataError"
+
+
+@pytest.mark.asyncio
+async def test_nul_in_subject_and_attachment_name_is_journaled(
+    db_session, monkeypatch, tmp_path
+):
+    """R10-N3-5: U+0000 w temacie i nazwie załącznika od nadawcy zewnętrznego
+    nie wywraca zapisu wpisu dziennika."""
+    from app.services import storage_service
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(storage_service, "ORDER_MAIL_DIR", tmp_path / "order_mail")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+
+    async def ok_process(db, row, payload, *, registry):
+        row.outcome = "unrecognized_client"
+
+    monkeypatch.setattr(svc, "process_pdf_bytes", ok_process)
+    tag = uuid.uuid4().hex[:8]
+    mid = f"nul{tag}"
+    fake = _FakeGraph(
+        [], {f"graph-{mid}": [_pdf("z\x00am.pdf", f"%PDF nul {tag}".encode())]}
+    )
+    stats = svc.IngestStats()
+    added = await svc._process_message(
+        db_session,
+        fake,
+        None,
+        _msg(mid, subject="Zam\x00ówienie"),
+        stats,
+        registry=ClientRegistry(by_registry_id={}),
+    )
+    assert added is True and stats.errors == []
+    saved = (
+        await db_session.scalars(
+            select(OrderMailDocument).where(
+                OrderMailDocument.internet_message_id == f"<{mid}-{RUN}@example>"
+            )
+        )
+    ).one()
+    assert saved.subject == "Zamówienie" and saved.attachment_name == "zam.pdf"
+
+
+@pytest.mark.asyncio
+async def test_recheck_failures_are_counted_across_runs(db_session, monkeypatch):
+    """R10-N12-6: padający co bieg recheck zostawia licznik w ``stats`` —
+    sonda degraduje przy trzecim z rzędu (bieg ``partial`` był „zdrowy”)."""
+    from unittest.mock import AsyncMock
+
+    import app.services.order_mail_recheck as recheck_svc
+
+    monkeypatch.setattr(
+        recheck_svc, "run_recheck", AsyncMock(side_effect=RuntimeError("boom"))
+    )
+    monkeypatch.setattr(
+        svc,
+        "read_state",
+        AsyncMock(return_value={"stats": {"recheck_failures_in_row": 2}}),
+    )
+    monkeypatch.setattr(svc, "_write_state", AsyncMock())
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTH_MODE", "app")
+    monkeypatch.setattr(svc, "app_only_credentials_configured", lambda: False)
+    stats = await svc.run_order_mail_ingest(reason="test")
+    assert stats.recheck_failures_in_row == 3
+    assert "recheck: RuntimeError" in stats.errors
+
+    ok = recheck_svc.RecheckRunResult()
+    ok.ran = True
+    monkeypatch.setattr(recheck_svc, "run_recheck", AsyncMock(return_value=ok))
+    stats = await svc.run_order_mail_ingest(reason="test")
+    assert stats.recheck_failures_in_row == 0
+
+    # Bieg poza oknem godzin niczego nie sprawdził — licznik nie znika.
+    monkeypatch.setattr(
+        recheck_svc,
+        "run_recheck",
+        AsyncMock(return_value=recheck_svc.RecheckRunResult()),
+    )
+    stats = await svc.run_order_mail_ingest(reason="test")
+    assert stats.recheck_failures_in_row == 2

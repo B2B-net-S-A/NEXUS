@@ -2,6 +2,7 @@
 
 import { Lock } from "lucide-react";
 
+import { MyEmailNotificationsCard } from "@/components/settings/MyEmailNotificationsCard";
 import { Switch } from "@/components/ui/switch";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -23,7 +24,10 @@ function CategoryRow({
   pending: boolean;
   onToggle: (enabled: boolean) => void;
 }) {
-  const enabled = !category.muted;
+  // Wyłączenie dla roli wygrywa z własnym przełącznikiem — pokazujemy stan
+  // faktyczny (nic nie przychodzi), a nie zapisane życzenie konta.
+  const roleMuted = category.role_muted === true;
+  const enabled = !category.muted && !roleMuted;
   const switchId = `notif-cat-${category.key}`;
   return (
     <li className="flex items-start gap-4 px-4 py-3">
@@ -46,20 +50,27 @@ function CategoryRow({
             </span>
           )}
         </p>
+        {roleMuted && (
+          <p className="mt-1 text-xs font-medium text-warning-muted-foreground">
+            Wyłączone dla Twojej roli przez administratora
+          </p>
+        )}
       </div>
       <Switch
         id={switchId}
         checked={enabled}
-        disabled={category.mandatory || pending}
+        disabled={category.mandatory || roleMuted || pending}
         onCheckedChange={onToggle}
         aria-describedby={`${switchId}-state`}
       />
       <span id={`${switchId}-state`} className="sr-only">
         {category.mandatory
           ? "Kategoria obowiązkowa"
-          : enabled
-            ? "Włączone"
-            : "Wyłączone"}
+          : roleMuted
+            ? "Wyłączone dla Twojej roli przez administratora"
+            : enabled
+              ? "Włączone"
+              : "Wyłączone"}
       </span>
     </li>
   );
@@ -74,10 +85,10 @@ export function NotificationPreferencesPanel() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Wybierz, które powiadomienia mają trafiać do dzwonka. Wyłączona
-        kategoria znika z dzwonka i nie pokazuje się jako dymek na ekranie.
-        Kategorię możesz też wyłączyć prosto z dzwonka ikoną dzwonka
-        z kreską przy powiadomieniu.
+        Wybierz, które powiadomienia mają do Ciebie trafiać. Wyłączona
+        kategoria znika z ikon górnego paska („CV”, „Rekrutacje”,
+        „Wiadomości”, „Kalendarz”) i nie pokazuje się jako dymek na ekranie.
+        Każda ikona ma jeden temat; reszta przychodzi jako dymek i mail.
       </p>
 
       {query.isError && (
@@ -123,6 +134,8 @@ export function NotificationPreferencesPanel() {
           ))}
         </ul>
       )}
+
+      <MyEmailNotificationsCard />
     </div>
   );
 }

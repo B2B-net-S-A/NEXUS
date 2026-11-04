@@ -1,6 +1,13 @@
 /**
- * Adres URL profilu kandydata: cztery zakładki (Profil, Rekrutacje, Historia,
- * Pliki i umowy) i ich filtry.
+ * Adres URL profilu kandydata: sześć zakładek (Przegląd, Rekrutacje,
+ * Screening, Notatki, CV, Dokumenty) i ich filtry.
+ *
+ * Klucze w adresie zostały te same, zmieniały się etykiety (04.10.2026,
+ * 13.10.2026): `summary` = „Przegląd”, `activity` = „Notatki”, `documents` =
+ * „Dokumenty” (umowy i pliki), `screening` = „Screening”. 13.10.2026 doszła
+ * `cv` = „CV” (wydzielona z dawnego „CV i dokumenty”), a filtr `calls`
+ * („Telefony”) zniknął — stare linki z nim otwierają oś czasu. 22.10.2026
+ * doszła `similar` = „Podobni” (osoby z podobnym CV, decyzja Artura).
  *
  * Stare klucze MUSZĄ działać dalej — linki z powiadomień są zapisane w bazie
  * (`?tab=chat&msg=`, `?tab=activity&activity=notes&note=`), a stare zakładki
@@ -11,21 +18,44 @@
 export const PROFILE_SECTIONS = [
   "summary",
   "recruitments",
+  "screening",
   "activity",
+  "cv",
   "documents",
+  "similar",
 ] as const;
 
-/** Filtry zakładki „Historia”. `timeline` = „Wszystko”. */
+/**
+ * Filtry zakładki „Historia”. `timeline` = „Wszystko”. Domyślny od
+ * 29.09.2026 to `notes` — `?tab=activity` bez filtra otwiera notatki, a stare
+ * wejścia na oś czasu (`?tab=timeline`, `?tab=podglad`, `activity=timeline`)
+ * nadal ją otwierają.
+ *
+ * Od 03.10.2026 notatki mają zakładkę na każdy rodzaj (nic nie znika):
+ * `notes` = „Rozmowy”, `contact` = „Próby kontaktu”, `delivery` = „Delivery
+ * Lead”, `emails` = „Maile” (skrzynka M365 i maile zapisane w notatkach),
+ * `automat` = „Automat”. Klucz `notes` zostaje — niosą go linki z powiadomień.
+ *
+ * `calls` („Telefony”) zostaje na liście tylko jako stary klucz wejściowy
+ * (13.10.2026: 10 połączeń w historii, CloudTalk wyłączony) — parser
+ * zamienia go na `timeline` i podmienia adres na kanoniczny.
+ */
 export const ACTIVITY_VIEWS = [
   "timeline",
   "notes",
+  "contact",
+  "delivery",
   "emails",
+  "automat",
   "calls",
   "chat",
 ] as const;
-/** Sekcja zakładki „Pliki i umowy”, do której przewijamy. */
+/** Sekcja zakładki „Dokumenty”, do której przewijamy. */
 export const DOCUMENT_VIEWS = ["files", "contracts"] as const;
-/** Sekcja zakładki „Rekrutacje” — `matching` rozwija „Dopasowanie do rekrutacji”. */
+/**
+ * Sekcja zakładki „Rekrutacje” — `matching` rozwija wiersz rekrutacji
+ * w toku z otwartą „Oceną dopasowania” (od 13.10.2026, E3).
+ */
 export const RECRUITMENT_VIEWS = ["list", "matching"] as const;
 
 export type CandidateProfileSection = (typeof PROFILE_SECTIONS)[number];
@@ -159,7 +189,7 @@ type ViewTarget = Pick<
 >;
 
 const DEFAULT_TARGET: Omit<ViewTarget, "section"> = {
-  activity: "timeline",
+  activity: "notes",
   documents: "files",
   recruitments: "list",
 };
@@ -179,23 +209,26 @@ const LEGACY_TABS: Record<string, ViewTarget> = {
   emails: target("activity", { activity: "emails" }),
   // Zakładki sprzed PR2 (dziewięć zakładek).
   profil: target("summary"),
-  podglad: target("activity"),
-  timeline: target("activity"),
+  podglad: target("activity", { activity: "timeline" }),
+  timeline: target("activity", { activity: "timeline" }),
   rekrutacje: target("recruitments"),
   dopasowanie: target("recruitments", { recruitments: "matching" }),
   notatki: target("activity", { activity: "notes" }),
   // Angielski alias — starsze linki z powiadomień o wzmiankach (`?tab=notes`).
   notes: target("activity", { activity: "notes" }),
-  calls: target("activity", { activity: "calls" }),
+  calls: target("activity", { activity: "timeline" }),
   // `?tab=chat&msg=` — link z powiadomienia czatu (candidate_chat.py).
   chat: target("activity", { activity: "chat" }),
   maile: target("activity", { activity: "emails" }),
   pliki: target("documents", { documents: "files" }),
+  // Odpowiedzi ze screeningu stały do 04.10.2026 na zakładce Profil.
+  odpowiedzi: target("screening"),
+  screeningi: target("screening"),
   umowa: target("documents", { documents: "contracts" }),
 };
 
 /**
- * Translate the incoming URL to the four-tab information architecture.
+ * Translate the incoming URL to the five-tab information architecture.
  * Unknown values fail safely to the summary.
  */
 export function parseCandidateProfileView(
@@ -208,9 +241,18 @@ export function parseCandidateProfileView(
   const rawRecruitments = params.get("recruitments");
 
   if (isOneOf(rawTab, PROFILE_SECTIONS)) {
+    // „Telefony” zdjęte 13.10.2026 — stary filtr otwiera oś czasu i adres
+    // jest podmieniany na kanoniczny (`isLegacy`).
+    if (rawTab === "activity" && rawActivity === "calls") {
+      return {
+        ...target("activity", { activity: "timeline" }),
+        isLegacy: true,
+        hasExplicitTab: true,
+      };
+    }
     return {
       section: rawTab,
-      activity: isOneOf(rawActivity, ACTIVITY_VIEWS) ? rawActivity : "timeline",
+      activity: isOneOf(rawActivity, ACTIVITY_VIEWS) ? rawActivity : "notes",
       documents: isOneOf(rawDocuments, DOCUMENT_VIEWS)
         ? rawDocuments
         : "files",

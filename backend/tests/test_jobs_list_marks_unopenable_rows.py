@@ -70,30 +70,30 @@ def test_can_open_is_true_when_scope_does_not_apply():
 def test_frontend_row_is_not_clickable_when_it_cannot_be_opened():
     """Sama flaga w API nic nie daje, jesli wiersz nadal udaje link.
 
-    Asercja jest zwiazana z KONKRETNYM wyrazeniem, a nie z obecnoscia napisu
-    gdziekolwiek w pliku: `pointer-events-none` wystepuje tu tez w innych
-    miejscach, wiec "czy napis jest" przechodzilo mimo zdjecia go z tej
-    galezi (sprawdzone kontrola negatywna).
+    Od 02.10.2026 lista ma jeden widok (tabele; kafelki usuniete), wiec
+    asercje wiaza sie z wierszem tabeli: klikniecie, stan `interactive`,
+    `aria-disabled` i tytul bez linku musza zalezec od `locked`.
     """
     tsx = (
         BACKEND.parent / "frontend/src/components/v2/pages/JobsListV2.tsx"
     ).read_text(encoding="utf-8")
-    assert "can_open === false" in tsx, "front nie czyta flagi"
-    assert "aria-disabled" in tsx, "czytnik ekranu nadal oglasza wiersz jako link"
+    assert "const locked = job.can_open === false;" in tsx, "front nie czyta flagi"
 
-    # wytnij wyrazenie warunkowe budujace className dla niedostepnego wiersza
-    i = (
-        tsx.index("can_open === false\n")
-        if "can_open === false\n" in tsx
-        else tsx.index("can_open === false")
+    i = tsx.index("const locked = job.can_open === false;")
+    row = tsx[i : i + 900]
+    assert "interactive={!locked}" in row, (
+        "wiersz bez dostepu nadal wyglada na klikalny (hover, kursor)"
     )
-    window = tsx[i : i + 700]
-    guarded = [
-        seg
-        for seg in window.split("can_open === false")
-        if "pointer-events-none" in seg
-    ]
-    assert guarded, (
-        "wiersz bez dostepu nie ma `pointer-events-none` w swojej galezi - "
-        "nadal jest klikalny i uzytkownik i tak trafi w 403"
+    assert "locked\n                  ? undefined" in row, (
+        "wiersz bez dostepu nadal nawiguje po kliknieciu - uzytkownik trafi w 403"
+    )
+    assert "aria-disabled={locked || undefined}" in row, (
+        "czytnik ekranu nadal oglasza wiersz jako aktywny"
+    )
+
+    # tytul bez dostepu jest tekstem, nie linkiem do detalu
+    j = tsx.index("{job.can_open === false ? (")
+    title = tsx[j : j + 400]
+    assert 'aria-disabled="true"' in title and "<Link" not in title, (
+        "tytul wiersza bez dostepu nadal jest linkiem prowadzacym w 403"
     )

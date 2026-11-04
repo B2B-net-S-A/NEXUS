@@ -112,3 +112,75 @@ class ClientFrameworkContractRead(BaseModel):
 class ClientFrameworkContractListResponse(BaseModel):
     items: list[ClientFrameworkContractRead]
     total: int
+
+
+# ── Treść umowy dla Jarvisa (0426) ──────────────────────────────────────────
+
+
+class FrameworkContractPassage(BaseModel):
+    """Jeden albo kilka sąsiednich fragmentów umowy."""
+
+    framework_contract_id: int
+    contract_name: str
+    contract_status: FrameworkContractStatus
+    first_chunk: int
+    last_chunk: int
+    text: str
+    # Fragment aneksu do tej umowy; puste = treść samej umowy.
+    amendment_id: Optional[int] = None
+    amendment_name: Optional[str] = None
+    amendment_effective_date: Optional[date] = None
+
+
+class FrameworkContractAmendmentReading(BaseModel):
+    """Aneks umowy i to, czy jego treść da się czytać."""
+
+    id: int
+    name: str
+    effective_date: date
+    has_file: bool
+    readable: bool
+    pages: Optional[int] = None
+    total_chunks: Optional[int] = None
+    note: Optional[str] = None
+
+
+class FrameworkContractReading(BaseModel):
+    """Umowa klienta i to, czy jej treść da się czytać."""
+
+    id: int
+    name: str
+    status: FrameworkContractStatus
+    effective_date: Optional[date]
+    expiry_date: Optional[date]
+    has_file: bool
+    readable: bool
+    pages: Optional[int] = None
+    total_chunks: Optional[int] = None
+    amendments_count: int = 0
+    amendments: list[FrameworkContractAmendmentReading] = Field(default_factory=list)
+    note: Optional[str] = None
+
+
+class FrameworkContractSearchResponse(BaseModel):
+    query: str
+    # hybrid = po znaczeniu i po słowach; keywords = tylko po słowach (wektory
+    # niedostępne); none = żadna umowa klienta nie ma czytelnej treści.
+    retrieval: str
+    passages: list[FrameworkContractPassage]
+    contracts: list[FrameworkContractReading]
+    note: Optional[str] = None
+
+
+class FrameworkContractTextResponse(BaseModel):
+    contract: FrameworkContractReading
+    passage: Optional[FrameworkContractPassage] = None
+    next_chunk: Optional[int] = None
+    note: Optional[str] = None
+
+
+class FrameworkContractAmendmentTextResponse(BaseModel):
+    amendment: FrameworkContractAmendmentReading
+    passage: Optional[FrameworkContractPassage] = None
+    next_chunk: Optional[int] = None
+    note: Optional[str] = None

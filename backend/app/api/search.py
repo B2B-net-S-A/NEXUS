@@ -5,29 +5,33 @@ import hashlib
 import json
 import time
 from datetime import datetime, timezone
-from typing import Any, List, Optional
+from typing import Any, List, Mapping, Optional, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import and_, case, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.recruitment_access import ensure_job_read_access
+from app.api.recruitment_access import ensure_job_read_access, job_read_scope_clause
 from app.api.candidate_access import CandidateSearchAccess, user_has_candidate_read
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.core.rate_limit import limiter, user_or_ip_key
+from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.competence_category import CompetenceCategory
 from app.models.contact import Contact
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
+from app.schemas.candidate import EmploymentMarker
 from app.schemas.candidate_search import (
     CandidateSearchItem,
     CandidateSearchRequest,
     CandidateSearchResponse,
     CompetenceCategoryFacet,
+    InJobMatch,
+    LastRecruitment,
     MatchScoresRequest,
     MatchScoresResponse,
     SearchDiagnosticsResponse,
@@ -36,9 +40,11 @@ from app.schemas.candidate_search import (
     WaterfallStage,
 )
 from app.services import candidate_search_predicates as predicates
+from app.services.keyword_terms import KeywordTooShort
 from app.services.ai_health import ai_status
 from app.services.eligibility_annotation import eligibility_annotation
-from app.services.candidate_profile_rate import canonical_profile_rate_amount
+from app.services.employment_marker import load_employment_markers
+from app.services.candidate_job_cards import business_day, latest_cards
 from app.services.candidate_text_retrieval import (
     HYBRID_POOL_DEFAULT,
     hybrid_pool_size,
@@ -57,6 +63,7 @@ from app.services.section_permissions import (
     SectionAccess,
     section_access_for_user,
 )
+from app.services.candidate_rate_from import rate_summary
 from app.services.structured_candidate_search import (
     build_filter_groups,
     build_structured_filter,
@@ -103,6 +110,18 @@ def _contains_pattern(q: str) -> str:
     escapowania rozjechałyby się przy pierwszej zmianie.
     """
     return contains_pattern(q)
+
+
+def _candidate_full_name_match(q: str) -> list[Any]:
+    """„Imię Nazwisko” i „Nazwisko Imię” — pojedyncze kolumny nigdy nie
+    zawierają całej frazy ze spacją, więc samo ``name``/``lastname`` nie
+    znajdowało nikogo wpisanego razem z imieniem (Jarvis, 10.2026: 7 osób
+    „nie było w bazie”, choć były)."""
+    pattern = _contains_pattern(q)
+    return [
+        func.concat(Candidate.name, " ", Candidate.lastname).ilike(pattern),
+        func.concat(Candidate.lastname, " ", Candidate.name).ilike(pattern),
+    ]
 
 
 def _hybrid_soft_ranks(body: CandidateSearchRequest) -> list[Any]:
@@ -174,17 +193,21 @@ async def _resort_hybrid_pool(
 
 def _boolean_clause(body: CandidateSearchRequest) -> Any:
     """Kubełki `q_all`/`q_any`/`q_none` — ten sam parser co na liście."""
-    return predicates.parse_q_groups(
-        q_all=body.q_all,
-        q_any=body.q_any,
-        q_none=body.q_none,
-        q_any_groups=body.q_any_groups,
-    ).clause(request_semantics(body))
+    try:
+        return predicates.parse_q_groups(
+            q_all=body.q_all,
+            q_any=body.q_any,
+            q_none=body.q_none,
+            q_any_groups=body.q_any_groups,
+        ).clause(request_semantics(body))
+    except KeywordTooShort as exc:
+        # v2: „R”/„C” jako słowo kluczowe znajdowały prawie całą bazę.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 async def _text_plan(
     db: AsyncSession, body: CandidateSearchRequest
-) -> tuple[str, str, Optional[dict]]:
+) -> tuple[str, str, Optional[dict], Optional[str]]:
     """Jak potraktować `q`: ``(q_text, applied, interpretation)``.
 
     ``applied``: ``literal`` (osoba albo jawny przełącznik — to samo dopasowanie
@@ -195,20 +218,43 @@ async def _text_plan(
     """
     q_text = (body.q or "").strip() if body.q else ""
     if not q_text:
-        return "", "none", None
+        return "", "none", None, None
     sem = request_semantics(body)
+    # Osoba (v2 + `text_mode=auto`): ta sama reguła co lista —
+    # `candidate_search_predicates.person_text_match`.
+    person_match = await predicates.person_text_match(db, q_text, sem, body.text_mode)
     if sem.unified or body.text_mode is not None:
         interpretation = await predicates.interpret_text(db, q_text)
     else:
         interpretation = predicates.detect_text_mode(q_text)
     forced = predicates.text_mode_to_apply(sem, body.text_mode, interpretation)
-    if forced is not None:
+    if person_match is not None:
+        applied = "literal"
+    elif forced is not None:
         applied = forced
     elif body.search_mode == "hybrid":
         applied = "semantic"
     else:
         applied = "keywords"
-    return q_text, applied, interpretation.as_dict()
+    return q_text, applied, interpretation.as_dict(), person_match
+
+
+async def _literal_text_or_422(
+    db: AsyncSession,
+    q_text: str,
+    person_match: Optional[str] = None,
+    *,
+    short_whole_word: bool = False,
+) -> Any:
+    """Dopasowanie dosłowne albo 422 po polsku — ta sama reguła co lista
+    (`q` min. 2 znaki). Jedna litera nie daje warunku i do rundy 2 audytu
+    (25.09.2026) zwracała całą bazę."""
+    try:
+        return await predicates.prepare_literal_text(
+            db, q_text, person_match=person_match, short_whole_word=short_whole_word
+        )
+    except predicates.LiteralTextTooShort as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _fts_clause(q: str) -> Any:
@@ -240,11 +286,10 @@ def _candidate_to_item(
     score: float,
     eligibility: Optional[dict[str, Any]] = None,
     unknown_fields: Optional[list[str]] = None,
+    employment_marker: Optional[EmploymentMarker] = None,
+    last_recruitment: Optional[LastRecruitment] = None,
 ) -> CandidateSearchItem:
-    profile_rate = canonical_profile_rate_amount(
-        c.expected_rate_hourly,
-        c.expected_rate_currency,
-    )
+    profile_rate = rate_summary(c)["rate_from_hourly"]
     return CandidateSearchItem(
         id=c.id,
         name=c.name,
@@ -276,8 +321,96 @@ def _candidate_to_item(
         created_at=c.created_at.isoformat() if c.created_at else None,
         updated_at=c.updated_at.isoformat() if c.updated_at else None,
         eligibility=eligibility,
+        employment_marker=employment_marker,
         unknown_fields=unknown_fields or [],
+        last_recruitment=last_recruitment,
     )
+
+
+# Okno „Dodaj kandydatów do pipeline” pokazuje imienników z kartą w tej
+# rekrutacji w osobnej sekcji — kilka osób wystarcza, żeby rozpoznać właściwą.
+_IN_JOB_MATCHES_LIMIT = 5
+
+
+async def _in_job_matches(
+    db: AsyncSession, job_id: int, text_clauses: list[Any], q_text: Optional[str]
+) -> list[InJobMatch]:
+    """Osoby pasujące do tej samej frazy i filtrów, które JUŻ są w rekrutacji.
+
+    Wynik okna je pomija (``exclude_in_job_id``), więc imiennik z kartą —
+    także odrzuconą — znikał bez śladu i rekruter dodawał drugą osobę
+    o tym samym imieniu i nazwisku. Reguła:
+    ``docs/claude/rekrutacja-tablica/imiennicy-w-oknie-dodawania.md``.
+    """
+    from app.api.proposals_bulk import in_job_cards  # noqa: PLC0415
+
+    job = await db.get(Job, job_id)
+    if job is None:
+        return []
+    in_job = (
+        select(CandidateStage.candidate_id)
+        .where(CandidateStage.job_id == job_id)
+        .distinct()
+    )
+    stmt = (
+        select(Candidate)
+        .where(*text_clauses, Candidate.id.in_(in_job))
+        .order_by(Candidate.lastname.asc(), Candidate.name.asc(), Candidate.id.asc())
+        .limit(_IN_JOB_MATCHES_LIMIT)
+    )
+    if q_text:
+        stmt = stmt.params(q=q_text)
+    candidates = list((await db.execute(stmt)).scalars().all())
+    if not candidates:
+        return []
+    cards = await in_job_cards(db, job=job, candidates=candidates)
+    matches: list[InJobMatch] = []
+    for c in candidates:
+        card = cards.get(c.id)
+        if card is None:
+            continue
+        matches.append(
+            InJobMatch(
+                id=c.id,
+                name=c.name,
+                lastname=c.lastname,
+                email=c.email,
+                phone=c.phone,
+                location=c.location,
+                card_label=card.label,
+                card_column=card.column,
+                closed=card.closed.model_dump() if card.closed else None,
+            )
+        )
+    return matches
+
+
+async def _last_recruitments(
+    db: AsyncSession, user: Any, job_id: int, candidates: list[Candidate]
+) -> dict[int, LastRecruitment]:
+    """Ostatnia rekrutacja każdej osoby poza bieżącą — jedno zapytanie na stronę.
+
+    Zakres jak lista rekrutacji użytkownika (``job_read_scope_clause``):
+    nazwa rekrutacji, której ktoś nie widzi, nie wychodzi przez wyszukiwarkę.
+    """
+    cards = await latest_cards(
+        db,
+        candidate_ids=[c.id for c in candidates],
+        exclude_job_id=job_id,
+        scope_clause=job_read_scope_clause(user, CandidateStage.job_id),
+    )
+    return {
+        candidate_id: LastRecruitment(
+            job_id=card.job_id,
+            job_title=card.job_title or f"Rekrutacja #{card.job_id}",
+            job_client_reference=card.job_client_reference,
+            stage_label=card.stage_label
+            or ("Zamknięty" if card.column == "closed" else "W toku"),
+            column=card.column,
+            moved_on=business_day(card.moved_at),
+        )
+        for candidate_id, card in cards.items()
+    }
 
 
 def _unknown_fields(body: CandidateSearchRequest, c: Candidate) -> list[str]:
@@ -461,11 +594,109 @@ async def candidate_match_scores(
             "measurement": fit.measurement,
             **extra,
         }
+    if body.impression_surface and not _previewing(request):
+        await _record_manual_search_impressions(
+            db, job, current_user, body, candidate_ids, fits
+        )
     return MatchScoresResponse(
         scores=scores,
         breakdowns=breakdowns,
         profile_key=_profile_key(context.weights),
+        non_technology_must=_non_technology_must(breakdowns, _critical_options(job)),
     )
+
+
+def _critical_options(job: Any) -> dict[str, tuple[str, ...]]:
+    from app.services.critical_skills import critical_gate_options  # noqa: PLC0415
+
+    return critical_gate_options(job)
+
+
+def _previewing(request: Optional[Request]) -> bool:
+    """„Podgląd jako” nie zapisuje telemetrii w imieniu podglądanej osoby."""
+    state = getattr(request, "state", None)
+    return getattr(state, "impersonator_id", None) is not None
+
+
+async def _record_manual_search_impressions(
+    db: AsyncSession, job: Job, user: Any, body, candidate_ids: list[int], fits
+) -> None:
+    """U5 (audyt 06.10.2026): wyświetlenia pierwszej strony „Szukaj ręcznie”.
+
+    `match_impressions.run_id` jest wymagany, a to okno nie ma trwałego
+    przeglądu — identyfikator to (rekrutacja, dzień firmy, pseudonim osoby),
+    więc powtórne otwarcie tego samego dnia nic nie dopisuje (`ON CONFLICT`).
+    Dodania z tego okna (`source=manual_search`) zostają bez przypięcia do
+    przeglądu — mianownik do pomiaru jest tu, nie w wyniku dodania.
+    Telemetria nigdy nie psuje odpowiedzi.
+    """
+    from app.services.match_telemetry_service import (  # noqa: PLC0415
+        ImpressionEntry,
+        pseudonymize,
+        record_impressions,
+    )
+
+    try:
+        user_ref = (pseudonymize(getattr(user, "id", None)) or "anon")[:16]
+        run_id = f"manual_search:{job.id}:{business_today().isoformat()}:{user_ref}"
+        score_of = {int(f.breakdown.candidate_id): f.fit_score for f in fits}
+        ranks = body.impression_ranks
+        if not ranks or len(ranks) != len(body.candidate_ids):
+            rank_of = {cid: i for i, cid in enumerate(candidate_ids, start=1)}
+        else:
+            rank_of = {}
+            for cid, rank in zip(body.candidate_ids, ranks):
+                rank_of.setdefault(int(cid), max(1, int(rank)))
+        entries = [
+            ImpressionEntry(
+                candidate_id=cid,
+                rank=rank_of.get(cid, index),
+                fit_score=score_of.get(int(cid)),
+            )
+            for index, cid in enumerate(candidate_ids, start=1)
+        ]
+        await record_impressions(
+            db,
+            run_id=run_id[:64],
+            surface="manual_search",
+            entries=entries,
+            job_id=job.id,
+            user_id=getattr(user, "id", None),
+            client_id=getattr(job, "client_id", None),
+        )
+    except Exception as exc:  # noqa: BLE001 — telemetria nie psuje odpowiedzi
+        import logging  # noqa: PLC0415
+
+        logging.getLogger(__name__).warning(
+            "[telemetry] manual-search impressions skipped: %s", type(exc).__name__
+        )
+
+
+def _non_technology_must(
+    breakdowns: dict[str, Any], options: Optional[Mapping[str, Sequence[str]]] = None
+) -> list[str]:
+    """Pozycje must z odpowiedzi, które nie są technologią (zdanie, branża,
+    język, rola) — ta sama reguła co bramka must (``must_gate_terms``).
+
+    Ekran pokazujący „jest / nie znaleziono” pomija je: zdania nie da się
+    znaleźć w CV, więc plakietka „nie znaleziono” przy nim nic nie mówi.
+    ``options`` (``critical_skills.critical_gate_options``): krytyczna fraza
+    Delivery Leada, której słów bramka SZUKA, nie jest „nieszukana” (13.10.2026
+    — lista „Po tym nie szukamy” wymieniała twardy filtr).
+    """
+    from app.services.must_gate_terms import (  # noqa: PLC0415
+        requirement_with_options,
+    )
+
+    labels: dict[str, None] = {}
+    for detail in breakdowns.values():
+        for key in ("matching_must", "gap_must"):
+            for label in detail.get(key) or []:
+                if isinstance(label, str):
+                    labels.setdefault(label)
+    return [
+        label for label in labels if requirement_with_options(label, options) is None
+    ]
 
 
 def _profile_key(weights: dict) -> str:
@@ -503,7 +734,7 @@ async def candidate_search_diagnostics(
     if body.exclude_in_job_id is not None:
         body.exclude_blacklisted = True
 
-    q_text, text_applied, _interpretation = await _text_plan(db, body)
+    q_text, text_applied, _interpretation, person_match = await _text_plan(db, body)
 
     base_count = await _diagnostics_count(db, [])
     applied: list[Any] = []
@@ -534,7 +765,12 @@ async def candidate_search_diagnostics(
     # ekran, na którym rekruter szuka przyczyny — i był kierowany pod zły adres.
     query_label = "Zapytanie tekstowe"
     if text_applied == "literal":
-        literal_clause = await predicates.prepare_literal_text(db, q_text)
+        literal_clause = await _literal_text_or_422(
+            db,
+            q_text,
+            person_match,
+            short_whole_word=request_semantics(body).unified,
+        )
         if literal_clause is not None:
             query_clauses.append(literal_clause)
         query_label = "Zapytanie (dopasowanie dosłowne)"
@@ -624,7 +860,7 @@ async def advanced_candidate_search(
     clauses.extend(build_structured_filter(body))
 
     # === Layer 3: free-text — FTS or hybrid (BM25+dense+RRF+rerank) ==========
-    q_text, text_applied, interpretation = await _text_plan(db, body)
+    q_text, text_applied, interpretation, person_match = await _text_plan(db, body)
     hybrid_order: list[int] = []
     search_degraded = False
     use_hybrid = text_applied == "semantic"
@@ -668,11 +904,19 @@ async def advanced_candidate_search(
         # Osoba (nazwisko / e-mail / telefon) albo jawne `text_mode=literal`:
         # TO SAMO dopasowanie co `?q=` na liście — fraza w dowolnym polu,
         # literówki w tożsamości, telefon niezależny od zapisu.
-        literal_clause = await predicates.prepare_literal_text(db, q_text)
+        literal_clause = await _literal_text_or_422(
+            db,
+            q_text,
+            person_match,
+            short_whole_word=request_semantics(body).unified,
+        )
         if literal_clause is not None:
             clauses.append(literal_clause)
     elif q_text:
         clauses.append(_fts_clause(q_text))
+
+    # Fraza i filtry bez wykluczenia — do sekcji „Już w tej rekrutacji”.
+    pre_exclusion_clauses = list(clauses)
 
     # === Job-context exclusion — subquery on candidate_stages ================
     if body.exclude_in_job_id is not None:
@@ -757,6 +1001,19 @@ async def advanced_candidate_search(
     else:
         base = select(Candidate).where(where_clause)
         order_cols: list[Any] = []
+        # Wpisany adres: jego właściciel przed osobą, która ma go tylko w CV
+        # albo notatce — ta sama reguła co lista Kandydaci (UAT B35).
+        if interpretation is not None and interpretation["kind"] == "email":
+            order_cols.append(
+                case(
+                    (
+                        func.lower(func.coalesce(Candidate.email, ""))
+                        == interpretation["email"],
+                        0,
+                    ),
+                    else_=1,
+                ).asc()
+            )
         # SEARCH-P0-03: skill chips are a soft signal — they no longer cut, so
         # rank matchers to the top. Leads the sort whenever skill chips are
         # present (a skill search wants skill-relevant results first); the
@@ -789,6 +1046,9 @@ async def advanced_candidate_search(
     # set — skip it for now since the postgres-side ORDER BY already returns
     # rows in score-descending order.
     eligibility_by_id: dict[int, dict[str, Any]] = {}
+    job_client_id: Optional[int] = None
+    in_job_matches: list[InJobMatch] = []
+    last_recruitment_by_id: dict[int, LastRecruitment] = {}
     if body.exclude_in_job_id is not None:
         # Plakietki niosą werdykt hiring managera tej rekrutacji — dane, które
         # gdzie indziej stoją za `ensure_job_read_access`. Bez dostępu do
@@ -801,9 +1061,32 @@ async def advanced_candidate_search(
             eligibility_by_id = await _page_eligibility(
                 db, body.exclude_in_job_id, list(candidates)
             )
+            job_client_id = await db.scalar(
+                select(Job.client_id).where(Job.id == body.exclude_in_job_id)
+            )
+            # Tylko osoba (imię i nazwisko, telefon, e-mail): przy frazie
+            # „po znaczeniu” sekcja imienników nie ma sensu.
+            if text_applied == "literal":
+                in_job_matches = await _in_job_matches(
+                    db, body.exclude_in_job_id, pre_exclusion_clauses, q_text
+                )
+        last_recruitment_by_id = await _last_recruitments(
+            db, current_user, body.exclude_in_job_id, list(candidates)
+        )
+    employment_markers = await load_employment_markers(
+        db,
+        [c.id for c in candidates],
+        today=business_today(),
+        job_client_id=job_client_id,
+    )
     items = [
         _candidate_to_item(
-            c, 0.0, eligibility_by_id.get(c.id), _unknown_fields(body, c)
+            c,
+            0.0,
+            eligibility_by_id.get(c.id),
+            _unknown_fields(body, c),
+            employment_markers.get(c.id),
+            last_recruitment_by_id.get(c.id),
         )
         for c in candidates
     ]
@@ -833,7 +1116,9 @@ async def advanced_candidate_search(
             result_cap_reached=use_hybrid and len(hybrid_order) >= pool_size,
             text_mode_applied=text_applied,
             interpretation=interpretation,
+            text_match=person_match if text_applied == "literal" else None,
         ),
+        in_job_matches=in_job_matches,
     )
 
 
@@ -868,6 +1153,7 @@ async def unified_search(
                     Candidate.lastname.ilike(_contains_pattern(q)),
                     Candidate.email.ilike(_contains_pattern(q)),
                     Candidate.location.ilike(_contains_pattern(q)),
+                    *_candidate_full_name_match(q),
                 )
             )
             .limit(10)
@@ -942,6 +1228,8 @@ async def global_search(
     GET /api/search/global?q=text
     """
     LIMIT = 5
+    # Kategorie, których rola nie widzi — żeby pusty wynik nie udawał „nie ma”.
+    skipped: list[dict[str, str]] = []
 
     # Candidates
     # M2 audit PR 1: viewer/client role must not enumerate candidates from
@@ -957,6 +1245,7 @@ async def global_search(
                     Candidate.name.ilike(_contains_pattern(q)),
                     Candidate.lastname.ilike(_contains_pattern(q)),
                     Candidate.email.ilike(_contains_pattern(q)),
+                    *_candidate_full_name_match(q),
                 )
             )
             .limit(LIMIT)
@@ -970,6 +1259,8 @@ async def global_search(
             }
             for c in cand_result.scalars().all()
         ]
+    else:
+        skipped.append({"category": "candidates", "section": "Kandydaci"})
 
     # Jobs
     jobs_list: list[dict[str, Any]] = []
@@ -1000,6 +1291,9 @@ async def global_search(
                     "url": f"/jobs/{j.id}",
                 }
             )
+
+    else:
+        skipped.append({"category": "jobs", "section": "Rekrutacje"})
 
     # Clients
     clients_list: list[dict[str, Any]] = []
@@ -1035,6 +1329,9 @@ async def global_search(
             }
             for client, effective_name in clients_result.all()
         ]
+
+    else:
+        skipped.append({"category": "clients", "section": "Klienci"})
 
     # Contacts — same containment as candidates above. Contact rows carry
     # client-side hiring-manager names, e-mails and phone numbers (PII), and
@@ -1073,6 +1370,7 @@ async def global_search(
         "jobs": jobs_list,
         "clients": clients_list,
         "contacts": contacts_list,
+        "skipped": skipped,
     }
 
 
@@ -1137,10 +1435,7 @@ async def semantic_search(
                         "location": c.location,
                         "status": c.status.value if c.status else None,
                         "competence_category": c.competence_category,
-                        "expected_rate_hourly": canonical_profile_rate_amount(
-                            c.expected_rate_hourly,
-                            c.expected_rate_currency,
-                        ),
+                        "expected_rate_hourly": rate_summary(c)["rate_from_hourly"],
                         "availability_date": c.availability_date.isoformat()
                         if c.availability_date
                         else None,
@@ -1195,10 +1490,7 @@ async def semantic_search(
                     "location": c.location,
                     "status": c.status.value if c.status else None,
                     "competence_category": c.competence_category,
-                    "expected_rate_hourly": canonical_profile_rate_amount(
-                        c.expected_rate_hourly,
-                        c.expected_rate_currency,
-                    ),
+                    "expected_rate_hourly": rate_summary(c)["rate_from_hourly"],
                     "availability_date": c.availability_date.isoformat()
                     if c.availability_date
                     else None,

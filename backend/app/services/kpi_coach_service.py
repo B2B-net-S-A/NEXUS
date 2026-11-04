@@ -16,6 +16,8 @@ Reguły:
   (≈11:00 dla dnia, ~wtorek rano dla tygodnia, ~11 dnia dla miesiąca) +
   <3 istniejących remindów w tym buckecie + minimum 120 min od ostatniego
   reminda → emit. Eskalacja wariantów 0/1/2 = delikatny/stanowczy/last call.
+  Od 13.10.2026 „behind” wymaga brakującej całej sztuki (`derive_state`),
+  więc cel 1 (placement miesiąca) nie dostaje przypomnienia wcale.
 - `eod_summary`: 17:25 ≤ time ≤ 17:35, raz dziennie per user.
 
 Dedup (hard): UniqueConstraint `uq_kpi_nudge_log_dedup` na
@@ -33,6 +35,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import ws as ws_manager
+from app.core.scheduling import is_business_day
 from app.models.kpi_nudge_log import KpiNudgeChannel, KpiNudgeLog, KpiNudgeType
 from app.models.notification import Notification, NotificationType
 from app.services.notification_access import user_can_receive_notification
@@ -44,6 +47,7 @@ from app.services.kpi_engine import (
     WARSAW,
     evaluate_user_kpis,
     expected_progress_ratio,
+    personal_days_off,
     period_bucket_label,
 )
 from app.services.kpi_messages import render, select_reminder_variant
@@ -84,8 +88,8 @@ def is_in_quiet_hours(now: datetime) -> bool:
     odwrotnie — to okno głosu). Zachowuję nazwę zgodną z planem mimo
     tego — refaktor przy fazie 2."""
     now_w = _as_warsaw(now)
-    # Sobota=5, niedziela=6.
-    if now_w.weekday() >= 5:
+    # Weekend i polskie święto ustawowe (runda 9, R9-N6-6) — bez nudge'y.
+    if not is_business_day(now_w):
         return False
     t = now_w.time()
     return time(9, 0) <= t <= time(17, 30)
@@ -167,7 +171,11 @@ async def run_scheduled_sweep(
                     counters["skipped_dedup"] += 1
 
             elif kpi_result.state == "behind":
-                ratio = expected_progress_ratio(kpi_result.period, now_w)
+                ratio = expected_progress_ratio(
+                    kpi_result.period,
+                    now_w,
+                    await personal_days_off(db, user.id, now_w),
+                )
                 if ratio < _REMIND_MIN_RATIO:
                     continue
                 # Reminder: eskalacja po liczbie istniejących reminderów

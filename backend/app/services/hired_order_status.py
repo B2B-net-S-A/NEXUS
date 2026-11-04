@@ -11,6 +11,12 @@ zakładany przy podpisie ma start z umowy i PUSTĄ stawkę klienta — bez warun
 na stawkę zaślepka udawałaby gotowe zamówienie. Osoba obsadzona na żywej
 linii zamówienia MD/kosztowego (``order_group_id``) ma zamówienie niezależnie
 od stawek na linii — tę obsadę prowadzi Delivery w zamówieniu grupowym.
+
+Jedna sprawa (decyzja Artura 04.10.2026, D3): po zatrudnieniu — z podpisu
+w Generatorze ALBO ręcznym ruchem na „Zatrudniony” — Finanse dostają dzwonek,
+a Delivery Lead kartę „uzupełnij zamówienie”. Oba sygnały zamykają się razem
+(`resolve_hired_order_cases_safely`), gdy zamówienie pary jest uzupełnione —
+w chwili zapisu zamówienia, nie dopiero przy dobowym skanerze.
 """
 
 from __future__ import annotations
@@ -20,14 +26,16 @@ import logging
 from datetime import date
 from typing import Literal, Optional, Sequence
 
-from sqlalchemy import and_, or_, select, tuple_
+from sqlalchemy import and_, or_, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
-from app.models.notification import NotificationType
+from app.models.job import Job
+from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
@@ -52,24 +60,67 @@ def complete_order_clause():
     )
 
 
+_LIVE_CONTRACT_STATUSES = (ContractStatus.active, ContractStatus.ending)
+
+
+def pair_contract_clause():
+    """Kontrakt należy do pary (osoba, rekrutacja ``Job``) — warunek SQL.
+
+    Ta sama osoba (``Contract.candidate_id``) i jedno z trzech: kontrakt tej
+    rekrutacji, kontrakt tej osoby u KLIENTA rekrutacji bez rekrutacji albo
+    jej żywy kontrakt u tego klienta (``active``/``ending``) z innej
+    rekrutacji. Podpis i ręczne „Zatrudniony” podpinają właśnie taki żywy
+    kontrakt bez zmiany ``job_id`` (``_live_contracts_of_person_at_client``)
+    — liczone samym ``job_id`` konsultant zatrudniony drugi raz u tego
+    samego klienta dostawał „bez zamówienia”, które nigdy się nie zamykało
+    (audyt 05.10.2026). Zakończony kontrakt z innej rekrutacji się nie
+    liczy: jego zamówienie dotyczyło poprzedniej współpracy.
+    """
+    return and_(
+        Contract.status != ContractStatus.void,
+        or_(
+            Contract.job_id == Job.id,
+            and_(
+                Contract.client_id == Job.client_id,
+                or_(
+                    Contract.job_id.is_(None),
+                    Contract.status.in_(_LIVE_CONTRACT_STATUSES),
+                ),
+            ),
+        ),
+    )
+
+
 async def order_status_for_pairs(
     db: AsyncSession, pairs: Sequence[tuple[int, int]]
 ) -> dict[tuple[int, int], OrderStatus]:
     """``{(candidate_id, job_id): "complete" | "missing"}`` — jedno zapytanie.
 
-    Para liczy się po kontraktach (``Contract.candidate_id``/``job_id``, bez
-    unieważnionych) i ich zamówieniach. Para bez kontraktu = ``"missing"``.
+    Para liczy się po kontraktach tej osoby należących do pary
+    (``pair_contract_clause``: ta rekrutacja albo klient rekrutacji) i ich
+    zamówieniach. Para bez kontraktu = ``"missing"``.
     """
     keys = sorted({(int(c), int(j)) for c, j in pairs})
     if not keys:
         return {}
     result: dict[tuple[int, int], OrderStatus] = {key: "missing" for key in keys}
+    candidate_ids = sorted({c for c, _ in keys})
+    job_ids = sorted({j for _, j in keys})
     rows = await db.execute(
-        select(Contract.candidate_id, Contract.job_id)
+        select(Contract.candidate_id, Job.id)
+        .select_from(Contract)
+        .join(
+            Job,
+            and_(
+                Job.id.in_(job_ids),
+                or_(Job.id == Contract.job_id, Job.client_id == Contract.client_id),
+            ),
+        )
         .join(ClientOrder, ClientOrder.contract_id == Contract.id)
         .where(
-            tuple_(Contract.candidate_id, Contract.job_id).in_(keys),
-            Contract.status != ContractStatus.void,
+            Contract.candidate_id.in_(candidate_ids),
+            tuple_(Contract.candidate_id, Job.id).in_(keys),
+            pair_contract_clause(),
             complete_order_clause(),
         )
         .distinct()
@@ -181,5 +232,126 @@ async def notify_finance_hired_without_order(
     except Exception:  # noqa: BLE001 — powiadomienie nie może wywrócić podpisu
         logger.exception(
             "hired_order_missing notification failed for contract %s", contract_id
+        )
+        return 0
+
+
+async def resolve_hired_order_cases_safely(
+    db: AsyncSession, *, contract_ids: Sequence[int]
+) -> int:
+    """Zamknij sprawę „uzupełnij zamówienie” kontraktów, których para ma już
+    uzupełnione zamówienie: dzwonki Finansów oznacza jako przeczytane, karty
+    Delivery Leada (szkice zamówień tego kontraktu) zamyka jako rozwiązane.
+
+    Wołane z ``commit_order_write`` (każdy zapis zamówienia z formularza)
+    i z ``order_mail_apply.apply_document`` (zamówienie z maila). Savepoint i fail-soft: zapis zamówienia jest ważniejszy niż
+    sprzątanie powiadomień. Zwraca liczbę zamkniętych spraw (kontraktów).
+    """
+    from app.models.dl_alert import ALERT_NEW_CONTRACTOR_DRAFT  # noqa: PLC0415
+    from app.services.dl_alerts import (  # noqa: PLC0415
+        new_contractor_missing_fields,
+        resolve_entity_alerts,
+    )
+
+    ids = sorted({int(cid) for cid in contract_ids})
+    if not ids:
+        return 0
+    try:
+        async with db.begin_nested():
+            pairs = {
+                row.id: (row.candidate_id, row.job_id)
+                for row in (
+                    await db.execute(
+                        select(
+                            Contract.id, Contract.candidate_id, Contract.job_id
+                        ).where(
+                            Contract.id.in_(ids),
+                            Contract.candidate_id.is_not(None),
+                            Contract.job_id.is_not(None),
+                        )
+                    )
+                ).all()
+            }
+            status = await order_status_for_pairs(db, list(pairs.values()))
+            done_set = {
+                cid for cid, pair in pairs.items() if status.get(pair) == "complete"
+            }
+            # Kontrakt bez rekrutacji (``job_id`` NULL) nie ma pary — liczy się
+            # wtedy jego WŁASNE uzupełnione zamówienie. Do 05.10.2026 taki
+            # kontrakt był pomijany i jego sprawa nie zamykała się nigdy.
+            done_set.update(
+                (
+                    await db.scalars(
+                        select(Contract.id)
+                        .join(ClientOrder, ClientOrder.contract_id == Contract.id)
+                        .where(
+                            Contract.id.in_(ids),
+                            Contract.status != ContractStatus.void,
+                            complete_order_clause(),
+                        )
+                        .distinct()
+                    )
+                ).all()
+            )
+            done = sorted(done_set)
+            if not done:
+                return 0
+            await db.execute(
+                update(Notification)
+                .where(
+                    Notification.notification_type
+                    == NotificationType.hired_order_missing,
+                    Notification.related_entity_type == "contract",
+                    Notification.related_entity_id.in_(done),
+                    Notification.is_read.is_(False),
+                )
+                .values(is_read=True)
+            )
+            # Karta DL ma własną regułę braków (także numer zamówienia) —
+            # zamykamy ją dopiero, gdy ta reguła nic nie widzi. Inaczej karta
+            # znikałaby przy samej stawce i dacie, a skaner otwierałby ją
+            # nazajutrz od nowa.
+            orders = (
+                await db.scalars(
+                    select(ClientOrder)
+                    .options(
+                        selectinload(ClientOrder.contract).selectinload(
+                            Contract.candidate
+                        ),
+                        selectinload(ClientOrder.job),
+                    )
+                    .where(ClientOrder.contract_id.in_(done))
+                )
+            ).all()
+            for order in orders:
+                candidate = order.contract.candidate if order.contract else None
+                name = (
+                    " ".join(
+                        part
+                        for part in (
+                            getattr(candidate, "name", None),
+                            getattr(candidate, "lastname", None),
+                        )
+                        if part
+                    )
+                    or "Kontraktor"
+                )
+                if new_contractor_missing_fields(
+                    order,
+                    candidate_name=name,
+                    job_title=order.job.title if order.job else None,
+                ):
+                    continue
+                await resolve_entity_alerts(
+                    db,
+                    alert_type=ALERT_NEW_CONTRACTOR_DRAFT,
+                    entity_key=f"order:{order.id}",
+                )
+            return len(done)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 — zapis zamówienia nie może przez to paść
+        logger.exception(
+            "[hired_order_case] zamknięcie sprawy nie wyszło contracts=%s", ids
         )
         return 0

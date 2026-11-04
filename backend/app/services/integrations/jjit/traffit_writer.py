@@ -8,6 +8,11 @@ e-mailu (``X-Request-Filter``), ``POST /employees/`` i ``POST
 Poświadczenia: ``JJIT_TRAFFIT_CLIENT_ID/SECRET`` (klient ze scope ``employee``,
 ten sam co scraper) z fallbackiem na ``TRAFFIT_CLIENT_ID/SECRET`` importera;
 tenant z ``TRAFFIT_TENANT`` (domyślnie ``b2bnetwork``).
+
+Od 14.10.2026 Traffit jest wyłączony na stałe (decyzja Artura,
+``app/services/traffit_retired.py``): ``configured`` jest zawsze False, więc
+runner JJIT omija Traffita i kandydat idzie tylko do NEXUSA, a każde wyjście
+do API (token, szukanie, zapis, plik) odmawia przed wysłaniem żądania.
 """
 
 from __future__ import annotations
@@ -19,6 +24,8 @@ import time
 from typing import Any, Optional
 
 import httpx
+
+from app.services.traffit_retired import refuse_traffit
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +55,16 @@ class TraffitWriter:
 
     @property
     def configured(self) -> bool:
-        return bool(self.client_id and self.client_secret)
+        # Traffit wyłączony na stałe (14.10.2026) — poświadczenia nie mają znaczenia.
+        return False
 
     @property
     def base(self) -> str:
         return f"https://{self.tenant}.traffit.com"
 
     async def _token_value(self) -> str:
+        # Każde wyjście do Traffita przechodzi przez token — tu jest strażnik.
+        refuse_traffit("jjit traffit_writer")
         if self._token and time.time() < self._token_expiry:
             return self._token
         resp = await self._http.post(

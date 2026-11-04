@@ -4,7 +4,7 @@
 <p><strong>{{ company.name }}</strong> z siedzibą w Warszawie, {{ company.address }}, numer NIP: {{ company.nip }}, reprezentowaną przez {{ company.representative }},</p>
 <p>zwaną dalej jako „<strong>Spółka</strong>” lub „<strong>B2BNET</strong>”</p>
 <p>a</p>
-<p><strong>{{ g.g_pan }} {{ partner.name_instrumental or partner.name or '…' }}</strong> {{ g.g_prowadzacy }} działalność gospodarczą pod firmą: {{ partner.legal_name or '…' }}, zarejestrowaną w Centralnej Ewidencji i Informacji o Działalności Gospodarczej pod adresem: {{ partner.business_address or '…' }}, NIP: {{ partner.nip or '…' }}, REGON: {{ partner.regon or '…' }},</p>
+<p><strong>{{ g.g_pan }} {{ partner.name_instrumental or partner.name or '…' }}</strong> {{ g.g_prowadzacy }} działalność gospodarczą pod firmą: {{ partner.legal_name or '…' }}, zarejestrowaną w Centralnej Ewidencji i Informacji o Działalności Gospodarczej pod adresem{% if partner.address_for_service %} do doręczeń{% endif %}: {{ partner.business_address or '…' }}, NIP: {{ partner.nip or '…' }}, REGON: {{ partner.regon or '…' }},</p>
 <p>{{ g.g_zwanym }} dalej<strong> „Partnerem”</strong></p>
 <p><strong>B2BNET i Partner</strong> łącznie są zwani „Stronami”</p>
 <h2>§ 1</h2>

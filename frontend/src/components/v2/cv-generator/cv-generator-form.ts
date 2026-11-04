@@ -8,6 +8,10 @@
  */
 
 import type { ChampionProfile, CvGeneratePayload } from "@/lib/api";
+import { isClientCvWordFile } from "@/lib/candidate-files";
+import type { CvAiSourceToggles } from "@/lib/cv-ai-sources";
+import { candidateJobNames, jobNameText } from "@/lib/job-name-text";
+import { clientReferenceParts } from "@/lib/job-names";
 import {
   clientRuleRequirementProblems,
   stageLabel,
@@ -21,16 +25,82 @@ export type CvLanguageChoice = "pl" | "en" | "both";
 /** Dwa kafle obróbki. „Przepisanie” (`basic`) zostaje wyłącznie sufitem klienta. */
 export type CvProcessingMode = "polished" | "tailored";
 
-/** Wartość selecta procesu dla „Inny klient (bez procesu)”. */
-export const OTHER_CLIENT_CHOICE = "other";
+/**
+ * Brak dla osoby bez żadnej rekrutacji. Od 13.10.2026 CV powstaje wyłącznie
+ * w rekrutacji (decyzja Artura) — „Inny klient (bez procesu)” zniknął.
+ */
+export const NO_RECRUITMENT_MISSING = "Rekrutacja — dodaj osobę do rekrutacji";
 
-export interface CvClientRef {
-  id: number;
-  name: string;
+/**
+ * Plik CV na start: główne CV kandydata, a bez niego pierwszy z listy serwera
+ * (firmowe CV dopiero bez innego CV — `cv_source.current_cv_ordering`).
+ */
+export function defaultCvSourceId(
+  sources: readonly { id: number; filename: string; is_primary: boolean }[],
+): number | null {
+  const primary = sources.find((source) => source.is_primary && !isClientCvWordFile(source.filename));
+  return primary?.id ?? sources[0]?.id ?? null;
+}
+
+/** Stanowisko, które pole pokazuje po wyborze procesu. Serwer sprzed zmiany nie przysyła `cv_position`. */
+export function recruitmentPosition(recruitment: RecruitmentOption): string {
+  return recruitment.cv_position ?? recruitment.job_title;
+}
+
+function cleanSpaces(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+/** Lustro `typed_cv_position`: wpisane stanowisko bez numeru zapytania klienta. */
+export function typedCvPosition(value: string, reference: string | null | undefined): string {
+  let text = cleanSpaces(value).replace(/\bZOB[\s_-]*\d+\b/gi, "");
+  for (const part of clientReferenceParts(reference)) {
+    const escaped = part.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&");
+    text = text.replace(new RegExp(`[_\\s]*(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, "gi"), "");
+  }
+  text = cleanSpaces(text.replace(/[([]\s*[)\]]/g, "")).replace(/^[\s\-–—,/_:]+|[\s\-–—,/_:]+$/g, "");
+  return /\p{L}/u.test(text) ? text : "";
+}
+
+export interface CvFilenamePreviewInput {
+  pattern: string | null | undefined;
+  spacesToUnderscores: boolean;
+  position: string;
+  project: string;
+  candidateName: string;
+}
+
+/** Lustro `build_filename` na żywo w formularzu. Wspólne przypadki: `cv-filename-preview-cases.json`. */
+export function cvFilenamePreview(input: CvFilenamePreviewInput): string | null {
+  const pattern = input.pattern?.trim();
+  if (!pattern) return null;
+  const word = (value: string) => {
+    const text = cleanSpaces(value);
+    return input.spacesToUnderscores ? text.replace(/ /g, "_") : text;
+  };
+  const project = pattern.startsWith("ZOB-{PROJEKT}")
+    ? input.project.trim().replace(/^(?:ZOB[\s_-]*)+/i, "")
+    : input.project;
+  const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Warsaw" }).format(new Date());
+  const stem = pattern
+    .replaceAll("{STANOWISKO}", word(input.position))
+    .replaceAll("{IMIE_NAZWISKO}", word(input.candidateName))
+    .replaceAll("{PROJEKT}", word(project))
+    .replaceAll("{DATA}", today)
+    .replace(/[_-]{2,}/g, "_")
+    .replace(/^[_\- ]+|[_\- ]+$/g, "")
+    .replace(/[\\/:*?"<>|\x00-\x1f]/g, "")
+    .replace(/^[ .]+|[ .]+$/g, "");
+  return stem ? `${stem}.docx` : null;
 }
 
 /** Etykieta procesu w selekcie: „Stanowisko · Klient · Etap”. */
 export function processLabel(recruitment: RecruitmentOption): string {
+  // Lista jest wewnętrzna: rekrutacja nazywa się jak jej nagłówek. Nazwa od
+  // klienta bywała taka sama w dwóch procesach („ZOB-3103 usługi programistyczne”).
+  if (recruitment.job_working_title) {
+    return [jobNameText(candidateJobNames(recruitment)), stageLabel(recruitment.stage)].join(" · ");
+  }
   return [
     recruitment.job_title,
     recruitment.client_name || "bez klienta",
@@ -41,7 +111,6 @@ export function processLabel(recruitment: RecruitmentOption): string {
 /**
  * Który proces zaznaczyć samemu. Rekrutacja, z której otwarto generator,
  * wygrywa; jedyny proces osoby wybieramy sami; przy kilku decyduje rekruter.
- * Osoba bez procesów ląduje od razu na „Inny klient (bez procesu)”.
  */
 export function autoProcessChoice(
   recruitments: readonly RecruitmentOption[],
@@ -52,7 +121,6 @@ export function autoProcessChoice(
     if (match) return String(match.stage_id);
   }
   if (recruitments.length === 1) return String(recruitments[0].stage_id);
-  if (recruitments.length === 0) return OTHER_CLIENT_CHOICE;
   return "";
 }
 
@@ -93,37 +161,33 @@ export function languagePayload(choice: CvLanguageChoice): {
 }
 
 export interface MissingInput {
-  flow: "person" | "upload";
   /** Zasady klienta się wczytują / nie dało się ich odczytać. */
   policyPending: boolean;
+  /** Reguła CV klienta w drodze — od niej zależą zgoda RODO, stanowisko, numer projektu. */
+  rulePending?: boolean;
   policyError: boolean;
-  // — ścieżka „osoba z bazy”
-  candidateId: number | null;
-  processChoice: string;
+  /** Wybrany proces — `null`, dopóki rekruter go nie wskaże. */
   recruitment: RecruitmentOption | null;
   recruitmentsLoading: boolean;
-  otherClient: CvClientRef | null;
+  recruitmentsError: boolean;
+  /** Ile rekrutacji ma osoba — bez żadnej CV nie powstanie. */
+  recruitmentsCount: number;
   cvDocumentId: number | null;
   sourcesLoading: boolean;
+  sourcesError: boolean;
   sourcesCount: number;
   /** Notatka dopisana w formularzu (zapisze się przed generacją). */
   noteDraft: string;
   /** Champion z pliku, który nie zapisał się w rekrutacji (tylko to CV). */
   championOverride: boolean;
-  // — ścieżka „plik z dysku, bez dodawania”
-  uploadFile: File | null;
-  /** Plik jest, ale rekruter nie zdecydował: dodać do bazy czy bez dodawania. */
-  uploadDecisionPending: boolean;
-  uploadClient: CvClientRef | null;
-  uploadChampion: boolean;
-  uploadNotes: string;
-  // — wspólne
   rule: CvRequirementRule | null | undefined;
   position: string;
   projectRef: string;
   /** Zrzut zgody blokuje generację (reguła klienta spoza polityki centralnej). */
   consentBlocksGeneration: boolean;
   consentToken: string | null;
+  /** „Z czego powstało” wczytuje się — przełączniki jeszcze nie znają stanu wersji. */
+  aiSourcesLoading?: boolean;
 }
 
 /**
@@ -132,46 +196,35 @@ export interface MissingInput {
  */
 export function missingInputs(input: MissingInput): string[] {
   const items: string[] = [];
-  if (input.policyPending) items.push("Zasady CV klienta — wczytuję…");
+  if (input.policyPending || input.rulePending) items.push("Zasady CV klienta — wczytuję…");
   if (input.policyError) items.push("Zasady CV klienta — nie udało się ich odczytać, odśwież stronę.");
 
-  let notesChars = 0;
-  let hasChampion = false;
-  let withProcess = false;
-  if (input.flow === "person") {
-    if (!input.candidateId) {
-      items.push("Kandydat");
-      return items;
+  if (input.recruitmentsLoading) items.push("Procesy kandydata — wczytuję…");
+  else if (input.recruitmentsError) items.push("Procesy kandydata — nie udało się ich wczytać, odśwież stronę.");
+  else if (input.recruitmentsCount === 0) {
+    items.push(NO_RECRUITMENT_MISSING);
+    return items;
+  } else if (!input.recruitment) items.push("Proces rekrutacyjny");
+  if (input.sourcesLoading) items.push("Plik CV — wczytuję…");
+  else if (input.sourcesError) items.push("Pliki CV kandydata — nie udało się ich wczytać, odśwież stronę.");
+  else if (input.sourcesCount === 0) items.push("Plik CV kandydata — dodaj go na profilu kandydata");
+  else if (!input.cvDocumentId) items.push("Plik CV");
+  const recruitment = input.recruitment;
+  const withProcess = !!recruitment;
+  const notesChars = (recruitment?.notes_chars ?? 0) + input.noteDraft.trim().length;
+  const hasChampion = !!recruitment?.has_champion || input.championOverride;
+  if (recruitment) {
+    const minNotes = recruitment.required_notes_min_chars ?? 0;
+    const localFix = !!input.noteDraft.trim() || input.championOverride;
+    if (recruitment.required_champion && !hasChampion) {
+      items.push("Profil Championa — ten klient go wymaga");
     }
-    if (input.recruitmentsLoading) items.push("Procesy kandydata — wczytuję…");
-    else if (!input.processChoice) items.push("Proces albo klient");
-    else if (input.processChoice === OTHER_CLIENT_CHOICE && !input.otherClient) items.push("Klient");
-    if (input.sourcesLoading) items.push("Plik CV — wczytuję…");
-    else if (input.sourcesCount === 0) items.push("Plik CV kandydata — dodaj go na profilu kandydata");
-    else if (!input.cvDocumentId) items.push("Plik CV");
-    withProcess = !!input.recruitment;
-    notesChars = (input.recruitment?.notes_chars ?? 0) + input.noteDraft.trim().length;
-    hasChampion = !!input.recruitment?.has_champion || input.championOverride;
-    const recruitment = input.recruitment;
-    if (recruitment) {
-      const minNotes = recruitment.required_notes_min_chars ?? 0;
-      const localFix = !!input.noteDraft.trim() || input.championOverride;
-      if (recruitment.required_champion && !hasChampion) {
-        items.push("Profil Championa — ten klient go wymaga");
-      }
-      if (minNotes > 0 && notesChars < minNotes) {
-        items.push(`Notatki ze screeningu — co najmniej ${minNotes} znaków (jest ${notesChars})`);
-      }
-      if (!recruitment.ready && !localFix && !recruitment.required_champion && minNotes === 0) {
-        items.push(...(recruitment.missing_inputs ?? []).filter((problem) => !/\bCV\b.*(PDF|DOCX|plik)/i.test(problem)));
-      }
+    if (minNotes > 0 && notesChars < minNotes) {
+      items.push(`Notatki ze screeningu — co najmniej ${minNotes} znaków (jest ${notesChars})`);
     }
-  } else {
-    if (!input.uploadFile) items.push("Plik CV");
-    else if (input.uploadDecisionPending) items.push("Decyzja: dodać osobę do bazy czy generować bez dodawania");
-    else if (!input.uploadClient) items.push("Klient");
-    notesChars = input.uploadNotes.trim().length;
-    hasChampion = input.uploadChampion;
+    if (!recruitment.ready && !localFix && !recruitment.required_champion && minNotes === 0) {
+      items.push(...(recruitment.missing_inputs ?? []).filter((problem) => !/\bCV\b.*(PDF|DOCX|plik)/i.test(problem)));
+    }
   }
 
   const ruleProblems = clientRuleRequirementProblems(input.rule, {
@@ -182,7 +235,10 @@ export function missingInputs(input: MissingInput): string[] {
     hasChampionInput: hasChampion,
   });
   for (const problem of ruleProblems) if (!items.includes(problem)) items.push(problem);
+  if (input.recruitment?.cv_position === "" && !input.position.trim()) items.push("Stanowisko");
   if (input.consentBlocksGeneration && !input.consentToken) items.push("Zrzut zgody kandydata (RODO)");
+  // Awaria odczytu źródeł nie blokuje: serwer bierze wtedy ustawienia domyślne.
+  if (input.aiSourcesLoading) items.push("Źródła dla AI — wczytuję…");
   return items;
 }
 
@@ -203,8 +259,7 @@ export function advancedNeedsAttention(input: AdvancedAttention): boolean {
 
 export interface GeneratePayloadInput {
   candidateId: number;
-  recruitment: RecruitmentOption | null;
-  otherClient: CvClientRef | null;
+  recruitment: RecruitmentOption;
   cvDocumentId: number;
   projectRef: string;
   language: CvLanguageChoice;
@@ -213,20 +268,22 @@ export interface GeneratePayloadInput {
   position: string;
   championProfile: ChampionProfile | null;
   consentToken: string | null;
-  /** Notatki z formularza — wysyłane tylko bez procesu. */
-  notes?: string;
+  /** Przełączniki „Z czego powstało”; `null` = serwer bierze domyślne. */
+  sources?: CvAiSourceToggles | null;
+  /** „Napisz od nowa” (PR 5): uwaga rekrutera dla modelu. */
+  instruction?: string;
 }
 
-/** Treść `POST /api/cv-generator/generate`. Bez procesu klient jest jawny. */
+/**
+ * Treść `POST /api/cv-generator/generate`. Notatka z formularza zapisuje się
+ * w rekrutacji przed generacją, więc w żądaniu jej nie ma.
+ */
 export function buildGeneratePayload(input: GeneratePayloadInput): CvGeneratePayload {
   const payload: CvGeneratePayload = {
     candidate_id: input.candidateId,
-    stage_id: input.recruitment?.stage_id ?? null,
-    // Przy procesie to asercja (serwer i tak bierze klienta z rekrutacji,
-    // rozjazd = 422); bez procesu — jedyne źródło klienta.
-    client_id: input.recruitment
-      ? (input.recruitment.client_id ?? null)
-      : (input.otherClient?.id ?? null),
+    stage_id: input.recruitment.stage_id,
+    // Asercja: serwer i tak bierze klienta z rekrutacji (rozjazd = 422).
+    client_id: input.recruitment.client_id ?? null,
     cv_document_id: input.cvDocumentId,
     project_ref: input.projectRef.trim(),
     ...languagePayload(input.language),
@@ -236,65 +293,48 @@ export function buildGeneratePayload(input: GeneratePayloadInput): CvGeneratePay
   if (input.position.trim()) payload.position = input.position.trim();
   if (input.championProfile) payload.champion_profile = input.championProfile;
   if (input.consentToken) payload.consent_screenshot_token = input.consentToken;
-  // Bez procesu notatka nie może stać się trwałą notatką kandydata bez
-  // rekrutacji — trafiałaby do CV pod każdego kolejnego klienta.
-  if (!input.recruitment && input.notes?.trim()) payload.screening_notes = input.notes.trim();
+  if (input.sources) payload.sources = { ...input.sources };
+  if (input.instruction?.trim()) payload.instruction = input.instruction.trim();
   return payload;
 }
 
-export interface UploadPayloadInput {
-  file: File;
-  client: CvClientRef;
-  projectRef: string;
-  language: CvLanguageChoice;
-  blind: boolean;
-  contentMode: CvProcessingMode | "basic";
-  position: string;
-  notes: string;
-  championFile: File | null;
-  championProfile: ChampionProfile | null;
-  consentToken: string | null;
+// Sekcje i klucze, których import z dokumentu NIE przysyła: notatki zespołu
+// (sekcja 8 — brak klucza = sekcja nietknięta), blok maszynowy historii
+// klienta i weryfikacja, które stempluje serwer.
+const IMPORT_SKIPPED_KEYS = new Set(["insights", "client_history", "verification"]);
+
+function withoutEmpty(value: unknown): unknown {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "string") return value.trim() ? value : undefined;
+  if (Array.isArray(value)) return value.length ? value : undefined;
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      const kept = withoutEmpty(item);
+      if (kept !== undefined) out[key] = kept;
+    }
+    return Object.keys(out).length ? out : undefined;
+  }
+  return value;
 }
 
-/** Treść multipart `POST /api/cv-generator/generate-upload` (osoba spoza bazy). */
-export function buildUploadFormData(input: UploadPayloadInput): FormData {
-  const fd = new FormData();
-  fd.append("cv_file", input.file);
-  fd.append("client_id", String(input.client.id));
-  if (input.position.trim()) fd.append("position", input.position.trim());
-  if (input.projectRef.trim()) fd.append("project_ref", input.projectRef.trim());
-  const { language, languages } = languagePayload(input.language);
-  fd.append("language", language);
-  fd.append("languages", languages);
-  fd.append("blind_cv", String(input.blind));
-  fd.append("content_mode", input.contentMode);
-  if (input.notes.trim()) fd.append("screening_notes", input.notes);
-  if (input.championFile) fd.append("champion_file", input.championFile);
-  // Poprawiony w podglądzie profil jedzie tylko razem z plikiem, z którego
-  // powstał — bez pliku generacja czyta dokument sama, deterministycznie.
-  if (input.championFile && input.championProfile) {
-    fd.append("champion_profile_json", JSON.stringify(input.championProfile));
+/**
+ * Ładunek `apply-import` z generatora CV: tylko pola, które dokument
+ * NAPRAWDĘ niesie. Generator nie zna zapisanego profilu (brak `current`),
+ * więc pełny profil z dokumentu nadpisywał zapisane pola pustymi wartościami,
+ * a pusta lista `insights` kasowała notatki zespołu (audyt 25.09.2026, r3).
+ */
+export function championImportPayload(profile: ChampionProfile): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(profile as unknown as Record<string, unknown>)) {
+    if (IMPORT_SKIPPED_KEYS.has(key)) continue;
+    const kept = withoutEmpty(value);
+    if (kept !== undefined) out[key] = kept;
   }
-  if (input.consentToken) fd.append("consent_screenshot_token", input.consentToken);
-  return fd;
+  return out;
 }
 
 /** Nazwa pliku do pobrania HTML (ta sama nazwa co DOCX). */
 export function htmlFilename(docxFilename: string): string {
   return docxFilename.replace(/\.docx$/i, "") + ".html";
-}
-
-/** Data na liście „Moje CV”: „dziś 12:40”, „wczoraj 16:02”, „19.09”. */
-export function formatCvListDate(iso: string | null | undefined, now: Date = new Date()): string {
-  if (!iso) return "";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  const time = date.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
-  const startOf = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
-  const days = Math.round((startOf(now) - startOf(date)) / 86_400_000);
-  if (days === 0) return `dziś ${time}`;
-  if (days === 1) return `wczoraj ${time}`;
-  const dd = String(date.getDate()).padStart(2, "0");
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  return date.getFullYear() === now.getFullYear() ? `${dd}.${mm}` : `${dd}.${mm}.${date.getFullYear()}`;
 }

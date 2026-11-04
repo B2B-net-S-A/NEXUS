@@ -19,6 +19,8 @@ export interface CareerJobParams {
   city: string | null;
   remote_policy: RemotePolicy | null;
   onsite_days_per_week: number | null;
+  /** 0407: gdy klient liczy na miesiąc (starsze odpowiedzi nie mają pola). */
+  onsite_days_per_month?: number | null;
   seniority: string | null;
   contract: string | null;
   start: string | null;
@@ -40,6 +42,15 @@ export interface CareerJobResponse {
   status: "open" | "closed";
   recruiter: CareerRecruiter;
   job: CareerJob;
+  /** Szablon graficzny (0478): wybór rekrutera albo domyślny według roli. */
+  theme?: string;
+  /** Data zatwierdzenia opisu `RRRR-MM-DD` (tylko `open`) — „datePosted” JobPosting. */
+  published_at?: string | null;
+  /** Slug linku, pod którym rekrutacja stoi na tablicy (canonical i identyfikator
+   *  oferty w Google — jedna rekrutacja, wiele linków; audyt 21.10.2026). */
+  canonical_slug?: string | null;
+  /** Tylko przy `closed` (etap 5): inne otwarte rekrutacje tej osoby. */
+  other_jobs?: CareerRecruiterJob[];
 }
 
 export interface CareerRecruiterJob {
@@ -47,11 +58,42 @@ export interface CareerRecruiterJob {
   title: string;
   city: string | null;
   remote_policy: RemotePolicy | null;
+  /** Etap 6: szablon graficzny rekrutacji (nazwa sceny na stronie rekrutera). */
+  theme?: string;
+  /** Etap 6: klucz kategorii jak na tablicy (plakietki na stronie rekrutera). */
+  category?: CareerBoardCategory | null;
 }
 
 export interface CareerRecruiterResponse {
-  recruiter: { first_name: string; slug: string };
+  /** `about` (etap 6): najwyżej dwa zdania „O mnie”, sprawdzone przy zapisie. */
+  recruiter: { first_name: string; slug: string; about?: string | null };
   jobs: CareerRecruiterJob[];
+}
+
+/** Klucz filtra kategorii na tablicy — cztery kategorie kompetencji. */
+export type CareerBoardCategory = "development" | "infra" | "qa" | "management";
+
+/** Karta tablicy otwartych rekrutacji (strona główna, etap 6). */
+export interface CareerBoardJob {
+  /** Slug linku prowadzącego rekrutację (D2) — karta prowadzi na `/r/<slug>`. */
+  slug: string;
+  title: string;
+  subtitle: string | null;
+  city: string | null;
+  remote_policy: RemotePolicy | null;
+  category: CareerBoardCategory | null;
+  theme: string;
+  recruiter_first_name: string;
+  /** Wymagania do podglądu sceny i szukania (etap 7, najwyżej 5 każdych).
+   *  Puste, gdy sekcja jest ukryta przełącznikiem „pokaż”. */
+  must?: string[];
+  nice?: string[];
+}
+
+export interface CareerBoardResponse {
+  jobs: CareerBoardJob[];
+  /** Stały link Head of Recruitment dla „Zostaw CV”; `null` = bez przycisku. */
+  cv: { slug: string; first_name: string } | null;
 }
 
 /** Adres API dla odczytu z serwera (RSC, grafiki OG). */

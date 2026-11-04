@@ -51,6 +51,11 @@ interface Props {
   /** Czy wolno wrócić do stanu „nie wybrano". */
   allowClear?: boolean;
   disabled?: boolean;
+  /** Tylko klienci z zakładek „Aktywni” i „Relacyjni” katalogu klientów —
+   * wybór klienta w Rekrutacjach i Kontraktach (ticket 30.09.2026). Klient,
+   * który wróci do tych zakładek, pojawia się sam, bo filtr liczy serwer
+   * (`contract_eligible`). Filtry list zostają przy pełnej liście. */
+  selectableOnly?: boolean;
 }
 
 export function ClientSinglePicker({
@@ -60,6 +65,7 @@ export function ClientSinglePicker({
   placeholder = "Wybierz klienta…",
   allowClear = false,
   disabled = false,
+  selectableOnly = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -67,7 +73,12 @@ export function ClientSinglePicker({
   const clientsQuery = useQuery({
     queryKey: [queryKey],
     queryFn: async () =>
-      (await api.get<ClientRef[]>("/api/clients-lookup")).data,
+      (
+        await api.get<ClientRef[]>(
+          "/api/clients-lookup",
+          selectableOnly ? { params: { contract_eligible: true } } : undefined,
+        )
+      ).data,
     staleTime: 5 * 60 * 1000,
   });
 

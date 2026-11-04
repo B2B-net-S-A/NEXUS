@@ -2,7 +2,8 @@
 
 Kontrakty (decyzje Artura 21.09.2026):
 
-- brak zapisu = pusty pulpit (wersja 0), nie błąd;
+- brak zapisu = układ roli (wersja 0, ``uses_role_layout``), nie błąd;
+- zapisany pusty układ = świadomie pusty pulpit (``role_layout_off``);
 - jeden pulpit na osobę, widzi go tylko właściciel (trasa czyta ``current_user``);
 - zapis z nieaktualną wersją = 409 (dwie karty przeglądarki);
 - kafelek poza siatką, zły link albo metryka niepasująca do typu = 422;
@@ -78,7 +79,14 @@ async def test_empty_dashboard_before_first_save(app_client):
     headers, _ = await _login()
     resp = await app_client.get(URL, headers=headers)
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {"tiles": [], "version": 0, "dropped_tiles": []}
+    assert resp.json() == {
+        "tiles": [],
+        "version": 0,
+        "dropped_tiles": [],
+        "hidden_panels": [],
+        # 04.10.2026: brak zapisu = front pokazuje układ roli.
+        "uses_role_layout": True,
+    }
 
 
 @needs_db
@@ -135,6 +143,16 @@ async def test_each_person_sees_only_their_own_dashboard(app_client):
             config={"links": [{"label": "x", "url": "javascript:alert(1)"}]},
         ),
         _tile(config={"link_to": "https://evil.example.com"}),
+        # Runda 8 (R8-N10-5): `/\host` przeglądarka czyta jak `//host`.
+        _tile(config={"link_to": "/\\evil.example.com"}),
+        _tile(
+            type="note",
+            config={"links": [{"label": "x", "url": "/\\evil.example.com"}]},
+        ),
+        _tile(
+            type="note",
+            config={"links": [{"label": "x", "url": "/\tevil"}]},
+        ),
         _tile(config={"nieznane": 1}),
         _tile(type="metric_number", config={}),  # metryka bez definicji
         _metric_tile(group_by="week", measure="first_reach", stage="cv_sent")
@@ -216,6 +234,128 @@ async def test_rejected_first_save_leaves_an_empty_dashboard(app_client):
     assert read.json()["version"] == 0
 
 
+PANEL_URL = f"{URL}/panels/cv_in_transit"
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_panel_removed_from_the_dashboard_survives_a_tile_save(app_client):
+    """„Usuń z pulpitu” listy nad kafelkami zapisuje się na koncie i nie ginie
+    przy zapisie układu (zapis kafelków przepisuje cały `layout`)."""
+    headers, _ = await _login()
+    hide = await app_client.put(PANEL_URL, headers=headers, json={"hidden": True})
+    assert hide.status_code == 200, hide.text
+    # Sama decyzja o liście nie rusza wersji układu ani pustego pulpitu.
+    assert hide.json() == {
+        "tiles": [],
+        "version": 0,
+        "dropped_tiles": [],
+        "hidden_panels": ["cv_in_transit"],
+        "uses_role_layout": True,
+    }
+
+    saved = await app_client.put(
+        URL, headers=headers, json={"tiles": [_tile()], "expected_version": 0}
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["hidden_panels"] == ["cv_in_transit"]
+    read = await app_client.get(URL, headers=headers)
+    assert read.json()["hidden_panels"] == ["cv_in_transit"]
+    assert len(read.json()["tiles"]) == 1
+
+    restore = await app_client.put(PANEL_URL, headers=headers, json={"hidden": False})
+    assert restore.status_code == 200
+    assert restore.json()["hidden_panels"] == []
+    assert restore.json()["version"] == 1
+    assert len(restore.json()["tiles"]) == 1
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_unknown_panel_is_rejected_and_each_person_hides_their_own(app_client):
+    headers, _ = await _login()
+    other, _ = await _login()
+    bad = await app_client.put(
+        f"{URL}/panels/my_tasks", headers=headers, json={"hidden": True}
+    )
+    assert bad.status_code == 422
+    assert (
+        await app_client.put(PANEL_URL, headers=headers, json={"hidden": True})
+    ).status_code == 200
+    assert (await app_client.get(URL, headers=other)).json()["hidden_panels"] == []
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_whole_board_panel_and_its_tile_are_for_head_and_admin(app_client):
+    """„Czeka na Ciebie” jako kafelek (23.10.2026): cały panel (`board_tasks`)
+    chowa tylko Head of Recruitment i admin, a kafelek zapisuje się jak inne."""
+    url = f"{URL}/panels/board_tasks"
+    recruiter, _ = await _login()
+    denied = await app_client.put(url, headers=recruiter, json={"hidden": True})
+    assert denied.status_code == 403
+
+    leader, _ = await _login("head_of_recruitment")
+    hide = await app_client.put(url, headers=leader, json={"hidden": True})
+    assert hide.status_code == 200, hide.text
+    assert hide.json()["hidden_panels"] == ["board_tasks"]
+    tile = _tile(type="board_tasks", w=12, h=6, config={})
+    saved = await app_client.put(
+        URL, headers=leader, json={"tiles": [tile], "expected_version": 0}
+    )
+    assert saved.status_code == 200, saved.text
+    assert [t["type"] for t in saved.json()["tiles"]] == ["board_tasks"]
+    assert saved.json()["hidden_panels"] == ["board_tasks"]
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_only_head_of_recruitment_hides_task_lists(app_client):
+    """Listy „Czeka na Ciebie” poza „CV w drodze” usuwa wyłącznie Head of
+    Recruitment i admin (06.10.2026); przywrócić może każdy."""
+    url = f"{URL}/panels/allocation_proposals"
+    recruiter, _ = await _login()
+    denied = await app_client.put(url, headers=recruiter, json={"hidden": True})
+    assert denied.status_code == 403
+    assert "Head of Recruitment" in denied.json()["detail"]
+    assert (
+        await app_client.put(url, headers=recruiter, json={"hidden": False})
+    ).status_code == 200
+
+    for role in ("head_of_recruitment", "admin"):
+        leader, _ = await _login(role)
+        for panel in (
+            "allocation_proposals",
+            "new_job_leads",
+            "team_load",
+            "pending_jobs",
+        ):
+            hide = await app_client.put(
+                f"{URL}/panels/{panel}", headers=leader, json={"hidden": True}
+            )
+            assert hide.status_code == 200, hide.text
+        read = await app_client.get(URL, headers=leader)
+        assert read.json()["hidden_panels"] == [
+            "allocation_proposals",
+            "new_job_leads",
+            "team_load",
+            "pending_jobs",
+        ]
+
+
+def test_panel_keys_mirror_the_frontend():
+    import re
+    from pathlib import Path
+
+    from app.services.dashboard_tiles import PANEL_KEYS
+
+    src = (
+        Path(__file__).resolve().parents[2] / "frontend/src/lib/dashboard-panels.ts"
+    ).read_text(encoding="utf-8")
+    block = src[src.index("DASHBOARD_PANEL_KEYS = [") : src.index("] as const")]
+    assert tuple(re.findall(r'"([a-z_]+)"', block)) == PANEL_KEYS
+
+
 def test_first_save_inserts_the_row_before_locking_it():
     """Wyścig dwóch kart nie odtwarza się deterministycznie w jednym procesie
     (ASGI szereguje żądania), więc pilnujemy kolejności w źródle: pusty wiersz
@@ -227,3 +367,59 @@ def test_first_save_inserts_the_row_before_locking_it():
     src = inspect.getsource(user_dashboard.save_my_dashboard)
     assert "on_conflict_do_nothing" in src
     assert src.index("on_conflict_do_nothing") < src.index("with_for_update")
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_saving_an_empty_layout_turns_the_role_layout_off(app_client):
+    """Usunięcie ostatniego kafelka to decyzja „chcę pusty pulpit” — bez
+    znacznika przy następnym wejściu wróciłby układ roli (04.10.2026)."""
+    headers, _ = await _login()
+    first = await app_client.put(
+        URL, headers=headers, json={"tiles": [_tile()], "expected_version": 0}
+    )
+    assert first.json()["uses_role_layout"] is False
+    emptied = await app_client.put(
+        URL, headers=headers, json={"tiles": [], "expected_version": 1}
+    )
+    assert emptied.status_code == 200, emptied.text
+    assert emptied.json()["uses_role_layout"] is False
+    assert (await app_client.get(URL, headers=headers)).json()[
+        "uses_role_layout"
+    ] is False
+
+    # Kafelek dodany później zdejmuje znacznik — pusty pulpit znowu znaczy
+    # „pusty z wyboru” dopiero po kolejnym pustym zapisie.
+    again = await app_client.put(
+        URL, headers=headers, json={"tiles": [_tile()], "expected_version": 2}
+    )
+    assert again.json()["uses_role_layout"] is False
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_hiding_a_panel_keeps_the_role_layout(app_client):
+    headers, _ = await _login()
+    resp = await app_client.put(PANEL_URL, headers=headers, json={"hidden": True})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["uses_role_layout"] is True
+    assert (await app_client.get(URL, headers=headers)).json()[
+        "uses_role_layout"
+    ] is True
+
+
+def test_board_scope_is_only_for_the_request_board():
+    from pydantic import ValidationError
+
+    from app.services.dashboard_tiles import DashboardTile
+
+    ok = DashboardTile.model_validate(
+        _tile(type="request_board", w=12, h=8, config={"board_scope": "my_category"})
+    )
+    assert ok.config.board_scope == "my_category"
+    with pytest.raises(ValidationError):
+        DashboardTile.model_validate(_tile(config={"board_scope": "my_lead"}))
+    with pytest.raises(ValidationError):
+        DashboardTile.model_validate(
+            _tile(type="request_board", w=12, h=8, config={"board_scope": "team"})
+        )

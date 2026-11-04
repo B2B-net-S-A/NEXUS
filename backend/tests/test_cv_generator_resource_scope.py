@@ -202,9 +202,7 @@ async def test_generation_rejects_stage_of_another_candidate(monkeypatch):
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
     ],
 )
 async def test_every_internal_role_reads_without_membership(monkeypatch, role):

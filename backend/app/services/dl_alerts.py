@@ -45,6 +45,7 @@ from decimal import Decimal
 from typing import Optional, Sequence
 
 from sqlalchemy import func, select, update
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,7 +71,7 @@ from app.models.dl_alert import (
     DL_ALERT_STATUS_RESOLVED,
     DlAlert,
 )
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services.client_identity import client_display_name_expression
 from app.services.delivery_alert_recipients import (
     DeliveryAlertRecipientScope,
@@ -79,6 +80,22 @@ from app.services.delivery_alert_recipients import (
 from app.services.multi_consultant_orders import EVENT_BUDGET_EXHAUSTED
 
 logger = logging.getLogger(__name__)
+
+
+def client_not_deleted_clause(client_id_column):
+    """Encja NIE należy do klienta usuniętego z zachowaniem historii (0307).
+
+    Runda 9 (R9-N12-6): usunięty klient (``deleted_at``, tryb archiwum) nie ma
+    profilu ani zapisów, a mimo to dostawał karty DL i dzwonki o umowach
+    ramowych, konfliktach i brakach zamówień. Jedna klauzula dla wszystkich
+    reguł; encja bez klienta (``NULL``) przechodzi.
+    """
+    return ~(
+        select(Client.id)
+        .where(Client.id == client_id_column, Client.deleted_at.isnot(None))
+        .correlate_except(Client)
+        .exists()
+    )
 
 
 async def dl_user_ids_for_client(
@@ -573,6 +590,26 @@ async def _emit_budget_exhausted(
     )
 
 
+async def resolve_budget_exhausted_alerts(
+    db: AsyncSession, group_id: int, *, now: Optional[datetime] = None
+) -> int:
+    """Zamknij karty „zamówienie wyczerpane" grupy, która znów ma budżet.
+
+    Runda 9 (R9-N12-9): ``settle_group`` / ``settle_shared_md_group`` wracały
+    z ``exhausted`` na ``active`` (podniesiona kwota, korekta importu), a karta
+    zostawała otwarta — DL widział „wyczerpane" przy zamówieniu, które
+    pracuje. Klucz niesie numer epizodu (``group:{id}:ep:{n}``), więc prefiks
+    ``group:{id}:`` zamyka karty wszystkich epizodów; kolejne wyczerpanie to
+    nowy epizod i nowa karta.
+    """
+    return await resolve_entity_alerts(
+        db,
+        alert_type=ALERT_COST_ORDER_EXHAUSTED,
+        entity_key=f"group:{group_id}",
+        now=now,
+    )
+
+
 async def reconcile_exhausted_group_budget_alerts(db: AsyncSession) -> int:
     """Backstop: dostarcz alert wyczerpania, który przepadł przy braku DL.
 
@@ -603,6 +640,9 @@ async def reconcile_exhausted_group_budget_alerts(db: AsyncSession) -> int:
         select(ClientOrderGroup)
         .where(
             ClientOrderGroup.status == GROUP_STATUS_EXHAUSTED,
+            # Runda 9 (R9-N12-6): wyczerpane zamówienie nie blokuje usunięcia
+            # klienta, a usunięty klient nie dostaje kart.
+            client_not_deleted_clause(ClientOrderGroup.client_id),
             ~select(DlAlert.id)
             .where(
                 DlAlert.order_group_id == ClientOrderGroup.id,
@@ -790,6 +830,18 @@ def format_reaction(alert: DlAlert) -> str:
 ORDER_NUMBER_PLACEHOLDER = "(bez numeru)"
 
 
+#: Braki z bramki aktywacji (``_missing_activation_fields``) w bierniku —
+#: karta mówi „Uzupełnij: stawkę przychodową, …".
+_ACTIVATION_FIELD_ACCUSATIVE = {
+    "numer zamówienia": "numer zamówienia",
+    "data startu": "datę startu",
+    "stawka przychodowa": "stawkę przychodową",
+    "stawka kosztowa": "stawkę kosztową",
+    "kwota zamówienia": "kwotę zamówienia",
+    "liczba MD": "liczbę MD",
+}
+
+
 def new_contractor_missing_fields(
     order: ClientOrder, *, candidate_name: Optional[str], job_title: Optional[str]
 ) -> list[str]:
@@ -799,17 +851,15 @@ def new_contractor_missing_fields(
     zamówienia JEST jego numerem. Szkic z podpisu dostaje tytuł-etykietę
     „Imię Nazwisko — Rekrutacja" albo zaślepkę „(bez numeru)"; dopóki tytuł
     jest jednym z nich, numeru nikt nie wpisał.
+
+    Runda 9 (R9-N12-2): pozostałe braki liczy TA SAMA reguła co bramka
+    aktywacji (``api.client_orders._missing_activation_fields``) — liczba MD
+    dla zamówienia MD, kwota dla kosztowego, data startu (koniec NIE jest
+    wymagany: zamówienie bezterminowe to normalny stan). Własna lista
+    wymagała końca, którego aktywacja nie wymaga, a nie znała MD i kwoty,
+    więc karta zamykała się, zanim szkic dało się aktywować.
     """
     missing: list[str] = []
-    has_revenue_rate = (
-        order.md_rate_revenue is not None
-        if order.order_group_id is not None
-        else order.rate_client is not None
-    )
-    if not has_revenue_rate:
-        missing.append("stawkę przychodową")
-    if order.start_date is None or order.end_date is None:
-        missing.append("okres zamówienia")
     title = (order.title or "").strip()
     # Tytuł-etykieta szkicu z podpisu to „Imię Nazwisko — Rekrutacja". Porównanie
     # po KOŃCÓWCE (tytule rekrutacji), nie po imieniu: korekta nazwiska
@@ -827,6 +877,20 @@ def new_contractor_missing_fields(
     )
     if not title or auto_label:
         missing.append("numer zamówienia")
+    if order.order_group_id is not None:
+        # Linia zamówienia MD/kosztowego — aktywuje ją zapis linii, nie bramka
+        # zamówienia okresowego.
+        if order.md_rate_revenue is None:
+            missing.append("stawkę przychodową")
+        if order.start_date is None:
+            missing.append("datę startu")
+        return missing
+    from app.api.client_orders import _missing_activation_fields
+
+    for field in _missing_activation_fields(order):
+        label = _ACTIVATION_FIELD_ACCUSATIVE.get(field, field)
+        if label not in missing:
+            missing.append(label)
     return missing
 
 
@@ -838,13 +902,22 @@ async def emit_new_contractor_draft(
     job_title: Optional[str],
     user_ids: Optional[Sequence[int]] = None,
     now: Optional[datetime] = None,
+    source: str = "b2b_generator",
 ) -> list[DlAlert]:
     """Karta „Nowy kontraktor u klienta — uzupełnij zamówienie".
+
+    ``source``: ``b2b_generator`` (podpis w Generatorze) albo ``pipeline_hire``
+    (ręczny ruch na „Zatrudniony”, od 04.10.2026 — D3).
 
     Jedno źródło treści dla ścieżki podpisu (natychmiast) i dla skanera
     (powtórka co 7 dni, dopóki czegoś brakuje). Link otwiera TEN szkic
     (``?order=``), nie samą zakładkę.
     """
+    # Bramka aktywacji czyta stawkę kosztową z kontraktu; świeży szkic ze
+    # ścieżki podpisu ma relację niewczytaną, a leniwy odczyt w sesji async to
+    # ``MissingGreenlet``.
+    if order.contract_id is not None and "contract" in sa_inspect(order).unloaded:
+        await db.refresh(order, attribute_names=["contract"])
     missing = new_contractor_missing_fields(
         order, candidate_name=candidate_name, job_title=job_title
     )
@@ -865,14 +938,19 @@ async def emit_new_contractor_draft(
         entity_key=f"order:{order.id}",
         title=f"Nowy kontraktor u {client_name} — uzupełnij zamówienie",
         message=(
-            f"Nowy kontraktor {candidate_name} — umowa podpisana obustronnie. "
-            f"Uzupełnij: {', '.join(missing)}."
+            f"Nowy kontraktor {candidate_name} — "
+            + (
+                "umowa podpisana obustronnie. "
+                if source == "b2b_generator"
+                else "zatrudniony w rekrutacji. "
+            )
+            + f"Uzupełnij: {', '.join(missing)}."
         ),
         link=f"/clients/{order.client_id}?tab=zamowienia&order={order.id}",
         payload={
             "candidate_name": candidate_name,
             "missing_fields": missing,
-            "source": "b2b_generator",
+            "source": source,
         },
         order_id=order.id,
         repeat_every_days=settings.DL_ALERT_REPEAT_DAYS,
@@ -900,8 +978,15 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
     from sqlalchemy import or_
 
     from app.services.email import email_channel_enabled, send_email
-    from app.services.notification_delivery import guarded_send, load_policy
+    from app.services.notification_delivery import (
+        email_queue_clause,
+        email_wanted,
+        guarded_send,
+        load_policy,
+    )
     from app.services.m365.system_mail import (
+        DELIVERY_UNCERTAIN,
+        app_mail_send_outcome,
         get_system_sender_connection,
         send_system_email,
     )
@@ -925,6 +1010,8 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
                 DlAlert.email_sent_at.is_(None),
                 DlAlert.created_at >= policy.cutoff_for("delivery_alert"),
                 DlAlert.payload["email"].as_boolean().is_(True),
+                # Wynik poprzedniej wysyłki nieznany — nie wysyłamy drugi raz.
+                DlAlert.payload["email_delivery_uncertain"].as_boolean().isnot(True),
                 or_(
                     DlAlert.email_send_started_at.is_(None),
                     DlAlert.email_send_started_at <= stale_cutoff,
@@ -934,6 +1021,14 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
                 # zająć paczki i zagłodzić kolejki.
                 User.email.isnot(None),
                 User.email != "",
+                # Mail tylko do Delivery Leada — wiersz bez tej roli nie może
+                # zająć paczki (lustro sprawdzenia w pętli niżej).
+                or_(
+                    User.role == UserRole.delivery_lead,
+                    User.roles.contains([UserRole.delivery_lead.value]),
+                ),
+                # Własny wyłącznik maila („Maile do Ciebie”) — też w zapytaniu.
+                email_queue_clause("delivery_alert", DlAlert.created_at),
             )
             .order_by(DlAlert.created_at.asc())
             .limit(_EMAIL_BATCH)
@@ -949,6 +1044,14 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
         alert_id = alert.id
         if not user.email or alert.user_id not in scope.for_client(alert.client_id):
             continue
+        # Mail tylko do Delivery Leada (07.10.2026). Admin bez roli DL ma te
+        # sprawy w panelu, ale nie w skrzynce — `for_client` (bramka maili, nie
+        # dzwonka) wpuszcza adminów.
+        if not user.has_any_role(UserRole.delivery_lead):
+            continue
+        # Własny wyłącznik maila („Maile do Ciebie”); karta w panelu zostaje.
+        if not email_wanted(user, "delivery_alert", alert.created_at):
+            continue
         claimed = await db.execute(
             update(DlAlert)
             .where(
@@ -956,6 +1059,7 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
                 # Odhaczona albo zamknięta w międzyczasie — bez maila.
                 DlAlert.status == DL_ALERT_STATUS_NEW,
                 DlAlert.email_sent_at.is_(None),
+                DlAlert.payload["email_delivery_uncertain"].as_boolean().isnot(True),
                 or_(
                     DlAlert.email_send_started_at.is_(None),
                     DlAlert.email_send_started_at <= stale_cutoff,
@@ -979,7 +1083,7 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
             "sprawa jest załatwiona — przypomnienia przestaną przychodzić.\n\n"
             "— Nexus ATS"
         )
-        ok = False
+        ok: bool | None = False
         try:
             if not (await load_policy(db)).allows("delivery_alert", alert.created_at):
                 await db.execute(
@@ -1000,22 +1104,48 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
                     event_at=alert.created_at,
                 )
             else:
-                ok = await asyncio.to_thread(
-                    guarded_send,
-                    "delivery_alert",
-                    alert.created_at,
-                    send_email,
-                    user.email,
-                    subject,
-                    text_body,
-                    None,
-                )
+                to_addr = user.email
+
+                def _send_app_only(
+                    created_at=alert.created_at, to_addr=to_addr
+                ) -> bool | None:
+                    # Flaga „nie wiadomo” żyje w wątku wysyłki — liczona tutaj.
+                    return app_mail_send_outcome(
+                        guarded_send(
+                            "delivery_alert",
+                            created_at,
+                            send_email,
+                            to_addr,
+                            subject,
+                            text_body,
+                            None,
+                        )
+                    )
+
+                ok = await asyncio.to_thread(_send_app_only)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "dl_alerts email failed alert=%d: %s", alert_id, type(exc).__name__
             )
+        if ok is DELIVERY_UNCERTAIN:
+            # Mail mógł wyjść (odpowiedź Graphu zginęła). Zwolnienie rezerwacji
+            # oznaczało drugą wysyłkę tego samego alertu — zamiast tego wiersz
+            # wypada z kolejki z flagą w `payload` (bez migracji; tabela nie ma
+            # kolumny na ten stan). Rezerwacja zostaje jako ślad próby.
+            await db.execute(
+                update(DlAlert)
+                .where(DlAlert.id == alert_id)
+                .values(
+                    payload={
+                        **(alert.payload or {}),
+                        "email_delivery_uncertain": True,
+                    }
+                )
+            )
+            await db.commit()
+            continue
         await db.execute(
             update(DlAlert)
             .where(DlAlert.id == alert_id)

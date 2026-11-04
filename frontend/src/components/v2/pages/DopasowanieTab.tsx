@@ -38,6 +38,11 @@ interface DopasowanieTabProps {
   recruitments: Recruitment[];
   /** Preselect the job the profile was opened from (`?from=job&jobId=N`). */
   defaultJobId?: number | null;
+  /**
+   * Ocena jednej rekrutacji (wiersz w zakładce „Rekrutacje”, 13.10.2026):
+   * liczy tylko ją i nie pokazuje wyboru rekrutacji.
+   */
+  jobId?: number;
   readOnly?: boolean;
 }
 
@@ -219,6 +224,7 @@ export function DopasowanieTab({
   candidateId,
   recruitments,
   defaultJobId,
+  jobId: fixedJobId,
   readOnly = false,
 }: DopasowanieTabProps) {
   const { showError, showSuccess } = useToast();
@@ -236,16 +242,18 @@ export function DopasowanieTab({
     return out;
   }, [recruitments]);
 
-  const [jobId, setJobId] = useState<number | null>(
+  const [selectedJobId, setJobId] = useState<number | null>(
     defaultJobId ?? jobs[0]?.job_id ?? null,
   );
 
   // Once recruitments load (or the default resolves after hydration), pick a job.
   useEffect(() => {
-    if (jobId != null) return;
+    if (fixedJobId != null || selectedJobId != null) return;
     const next = defaultJobId ?? jobs[0]?.job_id ?? null;
     if (next != null) setJobId(next);
-  }, [jobId, defaultJobId, jobs]);
+  }, [fixedJobId, selectedJobId, defaultJobId, jobs]);
+
+  const jobId = fixedJobId ?? selectedJobId;
 
   const queryKey = ["match-justification", candidateId, jobId] as const;
 
@@ -294,7 +302,7 @@ export function DopasowanieTab({
     onError: (e) => showError(extractErrorMsg(e) || "Nie udało się zapisać oceny"),
   });
 
-  if (jobs.length === 0) {
+  if (fixedJobId == null && jobs.length === 0) {
     return (
       <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
         <Sparkles className="h-6 w-6 text-muted-foreground" />
@@ -322,36 +330,41 @@ export function DopasowanieTab({
 
   return (
     <div className="space-y-5">
-      {/* Job selector + refresh */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <label className="flex min-w-0 items-center gap-2 text-sm">
-          <span className="shrink-0 font-medium text-muted-foreground">
-            Rekrutacja:
-          </span>
-          <select
-            value={jobId ?? ""}
-            onChange={(e) => setJobId(Number(e.target.value))}
-            className="min-w-0 max-w-full truncate rounded-lg border border-input bg-background px-3 py-1.5 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
-          >
-            {jobs.map((j) => (
-              <option key={j.job_id} value={j.job_id}>
-                {j.job_title || `Rekrutacja #${j.job_id}`}
-              </option>
-            ))}
-          </select>
-        </label>
-        {!readOnly ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refreshMut.mutate()}
-            disabled={busy || jobId == null}
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", refreshMut.isPending && "animate-spin")} />
-            Odśwież
-          </Button>
-        ) : null}
-      </div>
+      {/* Job selector + refresh (bez wyboru, gdy ocena dotyczy jednej rekrutacji) */}
+      {fixedJobId == null || !readOnly ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {fixedJobId == null ? (
+            <label className="flex min-w-0 items-center gap-2 text-sm">
+              <span className="shrink-0 font-medium text-muted-foreground">
+                Rekrutacja:
+              </span>
+              <select
+                value={jobId ?? ""}
+                onChange={(e) => setJobId(Number(e.target.value))}
+                className="min-w-0 max-w-full truncate rounded-lg border border-input bg-background px-3 py-1.5 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
+              >
+                {jobs.map((j) => (
+                  <option key={j.job_id} value={j.job_id}>
+                    {j.job_title || `Rekrutacja #${j.job_id}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {!readOnly ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              onClick={() => refreshMut.mutate()}
+              disabled={busy || jobId == null}
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", refreshMut.isPending && "animate-spin")} />
+              Odśwież
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Kanoniczny fit — zawsze, niezależnie od uzasadnienia AI */}
       <MatchScoreSection

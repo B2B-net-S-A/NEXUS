@@ -83,8 +83,8 @@ describe("dashboard presets — legacy session fallback", () => {
     )
   })
 
-  it("TAC, Recruiter and Sourcer converge on My Work", () => {
-    for (const role of ["tac", "recruiter", "sourcer"] as UserRole[]) {
+  it("Recruiter lands on My Work", () => {
+    for (const role of ["recruiter"] as UserRole[]) {
       expect(getAvailableDashboardPresets(legacyUser(role))).toEqual([
         "my-work",
       ])

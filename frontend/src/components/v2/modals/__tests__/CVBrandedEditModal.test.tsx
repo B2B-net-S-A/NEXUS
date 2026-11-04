@@ -31,6 +31,44 @@ vi.mock("@tiptap/react", () => {
   };
 });
 vi.mock("@tiptap/starter-kit", () => ({ default: {} }));
+// Wtyczka struktury, pasek, źródła i podgląd Word mają własne testy na
+// prawdziwym edytorze; tu sprawdzamy sesję, zapis i zatwierdzenie okna.
+vi.mock("@/lib/cv-editor-structure", () => ({
+  cvEditorExtensions: () => [],
+  loadCvHtml: (editor: { commands: { setContent: (html: string) => void } }, html: string) =>
+    editor.commands.setContent(html),
+}));
+vi.mock("@/components/v2/cv-editor/CvEditorToolbar", () => ({ CvEditorToolbar: () => null }));
+vi.mock("@/components/v2/cv-editor/CvEditorSources", () => ({ CvEditorSources: () => null }));
+vi.mock("@/components/v2/cv-editor/CvEditorIssues", () => ({ CvEditorIssues: () => null }));
+// Asystent pracuje na prawdziwym edytorze — ma własne testy (harness edytora);
+// atrapa edytora tego okna nie ma widoku ProseMirror.
+vi.mock("@/components/v2/cv-editor/CvEditorAssistant", () => ({
+  CvEditorAssistant: () => <section aria-label="Asystent CV" />,
+}));
+vi.mock("@/components/v2/cv-editor/useCvAssistant", () => ({
+  useCvAssistant: () => ({
+    enabled: false,
+    messages: [],
+    busy: false,
+    locked: false,
+    send: () => undefined,
+    answer: async () => undefined,
+    undo: () => undefined,
+  }),
+}));
+// Historia wersji porównuje dokument prawdziwego edytora — ma własne testy.
+vi.mock("@/components/v2/cv-editor/useCvHistory", () => ({
+  useCvHistory: () => ({ enabled: false, open: false, busy: false, show: () => undefined, close: () => undefined }),
+}));
+vi.mock("@/components/v2/cv/CvPagesPreview", () => ({
+  CvPagesPreview: ({ loadPdf, loadDocx }: { loadPdf: () => Promise<Blob>; loadDocx: () => Promise<Blob> }) => (
+    <>
+      <button onClick={() => void loadPdf()}>wczytaj strony</button>
+      <button onClick={() => void loadDocx()}>wczytaj podgląd Word</button>
+    </>
+  ),
+}));
 const toast = vi.hoisted(() => ({ showSuccess: vi.fn(), showError: vi.fn() }));
 vi.mock("@/components/Toast", () => ({ useToast: () => toast }));
 vi.mock("@/lib/authenticated-files", () => ({ openAuthenticatedFile: vi.fn(), downloadAuthenticatedFile: vi.fn(),
@@ -159,15 +197,13 @@ it("after a revision conflict the recruiter can load the current version", async
   update.mockRestore();
 });
 
-/** Stopka ma przycisk „Zamknij" z tekstem; krzyżyk okna ma tylko etykietę. */
+/** „Zamknij” w nagłówku okna (Edytor CV 3: ikona z etykietą; okno nie ma drugiego krzyżyka). */
 function footerClose(): HTMLElement {
-  const button = screen.getAllByRole("button", {name: "Zamknij"}).find(b => b.textContent?.trim() === "Zamknij");
-  if (!button) throw new Error("footer close button not found");
-  return button;
+  return screen.getByRole("button", {name: "Zamknij"});
 }
 
 
-it.each(["pipeline", "standalone"])("%s „Zapisz” zapisuje ostatnią zmianę, zamyka okno i zatwierdza w tle", async (mode) => {
+it.each(["pipeline", "standalone"])("%s „Gotowe” zapisuje ostatnią zmianę, zamyka okno i zatwierdza w tle", async (mode) => {
   state.html = state.stored = "<p>Old text</p>";
   state.snapshot = ""; state.status = "draft"; state.revision = 1;
   state.reviewStatus = "verified"; state.reviewFindings = 0;
@@ -183,7 +219,7 @@ it.each(["pipeline", "standalone"])("%s „Zapisz” zapisuje ostatnią zmianę,
   expect(screen.queryByRole("button", {name: "Zapisz i zatwierdź"})).toBeNull();
   expect(screen.queryByText("Sfinalizowane")).toBeNull();
   fireEvent.change(screen.getByLabelText("audit editor"), {target: {value: "<p>New verified text</p>"}});
-  fireEvent.click(screen.getByRole("button", {name: "Zapisz"}));
+  fireEvent.click(screen.getByRole("button", {name: "Gotowe"}));
   await waitFor(() => expect(close).toHaveBeenCalledWith(false));
   expect(screen.queryByText(/Sfinalizować/)).toBeNull();
   expect(toast.showSuccess).toHaveBeenCalledWith("Zapisano. Sprawdzamy treść w tle.");
@@ -209,7 +245,7 @@ it("uwagi kontroli AI wracają toastem z liczbą — zatwierdzenie i tak przecho
   render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={() => {}}
     stageId={21} candidateName="Synthetic person" /></QueryClientProvider>);
   await screen.findByText("Szkic v1");
-  fireEvent.click(screen.getByRole("button", {name: "Zapisz"}));
+  fireEvent.click(screen.getByRole("button", {name: "Gotowe"}));
   await waitFor(() => expect(state.status).toBe("finalized"));
   await waitFor(() => expect(toast.showSuccess).toHaveBeenCalledWith(
     "CV zatwierdzone (Synthetic person). Kontrola treści zgłosiła 2 uwagi — sprawdź przed wysyłką."));
@@ -228,7 +264,7 @@ it("porażka zatwierdzenia w tle to toast z prośbą o ponowny zapis, szkic zost
   render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={close}
     generatedId={7} candidateName="Synthetic" /></QueryClientProvider>);
   fireEvent.change(await screen.findByLabelText("audit editor"), {target: {value: "<p>Keep me</p>"}});
-  fireEvent.click(screen.getByRole("button", {name: "Zapisz"}));
+  fireEvent.click(screen.getByRole("button", {name: "Gotowe"}));
   await waitFor(() => expect(close).toHaveBeenCalledWith(false));
   await waitFor(() => expect(toast.showError).toHaveBeenCalledWith(
     "Nie udało się zatwierdzić — otwórz CV i zapisz ponownie. (Brak zamrożonych źródeł.)"));
@@ -248,7 +284,7 @@ it("nieudany zapis NIE zamyka okna i nie zleca zatwierdzenia", async () => {
   render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={close}
     generatedId={7} candidateName="Synthetic" /></QueryClientProvider>);
   fireEvent.change(await screen.findByLabelText("audit editor"), {target: {value: "<p>Unsaved</p>"}});
-  fireEvent.click(screen.getByRole("button", {name: "Zapisz"}));
+  fireEvent.click(screen.getByRole("button", {name: "Gotowe"}));
   expect(await screen.findByText("Nie udało się zapisać CV: Save unavailable")).toBeInTheDocument();
   expect(close).not.toHaveBeenCalled();
   expect(finalize).not.toHaveBeenCalled();
@@ -265,13 +301,13 @@ it("zatwierdzona wersja jest edytowalna: pierwsza zmiana zakłada nowy szkic i z
   const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
   render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={close}
     stageId={21} candidateName="Synthetic" /></QueryClientProvider>);
-  await screen.findByText(/Zatwierdzona wersja 1 — zmiana utworzy nowy szkic/);
+  await screen.findByText("Zatwierdzona wersja 1");
   fireEvent.change(screen.getByLabelText("audit editor"), {target: {value: "<p>Approved + fix</p>"}});
   await waitFor(() => expect(newDraft).toHaveBeenCalledWith(21, 3));
   await screen.findByText("Szkic v2");
   // Wpisany tekst przeszedł do nowego szkicu i zapisuje się razem z nim.
   expect(state.html).toBe("<p>Approved + fix</p>");
-  fireEvent.click(screen.getByRole("button", {name: "Zapisz"}));
+  fireEvent.click(screen.getByRole("button", {name: "Gotowe"}));
   await waitFor(() => expect(close).toHaveBeenCalledWith(false));
   await waitFor(() => expect(state.snapshot).toBe("<p>Approved + fix</p>"));
   newDraft.mockRestore();
@@ -287,7 +323,8 @@ it("etap bez CV: „Najpierw wygeneruj CV” zamiast pustego edytora i przejści
     stageId={21} candidateName="Synthetic" onRegenerate={regenerate} /></QueryClientProvider>);
   expect(await screen.findByText("Najpierw wygeneruj CV")).toBeInTheDocument();
   expect(screen.queryByLabelText("audit editor")).toBeNull();
-  expect(screen.getByRole("button", {name: "Zapisz"})).toBeDisabled();
+  // Bez CV nie ma czego kończyć — stopka z „Gotowe” się nie pokazuje.
+  expect(screen.queryByRole("button", {name: "Gotowe"})).toBeNull();
   fireEvent.click(screen.getByRole("button", {name: /Wygeneruj CV/}));
   expect(close).toHaveBeenCalledWith(false);
   expect(regenerate).toHaveBeenCalledOnce();
@@ -306,9 +343,10 @@ it.each(["pipeline", "standalone"])("%s pobiera szkic DOCX z bieżącą treści�
     {...target} candidateName="Synthetic person" jobTitle="Synthetic job" /></QueryClientProvider>);
   await screen.findByText("Szkic v1");
   fireEvent.change(screen.getByLabelText("audit editor"), {target: {value: "<p>New verified text</p>"}});
-  fireEvent.click(screen.getByRole("button", {name: "Pobierz szkic DOCX"}));
+  fireEvent.click(screen.getByRole("button", {name: "Pobierz Word"}));
+  // Pobranie niesie intencję (serwer zapisuje wpis pobrania), podgląd nie.
   await waitFor(() => expect(postAuthenticatedDownload).toHaveBeenCalledWith(
-    `${base}/preview-docx`,
+    `${base}/preview-docx?intent=download&surface=editor`,
     {content_html: "<p>New verified text</p>", expected_revision: 1},
   ));
   await waitFor(() => expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "SZKIC_Reviewed.docx"));
@@ -319,9 +357,76 @@ it.each(["pipeline", "standalone"])("%s pobiera szkic DOCX z bieżącą treści�
   const qc2 = new QueryClient({defaultOptions: {queries: {retry: false}}});
   render(<QueryClientProvider client={qc2}><CVBrandedEditModal open onOpenChange={()=>{}}
     {...target} candidateName="Synthetic person" /></QueryClientProvider>);
-  fireEvent.click(await screen.findByRole("button", {name: "Pobierz zatwierdzony DOCX v1"}));
+  fireEvent.click(await screen.findByRole("button", {name: "Pobierz Word"}));
   await waitFor(() => expect(downloadAuthenticatedFile).toHaveBeenCalledWith(
-    `${base}/versions/1/docx`, "Reviewed.docx",
+    `${base}/versions/1/docx?intent=download&surface=editor`, "Reviewed.docx",
   ));
   state.status = "draft";
+});
+
+it("okno zajmuje cały ekran, a nie 90% wysokości zwykłego okna", async () => {
+  state.html = state.stored = "<p>Old text</p>";
+  state.status = "draft"; state.revision = 1;
+  const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={() => {}}
+    stageId={21} candidateName="Synthetic" /></QueryClientProvider>);
+  const dialog = await screen.findByRole("dialog", {name: "Edytor CV do klienta"});
+  const classes = dialog.className.split(/\s+/);
+  expect(classes).toEqual(expect.arrayContaining(["h-dvh", "w-full", "max-w-none", "max-h-dvh", "rounded-none"]));
+  for (const base of ["max-h-[90dvh]", "max-w-[95vw]", "rounded-xl", "top-[50%]"]) {
+    expect(classes).not.toContain(base);
+  }
+  // Jedno „Zamknij” — w nagłówku; krzyżyk okna nakładałby się na pasek akcji.
+  expect(screen.getAllByRole("button", {name: "Zamknij"})).toHaveLength(1);
+});
+
+it("pola w nawiasach z nowych bloków zatrzymują „Gotowe”, ale szkic się zapisuje", async () => {
+  state.html = state.stored = "<p>Old text</p>";
+  state.snapshot = ""; state.status = "draft"; state.revision = 1;
+  vi.clearAllMocks();
+  const finalize = vi.spyOn(cvGeneratedEditorApi, "finalize");
+  const close = vi.fn();
+  const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={close}
+    stageId={21} candidateName="Synthetic" /></QueryClientProvider>);
+  fireEvent.change(await screen.findByLabelText("audit editor"),
+    {target: {value: "<p><strong>[Stanowisko]</strong> [MM.RRRR – MM.RRRR]</p>"}});
+  fireEvent.click(screen.getByRole("button", {name: "Gotowe"}));
+  expect(await screen.findByText(/Uzupełnij albo usuń pola w nawiasach/)).toHaveTextContent(
+    "[Stanowisko], [MM.RRRR – MM.RRRR]");
+  expect(close).not.toHaveBeenCalled();
+  expect(finalize).not.toHaveBeenCalled();
+  expect(state.stored).toContain("[Stanowisko]");
+  // Poprawka treści zdejmuje komunikat i odblokowuje zapis.
+  fireEvent.change(screen.getByLabelText("audit editor"), {target: {value: "<p><strong>Dev</strong> 01.2020 – 02.2022</p>"}});
+  await waitFor(() => expect(screen.queryByText(/Uzupełnij albo usuń pola/)).toBeNull());
+  fireEvent.click(screen.getByRole("button", {name: "Gotowe"}));
+  await waitFor(() => expect(close).toHaveBeenCalledWith(false));
+  finalize.mockRestore();
+});
+
+it("„Jak u klienta” rysuje strony i plik z bieżącej treści i nie liczy się jako pobranie", async () => {
+  state.html = state.stored = "<p>Old text</p>";
+  state.snapshot = ""; state.status = "draft"; state.revision = 1;
+  vi.clearAllMocks();
+  const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={() => {}}
+    stageId={21} candidateName="Synthetic" /></QueryClientProvider>);
+  fireEvent.change(await screen.findByLabelText("audit editor"), {target: {value: "<p>Unsaved text</p>"}});
+  fireEvent.click(screen.getByRole("button", {name: "Jak u klienta"}));
+  fireEvent.click(await screen.findByRole("button", {name: "wczytaj strony"}));
+  await waitFor(() => expect(postAuthenticatedDownload).toHaveBeenCalledWith(
+    "/api/candidates/stages/21/cv/branded/preview-pdf",
+    {content_html: "<p>Unsaved text</p>", expected_revision: 1},
+  ));
+  fireEvent.click(screen.getByRole("button", {name: "wczytaj podgląd Word"}));
+  await waitFor(() => expect(postAuthenticatedDownload).toHaveBeenCalledWith(
+    "/api/candidates/stages/21/cv/branded/preview-docx",
+    {content_html: "<p>Unsaved text</p>", expected_revision: 1},
+  ));
+  expect(downloadBlob).not.toHaveBeenCalled();
+  // Edytor zostaje zamontowany pod podglądem; „Edycja” wraca do niego bez wczytywania.
+  expect(screen.getByLabelText("audit editor")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name: "Edycja"}));
+  expect(screen.queryByRole("button", {name: "wczytaj podgląd Word"})).toBeNull();
 });

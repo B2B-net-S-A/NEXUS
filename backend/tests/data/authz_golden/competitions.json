@@ -1,0 +1,41 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "recruiter",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit",
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases",
+  "board",
+  "finance-finance_module"
+ ],
+ "routes": {
+  "GET /api/competitions/current": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/competitions/history": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/competitions/monthly-races": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/competitions/my-league": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/competitions/my-position": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/competitions/ties": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/competitions/freeze": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/competitions/{type}/{period}/resolve-tie": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+ }
+}

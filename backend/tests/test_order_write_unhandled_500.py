@@ -263,6 +263,136 @@ async def test_patch_with_an_unknown_job_is_refused_not_crashed(
     assert "job_id" in resp.text
 
 
+async def _job_of_other_client() -> int:
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.job import Job
+
+    async with AsyncSessionLocal() as db:
+        other = Client(name=f"OrderWriteOther-{uuid.uuid4().hex[:6]}")
+        db.add(other)
+        await db.flush()
+        job = Job(title="Rekrutacja innego klienta", client_id=other.id)
+        db.add(job)
+        await db.commit()
+        return job.id
+
+
+async def test_post_order_validates_the_job_like_patch(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Audyt 25.09.2026: POST przyjmował dowolne ``job_id``.
+
+    Nieistniejące kończyło się błędem klucza obcego przy commicie, a
+    rekrutacja INNEGO klienta zapisywała się po cichu. Ta sama bramka co
+    PATCH i Flow B — 422 po polsku, zero wierszy.
+    """
+    client_id, contract_id, _ = await _seed_client_with_contract()
+    foreign_job = await _job_of_other_client()
+
+    for job_id in (2147483647, foreign_job):
+        resp = await app_client.post(
+            f"/api/clients/{client_id}/orders",
+            data=_md_order_form(contract_id, job_id=str(job_id)),
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 422, resp.text
+        assert "rekrutacja" in resp.text.lower()
+    assert await _count_orders(client_id) == 0
+
+
+async def test_flow_b_refuses_a_job_of_another_client_in_polish(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    client_id, _, candidate_id = await _seed_client_with_contract()
+    foreign_job = await _job_of_other_client()
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/contract-with-order",
+        json={
+            "candidate_id": candidate_id,
+            "title": "ZAM-1",
+            "contract_start_date": business_today().isoformat(),
+            "rate_client": "150",
+            "rate_candidate": "120",
+            "job_id": foreign_job,
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert "rekrutacja" in resp.text.lower()
+
+
+async def _periodic_draft_without_start(
+    app_client: AsyncClient, headers: dict, client_id: int, contract_id: int
+) -> int:
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/orders",
+        data={
+            "contract_id": str(contract_id),
+            "title": f"OKR-{uuid.uuid4().hex[:4]}",
+            "order_type": "periodic",
+            "order_status": "draft",
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["status"] == "draft"
+    return resp.json()["id"]
+
+
+async def test_patch_cannot_activate_an_incomplete_periodic_draft(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Audyt 25.09.2026: jawne „active” omijało bramkę kompletności POST-a."""
+    client_id, contract_id, _ = await _seed_client_with_contract()
+    order_id = await _periodic_draft_without_start(
+        app_client, app_auth_headers, client_id, contract_id
+    )
+
+    resp = await app_client.patch(
+        f"/api/clients/{client_id}/orders/{order_id}",
+        json={"status": "active"},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "order_incomplete"
+    assert "data startu" in detail["missing"]
+
+    got = await app_client.get(
+        f"/api/clients/{client_id}/orders/{order_id}", headers=app_auth_headers
+    )
+    assert got.json()["status"] == "draft"
+
+    # Z kompletem w tym samym zapisie aktywacja przechodzi.
+    ok = await app_client.patch(
+        f"/api/clients/{client_id}/orders/{order_id}",
+        json={"status": "active", "start_date": business_today().isoformat()},
+        headers=app_auth_headers,
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["status"] == "active"
+
+
+async def test_patch_cannot_complete_a_draft(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Szkic → „completed” ma tę samą odmowę co `/close`."""
+    client_id, contract_id, _ = await _seed_client_with_contract()
+    order_id = await _periodic_draft_without_start(
+        app_client, app_auth_headers, client_id, contract_id
+    )
+
+    resp = await app_client.patch(
+        f"/api/clients/{client_id}/orders/{order_id}",
+        json={"status": "completed"},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "order_is_draft"
+
+
 async def test_patch_with_an_unknown_framework_contract_is_refused(
     app_client: AsyncClient, app_auth_headers: dict
 ):

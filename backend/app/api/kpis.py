@@ -55,6 +55,10 @@ class KpiResultSchema(BaseModel):
     progress_pct: float
     state: str  # "on_track" | "ahead" | "behind" | "hit" | "missed"
     deadline_hours_left: float
+    # Nazwa bez okresu — podpis segmentu w liczniku górnego paska.
+    short_title_pl: str = ""
+    # Cel × tempo okresu „na teraz” — kreska tempa i „na tę godzinę wychodzą 2”.
+    expected_count: float = 0.0
 
 
 def _to_schema(kpi_result) -> KpiResultSchema:
@@ -68,6 +72,8 @@ def _to_schema(kpi_result) -> KpiResultSchema:
         progress_pct=round(kpi_result.progress_pct, 1),
         state=kpi_result.state,
         deadline_hours_left=round(kpi_result.deadline_hours_left, 2),
+        short_title_pl=kpi_result.short_title_pl,
+        expected_count=round(kpi_result.expected_count, 1),
     )
 
 
@@ -112,6 +118,9 @@ class GoalRowSchema(BaseModel):
     progress_pct: float | None
     state: str | None
     note: str | None = None
+    short_title_pl: str = ""
+    # Cel × tempo okresu „na teraz”; None = cel bez tempa.
+    expected: float | None = None
 
 
 class MyGoalsSchema(BaseModel):
@@ -121,6 +130,12 @@ class MyGoalsSchema(BaseModel):
     scope_label: str
     people: int | None
     goals: List[GoalRowSchema]
+    # Delivery Lead: rekrutacje zamknięte w kwartale (podstawa celu placementów).
+    closed_requests: int | None = None
+    # Delivery Lead: zamknięte jako „nie liczy się” — poza podstawą celu.
+    closed_neutral: int | None = None
+    # Delivery Lead: „Sam przekazał” w tym miesiącu — {verified, cv_sent, hired}.
+    own_handoffs: dict[str, int] | None = None
 
 
 def _goals_to_schema(result: GoalsResult) -> MyGoalsSchema:
@@ -134,8 +149,9 @@ async def get_my_goals(
 ) -> MyGoalsSchema:
     """Cele liderów (decyzja Artura 22.09.2026).
 
-    - Delivery Lead: hit ratio portfela i placementy w kwartale — liczone tak
-      samo jak Liga Mistrzów DL (próg 30% i minimum placementów ligi).
+    - Delivery Lead: hit ratio portfela w kwartale — liczby i próg 30% te same
+      co w Lidze Mistrzów DL; cel placementów = 30% rekrutacji zamkniętych
+      w kwartale, w górę (13.10.2026; do tego dnia stałe minimum ligi).
     - Head of Recruitment i TCM: cele ZESPOŁU — suma celów operatorów
       rekrutacji z zakresu pulpitu i suma ich pracy; bez osobistych celów.
     - Reszta ról: `kind="none"` i pusta lista.
@@ -170,11 +186,10 @@ class MyPanelSchema(BaseModel):
     interview_month: int
     akceptacje_month: int
     placementy_month: int
-    cv_to_base: FunnelCountsSchema | None  # tylko recruiter/TAC
+    cv_to_base: FunnelCountsSchema | None  # sama liczba, tylko rola z celami KPI
     precision: PrecisionSchema
     target_verifications_daily: int
     target_placements_monthly: int
-    target_cv_added_daily: int | None
     target_precision_pct: int
 
 
@@ -200,7 +215,6 @@ def _panel_to_schema(p: PanelResult) -> MyPanelSchema:
         ),
         target_verifications_daily=p.target_verifications_daily,
         target_placements_monthly=p.target_placements_monthly,
-        target_cv_added_daily=p.target_cv_added_daily,
         target_precision_pct=p.target_precision_pct,
     )
 
@@ -214,9 +228,19 @@ async def get_my_panel(
     tydzień/miesiąc) + interview/akceptacje/placementy (miesiąc) + precision
     (30 dni) + CV do bazy (recruiter/TAC). Atrybucja verifier-anchored —
     zasługa idzie na osobę, która przeniosła kandydata na „Zweryfikowany".
+
+    Cache 60 s per osoba (runda 7, R7-N10-1): widok „Mój miesiąc” odpytuje
+    panel przy każdym powrocie na kartę, a każde wyliczenie to pełne CTE.
     """
-    result = await compute_my_panel(db, user=current_user)
-    return _panel_to_schema(result)
+    cache_key = f"kpis:me:panel:{current_user.id}"
+    async with cache_single_flight(cache_key, db=db):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return MyPanelSchema(**cached)
+        result = await compute_my_panel(db, user=current_user)
+        schema = _panel_to_schema(result)
+        await cache_set(cache_key, schema.model_dump(), ttl_seconds=60)
+        return schema
 
 
 # ── „KPI zespołu" panel (verifier-anchored funnel per osoba) ───────────────
@@ -432,7 +456,7 @@ async def admin_debug_fire_nudge(
     _: AdminUser,
     target_user_id: int,
     db: AsyncSession = Depends(get_db),
-    kpi_id: str = "daily_new_candidates",
+    kpi_id: str = "daily_first_verifications",
     nudge_type: str = "praise_hit",
     current: int = 3,
     target: int = 3,
@@ -448,7 +472,7 @@ async def admin_debug_fire_nudge(
 
     Args:
       target_user_id: komu emitować.
-      kpi_id: musi być w KPI_CATALOG (np. daily_new_candidates, weekly_cvs_sent).
+      kpi_id: musi być w KPI_CATALOG (np. daily_first_verifications, weekly_cvs_sent).
       nudge_type: praise_hit | remind_behind | eod_summary | streak_bonus.
       current, target: wartości do renderowania szablonu (body będzie mieć "{current}/{target}").
     """
@@ -516,9 +540,11 @@ async def admin_debug_fire_nudge(
         await db.rollback()
         # Audyt M7 PR-05 (P1.15): traceback/exc_repr NIE wychodzi w response —
         # szczegóły tylko do logów serwera (Sentry i tak złapie exception).
+        # Runda 9 (R9-X1-9): po rollbacku `user` jest wygaszony — `user.id`
+        # wymagałby leniwego odczytu w sesji async (MissingGreenlet → goły 500).
         logger.exception(
             "debug-fire-nudge failed (user_id=%s kpi_id=%s nudge_type=%s)",
-            user.id,
+            target_user_id,
             kpi_id,
             nudge_type,
         )

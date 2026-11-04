@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CONFLICT_TYPES,
   canSubmitDeactivation,
   conflictKeys,
+  conflictTypeLabel,
   conflictState,
   eligibilityBadgeClass,
   expiresAtIso,
@@ -17,6 +19,16 @@ const NOW = new Date(2026, 8, 17, 12, 0, 0); // 17.09.2026, 12:00 lokalnie
 function values(overrides: Partial<ConflictFormValues> = {}): ConflictFormValues {
   return { client_id: "5", type: "blacklist", reason: "", expires_on: "", ...overrides };
 }
+
+describe("CONFLICT_TYPES", () => {
+  it("the add form no longer offers „Obecne zatrudnienie” (17.10.2026)", () => {
+    expect(CONFLICT_TYPES).toEqual(["blacklist", "nda", "competitor"]);
+  });
+
+  it("old current_employment rows keep their label in the history", () => {
+    expect(conflictTypeLabel({ type: "current_employment" })).toBe("Obecne zatrudnienie");
+  });
+});
 
 describe("conflictKeys", () => {
   it("every key starts with the shared prefix, so one invalidation refreshes all", () => {
@@ -88,7 +100,7 @@ describe("validateConflictForm", () => {
   });
 
   it("other types accept no date", () => {
-    for (const type of ["blacklist", "competitor", "current_employment"] as const) {
+    for (const type of ["blacklist", "competitor"] as const) {
       expect(validateConflictForm(values({ type }), NOW)).toEqual({});
     }
   });

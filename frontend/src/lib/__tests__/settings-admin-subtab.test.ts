@@ -24,6 +24,24 @@ describe("useAdminSubTab", () => {
     );
   });
 
+  it("adres zakładki, której już nie ma, wraca do Użytkowników zamiast wywracać ekran", () => {
+    // „Wyjątki użytkowników” zniknęły z ekranu (0410) — uprawnienia osoby
+    // ustawia się w oknie „Edytuj użytkownika”. Zakładka nigdy nie miała
+    // własnego `?sub=`, ale stary link albo literówka nie mogą dać pustki.
+    for (const stale of ["user-overrides", "exceptions", "wyjatki"]) {
+      expect(renderHook(() => useAdminSubTab(stale, vi.fn())).result.current[0]).toBe(
+        "users",
+      );
+    }
+    const { result, rerender } = renderHook(
+      ({ sub }: { sub: string | null }) => useAdminSubTab(sub, vi.fn()),
+      { initialProps: { sub: "permissions" as string | null } },
+    );
+    expect(result.current[0]).toBe("permissions");
+    rerender({ sub: "user-overrides" });
+    expect(result.current[0]).toBe("users");
+  });
+
   it("miękka nawigacja do innego `?sub=` przełącza podzakładkę", () => {
     const { result, rerender } = renderHook(
       ({ sub }: { sub: string | null }) => useAdminSubTab(sub, vi.fn()),

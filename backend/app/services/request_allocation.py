@@ -8,16 +8,30 @@ co reszta przydziałów (``allocation_lock``):
 * po każdej zmianie, która może zmienić przydział (zdarzenia z outboxa
   ``recruitment_allocation_events``: rekrutacja, kategoria osoby, …);
 * raz dziennie o ``review_time`` z Ustawień — wtedy też idzie poranny dzwonek
-  „Od dziś: …” do ludzi i skrót dla Delivery Leadów.
+  „Zwolnione: …” do ludzi i skrót dla Delivery Leadów.
+
+Automat dobiera i proponuje ludzi tylko do requestów P1 (12.10.2026,
+``RequestInfo.automat_assigns``); przy pozostałych rekrutera przypisuje
+człowiek, a ręczne zdjęcie osoby zostawia request „Bez rekrutera”.
 
 Tryby (``recruitment_allocation_state.mode``): ``off`` — nic; ``shadow`` —
 przypisania jako ``proposed`` (pulpit pokazuje je jako propozycję, nikt nic
 nie dostaje); ``auto`` — ``active``, a pierwszy rekruter zostaje też
 prowadzącym rekrutacji (``jobs.recruiter_id``), jeśli go nie było.
 
-Urlopy: ``workforce_context`` z Compassa. Bez świeżych danych tryb ``auto``
-nie przydziela nikomu nowych requestów (mógłby trafić ktoś na urlopie), a
-tryb ``shadow`` proponuje dalej i pulpit mówi, że danych o urlopach brak.
+Propozycje (decyzja Artura 02.10.2026): w trybie ``shadow`` automat proponuje
+JEDNĄ osobę do requestu bez obsady, a Head of Recruitment albo admin ją
+akceptuje, zamienia albo odrzuca (``accept_proposal``, ``replace_proposal``,
+``reject_proposal``). Do akceptacji nikt nie jest przypisany i nikt nie
+dostaje dzwonka. Kto pracuje nad requestem, mówi jedna reguła
+(``job_team.recruiters_for_jobs``) — propozycja znika, gdy ktoś zaczął
+pracować inną drogą (Delivery Lead przypisał rekrutera, rekruter wziął
+request sam).
+
+Urlopy: ``workforce_context`` z Compassa. Gdy urlopy są włączone, a dane
+nieaktualne, tryb ``auto`` nie przydziela nikomu nowych requestów (mógłby
+trafić ktoś na urlopie). Przy wyłączonych urlopach automat przydziela od razu,
+a tryb ``shadow`` proponuje zawsze — pulpit mówi, że danych o urlopach brak.
 
 Prowadzący rekrutacji (``jobs.recruiter_id`` — z handoffu, z Traffita albo
 wpisany ręcznie) jest przy requeście z urzędu: przebieg dopisuje mu wiersz
@@ -28,7 +42,7 @@ nie widział prowadzącego. Takie wiersze nie są „zmianą” ani dzwonkiem.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
@@ -37,6 +51,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.services.hr.availability_local import availability_enabled
+from app.core.scheduling import is_business_day
 from app.models.cc_feedback import JobSecondaryCc
 from app.models.competence_category import UserCompetenceCategory
 from app.models.job import Job, JobStatus
@@ -44,11 +60,17 @@ from app.models.job_proposal import JobProposal
 from app.models.job_work_assignment import JobWorkAssignment
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 from app.models.user import User, UserRole
+from app.services.job_previous_recruiters import parked_exists
+from app.services.job_p0 import active_clause
+from app.services.job_priority import is_passive, priority_rank
+from app.services.job_team import add_manual_member, recruiters_for_jobs, working
 from app.services.request_allocation_plan import (
     Change,
     LiveAssignment,
+    PROPOSAL_RELEASE_PREFIX,
     PersonInfo,
     PlanInput,
+    PlanRules,
     RequestInfo,
     plan_assignments,
 )
@@ -58,9 +80,15 @@ from app.services.request_work_state import visible_state
 logger = logging.getLogger(__name__)
 
 STATS_KEY = "request_allocation"
-RECRUIT_ROLES = (UserRole.recruiter, UserRole.tac)
-SOURCE_ROLES = (UserRole.sourcer, UserRole.tac)
-OPERATOR_ROLES = (UserRole.recruiter, UserRole.sourcer, UserRole.tac)
+# Powody zwolnienia propozycji decyzją człowieka. Świadomie nie ``manual``:
+# ten powód na wierszu rekrutera automatu znaczy „zdjęto prowadzącego” i
+# blokuje jego powrót (``_blocked``, ``job_team.owner_is_working_clause``).
+REJECTED_PROPOSAL = f"{PROPOSAL_RELEASE_PREFIX}rejected"
+REPLACED_PROPOSAL = f"{PROPOSAL_RELEASE_PREFIX}replaced"
+# Ręczne zdjęcie, po którym człowiek przypisał tę samą osobę ponownie — już
+# nie blokuje (``void_manual_release``).
+REASSIGNED = "reassigned"
+OPERATOR_ROLES = (UserRole.recruiter,)
 
 
 def _pool_clause():
@@ -77,12 +105,17 @@ async def _requests(db: AsyncSession) -> list[RequestInfo]:
 
     jobs = (
         await db.execute(
-            select(Job.id, Job.competence_category_id, Job.deadline).where(
-                _pool_clause()
-            )
+            select(
+                Job.id,
+                Job.competence_category_id,
+                Job.deadline,
+                Job.priority,
+                # 0525: aktywne P0 automat traktuje jak P1 (decyzja 27.10.2026).
+                active_clause().label("is_p0"),
+            ).where(_pool_clause())
         )
     ).all()
-    ids = [job_id for job_id, _cc, _deadline in jobs]
+    ids = [job_id for job_id, _cc, _deadline, _priority, _p0 in jobs]
     if not ids:
         return []
     secondary: dict[int, set[int]] = {}
@@ -124,15 +157,11 @@ async def _requests(db: AsyncSession) -> list[RequestInfo]:
             deadline=deadline,
             # Bez nocnego przeglądu bazy nie wiadomo, ilu pasuje — rekruter.
             base_matches=int(proposals.get(job_id, 0)) if job_id in reviewed else None,
+            priority_rank=0 if is_p0 else priority_rank(priority),
+            passive=False if is_p0 else is_passive(priority),
         )
-        for job_id, cc, deadline in jobs
+        for job_id, cc, deadline, priority, is_p0 in jobs
     ]
-
-
-def _role_set(user: User) -> set[str]:
-    values = {str(getattr(r, "value", r)) for r in (user.roles or [])}
-    values.add(str(getattr(user.role, "value", user.role)))
-    return values
 
 
 async def _people(
@@ -191,7 +220,9 @@ async def _people(
                 select(
                     JobWorkAssignment.user_id, func.max(JobWorkAssignment.assigned_at)
                 )
-                .where(JobWorkAssignment.source == "auto")
+                # Zaakceptowana propozycja staje się wierszem ``manual`` — też
+                # jest „ostatnio coś dostał”. Wiersz prowadzącego nie.
+                .where(JobWorkAssignment.source != "owner")
                 .group_by(JobWorkAssignment.user_id)
             )
         ).all()
@@ -199,7 +230,6 @@ async def _people(
     people = []
     eligible: set[int] = set()
     for user in users:
-        roles = _role_set(user)
         # Bez żadnej kategorii osoba nie dostaje requestów — tak zdecydował
         # Artur („osoba bez kategorii nie dostaje requestów automatycznie”).
         if user.id not in first and user.id not in second:
@@ -210,8 +240,6 @@ async def _people(
         people.append(
             PersonInfo(
                 user_id=user.id,
-                can_recruit=bool(roles & {r.value for r in RECRUIT_ROLES}),
-                can_source=bool(roles & {r.value for r in SOURCE_ROLES}),
                 first=frozenset(first.get(user.id, set())),
                 second=frozenset(second.get(user.id, set())),
                 last_assigned=last.get(user.id),
@@ -220,8 +248,16 @@ async def _people(
     return people, frozenset(eligible)
 
 
-async def _blocked(db: AsyncSession) -> frozenset[tuple[int, int]]:
-    """Pary zdjęte ręcznie w BIEŻĄCYM stanie requestu (po ostatniej zmianie)."""
+async def _blocked(
+    db: AsyncSession, reason: str = "manual"
+) -> frozenset[tuple[int, int]]:
+    """Pary zdjęte ręcznie w BIEŻĄCYM stanie requestu (po ostatniej zmianie).
+
+    Z ``reason=REJECTED_PROPOSAL`` — pary z odrzuconą propozycją. Te blokują
+    wyłącznie planer: automat nie proponuje tej osoby drugi raz do tego
+    samego requestu, ale człowiek nadal może zrobić ją prowadzącym, więc
+    adopcja prowadzącego ich nie pomija.
+    """
     rows = (
         await db.execute(
             select(JobWorkAssignment.job_id, JobWorkAssignment.user_id)
@@ -229,7 +265,7 @@ async def _blocked(db: AsyncSession) -> frozenset[tuple[int, int]]:
             .where(
                 _pool_clause(),
                 JobWorkAssignment.state == "released",
-                JobWorkAssignment.release_reason == "manual",
+                JobWorkAssignment.release_reason == reason,
                 or_(
                     Job.work_state_changed_at.is_(None),
                     JobWorkAssignment.released_at >= Job.work_state_changed_at,
@@ -240,7 +276,7 @@ async def _blocked(db: AsyncSession) -> frozenset[tuple[int, int]]:
     return frozenset((job_id, user_id) for job_id, user_id in rows)
 
 
-AUTO_RELEASE_REASONS = ("unavailable", "excluded")
+AUTO_RELEASE_REASONS = ("unavailable", "excluded", "inactive")
 
 
 async def _auto_released(db: AsyncSession) -> frozenset[tuple[int, int]]:
@@ -297,11 +333,17 @@ async def _adopt_owners(
         .values(state="released", released_at=now, release_reason="owner_changed")
         .execution_options(synchronize_session=False)
     )
+    # Prowadzący wśród „Poprzednich rekruterów” (zejście z P1) nie pracuje —
+    # adopcja przywróciłaby go co przebieg i liczyła w obłożeniu.
     owners = (
         await db.execute(
             select(Job.id, Job.recruiter_id)
             .join(User, User.id == Job.recruiter_id)
-            .where(_pool_clause(), User.is_active.is_(True))
+            .where(
+                _pool_clause(),
+                User.is_active.is_(True),
+                ~parked_exists(Job.id, Job.recruiter_id),
+            )
         )
     ).all()
     if not owners:
@@ -316,6 +358,7 @@ async def _adopt_owners(
             )
         ).all()
     )
+    auto_owned = await _last_assignment_was_auto(db, owners)
     adopted = 0
     for job_id, user_id in owners:
         pair = (job_id, user_id)
@@ -326,7 +369,12 @@ async def _adopt_owners(
                 job_id=job_id,
                 user_id=user_id,
                 role="recruiter",
-                source="owner",
+                # Runda 8 (R8-N7-3): prowadzący, którego wpisał automat, wraca
+                # po powrocie requestu do puli jako wiersz automatu — planer
+                # zwolni go za urlop jak każdego innego. Wiersz ``owner`` nie
+                # jest zwalniany nigdy, więc request stał „pokryty” przez osobę
+                # na urlopie tylko dlatego, że wcześniej na chwilę wyszedł z puli.
+                source="auto" if pair in auto_owned else "owner",
                 state="active",
                 assigned_at=now,
             )
@@ -336,7 +384,53 @@ async def _adopt_owners(
     return {"owner_released": stale.rowcount or 0, "owner_adopted": adopted}
 
 
-async def _live(db: AsyncSession) -> tuple[list[LiveAssignment], dict[int, str]]:
+async def _last_assignment_was_auto(
+    db: AsyncSession, pairs: list[tuple[int, int]]
+) -> frozenset[tuple[int, int]]:
+    """Pary (request, osoba), których NAJNOWSZY wiersz to aktywny rekruter
+    automatu — czyli prowadzący wpisany przez ``_set_owner_if_empty``."""
+    if not pairs:
+        return frozenset()
+    rows = (
+        await db.execute(
+            select(
+                JobWorkAssignment.job_id,
+                JobWorkAssignment.user_id,
+                JobWorkAssignment.source,
+                JobWorkAssignment.role,
+                JobWorkAssignment.release_reason,
+            )
+            .where(
+                JobWorkAssignment.job_id.in_(sorted({job for job, _ in pairs})),
+                JobWorkAssignment.released_at.is_not(None),
+            )
+            .distinct(JobWorkAssignment.job_id, JobWorkAssignment.user_id)
+            .order_by(
+                JobWorkAssignment.job_id,
+                JobWorkAssignment.user_id,
+                JobWorkAssignment.assigned_at.desc(),
+                JobWorkAssignment.id.desc(),
+            )
+        )
+    ).all()
+    wanted = set(pairs)
+    return frozenset(
+        (row.job_id, row.user_id)
+        for row in rows
+        if (row.job_id, row.user_id) in wanted
+        and row.source == "auto"
+        and row.role == "recruiter"
+        # Zwolnienie z powodu automatu (urlop, poza przydziałem…) zdjęło też
+        # prowadzącego — skoro znów ktoś nim jest, wpisał go człowiek.
+        and row.release_reason not in AUTO_RELEASE_REASONS
+        # Runda 9 (R9-V2-1): zwolniona propozycja nigdy nie wpisała prowadzącego.
+        and not (row.release_reason or "").startswith(PROPOSAL_RELEASE_PREFIX)
+    )
+
+
+async def _live(
+    db: AsyncSession,
+) -> tuple[list[LiveAssignment], dict[int, str], frozenset[int]]:
     rows = (
         await db.execute(
             select(
@@ -345,11 +439,15 @@ async def _live(db: AsyncSession) -> tuple[list[LiveAssignment], dict[int, str]]
                 JobWorkAssignment.role,
                 JobWorkAssignment.source,
                 JobWorkAssignment.state,
-            ).where(JobWorkAssignment.state != "released")
+                User.is_active,
+            )
+            .join(User, User.id == JobWorkAssignment.user_id)
+            .where(JobWorkAssignment.state != "released")
         )
     ).all()
     if not rows:
-        return [], {}
+        return [], {}, frozenset()
+    inactive = frozenset(row.user_id for row in rows if not row.is_active)
     job_ids = sorted({row.job_id for row in rows})
     in_process = set(
         (
@@ -387,13 +485,53 @@ async def _live(db: AsyncSession) -> tuple[list[LiveAssignment], dict[int, str]]
         for row in rows
     ]
     out = {job_id: state for job_id, state in states.items() if state != "searching"}
-    return live, out
+    return live, out, inactive
+
+
+async def _unseen_workers(
+    db: AsyncSession, requests: list[RequestInfo], live: list[LiveAssignment]
+) -> tuple[frozenset[int], dict[int, int], dict[int, frozenset[int]]]:
+    """Kto pracuje nad requestem z puli, a planer nie widzi go jako wiersza.
+
+    Reguła „kto pracuje” jest jedna (``job_team.recruiters_for_jobs``). Poza
+    aktywnym przypisaniem pracuje ręcznie dopisany współpracownik, a także
+    prowadzący, któremu nie dało się założyć wiersza: jego para żyje jeszcze
+    jako propozycja automatu albo automat zwolnił go wcześniej w tym stanie
+    requestu, a człowiek wpisał go ponownie. Taki request jest pokryty
+    (propozycja przy nim znika), a osoba ma go w obłożeniu.
+
+    Zwraca (requesty z taką osobą, ile takich requestów P1 ma każda osoba —
+    obłożenie liczy tylko P1, 14.10.2026 —, kto to jest przy każdym requeście:
+    obsada przy zasadzie „ilu ludzi na rekrutację”).
+    """
+    active = {(row.job_id, row.user_id) for row in live if row.state == "active"}
+    p1 = {request.job_id for request in requests if request.automat_assigns}
+    team = await recruiters_for_jobs(db, [request.job_id for request in requests])
+    staffed: set[int] = set()
+    extra_load: dict[int, int] = {}
+    who: dict[int, set[int]] = {}
+    for job_id, people in team.items():
+        for person in working(people):
+            if (job_id, person.user_id) in active:
+                continue
+            staffed.add(job_id)
+            who.setdefault(job_id, set()).add(person.user_id)
+            if job_id in p1:
+                extra_load[person.user_id] = extra_load.get(person.user_id, 0) + 1
+    return (
+        frozenset(staffed),
+        extra_load,
+        {job_id: frozenset(ids) for job_id, ids in who.items()},
+    )
 
 
 async def _apply(
     db: AsyncSession, changes: list[Change], *, mode: str, now: datetime
 ) -> dict[str, int]:
     counts = {"assigned": 0, "released": 0, "activated": 0}
+    # Pary, które w tym przebiegu zaczęły pracować z woli automatu — dostają
+    # dzwonek od razu, nie rano.
+    started: list[tuple[int, int]] = []
     for change in changes:
         live_row = and_(
             JobWorkAssignment.job_id == change.job_id,
@@ -408,10 +546,13 @@ async def _apply(
                     )
                 )
             ).first()
+            reason = change.reason
+            if previous is not None and previous.state == "proposed":
+                reason = f"{PROPOSAL_RELEASE_PREFIX}{reason}"
             await db.execute(
                 update(JobWorkAssignment)
                 .where(live_row)
-                .values(state="released", released_at=now, release_reason=change.reason)
+                .values(state="released", released_at=now, release_reason=reason)
             )
             counts["released"] += 1
             if (
@@ -434,6 +575,7 @@ async def _apply(
                 .values(state="active", assigned_at=now)
             )
             counts["activated"] += 1
+            started.append((change.job_id, change.user_id))
             if change.role == "recruiter":
                 await _set_owner_if_empty(db, change.job_id, change.user_id)
         elif change.kind == "assign":
@@ -449,9 +591,21 @@ async def _apply(
                 )
             )
             counts["assigned"] += 1
-            if state == "active" and change.role == "recruiter":
-                await _set_owner_if_empty(db, change.job_id, change.user_id)
+            if state == "active":
+                started.append((change.job_id, change.user_id))
+                if change.role == "recruiter":
+                    await _set_owner_if_empty(db, change.job_id, change.user_id)
     await db.flush()
+    if started:
+        try:
+            from app.services.request_allocation_notices import (  # noqa: PLC0415
+                notify_assigned_pairs,
+            )
+
+            async with db.begin_nested():
+                await notify_assigned_pairs(db, started)
+        except Exception:  # noqa: BLE001 — dzwonek nie może zatrzymać przydziału
+            logger.exception("[request_allocation] assignment notices failed")
     return counts
 
 
@@ -464,16 +618,46 @@ async def _clear_auto_owner(db: AsyncSession, job_id: int, user_id: int) -> None
 
 
 async def _set_owner_if_empty(db: AsyncSession, job_id: int, user_id: int) -> None:
+    # Runda 8 (R8-N7-2): prowadzący z nieaktywnym kontem to brak prowadzącego.
+    # Samo ``IS NULL`` zostawiało „Prowadzi” przy osobie, której już nie ma,
+    # a rekruter dobrany przez automat nie widział requestu w „Moje”.
+    inactive = select(User.id).where(User.is_active.is_(False))
     await db.execute(
         update(Job)
-        .where(Job.id == job_id, Job.recruiter_id.is_(None))
+        .where(
+            Job.id == job_id,
+            or_(Job.recruiter_id.is_(None), Job.recruiter_id.in_(inactive)),
+        )
         .values(recruiter_id=user_id)
+        .execution_options(synchronize_session=False)
+    )
+
+
+# Poranny przegląd nadrabia się w ciągu dnia pracy (pętla stała rano przez
+# deploy), ale nie wieczorem: 02.10.2026 automat włączony o 20:54 wysłał
+# „poranny” skrót od razu. Po tej godzinie przegląd czeka do następnego dnia.
+REVIEW_LATEST = time(17, 0)
+
+
+def plan_rules(rules: AllocationRules) -> PlanRules:
+    """Zasady z Ustawień w postaci, którą zna czysty planer."""
+    return PlanRules(
+        include_p2=rules.include_p2,
+        people_per_p1=rules.people_per_p1,
+        max_load=rules.max_load,
+        overflow=rules.overflow,
+        outsiders=rules.outsiders,
+        order=rules.order,
     )
 
 
 def _review_due(stats: dict[str, Any], rules: AllocationRules, now: datetime) -> bool:
     local = now.astimezone(ZoneInfo(settings.BUSINESS_TZ))
-    if local.time() < rules.review_clock:
+    clock = rules.review_clock
+    if local.time() < clock:
+        return False
+    # Godzinę przeglądu ustawia admin — ustawiona po 17:00 obowiązuje bez okna.
+    if clock < REVIEW_LATEST <= local.time():
         return False
     return stats.get("last_review_date") != local.date().isoformat()
 
@@ -497,9 +681,7 @@ async def run_request_allocation(
     people, eligible_ids = await _people(
         db,
         available_ids=(
-            available_ids
-            if availability_fresh and settings.COMPASS_AVAILABILITY_ENABLED
-            else None
+            available_ids if availability_fresh and availability_enabled() else None
         ),
     )
     blocked = await _blocked(db)
@@ -509,19 +691,40 @@ async def run_request_allocation(
         if mode != "off"
         else {"owner_released": 0, "owner_adopted": 0}
     )
-    live, out = await _live(db)
+    live, out, inactive_ids = await _live(db)
+    staffed: frozenset[int] = frozenset()
+    extra_load: dict[int, int] = {}
+    staffed_people: dict[int, frozenset[int]] = {}
+    rejected: frozenset[tuple[int, int]] = frozenset()
+    # Urlopy z Compassa włączone, ale nieaktualne: tryb ``auto`` czeka, bo
+    # request mógłby dostać ktoś na urlopie. Przy wyłączonych urlopach nie ma
+    # na co czekać — automat przydziela od razu. Zasada „Przydzielaj” z
+    # Ustawień (29.10.2026) też nie czeka.
+    leave_blocks_auto = (
+        availability_enabled()
+        and not availability_fresh
+        and rules.leave_policy == "wait"
+    )
+    if mode != "off":
+        # Tryb ``off`` niczego nie przydziela — nie liczy obsady ani blokad.
+        staffed, extra_load, staffed_people = await _unseen_workers(db, requests, live)
+        rejected = await _blocked(db, REJECTED_PROPOSAL)
     changes = plan_assignments(
         PlanInput(
             requests=requests,
             people=people,
             live=live,
             out_of_pool=out,
-            sourcer_threshold=rules.sourcer_threshold,
             mode=mode,
-            availability_known=availability_fresh
-            and settings.COMPASS_AVAILABILITY_ENABLED,
+            availability_known=availability_fresh and availability_enabled(),
+            leave_blocks_auto=leave_blocks_auto,
             eligible_ids=eligible_ids,
-            blocked=blocked,
+            blocked=blocked | rejected,
+            inactive_ids=inactive_ids,
+            staffed=staffed,
+            extra_load=extra_load,
+            staffed_people=staffed_people,
+            rules=plan_rules(rules),
         )
     )
     counts = await _apply(db, changes, mode=mode, now=now)
@@ -531,14 +734,29 @@ async def run_request_allocation(
             "mode": mode,
             "requests": len(requests),
             "people": len(people),
-            "availability_known": bool(
-                availability_fresh and settings.COMPASS_AVAILABILITY_ENABLED
-            ),
+            "availability_known": bool(availability_fresh and availability_enabled()),
+            "leave_blocks_auto": bool(leave_blocks_auto),
             **counts,
             **owner_counts,
         }
     )
-    if _review_due(stats, rules, now):
+    review_due = _review_due(stats, rules, now)
+    # Propozycje czekają na Head of Recruitment: dzwonek od razu po nowej
+    # propozycji i raz dziennie o porze przeglądu, dopóki coś czeka.
+    new_proposals = mode != "auto" and counts["assigned"] > 0
+    if new_proposals or review_due:
+        try:
+            from app.services.request_allocation_notices import (  # noqa: PLC0415
+                send_proposal_notices,
+            )
+
+            async with db.begin_nested():
+                stats["proposal_notices"] = await send_proposal_notices(
+                    db, new_proposals=new_proposals
+                )
+        except Exception:  # noqa: BLE001 — dzwonek nie może zatrzymać przydziału
+            logger.exception("[request_allocation] proposal notices failed")
+    if review_due:
         local_date = now.astimezone(ZoneInfo(settings.BUSINESS_TZ)).date()
         try:
             from app.services.request_allocation_notices import (  # noqa: PLC0415
@@ -562,6 +780,192 @@ async def run_request_allocation(
     return stats
 
 
+async def preview_allocation(
+    db: AsyncSession, rules_list: list[AllocationRules]
+) -> list[dict[str, Any]]:
+    """Przebieg „na sucho” dla kilku zestawów zasad — nic nie zapisuje.
+
+    Ustawienia → „Automat przydziału” (29.10.2026) pokazują obok formularza,
+    co zasady zrobią przy następnym przebiegu na dzisiejszych danych. Te same
+    odczyty i ten sam planer co ``run_request_allocation``, bez adopcji
+    prowadzących (zapis) i w trybie podglądu, żeby było widać propozycje także
+    przy wyłączonym automacie. Przydziały, które już są, zostają (zasady
+    działają tylko na nowe), więc wynik to nowe osoby i rekrutacje, które
+    poczekają na człowieka.
+    """
+    from app.services.workforce_availability import (  # noqa: PLC0415
+        workforce_context,
+    )
+
+    context = await workforce_context(db)
+    known = bool(context.fresh and availability_enabled())
+    requests = await _requests(db)
+    people, eligible_ids = await _people(
+        db, available_ids=set(context.available_ids) if known else None
+    )
+    blocked = await _blocked(db) | await _blocked(db, REJECTED_PROPOSAL)
+    live, out, inactive_ids = await _live(db)
+    staffed, extra_load, staffed_people = await _unseen_workers(db, requests, live)
+    names = dict(
+        (
+            await db.execute(
+                select(User.id, User.name).where(
+                    User.id.in_({p.user_id for p in people} | {r.user_id for r in live})
+                )
+            )
+        ).all()
+    )
+    pool = {r.job_id: r for r in requests}
+    p1_now: dict[int, int] = dict(extra_load)
+    for row in live:
+        if row.job_id in pool and pool[row.job_id].automat_assigns:
+            p1_now[row.user_id] = p1_now.get(row.user_id, 0) + 1
+
+    results = []
+    for rules in rules_list:
+        plan = plan_rules(rules)
+        changes = plan_assignments(
+            PlanInput(
+                requests=requests,
+                people=people,
+                live=live,
+                out_of_pool=out,
+                mode="shadow",
+                availability_known=known,
+                eligible_ids=eligible_ids,
+                blocked=blocked,
+                inactive_ids=inactive_ids,
+                staffed=staffed,
+                extra_load=extra_load,
+                staffed_people=staffed_people,
+                rules=plan,
+            )
+        )
+        released = {(c.job_id, c.user_id) for c in changes if c.kind == "release"}
+        staying: dict[int, int] = {
+            job_id: max(1, len(staffed_people.get(job_id, ()))) for job_id in staffed
+        }
+        for row in live:
+            if row.job_id in pool and (row.job_id, row.user_id) not in released:
+                staying[row.job_id] = staying.get(row.job_id, 0) + 1
+        new: dict[int, int] = {}
+        new_p1: dict[int, int] = {}
+        for change in changes:
+            if change.kind != "assign":
+                continue
+            new[change.job_id] = new.get(change.job_id, 0) + 1
+            if pool[change.job_id].automat_assigns:
+                new_p1[change.user_id] = new_p1.get(change.user_id, 0) + 1
+        target = [r for r in requests if r.staffed_by(plan)]
+        waiting = [
+            r.job_id
+            for r in target
+            if staying.get(r.job_id, 0) + new.get(r.job_id, 0) < r.wanted(plan)
+        ]
+        assigns = [c for c in changes if c.kind == "assign"]
+        per_person: dict[int, int] = {}
+        for change in assigns:
+            per_person[change.user_id] = per_person.get(change.user_id, 0) + 1
+        results.append(
+            {
+                "pool": len(target),
+                "empty": sum(1 for r in target if staying.get(r.job_id, 0) == 0),
+                "new_people": len(assigns),
+                "new_requests": len(new),
+                "waiting": len(waiting),
+                # Propozycje automatu, które znikną (np. P2 po wyłączeniu
+                # zasady). Działających przypisań zasady nie zwalniają.
+                "proposals_dropped": sum(
+                    1
+                    for c in changes
+                    if c.kind == "release" and c.reason in {"not_p1", "superseded"}
+                ),
+                "at_limit": (
+                    sum(1 for p in people if p1_now.get(p.user_id, 0) >= rules.max_load)
+                    if rules.max_load is not None
+                    else 0
+                ),
+                "team": len(people),
+                "people": sorted(
+                    (
+                        {
+                            "user_id": user_id,
+                            "name": names.get(user_id) or f"#{user_id}",
+                            "p1_now": p1_now.get(user_id, 0),
+                            "new": count,
+                            "new_p1": new_p1.get(user_id, 0),
+                        }
+                        for user_id, count in per_person.items()
+                    ),
+                    key=lambda item: (-item["new"], item["name"]),
+                ),
+                "auto_waits_for_leave": bool(
+                    availability_enabled()
+                    and not context.fresh
+                    and rules.leave_policy == "wait"
+                ),
+            }
+        )
+    return results
+
+
+def job_in_pool(job: Job) -> bool:
+    """Request w puli przydziału — lustro ``_pool_clause`` dla wczytanego wiersza."""
+    return (
+        job.status == JobStatus.published
+        and job.work_state == "searching"
+        and job.champion_found_at is None
+    )
+
+
+async def remember_manual_release(
+    db: AsyncSession, *, job_id: int, user_id: int, role: str
+) -> None:
+    """Ślad „zdjęty ręcznie” dla osoby, która nie miała wiersza przypisania.
+
+    ``manual_remove`` zostawia powód ``manual`` na żywym wierszu. Prowadzący
+    sprzed włączenia automatu (albo wpisany między przebiegami) wiersza nie
+    miał, więc po zdjęciu planer mógł zaproponować tę samą osobę do tego samego
+    requestu. Zwolniony wiersz niczego nie przypisuje — czyta go ``_blocked``.
+    """
+    now = datetime.now(timezone.utc)
+    db.add(
+        JobWorkAssignment(
+            job_id=job_id,
+            user_id=user_id,
+            role=role,
+            source="owner",
+            state="released",
+            assigned_at=now,
+            released_at=now,
+            release_reason="manual",
+        )
+    )
+
+
+async def void_manual_release(db: AsyncSession, *, job_id: int, user_id: int) -> None:
+    """Człowiek przypisał osobę ponownie — jej wcześniejsze ręczne zdjęcie
+    z tego requestu przestaje obowiązywać.
+
+    Powód ``manual`` znaczy „ta osoba ma tu nie wracać” (``_blocked``,
+    ``job_team.owner_is_working_clause``). Bez zniesienia go osoba zdjęta
+    i dodana ponownie w tym samym stanie requestu była prowadzącą, której
+    reguła zespołu nie liczyła jako prowadzącej: kolejna osoba dodana do
+    requestu wchodziła na jej miejsce i zwalniała jej przypisanie.
+    """
+    await db.execute(
+        update(JobWorkAssignment)
+        .where(
+            JobWorkAssignment.job_id == job_id,
+            JobWorkAssignment.user_id == user_id,
+            JobWorkAssignment.state == "released",
+            JobWorkAssignment.release_reason == "manual",
+        )
+        .values(release_reason=REASSIGNED)
+        .execution_options(synchronize_session=False)
+    )
+
+
 async def manual_add(
     db: AsyncSession, *, job_id: int, user_id: int, role: str, actor_id: int
 ) -> JobWorkAssignment:
@@ -571,7 +975,12 @@ async def manual_add(
     jest idempotentne (``ON CONFLICT DO NOTHING`` na żywej parze), więc
     podwójne kliknięcie ani przebieg automatu dodający tę samą parę nie kończą
     się naruszeniem ``ux_job_work_assignments_live`` (goły 500).
+
+    Osoba, która nie została prowadzącym, dostaje też trwały wpis w zespole
+    (``job_team.add_manual_member``): przypisanie jest zwalniane, gdy request
+    wychodzi z „Szukamy”, a osoba ma zostać Rekruterem rekrutacji.
     """
+    await void_manual_release(db, job_id=job_id, user_id=user_id)
     live_pair = and_(
         JobWorkAssignment.job_id == job_id,
         JobWorkAssignment.user_id == user_id,
@@ -606,6 +1015,7 @@ async def manual_add(
     if role == "recruiter":
         await _set_owner_if_empty(db, job_id, user_id)
     await db.flush()
+    await add_manual_member(db, job_id=job_id, user_id=user_id, actor_id=actor_id)
     row = await db.scalar(
         select(JobWorkAssignment)
         .where(live_pair)
@@ -616,22 +1026,223 @@ async def manual_add(
 
 
 async def manual_remove(db: AsyncSession, *, job_id: int, user_id: int) -> bool:
-    result = await db.execute(
-        update(JobWorkAssignment)
-        .where(
-            JobWorkAssignment.job_id == job_id,
-            JobWorkAssignment.user_id == user_id,
-            JobWorkAssignment.state != "released",
+    """Zdjęcie osoby z pulpitu.
+
+    Zdjęty aktywny rekruter AUTOMATU zdejmuje też prowadzącego, którego
+    automat wpisał (``_set_owner_if_empty``) — lustro zwolnienia za urlop.
+    Bez tego ``recruiter_id`` zostawał przy zdjętej osobie, a następny
+    rekruter automatu nie zostawał prowadzącym (audyt 25.09.2026, runda 4).
+    Prowadzący wpisany ręcznie albo z Traffita (wiersz ``owner``/``manual``)
+    zostaje nietknięty.
+    """
+    live_pair = and_(
+        JobWorkAssignment.job_id == job_id,
+        JobWorkAssignment.user_id == user_id,
+        JobWorkAssignment.state != "released",
+    )
+    previous = (
+        await db.execute(
+            select(
+                JobWorkAssignment.source,
+                JobWorkAssignment.role,
+                JobWorkAssignment.state,
+            ).where(live_pair)
         )
+    ).all()
+    if not previous:
+        return False
+    await db.execute(
+        update(JobWorkAssignment)
+        .where(live_pair)
         .values(
             state="released",
             released_at=datetime.now(timezone.utc),
             release_reason="manual",
         )
     )
-    return bool(result.rowcount)
+    if any(
+        row.source == "auto" and row.role == "recruiter" and row.state == "active"
+        for row in previous
+    ):
+        await _clear_auto_owner(db, job_id, user_id)
+    return True
+
+
+def _proposed_pair(job_id: int, user_id: int):
+    return and_(
+        JobWorkAssignment.job_id == job_id,
+        JobWorkAssignment.user_id == user_id,
+        JobWorkAssignment.state == "proposed",
+    )
+
+
+async def accept_proposal(
+    db: AsyncSession, *, job_id: int, user_id: int, actor_id: int
+) -> bool:
+    """Akceptacja propozycji automatu: od teraz osoba pracuje nad requestem.
+
+    Zmienia TEN SAM wiersz (``proposed`` → ``active``) i robi z niego decyzję
+    człowieka (``manual`` + kto zaakceptował) — automat nie zdejmie go potem
+    za urlop. Świadomie nie przez ``manual_add``: tamto wstawia nowy wiersz,
+    gdy propozycji już nie ma, więc spóźnione kliknięcie przydzielałoby osobę,
+    której automat nie proponuje. ``False`` = propozycji już nie ma.
+
+    Wołający trzyma ``allocation_lock`` i blokadę rekrutacji, i commituje.
+    """
+    role = await db.scalar(
+        update(JobWorkAssignment)
+        .where(_proposed_pair(job_id, user_id))
+        .values(
+            state="active",
+            source="manual",
+            assigned_by=actor_id,
+            assigned_at=datetime.now(timezone.utc),
+        )
+        .returning(JobWorkAssignment.role)
+        .execution_options(synchronize_session=False)
+    )
+    if role is None:
+        return False
+    if role == "recruiter":
+        await _set_owner_if_empty(db, job_id, user_id)
+    await db.flush()
+    # Zwykle zaakceptowana osoba zostaje prowadzącym i wpisu nie dostaje;
+    # gdy prowadzący już jest, zostaje przy rekrutacji jak dodana z pulpitu.
+    await add_manual_member(db, job_id=job_id, user_id=user_id, actor_id=actor_id)
+    return True
+
+
+async def _release_proposal(
+    db: AsyncSession, *, job_id: int, user_id: int, reason: str
+) -> bool:
+    released = await db.scalar(
+        update(JobWorkAssignment)
+        .where(_proposed_pair(job_id, user_id))
+        .values(
+            state="released",
+            released_at=datetime.now(timezone.utc),
+            release_reason=reason,
+        )
+        .returning(JobWorkAssignment.id)
+        .execution_options(synchronize_session=False)
+    )
+    return released is not None
+
+
+async def reject_proposal(db: AsyncSession, *, job_id: int, user_id: int) -> bool:
+    """Odrzucenie propozycji: automat nie zaproponuje tej osoby do tego
+    requestu, dopóki request nie zmieni stanu (``_blocked`` z powodem
+    odrzucenia). Człowiek nadal może ją przypisać. ``False`` = nie było czego
+    odrzucać."""
+    return await _release_proposal(
+        db, job_id=job_id, user_id=user_id, reason=REJECTED_PROPOSAL
+    )
+
+
+async def replace_proposal(
+    db: AsyncSession,
+    *,
+    job_id: int,
+    user_id: int,
+    replacement_id: int,
+    role: str,
+    actor_id: int,
+) -> bool:
+    """Zamiast proponowanej osoby pracuje inna, wskazana przez człowieka.
+
+    Zwolnienie propozycji nie blokuje — proponowana osoba nie zrobiła nic
+    złego i automat może ją kiedyś zaproponować ponownie. ``False`` =
+    propozycji już nie ma (wtedy nikogo nie przypisujemy).
+    """
+    if not await _release_proposal(
+        db, job_id=job_id, user_id=user_id, reason=REPLACED_PROPOSAL
+    ):
+        return False
+    await manual_add(
+        db, job_id=job_id, user_id=replacement_id, role=role, actor_id=actor_id
+    )
+    return True
+
+
+async def restore_after_champion_removed(
+    db: AsyncSession, *, job_id: int, champion_since: Optional[datetime], now: datetime
+) -> int:
+    """Zdjęcie „Mamy championa” oddaje requestowi ludzi dodanych ręcznie.
+
+    Runda 8 (R8-N7-5): champion zwalniał wszystkich — także osoby dodane
+    ręcznie z pulpitu — a jego zdjęcie (np. pomyłkowe oznaczenie) nikogo nie
+    przywracało; automat dobierał od nowa według obciążenia. Wracają wiersze
+    ``manual`` zwolnione z powodem ``champion`` od chwili oznaczenia, jeśli
+    konto jest aktywne i para nie żyje już inaczej. Wołający trzyma
+    ``allocation_lock`` (przed blokadą rekrutacji).
+    """
+    conditions = [
+        JobWorkAssignment.job_id == job_id,
+        JobWorkAssignment.state == "released",
+        JobWorkAssignment.source == "manual",
+        JobWorkAssignment.release_reason == "champion",
+    ]
+    if champion_since is not None:
+        conditions.append(JobWorkAssignment.released_at >= champion_since)
+    rows = (
+        await db.execute(
+            select(
+                JobWorkAssignment.user_id,
+                JobWorkAssignment.role,
+                JobWorkAssignment.assigned_by,
+            )
+            .join(User, User.id == JobWorkAssignment.user_id)
+            .where(*conditions, User.is_active.is_(True))
+            .order_by(JobWorkAssignment.released_at.desc(), JobWorkAssignment.id.desc())
+        )
+    ).all()
+    restored = 0
+    seen: set[int] = set()
+    for user_id, role, assigned_by in rows:
+        if user_id in seen:
+            continue
+        seen.add(user_id)
+        inserted = await db.scalar(
+            pg_insert(JobWorkAssignment)
+            .values(
+                job_id=job_id,
+                user_id=user_id,
+                role=role,
+                source="manual",
+                state="active",
+                assigned_at=now,
+                assigned_by=assigned_by,
+            )
+            .on_conflict_do_nothing(
+                index_elements=["job_id", "user_id"],
+                index_where=text("state <> 'released'"),
+            )
+            .returning(JobWorkAssignment.id)
+        )
+        if inserted is not None:
+            restored += 1
+            if role == "recruiter":
+                await _set_owner_if_empty(db, job_id, user_id)
+            # Osoby zwolnione przez championa przed 12.10.2026 nie miały
+            # trwałego wpisu w zespole — dostają go przy powrocie. Powrót po
+            # championie to nie decyzja o osobie: „Poprzedni rekruter” zostaje.
+            await add_manual_member(
+                db, job_id=job_id, user_id=user_id, actor_id=assigned_by, unpark=False
+            )
+    await db.flush()
+    return restored
 
 
 def changed_since(now: datetime) -> datetime:
-    """Początek okna „Zmiany od wczoraj” — 24 h wstecz."""
-    return now - timedelta(hours=24)
+    """Początek okna „Zmiany od wczoraj” — ta sama godzina poprzedniego dnia roboczego.
+
+    Daily jest w dni robocze: w poniedziałek okno sięga piątku, a po święcie —
+    ostatniego dnia pracy przed nim (do 04.10.2026 stałe 24 h gubiły zmiany
+    z piątku). Sufit 7 dni chroni przed długą przerwą świąteczną.
+    """
+    previous = now - timedelta(days=1)
+    for _ in range(6):
+        if is_business_day(previous):
+            break
+        previous -= timedelta(days=1)
+    return previous

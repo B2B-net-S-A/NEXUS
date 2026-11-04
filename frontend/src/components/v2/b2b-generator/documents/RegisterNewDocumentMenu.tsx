@@ -5,7 +5,7 @@
 // a „Zarejestruj wypowiedzenie Partnera” otwiera okno bez dokumentu.
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import { useQuery } from "@tanstack/react-query";
 import { FilePlus2, Loader2 } from "lucide-react";
 
@@ -28,11 +28,14 @@ export interface RegisterNewDocumentMenuProps {
     id: number;
     contract_number: string;
     partner_name: string | null;
+    template_version?: string | null;
+    contract_id?: number | null;
+    contract_kind?: string | null;
   };
 }
 
 export function RegisterNewDocumentMenu({ row }: RegisterNewDocumentMenuProps) {
-  const router = useRouter();
+  const { pushUrl } = useUrlWriter();
   const [open, setOpen] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
   // Definicje dopiero po otwarciu menu — rejestr ma setki wierszy.
@@ -43,8 +46,11 @@ export function RegisterNewDocumentMenu({ row }: RegisterNewDocumentMenuProps) {
     staleTime: 10 * 60_000,
   });
   // Umowa przedwstępna poprzedza umowę — z wiersza rejestru nie ma sensu.
+  // Umowa zlecenia dostaje tylko dokumenty zlecenia, a umowa B2B — tylko B2B
+  // (ta sama reguła co `_assert_parent_kind` na serwerze).
+  const parentKind = row.contract_kind === "mandate" ? "mandate" : "b2b";
   const groups = typesByFamily(
-    (types.data?.types ?? []).filter((t) => t.parent !== "none"),
+    (types.data?.types ?? []).filter((t) => t.parent === parentKind),
   );
   return (
     <>
@@ -80,9 +86,7 @@ export function RegisterNewDocumentMenu({ row }: RegisterNewDocumentMenuProps) {
                   <DropdownMenuItem
                     key={t.key}
                     onSelect={() =>
-                      router.push(documentsHref({ newType: t.key, parentId: row.id }), {
-                        scroll: false,
-                      })
+                      pushUrl(documentsHref({ newType: t.key, parentId: row.id }))
                     }
                   >
                     {t.label}
@@ -102,6 +106,8 @@ export function RegisterNewDocumentMenu({ row }: RegisterNewDocumentMenuProps) {
           parentId={row.id}
           contractNumber={row.contract_number}
           partnerName={row.partner_name}
+          noticePeriodKnown={Boolean(row.template_version)}
+          contractLinked={row.contract_id != null}
           onClose={() => setNoticeOpen(false)}
         />
       ) : null}

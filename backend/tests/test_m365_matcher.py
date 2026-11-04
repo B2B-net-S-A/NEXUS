@@ -64,3 +64,16 @@ def test_contains_name_requires_both() -> None:
 def test_contains_name_empty_subject() -> None:
     assert _contains_name("", "Jan", "Kowalski") is False
     assert _contains_name(None, "Jan", "Kowalski") is False  # type: ignore[arg-type]
+
+
+def test_contains_name_non_latin_name_matches_nothing() -> None:
+    # Imię i nazwisko cyrylicą składają się do pustych napisów; wzorzec
+    # `\b\b.*\b\b` pasował wtedy do KAŻDEGO tematu i jeden kandydat zbierał
+    # tysiące cudzych maili (smart_name do 26.09.2026, potem smart_thread).
+    assert _contains_name("Oferta pracy — Java", "Іван", "Петренко") is False
+    assert _contains_name("Re: CV", "Іван", "Петренко") is False
+
+
+def test_contains_name_one_unreadable_part_is_not_enough() -> None:
+    assert _contains_name("Re: Kowalski — umowa", "Іван", "Kowalski") is False
+    assert _contains_name("Re: Jan — umowa", "Jan", "Петренко") is False

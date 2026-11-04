@@ -4,8 +4,11 @@
  * Aplikacja trzyma JWT w localStorage i wysyła go nagłówkiem `Authorization`.
  * Fixture `request` Playwrighta niesie wyłącznie cookies ze storageState, więc
  * dawne scenariusze wołały API BEZ tokena — dostawały 401, a asercja
- * `status < 500` przyjmowała to jako sukces. Tutaj każdy kontekst loguje się
- * sam (`POST /api/auth/login`) i dokleja Bearer do każdego wywołania.
+ * `status < 500` przyjmowała to jako sukces. Tutaj każdy kontekst dokleja
+ * Bearer do każdego wywołania. Token roli jest pamiętany w procesie workera
+ * i sprawdzany przez `/api/auth/me`; ponowne logowanie tylko po 401 (zmiana
+ * uprawnień wylogowuje konto). Logowanie ma limit 30/min na adres, a jedno
+ * logowanie na test wyczerpywało go w połowie zestawu.
  *
  * Konta: `backend/scripts/seed_e2e.py` zakłada je na stacku E2E z jednym
  * hasłem `E2E_USER_PASSWORD`.
@@ -20,12 +23,13 @@ import {
 
 export const API_URL = process.env.E2E_API_URL || "https://api.nexus.dynaminds.pl";
 
-export type E2ERole = "admin" | "recruiter" | "delivery_lead";
+export type E2ERole = "admin" | "recruiter" | "delivery_lead" | "finance";
 
 const ROLE_EMAILS: Record<E2ERole, string> = {
   admin: process.env.E2E_USER_EMAIL || "e2e-admin@example.com",
   recruiter: process.env.E2E_RECRUITER_EMAIL || "e2e-recruiter@example.com",
   delivery_lead: process.env.E2E_DL_EMAIL || "e2e-dl@example.com",
+  finance: process.env.E2E_FINANCE_EMAIL || "e2e-finance@example.com",
 };
 
 export interface ApiSession {
@@ -35,25 +39,44 @@ export interface ApiSession {
   name: string;
 }
 
-async function login(role: E2ERole): Promise<ApiSession> {
+const tokens = new Map<E2ERole, string>();
+
+async function freshToken(role: E2ERole, email: string): Promise<string> {
   const password = process.env.E2E_USER_PASSWORD || "";
   expect(password, "E2E_USER_PASSWORD jest wymagane do scenariuszy API").not.toBe("");
-  const email = ROLE_EMAILS[role];
 
   const anonymous = await playwrightRequest.newContext({ baseURL: API_URL });
   const response = await anonymous.post("/api/auth/login", { data: { email, password } });
   await expectStatus(response, 200, `logowanie ${role}`);
   const { access_token: token } = (await response.json()) as { access_token: string };
   await anonymous.dispose();
+  tokens.set(role, token);
+  return token;
+}
 
-  const api = await playwrightRequest.newContext({
-    baseURL: API_URL,
-    extraHTTPHeaders: { Authorization: `Bearer ${token}` },
-  });
-  const me = await api.get("/api/auth/me");
-  await expectStatus(me, 200, `/api/auth/me ${role}`);
-  const body = (await me.json()) as { id: number; name: string };
-  return { api, userId: body.id, email, name: body.name };
+async function login(role: E2ERole): Promise<ApiSession> {
+  const email = ROLE_EMAILS[role];
+  const cached = tokens.get(role);
+
+  for (const token of [cached, null]) {
+    const api = await playwrightRequest.newContext({
+      baseURL: API_URL,
+      extraHTTPHeaders: {
+        Authorization: `Bearer ${token ?? (await freshToken(role, email))}`,
+      },
+    });
+    const me = await api.get("/api/auth/me");
+    // Zapamiętany token unieważniony (zmiana uprawnień) — logujemy się od nowa.
+    if (token && me.status() === 401) {
+      tokens.delete(role);
+      await api.dispose();
+      continue;
+    }
+    await expectStatus(me, 200, `/api/auth/me ${role}`);
+    const body = (await me.json()) as { id: number; name: string };
+    return { api, userId: body.id, email, name: body.name };
+  }
+  throw new Error(`logowanie ${role}: sesja odrzucona zaraz po zalogowaniu`);
 }
 
 /**

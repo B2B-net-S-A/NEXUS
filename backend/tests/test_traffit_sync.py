@@ -98,10 +98,10 @@ def test_promote_notes_sql_shape():
 
 def test_promote_notes_since_clause_substitution():
     full = _PROMOTE_NOTES_SQL.replace("/*SINCE*/", "")
-    delta = _PROMOTE_NOTES_SQL.replace("/*SINCE*/", "AND a.created_at >= :since")
+    delta = _PROMOTE_NOTES_SQL.replace("/*SINCE*/", "AND a.updated_at >= :since")
     assert "/*SINCE*/" not in full and "/*SINCE*/" not in delta
     assert ":since" not in full
-    assert "a.created_at >= :since" in delta
+    assert "a.updated_at >= :since" in delta
 
 
 # ── TraffitClient X-Request-Filter ───────────────────────────────────────────
@@ -195,6 +195,19 @@ def test_summarize_caps_sample_count_at_ten():
 
     out = _summarize({"errors": 20, "error_samples": [f"e{i}" for i in range(20)]})
     assert len(out["error_samples"]) == 10
+
+
+def test_summarize_of_a_clean_cv_text_run_has_no_crash_key():
+    """Runda 7 audytu (R7-V2-1): licznik `BackfillStats.error` (zawsze 0 przy
+    czystym biegu) trafiał do podsumowania pod kluczem `error`, a bramka
+    `__daily__` czyta ten klucz jako wywrotkę fazy — dzienny znacznik stał
+    przy KAŻDYM biegu."""
+    from app.services.cv_text_backfill import BackfillStats
+    from app.tasks.traffit_sync import _summarize
+
+    out = _summarize(BackfillStats().as_dict())
+    assert "error" not in out
+    assert out["extract_errors"] == 0
 
 
 # ── Pipelines: withdrawn wymaga rejection_reason (constraint 0068) ───────────

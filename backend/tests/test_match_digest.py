@@ -51,6 +51,10 @@ def test_is_due_weekly_monday_window(monkeypatch):
 )
 async def test_fresh_top_filters_staged_and_floor(monkeypatch, scores, expected):
     """Świeżość (spoza pipeline'u) + próg score + top-N — jedna ścieżka."""
+    # Bramka v8 (każde must ukrywa) — wyłącznik MUST_GATE_MODE=all od 30.09.2026.
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "MUST_GATE_MODE", "all")
     import app.tasks.match_digest as md
 
     # Atrapa oferty MUSI nieść pola czytane przez bramkę i dealbreakery:
@@ -260,6 +264,7 @@ def _wire_digest(monkeypatch, candidate_ids: list[int], scored: list) -> None:
     monkeypatch.setattr(settings, "MATCH_DIGEST_TOP_N", 5, raising=False)
 
 
+@pytest.mark.usefixtures("v8_must_gate")
 @pytest.mark.asyncio
 async def test_ineligible_candidate_never_reaches_scoring(monkeypatch):
     """Zablokowany globalnie nie wchodzi do digestu ANI do scoringu."""
@@ -284,6 +289,7 @@ async def test_ineligible_candidate_never_reaches_scoring(monkeypatch):
     )
 
 
+@pytest.mark.usefixtures("v8_must_gate")
 @pytest.mark.asyncio
 async def test_known_rate_above_budget_is_dropped_unknown_passes(monkeypatch):
     """Twardy sufit budżetu: znana stawka powyżej odpada, nieznana PRZECHODZI.
@@ -414,6 +420,9 @@ async def test_digest_uses_each_recipient_profile_without_unknown_notification(
         async def execute(self, stmt):
             return Result()
 
+        async def scalar(self, stmt):
+            return None  # nikt nie jest „Poprzednim rekruterem”
+
         async def commit(self):
             pass
 
@@ -428,13 +437,91 @@ async def test_digest_uses_each_recipient_profile_without_unknown_notification(
         notifications.append(payload)
         return object()
 
+    async def operational(db, owner_ids):
+        # Zastępstwo z COMPASS i nieaktywne konta rozstrzyga ta funkcja.
+        return next((o for o in owner_ids if o is not None), None)
+
     monkeypatch.setattr(md, "AsyncSessionLocal", Db)
     monkeypatch.setattr(md, "_fresh_top_matches", matches)
     monkeypatch.setattr("app.services.notification_triggers.emit", emit)
+    monkeypatch.setattr(
+        "app.services.notification_triggers._operational_recipient", operational
+    )
     stats = await md.run_match_digest()
-    assert recipients == [42, 43]
+    # R10-N7-7: TAC wypadł z adresatów (funkcji TAC nie używamy).
+    assert recipients == [42]
     assert [item["user_id"] for item in notifications] == [42]
     assert "78 pkt" in notifications[0]["message"]
     assert stats["jobs_with_matches"] == 1
     assert stats["notifications_sent"] == 1
     assert stats["errors"] == 0
+
+
+@pytest.mark.asyncio
+async def test_digest_only_for_requests_in_work_and_falls_back_to_the_dl(
+    monkeypatch,
+):
+    """R10-N7-7: „Zakończony" i „Klient milczy" nie dostają digestu, a bez
+    prowadzącego (nieaktywne konto, brak zastępstwa) dzwonek idzie do DL-a."""
+    import app.tasks.match_digest as md
+
+    job = SimpleNamespace(id=78, title="Go", recruiter_id=50, tac_id=None)
+    statements = []
+
+    class Result:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return [job]
+
+        def scalar_one_or_none(self):
+            return job
+
+    class Db:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def execute(self, stmt):
+            statements.append(stmt)
+            return Result()
+
+        async def scalar(self, stmt):
+            return None  # nikt nie jest „Poprzednim rekruterem”
+
+        async def commit(self):
+            pass
+
+    recipients = []
+
+    async def matches(db, request, *, user_id):
+        recipients.append(user_id)
+        return [(1, 80.0)]
+
+    async def emit(db, **payload):
+        return object()
+
+    async def nobody(db, owner_ids):
+        return None
+
+    async def delivery_lead(db, job_row):
+        return [7]
+
+    monkeypatch.setattr(md, "AsyncSessionLocal", Db)
+    monkeypatch.setattr(md, "_fresh_top_matches", matches)
+    monkeypatch.setattr("app.services.notification_triggers.emit", emit)
+    monkeypatch.setattr(
+        "app.services.notification_triggers._operational_recipient", nobody
+    )
+    monkeypatch.setattr(
+        "app.services.notification_triggers._delivery_lead_targets", delivery_lead
+    )
+    await md.run_match_digest()
+    assert recipients == [7]
+    first = str(statements[0].compile(compile_kwargs={"literal_binds": True}))
+    where = first.split("WHERE", 1)[1]
+    assert "work_state IN ('to_review', 'searching')" in where
+    assert "tac_id" not in where

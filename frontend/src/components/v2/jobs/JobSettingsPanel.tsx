@@ -1,13 +1,30 @@
 "use client";
 
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, X } from "lucide-react";
 
 import api, { clientTeamApi } from "@/lib/api";
-import { apiErrorMessage } from "@/lib/api-error";
+import { useCachedJob } from "@/lib/cached-job";
 import { invalidateChampionDependents } from "@/lib/champion-cache";
-import { formatIsoDatePl } from "@/lib/date-pl";
+import { formatDeadlineTime, formatJobDeadline } from "@/lib/job-deadline";
+import { jobGateErrorText } from "@/lib/job-gate-errors";
+import { blurNumberInputOnWheel } from "@/lib/number-input";
+import { invalidateJobTeam } from "@/lib/job-team-cache";
+import {
+  PRIORITY_LEVEL_LABEL,
+  PRIORITY_LEVEL_OPTIONS,
+  type PriorityLevel,
+} from "@/lib/request-priority";
+import { cn } from "@/lib/utils";
+import { Checkbox } from "@/components/ui/checkbox";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
+import { JobCategoryRow } from "@/components/v2/jobs/JobCategoryRow";
+import { RequestPriorityChip } from "@/components/v2/jobs/RequestPriorityChip";
+import {
+  useJobPriorityChange,
+  type JobPriorityTeam,
+} from "@/components/v2/jobs/useJobPriorityChange";
 
 interface DirectoryUser {
   id: number;
@@ -21,40 +38,102 @@ export interface JobSettingsPanelProps {
   deliveryLeadId: number | null;
   /** ISO `YYYY-MM-DD` (`Job.deadline`), jak zwraca `GET /api/jobs/{id}`. */
   deadline: string | null;
+  /** Godzina terminu `HH:MM[:SS]` (`Job.deadline_time`, 0406, czas Europe/Warsaw). */
+  deadlineTime?: string | null;
+  /**
+   * „Klient nie podał” terminu (`Job.deadline_not_provided`, 04.10.2026).
+   * Brak propsa = wartość z rekrutacji w cache'u (`["job", id]`).
+   */
+  deadlineNotProvided?: boolean;
+  /** Liczba osób do zatrudnienia (`Job.headcount`). Brak = z cache'u rekrutacji. */
+  headcount?: number | null;
+  /** Ilu już zatrudniono — tylko gdy wołający to wie (inaczej sama liczba osób). */
+  hiredCount?: number | null;
   /** `canWritePipeline && job.update` — lustro `HiringManagerPicker` w tym
    *  samym doku (`JobReadinessDock`, `PATCH /api/jobs/{id}` to `TacPlus`). */
   canEdit: boolean;
+  /**
+   * Treść wiersza „Rekruter” — podaje ją dok (`JobOwnershipPanel`). Bez niej
+   * wiersza nie ma.
+   */
+  recruiters?: ReactNode;
+  /**
+   * Treść wiersza „Poprzedni rekruter” (`PreviousRecruitersRow`, 14.10.2026).
+   * Bez niej — albo gdy nikt nie przeszedł do poprzednich — wiersza nie ma.
+   */
+  previousRecruiters?: ReactNode;
+  /**
+   * Zespół, o który pole „Priorytet” pyta przy zejściu z P1 (osoby przejdą
+   * do „Poprzedni rekruter”). Brak = bez pytania.
+   */
+  priorityTeam?: JobPriorityTeam;
+  /** Główna kategoria kompetencji rekrutacji (`competence_category_id`). */
+  categoryId: number | null;
+  /** Priorytet w trzech poziomach — `priorityLevelOf(job)`. */
+  priorityLevel: PriorityLevel;
+  /**
+   * Czy bieżąca osoba ustawia priorytet: `can_set_priority` z serwera (admin,
+   * Delivery Lead w swoim zakresie, Head of Recruitment) i zapis w sekcji.
+   */
+  canSetPriority: boolean;
 }
 
-type FieldKey = "delivery_lead_id" | "deadline";
+type FieldKey = "delivery_lead_id" | "deadline" | "headcount";
+
+interface CachedJobFields {
+  deadline_not_provided?: boolean | null;
+  headcount?: number | null;
+}
 
 const ROW_LABEL_CLASS =
-  "w-[6.5rem] shrink-0 text-[11px] uppercase tracking-wider text-muted-foreground";
+  "text-[11px] uppercase tracking-wider text-muted-foreground";
+const ROW_LABEL_COLUMN_CLASS = `w-[6.5rem] shrink-0 ${ROW_LABEL_CLASS}`;
 const NOTE_INDENT_CLASS = "pl-[7rem]";
 const CONTROL_CLASS =
-  "min-w-0 flex-1 rounded border border-border bg-card px-2 py-1 text-xs dark:bg-muted";
+  "w-0 min-w-0 flex-1 rounded border border-border bg-card px-2 py-1 text-xs dark:bg-muted";
 
 /**
- * „Ustawienia zlecenia" — zakładka „Zespół" doku gotowości.
+ * Karta zakładki „Zespół” doku gotowości: kto jest przy rekrutacji, do kiedy
+ * i jak pilnie.
  *
- * Od 22.09.2026 (decyzja Artura przy stronie `/jobs/new`) DWA pola: Delivery
- * Lead i Deadline. Owner (TAC), Szablon procesu, Kategoria kompetencji,
- * Program / Train i Priorytet zniknęły z tworzenia I z ustawień — ustawia je
- * backend (szablon z klienta, kategoria z klasyfikatora, priorytet domyślny),
- * a dane w bazie zostają. Nie przywracaj ich tu bez decyzji właściciela.
+ * Od 02.10.2026 (decyzja Artura, feedback Head of Recruitment) pięć wierszy
+ * w stałej kolejności: Delivery Lead → Rekruter → Kategoria → Termin → Priorytet.
+ * Trzy role zamiast „właściciela” i „współpracowników”: Delivery Lead otwiera
+ * request, Rekruter nad nim pracuje, Kategoria tylko go widzi. Priorytet wrócił
+ * w trzech poziomach (od 22.09 był niewidoczny). Kategorię potwierdza Delivery
+ * Lead przy tworzeniu, a zmienia tutaj osoba z pełną edycją rekrutacji
+ * (uczestnicy idą za kategorią). Owner (TAC), szablon procesu i Program / Train
+ * nadal ustawia backend — nie przywracaj ich tu bez decyzji właściciela.
  *
- * Każdy wiersz to read-view + „Zmień" → kontrolka, która zapisuje NATYCHMIAST
- * przez `PATCH /api/jobs/{id}` z JEDNYM polem (`JobUpdate` czyta
- * `model_fields_set`, więc reszta rekrutacji zostaje nietknięta).
+ * Delivery Lead i Termin to read-view + „Zmień" → kontrolka, która zapisuje
+ * NATYCHMIAST przez `PATCH /api/jobs/{id}` z JEDNYM polem (`JobUpdate` czyta
+ * `model_fields_set`, więc reszta rekrutacji zostaje nietknięta). Priorytet
+ * zapisuje się kliknięciem poziomu.
  */
 export function JobSettingsPanel({
   jobId,
   clientId,
   deliveryLeadId,
   deadline,
+  deadlineTime = null,
+  deadlineNotProvided,
+  headcount,
+  hiredCount = null,
   canEdit,
+  recruiters,
+  previousRecruiters,
+  priorityTeam,
+  categoryId,
+  priorityLevel,
+  canSetPriority,
 }: JobSettingsPanelProps) {
   const queryClient = useQueryClient();
+  // Pola z 04.10.2026 dok może jeszcze nie podawać — czytamy je z tej samej
+  // kopii rekrutacji, którą trzyma dok (bez własnego zapytania).
+  const cachedJob = useCachedJob<CachedJobFields>(jobId);
+  const notProvided = deadlineNotProvided ?? cachedJob?.deadline_not_provided === true;
+  const peopleCount =
+    headcount !== undefined ? headcount : (cachedJob?.headcount ?? null);
   const [editingField, setEditingField] = useState<FieldKey | null>(null);
   const [savingField, setSavingField] = useState<FieldKey | null>(null);
   const [errorByField, setErrorByField] = useState<Partial<Record<FieldKey, string>>>({});
@@ -65,20 +144,27 @@ export function JobSettingsPanel({
   };
   const cancelEdit = () => setEditingField(null);
 
-  const commit = async (field: FieldKey, value: unknown) => {
+  const commit = (field: FieldKey, value: unknown) =>
+    save(field, { [field]: value ?? null });
+
+  const save = async (field: FieldKey, body: Record<string, unknown>) => {
     setSavingField(field);
     setErrorByField((prev) => ({ ...prev, [field]: undefined }));
     try {
-      await api.patch(`/api/jobs/${jobId}`, { [field]: value ?? null });
-      // Ten sam komplet unieważnień co zapis Profilu Championa (M04-B02).
+      await api.patch(`/api/jobs/${jobId}`, body);
+      // Ten sam komplet unieważnień co zapis Profilu Championa (M04-B02)…
       invalidateChampionDependents(queryClient, jobId);
-      void queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
+      // …oraz lista, jej liczniki i pulpit „Requesty i obłożenie”: Delivery
+      // Lead i termin są tam kolumnami i filtrami.
+      invalidateJobTeam(queryClient, jobId);
       void queryClient.invalidateQueries({ queryKey: ["dashboard", "my-jobs"] });
       setEditingField(null);
     } catch (err) {
+      // `handoff_regression`: zmiana zdjęłaby wymaganą informację z
+      // rekrutacji w pracy — zdanie serwera i braki stoją przy polu.
       setErrorByField((prev) => ({
         ...prev,
-        [field]: apiErrorMessage(err, "Nie udało się zapisać zmiany."),
+        [field]: jobGateErrorText(err, "Nie udało się zapisać zmiany."),
       }));
     } finally {
       setSavingField(null);
@@ -114,12 +200,11 @@ export function JobSettingsPanel({
       : null;
 
   return (
-    <div
-      className="space-y-1 rounded-lg border border-border/70 bg-card px-2.5 py-2"
+    <section
+      aria-label="Zespół, termin i priorytet"
+      className="divide-y divide-border/60 rounded-lg border border-border/70 bg-card px-2.5"
       data-testid="job-settings-panel"
     >
-      <div className="text-xs font-semibold text-foreground">Ustawienia zlecenia</div>
-
       <SettingsRow
         label="Delivery Lead"
         canEdit={canEdit}
@@ -161,27 +246,286 @@ export function JobSettingsPanel({
         }
       />
 
+      {recruiters !== undefined ? (
+        <StackedRow label="Rekruter">{recruiters}</StackedRow>
+      ) : null}
+      {previousRecruiters ? (
+        <StackedRow label="Poprzedni rekruter">{previousRecruiters}</StackedRow>
+      ) : null}
+
+      <StackedRow label="Kategoria">
+        <JobCategoryRow categoryId={categoryId} jobId={jobId} canManage={canEdit} />
+      </StackedRow>
+
       <SettingsRow
-        label="Deadline"
+        label="Termin"
         canEdit={canEdit}
         editing={editingField === "deadline"}
         saving={savingField === "deadline"}
         error={errorByField.deadline}
         onEdit={() => startEdit("deadline")}
         onCancel={cancelEdit}
-        value={deadline ? formatIsoDatePl(deadline) : "nie ustawiono"}
+        value={
+          formatJobDeadline(deadline, deadlineTime) ??
+          (notProvided ? "Klient nie podał" : "nie ustawiono")
+        }
         editor={
-          <input
-            autoFocus
-            type="date"
-            aria-label="Deadline"
-            disabled={savingField === "deadline"}
-            defaultValue={deadline ?? ""}
-            onChange={(e) => commit("deadline", e.target.value || null)}
-            className={CONTROL_CLASS}
+          <DeadlineEditor
+            deadline={deadline}
+            deadlineTime={deadlineTime}
+            notProvided={notProvided}
+            saving={savingField === "deadline"}
+            onSave={(date, time) =>
+              save("deadline", {
+                deadline: date,
+                deadline_time: date ? time : null,
+                deadline_not_provided: false,
+              })
+            }
+            onSaveNotProvided={() =>
+              save("deadline", {
+                deadline: null,
+                deadline_time: null,
+                deadline_not_provided: true,
+              })
+            }
           />
         }
       />
+
+      <SettingsRow
+        label="Liczba osób"
+        canEdit={canEdit}
+        editing={editingField === "headcount"}
+        saving={savingField === "headcount"}
+        error={errorByField.headcount}
+        onEdit={() => startEdit("headcount")}
+        onCancel={cancelEdit}
+        value={
+          peopleCount == null
+            ? "nie podano"
+            : hiredCount != null
+              ? `Zatrudnieni: ${hiredCount} z ${peopleCount}`
+              : String(peopleCount)
+        }
+        editor={
+          <HeadcountEditor
+            headcount={peopleCount}
+            saving={savingField === "headcount"}
+            onSave={(value) => save("headcount", { headcount: value })}
+          />
+        }
+      />
+
+      <PriorityRow
+        jobId={jobId}
+        level={priorityLevel}
+        canSet={canSetPriority}
+        team={priorityTeam}
+      />
+    </section>
+  );
+}
+
+/**
+ * Priorytet w trzech poziomach. Kliknięcie zapisuje od razu; zapis i wybór
+ * widoczny przed odpowiedzią serwera — `useJobPriorityChange` (ten sam hak co
+ * plakietka w nagłówku rekrutacji).
+ */
+function PriorityRow({
+  jobId,
+  level,
+  canSet,
+  team,
+}: {
+  jobId: number;
+  level: PriorityLevel;
+  canSet: boolean;
+  team?: JobPriorityTeam;
+}) {
+  const labelId = useId();
+  const { value, change, confirmDialog } = useJobPriorityChange(jobId, level, team);
+
+  if (!canSet) {
+    return (
+      <div className="flex items-center gap-2 py-2">
+        <span className={ROW_LABEL_COLUMN_CLASS}>Priorytet</span>
+        <div className="min-w-0 flex-1">
+          {/* P2 to stan domyślny i nie ma plakietki — tu mówimy go słowem. */}
+          {level === "p2" ? (
+            <span className="text-xs font-medium text-foreground">
+              {PRIORITY_LEVEL_LABEL.p2}
+            </span>
+          ) : (
+            <RequestPriorityChip level={level} full size="md" />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <StackedRow label="Priorytet" labelId={labelId}>
+      <SegmentedRadio<PriorityLevel>
+        size="sm"
+        labelledBy={labelId}
+        value={value}
+        onChange={change}
+        options={PRIORITY_LEVEL_OPTIONS}
+      />
+      {confirmDialog}
+    </StackedRow>
+  );
+}
+
+/**
+ * Data i godzina terminu w jednym zapisie. Godzina jest opcjonalna (sam dzień
+ * nadal działa), a bez daty jest zablokowana — backend i tak by ją wyczyścił.
+ * Eksportowany: ten sam edytor stoi w oknie „Otwórz ponownie” przy braku terminu.
+ */
+export function DeadlineEditor({
+  deadline,
+  deadlineTime,
+  notProvided,
+  saving,
+  onSave,
+  onSaveNotProvided,
+  autoFocus = true,
+}: {
+  deadline: string | null;
+  deadlineTime: string | null;
+  notProvided: boolean;
+  saving: boolean;
+  onSave: (date: string | null, time: string | null) => void;
+  /** „Klient nie podał” — decyzja zamiast daty (04.10.2026). */
+  onSaveNotProvided: () => void;
+  /** W oknie, które samo zarządza fokusem, data nie może go przejmować. */
+  autoFocus?: boolean;
+}) {
+  const notProvidedId = useId();
+  const [date, setDate] = useState(deadline ?? "");
+  const [time, setTime] = useState(formatDeadlineTime(deadlineTime) ?? "");
+  const [clientDidNotSay, setClientDidNotSay] = useState(notProvided && !deadline);
+  const submit = () =>
+    clientDidNotSay ? onSaveNotProvided() : onSave(date || null, time || null);
+  return (
+    <form
+      className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
+      <input
+        autoFocus={autoFocus}
+        type="date"
+        aria-label="Termin"
+        disabled={saving || clientDidNotSay}
+        value={clientDidNotSay ? "" : date}
+        onChange={(e) => setDate(e.target.value)}
+        className={`${CONTROL_CLASS} min-w-[8.5rem]`}
+      />
+      <input
+        type="time"
+        aria-label="Godzina terminu"
+        disabled={saving || !date || clientDidNotSay}
+        value={clientDidNotSay ? "" : time}
+        onChange={(e) => setTime(e.target.value)}
+        className="w-[5.5rem] shrink-0 rounded border border-border bg-card px-2 py-1 text-xs dark:bg-muted"
+      />
+      <label
+        htmlFor={notProvidedId}
+        className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-foreground"
+      >
+        <Checkbox
+          id={notProvidedId}
+          checked={clientDidNotSay}
+          disabled={saving}
+          onCheckedChange={(checked) => setClientDidNotSay(checked === true)}
+        />
+        Klient nie podał
+      </label>
+      <button
+        type="submit"
+        disabled={saving}
+        className="shrink-0 text-[11px] font-medium text-primary hover:underline disabled:opacity-50"
+      >
+        Zapisz
+      </button>
+    </form>
+  );
+}
+
+/** Liczba osób do zatrudnienia — co najmniej 1 (bramka przekazania). */
+function HeadcountEditor({
+  headcount,
+  saving,
+  onSave,
+}: {
+  headcount: number | null;
+  saving: boolean;
+  onSave: (value: number) => void;
+}) {
+  const [text, setText] = useState(headcount != null ? String(headcount) : "1");
+  const parsed = Number(text);
+  const valid = /^\d+$/.test(text.trim()) && parsed >= 1;
+  return (
+    <form
+      className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (valid) onSave(parsed);
+      }}
+    >
+      <input
+        autoFocus
+        type="number"
+        min={1}
+        step={1}
+        inputMode="numeric"
+        aria-label="Liczba osób"
+        aria-invalid={!valid}
+        disabled={saving}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onWheel={blurNumberInputOnWheel}
+        className="w-20 shrink-0 rounded border border-border bg-card px-2 py-1 text-xs dark:bg-muted"
+      />
+      <button
+        type="submit"
+        disabled={saving || !valid}
+        className="shrink-0 text-[11px] font-medium text-primary hover:underline disabled:opacity-50"
+      >
+        Zapisz
+      </button>
+      {!valid ? (
+        <span className="w-full text-[11px] text-destructive">Podaj liczbę od 1 w górę.</span>
+      ) : null}
+    </form>
+  );
+}
+
+/**
+ * Wiersz z etykietą NAD treścią. Dok ma 360 px: obok kolumny etykiet zostaje
+ * ok. 190 px, a w tylu nie mieści się osoba z rolą („propozycja · rekruter”
+ * ścinało się do jednej litery) ani trzy poziomy priorytetu.
+ */
+function StackedRow({
+  label,
+  labelId,
+  children,
+}: {
+  label: string;
+  /** `id` etykiety, gdy treść nazywa się nią (`aria-labelledby`). */
+  labelId?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5 py-2">
+      <span id={labelId} className={cn("block", ROW_LABEL_CLASS)}>
+        {label}
+      </span>
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }
@@ -212,9 +556,9 @@ function SettingsRow({
   onCancel,
 }: SettingsRowProps) {
   return (
-    <div className="py-1">
+    <div className="py-2">
       <div className="flex items-center gap-2">
-        <span className={ROW_LABEL_CLASS}>{label}</span>
+        <span className={ROW_LABEL_COLUMN_CLASS}>{label}</span>
         {editing ? (
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
             {editor}
@@ -241,6 +585,8 @@ function SettingsRow({
               <button
                 type="button"
                 onClick={onEdit}
+                // Dwa wiersze mają „Zmień” — nazwa mówi, co się zmienia.
+                aria-label={`Zmień: ${label}`}
                 className="shrink-0 text-[11px] font-medium text-primary hover:underline"
               >
                 Zmień

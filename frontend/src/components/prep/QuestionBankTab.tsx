@@ -221,6 +221,11 @@ export function QuestionBankTab({
  client-scoped
  </Badge>
  )}
+ {link.question.source === "legacy_import" && (
+ <Badge variant="soft" size="sm">
+ archiwum rozmów
+ </Badge>
+ )}
  {(link.question.up_votes > 0 || link.question.down_votes > 0) && (
  <span className="text-xs text-muted-foreground">
  👍 {link.question.up_votes} · 👎 {link.question.down_votes}
@@ -494,14 +499,20 @@ function SearchGlobalQuestionsDialog({
  const [results, setResults] = useState<InterviewQuestion[]>([]);
  const [searching, setSearching] = useState(false);
  const [err, setErr] = useState<string | null>(null);
+ const [archive, setArchive] = useState(false);
 
  const handleSearch = async () => {
  setSearching(true);
  setErr(null);
  try {
+ // Archiwum rozmów jest per klient: szukamy wtedy w banku TEGO klienta,
+ // inaczej limit 50 zjadłyby pytania innych klientów.
  const res = await interviewQuestionsApi.list({
  q: query.trim() || undefined,
  limit: 50,
+ ...(archive && clientId !== null
+ ? { include_archive: true, client_id: clientId }
+ : {}),
  });
  // Tenant safety: filtruj pytania innego klienta po stronie UI
  const safe = res.data.filter(
@@ -546,6 +557,16 @@ function SearchGlobalQuestionsDialog({
  Szukaj
  </Button>
  </div>
+ {clientId !== null && (
+ <label className="flex items-center gap-2 text-sm text-muted-foreground">
+ <input
+ type="checkbox"
+ checked={archive}
+ onChange={(e) => setArchive(e.target.checked)}
+ />
+ Szukaj też w archiwum rozmów tego klienta
+ </label>
+ )}
 
  {err && <p className="text-sm text-destructive mt-2">{err}</p>}
  {searching && <CardDescription>Wyszukiwanie…</CardDescription>}
@@ -574,6 +595,11 @@ function SearchGlobalQuestionsDialog({
  {q.client_id === null && (
  <Badge variant="info" size="sm">
  globalne
+ </Badge>
+ )}
+ {q.source === "legacy_import" && (
+ <Badge variant="soft" size="sm">
+ archiwum rozmów
  </Badge>
  )}
  </div>

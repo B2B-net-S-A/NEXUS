@@ -60,7 +60,7 @@ const BASE: SeniorityResponse = {
   entries: [
     {
       user_id: 1,
-      name: "Marcin Kraszewski",
+      name: "Marcin Demonstracyjny",
       role: "recruiter",
       level: "expert",
       total_placements: 121,
@@ -74,7 +74,7 @@ const BASE: SeniorityResponse = {
     },
     {
       user_id: 2,
-      name: "Malwina Jobda",
+      name: "Malwina Makietowa",
       role: "recruiter",
       level: "senior",
       total_placements: 71,
@@ -88,8 +88,8 @@ const BASE: SeniorityResponse = {
     },
     {
       user_id: 3,
-      name: "Igor Twardowski",
-      role: "sourcer",
+      name: "Igor Próbny",
+      role: "recruiter",
       level: "junior",
       total_placements: 3,
       first_placement_month: "2026-05",
@@ -107,7 +107,7 @@ const BASE: SeniorityResponse = {
     outside_pool_placements: 417,
     note:
       "Poziom liczymy wyłącznie z placementów przypisanych do aktywnych kont " +
-      "w rolach sourcer / TAC / rekruter.",
+      "w roli rekrutera.",
   },
   regressions: [],
   journal: { last_observed_at: "2026-08-31T02:00:00+00:00", observations: 25 },
@@ -115,7 +115,7 @@ const BASE: SeniorityResponse = {
 
 const ONE: SeniorityRegression = {
   user_id: 1,
-  name: "Marcin Kraszewski",
+  name: "Marcin Demonstracyjny",
   level: "senior",
   previous_level: "expert",
   total_placements: 9,
@@ -128,7 +128,7 @@ const MANY: SeniorityRegression[] = [
   ONE,
   {
     user_id: 2,
-    name: "Malwina Jobda",
+    name: "Malwina Makietowa",
     level: "junior",
     previous_level: "senior",
     total_placements: 4,
@@ -138,7 +138,7 @@ const MANY: SeniorityRegression[] = [
   },
   {
     user_id: 3,
-    name: "Kinga Szmulik",
+    name: "Kinga Szkicowa",
     level: "junior",
     previous_level: "expert",
     total_placements: 2,

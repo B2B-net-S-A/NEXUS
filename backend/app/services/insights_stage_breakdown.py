@@ -34,7 +34,9 @@ from typing import Any, Optional, Sequence
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services import competition_history
 from app.services.board_stage_badges import normalize_stage_name, stage_badge_kind
+from app.services.placement_exclusions import excluded_hired_sql
 from app.services.rejection_reason_labels import rejection_reason_label
 
 
@@ -284,6 +286,9 @@ async def _reached(
                   WHERE j.status::text IN ('published', 'closed')
                     AND (cs.stage::text <> 'verified'
                          OR cs.verification_status::text = 'active')
+                    -- 0343: „Zatrudniony” wykluczonej pary (seria bez CV) nie
+                    -- jest ani placementem, ani wejściem pary (runda 6 audytu).
+                    AND {excluded_hired_sql("cs")}
                 ),
                 key_firsts AS (
                   SELECT key, min(moved_at) AS first_at
@@ -321,9 +326,13 @@ async def _hired_reached(db: AsyncSession, params: dict[str, Any]) -> int:
                 f"""
                 SELECT count(*)
                 FROM analytics_first_milestones fm
+                -- Ta sama populacja rekrutacji co reszta „Doszło”
+                -- (opublikowane i zamknięte) — runda 6 audytu.
+                JOIN jobs j ON j.id = fm.job_id
                 WHERE fm.stage::text = 'hired'
                   AND fm.first_reached_at >= :start
                   AND fm.first_reached_at < :end
+                  AND j.status::text IN ('published', 'closed')
                   AND {job_filter}
                 """
             ),
@@ -367,7 +376,8 @@ async def _now(db: AsyncSession, params: dict[str, Any]) -> tuple[dict[str, int]
                 WITH {_DEF_MAP_CTE},
                 latest AS (
                   SELECT DISTINCT ON (cs.candidate_id, cs.job_id)
-                         cs.candidate_id, cs.job_id, {_KEY_CASE_SQL} AS key
+                         cs.candidate_id, cs.job_id, cs.stage,
+                         {_KEY_CASE_SQL} AS key
                   FROM candidate_stages cs
                   JOIN jobs j ON j.id = cs.job_id
                   LEFT JOIN def_map m ON m.def_id = cs.stage_def_id
@@ -386,6 +396,9 @@ async def _now(db: AsyncSession, params: dict[str, Any]) -> tuple[dict[str, int]
                          )
                        ) AS reassign
                 FROM latest l
+                -- Para stojąca na wykluczonym „Zatrudniony” nie jest
+                -- zatrudnionym „teraz” (0343, runda 6 audytu).
+                WHERE {excluded_hired_sql("l")}
                 GROUP BY l.key
                 """
             ),
@@ -598,6 +611,32 @@ def summarize_closed_by(groups: Sequence[dict[str, Any]]) -> list[dict[str, Any]
     return result
 
 
+# Kolumny, które DynaReporter prowadził (tygodniowe wpisy rekruterów) — tylko
+# one mają liczby sprzed 12.10.2026; reszta lejka w tych dniach to brak danych.
+HISTORY_KEYS: tuple[str, ...] = ("verified", "cv_sent", "client_interview", "hired")
+
+
+async def _history_reached(db: AsyncSession, start: datetime, end: datetime) -> dict:
+    """Kamienie z DynaReportera w części okna sprzed 12.10.2026 (widok KPI)."""
+    rows = (
+        await db.execute(
+            text(
+                """
+                SELECT stage::text AS key, count(*) AS cnt
+                FROM analytics_kpi_milestones
+                WHERE source <> 'nexus'
+                  AND stage::text = ANY(:keys)
+                  AND first_reached_at >= :start
+                  AND first_reached_at < :end
+                GROUP BY 1
+                """
+            ),
+            {"keys": list(HISTORY_KEYS), "start": start, "end": end},
+        )
+    ).all()
+    return {str(key): int(cnt) for key, cnt in rows}
+
+
 async def compute_stage_breakdown(
     db: AsyncSession,
     *,
@@ -612,8 +651,10 @@ async def compute_stage_breakdown(
     """
 
     def_ids, def_keys = await _load_def_map(db)
+    # Ruchy Tablicy od 12.10.2026 (decyzja Artura 18.10.2026); wcześniejsze dni
+    # tylko z DynaReportera, i to wyłącznie dla `HISTORY_KEYS`.
     params: dict[str, Any] = {
-        "start": start,
+        "start": competition_history.board_start(start),
         "end": end,
         "def_ids": def_ids,
         "def_keys": def_keys,
@@ -624,6 +665,16 @@ async def compute_stage_breakdown(
     reached["added"] = added
     reached["hired"] = await _hired_reached(db, params)
     reached["reassign"] = await _reassign_reached(db, params)
+    history: Optional[dict[str, Any]] = None
+    history_end = min(end, competition_history.cutover_utc())
+    if start < history_end:
+        if job_ids is None:
+            for key, cnt in (await _history_reached(db, start, history_end)).items():
+                reached[key] = reached.get(key, 0) + cnt
+        history = {
+            "until": (competition_history.RESULTS_CUTOVER).isoformat(),
+            "keys": list(HISTORY_KEYS),
+        }
 
     now, reassign_now = await _now(db, params)
     now["reassign"] = reassign_now
@@ -642,4 +693,11 @@ async def compute_stage_breakdown(
         }
         for row in ROWS
     ]
-    return {"rows": rows, "closed_by": closed, "definitions": dict(DEFINITIONS)}
+    return {
+        "rows": rows,
+        "closed_by": closed,
+        "definitions": dict(DEFINITIONS),
+        # Okno zaczyna się przed 12.10.2026: „Doszło” dla `keys` ma dni
+        # z DynaReportera, pozostałe kolumny i „Zamknięci” liczą od 12.10.
+        "history": history,
+    }

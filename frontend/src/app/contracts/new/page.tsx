@@ -19,7 +19,7 @@ import api, {
   extractErrorMsg,
   CONTRACT_FIELD_LABELS,
 } from "@/lib/api";
-import { RequireRole } from "@/components/RequireRole";
+import { RequirePermission } from "@/components/RequirePermission";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,6 +61,8 @@ import {
   useAuthStore,
 } from "@/store/auth";
 import { warsawToday } from "@/lib/warsaw-date";
+import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
+import { permissionLabel } from "@/lib/permissions";
 
 type CandidateOption = {
   id: number;
@@ -88,7 +90,6 @@ function NewContractForm() {
   const router = useRouter();
   const { showSuccess, showError } = useToast();
   const user = useAuthStore((state) => state.user);
-  const canManageFinance = canManageCandidateFinance(user);
 
   // ── Strony umowy ──────────────────────────────────────────────────────────
   const [candidate, setCandidate] = useState<CandidateOption | null>(null);
@@ -96,6 +97,12 @@ function NewContractForm() {
   const [candidateQuery, setCandidateQuery] = useState("");
 
   const [clientId, setClientId] = useState("");
+  // Kwoty zmienia „Stawki i kwoty: zmiana”; konto z rolą Delivery Leada —
+  // u klientów z przypisania, więc po wyborze klienta pytamy o niego.
+  const canManageFinance = canManageCandidateFinance(
+    user,
+    clientId ? Number(clientId) : null,
+  );
   const [clientOpen, setClientOpen] = useState(false);
   const [clientQuery, setClientQuery] = useState("");
 
@@ -166,7 +173,9 @@ function NewContractForm() {
     queryFn: async () =>
       (
         await api.get<ClientOption[]>("/api/clients-lookup", {
-          params: { contract_eligible: true },
+          // `delivery_scope`: Delivery Lead widzi tylko swój portfel — zapis
+          // kontraktu u klienta spoza niego i tak odmawia 403 (runda 6 audytu).
+          params: { contract_eligible: true, delivery_scope: true },
         })
       ).data,
   });
@@ -462,13 +471,15 @@ function NewContractForm() {
                           onValueChange={setCandidateQuery}
                         />
                         <CommandList>
-                          {candidatesQuery.isLoading ? (
-                            <div className="p-3 text-sm text-muted-foreground">
-                              Szukam…
-                            </div>
-                          ) : (
-                            <CommandEmpty>Brak wyników.</CommandEmpty>
-                          )}
+                          {/* Awaria wyszukiwania ≠ „nikogo nie ma”: pusty stan tylko przy sukcesie. */}
+                          <PickerQueryState
+                            isPending={candidatesQuery.isLoading}
+                            isError={candidatesQuery.isError}
+                            onRetry={() => void candidatesQuery.refetch()}
+                            loadingLabel="Szukam…"
+                            errorLabel="Nie udało się wyszukać kandydatów."
+                          />
+                          {candidatesQuery.isSuccess && <CommandEmpty>Brak wyników.</CommandEmpty>}
                           <CommandGroup>
                             {(candidatesQuery.data ?? []).map((c) => (
                               <CommandItem
@@ -557,13 +568,15 @@ function NewContractForm() {
                           onValueChange={setClientQuery}
                         />
                         <CommandList>
-                          {clientsQuery.isLoading ? (
-                            <div className="p-3 text-sm text-muted-foreground">
-                              Ładowanie…
-                            </div>
-                          ) : (
-                            <CommandEmpty>Brak wyników.</CommandEmpty>
-                          )}
+                          {/* Awaria listy klientów ≠ „brak klientów”: pusty stan tylko przy sukcesie. */}
+                          <PickerQueryState
+                            isPending={clientsQuery.isPending}
+                            isError={clientsQuery.isError}
+                            onRetry={() => void clientsQuery.refetch()}
+                            loadingLabel="Ładowanie klientów…"
+                            errorLabel="Nie udało się pobrać listy klientów."
+                          />
+                          {clientsQuery.isSuccess && <CommandEmpty>Brak wyników.</CommandEmpty>}
                           <CommandGroup>
                             {filteredClients.map((c) => (
                               <CommandItem
@@ -980,8 +993,8 @@ export default function NewContractPage() {
     );
   }
   return (
-    <RequireRole
-      roles={["admin", "delivery_lead"]}
+    <RequirePermission
+      permissions={["contracts_orders_edit"]}
       fallback={
         <div className="max-w-3xl mx-auto p-6">
           <Link
@@ -991,12 +1004,14 @@ export default function NewContractPage() {
             <ArrowLeft className="h-4 w-4" /> Wróć do listy
           </Link>
           <p className="mt-4 text-sm text-muted-foreground">
-            Tworzenie kontraktów jest dostępne dla ról: admin i delivery lead.
+            Brakuje Ci uprawnienia „{permissionLabel("contracts_orders_edit")}”.
+            Poproś administratora o dostęp (Ustawienia → Zespół i dostęp →
+            Osoby i role).
           </p>
         </div>
       }
     >
       <NewContractForm />
-    </RequireRole>
+    </RequirePermission>
   );
 }

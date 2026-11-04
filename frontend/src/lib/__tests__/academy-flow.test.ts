@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  attendeesOf,
   awaitingLuna,
   bookableSessions,
   bulkFailureMessage,
@@ -13,6 +14,7 @@ import {
   taskOverdue,
   toIsoDate,
   truncatedListNote,
+  withReplacedApplication,
 } from "@/lib/academy-flow";
 import type { AcademyApplication, AcademySessionRow } from "@/lib/api/academy";
 
@@ -167,5 +169,44 @@ describe("academy-flow", () => {
   it("etykieta terminu ma dzień tygodnia, datę i godzinę", () => {
     const label = sessionLabel(new Date(2026, 8, 28, 10, 0).toISOString());
     expect(label).toBe("pon 28.09 · 10:00");
+  });
+});
+
+describe("withReplacedApplication — liczniki po akcji na osobie", () => {
+  it("wykluczenie przesuwa osobę między licznikami od razu", () => {
+    const data = {
+      items: [app({ id: 1, status: "to_call" }), app({ id: 2, status: "to_call" })],
+      counts: { to_call: 2, rejected: 3, reapplied_excluded: 1 },
+    };
+    const next = withReplacedApplication(data, app({ id: 1, status: "rejected" }));
+    expect(next?.counts).toEqual({ to_call: 1, rejected: 4, reapplied_excluded: 1 });
+    expect(next?.items.map((a) => a.status)).toEqual(["rejected", "to_call"]);
+    expect(editionStats(next!.items, next!.counts).excluded).toBe(4);
+  });
+
+  it("przywrócenie zakłada licznik statusu, którego wcześniej nie było", () => {
+    const data = { items: [app({ id: 5, status: "rejected" })], counts: { rejected: 1 } };
+    const next = withReplacedApplication(data, app({ id: 5, status: "to_call" }));
+    expect(next?.counts).toEqual({ rejected: 0, to_call: 1 });
+  });
+
+  it("ten sam status albo osoba spoza listy nie zmienia liczników", () => {
+    const data = { items: [app({ id: 1, status: "to_call" })], counts: { to_call: 1 } };
+    expect(withReplacedApplication(data, app({ id: 1, status: "to_call" }))?.counts).toEqual({ to_call: 1 });
+    expect(withReplacedApplication(data, app({ id: 9, status: "rejected" }))?.counts).toEqual({ to_call: 1 });
+    expect(withReplacedApplication(undefined, app({ id: 1 }))).toBeUndefined();
+  });
+});
+
+describe("attendeesOf (runda 8, R8-N2-9)", () => {
+  it("pomija wykluczonych i zrezygnowanych, którzy nie byli na spotkaniu", () => {
+    const apps = [
+      app({ id: 1, full_name: "Bartek", status: "scheduled", session_id: 5 }),
+      app({ id: 2, full_name: "Celina", status: "withdrew", session_id: 5 }),
+      app({ id: 3, full_name: "Daria", status: "rejected", session_id: 5, attended: false }),
+      app({ id: 4, full_name: "Adam", status: "rejected", session_id: 5, attended: true }),
+      app({ id: 5, full_name: "Ewa", status: "scheduled", session_id: 6 }),
+    ];
+    expect(attendeesOf(apps, 5).map((a) => a.id)).toEqual([4, 1]);
   });
 });

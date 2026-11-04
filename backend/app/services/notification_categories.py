@@ -33,10 +33,12 @@ class NotificationCategory(StrEnum):
     reminders = "reminders"
     deadlines = "deadlines"
     interviews = "interviews"
+    acceptances = "acceptances"
     candidates = "candidates"
     rejections = "rejections"
     contracts = "contracts"
     kpi = "kpi"
+    people = "people"
     system = "system"
 
 
@@ -57,6 +59,13 @@ CATEGORY_INFO: dict[NotificationCategory, CategoryInfo] = {
     NotificationCategory.interviews: CategoryInfo(
         "Rozmowy",
         "Umówione rozmowy, terminy od klienta, telefon do kandydata po rozmowie, debrief.",
+        mandatory=True,
+    ),
+    # 0451 (D5, 16.10.2026): „Klient zaakceptował” — rekruter, prowadzący,
+    # Delivery Lead i Head of Recruitment muszą to wiedzieć; nie do wyciszenia.
+    NotificationCategory.acceptances: CategoryInfo(
+        "Akceptacje klienta",
+        "Klient zaakceptował kandydata — dalej oferta i umowa.",
         mandatory=True,
     ),
     NotificationCategory.chat: CategoryInfo(
@@ -91,9 +100,13 @@ CATEGORY_INFO: dict[NotificationCategory, CategoryInfo] = {
         "KPI i coaching",
         "Power Calling i podpowiedzi coacha KPI.",
     ),
+    NotificationCategory.people: CategoryInfo(
+        "Czas i ludzie",
+        "Nieobecności i zastępstwa, raporty godzin, rozliczenia, wejścia i odejścia, sprawy administracja@ i sprzęt.",
+    ),
     NotificationCategory.system: CategoryInfo(
         "Konto i system",
-        "Zmiana hasła, alarmy kosztów AI i awarie automatów.",
+        "Zmiana hasła, alarmy kosztów AI, awarie automatów i masowe przeglądanie CV.",
         mandatory=True,
     ),
 }
@@ -108,15 +121,54 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.note_mention: _C.mentions,
     # Ktoś wytypował Cię do wysłania osoby do Cpro — imienne zadanie, jak wzmianka.
     _T.cpro_send_assigned: _C.mentions,
+    # Ktoś przekazał Ci kartę do przeglądu DL albo do kolejki Cpro — imienne
+    # zadanie, na które czeka kandydat; nie da się go wyciszyć.
+    _T.board_task_waiting: _C.mentions,
+    # Rekruter czeka, aż potwierdzisz podpis jego umowy — imienne zadanie (0417).
+    _T.b2b_signature_requested: _C.mentions,
+    # Ktoś wygenerował umowę Twojej osoby — wyślij ją i pilnuj podpisu (0524).
+    _T.b2b_agreement_ready: _C.mentions,
+    # 0506: umowa przedwstępna — imienne zadanie (wystaw, podpisz) albo
+    # krok umowy, o którą ktoś sam poprosił; obserwowanie wyłącza się w panelu.
+    _T.pre_contract: _C.mentions,
+    # 0418: zadanie DL po wzroście stawki — na DL czeka klient, nie do wyciszenia.
+    _T.candidate_rate_change_task: _C.mentions,
     # Ktoś przejął Twoją osobę w „Nowych" — imienne, jak wzmianka.
     _T.candidate_claim_taken: _C.mentions,
+    # Odpowiedź na Twoją notatkę — imienne, jak wzmianka (0399).
+    _T.note_reply: _C.mentions,
+    # Ktoś przydzielił Ci request (akceptacja propozycji automatu, poranne
+    # „Od dziś: …”) — imienne zadanie, więc nie da się go wyciszyć.
+    _T.request_assignment_changed: _C.mentions,
+    # 0447: „Poprzedni rekruter” — rekrutacja zeszła z P1 / wróciła na P1
+    # i osoba znowu nad nią pracuje. Zmiana Twojego przydziału, jak wyżej.
+    _T.recruiter_parked: _C.mentions,
+    _T.recruiter_restored: _C.mentions,
+    # 0607: zamknięto rekrutację z Twoimi osobami od „CV wysłane” — imienne
+    # zadanie (daj im znać), nie do wyciszenia jak przydział.
+    _T.job_closed_people_waiting: _C.mentions,
+    # 0635: klient odrzucił Twoją osobę / chce rozmowy (mail CPro) — imienne
+    # zadanie: napisz do kandydata, potwierdź termin, zdecyduj o zamknięciu.
+    _T.cpro_candidate_rejected: _C.mentions,
+    _T.cpro_interview_change: _C.mentions,
+    _T.cpro_close_needs_decision: _C.mentions,
+    # 0621: osoby po rekruterze, który odszedł — imienny obowiązek DL-a.
+    _T.departed_pairs_care: _C.mentions,
     # Czat
     _T.job_chat_message: _C.chat,
     # Ruchy w rekrutacjach
     _T.stage_changed: _C.pipeline,
     _T.stage_rule: _C.pipeline,
+    # 0440: CV firmowe gotowe do sprawdzenia / automat go nie zrobił —
+    # informacja o własnej karcie, jak ruch etapu (do wyciszenia).
+    _T.cv_ready: _C.pipeline,
+    _T.candidate_rate_change: _C.pipeline,
     _T.candidate_added: _C.pipeline,
     _T.champion_profile_updated: _C.pipeline,
+    # 0450: championi rekrutacji — zapis listy i powrót do szukania (D8).
+    _T.champions_changed: _C.pipeline,
+    _T.champion_search_resumed: _C.pipeline,
+    _T.job_twin_linked: _C.pipeline,
     _T.pending_verification: _C.pipeline,
     # Zaległości i przypomnienia
     _T.stage_stuck_7d: _C.reminders,
@@ -126,8 +178,21 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.suggest_next_step: _C.reminders,
     _T.recruitment_allocation_alert: _C.reminders,
     _T.board_tasks_digest: _C.reminders,
-    _T.request_assignment_changed: _C.reminders,
     _T.request_review_needed: _C.reminders,
+    # 0523: rekrutację u klienta DL-a otworzył ktoś inny (mail obowiązkowy).
+    _T.client_job_opened: _C.reminders,
+    # 0526: brakujące ogłoszenia rekrutacji (mail obowiązkowy).
+    _T.job_ad_missing: _C.reminders,
+    _T.job_ad_backlog: _C.reminders,
+    _T.job_ad_nudge: _C.reminders,
+    # 0525: P0 na rekrutacji Twojego zespołu (mail obowiązkowy).
+    _T.job_p0_set: _C.reminders,
+    # 0610: Delivery Lead prosi o P0 (do Head of Recruitment).
+    _T.job_p0_requested: _C.reminders,
+    # 0617: rekrutacje bez ruchu Delivery Leada (mail obowiązkowy).
+    _T.job_idle_reminder: _C.reminders,
+    # 0409: propozycje automatu przydziału czekają na akceptację.
+    _T.request_allocation_proposals: _C.reminders,
     # Terminy rekrutacji
     _T.job_deadline_7d: _C.deadlines,
     _T.job_deadline_3d: _C.deadlines,
@@ -138,14 +203,27 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.post_interview_t45: _C.interviews,
     _T.post_interview_t2h_escalation: _C.interviews,
     _T.interview_slots_requested: _C.interviews,
+    _T.client_panel_request: _C.interviews,
     _T.interview_slot_chosen: _C.interviews,
     _T.interview_slot_confirmed: _C.interviews,
     _T.interview_debrief_saved: _C.interviews,
     _T.prep_attention: _C.interviews,
+    _T.prep_candidate_response: _C.interviews,
+    _T.prep_candidate_declined: _C.interviews,
+    _T.prep_changed: _C.interviews,
+    _T.prep_changed_yours: _C.interviews,
+    _T.prep_no_response: _C.interviews,
+    _T.prep2_skipped: _C.interviews,
+    _T.prep2_skip_threshold: _C.interviews,
+    _T.interview_changed: _C.interviews,
+    _T.prep_review_ready: _C.interviews,
+    # Akceptacje klienta (0451)
+    _T.client_accepted: _C.acceptances,
     # 0374: koniec programu praktykanta — decyzja Head of Recruitment.
     _T.trainee_program_decision: _C.kpi,
     # Nowi i pasujący kandydaci
     _T.new_application: _C.candidates,
+    _T.application_screening_digest: _C.candidates,
     _T.candidate_followup_signal: _C.candidates,
     _T.match_digest: _C.candidates,
     _T.marketplace_match: _C.candidates,
@@ -155,6 +233,9 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.auto_match: _C.candidates,
     _T.auto_match_proposals: _C.candidates,
     _T.my_people_match: _C.candidates,
+    _T.also_fits_added: _C.candidates,
+    _T.autofill_decisions_due: _C.candidates,
+    _T.autofill_quality_report: _C.candidates,
     _T.candidate_search_completed: _C.candidates,
     # Maile z odmową
     _T.rejection_email_scheduled: _C.rejections,
@@ -172,6 +253,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.client_order_ending_7d: _C.contracts,
     _T.order_missing_successor: _C.contracts,
     _T.hired_order_missing: _C.contracts,
+    _T.consultant_in_other_recruitment: _C.contracts,
+    _T.hire_missing_contract: _C.contracts,
     _T.framework_contract_expiring_30d: _C.contracts,
     _T.framework_contract_expiring_14d: _C.contracts,
     _T.framework_contract_expiring_7d: _C.contracts,
@@ -180,19 +263,231 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.signature_signed: _C.contracts,
     _T.signature_rejected: _C.contracts,
     _T.signature_failed: _C.contracts,
+    _T.signature_renewal_requested: _C.contracts,
     # KPI
     _T.powercalling_kpi: _C.kpi,
     _T.kpi_coach: _C.kpi,
+    # Czas i ludzie (0457)
+    _T.hr_leave_requested: _C.people,
+    _T.hr_leave_decided: _C.people,
+    _T.hr_leave_cancelled: _C.people,
+    _T.hr_leave_substitute: _C.people,
+    _T.hr_absence_reported: _C.people,
+    _T.hr_leave_conflict: _C.people,
+    _T.hr_timesheet_submitted: _C.people,
+    _T.hr_timesheet_decided: _C.people,
+    _T.hr_timesheet_reminder: _C.people,
+    _T.hr_bonus_assigned: _C.people,
+    _T.hr_rate_changed: _C.people,
+    _T.hr_lifecycle_task: _C.people,
+    _T.hr_work_handover: _C.people,
+    _T.admin_case_assigned: _C.people,
+    _T.back_office_escalated: _C.people,
+    _T.back_office_assigned: _C.people,
+    _T.portal_low_rating: _C.people,
+    _T.portal_monthly_review: _C.people,
+    _T.equipment_task: _C.people,
+    _T.equipment_protocol_signed: _C.people,
+    _T.equipment_return_reminder: _C.people,
+    _T.care_front_office_handoff: _C.people,
+    _T.care_announcement: _C.people,
+    _T.hr_settlement_correction: _C.people,
+    _T.hr_settlement_paid: _C.people,
+    _T.hr_settlement_review: _C.people,
+    _T.hr_agreement_update: _C.people,
+    _T.hr_approval_requested: _C.people,
+    _T.hr_approval_decided: _C.people,
+    _T.hr_approval_topup_requested: _C.people,
+    _T.hr_subscription_renewal: _C.people,
+    _T.care_contact_due: _C.contracts,
+    _T.care_client_structure: _C.contracts,
+    _T.care_demand_signal: _C.contracts,
     # Konto i system
     _T.password_reset_requested: _C.system,
     _T.password_changed_by_admin: _C.system,
     _T.ai_spend_alert: _C.system,
     _T.automation_failing: _C.system,
+    _T.candidate_data_access_alert: _C.system,
+    _T.new_person_signed_in: _C.system,
+    # 0619: ważne ogłoszenie HoR albo admina (mail obowiązkowy).
+    _T.announcement_important: _C.system,
+    _T.teams_prep_scope_missing: _C.system,
+    _T.hr_m365_scope_missing: _C.system,
 }
 
 
 def category_for(notification_type: NotificationType) -> NotificationCategory:
     return CATEGORY_BY_TYPE[notification_type]
+
+
+# ── Grupy: wiersze tabeli „Kto co dostaje” (rola × grupa, 09.10.2026) ────────
+#
+# Administrator wyłącza powiadomienia całej roli. Kategoria bywa na to za
+# gruba: „Kontrakty…” niosą naraz koniec zamówień (1 111 wpisów w 30 dni do
+# adminów) i podpisy umów, a „Zaległości…” — „kandydat stoi 6 h” i poranny
+# skrót. Grupa jest więc kategorią albo jej nazwanym kawałkiem. Wyciszenia
+# OSOBY zostają na poziomie kategorii.
+
+
+@dataclass(frozen=True)
+class GroupInfo:
+    label: str
+    category: NotificationCategory
+
+
+# Kategorie dzielone na kawałki: klucz grupy → (etykieta, kategoria, typy).
+# Typ kategorii nieobecny w żadnym kawałku wywraca test wyczerpujący.
+_SPLIT_GROUPS: dict[
+    str, tuple[str, NotificationCategory, tuple[NotificationType, ...]]
+] = {
+    "reminders_stage_6h": (
+        "Kandydat stoi na etapie 6 h",
+        _C.reminders,
+        (_T.dl_stage_stale_6h,),
+    ),
+    "reminders_stage_7d": (
+        "Kandydat stoi na etapie 7 dni",
+        _C.reminders,
+        (_T.stage_stuck_7d,),
+    ),
+    "reminders_board_digest": (
+        "Skrót „Czeka na Ciebie” (wycofany 16.10.2026)",
+        _C.reminders,
+        (_T.board_tasks_digest,),
+    ),
+    "reminders_next_step": (
+        "Podpowiedź następnego kroku, brak feedbacku",
+        _C.reminders,
+        (_T.suggest_next_step, _T.client_feedback_eobd, _T.candidate_feedback_1h),
+    ),
+    "reminders_requests": (
+        "Przydział requestów",
+        _C.reminders,
+        (
+            _T.recruitment_allocation_alert,
+            _T.request_review_needed,
+            _T.client_job_opened,
+            _T.job_p0_set,
+            _T.job_p0_requested,
+            _T.job_idle_reminder,
+            _T.request_allocation_proposals,
+        ),
+    ),
+    "reminders_job_ads": (
+        "Brakujące ogłoszenia rekrutacji",
+        _C.reminders,
+        (_T.job_ad_missing, _T.job_ad_backlog, _T.job_ad_nudge),
+    ),
+    "contracts_order_ending": (
+        "Koniec zamówienia za 30 / 14 / 7 dni",
+        _C.contracts,
+        (
+            _T.client_order_ending_30d,
+            _T.client_order_ending_14d,
+            _T.client_order_ending_7d,
+        ),
+    ),
+    "contracts_contract_ending": (
+        "Koniec umowy",
+        _C.contracts,
+        (_T.contract_ending, _T.contract_ending_90d),
+    ),
+    "contracts_activated": (
+        "Umowa aktywowana, nowy szkic kontraktu",
+        _C.contracts,
+        (_T.contract_activated,),
+    ),
+    "contracts_framework": (
+        "Umowa ramowa",
+        _C.contracts,
+        (
+            _T.framework_contract_expiring_30d,
+            _T.framework_contract_expiring_14d,
+            _T.framework_contract_expiring_7d,
+            _T.framework_contract_signed,
+        ),
+    ),
+    "contracts_missing_order": (
+        "Brak zamówienia",
+        _C.contracts,
+        (_T.order_missing_successor, _T.hired_order_missing),
+    ),
+    "contracts_consultant_elsewhere": (
+        "Twój konsultant w innej rekrutacji",
+        _C.contracts,
+        (_T.consultant_in_other_recruitment,),
+    ),
+    "contracts_hire_missing_contract": (
+        "Zatrudniony bez umowy w Kontraktach",
+        _C.contracts,
+        (_T.hire_missing_contract,),
+    ),
+    # „Ludzie w NEXUSIE” (0462): przypomnienie opiekuna kontraktu — osobna
+    # grupa, żeby rola mogła je wyłączyć bez końca umów i podpisów.
+    "contracts_care": (
+        "Opieka: kontakt z konsultantem",
+        _C.contracts,
+        (_T.care_contact_due,),
+    ),
+    # 0475: Delivery Lead uzupełnia strukturę u klienta (menedżerowie konsultantów).
+    "contracts_client_structure": (
+        "Opieka: struktura u klienta",
+        _C.contracts,
+        (_T.care_client_structure,),
+    ),
+    # 0509: „klient zatrudnia” z rozmowy opiekuna → Delivery Lead klienta.
+    "contracts_care_demand": (
+        "Opieka: popyt u klienta",
+        _C.contracts,
+        (_T.care_demand_signal,),
+    ),
+    "contracts_signatures": (
+        "Podpisy i zwrot sprzętu",
+        _C.contracts,
+        (
+            _T.signature_sent,
+            _T.signature_signed,
+            _T.signature_rejected,
+            _T.signature_failed,
+            _T.signature_renewal_requested,
+            _T.equipment_return_due_14d,
+        ),
+    ),
+}
+
+_SPLIT_CATEGORIES = frozenset(category for _, category, _ in _SPLIT_GROUPS.values())
+
+
+def _build_groups() -> tuple[dict[str, GroupInfo], dict[NotificationType, str]]:
+    info: dict[str, GroupInfo] = {}
+    by_type: dict[NotificationType, str] = {}
+    for category, category_info in CATEGORY_INFO.items():
+        if category not in _SPLIT_CATEGORIES:
+            info[category.value] = GroupInfo(category_info.label, category)
+            continue
+        for key, (label, split_category, types) in _SPLIT_GROUPS.items():
+            if split_category != category:
+                continue
+            info[key] = GroupInfo(label, category)
+            for notification_type in types:
+                by_type[notification_type] = key
+    for notification_type, category in CATEGORY_BY_TYPE.items():
+        if category not in _SPLIT_CATEGORIES:
+            by_type[notification_type] = category.value
+    return info, by_type
+
+
+# Kolejność = kolejność wierszy tabeli (kategorie jak na stronie ustawień).
+GROUP_INFO, GROUP_BY_TYPE = _build_groups()
+
+
+def types_in_group(group: str) -> frozenset[NotificationType]:
+    return frozenset(t for t, g in GROUP_BY_TYPE.items() if g == group)
+
+
+def group_is_mutable(group: str) -> bool:
+    info = GROUP_INFO.get(group)
+    return info is not None and is_mutable(info.category)
 
 
 def types_in(category: NotificationCategory) -> frozenset[NotificationType]:

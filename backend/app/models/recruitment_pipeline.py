@@ -1,9 +1,19 @@
 import enum
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import (
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -239,6 +249,12 @@ class CandidateStage(Base, TimestampMixin):
         Enum(CandidateOfferResponse, name="candidateofferresponse", create_type=False),
         nullable=True,
     )
+
+    # 0451 (16.10.2026): okno „Klient zaakceptował” — tylko wiersz etapu
+    # `acceptance`. Data akceptacji bywa wcześniejsza niż ruch (klient
+    # odpisał wczoraj), planowany start jest opcjonalny.
+    client_accepted_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    planned_start_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
     # External source tracking — Traffit recruitment_history move ID itp.
     # Migracja 0075 dodaje partial unique index na (external_source, external_id).

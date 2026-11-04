@@ -118,7 +118,7 @@ async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evid
     new_block,
     off_page_policy_changed,
 ):
-    from app.services import pipeline_eligibility
+    from app.services import employment_marker, pipeline_eligibility
 
     monkeypatch.setattr(api, "_search_access", lambda user: None)
     job = make_job(must_skills=["Python"])
@@ -148,6 +148,7 @@ async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evid
         evidence={
             "eligibility": _eligibility_annotation(decision(old_block)),
             "breakdown": {"total": 91, "matching_must": ["python"]},
+            "filters": {"rate": "over_budget", "office": "days_exceeded"},
             "requirements": [
                 {
                     "any_of": ["python"],
@@ -200,6 +201,11 @@ async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evid
             }
         ),
     )
+    # Znacznik „Pracuje u nas” liczy się przy odczycie, obok plakietki
+    # dopuszczalności — osoba z trwającą umową u innego klienta.
+    marker = {"phase": "working", "source": "contract", "elsewhere": True}
+    load_markers = AsyncMock(return_value={candidate.id: marker})
+    monkeypatch.setattr(employment_marker, "load_employment_markers", load_markers)
     db = SimpleNamespace(
         execute=AsyncMock(
             return_value=SimpleNamespace(
@@ -211,9 +217,12 @@ async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evid
         "r", SimpleNamespace(id=1), offset=0, limit=20, min_score=0, db=db
     )
     assert result["coverage_complete"]
+    # Znacznik nie wchodzi do porównania z zamrożoną plakietką: sam z siebie
+    # nie oznacza rankingu jako zmienionego.
     assert result["data_changed"] == (
         changed or old_block != new_block or off_page_policy_changed
     )
+    assert result["results"][0]["employment_marker"] == marker
     assert result["ranking_complete"] == (
         not changed and old_block == new_block and not off_page_policy_changed
     )
@@ -227,9 +236,12 @@ async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evid
         assert "matching_must" not in item["breakdown"]
         assert item["requirements"][0]["status"] == "unknown"
         assert item["requirements"][0]["matched"] == []
+        assert item["fit"] is None
     else:
         assert item["fit_score"] == 91
         assert item["requirements"][0]["status"] == "met"
+        # Budżet i dni w biurze nie ukrywają (v9) — plakietka z przeglądu.
+        assert item["fit"] == {"rate": "over_budget", "office": "days_exceeded"}
     for private_key in ("candidate_evidence", "usage_context", "verification_id"):
         assert private_key not in item["requirements"][0]
     assert item["match"] is None

@@ -29,6 +29,25 @@ it("keeps section and role markers through an actual Tiptap roundtrip", () => {
   editor.destroy(); reopened.destroy();
 });
 
+it("does not copy a section marker to the paragraph created with Enter", () => {
+  // Enter na końcu linii firmy albo klauzuli RODO: nowy akapit to zwykły
+  // tekst, nie druga „firma” ani druga klauzula w Wordzie.
+  const options = { extensions: [StarterKit, CvEditorSection] };
+  const editor = new Editor({ ...options, content: '<p data-cv-section="employer">Firma X</p><p data-cv-section="rodo">Zgoda</p>' });
+  for (const text of ["Firma X", "Zgoda"]) {
+    let end = 0;
+    editor.state.doc.descendants((node, position) => {
+      if (node.isText && node.text === text) end = position + node.nodeSize;
+    });
+    editor.chain().setTextSelection(end).splitBlock().insertContent("Dopisek").run();
+  }
+  const html = editor.getHTML();
+  expect(html.match(/data-cv-section="employer"/g)).toHaveLength(1);
+  expect(html.match(/data-cv-section="rodo"/g)).toHaveLength(1);
+  expect(html).toContain("<p>Dopisek</p>");
+  editor.destroy();
+});
+
 it("preserves duty boundaries when a bullet list becomes paragraphs", () => {
   const options = { extensions: [StarterKit, CvEditorSection] };
   const editor = new Editor({ ...options, content: '<h2 data-cv-section="experience">Experience</h2><p data-cv-section="role">Engineer</p><p data-cv-section="employer">Company</p><p data-cv-section="duties_label">Responsibilities</p><ul><li>First duty</li><li>Second duty</li></ul><p data-cv-section="technologies">Python</p>' });

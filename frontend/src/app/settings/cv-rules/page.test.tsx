@@ -75,7 +75,6 @@ const DL_USER = {
 };
 
 const RECRUITER_USER = { id: 8, role: "recruiter", roles: ["recruiter"] };
-const TAC_USER = { id: 9, role: "tac", roles: ["tac"] };
 
 const OVERVIEW: CvRulesOverview = {
   rules: [
@@ -217,21 +216,6 @@ describe("CvRulesSettingsPage", () => {
     expect(screen.queryByRole("button", { name: /Usuń regułę/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Wskaż klienta/ })).not.toBeInTheDocument();
     expect(screen.getByText("BNP PARIBAS")).toBeInTheDocument();
-  });
-
-  it("TAC edytuje kartę klienta, ale reguł CV nie prowadzi — zero akcji", async () => {
-    // Decyzja produktowa 02.09.2026: bramka zapisu to DeliveryLeadPlus, nie TacPlus.
-    mocks.user = TAC_USER;
-    renderPage();
-
-    expect(await screen.findByText("Nordea Bank Abp")).toBeInTheDocument();
-    expect(screen.getByText("instrukcje AI")).toBeInTheDocument();
-    expect(screen.getByText("tryb: Przepisanie")).toBeInTheDocument();
-    expect(screen.getByText("wymagane wejścia")).toBeInTheDocument();
-    expect(screen.getByText("wersja 3")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Dodaj regułę/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Edytuj regułę/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Zatwierdź regułę/ })).not.toBeInTheDocument();
   });
 
   it("?client=<id> otwiera edytor tego klienta od razu", async () => {

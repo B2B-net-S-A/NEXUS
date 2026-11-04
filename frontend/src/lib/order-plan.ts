@@ -18,8 +18,11 @@ import type {
   OrderPlanMatchStatus,
   OrderType,
 } from "@/lib/api/orderGroups";
+import type { RecruitmentRate } from "@/lib/api/recruitmentRates";
 import {
+  contractRateField,
   contractRateUnitToInputUnit,
+  formatRateField,
   toMdRate,
   type RateUnit,
 } from "@/lib/rate-unit";
@@ -39,6 +42,9 @@ export interface LinePerson {
   name: string;
   status: string | null;
   startDate: string | null;
+  /** Stawki z rekrutacji tej osoby (D7) — tylko z kontraktu dopasowanego
+   *  w odczycie PDF-a; osoba z pickera ich nie niesie. */
+  recruitmentRate?: RecruitmentRate | null;
 }
 
 export interface OrderLineDraft {
@@ -127,9 +133,13 @@ function costFromContract(
   if (contract.rate_cost === null || contract.rate_cost === undefined) {
     return { rateCost: "", costUnit: "md", costCurrency: "PLN", costSource: null };
   }
+  const field = contractRateField(
+    contract.rate_cost,
+    contractRateUnitToInputUnit(contract.rate_cost_unit),
+  );
   return {
-    rateCost: String(contract.rate_cost),
-    costUnit: contractRateUnitToInputUnit(contract.rate_cost_unit),
+    rateCost: field.value,
+    costUnit: field.unit,
     costCurrency: contract.rate_cost_currency?.trim().toUpperCase() || "PLN",
     costSource: "contract",
   };
@@ -142,6 +152,7 @@ function personFromContract(contract: OrderPlanContract): LinePerson {
     name: contract.contractor_name,
     status: contract.status,
     startDate: contract.start_date,
+    recruitmentRate: contract.recruitment_rate ?? null,
   };
 }
 
@@ -171,7 +182,8 @@ export function draftsFromPlan(plan: OrderGroupExtraction): OrderLineDraft[] {
       ...(matched && line.contract
         ? costFromContract(line.contract)
         : { rateCost: "", costUnit: "md" as RateUnit, costCurrency: "PLN", costSource: null }),
-      rateRevenue: numberField(line.rate_revenue),
+      // Trzy miejsca jak kolumny stawek linii (0419) — „36.375”, nie „36.38”.
+      rateRevenue: formatRateField(line.rate_revenue),
       // Bez kwoty jednostka nie ma znaczenia — domyślnie MD, jak w formularzu.
       revenueUnit: hasRevenue ? revenueUnitFromDocument(line.rate_revenue_unit) : "md",
       revenueCurrency: currency,
@@ -286,10 +298,14 @@ export function chooseConsultant(
   const hasRaw =
     option.suggested_contract_rate_cost !== null &&
     option.suggested_contract_rate_cost !== undefined;
+  const rawField = contractRateField(
+    option.suggested_contract_rate_cost,
+    contractRateUnitToInputUnit(option.suggested_rate_cost_unit),
+  );
   const cost = hasRaw
         ? {
-            rateCost: String(option.suggested_contract_rate_cost),
-            costUnit: contractRateUnitToInputUnit(option.suggested_rate_cost_unit),
+            rateCost: rawField.value,
+            costUnit: rawField.unit,
             costCurrency:
               option.suggested_rate_cost_currency?.trim().toUpperCase() || "PLN",
             costSource: "contract" as LineSource,
@@ -297,7 +313,7 @@ export function chooseConsultant(
         : option.suggested_rate_cost !== null &&
             option.suggested_rate_cost !== undefined
           ? {
-              rateCost: String(option.suggested_rate_cost),
+              rateCost: formatRateField(option.suggested_rate_cost),
               costUnit: "md" as RateUnit,
               costCurrency: "PLN",
               costSource: "contract" as LineSource,

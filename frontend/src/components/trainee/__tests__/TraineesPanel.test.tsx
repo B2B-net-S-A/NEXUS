@@ -53,15 +53,17 @@ describe("TraineesPanel", () => {
     renderPanel();
     const banner = screen.getByRole("region", { name: "Decyzja: Kasia Wróbel" });
     expect(banner).toHaveTextContent("Kasia Wróbel kończy 40 dni programu. Czas na decyzję.");
-    fireEvent.click(within(banner).getByRole("button", { name: "Zmień rolę na sourcera" }));
+    // Jedna rola docelowa (02.10.2026): sourcer i TAC zostali połączeni z rekruterem.
+    expect(within(banner).queryByRole("button", { name: /sourcera/ })).not.toBeInTheDocument();
+    fireEvent.click(within(banner).getByRole("button", { name: "Zmień rolę na rekrutera" }));
     const dialog = await screen.findByRole("dialog");
     const checkbox = within(dialog).getByRole("checkbox", { name: /Dodaj rozmówców/ });
     expect(checkbox).toBeChecked();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Zmień rolę na sourcera" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zmień rolę na rekrutera" }));
     await waitFor(() =>
       expect(traineeApi.decision).toHaveBeenCalledWith(7, {
         action: "promote",
-        role: "sourcer",
+        role: "recruiter",
         add_to_my_people: true,
       }),
     );

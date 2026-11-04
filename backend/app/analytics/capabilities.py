@@ -75,22 +75,6 @@ ROLE_CAPABILITIES: dict[UserRole, frozenset[AnalyticsCapability]] = {
             AnalyticsCapability.VIEW_RECRUITMENT_RANKING,
         }
     ),
-    UserRole.sourcer: frozenset(
-        {
-            AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
-            AnalyticsCapability.VIEW_OWN_RECRUITMENT_KPI,
-            AnalyticsCapability.VIEW_RECRUITMENT_RANKING,
-        }
-    ),
-    UserRole.tac: frozenset(
-        {
-            AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
-            AnalyticsCapability.VIEW_OWN_RECRUITMENT_KPI,
-            AnalyticsCapability.VIEW_RECRUITMENT_RANKING,
-            AnalyticsCapability.VIEW_CLIENT_OPERATIONS,
-            AnalyticsCapability.VIEW_TENDERS_OPERATIONAL,
-        }
-    ),
     # 22.09.2026: DL dostaje imienny ranking rekruterów — jest w Hall of Fame
     # i w Lidze, a raport rekrutacji zwracał mu 403 (audyt U9).
     # `VIEW_OWN_DELIVERY_KPI` ma od tej daty pokrycie: cele portfela
@@ -135,6 +119,27 @@ ROLE_CAPABILITIES: dict[UserRole, frozenset[AnalyticsCapability]] = {
             AnalyticsCapability.MANAGE_FINANCE,
             AnalyticsCapability.VIEW_EXECUTIVE,
             AnalyticsCapability.VIEW_TENDERS_OPERATIONAL,
+        }
+    ),
+    # 0446: „Automatyzacje” — to, co widzi rekruter, plus przetargi bez wartości.
+    # Bez KPI imiennych osób zespołu, operacji klientów (zakres klienta w
+    # ``analytics/scope.py`` zna tylko role zarządcze) i finansów.
+    UserRole.automation: frozenset(
+        {
+            AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
+            AnalyticsCapability.VIEW_RECRUITMENT_RANKING,
+            AnalyticsCapability.VIEW_TENDERS_OPERATIONAL,
+        }
+    ),
+    # 0490: „Rada nadzorcza” — zespół imiennie (decyzja Artura 21.10.2026).
+    # Świadomie BEZ ``VIEW_FINANCE``/``VIEW_EXECUTIVE``: te capability otwierają
+    # stawki konsultantów na 40+ trasach poza Insights. Kwoty kokpitu Firma
+    # wpuszcza rola w ``deps.BoardReader``.
+    UserRole.board: frozenset(
+        {
+            AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
+            AnalyticsCapability.VIEW_RECRUITMENT_RANKING,
+            AnalyticsCapability.VIEW_TEAM_KPI,
         }
     ),
     UserRole.admin: _ALL,

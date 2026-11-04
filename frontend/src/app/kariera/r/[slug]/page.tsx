@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { CareerJobView } from "@/components/career/CareerJobView";
 import { fetchCareerJob } from "@/lib/career/server";
 import { paramsSummary } from "@/lib/career/format";
+import { primaryCareerHost } from "@/lib/career/host";
+import { jobPostingJsonLd, jsonLdString } from "@/lib/career/jobPosting";
 
 import { careerRequestContext } from "../../_context";
 
@@ -23,19 +25,34 @@ async function load(slug: string) {
   return result.data;
 }
 
+function canonicalUrl(slug: string): string {
+  return `https://${primaryCareerHost()}/r/${slug.toLowerCase()}`;
+}
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
   const result = await fetchCareerJob(slug.toLowerCase());
-  if (!result.ok) return { title: "Rekrutacja" };
+  if (!result.ok) {
+    // Nieznany slug: strona 404 z `noindex` od Next.js zamiast metadanych
+    // z `index` (layout od 20.10.2026 indeksuje strony kariery). Kod HTTP i tak
+    // zostaje 200 — `app/loading.tsx` wysyła odpowiedź przed decyzją.
+    if (result.notFound) notFound();
+    return { title: "Rekrutacja" };
+  }
   const { job, status } = result.data;
   const description =
     status === "closed"
       ? "Ta rekrutacja została zakończona."
-      : job.subtitle || paramsSummary(job.params) || "Rekrutacja IT — Dynaminds";
+      : job.subtitle || paramsSummary(job.params) || "Rekrutacja IT — B2B Network";
   return {
     title: job.title,
     description,
-    robots: { index: false, follow: false },
+    // Etap 6 (decyzja D3 Artura 20.10.2026): otwarte rekrutacje w Google,
+    // zamknięta wypada z indeksu.
+    robots:
+      status === "open" ? { index: true, follow: true } : { index: false, follow: true },
+    // Kilka linków jednej rekrutacji = jedna oferta w Google: canonical na link z tablicy.
+    alternates: { canonical: canonicalUrl(result.data.canonical_slug ?? slug) },
     openGraph: { title: job.title, description, type: "website", locale: "pl_PL" },
     twitter: { card: "summary_large_image", title: job.title, description },
   };
@@ -45,5 +62,17 @@ export default async function CareerJobPage({ params }: PageProps) {
   const { slug } = await params;
   const data = await load(slug);
   const { base, host } = await careerRequestContext();
-  return <CareerJobView data={data} base={base} host={host} />;
+  const posting = jobPostingJsonLd(data, canonicalUrl(data.canonical_slug ?? slug));
+  return (
+    <>
+      {posting ? (
+        <script
+          type="application/ld+json"
+          // Dane JobPosting dla Google — z opublikowanego opisu, `<` zamieniony.
+          dangerouslySetInnerHTML={{ __html: jsonLdString(posting) }}
+        />
+      ) : null}
+      <CareerJobView data={data} base={base} host={host} />
+    </>
+  );
 }

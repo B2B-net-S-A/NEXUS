@@ -25,6 +25,11 @@ vi.mock("@/store/auth", async (importOriginal) => ({
 vi.mock("@/hooks/useCandidateContactFeature", () => ({
   useCandidateContactFeature: () => ({ enabled: false }),
 }));
+// Stan modułu „Ludzie w NEXUSIE” też idzie z react-query — moduł wyłączony.
+vi.mock("@/lib/api/hr", () => ({
+  useHrNavState: () => ({ myTime: false, people: false, equipment: false }),
+  useHrProgram: () => false,
+}));
 // cmdk w jsdom wymaga ResizeObserver/scrollIntoView — test dotyczy wyłącznie
 // zapytań palety, więc prymitywy renderujemy jako zwykłe elementy.
 vi.mock("@/components/ui/command", () => {
@@ -101,7 +106,18 @@ describe("CommandPaletteV2 — podpis kandydata", () => {
             ? {
                 items: [
                   { id: 7, name: "Jan", lastname: "Kowalski", linkedin_current_title: "Java Developer", city: "Kraków" },
-                  { id: 8, name: "Jan", lastname: "Kowalski", linkedin_current_title: null, city: "Gdańsk" },
+                  {
+                    id: 8,
+                    name: "Jan",
+                    lastname: "Kowalski",
+                    linkedin_current_title: null,
+                    city: "Gdańsk",
+                    employment_marker: {
+                      phase: "working",
+                      source: "contract",
+                      clients: [{ client_id: 3, client_name: "Bank Przykładowy", contract_id: 30, phase: "working" }],
+                    },
+                  },
                 ],
                 total: 2,
               }
@@ -118,7 +134,9 @@ describe("CommandPaletteV2 — podpis kandydata", () => {
       vi.advanceTimersByTime(300);
     });
     expect(getByText("· Java Developer · Kraków")).toBeTruthy();
+    // Podpis zostaje bez zmian; znacznik zatrudnienia to osobny element obok.
     expect(getByText("· Gdańsk")).toBeTruthy();
+    expect(getByText("Pracuje u nas · Bank Przykładowy")).toBeTruthy();
   });
 });
 
@@ -152,7 +170,6 @@ describe("CommandPaletteV2 — nawigacja po wpisaniu zapytania (UAT M00-B03)", (
     for (const label of [
       "Wyszukiwarka kandydatów",
       "Szukaj z treści requestu (Talent Radar)",
-      "Generator CV",
       "Generator Umów B2B",
       "Pomoc",
     ]) {
@@ -165,6 +182,8 @@ describe("CommandPaletteV2 — nawigacja po wpisaniu zapytania (UAT M00-B03)", (
     // Talenty i Targ zdjęte z nawigacji 21.09.2026.
     expect(queryByText("Targ / Dostępni")).toBeNull();
     expect(queryByText("Talenty")).toBeNull();
+    // Generator CV zdjęty 13.10.2026 — CV powstaje w ścieżce rekrutacji.
+    expect(queryByText("Generator CV")).toBeNull();
   });
 
   it("dopasowanie ignoruje polskie znaki i wielkość liter", async () => {

@@ -134,6 +134,67 @@ class AIFeatureKey(str, enum.Enum):
     # must-have z Championa i przećwiczono pytania tego klienta — punkt po
     # punkcie z cytatem — plus krótkie podsumowanie do notatki kandydata.
     prep_review = "prep_review"
+    # Import archiwum pytań z interview (0383): Luna rozbija wpis z Excela
+    # rekruterów na pojedyncze pytania klienta z cytatem źródła i odsiewa
+    # oceny kandydata oraz nazwiska. Jednorazowy skrypt, nie ścieżka aplikacji.
+    interview_question_import = "interview_question_import"
+    # „Champion po ludzku” (0403): research w internecie — co to jest
+    # technologia, czym zajmuje się rola, jak opisać klienta kandydatowi.
+    # Do wyszukiwarki idzie wyłącznie NAZWA (technologii, roli, firmy).
+    # Wynik zapisany raz w bazie; teksty rekrutacji liczą się pod champion_draft.
+    plain_knowledge_research = "plain_knowledge_research"
+    # Zgłoszenia z linku rekrutacji (0404): Luna czyta CV i ocenia związek
+    # doświadczenia z rolą, każdy powód z cytatem z CV. Werdykt liczy kod
+    # razem z must-have; „nie pasuje” zostawia osobę w bazie z „Dodaj mimo to”.
+    application_screening = "application_screening"
+    # Karta rekomendacji z notatki rekrutera (0421): Luna czyta wgraną albo
+    # wklejoną notatkę i proponuje pola karty i odpowiedzi — każda wartość
+    # z cytatem; zapis dopiero po zatwierdzeniu przez rekrutera.
+    recommendation_card_note_read = "recommendation_card_note_read"
+    # „Ułóż w zdanie” (0421): hasła rekrutera w odpowiedzi screeningowej albo
+    # polu opisowym karty → pełne zdanie. Kod odrzuca zdanie z nowym faktem.
+    screening_answer_phrasing = "screening_answer_phrasing"
+    # Edytor CV 2, PR 3 (0433): AI na zaznaczonym fragmencie CV — skróć,
+    # rozwiń z oryginału, przeredaguj, popraw język, na angielski. Wynik to
+    # zawsze propozycja; nowy fakt bez cytatu ze źródła odrzuca kod.
+    cv_selection_edit = "cv_selection_edit"
+    # Edytor CV 2, PR 4 (0434): polecenie własnymi słowami dla całego CV. Model
+    # zwraca plan operacji na wierszach; kod sprawdza każdą (bez nowych faktów,
+    # bez ruszania układu szablonu), a rekruter wybiera, które zastosować.
+    cv_editor_command = "cv_editor_command"
+    # Terminy rozmowy u klienta z wklejonego maila (0485, 20.10.2026): model
+    # wypisuje terminy z cytatem, kod odrzuca termin bez cytatu i z przeszłości.
+    # Treści maila nie zapisujemy.
+    interview_slots_from_mail = "interview_slots_from_mail"
+    # Zgody, etap 3 (0486): odczyt kwoty i sprzedawcy z faktury albo paragonu
+    # dołączonego do zgody. Wynik to podpowiedź — osoba poprawia pola sama,
+    # a dokument zostaje przy zgodzie także bez odczytu.
+    expense_document_read = "expense_document_read"
+    # „Po rozmowie” (0488, 20.10.2026): z notatki rekrutera z telefonu po
+    # rozmowie u klienta model rozpisuje pytania klienta, gotowość do oferty
+    # i stawkę — każdy element z cytatem, który sprawdza kod.
+    debrief_from_text = "debrief_from_text"
+    # 0518 (23.10.2026): raport poniedziałkowy „Jakość podpowiedzi systemu” —
+    # propozycje poprawek wyszukiwania z policzonych przez kod powodów.
+    autofill_quality_report = "autofill_quality_report"
+    # 0522 (26.10.2026): formularz CV klienta (np. ze SWZ Centrum e-Zdrowia)
+    # wypełniany z CV, screeningu i notatek — każda wartość z cytatem ze źródła.
+    client_form_fill = "client_form_fill"
+    # 0529 (27.10.2026): zrzut zgody RODO pod CV (PKO BP) — model odczytuje
+    # nadawcę, datę, numer ZOB i nazwisko, a kod porównuje je z rekrutacją.
+    consent_screenshot_check = "consent_screenshot_check"
+    requirement_word_hints = "requirement_word_hints"
+    # 0608 (28.10.2026): wtyczka LinkedIn — szkic InMaila, zaproszenia albo
+    # wiadomości pod rekrutację; rekruter poprawia i wysyła sam.
+    linkedin_message_draft = "linkedin_message_draft"
+    # 0620 (28.10.2026): „Oceń z AI” na zaznaczonych osobach w oknie
+    # „Kandydaci do dodania” — Dzwoń / Może / Nie pasuje z cytatem z CV.
+    candidate_ai_assessment = "candidate_ai_assessment"
+    # 0628 (02.11.2026): podsumowanie transkryptu Teams spotkania handlowca.
+    sales_meeting_summary = "sales_meeting_summary"
+    case_triage = "case_triage"
+    # Portal konsultanta (0643): podsumowanie rozmowy do sprawy, dodatek do transkryptu.
+    portal_meeting_summary = "portal_meeting_summary"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -159,10 +220,29 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.experience_dates_on_demand: "Daty zatrudnienia z CV (kartoteka firmy w ATLAS-ie)",
     AIFeatureKey.jarvis: "Jarvis — asystent i wykonawca zadań w aplikacji",
     AIFeatureKey.job_public_description: "Opis rekrutacji na stronę kariery",
-    AIFeatureKey.screening_reassign_suggest: "Przepięcie — podpowiedzi odpowiedzi na pytania screeningu",
+    AIFeatureKey.screening_reassign_suggest: "Arkusz screeningu — podpowiedzi z wcześniejszych rozmów kandydata",
     AIFeatureKey.dz_review: "Przegląd DZ — podpowiedzi do CV dla klienta",
     AIFeatureKey.academy_screening: "Akademia — sortowanie zgłoszeń z ogłoszeń",
     AIFeatureKey.prep_review: "Ocena prepu z transkryptu Teams",
+    AIFeatureKey.interview_question_import: "Import archiwum pytań z rozmów u klienta",
+    AIFeatureKey.plain_knowledge_research: "Champion po ludzku — research technologii, ról i klientów w internecie",
+    AIFeatureKey.application_screening: "Zgłoszenia z linku rekrutacji — przegląd CV przed wejściem do „Nowi”",
+    AIFeatureKey.recommendation_card_note_read: "Screening — wypełnienie z notatki rekrutera",
+    AIFeatureKey.screening_answer_phrasing: "„Ułóż w zdanie” — odpowiedzi i pola opisowe screeningu",
+    AIFeatureKey.cv_selection_edit: "Edytor CV — AI na zaznaczonym fragmencie",
+    AIFeatureKey.cv_editor_command: "Edytor CV — polecenie dla całego CV (plan zmian)",
+    AIFeatureKey.interview_slots_from_mail: "Terminy rozmowy u klienta z wklejonego maila",
+    AIFeatureKey.expense_document_read: "Zgody — odczyt kwoty i sprzedawcy z faktury albo paragonu",
+    AIFeatureKey.debrief_from_text: "Po rozmowie u klienta — pytania i oferta z notatki z telefonu",
+    AIFeatureKey.autofill_quality_report: "Jakość podpowiedzi systemu — propozycje poprawek w raporcie poniedziałkowym",
+    AIFeatureKey.client_form_fill: "Formularz CV klienta — wypełnienie z CV, screeningu i notatek",
+    AIFeatureKey.consent_screenshot_check: "Zrzut zgody RODO pod CV — odczyt nadawcy, daty i numeru ZOB",
+    AIFeatureKey.requirement_word_hints: "Wiersze „musi mieć” — słowa z CV osób wysłanych do klienta",
+    AIFeatureKey.linkedin_message_draft: "Wtyczka LinkedIn — szkic wiadomości do kandydata pod rekrutację",
+    AIFeatureKey.candidate_ai_assessment: "„Oceń z AI” — kolejność dzwonienia do zaznaczonych osób w rekrutacji",
+    AIFeatureKey.sales_meeting_summary: "Sprzedaż — podsumowanie transkryptu spotkania z Teams",
+    AIFeatureKey.case_triage: "Back office — do którego zespołu trafia mail albo zgłoszenie",
+    AIFeatureKey.portal_meeting_summary: "Portal konsultanta — podsumowanie rozmowy do sprawy",
 }
 
 
@@ -175,9 +255,9 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Competence Category + skills",
     ],
     AIFeatureKey.job_description_generator: [
-        "Szczegóły rekrutacji (tytuł, wymagania, lokalizacja)",
-        "Kontekst klienta (Client Knowledge)",
-        "Wybrany tone of voice",
+        "Tytuł rekrutacji, opis projektu, obowiązki i wymagania z Profilu Championa",
+        "(bez pól klienta, stawek i danych kandydatów; nazwa klienta wpisana "
+        "w opisie projektu albo w wymaganiach trafia do modelu)",
     ],
     AIFeatureKey.cv_parser: [
         "Treść CV kandydatów (PDF/DOCX → tekst)",
@@ -262,8 +342,9 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     ],
     AIFeatureKey.screening_reassign_suggest: [
         "Pytania screeningowe nowej rekrutacji (Profil Championa)",
-        "Odpowiedzi kandydata ze screeningu w poprzedniej rekrutacji",
-        "Ostatnie notatki rekruterów o kandydacie",
+        "Odpowiedzi kandydata z najwyżej trzech wcześniejszych rozmów screeningowych",
+        "Przy przepięciu także notatki rekruterów z dwóch rekrutacji przepięcia",
+        "(kwoty zamaskowane dla ról bez dostępu do stawek)",
     ],
     AIFeatureKey.dz_review: [
         "Tekst CV przygotowanego dla klienta (z zaznaczonymi pogrubieniami)",
@@ -279,6 +360,93 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Transkrypt prepu z Teams (wypowiedzi z podpisem: kandydat / zespół)",
         "Must-have rekrutacji i pytania, które zadaje ten klient",
         "(bez stawek, nazwy klienta i notatek rekruterów)",
+    ],
+    AIFeatureKey.interview_question_import: [
+        "Nazwa roli (bez nazwisk) i notatka rekrutera z archiwalnej rozmowy u klienta",
+        "Notatka bywa z imieniem kandydata lub rozmówcy — kod odrzuca pytania z osobą",
+        "(bez nazwy klienta, stawek i danych kandydata z bazy)",
+    ],
+    AIFeatureKey.plain_knowledge_research: [
+        "Nazwa technologii, roli albo firmy klienta — także do wyszukiwarki internetowej",
+        "(bez profilu Championa, danych kandydatów, stawek i notatek)",
+    ],
+    AIFeatureKey.application_screening: [
+        "Tekst CV z formularza zgłoszenia (tak, jak przesłał go kandydat)",
+        "Tytuł rekrutacji, must-have, nice-to-have i opis projektu",
+        "(bez pól formularza, danych z profilu kandydata, stawek i notatek)",
+    ],
+    AIFeatureKey.recommendation_card_note_read: [
+        "Tekst notatki z rozmowy wgranej albo wklejonej przez rekrutera",
+        "Pytania screeningowe z Profilu Championa i nazwy pól screeningu",
+        "(bez narodowości, e-maili, telefonów i linków — wycinane przed wysłaniem)",
+    ],
+    AIFeatureKey.screening_answer_phrasing: [
+        "Hasła rekrutera z jednej odpowiedzi albo pola opisowego i treść pytania",
+        "(bez danych z profilu kandydata, nazwy klienta i stawek do klienta)",
+    ],
+    AIFeatureKey.cv_selection_edit: [
+        "Zaznaczony fragment CV dla klienta, jego akapit albo punkt i nagłówek roli",
+        "Przy „Rozwiń z oryginału”: tekst oryginalnego CV kandydata w całości "
+        "(z danymi, które kandydat w nim podał) i notatki rekruterów czytelne dla AI",
+        "(z notatek wycinane: stawka, narodowość, red flags i motywacja z karty rekomendacji)",
+    ],
+    AIFeatureKey.cv_editor_command: [
+        "Treść CV dla klienta wiersz po wierszu (bez klauzuli zgody) i polecenie rekrutera",
+        "Nazwy wymagań rekrutacji (bez nazwy klienta, stawek i notatek)",
+    ],
+    AIFeatureKey.interview_slots_from_mail: [
+        "Wklejony mail klienta z terminami rozmowy i dzisiejsza data",
+        "(bez danych kandydata z bazy; treść maila nie jest zapisywana)",
+    ],
+    AIFeatureKey.expense_document_read: [
+        "Faktura albo paragon dołączony do zgody (tekst PDF-u albo zdjęcie)",
+        "(bez danych osoby, która prosiła o zgodę)",
+    ],
+    AIFeatureKey.debrief_from_text: [
+        "Notatka rekrutera z telefonu do kandydata po rozmowie u klienta",
+        "(bez nazwy klienta, danych kandydata z bazy i historii stawek)",
+    ],
+    AIFeatureKey.autofill_quality_report: [
+        "Liczby z odrzuceń osób od systemu (powody, kosze, rekrutacje)",
+        "i do 30 opisów odrzuceń wpisanych przez rekruterów",
+        "(bez nazwisk kandydatów i nazw klientów)",
+    ],
+    AIFeatureKey.client_form_fill: [
+        "Pola formularza CV klienta (etykiety ze wzoru w Plikach rekrutacji)",
+        "Tekst CV kandydata, odpowiedzi ze screeningu i notatki tej rekrutacji",
+        "(bez stawek, dostępności i danych kontaktowych)",
+    ],
+    AIFeatureKey.consent_screenshot_check: [
+        "Zrzut maila ze zgodą kandydata wgrany przez rekrutera",
+        "Nazwa klienta, której zgoda dotyczy",
+        "(bez danych kandydata z bazy — porównanie z rekrutacją robi kod)",
+    ],
+    AIFeatureKey.requirement_word_hints: [
+        "Tekst CV najwyżej 6 osób wysłanych do klienta w tej rekrutacji",
+        "Tytuł, klient i wymagania rekrutacji",
+        "(bez stawek, notatek i danych kontaktowych z bazy)",
+    ],
+    AIFeatureKey.linkedin_message_draft: [
+        "Imię, nagłówek, stanowiska i umiejętności z otwartego profilu na LinkedInie",
+        "Tytuł, klient, wymagania i tryb pracy rekrutacji",
+        "(bez stawek, kontaktów i danych z bazy NEXUSA)",
+    ],
+    AIFeatureKey.candidate_ai_assessment: [
+        "Tekst CV zaznaczonych osób i ich notatki z rozmów i spotkań (bez maili)",
+        "Tytuł rekrutacji, umiejętności krytyczne, must-have, nice-to-have i opis projektu",
+        "(bez stawek, nazwy klienta i danych kontaktowych z profilu)",
+    ],
+    AIFeatureKey.case_triage: [
+        "Temat i początek treści maila albo zgłoszenia od konsultanta",
+        "(bez stawek i danych z kartoteki)",
+    ],
+    AIFeatureKey.sales_meeting_summary: [
+        "Temat spotkania handlowca i transkrypt z Teams z podpisami mówców",
+        "(bez danych z kartoteki firmy, szans i kandydatów)",
+    ],
+    AIFeatureKey.portal_meeting_summary: [
+        "Transkrypt rozmowy konsultanta z back office z Teams i powód rezerwacji",
+        "(bez stawek, danych kontraktu i notatek wewnętrznych)",
     ],
 }
 

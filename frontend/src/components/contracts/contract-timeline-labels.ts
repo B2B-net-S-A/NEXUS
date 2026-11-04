@@ -24,9 +24,11 @@ const ACTION_LABELS: Record<string, string> = {
   termination_reversed: "Cofnięto zakończenie (pomyłka)",
   return_after_break: "Powrót po przerwie – utworzono nowy kontrakt",
   contract_reopened: "Przywrócono kontrakt do aktywnych",
+  termination_data_cleared: "Usunięto datę i powód cofniętego zakończenia",
   end_date_cleared: "Wyczyszczono datę zakończenia (umowa bezterminowa)",
   synced_with_orders: "Zsynchronizowano z zamówieniami klienta",
   bulk_marked_ended: "Zakończono współpracę (operacja zbiorcza)",
+  agreement_termination_recorded: "Zapisano rozwiązanie umowy podpisane poza NEXUSEM",
   // 0367 — okno „Zakończ współpracę" i synchronizacja z Generatorem B2B.
   status_auto_changed: "Automatyczna zmiana statusu (dzień po zakończeniu projektu)",
   termination_undone: "Cofnięto zakończenie współpracy",
@@ -43,12 +45,17 @@ const ACTION_LABELS: Record<string, string> = {
   signature_withdrawn: "Wycofano z podpisu",
   signature_expired: "Wygasł termin podpisu",
   equipment_added: "Dodano sprzęt",
+  note_added: "Dodano notatkę",
   equipment_updated: "Zaktualizowano sprzęt",
   equipment_removed: "Usunięto sprzęt",
   document_uploaded: "Dodano dokument",
   document_deleted: "Usunięto dokument",
   b2b_generated: "Wygenerowano umowę B2B",
+  generated_contract_linked: "Powiązano podpisaną umowę B2B z kontraktem",
   auto_drafted_from_order_mail: "Założono szkic z zamówienia z maila",
+  // Ticket 7 (09.2026): techniczne zmiany pól linii zamówienia MD (waluta,
+  // jednostka stawki) — historia zamówienia ich nie pokazuje.
+  order_line_fields_changed: "Zmiana pól technicznych na zamówieniu",
   deleted: "Usunięto kontrakt",
   force_deleted_signed: "Usunięto podpisany kontrakt (wymuszone)",
 };
@@ -132,6 +139,17 @@ const DETAIL_LABELS: Record<string, string> = {
   alerts_closed: "Zamknięte alerty",
   returned_from_contract_id: "Poprzedni kontrakt",
   order_ids: "Zamówienia",
+  order_number: "Numer zamówienia",
+  changes: "Zmiany",
+  // Aneksy podpisane w Generatorze aneksów (`b2b_documents/effects.py`).
+  legal_name: "Nazwa firmy",
+  nip: "NIP",
+  entity_type: "Forma działalności",
+  delegate_name: "Osoba skierowana",
+  start_date_mode: "Tryb daty rozpoczęcia",
+  period_from: "Okres zlecenia od",
+  period_to: "Okres zlecenia do",
+  rate_changed: "Zmieniono stawkę",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -169,7 +187,20 @@ const SOURCE_LABELS: Record<string, string> = {
   history: "historia zmian zamówień",
 };
 
+const ENTITY_TYPE_LABELS: Record<string, string> = {
+  sole_trader: "JDG",
+  company: "spółka",
+};
+
+const START_DATE_MODE_LABELS: Record<string, string> = {
+  exact: "z dniem",
+  not_earlier: "nie wcześniej niż",
+  not_later: "nie później niż",
+};
+
 const ENUM_KEYS: Record<string, Record<string, string>> = {
+  entity_type: ENTITY_TYPE_LABELS,
+  start_date_mode: START_DATE_MODE_LABELS,
   status: STATUS_LABELS,
   from_status: STATUS_LABELS,
   to_status: STATUS_LABELS,

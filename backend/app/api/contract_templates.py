@@ -5,14 +5,14 @@ print-to-PDF dialog for actual document generation — no weasyprint/pango
 in the Coolify image.
 """
 
+from html import escape
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
 from jinja2 import StrictUndefined, TemplateError, select_autoescape
-from jinja2.sandbox import SandboxedEnvironment
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -22,7 +22,14 @@ from app.api.contract_access import (
 )
 from app.api.deps import AdminUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
+from app.api.user_email_templates import (
+    _BoundedSandbox,
+    _render_bounded,
+    _render_in_thread,
+)
+from app.api.user_email_templates import _finalize as _bounded_finalize
 from app.core.database import get_db
+from app.core.printable_html import PRINTABLE_CSP_NO_SCRIPT, printable_document
 from app.models.contract import Contract
 from app.models.contract_template import ContractTemplate
 from app.models.b2b_contract_detail import B2BContractDetail
@@ -64,7 +71,12 @@ class TemplateResponse(TemplateBase):
 # must render in a SandboxedEnvironment — a plain Environment allows SSTI
 # (``{{ ''.__class__.__mro__ ... }}`` → RCE). Mirrors user_email_templates.py
 # (M5-P0.10).
-_jinja_env = SandboxedEnvironment(
+# Runda 11 (SEC): to samo ograniczone środowisko co szablony maili autora
+# (rundy 9/10) — sufit operacji (`* ** + % ~`, `join`, `replace`, formatowanie),
+# a render przez `render_contract_template` ma limit czasu, pamięci i długości
+# wyniku. Zwykły sandbox budował `{{ 'a' * 10**9 }}` w jednym wywołaniu kodu C
+# i OOM zabijał jedyny proces uvicorna.
+_jinja_env = _BoundedSandbox(
     autoescape=select_autoescape(["html", "xml"]),
     undefined=StrictUndefined,
     trim_blocks=True,
@@ -75,8 +87,19 @@ _jinja_env = SandboxedEnvironment(
     # do dokumentu trafia "NIP None" (11 505 z 11 899 klientów nie ma NIP-u).
     # `finalize` zamienia wyłącznie `None` na pusty napis: `False` i `0` muszą
     # przejść nietknięte, bo są prawidłowymi wartościami, a nie brakiem danych.
-    finalize=lambda v: "" if v is None else v,
+    finalize=_bounded_finalize,
 )
+
+
+def render_contract_template(source: str, context: dict) -> str:
+    """Render szablonu umowy z limitem czasu, pamięci i długości wyniku.
+
+    Synchroniczny — z handlera async wołaj w wątku. Przekroczenie limitu to
+    ``SecurityError`` (podklasa ``TemplateError``), więc istniejące gałęzie
+    ``except TemplateError`` → 422 obsługują je bez zmian.
+    """
+    return _render_bounded(_jinja_env, source, context)
+
 
 # Generator Umów B2B — filtr formatujący daty (PL/EN), współdzielony z renderem
 # DOCX. Import modułu-liścia (bez zależności od `app`) → brak cyklu importów.
@@ -95,12 +118,22 @@ from app.services.b2b_contract_generator.rate_clause import (  # noqa: E402
 from app.services.b2b_contract_generator.rate_clause import (  # noqa: E402
     build_rate_clause as _build_rate_clause,
 )
+from app.services.b2b_contract_generator.rate_clause import (  # noqa: E402
+    build_rate_lines as _build_rate_lines,
+)
 
 _jinja_env.filters["pl_date"] = _pl_date
 
 
-def _contract_vars(contract: Contract) -> dict:
-    """Shape exposed to templates (keep stable — it's part of the contract)."""
+def _contract_vars(contract: Contract, language: Optional[str] = None) -> dict:
+    """Shape exposed to templates (keep stable — it's part of the contract).
+
+    ``language`` = język wybranego szablonu (``ContractTemplate.language``).
+    Runda 10 (F25): „Generuj z szablonu” → „Umowa B2B (EN)” na kontrakcie
+    z danymi B2B po polsku (albo bez nich) wstawiał w angielski §6 polskie
+    „słownie” i „od dnia”, bo język brał się wyłącznie z ``b2b_detail``.
+    Brak języka szablonu = jak dotąd (język z danych umowy).
+    """
     cand = contract.candidate
     cli = contract.client
     candidate_full_name = (
@@ -110,7 +143,10 @@ def _contract_vars(contract: Contract) -> dict:
     # `b2b_detail` musi być eager-loaded przy każdym wywołaniu (async).
     detail = getattr(contract, "b2b_detail", None)
     role = detail.role if detail else None
-    lang = (detail.language if detail else "pl") or "pl"
+    detail_lang = (detail.language if detail else "pl") or "pl"
+    lang = (language or "").strip().lower()[:2] or detail_lang
+    if lang not in ("pl", "en"):
+        lang = detail_lang
     if role is not None:
         _area_label = role.area_label_pl if lang == "pl" else role.area_label_en
         _role_name = role.name_pl if lang == "pl" else role.name_en
@@ -136,12 +172,21 @@ def _contract_vars(contract: Contract) -> dict:
         _words_override = None
     else:
         _rate_stages = [_RateStage(rate=contract.rate_candidate)]
-        _words_override = detail.rate_in_words if detail else None
+        # Ręczne „słownie” jest w języku danych umowy — w innym języku
+        # szablonu liczymy je od nowa z kwoty.
+        _words_override = (
+            detail.rate_in_words if detail and detail_lang == lang else None
+        )
     _rate_clause = _build_rate_clause(
         _rate_stages,
         language=lang,
         currency=contract.resolved_rate_candidate_currency,
         words_override=_words_override,
+    )
+    _rate_lines = _build_rate_lines(
+        _rate_stages,
+        language=lang,
+        currency=contract.resolved_rate_candidate_currency,
     )
     return {
         "contract": {
@@ -211,6 +256,7 @@ def _contract_vars(contract: Contract) -> dict:
             ),
             "rate_in_words": detail.rate_in_words if detail else None,
             "rate_clause": _rate_clause,
+            "rate_lines": _rate_lines,
             "language": lang,
             "area_label": _area_label,
             "role_name": _role_name,
@@ -232,6 +278,29 @@ def _contract_vars(contract: Contract) -> dict:
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
+
+
+async def _clear_other_defaults(db: AsyncSession, tpl: ContractTemplate) -> None:
+    """Jeden domyślny wzór na typ umowy (20.10.2026).
+
+    Szkic umowy przy kontrakcie bierze pierwszy domyślny wzór typu
+    (`contracts._list_templates_for_contract_type`), bez patrzenia na język,
+    a do 20.10 zaznaczenie „Domyślny” na drugim wzorze zostawiało dwa — na
+    produkcji domyślny był wzór z testu smoke. Język NIE jest częścią klucza:
+    Generator Umów B2B wybiera wzór po języku i `is_default` nie czyta, a dwa
+    domyślne w różnych językach dawały szkic po cichu z pierwszego po nazwie.
+    """
+    if not tpl.is_default:
+        return
+    await db.execute(
+        update(ContractTemplate)
+        .where(
+            ContractTemplate.id != tpl.id,
+            ContractTemplate.contract_type == tpl.contract_type,
+            ContractTemplate.is_default.is_(True),
+        )
+        .values(is_default=False)
+    )
 
 
 @router.get("", response_model=List[TemplateResponse])
@@ -262,6 +331,7 @@ async def create_template(
     tpl = ContractTemplate(**data.model_dump(), created_by=current_user.id)
     db.add(tpl)
     await db.flush()
+    await _clear_other_defaults(db, tpl)
     await db.refresh(tpl)
     return tpl
 
@@ -301,6 +371,7 @@ async def update_template(
     for k, v in updates.items():
         setattr(tpl, k, v)
     await db.flush()
+    await _clear_other_defaults(db, tpl)
     await db.refresh(tpl)
     return tpl
 
@@ -353,35 +424,44 @@ async def render_template_for_contract(
         contract.client_id,
     )
     try:
-        rendered = _jinja_env.from_string(tpl.content_jinja).render(
-            **_contract_vars(contract)
+        rendered = await _render_in_thread(
+            _jinja_env,
+            tpl.content_jinja,
+            _contract_vars(contract, language=tpl.language),
         )
     except TemplateError as e:
         raise HTTPException(status_code=422, detail=f"Render error: {e}")
-    # Wrap in a minimal printable skeleton.
-    html = (
-        '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        f"<title>{tpl.name} — kontrakt #{contract.id}</title>"
-        "<style>"
-        "body{font-family:'Helvetica',sans-serif;max-width:780px;margin:40px auto;line-height:1.55;color:#222;}"
-        "h1,h2,h3{color:#111}"
-        ".meta{color:#666;font-size:0.9em;margin-bottom:2em}"
-        "@media print{body{margin:0}}"
-        "</style></head><body>"
-        f'<div class="meta">Wygenerowano z szablonu: {tpl.name}</div>'
-        f"{rendered}"
-        "</body></html>"
-    )
     # Rendered template HTML is authored by users and served same-origin — an
     # explicit restrictive CSP blocks stored XSS (M5-P0.10). No legit script in
     # this skeleton, so scripts are denied outright; inline styles + data:
     # images are allowed so the formatting still renders.
     return HTMLResponse(
-        content=html,
-        headers={
-            "Content-Security-Policy": (
-                "default-src 'none'; style-src 'unsafe-inline'; "
-                "img-src data:; font-src data:"
-            )
-        },
+        content=_printable_template_html(tpl.name, contract.id, rendered),
+        headers={"Content-Security-Policy": PRINTABLE_CSP_NO_SCRIPT},
+    )
+
+
+_TEMPLATE_STYLE = (
+    "<style>"
+    "body{font-family:'Helvetica',sans-serif;max-width:780px;margin:40px auto;line-height:1.55;color:#222;}"
+    "h1,h2,h3{color:#111}"
+    ".meta{color:#666;font-size:0.9em;margin-bottom:2em}"
+    "@media print{body{margin:0}}"
+    "</style>"
+)
+
+
+def _printable_template_html(name: str, contract_id: int, rendered: str) -> str:
+    """Wyrenderowany szablon w otoczce z CSP w ``<meta>``.
+
+    Front otwiera ten HTML przez ``document.write`` w nowym oknie pod
+    originem aplikacji — nagłówek CSP z odpowiedzi tam nie obowiązuje, więc
+    polityka jedzie w dokumencie (audyt 25.09.2026, runda 5). Nazwa szablonu
+    jest escapowana; treść renderuje Jinja z autoescape zmiennych.
+    """
+    return printable_document(
+        f'<div class="meta">Wygenerowano z szablonu: {escape(name)}</div>{rendered}',
+        f"{name} — kontrakt #{contract_id}",
+        head_extra=_TEMPLATE_STYLE,
+        autoprint=False,
     )

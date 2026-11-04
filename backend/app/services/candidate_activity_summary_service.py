@@ -41,12 +41,19 @@ from app.models.contract import Contract
 from app.models.interview_feedback import InterviewFeedback
 from app.models.job import Job
 from app.models.note import Note
+from app.services import note_kinds
+from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.screening_note import ScreeningNote
 from app.models.user import User
 from app.services.ai_quota import ai_feature
 from app.services.candidate_identity_quarantine import source_is_eligible_clause
 from app.services.client_identity import client_display_name_expression
+from app.services.contract_availability import (
+    ATTRIBUTE as CONTRACT_FREE_ATTRIBUTE,
+    ContractFree,
+    attach_contract_free,
+)
 from app.services.llm_prompts import CANDIDATE_ACTIVITY_SUMMARY
 from app.services.ai_models import fallbacks_for, model_for
 
@@ -58,7 +65,7 @@ MAX_TOKENS = 1200
 # Changing this value invalidates every previously generated row even when the
 # prompt happens to retain the same version.
 CONTENT_POLICY_VERSION = "candidate-summary-no-finance-v3"
-VISIBILITY_SCOPE_VERSION = "candidate-summary-scope-v2"
+VISIBILITY_SCOPE_VERSION = "candidate-summary-scope-v3"
 
 # Input caps so a hyperactive candidate cannot create an unbounded prompt.
 _MAX_NOTES = 30
@@ -216,6 +223,13 @@ _STAGE_LABELS = {
     "hired": "Zatrudniony",
     "rejected": "Odrzucony",
     "withdrawn": "Wycofał się",
+}
+
+_OFFER_ACCEPTANCE_LABELS = {
+    "yes": "tak",
+    "likely": "raczej tak",
+    "no": "nie",
+    "unknown": "nie wiadomo",
 }
 
 _DECISION_LABELS = {
@@ -583,7 +597,10 @@ async def _visible_candidate_job_ids(
     return tuple(sorted(int(job_id) for job_id in rows.scalars() if job_id is not None))
 
 
-def _profile_section(candidate: Candidate) -> SourceSection:
+def _profile_section(
+    candidate: Candidate, contract: Optional[ContractFree] = None
+) -> SourceSection:
+    """``contract`` — termin z żywej umowy (``contract_availability``)."""
     lines: list[str] = []
     stats = _RedactionStats()
 
@@ -603,10 +620,18 @@ def _profile_section(candidate: Candidate) -> SourceSection:
         lines.append(f"Umiejętności: {skills}")
 
     availability = _enum_val(candidate.availability_status)
-    if availability and availability != "unknown":
-        lines.append(f"Status dostępności: {availability}")
-    if candidate.availability_date:
-        lines.append(f"Dostępny od: {_fmt_date(candidate.availability_date)}")
+    if contract is not None:
+        # Żywa umowa (15.10.2026, S3): status i data z profilu bywają
+        # screeningiem sprzed zatrudnienia — model dostaje termin z umowy,
+        # jak w uzasadnieniu dopasowania.
+        described = contract.describe(candidate.availability_date)
+        if described:
+            lines.append(f"Dostępność: {described}")
+    else:
+        if availability and availability != "unknown":
+            lines.append(f"Status dostępności: {availability}")
+        if candidate.availability_date:
+            lines.append(f"Dostępny od: {_fmt_date(candidate.availability_date)}")
     if candidate.notice_period:
         unit = _enum_val(candidate.notice_period_unit) or "dni"
         lines.append(f"Okres wypowiedzenia: {candidate.notice_period} {unit}")
@@ -753,6 +778,16 @@ async def _feedback_section(
         concerns = _sanitize_untrusted(feedback.concerns, limit=250, stats=stats)
         if concerns:
             lines.append(f"  Obawy: {concerns}")
+        # Debrief po rozmowie u klienta (04.10.2026): akceptacja oferty i warunek
+        # kandydata (np. wyższa stawka) to najważniejsza część tego wpisu.
+        acceptance = _OFFER_ACCEPTANCE_LABELS.get(feedback.offer_acceptance or "")
+        if acceptance:
+            lines.append(f"  Czy przyjmie ofertę: {acceptance}")
+        condition = _sanitize_untrusted(
+            feedback.acceptance_condition, limit=250, stats=stats
+        )
+        if condition:
+            lines.append(f"  Warunek kandydata: {condition}")
     return _source_section(
         "feedback", lines, query_truncated=query_truncated, stats=stats
     )
@@ -823,6 +858,9 @@ async def _notes_section(
                         source_id_column=Note.id,
                         source_kind="note",
                     ),
+                    # 0412: bez wpisów automatu, maili, „nie odbiera”
+                    # i stawki do klienta — podsumowanie czyta każda rola.
+                    note_kinds.ai_readable_clause(),
                 )
                 .order_by(Note.created_at.desc())
                 .limit(_MAX_NOTES + 1)
@@ -836,7 +874,12 @@ async def _notes_section(
     stats = _RedactionStats()
     lines: list[str] = []
     for note in rows:
-        safe = _sanitize_untrusted(note.content, limit=_MAX_NOTE_CHARS, stats=stats)
+        safe = _sanitize_untrusted(
+            # 0413: narodowość z karty rekomendacji nie trafia do modelu.
+            redact_card_text(note.content, AI_HIDDEN_FIELDS),
+            limit=_MAX_NOTE_CHARS,
+            stats=stats,
+        )
         if safe:
             lines.append(
                 f"- [{_fmt_date(note.source_created_at or note.created_at)}] {safe}"
@@ -948,8 +991,9 @@ async def build_context(
     db: AsyncSession, candidate: Candidate, user: User
 ) -> SummaryContext:
     visible_job_ids = await _visible_candidate_job_ids(db, candidate.id, user)
+    await attach_contract_free(db, [candidate])
     source_sections = [
-        _profile_section(candidate),
+        _profile_section(candidate, getattr(candidate, CONTRACT_FREE_ATTRIBUTE, None)),
         await _submissions_section(db, candidate.id, visible_job_ids),
         await _feedback_section(db, candidate.id, visible_job_ids),
         await _screening_section(db, candidate.id, visible_job_ids),

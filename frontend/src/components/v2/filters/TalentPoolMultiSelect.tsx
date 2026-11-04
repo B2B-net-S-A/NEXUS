@@ -17,6 +17,7 @@ import {
  CommandList,
  CommandSeparator,
 } from"@/components/ui/command";
+import { PickerQueryState } from"@/components/v2/filters/PickerQueryState";
 
 interface TalentPool {
  id: number;
@@ -31,7 +32,7 @@ interface TalentPoolMultiSelectProps {
 
 export function TalentPoolMultiSelect({ value, onChange }: TalentPoolMultiSelectProps) {
  const [open, setOpen] = useState(false);
- const { data } = useQuery<TalentPool[]>({
+ const { data, isPending, isError, isSuccess, refetch } = useQuery<TalentPool[]>({
  queryKey: ["talent-pools-lite"],
  queryFn: () => api.get("/api/talent-pools").then((r) => r.data),
  staleTime: 60_000,
@@ -87,7 +88,14 @@ export function TalentPoolMultiSelect({ value, onChange }: TalentPoolMultiSelect
  <Command>
  <CommandInput placeholder="Szukaj puli…" />
  <CommandList>
- <CommandEmpty>Brak pul.</CommandEmpty>
+ <PickerQueryState
+ isPending={isPending}
+ isError={isError}
+ onRetry={() => void refetch()}
+ loadingLabel="Ładowanie pul…"
+ errorLabel="Nie udało się pobrać listy pul."
+ />
+ {isSuccess && <CommandEmpty>Brak pul.</CommandEmpty>}
  {populated.length > 0 && (
  <CommandGroup heading={`Z kandydatami (${populated.length})`}>
  {populated.map((pool) => {

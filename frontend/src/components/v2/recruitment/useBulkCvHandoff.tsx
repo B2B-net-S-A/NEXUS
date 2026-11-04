@@ -47,6 +47,7 @@ import {
 } from "@/lib/bulk-cv-handoff";
 import { runCvHandoff } from "@/lib/cv-handoff";
 import { isEligibilityWarning } from "@/lib/pipeline-eligibility-warning";
+import { classifyMoveError } from "@/lib/pipeline-move-core";
 import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 import { CV_SENT_STAGE, findStageColumn } from "@/lib/pipeline-flow";
 import {
@@ -143,7 +144,7 @@ export function useBulkCvHandoff({
     (rows: ProcessPersonRow[], opts?: BulkCvHandoffStartOptions) => {
       if (busyRef.current || rows.length === 0) return;
       if (!cvSentColumn) {
-        showError("Szablon tej rekrutacji nie ma kolumny „CV Wysłane”.");
+        showError("Szablon tej rekrutacji nie ma kolumny „CV wysłane”.");
         return;
       }
       setDays(String(BULK_CV_DEFAULT_LINK_DAYS));
@@ -243,14 +244,16 @@ export function useBulkCvHandoff({
           }),
         isEligibilityWarning,
         isVersionConflict: isPipelineVersionConflict,
-        describeError: (error) => extractErrorMsg(error),
+        // To samo rozpoznanie odmowy co pojedynczy ruch (QC CV, bramki,
+        // konflikt wersji) — zdanie trafia do wyniku tej osoby.
+        describeError: (error) => classifyMoveError(error).message,
       });
     } catch (e) {
       // `runBulkCvHandoff` zamienia porażki w wyniki per osoba — to jest
       // awaria samej pętli. Część ruchów mogła się już zapisać.
       showError(
         extractErrorMsg(e) ||
-          "Wysyłka CV została przerwana — odśwież listę i sprawdź, kto jest już na „CV Wysłane”.",
+          "Wysyłka CV została przerwana — odśwież listę i sprawdź, kto jest już na „CV wysłane”.",
       );
     } finally {
       // RAZ, po całej pętli — nie per osoba. Oba klucze: część konsumentów
@@ -310,7 +313,7 @@ export function useBulkCvHandoff({
                 {jobTitle ? `${jobTitle}: ` : ""}
                 {CV_CLIENT_LINKS_UI_ENABLED ? (
                   <>
-                    każda osoba zostanie przeniesiona na „CV Wysłane”, a do jej CV
+                    każda osoba zostanie przeniesiona na „CV wysłane”, a do jej CV
                     firmowego powstanie link dla klienta. Osoby bez sfinalizowanego CV
                     firmowego zostaną{" "}
                     {moveWithoutLink
@@ -320,7 +323,7 @@ export function useBulkCvHandoff({
                   </>
                 ) : (
                   <>
-                    każda osoba zostanie oznaczona jako „CV Wysłane”. CV wysyłasz
+                    każda osoba zostanie oznaczona jako „CV wysłane”. CV wysyłasz
                     klientowi poza NEXUSEM — tu zapisujemy etap i stawkę.
                   </>
                 )}
@@ -357,7 +360,7 @@ export function useBulkCvHandoff({
                   Osoby bez sfinalizowanego CV firmowego przenieś bez linku
                   <span className="block text-xs text-muted-foreground">
                     Domyślnie takie osoby są pomijane. Po zaznaczeniu trafią na „CV
-                    Wysłane” bez linku dla klienta — jak „Oznacz „CV Wysłane” bez
+                    wysłane” bez linku dla klienta — jak „Oznacz „CV wysłane” bez
                     tworzenia linku” w panelu osoby.
                   </span>
                 </span>
@@ -432,7 +435,7 @@ export function useBulkCvHandoff({
                 disabled={!canSubmit}
                 onClick={() => void run(pending.rows, pending.onHandled)}
               >
-                {CV_CLIENT_LINKS_UI_ENABLED ? "Wyślij i utwórz linki" : "Oznacz „CV Wysłane”"}
+                {CV_CLIENT_LINKS_UI_ENABLED ? "Wyślij i utwórz linki" : "Oznacz „CV wysłane”"}
               </Button>
             </DialogFooter>
           </DialogContent>

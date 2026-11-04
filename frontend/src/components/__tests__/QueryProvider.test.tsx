@@ -32,6 +32,20 @@ describe("QueryProvider", () => {
     expect(seen).toBe(0);
   });
 
+  it("nie odświeża przy powrocie do karty — ikony paska odświeża gniazdo (27.10.2026)", () => {
+    let seen: unknown;
+    function Probe() {
+      seen = useQueryClient().getDefaultOptions().queries?.refetchOnWindowFocus;
+      return null;
+    }
+    render(
+      <QueryProvider>
+        <Probe />
+      </QueryProvider>,
+    );
+    expect(seen).toBe(false);
+  });
+
   it("nie używa pustego providera zamiast QueryClientProvider", () => {
     expect(QueryClientProvider).toBeDefined();
   });
@@ -80,6 +94,40 @@ describe("jeden właściciel ponowień", () => {
       }
     };
     walk(join(process.cwd(), "src"));
+    expect(offenders).toEqual([]);
+  });
+  it("żaden komponent nie ponawia funkcją `retry` — wyjątki tylko z listy (R8-N14-8)", async () => {
+    // Funkcja `retry: (count, error) => …` zwracająca true dla 5xx / braku
+    // odpowiedzi to ta sama druga warstwa co `retry: 1` (JobPriorityContext:
+    // 4 żądania zamiast 2). Dozwolone wyłącznie ponowienia, których axios nie
+    // robi — z powodem.
+    const ALLOWED: Record<string, string> = {
+      // Tylko 429 z backoffem — interceptor axios nie ponawia 429.
+      "components/v2/pages/CandidateCompareModal.tsx": "429",
+    };
+    const { readdirSync, readFileSync, statSync } = await import("node:fs");
+    const { join, relative } = await import("node:path");
+    const root = join(process.cwd(), "src");
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const path = join(dir, name);
+        if (statSync(path).isDirectory()) {
+          if (name === "__tests__" || name === "preview") continue;
+          walk(path);
+        } else if (/\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)) {
+          const rel = relative(root, path);
+          if (rel in ALLOWED) continue;
+          const source = readFileSync(path, "utf8");
+          // Opcja zapytania z parametrami (`retry: (failureCount, error) =>`),
+          // nie pole-callback bez argumentów (`retry: () => void`).
+          if (source.split("\n").some((line) => /^\s*retry:\s*\(\s*[A-Za-z_]/.test(line))) {
+            offenders.push(rel);
+          }
+        }
+      }
+    };
+    walk(root);
     expect(offenders).toEqual([]);
   });
 });

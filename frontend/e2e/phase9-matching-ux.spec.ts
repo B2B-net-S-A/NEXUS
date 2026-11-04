@@ -84,22 +84,21 @@ test.describe("Phase 9 — matching UX", () => {
   test("/settings/scoring lists profiles + shows Nowy profil CTA", async ({ page }) => {
     await page.goto("/settings/scoring");
     await expect(
-      page.getByRole("heading", { name: /Profile wag scoringu/i })
+      page.getByRole("heading", { name: /Ranking kandydatów/i })
     ).toBeVisible();
     await expect(page.getByRole("button", { name: /Nowy profil/i })).toBeVisible();
   });
 
   // ── Phase 10: Champion Profile + screening ───────────────────────────────
 
-  test("job detail has Profil Championa tab with editor", async ({ page }) => {
-    // Wersja 3: pełny widok „Zlecenie i Champion" — `?tab=champion`.
+  test("job detail has Profil Championa tab with the brief", async ({ page }) => {
+    // 04.10.2026: „Profil Championa” w czterech zakładkach, domyślnie „Brief”.
     await page.goto("/jobs/2?tab=champion");
-    await expect(
-      page.getByRole("heading", { name: /Profil Championa/i })
-    ).toBeVisible();
-    // Editor section headings (Phase 10)
-    await expect(page.getByText(/1\.?\s*PODSTAWOWE INFORMACJE/i)).toBeVisible();
-    await expect(page.getByText(/3\.?\s*PYTANIA SCREENINGOWE/i)).toBeVisible();
+    const tabs = page.getByRole("tablist", { name: "Profil Championa" });
+    await expect(tabs.getByRole("tab", { name: "Brief" })).toBeVisible();
+    await expect(tabs.getByRole("tab", { name: /Technologie po ludzku/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Czego szukamy" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Pytania na rozmowę/ })).toBeVisible();
   });
 
   test("person panel „Dopasowanie” shows the score breakdown with the Champion layer", async ({ page }) => {

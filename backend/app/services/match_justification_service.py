@@ -48,9 +48,10 @@ from app.models.job import Job
 from app.services import champion_view
 from app.models.match_justification import CandidateMatchJustification
 from app.services.ai_quota import ai_feature
+from app.services.contract_availability import ATTRIBUTE as CONTRACT_FREE_ATTRIBUTE
 from app.services.llm_prompts import MATCH_JUSTIFICATION
 from app.services.match_score_cache import get_cached_or_compute
-from app.services.ai_models import model_for
+from app.services.ai_models import fallbacks_for, model_for
 from app.services.scoring_service import (
     ScoreBreakdown,
     job_skill_requirements,
@@ -64,7 +65,11 @@ DEFAULT_MODEL = model_for(AIFeatureKey.scoring)
 MAX_CV_CHARS = int(os.environ.get("MATCH_SCORING_MAX_CV_CHARS", "6000"))
 MAX_REQ_CHARS = 3000
 MAX_CHAMPION_CHARS = 2000
-MAX_TOKENS = 1500
+# Mieści najdłuższą prozę, którą przepuszczają limity niżej (ok. 6400 znaków JSON-a
+# przy najgęstszych z produkcji 1,82 znaku na token). Przy 1500 co dziewiąta pierwsza
+# odpowiedź szła do kosza i wracała dopiero z drugiej próby; płacimy za tokeny
+# wygenerowane, nie za limit, więc wyższy pułap nie podnosi kosztu zwykłych odpowiedzi.
+MAX_TOKENS = 3600
 
 # Output caps so a runaway model can't bloat the row / the tab.
 _MAX_SUMMARY_CHARS = 1200
@@ -115,6 +120,9 @@ async def _call_claude_json(
             message = await run_in_threadpool(
                 call_claude,
                 model=model,
+                fallback_models=[
+                    m for m in fallbacks_for(AIFeatureKey.scoring) if m != model
+                ],
                 max_tokens=max_tokens,
                 thinking={"type": "disabled"},
                 system=system_prompt,
@@ -233,9 +241,12 @@ def _champion_context_text(job: Job) -> str:
     basics = champion_view.basics(cp)
     loc = basics.get("candidate_location_pref")
     onsite = basics.get("onsite_days_per_week")
+    onsite_month = basics.get("onsite_days_per_month")
     if loc:
         bits.append(f"Preferowana lokalizacja: {loc}")
-    if onsite is not None:
+    if onsite_month is not None:
+        bits.append(f"Dni w biurze/mies.: {onsite_month}")
+    elif onsite is not None:
         bits.append(f"Dni w biurze/tydz.: {onsite}")
     return _truncate("\n".join(bits), MAX_CHAMPION_CHARS) or "(brak profilu Championa)"
 
@@ -280,7 +291,12 @@ def _candidate_work_facts(candidate: Candidate) -> str:
     if cities:
         bits.append(f"miasta biur: {', '.join(cities[:5])}")
     available = getattr(candidate, "availability_date", None)
-    if available:
+    contract = getattr(candidate, CONTRACT_FREE_ATTRIBUTE, None)
+    if contract is not None:
+        # Żywa umowa (15.10.2026): data z profilu bywa screeningiem sprzed
+        # zatrudnienia — model dostaje termin z umowy.
+        bits.append(f"dostępność: {contract.describe(available)}")
+    elif available:
         bits.append(f"dostępny od: {available}")
     notice = getattr(candidate, "notice_period", None)
     if notice is not None:
@@ -289,7 +305,7 @@ def _candidate_work_facts(candidate: Candidate) -> str:
         )
         bits.append(f"okres wypowiedzenia: {notice} {unit}")
     status = _enum_value(getattr(candidate, "availability_status", None))
-    if status and status != "unknown":
+    if status and status != "unknown" and contract is None:
         bits.append(f"status dostępności: {status}")
     return "; ".join(bits)
 
@@ -302,7 +318,10 @@ def _job_work_facts(job: Job) -> str:
         f"tryb: {_REMOTE_MODE_PL.get(mode, mode) if mode else '(brak w ofercie)'}",
     ]
     onsite = getattr(job, "onsite_days_per_week", None)
-    if onsite is not None:
+    onsite_month = getattr(job, "onsite_days_per_month", None)
+    if onsite_month is not None:
+        bits.append(f"dni w biurze/mies.: {onsite_month}")
+    elif onsite is not None:
         bits.append(f"dni w biurze/tydz.: {onsite}")
     return "; ".join(bits)
 
@@ -510,6 +529,14 @@ async def _compute_breakdown(
     candidate: Candidate, job: Job, db: AsyncSession
 ) -> ScoreBreakdown:
     """Same calibrated score the kanban ring uses (cache-first + Qdrant cosine)."""
+    # Zawsze przed hashem promptu (15.10.2026): `_candidate_work_facts` czyta
+    # dostępność z żywej umowy — bez jawnego dołączenia hash zależałby od
+    # tego, czy ocena liczyła się przed chwilą, czy przyszła z pamięci.
+    from app.services.contract_availability import (  # noqa: PLC0415
+        attach_contract_free,
+    )
+
+    await attach_contract_free(db, [candidate])
     similarity: Optional[float] = None
     # A raised lookup = genuine Qdrant/Voyage outage → the composite below is
     # computed with a neutral semantic layer and must NOT be persisted as fresh

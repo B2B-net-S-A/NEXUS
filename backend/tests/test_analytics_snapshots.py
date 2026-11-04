@@ -244,7 +244,7 @@ async def test_debug_fire_nudge_preserves_dedup_log(api_client, monkeypatch):
     )
     headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
-    kpi_id = "daily_new_candidates"
+    kpi_id = "daily_first_verifications"
     bucket = period_bucket_label(get_kpi(kpi_id).period, datetime.now(WARSAW))
     async with AsyncSessionLocal() as db:
         admin = await db.scalar(select(User).where(User.email == email))

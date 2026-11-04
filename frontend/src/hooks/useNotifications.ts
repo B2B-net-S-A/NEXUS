@@ -12,6 +12,28 @@ import {
   setWsSender,
 } from "@/lib/wsBus";
 import { MY_PEOPLE_MATCH_EVENT, type MyPeopleMatchEventDetail } from "@/lib/my-people-summary";
+import {
+  BOARD_TASKS_QUERY_KEY,
+  CPRO_QUEUE_QUERY_KEY,
+  CV_TOPIC_QUERY_KEY,
+  DL_SEND_QUEUE_QUERY_KEY,
+  type CvTopicResponse,
+  type DlSendQueueResponse,
+} from "@/lib/api/boardTasks";
+import { pipelineCvRefresh } from "@/lib/pipeline-changed-refresh";
+import { REQUEST_BOARD_QUERY_KEY } from "@/lib/api/requestAllocation";
+import { invalidateJobTeam } from "@/lib/job-team-cache";
+import { interviewCycleQueryKey } from "@/lib/api/interviewCycle";
+import {
+  INTERVIEW_NOTIFY_EVENT,
+  isInterviewNotificationType,
+} from "@/lib/interview-notifications";
+import {
+  MY_PEOPLE_MATCH_FRAME,
+  invalidateNotificationLists,
+  isNoteNotificationType,
+  type NotificationTopic,
+} from "@/lib/notification-topics";
 
 const WS_BASE =
   (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000")
@@ -26,6 +48,10 @@ export interface WsNotification {
   /** Typ z serwera (`notification_triggers.emit`) — steruje unieważnianiem cache. */
   notification_type?: string;
   created_at: string;
+  /** Temat ikony paska (16.10.2026) — dokłada go serwer; starszy go nie wysyła. */
+  topic?: NotificationTopic;
+  /** Czy pokazać dymek — decyzja serwera (`notification_topics.TOAST_TYPES`). */
+  toast?: boolean;
 }
 
 export interface ChampionProfileChangedEventDetail {
@@ -52,8 +78,10 @@ export const KPI_NUDGE_EVENT = "nexus:kpi-nudge";
 import {
   CANDIDATE_CHAT_BUS_EVENT,
   CHAT_BUS_EVENT,
+  CHAT_NOTIFY_EVENT,
   type CandidateChatBusEvent,
   type ChatBusEvent,
+  type ChatNotifyEvent,
 } from "@/types/job-chat";
 
 /** Ruch zespołu na tablicy rekrutacji przychodzi jako `pipeline_changed`.
@@ -70,14 +98,37 @@ export function reconnectDelayMs(attempt: number, random: () => number = Math.ra
 
 interface UseNotificationsOptions {
   onNotification?: (notif: WsNotification) => void;
+  /**
+   * Użytkownik ma okienko „Rozmowy”: powiadomienia kategorii „Rozmowy” nie
+   * podbijają licznika dzwonka ani nie wołają `onNotification`, tylko idą do
+   * okienka jako zdarzenie okna (`INTERVIEW_NOTIFY_EVENT`).
+   */
+  interviewsInWindow?: boolean;
 }
 
 /** Okno zlewania odświeżeń dzwonka po wiadomościach czatu. */
 export const CHAT_REFRESH_COALESCE_MS = 1_500;
 
-export function useNotifications({ onNotification }: UseNotificationsOptions = {}) {
-  const { token } = useAuthStore();
+/** `/jobs/42` albo `/jobs/42?tab=…` → 42; każdy inny link → `null`. */
+export function jobIdFromLink(link: string | null | undefined): number | null {
+  const match = /^\/jobs\/(\d+)(?:[/?#]|$)/.exec(link ?? "");
+  if (!match) return null;
+  const id = Number(match[1]);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+export function useNotifications({
+  onNotification,
+  interviewsInWindow = false,
+}: UseNotificationsOptions = {}) {
+  const { token, user } = useAuthStore();
   const queryClient = useQueryClient();
+  // Konto czytane z refa z tego samego powodu co opcje niżej.
+  const userRef = useRef(user);
+  userRef.current = user;
+  // Czytane z refa: zmiana opcji nie może przebudować `connect` i rozłączyć gniazda.
+  const interviewsInWindowRef = useRef(interviewsInWindow);
+  interviewsInWindowRef.current = interviewsInWindow;
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
@@ -101,7 +152,7 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
         chatRefreshTimerRef.current = null;
         const keys = Array.from(chatRefreshKeysRef.current);
         chatRefreshKeysRef.current.clear();
-        queryClient.invalidateQueries({ queryKey: ["notifications"] });
+        invalidateNotificationLists(queryClient, "messages");
         for (const key of keys) {
           queryClient.invalidateQueries({ queryKey: [key] });
         }
@@ -110,18 +161,24 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
     [queryClient],
   );
 
-  // Timery debounce `pipeline_changed` — jeden na rekrutację.
+  // Timery debounce `pipeline_changed` — jeden na rekrutację — i Delivery
+  // Leadzi z ramek sklejonych w to odświeżenie (`undefined` = ramka bez pola).
   const pipelineTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const pipelineLeadsRef = useRef<Map<number, Set<number | null | undefined>>>(new Map());
 
   const schedulePipelineRefresh = useCallback(
-    (jobId: number) => {
+    (jobId: number, deliveryLeadId: number | null | undefined) => {
       const timers = pipelineTimersRef.current;
       const pending = timers.get(jobId);
       if (pending) clearTimeout(pending);
+      const leads = pipelineLeadsRef.current.get(jobId) ?? new Set();
+      leads.add(deliveryLeadId);
+      pipelineLeadsRef.current.set(jobId, leads);
       timers.set(
         jobId,
         setTimeout(() => {
           timers.delete(jobId);
+          pipelineLeadsRef.current.delete(jobId);
           if (!mountedRef.current) return;
           // Tablica żyje pod dwoma kluczami (`String(id)` ze strony i `id`
           // z tablicy), a wyniki dopasowania w dwóch formach — stąd prefiks.
@@ -131,7 +188,22 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
           queryClient.invalidateQueries({ queryKey: ["pipeline-scores", jobId] });
           queryClient.invalidateQueries({ queryKey: ["my-next-steps"] });
           // Kolejka „Czeka na Ciebie" (DZ, Cpro) liczy się z ruchów na tablicach.
-          queryClient.invalidateQueries({ queryKey: ["board-tasks"] });
+          // Sam klucz pulpitu i okna Cpro (pobierają się, tylko gdy są na
+          // ekranie); ikona „CV” i `dl-send` z paska — tylko gdy ruch ich
+          // dotyczy (27.10.2026, `lib/pipeline-changed-refresh.ts`).
+          queryClient.invalidateQueries({ queryKey: BOARD_TASKS_QUERY_KEY, exact: true });
+          queryClient.invalidateQueries({ queryKey: CPRO_QUEUE_QUERY_KEY });
+          const refresh = pipelineCvRefresh(
+            jobId,
+            leads,
+            userRef.current,
+            queryClient.getQueryData<CvTopicResponse>(CV_TOPIC_QUERY_KEY),
+            queryClient.getQueryData<DlSendQueueResponse>(DL_SEND_QUEUE_QUERY_KEY),
+          );
+          if (refresh.cv) queryClient.invalidateQueries({ queryKey: CV_TOPIC_QUERY_KEY });
+          if (refresh.dlSend) {
+            queryClient.invalidateQueries({ queryKey: DL_SEND_QUEUE_QUERY_KEY });
+          }
           // „Moi ludzie": lista i zakładka rekrutacji zależą od ruchów na
           // tablicy (kto jest w procesie, kto już w tej rekrutacji). Podsumowania
           // awatara NIE ruszamy — liczy całą listę, a ruchy go nie zmieniają.
@@ -144,23 +216,39 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
   );
 
   // Poll fallback when WS is unavailable
+  const visibleAgainRef = useRef<(() => void) | null>(null);
   const startPolling = useCallback(() => {
     if (pollingIntervalRef.current) return;
     pollingIntervalRef.current = setInterval(async () => {
       // Ukryta karta nie potrzebuje świeżych powiadomień — ręczny interwał
       // nie podlega `refetchIntervalInBackground`, więc pilnujemy tego sami.
-      // Po powrocie do karty react-query odświeża przy focusie.
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
         return;
       }
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
     }, NOTIFICATIONS_FALLBACK_POLL_MS);
+    // Bez gniazda jedyną świeżością jest odpytywanie, a odświeżania przy
+    // powrocie do karty nie ma od 27.10.2026 (`QueryProvider`) — powrót
+    // odświeża listy sam, zamiast czekać do minuty na kolejny takt.
+    if (typeof document !== "undefined") {
+      const onVisible = () => {
+        if (document.visibilityState === "visible") {
+          queryClient.invalidateQueries({ queryKey: ["notifications"] });
+        }
+      };
+      document.addEventListener("visibilitychange", onVisible);
+      visibleAgainRef.current = onVisible;
+    }
   }, [queryClient]);
 
   const stopPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
+    }
+    if (visibleAgainRef.current) {
+      document.removeEventListener("visibilitychange", visibleAgainRef.current);
+      visibleAgainRef.current = null;
     }
   }, []);
 
@@ -206,6 +294,9 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
         lostConnectionRef.current = false;
         queryClient.invalidateQueries({ queryKey: ["notifications"] });
         queryClient.invalidateQueries({ queryKey: ["kpis", "me", "today"] });
+        // Ruchy kolegów z czasu przerwy (uśpiony laptop) — bez odświeżania
+        // przy powrocie do karty nic innego nie odświeżyłoby Tablicy.
+        queryClient.invalidateQueries({ queryKey: ["kanban"] });
       }
 
       // Expose a sender to `usePresence` without it needing the ws ref.
@@ -234,33 +325,107 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
       }
     };
 
+    // Nowa rekrutacja pasuje do „Moich ludzi" — licznik od razu, a Jarvis
+    // dostaje sygnał do dymka „kogo przepiąć" (JarvisRoot nasłuchuje). Przychodzi
+    // jako wiersz powiadomienia albo (od PR5, 16.10.2026) samo zdarzenie.
+    const announceMyPeopleMatch = (title: string, link: string | null) => {
+      queryClient.invalidateQueries({ queryKey: ["my-people"] });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent<MyPeopleMatchEventDetail>(MY_PEOPLE_MATCH_EVENT, {
+            detail: { title, link },
+          }),
+        );
+      }
+    };
+
     ws.onmessage = (event) => {
       if (!mountedRef.current) return;
       try {
         const msg = JSON.parse(event.data);
         if (msg.type === "notification" && msg.data) {
           const notif: WsNotification = msg.data;
-          // Update react-query cache
-          queryClient.invalidateQueries({ queryKey: ["notifications"] });
+          // Tylko lista tematu ramki (i listy spoza okienek) — nie cztery
+          // okienka paska naraz (27.10.2026).
+          invalidateNotificationLists(queryClient, notif.topic);
           if (notif.notification_type === "my_people_match") {
-            // Nowa rekrutacja pasuje do „Moich ludzi" — licznik od razu, a Jarvis
-            // dostaje sygnał do dymka „kogo przepiąć" (JarvisRoot nasłuchuje).
-            queryClient.invalidateQueries({ queryKey: ["my-people"] });
+            announceMyPeopleMatch(notif.title, notif.link ?? null);
+          }
+          if (notif.notification_type === "request_allocation_proposals") {
+            // Automat zaproponował osobę do requestu: Head of Recruitment ma
+            // zobaczyć propozycję w „Czeka na Ciebie” i na pulpicie „Requesty
+            // i obłożenie” od razu, nie po 5-minutowej siatce odpytywania.
+            queryClient.invalidateQueries({ queryKey: BOARD_TASKS_QUERY_KEY });
+            queryClient.invalidateQueries({ queryKey: REQUEST_BOARD_QUERY_KEY });
+          } else if (
+            notif.notification_type === "request_assignment_changed" ||
+            // „Poprzedni rekruter” (14.10.2026): zespół zszedł z P1 / wrócił.
+            notif.notification_type === "recruiter_parked" ||
+            notif.notification_type === "recruiter_restored"
+          ) {
+            // Ktoś właśnie dostał request do pracy (akceptacja propozycji,
+            // przydział automatu): zmienia się obsada rekrutacji, lista
+            // „Moje”, jej liczniki i obłożenie na pulpicie — ten sam zestaw co
+            // po zapisie z tego ekranu. Link po akceptacji to `/jobs/{id}`;
+            // poranny zbiorczy wpis prowadzi na pulpit, więc odświeża każdą
+            // wczytaną rekrutację.
+            invalidateJobTeam(queryClient, jobIdFromLink(notif.link));
+          }
+          if (
+            interviewsInWindowRef.current &&
+            isInterviewNotificationType(notif.notification_type)
+          ) {
+            // Rozmowy u klienta i prepy mają własne okienko: dzwonek ich nie
+            // liczy i nie pokazuje dymka. Powiadomienie przychodzi dokładnie
+            // wtedy, gdy zmienia się stan cyklu, więc odświeżamy jego przegląd
+            // (same zakresy — bez pytań klienta, debriefów i transkryptów
+            // otwartych okien), a dymek pokazuje okienko „Rozmowy”.
+            for (const scope of ["mine", "jobs", "all"] as const) {
+              queryClient.invalidateQueries({
+                queryKey: interviewCycleQueryKey(scope),
+                exact: true,
+              });
+            }
             if (typeof window !== "undefined") {
               window.dispatchEvent(
-                new CustomEvent<MyPeopleMatchEventDetail>(MY_PEOPLE_MATCH_EVENT, {
-                  detail: { title: notif.title, link: notif.link ?? null },
+                new CustomEvent<WsNotification>(INTERVIEW_NOTIFY_EVENT, { detail: notif }),
+              );
+            }
+            return;
+          }
+          if (isNoteNotificationType(notif.notification_type)) {
+            // Wzmianka i odpowiedź w notatce idą do okienka „Wiadomości”
+            // (16.10.2026): lista odświeżyła się wyżej, dymek pokazuje okienko.
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(
+                new CustomEvent<ChatNotifyEvent>(CHAT_NOTIFY_EVENT, {
+                  detail: {
+                    kind: "note",
+                    entity_id: 0,
+                    notification_type: notif.notification_type,
+                    link: notif.link ?? "",
+                    thread_title: notif.title,
+                    author_name: "",
+                    preview: notif.message,
+                  },
                 }),
               );
             }
+            return;
           }
           setUnreadCount((c) => c + 1);
           // Call external handler (for toast)
           onNotification?.(notif);
+        } else if (msg.type === MY_PEOPLE_MATCH_FRAME && msg.data) {
+          announceMyPeopleMatch(String(msg.data.title ?? ""), msg.data.link ?? null);
         } else if (msg.type === "pipeline_changed" && msg.data) {
           const jobId = Number(msg.data.job_id);
           if (Number.isSafeInteger(jobId) && jobId > 0) {
-            schedulePipelineRefresh(jobId);
+            const lead = msg.data.delivery_lead_id;
+            schedulePipelineRefresh(
+              jobId,
+              lead === undefined ? undefined : Number.isSafeInteger(lead) ? lead : null,
+            );
           }
         } else if (msg.type === "champion_profile_changed" && msg.data) {
           // Re-broadcast to any mounted CP editor. The editor decides
@@ -278,7 +443,7 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
           // KPI Coach: update cached KPI snapshot + bell counter, then
           // broadcast to the KpiNudgeToaster for the in-app toast.
           queryClient.invalidateQueries({ queryKey: ["kpis", "me", "today"] });
-          queryClient.invalidateQueries({ queryKey: ["notifications"] });
+          invalidateNotificationLists(queryClient, "other");
           setUnreadCount((c) => c + 1);
           if (typeof window !== "undefined") {
             window.dispatchEvent(
@@ -352,6 +517,22 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
               );
             }
           }
+        } else if (
+          (msg.type === "chat:notify" || msg.type === "candidate-chat:notify") &&
+          msg.data
+        ) {
+          // Zapowiedź powiadomienia czatu — także dla oznaczonej osoby spoza
+          // zespołu, do której zdarzenia `…:message:new` nie docierają.
+          scheduleChatRefresh([
+            msg.type === "chat:notify" ? "job-chat-unread" : "candidate-chat-unread",
+          ]);
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent<ChatNotifyEvent>(CHAT_NOTIFY_EVENT, {
+                detail: msg.data as ChatNotifyEvent,
+              }),
+            );
+          }
         } else if (msg.type === "ping") {
           ws.send("ping");
         } else if (
@@ -412,11 +593,13 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
     mountedRef.current = true;
     connect();
     const pipelineTimers = pipelineTimersRef.current;
+    const pipelineLeads = pipelineLeadsRef.current;
 
     return () => {
       mountedRef.current = false;
       for (const timer of pipelineTimers.values()) clearTimeout(timer);
       pipelineTimers.clear();
+      pipelineLeads.clear();
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }

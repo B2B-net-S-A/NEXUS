@@ -5,8 +5,9 @@ on:
   # 2026-09-20 na KAŻDYM PR-ze. Przeniesiony do kolejki merge'ów, bo rachunek
   # i statystyka mówiły to samo: 1 506 min billable przez 5 dni (16–20.09) za
   # 226 przebiegów, z których czerwone były 3. To nie jest wymagany check, więc
-  # na PR-ze nie bramkował niczego — zawiadamiał. W kolejce zawiadamia tak samo,
-  # a przy okazji zaczyna bramkować: czerwona grupa nie wchodzi na main.
+  # na PR-ze nie bramkował niczego — zawiadamiał. W kolejce też tylko zawiadamia:
+  # kolejka nie czeka na ten workflow, a czerwona grupa i tak wchodzi na main.
+  # Czerwony bieg dociera do PR-a przez `queue-failure-feedback.yml`.
   #
   # `pull_request` wraca tu w dniu, w którym „E2E stack (ci-chromium)" trafi do
   # rulesetu jako wymagany kontekst — wtedy sygnał na PR-ze zaczyna mieć skutek.
@@ -113,6 +114,16 @@ jobs:
           docker compose -f docker-compose.e2e.yml exec -T \
             -e E2E_SEED_CONFIRM=nexus-e2e -e E2E_SEED_PASSWORD="$E2E_USER_PASSWORD" \
             backend python scripts/seed_e2e.py
+      - name: Zasiej zespół HR („Ludzie w NEXUSIE”)
+        # Fikcyjny zespół z kartotekami, przełożoną i pulami urlopowymi oraz
+        # włączone moduły HR (`app_settings['hr_modules']`) — tylko na tym
+        # stacku. To samo jednorazowe hasło co konta ról; na te konta loguje
+        # się `e2e/flow-hr-leave.spec.ts`.
+        working-directory: .
+        run: |
+          docker compose -f docker-compose.e2e.yml exec -T \
+            -e HR_DEMO_SEED_CONFIRM=nexus-hr-demo -e HR_DEMO_SEED_PASSWORD="$E2E_USER_PASSWORD" \
+            backend python scripts/seed_hr_demo.py
       - name: Playwright — scenariusze @stack
         run: |
           set -o pipefail
@@ -120,6 +131,48 @@ jobs:
             | tee playwright-output.txt
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: playwright-results.json
+      # 27.10.2026 #2692 i #2732 zepsuły testy harnessów, kolejka była zielona,
+      # a nocny bieg czerwony przez 5 nocy (#2745). Dlatego harnessy biegną też
+      # w kolejce, ale tylko gdy grupa dotyka frontendu: 259 z 361 grup z 26.10–
+      # 02.11, ok. 5,4 min na grupę. Harnessy to sam frontend, więc zmiana bez
+      # `frontend/` nie ma ich jak zepsuć. `base_sha` to HEAD poprzedniego wpisu
+      # kolejki, więc porównanie widzi zmianę tego wpisu, nie całej grupy.
+      # Niepewna lista plików = bieg, tak jak E2E wtyczki w `ci.yml`.
+      - name: Czy grupa dotyka frontendu?
+        id: preview-scope
+        if: ${{ github.event_name == 'merge_group' }}
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: |
+          set -eu
+          files=$(gh api "/repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" \
+            --jq 'if (.files | length) >= 300 then "LIMIT" else .files[].filename end') || files=""
+          if [ -z "$files" ] || printf '%s\n' "$files" | grep -qx LIMIT; then
+            echo "::warning::Niepewna lista plików grupy — harnessy biegną."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if hit=$(printf '%s\n' "$files" | grep -E '^frontend/|^docker-compose\.e2e\.yml$|^\.github/workflows/e2e\.yml$' | head -1) && [ -n "$hit" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Harnessy: zmieniony $hit"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Grupa nie dotyka frontendu — harnessy pominięte."
+          fi
+      - name: Playwright — harnessy /preview/* (preview-chromium)
+        # Runda 10 (R10-N10-1): na produkcji harnessy wymagają logowania, więc
+        # publiczny projekt `preview-chromium` chodzi tu — na stacku zbudowanym
+        # z `NEXT_PUBLIC_PREVIEW_PUBLIC=1`, ze źródeł tego samego commitu.
+        # Nocą, ręcznie i w kolejce przy zmianie frontendu (krok wyżej).
+        if: ${{ github.event_name != 'merge_group' || steps.preview-scope.outputs.run == 'true' }}
+        run: |
+          set -o pipefail
+          npx playwright test --project=preview-chromium --reporter=list \
+            | tee playwright-preview-output.txt
       - name: Podsumowanie i kontrola pominięć
         if: ${{ !cancelled() }}
         run: |
@@ -262,13 +315,49 @@ jobs:
           E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
           E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
         # Bez E2E_USER_PASSWORD (dedykowane prodowe konto E2E — działanie
-        # operatorskie) chodzi wyłącznie publiczny projekt `preview-chromium`.
+        # operatorskie) bieg nie uruchamia niczego. Harnessy `/preview/*`
+        # (`preview-chromium`) chodzą w jobie `stack`: na produkcji wymagają
+        # logowania od rundy 10 audytu (R10-N10-1).
         #
         # WAŻNE: zielony bieg w tym trybie NIE znaczy „E2E przechodzi". Dlatego
         # bieg WYPISUJE swoje własne pokrycie do podsumowania zadania — żeby
         # „zielone" dało się przeczytać razem z „ile z czego". Przepływy
         # zapisujące dane są sprawdzane w jobie `stack`, nie na produkcji.
         run: |
+          # Runda 7 (R7-X2-8): bieg idzie przeciw PRODUKCJI, a log Actions
+          # publicznego repo widzi każdy. Reporter `list`/`dot`/`line` przy
+          # porażce asercji drukuje „Received …”, czyli tekst ze strony
+          # produkcyjnej. Tu reporter JSON trafia do pliku, a do logu idą
+          # liczby i TYTUŁY nieudanych testów (tytuły pochodzą z naszych spec-ów),
+          # bez treści błędu.
+          run_pw() {
+            local rc=0
+            PLAYWRIGHT_JSON_OUTPUT_NAME="${RUNNER_TEMP}/pw-results.json" \
+              npx playwright test "$@" --reporter=json > /dev/null 2>&1 || rc=$?
+            node -e '
+              const fs = require("fs");
+              const path = process.argv[1];
+              if (!fs.existsSync(path)) { console.log("brak wyników Playwrighta"); process.exit(0); }
+              const r = JSON.parse(fs.readFileSync(path, "utf8"));
+              const failed = [];
+              const walk = (suite, trail) => {
+                for (const spec of suite.specs || []) {
+                  for (const t of spec.tests || []) {
+                    if (t.status === "unexpected" || t.status === "flaky") {
+                      failed.push(`${t.status}: [${t.projectName}] ${[...trail, spec.title].join(" › ")}`);
+                    }
+                  }
+                }
+                for (const child of suite.suites || []) walk(child, [...trail, child.title]);
+              };
+              for (const suite of r.suites || []) walk(suite, [suite.title]);
+              const s = r.stats || {};
+              console.log(`Playwright: ok=${s.expected ?? 0} fail=${s.unexpected ?? 0} flaky=${s.flaky ?? 0} skipped=${s.skipped ?? 0}`);
+              for (const line of failed) console.log(line);
+            ' "${RUNNER_TEMP}/pw-results.json"
+            return "$rc"
+          }
+
           # Liczby bierzemy z narzędzia, które te testy URUCHAMIA, a nie z grepa
           # po źródle (pętle w spec-ach rozwijają się na wiele przypadków).
           count_tests() {
@@ -276,7 +365,7 @@ jobs:
               | sed -n 's/^Total: \([0-9]*\) tests* in \([0-9]*\) files*$/\1 \2/p' \
               | tail -1
           }
-          read -r total_cases total_specs <<< "$(count_tests --project=prod-smoke --project=preview-chromium)"
+          read -r total_cases total_specs <<< "$(count_tests --project=prod-smoke)"
           total_cases="${total_cases:-0}"; total_specs="${total_specs:-0}"
 
           if [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
@@ -301,46 +390,42 @@ jobs:
               echo "::error::Brak sekretów E2E_USER_EMAIL/E2E_USER_PASSWORD — smoke po deployu nie może sprawdzić przepływów po zalogowaniu."
               exit 1
             fi
-            npx playwright test --project=prod-smoke
+            run_pw --project=prod-smoke
             exit 0
           fi
 
           if [ -z "$E2E_USER_PASSWORD" ]; then
-            read -r ran_cases ran_specs <<< "$(count_tests --project=preview-chromium)"
-            ran_cases="${ran_cases:-0}"; ran_specs="${ran_specs:-0}"
             {
-              echo "### E2E produkcja — bieg CZĘŚCIOWY"
+              echo "### E2E produkcja — NIE uruchomiono"
               echo ""
               echo "| | wykonane | wszystkie |"
               echo "|---|---|---|"
-              echo "| pliki spec | $ran_specs | $total_specs |"
-              echo "| przypadki | $ran_cases | $total_cases |"
+              echo "| pliki spec | 0 | $total_specs |"
+              echo "| przypadki | 0 | $total_cases |"
               echo ""
               echo "Brak sekretów \`E2E_USER_EMAIL\`/\`E2E_USER_PASSWORD\`, więc projekt"
               echo "\`prod-smoke\` (odczyty po zalogowaniu) NIE został uruchomiony."
+              echo "Harnessy \`/preview/*\` sprawdza job \`stack\`."
               echo "**Zielony wynik tego biegu nie znaczy, że E2E przechodzi.**"
             } >> "$GITHUB_STEP_SUMMARY"
-            echo "::warning::E2E produkcja CZĘŚCIOWE — $ran_cases z $total_cases przypadków ($ran_specs z $total_specs plików). Brak E2E_USER_EMAIL/E2E_USER_PASSWORD. Zielony wynik NIE znaczy, że E2E przechodzi."
-            npx playwright test --project=preview-chromium
+            echo "::warning::E2E produkcja NIE uruchomione — 0 z $total_cases przypadków. Brak E2E_USER_EMAIL/E2E_USER_PASSWORD. Zielony wynik NIE znaczy, że E2E przechodzi."
           else
             {
-              echo "### E2E produkcja — prod-smoke + preview"
+              echo "### E2E produkcja — prod-smoke"
               echo ""
               echo "| | liczba |"
               echo "|---|---|"
               echo "| przypadki wylistowane | $total_cases |"
               echo "| pliki spec | $total_specs |"
             } >> "$GITHUB_STEP_SUMMARY"
-            npx playwright test --project=prod-smoke --project=preview-chromium
+            run_pw --project=prod-smoke
           fi
 
-      - name: Upload report on failure
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: playwright-report
-          path: frontend/playwright-report/
-          retention-days: 7
+      # Raportu Playwrighta z tego joba NIE wgrywamy (runda 6 audytu): bieg idzie
+      # przeciw produkcji, a trace/wideo niosą token konta E2E i odpowiedzi API
+      # z danymi z bazy — artefakt publicznego repo pobierze każdy. Przyczynę
+      # porażki pokazuje log kroku „Run tests” (liczby i tytuły testów, runda 7); pełny raport
+      # daje job `stack` na pustej bazie CI.
 
       # OPS-N08: marker musi być DOKŁADNIE ten sam co w kroku otwierającym niżej.
       - name: Close alert issue after a green run

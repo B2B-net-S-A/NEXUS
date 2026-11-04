@@ -83,6 +83,86 @@ class ServiceScope(str, enum.Enum):
     # wąską trasę: tożsamość i zaangażowanie osób pracujących u klientów,
     # bez stawek i bez marż.
     contractors_read = "contractors:read"
+    # ── API integracyjne v1 (`/api/integrations/v1`, decyzja Artura 14.10.2026) ──
+    # Automatyzacje procesów firmy, zaczynając od rozliczania klientów. Scope'y
+    # otwierają WYŁĄCZNIE trasy v1 (osobny pakiet ``api/integrations_v1``) —
+    # trasy ekranów dalej wiszą na ``get_current_user`` i dla klucza są 401.
+    # Dane kandydatów są od 15.10.2026 w osobnych scope'ach ``candidates:*``
+    # (niżej); ogólne ``candidate:read`` nadal nie istnieje. ``X:write`` obejmuje ``X:read``
+    # (``implied_scopes``). Kwoty w zamówieniach i kontraktach są osobnym
+    # scope'em, jak „Stawki i kwoty: podgląd” w dziewięciu uprawnieniach ludzi.
+    clients_read = "clients:read"
+    contracts_read = "contracts:read"
+    orders_read = "orders:read"
+    md_read = "md:read"
+    md_write = "md:write"
+    finance_read = "finance:read"
+    finance_write = "finance:write"
+    invoices_read = "invoices:read"
+    invoices_write = "invoices:write"
+    # Kwoty w dwóch poziomach (decyzja Artura 14.10.2026): automatyzacja
+    # rozliczająca faktury klientów potrzebuje tylko kwot sprzedaży — tego, co
+    # płaci klient (stawka do klienta, wartość i budżet zamówienia, przychód,
+    # faktury do klientów). Stawki konsultantów, koszty i marża są wyłącznie
+    # w ``amounts:read``, który obejmuje ``sales_amounts:read``
+    # (``implied_scopes``). Poziom dla trasy liczy
+    # ``integrations_v1.common.amount_level``.
+    sales_amounts_read = "sales_amounts:read"
+    amounts_read = "amounts:read"
+    # Zapis zamówień i kontraktów (PR 2B, ``WritePolicy``): cykl życia
+    # zamówień MD/kosztowych, zakończenie i data końca zamówienia, PDF
+    # zamówienia, data końca i status kontraktu. Bez zakładania i usuwania.
+    # Kwoty zapisuje wyłącznie ``amounts:write`` (lustro „Stawki i kwoty:
+    # zmiana”) — obejmuje ``amounts:read``.
+    orders_write = "orders:write"
+    contracts_write = "contracts:write"
+    # Zmiana statusu / zakończenie współpracy — osobno, jak uprawnienie ludzi
+    # „Status kontraktu” w dziewięciu uprawnieniach.
+    contracts_status = "contracts:status"
+    amounts_write = "amounts:write"
+    # ── Rekrutacja i kandydaci (decyzja Artura 15.10.2026) ──
+    # Automatyzacje mają objąć wszystkie procesy, nie tylko rozliczenia. Dane
+    # osobowe są podzielone tak, żeby admin dawał każdej automatyzacji tylko to,
+    # czego potrzebuje: profil bez kontaktu, kontakt, pliki CV i notatki to
+    # osobne scope'y. Oczekiwania stawkowe kandydata i budżet rekrutacji to
+    # koszt (``amounts:read``); stawka do klienta na karcie — sprzedaż.
+    recruitments_read = "recruitments:read"
+    recruitments_write = "recruitments:write"
+    candidates_read = "candidates:read"
+    candidates_contact = "candidates:contact"
+    candidates_cv = "candidates:cv"
+    candidates_write = "candidates:write"
+    notes_read = "notes:read"
+    notes_write = "notes:write"
+    # ── Reszta procesów (decyzja Artura 15.10.2026: „rób wszystko”) ──
+    # Zakładanie rekrutacji to osobna, szersza moc niż ruch karty.
+    recruitments_create = "recruitments:create"
+    # CV dla klienta z generatora (treść = dane osobowe; pobranie gotowego CV
+    # wymaga też ``candidates:cv``).
+    cv_generate = "cv:generate"
+    calendar_read = "calendar:read"
+    applications_read = "applications:read"
+    applications_write = "applications:write"
+    insights_read = "insights:read"
+    academy_read = "academy:read"
+    # Zdarzenia: kanał zdarzeń (same identyfikatory, bez danych osobowych)
+    # i zarządzanie własnymi webhookami konta.
+    events_read = "events:read"
+    webhooks_manage = "webhooks:manage"
+    # ── „Ludzie w NEXUSIE” (16.10.2026) ──
+    # Lista osób dla COMPASSA (zostaje z Akademią): e-mail, imię, status
+    # zatrudnienia, przełożony, dział, daty — bez stawek i nieobecności.
+    people_roster_read = "people_roster:read"
+    # Sygnały sprzedażowe z kart technologicznych dla ATLASA (zastępuje
+    # `/api/internal/sales-signals` Compassa) i zwrot ich statusu.
+    sales_signals_read = "sales_signals:read"
+    sales_signals_write = "sales_signals:write"
+    # Nieobecności w API v1: kto i kiedy (zatwierdzone wnioski), NIGDY rodzaj
+    # — decyzja D6: rodzaj widzą tylko osoba, jej przełożony i Kadry.
+    absences_read = "absences:read"
+    # Sprzęt w API v1: wydania i zwroty (egzemplarz bez wartości z cennika
+    # i bez numerów seryjnych, IMEI, ICCID).
+    equipment_read = "equipment:read"
 
 
 SCOPE_LABELS: dict[ServiceScope, str] = {
@@ -90,7 +170,89 @@ SCOPE_LABELS: dict[ServiceScope, str] = {
     ServiceScope.traffit_read: "Odczyt statusu synchronizacji Traffit",
     ServiceScope.ops_snapshot: "Odczyt migawki operacyjnej (/api/admin/snapshot)",
     ServiceScope.contractors_read: "Eksport kontraktorów dla COMPASSA (bez kwot)",
+    ServiceScope.people_roster_read: "Lista osób dla COMPASSA (bez stawek i nieobecności)",
+    ServiceScope.sales_signals_read: "Sygnały sprzedażowe z kart technologicznych (ATLAS)",
+    ServiceScope.sales_signals_write: "Zwrot statusu sygnałów sprzedażowych (ATLAS)",
+    ServiceScope.clients_read: "Klienci: odczyt (nazwa, NIP, Delivery Lead)",
+    ServiceScope.contracts_read: "Kontrakty: odczyt (osoba, klient, okres, status)",
+    ServiceScope.orders_read: "Zamówienia: odczyt (okresy, linie, PDF-y)",
+    ServiceScope.md_read: "Zużycie MD: odczyt (salda, importy)",
+    ServiceScope.md_write: "Zużycie MD: zapis (import, przypisanie wiersza, korekta miesiąca)",
+    ServiceScope.finance_read: "Finanse: odczyt (zmiany w zamówieniach, PDF-y, wyniki)",
+    ServiceScope.finance_write: "Finanse: zapis („Zrobione”, import wyników)",
+    ServiceScope.invoices_read: "Faktury: odczyt (rejestr, DSO)",
+    ServiceScope.invoices_write: "Faktury: zapis (wystawienie, zmiana, anulowanie)",
+    ServiceScope.sales_amounts_read: (
+        "Kwoty sprzedaży: stawki do klienta, wartości i budżety zamówień, "
+        "przychód, faktury do klientów"
+    ),
+    ServiceScope.amounts_read: "Wszystkie kwoty: także stawki konsultantów, koszty i marża",
+    ServiceScope.orders_write: (
+        "Zamówienia: zapis (zakończenie, przedłużenie, anulowanie, data końca, PDF)"
+    ),
+    ServiceScope.contracts_write: "Kontrakty: zapis (data końca w przyszłości)",
+    ServiceScope.contracts_status: "Kontrakty: zmiana statusu i zakończenie współpracy",
+    ServiceScope.amounts_write: (
+        "Stawki i kwoty: zmiana w zamówieniach i budżet zakładanej rekrutacji"
+    ),
+    ServiceScope.recruitments_read: (
+        "Rekrutacje: odczyt (lista, wymagania, Tablica, historia ruchów)"
+    ),
+    ServiceScope.recruitments_write: (
+        "Rekrutacje: zapis (dodanie osoby, przesunięcie karty)"
+    ),
+    ServiceScope.candidates_read: (
+        "Kandydaci: odczyt profilu bez danych kontaktowych (umiejętności, "
+        "miasto, dostępność)"
+    ),
+    ServiceScope.candidates_contact: (
+        "Kandydaci: dane kontaktowe (e-mail, telefon, LinkedIn, dane firmy)"
+    ),
+    ServiceScope.candidates_cv: "Kandydaci: pliki CV i tekst CV",
+    ServiceScope.candidates_write: "Kandydaci: zapis (nowy kandydat, wgranie CV)",
+    ServiceScope.notes_read: "Notatki i screening: odczyt",
+    ServiceScope.notes_write: "Notatki: zapis",
+    ServiceScope.recruitments_create: (
+        "Rekrutacje: zakładanie z requestu klienta (z odczytem treści przez AI)"
+    ),
+    ServiceScope.cv_generate: "CV dla klienta: generowanie z generatora CV",
+    ServiceScope.calendar_read: "Kalendarz: rozmowy u klienta i prepy (odczyt)",
+    ServiceScope.applications_read: "Zgłoszenia z linku rekrutacji: odczyt",
+    ServiceScope.applications_write: (
+        "Zgłoszenia z linku rekrutacji: rozpatrzenie (dołącz, utwórz, odrzuć)"
+    ),
+    ServiceScope.insights_read: "Insights: raporty i wskaźniki (odczyt)",
+    ServiceScope.academy_read: "Akademia: programy i nabór (odczyt)",
+    ServiceScope.events_read: "Zdarzenia: kanał zdarzeń (same identyfikatory)",
+    ServiceScope.webhooks_manage: "Webhooki: zarządzanie powiadomieniami konta",
+    ServiceScope.absences_read: "Nieobecności — kto i kiedy, bez rodzaju",
+    ServiceScope.equipment_read: "Sprzęt — wydania i zwroty",
 }
+
+
+#: Szerszy odczyt obejmuje węższy: wszystkie kwoty to także kwoty sprzedaży.
+_READ_INCLUDES: dict[str, frozenset[str]] = {
+    ServiceScope.amounts_read.value: frozenset({ServiceScope.sales_amounts_read.value}),
+}
+
+
+def implied_scopes(granted: frozenset[str]) -> frozenset[str]:
+    """Uprawnienia efektywne: ``X:write`` daje też ``X:read`` (jeśli istnieje),
+    a ``amounts:read`` — także ``sales_amounts:read`` (``_READ_INCLUDES``).
+
+    Liczone przy budowie ``ServicePrincipal``, nie w ``granted_scopes()`` —
+    tamto czyta też ekran admina, który ma pokazywać to, co NADANO.
+    """
+    known = {scope.value for scope in ServiceScope}
+    extra = {
+        scope[: -len(":write")] + ":read"
+        for scope in granted
+        if scope.endswith(":write") and scope[: -len(":write")] + ":read" in known
+    }
+    effective = set(granted | extra)
+    for scope in list(effective):
+        effective |= _READ_INCLUDES.get(scope, frozenset())
+    return frozenset(effective)
 
 
 class ServiceAccount(Base, TimestampMixin):

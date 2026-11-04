@@ -92,9 +92,7 @@ export function JobPriorityContext({
     "head_of_recruitment",
     "delivery_lead",
     "talent_community_manager",
-    "tac",
     "recruiter",
-    "sourcer",
   )
 
   const query = useQuery({
@@ -102,15 +100,10 @@ export function JobPriorityContext({
     queryFn: () => priorityWorkApi.getJobContext(jobId),
     enabled: hydrated && canView && Number.isFinite(jobId),
     staleTime: 60_000,
-    // Globalne `retry: 1` (QueryProvider) podwajało tu odmowy: 403 z kontroli
-    // członkostwa nie zmieni się przy ponowieniu, więc każde wejście na stronę
-    // rekrutacji spoza własnego zespołu kosztowało dwa żądania zamiast jednego.
-    retry: (failureCount, error) => {
-      const status = (error as { response?: { status?: number } })?.response
-        ?.status
-      if (status !== undefined && status >= 400 && status < 500) return false
-      return failureCount < 1
-    },
+    // Runda 8 (R8-N14-8): ponowienia należą do interceptora axios (5xx
+    // i brak odpowiedzi przy odczycie); własna funkcja `retry` mnożyła jeden
+    // odczyt do 4 żądań, a 403 z kontroli członkostwa i tak się nie zmieni.
+    retry: false,
   })
 
   if (!hydrated || !canView) return null
@@ -190,7 +183,7 @@ export function JobPriorityContext({
         {data.blockers.length > 0 ? (
           <p className="mt-1 text-[11px] font-medium text-warning-muted-foreground">
             {countPl(data.blockers.length, "blocker", "blockery", "blockerów")} —
-            szczegóły w zakładce „Zespół i priorytet".
+            szczegóły w zakładce „Zespół”.
           </p>
         ) : null}
       </section>

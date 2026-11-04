@@ -17,8 +17,8 @@ import {
 } from "@/components/ds/WorkspaceModeTabs";
 import { useCapability } from "@/hooks/useCapability";
 import { resolveContractsView, type ContractsView } from "@/lib/clients-workspace";
-import { hasSectionAccess } from "@/lib/section-access";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { hasPermission } from "@/lib/permissions";
+import { useAuthStore } from "@/store/auth";
 
 type ViewMode = ContractsView;
 
@@ -28,10 +28,11 @@ type ViewMode = ContractsView;
  *                   financial-gated. Default; visible to everyone who can open
  *                   /contracts today.
  *  - "operations" — the contractor roster (drafty do uzupełnienia / aktywni /
- *                   kończący się). Role-gated to the same roles the former
- *                   standalone "Kontraktorzy" nav item used. The backend
- *                   enforces access independently (403 for viewers), so the
- *                   toggle is UX, not the security boundary.
+ *                   kończący się). Shown to holders of the permission
+ *                   „Klienci, kontrakty i zamówienia: podgląd” — the same one
+ *                   the roster route asks for. The backend enforces access
+ *                   independently (403), so the toggle is UX, not the
+ *                   security boundary.
  *  - "order-mail" — the order-mail queue („Skrzynka zamówień"). Until
  *                   22.09.2026 a separate nav item „Zamówienia z maila";
  *                   `/order-mail` now redirects here (stored notification
@@ -43,13 +44,6 @@ type ViewMode = ContractsView;
  * back/forward work. The reactive search-param reader sits inside an explicit
  * Suspense boundary required by Next's streaming renderer.
  */
-
-const OPERATIONS_ROLES = [
-  "admin",
-  "delivery_lead",
-  "talent_community_manager",
-  "finance",
-] as const;
 
 export default function ContractsPage() {
   return (
@@ -106,10 +100,9 @@ function ContractsWorkspace({
   const [appliedNavigationSearch, setAppliedNavigationSearch] =
     useState(navigationSearch);
   const { user } = useAuthStore();
-  // Rola + sufit sekcji Delivery (U8): odebrana sekcja = brak widoku, nie 403.
-  const canSeeOperations =
-    hasRole(user, ...OPERATIONS_ROLES) &&
-    hasSectionAccess(user, "delivery", "read");
+  // Uprawnienie „Klienci, kontrakty i zamówienia: podgląd" — z niego wynika
+  // też odczyt sekcji Delivery, więc bez niego widoku nie ma (zamiast 403).
+  const canSeeOperations = hasPermission(user, "delivery_view");
   const canSeeOrderMail = useCapability("nav.order_mail");
   const orderMailPending = useOrderMailPendingCount(canSeeOrderMail);
 
@@ -128,8 +121,9 @@ function ContractsWorkspace({
     setClient(nextSelection.client);
   }
 
-  // Guard: a non-operational role that deep-links ?view=operations falls back
-  // to the register (and the backend would 403 the roster fetch anyway).
+  // Guard: an account without the permission that deep-links ?view=operations
+  // falls back to the register (and the backend would 403 the roster fetch
+  // anyway).
   const showOperations = view === "operations" && canSeeOperations;
   const showOrderMail = view === "order-mail" && canSeeOrderMail;
   const activeView: ViewMode = showOperations
@@ -199,6 +193,23 @@ function ContractsWorkspace({
     );
   };
 
+  const modeTabs =
+    modes.length > 1 ? (
+      <WorkspaceModeTabs
+        label="Tryb modułu Kontrakty"
+        modes={modes}
+        value={activeView}
+        onChange={changeView}
+      />
+    ) : null;
+  const clientPicker = (
+    <ContractsClientPicker
+      compact
+      value={client}
+      onChange={handleClientChange}
+    />
+  );
+
   if (!mounted) {
     return (
       <div className="p-8 text-sm text-muted-foreground">Ładowanie kontraktów…</div>
@@ -206,16 +217,12 @@ function ContractsWorkspace({
   }
 
   return (
-    <div className="max-w-[1400px] mx-auto space-y-4">
-      {modes.length > 1 && (
-        <WorkspaceModeTabs
-          label="Tryb modułu Kontrakty"
-          modes={modes}
-          value={activeView}
-          onChange={changeView}
-        />
-      )}
-
+    // Bez limitu szerokości (jak pulpit) — panel szczegółów mieści się obok
+    // tabeli bez osobnego poszerzania ramki.
+    <div className="space-y-4">
+      {/* Makieta B: tytuł widoku → tryby modułu → pasek filtrów z wyborem
+          klienta. Każdy widok (rejestr, obsługa kontraktorów, skrzynka
+          zamówień) sam rysuje tryby pod swoim tytułem. */}
       {showOperations ? (
         <Suspense
           fallback={
@@ -224,39 +231,40 @@ function ContractsWorkspace({
             </div>
           }
         >
-          <ContractorsListV2 />
+          <ContractorsListV2 modeTabs={modeTabs} />
         </Suspense>
       ) : showOrderMail ? (
-        <OrderMailQueue />
+        <OrderMailQueue modeTabs={modeTabs} />
+      ) : client ? (
+        <Suspense
+          fallback={
+            <div className="p-8 text-sm text-muted-foreground">
+              Ładowanie rejestru klienta…
+            </div>
+          }
+        >
+          <ClientContractRegister
+            clientId={client.id}
+            clientName={client.name}
+            navigationSearch={navigationSearch}
+            modeTabs={modeTabs}
+            toolbarLead={clientPicker}
+          />
+        </Suspense>
       ) : (
-        <>
-          <ContractsClientPicker value={client} onChange={handleClientChange} />
-          {client ? (
-            <Suspense
-              fallback={
-                <div className="p-8 text-sm text-muted-foreground">
-                  Ładowanie rejestru klienta…
-                </div>
-              }
-            >
-              <ClientContractRegister
-                clientId={client.id}
-                clientName={client.name}
-                navigationSearch={navigationSearch}
-              />
-            </Suspense>
-          ) : (
-            <Suspense
-              fallback={
-                <div className="p-8 text-sm text-muted-foreground">
-                  Ładowanie kontraktów…
-                </div>
-              }
-            >
-              <ContractsListV2 navigationSearch={navigationSearch} />
-            </Suspense>
-          )}
-        </>
+        <Suspense
+          fallback={
+            <div className="p-8 text-sm text-muted-foreground">
+              Ładowanie kontraktów…
+            </div>
+          }
+        >
+          <ContractsListV2
+            navigationSearch={navigationSearch}
+            modeTabs={modeTabs}
+            toolbarLead={clientPicker}
+          />
+        </Suspense>
       )}
     </div>
   );

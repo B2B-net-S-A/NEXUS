@@ -13,9 +13,9 @@ The match heuristic is intentionally conservative:
 2. Require ``createdDateTime`` to fall inside a window anchored on the event
    end (default: ``end - 30min .. end + 4h``). Teams typically publishes a
    recording within an hour, but we leave headroom for slow tenants.
-3. If the meeting ID can be extracted from ``online_meeting_url``, prefer
-   files whose name contains a fragment of it. Otherwise, take the closest
-   match by ``createdDateTime`` to the event end.
+3. The file name must contain a fragment of the meeting ID extracted from
+   ``online_meeting_url``. Without it there is no match (runda 7, R7-N5-1:
+   "closest by time" attached other meetings' recordings, private ones too).
 
 This module returns the *sharing URL* (``webUrl``) — that's the link a
 recruiter can paste in a candidate profile and re-open in a browser. We
@@ -141,17 +141,23 @@ def _pick_best_match(
     event_end_at: datetime,
     meeting_id_fragment: Optional[str],
 ) -> Optional[_Candidate]:
-    """Prefer name match on the meeting ID; otherwise closest by time."""
-    if not candidates:
+    """Only a file whose name carries the meeting ID; never "closest by time".
+
+    Runda 7 (R7-N5-1): nazwa nagrania Teams zwykle nie zawiera id spotkania,
+    więc dopasowanie „najbliższy w czasie” wygrywało zawsze i przypinało do
+    rozmowy z kandydatem nagranie INNEGO spotkania organizatora (także
+    prywatnego — adres niesie jego tytuł). Bez dowodu z id nie ma nagrania;
+    pewne dopasowanie wymaga odczytu przez ``onlineMeeting`` w Graphie.
+    """
+    if not candidates or not meeting_id_fragment:
         return None
-    if meeting_id_fragment:
-        fragment = meeting_id_fragment.lower()
-        with_id = [c for c in candidates if fragment in c.name.lower()]
-        if with_id:
-            # Multiple hits → still take the closest in time so a leftover
-            # file from a re-recorded meeting doesn't beat the real one.
-            return min(with_id, key=lambda c: abs(c.created_at - event_end_at))
-    return min(candidates, key=lambda c: abs(c.created_at - event_end_at))
+    fragment = meeting_id_fragment.lower()
+    with_id = [c for c in candidates if fragment in c.name.lower()]
+    if not with_id:
+        return None
+    # Multiple hits → still take the closest in time so a leftover
+    # file from a re-recorded meeting doesn't beat the real one.
+    return min(with_id, key=lambda c: abs(c.created_at - event_end_at))
 
 
 async def find_meeting_recording(

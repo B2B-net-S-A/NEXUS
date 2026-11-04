@@ -156,10 +156,19 @@ _CHECKS: tuple[tuple[str, str, str, str], ...] = (
 
 
 async def _run_check(db: AsyncSession, sql: str) -> int:
-    result = await asyncio.wait_for(
-        db.execute(text(sql)), timeout=CHECK_TIMEOUT_SECONDS
-    )
-    return int(result.scalar() or 0)
+    try:
+        result = await asyncio.wait_for(
+            db.execute(text(sql)), timeout=CHECK_TIMEOUT_SECONDS
+        )
+        return int(result.scalar() or 0)
+    finally:
+        # Runda 10 (R10-N8-1): checki jadą po jednej sesji; nieudany albo
+        # anulowany SELECT zostawia przerwaną transakcję, a bez resetu każdy
+        # kolejny check dostaje `InFailedSQLTransaction`. Tylko odczyt.
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001 — reset sesji nie może wywalić raportu
+            pass
 
 
 @router.get("/candidate-pii-orphans")

@@ -182,7 +182,7 @@ async def test_legacy_viewer_gets_403(app_client: AsyncClient, engine):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("role", [UserRole.admin, UserRole.delivery_lead])
+@pytest.mark.parametrize("role", [UserRole.admin, UserRole.finance])
 async def test_org_readers_keep_fees_and_cross_client(
     app_client: AsyncClient, engine, role: UserRole
 ):
@@ -206,3 +206,114 @@ async def test_org_readers_keep_fees_and_cross_client(
     assert all(e["fee_rate"] == 4200 for e in body["closed"])
     assert all(e["fee_currency"] == "PLN" for e in body["closed"])
     assert calls[-1]["cross_client"] is True
+
+
+# ── Runda 6 audytu: DL widzi kwoty tylko klientów swojego portfela ──────────
+# Decyzja Artura 26.09.2026. Do tej rundy Delivery Lead dostawał w Historii
+# i w banerze podglądu marżę (``fee_rate``) KAŻDEGO klienta, także
+# z ``cross_client=true``. Reguła jest wspólna: ``can_read_client_finance``.
+
+
+async def _seed_dl(roles: list[UserRole], assigned: list[int]) -> dict[str, str]:
+    from app.models.team_structure import DeliveryLeadClientAssignment
+
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=f"rh-dl-{tag}@example.com",
+            password_hash=hash_password(f"T3st_{tag}!History"),
+            name=f"History DL {tag}",
+            role=roles[0],
+            roles=[r.value for r in roles],
+            is_active=True,
+        )
+        db.add(user)
+        await db.flush()
+        for client_id in assigned:
+            db.add(
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=user.id, client_id=client_id
+                )
+            )
+        await db.commit()
+        user_id = user.id
+    return {"Authorization": f"Bearer {create_access_token(user_id, roles[0].value)}"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "roles",
+    [
+        [UserRole.delivery_lead],
+        [UserRole.head_of_recruitment, UserRole.delivery_lead],
+    ],
+)
+async def test_delivery_lead_sees_fees_only_of_portfolio_clients(
+    app_client: AsyncClient, engine, roles
+):
+    calls, world = engine
+    _member_headers, member_id = await _seed_user(UserRole.recruiter)
+    world.update(await _seed_jobs(member_id))
+    headers = await _seed_dl(roles, [world["client_id"]])
+
+    resp = await app_client.get(
+        URL.format(job_id=world["job_id"]),
+        headers=headers,
+        params={"cross_client": "true"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    rows = {e["client_id"]: e for e in resp.json()["closed"]}
+    # Historia innych klientów zostaje (rekrutacja jest otwarta dla wszystkich),
+    # kwoty — tylko u klienta z portfela.
+    assert set(rows) == {world["client_id"], world["other_client_id"]}
+    assert rows[world["client_id"]]["fee_rate"] == 4200
+    foreign = rows[world["other_client_id"]]
+    assert foreign["fee_rate"] is None
+    assert foreign["fee_currency"] is None
+    assert foreign["rate_unit"] is None
+    assert calls[-1]["cross_client"] is True
+
+
+@pytest.mark.asyncio
+async def test_preview_banner_redacts_fees_outside_the_dl_portfolio(
+    app_client: AsyncClient, engine
+):
+    _calls, world = engine
+    _member_headers, member_id = await _seed_user(UserRole.recruiter)
+    world.update(await _seed_jobs(member_id))
+    headers = await _seed_dl([UserRole.delivery_lead], [world["client_id"]])
+
+    resp = await app_client.post(
+        "/api/jobs/request-history/preview",
+        headers=headers,
+        json={"client_id": world["client_id"], "title": "Java", "cross_client": True},
+    )
+
+    assert resp.status_code == 200, resp.text
+    rows = {e["client_id"]: e for e in resp.json()["closed"]}
+    assert rows[world["client_id"]]["fee_rate"] == 4200
+    assert rows[world["other_client_id"]]["fee_rate"] is None
+
+
+@pytest.mark.asyncio
+async def test_history_fee_rule_follows_the_client_finance_rule(monkeypatch):
+    """Bez bazy: reguła kwot Historii = ``can_read_client_finance`` per klient."""
+    from app.api import jobs as jobs_api
+    from app.services import access_scope
+
+    async def portfolio(user, db):
+        return frozenset({11})
+
+    monkeypatch.setattr(
+        access_scope, "resolve_delivery_lead_finance_client_ids", portfolio
+    )
+    dl = User(id=1, role=UserRole.delivery_lead, roles=["delivery_lead"])
+    visible = await jobs_api._history_fee_visible(dl, None)
+    assert visible(11) is True
+    assert visible(12) is False
+    assert visible(None) is False
+
+    admin = User(id=2, role=UserRole.admin, roles=["admin"])
+    visible = await jobs_api._history_fee_visible(admin, None)
+    assert visible(12) is True

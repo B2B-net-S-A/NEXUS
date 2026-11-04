@@ -92,6 +92,7 @@ __all__ = [
     "backfill_missing_order_periods",
     "backfill_missing_order_revenue",
     "OrderRevenueTerms",
+    "REPAIR_DETAILS_KEY",
     "REPAIR_MARKER",
     "SOURCE_ORDER_STATUSES",
     "convert_rate_between",
@@ -111,6 +112,10 @@ __all__ = [
 # wdrożenia, a codzienne nadpisanie kosztów przed migawką skasowałoby dokładnie
 # te niezgodności, które raport ma pokazać.
 REPAIR_MARKER = "0304_contract_order_sync_repair"
+# Migawka raportu i stan poprawionych kontraktów (nazwiska, stawki) — klucz
+# CELOWO bez kształtu paragonu ``NNNN_…``, którego publiczny workflow
+# „migration-receipts” nie drukuje (Runda 7, R7-X2-1).
+REPAIR_DETAILS_KEY = "repair_details_0304_contract_order_sync_repair"
 
 # Zamówienia, z których kontrakt bierze okres i stawkę przychodową. Zakończone
 # ZOSTAJĄ: opisują historię stawek (krok sprzed obecnego zamówienia).
@@ -433,6 +438,32 @@ def _switch_contract_unit(
     for step in contract.framework_rate_schedule:
         step.rate = conv(step.rate)
     contract.rate_unit = target
+
+
+async def switch_loaded_contract_to_hourly(
+    db: AsyncSession, contract: Contract
+) -> bool:
+    """Istniejący kontrakt nie w zł/h → zł/h z przeliczeniem kwot. True, gdy przeliczono.
+
+    Dla ścieżek generatora umów B2B, które zapisują stawkę Partnera godzinowo
+    na JUŻ istniejącym kontrakcie (runda 6 audytu): przestawienie samej
+    etykiety ``rate_unit`` zamieniało ryczałt 20 000 zł/mc w 20 000 zł/h.
+    Harmonogramy klienta i ramowy dociągane są jawnie — ścieżki generatora
+    wczytują tylko harmonogram kandydata, a lazy-load w async to
+    ``MissingGreenlet``. Kontrakt musi być już w bazie (``refresh``).
+    """
+    if contract.rate_unit is None or RateUnit(contract.rate_unit) == RateUnit.hourly:
+        return False
+    await db.refresh(
+        contract,
+        [
+            "candidate_rate_schedule",
+            "client_rate_schedule",
+            "framework_rate_schedule",
+        ],
+    )
+    _switch_contract_unit(contract, RateUnit.hourly)
+    return True
 
 
 def apply_contract_hourly_policy(contract: Contract) -> bool:
@@ -1178,6 +1209,7 @@ async def run_daily_order_cost_sync(
         ).all():
             orders_by_contract.setdefault(order.contract_id, []).append(order)
         for contract in contracts:
+            contract_id = contract.id
             try:
                 # Savepoint per kontrakt: jeden rekord z danymi, których nie da
                 # się pogodzić, nie może zatrzymać podwyżek wszystkich innych.
@@ -1186,20 +1218,57 @@ async def run_daily_order_cost_sync(
                     # do zamówień, więc bierze blokady w kolejności handlerów.
                     await lock_contract_then_orders(
                         db,
-                        contract_ids=[contract.id],
+                        contract_ids=[contract_id],
                         order_ids=[
-                            o.id for o in orders_by_contract.get(contract.id, [])
+                            o.id for o in orders_by_contract.get(contract_id, [])
                         ],
                     )
+                    # Audyt 25.09.2026: kontrakt i zamówienia paczki czytane
+                    # były PRZED blokadami — zamówienie zakończone w międzyczasie
+                    # dostawało stawkę z harmonogramu na zakończonym wierszu.
+                    # Decyzja zapada na świeżym stanie spod blokady, a wiersze,
+                    # które przestały być celem synchronizacji, odpadają.
+                    locked_contract = await db.scalar(
+                        select(Contract)
+                        .where(Contract.id == contract_id)
+                        .options(*RATE_SCHEDULE_LOADS)
+                        .execution_options(populate_existing=True)
+                    )
+                    if (
+                        locked_contract is None
+                        or locked_contract.status == ContractStatus.void
+                    ):
+                        continue
+                    locked_orders = list(
+                        (
+                            await db.scalars(
+                                select(ClientOrder)
+                                .where(
+                                    ClientOrder.id.in_(
+                                        [
+                                            o.id
+                                            for o in orders_by_contract.get(
+                                                contract_id, []
+                                            )
+                                        ]
+                                    ),
+                                    ClientOrder.contract_id == contract_id,
+                                    ClientOrder.order_group_id.is_(None),
+                                    ClientOrder.status.in_(
+                                        list(COST_TARGET_ORDER_STATUSES)
+                                    ),
+                                )
+                                .order_by(ClientOrder.id)
+                                .execution_options(populate_existing=True)
+                            )
+                        ).all()
+                    )
                     changed = await sync_orders_cost_from_contract(
-                        db,
-                        contract,
-                        orders_by_contract.get(contract.id, []),
-                        today=today,
+                        db, locked_contract, locked_orders, today=today
                     )
             except Exception:  # noqa: BLE001
                 logger.exception(
-                    "contract-order cost sync: contract %s skipped", contract.id
+                    "contract-order cost sync: contract %s skipped", contract_id
                 )
                 await _refresh_expired(db)
                 continue
@@ -1208,7 +1277,7 @@ async def run_daily_order_cost_sync(
                 db.add(
                     Activity(
                         entity_type="contract",
-                        entity_id=contract.id,
+                        entity_id=contract_id,
                         action="synced_with_orders",
                         user_id=None,
                         details={

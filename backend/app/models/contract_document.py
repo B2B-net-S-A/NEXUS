@@ -1,10 +1,10 @@
 """Contract document attachments (signed contract PDF, annexes, NIP, OC policy...)."""
 
 import enum
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Date, Enum, ForeignKey, Integer, String
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -66,10 +66,78 @@ class ContractDocument(Base, TimestampMixin):
         index=True,
     )
 
+    # ── Ticket 9 (0402): dokumenty z folderu „Umowy pracowników” ────────────
+    # Skrót treści — „kontrakt ma już ten dokument” to ten sam skrót. Stare
+    # wiersze dostają go leniwie przy pierwszym imporcie do kontraktu.
+    content_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # NULL = dokument sprzed 0402 albo dodany ręcznie; ``sharepoint_import`` =
+    # pierwsze pobranie z panelu; ``sharepoint`` = synchronizacja.
+    source: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    import_run_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contract_doc_sp_runs.id", ondelete="SET NULL"), nullable=True
+    )
+    # Plik w SharePoincie, z którego dokument przyszedł albo do którego
+    # NEXUS go wysłał — blokuje ponowny import tego samego pliku („echo”).
+    sharepoint_item_id: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
+    # Wysyłka do SharePointa: NULL = jeszcze nie oceniono, ``done``,
+    # ``skipped`` (z powodem), ``failed`` (ponawiane).
+    sharepoint_push_status: Mapped[Optional[str]] = mapped_column(
+        String(16), nullable=True
+    )
+    sharepoint_push_error: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
+    sharepoint_push_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    sharepoint_pushed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Folder w zakładce Dokumenty (0494). NULL = sekcja „Aktualna umowa”.
+    # Zamówienia (``doc_type = order``) leżą w folderze „Zamówienia” bez
+    # względu na to pole — decyduje typ, nie zapis przy pliku.
+    folder_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contract_document_folders.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     contract = relationship("Contract", back_populates="documents_rel")
 
     def __repr__(self) -> str:
         return (
             f"<ContractDocument id={self.id} contract={self.contract_id} "
             f"type={self.doc_type} filename={self.filename!r}>"
+        )
+
+
+class ContractDocumentFolder(Base, TimestampMixin):
+    """Folder w zakładce Dokumenty kontraktu (0494).
+
+    ``kind = 'user'`` — folder założony ręcznie („Poprzednia umowa…”).
+    ``kind = 'orders'`` — tylko własna nazwa folderu „Zamówienia” na tym
+    kontrakcie; wiersz powstaje przy pierwszej zmianie nazwy.
+    """
+
+    __tablename__ = "contract_document_folders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    contract_id: Mapped[int] = mapped_column(
+        ForeignKey("contracts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="user", server_default="user"
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ContractDocumentFolder id={self.id} contract={self.contract_id} "
+            f"kind={self.kind} name={self.name!r}>"
         )

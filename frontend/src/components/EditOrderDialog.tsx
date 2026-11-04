@@ -15,6 +15,7 @@ import {
 import { AppModal } from "@/components/ds/AppModal";
 import { FileDropZone } from "@/components/ds/FileDropZone";
 import { OrderTypeSwitch } from "@/components/orders/OrderTypeSwitch";
+import { RecruitmentRateHint } from "@/components/orders/RecruitmentRateHint";
 import {
   OrderCurrencySelect,
   OrderRateUnitToggle,
@@ -25,6 +26,7 @@ import {
 } from "@/components/orders/OrderRateUnitToggle";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
+import type { RecruitmentRate } from "@/lib/api/recruitmentRates";
 import type {
   ClientOrderRead,
   ClientOrderUpdate,
@@ -47,7 +49,11 @@ import {
   openOrderDocument,
 } from "@/lib/order-documents";
 import { extractionErrorMessage, numberToField } from "@/lib/order-extraction";
-import { orderPeriodError } from "@/lib/order-period";
+import {
+  duplicateOrderError,
+  orderPeriodError,
+  type ExistingOrderPeriod,
+} from "@/lib/order-period";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
 import {
@@ -70,6 +76,11 @@ interface EditOrderDialogProps {
   order: ClientOrderRead | null;
   /** Zakłada zamówienie, gdy `order === null`. Zwraca id nowego wiersza. */
   onCreate?: CreateDraftOrder;
+  /**
+   * Pozostałe zamówienia tej osoby — do sprawdzenia, czy numer i okres nie
+   * dublują istniejącego zamówienia (lustro 409 `duplicate_order_number`).
+   */
+  siblingOrders?: readonly ExistingOrderPeriod[];
   /** Stawka kosztowa z powiązanego kontraktu (`ContractWithOrdersRead`). */
   rateCandidate: number | null;
   /** Fallback dla zamówień utworzonych przed snapshotem jednostki/waluty. */
@@ -79,6 +90,9 @@ interface EditOrderDialogProps {
   contractRateCandidateCurrency?: string | null;
   /** Serwer wylicza to per klient — patrz `can_manage_finance` w odpowiedzi. */
   canManageFinance: boolean;
+  /** Stawki z rekrutacji tej osoby (D7, `ContractWithOrdersRead.recruitment_rates`)
+   *  — podpowiedź pod stawkami; różnica nie blokuje zapisu. */
+  recruitmentRates?: RecruitmentRate | null;
   suggestedOrderType?: OrderType;
   allowedOrderTypes?: readonly OrderType[];
   /** Znaczenie trwałego `order_type=NULL` dla tego klienta. */
@@ -107,12 +121,14 @@ export function EditOrderDialog({
   candidateId,
   order,
   onCreate,
+  siblingOrders,
   rateCandidate,
   contractRateUnit = "monthly",
   contractBillingHoursPerMonth = HOURS_PER_MONTH,
   contractRateClientCurrency,
   contractRateCandidateCurrency,
   canManageFinance,
+  recruitmentRates = null,
   suggestedOrderType = "periodic",
   allowedOrderTypes,
   legacyNullOrderType = "periodic",
@@ -189,6 +205,9 @@ export function EditOrderDialog({
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState("");
   const [busyFile, setBusyFile] = useState(false);
+  // Runda 10 (R10-N15-8): potwierdzenie w oknie zamiast `window.confirm`,
+  // które zamraża automatyzację przeglądarki.
+  const [confirmingFileDelete, setConfirmingFileDelete] = useState(false);
   const [hasExistingFile, setHasExistingFile] = useState(
     order?.has_file ?? false,
   );
@@ -435,11 +454,7 @@ export function EditOrderDialog({
 
   async function handleDeleteExistingFile() {
     if (!order) return;
-    if (
-      !window.confirm("Czy na pewno chcesz usunąć plik PDF zamówienia?")
-    ) {
-      return;
-    }
+    setConfirmingFileDelete(false);
     await withBusy(async () => {
       await dlPortalApi.deleteOrderPo(clientId, order.id);
       setHasExistingFile(false);
@@ -461,10 +476,27 @@ export function EditOrderDialog({
     (orderType !== "cost" || (parseDecimalInput(totalBudget) ?? 0) > 0) &&
     (orderType !== "md" || (parseDecimalInput(mdBudget) ?? 0) > 0);
   // Koniec przed startem blokuje zapis (ticket OIT/0569/2026/ITVM; backend 422).
-  const periodError = orderPeriodError(
-    normalizeDateInput(startDate),
-    normalizeDateInput(endDate),
-  );
+  const numberOrPeriodChanged =
+    order === null ||
+    title.trim().replace(/\s+/g, " ").toUpperCase() !==
+      (order.title ?? "").trim().replace(/\s+/g, " ").toUpperCase() ||
+    normalizeDateInput(startDate) !== (order.start_date ?? "").slice(0, 10) ||
+    normalizeDateInput(endDate) !== (order.end_date ?? "").slice(0, 10);
+  const periodError =
+    orderPeriodError(normalizeDateInput(startDate), normalizeDateInput(endDate)) ??
+    // Zgłoszenie 28.09.2026: ten sam numer na nachodzący okres to drugi zapis
+    // tego samego dokumentu — backend odmawia 409, mówimy to przy polu. Tylko
+    // przy REALNEJ zmianie numeru albo dat (lustro PATCH): zamówienie, które już
+    // ma historyczny duplikat, musi dać się zapisać bez zmiany tych pól.
+    (numberOrPeriodChanged
+      ? duplicateOrderError(
+          title,
+          normalizeDateInput(startDate),
+          normalizeDateInput(endDate),
+          siblingOrders ?? [],
+          order?.id ?? null,
+        )
+      : null);
   const canSubmit =
     title.trim().length > 0 && budgetComplete && !mutation.isPending;
 
@@ -746,6 +778,19 @@ export function EditOrderDialog({
                 {unitChangeNotice}
               </p>
             ) : null}
+            <RecruitmentRateHint
+              rate={recruitmentRates}
+              revenue={{
+                value: rateRevenue,
+                unit: rateUnit,
+                currency: rateClientCurrency,
+              }}
+              cost={{
+                value: rateCost,
+                unit: rateUnit,
+                currency: rateCandidateCurrency,
+              }}
+            />
           </div>
         )}
 
@@ -825,16 +870,37 @@ export function EditOrderDialog({
                   <Download className="w-4 h-4" />
                 )}
               </button>
-              <button
-                type="button"
-                title="Usuń"
-                aria-label="Usuń plik PDF zamówienia"
-                disabled={busyFile}
-                onClick={handleDeleteExistingFile}
-                className="p-1 rounded hover:bg-destructive/10 text-destructive disabled:opacity-50"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+              {confirmingFileDelete ? (
+                <span className="inline-flex items-center gap-1 text-xs">
+                  <span className="text-muted-foreground">Usunąć plik PDF?</span>
+                  <button
+                    type="button"
+                    disabled={busyFile}
+                    onClick={handleDeleteExistingFile}
+                    className="rounded bg-destructive px-2 py-0.5 font-medium text-destructive-foreground disabled:opacity-50"
+                  >
+                    Usuń plik
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingFileDelete(false)}
+                    className="rounded bg-muted px-2 py-0.5 font-medium text-muted-foreground"
+                  >
+                    Anuluj
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  title="Usuń"
+                  aria-label="Usuń plik PDF zamówienia"
+                  disabled={busyFile}
+                  onClick={() => setConfirmingFileDelete(true)}
+                  className="p-1 rounded hover:bg-destructive/10 text-destructive disabled:opacity-50"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
             </div>
           )}
 

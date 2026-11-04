@@ -24,6 +24,8 @@ export interface MatchBreakdown {
   location?: MatchLayer;
   availability?: MatchLayer;
   champion_fit?: MatchLayer;
+  /** Odpowiedzi z wcześniejszych rozmów (07.10.2026) — tylko gdy warstwa była liczona. */
+  prior_screening?: MatchLayer;
   matching_must?: string[];
   gap_must?: string[];
   matching_nice?: string[];
@@ -54,6 +56,7 @@ const LAYER_LABELS: Array<[keyof MatchBreakdown, string]> = [
   ["availability", "Dyspozycyjność"],
   ["salary", "Stawka B2B"],
   ["champion_fit", "Champion"],
+  ["prior_screening", "Wcześniejsze rozmowy"],
 ];
 
 function strList(v: unknown): string[] {

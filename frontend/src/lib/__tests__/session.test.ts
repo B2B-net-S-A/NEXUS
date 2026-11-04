@@ -45,6 +45,39 @@ describe("clearSessionArtifacts", () => {
     expect(localStorage.getItem("nexus-full-job:7:42")).toBeNull();
   });
 
+  it("zostawia zapamiętany widok listy rekrutacji — to ustawienie osoby, nie dane sesji", () => {
+    // Decyzja 13.10.2026: ostatnie filtry przeżywają ponowne logowanie; wpis
+    // jest per osoba i niesie same klucze filtrów (`lib/jobs-list-memory.ts`).
+    localStorage.setItem("nexus:jobs-list-filters:7", "open=1&stage=searching");
+
+    clearSessionArtifacts();
+
+    expect(localStorage.getItem("nexus:jobs-list-filters:7")).toBe("open=1&stage=searching");
+  });
+
+  it("usuwa szkice notatek z panelu osoby (sessionStorage)", () => {
+    // Niewysłana notatka niesie dane kandydata — nie czeka na kolejną osobę.
+    sessionStorage.setItem("nexus:note-draft:v1:7:10:42", "Oddzwonić po 15");
+    sessionStorage.setItem("nexus:note-draft:v1:7:11:43", "Chce hybrydę");
+    sessionStorage.setItem("unrelated_session_key", "keep");
+
+    clearSessionArtifacts();
+
+    expect(sessionStorage.getItem("nexus:note-draft:v1:7:10:42")).toBeNull();
+    expect(sessionStorage.getItem("nexus:note-draft:v1:7:11:43")).toBeNull();
+    expect(sessionStorage.getItem("unrelated_session_key")).toBe("keep");
+  });
+
+  it("usuwa szkice list poprawek CV z karty „CV do klienta” (sessionStorage)", () => {
+    sessionStorage.setItem("nexus:cv-rewrite-draft:v1:7:21", "1. krócej\n2. więcej o Kafce");
+    sessionStorage.setItem("unrelated_session_key", "keep");
+
+    clearSessionArtifacts();
+
+    expect(sessionStorage.getItem("nexus:cv-rewrite-draft:v1:7:21")).toBeNull();
+    expect(sessionStorage.getItem("unrelated_session_key")).toBe("keep");
+  });
+
   it("kasuje cookie nexus_access", () => {
     document.cookie = "nexus_access=abc; path=/";
     clearSessionArtifacts();

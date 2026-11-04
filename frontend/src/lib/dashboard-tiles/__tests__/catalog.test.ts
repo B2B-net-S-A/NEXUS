@@ -4,10 +4,10 @@ import { TILE_TYPES } from "@/lib/api/userDashboard";
 import {
   TILE_DEFINITIONS,
   TILE_TEMPLATES,
-  recommendedTemplates,
   templateAvailability,
 } from "@/lib/dashboard-tiles/catalog";
 import type { User, UserRole } from "@/store/auth";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 
 function user(role: UserRole, extra: Partial<User> = {}): User {
   return {
@@ -38,9 +38,60 @@ describe("katalog kafelków", () => {
     const recruiter = user("recruiter");
     const margin = templateAvailability(template("margin_monthly"), recruiter);
     expect(margin.ok).toBe(false);
-    expect(margin.ok ? "" : margin.reason).toMatch(/Kwoty/);
+    // Powód nazywa uprawnienie, o które można poprosić — nie listę ról.
+    expect(margin.ok ? "" : margin.reason).toBe(
+      "Wymaga uprawnienia „Wyniki firmy: podsumowania przychodu i marży”",
+    );
     expect(templateAvailability(template("contact_oversight"), recruiter).ok).toBe(false);
     expect(templateAvailability(template("cv_sent_week"), recruiter).ok).toBe(true);
+  });
+
+  describe("kafelki kwot: „Wyniki firmy” albo portfel Delivery Leada", () => {
+    const MONEY_TILES = ["margin_monthly", "margin_by_client"];
+    const available = (u: User) =>
+      MONEY_TILES.map((key) => templateAvailability(template(key), u).ok);
+
+    it.each(["admin", "delivery_lead"] as UserRole[])(
+      "%s dodaje kafelki kwot",
+      (role) => {
+        expect(available(user(role))).toEqual([true, true]);
+      },
+    );
+
+    it("Finanse nie dodają kafelków z sumą firmy", () => {
+      expect(available(user("finance"))).toEqual([false, false]);
+    });
+
+    it("rekruter z nadanymi „Wynikami firmy” dodaje kafelki kwot", () => {
+      const recruiter = user("recruiter", {
+        effective_action_access: permissionSnapshot("company_results"),
+      });
+      expect(available(recruiter)).toEqual([true, true]);
+    });
+
+    it("sam „podgląd kwot” bez roli DL nie otwiera sumy firmy", () => {
+      const recruiter = user("recruiter", {
+        effective_action_access: permissionSnapshot("amounts_view"),
+      });
+      expect(available(recruiter)).toEqual([false, false]);
+    });
+
+    it.each(["delivery_lead"] as UserRole[])(
+      "%s z wyłączonym uprawnieniem nie dodaje kafelków kwot mimo roli",
+      (role) => {
+        const account = user(role, {
+          effective_action_access: permissionSnapshot("delivery_view", "clients_edit"),
+        });
+        expect(available(account)).toEqual([false, false]);
+      },
+    );
+
+    it.each(["head_of_recruitment", "talent_community_manager", "recruiter"] as UserRole[])(
+      "%s bez uprawnienia nie dodaje kafelków kwot",
+      (role) => {
+        expect(available(user(role))).toEqual([false, false]);
+      },
+    );
   });
 
   it("sprawy klientów wymagają roli z dostępem do /api/dl-alerts (FE-N05)", () => {
@@ -56,7 +107,7 @@ describe("katalog kafelków", () => {
     } as Partial<User>);
     const result = templateAvailability(template("my_clients_alerts"), tcm);
     expect(result.ok).toBe(false);
-    for (const role of ["admin", "head_of_recruitment", "delivery_lead", "finance"] as UserRole[]) {
+    for (const role of ["admin", "delivery_lead", "finance"] as UserRole[]) {
       const u = user(role, {
         effective_section_access: {
           sourcing: "read",
@@ -69,6 +120,18 @@ describe("katalog kafelków", () => {
       } as Partial<User>);
       expect(templateAvailability(template("my_clients_alerts"), u).ok).toBe(true);
     }
+    // R10-N1-8: backend (DlAlertsUser) odmawia HoR 403 — także z sekcją Delivery.
+    const hor = user("head_of_recruitment", {
+      effective_section_access: {
+        sourcing: "read",
+        pipeline: "read",
+        delivery: "read",
+        insights: "read",
+        finance: "none",
+        system_admin: "none",
+      },
+    } as Partial<User>);
+    expect(templateAvailability(template("my_clients_alerts"), hor).ok).toBe(false);
   });
 
   it("odebrana sekcja wyłącza kafelek tej sekcji", () => {
@@ -85,33 +148,17 @@ describe("katalog kafelków", () => {
     const result = templateAvailability(template("my_recruitments"), noPipeline);
     expect(result.ok).toBe(false);
   });
-});
 
-describe("polecane na pusty pulpit", () => {
-  it("rekruter dostaje pulpit requestów i swoje cztery kafelki", () => {
-    const { roleLabel, templates } = recommendedTemplates(user("recruiter"));
-    expect(roleLabel).toBe("Rekruter");
-    expect(templates.map((t) => t.key)).toEqual([
-      "request_board",
-      "cv_sent_week",
-      "my_recruitments",
-      "my_next_steps",
-      "calendar_today",
-    ]);
-  });
-
-  it("Delivery Lead dostaje sprawy klientów i zamówienia", () => {
-    const keys = recommendedTemplates(user("delivery_lead")).templates.map((t) => t.key);
-    expect(keys).toContain("my_clients_alerts");
-    expect(keys).toContain("orders_ending");
-  });
-
-  it("polecenia nigdy nie zawierają kafelka niedostępnego dla konta", () => {
-    for (const role of ["admin", "finance", "head_of_recruitment", "delivery_lead", "tac", "user"] as UserRole[]) {
-      const u = user(role);
-      for (const t of recommendedTemplates(u).templates) {
-        expect(templateAvailability(t, u).ok).toBe(true);
-      }
+  it("kafelek „Umowy przedwstępne” widzi każdy z dostępem do przedwstępnych, Viewer nie (F54)", () => {
+    // Decyzja Artura 22.10.2026: Finanse, Rada i Automatyzacje pracują na
+    // przedwstępnych jak rekruter. Viewer ma odczyt Rekrutacji, ale API
+    // odmawia mu 403 — kafelek byłby kartą błędu.
+    const tile = TILE_DEFINITIONS.pre_contracts;
+    for (const role of ["recruiter", "finance", "automation", "board"] as UserRole[]) {
+      expect(tile.availability(user(role)).ok, role).toBe(true);
+    }
+    for (const role of ["user", "employee", "trainee"] as UserRole[]) {
+      expect(tile.availability(user(role)).ok, role).toBe(false);
     }
   });
 });

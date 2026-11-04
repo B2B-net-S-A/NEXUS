@@ -31,6 +31,8 @@ import { api } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   selectedSentCount,
+  similarityHint,
+  similarityLabel,
   type SimilarJobItem,
   useLinkSimilarJobs,
   useSimilarJobs,
@@ -212,9 +214,12 @@ export function SimilarJobsDialog({
             {similar.isLoading ? (
               <p className="text-sm text-muted-foreground">Szukam podobnych rekrutacji…</p>
             ) : options.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                System nie znalazł podobnych rekrutacji. Dodaj je samodzielnie poniżej.
-              </p>
+              // Runda 8 (R8-N14-4, bliźniak): „nie znalazł” tylko po udanym odczycie.
+              similar.isSuccess ? (
+                <p className="text-sm text-muted-foreground">
+                  System nie znalazł podobnych rekrutacji. Dodaj je samodzielnie poniżej.
+                </p>
+              ) : null
             ) : (
               <ul className="space-y-1">
                 {options.map((item) => {
@@ -234,8 +239,11 @@ export function SimilarJobsDialog({
                         />
                         <JobLabel item={item} />
                         {item.similarity != null ? (
-                          <span className="ml-auto w-10 text-right text-sm font-semibold tabular-nums text-primary">
-                            {item.similarity}%
+                          <span
+                            className="ml-auto w-14 whitespace-nowrap text-right text-sm font-semibold tabular-nums text-primary"
+                            title={similarityHint(item)}
+                          >
+                            {similarityLabel(item)}
                           </span>
                         ) : (
                           <span className="ml-auto text-xs text-muted-foreground">dodana</span>

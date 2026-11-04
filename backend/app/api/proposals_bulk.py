@@ -17,32 +17,37 @@ Returned shape lets the UI render a "Added 7, skipped 3" toast with reasons.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import RecruiterPlus
+from app.api.deps import OperationalUser, RecruiterPlus
 from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.scheduling import DEFAULT_TZ
 from app.models.candidate import Candidate
 from app.models.job import Job
-from app.models.job_proposal import JobProposal
-from app.models.note import Note, NoteType
+from app.models.note import SYSTEM_NOTE_SOURCE, Note, NoteType
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import (
     CandidateStage,
     PipelineStage,
 )
 from app.models.recruitment_priority import PriorityChannel
-from app.services import candidate_claim
+from app.models.recruitment_process import RecruitmentProcess
+from app.services import candidate_claim, client_off_limits
+from app.services import sent_vs_system
+from app.services.process_entry_meta import auto_match_entry_meta
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
+from app.services.candidate_job_cards import latest_cards, stage_display_label
 from app.services.candidate_job_eligibility import EligibilityReason
 from app.services.pipeline_eligibility import (
     detail_for,
@@ -53,15 +58,22 @@ from app.services.priority_work_policy import milestone_counts_scope
 from app.services.recruitment_process_commands import (
     canonical_candidate_lock_order,
     open_process,
+    open_reassign_sources,
 )
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 SkipReason = Literal[
     "already_in_job",
+    # 12.10.2026: osoba ma w tej rekrutacji kartę w „Zamkniętych” (odrzucona,
+    # wycofana, rezerwa). Wiersz niesie ``closed`` — okno daje „Przywróć”.
+    "closed_in_job",
     "blacklisted",
     "candidate_not_found",
     "rejected_by_hiring_manager",
+    # 21.10.2026: osoba z firmy off-limits, a w oknie potwierdzenia padło
+    # „Nie, to my się odezwaliśmy” (``client_off_limits``).
+    "off_limits_declined",
 ]
 # Client conflicts (blacklist / NDA / competitor) are soft warnings since
 # 17.09.2026: the candidate IS added and the reason rides in ``warnings``.
@@ -91,6 +103,17 @@ BulkAddSource = Literal[
     "recommendation",
     # 21.09.2026: panel „Moi ludzie" (lista rekrutera, zakładka rekrutacji).
     "my_people",
+    # 14.10.2026: „Pasuje też do” pod osobą właśnie dodaną do innej rekrutacji
+    # (okno „Kandydaci do dodania”). Ręczne dodanie + dzwonek do rekrutera.
+    "also_fits",
+    # 29.10.2026: „+ Dodaj inną rekrutację” w „Screening dla” — rekrutacja
+    # wskazana ręcznie, gdy „Pasuje też do” jej nie podsunął. Wpis i dzwonek
+    # jak przy `also_fits`, inne słowa; osobny kod w telemetrii podpowiedzi.
+    "also_manual",
+    # 22.10.2026: zakładka „Podobni” na profilu kandydata. Osoba bez
+    # umiejętności krytycznej rekrutacji wchodzi tylko ze zdaniem „dlaczego
+    # mimo to” (``reasons``), które trafia na kartę jako notatka.
+    "similar_candidates",
 ]
 
 # Eligibility reason → bulk-add skip reason. Reasons that block assignment.
@@ -139,12 +162,69 @@ class BulkProposalsRequest(BaseModel):
     # the candidate (`emit_pipeline_additions`). Never guessed from history.
     run_id: Optional[str] = Field(default=None, max_length=64)
     source: Optional[BulkAddSource] = None
+    # „Pasuje też do” (14.10.2026): rekrutacja, przy której padła podpowiedź —
+    # trafia do historii i do dzwonka rekrutera. Czytane tylko przy `also_fits`
+    # i `also_manual`.
+    origin_job_id: Optional[int] = Field(default=None, gt=0)
+    # „Podobni” (22.10.2026): zdanie „dlaczego mimo to” dla osoby bez
+    # umiejętności krytycznej tej rekrutacji. Czytane tylko przy
+    # `similar_candidates`; trafia na kartę jako notatka „Do sprawdzenia: …”.
+    reasons: dict[int, str] = Field(default_factory=dict)
+    # 0399: wynik dopasowania od integracji (scraper JJIT/RocketJobs). Od
+    # 30.09.2026 taki wynik NIE zakłada karty: osoba trafia do „Do przejrzenia”
+    # jako propozycja ``job_board`` (``propose_candidates_for_job``). Serwer
+    # czyta go WYŁĄCZNIE od tokenu integracji — człowiek dodaje jak dotąd.
+    auto_match: Optional["AutoMatchEntryIn"] = None
+
+    @field_validator("reasons")
+    @classmethod
+    def _reasons_shape(cls, value: dict[int, str]) -> dict[int, str]:
+        if len(value) > 100:
+            raise ValueError("Najwyżej 100 uzasadnień naraz.")
+        cleaned = {int(k): v.strip() for k, v in value.items() if v and v.strip()}
+        if any(len(v) > 1000 for v in cleaned.values()):
+            raise ValueError("Uzasadnienie może mieć najwyżej 1000 znaków.")
+        return cleaned
+
+
+class AutoMatchEntryIn(BaseModel):
+    score: float = Field(ge=0, le=100)
+    source: str = Field(min_length=1, max_length=24, pattern=r"^[a-z0-9_]+$")
+    must_hit: list[str] = Field(default_factory=list, max_length=20)
+    must_total: Optional[int] = Field(default=None, ge=0, le=200)
+
+    def as_entry_meta(self) -> dict:
+        return auto_match_entry_meta(
+            score=self.score,
+            source=self.source,
+            must_hit=self.must_hit,
+            must_total=self.must_total,
+        )
+
+
+BulkProposalsRequest.model_rebuild()
+
+
+class ClosedCardInfo(BaseModel):
+    """Zamknięta karta osoby w tej rekrutacji i cel jej przywrócenia.
+
+    Przywrócenie to ruch karty (``POST /api/pipeline/move``), nie drugie
+    dodanie: ``restore_stage`` / ``restore_stage_def_id`` to etap, na który
+    trafiłoby to dodanie, a ``state_version`` to wersja procesu dla
+    ``expected_state_version``.
+    """
+
+    candidate_name: str
+    state_version: int = 0
+    restore_stage: str
+    restore_stage_def_id: Optional[int] = None
 
 
 class BulkSkippedRow(BaseModel):
     candidate_id: int
     reason: SkipReason
     reason_label: Optional[str] = None
+    closed: Optional[ClosedCardInfo] = None
 
 
 class BulkWarningRow(BaseModel):
@@ -163,6 +243,14 @@ class BulkProposalsResponse(BaseModel):
     warnings: list[BulkWarningRow] = Field(default_factory=list)
     total_added: int
     total_skipped: int
+    # 30.09.2026: dopasowania z portali (token integracji + ``auto_match``)
+    # trafiają do „Do przejrzenia” (źródło ``job_board``), nie na Tablicę.
+    # ``added`` jest wtedy puste — integracja liczy sukces po ``proposed``.
+    proposed: list[int] = Field(default_factory=list)
+    total_proposed: int = 0
+    # Osoby, którym CV z rekrutacji źródłowej przeniesiono jako szkic tej
+    # (`stage_cv_copy.carry_on_reassign`) — od 27.10.2026 tylko „Match” DL-a.
+    cv_carried: list[int] = Field(default_factory=list)
 
 
 class AssignableStage(BaseModel):
@@ -182,7 +270,7 @@ class AssignableStage(BaseModel):
 )
 async def list_assignable_stages(
     job_id: int,
-    current_user: RecruiterPlus,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[AssignableStage]:
     job = await db.scalar(select(Job).where(Job.id == job_id))
@@ -213,7 +301,8 @@ async def list_assignable_stages(
             id=s.id, name=s.name, order=s.order, legacy_enum_value=s.legacy_enum_value
         )
         for s in rows
-        if s.legacy_enum_value != PipelineStage.verified.value
+        # Lista wyboru w wyszukiwarce = te same etapy, które bulk-add przyjmie.
+        if _is_entry_column(s)
     ]
 
 
@@ -242,6 +331,41 @@ def _legacy_enum_for(
     return PipelineStage.new
 
 
+def _is_entry_column(stage_def: PipelineStageDef) -> bool:
+    """Czy etap leży na wejściu drogi: kolumna „Nowi” albo „Screening”.
+
+    Etap dalszy (np. „CV wysłane”, kolejka Cpro, rozmowa u klienta) ma bramki
+    ruchu — QC CV, stawkę DL, osobę od Cpro, debrief — które sprawdza wyłącznie
+    ``POST /api/pipeline/move``. Bulk-add na taki etap omijał je wszystkie
+    (przegląd PR #1836, bliźniak poprawki „para bez wierszy liczy od Nowi”).
+    Reguła żyje w ``board_stage_badges.is_entry_column``. Wtyczka LinkedIn
+    (``/api/extension/candidates``) wybiera stałe wejście „Nowi” i nie
+    przyjmuje etapu od klienta.
+    """
+    from app.services.board_stage_badges import is_entry_column
+
+    return is_entry_column(
+        stage_def.name,
+        stage_def.legacy_enum_value,
+        category=getattr(stage_def.category, "value", stage_def.category),
+        terminal_type=getattr(
+            stage_def.terminal_type, "value", stage_def.terminal_type
+        ),
+    )
+
+
+def _assert_entry_column(stage_def: PipelineStageDef) -> None:
+    if not _is_entry_column(stage_def):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Kandydatów dodaje się do kolumny „Nowi” albo „Screening” — dalsze "
+                "etapy przesuwa się pojedynczo (POST /api/pipeline/move), bo mają "
+                "własne wymagania (QC CV, stawka, debrief)."
+            ),
+        )
+
+
 async def _resolve_initial_stage(
     db: AsyncSession,
     job: Job,
@@ -263,6 +387,7 @@ async def _resolve_initial_stage(
             )
         )
         if by_legacy is not None and legacy_value != PipelineStage.verified.value:
+            _assert_entry_column(by_legacy)
             return by_legacy
     if override_id is not None:
         stage_def = await db.scalar(
@@ -292,6 +417,7 @@ async def _resolve_initial_stage(
                     " POST /api/pipeline/move dla pojedynczego kandydata."
                 ),
             )
+        _assert_entry_column(stage_def)
         return stage_def
 
     if not job.pipeline_template_id:
@@ -340,25 +466,15 @@ def _merge_tags(existing: list, incoming: list[str]) -> list:
 async def _reassign_sources(
     db: AsyncSession, job_id: int, candidate_ids: list[int]
 ) -> dict[int, Optional[int]]:
-    """Kandydat → rekrutacja, z której przyszło otwarte przepięcie."""
+    """Kandydat → rekrutacja, z której przyszło otwarte przepięcie.
 
-    if not candidate_ids:
-        return {}
-    rows = (
-        await db.execute(
-            select(JobProposal.candidate_id, JobProposal.evidence).where(
-                JobProposal.job_id == job_id,
-                JobProposal.candidate_id.in_(candidate_ids),
-                JobProposal.source == "reassign",
-                JobProposal.status == "proposed",
-            )
-        )
-    ).all()
-    out: dict[int, Optional[int]] = {}
-    for candidate_id, evidence in rows:
-        source_job = ((evidence or {}).get("reassign") or {}).get("job_id")
-        out[candidate_id] = source_job if isinstance(source_job, int) else None
-    return out
+    Ta sama kwerenda co rozpoznanie przy zakładaniu procesu
+    (``recruitment_process_commands.open_reassign_sources``) — tu liczona raz
+    na całą paczkę, bo ścieżka zbiorcza oznacza też propozycję źródłem
+    ``proposal`` jako przepięcie.
+    """
+
+    return await open_reassign_sources(db, job_id=job_id, candidate_ids=candidate_ids)
 
 
 # Ekran → źródło wejścia (0352). Propozycje systemu to „proposal", reszta to
@@ -374,12 +490,201 @@ def _entry_source_for(source: Optional[str]) -> str:
     return candidate_claim.ENTRY_ADDED_MANUAL
 
 
+def _closed_stage_label(name: Optional[str], stage: Optional[str]) -> str:
+    """Nazwa etapu z szablonu, a dla wiersza bez etapu szablonu — z kodu."""
+    return stage_display_label(name, stage) or "Zamknięty"
+
+
+def _closed_card_label(
+    stage_label: str, closed_at: datetime, closed_by_name: Optional[str]
+) -> str:
+    day = closed_at.astimezone(ZoneInfo(DEFAULT_TZ)).strftime("%d.%m.%Y")
+    who = f" ({closed_by_name})" if closed_by_name else ""
+    return f"Zamknięta karta w tej rekrutacji: {stage_label} {day}{who}"
+
+
+@dataclass
+class _ClosedCard:
+    label: str
+    state_version: int = 0
+
+
+async def _closed_cards(
+    db: AsyncSession, *, job_id: int, candidate_ids: list[int]
+) -> dict[int, _ClosedCard]:
+    """Osoby, których bieżąca karta w tej rekrutacji stoi w „Zamkniętych”.
+
+    „Już w rekrutacji” znaczyło dotąd „ma tu jakikolwiek wiersz etapu” — także
+    odrzucenie sprzed tygodnia. Zatrudniony i osoba w toku tu nie trafiają:
+    kolumnę liczy ta sama reguła co Tablica (``board_column_for``).
+    """
+    latest = await latest_cards(db, candidate_ids=candidate_ids, job_id=job_id)
+    cards = {
+        candidate_id: _ClosedCard(
+            label=_closed_card_label(
+                card.stage_label or "Zamknięty", card.moved_at, card.moved_by_name
+            )
+        )
+        for candidate_id, card in latest.items()
+        if card.column == "closed"
+    }
+    versions = await _process_versions(db, job_id=job_id, candidate_ids=list(cards))
+    for candidate_id, card in cards.items():
+        card.state_version = versions.get(candidate_id, 0)
+    return cards
+
+
+async def _process_versions(
+    db: AsyncSession, *, job_id: int, candidate_ids: list[int]
+) -> dict[int, int]:
+    """Wersja ostatniej próby — tak jak czyta ją ruch karty (`_latest_process`)."""
+    if not candidate_ids:
+        return {}
+    versions = (
+        await db.execute(
+            select(RecruitmentProcess.candidate_id, RecruitmentProcess.state_version)
+            .where(
+                RecruitmentProcess.job_id == job_id,
+                RecruitmentProcess.candidate_id.in_(candidate_ids),
+            )
+            .distinct(RecruitmentProcess.candidate_id)
+            .order_by(
+                RecruitmentProcess.candidate_id,
+                RecruitmentProcess.attempt_no.desc(),
+                RecruitmentProcess.id.desc(),
+            )
+        )
+    ).all()
+    return {candidate_id: int(version or 0) for candidate_id, version in versions}
+
+
+@dataclass(frozen=True)
+class InJobCard:
+    """Bieżąca karta osoby w tej rekrutacji — do okna szybkiego dodawania.
+
+    ``label`` mówi etap i dzień („Odrzucony 08.10.2026 (Anna Nowak)”,
+    „Screening od 08.10.2026”); ``closed`` jest tylko przy karcie
+    w „Zamkniętych” i niesie ten sam cel ruchu co ``closed_card_skip``.
+    """
+
+    label: str
+    column: str
+    closed: Optional[ClosedCardInfo] = None
+
+
+async def in_job_cards(
+    db: AsyncSession, *, job: Job, candidates: list[Candidate]
+) -> dict[int, InJobCard]:
+    """Karty osób, które już są w tej rekrutacji (w toku, zatrudnione, zamknięte).
+
+    Przywrócenie zamkniętej karty to ruch karty, nie drugie dodanie
+    (``docs/claude/rekrutacja-tablica/dodaj-do-rekrutacji-zamknieta-karta.md``),
+    więc cel ruchu liczymy tak samo jak dla ``closed_in_job``.
+    """
+    by_id = {candidate.id: candidate for candidate in candidates}
+    latest = await latest_cards(db, candidate_ids=list(by_id), job_id=job.id)
+    closed_ids = [cid for cid, card in latest.items() if card.column == "closed"]
+    versions = await _process_versions(db, job_id=job.id, candidate_ids=closed_ids)
+    stage_def: Optional[PipelineStageDef] = None
+    legacy_enum = PipelineStage.new
+    if closed_ids:
+        stage_def = await _resolve_initial_stage(db, job, None)
+        legacy_enum = _legacy_enum_for(
+            stage_def, None, has_template=job.pipeline_template_id is not None
+        )
+    out: dict[int, InJobCard] = {}
+    for candidate_id, card in latest.items():
+        day = card.moved_at.astimezone(ZoneInfo(DEFAULT_TZ)).strftime("%d.%m.%Y")
+        if card.column != "closed":
+            out[candidate_id] = InJobCard(
+                label=f"{card.stage_label or 'W toku'} od {day}", column=card.column
+            )
+            continue
+        candidate = by_id[candidate_id]
+        who = f" ({card.moved_by_name})" if card.moved_by_name else ""
+        out[candidate_id] = InJobCard(
+            label=f"{card.stage_label or 'Zamknięty'} {day}{who}",
+            column=card.column,
+            closed=ClosedCardInfo(
+                candidate_name=f"{candidate.name} {candidate.lastname}".strip(),
+                state_version=versions.get(candidate_id, 0),
+                restore_stage=legacy_enum.value,
+                restore_stage_def_id=stage_def.id if stage_def else None,
+            ),
+        )
+    return out
+
+
+def _closed_skip_row(
+    candidate: Candidate,
+    card: _ClosedCard,
+    stage_def: Optional[PipelineStageDef],
+    legacy_enum: PipelineStage,
+) -> BulkSkippedRow:
+    return BulkSkippedRow(
+        candidate_id=candidate.id,
+        reason="closed_in_job",
+        reason_label=card.label,
+        closed=ClosedCardInfo(
+            candidate_name=f"{candidate.name} {candidate.lastname}".strip(),
+            state_version=card.state_version,
+            restore_stage=legacy_enum.value,
+            restore_stage_def_id=stage_def.id if stage_def else None,
+        ),
+    )
+
+
+async def closed_card_skip(
+    db: AsyncSession, *, job: Job, candidate: Candidate
+) -> Optional[BulkSkippedRow]:
+    """Wiersz ``closed_in_job`` jednej pary albo ``None``, gdy karta nie jest zamknięta.
+
+    Dla wejść, które dodają jedną osobę poza bulk-addem („Przypisz do
+    rekrutacji”): ten sam powód, etykieta i cel ruchu co w oknie dodawania.
+    Cel to etap, na który trafiłoby zwykłe dodanie.
+    """
+    card = (await _closed_cards(db, job_id=job.id, candidate_ids=[candidate.id])).get(
+        candidate.id
+    )
+    if card is None:
+        return None
+    stage_def = await _resolve_initial_stage(db, job, None)
+    legacy_enum = _legacy_enum_for(
+        stage_def, None, has_template=job.pipeline_template_id is not None
+    )
+    return _closed_skip_row(candidate, card, stage_def, legacy_enum)
+
+
 @dataclass
 class IntakeResult:
     added: list[int]
     skipped: list[BulkSkippedRow]
     warnings: list[BulkWarningRow]
     stage_ids: dict[int, int]
+    cv_carried: list[int] = field(default_factory=list)
+
+
+async def _off_limits_declined(
+    db: AsyncSession, *, job: Job, candidates: list[Candidate], human: bool
+) -> dict[int, str]:
+    """Off-limits (21.10.2026): jedno pytanie o całą partię, zanim cokolwiek
+    się zapisze — bez potwierdzenia 409 z listą osób. Zwraca osoby, przy
+    których padło „Nie, to my się odezwaliśmy” (id → nazwa firmy); te
+    wypadają z partii, reszta się dodaje. Automat i integracja nie pytają."""
+    if not human or not candidates:
+        return {}
+    people = await client_off_limits.people_needing_confirmation(
+        db, job_id=job.id, candidates=candidates
+    )
+    confirmations = client_off_limits.current_confirmations()
+    missing = [p for p in people if p.candidate_id not in confirmations]
+    if missing:
+        raise client_off_limits.OffLimitsConfirmationRequired(missing)
+    return {
+        p.candidate_id: p.hit.client_name
+        for p in people
+        if confirmations[p.candidate_id] == client_off_limits.SKIP
+    }
 
 
 async def add_candidates_to_job(
@@ -391,9 +696,13 @@ async def add_candidates_to_job(
     initial_stage_def_id: Optional[int] = None,
     initial_stage_legacy: Optional[str] = None,
     note: Optional[str] = None,
+    notes_by_candidate: Optional[dict[int, str]] = None,
     tags: Optional[list[str]] = None,
     entry_source: str = candidate_claim.ENTRY_ADDED_MANUAL,
     claim: bool = True,
+    entry_meta: Optional[dict] = None,
+    mark_proposals: bool = False,
+    reassign_from_job_id: Optional[int] = None,
 ) -> IntakeResult:
     """Dodaj kandydatów do pipeline'u rekrutacji — jedna logika dla trasy i automatu.
 
@@ -408,6 +717,11 @@ async def add_candidates_to_job(
     zakłada blokadę 12 h na ``actor_user_id`` (osoba dodana ręcznie). Osoba
     z otwartą propozycją przepięcia dostaje źródło ``reassign`` i rekrutację,
     z której przyszła — niezależnie od ekranu, z którego ją dodano.
+
+    ``mark_proposals`` (07.10.2026): propozycje osoby stają się ``added``
+    wyłącznie przy dodaniu przez człowieka. Karta z integracji albo automatu
+    (``auto_match``) zostawia skrzynkę bez zmian — inaczej „dodana” znaczyłoby
+    „ktoś z zespołu ją wybrał”, choć nikt jej nie wybrał.
     """
     # Kanoniczna kolejność blokad — patrz `canonical_candidate_lock_order`.
     # Pętla niżej blokuje wiersz kandydata przez `open_process`, a jedyny commit
@@ -458,6 +772,15 @@ async def add_candidates_to_job(
         .all()
     )
     already_in_job_set: set[int] = set(already_in_job)
+    # Zamkniętą kartę nazywamy tylko człowiekowi (``claim``): okno daje mu
+    # „Przywróć”. Integracja i automat nie mają z tym co zrobić — ich
+    # odpowiedzi i dziennik decyzji zostają przy „już w rekrutacji”, bez
+    # imienia osoby, która kartę zamknęła.
+    closed_cards = (
+        await _closed_cards(db, job_id=job.id, candidate_ids=sorted(already_in_job_set))
+        if claim
+        else {}
+    )
 
     # One shared eligibility read (``pipeline_eligibility``): active client
     # conflicts, current employment derived from live contracts, excluded
@@ -475,9 +798,44 @@ async def add_candidates_to_job(
 
     added: list[int] = []
     stage_ids: dict[int, int] = {}
+    cv_carried: list[int] = []
     skipped: list[BulkSkippedRow] = []
     warnings: list[BulkWarningRow] = []
     reassign_sources = await _reassign_sources(db, job.id, lock_ordered_ids)
+    if reassign_from_job_id is not None:
+        # „Match” Delivery Leada (22.10.2026): przepięcie wskazane wprost —
+        # ta sama kopia CV i to samo źródło wejścia co przy propozycji.
+        reassign_sources = {cid: reassign_from_job_id for cid in lock_ordered_ids}
+    off_limits_declined = await _off_limits_declined(
+        db,
+        job=job,
+        candidates=[
+            candidates_by_id[cid]
+            for cid in lock_ordered_ids
+            if cid in candidates_by_id
+            and decisions[cid].assignment_allowed
+            and cid not in reassign_sources
+        ],
+        human=claim
+        and entry_source in candidate_claim.HUMAN_ENTRY_SOURCES
+        and entry_source != candidate_claim.ENTRY_REASSIGN,
+    )
+
+    # Gdzie osoba stała u systemu, zanim dodał ją człowiek (02.11.2026).
+    system_views = (
+        await sent_vs_system.snapshot_for_add(
+            db,
+            job,
+            [
+                candidates_by_id[cid]
+                for cid in lock_ordered_ids
+                if cid in candidates_by_id and cid not in already_in_job_set
+            ],
+            now=now,
+        )
+        if entry_source in candidate_claim.HUMAN_ENTRY_SOURCES
+        else {}
+    )
 
     # Jeden skan progresu assignmentu na cały batch: bez tego każda
     # iteracja powtarza pełne zapytanie KPI trzymając blokadę wiersza joba.
@@ -496,6 +854,18 @@ async def add_candidates_to_job(
             # blacklist, already in job, hiring-manager veto. Client conflicts
             # are warnings since 17.09.2026.
             decision = decisions[candidate_id]
+            closed_card = (
+                closed_cards.get(candidate_id)
+                if decision.reason_code is EligibilityReason.already_in_job
+                else None
+            )
+            if closed_card is not None:
+                # Karta w „Zamkniętych” to nie „już w rekrutacji”: mówimy,
+                # skąd i od kiedy, i podajemy cel ruchu, który ją przywraca.
+                skipped.append(
+                    _closed_skip_row(candidate, closed_card, stage_def, legacy_enum)
+                )
+                continue
             if not decision.assignment_allowed:
                 # Name the manager and the date when the veto is what blocked —
                 # "hiring manager already rejected" alone sends the recruiter
@@ -508,6 +878,19 @@ async def add_candidates_to_job(
                         ),
                         reason_label=detail_for(
                             decision, manager_verdicts.get(candidate_id)
+                        ),
+                    )
+                )
+                continue
+
+            declined = off_limits_declined.get(candidate_id)
+            if declined is not None:
+                skipped.append(
+                    BulkSkippedRow(
+                        candidate_id=candidate_id,
+                        reason="off_limits_declined",
+                        reason_label=(
+                            f"pracuje w firmie {declined} — stamtąd nie wyciągamy ludzi"
                         ),
                     )
                 )
@@ -539,6 +922,11 @@ async def add_candidates_to_job(
                 ),
                 reassign_from_job_id=reassign_sources.get(candidate_id),
                 claim_for_user_id=actor_user_id if claim else None,
+                entry_meta=sent_vs_system.with_system_view(
+                    entry_meta, system_views.get(candidate_id)
+                ),
+                # Propozycje oznacza ta funkcja sama (`mark_proposals`, niżej).
+                mark_proposals=False,
             )
             # M3-ACT-01: every stage-creating entry point must snapshot the CV that
             # was current at assignment (the evidence of what was submitted) + emit
@@ -546,7 +934,29 @@ async def add_candidates_to_job(
             # (recommendations.assign_candidate_to_job) already holds. Bulk-add was
             # skipping it, so a client dispute could lack the sent CV. Idempotent +
             # fail-soft on a missing CV, so it never breaks the batch.
-            await create_original_cv_snapshot(db, stage)
+            stage_cv = await create_original_cv_snapshot(db, stage)
+            # CV z rekrutacji źródłowej jako szkic tej — tylko przy „Match”
+            # Delivery Leada (`reassign_from_job_id`), który od razu wysyła
+            # osobę do klienta. Zwykłe przepięcie (panel podobnych rekrutacji,
+            # „Do przejrzenia”) CV nie przenosi od 27.10.2026: CV powstaje po
+            # trzech potwierdzeniach (`generator-cv/cv-po-potwierdzeniu.md`),
+            # a kopia dawała gotowe CV sprzed nowego screeningu. Stare CV
+            # rekruter bierze sam przez „Użyj gotowego CV”. `flush` PRZED
+            # kopią: jej `except` nie może połknąć błędu zapisu samego dodania.
+            reassign_from = reassign_from_job_id
+            if reassign_from is not None:
+                from app.services.stage_cv_copy import (  # noqa: PLC0415
+                    carry_on_reassign,
+                )
+
+                await db.flush()
+                if await carry_on_reassign(
+                    db,
+                    stage_cv,
+                    source_job_id=reassign_from,
+                    user_id=actor_user_id,
+                ):
+                    cv_carried.append(candidate_id)
             # Etap pochodzi z command service (writer fence), więc okazja
             # kontaktu wisi na jego wierszu, nie na własnym `CandidateStage`.
             await maybe_ensure_contact_opportunity(
@@ -557,15 +967,22 @@ async def add_candidates_to_job(
                 occurred_at=stage.moved_at,
             )
 
-            # Optional shared note attached to every newly added candidate.
-            if note:
+            # Optional shared note attached to every newly added candidate,
+            # plus the person's own note (``notes_by_candidate``, „Podobni”).
+            own_note = (notes_by_candidate or {}).get(candidate_id)
+            for content in (note, own_note):
+                if not content:
+                    continue
                 db.add(
                     Note(
-                        content=note,
+                        content=content,
                         note_type=NoteType.general,
                         candidate_id=candidate_id,
                         job_id=job.id,
                         author_id=actor_user_id,
+                        # 0412: wpis integracji (scraper) jest systemowy —
+                        # lista go chowa, AI i wyszukiwanie go nie czytają.
+                        external_source=None if claim else SYSTEM_NOTE_SOURCE,
                     )
                 )
 
@@ -586,17 +1003,221 @@ async def add_candidates_to_job(
             added.append(candidate_id)
             stage_ids[candidate_id] = stage.id
 
-    if added:
-        # Skrzynka „Propozycje" (0333): osoba faktycznie dodana przestaje być
-        # propozycją — z każdego źródła. W savepoincie i fail-soft: awaria tego
-        # stempla nie może cofnąć dodania do rekrutacji (trasa i automat).
+    if added and mark_proposals:
+        # Skrzynka „Propozycje" (0333): osoba dodana przez człowieka przestaje
+        # być propozycją — z każdego źródła. W savepoincie i fail-soft: awaria
+        # tego stempla nie może cofnąć dodania do rekrutacji.
         from app.services.job_proposals import mark_added_fail_soft  # noqa: PLC0415
 
         await mark_added_fail_soft(db, job_id=job.id, candidate_ids=added)
 
     return IntakeResult(
-        added=added, skipped=skipped, warnings=warnings, stage_ids=stage_ids
+        added=added,
+        skipped=skipped,
+        warnings=warnings,
+        stage_ids=stage_ids,
+        cv_carried=cv_carried,
     )
+
+
+@dataclass
+class ProposeResult:
+    proposed: list[int]
+    skipped: list[BulkSkippedRow]
+    warnings: list[BulkWarningRow]
+
+
+def job_board_evidence(entry_meta: Optional[dict]) -> Optional[dict]:
+    """Dowody propozycji ``job_board`` z wyniku auto-matcha integracji.
+
+    Wyłącznie liczby i nazwy wymagań (``sanitize_evidence`` i tak przepuszcza
+    tylko to): wynik, portal, trafione must-have. ``matched_must`` pozwala
+    skrzynce pokazać trafione wymagania tak jak przy innych źródłach.
+    """
+    if not isinstance(entry_meta, dict):
+        return None
+    evidence: dict = {"auto_match": entry_meta}
+    must_hit = entry_meta.get("must_hit")
+    if isinstance(must_hit, list) and must_hit:
+        evidence["matched_must"] = must_hit
+    return evidence
+
+
+async def propose_candidates_for_job(
+    db: AsyncSession,
+    *,
+    job: Job,
+    candidate_ids: list[int],
+    entry_meta: Optional[dict],
+) -> ProposeResult:
+    """Dopasowanie z portalu → propozycja ``job_board`` w „Do przejrzenia”.
+
+    ``entry_meta=None`` (06.10.2026): integracja bez wyniku auto-matcha i bez
+    dowodu zgłoszenia do tej rekrutacji — propozycja bez wyniku i dowodów
+    (``integration_intake``), nigdy wymyślone „0/100”.
+
+    Decyzja 30.09.2026: scraper JJIT/RocketJobs zakładał karty na Tablicy
+    (1 819 kart na „Ogłoszeniach”, każda osoba w ~3,9 rekrutacjach, dalej
+    przeszły 2). Teraz wynik czeka na decyzję człowieka w skrzynce propozycji.
+    Te same twarde bramki co przy dodaniu (kandydat istnieje, globalna czarna
+    lista, już w tej rekrutacji, weto hiring managera) — pominięci wracają
+    w ``skipped`` z tymi samymi powodami. Bez commita (robi to wołający).
+    """
+    from app.services.auto_match_outbox import candidate_revision  # noqa: PLC0415
+    from app.services.job_proposals import upsert_proposals  # noqa: PLC0415
+
+    ordered_ids = canonical_candidate_lock_order(candidate_ids)
+    cand_rows = (
+        (await db.execute(select(Candidate).where(Candidate.id.in_(ordered_ids))))
+        .scalars()
+        .all()
+    )
+    candidates_by_id: dict[int, Candidate] = {c.id: c for c in cand_rows}
+    already_in_job_set: set[int] = set(
+        (
+            await db.execute(
+                select(CandidateStage.candidate_id).where(
+                    CandidateStage.job_id == job.id,
+                    CandidateStage.candidate_id.in_(ordered_ids),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    decisions, manager_verdicts = await evaluate_candidates_for_job_with_verdicts(
+        db,
+        job=job,
+        candidate_ids=ordered_ids,
+        now=datetime.now(timezone.utc),
+        already_in_job_ids=already_in_job_set,
+        candidates=candidates_by_id,
+    )
+
+    evidence = job_board_evidence(entry_meta)
+    score = entry_meta.get("score") if isinstance(entry_meta, dict) else None
+    rows: list[dict] = []
+    skipped: list[BulkSkippedRow] = []
+    warnings: list[BulkWarningRow] = []
+    for candidate_id in ordered_ids:
+        candidate = candidates_by_id.get(candidate_id)
+        if candidate is None:
+            skipped.append(
+                BulkSkippedRow(candidate_id=candidate_id, reason="candidate_not_found")
+            )
+            continue
+        decision = decisions[candidate_id]
+        if not decision.assignment_allowed:
+            skipped.append(
+                BulkSkippedRow(
+                    candidate_id=candidate_id,
+                    reason=_SKIP_REASON_BY_ELIGIBILITY.get(
+                        decision.reason_code, "blacklisted"
+                    ),
+                    reason_label=detail_for(
+                        decision, manager_verdicts.get(candidate_id)
+                    ),
+                )
+            )
+            continue
+        warn_reason = _WARNING_REASON_BY_ELIGIBILITY.get(decision.reason_code)
+        if warn_reason is not None:
+            warnings.append(
+                BulkWarningRow(
+                    candidate_id=candidate_id,
+                    reason=warn_reason,
+                    reason_label=decision.reason,
+                )
+            )
+        rows.append(
+            {
+                "candidate_id": candidate_id,
+                "score": score,
+                "evidence": evidence,
+                "cv_revision": candidate_revision(candidate),
+            }
+        )
+    if rows:
+        await upsert_proposals(db, job.id, rows, source="job_board")
+    return ProposeResult(
+        proposed=[r["candidate_id"] for r in rows],
+        skipped=skipped,
+        warnings=warnings,
+    )
+
+
+async def split_by_application(
+    db: AsyncSession, *, job_id: int, candidate_ids: list[int]
+) -> tuple[list[int], list[int]]:
+    """Integracja bez wyniku auto-matcha: ``(na Tablicę, do propozycji)``.
+
+    Na Tablicę trafia tylko osoba, która zgłosiła się do TEJ rekrutacji
+    (``integration_intake``, 06.10.2026); reszta czeka w „Do przejrzenia”.
+    Kolejność z żądania zostaje. Ta sama decyzja dla tokenu OAuth na tej
+    trasie i dla klucza API v1 (``POST /recruitments/{id}/candidates``).
+    """
+    from app.services.integration_intake import (  # noqa: PLC0415
+        candidates_with_application_evidence,
+    )
+
+    applied = await candidates_with_application_evidence(
+        db, job_id=job_id, candidate_ids=candidate_ids
+    )
+    return (
+        [c for c in candidate_ids if c in applied],
+        [c for c in candidate_ids if c not in applied],
+    )
+
+
+async def _similar_reason_notes(
+    db: AsyncSession, *, job: Job, candidate_ids: list[int], reasons: dict[int, str]
+) -> dict[int, str]:
+    """„Podobni” (22.10.2026): brak krytycznej = dodanie tylko ze zdaniem.
+
+    Ta sama bramka umiejętności krytycznych co wyszukiwanie
+    (``similar_candidates.critical_check``). Osoba bez którejś krytycznej
+    i bez zdania w ``reasons`` → 422 z imionami; ze zdaniem → notatka
+    „Do sprawdzenia: … — zdanie” na karcie. Decyzja Artura: ostrzeżenie
+    z obowiązkowym uzasadnieniem, nie blokada.
+    """
+    from app.services.similar_candidates import (  # noqa: PLC0415
+        critical_check,
+        missing_labels,
+        note_for_missing,
+    )
+
+    candidates = list(
+        (await db.execute(select(Candidate).where(Candidate.id.in_(candidate_ids))))
+        .scalars()
+        .all()
+    )
+    checks = await critical_check(db, job, candidates)
+    notes: dict[int, str] = {}
+    without_reason: list[str] = []
+    for candidate in candidates:
+        missing = missing_labels(checks.get(candidate.id, []))
+        if not missing:
+            continue
+        reason = reasons.get(candidate.id)
+        if not reason:
+            without_reason.append(
+                f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+                or f"#{candidate.id}"
+            )
+            continue
+        notes[candidate.id] = note_for_missing(missing, reason)
+    if without_reason:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "critical_reason_required",
+                "message": (
+                    "Brak umiejętności krytycznej tej rekrutacji: "
+                    f"{', '.join(without_reason)}. Napisz, dlaczego mimo to."
+                ),
+            },
+        )
+    return notes
 
 
 @router.post(
@@ -621,14 +1242,57 @@ async def bulk_add_proposals(
     await ensure_job_membership(db, current_user, job_id)
     from_integration = candidate_claim.is_integration_request(request)
 
+    # Integracja nie zakłada kart bez dowodu zgłoszenia (06.10.2026):
+    # dopasowanie z portalu (``auto_match``) → zawsze propozycja; bez
+    # ``auto_match`` → propozycja, chyba że osoba zgłosiła się do TEJ rekrutacji
+    # (formularz, źródło „ogłoszenie”, notatka z formularza aplikacji).
+    propose_ids: list[int] = []
+    propose_meta: Optional[dict] = None
+    add_ids: list[int] = list(body.candidate_ids)
+    if from_integration:
+        if body.auto_match is not None:
+            propose_ids, add_ids = list(body.candidate_ids), []
+            propose_meta = body.auto_match.as_entry_meta()
+        else:
+            add_ids, propose_ids = await split_by_application(
+                db, job_id=job.id, candidate_ids=body.candidate_ids
+            )
+
+    proposal: Optional[ProposeResult] = None
+    if propose_ids:
+        proposal = await propose_candidates_for_job(
+            db,
+            job=job,
+            candidate_ids=propose_ids,
+            entry_meta=propose_meta,
+        )
+    if proposal is not None and not add_ids:
+        await db.commit()
+        return BulkProposalsResponse(
+            added=[],
+            skipped=proposal.skipped,
+            warnings=proposal.warnings,
+            total_added=0,
+            total_skipped=len(proposal.skipped),
+            proposed=proposal.proposed,
+            total_proposed=len(proposal.proposed),
+        )
+
+    notes_by_candidate: dict[int, str] = {}
+    if body.source == "similar_candidates" and not from_integration and add_ids:
+        notes_by_candidate = await _similar_reason_notes(
+            db, job=job, candidate_ids=add_ids, reasons=body.reasons
+        )
+
     result = await add_candidates_to_job(
         db,
         job=job,
-        candidate_ids=body.candidate_ids,
+        candidate_ids=add_ids,
         actor_user_id=current_user.id,
         initial_stage_def_id=body.initial_stage_def_id,
         initial_stage_legacy=body.initial_stage_legacy,
         note=body.note,
+        notes_by_candidate=notes_by_candidate,
         tags=body.tags,
         entry_source=(
             candidate_claim.ENTRY_AUTO_MATCH
@@ -636,14 +1300,32 @@ async def bulk_add_proposals(
             else _entry_source_for(body.source)
         ),
         claim=not from_integration,
+        # Każde `BulkAddSource` to kliknięcie człowieka; token integracji nie.
+        mark_proposals=not from_integration,
     )
     added, skipped, warnings = result.added, result.skipped, result.warnings
+    proposed: list[int] = []
+    if proposal is not None:
+        skipped = [*proposal.skipped, *skipped]
+        warnings = [*proposal.warnings, *warnings]
+        proposed = proposal.proposed
 
     actor_id = current_user.id
     await db.commit()
     if added:
         # Live kanban: the rest of the team re-reads the board (best-effort).
         await broadcast_pipeline_changed(db, job_id, actor_id)
+    if added and body.source in ("also_fits", "also_manual") and not from_integration:
+        from app.services.also_fits import record_also_fits_added
+
+        await record_also_fits_added(
+            db,
+            job=job,
+            candidate_ids=added,
+            actor_id=actor_id,
+            origin_job_id=body.origin_job_id,
+            manual=body.source == "also_manual",
+        )
 
     # Match telemetry (no-op unless AI_MATCH_TELEMETRY_ENABLED): one
     # `add_to_pipeline` outcome per candidate that actually entered the
@@ -653,14 +1335,19 @@ async def bulk_add_proposals(
     # telemetry service's own session: it cannot undo or fail the add (it never
     # raises), and it writes at most one row per id.
     if added:
-        from app.services.match_telemetry_service import emit_pipeline_additions
+        from app.services.match_telemetry_service import (
+            emit_pipeline_additions,
+            latest_process_ids,
+        )
 
         await emit_pipeline_additions(
             job_id=job_id,
             candidate_ids=added,
             user_id=actor_id,
             run_id=body.run_id,
-            source=body.source,
+            # Audyt 06.10.2026 (U2): dodanie tokenem integracji ma własny kod.
+            source="integration" if from_integration else body.source,
+            process_ids=await latest_process_ids(db, job_id, added),
         )
 
     return BulkProposalsResponse(
@@ -669,4 +1356,7 @@ async def bulk_add_proposals(
         warnings=warnings,
         total_added=len(added),
         total_skipped=len(skipped),
+        proposed=proposed,
+        total_proposed=len(proposed),
+        cv_carried=result.cv_carried,
     )

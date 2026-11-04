@@ -8,12 +8,13 @@ recruiter — so ownership is attributed to whoever posted the link.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -101,6 +102,9 @@ class CandidateInviteLink(Base):
     visit_count: Mapped[int] = mapped_column(
         Integer, server_default="0", nullable=False, default=0
     )
+    # 0489: „O mnie” na stronie stałego linku (tylko ``kind='recruiter'``),
+    # najwyżej 280 znaków po kontroli strony kariery (``api/career_links.py``).
+    about: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -124,3 +128,19 @@ class CandidateInviteLink(Base):
 
     creator = relationship("User", foreign_keys=[created_by])
     job = relationship("Job", foreign_keys=[job_id])
+
+
+class CandidateInviteLinkVisitDay(Base):
+    """Wejścia na link jednego dnia kalendarza firmy (0640, decyzja Artura 02.11.2026)."""
+
+    __tablename__ = "candidate_invite_link_visit_days"
+
+    link_token: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("candidate_invite_links.token", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    visits: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )

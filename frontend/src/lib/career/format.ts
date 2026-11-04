@@ -5,7 +5,7 @@
  * `[hybryda · 2 dni]`. Pusta wartość = wiersz znika (nie „[—]"), bo pusty
  * parametr na stronie publicznej czyta się jak błąd, nie jak brak informacji.
  */
-import type { CareerJob, CareerJobParams, RemotePolicy } from "./api";
+import type { CareerJobParams, CareerRecruiterJob, RemotePolicy } from "./api";
 
 const REMOTE_LABEL: Record<RemotePolicy, string> = {
   remote: "zdalnie",
@@ -33,6 +33,16 @@ function lower(value: string | null | undefined): string | null {
   return v ? v.toLocaleLowerCase("pl-PL") : null;
 }
 
+/** „warszawa · hybryda” / „zdalnie” — wiersz listy rekrutacji. */
+export function jobLocationLabel(
+  job: Pick<CareerRecruiterJob, "city" | "remote_policy">,
+): string {
+  const city = job.city?.trim().toLocaleLowerCase("pl-PL");
+  const mode = remoteLabel(job.remote_policy);
+  if (job.remote_policy === "remote") return mode ?? "";
+  return [city, mode].filter(Boolean).join(" · ");
+}
+
 /** Wiersze panelu // PARAMETRY. */
 export function paramRows(params: CareerJobParams | null | undefined): ParamRow[] {
   if (!params) return [];
@@ -41,10 +51,13 @@ export function paramRows(params: CareerJobParams | null | undefined): ParamRow[
   if (city) rows.push({ key: "city", label: "lokalizacja", value: city });
   const mode = remoteLabel(params.remote_policy);
   if (mode) {
+    const hybrid = params.remote_policy === "hybrid";
     const days =
-      params.remote_policy === "hybrid" && params.onsite_days_per_week
-        ? ` · ${daysLabel(params.onsite_days_per_week)}`
-        : "";
+      hybrid && params.onsite_days_per_month
+        ? ` · ${daysLabel(params.onsite_days_per_month)} w miesiącu`
+        : hybrid && params.onsite_days_per_week
+          ? ` · ${daysLabel(params.onsite_days_per_week)}`
+          : "";
     rows.push({ key: "mode", label: "tryb", value: `${mode}${days}` });
   }
   const seniority = lower(params.seniority);
@@ -67,29 +80,6 @@ export function paramsSummary(params: CareerJobParams | null | undefined): strin
   ]
     .filter(Boolean)
     .join(" · ");
-}
-
-/** Tytuł w dwóch liniach: ostatnie słowo na bordo, z kropką jak w makiecie. */
-export function splitTitle(title: string): { first: string; second: string } {
-  const words = title.trim().split(/\s+/).filter(Boolean);
-  const last = words[words.length - 1] ?? "";
-  return {
-    first: words.slice(0, -1).join(" "),
-    // Kropka tylko po literze/cyfrze — nie po „)", „.", „?" itd. („(ZOB-3003)." wyglądało jak błąd).
-    second: /[\p{L}\p{N}]$/u.test(last) ? `${last}.` : last,
-  };
-}
-
-/** Ścieżka w pasku okna i poleceniach: slug bez losowego sufiksu, jeśli jest. */
-export function jobHandle(job: Pick<CareerJob, "slug" | "title">): string {
-  const fromTitle = job.title
-    .toLocaleLowerCase("pl-PL")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/ł/g, "l")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return fromTitle || job.slug;
 }
 
 /** Nazwa wymagania jako „identyfikator": „Java 17+ i Spring Boot" → java_17_i_spring_boot. */
@@ -130,19 +120,9 @@ export function genitiveName(firstName: string): string {
   if (/[kg]a$/i.test(name)) return `${name.slice(0, -1)}i`; // Olga → Olgi
   if (/ia$/i.test(name)) return `${name.slice(0, -1)}`; // Kasia → Kasi
   if (/ja$/i.test(name)) return `${name.slice(0, -2)}i`; // Maja → Mai
+  if (/la$/i.test(name)) return `${name.slice(0, -1)}i`; // Ola → Oli
   if (/a$/i.test(name)) return `${name.slice(0, -1)}y`; // Marta → Marty
   if (/ek$/i.test(name)) return `${name.slice(0, -2)}ka`; // Marek → Marka
   return `${name}a`; // Tomasz → Tomasza
 }
 
-/** Login w stylu `marta@dynaminds`. */
-export function recruiterLogin(firstName: string): string {
-  const base = firstName
-    .trim()
-    .toLocaleLowerCase("pl-PL")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/ł/g, "l")
-    .replace(/[^a-z0-9]+/g, "");
-  return `${base || "rekrutacja"}@dynaminds`;
-}

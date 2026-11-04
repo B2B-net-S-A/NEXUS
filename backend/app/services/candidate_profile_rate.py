@@ -83,11 +83,25 @@ def conflicting_profile_rate_currency_clause(currency_column):  # type: ignore[n
 TRAINEE_CALL_RATE_SOURCE = "trainee_call"
 
 
-def write_profile_rate(candidate: Any, amount: Decimal | None, *, source: str) -> dict:
+#: Znacznik „ustaw datę stawki na teraz” (domyślne zachowanie zapisu).
+_STAMP_NOW: Any = object()
+
+
+def write_profile_rate(
+    candidate: Any,
+    amount: Decimal | None,
+    *,
+    source: str,
+    rate_updated_at: Any = _STAMP_NOW,
+) -> dict:
     """Mutate the complete PLN/hour fact and version under the caller's row lock.
 
     All canonical writers use this primitive; the caller records the returned
     audit payload and invalidates matching in the same transaction.
+
+    ``rate_updated_at`` (06.10.2026): cofnięcie zapisu (``scraper_revert``)
+    przywraca datę POPRZEDNIEJ stawki — dzisiejsza data udawałaby świeżą
+    rozmowę o stawce (listy praktykantów i „Stawka od” czytają tę datę).
     """
     amount = amount.quantize(Decimal("0.01")) if amount is not None else None
     old_version = getattr(candidate, "profile_rate_version", 0) or 0
@@ -119,5 +133,7 @@ def write_profile_rate(candidate: Any, amount: Decimal | None, *, source: str) -
     candidate.expected_rate_hourly = amount
     candidate.expected_rate_currency = details["new_currency"]
     candidate.profile_rate_version = old_version + 1
-    candidate.profile_rate_updated_at = datetime.now(timezone.utc)
+    candidate.profile_rate_updated_at = (
+        datetime.now(timezone.utc) if rate_updated_at is _STAMP_NOW else rate_updated_at
+    )
     return details

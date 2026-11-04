@@ -452,8 +452,13 @@ async def test_premature_debrief_does_not_close_calendar_steps(
 
 
 async def test_interview_event_info_respects_job_access(app_client: AsyncClient):
+    """Rozmowę widzi każdy z dostępem do rekrutacji — od 23.09.2026 także
+    rekruter spoza zespołu (audyt 25.09.2026: DL nie otwierał debriefu cudzej
+    rozmowy). Stara rola podglądu ``user`` przechodzi wyłącznie przez
+    członkostwo, więc bez niego rozmowy nie zobaczy."""
     rec_id, _ = await _user(UserRole.recruiter)
-    _, outsider_h = await _user(UserRole.recruiter)
+    _, recruiter_h = await _user(UserRole.recruiter)
+    _, outsider_h = await _user(UserRole.user)
     job_id, cand_id, client_id = await _pair(recruiter_id=rec_id)
     event_id = await _event(
         cand_id=cand_id,
@@ -463,6 +468,10 @@ async def test_interview_event_info_respects_job_access(app_client: AsyncClient)
         status=EventStatus.scheduled,
         owner_id=rec_id,
     )
+    seen = await app_client.get(
+        f"/api/interview-cycle/events/{event_id}", headers=recruiter_h
+    )
+    assert seen.status_code == 200, seen.text
     resp = await app_client.get(
         f"/api/interview-cycle/events/{event_id}", headers=outsider_h
     )

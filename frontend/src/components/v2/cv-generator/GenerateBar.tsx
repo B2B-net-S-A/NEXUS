@@ -18,12 +18,14 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 
 export interface ClientRulesCardProps {
   clientName: string | null;
-  /** Skąd klient: z procesu albo wybrany ręcznie. */
-  clientSource: "process" | "manual" | null;
+  /** Skąd klient — od 13.10.2026 zawsze z procesu (bez „Inny klient”). */
+  clientSource: "process" | null;
   loading: boolean;
   error: boolean;
   languageLabel: string;
   filename: string | null;
+  /** Nagłówek CV, który wyjdzie z formularza. */
+  headerPreview?: string | null;
   projectRef: string | null;
   projectRefFromJob: boolean;
   consentRequired: boolean;
@@ -47,7 +49,7 @@ export function ClientRulesCard(props: ClientRulesCardProps) {
       </div>
       {!props.clientName ? (
         <p className="text-sm text-muted-foreground">
-          Wybierz klienta, żeby zobaczyć jego reguły: język, nazwę pliku, numer projektu i zgodę RODO.
+          Wybierz proces, żeby zobaczyć reguły jego klienta: język, nazwę pliku, numer projektu i zgodę RODO.
         </p>
       ) : props.loading ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
@@ -60,6 +62,9 @@ export function ClientRulesCard(props: ClientRulesCardProps) {
       ) : (
         <>
           <Row label="Język">{props.languageLabel}</Row>
+          {props.headerPreview ? (
+            <Row label="Nagłówek CV"><span className="text-xs">{props.headerPreview}</span></Row>
+          ) : null}
           {props.filename ? (
             <Row label="Nazwa pliku"><span className="font-mono text-xs">{props.filename}</span></Row>
           ) : null}
@@ -73,9 +78,9 @@ export function ClientRulesCard(props: ClientRulesCardProps) {
           ) : null}
           <div className="border-t border-border pt-2.5">
             <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="text-muted-foreground">Zgoda RODO</span>
+              <span className="text-muted-foreground">Zrzut zgody RODO</span>
               {!props.consentRequired ? (
-                <StatusChip tone="neutral">nie wymaga</StatusChip>
+                <StatusChip tone="neutral">niewymagany</StatusChip>
               ) : props.consentAttached ? (
                 <StatusChip tone="ok">zrzut dołączony</StatusChip>
               ) : (
@@ -91,6 +96,14 @@ export function ClientRulesCard(props: ClientRulesCardProps) {
                 {props.consentSlot}
               </div>
             ) : null}
+            {/* Runda 10 (F20): stopka RODO pochodzi z szablonu B2B.net
+                (docx_renderer TRANSLATIONS["rodo"]), nie z CV kandydata ani
+                z modelu — ekran mówi to wprost, żeby „niewymagany” nie
+                znaczył „dokument bez klauzuli”. */}
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              Każde CV kończy stała klauzula RODO B2B.net z szablonu firmowego — nie pochodzi z CV
+              kandydata. Zrzut zgody to osobny wymóg klienta.
+            </p>
           </div>
         </>
       )}
@@ -102,7 +115,7 @@ export interface GenerateBarProps {
   missing: readonly string[];
   pending: boolean;
   onGenerate: () => void;
-  /** Co się stanie z wynikiem (proces / lista Moje CV). */
+  /** Co się stanie z wynikiem (trafi do procesu). */
   hint: string;
   readOnly?: boolean;
 }

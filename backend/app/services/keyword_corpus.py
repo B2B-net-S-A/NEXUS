@@ -34,12 +34,33 @@ EXCLUSIVE``. Istniejące wiersze uzupełnia pętla ``keyword_corpus_backfill`` p
 starcie (NIE migracja — backfill 0143 w starcie kontenera dał 6 minut 502).
 Do czasu jej końca zapytania dla wierszy bez korpusu wracają do starych kolumn
 (``ready()``).
+
+Korpus złożony (migracja 0385, audyt szybkości 25.09.2026):
+
+* ``candidates.keyword_fold_fts`` — ``to_tsvector('simple', fold(profil + CV))``,
+  gdzie ``fold`` (``candidate_keyword_fold``) zdejmuje polskie znaki, zmienia
+  ukośnik na spację i zapisuje ``c++``/``c#``/``f#``/``.net`` jako zwykłe słowa.
+  Zastępuje w zapytaniu regex po ``keyword_doc``: ten rozpakowywał tekst z TOAST
+  dla każdego pasującego kandydata (629 z 918 ms przy „java”, a dokładał 2 osoby
+  z 15 710). Przy okazji: „krakow” znajduje „Kraków” także w CV, a „scrum” —
+  zapis „Agile/Scrum” (parser tsvector trzyma go jako jedno słowo).
+* ``notes.content_fold_fts`` — to samo dla notatek, po rozpakowaniu treści
+  zapisanej przez import z Traffita jako JSON (``note_search_text``).
+
+Zapytanie przechodzi na nowe kolumny dopiero przy ``KEYWORD_SEARCH_FOLDED_FTS``
+i po uzupełnieniu (``fold_ready()`` / ``notes_ready()``).
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+import re
+import unicodedata
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any, Iterator, Optional
+
+from app.services.keyword_terms import DOT_PREFIXES, WORD_CLASS_PG
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +76,12 @@ EXPERIENCE_KEYS: tuple[str, ...] = (
     "client",
 )
 SKILL_KEYS: tuple[str, ...] = ("name",)
+# „Zweryfikowane technologie” (formularz kandydata, ``verified_tech``): napisy
+# albo obiekty z nazwą pod ``name``/``tech``/``skill`` — te same klucze czyta
+# profil (``screeningConfirmedSkills``). Runda 10 (F17): kolumny nie było
+# w korpusie, więc „Python” potwierdzony na profilu nie trafiał do słów
+# kluczowych, choć znajdował go filtr „Umiejętności” (skills + verified_tech).
+VERIFIED_TECH_KEYS: tuple[str, ...] = ("name", "tech", "skill")
 EDUCATION_KEYS: tuple[str, ...] = ("school", "field", "degree")
 LANGUAGE_KEYS: tuple[str, ...] = ("lang", "name")
 # Tagi: wyłącznie napisy. Obiekty to źródła z Traffita
@@ -89,6 +116,7 @@ PLAIN_COLUMNS: tuple[str, ...] = (
 JSON_COLUMNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("experience", EXPERIENCE_KEYS),
     ("skills", SKILL_KEYS),
+    ("verified_tech", VERIFIED_TECH_KEYS),
     ("tags", TAG_KEYS),
     ("education", EDUCATION_KEYS),
     ("languages", LANGUAGE_KEYS),
@@ -110,11 +138,52 @@ PROFILE_CAP = 200_000
 FOLD_SRC = "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"
 FOLD_DST = "acelnoszzACELNOSZZ"
 
+# Znaki łączące (akcent jako osobny znak po literze). 133 CV i 41 notatek
+# (26.09.2026) zapisują polskie litery jako „o” + U+0301 — ``translate``ich nie
+# widzi, więc „łódź” ani „zarządzanie” ich nie znajdowały. Przed składaniem:
+# NFC (litera + akcent → jedna litera), a to, co zostało, usuwamy.
+# Od tej samej wersji „<” i „>” to spacja: ukośnik jako spacja zamieniał
+# `</script>` w CV w `< script>`, parser tsvector nie znajdował końca „skryptu”
+# i połykał resztę CV (4 CV, 11 906 znaków; stara ścieżka ich nie traciła).
+COMBINING_RANGES = (
+    (0x0300, 0x036F),
+    (0x0483, 0x0489),
+    (0x1AB0, 0x1AFF),
+    (0x1DC0, 0x1DFF),
+    (0x20D0, 0x20FF),
+    (0xFE20, 0xFE2F),
+)
+COMBINING_CLASS_PG = (
+    "[" + "".join(f"\\u{lo:04x}-\\u{hi:04x}" for lo, hi in COMBINING_RANGES) + "]"
+)
+
 JSON_TEXT_FUNCTION = "candidate_keyword_json_text"
 TRIGGER_FUNCTION = "candidates_keyword_corpus_refresh"
 TRIGGER_NAME = "trg_candidates_keyword_corpus"
 FTS_INDEX = "ix_candidates_keyword_fts"
 DOC_INDEX = "ix_candidates_keyword_doc_trgm"
+
+FOLD_FUNCTION = "candidate_keyword_fold"
+NOTE_TEXT_FUNCTION = "note_search_text"
+NOTE_TRIGGER_FUNCTION = "notes_fold_fts_refresh"
+NOTE_TRIGGER_NAME = "trg_notes_fold_fts"
+FOLD_FTS_INDEX = "ix_candidates_keyword_fold_fts"
+NOTE_FOLD_FTS_INDEX = "ix_notes_content_fold_fts"
+NOTE_CAP = 200_000
+
+# Słowa ze znakami, które parser tsvector gubi („c#” → „c”, „c++” → „c”). Zapis
+# jako zwykłe słowo po obu stronach (dokument i zapytanie przechodzą przez tę
+# samą funkcję SQL), więc „c#” znajduje „C#”, a nie każde „C”. Spacja po tokenie
+# zachowuje dzisiejszą regułę: ``c++`` znajduje „C++17” (granica słowa tylko po
+# stronie litery). ``.net`` jak ``pg_regex``: po granicy słowa albo po
+# ``asp|ado|vb`` — „B2B.net” z klauzuli zgody zostaje nietknięte.
+SPECIAL_TOKENS: tuple[tuple[str, str], ...] = (
+    ("c++", "cplusplus"),
+    ("c#", "csharp"),
+    ("f#", "fsharp"),
+    (".net", "dotnet"),
+)
+_DOT_PREFIXES_SQL = "|".join(DOT_PREFIXES)
 
 
 def _sql_array(keys: tuple[str, ...]) -> str:
@@ -161,7 +230,139 @@ def profile_text_sql(prefix: str = "NEW.") -> str:
     return f"left(concat_ws(' ', {', '.join(parts)}), {PROFILE_CAP})"
 
 
-TRIGGER_FUNCTION_DDL = f"""
+# Tekst do korpusu złożonego: bez polskich znaków, małe litery, ukośnik jako
+# spacja, słowa specjalne jako zwykłe słowa. Ta SAMA funkcja składa zapytanie
+# (``phraseto_tsquery('simple', candidate_keyword_fold(:term))``), więc dokument
+# i zapytanie nie mogą się rozjechać. Regexy tylko przy znakach, które je
+# potrzebują — trigger liczy się przy każdym zapisie kandydata z importu.
+# Wersja składania tekstu (``candidate_keyword_fold``). Zmiana funkcji = podbij
+# numer: pętla uzupełniania przeliczy WSZYSTKIE wiersze obu kolumn, a nowa
+# ścieżka zapytań czeka na koniec (``fold_ready()``). Historia:
+# 1 — 0385 (polskie znaki, ukośnik, c#/c++/f#/.net);
+# 2 — 0386 myślnik jako spacja: parser tsvector rozbijał „cd-driven” na
+#     `cd-driven`, `cd`, `driven`, więc fraza „ci/cd” nie łączyła się
+#     z „CI/CD-driven” (porównanie na produkcji 26.09.2026).
+# 3 — 0387 znaki łączące: NFC, a pozostałe usunięte (``COMBINING_CLASS_PG``);
+#     „<” i „>” jako spacja.
+FOLD_VERSION = 3
+
+
+# Znacznik wersji w CIELE funkcji (runda 6 audytu). ``pg_proc.prosrc``
+# przechowuje ciało razem z komentarzami, więc pętla uzupełniania sprawdza, czy
+# baza ma już funkcję w wersji z kodu, ZANIM przeliczy kolumny i zapisze
+# wersję — DDL w siatce ``entrypoint.sh`` potrafi przegrać blokadę i wtedy
+# przeliczenie starą funkcją oznaczyłoby nową wersję jako gotową.
+def fold_version_marker(version: int) -> str:
+    return f"-- nexus-fold-v{version}"
+
+
+_FOLD_VERSION_MARKER_RE = re.compile(r"-- nexus-fold-v(\d+)\b")
+
+
+def parse_fold_version(function_source: str | None) -> int | None:
+    match = _FOLD_VERSION_MARKER_RE.search(function_source or "")
+    return int(match.group(1)) if match else None
+
+
+FOLD_FUNCTION_DDL = rf"""
+CREATE OR REPLACE FUNCTION {FOLD_FUNCTION}(t text)
+RETURNS text LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
+{fold_version_marker(FOLD_VERSION)}
+DECLARE
+    s text := coalesce(t, '');
+BEGIN
+    IF s ~ '{COMBINING_CLASS_PG}' THEN
+        s := regexp_replace(normalize(s, NFC), '{COMBINING_CLASS_PG}+', '', 'g');
+    END IF;
+    s := translate(lower(translate(s, '{FOLD_SRC}', '{FOLD_DST}')), '/\-<>', '     ');
+    IF s ~ '[#+]|\.net' THEN
+        s := regexp_replace(s, '(^|[^{WORD_CLASS_PG}])c\+\+', '\1 cplusplus ', 'g');
+        s := regexp_replace(s, '(^|[^{WORD_CLASS_PG}])c#', '\1 csharp ', 'g');
+        s := regexp_replace(s, '(^|[^{WORD_CLASS_PG}])f#', '\1 fsharp ', 'g');
+        s := regexp_replace(
+            s,
+            '(^|[^{WORD_CLASS_PG}]|{_DOT_PREFIXES_SQL})\.net($|[^{WORD_CLASS_PG}])',
+            '\1 dotnet \2',
+            'g'
+        );
+    END IF;
+    RETURN s;
+END;
+$$;
+"""
+
+# Import z Traffita zapisywał treść notatki jako cały obiekt JSON
+# (``{"content":"<div>Toruń…","state":…}``) — Traffit wysyła ``content``
+# jako NAPIS z JSON-em w środku, a promocja brała go w całości. Profil
+# rozpakowuje to przy wyświetlaniu, ale wyszukiwanie widziało ``ń``
+# zamiast „ń”. Tę funkcję woła promocja notatek (``traffit/importer.py``),
+# indeks notatek i jednorazowa naprawa w pętli uzupełniania.
+NOTE_UNWRAP_FUNCTION = "note_unwrap_json"
+NOTE_UNWRAP_FUNCTION_DDL = f"""
+CREATE OR REPLACE FUNCTION {NOTE_UNWRAP_FUNCTION}(c text)
+RETURNS text LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
+DECLARE
+    j jsonb;
+BEGIN
+    IF c IS NULL OR left(c, 1) <> '{{' OR NOT pg_input_is_valid(c, 'jsonb') THEN
+        RETURN c;
+    END IF;
+    j := c::jsonb;
+    IF jsonb_typeof(j) = 'object' AND jsonb_typeof(j -> 'content') = 'string'
+       AND coalesce(j ->> 'content', '') <> '' THEN
+        RETURN j ->> 'content';
+    END IF;
+    RETURN c;
+END;
+$$;
+"""
+
+NOTE_TEXT_FUNCTION_DDL = f"""
+CREATE OR REPLACE FUNCTION {NOTE_TEXT_FUNCTION}(c text)
+RETURNS text LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
+DECLARE
+    s text := coalesce({NOTE_UNWRAP_FUNCTION}(c), '');
+    j jsonb;
+BEGIN
+    -- Inny JSON (np. maile z formularza: to/subject/body) — same wartości tekstowe,
+    -- bez kluczy, jak w korpusie kandydata.
+    IF left(s, 1) = '{{' AND pg_input_is_valid(s, 'jsonb') THEN
+        j := s::jsonb;
+        s := coalesce((
+            SELECT string_agg(v #>> '{{}}', ' ')
+            FROM jsonb_path_query(j, 'strict $.** ? (@.type() == "string")') AS v
+        ), '');
+    END IF;
+    s := regexp_replace(s, '<[^>]*>', ' ', 'g');
+    s := replace(replace(replace(s, '&nbsp;', ' '), '&amp;', '&'), '&quot;', '"');
+    s := replace(replace(replace(s, '&#39;', ''''), '&apos;', ''''), '&oacute;', 'ó');
+    s := replace(s, '&Oacute;', 'Ó');
+    s := regexp_replace(s, '&#?[[:alnum:]]+;', ' ', 'g');
+    RETURN {FOLD_FUNCTION}(left(s, {NOTE_CAP}));
+END;
+$$;
+"""
+
+NOTE_TRIGGER_FUNCTION_DDL = f"""
+CREATE OR REPLACE FUNCTION {NOTE_TRIGGER_FUNCTION}()
+RETURNS trigger AS $$
+BEGIN
+    NEW.content_fold_fts := to_tsvector('simple', {NOTE_TEXT_FUNCTION}(NEW.content));
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+"""
+
+NOTE_TRIGGER_DDL = f"""
+CREATE OR REPLACE TRIGGER {NOTE_TRIGGER_NAME}
+BEFORE INSERT OR UPDATE OF content ON notes
+FOR EACH ROW EXECUTE FUNCTION {NOTE_TRIGGER_FUNCTION}();
+"""
+
+# Wersja z migracji 0350 — zamrożona: łańcuch migracji na świeżej bazie
+# przechodzi przez 0351–0384 BEZ kolumny ``keyword_fold_fts``, więc trigger
+# z 0350 nie może jej jeszcze dotykać. Bieżącą wersję zakłada 0385.
+TRIGGER_FUNCTION_DDL_0350 = f"""
 CREATE OR REPLACE FUNCTION {TRIGGER_FUNCTION}()
 RETURNS trigger AS $$
 DECLARE
@@ -177,11 +378,146 @@ END;
 $$ LANGUAGE plpgsql;
 """
 
+# Runda 11 (SEARCH): umiejętności potwierdzone w screeningu
+# (``screening_notes.verified_skills``, poziom „confirmed”). Profil pokazuje je
+# z ✓ w sekcji „Umiejętności” (``screeningConfirmedSkills``: ``verified_tech``
+# + agregat screeningów), a runda 10 (F17) dołożyła do korpusu tylko
+# ``verified_tech`` — „Python” potwierdzony na screeningu nie był słowem
+# kluczowym. Same nazwy (``skill``): bez poziomu i notatki rekrutera
+# („none” = kandydat tego NIE umie, więc nie może trafić do korpusu).
+# Dane żyją w osobnej tabeli, więc trigger kandydata czyta je podzapytaniem
+# (indeks ``ix_screening_notes_candidate_id``), a zapis notatki screeningu
+# przelicza korpus kandydata triggerem ``SCREENING_TOUCH_TRIGGER`` niżej.
+SCREENING_NOTES_TABLE = "screening_notes"
+SCREENING_CONFIRMED_LEVEL = "confirmed"
+
+
+def _screening_skills_from(candidate_condition: str) -> str:
+    """FROM … WHERE wspólne dla korpusu, zakresu „Umiejętności”, filtra
+    „Umiejętności” (v2) i wycinków — JEDNA reguła: element-obiekt, poziom
+    „confirmed”, sama nazwa (``skill``)."""
+    return f"""FROM {SCREENING_NOTES_TABLE} AS sn
+        CROSS JOIN LATERAL jsonb_array_elements(
+            CASE WHEN jsonb_typeof(sn.verified_skills) = 'array'
+                 THEN sn.verified_skills ELSE '[]'::jsonb END
+        ) AS e
+        WHERE {candidate_condition}
+          AND jsonb_typeof(e) = 'object'
+          AND e ->> 'level' = '{SCREENING_CONFIRMED_LEVEL}'"""
+
+
+def screening_skills_sql(candidate_id: str = "NEW.id") -> str:
+    """Nazwy umiejętności potwierdzonych w screeningu kandydata (SQL)."""
+    return f"""(
+        SELECT string_agg(e ->> 'skill', ' ')
+        {_screening_skills_from(f"sn.candidate_id = {candidate_id}")}
+    )"""
+
+
+# Runda 12 (SEARCH): te same umiejętności jako WIERSZE (kandydat, nazwa) — dla
+# zakresu słów kluczowych „Umiejętności”, filtra „Umiejętności” (v2) i wycinków.
+# Nieskorelowany SELECT: ``Candidate.id IN (…)`` liczy się raz na zapytanie
+# (hashed SubPlan), zamiast podzapytania na każdy wiersz listy.
+def screening_skill_rows_sql(candidate_condition: str = "TRUE") -> str:
+    """``SELECT candidate_id, skill`` — umiejętności potwierdzone w screeningu."""
+    return f"""SELECT sn.candidate_id AS candidate_id, e ->> 'skill' AS skill
+        {_screening_skills_from(candidate_condition)}
+          AND coalesce(e ->> 'skill', '') <> ''"""
+
+
+def screening_confirmed_skill_names(verified_skills: Any) -> list[str]:
+    """Lustro ``screening_skills_sql`` w Pythonie (jedna notatka screeningu)."""
+    if not isinstance(verified_skills, list):
+        return []
+    out: list[str] = []
+    for item in verified_skills:
+        if not isinstance(item, dict):
+            continue
+        if item.get("level") != SCREENING_CONFIRMED_LEVEL:
+            continue
+        skill = item.get("skill")
+        if skill is None or isinstance(skill, (list, dict)):
+            continue
+        name = str(skill).strip()
+        if name:
+            out.append(name)
+    return out
+
+
+def trigger_function_ddl(*, screening_skills: bool = True) -> str:
+    """Funkcja triggera korpusu. ``screening_skills=False`` = wersja sprzed
+    rundy 11 (downgrade migracji 0396)."""
+    profile = profile_text_sql("NEW.")
+    if screening_skills:
+        profile = (
+            f"left(concat_ws(' ', {profile}, {screening_skills_sql('NEW.id')}), "
+            f"{PROFILE_CAP})"
+        )
+    return f"""
+CREATE OR REPLACE FUNCTION {TRIGGER_FUNCTION}()
+RETURNS trigger AS $$
+DECLARE
+    profile text := {profile};
+BEGIN
+    NEW.keyword_doc := lower(translate(profile, '{FOLD_SRC}', '{FOLD_DST}'));
+    NEW.keyword_fts := to_tsvector(
+        'simple',
+        profile || ' ' || coalesce(left(NEW.raw_cv_text, {CV_CAP}), '')
+    );
+    NEW.keyword_fold_fts := to_tsvector(
+        'simple',
+        {FOLD_FUNCTION}(profile || ' ' || coalesce(left(NEW.raw_cv_text, {CV_CAP}), ''))
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+"""
+
+
+TRIGGER_FUNCTION_DDL = trigger_function_ddl()
+
 TRIGGER_DDL = f"""
 CREATE OR REPLACE TRIGGER {TRIGGER_NAME}
 BEFORE INSERT OR UPDATE OF {", ".join(SOURCE_COLUMNS)} ON candidates
 FOR EACH ROW EXECUTE FUNCTION {TRIGGER_FUNCTION}();
 """
+
+# Zapis notatki screeningu (nowa notatka, zmiana umiejętności, przepięcie na
+# innego kandydata przy scalaniu) przelicza korpus kandydata: ``SET
+# keyword_doc = NULL`` odpala trigger kandydata, jak w pętli uzupełniania.
+# Bez DELETE: żadna ścieżka nie kasuje notatki przy żywym kandydacie (brak
+# trasy usuwania, scalanie przepina ``candidate_id``), a usunięcie kandydata
+# kasuje notatki kaskadą — wtedy nie ma czego przeliczać.
+SCREENING_TOUCH_FUNCTION = "screening_notes_keyword_corpus_touch"
+SCREENING_TOUCH_TRIGGER = "trg_screening_notes_keyword_corpus"
+SCREENING_TOUCH_FUNCTION_DDL = f"""
+CREATE OR REPLACE FUNCTION {SCREENING_TOUCH_FUNCTION}()
+RETURNS trigger AS $$
+BEGIN
+    -- Osobne IF: przy INSERT nie sięgamy po OLD w ogóle.
+    IF TG_OP = 'UPDATE' THEN
+        IF OLD.candidate_id IS DISTINCT FROM NEW.candidate_id THEN
+            UPDATE candidates SET keyword_doc = NULL WHERE id = OLD.candidate_id;
+        END IF;
+    END IF;
+    UPDATE candidates SET keyword_doc = NULL WHERE id = NEW.candidate_id;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+"""
+SCREENING_TOUCH_TRIGGER_DDL = f"""
+CREATE OR REPLACE TRIGGER {SCREENING_TOUCH_TRIGGER}
+AFTER INSERT OR UPDATE OF verified_skills, candidate_id ON {SCREENING_NOTES_TABLE}
+FOR EACH ROW EXECUTE FUNCTION {SCREENING_TOUCH_FUNCTION}();
+"""
+SCREENING_TOUCH_DDLS: tuple[str, ...] = (
+    SCREENING_TOUCH_FUNCTION_DDL,
+    SCREENING_TOUCH_TRIGGER_DDL,
+)
+SCREENING_TOUCH_DROP_DDLS: tuple[str, ...] = (
+    f"DROP TRIGGER IF EXISTS {SCREENING_TOUCH_TRIGGER} ON {SCREENING_NOTES_TABLE}",
+    f"DROP FUNCTION IF EXISTS {SCREENING_TOUCH_FUNCTION}()",
+)
 
 COLUMN_DDL: tuple[str, ...] = (
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS keyword_doc text",
@@ -201,6 +537,84 @@ def index_ddl(*, concurrently: bool) -> list[str]:
     return [stmt.format(concurrently=word) for stmt in INDEX_DDL]
 
 
+# Korpus złożony (0385). Osobno od COLUMN_DDL/INDEX_DDL, bo tamte czyta
+# migracja 0350 — historia migracji nie może zmieniać znaczenia.
+FOLD_COLUMN_DDL: tuple[str, ...] = (
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS keyword_fold_fts tsvector",
+    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS content_fold_fts tsvector",
+)
+FOLD_FUNCTION_DDLS: tuple[str, ...] = (
+    FOLD_FUNCTION_DDL,
+    NOTE_UNWRAP_FUNCTION_DDL,
+    NOTE_TEXT_FUNCTION_DDL,
+    NOTE_TRIGGER_FUNCTION_DDL,
+    NOTE_TRIGGER_DDL,
+    TRIGGER_FUNCTION_DDL,
+    TRIGGER_DDL,
+)
+FOLD_INDEX_DDL: tuple[str, ...] = (
+    f"CREATE INDEX {{concurrently}} IF NOT EXISTS {FOLD_FTS_INDEX} "
+    "ON candidates USING GIN (keyword_fold_fts)",
+    f"CREATE INDEX {{concurrently}} IF NOT EXISTS {NOTE_FOLD_FTS_INDEX} "
+    "ON notes USING GIN (content_fold_fts)",
+)
+
+
+def fold_index_ddl(*, concurrently: bool) -> list[str]:
+    word = "CONCURRENTLY" if concurrently else ""
+    return [stmt.format(concurrently=word) for stmt in FOLD_INDEX_DDL]
+
+
+def _when_column_exists(ddl: str, table: str, column: str) -> str:
+    """DDL wykonany tylko, gdy kolumna już jest.
+
+    Siatka w ``entrypoint.sh`` wykonuje instrukcje pojedynczo z limitem
+    czekania na blokadę. Gdyby ``ADD COLUMN`` przegrał blokadę (np. z nocnym
+    ``pg_dump``), a nowa funkcja triggera się założyła, KAŻDY zapis kandydata
+    padałby na brakującym polu ``NEW.keyword_fold_fts``. Migracja 0385 jest
+    jedną transakcją i tej osłony nie potrzebuje.
+    """
+    body = ddl.strip().rstrip(";")
+    return f"""
+DO $guard$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = '{table}' AND column_name = '{column}'
+    ) THEN
+        EXECUTE $ddl${body}$ddl$;
+    END IF;
+END
+$guard$;
+"""
+
+
+def schema_ddl() -> list[str]:
+    """Pełny, idempotentny DDL korpusu dla siatki w ``entrypoint.sh``."""
+    return [
+        *COLUMN_DDL,
+        *FOLD_COLUMN_DDL,
+        JSON_TEXT_FUNCTION_DDL,
+        FOLD_FUNCTION_DDL,
+        NOTE_UNWRAP_FUNCTION_DDL,
+        NOTE_TEXT_FUNCTION_DDL,
+        _when_column_exists(NOTE_TRIGGER_FUNCTION_DDL, "notes", "content_fold_fts"),
+        _when_column_exists(NOTE_TRIGGER_DDL, "notes", "content_fold_fts"),
+        _when_column_exists(TRIGGER_FUNCTION_DDL, "candidates", "keyword_fold_fts"),
+        TRIGGER_DDL,
+        # Runda 11 (SEARCH, migracja 0396): notatka screeningu przelicza korpus.
+        # Osłona jak wyżej: bez kolumny ``keyword_doc`` KAŻDY zapis notatki
+        # screeningu padałby na UPDATE-cie w triggerze.
+        _when_column_exists(SCREENING_TOUCH_FUNCTION_DDL, "candidates", "keyword_doc"),
+        _when_column_exists(SCREENING_TOUCH_TRIGGER_DDL, "candidates", "keyword_doc"),
+    ]
+
+
+def schema_index_ddl() -> list[str]:
+    return [*index_ddl(concurrently=True), *fold_index_ddl(concurrently=True)]
+
+
 # Wiersz bez korpusu = ``keyword_doc IS NULL`` (trigger zawsze wpisuje napis,
 # choćby pusty). ``SET keyword_doc = NULL`` odpala trigger (``UPDATE OF``),
 # który od razu wylicza obie kolumny.
@@ -217,9 +631,92 @@ PENDING_EXISTS_SQL = (
 )
 
 
+# Korpus złożony: paczki po kluczu ``id > :after`` (bez ponownego skanu NULL-i
+# od początku tabeli przy każdej paczce). ``SET keyword_doc = NULL`` odpala
+# trigger, który liczy wszystkie trzy kolumny.
+FOLD_BACKFILL_BATCH_SQL = (
+    "UPDATE candidates SET keyword_doc = NULL WHERE id IN ("
+    " SELECT id FROM candidates WHERE keyword_fold_fts IS NULL AND id > :after"
+    " ORDER BY id LIMIT :limit"
+    ") RETURNING id, keyword_fold_fts IS NOT NULL"
+)
+FOLD_PENDING_EXISTS_SQL = (
+    "SELECT EXISTS (SELECT 1 FROM candidates WHERE keyword_fold_fts IS NULL)"
+)
+
+# Notatki: jedna aktualizacja uzupełnia indeks i rozpakowuje treść zapisaną
+# przez import jako JSON. Dla pozostałych notatek ``note_unwrap_json`` zwraca
+# treść bez zmian (``SET content = content`` — odpala trigger). ``updated_at``
+# zostaje nietknięte: od niego zależy odcisk nocnej analizy notatek przez AI
+# (zmiana = ponowna płatna analiza wszystkich). Notatka w kształcie
+# ``{"content":"…"}`` jest zawsze nieedytowana — edycja w interfejsie zapisuje
+# ją już rozpakowaną (``unwrapNoteContent`` w formularzu).
+NOTES_BACKFILL_BATCH_SQL = (
+    f"UPDATE notes SET content = {NOTE_UNWRAP_FUNCTION}(content) WHERE id IN ("
+    " SELECT id FROM notes WHERE content_fold_fts IS NULL AND id > :after"
+    " ORDER BY id LIMIT :limit"
+    ") RETURNING id, content_fold_fts IS NOT NULL"
+)
+NOTES_PENDING_EXISTS_SQL = (
+    "SELECT EXISTS (SELECT 1 FROM notes WHERE content_fold_fts IS NULL)"
+)
+NOTES_WRAPPED_COUNT_SQL = (
+    "SELECT count(*) FROM notes WHERE content LIKE '{\"content\":%' "
+    f"AND {NOTE_UNWRAP_FUNCTION}(content) IS DISTINCT FROM content"
+)
+NOTES_UNWRAP_RECEIPT_KEY = "0385_traffit_note_content_unwrap"
+
+# ``FOLD_VERSION`` (z historią zmian) stoi przy ``FOLD_FUNCTION_DDL`` — znacznik
+# wersji jest w ciele funkcji.
+FOLD_VERSION_KEY = "keyword_fold_fts_version"
+FOLD_RECOMPUTE_BATCH_SQL = (
+    "UPDATE candidates SET keyword_doc = NULL WHERE id IN ("
+    " SELECT id FROM candidates WHERE id > :after ORDER BY id LIMIT :limit"
+    ") RETURNING id, keyword_fold_fts IS NOT NULL"
+)
+NOTES_RECOMPUTE_BATCH_SQL = (
+    f"UPDATE notes SET content = {NOTE_UNWRAP_FUNCTION}(content) WHERE id IN ("
+    " SELECT id FROM notes WHERE id > :after ORDER BY id LIMIT :limit"
+    ") RETURNING id, content_fold_fts IS NOT NULL"
+)
+
+
+# Wersja LISTY PÓL korpusu (nie funkcji składania — ta ma ``FOLD_VERSION``).
+# Dołożenie kolumny do ``JSON_COLUMNS``/``PLAIN_COLUMNS`` zmienia trigger, ale
+# zapisane wiersze mają korpus policzony starą listą. Podbij numer i dopisz
+# zapytanie wybierające wiersze, których nowa kolumna dotyczy — pętla
+# ``keyword_corpus_backfill`` przeliczy je raz (znacznik w ``app_settings``).
+# Historia: 2 — runda 10 (F17): ``verified_tech``;
+# 3 — runda 11 (SEARCH): umiejętności potwierdzone w screeningu
+#     (``screening_notes``, ``screening_skills_sql``).
+# Zapytanie przelicza wiersze WSZYSTKICH źródeł dołożonych po wersji 1 — baza,
+# która nie przeszła wersji 2, dostaje obie naraz.
+CORPUS_SOURCES_VERSION = 3
+CORPUS_SOURCES_VERSION_KEY = "keyword_corpus_sources_version"
+# Napis, którego obecność w ciele funkcji triggera potwierdza, że baza ma już
+# trigger z bieżącą listą pól (siatka DDL w ``entrypoint.sh`` mogła przegrać
+# blokadę — wtedy przeliczenie starym triggerem nic by nie dało). Od wersji 3
+# to tabela notatek screeningu (``verified_tech`` było już w wersji 2).
+CORPUS_SOURCES_MARKER_COLUMN = SCREENING_NOTES_TABLE
+SOURCES_RECOMPUTE_BATCH_SQL = (
+    "UPDATE candidates SET keyword_doc = NULL WHERE id IN ("
+    " SELECT id FROM candidates WHERE id > :after"
+    " AND ((verified_tech IS NOT NULL"
+    " AND (jsonb_typeof(verified_tech) = 'string'"
+    " OR (jsonb_typeof(verified_tech) = 'array'"
+    " AND jsonb_array_length(verified_tech) > 0)))"
+    f" OR EXISTS (SELECT 1 FROM {SCREENING_NOTES_TABLE} AS sn"
+    " WHERE sn.candidate_id = candidates.id))"
+    " ORDER BY id LIMIT :limit"
+    ") RETURNING id, keyword_doc IS NOT NULL"
+)
+
+
 # ── Gotowość (czy wszystkie wiersze mają korpus) ─────────────────────────────
 
 _ready = False
+_fold_ready = False
+_notes_ready = False
 
 
 def ready() -> bool:
@@ -236,6 +733,111 @@ def ready() -> bool:
 def mark_ready(value: bool = True) -> None:
     global _ready
     _ready = value
+
+
+def fold_ready() -> bool:
+    """Każdy kandydat ma ``keyword_fold_fts`` (stan procesu, jak ``ready()``)."""
+    return _fold_ready
+
+
+def mark_fold_ready(value: bool = True) -> None:
+    global _fold_ready
+    _fold_ready = value
+
+
+def notes_ready() -> bool:
+    """Każda notatka ma ``content_fold_fts``."""
+    return _notes_ready
+
+
+def mark_notes_ready(value: bool = True) -> None:
+    global _notes_ready
+    _notes_ready = value
+
+
+def folded_search_enabled() -> bool:
+    """Nowa ścieżka słów kluczowych: przełącznik ON i korpus złożony gotowy.
+
+    ContextVar ``force_folded_search`` wygrywa — skrypt porównujący i testy
+    liczą tę samą prośbę starą i nową ścieżką w jednym procesie.
+    """
+    forced = _FORCE_FOLDED.get()
+    if forced is not None:
+        return forced
+    from app.core.config import settings  # noqa: PLC0415
+
+    return bool(getattr(settings, "KEYWORD_SEARCH_FOLDED_FTS", False)) and _fold_ready
+
+
+def notes_folded_search_enabled() -> bool:
+    forced = _FORCE_FOLDED.get()
+    if forced is not None:
+        return forced
+    return folded_search_enabled() and _notes_ready
+
+
+_FORCE_FOLDED: ContextVar[Optional[bool]] = ContextVar(
+    "keyword_force_folded_search", default=None
+)
+
+
+@contextmanager
+def force_folded_search(value: bool) -> Iterator[None]:
+    token = _FORCE_FOLDED.set(value)
+    try:
+        yield
+    finally:
+        _FORCE_FOLDED.reset(token)
+
+
+# ── Lustro w Pythonie: składanie tekstu (wycinki pod wynikiem) ──────────────
+
+_FOLD_MAP = str.maketrans(FOLD_SRC + "/\\-<>", FOLD_DST + "     ")
+_COMBINING_RE = re.compile(
+    "[" + "".join(f"{chr(lo)}-{chr(hi)}" for lo, hi in COMBINING_RANGES) + "]+"
+)
+
+
+def fold_text(value: str) -> str:
+    """Polskie znaki → ASCII, małe litery, ukośnik, myślnik i „<>” → spacja.
+
+    Lustro pierwszego kroku ``candidate_keyword_fold`` BEZ słów specjalnych —
+    zachowuje długość tekstu (poza rzadkimi znakami, których ``lower`` zmienia
+    długość, i tekstem ze znakami łączącymi), więc pozycje trafienia w tekście
+    złożonym wskazują to samo miejsce w oryginale. Wołający sprawdza długość,
+    zanim użyje pozycji.
+    """
+    if _COMBINING_RE.search(value):
+        value = _COMBINING_RE.sub("", unicodedata.normalize("NFC", value))
+    return value.translate(_FOLD_MAP).lower()
+
+
+def fold_text_with_offsets(value: str) -> tuple[str, list[int], list[int]]:
+    """``fold_text`` z mapą pozycji: znak ``j`` wyniku pochodzi z oryginału
+    ``[starts[j], ends[j])``.
+
+    Runda 7 (R7-X3-4): od wersji 3 składanie usuwa znaki łączące, więc tekst
+    z jednym rozłożonym akcentem jest krótszy od oryginału, a wycinki (które
+    sprawdzały równą długość) gubiły WSZYSTKIE złożone podświetlenia w polu.
+    Składamy po kawałku: litera z następującymi po niej znakami łączącymi.
+    """
+    folded: list[str] = []
+    starts: list[int] = []
+    ends: list[int] = []
+    i, n = 0, len(value)
+    while i < n:
+        j = i + 1
+        while j < n and _COMBINING_RE.match(value[j]):
+            j += 1
+        piece = value[i:j]
+        if j - i > 1 or _COMBINING_RE.match(piece):
+            piece = _COMBINING_RE.sub("", unicodedata.normalize("NFC", piece))
+        piece = piece.translate(_FOLD_MAP).lower()
+        folded.append(piece)
+        starts.extend([i] * len(piece))
+        ends.extend([j] * len(piece))
+        i = j
+    return "".join(folded), starts, ends
 
 
 # ── Lustro w Pythonie (wycinki pod wynikiem) ─────────────────────────────────
@@ -287,10 +889,16 @@ def title_text(candidate: Any, roles: Optional[str] = None) -> str:
     return " · ".join(p for p in parts if p)
 
 
-def skills_text(candidate: Any) -> str:
-    """Umiejętności: nazwy (bez poziomów) + technologie z Traffita."""
+def skills_text(candidate: Any, screening_skills: Optional[list[str]] = None) -> str:
+    """Umiejętności: nazwy (bez poziomów), zweryfikowane technologie,
+    technologie z Traffita i — runda 12 (SEARCH) — umiejętności potwierdzone
+    w screeningu (``screening_skills``, wczytane przez wołającego regułą
+    ``screening_skill_rows_sql``; osobna tabela, obiekt kandydata ich nie niesie).
+    """
     parts = [
         json_text(getattr(candidate, "skills", None), SKILL_KEYS),
+        json_text(getattr(candidate, "verified_tech", None), VERIFIED_TECH_KEYS),
         traffit_value(candidate, "traffit_technologie"),
+        ", ".join(s for s in screening_skills or [] if s),
     ]
     return " · ".join(p for p in parts if p)

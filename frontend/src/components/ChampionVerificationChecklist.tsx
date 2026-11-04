@@ -37,6 +37,10 @@ import {
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import AudioPlayer from "@/components/calls/AudioPlayer";
+import {
+  ConsultantPicker,
+  type ConsultantChoice,
+} from "@/components/champion/ConsultantPicker";
 import { useToast } from "@/components/Toast";
 import {
   ReadinessRow,
@@ -106,6 +110,40 @@ function noteTitle(n: MeetingNoteRow): string {
   return first.replace(/^#+\s*/, "").trim() || `Meeting #${n.id}`;
 }
 
+// Notatka dłuższa niż dwie linie pola o szerokości wiersza gotowości.
+const isLongNote = (text: string) => text.trim().split("\n").length > 2 || text.length > 160;
+
+/**
+ * Treść weryfikacji po zapisie — do 09.2026 wpisywana i nigdzie niewidoczna.
+ * Domyślnie dwie linie, rozwijana w miejscu: do 20.10.2026 resztę pokazywał
+ * tylko link do sekcji 8 „Wiedza z rozmów”, a w Briefie tej sekcji nie ma,
+ * więc wklejonej notatki nie dało się przeczytać.
+ */
+function SavedVerificationNote({ text, testId }: { text: string; testId: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = isLongNote(text);
+  return (
+    <div className="space-y-0.5">
+      <p
+        className={`${expanded ? "" : "line-clamp-2 "}whitespace-pre-line text-[11px] text-foreground`}
+        data-testid={testId}
+      >
+        {text}
+      </p>
+      {long ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          aria-expanded={expanded}
+          className="text-[11px] font-medium text-primary hover:underline"
+        >
+          {expanded ? "Zwiń" : "Pokaż całość"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export type ChampionVerificationChecklistVariant = "section" | "rows";
 
 interface ChampionVerificationChecklistProps {
@@ -149,17 +187,9 @@ export function ChampionVerificationChecklist({
 
   // Consultant form state
   const [consultantMode, setConsultantMode] = useState<"talked" | "skip">("talked");
-  const [consultantId, setConsultantId] = useState<number | null>(null);
-  const [consultantManualName, setConsultantManualName] = useState("");
+  const [consultant, setConsultant] = useState<ConsultantChoice | null>(null);
   const [insights, setInsights] = useState("");
   const [skipReason, setSkipReason] = useState("");
-
-  const suggestionsQuery = useQuery({
-    queryKey: ["champion-consultant-suggestions", jobId],
-    queryFn: () => championApi.consultantSuggestions(jobId).then((r) => r.data),
-    enabled: openForm === "consultant",
-    staleTime: 5 * 60 * 1000,
-  });
 
   const meetingNotesQuery = useQuery({
     queryKey: ["job-meeting-notes", jobId],
@@ -235,8 +265,8 @@ export function ChampionVerificationChecklist({
       mutation.mutate({
         side: "consultant",
         consultant: {
-          consultant_candidate_id: consultantId,
-          consultant_name: consultantManualName,
+          consultant_candidate_id: consultant?.candidateId ?? null,
+          consultant_name: consultant?.name ?? "",
           insights,
         },
       });
@@ -249,7 +279,9 @@ export function ChampionVerificationChecklist({
     mutation.isPending ||
     (consultantMode === "skip"
       ? !skipReason.trim()
-      : (!consultantId && !consultantManualName.trim()) || !insights.trim());
+      : !consultant ||
+        (consultant.candidateId === null && !consultant.name.trim()) ||
+        !insights.trim());
 
   // ── Formularze: JEDNA definicja na trzy pola, używana przez oba warianty ──
   // Wyniesione z markupu sekcji, żeby wariant „rows" mógł je rozwinąć pod
@@ -336,53 +368,11 @@ export function ChampionVerificationChecklist({
 
         {consultantMode === "talked" ? (
           <>
-            <label className="block">
-              <span className="block text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
-                Nasi konsultanci u tego klienta
-              </span>
-              {suggestionsQuery.isLoading ? (
-                <div className="text-[11px] text-muted-foreground inline-flex items-center gap-1.5">
-                  <Loader2 className="w-3 h-3 animate-spin" /> Szukam konsultantów…
-                </div>
-              ) : (suggestionsQuery.data?.length ?? 0) > 0 ? (
-                <select
-                  value={consultantId ?? ""}
-                  onChange={(e) =>
-                    setConsultantId(e.target.value === "" ? null : Number(e.target.value))
-                  }
-                  className="w-full px-2 py-1 text-xs border border-border rounded-md bg-card dark:bg-muted"
-                  data-testid="consultant-verification-picker"
-                >
-                  <option value="">— wybierz konsultanta —</option>
-                  {suggestionsQuery.data!.map((s) => (
-                    <option key={s.candidate_id} value={s.candidate_id}>
-                      {s.name}
-                      {s.job_title ? ` — ${s.job_title}` : ""}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <div className="text-[11px] text-muted-foreground">
-                  System nie znalazł naszych konsultantów u tego klienta — wpisz
-                  ręcznie poniżej albo zaznacz „Brak konsultanta”.
-                </div>
-              )}
-            </label>
-            {!consultantId && (
-              <label className="block">
-                <span className="block text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
-                  Lub wpisz imię i nazwisko
-                </span>
-                <input
-                  type="text"
-                  value={consultantManualName}
-                  onChange={(e) => setConsultantManualName(e.target.value)}
-                  placeholder="np. Jan Kowalski"
-                  className="w-full px-2 py-1 text-xs border border-border rounded-md bg-card dark:bg-muted"
-                  data-testid="consultant-verification-manual-name"
-                />
-              </label>
-            )}
+            <ConsultantPicker
+              jobId={jobId}
+              value={consultant}
+              onChange={setConsultant}
+            />
             <label className="block">
               <span className="block text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
                 Wnioski z rozmowy — jak wygląda praca na co dzień
@@ -525,24 +515,8 @@ export function ChampionVerificationChecklist({
       </button>
     ) : undefined;
 
-  // Treść weryfikacji po zapisie — do 09.2026 wpisywana i nigdzie niewidoczna.
-  // Pełna wersja jest w sekcji 8 „Wiedza z rozmów” profilu.
   const savedText = (text: string | null | undefined, testId: string) =>
-    text && text.trim() ? (
-      <p
-        className="line-clamp-2 whitespace-pre-line text-[11px] text-foreground"
-        title={text}
-        data-testid={testId}
-      >
-        {text}{" "}
-        <a
-          href="#champion-section-insights"
-          className="whitespace-nowrap text-primary hover:underline"
-        >
-          w Wiedzy z rozmów →
-        </a>
-      </p>
-    ) : null;
+    text && text.trim() ? <SavedVerificationNote text={text} testId={testId} /> : null;
 
   if (variant === "rows") {
     const consultantState: ReadinessRowState =

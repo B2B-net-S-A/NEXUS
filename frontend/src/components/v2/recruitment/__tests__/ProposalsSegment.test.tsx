@@ -1,10 +1,35 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render as rtlRender, screen, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CandidateSearchPage } from "@/lib/full-candidate-search-api";
 import { mergeProposals, type ProposalEntry } from "@/lib/proposals-merge";
 
-const mocks = vi.hoisted(() => ({ state: { current: {} as Record<string, unknown> }, push: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  state: { current: {} as Record<string, unknown> },
+  push: vi.fn(),
+  recordOpened: vi.fn(),
+  counts: vi.fn(),
+}));
+
+vi.mock("@/lib/job-proposals-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/job-proposals-api")>();
+  return { ...actual, jobProposalsApi: { ...actual.jobProposalsApi, counts: (...a: unknown[]) => mocks.counts(...a) } };
+});
+
+// Segment czyta `…/proposal-counts` („Zapytaj w rozmowie” dla karty osoby).
+function render(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  return rtlRender(ui, { wrapper });
+}
+
+vi.mock("@/lib/proposal-inbox-opened", () => ({
+  recordProposalInboxOpened: (...a: unknown[]) => mocks.recordOpened(...a),
+}));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/components/v2/recruitment/useJobProposals", () => ({ useJobProposals: () => mocks.state.current }));
@@ -15,8 +40,8 @@ vi.mock("@/components/talent-radar/RequirementVerificationDialog", () => ({
 }));
 // Tabela ma własne testy; tu liczy się to, co segment jej PODAJE.
 vi.mock("@/components/v2/recruitment/PeopleTable", () => ({
-  PeopleTable: ({ rows, empty, footer, loading, onSelectionChange }: { rows: Array<{ key: string; fullName: string }>; empty: React.ReactNode; footer: React.ReactNode; loading: boolean; onSelectionChange: (s: Set<string>) => void }) => (
-    <div data-testid="people-table">
+  PeopleTable: ({ rows, empty, footer, loading, onSelectionChange, className }: { rows: Array<{ key: string; fullName: string }>; empty: React.ReactNode; footer: React.ReactNode; loading: boolean; onSelectionChange: (s: Set<string>) => void; className?: string }) => (
+    <div data-testid="people-table" className={className}>
       {loading && <p>Wczytuję…</p>}
       {rows.length === 0 ? <div data-testid="empty">{empty}</div> : rows.map((r) => <p key={r.key}>{r.fullName}</p>)}
       <button type="button" onClick={() => onSelectionChange(new Set(rows.map((r) => r.key)))}>zaznacz wszystkich (mock)</button>
@@ -67,7 +92,12 @@ function state(over: { entries?: ProposalEntry[]; run?: Record<string, unknown>;
 
 const props = { jobId: 42, budgetHourly: 150, onOpenManualSearch: vi.fn(), onOpenQuickAdd: vi.fn() };
 
-beforeEach(() => vi.clearAllMocks());
+const COUNTS = { job_id: 42, days: 7, postings_recent: 0, base: 0, screened_out: 0, not_searchable_must: [] as string[] };
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.counts.mockResolvedValue(COUNTS);
+});
 
 describe("ProposalsSegment — stany", () => {
   it("bez żadnego przeglądu: zachęta do uruchomienia, a start jest jawnym kliknięciem", () => {
@@ -123,6 +153,14 @@ describe("ProposalsSegment — stany", () => {
     expect(screen.getByTestId("empty")).toBeEmptyDOMElement();
   });
 
+  it("otwarcie ekranu propozycji zapisuje telemetrię otwarcia raz", () => {
+    mocks.state.current = state();
+    const view = render(<ProposalsSegment {...props} />);
+    view.rerender(<ProposalsSegment {...props} />);
+    expect(mocks.recordOpened).toHaveBeenCalledTimes(1);
+    expect(mocks.recordOpened).toHaveBeenCalledWith(42);
+  });
+
   it("filtry ukryły wszystko ≠ brak propozycji", () => {
     mocks.state.current = state({ totalBeforeFilters: 5 });
     render(<ProposalsSegment {...props} />);
@@ -134,14 +172,39 @@ describe("ProposalsSegment — stany", () => {
     mocks.state.current = s;
     render(<ProposalsSegment {...props} />);
     expect(screen.getByRole("heading", { name: "Anna Nowak1" })).toBeInTheDocument();
-    const footer = within(screen.getByTestId("footer"));
-    expect(footer.getByRole("button", { name: "Dodaj do rekrutacji" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "zaznacz wszystkich (mock)" }));
-    fireEvent.click(footer.getByRole("button", { name: "Pomiń" }));
-    expect(s.dismiss).toHaveBeenCalledWith([1, 2]);
+    const bar = within(screen.getByTestId("proposals-bulk-bar"));
+    fireEvent.click(bar.getByRole("button", { name: "Pomiń" }));
+    // „Pomiń" pyta o powód (0405) — bez wyboru nic nie wychodzi.
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByText("Pomiń 2 osoby — dlaczego?")).toBeInTheDocument();
+    expect(s.dismiss).not.toHaveBeenCalled();
+    fireEvent.click(dialog.getByRole("radio", { name: "Brak kluczowej technologii" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Pomiń" }));
+    expect(s.dismiss).toHaveBeenCalledWith([1, 2], { reason: "missing_critical" });
     fireEvent.click(screen.getByRole("button", { name: "zaznacz wszystkich (mock)" }));
-    fireEvent.click(footer.getByRole("button", { name: "Porównaj" }));
+    fireEvent.click(within(screen.getByTestId("proposals-bulk-bar")).getByRole("button", { name: "Porównaj" }));
     expect(mocks.push).toHaveBeenCalledWith("/candidates/compare?ids=1%2C2&job=42");
+  });
+
+  it("akcje zbiorcze pływają przy dolnej krawędzi ekranu dopiero po zaznaczeniu", () => {
+    const s = state({ entries: entriesOf([1, 2]) });
+    mocks.state.current = s;
+    render(<ProposalsSegment {...props} />);
+    // W stopce tabeli lądowały pod ostatnim z 200+ wierszy (zgłoszenie 19.10.2026).
+    expect(screen.queryByTestId("proposals-bulk-bar")).toBeNull();
+    expect(within(screen.getByTestId("footer")).queryByRole("button", { name: "Dodaj do rekrutacji" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "zaznacz wszystkich (mock)" }));
+    const bar = screen.getByTestId("proposals-bulk-bar");
+    expect(bar.className).toMatch(/\bsticky\b/);
+    expect(bar.className).toMatch(/\bbottom-/);
+    expect(bar).toHaveTextContent("Zaznaczono 2");
+    fireEvent.click(within(bar).getByRole("button", { name: "Dodaj do rekrutacji" }));
+    expect(s.addToJob).toHaveBeenCalledWith([1, 2]);
+    expect(screen.queryByTestId("proposals-bulk-bar")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "zaznacz wszystkich (mock)" }));
+    fireEvent.click(within(screen.getByTestId("proposals-bulk-bar")).getByRole("button", { name: "Odznacz" }));
+    expect(screen.queryByTestId("proposals-bulk-bar")).toBeNull();
   });
 
   it("skróty D / P działają na aktywnej osobie, ale nie w polu tekstowym", () => {
@@ -167,6 +230,31 @@ describe("ProposalsSegment — stany", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dopasuj kryteria" }));
     fireEvent.click(screen.getByRole("button", { name: "zapisz wymagania (mock)" }));
     expect(clear).toHaveBeenCalledTimes(1);
+  });
+
+  it("karta osoby dostaje „Zapytaj w rozmowie” z `…/proposal-counts`", async () => {
+    mocks.counts.mockResolvedValue({
+      ...COUNTS,
+      not_searchable_must: ["Minimum 5 lat w bankowości"],
+      talk_checks: [
+        { label: "bankowość", kind: "domains" },
+        { label: "Minimum 5 lat w bankowości", kind: "must" },
+      ],
+    });
+    mocks.state.current = state({ entries: entriesOf([1]) });
+    render(<ProposalsSegment {...props} />);
+    const chips = await screen.findByRole("list", { name: "Zapytaj w rozmowie" });
+    expect(within(chips).getByText("bankowość")).toBeInTheDocument();
+    expect(within(chips).getByText("Minimum 5 lat w bankowości")).toBeInTheDocument();
+    expect(mocks.counts).toHaveBeenCalledWith(42, expect.anything());
+  });
+
+  it("starszy serwer bez `talk_checks`: do rozmowy idą same must-have zdaniem", async () => {
+    mocks.counts.mockResolvedValue({ ...COUNTS, not_searchable_must: ["Minimum 5 lat w bankowości"] });
+    mocks.state.current = state({ entries: entriesOf([1]) });
+    render(<ProposalsSegment {...props} />);
+    const chips = await screen.findByRole("list", { name: "Zapytaj w rozmowie" });
+    expect(within(chips).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Minimum 5 lat w bankowości"]);
   });
 
   it("przyciski wyszukiwania ręcznego i dodania po nazwisku wołają rodzica", () => {

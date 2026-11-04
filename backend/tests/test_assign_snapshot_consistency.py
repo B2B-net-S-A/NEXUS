@@ -129,3 +129,12 @@ def test_both_assign_paths_wire_the_snapshot() -> None:
         assert "add_candidates_to_job" in _fn_calls(module_rel, fn), (
             f"{fn} bypasses the shared add path that snapshots the CV (M3-ACT-01)"
         )
+
+
+def test_add_path_wires_the_cv_carry_on_reassign() -> None:
+    # „Match” DL-a (22.10.2026) przenosi CV z rekrutacji źródłowej jako szkic;
+    # kopia siedzi w rdzeniu dodawania. Zwykłe przepięcie CV nie przenosi
+    # od 27.10.2026 (`test_reassign_does_not_carry_the_source_cv`).
+    assert "carry_on_reassign" in _fn_calls(
+        "app/api/proposals_bulk.py", "add_candidates_to_job"
+    )

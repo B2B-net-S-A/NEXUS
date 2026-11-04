@@ -31,6 +31,14 @@ _SOURCE_LABELS = {
     "cv_upload": "CV upload",
     "apply_submission": "Formularz aplikacyjny",
     "talent_radar": "Talent Radar",
+    "email": "E-mail",
+    # Nazwy źródeł z Traffita (tag `traffit_source`, pole `domain` — `value`
+    # przychodzi z importu puste). Reszta („CV upload”, „Aktywny Search”,
+    # „Dodany manualnie”, „Rekomendacja”) jest już czytelna i zostaje.
+    "linkedin.com": "LinkedIn",
+    "linkedin.com (extension)": "LinkedIn",
+    "career_page": "Strona kariery",
+    "indeed.com": "Indeed",
 }
 
 _CV_SOURCE_PREFIXES = ("claude:", "ollama:", "regex")
@@ -134,7 +142,9 @@ def resolve_source(candidate: Candidate) -> dict[str, Optional[str]]:
     tags = candidate.tags if isinstance(candidate.tags, list) else []
     for tag in tags:
         if isinstance(tag, dict) and tag.get("type") == "traffit_source":
-            traffit_source = _label_source(tag.get("value"))
+            traffit_source = _label_source(tag.get("value")) or _label_source(
+                tag.get("domain")
+            )
             if traffit_source:
                 break
 

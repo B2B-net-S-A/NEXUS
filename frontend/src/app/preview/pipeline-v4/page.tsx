@@ -12,17 +12,49 @@
  * Żadne zapytanie nie wychodzi z harnessu (interceptor żądania odrzuca je
  * lokalnie) — sekcje, które same pobierają dane (propozycje na górze Nowych),
  * pokazują wtedy swój stan błędu, a nie przerzucają na /login.
- * `?as=dl` — patrzy Delivery Lead (widzi „Przejmij” na cudzej blokadzie).
+ * `?as=dl` — patrzy Delivery Lead tej rekrutacji (widzi „Przejmij” na cudzej
+ * blokadzie). „Do wysłania do klienta” (13.10.2026): w „QC CV” czekają na
+ * niego dwie osoby — „Czeka na Ciebie”, „Przejrzyj i wyślij” na karcie
+ * i „Przejrzyj po kolei (2)” w nagłówku kolumny.
+ * `?questions=none` — rekrutacja bez pytań screeningowych (13.10.2026): dwie
+ * karty w „Screeningu”, bez oceny („Dlaczego ten kandydat”) i z oceną.
+ * `?screening=many` — 20 osób w „Screeningu” (17.10.2026): kolumna dużo dłuższa
+ * od sąsiednich, a pole upuszczenia „Zweryfikowanego” ma sięgać do jej dołu.
+ *
+ * Droga rekrutera do DL (14.10.2026): w „Zweryfikowanym” stan CV firmowego —
+ * „CV w przygotowaniu…”, „CV gotowe · QC: 3 do poprawy”, „CV gotowe · QC bez uwag”
+ * i karta bez CV firmowego (szara strzałka „Brak CV firmowego” otwiera
+ * „Przesuń dalej”). Strzałka na karcie bez braków przesuwa od razu z „Cofnij”
+ * — żądanie i tak odrzuca blokada sieci harnessu (komunikat błędu po 10 s).
+ *
+ * Screening (02.10.2026): arkusz Zielińskiego ma podpowiedzi z dwóch
+ * wcześniejszych rozmów, Dąbrowskiej — z przepięcia (odpowiedź i notatka),
+ * a dok Lisa pokazuje zapisane pytania z odpowiedziami. Wszystko z zasianego
+ * cache'u (`updatedAt` w przyszłości), bez zapytań.
  */
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { api } from "@/lib/api";
+import {
+  api,
+  type ScreeningAnswers,
+  type ScreeningReassignContext,
+  type ScreeningReassignSuggestion,
+  type ScreeningReassignSuggestionsResponse,
+  type StageScreeningResponse,
+} from "@/lib/api";
 import { ToastProvider } from "@/components/Toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
+import {
+  reassignContextQueryKey,
+  screeningSuggestionsQueryKey,
+} from "@/components/v2/jobs/ScreeningReassignSuggestions";
+import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+import { screenedOutQueryKey } from "@/lib/api/applicationScreenings";
+import { screeningFormQueryKey, type ScreeningFormState } from "@/lib/api/screeningForm";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { useAuthStore } from "@/store/auth";
 
@@ -72,7 +104,12 @@ function col(
   } as unknown as KanbanColumn;
 }
 
-function columns(viewerId: number): KanbanColumn[] {
+function columns(
+  viewerId: number,
+  noQuestions = false,
+  dlQueue = false,
+  manyInScreening = false,
+): KanbanColumn[] {
   nextId = 1;
   return [
     col("posting", "Ogłoszenia", "internal", 10, [
@@ -85,7 +122,7 @@ function columns(viewerId: number): KanbanColumn[] {
         claim_user_name: "Marta Nowak",
         claim_until: inHours(9.2),
       }),
-      card("Paweł", "Nowicki", {
+      card("Paweł", "Fikcyjny", {
         entry_source: "added_manual",
         added_to_job_by_name: "Anna Kowal",
         claim_user_id: 3,
@@ -95,30 +132,99 @@ function columns(viewerId: number): KanbanColumn[] {
       }),
       card("Marek", "Lis", {
         entry_source: "added_manual",
-        added_to_job_by_name: "Piotr Sowa",
+        added_to_job_by_name: "Piotr Szkicowy",
         can_take: true,
         days_in_stage: 2,
+        screening_done: true,
       }),
       card("Ewa", "Dąbrowska", {
         entry_source: "reassign",
-        reassign_from_title: "Java Developer · PKO BP",
+        reassign_from_title: "Java Developer · Bank Kappa",
         claim_user_id: viewerId,
         claim_user_name: "Marta Nowak",
         claim_until: inHours(11.5),
       }),
       card("Jakub", "Mazur", { entry_source: "proposal", can_take: true }),
     ]),
-    col("screening", "Screening", "internal", 12, []),
+    col(
+      "screening",
+      "Screening",
+      "internal",
+      12,
+      noQuestions
+        ? [
+            card("Olga", "Bezpytań", {
+              days_in_stage: 2,
+              screening_done: false,
+              screening_requirement: "why_candidate",
+            }),
+            card("Igor", "Oceniony", {
+              days_in_stage: 1,
+              screening_done: true,
+              screening_requirement: "why_candidate",
+              expected_rate_value: 140,
+              expected_rate_unit: "hourly",
+              expected_rate_currency: "PLN",
+            }),
+          ]
+        : manyInScreening
+          ? Array.from({ length: 20 }, (_, i) =>
+              card("Osoba", `Próbna ${i + 1}`, { days_in_stage: i % 4, screening_done: false }),
+            )
+          : [
+              card("Tomasz", "Minimum", {
+                days_in_stage: 1,
+                screening_done: true,
+                minimum_missing: ["location", "work_mode"],
+                expected_rate_value: 140,
+                expected_rate_unit: "hourly",
+                expected_rate_currency: "PLN",
+              }),
+            ],
+    ),
     col("verified", "Zweryfikowany", "internal", 13, [
       card("Anna", "Kowalczyk", {
         days_in_stage: 1,
         expected_rate_value: 150,
         expected_rate_unit: "hourly",
         auto_cv_ready: true,
+        company_cv: true,
+        qc: { status: "failed", blocking_failed: 1, warnings_count: 2 },
       }),
-      card("Michał", "Wójcik", { days_in_stage: 0, auto_cv_ready: true }),
+      card("Michał", "Wójcik", { days_in_stage: 0, auto_cv_state: "processing", company_cv: false }),
+      card("Beata", "Próbna", {
+        days_in_stage: 1,
+        expected_rate_value: 145,
+        expected_rate_unit: "hourly",
+        company_cv: true,
+        qc: { status: "passed", blocking_failed: 0, warnings_count: 0, ok_at: daysAgo(0) },
+      }),
+      card("Filip", "Testowy", { days_in_stage: 2, company_cv: false }),
     ]),
-    col("interview", "Przepuszczony przez DZ", "internal", 14, []),
+    // Jeden panel osoby (04.10.2026): DL wysyłający tę osobę do klienta
+    // dostaje przegląd w panelu osoby (`?as=dl`).
+    col("interview", "Przepuszczony przez DZ", "internal", 14, [
+      card("Iga", "Testowa", {
+        days_in_stage: 1,
+        expected_rate_value: 140,
+        expected_rate_unit: "hourly",
+        qc: { status: "passed", blocking_failed: 0 },
+      }),
+      // Druga gotowa osoba tylko w widoku Delivery Leada. W kolumnie od 4 dni,
+      // QC przepuszczone przedwczoraj — plakietka liczy dni od gotowości (2),
+      // nie od wejścia do kolumny.
+      ...(dlQueue
+        ? [
+            card("Adam", "Przykładowy", {
+              days_in_stage: 4,
+              moved_at: daysAgo(4),
+              expected_rate_value: 155,
+              expected_rate_unit: "hourly",
+              qc: { status: "overridden", blocking_failed: 1, ok_at: daysAgo(2) },
+            }),
+          ]
+        : []),
+    ]),
     col("new", "Wysłać do Cpro", "internal", 15, []),
     col("cv_sent", "CV Wysłane", "internal", 16, [
       card("Łukasz", "Kamiński", {
@@ -202,6 +308,237 @@ function columns(viewerId: number): KanbanColumn[] {
   ];
 }
 
+const daysAgo = (days: number): string => new Date(Date.now() - days * 24 * HOUR).toISOString();
+
+const SCREENING_QUESTIONS = [
+  {
+    id: "q1",
+    question: "Czy pracowałeś na mikroserwisach? Na jakiej skali?",
+    ideal_answer: "Co najmniej 2 lata, kilka usług na produkcji.",
+    deal_breaker: "Brak doświadczenia produkcyjnego.",
+  },
+  { id: "q2", question: "Od kiedy możesz zacząć?", ideal_answer: "Do 4 tygodni.", deal_breaker: "" },
+  {
+    id: "q3",
+    question: "Ile dni w tygodniu możesz być w biurze w Warszawie?",
+    ideal_answer: "2 dni.",
+    deal_breaker: "Tylko zdalnie.",
+  },
+];
+
+/** Zapisany arkusz (dok Lisa): pytania z odpowiedziami, pominięte, sprawdzone w rozmowie. */
+const SAVED_SHEET: ScreeningAnswers = {
+  answers: [
+    {
+      question_id: "q1",
+      question_text: SCREENING_QUESTIONS[0].question,
+      response: "Tak, 4 lata. 20 usług w systemie rozliczeń, Kafka i Spring Boot.",
+      deal_breaker_hit: false,
+    },
+    {
+      question_id: "q2",
+      question_text: SCREENING_QUESTIONS[1].question,
+      response: "Od 1 listopada.",
+      deal_breaker_hit: false,
+    },
+    {
+      question_id: "q3",
+      question_text: SCREENING_QUESTIONS[2].question,
+      response: "",
+      deal_breaker_hit: false,
+      skipped: true,
+    },
+  ],
+  experience_checks: [{ kind: "domains", name: "Bankowość", status: "confirmed", note: "3 lata" }],
+  overall_fit: "fit",
+  notes: "Konkretny, podaje liczby.",
+  internal_note: null,
+  answered_at: daysAgo(1),
+  answered_by: 7,
+};
+
+const HISTORY_HINTS: ScreeningReassignSuggestion[] = [
+  {
+    question_id: "q1",
+    text: "Tak, 3 lata: 12 usług w systemie płatności, Kafka i Spring Boot.",
+    source_kind: "answer",
+    source_quote: "12 usług w systemie płatności",
+    confidence: "high",
+    source: { job_id: 4100, job_title: "Java Developer", client_name: "Telekom Demo", date: daysAgo(49) },
+    source_question: "Mikroserwisy — ile lat i jaka skala?",
+  },
+  {
+    question_id: "q3",
+    text: "Dwa dni w tygodniu, w Warszawie bez problemu.",
+    source_kind: "answer",
+    source_quote: "Dwa dni w tygodniu",
+    confidence: "high",
+    source: { job_id: 4212, job_title: "Backend Engineer", client_name: "Ubezpieczenia Demo", date: daysAgo(12) },
+    source_question: "Ile dni w biurze?",
+  },
+];
+
+const REASSIGN_SOURCE = { job_id: 4100, job_title: "Java Developer · Bank Kappa", date: daysAgo(12) };
+
+const REASSIGN_HINTS: ScreeningReassignSuggestion[] = [
+  {
+    question_id: "q1",
+    text: "Tak, 5 lat. Ostatnio 30 usług, sama prowadziła migrację z monolitu.",
+    source_kind: "answer",
+    source_quote: "30 usług",
+    confidence: "high",
+    source: { job_id: 4100, job_title: "Java Developer", client_name: "Bank Kappa", date: daysAgo(12) },
+    source_question: SCREENING_QUESTIONS[0].question,
+  },
+  {
+    question_id: "q2",
+    text: "Dostępna od połowy października.",
+    source_kind: "note",
+    source_quote: "kończy projekt 15.10, potem wolna",
+    confidence: "medium",
+    source: null,
+    source_question: null,
+  },
+];
+
+const FORM_LABELS = {
+  rate: "Stawka",
+  availability: "Dostępność",
+  work_mode: "Tryb pracy",
+  location: "Lokalizacja",
+  english: "Angielski",
+  recommendation: "Dlaczego ten kandydat",
+  motivation: "Motywacja",
+  red_flags: "Red flags",
+};
+
+/** Stan formularza screeningu pary — to, co oddaje serwer dla widoku tylko do odczytu. */
+function screeningFormOf(item: KanbanItem, sheet: ScreeningAnswers | null): ScreeningFormState {
+  const filled = sheet != null;
+  // 21.10.2026: brakuje tylko minimum dla DL — lokalizacja przyjdzie z innej rekrutacji.
+  const minimum = item.lastname === "Minimum";
+  return {
+    candidate_id: item.candidate_id,
+    job_id: JOB_ID,
+    version: filled ? 1 : 0,
+    versions_count: filled ? 1 : 0,
+    state_token: `podglad-${item.id}`,
+    editable: true,
+    read_only_reason: null,
+    read_only_message: null,
+    stage_id: item.id,
+    board_column: item.stage,
+    process_state_version: 1,
+    claim: null,
+    champion_profile: { screening_questions: SCREENING_QUESTIONS },
+    sheet,
+    sheet_source_stage_id: filled ? item.id : null,
+    legacy_notes: sheet?.notes?.trim() || null,
+    note_answers: [],
+    questions: SCREENING_QUESTIONS.map((question, index) => {
+      const answer = sheet?.answers.find((a) => a.question_id === question.id);
+      const text = answer?.skipped ? "" : (answer?.response ?? "");
+      return {
+        number: index + 1,
+        question: question.question,
+        answer: text,
+        source: text ? ("sheet" as const) : null,
+        question_id: question.id,
+        deal_breaker: question.deal_breaker || null,
+        deal_breaker_hit: answer?.deal_breaker_hit === true,
+      };
+    }),
+    card: {
+      fields: filled
+        ? {
+            availability: { raw: "od 1 listopada", source: "manual", by_name: "Marta Testowa" },
+            work_mode: { raw: "hybrydowo, 2 dni w Warszawie", source: "manual", by_name: "Marta Testowa" },
+            english: { raw: "B2", level: "B2", source: "note", note_id: 1 },
+            recommendation: {
+              raw: "Cztery lata na mikroserwisach w systemie rozliczeń — zna stack klienta.",
+              source: "manual",
+              by_name: "Marta Testowa",
+            },
+          }
+        : minimum
+          ? {
+              availability: { raw: "od zaraz", source: "manual", by_name: "Marta Testowa" },
+              recommendation: { raw: "Pięć lat w Javie, zna procesy KYC.", source: "manual", by_name: "Marta Testowa" },
+            }
+          : {},
+      previous: {},
+      suggestions: {},
+      required: ["location", "work_mode", "availability", "recommendation"],
+      carried: minimum
+        ? {
+            location: { raw: "Gdańsk", at: "2026-10-18T09:00:00Z", job_id: 9101, job_title: "Analityk — Bank Kappa" },
+          }
+        : undefined,
+      completeness: filled
+        ? { status: "partial", filled: 5, total: 8, missing: ["location", "motivation", "red_flags"] }
+        : { status: "empty", filled: 0, total: 8, missing: Object.keys(FORM_LABELS) },
+      labels: FORM_LABELS,
+      editable_fields: Object.keys(FORM_LABELS),
+    },
+    rate: filled ? { amount: 150, unit: "hourly", currency: "PLN", source: "stage", at: null } : null,
+    rate_text: null,
+    rate_hints: { card: null, rate_from: null },
+    rate_change_notifies: false,
+    can_edit_rate: true,
+    suggestions_from_notes: {},
+    assist_enabled: false,
+    phrase_language: "pl",
+  };
+}
+
+/** Zasiewa arkusz, kontekst wcześniejszych rozmów i podpowiedzi dla każdej karty. */
+function seedScreening(client: QueryClient, cols: KanbanColumn[]) {
+  // Hooki mają własne `staleTime` — bez daty w przyszłości odświeżałyby dane.
+  const fresh = { updatedAt: Date.now() + 365 * 24 * HOUR };
+  for (const column of cols) {
+    for (const item of column.items) {
+      const history = item.lastname === "Zieliński";
+      const reassign = item.lastname === "Dąbrowska";
+      const sheet: StageScreeningResponse = {
+        stage_id: item.id,
+        candidate_id: item.candidate_id,
+        job_id: JOB_ID,
+        champion_profile: { screening_questions: SCREENING_QUESTIONS } as never,
+        screening_answers: item.lastname === "Lis" ? SAVED_SHEET : null,
+      };
+      client.setQueryData(["screening-v2", item.id], sheet, fresh);
+      client.setQueryData(["pipeline-stage-screening", item.id], sheet, fresh);
+      // Sekcja „Screening” doku czyta stan formularza pary (09.10.2026).
+      client.setQueryData(
+        screeningFormQueryKey(JOB_ID, item.candidate_id),
+        screeningFormOf(item, sheet.screening_answers),
+        fresh,
+      );
+      const context: ScreeningReassignContext = {
+        stage_id: item.id,
+        candidate_id: item.candidate_id,
+        available: history || reassign,
+        kind: reassign ? "reassign" : history ? "history" : null,
+        source: reassign ? REASSIGN_SOURCE : null,
+        previous_answers_count: history ? 5 : reassign ? 3 : 0,
+        earlier_conversations: history ? 2 : reassign ? 1 : 0,
+      };
+      client.setQueryData(reassignContextQueryKey(item.id), context, fresh);
+      if (history || reassign) {
+        const hints: ScreeningReassignSuggestionsResponse = {
+          stage_id: item.id,
+          available: true,
+          message: null,
+          kind: context.kind,
+          source: context.source,
+          suggestions: reassign ? REASSIGN_HINTS : HISTORY_HINTS,
+        };
+        client.setQueryData(screeningSuggestionsQueryKey(item.id), hints, fresh);
+      }
+    }
+  }
+}
+
 function useNetworkBlocked() {
   const [interceptorId] = useState(() =>
     api.interceptors.request.use(() =>
@@ -236,7 +573,7 @@ function PipelineV4Harness() {
       user: {
         id: viewerId,
         email: "preview@example.com",
-        name: asDl ? "Kamil Rudnicki" : "Marta Nowak",
+        name: asDl ? "Kamil Próbny" : "Marta Nowak",
         role: asDl ? "delivery_lead" : "recruiter",
         roles: [asDl ? "delivery_lead" : "recruiter"],
         profile_completed: true,
@@ -249,7 +586,78 @@ function PipelineV4Harness() {
     });
     setReady(true);
   }, [asDl, viewerId]);
-  const cols = useMemo(() => columns(viewerId), [viewerId]);
+  const noQuestions = params.get("questions") === "none";
+  const manyInScreening = params.get("screening") === "many";
+  const cols = useMemo(
+    () => columns(viewerId, noQuestions, asDl, manyInScreening),
+    [viewerId, noQuestions, asDl, manyInScreening],
+  );
+  // Pierścienie dopasowania i „brak: …” (16.10.2026) — fikcyjne liczby, bez zapytań.
+  const scoreMap = useMemo(
+    () => new Map(cols.flatMap((c) => c.items).map((it, i) => [it.candidate_id, 58 + ((i * 7) % 35)])),
+    [cols],
+  );
+  const criticalGapMap = useMemo(() => {
+    const gaps = new Map<number, string[]>();
+    for (const it of cols.flatMap((c) => c.items)) {
+      if (it.lastname === "Wiśniewska") gaps.set(it.candidate_id, ["płatności"]);
+      if (it.lastname === "Zieliński") gaps.set(it.candidate_id, ["płatności", "mikroserwisy"]);
+    }
+    return gaps;
+  }, [cols]);
+  // 0404: „Odrzuceni przez AI” — pusta lista, bez zapytania.
+  useMemo(() => {
+    client.setQueryData(screenedOutQueryKey(JOB_ID), { job_id: JOB_ID, total: 0, items: [] });
+  }, [client]);
+  useMemo(() => seedScreening(client, cols), [client, cols]);
+  // Notatki w doku osoby (sekcja „Notatki”): ta sama lista co w profilu —
+  // odpowiedź pod notatką i notatka automatu za „Pokaż systemowe (1)”.
+  useMemo(() => {
+    for (const column of cols) {
+      for (const item of column.items) {
+        // 12.10.2026: dok czyta WSZYSTKIE notatki osoby i sam wybiera te z tej
+        // rekrutacji (`job_id`). Znacznik dzień w przód — zapytanie ma własny
+        // `staleTime`, a harness nie ma sieci.
+        client.setQueryData(candidateQueryKeys.notes(item.candidate_id), {
+          items: [
+            {
+              id: item.candidate_id,
+              job_id: JOB_ID,
+              author_id: 3,
+              author_name: "Ola Rekruterka",
+              created_at: "2026-09-12T09:30:00Z",
+              pinned_at: "2026-09-13T08:00:00Z",
+              content:
+                "<p>@Kamil Próbny</p><p>&nbsp;</p><p>&nbsp;</p><p>Rozmowa wstępna — dostępny od października.</p><p>&nbsp;</p><p>Preferuje pracę hybrydową, 2 dni w biurze.</p><p>&nbsp;</p><p>Stawka 150 zł/h netto B2B.</p><p>Czeka na decyzję w innym procesie.</p>",
+              replies: [
+                {
+                  id: 100_000 + item.candidate_id,
+                  author_id: 5,
+                  author_name: "Kamil Próbny",
+                  created_at: "2026-09-13T10:15:00Z",
+                  content: "Klient potwierdził, że hybryda jest OK.",
+                  parent_note_id: item.candidate_id,
+                  replies: [],
+                },
+              ],
+            },
+            {
+              id: 200_000 + item.candidate_id,
+              job_id: JOB_ID,
+              author_id: null,
+              author_name: null,
+              created_at: "2026-09-10T07:00:00Z",
+              content: "Auto-match 72/100 — kandydat dodany automatycznie.",
+              external_source: "system",
+              is_system: true,
+              replies: [],
+            },
+          ],
+          total: 2,
+        }, { updatedAt: Date.now() + 86_400_000 });
+      }
+    }
+  }, [client, cols]);
   if (!ready) return null;
 
   return (
@@ -260,7 +668,14 @@ function PipelineV4Harness() {
             <h1 className="mb-3 text-lg font-semibold">
               Tablica Pipeline v4 — harness ({asDl ? "Delivery Lead" : "rekruterka Marta"})
             </h1>
-            <KanbanBoardV2 columns={cols} jobId={JOB_ID} jobTitle="Senior Java Developer" />
+            <KanbanBoardV2
+              columns={cols}
+              jobId={JOB_ID}
+              jobTitle="Senior Java Developer"
+              viewerOwnsDlReview={asDl}
+              scoreMap={scoreMap}
+              criticalGapMap={criticalGapMap}
+            />
           </main>
         </TooltipProvider>
       </ToastProvider>

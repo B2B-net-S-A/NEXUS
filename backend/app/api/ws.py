@@ -27,10 +27,16 @@ from app.core.security import (
 )
 from app.models.user import User
 from app.services.notification_access import user_can_receive_realtime_event
+from app.services.notification_topics import enrich_realtime_event
 from app.services.section_permissions import resolve_effective_section_access
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Co ile sekund odświeżać ``users.last_seen_at`` dla otwartego gniazda.
+# Fallback mailowy czatu uznaje osobę za offline po 15 min bez stempla, więc
+# odświeżenie musi być wyraźnie częstsze (runda 9, R9-N2-2).
+LAST_SEEN_REFRESH_SECONDS = 300
 
 
 # ── Presence DTO ──────────────────────────────────────────────────────────────
@@ -130,23 +136,43 @@ class ConnectionManager:
 
     async def notify_user(self, user_id: int, event: dict) -> None:
         """Send event to all WebSocket connections of a user."""
-        connections = self._connections.get(user_id, [])
+        # Kopia: każdy ``await`` niżej oddaje pętlę, a w tym czasie inne
+        # zadanie może dopisać albo usunąć gniazdo z żywej listy (R9-N2-8).
+        connections = list(self._connections.get(user_id, []))
         if not connections:
             return
+        # Temat ikony paska i decyzja o dymku — w jednym miejscu dla wszystkich
+        # producentów ramek „notification” (16.10.2026, bez dzwonka).
+        payload = enrich_realtime_event(event)
         dead: List[WebSocket] = []
         for ws in connections:
-            try:
-                token = self._auth_tokens.get(ws)
-                if token:
+            token = self._auth_tokens.get(ws)
+            if token:
+                try:
                     current_user = await _authenticate_ws_token(token)
-                    if current_user is None:
-                        await ws.close(code=4001, reason="Unauthorized")
-                        dead.append(ws)
-                        continue
-                    if not user_can_receive_realtime_event(current_user, event):
-                        continue
-                await ws.send_json(event)
+                except Exception as exc:  # noqa: BLE001
+                    # Błąd bazy przy sprawdzaniu tokenu nie znaczy, że
+                    # gniazdo jest martwe. Do rundy 9 (R9-N2-3) takie gniazdo
+                    # wypadało z menedżera BEZ zamknięcia — przeglądarka
+                    # trzymała otwarte połączenie, na które nic już nie szło.
+                    logger.warning(
+                        "WS auth check failed for user %d: %s",
+                        user_id,
+                        type(exc).__name__,
+                    )
+                    continue
+                if current_user is None:
+                    await _close_quietly(ws, 4001, "Unauthorized")
+                    dead.append(ws)
+                    continue
+                if not user_can_receive_realtime_event(current_user, event):
+                    continue
+            try:
+                await ws.send_json(payload)
             except Exception:
+                # Nieudany zapis = gniazdo martwe albo zepsute: zamykamy je,
+                # żeby klient połączył się ponownie, zamiast zostać osierocony.
+                await _close_quietly(ws, 1011, "Send failed")
                 dead.append(ws)
         for ws in dead:
             await self.disconnect(user_id, ws)
@@ -227,6 +253,10 @@ class ConnectionManager:
                 self._editing[key].pop(user_id, None)
         if fields != before:
             await self._broadcast_update(key)
+
+    def viewer_ids(self, resource_type: str, resource_id: int) -> Set[int]:
+        """Who has the resource open right now (any tab) — ids only."""
+        return set(self._viewers.get(_make_key(resource_type, resource_id), {}))
 
     def get_viewers(self, resource_type: str, resource_id: int) -> List[dict]:
         """Return a snapshot of viewers for a resource (for HTTP fallback)."""
@@ -323,7 +353,9 @@ class ConnectionManager:
             "viewers": self._build_viewers_payload(key),
         }
         viewers_for_key = self._viewers.get(key, {})
-        for ws_set in viewers_for_key.values():
+        # Kopie: ``send_json`` oddaje pętlę, a rozłączenie w innym zadaniu
+        # zmienia słownik widzów w trakcie iteracji (R9-N2-8).
+        for ws_set in list(viewers_for_key.values()):
             for ws in list(ws_set):
                 try:
                     await ws.send_json(event)
@@ -338,6 +370,29 @@ manager = ConnectionManager()
 async def notify_user(user_id: int, event: dict) -> None:
     """Public helper callable from any API endpoint."""
     await manager.notify_user(user_id, event)
+
+
+async def _close_quietly(ws: WebSocket, code: int, reason: str) -> None:
+    """Zamknij gniazdo; już zamknięte albo zerwane nie jest błędem."""
+    try:
+        await ws.close(code=code, reason=reason)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def _refresh_last_seen(user_id: int, stamped_at: float) -> float:
+    """Odśwież ``last_seen_at`` otwartego gniazda najwyżej co kilka minut.
+
+    Do rundy 9 (R9-N2-2) stempel padał tylko przy połączeniu i rozłączeniu,
+    więc osoba z kartą otwartą od godziny wyglądała na offline i dostawała
+    maile o wiadomościach czatu, które widziała na żywo. Zwraca czas pętli
+    ostatniego stempla.
+    """
+    now = asyncio.get_running_loop().time()
+    if now - stamped_at < LAST_SEEN_REFRESH_SECONDS:
+        return stamped_at
+    await _stamp_last_seen(user_id)
+    return now
 
 
 async def _stamp_last_seen(user_id: int) -> None:
@@ -524,11 +579,17 @@ async def ws_notifications(
     """
     raw_token, accepted_subprotocol = _extract_ws_token(websocket, token)
     if not raw_token:
-        await websocket.close(code=4001, reason="Unauthorized")
+        try:
+            await websocket.close(code=4001, reason="Unauthorized")
+        except (WebSocketDisconnect, ClientDisconnected):
+            pass
         return
     user = await _authenticate_ws_token(raw_token)
     if not user:
-        await websocket.close(code=4001, reason="Unauthorized")
+        try:
+            await websocket.close(code=4001, reason="Unauthorized")
+        except (WebSocketDisconnect, ClientDisconnected):
+            pass
         return
 
     try:
@@ -538,6 +599,8 @@ async def ws_notifications(
             subprotocol=accepted_subprotocol,
             auth_token=raw_token,
         )
+        # ``connect`` już ostemplował last_seen_at.
+        last_seen_stamped = asyncio.get_running_loop().time()
         await websocket.send_json(
             {
                 "type": "connected",
@@ -563,6 +626,7 @@ async def ws_notifications(
                     await websocket.close(code=4001, reason="Unauthorized")
                     break
                 user = refreshed_user
+                last_seen_stamped = await _refresh_last_seen(user.id, last_seen_stamped)
                 try:
                     await websocket.send_json({"type": "ping"})
                 except Exception:
@@ -577,6 +641,7 @@ async def ws_notifications(
                 await websocket.close(code=4001, reason="Unauthorized")
                 break
             user = refreshed_user
+            last_seen_stamped = await _refresh_last_seen(user.id, last_seen_stamped)
 
             if data == "ping":
                 await websocket.send_json({"type": "pong"})

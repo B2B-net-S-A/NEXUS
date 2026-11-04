@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Harness designu „Struktura umów" Centrum e-Zdrowia (ticket 09.2026):
+ * Harness designu „Struktura umów" Instytut Przykładowy (ticket 09.2026):
  * sekcja umów ramowych → wykonawczych z panelem przeglądu oraz fragment
  * „Obecnych konsultantów" z filtrem po umowie wykonawczej.
  *
@@ -41,21 +41,21 @@ import type { ActiveConsultantItem, ClientProfileResponse } from "@/types/client
 
 const UW_CZ2_1: ExecutiveContractBrief = {
   id: 10,
-  number: "CeZ/145/2025/UW-1",
+  number: "IPR/945/2031/UW-1",
   status: "active",
   framework_contract_id: 2,
   project_part: "cz2",
 };
 const UW_CZ2_2: ExecutiveContractBrief = {
   id: 11,
-  number: "CeZ/145/2025/UW-2",
+  number: "IPR/945/2031/UW-2",
   status: "ended",
   framework_contract_id: 2,
   project_part: "cz2",
 };
 const UW_CZ4_1: ExecutiveContractBrief = {
   id: 12,
-  number: "CeZ/147/2025/UW-1",
+  number: "IPR/947/2031/UW-1",
   status: "active",
   framework_contract_id: 4,
   project_part: "cz4",
@@ -64,10 +64,10 @@ const UW_CZ4_1: ExecutiveContractBrief = {
 // Pięć części; dwie z umowami wykonawczymi, trzy bez — obie gałęzie widoku.
 const STRUCTURE: ContractStructureResponse = {
   framework_contracts: [
-    { id: 1, name: "CeZ/144/2025 – cz. I", project_part: "cz1", status: "active", executive_contracts: [] },
+    { id: 1, name: "IPR/944/2031 – cz. I", project_part: "cz1", status: "active", executive_contracts: [] },
     {
       id: 2,
-      name: "CeZ/145/2025 – cz. II",
+      name: "IPR/945/2031 – cz. II",
       project_part: "cz2",
       status: "active",
       executive_contracts: [
@@ -77,15 +77,15 @@ const STRUCTURE: ContractStructureResponse = {
     },
     {
       id: 4,
-      name: "CeZ/147/2025 – cz. IV",
+      name: "IPR/947/2031 – cz. IV",
       project_part: "cz4",
       status: "active",
       executive_contracts: [
         { ...UW_CZ4_1, notes: null, consultants_count: 1, created_at: "2026-09-10T09:00:00Z" },
       ],
     },
-    { id: 5, name: "CeZ/148/2025 – cz. V", project_part: "cz5", status: "active", executive_contracts: [] },
-    { id: 6, name: "CeZ/149/2025 – cz. VI", project_part: "cz6", status: "active", executive_contracts: [] },
+    { id: 5, name: "IPR/948/2031 – cz. V", project_part: "cz5", status: "active", executive_contracts: [] },
+    { id: 6, name: "IPR/949/2031 – cz. VI", project_part: "cz6", status: "active", executive_contracts: [] },
   ],
 };
 
@@ -226,7 +226,7 @@ export default function EzdrowieContractStructurePreviewPage() {
       <ToastProvider>
         <main className="mx-auto flex max-w-5xl flex-col gap-8 p-8">
           <header>
-            <h1 className="text-lg font-semibold">Centrum e-Zdrowia — struktura umów wykonawczych</h1>
+            <h1 className="text-lg font-semibold">Instytut Przykładowy — struktura umów wykonawczych</h1>
             <p className="text-sm text-muted-foreground">
               Umowa ramowa (część) → umowy wykonawcze; konsultant przypisany do umowy
               wykonawczej. Mocki, zero zapytań — przyciski zapisu wołałyby prawdziwe API.

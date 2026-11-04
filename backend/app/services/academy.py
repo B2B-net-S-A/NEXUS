@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import case, func, or_, select, update
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,12 +50,16 @@ from app.services.ai_models import fallbacks_for, model_for
 from app.services.ai_quota import ai_feature
 from app.services.llm_prompts import ACADEMY_SCREENING
 from app.services.prompt_fencing import fence
-from app.core.scheduling import business_today
+from app.core.scheduling import business_today, local_day_start_utc
 
 logger = logging.getLogger(__name__)
 
 FEATURE = AIFeatureKey.academy_screening
-SCREENING_VERSION = 2
+# 3 = runda 8 (26.09.2026): „present” od Luny wymaga dowodu, studia bez roku
+# końca to „do decyzji”, poziom polskiego przy polskim. Werdykt „skip” z inną
+# wersją albo innymi kryteriami programu jest sortowany ponownie
+# (``reset_stale_skips``) — „Zatwierdź” wyklucza na zawsze.
+SCREENING_VERSION = 3
 CV_CHAR_LIMIT = 12000
 SCREEN_BATCH = 25
 APPLICATIONS_LIST_LIMIT = 2000
@@ -108,14 +112,10 @@ async def intake_program(db: AsyncSession, program_id: int) -> dict[str, int]:
     for source in sources:
         conditions = [CandidateStage.job_id == source.job_id]
         if source.since is not None:
+            # „Od dnia” to doba w kalendarzu firmy, nie północ UTC — inaczej
+            # zgłoszenie z 00:30 czasu polskiego w dniu `since` przepadało.
             conditions.append(
-                CandidateStage.moved_at
-                >= datetime(
-                    source.since.year,
-                    source.since.month,
-                    source.since.day,
-                    tzinfo=timezone.utc,
-                )
+                CandidateStage.moved_at >= local_day_start_utc(source.since)
             )
         rows = (
             await db.execute(
@@ -308,6 +308,7 @@ async def _screen_one(application_id: int, program: AcademyProgram) -> Optional[
         )
         payload = {
             "version": SCREENING_VERSION,
+            "criteria": screening_criteria(program),
             "facts": result.facts,
             "reasons": result.reasons,
             "model": model_for(FEATURE) if parsed is not None else None,
@@ -336,6 +337,72 @@ async def _screen_one(application_id: int, program: AcademyProgram) -> Optional[
         return result.verdict if updated.rowcount else None
 
 
+def screening_criteria(program: AcademyProgram) -> dict[str, Any]:
+    """Kryteria programu, według których Luna posortowała zgłoszenie."""
+    return {
+        "max_experience_years": program.max_experience_years,
+        "require_polish": bool(program.require_polish),
+    }
+
+
+def skip_is_current(screening: Any, program: AcademyProgram) -> bool:
+    """Czy werdykt „skip” policzono bieżącymi regułami i kryteriami programu.
+
+    Runda 8 (R8-N2-2): po podniesieniu limitu lat albo wyłączeniu wymogu
+    polskiego stary „skip” zostawał, a „Zatwierdź” wykluczał na zawsze według
+    kryterium, którego już nie ma.
+    """
+    if not isinstance(screening, dict):
+        return False
+    return screening.get("version") == SCREENING_VERSION and screening.get(
+        "criteria"
+    ) == screening_criteria(program)
+
+
+def clear_screening(row: AcademyApplication) -> None:
+    """Wiersz wraca do „czeka na Lunę” (status zostaje ``new``)."""
+    row.screening_verdict = None
+    row.screening = None
+    row.screened_at = None
+    row.experience_years = None
+
+
+async def reset_stale_skips(db: AsyncSession, program: AcademyProgram) -> int:
+    """Odłożonych nieaktualnymi regułami/kryteriami oddaj do ponownego sortowania.
+
+    Zapis warunkowy (``new`` + ``skip``) — decyzja człowieka w międzyczasie
+    wygrywa. Commit robi wołający.
+    """
+    rows = (
+        await db.execute(
+            select(AcademyApplication.id, AcademyApplication.screening).where(
+                AcademyApplication.program_id == program.id,
+                AcademyApplication.status == "new",
+                AcademyApplication.screening_verdict == "skip",
+            )
+        )
+    ).all()
+    stale = [rid for rid, screening in rows if not skip_is_current(screening, program)]
+    if not stale:
+        return 0
+    result = await db.execute(
+        update(AcademyApplication)
+        .where(
+            AcademyApplication.id.in_(stale),
+            AcademyApplication.status == "new",
+            AcademyApplication.screening_verdict == "skip",
+        )
+        .values(
+            screening_verdict=None,
+            screening=None,
+            screened_at=None,
+            experience_years=None,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    return int(result.rowcount or 0)
+
+
 async def screen_pending(program_id: int, limit: int = SCREEN_BATCH) -> dict[str, int]:
     """Posortuj do ``limit`` nowych zgłoszeń programu (własne sesje)."""
     stats = {"call": 0, "review": 0, "skip": 0}
@@ -343,6 +410,8 @@ async def screen_pending(program_id: int, limit: int = SCREEN_BATCH) -> dict[str
         program = await db.get(AcademyProgram, program_id)
         if program is None:
             return stats
+        if await reset_stale_skips(db, program):
+            await db.commit()
         ids = (
             (
                 await db.execute(
@@ -523,6 +592,13 @@ async def perform_action(
                     else None,
                 },
             )
+        )
+        # Recepcja (moduł „Sprzęt”): zadanie zestawu po podpisie, logistyka
+        # i zwrot po odejściu. Hak sam łapie swoje awarie w savepoincie.
+        from app.services import academy_edition
+
+        await academy_edition.on_status_changed(
+            db, row, before=before, actor_id=user_id
         )
     return row
 
@@ -717,7 +793,16 @@ async def sessions_with_counts(
                 ),
             )
             .label("taken"),
-            func.count(AcademyApplication.id).label("all_people"),
+            func.count(AcademyApplication.id)
+            .filter(
+                # Wykluczeni i zrezygnowani przed spotkaniem nie są jego
+                # uczestnikami (R8-N2-9, także wiersze sprzed poprawki).
+                ~and_(
+                    AcademyApplication.status.in_(_CLOSED_STATUSES),
+                    AcademyApplication.attended.is_not(True),
+                )
+            )
+            .label("all_people"),
         )
         .where(AcademyApplication.session_id.is_not(None))
         .group_by(AcademyApplication.session_id)
@@ -753,7 +838,9 @@ __all__ = [
     "intake_program",
     "list_applications",
     "perform_action",
+    "reset_stale_skips",
     "screen_pending",
+    "skip_is_current",
     "sessions_with_counts",
     "status_counts",
     "sync_all_active",

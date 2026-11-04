@@ -11,6 +11,10 @@ export const CvEditorSection = Extension.create({
       attributes: {
         cvSection: {
           default: null,
+          // Enter na końcu akapitu nie kopiuje znacznika: tekst dopisany pod
+          // firmą albo pod klauzulą RODO nie może stać się drugą „firmą” czy
+          // drugą klauzulą w Wordzie (`cv_approved_docx.py`).
+          keepOnSplit: false,
           parseHTML: (element: HTMLElement) => {
             const value = element.dataset.cvSection;
             return value && sections.has(value) ? value : element.classList.contains("rodo") ? "rodo" : null;

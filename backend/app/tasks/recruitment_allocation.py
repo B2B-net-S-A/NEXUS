@@ -4,11 +4,12 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, or_, select, text, update
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import load_only
 
 from app.core.config import settings
+from app.services.hr.availability_local import availability_enabled, refresh_source
 from app.core.database import AsyncSessionLocal
 from app.models.notification import NotificationType
 from app.models.proposal_snapshot import ProposalSnapshot
@@ -30,13 +31,40 @@ from app.services.workforce_availability import sync_availability, workforce_con
 
 logger = logging.getLogger(__name__)
 
+# Wyjątki dostępności i zastępstw liczymy najwyżej raz na 10 minut: pętla idzie
+# co 30 s, a urlopy nie zmieniają się w takim tempie.
+ISSUES_CHECK_EVERY = timedelta(minutes=10)
+PROCESSED_EVENTS_KEPT_FOR = timedelta(days=1)
+
+
+def _issues_check_due(checked_at: object, now: datetime) -> bool:
+    """Czy pora ponownie policzyć wyjątki (``checked_at`` = zapis ze ``stats``)."""
+    if not isinstance(checked_at, str):
+        return True
+    try:
+        last = datetime.fromisoformat(checked_at)
+    except ValueError:
+        return True
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    return now - last >= ISSUES_CHECK_EVERY
+
 
 async def availability_loop():
-    if not settings.COMPASS_AVAILABILITY_ENABLED:
+    # Źródło dostępności: Compass (flaga env) albo urlopy NEXUSA
+    # (`app_settings['hr_availability_source']`, krok 6 „Ludzi w NEXUSIE”).
+    # To drugie przełącza admin bez wdrożenia, więc pętla żyje, gdy działają
+    # pętle HR, i co minutę sprawdza przełącznik.
+    if not settings.COMPASS_AVAILABILITY_ENABLED and not settings.HR_LOOPS_ENABLED:
         return
     while True:
         try:
             async with AsyncSessionLocal() as db:
+                await refresh_source(db, force=True)
+                if not availability_enabled():
+                    await db.rollback()
+                    await asyncio.sleep(60)
+                    continue
                 # Multiple API workers must not overwrite a newer snapshot.
                 await db.execute(text("SELECT pg_advisory_xact_lock(734092772)"))
                 await sync_availability(db)
@@ -214,8 +242,20 @@ async def run_allocation_sweep(db):
         "assigned": allocation_stats.get("assigned", 0),
         "released": allocation_stats.get("released", 0),
     }
-    loads = await load_workloads(db, context, now=now)
-    issues = await allocation_issues(db, context, loads)
+    previous = state.stats or {}
+    issues_checked_at = previous.get("issues_checked_at")
+    if not availability_enabled():
+        # Compass celowo wyłączony: bez urlopów nie ma zastępstw do
+        # sprawdzenia, a „brak świeżych danych” nie jest wtedy awarią, o której
+        # trzeba kogoś budzić. `load_workloads` czyta wszystkie otwarte procesy
+        # (ok. 70 tys. na produkcji) — nie liczymy ich co 30 s na darmo.
+        issues, issues_checked_at = [], None
+    elif _issues_check_due(issues_checked_at, now):
+        loads = await load_workloads(db, context, now=now)
+        issues = await allocation_issues(db, context, loads)
+        issues_checked_at = now.isoformat()
+    else:
+        issues = previous.get("issues") or []
     # Fingerprint contents, not tick time: unchanged issues do not keep notifying.
     import hashlib
     import json
@@ -223,7 +263,6 @@ async def run_allocation_sweep(db):
     fingerprint = hashlib.sha256(
         json.dumps(issues, sort_keys=True).encode()
     ).hexdigest()
-    previous = state.stats or {}
     if issues and previous.get("issues_fingerprint") != fingerprint:
         from app.api.notifications import create_notification
         from app.services.notification_access import notification_recipient_has_access
@@ -262,6 +301,7 @@ async def run_allocation_sweep(db):
         REQUEST_ALLOCATION_STATS_KEY: allocation_stats,
         "issues": issues,
         "issues_fingerprint": fingerprint,
+        "issues_checked_at": issues_checked_at,
         "snapshot_version": context.snapshot_version,
     }
     state.last_run_at = now
@@ -279,6 +319,15 @@ async def run_allocation_sweep(db):
                 last_error=None,
             )
         )
+    # Obsłużone zdarzenia były tylko stemplowane, nigdy kasowane — outbox rósł
+    # z każdą zmianą rekrutacji. Dobę trzymamy na wypadek diagnozy.
+    await db.execute(
+        delete(RecruitmentAllocationEvent)
+        .where(
+            RecruitmentAllocationEvent.processed_at < now - PROCESSED_EVENTS_KEPT_FOR
+        )
+        .execution_options(synchronize_session=False)
+    )
     await db.commit()
 
 

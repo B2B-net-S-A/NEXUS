@@ -10,16 +10,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, or_
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.scheduling import business_today
 from app.models.activity import Activity
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_generated_contract import B2BGeneratedContract
@@ -31,6 +33,7 @@ from app.models.job import Job
 from app.models.order_type import OrderType
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.user_activity import UserActionType, UserActivity
 from app.services.contract_candidate_contact import (
     EMAIL_MAX_LENGTH,
     PHONE_MAX_LENGTH,
@@ -38,6 +41,9 @@ from app.services.contract_candidate_contact import (
     normalize_phone,
 )
 from app.services.candidate_contact_hooks import maybe_close_contact_opportunity
+from app.services.contract_client_manager import (
+    default_from_job as default_client_manager,
+)
 from app.services.cost_orders import skips_standard_order_automation
 from app.services.multi_consultant_orders import is_multi_consultant_client
 from app.services.order_engagement_separation import has_open_group_line
@@ -89,6 +95,15 @@ class B2BEmploymentDraftResult:
     # failed to produce the record every downstream reader (expiry scanner,
     # MRR, termination sync) expects; callers must not treat that as success.
     order_skipped_reason: str | None = None
+    # Wiersz etapu „Zatrudniony” założony przez TĘ operację (``None``, gdy
+    # karta już tam była albo ruch pominięto). Wołający po commicie robi z nim
+    # to samo co ``/pipeline/move``: powiadomienia o etapie, podpowiedź
+    # „komplet obsady” (audyt 05.10.2026).
+    hired_stage: CandidateStage | None = None
+    # Stawka kandydata z TEJ rekrutacji wpisana w nowy szkic przy ręcznym
+    # „Zatrudniony” (PLN/h). Wołający zapisuje ją w audycie szkicu — dzięki
+    # temu podpis w Generatorze rozpoznaje szkic jako zaślepkę.
+    seeded_rate_candidate: Decimal | None = None
 
 
 def _payload_value(payload: Any | None, name: str) -> Any | None:
@@ -157,7 +172,6 @@ async def _is_skeletal_pipeline_draft(
     has_skeletal_shape = (
         contract.status == ContractStatus.draft
         and detail is None
-        and contract.rate_candidate is None
         and contract.rate_client is None
         and not contract.candidate_rate_schedule
         and contract.draft_content_html is None
@@ -169,18 +183,35 @@ async def _is_skeletal_pipeline_draft(
     # incomplete manual draft with a negotiated date or currency. Only the
     # durable audit written by the hired-stage hook authorizes replacing its
     # placeholder defaults from the signed document.
-    origin_activity_id = await db.scalar(
-        select(Activity.id)
-        .where(
-            Activity.entity_type == "contract",
-            Activity.entity_id == contract.id,
-            Activity.action.in_(
-                ("auto_drafted_from_pipeline", "auto_drafted_from_order_mail")
-            ),
+    origin = (
+        await db.execute(
+            select(Activity.id, Activity.details)
+            .where(
+                Activity.entity_type == "contract",
+                Activity.entity_id == contract.id,
+                Activity.action.in_(
+                    ("auto_drafted_from_pipeline", "auto_drafted_from_order_mail")
+                ),
+            )
+            .order_by(Activity.id)
+            .limit(1)
         )
-        .limit(1)
-    )
-    return origin_activity_id is not None
+    ).first()
+    if origin is None:
+        return False
+    if contract.rate_candidate is None:
+        return True
+    # Ręczne „Zatrudniony” wpisuje w szkic stawkę z TEJ rekrutacji (audyt
+    # 05.10.2026) i zapisuje ją w audycie. Szkic z tą samą stawką jest nadal
+    # zaślepką — podpisany dokument ją zastępuje. Stawka zmieniona później
+    # przez człowieka to już warunek, którego podpis nie nadpisze po cichu.
+    seeded = (origin.details or {}).get("seeded_rate_candidate")
+    if seeded is None:
+        return False
+    try:
+        return Decimal(str(seeded)) == Decimal(str(contract.rate_candidate))
+    except ArithmeticError:
+        return False
 
 
 def _collect_term_conflicts(
@@ -209,7 +240,11 @@ def _collect_term_conflicts(
             conflicts.append("data rozpoczęcia")
 
     candidate_rate = _payload_value(payload, "rate_candidate")
-    if contract.rate_candidate is not None and candidate_rate is not None:
+    if (
+        not skeletal_pipeline_draft
+        and contract.rate_candidate is not None
+        and candidate_rate is not None
+    ):
         if Decimal(str(contract.rate_candidate)) != Decimal(str(candidate_rate)):
             conflicts.append("stawka kandydata")
 
@@ -349,8 +384,11 @@ def _fill_contract_terms(
 
     if replace_skeletal_defaults or contract.start_date is None:
         contract.start_date = _payload_value(payload, "start_date")
-    if replace_skeletal_defaults or contract.rate_candidate is None:
-        contract.rate_candidate = _payload_value(payload, "rate_candidate")
+    payload_rate = _payload_value(payload, "rate_candidate")
+    if contract.rate_candidate is None or (
+        replace_skeletal_defaults and payload_rate is not None
+    ):
+        contract.rate_candidate = payload_rate
     payload_currency = _payload_value(payload, "currency")
     if replace_skeletal_defaults and payload_currency:
         contract.rate_candidate_currency = payload_currency
@@ -450,6 +488,85 @@ async def _upsert_b2b_detail(
     return detail
 
 
+async def _linked_agreement_payload(
+    db: AsyncSession, generated: B2BGeneratedContract
+) -> Any | None:
+    """Formularz umowy do uzupełnienia szczegółów kontraktu albo ``None``.
+
+    Stary albo niepełny ``render_payload`` nie może zatrzymać powiązania —
+    wtedy na kontrakt idą tylko numer, data i język z wiersza rejestru.
+    Rola usunięta ze słownika po wygenerowaniu umowy złamałaby klucz obcy.
+    """
+
+    from pydantic import ValidationError
+
+    from app.models.b2b_contract_role import B2BContractRole
+    from app.schemas.b2b_contract_generator import B2BRenderRequest
+
+    try:
+        payload = B2BRenderRequest(**(generated.render_payload or {}))
+    except (ValidationError, TypeError):
+        return None
+    role_id = _payload_value(payload, "role_id")
+    if role_id is not None and await db.get(B2BContractRole, role_id) is None:
+        payload = payload.model_copy(update={"role_id": None})
+    return payload
+
+
+async def fill_contract_from_linked_agreement(
+    db: AsyncSession, contract: Contract, generated: B2BGeneratedContract
+) -> list[str]:
+    """Uzupełnij kontrakt z podpisanej umowy, z którą właśnie go powiązano.
+
+    „Powiąż z kontraktem” łączy umowę z kontraktem założonym poza podpisem
+    (ręcznie albo z zamówienia), czyli bez rekrutacji i bez szczegółów B2B.
+    Kontrakt bez ``job_id`` wypada z raportów liczonych po rekrutacji (czas
+    obsadzenia klienta, Insights Hiring Managerów, podkategorie rejestru).
+
+    Tylko puste pola, jak na ścieżce podpisu; numer umowy jest stemplowany
+    zawsze, bo mówi, KTÓRY dokument podpisano. Rekrutacja wchodzi tylko wtedy,
+    gdy należy do klienta kontraktu — ta sama reguła co przy zakładaniu
+    kontraktu (``job_client_mismatch``).
+
+    Zwraca nazwy uzupełnionych pól — do audytu, nie do sterowania przepływem.
+    """
+
+    # Relacja 1:1 musi być wczytana, zanim ``_upsert_b2b_detail`` do niej
+    # przypisze — leniwe doczytanie w sesji asynchronicznej kończy się błędem.
+    await db.refresh(contract, attribute_names=["b2b_detail"])
+    existing = contract.b2b_detail
+    previous_number = existing.contract_number if existing is not None else None
+
+    filled: list[str] = []
+    if contract.job_id is None and generated.job_id is not None:
+        job_client_id = await db.scalar(
+            select(Job.client_id).where(Job.id == generated.job_id)
+        )
+        if job_client_id == contract.client_id:
+            contract.job_id = generated.job_id
+            filled.append("job_id")
+    if generated.contract_kind == "mandate":
+        # Umowa zlecenia nie ma szczegółów B2B (numer, firma, NIP).
+        return filled
+
+    await _upsert_b2b_detail(
+        db,
+        contract,
+        existing,
+        await _linked_agreement_payload(db, generated),
+        contract_number=generated.contract_number,
+        signing_date=generated.signing_date,
+        language=generated.language,
+        canonicalize_number=True,
+        canonicalize_signing_date=False,
+    )
+    if existing is None:
+        filled.append("b2b_detail")
+    elif previous_number != generated.contract_number:
+        filled.append("contract_number")
+    return filled
+
+
 def _seed_candidate_rate_schedule(
     contract: Contract,
     payload: Any | None,
@@ -485,6 +602,47 @@ def should_auto_create_order(client_id: int | None) -> bool:
     zakłada osobno. Dlatego bramka polityki jest węższa od capability kosztowej.
     """
     return not skips_standard_order_automation(client_id)
+
+
+def _periods_overlap(a: ClientOrder, b: ClientOrder) -> bool:
+    """Brak daty = otwarte w tę stronę (lustro ``_assert_no_duplicate_order_number``)."""
+    starts_before_other_ends = (
+        a.start_date is None or b.end_date is None or a.start_date <= b.end_date
+    )
+    ends_after_other_starts = (
+        a.end_date is None or b.start_date is None or a.end_date >= b.start_date
+    )
+    return starts_before_other_ends and ends_after_other_starts
+
+
+def _overlapping_open_orders(orders: list[ClientOrder]) -> list[ClientOrder]:
+    """Zamówienia, które nachodzą na inne otwarte zamówienie tej osoby."""
+    return [
+        order
+        for order in orders
+        if any(
+            other is not order and _periods_overlap(order, other) for other in orders
+        )
+    ]
+
+
+def _current_of_chain(orders: list[ClientOrder]) -> ClientOrder:
+    """Z łańcucha rozłącznych zamówień: obowiązujące dziś, inaczej najbliższe
+    przyszłe, inaczej ostatnie. Planowane przedłużenie nie zastępuje
+    bieżącego zamówienia przed swoim startem."""
+    if len(orders) == 1:
+        return orders[0]
+    today = business_today()
+    by_start = sorted(orders, key=lambda o: (o.start_date or date.min, o.id))
+    for order in by_start:
+        started = order.start_date is None or order.start_date <= today
+        running = order.end_date is None or order.end_date >= today
+        if started and running:
+            return order
+    upcoming = [
+        o for o in by_start if o.start_date is not None and o.start_date > today
+    ]
+    return upcoming[0] if upcoming else by_start[-1]
 
 
 async def _ensure_open_order(
@@ -543,23 +701,32 @@ async def _ensure_open_order(
         .scalars()
         .all()
     )
-    if len(orders) > 1:
+    # Runda 10 (F24): bieżące zamówienie i jego PRZEDŁUŻENIE (okresy
+    # rozłączne, 01.10–31.12 i 01.01–31.03) to kontynuacja tej samej
+    # współpracy, nie duplikat — hook nazywał je „duplikatami” i nie zakładał
+    # szkicu kontraktu. Duplikat = dwa otwarte zamówienia na nachodzący okres.
+    overlapping = _overlapping_open_orders(orders)
+    if overlapping:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=_conflict_detail(
                 (
-                    "Kontraktor ma więcej niż jedno otwarte zamówienie dla tej "
-                    "rekrutacji. Zamknij duplikaty przed potwierdzeniem podpisu."
+                    "Kontraktor ma więcej niż jedno otwarte zamówienie na ten "
+                    "sam okres dla tej rekrutacji. Zamknij duplikaty przed "
+                    "potwierdzeniem podpisu."
                 ),
                 contract_ids=[contract.id],
-                order_ids=[order.id for order in orders],
+                order_ids=[order.id for order in overlapping],
             ),
         )
     if orders:
-        order = orders[0]
-        if order.client_id != job.client_id or (
-            order.job_id is not None and order.job_id != job.id
-        ):
+        mismatched = [
+            order
+            for order in orders
+            if order.client_id != job.client_id
+            or (order.job_id is not None and order.job_id != job.id)
+        ]
+        if mismatched:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=_conflict_detail(
@@ -568,12 +735,13 @@ async def _ensure_open_order(
                         "lub rekrutację."
                     ),
                     contract_ids=[contract.id],
-                    order_ids=[order.id],
+                    order_ids=[order.id for order in mismatched],
                 ),
             )
-        if order.job_id is None:
-            order.job_id = job.id
-        return orders[0], False, None
+        for order in orders:
+            if order.job_id is None:
+                order.job_id = job.id
+        return _current_of_chain(orders), False, None
 
     candidate_name = f"{candidate.name} {candidate.lastname}".strip()
     from_signed_confirmation = source == "signed_generated_contract"
@@ -628,15 +796,25 @@ async def _ensure_open_order(
             },
         )
     )
-    if from_signed_confirmation:
-        await _notify_new_contractor_draft(
-            db, order=order, candidate_name=candidate_name, job_title=job.title
-        )
+    # D3 (04.10.2026): karta „uzupełnij zamówienie” po KAŻDYM zatrudnieniu —
+    # z podpisu w Generatorze i z ręcznego ruchu na „Zatrudniony”.
+    await _notify_new_contractor_draft(
+        db,
+        order=order,
+        candidate_name=candidate_name,
+        job_title=job.title,
+        source="b2b_generator" if from_signed_confirmation else "pipeline_hire",
+    )
     return order, True, None
 
 
 async def _notify_new_contractor_draft(
-    db: AsyncSession, *, order: ClientOrder, candidate_name: str, job_title: str | None
+    db: AsyncSession,
+    *,
+    order: ClientOrder,
+    candidate_name: str,
+    job_title: str | None,
+    source: str = "b2b_generator",
 ) -> None:
     """Karta „Nowy kontraktor u klienta — uzupełnij zamówienie" w panelu DL.
 
@@ -654,6 +832,7 @@ async def _notify_new_contractor_draft(
                 order=order,
                 candidate_name=candidate_name or "Kontraktor",
                 job_title=job_title,
+                source=source,
             )
     except asyncio.CancelledError:
         raise
@@ -661,6 +840,35 @@ async def _notify_new_contractor_draft(
         logger.exception(
             "new_contractor_draft alert failed for order %s", getattr(order, "id", None)
         )
+
+
+async def _this_job_rate(
+    db: AsyncSession, *, job_id: int, candidate_id: int
+) -> Decimal | None:
+    """Stawka kandydata (PLN/h) podana w tej rekrutacji albo ``None``.
+
+    Podpowiedź do szkicu, nie warunek zatrudnienia: błąd odczytu cofa tylko
+    swój savepoint i daje ``None``.
+    """
+    from app.services.candidate_rate_from import this_job_rates  # noqa: PLC0415
+
+    try:
+        async with db.begin_nested():
+            rates = await this_job_rates(db, job_id, [candidate_id])
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — podpowiedź nie psuje zatrudnienia
+        logger.warning(
+            "hired draft: this-job rate lookup failed job=%s (%s)",
+            job_id,
+            type(exc).__name__,
+        )
+        return None
+    amount = (rates.get(candidate_id) or {}).get("amount")
+    if amount is None:
+        return None
+    value = Decimal(str(amount))
+    return value if value > 0 else None
 
 
 async def _resolve_hired_stage_def(
@@ -691,6 +899,30 @@ async def _ensure_hired_stage(
     job: Job,
     actor_id: int,
 ) -> bool:
+    """Czy ruch na „Zatrudniony” powstał — zgodność dla starych wołających."""
+    return (
+        await _ensure_hired_stage_row(
+            db, candidate=candidate, job=job, actor_id=actor_id
+        )
+        is not None
+    )
+
+
+async def _ensure_hired_stage_row(
+    db: AsyncSession,
+    *,
+    candidate: Candidate,
+    job: Job,
+    actor_id: int,
+) -> CandidateStage | None:
+    """Przesuń parę na „Zatrudniony” i zwróć NOWY wiersz etapu.
+
+    ``None`` = karta już tam była albo polityka Priority Work odmówiła
+    otwarcia procesu. Ślad ruchu jest ten sam co w ``/pipeline/move``
+    (``_record_stage_change``): ``Activity stage_changed`` i ``UserActivity``
+    — bez tego zatrudnienie z podpisu nie liczyło się w aktywności osoby
+    (audyt 05.10.2026). Efekty po commicie należą do wołającego.
+    """
     latest = await db.scalar(
         select(CandidateStage)
         .where(
@@ -702,7 +934,7 @@ async def _ensure_hired_stage(
         .with_for_update()
     )
     if latest is not None and latest.stage == PipelineStage.hired:
-        return False
+        return None
 
     stage_def = await _resolve_hired_stage_def(db, job)
     try:
@@ -726,7 +958,7 @@ async def _ensure_hired_stage(
             candidate.id,
             job.id,
         )
-        return False
+        return None
     # Etap zapisuje command service (writer fence), więc kolejka kontaktu
     # domyka się na jego wierszu — nie na własnym `CandidateStage`.
     await maybe_close_contact_opportunity(
@@ -752,7 +984,87 @@ async def _ensure_hired_stage(
             },
         )
     )
-    return True
+    db.add(
+        UserActivity(
+            user_id=actor_id,
+            action_type=UserActionType.stage_changed,
+            entity_type="pipeline",
+            entity_id=stage.id,
+            details={
+                "candidate_id": candidate.id,
+                "job_id": job.id,
+                "stage": PipelineStage.hired.value,
+                "stage_def_id": stage.stage_def_id,
+            },
+        )
+    )
+    return stage
+
+
+async def _live_contracts_of_person_at_client(
+    db: AsyncSession, *, candidate: Candidate, client_id: int
+) -> list[Contract]:
+    """Żywe kontrakty tej OSOBY u klienta — dowolna rekrutacja.
+
+    Runda 8 (R8-X2-1): tożsamość jak w ręcznej blokadzie duplikatu
+    (``api.contracts._assert_no_duplicate_contract``: ten sam kandydat albo ten
+    sam e-mail, dowolne ``job_id``). Bez tego kontrakt założony ręcznie bez
+    rekrutacji nie był znajdowany, a podpis albo ruch na „Zatrudniony"
+    zakładał DRUGI kontrakt tej osoby u klienta (podwójny MRR).
+
+    Kontrakt INNEGO rekordu kandydata z tym samym e-mailem nie jest
+    podpinany — to zdublowana osoba do scalenia, nie ten sam wiersz.
+    """
+
+    email_norm = (candidate.email or "").strip().lower()
+    if email_norm:
+        other_record_id = await db.scalar(
+            select(Contract.id)
+            .where(
+                Contract.client_id == client_id,
+                Contract.status.in_(_COMPATIBLE_CONTRACT_STATUSES),
+                Contract.candidate_id != candidate.id,
+                Contract.candidate_id.in_(
+                    select(Candidate.id).where(
+                        func.lower(func.btrim(Candidate.email, " \t\r\n")) == email_norm
+                    )
+                ),
+            )
+            .limit(1)
+        )
+        if other_record_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=_conflict_detail(
+                    (
+                        "Ta osoba (ten sam e-mail) ma już żywy kontrakt u tego "
+                        "klienta na innym rekordzie kandydata. Nie utworzono "
+                        "drugiego — najpierw scal duplikaty kandydata."
+                    ),
+                    contract_ids=[other_record_id],
+                ),
+            )
+    contracts = list(
+        (
+            await db.execute(
+                select(Contract)
+                .where(
+                    Contract.candidate_id == candidate.id,
+                    Contract.client_id == client_id,
+                    Contract.status.in_(_COMPATIBLE_CONTRACT_STATUSES),
+                )
+                .options(
+                    selectinload(Contract.b2b_detail),
+                    selectinload(Contract.candidate_rate_schedule),
+                )
+                .order_by(Contract.created_at.desc(), Contract.id.desc())
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return contracts
 
 
 async def ensure_b2b_employment_draft(
@@ -775,6 +1087,9 @@ async def ensure_b2b_employment_draft(
     validate_terms: bool = True,
     reject_signed_generated_link: bool = False,
     keep_existing_terms: bool = False,
+    contract_type: ContractType = ContractType.b2b,
+    require_contract_type: bool = False,
+    fill_terms: Callable[[Contract], Awaitable[None]] | None = None,
 ) -> B2BEmploymentDraftResult:
     """Lock the candidate, then reuse/create exactly one compatible B2B draft.
 
@@ -792,6 +1107,10 @@ async def ensure_b2b_employment_draft(
     same money per hour). Without conflicts the flag is a no-op. It never
     bypasses the identity guards (duplicate contractors, other client,
     non-B2B, open-order duplicates, signed link).
+
+    ``require_contract_type`` + ``fill_terms`` — podpis umowy zlecenia
+    (26.10.2026): istniejący kontrakt innego typu to 409, a warunki z dokumentu
+    wpisuje wołający (fill-only), zanim powstanie szkic zamówienia.
     """
 
     if job.client_id is None:
@@ -840,33 +1159,65 @@ async def ensure_b2b_employment_draft(
         .scalars()
         .all()
     )
+    if not contracts:
+        contracts = await _live_contracts_of_person_at_client(
+            db, candidate=candidate, client_id=job.client_id
+        )
     if len(contracts) > 1:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=_conflict_detail(
                 (
-                    "Dla kandydata i rekrutacji istnieje więcej niż jeden aktywny "
+                    "Dla kandydata u tego klienta istnieje więcej niż jeden aktywny "
                     "kontrakt. Nie utworzono kolejnego — uporządkuj rekordy ręcznie."
                 ),
                 contract_ids=[contract.id for contract in contracts],
             ),
         )
 
+    # Runda 8 (R8-V1-1): podpis nie zakłada ani nie aktywuje kontraktu
+    # u klienta usuniętego albo scalonego — lustro zakładania kontraktu
+    # (`assert_client_assignable`, R7-X5-4).
+    from app.services.client_access import assert_client_assignable
+
+    await assert_client_assignable(db, job.client_id)
     created_contract = not contracts
     skeletal_pipeline_draft = False
     acknowledged_conflicts: tuple[str, ...] = ()
+    seeded_rate_candidate: Decimal | None = None
     if created_contract:
+        rate_candidate = _payload_value(payload, "rate_candidate")
+        is_b2b = require_b2b or contract_type == ContractType.b2b
+        if not require_b2b and is_b2b and rate_candidate is None:
+            # Ręczne „Zatrudniony” z umową B2B (audyt 05.10.2026): szkic
+            # dostaje stawkę, którą kandydat podał w TEJ rekrutacji (karta
+            # albo okno „Zweryfikowany”, PLN/h). Ścieżka Generatora ma
+            # stawkę z dokumentu i tu nie wchodzi.
+            seeded_rate_candidate = await _this_job_rate(
+                db, job_id=job.id, candidate_id=candidate.id
+            )
+            rate_candidate = seeded_rate_candidate
         contract = Contract(
             candidate_id=candidate.id,
             client_id=job.client_id,
             job_id=job.id,
-            contract_type=ContractType.b2b,
+            # Ręczne „Zatrudniony” mówi, jak podpisano umowę (D2): umowa
+            # o pracę i zlecenie dostają kontrakt swojego typu, nie B2B.
+            contract_type=contract_type,
             status=ContractStatus.draft,
             start_date=_payload_value(payload, "start_date") or default_start_date,
-            rate_candidate=_payload_value(payload, "rate_candidate"),
-            rate_unit=RateUnit.hourly if require_b2b else RateUnit.monthly,
+            rate_candidate=rate_candidate,
+            # Kontrakty B2B są w zł/h (lustro `contract_unit_for_order`);
+            # miesięcznie liczą się tylko umowa o pracę i zlecenie.
+            rate_unit=RateUnit.hourly if is_b2b else RateUnit.monthly,
             currency=_payload_value(payload, "currency") or "PLN",
             candidate_rate_schedule=[],
+        )
+        if seeded_rate_candidate is not None:
+            contract.rate_candidate_currency = "PLN"
+        # D8 (17.10.2026): hiring manager rekrutacji jako menedżer u klienta.
+        contract.client_pm_contact_id = await default_client_manager(
+            db, job=job, client_id=job.client_id
         )
         db.add(contract)
         await db.flush()
@@ -875,6 +1226,12 @@ async def ensure_b2b_employment_draft(
         contract = contracts[0]
         if contract.job_id is None:
             contract.job_id = job.id
+            # Szkic bez rekrutacji (np. z maila zamówienia) właśnie ją dostał —
+            # pusty menedżer bierze hiring managera; wpisanego nie ruszamy.
+            if contract.client_pm_contact_id is None:
+                contract.client_pm_contact_id = await default_client_manager(
+                    db, job=job, client_id=contract.client_id
+                )
         existing_detail = contract.b2b_detail
         skeletal_pipeline_draft = await _is_skeletal_pipeline_draft(
             db,
@@ -898,6 +1255,17 @@ async def ensure_b2b_employment_draft(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=_conflict_detail(
                     "Istniejący kontraktor dla tej rekrutacji nie jest umową B2B.",
+                    contract_ids=[contract.id],
+                ),
+            )
+        if require_contract_type and contract.contract_type != contract_type:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=_conflict_detail(
+                    (
+                        "Istniejący kontrakt tej osoby u klienta to inny typ "
+                        "umowy niż podpisywana. Nie zmieniono żadnych danych."
+                    ),
                     contract_ids=[contract.id],
                 ),
             )
@@ -955,6 +1323,17 @@ async def ensure_b2b_employment_draft(
         if _complete_absent_terms(contract, payload):
             _seed_candidate_rate_schedule(contract, payload, actor_id=actor_id)
     elif require_b2b:
+        if not created_contract:
+            # `_fill_contract_terms` ustawia zł/h — istniejący kontrakt
+            # w innej jednostce przechodzi z przeliczeniem kwot, inaczej
+            # stawka klienta w ryczałcie czytałaby się jako godzinowa
+            # (runda 6 audytu). Import leniwy: lustro innych importów
+            # serwisów cyklu życia w tym module.
+            from app.services.contract_order_sync import (
+                switch_loaded_contract_to_hourly,
+            )
+
+            await switch_loaded_contract_to_hourly(db, contract)
         _fill_contract_terms(
             contract,
             payload,
@@ -963,6 +1342,8 @@ async def ensure_b2b_employment_draft(
             ),
         )
         _seed_candidate_rate_schedule(contract, payload, actor_id=actor_id)
+    if fill_terms is not None:
+        await fill_terms(contract)
     if ensure_detail:
         await _upsert_b2b_detail(
             db,
@@ -1010,14 +1391,15 @@ async def ensure_b2b_employment_draft(
                 db, contract_ids=[contract.id], actor_id=actor_id
             )
 
-    created_hired_stage = False
+    hired_stage: CandidateStage | None = None
     if ensure_hired:
-        created_hired_stage = await _ensure_hired_stage(
+        hired_stage = await _ensure_hired_stage_row(
             db,
             candidate=candidate,
             job=job,
             actor_id=actor_id,
         )
+    created_hired_stage = hired_stage is not None
 
     if audit_source_generated_id is not None:
         db.add(
@@ -1052,4 +1434,6 @@ async def ensure_b2b_employment_draft(
         created_hired_stage=created_hired_stage,
         acknowledged_conflicts=acknowledged_conflicts,
         order_skipped_reason=order_skipped_reason,
+        hired_stage=hired_stage,
+        seeded_rate_candidate=seeded_rate_candidate,
     )

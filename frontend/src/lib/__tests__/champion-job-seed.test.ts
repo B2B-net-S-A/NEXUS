@@ -78,6 +78,48 @@ describe("championSavePayload — stack", () => {
   });
 });
 
+describe("championSavePayload — krytyczne (30.09.2026)", () => {
+  const own: ChampionProfile = {
+    ...legacy,
+    stack: { must: [{ name: "Java" }, { name: "Kafka" }], nice: [], notes: "" },
+  };
+  const save = (profile: ChampionProfile) =>
+    championSavePayload(profile, { seededStack: null, seededBasics: null }) as ChampionProfile;
+
+  it("brak klucza = serwer zostawia zapis; null i [] to dwie różne decyzje", () => {
+    expect("critical" in save(own).stack).toBe(false);
+    expect(save({ ...own, stack: { ...own.stack, critical: null } }).stack.critical).toBeNull();
+    expect(save({ ...own, stack: { ...own.stack, critical: [] } }).stack.critical).toEqual([]);
+    expect(save({ ...own, stack: { ...own.stack, critical: ["Java"] } }).stack.critical).toEqual([
+      "Java",
+    ]);
+  });
+
+  it("krytyczna usunięta z MUST znika przed zapisem (ostatnia = nie zdecydowano)", () => {
+    const edited = { ...own, stack: { ...own.stack, critical: ["Scala"] } };
+    expect(save(edited).stack.critical).toBeNull();
+  });
+
+  it("przy nietkniętym stacku z kolumn jedzie SAMA decyzja o krytycznych", () => {
+    const { profile, seededStack } = seedStackFromJobColumns(legacy, jobValues);
+    const edited: ChampionProfile = {
+      ...profile,
+      stack: { ...profile.stack, critical: ["Python"] },
+    };
+    const payload = championSavePayload(edited, { seededStack, seededBasics: null });
+    expect((payload as ChampionProfile).stack).toEqual({ critical: ["Python"] });
+  });
+
+  it("krytyczne zapisane przy pustym stacku przeżywają wczytanie z kolumn", () => {
+    const withCritical: ChampionProfile = {
+      ...legacy,
+      stack: { must: [], nice: [], notes: "", critical: ["Python"] },
+    };
+    const { profile } = seedStackFromJobColumns(withCritical, jobValues);
+    expect(profile.stack.critical).toEqual(["Python"]);
+  });
+});
+
 describe("withoutSeededStackConflict", () => {
   const validation: ChampionValidation = {
     status: "draft",
@@ -184,6 +226,68 @@ describe("seedBasicsFromJob", () => {
     expect(profile).toBe(legacy);
     expect(profile.basics.deadline).toBeNull();
     expect(seededBasics).toBeNull();
+  });
+});
+
+describe("seedBasicsFromJob — godzina terminu", () => {
+  const withDate = {
+    ...legacy,
+    basics: { ...legacy.basics, deadline: "2026-11-30" },
+  };
+
+  it("godzina wjeżdża razem z datą z rekrutacji", () => {
+    const { profile, seededBasics } = seedBasicsFromJob(legacy, {
+      deadline: "2026-11-30",
+      deadline_time: "12:30",
+    });
+    expect(profile.basics.deadline_time).toBe("12:30");
+    expect(seededBasics).toEqual({ deadline: "2026-11-30", deadline_time: "12:30" });
+  });
+
+  it("profil z tą samą datą dostaje godzinę, z inną datą nie", () => {
+    expect(
+      seedBasicsFromJob(withDate, { deadline: "2026-11-30", deadline_time: "12:30" }).profile
+        .basics.deadline_time,
+    ).toBe("12:30");
+    const other = seedBasicsFromJob(withDate, {
+      deadline: "2026-12-01",
+      deadline_time: "12:30",
+    });
+    expect(other.profile.basics.deadline_time ?? null).toBeNull();
+    expect(other.seededBasics).toBeNull();
+  });
+
+  it("zmieniona data niesie w zapisie godzinę, którą widać w polu", () => {
+    const { profile, seededBasics } = seedBasicsFromJob(legacy, {
+      deadline: "2026-11-30",
+      deadline_time: "12:30",
+    });
+    const saved = championSavePayload(
+      { ...profile, basics: { ...profile.basics, deadline: "2026-12-05" } },
+      { seededStack: null, seededBasics },
+    );
+    expect(saved.basics.deadline).toBe("2026-12-05");
+    expect(saved.basics.deadline_time).toBe("12:30");
+  });
+
+  it("godzina wpisana przy dacie z seedu jedzie razem z tą datą", () => {
+    const { profile, seededBasics } = seedBasicsFromJob(legacy, { deadline: "2026-11-30" });
+    const saved = championSavePayload(
+      { ...profile, basics: { ...profile.basics, deadline_time: "09:15" } },
+      { seededStack: null, seededBasics },
+    );
+    expect(saved.basics.deadline).toBe("2026-11-30");
+    expect(saved.basics.deadline_time).toBe("09:15");
+  });
+
+  it("nietknięty seed daty i godziny nie jedzie w zapisie", () => {
+    const { profile, seededBasics } = seedBasicsFromJob(legacy, {
+      deadline: "2026-11-30",
+      deadline_time: "12:30",
+    });
+    const saved = championSavePayload(profile, { seededStack: null, seededBasics });
+    expect(saved.basics).not.toHaveProperty("deadline");
+    expect(saved.basics).not.toHaveProperty("deadline_time");
   });
 });
 

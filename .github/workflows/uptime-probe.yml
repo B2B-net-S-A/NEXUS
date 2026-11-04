@@ -288,7 +288,9 @@ jobs:
           # `configured` to zdrowa wartość checku `anthropic` (mapa
           # {"ok": "configured"} w app/main.py) — bez tego wyjątku ostrzeżenie
           # wisiałoby stale przy poprawnie skonfigurowanym kluczu.
-          ALLOWLIST='{"autenti":["unconfigured"],"priority_work":["disabled"],"notification_email_policy":["disabled"]}'
+          # `traffit=disabled` od 14.10.2026: Traffit wyłączony na stałe w kodzie
+          # (`app/services/traffit_retired.py`), stan oczekiwany, nie awaria.
+          ALLOWLIST='{"autenti":["unconfigured"],"priority_work":["disabled"],"notification_email_policy":["disabled"],"traffit":["disabled"]}'
           classified=$(printf '%s' "$body" | jq -r --argjson allow "$ALLOWLIST" '
             .checks
             | to_entries
@@ -434,3 +436,117 @@ jobs:
             notify "Kopia off-site NEXUS nieświeża lub niekompletna" \
               "\`LATEST.json\` kopii off-site jest nieczytelny, za stary albo brakuje w nim artefaktu (postgres / uploads / cv_corpus / qdrant). Procedura: \`docs/runbook-backup-201.md\`."
           fi
+
+  # ── Noc bez wdrożenia (okno 18:00–08:00, decyzja Artura 14.10.2026) ────────
+  # Merge'e z dnia wdraża wieczorny `schedule` w deploy.yml. Cron GitHuba
+  # potrafi nie przyjść wcale (26.09.2026) — wtedy zmiany czekałyby kolejną
+  # dobę bez śladu. W dzień roboczy ta sonda sprawdza, czy na produkcji są
+  # wszystkie merge'e sprzed 08:00 (przy zielonej bramce HEAD-a; czerwoną
+  # obsługuje alarm wstrzymania w deploy.yml). W weekend okna nie ma
+  # (17.10.2026), więc nie ma też czego oceniać — `night-check` milczy.
+  night-deploy:
+    name: Noc bez wdrożenia (okno 18:00–08:00)
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Checkout (tylko .github/scripts)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      - name: Czy noc wdrożyła merge'e sprzed 08:00?
+        id: night
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FREEZE_WINDOW: "8-18"
+        run: |
+          set -u
+          live=$(curl -sS --max-time 15 https://api.nexus.dynaminds.pl/api/health | jq -r '.version // ""' 2>/dev/null || echo "")
+          python3 .github/scripts/select_release_sha.py night-check \
+            --repo "${{ github.repository }}" --branch main \
+            --live "$live" --freeze-window "$FREEZE_WINDOW"
+      - name: Alarm — noc bez wdrożenia
+        if: ${{ steps.night.outputs.night_alert != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REASON: ${{ steps.night.outputs.night_alert }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -eu
+          {
+            echo "Nocne okno wdrożeń minęło, a produkcja nie ma zmian z maina: **${REASON}**."
+            echo
+            echo "Wieczorne przebiegi Deploy nie wdrożyły HEAD-a (cron GitHuba nie przyszedł albo bieg padł)."
+            echo "Następna szansa: dziś po 18:00. Awaryjnie w dzień — tylko na polecenie Artura"
+            echo "(Deploy → Run workflow z emergency=true i powodem)."
+            echo
+            echo "Bieg: ${RUN_URL}"
+          } > "$RUNNER_TEMP/night-alert.md"
+          bash .github/scripts/alert_issue.sh open "Deploy NEXUS — noc bez wdrożenia" "$RUNNER_TEMP/night-alert.md"
+      - name: Zamknij alarm nocy
+        if: ${{ steps.night.outputs.checked == 'true' && steps.night.outputs.night_alert == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/alert_issue.sh resolve "Deploy NEXUS — noc bez wdrożenia" "Produkcja ma wszystkie merge'e sprzed okna ciszy."
+
+  deploy-window-slot:
+    # Budzik `deploy-window` od 15.10 do 29.10.2026 nie uruchomił Deploy ani
+    # razu (brak pliku z tokenem na serwerze). Log kontenera ginie przy każdym
+    # deployu, a ręczne wieczorne wdrożenia uciszały alarm „noc bez wdrożenia”.
+    # Ten job widzi ciszę budzika najpóźniej przy pierwszym przyjściu sondy po
+    # 18:20 (cron sondy przychodzi ok. 4 razy na dobę) — także w weekend.
+    name: Budzik okna wdrożeń (slot 18:05)
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Checkout (tylko .github/scripts)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      - name: Czy budzik uruchomił Deploy od ostatniego 18:05?
+        id: slot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/deploy_window_slot_check.py --repo "${{ github.repository }}"
+      - name: Alarm — slot budzika bez dispatchu
+        if: ${{ steps.slot.outputs.slot_alert != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REASON: ${{ steps.slot.outputs.slot_alert }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -eu
+          {
+            echo "Budzik okna wdrożeń (kontener \`deploy-window\`) milczy: **${REASON}**."
+            echo
+            echo "Bez budzika dzienne merge'e wdraża tylko spóźniony cron GitHuba albo ręczny bieg."
+            echo "Co sprawdzić (opis w \`docs/claude/podstawy/ci-gotchas.md\`, akapit o budziku):"
+            echo "1. \`docker logs\` kontenera \`deploy-window-*\` na serwerze — „brak czytelnego tokenu” = plik"
+            echo "   \`/etc/nexus-deploy-window/token\` nie istnieje; HTTP 401/403 = token wygasł albo ma za mały zakres."
+            echo "2. Token wgrywa Artur w swoim terminalu (komenda w ci-gotchas.md); restart nie jest potrzebny."
+            echo
+            echo "Alarm zamknie się sam, gdy sonda zobaczy bieg „Deploy — slot budzika okna wdrożeń”."
+            echo
+            echo "Bieg: ${RUN_URL}"
+          } > "$RUNNER_TEMP/slot-alert.md"
+          bash .github/scripts/alert_issue.sh open "Budzik okna wdrożeń — slot bez dispatchu" "$RUNNER_TEMP/slot-alert.md"
+      - name: Zamknij alarm budzika
+        if: ${{ steps.slot.outputs.checked == 'true' && steps.slot.outputs.slot_alert == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/alert_issue.sh resolve "Budzik okna wdrożeń — slot bez dispatchu" "Budzik znów uruchamia Deploy w slotach okna."

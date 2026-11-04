@@ -13,10 +13,8 @@ const RECRUITER_PLUS: UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
   "finance",
-  "sourcer",
 ];
 
 describe("useCanAddToRecruitment — bramka jak proposals/bulk", () => {

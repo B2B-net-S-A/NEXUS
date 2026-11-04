@@ -198,9 +198,9 @@ describe("„Więcej” — szuflada mobilna", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByRole("button", { name: /Więcej/ })).toBeNull();
     expect(screen.getByRole("group", { name: "Dokumenty" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Generator CV" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Generator Umów B2B" })).toHaveAttribute(
       "href",
-      "/cv-generator",
+      "/contracts/b2b-generator",
     );
   });
 });

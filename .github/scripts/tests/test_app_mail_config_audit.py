@@ -23,7 +23,10 @@ class MailConfigAuditTests(unittest.TestCase):
                 {"key": "M365_CLIENT_ID", "value": app_id},
                 {"key": "M365_APP_MAIL_ENABLED", "value": "true"},
                 {"key": "M365_CLIENT_SECRET", "value": secret},
-                {"key": "M365_MAIL_SENDER_UPN", "value": "nexus@b2bnetwork.pl"},
+                {
+                    "key": "M365_MAIL_SENDER_UPN",
+                    "value": "nexus-powiadomienia@b2bnetwork.pl",
+                },
                 {"key": "M365_MAIL_SENDER_UPN", "value": secret, "is_preview": True},
             ]
         )
@@ -33,9 +36,18 @@ class MailConfigAuditTests(unittest.TestCase):
             {
                 "M365_CLIENT_ID": app_id,
                 "M365_APP_MAIL_ENABLED": "true",
-                "M365_MAIL_SENDER_UPN": "nexus@b2bnetwork.pl",
+                "M365_MAIL_SENDER_UPN": "nexus-powiadomienia@b2bnetwork.pl",
+                "sender_matches_probe": True,
             },
         )
+
+    def test_personal_sender_mailbox_is_not_printed(self):
+        # Runda 7 (R7-X2-5): log Actions jest publiczny.
+        result = audit.summarize(
+            [{"key": "M365_MAIL_SENDER_UPN", "value": "jan.nowak@b2bnetwork.pl"}]
+        )
+        self.assertNotIn("jan.nowak", json.dumps(result))
+        self.assertEqual(result["sender_matches_probe"], False)
 
     def test_arbitrary_values_are_redacted(self):
         result = audit.summarize(

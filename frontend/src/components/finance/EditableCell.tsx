@@ -81,7 +81,7 @@ export function EditableCell({
 
   if (editing) {
     return (
-      <td className={cn("px-3 py-1.5 text-right tabular-nums", className)}>
+      <td className={cn("px-2.5 py-1.5 text-right tabular-nums", className)}>
         <input
           autoFocus
           value={draft}
@@ -105,7 +105,7 @@ export function EditableCell({
 
   if (readOnly) {
     return (
-      <td className={cn("px-3 py-1.5 text-right tabular-nums", className)}>
+      <td className={cn("px-2.5 py-1.5 text-right tabular-nums", className)}>
         {display}
       </td>
     );
@@ -119,15 +119,18 @@ export function EditableCell({
       }}
       title="Kliknij dwukrotnie, aby edytować"
       className={cn(
-        "cursor-cell px-3 py-1.5 text-right tabular-nums",
+        "cursor-cell px-2.5 py-1.5 text-right tabular-nums",
         needsCompletion && "text-muted-foreground",
         className,
       )}
     >
       {needsCompletion ? (
-        <span className="inline-flex items-center gap-1.5 rounded border border-dashed border-destructive/50 px-1.5 py-0.5 text-xs italic">
-          Uzupełnij
-          <span className="rounded bg-destructive/10 px-1 not-italic text-destructive">
+        // „Uzupełnij” zostaje dla czytników ekranu; widoczny jest sam znacznik
+        // (legenda nad tabelą go tłumaczy) — dwa słowa w każdej pustej komórce
+        // poszerzały kolumny i wypychały marżę poza kadr.
+        <span className="inline-flex items-center text-[11.5px]">
+          <span className="sr-only">Uzupełnij </span>
+          <span className="whitespace-nowrap rounded bg-destructive/10 px-1.5 py-px font-medium text-destructive">
             brak danych
           </span>
         </span>

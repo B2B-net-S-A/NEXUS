@@ -163,9 +163,7 @@ model (phase 8). See [`docs/RBAC.md`](docs/RBAC.md) for the full per-endpoint ma
 |---|:---:|---|
 | **Admin** | 5 | Full access, user management, system settings |
 | **Delivery Lead** | 4 | Rate cards, konflikty, pipeline templates, full reports |
-| **TAC** (Talent Acquisition Consultant) | 3 | Jobs/contracts CRUD, reject/offer, prep kit, full reports |
-| **Recruiter** | 2 | Add candidates, pipeline moves, own-data reports |
-| **Sourcer** | 2 | Add candidates from ATS/postings, pipeline moves, own-data reports |
+| **Recruiter** | 2 | Add candidates, pipeline moves, own-data reports (one role since 0411; formerly Sourcer / Recruiter / TAC) |
 | **User** | 1 | Read-only viewer (QC, klient) |
 
 Guards: `AdminUser`, `DeliveryLeadPlus`, `TacPlus`, `RecruiterPlus`, `CurrentUser` —

@@ -9,7 +9,7 @@ from io import BytesIO
 import pytest
 from httpx import AsyncClient
 from openpyxl import load_workbook
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token, hash_password
@@ -25,6 +25,7 @@ from app.models.client_framework_contract import (
     ClientFrameworkContract,
     FrameworkContractStatus,
 )
+from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.user import User, UserRole
 from app.core.scheduling import business_today
@@ -307,6 +308,156 @@ async def test_create_client_rejects_unknown_portfolio_category_without_writes(
         assert await db.scalar(select(Client.id).where(Client.name == name)) is None
 
 
+async def _seed_same_name_clients(suffix: str) -> dict[str, int]:
+    """Klient widoczny w Nieaktywnych, klient z aliasem i scalony duplikat."""
+
+    async with AsyncSessionLocal() as db:
+        existing = Client(
+            name=f"Energa {suffix}",
+            display_name=f"Energa {suffix} S.A.",
+            status=ClientStatus.inactive,
+        )
+        aliased = Client(name=f"Grupa Orlen {suffix}", status=ClientStatus.active)
+        merged = Client(name=f"Scalona {suffix}", status=ClientStatus.active)
+        db.add_all((existing, aliased, merged))
+        await db.flush()
+        merged.merged_into_client_id = aliased.id
+        merged.archived_at = datetime.now(timezone.utc)
+        db.add_all(
+            (
+                ClientPortfolioScope(
+                    client_id=existing.id,
+                    category=PortfolioCategory.active,
+                    category_override=PortfolioCategory.inactive,
+                    source_system="test",
+                ),
+                ClientAlias(
+                    client_id=aliased.id,
+                    alias=f"PKN Orlen {suffix}",
+                    normalized_alias=f"pkn orlen {suffix}",
+                    source_system="test",
+                    source_key=f"{suffix}:dup-alias",
+                ),
+            )
+        )
+        await db.commit()
+        return {"existing": existing.id, "aliased": aliased.id, "merged": merged.id}
+
+
+async def _cleanup_clients_named(suffix: str) -> None:
+    async with AsyncSessionLocal() as db:
+        client_ids = list(
+            (
+                await db.scalars(select(Client.id).where(Client.name.contains(suffix)))
+            ).all()
+        )
+        await db.execute(
+            delete(Activity).where(
+                Activity.entity_type == "client", Activity.entity_id.in_(client_ids)
+            )
+        )
+        await db.execute(
+            delete(ClientAlias).where(ClientAlias.client_id.in_(client_ids))
+        )
+        await db.execute(
+            delete(ClientPortfolioScope).where(
+                ClientPortfolioScope.client_id.in_(client_ids)
+            )
+        )
+        await db.execute(
+            Client.__table__.update()
+            .where(Client.id.in_(client_ids))
+            .values(merged_into_client_id=None)
+        )
+        await db.execute(delete(Client).where(Client.id.in_(client_ids)))
+        await db.commit()
+
+
+async def test_create_client_warns_about_same_company_and_writes_nothing(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    """Energa 12.10.2026: drugi rekord w Aktywnych, stary w Nieaktywnych."""
+
+    suffix = uuid.uuid4().hex[:10]
+    seed = await _seed_same_name_clients(suffix)
+    try:
+        # Inna wielkość liter i bez formy prawnej — ta sama firma.
+        response = await app_client.post(
+            "/api/clients",
+            json={"name": f"ENERGA {suffix}"},
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 409, response.text
+        detail = response.json()["detail"]
+        assert detail["code"] == "client_duplicate_warning"
+        assert detail["clients"] == [
+            {
+                "id": seed["existing"],
+                "name": f"Energa {suffix} S.A.",
+                "categories": ["inactive"],
+            }
+        ]
+        assert detail["message"] == (
+            f"Taki klient już jest: Energa {suffix} S.A. (Nieaktywni)."
+        )
+        async with AsyncSessionLocal() as db:
+            assert (
+                await db.scalar(
+                    select(func.count(Client.id)).where(Client.name.contains(suffix))
+                )
+                == 3
+            )
+
+        # Alias też jest nazwą klienta.
+        by_alias = await app_client.post(
+            "/api/clients",
+            json={"name": f"PKN Orlen {suffix} S.A."},
+            headers=app_auth_headers,
+        )
+        assert by_alias.status_code == 409, by_alias.text
+        assert [c["id"] for c in by_alias.json()["detail"]["clients"]] == [
+            seed["aliased"]
+        ]
+
+        # Potwierdzenie „Dodaj mimo to” zakłada klienta.
+        acknowledged = await app_client.post(
+            "/api/clients",
+            params={"acknowledge_duplicate": "true"},
+            json={"name": f"ENERGA {suffix}"},
+            headers=app_auth_headers,
+        )
+        assert acknowledged.status_code == 201, acknowledged.text
+    finally:
+        await _cleanup_clients_named(suffix)
+
+
+async def test_create_client_ignores_merged_and_different_names(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    suffix = uuid.uuid4().hex[:10]
+    await _seed_same_name_clients(suffix)
+    try:
+        # Scalony duplikat nie jest „już w bazie” — nikt go nie widzi.
+        merged_name = await app_client.post(
+            "/api/clients",
+            json={"name": f"Scalona {suffix}"},
+            headers=app_auth_headers,
+        )
+        assert merged_name.status_code == 201, merged_name.text
+
+        # Wspólny początek nazwy to jeszcze nie ta sama firma.
+        prefix_only = await app_client.post(
+            "/api/clients",
+            json={"name": f"Energa {suffix} Obrót"},
+            headers=app_auth_headers,
+        )
+        assert prefix_only.status_code == 201, prefix_only.text
+    finally:
+        await _cleanup_clients_named(suffix)
+
+
 async def test_directory_requires_auth(app_client: AsyncClient) -> None:
     response = await app_client.get("/api/clients/directory")
     assert response.status_code == 401
@@ -355,6 +506,107 @@ async def test_directory_counts_scopes_sorts_and_counts_consultants(
         assert items[2]["expiry_date"] is None
         assert items[2]["msa_id"] == seed["msa_id"]
     finally:
+        await _cleanup_directory(seed)
+
+
+async def test_scope_with_pinned_contracts_counts_only_its_own(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    """Zgłoszenie 28.09.2026: „Nordea Bank Abp – Pentesty” (drugi zakres tego
+    samego klienta) pokazywał wszystkich konsultantów Nordei. Kontrakt przypięty
+    przez zamówienie do umowy ramowej zakresu liczy się tylko w tym zakresie."""
+
+    seed = await _seed_directory()
+    zulu_id = seed["client_ids"][1]
+    candidate_one, candidate_two = seed["candidate_ids"][:2]
+    today = business_today()
+    try:
+        async with AsyncSessionLocal() as db:
+            pentest_msa = ClientFrameworkContract(
+                client_id=zulu_id,
+                name=f"Pentest MSA {seed['suffix']}",
+                status=FrameworkContractStatus.active,
+                effective_date=today - timedelta(days=30),
+            )
+            db.add(pentest_msa)
+            await db.flush()
+            rel_scope = await db.scalar(
+                select(ClientPortfolioScope).where(
+                    ClientPortfolioScope.client_id == zulu_id,
+                    ClientPortfolioScope.label == "Pentesty",
+                )
+            )
+            rel_scope.framework_contract_id = pentest_msa.id
+            contracts = (
+                await db.scalars(
+                    select(Contract).where(
+                        Contract.client_id == zulu_id,
+                        Contract.candidate_id.in_([candidate_one, candidate_two]),
+                        Contract.status.in_(
+                            (ContractStatus.active, ContractStatus.ending)
+                        ),
+                    )
+                )
+            ).all()
+            two = next(c for c in contracts if c.candidate_id == candidate_two)
+            one = next(
+                c
+                for c in contracts
+                if c.candidate_id == candidate_one and c.status == ContractStatus.active
+            )
+            db.add_all(
+                [
+                    ClientOrder(
+                        client_id=zulu_id,
+                        contract_id=two.id,
+                        title=f"PT-{seed['suffix']}",
+                        status=ClientOrderStatus.active,
+                        start_date=today,
+                        framework_contract_id=pentest_msa.id,
+                    ),
+                    # Anulowane zamówienie nie przypina kontraktu do zakresu.
+                    ClientOrder(
+                        client_id=zulu_id,
+                        contract_id=one.id,
+                        title=f"PT-X-{seed['suffix']}",
+                        status=ClientOrderStatus.cancelled,
+                        start_date=today,
+                        framework_contract_id=pentest_msa.id,
+                    ),
+                ]
+            )
+            await db.commit()
+
+        async def rows(category: str) -> list[dict]:
+            response = await app_client.get(
+                "/api/clients/directory",
+                params={"category": category, "q": seed["suffix"], "page_size": 50},
+                headers=app_auth_headers,
+            )
+            assert response.status_code == 200, response.text
+            return [
+                item
+                for item in response.json()["items"]
+                if item["client_id"] == zulu_id
+            ]
+
+        (pentest,) = await rows("relationship")
+        assert pentest["active_consultants_count"] == 1
+        assert pentest["active_contracts_count"] == 1
+        assert pentest["consultants_scope"] == "scope"
+
+        active_rows = await rows("active")
+        # Bez przypiętego kontraktu: 3 osoby / 5 kontraktów minus jedna / jeden.
+        assert {r["active_consultants_count"] for r in active_rows} == {2}
+        assert {r["active_contracts_count"] for r in active_rows} == {4}
+        assert {r["consultants_scope"] for r in active_rows} == {"client"}
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(ClientOrder).where(ClientOrder.client_id == zulu_id)
+            )
+            await db.commit()
         await _cleanup_directory(seed)
 
 
@@ -1008,8 +1260,17 @@ async def test_directory_export_flags_truncation_at_limit(
 
 async def test_directory_mine_filters_to_dl_and_tac_assignments(
     app_client: AsyncClient,
+    monkeypatch,
 ) -> None:
-    """„Moi" (dawny Panel klientów) = klienci z przypisaniem DL albo TAC."""
+    """„Moi" (dawny Panel klientów) = klienci z przypisaniem DL albo TAC.
+
+    Od 25.09.2026 katalog DL-a pokazuje wyłącznie klientów z przypisaniem DL
+    (``DL_CLIENT_SCOPE``) — „Wszyscy" i „Moi" dają wtedy to samo, a samo
+    przypisanie TAC nie poszerza zakresu Delivery. Stan z #1365 (katalog
+    całej organizacji, „Moi" = DL ∪ TAC) odtwarza wyłącznik ``all``.
+    """
+    from app.core.config import settings
+
     from app.models.team_structure import (
         ClientTacAssignment,
         DeliveryLeadClientAssignment,
@@ -1038,12 +1299,17 @@ async def test_directory_mine_filters_to_dl_and_tac_assignments(
                 item["display_name"].split()[0] for item in response.json()["items"]
             }
 
-        assert await names(False) == {"Alpha", "Zulu"}
+        assert await names(False) == {"Alpha"}
         assert await names(True) == {"Alpha"}
 
         async with AsyncSessionLocal() as db:
             db.add(ClientTacAssignment(tac_user_id=user_id, client_id=zulu_id))
             await db.commit()
+        # TAC-owe przypisanie nie otwiera klienta w Delivery.
+        assert await names(True) == {"Alpha"}
+
+        monkeypatch.setattr(settings, "DL_CLIENT_SCOPE", "all")
+        assert await names(False) == {"Alpha", "Zulu"}
         assert await names(True) == {"Alpha", "Zulu"}
 
         export = await app_client.get(

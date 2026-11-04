@@ -22,6 +22,15 @@ w istniejącego konsultanta i plan proponował nowego kontraktora. Granicę
 nazwiska i profilu wyznacza słownik słów profilu; granica niepewna = wiersz
 niepewny (do sprawdzenia), nigdy zgadywanie.
 
+Od 10.2026 (ticket 12) tabelę czytamy przede wszystkim z POŁOŻENIA słów pod
+nagłówkami kolumn (``pko_bp_layout``): wielolinijkowy profil („Inżynier /
+DevSecOpS / Senior") wstawiał środkową linię w linię wiersza, a słownik słów
+profilu nie zna każdego profilu. ``apply_layout_table`` dopisuje do tekstu wiersze
+„Wykonawca N | kolumna: wartość | …", które czytają ta reguła, bramka automatu
+i „Przelicz plan"; model dostaje tekst bez dopisku (niezależny odczyt). Reguła tekstowa niżej zostaje dla dokumentów bez
+warstwy tekstu z położeniem (DOCX, skan) i dla tabeli, której nie da się
+odczytać z układu.
+
 Stawka z kolumny „Stawka PLN/MD netto" jest u PKO BP zawsze netto
 (``apply_rate_rules``) — „brutto" w dokumencie dotyczy wyłącznie łącznej
 wartości zamówienia, a gwiazdka przy kwocie znaczy „stawka negocjowana".
@@ -34,6 +43,7 @@ from decimal import Decimal
 from typing import Optional
 
 from app.services.order_pdf_parser import _is_rate_conversion_reason
+from app.services.order_policies import pko_bp_layout
 from app.services.order_policies._shared import (
     ConsultantOrderRow,
     OrderExtraction,
@@ -134,6 +144,13 @@ _PROFILE_WORDS = frozenset(
         "dba",
         "security",
         "cloud",
+        "devsecops",
+        "secops",
+        "mlops",
+        "sre",
+        "rpa",
+        "etl",
+        "bi",
     }
 )
 
@@ -146,6 +163,9 @@ def _is_profile_word(token: str) -> bool:
     return fold(token).strip(",;:()") in _PROFILE_WORDS
 
 
+_NAME_BOUNDARY_REASON_PREFIX = "Nie rozpoznano granicy imienia i nazwiska oraz profilu"
+
+
 def split_name_and_profile(segment: str) -> tuple[str, Optional[str]]:
     """Imię i nazwisko z fragmentu linii przed datami; drugi element = powód niepewności.
 
@@ -156,10 +176,7 @@ def split_name_and_profile(segment: str) -> tuple[str, Optional[str]]:
     """
     name = clean_person_name(segment)
     tokens = name.split()
-    uncertain = (
-        f"Nie rozpoznano granicy imienia i nazwiska oraz profilu w wierszu "
-        f"„{name}” — sprawdź osobę"
-    )
+    uncertain = f"{_NAME_BOUNDARY_REASON_PREFIX} w wierszu „{name}” — sprawdź osobę"
     if any(_is_profile_word(t) for t in tokens[:2]):
         # Nazwisko zawinięte na dwie linie: w linii wiersza został sam profil.
         return name, uncertain
@@ -280,6 +297,13 @@ def extract_rows(text: str) -> list[ConsultantOrderRow]:
     liczb — każda stoi w osobnej linii (``_NUMBER_RE``).
     """
     text = text or ""
+    layout = [row for row, _profile in layout_entries(text)]
+    if layout:
+        return layout
+    return _extract_rows_from_text(text)
+
+
+def _extract_rows_from_text(text: str) -> list[ConsultantOrderRow]:
     rows: list[ConsultantOrderRow] = []
     for m in _ROW_HEAD_RE.finditer(text):
         numbers = split_md_and_rate(m.group("tail"))
@@ -303,6 +327,104 @@ def extract_rows(text: str) -> list[ConsultantOrderRow]:
     if rows:
         return rows
     return _extract_rows_cell_per_line(text)
+
+
+# ── Tabela odczytana z położenia słów (``pko_bp_layout``) ──────────────────
+
+_LAYOUT_ROW_RE = re.compile(
+    rf"^{pko_bp_layout.ROW_PREFIX} \d+ \| (?P<cells>[^\n]*)$", re.MULTILINE
+)
+_LABEL_TO_COLUMN = {
+    fold(label): col for col, label in pko_bp_layout.LABELS.items() if col != "rate"
+}
+_RATE_CELL_RE = re.compile(rf"(?:\d{{1,3}}(?:{_THOUSANDS}\d{{3}})+|\d+),\d{{2}}")
+_MD_CELL_RE = re.compile(rf"\d{{1,3}}(?:{_THOUSANDS}\d{{3}})*(?:,\d{{1,2}})?")
+
+
+def _layout_cells(line: str) -> tuple[dict[str, str], list[str]]:
+    cells: dict[str, str] = {}
+    reasons: list[str] = []
+    for part in line.split(" | "):
+        label, sep, value = part.partition(": ")
+        if not sep:
+            continue
+        key = fold(label.strip())
+        if key == "uwaga":
+            reasons.extend(r.strip() for r in value.split(";") if r.strip())
+        elif key.startswith("stawka"):
+            cells["rate"] = value.strip()
+        elif key in _LABEL_TO_COLUMN:
+            cells[_LABEL_TO_COLUMN[key]] = value.strip()
+    return cells, reasons
+
+
+def layout_entries(text: str) -> list[tuple[ConsultantOrderRow, str]]:
+    """Wiersze tabeli z układu PDF (``apply_layout_table``) razem z profilem.
+
+    Imię i nazwisko idzie WYŁĄCZNIE z kolumny „Imię i nazwisko Wykonawców";
+    profil wraca obok, tylko po to, żeby rozpoznać go w nazwisku od modelu
+    (``_reconcile_names_with_table``) — nigdy do dopasowania osoby.
+    """
+    entries: list[tuple[ConsultantOrderRow, str]] = []
+    for match in _LAYOUT_ROW_RE.finditer(text or ""):
+        cells, reasons = _layout_cells(match.group("cells"))
+        md_text = cells.get("md", "")
+        rate_text = cells.get("rate", "").rstrip("*").strip()
+        md_total = normalize_amount(md_text) if _MD_CELL_RE.fullmatch(md_text) else None
+        rate_client = (
+            normalize_amount(rate_text) if _RATE_CELL_RE.fullmatch(rate_text) else None
+        )
+        if (md_total is None or rate_client is None) and (
+            pko_bp_layout.REASON_NUMBERS not in reasons
+        ):
+            reasons.append(pko_bp_layout.REASON_NUMBERS)
+        start, end = cells.get("start", ""), cells.get("end", "")
+        reason = "; ".join(dict.fromkeys(reasons)) or None
+        entries.append(
+            (
+                ConsultantOrderRow(
+                    consultant_name=clean_person_name(cells.get("name", "")),
+                    start_date=normalize_date(start, end=False) if start else None,
+                    end_date=normalize_date(end, end=True) if end else None,
+                    md_total=md_total,
+                    rate_client=rate_client,
+                    rate_unit="day",
+                    uncertain=reason is not None,
+                    uncertain_reason=reason,
+                ),
+                cells.get("profile", ""),
+            )
+        )
+    return entries
+
+
+def apply_layout_table(text: str, words: Optional[list]) -> str:
+    """Do tekstu dokumentu dopisuje wiersze tabeli Wykonawców z kolumn PDF-a.
+
+    Surowa tabela ZOSTAJE: model czyta ją sam (``without_layout_table`` zdejmuje
+    dopisek z tekstu dla modelu), więc jest niezależnym czytelnikiem, a bramka
+    porównuje jego osoby z wierszami z kolumn. Gdyby dopisek zastępował surową
+    tabelę, wiersz, którego nie widzi ani odczyt z układu, ani reguła tekstowa,
+    znikałby z tekstu bez śladu — wzorzec reguły potwierdzającej samą siebie
+    (#1494). Reguła, bramka i „Przelicz plan" czytają wiersze z dopisku.
+
+    Tekst zostaje bez zmian, gdy słów nie ma (DOCX, skan), tabeli nie da się
+    odczytać z układu albo układ dał MNIEJ wierszy niż reguła tekstowa.
+    """
+    text = text or ""
+    if not words or pko_bp_layout.TABLE_TITLE in text:
+        return text
+    table = pko_bp_layout.read_table(pko_bp_layout.words_from_payload(words))
+    if table is None or len(table.rows) < len(_extract_rows_from_text(text)):
+        return text
+    return f"{text.rstrip()}\n\n{pko_bp_layout.render_table(table)}\n"
+
+
+def without_layout_table(text: str) -> str:
+    """Tekst dla modelu: bez wierszy dopisanych z układu PDF-a."""
+    marker = "\n\n" + pko_bp_layout.TABLE_TITLE
+    index = (text or "").find(marker)
+    return text if index < 0 else text[:index] + "\n"
 
 
 def _extract_rows_cell_per_line(text: str) -> list[ConsultantOrderRow]:
@@ -368,7 +490,9 @@ def apply_pko_bp_order_policy(
         clear_field(result, "title")
         result.title_needs_review = True
 
-    rows = extract_rows(document_text)
+    entries = layout_entries(document_text)
+    rows = [row for row, _profile in entries] or extract_rows(document_text)
+    profiles = {id(row): profile for row, profile in entries}
     if len(rows) == 1:
         row = rows[0]
         set_field(result, "start_date", row.start_date)
@@ -385,7 +509,7 @@ def apply_pko_bp_order_policy(
     if rows and not result.consultant_rows:
         result.consultant_rows = rows
     else:
-        _reconcile_names_with_table(result.consultant_rows, rows)
+        _reconcile_names_with_table(result.consultant_rows, rows, profiles)
 
     reasons: list[str] = []
     reasons.extend(
@@ -407,15 +531,20 @@ def _name_tokens(name: str) -> list[str]:
 
 
 def _reconcile_names_with_table(
-    rows: list[ConsultantOrderRow], table: list[ConsultantOrderRow]
+    rows: list[ConsultantOrderRow],
+    table: list[ConsultantOrderRow],
+    profiles: Optional[dict[int, str]] = None,
 ) -> None:
     """Nazwisko z doklejonym profilem („Jan Kowalski Tester Middle") → nazwisko z tabeli.
 
     Dotyczy wierszy modelu (który widzi ten sam sklejony tekst) i odczytu
     zapisanego przed poprawką reguły („Przelicz plan"). Zmiana zachodzi tylko,
     gdy tokeny wiersza zaczynają się od tokenów DOKŁADNIE JEDNEGO pewnego
-    wiersza tabeli, a dopisek to wyłącznie słowa profilu.
+    wiersza tabeli, a dopisek to wyłącznie słowa profilu — ze słownika albo
+    z kolumny „Profil" tego wiersza odczytanej z układu PDF („DevSecOpS").
+    Powód „nie rozpoznano granicy imienia i nazwiska" znika razem z dopiskiem.
     """
+    profiles = profiles or {}
     confident = [(t, _name_tokens(t.consultant_name)) for t in table if not t.uncertain]
     for row in rows:
         tokens = _name_tokens(row.consultant_name)
@@ -427,8 +556,21 @@ def _reconcile_names_with_table(
         if len(matches) != 1:
             continue
         source, head = matches[0]
-        if all(_is_profile_word(t) for t in tokens[len(head) :]):
+        profile_tokens = set(fold(profiles.get(id(source), "")).split())
+        if all(
+            _is_profile_word(t) or t.strip(",;:()") in profile_tokens
+            for t in tokens[len(head) :]
+        ):
             row.consultant_name = source.consultant_name
+            if row.uncertain_reason:
+                kept = [
+                    part.strip()
+                    for part in row.uncertain_reason.split(";")
+                    if part.strip()
+                    and not part.strip().startswith(_NAME_BOUNDARY_REASON_PREFIX)
+                ]
+                row.uncertain_reason = "; ".join(kept) or None
+                row.uncertain = bool(kept)
 
 
 def apply_rate_rules(result: OrderExtraction, document_text: str) -> OrderExtraction:

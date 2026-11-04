@@ -29,9 +29,7 @@ describe("canHardDeleteCandidate", () => {
     // zawęża i bez tego przypadku nic by zawężenia nie pilnowało.
     "delivery_lead",
     "head_of_recruitment",
-    "tac",
     "recruiter",
-    "sourcer",
     "finance",
     "user",
   ])("odmawia roli %s", (role) => {
@@ -55,7 +53,7 @@ describe("canHardDeleteCandidate", () => {
     expect(
       canHardDeleteCandidate({
         role: "recruiter",
-        roles: ["recruiter", "sourcer"],
+        roles: ["recruiter", "talent_community_manager"],
       }),
     ).toBe(false);
   });

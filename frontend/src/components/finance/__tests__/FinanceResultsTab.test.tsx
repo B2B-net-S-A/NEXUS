@@ -16,6 +16,7 @@ vi.mock("@/lib/api/finance", () => ({
 import { ToastProvider } from "@/components/Toast";
 import { FinanceResultsTab } from "@/components/finance/FinanceResultsTab";
 import { financeApi } from "@/lib/api/finance";
+import { useAuthStore } from "@/store/auth";
 
 /**
  * Kolejność gałęzi stanu: awaria → „jeszcze nie wiem" → pustka → dane.
@@ -40,8 +41,16 @@ function renderTab(canWrite = true) {
   );
 }
 
+function signIn(role: "admin" | "finance") {
+  useAuthStore.setState({
+    user: { id: 1, email: "x@example.com", name: "X", role, roles: [role] },
+    hydrated: true,
+  } as never);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  signIn("admin");
 });
 
 describe("FinanceResultsTab — stany", () => {
@@ -101,6 +110,30 @@ describe("FinanceResultsTab — stany", () => {
     expect(screen.queryByText("KOSZT")).not.toBeInTheDocument();
   });
 
+  it("bez „Wyników firmy” nie ma kafli sum, zostaje „Do uzupełnienia”", async () => {
+    signIn("finance");
+    vi.mocked(financeApi.listPeriods).mockResolvedValue({
+      data: [{ year: 2026, month: 8, label: "Sierpień 2026", run_id: 1, row_count: 0 }],
+    } as never);
+    vi.mocked(financeApi.getResults).mockResolvedValue({
+      data: {
+        year: 2026,
+        month: 8,
+        run_id: 1,
+        rows: [],
+        totals: null,
+        needs_completion_count: 2,
+      },
+    } as never);
+
+    renderTab();
+
+    expect(await screen.findByText("DO UZUPEŁNIENIA")).toBeInTheDocument();
+    expect(screen.queryByText("KOSZT")).toBeNull();
+    expect(screen.queryByText("MARŻA")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sortuj po Marża PLN" })).toBeNull();
+  });
+
   it("z danymi rysuje kafle, selektor i wiersze", async () => {
     vi.mocked(financeApi.listPeriods).mockResolvedValue({
       data: [
@@ -145,7 +178,8 @@ describe("FinanceResultsTab — stany", () => {
 
     expect(await screen.findByText("Adrian Kruk")).toBeInTheDocument();
     expect(screen.getByText("22,375")).toBeInTheDocument();
-    expect(screen.getByText(/20.*900,125 zł/)).toBeInTheDocument();
+    // Komórka niesie samą kwotę — jednostka stoi raz, w nagłówku kolumny.
+    expect(screen.getByText(/^20.*900,125$/)).toBeInTheDocument();
     expect(screen.getByText("KOSZT")).toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByLabelText("Miesiąc")).toBeInTheDocument(),

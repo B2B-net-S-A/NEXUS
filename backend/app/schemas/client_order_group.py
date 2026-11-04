@@ -26,6 +26,7 @@ from pydantic import (
 from app.models.contract import RateUnit
 from app.models.order_type import OrderType
 from app.schemas.client_executive_contract import ExecutiveContractBrief
+from app.schemas.client_order import RecruitmentRateRead
 from app.services.multi_consultant_orders import (
     CONSUMPTION_STATUSES,
     INPUT_MODES,
@@ -43,7 +44,10 @@ def _money_out(value: Decimal) -> float:
 
 
 def _contract_rate_out(value: Decimal) -> float:
-    return float(Decimal(value).quantize(Decimal("0.001")))
+    # Pełna skala kontraktu (Numeric(16,6) od 0309): 1001,55 zł/MD to
+    # 125,19375 zł/h. Ucięte do 3 miejsc (125,194) wracało ×8 jako 1001,552,
+    # odkąd linia MD trzyma trzecie miejsce (0419).
+    return float(Decimal(value).quantize(MD_SCALE))
 
 
 # Pełna precyzja wewnątrz, JSON number na drucie. Zaokrąglenie do 3 miejsc
@@ -55,7 +59,7 @@ MdValue = Annotated[
 MoneyPLN = Annotated[
     Decimal, PlainSerializer(_money_out, return_type=float, when_used="json")
 ]
-# Stawki kontraktu są Numeric(12,3), więc podpowiedź nie może przechodzić
+# Stawki kontraktu są Numeric(16,6), więc podpowiedź nie może przechodzić
 # przez MoneyPLN (3 miejsca). JSON number zachowuje pełną skalę źródła.
 ContractRateValue = Annotated[
     Decimal, PlainSerializer(_contract_rate_out, return_type=float, when_used="json")
@@ -93,8 +97,8 @@ class OrderLineCreate(BaseModel):
     własny, walidowany cykl życia (``contract_lifecycle.activate_contract``)
     i obsada zamówienia nie może go obchodzić bokiem."""
 
-    rate_cost: MoneyPLN = Field(..., ge=0, max_digits=12, decimal_places=2)
-    rate_revenue: MoneyPLN = Field(..., gt=0, max_digits=12, decimal_places=2)
+    rate_cost: MoneyPLN = Field(..., ge=0, max_digits=12, decimal_places=3)
+    rate_revenue: MoneyPLN = Field(..., gt=0, max_digits=12, decimal_places=3)
     """Stawka przychodowa jest dzielnikiem (kwota→MD, przeliczenie przy
     zamianie kontraktora), więc zero jest odrzucane już na wejściu."""
 
@@ -363,9 +367,9 @@ class OrderLineUpdate(BaseModel):
     rate_candidate_currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
     rate_client_currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
 
-    rate_cost: Optional[MoneyPLN] = Field(None, ge=0, max_digits=12, decimal_places=2)
+    rate_cost: Optional[MoneyPLN] = Field(None, ge=0, max_digits=12, decimal_places=3)
     rate_revenue: Optional[MoneyPLN] = Field(
-        None, gt=0, max_digits=12, decimal_places=2
+        None, gt=0, max_digits=12, decimal_places=3
     )
     input_mode: Optional[str] = None
     input_value: Optional[MdValue] = Field(None, ge=0, max_digits=16, decimal_places=6)
@@ -397,8 +401,13 @@ class OrderLineSwapRequest(BaseModel):
     """Zamiana kontraktora na linii."""
 
     contract_id: int
-    rate_cost: MoneyPLN = Field(..., ge=0, max_digits=12, decimal_places=2)
-    rate_revenue: MoneyPLN = Field(..., gt=0, max_digits=12, decimal_places=2)
+    rate_cost: MoneyPLN = Field(..., ge=0, max_digits=12, decimal_places=3)
+    rate_revenue: MoneyPLN = Field(..., gt=0, max_digits=12, decimal_places=3)
+    rate_candidate_currency: str = Field("PLN", pattern=r"^[A-Z]{3}$")
+    """Waluta stawki kosztowej (ticket 10.2026). Brak = PLN — klienci API
+    sprzed waluty w tym oknie wysyłali stawki w PLN/MD."""
+    rate_client_currency: str = Field("PLN", pattern=r"^[A-Z]{3}$")
+    """Waluta stawki przychodowej; serwer przelicza do PLN/MD po kursie z dnia."""
     swap_date: date
     md_transfer_method: Optional[MdTransferMethod] = None
     """Brak = dotychczasowe przeliczenie z zachowaniem wartości w PLN (klienci
@@ -413,8 +422,13 @@ class OrderLineTakeoverRequest(BaseModel):
     departing_order_id: int = Field(..., gt=0)
     """Linia osoby odchodzącej na tym zamówieniu."""
     entry_date: date
-    rate_cost: MoneyPLN = Field(..., ge=0, max_digits=12, decimal_places=2)
-    rate_revenue: MoneyPLN = Field(..., gt=0, max_digits=12, decimal_places=2)
+    rate_cost: MoneyPLN = Field(..., ge=0, max_digits=12, decimal_places=3)
+    rate_revenue: MoneyPLN = Field(..., gt=0, max_digits=12, decimal_places=3)
+    rate_candidate_currency: str = Field("PLN", pattern=r"^[A-Z]{3}$")
+    """Waluta stawki kosztowej (ticket 10.2026). Brak = PLN — klienci API
+    sprzed waluty w tym oknie wysyłali stawki w PLN/MD."""
+    rate_client_currency: str = Field("PLN", pattern=r"^[A-Z]{3}$")
+    """Waluta stawki przychodowej; serwer przelicza do PLN/MD po kursie z dnia."""
     md_transfer_method: Optional[MdTransferMethod] = None
     """Wymagany przy puli w kwocie; przy puli w MD jedyną odpowiedzią jest 1:1."""
     expected_case_version: Optional[int] = Field(None, ge=1)
@@ -498,6 +512,11 @@ class OrderOffboardingCaseRead(BaseModel):
     created_by_user_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
+
+
+class LineConsumptionPoint(BaseModel):
+    period_month: str
+    md: MdValue
 
 
 class OrderLineRead(BaseModel):
@@ -586,6 +605,21 @@ class OrderLineRead(BaseModel):
     offboarding_case: Optional[OrderOffboardingCaseRead] = None
     """Nierozwiązana lub historyczna decyzja po zakończeniu współpracy."""
 
+    # ── Przycisk „Zużycie MD" (ticket 7, 25.09.2026) ──
+    consumption_recent: list[LineConsumptionPoint] = Field(default_factory=list)
+    """Zejścia z ostatnich miesięcy (najstarsze pierwsze) — mini-wykres."""
+    consumption_flags: list[
+        Literal["negative_balance", "missing_previous_month", "import_to_verify"]
+    ] = Field(default_factory=list)
+    """Powody pomarańczowego przycisku: ujemne saldo, brak zejścia za
+    poprzedni miesiąc (gdy import za niego już był), wiersz importu tej osoby
+    „Do weryfikacji"."""
+    consumption_missing_month: Optional[str] = None
+    awaiting_md: list[LineConsumptionPoint] = Field(default_factory=list)
+    """MD z importu, które czekają na kolejne zamówienie tej osoby (wiersz
+    arkusza bez numeru obok wiersza z numerem tego zamówienia, 21.10.2026) —
+    per miesiąc raportu. Znika, gdy zejdą z kolejnego zamówienia."""
+
     # ── Historia osoby na zamówieniu (ticket 09.2026) ──
     origin: Optional[Literal["document", "manual"]] = None
     """``document`` — osoba stała w PDF-ie zamówienia; ``manual`` — dopisał ją
@@ -609,8 +643,20 @@ class OrderLineRead(BaseModel):
     """Data zakończenia współpracy tej osoby (kontrakt zakończony), jeśli
     współpraca się skończyła — nawet gdy linia zostaje na zamówieniu."""
 
+    contract_type: Optional[Literal["b2b", "uop", "uzlecenie"]] = None
+    agreement_termination_mode: Optional[Literal["notice", "mutual_agreement"]] = None
+    agreement_last_day: Optional[date] = None
+    """Rozwiązanie UMOWY osoby (0367) — osobne od końca pracy na zamówieniu.
+    Karta w „Zakończonych" rozróżnia po nim „Zakończył współpracę" (umowa
+    rozwiązana) od „Zakończył projekt" (umowa B2B nadal obowiązuje). Bez kwot,
+    więc bez redakcji finansowej."""
+
     md_used: Optional[MdValue] = None
     """Zaraportowane MD tej osoby na tym zamówieniu (operacyjne, bez redakcji)."""
+    shared_md_unattributed_months: Optional[int] = None
+    """Wspólna pula MD: ile miesięcy zejść nie ma podziału na osoby (ręczna
+    suma bez rozpisania). ``md_used`` osoby nie obejmuje tych miesięcy, więc
+    lista mówi to obok sumy. ``None`` poza wspólną pulą."""
 
     history_kept_at: Optional[datetime] = None
     history_kept_by_name: Optional[str] = None
@@ -728,6 +774,10 @@ class OrderGroupRead(BaseModel):
     md_used_total: Optional[MdValue] = None
     """Suma zużycia WSZYSTKICH linii — także zastąpionych, bo ich MD zeszły
     z tej samej umowy."""
+    md_adjustment_total: Optional[MdValue] = None
+    """Suma ręcznych korekt linii wnoszących budżet. Pozostało w zamówieniu =
+    ``md_positions_total − md_used_total + md_adjustment_total``, czyli tyle,
+    ile sumują się ``md_remaining`` tych linii."""
 
     contract_value_pln: Optional[MoneyPLN] = None
     used_value_pln: Optional[MoneyPLN] = None
@@ -770,9 +820,63 @@ class LineConsumptionRow(BaseModel):
     created_by_name: Optional[str] = None
     updated_at: Optional[datetime] = None
 
+    # ── Okno „Zużycie MD" (ticket 7, 25.09.2026) ──
+    source_kind: Literal["import", "manual", "manual_correction"] = "import"
+    """Źródło do kolumny „Źródło": ręczna korekta = ręczny wpis, który
+    nadpisał liczbę z importu za ten miesiąc."""
+    balance_after: Optional[MdValue] = None
+    """Saldo osoby po tym miesiącu (ujemne = przekroczenie). Liczone wstecz od
+    dzisiejszej pozostałości, więc ostatni wiersz zgadza się z paskiem karty."""
+    import_rows: list["LineConsumptionImportRef"] = Field(default_factory=list)
+    corrections: list["LineConsumptionCorrection"] = Field(default_factory=list)
+
+
+class LineConsumptionImportRef(BaseModel):
+    """Wiersz importu MD, z którego pochodzi zużycie miesiąca."""
+
+    import_id: int
+    row_number: int
+    order_number_hint: Optional[str] = None
+    md_reported: MdValue
+    foreign: bool = False
+    """Numer z „Uwag" wskazuje INNE zamówienie niż to, na które zaksięgowano."""
+
+
+class LineConsumptionCorrection(BaseModel):
+    """„↳ korekta: 24.09.2026 14:23 · Anna Korycka · import 4 MD → ręcznie 3,7 MD"."""
+
+    created_at: datetime
+    period_month: Optional[str] = None
+    author_name: Optional[str] = None
+    from_md: Optional[MdValue] = None
+    from_source: Literal["import", "manual", "none"] = "none"
+    to_md: Optional[MdValue] = None
+    removed: bool = False
+
+
+class LineConsumptionForeignWarning(BaseModel):
+    period_month: str
+    order_number: str
+    md: MdValue
+    import_id: int
+    row_number: int
+
 
 class LineConsumptionsResponse(BaseModel):
     rows: list[LineConsumptionRow] = Field(default_factory=list)
+    order_number: Optional[str] = None
+    md_budget: Optional[MdValue] = None
+    """Budżet osoby: podstawa + opcja + ręczna korekta budżetu."""
+    md_used: Optional[MdValue] = None
+    md_remaining: Optional[MdValue] = None
+    foreign_import_warnings: list[LineConsumptionForeignWarning] = Field(
+        default_factory=list
+    )
+    removed_months: list[LineConsumptionCorrection] = Field(default_factory=list)
+    """Korekty miesięcy, których wpis usunięto — nie mają już wiersza."""
+
+
+LineConsumptionRow.model_rebuild()
 
 
 class LineConsumptionUpsert(BaseModel):
@@ -804,6 +908,140 @@ class LineConsumptionUpsert(BaseModel):
             return None
         cleaned = value.strip()
         return cleaned or None
+
+
+# ── Zakładka „Zużycie” zamówienia kosztowego (21.10.2026) ────────────────────
+
+
+class CostConsumptionUpsert(BaseModel):
+    """Ręczny wpis kwoty za miesiąc (``PUT …/cost-consumptions/{RRRR-MM}``).
+
+    Ten sam klucz idempotencji co import faktur (``UNIQUE (order_id,
+    period_month)``): powtórny PUT nadpisuje miesiąc, nigdy nie dokłada.
+    Przekroczenie budżetu jest dozwolone — ``settle_group`` zapisze nadwyżkę
+    jako nierozliczoną na tej linii.
+    """
+
+    invoice_amount: Decimal = Field(..., ge=0, max_digits=15, decimal_places=2)
+    status: Optional[Literal["accepted", "protocol"]] = None
+    note: Optional[str] = Field(None, max_length=255)
+
+    @field_validator("note")
+    @classmethod
+    def _strip_note(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+
+class CostConsumptionRow(BaseModel):
+    """Jeden miesiąc osoby na zamówieniu kosztowym."""
+
+    period_month: str
+    invoice_amount: MoneyPLN
+    settled_amount: MoneyPLN
+    unsettled_amount: MoneyPLN
+    """Część kwoty, która nie zmieściła się w budżecie zamówienia."""
+    source: Literal["import", "manual"]
+    status: Optional[Literal["accepted", "protocol"]] = None
+    note: Optional[str] = None
+    import_id: Optional[int] = None
+    created_by_name: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    balance_after: MoneyPLN
+    """Saldo ZAMÓWIENIA po tym miesiącu — po wpisach wszystkich osób."""
+
+
+class CostConsumptionPerson(BaseModel):
+    """Udział jednej osoby we wspólnym budżecie (legenda pod paskiem)."""
+
+    order_id: int
+    name: str
+    invoiced: MoneyPLN
+
+
+class CostConsumptionGroupRow(BaseModel):
+    """Kwota dowolnej osoby zamówienia — do podglądu „po zapisie” na froncie."""
+
+    order_id: int
+    period_month: str
+    invoice_amount: MoneyPLN
+
+
+class CostConsumptionsResponse(BaseModel):
+    order_number: str
+    budget_pool: MoneyPLN
+    """Budżet zamówienia z ręczną korektą — punkt startu rozliczenia."""
+    budget_used: MoneyPLN
+    budget_remaining: MoneyPLN
+    rows: list[CostConsumptionRow] = Field(default_factory=list)
+    people: list[CostConsumptionPerson] = Field(default_factory=list)
+    group_rows: list[CostConsumptionGroupRow] = Field(default_factory=list)
+
+
+class SharedMdConsumptionPerson(BaseModel):
+    """MD jednego konsultanta w miesięcznym zejściu wspólnej puli."""
+
+    order_id: int
+    consultant_name: str = ""
+    md: MdValue
+
+
+class SharedMdConsumptionMonth(BaseModel):
+    """Zejście wspólnej puli MD za miesiąc (ticket 10.2026: edycja i usunięcie)."""
+
+    period_month: str
+    md_reported: MdValue
+    """Suma miesiąca — to ona pomniejsza pulę."""
+    source: Literal["import", "manual"]
+    breakdown: Optional[list[SharedMdConsumptionPerson]] = None
+    """Podział na konsultantów. ``None`` = zapis bez podziału (stara ręczna
+    suma albo import, którego wierszy nie da się złożyć w tę sumę)."""
+    breakdown_source: Optional[Literal["manual", "import"]] = None
+    created_by_name: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class SharedMdConsultant(BaseModel):
+    """Konsultant zamówienia — wiersz formularza edycji zejścia."""
+
+    order_id: int
+    consultant_name: str = ""
+    status: str
+
+
+class SharedMdConsumptionsResponse(BaseModel):
+    months: list[SharedMdConsumptionMonth] = Field(default_factory=list)
+    consultants: list[SharedMdConsultant] = Field(default_factory=list)
+    md_budget_total: Optional[MdValue] = None
+    md_used: Optional[MdValue] = None
+    md_remaining: Optional[MdValue] = None
+
+
+class SharedMdConsumptionLineIn(BaseModel):
+    order_id: int = Field(..., gt=0)
+    md: MdValue = Field(..., ge=0, max_digits=16, decimal_places=6)
+
+
+class SharedMdConsumptionUpsert(BaseModel):
+    """Ręczny zapis zejścia wspólnej puli za miesiąc (``PUT …/{RRRR-MM}``).
+
+    Podział na konsultantów; suma trafia do ``md_reported`` i to ona liczy
+    pulę. Miesiąc jest w ścieżce — powtórny PUT NADPISUJE miesiąc.
+    """
+
+    lines: list[SharedMdConsumptionLineIn] = Field(..., min_length=1, max_length=200)
+
+    @field_validator("lines")
+    @classmethod
+    def _unique_people(
+        cls, value: list[SharedMdConsumptionLineIn]
+    ) -> list[SharedMdConsumptionLineIn]:
+        ids = [line.order_id for line in value]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Każdy konsultant może wystąpić tylko raz")
+        return value
 
 
 class OrderDraftRead(BaseModel):
@@ -854,6 +1092,62 @@ class OrderGroupExportRequest(BaseModel):
 
 class OrderGroupEventsResponse(BaseModel):
     events: list[OrderGroupEventRead] = Field(default_factory=list)
+
+
+class OrderHistoryChangeRead(BaseModel):
+    """Jedna zmiana wpisu historii w formie „przed → po" (ticket 7, 09.2026).
+
+    ``before``/``after`` puste = wpis sprzed 25.09.2026 (dziennik zapisywał
+    wtedy same nazwy pól) albo kwota zredagowana roli bez finansów."""
+
+    label: str
+    before: Optional[str] = None
+    after: Optional[str] = None
+
+
+class OrderHistoryDetailRead(BaseModel):
+    """Pozycja rozwinięcia „▸ X zmian" — jedna edycja z serii."""
+
+    created_at: datetime
+    author_id: Optional[int] = None
+    author_name: Optional[str] = None
+    text: str
+
+
+class OrderHistoryEntryRead(BaseModel):
+    """Wpis BIZNESOWEJ historii zamówienia (``GET …/history``).
+
+    W odróżnieniu od ``OrderGroupEventRead`` (surowy dziennik) wpis bywa
+    złożony: jeden import MD, seria edycji tej samej osoby w 15 minut.
+    ``category`` zasila filtr typu nad listą."""
+
+    key: str
+    category: Literal["order", "consultants", "consumption", "edits"]
+    event_type: str
+    type_label: str
+    created_at: datetime
+    author_id: Optional[int] = None
+    author_name: Optional[str] = None
+    summary: str
+    order_id: Optional[int] = None
+    person_name: Optional[str] = None
+    person_names: list[str] = Field(default_factory=list)
+    changes: list[OrderHistoryChangeRead] = Field(default_factory=list)
+    balance_before: Optional[MdValue] = None
+    balance_after: Optional[MdValue] = None
+    details: list[OrderHistoryDetailRead] = Field(default_factory=list)
+    import_id: Optional[int] = None
+    import_period_month: Optional[str] = None
+    import_people: Optional[int] = None
+    import_md: Optional[MdValue] = None
+    related_group_id: Optional[int] = None
+    related_order_number: Optional[str] = None
+
+
+class OrderHistoryResponse(BaseModel):
+    entries: list[OrderHistoryEntryRead] = Field(default_factory=list)
+    people: list[str] = Field(default_factory=list)
+    """Osoby z wpisów — opcje filtra „osoba", alfabetycznie."""
 
 
 class ConsultantOptionRead(BaseModel):
@@ -925,6 +1219,12 @@ class OrderPlanContractRead(BaseModel):
     ten sam tekst, który dostaje karta z odznaką „Zakończył współpracę".
     Wybór takiego kontraktu z listy („kilka osób") nie może po cichu wznowić
     współpracy: karta przechodzi w pytanie zostaw / wznów / zastąp / usuń."""
+
+    recruitment_rate: Optional[RecruitmentRateRead] = None
+    """Stawki z rekrutacji tej osoby (D7): stawka do klienta, za którą DL ją
+    wysłał (punkt odniesienia dla stawki przychodowej linii), i stawka
+    kandydata. `null` bez podglądu kwot klienta. Różnica = ostrzeżenie na
+    karcie, nigdy blokada zapisu."""
 
 
 class OrderPlanLineRead(BaseModel):

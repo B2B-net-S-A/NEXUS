@@ -14,6 +14,7 @@ import {
 import { AppModal, FileDropZone } from "@/components/ds";
 import { OrderTypeSwitch } from "@/components/orders/OrderTypeSwitch";
 import type { OrderType } from "@/lib/api/dlPortal";
+import type { CarriedOrderFields } from "@/lib/order-type-switch";
 import {
   downloadAuthenticatedFile,
   openAuthenticatedFile,
@@ -53,6 +54,7 @@ import {
 
 import { ExtractionConflictDialog } from "./ExtractionConflictDialog";
 import { OrderPlanLineCard } from "./OrderPlanLineCard";
+import { SharedMdConsumptionsSection } from "./SharedMdConsumptionsSection";
 
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
@@ -82,12 +84,16 @@ interface Props {
     orderType: OrderType,
     file: File | null,
     orderNumber: string,
+    common: CarriedOrderFields,
   ) => void;
   allowedOrderTypes?: readonly OrderType[];
   /** Plik przeniesiony z formularza, z którego przełączono typ. */
   initialFile?: File | null;
   /** Numer zamówienia przeniesiony z formularza, z którego przełączono typ. */
   initialOrderNumber?: string;
+  /** Okres i notatka przeniesione z formularza, z którego przełączono typ
+   *  (runda 10, F02) — nowe zamówienie nie startuje od pustych dat. */
+  initialCommon?: CarriedOrderFields | null;
   /** PDF z kolejki zamówień z maila („Rozstrzygnij w oknie zamówienia"):
    *  trafia do okna w OBU trybach i jest od razu odczytywany — Delivery Lead
    *  widzi karty osób, w tym tę nieaktywną/nieznalezioną, bez ręcznego
@@ -116,7 +122,8 @@ function documentDiffers(
     rate !== null &&
     draft.revenueUnit === "md" &&
     line.rate_revenue != null &&
-    Math.abs(rate - line.rate_revenue) > 0.005
+    // Pół jednostki trzeciego miejsca — stawki linii mają 3 miejsca (0419).
+    Math.abs(rate - line.rate_revenue) > 0.0005
   ) {
     parts.push("stawkę");
   }
@@ -133,6 +140,7 @@ export function OrderGroupFormModal({
   allowedOrderTypes,
   initialFile = null,
   initialOrderNumber = "",
+  initialCommon = null,
   autoReadFile = null,
   sourceNotice = null,
   submitting,
@@ -147,8 +155,6 @@ export function OrderGroupFormModal({
   const [notes, setNotes] = useState("");
   const [budgetAmount, setBudgetAmount] = useState("");
   const [mdBudgetTotal, setMdBudgetTotal] = useState("");
-  const [consumptionMonth, setConsumptionMonth] = useState("");
-  const [consumptionValue, setConsumptionValue] = useState("");
   const [sharedChoice, setSharedChoice] = useState(false);
   const [draftStatus, setDraftStatus] = useState<"draft" | "active">("draft");
   const modeLocked = Boolean(
@@ -218,14 +224,12 @@ export function OrderGroupFormModal({
     setExecutiveContractId(
       group?.executive_contract ? String(group.executive_contract.id) : "",
     );
-    setStartDate(group?.start_date ?? "");
-    setEndDate(group?.end_date ?? "");
-    setNotes(group?.notes ?? "");
+    setStartDate(group ? (group.start_date ?? "") : (initialCommon?.startDate ?? ""));
+    setEndDate(group ? (group.end_date ?? "") : (initialCommon?.endDate ?? ""));
+    setNotes(group ? (group.notes ?? "") : (initialCommon?.notes ?? ""));
     setBudgetAmount(numberToField(group?.budget_amount));
     setMdBudgetTotal(numberToField(group?.md_budget_total));
     setSharedChoice(group ? usesSharedMdPool(group) : false);
-    setConsumptionMonth("");
-    setConsumptionValue("");
     // Nowe zamówienie powstaje od razu z konsultantami, więc domyślnie jest
     // aktywne. Szkic zostaje świadomym wyborem („do uzupełnienia").
     setDraftStatus(group ? (group.status === "draft" ? "draft" : "active") : "active");
@@ -498,10 +502,7 @@ export function OrderGroupFormModal({
     startDate !== "" &&
     !budgetMissing &&
     !linesBlocked &&
-    !executiveContractMissing &&
-    ((!consumptionMonth && !consumptionValue) ||
-      (Boolean(consumptionMonth) &&
-        (parseDecimalInput(consumptionValue) ?? -1) >= 0));
+    !executiveContractMissing;
 
   const fileEndpoint = group
     ? `/api/clients/${clientId}/order-groups/${group.id}/file`
@@ -553,12 +554,6 @@ export function OrderGroupFormModal({
         // niesie, a przepięcie zamówienia pod inną umowę to osobna decyzja.
         ...(ezdrowie && !editing && executiveContractId
           ? { executive_contract_id: Number(executiveContractId) }
-          : {}),
-        ...(sharedMd && consumptionMonth && consumptionValue
-          ? {
-              md_consumption_month: consumptionMonth,
-              md_consumption_value: parseDecimalInput(consumptionValue)!,
-            }
           : {}),
         ...(isMdOrder && !modeLocked
           ? {
@@ -759,7 +754,7 @@ export function OrderGroupFormModal({
               <li key={draft.key}>
                 {line.consultant_name}
                 {ended
-                  ? " — nie ma już aktywnej współpracy; zostaw / zastąp / usuń tę osobę przy jej linii na karcie zamówienia (jej wykorzystana kwota i MD nie wrócą do puli)"
+                  ? " — nie ma już aktywnej współpracy; zostaw / zastąp / usuń tę osobę przyciskiem „Podejmij decyzję” w sekcji „Zakończone” karty zamówienia (jej wykorzystana kwota i MD nie wrócą do puli)"
                   : differs
                     ? ` — dokument podaje inne ${differs} niż linia na zamówieniu; zmień je w „Edytuj linię”`
                     : " — jest na zamówieniu, nic nie dopisujemy"}
@@ -872,7 +867,13 @@ export function OrderGroupFormModal({
 
         <OrderTypeSwitch
           value={orderType}
-          onChange={(next) => onOrderTypeChange(next, file, orderNumber)}
+          onChange={(next) =>
+            onOrderTypeChange(next, file, orderNumber, {
+              startDate,
+              endDate,
+              notes,
+            })
+          }
           allowedTypes={allowedOrderTypes}
           disabled={editing}
         />
@@ -1156,35 +1157,12 @@ export function OrderGroupFormModal({
                 <p className="mt-1 text-xs text-muted-foreground">
                   Zużycie wszystkich konsultantów pomniejsza tę jedną pulę MD.
                 </p>
-                {group && ["active", "exhausted"].includes(group.status) ? (
-                  <div className="my-3 space-y-2">
-                    <label className={labelClass}>
-                      Miesiąc rozliczenia
-                      <input
-                        aria-label="Miesiąc rozliczenia"
-                        type="month"
-                        value={consumptionMonth}
-                        onChange={(event) => setConsumptionMonth(event.target.value)}
-                        className={inputClass}
-                      />
-                    </label>
-                    <label className={labelClass}>
-                      Łączne zużycie MD w miesiącu
-                      <input
-                        aria-label="Łączne zużycie MD w miesiącu"
-                        inputMode="decimal"
-                        value={consumptionValue}
-                        onChange={(event) =>
-                          setConsumptionValue(sanitizeDecimalInput(event.target.value))
-                        }
-                        className={inputClass}
-                      />
-                    </label>
-                    <p className="text-xs text-muted-foreground">
-                      Wpisz sumę MD wszystkich konsultantów za wybrany miesiąc.
-                      Zapis zastępuje dotychczasowe rozliczenie tego miesiąca,
-                      także z importu.
-                    </p>
+{group && group.status !== "draft" && group.status !== "cancelled" ? (
+                  <div className="my-3">
+                    <span className={labelClass}>Zejścia MD</span>
+                    {/* Zapis od razu (nie przy „Zapisz” okna) — ten sam
+                        komponent co w panelu zamówienia. */}
+                    <SharedMdConsumptionsSection clientId={clientId} group={group} canEdit />
                   </div>
                 ) : null}
                 <label htmlFor="group-md-used" className={`${labelClass} mt-3`}>

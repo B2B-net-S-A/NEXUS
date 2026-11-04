@@ -22,6 +22,7 @@ from typing import Any, Iterable, Optional
 
 from app.models.recruitment_pipeline import PipelineStage
 from app.schemas.pipeline import STAGE_LABELS
+from app.services.location_utils import is_country_only
 
 # Sufit jednego zapytania — tyle osób widać naraz w panelu (strony po 20–100).
 MAX_FACT_CANDIDATES = 100
@@ -155,15 +156,35 @@ def _iso(value: Optional[date]) -> Optional[str]:
     return value.isoformat() if value else None
 
 
+def _display_city(candidate: Any) -> Optional[str]:
+    """Miasto do pokazania: pole miasta, a bez niego lokalizacja. Sam kraj
+    („PL”, „Polska”) to brak miasta — fakt znika, zamiast udawać miasto."""
+    for value in (
+        getattr(candidate, "city", None),
+        getattr(candidate, "location", None),
+    ):
+        text = value.strip() if isinstance(value, str) else ""
+        if text and not is_country_only(text):
+            return text
+    return None
+
+
 def candidate_facts(
     candidate: Any,
     *,
-    include_rate: bool,
     history: Optional[dict[str, Any]],
 ) -> dict[str, Any]:
+    """Fakty jednej osoby. Stawka KANDYDATA jest jawna dla każdej roli
+    (decyzja Artura 27.09.2026, R10-N7-10 — jak na profilu i liście);
+    ``expected_rate_redacted`` zostaje w kształcie odpowiedzi jako ``False``.
+    Stawka DO KLIENTA tu nie występuje."""
     title, company = current_title(candidate)
     availability = getattr(candidate, "availability_status", None)
-    rate = getattr(candidate, "expected_rate_hourly", None)
+    # „Stawka od” (0414) — ta sama liczba, z którą porównuje plakietka budżetu.
+    from app.services.candidate_rate_from import rate_summary
+
+    summary = rate_summary(candidate)
+    rate = summary["rate_from_hourly"]
     preferences = getattr(candidate, "preferences", None)
     remote_modes = (
         [m for m in preferences.get("remote_modes") or [] if isinstance(m, str)]
@@ -175,7 +196,7 @@ def candidate_facts(
         "title": title,
         "company": company,
         "years_experience": getattr(candidate, "years_it_experience", None),
-        "city": (candidate.city or candidate.location or None),
+        "city": _display_city(candidate),
         "max_onsite_days_per_week": getattr(
             candidate, "max_onsite_days_per_week", None
         ),
@@ -183,13 +204,46 @@ def candidate_facts(
         "availability_status": getattr(availability, "value", availability),
         "availability_date": _iso(getattr(candidate, "availability_date", None)),
         "expected_rate_hourly": (
-            float(rate)
-            if include_rate and isinstance(rate, (int, float, Decimal))
+            float(rate) if isinstance(rate, (int, float, Decimal)) else None
+        ),
+        "expected_rate_currency": "PLN" if rate is not None else None,
+        "expected_rate_redacted": False,
+        "rate_from_at": _iso(summary["rate_from_at"]),
+        "rate_from_stale": summary["rate_from_stale"],
+        "rate_from_source": summary["rate_from_source"],
+        "rate_latest_hourly": (
+            float(summary["rate_latest_hourly"])
+            if summary["rate_latest_hourly"] is not None
             else None
         ),
-        "expected_rate_currency": (
-            getattr(candidate, "expected_rate_currency", None) if include_rate else None
-        ),
-        "expected_rate_redacted": not include_rate,
+        "rate_this_job_hourly": None,
         "client_history": history,
+    }
+
+
+async def main_cv_uploaded_on(db: Any, candidate_ids: list[int]) -> dict[int, str]:
+    """Data wgrania głównego CV (ISO) — plakietka „CV z RRRR” (30.09.2026).
+
+    Tylko prawdziwa data wgrania (``uploaded_at``); bez niej osoba nie dostaje
+    plakietki — nigdy dnia importu (``created_at``), który mówi o migracji,
+    nie o świeżości CV. Główne CV wygrywa, nieaktualne pliki się nie liczą.
+    """
+    from sqlalchemy import text
+
+    if not candidate_ids:
+        return {}
+    rows = await db.execute(
+        text(
+            "SELECT DISTINCT ON (candidate_id) candidate_id, uploaded_at "
+            "FROM candidate_documents "
+            "WHERE candidate_id = ANY(:ids) AND document_kind = 'cv' "
+            "AND outdated_at IS NULL AND source_deleted_at IS NULL "
+            "ORDER BY candidate_id, is_primary DESC, uploaded_at DESC NULLS LAST"
+        ),
+        {"ids": list(candidate_ids)},
+    )
+    return {
+        int(cid): uploaded.date().isoformat()
+        for cid, uploaded in rows.all()
+        if uploaded is not None
     }

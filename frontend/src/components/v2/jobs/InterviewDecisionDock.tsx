@@ -51,6 +51,7 @@ import {
 } from "@/components/v2/pages/kanban-shared";
 import {
   DockActions,
+  DockLoadError,
   DockNotesPanel,
   DockSection,
   KvList,
@@ -374,6 +375,11 @@ export function InterviewDecisionDock({
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
               </div>
+            ) : historyQuery.isError ? (
+              <DockLoadError
+                what="historia ruchów"
+                onRetry={() => void historyQuery.refetch()}
+              />
             ) : (historyQuery.data ?? []).length > 0 ? (
               (historyQuery.data ?? []).map((row) => (
                 <div
@@ -393,11 +399,11 @@ export function InterviewDecisionDock({
                   ) : null}
                 </div>
               ))
-            ) : (
+            ) : historyQuery.isSuccess ? (
               <p className="text-xs text-muted-foreground">
                 Brak zapisanych ruchów na tej rekrutacji.
               </p>
-            )}
+            ) : null}
           </div>
         )}
 

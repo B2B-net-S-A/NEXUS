@@ -4,13 +4,19 @@ import Link from "next/link";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import { kpisApi } from "@/lib/api";
-import { insightsApi, type InsightsPeriodParams } from "@/lib/insights-api";
+import { kpisApi, type MyKpiPanel } from "@/lib/api";
+import {
+  insightsApi,
+  insightsQueryKeys,
+  type InsightsPeriodParams,
+} from "@/lib/insights-api";
+import { myInFlightSentence } from "@/lib/insights-in-flight";
 import { racesApi } from "@/lib/insights-races-api";
 import { reportHref } from "@/lib/insights-reports";
 import {
   insightsTeamApi,
   insightsTeamQueryKeys,
+  type TeamTableResponse,
 } from "@/lib/insights-team-api";
 import {
   buildSteps,
@@ -21,20 +27,71 @@ import {
   weakestStepSentence,
 } from "@/lib/insights-views";
 import { resolveViewState, isBlockingViewState } from "@/lib/view-state";
-import { useAuthStore } from "@/store/auth";
+import { hasRole, useAuthStore } from "@/store/auth";
+import { PanelRow } from "@/components/v2/kpi/KpiGoalsPanel";
+import type { KpiPanelRow } from "@/components/v2/kpi/kpi-topbar-model";
 import { SectionError } from "@/components/insights/sections/_shared";
-import {
-  FunnelBars,
-  Panel,
-  PanelLoading,
-  Takeaway,
-  Tile,
-  TileRow,
-  ViewHeader,
-} from "./ViewKit";
+import { MyBonusPanel } from "./my-month/MyBonusPanel";
+import { MyGoalsPanel } from "./my-month/MyGoalsPanel";
+import { MyInFlightPanel } from "./my-month/MyInFlightPanel";
+import { MyPortfolioView } from "./my-month/MyPortfolioView";
+import { MyWhoCountsSection } from "./my-month/MyWhoCountsSection";
+import { FunnelBars, Panel, PanelLoading, Takeaway, ViewHeader } from "./ViewKit";
 
 const CURRENT_MONTH: InsightsPeriodParams = { period: "month", offset: 0 };
-const STEP_LABELS = ["Zweryfikowani", "CV wysłane", "Rozmowy", "Zatrudnieni"];
+
+/** Zaokrąglona średnia CV zespołu albo `null` (brak średniej = brak porównania). */
+export function teamAverageCv(
+  average: TeamTableResponse["anchored_average"],
+): number | null {
+  if (!average || average.recommendations === null) return null;
+  return Math.round(average.recommendations);
+}
+const STEP_LABELS = ["Zweryfikowani", "CV wysłane", "Rozmowy u klienta", "Zatrudnieni"];
+const STEP_LABELS_WITH_ACCEPTANCE = [
+  "Zweryfikowani",
+  "CV wysłane",
+  "Rozmowy u klienta",
+  "Akceptacje",
+  "Zatrudnieni",
+];
+
+/**
+ * Precyzja jako wiersz celu — ten sam wygląd co cele z górnego paska.
+ * „—” i brak paska, gdy nie policzono (mniej niż 5 weryfikacji): pusty pasek
+ * czytałby się jak zero.
+ */
+export function precisionGoalRow(precision: MyKpiPanel["precision"]): KpiPanelRow {
+  const value = precision.value_pct;
+  const target = precision.target_pct;
+  return {
+    id: "precision",
+    title: `Precyzja rekomendacji (${precision.window_days} dni)`,
+    value: value === null ? "—" : `${Math.round(value)}%`,
+    rest: target > 0 ? `/ ${target}%` : "",
+    mark: value !== null && target > 0 && value >= target ? "hit" : null,
+    state:
+      value === null || target <= 0 ? null : value >= target ? "hit" : "behind",
+    progressPct:
+      value === null || target <= 0 ? null : Math.min(100, (100 * value) / target),
+    expectedPct: null,
+    status: null,
+    description:
+      value === null
+        ? "Nie policzono — mniej niż 5 weryfikacji w oknie."
+        : `Ze zweryfikowanych: ${precision.verified}, CV wysłane: ${precision.sent}.`,
+    link: null,
+  };
+}
+
+/**
+ * Mój miesiąc — rekruter widzi swoje cele i osoby, Delivery Lead swój portfel
+ * (22.10.2026: do tej pory DL dostawał ekran i cele rekrutera).
+ */
+export function MojMiesiacView() {
+  const user = useAuthStore((state) => state.user);
+  return hasRole(user, "delivery_lead") ? <MyPortfolioView /> : <RecruiterMonthView />;
+}
 
 /**
  * Mój miesiąc — liczby zalogowanej osoby w BIEŻĄCYM miesiącu.
@@ -43,7 +100,7 @@ const STEP_LABELS = ["Zweryfikowani", "CV wysłane", "Rozmowy", "Zatrudnieni"];
  * co wyścigi (verifier-anchored), więc liczba placementów tutaj i w wyścigu
  * jest tą samą liczbą. Porównanie z zespołem bierze lejek całej firmy.
  */
-export function MojMiesiacView() {
+function RecruiterMonthView() {
   const meId = useAuthStore((state) => state.user?.id ?? null);
   const today = useMemo(() => new Date(), []);
 
@@ -67,13 +124,19 @@ export function MojMiesiacView() {
     queryFn: () => insightsApi.recruitmentFunnel(CURRENT_MONTH),
   });
   const teamQuery = useQuery({
-    queryKey: insightsTeamQueryKeys.teamTable(CURRENT_MONTH),
-    queryFn: () => insightsTeamApi.teamTable(CURRENT_MONTH),
+    queryKey: insightsTeamQueryKeys.teamTableAnchored(CURRENT_MONTH),
+    queryFn: () => insightsTeamApi.teamTableWithAnchoredAverage(CURRENT_MONTH),
   });
   const seniorityQuery = useQuery({
     queryKey: ["insights", "recruitment", "seniority"],
     queryFn: () => insightsApi.seniority(),
     staleTime: 5 * 60 * 1000,
+  });
+  // Ta sama odpowiedź co panel „Moje osoby w drodze” (jeden klucz cache).
+  const inFlightQuery = useQuery({
+    queryKey: insightsQueryKeys.inFlightMe("mine"),
+    queryFn: () => insightsApi.inFlightMe("mine"),
+    staleTime: 60 * 1000,
   });
 
   const panel = panelQuery.data;
@@ -97,36 +160,63 @@ export function MojMiesiacView() {
       raceRanking.find((e) => !e.excluded) ??
       null);
 
-  const teamRows = teamQuery.data?.rows ?? [];
-  const activeTeam = teamRows.filter((r) => r.recommendations > 0);
-  const teamAvgCv = activeTeam.length
-    ? Math.round(
-        activeTeam.reduce((sum, r) => sum + r.recommendations, 0) /
-          activeTeam.length,
-      )
-    : null;
+  // Średnia zespołu TĄ SAMĄ atrybucją co moja liczba (kredyt pierwszego
+  // weryfikatora, jak `/api/kpis/me/panel`). Wiersze tabeli liczą „kto
+  // kliknął" (`first_moved_by`) — porównanie z nimi mieszało atrybucje
+  // (runda 6 audytu).
+  const teamAvgCv = teamAverageCv(teamQuery.data?.anchored_average);
 
+  // Lejek z akceptacjami (22.10.2026). Porównanie z zespołem bierze
+  // akceptacje tylko wtedy, gdy lejek firmy liczy je przez cały miesiąc —
+  // przed 12.10.2026 nikt ich nie odnotowywał, więc iloraz byłby fałszywy.
   const mySteps = panel
-    ? buildSteps(STEP_LABELS, [
+    ? buildSteps(STEP_LABELS_WITH_ACCEPTANCE, [
         panel.weryfikacje.month,
         panel.rekomendacje.month,
         panel.interview_month,
+        panel.akceptacje_month,
         panel.placementy_month,
       ])
     : [];
-  const stageCount = (stage: string) =>
-    funnelQuery.data?.stages.find((s) => s.stage === stage)?.count ?? 0;
+  const stage = (code: string) =>
+    funnelQuery.data?.stages.find((s) => s.stage === code) ?? null;
+  const stageCount = (code: string) => stage(code)?.count ?? 0;
+  const acceptanceComparable = stage("acceptance")?.counted_from == null;
+  const myStepsForTeam =
+    acceptanceComparable || !panel
+      ? mySteps
+      : buildSteps(STEP_LABELS, [
+          panel.weryfikacje.month,
+          panel.rekomendacje.month,
+          panel.interview_month,
+          panel.placementy_month,
+        ]);
   const teamSteps = funnelQuery.data
-    ? buildSteps(STEP_LABELS, [
-        stageCount("verified"),
-        stageCount("cv_sent"),
-        stageCount("interview"),
-        stageCount("hired"),
-      ])
+    ? acceptanceComparable
+      ? buildSteps(STEP_LABELS_WITH_ACCEPTANCE, [
+          stageCount("verified"),
+          stageCount("cv_sent"),
+          stageCount("client_interview"),
+          stageCount("acceptance"),
+          stageCount("hired"),
+        ])
+      : buildSteps(STEP_LABELS, [
+          stageCount("verified"),
+          stageCount("cv_sent"),
+          // Rozmowy u klienta — ta sama definicja co `/api/kpis/me/panel`
+          // (`interview_month` = `client_interview`, runda 7).
+          stageCount("client_interview"),
+          stageCount("hired"),
+        ])
     : [];
   const funnelSentence =
-    (teamSteps.length ? gapSentence(mySteps, teamSteps) : null) ??
+    (teamSteps.length ? gapSentence(myStepsForTeam, teamSteps) : null) ??
     weakestStepSentence(mySteps);
+  const inFlightSentence = inFlightQuery.data
+    ? myInFlightSentence(inFlightQuery.data.columns)
+    : null;
+  const recommendationsEntry =
+    racesQuery.data?.recommendations?.ranking.find((e) => e.user_id === meId) ?? null;
 
   const mySeniority =
     seniorityQuery.data?.entries.find((e) => e.user_id === meId) ?? null;
@@ -144,7 +234,6 @@ export function MojMiesiacView() {
     );
   }
 
-  const precision = panel.precision.value_pct;
   return (
     <div className="space-y-6">
       <ViewHeader
@@ -167,61 +256,22 @@ export function MojMiesiacView() {
           verificationsToday: panel.weryfikacje.day,
           verificationsDailyTarget: panel.target_verifications_daily,
         })}
+        {inFlightSentence ? ` ${inFlightSentence}` : null}
       </p>
 
-      <TileRow>
-        <Tile
-          label="Placementy w miesiącu"
-          value={String(panel.placementy_month)}
-          reference={`cel: ${panel.target_placements_monthly}`}
-          delta={
-            panel.placementy_month >= panel.target_placements_monthly
-              ? { text: "Cel osiągnięty", tone: "good" }
-              : {
-                  text: `Brakuje ${panel.target_placements_monthly - panel.placementy_month}`,
-                  tone: "bad",
-                }
-          }
-        />
-        <Tile
-          label="Weryfikacje dziś"
-          value={String(panel.weryfikacje.day)}
-          reference={`cel: ${panel.target_verifications_daily}`}
-          progress={
-            panel.target_verifications_daily
-              ? (100 * panel.weryfikacje.day) / panel.target_verifications_daily
-              : null
-          }
-          note={`W miesiącu: ${panel.weryfikacje.month}`}
-        />
-        <Tile
-          label="CV wysłane do klienta"
-          value={String(panel.rekomendacje.month)}
-          reference={teamAvgCv !== null ? `średnia zespołu: ${teamAvgCv}` : null}
-          delta={
-            teamAvgCv === null
-              ? null
-              : panel.rekomendacje.month >= teamAvgCv
-                ? { text: "Na poziomie zespołu lub wyżej", tone: "good" }
-                : { text: "Poniżej średniej zespołu", tone: "bad" }
-          }
-        />
-        <Tile
-          label={`Precyzja rekomendacji (${panel.precision.window_days} dni)`}
-          value={precision === null ? "—" : `${Math.round(precision)}%`}
-          reference={`cel: ${panel.precision.target_pct}%`}
-          progress={
-            precision === null || !panel.precision.target_pct
-              ? null
-              : (100 * precision) / panel.precision.target_pct
-          }
-          note={
-            precision === null
-              ? "Nie policzono — mniej niż 5 weryfikacji w oknie."
-              : null
-          }
-        />
-      </TileRow>
+      <MyGoalsPanel
+        extra={<PanelRow row={precisionGoalRow(panel.precision)} />}
+        footnote={`W miesiącu: ${panel.weryfikacje.month} weryfikacji, ${panel.rekomendacje.month} CV wysłanych${
+          teamAvgCv !== null ? ` (średnia zespołu: ${teamAvgCv})` : ""
+        }.`}
+      />
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <MyInFlightPanel scope="mine" />
+        <MyBonusPanel />
+      </div>
+
+      <MyWhoCountsSection />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <Panel title="Mój lejek w tym miesiącu" hint="pierwsze wejście na etap">
@@ -233,7 +283,17 @@ export function MojMiesiacView() {
           title="Wyścig placementów"
           hint={placementsRace?.prize.name ?? undefined}
         >
-          {raceRanking.length === 0 ? (
+          {/* Runda 8 (R8-N14-2): zdanie o pustym wyścigu tylko po udanym
+              odczycie — awaria i wczytywanie to nie „nikt się nie kwalifikuje”. */}
+          {racesQuery.isPending ? (
+            <p className="text-sm text-muted-foreground">Wczytuję wyścig…</p>
+          ) : racesQuery.isError && !racesQuery.data ? (
+            <SectionError
+              label="Wyścig placementów"
+              error={racesQuery.error}
+              onRetry={() => void racesQuery.refetch()}
+            />
+          ) : raceRanking.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Nikt nie ma jeszcze wymaganej liczby placementów w tym miesiącu.
             </p>
@@ -270,6 +330,17 @@ export function MojMiesiacView() {
                 ))}
             </ol>
           )}
+          {recommendationsEntry ? (
+            <p className="border-t border-border pt-3 text-sm text-muted-foreground">
+              Wyścig rekomendacji:{" "}
+              <strong className="text-foreground">
+                {recommendationsEntry.rank}. miejsce, {recommendationsEntry.metric_value} rek.
+              </strong>
+              {recommendationsEntry.qualified === false
+                ? " — warunek udziału jeszcze niespełniony."
+                : "."}
+            </p>
+          ) : null}
           {league?.rank ? (
             <p className="border-t border-border pt-3 text-sm text-muted-foreground">
               Liga Mistrzów (kwartał):{" "}
@@ -279,6 +350,17 @@ export function MojMiesiacView() {
               {podiumThird && league.rank > 3 && league.me
                 ? ` — do podium brakuje ${Math.max(podiumThird.metric_value - league.me.metric_value, 0)} pkt.`
                 : "."}
+            </p>
+          ) : league?.me ? (
+            // Na liście, ale bez miejsca w klasyfikacji nagrodowej (próg
+            // placementów niespełniony) — numer z pozycji listy ogłaszał tu
+            // „1. miejsce” komuś, kto nagrody nie dostanie (audyt 25.09.2026).
+            <p className="border-t border-border pt-3 text-sm text-muted-foreground">
+              Liga Mistrzów (kwartał):{" "}
+              <strong className="text-foreground">
+                {league.me.metric_value ?? 0} pkt, bez miejsca w klasyfikacji
+              </strong>{" "}
+              — warunek udziału nie jest jeszcze spełniony.
             </p>
           ) : null}
           <Link

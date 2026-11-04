@@ -7,6 +7,7 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.services.candidate_search_worker import evaluate_batch
 from app.services.full_candidate_scan import CandidateSnapshot, scan_population
 from app.services.full_search_measurement import request_vector
+from app.services.query_adapter import adapt_job_query
 from app.services.request_matching_context import build_request_context
 from app.services.search_telemetry import SearchTelemetry, stage
 
@@ -33,7 +34,7 @@ async def pipeline_base_fit(db, job, profile):
         if population:
             with stage("query_embedding") as outcome:
                 try:
-                    vector = await request_vector(context.query_text)
+                    vector = adapt_job_query(await request_vector(context.query_text))
                     outcome["failed"] = vector is None
                 except Exception:
                     outcome["failed"] = True
@@ -41,7 +42,11 @@ async def pipeline_base_fit(db, job, profile):
         async def evaluate(batch):
             try:
                 with stage("batch"):
-                    return await evaluate_batch(db, context, batch, vector)
+                    # Osoba na Tablicy ma wynik także, gdy wyszukiwanie by ją
+                    # ukryło (16.10.2026) — powód niesie `exclusions`.
+                    return await evaluate_batch(
+                        db, context, batch, vector, score_excluded=True
+                    )
             except Exception:
                 await db.rollback()
                 raise
@@ -56,10 +61,23 @@ async def pipeline_base_fit(db, job, profile):
         "scores": {
             str(item.candidate_id): item.fit_score
             for item in result.evaluated
-            if item.eligible and item.fit_score is not None
+            if item.fit_score is not None
         },
         "measurements": {
             str(item.candidate_id): item.measurement for item in result.evaluated
+        },
+        # Kogo wyszukiwanie by ukryło i czego brakuje z krytycznych — karta
+        # pokazuje to plakietką obok wyniku zamiast chować pierścień. Globalna
+        # czarna lista nie dostaje tu wpisu (jak w wyszukiwaniu — bez wyniku).
+        "exclusions": {
+            str(item.candidate_id): {
+                "reason": item.exclusion_reasons[0],
+                "missing_critical": item.evidence.get("missing_critical", []),
+            }
+            for item in result.evaluated
+            if not item.eligible
+            and item.exclusion_reasons
+            and item.exclusion_reasons[0] != "eligibility_hidden"
         },
         "counts": result.counts(),
         "metrics": telemetry.snapshot(),

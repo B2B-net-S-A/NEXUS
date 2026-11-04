@@ -13,16 +13,28 @@ export type JobCloseReason =
   | "paused"
   | "filled_by_us"
   | "client_ghosted"
-  | "other";
+  | "other"
+  | "duplicate"
+  | "no_match"
+  // 28.10.2026: nadaje tylko NEXUS po 28 dniach bez ruchu (`services/job_idle.py`).
+  | "no_activity";
 
+/**
+ * Etykiety wszystkich powodów — także „Inny”, którego nie da się już wybrać
+ * (21.10.2026), ale stare zamknięcia go noszą. Grupy i kolejność w oknie
+ * zamykania: `lib/job-close-reasons.ts`.
+ */
 export const JOB_CLOSE_REASONS: { value: JobCloseReason; label: string }[] = [
-  { value: "budget", label: "Brak budżetu" },
-  { value: "internal_hire", label: "Zatrudnili wewnętrznie" },
-  { value: "competitor", label: "Wybrali konkurencję" },
-  { value: "paused", label: "Wstrzymane / zamrożone" },
   { value: "filled_by_us", label: "Obsadzone przez nas" },
+  { value: "competitor", label: "Klient wybrał kandydata innej firmy" },
+  { value: "duplicate", label: "Duplikat albo założona przez pomyłkę" },
+  { value: "internal_hire", label: "Klient zatrudnił kogoś wewnętrznie" },
+  { value: "budget", label: "Klient anulował projekt / brak budżetu" },
+  { value: "paused", label: "Wstrzymana przez klienta" },
   { value: "client_ghosted", label: "Klient przestał odpowiadać" },
-  { value: "other", label: "Inny" },
+  { value: "no_match", label: "Nie znaleźliśmy kandydata" },
+  { value: "no_activity", label: "28 dni bez ruchu — zamknął NEXUS" },
+  { value: "other", label: "Inny (do przejrzenia)" },
 ];
 
 export type Seniority = "junior" | "mid" | "senior" | "lead" | "architect";
@@ -58,6 +70,8 @@ export interface ClientProfileSummary {
   active_mrr: number | null;
   /** Aktywne kontrakty bez stawki, pominięte w `active_mrr` — >0 = suma niepełna. */
   active_mrr_unpriced_contracts?: number;
+  /** Kontrakty z obiema stawkami, ale bez kursu NBP — >0 = kwoty nie da się policzyć. */
+  active_mrr_fx_missing_contracts?: number;
   ltv: number | null;
   avg_time_to_fill_days: number | null;
   /** "opened_at" gdy policzone, "unavailable" gdy żadna rekrutacja nie ma daty
@@ -181,11 +195,4 @@ export function formatDate(iso: string | null | undefined): string {
   // DD.MM.RRRR z zerem wiodącym — `toLocaleDateString("pl-PL")` dawało
   // „3.09.2026" obok „2026-09-05" z kart okresowych.
   return formatIsoDatePl(iso);
-}
-
-export function daysToEndBadgeColor(days: number | null): string {
-  if (days == null) return "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300";
-  if (days < 7) return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300";
-  if (days < 30) return "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300";
-  return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300";
 }

@@ -106,3 +106,33 @@ async def test_successful_send_is_marked_alerted():
 
     assert sent == 1
     assert _BREACH["candidate_stage_id"] in alerted
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "module_name, call",
+    [
+        ("slack_sla_alerts", lambda m, hook: m._post_to_slack(hook, _BREACH)),
+        ("ai_spend_alerts", lambda m, hook: m._post_to_slack(hook, "alarm")),
+        ("integration_stale_alerts", lambda m, hook: m._post_to_slack(hook, "stale")),
+    ],
+)
+async def test_slack_transport_error_log_never_carries_the_webhook_url(
+    module_name, call, caplog
+):
+    """Adres webhooka to sekret — do logu idzie tylko klasa wyjątku."""
+    import importlib
+    import logging
+
+    module = importlib.import_module(f"app.tasks.{module_name}")
+    hook = "https://hooks.slack.com/services/T0/B0/sekretnyTOKEN123"
+    post = AsyncMock(side_effect=httpx.ConnectError(f"cannot reach {hook}"))
+    client = AsyncMock()
+    client.__aenter__.return_value = SimpleNamespace(post=post)
+    client.__aexit__.return_value = False
+    with patch.object(module.httpx, "AsyncClient", return_value=client):
+        with caplog.at_level(logging.WARNING):
+            ok = await call(module, hook)
+    assert ok is False
+    assert "ConnectError" in caplog.text
+    assert "sekretnyTOKEN123" not in caplog.text

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import {
   readPeriodFromParams,
   writePeriodToParams,
@@ -20,7 +21,7 @@ export function useInsightsPeriod(fallback: InsightsPeriodParams): {
   period: InsightsPeriodParams;
   setPeriod: (next: InsightsPeriodParams) => void;
 } {
-  const router = useRouter();
+  const { pushUrl } = useUrlWriter();
   const searchParams = useSearchParams();
 
   const period = useMemo(
@@ -31,9 +32,9 @@ export function useInsightsPeriod(fallback: InsightsPeriodParams): {
   const setPeriod = useCallback(
     (next: InsightsPeriodParams) => {
       const params = writePeriodToParams(searchParams, next);
-      router.push(`/insights?${params.toString()}`, { scroll: false });
+      pushUrl(`/insights?${params.toString()}`);
     },
-    [router, searchParams],
+    [pushUrl, searchParams],
   );
 
   return { period, setPeriod };

@@ -127,6 +127,49 @@ async def test_parser_reads_polish_money_and_percent():
     assert adrian.margin_pct == Decimal("20.2")  # „20,2%"
 
 
+async def test_parser_sends_numbers_beyond_the_column_to_completion():
+    """Runda 10 (R10-N4-5): liczba spoza zakresu kolumny = pole do uzupełnienia.
+
+    „Marża %” jako formuła przy fakturze bliskiej zera daje ułamek ≥ 100 000,
+    a kwota wpisana omyłkowo w „Ilość MD” przekracza NUMERIC(9, 3). Do rundy 10
+    parser przepuszczał każdą skończoną liczbę i zapis wywracał cały import
+    błędem 500 bez wskazania wiersza.
+    """
+    from decimal import Decimal
+
+    rows = [
+        _row(
+            **{
+                "Imię i nazwisko": "Osoba Testowa",
+                "Ilość MD": 1_500_000,
+                "Marża %": 123456.7,
+                "Faktura": 1000,
+                # Po zaokrągleniu do skali kolumny wychodzi 10^10 — też za dużo.
+                "Stawka MD": "9999999999,995",
+                # Na granicy — mieści się.
+                "Średnia Stawka MD": "9999999999,99",
+            }
+        )
+    ]
+    row = parse_finance_workbook(_workbook(rows)).rows[0]
+    assert row.md_count is None
+    assert row.margin_pct is None
+    assert row.revenue_rate_md is None
+    assert row.cost_rate_md == Decimal("9999999999.99")
+    assert row.invoice_amount == Decimal("1000")
+    assert {"md_count", "margin_pct", "revenue_rate_md"} <= set(row.missing_fields)
+
+
+async def test_finance_import_column_bounds_mirror_the_model():
+    from app.models.finance import FinanceMonthlyResult
+    from app.services.finance_import import NUMERIC_BOUNDS, NUMERIC_FIELDS
+
+    assert set(NUMERIC_BOUNDS) == set(NUMERIC_FIELDS)
+    for name, (precision, scale) in NUMERIC_BOUNDS.items():
+        column_type = FinanceMonthlyResult.__table__.columns[name].type
+        assert (column_type.precision, column_type.scale) == (precision, scale), name
+
+
 async def test_parser_skips_blank_rows_but_rejects_nameless_ones():
     rows = _sample_rows()
     rows.append([None] * len(REQUIRED_HEADERS))  # pusty wiersz separujący
@@ -185,9 +228,7 @@ async def _headers_for(app_client: AsyncClient, role_value: str) -> dict[str, st
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
-@pytest.mark.parametrize(
-    "role", ["recruiter", "sourcer", "tac", "delivery_lead", "head_of_recruitment"]
-)
+@pytest.mark.parametrize("role", ["recruiter", "delivery_lead", "head_of_recruitment"])
 async def test_finance_endpoints_forbidden_for_other_roles(
     app_client: AsyncClient, role: str
 ):
@@ -258,6 +299,37 @@ async def _import(
             )
         },
         data={"year": str(year), "month": str(month), "replace": str(replace).lower()},
+    )
+
+
+async def test_finance_role_gets_rows_without_company_totals(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Kafle sum i ranking po marży: „Wyniki firmy”, wiersze zostają (02.11.2026)."""
+    year, month = 2031, 4
+    await _reset_period(year, month)
+    resp = await _import(app_client, app_auth_headers, year=year, month=month)
+    assert resp.status_code == 201, resp.text
+    params = {"year": year, "month": month}
+
+    admin = await app_client.get(
+        "/api/finance/results", headers=app_auth_headers, params=params
+    )
+    assert admin.json()["totals"] is not None
+
+    finance_headers = await _headers_for(app_client, "finance")
+    finance = await app_client.get(
+        "/api/finance/results",
+        headers=finance_headers,
+        params={**params, "sort": "margin_pln", "direction": "desc"},
+    )
+    assert finance.status_code == 200, finance.text
+    body = finance.json()
+    assert body["totals"] is None
+    assert len(body["rows"]) == 2
+    # Sortowanie po marży wraca do kolejności z arkusza.
+    assert [r["row_number"] for r in body["rows"]] == sorted(
+        r["row_number"] for r in body["rows"]
     )
 
 

@@ -33,7 +33,7 @@ describe("buildStageFunnel — osiem kolumn Tablicy (lista v5)", () => {
       "QC CV",
       "CV wysłane",
       "Rozmowa u klienta",
-      "Umowa",
+      "Akceptacja i umowa",
       "Zatrudniony",
     ]);
     expect(groups.every((g) => g.count === 0)).toBe(true);

@@ -26,7 +26,7 @@ import logging
 import re
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Any, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,10 +34,15 @@ from sqlalchemy.orm.attributes import flag_modified
 from starlette.concurrency import run_in_threadpool
 
 from app.core.terminal_failure import terminal_operation
-from app.models.candidate import AvailabilityStatus, Candidate
+from app.models.candidate import Candidate
 from app.services.cv_enrichment import normalize_llm_skills
 from app.models.ai_feature import AIFeatureKey
-from app.services.ai_models import model_for
+from app.services import note_kinds
+from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
+from app.services.ai_models import fallbacks_for, model_for
+
+if TYPE_CHECKING:
+    from app.services.contract_availability import ContractHistory
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +51,18 @@ logger = logging.getLogger(__name__)
 # pętla do nich dojdzie, w ramach budżetu per bieg). Bump NIE przelicza
 # korpusu wstecz — `_select_stale_candidates` wybiera po dacie notatki vs
 # stemplu ekstrakcji, fingerprint tu tylko pomija duplikaty w pętli.
-PROMPT_VERSION = "v5-work-modes"
+# v6 (03.10.2026): prompt bez zmian, zmienia się WSAD — model nie dostaje już
+# wpisów automatu, maili, „nie odbiera”, terminów ani wpisów Delivery Leada
+# o stawce do klienta (`note_kinds.FACTS_EXCLUDED_KINDS`), a karty rekomendacji
+# idą pierwsze. Nowa wersja = doganianie przeliczy fakty policzone ze starego
+# wsadu („Wyślijmy za 161 zł/h” bywało czytane jako stawka kandydata).
+PROMPT_VERSION = "v6-note-kinds"
 EXTRACTION_MODEL = model_for(AIFeatureKey.notes_extraction)
 NOTES_LIMIT = 20
 BLOB_CHAR_LIMIT = 12000
+# Jedna długa notatka nie może zjeść całego wsadu (pomiar 03.10.2026: u 858
+# kandydatów wsad był ucięty, u 359 przez jeden wątek mailowy).
+NOTE_CHAR_LIMIT = 4000
 MIN_BLOB_CHARS = 60
 
 # Unia schematów v1 (stawka/dostępność/preferencje/języki/veta) i v2
@@ -118,23 +131,56 @@ _INSIGHT_KEYS = (
     "matching_facts",
 )
 
-_NOTICE_RE = re.compile(
-    r"(\d+)\s*(tydz|tyg|week|mies|miesiąc|miesiec|month|dni|dzień|dzien|day|mc)", re.I
-)
-_ASAP_RE = re.compile(r"od zaraz|asap|natychmiast|od ręki|immediately", re.I)
-_ISO_RE = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})")
-
 
 async def load_note_rows(db: AsyncSession, candidate_id: int) -> list[tuple]:
-    """(id, updated_at, created_at::date, content) — najnowsze najpierw."""
+    """(id, updated_at, dzień warszawski created_at, content, dzień notatki).
+
+    Najnowsze najpierw. Ostatnia kolumna to dzień warszawski
+    ``coalesce(source_created_at, created_at)`` — od niego liczymy dostępność
+    z notatek (``notes_profile_fill.notes_days``, decyzja 07.10.2026).
+
+    Runda 8 (R8-X1-5): dzień notatki liczony w Europe/Warsaw, nie w UTC sesji —
+    notatka z 00:30 dostawała w prompcie datę poprzedniego dnia, a model liczył
+    od niej dostępność („od przyszłego miesiąca”).
+    """
+    return (await load_note_rows_bulk(db, [candidate_id])).get(candidate_id, [])
+
+
+async def load_note_rows_bulk(
+    db: AsyncSession, candidate_ids: Sequence[int]
+) -> dict[int, list[tuple]]:
+    """``load_note_rows`` dla wielu kandydatów naraz — TEN SAM wybór notatek.
+
+    Jedyne miejsce, które wybiera notatki wejścia odczytu: nocna ekstrakcja
+    (przez ``load_note_rows``) i domknięcie historii
+    (``notes_profile_backfill``) liczą z nich ten sam „dzień notatki”.
+    """
+    if not candidate_ids:
+        return {}
+    # Wybór: tylko notatki, które wolno czytać modelowi; karty rekomendacji
+    # i fakty ze screeningu mają pierwszeństwo przed limitem (u 373 kandydatów
+    # karta wypadała poza 20 najnowszych). Wynik nadal od najnowszej.
+    priority = ", ".join(f"'{kind}'" for kind in note_kinds.AI_PRIORITY_KINDS)
     result = await db.execute(
         text(
-            "SELECT id, updated_at, created_at::date AS d, content FROM notes "
-            "WHERE candidate_id = :c ORDER BY created_at DESC LIMIT :lim"
+            "SELECT candidate_id, id, updated_at, "
+            "(created_at AT TIME ZONE 'Europe/Warsaw')::date AS d, content, "
+            "(COALESCE(source_created_at, created_at) AT TIME ZONE 'Europe/Warsaw')"
+            "::date AS note_day "
+            "FROM ("
+            "SELECT candidate_id, id, updated_at, created_at, source_created_at, "
+            "content, row_number() OVER (PARTITION BY candidate_id "
+            f"ORDER BY (kind IN ({priority})) DESC NULLS LAST, created_at DESC) "
+            "AS rn FROM notes "
+            f"WHERE candidate_id = ANY(:ids) AND {note_kinds.facts_readable_sql()}"
+            ") picked WHERE rn <= :lim ORDER BY candidate_id, created_at DESC"
         ),
-        {"c": candidate_id, "lim": NOTES_LIMIT},
+        {"ids": list(candidate_ids), "lim": NOTES_LIMIT},
     )
-    return list(result.all())
+    out: dict[int, list[tuple]] = {}
+    for row in result.all():
+        out.setdefault(row[0], []).append(tuple(row[1:]))
+    return out
 
 
 def notes_fingerprint(rows: Sequence[tuple]) -> str:
@@ -154,8 +200,32 @@ def notes_fingerprint(rows: Sequence[tuple]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+# Szacunek scrapera w notatce formularza aplikacji (audyt 06.10.2026, D5):
+# „→ szacunek stawki B2B: 48 zł/h netto (dolny próg widełek ÷ 168 h) — …”.
+# To dolny próg widełek UoP podzielony przez godziny, nie stawka podana przez
+# kandydata — model czytał go jako oczekiwaną stawkę B2B i wpisywał z powrotem
+# stawkę cofniętą narzędziem ``scraper_rate_revert``. Linia ginie przed
+# modelem; reszta notatki (widełki miesięczne) zostaje. ``[^<\n]*`` — notatka
+# bywa HTML-em w jednej linii.
+_SCRAPER_RATE_ESTIMATE_RE = re.compile(
+    r"(?:→|-&gt;|->)?[ \t]*szacunek stawki B2B:[^<\n]*", re.IGNORECASE
+)
+
+
+def strip_scraper_rate_estimate(content: str) -> str:
+    return _SCRAPER_RATE_ESTIMATE_RE.sub("", content)
+
+
 def build_notes_blob(rows: Sequence[tuple]) -> str:
-    blob = "\n\n".join(f"[{r[2]}]\n{r[3]}" for r in rows if r[3])
+    # 0413: narodowość z karty rekomendacji nie trafia do żadnego modelu.
+    blob = "\n\n".join(
+        f"[{r[2]}]\n"
+        + redact_card_text(strip_scraper_rate_estimate(r[3]), AI_HIDDEN_FIELDS)[
+            :NOTE_CHAR_LIMIT
+        ]
+        for r in rows
+        if r[3]
+    )
     return blob[:BLOB_CHAR_LIMIT]
 
 
@@ -168,10 +238,35 @@ def _close_open_json(text_value: str) -> str:
     ogon dokumentu — częściowe insights są lepsze niż wieczny błąd. Na
     poprawnym JSON-ie to no-op (pusty stos, poza stringiem).
     """
+    # Samo domknięcie nawiasów nie wystarcza (NEXUS-BE-50): ucięcie po
+    # przecinku, kluczu, dwukropku albo w środku literału (`tru`, `1.`)
+    # dawało nadal niepoprawny JSON. Śledzimy więc ostatni „bezpieczny”
+    # punkt — po kompletnej wartości albo zaraz po otwarciu kontenera — i
+    # niekompletny ogon obcinamy do niego przed domknięciem nawiasów.
     stack: list[str] = []
+    # Stan per kontener: "key" | "colon" | "value" | "next".
+    expect: list[str] = []
+    safe_end = 0
+    safe_stack: list[str] = []
     in_string = False
     escaped = False
-    for ch in text_value:
+    string_is_key = False
+    string_start = 0
+
+    def mark(end: int) -> None:
+        nonlocal safe_end, safe_stack
+        safe_end = end
+        safe_stack = list(stack)
+
+    def complete(end: int) -> None:
+        if expect:
+            expect[-1] = "next"
+        mark(end)
+
+    n = len(text_value)
+    i = 0
+    while i < n:
+        ch = text_value[i]
         if in_string:
             if escaped:
                 escaped = False
@@ -179,18 +274,65 @@ def _close_open_json(text_value: str) -> str:
                 escaped = True
             elif ch == '"':
                 in_string = False
+                if string_is_key:
+                    expect[-1] = "colon"
+                else:
+                    complete(i + 1)
+            i += 1
+            continue
+        if ch in " \t\r\n":
+            i += 1
             continue
         if ch == '"':
             in_string = True
+            string_is_key = bool(expect) and expect[-1] == "key"
+            string_start = i
         elif ch in "{[":
             stack.append(ch)
+            expect.append("key" if ch == "{" else "value")
+            mark(i + 1)
         elif ch in "}]":
             if stack:
                 stack.pop()
-    repaired = text_value
-    if in_string:
-        repaired += '"'
-    for opener in reversed(stack):
+                expect.pop()
+            if not stack:
+                # Kompletny dokument — ewentualny postamble odpada.
+                return text_value[: i + 1]
+            complete(i + 1)
+        elif ch == ":":
+            if expect:
+                expect[-1] = "value"
+        elif ch == ",":
+            if expect:
+                expect[-1] = "key" if stack[-1] == "{" else "value"
+        else:
+            # Liczba / true / false / null — kompletna tylko, gdy po niej
+            # stoi separator; urwana na końcu tekstu jest obcinana.
+            j = i
+            while j < n and text_value[j] not in ' \t\r\n,:]}"{[':
+                j += 1
+            if j < n:
+                complete(j)
+            i = j
+            continue
+        i += 1
+
+    if in_string and not string_is_key:
+        # Urwana wartość tekstowa: zachowujemy ją, zdejmując niedokończoną
+        # sekwencję ucieczki (samotny `\` albo `\u` z <4 cyframi hex).
+        body = text_value[string_start:]
+        if escaped:
+            body = body[:-1]
+        else:
+            m = re.search(r"(\\+)u[0-9a-fA-F]{0,3}$", body)
+            if m and len(m.group(1)) % 2 == 1:
+                body = body[: m.start() + len(m.group(1)) - 1]
+        repaired = text_value[:string_start] + body + '"'
+        openers = stack
+    else:
+        repaired = text_value[:safe_end]
+        openers = safe_stack
+    for opener in reversed(openers):
         repaired += "}" if opener == "{" else "]"
     return repaired
 
@@ -235,6 +377,54 @@ def _validated_insights(parsed: Any) -> dict:
     return parsed
 
 
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+# Z separatorem tysięcy („1 200”) i bez — „150 160” to też dwie osobne liczby.
+_GROUPED_NUMBER_RE = re.compile(r"\d{1,3}(?:[ \u00a0]\d{3})+(?:[.,]\d+)?")
+_PLAIN_NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+def _numbers_in(text_value: str) -> set[Decimal]:
+    """Liczby zapisane w notatkach (bez dat z nagłówków ``[RRRR-MM-DD]``)."""
+    found: set[Decimal] = set()
+    cleaned = _DATE_RE.sub(" ", text_value)
+    tokens = _GROUPED_NUMBER_RE.findall(cleaned) + _PLAIN_NUMBER_RE.findall(cleaned)
+    for token in tokens:
+        compact = token.replace(" ", "").replace("\u00a0", "").replace(",", ".")
+        try:
+            found.add(Decimal(compact))
+        except ArithmeticError:
+            continue
+    return found
+
+
+def _drop_ungrounded_rate(parsed: dict, notes_blob: str) -> dict:
+    """Stawka, której kwoty nie ma w notatkach, nie wchodzi do profilu.
+
+    Każdy model czasem dopisuje wartość spoza tekstu (pomiar 22.09.2026:
+    0,15–0,55 takich wartości na kandydata), a stawka PLN/h z notatek zasila
+    bramkę budżetu. Kwota zostaje w ``ungrounded_value`` — do wglądu, nie do
+    zapisu.
+    """
+    rate = parsed.get("expected_rate")
+    if not isinstance(rate, dict):
+        return parsed
+    # Do profilu idzie wyłącznie PLN/h; „UoP od 20 tysięcy” miesięcznie model
+    # słusznie zamienia na 20000, a ta kwota zostaje tylko na karcie.
+    if str(rate.get("currency") or "").upper() != "PLN" or rate.get("period") != "h":
+        return parsed
+    value = rate.get("value")
+    if value is None or isinstance(value, bool):
+        return parsed
+    try:
+        amount = Decimal(str(value))
+    except ArithmeticError:
+        return parsed
+    if amount in _numbers_in(notes_blob):
+        return parsed
+    parsed["expected_rate"] = {**rate, "value": None, "ungrounded_value": value}
+    return parsed
+
+
 @terminal_operation("notes-extraction")
 async def extract_insights(notes_blob: str) -> dict:
     """Jedno wywołanie Haiku → sparsowany dict (unia v1+v2).
@@ -247,6 +437,7 @@ async def extract_insights(notes_blob: str) -> dict:
     msg = await run_in_threadpool(
         call_claude,
         model=EXTRACTION_MODEL,
+        fallback_models=fallbacks_for(AIFeatureKey.notes_extraction),
         # 4000, nie 2500: unia schematów v1+v2 przy bogatych notatkach
         # potrafiła przekroczyć 2500 i ucinała JSON (prod, id=25176).
         max_tokens=4000,
@@ -260,14 +451,34 @@ async def extract_insights(notes_blob: str) -> dict:
         raise ValueError("brak obiektu JSON w odpowiedzi modelu")
     payload = raw[start : raw.rfind("}") + 1] if raw.rfind("}") > start else raw[start:]
     try:
-        return _validated_insights(json.loads(payload))
+        parsed = _validated_insights(json.loads(payload))
     except json.JSONDecodeError:
         # Naprawa dostaje PEŁNY ogon (raw[start:]), nie payload ucięty na
         # ostatnim '}' — przy uciętej odpowiedzi wcześniejszy wewnętrzny '}'
         # obcinał wszystko za sobą, zanim naprawa cokolwiek zobaczyła.
         # Postamble po poprawnym JSON-ie nieosiągalny: wtedy pierwszy parse
         # payloadu po prostu się udaje.
-        return _validated_insights(json.loads(_close_open_json(raw[start:])))
+        try:
+            repaired = json.loads(_close_open_json(raw[start:]))
+        except json.JSONDecodeError as err:
+            # Nienaprawialna odpowiedź modelu: zostaje zgłoszona (terminal
+            # failure), ale z diagnostyką zamiast gołego JSONDecodeError.
+            # Bez treści notatek — tylko metadane odpowiedzi.
+            stop_reason = getattr(msg, "stop_reason", None)
+            logger.warning(
+                "notes-insights: nienaprawialny JSON z modelu "
+                "(stop_reason=%s, raw_len=%d, err_pos=%s, err=%s)",
+                stop_reason,
+                len(raw),
+                err.pos,
+                err.msg,
+            )
+            raise ValueError(
+                f"unparseable_notes_response (stop_reason={stop_reason}, "
+                f"raw_len={len(raw)}, err_pos={err.pos}, err={err.msg})"
+            ) from err
+        parsed = _validated_insights(repaired)
+    return _drop_ungrounded_rate(parsed, notes_blob)
 
 
 def stamp_no_content(
@@ -317,28 +528,25 @@ def _safe_rate_value(raw: Any) -> Optional[float]:
         return None
 
 
-def _parse_notice(raw: Any) -> Optional[tuple[int, str]]:
-    if not isinstance(raw, str):
-        return None
-    m = _NOTICE_RE.search(raw)
-    if not m:
-        return None
-    n, unit = int(m.group(1)), m.group(2).lower()
-    if unit.startswith(("tydz", "tyg", "week")):
-        return n, "weeks"
-    if unit.startswith(("mies", "month", "mc")):
-        return n, "months"
-    return n, "days"
-
-
 def apply_insights(
     candidate: Candidate,
     parsed: dict,
     *,
     fingerprint: str,
     now_iso: Optional[str] = None,
+    as_of: Optional[date] = None,
+    latest_note_day: Optional[date] = None,
+    contracts: Optional["ContractHistory"] = None,
 ) -> dict[str, Any]:
     """Zastosuj wynik ekstrakcji do kandydata (mutuje obiekt ORM, bez commitu).
+
+    ``as_of`` — dzień najnowszej notatki wejścia, która mówi o dostępności
+    (``notes_days(rows).availability``): od niego liczymy „od zaraz” i okres
+    wypowiedzenia, nie od dziś. ``latest_note_day`` — dzień najnowszej
+    notatki wejścia (``notes_days(rows).latest``), odniesienie dla pełnej daty
+    i miesiąca, gdy notatki o dostępności nie ma. ``contracts`` — umowy
+    osoby (``load_contract_history``): status z „od zaraz” nie powstaje
+    przy żywej umowie ani z notatki sprzed startu ostatniej umowy (S2).
 
     Zwraca statystyki zmian; ``changed`` > 0 oznacza, że wołający powinien
     zbudować reindeks + unieważnić cache score'ów tego kandydata.
@@ -351,6 +559,8 @@ def apply_insights(
         "rate_updated": 0,
         "notice_filled": 0,
         "avail_date_filled": 0,
+        "avail_date_updated": 0,
+        "avail_date_cleared": 0,
         "status_set": 0,
         "locked_skills": 0,
         "onsite_days_filled": 0,
@@ -397,18 +607,6 @@ def apply_insights(
             candidate.skills = existing + new_items
             stats["skills_added"] = len(new_items)
             changed = True
-
-    # ── years_confirmed → years_it_experience (FILL_EMPTY) ─────────────────
-    yc = parsed.get("years_confirmed")
-    if (
-        candidate.years_it_experience is None
-        and isinstance(yc, (int, float))
-        and not isinstance(yc, bool)
-        and 0 < yc <= 60
-    ):
-        candidate.years_it_experience = int(yc)
-        stats["years_filled"] = 1
-        changed = True
 
     # ── expected_rate → kolumna: FILL_EMPTY + aktualizacja własnego wpisu ──
     rate = (
@@ -459,56 +657,42 @@ def apply_insights(
                 "version": candidate.profile_rate_version,
             }
 
-    # ── dostępność → kolumny (FILL_EMPTY) ──────────────────────────────────
-    availability = parsed.get("availability")
-    availability = availability if isinstance(availability, dict) else {}
-    if candidate.notice_period is None:
-        parsed_notice = _parse_notice(
-            availability.get("notice_period")
-        ) or _parse_notice(availability.get("raw"))
-        if parsed_notice:
-            candidate.notice_period, candidate.notice_period_unit = parsed_notice
-            stats["notice_filled"] = 1
-            changed = True
-    if candidate.availability_date is None:
-        m = _ISO_RE.search(str(availability.get("available_from") or ""))
-        if m:
-            try:
-                candidate.availability_date = date(
-                    int(m.group(1)), int(m.group(2)), int(m.group(3))
-                )
-                stats["avail_date_filled"] = 1
-                changed = True
-            except ValueError:
-                pass
-    raw_txt = " ".join(
-        str(availability.get(k) or "")
-        for k in ("raw", "notice_period", "available_from")
+    # ── lata, dostępność, okres wypowiedzenia, tryb pracy (FILL_EMPTY) ─────
+    # Jedna reguła z jednorazowym domknięciem historii
+    # (`notes_profile_fill.plan_profile_fill`): wartość człowieka i CV zostaje
+    # zawsze, dostępność liczona od dnia notatki („stan na” w znaczniku).
+    from app.services.notes_profile_fill import apply_profile_fill, plan_profile_fill
+
+    had_date = candidate.availability_date is not None
+    changes, markers = plan_profile_fill(
+        candidate,
+        parsed,
+        prior=prior,
+        as_of=as_of,
+        latest_note_day=latest_note_day,
+        contracts=contracts,
+        # Notatka o dostępności zniknęła albo zmieniła treść — data, którą
+        # sami wpisaliśmy, nie może zostać jako fakt bez źródła (07.10.2026).
+        release_stale_availability=True,
     )
-    current_status = getattr(
-        candidate.availability_status, "value", candidate.availability_status
-    )
-    if current_status == "unknown" and _ASAP_RE.search(raw_txt):
-        candidate.availability_status = AvailabilityStatus.actively_looking
-        stats["status_set"] = 1
+    apply_profile_fill(candidate, changes)
+    insights.update(markers)
+    for field, key in (
+        ("years_it_experience", "years_filled"),
+        ("notice_period", "notice_filled"),
+        ("availability_status", "status_set"),
+        ("remote_modes", "remote_modes_filled"),
+        ("max_onsite_days_per_week", "onsite_days_filled"),
+    ):
+        if field in changes:
+            stats[key] = 1
+    if "availability_date" in changes:
+        if changes["availability_date"] is None:
+            stats["avail_date_cleared"] = 1
+        else:
+            stats["avail_date_updated" if had_date else "avail_date_filled"] = 1
+    if changes:
         changed = True
-
-    # ── tryb pracy + dni w biurze → profil (FILL_EMPTY, każde pole osobno) ──
-    # Reguła jest JEDNA (`candidate_notes_facts.work_mode_from_insights`) i tę
-    # samą czyta profil kandydata: dni podane wprost > „tylko zdalnie” (0) >
-    # „stacjonarnie” (5), a tryby wynikają z dni (N dni w biurze akceptuje też
-    # mniej). Wartość CZŁOWIEKA (modal edycji, pasek faktów) zostaje zawsze.
-    from app.services.candidate_notes_facts import fill_work_mode_from_notes
-
-    mode_stats = fill_work_mode_from_notes(candidate, parsed)
-    if mode_stats["onsite_days_filled"]:
-        insights["_onsite_days_from_notes"] = True
-    if mode_stats["remote_modes_filled"]:
-        insights["_remote_modes_from_notes"] = True
-    for key, value in mode_stats.items():
-        if value:
-            stats[key] = value
-            changed = True
 
     extracted["_notes_insights"] = insights
     candidate.cv_extracted_data = extracted

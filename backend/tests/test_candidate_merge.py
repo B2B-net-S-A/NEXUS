@@ -333,3 +333,287 @@ async def test_academy_rejection_survives_merge_with_a_newer_application(
         assert kept.status == "rejected"
         assert kept.reapplied_at is not None
         assert await db.get(AcademyApplication, fresh_id) is None
+
+
+async def test_jarvis_conversation_links_follow_the_survivor(app_client: AsyncClient):
+    """Runda 6 audytu: powiązanie rozmowy Jarvisa z duplikatem musi przejść na
+    ocalałego — po nim usunięcie osoby (art. 17) kasuje rozmowy."""
+    from app.models.jarvis import JarvisConversation, JarvisConversationEntity
+
+    user_id, headers = await _user(app_client, UserRole.admin)
+    survivor = await _candidate()
+    duplicate = await _candidate()
+    async with AsyncSessionLocal() as db:
+        only_dup = JarvisConversation(user_id=user_id)
+        both = JarvisConversation(user_id=user_id)
+        db.add_all([only_dup, both])
+        await db.flush()
+        db.add_all(
+            [
+                JarvisConversationEntity(
+                    conversation_id=only_dup.id,
+                    entity_type="candidate",
+                    entity_id=duplicate,
+                ),
+                JarvisConversationEntity(
+                    conversation_id=both.id,
+                    entity_type="candidate",
+                    entity_id=duplicate,
+                ),
+                JarvisConversationEntity(
+                    conversation_id=both.id, entity_type="candidate", entity_id=survivor
+                ),
+            ]
+        )
+        await db.commit()
+        only_dup_id, both_id = only_dup.id, both.id
+
+    preview = await _preview(app_client, headers, survivor, duplicate)
+    assert preview.status_code == 200, preview.text
+    merged = await _merge(
+        app_client, headers, survivor, duplicate, preview.json()["fingerprint"]
+    )
+    assert merged.status_code == 200, merged.text
+
+    async with AsyncSessionLocal() as db:
+        links = (
+            await db.execute(
+                select(
+                    JarvisConversationEntity.conversation_id,
+                    JarvisConversationEntity.entity_id,
+                ).where(
+                    JarvisConversationEntity.conversation_id.in_([only_dup_id, both_id])
+                )
+            )
+        ).all()
+    assert sorted((str(c), e) for c, e in links) == sorted(
+        [(str(only_dup_id), survivor), (str(both_id), survivor)]
+    )
+
+
+async def test_merge_fences_active_search_runs_like_erasure(app_client: AsyncClient):
+    """Runda 8 (R8-N11-6): migawka przeglądu bazy z obiema osobami.
+
+    Przepięcie wiersza duplikatu kolidowało z PK `(run_id, candidate_id)`
+    i łamało kompletność migawki — `finish_run` rzucał ValueError przy każdej
+    próbie, aż przegląd kończył się `failed` z nieczytelnym kodem. Scalenie
+    ogradza go teraz jak usunięcie osoby.
+    """
+    from sqlalchemy import delete
+
+    from app.models.candidate_search_run import (
+        CandidateSearchResult,
+        CandidateSearchRun,
+    )
+    from app.models.client import Client
+
+    user_id, headers = await _user(app_client, UserRole.admin)
+    survivor = await _candidate()
+    duplicate = await _candidate()
+    active_id, finished_id = str(uuid.uuid4()), str(uuid.uuid4())
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"R8-N11-6-{uuid.uuid4().hex[:6]}")
+        db.add(client)
+        await db.flush()
+        for run_id, state in ((active_id, "running"), (finished_id, "complete")):
+            db.add(
+                CandidateSearchRun(
+                    id=run_id,
+                    created_by=user_id,
+                    client_id=client.id,
+                    state=state,
+                    request_fingerprint="m" * 64,
+                    request_context={},
+                    version_trace={},
+                    population_size=2,
+                    metrics={},
+                )
+            )
+        await db.flush()
+        for run_id in (active_id, finished_id):
+            for cid in (survivor, duplicate):
+                db.add(
+                    CandidateSearchResult(
+                        run_id=run_id,
+                        candidate_id=cid,
+                        candidate_version="v",
+                        state="pending",
+                    )
+                )
+        await db.commit()
+
+    try:
+        preview = await _preview(app_client, headers, survivor, duplicate)
+        assert preview.status_code == 200, preview.text
+        merged = await _merge(
+            app_client, headers, survivor, duplicate, preview.json()["fingerprint"]
+        )
+        assert merged.status_code == 200, merged.text
+
+        async with AsyncSessionLocal() as db:
+            active = await db.get(CandidateSearchRun, active_id)
+            finished = await db.get(CandidateSearchRun, finished_id)
+            # Runda 9 (R9-N5-7): przegląd w toku traci wiersz duplikatu, nie pada.
+            assert (active.state, active.population_size) == ("running", 1)
+            assert finished.state == "complete"
+            left = (
+                await db.execute(
+                    select(
+                        CandidateSearchResult.run_id, CandidateSearchResult.candidate_id
+                    ).where(CandidateSearchResult.run_id.in_([active_id, finished_id]))
+                )
+            ).all()
+        assert sorted(tuple(r) for r in left) == sorted(
+            [(active_id, survivor), (finished_id, survivor)]
+        )
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CandidateSearchRun).where(
+                    CandidateSearchRun.id.in_([active_id, finished_id])
+                )
+            )
+            await db.commit()
+
+
+async def test_two_primary_cvs_both_survive_merge_with_one_primary(
+    app_client: AsyncClient,
+):
+    """Runda 9 (R9-N8-2): scalenie nigdy nie kasuje CV.
+
+    Częściowy indeks „jedno główne CV na osobę” był traktowany jak zwykły
+    konflikt i starszy wiersz znikał; ta sama treść (odcisk SHA) w obu
+    profilach też kończyła się DELETE-em.
+    """
+    from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
+
+    _, headers = await _user(app_client, UserRole.admin)
+    survivor = await _candidate()
+    duplicate = await _candidate()
+    older = datetime.now(timezone.utc) - timedelta(days=3)
+    same_sha = uuid.uuid4().hex * 2
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                CandidateDocument(
+                    candidate_id=survivor,
+                    filename="stare.pdf",
+                    storage_key=f"cv/t/{uuid.uuid4().hex}.pdf",
+                    document_kind=CandidateDocumentKind.cv,
+                    is_primary=True,
+                    created_at=older,
+                    updated_at=older,
+                ),
+                CandidateDocument(
+                    candidate_id=duplicate,
+                    filename="nowe.pdf",
+                    storage_key=f"cv/t/{uuid.uuid4().hex}.pdf",
+                    document_kind=CandidateDocumentKind.cv,
+                    is_primary=True,
+                ),
+                CandidateDocument(
+                    candidate_id=survivor,
+                    filename="kopia-a.pdf",
+                    storage_key=f"cv/t/{uuid.uuid4().hex}.pdf",
+                    document_kind=CandidateDocumentKind.other,
+                    content_sha256=same_sha,
+                ),
+                CandidateDocument(
+                    candidate_id=duplicate,
+                    filename="kopia-b.pdf",
+                    storage_key=f"cv/t/{uuid.uuid4().hex}.pdf",
+                    document_kind=CandidateDocumentKind.other,
+                    content_sha256=same_sha,
+                ),
+            ]
+        )
+        await db.commit()
+
+    plan = (await _preview(app_client, headers, survivor, duplicate)).json()
+    resp = await _merge(app_client, headers, survivor, duplicate, plan["fingerprint"])
+    assert resp.status_code == 200, resp.text
+
+    async with AsyncSessionLocal() as db:
+        docs = (
+            await db.scalars(
+                select(CandidateDocument).where(
+                    CandidateDocument.candidate_id == survivor
+                )
+            )
+        ).all()
+        assert sorted(d.filename for d in docs) == [
+            "kopia-a.pdf",
+            "kopia-b.pdf",
+            "nowe.pdf",
+            "stare.pdf",
+        ]
+        assert [d.filename for d in docs if d.is_primary] == ["nowe.pdf"]
+        shas = [d.content_sha256 for d in docs if d.filename.startswith("kopia")]
+        assert shas.count(same_sha) == 1
+
+
+async def test_merge_keeps_duplicate_legacy_cv_as_extra_document(
+    app_client: AsyncClient,
+):
+    from app.models.candidate_document import CandidateDocument
+
+    _, headers = await _user(app_client, UserRole.admin)
+    survivor = await _candidate(
+        cv_filename="ocalaly.pdf", cv_storage_key=f"cv/t/{uuid.uuid4().hex}.pdf"
+    )
+    dup_key = f"cv/t/{uuid.uuid4().hex}.pdf"
+    duplicate = await _candidate(cv_filename="duplikat.pdf", cv_storage_key=dup_key)
+    plan = (await _preview(app_client, headers, survivor, duplicate)).json()
+    resp = await _merge(app_client, headers, survivor, duplicate, plan["fingerprint"])
+    assert resp.status_code == 200, resp.text
+    async with AsyncSessionLocal() as db:
+        kept = await db.scalar(
+            select(CandidateDocument).where(
+                CandidateDocument.candidate_id == survivor,
+                CandidateDocument.storage_key == dup_key,
+            )
+        )
+        assert kept is not None and kept.is_primary is False
+
+
+async def test_merge_restrictive_facts_and_empty_fields_come_from_duplicate(
+    app_client: AsyncClient,
+):
+    """Runda 9 (R9-N8-1): czarna lista i „tylko etat” nie znikają przy scaleniu."""
+    from app.models.candidate import CandidateStatus
+
+    _, headers = await _user(app_client, UserRole.admin)
+    survivor = await _candidate(b2b_willingness="b2b", accepts_more_office_days=True)
+    duplicate = await _candidate(
+        status=CandidateStatus.blacklisted,
+        b2b_willingness="employment_only",
+        accepts_more_office_days=False,
+        skills=[{"name": "Kotlin"}],
+        work_time_preference="part_time_only",
+    )
+    plan = (await _preview(app_client, headers, survivor, duplicate)).json()
+    fields = {f["field"]: f for f in plan["fields"]}
+    assert fields["status"]["rule"] == "restrictive"
+    assert fields["status"]["default"] == "duplicate"
+    assert fields["b2b_willingness"]["default"] == "duplicate"
+    assert fields["skills"]["duplicate"] == "Kotlin"
+
+    # Pola restrykcyjne nie są do wyboru.
+    refused = await _merge(
+        app_client,
+        headers,
+        survivor,
+        duplicate,
+        plan["fingerprint"],
+        choices={"status": "survivor"},
+    )
+    assert refused.status_code == 422
+    resp = await _merge(app_client, headers, survivor, duplicate, plan["fingerprint"])
+    assert resp.status_code == 200, resp.text
+    async with AsyncSessionLocal() as db:
+        kept = await db.get(Candidate, survivor)
+        assert kept.status == CandidateStatus.blacklisted
+        assert kept.b2b_willingness == "employment_only"
+        assert kept.accepts_more_office_days is False
+        assert kept.skills == [{"name": "Kotlin"}]
+        assert kept.work_time_preference == "part_time_only"

@@ -610,11 +610,12 @@ function TalentsPageContent() {
     queryFn: () => talentPoolsApi.list().then((r) => r.data),
   });
 
-  const { data: ccList = [] } = useQuery({
+  const ccQuery = useQuery({
     queryKey: ["competence-categories"],
     queryFn: () => competenceCategoriesApi.list(true),
     staleTime: 1000 * 60 * 60, // 1h — CC list is stable
   });
+  const ccList = useMemo(() => ccQuery.data ?? [], [ccQuery.data]);
 
   const companyPools = useMemo(() => pools.filter((p) => !p.is_personal), [pools]);
   const personalPools = useMemo(() => pools.filter((p) => p.is_personal), [pools]);
@@ -758,6 +759,14 @@ function TalentsPageContent() {
                   : `${count} kategorii`
               }
               triggerWidthClass="w-full sm:w-[220px]"
+              // Awaria słownika kategorii ≠ „Brak opcji.” (reguła repo).
+              loadState={{
+                isPending: ccQuery.isPending,
+                isError: ccQuery.isError,
+                onRetry: () => void ccQuery.refetch(),
+                loadingLabel: "Ładowanie kategorii…",
+                errorLabel: "Nie udało się pobrać kategorii.",
+              }}
             />
           )}
           <button

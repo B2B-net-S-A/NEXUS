@@ -1,15 +1,19 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Inbox, FileText, Check, X, ExternalLink, History, Loader2, MailCheck, UserCog } from "lucide-react";
+import { Inbox, FileText, Check, X, ExternalLink, Eye, EyeOff, History, Loader2, MailCheck, UserCog } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { apiErrorMessage } from "@/lib/api-error";
 import { Badge } from "@/components/ui/badge";
-import { EmptyState, PageHeader, QueryStateNotice } from "@/components/ds";
+import { EmptyState, QueryStateNotice } from "@/components/ds";
+import { StatusDot } from "@/components/ds/StatusDot";
+import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW } from "@/lib/calm-table";
+import type { OrderPdfLoader } from "@/components/finance/OrderPdfViewer";
 import {
   ORDER_MAIL_ACTION_LABEL,
   ORDER_MAIL_OUTCOME_LABEL,
@@ -23,7 +27,7 @@ import {
   type OrderMailRecheckWindow,
   type OrderMailSyncStatus,
 } from "@/lib/api/orderMail";
-import { openAuthenticatedFile } from "@/lib/authenticated-files";
+import { fetchAuthenticatedBlob, openAuthenticatedFile } from "@/lib/authenticated-files";
 import {
   baselineOf,
   checkOutcome,
@@ -36,6 +40,16 @@ import {
 } from "@/lib/order-mail-sync";
 import { formatDateTimePl, formatIsoDatePl } from "@/lib/date-pl";
 import { formatMoney } from "@/lib/money";
+import {
+  applyButtonLabel,
+  effectiveOverlapChoices,
+  overlapOptionLabel,
+  overlapApplyPayload,
+  overlapRows,
+  previousRateNote,
+  type OverlapApplyChoices,
+  type OverlapChoices,
+} from "@/lib/order-mail-overlap";
 
 /**
  * Kolejka zamówień z maila.
@@ -48,12 +62,69 @@ import { formatMoney } from "@/lib/money";
  *  - kwoty renderują się jako „—", gdy backend je zredagował; front nie decyduje.
  */
 
+// Podgląd PDF (pdf.js) ładuje się dopiero, gdy jest co pokazać — kolejka bez
+// otwartego podglądu nie ciągnie przeglądarki PDF.
+const OrderPdfViewer = dynamic(
+  () => import("@/components/finance/OrderPdfViewer").then((m) => m.OrderPdfViewer),
+  {
+    ssr: false,
+    loading: () => (
+      <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
+        Wczytywanie podglądu…
+      </p>
+    ),
+  },
+);
+
+/** Ten sam plik co przycisk „PDF” — z tokenem, jako blob. */
+const loadQueuePdf: OrderPdfLoader = ({ id }) =>
+  fetchAuthenticatedBlob(orderMailApi.fileUrl(id));
+
+/** Nagłówek sekcji w szczegółach wpisu. */
+const SECTION_LABEL =
+  "text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted-foreground";
+
 const TABS: Array<{ outcome: OrderMailOutcome; label: string }> = [
   { outcome: "needs_review", label: "Do weryfikacji" },
   { outcome: "auto_applied", label: "Zapisane automatycznie" },
   { outcome: "applied", label: "Zapisane ręcznie" },
   { outcome: "unrecognized_client", label: "Nierozpoznane" },
+  // Błąd przetwarzania maila. Od 25.09.2026 system ponawia go sam (do 3 razy
+  // w ciągu 7 dni), ale wpis, który się nie udał, musi być widoczny — do tego
+  // dnia nie było go na żadnej zakładce.
+  { outcome: "failed", label: "Nieudane" },
 ];
+
+const FAILED_MANUAL_NOTE =
+  "Nie będzie ponawiany — wprowadź zamówienie ręcznie w oknie zamówienia klienta i odrzuć wpis.";
+// Bez prawa odrzucenia (`can_dismiss` z serwera) zdanie nie każe klikać
+// przycisku, którego ta osoba nie ma (np. Finanse bez portfela — runda 3
+// audytu 25.09.2026).
+const FAILED_MANUAL_NOTE_READ_ONLY =
+  "Nie będzie ponawiany — zamówienie trzeba wprowadzić ręcznie w oknie zamówienia klienta; wpis odrzuci admin albo Delivery Lead klienta.";
+
+/**
+ * Zdanie o automatycznych ponowieniach wpisu „Nieudane”.
+ *
+ * „System ponawia sam” tylko wtedy, gdy serwer tak liczy (`failed_retry_pending`:
+ * plik jest, wpis młodszy niż 7 dni, mniej niż 3 próby). Do rundy 2 audytu
+ * 25.09.2026 zdanie obiecywało ponowienia także wpisom bez pliku i starszym
+ * niż 7 dni, których system nigdy już nie weźmie.
+ */
+export function failedRetryNote(
+  doc: Pick<OrderMailDocument, "document_meta" | "failed_retry_pending" | "can_dismiss">,
+): string {
+  const retry = (doc.document_meta?.failed_retry ?? null) as { attempts?: number } | null;
+  const attempts = Number(retry?.attempts ?? 0);
+  if (doc.failed_retry_pending === true) {
+    return `Przetwarzanie nie powiodło się. System ponawia je sam z zapisanego PDF-a (próba ${attempts} z 3, przez 7 dni od nadejścia maila).`;
+  }
+  const manual = doc.can_dismiss === true ? FAILED_MANUAL_NOTE : FAILED_MANUAL_NOTE_READ_ONLY;
+  if (attempts >= 3) {
+    return `System próbował przetworzyć ten dokument ponownie 3 razy bez skutku. ${manual}`;
+  }
+  return manual;
+}
 
 function period(a: string | null, b: string | null): string {
   return `${formatIsoDatePl(a)} – ${b ? formatIsoDatePl(b) : "bezterminowo"}`;
@@ -113,28 +184,47 @@ export function MailboxCheckPanel(p: MailboxCheckProps) {
     p.status?.interrupted && !busy
       ? " Poprzednie sprawdzenie zostało przerwane (restart aplikacji) — następne uruchomi się samo."
       : "";
+  const failedRun = last?.status === "error" && !busy;
+  const dotTone = p.statusError
+    ? "bg-warning"
+    : !p.status || !enabled
+      ? "bg-muted-foreground/40"
+      : busy
+        ? "bg-info"
+        : failedRun
+          ? "bg-destructive"
+          : "bg-success";
   return (
+    // Jedna linia: stan skrzynki, wynik ostatniego biegu i przycisk. Na wąskim
+    // ekranie zawija się — bez poziomego przewijania.
     <section
       data-testid="mailbox-check"
       data-help="contracts.order_mail.check"
-      className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card px-4 py-3 text-sm"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-border bg-card px-3 py-2 text-xs"
     >
-      <div className="min-w-0">
-        <div className="font-medium">{title}</div>
-        <div
-          className={"text-muted-foreground " + (last?.status === "error" && !busy ? "text-destructive" : "")}
-          role="status"
-          aria-live="polite"
-          data-testid="mailbox-check-result"
-        >
-          {detail}
-          {interruptedNote}
-        </div>
-        {p.checkError && <div className="text-destructive">{p.checkError}</div>}
+      <div className="flex min-w-0 items-start gap-1.5 font-medium text-foreground">
+        <span aria-hidden className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", dotTone)} />
+        <span className="min-w-0">{title}</span>
       </div>
+      <div
+        className={cn("min-w-0", failedRun ? "text-destructive" : "text-muted-foreground")}
+        role="status"
+        aria-live="polite"
+        data-testid="mailbox-check-result"
+      >
+        {detail}
+        {interruptedNote}
+      </div>
+      {p.checkError && <div className="text-destructive">{p.checkError}</div>}
       {p.status?.can_trigger && (
-        <Button variant="outline" onClick={p.onCheckNow} disabled={busy || !enabled}>
-          {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <MailCheck className="mr-1 h-4 w-4" />}
+        <Button
+          size="sm"
+          variant="outline"
+          className="ml-auto"
+          onClick={p.onCheckNow}
+          disabled={busy || !enabled}
+        >
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MailCheck className="h-3.5 w-3.5" />}
           Pobierz zamówienia z maila
         </Button>
       )}
@@ -198,9 +288,13 @@ function recheckEntryLabel(e: OrderMailRecheckEntry): string {
 export function RecheckHistoryPanel(p: RecheckHistoryProps) {
   const [openRun, setOpenRun] = useState<number | null>(null);
   return (
-    <section className="mt-10" data-testid="recheck-history" data-help="contracts.order_mail.history">
-      <h2 className="text-lg font-semibold">Historia automatycznej weryfikacji</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
+    <section
+      className="rounded-lg border border-border bg-card px-4 py-3"
+      data-testid="recheck-history"
+      data-help="contracts.order_mail.history"
+    >
+      <h2 className="text-sm font-semibold text-foreground">Historia automatycznej weryfikacji</h2>
+      <p className="mt-1 max-w-4xl text-xs text-muted-foreground">
         {recheckScheduleSentence(p.window)} system sam próbuje dokończyć
         wstrzymane zamówienia. Wpis w tabeli powstaje tylko wtedy, gdy sprawdzenie coś zmieniło.
         Zamówienie czekające na podpis umowy nowego kontraktora czeka bez limitu czasu i nie
@@ -209,7 +303,7 @@ export function RecheckHistoryPanel(p: RecheckHistoryProps) {
       </p>
       {p.lastCheckedAt ? (
         <p
-          className="mt-1 text-sm text-muted-foreground"
+          className="mt-1 text-xs text-muted-foreground"
           data-testid="recheck-last-checked"
           role="status"
         >
@@ -221,47 +315,47 @@ export function RecheckHistoryPanel(p: RecheckHistoryProps) {
       {p.state === "error" || p.state === "forbidden" ? (
         <QueryStateNotice
           state={p.state === "forbidden" ? "forbidden" : "error"}
-          className="mt-4"
+          className="mt-3"
           description="Nie udało się pobrać historii ponownej weryfikacji."
           onRetry={p.state === "error" ? p.onRetry : undefined}
         />
       ) : p.state === "loading" ? (
-        <div className="mt-4 text-muted-foreground">Ładowanie…</div>
+        <div className="mt-3 text-sm text-muted-foreground">Ładowanie…</div>
       ) : p.runs.length === 0 ? (
         <EmptyState
-          className="mt-4"
+          className="mt-3"
           icon={History}
           title="Brak zmian do pokazania"
           description="Tu trafiają tylko te sprawdzenia, które coś zmieniły — zapisały zamówienie, zmieniły powód wstrzymania albo wysłały kartę Delivery Leadowi."
         />
       ) : (
-        <div className="mt-4 overflow-x-auto rounded-lg border border-border">
-          <table className="w-full text-sm">
-            <thead className="bg-muted text-xs uppercase text-muted-foreground">
-              <tr>
-                <th className="px-4 py-2 text-left font-medium">Data i godzina</th>
-                <th className="px-4 py-2 text-right font-medium">Sprawdzonych</th>
-                <th className="px-4 py-2 text-right font-medium">Zaakceptowanych</th>
-                <th className="px-4 py-2 text-right font-medium">Wstrzymanych</th>
-                <th className="px-4 py-2 text-left font-medium">Szczegóły</th>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[34rem] text-sm">
+            <thead className={CALM_HEAD}>
+              <tr className="border-b border-border">
+                <th className="px-2 py-2 text-left">Data i godzina</th>
+                <th className="px-2 py-2 text-right">Sprawdzonych</th>
+                <th className="px-2 py-2 text-right">Zaakceptowanych</th>
+                <th className="px-2 py-2 text-right">Wstrzymanych</th>
+                <th className="px-2 py-2 text-left">Szczegóły</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border">
+            <tbody className="divide-y divide-border/60">
               {p.runs.map((run) => (
                 <Fragment key={run.id}>
                   <tr data-testid="recheck-run">
-                    <td className="px-4 py-2">
+                    <td className="whitespace-nowrap px-2 py-2 tabular-nums">
                       {formatDateTimePl(run.started_at)}
                       <span className="ml-2 text-xs text-muted-foreground">
                         {reasonLabel(run.trigger)}
                       </span>
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums">{run.checked}</td>
-                    <td className="px-4 py-2 text-right tabular-nums">{run.applied}</td>
-                    <td className="px-4 py-2 text-right tabular-nums">{run.held}</td>
-                    <td className="px-4 py-2">
+                    <td className="px-2 py-2 text-right tabular-nums">{run.checked}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{run.applied}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{run.held}</td>
+                    <td className="px-2 py-2">
                       {run.entries.length === 0 ? (
-                        <span className="text-muted-foreground">—</span>
+                        <span className={CALM_EMPTY}>—</span>
                       ) : (
                         <button
                           className="text-primary underline-offset-2 hover:underline"
@@ -275,7 +369,7 @@ export function RecheckHistoryPanel(p: RecheckHistoryProps) {
                   </tr>
                   {openRun === run.id && (
                     <tr>
-                      <td colSpan={5} className="bg-muted/40 px-4 py-3">
+                      <td colSpan={5} className="bg-muted/40 px-3 py-3">
                         <ul className="space-y-2" data-testid="recheck-entries">
                           {run.entries.map((e) => (
                             <li key={e.document_id} className="text-sm">
@@ -331,7 +425,8 @@ export interface OrderMailQueueViewProps {
   total: number;
   selectedId: number | null;
   onSelect: (id: number) => void;
-  onApply: (id: number) => void;
+  /** `overlapChoices` — tylko gdy dokument ma wiersz `overlap` z wyborem. */
+  onApply: (id: number, overlapChoices?: OverlapApplyChoices) => void;
   onDismiss: (id: number) => void;
   onRefreshPlan?: (id: number) => void;
   onRetry: () => void;
@@ -347,6 +442,13 @@ export interface OrderMailQueueViewProps {
   pinnedDoc?: OrderMailDocument | null;
   /** `null` = wybór nie pochodzi z adresu, więc wolno pokazać pierwszy z listy. */
   pinnedState?: "loading" | "missing" | "ready" | null;
+  /** Przełącznik trybów modułu — pod tytułem, jak w rejestrze i obsłudze. */
+  modeTabs?: ReactNode;
+  /**
+   * Źródło bajtów podglądu PDF (trzecia kolumna). Bez niego podglądu nie ma —
+   * przycisk „PDF” otwierający plik w nowej karcie zostaje zawsze.
+   */
+  loadPdf?: OrderPdfLoader;
 }
 
 /** Który dokument pokazać w panelu szczegółów (czysta funkcja, FE-N03). */
@@ -366,19 +468,32 @@ export function selectOrderMailDocument(
 /** Warstwa prezentacyjna — harness `/preview/order-mail` renderuje ją z mocków. */
 export function OrderMailQueueView(p: OrderMailQueueViewProps) {
   const selected = selectOrderMailDocument(p.items, p.selectedId, p.pinnedDoc, p.pinnedState ?? null);
-  // Poniżej `lg` szczegóły są POD całą listą — klik w pozycję zmieniał tylko
-  // podświetlenie i wyglądał jak „nic się nie dzieje". Po wyborze z listy
-  // przewijamy do szczegółów (tylko wąski ekran i tylko po kliknięciu).
+  // Na wąskim ekranie szczegóły są POD całą listą — klik w pozycję zmieniał
+  // tylko podświetlenie i wyglądał jak „nic się nie dzieje". Po wyborze z listy
+  // przewijamy do szczegółów (tylko gdy naprawdę leżą pod listą i tylko po
+  // kliknięciu).
   const scrollToDetail = useRef(false);
+  const listRef = useRef<HTMLUListElement>(null);
   const selectedDocId = selected?.id ?? null;
   useEffect(() => {
     if (!scrollToDetail.current || selectedDocId == null) return;
     scrollToDetail.current = false;
-    if (!window.matchMedia?.("(max-width: 1023px)").matches) return;
-    document
-      .querySelector('[data-testid="order-mail-detail"]')
-      ?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+    const detail = document.querySelector('[data-testid="order-mail-detail"]');
+    const list = listRef.current;
+    if (!detail || !list) return;
+    const stacked =
+      detail.getBoundingClientRect().top >= list.getBoundingClientRect().bottom - 1;
+    if (!stacked) return;
+    detail.scrollIntoView?.({ block: "start", behavior: "smooth" });
   }, [selectedDocId]);
+  // Podgląd PDF: na szerokim ekranie otwarty od razu (trzecia kolumna), na
+  // węższym za przyciskiem „Pokaż podgląd” — pod szczegółami.
+  const [previewOpen, setPreviewOpen] = useState(false);
+  useEffect(() => {
+    if (window.matchMedia?.("(min-width: 1280px)").matches) setPreviewOpen(true);
+  }, []);
+  const canPreview = Boolean(p.loadPdf && selected?.has_file);
+  const showPreview = canPreview && previewOpen;
   const pinnedNotice =
     p.pinnedState != null && p.selectedId != null && !selected ? (
       p.pinnedState === "loading" ? (
@@ -391,22 +506,30 @@ export function OrderMailQueueView(p: OrderMailQueueViewProps) {
       )
     ) : null;
   return (
-    <div className="mx-auto max-w-7xl">
-      <PageHeader
-        eyebrow="Zamówienia"
-        title="Zamówienia z maila"
-        description="Załączniki ze skrzynki zamowienia@b2bnetwork.pl: rozpoznany klient, osoby, okres i stawka — do potwierdzenia jednym kliknięciem."
-      />
+    // Bez limitu szerokości — trzy kolumny (lista, szczegóły, podgląd PDF)
+    // potrzebują całego okna.
+    <div className="space-y-3">
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+        <h1 className="text-lg font-semibold text-foreground">Kontrakty</h1>
+        <p className="text-xs text-muted-foreground">
+          Zamówienia z maila — załączniki ze skrzynki zamowienia@b2bnetwork.pl: rozpoznany klient,
+          osoby, okres i stawka do potwierdzenia jednym kliknięciem.
+        </p>
+      </div>
+      {p.modeTabs}
       {p.state === "forbidden" ? (
         <QueryStateNotice
           state="forbidden"
-          className="mt-6"
           description="Nie masz dostępu do kolejki zamówień z maila. Poproś administratora o dostęp do sekcji Delivery."
         />
       ) : (
       <>
       <MailboxCheckPanel {...p.mailbox} />
-      <div className="mt-4 flex flex-wrap gap-2" role="tablist" data-help="contracts.order_mail.tabs">
+      <div
+        className="inline-flex max-w-full flex-wrap gap-0.5 rounded-lg bg-muted p-0.5"
+        role="tablist"
+        data-help="contracts.order_mail.tabs"
+      >
         {TABS.map((t) => (
           <button
             key={t.outcome}
@@ -414,8 +537,10 @@ export function OrderMailQueueView(p: OrderMailQueueViewProps) {
             aria-selected={p.outcome === t.outcome}
             onClick={() => p.onOutcomeChange(t.outcome)}
             className={
-              "rounded-md px-3 py-1.5 text-sm " +
-              (p.outcome === t.outcome ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-accent")
+              "inline-flex min-h-7 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium pointer-coarse:min-h-10 " +
+              (p.outcome === t.outcome
+                ? "bg-card font-semibold text-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground")
             }
           >
             {t.label}
@@ -425,43 +550,84 @@ export function OrderMailQueueView(p: OrderMailQueueViewProps) {
       </div>
 
       {p.state === "error" ? (
-        <QueryStateNotice state="error" className="mt-6" description="Nie udało się pobrać kolejki." onRetry={p.onRetry} />
+        <QueryStateNotice state="error" description="Nie udało się pobrać kolejki." onRetry={p.onRetry} />
       ) : p.state === "loading" ? (
-        <div className="mt-6 text-muted-foreground">Ładowanie…</div>
+        <div className="text-sm text-muted-foreground">Ładowanie…</div>
       ) : p.items.length === 0 && !selected && !pinnedNotice ? (
-        <EmptyState className="mt-6" icon={Inbox} title="Nic do pokazania" description={`Brak dokumentów w stanie „${ORDER_MAIL_OUTCOME_LABEL[p.outcome]}”.`} />
+        <EmptyState icon={Inbox} title="Nic do pokazania" description={`Brak dokumentów w stanie „${ORDER_MAIL_OUTCOME_LABEL[p.outcome]}”.`} />
       ) : (
-        <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-          <ul className="divide-y rounded-lg border" data-testid="order-mail-list">
-            {p.items.map((d) => (
-              <li key={d.id}>
-                <button
-                  onClick={() => {
-                    scrollToDetail.current = true;
-                    p.onSelect(d.id);
-                  }}
-                  className={"w-full px-4 py-3 text-left hover:bg-accent " + (selected?.id === d.id ? "bg-accent" : "")}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 font-medium">{d.client_name ?? "Nierozpoznany klient"}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{formatIsoDatePl(d.received_at)}</span>
-                  </div>
-                  <div className="truncate text-sm text-muted-foreground">
-                    {d.extraction?.title ?? d.attachment_name ?? d.subject ?? "—"} · {d.extraction?.consultant_rows.length ?? 0} os.
-                  </div>
-                  {d.gate_verdict && (
-                    <Badge variant={d.gate_verdict === "auto" ? "success" : "warning"} className="mt-1">
-                      {d.gate_verdict === "auto" ? "Automat: pewne" : "Wymaga weryfikacji"}
-                    </Badge>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
-          {pinnedNotice}
-          {selected && (
-            <Detail key={selected.id} doc={selected} onApply={() => p.onApply(selected.id)} onDismiss={() => p.onDismiss(selected.id)} onRefreshPlan={p.onRefreshPlan ? () => p.onRefreshPlan!(selected.id) : undefined} busy={p.busy} applyError={p.applyError} />
-          )}
+        // Kolumny liczone po szerokości KONTENERA (menu boczne zabiera miejsce):
+        // lista | szczegóły, a od ~1150 px także podgląd PDF obok.
+        <div className="@container">
+          <div
+            className={cn(
+              "grid grid-cols-[minmax(0,1fr)] items-start gap-3 @3xl:grid-cols-[280px_minmax(0,1fr)]",
+              showPreview && "@6xl:grid-cols-[280px_minmax(0,1.15fr)_minmax(0,1fr)]",
+            )}
+          >
+            <ul
+              ref={listRef}
+              className="rounded-lg border border-border bg-card p-1.5 @3xl:max-h-[calc(100dvh-13rem)] @3xl:overflow-y-auto"
+              data-testid="order-mail-list"
+            >
+              {p.items.map((d) => (
+                <li key={d.id}>
+                  <button
+                    onClick={() => {
+                      scrollToDetail.current = true;
+                      p.onSelect(d.id);
+                    }}
+                    aria-current={selected?.id === d.id ? "true" : undefined}
+                    className={cn(
+                      "w-full rounded-md px-2.5 py-2 text-left",
+                      selected?.id === d.id ? "bg-primary/10" : "hover:bg-muted",
+                    )}
+                  >
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="min-w-0 truncate text-[13px] font-semibold text-foreground">{d.client_name ?? "Nierozpoznany klient"}</span>
+                      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{formatIsoDatePl(d.received_at)}</span>
+                    </div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {d.extraction?.title ?? d.attachment_name ?? d.subject ?? "—"} · {d.extraction?.consultant_rows.length ?? 0} os.
+                    </div>
+                    {d.gate_verdict &&
+                      (d.gate_verdict === "auto" ? (
+                        <StatusDot tone="success" className="mt-1">Automat: pewne</StatusDot>
+                      ) : (
+                        <Badge variant="warning" size="sm" className="mt-1">Wymaga weryfikacji</Badge>
+                      ))}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="min-w-0 space-y-3">
+              {pinnedNotice}
+              {selected && (
+                <Detail
+                  key={selected.id}
+                  doc={selected}
+                  onApply={(choices) => (choices ? p.onApply(selected.id, choices) : p.onApply(selected.id))}
+                  onDismiss={() => p.onDismiss(selected.id)}
+                  onRefreshPlan={p.onRefreshPlan ? () => p.onRefreshPlan!(selected.id) : undefined}
+                  busy={p.busy}
+                  applyError={p.applyError}
+                  preview={
+                    canPreview
+                      ? { open: previewOpen, onToggle: () => setPreviewOpen((open) => !open) }
+                      : undefined
+                  }
+                />
+              )}
+            </div>
+            {showPreview && selected && p.loadPdf && (
+              <div
+                className="h-[70dvh] min-h-[420px] min-w-0 @3xl:col-start-2 @6xl:sticky @6xl:top-2 @6xl:col-start-3 @6xl:h-[calc(100dvh-13rem)]"
+                data-testid="order-mail-preview"
+              >
+                <OrderPdfViewer file={{ kind: "order-mail", id: selected.id }} loadPdf={p.loadPdf} />
+              </div>
+            )}
+          </div>
         </div>
       )}
       {/* Historia ma WŁASNE zapytanie: awaria kolejki nie może jej chować,
@@ -474,7 +640,7 @@ export function OrderMailQueueView(p: OrderMailQueueViewProps) {
 }
 
 /** Kontener: react-query + mutacje. Ekran produkcyjny. */
-export function OrderMailQueue() {
+export function OrderMailQueue({ modeTabs }: { modeTabs?: ReactNode } = {}) {
   const searchParams = useSearchParams();
   const highlighted = Number(searchParams?.get("doc") ?? "") || null;
   const [outcome, setOutcome] = useState<OrderMailOutcome>("needs_review");
@@ -507,7 +673,7 @@ export function OrderMailQueue() {
     queryFn: async () => (await orderMailApi.recheckRuns()).data,
   });
   const apply = useMutation({
-    mutationFn: (id: number) => orderMailApi.apply(id),
+    mutationFn: ({ id, choices }: { id: number; choices?: OverlapApplyChoices }) => orderMailApi.apply(id, choices),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["order-mail"] }),
   });
   const dismiss = useMutation({
@@ -567,6 +733,8 @@ export function OrderMailQueue() {
 
   return (
     <OrderMailQueueView
+      modeTabs={modeTabs}
+      loadPdf={loadQueuePdf}
       mailbox={{
         status: sync.data ?? null,
         statusError: sync.isError,
@@ -589,7 +757,7 @@ export function OrderMailQueue() {
       total={list.data?.total ?? 0}
       selectedId={selectedId}
       onSelect={setSelectedId}
-      onApply={(id) => apply.mutate(id)}
+      onApply={(id, choices) => apply.mutate({ id, choices })}
       onDismiss={(id) => dismiss.mutate(id)}
       onRefreshPlan={(id) => refreshPlan.mutate(id)}
       onRetry={() => list.refetch()}
@@ -637,68 +805,111 @@ function canDismiss(doc: OrderMailDocument): boolean {
   return doc.can_dismiss === true;
 }
 
-function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { doc: OrderMailDocument; onApply: () => void; onDismiss: () => void; onRefreshPlan?: () => void; busy: boolean; applyError: string | null }) {
+function Detail({
+  doc,
+  onApply,
+  onDismiss,
+  onRefreshPlan,
+  busy,
+  applyError,
+  preview,
+}: {
+  doc: OrderMailDocument;
+  onApply: (overlapChoices?: OverlapApplyChoices) => void;
+  onDismiss: () => void;
+  onRefreshPlan?: () => void;
+  busy: boolean;
+  applyError: string | null;
+  /** Przełącznik podglądu PDF — tylko gdy jest plik i źródło podglądu. */
+  preview?: { open: boolean; onToggle: () => void };
+}) {
   const ex = doc.extraction;
   // Osoba nieaktywna/nieznaleziona na zamówieniu MD/kosztowym: decyzja w oknie
   // zamówienia klienta (ten sam mechanizm co przy ręcznym wgraniu PDF-a).
   const personDecision = needsPersonDecision(doc);
   const windowHref = orderWindowHref(doc);
   const [fileError, setFileError] = useState<string | null>(null);
+  // Wybór dla nakładającego się okresu (27.10.2026): domyślnie pierwsza
+  // możliwość planu; po „Przelicz plan” wybór spoza nowego planu odpada.
+  const [pickedOverlap, setPickedOverlap] = useState<OverlapChoices>({});
+  const planRows = doc.proposal?.rows ?? [];
+  const pendingOverlap = doc.outcome === "needs_review" ? overlapRows(planRows) : [];
+  const overlapChoices = effectiveOverlapChoices(planRows, pickedOverlap);
   return (
-    <section className="rounded-lg border p-4" data-testid="order-mail-detail" data-help="contracts.order_mail.detail">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">{doc.client_name ?? "Nierozpoznany klient"}</h2>
-          <p className="text-sm text-muted-foreground">
+    <section className="rounded-lg border border-border bg-card" data-testid="order-mail-detail" data-help="contracts.order_mail.detail">
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 border-b border-border/60 px-4 py-3">
+        <div className="min-w-0">
+          <h2 className="font-display text-[15px] font-semibold leading-5 text-foreground">{doc.client_name ?? "Nierozpoznany klient"}</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
             {doc.subject ?? "—"} · od {doc.sender_email ?? "—"} · {doc.attachment_name ?? "—"}
           </p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-[11px] text-muted-foreground">
             Rozpoznanie: {doc.identification_method ?? "—"} · reguły: {doc.client_policy ?? "brak własnych reguł"}
           </p>
         </div>
         {doc.has_file && (
           <div className="flex flex-col items-end gap-1">
-            {/* Plik idzie z backendu z tokenem (Bearer) i otwiera się jako blob.
-                Zwykły `<a href>` wskazywał względny adres na hoście frontendu,
-                bez nagłówka autoryzacji — kończył się stroną 404. */}
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 text-sm underline"
-              onClick={() => {
-                setFileError(null);
-                openAuthenticatedFile(
-                  orderMailApi.fileUrl(doc.id),
-                  "application/pdf",
-                  doc.attachment_name ?? `zamowienie-${doc.id}.pdf`,
-                ).catch(() => setFileError("Nie udało się otworzyć pliku PDF."));
-              }}
-            >
-              <FileText className="h-4 w-4" /> PDF <ExternalLink className="h-3 w-3" />
-            </button>
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              {preview && (
+                <Button size="sm" variant="ghost" onClick={preview.onToggle} aria-pressed={preview.open}>
+                  {preview.open ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  {preview.open ? "Ukryj podgląd" : "Pokaż podgląd"}
+                </Button>
+              )}
+              {/* Plik idzie z backendu z tokenem (Bearer) i otwiera się jako blob.
+                  Zwykły `<a href>` wskazywał względny adres na hoście frontendu,
+                  bez nagłówka autoryzacji — kończył się stroną 404. */}
+              <button
+                type="button"
+                className="inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-primary hover:bg-primary/10 pointer-coarse:min-h-10"
+                onClick={() => {
+                  setFileError(null);
+                  openAuthenticatedFile(
+                    orderMailApi.fileUrl(doc.id),
+                    "application/pdf",
+                    doc.attachment_name ?? `zamowienie-${doc.id}.pdf`,
+                  ).catch(() => setFileError("Nie udało się otworzyć pliku PDF."));
+                }}
+              >
+                <FileText className="h-3.5 w-3.5" /> PDF <ExternalLink className="h-3 w-3" />
+              </button>
+            </div>
             {fileError && <span className="text-xs text-destructive">{fileError}</span>}
           </div>
         )}
       </div>
 
-      <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2 sm:gap-y-2">
-        <dt className="text-muted-foreground">Numer zamówienia</dt><dd>{ex?.title ?? "—"}</dd>
-        <dt className="text-muted-foreground">Okres dokumentu</dt><dd>{period(ex?.start_date ?? null, ex?.end_date ?? null)}</dd>
-      </dl>
+      <div className="space-y-4 px-4 py-3">
+      <div>
+        <h3 className={SECTION_LABEL}>Dokument</h3>
+        <dl className="mt-1.5 grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[9rem_minmax(0,1fr)]">
+          <dt className="text-muted-foreground">Numer zamówienia</dt><dd>{ex?.title ?? <span className={CALM_EMPTY}>—</span>}</dd>
+          <dt className="text-muted-foreground">Okres dokumentu</dt><dd className="tabular-nums">{period(ex?.start_date ?? null, ex?.end_date ?? null)}</dd>
+        </dl>
+      </div>
 
-      <h3 className="mt-4 text-sm font-semibold">Osoby i plan zapisu</h3>
+      <div>
+      <h3 className={SECTION_LABEL}>Osoby i plan zapisu</h3>
       {/* Cztery kolumny z kwotami (twarda spacja) — na telefonie przewijane
           w bok zamiast wypychać całą sekcję szczegółów. */}
-      <div className="mt-2 overflow-x-auto">
-      <table className="w-full min-w-[520px] text-sm">
-        <thead className="text-left text-muted-foreground">
-          <tr><th className="py-1">Osoba</th><th>Okres</th><th>Stawka</th><th>Plan</th></tr>
+      <div className="mt-1.5 overflow-x-auto">
+      <table className="w-full min-w-[420px] text-sm">
+        <thead className={CALM_HEAD}>
+          <tr className="border-b border-border text-left">
+            <th className="py-1.5 pr-2">Osoba</th>
+            <th className="py-1.5 pr-2">Okres</th>
+            <th className="py-1.5 pr-3 text-right">Stawka</th>
+            <th className="py-1.5">Plan</th>
+          </tr>
         </thead>
         <tbody>
-          {(doc.proposal?.rows ?? []).map((r) => (
-            <tr key={r.row_index} className="border-t align-top">
-              <td className="py-1 pr-2">{r.row_name}</td>
-              <td className="pr-2">{period(r.start_date, r.end_date)}</td>
-              <td className="pr-2">
+          {planRows.map((r) => {
+            const rateNote = previousRateNote(r, ex?.currency);
+            return (
+            <tr key={r.row_index} className={cn(CALM_ROW, "align-top last:border-b-0")}>
+              <td className="py-2 pr-2 font-medium">{r.row_name}</td>
+              <td className="py-2 pr-2 tabular-nums">{period(r.start_date, r.end_date)}</td>
+              <td className={cn("py-2 pr-3", CALM_AMOUNT)}>
                 {/* Waluta z odczytu dokumentu — 110 EUR nie jest „110 zł” (audyt 24.09, S5). */}
                 {formatMoney(r.rate_client, ex?.currency, r.rate_unit)}
                 {ex?.consultant_rows[r.row_index]?.rate_client_gross != null && (
@@ -709,18 +920,27 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
                     </div>
                   </>
                 )}
+                {rateNote && (
+                  // Przedłużenie: stawka poprzedniego zamówienia, nie rekrutacji (27.10.2026).
+                  <div className="mt-0.5 text-xs text-muted-foreground" data-testid="previous-rate">
+                    {rateNote.text}
+                    {rateNote.change && (
+                      <span className="ml-1 rounded bg-info-muted px-1 font-medium text-info-muted-foreground">{rateNote.change}</span>
+                    )}
+                  </div>
+                )}
               </td>
-              <td>
+              <td className="py-2">
                 {(r.existing_person_ids?.length ?? 0) > 0 ? (
                   // Plan nadal zakłada szkic, ale domyślną odpowiedzią nie jest
                   // „nowy kontraktor": osoba o tym imieniu i nazwisku JEST
                   // w bazie. Podpowiedź musi być czytelna, nie szara adnotacja.
                   <div data-testid="person-already-in-base">
-                    <div className="font-medium text-amber-700 dark:text-amber-400">
+                    <div className="font-medium text-warning-muted-foreground">
                       Osoba jest już w bazie — potwierdź tożsamość
                     </div>
                     {r.reasons.map((x) => (
-                      <div key={x} className="text-xs text-amber-700 dark:text-amber-400">{x}</div>
+                      <div key={x} className="text-xs text-warning-muted-foreground">{x}</div>
                     ))}
                     <div className="mt-1 text-xs text-muted-foreground">
                       Po potwierdzeniu: {ORDER_MAIL_ACTION_LABEL[r.action]}
@@ -728,22 +948,66 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
                   </div>
                 ) : (
                   <>
-                    <div>{ORDER_MAIL_ACTION_LABEL[r.action]}</div>
-                    {r.reasons.map((x) => <div key={x} className="text-xs text-muted-foreground">{x}</div>)}
+                    <div>
+                      {(r.overlap_options?.length ?? 0) > 0
+                        ? `Przedłużenie #${r.target_order_id} — wybierz niżej`
+                        : ORDER_MAIL_ACTION_LABEL[r.action]}
+                    </div>
+                    {(r.overlap_options?.length ?? 0) > 0 ? (
+                      <div className="text-xs text-muted-foreground">
+                        #{r.target_order_id}: {period(r.previous_start_date ?? null, r.previous_end_date ?? null)}
+                      </div>
+                    ) : (
+                      r.reasons.map((x) => <div key={x} className="text-xs text-muted-foreground">{x}</div>)
+                    )}
                   </>
                 )}
               </td>
             </tr>
-          ))}
+            );
+          })}
           {(doc.proposal?.rows ?? []).length === 0 && (ex?.consultant_rows ?? []).map((r, i) => (
-            <tr key={i} className="border-t"><td className="py-1">{r.consultant_name}</td><td>{period(r.start_date, r.end_date)}</td><td>{formatMoney(r.rate_client, ex?.currency, r.rate_unit)}</td><td className="text-muted-foreground">—</td></tr>
+            <tr key={i} className={cn(CALM_ROW, "last:border-b-0")}>
+              <td className="py-2 pr-2 font-medium">{r.consultant_name}</td>
+              <td className="py-2 pr-2 tabular-nums">{period(r.start_date, r.end_date)}</td>
+              <td className={cn("py-2 pr-3", CALM_AMOUNT)}>{formatMoney(r.rate_client, ex?.currency, r.rate_unit)}</td>
+              <td className={cn("py-2", CALM_EMPTY)}>—</td>
+            </tr>
           ))}
         </tbody>
       </table>
       </div>
+      </div>
 
+      {pendingOverlap.map((row) => (
+        <fieldset key={row.row_index} className="space-y-1.5" data-testid="overlap-choice">
+          <legend className={cn(SECTION_LABEL, "mb-1.5")}>
+            {pendingOverlap.length > 1 ? `${row.row_name}: ` : ""}okres nachodzi na #{row.target_order_id} — co zrobić?
+          </legend>
+          {(row.overlap_options ?? []).map((option) => (
+            <label
+              key={option}
+              className={cn(
+                "flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm",
+                overlapChoices[row.row_index] === option ? "border-primary bg-primary/5" : "border-border",
+              )}
+            >
+              <input
+                type="radio"
+                name={`overlap-${doc.id}-${row.row_index}`}
+                value={option}
+                checked={overlapChoices[row.row_index] === option}
+                onChange={() => setPickedOverlap((prev) => ({ ...prev, [row.row_index]: option }))}
+                disabled={!doc.can_apply || busy}
+                className="mt-0.5 accent-primary"
+              />
+              <span>{overlapOptionLabel(row, option)}</span>
+            </label>
+          ))}
+        </fieldset>
+      ))}
       {doc.gate_reasons.length > 0 && (
-        <div className="mt-4 rounded-md border border-amber-300/60 bg-amber-50/60 p-3 text-sm dark:bg-amber-950/20" data-testid="gate-reasons">
+        <div className="rounded-md border border-warning/25 bg-warning-muted p-3 text-sm text-warning-muted-foreground" data-testid="gate-reasons">
           <div className="font-medium">Dlaczego do weryfikacji</div>
           <ul className="mt-1 list-disc pl-5">{doc.gate_reasons.map((r) => <li key={r}>{withoutExceptionRepr(r)}</li>)}</ul>
         </div>
@@ -751,12 +1015,17 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
       {(() => {
         // „Błąd:" tylko, gdy mówi coś, czego nie ma w „Dlaczego do weryfikacji" (UAT B49).
         const distinctError = errorOutsideReasons(doc.error, doc.gate_reasons);
-        return distinctError ? <div className="mt-3 text-sm text-destructive">Błąd: {distinctError}</div> : null;
+        return distinctError ? <div className="text-sm text-destructive">Błąd: {distinctError}</div> : null;
       })()}
-      {applyError && <div className="mt-3 text-sm text-destructive">{applyError}</div>}
+      {applyError && <div className="text-sm text-destructive">{applyError}</div>}
+      {doc.outcome === "failed" && (
+        <p role="status" className="text-sm text-muted-foreground" data-testid="failed-retry-note">
+          {failedRetryNote(doc)}
+        </p>
+      )}
 
       {personDecision && doc.outcome === "needs_review" && (
-        <div role="status" className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm" data-testid="person-decision">
+        <div role="status" className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm" data-testid="person-decision">
           <div className="font-medium">Osoba do rozstrzygnięcia</div>
           <p className="mt-1 text-muted-foreground">
             Na tym zamówieniu jest osoba bez aktywnej współpracy albo nieznaleziona w systemie.
@@ -765,22 +1034,29 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
             czy usunąć z zamówienia. Okno otworzy się z tym PDF-em.
           </p>
           {windowHref && doc.can_apply && doc.has_file ? (
-            <Link href={windowHref} className={cn(buttonVariants(), "mt-2")}>
-              <UserCog className="mr-1 h-4 w-4" /> Rozstrzygnij w oknie zamówienia
+            <Link href={windowHref} className={cn(buttonVariants({ size: "sm" }), "mt-2")}>
+              <UserCog className="h-3.5 w-3.5" /> Rozstrzygnij w oknie zamówienia
             </Link>
           ) : null}
         </div>
       )}
+      {doc.applied_order_id && (
+        <p className="text-sm">Zapisane jako zamówienie #{doc.applied_order_id}{doc.applied_at ? ` (${formatDateTimePl(doc.applied_at)})` : ""}.</p>
+      )}
+      {doc.proposal?.resolved_in_order && (
+        <p className="text-sm">
+          Rozstrzygnięte w oknie zamówienia — zamówienie nr {doc.proposal.resolved_in_order.order_number ?? `#${doc.proposal.resolved_in_order.order_group_id}`}
+          {doc.proposal.resolved_in_order.resolved_at ? ` (${formatDateTimePl(doc.proposal.resolved_in_order.resolved_at)})` : ""}.
+        </p>
+      )}
+      </div>
 
+      {/* Stopka akcji: główna po lewej, „Odrzuć” cicho po prawej. */}
       {doc.outcome === "needs_review" && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {onRefreshPlan && doc.can_apply && doc.has_file && (
-            <Button variant="outline" onClick={onRefreshPlan} disabled={busy} title="Sprawdź stawki z PDF i dopasuj osoby do aktualnej listy konsultantów klienta">
-              Przelicz plan
-            </Button>
-          )}
+        <div className="flex flex-wrap items-center gap-2 border-t border-border/60 bg-muted/30 px-4 py-2.5">
           <Button
-            onClick={onApply}
+            size="sm"
+            onClick={() => onApply(pendingOverlap.length > 0 ? overlapApplyPayload(planRows, overlapChoices) : undefined)}
             disabled={!doc.can_apply || busy || !(doc.proposal?.rows?.length) || personDecision}
             title={
               !doc.can_apply
@@ -790,31 +1066,29 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
                   : undefined
             }
           >
-            <Check className="mr-1 h-4 w-4" /> Zastosuj
+            <Check className="h-3.5 w-3.5" /> {applyButtonLabel(planRows, overlapChoices)}
           </Button>
-          <Button variant="outline" onClick={onDismiss} disabled={!doc.can_apply || busy}>
-            <X className="mr-1 h-4 w-4" /> Odrzuć
-          </Button>
-        </div>
-      )}
-      {doc.outcome === "unrecognized_client" && canDismiss(doc) && (
-        // Dokument bez rozpoznanego klienta nie ma czego zastosować, ale musi
-        // dać się zdjąć z kolejki — do 24.09 wisiał w „Nierozpoznane” na zawsze
-        // (audyt N2). Bez klienta nie ma przypisanego DL, więc odrzuca admin.
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button variant="outline" onClick={onDismiss} disabled={busy}>
-            <X className="mr-1 h-4 w-4" /> Odrzuć
+          {onRefreshPlan && doc.can_apply && doc.has_file && (
+            <Button size="sm" variant="outline" onClick={onRefreshPlan} disabled={busy} title="Sprawdź stawki z PDF i dopasuj osoby do aktualnej listy konsultantów klienta">
+              Przelicz plan
+            </Button>
+          )}
+          <Button size="sm" variant="quiet" className="ml-auto" onClick={onDismiss} disabled={!doc.can_apply || busy}>
+            <X className="h-3.5 w-3.5" /> Odrzuć
           </Button>
         </div>
       )}
-      {doc.applied_order_id && (
-        <p className="mt-3 text-sm">Zapisane jako zamówienie #{doc.applied_order_id}{doc.applied_at ? ` (${formatDateTimePl(doc.applied_at)})` : ""}.</p>
-      )}
-      {doc.proposal?.resolved_in_order && (
-        <p className="mt-3 text-sm">
-          Rozstrzygnięte w oknie zamówienia — zamówienie nr {doc.proposal.resolved_in_order.order_number ?? `#${doc.proposal.resolved_in_order.order_group_id}`}
-          {doc.proposal.resolved_in_order.resolved_at ? ` (${formatDateTimePl(doc.proposal.resolved_in_order.resolved_at)})` : ""}.
-        </p>
+      {(doc.outcome === "failed" || doc.outcome === "unrecognized_client") && canDismiss(doc) && (
+        // Wpis „Nieudane” wprowadzony ręcznie w oknie zamówienia trzeba dać się
+        // zdjąć z listy — do rundy 2 audytu 25.09.2026 zakładka tylko rosła.
+        // Dokument bez rozpoznanego klienta nie ma czego zastosować, ale też
+        // musi dać się zdjąć z kolejki — do 24.09 wisiał w „Nierozpoznane” na
+        // zawsze (audyt N2). Bez klienta nie ma przypisanego DL, więc odrzuca admin.
+        <div className="flex flex-wrap items-center gap-2 border-t border-border/60 bg-muted/30 px-4 py-2.5">
+          <Button size="sm" variant="quiet" className="ml-auto" onClick={onDismiss} disabled={busy}>
+            <X className="h-3.5 w-3.5" /> Odrzuć
+          </Button>
+        </div>
       )}
     </section>
   );

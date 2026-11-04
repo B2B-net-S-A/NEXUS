@@ -43,6 +43,7 @@ from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.match_score import CandidateJobMatchScore
 from app.models.match_score_invalidation import MatchScoreInvalidation
+from app.services.contract_availability import attach_contract_free
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
     build_job_scoring_context,
@@ -392,6 +393,11 @@ async def bulk_get_or_compute(
     # extra work.
     misses = [c.id for c in candidates if c.id not in cached_by_cid]
     context = await build_job_scoring_context(db, job, misses) if misses else None
+    if misses:
+        # Dostępność z żywej umowy raz na pulę (15.10.2026).
+        await attach_contract_free(
+            db, [c for c in candidates if c.id not in cached_by_cid]
+        )
     for c in candidates:
         row = cached_by_cid.get(c.id)
         if row is not None:
@@ -434,6 +440,20 @@ async def mark_stale_for_candidate(db: AsyncSession, candidate_id: int) -> int:
         .values(stale=True, invalidated_at=func.now())
     )
     await _touch_invalidation_ledger(db, "candidate", [candidate_id])
+    return res.rowcount or 0
+
+
+async def mark_stale_for_candidates(db: AsyncSession, candidate_ids: list[int]) -> int:
+    """Hurtowa wersja :func:`mark_stale_for_candidate` (przeliczenie „Stawki od”)."""
+    ids = sorted({int(cid) for cid in candidate_ids})
+    if not ids:
+        return 0
+    res = await db.execute(
+        update(CandidateJobMatchScore)
+        .where(CandidateJobMatchScore.candidate_id.in_(ids))
+        .values(stale=True, invalidated_at=func.now())
+    )
+    await _touch_invalidation_ledger(db, "candidate", ids)
     return res.rowcount or 0
 
 

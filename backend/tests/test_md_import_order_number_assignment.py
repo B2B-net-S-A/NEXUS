@@ -564,8 +564,14 @@ async def test_overflow_of_a_named_order_is_not_moved_to_its_successor(
 
 
 def _next_month_third() -> date:
+    """3. dzień miesiąca po raporcie, ale nie później niż dziś.
+
+    1 i 2 dnia miesiąca „trzeci" jest jeszcze w przyszłości — zamówienie B nie
+    byłoby wtedy aktywne i testy padały na przełomie miesiąca (01.10.2026).
+    Każda data od 1. dnia bieżącego miesiąca jest PO miesiącu raportu.
+    """
     today = business_today()
-    return date(today.year, today.month, 1) + timedelta(days=2)
+    return min(date(today.year, today.month, 1) + timedelta(days=2), today)
 
 
 async def _two_orders_one_issued_after_the_month(

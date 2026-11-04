@@ -153,7 +153,7 @@ export default function DsKitPreview() {
               headingLevel={2}
               density="compact"
               avatar={<span className="flex size-12 items-center justify-center rounded-full bg-muted text-sm font-semibold text-foreground">JP</span>}
-              title="Janusz Prażmowski"
+              title="Janusz Przykładowy"
               subtitle="Senior DevOps / Cloud Engineer"
               badges={<><Badge variant="success">Aktywny</Badge><MatchScoreBadge score={82} /></>}
               metadata={<span>Warszawa · dostępny od sierpnia</span>}

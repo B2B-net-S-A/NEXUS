@@ -15,14 +15,17 @@ import { MoveHorizontal, ZoomIn, ZoomOut } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { useDocumentFindShortcut } from "@/lib/use-document-find-shortcut";
+import { isSearchableQuery, type DocumentQuery } from "@/lib/document-text-search";
 import {
   DocumentSearchBar,
+  DocumentSearchTerms,
   EMPTY_FIND_RESULT,
   type DocumentFindResult,
   type DocumentTextAvailability,
 } from "./DocumentSearchBar";
 import {
   PdfDocumentViewer,
+  type PdfFitMode,
   type PdfViewState,
   type PdfViewerHandle,
 } from "./PdfDocumentViewer";
@@ -45,8 +48,11 @@ export function SearchablePdfPreview({
   className,
   query: controlledQuery,
   onQueryChange,
+  terms = null,
+  fit,
 }: {
   file: Blob;
+  fit?: PdfFitMode;
   onLoaded?: () => void;
   onError?: () => void;
   findShortcutScope?: "dialog" | "container";
@@ -56,6 +62,11 @@ export function SearchablePdfPreview({
   // przejściu PDF → DOCX, gdzie ten komponent się odmontowuje.
   query?: string;
   onQueryChange?: (query: string) => void;
+  /**
+   * Słowa wymagania („Szukaj w CV”): póki są, lupa szuka ich zamiast frazy
+   * z pola. Właściciel zdejmuje je, gdy użytkownik zmieni pole.
+   */
+  terms?: readonly string[] | null;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -83,9 +94,14 @@ export function SearchablePdfPreview({
     setView(null);
   }, [file]);
 
+  const shownResult = query === debouncedQuery ? result : { ...result, pending: true };
+  const target: DocumentQuery = terms ?? debouncedQuery;
   useEffect(() => {
-    handleRef.current?.search(debouncedQuery);
-  }, [debouncedQuery, file]);
+    // Do pierwszej odpowiedzi pdf.js wynik jest „w toku” — inaczej linia słów
+    // wymagania mignęłaby „nie ma w CV”, zanim PDF się przeszuka.
+    if (isSearchableQuery(target)) setResult((prev) => ({ ...prev, pending: true }));
+    handleRef.current?.search(target);
+  }, [target, file]);
 
   return (
     <div
@@ -97,7 +113,7 @@ export function SearchablePdfPreview({
           query={query}
           onQueryChange={setQuery}
           availability={availability}
-          result={query === debouncedQuery ? result : { ...result, pending: true }}
+          result={shownResult}
           onNext={() => handleRef.current?.step(false)}
           onPrevious={() => handleRef.current?.step(true)}
           inputRef={inputRef}
@@ -106,6 +122,7 @@ export function SearchablePdfPreview({
         />
         {view ? <PdfViewControls view={view} handleRef={handleRef} /> : null}
       </div>
+      <DocumentSearchTerms terms={terms} availability={availability} result={shownResult} />
       <div className="relative min-h-0 flex-1">
         <PdfDocumentViewer
           file={file}
@@ -115,6 +132,7 @@ export function SearchablePdfPreview({
           onTextAvailability={setAvailability}
           onFindResult={setResult}
           onViewState={setView}
+          fit={fit}
         />
       </div>
     </div>

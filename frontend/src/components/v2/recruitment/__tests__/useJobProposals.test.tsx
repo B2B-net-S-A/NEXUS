@@ -12,12 +12,14 @@ const mocks = vi.hoisted(() => ({
   shortlistAdd: vi.fn(),
   inbox: vi.fn(),
   dismiss: vi.fn(),
+  dismissBulk: vi.fn(),
   restore: vi.fn(),
   latestRun: vi.fn(),
   similar: vi.fn(),
   latestSnapshot: vi.fn(),
   regenerate: vi.fn(),
   pipelineScores: vi.fn(),
+  removeFromRecruitment: vi.fn(),
   toast: { showSuccess: vi.fn(), showError: vi.fn(), showToast: vi.fn(), showActionToast: vi.fn() },
   fullSearch: { current: {} as Record<string, unknown> },
 }));
@@ -31,6 +33,7 @@ vi.mock("@/lib/job-proposals-api", async (orig) => ({
   jobProposalsApi: {
     inbox: (...a: unknown[]) => mocks.inbox(...a),
     dismiss: (...a: unknown[]) => mocks.dismiss(...a),
+    dismissBulk: (...a: unknown[]) => mocks.dismissBulk(...a),
     restore: (...a: unknown[]) => mocks.restore(...a),
     latestRun: (...a: unknown[]) => mocks.latestRun(...a),
   },
@@ -40,6 +43,7 @@ vi.mock("@/lib/api", async (orig) => ({
   historicalCandidatesApi: { forJob: (...a: unknown[]) => mocks.similar(...a) },
   proposalsApi: { latest: (...a: unknown[]) => mocks.latestSnapshot(...a), regenerate: (...a: unknown[]) => mocks.regenerate(...a) },
   matchingApi: { pipelineScores: (...a: unknown[]) => mocks.pipelineScores(...a) },
+  candidatesApi: { removeFromRecruitment: (...a: unknown[]) => mocks.removeFromRecruitment(...a) },
 }));
 vi.mock("@/hooks/useFullCandidateSearch", () => ({ useFullCandidateSearch: () => mocks.fullSearch.current }));
 vi.mock("@/components/Toast", () => ({ useToast: () => mocks.toast }));
@@ -49,6 +53,7 @@ vi.mock("@/store/auth", () => ({ useAuthStore: (sel: (s: unknown) => unknown) =>
 import { groupAddsByOrigin, useJobProposals } from "@/components/v2/recruitment/useJobProposals";
 
 const JOB = 42;
+const FEEDBACK = { reason: "too_expensive" as const };
 
 function inboxItem(id: number): ProposalInboxItem {
   return {
@@ -137,6 +142,88 @@ describe("useJobProposals", () => {
     }
   });
 
+  it("osoba spoza listy (sekcja „Ukryci przez »musi mieć«”) idzie jak propozycja tylko z `unlistedSource`", async () => {
+    const { result } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    act(() => result.current.addToJob([777]));
+    act(() => result.current.addToJob([2, 777], { unlistedSource: "proposal_inbox" }));
+    await waitFor(() => expect(mocks.add).toHaveBeenCalledTimes(2));
+    expect(mocks.add).toHaveBeenCalledWith(JOB, { candidate_ids: [2], source: "proposal_inbox" });
+    expect(mocks.add).toHaveBeenCalledWith(JOB, { candidate_ids: [777], source: "proposal_inbox" });
+    expect(mocks.add).not.toHaveBeenCalledWith(JOB, expect.objectContaining({ candidate_ids: [777, 2] }));
+  });
+
+  it("`oneByOne` z osobą spoza listy dodaje po jednej w kolejności wołającego („Oceń z AI”)", async () => {
+    const { result } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    act(() => result.current.addToJob([777, 2, 3], { unlistedSource: "proposal_inbox", oneByOne: true }));
+    await waitFor(() => expect(mocks.add).toHaveBeenCalledTimes(3));
+    expect(mocks.add.mock.calls.map(([, body]) => (body as { candidate_ids: number[] }).candidate_ids)).toEqual([
+      [777],
+      [2],
+      [3],
+    ]);
+  });
+
+  it("dodanie oddaje wynik wołającemu (okno zostawia dodanych z „Cofnij”)", async () => {
+    const { result } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    const onSuccess = vi.fn();
+    const onSettled = vi.fn();
+    act(() => result.current.addToJob([2], {}, { onSuccess, onSettled }));
+    await waitFor(() => expect(onSettled).toHaveBeenCalled());
+    expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({ added: [2] }));
+  });
+
+  it("dwa szybkie dodania: każde dostaje swój wynik (callbacki `mutate` dostaje tylko ostatnie)", async () => {
+    const { result } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    const first = vi.fn();
+    const second = vi.fn();
+    act(() => {
+      result.current.addToJob([2], {}, { onSuccess: first });
+      result.current.addToJob([3], {}, { onSuccess: second });
+    });
+    await waitFor(() => expect(second).toHaveBeenCalled());
+    await waitFor(() => expect(first).toHaveBeenCalledWith(expect.objectContaining({ added: [2] })));
+    expect(second).toHaveBeenCalledWith(expect.objectContaining({ added: [3] }));
+  });
+
+  it("„Cofnij” dodania: usunięcie z rekrutacji, osoba wraca na listę dopiero po odświeżeniu źródeł", async () => {
+    mocks.removeFromRecruitment.mockResolvedValue({ data: {} });
+    const { result, invalidate } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    act(() => result.current.addToJob([2]));
+    await waitFor(() => expect(result.current.rows.map((r) => r.candidateId)).not.toContain(2));
+
+    let undone: boolean | undefined;
+    await act(async () => {
+      undone = await result.current.undoAdd(2);
+    });
+    expect(undone).toBe(true);
+    expect(mocks.removeFromRecruitment).toHaveBeenCalledWith(2, JOB, { quickUndo: true });
+    // Skrzynka znów zwraca osobę (serwer oddał propozycję) — hook jej nie chowa.
+    await waitFor(() => expect(result.current.rows.map((r) => r.candidateId)).toContain(2));
+    const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify((arg as { queryKey: unknown }).queryKey));
+    for (const key of [["kanban", "42"], ["kanban", 42], ["pipeline-scores"], ["job-proposals", 42]]) {
+      expect(keys).toContain(JSON.stringify(key));
+    }
+  });
+
+  it("nieudane „Cofnij” mówi dlaczego i zwraca `false`", async () => {
+    mocks.removeFromRecruitment.mockRejectedValue({
+      response: { status: 409, data: { detail: "Nie można usunąć — hiring manager odrzucił tę osobę." } },
+    });
+    const { result } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    let undone: boolean | undefined;
+    await act(async () => {
+      undone = await result.current.undoAdd(2);
+    });
+    expect(undone).toBe(false);
+    expect(mocks.toast.showError).toHaveBeenCalledWith("Nie można usunąć — hiring manager odrzucił tę osobę.");
+  });
+
   it("konflikt z klientem wraca jako ostrzeżenie w komunikacie, nie jako pominięcie", async () => {
     mocks.add.mockResolvedValue({ added: [2], skipped: [], warnings: [{ candidate_id: 2, reason: "client_nda" }], total_added: 1, total_skipped: 0 });
     const { result } = setup();
@@ -151,9 +238,9 @@ describe("useJobProposals", () => {
     mocks.dismiss.mockReturnValue(new Promise((resolve) => { release = () => resolve({}); }));
     const { result } = setup();
     await waitFor(() => expect(result.current.rows).toHaveLength(4));
-    act(() => result.current.dismiss([2]));
+    act(() => result.current.dismiss([2], FEEDBACK));
     await waitFor(() => expect(result.current.rows.map((r) => r.candidateId).sort()).toEqual([1, 3, 4]));
-    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 2, "new_cv");
+    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 2, "new_cv", FEEDBACK);
     await act(async () => release());
   });
 
@@ -162,10 +249,10 @@ describe("useJobProposals", () => {
     mocks.restore.mockResolvedValue({ restored: true });
     const { result } = setup();
     await waitFor(() => expect(result.current.rows).toHaveLength(4));
-    act(() => result.current.dismiss([1, 4]));
+    act(() => result.current.dismiss([1, 4], FEEDBACK));
     await waitFor(() => expect(mocks.toast.showActionToast).toHaveBeenCalled());
-    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 1, "full_base");
-    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 4, "similar_projects");
+    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 1, "full_base", FEEDBACK);
+    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 4, "similar_projects", FEEDBACK);
     const [, options] = mocks.toast.showActionToast.mock.calls[0];
     expect(options.actionLabel).toBe("Cofnij");
     await act(async () => { await options.onAction(); });
@@ -174,11 +261,43 @@ describe("useJobProposals", () => {
     await waitFor(() => expect(result.current.rows.map((r) => r.candidateId)).toContain(1));
   });
 
+  it("Pomiń kilku osób ze skrzynki idzie JEDNYM żądaniem zbiorczym z jednym powodem", async () => {
+    mocks.dismissBulk.mockResolvedValue({ job_id: JOB, dismissed: [2, 3], skipped: [] });
+    const { result, invalidate } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    act(() => result.current.dismiss([2, 3], FEEDBACK));
+    await waitFor(() => expect(mocks.toast.showActionToast).toHaveBeenCalled());
+    expect(mocks.dismissBulk).toHaveBeenCalledTimes(1);
+    expect(mocks.dismissBulk).toHaveBeenCalledWith(JOB, [2, 3], FEEDBACK);
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+    expect(mocks.toast.showActionToast.mock.calls[0][0]).toBe(
+      "Pominięto 2 osoby. Wrócą tylko z nową wersją CV.",
+    );
+    expect(result.current.rows.map((r) => r.candidateId).sort()).toEqual([1, 4]);
+    const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify((arg as { queryKey: unknown }).queryKey));
+    expect(keys).toContain(JSON.stringify(["job-proposals", 42]));
+  });
+
+  it("Pomiń mieszanej grupy: skrzynka zbiorczo, osoby spoza skrzynki pojedynczo ze źródłem; „bez zmian” w komunikacie", async () => {
+    mocks.dismissBulk.mockResolvedValue({ job_id: JOB, dismissed: [2], skipped: [3] });
+    mocks.dismiss.mockResolvedValue({ dismissed: true });
+    const { result } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    act(() => result.current.dismiss([2, 3, 1], FEEDBACK));
+    await waitFor(() => expect(mocks.toast.showActionToast).toHaveBeenCalled());
+    expect(mocks.dismissBulk).toHaveBeenCalledWith(JOB, [2, 3], FEEDBACK);
+    expect(mocks.dismiss).toHaveBeenCalledTimes(1);
+    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 1, "full_base", FEEDBACK);
+    expect(mocks.toast.showActionToast.mock.calls[0][0]).toBe(
+      "Pominięto 2 osoby · 1 bez zmian. Wrócą tylko z nową wersją CV.",
+    );
+  });
+
   it("409 przy Pomiń (osoba właśnie trafiła do rekrutacji) nie jest błędem", async () => {
     mocks.dismiss.mockRejectedValue({ response: { status: 409, data: { detail: "Ta osoba jest już w tej rekrutacji" } } });
     const { result } = setup();
     await waitFor(() => expect(result.current.rows).toHaveLength(4));
-    act(() => result.current.dismiss([2]));
+    act(() => result.current.dismiss([2], FEEDBACK));
     await waitFor(() => expect(mocks.toast.showSuccess).toHaveBeenCalled());
     expect(mocks.toast.showError).not.toHaveBeenCalled();
     expect(mocks.toast.showActionToast).not.toHaveBeenCalled();
@@ -189,7 +308,7 @@ describe("useJobProposals", () => {
     // Po błędzie skrzynka jest czytana ponownie — osoba nadal w niej jest.
     const { result } = setup();
     await waitFor(() => expect(result.current.rows).toHaveLength(4));
-    act(() => result.current.dismiss([2]));
+    act(() => result.current.dismiss([2], FEEDBACK));
     await waitFor(() => expect(mocks.toast.showError).toHaveBeenCalledWith("Brak członkostwa w zespole rekrutacji"));
     await waitFor(() => expect(result.current.rows.map((r) => r.candidateId)).toContain(2));
   });
@@ -256,6 +375,16 @@ describe("groupAddsByOrigin", () => {
       { source: "recommendation", runId: null, ids: [4] },
       { source: "proposal_inbox", runId: "auto-9", ids: [5] },
       { source: "proposal_inbox", runId: null, ids: [6] },
+    ]);
+  });
+
+  it("wiersz adoptowanego przeglądu nocnego idzie jako skrzynka propozycji (R8-N11-7)", () => {
+    const entry = (id: number, runId: string | null, origins: string[]) => ({ row: { candidateId: id, runId }, detail: { origins } }) as never;
+    expect(
+      groupAddsByOrigin([entry(1, "auto-9", ["run"]), entry(2, "manual-1", ["run"])], "auto-9"),
+    ).toEqual([
+      { source: "proposal_inbox", runId: "auto-9", ids: [1] },
+      { source: "full_search", runId: "manual-1", ids: [2] },
     ]);
   });
 });

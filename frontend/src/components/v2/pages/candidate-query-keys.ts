@@ -40,19 +40,26 @@ export const candidateQueryKeys = {
   detail: (id: number | string) => ["candidate", candidateId(id)] as const,
   quickView: (id: number | string) =>
     ["candidate-quick-view", candidateId(id)] as const,
+  // „Co już wiemy” w panelu rekrutacji pyta o INNE rekrutacje osoby (14.10.2026)
+  // — pod `quickView`, więc łapie je każde unieważnienie podglądu osoby.
+  quickViewExcluding: (id: number | string, excludeJobId: number) =>
+    ["candidate-quick-view", candidateId(id), { excludeJobId }] as const,
   risk: (id: number | string) => ["candidate-risk", candidateId(id)] as const,
   history: (id: number | string, viewerScope: string) =>
     ["candidate-history", candidateId(id), { viewerScope }] as const,
   historyRoot: (id: number | string) =>
     ["candidate-history", candidateId(id)] as const,
+  // Wyniki rekrutacji osoby dla panelu w rekrutacji — pod `historyRoot`, więc
+  // łapie je każde unieważnienie historii; osobny klucz, bo profil trzyma
+  // historię z `gcTime: 0` i odświeża ją przy każdym montowaniu.
+  recruitmentOutcomes: (id: number | string, viewerScope: string) =>
+    ["candidate-history", candidateId(id), "outcomes", { viewerScope }] as const,
   timeline: (id: number | string, limit: number) =>
     ["candidate-timeline", candidateId(id), { limit }] as const,
   timelineRoot: (id: number | string) =>
     ["candidate-timeline", candidateId(id)] as const,
   notes: (id: number | string) =>
     ["candidate-notes", candidateId(id)] as const,
-  calls: (id: number | string) =>
-    ["candidate-calls", candidateId(id)] as const,
   aiProfile: (id: number | string) =>
     ["candidate-ai-profile", candidateId(id)] as const,
   activitySummary: (id: number | string, viewerScope: string) =>
@@ -65,6 +72,9 @@ export const candidateQueryKeys = {
     ["candidate-languages", candidateId(id)] as const,
   profileRate: (id: number | string) =>
     ["candidate-profile-rate", candidateId(id)] as const,
+  // „Stawka od” i historia stawek (0414).
+  rateOverview: (id: number | string) =>
+    ["candidate-rate-overview", candidateId(id)] as const,
   notesFacts: (id: number | string) =>
     ["candidate-notes-facts", candidateId(id)] as const,
   recentRecruitments: (
@@ -77,6 +87,14 @@ export const candidateQueryKeys = {
       candidateId(id),
       { limit, viewerScope },
     ] as const,
+  screeningAnswers: (id: number | string, viewerScope: string) =>
+    ["candidate-screening-answers", candidateId(id), { viewerScope }] as const,
+  screeningAnswersRoot: (id: number | string) =>
+    ["candidate-screening-answers", candidateId(id)] as const,
+  cardOverview: (id: number | string, viewerScope: string) =>
+    ["candidate-card-overview", candidateId(id), { viewerScope }] as const,
+  cardOverviewRoot: (id: number | string) =>
+    ["candidate-card-overview", candidateId(id)] as const,
   documents: (id: number | string) =>
     ["candidate-documents", candidateId(id)] as const,
   cvDocuments: (id: number | string) =>

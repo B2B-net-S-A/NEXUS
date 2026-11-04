@@ -413,6 +413,45 @@ describe("buildYoYTable — wskaźniki i liczności zbioru", () => {
     expect(table.rows[0].values).toEqual([4, 6]);
   });
 
+  it("udział top klienta za rok bierze się z `yearly`, nie z Σ liderów miesięcy", () => {
+    // Runda 10 (R10-N2-2): A w styczniu, B w lutym — lider miesiąca ma zawsze
+    // 100%, Σ liderów / Σ placementów też 100%, a każdy klient ma połowę roku.
+    const m = metric({
+      key: "top_client_share_pct",
+      unit: "pct",
+      aggregate: "ratio",
+      lower_is_better: true,
+      components: {
+        numerator: "top_client_placements",
+        denominator: "placements",
+      },
+      yearly: { "2024": 50, "2025": 80 },
+      series: {
+        "2024": [100, 100, ...Array(10).fill(null)],
+        "2025": [80, ...Array(11).fill(null)],
+      },
+    });
+
+    const table = buildYoYTable(m, YEARS, MONTHS, null, {
+      top_client_placements: {
+        "2024": [1, 1, ...Array(10).fill(0)],
+        "2025": [4, ...Array(11).fill(0)],
+      },
+      placements: {
+        "2024": [1, 1, ...Array(10).fill(0)],
+        "2025": [5, ...Array(11).fill(0)],
+      },
+    });
+
+    expect(table.summary.values).toEqual([50, 80]);
+    // Koncentracja wzrosła z 50% do 80% — przy `lower_is_better` to „Gorzej”,
+    // a Σ liderów (100% → 80%) dawało fałszywe „Lepiej”.
+    expect(table.summary.deltas[0].value).toBe(30);
+    expect(table.summary.deltas[0].verdict).toBe("worse");
+    // Rok od serwera nie ma wariantu YTD — wiersz nie może udawać „Δ = 1 mies.”.
+    expect(table.summary.ytd).toBe(false);
+  });
+
   it("brak serii składowych nie wywraca tabeli — wskaźnik roczny to „—”", () => {
     const m = metric({
       key: "hit_ratio_pct",

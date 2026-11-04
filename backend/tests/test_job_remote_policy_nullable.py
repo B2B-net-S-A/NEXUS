@@ -36,20 +36,37 @@ async def _seed_client_id() -> int:
 
 
 async def _create_job(app_client: AsyncClient, headers: dict, **overrides) -> dict:
+    """Rekrutacja z wierszem w bazie, odczytana przez API (łańcuch baza → ORM
+    → Pydantic → JSON).
+
+    Od 04.10.2026 (rekrutacja bez szkiców) ``POST /api/jobs`` nie założy
+    rekrutacji bez trybu pracy — bramka przekazania go wymaga. Rekrutację
+    z ``remote_policy = NULL`` (stare wiersze, import) zakładamy więc wprost
+    w bazie, jako szkic: ochrona rekrutacji w pracy przed nowym brakiem nie
+    jest przedmiotem tych testów.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job, JobStatus, RemotePolicy
+
     client_id = overrides.pop("client_id", None) or await _seed_client_id()
-    payload = {
-        "title": f"pytest-remote-policy-{uuid.uuid4().hex[:6]}",
-        "recruitment_type": "body_leasing",
-        "work_mode": "fulltime",
-        "client_id": client_id,
-        **overrides,
-    }
-    resp = await app_client.post("/api/jobs", json=payload, headers=headers)
-    assert resp.status_code == 201, resp.text
+    if overrides.get("remote_policy") is not None:
+        overrides["remote_policy"] = RemotePolicy(overrides["remote_policy"])
+    async with AsyncSessionLocal() as db:
+        job = Job(
+            title=f"pytest-remote-policy-{uuid.uuid4().hex[:6]}",
+            status=JobStatus.draft,
+            client_id=client_id,
+            **overrides,
+        )
+        db.add(job)
+        await db.commit()
+        job_id = job.id
+    resp = await app_client.get(f"/api/jobs/{job_id}", headers=headers)
+    assert resp.status_code == 200, resp.text
     return resp.json()
 
 
-async def test_post_without_remote_policy_returns_null(
+async def test_job_without_remote_policy_reads_as_null(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     body = await _create_job(app_client, app_auth_headers)

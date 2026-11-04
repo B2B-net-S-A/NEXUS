@@ -15,10 +15,15 @@ import {
   EmptyListView,
   ErrorView,
   ForJobView,
+  FromLinksView,
   PeopleListView,
   type RowActions,
 } from "@/components/v2/my-people/MyPeopleViews";
 import { MyPeopleBuddyView } from "@/components/v2/my-people/MyPeopleLauncher";
+import {
+  AddToRecruitmentOutcome,
+  type ClosedRow,
+} from "@/components/v2/recruitment/AddToRecruitmentDialog";
 
 const CATEGORIES = [
   { id: 1, name_pl: "Infrastruktura i operacje" },
@@ -57,7 +62,24 @@ const ROWS: MyPeopleRow[] = [
   person({ candidate_id: 3, full_name: "Celina Fikcyjna", category_id: 1, last_sent_client_name: "Klient Beta", days_since_last_send: 91, expected_rate_hourly: 175 }),
   person({ candidate_id: 4, full_name: "Dawid Wzorcowy", category_id: 3, source: "pinned", last_sent_at: null, furthest_stage: null, days_since_last_send: null, sent_count: 0, last_sent_client_name: null }),
   person({ candidate_id: 5, full_name: "Ewa Bezkategorii", category_id: null, days_since_last_send: 44 }),
-  person({ candidate_id: 6, full_name: "Filip Pracujący", working: true }),
+  person({
+    candidate_id: 6,
+    full_name: "Filip Pracujący",
+    working: true,
+    employment_marker: {
+      phase: "working",
+      source: "contract",
+      clients: [
+        {
+          client_id: 31,
+          client_name: "Bank Przykładowy",
+          contract_id: 77,
+          phase: "working",
+          order_end_date: "2026-12-31",
+        },
+      ],
+    },
+  }),
   person({ candidate_id: 7, full_name: "Grażyna Uśpiona", snoozed: true, snooze_reason: "found_job" }),
 ];
 
@@ -88,6 +110,25 @@ const FOR_JOB: ForJobResponse = {
     { candidate_id: 5, full_name: "Ewa Bezkategorii", category_id: null, score: null, measurement: "missing_vector", eligibility: null, sent_to_client_at: null, last_sent_client_name: null, days_since_last_send: 44, expected_rate_hourly: null, active_processes: 0 },
   ],
 };
+
+// Wynik „Dodaj do rekrutacji”, gdy osoba ma w rekrutacji zamkniętą kartę.
+function closedRow(overrides: Partial<ClosedRow> & Pick<ClosedRow, "candidate_id">): ClosedRow {
+  return {
+    reason: "closed_in_job",
+    reason_label: "Zamknięta karta w tej rekrutacji: Odrzucony 08.10.2026 (Bartek Testowy)",
+    closed: { candidate_name: "Anna Przykładowa", state_version: 2, restore_stage: "new", restore_stage_def_id: 1 },
+    ...overrides,
+  };
+}
+
+const CLOSED_ROWS: ClosedRow[] = [
+  closedRow({ candidate_id: 1 }),
+  closedRow({
+    candidate_id: 3,
+    reason_label: "Zamknięta karta w tej rekrutacji: Wycofany 30.09.2026",
+    closed: { candidate_name: "Celina Fikcyjna", state_version: 4, restore_stage: "new", restore_stage_def_id: 1 },
+  }),
+];
 
 const noop = () => undefined;
 const ACTIONS: RowActions = { onAdd: noop, onSnooze: noop, onUnsnooze: noop };
@@ -121,6 +162,48 @@ export default function MyPeoplePreviewPage() {
             actions={ACTIONS}
           />
         </Frame>
+        <Frame title="Z linków">
+          <FromLinksView
+            onAdd={noop}
+            people={[
+              {
+                candidate_id: 9101,
+                full_name: "Celina Fikcyjna",
+                applied_at: "2026-10-28T09:12:00Z",
+                was_duplicate: false,
+                kind: "job",
+                slug: "senior-java-7kq2",
+                job_id: 101,
+                job_title: "Senior Java Developer",
+                current_stage: "new",
+                current_job_id: 101,
+                current_job_title: "Senior Java Developer",
+                screening_status: null,
+                screening_outcome: null,
+                in_my_people: false,
+              },
+              {
+                candidate_id: 9102,
+                full_name: "Damian Testowy",
+                applied_at: "2026-10-21T14:40:00Z",
+                was_duplicate: true,
+                kind: "recruiter",
+                slug: "marta-n",
+                job_id: null,
+                job_title: null,
+                current_stage: null,
+                current_job_id: null,
+                current_job_title: null,
+                screening_status: null,
+                screening_outcome: null,
+                in_my_people: true,
+              },
+            ]}
+          />
+        </Frame>
+        <Frame title="Z linków — pusto">
+          <FromLinksView people={[]} />
+        </Frame>
         <Frame title="Do tej rekrutacji">
           <ForJobView data={FOR_JOB} actions={{ onAdd: noop }} />
         </Frame>
@@ -128,6 +211,36 @@ export default function MyPeoplePreviewPage() {
           <ForJobView
             data={{ ...FOR_JOB, degraded: true, rows: FOR_JOB.rows.map((r) => ({ ...r, score: null, measurement: "unavailable", eligibility: null })) }}
             actions={{ onAdd: noop }}
+          />
+        </Frame>
+        <Frame title="Dodaj do rekrutacji — zamknięta karta">
+          <AddToRecruitmentOutcome
+            headline="Nikogo nie dodano do „Senior Java Developer”."
+            closedRows={CLOSED_ROWS.slice(0, 1)}
+            otherText={null}
+            restoredIds={new Set()}
+            restoringId={null}
+            onRestore={noop}
+          />
+        </Frame>
+        <Frame title="Dodaj do rekrutacji — jedna przywrócona, reszta pominięta">
+          <AddToRecruitmentOutcome
+            headline="Dodano 2 osoby do „Senior Java Developer”."
+            closedRows={CLOSED_ROWS}
+            otherText="Pominięto: 2× już w rekrutacji."
+            restoredIds={new Set([1])}
+            restoringId={null}
+            onRestore={noop}
+          />
+        </Frame>
+        <Frame title="Dodaj do rekrutacji — inny powód">
+          <AddToRecruitmentOutcome
+            headline="Nikogo nie dodano do „Senior Java Developer”."
+            closedRows={[]}
+            otherText="Dawid Wzorcowy odrzucił(a) tego kandydata po rozmowie 01.10.2026 — powód: „Za wysoka stawka”. To ten sam hiring manager co w tej rekrutacji."
+            restoredIds={new Set()}
+            restoringId={null}
+            onRestore={noop}
           />
         </Frame>
         <Frame title="Pusta lista">

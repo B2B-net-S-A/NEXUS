@@ -49,7 +49,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.scheduling import is_business_day
-from app.models.calendar_event import CalendarEvent, EventStatus, EventType
+from app.models.calendar_event import (
+    BOOKED_CALL_LOCATION,
+    CalendarEvent,
+    EventStatus,
+    EventType,
+)
 from app.models.call import Call, CallStatus
 from app.models.candidate import Candidate
 from app.models.candidate_followup import CONTACT_OUTCOMES, CandidateFollowup
@@ -71,8 +76,14 @@ _OPEN_SLOT_STATUSES = ("awaiting_recruiter", "awaiting_dl")
 # follow-upu (typ „call”). Zwykła notatka (dodanie do innej rekrutacji
 # z komentarzem, uwaga rekrutera) nie ukrywa przypomnienia na 14 dni.
 CONTACT_NOTE_TYPES = (NoteType.call, NoteType.meeting, NoteType.email)
-# Nieudane połączenia nie są kontaktem.
-_FAILED_CALLS = (CallStatus.missed, CallStatus.failed, CallStatus.initiated)
+# Nieudane połączenia nie są kontaktem. Poczta głosowa też nie — nikt z
+# kandydatem nie rozmawiał (audyt 25.09.2026, runda 4).
+_FAILED_CALLS = (
+    CallStatus.missed,
+    CallStatus.failed,
+    CallStatus.initiated,
+    CallStatus.voicemail,
+)
 # Admin i Head of Recruitment widzą osoby, dla których nie ma kto zadzwonić.
 _OVERSIGHT_ROLES = (UserRole.admin, UserRole.head_of_recruitment)
 
@@ -310,11 +321,16 @@ latest AS (
 SELECT l.candidate_id, l.job_id, l.stage, l.stage_def_id, l.moved_at, l.sent_at,
        COALESCE(j.pipeline_template_id, :default_template_id) AS template_id,
        j.title, j.client_id, cl.name AS client_name, j.recruiter_id,
-       (SELECT v.moved_by FROM candidate_stages v
-         WHERE v.candidate_id = l.candidate_id AND v.job_id = l.job_id
-           AND v.stage = 'verified' AND v.verification_status = 'active'
-           AND v.moved_by IS NOT NULL
-         ORDER BY v.moved_at, v.id LIMIT 1) AS verifier_id,
+       -- „Prowadzi” (25.10.2026): przypisanie admina/HoR przed weryfikującym.
+       COALESCE(
+           (SELECT o.owner_user_id FROM candidate_job_owners o
+             WHERE o.candidate_id = l.candidate_id AND o.job_id = l.job_id),
+           (SELECT v.moved_by FROM candidate_stages v
+             WHERE v.candidate_id = l.candidate_id AND v.job_id = l.job_id
+               AND v.stage = 'verified' AND v.verification_status = 'active'
+               AND v.moved_by IS NOT NULL
+             ORDER BY v.moved_at, v.id LIMIT 1)
+       ) AS verifier_id,
        (SELECT s.moved_by FROM candidate_stages s
          WHERE s.candidate_id = l.candidate_id AND s.job_id = l.job_id
            AND s.stage = 'cv_sent' AND s.moved_by IS NOT NULL
@@ -389,6 +405,46 @@ async def _waiting_processes(
         return {}
 
     cand_ids = sorted({r.candidate_id for r, _, _ in pairs})
+    # Runda 8 (R8-N7-1): właściciel procesu = pierwsza AKTYWNA osoba z łańcucha
+    # weryfikator → wysyłający CV → prowadzący. Wyłączone konto weryfikatora
+    # dawało „nikt nie dzwoni” i sygnał „rezygnuje” wysyłany w próżnię, choć
+    # wysyłający albo prowadzący pracują dalej.
+    chain_ids = {
+        uid
+        for r, _, _ in pairs
+        for uid in (r.verifier_id, r.sender_id, r.recruiter_id)
+        if uid is not None
+    }
+    active_ids = (
+        {
+            uid
+            for (uid,) in (
+                await db.execute(
+                    select(User.id).where(
+                        User.id.in_(sorted(chain_ids)), User.is_active.is_(True)
+                    )
+                )
+            ).all()
+        }
+        if chain_ids
+        else set()
+    )
+
+    # Odejście z firmy (28.10.2026): parę osoby z wyłączonym kontem domyka
+    # Delivery Lead rekrutacji (``departure_care``) — telefon idzie do niego.
+    from app.services.departure_care import caretaker_ids  # noqa: PLC0415
+
+    caretakers = await caretaker_ids(
+        db, [(r.candidate_id, r.job_id) for r, _, _ in pairs]
+    )
+
+    def _owner(r) -> Optional[int]:
+        caretaker = caretakers.get((r.candidate_id, r.job_id))
+        if caretaker is not None:
+            return caretaker
+        chain = [u for u in (r.verifier_id, r.sender_id, r.recruiter_id) if u]
+        return next((u for u in chain if u in active_ids), chain[0] if chain else None)
+
     events = (
         await db.execute(
             select(
@@ -453,7 +509,7 @@ async def _waiting_processes(
                 stage_name=name,
                 sent_at=r.sent_at,
                 silent_since=max(s for s in signals if s is not None),
-                owner_id=r.verifier_id or r.sender_id or r.recruiter_id,
+                owner_id=_owner(r),
             )
         )
     return out
@@ -529,6 +585,12 @@ async def _last_contacts(
                 CalendarEvent.event_type != EventType.client_interview,
                 CalendarEvent.event_type != EventType.deadline,
                 CalendarEvent.status != EventStatus.cancelled,
+                # Umówiony telefon liczy się dopiero po zamknięciu z wynikiem:
+                # sam termin, który minął, nie znaczy, że ktoś zadzwonił.
+                or_(
+                    CalendarEvent.status != EventStatus.scheduled,
+                    CalendarEvent.location.is_distinct_from(BOOKED_CALL_LOCATION),
+                ),
                 CalendarEvent.start_time <= now,
             )
             .distinct(CalendarEvent.candidate_id)
@@ -709,19 +771,49 @@ class DigestCounts:
 
 
 def digest_counts(
-    followups: dict[int, Followup], *, today: date
+    followups: dict[int, Followup],
+    *,
+    today: date,
+    oversight_ids: Iterable[int] = (),
 ) -> dict[int, DigestCounts]:
-    """Poranny skrót: ile telefonów ma dziś każda osoba (i ile zaległych)."""
+    """Poranny skrót: ile telefonów ma dziś każda osoba (i ile zaległych).
 
+    Follow-up bez dzwoniącego liczy się adminom i Head of Recruitment
+    (``oversight_ids``) — ta sama reguła co panel (``_sees_unassigned``).
+    Do 25.09.2026 skrót go pomijał, a panel pokazywał (audyt, runda 4).
+    """
+
+    oversight = sorted(set(oversight_ids))
     out: dict[int, DigestCounts] = {}
     for f in followups.values():
-        if f.caller_id is None or f.due_on > today:
+        if f.due_on > today:
             continue
-        line = out.setdefault(f.caller_id, DigestCounts())
-        line.due += 1
-        if f.due_on < today:
-            line.overdue += 1
+        recipients = [f.caller_id] if f.caller_id is not None else oversight
+        for uid in recipients:
+            line = out.setdefault(uid, DigestCounts())
+            line.due += 1
+            if f.due_on < today:
+                line.overdue += 1
     return out
+
+
+async def oversight_user_ids(db: AsyncSession) -> list[int]:
+    """Aktywni admini i Head of Recruitment — odbiorcy follow-upów bez
+    dzwoniącego w porannym skrócie (lustro ``_sees_unassigned``)."""
+
+    return list(
+        (
+            await db.scalars(
+                select(User.id).where(
+                    User.is_active.is_(True),
+                    or_(
+                        User.role.in_(_OVERSIGHT_ROLES),
+                        *(User.roles.contains([r.value]) for r in _OVERSIGHT_ROLES),
+                    ),
+                )
+            )
+        ).all()
+    )
 
 
 __all__ = [
@@ -739,6 +831,7 @@ __all__ = [
     "load_followups",
     "local_date",
     "others_for_user",
+    "oversight_user_ids",
     "today_local",
     "user_names",
 ]

@@ -132,7 +132,7 @@ export function HandoverDialog({
                         <span className="font-normal text-muted-foreground">#{job.job_id}</span>
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        Prowadzi: {job.recruiter_name ?? "nieprzypisany"}
+                        Rekruter: {job.recruiter_name ?? "bez rekrutera"}
                         {job.matched_skills.length
                           ? ` · pokrywa must-have: ${job.matched_skills.join(", ")}`
                           : ""}

@@ -36,7 +36,11 @@ router = APIRouter()
 def _period_start(period: str) -> datetime:
     now = datetime.now(timezone.utc)
     if period == "today":
-        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+        # „Dziś” = doba w kalendarzu firmy, nie od północy UTC (runda 2 audytu
+        # 25.09.2026 — między 00:00 a 02:00 czasu polskiego liczyło wczoraj).
+        from app.core.scheduling import local_day_bounds  # noqa: PLC0415
+
+        return local_day_bounds(now).start_utc
     elif period == "week":
         return now - timedelta(days=7)
     elif period == "month":
@@ -149,6 +153,9 @@ _ACTION_LABELS_PL: dict = {
     "imported": "zaimportował(a)",
     "stage_changed": "zmienił(a) etap",
     "cv_uploaded": "wgrał(a) CV",
+    "cv_file_downloaded": "pobrał(a) plik CV",
+    "cv_selection_ai": "poprosił(a) AI o propozycję do fragmentu CV",
+    "cv_command_ai": "poprosił(a) AI o plan zmian w CV",
     "hired": "zatrudnił(a)",
     "candidate_added": "dodał(a) kandydata",
     "screening_done": "przeprowadził(a) screening",

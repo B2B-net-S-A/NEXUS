@@ -1,0 +1,17 @@
+{
+  "url": "https://www.linkedin.com/talent/profile/AEMAAFIKCJA",
+  "heading": { "text": "Piotr Zmyślony", "level": 1 },
+  "top": { "lines": [ "Piotr Zmyślony", "· 2nd", "DevOps Engineer at Fikcyjna Chmura", "Katowice, Śląskie, Poland", "Save in Recruiter", "Message" ] },
+  "sections": [
+    { "heading": "Experience", "itemsBy": "li", "lines": [], "items": [
+      [ "DevOps Engineer", "Fikcyjna Chmura · Full-time", "Feb 2022 - Present · 4 yrs 9 mos" ],
+      [ "SysAdmin", "Wymyślony Hosting", "Jun 2018 - Jan 2022 · 3 yrs 8 mos" ]
+    ] }
+  ],
+  "listItems": [],
+  "links": [
+    { "href": "https://www.linkedin.com/in/rekruterka-nexusa/", "text": "Mój profil", "label": "", "foreign": true, "inTop": false },
+    { "href": "https://www.linkedin.com/in/piotr-zmyslony-9/", "text": "Public profile", "label": "", "foreign": false, "inTop": true },
+    { "href": "https://www.linkedin.com/in/ktos-podobny/", "text": "Ktoś Podobny", "label": "", "foreign": false, "inTop": false }
+  ]
+}

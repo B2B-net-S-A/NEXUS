@@ -11,15 +11,34 @@ klientom OAuth i jakiego zasobu dotyczą:
 
 * klucz mapy = pełny szablon trasy (z prefiksami ``include_router``),
 * wartość = zasoby, z których KAŻDY wystarcza (``proposals/bulk`` przyjmuje
-  ``candidate:write`` albo ``job:write`` — scrapery mają oba),
+  ``candidate:write`` albo ``job:write`` — scrapery mają oba). Wartość ma
+  jedną z dwóch postaci:
+
+  - krotka zasobów — trasa wystawiona dla DOWOLNEJ metody (tak działały
+    wszystkie wpisy sprzed 14.10.2026 i tak zostają),
+  - słownik ``{METODA: zasoby}`` — wystawione są WYŁĄCZNIE wymienione metody,
+    inna metoda na tym samym szablonie = ``route_not_exposed_to_clients``,
+
 * tryb odczyt/zapis wyznacza ``is_read_only_http_request`` — ta sama
   klasyfikacja co sekcje i podgląd, więc ``check-duplicates`` (POST tylko do
   odczytu) przechodzi z ``candidate:read``,
 * ``X:write`` spełnia ``X:read``.
 
-Trasa spoza mapy = ``route_not_exposed_to_clients``. Egzekwowanie włącza
-``OAUTH_ROUTE_SCOPES_ENFORCE``; do tego czasu decyzja jest tylko logowana
-(tryb cienia), bo kodu scraperów nie ma w repo i mapę uzupełniamy z logów.
+Dlaczego metody (14.10.2026): zamykamy tryb cienia przed włączeniem
+``OAUTH_ROUTE_SCOPES_ENFORCE``. Audyt 29.09 (runda 15, D2-5) pokazał, że
+klient „Scrapery pracuj.pl + JJIT” woła pięć tras spoza mapy — m.in.
+``GET``/``PATCH /api/candidates/{candidate_id}`` i ``POST /api/notes``. Mapa
+po samym szablonie otworzyłaby przy okazji ``DELETE`` kandydata dla
+``candidate:write`` i ``GET /api/notes`` (megabajty notatek) dla
+``candidate:read``, dlatego nowe wpisy wymieniają metody wprost. Nowe
+automatyzacje firmy nie idą przez OAuth, tylko przez ``/api/integrations/v1``
+na kluczach kont serwisowych — mapa obsługuje istniejących klientów, nie
+rośnie pod nowe integracje.
+
+Trasa (albo metoda) spoza mapy = ``route_not_exposed_to_clients``.
+Egzekwowanie włącza ``OAUTH_ROUTE_SCOPES_ENFORCE``; do tego czasu decyzja jest
+tylko logowana (tryb cienia), bo kodu scraperów nie ma w repo i mapę
+uzupełnialiśmy z logów.
 
 Uwaga na FastAPI >= 0.139: ``request.scope["route"].path`` NIE zawiera
 prefiksu z ``include_router`` (siedzi w ``include_context``), więc pełny szablon
@@ -29,7 +48,7 @@ składamy z drzewa tras aplikacji — tak samo jak ``tests/_route_introspection`
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Iterator, Optional
+from typing import Any, Iterable, Iterator, Mapping, Optional, Union
 
 from fastapi.routing import APIRoute
 
@@ -38,9 +57,13 @@ from app.services.request_semantics import is_read_only_http_request
 ROUTE_NOT_EXPOSED = "route_not_exposed_to_clients"
 INSUFFICIENT_SCOPE = "insufficient_scope"
 
-#: Szablon trasy → zasoby, z których każdy wystarcza. Dopisując trasę, sprawdź,
-#: że szablon istnieje (pilnuje tego test kontraktowy).
-OAUTH_ROUTE_RESOURCES: dict[str, tuple[str, ...]] = {
+#: Krotka = dowolna metoda; słownik = tylko wymienione metody (wielkimi literami).
+RouteResources = Union[tuple[str, ...], Mapping[str, tuple[str, ...]]]
+
+#: Szablon trasy → zasoby, z których każdy wystarcza. Dopisując trasę, podaj
+#: metody słownikiem i sprawdź, że szablon i metody istnieją (pilnują tego testy
+#: kontraktowe w ``test_oauth_client_acting_user.py``).
+OAUTH_ROUTE_RESOURCES: dict[str, RouteResources] = {
     # Runy integracji (scrapery pracuj.pl / JJIT, migracja 0314).
     "/api/integrations/runs": ("candidate",),
     "/api/integrations/runs/{run_id}": ("candidate",),
@@ -57,6 +80,17 @@ OAUTH_ROUTE_RESOURCES: dict[str, tuple[str, ...]] = {
     "/api/candidates/{candidate_id}/cv": ("candidate",),
     "/api/candidates/{candidate_id}/sources": ("candidate",),
     "/api/candidates/{candidate_id}/recommendations": ("candidate",),
+    # 14.10.2026 (audyt 29.09, D2-5): pozostałe trasy scraperów, z metodami
+    # wprost — ``DELETE`` kandydata i ``GET /api/notes`` zostają zamknięte.
+    "/api/candidates/{candidate_id}": {
+        "GET": ("candidate",),
+        "PATCH": ("candidate",),
+    },
+    "/api/candidates/{candidate_id}/profile-rate": {
+        "GET": ("candidate",),
+        "PATCH": ("candidate",),
+    },
+    "/api/notes": {"POST": ("candidate",)},
 }
 
 
@@ -130,13 +164,24 @@ def _satisfies(granted: Iterable[str], resource: str, mode: str) -> bool:
     return mode == "read" and f"{resource}:read" in granted_set
 
 
+def route_resources(template: Optional[str], method: str) -> tuple[str, ...]:
+    """Zasoby wystawione dla pary (metoda, szablon); pusta krotka = zamknięte."""
+
+    entry = OAUTH_ROUTE_RESOURCES.get(template or "")
+    if entry is None:
+        return ()
+    if isinstance(entry, tuple):
+        return entry
+    return entry.get(method.upper(), ())
+
+
 def decide(
     *, method: str, path: str, template: Optional[str], scopes: Iterable[str]
 ) -> RouteScopeDecision:
     """Czy zakres klienta obejmuje tę trasę? Czysta funkcja, bez I/O."""
 
     mode = "read" if is_read_only_http_request(method, path) else "write"
-    resources = OAUTH_ROUTE_RESOURCES.get(template or "")
+    resources = route_resources(template, method)
     if not resources:
         return RouteScopeDecision(
             allowed=False,

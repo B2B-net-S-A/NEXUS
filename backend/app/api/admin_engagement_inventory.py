@@ -324,25 +324,6 @@ _CHECKS: list[tuple[str, str, str, str]] = [
         """,
     ),
     (
-        "orphan_active_signature_link",
-        "P2",
-        "Aktywny (nieużyty, nieodwołany, nieprzeterminowany) link podpisu, "
-        "którego DocumentSignature jest już terminalny — martwy link wciąż "
-        "podpisywalny (P0.2). Sample = signature_id, nigdy surowy token.",
-        """
-        SELECT l.signature_id AS signature_id,
-               COUNT(*) OVER () AS total_count
-        FROM signature_links l
-        JOIN document_signatures s ON s.id = l.signature_id
-        WHERE l.used_at IS NULL
-          AND l.revoked IS FALSE
-          AND l.expires_at > NOW()
-          AND s.status IN ('withdrawn', 'completed', 'rejected', 'failed', 'expired')
-        ORDER BY l.signature_id DESC
-        LIMIT :sample_limit
-        """,
-    ),
-    (
         "ended_with_assigned_equipment",
         "P2",
         "Kontrakt ended ze sprzętem wydanym i nadal nierozliczonym "
@@ -461,9 +442,11 @@ _CHECKS: list[tuple[str, str, str, str]] = [
     (
         "terminated_at_survived_reopen",
         "P2",
-        "Kontrakt jest ŻYWY, a niesie datę wypowiedzenia — ślad po przywróceniu "
-        "współpracy. `terminated_at` nie jest czyszczone przy aneksie ani "
-        "`reopen_contract`, więc reguła daty końca umowy B2B czyta stan, który "
+        "Kontrakt jest ŻYWY, a niesie datę zakończenia, które już nie obowiązuje: "
+        "umowa bez daty końca albo z późniejszą. Trwające wypowiedzenie "
+        "(`end_date <= terminated_at`) nie jest tu liczone. Powrót bezterminowy "
+        "czyści te pola od 02.11.2026; `terminated_at` nadal przeżywa aneks "
+        "przedłużenia, więc reguła daty końca umowy B2B czyta stan, który "
         "przestał obowiązywać.",
         f"""
         SELECT c.id AS contract_id, c.candidate_id, c.client_id,
@@ -471,6 +454,7 @@ _CHECKS: list[tuple[str, str, str, str]] = [
         FROM contracts c
         WHERE c.status IN {_LIVE}
           AND c.terminated_at IS NOT NULL
+          AND (c.end_date IS NULL OR c.end_date > c.terminated_at)
         ORDER BY c.id DESC
         LIMIT :sample_limit
         """,
@@ -514,6 +498,13 @@ _TOTALS_SQL = f"""
 """
 
 
+async def _reset_session(db: AsyncSession) -> None:
+    try:
+        await db.rollback()
+    except Exception:  # noqa: BLE001 — reset sesji nie może wywalić raportu
+        pass
+
+
 async def _run_check(
     db: AsyncSession, key: str, severity: str, description: str, sql: str
 ) -> dict[str, Any]:
@@ -547,6 +538,12 @@ async def _run_check(
             "elapsed_ms": int((time.monotonic() - started) * 1000),
             "error": f"{type(exc).__name__}: {exc}",
         }
+    finally:
+        # Runda 10 (R10-N8-1): wszystkie checki jadą po jednej sesji. Nieudany
+        # albo anulowany przez `wait_for` SELECT zostawia przerwaną transakcję,
+        # a bez resetu każdy kolejny check dostaje `InFailedSQLTransaction`
+        # (lustro `admin_process_adoption._run`). Raport jest tylko do odczytu.
+        await _reset_session(db)
 
 
 @router.get(
@@ -573,6 +570,8 @@ async def engagement_inventory(
         totals = dict(totals_row)
     except Exception as exc:  # noqa: BLE001
         totals = {"error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        await _reset_session(db)
 
     checks = [
         await _run_check(db, key, severity, description, sql)

@@ -104,12 +104,14 @@ async function fetchShare(
  headers: await forwardedClientHeaders(),
  });
  if (!res.ok) {
- console.error("[share] upstream", res.status, url);
+ // Runda 10 (R10-N10-5): bez adresu — token w ścieżce to ważny link do
+ // danych kandydata, a stdout frontu idzie do Loki bez redakcji.
+ console.error("[share] upstream", res.status);
  return { status: res.status };
  }
  return { data: (await res.json()) as ShareResponse };
  } catch (e) {
- console.error("[share] fetch error", url, e);
+ console.error("[share] fetch error", e instanceof Error ? e.name : typeof e);
  return { status: null };
  }
 }

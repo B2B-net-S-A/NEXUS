@@ -1,25 +1,41 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { JobTabsRail } from "@/components/v2/jobs/JobTabsRail";
+import { JOBS_LIST_RAIL_GAP_CLASS, JobTabsRail } from "@/components/v2/jobs/JobTabsRail";
+import {
+  OPEN_TABS_RAIL_CLASS,
+  OpenTabsRailFrame,
+} from "@/components/v2/shell/OpenTabsRail";
 
 /**
- * Wraps the /jobs section so the "Otwarte rekrutacje" rail (Traffit-style open
- * tabs) can sit to the left of a recruitment detail page. Scoped to detail
- * routes (/jobs/<id>...) — on the list page the rail would only duplicate the
- * list, so we render children bare there. The rail itself self-hides when no
- * job tabs are open and on small screens (the top tab bar covers those cases).
+ * Sekcja `/jobs` z szyną „Otwarte karty” (ostatnio otwarte rekrutacje, jak
+ * w Traffit) po lewej stronie. Szyna stoi na stronach rekrutacji
+ * (`/jobs/<id>…`) i — od 02.10.2026 — na liście `/jobs`: z listy wraca się do
+ * rekrutacji, nad którymi się pracuje, bez szukania ich w tabeli. Formularz
+ * nowej rekrutacji i „Porządek w requestach” renderują się bez szyny.
+ *
+ * Szyna sama znika, gdy nie ma otwartych kart, i poniżej 1024 px.
  */
 export default function JobsLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const isDetail = /^\/jobs\/\d+/.test(pathname ?? "");
+  const pathname = usePathname() ?? "";
+  const isDetail = /^\/jobs\/\d+/.test(pathname);
+  const isList = pathname === "/jobs";
 
-  if (!isDetail) return <>{children}</>;
+  if (!isDetail && !isList) return <>{children}</>;
 
   return (
-    <div className="flex items-start gap-4 lg:gap-6">
-      <JobTabsRail className="sticky top-0 hidden max-h-[calc(100dvh-7rem)] self-start lg:flex" />
-      <div className="min-w-0 flex-1">{children}</div>
-    </div>
+    <OpenTabsRailFrame
+      // Lista na laptopie nie ma odstępu: szyna jest tam zakładką w marginesie
+      // i nie zabiera tabeli szerokości. Strona rekrutacji — bez zmian.
+      className={isList ? JOBS_LIST_RAIL_GAP_CLASS : "gap-4 lg:gap-6"}
+      rail={
+        <JobTabsRail
+          variant={isList ? "list" : "detail"}
+          className={OPEN_TABS_RAIL_CLASS}
+        />
+      }
+    >
+      {children}
+    </OpenTabsRailFrame>
   );
 }

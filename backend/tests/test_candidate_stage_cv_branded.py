@@ -285,6 +285,166 @@ async def test_patch_branded_saves_content(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("empty", ["", "   ", "<style>x</style>", "<script>a</script>"])
+async def test_patch_with_nothing_left_after_cleaning_is_refused(
+    app_client: AsyncClient, app_auth_headers: dict, empty: str
+):
+    """Audyt 13.10.2026, pkt 2: pusty zapis zdejmował ochronę klauzuli RODO —
+    następny zapis z podmienioną klauzulą przechodził, a zatwierdzenie
+    przypinało ją w Wordzie. Pusta treść = 422 jak przy zatwierdzeniu
+    i w edytorze generatora; szkic zostaje bez zmian."""
+    from app.services.cv_generator_b2b.docx_renderer import TRANSLATIONS
+
+    clause = TRANSLATIONS["pl"]["rodo"]
+    saved = f'<h1>Brand</h1><p>Treść CV</p><p class="rodo">{clause}</p>'
+    sid, _, _ = await _seed_full_stage()
+    await _seed_draft(sid, saved)
+
+    res = await _patch(
+        app_client,
+        f"/api/candidates/stages/{sid}/cv/branded",
+        headers=app_auth_headers,
+        json={"content_html": empty},
+    )
+
+    assert res.status_code == 422, res.text
+    assert res.json()["detail"] == "CV nie może być puste."
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        assert csv.branded_draft_html == saved
+
+
+@pytest.mark.asyncio
+async def test_saving_and_approving_keep_the_saved_consent_clause(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Klauzula zgody RODO jest stała (D3, 12.10.2026): zapis bez niej albo
+    ze zmienioną treścią zostawia w szkicu i w zatwierdzonej wersji tę, która
+    była w CV."""
+    from app.services.cv_generator_b2b.docx_renderer import TRANSLATIONS
+
+    clause = TRANSLATIONS["pl"]["rodo"]
+    sid, _, _ = await _seed_full_stage()
+    await _seed_draft(sid, f'<h1>Brand</h1><p>Treść CV</p><p class="rodo">{clause}</p>')
+    url = f"/api/candidates/stages/{sid}/cv/branded"
+
+    res = await _patch(
+        app_client,
+        url,
+        headers=app_auth_headers,
+        json={"content_html": "<h1>Brand</h1><p>Po edycji</p>"},
+    )
+    assert res.status_code == 200, res.text
+    saved = res.json()["content_html"]
+    assert saved.startswith("<h1>Brand</h1><p>Po edycji</p>")
+    assert saved.endswith(f'<p class="rodo">{clause}</p>')
+
+    edited = clause.replace("B2B.net S.A.", "Inną Firmę")
+    res = await _post(
+        app_client,
+        f"{url}/finalize",
+        headers=app_auth_headers,
+        json={
+            "content_html": f'<h1>Brand</h1><p>Po edycji</p><p data-cv-section="rodo">{edited}</p>'
+        },
+    )
+    assert res.status_code == 200, res.text
+    async with AsyncSessionLocal() as db:
+        version = await db.get(CvDocumentVersion, res.json()["document_version_id"])
+        assert "Inną Firmę" not in version.content_html
+        assert version.content_html.endswith(f'<p class="rodo">{clause}</p>')
+
+
+@pytest.mark.asyncio
+async def test_issues_route_serves_generator_warnings_and_review_findings(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Panel „Do poprawy” w edytorze (PR 2): uwagi generatora z dokumentu
+    podpiętego do etapu i uwagi kontroli AI ostatniej zatwierdzonej wersji —
+    z tekstem linii, nie samym wskaźnikiem."""
+    from app.models.cv_generated_document import CvGeneratedDocument
+    from app.services.cv_editor_review import EDITOR_REVIEW_VERSION, editor_claims
+
+    html = "<h1>Brand</h1><p>Zna Kafkę od 5 lat.</p><p>Prowadził zespół.</p>"
+    sid, _, _ = await _seed_full_stage()
+    url = f"/api/candidates/stages/{sid}/cv/branded/issues"
+
+    empty = await app_client.get(url, headers=app_auth_headers)
+    assert empty.status_code == 200, empty.text
+    assert empty.json() == {
+        "generated_document_id": None,
+        "generator_warnings": [],
+        "content_review": {"status": None, "version": None, "findings": []},
+        "dismissed": [],
+    }
+
+    await _seed_draft(sid, html)
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        generated = CvGeneratedDocument(
+            candidate_id=csv.candidate_id,
+            job_id=csv.job_id,
+            candidate_name="Fikcyjna Osoba",
+            filename="cv.docx",
+            mode="new",
+            status="ready",
+            warnings=["MUST-HAVE: Kubernetes — brak w CV", "  "],
+        )
+        db.add(generated)
+        await db.flush()
+        csv.generated_document_id = generated.id
+        index = editor_claims(html).index("Zna Kafkę od 5 lat.")
+        db.add(
+            CvDocumentVersion(
+                candidate_stage_cv_id=csv.id,
+                generated_document_id=generated.id,
+                version=1,
+                content_html=html,
+                content_sha256=hashlib.sha256(html.encode()).hexdigest(),
+                render_metadata={
+                    "content_review": {
+                        "status": "reviewed",
+                        "html_sha256": hashlib.sha256(html.encode()).hexdigest(),
+                        "editor_review_version": EDITOR_REVIEW_VERSION,
+                        "findings": {
+                            "count": 1,
+                            "paths": [f"/why_points/{index}"],
+                            "statuses": {f"/why_points/{index}": "unsupported"},
+                        },
+                    }
+                },
+                language="pl",
+                template="standard",
+                approved_at=datetime.now(timezone.utc),
+            )
+        )
+        generated_id = generated.id
+        await db.commit()
+
+    res = await app_client.get(url, headers=app_auth_headers)
+    assert res.status_code == 200, res.text
+    assert res.json() == {
+        "generated_document_id": generated_id,
+        "generator_warnings": ["MUST-HAVE: Kubernetes — brak w CV"],
+        "content_review": {
+            "status": "reviewed",
+            "version": 1,
+            "findings": [{"text": "Zna Kafkę od 5 lat.", "status": "unsupported"}],
+        },
+        "dismissed": [],
+    }
+    assert (await app_client.get(url)).status_code in (401, 403)
+    missing = await app_client.get(
+        "/api/candidates/stages/999999999/cv/branded/issues", headers=app_auth_headers
+    )
+    assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_patch_on_an_empty_stage_is_refused(
     app_client: AsyncClient, app_auth_headers: dict
 ):
@@ -849,6 +1009,60 @@ async def test_competing_cv_saves_have_exactly_one_winner(app_client, app_auth_h
     assert stored["edit_revision"] == original["edit_revision"] + 1
 
 
+async def test_select_generated_runs_qc_after_the_swap(
+    app_client, app_auth_headers, monkeypatch
+):
+    """CV w procesie (13.10.2026): po „Użyj nowej wersji” (i podmianie szkicu
+    z karty) QC liczy się w tle, żeby plakietka na Tablicy nie czekała na
+    otwarcie okna QC. Odmowa 409 (szkic zmienił się) niczego nie przelicza."""
+    from app.core.config import settings
+    from app.models.cv_generated_document import CvGeneratedDocument
+    from app.services import cv_qc
+
+    calls: list[int] = []
+
+    async def run_after_move(stage_id, user_id):
+        calls.append(stage_id)
+
+    monkeypatch.setattr(cv_qc, "run_after_move", run_after_move)
+    monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
+    sid, cid, jid = await _seed_full_stage()
+    base = f"/api/candidates/stages/{sid}/cv/branded"
+    initial = (await app_client.get(base, headers=app_auth_headers)).json()
+    async with AsyncSessionLocal() as db:
+        source = CvGeneratedDocument(
+            candidate_id=cid,
+            job_id=jid,
+            candidate_name="Synthetic",
+            filename="selected.docx",
+            status="ready",
+            render_payload={"name": "Synthetic", "why_points": ["Python w Acme"]},
+        )
+        db.add(source)
+        await db.commit()
+        generated_id = source.id
+    stale = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": initial["edit_revision"] + 5,
+            "generated_document_id": generated_id,
+        },
+    )
+    assert stale.status_code == 409, stale.text
+    assert calls == []
+    choice = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": initial["edit_revision"],
+            "generated_document_id": generated_id,
+        },
+    )
+    assert choice.status_code == 200, choice.text
+    assert calls == [sid]
+
+
 async def test_selected_generated_document_is_edited_approved_and_pinned_to_link(
     app_client, app_auth_headers
 ):
@@ -960,3 +1174,551 @@ async def test_review_rejection_keeps_database_draft(
     )
     assert current.status_code == 200
     assert current.json()["status"] == "draft"
+
+
+# ── Historia wersji w edytorze CV (Edytor CV 2, PR 5) ───────────────────────
+
+
+async def _approve(client, headers, url: str, revision: int, html: str) -> dict:
+    approved = await client.post(
+        url + "/finalize",
+        headers=headers,
+        json={"expected_revision": revision, "content_html": html},
+    )
+    assert approved.status_code == 200, approved.text
+    return approved.json()
+
+
+@pytest.mark.asyncio
+async def test_version_history_lists_approved_versions_and_serves_each_content(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Dwie zatwierdzone wersje: lista od najnowszej z nazwą osoby (nie
+    e-mailem), treść każdej taka jak przy zatwierdzeniu, nic nie zapisane."""
+    sid, _, _ = await _seed_full_stage()
+    url = f"/api/candidates/stages/{sid}/cv/branded"
+
+    never_approved = await app_client.get(url + "/versions", headers=app_auth_headers)
+    assert never_approved.status_code == 200, never_approved.text
+    assert never_approved.json() == {"versions": []}
+
+    await _seed_draft(sid)
+    state = (await app_client.get(url, headers=app_auth_headers)).json()
+    first = await _approve(
+        app_client,
+        app_auth_headers,
+        url,
+        state["edit_revision"],
+        "<p>Pierwsza wersja</p>",
+    )
+    draft = await app_client.post(
+        url + "/new-draft",
+        headers=app_auth_headers,
+        json={"expected_revision": first["edit_revision"]},
+    )
+    assert draft.status_code == 200, draft.text
+    while_drafting = await app_client.get(url + "/versions", headers=app_auth_headers)
+    second = await _approve(
+        app_client,
+        app_auth_headers,
+        url,
+        draft.json()["edit_revision"],
+        "<p>Druga wersja</p>",
+    )
+
+    listed = await app_client.get(url + "/versions", headers=app_auth_headers)
+    one = await app_client.get(url + "/versions/1", headers=app_auth_headers)
+    two = await app_client.get(url + "/versions/2", headers=app_auth_headers)
+    missing = await app_client.get(url + "/versions/7", headers=app_auth_headers)
+    docx = await app_client.get(url + "/versions/1/docx", headers=app_auth_headers)
+    after = (await app_client.get(url, headers=app_auth_headers)).json()
+
+    # Otwarty szkic nosi numer 2 — wersja 1 nie jest wtedy „bieżącą”.
+    assert [
+        (item["version"], item["is_current"])
+        for item in while_drafting.json()["versions"]
+    ] == [(1, False)]
+    assert listed.status_code == 200, listed.text
+    versions = listed.json()["versions"]
+    assert [
+        (item["version"], item["is_current"], item["language"]) for item in versions
+    ] == [(2, True, "pl"), (1, False, "pl")]
+    assert set(versions[0]) == {
+        "version",
+        "approved_at",
+        "approved_by_name",
+        "language",
+        "docx_available",
+        "is_current",
+    }
+    assert all(item["docx_available"] and item["approved_at"] for item in versions)
+    # Imię i nazwisko z konta (fixture `app_client`), nie adres e-mail.
+    assert {item["approved_by_name"] for item in versions} == {"Pytest Admin"}
+
+    assert (one.status_code, two.status_code) == (200, 200)
+    assert one.json()["version"] == 1 and one.json()["language"] == "pl"
+    assert one.json()["approved_at"] == versions[1]["approved_at"]
+    assert "Pierwsza wersja" in one.json()["content_html"]
+    assert "Druga wersja" not in one.json()["content_html"]
+    assert "Druga wersja" in two.json()["content_html"]
+    assert missing.status_code == 404
+    assert missing.json()["detail"] == "Nie znaleziono zatwierdzonej wersji CV."
+    # Plik Word tej samej wersji dalej stoi pod własnym adresem.
+    assert docx.status_code == 200, docx.text
+    assert docx.content[:2] == b"PK"
+    # Odczyty historii niczego nie zmieniły w CV etapu.
+    assert (after["status"], after["version"], after["edit_revision"]) == (
+        "finalized",
+        2,
+        second["edit_revision"],
+    )
+
+
+@pytest.mark.asyncio
+async def test_version_history_shows_an_approved_cv_that_was_never_frozen(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """CV zatwierdzone przed migracją 0287 nie ma wiersza wersji. Historia
+    pokazuje je z wiersza etapu i nie zakłada wiersza przy odczycie."""
+    sid, _, _ = await _seed_full_stage()
+    url = f"/api/candidates/stages/{sid}/cv/branded"
+    await _seed_draft(sid)
+    state = (await app_client.get(url, headers=app_auth_headers)).json()
+    approved = await _approve(
+        app_client,
+        app_auth_headers,
+        url,
+        state["edit_revision"],
+        "<p>Zatwierdzone dawno temu</p>",
+    )
+    async with AsyncSessionLocal() as db:
+        await db.delete(
+            await db.get(CvDocumentVersion, approved["document_version_id"])
+        )
+        await db.commit()
+
+    listed = await app_client.get(url + "/versions", headers=app_auth_headers)
+    content = await app_client.get(url + "/versions/1", headers=app_auth_headers)
+
+    assert listed.status_code == 200, listed.text
+    (only,) = listed.json()["versions"]
+    assert (only["version"], only["is_current"], only["docx_available"]) == (
+        1,
+        True,
+        False,
+    )
+    assert only["approved_by_name"] == "Pytest Admin" and only["approved_at"]
+    assert content.status_code == 200, content.text
+    assert "Zatwierdzone dawno temu" in content.json()["content_html"]
+    async with AsyncSessionLocal() as db:
+        frozen = await db.scalar(
+            select(CvDocumentVersion.id).where(
+                CvDocumentVersion.id == approved["document_version_id"]
+            )
+        )
+    assert frozen is None
+
+
+@pytest.mark.asyncio
+async def test_version_history_keeps_the_gates_of_the_stage_cv_read(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Bez sesji i dla konta bez dostępu do dokumentów — odmowa; etap bez
+    wiersza CV to pusta lista (stan), nieistniejący etap to 404."""
+    from app.core.security import create_access_token
+    from app.models.user import User, UserRole
+
+    sid, candidate_id, job_id = await _seed_full_stage()
+    await _seed_draft(sid)
+    url = f"/api/candidates/stages/{sid}/cv/branded"
+    state = (await app_client.get(url, headers=app_auth_headers)).json()
+    await _approve(
+        app_client, app_auth_headers, url, state["edit_revision"], "<p>Treść</p>"
+    )
+    async with AsyncSessionLocal() as db:
+        viewer = User(
+            email=f"cv-history-viewer-{uuid.uuid4().hex[:8]}@example.com",
+            name="Konto bez dokumentów",
+            role=UserRole.user,
+            roles=[UserRole.user.value],
+            is_active=True,
+        )
+        bare_stage = CandidateStage(
+            candidate_id=candidate_id, job_id=job_id, stage=PipelineStage.screening
+        )
+        db.add_all([viewer, bare_stage])
+        await db.commit()
+        viewer_headers = {
+            "Authorization": "Bearer "
+            + create_access_token(viewer.id, UserRole.user.value)
+        }
+        bare_url = f"/api/candidates/stages/{bare_stage.id}/cv/branded"
+
+    for path in ("/versions", "/versions/1"):
+        anonymous = await app_client.get(url + path)
+        refused = await app_client.get(url + path, headers=viewer_headers)
+        unknown = await app_client.get(
+            "/api/candidates/stages/999999999/cv/branded" + path,
+            headers=app_auth_headers,
+        )
+        assert anonymous.status_code in (401, 403), path
+        assert refused.status_code == 403, path
+        assert unknown.status_code == 404, path
+    no_row_list = await app_client.get(bare_url + "/versions", headers=app_auth_headers)
+    no_row_one = await app_client.get(
+        bare_url + "/versions/1", headers=app_auth_headers
+    )
+    assert no_row_list.status_code == 200, no_row_list.text
+    assert no_row_list.json() == {"versions": []}
+    assert no_row_one.status_code == 404
+    async with AsyncSessionLocal() as db:
+        created = await db.scalar(
+            select(CandidateStageCV.id).where(
+                CandidateStageCV.candidate_stage_id == bare_stage.id
+            )
+        )
+    assert created is None
+
+
+# ── „Napisz od nowa” (Edytor CV 3, PR 5) ─────────────────────────────────────
+
+_REWRITE_A = {
+    "name": "Synthetic",
+    "language": "pl",
+    "why_points": ["Python w Acme."],
+    "languages": ["Polski – ojczysty"],
+    "experience": [
+        {
+            "dates": "01.2020 – obecnie",
+            "company": "Acme",
+            "position": "Developer",
+            "responsibilities": ["Usługi REST."],
+            "technologies": ["Python"],
+        },
+        {
+            "dates": "01.2015 – 12.2019",
+            "company": "Beta",
+            "position": "Junior Developer",
+            "responsibilities": ["Testy ręczne."],
+            "technologies": [],
+        },
+    ],
+}
+
+
+def _rewrite_b() -> dict:
+    import copy
+
+    payload = copy.deepcopy(_REWRITE_A)
+    payload["why_points"] = ["Usługi REST w Pythonie."]
+    payload["experience"][0]["responsibilities"] = ["Usługi REST w Pythonie."]
+    payload["experience"][1]["responsibilities"] = ["Testy."]
+    return payload
+
+
+async def _ready_generation(cid: int, jid: int, payload: dict) -> int:
+    from app.models.cv_generated_document import CvGeneratedDocument
+
+    async with AsyncSessionLocal() as db:
+        row = CvGeneratedDocument(
+            candidate_id=cid,
+            job_id=jid,
+            candidate_name="Synthetic",
+            filename="cv.docx",
+            status="ready",
+            render_payload=payload,
+        )
+        db.add(row)
+        await db.commit()
+        return row.id
+
+
+async def test_rewrite_keeps_hand_edited_role_and_previous_draft_comes_back(
+    app_client, app_auth_headers
+):
+    sid, cid, jid = await _seed_full_stage()
+    base = f"/api/candidates/stages/{sid}/cv/branded"
+    initial = (await app_client.get(base, headers=app_auth_headers)).json()
+    first = await _ready_generation(cid, jid, _REWRITE_A)
+    second = await _ready_generation(cid, jid, _rewrite_b())
+
+    picked = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": initial["edit_revision"],
+            "generated_document_id": first,
+        },
+    )
+    assert picked.status_code == 200, picked.text
+    # Zwykła podmiana nie niesie wyniku „Napisz od nowa”.
+    assert picked.json()["rewrite"] is None
+    edited = picked.json()["content_html"].replace(
+        "Testy ręczne.", "Testy API w Pytest (fikcyjne)."
+    )
+    saved = await app_client.patch(
+        base,
+        headers=app_auth_headers,
+        json={
+            "expected_revision": picked.json()["edit_revision"],
+            "content_html": edited,
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    before = saved.json()["content_html"]
+
+    rewrite = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": saved.json()["edit_revision"],
+            "generated_document_id": second,
+            "keep_edits": True,
+        },
+    )
+    assert rewrite.status_code == 200, rewrite.text
+    body = rewrite.json()
+    assert body["rewrite"] == {
+        "kept": ["Beta"],
+        "recognized": True,
+        "can_restore": True,
+    }
+    assert "Testy API w Pytest (fikcyjne)." in body["content_html"]
+    assert "Usługi REST w Pythonie." in body["content_html"]
+    assert body["generated_document_id"] == second
+
+    restored = await app_client.post(
+        base + "/restore-previous",
+        headers=app_auth_headers,
+        json={"expected_revision": body["edit_revision"]},
+    )
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["content_html"] == before
+    assert restored.json()["generated_document_id"] == first
+    # Wersja zdjęta przyciskiem też jest w migawce — nic nie ginie.
+    from app.models.cv_stage_draft_snapshot import CvStageDraftSnapshot
+
+    async with AsyncSessionLocal() as db:
+        reasons = (
+            await db.scalars(
+                select(CvStageDraftSnapshot.reason).order_by(CvStageDraftSnapshot.id)
+            )
+        ).all()
+    assert reasons[-1] == "restore"
+
+
+async def test_restore_previous_brings_back_blind_flag_and_language_of_the_snapshot(
+    app_client, app_auth_headers
+):
+    """Przegląd PR 5: treść wracała z migawki, a „anonimowe” i język zostawały
+    z bieżącej wersji — CV z nazwiskiem oznaczone jako anonimowe."""
+    import copy
+
+    sid, cid, jid = await _seed_full_stage()
+    base = f"/api/candidates/stages/{sid}/cv/branded"
+    initial = (await app_client.get(base, headers=app_auth_headers)).json()
+    plain = await _ready_generation(cid, jid, _REWRITE_A)
+    blind_payload = copy.deepcopy(_REWRITE_A)
+    blind_payload.update(blind_cv=True, language="en")
+    blind = await _ready_generation(cid, jid, blind_payload)
+
+    first = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": initial["edit_revision"],
+            "generated_document_id": plain,
+        },
+    )
+    assert first.status_code == 200, first.text
+    assert (first.json()["template"], first.json()["language"]) == ("standard", "pl")
+    second = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": first.json()["edit_revision"],
+            "generated_document_id": blind,
+        },
+    )
+    assert second.status_code == 200, second.text
+    assert (second.json()["template"], second.json()["language"]) == ("blind", "en")
+    restored = await app_client.post(
+        base + "/restore-previous",
+        headers=app_auth_headers,
+        json={"expected_revision": second.json()["edit_revision"]},
+    )
+    assert restored.status_code == 200, restored.text
+    assert (restored.json()["template"], restored.json()["language"]) == (
+        "standard",
+        "pl",
+    )
+    assert restored.json()["content_html"] == first.json()["content_html"]
+
+
+async def test_restore_previous_refuses_stale_revision_and_missing_snapshot(
+    app_client, app_auth_headers
+):
+    sid, cid, jid = await _seed_full_stage()
+    base = f"/api/candidates/stages/{sid}/cv/branded"
+    initial = (await app_client.get(base, headers=app_auth_headers)).json()
+    stale = await app_client.post(
+        base + "/restore-previous",
+        headers=app_auth_headers,
+        json={"expected_revision": initial["edit_revision"] + 3},
+    )
+    assert stale.status_code == 409, stale.text
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(CandidateStageCV)
+            .where(CandidateStageCV.candidate_stage_id == sid)
+            .values(branded_draft_html=None)
+        )
+        await db.commit()
+    first = await _ready_generation(cid, jid, _REWRITE_A)
+    picked = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": initial["edit_revision"],
+            "generated_document_id": first,
+        },
+    )
+    assert picked.status_code == 200, picked.text
+    # Przed tą podmianą szkic był pusty — nie ma do czego wracać.
+    missing = await app_client.post(
+        base + "/restore-previous",
+        headers=app_auth_headers,
+        json={"expected_revision": picked.json()["edit_revision"]},
+    )
+    assert missing.status_code == 404, missing.text
+
+
+def test_snapshot_migration_is_mirrored_in_entrypoint_and_model() -> None:
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    entry = (root / "entrypoint.sh").read_text()
+    migration = (root / "alembic/versions/0445_cv_stage_draft_snapshots.py").read_text()
+    squash = lambda t: re.sub(r"\s+", " ", t)  # noqa: E731
+    for fragment in (
+        "CREATE TABLE IF NOT EXISTS cv_stage_draft_snapshots (",
+        "candidate_stage_cv_id INTEGER NOT NULL REFERENCES candidate_stage_cvs(id) ON DELETE CASCADE",
+        "generated_document_id INTEGER NULL REFERENCES cv_generated_documents(id) ON DELETE SET NULL",
+        "CHECK (reason IN ('replaced', 'restore'))",
+        "branded_template VARCHAR(20) NULL",
+        "branded_language VARCHAR(10) NULL",
+        "CREATE INDEX IF NOT EXISTS ix_cv_stage_draft_snapshots_cv",
+    ):
+        assert fragment in squash(migration), fragment
+        assert fragment in squash(entry), fragment
+    assert 'down_revision = "0444_also_fits_added_notification"' in migration
+    from app.models.cv_stage_draft_snapshot import CvStageDraftSnapshot
+
+    columns = set(CvStageDraftSnapshot.__table__.columns.keys())
+    for name in re.findall(
+        r"^    ([a-z_]+) [A-Z]", migration.split('"""CREATE TABLE')[1], re.M
+    ):
+        assert name in columns, name
+
+
+# ── Zmiana nazwy pliku CV (02.11.2026) ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_rename_keeps_content_and_revision_and_returns_pattern(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    sid, _, _ = await _seed_full_stage()
+    await _seed_draft(sid)
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        csv.branded_docx_filename = "Wzor_klienta.docx"
+        before_revision, before_html = csv.edit_revision, csv.branded_draft_html
+        await db.commit()
+    url = f"/api/candidates/stages/{sid}/cv/branded/filename"
+    res = await app_client.patch(
+        url, headers=app_auth_headers, json={"filename": "  Inna: nazwa?.docx "}
+    )
+    assert res.status_code == 200, res.text
+    assert res.json() == {
+        "filename": "Inna nazwa.docx",
+        "pattern_filename": "Wzor_klienta.docx",
+    }
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        assert csv.branded_docx_filename == "Inna nazwa.docx"
+        assert csv.edit_revision == before_revision
+        assert csv.branded_draft_html == before_html
+    # Powrót do wzoru zdejmuje nazwę ręczną.
+    res = await app_client.patch(
+        url, headers=app_auth_headers, json={"filename": "Wzor_klienta.docx"}
+    )
+    assert res.json() == {"filename": "Wzor_klienta.docx", "pattern_filename": None}
+
+
+@pytest.mark.asyncio
+async def test_rename_updates_current_approved_version(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    sid, _, _ = await _seed_full_stage()
+    await _seed_draft(sid)
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        csv.branded_docx_filename = "Wzor.docx"
+        csv.branded_status = "finalized"
+        db.add(
+            CvDocumentVersion(
+                candidate_stage_cv_id=csv.id,
+                version=csv.branded_version,
+                content_html=csv.branded_draft_html or "<p>x</p>",
+                content_sha256=hashlib.sha256(b"x").hexdigest(),
+                docx_filename="Wzor.docx",
+                approved_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+        version_no, csv_id = csv.branded_version, csv.id
+    res = await app_client.patch(
+        f"/api/candidates/stages/{sid}/cv/branded/filename",
+        headers=app_auth_headers,
+        json={"filename": "Nowa.docx"},
+    )
+    assert res.status_code == 200, res.text
+    async with AsyncSessionLocal() as db:
+        version = await db.scalar(
+            select(CvDocumentVersion).where(
+                CvDocumentVersion.candidate_stage_cv_id == csv_id,
+                CvDocumentVersion.version == version_no,
+            )
+        )
+        assert version.docx_filename == "Nowa.docx"
+
+
+@pytest.mark.asyncio
+async def test_rename_is_refused_without_cv_or_name(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    sid, _, _ = await _seed_full_stage()
+    url = f"/api/candidates/stages/{sid}/cv/branded/filename"
+    res = await app_client.patch(
+        url, headers=app_auth_headers, json={"filename": "A.docx"}
+    )
+    assert res.status_code in (404, 409), res.text
+    await _seed_draft(sid)
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        csv.branded_docx_filename = "Wzor.docx"
+        await db.commit()
+    res = await app_client.patch(
+        url, headers=app_auth_headers, json={"filename": "***.docx"}
+    )
+    assert res.status_code == 422, res.text

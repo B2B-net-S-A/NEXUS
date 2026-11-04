@@ -268,3 +268,95 @@ async def test_a_document_on_a_plain_client_is_left_alone(db_session):
     assert row.client_id == client.id
     assert "scalony" not in row.identification_reason
     await db_session.rollback()
+
+
+# ── Runda 7 (R7-X5-1): usunięty klient nie jest klientem poczty ─────────────
+
+
+def _deleted_now():
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_registry_ignores_a_deleted_duplicate_next_to_a_live_client(db_session):
+    """Usunięty duplikat z tym samym NIP-em nie robi z numeru niejednoznaczności."""
+    nip = _synthetic_nip()
+    live = await _client(db_session, "Klient Żywy", nip=nip)
+    await _client(
+        db_session,
+        "Klient Usunięty",
+        nip=nip,
+        deleted_at=_deleted_now(),
+        archived_at=_deleted_now(),
+    )
+    await db_session.flush()
+
+    registry = await build_registry_from_db(db_session)
+
+    assert registry.by_registry_id[nip] == str(live.id)
+    await db_session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_registry_does_not_route_mail_to_a_deleted_client(db_session):
+    nip = _synthetic_nip()
+    await _client(
+        db_session,
+        "Klient Tylko Usunięty",
+        nip=nip,
+        deleted_at=_deleted_now(),
+        archived_at=_deleted_now(),
+    )
+    await db_session.flush()
+
+    registry = await build_registry_from_db(db_session)
+
+    assert nip not in registry.by_registry_id
+    await db_session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_resolution_of_a_stale_identification_skips_a_deleted_client(db_session):
+    from app.services.order_client_identity import ClientIdentification
+    from app.services.order_mail_ingest import resolve_order_client_id
+
+    deleted = await _client(
+        db_session, "Klient Usunięty Po Rozpoznaniu", deleted_at=_deleted_now()
+    )
+    await db_session.flush()
+
+    client_id, _key = await resolve_order_client_id(
+        db_session,
+        ClientIdentification(client_key=str(deleted.id), method="registry_id"),
+    )
+
+    assert client_id is None
+    await db_session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_writer_refuses_a_document_of_a_deleted_client(db_session):
+    """Dokument rozpoznany przed usunięciem klienta nie zakłada zamówienia."""
+    from types import SimpleNamespace
+
+    from app.services.order_mail_apply import DELETED_CLIENT_REFUSAL, apply_document
+
+    deleted = await _client(
+        db_session, "Klient Usunięty Z Kolejką", deleted_at=_deleted_now()
+    )
+    await db_session.flush()
+    doc = SimpleNamespace(
+        client_id=deleted.id,
+        storage_path=None,
+        attachment_name="zamowienie.pdf",
+        proposal={},
+        extraction=None,
+    )
+
+    result = await apply_document(db_session, doc, actor_user_id=None)
+
+    assert result.error == DELETED_CLIENT_REFUSAL
+    assert not result.ok
+    await db_session.rollback()

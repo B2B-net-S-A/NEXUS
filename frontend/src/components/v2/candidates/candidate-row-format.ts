@@ -7,10 +7,25 @@
  */
 
 import { formatRelativeTime } from "@/lib/utils";
+import {
+  rateFromText,
+  rateSecondLine,
+  type RateFromFields,
+} from "@/lib/candidate-rate";
+import { availabilityFromNotesLine, type AvailabilityFromNotes } from "@/lib/notes-facts";
+import {
+  contractAvailability,
+  contractAvailabilityOrigin,
+  contractAvailabilityText,
+} from "@/lib/contract-availability";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 
 export interface CandidateRowRecruitment {
   job_id: number;
+  /** Nazwa od klienta (0380). Na ekranie: `JobNameLabel` z polami niżej. */
   job_title: string;
+  job_working_title?: string | null;
+  job_client_reference?: string | null;
   client_name?: string | null;
   stage: string;
   moved_at?: string | null;
@@ -20,9 +35,12 @@ export interface CandidateRowRecruitment {
 export interface CandidateRowAvailabilitySource {
   availability_status?: string | null;
   availability_date?: string | null;
+  /** Datę wpisały notatki — „stan na” (07.10.2026, `GET /api/candidates`). */
+  availability_from_notes?: AvailabilityFromNotes | null;
   notice_period?: number | null;
   notice_period_unit?: "days" | "weeks" | "months" | null;
-  employment?: { state?: string | null; client_name?: string | null } | null;
+  /** Żywa umowa (15.10.2026): termin z umowy, nie ze screeningu. */
+  employment_marker?: EmploymentMarker | null;
 }
 
 /** Polskie etykiety etapów pipeline'u (klucze API listy). */
@@ -59,6 +77,8 @@ const ddmm = (iso: string): string | null => {
  * wypowiedzenia, potem deklaracja. `null` = nie wiemy.
  */
 export function availabilityCellText(c: CandidateRowAvailabilitySource): string | null {
+  const contract = contractAvailability(c.employment_marker, c.availability_date);
+  if (contract) return contractAvailabilityText(contract, "short");
   if (c.availability_date) {
     const d = ddmm(c.availability_date);
     if (d) return `od ${d}`;
@@ -80,6 +100,28 @@ export function availabilityCellText(c: CandidateRowAvailabilitySource): string 
 }
 
 /**
+ * Druga linia kolumny „Dostępność”: data „od …” pochodzi z notatki — „z notatki
+ * · DD.MM.RRRR” (dzień, od którego ją liczono). Kolumna jest wąska, więc linia
+ * się ucina, a pełny opis idzie w dymek (`title`). Tylko przy dacie w pierwszej
+ * linii — inaczej druga linia opisywałaby coś, czego nie widać.
+ */
+export function availabilityCellSecondLine(
+  c: CandidateRowAvailabilitySource,
+): { text: string; title: string } | null {
+  const contract = contractAvailability(c.employment_marker, c.availability_date);
+  if (contract) {
+    const origin = contractAvailabilityOrigin(contract);
+    const text =
+      origin.tone === "contract"
+        ? `z kontraktu${contract.clientName ? ` · ${contract.clientName}` : ""}`
+        : "z profilu · później niż umowa";
+    return { text, title: origin.text };
+  }
+  if (!c.availability_date || !ddmm(c.availability_date)) return null;
+  return availabilityFromNotesLine(c.availability_from_notes);
+}
+
+/**
  * Rekrutacje w toku (bez etapów końcowych), od najświeższego ruchu — to samo
  * źródło dla skrótu w komórce i listy po najechaniu.
  */
@@ -94,9 +136,8 @@ export function activeRecruitments(
 }
 
 export interface ProcessCell {
-  /** Główna linia („2 procesy · CV wysłane", „Pracuje u nas · PKO BP"). */
+  /** Główna linia („2 procesy · CV wysłane"). */
   text: string;
-  tone: "employed" | "process";
 }
 
 function processesWord(n: number): string {
@@ -109,26 +150,19 @@ function processesWord(n: number): string {
 }
 
 /**
- * „W procesie": zatrudnienie u klienta ma pierwszeństwo (to najważniejsza
- * informacja przed wysłaniem profilu), potem liczba aktywnych rekrutacji
- * z etapem najświeższego ruchu. Zamknięte rekrutacje się nie liczą.
+ * „W procesie": liczba aktywnych rekrutacji z etapem najświeższego ruchu.
+ * Zamknięte rekrutacje się nie liczą. Zatrudnienie u nas pokazuje znacznik
+ * pod nazwiskiem (`EmploymentPill`), nie ta kolumna — do 12.10.2026 wypierało
+ * stąd liczbę procesów, a kolumnę da się ukryć.
  */
 export function processCell(
-  employment: CandidateRowAvailabilitySource["employment"],
   recruitments: readonly CandidateRowRecruitment[] | null | undefined,
 ): ProcessCell | null {
-  if (employment?.state === "employed_at_client") {
-    return {
-      text: employment.client_name ? `Pracuje u nas · ${employment.client_name}` : "Pracuje u nas",
-      tone: "employed",
-    };
-  }
   const active = activeRecruitments(recruitments);
   if (active.length === 0) return null;
   const latest = active[0];
   return {
     text: `${active.length} ${processesWord(active.length)} · ${stageLabel(latest.stage)}`,
-    tone: "process",
   };
 }
 
@@ -139,22 +173,46 @@ export function lastContactText(lastContactedAt: string | null | undefined): str
 }
 
 /**
- * Stawka B2B z profilu („160 zł/h") — ta sama, po której filtruje lista.
- * Waluta inna niż PLN zostaje podana wprost.
+ * Stawka B2B, po której filtruje lista. Od 0414 to „Stawka od” — najniższa
+ * stawka z 18 miesięcy („od 80 zł/h”); odpowiedź bez tego pola (starszy
+ * serwer, test) pokazuje stawkę profilu jak dotąd. Waluta inna niż PLN
+ * zostaje podana wprost.
  */
-export function rateCellText(candidate: {
-  expected_rate_hourly?: number | string | null;
-  expected_rate_currency?: string | null;
-}): string | null {
+export function rateCellText(
+  candidate: {
+    expected_rate_hourly?: number | string | null;
+    expected_rate_currency?: string | null;
+  } & RateFromFields,
+): string | null {
+  const profileCurrency = (candidate.expected_rate_currency || "PLN").trim().toUpperCase();
+  if (candidate.rate_from_hourly !== undefined) {
+    const fromText = rateFromText(candidate);
+    // Stawka w obcej walucie nie wchodzi do „Stawki od” — pokazujemy ją wprost.
+    if (fromText || profileCurrency === "PLN") return fromText;
+  }
   const raw = candidate.expected_rate_hourly;
   const amount = typeof raw === "string" ? Number(raw) : raw;
   if (amount == null || !Number.isFinite(amount) || amount <= 0) return null;
-  const currency = (candidate.expected_rate_currency || "PLN").trim().toUpperCase();
   const value = amount.toLocaleString("pl-PL", { maximumFractionDigits: 2 });
-  return currency === "PLN" ? `${value} zł/h` : `${value} ${currency}/h`;
+  return profileCurrency === "PLN"
+    ? `${value} zł/h`
+    : `${value} ${profileCurrency}/h`;
 }
 
 /** „1 kandydat", „248 kandydatów" — liczba z formą rzeczownika. */
 export function candidatesCountLabel(n: number): string {
   return `${n.toLocaleString("pl-PL")} ${n === 1 ? "kandydat" : "kandydatów"}`;
 }
+
+/**
+ * Druga linia kolumny „Stawka” — kolumna jest wąska, więc samo „ostatnio
+ * 140 zł/h”; pełny opis (data, liczba stawek) idzie w dymek (`title`).
+ */
+export function rateCellSecondLine(
+  candidate: RateFromFields,
+): { text: string; title: string } | null {
+  const full = rateSecondLine(candidate);
+  if (!full) return null;
+  return { text: full.split(" (")[0].split(" · ")[0], title: full };
+}
+

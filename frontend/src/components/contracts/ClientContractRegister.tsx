@@ -1,23 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Calendar, Clock, Download, FileText, Pencil, Plus } from "lucide-react";
+import { Clock, Download, FileText, Pencil, Plus } from "lucide-react";
 import api, { contractsApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 // Daty ISO bez przesunięcia strefy (audyt 24.09, N8).
 import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
-import { hasSectionAccess } from "@/lib/section-access";
-import { useAuthStore, hasRole } from "@/store/auth";
-import { Badge } from "@/components/ui/badge";
+import { hasPermission } from "@/lib/permissions";
+import { mayExportFiles, useAuthStore } from "@/store/auth";
+import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
+import { CALM_EMPTY, CALM_SUBLINE } from "@/lib/calm-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FilterBar } from "@/components/ds/FilterBar";
@@ -54,6 +56,8 @@ import {
   type RegisterContractRow,
 } from "@/lib/contract-register";
 import { ContractRegisterDialog } from "./ContractRegisterDialog";
+import { ListDetailLayout } from "@/components/ds/ListDetailLayout";
+import { rowActivationProps, useRowNavigation } from "@/hooks/useRowNavigation";
 import {
   buildClientContractRegisterUrl,
   buildContractDetailHref,
@@ -63,21 +67,41 @@ import {
   takeContractsListScroll,
 } from "@/lib/contracts-list-navigation";
 
+// Kolory z tokenów (do 02.10.2026 surowe hexy, nieczytelne w ciemnym motywie).
 const PROLONGATION_TEXT_CLASS: Record<string, string> = {
   soft: "text-muted-foreground",
-  success: "text-[#1d5e31]",
-  warning: "text-amber-700",
-  danger: "text-[#6b1120]",
+  success: "text-success-muted-foreground",
+  warning: "text-warning-muted-foreground",
+  danger: "text-destructive",
   neutral: "text-foreground",
 };
 
 const PROLONGATION_DOT_CLASS: Record<string, string> = {
-  soft: "bg-muted-foreground/50",
-  success: "bg-[#1d5e31]",
-  warning: "bg-amber-600",
-  danger: "bg-[#6b1120]",
+  soft: "bg-muted-foreground/40",
+  success: "bg-success",
+  warning: "bg-warning",
+  danger: "bg-destructive",
   neutral: "bg-foreground",
 };
+
+/** Ton kropki statusu z wariantu plakietki (jedno źródło mapy statusów). */
+const DOT_TONE: Record<string, StatusDotTone> = {
+  success: "success",
+  warning: "warning",
+  danger: "danger",
+  info: "info",
+};
+
+// Boczny panel kontraktu (wersja B) — ładowany dopiero po kliknięciu wiersza.
+const ContractSidePanel = dynamic(
+  () => import("./ContractSidePanel").then((m) => m.ContractSidePanel),
+  {
+    ssr: false,
+    loading: () => (
+      <p className="p-4 text-sm text-muted-foreground">Ładowanie kontraktu…</p>
+    ),
+  },
+);
 
 /** Liczba kontraktów na stronę w rejestrze klienta. */
 const PAGE_SIZE = 50;
@@ -103,7 +127,7 @@ type RegisterQueryKey = readonly [
   string, // subcategoryFilter (JSON)
 ];
 
-/** Inline-editowalny status przedłużenia (Select) lub read-only Badge. */
+/** Inline-editowalny status przedłużenia (Select) albo, bez prawa edycji, kropka z etykietą. */
 function ProlongationCell({
   row,
   queryKey,
@@ -145,9 +169,9 @@ function ProlongationCell({
 
   if (!canEdit) {
     return (
-      <Badge size="sm" variant={variant}>
+      <StatusDot tone={DOT_TONE[variant] ?? "neutral"}>
         {PROLONGATION_LABEL[row.prolongation_status] ?? row.prolongation_status}
-      </Badge>
+      </StatusDot>
     );
   }
 
@@ -193,8 +217,8 @@ function PeriodCell({ row }: { row: RegisterContractRow }) {
     const over = pct > 100;
     return (
       <div className="min-w-[160px]">
-        <div className="flex items-center gap-1 text-xs text-foreground">
-          <Clock className="h-3 w-3 shrink-0" />
+        <div className="flex items-center gap-1 text-xs tabular-nums text-foreground">
+          <Clock className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
           <span className="font-medium">{consumed}</span>
           <span className="text-muted-foreground">/ {total} h</span>
           <span
@@ -225,12 +249,11 @@ function PeriodCell({ row }: { row: RegisterContractRow }) {
   }
   // time_based
   return (
-    <div className="min-w-[120px]">
-      <div className="flex items-center gap-1 text-xs text-foreground">
-        <Calendar className="h-3 w-3 shrink-0" />
-        {row.start_date ? formatDate(row.start_date) : "—"}
+    <div className="min-w-[120px] tabular-nums">
+      <div className="whitespace-nowrap text-xs text-foreground">
+        {row.start_date ? formatDate(row.start_date) : <span className={CALM_EMPTY}>—</span>}
       </div>
-      <div className="text-xs text-muted-foreground">
+      <div className={cn(CALM_SUBLINE, "mt-0 whitespace-nowrap")}>
         {row.end_date ? `→ ${formatDate(row.end_date)}` : "bezterminowo"}
       </div>
     </div>
@@ -241,17 +264,23 @@ export function ClientContractRegister({
   clientId,
   clientName,
   navigationSearch,
+  modeTabs,
+  toolbarLead,
 }: {
   clientId: number;
   clientName?: string;
   navigationSearch?: string;
+  /** Przełącznik trybów modułu — pod tytułem (makieta B). */
+  modeTabs?: ReactNode;
+  /** Pierwsza kontrolka paska filtrów (wybór klienta). */
+  toolbarLead?: ReactNode;
 }) {
   const user = useAuthStore((s) => s.user);
   const impersonating = useAuthStore((s) => s.realUser !== null);
-  const canEdit =
-    !impersonating &&
-    hasRole(user, "admin", "delivery_lead") &&
-    hasSectionAccess(user, "delivery", "write");
+  // Dodawanie i edycja wpisów rejestru = „Kontrakty i zamówienia: tworzenie
+  // i edycja" (te same trasy co formularz „Nowy kontrakt"); w podglądzie jako
+  // inny użytkownik rejestr jest tylko do odczytu.
+  const canEdit = !impersonating && hasPermission(user, "contracts_orders_edit");
 
   const [initialListState] = useState(() => {
     const parsed = parseClientContractRegisterState(navigationSearch ?? "");
@@ -267,6 +296,9 @@ export function ClientContractRegister({
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<RegisterContractRow | null>(null);
+  // Kontrakt otwarty w bocznym panelu. Prolongata i ołówek zostają w wierszu.
+  const [openContractId, setOpenContractId] = useState<number | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(initialListState.state.page);
   const [searchInput, setSearchInput] = useState(initialListState.state.search);
   const search = useDebouncedValue(searchInput.trim(), 300);
@@ -474,6 +506,18 @@ export function ClientContractRegister({
   };
 
   const items = useMemo(() => data?.items ?? [], [data]);
+  const rowKeys = useMemo(() => items.map((row) => String(row.id)), [items]);
+  useRowNavigation({
+    keys: rowKeys,
+    activeKey: openContractId != null ? String(openContractId) : null,
+    onChange: (key) => setOpenContractId(Number(key)),
+    containerRef: listRef,
+    enabled: openContractId != null,
+  });
+  const openRow =
+    openContractId != null
+      ? items.find((row) => row.id === openContractId) ?? null
+      : null;
   const total = data?.total ?? 0;
   const pageSize = data?.page_size ?? PAGE_SIZE;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -518,18 +562,16 @@ export function ClientContractRegister({
     setDialogOpen(true);
   };
 
-  return (
+  const listContent = (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-end justify-between flex-wrap gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
-            Delivery · Kontrakty klienta
-          </p>
-          <h1 className="font-semibold text-3xl font-extrabold tracking-heading-tight text-foreground mt-1">
-            {clientName ?? "Kontrakty"}
+      {/* Nagłówek zwarty, jak w rejestrze globalnym: tytuł i licznik w jednej
+          linii — laptop 1280×720 ma zobaczyć tabelę w górnych 60% okna. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+          <h1 className="text-lg font-semibold text-foreground">
+            Kontrakty{clientName ? ` · ${clientName}` : ""}
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-xs text-muted-foreground">
             {isLoading
               ? "Ładowanie…"
               : failed
@@ -543,6 +585,8 @@ export function ClientContractRegister({
           </Button>
         )}
       </div>
+
+      {modeTabs}
 
       {/* Panel filtrów (logika AND, server-side) + eksport. Wyszukiwarka filtruje
           po nazwisku konsultanta; „Status", „Okres" (overlap) i „Podkategoria"
@@ -559,6 +603,7 @@ export function ClientContractRegister({
         }}
         filters={
           <>
+            {toolbarLead}
             <MultiSelectFilter<ContractStatusValue>
               value={statusFilter}
               onChange={(value) => {
@@ -632,15 +677,17 @@ export function ClientContractRegister({
           </>
         }
         actions={
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={doExport}
-            disabled={exporting}
-          >
-            <Download className="h-4 w-4" />
-            {exporting ? "Eksportuję…" : "Eksportuj do Excela"}
-          </Button>
+          mayExportFiles(user) ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={doExport}
+              disabled={exporting}
+            >
+              <Download className="h-4 w-4" />
+              {exporting ? "Eksportuję…" : "Eksportuj do Excela"}
+            </Button>
+          ) : undefined
         }
       />
 
@@ -676,7 +723,7 @@ export function ClientContractRegister({
                   className="border-0"
                   description={
                     viewState === "forbidden"
-                      ? "Twoja rola nie ma dostępu do rejestru kontraktów tego klienta. Rejestr NIE jest pusty — nie zakładaj kontraktu od nowa."
+                      ? "Nie masz dostępu do rejestru kontraktów tego klienta. Rejestr NIE jest pusty — nie zakładaj kontraktu od nowa; o dostęp poproś administratora (Ustawienia → Zespół i dostęp → Osoby i role)."
                       : undefined
                   }
                   onRetry={() => void refetch()}
@@ -708,8 +755,21 @@ export function ClientContractRegister({
             </TableRow>
           ) : (
             items.map((row) => (
-              <TableRow key={row.id}>
-                <TableCell className="font-mono text-xs max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-card">
+              <TableRow
+                key={row.id}
+                interactive
+                {...rowActivationProps(String(row.id), () =>
+                  setOpenContractId(row.id),
+                )}
+                aria-selected={openContractId === row.id}
+                data-selected={openContractId === row.id || undefined}
+                className={cn(
+                  "h-[50px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+                  openContractId === row.id &&
+                    "bg-primary/5 shadow-[inset_3px_0_0_0_hsl(var(--primary))]",
+                )}
+              >
+                <TableCell className="text-xs tabular-nums max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-card">
                   {row.project_code ? (
                     <span className="text-foreground">{row.project_code}</span>
                   ) : (
@@ -717,9 +777,13 @@ export function ClientContractRegister({
                   )}
                 </TableCell>
                 <TableCell className="max-w-[220px]">
-                  <span className="text-sm text-foreground truncate block">
-                    {row.project_name ?? "—"}
-                  </span>
+                  {row.project_name ? (
+                    <span className="text-sm text-foreground truncate block">
+                      {row.project_name}
+                    </span>
+                  ) : (
+                    <span className={CALM_EMPTY}>—</span>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Link
@@ -734,16 +798,9 @@ export function ClientContractRegister({
                     {row.candidate_name ?? `#${row.candidate_id}`}
                   </Link>
                 </TableCell>
-                <TableCell>
-                  <Badge
-                    size="sm"
-                    variant={
-                      row.engagement_model === "hours_pool" ? "warning" : "soft"
-                    }
-                  >
-                    {ENGAGEMENT_MODEL_LABEL[row.engagement_model] ??
-                      row.engagement_model}
-                  </Badge>
+                <TableCell className="text-xs text-muted-foreground">
+                  {ENGAGEMENT_MODEL_LABEL[row.engagement_model] ??
+                    row.engagement_model}
                 </TableCell>
                 <TableCell>
                   <PeriodCell row={row} />
@@ -757,14 +814,13 @@ export function ClientContractRegister({
                 </TableCell>
                 <TableCell>
                   {row.status ? (
-                    <Badge
-                      size="sm"
-                      variant={CONTRACT_STATUS_VARIANT[row.status] ?? "neutral"}
+                    <StatusDot
+                      tone={DOT_TONE[CONTRACT_STATUS_VARIANT[row.status] ?? "neutral"] ?? "neutral"}
                     >
                       {CONTRACT_STATUS_LABEL[row.status] ?? row.status}
-                    </Badge>
+                    </StatusDot>
                   ) : (
-                    <span className="text-xs text-muted-foreground">—</span>
+                    <span className={cn("text-xs", CALM_EMPTY)}>—</span>
                   )}
                 </TableCell>
                 {canEdit && (
@@ -813,6 +869,37 @@ export function ClientContractRegister({
           </div>
         </div>
       )}
+
+    </div>
+  );
+
+  return (
+    <div ref={listRef}>
+      <ListDetailLayout
+        list={listContent}
+        onClose={() => setOpenContractId(null)}
+        panelLabel="Szczegóły kontraktu"
+        panel={
+          openContractId != null ? (
+            <ContractSidePanel
+              key={openContractId}
+              contractId={openContractId}
+              onClose={() => setOpenContractId(null)}
+              preview={
+                openRow
+                  ? {
+                      candidate_name: openRow.candidate_name,
+                      client_name: clientName ?? null,
+                      status: openRow.status,
+                    }
+                  : undefined
+              }
+              returnTarget={returnTarget}
+              source="client-register"
+            />
+          ) : null
+        }
+      />
 
       {toast && (
         <div className="fixed bottom-24 right-4 z-9999 rounded-lg bg-card px-4 py-3 text-sm text-foreground shadow-md">

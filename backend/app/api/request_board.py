@@ -5,63 +5,119 @@ pogrupowane po czterech kategoriach kompetencji (z championem na dole grupy),
 kto przy nich jest, ile kto ma i co się zmieniło od wczoraj. Filtry liczy
 przeglądarka — requestów w pracy jest kilkadziesiąt, nie tysiące.
 
+Kto pracuje nad requestem, mówi jedna reguła (``services/job_team``):
+prowadzący, aktywne przypisanie albo ręcznie dopisany współpracownik.
+Propozycja automatu to jeszcze nie praca — pulpit pokazuje ją osobno i nie
+wlicza do obłożenia (decyzja Artura 02.10.2026). Obłożenie liczy tylko
+requesty P1 (decyzja Artura 14.10.2026); pozostałe osoby mają jako
+``outside_p1``.
+
 Czyta każda rola z odczytem sekcji Rekrutacje. Ręczne dodanie i zdjęcie
-osoby: admin, Delivery Lead, Head of Recruitment.
+osoby: uprawnienie do prowadzenia rekrutacji albo Head of Recruitment
+(``require_job_staffing``).
+Propozycje automatu akceptuje, zamienia i odrzuca admin albo Head of
+Recruitment (``PROPOSAL_DECISION_ROLES``).
 """
 
 from datetime import date, datetime, timezone
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Path
+from pydantic import BaseModel, Field
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.competence_team import operator_clause
-from app.api.deps import OperationalUser, require_roles
+from app.api.deps import ROLE_DENIED_DETAIL, OperationalUser, require_roles
+from app.api.recruitment_access import PROPOSAL_DECISION_ROLES, require_job_staffing
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
+from app.services.hr.availability_local import availability_enabled
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.client import Client
 from app.models.competence_category import CompetenceCategory, UserCompetenceCategory
 from app.models.job import Job, JobStatus
-from app.models.job_work_assignment import JobWorkAssignment
+from app.models.job_work_assignment import WORK_ROLE, JobWorkAssignment
 from app.models.recruitment_allocation import RecruitmentAllocationState
 from app.models.user import User, UserRole
-from app.services.job_similarity import sent_counts
+from app.schemas.job_team import JobRecruiterOut
+from app.services import job_p0
+from app.services.job_p0 import p0_rank_expr
+from app.services.job_priority import level_of
+from app.services.job_similarity import at_client_counts, board_column_counts
+from app.services.job_team import (
+    TeamPerson,
+    recruiters_for_jobs,
+    remove_recruiter,
+    working,
+)
+from app.services.job_working_title import display_title, job_display_title_expr
 from app.services.recruitment_allocation import allocation_lock
 from app.services.request_allocation import (
+    accept_proposal,
     changed_since,
     manual_add,
-    manual_remove,
+    reject_proposal,
+    replace_proposal,
 )
-from app.services.request_allocation_plan import RELEASE_REASONS
+from app.services.request_allocation_notices import notify_assigned
+from app.services.request_allocation_plan import (
+    is_silent_release,
+    release_reason_label,
+)
+from app.services.request_allocation_proposals import pending_pairs
+from app.services import new_job_leads
 from app.services.workforce_availability import workforce_context
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
-BoardEditor = require_roles(UserRole.delivery_lead, UserRole.head_of_recruitment)
+BoardEditor = require_job_staffing
+ProposalDecider = require_roles(*PROPOSAL_DECISION_ROLES)
+
+MAX_BULK_ACCEPT = 100
+PROPOSAL_GONE = (
+    "Ta propozycja jest już nieaktualna — request ma obsadę, zmienił stan "
+    "albo automat wycofał propozycję. Odśwież pulpit."
+)
 
 
-class BoardPerson(BaseModel):
-    user_id: int
-    name: str
-    role: str
-    proposed: bool
+class BoardPerson(JobRecruiterOut):
+    # Źródło wiersza przypisania (``auto`` | ``manual``); prowadzący bez
+    # wiersza to ``owner``, ręcznie dopisany współpracownik — ``manual``.
     source: str
+
+
+class BoardLead(BaseModel):
+    id: int
+    name: str
 
 
 class BoardRequest(BaseModel):
     job_id: int
     title: str
     client_name: Optional[str]
+    # Numer zapytania u klienta (Nordea, ZOB…) — przed tytułem jak na liście
+    # rekrutacji (prośba Head of Recruitment, 23.10.2026).
+    client_reference: Optional[str] = None
     category_id: Optional[int]
     deadline: Optional[date]
     sent: int
+    # Osoby, których karta stoi teraz w „Zweryfikowany” / „QC CV” (23.10.2026,
+    # prośba Head of Recruitment) — ta sama reguła kolumn Tablicy co ``sent``.
+    verified: int = 0
+    cv_qc: int = 0
     champion: bool
     people: list[BoardPerson]
+    delivery_lead: Optional[BoardLead] = None
+    priority_level: Literal["p1", "p2", "accepting"] = "p2"
+    # 0525: P0 — ultrapilne przez 24 h (`services/job_p0`); na górze Daily.
+    is_p0: bool = False
+    p0_until: Optional[datetime] = None
+    p0_reason: Optional[str] = None
+    # Data otwarcia requestu; dla rekrutacji bez niej — data założenia wiersza.
+    opened_effective_at: Optional[datetime] = None
 
 
 class BoardGroup(BaseModel):
@@ -84,7 +140,13 @@ class LoadRequest(BaseModel):
 class LoadPerson(BaseModel):
     user_id: int
     name: str
+    # Requesty P1, nad którymi osoba pracuje (prośba Head of Recruitment,
+    # decyzja Artura 14.10.2026). Propozycje automatu liczą się osobno
+    # (``proposed``) — do akceptacji to jeszcze nie praca.
     count: int
+    proposed: int = 0
+    # Requesty bez priorytetu i „Przyjmujemy” — poza obłożeniem, tylko liczba.
+    outside_p1: int = 0
     leave_until: Optional[date]
     requests: list[LoadRequest]
 
@@ -99,6 +161,14 @@ class BoardChange(BaseModel):
     reason: Optional[str]
 
 
+class BoardViewer(BaseModel):
+    """Kto ogląda — front ustawia z tego filtr startowy kafelka (moja kategoria,
+    „Delivery Lead: ja”), gdy adres nie niesie własnych filtrów."""
+
+    user_id: int
+    primary_category_id: Optional[int]
+
+
 class BoardResponse(BaseModel):
     mode: str
     availability_known: bool
@@ -106,20 +176,82 @@ class BoardResponse(BaseModel):
     requests: list[BoardRequest]
     load: list[LoadPerson]
     changes: list[BoardChange]
+    viewer: Optional[BoardViewer] = None
+    # Początek okna „Zmiany od wczoraj” (poprzedni dzień roboczy).
+    changes_since: Optional[datetime] = None
+
+
+# Id spoza zakresu kolumny ``integer`` kończyło się błędem bazy (500) zamiast
+# czytelnego 422 — dotyczy ciała żądania i ścieżki.
+_PG_INT4_MAX = 2_147_483_647
+DbId = Annotated[int, Field(ge=1, le=_PG_INT4_MAX)]
+DbIdPath = Annotated[int, Path(ge=1, le=_PG_INT4_MAX)]
 
 
 class PersonPayload(BaseModel):
+    user_id: DbId
+    # Do 0411 wybór rekruter/sourcer. Pole zostaje dla otwartych kart ze starą
+    # wersją aplikacji i jest ignorowane — rola pracy jest jedna.
+    role: Optional[str] = None
+
+
+class ProposalDecision(BaseModel):
+    decision: Literal["accept", "reject", "replace"]
+    # Tylko przy ``replace``: kto ma pracować zamiast proponowanej osoby.
+    replacement_user_id: Optional[DbId] = None
+    replacement_role: Optional[str] = None  # ignorowane od 0411, jak wyżej
+
+
+class ProposalRef(BaseModel):
+    job_id: DbId
+    user_id: DbId
+
+
+class BulkAcceptPayload(BaseModel):
+    items: list[ProposalRef] = Field(min_length=1, max_length=MAX_BULK_ACCEPT)
+
+
+class BulkAcceptResult(BaseModel):
+    job_id: int
     user_id: int
-    role: Literal["recruiter", "sourcer"]
+    status: Literal["accepted", "gone"]
+
+
+class BulkAcceptResponse(BaseModel):
+    results: list[BulkAcceptResult]
 
 
 def _today() -> date:
     return datetime.now(ZoneInfo(settings.BUSINESS_TZ)).date()
 
 
+def _board_person(person: TeamPerson, row_source: Optional[str]) -> BoardPerson:
+    if person.via == "owner":
+        source = "owner"
+    elif person.via == "collaborator":
+        source = "manual"
+    else:
+        source = row_source or "auto"
+    return BoardPerson(
+        user_id=person.user_id,
+        name=person.name,
+        role=person.role,
+        via=person.via,
+        proposed=person.proposed,
+        assigned_by_name=person.assigned_by_name,
+        source=source,
+    )
+
+
+def _p0_fields(job: Job, now: datetime) -> dict:
+    if not job_p0.is_active(job, now):
+        return {}
+    return {"is_p0": True, "p0_until": job.p0_until, "p0_reason": job.p0_reason}
+
+
 @router.get("", response_model=BoardResponse)
 async def get_request_board(
-    _user: OperationalUser, db: AsyncSession = Depends(get_db)
+    user: OperationalUser, db: AsyncSession = Depends(get_db)
 ) -> BoardResponse:
     now = datetime.now(timezone.utc)
     jobs = list(
@@ -127,7 +259,7 @@ async def get_request_board(
             await db.scalars(
                 select(Job)
                 .where(Job.status == JobStatus.published, Job.work_state == "searching")
-                .order_by(Job.deadline.asc().nulls_last(), Job.id)
+                .order_by(p0_rank_expr().asc(), Job.deadline.asc().nulls_last(), Job.id)
             )
         ).all()
     )
@@ -141,44 +273,68 @@ async def get_request_board(
             )
         ).all()
     )
-    sent = await sent_counts(db, ids)
-    assignments = (
+    leads = dict(
         (
             await db.execute(
-                select(JobWorkAssignment, User.name)
-                .join(User, User.id == JobWorkAssignment.user_id)
-                .where(
-                    JobWorkAssignment.job_id.in_(ids or [0]),
-                    JobWorkAssignment.state != "released",
+                select(User.id, User.name).where(
+                    User.id.in_(
+                        {j.delivery_lead_id for j in jobs if j.delivery_lead_id} or {0}
+                    )
                 )
-                .order_by(JobWorkAssignment.assigned_at)
             )
         ).all()
-        if ids
-        else []
     )
-    by_job: dict[int, list[BoardPerson]] = {}
-    for row, name in assignments:
-        by_job.setdefault(row.job_id, []).append(
-            BoardPerson(
-                user_id=row.user_id,
-                name=name,
-                role=row.role,
-                proposed=row.state == "proposed",
-                source=row.source,
-            )
+    sent = await at_client_counts(db, ids)
+    verified = await board_column_counts(db, ids, ("verified",))
+    cv_qc = await board_column_counts(db, ids, ("cv_qc",))
+    # Jedna reguła „kto pracuje” — także prowadzący i ręczny współpracownik,
+    # których w ``job_work_assignments`` nie ma (do 02.10.2026 pulpit czytał
+    # samą tabelę przypisań i przy 19 z 20 requestów pokazywał „nikt”).
+    team = await recruiters_for_jobs(db, ids)
+    row_sources = {
+        (job_id, user_id): source
+        for job_id, user_id, source in (
+            (
+                await db.execute(
+                    select(
+                        JobWorkAssignment.job_id,
+                        JobWorkAssignment.user_id,
+                        JobWorkAssignment.source,
+                    ).where(
+                        JobWorkAssignment.job_id.in_(ids),
+                        JobWorkAssignment.state != "released",
+                    )
+                )
+            ).all()
+            if ids
+            else []
         )
+    }
 
     requests = [
         BoardRequest(
             job_id=job.id,
-            title=job.title,
+            title=display_title(job),
             client_name=clients.get(job.client_id),
+            client_reference=job.client_reference,
             category_id=job.competence_category_id,
             deadline=job.deadline,
             sent=int(sent.get(job.id, 0)),
+            verified=int(verified.get(job.id, 0)),
+            cv_qc=int(cv_qc.get(job.id, 0)),
             champion=job.champion_found_at is not None,
-            people=by_job.get(job.id, []),
+            people=[
+                _board_person(person, row_sources.get((job.id, person.user_id)))
+                for person in team.get(job.id, [])
+            ],
+            delivery_lead=(
+                BoardLead(id=job.delivery_lead_id, name=leads[job.delivery_lead_id])
+                if job.delivery_lead_id in leads
+                else None
+            ),
+            priority_level=level_of(job.priority),
+            **_p0_fields(job, now),
+            opened_effective_at=job.opened_at or job.created_at,
         )
         for job in jobs
     ]
@@ -231,7 +387,17 @@ async def get_request_board(
                     requests=[],
                 ),
             )
-            entry.count += 1
+            # Obłożenie to tylko P1. Osoba z samymi requestami spoza P1 zostaje
+            # na liście z zerem — z tej listy biorą się filtr „Rekruter”
+            # i okienka wyboru osoby.
+            if request.priority_level != "p1":
+                if not person.proposed:
+                    entry.outside_p1 += 1
+                continue
+            if person.proposed:
+                entry.proposed += 1
+            else:
+                entry.count += 1
             entry.requests.append(
                 LoadRequest(
                     job_id=request.job_id,
@@ -273,7 +439,9 @@ async def get_request_board(
     since = changed_since(now)
     change_rows = (
         await db.execute(
-            select(JobWorkAssignment, User.name, Job.title, Job.client_id)
+            select(
+                JobWorkAssignment, User.name, job_display_title_expr(), Job.client_id
+            )
             .join(User, User.id == JobWorkAssignment.user_id)
             .join(Job, Job.id == JobWorkAssignment.job_id)
             .where(
@@ -305,6 +473,11 @@ async def get_request_board(
     changes = []
     for row, name, title, client_id in change_rows:
         released = row.state == "released"
+        if released and is_silent_release(row.release_reason):
+            # Odrzucona albo wycofana propozycja nigdy nie była pracą —
+            # „zwolnione: …” przy nazwisku byłoby nieprawdą na ekranie, który
+            # zespół ogląda razem na daily.
+            continue
         changes.append(
             BoardChange(
                 at=row.released_at if released else row.assigned_at,
@@ -313,14 +486,14 @@ async def get_request_board(
                 title=title,
                 client_name=all_clients.get(client_id),
                 user_name=name,
-                reason=RELEASE_REASONS.get(row.release_reason or "")
+                reason=release_reason_label(row.release_reason)
                 if released
                 else ("propozycja automatu" if row.state == "proposed" else None),
             )
         )
     champions = (
         await db.execute(
-            select(Activity.created_at, Job.id, Job.title, Job.client_id)
+            select(Activity.created_at, Job.id, job_display_title_expr(), Job.client_id)
             .join(Job, Job.id == Activity.entity_id)
             .where(
                 Activity.entity_type == "job",
@@ -349,13 +522,21 @@ async def get_request_board(
         mode=(state.mode if state else "shadow")
         if settings.RECRUITMENT_ALLOCATION_ENABLED
         else "off",
-        availability_known=bool(
-            settings.COMPASS_AVAILABILITY_ENABLED and context.fresh
-        ),
+        availability_known=bool(availability_enabled() and context.fresh),
         groups=groups,
         requests=requests,
         load=load,
         changes=changes[:30],
+        viewer=BoardViewer(
+            user_id=user.id,
+            primary_category_id=await db.scalar(
+                select(UserCompetenceCategory.competence_category_id).where(
+                    UserCompetenceCategory.user_id == user.id,
+                    UserCompetenceCategory.priority == 1,
+                )
+            ),
+        ),
+        changes_since=since,
     )
 
 
@@ -382,9 +563,67 @@ async def _searching_job(db: AsyncSession, job_id: int) -> Job:
     return job
 
 
+async def _assignable_person(db: AsyncSession, user_id: int) -> User:
+    person = await db.get(User, user_id)
+    if person is None or not person.is_active:
+        raise HTTPException(404, "Nie ma takiej aktywnej osoby.")
+    if not person.has_role(UserRole.recruiter):
+        raise HTTPException(422, "Do requestu można dodać tylko rekrutera.")
+    return person
+
+
+def _record_decision(
+    db: AsyncSession,
+    *,
+    job_id: int,
+    user_id: int,
+    actor_id: int,
+    decision: str,
+    replacement_user_id: Optional[int] = None,
+) -> None:
+    """Ślad decyzji o propozycji w historii rekrutacji — same identyfikatory."""
+    details = {"user_id": user_id, "decision": decision}
+    if replacement_user_id is not None:
+        details["replacement_user_id"] = replacement_user_id
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="allocation_proposal_decided",
+            user_id=actor_id,
+            details=details,
+        )
+    )
+
+
+async def _notify_assigned(
+    db: AsyncSession, *, job: Job, client_name: Optional[str], user_id: int
+) -> None:
+    """Dzwonek dla osoby, która właśnie dostała request (akceptacja propozycji
+    albo wybór człowieka) — ta sama treść co przy przydziale przez automat."""
+    await notify_assigned(
+        db,
+        job_id=job.id,
+        title=display_title(job),
+        client_name=client_name,
+        user_id=user_id,
+    )
+
+
+async def _client_names(db: AsyncSession, jobs: list[Job]) -> dict[int, str]:
+    ids = {job.client_id for job in jobs if job.client_id}
+    if not ids:
+        return {}
+    return dict(
+        (
+            await db.execute(select(Client.id, Client.name).where(Client.id.in_(ids)))
+        ).all()
+    )
+
+
 @router.post("/jobs/{job_id}/people")
 async def add_person(
-    job_id: int,
+    job_id: DbIdPath,
     payload: PersonPayload,
     current_user: User = Depends(BoardEditor),
     db: AsyncSession = Depends(get_db),
@@ -393,20 +632,31 @@ async def add_person(
     # (kolejność z ``allocation_lock``) — inaczej równoległy przebieg dodający
     # tę samą parę kończył się naruszeniem unikalności.
     await allocation_lock(db)
-    await _searching_job(db, job_id)
-    person = await db.get(User, payload.user_id)
-    if person is None or not person.is_active:
-        raise HTTPException(404, "Nie ma takiej aktywnej osoby.")
-    if not person.has_any_role(UserRole.recruiter, UserRole.sourcer, UserRole.tac):
-        raise HTTPException(
-            422, "Do requestu można dodać rekrutera, sourcera albo TAC."
+    job = await _searching_job(db, job_id)
+    person = await _assignable_person(db, payload.user_id)
+    already_working = await db.scalar(
+        select(JobWorkAssignment.id).where(
+            JobWorkAssignment.job_id == job_id,
+            JobWorkAssignment.user_id == person.id,
+            JobWorkAssignment.state == "active",
         )
+    )
     await manual_add(
         db,
         job_id=job_id,
         user_id=person.id,
-        role=payload.role,
+        role=WORK_ROLE,
         actor_id=current_user.id,
+    )
+    # Audyt 06.10.2026 (H1): dodanie z pulpitu też mówi osobie, że dostała
+    # request — bez dzwonka dla siebie i dla osoby, która już przy nim pracuje.
+    if already_working is None and person.id != current_user.id:
+        clients = await _client_names(db, [job])
+        await _notify_assigned(
+            db, job=job, client_name=clients.get(job.client_id), user_id=person.id
+        )
+    await new_job_leads.record_team_decision(
+        db, job_id=job_id, actor=current_user, via="team_change"
     )
     await db.commit()
     return {"ok": True}
@@ -414,13 +664,238 @@ async def add_person(
 
 @router.delete("/jobs/{job_id}/people/{user_id}")
 async def remove_person(
-    job_id: int,
-    user_id: int,
-    _current_user: User = Depends(BoardEditor),
+    job_id: DbIdPath,
+    user_id: DbIdPath,
+    current_user: User = Depends(BoardEditor),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    """Zdejmuje osobę z requestu albo odrzuca jej propozycję.
+
+    Osoba, która pracuje (prowadzący, przypisanie, współpracownik), schodzi ze
+    wszystkich trzech miejsc naraz (``job_team.remove_recruiter``). Sama
+    propozycja automatu to decyzja Head of Recruitment — Delivery Lead jej nie
+    odrzuca.
+    """
     await allocation_lock(db)
-    await _locked_job(db, job_id)
-    removed = await manual_remove(db, job_id=job_id, user_id=user_id)
+    job = await _locked_job(db, job_id)
+    has_proposal = (
+        await db.scalar(
+            select(JobWorkAssignment.id).where(
+                JobWorkAssignment.job_id == job_id,
+                JobWorkAssignment.user_id == user_id,
+                JobWorkAssignment.state == "proposed",
+            )
+        )
+    ) is not None
+    if has_proposal:
+        team = await recruiters_for_jobs(db, [job_id])
+        if not any(person.user_id == user_id for person in working(team[job_id])):
+            if not current_user.has_any_role(*PROPOSAL_DECISION_ROLES):
+                raise HTTPException(403, ROLE_DENIED_DETAIL)
+            removed = await reject_proposal(db, job_id=job_id, user_id=user_id)
+            _record_decision(
+                db,
+                job_id=job_id,
+                user_id=user_id,
+                actor_id=current_user.id,
+                decision="reject",
+            )
+            await db.commit()
+            return {"removed": removed}
+    if job.status == JobStatus.closed:
+        # Zamknięta rekrutacja jest historią: prowadzący zostaje przy niej
+        # w statystykach, więc nie zdejmujemy go po fakcie.
+        raise HTTPException(
+            409, "Rekrutacja jest zamknięta — jej obsady już się nie zmienia."
+        )
+    removed = await remove_recruiter(
+        db, job=job, user_id=user_id, actor_id=current_user.id
+    )
+    if has_proposal:
+        # Człowiek przypisał tę samą osobę, zanim automat wycofał propozycję.
+        # Zdjęcie z requestu zabiera też propozycję — inaczej osoba wracałaby
+        # na pulpit jako „propozycja automatu”.
+        await reject_proposal(db, job_id=job_id, user_id=user_id)
+    await new_job_leads.record_team_decision(
+        db, job_id=job_id, actor=current_user, via="team_change"
+    )
     await db.commit()
     return {"removed": removed}
+
+
+@router.post("/jobs/{job_id}/proposals/{user_id}")
+async def decide_proposal(
+    job_id: DbIdPath,
+    user_id: DbIdPath,
+    payload: ProposalDecision,
+    current_user: User = Depends(ProposalDecider),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Decyzja o propozycji automatu: akceptacja, odrzucenie albo inna osoba."""
+    if payload.decision == "replace":
+        if payload.replacement_user_id is None:
+            raise HTTPException(
+                422, "Wskaż osobę, która ma pracować zamiast proponowanej."
+            )
+        if payload.replacement_user_id == user_id:
+            raise HTTPException(
+                422, "To ta sama osoba — zaakceptuj propozycję zamiast ją zmieniać."
+            )
+    await allocation_lock(db)
+    job = await _locked_job(db, job_id)
+    assigned_user_id: Optional[int] = None
+    if payload.decision == "reject":
+        # Odrzucić można też propozycję, która przestała być aktualna —
+        # to niczego nie przydziela.
+        done = await reject_proposal(db, job_id=job_id, user_id=user_id)
+    elif (job_id, user_id) not in await pending_pairs(db, [job_id]):
+        done = False
+    elif payload.decision == "accept":
+        done = await accept_proposal(
+            db, job_id=job_id, user_id=user_id, actor_id=current_user.id
+        )
+        assigned_user_id = user_id
+    else:
+        replacement = await _assignable_person(db, payload.replacement_user_id)
+        done = await replace_proposal(
+            db,
+            job_id=job_id,
+            user_id=user_id,
+            replacement_id=replacement.id,
+            role=WORK_ROLE,
+            actor_id=current_user.id,
+        )
+        assigned_user_id = replacement.id
+    if not done:
+        raise HTTPException(409, PROPOSAL_GONE)
+    _record_decision(
+        db,
+        job_id=job_id,
+        user_id=user_id,
+        actor_id=current_user.id,
+        decision=payload.decision,
+        replacement_user_id=payload.replacement_user_id
+        if payload.decision == "replace"
+        else None,
+    )
+    if assigned_user_id is not None:
+        # Potwierdzenie osoby, która PO decyzji prowadzi — przy rekrutacji
+        # z prowadzącym zaakceptowana osoba dochodzi jako druga.
+        await new_job_leads.record_team_decision(
+            db, job_id=job_id, actor=current_user, via="proposal"
+        )
+        clients = await _client_names(db, [job])
+        await _notify_assigned(
+            db,
+            job=job,
+            client_name=clients.get(job.client_id),
+            user_id=assigned_user_id,
+        )
+    await db.commit()
+    return {"decision": payload.decision, "assigned_user_id": assigned_user_id}
+
+
+class LeadConfirmation(BaseModel):
+    # Osoba, którą Head of Recruitment widział na pulpicie. Inna niż dzisiejszy
+    # prowadzący = 409: potwierdzenie dotyczy konkretnej osoby.
+    lead_user_id: int = Field(ge=1, le=_PG_INT4_MAX)
+
+
+LEAD_CHANGED = "Prowadzący tej rekrutacji zmienił się w międzyczasie. Odśwież pulpit."
+
+
+@router.post("/jobs/{job_id}/lead-confirmation")
+async def confirm_lead(
+    job_id: DbIdPath,
+    payload: LeadConfirmation,
+    current_user: User = Depends(ProposalDecider),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """„Potwierdź” na liście „Nowe rekrutacje — kto prowadzi”.
+
+    Niczego nie przydziela — zapisuje, że Head of Recruitment (albo admin)
+    zgadza się z prowadzącym, więc rekrutacja znika z listy
+    (``new_job_leads.CONFIRMED_ACTION``).
+    """
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if job is None:
+        raise HTTPException(404, "Nie ma takiego requestu.")
+    people = (await recruiters_for_jobs(db, [job_id])).get(job_id, [])
+    lead = next(iter(working(people)), None)
+    if lead is None or lead.user_id != payload.lead_user_id:
+        raise HTTPException(409, LEAD_CHANGED)
+    new_job_leads.record_confirmation(
+        db,
+        job_id=job_id,
+        lead_user_id=lead.user_id,
+        actor_id=current_user.id,
+        via="confirm",
+    )
+    await db.commit()
+    return {"job_id": job_id, "lead_user_id": lead.user_id}
+
+
+@router.post("/proposals/accept", response_model=BulkAcceptResponse)
+async def accept_proposals(
+    payload: BulkAcceptPayload,
+    current_user: User = Depends(ProposalDecider),
+    db: AsyncSession = Depends(get_db),
+) -> BulkAcceptResponse:
+    """„Zaakceptuj wszystkie” — jedna blokada, jeden commit.
+
+    Propozycja, która w międzyczasie przestała być aktualna, wraca jako
+    ``gone`` i nie zatrzymuje pozostałych.
+    """
+    pairs = list(dict.fromkeys((item.job_id, item.user_id) for item in payload.items))
+    await allocation_lock(db)
+    # Rekrutacje blokujemy w stałej kolejności (rosnąco po id).
+    jobs = {
+        job.id: job
+        for job in (
+            await db.scalars(
+                select(Job)
+                .where(Job.id.in_({job_id for job_id, _user_id in pairs}))
+                .order_by(Job.id)
+                .with_for_update()
+            )
+        ).all()
+    }
+    pending = await pending_pairs(db, jobs)
+    clients = await _client_names(db, list(jobs.values()))
+    results = []
+    # Request, który w tej paczce dostał już osobę, ma obsadę — druga
+    # propozycja przy nim jest nieaktualna jak każda inna.
+    staffed: set[int] = set()
+    for job_id, user_id in pairs:
+        accepted = (
+            job_id not in staffed
+            and (job_id, user_id) in pending
+            and await accept_proposal(
+                db, job_id=job_id, user_id=user_id, actor_id=current_user.id
+            )
+        )
+        if accepted:
+            staffed.add(job_id)
+            job = jobs[job_id]
+            _record_decision(
+                db,
+                job_id=job_id,
+                user_id=user_id,
+                actor_id=current_user.id,
+                decision="accept",
+            )
+            await new_job_leads.record_team_decision(
+                db, job_id=job_id, actor=current_user, via="proposal"
+            )
+            await _notify_assigned(
+                db, job=job, client_name=clients.get(job.client_id), user_id=user_id
+            )
+        results.append(
+            BulkAcceptResult(
+                job_id=job_id,
+                user_id=user_id,
+                status="accepted" if accepted else "gone",
+            )
+        )
+    await db.commit()
+    return BulkAcceptResponse(results=results)

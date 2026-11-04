@@ -232,8 +232,10 @@ describe("nextActionFor — dalsze etapy", () => {
     expect(nextActionFor(item(), cvSentCol).label).toBe(
       "Umów interview / feedback klienta",
     );
+    // 16.10.2026: po rozmowie czekamy na decyzję klienta — „Klient
+    // zaakceptował” albo odrzucenie, nie sam feedback.
     expect(nextActionFor(item(), clientInterviewCol).label).toBe(
-      "Zbierz feedback HM",
+      "Decyzja po rozmowie",
     );
     expect(nextActionFor(item(), acceptanceCol).label).toBe(
       "Reakcja kandydata na ofertę",
@@ -307,7 +309,7 @@ describe("columnSlaHint", () => {
       "→ CV do klienta",
     );
     expect(columnSlaHint(rejectedCol, { oldestDays: 90 })).toEqual({
-      left: "powody w doku",
+      left: "powody na kartach i w panelu",
       right: null,
       rightTone: "normal",
     });

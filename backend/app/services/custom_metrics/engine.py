@@ -17,13 +17,13 @@ Trzy reguły, które trzymają ten moduł uczciwym:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import (
-    DateTime,
-    Integer,
     Text,
+    bindparam,
     cast,
     column,
     func,
@@ -35,21 +35,27 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+from app.core.cache import cache_get, cache_invalidate, cache_set, cache_single_flight
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup
 from app.models.competence_category import CompetenceCategory
 from app.models.contract import Contract, ContractStatus
-from app.models.job import Job, JobStatus
-from app.models.user import User, UserRole
+from app.models.job import Job
+from app.models.user import User
+from app.services import competition_history, permission_catalog
 from app.services.access_scope import (
     DashboardScope,
     ScopeKind,
+    delivery_lead_scope_is_assigned,
+    delivery_lead_sees_whole_delivery,
+    is_delivery_lead_governed,
     resolve_dashboard_scope,
+    resolve_delivery_lead_assigned_client_ids,
     resolve_delivery_lead_finance_client_ids,
 )
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, REVENUE_BEARING_STATUSES
 from app.services.custom_metrics.definition import (
     MILESTONE_STAGES,
@@ -97,48 +103,185 @@ _SECTION_LABELS_PL = {
 }
 _AUTHOR_LABELS_PL = {"me": "moje", "team": "mój zespół", "all": "cała firma"}
 
+# Widok KPI (0454): ruchy Tablicy, a 1.01–11.10.2026 wpisy DynaReportera
+# (`source = 'dynareporter'`, bez rekrutacji) — ta sama reguła co Insights.
 _MILESTONES = table(
-    "analytics_first_milestones",
+    "analytics_kpi_milestones",
     column("candidate_id"),
     column("job_id"),
     column("stage"),
     column("first_reached_at"),
     column("first_moved_by"),
+    column("source"),
 )
 
 
-def _credited_milestones():
-    """Kamienie milowe z kredytem jak w „Moje KPI" (rodzina A).
+# Runda 10 (R10-N1-1): kafelki „moje/mój zespół" i podział po rekruterach
+# liczyły pełne `VERIFIER_ANCHORED_CTE` (5–7 s) przy każdym przeliczeniu,
+# osobno dla każdej osoby i drugi raz dla porównania z poprzednim okresem.
+# Filtr okna i osoby i tak działał dopiero na wyniku CTE, więc liczymy JEDNĄ
+# migawkę całej firmy (osoba, etap, rekrutacja, dzień w Warszawie) na minutę,
+# z jednym wykonawcą, a okno, osobę i filtry nakładamy w Pythonie. Treść CTE
+# jest nietknięta — tę samą atrybucję czytają „Moje KPI" i wyścigi z nagrodami.
+_CREDITED_SNAPSHOT_TTL_SECONDS = 60
+_CREDITED_KEY_PREFIX = "dashboard_metric:credited:v1:"
+# Najdłuższe okno kreatora (12 miesięcy / ten rok) razem z poprzednim okresem
+# sięga ~730 dni wstecz; zapas, żeby żadne okno nie wyszło poza migawkę.
+_CREDITED_SPAN_DAYS = 800
 
-    Gdy metryka przypisuje ruchy LUDZIOM (autor „moje"/„mój zespół" albo
+# (credit_user, stage, job_id, client_id, competence_category_id, dzień, liczba)
+# `job_id` = None: wiersz z DynaReportera (1.01–11.10.2026, patrz
+# `VERIFIER_ANCHORED_CTE`) — osoba i dzień są, rekrutacji i klienta nie ma.
+CreditedRow = tuple[
+    Optional[int], str, Optional[int], Optional[int], Optional[int], date, int
+]
+
+
+def _uses_credit(
+    definition: MetricDefinition, author_ids: Optional[frozenset[int]]
+) -> bool:
+    """Ruchy przypisane LUDZIOM liczą kredyt jak „Moje KPI" (rodzina A).
+
+    Gdy metryka przypisuje ruchy ludziom (autor „moje"/„mój zespół" albo
     podział po rekruterze), zasługę dostaje osoba z ``VERIFIER_ANCHORED_CTE``
     — pierwszy zaakceptowany weryfikator pary — a nie ten, kto kliknął etap
-    (decyzja 22.09.2026). Bez tego kafelek „Zatrudnieni" (moje) liczył inną
-    osobę niż panel „Moje KPI" obok. Liczby całej firmy bez podziału na ludzi
-    zostają na widoku ``analytics_first_milestones`` (ta sama reguła D2 co
-    Insights). Oba źródła pomijają wykluczone placementy (0343).
+    (decyzja 22.09.2026). Liczby całej firmy bez podziału na ludzi zostają na
+    widoku ``analytics_first_milestones`` (reguła D2 jak Insights). Oba źródła
+    pomijają wykluczone placementy (0343).
     """
+    return definition.source == "pipeline_moves" and (
+        author_ids is not None or definition.group_by == "recruiter"
+    )
+
+
+async def _credited_snapshot(db: AsyncSession, since: date) -> list[CreditedRow]:
+    """Kamienie milowe z kredytem całej firmy od ``since`` — jedno CTE na minutę."""
     # Import lokalny: kpi_panel ciągnie kpi_engine, a silnik metryk nie
     # powinien ładować go przy imporcie modułu.
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
-
-    return (
-        text(
-            VERIFIER_ANCHORED_CTE
-            + """
-            SELECT candidate_id, job_id, stage, reached_at, credit_user
-            FROM credited
-            """
-        )
-        .columns(
-            column("candidate_id", Integer),
-            column("job_id", Integer),
-            column("stage", Text),
-            column("reached_at", DateTime(timezone=True)),
-            column("credit_user", Integer),
-        )
-        .subquery("credited_milestones")
+    from app.services.credited_snapshot import (
+        CREDITED_FROM_SNAPSHOT_CTE,
+        credited_bind,
     )
+
+    key = f"{_CREDITED_KEY_PREFIX}{since.isoformat()}"
+    cached = await cache_get(key)
+    if cached is not None:
+        return cached
+    async with cache_single_flight(key, db=db):
+        cached = await cache_get(key)
+        if cached is not None:
+            return cached
+        statement = text(
+            CREDITED_FROM_SNAPSHOT_CTE
+            + f"""
+            SELECT c.credit_user, c.stage, c.job_id,
+                   j.client_id, j.competence_category_id,
+                   (c.reached_at AT TIME ZONE '{TZ}')::date AS day,
+                   count(*) AS n
+            FROM credited c
+            LEFT JOIN jobs j ON j.id = c.job_id
+            WHERE c.stage IN :stages
+              AND c.reached_at >= :since
+            GROUP BY 1, 2, 3, 4, 5, 6
+            """
+        ).bindparams(bindparam("stages", expanding=True))
+        since_at = datetime.combine(since, time(0), tzinfo=ZoneInfo(TZ))
+        result = await db.execute(
+            statement,
+            {
+                "stages": list(MILESTONE_STAGES),
+                "since": since_at,
+                **await credited_bind(db, since=since_at),
+            },
+        )
+        rows: list[CreditedRow] = [
+            (
+                None if r[0] is None else int(r[0]),
+                str(r[1]),
+                None if r[2] is None else int(r[2]),
+                None if r[3] is None else int(r[3]),
+                None if r[4] is None else int(r[4]),
+                r[5],
+                int(r[6]),
+            )
+            for r in result.all()
+        ]
+        # Najwyżej jedna migawka naraz — wczorajsza znika przy zapisie dzisiejszej.
+        await cache_invalidate(_CREDITED_KEY_PREFIX)
+        if _CREDITED_SNAPSHOT_TTL_SECONDS > 0:
+            await cache_set(
+                key,
+                rows,
+                ttl_seconds=_CREDITED_SNAPSHOT_TTL_SECONDS,
+                jitter_seconds=10,
+            )
+        return rows
+
+
+def _credited_since(window: Window) -> date:
+    return min(
+        window.today - timedelta(days=_CREDITED_SPAN_DAYS),
+        window.start_date,
+        window.previous().start_date,
+    )
+
+
+def _credited_key(definition: MetricDefinition, row: CreditedRow) -> Any:
+    person, stage, _job, client, category, day, _n = row
+    g = definition.group_by
+    if g == "week":
+        return day - timedelta(days=day.weekday())
+    if g == "month":
+        return day.replace(day=1)
+    return {
+        "client": client,
+        "recruiter": person,
+        "stage": stage,
+        "competence_category": category,
+    }[g]
+
+
+# Podział na klienta i kategorię zna tylko Tablica — wpisy DynaReportera
+# (1.01–11.10.2026, bez rekrutacji) nie trafiają do żadnej grupy. Poprzedni
+# okres kafla liczy się bez podziału, więc dostaje tę samą zasadę jawnie
+# (`board_only`), inaczej porównywałby pary z parami + wpisami.
+_BOARD_ONLY_GROUPS = ("client", "competence_category")
+
+
+def _credited_counts(
+    rows: list[CreditedRow],
+    definition: MetricDefinition,
+    window: Window,
+    author_ids: Optional[frozenset[int]],
+    *,
+    board_only: bool = False,
+) -> dict[Any, int]:
+    """Ta sama selekcja co zapytanie SQL, tylko na migawce."""
+    stages = {definition.stage} if definition.stage else set(MILESTONE_STAGES)
+    f = definition.filters
+    clients = set(f.client_ids)
+    categories = set(f.competence_category_ids)
+    jobs = set(f.job_ids)
+    start, end = window.start_date, window.end_date
+    grouped = definition.group_by != "none"
+    out: dict[Any, int] = {}
+    for row in rows:
+        person, stage, job_id, client, category, day, n = row
+        if not (start <= day < end) or stage not in stages:
+            continue
+        if author_ids is not None and person not in author_ids:
+            continue
+        if clients and client not in clients:
+            continue
+        if categories and category not in categories:
+            continue
+        if jobs and job_id not in jobs:
+            continue
+        if job_id is None and (board_only or definition.group_by in _BOARD_ONLY_GROUPS):
+            continue
+        k = _credited_key(definition, row) if grouped else None
+        out[k] = out.get(k, 0) + n
+    return out
 
 
 class MetricAccessDenied(Exception):
@@ -191,23 +334,84 @@ def source_denial(user: User, source: str) -> Optional[str]:
                 "poproś administratora o zmianę uprawnień."
             )
         return None
-    if user_has_capability(user, AnalyticsCapability.VIEW_FINANCE):
+    if has_permission(user, ProductAction.company_results):
         return None
-    if user.has_role(UserRole.delivery_lead):
-        return None
-    return "Kwoty widzą Finanse, administrator i Delivery Lead dla swoich klientów."
+    # Bez „Wyników firmy” kwoty liczy tylko Delivery Lead, u swoich klientów:
+    # każda inna droga dawałaby sumę całej firmy (decyzja Artura 02.11.2026).
+    if not is_delivery_lead_governed(user):
+        return (
+            "Brakuje Ci uprawnienia "
+            f"„{permission_catalog.label(ProductAction.company_results.value)}”. "
+            "Poproś administratora o dostęp."
+        )
+    # O to samo pyta katalog kafelków.
+    if not has_permission(user, ProductAction.amounts_view):
+        return (
+            "Brakuje Ci uprawnienia "
+            f"„{permission_catalog.label(ProductAction.amounts_view.value)}”. "
+            "Poproś administratora o dostęp."
+        )
+    # Runda 8 (R8-N10-2): kwoty klientów wszędzie indziej (profil klienta,
+    # Analityka, „Moi klienci") stoją za sekcją Delivery — konto z odebraną
+    # sekcją nie liczy ich też w kreatorze.
+    if section_access_for_user(user, ProductSection.delivery) < SectionAccess.read:
+        return (
+            f"Brak dostępu do sekcji {_SECTION_LABELS_PL[ProductSection.delivery]}"
+            " — poproś administratora o zmianę uprawnień."
+        )
+    return None
 
 
 async def _finance_client_boundary(
     user: User, db: AsyncSession
 ) -> Optional[frozenset[int]]:
-    """``None`` = wszyscy klienci; zbiór = portfel Delivery Leada."""
-    if user_has_capability(user, AnalyticsCapability.VIEW_FINANCE):
+    """``None`` = wszyscy klienci; zbiór = portfel Delivery Leada.
+
+    Całą firmę liczy tylko „Wyniki firmy”; konto z rolą Delivery Leada liczy
+    wyłącznie swoich klientów, a nikt inny kwot tu nie liczy.
+    """
+    if has_permission(user, ProductAction.company_results):
         return None
+    if not is_delivery_lead_governed(user):
+        raise MetricAccessDenied(
+            "Brakuje Ci uprawnienia "
+            f"„{permission_catalog.label(ProductAction.company_results.value)}”."
+        )
     portfolio = await resolve_delivery_lead_finance_client_ids(user, db)
     if not portfolio:
         raise MetricAccessDenied(
             "Nie masz przypisanych klientów, dla których widzisz kwoty."
+        )
+    return portfolio
+
+
+# Źródła Delivery: Delivery Lead liczy tylko klientów swojego portfela.
+_DELIVERY_CLIENT_SOURCES = frozenset({"contracts", "orders"})
+
+
+async def _delivery_client_boundary(
+    user: User, db: AsyncSession
+) -> Optional[frozenset[int]]:
+    """``None`` = wszyscy klienci; zbiór = portfel Delivery Leada.
+
+    Kontrakty i zamówienia to dane modułów Delivery, a tam Delivery Lead widzi
+    wyłącznie przypisanych klientów (decyzja Artura 26.09.2026). Do rundy 6
+    audytu kafelki „Aktywne kontrakty" i „Kończące się zamówienia" liczyły całą
+    firmę, więc DL widział na pulpicie liczby klientów spoza portfela. Warunki
+    są lustrem ``resolve_delivery_lead_client_ids`` (``DL_CLIENT_SCOPE=all``
+    i TCM+DL = cała organizacja, admin/Finanse i role bez DL = bez granicy) —
+    liczone tutaj wprost, bo tamta funkcja przy „wszyscy" oddaje listę
+    WSZYSTKICH id klientów, a ta w filtrze SQL to tysiące parametrów.
+    """
+    if not delivery_lead_scope_is_assigned() or delivery_lead_sees_whole_delivery(user):
+        return None
+    portfolio = await resolve_delivery_lead_assigned_client_ids(user, db)
+    if portfolio is None:
+        return None
+    if not portfolio:
+        raise MetricAccessDenied(
+            "Nie masz przypisanych klientów — kontrakty i zamówienia liczysz "
+            "tylko dla swojego portfela."
         )
     return portfolio
 
@@ -225,7 +429,9 @@ def _author_ids(
     if author == "me":
         return frozenset({user.id})
     if author == "team":
-        return scope.allowed_operator_user_ids or frozenset({user.id})
+        # Runda 10 (R10-N1-7): pusty zespół to pusty zbiór, nie dane samego
+        # użytkownika pod podpisem „mój zespół" — kafelek mówi to notą.
+        return scope.allowed_operator_user_ids
     return None
 
 
@@ -322,20 +528,16 @@ def _pipeline_query(
     definition: MetricDefinition,
     window: Window,
     author_ids: Optional[frozenset[int]],
+    *,
+    board_only: bool = False,
 ):
-    # Przypisanie do ludzi = kredyt jak w „Moje KPI"; cała firma = widok.
-    if author_ids is not None or definition.group_by == "recruiter":
-        source = _credited_milestones()
-        m = source.c
-        stage = m.stage
-        person = m.credit_user
-        reached_at = m.reached_at
-    else:
-        source = _MILESTONES
-        m = source.c
-        stage = cast(m.stage, Text)
-        person = m.first_moved_by
-        reached_at = m.first_reached_at
+    # Cała firma bez podziału na ludzi = widok. Przypisanie do ludzi (kredyt
+    # jak w „Moje KPI") liczy `_credited_counts` z migawki — patrz wyżej.
+    source = _MILESTONES
+    m = source.c
+    stage = cast(m.stage, Text)
+    person = m.first_moved_by
+    reached_at = m.first_reached_at
     cols = {
         "client": Job.client_id,
         "recruiter": person,
@@ -356,7 +558,13 @@ def _pipeline_query(
         conds.append(Job.competence_category_id.in_(f.competence_category_ids))
     if f.job_ids:
         conds.append(m.job_id.in_(f.job_ids))
-    base = source.join(Job, Job.id == m.job_id)
+    # Wiersz z DynaReportera nie ma rekrutacji: liczy się w sumach, tygodniach,
+    # miesiącach, etapach i osobach, ale nie w podziale na klienta i kategorię.
+    # Ruch Tablicy bez rekrutacji w bazie wypada jak dotąd (dawny INNER JOIN).
+    conds.append(or_(Job.id.isnot(None), m.source != "nexus"))
+    if board_only or definition.group_by in _BOARD_ONLY_GROUPS:
+        conds.append(Job.id.isnot(None))
+    base = source.outerjoin(Job, Job.id == m.job_id)
     return base, conds, cols, reached_at
 
 
@@ -369,7 +577,11 @@ def _candidates_query(
         "recruiter": Candidate.created_by,
         "competence_category": Candidate.competence_category_id,
     }
-    conds = [Candidate.created_at >= window.start, Candidate.created_at < window.end]
+    # Kandydaci dodani w NEXUS-ie od 12.10.2026 (decyzja Artura 18.10.2026).
+    conds = [
+        Candidate.created_at >= competition_history.board_start(window.start),
+        Candidate.created_at < window.end,
+    ]
     if author_ids is not None:
         conds.append(Candidate.created_by.in_(sorted(author_ids)))
     if definition.filters.competence_category_ids:
@@ -381,35 +593,74 @@ def _candidates_query(
     return Candidate.__table__, conds, cols, Candidate.created_at
 
 
+def _jobs_author_clause(author: str, user: User, author_ids: frozenset[int]):
+    """„Moje"/„mój zespół" = ta sama reguła co zakres „Moje" listy ``/jobs``.
+
+    Runda 10 (R10-N1-3): kreator liczył tylko ``recruiter_id``/``tac_id``/
+    ``delivery_lead_id``, a „Moje" na ``/jobs`` (R9-N15-2) bierze też
+    współpracowników i przypisania do requestu — sourcer z przypisaniem
+    miał w kreatorze zawsze 0. TAC i Delivery Lead rekrutacji zostają (DL
+    liczył „moje" rekrutacje po ``delivery_lead_id`` od początku kreatora).
+
+    Od 02.10.2026 jak „Moje”: tylko RĘCZNIE dopisani współpracownicy (wiersze
+    ``auto_cc`` to cała kategoria, nie osoby przy rekrutacji) i tylko AKTYWNE
+    przypisania (propozycja automatu to jeszcze nie praca).
+    """
+    from app.api.jobs import (
+        _live_work_assignment_job_ids,
+        _manual_collaborator_job_ids,
+        jobs_mine_clause,
+    )
+
+    if author == "me":
+        return or_(
+            jobs_mine_clause(user),
+            Job.tac_id == user.id,
+            Job.delivery_lead_id == user.id,
+        )
+    ids = sorted(author_ids)
+    return or_(
+        Job.recruiter_id.in_(ids),
+        Job.tac_id.in_(ids),
+        Job.delivery_lead_id.in_(ids),
+        Job.id.in_(_manual_collaborator_job_ids(ids)),
+        Job.id.in_(_live_work_assignment_job_ids(ids)),
+    )
+
+
 def _jobs_query(
     definition: MetricDefinition,
     window: Window,
     author_ids: Optional[frozenset[int]],
+    user: Optional[User] = None,
 ):
+    from app.api.jobs import jobs_open_only_clause, jobs_register_base_clause
+
     cols = {
         "client": Job.client_id,
         "recruiter": Job.recruiter_id,
         "competence_category": Job.competence_category_id,
     }
-    conds: list[Any] = []
+    # Runda 10 (R10-N1-9): rekrutacje klientów ukrytych albo usuniętych nie
+    # istnieją w rejestrze `/jobs` (UAT B73), więc nie liczą się też tu.
+    conds: list[Any] = [jobs_register_base_clause()]
     ts: Any = None
     if definition.measure == "open_now":
-        conds.append(Job.status == JobStatus.published)
+        # „Otwarte teraz" = pigułka „Otwarte" rejestru `/jobs`: wszystko poza
+        # zamkniętymi, także szkic (do rundy 10 tylko `published`).
+        conds.append(jobs_open_only_clause())
     elif definition.measure == "opened":
         ts = func.coalesce(Job.opened_at, Job.created_at)
-        conds += [ts >= window.start, ts < window.end]
+        # Rekrutacje Tablicy liczymy od 12.10.2026 (decyzja Artura 18.10.2026)
+        # — wcześniejsze otwarcia i zamknięcia to import Traffita.
+        conds += [ts >= competition_history.board_start(window.start), ts < window.end]
     else:
         ts = Job.closed_at
-        conds += [ts >= window.start, ts < window.end]
+        conds += [ts >= competition_history.board_start(window.start), ts < window.end]
     if author_ids is not None:
-        ids = sorted(author_ids)
-        conds.append(
-            or_(
-                Job.recruiter_id.in_(ids),
-                Job.tac_id.in_(ids),
-                Job.delivery_lead_id.in_(ids),
-            )
-        )
+        if user is None:  # pragma: no cover — wołający zawsze podaje konto
+            raise ValueError("Filtr autora rekrutacji wymaga konta.")
+        conds.append(_jobs_author_clause(definition.filters.author, user, author_ids))
     f = definition.filters
     if f.client_ids:
         conds.append(Job.client_id.in_(f.client_ids))
@@ -418,7 +669,11 @@ def _jobs_query(
     return Job.__table__, conds, cols, ts
 
 
-def _contracts_query(definition: MetricDefinition, window: Window):
+def _contracts_query(
+    definition: MetricDefinition,
+    window: Window,
+    client_boundary: Optional[frozenset[int]] = None,
+):
     cols = {"client": Contract.client_id, "_ts_is_date": True}
     conds: list[Any] = []
     ts: Any = None
@@ -435,7 +690,8 @@ def _contracts_query(definition: MetricDefinition, window: Window):
             ts < window.end_date,
         ]
     else:
-        ts = func.coalesce(Contract.terminated_at, Contract.end_date)
+        # Runda 8 (R8-N13-1): `terminated_at` przeżywa aneks przedłużenia.
+        ts = func.coalesce(Contract.end_date, Contract.terminated_at)
         conds += [
             Contract.status == ContractStatus.ended,
             ts >= window.start_date,
@@ -443,10 +699,16 @@ def _contracts_query(definition: MetricDefinition, window: Window):
         ]
     if definition.filters.client_ids:
         conds.append(Contract.client_id.in_(definition.filters.client_ids))
+    if client_boundary is not None:
+        conds.append(Contract.client_id.in_(sorted(client_boundary)))
     return Contract.__table__, conds, cols, ts
 
 
-def _orders_query(definition: MetricDefinition, window: Window):
+def _orders_query(
+    definition: MetricDefinition,
+    window: Window,
+    client_boundary: Optional[frozenset[int]] = None,
+):
     # Start linii zamówienia zbiorczego = COALESCE(linia, grupa) — ta sama
     # reguła co `services/order_facts.py`.
     eff_start = func.coalesce(ClientOrder.start_date, ClientOrderGroup.start_date)
@@ -480,6 +742,8 @@ def _orders_query(definition: MetricDefinition, window: Window):
         ]
     if definition.filters.client_ids:
         conds.append(ClientOrder.client_id.in_(definition.filters.client_ids))
+    if client_boundary is not None:
+        conds.append(ClientOrder.client_id.in_(sorted(client_boundary)))
     base = ClientOrder.__table__.outerjoin(
         ClientOrderGroup.__table__,
         ClientOrderGroup.id == ClientOrder.order_group_id,
@@ -492,22 +756,36 @@ async def _run_count(
     definition: MetricDefinition,
     window: Window,
     author_ids: Optional[frozenset[int]],
+    client_boundary: Optional[frozenset[int]] = None,
+    credited_rows: Optional[list[CreditedRow]] = None,
+    *,
+    user: Optional[User] = None,
+    board_only: bool = False,
 ) -> tuple[float, list[dict[str, Any]], list[str]]:
     src = definition.source
+    if credited_rows is not None:
+        counts = _credited_counts(
+            credited_rows, definition, window, author_ids, board_only=board_only
+        )
+        if definition.group_by == "none":
+            return float(counts.get(None, 0)), [], []
+        return await _grouped_series(db, definition, window, list(counts.items()))
     if src == "pipeline_moves":
-        base, conds, cols, ts = _pipeline_query(definition, window, author_ids)
+        base, conds, cols, ts = _pipeline_query(
+            definition, window, author_ids, board_only=board_only
+        )
         measure = func.count()
     elif src == "candidates":
         base, conds, cols, ts = _candidates_query(definition, window, author_ids)
         measure = func.count()
     elif src == "jobs":
-        base, conds, cols, ts = _jobs_query(definition, window, author_ids)
+        base, conds, cols, ts = _jobs_query(definition, window, author_ids, user)
         measure = func.count()
     elif src == "contracts":
-        base, conds, cols, ts = _contracts_query(definition, window)
+        base, conds, cols, ts = _contracts_query(definition, window, client_boundary)
         measure = func.count()
     else:
-        base, conds, cols, ts = _orders_query(definition, window)
+        base, conds, cols, ts = _orders_query(definition, window, client_boundary)
         measure = func.count()
 
     if definition.group_by == "none":
@@ -584,10 +862,14 @@ async def _run_finance(
         value = series[-1]["value"] if series else None
         return value, series, sorted(set(notes)), scope_applied
 
-    today = window.today
-    rates = (await rates_to_pln_by_date(db, {today: currencies})).get(today, {})
-    running = running_on(contracts, today)
-    total = _value(fold_money(running, today, rates))
+    # Stan na koniec okresu (albo dziś, gdy okres trwa) — do 25.09.2026 każdy
+    # okres liczył się na dziś, więc „marża w sierpniu" była dzisiejszym MRR.
+    asof = window.asof
+    if asof < window.today:
+        notes.append(f"Kwoty według stanu na {asof.strftime('%d.%m.%Y')}.")
+    rates = (await rates_to_pln_by_date(db, {asof: currencies})).get(asof, {})
+    running = running_on(contracts, asof)
+    total = _value(fold_money(running, asof, rates))
     if definition.group_by == "none":
         return total, [], sorted(set(notes)), scope_applied
     by_client: dict[int, list] = {}
@@ -598,7 +880,7 @@ async def _run_finance(
         {
             "key": str(cid),
             "label": labels.get(cid, f"#{cid}"),
-            "value": _value(fold_money(items, today, rates)),
+            "value": _value(fold_money(items, asof, rates)),
         }
         for cid, items in by_client.items()
     ]
@@ -658,7 +940,50 @@ async def evaluate_metric(
         author_ids = _author_ids(definition, user, scope)
         applied = definition.filters.author
 
-    value, series, notes = await _run_count(db, definition, window, author_ids)
+    client_boundary: Optional[frozenset[int]] = None
+    if definition.source in _DELIVERY_CLIENT_SOURCES:
+        client_boundary = await _delivery_client_boundary(user, db)
+        requested = set(definition.filters.client_ids)
+        if client_boundary is not None and requested - client_boundary:
+            # Lustro `_run_finance`: klient spoza portfela = odmowa całości,
+            # nie cicha suma z samych „swoich" (runda 6 audytu).
+            raise MetricAccessDenied(
+                "Wybrani klienci są spoza Twojego portfela — tych danych nie pokażemy."
+            )
+        if client_boundary is not None and not requested:
+            applied = "portfolio"
+
+    team_notes: list[str] = []
+    if (
+        definition.filters.author == "team"
+        and author_ids is not None
+        and not author_ids
+    ):
+        team_notes.append(
+            "Nie masz jeszcze zespołu (nikt nie pracuje przy Twoich "
+            "rekrutacjach), więc liczba zespołu to 0."
+        )
+    credited_rows: Optional[list[CreditedRow]] = None
+    if _uses_credit(definition, author_ids):
+        # Jedna migawka na całe wywołanie — okres bieżący i poprzedni.
+        credited_rows = await _credited_snapshot(db, _credited_since(window))
+    value, series, notes = await _run_count(
+        db, definition, window, author_ids, client_boundary, credited_rows, user=user
+    )
+    notes = team_notes + notes
+    if (
+        definition.source == "pipeline_moves"
+        and author_ids is None
+        and definition.group_by == "recruiter"
+    ):
+        # Runda 8 (R8-N10-7): podział po ludziach liczy zasługę jak „Moje
+        # KPI" (kredyt weryfikatora, bez procesów spoza KPI), a liczba całej
+        # firmy bez podziału — pierwsze wejście pary. Sumy mogą się różnić
+        # i kafelek ma to powiedzieć, zamiast pokazać dwie liczby bez słowa.
+        notes.append(
+            "Podział po rekruterach liczy zasługę jak w „Moje KPI” — suma może "
+            "różnić się od liczby całej firmy bez podziału."
+        )
     previous: Optional[float] = None
     if definition.compare_previous:
         if snapshot:
@@ -666,7 +991,14 @@ async def evaluate_metric(
         else:
             prev_def = definition.model_copy(update={"group_by": "none"})
             previous, _, _ = await _run_count(
-                db, prev_def, window.previous(), author_ids
+                db,
+                prev_def,
+                window.previous(),
+                author_ids,
+                client_boundary,
+                credited_rows,
+                user=user,
+                board_only=definition.group_by in _BOARD_ONLY_GROUPS,
             )
     return MetricResult(
         value=value,
@@ -677,6 +1009,31 @@ async def evaluate_metric(
         notes=notes,
         period=period_payload,
     )
+
+
+async def access_fingerprint(
+    db: AsyncSession, user: User, definition: MetricDefinition
+) -> str:
+    """Odcisk uprawnień, od których zależy wynik — część klucza cache.
+
+    Runda 8 (R8-N10-4): wynik z cache (2 min) wychodził przed
+    ``evaluate_metric``, a klucz nie niósł sekcji ani portfela, więc przez
+    dwie minuty po odebraniu sekcji albo klienta kafelek dalej pokazywał dane.
+    Ta funkcja sprawdza źródło PRZED cache (rzuca ``MetricAccessDenied``)
+    i oddaje granicę klientów, która zmienia klucz przy każdej zmianie
+    portfela albo capability.
+    """
+    denial = source_denial(user, definition.source)
+    if denial:
+        raise MetricAccessDenied(denial)
+    boundary: Optional[frozenset[int]] = None
+    if definition.source == "finance":
+        boundary = await _finance_client_boundary(user, db)
+    elif definition.source in _DELIVERY_CLIENT_SOURCES:
+        boundary = await _delivery_client_boundary(user, db)
+    if boundary is None:
+        return "all"
+    return ",".join(str(cid) for cid in sorted(boundary))
 
 
 async def metric_catalog(db: AsyncSession, user: User) -> dict[str, Any]:
@@ -714,6 +1071,7 @@ async def metric_catalog(db: AsyncSession, user: User) -> dict[str, Any]:
 
 __all__ = [
     "MetricAccessDenied",
+    "access_fingerprint",
     "MetricResult",
     "allowed_authors",
     "evaluate_metric",

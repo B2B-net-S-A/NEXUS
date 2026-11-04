@@ -70,6 +70,7 @@ _LIST_DROPPED = frozenset(
         "include_match_stats",
         "include_active_recruitments",
         "include_last_activity",
+        "include_last_talk",
         "match_threshold",
         "profile_id",
         "semantics_version",
@@ -479,8 +480,23 @@ def unified_to_search_body(request: dict[str, Any]) -> dict[str, Any]:
 def list_engine_gaps(request: dict[str, Any]) -> list[str]:
     """Pola, których lista NIE umie wyrazić (np. źródła, „ma CV") — zapis z nimi
     nie może być odtwarzany przez listę jako alert, bo byłby szerszy."""
-    ignored = {"sort", "search_mode", "exclude_blacklisted", "exclude_in_job_id"}
-    return sorted(k for k in (request.get("search_only") or {}) if k not in ignored)
+    ignored = {"sort", "search_mode"}
+    gaps: list[str] = []
+    for key, value in (request.get("search_only") or {}).items():
+        if key in ignored:
+            continue
+        # Runda 8 (R8-N10-6): oba przełączniki ZAWĘŻAJĄ wynik. Pominięte
+        # w odtworzeniu dawały alert szerszy niż zapis (osoby z czarnej listy
+        # i osoby już w rekrutacji). Nie są luką tylko wtedy, gdy nic nie
+        # zawężają: wyłączone albo czarną listę i tak wyklucza filtr statusu.
+        if key == "exclude_blacklisted":
+            statuses = request.get("status") or []
+            if not value or (statuses and "blacklisted" not in statuses):
+                continue
+        if key == "exclude_in_job_id" and value is None:
+            continue
+        gaps.append(key)
+    return sorted(gaps)
 
 
 def build_unified_payload(
@@ -548,7 +564,17 @@ RULE_CATEGORY_SECONDARY = "category_secondary"
 RULE_OPEN_TO_ANY = "open_to_any"
 RULE_EXPERIENCE_TRAFFIT = "experience_traffit_fallback"
 RULE_TEXT_PERSON = "text_person_literal"
+RULE_SCREENING_SKILLS = "screening_skills"
 RULE_OTHER = "other"
+
+# Kubełki umiejętności żądania wspólnego — każdy czyta ``skill_match``, który
+# w v2 łapie też umiejętności potwierdzone w screeningu (runda 12).
+_SKILL_KEYS = (
+    "skills_required",
+    "skills_required_any_groups",
+    "skills_preferred",
+    "skills_excluded",
+)
 
 
 def neutralise_list_request(
@@ -589,11 +615,16 @@ def possible_difference_rules(origin: str, request: dict[str, Any]) -> list[str]
     zneutralizować flagą. Gdy wynik się różni, to one są przyczyną; pusta lista
     przy różnicy = ``other``."""
     rules: list[str] = []
+    # Runda 13 (SEARCH): zapis z listy i z wyszukiwarki — w obu kubełki
+    # umiejętności v2 łapią też screening, a flagą tego się nie wyłączy.
+    uses_skills = any(not _empty(request.get(key)) for key in _SKILL_KEYS)
     if origin == "candidates_list":
         if any(
             "%" in str(c) or "_" in str(c) for c in request.get("location_cities") or []
         ):
             rules.append(RULE_LOCATION_WILDCARDS)
+        if uses_skills:
+            rules.append(RULE_SCREENING_SKILLS)
         return rules
     if request.get("tags"):
         rules.append(RULE_TAGS_WHOLE_MATCH)
@@ -603,6 +634,8 @@ def possible_difference_rules(origin: str, request: dict[str, Any]) -> list[str]
         rules.append(RULE_OPEN_TO_ANY)
     if "experience_years_min" in request or "experience_years_max" in request:
         rules.append(RULE_EXPERIENCE_TRAFFIT)
+    if uses_skills:
+        rules.append(RULE_SCREENING_SKILLS)
     return rules
 
 

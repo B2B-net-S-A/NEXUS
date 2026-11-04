@@ -33,14 +33,14 @@ const client = new QueryClient({
   defaultOptions: { queries: { staleTime: Infinity, retry: false } },
 });
 
-const NORDEA: ClientCvRule = makeCvRule({
-  seed_key: "profil-championa-wzor-nordea-docx",
-  confirmed_by_name: "Artur Twardowski",
+const POLNOCNY: ClientCvRule = makeCvRule({
+  seed_key: "profil-championa-wzor-polnocny-docx",
+  confirmed_by_name: "Adam Wzorcowy",
 });
 
-const PKO: ClientCvRule = makeCvRule({
+const KAPPA: ClientCvRule = makeCvRule({
   client_id: 2,
-  client_name: "PKO Bank Polski",
+  client_name: "Bank Kappa",
   filename_pattern: "ZOB-{PROJEKT}_{STANOWISKO}_{IMIE_NAZWISKO}",
   cv_language: "pl",
   requires_rodo_consent_block: true,
@@ -50,16 +50,16 @@ const PKO: ClientCvRule = makeCvRule({
     "Bez sekcji zainteresowań. Maks. 3 projekty na stanowisko. Opisy obowiązków do 2 zdań.",
   content_mode: "polished",
   content_mode_locked: true,
-  seed_key: "profil-championa-wzor-pko-bp-docx",
-  confirmed_by_name: "Artur Twardowski",
+  seed_key: "profil-championa-wzor-kappa-docx",
+  confirmed_by_name: "Adam Wzorcowy",
   client_policy:
     "nazwa pliku, język PL, blok zgody RODO, tryb „Redakcja”, instrukcje dla generatora, notatka DL",
   filename_preview: "ZOB-4521_Analityk Biznesowy_Jan Kowalski.docx",
 });
 
-const ALIOR_PROPOSED: ClientCvRule = makeCvRule({
+const LAMBDA_PROPOSED: ClientCvRule = makeCvRule({
   client_id: 3,
-  client_name: "Alior Bank S.A.",
+  client_name: "Bank Lambda S.A.",
   cv_language: null,
   requires_en_copy: true,
   confirmed_at: null,
@@ -67,7 +67,7 @@ const ALIOR_PROPOSED: ClientCvRule = makeCvRule({
   is_active: false,
   client_policy: "",
   filename_preview: null,
-  seed_key: "profil-championa-wzor-alior-docx",
+  seed_key: "profil-championa-wzor-lambda-docx",
 });
 
 function Case({
@@ -118,36 +118,36 @@ export default function CvGeneratorClientRulesPreview() {
         </Case>
 
         <Case
-          title="Reguły niezatwierdzone (ALIOR)"
+          title="Reguły niezatwierdzone (BANK LAMBDA)"
           note="Najważniejszy stan: reguła istnieje, ale NIE obowiązuje. Bez tego ostrzeżenia plik po cichu dostaje nazwę ogólną."
         >
           <ClientCvRuleBanner
             clientId={3}
-            rule={ALIOR_PROPOSED}
+            rule={LAMBDA_PROPOSED}
             isLoading={false}
             isError={false}
           />
         </Case>
 
         <Case
-          title="Reguły obowiązują — wymuszony EN (Nordea)"
+          title="Reguły obowiązują — wymuszony EN (Bank Północny)"
           note="Jedyny klient wymagający wyłącznie angielskiego."
         >
           <ClientCvRuleBanner
             clientId={1}
-            rule={NORDEA}
+            rule={POLNOCNY}
             isLoading={false}
             isError={false}
           />
         </Case>
 
         <Case
-          title="Reguły obowiązują — projekt w nazwie + zgoda RODO (PKO BP)"
+          title="Reguły obowiązują — projekt w nazwie + zgoda RODO (Bank Kappa)"
           note="Jedyny klient, którego standard zmienia ZAWARTOŚĆ dokumentu."
         >
           <ClientCvRuleBanner
             clientId={2}
-            rule={PKO}
+            rule={KAPPA}
             isLoading={false}
             isError={false}
           />

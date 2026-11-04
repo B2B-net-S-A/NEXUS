@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
+ <BkToCstmrStmt>
+  <GrpHdr><MsgId>WYCIAG-2026-11-19</MsgId><CreDtTm>2026-11-19T20:00:00</CreDtTm></GrpHdr>
+  <Stmt>
+   <Id>STMT-E8-1</Id>
+   <Acct><Id><IBAN>PL72999900010000000000001234</IBAN></Id><Ccy>PLN</Ccy></Acct>
+   <Ntry>
+    <Amt Ccy="PLN">30996.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts><Cd>BOOK</Cd></Sts>
+    <BookgDt><Dt>2026-11-14</Dt></BookgDt>
+    <AcctSvcrRef>BR2611140101</AcctSvcrRef>
+    <NtryDtls><TxDtls>
+     <RltdPties><Dbtr><Pty><Nm>Bank Testowy S.A.</Nm></Pty></Dbtr>
+      <DbtrAcct><Id><IBAN>PL61999900050000000000001111</IBAN></Id></DbtrAcct></RltdPties>
+     <RmtInf><Ustrd>Zaplata FS 10/118/2026</Ustrd></RmtInf>
+    </TxDtls></NtryDtls>
+   </Ntry>
+   <Ntry>
+    <Amt Ccy="PLN">20000.00</Amt><CdtDbtInd>CRDT</CdtDbtInd>
+    <BookgDt><Dt>2026-11-15</Dt></BookgDt>
+    <AcctSvcrRef>BR2611150102</AcctSvcrRef>
+    <NtryDtls><TxDtls>
+     <RltdPties><Dbtr><Pty><Nm>Bank Testowy S.A.</Nm></Pty></Dbtr></RltdPties>
+     <RmtInf><Ustrd>Czesc 9876543210-20261103-A1210C0FFEE2-55</Ustrd></RmtInf>
+    </TxDtls></NtryDtls>
+   </Ntry>
+   <Ntry>
+    <Amt Ccy="PLN">22425.00</Amt><CdtDbtInd>CRDT</CdtDbtInd>
+    <BookgDt><Dt>2026-11-16</Dt></BookgDt>
+    <AcctSvcrRef>BR2611160103</AcctSvcrRef>
+    <NtryDtls><TxDtls>
+     <RltdPties><Dbtr><Pty><Nm>Bank Testowy S.A.</Nm></Pty></Dbtr></RltdPties>
+     <RmtInf><Ustrd>/VAT/5157,75/IDC/1111111111/INV/FS 10/124/2026/TXT/ZAPLATA</Ustrd></RmtInf>
+    </TxDtls></NtryDtls>
+   </Ntry>
+   <Ntry>
+    <Amt Ccy="PLN">1230.00</Amt><CdtDbtInd>CRDT</CdtDbtInd>
+    <BookgDt><Dt>2026-11-18</Dt></BookgDt>
+    <AcctSvcrRef>BR2611180104</AcctSvcrRef>
+    <NtryDtls><TxDtls>
+     <RltdPties><Dbtr><Pty><Nm>Firma Spoza Przykladowa</Nm></Pty></Dbtr></RltdPties>
+     <RmtInf><Ustrd>Zaplata za monitor</Ustrd></RmtInf>
+    </TxDtls></NtryDtls>
+   </Ntry>
+   <Ntry>
+    <Amt Ccy="PLN">500.00</Amt><CdtDbtInd>CRDT</CdtDbtInd>
+    <BookgDt><Dt>2026-11-19</Dt></BookgDt>
+    <AcctSvcrRef>BR2611190105</AcctSvcrRef>
+    <AddtlNtryInf>Zwrot kaucji</AddtlNtryInf>
+   </Ntry>
+   <Ntry>
+    <Amt Ccy="PLN">4000.00</Amt><CdtDbtInd>DBIT</CdtDbtInd>
+    <BookgDt><Dt>2026-11-19</Dt></BookgDt>
+    <AcctSvcrRef>BR2611190106</AcctSvcrRef>
+    <NtryDtls><TxDtls>
+     <RltdPties><Cdtr><Pty><Nm>Biuro Przykladowe Sp. z o.o.</Nm></Pty></Cdtr>
+      <CdtrAcct><Id><IBAN>PL70999900040000000000007777</IBAN></Id></CdtrAcct></RltdPties>
+     <RmtInf><Ustrd>Czynsz za biuro, listopad 2026</Ustrd></RmtInf>
+    </TxDtls></NtryDtls>
+   </Ntry>
+  </Stmt>
+ </BkToCstmrStmt>
+</Document>

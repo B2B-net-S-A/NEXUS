@@ -8,7 +8,7 @@ oryginału, których ten kod nie portuje, jest w docstringu routera.
 """
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -23,6 +23,7 @@ from app.analytics.periods import (
     resolve_period,
 )
 from app.models.contract import Contract
+from app.services import competition_history
 from app.services.contract_rates import (
     RATE_SCHEDULE_LOADS,
     REVENUE_BEARING_STATUSES,
@@ -35,6 +36,7 @@ from app.services.insights_board_money import (
     ratio,
     running_on,
 )
+from app.services.hit_ratio_scope import counts_in_hit_ratio_sql
 from app.services.metric_definitions import (
     CLOSED_JOBS_WITH_PLACEMENT,
     FIRST_HIRED_PER_CANDIDATE_JOB,
@@ -128,6 +130,15 @@ async def compute_board(
     """
     today = today or _today_warsaw()
     previous = _previous_period(resolved)
+    # Przepływ (placementy) okresu W TOKU porównujemy z TYM SAMYM odcinkiem
+    # poprzedniego okresu (1–24 września ↔ 1–24 sierpnia) — ta sama funkcja
+    # co widok Zespół i kreator metryk. Stany na dzień (MRR, konsultanci)
+    # zostają przy `previous` i dniu wyceny (runda 6 audytu).
+    from app.services.insights_team_signals import previous_matching_window
+
+    placements_prev_start, placements_prev_end = previous_matching_window(
+        resolved, datetime.combine(today, time(12), tzinfo=_TZ)
+    )
     asof = _finance_asof(resolved, today)
     prev_asof = _finance_asof(previous, today)
 
@@ -142,7 +153,7 @@ async def compute_board(
                 text(
                     """
                     SELECT fm.stage::text AS stage, count(*) AS cnt
-                    FROM analytics_first_milestones fm
+                    FROM analytics_kpi_milestones fm
                     WHERE fm.first_reached_at >= :start
                       AND fm.first_reached_at < :end
                     GROUP BY 1
@@ -163,13 +174,13 @@ async def compute_board(
                 text(
                     """
                     SELECT count(*) AS cnt
-                    FROM analytics_first_milestones fm
+                    FROM analytics_kpi_milestones fm
                     WHERE fm.stage::text = 'hired'
                       AND fm.first_reached_at >= :start
                       AND fm.first_reached_at < :end
                     """
                 ),
-                {"start": previous.start, "end": previous.end},
+                {"start": placements_prev_start, "end": placements_prev_end},
             )
         ).scalar()
         or 0
@@ -198,9 +209,16 @@ async def compute_board(
                     WHERE j.status::text = 'closed'
                       AND j.closed_at >= :start
                       AND j.closed_at < :end
-                    """
+                      AND """
+                    + counts_in_hit_ratio_sql("j")
                 ),
-                {"start": resolved.start, "end": resolved.end},
+                # Rekrutacje zamknięte od 12.10.2026 (decyzja Artura
+                # 18.10.2026); hit ratio DynaReporter nie prowadził, więc
+                # okno w całości wcześniej = brak danych (mianownik 0).
+                {
+                    "start": competition_history.board_start(resolved.start),
+                    "end": resolved.end,
+                },
             )
         )
         .mappings()
@@ -229,7 +247,7 @@ async def compute_board(
                         'YYYY-MM'
                       ) AS bucket,
                       count(*) AS cnt
-                    FROM analytics_first_milestones fm
+                    FROM analytics_kpi_milestones fm
                     WHERE fm.stage::text = 'hired'
                       AND fm.first_reached_at >= :start
                       AND fm.first_reached_at < :end
@@ -338,6 +356,10 @@ async def compute_board(
         reasons.append("fx_missing")
     if current_fold.without_cost_leg:
         reasons.append("cost_leg_missing")
+    # Runda 10 (R10-N9-1): kontrakt bez stawki przychodowej nie wchodzi do
+    # przychodu, kosztu ani marży — do tej rundy znikał bez sygnału.
+    if current_fold.without_revenue_leg:
+        reasons.append("revenue_leg_missing")
     if reasons:
         message_parts: list = []
         if missing_currencies:
@@ -364,6 +386,11 @@ async def compute_board(
                 f"{current_fold.without_cost_leg} kontrakt(ów) bez stawki "
                 "kandydata — ich marża jest nieznana i nie wchodzi do sumy."
             )
+        if current_fold.without_revenue_leg:
+            message_parts.append(
+                f"{current_fold.without_revenue_leg} kontrakt(ów) bez stawki "
+                "przychodowej — nie wchodzą do przychodu, kosztu ani marży."
+            )
         degraded = {
             "reasons": reasons,
             # Liczniki mają WĘŻSZY zasięg niż lista walut i nazwy to mówią:
@@ -379,6 +406,7 @@ async def compute_board(
                 "months_affected": months_degraded,
             },
             "contracts_without_cost_leg": current_fold.without_cost_leg,
+            "contracts_without_revenue_leg": current_fold.without_revenue_leg,
             "message": " ".join(message_parts),
         }
         logger.warning(
@@ -398,7 +426,9 @@ async def compute_board(
             "placements": placements,
             "verified": counts.get("verified", 0),
             "cv_sent": counts.get("cv_sent", 0),
-            "interview": counts.get("interview", 0),
+            # Runda 8: „rozmowa” = rozmowa u klienta, nie etap QC CV (kod
+            # `interview`) — decyzja Artura z rundy 7, jak lejek i tabela zespołu.
+            "interview": counts.get("client_interview", 0),
             "funnel_efficiency_pct": ratio(placements, counts.get("verified", 0)),
             "jobs_closed": jobs_closed,
             "jobs_closed_with_placement": jobs_closed_filled,
@@ -411,11 +441,16 @@ async def compute_board(
                 "revenue_monthly_pln": money(current_fold.revenue),
                 "consultant_cost_monthly_pln": money(current_fold.cost),
                 "margin_monthly_pln": money(current_fold.margin),
-                "margin_pct": ratio(current_fold.margin, current_fold.revenue),
+                # Mianownik = przychód kontraktów ze ZNANĄ marżą — kontrakt bez
+                # stawki kosztowej zaniżałby procent (audyt 25.09.2026, jak
+                # ``contract_analytics._margin_pct``); liczba takich kontraktów
+                # jedzie obok w ``contracts_without_cost_leg``.
+                "margin_pct": ratio(current_fold.margin, current_fold.margin_revenue),
                 "active_consultants": current_fold.consultants,
                 "active_contracts": current_fold.active_contracts,
                 "priced_contracts": current_fold.priced_contracts,
                 "contracts_without_cost_leg": current_fold.without_cost_leg,
+                "contracts_without_revenue_leg": current_fold.without_revenue_leg,
                 "complete": current_fold.complete,
             },
         },
@@ -424,6 +459,15 @@ async def compute_board(
             "previous_period": previous.as_payload(),
             "previous_asof": prev_asof.isoformat(),
             "placements": _delta(placements, prev_placements),
+            # Okno, z którym porównano placementy — przy okresie w toku krótsze
+            # niż `previous_period` (ten sam odcinek), więc front podpisuje
+            # deltę „wobec tego samego odcinka…".
+            "placements_previous_window": {
+                "start": placements_prev_start.isoformat(),
+                "end": placements_prev_end.isoformat(),
+                "same_stretch": (placements_prev_start, placements_prev_end)
+                != (previous.start, previous.end),
+            },
             "revenue_monthly_pln": _delta(
                 money(current_fold.revenue), money(previous_fold.revenue)
             ),

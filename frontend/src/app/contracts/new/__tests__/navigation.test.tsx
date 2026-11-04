@@ -11,14 +11,16 @@ const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   showSuccess: vi.fn(),
   canManageFinance: false,
+  // Prawdziwa bramka `RequirePermission` czyta konto ze store'u.
+  user: { role: "delivery_lead" } as {
+    role: string;
+    roles?: string[];
+    effective_action_access?: Record<string, string>;
+  },
 }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
-}));
-
-vi.mock("@/components/RequireRole", () => ({
-  RequireRole: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 vi.mock("@/components/Toast", () => ({
@@ -30,8 +32,8 @@ vi.mock("@/components/Toast", () => ({
 
 vi.mock("@/store/auth", () => ({
   useAuthStore: (
-    selector: (state: { user: { role: string } }) => unknown,
-  ) => selector({ user: { role: "delivery_lead" } }),
+    selector: (state: { user: typeof mocks.user; hydrated: boolean }) => unknown,
+  ) => selector({ user: mocks.user, hydrated: true }),
   canManageCandidateFinance: () => mocks.canManageFinance,
 }));
 
@@ -175,6 +177,7 @@ async function fillRequiredFieldsAndSubmit() {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.canManageFinance = false;
+  mocks.user = { role: "delivery_lead" };
   mocks.apiGet.mockImplementation((url: string) => {
     if (url === "/api/clients-lookup") {
       return Promise.resolve({ data: [{ id: 2, name: "Klient Testowy" }] });
@@ -210,7 +213,8 @@ describe("Nowy kontrakt — historia nawigacji po zapisie", () => {
       expect.objectContaining({ work_mode: null }),
     );
     expect(mocks.apiGet).toHaveBeenCalledWith("/api/clients-lookup", {
-      params: { contract_eligible: true },
+      // Runda 6 audytu: DL widzi w pickerze Kontraktów tylko swój portfel.
+      params: { contract_eligible: true, delivery_scope: true },
     });
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/contracts/77"));
     expect(mocks.replace).toHaveBeenCalledTimes(1);
@@ -363,5 +367,97 @@ describe("Nowy kontrakt — historia nawigacji po zapisie", () => {
       }),
     );
     expect(mocks.create.mock.calls[0]?.[0]).not.toHaveProperty("currency");
+  });
+});
+
+describe("Nowy kontrakt — awaria wyszukiwarek to nie pusta lista", () => {
+  it("błąd wyszukiwania kandydata i listy klientów daje „Ponów”, nie „Brak wyników.”", async () => {
+    mocks.apiGet.mockRejectedValue(new Error("503"));
+    renderPage();
+
+    expect(
+      await screen.findByText("Nie udało się wyszukać kandydatów."),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("Nie udało się pobrać listy klientów."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Brak wyników.")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /Ponów/ })).toHaveLength(2);
+  });
+
+  it("puste wyniki nadal mówią „Brak wyników.”", async () => {
+    mocks.apiGet.mockResolvedValue({ data: [] });
+    renderPage();
+
+    await waitFor(() => expect(screen.getAllByText("Brak wyników.")).toHaveLength(2));
+  });
+});
+
+/** Komplet kluczy z `/api/auth/me` — bez `delivery_view` profil liczyłby się z ról. */
+function snapshot(...granted: string[]): Record<string, string> {
+  const keys = [
+    "delivery_view",
+    "clients_edit",
+    "contracts_orders_edit",
+    "contract_status",
+    "b2b_signature_confirmation",
+    "recruitment_manage",
+    "amounts_view",
+    "amounts_edit",
+    "finance_module",
+  ];
+  return Object.fromEntries(
+    keys.map((key) => [key, granted.includes(key) ? "manage" : "none"]),
+  );
+}
+
+describe("Nowy kontrakt — formularz widzi posiadacz uprawnienia, nie rola", () => {
+  const DENIAL =
+    /Brakuje Ci uprawnienia „Kontrakty i zamówienia: tworzenie i edycja”/;
+
+  it("Finanse mają uprawnienie domyślnie i widzą formularz", async () => {
+    mocks.user = { role: "finance" };
+    renderPage();
+
+    expect(
+      await screen.findByRole("button", { name: "Utwórz kontrakt" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(DENIAL)).not.toBeInTheDocument();
+  });
+
+  it("rekruter bez uprawnienia dostaje nazwę brakującej pozycji zamiast formularza", async () => {
+    mocks.user = { role: "recruiter" };
+    renderPage();
+
+    expect(await screen.findByText(DENIAL)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Utwórz kontrakt" }),
+    ).not.toBeInTheDocument();
+    expect(mocks.apiGet).not.toHaveBeenCalled();
+  });
+
+  it("osoba z nadanym uprawnieniem widzi formularz mimo roli spoza domyślnych", async () => {
+    mocks.user = {
+      role: "talent_community_manager",
+      effective_action_access: snapshot("delivery_view", "contracts_orders_edit"),
+    };
+    renderPage();
+
+    expect(
+      await screen.findByRole("button", { name: "Utwórz kontrakt" }),
+    ).toBeInTheDocument();
+  });
+
+  it("Delivery Lead z wyłączonym uprawnieniem nie widzi formularza", async () => {
+    mocks.user = {
+      role: "delivery_lead",
+      effective_action_access: snapshot("delivery_view", "clients_edit"),
+    };
+    renderPage();
+
+    expect(await screen.findByText(DENIAL)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Utwórz kontrakt" }),
+    ).not.toBeInTheDocument();
   });
 });

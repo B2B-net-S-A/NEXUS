@@ -34,7 +34,7 @@ from app.schemas.shortlist_actions import (
 )
 from app.services.access_scope import (
     assert_delivery_lead_client_visible,
-    resolve_delivery_lead_client_ids,
+    resolve_delivery_lead_org_client_ids,
 )
 from app.core.scheduling import business_today
 
@@ -107,7 +107,9 @@ async def send_candidate_shortlist_email(
             status_code=400,
             detail="Żadna z wybranych rekrutacji nie jest opublikowana.",
         )
-    delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
+    delivery_lead_client_ids = await resolve_delivery_lead_org_client_ids(
+        current_user, db
+    )
     for job in jobs:
         assert_delivery_lead_client_visible(
             job.client_id,
@@ -228,7 +230,7 @@ async def prepare_client_proposal(
         raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje")
     assert_delivery_lead_client_visible(
         job.client_id,
-        await resolve_delivery_lead_client_ids(current_user, db),
+        await resolve_delivery_lead_org_client_ids(current_user, db),
     )
 
     skills = cand.skills or []

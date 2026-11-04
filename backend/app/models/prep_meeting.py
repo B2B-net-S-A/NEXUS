@@ -41,6 +41,7 @@ TRANSCRIPTION_SETUP_STATES = ("pending", "enabled", "failed", "disabled")
 TRANSCRIPT_STATES = ("waiting", "fetched", "missing", "cancelled", "forbidden", "error")
 REVIEW_STATUSES = ("ok", "unavailable")
 REVIEW_LEVELS = ("weak", "ok", "good")
+CANDIDATE_RESPONSES = ("none", "accepted", "tentative", "declined")
 
 
 class PrepMeeting(Base):
@@ -55,6 +56,11 @@ class PrepMeeting(Base):
             "transcript_status IN "
             "('waiting','fetched','missing','cancelled','forbidden','error')",
             name="ck_prep_meetings_transcript_status",
+        ),
+        CheckConstraint(
+            "candidate_response IS NULL OR candidate_response IN "
+            "('none','accepted','tentative','declined')",
+            name="ck_prep_meetings_candidate_response",
         ),
         Index("ix_prep_meetings_fetch_queue", "transcript_status", "next_fetch_at"),
         Index("ix_prep_meetings_pair", "candidate_id", "job_id"),
@@ -96,6 +102,18 @@ class PrepMeeting(Base):
     next_fetch_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     # Klasa błędu albo kod HTTP — nigdy treść odpowiedzi ani transkryptu.
     last_error: Mapped[Optional[str]] = mapped_column(String(120))
+    # Odpowiedź kandydata z Outlooka prowadzącego (0453, 17.10.2026, D5).
+    # NULL = jeszcze nie sprawdzano (prep sprzed 0453); 'none' = bez odpowiedzi.
+    candidate_response: Mapped[Optional[str]] = mapped_column(String(20))
+    candidate_response_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    # Inny termin zaproponowany przez kandydata („Zaproponuj nowy termin”).
+    proposed_start: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    proposed_end: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    outlook_checked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -191,6 +209,8 @@ class PrepReview(Base):
     model: Mapped[Optional[str]] = mapped_column(String(80))
     prompt_version: Mapped[Optional[str]] = mapped_column(String(40))
     input_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    # 0505: wersja ustawień oceny (``prep_review_configs.id``); NULL = startowe.
+    config_version: Mapped[Optional[int]] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -199,4 +219,79 @@ class PrepReview(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+
+
+class PrepReviewConfigVersion(Base):
+    """Opublikowana wersja ustawień oceny prepów (0505, 22.10.2026).
+
+    Obowiązuje wiersz o najwyższym ``id``; treść waliduje
+    ``services/prep_review_config.PrepReviewConfig``.
+    """
+
+    __tablename__ = "prep_review_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL")
+    )
+    config: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(Text)
+
+
+# Dlaczego rozmowa u klienta odbywa się bez Prepu 2 (0482, 20.10.2026).
+PREP2_SKIP_REASONS = ("no_slot", "short_notice", "prep1_covered", "other")
+
+
+class Prep2Skip(Base):
+    """Rozmowa u klienta bez Prepu 2 — wyjątek z powodem (0482, 20.10.2026).
+
+    Decyzja Artura: Prep 2 da się pominąć tylko tuż przed rozmową, po
+    odbytym Prepie 1, z powodem i z krótkim telefonem do kandydata przed
+    rozmową (``call_at``). Jeden wpis na rozmowę; wpis bez telefonu
+    (``call_done_at``) zostaje zadaniem „Telefon przed rozmową”.
+    """
+
+    __tablename__ = "prep2_skips"
+    __table_args__ = (
+        CheckConstraint(
+            "reason IN ('no_slot','short_notice','prep1_covered','other')",
+            name="ck_prep2_skips_reason",
+        ),
+        CheckConstraint(
+            "reason <> 'other' OR reason_note IS NOT NULL",
+            name="ck_prep2_skips_other_note",
+        ),
+        Index("ix_prep2_skips_pair", "candidate_id", "job_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    interview_event_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("calendar_events.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    candidate_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False
+    )
+    job_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    reason: Mapped[str] = mapped_column(String(20), nullable=False)
+    reason_note: Mapped[Optional[str]] = mapped_column(Text)
+    call_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    call_done_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    call_done_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    call_note: Mapped[Optional[str]] = mapped_column(Text)
+    created_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

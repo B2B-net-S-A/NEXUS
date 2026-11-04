@@ -167,6 +167,15 @@ async def commit_order_write(
                 contract_ids=sorted(touched_contracts),
                 actor_id=actor_id or db.info.get(ACTOR_INFO_KEY),
             )
+            # D3 (04.10.2026): uzupełnione zamówienie zamyka sprawę po
+            # zatrudnieniu u obu stron naraz — dzwonek Finansów i kartę DL.
+            from app.services.hired_order_status import (  # noqa: PLC0415
+                resolve_hired_order_cases_safely,
+            )
+
+            await resolve_hired_order_cases_safely(
+                db, contract_ids=sorted(touched_contracts)
+            )
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()

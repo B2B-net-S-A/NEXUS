@@ -247,6 +247,60 @@ async def test_akceptacja_wznawia_alert_z_nowa_linia_bazowa(
 
 
 @pytest.mark.asyncio
+async def test_umiejetnosc_ze_screeningu_ma_wlasny_kod_przyczyny(
+    app_client, app_auth_headers
+):
+    """Runda 13 (SEARCH): v2 łapie też umiejętność potwierdzoną w screeningu
+    (runda 12) — zapis z filtrem umiejętności idzie do akceptacji z kodem tej
+    przyczyny, nie z ogólnym „other”."""
+    from app.models.screening_note import ScreeningNote
+
+    nonce = _nonce()
+    skill = f"Sk{nonce}"
+    owner = await _owner_id(app_client, app_auth_headers)
+    async with AsyncSessionLocal() as db:
+        in_profile = Candidate(
+            name="Profil",
+            lastname=f"Mig{nonce}",
+            email=f"mig-p-{uuid.uuid4().hex[:8]}@example.com",
+            status=CandidateStatus.active,
+            linkedin_current_company=nonce,
+            skills=[skill],
+        )
+        from_screening = Candidate(
+            name="Screening",
+            lastname=f"Mig{nonce}",
+            email=f"mig-s-{uuid.uuid4().hex[:8]}@example.com",
+            status=CandidateStatus.active,
+            linkedin_current_company=nonce,
+            skills=["Python"],
+        )
+        db.add_all([in_profile, from_screening])
+        await db.flush()
+        db.add(
+            ScreeningNote(
+                candidate_id=from_screening.id,
+                author_id=owner,
+                verified_skills=[{"skill": skill, "level": "confirmed"}],
+            )
+        )
+        await db.commit()
+    search_id = await _seed_search(
+        owner,
+        {
+            "version": 2,
+            "qs": f"skills_q={skill}",
+            "api": {"q_all": [nonce], "skills": [skill]},
+        },
+        alert=True,
+    )
+    assert await _migrate(search_id) == "different"
+    diff = (await _load(search_id)).filters["migration"]["diff"]
+    assert (diff["legacy_total"], diff["unified_total"]) == (1, 2)
+    assert diff["rules"] == ["screening_skills"]
+
+
+@pytest.mark.asyncio
 async def test_oba_formaty_legacy_sa_czytane(app_client, app_auth_headers):
     nonce = _nonce()
     await _seed_candidates(nonce)

@@ -25,13 +25,17 @@ Skoro nie da się wskazać Coolify commitu, pilnujemy obu końców budowy:
     Potomek z czerwoną bramką to twardy błąd: taki kod już stoi na produkcji
     i trzeba go wycofać.
 
-``select`` — okno ciszy nocnej (PROD-04, audyt 22.09.2026)
-    Automatyczny deploy (``workflow_run`` i ``schedule``) w oknie
-    ``--freeze-window`` (godziny czasu warszawskiego, domyślnie w deploy.yml
-    ``0-7``) jest odraczany: ``head_status=night_freeze``, ``defer=true``, kod 0.
-    W nocy biegną kopie (pg_dump), import Traffita i nocne automaty — deploy
-    restartuje backend w ich trakcie. Zaległe merge'e wdraża poranny
-    ``schedule`` w deploy.yml. Ręczny ``workflow_dispatch`` okna nie pyta.
+``select`` — okno ciszy (PROD-04, audyt 22.09.2026; dzień od 14.10.2026)
+    Od 14.10.2026 (decyzja Artura; godziny od 22.10.2026) wdrożenia idą pon–pt tylko 18:00–08:00
+    czasu warszawskiego: w dzień wszyscy pracują w systemie, a przebudowa to
+    ~2 min przerwy. W sobotę i niedzielę okna nie ma (17.10.2026) — wdrażamy
+    o każdej porze. Okno ``--freeze-window`` (w deploy.yml domyślnie ``8-18``):
+    automatyczny deploy (``workflow_run`` i ``schedule``) jest odraczany —
+    ``head_status=night_freeze``, ``defer=true``, kod 0 — a zaległe merge'e
+    wdraża wieczorny ``schedule``. Ręczny ``workflow_dispatch`` w oknie kończy
+    się kodem 1 z instrukcją (czerwony bieg zamiast cichego odroczenia: redeploy
+    po zmianie env nie może zginąć w koalescencji wieczornego biegu).
+    ``--emergency --reason "…"`` omija okno — tylko na polecenie Artura.
 
 ``select`` / ``hold-check`` — alarm wstrzymania (OPS-N07)
     ``hold_alert`` w ``$GITHUB_OUTPUT`` niesie powód, gdy HEAD maina ma czerwoną
@@ -54,7 +58,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Callable, NamedTuple, Optional
 from zoneinfo import ZoneInfo
 
@@ -65,6 +69,8 @@ GREEN = "success"
 PENDING = {"in_progress", "missing"}
 FREEZE_STATUS = "night_freeze"
 DEFAULT_TZ = "Europe/Warsaw"
+# ``datetime.weekday()``: 5 = sobota, 6 = niedziela — w weekend okna ciszy nie ma.
+WEEKEND_FROM = 5
 # Bramka „CI Gate” kończy się w ~2 min, a kolejka merge'ów stempluje commit
 # ~10–15 min przed wejściem na maina. Godzina bez żadnego przebiegu bramki to
 # już nie „zaraz ruszy”, tylko brak bramki (np. push tokenem Actions).
@@ -146,14 +152,23 @@ def parse_freeze_window(window: Optional[str]) -> Optional[tuple[int, int]]:
 
 
 def in_freeze(now_utc: datetime, window: Optional[str], tz: str = DEFAULT_TZ) -> bool:
-    """Czy ``now_utc`` wypada w oknie ciszy (godziny czasu lokalnego ``tz``)."""
+    """Czy ``now_utc`` wypada w oknie ciszy (godziny czasu lokalnego ``tz``).
+
+    Okno obowiązuje tylko pon–pt (doprecyzowanie Artura 17.10.2026): w sobotę
+    i niedzielę nikt nie pracuje w systemie, więc wdrażamy o każdej porze.
+    Dzień liczymy po dacie lokalnej chwili ``now`` — przy oknie przez północ
+    niedziela 23:30 jest jeszcze weekendem, a poniedziałek 00:30 już nie.
+    """
     bounds = parse_freeze_window(window)
     if bounds is None:
         return False
     start, end = bounds
     if now_utc.tzinfo is None:
         now_utc = now_utc.replace(tzinfo=timezone.utc)
-    hour = now_utc.astimezone(ZoneInfo(tz)).hour
+    local = now_utc.astimezone(ZoneInfo(tz))
+    if local.weekday() >= WEEKEND_FROM:
+        return False
+    hour = local.hour
     if start < end:
         return start <= hour < end
     return hour >= start or hour < end
@@ -286,8 +301,15 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     select.add_argument(
         "--freeze-window",
         default="",
-        help="okno ciszy deployu w godzinach czasu warszawskiego, np. 0-7 (pusty = brak)",
+        help="okno ciszy deployu pon–pt w godzinach czasu warszawskiego, np. 8-18 "
+        "(pusty = brak; w weekend okna nie ma)",
     )
+    select.add_argument(
+        "--emergency",
+        action="store_true",
+        help="workflow_dispatch: wdróż mimo okna ciszy (tylko na polecenie Artura)",
+    )
+    select.add_argument("--reason", default="", help="powód awaryjnego wdrożenia")
     freeze = sub.add_parser(
         "in-freeze",
         help="kod 0 = teraz jest okno ciszy (bez czekania na ciszę na mainie)",
@@ -296,6 +318,14 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     hold = sub.add_parser("hold-check")
     hold.add_argument("--repo", required=True)
     hold.add_argument("--branch", default="main")
+    night = sub.add_parser(
+        "night-check",
+        help="alarm, gdy w oknie ciszy produkcji brakuje merge'y sprzed jego początku",
+    )
+    night.add_argument("--repo", required=True)
+    night.add_argument("--branch", default="main")
+    night.add_argument("--live", required=True, help="wersja z /api/health")
+    night.add_argument("--freeze-window", default="")
     accept = sub.add_parser("accept")
     accept.add_argument("--repo", required=True)
     accept.add_argument("--branch", default="main")
@@ -316,7 +346,17 @@ def _run_select(
 ) -> int:
     now = now or datetime.now(timezone.utc)
     manual = args.target_unverified and not args.scheduled
-    if not manual:
+    if args.emergency:
+        reason = (args.reason or "").strip()
+        if not manual or not reason:
+            print(
+                "::error::Awaryjne wdrożenie wymaga ręcznego uruchomienia "
+                "i powodu (pole „reason”).",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"::warning::Awaryjne wdrożenie poza oknem — powód: {reason}")
+    else:
         try:
             frozen = in_freeze(now, args.freeze_window)
         except ValueError as error:
@@ -334,9 +374,18 @@ def _run_select(
                     "hold_alert=",
                 ],
             )
+            if manual:
+                print(
+                    f"::error::Okno ciszy {args.freeze_window} (czas {DEFAULT_TZ}): "
+                    "w dni robocze wdrożenia tylko 18:00–08:00. Uruchom ponownie "
+                    "po 18:00 albo — wyłącznie na polecenie Artura — z emergency=true "
+                    "i powodem.",
+                    file=sys.stderr,
+                )
+                return 1
             print(
                 f"::notice::Deploy odroczony: okno ciszy {args.freeze_window} "
-                f"(czas {DEFAULT_TZ}). Zaległe zmiany wdroży poranny przebieg Deploy."
+                f"(czas {DEFAULT_TZ}). Zaległe zmiany wdroży wieczorny przebieg Deploy."
             )
             return 0
     head, head_date = head_commit_info(fetch, args.repo, args.branch)
@@ -432,6 +481,77 @@ def _run_accept(args: argparse.Namespace, fetch: Fetch) -> int:
     return result.code
 
 
+def window_closed_at(now_utc: datetime, window: str, tz: str = DEFAULT_TZ) -> datetime:
+    """Chwila (UTC), w której zaczęło się bieżące okno ciszy — dla ``8-18``
+    dzisiejsza 08:00 czasu ``tz``. Wołać tylko wewnątrz okna ciszy."""
+    bounds = parse_freeze_window(window)
+    if bounds is None:
+        raise ValueError("brak okna ciszy")
+    local = now_utc.astimezone(ZoneInfo(tz))
+    start = local.replace(hour=bounds[0], minute=0, second=0, microsecond=0)
+    if start > local:  # okno przez północ, np. 22-6 o 03:00
+        start = start - timedelta(days=1)
+        if start.weekday() >= WEEKEND_FROM:
+            # Niedzielny wieczór był bez okna — cisza ruszyła o północy.
+            start = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    return start.astimezone(timezone.utc)
+
+
+def _run_night_check(
+    args: argparse.Namespace, fetch: Fetch, now: Optional[datetime] = None
+) -> int:
+    """Alarm „noc bez wdrożenia”: w oknie ciszy produkcja nie ma merge'y
+    sprzed jego początku, choć HEAD maina ma zieloną bramkę. Cron GitHuba
+    potrafi nie przyjść wcale (26.09.2026) — wtedy wdrożenie z dnia czekałoby
+    kolejną dobę bez śladu. Czerwoną bramkę obsługuje alarm wstrzymania."""
+    now = now or datetime.now(timezone.utc)
+    out = os.environ.get("GITHUB_OUTPUT")
+    try:
+        frozen = in_freeze(now, args.freeze_window)
+    except ValueError as error:
+        print(f"::warning::{error} — sprawdzenie nocy pominięte.")
+        frozen = False
+    if not frozen:
+        _append(out, ["checked=false", "night_alert="])
+        print("Trwa okno wdrożeń — nocy jeszcze nie oceniamy.")
+        return 0
+    head, _ = head_commit_info(fetch, args.repo, args.branch)
+    if args.live == head:
+        _append(out, ["checked=true", "night_alert="])
+        print(f"Produkcja serwuje HEAD maina {head[:7]}.")
+        return 0
+    status = gate_status(fetch, args.repo, head, args.branch)
+    if status != GREEN or not SHA_RE.fullmatch(args.live):
+        _append(out, ["checked=false", "night_alert="])
+        print(f"HEAD maina {head[:7]}: bramka {status}, produkcja {args.live[:7] or 'brak'} — bez oceny.")
+        return 0
+    body = fetch(f"repos/{args.repo}/compare/{args.live}...{head}")
+    if not isinstance(body, dict) or body.get("status") != "ahead":
+        _append(out, ["checked=false", "night_alert="])
+        print("Produkcja nie jest przodkiem HEAD maina — bez oceny.")
+        return 0
+    cutoff = window_closed_at(now, args.freeze_window)
+    old = 0
+    for item in body.get("commits") or []:
+        raw = str(((item.get("commit") or {}).get("committer") or {}).get("date") or "")
+        try:
+            date = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if date < cutoff:
+            old += 1
+    local_cutoff = cutoff.astimezone(ZoneInfo(DEFAULT_TZ))
+    alert = (
+        f"{old} commit(ów) z maina sprzed {local_cutoff:%d.%m %H:%M} nie ma na produkcji "
+        f"(produkcja {args.live[:7]}, main {head[:7]})"
+        if old
+        else ""
+    )
+    _append(out, ["checked=true", f"night_alert={alert}"])
+    print(alert or "Nocne wdrożenie objęło wszystko sprzed okna ciszy.")
+    return 0
+
+
 def _run_in_freeze(args: argparse.Namespace, now: Optional[datetime] = None) -> int:
     try:
         frozen = in_freeze(now or datetime.now(timezone.utc), args.freeze_window)
@@ -461,6 +581,8 @@ def main(argv: Optional[list[str]] = None, fetch: Optional[Fetch] = None) -> int
             return _run_select(args, fetch)
         if args.mode == "hold-check":
             return _run_hold_check(args, fetch)
+        if args.mode == "night-check":
+            return _run_night_check(args, fetch)
         return _run_accept(args, fetch)
     except urllib.error.HTTPError as error:
         print(f"::warning::GitHub API HTTP {error.code} ({args.mode})", file=sys.stderr)

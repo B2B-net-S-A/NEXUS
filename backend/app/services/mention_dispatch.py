@@ -29,9 +29,11 @@ Dlaczego dwie fazy zamiast jednej (jak w notification_triggers.emit):
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
+from typing import Optional
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import ws as ws_manager
@@ -42,7 +44,11 @@ from app.models.note import Note
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services.email import send_mention_email
-from app.services.notification_delivery import DeliveryPolicy, load_policy
+from app.services.notification_delivery import (
+    DeliveryPolicy,
+    email_opted_out,
+    load_policy,
+)
 from app.services.notification_access import (
     filter_notification_recipients,
     user_can_receive_notification,
@@ -130,6 +136,7 @@ async def enqueue_mention_notifications(
     notification_title: str,
     related_entity_type: str,
     related_entity_id: int,
+    notification_type: NotificationType = NotificationType.note_mention,
 ) -> list[tuple[User, Notification]]:
     """Dodaje Notification do sesji per user. NIE commit'uje.
 
@@ -152,25 +159,39 @@ async def enqueue_mention_notifications(
     users = list(rows.scalars().all())
     await resolve_effective_section_access_for_users(db, users)
 
+    # Import leniwy: ``app.api.notifications`` ciągnie za sobą routery.
+    from app.api.notifications import create_notification
+
     pairs: list[tuple[User, Notification]] = []
     for user in users:
         if not user_can_receive_notification(
             user,
-            NotificationType.note_mention,
+            notification_type,
             related_entity_type=related_entity_type,
             link=deep_link_path,
         ):
             continue
-        notif = Notification(
+        # Runda 9 (R9-N2-6): ponowne oznaczenie tej samej osoby w tej samej
+        # notatce tego samego dnia (usunięta i dopisana wzmianka) trafiało
+        # w ``ix_notif_dedup_daily`` i wywracało zapis notatki 500-ką.
+        # ``dedupe_resurface`` wstawia w savepoincie, a przy kolizji odświeża
+        # dzisiejszy wiersz (znowu nieprzeczytany) zamiast dokładać drugi.
+        notif = await create_notification(
+            db,
             user_id=user.id,
             title=notification_title,
             message=snippet,
             link=deep_link_path,
-            notification_type=NotificationType.note_mention,
+            notification_type=notification_type,
             related_entity_type=related_entity_type,
             related_entity_id=related_entity_id,
+            dedupe_resurface=True,
         )
-        db.add(notif)
+        # Odświeżony wiersz ma ``created_at = now()`` jako wyrażenie SQL —
+        # po zapisie atrybut wygasa, a leniwe doczytanie po commicie
+        # (``send_mention_side_effects``) w async to ``MissingGreenlet``.
+        await db.flush()
+        await db.refresh(notif, attribute_names=["created_at"])
         pairs.append((user, notif))
     return pairs
 
@@ -186,8 +207,18 @@ async def send_mention_side_effects(
     deep_link_path: str,
     context_label: str,
     notification_title: str,
+    notification_type: NotificationType = NotificationType.note_mention,
+    send_email: bool = True,
+    edited: bool = False,
 ) -> int:
-    """Po commicie: WS push + email per user. Best-effort (try/except)."""
+    """Po commicie: WS push + email per user. Best-effort (try/except).
+
+    ``edited`` — zmiana notatki, w której odbiorca już był oznaczony: mail
+    mówi „zmienił(a) treść”, nie „oznaczył(a) Cię” (21.10.2026).
+
+    Odpowiedź na notatkę (``note_reply``, 0399) idzie bez maila — mail
+    wzmianki mówi „oznaczył(a) Cię”, a odpowiedź widać w dzwonku.
+    """
     if not pairs:
         return 0
 
@@ -197,7 +228,7 @@ async def send_mention_side_effects(
         allowed_users = await filter_notification_recipients(
             db,
             (user.id for user, _ in pairs),
-            NotificationType.note_mention,
+            notification_type,
             related_entity_type="note",
             link=deep_link_path,
         )
@@ -223,7 +254,7 @@ async def send_mention_side_effects(
                         "title": notif.title,
                         "message": notif.message,
                         "link": notif.link,
-                        "notification_type": NotificationType.note_mention.value,
+                        "notification_type": notification_type.value,
                         "created_at": (
                             notif.created_at.isoformat()
                             if notif.created_at is not None
@@ -241,7 +272,13 @@ async def send_mention_side_effects(
             )
 
         # Email — tylko gdy user ma email i jest aktywny.
-        if not user.email or not policy.allows("mentions", notif.created_at):
+        if (
+            not send_email
+            or not user.email
+            or not policy.allows("mentions", notif.created_at)
+            # Własny wyłącznik maila („Maile do Ciebie”); dzwonek już poszedł.
+            or email_opted_out(user, "mentions")
+        ):
             continue
         try:
             # Blocking smtplib send — offload off the event loop.
@@ -254,6 +291,7 @@ async def send_mention_side_effects(
                 deep_link_path=deep_link_path,
                 context_label=context_label,
                 event_at=notif.created_at,
+                edited=edited,
             )
             if ok:
                 sent += 1
@@ -262,7 +300,147 @@ async def send_mention_side_effects(
     return sent
 
 
+# ── Usunięta / poprawiona treść (runda 10, R10-N6-3) ─────────────────────────
+#
+# Powiadomienie niesie FRAGMENT treści (``message``), a mail zastępczy czatu
+# wysyła go po 15 min osobom offline. Do rundy 10 usunięcie albo poprawka
+# wiadomości czy notatki nie dotykały powiadomień: skasowana treść (np. stawka
+# wpisana przez pomyłkę) zostawała w dzwonku i wychodziła mailem.
+
+NOTE_DELETED_PLACEHOLDER = "[notatka usunięta]"
+CHAT_DELETED_PLACEHOLDER = "[wiadomość usunięta]"
+CHAT_NOTIFICATION_TYPES = (
+    NotificationType.job_chat_message,
+    NotificationType.job_chat_mention,
+)
+# Powiadomienia wiadomości powstają w tej samej transakcji co wiadomość (albo
+# później — wzmianka dopisana przy edycji), więc zawężenie po czasie jest
+# bezpieczne, a zapytanie nie przegląda całej historii powiadomień czatu.
+_CHAT_NOTIFICATION_SLACK = timedelta(minutes=1)
+
+
+def _chat_message_clause(
+    *, related_entity_type: str, link: str, message_created_at: Optional[datetime]
+) -> list:
+    clauses = [
+        Notification.notification_type.in_(CHAT_NOTIFICATION_TYPES),
+        Notification.related_entity_type == related_entity_type,
+        Notification.link == link,
+    ]
+    if message_created_at is not None:
+        clauses.append(
+            Notification.created_at >= message_created_at - _CHAT_NOTIFICATION_SLACK
+        )
+    return clauses
+
+
+async def retract_chat_message_notifications(
+    db: AsyncSession,
+    *,
+    related_entity_type: str,
+    link: str,
+    message_created_at: Optional[datetime],
+) -> None:
+    """Usunięta wiadomość czatu: powiadomienia nie niosą już jej treści.
+
+    Wiersze, których mail jeszcze nie ruszył, są KASOWANE — oznaczenie jako
+    przeczytane zostawiłoby „nowsze powiadomienie wątku”, które w
+    ``chat_email_fallback`` wstrzymuje mail o wcześniejszej, prawdziwej
+    wiadomości. Wiersze z rozpoczętą albo wysłaną wysyłką zostają (ślad
+    wysyłki), ale jako przeczytane i z zastępczą treścią — worker po
+    rezerwacji ponownie czyta ``is_read`` i ``message``.
+    """
+    base = _chat_message_clause(
+        related_entity_type=related_entity_type,
+        link=link,
+        message_created_at=message_created_at,
+    )
+    await db.execute(
+        delete(Notification)
+        .where(
+            *base,
+            Notification.email_sent_at.is_(None),
+            Notification.email_send_started_at.is_(None),
+            Notification.email_delivery_uncertain.is_(False),
+        )
+        .execution_options(synchronize_session=False)
+    )
+    await db.execute(
+        update(Notification)
+        .where(*base)
+        .values(is_read=True, message=CHAT_DELETED_PLACEHOLDER)
+        .execution_options(synchronize_session=False)
+    )
+
+
+async def refresh_chat_message_snippets(
+    db: AsyncSession,
+    *,
+    related_entity_type: str,
+    link: str,
+    message_created_at: Optional[datetime],
+    snippet: str,
+) -> None:
+    """Poprawiona wiadomość czatu: dzwonek i mail pokazują nową treść."""
+    await db.execute(
+        update(Notification)
+        .where(
+            *_chat_message_clause(
+                related_entity_type=related_entity_type,
+                link=link,
+                message_created_at=message_created_at,
+            )
+        )
+        .values(message=snippet)
+        .execution_options(synchronize_session=False)
+    )
+
+
+# Powiadomienia niosące fragment notatki: wzmianka i odpowiedź (0399). Oba
+# mają `related_entity=(note, id notatki, która je wywołała)`.
+NOTE_SNIPPET_NOTIFICATION_TYPES = (
+    NotificationType.note_mention,
+    NotificationType.note_reply,
+)
+
+
+async def retract_note_mention_notifications(db: AsyncSession, note_id: int) -> None:
+    """Usunięta notatka: wzmianka i odpowiedź w dzwonku nie niosą już jej fragmentu."""
+    await db.execute(
+        update(Notification)
+        .where(
+            Notification.notification_type.in_(NOTE_SNIPPET_NOTIFICATION_TYPES),
+            Notification.related_entity_type == "note",
+            Notification.related_entity_id == note_id,
+        )
+        .values(is_read=True, message=NOTE_DELETED_PLACEHOLDER)
+        .execution_options(synchronize_session=False)
+    )
+
+
+async def refresh_note_mention_snippets(
+    db: AsyncSession, note_id: int, snippet: str
+) -> None:
+    """Poprawiona notatka: wzmianki i odpowiedzi w dzwonku pokazują nowy fragment."""
+    await db.execute(
+        update(Notification)
+        .where(
+            Notification.notification_type.in_(NOTE_SNIPPET_NOTIFICATION_TYPES),
+            Notification.related_entity_type == "note",
+            Notification.related_entity_id == note_id,
+        )
+        .values(message=snippet)
+        .execution_options(synchronize_session=False)
+    )
+
+
 __all__ = [
+    "CHAT_DELETED_PLACEHOLDER",
+    "NOTE_DELETED_PLACEHOLDER",
+    "refresh_chat_message_snippets",
+    "refresh_note_mention_snippets",
+    "retract_chat_message_notifications",
+    "retract_note_mention_notifications",
     "build_note_context_label",
     "build_note_deep_link",
     "build_screening_note_deep_link",

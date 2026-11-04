@@ -1,6 +1,12 @@
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,14 +14,18 @@ import type {
   B2BConfirmFullySignedResult,
   B2BGeneratedContractRow,
 } from "@/lib/api";
+import { warsawToday } from "@/lib/warsaw-date";
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   generated: vi.fn(),
   confirmFullySigned: vi.fn(),
+  attachSignedFile: vi.fn(),
   updateGenerated: vi.fn(),
   deleteGenerated: vi.fn(),
   downloadGenerated: vi.fn(),
+  signedPdf: vi.fn(),
+  downloadBlob: vi.fn(),
   showActionToast: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
@@ -55,6 +65,7 @@ vi.mock("@/lib/api", () => ({
     generated: (...args: unknown[]) => mocks.generated(...args),
     confirmFullySigned: (...args: unknown[]) =>
       mocks.confirmFullySigned(...args),
+    attachSignedFile: (...args: unknown[]) => mocks.attachSignedFile(...args),
     updateGenerated: (...args: unknown[]) => mocks.updateGenerated(...args),
     deleteGenerated: (...args: unknown[]) => mocks.deleteGenerated(...args),
     downloadGenerated: (...args: unknown[]) =>
@@ -62,7 +73,22 @@ vi.mock("@/lib/api", () => ({
   },
   extractErrorMsg: (error: unknown) =>
     error instanceof Error ? error.message : "Błąd",
-  signingApi: {},
+}));
+
+vi.mock("@/lib/api/b2bEsign", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api/b2bEsign")>();
+  return {
+    ...actual,
+    b2bEsignApi: {
+      ...actual.b2bEsignApi,
+      signedPdf: (...args: unknown[]) => mocks.signedPdf(...args),
+    },
+  };
+});
+
+vi.mock("@/lib/cv-generator", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/cv-generator")>()),
+  downloadBlob: (...args: unknown[]) => mocks.downloadBlob(...args),
 }));
 
 import {
@@ -378,7 +404,7 @@ describe("GeneratedContractsTab — status podpisu", () => {
     expect(
       within(dialog).getByText("To nie jest walidacja podpisu elektronicznego"),
     ).toBeInTheDocument();
-    expect(within(dialog).getByText(/nie utworzy pliku.*QES/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/NEXUS nie sprawdza podpisów/i)).toBeInTheDocument();
 
     const confirm = within(dialog).getByRole("button", {
       name: "Potwierdź podpisanie",
@@ -405,6 +431,7 @@ describe("GeneratedContractsTab — status podpisu", () => {
       expect(mocks.confirmFullySigned).toHaveBeenCalledWith(1, {
         candidate_id: 7,
         job_id: 20,
+        signed_on: warsawToday(),
       }),
     );
   });
@@ -552,6 +579,7 @@ describe("GeneratedContractsTab — status podpisu", () => {
     expect(mocks.confirmFullySigned).toHaveBeenLastCalledWith(1, {
       candidate_id: 7,
       job_id: 20,
+      signed_on: warsawToday(),
     });
 
     const checkbox = within(dialog).getByRole("checkbox", {
@@ -569,6 +597,7 @@ describe("GeneratedContractsTab — status podpisu", () => {
     expect(mocks.confirmFullySigned).toHaveBeenLastCalledWith(1, {
       candidate_id: 7,
       job_id: 20,
+      signed_on: warsawToday(),
       keep_existing_contract_terms: true,
     });
     await waitFor(() =>
@@ -694,6 +723,7 @@ describe("GeneratedContractsTab — status podpisu", () => {
     expect(mocks.confirmFullySigned).toHaveBeenLastCalledWith(1, {
       candidate_id: 7,
       job_id: 21,
+      signed_on: warsawToday(),
     });
   });
 });
@@ -752,6 +782,323 @@ describe("GeneratedContractsTab — umowa anulowana", () => {
       expect.objectContaining({
         contractStatus: ["active", "in_progress", "cancelled"],
       }),
+    );
+  });
+});
+
+describe("GeneratedContractsTab — wyszukiwarka kandydata w potwierdzeniu podpisu", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("awaria wyszukiwania to błąd z „Ponów”, nie „Brak wyników.”", async () => {
+    mocks.apiGet.mockImplementation((url: string) =>
+      url === "/api/cv-generator/candidates"
+        ? Promise.reject(new Error("503"))
+        : Promise.reject(new Error(`Unexpected GET ${url}`)),
+    );
+    renderTab([
+      generatedRow({
+        candidate_id: null,
+        job_id: null,
+        client_id: null,
+        candidate_name: null,
+        job_title: null,
+        canonical_client_name: null,
+        partner_name: "Historyczny Partner",
+      }),
+    ]);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Oznacz jako podpisaną" }),
+    );
+    const dialog = screen.getByRole("dialog");
+    const [candidateCombobox] = within(dialog).getAllByRole("combobox");
+    await userEvent.click(candidateCombobox);
+
+    expect(
+      await screen.findByText("Nie udało się wyszukać kandydatów."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Brak wyników.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ponów/ })).toBeInTheDocument();
+  });
+});
+
+describe("GeneratedContractsTab — data podpisu umowy (0514)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.apiGet.mockImplementation((url: string) =>
+      url === "/api/jobs/20"
+        ? Promise.resolve({
+            data: { title: "Cloud Engineer", client_id: 3, client_name: "Nordea" },
+          })
+        : Promise.reject(new Error(`Unexpected GET ${url}`)),
+    );
+    mocks.confirmFullySigned.mockResolvedValue(confirmationResult("created"));
+  });
+
+  async function openDialog() {
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Oznacz jako podpisaną" }),
+    );
+    const dialog = screen.getByRole("dialog");
+    await within(dialog).findByText("Cloud Engineer");
+    return dialog;
+  }
+
+  function nextDay(iso: string): string {
+    const day = new Date(`${iso}T12:00:00Z`);
+    day.setUTCDate(day.getUTCDate() + 1);
+    return day.toISOString().slice(0, 10);
+  }
+
+  it("domyślnie podpowiada dziś i wysyła tę datę", async () => {
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    const field = within(dialog).getByLabelText("Data podpisu umowy");
+    expect(field).toHaveValue(warsawToday());
+    expect(field).toHaveAttribute("min", "2026-07-24");
+    expect(field).toHaveAttribute("max", warsawToday());
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    );
+    await waitFor(() =>
+      expect(mocks.confirmFullySigned).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ signed_on: warsawToday() }),
+      ),
+    );
+  });
+
+  it("wysyła dzień podpisu wybrany w oknie", async () => {
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    fireEvent.change(within(dialog).getByLabelText("Data podpisu umowy"), {
+      target: { value: "2026-07-28" },
+    });
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    );
+    await waitFor(() =>
+      expect(mocks.confirmFullySigned).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ signed_on: "2026-07-28" }),
+      ),
+    );
+  });
+
+  it("data z przyszłości blokuje potwierdzenie z powodem", async () => {
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    fireEvent.change(within(dialog).getByLabelText("Data podpisu umowy"), {
+      target: { value: nextDay(warsawToday()) },
+    });
+    expect(
+      within(dialog).getByText("Data podpisu nie może być z przyszłości."),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    ).toBeDisabled();
+  });
+
+  it("data sprzed wygenerowania umowy blokuje potwierdzenie z powodem", async () => {
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    fireEvent.change(within(dialog).getByLabelText("Data podpisu umowy"), {
+      target: { value: "2026-07-23" },
+    });
+    expect(
+      within(dialog).getByText(
+        "Data podpisu nie może być wcześniejsza niż wygenerowanie umowy (24.07.2026).",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    ).toBeDisabled();
+    expect(mocks.confirmFullySigned).not.toHaveBeenCalled();
+  });
+});
+
+describe("GeneratedContractsTab — podpisany plik umowy (0496)", () => {
+  const pdf = () =>
+    new File(["%PDF-1.7"], "umowa-podpisana.pdf", { type: "application/pdf" });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.apiGet.mockImplementation((url: string) =>
+      url === "/api/jobs/20"
+        ? Promise.resolve({
+            data: { title: "Cloud Engineer", client_id: 3, client_name: "Nordea" },
+          })
+        : Promise.reject(new Error(`Unexpected GET ${url}`)),
+    );
+    mocks.confirmFullySigned.mockResolvedValue(confirmationResult("created"));
+  });
+
+  async function openDialog() {
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Oznacz jako podpisaną" }),
+    );
+    const dialog = screen.getByRole("dialog");
+    await within(dialog).findByText("Cloud Engineer");
+    return dialog;
+  }
+
+  it("bez pliku potwierdza jak dotąd i niczego nie wgrywa", async () => {
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    );
+    await waitFor(() => expect(mocks.confirmFullySigned).toHaveBeenCalled());
+    expect(mocks.attachSignedFile).not.toHaveBeenCalled();
+  });
+
+  it("wgrywa wybrany plik dopiero po udanym potwierdzeniu", async () => {
+    mocks.attachSignedFile.mockResolvedValue(generatedRow());
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    const file = pdf();
+    await userEvent.upload(
+      within(dialog).getByLabelText("Podpisana umowa (opcjonalnie)"),
+      file,
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    );
+    await waitFor(() =>
+      expect(mocks.attachSignedFile).toHaveBeenCalledWith(1, file),
+    );
+    expect(mocks.confirmFullySigned.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.attachSignedFile.mock.invocationCallOrder[0],
+    );
+    expect(mocks.showError).not.toHaveBeenCalled();
+  });
+
+  it("nieudany zapis pliku nie cofa podpisu i mówi, gdzie dołączyć plik", async () => {
+    mocks.attachSignedFile.mockRejectedValue(new Error("Plik jest pusty."));
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    await userEvent.upload(
+      within(dialog).getByLabelText("Podpisana umowa (opcjonalnie)"),
+      pdf(),
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    );
+    await waitFor(() => expect(mocks.showError).toHaveBeenCalled());
+    expect(mocks.showError.mock.calls[0][0]).toContain(
+      "plik nie został zapisany",
+    );
+    expect(mocks.showError.mock.calls[0][0]).toContain("Dołącz podpisaną umowę");
+  });
+
+  it("plik w złym formacie blokuje potwierdzenie z powodem", async () => {
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    await userEvent.upload(
+      within(dialog).getByLabelText("Podpisana umowa (opcjonalnie)"),
+      new File(["PK"], "umowa.docx"),
+      { applyAccept: false },
+    );
+    expect(
+      within(dialog).getByText(
+        "Podpisana umowa musi być plikiem PDF, JPG albo PNG.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    ).toBeDisabled();
+  });
+
+  it("wiersz podpisany bez pliku daje „Dołącz podpisaną umowę”, z plikiem — link do Dokumentów", async () => {
+    mocks.attachSignedFile.mockResolvedValue(generatedRow());
+    const signed = {
+      signature_status: "signed_both" as const,
+      signature_source: "manual_confirmation" as const,
+      contract_id: 91,
+      can_confirm_signed: false,
+      can_delete: false,
+      can_edit: false,
+    };
+    renderTab([
+      generatedRow({ ...signed, id: 2, can_attach_signed_file: true }),
+      generatedRow({
+        ...signed,
+        id: 3,
+        contract_number: "1473/2026",
+        signed_document_id: 501,
+        can_attach_signed_file: true,
+      }),
+    ]);
+
+    expect(
+      await screen.findByRole("link", {
+        name: "Podpisana umowa 1473/2026 w Dokumentach kontraktu",
+      }),
+    ).toHaveAttribute("href", "/contracts/91?tab=documents");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Dołącz podpisaną umowę" }),
+    );
+    const dialog = screen.getByRole("dialog");
+    const save = within(dialog).getByRole("button", { name: "Zapisz plik" });
+    expect(save).toBeDisabled();
+    const file = pdf();
+    await userEvent.upload(within(dialog).getByLabelText("Podpisana umowa"), file);
+    await userEvent.click(save);
+    await waitFor(() => expect(mocks.attachSignedFile).toHaveBeenCalledWith(2, file));
+    expect(mocks.showSuccess).toHaveBeenCalledWith(
+      "Podpisana umowa zapisana w Dokumentach kontraktu.",
+    );
+  });
+
+  it("audyt 22.10, F45: wiersz oznaczony ręcznie po podpisie w NEXUSIE daje pobrać plik do „Dołącz”", async () => {
+    const blob = new Blob(["%PDF"]);
+    mocks.signedPdf.mockResolvedValue({
+      data: blob,
+      headers: {
+        "content-disposition": 'attachment; filename="Umowa B2B 1555-2026 Kowalski Jan podpisana.pdf"',
+      },
+    });
+    const esign = {
+      request_id: 4,
+      status: "completed" as const,
+      contractor_signed_at: "2026-10-21T10:00:00Z",
+      completed_at: "2026-10-22T10:00:00Z",
+      expires_at: "2026-11-04T10:00:00Z",
+      company_signer_name: "Olaf",
+    } as unknown as NonNullable<B2BGeneratedContractRow["esign"]>;
+    const signed = {
+      signature_status: "signed_both" as const,
+      signature_source: "manual_confirmation" as const,
+      contract_id: 91,
+      can_confirm_signed: false,
+      can_delete: false,
+      can_edit: false,
+      can_attach_signed_file: true,
+      esign,
+    };
+    renderTab([
+      generatedRow({ ...signed, id: 2, can_download_signed_esign: true }),
+      generatedRow({
+        ...signed,
+        id: 3,
+        contract_number: "1473/2026",
+        can_download_signed_esign: false,
+      }),
+    ]);
+
+    const buttons = await screen.findAllByRole("button", {
+      name: "Pobierz podpisaną umowę",
+    });
+    expect(buttons).toHaveLength(1);
+    await userEvent.click(buttons[0]);
+    await waitFor(() => expect(mocks.signedPdf).toHaveBeenCalledWith(4));
+    // Nazwę układa serwer (26.10.2026): „Umowa B2B [nr] Nazwisko Imię”.
+    expect(mocks.downloadBlob).toHaveBeenCalledWith(
+      blob,
+      "Umowa B2B 1555-2026 Kowalski Jan podpisana.pdf",
     );
   });
 });

@@ -15,9 +15,49 @@
 
 import api, { pipelineTemplatesApi, type RejectionReasonDef } from "@/lib/api";
 
+/** Klucz powodu „Nie akceptuje trybu pracy” (0442) — lustro
+ *  `rejection_reason_labels.WORK_MODE_MISMATCH`. Okno odrzucenia pyta przy nim,
+ *  ile dni w biurze kandydat akceptuje, a serwer zapisuje to na profilu. */
+export const WORK_MODE_MISMATCH_REASON = "work_mode_mismatch";
+
+/** Klucz powodu „Już po rozmowie u tego hiring managera” (0484) — lustro
+ *  `rejection_reason_labels.HM_ALREADY_INTERVIEWED`. */
+export const HM_ALREADY_INTERVIEWED_REASON = "hm_already_interviewed";
+
+/**
+ * Czy powód bez opisu nic nie mówi (20.10.2026) — lustro
+ * `rejection_reason_labels.needs_description`. Przy „Inne” i „Już po rozmowie
+ * u tego hiring managera” serwer odrzuca ruch bez opisu (422).
+ */
+export function reasonNeedsDescription(
+  reason: Pick<RejectionReasonOption, "name" | "label"> | null | undefined,
+): boolean {
+  if (!reason) return false;
+  return (
+    reason.name?.trim() === HM_ALREADY_INTERVIEWED_REASON ||
+    reason.label.trim() === "Inne"
+  );
+}
+
+/** Powody „za drogo” (26.10.2026): odrzucenie ze słownika szablonu
+ *  domyślnego i rezygnacja `salary_mismatch` (0068). Okno pyta przy nich,
+ *  ile osoba teraz chce. */
+const RATE_TOO_HIGH_REASONS = new Set([
+  "Za wysokie oczekiwania finansowe",
+  "salary_mismatch",
+]);
+
+export function isRateTooHighReason(
+  reason: Pick<RejectionReasonOption, "name"> | null | undefined,
+): boolean {
+  return RATE_TOO_HIGH_REASONS.has(reason?.name?.trim() ?? "");
+}
+
 export interface RejectionReasonOption {
   id: string;
   label: string;
+  /** Klucz danych powodu (`rejection_reasons.name`). */
+  name?: string;
   applies_to: ("rejected" | "withdrawn")[];
   /**
    * Czy ten powód jest werdyktem o OSOBIE — tylko takie blokują ponowne
@@ -48,6 +88,7 @@ export function mapRejectionReasons(
     .map((r) => ({
       id: String(r.id),
       label: rejectionReasonLabel(r),
+      name: r.name,
       applies_to: [r.category as "rejected" | "withdrawn"],
       disqualifies_person: Boolean(r.disqualifies_person),
     }));

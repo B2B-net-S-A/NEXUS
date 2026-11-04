@@ -385,6 +385,7 @@ export function TraineeTodayView({
           open={laterOpen}
           personName={selected.name}
           listDate={data.list_date}
+          programEnd={data.program?.end_date ?? null}
           busy={saveOutcome.isPending}
           onCancel={() => setLaterOpen(false)}
           onConfirm={(date) => sendOutcome({ outcome: "later", later_date: date })}

@@ -6,9 +6,18 @@ import { Video } from "lucide-react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type TeamsPrepHealth = "unconfigured" | "misconfigured" | "degraded" | "healthy";
+export type TeamsPrepHealth = "unconfigured" | "misconfigured" | "degraded" | "healthy";
 
-const LABELS: Record<TeamsPrepHealth, { text: string; className: string }> = {
+export const TEAMS_PREP_HEALTH_KEY = ["health", "teams-prep"] as const;
+
+/** Stan sondy `checks.teams_prep` z `/api/health` (karta i lista „Integracje”). */
+export function fetchTeamsPrepHealth(): Promise<TeamsPrepHealth | undefined> {
+  return api
+    .get<{ checks?: Record<string, string> }>("/api/health")
+    .then((r) => r.data.checks?.teams_prep as TeamsPrepHealth | undefined);
+}
+
+export const TEAMS_PREP_LABELS: Record<TeamsPrepHealth, { text: string; className: string }> = {
   unconfigured: { text: "Nieskonfigurowane", className: "bg-muted text-muted-foreground" },
   misconfigured: { text: "Brak poświadczeń", className: "bg-destructive/15 text-destructive" },
   degraded: { text: "Problemy z dostępem", className: "bg-warning-muted text-warning-muted-foreground" },
@@ -21,24 +30,22 @@ const LABELS: Record<TeamsPrepHealth, { text: string; className: string }> = {
  */
 export function TeamsPrepStatusCard() {
   const health = useQuery({
-    queryKey: ["health", "teams-prep"],
-    queryFn: () =>
-      api
-        .get<{ checks?: Record<string, string> }>("/api/health")
-        .then((r) => r.data.checks?.teams_prep as TeamsPrepHealth | undefined),
+    queryKey: TEAMS_PREP_HEALTH_KEY,
+    queryFn: fetchTeamsPrepHealth,
     staleTime: 60_000,
   });
-  const status = health.data ? LABELS[health.data] : null;
+  const status = health.data ? TEAMS_PREP_LABELS[health.data] : null;
 
   return (
     <div className="rounded-2xl border border-border bg-card p-6">
+      {/* Tytuł ekranu rysuje strona Ustawień — tu stan i opis (20.10.2026). */}
       <div className="flex items-start gap-4">
         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
           <Video className="h-6 w-6 text-primary" aria-hidden />
         </div>
         <div className="flex-1 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-base font-bold text-foreground">Prepy w Teams</h3>
+            <span className="text-sm font-semibold text-foreground">Stan integracji</span>
             <span
               className={cn(
                 "rounded-full px-2 py-0.5 text-xs font-medium",

@@ -62,12 +62,24 @@ class ClientPlaybook(Base, TimestampMixin):
 
     # ── Treść (co mówić kandydatowi, reguły, proces, onboarding) ─────────
     about_for_candidate: Mapped[Optional[str]] = mapped_column(Text)
+    # 0403: skąd pochodzi opis dla kandydata — `web` = research z internetu
+    # („Champion po ludzku”), NULL/`manual` = wpisany przez człowieka.
+    # Research nigdy nie nadpisuje opisu wpisanego ręcznie.
+    about_for_candidate_origin: Mapped[Optional[str]] = mapped_column(String(10))
+    about_for_candidate_sources: Mapped[Optional[list]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql")
+    )
     priority_rules: Mapped[Optional[str]] = mapped_column(Text)
     process_rules_md: Mapped[Optional[str]] = mapped_column(Text)
     onboarding_md: Mapped[Optional[str]] = mapped_column(Text)
 
     # Lista {"name": ..., "url": ...} — wskaźniki na SharePoint, nie kopie.
     documents: Mapped[Optional[list]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql")
+    )
+    # 0495 (21.10.2026, D3): klucze pól karty rekomendacji, które klient
+    # dokłada do minimum przed „Zweryfikowany” (np. ["motivation"]).
+    verified_required_fields: Mapped[Optional[list]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql")
     )
 

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.export_safety import safe_row
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.activity import Activity
 
@@ -31,12 +32,20 @@ from app.models.activity import Activity
 from app.api.candidate_access import CandidateExportAccess, CandidateWriteAccess
 from app.services import candidate_audit
 from app.services import candidate_profile_facts
+from app.services.candidate_erasure_leftovers import (
+    ERASED_EMAIL_SKIP_REASON,
+    email_was_erased,
+)
 from app.services.candidate_language_writer import (
     normalize_language_payload,
     sync_candidate_languages_from_source,
 )
 from app.services.candidate_profile_rate import canonical_profile_rate_amount
 from app.services.candidate_location_writer import normalize_candidate_location
+from app.services.candidate_name_rules import (
+    has_blacklist_marker,
+    without_name_markers,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -143,8 +152,14 @@ async def import_candidates(
     for row_num, row in enumerate(reader, start=2):  # start=2 (header is row 1)
         try:
             email = get_col(row, "email").lower() or None
-            name = get_col(row, "name")
-            lastname = get_col(row, "lastname")
+            # Dopisek w imieniu z pliku znika bez odmowy (D6, 13.10.2026), ale
+            # czarna lista najpierw idzie do statusu — jak korekta 0436 i mapper
+            # Traffita. Do 14.10.2026 „(czarna lista)” znikało, a osoba wchodziła
+            # jako aktywna i trafiała do propozycji (audyt 13.10.2026, pkt 22).
+            raw_name, raw_lastname = get_col(row, "name"), get_col(row, "lastname")
+            blacklisted = has_blacklist_marker(raw_name, raw_lastname)
+            name = without_name_markers(raw_name)
+            lastname = without_name_markers(raw_lastname)
 
             if not name and not lastname:
                 errors += 1
@@ -157,12 +172,17 @@ async def import_candidates(
                 )
                 continue
 
-            # Dedup by email
+            # Dedup by email. Runda 10 (R10-N13-2): bez rozróżniania wielkości
+            # liter — Traffit zapisuje adres tak, jak przyszedł („Jan@Firma.pl”),
+            # a UNIQUE działa na surowym tekście, więc równość z adresem
+            # zmienionym na małe litery zakładała tę samą osobę drugi raz.
             if email:
-                existing = await db.execute(
-                    select(Candidate).where(Candidate.email == email)
+                existing = await db.scalar(
+                    select(Candidate.id)
+                    .where(func.lower(Candidate.email) == email)
+                    .limit(1)
                 )
-                if existing.scalar_one_or_none():
+                if existing is not None:
                     skipped += 1
                     details.append(
                         {
@@ -170,6 +190,17 @@ async def import_candidates(
                             "status": "skipped",
                             "email": email,
                             "reason": "Email już istnieje w bazie",
+                        }
+                    )
+                    continue
+                if await email_was_erased(db, email):
+                    skipped += 1
+                    details.append(
+                        {
+                            "row": row_num,
+                            "status": "skipped",
+                            "email": email,
+                            "reason": ERASED_EMAIL_SKIP_REASON,
                         }
                     )
                     continue
@@ -259,7 +290,15 @@ async def import_candidates(
                     location=location.projection,
                     source=source_raw[:100],
                     skills=_parse_skills(skills_raw),
-                    status=CandidateStatus.active,
+                    status=(
+                        CandidateStatus.blacklisted
+                        if blacklisted
+                        else CandidateStatus.active
+                    ),
+                    # Runda 10 (R10-N13-7): autor jak w bulk-import i POST
+                    # /candidates — inaczej filtr „Kto dodał / Moi kandydaci”
+                    # nie widzi osób z importu CSV.
+                    created_by=current_user.id,
                 )
                 db.add(candidate)
                 await db.flush()
@@ -310,13 +349,22 @@ async def import_candidates(
                 detail["field_errors"] = row_field_errors
             details.append(detail)
 
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - każdy wiersz osobno
+            # Runda 10 (R10-N13-9): ``str(exc)`` z bazy niósł pełny tekst SQL
+            # z nazwami kolumn. Odpowiedź dostaje stały kod i polski powód,
+            # log — samą klasę wyjątku (bez danych wiersza).
+            logger.warning(
+                "CSV candidate import failed at row=%s error=%s",
+                row_num,
+                type(exc).__name__,
+            )
             errors += 1
             details.append(
                 {
                     "row": row_num,
                     "status": "error",
-                    "reason": str(exc),
+                    "code": "candidate_import_failed",
+                    "reason": "Nie udało się zapisać wiersza (sprawdź długość pól)",
                 }
             )
 
@@ -328,9 +376,14 @@ async def import_candidates(
     try:
         from app.services.index_outbox_service import CANDIDATE, record_bulk_reindex
 
-        await record_bulk_reindex(db, CANDIDATE, imported_ids)
+        # Savepoint: błąd SQL w kolejce bez niego psuł transakcję i commit
+        # niżej zabierał cały import mimo „never fail an import”.
+        async with db.begin_nested():
+            await record_bulk_reindex(db, CANDIDATE, imported_ids)
     except Exception as exc:  # noqa: BLE001 — never fail an import on the queue
-        logger.warning("Recording reindex intent for CSV import failed: %s", exc)
+        logger.warning(
+            "Recording reindex intent for CSV import failed: %s", type(exc).__name__
+        )
 
     await db.commit()
 
@@ -354,6 +407,7 @@ _CANDIDATE_EXPORT_HEADER = (
     "status",
     "skills",
     "expected_rate_hourly",
+    "rate_from_hourly",
     "created_at",
     "open_to_side_projects",
     "open_to_sales_support",
@@ -376,6 +430,8 @@ _CANDIDATE_EXPORT_ENTITIES = (
     Candidate.skills,
     Candidate.expected_rate_hourly,
     Candidate.expected_rate_currency,
+    Candidate.rate_from_hourly,
+    Candidate.rate_from_computed_at,
     Candidate.created_at,
     Candidate.open_to_side_projects,
     Candidate.open_to_sales_support,
@@ -406,23 +462,31 @@ def _candidate_export_row(c) -> list:
         c.expected_rate_hourly,
         c.expected_rate_currency,
     )
+    # „Stawka od” (0414) — najniższa stawka z 18 miesięcy.
+    from app.services.candidate_rate_from import rate_summary
 
-    return [
-        c.id,
-        c.name or "",
-        c.lastname or "",
-        c.email or "",
-        c.phone or "",
-        c.location or "",
-        c.source or "",
-        c.status.value if c.status else "",
-        skills_str,
-        profile_rate if profile_rate is not None else "",
-        created,
-        "tak" if c.open_to_side_projects else "",
-        "tak" if c.open_to_sales_support else "",
-        "tak" if c.open_to_expert_consult else "",
-    ]
+    rate_from = rate_summary(c)["rate_from_hourly"]
+
+    # Tekst z formularza kariery i importów nie może zostać formułą Excela.
+    return safe_row(
+        [
+            c.id,
+            c.name or "",
+            c.lastname or "",
+            c.email or "",
+            c.phone or "",
+            c.location or "",
+            c.source or "",
+            c.status.value if c.status else "",
+            skills_str,
+            profile_rate if profile_rate is not None else "",
+            rate_from if rate_from is not None else "",
+            created,
+            "tak" if c.open_to_side_projects else "",
+            "tak" if c.open_to_sales_support else "",
+            "tak" if c.open_to_expert_consult else "",
+        ]
+    )
 
 
 def _build_candidates_csv(candidates) -> bytes:
@@ -442,8 +506,12 @@ def _build_candidates_csv(candidates) -> bytes:
     return codecs.BOM_UTF8 + output.getvalue().encode("utf-8")
 
 
-async def _stream_candidates_csv(db: AsyncSession, query):
-    """Wypuszcza CSV kawalkami, w miare jak Postgres oddaje wiersze."""
+async def _stream_candidates_csv(query):
+    """Wypuszcza CSV kawalkami, w miare jak Postgres oddaje wiersze.
+
+    Runda 9 (R9-X1-2): wlasna sesja — sesja zadania (``get_db``) zamyka sie
+    przed wyslaniem odpowiedzi, a generator biegnie w trakcie wysylki.
+    """
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(_CANDIDATE_EXPORT_HEADER)
@@ -452,13 +520,18 @@ async def _stream_candidates_csv(db: AsyncSession, query):
     buffer.seek(0)
     buffer.truncate(0)
 
-    stream = await db.stream(query.execution_options(yield_per=_EXPORT_YIELD_PER))
-    async for row in stream:
-        writer.writerow(_candidate_export_row(row))
-        if buffer.tell() >= _EXPORT_CHUNK_BYTES:
-            yield buffer.getvalue().encode("utf-8")
-            buffer.seek(0)
-            buffer.truncate(0)
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as stream_db:
+        stream = await stream_db.stream(
+            query.execution_options(yield_per=_EXPORT_YIELD_PER)
+        )
+        async for row in stream:
+            writer.writerow(_candidate_export_row(row))
+            if buffer.tell() >= _EXPORT_CHUNK_BYTES:
+                yield buffer.getvalue().encode("utf-8")
+                buffer.seek(0)
+                buffer.truncate(0)
     if buffer.tell():
         yield buffer.getvalue().encode("utf-8")
 
@@ -509,7 +582,7 @@ async def export_candidates(
     filename = f"kandydaci_{timestamp}.csv"
 
     return StreamingResponse(
-        _stream_candidates_csv(db, query),
+        _stream_candidates_csv(query),
         media_type="text/csv; charset=utf-8-sig",
         # Bez `Content-Length` — rozmiaru nie znamy przed wyslaniem, a
         # zgadniety naglowek jest gorszy niz jego brak (przegladarka ucina

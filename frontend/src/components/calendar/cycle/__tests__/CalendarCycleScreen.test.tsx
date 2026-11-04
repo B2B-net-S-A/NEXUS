@@ -11,7 +11,7 @@
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CycleOverview } from "@/lib/interview-cycle";
 
@@ -23,7 +23,13 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   search: "",
   user: { id: 7, role: "recruiter", roles: ["recruiter"] } as Record<string, unknown>,
-  toast: { showError: vi.fn(), showSuccess: vi.fn(), showToast: vi.fn(), showActionToast: vi.fn() },
+  toast: {
+    showError: vi.fn(),
+    showSuccess: vi.fn(),
+    showInfo: vi.fn(),
+    showToast: vi.fn(),
+    showActionToast: vi.fn(),
+  },
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -56,6 +62,23 @@ vi.mock("@/store/auth", async (orig) => {
 
 import { CalendarCycleScreen } from "@/components/calendar/cycle/CalendarCycleScreen";
 import { DebriefDialog } from "@/components/calendar/cycle/DebriefDialog";
+
+// Zegar przypięty na dzisiejsze południe: dane są względne wobec „teraz”, a
+// panel kandydata pokazuje wydarzenia od dzisiejszego dnia. Między 00:00
+// a 01:12 rozmowa sprzed 72 min wypadała na wczoraj i test padał co noc
+// (kolejka merge'ów 26.09.2026). Fałszujemy tylko `Date` — timery zostają
+// prawdziwe, więc `findBy*`/`waitFor` działają bez zmian.
+vi.useFakeTimers({ toFake: ["Date"] });
+vi.setSystemTime(
+  (() => {
+    const noon = new Date();
+    noon.setHours(12, 0, 0, 0);
+    return noon;
+  })(),
+);
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 const NOW = Date.now();
 const iso = (minutesFromNow: number) => new Date(NOW + minutesFromNow * 60_000).toISOString();
@@ -134,7 +157,7 @@ beforeEach(() => {
 });
 
 async function callCard() {
-  const column = await screen.findByRole("listitem", { name: "Telefon ≤ 30 min" });
+  const column = await screen.findByRole("listitem", { name: "Telefon po rozmowie" });
   return within(column).getByTestId("cycle-board-card");
 }
 
@@ -155,13 +178,13 @@ describe("CalendarCycleScreen", () => {
     const views = await screen.findByRole("radiogroup", { name: "Widok" });
     expect(within(views).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Tydzień", "Tablica"]);
     expect(within(views).getByRole("radio", { name: "Tablica" })).toHaveAttribute("aria-checked", "true");
-    expect(await screen.findByRole("listitem", { name: "Telefon ≤ 30 min" })).toBeInTheDocument();
+    expect(await screen.findByRole("listitem", { name: "Telefon po rozmowie" })).toBeInTheDocument();
   });
 
   it("stary link ?view=agenda prowadzi na Tablicę", async () => {
     mocks.search = "view=agenda";
     renderScreen();
-    expect(await screen.findByRole("listitem", { name: "Telefon ≤ 30 min" })).toBeInTheDocument();
+    expect(await screen.findByRole("listitem", { name: "Telefon po rozmowie" })).toBeInTheDocument();
   });
 
   it("telefon po rozmowie: karta odlicza, a „Zapisz debrief” wysyła jak poszło, pytania i ofertę", async () => {
@@ -196,6 +219,88 @@ describe("CalendarCycleScreen", () => {
     expect(mocks.toast.showSuccess).toHaveBeenCalledWith(expect.stringMatching(/Nowe pytania klienta: 1/));
   });
 
+  it("„Co mówił kandydat”: notatka rozpisana na pytania, ofertę, stawkę i komentarz", async () => {
+    mocks.post.mockImplementation((url: string) =>
+      url === "/api/interview-cycle/debrief/from-text"
+        ? Promise.resolve({
+            data: {
+              status: "ok",
+              message: null,
+              questions: [
+                { text: "Jak robiła retry w Kafce?", quote: "pytali o Kafkę" },
+                { text: "Czy zna Kubernetes?", quote: "czy zna Kubernetes" },
+              ],
+              offer: { value: "likely", condition: "zdalnie 4 dni", quote: "przyjmie jeśli zdalnie 4 dni" },
+              rate: { amount: "160", unit: "hourly", quote: "chce 160 zł/h" },
+              start: { text: "od 1.12", quote: "od 1.12" },
+              dropped: 0,
+            },
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    mocks.put.mockResolvedValue({
+      data: { id: 1, calendar_event_id: 44, candidate_id: 11, job_id: 22, outcome: "good", candidate_comment: null, questions: [], offer_acceptance: "likely", acceptance_condition: null, questions_saved: 2 },
+    });
+    renderScreen();
+    fireEvent.click(within(await callCard()).getByRole("button", { name: "Zapisz debrief" }));
+    const dialog = await screen.findByRole("dialog", { name: "Debrief po rozmowie u klienta" });
+    await waitFor(() => expect(within(dialog).getByLabelText("Dobrze")).not.toBeDisabled());
+    const note = "pytali o Kafkę, czy zna Kubernetes, przyjmie jeśli zdalnie 4 dni, chce 160 zł/h, od 1.12";
+    fireEvent.change(within(dialog).getByLabelText("Co mówił kandydat?"), { target: { value: note } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rozpisz na pola" }));
+    expect(await within(dialog).findByText(/Uzupełnione z notatki: 2 pytania, oferta, stawka, start/)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Pytanie 1")).toHaveValue("Jak robiła retry w Kafce?");
+    expect(within(dialog).getByLabelText("Raczej tak")).toBeChecked();
+    fireEvent.click(within(dialog).getByLabelText("Dobrze"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zapisz debrief" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalled());
+    const body = mocks.put.mock.calls[0][1];
+    expect(body).toMatchObject({
+      questions: ["Jak robiła retry w Kafce?", "Czy zna Kubernetes?"],
+      offer_acceptance: "likely",
+      acceptance_condition: "zdalnie 4 dni",
+    });
+    expect(body.candidate_comment).toContain("chce 160 zł/h");
+    expect(body.rate_change).toMatchObject({ amount: "160" });
+  });
+
+  it("„Co mówił kandydat”: stawka miesięczna nie trafia do pola stawki godzinowej", async () => {
+    mocks.post.mockImplementation((url: string) =>
+      url === "/api/interview-cycle/debrief/from-text"
+        ? Promise.resolve({
+            data: {
+              status: "ok",
+              message: null,
+              questions: [{ text: "Czy zna Kubernetes?", quote: "zna Kubernetes" }],
+              offer: null,
+              rate: { amount: "16000", unit: "monthly", quote: "chce 16 000 netto" },
+              start: null,
+              dropped: 0,
+            },
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    mocks.put.mockResolvedValue({
+      data: { id: 1, calendar_event_id: 44, candidate_id: 11, job_id: 22, outcome: "good", candidate_comment: null, questions: [], offer_acceptance: "likely", acceptance_condition: null, questions_saved: 1 },
+    });
+    renderScreen();
+    fireEvent.click(within(await callCard()).getByRole("button", { name: "Zapisz debrief" }));
+    const dialog = await screen.findByRole("dialog", { name: "Debrief po rozmowie u klienta" });
+    await waitFor(() => expect(within(dialog).getByLabelText("Dobrze")).not.toBeDisabled());
+    fireEvent.change(within(dialog).getByLabelText("Co mówił kandydat?"), {
+      target: { value: "zna Kubernetes, chce 16 000 netto miesięcznie" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rozpisz na pola" }));
+    await within(dialog).findByText(/Uzupełnione z notatki/);
+    fireEvent.click(within(dialog).getByLabelText("Dobrze"));
+    fireEvent.click(within(dialog).getByLabelText("Raczej tak"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zapisz debrief" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalled());
+    const body = mocks.put.mock.calls[0][1];
+    expect(body.rate_change ?? null).toBeNull();
+    expect(body.candidate_comment).toContain("16 000 netto miesięcznie");
+  });
+
   it("debrief bez odpowiedzi o ofercie się nie wysyła", async () => {
     renderScreen();
     fireEvent.click(within(await callCard()).getByRole("button", { name: "Zapisz debrief" }));
@@ -219,7 +324,35 @@ describe("CalendarCycleScreen", () => {
     expect(within(panel).getByRole("list", { name: "Kroki rozmowy u klienta" })).toBeInTheDocument();
     const questions = await within(panel).findByTestId("cycle-client-questions");
     await waitFor(() => expect(questions).toHaveTextContent("Transakcje w Spring"));
-    expect(questions).toHaveTextContent("Pytania klienta Alior z poprzednich rozmów");
+    expect(questions).toHaveTextContent("Pytania klienta Alior z rozmów w tej rekrutacji");
+  });
+
+  it("link z dzwonka do pary spoza „mine” przełącza HoR na cały zespół (R10-N15-4)", async () => {
+    mocks.user = { id: 3, role: "head_of_recruitment", roles: ["head_of_recruitment"] };
+    mocks.search = "cycle=5-9";
+    renderScreen();
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/calendar?cycle=5-9&scope=all"));
+    expect(mocks.replace).toHaveBeenCalledTimes(1);
+  });
+
+  it("link z dzwonka do pary spoza najszerszego zakresu mówi to wprost (R10-N15-4)", async () => {
+    mocks.search = "scope=jobs&cycle=5-9";
+    renderScreen();
+    expect(await screen.findByTestId("cycle-link-out-of-scope")).toHaveTextContent(
+      /nie ma w Twoim zakresie/,
+    );
+    expect(mocks.replace).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij" }));
+    expect(mocks.replace).toHaveBeenCalledWith("/calendar?scope=jobs");
+  });
+
+  it("para z linku jest w zakresie — bez przełączania i bez komunikatu", async () => {
+    mocks.user = { id: 3, role: "head_of_recruitment", roles: ["head_of_recruitment"] };
+    mocks.search = "cycle=11-22";
+    renderScreen();
+    expect(await screen.findByTestId("cycle-candidate-card")).toBeInTheDocument();
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("cycle-link-out-of-scope")).not.toBeInTheDocument();
   });
 
   it("link z dzwonka ?cycle= otwiera panel tego kandydata", async () => {
@@ -252,7 +385,7 @@ describe("CalendarCycleScreen", () => {
         <CalendarCycleScreen />
       </QueryClientProvider>,
     );
-    await screen.findByRole("listitem", { name: "Telefon ≤ 30 min" });
+    await screen.findByRole("listitem", { name: "Telefon po rozmowie" });
     expect(screen.queryByTestId("cycle-candidate-card")).not.toBeInTheDocument();
   });
 
@@ -323,6 +456,28 @@ describe("CalendarCycleScreen", () => {
     expect(
       await screen.findByRole("dialog", { name: "Debrief po rozmowie u klienta" }),
     ).toHaveTextContent("Piotr Nowak");
+  });
+
+  it("przycisk z maila (?do=debrief) otwiera okno kroku i zdejmuje parametr z adresu", async () => {
+    mocks.search = "cycle=11-22&do=debrief";
+    renderScreen();
+    expect(
+      await screen.findByRole("dialog", { name: "Debrief po rozmowie u klienta" }),
+    ).toHaveTextContent("Piotr Nowak");
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/calendar?cycle=11-22"));
+    // Okno to potwierdzenie — sam link niczego nie zapisał.
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.put).not.toHaveBeenCalled();
+  });
+
+  it("przycisk z maila do kroku już zrobionego: bez okna, ze zdaniem dlaczego", async () => {
+    mocks.search = "cycle=11-22&do=pick&choose=1";
+    renderScreen();
+    await waitFor(() =>
+      expect(mocks.toast.showInfo).toHaveBeenCalledWith(expect.stringContaining("już zrobiony")),
+    );
+    expect(screen.queryByRole("dialog", { name: "Umów rozmowę i prepy" })).not.toBeInTheDocument();
+    expect(mocks.replace).toHaveBeenCalledWith("/calendar?cycle=11-22");
   });
 
   it("?event= otwiera Tydzień i nie pyta o cykl", async () => {
@@ -406,5 +561,239 @@ describe("DebriefDialog (bramka na tablicy)", () => {
       expect(screen.getByRole("button", { name: "Zapisz debrief" })).toBeEnabled(),
     );
     expect(screen.queryByTestId("debrief-not-started")).not.toBeInTheDocument();
+  });
+});
+
+describe("Zapisany debrief (04.10.2026)", () => {
+  function savedOverview(): CycleOverview {
+    const base = overview();
+    base.items[0].steps = base.items[0].steps.map((s) =>
+      s.key === "call" || s.key === "debrief" ? { ...s, state: "done" } : s,
+    );
+    base.items[0].current_step = null;
+    base.items[0].debrief = {
+      id: 5,
+      overall_impression: 5,
+      outcome: "good",
+      offer_acceptance: "likely",
+      acceptance_condition: "Chce jednak 125 zł/h",
+      candidate_comment: "Projekt mu się podoba",
+      questions_count: 3,
+      no_client_questions: false,
+    };
+    base.agenda = base.agenda.map((a) => (a.kind === "call" ? { ...a, done: true } : a));
+    base.todos = [];
+    return base;
+  }
+
+  const SAVED = {
+    id: 5,
+    calendar_event_id: 44,
+    candidate_id: 11,
+    job_id: 22,
+    outcome: "good",
+    candidate_comment: "Projekt mu się podoba",
+    questions: ["Kafka", "Spring", "Docker"],
+    offer_acceptance: "likely",
+    acceptance_condition: "Chce jednak 125 zł/h",
+    no_client_questions: false,
+    questions_saved: 0,
+  };
+
+  it("panel kandydata pokazuje skrót z warunkiem i otwiera cały debrief", async () => {
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/interview-cycle") return Promise.resolve({ data: savedOverview() });
+      if (url.endsWith("/debrief")) return Promise.resolve({ data: SAVED });
+      return Promise.resolve({ data: [] });
+    });
+    mocks.search = "cycle=11-22";
+    renderScreen();
+    const panel = await screen.findByTestId("cycle-candidate-card");
+    const summary = within(panel).getByTestId("debrief-summary");
+    expect(summary).toHaveTextContent("dobrze · raczej przyjmie · 3 pytania klienta");
+    expect(summary).toHaveTextContent("Warunek: Chce jednak 125 zł/h");
+    expect(within(panel).queryByText("debrief zapisany")).not.toBeInTheDocument();
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Zobacz debrief" }));
+    const dialog = await screen.findByRole("dialog", { name: "Debrief po rozmowie u klienta" });
+    await waitFor(() =>
+      expect(within(dialog).getByLabelText("Inne warunki")).toHaveValue("Chce jednak 125 zł/h"),
+    );
+    expect(within(dialog).getByLabelText("Pytanie 3")).toHaveValue("Docker");
+  });
+
+  it("rola bez zapisu widzi debrief tylko do odczytu", async () => {
+    mocks.user = { id: 9, role: "user", roles: ["user"] };
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/interview-cycle") return Promise.resolve({ data: savedOverview() });
+      if (url.endsWith("/debrief")) return Promise.resolve({ data: SAVED });
+      return Promise.resolve({ data: [] });
+    });
+    mocks.search = "cycle=11-22";
+    renderScreen();
+    const panel = await screen.findByTestId("cycle-candidate-card");
+    fireEvent.click(within(panel).getByRole("button", { name: "Zobacz debrief" }));
+    const dialog = await screen.findByRole("dialog", { name: "Debrief po rozmowie u klienta" });
+    await waitFor(() =>
+      expect(within(dialog).getByLabelText("Warunek / zastrzeżenie")).toHaveValue("Chce jednak 125 zł/h"),
+    );
+    expect(within(dialog).getByLabelText("Warunek / zastrzeżenie")).toBeDisabled();
+    expect(within(dialog).queryByRole("button", { name: "Zapisz debrief" })).not.toBeInTheDocument();
+    // Krzyżyk okna i przycisk w stopce.
+    expect(within(dialog).getAllByRole("button", { name: "Zamknij" })).toHaveLength(2);
+    // Puste pole „dopisz pytanie” nie udaje czwartego pytania.
+    expect(within(dialog).queryByLabelText("Pytanie 4")).not.toBeInTheDocument();
+  });
+});
+
+describe("DebriefDialog — lista pytań klienta", () => {
+  function renderDialog() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/interview-cycle/events/44") {
+        return Promise.resolve({
+          data: { id: 44, candidate_id: 11, job_id: 22, start: iso(-60), end: null, started: true },
+        });
+      }
+      if (url.endsWith("/debrief")) return Promise.resolve({ data: null });
+      return Promise.resolve({ data: [] });
+    });
+    return render(
+      <QueryClientProvider client={client}>
+        <DebriefDialog open onOpenChange={() => {}} eventId={44} title="Debrief" />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("wklejona lista trafia jako osobne pytania, bez numerów i powtórzeń", async () => {
+    renderDialog();
+    const first = await screen.findByLabelText("Pytanie 1");
+    await waitFor(() => expect(first).not.toBeDisabled());
+    fireEvent.paste(first, {
+      clipboardData: { getData: () => "1. Kafka?\n2) Spring Boot\n- kafka?\n• Docker" },
+    });
+    expect(screen.getByLabelText("Pytanie 1")).toHaveValue("Kafka?");
+    expect(screen.getByLabelText("Pytanie 2")).toHaveValue("Spring Boot");
+    expect(screen.getByLabelText("Pytanie 3")).toHaveValue("Docker");
+    expect(screen.getByLabelText("Pytanie 4")).toHaveValue("");
+    expect(screen.getByText("3 z 30")).toBeInTheDocument();
+  });
+
+  it("„Wklej listę pytań” dokleja pytania do już wpisanych", async () => {
+    renderDialog();
+    const first = await screen.findByLabelText("Pytanie 1");
+    await waitFor(() => expect(first).not.toBeDisabled());
+    fireEvent.change(first, { target: { value: "Pierwsze" } });
+    fireEvent.click(screen.getByRole("button", { name: "Wklej listę pytań" }));
+    fireEvent.change(screen.getByLabelText(/Każda linia to osobne pytanie/), {
+      target: { value: "Drugie\nTrzecie" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj do listy" }));
+    expect(screen.getByLabelText("Pytanie 2")).toHaveValue("Drugie");
+    expect(screen.getByLabelText("Pytanie 3")).toHaveValue("Trzecie");
+  });
+});
+
+
+describe("DebriefDialog — stawka kandydata (0418)", () => {
+  it("„Zmieniła się” wysyła nową stawkę razem z debriefem i mówi, kto dostanie informację", async () => {
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/interview-cycle/events/44") {
+        return Promise.resolve({
+          data: { id: 44, candidate_id: 11, job_id: 22, start: iso(-60), end: null, started: true },
+        });
+      }
+      if (url === "/api/rate-changes") {
+        return Promise.resolve({
+          data: {
+            candidate_id: 11,
+            job_id: 22,
+            current: { amount: "110", unit: "hourly", currency: "PLN", hourly: "110", label: "110 zł/h" },
+            board_column: "client_interview",
+            notifies: true,
+            cv_at_client: true,
+            client_rate: null,
+            changes: [],
+          },
+        });
+      }
+      if (url.endsWith("/debrief")) return Promise.resolve({ data: null });
+      return Promise.resolve({ data: [] });
+    });
+    mocks.put.mockResolvedValue({
+      data: { id: 1, calendar_event_id: 44, candidate_id: 11, job_id: 22, outcome: "good", candidate_comment: null, questions: [], offer_acceptance: "likely", acceptance_condition: null, no_client_questions: true, questions_saved: 0 },
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(
+      <QueryClientProvider client={client}>
+        <DebriefDialog open onOpenChange={() => {}} eventId={44} title="Debrief" />
+      </QueryClientProvider>,
+    );
+    const rate = await screen.findByTestId("debrief-rate");
+    expect(await within(rate).findByText("Bez zmian (110 zł/h)")).toBeInTheDocument();
+    fireEvent.click(within(rate).getByLabelText("Zmieniła się"));
+    fireEvent.change(screen.getByLabelText("Nowa stawka B2B netto (zł/h)"), { target: { value: "125" } });
+    fireEvent.click(screen.getByLabelText("Możliwe, warto porozmawiać"));
+    expect(screen.getByTestId("debrief-rate-notice")).toHaveTextContent(
+      "CV jest już u klienta, więc przy wyższej stawce DL dostanie zadanie",
+    );
+    fireEvent.click(screen.getByLabelText("Dobrze"));
+    fireEvent.click(screen.getByLabelText("Raczej tak"));
+    fireEvent.click(screen.getByLabelText("Klient nie zadawał pytań"));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz debrief" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalled());
+    const body = mocks.put.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.rate_change).toEqual({ amount: "125", unit: "hourly", negotiable: "maybe", note: null });
+  });
+  it("ponowny zapis debriefu bez ruszania stawki jej nie wysyła (późniejsza korekta zostaje)", async () => {
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/interview-cycle/events/45") {
+        return Promise.resolve({
+          data: { id: 45, candidate_id: 11, job_id: 22, start: iso(-60), end: null, started: true },
+        });
+      }
+      if (url === "/api/rate-changes") return Promise.resolve({ data: null });
+      if (url.endsWith("/debrief")) {
+        return Promise.resolve({
+          data: {
+            id: 7,
+            calendar_event_id: 45,
+            candidate_id: 11,
+            job_id: 22,
+            outcome: "good",
+            candidate_comment: null,
+            questions: ["Jak wdrażał CI?"],
+            offer_acceptance: "likely",
+            acceptance_condition: null,
+            no_client_questions: false,
+            current_rate_label: "120 zł/h",
+            rate_change: {
+              id: 3,
+              status: "superseded",
+              previous: "110 zł/h",
+              requested: "125 zł/h",
+              requested_amount: "125",
+              negotiable: "maybe",
+              note: null,
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    mocks.put.mockResolvedValue({
+      data: { id: 7, calendar_event_id: 45, candidate_id: 11, job_id: 22, outcome: "good", candidate_comment: null, questions: ["Jak wdrażał CI?"], offer_acceptance: "likely", acceptance_condition: null, no_client_questions: false, questions_saved: 0 },
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(
+      <QueryClientProvider client={client}>
+        <DebriefDialog open onOpenChange={() => {}} eventId={45} title="Debrief" />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByLabelText("Pytanie 1")).toHaveValue("Jak wdrażał CI?"));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz debrief" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalled());
+    const body = mocks.put.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.rate_change).toBeNull();
   });
 });

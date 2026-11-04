@@ -6,18 +6,32 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, X } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
+import { DebriefFromNote } from "@/components/calendar/cycle/DebriefFromNote";
 import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
 import { interviewCycleApi, useDebrief, useInterviewEvent } from "@/lib/api/interviewCycle";
 import {
   debriefAvailable,
   debriefAvailableFromLabel,
+  MAX_DEBRIEF_QUESTIONS,
+  mergeQuestions,
   OFFER_LABELS,
   OUTCOME_LABELS,
+  splitPastedQuestions,
   type Debrief,
   type DebriefOutcome,
   type OfferAcceptance,
 } from "@/lib/interview-cycle";
+import { blurNumberInputOnWheel } from "@/lib/number-input";
+import { warsawToday } from "@/lib/warsaw-date";
+import { commentFromNote, type DebriefFromText } from "@/lib/debrief-from-text";
+import {
+  NEGOTIABLE_OPTIONS,
+  notifyLine,
+  toHourly,
+  useRateChanges,
+  type RateNegotiable,
+} from "@/lib/rate-change";
 import { cn } from "@/lib/utils";
 
 const OUTCOMES: DebriefOutcome[] = ["good", "medium", "bad"];
@@ -33,6 +47,21 @@ const OUTCOME_TONE: Record<DebriefOutcome, string> = {
 
 export const DEBRIEF_QUESTIONS_REQUIRED =
   "Wpisz pytania klienta albo zaznacz, że klient ich nie zadawał.";
+
+/** 409 `DEBRIEF_EXISTS` z zapisu pytań pary → rozmowa z zapisanym debriefem. */
+function debriefExistsOf(error: unknown): { eventId: number; message: string } | null {
+  const response = (error as { response?: { status?: number; data?: { detail?: unknown } } })
+    ?.response;
+  const detail = response?.data?.detail as
+    | { code?: unknown; event_id?: unknown; message?: unknown }
+    | undefined;
+  if (response?.status !== 409 || !detail || detail.code !== "DEBRIEF_EXISTS") return null;
+  if (typeof detail.event_id !== "number") return null;
+  return {
+    eventId: detail.event_id,
+    message: typeof detail.message === "string" ? detail.message : "Ta rozmowa ma już zapisany debrief.",
+  };
+}
 
 /**
  * Formularz debriefu po telefonie do kandydata (≤30 min po rozmowie u klienta).
@@ -50,11 +79,24 @@ export const DEBRIEF_QUESTIONS_REQUIRED =
  * nią okno mówi, od kiedy będzie dostępny, i nie pozwala zapisać. Termin
  * podaje wołający (`interviewStart`); bez niego okno pyta serwer o wydarzenie
  * (bramka na tablicy zna tylko jego id).
+ *
+ * Bez wydarzenia (`eventId = null`) i z `pair` okno zapisuje pytania pary
+ * (20.10.2026): w 30 dniach 88 z 99 par weszło w „Rozmowę z klientem” bez
+ * terminu w NEXUSIE, a pytania lądowały w notatkach. Pyta wtedy, kiedy była
+ * rozmowa — serwer zakłada odbytą rozmowę i debrief trafia pod nią
+ * (`PUT /api/interview-cycle/pairs/{c}/{j}/debrief`). `initialQuestions`
+ * (podpowiedź z notatki) dokłada pytania do listy.
+ *
+ * Rozmowa z tego dnia ma już debrief (inne okno zapisało go wcześniej) →
+ * serwer odmawia 409 `DEBRIEF_EXISTS`, a okno przechodzi na ten debrief do
+ * poprawy: wczytuje zapisaną ocenę, ofertę i pytania i dopisuje do nich
+ * pytania wpisane przed chwilą (decyzja Artura 22.10.2026, audyt F27 — dotąd
+ * zapis z pustego formularza nadpisywał debrief w całości).
  */
 export function DebriefDialog({
   open,
   onOpenChange,
-  eventId,
+  eventId: eventIdProp,
   title,
   description,
   intro,
@@ -62,6 +104,9 @@ export function DebriefDialog({
   onSaved,
   interviewStart,
   now: nowOverride,
+  readOnly = false,
+  pair = null,
+  initialQuestions,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -76,12 +121,36 @@ export function DebriefDialog({
   interviewStart?: string;
   /** Zegar dla testów i harnessu. */
   now?: Date;
+  /** Podgląd zapisanego debriefu dla roli bez prawa zapisu. */
+  readOnly?: boolean;
+  /** Para bez rozmowy w kalendarzu — okno pyta, kiedy była rozmowa. */
+  pair?: { candidateId: number; jobId: number } | null;
+  /** Pytania dołożone do listy przy otwarciu (np. z notatki). */
+  initialQuestions?: string[];
 }) {
   const toast = useToast();
   const qc = useQueryClient();
+  // 409 DEBRIEF_EXISTS: okno pary przechodzi na zapisany debrief tej rozmowy.
+  const [existsFor, setExistsFor] = useState<{
+    eventId: number;
+    message: string;
+    questions: string[];
+  } | null>(null);
+  const eventId = eventIdProp ?? existsFor?.eventId ?? null;
   const existing = useDebrief(open ? eventId : null);
-  const eventInfo = useInterviewEvent(
-    open && interviewStart === undefined ? eventId : null,
+  // Wydarzenie zawsze — debrief potrzebuje pary (kandydat, rekrutacja), żeby
+  // pokazać bieżącą stawkę i kto dostanie informację o jej zmianie (0418).
+  const eventInfo = useInterviewEvent(open ? eventId : null);
+  const pairMode = eventId == null && pair != null;
+  const pairCandidateId =
+    existing.data?.candidate_id ??
+    eventInfo.data?.candidate_id ??
+    (pairMode ? pair.candidateId : null);
+  const pairJobId =
+    existing.data?.job_id ?? eventInfo.data?.job_id ?? (pairMode ? pair.jobId : null);
+  const rateView = useRateChanges(
+    open && !readOnly ? pairCandidateId : null,
+    open && !readOnly ? pairJobId : null,
   );
   const start = interviewStart ?? eventInfo.data?.start ?? null;
   // Okno może stać otwarte do rozpoczęcia rozmowy — przelicz co 30 s.
@@ -102,36 +171,121 @@ export function DebriefDialog({
   const [condition, setCondition] = useState("");
   const [notifyDl, setNotifyDl] = useState(true);
   const [noQuestions, setNoQuestions] = useState(false);
+  // Bez rozmowy w kalendarzu: kiedy była (dzień firmy + opcjonalna godzina).
+  const [heldOn, setHeldOn] = useState(() => warsawToday());
+  const [heldAt, setHeldAt] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [rateChanged, setRateChanged] = useState(false);
+  const [rateAmount, setRateAmount] = useState("");
+  const [rateNegotiable, setRateNegotiable] = useState<RateNegotiable | null>(null);
+  const [rateNote, setRateNote] = useState("");
+  // Stawka jedzie do serwera tylko po zmianie w TYM otwarciu okna. Zapisana
+  // wcześniej zmiana wczytuje się do pól, a ponowny zapis debriefu (np. nowe
+  // pytanie) nie może cofnąć późniejszej korekty stawki ani powiadomić znowu.
+  const [rateTouched, setRateTouched] = useState(false);
+  const touchRate =
+    <T,>(set: (v: T) => void) =>
+    (v: T) => {
+      setRateTouched(true);
+      set(v);
+    };
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [questionsNote, setQuestionsNote] = useState<string | null>(null);
+  const questionRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [focusQuestion, setFocusQuestion] = useState<number | null>(null);
+  useEffect(() => {
+    if (focusQuestion == null) return;
+    questionRefs.current[focusQuestion]?.focus();
+    setFocusQuestion(null);
+  }, [focusQuestion, questions.length]);
+
+  // Ostatnie pole zawsze puste (dopóki jest miejsce) — pisanie w nim dokłada
+  // kolejne. Lista ma wtedy co najwyżej MAX_DEBRIEF_QUESTIONS wypełnionych.
+  const withTrailing = (list: string[]) =>
+    list.length < MAX_DEBRIEF_QUESTIONS ? [...list, ""] : list;
+
+  const addQuestions = (lines: string[]) => {
+    const filled = questions.map((q) => q.trim()).filter(Boolean);
+    const { questions: merged, dropped } = mergeQuestions(filled, lines);
+    setQuestions(withTrailing(merged));
+    setQuestionsNote(
+      dropped > 0
+        ? `Pominięto ${dropped} — najwyżej ${MAX_DEBRIEF_QUESTIONS} pytań w jednym debriefie.`
+        : null,
+    );
+    return merged.length;
+  };
+
+  // „Co mówił kandydat” (PR 4): odczyt notatki dopisuje pytania i wypełnia
+  // tylko PUSTE pola — niczego, co rekruter już zaznaczył, nie nadpisuje.
+  const applyNote = (result: DebriefFromText, note: string) => {
+    if (result.questions.length) {
+      addQuestions(result.questions.map((q) => q.text));
+      setNoQuestions(false);
+    }
+    if (result.offer && offer == null) setOffer(result.offer.value);
+    if (result.offer?.condition && !condition.trim()) setCondition(result.offer.condition);
+    // Pole stawki przyjmuje stawkę godzinową — miesięczna albo dzienna z notatki
+    // zostaje w komentarzu (notatka), a nie ląduje jako „zł/h”.
+    if (result.rate && (result.rate.unit === "hourly" || result.rate.unit == null) && !rateChanged) {
+      setRateChanged(true);
+      setRateAmount(result.rate.amount);
+      setRateTouched(true);
+    }
+    if (!comment.trim()) setComment(commentFromNote(note, result));
+  };
 
   // Formularz startuje od zapisanego debriefu (poprawka), inaczej pusty —
   // RAZ na otwarcie, dopiero gdy odczyt się rozstrzygnął. Inicjalizacja przy
   // każdej zmianie `existing.data` czyściła zaznaczenia zrobione, zanim
   // odpowiedź zdążyła wrócić.
-  const initializedFor = useRef<number | null>(null);
+  const initializedFor = useRef<string | null>(null);
+  const initKey =
+    eventId != null ? `event-${eventId}` : pairMode ? `pair-${pair.candidateId}-${pair.jobId}` : null;
   useEffect(() => {
     if (!open) {
       initializedFor.current = null;
+      setExistsFor(null);
       return;
     }
-    if (eventId == null || existing.isPending || initializedFor.current === eventId) return;
-    initializedFor.current = eventId;
-    const d = existing.isSuccess ? existing.data : null;
+    if (initKey == null || initializedFor.current === initKey) return;
+    if (eventId != null && existing.isPending) return;
+    initializedFor.current = initKey;
+    const d = eventId != null && existing.isSuccess ? existing.data : null;
     setOutcome(d?.outcome ?? null);
     setComment(d?.candidate_comment ?? "");
-    setQuestions(d?.questions?.length ? [...d.questions, ""] : [""]);
+    // Po 409 DEBRIEF_EXISTS: pytania wpisane przed chwilą dopisane do zapisanych.
+    const extra = existsFor ? existsFor.questions : (initialQuestions ?? []);
+    const merged = extra.length
+      ? mergeQuestions(d?.questions ?? [], extra).questions
+      : (d?.questions ?? []);
+    setQuestions(merged.length ? withTrailing(merged) : [""]);
+    setHeldOn(warsawToday());
+    setHeldAt("");
     setOffer(d?.offer_acceptance ?? null);
     setCondition(d?.acceptance_condition ?? "");
     setNotifyDl(true);
-    setNoQuestions(Boolean(d?.no_client_questions) && !d?.questions?.length);
+    setNoQuestions(Boolean(d?.no_client_questions) && !merged.length);
     setError(null);
-  }, [open, eventId, existing.isPending, existing.isSuccess, existing.data]);
+    setBulkOpen(false);
+    setBulkText("");
+    setQuestionsNote(null);
+    setRateChanged(Boolean(d?.rate_change));
+    setRateAmount(d?.rate_change?.requested_amount ?? "");
+    setRateNegotiable(d?.rate_change?.negotiable ?? null);
+    setRateNote(d?.rate_change?.note ?? "");
+    setRateTouched(false);
+    // `initialQuestions` i `withTrailing` czytamy raz, przy otwarciu — nowa
+    // tablica od wołającego nie może wyczyścić tego, co ktoś już wpisał.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initKey, eventId, existing.isPending, existing.isSuccess, existing.data]);
 
   const typedQuestions = questions.map((q) => q.trim()).filter(Boolean);
 
   const mutation = useMutation({
-    mutationFn: () =>
-      interviewCycleApi.saveDebrief(eventId as number, {
+    mutationFn: () => {
+      const body = {
         outcome: outcome as DebriefOutcome,
         candidate_comment: comment.trim() || null,
         // „Nie pytał” zaznaczone = pola pytań są wyłączone i nic z nich nie jedzie.
@@ -140,11 +294,32 @@ export function DebriefDialog({
         acceptance_condition: condition.trim() || null,
         notify_dl: notifyDl,
         no_client_questions: noQuestions,
-      }),
+        rate_change:
+          rateChanged && rateTouched
+          ? {
+              amount: rateAmount.replace(",", "."),
+              unit: "hourly" as const,
+              negotiable: rateNegotiable,
+              note: rateNote.trim() || null,
+            }
+          : null,
+      };
+      if (eventId == null && pair) {
+        return interviewCycleApi.savePairDebrief(pair.candidateId, pair.jobId, {
+          ...body,
+          held_on: heldOn,
+          held_at: heldAt || null,
+        });
+      }
+      return interviewCycleApi.saveDebrief(eventId as number, body);
+    },
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["interview-cycle"] });
       qc.invalidateQueries({ queryKey: ["calendar-events"] });
       qc.invalidateQueries({ queryKey: ["interview-feedback"] });
+      // Skrót debriefu stoi na odznace karty (dok osoby na Tablicy).
+      qc.invalidateQueries({ queryKey: ["kanban"] });
+      qc.invalidateQueries({ queryKey: ["rate-changes"] });
       toast.showSuccess(
         res.questions_saved > 0
           ? `Debrief zapisany. Nowe pytania klienta: ${res.questions_saved} — zobaczą je następni kandydaci na prepie.`
@@ -153,12 +328,23 @@ export function DebriefDialog({
       onSaved?.(res);
       onOpenChange(false);
     },
-    onError: (err) => setError(apiErrorMessage(err, "Nie udało się zapisać debriefu.")),
+    onError: (err) => {
+      const exists = pairMode ? debriefExistsOf(err) : null;
+      if (exists) {
+        setExistsFor({ ...exists, questions: noQuestions ? [] : typedQuestions });
+        return;
+      }
+      setError(apiErrorMessage(err, "Nie udało się zapisać debriefu."));
+    },
   });
 
   const submit = () => {
     setError(null);
     if (notStarted) return;
+    if (pairMode && !heldOn) {
+      setError("Podaj, kiedy była rozmowa u klienta.");
+      return;
+    }
     if (!outcome) {
       setError("Zaznacz, jak poszła rozmowa.");
       return;
@@ -171,13 +357,18 @@ export function DebriefDialog({
       setError(DEBRIEF_QUESTIONS_REQUIRED);
       return;
     }
+    if (rateChanged && rateTouched && toHourly(rateAmount, "hourly") == null) {
+      setError("Wpisz nową stawkę kandydata albo zaznacz „Bez zmian”.");
+      return;
+    }
     mutation.mutate();
   };
 
+  // Zapytania bez wydarzenia są wyłączone — `isPending` byłoby wtedy wieczne.
   const loading =
     open &&
-    (existing.isPending ||
-      (interviewStart === undefined && eventId != null && eventInfo.isPending));
+    eventId != null &&
+    (existing.isPending || (interviewStart === undefined && eventInfo.isPending));
 
   return (
     <AppModal
@@ -187,6 +378,17 @@ export function DebriefDialog({
       title={title}
       description={description}
       footer={
+        readOnly ? (
+          <div className="flex w-full justify-end">
+            <button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              className="h-9 rounded-md border border-border px-4 text-sm font-semibold hover:bg-muted"
+            >
+              Zamknij
+            </button>
+          </div>
+        ) : (
         <div className="flex w-full flex-wrap items-center justify-between gap-3">
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -204,7 +406,7 @@ export function DebriefDialog({
             <button
               type="button"
               onClick={submit}
-              disabled={mutation.isPending || loading || eventId == null || notStarted}
+              disabled={mutation.isPending || loading || (eventId == null && !pairMode) || notStarted}
               title={notStarted && start ? debriefAvailableFromLabel(start, now) : undefined}
               className="h-9 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
@@ -212,9 +414,10 @@ export function DebriefDialog({
             </button>
           </div>
         </div>
+        )
       }
     >
-      {notStarted && start ? (
+      {notStarted && start && !readOnly ? (
         <div
           role="status"
           data-testid="debrief-not-started"
@@ -229,12 +432,71 @@ export function DebriefDialog({
       ) : intro ? (
         <div className="mb-4 text-sm text-muted-foreground">{intro}</div>
       ) : null}
+      {existsFor && !readOnly ? (
+        <div
+          role="status"
+          data-testid="debrief-exists"
+          className="mb-3 rounded-md border border-warning/40 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
+        >
+          <p className="font-semibold">{existsFor.message}</p>
+          <p>
+            Wczytaliśmy go do poprawy, a pytania wpisane przed chwilą dopisaliśmy na końcu listy.
+            Sprawdź ocenę i ofertę, zanim zapiszesz.
+          </p>
+        </div>
+      ) : null}
       {existing.isError ? (
         <p role="alert" className="mb-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
           Nie udało się wczytać zapisanego debriefu — zapis nadpisze go w całości.
         </p>
       ) : null}
-      <fieldset disabled={loading || notStarted} className="space-y-5" aria-busy={loading}>
+      {readOnly && existing.isSuccess && existing.data == null ? (
+        <p className="mb-3 text-sm text-muted-foreground">Debrief tej rozmowy nie został jeszcze zapisany.</p>
+      ) : null}
+      <fieldset
+        disabled={loading || notStarted || readOnly}
+        className="space-y-5"
+        aria-busy={loading}
+      >
+        {pairMode && !readOnly ? (
+          <fieldset
+            data-testid="debrief-held-on"
+            className="space-y-2 rounded-lg border border-border bg-muted/40 p-3"
+          >
+            <legend className="px-1 text-sm font-semibold">Kiedy była rozmowa?</legend>
+            <p className="text-xs text-muted-foreground">
+              Tej rozmowy nie ma w kalendarzu NEXUSA — zapiszemy ją z tą datą.
+            </p>
+            <div className="grid grid-cols-2 gap-2 sm:max-w-sm">
+              <div>
+                <label htmlFor="debrief-held-on" className="mb-1 block text-xs font-semibold text-muted-foreground">
+                  Dzień
+                </label>
+                <input
+                  id="debrief-held-on"
+                  type="date"
+                  value={heldOn}
+                  max={warsawToday()}
+                  onChange={(e) => setHeldOn(e.target.value)}
+                  className={INPUT}
+                />
+              </div>
+              <div>
+                <label htmlFor="debrief-held-at" className="mb-1 block text-xs font-semibold text-muted-foreground">
+                  Godzina (opcjonalnie)
+                </label>
+                <input
+                  id="debrief-held-at"
+                  type="time"
+                  value={heldAt}
+                  onChange={(e) => setHeldAt(e.target.value)}
+                  className={INPUT}
+                />
+              </div>
+            </div>
+          </fieldset>
+        ) : null}
+        {!readOnly ? <DebriefFromNote onApply={applyNote} /> : null}
         <fieldset>
           <legend className="mb-2 text-sm font-semibold">Jak poszło?</legend>
           <div className="grid grid-cols-3 gap-2">
@@ -276,49 +538,132 @@ export function DebriefDialog({
             Trafiają do karty klienta i tej rekrutacji — następny kandydat zobaczy je w prepie.
           </p>
           <fieldset disabled={noQuestions} className="space-y-2">
-            {questions.map((q, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <input
-                  aria-label={`Pytanie ${i + 1}`}
-                  value={q}
-                  maxLength={500}
-                  placeholder={i === questions.length - 1 ? "Dopisz pytanie klienta…" : undefined}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setQuestions((list) => {
-                      const next = list.map((v, j) => (j === i ? value : v));
-                      // Ostatnie pole zawsze puste — pisanie w nim dokłada nowe.
-                      if (i === list.length - 1 && value.trim() && next.length < 20) next.push("");
-                      return next;
-                    });
-                  }}
-                  className={INPUT}
-                />
-                {q && questions.length > 1 ? (
-                  <button
-                    type="button"
-                    aria-label={`Usuń pytanie ${i + 1}`}
-                    onClick={() =>
-                      setQuestions((list) => {
-                        const next = list.filter((_, j) => j !== i);
-                        return next.length && next[next.length - 1] === "" ? next : [...next, ""];
-                      })
-                    }
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-destructive"
+            <ol className="space-y-2">
+              {(readOnly ? questions.filter((q) => q.trim()) : questions).map((q, i) => (
+                <li key={i} className="flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="w-6 shrink-0 text-right text-xs tabular-nums text-muted-foreground"
                   >
-                    <X className="h-4 w-4" />
-                  </button>
-                ) : null}
+                    {i + 1}.
+                  </span>
+                  <input
+                    ref={(el) => {
+                      questionRefs.current[i] = el;
+                    }}
+                    aria-label={`Pytanie ${i + 1}`}
+                    value={q}
+                    maxLength={500}
+                    placeholder={
+                      i === questions.length - 1 && !q
+                        ? "Dopisz pytanie klienta… (Enter dodaje kolejne)"
+                        : undefined
+                    }
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setQuestions((list) => {
+                        const next = list.map((v, j) => (j === i ? value : v));
+                        // Ostatnie pole zawsze puste — pisanie w nim dokłada nowe.
+                        if (
+                          i === list.length - 1 &&
+                          value.trim() &&
+                          next.length < MAX_DEBRIEF_QUESTIONS
+                        )
+                          next.push("");
+                        return next;
+                      });
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+                      e.preventDefault();
+                      if (!q.trim()) return;
+                      setFocusQuestion(Math.min(i + 1, questions.length - 1));
+                    }}
+                    onPaste={(e) => {
+                      const text = e.clipboardData.getData("text");
+                      if (!/\r?\n/.test(text.trim())) return;
+                      // Wklejona lista = osobne pytania, nie jedno długie pole.
+                      e.preventDefault();
+                      const count = addQuestions(splitPastedQuestions(text));
+                      setFocusQuestion(Math.min(count, MAX_DEBRIEF_QUESTIONS - 1));
+                    }}
+                    className={INPUT}
+                  />
+                  {q && questions.length > 1 && !readOnly ? (
+                    <button
+                      type="button"
+                      aria-label={`Usuń pytanie ${i + 1}`}
+                      onClick={() =>
+                        setQuestions((list) => {
+                          const next = list.filter((_, j) => j !== i);
+                          return next.length && next[next.length - 1] === "" ? next : [...next, ""];
+                        })
+                      }
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-destructive"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
+            {readOnly ? null : (
+              <div className="flex flex-wrap items-center gap-2 pl-8">
+                <button
+                  type="button"
+                  disabled={typedQuestions.length >= MAX_DEBRIEF_QUESTIONS}
+                  onClick={() => setFocusQuestion(questions.length - 1)}
+                  className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-semibold hover:bg-muted disabled:opacity-50"
+                >
+                  <Plus className="h-3.5 w-3.5" aria-hidden /> Dodaj pytanie
+                </button>
+                <button
+                  type="button"
+                  aria-expanded={bulkOpen}
+                  onClick={() => setBulkOpen((v) => !v)}
+                  className="h-8 rounded-md border border-border px-2.5 text-xs font-semibold hover:bg-muted"
+                >
+                  Wklej listę pytań
+                </button>
+                <span className="text-xs text-muted-foreground">
+                  {typedQuestions.length} z {MAX_DEBRIEF_QUESTIONS}
+                </span>
               </div>
-            ))}
-            {questions.length >= 20 ? (
-              <p className="text-xs text-muted-foreground">Najwyżej 20 pytań w jednym debriefie.</p>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                <Plus className="h-3 w-3" aria-hidden /> Kolejne pole pojawi się samo
-              </span>
             )}
+            {bulkOpen && !readOnly ? (
+              <div className="space-y-2 pl-8">
+                <label htmlFor="debrief-bulk" className="block text-xs text-muted-foreground">
+                  Każda linia to osobne pytanie. Numery i punktory („1.”, „-”, „•”) zostaną usunięte, a
+                  powtórzenia połączone.
+                </label>
+                <textarea
+                  id="debrief-bulk"
+                  rows={4}
+                  value={bulkText}
+                  onChange={(e) => setBulkText(e.target.value)}
+                  className={cn(INPUT, "resize-y")}
+                />
+                <button
+                  type="button"
+                  disabled={!bulkText.trim()}
+                  onClick={() => {
+                    addQuestions(splitPastedQuestions(bulkText));
+                    setBulkText("");
+                    setBulkOpen(false);
+                  }}
+                  className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                >
+                  Dodaj do listy
+                </button>
+              </div>
+            ) : null}
+            {questionsNote ? (
+              <p role="status" className="pl-8 text-xs text-warning-muted-foreground">
+                {questionsNote}
+              </p>
+            ) : null}
           </fieldset>
+          {readOnly && typedQuestions.length > 0 ? null : (
           <label className="mt-3 flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -328,6 +673,7 @@ export function DebriefDialog({
             />
             Klient nie zadawał pytań
           </label>
+          )}
         </fieldset>
 
         <fieldset>
@@ -356,15 +702,48 @@ export function DebriefDialog({
               </label>
             ))}
           </div>
+          <DebriefRateSection
+            readOnly={readOnly}
+            currentLabel={
+              existing.data?.rate_change?.previous ??
+              rateView.data?.current?.label ??
+              existing.data?.current_rate_label ??
+              null
+            }
+            savedChange={existing.data?.rate_change ?? null}
+            changed={rateChanged}
+            onChanged={touchRate(setRateChanged)}
+            amount={rateAmount}
+            onAmount={touchRate(setRateAmount)}
+            negotiable={rateNegotiable}
+            onNegotiable={touchRate(setRateNegotiable)}
+            note={rateNote}
+            onNote={touchRate(setRateNote)}
+            notice={
+              rateView.data
+                ? notifyLine(rateView.data, {
+                    rising: (() => {
+                      const next = toHourly(rateAmount, "hourly");
+                      const now =
+                        rateView.data.current?.hourly != null
+                          ? Number(rateView.data.current.hourly)
+                          : null;
+                      return next != null && now != null ? next > now : null;
+                    })(),
+                    reason: "conversation",
+                  })
+                : null
+            }
+          />
           <label htmlFor="debrief-condition" className="mt-3 mb-1 block text-xs font-semibold text-muted-foreground">
-            Warunek / zastrzeżenie
+            {readOnly ? "Warunek / zastrzeżenie" : "Inne warunki"}
           </label>
           <input
             id="debrief-condition"
             maxLength={2000}
             value={condition}
             onChange={(e) => setCondition(e.target.value)}
-            placeholder="np. oczekuje min. 190 zł/h, ma drugą ofertę do piątku"
+            placeholder="np. ma drugą ofertę do piątku, urlop w listopadzie"
             className={INPUT}
           />
         </fieldset>
@@ -376,5 +755,144 @@ export function DebriefDialog({
         ) : null}
       </fieldset>
     </AppModal>
+  );
+}
+
+
+/**
+ * Stawka kandydata po rozmowie (0418). „Zmieniła się” zapisuje nową stawkę
+ * tą samą regułą co panel osoby: ślad w historii stawek, dzwonek DL i Head of
+ * Recruitment, zadanie DL przy wzroście po wysłaniu CV. Do 04.10.2026 stawka
+ * trafiała do wolnego tekstu „Warunek”, którego nikt nie czytał.
+ */
+function DebriefRateSection({
+  readOnly,
+  currentLabel,
+  savedChange,
+  changed,
+  onChanged,
+  amount,
+  onAmount,
+  negotiable,
+  onNegotiable,
+  note,
+  onNote,
+  notice,
+}: {
+  readOnly: boolean;
+  currentLabel: string | null;
+  savedChange: Debrief["rate_change"] | null;
+  changed: boolean;
+  onChanged: (v: boolean) => void;
+  amount: string;
+  onAmount: (v: string) => void;
+  negotiable: RateNegotiable | null;
+  onNegotiable: (v: RateNegotiable | null) => void;
+  note: string;
+  onNote: (v: string) => void;
+  notice: string | null;
+}) {
+  if (readOnly) {
+    if (!savedChange) return null;
+    return (
+      <p className="mt-3 text-sm" data-testid="debrief-rate-readonly">
+        <span className="font-semibold">Stawka kandydata:</span>{" "}
+        {savedChange.previous ? `${savedChange.previous} → ` : ""}
+        {savedChange.requested}
+      </p>
+    );
+  }
+  return (
+    <fieldset
+      className="mt-4 space-y-3 rounded-lg border border-warning/40 bg-warning-muted/40 p-3"
+      data-testid="debrief-rate"
+    >
+      <legend className="px-1 text-sm font-semibold">Stawka kandydata</legend>
+      <div className="flex flex-wrap gap-2">
+        {[
+          { v: false, label: `Bez zmian${currentLabel ? ` (${currentLabel})` : ""}` },
+          { v: true, label: "Zmieniła się" },
+        ].map((o) => (
+          <label
+            key={String(o.v)}
+            className={cn(
+              "cursor-pointer rounded-full border px-3 py-1 text-xs font-medium",
+              changed === o.v ? "border-primary bg-primary/10 text-primary" : "border-border bg-card hover:bg-muted",
+            )}
+          >
+            <input
+              type="radio"
+              name="debrief-rate-changed"
+              className="sr-only"
+              checked={changed === o.v}
+              onChange={() => onChanged(o.v)}
+            />
+            {o.label}
+          </label>
+        ))}
+      </div>
+      {changed ? (
+        <>
+          <div>
+            <label htmlFor="debrief-rate-amount" className="mb-1 block text-xs font-semibold text-muted-foreground">
+              Nowa stawka B2B netto (zł/h)
+            </label>
+            <input
+              id="debrief-rate-amount"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => onAmount(e.target.value)}
+              onWheel={blurNumberInputOnWheel}
+              className={cn(INPUT, "w-32 tabular-nums")}
+            />
+          </div>
+          <fieldset>
+            <legend className="mb-1.5 text-xs font-semibold text-muted-foreground">
+              Czy kandydat zejdzie ze stawki?
+            </legend>
+            <div className="flex flex-wrap gap-2">
+              {NEGOTIABLE_OPTIONS.map((o) => (
+                <label
+                  key={o.value}
+                  className={cn(
+                    "cursor-pointer rounded-full border px-3 py-1 text-xs font-medium",
+                    negotiable === o.value
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-card hover:bg-muted",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="debrief-rate-negotiable"
+                    className="sr-only"
+                    checked={negotiable === o.value}
+                    onChange={() => onNegotiable(o.value)}
+                  />
+                  {o.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <div>
+            <label htmlFor="debrief-rate-note" className="mb-1 block text-xs font-semibold text-muted-foreground">
+              Dlaczego więcej (opcjonalnie)
+            </label>
+            <input
+              id="debrief-rate-note"
+              maxLength={1000}
+              value={note}
+              onChange={(e) => onNote(e.target.value)}
+              placeholder="np. ma drugą ofertę za 120 zł/h, decyzja do piątku"
+              className={INPUT}
+            />
+          </div>
+          {notice ? (
+            <p className="text-xs text-muted-foreground" data-testid="debrief-rate-notice">
+              {notice}
+            </p>
+          ) : null}
+        </>
+      ) : null}
+    </fieldset>
   );
 }

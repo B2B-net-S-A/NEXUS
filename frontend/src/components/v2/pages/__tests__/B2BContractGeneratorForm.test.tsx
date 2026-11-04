@@ -23,10 +23,12 @@ const mocks = vi.hoisted(() => ({
   generated: vi.fn(),
   generatedForm: vi.fn(),
   companyLookup: vi.fn(),
+  companyVerification: vi.fn(),
   renderDocx: vi.fn(),
   rerenderGenerated: vi.fn(),
   renderHtml: vi.fn(),
   checkUop: vi.fn(),
+  prefill: vi.fn(),
   downloadBlob: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
@@ -73,14 +75,15 @@ vi.mock("@/lib/api", () => ({
     generated: (...a: unknown[]) => mocks.generated(...a),
     generatedForm: (...a: unknown[]) => mocks.generatedForm(...a),
     companyLookup: (...a: unknown[]) => mocks.companyLookup(...a),
+    companyVerification: (...a: unknown[]) => mocks.companyVerification(...a),
     renderDocx: (...a: unknown[]) => mocks.renderDocx(...a),
     rerenderGenerated: (...a: unknown[]) => mocks.rerenderGenerated(...a),
     renderHtml: (...a: unknown[]) => mocks.renderHtml(...a),
     checkUop: (...a: unknown[]) => mocks.checkUop(...a),
+    prefill: (...a: unknown[]) => mocks.prefill(...a),
   },
   extractErrorMsg: (error: unknown) =>
     error instanceof Error ? error.message : "Błąd",
-  signingApi: {},
 }));
 
 import { GeneratorForm } from "@/components/v2/pages/B2BContractGeneratorV2";
@@ -165,10 +168,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.apiGet.mockImplementation((url: string) => {
     const cand = /^\/api\/candidates\/(\d+)$/.exec(url);
-    if (cand) return Promise.resolve({ data: CANDIDATES[Number(cand[1])] ?? {} });
+    if (cand)
+      return Promise.resolve({ data: CANDIDATES[Number(cand[1])] ?? {} });
     if (url.endsWith("/recruitments")) {
       return Promise.resolve({
-        data: [{ stage_id: 11, job_id: 10, job_title: "Java Dev", stage: "offer" }],
+        data: [
+          { stage_id: 11, job_id: 10, job_title: "Java Dev", stage: "offer" },
+        ],
       });
     }
     if (url === "/api/jobs/10") {
@@ -178,6 +184,7 @@ beforeEach(() => {
           title: "Java Dev",
           client_id: 3,
           description: "Rozwój systemu bankowego.",
+          external_source: "traffit",
           location: "Warszawa",
           client_name: "Nordea Bank",
         },
@@ -187,12 +194,39 @@ beforeEach(() => {
   });
   mocks.roles.mockResolvedValue([ROLE]);
   mocks.nextNumber
-    .mockResolvedValueOnce({ contract_number: "1500/2026", year: 2026, seq: 1500 })
+    .mockResolvedValueOnce({
+      contract_number: "1500/2026",
+      year: 2026,
+      seq: 1500,
+    })
     .mockResolvedValue({ contract_number: "1501/2026", year: 2026, seq: 1501 });
   mocks.clientsLookup.mockResolvedValue([]);
   mocks.generated.mockResolvedValue([]);
+  // Bez podpowiedzi z rekrutacji — przypadki niżej ustawiają je wprost.
+  mocks.prefill.mockRejectedValue(new Error("brak"));
   mocks.companyLookup.mockRejectedValue(new Error("brak"));
+  // Rejestr potwierdza firmę bez uwag → „Pobierz DOCX” generuje od razu.
+  mocks.companyVerification.mockResolvedValue({
+    status: "verified",
+    registry: "ceidg",
+    checked_at: "2026-09-28T10:00:00Z",
+    company: null,
+    warnings: [],
+    message: null,
+  });
 });
+
+/** Błąd `/render`: ciało DOCX-owego żądania (`responseType: "blob"`) to Blob. */
+function blobError(status: number, detail: unknown) {
+  return Object.assign(new Error(`Request failed with status code ${status}`), {
+    response: {
+      status,
+      data: new Blob([JSON.stringify({ detail })], {
+        type: "application/json",
+      }),
+    },
+  });
+}
 
 function renderForm(props: React.ComponentProps<typeof GeneratorForm> = {}) {
   const client = new QueryClient({
@@ -237,7 +271,9 @@ async function fillForm(user: ReturnType<typeof setupUser>) {
     ).toBe("1500/2026"),
   );
   await user.click(screen.getByRole("combobox", { name: /Obszar/ }));
-  await user.click(await screen.findByRole("option", { name: "Programista Java" }));
+  await user.click(
+    await screen.findByRole("option", { name: "Programista Java" }),
+  );
   fireEvent.change(screen.getByLabelText("Stawka godz. (netto) *"), {
     target: { value: "150" },
   });
@@ -256,7 +292,9 @@ describe("GeneratorForm — pobranie i poprawka pod tym samym numerem", () => {
     await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
 
     expect(
-      await screen.findByText("Umowa 1500/2026 zapisana w rejestrze (W trakcie)"),
+      await screen.findByText(
+        "Umowa 1500/2026 zapisana w rejestrze (W trakcie)",
+      ),
     ).toBeInTheDocument();
     expect(mocks.renderDocx).toHaveBeenCalledTimes(1);
     expect(mocks.renderDocx.mock.calls[0][0]).toMatchObject({
@@ -278,7 +316,9 @@ describe("GeneratorForm — pobranie i poprawka pod tym samym numerem", () => {
     await user.click(
       screen.getAllByRole("button", { name: "Popraw i pobierz ponownie" })[0],
     );
-    await waitFor(() => expect(mocks.rerenderGenerated).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mocks.rerenderGenerated).toHaveBeenCalledTimes(1),
+    );
     expect(mocks.rerenderGenerated.mock.calls[0][0]).toBe(77);
     expect(mocks.rerenderGenerated.mock.calls[0][1]).toMatchObject({
       candidate_id: 42,
@@ -301,15 +341,14 @@ describe("GeneratorForm — pobranie i poprawka pod tym samym numerem", () => {
 
     await waitFor(() =>
       expect(
-        (screen.getByLabelText("Numer umowy (auto) *") as HTMLInputElement).value,
+        (screen.getByLabelText("Numer umowy (auto) *") as HTMLInputElement)
+          .value,
       ).toBe("1501/2026"),
     );
+    expect(screen.queryByText(/zapisana w rejestrze \(W trakcie\)/)).toBeNull();
     expect(
-      screen.queryByText(/zapisana w rejestrze \(W trakcie\)/),
-    ).toBeNull();
-    expect(screen.getByRole("combobox", { name: /Kandydat/ })).toHaveTextContent(
-      "Wybierz kandydata…",
-    );
+      screen.getByRole("combobox", { name: /Kandydat/ }),
+    ).toHaveTextContent("Wybierz kandydata…");
     expect(
       (screen.getByLabelText("Nazwa Firmy *") as HTMLInputElement).value,
     ).toBe("");
@@ -319,8 +358,9 @@ describe("GeneratorForm — pobranie i poprawka pod tym samym numerem", () => {
   it("409 przy pierwszym pobraniu mówi, jaki numer podstawiono, i nie pobiera", async () => {
     const user = setupUser();
     mocks.renderDocx.mockRejectedValue(
-      Object.assign(new Error("Numer 1500/2026 jest już zajęty."), {
-        response: { status: 409 },
+      blobError(409, {
+        code: "contract_number_taken",
+        message: "Numer umowy „1500/2026” jest już użyty — wybierz inny.",
       }),
     );
     renderForm();
@@ -335,16 +375,42 @@ describe("GeneratorForm — pobranie i poprawka pod tym samym numerem", () => {
     expect(
       (screen.getByLabelText("Numer umowy (auto) *") as HTMLInputElement).value,
     ).toBe("1501/2026");
+    expect(mocks.showError).toHaveBeenCalledWith(
+      expect.stringContaining("jest już użyty"),
+    );
     expect(mocks.downloadBlob).not.toHaveBeenCalled();
     // Bez ponownego kliknięcia nie wychodzi nic pod podstawionym numerem.
     expect(mocks.renderDocx).toHaveBeenCalledTimes(1);
+  });
+
+  it("409 niezwiązany z numerem nie podmienia numeru (runda 8, R8-X2-5)", async () => {
+    const user = setupUser();
+    mocks.renderDocx.mockRejectedValue(
+      blobError(409, "Kandydat nie uczestniczy w wybranej rekrutacji."),
+    );
+    renderForm();
+    await fillForm(user);
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+
+    await waitFor(() =>
+      expect(mocks.showError).toHaveBeenCalledWith(
+        "Kandydat nie uczestniczy w wybranej rekrutacji.",
+      ),
+    );
+    expect(
+      (screen.getByLabelText("Numer umowy (auto) *") as HTMLInputElement).value,
+    ).toBe("1500/2026");
+    expect(mocks.downloadBlob).not.toHaveBeenCalled();
   });
 });
 
 describe("GeneratorForm — podgląd", () => {
   it("podgląd w piaskownicy znika po zmianie danych formularza", async () => {
     const user = setupUser();
-    mocks.renderHtml.mockResolvedValue({ html: "<p>Treść</p>", contract_number: null });
+    mocks.renderHtml.mockResolvedValue({
+      html: "<p>Treść</p>",
+      contract_number: null,
+    });
     renderForm();
     await fillForm(user);
 
@@ -353,7 +419,9 @@ describe("GeneratorForm — podgląd", () => {
       await screen.findByText("Podgląd (bez numeru w rejestrze)"),
     ).toBeInTheDocument();
     expect(screen.getByTitle("Podgląd umowy")).toHaveAttribute("sandbox", "");
-    expect(screen.getByRole("button", { name: /Drukuj podgląd/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Drukuj podgląd/ }),
+    ).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Miasto Klienta *"), {
       target: { value: "Kraków" },
@@ -367,10 +435,11 @@ describe("GeneratorForm — podgląd", () => {
 describe("GeneratorForm — zmiana kandydata i ostrzeżenia", () => {
   it("nowy kandydat nie dziedziczy danych firmy ani ręcznej odmiany poprzedniego", async () => {
     const { rerenderForm } = renderForm();
-    await waitFor(() =>
-      expect(
-        (screen.getByLabelText("Nazwa Firmy *") as HTMLInputElement).value,
-      ).toBe("JK Software Jan Kowalski"),
+    await waitFor(
+      () =>
+        expect(
+          (screen.getByLabelText("Nazwa Firmy *") as HTMLInputElement).value,
+        ).toBe("JK Software Jan Kowalski"),
       { timeout: PREFILL_WAIT },
     );
     fireEvent.change(
@@ -380,16 +449,21 @@ describe("GeneratorForm — zmiana kandydata i ostrzeżenia", () => {
 
     rerenderForm({ prefillCandidateId: 43, prefillJobId: 10 });
 
-    await waitFor(() =>
-      expect(
-        (screen.getByLabelText("Imię i nazwisko *") as HTMLInputElement).value,
-      ).toBe("Anna Nowak"),
+    await waitFor(
+      () =>
+        expect(
+          (screen.getByLabelText("Imię i nazwisko *") as HTMLInputElement)
+            .value,
+        ).toBe("Anna Nowak"),
       { timeout: PREFILL_WAIT },
     );
     expect(
       (screen.getByLabelText("Nazwa Firmy *") as HTMLInputElement).value,
     ).toBe("");
-    expect((screen.getByLabelText("NIP (auto z rejestru) *") as HTMLInputElement).value).toBe("");
+    expect(
+      (screen.getByLabelText("NIP (auto z rejestru) *") as HTMLInputElement)
+        .value,
+    ).toBe("");
     // Flaga „dotknięcia” narzędnika wyzerowana — auto-odmiana działa znowu.
     expect(
       (
@@ -415,21 +489,29 @@ describe("GeneratorForm — zmiana kandydata i ostrzeżenia", () => {
     // Bez prawa poprawki (`can_edit`) link prowadzi do rejestru z wyszukaniem.
     expect(
       screen.getByRole("link", { name: "Otwórz umowę 1490/2026 w rejestrze" }),
-    ).toHaveAttribute("href", "/contracts/b2b-generator?tab=generated&q=1490%2F2026");
+    ).toHaveAttribute(
+      "href",
+      "/contracts/b2b-generator?tab=generated&q=1490%2F2026",
+    );
     // Ostrzeżenie nie blokuje generowania.
-    expect(screen.getByRole("button", { name: "Pobierz DOCX (PL)" })).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Pobierz DOCX (PL)" }),
+    ).toBeEnabled();
   });
 
   it("anulowana umowa tej osoby nie ostrzega", async () => {
-    mocks.generated.mockResolvedValue([existing({ contract_status: "cancelled" })]);
+    mocks.generated.mockResolvedValue([
+      existing({ contract_status: "cancelled" }),
+    ]);
     renderForm();
     await waitFor(() => expect(mocks.generated).toHaveBeenCalled(), {
       timeout: PREFILL_WAIT,
     });
-    await waitFor(() =>
-      expect(
-        (screen.getByLabelText("Miasto Klienta *") as HTMLInputElement).value,
-      ).toBe("Warszawa"),
+    await waitFor(
+      () =>
+        expect(
+          (screen.getByLabelText("Miasto Klienta *") as HTMLInputElement).value,
+        ).toBe("Warszawa"),
       { timeout: PREFILL_WAIT },
     );
     expect(screen.queryByText(/Ta osoba ma już umowę/)).toBeNull();
@@ -440,7 +522,9 @@ describe("GeneratorForm — zmiana kandydata i ostrzeżenia", () => {
     renderForm();
     await user.click(screen.getByRole("combobox", { name: "Waluta" }));
     for (const code of ["PLN", "EUR", "USD", "GBP", "CHF"]) {
-      expect(await screen.findByRole("option", { name: code })).toBeInTheDocument();
+      expect(
+        await screen.findByRole("option", { name: code }),
+      ).toBeInTheDocument();
     }
   });
 });
@@ -524,9 +608,9 @@ describe("GeneratorForm — „Popraw umowę” (`?edit=`)", () => {
       "aria-pressed",
       "true",
     );
-    expect(screen.getByRole("combobox", { name: /Kandydat/ })).toHaveTextContent(
-      "Jan Kowalski",
-    );
+    expect(
+      screen.getByRole("combobox", { name: /Kandydat/ }),
+    ).toHaveTextContent("Jan Kowalski");
     expect(screen.getByRole("combobox", { name: /Waluta/ })).toHaveTextContent(
       "EUR",
     );
@@ -536,7 +620,9 @@ describe("GeneratorForm — „Popraw umowę” (`?edit=`)", () => {
     await user.click(
       screen.getAllByRole("button", { name: "Popraw i pobierz ponownie" })[0],
     );
-    await waitFor(() => expect(mocks.rerenderGenerated).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mocks.rerenderGenerated).toHaveBeenCalledTimes(1),
+    );
     expect(mocks.renderDocx).not.toHaveBeenCalled();
     const [id, payload] = mocks.rerenderGenerated.mock.calls[0];
     expect(id).toBe(90);
@@ -597,5 +683,427 @@ describe("GeneratorForm — „Popraw umowę” (`?edit=`)", () => {
         { timeout: PREFILL_WAIT },
       ),
     ).toHaveAttribute("href", "/contracts/b2b-generator?tab=generator&edit=90");
+  });
+});
+
+describe("GeneratorForm — awaria wyszukiwarek to nie pusta lista", () => {
+  it("błąd listy klientów daje „Ponów”, nie „Brak klientów na liście.”", async () => {
+    const user = setupUser();
+    mocks.clientsLookup.mockRejectedValue(new Error("503"));
+    renderForm({});
+
+    await user.click(
+      screen.getByRole("combobox", { name: /Pełna nazwa Klienta/ }),
+    );
+    expect(
+      await screen.findByText("Nie udało się pobrać listy klientów."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Brak klientów na liście."),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ponów/ })).toBeInTheDocument();
+  });
+
+  it("udana pusta lista klientów nadal mówi „Brak klientów na liście.”", async () => {
+    const user = setupUser();
+    renderForm({});
+
+    await user.click(
+      screen.getByRole("combobox", { name: /Pełna nazwa Klienta/ }),
+    );
+    expect(
+      await screen.findByText("Brak klientów na liście."),
+    ).toBeInTheDocument();
+  });
+
+  it("błąd wyszukiwania kandydata daje „Ponów”, nie „Brak wyników.”", async () => {
+    const user = setupUser();
+    mocks.apiGet.mockImplementation((url: string) =>
+      url === "/api/cv-generator/candidates"
+        ? Promise.reject(new Error("503"))
+        : Promise.resolve({ data: [] }),
+    );
+    renderForm({});
+
+    await user.click(screen.getByRole("combobox", { name: /Kandydat/ }));
+    expect(
+      await screen.findByText("Nie udało się wyszukać kandydatów."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Brak wyników.")).not.toBeInTheDocument();
+  });
+});
+
+describe("GeneratorForm — sprawdzenie firmy w CEIDG/KRS przed pobraniem (ticket 6)", () => {
+  function verification(overrides: Record<string, unknown> = {}) {
+    return {
+      status: "verified",
+      registry: "ceidg",
+      checked_at: "2026-09-28T10:00:00Z",
+      company: {
+        name: "JK SOFTWARE JAN KOWALSKI",
+        person: "Jan Kowalski",
+        nip: "1234563218",
+        regon: "123456785",
+        address: "UL. PROSTA 1, 00-001 WARSZAWA",
+        krs: null,
+        entity_type: "sole_trader",
+      },
+      warnings: [],
+      message: null,
+      ...overrides,
+    };
+  }
+
+  it("dane zgodne z rejestrem → pobiera od razu, bez okna", async () => {
+    const user = setupUser();
+    mocks.companyVerification.mockResolvedValue(verification());
+    mocks.renderDocx.mockResolvedValue(docxResponse("77"));
+    renderForm();
+    await fillForm(user);
+
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+
+    await waitFor(() => expect(mocks.renderDocx).toHaveBeenCalledTimes(1));
+    expect(mocks.companyVerification).toHaveBeenCalledWith({ nip: "1234563218" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("zawieszona działalność → ostrzeżenie, ale „Generuj mimo to” pobiera umowę", async () => {
+    const user = setupUser();
+    mocks.companyVerification.mockResolvedValue(
+      verification({
+        warnings: [
+          {
+            code: "ceidg_suspended",
+            message:
+              "Działalność gospodarcza Partnera jest ZAWIESZONA w CEIDG (od 01.07.2026).",
+          },
+        ],
+      }),
+    );
+    mocks.renderDocx.mockResolvedValue(docxResponse("77"));
+    renderForm();
+    await fillForm(user);
+
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("ZAWIESZONA w CEIDG (od 01.07.2026)");
+    expect(mocks.renderDocx).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Generuj mimo to" }));
+    await waitFor(() => expect(mocks.renderDocx).toHaveBeenCalledTimes(1));
+  });
+
+  it("nowszy adres w rejestrze trafia do umowy i do formularza", async () => {
+    const user = setupUser();
+    mocks.companyVerification.mockResolvedValue(
+      verification({
+        company: {
+          ...verification().company,
+          address: "UL. NOWA 7/2, 00-950 WARSZAWA",
+        },
+      }),
+    );
+    mocks.renderDocx.mockResolvedValue(docxResponse("77"));
+    renderForm();
+    await fillForm(user);
+
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("UL. NOWA 7/2, 00-950 WARSZAWA");
+    // Nazwa różni się tylko wielkością liter i interpunkcją — to nie zmiana.
+    expect(dialog).not.toHaveTextContent("Nazwa firmy");
+    expect(
+      screen.getByRole("checkbox", { name: /Wstaw do umowy aktualne dane/ }),
+    ).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Generuj umowę" }));
+
+    await waitFor(() => expect(mocks.renderDocx).toHaveBeenCalledTimes(1));
+    expect(mocks.renderDocx.mock.calls[0][0]).toMatchObject({
+      partner_business_address: "UL. NOWA 7/2, 00-950 WARSZAWA",
+      partner_legal_name: "JK Software Jan Kowalski",
+    });
+    expect(
+      (screen.getByLabelText("Adres z CEIDG *") as HTMLInputElement).value,
+    ).toBe("UL. NOWA 7/2, 00-950 WARSZAWA");
+  });
+
+  it("odznaczone „Wstaw dane z rejestru” zostawia dane z formularza", async () => {
+    const user = setupUser();
+    mocks.companyVerification.mockResolvedValue(
+      verification({
+        company: { ...verification().company, regon: "987654321" },
+      }),
+    );
+    mocks.renderDocx.mockResolvedValue(docxResponse("77"));
+    renderForm();
+    await fillForm(user);
+
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+    await screen.findByRole("dialog");
+    await user.click(
+      screen.getByRole("checkbox", { name: /Wstaw do umowy aktualne dane/ }),
+    );
+    await user.click(screen.getByRole("button", { name: "Generuj umowę" }));
+
+    await waitFor(() => expect(mocks.renderDocx).toHaveBeenCalledTimes(1));
+    expect(mocks.renderDocx.mock.calls[0][0]).toMatchObject({
+      partner_regon: "123456785",
+    });
+  });
+
+  it("rejestr niedostępny → komunikat o braku weryfikacji; „Anuluj” nic nie pobiera", async () => {
+    const user = setupUser();
+    mocks.companyVerification.mockRejectedValue(new Error("Network Error"));
+    renderForm();
+    await fillForm(user);
+
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent(
+      "Dane firmy nie zostały zweryfikowane w rejestrze",
+    );
+    await user.click(screen.getByRole("button", { name: "Anuluj" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(mocks.renderDocx).not.toHaveBeenCalled();
+  });
+});
+
+describe("GeneratorForm — wariant umowy dla spółki (ticket 8)", () => {
+  it("domyślnie JDG; spółka wysyła dane z KRS, a powrót na JDG nie gubi danych", async () => {
+    const user = setupUser();
+    mocks.renderDocx.mockResolvedValue(docxResponse("78"));
+    mocks.companyLookup.mockImplementation(
+      (params: { nip?: string; krs?: string }) =>
+        params.krs
+          ? Promise.resolve({
+              name: "JK SOFTWARE SP. Z O.O.",
+              krs: params.krs,
+              entity_type: "company",
+              seat: "Wrocław",
+              registry_court:
+                "Sąd Rejonowy dla Wrocławia-Fabrycznej we Wrocławiu, VI Wydział Gospodarczy Krajowego Rejestru Sądowego",
+              share_capital: "5.000,00",
+              representatives: [
+                { name: null, function: "Prezes Zarządu" },
+                { name: null, function: "Członek Zarządu" },
+              ],
+              representation_method: "Każdy członek zarządu samodzielnie",
+            })
+          : Promise.reject(new Error("brak")),
+    );
+    renderForm();
+    await fillForm(user);
+
+    const jdg = screen.getByRole("button", { name: "Umowa JDG" });
+    expect(jdg).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "Umowa spółka" }));
+
+    // Pola JDG znikają z widoku, osoba skierowana to kandydat z rekrutacji.
+    expect(screen.queryByLabelText(/narzędnik/)).toBeNull();
+    expect(
+      screen.getByText(/Osoba skierowana do realizacji usług/).parentElement,
+    ).toHaveTextContent("Jan Kowalski");
+
+    // Bez danych spółki pobranie odmawia i mówi, czego brakuje.
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+    expect(mocks.renderDocx).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("KRS *"), {
+      target: { value: "0000123456" },
+    });
+    await waitFor(
+      () =>
+        expect(
+          (
+            screen.getByLabelText(
+              "Siedziba w umowie („z siedzibą …”) *",
+            ) as HTMLInputElement
+          ).value,
+        ).toBe("we Wrocławiu"),
+      { timeout: 5_000 },
+    );
+    expect(screen.getByText(/imiona i nazwiska są ukryte/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Osoba reprezentująca spółkę *"), {
+      target: { value: "Piotr Nowak" },
+    });
+    await user.click(screen.getByRole("button", { name: "Prezes Zarządu" }));
+    expect(
+      (
+        screen.getByLabelText(
+          "Reprezentacja w komparycji („reprezentowaną przez …”) *",
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("Pana Piotra Nowaka – Prezesa Zarządu");
+
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+    await waitFor(() => expect(mocks.renderDocx).toHaveBeenCalledTimes(1));
+    expect(mocks.renderDocx.mock.calls[0][0]).toMatchObject({
+      contract_variant: "company",
+      partner_krs: "0000123456",
+      partner_seat: "Wrocław",
+      partner_seat_locative: "we Wrocławiu",
+      partner_share_capital: "5.000,00",
+      partner_representative_name: "Piotr Nowak",
+      partner_representative_function: "Prezes Zarządu",
+      partner_representation: "Pana Piotra Nowaka – Prezesa Zarządu",
+      assigned_person_name: "Jan Kowalski",
+      // Dane wpisane pod JDG zostają — zmienia się tylko prezentacja.
+      partner_name: "Jan Kowalski",
+      partner_legal_name: "JK Software Jan Kowalski",
+    });
+
+    await user.click(screen.getByRole("button", { name: "Umowa JDG" }));
+    expect(
+      (screen.getByLabelText("Imię i nazwisko *") as HTMLInputElement).value,
+    ).toBe("Jan Kowalski");
+    await user.click(screen.getByRole("button", { name: "Umowa spółka" }));
+    expect((screen.getByLabelText("KRS *") as HTMLInputElement).value).toBe(
+      "0000123456",
+    );
+  });
+});
+
+describe("GeneratorForm — umowa z rekrutacji (04.10.2026)", () => {
+  it("stawka ze screeningu wypełnia puste pole i mówi skąd jest", async () => {
+    mocks.prefill.mockResolvedValue({
+      candidate_id: 42,
+      job_id: 10,
+      rate: { value: 140, source: "card", at: "2026-10-01T08:00:00Z" },
+      start_date: null,
+      availability_text: "od 1 listopada",
+      client_rate: null,
+      client_rate_redacted: true,
+      existing: null,
+    });
+    renderForm();
+    await waitFor(
+      () =>
+        expect(
+          (screen.getByLabelText("Stawka godz. (netto) *") as HTMLInputElement)
+            .value,
+        ).toBe("140"),
+      { timeout: PREFILL_WAIT },
+    );
+    expect(
+      screen.getByText("Stawka ze screeningu · 01.10.2026"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Dostępność ze screeningu: od 1 listopada"),
+    ).toBeInTheDocument();
+    expect(mocks.prefill).toHaveBeenCalledWith(42, 10);
+  });
+
+  it("różnica ze stawką kandydata z rekrutacji to notka pod polem, nie błąd (D7)", async () => {
+    const user = setupUser();
+    mocks.prefill.mockResolvedValue({
+      candidate_id: 42,
+      job_id: 10,
+      rate: { value: 140, source: "card", at: "2026-10-01T08:00:00Z" },
+      start_date: null,
+      availability_text: null,
+      client_rate: null,
+      client_rate_redacted: true,
+      recruitment_rate: {
+        value: 150,
+        unit: "hourly",
+        currency: "PLN",
+        at: "2026-10-02T08:00:00Z",
+        job_title: "Java Developer",
+      },
+      existing: null,
+    });
+    renderForm();
+    const note = await screen.findByTestId(
+      "b2b-recruitment-rate-note",
+      {},
+      { timeout: PREFILL_WAIT },
+    );
+    expect(note).toHaveTextContent(
+      "Stawka kandydata z rekrutacji „Java Developer”: 150 zł/h",
+    );
+    const field = screen.getByLabelText("Stawka godz. (netto) *");
+    await user.clear(field);
+    await user.type(field, "150");
+    expect(screen.queryByTestId("b2b-recruitment-rate-note")).toBeNull();
+  });
+
+  it("w panelu osoby kandydata nie da się zmienić, a zapis woła onSaved", async () => {
+    const user = setupUser();
+    const onSaved = vi.fn();
+    mocks.renderDocx.mockResolvedValue(docxResponse("88"));
+    renderForm({ lockedPair: true, onSaved });
+    await fillForm(user);
+    expect(screen.getByRole("combobox", { name: /Kandydat/ })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+    await waitFor(() =>
+      expect(onSaved).toHaveBeenCalledWith({ id: 88, number: "1500/2026" }),
+    );
+    expect(screen.queryByRole("button", { name: /Nowa umowa/ })).toBeNull();
+  });
+});
+
+describe("GeneratorForm — adres do doręczeń z CEIDG", () => {
+  it("lookup ustawia „Tylko adres do doręczeń”, ręczna zmiana zostawia ślad i trafia do umowy", async () => {
+    const user = setupUser();
+    mocks.renderDocx.mockResolvedValue(docxResponse("79"));
+    mocks.companyLookup.mockResolvedValue({
+      name: "JK Software Jan Kowalski",
+      person: "Jan Kowalski",
+      nip: "1234563218",
+      regon: "123456785",
+      krs: null,
+      address: "UL. TESTOWA 1, 00-001 WARSZAWA",
+      address_kind: "service",
+      source: "CEIDG",
+      entity_type: "sole_trader",
+    });
+    renderForm();
+    await fillForm(user);
+
+    const service = await screen.findByRole("button", {
+      name: "Tylko adres do doręczeń",
+    });
+    await waitFor(() =>
+      expect(service).toHaveAttribute("aria-pressed", "true"),
+    );
+    expect(screen.getByText(/CEIDG: brak stałego miejsca/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Adres z CEIDG *")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Stałe miejsce wykonywania działalności",
+      }),
+    );
+    expect(screen.getByText(/Zmienione ręcznie/)).toBeInTheDocument();
+    await user.click(service);
+
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+    await waitFor(() => expect(mocks.renderDocx).toHaveBeenCalledTimes(1));
+    expect(mocks.renderDocx.mock.calls[0][0]).toMatchObject({
+      partner_address_for_service: true,
+      partner_business_address: "UL. TESTOWA 1, 00-001 WARSZAWA",
+    });
+  });
+
+  it("bez odpowiedzi rejestru zostaje „Stałe miejsce” i dzisiejszy tekst umowy", async () => {
+    const user = setupUser();
+    mocks.renderDocx.mockResolvedValue(docxResponse("80"));
+    renderForm();
+    await fillForm(user);
+
+    expect(
+      screen.getByRole("button", {
+        name: "Stałe miejsce wykonywania działalności",
+      }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText(/Zmienione ręcznie/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+    await waitFor(() => expect(mocks.renderDocx).toHaveBeenCalledTimes(1));
+    expect(mocks.renderDocx.mock.calls[0][0]).toMatchObject({
+      partner_address_for_service: false,
+    });
   });
 });

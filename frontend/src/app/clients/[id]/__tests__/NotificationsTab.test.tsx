@@ -10,6 +10,12 @@ const mocks = vi.hoisted(() => ({
   overridesCreate: vi.fn(),
   overridesUpdate: vi.fn(),
   overridesDelete: vi.fn(),
+  showError: vi.fn(),
+  showSuccess: vi.fn(),
+}));
+
+vi.mock("@/components/Toast", () => ({
+  useToast: () => ({ showError: mocks.showError, showSuccess: mocks.showSuccess }),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -118,7 +124,7 @@ describe("NotificationsTab", () => {
   it("renderuje procesy, etapy i aktywne override'y", async () => {
     mockLoad([
       override(),
-      override({ id: 501, recipient_type: "role", role: "tac", notify_email: false, is_active: false }),
+      override({ id: 501, recipient_type: "role", role: "recruiter", notify_email: false, is_active: false }),
     ]);
 
     render(<NotificationsTab clientId={CLIENT_ID} />);
@@ -133,8 +139,8 @@ describe("NotificationsTab", () => {
     expect(
       within(cvSent).getByText("Override aktywny (2) — baseline pominięty"),
     ).toBeInTheDocument();
-    expect(within(cvSent).getByText("Rekruter projektu")).toBeInTheDocument();
-    expect(within(cvSent).getByText(/Rola \(wszyscy aktywni\) · tac/)).toBeInTheDocument();
+    expect(within(cvSent).getByText("Rekruter projektu i kandydata")).toBeInTheDocument();
+    expect(within(cvSent).getByText(/Rola \(wszyscy aktywni\) · recruiter/)).toBeInTheDocument();
     expect(within(cvSent).getByText("(wyłączony)")).toBeInTheDocument();
   });
 
@@ -188,17 +194,24 @@ describe("NotificationsTab", () => {
   it("usuwa override po potwierdzeniu, a anulowanie nic nie wysyła", async () => {
     mockLoad([override()]);
     mocks.overridesDelete.mockResolvedValue({});
-    const confirmMock = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
-    vi.stubGlobal("confirm", confirmMock);
+    // Runda 11 (FRONT): okno aplikacji zamiast natywnego confirm().
+    const nativeConfirm = vi.fn();
+    vi.stubGlobal("confirm", nativeConfirm);
 
     render(<NotificationsTab clientId={CLIENT_ID} />);
     await screen.findByText(/Proces: Default B2B/);
 
     fireEvent.click(screen.getByTitle("Usuń"));
-    expect(confirmMock).toHaveBeenCalledTimes(1);
+    let dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Usunąć override? Stage wróci do baseline.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Anuluj" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(mocks.overridesDelete).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTitle("Usuń"));
+    dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Usuń" }));
+    expect(nativeConfirm).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(mocks.overridesDelete).toHaveBeenCalledWith(CLIENT_ID, 500),
     );
@@ -208,7 +221,7 @@ describe("NotificationsTab", () => {
   it("nieudane usunięcie informuje użytkownika", async () => {
     mockLoad([override()]);
     mocks.overridesDelete.mockRejectedValue({ response: { status: 403 } });
-    vi.stubGlobal("confirm", vi.fn(() => true));
+    // Runda 12: toast zamiast natywnego alert() (zamrażał automatyzację).
     const alertMock = vi.fn();
     vi.stubGlobal("alert", alertMock);
 
@@ -216,8 +229,11 @@ describe("NotificationsTab", () => {
     await screen.findByText(/Proces: Default B2B/);
 
     fireEvent.click(screen.getByTitle("Usuń"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Usuń" }));
 
-    await waitFor(() => expect(alertMock).toHaveBeenCalledWith("Nie udało się usunąć."));
+    await waitFor(() => expect(mocks.showError).toHaveBeenCalledWith("Nie udało się usunąć."));
+    expect(alertMock).not.toHaveBeenCalled();
     expect(mocks.overridesList).toHaveBeenCalledTimes(1);
   });
 });

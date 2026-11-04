@@ -43,6 +43,7 @@ from tests.test_pending_gate_removed import (  # noqa: F401  (fixture pv_client)
     _seed_candidate,
     _seed_job,
     _seed_user,
+    enter_pipeline,
     pv_client,
 )
 
@@ -150,6 +151,9 @@ def _fake_generator(monkeypatch, *, error: HTTPException | None = None) -> list[
 
 
 async def _move(client: AsyncClient, headers, cand_id, job_id, stage="verified"):
+    if stage not in ("new", "screening"):
+        # Runda 9 (R9-N11-4): osoba spoza rekrutacji wchodzi najpierw do „Nowych”.
+        await enter_pipeline(client, headers, cand_id, job_id)
     return await client.post(
         "/api/pipeline/move",
         headers=headers,
@@ -410,6 +414,57 @@ async def test_return_to_verified_with_the_same_cv_does_not_pay_twice(monkeypatc
     ]
 
 
+async def test_return_to_verified_does_not_reattach_a_discarded_cv(monkeypatch):
+    """Audyt 22.10 (F64, dopięcie): odrzucone auto-CV („Odrzuć to CV”) nie
+    wraca przy powrocie karty na „Zweryfikowany” jako szkic nowego etapu —
+    automat robi CV od nowa, bez pominięcia ``already_generated``."""
+    from app.models.cv_generated_document import DISCARDED_KEY
+
+    world = await _world()
+    calls = _fake_generator(monkeypatch)
+    attached: list[dict] = []
+
+    async def _attach(**kwargs):
+        attached.append(kwargs)
+        return True
+
+    monkeypatch.setattr(auto, "attach_as_stage_draft", _attach)
+    async with AsyncSessionLocal() as db:
+        first = await auto._enqueue(
+            db, stage_id=world["stage_id"], user_id=world["user_id"]
+        )
+        await db.execute(
+            update(CvGeneratedDocument)
+            .where(CvGeneratedDocument.stage_id == world["stage_id"])
+            .values(
+                status="ready",
+                render_payload={
+                    "name": "Auto CV",
+                    DISCARDED_KEY: "2026-10-22T10:00:00+00:00",
+                },
+            )
+        )
+        stage = CandidateStage(
+            candidate_id=world["candidate_id"],
+            job_id=world["job_id"],
+            stage=PipelineStage.verified,
+            moved_by=world["user_id"],
+        )
+        db.add(stage)
+        await db.commit()
+        new_stage_id = stage.id
+    async with AsyncSessionLocal() as db:
+        second = await auto._enqueue(
+            db, stage_id=new_stage_id, user_id=world["user_id"]
+        )
+
+    assert first is not None and second is not None
+    assert attached == [], "odrzucone CV wróciło jako szkic nowego etapu"
+    assert len(calls) == 2
+    events = await _events(world["job_id"])
+    assert all((e.details or {}).get("reason") != "already_generated" for e in events)
+
+
 async def test_database_enforces_the_idempotency_key():
     world = await _world()
 
@@ -492,7 +547,9 @@ async def test_successful_enqueue_runs_the_durable_job(monkeypatch):
         stage_id=world["stage_id"], user_id=world["user_id"]
     )
     assert executed == [4242]
-    assert followed and followed[0]["stage_id"] == world["stage_id"]
+    # Runda 7 (R7-N6-1): księguje proces, który wykonał zadanie (hak w
+    # `execute_job`), a nie wołający — ten bywa odprawiony bez wyniku.
+    assert followed == []
 
 
 # ── odnajdywalność tam, gdzie rekruter wysyła CV ────────────────────────────
@@ -644,6 +701,31 @@ async def test_kanban_card_says_auto_cv_is_ready_until_someone_approves_it(
     assert await _flag() is False
 
 
+@pytest.mark.asyncio
+async def test_discarded_auto_cv_is_not_ready_for_review_on_the_board():
+    """Audyt 22.10 (F64, dopięcie): po „Odrzuć to CV” karta nie świeci
+    „Auto-CV gotowe do przejrzenia” i generacja nie jest przypięta na liście."""
+    from app.models.cv_generated_document import DISCARDED_KEY
+    from app.services.cv_auto_review import job_stages_with_ready_auto_cv
+
+    world = await _world()
+    doc_id = await _auto_doc(world)
+    async with AsyncSessionLocal() as db:
+        assert world["stage_id"] in await job_stages_with_ready_auto_cv(
+            db, world["job_id"]
+        )
+        doc = await db.get(CvGeneratedDocument, doc_id)
+        doc.render_payload = {
+            **doc.render_payload,
+            DISCARDED_KEY: "2026-10-22T10:00:00+00:00",
+        }
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        assert world["stage_id"] not in await job_stages_with_ready_auto_cv(
+            db, world["job_id"]
+        )
+
+
 def test_kanban_flag_is_one_batched_query():
     source = (_BACKEND / "app" / "api" / "pipeline.py").read_text("utf-8")
     # Jedno zapytanie na tablicę, poza pętlą po kartach.
@@ -703,6 +785,66 @@ async def test_ready_auto_cv_becomes_the_stage_draft_never_an_approval(monkeypat
         assert csv.branded_finalized_at is None
 
 
+async def test_job_finish_hook_attaches_auto_cv_for_whoever_ran_the_job(monkeypatch):
+    """R7-N6-1: zadanie przejęte przez `recovery_loop` też podpina szkic."""
+    from app.models.candidate_stage_cv import CandidateStageCV
+    from app.services import automation_failures as failures
+
+    successes: list[str] = []
+
+    async def _success(kind):
+        successes.append(kind)
+
+    monkeypatch.setattr(failures, "record_success", _success)
+    world = await _world()
+    csv_id = await _stage_cv(world)
+    doc_id = await _auto_doc(world)
+    calls = _fake_attach(monkeypatch)
+    await auto.after_job_finished(doc_id)
+    assert calls == [
+        {"action": "branded_cv_attached_by_automation", "user_id": world["user_id"]}
+    ]
+    assert successes == [failures.KIND_AUTO_CV]
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(CandidateStageCV, csv_id)).branded_status == "draft"
+
+
+async def test_job_finish_hook_ignores_manual_documents(monkeypatch):
+    world = await _world()
+    await _stage_cv(world)
+    doc_id = await _auto_doc(world)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(CvGeneratedDocument)
+            .where(CvGeneratedDocument.id == doc_id)
+            .values(origin="manual")
+        )
+        await db.commit()
+    calls = _fake_attach(monkeypatch)
+    await auto.after_job_finished(doc_id)
+    assert calls == []
+
+
+def test_execute_job_runs_the_auto_cv_hook_after_finishing():
+    import ast
+
+    source = (
+        _BACKEND / "app" / "services" / "cv_generator_b2b" / "durable_jobs.py"
+    ).read_text("utf-8")
+    [fn] = [
+        n
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.AsyncFunctionDef) and n.name == "execute_job"
+    ]
+    lines = {
+        c.func.id: c.lineno
+        for c in ast.walk(fn)
+        if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+    }
+    assert "after_job_finished" in lines
+    assert lines["finish_job"] < lines["after_job_finished"]
+
+
 async def test_existing_draft_is_never_overwritten_by_the_automation(monkeypatch):
     from app.models.candidate_stage_cv import CandidateStageCV
 
@@ -740,8 +882,14 @@ async def test_attach_failure_is_swallowed(monkeypatch):
     )
 
 
-async def test_failed_generation_is_a_feed_entry_not_a_notification(monkeypatch):
-    from app.models.notification import Notification
+async def test_failed_generation_is_a_feed_entry_and_a_cv_ready_bell(monkeypatch):
+    """Do 14.10.2026 nieudana generacja była WYŁĄCZNIE wpisem w „Pracy w tle”
+    i rekruter czekał w ciemno na CV, które nie powstanie. Decyzja Artura
+    z 14.10.2026 (droga rekrutera do DL): osoba, która przesunęła kartę,
+    dostaje dzwonek ``cv_ready`` „Automat nie zrobił CV” z powodem — musi
+    zrobić CV sama. Seria awarii nadal idzie tylko do adminów
+    (``automation_failing``), nie do rekrutera."""
+    from app.models.notification import Notification, NotificationType
     from app.services import automation_failures as failures
 
     recorded: list[tuple] = []
@@ -761,11 +909,16 @@ async def test_failed_generation_is_a_feed_entry_not_a_notification(monkeypatch)
     assert event.details["message"] == "Generacja CV zakończyła się błędem."
     assert recorded == [(failures.KIND_AUTO_CV, "generation_failed", world["job_id"])]
     async with AsyncSessionLocal() as db:
-        assert (
-            await db.scalar(
-                select(Notification.id).where(Notification.user_id == world["user_id"])
+        bells = (
+            await db.execute(
+                select(Notification.notification_type, Notification.title).where(
+                    Notification.user_id == world["user_id"]
+                )
             )
-        ) is None
+        ).all()
+    assert [(ntype, title.split(":")[0]) for ntype, title in bells] == [
+        (NotificationType.cv_ready, "Automat nie zrobił CV")
+    ]
 
 
 # ── lustro DDL ──────────────────────────────────────────────────────────────
@@ -790,3 +943,15 @@ def test_entrypoint_mirrors_migration_0335():
         _BACKEND / "alembic" / "versions" / "0335_recruitment_automations.py"
     ).read_text("utf-8")
     assert 'down_revision = "0334_my_people"' in migration
+
+
+@pytest.fixture(autouse=True)
+def _generation_without_confirmation(monkeypatch):
+    """Ten moduł sprawdza tryb sprzed 21.10.2026 (generacja zaraz po ruchu).
+
+    Domyślnie ruch na „Zweryfikowany” już nie generuje CV — patrz
+    `test_cv_confirm_before_generate.py`.
+    """
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "CV_AUTO_GENERATE_WITHOUT_CONFIRMATION", True)

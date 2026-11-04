@@ -5,6 +5,10 @@ import {
   actionAccessForUser,
   hasActionAccess,
 } from "@/lib/action-access";
+import { hasPermission } from "@/lib/permissions";
+import type { UserRole } from "@/store/auth";
+
+import { accessSnapshot } from "./fixtures/access-snapshot";
 
 const ACTION = "b2b_contract_generator" as const;
 
@@ -46,5 +50,74 @@ describe("action access", () => {
         ACTION,
       ),
     ).toBe("none");
+  });
+});
+
+// Podpis B2B jest jednym z dziewięciu uprawnień z ekranu Osoby i role. Ma jedno
+// źródło — `lib/permissions.ts` — a ten moduł odpowiada tym samym, żeby dwa
+// pytania o to samo konto nie dawały dwóch odpowiedzi.
+describe("podpis B2B: action-access zgadza się z lib/permissions", () => {
+  const SIGNATURE = "b2b_signature_confirmation" as const;
+  const ROLES: UserRole[] = [
+    "admin",
+    "finance",
+    "head_of_recruitment",
+    "delivery_lead",
+    "talent_community_manager",
+    "recruiter",
+    "user",
+    "trainee",
+  ];
+
+  const agree = (user: Parameters<typeof actionAccessForUser>[0]) => {
+    const held = hasPermission(user, SIGNATURE);
+    expect(actionAccessForUser(user, SIGNATURE)).toBe(held ? "manage" : "none");
+    expect(hasActionAccess(user, SIGNATURE, "manage")).toBe(held);
+    return held;
+  };
+
+  it("domyślnie: admin, Delivery Lead, TCM i rekruter (od 19.10.2026)", () => {
+    expect(ROLES.filter((role) => agree({ role })).sort()).toEqual(
+      ["admin", "delivery_lead", "talent_community_manager", "recruiter"].sort(),
+    );
+    expect(ROLES.filter((role) => agree(accessSnapshot(role))).sort()).toEqual(
+      ["admin", "delivery_lead", "talent_community_manager", "recruiter"].sort(),
+    );
+  });
+
+  it("profil sprzed 0410 nie decyduje o podpisie w żadnym z modułów — liczą się domyślne uprawnienia roli", () => {
+    // Stary komplet niósł TAC-owi podpis, którego zakres klienta i tak nigdy
+    // nie przepuszczał; rola TAC jest dziś rekruterem (02.10.2026). Bez klucza
+    // `delivery_view` profil jest nieaktualny, więc liczą się domyślne
+    // uprawnienia roli — rekruter ma podpis z roli od 19.10.2026, HoR nie.
+    const stale = (role: "recruiter" | "head_of_recruitment", signature: "manage" | "none") => ({
+      role,
+      roles: [role],
+      effective_action_access: {
+        b2b_contract_generator: "manage" as const,
+        b2b_signature_confirmation: signature,
+      },
+    });
+    expect(agree(stale("recruiter", "none"))).toBe(true);
+    expect(agree(stale("head_of_recruitment", "manage"))).toBe(false);
+    // Generator czyta ten sam stary komplet jak dotąd.
+    expect(actionAccessForUser(stale("recruiter", "none"), ACTION)).toBe("manage");
+  });
+
+  it("nadane rekruterowi i wyłączone Delivery Leadowi — oba moduły widzą to samo", () => {
+    expect(agree(accessSnapshot("recruiter", { grant: [SIGNATURE] }))).toBe(true);
+    expect(agree(accessSnapshot("delivery_lead", { revoke: [SIGNATURE] }))).toBe(false);
+  });
+
+  it("uprawnienie jest tak/nie: poziom inny niż „manage” go nie nadaje", () => {
+    const partial = {
+      role: "recruiter" as const,
+      effective_action_access: {
+        ...accessSnapshot("recruiter").effective_action_access,
+        b2b_signature_confirmation: "view" as const,
+      },
+    };
+    expect(agree(partial)).toBe(false);
+    expect(hasActionAccess(partial, SIGNATURE, "view")).toBe(false);
   });
 });

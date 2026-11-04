@@ -24,6 +24,8 @@ lists, active penalties and warnings so the UI can render a "why" tooltip.
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import json
 import logging
 import re
@@ -278,8 +280,32 @@ def scoring_algorithm_version() -> str:
     payload["skill_evidence_contract"] = "2026-09-08-source-union-modality"
     payload["requirement_contract"] = "2026-09-09-and-of-or"
     payload["budget_contract"] = "2026-09-09-explicit-budget-currency"
-    payload["skill_canon_contract"] = "2026-09-22-significant-signs"
-    payload["location_contract"] = "2026-09-22-city-token-only"
+    payload["skill_canon_contract"] = "2026-10-07-implied-by"
+    payload["location_contract"] = "2026-09-27-place-dictionary"
+    payload["alias_mention_contract"] = "2026-10-07-rest-plain-word"
+    payload["skill_text_evidence"] = "2026-10-07-no-gaps-no-negated-answers"
+    # Mianownik `_score_skills` liczy technologie bramką must (`_technology_labels`)
+    # — nawias i wstęp „znajomość …” czytane od 13.10.2026 zmieniają wynik.
+    payload["gate_label_contract"] = "2026-10-13-parenthesis-comment"
+    # Adapter zapytania zmienia podobieństwo semantyczne, więc i wynik. Klucz
+    # tylko przy włączonym adapterze — wyłączony nie unieważnia pamięci wyników.
+    from app.services.query_adapter import version_tag as _query_adapter_tag
+
+    if (_adapter_tag := _query_adapter_tag()) != "off":
+        payload["query_adapter"] = _adapter_tag
+    # „Stawka od” (0414): stawka kandydata = najniższa z 18 miesięcy.
+    from app.services.candidate_rate_from import enabled as _rate_from_enabled
+
+    payload["rate_contract"] = (
+        "2026-10-04-rate-from-18m" if _rate_from_enabled() else "profile"
+    )
+    # Dostępność i „Stawka od” osoby z żywą umową liczą się z umowy (15.10.2026).
+    payload["availability_contract"] = "2026-10-15-contract-free-from"
+    from app.services.critical_skills import gate_mode
+
+    payload["salary_contract"] = (
+        "2026-09-30-neutral" if gate_mode() == "critical" else "linear-30"
+    )
     payload["default_weights"] = [
         SEMANTIC_MAX,
         SKILLS_MAX,
@@ -338,6 +364,10 @@ async def resolve_active_profile(
             _select(ScoringWeightProfile)
             .where(ScoringWeightProfile.active.is_(True))
             .where(where)
+            # Kilka aktywnych profili w jednym zakresie: wygrywa najnowszy.
+            # Bez ORDER BY wygrywał dowolny wiersz i „Dop.” mógł się zmieniać
+            # między zapytaniami bez zmiany wag (21.10.2026).
+            .order_by(ScoringWeightProfile.id.desc())
             .limit(1)
         )
         return WeightProfile.from_record(row) if row else None
@@ -416,8 +446,24 @@ class ScoreBreakdown:
     # evidence backed this score (a full score built on a near-empty profile is
     # low-confidence). None when not computed (e.g. hydrated legacy cache row).
     fit_confidence: Optional[float] = None
+    # Warstwa `prior_screening` (07.10.2026, `services/prior_screening.py`):
+    # odpowiedzi z wcześniejszych rozmów. ``None`` = warstwy nie liczono
+    # (wyłącznik OFF albo brak materiału) i wtedy NIE ma jej w `as_dict` —
+    # rozbicie zostaje bajt w bajt jak bez warstwy.
+    prior_screening: Optional[LayerResult] = None
 
     def as_dict(self) -> dict:
+        out = self._as_dict()
+        if self.prior_screening is not None:
+            out["prior_screening"] = {
+                "points": round(self.prior_screening.points, 1),
+                "max": self.prior_screening.max_points,
+                "reason": self.prior_screening.reason,
+                "status": self.prior_screening.status or "scored",
+            }
+        return out
+
+    def _as_dict(self) -> dict:
         return {
             "candidate_id": self.candidate_id,
             "job_id": self.job_id,
@@ -632,12 +678,91 @@ def skill_name_variants(raw) -> List[str]:
     return out
 
 
+# Aliasy taksonomii, które są też zwykłymi polskimi słowami („jest” = is,
+# „go” = him). Liczą się tylko pisane jak technologia (Jest, Go).
+POLISH_WORD_ALIASES = frozenset({"jest", "go"})
+
+
+# „rest” jako zwykłe angielskie słowo: „the rest of the team”, „data at rest”,
+# „Rest of World”. Bez tego alias REST API dawał ok. 390 fałszywych trafień
+# w CV (pomiar 07.10.2026).
+_REST_BEFORE_RE = re.compile(r"(?:\bthe|\bat)\s+$", re.I)
+_REST_AFTER_RE = re.compile(r"^\s+of\b", re.I)
+
+
+def _rest_is_plain_word(text: str, start: int, end: int) -> bool:
+    return bool(
+        _REST_BEFORE_RE.search(text[max(0, start - 6) : start])
+        or _REST_AFTER_RE.match(text[end : end + 6])
+    )
+
+
+def is_technology_mention(text: str, match: re.Match) -> bool:
+    """Czy trafienie wzorca taksonomii to naprawdę technologia w polskim tekście.
+
+    Wzorzec ma granicę słowa tylko ASCII, więc „r” w „różni” i „c” w
+    „dostając” wychodziły jako R i C, a „jest”/„go” to zwykłe polskie słowa.
+    Zmierzone 25.09.2026 na surowych CV z produkcji (60 110): R 15 773,
+    C 9 398, Jest 4 154, Go 1 753 fałszywych umiejętności. Dla aliasów
+    krótkich (1–2 znaki) i polskich słów granica jest unikodowa, a
+    jednoliterowe i polskie słowa wymagają wielkiej litery. Dłuższe nazwy
+    zostają przy granicy ASCII CELOWO: odmiana „websocketów”,
+    „Elasticsearchów” to prawdziwa technologia (ścisła granica zabrała 359 ×
+    „software developer”, 34 × Elasticsearch).
+    """
+    found = match.group(1)
+    lowered = found.lower()
+    if lowered == "rest" and _rest_is_plain_word(text, *match.span(1)):
+        return False
+    if len(found) > 2 and lowered not in POLISH_WORD_ALIASES:
+        return True
+    start, end = match.span(1)
+    before = text[start - 1] if start > 0 else ""
+    after = text[end] if end < len(text) else ""
+    if (before and (before.isalnum() or before == "_")) or (
+        after and (after.isalnum() or after == "_")
+    ):
+        return False
+    if len(found) == 1 or lowered in POLISH_WORD_ALIASES:
+        return not found.islower()
+    return True
+
+
+class _AliasPattern:
+    """Wzorzec taksonomii, który oddaje tylko prawdziwe wzmianki technologii.
+
+    Ten sam interfejs co ``re.Pattern`` w zakresie, którego używają wołający
+    (``finditer``, ``search``, ``fullmatch``): wymagania z prozy ofert
+    (``classify_requirements``), surowe CV kandydata i prep-kit dostają jedną
+    regułę (``is_technology_mention``) zamiast kopii w każdym miejscu.
+    """
+
+    __slots__ = ("regex",)
+
+    def __init__(self, regex: re.Pattern) -> None:
+        self.regex = regex
+
+    def finditer(self, text: str, *args):
+        return (
+            m
+            for m in self.regex.finditer(text, *args)
+            if is_technology_mention(text, m)
+        )
+
+    def search(self, text: str, *args) -> Optional[re.Match]:
+        return next(self.finditer(text, *args), None)
+
+    def fullmatch(self, text: str, *args) -> Optional[re.Match]:
+        match = self.regex.fullmatch(text, *args)
+        return match if match and is_technology_mention(text, match) else None
+
+
 # Compiled union regex: \b(alias1|alias2|...)\b. Built lazily, invalidated when
 # `set_alias_map` rebuilds ALIAS_MAP. Used by `_extract_skills_from_champion`.
-_CHAMPION_ALIAS_PATTERN: Optional[re.Pattern] = None
+_CHAMPION_ALIAS_PATTERN: Optional[_AliasPattern] = None
 
 
-def _alias_pattern() -> Optional[re.Pattern]:
+def _alias_pattern() -> Optional[_AliasPattern]:
     global _CHAMPION_ALIAS_PATTERN
     if not ALIAS_MAP:
         return None
@@ -652,7 +777,7 @@ def _alias_pattern() -> Optional[re.Pattern]:
             + "|".join(re.escape(a) for a in sorted_aliases)
             + r")(?![A-Za-z0-9_])"
         )
-        _CHAMPION_ALIAS_PATTERN = re.compile(pattern, re.IGNORECASE)
+        _CHAMPION_ALIAS_PATTERN = _AliasPattern(re.compile(pattern, re.IGNORECASE))
     return _CHAMPION_ALIAS_PATTERN
 
 
@@ -773,6 +898,10 @@ def job_explicit_must_skills(job) -> list[str]:
     return canonical_skill_names(_champion_stack_must_names(job))
 
 
+# Wymaganie z tylu słów to zdanie z opisu, nie nazwa, której szukamy w CV.
+PROSE_REQUIREMENT_WORDS = 4
+
+
 def job_skill_requirements(job) -> dict[str, list[str]]:
     """Shared interpretation for scoring, preview and explicit hard gates."""
     from app.services.requirement_contract import stored_contract, requirement_labels
@@ -793,6 +922,11 @@ def job_skill_requirements(job) -> dict[str, list[str]]:
     stack_must = canonical_skill_names(stack.get("must"))
     stack_nice = canonical_skill_names(stack.get("nice"))
     if must or nice or stack_must or stack_nice:
+        # Kolumna ze zdaniami z opisu klienta, a Champion ma chipy (02.11.2026):
+        # liczymy to, co widzi Delivery Lead. Zdania nigdy nie padają w CV dosłownie,
+        # więc „bardzo dobra znajomość SQL” było brakiem u każdego (27 rekrutacji).
+        if stack_must and any(len(m.split()) >= PROSE_REQUIREMENT_WORDS for m in must):
+            must = stack_must
         must = must or stack_must
         nice = nice or stack_nice
         return {
@@ -1021,6 +1155,10 @@ _SIGNIFICANT_SKILL_SIGNS: tuple[tuple["re.Pattern[str]", str], ...] = (
 )
 
 
+# Czysta funkcja nazwy: `skill_present` pyta ją dla każdego skilla osoby przy
+# każdym wymaganiu — Tablica 130 osób to ~500 tys. wywołań i do 0,5 s CPU
+# bez oddania pętli zdarzeń (pomiar 27.10.2026). Nazw jest kilka tysięcy.
+@functools.lru_cache(maxsize=16384)
 def _canon_skill(s: str) -> str:
     """Canonicalize a skill for tolerant comparison (drop punctuation/spaces
     and a few well-known suffix variants so e.g. ``postgresql``/``postgres``
@@ -1059,8 +1197,11 @@ def skill_present(required: str, candidate_skills) -> bool:
         )
     if required in candidate_skills:
         return True
-    req_canon = _canon_skill(required)
-    return any(_canon_skill(c) == req_canon for c in candidate_skills)
+    from app.services.skill_normalize import implied_forms
+
+    wanted = {_canon_skill(required)}
+    wanted.update(_canon_skill(form) for form in implied_forms(required))
+    return any(_canon_skill(c) in wanted for c in candidate_skills)
 
 
 def _skill_recency_weights(
@@ -1132,18 +1273,28 @@ def _score_skills(
 
     from app.services.requirement_verification import reviewed_label_status
 
+    # 30.09.2026: technologia liczy się, gdy stoi w profilu, CV albo notatce
+    # z rozmowy — ten sam dowód co w bramce (`attach_gate_evidence`, dołączony
+    # przed oceną). Ablacja z audytu: top 100 wysłanych 63,5% → 74,2% razem
+    # z neutralną stawką. Bez dołączonego dowodu — sama lista umiejętności.
+    evidence = getattr(candidate, "_must_text_evidence", None)
+    text_met = getattr(evidence, "met", None) or frozenset()
+
     def matches(label, level):
         reviewed = reviewed_label_status(candidate, job, label, level)
-        return (
-            reviewed == "met"
-            if reviewed is not None
-            else skill_present(label, cand_skills)
-        )
+        if reviewed is not None:
+            return reviewed == "met"
+        return skill_present(label, cand_skills) or label in text_met
 
     must_match = [s for s in must if matches(s, "must")]
     must_gap = [s for s in must if not matches(s, "must")]
     nice_match = [s for s in nice if matches(s, "nice")]
     nice_gap = [s for s in nice if not matches(s, "nice")]
+    # Punkty liczą tylko technologie; „bankowość”, „komunikatywność” czy
+    # „QA” zostają w chipach „do rozmowy”, ale nie rozcieńczają oceny
+    # (nikt nie ma ich w CV dosłownie). Bez żadnej technologii — lista jak dotąd.
+    must_scored = _technology_labels(must)
+    nice_scored = _technology_labels(nice)
 
     must_max = profile.skills_must
     nice_max = profile.skills_nice
@@ -1153,15 +1304,19 @@ def _score_skills(
     # `must_skills`, więc obie gałęzie trafiały w większość korpusu i żadna
     # nikogo nie różnicowała.
     recency = _skill_recency_weights(candidate, job, must_match + nice_match)
+    must_hits = [s for s in must_match if s in must_scored]
+    nice_hits = [s for s in nice_match if s in nice_scored]
     if must:
-        must_pts = sum(recency.get(s, 1.0) for s in must_match) / len(must) * must_max
+        must_pts = (
+            sum(recency.get(s, 1.0) for s in must_hits) / len(must_scored) * must_max
+        )
     else:
         # Legacy handed out the full must budget here — a free 20 points on the
         # 13% of jobs with no must_skills. Under renormalisation the half simply
         # leaves the budget instead.
         must_pts = 0.0 if _renormalizing() else must_max
     nice_pts = (
-        (sum(recency.get(s, 1.0) for s in nice_match) / len(nice) * nice_max)
+        (sum(recency.get(s, 1.0) for s in nice_hits) / len(nice_scored) * nice_max)
         if nice
         else 0.0
     )
@@ -1175,11 +1330,11 @@ def _score_skills(
             suffix = " (z Championa)"
         elif must_source == "jd_text":
             suffix = " (z opisu)"
-        reason_bits.append(f"must {len(must_match)}/{len(must)}{suffix}")
+        reason_bits.append(f"must {len(must_hits)}/{len(must_scored)}{suffix}")
     else:
         reason_bits.append("must n/a")
     if nice:
-        reason_bits.append(f"nice {len(nice_match)}/{len(nice)}")
+        reason_bits.append(f"nice {len(nice_hits)}/{len(nice_scored)}")
     dated = sorted(s for s, w in recency.items() if w < 1.0)
     if dated:
         reason_bits.append("dawno używane: " + ", ".join(dated[:5]))
@@ -1199,6 +1354,18 @@ def _score_skills(
         nice_match,
         nice_gap,
     )
+
+
+def _technology_labels(labels: List[str]) -> List[str]:
+    """Etykiety liczone w punktach: te, które bramka uznaje za technologię.
+
+    Gdy żadna nie jest technologią, liczymy całą listę (jak przed 30.09.2026)
+    — pusty mianownik zrobiłby z wymagań „brak sygnału”.
+    """
+    from app.services.must_gate_terms import gate_requirement
+
+    tech = [label for label in labels if gate_requirement(label) is not None]
+    return tech or list(labels)
 
 
 def _champion_signals_enabled() -> bool:
@@ -1263,8 +1430,9 @@ def _score_salary(
     salary silently inflated the total by the whole salary budget.
     """
     max_pts = profile.salary
-    cand_rate = getattr(candidate, "expected_rate_hourly", None)
-    cand_currency = getattr(candidate, "expected_rate_currency", None)
+    from app.services.candidate_rate_from import effective_rate
+
+    cand_rate, cand_currency = effective_rate(candidate)
     job_min = job.salary_min
     job_max = job.salary_max
 
@@ -1282,10 +1450,26 @@ def _score_salary(
     cand_rate = _candidate_rate_pln_hourly(candidate)
     champion_rate = resolve_job_budget_hourly(job)
     if champion_rate is not None and cand_rate is not None:
+        from app.services.critical_skills import gate_mode
+
+        cand = float(cand_rate)
+        if gate_mode() == "critical":
+            # 30.09.2026 (decyzja Artura): stawka to plakietka „oczekuje +X%”,
+            # nie punkty. 85% zatrudnionych ma umowę w budżecie mimo wyższego
+            # oczekiwania w profilu, a spadek punktów spychał trafnych (audyt B3).
+            over = cand > champion_rate
+            note = (
+                f"ponad budżet o {(cand - champion_rate) / champion_rate:.0%} "
+                f"({cand:.0f} > {champion_rate:.0f} PLN/h)"
+                if over
+                else f"w budżecie ({cand:.0f} ≤ {champion_rate:.0f} PLN/h)"
+            )
+            return _unscored(
+                max_pts, f"{note}; stawka nie wpływa na ocenę — plakietka", "info"
+            )
         # Jedyna para w tej samej jednostce (PLN/h vs PLN/h): stawka Championa
         # to budżet klienta NA KANDYDATA. Oczekiwania w budżecie = pełne
         # punkty; przekroczenie degraduje liniowo do zera przy +30%.
-        cand = float(cand_rate)
         if cand <= champion_rate:
             return LayerResult(
                 points=max_pts,
@@ -1521,6 +1705,14 @@ def _notes_explicit_available_date(
     return _parse_champion_date(availability.get("available_from"), today=today)
 
 
+def _contract_free(candidate: Candidate) -> Any:
+    """``ContractFree`` dołączony przed oceną; ``None`` = bez żywej umowy
+    albo nie dołączono (wtedy liczy się data z profilu, jak przed 15.10.2026)."""
+    from app.services.contract_availability import ATTRIBUTE
+
+    return getattr(candidate, ATTRIBUTE, None)
+
+
 def _champion_availability_conflict_factor(
     candidate: Candidate, job: Job, *, today: Optional[date] = None
 ) -> tuple[float, Optional[str]]:
@@ -1537,7 +1729,20 @@ def _champion_availability_conflict_factor(
     start = _parse_champion_date(_champion_dict(job).get("start_date"), today=today)
     if start is None:
         return 1.0, None
-    available = getattr(candidate, "availability_date", None)
+    contract = _contract_free(candidate)
+    if contract is not None:
+        # Żywa umowa (15.10.2026): bez daty końca albo przed startem osoba nie
+        # jest wolna na start Championa — to też jawna kolizja.
+        available = contract.available_from(
+            getattr(candidate, "availability_date", None)
+        )
+        if available is None:
+            return 1.0 - _AVAILABILITY_CONFLICT_PENALTY, (
+                f"dostępność: {contract.describe(None)} vs start {start.isoformat()} "
+                f"(kara {_AVAILABILITY_CONFLICT_PENALTY:.0%})"
+            )
+    else:
+        available = getattr(candidate, "availability_date", None)
     if available is None:
         available = _notes_explicit_available_date(candidate, today=today)
     if available is None:
@@ -1588,11 +1793,26 @@ def _score_availability(
     *,
     today: Optional[date] = None,
 ) -> LayerResult:
-    """Availability fit. Full points before deadline, decay 30 days post."""
+    """Availability fit. Full points before deadline, decay 30 days post.
+
+    Osoba z żywą umową (15.10.2026): termin z umowy — dzień po końcu pracy
+    u nas albo późniejsza data z profilu; bez daty końca i przed startem
+    umowy = 0 pkt (wiemy, że nie jest wolna). Bez dołączonej informacji
+    (``contract_availability.attach_contract_free``) — data z profilu.
+    """
     max_pts = profile.availability
     availability_date = candidate.availability_date
     reference_deadline = job.deadline
     source_note = ""
+    contract = _contract_free(candidate)
+    if contract is not None:
+        available = contract.available_from(availability_date)
+        if available is None:
+            return LayerResult(
+                points=0.0, max_points=max_pts, reason=contract.describe(None)
+            )
+        availability_date = available
+        source_note = " (z umowy)"
     if _availability_fallback_enabled():
         # v1.1: 99% importowanych kandydatów nie ma availability_date, ale
         # 13,9k ma fakty notatkowe ("2 tygodnie wypowiedzenia", "od zaraz"),
@@ -1981,11 +2201,24 @@ async def score_candidate_job(
     context: Optional[JobScoringContext] = None,
     semantic_unavailable: bool = False,
     base_fit: bool = False,
+    prior_screening: bool = False,
 ) -> ScoreBreakdown:
-    """Compute the full ScoreBreakdown for one (candidate, job) pair."""
+    """Compute the full ScoreBreakdown for one (candidate, job) pair.
+
+    ``prior_screening`` (tylko z ``base_fit``) dokłada warstwę odpowiedzi
+    z wcześniejszych rozmów — materiał musi być dołączony wcześniej przez
+    ``prior_screening.attach_prior_screening``.
+    """
     import time as _time
 
+    from app.services.contract_availability import ATTRIBUTE, attach_contract_free
+
     t0 = _time.perf_counter()
+    if db is not None and not hasattr(candidate, ATTRIBUTE):
+        # Ścieżki wsadowe dołączają to raz na pulę; tu zapas dla pojedynczej
+        # pary (jedno zapytanie), żeby żadna ścieżka nie liczyła dostępności
+        # osoby z żywą umową ze screeningu sprzed zatrudnienia.
+        await attach_contract_free(db, [candidate])
     semantic = score_semantic(
         semantic_similarity, profile, unavailable=semantic_unavailable
     )
@@ -2008,6 +2241,19 @@ async def score_candidate_job(
         else await _check_penalties_and_warnings(candidate, job, db, context=context)
     )
 
+    prior_layer = None
+    if prior_screening and base_fit:
+        from app.services import prior_screening as prior_screening_service
+
+        prior_layer = prior_screening_service.layer_for(candidate, job)
+    # Oceniona warstwa wcześniejszych rozmów wchodzi do licznika i mianownika;
+    # bez oceny (albo bez warstwy) wynik liczy się dokładnie jak dotąd.
+    extra = (
+        (prior_layer,)
+        if prior_layer is not None and prior_layer.scored and prior_layer.max_points > 0
+        else ()
+    )
+
     layers = (semantic, skills, salary, location, availability, champion_fit)
     if penalties:
         total = 0.0
@@ -2016,11 +2262,15 @@ async def score_candidate_job(
         # "of what we could assess, this candidate is X%". A layer with no
         # signal contributes to neither numerator nor denominator, so it can no
         # longer inflate or deflate everyone equally.
-        earned = sum(layer.points for layer in layers if layer.scored)
-        available = sum(layer.max_points for layer in layers if layer.scored)
+        earned = sum(layer.points for layer in layers + extra if layer.scored)
+        available = sum(layer.max_points for layer in layers + extra if layer.scored)
         total = (earned / available * 100.0) if available > 0 else 0.0
     else:
         total = sum(layer.points for layer in layers)
+        if extra:
+            # Budżet bazowy to 100 pkt (`base_fit_profile`); dodatkowa
+            # warstwa skaluje wynik z powrotem do 0–100, zamiast go przekraczać.
+            total = (total + extra[0].points) * 100.0 / (100.0 + extra[0].max_points)
 
     # v1.1: niedobór seniority względem Championa tnie total MNOŻNIKOWO —
     # stała punktowa znaczyłaby co innego w trybie sumy i renormalizacji.
@@ -2091,6 +2341,7 @@ async def score_candidate_job(
         penalties=penalties,
         warnings=score_warnings,
         fit_confidence=compute_fit_confidence(candidate, job),
+        prior_screening=prior_layer,
     )
 
 
@@ -2106,8 +2357,16 @@ async def rank_candidates_for_job(
     sims = similarity_map or {}
     # One context for the whole pool instead of two SELECTs per candidate.
     context = await build_job_scoring_context(db, job, [c.id for c in candidates])
+    from app.services.contract_availability import attach_contract_free
+
+    await attach_contract_free(db, candidates)
     results: List[ScoreBreakdown] = []
-    for c in candidates:
+    for i, c in enumerate(candidates):
+        # Runda 9 (R9-N5-1): z gotowym kontekstem `score_candidate_job` nie
+        # czeka na bazę, więc tysiąc kandydatów Talent Radaru liczył się bez
+        # jednego oddania pętli zdarzeń — a backend to jeden proces uvicorna.
+        if i and i % 32 == 0:
+            await asyncio.sleep(0)
         sim = sims.get(c.id)
         results.append(
             await score_candidate_job(

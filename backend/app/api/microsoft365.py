@@ -20,13 +20,11 @@ Routes:
 # this file (PEP 585 built-in generics, `Optional`) without the future
 # import, so removing it is purely a fix, not a downgrade.
 
-import asyncio
-import hmac
 import logging
 import time
 from collections import OrderedDict
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
@@ -37,17 +35,23 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import (
+    NOT_READ_ONLY,
     CandidatePIIAccess,
-    user_can_access_candidate_domain,
+    user_has_candidate_read,
 )
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.encryption import TokenCipherNotConfigured, get_token_cipher
 from app.core.rate_limit import limiter
+from app.core.security import secrets_equal
+from app.core.tasks import spawn as spawn_background
 from app.models.m365 import GraphSubscription, M365Connection, M365SyncStatus
 from app.models.user import User
+from app.api.deps import require_onboarded_user
 from app.services.m365 import oauth as m365_oauth
 from app.services.m365 import webhooks as m365_webhooks
+from app.services.m365.access import can_connect_mailbox, mailbox_scope
+from app.services.section_permissions import resolve_effective_section_access
 from app.services.m365.calendar import get_free_busy
 from app.services.m365.error_codes import M365ErrorCode, classify_m365_error
 from app.services.m365.graph_client import GraphClient, GraphRequestError
@@ -58,30 +62,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# Referencje zadań w tle (fire-and-forget ``create_task`` gubi je pod GC —
-# pętla zdarzeń trzyma tylko słabą referencję, więc zadanie może zniknąć
-# w połowie backfillu albo synchronizacji z webhooka, bez żadnego śladu).
-# Wzorzec przeniesiony z app/api/cortex.py, rozszerzony o log wyjątku: bez
-# niego padnięte zadanie jest niewidoczne, bo nikt nie czyta jego wyniku.
-_bg_tasks: set[asyncio.Task] = set()
-
-
-def _spawn(coro, label: str) -> None:
-    task = asyncio.create_task(coro)
-    _bg_tasks.add(task)
-
-    def _done(finished: asyncio.Task) -> None:
-        _bg_tasks.discard(finished)
-        if finished.cancelled():
-            # Redeploy Coolify ubija pętlę zdarzeń — to nie jest błąd, ale ma
-            # zostawić ślad, żeby ucięty backfill dało się później wyjaśnić.
-            logger.warning("m365 background task cancelled: %s", label)
-            return
-        exc = finished.exception()
-        if exc is not None:
-            logger.exception("m365 background task failed: %s", label, exc_info=exc)
-
-    task.add_done_callback(_done)
+# Zadania w tle z trzymaną referencją i logiem porażki — wspólny wzorzec
+# w `app/core/tasks.py` (tu powstał; nazwa `_spawn` zostaje, bo testy ją
+# podmieniają).
+_spawn = spawn_background
 
 
 # ── Schemas ─────────────────────────────────────────────────────────────────
@@ -127,11 +111,50 @@ class ConnectionStatus(BaseModel):
     # refresh token). Frontend renders an amber banner with a CTA.
     requires_reconnect: bool = False
     max_attachment_mb: int = settings.M365_MAX_ATTACHMENT_MB
+    # Dokąd trafia poczta tej skrzynki (28.10.2026): do kart kandydatów
+    # i/lub na oś firm w Sprzedaży.
+    mail_to_candidates: bool = False
+    mail_to_sales: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+
+MAILBOX_DENIED_DETAIL = (
+    "Skrzynkę Outlooka podłącza osoba z dostępem do kandydatów albo do Sprzedaży."
+)
+
+
+async def require_mailbox_owner(
+    current_user: User = Depends(require_onboarded_user),
+) -> User:
+    """Konto, które może mieć podłączoną skrzynkę: dostęp do kandydatów albo
+    „Sprzedaż: podgląd” (handlowiec, decyzja Artura 28.10.2026).
+
+    Poczta handlowca bez dostępu do kandydatów nie trafia do kandydatów —
+    pilnuje tego synchronizacja (``services/m365/access.py``), nie ta bramka.
+    """
+    if not can_connect_mailbox(current_user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=MAILBOX_DENIED_DETAIL)
+    return current_user
+
+
+MailboxOwner = Annotated[User, Depends(require_mailbox_owner)]
+
+
+async def require_mailbox_status_reader(
+    current_user: User = Depends(require_onboarded_user),
+) -> User:
+    """Odczyt statusu skrzynki: jak dotąd każdy z odczytem kandydatów (także
+    „Automatyzacje”, które skrzynki nie podłączą) plus właściciel skrzynki
+    Sprzedaży."""
+    if can_connect_mailbox(current_user) or user_has_candidate_read(current_user):
+        return current_user
+    raise HTTPException(status.HTTP_403_FORBIDDEN, detail=MAILBOX_DENIED_DETAIL)
+
+
+MailboxStatusReader = Annotated[User, Depends(require_mailbox_status_reader)]
 
 
 async def _get_connection_for_user(
@@ -151,14 +174,57 @@ def _frontend_callback_url(status_param: str, message: Optional[str] = None) -> 
     return f"{base}/microsoft365/callback?{urlencode(query)}"
 
 
+def _mailbox_belongs_to_user(
+    mailbox_upn: Optional[str],
+    user: User,
+    *,
+    oid: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+) -> bool:
+    """Czy skrzynka z id_token to skrzynka tego konta NEXUS.
+
+    Logowanie przez Microsoft zakłada konto po ``preferred_username``
+    (``users.email``) i zapamiętuje go w ``users.microsoft_upn``, więc oba
+    adresy są legalne; porównanie bez wielkości liter.
+
+    Konto przypięte do tożsamości Microsoft (``users.azure_oid``) rozstrzyga
+    ``oid`` z id_token, gdy token go niesie — ta sama reguła co logowanie SSO
+    (audyt 24.09.2026): ten sam adres przy INNEJ ``oid`` to UPN nadany
+    ponownie nowej osobie (odmowa), a ta sama ``oid`` przy innym adresie to
+    ta sama osoba po zmianie adresu (zgoda, tylko z tenanta firmy, gdy go
+    znamy). Konto bez ``azure_oid`` (hasło, nigdy SSO) — jak dotąd po adresie;
+    innego adresu niż login Microsoft nie da się tu bezpiecznie potwierdzić.
+    """
+    known_oid = (getattr(user, "azure_oid", None) or "").strip().casefold()
+    token_oid = (oid or "").strip().casefold()
+    if known_oid and token_oid:
+        if token_oid != known_oid:
+            return False
+        from app.api.auth_microsoft import _expected_tenant_id
+
+        expected_tid = _expected_tenant_id()
+        token_tid = (tenant_id or "").strip().lower()
+        return not expected_tid or token_tid == expected_tid
+
+    mailbox = (mailbox_upn or "").strip().casefold()
+    if not mailbox:
+        return False
+    known = {
+        (address or "").strip().casefold()
+        for address in (user.email, getattr(user, "microsoft_upn", None))
+    }
+    known.discard("")
+    return mailbox in known
+
+
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 
-@router.get("/authorize", response_model=AuthorizeResponse)
+@router.get("/authorize", response_model=AuthorizeResponse, dependencies=NOT_READ_ONLY)
 @limiter.limit("10/minute")
 async def authorize(
     request: Request,
-    current_user: CandidatePIIAccess,
+    current_user: MailboxOwner,
 ) -> AuthorizeResponse:
     """Return the Microsoft login URL. Frontend does `window.location = url`."""
     if not settings.M365_INTEGRATION_ENABLED:
@@ -167,9 +233,7 @@ async def authorize(
             detail="Microsoft 365 integration is currently disabled.",
         )
     try:
-        verifier, _ = m365_oauth.generate_pkce_pair()
-        state = m365_oauth.sign_state(current_user.id, verifier)
-        url = m365_oauth.build_authorize_url(state, verifier)
+        url = m365_oauth.new_authorize_url(current_user.id)
     except m365_oauth.M365NotConfigured as exc:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
@@ -208,7 +272,7 @@ async def callback(
         )
 
     try:
-        user_id, pkce_verifier = m365_oauth.verify_state(state)
+        parsed_state = m365_oauth.verify_state(state)
     except JWTError:
         return RedirectResponse(
             _frontend_callback_url("error", "State expired or invalid — try again"),
@@ -221,8 +285,13 @@ async def callback(
     # the candidate domain.  Re-check the current persisted role before
     # exchanging the authorization code: a user may have been moved to Finance
     # (or the legacy viewer role) after opening the Microsoft consent page.
+    user_id = parsed_state.user_id
     user = await db.get(User, user_id)
-    if user is None or not user_can_access_candidate_domain(user):
+    if user is not None:
+        # Callback nie przechodzi przez logowanie — politykę uprawnień
+        # (także „Sprzedaż: podgląd”) trzeba wczytać tutaj.
+        await resolve_effective_section_access(db, user)
+    if user is None or not can_connect_mailbox(user):
         return RedirectResponse(
             _frontend_callback_url(
                 "error", "Microsoft 365 is unavailable for this account"
@@ -230,12 +299,53 @@ async def callback(
             status_code=302,
         )
 
+    # Runda 11 (SEC): `state` jest jednorazowy — drugi powrót z tym samym
+    # `state` (adres z historii przeglądarki, logów, Referer) nie podepnie
+    # skrzynki. Commit od razu: blokada wiersza zużytych `state` nie może
+    # wisieć przez wymianę kodu w Microsoft (do 30 s).
+    if not await m365_oauth.consume_state(db, parsed_state):
+        await db.rollback()
+        return RedirectResponse(
+            _frontend_callback_url(
+                "error", "Ten link logowania został już użyty — spróbuj ponownie."
+            ),
+            status_code=302,
+        )
+    await db.commit()
+
     try:
-        bundle = await m365_oauth.exchange_code(code, pkce_verifier)
-    except Exception as exc:  # noqa: BLE001
+        bundle = await m365_oauth.exchange_code(code, parsed_state.verifier)
+    except Exception:  # noqa: BLE001
+        # Szczegóły wyjątku (odpowiedź Microsoftu, fragmenty tokenów) tylko
+        # w logu — adres przekierowania trafia do historii przeglądarki.
         logger.exception("m365 code exchange failed")
         return RedirectResponse(
-            _frontend_callback_url("error", f"Token exchange failed: {exc!r}"),
+            _frontend_callback_url(
+                "error",
+                "Nie udało się połączyć ze skrzynką Microsoft 365 — spróbuj ponownie.",
+            ),
+            status_code=302,
+        )
+
+    # Podpisany `state` mówi, KTÓRE konto NEXUS zaczęło łączenie, ale nie,
+    # CZYJA skrzynka wróciła: link logowania otwarty w przeglądarce innej osoby
+    # (albo zalogowanej w Microsoft na inne konto) podpinał jej pocztę pod
+    # konto inicjatora — NEXUS czytał ją i wysyłał z niej maile jako ona
+    # (audyt 25.09.2026, R3-2). Skrzynka musi być skrzynką właściciela konta.
+    # Brak adresu w id_token = nie da się tego potwierdzić, więc odmowa.
+    if not _mailbox_belongs_to_user(
+        bundle.mailbox_upn, user, oid=bundle.oid, tenant_id=bundle.tenant_id
+    ):
+        logger.warning(
+            "m365 callback rejected — mailbox of another person: user_id=%s",
+            user_id,
+        )
+        return RedirectResponse(
+            _frontend_callback_url(
+                "error",
+                "Połączono skrzynkę innej osoby — zaloguj się w Microsoft jako "
+                f"{user.email}",
+            ),
             status_code=302,
         )
 
@@ -308,7 +418,7 @@ async def callback(
 
 @router.get("/connection", response_model=ConnectionStatus)
 async def get_connection(
-    current_user: CandidatePIIAccess,
+    current_user: MailboxStatusReader,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> ConnectionStatus:
@@ -320,9 +430,14 @@ async def get_connection(
     # presję bez utraty świeżości (FE refetchInterval i tak pull co 15s).
     response.headers["Cache-Control"] = "private, max-age=30"
 
+    scope = mailbox_scope(current_user)
+    routing = {
+        "mail_to_candidates": scope.candidates,
+        "mail_to_sales": scope.sales,
+    }
     conn = await _get_connection_for_user(db, current_user.id)
     if conn is None:
-        return ConnectionStatus(connected=False)
+        return ConnectionStatus(connected=False, **routing)
     # Soft-disconnected row with reconnect_required status → surface as "not
     # connected but needs reconnect". Frontend shows an amber CTA banner.
     if not conn.is_active:
@@ -334,8 +449,9 @@ async def get_connection(
                 last_error=conn.last_error,
                 last_error_code=classify_m365_error(conn.last_error),
                 requires_reconnect=True,
+                **routing,
             )
-        return ConnectionStatus(connected=False)
+        return ConnectionStatus(connected=False, **routing)
     return ConnectionStatus(
         connected=True,
         mailbox_upn=conn.mailbox_upn,
@@ -345,12 +461,17 @@ async def get_connection(
         last_error=conn.last_error,
         last_error_code=classify_m365_error(conn.last_error),
         backfill_in_progress=conn.backfill_completed_at is None,
+        **routing,
     )
 
 
-@router.delete("/connection", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/connection",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=NOT_READ_ONLY,
+)
 async def disconnect(
-    current_user: CandidatePIIAccess,
+    current_user: MailboxOwner,
     db: AsyncSession = Depends(get_db),
 ):
     conn = await _get_connection_for_user(db, current_user.id)
@@ -376,11 +497,15 @@ async def disconnect(
     return None
 
 
-@router.post("/sync/trigger", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/sync/trigger",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=NOT_READ_ONLY,
+)
 @limiter.limit("10/minute")
 async def trigger_sync(
     request: Request,
-    current_user: CandidatePIIAccess,
+    current_user: MailboxOwner,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     conn = await _get_connection_for_user(db, current_user.id)
@@ -485,6 +610,11 @@ async def free_busy(
 # rejestr historii — po dobie ten sam identyfikator z NOWĄ zmianą to nowe
 # zdarzenie, a 24-godzinny wpis kazał mu czekać na harmonogram.
 _REPLAY_CACHE_MAX = 4096
+# Runda 10 (R10-N10-3): anonimowy POST z setkami tysięcy wpisów w `value` robił
+# osobny SELECT i osobny wpis w logu na każdy. Graph wysyła paczki po kilka
+# wpisów; więcej niż tysiąc to nie Graph.
+_WEBHOOK_MAX_ENTRIES = 1000
+_WEBHOOK_MAX_SUBSCRIPTION_ID_LEN = 200
 # 10 min obejmuje SZYBKIE ponowienia Grapha (sekundy–minuty po 5xx/timeout), nie
 # cały jego horyzont ponowień (do ~4 h z rosnącym odstępem). Późniejsze ponowienie
 # uruchomi sync jeszcze raz — to bezpieczne, bo import jest idempotentny po
@@ -596,12 +726,15 @@ async def webhooks(
     entries = payload.get("value") if isinstance(payload, dict) else None
     if not isinstance(entries, list) or not entries:
         return Response(status_code=status.HTTP_202_ACCEPTED)
+    if len(entries) > _WEBHOOK_MAX_ENTRIES:
+        logger.warning(
+            "webhook payload with %d entries over limit %d — refusing",
+            len(entries),
+            _WEBHOOK_MAX_ENTRIES,
+        )
+        return Response(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
 
-    # Dedupe affected connections — one inbox + sent + events tick should
-    # fire ONE sync, not three. Klucze replay per połączenie: do cache trafiają
-    # dopiero PO udanym spawnie zadania dla tego połączenia.
-    conns_to_sync: dict[int, list[_ReplayKey]] = {}
-
+    candidates: list[tuple[dict, str, str]] = []
     for entry in entries:
         if not isinstance(entry, dict):
             continue
@@ -609,25 +742,41 @@ async def webhooks(
         client_state = entry.get("clientState")
         if not isinstance(sub_id, str) or not isinstance(client_state, str):
             continue
+        candidates.append((entry, sub_id, client_state))
 
-        sub = await db.scalar(
-            select(GraphSubscription).where(GraphSubscription.subscription_id == sub_id)
+    # Jedno zapytanie na całą paczkę zamiast SELECT-u na wpis.
+    lookup_ids = {
+        sub_id
+        for _entry, sub_id, _state in candidates
+        if len(sub_id) <= _WEBHOOK_MAX_SUBSCRIPTION_ID_LEN
+    }
+    subs_by_id: dict[str, GraphSubscription] = {}
+    if lookup_ids:
+        rows = await db.scalars(
+            select(GraphSubscription).where(
+                GraphSubscription.subscription_id.in_(lookup_ids)
+            )
         )
+        subs_by_id = {row.subscription_id: row for row in rows.all()}
+
+    # Dedupe affected connections — one inbox + sent + events tick should
+    # fire ONE sync, not three. Klucze replay per połączenie: do cache trafiają
+    # dopiero PO udanym spawnie zadania dla tego połączenia.
+    conns_to_sync: dict[int, list[_ReplayKey]] = {}
+    unknown: list[str] = []
+    mismatched: list[str] = []
+
+    for entry, sub_id, client_state in candidates:
+        sub = subs_by_id.get(sub_id)
         if sub is None:
             # Subscription was unsubscribed locally but Graph hasn't caught
-            # up yet — log truncated id so a Sentry breadcrumb can correlate.
-            logger.warning(
-                "webhook for unknown subscription_id prefix=%s — ignoring",
-                sub_id[:32],
-            )
+            # up yet — zliczamy, jeden zbiorczy wpis w logu niżej.
+            unknown.append(sub_id)
             continue
 
         # Constant-time compare to neutralise timing side-channels.
-        if not hmac.compare_digest(sub.client_state, client_state):
-            logger.warning(
-                "webhook client_state mismatch for sub_id prefix=%s — refusing entry",
-                sub_id[:32],
-            )
+        if not secrets_equal(client_state, sub.client_state):
+            mismatched.append(sub_id)
             continue
 
         # Replay dedup key: (subscription, resource/id, changeType).
@@ -644,6 +793,20 @@ async def webhooks(
             continue
 
         conns_to_sync.setdefault(sub.m365_connection_id, []).append(key)
+
+    if unknown:
+        logger.warning(
+            "webhook for %d unknown subscription_id(s), first prefix=%s — ignoring",
+            len(unknown),
+            unknown[0][:32],
+        )
+    if mismatched:
+        logger.warning(
+            "webhook client_state mismatch for %d entr(y/ies), first sub_id "
+            "prefix=%s — refusing",
+            len(mismatched),
+            mismatched[0][:32],
+        )
 
     for conn_id, keys in conns_to_sync.items():
         try:
@@ -675,14 +838,18 @@ async def _webhook_dispatch_sync(connection_id: int) -> None:
         if conn is None or not conn.is_active:
             return
         owner = await db.get(User, conn.user_id)
-        if owner is None or not user_can_access_candidate_domain(owner):
+        if owner is not None:
+            await resolve_effective_section_access(db, owner)
+        if owner is None or not can_connect_mailbox(owner):
             logger.warning(
                 "webhook-dispatched sync refused for ineligible connection_id=%s",
                 connection_id,
             )
             return
         try:
-            await sync_connection(db, conn)
+            # Runda 6 audytu: trwający przebieg zrobi jeszcze jeden zamiast
+            # odrzucić to powiadomienie (jego klucz replay jest już zapisany).
+            await sync_connection(db, conn, resync_if_busy=True)
         except Exception:  # noqa: BLE001
             logger.exception(
                 "webhook-dispatched sync failed for connection_id=%s",

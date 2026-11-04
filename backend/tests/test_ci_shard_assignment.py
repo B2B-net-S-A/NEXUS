@@ -77,3 +77,39 @@ def test_ci_matrix_and_combine_agree_on_shard_count() -> None:
     assert shards == list(range(len(shards)))
     expected = int(ci["jobs"]["backend-coverage-combine"]["env"]["EXPECTED_SHARDS"])
     assert expected == len(shards)
+
+
+def test_shard_skips_collecting_other_shards_files(monkeypatch) -> None:
+    """22.10.2026: shard kolekcjonował wszystkie ~29,9 tys. testów pod tracerem
+    pokrycia (1:52–3:00 min) i odrzucał 93%. Teraz cudze pliki odpadają przed
+    importem — ale każdy plik musi zostać w dokładnie jednym shardzie."""
+    from tests import conftest
+
+    files = sorted(
+        path
+        for pattern in ("test_*.py", "*_test.py")
+        for path in (_BACKEND / "tests").rglob(pattern)
+        if "__pycache__" not in path.parts
+    )
+    owners: dict[Path, list[int]] = {path: [] for path in files}
+    try:
+        for index in range(3):
+            monkeypatch.setenv("CI_SHARD_COUNT", "3")
+            monkeypatch.setenv("CI_SHARD_INDEX", str(index))
+            conftest._ci_shard_plan.cache_clear()
+            for path in files:
+                if not conftest.pytest_ignore_collect(path, None):
+                    owners[path].append(index)
+        helper = _BACKEND / "tests" / "_authz_matrix.py"
+        assert conftest.pytest_ignore_collect(helper, None) is None
+        assert conftest.pytest_ignore_collect(_BACKEND / "tests", None) is None
+        monkeypatch.delenv("CI_SHARD_COUNT")
+        conftest._ci_shard_plan.cache_clear()
+        assert conftest.pytest_ignore_collect(files[0], None) is None, "Lokalnie no-op."
+    finally:
+        # Plan liczy się raz na proces — po teście ma odpowiadać prawdziwemu env.
+        monkeypatch.undo()
+        conftest._ci_shard_plan.cache_clear()
+    assert {path: len(shards) for path, shards in owners.items()} == {
+        path: 1 for path in files
+    }

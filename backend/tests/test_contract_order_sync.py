@@ -1,6 +1,6 @@
 """Synchronizacja kontrakt ↔ zamówienia (ticket 09.2026).
 
-Zgłoszenie: kontrakt Bartosza Czapelki (Alior) stał jako „Szkic" ze stawką
+Zgłoszenie: kontrakt konsultanta (Alior) stał jako „Szkic" ze stawką
 kosztową 120 zł/h, bez stawki przychodowej i okresu zamówienia, choć jego
 zamówienie OIT/0189/2026/ITVM miało okres 15.09–31.12.2026 i 1340 PLN/MD.
 
@@ -53,6 +53,10 @@ class _FakeDb:
 
     def add(self, obj: object) -> None:
         self.added.append(obj)
+
+    async def scalar(self, *_args, **_kwargs):
+        # Auto-aktywacja pyta o klienta kontraktu (R9-V1-2); brak = aktywny.
+        return None
 
 
 def _contract(**overrides) -> Contract:
@@ -151,7 +155,7 @@ def test_group_line_revenue_is_per_md():
 # ── Zamówienie → kontrakt ────────────────────────────────────────────────────
 
 
-async def test_czapelka_ticket_example_end_to_end_on_the_contract():
+async def test_ticket_example_end_to_end_on_the_contract():
     """Szkic 120 zł/h + zamówienie 1340 PLN/MD → Aktywny, zł/h, okres zamówienia."""
     contract = _contract()
     db = _FakeDb()
@@ -510,7 +514,7 @@ async def _seed_signed_contractor(
         client = Client(name=f"Alior Sync {suffix}")
         candidate = Candidate(
             name="Bartosz",
-            lastname=f"Czapelka-{suffix}",
+            lastname=f"Probny-{suffix}",
             email=f"sync-{suffix}@example.com",
         )
         db.add_all([client, candidate])
@@ -687,10 +691,11 @@ async def test_sync_failure_never_blocks_the_order_write(
 async def test_repair_snapshots_the_report_first_then_activates_every_draft():
     from app.core.database import AsyncSessionLocal
     from app.models.app_setting import AppSetting
-    from app.services.contract_order_sync import REPAIR_MARKER
+    from app.services.contract_order_sync import REPAIR_DETAILS_KEY, REPAIR_MARKER
     from app.services.contract_order_sync_repair import (
         build_reconciliation_rows,
         build_reconciliation_workbook,
+        load_repair_details,
         repair_contract_names,
         run_contract_order_sync_repair,
     )
@@ -725,10 +730,15 @@ async def test_repair_snapshots_the_report_first_then_activates_every_draft():
             )
             is None
         )
-        receipt = (await db.get(AppSetting, REPAIR_MARKER)).value
+        raw_receipt = (await db.get(AppSetting, REPAIR_MARKER)).value
+        receipt, snapshot, repaired = await load_repair_details(db)
 
+    # Runda 7 (R7-X2-1): paragon drukuje publiczny workflow — bez migawki,
+    # nazwisk i stawek; one leżą pod kluczem szczegółów.
+    assert "snapshot" not in raw_receipt and "repaired" not in raw_receipt
+    assert set(raw_receipt["repaired_contract_ids"]) >= scope
     snapshot_row = next(
-        row for row in receipt["snapshot"] if row["order_id"] == filled["order_id"]
+        row for row in snapshot if row["order_id"] == filled["order_id"]
     )
     # Migawka jest SPRZED korekty: kontrakt był jeszcze szkicem bez przychodu.
     assert snapshot_row["contract_status"] == "draft"
@@ -749,11 +759,11 @@ async def test_repair_snapshots_the_report_first_then_activates_every_draft():
     async with AsyncSessionLocal() as db:
         live = await build_reconciliation_rows(db, today=today)
         names = await repair_contract_names(
-            db, [item["contract_id"] for item in receipt["repaired"]]
+            db, [item["contract_id"] for item in repaired]
         )
     content = build_reconciliation_workbook(
-        snapshot=receipt["snapshot"],
-        repaired=receipt["repaired"],
+        snapshot=snapshot,
+        repaired=repaired,
         repair_names=names,
         live=live,
         summary=receipt,
@@ -769,7 +779,11 @@ async def test_repair_snapshots_the_report_first_then_activates_every_draft():
     assert live_row["revenue_status"] == "zgodne"
     assert live_row["period_status"] == "zgodne"
     async with AsyncSessionLocal() as db:
-        await db.execute(delete(AppSetting).where(AppSetting.key == REPAIR_MARKER))
+        await db.execute(
+            delete(AppSetting).where(
+                AppSetting.key.in_((REPAIR_MARKER, REPAIR_DETAILS_KEY))
+            )
+        )
         await db.commit()
 
 
@@ -813,6 +827,70 @@ async def test_daily_cost_sync_waits_for_the_repair_marker():
             if saved is not None:
                 db.add(AppSetting(key=REPAIR_MARKER, value=saved))
             await db.commit()
+
+
+async def test_daily_cost_sync_skips_an_order_closed_before_the_lock(monkeypatch):
+    """Audyt 25.09.2026: przebieg czytał zamówienia PRZED blokadą.
+
+    Zamówienie zakończone między odczytem paczki a blokadą dostawało nową
+    stawkę z harmonogramu — zakończony wiersz jest historią i ma zostać
+    nietknięty. Symulujemy wyścig: zakończenie wchodzi tuż przed blokadą.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.app_setting import AppSetting
+    from app.services import contract_order_sync as sync_module
+    from app.services.contract_order_sync import (
+        REPAIR_MARKER,
+        run_daily_order_cost_sync,
+    )
+
+    async with AsyncSessionLocal() as db:
+        existing = await db.get(AppSetting, REPAIR_MARKER)
+        saved = existing.value if existing else None
+    ids = await _seed_signed_contractor(contract_status=ContractStatus.active)
+    async with AsyncSessionLocal() as db:
+        if saved is None:
+            db.add(AppSetting(key=REPAIR_MARKER, value={"test": True}))
+        db.add(
+            ContractCandidateRate(
+                contract_id=ids["contract_id"],
+                rate=Decimal("125"),
+                effective_from=business_today() - timedelta(days=1),
+            )
+        )
+        order = await db.get(ClientOrder, ids["order_id"])
+        order.status = ClientOrderStatus.active
+        await db.commit()
+
+    real_lock = sync_module.lock_contract_then_orders
+    closed: list[int] = []
+
+    async def closing_lock(db, *, contract_ids=(), order_ids=()):
+        if ids["order_id"] in list(order_ids) and not closed:
+            async with AsyncSessionLocal() as other:
+                row = await other.get(ClientOrder, ids["order_id"])
+                row.status = ClientOrderStatus.completed
+                await other.commit()
+            closed.append(ids["order_id"])
+        return await real_lock(db, contract_ids=contract_ids, order_ids=order_ids)
+
+    monkeypatch.setattr(sync_module, "lock_contract_then_orders", closing_lock)
+    try:
+        async with AsyncSessionLocal() as db:
+            await run_daily_order_cost_sync(db)
+            await db.commit()
+        assert closed == [ids["order_id"]]
+        async with AsyncSessionLocal() as db:
+            order = await db.get(ClientOrder, ids["order_id"])
+            assert order.status == ClientOrderStatus.completed
+            assert order.rate_candidate == Decimal("120.000")
+    finally:
+        if saved is None:
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    delete(AppSetting).where(AppSetting.key == REPAIR_MARKER)
+                )
+                await db.commit()
 
 
 async def test_daily_pass_backfills_the_order_period_without_touching_money():
@@ -1214,11 +1292,12 @@ async def test_repair_never_blindly_activates_expired_or_duplicate_drafts():
     """Aktywny szkic z minioną datą końca zakończyłby cron razem z zamówieniami."""
     from app.core.database import AsyncSessionLocal
     from app.models.app_setting import AppSetting
-    from app.services.contract_order_sync import REPAIR_MARKER
+    from app.services.contract_order_sync import REPAIR_DETAILS_KEY, REPAIR_MARKER
     from app.services.contract_order_sync_repair import (
         ACTION_DUPLICATE,
         ACTION_ENDED,
         ACTION_REVIVED,
+        load_repair_details,
         run_contract_order_sync_repair,
     )
 
@@ -1268,13 +1347,17 @@ async def test_repair_never_blindly_activates_expired_or_duplicate_drafts():
             )
             await db.commit()
         async with AsyncSessionLocal() as db:
-            receipt = (await db.get(AppSetting, REPAIR_MARKER)).value
+            _, _, repaired = await load_repair_details(db)
     finally:
         async with AsyncSessionLocal() as db:
-            await db.execute(delete(AppSetting).where(AppSetting.key == REPAIR_MARKER))
+            await db.execute(
+                delete(AppSetting).where(
+                    AppSetting.key.in_((REPAIR_MARKER, REPAIR_DETAILS_KEY))
+                )
+            )
             await db.commit()
 
-    actions = {item["contract_id"]: item["action"] for item in receipt["repaired"]}
+    actions = {item["contract_id"]: item["action"] for item in repaired}
     assert actions[expired_with_order["contract_id"]] == ACTION_REVIVED
     assert actions[expired_without_order["contract_id"]] == ACTION_ENDED
     assert actions[duplicate["contract_id"]] == ACTION_DUPLICATE

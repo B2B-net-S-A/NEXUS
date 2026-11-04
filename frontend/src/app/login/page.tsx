@@ -8,6 +8,7 @@ import api, { extractErrorMsg } from "@/lib/api";
 import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
 import { clearSessionArtifacts, getAccessToken, hasAuthCookie } from "@/lib/session";
 import { ssoErrorMessage } from "@/lib/sso-error";
+import { saveSsoBrowserNonce, saveSsoNextPath } from "@/lib/sso-browser-nonce";
 import { safeInternalPath } from "@/lib/safe-href";
 import { postLoginDestination, useAuthStore } from "@/store/auth";
 import { AlertCircle, ArrowRight, Info } from "lucide-react";
@@ -205,6 +206,10 @@ function LoginForm() {
       }
       const { data } = await api.get("/api/auth/microsoft/authorize");
       if (!data?.authorize_url) throw new Error("Brak authorize_url w odpowiedzi");
+      // Sekret tej karty — callback odeśle go przy /exchange (R9-N1-4).
+      saveSsoBrowserNonce(data.browser_nonce);
+      // Callback ma własny adres, więc `?next=` zapamiętujemy w tej karcie.
+      saveSsoNextPath(searchParams.get("next"));
       window.location.href = data.authorize_url;
     } catch (err: unknown) {
       // extractErrorMsg zamiast surowego `e.message` — inaczej 429 z limitera
@@ -224,6 +229,10 @@ function LoginForm() {
       const me = await api.get("/api/auth/me", {
         headers: { Authorization: `Bearer ${data.access_token}` },
       });
+      // Sesja jest już potwierdzona — bez tego `setAuth` (nowy `token`)
+      // odpalał sondę, która robiła `router.replace(next)` z pominięciem
+      // `postLoginDestination` (onboarding, „Pracownik” → „Mój czas”).
+      sessionProbed.current = true;
       setAuth(me.data, data.access_token);
       router.push(postLoginDestination(me.data, nextPath));
     } catch (err: unknown) {
@@ -368,7 +377,7 @@ function LoginForm() {
       ) : (
           // Narzędzie wewnętrzne — kont nie zakłada się samodzielnie.
           <p className="text-center text-xs text-muted-foreground pt-5">
-            Dostęp wyłącznie dla pracowników B2B.net. Konta zakłada administrator.
+            Dostęp wyłącznie dla zespołu B2B.net. Konta zakłada administrator.
           </p>
       )}
     </AuthShell>

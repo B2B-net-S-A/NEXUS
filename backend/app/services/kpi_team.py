@@ -6,7 +6,8 @@ na każdą osobę z zespołu — w jednym przejściu po `candidate_stages`.
 
 Atrybucja jest **identyczna** jak w panelu per-user (verifier-anchored — zasługę
 za kamienie milowe pary kandydat×rekrutacja dostaje weryfikator), bo oba serwisy
-dzielą to samo CTE `VERIFIER_ANCHORED_CTE`. Dzięki temu suma kolumny w widoku
+dzielą to samo CTE `VERIFIER_ANCHORED_CTE` (od 27.10.2026 przez minutową
+migawkę `credited_snapshot`). Dzięki temu suma kolumny w widoku
 zespołowym zgadza się z liczbami, które każdy widzi u siebie.
 
 Filtry osoba/rola robi front (na zwróconej liście) — backend bierze tylko okno
@@ -35,8 +36,8 @@ from app.services.kpi_panel import (
     _PRECISION_WINDOW_DAYS,
     PRECISION_COHORT_CTE,
     PRECISION_R30_SQL,
-    VERIFIER_ANCHORED_CTE,
 )
+from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
 from app.services.kpi_targets import resolve_org_target
 
 # Cel precision (rekomendacje ÷ weryfikacje) widoku zespołu to cel
@@ -55,8 +56,9 @@ from app.services.kpi_targets import resolve_org_target
 # `r30_cnt` to kohorta precyzji (`PRECISION_COHORT_CTE`): pary zweryfikowane
 # w 30 dniach i te z nich, które doszły do „CV wysłane" — ta sama definicja co
 # panel per osoba, więc precyzja nigdy nie przekracza 100%.
+# `credited` z minutowej migawki całej firmy (`credited_snapshot`), 27.10.2026.
 _TEAM_FUNNEL_SQL = text(
-    VERIFIER_ANCHORED_CTE
+    CREDITED_FROM_SNAPSHOT_CTE
     + PRECISION_COHORT_CTE
     + """
     SELECT f.credit_user AS uid, f.stage, f.period_cnt,
@@ -129,6 +131,10 @@ class TeamTotals:
     # użytkownika. NIE wchodzą do sum per osoba (nie ma do kogo), ale są
     # raportowane — inaczej „brak danych" wyglądałby jak zero.
     unattributed: int = 0
+    # Te same kamienie per etap (`(etap, liczba)`) — wiersz „Bez osoby
+    # z zasługą” w Insights → Zespół (17.10.2026). Krotka, bo klasa jest
+    # zamrożona i haszowalna.
+    unattributed_by_stage: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -196,6 +202,7 @@ async def compute_team_panel(
                     "period_start": period_start,
                     "period_end": period_end,
                     "rolling30": rolling30,
+                    **await credited_bind(db),
                 },
             )
         )
@@ -212,9 +219,16 @@ async def compute_team_panel(
     # w tabeli (nie ma komu go przypisać).
     agg: dict[int, dict[str, dict[str, int]]] = {}
     unattributed = 0
+    unattributed_by_stage: dict[str, int] = {}
     for r in funnel_rows:
         if r["uid"] is None:
-            unattributed += int(r["period_cnt"])
+            count = int(r["period_cnt"])
+            unattributed += count
+            if count:
+                stage = str(r["stage"])
+                unattributed_by_stage[stage] = (
+                    unattributed_by_stage.get(stage, 0) + count
+                )
             continue
         agg.setdefault(int(r["uid"]), {})[r["stage"]] = {
             "p": int(r["period_cnt"]),
@@ -293,7 +307,8 @@ async def compute_team_panel(
 
         weryf = _p("verified")
         rekom = _p("cv_sent")
-        inter = _p("interview")
+        # R7-N9-2: „Interview" = rozmowy u klienta, nie etap QC CV.
+        inter = _p("client_interview")
         akcept = _p("acceptance")
         plac = _p("hired")
         cv = cv_by_uid.get(uid, 0)
@@ -354,6 +369,7 @@ async def compute_team_panel(
         precision_pct=team_prec,
         people=len(rows),
         unattributed=unattributed,
+        unattributed_by_stage=tuple(sorted(unattributed_by_stage.items())),
     )
 
     return TeamPanelResult(

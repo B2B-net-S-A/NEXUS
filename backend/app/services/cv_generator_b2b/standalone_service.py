@@ -28,10 +28,11 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, undefer
 
+from app.core.log_safety import safe_storage_key
 from app.schemas.champion import client_safe_screening
 from app.models.call import Call
 from app.models.candidate import Candidate
@@ -44,6 +45,12 @@ from app.models.screening_note import ScreeningNote
 from app.services.prompt_fencing import fence, json_for_prompt
 from app.services import object_storage
 from app.services import champion_view
+from app.services import note_kinds
+from app.services import recommendation_cards
+from app.services.money_text import strip_rates_and_availability
+from app.services.cv_role_order import sort_experience
+from app.services.cv_source_dates import restore_experience_dates
+from app.services.recommendation_card_parser import CV_HIDDEN_FIELDS, redact_card_text
 from app.services.cv_generator_b2b.provider import (
     CVGeneratorAIError,
     PROMPT_VERSION,
@@ -265,7 +272,9 @@ def hydrate_consent_screenshot(payload: dict[str, Any]) -> dict[str, Any]:
         consent["_bytes"] = object_storage.download_cv(key)
     except Exception:  # noqa: BLE001 — patrz docstring
         logger.warning(
-            "consent screenshot: nie udało się pobrać %s z magazynu", key, exc_info=True
+            "consent screenshot: nie udało się pobrać %s z magazynu",
+            safe_storage_key(key),  # runda 6 audytu: klucz niesie nazwę pliku
+            exc_info=True,
         )
     return payload
 
@@ -455,10 +464,15 @@ def _champion_present(job: Job | None) -> bool:
 
 
 def _format_screening_note(note: ScreeningNote) -> str:
-    """Only candidate competencies; commercial judgments are not CV evidence."""
+    """Only candidate competencies; commercial judgments are not CV evidence.
+
+    Wolny tekst pól (osobowość, uwagi do umiejętności) bez stawek
+    i dostępności (``money_text``) — audyt 13.10.2026: „chce 22k” szło do
+    modelu."""
     parts: list[str] = []
-    if note.personality_notes:
-        parts.append(f"Osobowość / soft skills: {note.personality_notes.strip()}")
+    personality = strip_rates_and_availability(note.personality_notes)
+    if personality:
+        parts.append(f"Osobowość / soft skills: {personality}")
     if note.verified_skills:
         try:
             skill_lines: list[str] = []
@@ -466,7 +480,7 @@ def _format_screening_note(note: ScreeningNote) -> str:
                 if isinstance(s, dict):
                     name = s.get("skill") or s.get("name") or ""
                     level = s.get("level") or ""
-                    extra = s.get("notes") or ""
+                    extra = strip_rates_and_availability(str(s.get("notes") or ""))
                     line = name
                     if level:
                         line += f" ({level})"
@@ -511,9 +525,22 @@ def _format_candidate_answers(screening_answers: Any, screening_questions: Any) 
     Only the candidate's own answers are emitted. The recruiter's ``overall_fit``
     rating, deal-breaker flags and free-text ``notes`` are deliberately left out
     — the prompt's confidentiality rules bar recruiter judgment from the CV.
+
+    Audyt 13.10.2026: pytanie bierzemy z treści zapisanej przy odpowiedzi
+    (``question_text``, jak przegląd DL), bo identyfikatory ``q1…qN`` są
+    pozycyjne i po edycji profilu wskazują inne pytanie; bieżący profil tylko
+    dla arkuszy sprzed 02.10.2026 (bez zapisanej treści). Odpowiedź bez
+    stawek i dostępności (``money_text``).
     """
     if not _has_candidate_answers(screening_answers):
         return ""
+    saved_questions = {
+        str(a.get("question_id") or "").strip(): " ".join(
+            str(a.get("question_text") or "").split()
+        )
+        for a in (screening_answers or {}).get("answers") or []
+        if isinstance(a, dict) and not a.get("skipped")
+    }
     # Odpowiedzi pominięte przy przepięciu i notatka wewnętrzna nie wchodzą
     # do CV (idzie do klienta) — ta sama reguła co share portal.
     screening_answers = client_safe_screening(screening_answers) or {}
@@ -525,18 +552,76 @@ def _format_candidate_answers(screening_answers: Any, screening_questions: Any) 
                 continue
             qid = str(q.get("id") or "").strip()
             if qid:
-                q_by_id[qid] = str(q.get("question") or "").strip()
+                # Jedna linia „P:” — pytanie z listą w kilku liniach zostawiało
+                # „- OpenTelemetry” jako osobną linię, czytaną jak fakt.
+                q_by_id[qid] = " ".join(str(q.get("question") or "").split())
 
     lines: list[str] = []
     for a in screening_answers.get("answers") or []:
         if not isinstance(a, dict):
             continue
-        response = str(a.get("response") or "").strip()
-        if not response:
+        response = strip_rates_and_availability(str(a.get("response") or ""))
+        if not response or _PLACEHOLDER_ANSWER_RE.fullmatch(response):
             continue
-        question = q_by_id.get(str(a.get("question_id") or "").strip(), "")
+        qid = str(a.get("question_id") or "").strip()
+        question = strip_rates_and_availability(
+            saved_questions.get(qid) or q_by_id.get(qid, "")
+        )
+        if question and _confirms_question(response, question):
+            response = f"{response} (potwierdza pytanie: {question})"
         lines.append(f"P: {question}\nO: {response}" if question else f"O: {response}")
     return "\n\n".join(lines)
+
+
+# Odpowiedź-zaślepka („x”, „-”, „?”) nie jest odpowiedzią (23.10.2026: „x” na
+# pytanie Championa szło do modelu jako fakt o kandydacie).
+_PLACEHOLDER_ANSWER_RE = re.compile(r"[\W_]*(?:x+|n/?a|b/?d)?[\W_]*", re.IGNORECASE)
+_YES_WORDS = frozenset(
+    "tak owszem zgadza potwierdza potwierdzam oczywiście najbardziej yes yep sure "
+    "definitely".split()
+)
+# Samo potwierdzenie: same te słowa, w tym co najmniej jedno z _YES_WORDS
+# albo „ma / posiada / zna … doświadczenie”.
+_BARE_YES_WORDS = _YES_WORDS | frozenset(
+    "się jak kandydat kandydatka ma mam posiada posiadam zna znam doświadczenie "
+    "pracował pracowała pracowałem pracowałam robił robiła robiłem robiłam to "
+    "i he she have has do does did experience".split()
+)
+_REFERS_TO_QUESTION_RE = re.compile(
+    r"\b(?:takie|tego\s+typu|tego\s+rodzaju)\s+doświadczeni"
+    r"|\bw\s+tym\s+(?:zakresie|obszarze|temacie)\b"
+    r"|\b(?:such|this|that|similar)\s+experience\b",
+    re.IGNORECASE,
+)
+_RESERVATION_RE = re.compile(
+    r"\b(?:nie|brak|bez|ale|tylko|jedynie|teoretycz\w*|not|no|without|but|only)\b",
+    re.IGNORECASE,
+)
+_ALTERNATIVE_RE = re.compile(r"\b(?:albo|lub|bądź|or)\b", re.IGNORECASE)
+
+
+def _confirms_question(response: str, question: str) -> bool:
+    """Odpowiedź znaczy tyle, co pytanie: samo „Tak” albo „Posiadam takie
+    doświadczenie”.
+
+    Strażnik terminów i kontrola AI czytają odpowiedzi bez linii „P:”
+    (pytanie ≠ fakt, 13.10.2026), więc taka odpowiedź traciła treść, a rzecz
+    z pytania znikała z CV (23.10.2026, „Network SME”). Nie dotyczy odpowiedzi
+    z zastrzeżeniem („tylko teoretycznie”) i pytań z alternatywą („Kafka albo
+    RabbitMQ”) — nie wiadomo wtedy, co kandydat potwierdził. Odpowiedź, która
+    sama nazywa rzeczy („Tak, Grafana”), zostaje bez dopisku, żeby pytanie
+    nie dokładało tego, czego kandydat nie wymienił.
+    """
+    if _RESERVATION_RE.search(response) or _ALTERNATIVE_RE.search(question):
+        return False
+    if _REFERS_TO_QUESTION_RE.search(response):
+        return True
+    words = set(re.findall(r"\w+", response.lower()))
+    return (
+        bool(words)
+        and words <= _BARE_YES_WORDS
+        and bool(words & (_YES_WORDS | {"doświadczenie", "experience"}))
+    )
 
 
 # CV documents the pipeline can actually read. ``.doc`` (Word 97-2003) is
@@ -546,11 +631,15 @@ _SUPPORTED_CV_DOC_PATTERNS = ("%.pdf", "%.docx")
 
 
 def _supported_cv_doc_filter() -> Any:
-    return or_(
-        *(
-            func.lower(CandidateDocument.filename).like(pat)
-            for pat in _SUPPORTED_CV_DOC_PATTERNS
-        )
+    # Plik usunięty z profilu (`source_deleted_at`, 0435) nie jest źródłem CV.
+    return and_(
+        CandidateDocument.source_deleted_at.is_(None),
+        or_(
+            *(
+                func.lower(CandidateDocument.filename).like(pat)
+                for pat in _SUPPORTED_CV_DOC_PATTERNS
+            )
+        ),
     )
 
 
@@ -1547,6 +1636,7 @@ def _run_generation_pipeline(
     position_ref: str | None = None,
     prepared_source_facts: PreparedSourceFacts | None = None,
     position_fallback: str | None = None,
+    instruction: str = "",
 ) -> GenerationResult:
     """Extract CV text, call Claude and render the DOCX.
 
@@ -1586,7 +1676,10 @@ def _run_generation_pipeline(
             position_ref=position_ref,
             prepared_source_facts=prepared_source_facts,
             position_fallback=position_fallback,
+            instruction=instruction,
         )
+    # Pipeline v10 (CV_GENERATION_PIPELINE=v10) nie czyta uwagi rekrutera —
+    # „Napisz od nowa” działa na domyślnej ścieżce legacy_v7.
     if content_mode == "tailored" and champion_dto and champion_dto.intake_profile:
         from types import SimpleNamespace
         from app.services.champion_intake import enforce_operation
@@ -1716,6 +1809,10 @@ def _run_generation_pipeline(
         ) from err
 
     candidate_data = _normalize_candidate_data(raw_data, fallback_name)
+    restore_experience_dates(candidate_data, cv_text)
+    # Stanowiska od najnowszego ustawia kod, nie model — jak w legacy_v7 (16.10.2026).
+    if sort_experience(candidate_data):
+        logger.info("[cv_b2b][%s] experience reordered newest first", request_id)
     candidate_data["source_facts"] = source_facts
     candidate_data["client_rule_snapshot"] = (
         asdict(client_rule) if client_rule else None
@@ -1771,17 +1868,24 @@ def _run_generation_pipeline(
     # as a separate, clearly-labelled line. Set BEFORE the render_payload
     # snapshot so re-downloads reproduce an identical header.
     role_title = (job_title or "").strip()
+    explicit_position = (position_ref or "").strip()
     if client_rule and client_rule.managed_policy:
         role_title = str(
-            raw_data.get("presentation_position")
+            explicit_position
+            or raw_data.get("presentation_position")
             or candidate_data.get("position")
             or position_fallback
             or ""
         ).strip()
         candidate_data["generic_cv"] = mode != "tailored"
         candidate_data["presentation_position"] = role_title
-    elif role_title:
-        candidate_data["considered_for"] = role_title
+    else:
+        if role_title:
+            candidate_data["considered_for"] = role_title
+        if explicit_position:
+            # Runda 10 (F21): stanowisko wpisane przez rekrutera trafia do
+            # nagłówka dosłownie — UI obiecuje „nagłówek i nazwa pliku”.
+            candidate_data["presentation_position"] = explicit_position
 
     # ── 4. Anti-fabrication seatbelt + date sanity ───────────────────────
     source_text = f"{cv_text}\n{screening_notes_text}"
@@ -1920,7 +2024,9 @@ def _run_generation_pipeline(
         filename = rule_result.filename
         rule_warnings.extend(rule_result.warnings)
     else:
-        filename = _build_download_filename(role_title, candidate_name)
+        filename = _build_download_filename(
+            explicit_position or role_title, candidate_name
+        )
     rule_warnings.extend(rule_reminders(client_rule))
     if policy_notes:
         # Model nie zmieścił się w klockach reguły i kod je domknął — rekruter
@@ -1954,10 +2060,9 @@ def _run_generation_pipeline(
         )
 
     logger.info(
-        "[cv_b2b][%s] OK candidate=%s lang=%s blind=%s warnings=%d "
-        "(guard=%d) duration_ms=%d",
+        # runda 6 audytu: bez imienia i nazwiska — request_id wiąże log z zadaniem
+        "[cv_b2b][%s] OK lang=%s blind=%s warnings=%d (guard=%d) duration_ms=%d",
         request_id,
-        candidate_name,
         language,
         blind_cv,
         len(warnings),
@@ -2190,6 +2295,26 @@ async def list_recruitments_with_readiness(
     return result
 
 
+# Rodzaje materiału dla modelu generatora CV (13.10.2026). Przełączniki w karcie
+# „CV do klienta” (PR 4) nadpisują te wartości dla jednej generacji.
+# Źródła dla modelu (D4, 13.10.2026) — przełączniki „Z czego powstało” w karcie
+# „CV do klienta”. Oryginalne CV i Champion wchodzą zawsze.
+AI_SOURCE_DEFAULTS: dict[str, bool] = {
+    "answers": True,
+    "notes": True,
+    "transcripts": False,
+    "prep": False,
+}
+
+
+def chosen_sources(sources: dict[str, bool] | None) -> dict[str, bool]:
+    """Wybór rekrutera nałożony na domyślne; nieznane klucze odpadają."""
+    return {
+        key: bool((sources or {}).get(key, default))
+        for key, default in AI_SOURCE_DEFAULTS.items()
+    }
+
+
 async def collect_screening_notes_text(
     db: AsyncSession,
     *,
@@ -2198,8 +2323,16 @@ async def collect_screening_notes_text(
     job: Job,
     warnings: list[str] | None = None,
     language: Language = "pl",
+    sources: dict[str, bool] | None = None,
 ) -> str:
     """Materiały o kandydacie dopuszczone do modelu dla tej rekrutacji.
+
+    ``sources`` wybiera rodzaje materiału (``AI_SOURCE_DEFAULTS``). Od
+    13.10.2026 transkrypty rozmów i podsumowania prepu są domyślnie wyłączone:
+    rozmowa nie ma pola rekrutacji, więc wchodziły też rozmowy o innych
+    procesach, a prep niesie ocenę rekrutera i listę tematów „na następny
+    prep”, nie fakty o kandydacie. Stawki i dostępność są wycinane z wolnych
+    notatek (``money_text``) — to ustalenia handlowe, nie treść CV.
 
     Strukturalne oceny handlowe są pomijane. Podsumowanie AI bez transkryptu
     nie jest źródłem faktów; opcjonalna lista warnings informuje o pominięciu.
@@ -2214,6 +2347,7 @@ async def collect_screening_notes_text(
     Pusty string = brak notatek (wołający decyduje, czy to błąd).
     """
     screening_parts: list[str] = []
+    chosen = chosen_sources(sources)
 
     sn_q = (
         select(ScreeningNote)
@@ -2223,7 +2357,7 @@ async def collect_screening_notes_text(
         )
         .order_by(ScreeningNote.created_at.desc())
     )
-    screening_notes = (await db.scalars(sn_q)).all()
+    screening_notes = (await db.scalars(sn_q)).all() if chosen["notes"] else []
     for sn in screening_notes:
         text = _format_screening_note(sn)
         if text:
@@ -2233,31 +2367,79 @@ async def collect_screening_notes_text(
     # the recruiter in the screening sheet (CandidateStage.screening_answers).
     # These are candidate-provided facts — the generator must weave them into
     # the CV just like any other screening note.
-    answers_text = _format_candidate_answers(
-        stage.screening_answers,
-        (job.champion_profile or {}).get("screening_questions"),
+    answers_text = (
+        _format_candidate_answers(
+            stage.screening_answers,
+            (job.champion_profile or {}).get("screening_questions"),
+        )
+        if chosen["answers"]
+        else ""
     )
     if answers_text:
         screening_parts.append(
             f"[Odpowiedzi kandydata na pytania screeningowe]\n{answers_text}"
         )
 
-    if stage.notes and stage.notes.strip():
-        screening_parts.append(f"[Notatka z procesu]\n{stage.notes.strip()}")
+    stage_notes = strip_rates_and_availability(stage.notes) if chosen["notes"] else ""
+    if stage_notes:
+        screening_parts.append(f"[Notatka z procesu]\n{stage_notes}")
 
     notes_q = (
         select(Note)
         .where(
             Note.candidate_id == candidate_id,
             or_(Note.job_id == job.id, Note.job_id.is_(None)),
+            _not_followup_note(),
         )
         .order_by(Note.created_at.desc())
         .limit(20)
     )
-    notes = (await db.scalars(notes_q)).all()
+    if not chosen["prep"]:
+        notes_q = notes_q.where(Note.kind.is_distinct_from(note_kinds.PREP_SUMMARY))
+    if not chosen["notes"]:
+        # Same podsumowania prepu (gdy włączone), bez pozostałych notatek.
+        notes_q = notes_q.where(Note.kind == note_kinds.PREP_SUMMARY)
+    notes = (
+        (await db.scalars(notes_q)).all() if chosen["notes"] or chosen["prep"] else []
+    )
     for note in notes:
-        if note.content and note.content.strip():
-            screening_parts.append(f"[Notatka kandydata]\n{note.content.strip()}")
+        # 0413: karta rekomendacji w notatce niesie ustalenia handlowe
+        # (stawka, red flags, motywacja) i narodowość — to nie jest treść CV.
+        # Stawka wpisana prozą („150 PLN/h + VAT”) i dostępność też nie.
+        body = strip_rates_and_availability(
+            redact_card_text(note.content, CV_HIDDEN_FIELDS)
+        ).strip()
+        if body:
+            screening_parts.append(f"[Notatka kandydata]\n{body}")
+
+    # „Dlaczego ten kandydat” wpisane na karcie w NEXUSIE (pole z notatki jest
+    # już w treści notatki wyżej).
+    card = (
+        await recommendation_cards.load_card(
+            db, candidate_id=candidate_id, job_id=job.id
+        )
+        if chosen["notes"]
+        else None
+    )
+    manual = (card.fields_manual or {}).get("recommendation") if card else None
+    recommendation = strip_rates_and_availability(
+        redact_card_text(str((manual or {}).get("raw") or ""), CV_HIDDEN_FIELDS)
+    ).strip()
+    if recommendation:
+        # Wpis sprzed bieżącej próby procesu jest tylko podpowiedzią na karcie
+        # — do CV nie idzie, dopóki rekruter go nie potwierdzi.
+        from app.services import candidate_claim
+
+        process = await candidate_claim.load_process(
+            db, candidate_id=candidate_id, job_id=job.id
+        )
+        if recommendation_cards.is_current(
+            manual, recommendation_cards.attempt_started(process)
+        ):
+            screening_parts.append(f"[Rekomendacja rekrutera]\n{recommendation}")
+
+    if not chosen["transcripts"]:
+        return "\n\n".join(screening_parts)
 
     first_moved = await db.scalar(
         select(func.min(CandidateStage.moved_at)).where(
@@ -2281,7 +2463,7 @@ async def collect_screening_notes_text(
     calls = (await db.scalars(calls_q)).all()
     omitted_summaries = 0
     for call in calls:
-        body = (call.transcript or "").strip()
+        body = strip_rates_and_availability(call.transcript).strip()
         if body:
             screening_parts.append(f"[Transkrypt rozmowy]\n{body}")
         elif (call.summary or "").strip():
@@ -2300,6 +2482,23 @@ async def collect_screening_notes_text(
     return "\n\n".join(screening_parts)
 
 
+def _not_followup_note():
+    """Bez notatek z telefonu po ciszy klienta (``source_ref='followup:…'``).
+
+    Runda 7 (R7-X4-5): taka notatka ma ``job_id=NULL``, a treść wymienia
+    klientów i rekrutacje WSZYSTKICH czekających procesów — do CV pod innego
+    klienta trafiały nazwy i statusy cudzych procesów.
+
+    0412: także bez rodzajów, których AI nie czyta (wpis automatu, mail,
+    „dopisz do CV” od Delivery Leada, stawka do klienta) — instrukcja „dodaj
+    Robot Framework do CV” nie jest dowodem, że kandydat go zna.
+    """
+    return and_(
+        or_(Note.source_ref.is_(None), ~Note.source_ref.like("followup:%")),
+        note_kinds.ai_readable_clause(),
+    )
+
+
 async def collect_candidate_notes_text(db: AsyncSession, *, candidate_id: int) -> str:
     """Notatki kandydata dla generacji BEZ procesu (generator v3).
 
@@ -2311,22 +2510,36 @@ async def collect_candidate_notes_text(db: AsyncSession, *, candidate_id: int) -
     notes = (
         await db.scalars(
             select(Note)
-            .where(Note.candidate_id == candidate_id, Note.job_id.is_(None))
+            .where(
+                Note.candidate_id == candidate_id,
+                Note.job_id.is_(None),
+                _not_followup_note(),
+            )
             .order_by(Note.created_at.desc())
             .limit(20)
         )
     ).all()
-    return "\n\n".join(
-        f"[Notatka kandydata]\n{note.content.strip()}"
+    bodies = (
+        strip_rates_and_availability(
+            redact_card_text(note.content, CV_HIDDEN_FIELDS)
+        ).strip()
         for note in notes
-        if note.content and note.content.strip()
     )
+    return "\n\n".join(f"[Notatka kandydata]\n{body}" for body in bodies if body)
 
 
 async def screening_notes_char_count(
-    db: AsyncSession, *, candidate_id: int, stage_id: int
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    stage_id: int,
+    sources: dict[str, bool] | None = None,
 ) -> int | None:
-    """Długość notatek dla etapu; ``None``, gdy etap nie należy do kandydata."""
+    """Długość notatek dla etapu; ``None``, gdy etap nie należy do kandydata.
+
+    ``sources`` — te same źródła, z których powstanie CV (D4): minimum
+    notatek z reguły klienta liczy tekst, który model faktycznie dostanie.
+    """
     stage = (
         await db.scalars(
             select(CandidateStage)
@@ -2337,7 +2550,7 @@ async def screening_notes_char_count(
     if stage is None or stage.candidate_id != candidate_id or stage.job is None:
         return None
     text = await collect_screening_notes_text(
-        db, candidate_id=candidate_id, stage=stage, job=stage.job
+        db, candidate_id=candidate_id, stage=stage, job=stage.job, sources=sources
     )
     return len(text.strip())
 
@@ -2348,6 +2561,21 @@ def champion_present(job: Job | None) -> bool:
 
 
 # ── Main entrypoint ────────────────────────────────────────────────────────
+
+
+# Lista poprawek rekrutera, ok. 15–20 punktów (15.10.2026; wcześniej 300 znaków).
+INSTRUCTION_MAX = 2000
+
+
+def recruiter_instruction(text: str | None) -> str:
+    """Uwaga „Napisz od nowa” dla modelu: linia = poprawka, bez stawek i dostępności."""
+    from app.services.money_text import strip_rates_and_availability
+
+    lines = (
+        " ".join(line.split())
+        for line in strip_rates_and_availability(text or "").split("\n")
+    )
+    return "\n".join(line for line in lines if line)[:INSTRUCTION_MAX]
 
 
 @dataclass(frozen=True)
@@ -2371,6 +2599,17 @@ class CandidateGenerationSource:
     cv_document_id: int | None
     requirements: tuple[tuple[str, str], ...] = ()
     client_id: int | None = None
+    # Runda 10 (F21): stanowisko wpisane przez rekrutera INNE niż tytuł
+    # rekrutacji. Idzie dosłownie do nagłówka CV i nazwy pliku. Pusty = jak
+    # dotąd (tytuł rekrutacji dopasowuje model). Domyślna wartość, więc
+    # snapshoty zadań sprzed tej zmiany dekodują się bez niego.
+    position_override: str = ""
+    # Źródła wybrane w karcie „CV do klienta” (D4) — trafiają do migawki CV,
+    # żeby karta pokazała, z czego powstała dana wersja. Puste = sprzed zmiany.
+    ai_sources: tuple[tuple[str, bool], ...] = ()
+    # „Napisz od nowa: krócej, więcej o Kafce” (Edytor CV 3, PR 5): życzenie
+    # rekrutera co do formy i akcentów, nigdy źródło faktów. Bez stawek.
+    instruction: str = ""
 
     def champion(self) -> ChampionProfileForPrompt:
         # Each renderer owns a fresh DTO; mutation cannot contaminate another variant.
@@ -2384,6 +2623,8 @@ async def list_candidate_cv_sources(db: AsyncSession, candidate_id: int) -> list
         raise StandaloneGenerationError(
             code="candidate_not_found", message="Konsultant nie istnieje."
         )
+    from app.services.cv_source import current_cv_ordering
+
     rows = (
         await db.scalars(
             select(CandidateDocument)
@@ -2391,11 +2632,7 @@ async def list_candidate_cv_sources(db: AsyncSession, candidate_id: int) -> list
                 CandidateDocument.candidate_id == candidate_id,
                 _supported_cv_doc_filter(),
             )
-            .order_by(
-                CandidateDocument.is_primary.desc(),
-                CandidateDocument.uploaded_at.desc(),
-                CandidateDocument.id.desc(),
-            )
+            .order_by(*current_cv_ordering(), CandidateDocument.id.desc())
         )
     ).all()
     return [
@@ -2420,6 +2657,8 @@ async def load_candidate_generation_source(
     client_id: int | None = None,
     champion_profile: dict | None = None,
     extra_notes: str = "",
+    sources: dict[str, bool] | None = None,
+    instruction: str = "",
 ) -> CandidateGenerationSource:
     """Read the chosen file, recruitment context and notes once; no provider calls.
 
@@ -2463,19 +2702,27 @@ async def load_candidate_generation_source(
 
     client = await db.get(Client, client_id) if client_id else None
     # ── 1. CV file ────────────────────────────────────────────────────────
+    from app.services.cv_source import current_cv_filters, current_cv_ordering
+
     cv_doc_q = (
         select(CandidateDocument)
+        # Runda 9 (R9-X1-1): `file_content` jest odroczone; bez `undefer`
+        # odczyt BYTEA niżej to MissingGreenlet (500 „Generuj CV", awaria
+        # auto-CV) dla dokumentów z formularza kariery i maila.
+        .options(undefer(CandidateDocument.file_content))
         .where(
             CandidateDocument.candidate_id == candidate_id,
             _supported_cv_doc_filter(),
         )
-        .order_by(
-            CandidateDocument.is_primary.desc(), CandidateDocument.uploaded_at.desc()
-        )
+        .order_by(*current_cv_ordering())
         .limit(1)
     )
     if cv_document_id is not None:
         cv_doc_q = cv_doc_q.where(CandidateDocument.id == cv_document_id)
+    else:
+        # Wybór domyślny (bez pliku wskazanego przez rekrutera) tą samą regułą
+        # co migawka oryginału CV (R9-N7-11).
+        cv_doc_q = cv_doc_q.where(*current_cv_filters())
     cv_doc = (await db.scalars(cv_doc_q)).first()
     if cv_doc is None and cv_document_id is not None:
         raise StandaloneGenerationError(
@@ -2485,7 +2732,10 @@ async def load_candidate_generation_source(
     if cv_doc is None:
         any_doc_id = await db.scalar(
             select(CandidateDocument.id)
-            .where(CandidateDocument.candidate_id == candidate_id)
+            .where(
+                CandidateDocument.candidate_id == candidate_id,
+                CandidateDocument.source_deleted_at.is_(None),
+            )
             .limit(1)
         )
         if any_doc_id is not None:
@@ -2508,12 +2758,17 @@ async def load_candidate_generation_source(
                 object_storage.download_cv, cv_doc.storage_key
             )
         except Exception as err:  # noqa: BLE001
-            logger.exception(
-                "[cv_b2b][%s] Object storage download failed: %s", request_id, err
+            # Runda 9 (R9-N7-8): komunikat wyjątku boto3 niesie URL z kluczem
+            # (nazwa pliku CV) — nie do logu i nie do komunikatu dla rekrutera.
+            logger.warning(
+                "[cv_b2b][%s] Object storage download failed: %s (%s)",
+                request_id,
+                type(err).__name__,
+                safe_storage_key(cv_doc.storage_key),
             )
             raise StandaloneGenerationError(
                 code="extraction_failed",
-                message=f"Nie udało się pobrać CV z Object Storage: {err}",
+                message="Nie udało się pobrać CV z magazynu plików. Spróbuj ponownie.",
             ) from err
     elif cv_doc.file_content:
         cv_bytes = bytes(cv_doc.file_content)
@@ -2556,6 +2811,7 @@ async def load_candidate_generation_source(
             job=job,
             warnings=source_warnings,
             language=language,
+            sources=sources,
         )
     else:
         screening_notes_text = await collect_candidate_notes_text(
@@ -2575,6 +2831,29 @@ async def load_candidate_generation_source(
     from app.services.cv_generator_b2b.requirement_map import build_requirements
 
     position = (position or "").strip()
+    job_title = (job.title or "").strip() if job is not None else ""
+    # D2 (13.10.2026): do nagłówka CV idzie nazwa roli od klienta bez jego
+    # nazwy, numerów zapytania, kodów i lokalizacji — bez tłumaczenia.
+    header_title = ""
+    if job is not None and job_title:
+        from app.services.job_working_title import cv_role_title_for_job
+
+        header_title = await cv_role_title_for_job(db, job)
+    # Pole „Stanowisko” jest w UI podpowiadane nazwą roli (wcześniej tytułem
+    # rekrutacji) — ten sam tekst to nie decyzja rekrutera. Wpisany numer
+    # zapytania schodzi: nazwa pliku ma go już ze wzoru klienta.
+    position_override = position
+    if job is not None:
+        from app.services.job_working_title import typed_cv_position
+
+        position_override = typed_cv_position(
+            position, getattr(job, "client_reference", None)
+        )
+    if (
+        position.casefold() == job_title.casefold()
+        or position_override.casefold() == header_title.casefold()
+    ):
+        position_override = ""
     return CandidateGenerationSource(
         cv_bytes=bytes(cv_bytes),
         cv_filename=cv_doc.filename or "cv.pdf",
@@ -2584,7 +2863,7 @@ async def load_candidate_generation_source(
         source_warnings=tuple(source_warnings),
         fallback_name=f"{candidate.name} {candidate.lastname}".strip() or None,
         job_id=job.id if job is not None else None,
-        job_title=position or (job.title if job is not None else ""),
+        job_title=position_override or header_title,
         client_content_mode_cap=getattr(client, "cv_content_mode_cap", None),
         candidate_id=candidate_id,
         stage_id=stage_id,
@@ -2595,6 +2874,11 @@ async def load_candidate_generation_source(
         if job is not None
         else (),
         client_id=job.client_id if job is not None else client_id,
+        position_override=position_override,
+        ai_sources=(
+            tuple(chosen_sources(sources).items()) if stage is not None else ()
+        ),
+        instruction=recruiter_instruction(instruction),
     )
 
 
@@ -2649,8 +2933,10 @@ async def generate_cv_from_candidate_source(
             content_mode=effective_mode,
             client_rule=client_rule,
             project_ref=project_ref,
+            position_ref=source.position_override or None,
             prepared_source_facts=prepared_source_facts,
             position_fallback=position_fallback,
+            instruction=source.instruction,
         )
     )
     if source.source_warnings:

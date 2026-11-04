@@ -36,6 +36,19 @@ describe("summarizeBreakdown", () => {
     });
   });
 
+  it("shows the prior-screening layer only when it was scored", () => {
+    const scored = summarizeBreakdown({
+      ...bd,
+      prior_screening: { points: 5, max: 5, reason: "wcześniejsze rozmowy: 1 × tak, 0 × nie" },
+    });
+    expect(scored.layers.map((l) => l.label)).toContain("Wcześniejsze rozmowy");
+    const unscored = summarizeBreakdown({
+      ...bd,
+      prior_screening: { points: 0, max: 0, reason: "brak" },
+    });
+    expect(unscored.layers.map((l) => l.key)).not.toContain("prior_screening");
+  });
+
   it("preserves the not-comparable financial state for honest rendering", () => {
     const s = summarizeBreakdown({
       salary: {

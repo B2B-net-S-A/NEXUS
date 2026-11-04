@@ -31,13 +31,17 @@ import {
   careerLinkQueryKey,
   inviteLinksQueryKey,
   jobPublicProfileQueryKey,
+  linkPeopleQueryKey,
+  linkResultsQueryKey,
+  type LinkPeople,
+  type LinkResults,
   shareableJobQueryKey,
   shareablePublishedJobsQueryKey,
 } from "@/lib/api/careerLinks";
 
 const JOBS: PublishedJobLite[] = [
   // Surowy tytuł z nazwą klienta i kodem — na stronie ma wyjść tytuł domyślny.
-  { id: 101, title: "Nordea: Senior Java Developer (ZOB-3003)", status: "published" },
+  { id: 101, title: "Bank Północny: Senior Java Developer (ZOB-3003)", status: "published" },
   { id: 102, title: "DevOps Engineer (Azure)", status: "published" },
   { id: 103, title: "Analityk biznesowy", status: "published" },
 ];
@@ -53,8 +57,21 @@ const PROFILE_WITH_FINDING: JobPublicProfile = {
     "Dołączysz do zespołu, który przebudowuje platformę obsługującą płatności kartowe i przelewy natychmiastowe. System przechodzi z monolitu na architekturę mikroserwisów opartą o zdarzenia. Budżet do 180 zł/h.\n\nZespół liczy 8 osób, dwutygodniowe sprinty.",
   sections: { must: true, nice: true, params: true, process: true },
   show_on_recruiter_page: true,
-  approved_at: null,
-  approved_by_name: null,
+  approved_at: "2026-10-18T12:20:00Z",
+  approved_by_name: "Marta Przykładowa",
+  approved_content_stale: false,
+  theme: null,
+  theme_default: "terminal",
+  // Opis zatwierdzony 18.10, potem ktoś dopisał kwotę: strona działa na
+  // wersji zatwierdzonej, a okno pokazuje czekające zmiany.
+  live: {
+    title: "Senior Java Developer",
+    subtitle: "rozwój platformy płatności w dużym projekcie z sektora bankowego",
+    about:
+      "Dołączysz do zespołu, który przebudowuje platformę obsługującą płatności kartowe i przelewy natychmiastowe.\n\nZespół liczy 8 osób, dwutygodniowe sprinty.",
+    sections: { must: true, nice: true, params: true, process: true },
+    pending_changes: true,
+  },
   findings: [
     {
       code: "money",
@@ -82,11 +99,133 @@ const PROFILE_WITH_FINDING: JobPublicProfile = {
   },
 };
 
+// Zakładka „Wyniki” — fikcyjne osoby.
+const LINK_PEOPLE: LinkPeople = {
+  days: 30,
+  total: 2,
+  truncated: false,
+  people: [
+    {
+      candidate_id: 9001,
+      full_name: "Celina Fikcyjna",
+      applied_at: "2026-10-28T09:12:00Z",
+      was_duplicate: false,
+      kind: "job",
+      slug: "senior-java-developer-7kq2",
+      job_id: 101,
+      job_title: "Senior Java Developer · Spring, Kafka · 6+ lat",
+      current_stage: "screening",
+      current_job_id: 101,
+      current_job_title: "Senior Java Developer · Spring, Kafka · 6+ lat",
+      screening_status: null,
+      screening_outcome: null,
+      in_my_people: false,
+    },
+    {
+      candidate_id: 9002,
+      full_name: "Damian Testowy",
+      applied_at: "2026-10-21T14:40:00Z",
+      was_duplicate: true,
+      kind: "recruiter",
+      slug: "marta-n",
+      job_id: null,
+      job_title: null,
+      current_stage: null,
+      current_job_id: null,
+      current_job_title: null,
+      screening_status: null,
+      screening_outcome: null,
+      in_my_people: true,
+    },
+  ],
+};
+
+// Zakładka „Wyniki” (etap 4) — fikcyjne liczby.
+const LINK_RESULTS: LinkResults = {
+  days: 30,
+  totals: {
+    visits: 212,
+    applications: 18,
+    new_candidates: 11,
+    existing_candidates: 7,
+    in_process: 9,
+    verified: 4,
+    cv_sent: 2,
+    hired: 0,
+  },
+  links: [
+    {
+      kind: "job",
+      slug: "senior-java-developer-7kq2",
+      public_url: "https://kariera.b2bnetwork.pl/r/senior-java-developer-7kq2",
+      job_id: 101,
+      job_title: "Senior Java Developer · Spring, Kafka · 6+ lat",
+      state: "live",
+      visits: 148,
+      applications: 12,
+      new_candidates: 8,
+      existing_candidates: 4,
+      in_process: 7,
+      verified: 3,
+      cv_sent: 2,
+      hired: 0,
+    },
+    {
+      kind: "job",
+      slug: "analityk-biznesowy-q8m1",
+      public_url: "https://kariera.b2bnetwork.pl/r/analityk-biznesowy-q8m1",
+      job_id: 103,
+      job_title: "Analityk biznesowy",
+      state: "not_live",
+      visits: 0,
+      applications: 0,
+      new_candidates: 0,
+      existing_candidates: 0,
+      in_process: 0,
+      verified: 0,
+      cv_sent: 0,
+      hired: 0,
+    },
+    {
+      kind: "recruiter",
+      slug: "marta-n",
+      public_url: "https://kariera.b2bnetwork.pl/marta-n",
+      job_id: null,
+      job_title: null,
+      state: "live",
+      visits: 64,
+      applications: 6,
+      new_candidates: 3,
+      existing_candidates: 3,
+      in_process: 2,
+      verified: 1,
+      cv_sent: 0,
+      hired: 0,
+    },
+  ],
+};
+
 const INVITE_LINKS: InviteLink[] = [
   {
+    token: "tok-0",
+    url: "https://kariera.b2bnetwork.pl/r/senior-java-developer-7kq2",
+    public_url: "https://kariera.b2bnetwork.pl/r/senior-java-developer-7kq2",
+    kind: "job",
+    slug: "senior-java-developer-7kq2",
+    job: { id: 101, title: "Bank Północny: Senior Java Developer (ZOB-3003)" },
+    label: null,
+    expires_at: null,
+    revoked: false,
+    use_count: 3,
+    visit_count: 41,
+    last_used_at: "2026-10-18T16:40:00Z",
+    created_at: "2026-10-18T12:21:00Z",
+    status: "used",
+  },
+  {
     token: "tok-1",
-    url: "https://kariera.dynaminds.pl/r/devops-engineer-azure-p3x9",
-    public_url: "https://kariera.dynaminds.pl/r/devops-engineer-azure-p3x9",
+    url: "https://kariera.b2bnetwork.pl/r/devops-engineer-azure-p3x9",
+    public_url: "https://kariera.b2bnetwork.pl/r/devops-engineer-azure-p3x9",
     kind: "job",
     slug: "devops-engineer-azure-p3x9",
     job: { id: 102, title: "DevOps Engineer (Azure)" },
@@ -119,14 +258,16 @@ const INVITE_LINKS: InviteLink[] = [
 const CAREER_LINK: CareerLinkState = {
   link: {
     slug: "marta-n",
-    public_url: "https://kariera.dynaminds.pl/marta-n",
+    public_url: "https://kariera.b2bnetwork.pl/marta-n",
     created_at: "2026-09-01T10:00:00Z",
     visit_count: 112,
+    about:
+      "Szukam ludzi do projektów w bankowości i ubezpieczeniach — głównie Java, dane i chmura. Odzywam się do każdej osoby w ciągu dwóch dni roboczych.",
   },
   stats: { days: 30, applications: 9, new_candidates: 6 },
   suggested_slug: "marta-n",
-  base_url: "https://kariera.dynaminds.pl",
-  recruiter_base_url: "https://kariera.dynaminds.pl/",
+  base_url: "https://kariera.b2bnetwork.pl",
+  recruiter_base_url: "https://kariera.b2bnetwork.pl/",
   jobs: [
     { job_id: 101, title: "Senior Java Developer", profile_status: "draft", show_on_recruiter_page: true, has_link: false },
     { job_id: 102, title: "DevOps Engineer (Azure)", profile_status: "approved", show_on_recruiter_page: true, has_link: true },
@@ -168,6 +309,8 @@ export default function CareerSharePreviewPage() {
     qc.setQueryData(inviteLinksQueryKey(), INVITE_LINKS, future);
     qc.setQueryData(jobPublicProfileQueryKey(101), PROFILE_WITH_FINDING, future);
     qc.setQueryData(careerLinkQueryKey(), CAREER_LINK, future);
+    qc.setQueryData(linkResultsQueryKey(30), LINK_RESULTS, future);
+    qc.setQueryData(linkPeopleQueryKey(30), LINK_PEOPLE, future);
     return qc;
   }, []);
 
@@ -191,7 +334,7 @@ export default function CareerSharePreviewPage() {
             <JobShareTab enabled defaultJobId={101} />
           </Case>
 
-          <Case id="case-general" title="2. Mój link ogólny — link aktywny, statystyki, widoczność">
+          <Case id="case-general" title="2. Mój link ogólny — link aktywny, „O mnie”, statystyki, widoczność">
             <GeneralLinkTab enabled />
           </Case>
         </main>

@@ -44,9 +44,7 @@ ROLES = [
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.finance,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
     UserRole.user,
 ]
 
@@ -58,9 +56,7 @@ OPERATIONAL_ROLES = {
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.finance,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
 }
 # Od 2026-09-17 head_of_recruitment ma parytet z rekruterem (CANDIDATE_WRITE_ROLES).
 WRITE_ROLES = {
@@ -69,16 +65,13 @@ WRITE_ROLES = {
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.finance,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
 }
 EXPORT_ROLES = {
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.finance,
 }
 FINANCE_ROLES = {UserRole.admin}
@@ -177,6 +170,8 @@ READ_ENDPOINTS = [
     ("GET", "/api/candidates/999999/languages", None),
     ("GET", "/api/candidates/999999/profile-rate", None),
     ("GET", "/api/candidates/999999/recent-recruitments?limit=5", None),
+    ("GET", "/api/candidates/999999/screening-answers", None),
+    ("GET", "/api/candidates/999999/recommendation-cards", None),
     ("GET", "/api/candidates/999999/activity-summary", None),
     ("POST", "/api/candidates/999999/activity-summary/refresh", None),
     (
@@ -191,6 +186,7 @@ READ_ENDPOINTS = [
     ("GET", "/api/candidates/check-exists?email=nobody%40example.com", None),
     ("GET", "/api/candidates/companies/suggest", None),
     ("GET", "/api/candidates/titles/suggest", None),
+    ("GET", "/api/candidates/keywords/suggest?q=java", None),
     ("GET", "/api/notes", None),
     ("GET", "/api/candidates/999999/sources", None),
     ("GET", "/api/talent-pools", None),
@@ -198,7 +194,6 @@ READ_ENDPOINTS = [
     ("GET", "/api/marketplace/candidates", None),
     ("POST", "/api/search/candidates", {}),
     ("POST", "/api/candidates/check-duplicates", {}),
-    ("POST", "/api/candidates/bulk-cv-download", {"candidate_ids": [999999]}),
     # ── PR1b: sibling routers that serve the SAME candidate data ────────────
     # Found by the independent module-2 re-audit: PR1 closed the canonical
     # /api/candidates/* surfaces but these two routers kept bare CurrentUser,
@@ -210,6 +205,7 @@ READ_ENDPOINTS = [
     ("GET", "/api/candidates/stages/999999/cv/original/download", None),
     ("GET", "/api/candidates/stages/999999/cv/branded", None),
     ("GET", "/api/candidates/stages/999999/cv/branded/render-pdf", None),
+    ("GET", "/api/candidates/stages/999999/cv/branded/sources", None),
     ("GET", "/api/candidates/pins", None),
     ("GET", "/api/candidates/999999/pin", None),
     ("POST", "/api/candidates/999999/pin", None),
@@ -252,6 +248,23 @@ async def test_read_surface_role_matrix(
             assert resp.status_code == 403, (
                 f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
             )
+
+
+async def test_bulk_zip_is_closed_for_the_recruiter_only(
+    m2_client: AsyncClient, headers_by_role: dict[UserRole, dict[str, str]]
+):
+    """Paczka ZIP bez samej roli rekrutera (decyzja Artura 02.11.2026)."""
+
+    for role in ROLES:
+        resp = await m2_client.post(
+            "/api/candidates/bulk-cv-download",
+            headers=headers_by_role[role],
+            json={"candidate_ids": [999999]},
+        )
+        if role in OPERATIONAL_ROLES - {UserRole.recruiter}:
+            assert resp.status_code != 403, f"[{role.value}] ZIP unexpectedly forbidden"
+        else:
+            assert resp.status_code == 403, f"[{role.value}] ZIP expected 403"
 
 
 async def test_viewer_gets_403_not_404_for_existing_and_missing_ids(
@@ -414,8 +427,7 @@ WRITE_ENDPOINTS = [
         "/api/candidates/999999/identity-quarantine/note/999999",
         {"provenance": "manual_review"},
     ),
-    # expected-rate przeniesiony z write- do rate-edit-matrix (M4 PR-01):
-    # sourcer stracił edycję stawek — patrz test niżej i
+    # expected-rate ma własną macierz (M4 PR-01) — patrz test niżej i
     # tests/test_recruitment_module_access.py.
     (
         "POST",
@@ -428,14 +440,15 @@ WRITE_ENDPOINTS = [
     ("POST", "/api/candidates/999999/documents", None),
 ]
 
-# M4 PR-01: stawka kandydata = osobne capability (bez sourcera) — audyt M4
-# P0.3. Finance dołączył 19.08 (tier recruitera, pełny dostęp operacyjny).
+# M4 PR-01: stawka kandydata = osobne capability — audyt M4 P0.3. Od
+# 02.10.2026 (decyzja Artura) ma je każda rola wewnętrzna, także Talent
+# Community Manager i sourcer; bez niego zostaje rola podglądu `user`.
 RATE_EDIT_ROLES = {
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.finance,
-    UserRole.tac,
+    UserRole.talent_community_manager,
     UserRole.recruiter,
 }
 
@@ -443,7 +456,7 @@ RATE_EDIT_ROLES = {
 async def test_expected_rate_requires_rate_edit_capability(
     m2_client: AsyncClient, headers_by_role: dict[UserRole, dict[str, str]]
 ):
-    """Expected rate — rola sourcer i viewer 403 (M4 PR-01 zawężenie)."""
+    """Expected rate — viewer 403; role wewnętrzne przechodzą bramkę roli."""
     for role in ROLES:
         resp = await m2_client.patch(
             "/api/candidates/999999/recruitments/999999/expected-rate",
@@ -512,7 +525,7 @@ def test_client_rate_rule_roles_ignore_ownership():
         assert user_can_write_client_rate(mk(role), job) is expected, role
         assert user_can_write_client_rate(mk(role)) is expected, role
     # Właściciel (recruiter_id) i twórca (created_by) nie zyskują zapisu.
-    for role in (UserRole.recruiter, UserRole.sourcer, UserRole.tac, UserRole.user):
+    for role in (UserRole.recruiter, UserRole.user):
         assert user_can_write_client_rate(mk(role, uid=7), job) is False
         assert user_can_write_client_rate(mk(role, uid=8), job) is False
 
@@ -556,10 +569,8 @@ async def test_client_rate_write_is_admin_and_dl_only_even_for_the_owner(
     for role in (
         UserRole.head_of_recruitment,
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.finance,
         UserRole.recruiter,
-        UserRole.sourcer,
         UserRole.user,
     ):
         resp = await m2_client.patch(path, headers=headers_by_role[role], json=body)
@@ -679,7 +690,7 @@ async def test_export_role_matrix(
             )
 
     # POST variant: viewer + recruiter denied regardless of body shape.
-    for role in (UserRole.user, UserRole.recruiter, UserRole.sourcer):
+    for role in (UserRole.user, UserRole.recruiter):
         resp = await m2_client.post(
             "/api/candidates/export",
             headers=headers_by_role[role],
@@ -875,14 +886,14 @@ async def test_seeking_contractors_rejects_viewer(
 
 
 async def test_secondary_role_grants_candidate_access(m2_client: AsyncClient):
-    """A valid Recruiter+TAC hybrid gets export through its secondary TAC role.
+    """A Recruiter+Delivery Lead hybrid gets export through its secondary role.
 
     Recruiter alone cannot export candidates, so the successful response pins
     union semantics without constructing the forbidden legacy-viewer hybrid.
     """
     email, password = await _seed_user(
         UserRole.recruiter,
-        secondary=[UserRole.recruiter.value, UserRole.tac.value],
+        secondary=[UserRole.recruiter.value, UserRole.delivery_lead.value],
     )
     headers = await _login(m2_client, email, password)
 

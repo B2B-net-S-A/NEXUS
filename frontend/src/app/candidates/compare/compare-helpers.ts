@@ -46,3 +46,63 @@ export function skillLevelLabel(level: unknown): string {
   const key = level.trim().toLowerCase();
   return SKILL_LEVEL_LABELS[key] ?? level.trim();
 }
+
+/** Skąd porównanie wie o umiejętności: z listy umiejętności profilu albo
+ *  z „Zweryfikowanych technologii” (profil pokazuje je jako „potwierdzone na
+ *  screeningu”). */
+export type CandidateSkillSource = "skills" | "verified";
+
+function skillName(value: unknown): string | null {
+  if (typeof value === "string") return value.trim() || null;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const name = record.name ?? record.tech ?? record.skill;
+    return typeof name === "string" && name.trim() ? name.trim() : null;
+  }
+  return null;
+}
+
+/** Umiejętności kandydata do porównania z wymaganiami rekrutacji — klucz bez
+ *  wielkości liter, wartość = źródło (umiejętność z listy wygrywa).
+ *
+ *  Runda 10 (F18): porównanie czytało wyłącznie `skills`, a profil pokazuje
+ *  w sekcji „Umiejętności” także `verified_tech` (tak samo liczy filtr
+ *  „Umiejętności” na liście). Python dopisany jako zweryfikowana technologia
+ *  był na profilu „potwierdzony na screeningu”, a w porównaniu — „brak”. */
+export function candidateSkillSources(candidate: {
+  skills?: unknown;
+  verified_tech?: unknown;
+}): Map<string, CandidateSkillSource> {
+  const out = new Map<string, CandidateSkillSource>();
+  const skills: unknown[] = Array.isArray(candidate?.skills) ? candidate.skills : [];
+  for (const item of skills) {
+    const name = skillName(item);
+    if (name) out.set(name.toLowerCase(), "skills");
+  }
+  const verified: unknown[] = Array.isArray(candidate?.verified_tech)
+    ? candidate.verified_tech
+    : [];
+  for (const item of verified) {
+    const name = skillName(item);
+    if (name && !out.has(name.toLowerCase())) out.set(name.toLowerCase(), "verified");
+  }
+  return out;
+}
+
+/** Zweryfikowane technologie spoza listy umiejętności — w oryginalnym zapisie. */
+export function verifiedOnlySkills(candidate: {
+  skills?: unknown;
+  verified_tech?: unknown;
+}): string[] {
+  return [...candidateSkillSources(candidate)]
+    .filter(([, source]) => source === "verified")
+    .map(([key]) => {
+      const verified: unknown[] = Array.isArray(candidate?.verified_tech)
+        ? candidate.verified_tech
+        : [];
+      const original = verified
+        .map(skillName)
+        .find((name) => name !== null && name.toLowerCase() === key);
+      return original ?? key;
+    });
+}

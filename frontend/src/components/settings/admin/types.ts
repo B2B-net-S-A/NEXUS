@@ -1,3 +1,5 @@
+import type { UserPermissionsSave } from "@/lib/admin-permissions";
+
 export interface AdminUser {
   id: number;
   email: string;
@@ -5,13 +7,19 @@ export interface AdminUser {
   role: string;
   /** Multi-role (migracja 0110). Lista wszystkich ról użytkownika. */
   roles?: string[];
-  recruiter_role: string | null;
   is_active: boolean;
   /** Imienne uprawnienie do usuwania klientów z profilu (0307). */
   can_delete_clients?: boolean;
+  /** Imienne prawo do maila „Podsumowanie Rady” (0631). */
+  receives_board_report?: boolean;
+  /** Uprawnienia nadane tej osobie, których nie dają jej role (plakietka „+N”). */
+  extra_permissions?: string[];
   activity_count: number;
   last_activity: string | null;
   created_at: string;
+  /** 0612: konto po pierwszym logowaniu czeka na decyzję, kim jest
+   *  (filtr „Do decyzji”, plakietka „Nowa · zdecyduj”). */
+  setup_pending_since?: string | null;
 }
 
 export interface UserFormData {
@@ -21,11 +29,17 @@ export interface UserFormData {
   role: string;
   /** Multi-role (migracja 0110). Lista ról secondary + primary. */
   roles: string[];
-  recruiter_role: string;
   /** Imienne uprawnienie do usuwania klientów (tylko edycja istniejącego konta). */
   can_delete_clients: boolean;
+  /** Imienne prawo do maila „Podsumowanie Rady” (tylko edycja konta). */
+  receives_board_report: boolean;
   /** Odpina tożsamość Microsoft — następne logowanie SSO przypnie nowe konto. */
   clear_microsoft_identity: boolean;
+  /**
+   * Zmiana dodatkowych uprawnień osoby — osobne żądanie po zapisie konta
+   * (tylko edycja; brak albo `null` = nie ma czego wysyłać).
+   */
+  permissions?: UserPermissionsSave | null;
 }
 
 // Pełna lista ról systemu (sync z backend/app/models/user.py:UserRole).
@@ -35,33 +49,40 @@ export const ROLES = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "trainee",
+  "automation",
+  "employee",
+  "board",
   "user",
 ];
 
 /**
  * Role WYŁĄCZNE — nie łączą się z żadną inną (lustro CHECK-ów w bazie).
  * Praktykant (0374) widzi tylko „Telefony na dziś”; dodatkowa rola
- * otworzyłaby mu resztę aplikacji.
+ * otworzyłaby mu resztę aplikacji. „Automatyzacje” (0446) i „Rada
+ * nadzorcza” (0490) tylko czytają — druga rola dałaby im zapis.
  */
-export const EXCLUSIVE_ROLES: readonly string[] = ["finance", "user", "trainee"];
+export const EXCLUSIVE_ROLES: readonly string[] = [
+  "finance",
+  "user",
+  "trainee",
+  "automation",
+  "employee",
+  "board",
+];
+
+/**
+ * Rola i grupa uprawnień programu „Ludzie w NEXUSIE” — przy wyłączonym
+ * programie (`useHrProgram`, Artur 18.10.2026) nie ma ich na ekranach
+ * „Osoby i role”, chyba że ktoś już je ma.
+ */
+export const HR_PROGRAM_ROLE = "employee";
+export const HR_PROGRAM_PERMISSION_GROUP = "people";
 
 export function isExclusiveRole(role: string): boolean {
   return EXCLUSIVE_ROLES.includes(role);
 }
-
-export const RECRUITER_ROLES = [
-  "",
-  "recruiter",
-  "sourcer",
-  "tac",
-  "delivery_lead",
-  "quality_control",
-  "admin",
-];
 
 export const ROLE_LABELS: Record<string, string> = {
   admin: "Administrator",
@@ -69,23 +90,14 @@ export const ROLE_LABELS: Record<string, string> = {
   head_of_recruitment: "Head of Recruitment",
   delivery_lead: "Delivery Lead",
   talent_community_manager: "Talent Community Manager",
-  tac: "TAC",
   recruiter: "Rekruter",
-  sourcer: "Sourcer",
   user: "Viewer (legacy)",
   trainee: "Praktykant",
+  automation: "Automatyzacje",
+  employee: "Konsultant/Kontraktor",
+  board: "Rada nadzorcza",
   manager: "Manager",
   client: "Klient",
-};
-
-export const RECRUITER_ROLE_LABELS: Record<string, string> = {
-  "": "—",
-  recruiter: "Rekruter",
-  sourcer: "Sourcer",
-  tac: "TAC",
-  delivery_lead: "Delivery Lead",
-  quality_control: "Quality Control",
-  admin: "Admin",
 };
 
 export function formatDate(iso: string | null) {

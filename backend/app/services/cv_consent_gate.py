@@ -20,6 +20,14 @@ Reguły, które łatwo cofnąć „przy okazji":
   pokazuje komunikat i przycisk dołączenia zgody.
 * Wyłącznik awaryjny: ``CV_CONSENT_DOWNLOAD_GATE_ENABLED=false``.
 * Blokada dotyczy POBRANIA, nie ruchu w pipeline ani edycji treści.
+* Kopia (szkic CV etapu, szkic edytora generatora) jest sprawdzana po WŁASNYM
+  obrazie (``branded_consent_content``) — to z niego renderuje się DOCX. Wymóg
+  zgody jest zamrożony w metadanych kopii (``consent_required``), więc
+  usunięcie wygenerowanego CV (FK ``SET NULL``) nie zdejmuje blokady (runda 7,
+  R7-X4-1 i R7-X4-4).
+* Druk / PDF nigdy nie niesie obrazu zgody, więc przy wymogu zgody jest
+  zablokowany zawsze — tym samym kodem 409 i tym samym wyłącznikiem (decyzja
+  właściciela 26.09.2026, R7-X4-3).
 """
 
 from __future__ import annotations
@@ -34,6 +42,15 @@ CONSENT_REQUIRED_MESSAGE = (
     "CV. Dołącz zgodę do tego CV — do tego czasu nie da się go pobrać ani "
     "udostępnić."
 )
+
+
+PRINT_BLOCKED_MESSAGE = (
+    "Ten klient wymaga zrzutu zgody kandydata na przetwarzanie danych pod treścią "
+    "CV, a wydruk go nie zawiera. Pobierz DOCX — ma zgodę pod treścią."
+)
+# Klucz w metadanych kopii CV (etap, wersja) — wymóg zgody zamrożony przy
+# podpięciu wygenerowanego CV; przeżywa usunięcie wiersza generatora.
+FROZEN_REQUIREMENT_KEY = "consent_required"
 
 
 def gate_enabled() -> bool:
@@ -73,11 +90,73 @@ def consent_missing(row) -> bool:
     return gate_enabled() and consent_required(row) and not consent_attached(row)
 
 
-def _refuse() -> None:
+def _refuse(message: str = CONSENT_REQUIRED_MESSAGE) -> None:
     raise HTTPException(
         status_code=409,
-        detail={"code": CONSENT_REQUIRED_CODE, "message": CONSENT_REQUIRED_MESSAGE},
+        detail={"code": CONSENT_REQUIRED_CODE, "message": message},
     )
+
+
+def with_frozen_requirement(metadata, generated) -> dict:
+    """Metadane kopii z zamrożonym wymogiem zgody wiersza ``generated``.
+
+    Zawsze nowy słownik (kolumna JSON nie śledzi zmian w miejscu). Wymóg raz
+    zamrożony nie jest zdejmowany: kopia opisuje zasady, pod którymi powstał
+    dokument źródłowy.
+    """
+    frozen = dict(metadata or {})
+    if consent_required(generated):
+        frozen[FROZEN_REQUIREMENT_KEY] = True
+    return frozen
+
+
+def copy_consent_required(generated, copy) -> bool:
+    """Wymóg zgody kopii: z wiersza generatora, a bez niego — zamrożony."""
+    if generated is not None and consent_required(generated):
+        return True
+    metadata = getattr(copy, "branded_render_metadata", None)
+    return bool(isinstance(metadata, dict) and metadata.get(FROZEN_REQUIREMENT_KEY))
+
+
+def ensure_copy_downloadable(generated, copy, version=None) -> None:
+    """409 ``consent_required`` dla pliku renderowanego z KOPII CV.
+
+    ``copy`` = ``CandidateStageCV`` albo ``CvGeneratedDraft``; DOCX szkicu
+    powstaje z ``copy.branded_consent_content``, więc to ten obraz musi być
+    (wiersz generatora bywa już ze zgodą, a kopia — ze starszej wersji bez
+    niej). ``version`` = zatwierdzona wersja: jej własny obraz.
+    """
+    if not gate_enabled() or not copy_consent_required(generated, copy):
+        return
+    if version is not None:
+        if not getattr(version, "consent_content", None):
+            _refuse()
+        return
+    if not getattr(copy, "branded_consent_content", None):
+        _refuse()
+
+
+def ensure_printable(generated, copy=None) -> None:
+    """Druk / PDF przy wymogu zgody jest zablokowany zawsze (R7-X4-3).
+
+    Wydruk składa się z HTML edytora i nie niesie obrazu zgody. Bez zgody —
+    ten sam komunikat co przy pobraniu; ze zgodą — prośba o DOCX.
+    """
+    if not gate_enabled():
+        return
+    required = (
+        copy_consent_required(generated, copy)
+        if copy is not None
+        else generated is not None and consent_required(generated)
+    )
+    if not required:
+        return
+    has_image = (
+        bool(getattr(copy, "branded_consent_content", None))
+        if copy is not None
+        else consent_attached(generated)
+    )
+    _refuse(PRINT_BLOCKED_MESSAGE if has_image else CONSENT_REQUIRED_MESSAGE)
 
 
 def ensure_downloadable(row, version=None) -> None:
@@ -103,6 +182,10 @@ __all__ = [
     "consent_attached",
     "consent_missing",
     "consent_required",
+    "copy_consent_required",
+    "ensure_copy_downloadable",
     "ensure_downloadable",
+    "ensure_printable",
+    "with_frozen_requirement",
     "gate_enabled",
 ]

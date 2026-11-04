@@ -6,7 +6,7 @@ Covers:
 * ``User.has_any_role`` — used by ``require_roles`` dependency
 * ``User.get_all_roles`` — set union of primary + roles
 * ``User.ensure_roles_invariant`` — primary always inside ``roles``
-* ``require_roles`` dependency — hybrid DL+TAC user passes both
+* ``require_roles`` dependency — hybrid DL+recruiter user passes both
   ``DeliveryLeadPlus`` and ``TacPlus``.
 """
 
@@ -41,15 +41,15 @@ def test_has_role_finds_primary():
 
 
 def test_has_role_finds_secondary():
-    u = _make_user(UserRole.delivery_lead, ["delivery_lead", "tac"])
-    assert u.has_role(UserRole.tac) is True
-    assert u.has_role("tac") is True
+    u = _make_user(UserRole.delivery_lead, ["delivery_lead", "recruiter"])
+    assert u.has_role(UserRole.recruiter) is True
+    assert u.has_role("recruiter") is True
 
 
 def test_has_role_returns_false_for_unrelated_role():
-    u = _make_user(UserRole.delivery_lead, ["delivery_lead", "tac"])
+    u = _make_user(UserRole.delivery_lead, ["delivery_lead", "recruiter"])
     assert u.has_role(UserRole.admin) is False
-    assert u.has_role(UserRole.sourcer) is False
+    assert u.has_role(UserRole.finance) is False
 
 
 def test_has_role_handles_empty_roles_list():
@@ -63,8 +63,8 @@ def test_has_role_handles_empty_roles_list():
 
 
 def test_has_any_role_passes_with_one_match():
-    u = _make_user(UserRole.delivery_lead, ["delivery_lead", "tac"])
-    assert u.has_any_role(UserRole.admin, UserRole.tac) is True
+    u = _make_user(UserRole.delivery_lead, ["delivery_lead", "recruiter"])
+    assert u.has_any_role(UserRole.admin, UserRole.recruiter) is True
     assert u.has_any_role(UserRole.admin, UserRole.delivery_lead) is True
 
 
@@ -77,8 +77,8 @@ def test_has_any_role_fails_with_no_match():
 
 
 def test_get_all_roles_unions_primary_and_secondary():
-    u = _make_user(UserRole.delivery_lead, ["delivery_lead", "tac"])
-    assert u.get_all_roles() == {UserRole.delivery_lead, UserRole.tac}
+    u = _make_user(UserRole.delivery_lead, ["delivery_lead", "recruiter"])
+    assert u.get_all_roles() == {UserRole.delivery_lead, UserRole.recruiter}
 
 
 def test_get_all_roles_drops_unknown_strings():
@@ -88,8 +88,8 @@ def test_get_all_roles_drops_unknown_strings():
 
 
 def test_get_all_roles_when_primary_only():
-    u = _make_user(UserRole.sourcer, ["sourcer"])
-    assert u.get_all_roles() == {UserRole.sourcer}
+    u = _make_user(UserRole.recruiter, ["recruiter"])
+    assert u.get_all_roles() == {UserRole.recruiter}
 
 
 # ── ensure_roles_invariant ──────────────────────────────────────────────────
@@ -105,7 +105,7 @@ def test_ensure_roles_invariant_inserts_missing_primary():
 
 
 def test_ensure_roles_invariant_is_idempotent():
-    u = _make_user(UserRole.delivery_lead, ["delivery_lead", "tac"])
+    u = _make_user(UserRole.delivery_lead, ["delivery_lead", "recruiter"])
     before = list(u.roles)
     u.ensure_roles_invariant()
     assert u.roles == before
@@ -115,18 +115,18 @@ def test_ensure_roles_invariant_is_idempotent():
 
 
 @pytest.mark.asyncio
-async def test_require_roles_passes_hybrid_dl_tac_user_for_tac_plus():
-    """DL+TAC user must pass a TAC-only guard via the secondary role."""
-    u = _make_user(UserRole.delivery_lead, ["delivery_lead", "tac"])
-    dep = require_roles(UserRole.admin, UserRole.delivery_lead, UserRole.tac)
+async def test_require_roles_passes_hybrid_dl_recruiter_user_for_recruiter_guard():
+    """DL+recruiter user must pass a recruiter guard via the secondary role."""
+    u = _make_user(UserRole.delivery_lead, ["delivery_lead", "recruiter"])
+    dep = require_roles(UserRole.admin, UserRole.recruiter)
     result = await dep(current_user=u)
     assert result is u
 
 
 @pytest.mark.asyncio
-async def test_require_roles_passes_hybrid_dl_tac_user_for_dl_plus():
+async def test_require_roles_passes_hybrid_dl_recruiter_user_for_dl_plus():
     """Same user must pass the DL-only guard via the primary role."""
-    u = _make_user(UserRole.delivery_lead, ["delivery_lead", "tac"])
+    u = _make_user(UserRole.delivery_lead, ["delivery_lead", "recruiter"])
     dep = require_roles(UserRole.admin, UserRole.delivery_lead)
     result = await dep(current_user=u)
     assert result is u

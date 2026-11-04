@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { AxiosError, AxiosHeaders } from "axios";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -114,5 +115,57 @@ describe("EventHistoryTab", () => {
     expect(
       screen.queryByText("Nie odnotowano jeszcze żadnych zdarzeń."),
     ).not.toBeInTheDocument();
+  });
+
+  it("wynik jako przełącznik „Zablokowane”, powód w jednej linii z rozwinięciem (21.10.2026)", async () => {
+    const reason = "Usunięcie zablokowane: Otwarte zamówienia (1). Najpierw zamknij zamówienia klienta.";
+    mocks.get.mockResolvedValue({
+      data: {
+        ...LABELS,
+        total: 1,
+        limit: 50,
+        offset: 0,
+        items: [
+          {
+            id: 7,
+            occurred_at: "2026-10-21T09:25:00Z",
+            event_type: "client.delete",
+            event_label: "Usunięcie klienta",
+            entity_type: "client",
+            entity_type_label: "Klient",
+            entity_id: 3,
+            entity_label: "Firma Testowa",
+            outcome: "blocked",
+            outcome_label: "Zablokowano",
+            reason_code: "open_orders",
+            reason,
+            actor_user_id: 1,
+            actor_name: "Osoba Testowa",
+            actor_email: "osoba@example.com",
+            client_id: 3,
+            client_name: "Firma Testowa",
+            details: {},
+          },
+        ],
+      },
+    });
+    const user = userEvent.setup();
+    renderTab();
+
+    const line = await screen.findByText(reason);
+    expect(line).toHaveClass("line-clamp-1");
+    expect(screen.queryByText("osoba@example.com")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Pokaż szczegóły" }));
+    expect(screen.getByText(reason)).not.toHaveClass("line-clamp-1");
+    expect(screen.getByText("osoba@example.com")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Zablokowane" }));
+    await waitFor(() =>
+      expect(mocks.get).toHaveBeenLastCalledWith(
+        "/api/settings/event-history",
+        expect.objectContaining({ params: expect.objectContaining({ outcome: "blocked" }) }),
+      ),
+    );
+    expect(screen.getByRole("button", { name: "Zablokowane" })).toHaveAttribute("aria-pressed", "true");
   });
 });

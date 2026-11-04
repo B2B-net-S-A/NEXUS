@@ -37,6 +37,7 @@ from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.models.candidate_document import CandidateDocument
 from app.services.cv_enrichment import _CV_PLACEHOLDER_NAMES, _apply_cv_enrichment
 from app.services.ai_models import model_for
+from app.core.log_safety import safe_filename, safe_storage_key
 
 logger = logging.getLogger(__name__)
 
@@ -185,8 +186,8 @@ async def enrich_candidate_from_cv_bytes(
             logger.info(
                 "[cv_backfill] text extraction failed cand=%s file=%s: %s",
                 candidate.id,
-                filename,
-                e,
+                safe_filename(filename),  # runda 6 audytu: nazwa pliku = nazwisko
+                type(e).__name__,
             )
 
     parsed: dict[str, Any] = {}
@@ -369,8 +370,8 @@ async def backfill_candidate_from_stored_cv(
             logger.warning(
                 "[cv_backfill] download failed cand=%s key=%s: %s",
                 candidate.id,
-                candidate.cv_storage_key,
-                e,
+                safe_storage_key(candidate.cv_storage_key),
+                type(e).__name__,
             )
     elif candidate.cv_file_content:
         cv_bytes = candidate.cv_file_content
@@ -447,6 +448,10 @@ async def backfill_missing_names(
         # padł parser, magazyn plików czy zapis — a to trzy różne naprawy.
         "error_types": {},
         "last_id": ids[-1] if ids else None,
+        # Runda 10 (R10-N8-4): pozycja PRZEROBIONA, nie koniec paczki.
+        # `last_id` (ids[-1]) zna się od startu — wznowienie z niego po
+        # restarcie w połowie biegu pominęłoby nieprzerobiony ogon paczki.
+        "cursor_id": after_id,
     }
     if progress is not None:
         progress.update(stats)
@@ -457,6 +462,7 @@ async def backfill_missing_names(
     for cand_id in ids:
         candidate = await db.scalar(select(Candidate).where(Candidate.id == cand_id))
         if candidate is None:
+            stats["cursor_id"] = cand_id
             continue
         try:
             # Kwota `cv_name_backfill` — OSOBNY kubełek od `cv_backfill`, mimo
@@ -495,6 +501,7 @@ async def backfill_missing_names(
             stats["error_types"][cand_id] = type(e).__name__
             logger.warning("[cv_backfill] candidate %s failed: %s", cand_id, e)
         stats["processed"] += 1
+        stats["cursor_id"] = cand_id
         if progress is not None:
             progress.update(stats)
         if stats["processed"] % 25 == 0:

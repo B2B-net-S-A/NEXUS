@@ -111,35 +111,57 @@ class _Rows:
         return self
 
 
+@pytest.mark.usefixtures("empty_credited_snapshot")
 async def test_monthly_race_tie_break_is_id_not_name(monkeypatch):
     """Remis o 1500 PLN nie może zależeć od pisowni nazwy.
 
     Tie-break po tekście pod musl to porównanie bajtowe — „Łukasz" przegrywa
     z „Zbigniewem" ZAWSZE, a pierwszy wiersz tego rankingu to `qualified_leader`,
     czyli nazwisko przypisane do nagrody, potem zamrażane niezmiennie.
+    Od 15.10.2026 kolejność liczy Python (po dołożeniu dni z DynaReportera),
+    więc pilnujemy wyniku, nie tekstu SQL. Miesiąc po 12.10.2026 — w całości
+    na żywo.
     """
     monkeypatch.setattr(
         competitions, "business_days_elapsed_in_month", lambda _y, _m: 10
     )
-    db = SimpleNamespace(execute=AsyncMock(return_value=_Rows([])))
-    await competitions.monthly_most_recommendations(db, "2026-08")
-    sql = str(db.execute.await_args.args[0])
-    assert "t.name asc" not in sql.lower()
-    assert sql.lower().count("t.recommendations desc, t.id asc") == 2
-    assert "ORDER BY recommendations DESC, id ASC" in sql
+    # Atrapa sesji nie ma tabel — progi wyścigu podajemy wprost.
+    monkeypatch.setattr(
+        competitions,
+        "monthly_race_thresholds",
+        AsyncMock(
+            return_value=competitions.MonthlyRaceThresholds(
+                verifications_per_day=4, precision_pct=75.0, min_placements=2
+            )
+        ),
+    )
+    rows = [
+        SimpleNamespace(
+            id=2, name="Zbigniew", role="recruiter", verifications=5, recommendations=4
+        ),
+        SimpleNamespace(
+            id=1, name="Łukasz", role="recruiter", verifications=5, recommendations=4
+        ),
+    ]
+    db = SimpleNamespace(execute=AsyncMock(return_value=_Rows(rows)))
+    ranked = await competitions.monthly_most_recommendations(db, "2027-02")
+    assert [r.user_id for r in ranked] == [1, 2]
 
 
+@pytest.mark.usefixtures("empty_credited_snapshot")
 async def test_stage_ranking_and_hall_of_fame_tie_break_is_id_not_name():
-    db = SimpleNamespace(execute=AsyncMock(return_value=_Rows([])))
-    await competitions._rank_recruiters_by_stage(
+    rows = [
+        SimpleNamespace(id=2, name="Zbigniew", role="recruiter", cnt=3),
+        SimpleNamespace(id=1, name="Łukasz", role="recruiter", cnt=3),
+    ]
+    db = SimpleNamespace(execute=AsyncMock(return_value=_Rows(rows)))
+    ranked = await competitions._rank_recruiters_by_stage(
         db,
         stage=competitions.PipelineStage.hired,
-        start=_utc(2026, 8, 1),
-        end=_utc(2026, 9, 1),
+        start=_utc(2027, 2, 1),
+        end=_utc(2027, 3, 1),
     )
-    stage_sql = str(db.execute.await_args.args[0])
-    assert "ORDER BY count(*) DESC, u.id ASC" in stage_sql
-    assert "u.name ASC" not in stage_sql
+    assert [r.user_id for r in ranked] == [1, 2]
 
     # Hall of Fame stoi od 2026-09-01 na innej atrybucji (D2, jak „Analiza
     # placementów"), ale remis rozstrzyga TAK SAMO — pierwszy wiersz rankingu
@@ -199,7 +221,9 @@ async def test_contract_threshold_window_uses_business_today(monkeypatch):
     await contract_alerts._contracts_at_threshold(db, 30)
     sql = _sql(db.statements[0])
     assert "2026-10-01" in sql  # target = business_today + 30
-    assert "2026-09-30" in sql  # window_start = target - 1
+    # Pasmo progu 30 zaczyna się za następnym mniejszym progiem (14 dni) —
+    # runda 6 audytu zastąpiła jednodniowe okno pasmem.
+    assert "2026-09-15" in sql
 
 
 async def test_status_promotion_uses_business_today(monkeypatch):
@@ -242,7 +266,8 @@ async def test_hired_this_month_binds_warsaw_month_as_timestamps(monkeypatch):
 
     db = _Db()
     await dashboard_metrics.compute_kpi_snapshot(db)
-    hired = [s for s in db.statements if "candidate_stages" in _sql(s)]
+    # Runda 10 (R10-N8-11): pierwsze „Zatrudniony” pary z widoku D2.
+    hired = [s for s in db.statements if "analytics_first_milestones" in _sql(s)]
     assert hired, "brak zapytania o hired_this_month"
     sql = _sql(hired[-1])
     assert "2026-08-31 22:00:00" in sql

@@ -6,7 +6,15 @@ import { X } from"lucide-react";
 import api, { competenceCategoriesApi, type CompetenceCategoryOut } from"@/lib/api";
 import { KEYWORD_SCOPE_OPTIONS, type CandidateFilters } from"@/lib/url-filters";
 import { PIPELINE_STAGE_OPTIONS } from "@/lib/filter-options";
+import { stageColumnLabel, stageDateRangeLabel } from "@/lib/stage-filter";
 import { describeLanguageFilter } from "@/lib/candidate-languages";
+import { describeLocationPlaces } from "@/lib/location-places";
+import { HIDDEN_LOCATION_NOTE, HIDDEN_RATE_NOTE } from "@/lib/candidate-filter-groups";
+import {
+  patchForRemovedRecruitment,
+  patchForRemovedRecruitmentClient,
+} from "@/lib/recruitment-filter";
+import { useRecruitmentLabels } from "@/lib/recruitment-lookup";
 import {
  parseSkillExpression,
  serializeSkillBuckets,
@@ -30,6 +38,23 @@ interface ActiveFilterChipsProps {
  clientsById?: Map<number, string>;
  /** Pomija chipy, których wartość ekran pokazuje gdzie indziej (np. na pasku filtrów). */
  omitKey?: (key: string) => boolean;
+ /**
+  * Wiersze „musi mieć” Championa spoza krytycznych (okno „Szukaj ręcznie”,
+  * `splitByCritical().must`). Serwer dostaje je razem z „Mile widziane”
+  * (liczą się w ocenie, nie wycinają), ale chip mówi „Musi mieć (DL)” — „nie
+  * wycina” stoi w podpowiedzi (dłuższa etykieta ucinała nazwę przy 180 px);
+  * samo „Musi mieć:” to twardy filtr umiejętności —
+  * zgłoszenie 19.10.2026: rekruter widział swoje must-have jako „Mile widziane”.
+  */
+ mustRows?: readonly (readonly string[])[];
+}
+
+/** Klucz wiersza słów bez wielkości liter i kolejności wariantów. */
+function rowKey(row: readonly string[]): string {
+ return row
+ .map((w) => w.trim().toLocaleLowerCase("pl"))
+ .sort()
+ .join("|");
 }
 
 const REMOTE_LABELS: Record<string, string> = {
@@ -45,8 +70,9 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const EMPLOYMENT_LABELS: Record<string, string> = {
- at_client: "U klienta",
+ at_client: "Pracuje u nas",
  available: "Dostępni",
+ ending_soon: "Kończy u nas w 60 dni",
 };
 
 const AVAILABILITY_LABELS: Record<string, string> = {
@@ -62,6 +88,15 @@ const OPEN_TO_LABELS: Record<string, string> = {
  expert_consult: "Konsultacje eksperckie",
 };
 
+const RECRUITMENT_PRESENCE_LABELS: Record<
+ Exclude<CandidateFilters["recruitmentPresence"], "">,
+ string
+> = {
+ never: "Nie brał udziału w żadnej rekrutacji",
+ ever: "Brał udział w rekrutacji",
+ not_in_process: "Bez procesu w toku",
+};
+
 // Etykiety etapów z tego samego źródła co panel filtrów — osobny słownik nie
 // znał „posting” i chip pokazywał surowy slug.
 const STAGE_LABELS: Record<string, string> = Object.fromEntries(
@@ -72,6 +107,10 @@ interface Chip {
  key: string;
  label: string;
  clear: () => void;
+ /** „Mile widziane” → twardy filtr (przycisk „Wymagaj” obok chipu). */
+ require?: () => void;
+ /** Podpowiedź nad chipem; bez niej pełna etykieta (chip ucina ją przy 180 px). */
+ hint?: string;
 }
 
 function collectChips(
@@ -81,7 +120,9 @@ function collectChips(
  usersById?: Map<number, string>,
  clientsById?: Map<number, string>,
  ccById?: Map<number, string>,
- recruitmentsById?: Map<number, string>
+ recruitmentsById?: Map<number, string>,
+ recruitmentClientsById?: Map<number, string>,
+ mustKeys?: ReadonlySet<string>,
 ): Chip[] {
  const chips: Chip[] = [];
 
@@ -148,6 +189,18 @@ function collectChips(
  }),
  });
  });
+ // „Dodany na etap” — kolumna Tablicy (19.10.2026).
+ filters.stageColumns.forEach((c) => {
+ chips.push({
+ key: `stage_col:${c}`,
+ label: `Dodany na etap: ${stageColumnLabel(c)}`,
+ clear: () =>
+ onUpdate({
+ stageColumns: filters.stageColumns.filter((x) => x !== c),
+ page: 1,
+ }),
+ });
+ });
  // Otwartość i zmiana pracy były zagnieżdżone w pętli etapów: bez filtra etapu
  // nie miały chipu, a przy kilku etapach chip powielał się (UAT B-B06).
  filters.openTo.forEach((value) => {
@@ -176,7 +229,7 @@ function collectChips(
  : (usersById?.get(id) ?? `Użytkownik #${id}`);
  chips.push({
  key: `stage_by:${id}`,
- label: `Etap dodał: ${name}`,
+ label: `Dodany przez: ${name}`,
  clear: () =>
  onUpdate({
  stageMovedByIds: filters.stageMovedByIds.filter((x) => x !== id),
@@ -185,12 +238,11 @@ function collectChips(
  });
  });
  // Stage-move "when" — single chip for the (inclusive) date range.
- if (filters.stageMovedAfter || filters.stageMovedBefore) {
- const from = filters.stageMovedAfter ||"…";
- const to = filters.stageMovedBefore ||"…";
+ const stageRange = stageDateRangeLabel(filters.stageMovedAfter, filters.stageMovedBefore);
+ if (stageRange) {
  chips.push({
  key: "stage_date",
- label: `Etap dodany: ${from} – ${to}`,
+ label: `Dodany: ${stageRange}`,
  clear: () =>
  onUpdate({ stageMovedAfter: "", stageMovedBefore: "", page: 1 }),
  });
@@ -224,16 +276,37 @@ function collectChips(
  if (filters.stageCurrentOnly) {
  chips.push({
  key: "stage_current",
- label: "Tylko aktualny etap",
+ label: "Nadal na tym etapie",
  clear: () => onUpdate({ stageCurrentOnly: false, page: 1 }),
  });
  }
- if (filters.location) {
+ // D5: wybór „bez miasta: ukryte” jedzie w etykiecie chipu lokalizacji.
+ const hiddenLocation = filters.hideUnknownLocation ? ` · ${HIDDEN_LOCATION_NOTE}` : "";
+ const places = filters.locationPlaces ?? [];
+ if (places.length > 0) {
+ // D6: kilka miast z promieniami — jeden chip, „którekolwiek”.
+ const extra = filters.location
+ ? [{ city: filters.location, radiusKm: filters.locationRadiusKm }]
+ : [];
+ chips.push({
+ key: "loc",
+ label: `Lokalizacja: ${describeLocationPlaces([...extra, ...places])}${hiddenLocation}`,
+ clear: () =>
+ onUpdate({
+ location: "",
+ locationRadiusKm: null,
+ locationPlaces: [],
+ hideUnknownLocation: false,
+ page: 1,
+ }),
+ });
+ } else if (filters.location) {
  const radius = filters.locationRadiusKm;
  chips.push({
  key: "loc",
- label: radius ? `📍 ${filters.location} + ${radius} km` : `📍 ${filters.location}`,
- clear: () => onUpdate({ location: "", locationRadiusKm: null, page: 1 }),
+ label: `${radius ? `📍 ${filters.location} + ${radius} km` : `📍 ${filters.location}`}${hiddenLocation}`,
+ clear: () =>
+ onUpdate({ location: "", locationRadiusKm: null, hideUnknownLocation: false, page: 1 }),
  });
  }
  (filters.voivodeships ?? []).forEach((v) => {
@@ -311,6 +384,70 @@ function collectChips(
  rebuildSkills({
  ...skillBuckets,
  none: skillBuckets.none.filter((_, idx) => idx !== i),
+ }),
+ });
+ });
+ // „Mile widziane” poza umiejętnościami (audyt 26.09.2026): „Szukaj ręcznie”
+ // podnosi osoby z miasta i kategorii rekrutacji oraz z wierszy
+ // nietechnicznych, ale nikogo nie wycina. „Wymagaj” zamienia sygnał w filtr.
+ (filters.locationPreferred ?? []).forEach((city, i) => {
+ chips.push({
+ key: `loc-pref:${city}:${i}`,
+ label: `Mile widziane: 📍 ${city}`,
+ clear: () =>
+ onUpdate({
+ locationPreferred: filters.locationPreferred.filter((_, idx) => idx !== i),
+ page: 1,
+ }),
+ require: () =>
+ onUpdate({
+ location: city,
+ locationRadiusKm: null,
+ locationPreferred: filters.locationPreferred.filter((_, idx) => idx !== i),
+ page: 1,
+ }),
+ });
+ });
+ (filters.competenceCategoryPreferred ?? []).forEach((id, i) => {
+ const name = ccById?.get(id) ?? `#${id}`;
+ chips.push({
+ key: `cc-pref:${id}`,
+ label: `Mile widziane: kategoria ${name}`,
+ clear: () =>
+ onUpdate({
+ competenceCategoryPreferred: filters.competenceCategoryPreferred.filter(
+ (_, idx) => idx !== i,
+ ),
+ page: 1,
+ }),
+ require: () =>
+ onUpdate({
+ competenceCategoryIds: Array.from(new Set([...filters.competenceCategoryIds, id])),
+ competenceCategoryPreferred: filters.competenceCategoryPreferred.filter(
+ (_, idx) => idx !== i,
+ ),
+ page: 1,
+ }),
+ });
+ });
+ (filters.qPreferred ?? []).forEach((row, i) => {
+ const must = mustKeys?.has(rowKey(row)) ?? false;
+ chips.push({
+ key: `q-pref:${row.join("|")}:${i}`,
+ label: `${must ? "Musi mieć (DL)" : "Mile widziane"}: ${row.join(" lub ")}`,
+ hint: must
+ ? `Musi mieć (Delivery Lead): ${row.join(" lub ")} — nie wycina, podnosi w ocenie. „Wymagaj” zamienia w filtr.`
+ : undefined,
+ clear: () =>
+ onUpdate({
+ qPreferred: filters.qPreferred.filter((_, idx) => idx !== i),
+ page: 1,
+ }),
+ require: () =>
+ onUpdate({
+ qAny: [...filters.qAny, row],
+ qPreferred: filters.qPreferred.filter((_, idx) => idx !== i),
+ page: 1,
  }),
  });
  });
@@ -426,16 +563,29 @@ function collectChips(
  ? "Poza rekrutacją"
  : "Rekrutacja"
  }: ${title ? `${title} #${id}` : `#${id}`}`,
- clear: () =>
- onUpdate({
- recruitmentIds: filters.recruitmentIds.filter((item) => item !== id),
- ...(filters.recruitmentIds.length <= 1
- ? { recruitmentMatch: "assigned" as const }
- : {}),
- page: 1,
- }),
+ clear: () => onUpdate({ ...patchForRemovedRecruitment(filters, id), page: 1 }),
  });
  });
+ // „Wszystkie rekrutacje klienta” — część tego samego zakresu co chipy wyżej.
+ filters.recruitmentClientIds.forEach((id) => {
+ const name = recruitmentClientsById?.get(id);
+ chips.push({
+ key: `recruitment_client:${id}`,
+ label: `${
+ filters.recruitmentMatch === "not_assigned"
+ ? "Poza rekrutacjami klienta"
+ : "Rekrutacje klienta"
+ }: ${name ?? `#${id}`}`,
+ clear: () => onUpdate({ ...patchForRemovedRecruitmentClient(filters, id), page: 1 }),
+ });
+ });
+ if (filters.recruitmentPresence) {
+ chips.push({
+ key: "recruitment_presence",
+ label: RECRUITMENT_PRESENCE_LABELS[filters.recruitmentPresence],
+ clear: () => onUpdate({ recruitmentPresence: "", page: 1 }),
+ });
+ }
  if (filters.experienceMin !== null || filters.experienceMax !== null) {
  const lo = filters.experienceMin;
  const hi = filters.experienceMax;
@@ -463,8 +613,9 @@ function collectChips(
  : `Stawka: do ${hi} PLN/h`;
  chips.push({
  key: "rate",
- label,
- clear: () => onUpdate({ rateMin: null, rateMax: null, page: 1 }),
+ label: filters.hideUnknownRate ? `${label} · ${HIDDEN_RATE_NOTE}` : label,
+ clear: () =>
+ onUpdate({ rateMin: null, rateMax: null, hideUnknownRate: false, page: 1 }),
  });
  }
  filters.languages.forEach((lang) => {
@@ -481,7 +632,7 @@ function collectChips(
  filters.qAll.forEach((phrase) => {
  chips.push({
  key: `q_all:${phrase}`,
- label: `Wszystkie: „${phrase}"`,
+ label: `Wymaganie: „${phrase}"`,
  clear: () =>
  onUpdate({
  qAll: filters.qAll.filter((x) => x !== phrase),
@@ -494,9 +645,9 @@ function collectChips(
  chips.push({
  key: `q_any:${gi}:${phrase}`,
  label:
- filters.qAny.length > 1
- ? `Grupa ${gi + 1}: „${phrase}"`
- : `Którakolwiek: „${phrase}"`,
+ group.length > 1
+ ? `Wymaganie ${gi + 1}: „${phrase}" (lub ${group.filter((x) => x !== phrase).join(", ")})`
+ : `Wymaganie ${gi + 1}: „${phrase}"`,
  clear: () =>
  onUpdate({
  qAny: filters.qAny
@@ -510,7 +661,7 @@ function collectChips(
  filters.qNone.forEach((phrase) => {
  chips.push({
  key: `q_none:${phrase}`,
- label: `Żadna: „${phrase}"`,
+ label: `Wyklucz: „${phrase}"`,
  clear: () =>
  onUpdate({
  qNone: filters.qNone.filter((x) => x !== phrase),
@@ -536,6 +687,7 @@ export function ActiveFilterChips({
  usersById,
  clientsById,
  omitKey,
+ mustRows,
 }: ActiveFilterChipsProps) {
  // Hit the same React Query cache key as <TalentPoolMultiSelect> (staleTime
  // 60s) — gdy filter dropdown był otwarty w tej sesji, to read jest cache-hit
@@ -603,19 +755,26 @@ export function ActiveFilterChips({
  return new Map(ccData.map((c) => [c.id, c.name_pl] as const));
  }, [ccData]);
 
- // Tytuły rekrutacji dla chipu „Rekrutacja” — ten sam klucz co
- // <RecruitmentMultiSelect>, więc po otwarciu pickera to trafienie w cache.
- const { data: recruitmentsData } = useQuery<Array<{ id: number; title: string }>>({
- queryKey: ["jobs-lookup"],
- queryFn: () => api.get("/api/jobs-lookup").then((r) => r.data),
- staleTime: 60_000,
- enabled: filters.recruitmentIds.length > 0,
- });
+ // Nazwy wybranych rekrutacji i klientów zakresu — to samo zapytanie co
+ // przycisk listy w bloku „Rekrutacje” (`useRecruitmentLabels`), także dla
+ // pozycji spoza bieżącej strony listy i z zapisanych wyszukiwań.
+ const { data: recruitmentLabels } = useRecruitmentLabels(
+ filters.recruitmentIds,
+ filters.recruitmentClientIds,
+ );
  const resolvedRecruitments = useMemo(() => {
- if (!recruitmentsData) return undefined;
- return new Map(recruitmentsData.map((r) => [r.id, r.title] as const));
- }, [recruitmentsData]);
+ if (!recruitmentLabels) return undefined;
+ return new Map(recruitmentLabels.items.map((r) => [r.id, r.title] as const));
+ }, [recruitmentLabels]);
+ const resolvedRecruitmentClients = useMemo(() => {
+ if (!recruitmentLabels) return undefined;
+ return new Map(recruitmentLabels.clients.map((c) => [c.id, c.name] as const));
+ }, [recruitmentLabels]);
 
+ const mustKeys = useMemo(
+ () => (mustRows?.length ? new Set(mustRows.map(rowKey)) : undefined),
+ [mustRows],
+ );
  const chips = collectChips(
  filters,
  onUpdate,
@@ -624,6 +783,8 @@ export function ActiveFilterChips({
  resolvedClients,
  resolvedCcs,
  resolvedRecruitments,
+ resolvedRecruitmentClients,
+ mustKeys,
  ).filter((chip) => !omitKey?.(chip.key));
  if (chips.length === 0) return null;
 
@@ -641,7 +802,12 @@ export function ActiveFilterChips({
  remote: [],
  skillsExpr: "",
  skillsPreferred: [],
+ locationPreferred: [],
+ competenceCategoryPreferred: [],
+ qPreferred: [],
  hideUnknown: false,
+ hideUnknownRate: false,
+ hideUnknownLocation: false,
  poolIds: [],
  addedByIds: [],
  currentCompany: [],
@@ -651,6 +817,8 @@ export function ActiveFilterChips({
  workedAtClientIds: [],
  recruitmentIds: [],
  recruitmentMatch: "assigned",
+ recruitmentClientIds: [],
+ recruitmentPresence: "",
  experienceMin: null,
  experienceMax: null,
  rateMin: null,
@@ -658,6 +826,7 @@ export function ActiveFilterChips({
  stageMovedByIds: [],
  stageMovedAfter: "",
  stageMovedBefore: "",
+ stageColumns: [],
  stageClientIds: [],
  sentToClientFrom: "",
  sentToClientTo: "",
@@ -669,6 +838,7 @@ export function ActiveFilterChips({
  qScope: "all",
  locationRadiusKm: null,
  voivodeships: [],
+ locationPlaces: [],
  contacted: null,
  contactedFrom: "",
  contactedTo: "",
@@ -678,17 +848,34 @@ export function ActiveFilterChips({
 
  return (
  <div className="flex flex-wrap items-center gap-1.5">
- {chips.map((chip) => (
+ {chips.map((chip) => {
+ const removeButton = (
  <button
- key={chip.key}
+ key={chip.require ? undefined : chip.key}
  onClick={chip.clear}
  className="group inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
  aria-label={`Usuń filtr: ${chip.label}`}
+ title={chip.hint ?? chip.label}
  >
- <span className="truncate max-w-[180px]">{chip.label}</span>
+ <span className="truncate max-w-[180px]" title={chip.label}>{chip.label}</span>
  <X className="h-3 w-3 opacity-70 group-hover:opacity-100" />
  </button>
- ))}
+ );
+ if (!chip.require) return removeButton;
+ return (
+ <span key={chip.key} className="inline-flex items-center gap-0.5">
+ {removeButton}
+ <button
+ onClick={chip.require}
+ className="px-1.5 py-0.5 text-xs rounded-full text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+ aria-label={`Wymagaj: ${chip.label.replace(/^(Mile widziane|Musi mieć \(DL\)): /, "")}`}
+ title="Zamień na filtr — pokaż tylko pasujących"
+ >
+ Wymagaj
+ </button>
+ </span>
+ );
+ })}
  <button
  onClick={clearAll}
  className="text-xs text-muted-foreground hover:text-primary ml-1"

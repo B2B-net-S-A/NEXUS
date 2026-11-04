@@ -16,12 +16,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, distinct, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.candidate_access import NOT_READ_ONLY
 from app.api.clients import polish_alphabetical_key
 from app.api.deps import AdminUser, OperationalUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.export_safety import safe_cell
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -33,7 +36,7 @@ from app.models.client_directory import (
 from app.models.client_framework_contract import ClientFrameworkContract
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.client_directory import (
     ClientDirectoryCategoryCounts,
     ClientDirectoryItem,
@@ -45,11 +48,15 @@ from app.schemas.client_directory import (
 )
 from app.models.team_structure import ClientTacAssignment, DeliveryLeadClientAssignment
 from app.services.access_scope import resolve_delivery_lead_client_ids
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.client_identity import (
     client_display_name_expression,
     visible_client_predicates,
 )
-from app.services.contractor_identity import contractor_identity_sql_expression
+from app.services.contractor_identity import (
+    contractor_identity_sql_expression,
+    current_contract_clause,
+)
 from app.services.polish_ilike import polish_folded_ilike
 from app.core.scheduling import business_today
 
@@ -57,13 +64,14 @@ router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 
 def _can_view_directory_legal(user: User) -> bool:
-    """Keep legal identity out of the TCM-safe Delivery projection."""
+    """Dane prawne klienta (nazwa prawna, NIP, REGON) w katalogu.
 
-    return user.has_any_role(
-        UserRole.admin,
-        UserRole.delivery_lead,
-        UserRole.finance,
-    )
+    Idą razem z dokumentami, które mogą nieść stawki — uprawnienie „Stawki
+    i kwoty: podgląd” (domyślnie admin, Finanse, Delivery Lead). Konto z samym
+    podglądem Delivery (np. Talent Community Manager) dostaje katalog bez nich.
+    """
+
+    return has_permission(user, ProductAction.amounts_view)
 
 
 def _effective_client_name():
@@ -82,20 +90,90 @@ def _visible_client_filters() -> tuple:
     return visible_client_predicates()
 
 
-def _live_orders_of_contract():
-    """Nieanulowane zamówienia kontraktu z zewnętrznego zapytania (korelacja)."""
+def _contract_scope_bucket():
+    """Zakres portfela, do którego kontrakt przypięto przez umowę ramową.
+
+    Kontrakt należy do zakresu, którego umowę ramową (MSA) wskazuje którekolwiek
+    jego nieanulowane zamówienie u tego samego klienta; kilka — najniższy
+    ``scope.id``. ``NULL`` = kontrakt nieprzypięty do żadnego zakresu.
+    """
+
     return (
-        select(ClientOrder.id)
+        select(func.min(ClientPortfolioScope.id))
+        .select_from(ClientOrder)
+        .join(
+            ClientPortfolioScope,
+            and_(
+                ClientPortfolioScope.framework_contract_id
+                == ClientOrder.framework_contract_id,
+                ClientPortfolioScope.client_id == Contract.client_id,
+                ClientPortfolioScope.archived_at.is_(None),
+            ),
+        )
         .where(
             ClientOrder.contract_id == Contract.id,
+            ClientOrder.client_id == Contract.client_id,
+            ClientOrder.framework_contract_id.is_not(None),
             ClientOrder.status != ClientOrderStatus.cancelled,
         )
         .correlate(Contract)
+        .scalar_subquery()
     )
 
 
+def _scope_has_own_contracts():
+    """Czy do zakresu przypięto choć jeden kontrakt (przez MSA zamówienia).
+
+    Taki zakres liczy WYŁĄCZNIE swoje kontrakty. Liczone ze wszystkich
+    nieanulowanych zamówień, nie tylko bieżących kontraktów — zakres, którego
+    jedyny konsultant odszedł, ma pokazać 0, a nie wrócić do liczby całego
+    klienta (zgłoszenie 28.09.2026: „Nordea Bank Abp – Pentesty” pokazywało
+    292 konsultantów Nordei zamiast jednego swojego).
+    """
+
+    return exists(
+        select(ClientOrder.id).where(
+            ClientOrder.framework_contract_id
+            == ClientPortfolioScope.framework_contract_id,
+            ClientOrder.client_id == ClientPortfolioScope.client_id,
+            ClientOrder.status != ClientOrderStatus.cancelled,
+        )
+    ).correlate(ClientPortfolioScope)
+
+
+def _client_has_pin_free_scope():
+    """Czy klient ma inny żywy zakres bez przypiętych kontraktów.
+
+    Bez takiego zakresu kontrakty nieprzypięte liczy zakres z przypięciami —
+    inaczej wypadłyby z katalogu (np. przypięcie jednego kontraktu do umowy
+    ramowej jedynego zakresu klienta zdjęłoby z licznika całą resztę).
+    """
+
+    other = aliased(ClientPortfolioScope)
+    return exists(
+        select(other.id).where(
+            other.client_id == ClientPortfolioScope.client_id,
+            other.id != ClientPortfolioScope.id,
+            other.archived_at.is_(None),
+            ~exists(
+                select(ClientOrder.id).where(
+                    ClientOrder.framework_contract_id == other.framework_contract_id,
+                    ClientOrder.client_id == other.client_id,
+                    ClientOrder.status != ClientOrderStatus.cancelled,
+                )
+            ),
+        )
+    ).correlate(ClientPortfolioScope)
+
+
 def _active_consultants_subquery(as_of: date):
-    """Client-wide date-effective consultant count, deduplicated by person."""
+    """Date-effective consultant count per (client, scope bucket), by person.
+
+    ``scope_id`` is the scope a contract is pinned to (``_contract_scope_bucket``)
+    or ``NULL`` for contracts pinned to no scope.  A client without pinned
+    contracts has a single ``NULL`` bucket, so every scope row still shows the
+    whole client — the behaviour before 28.09.2026.
+    """
 
     identity_key = contractor_identity_sql_expression(
         Candidate.name,
@@ -104,13 +182,13 @@ def _active_consultants_subquery(as_of: date):
         Candidate.id,
     )
 
-    return (
+    current = (
         select(
+            Contract.id.label("contract_id"),
             Contract.client_id.label("client_id"),
-            func.count(distinct(identity_key))
-            .filter(Candidate.id.is_not(None))
-            .label("active_consultants"),
-            func.count(Contract.id).label("active_contracts"),
+            _contract_scope_bucket().label("scope_id"),
+            identity_key.label("identity_key"),
+            Candidate.id.label("candidate_id"),
         )
         # A deleted candidate is detached from its contracts.  Such a row is
         # still an active contract and must remain in ``active_contracts``;
@@ -128,25 +206,21 @@ def _active_consultants_subquery(as_of: date):
             # z nich jeszcze się nie zaczęło (audyt 24.09.2026, S5). Bez
             # filtra po `end_date` — profil też go nie ma, o końcu decyduje
             # status umowy (N11).
-            or_(
-                Contract.start_date <= as_of,
-                and_(
-                    Contract.start_date.is_(None),
-                    or_(
-                        ~_live_orders_of_contract().exists(),
-                        _live_orders_of_contract()
-                        .where(
-                            or_(
-                                ClientOrder.start_date.is_(None),
-                                ClientOrder.start_date <= as_of,
-                            )
-                        )
-                        .exists(),
-                    ),
-                ),
-            ),
+            current_contract_clause(as_of),
         )
-        .group_by(Contract.client_id)
+        .subquery()
+    )
+
+    return (
+        select(
+            current.c.client_id,
+            current.c.scope_id,
+            func.count(distinct(current.c.identity_key))
+            .filter(current.c.candidate_id.is_not(None))
+            .label("active_consultants"),
+            func.count(current.c.contract_id).label("active_contracts"),
+        )
+        .group_by(current.c.client_id, current.c.scope_id)
         .subquery()
     )
 
@@ -161,6 +235,7 @@ def _directory_rows_statement(
     canonical_name = _effective_client_name()
     scope_label = func.nullif(func.btrim(ClientPortfolioScope.label), "")
     active_consultants = _active_consultants_subquery(as_of)
+    own_contracts = _scope_has_own_contracts()
 
     # Effective placement: a manual override wins over the manifest ``category``
     # and the linked-MSA dates.  The manifest consistency invariant keeps
@@ -213,6 +288,9 @@ def _directory_rows_statement(
             func.coalesce(active_consultants.c.active_contracts, 0).label(
                 "active_contracts_count"
             ),
+            and_(own_contracts, _client_has_pin_free_scope()).label(
+                "counts_own_contracts"
+            ),
         )
         .select_from(ClientPortfolioScope)
         .join(Client, Client.id == ClientPortfolioScope.client_id)
@@ -226,7 +304,21 @@ def _directory_rows_statement(
         )
         .outerjoin(
             active_consultants,
-            active_consultants.c.client_id == Client.id,
+            and_(
+                active_consultants.c.client_id == Client.id,
+                # Zakres z przypiętymi kontraktami liczy tylko swoje; pozostałe
+                # zakresy klienta — kontrakty nieprzypięte do żadnego zakresu.
+                or_(
+                    and_(
+                        own_contracts,
+                        active_consultants.c.scope_id == ClientPortfolioScope.id,
+                    ),
+                    and_(
+                        active_consultants.c.scope_id.is_(None),
+                        or_(~own_contracts, ~_client_has_pin_free_scope()),
+                    ),
+                ),
+            ),
         )
         .where(
             ClientPortfolioScope.archived_at.is_(None),
@@ -382,6 +474,7 @@ async def list_client_directory(
             industry=row.industry,
             active_consultants_count=int(row.active_consultants_count or 0),
             active_contracts_count=int(row.active_contracts_count or 0),
+            consultants_scope="scope" if row.counts_own_contracts else "client",
             effective_date=row.effective_date,
             expiry_date=row.expiry_date,
             category=row.category,
@@ -474,22 +567,8 @@ def _directory_contract_end_cell(row) -> str:
     return row.expiry_date.isoformat()
 
 
-# Spreadsheet formula-injection guard. A free-text cell we write verbatim that
-# begins with =, +, -, @ (or a tab/CR that can smuggle one in) is executed as a
-# formula when the file is opened in Excel / Google Sheets. display_name /
-# scope_label / industry / legal_name are user-settable DB values, so we prefix
-# them with an apostrophe (the OWASP-standard mitigation) — the spreadsheet then
-# renders the literal text. openpyxl also treats a leading "=" string as a
-# formula, so this protects the xlsx path too. Ints and ISO dates pass through.
-_FORMULA_INJECTION_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
-
-
-def _formula_safe(value):
-    if isinstance(value, str) and value[:1] in _FORMULA_INJECTION_PREFIXES:
-        return "'" + value
-    return value
-
-
+# Osłona przed wstrzyknięciem formuły: display_name / scope_label / industry /
+# legal_name to wartości wpisywane przez ludzi — `safe_cell` (app.core.export_safety).
 def _directory_export_row(row, *, can_view_legal: bool) -> list:
     values = [
         row.client_id,
@@ -505,10 +584,10 @@ def _directory_export_row(row, *, can_view_legal: bool) -> list:
     ]
     if can_view_legal:
         values.extend([row.legal_name or "", row.nip or "", row.regon or ""])
-    return [_formula_safe(value) for value in values]
+    return [safe_cell(value) for value in values]
 
 
-@router.get("/directory/export")
+@router.get("/directory/export", dependencies=NOT_READ_ONLY)
 async def export_client_directory(
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),

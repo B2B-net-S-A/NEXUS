@@ -23,7 +23,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
-from sqlalchemy import select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
@@ -33,11 +33,13 @@ from app.models.candidate import Candidate
 from app.models.m365 import (
     Email,
     EmailAttachment,
+    EmailDirection,
     EmailMatchMethod,
     M365Connection,
 )
 from app.services.m365 import sender as m365_sender
 from app.services.m365.attachment_handler import STORAGE_ROOT
+from app.services.m365.graph_client import GraphRequestError
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +84,10 @@ class EmailOut(BaseModel):
     # INT-04: stan wysyłki z NEXUSA (pending/sent/uncertain; None = wiersz
     # z synchronizacji albo sprzed zmiany).
     send_state: Optional[str] = None
+    # Wysłane z NEXUSA (wiersz ma klucz wysyłki z ``m365/sender.py``). Sync
+    # zapisuje też pocztę wysłaną wprost z Outlooka, też z direction=sent;
+    # ``send_state`` tego nie rozróżnia, bo wysyłki sprzed 0342 mają tam NULL.
+    sent_from_nexus: bool = False
     attachments: list[AttachmentOut] = []
 
     model_config = ConfigDict(from_attributes=True)
@@ -181,10 +187,55 @@ def _send_conflict_http(exc: m365_sender.EmailSendConflict) -> HTTPException:
     return HTTPException(status.HTTP_409_CONFLICT, detail=str(exc))
 
 
+def _graph_refusal_http(exc: GraphRequestError) -> HTTPException:
+    """Odmowa Graph 4xx przed wysyłką → 4xx z polskim komunikatem (runda 6 audytu).
+
+    Do 26.09 każda odmowa (np. oryginał usunięty ze skrzynki, zły adres)
+    kończyła się nieobsłużonym 500. Treści odpowiedzi Graph nie oddajemy —
+    bywa w niej adres i identyfikator wiadomości.
+    """
+    if exc.status in (401, 403):
+        return HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Microsoft 365 odmówił dostępu do skrzynki — połącz konto ponownie.",
+        )
+    if exc.status == 429:
+        return HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Microsoft 365 ogranicza liczbę wysyłek — spróbuj za chwilę.",
+        )
+    return HTTPException(
+        status.HTTP_400_BAD_REQUEST,
+        "Microsoft 365 odrzucił wiadomość (np. oryginał usunięto ze skrzynki "
+        "albo adres jest nieprawidłowy). Nic nie zostało wysłane.",
+    )
+
+
 def _can_access_email(email: Email, user, privileged_role: bool) -> bool:
     if email.user_id == user.id:
         return True
-    return privileged_role
+    # Runda 9 (R9-N10-1): obejście dla admina/DL dotyczy WYŁĄCZNIE maili
+    # powiązanych z kandydatem. Mail niepowiązany to prywatna korespondencja
+    # właściciela skrzynki — do 27.09 GET /emails/{id} i pobranie załącznika
+    # oddawały dowolny mail z cudzej skrzynki.
+    return privileged_role and email.candidate_id is not None
+
+
+def _has_content(email: Email) -> bool:
+    """Czy wiadomość ma co pokazać w wierszu wątku.
+
+    Outlook zapisuje odpowiedź na zaproszenie jako osobną, pustą wiadomość
+    (Graph: ``eventMessageResponse``). Prywatna ma puste pola z decyzji
+    właściciela skrzynki, więc liczy się jak wiadomość z treścią.
+    """
+    return (
+        email.is_private_filtered
+        or email.has_attachments
+        or any(
+            (value or "").strip()
+            for value in (email.body_html, email.body_text, email.body_preview)
+        )
+    )
 
 
 def _to_email_out(email: Email) -> EmailOut:
@@ -211,6 +262,7 @@ def _to_email_out(email: Email) -> EmailOut:
         match_confidence=email.match_confidence,
         candidate_id=email.candidate_id,
         send_state=email.send_state,
+        sent_from_nexus=email.idempotency_key is not None,
         attachments=[],  # filled by callers that eager-load
     )
 
@@ -230,8 +282,9 @@ async def list_candidate_emails(
     """Return conversation previews for a candidate, most-recent first.
 
     Groups by `m365_conversation_id`. Each preview carries the latest message
-    plus aggregate counts (total + unread). Archived emails (Phase 5.1) are
-    hidden unless `include_archived=true`.
+    with content (an empty invitation reply must not hide the conversation's
+    subject and preview) plus aggregate counts (total + unread). Archived
+    emails (Phase 5.1) are hidden unless `include_archived=true`.
     """
     # Fetch all candidate emails the user can see, latest first.
     base_stmt = select(Email).where(Email.candidate_id == candidate_id)
@@ -258,7 +311,11 @@ async def list_candidate_emails(
             slot["count"] += 1
             if not e.is_read:
                 slot["unread"] += 1
-            if e.received_at > slot["latest"].received_at:
+            latest = slot["latest"]
+            if (_has_content(e), e.received_at) > (
+                _has_content(latest),
+                latest.received_at,
+            ):
                 slot["latest"] = e
 
     ordered = sorted(
@@ -396,6 +453,10 @@ async def compose_email(
         )
     except m365_sender.EmailSendConflict as exc:
         raise _send_conflict_http(exc) from exc
+    except GraphRequestError as exc:
+        if 400 <= exc.status < 500:
+            raise _graph_refusal_http(exc) from exc
+        raise
     await db.commit()
     return _to_email_out(row)
 
@@ -514,6 +575,36 @@ async def reply_email(
             status.HTTP_400_BAD_REQUEST,
             "original email belongs to a different candidate",
         )
+    if original.direction == EmailDirection.sent:
+        # Runda 6 audytu: odpowiedź na własny wysłany mail trafiała do nas
+        # samych (Graph bierze nadawcę oryginału). Odpowiadamy na ostatnią
+        # wiadomość PRZYCHODZĄCĄ OD KANDYDATA; bez niej — prośba o nowy mail.
+        # Runda 7 (R7-V1-2): sama „ostatnia przychodząca” trafiała też w maila
+        # HM-a klienta albo kolegi z kopii w tym samym wątku, a Graph wysyłał
+        # wtedy treść dla kandydata do nich.
+        candidate_email = (
+            select(func.lower(func.trim(Candidate.email)))
+            .where(Candidate.id == candidate_id)
+            .scalar_subquery()
+        )
+        inbound = await db.scalar(
+            select(Email)
+            .where(
+                Email.user_id == current_user.id,
+                Email.m365_conversation_id == original.m365_conversation_id,
+                Email.direction == EmailDirection.received,
+                or_(Email.candidate_id == candidate_id, Email.candidate_id.is_(None)),
+                func.lower(func.trim(Email.from_address)) == candidate_email,
+            )
+            .order_by(Email.received_at.desc(), Email.id.desc())
+            .limit(1)
+        )
+        if inbound is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Kandydat jeszcze nie odpowiedział w tym wątku — napisz nowy mail.",
+            )
+        original = inbound
     if (original.m365_message_id or "").startswith(m365_sender.PENDING_ID_PREFIX):
         # Wiersz zarezerwowany, którego szkic jeszcze nie powstał — Graph nie
         # zna tego identyfikatora, odpowiedź skończyłaby się 404.
@@ -532,6 +623,10 @@ async def reply_email(
         )
     except m365_sender.EmailSendConflict as exc:
         raise _send_conflict_http(exc) from exc
+    except GraphRequestError as exc:
+        if 400 <= exc.status < 500:
+            raise _graph_refusal_http(exc) from exc
+        raise
     if row.candidate_id is None:
         row.candidate_id = candidate_id
         row.match_method = EmailMatchMethod.manual
@@ -602,11 +697,16 @@ def _apply_bulk_action(
         email.matched_at = now
         email.matched_by_user_id = user_id
     elif action == "unlink":
+        # Runda 6 audytu: ręczne odpięcie jest DECYZJĄ — ``unmatched`` z
+        # ``matched_by_user_id`` (kto i kiedy odpiął). Czytają to sync
+        # (``_upsert_message``), rematch i zakładanie kandydata z CV, które do
+        # 26.09 przypinały mail z powrotem przy najbliższym przebiegu. Czyści
+        # to ręczne podpięcie (``link_to_candidate``).
         email.candidate_id = None
         email.match_method = EmailMatchMethod.unmatched
         email.match_confidence = None
-        email.matched_at = None
-        email.matched_by_user_id = None
+        email.matched_at = now
+        email.matched_by_user_id = user_id
     # `updated_at` mixin column refreshes via TimestampMixin.
 
 

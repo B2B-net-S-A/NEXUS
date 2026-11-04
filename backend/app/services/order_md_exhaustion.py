@@ -177,7 +177,20 @@ async def sync_md_group_exhaustion(
         if line.status == ClientOrderStatus.active and _remaining(line) > _ZERO
     ]
     if not revived:
-        return False
+        # Sprawa offboardingu otwarta ponownie po korekcie (runda 6 audytu,
+        # MD-2) trzyma zamówienie otwarte tak samo jak przed zamknięciem —
+        # inaczej „przywróć” i „przenieś” nie miałyby dokąd wrócić.
+        await db.flush()
+        reopened_case = await db.scalar(
+            select(ClientOrderOffboardingCase.id)
+            .where(
+                ClientOrderOffboardingCase.order_group_id == group.id,
+                ClientOrderOffboardingCase.status == OFFBOARDING_STATUS_PENDING,
+            )
+            .limit(1)
+        )
+        if reopened_case is None:
+            return False
     previous_closure = group.closure_date
     group.status = GROUP_STATUS_ACTIVE
     group.closure_date = None

@@ -3,14 +3,30 @@
 Decyzja Artura 23.09.2026: nie osoba per rekrutacja (0353,
 ``jobs.cpro_sender_id``) ani per kandydat (0348,
 ``candidate_stages.task_assignee_id``), tylko jedna osoba na całą firmę,
-którą zmienia KAŻDY z zespołu. Powód: u Nordei wrzucanie do Cpro robi w
+którą (do 25.09.2026) zmieniał każdy z zespołu. Powód: u Nordei wrzucanie do Cpro robi w
 praktyce jedna osoba, a typowanie per rekrutacja zostawiało rekrutacje bez
 nikogo — kolejka rosła, a dzwonek nie miał do kogo pójść.
+
+Od 25.09.2026 (decyzja Artura, audyt runda 4) osobę USTAWIA wyłącznie admin
+albo Delivery Lead przypisany do klienta Nordei (``can_set_sender``) — osoba
+od Cpro widzi stawki do klienta w kolejce, więc samodzielne ustawienie się
+rekrutera omijało regułę „stawki do klienta nie widzi rekruter" (#1742).
+
+Nieaktywne konto nie jest osobą od Cpro (``effective_sender``): dezaktywacja
+niczego nie czyści w ustawieniu, a martwe konto trzymało kolejkę, której nikt
+nie widział. Brak aktywnej osoby = jak „nikt nie ustawiony".
 
 Zastępstwo: ``until`` to ostatni dzień zastępstwa (włącznie). Od dnia po nim
 wraca ``fallback_user_id`` — osoba, która wysyłała, zanim ustawiono
 zastępstwo. Wygaśnięcie liczy się przy ODCZYCIE (``effective``), bez pętli:
 nikt nie musi pamiętać, żeby „oddać" kolejkę po urlopie.
+
+Urlop osoby od Cpro (29.10.2026, decyzja Artura): we własnym wniosku osoba
+od Cpro wskazuje, kto w tym czasie wrzuca (``leave_requests.cpro_substitute_user_id``).
+Zatwierdzony urlop obejmujący cały dzisiejszy dzień podmienia osobę przy
+ODCZYCIE (``effective_sender``), tak jak ``until`` — ustawienie firmy się nie
+zmienia, więc anulowany albo skrócony urlop niczego nie zostawia. Zmiana
+z „Zmień” w trakcie urlopu wygrywa: dotyczy innej osoby niż urlopowicz.
 
 Stan żyje w ``app_settings['cpro_sender']``:
 ``{user_id, until, fallback_user_id, set_by_user_id, set_at}``. Stare kolumny
@@ -22,7 +38,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -31,6 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
 from app.models.app_setting import AppSetting
+from app.models.hr_leave import LeaveRequest
 from app.models.user import User, UserRole
 
 SETTING_KEY = "cpro_sender"
@@ -148,8 +165,9 @@ def next_state(
             fallback = now_state.fallback_user_id
         else:
             fallback = now_state.user_id
-        if fallback == user_id:
-            fallback = None
+        # Zastępstwo z datą dla osoby, która i tak wysyła na stałe: po dacie
+        # ta sama osoba wysyła dalej. Wyzerowany powrót zostawiał kolejkę bez
+        # nikogo od dnia po zastępstwie (audyt 25.09.2026, runda 4).
     return CproSenderState(
         user_id=user_id,
         until=until,
@@ -166,15 +184,125 @@ async def load_state(db: AsyncSession, *, for_update: bool = False) -> CproSende
     return parse_state(await db.scalar(query))
 
 
+def _today(now: Optional[datetime]) -> date:
+    return (
+        now.astimezone(_business_tz()).date() if now is not None else business_today()
+    )
+
+
 async def effective_sender(
     db: AsyncSession, now: Optional[datetime] = None
 ) -> CproSenderState:
-    """Kto dziś wysyła do Cpro (stan po wygaśnięciu zastępstwa)."""
+    """Kto dziś wysyła do Cpro: ustawienie firmy po wygaśnięciu zastępstwa,
+    a w dzień urlopu osoby od Cpro — zastępca z jej wniosku."""
 
-    today = (
-        now.astimezone(_business_tz()).date() if now is not None else business_today()
+    state = await firm_sender(db, now)
+    cover = await leave_cover(db, state.user_id, _today(now))
+    if cover is None:
+        return state
+    substitute_id, until = cover
+    # Zastępcę wskazała osoba od Cpro we wniosku — nie ten, kto ustawił firmę.
+    return replace(
+        state,
+        user_id=substitute_id,
+        until=until,
+        fallback_user_id=state.user_id,
+        set_by_user_id=state.user_id,
+        set_at=None,
     )
-    return effective(await load_state(db), today)
+
+
+async def leave_cover(
+    db: AsyncSession, sender_id: Optional[int], today: date
+) -> Optional[tuple[int, date]]:
+    """Zastępca do Cpro (aktywne konto) z urlopu ``sender_id`` na dziś i ostatni
+    dzień urlopu. Jak u zastępcy przełożonego (``leave_substitute``): tylko
+    zatwierdzony wniosek na cały dzień — przy pół dnia osoba od Cpro pracuje."""
+
+    if sender_id is None:
+        return None
+    substitute = User.__table__.alias("cpro_substitute")
+    row = (
+        await db.execute(
+            select(LeaveRequest.cpro_substitute_user_id, LeaveRequest.end_date)
+            .join(substitute, substitute.c.id == LeaveRequest.cpro_substitute_user_id)
+            .where(
+                LeaveRequest.user_id == sender_id,
+                LeaveRequest.status == "approved",
+                LeaveRequest.half_day.is_(None),
+                LeaveRequest.start_date <= today,
+                LeaveRequest.end_date >= today,
+                LeaveRequest.cpro_substitute_user_id != sender_id,
+                substitute.c.is_active.is_(True),
+            )
+            .order_by(LeaveRequest.end_date)
+            .limit(1)
+        )
+    ).first()
+    return (row[0], row[1]) if row is not None else None
+
+
+async def firm_sender(
+    db: AsyncSession, now: Optional[datetime] = None
+) -> CproSenderState:
+    """Osoba ustawiona na firmę (po wygaśnięciu zastępstwa z „Zmień”), bez
+    urlopu — od niej wniosek urlopowy wie, że pyta o zastępcę do Cpro."""
+
+    state = effective(await load_state(db), _today(now))
+    wanted = {i for i in (state.user_id, state.fallback_user_id) if i is not None}
+    if not wanted:
+        return state
+    active = await active_user_ids(db, wanted)
+    if state.user_id is not None and state.user_id not in active:
+        # Martwe konto = nikt nie ustawiony: kolejkę widzi admin i HoR, a
+        # uprawnieni mogą wskazać nową osobę (audyt 25.09.2026, runda 4).
+        return replace(state, user_id=None, until=None, fallback_user_id=None)
+    if state.fallback_user_id is not None and state.fallback_user_id not in active:
+        return replace(state, fallback_user_id=None)
+    return state
+
+
+async def active_user_ids(db: AsyncSession, ids: Iterable[Optional[int]]) -> set[int]:
+    """Które z ``ids`` to aktywne konta."""
+
+    wanted = {i for i in ids if i is not None}
+    if not wanted:
+        return set()
+    return set(
+        (
+            await db.scalars(
+                select(User.id).where(User.id.in_(wanted), User.is_active.is_(True))
+            )
+        ).all()
+    )
+
+
+async def can_set_sender(db: AsyncSession, user: User) -> bool:
+    """Kto może USTAWIĆ osobę od Cpro (decyzja Artura 25.09.2026).
+
+    Admin albo Delivery Lead przypisany do klienta Nordei (portfel DL —
+    ``resolve_delivery_lead_assigned_client_ids``). Osoba od Cpro widzi
+    stawki do klienta, więc rekruter nie może wskazać siebie ani nikogo.
+    """
+
+    if user.has_role(UserRole.admin):
+        return True
+    if not user.has_role(UserRole.delivery_lead):
+        return False
+    from app.services.access_scope import (  # noqa: PLC0415
+        resolve_delivery_lead_assigned_client_ids,
+    )
+    from app.services.board_stage_badges import (  # noqa: PLC0415
+        cpro_enabled_for_client,
+    )
+
+    assigned = await resolve_delivery_lead_assigned_client_ids(user, db) or frozenset()
+    return any(cpro_enabled_for_client(cid) for cid in assigned)
+
+
+SET_SENDER_FORBIDDEN = (
+    "Osobę od Cpro ustawia admin albo Delivery Lead przypisany do Nordei."
+)
 
 
 def _business_tz():
@@ -255,14 +383,29 @@ async def describe(db: AsyncSession, state: CproSenderState) -> dict[str, Any]:
 
 
 async def can_send_to_cpro(
-    db: AsyncSession, user: User, now: Optional[datetime] = None
+    db: AsyncSession,
+    user: User,
+    now: Optional[datetime] = None,
+    *,
+    fallback_sender_ids: Iterable[Optional[int]] = (),
 ) -> bool:
     """Czy ``user`` może przesunąć kartę z kolejki Cpro („✓ Wrzucone",
-    „Zwróć do rekrutera"): osoba od Cpro albo admin / DL / HoR."""
+    „Zwróć do rekrutera"): osoba od Cpro albo admin / DL / HoR.
+
+    Gdy nikt nie jest ustawiony na firmę, kolejka pokazuje zadanie osobie
+    zapasowej tej rekrutacji (``jobs.cpro_sender_id`` albo
+    ``task_assignee_id`` wiersza — ``fallback_sender_ids``), więc ta osoba
+    musi też móc je wrzucić. Bez tego rekruter widział zadanie „do wrzucenia"
+    i dostawał 403 na „✓ Wrzucone" (audyt 25.09.2026). Osoba ustawiona na
+    firmę wygrywa — zapas wtedy nie daje prawa.
+    """
 
     if user.has_any_role(*CPRO_MOVE_ROLES):
         return True
-    return (await effective_sender(db, now)).user_id == user.id
+    firm = (await effective_sender(db, now)).user_id
+    if firm is not None:
+        return firm == user.id
+    return user.id in {uid for uid in fallback_sender_ids if uid is not None}
 
 
 async def notify_new_sender(
@@ -307,10 +450,15 @@ __all__ = [
     "CPRO_MOVE_ROLES",
     "SETTING_KEY",
     "CproSenderState",
+    "SET_SENDER_FORBIDDEN",
+    "active_user_ids",
     "can_send_to_cpro",
+    "can_set_sender",
     "describe",
     "effective",
     "effective_sender",
+    "firm_sender",
+    "leave_cover",
     "load_state",
     "next_state",
     "notify_new_sender",

@@ -19,6 +19,11 @@ a multi-hour import on each deploy.
 
 Kill-switch: ``settings.TRAFFIT_SYNC_ENABLED`` (default False). The loop exits
 immediately when off; secrets missing → loop idles and re-checks.
+
+Od 14.10.2026 Traffit jest wyłączony na stałe (decyzja Artura,
+``app/services/traffit_retired.py``): pętla kończy się przed pierwszym
+odczekaniem bez względu na flagę, a trasa admina odpowiada 410. Reszta modułu
+zostaje jako historia importu i dla testów jego zachowania.
 """
 
 from __future__ import annotations
@@ -30,14 +35,18 @@ from datetime import datetime, timedelta, timezone
 from collections.abc import Sequence
 from typing import Any, Optional
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.models.candidate import Candidate
 from app.services.traffit.client import TraffitClient, TraffitConfig
-from app.services.traffit.importer import PhaseProgress, TraffitImporter
+from app.services.traffit.importer import (
+    PhaseProgress,
+    TraffitImporter,
+    safe_db_error,
+)
 from app.services import loop_heartbeat
+from app.services.traffit_retired import TraffitRetiredError, refuse_traffit
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +61,16 @@ FULL_MARKER = "__full__"
 def sync_is_running() -> bool:
     """True while a delta/full sync is in progress (admin endpoint guard)."""
     return _sync_lock.locked()
+
+
+def traffit_exclusive_lock() -> asyncio.Lock:
+    """Blokada biegu Traffita dla prac jednorazowych (naprawa notatek, 29.09).
+
+    Trzymana przez naprawę sprawia, że zaplanowany sync w tym czasie się
+    pomija („already_running”) — nie piszą naraz do tych samych notatek
+    i nie dzielą limitu zapytań do Traffita.
+    """
+    return _sync_lock
 
 
 # ── Scheduling decisions (pure, unit-testable) ───────────────────────────────
@@ -111,6 +130,7 @@ def should_run_full(
     or a manual flag, so this is self-limiting — the extra runs stop the night
     the sweep completes and clears its cursor. Nothing to remember to turn off.
     """
+    # Dzień UTC celowo: slot pełnego biegu (dzień + hour_utc) jest w UTC.
     if now_utc.hour < hour_utc:
         return False
     if last_finished is None:
@@ -442,48 +462,229 @@ class _CvFieldsPhaseResult:
             out["stopped_reason"] = self._stats["stopped_reason"]
         if "note" in self._stats:
             out["note"] = self._stats["note"]
+        # Runda 6 audytu: ile okien czekało i ile czeka dalej — bez tego
+        # zaległość fazy jest niewidoczna w `/sync/status`.
+        for key in ("carried_windows", "pending_windows", "dropped_windows"):
+            if key in self._stats:
+                out[key] = self._stats[key]
         return out
 
 
+# Kursor fazy `candidates_cv_fields` (runda 6 audytu). Do 26.09.2026 faza
+# brała kandydatów okna `updated_at >= files_since` po `id` rosnąco i kończyła
+# po `TRAFFIT_SYNC_CV_FIELDS_LIMIT` (200) — reszta okna przepadała na stałe,
+# bo następna noc ma nowe `files_since`, a pełny bieg fazę pomijał. Niedokończone
+# okna czekają teraz w `cursor_payload['delta']['windows']` wiersza fazy jako
+# lista `{since, until, after_id}` (ta sama idea co kursor `after_id` faz
+# budżetowanych, tylko okien bywa kilka): kolejny bieg — delta ALBO pełny —
+# najpierw domyka najstarsze, potem dokłada własne. Górna granica czasu to
+# start BIEŻĄCEJ fazy (od rundy 7, patrz `_cv_fields_id_caps`) — wyklucza
+# wiersze, które sama faza zapisała, więc częściowo uzupełniony kandydat nie
+# jest opłacany drugi raz; zapisany `until` okna zostaje informacyjnie.
+_CV_FIELDS_CURSOR_PHASE = "candidates_cv_fields"
+_CV_FIELDS_CURSOR_SLOT = "delta"
+# Sufit liczby czekających okien: ~2 miesiące nocy z zaległością. Powyżej
+# odpada najstarsze okno z ostrzeżeniem w logu i licznikiem w statystykach —
+# lista bez sufitu rosłaby w JSONB bez końca, gdyby budżet był trwale za mały.
+_CV_FIELDS_MAX_WINDOWS = 60
+
+
+def _cv_fields_windows_from_payload(payload: Any) -> list[dict[str, Any]]:
+    """Czekające okna z `cursor_payload` (odporne na śmieci w JSONB)."""
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except ValueError:
+            return []
+    if not isinstance(payload, dict):
+        return []
+    slot = payload.get(_CV_FIELDS_CURSOR_SLOT)
+    if not isinstance(slot, dict):
+        return []
+    out: list[dict[str, Any]] = []
+    for window in slot.get("windows") or []:
+        if not isinstance(window, dict):
+            continue
+        since = _parse_iso(window.get("since"))
+        until = _parse_iso(window.get("until"))
+        if since is None or until is None:
+            continue
+        try:
+            after_id = max(0, int(window.get("after_id") or 0))
+        except (TypeError, ValueError):
+            after_id = 0
+        # `until_id` zapisany przed rundą 8 jest pomijany (R8-V2-1).
+        out.append(
+            {
+                "since": since.isoformat(),
+                "until": until.isoformat(),
+                "after_id": after_id,
+            }
+        )
+    return out
+
+
+def _cv_fields_id_caps(windows: list[dict[str, Any]]) -> list[Optional[int]]:
+    """Górna granica id każdego okna (włącznie) albo `None` = bez granicy.
+
+    Runda 7 audytu (R7-V2-5): okno czekało z górną granicą CZASU (`until` =
+    start fazy, która je założyła). Kandydat z okna, któremu coś spoza syncu
+    (edycja, nocne `notes_insights`) przesunęło `updated_at` za tę granicę,
+    wypadał z okna i nie trafiał do żadnego nowego — nowe okna zaczynają się
+    od startu kolejnego biegu. Każde okno sięga więc teraz w czasie do startu
+    BIEŻĄCEJ fazy. Żeby nie płacić drugi raz za wiersz obsłużony przez
+    wcześniejsze okno (zakresy czasu się teraz zagnieżdżają: `since` rośnie
+    z oknem), okno bierze tylko id do najmniejszego kursora okien przed nim:
+    wcześniejsze okno obejmuje (albo obejmie) wszystko powyżej swojego
+    kursora w szerszym zakresie czasu.
+
+    Runda 8 (R8-V2-1): granica jest liczona od nowa w każdym biegu z BIEŻĄCYCH
+    kursorów, nigdy z zapisanego `until_id`. Zapisana granica przeżywała
+    przesunięcie albo domknięcie okna, które ją wyznaczyło: pierwsze okno
+    listy dostawało wtedy górną granicę id (nowi kandydaci nie trafiali do
+    żadnego okna), a okno środkowe gubiło id między starym a nowym kursorem
+    wcześniejszego okna. Pierwsze okno jest zawsze bez granicy. Ceną jest
+    najwyżej jedna dodatkowa próba parsowania wiersza, którego parser nie
+    uzupełnił (uzupełnione odpadają w filtrze zakresu `backfill_cv_fields`).
+    """
+    caps: list[Optional[int]] = []
+    floor: Optional[int] = None
+    for window in windows:
+        caps.append(floor)
+        after = int(window.get("after_id") or 0)
+        floor = after if floor is None else min(floor, after)
+    return caps
+
+
+async def _load_cv_fields_windows(db) -> list[dict[str, Any]]:
+    row = await _get_state(db, _CV_FIELDS_CURSOR_PHASE)
+    if row is None:
+        return []
+    return _cv_fields_windows_from_payload(getattr(row, "cursor_payload", None))
+
+
+async def _save_cv_fields_windows(db, windows: list[dict[str, Any]]) -> None:
+    """Zapisz (albo zdejmij) slot okien — tylko ten klucz `cursor_payload`."""
+    if windows:
+        await db.execute(
+            text(
+                """
+                INSERT INTO traffit_sync_state
+                    (phase, cursor_payload, created_at, updated_at)
+                VALUES (:p, jsonb_build_object(CAST(:slot AS TEXT), CAST(:w AS JSONB)), NOW(), NOW())
+                ON CONFLICT (phase) DO UPDATE SET
+                    cursor_payload = COALESCE(traffit_sync_state.cursor_payload,
+                                              '{}'::jsonb)
+                                     || jsonb_build_object(CAST(:slot AS TEXT), CAST(:w AS JSONB)),
+                    updated_at = NOW()
+                """
+            ),
+            {
+                "p": _CV_FIELDS_CURSOR_PHASE,
+                "slot": _CV_FIELDS_CURSOR_SLOT,
+                "w": json.dumps({"windows": windows}),
+            },
+        )
+    else:
+        await db.execute(
+            text(
+                """
+                UPDATE traffit_sync_state
+                   SET cursor_payload = NULLIF(cursor_payload - CAST(:slot AS TEXT), '{}'::jsonb),
+                       updated_at = NOW()
+                 WHERE phase = :p AND cursor_payload -> :slot IS NOT NULL
+                """
+            ),
+            {"p": _CV_FIELDS_CURSOR_PHASE, "slot": _CV_FIELDS_CURSOR_SLOT},
+        )
+    await db.commit()
+
+
 async def _cv_fields_phase(files_since: Optional[datetime]) -> _CvFieldsPhaseResult:
-    """Parse pól z CV (skills/city/years) dla kandydatów dotkniętych w tym biegu.
+    """Parse pól z CV (skills/city/years) dla kandydatów dotkniętych w biegu.
 
     Domyka lukę świeżości po Fali 3: backfill był jednorazowy, a nowe/zmienione
     CV z nocnego syncu nie dostawały pól strukturalnych, dopóki ktoś nie
-    odpalił biegu ręcznie. Delta-only ŚWIADOMIE: pełny reconcile nie ma tu
-    czego naprawiać — pozostałość scope'u po Fali 3 to wiersze, których parser
-    już nie uzupełni (sufit pokrycia), i nocne re-przemiatanie ich co tydzień
-    płaciłoby LLM za te same odmowy. FILL_EMPTY + scope filter w
-    `backfill_cv_fields` czynią fazę idempotentną; kwota `cv_backfill` + sufit
-    `TRAFFIT_SYNC_CV_FIELDS_LIMIT` ograniczają koszt pojedynczej nocy.
+    odpalił biegu ręcznie. Zakres = okno delty (`files_since` .. start fazy)
+    plus okna, których poprzednie biegi nie domknęły w budżecie (patrz
+    `_CV_FIELDS_CURSOR_PHASE`). Pełny reconcile NIE dokłada własnego okna —
+    przemiatanie całej bazy płaciłoby LLM za te same odmowy parsera — ale
+    domyka czekające okna, więc nie przerywa zaległości. FILL_EMPTY + scope
+    filter w `backfill_cv_fields` czynią fazę idempotentną; kwota
+    `cv_backfill` + sufit `TRAFFIT_SYNC_CV_FIELDS_LIMIT` ograniczają koszt
+    pojedynczej nocy.
     """
     started = datetime.now(timezone.utc)
-    from app.services.cv_field_backfill import _scope_filter, backfill_cv_fields
-
-    if files_since is None:
-        stats: dict[str, Any] = {
-            "processed": 0,
-            "note": "full-scan pominięty celowo (delta-only faza)",
-        }
-        return _CvFieldsPhaseResult(stats, started, datetime.now(timezone.utc))
+    from app.services.cv_field_backfill import backfill_cv_fields
 
     async with AsyncSessionLocal() as db:
-        ids = (
-            (
-                await db.execute(
-                    select(Candidate.id)
-                    .where(Candidate.updated_at >= files_since, *_scope_filter())
-                    .order_by(Candidate.id)
-                )
+        windows = await _load_cv_fields_windows(db)
+        carried = len(windows)
+        if files_since is not None:
+            windows.append(
+                {
+                    "since": files_since.isoformat(),
+                    "until": started.isoformat(),
+                    "after_id": 0,
+                }
             )
-            .scalars()
-            .all()
-        )
-        stats = await backfill_cv_fields(
-            db,
-            candidate_ids=list(ids),
-            limit=max(1, int(settings.TRAFFIT_SYNC_CV_FIELDS_LIMIT)),
-        )
+        if not windows:
+            stats: dict[str, Any] = {
+                "processed": 0,
+                "note": "full-scan pominięty celowo (delta-only faza) — "
+                "brak czekających okien",
+            }
+            return _CvFieldsPhaseResult(stats, started, datetime.now(timezone.utc))
+
+        limit = max(1, int(settings.TRAFFIT_SYNC_CV_FIELDS_LIMIT))
+        stats = {}
+        remaining: list[dict[str, Any]] = []
+        stop_reason: Optional[str] = None
+        caps = _cv_fields_id_caps(windows)
+        for window, cap in zip(windows, caps):
+            if cap is not None and cap <= window["after_id"]:
+                # Całe okno obejmują wcześniejsze okna (R7-V2-5).
+                continue
+            if stop_reason is not None:
+                remaining.append(window)
+                continue
+            await backfill_cv_fields(
+                db,
+                after_id=window["after_id"],
+                until_id=cap,
+                updated_since=_parse_iso(window["since"]),
+                # Start BIEŻĄCEJ fazy, nie zapisany `until` okna (R7-V2-5):
+                # wyklucza wiersze zapisane przez samą fazę w tym biegu.
+                updated_before=started,
+                limit=limit,
+                progress=stats,
+            )
+            reason = stats.get("stopped_reason")
+            if reason in (None, "done"):
+                continue
+            # Bieg stanął W TYM oknie. `last_id` to wiersz, przy którym
+            # stanął — przy limicie jeszcze nieprzetworzony, przy kwocie
+            # nieopłacony — więc wznowienie zaczyna OD niego (after_id - 1).
+            last_id = int(stats.get("last_id") or 0)
+            remaining.append(
+                {**window, "after_id": max(window["after_id"], last_id - 1)}
+            )
+            stop_reason = reason
+        stats["stopped_reason"] = stop_reason or "done"
+
+        dropped = max(0, len(remaining) - _CV_FIELDS_MAX_WINDOWS)
+        if dropped:
+            logger.warning(
+                "[traffit-sync] candidates_cv_fields: %d najstarszych okien "
+                "odrzuconych (sufit %d) — budżet fazy jest za mały",
+                dropped,
+                _CV_FIELDS_MAX_WINDOWS,
+            )
+            remaining = remaining[dropped:]
+            stats["dropped_windows"] = dropped
+        await _save_cv_fields_windows(db, remaining)
+        stats["carried_windows"] = carried
+        stats["pending_windows"] = len(remaining)
     return _CvFieldsPhaseResult(stats, started, datetime.now(timezone.utc))
 
 
@@ -491,9 +692,9 @@ class _CvTextPhaseResult:
     """Adapter ``cv_text_backfill.run_backfill`` na kontrakt fazy.
 
     CELOWO ``errors = 0``: nieudany plik dostaje znacznik w
-    ``cv_extracted_data._cv_text_extraction`` i wraca w następnym biegu
-    (``download_failed``/``error``) albo zostaje opisany jako beznadziejny
-    (``junk``/``legacy_doc``) — nic tu nie wymaga wstrzymywania watermarku, a
+    ``cv_extracted_data._cv_text_extraction`` i wraca po odroczeniu
+    (``download_failed``/``no_file``/``error`` — runda 6 audytu) albo zostaje opisany jako beznadziejny
+    (``junk``/``empty``) — nic tu nie wymaga wstrzymywania watermarku, a
     wstrzymany watermark i tak niczego by w tej fazie nie ponowił.
     """
 
@@ -602,6 +803,37 @@ async def _reconcile_phase(importer: TraffitImporter) -> _ReconcilePhaseResult:
     return _ReconcilePhaseResult(report, started, datetime.now(timezone.utc))
 
 
+async def _pipelines_phase(importer: TraffitImporter, since: Optional[datetime]):
+    """Ruchy pipeline'u, a po nich przypomnienie o kolejce Cpro.
+
+    Przypomnienie liczy stan PO imporcie (kto nadal stoi w kolejce Cpro
+    w Traffit), więc ma sens dopiero, gdy faza doszła do końca — wywrotka
+    fazy go nie wysyła.
+    """
+    progress = await importer.import_pipelines(since=since)
+    await _remind_cpro_queue()
+    return progress
+
+
+async def _remind_cpro_queue() -> None:
+    """Best-effort i we własnej sesji: awaria powiadomienia nie może zmienić
+    wyniku fazy ani zostawić sesji importera w zepsutej transakcji."""
+    if not settings.TRAFFIT_CPRO_REMINDER_ENABLED:
+        return
+    try:
+        from app.services import cpro_queue_reminder
+
+        async with AsyncSessionLocal() as db:
+            listed = await cpro_queue_reminder.remind(db)
+            await db.commit()
+        if listed:
+            logger.info("Traffit Cpro queue reminder sent: %d card(s)", listed)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Traffit Cpro queue reminder failed (%s)", type(exc).__name__)
+
+
 # ── Phase plan ───────────────────────────────────────────────────────────────
 
 
@@ -637,11 +869,26 @@ def _phase_plan(
         # `pipelines` wymaga
         # `jobs` (FK), a obie są szybkie przy delcie ogonowej (INTG-03).
         ("jobs", lambda: importer.import_jobs(since=since)),
-        ("pipelines", lambda: importer.import_pipelines(since=since)),
+        ("pipelines", lambda: _pipelines_phase(importer, since)),
         # Pliki CV zaraz za ruchami: CV nowych kandydatów nie czeka na fazy
         # wzbogacania, które i tak czytają zapisane CV.
-        ("candidates_cv", lambda: importer.import_candidates_cv(since=files_since)),
-        ("candidate_files", lambda: importer.import_candidate_files(since=files_since)),
+        # `source_since` (runda 10): kandydaci z feedu delty, także niezmienieni
+        # u źródła — upsert ich nie stempluje, a ponowienie po wstrzymanym
+        # watermarku musi ich znowu objąć.
+        (
+            "candidates_cv",
+            lambda: importer.import_candidates_cv(
+                since=files_since,
+                source_since=since if files_since is not None else None,
+            ),
+        ),
+        (
+            "candidate_files",
+            lambda: importer.import_candidate_files(
+                since=files_since,
+                source_since=since if files_since is not None else None,
+            ),
+        ),
         # Tekst z pobranych CV — zanim pola z CV zaczną go czytać.
         ("candidates_cv_text", _cv_text_phase),
         (
@@ -676,9 +923,26 @@ def _phase_plan(
 #
 # WYWROTKA fazy (wyjątek poza pętlą wierszy, np. nieudany commit) blokuje
 # watermark jak w każdej innej fazie: nie wiadomo, które wiersze przeszły,
-# a dla `candidates_cv_fields` wstrzymany watermark jest JEDYNYM ponowieniem
-# — pełny bieg ją pomija, delta widzi tylko `updated_at >= run_start`.
+# (dla `candidates_cv_fields` niedokończone w budżecie okno i tak czeka
+# w kursorze fazy — runda 6 audytu — ale wywrotka nie zdążyła go zapisać).
 ADVISORY_PHASES = frozenset({"candidates_enrich_names", "candidates_cv_fields"})
+
+
+def row_errors_are_advisory(phase: str, mode: str) -> bool:
+    """Czy błędy WIERSZY tej fazy w tym trybie wstrzymują watermark.
+
+    Runda 10 (R10-N11-10): budżetowane przeglądy PEŁNEGO biegu
+    (`candidate_files`, `candidates_cv`) oglądają wiersz raz na przebieg,
+    a delta tej samej fazy (ten sam wiersz stanu) zeruje licznik kwarantanny —
+    ten sam mechanizm co przy `ADVISORY_PHASES`. Kwarantanna nigdy nie
+    parkowała takiego wiersza, więc każdy pełny bieg z jednym błędem pliku
+    kończył się `errors` i nie przesuwał `__daily__`, a wstrzymanie niczego
+    nie ponawiało (pełny przegląd ma własny kursor `after_id`). W delcie te
+    same fazy blokują jak dotąd — tam wstrzymanie ponawia dotkniętych.
+    """
+    if phase in ADVISORY_PHASES:
+        return True
+    return mode == "full" and phase in ("candidate_files", "candidates_cv")
 
 
 # Nazwy faz w kolejności planu. Trzymane osobno, bo walidacja `phases=` musi
@@ -882,11 +1146,49 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         # 24.09.2026: archiwum z Traffita i kategorie nowych rekrutacji.
         "archived",
         "categorised",
+        # Runda 9: przeliczone tytuły dla rekrutera.
+        "working_titles",
+        # 29.09.2026: rekrutacje dopisane do notatek (faza aktywności).
+        "note_recruitments",
         "drifted_entities",
         "drift",
         "total_source",
+        # Runda 6 audytu: faza `candidates_cv_text` (taksonomia wyników
+        # odczytu) i `candidates_cv_fields` (kursor okien) — bez tych kluczy
+        # obie fazy wyglądały w `/sync/status` jak puste.
+        "scanned",
+        "extracted",
+        "improved",
+        "empty",
+        "no_improvement",
+        "junk",
+        "unsupported_format",
+        "no_file",
+        "download_failed",
+        # `error` (licznik BackfillStats) celowo NIE jest tu kluczem: klucz
+        # `error` w wyniku fazy znaczy „faza się wywróciła” i zatrzymuje
+        # `__daily__` (bramka niżej). Licznik idzie jako `extract_errors`.
+        "skipped_terminal",
+        "still_glued",
+        "reindex_enqueued",
+        "storage_available",
+        "written",
+        "glued",
+        "stopped_reason",
+        "llm_calls",
+        "fields_filled",
+        "carried_windows",
+        "pending_windows",
+        "dropped_windows",
+        "note",
+        # 05.10.2026: kolizje e-maila fazy `candidates` — DORADCZE, poza
+        # `errors`, więc nie wstrzymują `__daily__`; pary samych ID.
+        "email_collision_count",
+        "email_collisions",
     )
     out = {k: progress_dict.get(k) for k in keys if k in progress_dict}
+    if isinstance(progress_dict.get("error"), int):
+        out["extract_errors"] = progress_dict["error"]
     samples = progress_dict.get("error_samples") or []
     if samples:
         out["error_samples"] = [str(s)[:200] for s in samples[:10]]
@@ -1114,7 +1416,8 @@ async def run_traffit_sync(
                             for ref, n in quarantine.items()
                             if n >= settings.TRAFFIT_MAX_ROW_ATTEMPTS
                         }
-                        if blocking and name in ADVISORY_PHASES:
+                        advisory_rows = row_errors_are_advisory(name, mode)
+                        if blocking and advisory_rows:
                             # Row errors of an enrichment phase: counted and
                             # shown, but under a key the global gate below does
                             # not read — see `ADVISORY_PHASES`.
@@ -1153,7 +1456,7 @@ async def run_traffit_sync(
                             # powtórzy. Blokujące błędy wierszy pamiętamy
                             # osobno, żeby watermark nadal stał.
                             attempt["done"] = sorted(set(attempt["done"]) | {name})
-                            if blocking and name not in ADVISORY_PHASES:
+                            if blocking and not advisory_rows:
                                 attempt["held"] = sorted(set(attempt["held"]) | {name})
                             attempt["touched_at"] = datetime.now(
                                 timezone.utc
@@ -1165,12 +1468,16 @@ async def run_traffit_sync(
                         logger.exception("Traffit phase %s failed", name)
                         # A crash holds the watermark in EVERY phase, the
                         # enrichment ones included — see `ADVISORY_PHASES`.
-                        results[name] = {"error": repr(exc)}
+                        # Runda 10 (R10-N11-5): do stanu syncu (`/sync/status`)
+                        # sama klasa — treść wyjątku magazynu niesie klucz CV.
+                        results[name] = {"error": safe_db_error(exc)}
                         try:
                             await db.rollback()
                         except Exception:  # noqa: BLE001
                             pass
-                        crash_stats: dict[str, Any] = {"error": repr(exc)[:500]}
+                        crash_stats: dict[str, Any] = {
+                            "error": safe_db_error(exc)[:500]
+                        }
                         # Przenieś licznik kwarantanny przez awarię fazy.
                         # `stats` jest podmieniane W CAŁOŚCI (COALESCE w
                         # `_UPSERT_STATE` chroni wyłącznie przed NULL-em, a to
@@ -1259,7 +1566,8 @@ async def run_traffit_sync(
                 # `advisory_errors`, so they never gate it; a crash (`error`)
                 # does, in every phase — `ADVISORY_PHASES`.
                 any_error = bool(held_before) or any(
-                    isinstance(v, dict) and ("error" in v or v.get("blocking_errors"))
+                    isinstance(v, dict)
+                    and (isinstance(v.get("error"), str) or v.get("blocking_errors"))
                     for v in results.values()
                 )
                 advisory_failures = sorted(
@@ -1366,6 +1674,11 @@ async def run_traffit_sync(
 
 async def traffit_daily_sync_loop() -> None:
     """Periodic Traffit sync scheduler. Cancellation-aware."""
+    try:
+        refuse_traffit("traffit_daily_sync_loop")
+    except TraffitRetiredError as exc:
+        logger.info("traffit_daily_sync_loop nie startuje: %s", exc)
+        return
     if not settings.TRAFFIT_SYNC_ENABLED:
         logger.info("traffit_daily_sync_loop disabled (TRAFFIT_SYNC_ENABLED=false)")
         return

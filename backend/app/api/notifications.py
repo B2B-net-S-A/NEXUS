@@ -3,12 +3,12 @@ Notifications API
 User notification system with unread badge support.
 """
 
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Annotated, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
-from sqlalchemy import and_, func, or_, select, true, update
+from pydantic import BaseModel, Field, model_validator
+from sqlalchemy import and_, case, func, or_, select, true, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,11 +16,15 @@ from app.core.database import get_db
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.api.deps import CurrentUser
+from app.services import chat_notifications
+from app.services.mention_dispatch import CHAT_NOTIFICATION_TYPES
 from app.services.notification_access import (
     notification_types_for_sections,
     notification_visibility_predicate,
+    role_muted_types_of,
     user_may_receive_type,
 )
+from app.services.hr import program as hr_program
 from app.services.notification_categories import (
     CATEGORY_BY_TYPE,
     CATEGORY_INFO,
@@ -28,6 +32,13 @@ from app.services.notification_categories import (
     is_mutable,
     muted_categories,
     types_in,
+)
+from app.services.notification_topics import (
+    TOAST_TYPES,
+    NotificationTopic,
+    job_key_expression,
+    topic_for,
+    types_in_topic,
 )
 from app.services.section_permissions import ProductSection
 from app.services.workforce_availability import operational_owner_ids
@@ -83,6 +94,49 @@ class NotificationListResponse(BaseModel):
 
 class UnreadCountResponse(BaseModel):
     count: int
+    # Nieprzeczytane według tematu ikony paska (16.10.2026) — poranny brief
+    # Jarvisa mówi o rekrutacjach i CV, nie o sumie dawnego dzwonka.
+    by_topic: dict[str, int] = Field(default_factory=dict)
+
+
+class ChatThreadResponse(BaseModel):
+    """Jedna rozmowa w okienku „Wiadomości”: czat rekrutacji, kandydata
+    albo wątek notatki (wzmianka, odpowiedź)."""
+
+    kind: Literal["job", "candidate", "note"]
+    entity_id: int
+    title: str
+    subtitle: Optional[str] = None
+    unread_count: int
+    has_mention: bool
+    last_author_name: Optional[str] = None
+    last_message: str
+    last_at: Optional[str] = None
+    link: str
+
+
+class ChatThreadListResponse(BaseModel):
+    items: List[ChatThreadResponse]
+    # Rozmowy z nowymi wiadomościami w całym oknie 30 dni, nie tylko na
+    # zwróconej stronie — to jest licznik na ikonie.
+    unread_threads: int
+
+
+class ChatThreadsReadRequest(BaseModel):
+    kind: Optional[Literal["job", "candidate", "note"]] = None
+    entity_id: Optional[int] = None
+    # Wątek notatki rozpoznajemy po linku (jak w liście wątków).
+    link: Optional[str] = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def _thread_is_complete(self) -> "ChatThreadsReadRequest":
+        if self.kind == "note":
+            if not self.link or not self.link.startswith("/"):
+                raise ValueError("Podaj link wątku notatki.")
+            return self
+        if (self.kind is None) != (self.entity_id is None):
+            raise ValueError("Podaj rodzaj rozmowy razem z jej numerem.")
+        return self
 
 
 class MarkAllReadResponse(BaseModel):
@@ -96,6 +150,116 @@ class MarkAllReadResponse(BaseModel):
 # Bounded page size — keep the bell/list responsive and avoid unbounded scans.
 _MAX_LIMIT = 200
 _DEFAULT_LIMIT = 50
+_CHAT_THREADS_DEFAULT_LIMIT = 30
+_CHAT_THREADS_MAX_LIMIT = 100
+
+# Okienko „Rozmowy” (13.10.2026): cała kategoria „Rozmowy” — rozmowy u klienta,
+# prepy, terminy, telefon po rozmowie i przypomnienia kalendarza.
+_INTERVIEW_TYPES = tuple(sorted(types_in(NotificationCategory.interviews), key=str))
+# Starszej sprawy nikt już nie załatwia z powiadomienia — zostaje na ekranie
+# „Rozmowy u klienta”.
+_INTERVIEW_WINDOW_DAYS = 7
+_INTERVIEW_WINDOW_LIMIT = 50
+_INTERVIEW_READ_MAX_IDS = 100
+
+
+class InterviewNotificationListResponse(BaseModel):
+    items: List[NotificationResponse]
+
+
+class InterviewNotificationsReadRequest(BaseModel):
+    ids: List[int] = Field(min_length=1, max_length=_INTERVIEW_READ_MAX_IDS)
+
+
+# Okienko „Rekrutacje” (16.10.2026, w miejscu dzwonka): moje rekrutacje
+# z nowościami z 7 dni — ruchy kandydatów, przydział, termin, Champion,
+# osoby od automatu. Jedna pozycja na rekrutację; wiersz bez rekrutacji
+# („Twoje requesty na dziś”) to pozycja po swoim linku.
+_JOB_TOPIC_TYPES = tuple(sorted(types_in_topic(NotificationTopic.jobs), key=str))
+_JOB_TOPIC_TASK_TYPES = tuple(
+    sorted((t for t in _JOB_TOPIC_TYPES if t in TOAST_TYPES), key=str)
+)
+_JOB_THREADS_WINDOW_DAYS = 7
+_JOB_THREADS_LIMIT = 30
+_TOPIC_READ_MAX_IDS = 100
+
+
+class JobThreadResponse(BaseModel):
+    """Jedna rekrutacja (albo pozycja bez rekrutacji) w okienku „Rekrutacje”."""
+
+    job_id: Optional[int] = None
+    title: str
+    subtitle: Optional[str] = None
+    unread_count: int
+    # Wśród nowych jest coś imiennego (przydział, zadanie stawki…).
+    has_task: bool
+    last_title: str
+    last_message: str
+    last_at: Optional[str] = None
+    link: str
+
+
+class JobThreadListResponse(BaseModel):
+    items: List[JobThreadResponse]
+    # Rekrutacje (i pozycje bez rekrutacji) z nowymi w całym oknie 7 dni —
+    # liczba na ikonie.
+    unread_jobs: int
+
+
+# Okienko „Umowy” (26.10.2026): umowy w podpisie — czeka na mój podpis,
+# kontraktor podpisał, podpisana, link wygasł, prośba o potwierdzenie.
+# Jedna pozycja na umowę (encja zdarzenia); wiersz bez encji — po linku.
+_CONTRACT_TOPIC_TYPES = tuple(
+    sorted(types_in_topic(NotificationTopic.contracts), key=str)
+)
+_CONTRACT_THREADS_WINDOW_DAYS = 14
+_CONTRACT_THREADS_LIMIT = 30
+_CONTRACT_DEFAULT_LINK = "/contracts/b2b-generator?tab=generated"
+
+
+class ContractThreadResponse(BaseModel):
+    """Jedna umowa w okienku „Umowy”."""
+
+    key: str
+    title: str
+    message: str
+    unread_count: int
+    # Nieprzeczytane wiersze tej pozycji — klik gasi je przez `topics/read`.
+    unread_ids: List[int]
+    last_at: Optional[str] = None
+    link: str
+
+
+class ContractThreadListResponse(BaseModel):
+    items: List[ContractThreadResponse]
+    # Umowy z nowymi w całym oknie — liczba na ikonie.
+    unread_contracts: int
+
+
+_INT4_MAX = 2_147_483_647
+
+
+class TopicReadRequest(BaseModel):
+    topic: NotificationTopic
+    job_id: Optional[int] = Field(default=None, ge=1, le=_INT4_MAX)
+    link: Optional[str] = Field(default=None, max_length=1000)
+    ids: Optional[List[Annotated[int, Field(ge=1, le=_INT4_MAX)]]] = Field(
+        default=None, min_length=1, max_length=_TOPIC_READ_MAX_IDS
+    )
+    # Klik w pozycję okienka gasi też przypomnienia nieobecnego kolegi
+    # (świadomie, jak klik w dzwonku). Samo wejście na ekran rekrutacji wysyła
+    # `false` — wtedy tylko własne wiersze.
+    include_covered: bool = True
+
+    @model_validator(mode="after")
+    def _one_target(self) -> "TopicReadRequest":
+        targets = [x for x in (self.job_id, self.link, self.ids) if x is not None]
+        if len(targets) > 1:
+            raise ValueError("Wskaż rekrutację, link albo listę — jedno naraz.")
+        if self.link is not None and not self.link.startswith("/"):
+            raise ValueError("Link musi prowadzić do ekranu NEXUSA.")
+        return self
+
 
 # Historyczna lista „finance-safe" — od 19.08 nieużywana w predykacie
 # widoczności (finance widzi feed jak role operacyjne), zostaje wyłącznie
@@ -147,6 +311,40 @@ def _notification_owner(current_user: User):
     )
 
 
+async def _list_items(
+    db: AsyncSession, notifications, current_user: User
+) -> List[NotificationResponse]:
+    """Wiersze listy z podpisem „w zastępstwie za …” przy cudzych przypomnieniach."""
+    foreign_owner_ids = {
+        n.user_id for n in notifications if n.user_id != current_user.id
+    }
+    owner_names: dict[int, str] = {}
+    if foreign_owner_ids:
+        owner_rows = await db.execute(
+            select(User.id, User.name).where(User.id.in_(foreign_owner_ids))
+        )
+        owner_names = {row.id: row.name for row in owner_rows}
+    return [
+        NotificationResponse(
+            id=n.id,
+            user_id=n.user_id,
+            title=n.title,
+            message=n.message,
+            link=n.link,
+            notification_type=n.notification_type.value,
+            is_read=n.is_read,
+            created_at=n.created_at.isoformat() if n.created_at else None,
+            on_behalf_of_name=(
+                (owner_names.get(n.user_id) or "nieobecną osobę")
+                if n.user_id != current_user.id
+                else None
+            ),
+            **_category_fields(n.notification_type),
+        )
+        for n in notifications
+    ]
+
+
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 
@@ -157,8 +355,21 @@ async def list_notifications(
     limit: int = Query(_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT),
     offset: int = Query(0, ge=0),
     exclude_section: List[str] = Query(default=[]),
+    exclude_chat: bool = Query(False),
+    exclude_interviews: bool = Query(False),
+    topic: List[NotificationTopic] = Query(default=[]),
 ):
     """List notifications for current user — unread first.
+
+    ``topic`` (powtarzalny, 16.10.2026): tylko typy wskazanych tematów ikon
+    paska (`services/notification_topics.py`). Filtr pozytywny — backend,
+    który go nie zna, zwróci więcej, nigdy mniej.
+
+    ``exclude_chat``: dzwonek nie pokazuje ani nie liczy powiadomień czatów —
+    od 09.10.2026 mają własne okienko (``GET /notifications/chats``).
+
+    ``exclude_interviews``: to samo dla kategorii „Rozmowy” u osób, które mają
+    okienko „Rozmowy” (``GET /notifications/interviews``, 13.10.2026).
 
     ``exclude_section`` (powtarzalny, np. ``delivery``): widget „Moje zadania"
     pokazuje wyłącznie zdarzenia rekrutacyjne, a sprawy klientów mają osobny
@@ -179,12 +390,22 @@ async def list_notifications(
             status_code=422,
             detail="exclude_section: nieznana sekcja (sourcing, pipeline, delivery, insights)",
         )
-    excluded_types = notification_types_for_sections(excluded_sections)
+    excluded_types = set(notification_types_for_sections(excluded_sections))
+    if exclude_chat:
+        excluded_types.update(CHAT_NOTIFICATION_TYPES)
+    if exclude_interviews:
+        excluded_types.update(_INTERVIEW_TYPES)
     type_filter = (
         Notification.notification_type.not_in(sorted(excluded_types, key=str))
         if excluded_types
         else true()
     )
+    if topic:
+        wanted = set().union(*(types_in_topic(t) for t in topic))
+        type_filter = and_(
+            type_filter,
+            Notification.notification_type.in_(sorted(wanted, key=str)),
+        )
     result = await db.execute(
         select(Notification)
         .where(
@@ -201,16 +422,6 @@ async def list_notifications(
         .limit(limit)
     )
     notifications = result.scalars().all()
-
-    foreign_owner_ids = {
-        n.user_id for n in notifications if n.user_id != current_user.id
-    }
-    owner_names: dict[int, str] = {}
-    if foreign_owner_ids:
-        owner_rows = await db.execute(
-            select(User.id, User.name).where(User.id.in_(foreign_owner_ids))
-        )
-        owner_names = {row.id: row.name for row in owner_rows}
 
     unread_result = await db.execute(
         select(func.count())
@@ -237,28 +448,10 @@ async def list_notifications(
         or 0
     )
 
-    items = [
-        NotificationResponse(
-            id=n.id,
-            user_id=n.user_id,
-            title=n.title,
-            message=n.message,
-            link=n.link,
-            notification_type=n.notification_type.value,
-            is_read=n.is_read,
-            created_at=n.created_at.isoformat() if n.created_at else None,
-            on_behalf_of_name=(
-                (owner_names.get(n.user_id) or "nieobecną osobę")
-                if n.user_id != current_user.id
-                else None
-            ),
-            **_category_fields(n.notification_type),
-        )
-        for n in notifications
-    ]
-
     return NotificationListResponse(
-        items=items, unread_count=unread_count, own_unread_count=own_unread_count
+        items=await _list_items(db, notifications, current_user),
+        unread_count=unread_count,
+        own_unread_count=own_unread_count,
     )
 
 
@@ -267,18 +460,431 @@ async def get_unread_count(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Return just the unread notification count — lightweight for polling."""
+    """Return just the unread notification count — lightweight for polling.
+
+    ``by_topic``: te same nieprzeczytane rozbite na tematy ikon paska.
+    """
     result = await db.execute(
-        select(func.count())
-        .select_from(Notification)
+        select(Notification.notification_type, func.count())
         .where(
             _notification_owner(current_user),
             Notification.is_read.is_(False),
             _notification_visibility(current_user),
         )
+        .group_by(Notification.notification_type)
     )
-    count = result.scalar() or 0
-    return UnreadCountResponse(count=count)
+    by_topic: dict[str, int] = {}
+    count = 0
+    for ntype, n in result.all():
+        count += int(n)
+        key = topic_for(ntype).value
+        by_topic[key] = by_topic.get(key, 0) + int(n)
+    return UnreadCountResponse(count=count, by_topic=by_topic)
+
+
+# ── Okienko „Czaty”: powiadomienia czatów pogrupowane w rozmowy ──────────────
+
+
+@router.get("/notifications/chats", response_model=ChatThreadListResponse)
+async def list_chat_threads(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(_CHAT_THREADS_DEFAULT_LIMIT, ge=1, le=_CHAT_THREADS_MAX_LIMIT),
+    include_notes: bool = Query(False),
+):
+    """Rozmowy z ostatnich 30 dni — nieprzeczytane najpierw.
+
+    Jedna pozycja na czat rekrutacji albo kandydata; ``link`` prowadzi do
+    pierwszej nieprzeczytanej wiadomości. Widoczność jak w dzwonku (sekcja
+    i wyciszona kategoria „Czat”) stosuje ``chat_notifications.list_threads``.
+    ``include_notes`` (okienko „Wiadomości”, 16.10.2026): także wątki wzmianek
+    i odpowiedzi w notatkach (``kind="note"``, jeden na link notatki).
+    """
+    threads, unread_threads = await chat_notifications.list_threads(
+        db, current_user, limit=limit, include_notes=include_notes
+    )
+    return ChatThreadListResponse(
+        items=[
+            ChatThreadResponse(
+                kind=thread.kind,
+                entity_id=thread.entity_id,
+                title=thread.title,
+                subtitle=thread.subtitle,
+                unread_count=thread.unread_count,
+                has_mention=thread.has_mention,
+                last_author_name=thread.last_author_name,
+                last_message=thread.last_message,
+                last_at=thread.last_at.isoformat() if thread.last_at else None,
+                link=thread.link,
+            )
+            for thread in threads
+        ],
+        unread_threads=unread_threads,
+    )
+
+
+@router.put("/notifications/chats/read", response_model=MarkAllReadResponse)
+async def mark_chat_threads_read(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    body: Optional[ChatThreadsReadRequest] = None,
+    include_notes: bool = Query(False),
+):
+    """Oznacz powiadomienia czatów jako przeczytane: jednej rozmowy albo wszystkich.
+
+    ``kind="note"`` z ``link`` — jeden wątek notatki. Bez ciała
+    z ``include_notes`` — wszystkie czaty i notatki („Oznacz wszystkie”
+    w okienku „Wiadomości”). Backend bez tego parametru zgasi same czaty —
+    nigdy więcej, niż okienko pokazuje.
+    """
+    updated = await chat_notifications.mark_read(
+        db,
+        current_user.id,
+        kind=body.kind if body else None,
+        entity_id=body.entity_id if body else None,
+        link=body.link if body else None,
+        include_notes=include_notes,
+        extra=_notification_visibility(current_user),
+    )
+    await db.commit()
+    return MarkAllReadResponse(
+        success=True,
+        updated=updated,
+        message="Powiadomienia czatów oznaczone jako przeczytane",
+    )
+
+
+# ── Okienko „Rozmowy”: rozmowy u klienta, prepy, przypomnienia kalendarza ────
+
+
+@router.get(
+    "/notifications/interviews", response_model=InterviewNotificationListResponse
+)
+async def list_interview_notifications(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Nieprzeczytane powiadomienia kategorii „Rozmowy” z ostatnich 7 dni.
+
+    Okienko „Rozmowy” w górnym pasku: zadania bierze z ``GET /interview-cycle``,
+    stąd — to, co przyszło i czego nikt jeszcze nie otworzył. Własne wiersze
+    i przypomnienia w zastępstwie, jak w dzwonku.
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=_INTERVIEW_WINDOW_DAYS)
+    result = await db.execute(
+        select(Notification)
+        .where(
+            _notification_owner(current_user),
+            _notification_visibility(current_user),
+            Notification.notification_type.in_(_INTERVIEW_TYPES),
+            Notification.is_read.is_(False),
+            Notification.created_at >= since,
+        )
+        .order_by(Notification.created_at.desc(), Notification.id.desc())
+        .limit(_INTERVIEW_WINDOW_LIMIT)
+    )
+    return InterviewNotificationListResponse(
+        items=await _list_items(db, result.scalars().all(), current_user)
+    )
+
+
+@router.put("/notifications/interviews/read", response_model=MarkAllReadResponse)
+async def mark_interview_notifications_read(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    body: Optional[InterviewNotificationsReadRequest] = None,
+):
+    """Oznacz powiadomienia kategorii „Rozmowy” jako przeczytane.
+
+    Z ``ids`` — wskazane wiersze (klik w pozycję okienka), także przypomnienie
+    w zastępstwie, jak pojedyncze kliknięcie w dzwonku. Bez ciała — wszystkie
+    WŁASNE, jak ``read-all``. Osobna trasa, nie parametr ``read-all``: backend
+    sprzed tej zmiany zignorowałby nieznany parametr i zgasił cały dzwonek.
+    """
+    owner = (
+        and_(_notification_owner(current_user), Notification.id.in_(body.ids))
+        if body
+        else Notification.user_id == current_user.id
+    )
+    result = await db.execute(
+        update(Notification)
+        .where(
+            owner,
+            Notification.is_read.is_(False),
+            Notification.notification_type.in_(_INTERVIEW_TYPES),
+            _notification_visibility(current_user),
+        )
+        .values(is_read=True)
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+    return MarkAllReadResponse(
+        success=True,
+        updated=result.rowcount or 0,
+        message="Powiadomienia o rozmowach oznaczone jako przeczytane",
+    )
+
+
+# ── Okienko „Rekrutacje”: moje rekrutacje z nowościami (16.10.2026) ──────────
+
+
+@router.get("/notifications/jobs", response_model=JobThreadListResponse)
+async def list_job_threads(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Rekrutacje z powiadomieniami tematu „Rekrutacje” z 7 dni — nowe najpierw.
+
+    Jedna pozycja na rekrutację (ścieżka ``/jobs/{id}``, parametr ``?job=``
+    albo encja „job”); wiersz bez rekrutacji to pozycja po swoim linku.
+    Własne wiersze i przypomnienia w zastępstwie, widoczność jak w każdym
+    okienku. Liczba na ikonie = ``unread_jobs``.
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=_JOB_THREADS_WINDOW_DAYS)
+    rows_in_window = (
+        select(
+            Notification.id,
+            Notification.link,
+            Notification.is_read,
+            Notification.notification_type,
+            job_key_expression(Notification).label("job_key"),
+        )
+        .where(
+            _notification_owner(current_user),
+            _notification_visibility(current_user),
+            Notification.notification_type.in_(_JOB_TOPIC_TYPES),
+            Notification.created_at >= since,
+        )
+        .subquery()
+    )
+    job_key = rows_in_window.c.job_key
+    # Bez parametrów wiązanych w kluczu grupy: ten sam tekst w SELECT i GROUP BY.
+    link_key = case((job_key.is_(None), rows_in_window.c.link), else_=None)
+    unread = rows_in_window.c.is_read.is_(False)
+    unread_rows = func.count().filter(unread)
+    latest_id = func.max(rows_in_window.c.id)
+    grouped = (
+        await db.execute(
+            select(
+                job_key.label("job_id"),
+                link_key.label("link_key"),
+                unread_rows.label("unread_count"),
+                func.count()
+                .filter(
+                    unread,
+                    rows_in_window.c.notification_type.in_(_JOB_TOPIC_TASK_TYPES),
+                )
+                .label("unread_tasks"),
+                latest_id.label("latest_id"),
+            )
+            .group_by(job_key, link_key)
+            .order_by((unread_rows > 0).desc(), latest_id.desc())
+            .limit(_JOB_THREADS_LIMIT)
+        )
+    ).all()
+    unread_groups = (
+        select(job_key, link_key).where(unread).group_by(job_key, link_key).subquery()
+    )
+    unread_jobs = int(
+        await db.scalar(select(func.count()).select_from(unread_groups)) or 0
+    )
+    if not grouped:
+        return JobThreadListResponse(items=[], unread_jobs=unread_jobs)
+
+    latest_rows = {
+        n.id: n
+        for n in (
+            await db.execute(
+                select(Notification).where(
+                    Notification.id.in_(sorted(row.latest_id for row in grouped))
+                )
+            )
+        )
+        .scalars()
+        .all()
+    }
+    titles = await chat_notifications.job_names(
+        db, [row.job_id for row in grouped if row.job_id is not None]
+    )
+    items: List[JobThreadResponse] = []
+    for row in grouped:
+        latest = latest_rows.get(row.latest_id)
+        if latest is None:
+            continue
+        if row.job_id is not None:
+            title, client = titles.get(row.job_id, ("", None))
+            title = title or f"Rekrutacja #{row.job_id}"
+            link = f"/jobs/{row.job_id}"
+        else:
+            title, client = latest.title, None
+            link = latest.link or "/jobs"
+        items.append(
+            JobThreadResponse(
+                job_id=row.job_id,
+                title=title,
+                subtitle=client,
+                unread_count=int(row.unread_count or 0),
+                has_task=bool(row.unread_tasks),
+                last_title=latest.title,
+                last_message=latest.message,
+                last_at=latest.created_at.isoformat() if latest.created_at else None,
+                link=link,
+            )
+        )
+    return JobThreadListResponse(items=items, unread_jobs=unread_jobs)
+
+
+# ── Okienko „Umowy”: umowy w podpisie z nowościami (26.10.2026) ──────────────
+
+
+@router.get("/notifications/contracts", response_model=ContractThreadListResponse)
+async def list_contract_threads(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Umowy z powiadomieniami tematu „Umowy” z 14 dni — nowe najpierw.
+
+    Jedna pozycja na umowę: para (typ encji, id encji) zdarzenia; wiersz bez
+    encji to pozycja po swoim linku. Własne wiersze i przypomnienia
+    w zastępstwie, widoczność jak w każdym okienku. Liczba na ikonie =
+    ``unread_contracts`` (każde nowe zdarzenie umowy ją podbija).
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=_CONTRACT_THREADS_WINDOW_DAYS)
+    rows_in_window = (
+        select(
+            Notification.id,
+            Notification.link,
+            Notification.is_read,
+            Notification.related_entity_type,
+            Notification.related_entity_id,
+        )
+        .where(
+            _notification_owner(current_user),
+            _notification_visibility(current_user),
+            Notification.notification_type.in_(_CONTRACT_TOPIC_TYPES),
+            Notification.created_at >= since,
+        )
+        .subquery()
+    )
+    entity_id = rows_in_window.c.related_entity_id
+    entity_type = case(
+        (entity_id.is_(None), None), else_=rows_in_window.c.related_entity_type
+    )
+    # Bez parametrów wiązanych w kluczu grupy: ten sam tekst w SELECT i GROUP BY.
+    link_key = case((entity_id.is_(None), rows_in_window.c.link), else_=None)
+    unread = rows_in_window.c.is_read.is_(False)
+    unread_rows = func.count().filter(unread)
+    latest_id = func.max(rows_in_window.c.id)
+    grouped = (
+        await db.execute(
+            select(
+                entity_type.label("entity_type"),
+                entity_id.label("entity_id"),
+                link_key.label("link_key"),
+                unread_rows.label("unread_count"),
+                func.array_agg(rows_in_window.c.id).filter(unread).label("unread_ids"),
+                latest_id.label("latest_id"),
+            )
+            .group_by(entity_type, entity_id, link_key)
+            .order_by((unread_rows > 0).desc(), latest_id.desc())
+            .limit(_CONTRACT_THREADS_LIMIT)
+        )
+    ).all()
+    unread_groups = (
+        select(entity_type, entity_id, link_key)
+        .where(unread)
+        .group_by(entity_type, entity_id, link_key)
+        .subquery()
+    )
+    unread_contracts = int(
+        await db.scalar(select(func.count()).select_from(unread_groups)) or 0
+    )
+    if not grouped:
+        return ContractThreadListResponse(items=[], unread_contracts=unread_contracts)
+
+    latest_rows = {
+        n.id: n
+        for n in (
+            await db.execute(
+                select(Notification).where(
+                    Notification.id.in_(sorted(row.latest_id for row in grouped))
+                )
+            )
+        )
+        .scalars()
+        .all()
+    }
+    items: List[ContractThreadResponse] = []
+    for row in grouped:
+        latest = latest_rows.get(row.latest_id)
+        if latest is None:
+            continue
+        key = (
+            f"{row.entity_type}:{row.entity_id}"
+            if row.entity_id is not None
+            else f"link:{row.link_key or ''}"
+        )
+        items.append(
+            ContractThreadResponse(
+                key=key,
+                title=latest.title,
+                message=latest.message,
+                unread_count=int(row.unread_count or 0),
+                unread_ids=sorted(row.unread_ids or [])[:_TOPIC_READ_MAX_IDS],
+                last_at=latest.created_at.isoformat() if latest.created_at else None,
+                link=latest.link or _CONTRACT_DEFAULT_LINK,
+            )
+        )
+    return ContractThreadListResponse(items=items, unread_contracts=unread_contracts)
+
+
+@router.put("/notifications/topics/read", response_model=MarkAllReadResponse)
+async def mark_topic_read(
+    body: TopicReadRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Oznacz jako przeczytane powiadomienia jednego tematu ikony paska.
+
+    Z ``job_id`` — jednej rekrutacji (klik w pozycję albo wejście na jej
+    ekran), z ``link`` — pozycji bez rekrutacji, z ``ids`` — wskazanych
+    wierszy; także przypomnienia w zastępstwie, jak pojedynczy klik. Bez
+    wskazania — wszystkie WŁASNE wiersze tematu. Osobna trasa, nie parametr
+    ``read-all``: backend sprzed zmiany zignorowałby nieznany parametr
+    i zgasił wszystko.
+    """
+    whose = (
+        _notification_owner(current_user)
+        if body.include_covered
+        else Notification.user_id == current_user.id
+    )
+    if body.job_id is not None:
+        owner = and_(whose, job_key_expression(Notification) == body.job_id)
+    elif body.link is not None:
+        owner = and_(whose, Notification.link == body.link)
+    elif body.ids is not None:
+        owner = and_(whose, Notification.id.in_(body.ids))
+    else:
+        owner = Notification.user_id == current_user.id
+    result = await db.execute(
+        update(Notification)
+        .where(
+            owner,
+            Notification.is_read.is_(False),
+            Notification.notification_type.in_(
+                sorted(types_in_topic(body.topic), key=str)
+            ),
+            _notification_visibility(current_user),
+        )
+        .values(is_read=True)
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+    return MarkAllReadResponse(
+        success=True,
+        updated=result.rowcount or 0,
+        message="Powiadomienia oznaczone jako przeczytane",
+    )
 
 
 @router.put(
@@ -326,20 +932,35 @@ async def mark_as_read(
 async def mark_all_read(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
+    exclude_chat: bool = Query(False),
+    exclude_interviews: bool = Query(False),
 ):
     """Mark all notifications as read for current user (supports both PUT and PATCH).
+
+    ``exclude_chat``: „Oznacz wszystko” w dzwonku nie gasi czatów, których
+    dzwonek nie pokazuje — te gasi okienko „Czaty” albo wejście do czatu.
+    ``exclude_interviews``: to samo dla kategorii „Rozmowy” i okienka „Rozmowy”.
 
     Tylko WŁASNE wiersze: przypomnienia nieobecnego kolegi widoczne
     w zastępstwie zostają nieprzeczytane — „Oznacz wszystko" zastępcy nie może
     zamknąć spraw, które właściciel zobaczy po powrocie. Pojedyncze
     przypomnienie zastępca nadal gasi świadomie kliknięciem.
     """
+    excluded_types = [
+        *(CHAT_NOTIFICATION_TYPES if exclude_chat else ()),
+        *(_INTERVIEW_TYPES if exclude_interviews else ()),
+    ]
     result = await db.execute(
         update(Notification)
         .where(
             Notification.user_id == current_user.id,
             Notification.is_read.is_(False),
             _notification_visibility(current_user),
+            (
+                Notification.notification_type.not_in(excluded_types)
+                if excluded_types
+                else true()
+            ),
         )
         .values(is_read=True)
     )
@@ -363,6 +984,9 @@ class NotificationCategoryPreference(BaseModel):
     # Ile powiadomień tej kategorii przyszło w ostatnich 30 dniach (także
     # w czasie wyciszenia) — pomaga zdecydować, co wyłączyć.
     received_30d: int
+    # Administrator wyłączył całą kategorię dla ról tego konta (tabela „Kto co
+    # dostaje”) — własny przełącznik niczego wtedy nie włączy.
+    role_muted: bool = False
 
 
 class NotificationPreferencesResponse(BaseModel):
@@ -389,6 +1013,8 @@ _CONTEXT_PROBES: dict[
 
 
 def _category_reachable(user: User, category: NotificationCategory) -> bool:
+    if hr_program.hides_category(category.value):
+        return False
     for ntype in types_in(category):
         probes = _CONTEXT_PROBES.get(ntype, ((None, None),))
         for related_entity_type, link in probes:
@@ -417,6 +1043,7 @@ async def _preferences_response(
             per_category[category] = per_category.get(category, 0) + int(count)
 
     muted = muted_categories(user.muted_notification_categories)
+    role_muted = role_muted_types_of(user)
     return NotificationPreferencesResponse(
         categories=[
             NotificationCategoryPreference(
@@ -426,6 +1053,7 @@ async def _preferences_response(
                 mandatory=info.mandatory,
                 muted=category in muted,
                 received_30d=per_category.get(category, 0),
+                role_muted=types_in(category) <= role_muted,
             )
             for category, info in CATEGORY_INFO.items()
             if _category_reachable(user, category)

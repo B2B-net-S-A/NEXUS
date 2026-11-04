@@ -34,6 +34,13 @@ export function QueryProvider({ children }: { children: ReactNode }) {
           // i jitterem. Druga warstwa tutaj mnożyła to do 6 fizycznych żądań
           // na jeden odczyt, a 4xx/500 i tak nie warto ponawiać.
           retry: 0,
+          // Bez odświeżania przy powrocie do karty (27.10.2026): każdy powrót
+          // to było 20–25 GET-ów z paska i menu naraz, a ikony paska odświeża
+          // gniazdo na zdarzeniach (i jednorazowo po jego powrocie). Ekran,
+          // który naprawdę potrzebuje świeżości po powrocie, ustawia
+          // `refetchOnWindowFocus: true` sam (Tablica i rekrutacja na
+          // `/jobs/[id]`, Finanse, kalendarz pulpitu).
+          refetchOnWindowFocus: false,
         },
       },
     });

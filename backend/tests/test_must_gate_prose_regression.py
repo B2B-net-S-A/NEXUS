@@ -38,13 +38,8 @@ PROZA_Z_PRODUKCJI = [
     "język angielski na poziomie minimum średniozaawansowanym (b1/b2)",
     "Minimum 3 lata doświadczenia na stanowisku Testera IT",
     "doświadczenie w architekturze it – aplikacyjnej, korporacyjnej lub systemowej",
-    # Alternatywy z ukośnikiem — zmierzone na 24 ofertach produkcyjnych. Nikt
-    # nie ma ich dosłownie jako umiejętności, więc bramkowanie nimi opróżnia
-    # listę tak samo jak proza.
-    "Docker/Kubernetes",
-    "Pytest/Jest/Cypress",
-    "Flask/FastAPI",
-    "Jenkins/Gitlab/Github Actions",
+    # Alternatywy z ukośnikiem bramkują od 27.09.2026 jako „którakolwiek”
+    # (ALTERNATYWY niżej); tu zostają tylko te, które nie są technologiami.
     "KYC / AML",
     "Portfolio/backlog management",
     # Frazy CZYNNOŚCIOWE — zmierzone po pierwszej naprawie: wciąż bramkowały
@@ -61,6 +56,16 @@ PROZA_Z_PRODUKCJI = [
     "wsparcie UAT",
     "zasady SOLID",
 ]
+
+# Alternatywy (decyzja Artura 27.09.2026): bramkują jako „którakolwiek z opcji”,
+# a opcję spełnia profil, CV albo notatka — nie dosłowny napis „Docker/Kubernetes”.
+ALTERNATYWY = {
+    "Docker/Kubernetes": ("Docker", "Kubernetes"),
+    "Pytest/Jest/Cypress": ("Pytest", "Jest", "Cypress"),
+    "Flask/FastAPI": ("Flask", "FastAPI"),
+    "Jenkins/Gitlab/Github Actions": ("Jenkins", "Gitlab", "Github Actions"),
+    "Kafka lub RabbitMQ": ("Kafka", "RabbitMQ"),
+}
 
 # Nazwy technologii, które MUSZĄ dalej bramkować — inaczej naprawa wyłącza
 # rubrykę, zamiast ją naprawiać.
@@ -120,6 +125,24 @@ def test_real_technology_names_still_gate():
     )
 
 
+def test_alternatives_gate_as_any_of():
+    from app.services.must_gate_terms import gate_requirement
+
+    for label, options in ALTERNATYWY.items():
+        requirement = gate_requirement(label)
+        assert requirement is not None, label
+        assert requirement.options == options
+
+    ma_jedno = _kandydat(["Kubernetes"])
+    nie_ma = _kandydat(["Java"])
+    from app.services.dealbreaker_filters import DealbreakerInputs
+
+    wynik = apply_dealbreakers(
+        [ma_jedno, nie_ma], inputs=DealbreakerInputs(must_skills=("Docker/Kubernetes",))
+    )
+    assert [c.id for c in wynik.kept] == [ma_jedno.id]
+
+
 def test_single_word_verbal_noun_still_gates():
     """Wymóg ≥2 słów jest celowy: jednowyrazowe „Programowanie" bywa realną
     deklaracją kandydata, więc go nie wycinamy. Wycinamy dopiero FRAZĘ, której
@@ -139,7 +162,9 @@ def test_job_whose_musts_are_all_prose_hides_nobody():
     from app.services.dealbreaker_filters import DealbreakerInputs
 
     kandydaci = [_kandydat(["Apache Kafka", "AWS"]), _kandydat(["Java", "Spring"])]
-    inputs = DealbreakerInputs(must_skills=tuple(gate_eligible_must_skills(PROZA_Z_PRODUKCJI)))
+    inputs = DealbreakerInputs(
+        must_skills=tuple(gate_eligible_must_skills(PROZA_Z_PRODUKCJI))
+    )
     wynik = apply_dealbreakers(kandydaci, inputs=inputs)
     assert len(wynik.kept) == 2, "proza nadal opróżnia listę"
     assert wynik.hidden_meta()["missing_must"] == 0
@@ -158,9 +183,13 @@ def test_a_genuine_missing_technology_is_still_hidden():
     assert wynik.hidden_meta()["missing_must"] == 1
 
 
-def test_inputs_expose_what_the_gate_ignored():
+def test_inputs_expose_what_the_gate_ignored(monkeypatch):
     """Bramka, która po cichu nie działa, jest tym samym błędem co ciche
     ukrywanie — odpowiedź musi nieść, czego nie użyto."""
+    # Bramka v8 (każde must ukrywa) — wyłącznik MUST_GATE_MODE=all od 30.09.2026.
+    from app.core.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "MUST_GATE_MODE", "all")
     from app.services.dealbreaker_filters import dealbreaker_inputs_for_job
 
     job = SimpleNamespace(

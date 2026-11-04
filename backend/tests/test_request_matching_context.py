@@ -71,6 +71,92 @@ def test_workflow_updates_do_not_invalidate_or_enrich_base_fit_context():
     )
 
 
+def test_search_requirement_rows_do_not_touch_the_ranking_or_the_contract():
+    """Wiersze wyszukiwania w bazie (sekcja 2, 25.09.2026) zasilają WYŁĄCZNIE
+    „Szukaj ręcznie” — decyzja Artura. Ich edycja nie może zmienić odcisku
+    pełnego przeglądu (409) ani skasować zatwierdzonego kontraktu wymagań;
+    `keywords` obok nadal są treścią profilu."""
+    from app.services import champion_view
+
+    base = {"search": {"keywords": "Java", "requirements": [], "exclude": []}}
+    edited = {
+        "search": {
+            "keywords": "Java",
+            "requirements": [["Java"], ["Kafka", "RabbitMQ"]],
+            "exclude": ["junior"],
+        }
+    }
+    assert champion_view.requirement_source(base) == champion_view.requirement_source(
+        edited
+    )
+    # Profil sprzed tych pól (bez kluczy) daje ten sam kształt.
+    assert champion_view.requirement_source(
+        {"search": {"keywords": "Java"}}
+    ) == champion_view.requirement_source(edited)
+
+    target = make_job()
+    target.champion_profile = base
+    original = build_request_context(target, scoring.DEFAULT_PROFILE)
+    target.champion_profile = edited
+    assert (
+        build_request_context(target, scoring.DEFAULT_PROFILE).fingerprint
+        == original.fingerprint
+    )
+    target.champion_profile = {**edited, "search": {**edited["search"], "keywords": "Go"}}
+    assert (
+        build_request_context(target, scoring.DEFAULT_PROFILE).fingerprint
+        != original.fingerprint
+    )
+
+
+def test_champion_search_rows_are_normalised_not_rejected():
+    """Schemat normalizuje wiersze zamiast odrzucać (wyjątek walidacji w środku
+    zapisu profilu byłby 500): `|` → spacja, puste i powtórki odpadają,
+    najwyżej 10 wierszy po 20 słów."""
+    from app.schemas.champion import ChampionSearch
+
+    search = ChampionSearch.model_validate(
+        {
+            "requirements": [["Java", "java", "a|b", " "], [], "Kafka"]
+            + [[f"s{i}"] for i in range(12)],
+            "exclude": ["junior", "Junior", "x"],
+        }
+    )
+    assert search.requirements[:2] == [["Java", "a b"], ["Kafka"]]
+    assert len(search.requirements) == 10
+    assert search.exclude == ["junior"]
+    assert ChampionSearch.model_validate({"requirements": None}).requirements == []
+
+
+def test_saving_only_search_rows_keeps_the_ranking_fingerprint():
+    """Zapis prawdziwą ścieżką edytora (`user_edit`): same wiersze wyszukiwania
+    nie idą przez `prepare_profile`, więc `intake` nie dostaje nowego stempla,
+    a odcisk pełnego przeglądu zostaje (inaczej odczyt wyników kończył się 409).
+    Pusty wiersz z edytora nie jest zmianą. Frazy obok wierszy nadal są."""
+    from app.services import champion_view
+    from app.services.champion_intake import user_edit
+
+    def ranking(profile):
+        return champion_view.requirement_source(
+            profile, ignored=champion_view.RANKING_IGNORED_KEYS
+        )
+
+    stored = user_edit({}, {"basics": {"role_name": "Java Developer"}}, 1)
+    edited = user_edit(
+        stored, {"search": {"requirements": [["Java"]], "exclude": ["junior"]}}, 1
+    )
+    assert edited["search"]["requirements"] == [["Java"]]
+    assert edited["search"]["exclude"] == ["junior"]
+    assert edited["intake"] == stored["intake"]
+    assert ranking(edited) == ranking(stored)
+
+    again = user_edit(edited, {"search": {"requirements": [["Java"], []]}}, 1)
+    assert again == edited
+
+    keywords = user_edit(edited, {"search": {"keywords": "java, kafka"}}, 1)
+    assert ranking(keywords) != ranking(edited)
+
+
 @pytest.mark.asyncio
 async def test_same_base_fit_is_independent_of_screening_and_conflicts():
     target = make_job(must_skills=["Python"])

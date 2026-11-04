@@ -19,7 +19,6 @@ Runtime pipeline NIC z tego nie czyta — authority przejmie PR-07/08.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -30,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
 from app.core.database import AsyncSessionLocal, get_db
+from app.core.tasks import spawn
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.services.process_backfill import (
@@ -109,7 +109,12 @@ async def trigger_process_backfill(
             status_code=status.HTTP_409_CONFLICT,
             detail="Backfill już trwa",
         )
-    asyncio.create_task(_run_backfill(limit_pairs, resync_stale))
+    # Runda 10 (R10-N8-2): flaga PRZED `spawn`, synchronicznie — zadanie w tle
+    # ustawia ją dopiero w kolejnej iteracji pętli, więc dwa szybkie POST-y
+    # startowały dwa biegi konkurujące o te same INSERT-y.
+    _JOB["running"] = True
+    # `spawn`: trzymana referencja i log porażki (goły `create_task` — nie).
+    spawn(_run_backfill(limit_pairs, resync_stale), "recruitment_process_backfill")
     return {
         "status": "started",
         "limit_pairs": limit_pairs,

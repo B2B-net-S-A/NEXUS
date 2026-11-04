@@ -23,6 +23,7 @@ from app.services.cv_generator_b2b.text_extractor import (
     CVTextExtractionError,
     extract_text_from_file,
 )
+from app.services.cv_text_extractor import sniff_extension_bytes
 
 MAX_UPLOAD_BYTES = _MAX_UPLOAD_BYTES
 _CHAMPION_UNREADABLE = (
@@ -46,7 +47,9 @@ def _docx_container(data: bytes) -> None:
 def validate_cv_file(cv_bytes: bytes, cv_filename: str) -> None:
     _validate_upload(cv_bytes, cv_filename, allowed_ext=_ALLOWED_CV_EXT, label="CV")
     try:
-        if Path(cv_filename).suffix.lower() == ".docx":
+        # Runda 6 audytu: format z bajtów — PDF nazwany `.docx` to PDF.
+        kind = sniff_extension_bytes(cv_bytes) or Path(cv_filename).suffix.lower()
+        if kind == ".docx":
             _docx_container(cv_bytes)
             if not extract_text_from_file(cv_bytes, cv_filename).strip():
                 raise ValueError("Empty DOCX")

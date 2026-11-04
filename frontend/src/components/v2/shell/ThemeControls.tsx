@@ -7,9 +7,10 @@ import { useThemeStore } from "@/store/theme";
 import { celebrate } from "@/lib/celebrate";
 
 /**
- * Przełączniki wyglądu (tryb ciemny, tryb gry). Stoją w pasku górnym od
- * `sm`, a na telefonie w szufladzie nawigacji — pasek 375 px ich nie mieści
- * (audyt responsywności 23.09.2026).
+ * Przełączniki wyglądu (tryb ciemny, tryb gry). Na telefonie stoją w szufladzie
+ * nawigacji — pasek 375 px ich nie mieści (audyt responsywności 23.09.2026).
+ * W górnym pasku od 13.10.2026 są w jednym menu „Wygląd” (`AppearanceMenu`),
+ * żeby zmieścił się przycisk Ligi Mistrzów.
  */
 export function ThemeToggleButton() {
   const theme = useThemeStore((s) => s.theme);
@@ -36,9 +37,22 @@ export function ThemeToggleButton() {
   );
 }
 
-export function KidsModeToggleButton() {
+/** Tryb gry z powitaniem przy włączeniu — wspólne dla przycisku i menu „Wygląd”. */
+export function useKidsModeToggle(): { kidsMode: boolean; toggle: () => void } {
   const kidsMode = useThemeStore((s) => s.kidsMode);
   const toggleKidsMode = useThemeStore((s) => s.toggleKidsMode);
+  const toggle = () => {
+    const turningOn = !kidsMode;
+    toggleKidsMode();
+    // Welcome burst when entering the game world (celebrate reads the freshly
+    // set state, so it fires only on enable).
+    if (turningOn) celebrate({ variant: "welcome", message: "Witaj w grze! 🎮" });
+  };
+  return { kidsMode, toggle };
+}
+
+export function KidsModeToggleButton() {
+  const { kidsMode, toggle: onToggle } = useKidsModeToggle();
   const [mounted, setMounted] = useState(false);
 
   // Avoid hydration mismatch — kidsMode is read from localStorage on client only.
@@ -47,14 +61,6 @@ export function KidsModeToggleButton() {
   if (!mounted) {
     return <div className="h-8 w-8" aria-hidden />;
   }
-
-  const onToggle = () => {
-    const turningOn = !kidsMode;
-    toggleKidsMode();
-    // Welcome burst when entering the game world (celebrate reads the freshly
-    // set state, so it fires only on enable).
-    if (turningOn) celebrate({ variant: "welcome", message: "Witaj w grze! 🎮" });
-  };
 
   return (
     <button

@@ -48,7 +48,7 @@ from app.models.client_framework_contract import (
     ClientFrameworkContract,
     FrameworkContractStatus,
 )
-from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.client_order import ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.services import job_data_trust
 from app.models.job import Job, JobCloseReason, JobStatus
@@ -59,6 +59,7 @@ from app.services.client_identity import (
     client_display_name_expression,
     visible_client_predicates,
 )
+from app.services.hit_ratio_scope import counts_in_hit_ratio
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
 from app.services.contractor_identity import (
     count_unique_contractors,
@@ -66,7 +67,11 @@ from app.services.contractor_identity import (
 )
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
 from app.services.metric_definitions import DL_HIT_RATIO_TARGET_PCT
-from app.services.order_revenue import order_revenue_rows_to_pln
+from app.services.order_revenue import (
+    client_order_value_rows,
+    order_counts_by_status,
+    order_revenue_rows_to_pln,
+)
 from app.schemas.money import to_whole_pln
 
 __all__ = [
@@ -295,34 +300,17 @@ async def compute_client_ranking(
         ).all()
     )
 
-    rev_rows = list(
-        (
-            await db.execute(
-                select(
-                    ClientOrder.client_id,
-                    ClientOrder.status,
-                    ClientOrder.currency,
-                    func.coalesce(func.sum(ClientOrder.total_value), 0).label(
-                        "sum_val"
-                    ),
-                    func.count().label("cnt"),
-                )
-                .where(ClientOrder.status != ClientOrderStatus.cancelled)
-                .group_by(
-                    ClientOrder.client_id,
-                    ClientOrder.status,
-                    ClientOrder.currency,
-                )
-            )
-        )
-    )
+    # Runda 10 (R10-N9-2): ta sama reguła wartości i liczby zamówień co
+    # Analityka klienta, „Moi klienci” i `/by-dl` przeglądu admina (audyt
+    # 24.09.2026, W1) — zamówienie MD/kosztowe to JEDNO zamówienie z wartością
+    # grupy, bez szkiców. Surowa suma `ClientOrder.total_value` liczyła szkice,
+    # dawała grupom MD wartość 0, a każdą linię (osobę) liczyła jako zamówienie.
+    rev_rows = await client_order_value_rows(db)
     rev_lookup, rev_incomplete = await order_revenue_rows_to_pln(db, rev_rows, on)
-    active_order_counts: dict[int, int] = {}
-    for r in rev_rows:
-        if r.status == ClientOrderStatus.active:
-            active_order_counts[r.client_id] = active_order_counts.get(
-                r.client_id, 0
-            ) + int(r.cnt or 0)
+    active_order_counts: dict[int, int] = {
+        client_id: counts.get(ClientOrderStatus.active.value, 0)
+        for client_id, counts in order_counts_by_status(rev_rows).items()
+    }
 
     # Head DL = klient ma assignment z is_head=True. Jeśli admin nie zaznaczył
     # nikogo jako Head (większość klientów), fallback do dowolnego DL
@@ -419,7 +407,9 @@ async def compute_client_ranking(
 
     items: list[ClientRankingRow] = []
     for c, effective in client_rows:
-        rev = rev_lookup.get(c.id, {"total": None, "active": None})
+        # Zero to liczba, nie brak (runda 8, `my_clients`): klient bez
+        # zamówień ma 0, „—" zostaje dla braku kursu.
+        rev = rev_lookup.get(c.id, {"total": Decimal("0"), "active": Decimal("0")})
         revenue_complete = c.id not in rev_incomplete
         head = head_dl_lookup.get(c.id)
         fc = fc_lookup.get(c.id)
@@ -430,10 +420,8 @@ async def compute_client_ranking(
                 industry=getattr(c, "industry", None),
                 head_dl_id=head[0] if head else None,
                 head_dl_name=head[1] if head else None,
-                total_revenue_all_time=(rev["total"] or None)
-                if revenue_complete
-                else None,
-                active_revenue=(rev["active"] or None) if revenue_complete else None,
+                total_revenue_all_time=rev["total"] if revenue_complete else None,
+                active_revenue=rev["active"] if revenue_complete else None,
                 monthly_margin_total=margin_lookup.get(c.id),
                 monthly_revenue_total=monthly_revenue_lookup.get(c.id),
                 active_orders_count=active_order_counts.get(c.id, 0),
@@ -502,6 +490,9 @@ class ClientHitRatioRow:
     # klienta (`close_reason` NULL na 3924 z 3924), więc kubełek `unknown`
     # w `close_reasons` jest luką w danych, a nie kategorią obok pozostałych.
     outcome_coverage_pct: Optional[float] = None
+    # Licznik `fill_rate`: placementy tylko z rekrutacji, których etaty weszły
+    # do mianownika (`vacancies_declared`) — runda 6 audytu.
+    fill_rate_placements: int = 0
 
 
 def _enum_value(raw: object, *, default: str) -> str:
@@ -552,6 +543,8 @@ async def compute_client_hit_ratio(
             Job.closed_at >= start,
             Job.closed_at < end,
             *visible_client_predicates(),
+            # Zamknięcia „nie liczy się” (21.10.2026) — poza hit ratio zawsze.
+            counts_in_hit_ratio(),
         )
     )
     if exclude_reasons:
@@ -562,6 +555,7 @@ async def compute_client_hit_ratio(
 
     per_client: dict[int, dict] = {}
     job_to_client: dict[int, int] = {}
+    declared_job_ids: set[int] = set()
     for r in jobs_rows:
         job_to_client[r.id] = r.client_id
         bucket = per_client.setdefault(
@@ -576,6 +570,7 @@ async def compute_client_hit_ratio(
                 "total_vacancies": 0,
                 "filled_job_ids": set(),
                 "placements": 0,
+                "declared_placements": 0,
                 "active_jobs": 0,
                 "outcome_known_jobs": 0,
                 "close_reasons": {},
@@ -587,6 +582,7 @@ async def compute_client_hit_ratio(
         # `fill_rate` powyżej 100% — na produkcji u siedmiu klientów.
         if job_data_trust.vacancies_declared(r):
             bucket["total_vacancies"] += int(r.headcount or 1)
+            declared_job_ids.add(r.id)
         if job_data_trust.outcome_available(r):
             bucket["outcome_known_jobs"] += 1
         key = _enum_value(r.close_reason, default="unknown")
@@ -612,6 +608,8 @@ async def compute_client_hit_ratio(
                 continue
             per_client[client_id]["filled_job_ids"].add(r.job_id)
             per_client[client_id]["placements"] += int(r.cnt)
+            if r.job_id in declared_job_ids:
+                per_client[client_id]["declared_placements"] += int(r.cnt)
 
     active_rows = (
         await db.execute(
@@ -640,7 +638,13 @@ async def compute_client_hit_ratio(
                 total_vacancies=bucket["total_vacancies"],
                 placements=bucket["placements"],
                 hit_ratio=hit_ratio,
-                fill_rate=ratio_pct(bucket["placements"], bucket["total_vacancies"]),
+                # Placementy z rekrutacji bez zadeklarowanych etatów (import
+                # Traffita) nie mają swoich etatów w mianowniku — liczone
+                # razem dawały fill rate 500% (runda 6 audytu).
+                fill_rate=ratio_pct(
+                    bucket["declared_placements"], bucket["total_vacancies"]
+                ),
+                fill_rate_placements=bucket["declared_placements"],
                 active_jobs=bucket["active_jobs"],
                 # Nieznany wskaźnik nie „nie osiągnął progu" — to dwie różne
                 # rzeczy i zlanie ich w `False` maluje klienta bez ani jednej
@@ -674,7 +678,9 @@ def fold_hit_ratio_totals(rows: Iterable[ClientHitRatioRow]) -> dict:
         "total_vacancies": total_vacancies,
         "total_placements": total_placements,
         "global_hit_ratio": ratio_pct(total_filled, total_closed),
-        "global_fill_rate": ratio_pct(total_placements, total_vacancies),
+        "global_fill_rate": ratio_pct(
+            sum(r.fill_rate_placements for r in rows), total_vacancies
+        ),
         # Średnia po klientach z policzalnym wskaźnikiem. Bez takich klientów
         # to `None`, nie 0.0 — zero czytałoby się jako „wszyscy mają zero".
         "avg_hit_ratio": round(

@@ -5,6 +5,23 @@ import pytest
 from app.services import job_request_intake as intake
 from app.services.job_request_intake import normalize_model_output
 
+
+@pytest.fixture(autouse=True)
+def _empty_skill_catalog(monkeypatch) -> None:
+    """Każdy test startuje z pustym słownikiem umiejętności.
+
+    Słownik żyje w pamięci procesu, a wypełnia go z bazy start aplikacji
+    (``skill_taxonomy_loader.refresh_alias_map``) w dowolnym wcześniejszym
+    pliku. Z „Java” w słowniku wersja znika z wiersza („Java 17+” → „Java”),
+    więc wynik zależał od tego, co biegło przed tym plikiem w shardzie
+    (22.10.2026: shard 9 kolejki po zmianie podziału plików). Testy, które
+    potrzebują słownika, budują własny przez ``_technologies``.
+    """
+    from app.services import keyword_suggest
+
+    monkeypatch.setattr(keyword_suggest, "_catalog", ())
+
+
 REQUEST = (
     "Szukamy Senior Java Developera do projektu migracji płatności. "
     "Wymagania: Java 17+, Spring Boot, Kafka. Mile widziane: Kubernetes. "
@@ -24,15 +41,19 @@ FULL = {
         {
             "question": "Jak skalowałeś Kafkę?",
             "ideal_answer": "partycje",
+            "deal_breaker": "tylko teoria",
             "from_request": True,
         },
         {
             "question": "Czy 2 dni w biurze pasują?",
             "ideal_answer": "tak",
+            "deal_breaker": "tylko zdalnie",
             "from_request": False,
         },
     ],
     "evidence": ["Java 17+", "Spring Boot", "zmyślony fragment"],
+    # v5: wymagania do wyszukiwania w bazie — bez nich handoff ma brak.
+    "search": {"requirements": [["Java 17+"], ["Spring Boot"], ["Kafka"]]},
 }
 
 
@@ -41,6 +62,7 @@ def test_complete_request_has_nothing_missing() -> None:
     assert result.missing == []
     assert result.rate_budget_hourly == 170.0
     assert result.remote_policy == "hybrid"
+    # v8 (30.09.2026): must 1:1 ze słowami klienta — wersję odcina dopiero bramka.
     assert result.must == ["Java 17+", "Spring Boot", "Kafka"]
     # Must-have nie jest powtarzany w „mile widzianych”.
     assert result.nice == ["Kubernetes"]
@@ -98,9 +120,175 @@ def test_hybrid_without_days_and_city_is_reported() -> None:
     assert intake.MISSING_OFFICE_CITY in result.missing
 
 
+def test_office_days_per_month_are_kept_and_give_the_weekly_value() -> None:
+    # „Raz w miesiącu” (0407): liczba tygodniowa dla bramek nigdy nie jest zerem.
+    raw = {**FULL, "onsite_days_per_week": None, "onsite_days_per_month": 1}
+    result = normalize_model_output(raw, REQUEST)
+    assert result.onsite_days_per_month == 1
+    assert result.onsite_days_per_week == 1
+    assert result.remote_policy == "hybrid"
+    assert intake.MISSING_OFFICE_DAYS not in result.missing
+
+
+def test_office_days_per_month_are_dropped_for_onsite_work() -> None:
+    raw = {
+        **FULL,
+        "work_mode": "stacjonarnie",
+        "onsite_days_per_week": 5,
+        "onsite_days_per_month": 2,
+    }
+    result = normalize_model_output(raw, REQUEST)
+    assert result.onsite_days_per_month is None
+    assert result.onsite_days_per_week == 5
+
+
 def test_one_question_is_not_enough() -> None:
     raw = {**FULL, "screening_questions": FULL["screening_questions"][:1]}
     assert intake.MISSING_QUESTIONS in normalize_model_output(raw, REQUEST).missing
+
+
+def _technologies(monkeypatch, *names: str) -> None:
+    """Słownik umiejętności w pamięci — na nim kod poznaje technologię."""
+    from app.services import keyword_suggest
+
+    monkeypatch.setattr(keyword_suggest, "_catalog", ())
+    keyword_suggest.load_catalog(
+        [(i, name, "language") for i, name in enumerate(names, start=1)], []
+    )
+
+
+def test_search_requirements_keep_only_whole_words_from_the_request(
+    monkeypatch,
+) -> None:
+    """v5 (25.09.2026): słowo spoza maila odpada, kawałek słowa też („go”
+    w „google” to nie Go), puste wiersze znikają, najwyżej 10 wierszy.
+        Technologia spoza maila („Kotlin”) nie jest angielskim odpowiednikiem."""
+    _technologies(monkeypatch, "Kotlin", "Go")
+    text = "Szukamy dewelopera: Java, Kafka albo RabbitMQ. Znajomość google cloud."
+    raw = {
+        "search": {
+            "requirements": [
+                ["Java", "Kotlin"],
+                ["Kafka", "RabbitMQ", "kafka"],
+                ["go"],
+                ["a|b"],
+                "Java",
+                ["Google"],
+                ["cloud"],
+            ]
+        }
+    }
+    result = normalize_model_output(raw, text)
+    assert result.search_requirements == [
+        ["Java"],
+        ["Kafka", "RabbitMQ"],
+        ["Google"],
+        ["cloud"],
+    ]
+    assert result.provenance.get("search_requirements") == "request"
+    assert intake.MISSING_SEARCH not in result.missing
+
+
+def test_search_requirements_accept_a_stem_of_a_word_from_the_request(
+    monkeypatch,
+) -> None:
+    """v6 (25.09.2026): polskie słowo się odmienia, a wyszukiwarka szuka całych
+    słów — wiersz „bankowości” z maila „doświadczenie w bankowości” znalazł na
+    produkcji 55 osób, „bankow*” 323. Rdzeń z gwiazdką przechodzi, gdy zaczyna
+    słowo z maila i ma co najmniej 4 litery. Gwiazdka przy nazwie technologii
+    ze słownika znika („Java*” łapałoby JavaScript)."""
+    _technologies(monkeypatch, "Java")
+    text = "Doświadczenie w bankowości i płatnościach kartowych. Java, Kafka."
+    raw = {
+        "search": {
+            "requirements": [
+                ["bankow*"],
+                ["płatnoś*", "Kafka"],
+                ["Java*"],
+                ["Kafka"],
+            ]
+        }
+    }
+    result = normalize_model_output(raw, text)
+    assert result.search_requirements == [
+        ["bankow*"],
+        ["płatnoś*", "Kafka"],
+        ["Java"],
+        ["Kafka"],
+    ]
+    assert result.provenance.get("search_requirements") == "request"
+    # Za krótki rdzeń, rdzeń ze środka słowa i gwiazdka z przodu nie są
+    # słowami z maila — sam taki wiersz odpada.
+    for bad in ("ban*", "kowości*", "*kartow", "ubezpiecz*"):
+        alone = normalize_model_output({"search": {"requirements": [[bad]]}}, text)
+        assert alone.search_requirements == [], bad
+
+
+def test_prompt_teaches_a_stem_shared_by_all_forms_and_an_english_stem() -> None:
+    """16.10.2026, rekrutacja 789135: wzór „płatnoś*” z promptu nie łapał
+    „płatniczych” w CV, a „payments” — „payment”; osoba z doświadczeniem
+    w systemach płatniczych wypadała na krytycznej „płatności”."""
+    from app.services.llm_prompts import JOB_REQUEST_INTAKE
+
+    rendered = JOB_REQUEST_INTAKE.render(
+        client_name="Klient", client_context="brak", request_text="mail"
+    )
+    system = JOB_REQUEST_INTAKE.system_prompt or ""
+    prompt = rendered + system
+    assert '["płatności", "płatn*", "payment*"]' in prompt
+    assert '["płatności", "płatnoś*"]' not in prompt
+
+
+def test_shared_stem_and_english_stem_survive_grounding(monkeypatch) -> None:
+    _technologies(monkeypatch, "Java")
+    text = "Doświadczenie w płatnościach kartowych. Java."
+    raw = {"search": {"requirements": [["płatności", "płatn*", "payment*"]]}}
+    result = normalize_model_output(raw, text)
+    # „płatności” nie stoi w mailu całym słowem („płatnościach”) — odpada;
+    # rdzeń z maila i angielski rdzeń obok niego zostają.
+    assert result.search_requirements == [["płatn*", "payment*"]]
+
+
+def test_search_rows_take_one_english_equivalent_next_to_a_word_from_the_request(
+    monkeypatch,
+) -> None:
+    """Decyzja Artura 25.09.2026: w wierszu może stać JEDEN angielski
+    odpowiednik polskiego słowa z maila („bankow* lub banking” — 903 osoby
+    zamiast 323). Tylko obok słowa z maila, nigdy technologia; wtedy wiersze
+    są „propozycją AI”, a nie „z maila”."""
+    _technologies(monkeypatch, "Kotlin")
+    text = "Doświadczenie w bankowości i ubezpieczeniach. Java."
+    raw = {
+        "search": {
+            "requirements": [
+                ["bankow*", "banking", "finance"],
+                ["insurance"],
+                ["Java", "Kotlin"],
+                ["ubezpiecz*", "insuranc*"],
+            ]
+        }
+    }
+    result = normalize_model_output(raw, text)
+    assert result.search_requirements == [
+        ["bankow*", "banking"],
+        ["Java"],
+        ["ubezpiecz*", "insuranc*"],
+    ]
+    assert result.provenance.get("search_requirements") == "ai"
+    # Polska forma spoza maila nie jest odpowiednikiem — zostaje samo słowo
+    # z maila, a wiersz jest „z maila”.
+    polish = normalize_model_output(
+        {"search": {"requirements": [["bankow*", "finansów", "kowości*"]]}}, text
+    )
+    assert polish.search_requirements == [["bankow*"]]
+    assert polish.provenance.get("search_requirements") == "request"
+
+
+def test_missing_search_requirements_are_reported() -> None:
+    raw = {**FULL, "search": {"keywords": "Java Developer"}}
+    result = normalize_model_output(raw, REQUEST)
+    assert result.missing == [intake.MISSING_SEARCH]
+    assert result.search_requirements == []
 
 
 def test_garbage_from_the_model_yields_an_empty_honest_form() -> None:
@@ -209,7 +397,6 @@ def test_proposals_carry_their_basis_and_facts_are_marked_as_request() -> None:
         {
             **FULL,
             "search": {
-                "keywords": "Java, Spring, Kafka, płatności",
                 "target_companies": "Asseco, Comarch",
                 "disqualifiers": ["brak polskiego"],
                 "basis": "client_history",
@@ -220,7 +407,9 @@ def test_proposals_carry_their_basis_and_facts_are_marked_as_request() -> None:
         REQUEST,
     )
     assert result.provenance["role"] == "request"
-    assert result.provenance["search_keywords"] == "client_history"
+    # 02.10.2026: „frazy do wyszukiwarki” wypadły z odczytu.
+    assert "search_keywords" not in result.provenance
+    assert "search_keywords" not in result.as_dict()
     assert result.provenance["target_companies"] == "client_history"
     # Nieznana podstawa to propozycja AI, nie fakt z maila.
     assert result.provenance["selling_points"] == "ai"
@@ -272,5 +461,468 @@ async def test_prompt_carries_client_history_but_no_consultant_notes(
     assert result.role_name == "Tester"
     assert captured["max_tokens"] == 6000
     assert "Testy procesów kartowych" in captured["prompt"]
-    assert "tester, karty, acquiring" in captured["prompt"]
+    # 02.10.2026: frazy do LinkedIna z innych rekrutacji nie idą do promptu.
+    assert "tester, karty, acquiring" not in captured["prompt"]
     assert "Kowalski" not in captured["prompt"]
+
+
+# ── v7 (27.09.2026): must = technologie, miasta ze słownika ─────────────────
+
+
+def test_must_is_kept_word_for_word_from_the_request() -> None:
+    """v8 (30.09.2026, decyzja Artura): must 1:1 z maila. Ukrywają tylko
+    umiejętności krytyczne (wybiera DL), więc lista nie jest okrajana do
+    technologii ani przenoszona do nice."""
+    text = (
+        "Must have: Java 8+, CI/CD tools like Bitbucket, Jenkins, język "
+        "angielski B2, bankowość, Agile. Nice: Docker."
+    )
+    raw = {
+        "must": [
+            "Java 8+",
+            "CI/CD tools like Bitbucket, Jenkins",
+            "język angielski B2",
+            "bankowość",
+            "Agile",
+            "java 8+",
+        ],
+        "nice": ["Docker", "Agile"],
+    }
+    result = normalize_model_output(raw, text)
+    assert result.must == [
+        "Java 8+",
+        "CI/CD tools like Bitbucket, Jenkins",
+        "język angielski B2",
+        "bankowość",
+        "Agile",
+    ]
+    assert result.language == "język angielski B2"
+    assert result.nice == ["Docker"]
+    assert not any("nie są technologią" in note for note in result.advisories)
+    assert result.provenance["must"] == "request"
+
+
+def test_long_requirement_is_not_cut_in_the_middle_of_a_word() -> None:
+    """Zgłoszenie 02.10.2026: wymaganie z maila kończyło się „…i tworzenie d”,
+    bo każda pozycja była cięta na 80. znaku."""
+    sentence = (
+        "Modelowanie procesów biznesowych, dokumentowanie reguł biznesowych "
+        "i tworzenie dokumentacji analitycznej"
+    )
+    assert len(sentence) > 80
+    result = normalize_model_output(
+        {"must": [sentence], "nice": [sentence + " 2"]}, sentence
+    )
+    assert result.must == [sentence]
+    assert result.nice == [sentence + " 2"]
+
+
+def test_requirement_over_the_stack_limit_ends_on_a_word_boundary() -> None:
+    from app.schemas.champion import STACK_ITEM_MAX_CHARS
+
+    essay = " ".join(["wymaganie"] * 80)
+    assert len(essay) > STACK_ITEM_MAX_CHARS
+    (kept,) = normalize_model_output({"must": [essay]}, essay).must
+    assert len(kept) <= STACK_ITEM_MAX_CHARS
+    assert kept.endswith("wymaganie…")
+
+
+def test_explicit_language_wins_over_language_found_in_must() -> None:
+    raw = {"must": ["Java", "angielski B2"], "language": "PL, EN B2"}
+    result = normalize_model_output(raw, "Java, angielski B2")
+    assert result.language == "PL, EN B2"
+    assert result.must == ["Java", "angielski B2"]
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ({"office_cities": ["Warsaw"]}, ["Warszawa"]),
+        ({"office_city": "Gdansk or Warsaw"}, ["Gdańsk", "Warszawa"]),
+        (
+            {"office_cities": ["Gdańsk, Gdynia", "Warszawa (biuro)"]},
+            ["Gdańsk", "Gdynia", "Warszawa"],
+        ),
+        ({"office_cities": ["Trojmiasto"]}, ["Trójmiasto"]),
+        ({"office_cities": ["Warszawa", "warsaw"]}, ["Warszawa"]),
+    ],
+)
+def test_office_cities_are_polish_place_names(raw, expected) -> None:
+    result = normalize_model_output({"work_mode": "hybrydowo", **raw}, "Biuro.")
+    assert result.office_cities == expected
+    assert result.office_city == ", ".join(expected)
+
+
+def test_domain_years_above_seniority_are_dropped_with_a_note() -> None:
+    text = "5+ lat doświadczenia, w tym 10 lat w bankowości."
+    raw = {
+        "seniority_min_years": 5,
+        "experience": {
+            "domains": [
+                {
+                    "name": "bankowość",
+                    "level": "must",
+                    "min_years": 10,
+                    "quote": "10 lat w bankowości",
+                }
+            ]
+        },
+    }
+    result = normalize_model_output(raw, text)
+    assert result.experience["domains"][0]["min_years"] is None
+    assert any("bankowość" in note for note in result.advisories)
+
+
+def test_domain_years_within_seniority_stay() -> None:
+    text = "5+ lat doświadczenia, w tym 3 lata w bankowości."
+    raw = {
+        "seniority_min_years": 5,
+        "experience": {
+            "domains": [
+                {
+                    "name": "bankowość",
+                    "level": "must",
+                    "min_years": 3,
+                    "quote": "3 lata w bankowości",
+                }
+            ]
+        },
+    }
+    result = normalize_model_output(raw, text)
+    assert result.experience["domains"][0]["min_years"] == 3
+    assert result.advisories == []
+
+
+# ── v10 (02.10.2026): jedna lista wymagań i odpowiedź dyskwalifikująca ───────
+
+KEYWORDS_REQUEST = (
+    "Szukamy Senior Java Developera do zespołu płatności kartowych. "
+    "Wymagania: Java 17+, Spring Boot, Kafka lub RabbitMQ, doświadczenie "
+    "w bankowości, angielski B2. Mile widziane: Kubernetes."
+)
+
+
+def _keywords_raw(**extra):
+    return {
+        "role_name": "Senior Java Developer",
+        "requirements": [
+            {"words": ["Java 17+"], "level": "must"},
+            {"words": ["Kafka", "RabbitMQ", "Scala"], "level": "must"},
+            {"words": ["bankowości", "bankow*", "banking"], "level": "must"},
+            {"words": ["Spring Boot"], "level": "must"},
+            {"words": ["Scala"], "level": "must"},
+            {"words": ["Kubernetes"], "level": "nice"},
+            {"words": ["Java"], "level": "nice"},
+        ],
+        "descriptive_requirements": ["Java 17+", "angielski B2", "zmyślone zdanie"],
+        **extra,
+    }
+
+
+def test_requirement_rows_are_keywords_grounded_in_the_request(monkeypatch) -> None:
+    """Wiersz = wymaganie, słowa = warianty. Słowo spoza maila odpada (jak
+    w wierszach wyszukiwania), wersja znika przy technologii ze słownika,
+    a poziom krytyczny wybiera DL — model daje tylko must albo nice."""
+    _technologies(monkeypatch, "Java", "Kafka", "Scala")
+    result = normalize_model_output(_keywords_raw(), KEYWORDS_REQUEST)
+    assert result.requirements == [
+        {"words": ["Java"], "level": "must"},
+        {"words": ["Kafka", "RabbitMQ"], "level": "must"},
+        {"words": ["bankowości", "bankow*", "banking"], "level": "must"},
+        {"words": ["Spring Boot"], "level": "must"},
+        {"words": ["Kubernetes"], "level": "nice"},
+    ]
+    # Pola, które czyta reszta systemu, są z wierszy wyprowadzone.
+    assert result.must == ["Java", "Kafka", "bankowości", "Spring Boot"]
+    assert result.nice == ["Kubernetes"]
+    assert result.search_requirements == [
+        ["Java"],
+        ["Kafka", "RabbitMQ"],
+        ["bankowości", "bankow*", "banking"],
+        ["Spring Boot"],
+    ]
+    # Angielski odpowiednik w wierszu must = „propozycja AI”.
+    assert result.provenance["must"] == "ai"
+    assert result.provenance["nice"] == "request"
+    assert intake.MISSING_MUST not in result.missing
+    assert intake.MISSING_SEARCH not in result.missing
+
+
+def test_descriptive_requirements_are_literal_quotes_and_carry_the_language() -> None:
+    result = normalize_model_output(_keywords_raw(), KEYWORDS_REQUEST)
+    assert result.descriptive_requirements == ["Java 17+", "angielski B2"]
+    assert result.language == "angielski B2"
+    explicit = normalize_model_output(
+        _keywords_raw(language="PL, EN B2"), KEYWORDS_REQUEST
+    )
+    assert explicit.language == "PL, EN B2"
+
+
+def test_legacy_shaped_answer_still_yields_rows() -> None:
+    """Odpowiedź w kształcie sprzed v10 (must + search.requirements) jest
+    czytana po staremu, a wiersze formularza powstają z niej zamianą."""
+    result = normalize_model_output(FULL, REQUEST)
+    assert result.must == ["Java 17+", "Spring Boot", "Kafka"]
+    assert result.requirements == [
+        {"words": ["Java 17+"], "level": "must"},
+        {"words": ["Spring Boot"], "level": "must"},
+        {"words": ["Kafka"], "level": "must"},
+        {"words": ["Kubernetes"], "level": "nice"},
+    ]
+    assert result.descriptive_requirements == ["Java 17+"]
+
+
+def test_every_question_needs_a_disqualifying_answer() -> None:
+    questions = [
+        {"question": "Jak skalowałeś Kafkę?", "ideal_answer": "partycje"},
+        {
+            "question": "Czy 2 dni w biurze pasują?",
+            "ideal_answer": "tak",
+            "deal_breaker": "tylko zdalnie",
+        },
+    ]
+    result = normalize_model_output({**FULL, "screening_questions": questions}, REQUEST)
+    assert result.missing == [intake.MISSING_DEAL_BREAKER]
+    assert [q.deal_breaker for q in result.screening_questions] == ["", "tylko zdalnie"]
+    assert normalize_model_output(FULL, REQUEST).missing == []
+
+
+def test_prompt_asks_for_keywords_and_a_deal_breaker() -> None:
+    from app.services.llm_prompts import JOB_REQUEST_INTAKE
+
+    rendered = JOB_REQUEST_INTAKE.render(
+        client_name="Klient", client_context="brak", request_text="mail"
+    )
+    assert JOB_REQUEST_INTAKE.version == 14
+    assert '"requirements"' in rendered and '"deal_breaker"' in rendered
+    assert '"keywords"' not in rendered
+    assert '"must": [str]' not in rendered
+
+
+# ── 06.10.2026: odmiana, nadmiar wierszy, jednoliterowe nazwy ─────────────────
+
+INFLECTED_REQUEST = (
+    "Szukamy programisty. Wymagana znajomość Javy, Springa i doświadczenie "
+    "z Dockerem. Mile widziane programowanie w C. Praca zdalna."
+)
+
+
+def test_inflected_dictionary_technology_is_kept_in_its_base_form(monkeypatch):
+    """Audyt 06.10.2026 (P1): „Javy” zapisywała się odmieniona, a „Java” od
+    modelu wypadała po cichu, bo nie stoi w mailu jako całe słowo."""
+    from tests.taxonomy_fixture import hydrated_taxonomy
+    from tests.test_skill_inflection import WITH_C
+
+    _technologies(monkeypatch, "Java", "Docker", "C")
+    raw = {
+        "requirements": [
+            {"words": ["Javy"], "level": "must"},
+            {"words": ["Docker"], "level": "must"},
+            {"words": ["Springa"], "level": "must"},
+            {"words": ["C"], "level": "nice"},
+        ]
+    }
+    with hydrated_taxonomy(WITH_C):
+        result = normalize_model_output(raw, INFLECTED_REQUEST)
+    assert result.requirements == [
+        {"words": ["Java"], "level": "must"},
+        {"words": ["Docker"], "level": "must"},
+        # „Springa” nie ma w słowniku testowym — zostaje słowem z maila.
+        {"words": ["Springa"], "level": "must"},
+        {"words": ["C"], "level": "nice"},
+    ]
+
+
+def test_row_dropped_by_the_reading_is_reported(monkeypatch):
+    _technologies(monkeypatch, "Java")
+    raw = {"requirements": [{"words": ["Kotlin"], "level": "must"}]}
+    result = normalize_model_output(raw, INFLECTED_REQUEST)
+    assert result.requirements == []
+    assert any("Kotlin" in note for note in result.advisories)
+
+
+def test_must_rows_over_the_limit_move_to_nice_and_are_reported(monkeypatch):
+    """Audyt 06.10.2026 (N3): 11. wiersz „musi mieć” znikał bez śladu."""
+    words = [f"slowo{i}" for i in range(12)]
+    text = "Wymagania: " + ", ".join(words) + "."
+    raw = {"requirements": [{"words": [w], "level": "must"} for w in words]}
+    result = normalize_model_output(raw, text)
+    levels = [row["level"] for row in result.requirements]
+    assert levels == ["must"] * 10 + ["nice"] * 2
+    assert result.dropped == []
+
+
+def test_screening_questions_ask_what_the_candidate_did() -> None:
+    # 23.10.2026: pytania o metodę („Jak analizujesz…?”) i tak/nie dawały
+    # odpowiedzi bez faktów, z których generator CV nic nie bierze.
+    from app.services.llm_prompts import CHAMPION_PROFILE_FROM_JD, JOB_REQUEST_INTAKE
+
+    for template in (JOB_REQUEST_INTAKE, CHAMPION_PROFILE_FROM_JD):
+        prompt = template.system_prompt + template.template
+        assert "co kandydat ZROBIŁ" in prompt, template.name
+        assert "„Jak analizujesz…?”" in prompt and "„Czy znasz…?”" in prompt
+    assert CHAMPION_PROFILE_FROM_JD.version == 4
+
+
+# ── 27.10.2026: fraza klienta bez ludzi w bazie → słowo z CV (v14) ──────────
+
+BCCM_REQUEST = (
+    "Requirements: Business Continuity, Crisis plans, Manual recovery procedures, "
+    "Facilitation of desktop exercises."
+)
+
+
+def _bccm_reading():
+    raw = {
+        "requirements": [
+            {"words": ["Business Continuity"], "level": "must", "cv_words": []},
+            {
+                "words": ["Crisis plans"],
+                "level": "must",
+                "cv_words": [
+                    "Crisis Management",
+                    "crisis plans",
+                    "Business Continuity",
+                ],
+            },
+            {
+                "words": ["Manual recovery procedures"],
+                "level": "must",
+                "cv_words": ["Disaster Recovery"],
+            },
+        ]
+    }
+    return normalize_model_output(raw, BCCM_REQUEST)
+
+
+def _counter(people: dict[str, int | None]):
+    calls: list[list[str]] = []
+
+    async def count(words: list[str]):
+        calls.append(list(words))
+        return people.get("|".join(words))
+
+    return count, calls
+
+
+def test_cv_words_are_kept_per_row_without_the_row_words() -> None:
+    result = _bccm_reading()
+    # Słowo już stojące w wierszu odpada; najwyżej dwa na wiersz.
+    assert result.cv_words == {
+        "Crisis plans": ["Crisis Management", "Business Continuity"],
+        "Manual recovery procedures": ["Disaster Recovery"],
+    }
+    assert "cv_words" not in result.requirements[1]
+
+
+async def test_rare_client_phrase_searches_by_the_cv_word_and_goes_to_talk() -> None:
+    count, _ = _counter(
+        {
+            "Crisis plans": 0,
+            "Crisis Management": 283,
+            "Business Continuity": 773,
+            "Manual recovery procedures": 0,
+            "Disaster Recovery": 3,
+        }
+    )
+    result = await intake.swap_rare_rows(_bccm_reading(), count)
+
+    # „Business Continuity” jest już osobnym wierszem — nie wchodzi jako wariant.
+    assert [row["words"] for row in result.requirements] == [
+        ["Business Continuity"],
+        ["Crisis Management"],
+        ["Manual recovery procedures"],
+    ]
+    assert result.must == [
+        "Business Continuity",
+        "Crisis Management",
+        "Manual recovery procedures",
+    ]
+    assert result.search_requirements[1] == ["Crisis Management"]
+    assert result.experience["skills"] == [{"name": "Crisis plans", "level": "must"}]
+    assert result.provenance["must"] == "ai"
+    note = next(n for n in result.advisories if "Crisis plans" in n)
+    assert "0 osób" in note and "„Crisis Management”" in note and "w rozmowie" in note
+    # Słowo z CV, które też jest rzadkie, niczego nie podmienia.
+    assert not any("Manual recovery procedures" in n for n in result.advisories)
+
+
+async def test_cv_word_already_a_row_merges_instead_of_duplicating() -> None:
+    raw = {
+        "requirements": [
+            {"words": ["Business Continuity"], "level": "must"},
+            {
+                "words": ["Crisis plans"],
+                "level": "must",
+                "cv_words": ["Business Continuity"],
+            },
+        ]
+    }
+    count, _ = _counter({"Crisis plans": 1, "Business Continuity": 773})
+    result = await intake.swap_rare_rows(
+        normalize_model_output(raw, BCCM_REQUEST), count
+    )
+    assert [row["words"] for row in result.requirements] == [["Business Continuity"]]
+    assert result.experience["skills"] == [{"name": "Crisis plans", "level": "must"}]
+    note = next(n for n in result.advisories if "Crisis plans" in n)
+    assert "1 osoba" in note and "Szuka już wiersz „Business Continuity”" in note
+
+
+@pytest.mark.parametrize("phrase_people", [20, 500, None])
+async def test_phrase_with_enough_people_or_unknown_count_stays(phrase_people) -> None:
+    before = _bccm_reading()
+    count, calls = _counter(
+        {
+            "Crisis plans": phrase_people,
+            "Crisis Management": 283,
+            "Manual recovery procedures": phrase_people,
+        }
+    )
+    result = await intake.swap_rare_rows(before, count)
+    assert result == before
+    # Wiersz bez propozycji modelu nie jest liczony.
+    assert ["Business Continuity"] not in calls
+
+
+async def test_no_counting_after_the_deadline() -> None:
+    count, calls = _counter({"Crisis plans": 0, "Crisis Management": 283})
+    before = _bccm_reading()
+    result = await intake.swap_rare_rows(before, count, deadline=0.0)
+    assert result == before and calls == []
+
+
+async def test_database_failure_keeps_the_reading() -> None:
+    class _Nested:
+        async def __aenter__(self):
+            raise RuntimeError("baza leży")
+
+        async def __aexit__(self, *exc):
+            return False
+
+    class _Db:
+        def begin_nested(self):
+            return _Nested()
+
+    before = _bccm_reading()
+    assert await intake.apply_people_reach(_Db(), before) is before
+
+
+async def test_people_reach_skips_unsearchable_words_without_a_query() -> None:
+    from app.services.requirement_reach import people_reach
+
+    class _NoDb:
+        async def scalar(self, *_args, **_kwargs):
+            raise AssertionError("nie powinno pytać bazy")
+
+    assert await people_reach(_NoDb(), []) is None
+    assert await people_reach(_NoDb(), ["Crisis plans", "R"]) is None
+
+
+def test_prompt_asks_for_cv_words_next_to_client_phrases() -> None:
+    from app.services.llm_prompts import JOB_REQUEST_INTAKE
+
+    rendered = JOB_REQUEST_INTAKE.render(
+        client_name="Klient", client_context="brak", request_text="mail"
+    )
+    assert '"cv_words": [str]' in rendered
+    assert "Crisis Management" in rendered

@@ -20,11 +20,12 @@ Model dostępu (decyzja 03.09.2026, świadome odstępstwo od reguł CV):
   zalogowany; rekruter czyta ją PRZED przypisaniem do rekrutacji — po to jest.
   Treść to procedura, nie kwoty.
 * ZAPIS i historia idą jak reguły CV po #1351: sekcja Delivery
-  (``DeliverySectionUser``) plus graf klienta (``resolve_client_access``):
-  admin i Delivery Lead org-wide.
-* ``off_limits`` pochodzi z umowy ramowej (``client_contract_terms``), więc
-  jedzie w odpowiedzi tylko do ról z odczytem sekcji Delivery; reszta dostaje
-  ``null`` — karta nie może być bocznym wejściem do warunków umowy.
+  (``DeliverySectionUser``) plus graf klienta (``resolve_client_access``).
+  Zapis wymaga uprawnienia „Klienci: dodawanie i edycja” — domyślnie admin
+  i Delivery Lead, obaj org-wide (``purpose="org"``).
+* Off-limits (``client_contract_terms.off_limits_*``) NIE jedzie w karcie —
+  funkcja usunięta 27.09.2026 decyzją Artura (runda 9, R9-N4-8); kolumny
+  w bazie zostają.
 """
 
 from datetime import datetime
@@ -39,26 +40,28 @@ from sqlalchemy.orm import aliased
 
 from app.api.deps import OperationalUser
 from app.api.help_materials import _validate_url
+from app.api.permission_access import require_permission
 from app.api.section_access import DeliverySectionUser
 from app.core.database import get_db
 from app.models.client import Client
-from app.models.client_contract_terms import ClientContractTerms
 from app.models.client_playbook import ClientPlaybook
 from app.models.client_playbook_event import ClientPlaybookEvent
 from app.models.user import User
+from app.services.action_permissions import ProductAction
 from app.services.client_access import (
     assert_client_writable,
     deny,
     resolve_client_access,
 )
 from app.services.client_playbook_seed import seed_entry
-from app.services.section_permissions import (
-    ProductSection,
-    SectionAccess,
-    section_access_for_user,
-)
 
 router = APIRouter(tags=["client-playbooks"])
+
+# Zapis karty wymaga uprawnienia „Klienci: dodawanie i edycja”. Deklaruje je
+# TRASA (dekorator), nie parametr handlera: odmowa nazywa brakującą pozycję,
+# zanim sięgniemy do bazy — także wtedy, gdy zatrzymuje bramka sekcji.
+# U kogo wolno, rozstrzyga dalej ``_require_client_playbook_access``.
+CLIENTS_EDIT_DEPENDENCIES = [Depends(require_permission(ProductAction.clients_edit))]
 
 # Pola objęte wersjonowaniem i diffem w historii (kolejność = kolejność w `changes`).
 PLAYBOOK_FIELDS: tuple[str, ...] = (
@@ -73,6 +76,7 @@ PLAYBOOK_FIELDS: tuple[str, ...] = (
     "process_rules_md",
     "onboarding_md",
     "documents",
+    "verified_required_fields",
 )
 
 _CLIENT_DISPLAY_NAME = func.coalesce(
@@ -116,6 +120,22 @@ class ClientPlaybookPayload(BaseModel):
     process_rules_md: Optional[str] = Field(default=None, max_length=20000)
     onboarding_md: Optional[str] = Field(default=None, max_length=20000)
     documents: list[PlaybookDocument] = Field(default_factory=list, max_length=50)
+    # 0495 (D3, 21.10.2026): pola karty rekomendacji, które klient dokłada do
+    # minimum przed „Zweryfikowany”. Tylko z `CLIENT_EXTRA_FIELDS`.
+    verified_required_fields: list[str] = Field(default_factory=list, max_length=10)
+
+    @field_validator("verified_required_fields")
+    @classmethod
+    def _known_card_fields(cls, value: list[str]) -> list[str]:
+        from app.services.move_requirements import (  # noqa: PLC0415
+            CLIENT_EXTRA_FIELDS,
+        )
+
+        unknown = [key for key in value if key not in CLIENT_EXTRA_FIELDS]
+        if unknown:
+            raise ValueError(f"Nieznane pole karty: {', '.join(unknown)}.")
+        # Kolejność i bez powtórzeń — jak w formularzu.
+        return [key for key in CLIENT_EXTRA_FIELDS if key in value]
 
     @field_validator(
         "rate_policy",
@@ -138,12 +158,6 @@ class PlaybookSeedRequest(BaseModel):
     seed_key: str = Field(min_length=1, max_length=64)
 
 
-class OffLimitsRead(BaseModel):
-    months: Optional[int] = None
-    scope: Optional[str] = None
-    notes: Optional[str] = None
-
-
 class ClientPlaybookRead(BaseModel):
     client_id: int
     client_name: Optional[str] = None
@@ -157,13 +171,15 @@ class ClientPlaybookRead(BaseModel):
     multi_project_cooldown_days: Optional[int] = None
     rate_policy: Optional[str] = None
     about_for_candidate: Optional[str] = None
+    # 0403: `web` = opis z researchu w internecie („Champion po ludzku”),
+    # `manual`/NULL = wpisany przez człowieka.
+    about_for_candidate_origin: Optional[str] = None
+    about_for_candidate_sources: list[dict[str, str]] = Field(default_factory=list)
     priority_rules: Optional[str] = None
     process_rules_md: Optional[str] = None
     onboarding_md: Optional[str] = None
     documents: list[dict[str, str]] = Field(default_factory=list)
-    # Tylko do odczytu, z `client_contract_terms`; None = brak warunków umowy
-    # ALBO brak odczytu sekcji Delivery (patrz docstring modułu).
-    off_limits: Optional[OffLimitsRead] = None
+    verified_required_fields: list[str] = Field(default_factory=list)
     seed_key: Optional[str] = None
     updated_at: Optional[str] = None
     updated_by_name: Optional[str] = None
@@ -212,53 +228,23 @@ async def _playbook_for(db: AsyncSession, client_id: int) -> Optional[ClientPlay
     ).scalar_one_or_none()
 
 
-async def _terms_for(db: AsyncSession, client_id: int) -> Optional[ClientContractTerms]:
-    return (
-        await db.execute(
-            select(ClientContractTerms).where(
-                ClientContractTerms.client_id == client_id
-            )
-        )
-    ).scalar_one_or_none()
-
-
-def _off_limits(terms: Optional[ClientContractTerms]) -> Optional[OffLimitsRead]:
-    if terms is None:
-        return None
-    return OffLimitsRead(
-        months=terms.off_limits_months,
-        scope=terms.off_limits_scope,
-        notes=terms.off_limits_notes,
-    )
-
-
-def _can_read_off_limits(user: User) -> bool:
-    """Off-limit z umowy ramowej widzą tylko role z odczytem sekcji Delivery."""
-    return section_access_for_user(user, ProductSection.delivery) >= SectionAccess.read
-
-
-async def _off_limits_for(
-    db: AsyncSession, user: User, client_id: int
-) -> Optional[OffLimitsRead]:
-    if not _can_read_off_limits(user):
-        return None
-    return _off_limits(await _terms_for(db, client_id))
-
-
 async def _require_client_playbook_access(
     db: AsyncSession, user: User, client_id: int, *, write: bool
 ) -> None:
     """Graf klienta pod sufitem sekcji — lustro `_require_client_rule_access`.
 
-    `can_edit_knowledge` = zapis w sekcji Delivery AND (admin-like OR zespół
-    klienta); `can_view_knowledge` = admin-like OR czytelnik organizacyjny OR
-    zespół klienta OR przypisanie do rekrutacji u tego klienta.
+    `can_edit_knowledge` = uprawnienie „Klienci: dodawanie i edycja” u klienta
+    z zakresu (`purpose="org"`: Delivery Lead prowadzi kartę KAŻDEGO klienta);
+    `can_view_knowledge` = admin-like OR czytelnik organizacyjny OR zespół
+    klienta OR przypisanie do rekrutacji u tego klienta. Odmowa zapisu nazywa
+    brakujące uprawnienie.
     """
-    access = await resolve_client_access(db, user, client_id)
+    access = await resolve_client_access(db, user, client_id, purpose="org")
     allowed = access.can_edit_knowledge if write else access.can_view_knowledge
     if not allowed:
-        action = "edycja" if write else "odczyt historii"
-        raise deny(f"{action} karty klienta jest niedozwolony")
+        if write:
+            raise access.edit_denial("edycja karty klienta jest niedozwolona")
+        raise deny("odczyt historii karty klienta jest niedozwolony")
 
 
 def _state(row: Optional[ClientPlaybook]) -> dict[str, Any]:
@@ -266,7 +252,7 @@ def _state(row: Optional[ClientPlaybook]) -> dict[str, Any]:
     state: dict[str, Any] = {}
     for field in PLAYBOOK_FIELDS:
         value = getattr(row, field, None) if row is not None else None
-        if field == "documents":
+        if field in ("documents", "verified_required_fields"):
             value = list(value or [])
         state[field] = value
     return state
@@ -325,6 +311,7 @@ def _apply_payload(row: ClientPlaybook, payload: ClientPlaybookPayload) -> None:
     row.documents = [
         {"name": doc.name, "url": doc.url} for doc in payload.documents
     ] or None
+    row.verified_required_fields = list(payload.verified_required_fields) or None
 
 
 def _payload_from_seed(entry: dict[str, Any]) -> ClientPlaybookPayload:
@@ -346,13 +333,10 @@ def _to_read(
     *,
     client_id: int,
     client_name: Optional[str],
-    off_limits: Optional[OffLimitsRead],
     updated_by_name: Optional[str] = None,
 ) -> ClientPlaybookRead:
     if row is None:
-        return ClientPlaybookRead(
-            client_id=client_id, client_name=client_name, off_limits=off_limits
-        )
+        return ClientPlaybookRead(client_id=client_id, client_name=client_name)
     return ClientPlaybookRead(
         client_id=client_id,
         client_name=client_name,
@@ -365,11 +349,19 @@ def _to_read(
         multi_project_cooldown_days=row.multi_project_cooldown_days,
         rate_policy=row.rate_policy,
         about_for_candidate=row.about_for_candidate,
+        about_for_candidate_origin=(row.about_for_candidate_origin or "manual")
+        if row.about_for_candidate
+        else None,
+        about_for_candidate_sources=[
+            {"url": str(s.get("url")), "title": str(s.get("title") or s.get("url"))}
+            for s in (row.about_for_candidate_sources or [])
+            if isinstance(s, dict) and s.get("url")
+        ][:8],
         priority_rules=row.priority_rules,
         process_rules_md=row.process_rules_md,
         onboarding_md=row.onboarding_md,
         documents=list(row.documents or []),
-        off_limits=off_limits,
+        verified_required_fields=list(row.verified_required_fields or []),
         seed_key=row.seed_key,
         updated_at=_iso(row.updated_at),
         updated_by_name=updated_by_name,
@@ -400,12 +392,15 @@ async def get_client_playbook(
         row,
         client_id=client.id,
         client_name=_client_label(client),
-        off_limits=await _off_limits_for(db, current_user, client.id),
         updated_by_name=updated_by_name,
     )
 
 
-@router.put("/clients/{client_id}/playbook", response_model=ClientPlaybookRead)
+@router.put(
+    "/clients/{client_id}/playbook",
+    response_model=ClientPlaybookRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def upsert_client_playbook(
     client_id: int,
     payload: ClientPlaybookPayload,
@@ -432,6 +427,11 @@ async def upsert_client_playbook(
 
     _apply_payload(row, payload)
     changes = _diff(before, _state(row))
+    if "about_for_candidate" in changes:
+        # Opis poprawiony przez człowieka przestaje być „z internetu” — research
+        # („Champion po ludzku”) już go nie nadpisze.
+        row.about_for_candidate_origin = "manual"
+        row.about_for_candidate_sources = None
 
     try:
         if created or changes:
@@ -475,12 +475,15 @@ async def upsert_client_playbook(
         row,
         client_id=client.id,
         client_name=_client_label(client),
-        off_limits=await _off_limits_for(db, current_user, client.id),
         updated_by_name=updated_by_name,
     )
 
 
-@router.post("/clients/{client_id}/playbook/seed", response_model=ClientPlaybookRead)
+@router.post(
+    "/clients/{client_id}/playbook/seed",
+    response_model=ClientPlaybookRead,
+    dependencies=CLIENTS_EDIT_DEPENDENCIES,
+)
 async def seed_client_playbook(
     client_id: int,
     body: PlaybookSeedRequest,
@@ -543,7 +546,6 @@ async def seed_client_playbook(
         row,
         client_id=client.id,
         client_name=_client_label(client),
-        off_limits=await _off_limits_for(db, current_user, client.id),
         updated_by_name=current_user.name,
     )
 
@@ -611,24 +613,12 @@ async def client_playbooks_overview(
         )
     ).all()
 
-    terms_by_client: dict[int, ClientContractTerms] = {}
-    if rows and _can_read_off_limits(current_user):
-        terms = (
-            await db.scalars(
-                select(ClientContractTerms).where(
-                    ClientContractTerms.client_id.in_([r[0].client_id for r in rows])
-                )
-            )
-        ).all()
-        terms_by_client = {t.client_id: t for t in terms}
-
     items = [
         ClientPlaybookListItem(
             **_to_read(
                 row,
                 client_id=row.client_id,
                 client_name=client_name,
-                off_limits=_off_limits(terms_by_client.get(row.client_id)),
                 updated_by_name=editor_name,
             ).model_dump()
         )

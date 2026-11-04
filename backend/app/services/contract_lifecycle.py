@@ -29,6 +29,7 @@ FastAPI rig, and reused by the signing pipeline.
 
 from __future__ import annotations
 
+import logging
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -44,6 +45,8 @@ from app.models.contract import Contract, ContractStatus
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.services.contract_service import validate_ready_for_activation
 from app.core.scheduling import business_today
+
+logger = logging.getLogger(__name__)
 
 
 HardDeleteBlocker = Literal["completed_signature", "signed_generated_contract"]
@@ -353,6 +356,11 @@ async def activate_contract(
             status_code=http_status.HTTP_409_CONFLICT,
             detail={"message": "Missing required fields", "missing": missing},
         )
+    # Runda 9 (R9-V1-2): zakończony kontrakt usuniętego/scalonego klienta
+    # dało się wznowić drogą ``ended → draft`` (revert) → ``active``,
+    # omijając bramkę `reopen_contract` — i wrócić z nim do MRR.
+    if contract.client_id is not None:
+        await assert_contract_client_not_deleted(db, contract)
 
     contract.status = ContractStatus.active
     db.add(
@@ -364,6 +372,10 @@ async def activate_contract(
             to_status=ContractStatus.active,
         )
     )
+    # „Ludzie w NEXUSIE”: premie z placementu, zestaw sprzętu, sprawa wejścia.
+    from app.services.hr import contract_hooks
+
+    await contract_hooks.contract_started(db, contract)
 
 
 SIGNED_AGREEMENT_ACTIVATION = "b2b_signed_agreement"
@@ -405,6 +417,10 @@ async def activate_without_revenue_gate(
         raise ValueError(f"unknown ungated activation source: {source}")
     previous = contract.status
     if previous not in (ContractStatus.draft, ContractStatus.ready_for_signature):
+        return False
+    # Runda 9 (bliźniak R9-V1-2): podpis umowy nie wskrzesza kontraktu klienta
+    # usuniętego albo scalonego — kontrakt zostaje szkicem, podpis się zapisuje.
+    if source == "b2b_signed_agreement" and await contract_client_is_gone(db, contract):
         return False
     assert_transition(previous, ContractStatus.active)
     contract.status = ContractStatus.active
@@ -481,6 +497,11 @@ async def auto_activate_complete_draft(
         return False
     if validate_ready_for_activation(contract):
         return False
+    # R9-V1-2: automat (zapis kontraktu, synchronizacja z zamówieniami, także
+    # nocna) nie aktywuje szkicu klienta usuniętego/scalonego — POMIJA go
+    # zamiast rzucać 422, które wywracałoby zapis albo cały przebieg.
+    if await contract_client_is_gone(db, contract):
+        return False
 
     await activate_contract(db, contract, actor_id=actor_id)
     return True
@@ -550,6 +571,76 @@ async def revert_contract(
     )
 
 
+CLIENT_DELETED_REACTIVATION_CODE = "client_deleted"
+CLIENT_MERGED_REACTIVATION_CODE = "client_merged"
+
+
+async def contract_client_is_gone(db: AsyncSession, contract: Contract) -> bool:
+    """Klient kontraktu jest usunięty albo scalony (bez wyjątku).
+
+    Lustro warunku :func:`assert_contract_client_not_deleted` dla ścieżek,
+    które mają POMINĄĆ kontrakt zamiast odmówić (auto-aktywacja szkicu).
+    """
+    if contract.client_id is None:
+        return False
+    from app.models.client import Client
+
+    client = await db.scalar(select(Client).where(Client.id == contract.client_id))
+    if client is None:
+        return False
+    return client.deleted_at is not None or bool(
+        getattr(client, "merged_into_client_id", None)
+    )
+
+
+async def assert_contract_client_not_deleted(
+    db: AsyncSession, contract: Contract
+) -> None:
+    """422, gdy zakończony kontrakt należy do USUNIĘTEGO klienta.
+
+    Runda 8 (R8-V1-1): usunięcie klienta z zachowaniem historii zostawia jego
+    zakończone kontrakty w rejestrze `/contracts`. „Cofnij zakończenie”,
+    „Powrót po przerwie”, aneks przedłużenia, `/bulk-extend`, PATCH daty
+    i zmiana statusu wskrzeszały taki kontrakt u klienta, którego profil
+    zwraca 404 — a kontrakt wracał do MRR. Lustro `DELETED_CLIENT_REFUSAL`
+    z poczty zamówień i `assert_client_assignable` przy nowych zapisach.
+    """
+    from app.models.client import Client
+    from app.services.client_identity import client_display_name
+
+    client = await db.scalar(select(Client).where(Client.id == contract.client_id))
+    if client is None:
+        return
+    if client.deleted_at is None and getattr(client, "merged_into_client_id", None):
+        # Przegląd rundy 8: scalony duplikat jest ukryty jak usunięty klient —
+        # „Cofnij zakończenie” i „Powrót po przerwie” już go odrzucały
+        # (`assert_client_assignable`), a PATCH, aneks i `/bulk-extend` nie.
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": CLIENT_MERGED_REACTIVATION_CODE,
+                "reason": CLIENT_MERGED_REACTIVATION_CODE,
+                "message": (
+                    f"Klient „{client_display_name(client)}” został scalony z innym "
+                    "rekordem — kontraktu tego duplikatu nie da się wznowić."
+                ),
+            },
+        )
+    if client.deleted_at is None:
+        return
+    raise HTTPException(
+        status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={
+            "code": CLIENT_DELETED_REACTIVATION_CODE,
+            "reason": CLIENT_DELETED_REACTIVATION_CODE,
+            "message": (
+                f"Klient „{client_display_name(client)}” został usunięty — "
+                "kontraktu tego klienta nie da się wznowić."
+            ),
+        },
+    )
+
+
 async def reopen_contract(
     db: AsyncSession,
     contract: Contract,
@@ -586,6 +677,8 @@ async def reopen_contract(
     if previous not in (ContractStatus.ended, ContractStatus.ending):
         return False
     assert_transition(previous, ContractStatus.active)
+    if previous == ContractStatus.ended:
+        await assert_contract_client_not_deleted(db, contract)
     contract.status = ContractStatus.active
     if supersede_termination_snapshot:
         # Przedłużenie/aneks wskrzesza współpracę NOWYMI zamówieniami — stan
@@ -616,6 +709,48 @@ async def reopen_contract(
         await on_contract_returned_after_break(db, contract, actor_id=actor_id)
     else:
         await undo_contract_termination(db, contract, actor_id=actor_id)
+    from app.services.hr import contract_hooks
+
+    await contract_hooks.contract_end_undone(db, contract)
+    clear_undone_termination(db, contract, actor_id=actor_id)
+    return True
+
+
+def clear_undone_termination(
+    db: AsyncSession, contract: Contract, *, actor_id: Optional[int]
+) -> bool:
+    """Umowa wróciła bezterminowo: pola zakończenia opisują to, co cofnięto.
+
+    Zostawione czytało się jak trwające wypowiedzenie: premie anulowały się
+    przez minioną datę, a karta kontraktu pokazywała „Koniec zamówienia”
+    (7 aktywnych kontraktów na kopii z 02.11.2026). Wartości przechodzą do
+    historii kontraktu. Przedłużenie z nową datą końca tu nie trafia:
+    zakończenie obowiązuje dalej, tylko później.
+    """
+    if contract.status != ContractStatus.active or contract.end_date is not None:
+        return False
+    reason = contract.termination_reason
+    previous = {
+        "terminated_at": (
+            contract.terminated_at.isoformat() if contract.terminated_at else None
+        ),
+        "termination_reason": getattr(reason, "value", reason),
+        "termination_lessons": contract.termination_lessons,
+    }
+    if not any(previous.values()):
+        return False
+    contract.terminated_at = None
+    contract.termination_reason = None
+    contract.termination_lessons = None
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract.id,
+            action="termination_data_cleared",
+            user_id=actor_id,
+            details=previous,
+        )
+    )
     return True
 
 
@@ -644,6 +779,7 @@ async def sync_contract_to_live_order(
     order_end: Optional[date],
     actor_id: Optional[int],
     today: Optional[date] = None,
+    revoked_termination_date: Optional[date] = None,
 ) -> bool:
     """Dopasuj kontrakt do zamówienia, które WŁAŚNIE TRWA. Zwraca True przy zmianie.
 
@@ -669,6 +805,10 @@ async def sync_contract_to_live_order(
     okres zamówienia (VeloBank: 4 z 11 osób na tym samym zamówieniu, w tym
     kontraktor czekający na przedłużenie). Cron pomija ``end_date IS NULL``,
     więc bezterminowa umowa nie jest demotowana „tej samej nocy".
+
+    ``revoked_termination_date`` podaje WYŁĄCZNIE decyzja człowieka: data
+    zakończenia, którą właśnie odwołał („współpraca trwa dalej” w sprawie
+    o pulę MD). Sam fakt, że zamówienie trwa, nigdy jej nie odwołuje.
     """
     # Serialize against terminal-state writers before reading any lifecycle
     # field. A caller may hold an identity-map object loaded before a concurrent
@@ -741,13 +881,23 @@ async def sync_contract_to_live_order(
     # ``ending``, a nocny reconcile wołał tu i zerował datę — wypowiedziana
     # umowa wracała jako bezterminowa (bez offboardingu, dalej w MRR). Umowa
     # już ZAKOŃCZONA (data < dziś) nadal może wrócić NOWYM zamówieniem.
+    #
+    # Reguła chroni plan przed automatem, nie przed decyzją o tym planie:
+    # odwołana data nie jest już planem. Bez tego „współpraca trwa dalej” w dniu
+    # zakończenia zostawiała „Kończący się”, a następnej nocy cron kończył umowę
+    # i domykał przywróconą linię, bez nowej sprawy o pulę. Inna data (ktoś
+    # przeplanował zakończenie po założeniu sprawy) nadal wygrywa.
     # Import lokalny: ``b2b_contract_end_date`` stoi niżej w grafie importów.
     from app.services.b2b_contract_end_date import (
         has_early_termination_amendment,
         is_b2b,
     )
 
-    if contract.end_date is not None and contract.end_date >= today_:
+    if (
+        contract.end_date is not None
+        and contract.end_date >= today_
+        and contract.end_date != revoked_termination_date
+    ):
         manually_terminated = (
             locked_terminated_at is not None or locked_termination_reason is not None
         )
@@ -824,6 +974,41 @@ def _live_order_reconcile_window(
     ):
         return today, frozenset()
     return cutover_day, frozenset(raw_audited_ids)
+
+
+async def sync_contract_to_live_order_nightly(
+    db: AsyncSession,
+    contract: Contract,
+    *,
+    order_start: Optional[date],
+    order_end: Optional[date],
+    today: date,
+) -> bool:
+    """`sync_contract_to_live_order` dla przebiegów nocnych — w savepoincie.
+
+    Runda 9 (R9-V1-1): blokada wznowienia kontraktu usuniętego albo scalonego
+    klienta (runda 8) rzuca 422. Wywołana z nocnego skanu wygasania wycofywała
+    CAŁY przebieg — domykanie zamówień datą, umowy ramowe, wyczerpanie MD
+    i alerty — co noc, dopóki takie zamówienie istniało. Tu odmowa oznacza
+    wyłącznie „tego kontraktu nie wznawiamy”, a reszta przebiegu idzie dalej.
+    """
+    try:
+        async with db.begin_nested():
+            return await sync_contract_to_live_order(
+                db,
+                contract,
+                order_start=order_start,
+                order_end=order_end,
+                actor_id=None,
+                today=today,
+            )
+    except HTTPException as exc:
+        logger.warning(
+            "[contract_lifecycle] nightly reopen refused contract=%s status=%s",
+            contract.id,
+            exc.status_code,
+        )
+        return False
 
 
 async def reconcile_contracts_to_live_orders(
@@ -914,12 +1099,11 @@ async def reconcile_contracts_to_live_orders(
         if contract.id in seen_contract_ids:
             continue
         seen_contract_ids.add(contract.id)
-        if await sync_contract_to_live_order(
+        if await sync_contract_to_live_order_nightly(
             db,
             contract,
             order_start=order.start_date,
             order_end=order.end_date,
-            actor_id=None,
             today=today,
         ):
             reconciled += 1
@@ -1005,6 +1189,9 @@ async def void_contract(
             extra={"reason": reason} if reason else None,
         )
     )
+    from app.services.hr import contract_hooks
+
+    await contract_hooks.contract_ended(db, contract)
 
 
 def signed_generated_link_filter(contract: Contract) -> ColumnElement[bool]:
@@ -1146,6 +1333,63 @@ async def hard_delete_blocker(
     if signed_generated_id is not None:
         return "signed_generated_contract"
     return None
+
+
+async def _close_dl_alerts_of_deleted_orders(
+    db: AsyncSession, order_ids: list[int]
+) -> None:
+    """Karty DL zamówień kasowanych kaskadą razem z kontraktem.
+
+    Runda 10 (R10-V1-2): bliźniak R9-N12-7 z ``_delete_line_row``. Kaskada
+    kontrakt → zamówienia → sprawy offboardingu zostawiała karty
+    „zdecyduj o puli” (``md_consultant_ended``) i karty braku następcy
+    w panelu na zawsze — oba klucze obce dostawały NULL, status zostawał
+    ``new``. Karta wskazuje i zamówienie, i sprawę; dwie akcje SET NULL
+    w jednej kaskadzie potrafią wywrócić DELETE na FK, więc odpinamy ją
+    jawnie przed usunięciem kontraktu.
+    """
+    if not order_ids:
+        return
+    from sqlalchemy import case as sa_case
+
+    from app.models.client_order_offboarding import ClientOrderOffboardingCase
+    from app.models.dl_alert import ALERT_MD_CONSULTANT_ENDED, DlAlert
+    from app.services.dl_alerts import resolve_entity_alerts
+    from app.services.order_gaps import close_gaps_of_deleted_orders
+
+    await close_gaps_of_deleted_orders(db, order_ids)
+    case_ids = (
+        await db.scalars(
+            select(ClientOrderOffboardingCase.id)
+            .where(ClientOrderOffboardingCase.order_id.in_(order_ids))
+            .order_by(ClientOrderOffboardingCase.id)
+        )
+    ).all()
+    for case_id in case_ids:
+        await resolve_entity_alerts(
+            db, alert_type=ALERT_MD_CONSULTANT_ENDED, entity_key=f"case:{case_id}"
+        )
+    alert_links = [DlAlert.order_id.in_(order_ids)]
+    if case_ids:
+        alert_links.append(DlAlert.offboarding_case_id.in_(case_ids))
+    await db.execute(
+        update(DlAlert)
+        .where(or_(*alert_links))
+        .values(
+            order_id=sa_case(
+                (DlAlert.order_id.in_(order_ids), None), else_=DlAlert.order_id
+            ),
+            offboarding_case_id=(
+                sa_case(
+                    (DlAlert.offboarding_case_id.in_(case_ids), None),
+                    else_=DlAlert.offboarding_case_id,
+                )
+                if case_ids
+                else DlAlert.offboarding_case_id
+            ),
+        )
+        .execution_options(synchronize_session=False)
+    )
 
 
 async def hard_delete_contract(
@@ -1316,6 +1560,11 @@ async def hard_delete_contract(
             details=audit_details,
         )
     )
+    await _close_dl_alerts_of_deleted_orders(db, [int(row.id) for row in order_rows])
+    # „Ludzie w NEXUSIE”: sprawa wejścia zamknięta, zanim FK wyzeruje kontrakt.
+    from app.services.hr import contract_hooks
+
+    await contract_hooks.contract_deleted(db, contract)
     await db.delete(contract)
     # Force DELETE + FK actions before settlement and before returning to a
     # batch caller. This also surfaces an unexpected RESTRICT in this helper's

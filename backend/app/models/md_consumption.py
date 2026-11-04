@@ -51,12 +51,21 @@ IMPORT_ROW_COST_ONLY = "cost_only"
 # 0375 (ticket 1.1, 24.09.2026): zaksięgowanie zeszłoby poniżej zera — wiersz
 # czeka na ręczne zatwierdzenie („Do weryfikacji – przekroczenie puli o X MD”).
 IMPORT_ROW_OVERFLOW = "overflow"
+# 0492 (21.10.2026): wiersz bez numeru zamówienia obok wiersza tej samej osoby
+# z numerem — MD za ten miesiąc czekają na kolejne zamówienie (``md_pending``)
+# i schodzą z niego, gdy pojawi się w NEXUSIE (`services/md_awaiting_orders`).
+IMPORT_ROW_AWAITING_ORDER = "awaiting_order"
+# …a taki wiersz ze starszej paczki za ten sam miesiąc, gdy nowsza paczka
+# przyniosła własny wiersz oczekujący (inaczej MD czekałyby podwójnie).
+IMPORT_ROW_SUPERSEDED = "superseded"
 IMPORT_ROW_STATUSES: tuple[str, ...] = (
     IMPORT_ROW_APPLIED,
     IMPORT_ROW_NEEDS_ASSIGNMENT,
     IMPORT_ROW_UNMATCHED,
     IMPORT_ROW_COST_ONLY,
     IMPORT_ROW_OVERFLOW,
+    IMPORT_ROW_AWAITING_ORDER,
+    IMPORT_ROW_SUPERSEDED,
 )
 
 IMPORT_ROW_STATUS_LABELS: dict[str, str] = {
@@ -70,6 +79,8 @@ IMPORT_ROW_STATUS_LABELS: dict[str, str] = {
     IMPORT_ROW_COST_ONLY: "Tylko faktura (bez MD)",
     # Liczbę MD dokleja odczyt wiersza (`overflow_md`).
     IMPORT_ROW_OVERFLOW: "Do weryfikacji – przekroczenie puli",
+    IMPORT_ROW_AWAITING_ORDER: "Oczekuje na zamówienie",
+    IMPORT_ROW_SUPERSEDED: "Zastąpiony nowszym importem",
 }
 
 CONSUMPTION_SOURCE_IMPORT = "import"
@@ -83,11 +94,23 @@ COST_ROW_UNMATCHED_NUMBER = "unmatched_number"
 COST_ROW_UNMATCHED_CONSULTANT = "unmatched_consultant"
 # FIN-MD-06 (0351): korekta faktury / kwota ≤ 0 — nie znika po cichu.
 COST_ROW_NON_POSITIVE = "non_positive_amount"
+# Runda 10 (0391): nieczytelna kwota w „Fakturze” — MD zostają, faktura
+# czeka na ręczne rozliczenie (R10-N5-5).
+COST_ROW_INVOICE_UNREADABLE = "invoice_unreadable"
+# Runda 10 (0391): numer wskazuje wyczerpane zamówienie kosztowe tej osoby —
+# faktura nierozliczona (R10-N5-6).
+COST_ROW_ORDER_EXHAUSTED = "order_exhausted"
+# 0493 (21.10.2026): za ten miesiąc linia ma ręczny wpis z zakładki „Zużycie” —
+# import go nie nadpisuje (decyzja Artura), faktura z arkusza czeka na decyzję.
+COST_ROW_MANUAL_KEPT = "manual_kept"
 COST_ROW_STATUSES: tuple[str, ...] = (
     COST_ROW_APPLIED,
     COST_ROW_UNMATCHED_NUMBER,
     COST_ROW_UNMATCHED_CONSULTANT,
     COST_ROW_NON_POSITIVE,
+    COST_ROW_INVOICE_UNREADABLE,
+    COST_ROW_ORDER_EXHAUSTED,
+    COST_ROW_MANUAL_KEPT,
 )
 
 COST_ROW_STATUS_LABELS: dict[str, str] = {
@@ -95,6 +118,9 @@ COST_ROW_STATUS_LABELS: dict[str, str] = {
     COST_ROW_UNMATCHED_NUMBER: "Brak zamówienia o tym numerze",
     COST_ROW_UNMATCHED_CONSULTANT: "Numer się zgadza, konsultant nie",
     COST_ROW_NON_POSITIVE: "Korekta / kwota ≤ 0 — rozlicz ręcznie",
+    COST_ROW_INVOICE_UNREADABLE: "Nieczytelna kwota faktury — rozlicz ręcznie",
+    COST_ROW_ORDER_EXHAUSTED: "Zamówienie wyczerpane — faktura nierozliczona",
+    COST_ROW_MANUAL_KEPT: "Jest ręczny wpis za ten miesiąc — faktura pominięta",
 }
 
 
@@ -135,6 +161,15 @@ class MdConsumptionImport(Base):
     uploaded_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # 0443 (API integracyjne v1): import z automatyzacji nie ma człowieka —
+    # autorem jest konto serwisowe (``Integracja: <nazwa>`` na ekranie).
+    uploaded_by_service_account_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("service_accounts.id", ondelete="SET NULL"), nullable=True
+    )
+    # 0443: SHA-256 wgranego pliku. Ten sam plik za ten sam miesiąc drugi raz
+    # = 409 w API v1 (ponowienie automatyzacji po zerwanym połączeniu nie
+    # może zaksięgować zużycia podwójnie). NULL w importach sprzed 0443.
+    file_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -162,13 +197,14 @@ class MdConsumptionImportRow(Base):
     __table_args__ = (
         CheckConstraint(
             "status IN ('applied', 'needs_assignment', 'unmatched', 'cost_only', "
-            "'overflow')",
+            "'overflow', 'awaiting_order', 'superseded')",
             name="ck_md_import_rows_status",
         ),
         CheckConstraint(
             "cost_status IS NULL OR cost_status IN "
             "('applied', 'unmatched_number', 'unmatched_consultant', "
-            "'non_positive_amount')",
+            "'non_positive_amount', 'invoice_unreadable', 'order_exhausted', "
+            "'manual_kept')",
             name="ck_md_import_rows_cost_status",
         ),
         Index("ix_md_import_rows_import", "import_id"),
@@ -215,6 +251,15 @@ class MdConsumptionImportRow(Base):
         Numeric(16, 6), nullable=True
     )
     """O ile MD zaksięgowanie przekroczyłoby pulę (status ``overflow``, 0375)."""
+    awaiting_origin_order_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("client_orders.id", ondelete="SET NULL"), nullable=True
+    )
+    """Status ``awaiting_order`` (0492): linia zamówienia, na które trafił
+    wiersz tej osoby z numerem — przy niej wisi „Pozostało do zafakturowania”.
+    Kolejne zamówienie szukamy u tego samego klienta i tej samej osoby."""
+    md_pending: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 6), nullable=True)
+    """Ile MD z wiersza wciąż czeka na zamówienie. ``md_reported − md_pending``
+    zeszło już z kolejnych zamówień (ostatnie w ``matched_order_id``)."""
     cost_status: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
     """``NULL`` = wiersz nie dotyczy rozliczenia kosztowego (brak numeru
     w „Uwagach"). Patrz ``COST_ROW_*``."""
@@ -232,6 +277,9 @@ class MdConsumptionImportRow(Base):
     import_batch = relationship("MdConsumptionImport", back_populates="rows")
     matched_order = relationship("ClientOrder", foreign_keys=[matched_order_id])
     matched_group = relationship("ClientOrderGroup", foreign_keys=[matched_group_id])
+    awaiting_origin_order = relationship(
+        "ClientOrder", foreign_keys=[awaiting_origin_order_id]
+    )
     resolver = relationship("User", foreign_keys=[resolved_by_user_id])
 
     def __repr__(self) -> str:
@@ -324,6 +372,10 @@ class ClientOrderInvoiceConsumption(Base, TimestampMixin):
             name="ck_invoice_consumptions_source",
         ),
         CheckConstraint(_PERIOD_MONTH_CHECK, name="ck_invoice_consumptions_period"),
+        CheckConstraint(
+            "status IS NULL OR status IN ('accepted', 'protocol')",
+            name="ck_invoice_consumptions_status",
+        ),
         Index(
             "ux_invoice_consumptions_order_month",
             "order_id",
@@ -358,6 +410,11 @@ class ClientOrderInvoiceConsumption(Base, TimestampMixin):
     już zastosowanego rozliczenia."""
 
     source: Mapped[str] = mapped_column(String(16), nullable=False)
+
+    status: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    """0493: ``accepted`` | ``protocol`` | NULL — jak przy zejściu MD; status
+    opisuje etap rozliczenia miesiąca, kwota schodzi z budżetu niezależnie od niego."""
+    note: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     created_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

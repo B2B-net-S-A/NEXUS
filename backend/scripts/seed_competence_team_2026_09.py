@@ -77,7 +77,7 @@ async def run(apply: bool) -> int:
         for error in errors:
             print(f"BŁĄD PLANU: {error}")
         return 1
-    operator_roles = (UserRole.recruiter, UserRole.sourcer, UserRole.tac)
+    operator_roles = (UserRole.recruiter,)
     async with AsyncSessionLocal() as db:
         categories = dict(
             (

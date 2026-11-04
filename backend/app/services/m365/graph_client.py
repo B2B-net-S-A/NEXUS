@@ -62,10 +62,16 @@ class GraphClient:
     """
 
     _semaphore: asyncio.Semaphore = asyncio.Semaphore(_CONCURRENCY)
+    _sales_ok: bool = False
 
-    def __init__(self, connection: M365Connection, db: AsyncSession) -> None:
+    def __init__(
+        self, connection: M365Connection, db: AsyncSession, *, sales_ok: bool = False
+    ) -> None:
         self._conn = connection
         self._db = db
+        # Skrzynka handlowca bez dostępu do kandydatów — tylko synchronizacja
+        # i subskrypcje (``services/m365/access.py``); reszta zostaje zamknięta.
+        self._sales_ok = sales_ok
         self._client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
         self._cipher = get_token_cipher()
         # Decrypt once per instance — tokens stay in memory, never logged.
@@ -90,7 +96,9 @@ class GraphClient:
         """Owner eligibility gate — overridden by the app-only client, which has
         no owner to revalidate (its authority is the tenant's admin consent and
         the Application Access Policy, both enforced server-side)."""
-        await require_eligible_connection_owner(self._db, self._conn)
+        await require_eligible_connection_owner(
+            self._db, self._conn, sales_ok=self._sales_ok
+        )
 
     async def __aexit__(self, *exc_info) -> None:
         await self.close()
@@ -106,6 +114,7 @@ class GraphClient:
         headers: Optional[dict] = None,
         expect_json: bool = True,
         retry_unsafe: bool = False,
+        content: Optional[bytes] = None,
     ) -> Any:
         # A long delta/backfill context can stay open while an administrator
         # changes the owner's role. Revalidate before every outbound request,
@@ -129,7 +138,11 @@ class GraphClient:
                         json,
                         hdrs,
                         expect_json,
-                        retry_read_errors=method != "POST" or retry_unsafe,
+                        # PUT z treścią (upload pliku) jak POST: po utracie
+                        # odpowiedzi plik mógł już powstać, a powtórka z
+                        # `conflictBehavior=rename` dałaby kopię „(1)”.
+                        retry_read_errors=method not in ("POST", "PUT") or retry_unsafe,
+                        content=content,
                     )
             except asyncio.TimeoutError as exc:
                 raise GraphRequestError(
@@ -146,14 +159,18 @@ class GraphClient:
         expect_json: bool,
         *,
         retry_read_errors: bool = True,
+        content: Optional[bytes] = None,
     ) -> Any:
         refreshed_once = False
         network_tries = 0
         throttle_tries = 0
         while True:
             try:
+                # `content` tylko przy uploadzie — pozostałe żądania wołają
+                # klienta dokładnie jak dotąd.
+                extra = {"content": content} if content is not None else {}
                 resp = await self._client.request(
-                    method, url, params=params, json=json, headers=hdrs
+                    method, url, params=params, json=json, headers=hdrs, **extra
                 )
             except httpx.ConnectError:
                 # Połączenie nie powstało — serwer nie widział żądania.
@@ -298,6 +315,18 @@ class GraphClient:
 
     async def patch(self, url: str, json: Optional[Any] = None) -> Any:
         return await self._request("PATCH", url, json=json)
+
+    async def put_content(
+        self,
+        url: str,
+        content: bytes,
+        *,
+        content_type: str = "application/octet-stream",
+    ) -> Any:
+        """PUT z surową treścią — upload pliku do OneDrive/SharePointa."""
+        return await self._request(
+            "PUT", url, content=content, headers={"Content-Type": content_type}
+        )
 
     async def delete(self, url: str) -> None:
         await self._request("DELETE", url, expect_json=False)

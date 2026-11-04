@@ -18,10 +18,10 @@
  * /api/pipeline/stages/{id}/screening`.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import { z } from "@/lib/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 
@@ -34,6 +34,7 @@ import {
   type ScreeningAnswerItem,
   type ScreeningAnswers,
   type ScreeningQuestion,
+  type ScreeningSkipReason,
 } from "@/lib/api";
 import {
   EXPERIENCE_KIND_LABEL,
@@ -45,7 +46,12 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { FormField, TextareaField } from "@/components/v2/forms";
+import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+import { answerOriginBadge } from "@/lib/recommendation-card";
+import { SCREENING_ANSWER_PLACEHOLDER, screeningAnswerHint } from "@/lib/screening-answer-hint";
 import { cn } from "@/lib/utils";
+
+import { type PhraseController, PhraseButton, PhraseProposal } from "./PhraseSuggestion";
 
 export const FIT_OPTIONS = [
   {
@@ -65,13 +71,27 @@ export const FIT_OPTIONS = [
   },
 ];
 
-export type ScreeningAnswerOrigin = "manual" | "reassign_suggested";
+export type ScreeningAnswerOrigin =
+  | "manual"
+  | "reassign_suggested"
+  | "note_import"
+  | "phrased"
+  | "note_sync";
 
 export interface ScreeningFormAnswer {
   response: string;
   deal_breaker_hit: boolean;
-  /** `reassign_suggested` = odpowiedź przyjęta z podpowiedzi Luny (przepięcie). */
+  /**
+   * `reassign_suggested` = odpowiedź przyjęta z podpowiedzi (wcześniejsza
+   * rozmowa) bez zmian; `note_import` = przyjęta z notatki w oknie karty;
+   * `note_sync` = przepisana z notatki przez automat (07.10.2026) — zapis
+   * arkusza przez człowieka zamienia ją na serwerze na `note_import`.
+   * Poprawione ręcznie wracają do `manual`. `phrased` = zdanie ułożone
+   * z haseł (0421) — zostaje po poprawce, bo hasła nadal są jego źródłem.
+   */
   origin?: ScreeningAnswerOrigin;
+  /** Hasła, z których powstało zdanie (`phrased`) — tylko dla zespołu. */
+  keywords?: string | null;
 }
 
 /**
@@ -96,6 +116,11 @@ export interface ScreeningFormValues {
    * odpowiedzi zapisują się jako pominięte zamiast blokować zapis.
    */
   skip_missing?: boolean;
+  /**
+   * Dlaczego wolno pominąć (12.10.2026) — ustawia blok wcześniejszych
+   * odpowiedzi przy zaznaczeniu „Pomiń brakujące”; wybiera domyślną notatkę.
+   */
+  skip_reason?: ScreeningSkipReason | null;
   /** Notatka wewnętrzna do pominięcia — nigdy nie idzie do klienta. */
   internal_note?: string;
   /** Sekcja 4 Championa — patrz `ExperienceCheckRow`. */
@@ -135,6 +160,20 @@ export function experienceCheckRows(
 /** Notatka wstawiana, gdy rekruter pominął pytania bez własnego komentarza. */
 export const DEFAULT_SKIP_NOTE = "Pominięte — przepięcie";
 
+/**
+ * Domyślna notatka mówi prawdziwy powód: Delivery Lead czyta ją w widoku
+ * „Screening”, a od 12.10.2026 pominąć można nie tylko przy przepięciu.
+ */
+export const SKIP_NOTE_BY_REASON: Record<ScreeningSkipReason, string> = {
+  reassign: DEFAULT_SKIP_NOTE,
+  earlier_screening: "Pominięte — osoba po wcześniejszym screeningu",
+  employed: "Pominięte — osoba zatrudniona przez nas",
+};
+
+export function defaultSkipNote(reason: ScreeningSkipReason | null | undefined): string {
+  return reason ? SKIP_NOTE_BY_REASON[reason] : DEFAULT_SKIP_NOTE;
+}
+
 export function makeSchema(questions: ScreeningQuestion[]) {
   const answersShape = Object.fromEntries(
     questions.map((q) => [
@@ -142,7 +181,10 @@ export function makeSchema(questions: ScreeningQuestion[]) {
       z.object({
         response: z.string(),
         deal_breaker_hit: z.boolean(),
-        origin: z.enum(["manual", "reassign_suggested"]).optional(),
+        origin: z
+          .enum(["manual", "reassign_suggested", "note_import", "phrased", "note_sync"])
+          .optional(),
+        keywords: z.string().nullable().optional(),
       }),
     ]),
   );
@@ -152,6 +194,7 @@ export function makeSchema(questions: ScreeningQuestion[]) {
       overall_fit: z.enum(["fit", "uncertain", "miss"]),
       notes: z.string().optional().default(""),
       skip_missing: z.boolean().optional().default(false),
+      skip_reason: z.enum(["reassign", "earlier_screening", "employed"]).nullable().optional().default(null),
       internal_note: z
         .string()
         .max(2000, "Notatka może mieć najwyżej 2000 znaków")
@@ -160,7 +203,7 @@ export function makeSchema(questions: ScreeningQuestion[]) {
       experience_checks: z
         .array(
           z.object({
-            kind: z.enum(["domains", "certifications", "regulations"]),
+            kind: z.enum(["domains", "certifications", "regulations", "skills"]),
             name: z.string(),
             label: z.string(),
             level: z.enum(["must", "nice"]),
@@ -205,6 +248,9 @@ export function buildScreeningPayload(
       response,
       deal_breaker_hit: !!value?.deal_breaker_hit,
       origin: value?.origin ?? "manual",
+      ...((value?.origin === "phrased" || value?.origin === "note_import") && value.keywords?.trim()
+        ? { keywords: value.keywords.trim() }
+        : {}),
       skipped: skipMissing && !response.trim(),
     };
   });
@@ -214,7 +260,7 @@ export function buildScreeningPayload(
     overall_fit: values.overall_fit,
     notes: values.notes ?? "",
     internal_note: anySkipped
-      ? (values.internal_note ?? "").trim() || DEFAULT_SKIP_NOTE
+      ? (values.internal_note ?? "").trim() || defaultSkipNote(values.skip_reason)
       : null,
     experience_checks: (values.experience_checks ?? []).map((row) => ({
       kind: row.kind,
@@ -276,6 +322,7 @@ export function useScreeningForm({
       overall_fit: "uncertain",
       notes: "",
       skip_missing: false,
+      skip_reason: null,
       internal_note: "",
       experience_checks: [],
     },
@@ -294,6 +341,7 @@ export function useScreeningForm({
         response: existingAnswer?.response ?? "",
         deal_breaker_hit: existingAnswer?.deal_breaker_hit ?? false,
         origin: existingAnswer?.origin ?? "manual",
+        keywords: existingAnswer?.keywords ?? null,
       };
     }
     methods.reset({
@@ -301,6 +349,7 @@ export function useScreeningForm({
       overall_fit: existing?.overall_fit ?? "uncertain",
       notes: existing?.notes ?? "",
       skip_missing: Boolean(existing?.answers.some((a) => a.skipped)),
+      skip_reason: null,
       internal_note: existing?.internal_note ?? "",
       experience_checks: experienceCheckRows(
         data.champion_profile,
@@ -308,6 +357,36 @@ export function useScreeningForm({
       ),
     });
   }, [data, existing, questions.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Odpowiedź przyjęta z podpowiedzi i potem poprawiona ręcznie jest już
+  // odpowiedzią z TEJ rozmowy — znacznik „z podpowiedzi” zostaje tylko przy
+  // kopii bez zmian (serwer nie podpowiada z kopii w kolejnych arkuszach).
+  // `type === "change"` to wpis człowieka; `setValue` z podpowiedzi go nie budzi.
+  useEffect(() => {
+    const subscription = methods.watch((_values, { name, type }) => {
+      const match = type === "change" && name ? /^answers\.(.+)\.response$/.exec(name) : null;
+      if (!match) return;
+      const origin = `answers.${match[1]}.origin` as const;
+      const keywords = `answers.${match[1]}.keywords` as const;
+      const current = methods.getValues(origin);
+      if (
+        current === "reassign_suggested" ||
+        current === "note_import" ||
+        current === "note_sync"
+      ) {
+        methods.setValue(origin, "manual", { shouldDirty: true });
+        methods.setValue(keywords, null, { shouldDirty: true });
+      } else if (
+        current === "phrased" &&
+        !(methods.getValues(`answers.${match[1]}.response`) ?? "").trim()
+      ) {
+        // Zdanie wyczyszczone — nie ma już czego wiązać z hasłami.
+        methods.setValue(origin, "manual", { shouldDirty: true });
+        methods.setValue(keywords, null, { shouldDirty: true });
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [methods]);
 
   // Jedyną ścieżką wyjścia tej mutacji był `onSuccess`, więc odrzucony zapis
   // (403 — bramka POST-a jest węższa niż bramka GET-a, albo 422 z walidacji)
@@ -324,6 +403,13 @@ export function useScreeningForm({
         queryKey: ["pipeline-stage-screening", stageId],
       });
       queryClient.invalidateQueries({ queryKey: ["candidate"] });
+      // Karta „Odpowiedzi z rozmów screeningowych” w profilu ma własny klucz —
+      // prefiks `["candidate"]` jej nie obejmuje.
+      if (data?.candidate_id != null) {
+        queryClient.invalidateQueries({
+          queryKey: candidateQueryKeys.screeningAnswersRoot(data.candidate_id),
+        });
+      }
       onSubmitted?.(r.data.match_percent);
       onAfterSubmit?.();
     },
@@ -353,13 +439,31 @@ export function useScreeningForm({
   };
 }
 
-/** Pola arkusza — pytania, ocena ogólna i notatki. Bez opakowania `<form>`. */
+/**
+ * Pola arkusza — pytania i ocena ogólna. Bez opakowania `<form>`.
+ *
+ * Od 0424 (07.10.2026) arkusz nie ma pola „Notatki rekrutera”: opis kandydata
+ * żyje w polach karty („Dlaczego ten kandydat”) jednego formularza screeningu,
+ * a stara notatka z arkusza jest tylko do odczytu.
+ */
 export function ScreeningFormFields({
   questions,
   methods,
+  renderQuestionExtra,
+  phrase,
+  withOverallFit = true,
 }: {
   questions: ScreeningQuestion[];
   methods: UseFormReturn<ScreeningFormValues>;
+  /**
+   * Treść pod pytaniem, nad polem odpowiedzi — wcześniejsza odpowiedź
+   * kandydata z innej rozmowy (`ScreeningReassignSuggestions`).
+   */
+  renderQuestionExtra?: (question: ScreeningQuestion, index: number) => ReactNode;
+  /** „Ułóż w zdanie” przy odpowiedziach (0421) — bez niego przycisku nie ma. */
+  phrase?: PhraseController;
+  /** Formularz screeningu stawia ocenę ogólną w sekcji „Ocena” (`OverallFitField`). */
+  withOverallFit?: boolean;
 }) {
   return (
     <div className="space-y-5">
@@ -372,10 +476,19 @@ export function ScreeningFormFields({
         const answered = Boolean(
           (methods.watch(`answers.${q.id}.response`) ?? "").trim(),
         );
+        const answerHint = screeningAnswerHint(methods.watch(`answers.${q.id}.response`));
         const dealBreakerHit = Boolean(methods.watch(dealBreakerName));
         const skipped = Boolean(methods.watch("skip_missing")) && !answered;
-        const fromLuna =
-          methods.watch(`answers.${q.id}.origin`) === "reassign_suggested";
+        const skipReason = methods.watch("skip_reason");
+        const originBadge = answerOriginBadge(methods.watch(`answers.${q.id}.origin`));
+        const responseName = `answers.${q.id}.response` as const;
+        const suggestion = phrase?.results[q.id];
+        const applySentence = (sentence: string, keywords: string) => {
+          methods.setValue(responseName, sentence, { shouldDirty: true, shouldValidate: true });
+          methods.setValue(`answers.${q.id}.origin`, "phrased", { shouldDirty: true });
+          methods.setValue(`answers.${q.id}.keywords`, keywords, { shouldDirty: true });
+          phrase?.dismiss(q.id);
+        };
         return (
           <div
             key={q.id}
@@ -388,9 +501,14 @@ export function ScreeningFormFields({
               <p className="min-w-0 flex-1 text-sm font-semibold text-foreground">
                 {q.question}
               </p>
-              {fromLuna && (
-                <Badge variant="soft" size="sm" className="shrink-0">
-                  z podpowiedzi Luny
+              {originBadge && (
+                <Badge
+                  variant="soft"
+                  size="sm"
+                  className="shrink-0"
+                  title={methods.watch(`answers.${q.id}.keywords`) ?? undefined}
+                >
+                  {originBadge}
                 </Badge>
               )}
               <span
@@ -410,7 +528,9 @@ export function ScreeningFormFields({
                   : answered
                     ? "odpowiedziano"
                     : skipped
-                      ? "pominięte — przepięcie"
+                      ? skipReason && skipReason !== "reassign"
+                        ? "pominięte"
+                        : "pominięte — przepięcie"
                       : "bez odpowiedzi"}
               </span>
             </div>
@@ -436,19 +556,53 @@ export function ScreeningFormFields({
                 )}
               </dl>
             )}
+            {renderQuestionExtra?.(q, i)}
             <FormField name={`answers.${q.id}.response`} label="Odpowiedź">
               <TextareaField
                 name={`answers.${q.id}.response`}
                 rows={3}
-                placeholder="Jak odpowiedział kandydat?"
+                placeholder={
+                  phrase
+                    ? `${SCREENING_ANSWER_PLACEHOLDER} Możesz wpisać hasła i ułożyć z nich zdanie.`
+                    : SCREENING_ANSWER_PLACEHOLDER
+                }
               />
             </FormField>
+            {answerHint ? (
+              <p className="flex items-start gap-1.5 text-xs text-warning-muted-foreground">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                <span>{answerHint}</span>
+              </p>
+            ) : null}
+            {phrase && !suggestion ? (
+              <PhraseButton
+                disabled={!answered}
+                pending={phrase.isPending(q.id)}
+                onClick={() =>
+                  void phrase.request([
+                    { key: q.id, keywords: methods.getValues(responseName) ?? "", question: q.question },
+                  ])
+                }
+              />
+            ) : null}
+            {phrase && suggestion ? (
+              <PhraseProposal
+                suggestion={suggestion}
+                onUse={(sentence) => applySentence(sentence, suggestion.keywords)}
+                onEdit={(sentence) => {
+                  applySentence(sentence, suggestion.keywords);
+                  methods.setFocus(responseName);
+                }}
+                onKeep={() => phrase.dismiss(q.id)}
+              />
+            ) : null}
             <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
               <Checkbox
                 checked={dealBreakerHit}
                 onCheckedChange={(v) =>
                   methods.setValue(dealBreakerName, !!v, {
                     shouldValidate: true,
+                    shouldDirty: true,
                   })
                 }
               />
@@ -458,49 +612,51 @@ export function ScreeningFormFields({
         );
       })}
 
-      <div className="pt-2">
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-          Ogólna ocena dopasowania
-        </h3>
-        <RadioGroup
-          value={methods.watch("overall_fit")}
-          onValueChange={(v) =>
-            methods.setValue(
-              "overall_fit",
-              v as ScreeningFormValues["overall_fit"],
-            )
-          }
-        >
-          {FIT_OPTIONS.map((opt) => (
-            <label
-              key={opt.value}
-              className="flex cursor-pointer items-start gap-2 rounded-md p-2 hover:bg-primary/10"
-            >
-              <RadioGroupItem value={opt.value} className="mt-0.5" />
-              <div>
-                <div className="text-sm font-medium text-foreground">
-                  {opt.label}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {opt.description}
-                </div>
-              </div>
-            </label>
-          ))}
-        </RadioGroup>
-      </div>
+      {withOverallFit ? (
+        <div className="pt-2">
+          <OverallFitField methods={methods} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
-      <FormField
-        name="notes"
-        label="Notatki rekrutera"
-        description="Kontekst, follow-upy, deal-breakers — widoczne w share portalu klienta."
+/** „Ogólna ocena dopasowania” — trzy pigułki z opisem (arkusz i sekcja „Ocena”). */
+export function OverallFitField({
+  methods,
+}: {
+  methods: UseFormReturn<ScreeningFormValues>;
+}) {
+  return (
+    <div>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        Ogólna ocena dopasowania
+      </h3>
+      <RadioGroup
+        value={methods.watch("overall_fit")}
+        onValueChange={(v) =>
+          methods.setValue("overall_fit", v as ScreeningFormValues["overall_fit"], {
+            shouldDirty: true,
+          })
+        }
       >
-        <TextareaField
-          name="notes"
-          rows={4}
-          placeholder="Np. kandydat był gotowy zacząć w 2 tyg, rozmowa po angielsku…"
-        />
-      </FormField>
+        {FIT_OPTIONS.map((opt) => (
+          <label
+            key={opt.value}
+            className="flex cursor-pointer items-start gap-2 rounded-md p-2 hover:bg-primary/10"
+          >
+            <RadioGroupItem value={opt.value} className="mt-0.5" />
+            <div>
+              <div className="text-sm font-medium text-foreground">
+                {opt.label}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {opt.description}
+              </div>
+            </div>
+          </label>
+        ))}
+      </RadioGroup>
     </div>
   );
 }
@@ -519,6 +675,7 @@ function ExperienceChecklistField({
         methods.setValue(
           "experience_checks",
           checks.map((row, i) => (i === index ? { ...row, status } : row)),
+          { shouldDirty: true },
         )
       }
     />
@@ -614,9 +771,10 @@ export function ScreeningNoQuestions({
   onOpenChampion,
 }: {
   /**
-   * Wejście do sekcji 5 Championa. Bez niego pusty stan mówi „poproś TAC"
-   * i zostawia czytelnika bez drogi — a pytania uzupełnia się o jedną
-   * zakładkę stąd.
+   * Wejście do sekcji 5 Championa — pytania uzupełnia się o jedną zakładkę
+   * stąd. Pusty stan mówi też, co wystarcza do ruchu dalej: bez pytań serwer
+   * zamiast arkusza wymaga „Dlaczego ten kandydat” (12.10.2026; do tej daty
+   * tekst odsyłał do nieistniejącej roli TAC, a ruch i tak był niemożliwy).
    */
   onOpenChampion?: () => void;
 } = {}) {
@@ -624,8 +782,9 @@ export function ScreeningNoQuestions({
     <div className="py-8 text-center text-sm text-muted-foreground">
       <AlertTriangle className="mx-auto mb-2 h-10 w-10 opacity-40" />
       <p>
-        Ta rekrutacja nie ma skonfigurowanego Champion Profile — poproś TAC
-        o uzupełnienie pytań screeningowych.
+        Ta rekrutacja nie ma pytań screeningowych w Profilu Championa. Żeby przekazać
+        osobę dalej, wystarczy stawka kandydata i pole „Dlaczego ten kandydat” w sekcji
+        „Ocena”.
       </p>
       {onOpenChampion && (
         <button
@@ -633,7 +792,7 @@ export function ScreeningNoQuestions({
           onClick={onOpenChampion}
           className="mt-2 text-xs font-medium text-primary hover:underline"
         >
-          Otwórz Zlecenie i Champion (sekcja 5 — pytania screeningowe)
+          Otwórz Profil Championa (pytania na rozmowę)
         </button>
       )}
     </div>

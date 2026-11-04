@@ -39,8 +39,11 @@ from app.core.scheduling import DEFAULT_TZ, business_today
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.competence_category import CandidateCompetenceCategory
 from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride
+from app.models.user import User, UserRole
 from app.models.recruitment_pipeline import STAGE_ORDER
-from app.services.current_employment import current_employment_client_ids
+from app.schemas.candidate import EmploymentMarker
+from app.services.employment_marker import load_employment_markers
+from app.services.candidate_rate_from import rate_summary
 
 # Bezpiecznik, nie limit biznesowy: lista nie ma horyzontu czasu, więc po latach
 # importu Traffita jeden rekruter może mieć kilkaset osób. Powyżej tej liczby
@@ -64,14 +67,20 @@ def _owned_pairs_cte(*, single_user: bool) -> str:
 
     Dla jednego użytkownika zapytanie zaczyna od JEGO wierszy (indeks
     ``ix_candidate_stages_moved_by_stage``), zamiast liczyć pierwszego
-    weryfikatora dla każdej pary w bazie.
+    weryfikatora dla każdej pary w bazie. Przypisanie „Prowadzi”
+    (``candidate_job_owners``, 25.10.2026) wygrywa z weryfikującym — dlatego
+    zakres jednej osoby obejmuje też pary jej przypisane.
     """
     scope = (
         """
         scope AS (
-            SELECT DISTINCT candidate_id, job_id
+            SELECT candidate_id, job_id
             FROM candidate_stages
             WHERE moved_by = :uid AND stage IN ('verified', 'cv_sent')
+            UNION
+            SELECT candidate_id, job_id
+            FROM candidate_job_owners
+            WHERE owner_user_id = :uid
         ),"""
         if single_user
         else """
@@ -81,10 +90,9 @@ def _owned_pairs_cte(*, single_user: bool) -> str:
             WHERE stage = 'cv_sent'
         ),"""
     )
+    owner = "COALESCE(o.owner_user_id, v.moved_by, s.moved_by)"
     owner_filter = (
-        "WHERE COALESCE(v.moved_by, s.moved_by) = :uid"
-        if single_user
-        else ("WHERE COALESCE(v.moved_by, s.moved_by) IS NOT NULL")
+        f"WHERE {owner} = :uid" if single_user else f"WHERE {owner} IS NOT NULL"
     )
     return f"""
     WITH {scope}
@@ -106,10 +114,12 @@ def _owned_pairs_cte(*, single_user: bool) -> str:
     ),
     owned AS (
         SELECT s.candidate_id, s.job_id,
-               COALESCE(v.moved_by, s.moved_by) AS owner_id
+               {owner} AS owner_id
         FROM first_sent s
         LEFT JOIN first_verified v
           ON v.candidate_id = s.candidate_id AND v.job_id = s.job_id
+        LEFT JOIN candidate_job_owners o
+          ON o.candidate_id = s.candidate_id AND o.job_id = s.job_id
         {owner_filter}
     )
     """
@@ -132,10 +142,25 @@ class PersonRow:
     source: str = "auto"
     active_processes: int = 0
     working: bool = False
+    # Znacznik „Pracuje u nas” z klientem i końcem zamówienia; `working`
+    # wynika z niego (żywa umowa, która już ruszyła), więc grupa „Pracują”
+    # i pigułka idą z jednej reguły.
+    employment_marker: Optional[EmploymentMarker] = None
     snoozed: bool = False
     snooze_reason: Optional[str] = None
     snoozed_at: Optional[datetime] = None
     new_matches: int = 0
+    # Osoba zgłosiła się z linku właściciela listy (ogólnego albo do rekrutacji).
+    from_link: bool = False
+
+
+def _works_now(marker: Optional[EmploymentMarker]) -> bool:
+    """Żywa umowa, która już ruszyła — bez ręcznych oznaczeń i etapu `hired`."""
+    return (
+        marker is not None
+        and marker.source == "contract"
+        and any(client.phase != "starting" for client in marker.clients)
+    )
 
 
 @dataclass
@@ -146,6 +171,160 @@ class MyPeople:
     @property
     def active(self) -> list[PersonRow]:
         return [r for r in self.rows if not r.snoozed and not r.working]
+
+    @property
+    def idle(self) -> list[PersonRow]:
+        """Aktywni bez procesu w toku, których CV nie szło dłużej niż ``IDLE_DAYS``.
+
+        Najkrócej czekający najpierw: tych da się jeszcze „odzyskać” jednym
+        telefonem. Ta sama definicja w dymku osoby i w widoku „Zespół”.
+        """
+        return sorted(
+            (
+                r
+                for r in self.active
+                if r.active_processes == 0
+                and r.days_since_last_send is not None
+                and r.days_since_last_send > IDLE_DAYS
+            ),
+            key=lambda r: r.days_since_last_send or 0,
+        )
+
+
+# Kto ma swoją listę „Moi ludzie” w widoku „Zespół” Head of Recruitment
+# (25.10.2026). Ról `sourcer` i `tac` nie ma — liczą się jak rekruter.
+TEAM_ROLES = (
+    UserRole.recruiter,
+    UserRole.delivery_lead,
+    UserRole.head_of_recruitment,
+    UserRole.talent_community_manager,
+)
+
+
+async def team_members(db: AsyncSession) -> list[User]:
+    """Aktywne konta z rolą, która buduje listę — po nazwie."""
+    users = (await db.scalars(select(User).where(User.is_active.is_(True)))).all()
+    return sorted(
+        (u for u in users if u.has_any_role(*TEAM_ROLES)),
+        key=lambda u: (u.name or "").lower(),
+    )
+
+
+@dataclass(frozen=True)
+class TeamCounts:
+    """Liczniki jednej listy w widoku „Zespół” — te same definicje co ``MyPeople``."""
+
+    total: int = 0
+    working: int = 0
+    idle: int = 0
+    new_matches: int = 0
+    jobs_with_matches: int = 0
+
+
+async def team_counts(
+    db: AsyncSession, user_ids: Iterable[int]
+) -> dict[int, TeamCounts]:
+    """Liczniki „Moich ludzi” wielu osób naraz (widok „Zespół”, 26.10.2026).
+
+    ``load_my_people`` dla każdej osoby po kolei trwało na produkcji 20 s
+    (25 list, każda z markerami zatrudnienia, stawkami i kategoriami). Tu ta
+    sama reguła właściciela (``_owned_pairs_cte`` dla wszystkich), uśpienia
+    i przypięcia, czarna lista, „pracuje u nas”, procesy w toku i próg
+    ``IDLE_DAYS`` liczą się zbiorczo — po jednym zapytaniu na rodzaj danych.
+    Zgodność z ``MyPeople.active`` / ``.idle`` pilnuje test na bazie.
+    """
+    wanted = {int(u) for u in user_ids}
+    if not wanted:
+        return {}
+    sql = (
+        _owned_pairs_cte(single_user=False)
+        + """
+    SELECT o.owner_id, o.candidate_id, MAX(cs.moved_at) AS last_sent_at
+    FROM owned o
+    JOIN candidate_stages cs
+      ON cs.candidate_id = o.candidate_id AND cs.job_id = o.job_id
+     AND cs.stage = 'cv_sent'
+    WHERE o.owner_id = ANY(:uids)
+    GROUP BY o.owner_id, o.candidate_id
+    """
+    )
+    uids = sorted(wanted)
+    # (user_id, candidate_id) → ostatnia wysyłka; przypięci bez historii = None.
+    pairs: dict[tuple[int, int], Optional[datetime]] = {
+        (int(uid), int(cid)): sent
+        for uid, cid, sent in (await db.execute(text(sql), {"uids": uids})).all()
+    }
+    snoozed: set[tuple[int, int]] = set()
+    for ov in (
+        await db.scalars(
+            select(MyPeopleOverride).where(MyPeopleOverride.user_id.in_(uids))
+        )
+    ).all():
+        key = (ov.user_id, ov.candidate_id)
+        if ov.kind == "snoozed":
+            snoozed.add(key)
+        pairs.setdefault(key, None)
+
+    ids = {cid for _, cid in pairs}
+    allowed = (
+        {
+            int(r)
+            for r in (
+                await db.scalars(
+                    select(Candidate.id).where(
+                        Candidate.id.in_(ids),
+                        Candidate.status != CandidateStatus.blacklisted,
+                    )
+                )
+            ).all()
+        }
+        if ids
+        else set()
+    )
+    today = business_today()
+    employment = await load_employment_markers(db, allowed, today=today)
+    processes = await active_process_counts(db, allowed)
+    unseen = {
+        int(uid): (int(n), int(jobs))
+        for uid, n, jobs in (
+            await db.execute(
+                text(
+                    """
+                    SELECT m.user_id, COUNT(*), COUNT(DISTINCT m.job_id)
+                    FROM my_people_job_matches m
+                    JOIN jobs j ON j.id = m.job_id AND j.status = 'published'
+                    WHERE m.user_id = ANY(:uids) AND m.seen_at IS NULL
+                    GROUP BY m.user_id
+                    """
+                ),
+                {"uids": uids},
+            )
+        ).all()
+    }
+
+    totals: dict[int, list[int]] = {uid: [0, 0, 0] for uid in wanted}
+    for (uid, cid), sent in pairs.items():
+        if cid not in allowed or uid not in totals:
+            continue
+        if (uid, cid) in snoozed:
+            continue
+        if _works_now(employment.get(cid)):
+            totals[uid][1] += 1
+            continue
+        totals[uid][0] += 1
+        days = _days_since(sent, today)
+        if processes.get(cid, 0) == 0 and days is not None and days > IDLE_DAYS:
+            totals[uid][2] += 1
+    return {
+        uid: TeamCounts(
+            total=t[0],
+            working=t[1],
+            idle=t[2],
+            new_matches=unseen.get(uid, (0, 0))[0],
+            jobs_with_matches=unseen.get(uid, (0, 0))[1],
+        )
+        for uid, t in totals.items()
+    }
 
 
 async def owned_candidate_ids(db: AsyncSession, user_id: int) -> set[int]:
@@ -192,7 +371,8 @@ async def _pair_stats(db: AsyncSession, user_id: int) -> dict[int, dict]:
     ),
     last_send AS (
         SELECT DISTINCT ON (o.candidate_id)
-               o.candidate_id, cs.moved_at, j.title, cl.name AS client_name
+               o.candidate_id, cs.moved_at,
+               COALESCE(j.working_title, j.title) AS title, cl.name AS client_name
         FROM owned o
         JOIN candidate_stages cs
           ON cs.candidate_id = o.candidate_id AND cs.job_id = o.job_id
@@ -297,6 +477,51 @@ def _sort_key(row: PersonRow) -> tuple:
     return (-rank, -sent, row.full_name.lower())
 
 
+async def _from_link_ids(
+    db: AsyncSession, user_id: int, candidate_ids: list[int]
+) -> set[int]:
+    rows = await db.execute(
+        text(
+            "SELECT DISTINCT entity_id FROM activities "
+            "WHERE action = 'applied_via_invite' AND entity_type = 'candidate' "
+            "AND user_id = :uid AND entity_id = ANY(:ids)"
+        ),
+        {"uid": user_id, "ids": candidate_ids},
+    )
+    return {int(cid) for (cid,) in rows.all()}
+
+
+async def my_people_membership(
+    db: AsyncSession, user_id: int, candidate_ids: list[int]
+) -> set[int]:
+    """Kto z podanych jest dziś na liście osoby (także w „Uśpionych”).
+
+    Ta sama reguła co ``load_my_people``, bez liczenia całej listy: wyliczenie
+    z etapów albo ręczna decyzja, czarna lista wyklucza zawsze.
+    """
+    if not candidate_ids:
+        return set()
+    rows = await db.execute(
+        text(
+            _owned_pairs_cte(single_user=True)
+            + """
+            SELECT c.id
+            FROM candidates c
+            WHERE c.id = ANY(:ids)
+              AND c.status::text <> 'blacklisted'
+              AND (
+                  c.id IN (SELECT candidate_id FROM owned)
+                  OR c.id IN (
+                      SELECT candidate_id FROM my_people_overrides WHERE user_id = :uid
+                  )
+              )
+            """
+        ),
+        {"uid": user_id, "ids": candidate_ids},
+    )
+    return {int(cid) for (cid,) in rows.all()}
+
+
 async def load_my_people(db: AsyncSession, user_id: int) -> MyPeople:
     stats = await _pair_stats(db, user_id)
     overrides = {
@@ -327,16 +552,17 @@ async def load_my_people(db: AsyncSession, user_id: int) -> MyPeople:
     ids = [cid for cid in ids if cid in candidates]
     today = business_today()
     categories = await _primary_categories(db, ids)
-    employment = await current_employment_client_ids(db, ids, today=today)
+    employment = await load_employment_markers(db, ids, today=today)
     processes = await active_process_counts(db, ids)
     unseen = await _unseen_match_counts(db, user_id)
+    from_link = await _from_link_ids(db, user_id, ids)
 
     rows: list[PersonRow] = []
     for cid in ids:
         cand = candidates[cid]
         st = stats.get(cid, {})
         ov = overrides.get(cid)
-        rate = cand.expected_rate_hourly
+        rate = rate_summary(cand)["rate_from_hourly"]  # „Stawka od” (0414)
         availability = cand.availability_status
         rows.append(
             PersonRow(
@@ -354,11 +580,13 @@ async def load_my_people(db: AsyncSession, user_id: int) -> MyPeople:
                 city=cand.city,
                 source="auto" if cid in stats else "pinned",
                 active_processes=processes.get(cid, 0),
-                working=bool(employment.get(cid)),
+                working=_works_now(employment.get(cid)),
+                employment_marker=employment.get(cid),
                 snoozed=bool(ov and ov.kind == "snoozed"),
                 snooze_reason=ov.reason if ov and ov.kind == "snoozed" else None,
                 snoozed_at=ov.created_at if ov and ov.kind == "snoozed" else None,
                 new_matches=unseen.get(cid, 0),
+                from_link=cid in from_link,
             )
         )
     rows.sort(key=_sort_key)
@@ -373,7 +601,7 @@ async def unseen_matches(
     rows = await db.execute(
         text(
             """
-            SELECT m.job_id, j.title, m.candidate_id,
+            SELECT m.job_id, COALESCE(j.working_title, j.title) AS title, m.candidate_id,
                    c.name || ' ' || c.lastname AS full_name, m.score, m.created_at
             FROM my_people_job_matches m
             JOIN jobs j ON j.id = m.job_id AND j.status = 'published'

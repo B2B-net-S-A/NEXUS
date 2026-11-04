@@ -34,6 +34,7 @@ from app.schemas.candidate_search import (
     LanguageRequirement,
 )
 from app.services import candidate_search_predicates as predicates
+from app.services.contract_availability import contract_free_by_clause
 
 # CEFR ordering — wspólna definicja w `candidate_search_predicates`.
 _LEVEL_ORDER = list(predicates.LANGUAGE_LEVELS)
@@ -53,6 +54,8 @@ def request_semantics(req: CandidateSearchRequest) -> predicates.Semantics:
         "search",
         getattr(req, "semantics_version", None),
         getattr(req, "hide_unknown", None),
+        hide_unknown_rate=getattr(req, "hide_unknown_rate", None),
+        hide_unknown_location=getattr(req, "hide_unknown_location", None),
     )
 
 
@@ -64,7 +67,9 @@ def skills_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]:
     „Mile widziane" (`predicates.skill_buckets_from_search`). ``None``, gdy
     nie ma czym szeregować.
     """
-    return predicates.skills_preferred_rank(predicates.skill_buckets_from_search(req))
+    return predicates.skills_preferred_rank(
+        predicates.skill_buckets_from_search(req), request_semantics(req)
+    )
 
 
 def experience_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]:
@@ -286,12 +291,12 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
     add(
         "skills_required",
         'Umiejętności — „Musi mieć"',
-        predicates.skills_required_clauses(buckets),
+        predicates.skills_required_clauses(buckets, sem),
     )
     add(
         "skills",
         'Umiejętności — „Wyklucz"',
-        predicates.skills_excluded_clauses(buckets),
+        predicates.skills_excluded_clauses(buckets, sem),
     )
 
     experience: list[ColumnElement] = []
@@ -339,9 +344,14 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
     if availability_clause is not None:
         availability.append(availability_clause)
     if req.availability_date_before is not None:
+        # Osoba z żywą umową jest wolna dopiero po końcu pracy u nas
+        # (15.10.2026) — data z profilu bywa screeningiem sprzed zatrudnienia.
         availability.append(
-            Candidate.availability_date.is_(None)
-            | (Candidate.availability_date <= req.availability_date_before)
+            (
+                Candidate.availability_date.is_(None)
+                | (Candidate.availability_date <= req.availability_date_before)
+            )
+            & contract_free_by_clause(Candidate.id, req.availability_date_before)
         )
     if req.notice_period_max is not None:
         # Normalize value+unit to days for comparison. NULL unit = legacy days.

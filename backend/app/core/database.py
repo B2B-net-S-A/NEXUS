@@ -1,7 +1,9 @@
 import json
-from typing import Any, AsyncGenerator
+from contextlib import AsyncExitStack, asynccontextmanager
+from typing import Any, AsyncIterator
 
 from fastapi.encoders import jsonable_encoder
+from starlette.requests import HTTPConnection
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, ORMExecuteState, Session
@@ -33,20 +35,31 @@ def _connect_args(url: str) -> dict[str, Any]:
     Audyt F06: bez tego nie da się policzyć, ile ze 100 połączeń Postgresa
     zajmuje aplikacja, a ile backup, alembic czy ręczna sesja. Tylko asyncpg —
     inne sterowniki (testowe SQLite) nie znają `server_settings`.
+
+    `jit=off`: CTE KPI (`VERIFIER_ANCHORED_CTE`) kompilował przy każdym
+    wywołaniu 364 funkcje — 2,5 s z 4,6 s na produkcji 27.10.2026; bez JIT
+    to samo zapytanie trwa 2,2 s. Krótkie zapytania JIT-a i tak nie dostają.
     """
     if not url.startswith("postgresql+asyncpg://"):
         return {}
-    return {"server_settings": {"application_name": "nexus-backend"}}
+    return {"server_settings": {"application_name": "nexus-backend", "jit": "off"}}
 
 
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
     pool_pre_ping=True,
-    pool_size=20,
-    max_overflow=40,
+    # Połączenia ponad `pool_size` są zamykane po oddaniu: przy 20 + 40
+    # produkcja otwierała ~95 nowych połączeń na minutę (27.10.2026).
+    # Suma 60 bez zmian (max_connections=100).
+    pool_size=40,
+    max_overflow=20,
     json_serializer=_json_serializer,
     connect_args=_connect_args(settings.DATABASE_URL),
+    # Treść błędu SQLAlchemy (IntegrityError, DataError…) domyślnie niesie
+    # `[parameters: …]` — e-maile, telefony, nazwiska i stawki kandydatów,
+    # które idą do logów i Sentry. SQL zostaje, wartości nie.
+    hide_parameters=True,
 )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -86,10 +99,14 @@ def _mark_statement_writes(orm_execute_state: ORMExecuteState) -> None:
         orm_execute_state.session.info[_UNCOMMITTED_WRITES_KEY] = True
 
 
-@event.listens_for(Session, "after_commit")
-@event.listens_for(Session, "after_rollback")
-def _clear_write_marker(session: Session) -> None:
-    session.info.pop(_UNCOMMITTED_WRITES_KEY, None)
+@event.listens_for(Session, "after_transaction_end")
+def _clear_write_marker(session: Session, transaction: Any) -> None:
+    # Runda 9: ``after_rollback`` odpala się także przy wycofaniu SAVEPOINT-u —
+    # flaga znikała, choć zewnętrzna transakcja miała już zapis, więc
+    # ``release_idle_connection`` mógł go zatwierdzić w połowie operacji.
+    # Czyścimy wyłącznie po końcu transakcji NAJWYŻSZEGO poziomu.
+    if transaction.parent is None:
+        session.info.pop(_UNCOMMITTED_WRITES_KEY, None)
 
 
 def session_has_uncommitted_writes(db: AsyncSession) -> bool:
@@ -125,8 +142,9 @@ async def release_idle_connection(db: AsyncSession) -> bool:
     return True
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI dependency: yields a database session per request."""
+@asynccontextmanager
+async def _request_session() -> AsyncIterator[AsyncSession]:
+    """Sesja żądania: commit po handlerze, rollback przy wyjątku."""
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -136,3 +154,28 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             raise
         finally:
             await session.close()
+
+
+async def get_db(connection: HTTPConnection) -> AsyncSession:
+    """FastAPI dependency: sesja bazy na jedno żądanie.
+
+    Runda 9 (R9-X1-2): commit (albo rollback) wykonuje się PO handlerze
+    i serializacji, ale PRZED wysłaniem odpowiedzi i przed ``BackgroundTasks``.
+    Od FastAPI 0.121 zależność z ``yield`` bez jawnego ``scope`` ma zasięg
+    „request” — dawny generator commitował dopiero po wysłaniu odpowiedzi i po
+    zadaniach w tle (``fastapi/routing.py``, ``request_response``). Skutki: 2xx
+    mimo nieudanego commitu (FK, UNIQUE), zadanie w tle nie widziało wierszy
+    z tego żądania, a połączenie wisiało „idle in transaction” przez całe
+    zadanie. ``Depends(get_db, scope="function")`` w ~1100 miejscach dałoby
+    to samo, ale mieszanka dwóch zasięgów tworzy DWIE sesje w jednym żądaniu
+    (zasięg jest częścią klucza cache zależności). Dlatego sesja wchodzi na
+    ten sam stos, którego FastAPI używa dla ``scope="function"`` — jedna
+    zmiana, każde ``Depends(get_db)`` bez ruszania.
+
+    Skutek dla odpowiedzi strumieniowych: generator ``StreamingResponse``
+    biegnie po zamknięciu tej sesji — musi otworzyć własną.
+    """
+    stack = connection.scope.get("fastapi_function_astack")
+    if not isinstance(stack, AsyncExitStack):
+        raise RuntimeError("get_db wymaga żądania obsługiwanego przez trasę FastAPI")
+    return await stack.enter_async_context(_request_session())

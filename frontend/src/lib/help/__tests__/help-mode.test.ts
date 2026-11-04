@@ -17,6 +17,7 @@ import {
   resetRefusals,
 } from "@/lib/help/refusal-tracker";
 import { SCREEN_KEYS, screenKeyFor } from "@/lib/help/screen-key";
+import { permissionLabel } from "@/lib/permissions";
 import {
   DAILY_UNSOLICITED_BUBBLES,
   canShowUnsolicited,
@@ -72,10 +73,21 @@ describe("klucz ekranu z adresu", () => {
     ["/calendar", "?view=week", "calendar"],
     ["/clients/3", "?tab=zamowienia", "client.orders"],
     ["/clients/3", "?tab=profil", null],
+    ["/clients/3", "?tab=ludzie&view=mapa", "client.people"],
+    ["/clients/3", "?tab=struktura", "client.people"],
     ["/contracts", "?view=order-mail", "contracts.order_mail"],
     ["/contracts", "", null],
     ["/contracts/b2b-generator", "", "contracts.b2b_generator"],
     ["/finance", "?view=order-changes", "finance"],
+    ["/my-time", "?tab=leave", "hr.my_time"],
+    ["/my-time", "?tab=consents&request=4", "hr.consents"],
+    ["/people/approvals", "?kind=timesheet", "hr.approvals"],
+    ["/people/calendar", "", "hr.team_calendar"],
+    ["/people/consents", "?request=4", "hr.consents"],
+    ["/people/approvals", "?tab=consents&request=4", "hr.consents"],
+    ["/care", "", "hr.care"],
+    ["/back-office", "", "hr.care"],
+    ["/people", "", null],
     ["/order-mail", "", null],
     ["/jobs/new", "", null],
     ["/dashboard", "", null],
@@ -123,6 +135,57 @@ describe("wyjaśnienia odmów", () => {
     const backend = files.map((f) => readFileSync(f, "utf8")).join("\n");
     const missing = Object.keys(ERROR_EXPLAINERS).filter((code) => !backend.includes(`"${code}"`));
     expect(missing).toEqual([]);
+  });
+
+  it("odmowa bramki uprawnienia ma wyjaśnienie, które odsyła do ekranu Osoby i role", () => {
+    const explainer = ERROR_EXPLAINERS.permission_denied;
+    expect(explainer).toBeDefined();
+    expect(explainer.text).toContain("Ustawienia → Zespół i dostęp → Osoby i role");
+    expect(explainer.text).toContain("administratora");
+    // Kod pochodzi z jednego miejsca w backendzie — literał musi tam zostać.
+    // Ścieżka jednym napisem: filtr ścieżek w CI wylicza z takich napisów
+    // pliki backendu, po których zmianie testy frontu biegną już na PR-ze.
+    const denial = readFileSync(
+      join(REPO, "backend/app/services/permission_denial.py"),
+      "utf8",
+    );
+    expect(denial).toContain('PERMISSION_DENIED_CODE = "permission_denied"');
+    // Trzecia taka sama odmowa budzi Jarvisa jak każda inna znana.
+    expect(refusalCode(403, { detail: { code: "permission_denied" } })).toBe(
+      "permission_denied",
+    );
+  });
+
+  it("wyjaśnienia odmów dostępu nazywają uprawnienia, nie role", () => {
+    // Od 0410 o dostępie decyduje uprawnienie z ekranu; rola ma je tylko
+    // domyślnie, więc zdanie „kwoty zmieniają admin i Finanse” bywa nieprawdą.
+    const roleNames = /\badmin\b|Delivery Lead|\bTCM\b|\bTAC\b|rekruter/i;
+    for (const code of [
+      "permission_denied",
+      "finance_amounts_only",
+      "finance_fields_forbidden",
+      "section_access_denied",
+      "action_access_denied",
+    ]) {
+      const { title, text } = ERROR_EXPLAINERS[code];
+      expect(`${title} ${text}`, code).not.toMatch(roleNames);
+    }
+    // „Finanse” to także nazwa modułu, więc rolę Finansów sprawdzamy tam,
+    // gdzie zdanie mówiło o niej wprost („zmieniają admin i Finanse”).
+    for (const code of ["finance_amounts_only", "finance_fields_forbidden"]) {
+      const { title, text } = ERROR_EXPLAINERS[code];
+      expect(`${title} ${text}`, code).not.toMatch(/Finans/);
+    }
+    // Kwoty zamówienia zapisuje też osoba prowadząca zamówienia, która widzi
+    // kwoty (`can_write_order_amounts`) — odmowa bywa wtedy o podgląd.
+    for (const permission of ["amounts_edit", "amounts_view"] as const) {
+      expect(ERROR_EXPLAINERS.finance_fields_forbidden.text).toContain(
+        permissionLabel(permission),
+      );
+    }
+    expect(ERROR_EXPLAINERS.finance_amounts_only.text).toContain(
+      permissionLabel("contracts_orders_edit"),
+    );
   });
 
   it("czyta kod z detail.code albo detail.reason, tylko dla odmów", () => {

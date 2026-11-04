@@ -8,6 +8,12 @@ export interface NotificationDeliveryType {
   recipient_rule: string;
   email_enabled: boolean;
   effective_enabled: boolean;
+  /** Mail obowiązkowy (26.10.2026): wstrzymanie wymaga powodu. */
+  required?: boolean;
+  /** Powód wstrzymania maila obowiązkowego; `null` = nie wstrzymany. */
+  paused_reason?: string | null;
+  /** Kto wyłączył ten mail sobie („Moje” → „Maile do Ciebie”). */
+  self_disabled?: string[];
   send_not_before: string | null;
   channels: string[];
   sender: string | null;
@@ -16,10 +22,21 @@ export interface NotificationDeliveryType {
   provider_status?: string;
 }
 
+export interface NotificationSilencedKind {
+  id: string;
+  label: string;
+  bells: number;
+  unread: number;
+}
+
 export interface NotificationDeliveryOverview {
   enabled: boolean;
   updated_at: string | null;
   updated_by: number | null;
+  /** Kto ostatnio zmienił przełączniki — pokazywane obok daty zmiany. */
+  updated_by_name: string | null;
+  /** Ilu osobom wychodzi dziś poranny skrót; `null` = nie udało się policzyć. */
+  daily_digest_recipients: number | null;
   send_not_before: string | null;
   provider: {
     kind: string;
@@ -39,12 +56,20 @@ export interface NotificationDeliveryOverview {
     legacy_suppressed: number;
   };
   types: NotificationDeliveryType[];
+  /** Rodzaje wyłączone dla firmy, w których powstają dzwonki (29.10.2026). */
+  silenced?: NotificationSilencedKind[];
+  /** Z ilu dni liczone są dzwonki w `silenced`. */
+  silenced_window_days?: number;
   excluded_channels: { id: string; label: string; description: string }[];
 }
 
 export interface NotificationDeliveryUpdate {
   enabled: boolean;
   types: { id: string; email_enabled: boolean }[];
+  /** Wymagany, gdy zapis wstrzymuje mail obowiązkowy. */
+  reason?: string;
+  /** „Zostaw wyłączone” z banera — rodzaj znika z niego do ponownego włączenia. */
+  keep_off?: string[];
 }
 
 export const notificationDeliveryApi = {

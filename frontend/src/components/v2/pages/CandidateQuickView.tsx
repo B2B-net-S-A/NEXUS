@@ -5,13 +5,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
-  BriefcaseBusiness,
   ChevronLeft,
   ChevronRight,
   Mail,
   Maximize2,
   MessageSquare,
-  MoreHorizontal,
+  Pin,
   Phone,
   UserPlus,
   X,
@@ -23,12 +22,6 @@ import { DEFAULT_FILTERS, encodeNavContext } from "@/lib/url-filters";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import CallButton from "@/components/calls/CallButton";
 import {
@@ -36,7 +29,7 @@ import {
   type EmploymentInfo,
 } from "@/components/v2/CandidateHighlights";
 import { CompetenceCategoryBadge } from "@/components/v2/CompetenceCategoryBadge";
-import { MarkEmployedAction } from "@/components/v2/MarkEmployedAction";
+import type { EmploymentMarker } from "@/lib/employment-marker";
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import { RiskBadge } from "@/components/v2/RiskBadge";
 import { useCandidateNavigation } from "@/hooks/useCandidateNavigation";
@@ -58,8 +51,18 @@ import {
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { useCloudTalkEnabled } from "@/hooks/useCloudTalkEnabled";
 import { canMutateSection } from "@/lib/section-access";
+import { contactAttemptsLabel } from "@/lib/recommendation-card";
 import { rateCellText } from "@/components/v2/candidates/candidate-row-format";
+import { availabilityFromNotesLine, type AvailabilityFromNotes } from "@/lib/notes-facts";
+import { JobNameLabel } from "@/components/v2/jobs/JobNameLabel";
+import { candidateJobNames } from "@/lib/job-name-text";
+import {
+  contractAvailability,
+  contractAvailabilityOrigin,
+  contractAvailabilityText,
+} from "@/lib/contract-availability";
 
+import { formatPhone } from "@/lib/phone-format";
 type QuickViewDestination =
   | "summary"
   | "recruitments"
@@ -79,11 +82,19 @@ interface QuickViewCandidate {
   location?: string | null;
   status?: string | null;
   employment?: EmploymentInfo | null;
+  employment_marker?: EmploymentMarker | null;
   competence_category_id?: number | null;
   competence_category?: string | null;
   contact_case?: CandidateContactSummary | null;
   expected_rate_hourly?: number | string | null;
   expected_rate_currency?: string | null;
+  // „Stawka od” (0414): najniższa stawka z 18 miesięcy.
+  rate_from_hourly?: number | string | null;
+  rate_from_at?: string | null;
+  rate_from_stale?: boolean | null;
+  rate_latest_hourly?: number | string | null;
+  rate_latest_at?: string | null;
+  rate_observation_count?: number | null;
 }
 
 interface CandidateQuickViewData {
@@ -96,12 +107,16 @@ interface CandidateQuickViewData {
   availability: {
     status: string | null;
     available_from: string | null;
+    /** `available_from` wpisały notatki — „stan na” (07.10.2026). */
+    available_from_notes?: AvailabilityFromNotes | null;
     notice_period: number | null;
     notice_period_unit: "days" | "weeks" | "months" | null;
   };
   current_recruitments: Array<{
     job_id: number;
     job_title: string;
+    job_working_title?: string | null;
+    job_client_reference?: string | null;
     client_name: string | null;
     stage_id: number;
     stage_name: string;
@@ -113,13 +128,16 @@ interface CandidateQuickViewData {
     content: string;
     created_at: string;
     author_name: string | null;
+    /** 0399: przypięta (wspólnie dla zespołu) — serwer stawia ją pierwszą. */
+    pinned?: boolean;
   }>;
+  /** Ile razy zapisano „nie odebrał” (03.10.2026). */
+  contact_attempts?: number;
   cv_highlights?: {
     years_experience?: number | null;
   } | null;
   capabilities: {
     can_assign: boolean;
-    can_mark_employed: boolean;
     can_view_documents: boolean;
     can_open_full_profile: boolean;
   };
@@ -140,11 +158,6 @@ export interface CandidateQuickViewProps {
    * „brak"), `undefined` = nie wiemy (np. kandydat spoza bieżącej strony).
    */
   rateLookup?: (candidateId: number) => string | null | undefined;
-}
-
-/** Let a Radix menu close (and return focus) before the next layer opens. */
-function deferMenuAction(action: () => void) {
-  window.setTimeout(action, 0);
 }
 
 function requestStatus(error: unknown): number | null {
@@ -204,10 +217,13 @@ function QuickSectionError({
 function FactTile({
   label,
   value,
+  hint,
   className,
 }: {
   label: string;
   value: React.ReactNode;
+  /** Druga linia drobnym drukiem (np. „z notatki · 04.05.2023”). */
+  hint?: { text: string; title: string } | null;
   className?: string;
 }) {
   const missing = value === null || value === undefined || value === "";
@@ -223,6 +239,11 @@ function FactTile({
       >
         {missing ? "brak" : value}
       </dd>
+      {!missing && hint ? (
+        <dd className="truncate text-xs text-muted-foreground" title={hint.title}>
+          {hint.text}
+        </dd>
+      ) : null}
     </div>
   );
 }
@@ -256,7 +277,6 @@ export function CandidateQuickView({
     enabled: Boolean(currentUser) && canWriteSourcing,
   });
   const [assignOpen, setAssignOpen] = React.useState(false);
-  const [markEmployedOpen, setMarkEmployedOpen] = React.useState(false);
   const [contactOutcomeOpen, setContactOutcomeOpen] = React.useState(false);
 
   const navigationState = useCandidateNavigation(
@@ -300,19 +320,20 @@ export function CandidateQuickView({
   });
 
   const quickView = quickViewQuery.data;
+  // Żywa umowa (15.10.2026): termin z umowy, nie ze screeningu.
+  const contractAvail = quickView
+    ? contractAvailability(
+        quickView.candidate.employment_marker,
+        quickView.availability.available_from,
+      )
+    : null;
   const candidate = quickView?.candidate;
   const canOwnContact =
     canWriteSourcing &&
     contactFeature.enabled &&
     Boolean(candidate?.phone) &&
     Boolean(candidate?.contact_case) &&
-    hasRole(
-      currentUser,
-      "talent_community_manager",
-      "tac",
-      "recruiter",
-      "sourcer",
-    ) &&
+    hasRole(currentUser, "talent_community_manager", "recruiter") &&
     candidate?.contact_case?.owner?.id === currentUser?.id &&
     ["queued", "callback_due"].includes(
       candidate?.contact_case?.status ?? "",
@@ -337,7 +358,7 @@ export function CandidateQuickView({
         : new URLSearchParams();
       params = withCandidateProfileView(params, {
         section: destination,
-        activity: "timeline",
+        activity: "notes",
         documents: "files",
       });
       onClose();
@@ -359,61 +380,17 @@ export function CandidateQuickView({
   // Stawka z odpowiedzi podglądu; wiersz listy tylko do czasu jej wczytania.
   const rate = (candidate ? rateCellText(candidate) : null) ?? rateLookup?.(candidateId);
 
-  const isEmployedAtClient =
-    candidate?.employment?.state === "employed_at_client";
-  const canMarkEmployed =
-    canWriteSourcing &&
-    !isEmployedAtClient &&
-    quickView?.capabilities.can_mark_employed === true;
-  // „Oznacz jako zatrudnionego" nie ma innego miejsca w aplikacji — zostaje
-  // w małym menu „⋯". Popover akcji kotwiczy się na tym opakowaniu (korzeń
-  // menu Radixa nie renderuje własnego DOM-u).
-  const moreActionsMenu = (
-    <div className="flex">
-      <DropdownMenu modal={false}>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Więcej akcji kandydata"
-            title="Więcej akcji"
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-60">
-          {isEmployedAtClient ? (
-            <DropdownMenuItem disabled>
-              <BriefcaseBusiness className="h-4 w-4" />
-              Oznaczono jako zatrudnionego
-            </DropdownMenuItem>
-          ) : canMarkEmployed ? (
-            <DropdownMenuItem
-              onSelect={() =>
-                deferMenuAction(() => setMarkEmployedOpen(true))
-              }
-            >
-              <BriefcaseBusiness className="h-4 w-4" />
-              Oznacz jako zatrudnionego
-            </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem disabled>
-              <BriefcaseBusiness className="h-4 w-4" />
-              Oznacz jako zatrudnionego
-            </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  );
-
   const titleLine = [
     quickView?.current_position.title || null,
     yearsLabel(quickView?.cv_highlights?.years_experience),
   ]
     .filter(Boolean)
     .join(" · ");
-  const latestNote = quickView?.recent_notes[0] ?? null;
+  // Przypięte notatki (np. „nie dzwonić przed 10”) zawsze na wierzchu; obok
+  // nich najnowsza zwykła notatka.
+  const pinnedNotes = (quickView?.recent_notes ?? []).filter((n) => n.pinned);
+  const latestNote =
+    (quickView?.recent_notes ?? []).find((n) => !n.pinned) ?? null;
 
   return (
     <div
@@ -422,7 +399,7 @@ export function CandidateQuickView({
     >
       <SheetTitle className="sr-only">{fullName}</SheetTitle>
       <SheetDescription className="sr-only">
-        Szybki podgląd: dostępność, stawka, kontakt, procesy i ostatnia notatka.
+        Szybki podgląd: dostępność, stawka, kontakt, procesy i ostatnia rozmowa.
       </SheetDescription>
 
       <header className="sticky top-0 z-20 border-b border-border bg-card/95 px-3 py-2 backdrop-blur-sm sm:px-5">
@@ -591,7 +568,21 @@ export function CandidateQuickView({
             </section>
 
             <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3" aria-label="Najważniejsze fakty">
-              <FactTile label="Dostępność" value={availabilityLabel(quickView.availability)} />
+              <FactTile
+                label="Dostępność"
+                value={
+                  contractAvail
+                    ? contractAvailabilityText(contractAvail)
+                    : availabilityLabel(quickView.availability)
+                }
+                hint={
+                  contractAvail
+                    ? contractAvailabilityOrigin(contractAvail)
+                    : quickView.availability.available_from
+                      ? availabilityFromNotesLine(quickView.availability.available_from_notes)
+                      : null
+                }
+              />
               <FactTile label="Stawka B2B" value={rate === undefined ? "—" : rate} />
               {/* Na telefonie lokalizacja dostaje pełny wiersz — w 1/3 ucinała się. */}
               <FactTile
@@ -626,7 +617,7 @@ export function CandidateQuickView({
                       className="whitespace-nowrap"
                     />
                   ) : (
-                    <span className="text-foreground">{candidate.phone}</span>
+                    <span className="text-foreground">{formatPhone(candidate.phone)}</span>
                   )
                 ) : (
                   <span className="text-muted-foreground">brak telefonu</span>
@@ -652,9 +643,11 @@ export function CandidateQuickView({
                   {quickView.current_recruitments.slice(0, 3).map((item) => (
                     <li key={item.job_id} className="flex items-center justify-between gap-3 px-3 py-2">
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium text-foreground">
-                          {item.job_title}
-                        </span>
+                        {/* Numer u klienta i tytuł jak w nagłówku rekrutacji (16.10.2026). */}
+                        <JobNameLabel
+                          job={candidateJobNames(item)}
+                          titleClassName="text-sm font-medium text-foreground"
+                        />
                         <span className="block truncate text-xs text-muted-foreground">
                           {item.client_name ?? "—"}
                         </span>
@@ -670,8 +663,26 @@ export function CandidateQuickView({
 
             <section aria-labelledby="quick-note-heading" className="space-y-2">
               <h3 id="quick-note-heading" className="text-sm font-semibold text-foreground">
-                Ostatnia notatka
+                {pinnedNotes.length > 0 ? "Notatki" : "Ostatnia rozmowa"}
               </h3>
+              {pinnedNotes.map((note) => (
+                <figure
+                  key={note.id}
+                  className="flex gap-2 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2"
+                >
+                  <Pin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-label="Przypięta" />
+                  <div className="min-w-0">
+                    <blockquote className="line-clamp-3 whitespace-pre-wrap text-sm text-foreground">
+                      {note.content}
+                    </blockquote>
+                    <figcaption className="mt-1 text-xs text-muted-foreground">
+                      Przypięta · {note.author_name || "System / import"}
+                      {" · "}
+                      {formatRelativeTime(note.created_at)}
+                    </figcaption>
+                  </div>
+                </figure>
+              ))}
               {latestNote ? (
                 <figure className="flex gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
                   <MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
@@ -686,9 +697,15 @@ export function CandidateQuickView({
                     </figcaption>
                   </div>
                 </figure>
-              ) : (
-                <p className="text-sm text-muted-foreground">Brak notatek.</p>
-              )}
+              ) : pinnedNotes.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Bez rozmowy.</p>
+              ) : null}
+              {(quickView?.contact_attempts ?? 0) > 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  {contactAttemptsLabel(quickView?.contact_attempts ?? 0)} („nie odebrał”) — w
+                  profilu w zakładce „Próby kontaktu”.
+                </p>
+              ) : null}
             </section>
 
             {riskQuery.error ? (
@@ -733,21 +750,6 @@ export function CandidateQuickView({
               Zaloguj wynik telefonu
             </Button>
           ) : null}
-          {canWriteSourcing ? (
-            <div className="ml-auto">
-              {canMarkEmployed ? (
-                <MarkEmployedAction
-                  candidateId={candidateId}
-                  employment={candidate.employment}
-                  open={markEmployedOpen}
-                  onOpenChange={setMarkEmployedOpen}
-                  anchor={moreActionsMenu}
-                />
-              ) : (
-                moreActionsMenu
-              )}
-            </div>
-          ) : null}
         </footer>
       ) : null}
 
@@ -757,6 +759,7 @@ export function CandidateQuickView({
           onOpenChange={setAssignOpen}
           candidateId={candidateId}
           candidateName={fullName}
+          employment={candidate?.employment_marker}
           onAssigned={() => {
             invalidateCandidateMutation(queryClient, candidateId, "assignment");
             void queryClient.invalidateQueries({

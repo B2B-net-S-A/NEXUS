@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, AsyncIterator, Optional
 
 import pytest
@@ -258,5 +258,64 @@ async def test_upsert_job_keeps_nexus_title_status_and_closed_at_when_managed(
                 assert job.requirements_reviewed is False
             # Flaga należy do NEXUSA — sync jej nie dotyka.
             assert job.managed_in_nexus is managed
+        finally:
+            await db.rollback()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("managed", [True, False])
+async def test_upsert_job_only_fills_empty_fields_of_a_job_managed_in_nexus(managed):
+    """Runda 9 (R9-N15-1): termin, klient i data otwarcia ustawione w NEXUSIE
+    nie mogą być nadpisane nocnym importem przełączonej rekrutacji — Traffit
+    tylko dopełnia puste pola (tu: numer referencyjny)."""
+    async with AsyncSessionLocal() as db:
+        try:
+            external_id = uuid.uuid4().hex
+            nexus_client = Client(name=f"Managed fill NEXUS {external_id}")
+            traffit_client = Client(name=f"Managed fill Traffit {external_id}")
+            db.add_all([nexus_client, traffit_client])
+            await db.flush()
+            job = Job(
+                title="Java Developer (NEXUS)",
+                client_id=nexus_client.id,
+                status=JobStatus.published,
+                external_source="traffit",
+                external_id=external_id,
+                deadline=date(2026, 12, 31),
+                reference_number=None,
+                opened_at=datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc),
+                managed_in_nexus=managed,
+            )
+            db.add(job)
+            await db.flush()
+
+            reference = f"R9-{external_id[:10]}"
+            payload = traffit_recruitment_to_job(
+                {
+                    "id": external_id,
+                    "name": "Java Developer",
+                    "client": {"id": 7},
+                    "is_closed": False,
+                    "closing_date": "2026-10-15 12:00:00",
+                    "created_at": "2025-01-10 09:00:00",
+                    "nrRef": reference,
+                },
+                {"7": traffit_client.id},
+                {},
+            )
+            payload["custom_fields"] = json.dumps(payload["custom_fields"])
+            await db.execute(_UPSERT_JOB, payload)
+            await db.refresh(job)
+
+            # Puste pole dopełnia się w obu wariantach.
+            assert job.reference_number == reference
+            if managed:
+                assert job.client_id == nexus_client.id
+                assert job.deadline == date(2026, 12, 31)
+                assert job.opened_at == datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc)
+            else:
+                assert job.client_id == traffit_client.id
+                assert job.deadline == date(2026, 10, 15)
+                assert job.opened_at.year == 2025
         finally:
             await db.rollback()

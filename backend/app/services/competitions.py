@@ -5,10 +5,11 @@ Port formuł z InfraReportera (dynareporter), źródło:
   - deliveryLead.ts:576-629 (quarterly champions DL)
 
 Formuły:
-  - Quarterly DL: hit_ratio >= 30% AND placements >= 3, ORDER BY placements DESC
-    LIMIT 3. Nagrody: 5000 / 3000 / 2000 PLN.
-  - Quarterly Recruiter (TAC+recruiter+sourcer): min 3 placements.
-    Ranking po placements, nagrody jak DL.
+  - Quarterly DL (od Q4 2026, decyzja Artura 25.10.2026): ranking po hit ratio,
+    miejsce od 3 placementów i 5 zamkniętych rekrutacji. BEZ nagród — sama
+    statystyka. Do Q3 2026: hit_ratio >= 30% AND placements >= 3, ranking po
+    placementach, 5000 / 3000 / 2000 PLN (rozliczone z DynaReportera).
+  - Quarterly Recruiter: Liga punktowa, nagrody 5000 / 3000 / 2000 PLN.
   - Monthly Most Recommendations: TOP 1, nagroda 1500 PLN.
   - Monthly Most Placements: TOP 1 z min 2 placementami, nagroda 1500 PLN.
   - Hall of Fame: all-time TOP 5 po placement count.
@@ -17,7 +18,10 @@ Formuły:
 snapshot z `frozen_snapshot` JSONB, żeby historia była stabilna.
 """
 
+import json
 import logging
+import math
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
@@ -35,6 +39,7 @@ from app.core.scheduling import (
     local_quarter_bounds,
 )
 from app.models.competition_winner import CompetitionType, CompetitionWinner
+from app.services import competition_history
 from app.services.competition_rules import (
     PODIUM_ROWS,
     TieGroup,
@@ -44,9 +49,10 @@ from app.services.competition_rules import (
     placement_margin_per_hour_by_user,
     recommendation_tiebreak,
 )
-from app.models.job import Job, RecruitmentType
+from app.models.job import Job
 from app.models.recruitment_pipeline import PipelineStage
 from app.models.user import User, UserRole
+from app.services.hit_ratio_scope import counts_in_hit_ratio
 from app.services.metric_definitions import (
     DL_HIT_RATIO_TARGET_PCT,
     FIRST_HIRED_PER_CANDIDATE_JOB,
@@ -55,15 +61,28 @@ from app.services.insights_scoring_config import (
     get_scoring_config,
     league_points_formula,
 )
-from app.services.kpi_targets import resolve_org_target
+from app.services.kpi_targets import resolve_org_target, user_kpi_roles_clause
 
 logger = logging.getLogger(__name__)
 
 
 # ── Konfiguracja nagród ──────────────────────────────────────────────────
 
-HIT_RATIO_TARGET = DL_HIT_RATIO_TARGET_PCT  # % — próg wejścia na podium DL
+# Cel hit ratio Delivery Leada (`kpi_goals`). Od 25.10.2026 NIE jest progiem
+# ligi DL — liga szereguje po hit ratio, a próg to liczba placementów
+# i zamkniętych rekrutacji (niżej).
+HIT_RATIO_TARGET = DL_HIT_RATIO_TARGET_PCT
 QUARTERLY_MIN_PLACEMENTS = 3
+
+# Liga DL (decyzja Artura 25.10.2026): ranking po hit ratio, miejsce od
+# 3 placementów i 5 zamkniętych rekrutacji w kwartale, bez nagród pieniężnych.
+# Próg zamkniętych chroni przed „2 z 2 = 100%”. Do Q3 2026 liga liczyła
+# placementy przy progu hit ratio 30% — te kwartały są rozliczone z
+# DynaReportera i zamrożone (`competition_history`), tej logiki nie przeliczamy.
+DL_LEAGUE_MIN_PLACEMENTS = 3
+DL_LEAGUE_MIN_CLOSED_REQUESTS = 5
+# Pierwszy kwartał ligi DL bez nagród (rok, kwartał).
+DL_LEAGUE_UNPAID_FROM = (2026, 4)
 
 QUARTERLY_PRIZES_PLN = {1: 5000, 2: 3000, 3: 2000}
 MONTHLY_RACE_PRIZE_PLN = 1500
@@ -105,7 +124,7 @@ class MonthlyRaceThresholds:
     min_placements: int
 
 
-async def monthly_race_thresholds(db: AsyncSession) -> MonthlyRaceThresholds:
+async def _current_race_thresholds(db: AsyncSession) -> MonthlyRaceThresholds:
     """Progi wyścigów z tych samych źródeł co KPI i konfiguracja punktacji."""
     config = await get_scoring_config(db)
     return MonthlyRaceThresholds(
@@ -113,6 +132,174 @@ async def monthly_race_thresholds(db: AsyncSession) -> MonthlyRaceThresholds:
         precision_pct=float(await resolve_org_target(db, "monthly_precision")),
         min_placements=int(config["monthly_race_min_placements"]),
     )
+
+
+# Migawka progów per miesiąc (audyt 25.09.2026, R3-15). Cele KPI edytuje HoR
+# w Ustawieniach bez deployu, a wyścig z nagrodą czytał je dopiero przy
+# zamrożeniu — zmiana celu 2 października przepisywała zwycięzcę WRZEŚNIA.
+# Progi okresu zapisują się raz (pierwszy zapis wygrywa): pętla autofreeze
+# w bieżącym miesiącu i zamrożenie okresu. GET-y rankingów tylko czytają —
+# `cache_single_flight` odmawia pracy po zapisie w transakcji. Okres bez
+# migawki (sprzed wdrożenia) liczy się progami bieżącymi, jak dotąd.
+MONTHLY_RACE_THRESHOLDS_SETTING = "monthly_race_thresholds"
+
+_THRESHOLDS_SNAPSHOT_UPSERT = text(
+    """
+    INSERT INTO app_settings (key, value, updated_at)
+    VALUES (
+        :key,
+        jsonb_build_object(CAST(:period AS text), CAST(:snapshot AS jsonb)),
+        NOW()
+    )
+    ON CONFLICT (key) DO UPDATE SET
+        value = EXCLUDED.value || app_settings.value,
+        updated_at = NOW()
+    """
+)
+
+
+async def stored_race_thresholds(
+    db: AsyncSession, period: str
+) -> Optional[MonthlyRaceThresholds]:
+    """Migawka progów miesiąca `period` albo `None`, gdy jej nie ma."""
+    rows = (
+        await db.execute(
+            text(
+                "SELECT value -> CAST(:period AS text) AS snapshot "
+                "FROM app_settings WHERE key = :key"
+            ),
+            {"period": period, "key": MONTHLY_RACE_THRESHOLDS_SETTING},
+        )
+    ).all()
+    raw = rows[0][0] if rows else None
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return MonthlyRaceThresholds(
+            verifications_per_day=int(raw["verifications_per_day"]),
+            precision_pct=float(raw["precision_pct"]),
+            min_placements=int(raw["min_placements"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        logger.error(
+            "monthly race thresholds snapshot for %s is malformed — using "
+            "current targets",
+            period,
+        )
+        return None
+
+
+async def snapshot_monthly_race_thresholds(
+    db: AsyncSession, period: str
+) -> MonthlyRaceThresholds:
+    """Zapisz progi miesiąca, jeśli ich jeszcze nie ma. Commit robi wołający.
+
+    Scalenie `EXCLUDED || istniejące`: klucz okresu już zapisany wygrywa, więc
+    ponowne wołanie (co godzinę, przy zamrożeniu) niczego nie przepisuje.
+    """
+    current = await _current_race_thresholds(db)
+    snapshot = {
+        "verifications_per_day": current.verifications_per_day,
+        "precision_pct": current.precision_pct,
+        "min_placements": current.min_placements,
+        "taken_at": datetime.now(tz=_WARSAW).isoformat(),
+    }
+    await db.execute(
+        _THRESHOLDS_SNAPSHOT_UPSERT,
+        {
+            "key": MONTHLY_RACE_THRESHOLDS_SETTING,
+            "period": period,
+            "snapshot": json.dumps(snapshot),
+        },
+    )
+    return await stored_race_thresholds(db, period) or current
+
+
+async def monthly_race_thresholds(
+    db: AsyncSession, period: Optional[str] = None
+) -> MonthlyRaceThresholds:
+    """Progi wyścigów miesiąca `period`: migawka okresu, a bez niej bieżące."""
+    if period is not None:
+        stored = await stored_race_thresholds(db, period)
+        if stored is not None:
+            return stored
+    return await _current_race_thresholds(db)
+
+
+# Migawka punktacji Ligi Mistrzów per kwartał (audyt 25.09.2026, R4-16) —
+# bliźniak progów wyścigu. Wagi i progi placementów Ligi admin zmienia bez
+# deployu, a Liga (10 000 zł) czytała je dopiero przy zamrożeniu: zmiana wag
+# 2 października przestawiała zwycięzcę III kwartału, a razem z nim lidera
+# wykluczanego z wyścigów miesięcznych tego kwartału. Pierwszy zapis w
+# kwartale wygrywa (pętla autofreeze w bieżącym kwartale i zamrożenie);
+# GET-y tylko czytają. Kwartał bez migawki liczy się punktacją bieżącą.
+LEAGUE_SCORING_SNAPSHOT_SETTING = "league_scoring_config"
+LEAGUE_SCORING_KEYS: tuple[str, ...] = (
+    "league_points_placement",
+    "league_points_interview",
+    "league_points_recommendation",
+    "league_min_placements_month1",
+    "league_min_placements_month2",
+    "league_min_placements_month3",
+)
+
+
+async def stored_league_scoring(
+    db: AsyncSession, quarter_period: str
+) -> Optional[dict[str, int]]:
+    """Migawka punktacji Ligi kwartału albo `None`, gdy jej nie ma."""
+    rows = (
+        await db.execute(
+            text(
+                "SELECT value -> CAST(:period AS text) AS snapshot "
+                "FROM app_settings WHERE key = :key"
+            ),
+            {"period": quarter_period, "key": LEAGUE_SCORING_SNAPSHOT_SETTING},
+        )
+    ).all()
+    raw = rows[0][0] if rows else None
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return {key: int(raw[key]) for key in LEAGUE_SCORING_KEYS}
+    except (KeyError, TypeError, ValueError):
+        logger.error(
+            "league scoring snapshot for %s is malformed — using current config",
+            quarter_period,
+        )
+        return None
+
+
+async def snapshot_league_scoring_config(
+    db: AsyncSession, quarter_period: str
+) -> dict[str, int]:
+    """Zapisz punktację Ligi kwartału, jeśli jej jeszcze nie ma. Commit robi wołający."""
+    config = await get_scoring_config(db)
+    snapshot: dict[str, object] = {key: int(config[key]) for key in LEAGUE_SCORING_KEYS}
+    snapshot["taken_at"] = datetime.now(tz=_WARSAW).isoformat()
+    await db.execute(
+        _THRESHOLDS_SNAPSHOT_UPSERT,
+        {
+            "key": LEAGUE_SCORING_SNAPSHOT_SETTING,
+            "period": quarter_period,
+            "snapshot": json.dumps(snapshot),
+        },
+    )
+    stored = await stored_league_scoring(db, quarter_period)
+    return {**config, **stored} if stored is not None else config
+
+
+async def league_scoring_config(
+    db: AsyncSession, quarter_period: str
+) -> dict[str, int]:
+    """Konfiguracja punktacji dla Ligi kwartału: migawka kwartału nad bieżącą.
+
+    Zwraca pełny słownik konfiguracji (inne klucze — bieżące), więc woła się
+    go wszędzie tam, gdzie Liga czytała `get_scoring_config`.
+    """
+    config = await get_scoring_config(db)
+    stored = await stored_league_scoring(db, quarter_period)
+    return {**config, **stored} if stored is not None else config
 
 
 @dataclass
@@ -135,6 +322,18 @@ class RankedUser:
             "hit_ratio": self.hit_ratio,
             **self.extras,
         }
+
+
+@dataclass(frozen=True)
+class SimpleRaceRow:
+    """Surowy wiersz Wyścigu Rekomendacji przed zamianą na `RankedUser`."""
+
+    id: int
+    name: str
+    role: str
+    verifications: int
+    recommendations: int
+    qualified: bool
 
 
 # ── Period helpers ───────────────────────────────────────────────────────
@@ -196,6 +395,96 @@ def parse_month(period: str) -> tuple[int, int]:
     return int(parts[0]), int(parts[1])
 
 
+def period_sort_key(period: str) -> tuple[int, int, str]:
+    """Klucz chronologiczny okresu konkursu („Q4 2025” < „Q1 2026”, „2026-05”).
+
+    Runda 9 (R9-N6-4): historia sortowała okresy jako NAPISY, a „Q4 2025” >
+    „Q1 2026” alfabetycznie — nowy kwartał spadał pod stare i wypadał z limitu.
+    Nieznany format idzie na koniec (najstarsze).
+    """
+    try:
+        if period.startswith("Q"):
+            year, sub = parse_quarter(period)
+        else:
+            year, sub = parse_month(period)
+    except (ValueError, AttributeError):
+        return (-1, -1, str(period))
+    return (year, sub, period)
+
+
+# ── Walidacja okresu (audyt 25.09.2026, R3-14) ──────────────────────────
+
+_MONTH_PERIOD_RE = re.compile(r"^(?:19|20)\d{2}-(0[1-9]|1[0-2])$")
+_QUARTER_PERIOD_RE = re.compile(r"^Q[1-4] (?:19|20)\d{2}$")
+
+
+class PeriodValidationError(ValueError):
+    """Okres odrzucony — `status_code` (422 / 409) idzie do odpowiedzi HTTP."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.message = message
+
+
+def _is_quarterly(type_: CompetitionType) -> bool:
+    return type_ in (
+        CompetitionType.quarterly_champions_dl,
+        CompetitionType.quarterly_champions_recruiter,
+    )
+
+
+def validate_period_format(type_: CompetitionType, period: str) -> None:
+    """Format okresu zgodny z typem konkursu — inaczej 422 po polsku.
+
+    Do 25.09.2026 `POST /freeze` przyjmował dowolny napis: „2026-8" albo
+    „Q2 2026" dla wyścigu miesięcznego kończyły się 500 albo — gorzej —
+    trwałym, niezmiennym zamknięciem okresu pod nazwą, której nic nie czyta.
+    """
+    if _is_quarterly(type_):
+        if not _QUARTER_PERIOD_RE.match(period or ""):
+            raise PeriodValidationError(
+                422,
+                "Nieprawidłowy okres: dla ligi kwartalnej podaj kwartał "
+                "w formacie „Q1 2026”.",
+            )
+        return
+    if not _MONTH_PERIOD_RE.match(period or ""):
+        raise PeriodValidationError(
+            422,
+            "Nieprawidłowy okres: dla wyścigu miesięcznego podaj miesiąc "
+            "w formacie RRRR-MM (np. 2026-08).",
+        )
+
+
+def period_last_day(type_: CompetitionType, period: str) -> date:
+    """Ostatni dzień kalendarzowy okresu (po `validate_period_format`)."""
+    if _is_quarterly(type_):
+        year, quarter = parse_quarter(period)
+        next_first = (
+            date(year + 1, 1, 1) if quarter == 4 else date(year, quarter * 3 + 1, 1)
+        )
+    else:
+        year, month = parse_month(period)
+        next_first = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    return next_first - timedelta(days=1)
+
+
+def ensure_period_ended(
+    type_: CompetitionType, period: str, today: Optional[date] = None
+) -> None:
+    """Zamrozić wolno wyłącznie okres zakończony (kalendarz warszawski) — 409."""
+    today = today or business_today()
+    last_day = period_last_day(type_, period)
+    if last_day >= today:
+        raise PeriodValidationError(
+            409,
+            f"Okres {period} jeszcze trwa (ostatni dzień: "
+            f"{last_day.strftime('%d.%m.%Y')}). Zamrozić można tylko okres "
+            "zakończony — zamrożenie jest nieodwracalne.",
+        )
+
+
 # ── Ranking queries ──────────────────────────────────────────────────────
 
 
@@ -212,54 +501,96 @@ async def _rank_recruiters_by_stage(
 
     Surowe ``CandidateStage.moved_by`` było niespójne z panelem KPI i pozwalało
     osobie klikającej końcowy etap przejąć credit pierwszego verifiera.
-    """
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
-    limit_sql = "LIMIT :limit" if limit else ""
-    rows = (
-        await db.execute(
-            text(
-                VERIFIER_ANCHORED_CTE
-                + f"""
-                SELECT u.id, u.name, u.role::text AS role, count(*) AS cnt
-                FROM credited c
-                JOIN users u ON u.id = c.credit_user
-                WHERE c.stage = :stage
-                  AND c.reached_at >= :start
-                  AND c.reached_at < :end
-                  AND (
-                      u.role::text IN ('sourcer', 'tac', 'recruiter')
-                      OR u.roles ?| ARRAY['sourcer', 'tac', 'recruiter']
-                  )
-                  AND u.is_active IS TRUE
-                GROUP BY u.id, u.name, u.role
-                HAVING count(*) >= :min_value
-                -- Remis rozstrzyga `u.id`, NIE `u.name`: pod musl porównanie
-                -- tekstu jest porządkiem bajtowym, więc „Łukasz" przegrywał
-                -- z „Zbigniewem" ZAWSZE — a pierwszy wiersz tego rankingu to
-                -- nazwisko przypisane do nagrody, potem zamrażane niezmiennie.
-                ORDER BY count(*) DESC, u.id ASC
-                {limit_sql}
-                """
-            ),
-            {
-                "stage": stage.value,
-                "start": start,
-                "end": end,
-                "min_value": min_value,
-                **({"limit": limit} if limit else {}),
-            },
+    Okres przecinający 12.10.2026 dokłada dni sprzed tej daty z DynaReportera
+    (`competition_history`) — dlatego próg i kolejność liczymy po scaleniu,
+    w Pythonie, a nie w `HAVING`/`LIMIT`.
+    """
+    from app.services.credited_snapshot import (
+        CREDITED_FROM_SNAPSHOT_CTE,
+        credited_bind,
+    )
+
+    per_user: dict[int, dict] = {}
+    live = competition_history.live_window(start, end)
+    if live is not None:
+        rows = (
+            await db.execute(
+                text(
+                    CREDITED_FROM_SNAPSHOT_CTE
+                    + """
+                    SELECT u.id, u.name, u.role::text AS role, count(*) AS cnt
+                    FROM credited c
+                    JOIN users u ON u.id = c.credit_user
+                    WHERE c.stage = :stage
+                      AND c.reached_at >= :start
+                      AND c.reached_at < :end
+                      AND (
+                          u.role::text = 'recruiter'
+                          OR u.roles ? 'recruiter'
+                      )
+                      AND u.is_active IS TRUE
+                    GROUP BY u.id, u.name, u.role
+                    """
+                ),
+                {
+                    "stage": stage.value,
+                    "start": live[0],
+                    "end": live[1],
+                    **await credited_bind(
+                        db, stage=stage.value, since=live[0], until=live[1]
+                    ),
+                },
+            )
+        ).all()
+        for r in rows:
+            per_user[r.id] = {"name": r.name, "role": str(r.role), "cnt": int(r.cnt)}
+    for user_id, person in (
+        await competition_history.dr_counts_by_user(db, start, end)
+    ).items():
+        cnt = _dr_stage_count(person.counts, stage)
+        if cnt <= 0:
+            continue
+        bucket = per_user.setdefault(
+            user_id, {"name": person.name, "role": person.role, "cnt": 0}
         )
-    ).all()
+        bucket["cnt"] += cnt
+
+    # Remis rozstrzyga `user_id`, NIE `name`: pod musl porównanie tekstu jest
+    # porządkiem bajtowym, więc „Łukasz" przegrywał z „Zbigniewem" ZAWSZE —
+    # a pierwszy wiersz tego rankingu to nazwisko przypisane do nagrody, potem
+    # zamrażane niezmiennie.
+    ranked = sorted(
+        (
+            (user_id, data)
+            for user_id, data in per_user.items()
+            if data["cnt"] >= max(min_value, 1)
+        ),
+        key=lambda item: (-item[1]["cnt"], item[0]),
+    )
+    if limit:
+        ranked = ranked[:limit]
     return [
         RankedUser(
-            user_id=r.id,
-            name=r.name,
-            metric_value=int(r.cnt),
-            extras={"role": str(r.role)},
+            user_id=user_id,
+            name=data["name"],
+            metric_value=data["cnt"],
+            extras={"role": data["role"]},
         )
-        for r in rows
+        for user_id, data in ranked
     ]
+
+
+def _dr_stage_count(
+    counts: "competition_history.DrCounts", stage: PipelineStage
+) -> int:
+    """Licznik DynaReportera odpowiadający etapowi NEXUS-a."""
+    return {
+        PipelineStage.verified.value: counts.verifications,
+        PipelineStage.cv_sent.value: counts.recommendations,
+        "client_interview": counts.interviews,
+        PipelineStage.hired.value: counts.placements,
+    }.get(stage.value, 0)
 
 
 async def _rank_recruiters_by_points(
@@ -289,30 +620,40 @@ async def _rank_recruiters_by_points(
     Zwraca RankedUser z metric_value=points i extras={placements, interviews,
     recommendations, verifications, role, qualified, required_placements,
     disqualification_reasons}."""
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+    from app.services.credited_snapshot import (
+        CREDITED_FROM_SNAPSHOT_CTE,
+        credited_bind,
+    )
 
-    rows = (
-        await db.execute(
-            text(
-                VERIFIER_ANCHORED_CTE
-                + """
-                SELECT u.id, u.name, u.role::text AS role, c.stage,
-                       count(*) AS cnt
-                FROM credited c
-                JOIN users u ON u.id = c.credit_user
-                WHERE c.reached_at >= :start
-                  AND c.reached_at < :end
-              AND (
-                  u.role::text IN ('sourcer', 'tac', 'recruiter')
-                  OR u.roles ?| ARRAY['sourcer', 'tac', 'recruiter']
-              )
-                  AND u.is_active IS TRUE
-                GROUP BY u.id, u.name, u.role, c.stage
-                """
-            ),
-            {"start": start, "end": end},
-        )
-    ).all()
+    rows = []
+    live = competition_history.live_window(start, end)
+    if live is not None:
+        rows = (
+            await db.execute(
+                text(
+                    CREDITED_FROM_SNAPSHOT_CTE
+                    + """
+                    SELECT u.id, u.name, u.role::text AS role, c.stage,
+                           count(*) AS cnt
+                    FROM credited c
+                    JOIN users u ON u.id = c.credit_user
+                    WHERE c.reached_at >= :start
+                      AND c.reached_at < :end
+                  AND (
+                      u.role::text = 'recruiter'
+                      OR u.roles ? 'recruiter'
+                  )
+                      AND u.is_active IS TRUE
+                    GROUP BY u.id, u.name, u.role, c.stage
+                    """
+                ),
+                {
+                    "start": live[0],
+                    "end": live[1],
+                    **await credited_bind(db, since=live[0], until=live[1]),
+                },
+            )
+        ).all()
 
     per_user: dict[int, dict] = {}
     for r in rows:
@@ -330,28 +671,41 @@ async def _rank_recruiters_by_points(
         cnt = int(r.cnt)
         if r.stage == "hired":
             bucket["placements"] += cnt
-        elif r.stage == "interview":
-            # D3: składnik „interview" liczy stage `interview`, NIE
-            # `client_interview`.
+        elif r.stage == "client_interview":
+            # Runda 8 (LEAGUE, decyzja właściciela 27.09.2026): punkty za
+            # rozmowę liczy rozmowa u klienta (`client_interview`), od razu,
+            # także w bieżącym kwartale — jak KPI i Insights od rundy 7. Kod
+            # `interview` to od Rekrutacji v5 etap QC CV i punktów nie daje.
             #
-            # Historycznie ten składnik był ZEROWY, bo import nie mapował
-            # `client_interview` na nic. Od domknięcia mapowania po nazwie
-            # stanu (migracja 0269 + `_TRAFFIT_STATE_NAME_MAP`) „Interview
-            # u klienta" trafia do `client_interview`, więc do TEJ sumy już
-            # nie wchodzi — a `interview` zbiera pozostałe stany workflow.
-            #
-            # UWAGA PRZY ZMIANIE MAPOWANIA: ten składnik niesie pieniądze.
-            # Zmierzone Q3 2026 przy wagach 150/15/5: u zwycięzcy 2 040 z 3 080
-            # punktów (66%) pochodziło z `interview`, a osoba z 4 placementami
-            # wygrała 5 000 zł z osobą, która miała 6 (3 000 zł). Właściciel
-            # świadomie zostawił wagi bez zmian (decyzja 2026-09-03) — każda
-            # kolejna zmiana mapowania Traffita przesuwa tę sumę i wymaga
-            # policzenia rankingu przed/po, ZANIM kwartał zostanie zamrożony.
+            # UWAGA: ten składnik niesie pieniądze (10 000 zł za kwartał
+            # i wykluczenie lidera z wyścigów miesięcznych). Każda zmiana
+            # etapu, który tu wpada, wymaga policzenia rankingu przed/po,
+            # ZANIM kwartał zostanie zamrożony.
             bucket["interviews"] += cnt
         elif r.stage == "cv_sent":
             bucket["recommendations"] += cnt
         elif r.stage == "verified":
             bucket["verifications"] += cnt
+
+    # Dni sprzed 12.10.2026 — z DynaReportera (okres przecinający cutover).
+    for user_id, person in (
+        await competition_history.dr_counts_by_user(db, start, end)
+    ).items():
+        bucket = per_user.setdefault(
+            user_id,
+            {
+                "name": person.name,
+                "role": person.role,
+                "placements": 0,
+                "interviews": 0,
+                "recommendations": 0,
+                "verifications": 0,
+            },
+        )
+        bucket["placements"] += person.counts.placements
+        bucket["interviews"] += person.counts.interviews
+        bucket["recommendations"] += person.counts.recommendations
+        bucket["verifications"] += person.counts.verifications
 
     ranked: list[RankedUser] = []
     for user_id, data in per_user.items():
@@ -418,14 +772,14 @@ def days_left_in_month(today: Optional[date] = None) -> int:
 async def dl_portfolio_counts(
     db: AsyncSession, *, start: datetime, end: datetime
 ) -> tuple[dict[int, int], dict[int, int]]:
-    """Placementy i requesty body leasing per Delivery Lead w oknie.
+    """Placementy i requesty per Delivery Lead w oknie.
 
     Placement = PIERWSZE wejście pary (kandydat, oferta) na `hired` w oknie
     (widok `analytics_first_milestones`, definicja D2). Do 22.09.2026 liczyliśmy
     wiersze `CandidateStage`, więc powrót na etap albo zdublowany import
     liczył jedną osobę dwa razy — w lidze wypłacającej 5000/3000/2000 zł.
 
-    Hit ratio = te placementy / rekrutacje body leasing ZAMKNIĘTE w kwartale
+    Hit ratio = te placementy / rekrutacje ZAMKNIĘTE w kwartale
     (`jobs.closed_at`). Wcześniej mianownikiem były rekrutacje UTWORZONE
     w kwartale, czyli placementy z rekrutacji otwartych dawno temu dzielone
     przez zapytania, które dopiero ruszyły — dwie różne populacje w jednym
@@ -438,6 +792,10 @@ async def dl_portfolio_counts(
     Tę samą definicję czyta liga ORAZ cel Delivery Leada (`kpi_goals`), żeby
     „twoje hit ratio" i podium liczyły się z tych samych liczb. Zwraca
     `(placements_by_dl, requests_by_dl)`.
+
+    Przed 12.10.2026 (decyzja Artura 18.10.2026) placementy DL to miesięczne
+    wpisy DL z DynaReportera (`dr_kpi_delivery_lead`), a rekrutacji zamkniętych
+    DynaReporter nie prowadził — mianownik hit ratio liczy od 12.10.
     """
     from app.api.reports import _dl_head_fallback_map, _resolve_dl_id
 
@@ -456,15 +814,10 @@ async def dl_portfolio_counts(
                 WHERE fm.stage::text = 'hired'
                   AND fm.first_reached_at >= :start
                   AND fm.first_reached_at < :end
-                  AND j.recruitment_type::text = :body_leasing
                 GROUP BY j.id, j.delivery_lead_id, j.client_id
                 """
             ),
-            {
-                "start": start,
-                "end": end,
-                "body_leasing": RecruitmentType.body_leasing.value,
-            },
+            {"start": competition_history.board_start(start), "end": end},
         )
     ).all()
     placements_by_dl: dict[int, int] = {}
@@ -473,12 +826,39 @@ async def dl_portfolio_counts(
         if dl_id is None:
             continue
         placements_by_dl[dl_id] = placements_by_dl.get(dl_id, 0) + int(r.cnt)
+    history_end = min(end, competition_history.cutover_utc())
+    if start < history_end:
+        tz = ZoneInfo(DEFAULT_TZ)
+        for r in (
+            await db.execute(
+                text(
+                    """
+                    SELECT user_id, sum(placements) AS cnt
+                    FROM dr_kpi_delivery_lead
+                    WHERE report_month >= :start_day AND report_month < :end_day
+                    GROUP BY user_id
+                    """
+                ),
+                {
+                    "start_day": start.astimezone(tz).date(),
+                    # Miesiąc cutoveru bez wpisu DL — od 12.10 liczy Tablica.
+                    "end_day": min(
+                        history_end.astimezone(tz).date(),
+                        competition_history.RESULTS_CUTOVER.replace(day=1),
+                    ),
+                },
+            )
+        ).all():
+            placements_by_dl[r.user_id] = placements_by_dl.get(r.user_id, 0) + int(
+                r.cnt or 0
+            )
 
-    # Mianownik hit ratio: rekrutacje body leasing ZAMKNIĘTE w kwartale.
+    # Mianownik hit ratio: rekrutacje ZAMKNIĘTE w kwartale (od 12.10.2026),
+    # bez zamknięć „nie liczy się” (duplikat, anulowane… — 21.10.2026).
     req_q = select(Job.id, Job.delivery_lead_id, Job.client_id).where(
-        Job.recruitment_type == RecruitmentType.body_leasing,
-        Job.closed_at >= start,
+        Job.closed_at >= competition_history.board_start(start),
         Job.closed_at < end,
+        counts_in_hit_ratio(),
     )
     req_rows = (await db.execute(req_q)).all()
     requests_by_dl: dict[int, int] = {}
@@ -490,15 +870,55 @@ async def dl_portfolio_counts(
     return placements_by_dl, requests_by_dl
 
 
-async def _rank_dls_by_placements(
+async def dl_neutral_closed_counts(
+    db: AsyncSession, *, start: datetime, end: datetime
+) -> dict[int, int]:
+    """Rekrutacje zamknięte w oknie jako „nie liczy się” (21.10.2026) per DL.
+
+    Lustro mianownika `dl_portfolio_counts` z odwrotnym warunkiem — pasek
+    i cel DL mówią, ile zamknięć nie obniżyło hit ratio.
+    """
+    from app.api.reports import _dl_head_fallback_map, _resolve_dl_id
+
+    fallback = await _dl_head_fallback_map(db)
+    rows = (
+        await db.execute(
+            select(Job.delivery_lead_id, Job.client_id).where(
+                Job.closed_at >= competition_history.board_start(start),
+                Job.closed_at < end,
+                ~counts_in_hit_ratio(),
+            )
+        )
+    ).all()
+    out: dict[int, int] = {}
+    for r in rows:
+        dl_id = _resolve_dl_id(r.delivery_lead_id, r.client_id, fallback)
+        if dl_id is not None:
+            out[dl_id] = out.get(dl_id, 0) + 1
+    return out
+
+
+def dl_hit_ratio_key(entry: RankedUser) -> tuple:
+    """Kolejność ligi DL: hit ratio, potem placementy (większy portfel przy
+    tym samym procencie). Hit ratio niepoliczone (brak zamkniętych) — na końcu."""
+    hit_ratio = entry.hit_ratio if entry.hit_ratio is not None else -1.0
+    return (hit_ratio, entry.metric_value)
+
+
+async def _rank_dls_by_hit_ratio(
     db: AsyncSession,
     *,
     start: datetime,
     end: datetime,
-    min_placements: int = QUARTERLY_MIN_PLACEMENTS,
-    limit: Optional[int] = None,
 ) -> list[RankedUser]:
-    """Ranking DL-i po placementach w okresie (liczniki: `dl_portfolio_counts`)."""
+    """Ranking DL-i po hit ratio w okresie (liczniki: `dl_portfolio_counts`).
+
+    Na liście jest każdy DL z portfelem w okresie (placement albo zamknięta
+    rekrutacja). Kto nie ma 3 placementów i 5 zamkniętych rekrutacji, zostaje
+    na liście bez miejsca (`qualified: False` + powody) — tak jak Liga
+    rekruterów. `metric_value` to placementy (zamrożenie trzyma je w kolumnie
+    całkowitej), hit ratio jest w `hit_ratio`.
+    """
     placements_by_dl, requests_by_dl = await dl_portfolio_counts(
         db, start=start, end=end
     )
@@ -512,38 +932,50 @@ async def _rank_dls_by_placements(
             select(User.id, User.name).where(
                 User.id.in_(dl_ids),
                 User.is_active == True,  # noqa: E712
-                User.role == UserRole.delivery_lead,
+                # Rola DL główna ALBO dodatkowa — tak jak cele DL
+                # (`kpi_goals`, `User.has_role`). Do 25.09.2026 liga brała
+                # wyłącznie `User.role`, więc DL z rolą dodatkową miał cel
+                # hit ratio, a w lidze go nie było.
+                user_kpi_roles_clause((UserRole.delivery_lead,)),
             )
         )
     ).all()
     name_map = {u.id: u.name for u in users_rows}
 
     ranked: list[RankedUser] = []
-    for dl_id, placements in placements_by_dl.items():
-        if placements < min_placements:
-            continue
+    for dl_id in dl_ids:
         if dl_id not in name_map:
             continue
+        placements = placements_by_dl.get(dl_id, 0)
         requests = requests_by_dl.get(dl_id, 0)
-        hit_ratio = round(placements / requests * 100, 1) if requests else 0.0
-        if hit_ratio < HIT_RATIO_TARGET:
-            continue
+        hit_ratio = round(placements / requests * 100, 1) if requests else None
+        reasons: list[str] = []
+        if placements < DL_LEAGUE_MIN_PLACEMENTS:
+            reasons.append("MIN_PLACEMENTS_NOT_MET")
+        if requests < DL_LEAGUE_MIN_CLOSED_REQUESTS:
+            reasons.append("MIN_CLOSED_REQUESTS_NOT_MET")
         ranked.append(
             RankedUser(
                 user_id=dl_id,
                 name=name_map[dl_id],
                 metric_value=placements,
                 hit_ratio=hit_ratio,
-                extras={"requests": requests, "requests_basis": "closed_in_quarter"},
+                extras={
+                    "role": UserRole.delivery_lead.value,
+                    "placements": placements,
+                    "requests": requests,
+                    "requests_basis": "closed_in_quarter",
+                    "qualified": not reasons,
+                    "disqualification_reasons": reasons,
+                    "required_placements": DL_LEAGUE_MIN_PLACEMENTS,
+                    "required_closed_requests": DL_LEAGUE_MIN_CLOSED_REQUESTS,
+                },
             )
         )
 
-    # Kolejność prezentacji: placementy, potem `user_id`. Remis na płatnym
-    # miejscu NIE jest tu rozstrzygany — przy zamrożeniu idzie do admina
-    # (`competition_rules.order_with_ties`).
-    ranked.sort(key=lambda r: (-r.metric_value, r.user_id))
-    if limit:
-        ranked = ranked[:limit]
+    # Kolejność prezentacji: hit ratio, placementy, potem `user_id`. Nagród nie
+    # ma, więc remis nie idzie do admina — zostaje kolejność prezentacji.
+    ranked.sort(key=lambda r: (tuple(-v for v in dl_hit_ratio_key(r)), r.user_id))
     return ranked
 
 
@@ -553,7 +985,7 @@ async def _rank_dls_by_placements(
 async def quarterly_champions_dl(db: AsyncSession, period: str) -> list[RankedUser]:
     year, q = parse_quarter(period)
     start, end = quarter_bounds(year, q)
-    return await _rank_dls_by_placements(db, start=start, end=end, limit=10)
+    return await _rank_dls_by_hit_ratio(db, start=start, end=end)
 
 
 def required_placements_for_quarter(
@@ -602,7 +1034,7 @@ async def quarterly_champions_recruiter(
     """
     year, q = parse_quarter(period)
     start, end = quarter_bounds(year, q)
-    config = await get_scoring_config(db)
+    config = await league_scoring_config(db, period)
     return await _rank_recruiters_by_points(
         db,
         start=start,
@@ -618,89 +1050,126 @@ async def monthly_most_recommendations(
 ) -> list[RankedUser]:
     year, month = parse_month(period)
     start, end = month_bounds(year, month)
-    thresholds = await monthly_race_thresholds(db)
+    thresholds = await monthly_race_thresholds(db, period)
     min_precision_pct = thresholds.precision_pct
-    required_verifications = (
-        thresholds.verifications_per_day * business_days_elapsed_in_month(year, month)
+    from app.services.credited_snapshot import (
+        CREDITED_FROM_SNAPSHOT_CTE,
+        credited_bind,
     )
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
-    # Warunki nagrody liczymy jako kolumnę `qualified`, NIE w HAVING: HAVING
+    # Surowe liczniki per osoba; warunki nagrody, wybór listy i kolejność
+    # liczymy niżej, PO dołożeniu dni sprzed 12.10.2026 z DynaReportera
+    # (październik 2026). Warunek jest flagą `qualified`, nie filtrem: filtr
     # wycinałby niezakwalifikowanych z samego RANKINGU, więc widget „Wyścig
-    # Rekomendacji" świecił pustką póki nikt nie dobił progu. Nagrodę i tak
+    # Rekomendacji" świecił pustką, póki nikt nie dobił progu. Nagrodę i tak
     # filtruje `qualified_for_award`.
-    # Podwójny ROW_NUMBER, bo LIMIT dotyczy teraz listy wyświetlanej: bierzemy
-    # TOP N do pokazania **oraz** TOP N zakwalifikowanych, żeby ktoś z nagrodą
-    # nie wypadł z wyniku wypchnięty przez głośniejszą, niekwalifikującą się
-    # osobę. Werdykt nagrodowy zostaje taki sam jak przed zmianą.
-    rows = (
-        await db.execute(
-            text(
-                VERIFIER_ANCHORED_CTE
-                + """
-                , race_totals AS (
+    totals: dict[int, dict] = {}
+    live = competition_history.live_window(start, end)
+    if live is not None:
+        live_rows = (
+            await db.execute(
+                text(
+                    CREDITED_FROM_SNAPSHOT_CTE
+                    + """
                     SELECT u.id, u.name, u.role::text AS role,
                            count(*) FILTER (
                                WHERE c.stage = 'verified'
                            ) AS verifications,
                            count(*) FILTER (
                                WHERE c.stage = 'cv_sent'
-                           ) AS recommendations,
-                           (
-                               count(*) FILTER (WHERE c.stage = 'verified')
-                                   >= :required_verifications
-                               AND 100.0 * count(*) FILTER (WHERE c.stage = 'cv_sent')
-                                   >= CAST(:min_precision_pct AS NUMERIC)
-                                      * count(*) FILTER (WHERE c.stage = 'verified')
-                           ) AS qualified
+                           ) AS recommendations
                     FROM credited c
                     JOIN users u ON u.id = c.credit_user
                     WHERE c.reached_at >= :start
                       AND c.reached_at < :end
                       AND c.stage IN ('verified', 'cv_sent')
                       AND (
-                          u.role::text IN ('sourcer', 'tac', 'recruiter')
-                          OR u.roles ?| ARRAY['sourcer', 'tac', 'recruiter']
+                          u.role::text = 'recruiter'
+                          OR u.roles ? 'recruiter'
                       )
                       AND u.is_active IS TRUE
                     GROUP BY u.id, u.name, u.role
-                    HAVING count(*) FILTER (WHERE c.stage = 'cv_sent') >= 1
+                    """
                 ),
-                race_ranked AS (
-                    -- Remis rozstrzyga `id`, NIE `name` (patrz komentarz przy
-                    -- `_rank_recruiters_by_stage`): tie-break po tekście pod
-                    -- musl systematycznie wypycha nazwy z polskimi
-                    -- diakrytykami na koniec, a tu decyduje o nagrodzie
-                    -- i o cięciu TOP-10.
-                    SELECT t.*,
-                           ROW_NUMBER() OVER (
-                               ORDER BY t.recommendations DESC, t.id ASC
-                           ) AS display_rank,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY t.qualified
-                               ORDER BY t.recommendations DESC, t.id ASC
-                           ) AS rank_in_group
-                    FROM race_totals t
-                )
-                SELECT id, name, role, verifications, recommendations, qualified
-                FROM race_ranked
-                WHERE display_rank <= :ranking_size
-                   OR (qualified AND rank_in_group <= :ranking_size)
-                ORDER BY recommendations DESC, id ASC
-                """
-            ),
+                {
+                    "start": live[0],
+                    "end": live[1],
+                    **await credited_bind(db, since=live[0], until=live[1]),
+                },
+            )
+        ).all()
+        for r in live_rows:
+            totals[r.id] = {
+                "name": r.name,
+                "role": str(r.role),
+                "verifications": int(r.verifications),
+                "recommendations": int(r.recommendations),
+            }
+    for user_id, person in (
+        await competition_history.dr_counts_by_user(db, start, end)
+    ).items():
+        bucket = totals.setdefault(
+            user_id,
             {
-                "start": start,
-                "end": end,
-                "required_verifications": required_verifications,
-                "min_precision_pct": min_precision_pct,
-                "ranking_size": MONTHLY_RACE_RANKING_SIZE,
+                "name": person.name,
+                "role": person.role,
+                "verifications": 0,
+                "recommendations": 0,
             },
         )
-    ).all()
+        bucket["verifications"] += person.counts.verifications
+        bucket["recommendations"] += person.counts.recommendations
+
+    # Próg „N weryfikacji × dni” liczy się z dni pracy osoby — nieobecność
+    # nie podnosi wymagania (decyzja Artura 28.10.2026).
+    from app.services.person_workdays import nexus_absences_known
+
+    threshold_basis = "workdays" if await nexus_absences_known(db) else "calendar"
+    required = await required_verifications_by_user(
+        db,
+        list(totals),
+        year=year,
+        month=month,
+        per_day=thresholds.verifications_per_day,
+        today=business_today(),
+    )
+
+    # Podwójna numeracja, bo limit dotyczy listy wyświetlanej: bierzemy TOP N
+    # do pokazania **oraz** TOP N zakwalifikowanych, żeby ktoś z nagrodą nie
+    # wypadł z wyniku wypchnięty przez głośniejszą, niekwalifikującą się osobę.
+    # Remis rozstrzyga `id`, NIE `name` (patrz `_rank_recruiters_by_stage`).
+    race = sorted(
+        (
+            SimpleRaceRow(
+                id=user_id,
+                name=data["name"],
+                role=data["role"],
+                verifications=data["verifications"],
+                recommendations=data["recommendations"],
+                qualified=(
+                    data["verifications"] >= required[user_id]
+                    and 100 * data["recommendations"]
+                    >= min_precision_pct * data["verifications"]
+                ),
+            )
+            for user_id, data in totals.items()
+            if data["recommendations"] >= 1
+        ),
+        key=lambda row: (-row.recommendations, row.id),
+    )
+    qualified_seen = 0
+    rows = []
+    for display_rank, row in enumerate(race, start=1):
+        if row.qualified:
+            qualified_seen += 1
+        if display_rank <= MONTHLY_RACE_RANKING_SIZE or (
+            row.qualified and qualified_seen <= MONTHLY_RACE_RANKING_SIZE
+        ):
+            rows.append(row)
 
     ranked: list[RankedUser] = []
     for row in rows:
+        required_verifications = required[row.id]
         verified = int(row.verifications)
         recommendations = int(row.recommendations)
         precision_pct = (
@@ -724,12 +1193,48 @@ async def monthly_most_recommendations(
                     "recommendations": recommendations,
                     "precision_pct": precision_pct,
                     "required_verifications": required_verifications,
+                    # Z czego liczono próg — zamraża się z wynikiem, więc
+                    # zamknięty miesiąc dalej podpisuje próg zgodnie z liczbą.
+                    "threshold_basis": threshold_basis,
                     "qualified": bool(row.qualified) and not reasons,
                     "disqualification_reasons": reasons,
                 },
             )
         )
     return ranked
+
+
+async def required_verifications_by_user(
+    db: AsyncSession,
+    user_ids: list[int],
+    *,
+    year: int,
+    month: int,
+    per_day: int,
+    today: date,
+) -> dict[int, int]:
+    """Próg Wyścigu Rekomendacji per osoba: ``per_day`` × jej dni pracy.
+
+    Przy urlopach NEXUSA mianownik jest ten sam co plakietki „X/dzień”
+    (``person_workdays``), więc „33 / 60 wymaganych” i „2.2/dzień” liczą się
+    z tych samych dni; w górę do pełnej weryfikacji (pół dnia nieobecności).
+    Przy innym źródle próg jak dotąd: dni robocze kalendarza dla wszystkich.
+    """
+    if not user_ids:
+        return {}
+    from app.services.person_workdays import nexus_absences_known, workdays_by_user
+
+    if not await nexus_absences_known(db):
+        common = per_day * business_days_elapsed_in_month(year, month)
+        return {uid: common for uid in user_ids}
+
+    next_first = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    last = min(today, next_first - timedelta(days=1))
+    first = date(year, month, 1)
+    if last < first:
+        return {uid: 0 for uid in user_ids}
+    days = await workdays_by_user(db, user_ids, first, last)
+    return {uid: math.ceil(round(per_day * days[int(uid)], 6)) for uid in user_ids}
 
 
 def business_days_elapsed_in_month(
@@ -773,7 +1278,7 @@ def qualified_for_award(ranked: list[RankedUser]) -> list[RankedUser]:
 async def monthly_most_placements(db: AsyncSession, period: str) -> list[RankedUser]:
     year, month = parse_month(period)
     start, end = month_bounds(year, month)
-    thresholds = await monthly_race_thresholds(db)
+    thresholds = await monthly_race_thresholds(db, period)
     return await _rank_recruiters_by_stage(
         db,
         stage=PipelineStage.hired,
@@ -809,8 +1314,6 @@ HALL_OF_FAME_ATTRIBUTION = FIRST_HIRED_PER_CANDIDATE_JOB
 
 
 HALL_OF_FAME_ROLES = [
-    "sourcer",
-    "tac",
     "recruiter",
     "delivery_lead",
     "head_of_recruitment",
@@ -856,8 +1359,9 @@ async def hall_of_fame_with_scope(
 ) -> tuple[list[RankedUser], HallOfFameScope]:
     """Ranking wszech czasów wg definicji D2 — jak „Analiza placementów".
 
-    ATRYBUCJA: `analytics_first_milestones.first_moved_by`, czyli osoba, która
-    przesunęła parę (kandydat, oferta) na etap „Zatrudniony" PIERWSZY raz.
+    ATRYBUCJA: `analytics_kpi_milestones.first_moved_by`, czyli osoba, która
+    przesunęła parę (kandydat, oferta) na etap „Zatrudniony" PIERWSZY raz;
+    1.01–11.10.2026 — osoba z tygodniowego wpisu DynaReportera (migracja 0454).
     Ta sama reguła, którą stosuje `/api/insights/charts/placement-analysis`
     i tabela „Performance per osoba" — dzięki temu trzy liczby podpisane
     „placementy" na jednym ekranie znaczą to samo.
@@ -891,7 +1395,7 @@ async def hall_of_fame_with_scope(
                 f"""
                 WITH hired AS (
                     SELECT fm.first_moved_by AS uid
-                    FROM analytics_first_milestones fm
+                    FROM analytics_kpi_milestones fm
                     WHERE fm.stage::text = 'hired'
                 ),
                 classified AS (
@@ -1073,7 +1577,9 @@ async def monthly_race_excluded_user_ids(
 
     quarter_start, _ = quarter_bounds(year, quarter)
     _, month_end = month_bounds(year, month)
-    config = await get_scoring_config(db)
+    # Punktacja kwartału, do którego należy miesiąc — ta sama migawka, którą
+    # zamrożenie Ligi rozlicza kwartał (R4-16).
+    config = await league_scoring_config(db, quarter_period)
     month_in_quarter = (month - 1) % 3 + 1
     ranked = qualified_for_award(
         await _rank_recruiters_by_points(
@@ -1108,8 +1614,26 @@ _QUARTERLY_TYPES = (
 )
 
 
-def paid_slots(type_: CompetitionType) -> int:
+def dl_league_pays(period: Optional[str]) -> bool:
+    """Czy liga DL tego kwartału ma nagrody — tylko kwartały do Q3 2026.
+
+    Od Q4 2026 liga DL to sama statystyka (decyzja Artura 25.10.2026).
+    Wcześniejsze kwartały rozliczył DynaReporter z kwotami 5000/3000/2000 zł
+    i te kwoty zostają, także przy rozstrzyganiu ich remisów.
+    """
+    if not period:
+        return False
+    try:
+        return parse_quarter(period) < DL_LEAGUE_UNPAID_FROM
+    except ValueError:
+        return False
+
+
+def paid_slots(type_: CompetitionType, period: Optional[str] = None) -> int:
     """Ile miejsc podium niesie pieniądze."""
+    if type_ == CompetitionType.quarterly_champions_dl:
+        # Bez nagród remis nie czeka na admina.
+        return len(QUARTERLY_PRIZES_PLN) if dl_league_pays(period) else 0
     if type_ in _QUARTERLY_TYPES:
         return len(QUARTERLY_PRIZES_PLN)
     if type_ in _MONTHLY_TYPES:
@@ -1127,6 +1651,8 @@ class AwardOrder:
     exclusion_source: Optional[str]
     exclusion_quarter: Optional[str]
     tie_break_rule: str
+    # Okres rankingu — od niego zależą kwoty ligi DL (`dl_league_pays`).
+    period: Optional[str] = None
 
 
 async def award_order(
@@ -1181,7 +1707,7 @@ async def award_order(
             award,
             primary=primary,
             tiebreak=margin_tiebreak,
-            paid_slots=paid_slots(type_),
+            paid_slots=paid_slots(type_, period),
             admin_on_tie=True,
             reason="placements_margin_unresolved",
         )
@@ -1200,23 +1726,29 @@ async def award_order(
             award,
             primary=primary,
             tiebreak=recommendation_tiebreak,
-            paid_slots=paid_slots(type_),
+            paid_slots=paid_slots(type_, period),
             admin_on_tie=False,
             reason="recommendations",
         )
         rule = "recommendations→precision→earliest_last_recommendation"
+    elif type_ == CompetitionType.quarterly_champions_dl:
+        ordered, ties = order_with_ties(
+            award,
+            primary=dl_hit_ratio_key,
+            tiebreak=None,
+            paid_slots=paid_slots(type_, period),
+            admin_on_tie=False,
+            reason="hit_ratio_tie",
+        )
+        rule = "hit_ratio→placements"
     elif type_ in _QUARTERLY_TYPES:
         ordered, ties = order_with_ties(
             award,
             primary=primary,
             tiebreak=None,
-            paid_slots=paid_slots(type_),
+            paid_slots=paid_slots(type_, period),
             admin_on_tie=True,
-            reason=(
-                "points_tie"
-                if type_ == CompetitionType.quarterly_champions_recruiter
-                else "placements_tie"
-            ),
+            reason="points_tie",
         )
         rule = "metric→admin"
     else:
@@ -1228,7 +1760,50 @@ async def award_order(
         exclusion_source=source,
         exclusion_quarter=quarter,
         tie_break_rule=rule,
+        period=period,
     )
+
+
+def award_ranked_rows(
+    type_: CompetitionType, ranked: list[RankedUser], order: AwardOrder
+) -> list[dict]:
+    """Ranking do WYŚWIETLENIA z jedną numeracją — tą, którą wypłaca `award_order`.
+
+    Najpierw osoby w kolejności nagrodowej z miejscem 1..n (miejsca objęte
+    remisem do decyzji admina mają `tied` i kwotę 0), potem osoby bez miejsca
+    w klasyfikacji (`rank: None`): niezakwalifikowani i wykluczony lider
+    kwartału, w kolejności wyniku. Do 25.09.2026 lista pod podium numerowała
+    się po surowym rankingu, a podium po `award_order` — przy
+    niezakwalifikowanym liderze dwie osoby miały „#1”, a „Mój miesiąc” mówił
+    „1. miejsce” komuś, kto nagrody nie dostanie. Bez marży/h (pieniądze,
+    `_MARGIN_EXTRAS`) — wiersze czyta każdy zalogowany.
+    """
+    held = {pos for tie in order.ties for pos in tie.positions}
+    excluded = set(order.excluded_user_ids)
+    placed = {r.user_id for r in order.ordered}
+
+    def _row(entry: RankedUser, rank: Optional[int]) -> dict:
+        tied = rank is not None and rank in held
+        prize: Optional[int]
+        if rank is None:
+            prize = None
+        else:
+            prize = 0 if tied else _prize_for(type_, rank, order.period)
+        return {
+            **{
+                key: value
+                for key, value in entry.to_dict().items()
+                if key not in _MARGIN_EXTRAS
+            },
+            "rank": rank,
+            "tied": tied,
+            "excluded": entry.user_id in excluded,
+            "prize_pln": prize,
+        }
+
+    rows = [_row(r, idx) for idx, r in enumerate(order.ordered, start=1)]
+    rows.extend(_row(r, None) for r in ranked if r.user_id not in placed)
+    return rows
 
 
 def _placements_word(count: int) -> str:
@@ -1272,9 +1847,33 @@ async def compose_monthly_races(
     """
     month_period = month_period or current_month_period()
 
+    # Miesiąc zamknięty: oba wyścigi z zamrożenia (to, co wypłacono). Wyścig
+    # zamknięty bez drugiego — oba z zamrożenia albo oba na żywo, żeby karta
+    # nie mieszała stanów.
+    frozen_rec = await frozen_result(
+        db, CompetitionType.monthly_recommendations, month_period
+    )
+    frozen_pl = await frozen_result(
+        db, CompetitionType.monthly_placements, month_period
+    )
+    if frozen_rec is not None and frozen_pl is not None:
+        thresholds = await monthly_race_thresholds(db, month_period)
+        return {
+            "recommendations": _frozen_race(
+                month_period,
+                frozen_rec,
+                _recommendation_requirements(thresholds, frozen_rec.source),
+            ),
+            "placements": _frozen_race(
+                month_period,
+                frozen_pl,
+                _placement_requirements(thresholds, frozen_pl.source),
+            ),
+        }
+
     rec_ranked = await monthly_most_recommendations(db, month_period)
     pl_ranked = await monthly_most_placements(db, month_period)
-    thresholds = await monthly_race_thresholds(db)
+    thresholds = await monthly_race_thresholds(db, month_period)
 
     # Wykluczenie: lider kwartału, do którego należy TEN miesiąc (nie bieżący
     # kwartał!), nie może wygrać wyścigu miesięcznego — ale z rankingu nie
@@ -1303,6 +1902,9 @@ async def compose_monthly_races(
     )
 
     days_left = days_left_in_month(business_today())
+    source, source_note = live_source(
+        CompetitionType.monthly_recommendations, month_period
+    )
 
     def _format(
         ranked: list[RankedUser], order: "AwardOrder", extra_reqs: list[str]
@@ -1345,31 +1947,25 @@ async def compose_monthly_races(
             # Remis na 1. miejscu, którego regulamin nie rozstrzyga — o nagrodzie
             # zdecyduje admin przy zamknięciu okresu.
             "leader_tie_user_ids": leader_tie.user_ids if leader_tie else [],
+            "is_frozen": False,
+            "closure_status": None,
+            "source": source,
+            "source_note": source_note,
         }
 
     races = {
         "recommendations": _format(
             rec_ranked,
             rec_order,
-            [
-                (
-                    f"Wymóg: min. {thresholds.verifications_per_day} "
-                    f"{_verifications_word(thresholds.verifications_per_day)}"
-                    "/dzień roboczy w tym miesiącu"
-                ),
-                (
-                    f"Wymóg: min. {int(thresholds.precision_pct)}% "
-                    "precision rate (rekomendacje / weryfikacje)"
-                ),
+            # Na żywo liczą reguły NEXUS-a, także na wpisach DynaReportera.
+            _recommendation_requirements(thresholds, competition_history.SOURCE_NEXUS)[
+                :-1
             ],
         ),
         "placements": _format(
             pl_ranked,
             pl_order,
-            [
-                f"Minimum {thresholds.min_placements} "
-                f"{_placements_word(thresholds.min_placements)} do kwalifikacji"
-            ],
+            _placement_requirements(thresholds, competition_history.SOURCE_NEXUS)[:-1],
         ),
     }
     # „X/dzień" dopisujemy DOPIERO tutaj, a nie do `extras`: `extras` trafia do
@@ -1378,6 +1974,94 @@ async def compose_monthly_races(
     # próg kwalifikacji zostaje wspólny i kalendarzowy.
     await _attach_per_day(db, races["recommendations"]["ranking"], month_period)
     return races
+
+
+_LEADER_EXCLUDED_REQUIREMENT = "Lider kwartalny wykluczony z nagrody miesięcznej"
+
+
+def _recommendation_requirements(
+    thresholds: MonthlyRaceThresholds, source: str
+) -> list[str]:
+    """Warunki Wyścigu Rekomendacji opisane tak, jak liczono ten miesiąc."""
+    if source == competition_history.SOURCE_DYNAREPORTER:
+        return [
+            "Wymóg (DynaReporter): min. "
+            f"{competition_history.DR_VERIFICATIONS_PER_WORKED_DAY} weryfikacje "
+            "na dzień przepracowany",
+            "Wymóg (DynaReporter): min. "
+            f"{competition_history.DR_PRECISION_PCT}% precision rate "
+            "— od kwietnia 2026",
+            "Lider kwartalny wykluczony z nagrody w ostatnim miesiącu kwartału",
+        ]
+    return [
+        (
+            f"Wymóg: min. {thresholds.verifications_per_day} "
+            f"{_verifications_word(thresholds.verifications_per_day)}"
+            "/dzień roboczy w tym miesiącu"
+        ),
+        (
+            f"Wymóg: min. {int(thresholds.precision_pct)}% "
+            "precision rate (rekomendacje / weryfikacje)"
+        ),
+        _LEADER_EXCLUDED_REQUIREMENT,
+    ]
+
+
+def _placement_requirements(
+    thresholds: MonthlyRaceThresholds, source: str
+) -> list[str]:
+    if source == competition_history.SOURCE_DYNAREPORTER:
+        return [
+            "Najwięcej placementów w miesiącu (DynaReporter, bez progu)",
+            "Lider kwartalny wykluczony z nagrody w ostatnim miesiącu kwartału",
+        ]
+    return [
+        f"Minimum {thresholds.min_placements} "
+        f"{_placements_word(thresholds.min_placements)} do kwalifikacji",
+        _LEADER_EXCLUDED_REQUIREMENT,
+    ]
+
+
+def _frozen_race(period: str, frozen: "FrozenResult", requirements: list[str]) -> dict:
+    """Wyścig zamkniętego miesiąca w kształcie `compose_monthly_races`."""
+    excluded = set(frozen.excluded_user_ids)
+    ranking = [
+        {
+            **{k: v for k, v in entry.items() if k not in _MARGIN_EXTRAS},
+            "rank": idx,
+            "excluded": int(entry["user_id"]) in excluded,
+        }
+        for idx, entry in enumerate(frozen.ranking, start=1)
+    ]
+    winner = next((w for w in frozen.top3 if w["rank"] == 1), None)
+    qualified = None
+    if winner is not None:
+        qualified = next(
+            (e for e in ranking if int(e["user_id"]) == winner["user_id"]),
+            {**winner, "excluded": False},
+        )
+    leader_tie = next((t for t in frozen.ties if 1 in t.get("positions", [])), None)
+    return {
+        "period": period,
+        "days_remaining": None,
+        "prize": {
+            "amount_pln": MONTHLY_RACE_PRIZE_PLN,
+            "name": MONTHLY_RACE_PRIZE_NAME,
+        },
+        "requirements": requirements,
+        "ranking": ranking,
+        "excluded_user_ids": sorted(excluded),
+        "exclusion_source": frozen.exclusion_source,
+        "exclusion_quarter": frozen.exclusion_quarter,
+        "qualified_leader": qualified,
+        "leader_tie_user_ids": list(leader_tie.get("user_ids", []))
+        if leader_tie
+        else [],
+        "is_frozen": True,
+        "closure_status": frozen.status,
+        "source": frozen.source,
+        "source_note": frozen.source_note,
+    }
 
 
 async def _attach_per_day(db: AsyncSession, ranking: list[dict], period: str) -> None:
@@ -1431,11 +2115,10 @@ async def compute_live(
     raise ValueError(f"Unknown competition type: {type_}")
 
 
-def _prize_for(type_: CompetitionType, rank: int) -> int:
-    if type_ in (
-        CompetitionType.quarterly_champions_dl,
-        CompetitionType.quarterly_champions_recruiter,
-    ):
+def _prize_for(type_: CompetitionType, rank: int, period: Optional[str] = None) -> int:
+    if type_ == CompetitionType.quarterly_champions_dl:
+        return QUARTERLY_PRIZES_PLN.get(rank, 0) if dl_league_pays(period) else 0
+    if type_ == CompetitionType.quarterly_champions_recruiter:
         return QUARTERLY_PRIZES_PLN.get(rank, 0)
     if type_ in (
         CompetitionType.monthly_recommendations,
@@ -1511,6 +2194,25 @@ async def freeze_competition(
     *,
     reason: str = "manual",
 ) -> FrozenPodium:
+    """Zamrożenie okresu (`_freeze_competition`) na świeżo policzonej zasłudze.
+
+    Ekrany czytają `credited` z minutowej migawki (`credited_snapshot`); podium
+    z nagrodą liczy ją od nowa, już pod blokadą okresu — poprawka etapu tuż
+    przed zamrożeniem musi się w nim znaleźć.
+    """
+    from app.services.credited_snapshot import fresh_credited_snapshot
+
+    async with fresh_credited_snapshot():
+        return await _freeze_competition(db, type_, period, reason=reason)
+
+
+async def _freeze_competition(
+    db: AsyncSession,
+    type_: CompetitionType,
+    period: str,
+    *,
+    reason: str,
+) -> FrozenPodium:
     """Write a podium once; a frozen historical period is immutable.
 
     Zwraca `FrozenPodium` — write-once ZOSTAJE (zamrożonej historii nie
@@ -1568,6 +2270,14 @@ async def freeze_competition(
         await db.commit()
         return FrozenPodium([], already_frozen=True, closure_status=closure.status)
 
+    if type_ in _MONTHLY_TYPES:
+        # Progi, którymi ten okres jest rozliczany, zostają zapisane — okres
+        # bez migawki (sprzed wdrożenia) dostaje progi bieżące, jak dotąd.
+        await snapshot_monthly_race_thresholds(db, period)
+        # Wykluczenie lidera kwartału liczy Ligę tego kwartału (R4-16).
+        await snapshot_league_scoring_config(db, quarter_of_month(period))
+    elif type_ == CompetitionType.quarterly_champions_recruiter:
+        await snapshot_league_scoring_config(db, period)
     ranked = await compute_live(db, type_, period)
     # Filtr kwalifikacji jest BEZWARUNKOWY (w `award_order`), nie zawężony do
     # jednego typu: `qualified_for_award` domyślnie przepuszcza wiersze bez
@@ -1605,12 +2315,13 @@ async def freeze_competition(
             rank=idx,
             metric_value=r.metric_value,
             points=r.metric_value,
-            prize_pln=_prize_for(type_, idx),
+            prize_pln=_prize_for(type_, idx, period),
             frozen_snapshot={"top": full_snapshot, **meta},
         )
         db.add(winner)
         created.append(winner)
 
+    source, source_note = live_source(type_, period)
     db.add(
         CompetitionPeriodClosure(
             competition_type=type_.value,
@@ -1619,6 +2330,23 @@ async def freeze_competition(
             details={
                 **meta,
                 "top": full_snapshot,
+                # Lista tak, jak ją widział ekran w chwili zamrożenia (numeracja
+                # nagrodowa i lista wyścigu z wykluczeniem) — `frozen_result`
+                # pokazuje ją potem zamiast przeliczenia. Bez marży/h.
+                "rows": award_ranked_rows(type_, ranked, order),
+                "ranking": [
+                    {
+                        **{
+                            key: value
+                            for key, value in r.to_dict().items()
+                            if key not in _MARGIN_EXTRAS
+                        },
+                        "excluded": r.user_id in set(order.excluded_user_ids),
+                    }
+                    for r in ranked
+                ],
+                "source": source,
+                "source_note": source_note,
                 "frozen_at": datetime.now(tz=_WARSAW).isoformat(),
             },
         )
@@ -1633,6 +2361,167 @@ async def freeze_competition(
             sorted(held),
         )
     return FrozenPodium(created, already_frozen=False, closure_status=status)
+
+
+@dataclass
+class FrozenResult:
+    """Zamrożony wynik okresu do wyświetlenia — to, co wypłacono, nie przeliczenie."""
+
+    status: str
+    top3: list[dict]
+    rows: list[dict]
+    ranking: list[dict]
+    ties: list[dict]
+    excluded_user_ids: list[int]
+    exclusion_source: Optional[str]
+    exclusion_quarter: Optional[str]
+    source: str
+    source_note: Optional[str]
+
+
+async def frozen_result(
+    db: AsyncSession, type_: CompetitionType, period: str
+) -> Optional[FrozenResult]:
+    """Wynik okresu zamkniętego (`None` = okres otwarty, liczony na żywo).
+
+    Okres zamknięty pokazujemy z zamrożenia: przeliczenie na żywo po fakcie
+    dawałoby inne liczby niż wypłacone (dane dochodzą, okresy sprzed 12.10.2026
+    rozliczono regułami DynaReportera). Podium bierzemy z `competition_winners`
+    (tam trafia też rozstrzygnięty później remis), listę — z migawki zamknięcia.
+    """
+    from app.models.competition_period_closure import (
+        CLOSURE_FROZEN,
+        CLOSURE_TIE_PENDING,
+    )
+
+    closure = await _period_closure(db, type_, period)
+    winners = (
+        (
+            await db.execute(
+                select(CompetitionWinner)
+                .where(
+                    CompetitionWinner.competition_type == type_.value,
+                    CompetitionWinner.period == period,
+                )
+                .order_by(CompetitionWinner.rank)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if closure is None and not winners:
+        return None
+    details = dict(
+        (closure.details if closure is not None else None)
+        or (winners[0].frozen_snapshot if winners else None)
+        or {}
+    )
+    status = closure.status if closure is not None else CLOSURE_FROZEN
+    all_ties = details.get("ties") or []
+    ties = all_ties if status == CLOSURE_TIE_PENDING else []
+    held = {pos for tie in ties for pos in tie.get("positions", [])}
+    # Po decyzji admina remisujący spoza `competition_winners` przegrał remis:
+    # bez miejsca i bez kwoty, a nie drugi „#3” z nagrodą z migawki.
+    tie_losers = (
+        set()
+        if status == CLOSURE_TIE_PENDING
+        else {int(uid) for tie in all_ties for uid in tie.get("user_ids", [])}
+    )
+    rows = [dict(row) for row in details.get("rows") or []]
+    if not rows:
+        # Zamrożenia sprzed 15.10.2026 trzymają tylko `top` — kolejność
+        # nagrodową zakwalifikowanych.
+        rows = [
+            {
+                **{k: v for k, v in entry.items() if k not in _MARGIN_EXTRAS},
+                "rank": idx,
+                "tied": idx in held,
+                "excluded": False,
+                "prize_pln": 0 if idx in held else _prize_for(type_, idx, period),
+            }
+            for idx, entry in enumerate(details.get("top") or [], start=1)
+        ]
+
+    user_ids = {w.user_id for w in winners} | {
+        int(row["user_id"]) for row in rows if row.get("user_id") is not None
+    }
+    names: dict[int, str] = {}
+    if user_ids:
+        names = {
+            r.id: r.name
+            for r in (
+                await db.execute(
+                    select(User.id, User.name).where(User.id.in_(user_ids))
+                )
+            ).all()
+        }
+    by_winner = {w.user_id: w for w in winners}
+    for row in rows:
+        uid = int(row["user_id"])
+        row["name"] = names.get(uid, row.get("name"))
+        winner = by_winner.get(uid)
+        if winner is not None:
+            # Remis rozstrzygnięty przez admina po zamrożeniu: miejsce i kwota
+            # z wiersza podium.
+            row.update(rank=winner.rank, tied=False, prize_pln=winner.prize_pln)
+        elif uid in tie_losers:
+            row.update(rank=None, tied=False, prize_pln=None)
+    rows.sort(key=lambda row: (row.get("rank") is None, row.get("rank") or 0))
+    by_row = {int(row["user_id"]): row for row in rows}
+    top3 = [
+        {
+            **by_row.get(w.user_id, {}),
+            "user_id": w.user_id,
+            "name": names.get(w.user_id, f"#{w.user_id}"),
+            "rank": w.rank,
+            "metric_value": w.metric_value,
+            "prize_pln": w.prize_pln,
+            "tied": False,
+        }
+        for w in winners
+    ]
+    ranking = []
+    for entry in details.get("ranking") or details.get("top") or []:
+        uid = int(entry["user_id"])
+        ranking.append(
+            {
+                **{k: v for k, v in entry.items() if k not in _MARGIN_EXTRAS},
+                "name": names.get(uid, entry.get("name")),
+            }
+        )
+    return FrozenResult(
+        status=status,
+        top3=top3,
+        rows=rows,
+        ranking=ranking,
+        ties=ties,
+        excluded_user_ids=list(details.get("excluded_user_ids") or []),
+        exclusion_source=details.get("exclusion_source"),
+        exclusion_quarter=details.get("exclusion_quarter"),
+        source=details.get("source") or competition_history.SOURCE_NEXUS,
+        source_note=details.get("source_note"),
+    )
+
+
+def live_source(type_: CompetitionType, period: str) -> tuple[str, Optional[str]]:
+    """Skąd pochodzą liczby rankingu na żywo i zdanie dla ekranu.
+
+    Liga DL i Hall of Fame liczą tylko NEXUS — DynaReporter ich nie prowadził.
+    """
+    if type_ == CompetitionType.quarterly_champions_recruiter:
+        start, end = quarter_bounds(*parse_quarter(period))
+    elif type_ in _MONTHLY_TYPES:
+        start, end = month_bounds(*parse_month(period))
+    else:
+        return competition_history.SOURCE_NEXUS, None
+    source = competition_history.window_source(start, end)
+    if source == competition_history.SOURCE_MIXED:
+        return source, competition_history.MIXED_SOURCE_NOTE
+    if source == competition_history.SOURCE_DYNAREPORTER:
+        return source, (
+            "Liczone z wpisów DynaReportera — okres czeka na rozliczenie jego regułami."
+        )
+    return source, None
 
 
 class TieResolutionError(Exception):
@@ -1681,7 +2570,7 @@ async def pending_competition_ties(db: AsyncSession) -> list[dict]:
                     {
                         **tie,
                         "prizes_pln": {
-                            str(pos): _prize_for(ctype, pos)
+                            str(pos): _prize_for(ctype, pos, closure.period)
                             for pos in tie.get("positions", [])
                         },
                     }
@@ -1763,7 +2652,7 @@ async def resolve_competition_tie(
     resolution = {
         "user_ids": user_ids,
         "assignments": [
-            {"rank": pos, "user_id": uid, "prize_pln": _prize_for(type_, pos)}
+            {"rank": pos, "user_id": uid, "prize_pln": _prize_for(type_, pos, period)}
             for pos, uid, _entry in assignments
         ],
         "resolved_by": actor_id,
@@ -1779,7 +2668,7 @@ async def resolve_competition_tie(
                 rank=pos,
                 metric_value=metric,
                 points=metric,
-                prize_pln=_prize_for(type_, pos),
+                prize_pln=_prize_for(type_, pos, period),
                 frozen_snapshot={
                     "top": details.get("top", []),
                     "freeze_reason": details.get("freeze_reason"),

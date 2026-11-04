@@ -10,8 +10,6 @@ Members of a candidate chat:
       (so reply chains stay accessible even after pipeline changes)
 """
 
-from typing import Iterable
-
 from sqlalchemy import distinct, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -163,10 +161,3 @@ async def list_candidate_chat_members(
     users = list(rows.scalars().all())
     users.sort(key=lambda u: (u.role.value, u.name.lower()))
     return users
-
-
-async def filter_to_candidate_members(
-    db: AsyncSession, candidate_id: int, user_ids: Iterable[int]
-) -> list[int]:
-    members = set(await list_candidate_chat_member_ids(db, candidate_id))
-    return [uid for uid in user_ids if uid in members]

@@ -12,10 +12,11 @@
 // Zapis niesie `expected_version`: dwie karty z otwartą edycją nie nadpisują
 // sobie układu po cichu — 409 przeładowuje pulpit i mówi to wprost.
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react"
+import Link from "next/link"
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
-import { Check, LayoutGrid, Plus, Undo2 } from "lucide-react"
+import { Check, LayoutGrid, Plus, RotateCcw, Undo2, Users } from "lucide-react"
 
 import { useToast } from "@/components/Toast"
 import { ContactOversightPanel } from "@/components/candidate-contact/ContactOversightPanel"
@@ -24,10 +25,12 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState"
 import { apiErrorMessage } from "@/lib/api-error"
+import { useHrConfig } from "@/lib/api/hr"
 import {
   USER_DASHBOARD_QUERY_KEY,
   isDashboardVersionConflict,
   useSaveUserDashboard,
+  useSetDashboardPanelHidden,
   useUserDashboard,
   type DashboardTile,
   type TileConfig,
@@ -35,24 +38,82 @@ import {
 import {
   TILE_DEFINITIONS,
   TILE_TEMPLATES,
-  recommendedTemplates,
   type TileTemplate,
 } from "@/lib/dashboard-tiles/catalog"
+import {
+  CONTACT_TILE_TYPES,
+  announcedTile,
+  recommendedTemplates,
+  roleDefaultTemplates,
+  roleDefaultTiles,
+  roleLayoutLabel,
+} from "@/lib/dashboard-tiles/role-layouts"
 import {
   MAX_TILES,
   appendTemplates,
   duplicateTile,
+  prependTemplate,
   removeTile,
 } from "@/lib/dashboard-tiles/layout"
+import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature"
+import { TO_COMPLETE_TILE_TYPE } from "@/lib/dashboard-to-complete"
+import { BoardTasksPanelProvider } from "./BoardTasksTile"
 import { useAuthStore } from "@/store/auth"
+import {
+  canCustomizeBoardPanel,
+  effectiveHiddenPanels,
+  type DashboardPanelKey,
+} from "@/lib/dashboard-panels"
 
 import { DashboardGrid, type DashboardGridMode } from "./DashboardGrid"
 import { EmptyDashboard } from "./EmptyDashboard"
 import { BoardTasksPanel } from "../BoardTasksPanel"
+import { DlSendQueueBand, showsDlSendBand } from "../DlSendQueueBand"
+import { EsignCompanyBand } from "../EsignCompanyBand"
+import { BoardPanelsMenu } from "./BoardPanelsMenu"
 import { TileCatalogSheet } from "./TileCatalogSheet"
 import { TileSettingsDialog } from "./TileSettingsDialog"
+import { P0NowPanel } from "@/components/v2/jobs/p0/P0NowPanel"
+import { AnnouncementPublishButton, AnnouncementsPanel } from "../announcements/AnnouncementsPanel"
 
 const CONTACT_OVERSIGHT_HASH = "#nadzor-kontaktu"
+const BOARD_TASKS_TILE_TYPE = "board_tasks"
+const ANNOUNCED_DISMISS_KEY = "nexus:dashboardAnnouncedDismissed:v1"
+const ROLE_LAYOUT_ACK_KEY = "nexus:dashboardRoleLayoutAck:v1"
+
+function readFlag(key: string): boolean {
+  try {
+    return window.localStorage.getItem(key) === "1"
+  } catch {
+    return false
+  }
+}
+
+function writeFlag(key: string) {
+  try {
+    window.localStorage.setItem(key, "1")
+  } catch {
+    // Brak pamięci przeglądarki: baner wróci przy następnym wejściu.
+  }
+}
+
+function readDismissed(): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(ANNOUNCED_DISMISS_KEY)
+    const parsed: unknown = raw ? JSON.parse(raw) : []
+    return new Set(Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function writeDismissed(values: Set<string>) {
+  try {
+    window.localStorage.setItem(ANNOUNCED_DISMISS_KEY, JSON.stringify([...values]))
+  } catch {
+    // Brak pamięci przeglądarki: baner wróci przy następnym wejściu — to wszystko.
+  }
+}
 /** `?panel=nadzor-kontaktu` — link alertów SLA (FE-N09); hash zostaje dla starych. */
 export const CONTACT_OVERSIGHT_PANEL = "nadzor-kontaktu"
 
@@ -103,17 +164,48 @@ export function CustomDashboard() {
   const queryClient = useQueryClient()
   const { showError, showSuccess } = useToast()
   const query = useUserDashboard()
+  const setPanelHidden = useSetDashboardPanelHidden()
   const save = useSaveUserDashboard()
+  const storedHiddenPanels = query.data?.hidden_panels
+  const hiddenPanels = useMemo(
+    () => effectiveHiddenPanels(user, storedHiddenPanels),
+    [user, storedHiddenPanels],
+  )
+  const canCustomizePanels = canCustomizeBoardPanel(user)
+  // Pas „Do wysłania do klienta” — panel pod nim musi wiedzieć, że stoi.
+  const dlSendBand = showsDlSendBand(user, hiddenPanels)
+  const togglePanel = (panel: DashboardPanelKey, hidden: boolean) =>
+    setPanelHidden.mutate(
+      { panel, hidden },
+      {
+        onError: (error) =>
+          showError(apiErrorMessage(error, "Nie udało się zapisać list nad pulpitem.")),
+      },
+    )
 
   const [editing, setEditing] = useState(false)
   // Tryb siatki mierzony przez `DashboardGrid` (szerokość kontenera). „Edytuj
   // układ" tylko przy siatce — w liście przeciąganie nie działa.
   const [gridMode, setGridMode] = useState<DashboardGridMode | null>(null)
   const [draft, setDraft] = useState<DashboardTile[]>([])
+  // Runda 10 (R10-N1-2): wersja, z której powstał szkic. Powrót do karty
+  // pobiera pulpit ponownie (refetchOnWindowFocus) — zapis szkicu z NOWĄ
+  // wersją nadpisywał bez 409 zmianę zrobioną w innej karcie.
+  const [draftBaseVersion, setDraftBaseVersion] = useState(0)
   const [history, setHistory] = useState<DashboardTile[][]>([])
   const [catalogOpen, setCatalogOpen] = useState(false)
   const [dialog, setDialog] = useState<Dialog>(null)
   const [oversightFromAlert, setOversightFromAlert] = useState(false)
+  // Odrzucone ogłoszenia nowych kafelków — pamięć przeglądarki, czytana po
+  // hydracji (inaczej serwer i klient renderowałyby różny baner).
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set())
+  const [dismissedLoaded, setDismissedLoaded] = useState(false)
+  const [roleLayoutAck, setRoleLayoutAck] = useState(true)
+  useEffect(() => {
+    setDismissed(readDismissed())
+    setDismissedLoaded(true)
+    setRoleLayoutAck(readFlag(ROLE_LAYOUT_ACK_KEY))
+  }, [])
   // Każde kliknięcie alertu przewija do panelu na nowo.
   const [oversightRequest, setOversightRequest] = useState(0)
   const openOversight = useCallback(() => {
@@ -121,7 +213,34 @@ export function CustomDashboard() {
     setOversightRequest((n) => n + 1)
   }, [])
 
-  const saved = query.data?.tiles ?? []
+  // 04.10.2026: konto bez zapisanego układu widzi układ swojej roli (29 z 35
+  // kont miało pusty pulpit). Pierwsza zmiana — usuń, dodaj, „Dostosuj” —
+  // zapisuje ten układ jako własny; od tej chwili serwer zwraca kafelki.
+  // Kafelki kontaktu z kandydatem rysują się tylko przy włączonej funkcji —
+  // bez niej układ roli pomija je, zamiast zostawiać pusty kafelek.
+  const roleHasContactTiles = useMemo(
+    () => roleDefaultTemplates(user).some((t) => CONTACT_TILE_TYPES.has(t.type)),
+    [user],
+  )
+  const contactFeature = useCandidateContactFeature({ queryEnabled: roleHasContactTiles })
+  // Kafelki „Ludzi w NEXUSIE” istnieją tylko przy włączonym module (stan
+  // z `/api/hr/config`, ten sam co w menu); bez niego katalog i układ roli
+  // ich nie mają.
+  const hrConfig = useHrConfig(Boolean(user))
+  const roleLayoutOptions = useMemo(
+    () => ({
+      ...(contactFeature.enabled ? {} : { skipTypes: CONTACT_TILE_TYPES }),
+      hr: hrConfig.data,
+    }),
+    [contactFeature.enabled, hrConfig.data],
+  )
+  const roleTiles = useMemo(
+    () => roleDefaultTiles(user, roleLayoutOptions),
+    [user, roleLayoutOptions],
+  )
+  const usesRoleLayout =
+    query.data?.uses_role_layout === true && (query.data?.tiles.length ?? 0) === 0
+  const saved = usesRoleLayout ? roleTiles : (query.data?.tiles ?? [])
   const version = query.data?.version ?? 0
   const tiles = editing ? draft : saved
 
@@ -195,6 +314,7 @@ export function CustomDashboard() {
 
   const startEditing = () => {
     setDraft(saved)
+    setDraftBaseVersion(version)
     setHistory([])
     setEditing(true)
   }
@@ -207,7 +327,7 @@ export function CustomDashboard() {
     if (savingRef.current) return
     savingRef.current = true
     save.mutate(
-      { tiles: draft, version },
+      { tiles: draft, version: draftBaseVersion },
       {
         onSettled: () => {
           savingRef.current = false
@@ -228,6 +348,10 @@ export function CustomDashboard() {
         },
       },
     )
+  }
+  const restoreRoleLayout = () => {
+    setHistory((h) => [...h.slice(-UNDO_LIMIT + 1), draft])
+    setDraft(roleDefaultTiles(user, roleLayoutOptions))
   }
   const undo = () => {
     if (history.length === 0) return
@@ -261,8 +385,21 @@ export function CustomDashboard() {
       const tile = tiles.find((t) => t.id === id)
       if (tile) setDialog({ mode: "edit", tile })
     },
-    onDuplicate: (id: string) => commit(duplicateTile(tiles, id), "Kafelek zduplikowany."),
-    onRemove: (id: string) => commit(removeTile(tiles, id), "Kafelek usunięty z pulpitu."),
+    onDuplicate: (id: string) => {
+      if (tiles.find((t) => t.id === id)?.type === BOARD_TASKS_TILE_TYPE) {
+        showError("„Czeka na Ciebie” stoi na pulpicie tylko raz.")
+        return
+      }
+      commit(duplicateTile(tiles, id), "Kafelek zduplikowany.")
+    },
+    onRemove: (id: string) => {
+      // Usunięty kafelek „Czeka na Ciebie” nie wraca jako pas nad siatką —
+      // panel znika z pulpitu, a przywraca go „Listy nad pulpitem” albo katalog.
+      if (tiles.find((t) => t.id === id)?.type === BOARD_TASKS_TILE_TYPE) {
+        togglePanel(BOARD_TASKS_TILE_TYPE, true)
+      }
+      commit(removeTile(tiles, id), "Kafelek usunięty z pulpitu.")
+    },
     // FE-N07: poza trybem edycji każda akcja zapisuje od razu — w trakcie
     // zapisu menu kafelka jest wyłączone.
     busy: busy && !editing,
@@ -290,8 +427,78 @@ export function CustomDashboard() {
     setDialog(null)
   }
 
-  const recommended = recommendedTemplates(user)
+  const recommended = recommendedTemplates(user, roleLayoutOptions)
+  const announced =
+    dismissedLoaded && query.isSuccess && saved.length > 0 && !editing && !usesRoleLayout
+      ? announcedTile(user, saved, dismissed)
+      : null
+  const roleLabel = roleLayoutLabel(user)
+  const dailyAvailable = TILE_DEFINITIONS.request_board.availability(user).ok
+  const dismissAnnounced = (type: string) => {
+    const next = new Set(dismissed)
+    next.add(type)
+    setDismissed(next)
+    writeDismissed(next)
+  }
   const dropped = query.data?.dropped_tiles ?? []
+
+  // „Do uzupełnienia” (prośba Olafa, 21.10.2026): kafelek na pulpicie zabiera
+  // trzy listy z „Czeka na Ciebie”; bez niego panel proponuje „Przenieś na
+  // pulpit”, a „Zostaw tutaj” chowa propozycję jak ogłoszenie kafelka.
+  // Kafelek bez dostępu do sekcji pokazuje tylko „Brak dostępu” — listy
+  // zostają wtedy w panelu, inaczej nie byłoby ich nigdzie.
+  const toCompleteAvailable = TILE_DEFINITIONS.to_complete.availability(user).ok
+  const toCompleteOnGrid =
+    toCompleteAvailable && saved.some((t) => t.type === TO_COMPLETE_TILE_TYPE)
+  const toCompleteTemplate = TILE_TEMPLATES.find((t) => t.type === TO_COMPLETE_TILE_TYPE)
+  const offerToComplete =
+    dismissedLoaded &&
+    query.isSuccess &&
+    toCompleteAvailable &&
+    !saved.some((t) => t.type === TO_COMPLETE_TILE_TYPE) &&
+    !dismissed.has(TO_COMPLETE_TILE_TYPE)
+  const moveToComplete = () => {
+    if (!toCompleteTemplate) return
+    if (tiles.length >= MAX_TILES) {
+      showError(`Pulpit mieści najwyżej ${MAX_TILES} kafelków.`)
+      return
+    }
+    commit(prependTemplate(tiles, toCompleteTemplate), "Kafelek „Do uzupełnienia” stoi na górze pulpitu.")
+  }
+
+  // „Czeka na Ciebie” jako kafelek (23.10.2026, Head of Recruitment i admin):
+  // kafelek na pulpicie = panel tylko w nim; bez kafelka panel stoi nad siatką,
+  // chyba że osoba usunęła go z pulpitu (`board_tasks` w ukrytych listach).
+  const boardTasksOnGrid =
+    TILE_DEFINITIONS.board_tasks.availability(user).ok &&
+    saved.some((t) => t.type === BOARD_TASKS_TILE_TYPE)
+  const boardTasksAbove = !boardTasksOnGrid && !hiddenPanels.has(BOARD_TASKS_TILE_TYPE)
+  const boardTasksTemplate = TILE_TEMPLATES.find((t) => t.type === BOARD_TASKS_TILE_TYPE)
+  const moveBoardTasks = () => {
+    if (!boardTasksTemplate) return
+    if (tiles.length >= MAX_TILES) {
+      showError(`Pulpit mieści najwyżej ${MAX_TILES} kafelków.`)
+      return
+    }
+    commit(prependTemplate(tiles, boardTasksTemplate), "„Czeka na Ciebie” stoi na górze pulpitu jako kafelek.")
+  }
+  const removeBoardTasks = () =>
+    setPanelHidden.mutate(
+      { panel: BOARD_TASKS_TILE_TYPE, hidden: true },
+      {
+        onSuccess: () => showSuccess("„Czeka na Ciebie” usunięty z pulpitu — wróci z „Listy nad pulpitem”."),
+        onError: (error) =>
+          showError(apiErrorMessage(error, "Nie udało się zapisać list nad pulpitem.")),
+      },
+    )
+  const boardTasksProps = {
+    hiddenPanels,
+    dlSendBand,
+    toCompleteOnGrid,
+    onMoveToComplete: offerToComplete ? moveToComplete : undefined,
+    onKeepToComplete: () => dismissAnnounced(TO_COMPLETE_TILE_TYPE),
+    moveBusy: busy,
+  }
 
   return (
     // Powłoka (`<main>`) daje już `p-4 md:p-6` — bez drugiego marginesu.
@@ -304,15 +511,33 @@ export function CustomDashboard() {
         description={
           editing
             ? "Edytujesz układ — zmiany widzisz tylko Ty"
-            : "Twój układ — widzisz go tylko Ty"
+            : usesRoleLayout && roleLabel
+              ? `Układ dla roli ${roleLabel}`
+              : "Twój układ — widzisz go tylko Ty"
         }
         actions={
           editing ? null : (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              {dailyAvailable ? (
+                <Button asChild variant="outline">
+                  <Link href="/jobs/daily">
+                    <Users className="h-4 w-4" aria-hidden />
+                    Przegląd requestów
+                  </Link>
+                </Button>
+              ) : null}
+              <AnnouncementPublishButton />
+              {canCustomizePanels && query.isSuccess ? (
+                <BoardPanelsMenu
+                  hidden={hiddenPanels}
+                  disabled={setPanelHidden.isPending}
+                  onChange={togglePanel}
+                />
+              ) : null}
               {saved.length > 0 && gridMode === "grid" ? (
                 <Button variant="outline" onClick={startEditing}>
                   <LayoutGrid className="h-4 w-4" />
-                  Edytuj układ
+                  Dostosuj pulpit
                 </Button>
               ) : null}
               <Button onClick={() => setCatalogOpen(true)}>
@@ -324,9 +549,27 @@ export function CustomDashboard() {
         }
       />
 
-      {/* Kolejka „Czeka na Ciebie" (przegląd DL, Cpro) stoi nad układem, a nie jako
-          kafelek: zadanie ma dotrzeć do osoby, która pulpitu nie układała. */}
-      {editing ? null : <BoardTasksPanel />}
+      {/* „Do wysłania do klienta” (Delivery Lead) i kolejka „Czeka na Ciebie” stoją
+          nad układem, a nie jako kafelki: zadanie ma dotrzeć do osoby, która
+          pulpitu nie układała. Pas pierwszy i na całą szerokość — w kolumnie
+          panelu gotowi do wysyłki ginęli między innymi listami. */}
+      {/* P0 — ultrapilne teraz (27.10.2026): u każdego nad wszystkim, bez
+          względu na własny układ (decyzja Artura); znika, gdy nie ma P0. */}
+      {editing ? null : <P0NowPanel />}
+      {/* Ogłoszenia (28.10.2026): HoR i admin publikują, u odbiorców nad
+          kafelkami bez względu na układ; znika, gdy nie ma aktywnych. */}
+      {editing ? null : <AnnouncementsPanel />}
+      {editing ? null : <EsignCompanyBand />}
+      {editing ? null : <DlSendQueueBand hiddenPanels={hiddenPanels} />}
+      {/* Panel czeka na układ pulpitu: inaczej listy „Do uzupełnienia” mignęłyby
+          w nim, zanim okaże się, że stoją w kafelku. */}
+      {editing || query.isPending || !boardTasksAbove ? null : (
+        <BoardTasksPanel
+          {...boardTasksProps}
+          onMoveToGrid={canCustomizePanels && boardTasksTemplate ? moveBoardTasks : undefined}
+          onRemovePanel={canCustomizePanels ? removeBoardTasks : undefined}
+        />
+      )}
 
       {editing ? (
         <div
@@ -355,6 +598,17 @@ export function CustomDashboard() {
             <Plus className="h-4 w-4" />
             Dodaj kafelek
           </Button>
+          {roleTiles.length > 0 ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={restoreRoleLayout}
+              className="text-background hover:bg-background/10"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Przywróć układ roli
+            </Button>
+          ) : null}
           <Button
             variant="ghost"
             size="sm"
@@ -366,6 +620,59 @@ export function CustomDashboard() {
           <Button size="sm" onClick={saveEditing} disabled={save.isPending}>
             <Check className="h-4 w-4" />
             Zapisz układ
+          </Button>
+        </div>
+      ) : null}
+
+      {usesRoleLayout && !editing && !roleLayoutAck && roleLabel && query.isSuccess ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm"
+        >
+          <p className="min-w-0 flex-1 text-foreground">
+            To jest pulpit ustawiony dla roli <strong className="font-semibold">{roleLabel}</strong>.{" "}
+            <span className="text-muted-foreground">
+              Możesz go zmienić w „Dostosuj pulpit” — wtedy zapisze się jako Twój.
+            </span>
+          </p>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setRoleLayoutAck(true)
+              writeFlag(ROLE_LAYOUT_ACK_KEY)
+            }}
+          >
+            Rozumiem
+          </Button>
+        </div>
+      ) : null}
+
+      {announced ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm"
+        >
+          <p className="min-w-0 flex-1 text-foreground">
+            <strong className="font-semibold">Nowy kafelek: {announced.label}.</strong>{" "}
+            <span className="text-muted-foreground">{announced.description}</span>
+          </p>
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() => {
+              if (tiles.length >= MAX_TILES) {
+                showError(`Pulpit mieści najwyżej ${MAX_TILES} kafelków.`)
+                return
+              }
+              commit(prependTemplate(tiles, announced), "Dodano na górę pulpitu.")
+            }}
+          >
+            <Plus className="h-4 w-4" />
+            Dodaj na górę pulpitu
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => dismissAnnounced(announced.type)}>
+            Nie teraz
           </Button>
         </div>
       ) : null}
@@ -423,17 +730,19 @@ export function CustomDashboard() {
           disabled={save.isPending}
         />
       ) : (
-        <DashboardGrid
-          tiles={tiles}
-          editing={editing}
-          actions={actions}
-          onModeChange={setGridMode}
-          onLayoutChange={(next) => {
-            if (next === draft) return
-            setHistory((h) => [...h.slice(-UNDO_LIMIT + 1), draft])
-            setDraft(next)
-          }}
-        />
+        <BoardTasksPanelProvider value={boardTasksProps}>
+          <DashboardGrid
+            tiles={tiles}
+            editing={editing}
+            actions={actions}
+            onModeChange={setGridMode}
+            onLayoutChange={(next) => {
+              if (next === draft) return
+              setHistory((h) => [...h.slice(-UNDO_LIMIT + 1), draft])
+              setDraft(next)
+            }}
+          />
+        </BoardTasksPanelProvider>
       )}
 
       <TileCatalogSheet
@@ -442,6 +751,21 @@ export function CustomDashboard() {
         user={user}
         onPick={pickTemplate}
         onCustomMetric={() => pickTemplate(CUSTOM_METRIC_TEMPLATE)}
+        hr={hrConfig.data}
+        hiddenPanels={[...hiddenPanels]}
+        onRestorePanel={(panel) =>
+          setPanelHidden.mutate(
+            { panel, hidden: false },
+            {
+              onSuccess: () => {
+                setCatalogOpen(false)
+                showSuccess("Lista wróciła na pulpit.")
+              },
+              onError: (error) =>
+                showError(apiErrorMessage(error, "Nie udało się przywrócić listy.")),
+            },
+          )
+        }
       />
       <TileSettingsDialog
         tile={dialog?.tile ?? null}

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -44,7 +45,21 @@ import {
   chatMessageDomId,
   useChatMessageFocus,
 } from "@/hooks/useChatMessageFocus";
+import { useActiveChat } from "@/lib/active-chat";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
+import {
+  CHAT_COMPOSE_MAX_ROWS,
+  EXPANDED_COMPOSE_HINT,
+  ExpandComposeButton,
+  composeKeyAction,
+  useChatCompose,
+} from "@/components/v2/pages/chat-compose";
+import { useMentionableUsers } from "@/hooks/useMentionableUsers";
+import {
+  buildUsersByEmail,
+  renderWithMentions,
+  type UsersByEmail,
+} from "@/lib/renderMentions";
 
 const QUICK_REACTIONS = ["👍", "❤️", "🎉", "🚀", "👀", "🤔", "🙏", "🔥"];
 
@@ -79,12 +94,24 @@ export default function JobChatTab({
 
   // ── Members (do wyświetlenia licznika "X członków" w headerze) ────────────
   // Autocomplete @mention używa hook'a w MentionTextarea, niezwiązanego z tym query.
-  const { data: members = [], error: membersError } = useQuery({
+  const {
+    data: members = [],
+    error: membersError,
+    isSuccess: membersLoaded,
+  } = useQuery({
     queryKey: ["job-chat-members", jobId],
     queryFn: async () => (await jobChatApi.getMembers(jobId)).data,
     staleTime: 60_000,
     retry: chatQueryRetry,
   });
+
+  // Wzmianki w treści: `@adres` pokazujemy jako imię i nazwisko (ta sama
+  // lista co podpowiedź przy „@” — jedno zapytanie, wspólny cache).
+  const { data: mentionUsers } = useMentionableUsers({ kind: "job", jobId });
+  const usersByEmail = useMemo(
+    () => buildUsersByEmail(mentionUsers ?? []),
+    [mentionUsers],
+  );
 
   // ── Pinned ────────────────────────────────────────────────────────────────
   const { data: pinned = [] } = useQuery({
@@ -130,6 +157,11 @@ export default function JobChatTab({
 
   // Auto-scroll do dołu tylko gdy user już jest blisko dołu
   const stickToBottomRef = useRef(true);
+  // Pole rośnie i rozwija się na całe okno czatu (`chat-compose.tsx`).
+  const { listCallbackRef, composeExpanded, setComposeExpanded } = useChatCompose(
+    listRef,
+    stickToBottomRef,
+  );
 
   const handleScroll = () => {
     const el = listRef.current;
@@ -161,7 +193,28 @@ export default function JobChatTab({
     onFocus: () => {
       stickToBottomRef.current = false;
     },
+    hasMore: messagesQuery.hasNextPage,
+    isLoadingMore: messagesQuery.isFetchingNextPage,
+    loadMore: () => {
+      void messagesQuery.fetchNextPage();
+    },
   });
+
+  // Dymek o nowej wiadomości nie pojawia się, gdy ten czat jest na ekranie.
+  useActiveChat("job", jobId);
+
+  // Wejście do czatu gasi jego powiadomienia po stronie serwera — okienko
+  // „Czaty” odświeżamy tylko, gdy coś faktycznie zgasło.
+  const markChatRead = useCallback(() => {
+    jobChatApi
+      .markRead(jobId)
+      .then((resp) => {
+        if ((resp.data?.notifications_cleared ?? 0) > 0) {
+          queryClient.invalidateQueries({ queryKey: ["notifications"] });
+        }
+      })
+      .catch(() => undefined);
+  }, [jobId, queryClient]);
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const sendMutation = useMutation({
@@ -175,6 +228,7 @@ export default function JobChatTab({
     onSuccess: () => {
       setText("");
       setReplyTo(null);
+      setComposeExpanded(false);
       stickToBottomRef.current = true;
       // Server emituje WS event do wszystkich (w tym do autora) → invalidacja
       // ride'uje na CHAT_BUS_EVENT, ale dla pewności wyzwalamy też tutaj.
@@ -192,6 +246,7 @@ export default function JobChatTab({
     onSuccess: () => {
       setText("");
       setEditingId(null);
+      setComposeExpanded(false);
       queryClient.invalidateQueries({
         queryKey: ["job-chat-messages", jobId, activeSearch],
       });
@@ -274,19 +329,19 @@ export default function JobChatTab({
         document.visibilityState === "visible"
       ) {
         // best-effort, w tle
-        jobChatApi.markRead(jobId).catch(() => undefined);
+        markChatRead();
       }
     };
     window.addEventListener(CHAT_BUS_EVENT, handler as EventListener);
     return () =>
       window.removeEventListener(CHAT_BUS_EVENT, handler as EventListener);
-  }, [jobId, activeSearch, queryClient, readOnly]);
+  }, [jobId, activeSearch, queryClient, readOnly, markChatRead]);
 
   // Mark read on mount + przy każdej zmianie ostatniej wiadomości (jeśli tab widoczny)
   useEffect(() => {
     if (readOnly) return;
-    jobChatApi.markRead(jobId).catch(() => undefined);
-  }, [jobId, messages.length, readOnly]);
+    markChatRead();
+  }, [markChatRead, messages.length, readOnly]);
 
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = (e?: FormEvent) => {
@@ -305,12 +360,18 @@ export default function JobChatTab({
   };
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    const action = composeKeyAction(e, composeExpanded);
+    if (action === "send") {
       e.preventDefault();
       handleSubmit();
       return;
     }
-    if (e.key === "Escape") {
+    if (action === "collapse") {
+      e.preventDefault();
+      setComposeExpanded(false);
+      return;
+    }
+    if (action === "cancel") {
       if (editingId !== null) {
         setEditingId(null);
         setText("");
@@ -339,7 +400,9 @@ export default function JobChatTab({
 
   // Zakładka odpala kilka zapytań naraz (members / pinned / messages) i część
   // 403 była połykana — czat renderował się jako pusty, jakby po prostu nie
-  // było wiadomości (audyt F-20). Brak członkostwa → jasny komunikat; awaria
+  // było wiadomości (audyt F-20). Od 23.09.2026 czat czyta każda rola
+  // wewnętrzna, więc 403 znaczy brak dostępu konta do rekrutacji, nie brak
+  // członkostwa w zespole. Odmowa → jasny komunikat; awaria
   // (5xx) → komunikat o błędzie z ponowieniem, NIGDY pusty czat.
   const accessDenied =
     isForbiddenError(messagesQuery.error) || isForbiddenError(membersError);
@@ -351,8 +414,8 @@ export default function JobChatTab({
         <MessageCircle className="w-10 h-10 text-muted-foreground" />
         <h2 className="text-base font-semibold">Brak dostępu do czatu</h2>
         <p className="text-sm text-muted-foreground max-w-sm">
-          Czat tej rekrutacji jest dostępny tylko dla osób z jej zespołu (rekruter,
-          DL, TAC lub współpracownik rekrutacji). To nie znaczy, że czat jest pusty.
+          Twoje konto nie ma dostępu do rekrutacji, więc nie widzi też ich
+          czatów. Dostęp nadaje administrator. To nie znaczy, że czat jest pusty.
         </p>
       </div>
     );
@@ -388,9 +451,17 @@ export default function JobChatTab({
         <div className="flex items-center gap-2">
           <MessageCircle className="w-5 h-5 text-primary" />
           <h2 className="text-base font-semibold">Chat zespołu</h2>
-          <span className="text-xs text-muted-foreground">
-            {members.length} członków
-          </span>
+          {/* Liczba dopiero po wczytaniu — „0 członków” w trakcie ładowania
+              wyglądało jak czat bez nikogo. Pisać i być oznaczoną może każda
+              osoba z dostępem; zespół dostaje powiadomienie o każdej wiadomości. */}
+          {membersLoaded ? (
+            <span
+              className="text-xs text-muted-foreground"
+              title="Osoby z zespołu dostają powiadomienie o każdej wiadomości. Oznaczyć przez @ możesz każdą osobę z dostępem."
+            >
+              zespół: {members.length}
+            </span>
+          ) : null}
         </div>
         <form onSubmit={handleSearchSubmit} className="flex items-center gap-1">
           <div className="relative">
@@ -420,7 +491,7 @@ export default function JobChatTab({
       </div>
 
       {/* Pinned bar */}
-      {pinned.length > 0 && (
+      {pinned.length > 0 && !composeExpanded && (
         <div className="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 px-4 py-2 space-y-1">
           {pinned.map((p) => (
             <div key={p.id} className="flex items-start gap-2 text-xs">
@@ -447,8 +518,10 @@ export default function JobChatTab({
 
       {/* Message list */}
       <div
-        ref={listRef}
+        ref={listCallbackRef}
         onScroll={handleScroll}
+        // Rozwinięte pole zajmuje miejsce listy; lista wraca po zwinięciu.
+        hidden={composeExpanded}
         className="flex-1 overflow-y-auto px-4 py-3 space-y-3"
       >
         {messagesQuery.isFetchingNextPage && (
@@ -474,6 +547,7 @@ export default function JobChatTab({
           >
             <MessageRow
               message={m}
+              usersByEmail={usersByEmail}
               currentUserId={user?.id ?? -1}
               canPin={canPin}
               isAdmin={!readOnly && user?.role === "admin"}
@@ -529,10 +603,18 @@ export default function JobChatTab({
       {!readOnly ? (
       <form
         onSubmit={handleSubmit}
-        className="relative border-t border-border dark:border-border px-3 py-2"
+        className={cn(
+          "relative border-t border-border dark:border-border px-3 py-2",
+          composeExpanded && "flex min-h-0 flex-1 flex-col gap-1.5",
+        )}
+        // Esc zwija rozwinięte pole — panel „Historia i czat” ma go nie zamykać.
+        data-keep-sheet-on-escape={composeExpanded ? "" : undefined}
       >
-        <div className="flex items-end gap-2">
-          <div className="flex-1">
+        {composeExpanded ? (
+          <p className="text-xs text-muted-foreground">{EXPANDED_COMPOSE_HINT}</p>
+        ) : null}
+        <div className={cn("flex items-end gap-2", composeExpanded && "min-h-0 flex-1")}>
+          <div className={cn("flex-1", composeExpanded && "h-full")}>
             <MentionTextarea
               value={text}
               onChange={setText}
@@ -542,13 +624,25 @@ export default function JobChatTab({
               placeholder={
                 editingId !== null
                   ? "Edytuj wiadomość…"
-                  : "Napisz wiadomość… (@email aby oznaczyć osobę, Enter wysyła, Shift+Enter = nowa linia)"
+                  : "Napisz wiadomość… (@ oznacza osobę, Enter wysyła, Shift+Enter = nowa linia)"
               }
               rows={2}
+              maxRows={CHAT_COMPOSE_MAX_ROWS}
+              // Rozwinięte pole wypełnia okno czatu, więc nie liczy wysokości z tekstu.
+              autoGrow={!composeExpanded}
+              wrapperClassName={composeExpanded ? "h-full" : undefined}
+              className={composeExpanded ? "h-full" : undefined}
               disabled={sendMutation.isPending || editMutation.isPending}
               ariaLabel="Treść wiadomości chatu"
             />
           </div>
+          <ExpandComposeButton
+            expanded={composeExpanded}
+            onToggle={() => {
+              setComposeExpanded(!composeExpanded);
+              requestAnimationFrame(() => textareaRef.current?.focus());
+            }}
+          />
           <button
             type="submit"
             disabled={
@@ -579,6 +673,7 @@ export default function JobChatTab({
 
 interface MessageRowProps {
   message: ChatMessage;
+  usersByEmail: UsersByEmail;
   currentUserId: number;
   canPin: boolean;
   isAdmin: boolean;
@@ -595,6 +690,7 @@ interface MessageRowProps {
 
 function MessageRow({
   message,
+  usersByEmail,
   currentUserId,
   canPin,
   isAdmin,
@@ -673,7 +769,9 @@ function MessageRow({
             message.is_deleted && "italic text-muted-foreground",
           )}
         >
-          {message.content}
+          {message.is_deleted
+            ? message.content
+            : renderWithMentions(message.content, usersByEmail)}
         </div>
 
         {/* Reactions chips */}

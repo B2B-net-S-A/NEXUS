@@ -1,4 +1,6 @@
 import api from "@/lib/api";
+import type { JobCloseReason } from "@/types/client-profile";
+import type { MyKpiGoals } from "@/lib/api";
 
 /**
  * Klient `/api/insights/*` — powierzchni Insights liczonej z danych
@@ -56,6 +58,11 @@ export interface FunnelStage {
    */
   mapped_from_traffit: boolean;
   share_pct: number | null;
+  /**
+   * Dzień, od którego etap jest liczony w tym oknie (np. akceptacje od
+   * 12.10.2026 — wcześniej nikt ich nie odnotowywał). `null` = całe okno.
+   */
+  counted_from: string | null;
 }
 
 export interface FunnelConversion {
@@ -63,8 +70,84 @@ export interface FunnelConversion {
   label: string;
   numerator: number;
   denominator: number;
-  /** `null` = zerowy mianownik, czyli luka. Nigdy nie mylić z 0. */
+  /** `null` = zerowy mianownik albo etapy z różnych części okna. Nigdy nie mylić z 0. */
   pct: number | null;
+  /** Licznik i mianownik liczone od różnych dni okna — ilorazu nie ma. */
+  partial_window: boolean;
+}
+
+/** `GET /api/insights/recruitment/in-flight` — stan na dziś za weryfikacją. */
+export interface InFlightColumn {
+  column: "cv_qc" | "cv_sent" | "client_interview" | "contract";
+  label: string;
+  count: number;
+  /** Ile par stoi w kolumnie dłużej niż `stale_days`. */
+  stale_count: number;
+  oldest_days: number | null;
+}
+
+export interface InFlightAcceptance {
+  job_id: number;
+  job_title: string;
+  client_id: number | null;
+  client_name: string | null;
+  delivery_lead_name: string | null;
+  stage_key: "acceptance" | "contract_sent" | "contract_signed";
+  stage_label: string;
+  since: string;
+  days: number;
+}
+
+export type InFlightScope = "mine" | "portfolio";
+
+/** `GET /api/insights/recruitment/weekly-trend` — tygodnie od poniedziałku. */
+export interface WeeklyTrendResponse {
+  weeks: {
+    week_start: string;
+    /** Bieżący tydzień — jeszcze trwa. */
+    partial: boolean;
+    /** `null` = etap nieodnotowywany w tym tygodniu (akceptacje przed 12.10.2026). */
+    counts: Record<
+      "verified" | "cv_sent" | "client_interview" | "acceptance" | "hired",
+      number | null
+    >;
+  }[];
+}
+
+/** Para w „Moje osoby w drodze” (`/in-flight/me`). */
+export interface InFlightPerson extends Omit<InFlightAcceptance, "stage_key"> {
+  column: InFlightColumn["column"];
+  stage_key: string;
+  /** `null` = konto bez odczytu sekcji Rekrutacja. */
+  candidate_id: number | null;
+  candidate_name: string | null;
+}
+
+/** Cele zespołu w Insights + placementy całej firmy w tym miesiącu (jak lejek). */
+export interface TeamGoalsResponse extends MyKpiGoals {
+  company_month_placements: number;
+}
+
+export interface InFlightResponse {
+  asof: string;
+  stale_days: number;
+  columns: InFlightColumn[];
+  /** `null` = konto bez `view_team_kpi` (lista ma klientów i Delivery Leadów). */
+  acceptances: InFlightAcceptance[] | null;
+  /** Tylko `/in-flight/me` — własne pary osoby. */
+  people?: InFlightPerson[] | null;
+  forecast: {
+    open: number;
+    hired: number;
+    resolved: number;
+    min_sample: number;
+    since: string;
+    /** `null` = mniej niż `min_sample` rozstrzygniętych akceptacji. */
+    rate_pct: number | null;
+    low: number | null;
+    high: number | null;
+  };
+  definitions: Record<"columns" | "forecast", string>;
 }
 
 export interface FunnelCoverage {
@@ -121,6 +204,8 @@ export interface TeamActivityEntry {
   interviews: number;
   placements: number;
   calls: number;
+  /** Osoby ze zgłoszeń przez linki tej osoby (starszy backend: brak pola). */
+  link_candidates?: number;
   total_actions: number;
   /** `null` = pusty ranking, czyli brak skali paska. Nigdy nie mylić z 0. */
   share_pct: number | null;
@@ -158,6 +243,36 @@ export interface InviteLinkChannel {
   /** `null` = zero linków, czyli brak mianownika. Legacy zwraca tu `0`. */
   conversion_pct: number | null;
   last_used_at: string | null;
+}
+
+/** Linki na osobę: `visits` w okresie (zapis dzienny), `visits_total` od początku. */
+export interface LinkPeopleRow {
+  user_id: number;
+  name: string;
+  general_link: boolean;
+  job_links: number;
+  visits: number;
+  visits_total: number;
+  applications_general: number;
+  applications_job: number;
+  new_candidates: number;
+  in_process: number;
+  cv_sent: number;
+  hired: number;
+}
+
+export interface LinkPeopleResponse {
+  period: InsightsPeriod;
+  rows: LinkPeopleRow[];
+  totals: {
+    links: number;
+    links_without_visits: number;
+    visits_total: number;
+    visits: number;
+    applications: number;
+  };
+  /** Pierwszy dzień z zapisanymi wejściami; starszych dat nie ma. */
+  visits_tracked_from: string | null;
 }
 
 export interface InviteLinksResponse {
@@ -222,6 +337,79 @@ export interface InsightsHiringManagersResponse {
 export interface AvailablePeriodsResponse {
   granularity: "week" | "month" | "quarter";
   periods: Array<{ start: string; milestones: number }>;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Zakładka „Źródła” — `/api/insights/sources*` (decyzja Artura 03.11.2026).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type SourceMetric =
+  | "people"
+  | "applications"
+  | "fresh"
+  | "known"
+  | "in_process"
+  | "verified"
+  | "cv_sent"
+  | "hired";
+
+export type SourceCounts = Record<SourceMetric, number>;
+
+export type SourceKey = "pracuj" | "jjit" | "link_general" | "link_job";
+
+export interface SourceRow extends SourceCounts {
+  source: SourceKey;
+  label: string;
+}
+
+export interface SourcesResponse {
+  period: InsightsPeriod;
+  /** Początek liczenia: okno przycięte do 12.10.2026. */
+  counted_from: string;
+  portals: SourceRow[];
+  portals_total: SourceCounts;
+  career: SourceRow[];
+  career_total: SourceCounts;
+  new_candidates_total: number;
+  new_candidates_without_source: number;
+}
+
+export interface SourceOffersResponse {
+  total: number;
+  rows: Array<SourceCounts & { offer: string }>;
+}
+
+export interface SourceLinksResponse {
+  rows: Array<SourceCounts & { key: number | null; label: string }>;
+}
+
+export interface SourcePeopleFilter {
+  source: SourceKey;
+  metric: SourceMetric;
+  offer?: string;
+  owner_id?: number;
+  job_id?: number;
+}
+
+export interface SourcePerson {
+  candidate_id: number;
+  name: string;
+  applied_at: string;
+  applications: number;
+  offer: string | null;
+  link_owner: string | null;
+  link_job_id: number | null;
+  link_job_title: string | null;
+  stage: string | null;
+  job_id: number | null;
+  job_title: string | null;
+}
+
+export interface SourcePeopleResponse {
+  total: number;
+  /** Zgłoszenia osób z listy: na portalu jedna osoba ma ich kilka. */
+  total_applications: number;
+  rows: SourcePerson[];
 }
 
 function periodQuery(p: InsightsPeriodParams): Record<string, string | number> {
@@ -373,6 +561,32 @@ export const insightsApi = {
       })
       .then((r) => r.data),
 
+  inFlight: () =>
+    api
+      .get<InFlightResponse>("/api/insights/recruitment/in-flight")
+      .then((r) => r.data),
+
+  /** `mine` = pary, które zweryfikowałem; `portfolio` = rekrutacje Delivery Leada. */
+  /** Cele zespołu — te same sumy co licznik HoR w pasku, bez osób. */
+  teamGoals: () =>
+    api
+      .get<TeamGoalsResponse>("/api/insights/recruitment/team-goals")
+      .then((r) => r.data),
+
+  weeklyTrend: (weeks: number) =>
+    api
+      .get<WeeklyTrendResponse>("/api/insights/recruitment/weekly-trend", {
+        params: { weeks },
+      })
+      .then((r) => r.data),
+
+  inFlightMe: (scope: InFlightScope) =>
+    api
+      .get<InFlightResponse>("/api/insights/recruitment/in-flight/me", {
+        params: { scope },
+      })
+      .then((r) => r.data),
+
   timeToHire: (p: InsightsPeriodParams & { min_hires?: number }) =>
     api
       .get<TimeToHireResponse>("/api/insights/recruitment/time-to-hire", {
@@ -406,6 +620,40 @@ export const insightsApi = {
           ...periodQuery(p),
           ...(p.limit ? { limit: p.limit } : {}),
         },
+      })
+      .then((r) => r.data),
+
+  /** Kto co przyniósł z linków. Trasa dla admina, Head of Recruitment i Delivery Leada. */
+  sources: (p: InsightsPeriodParams) =>
+    api
+      .get<SourcesResponse>("/api/insights/sources", { params: periodQuery(p) })
+      .then((r) => r.data),
+
+  sourceOffers: (p: InsightsPeriodParams, source: SourceKey, limit: number) =>
+    api
+      .get<SourceOffersResponse>("/api/insights/sources/offers", {
+        params: { ...periodQuery(p), source, limit },
+      })
+      .then((r) => r.data),
+
+  sourceLinks: (p: InsightsPeriodParams, source: SourceKey) =>
+    api
+      .get<SourceLinksResponse>("/api/insights/sources/links", {
+        params: { ...periodQuery(p), source },
+      })
+      .then((r) => r.data),
+
+  sourcePeople: (p: InsightsPeriodParams, filter: SourcePeopleFilter, limit: number) =>
+    api
+      .get<SourcePeopleResponse>("/api/insights/sources/people", {
+        params: { ...periodQuery(p), ...filter, limit },
+      })
+      .then((r) => r.data),
+
+  linkPeople: (p: InsightsPeriodParams) =>
+    api
+      .get<LinkPeopleResponse>("/api/insights/recruitment/link-people", {
+        params: periodQuery(p),
       })
       .then((r) => r.data),
 
@@ -464,6 +712,8 @@ export interface InsightsBoardFinance {
   priced_contracts: number;
   /** Kontrakty bez stawki kandydata — ich marża jest NIEZNANA, nie zerowa. */
   contracts_without_cost_leg: number;
+  /** Kontrakty bez stawki przychodowej — poza przychodem, kosztem i marżą. */
+  contracts_without_revenue_leg?: number;
   complete: boolean;
 }
 
@@ -505,6 +755,7 @@ export interface InsightsBoardDegraded {
     months_affected: string[];
   };
   contracts_without_cost_leg: number;
+  contracts_without_revenue_leg?: number;
   message: string;
 }
 
@@ -516,6 +767,12 @@ export interface InsightsBoardResponse {
     previous_period: InsightsPeriod;
     previous_asof: string;
     placements: InsightsDelta;
+    /** Okno porównania placementów; przy okresie w toku ten sam odcinek. */
+    placements_previous_window?: {
+      start: string;
+      end: string;
+      same_stretch: boolean;
+    };
     revenue_monthly_pln: InsightsDelta;
     margin_monthly_pln: InsightsDelta;
     active_consultants: InsightsDelta;
@@ -523,6 +780,25 @@ export interface InsightsBoardResponse {
   };
   /** `null` = policzone w całości. Degraduje KAFEL, nie stronę. */
   degraded: InsightsBoardDegraded | null;
+}
+
+/** `GET /api/insights/board/flows` — ruch konsultantów i popyt (22.10.2026). */
+export interface InsightsBoardFlowsCounts {
+  starts: number;
+  ends: number;
+  /** Podzbiór `ends`: konsultant zrezygnował (bez „klient zabrał”). */
+  resignations: number;
+  net: number;
+}
+
+export interface InsightsBoardFlowsResponse {
+  period: InsightsPeriod;
+  window: { from: string; to: string };
+  previous_window: { from: string; to: string };
+  consultants: InsightsBoardFlowsCounts;
+  previous_consultants: InsightsBoardFlowsCounts;
+  ending_without_continuation: { days: number; contracts: number };
+  jobs: { open: number; open_clients: number; new: number; previous_new: number };
 }
 
 export interface InsightsClientRankingRow {
@@ -656,7 +932,6 @@ export interface InsightsDeliveryLeadRow {
 export interface InsightsDeliveryLeadsResponse {
   period: InsightsPeriod;
   /** Ranking dotyczy WYŁĄCZNIE ofert tego typu — nie zsumuje się do lejka. */
-  recruitment_type: string;
   hit_ratio_target_pct: number;
   /** `snapshot_now` = otwarty pipeline NIE jest liczony w oknie. */
   open_pipeline_scope: string;
@@ -688,7 +963,6 @@ export interface InsightsDeliveryLeadsResponse {
 
 export interface InsightsPlacementsByClientResponse {
   period: InsightsPeriod;
-  recruitment_type: string;
   total_placements: number;
   clients: Array<{
     client_id: number | null;
@@ -703,7 +977,6 @@ export interface InsightsDeliveryLeadTrendResponse {
   name: string;
   is_active: boolean;
   months: number;
-  recruitment_type: string;
   /** `false` — każdy punkt to OSOBNE okno [start, end), nie ogon do dziś. */
   cumulative: boolean;
   trend: Array<{
@@ -757,7 +1030,9 @@ export interface InsightsYoYMetric {
   aggregate: InsightsYoYAggregate;
   /** Klucze w `component_series` — wymagane dla `aggregate: "ratio"`. */
   components: { numerator: string; denominator: string } | null;
-  /** Rok → wartość roczna. Wymagane dla `aggregate: "distinct"`. */
+  /** Rok → wartość roczna. Wymagane dla `aggregate: "distinct"`; przy
+   *  wskaźniku (`ratio`) zastępuje Σlicznik/Σmianownik, gdy roku nie da się
+   *  złożyć z miesięcy (udział top klienta). Bez porównania YTD. */
   yearly: Record<string, number | null> | null;
   /** Wzrost jest złą wiadomością (zejścia, koszty, koncentracja klienta). */
   lower_is_better: boolean;
@@ -892,6 +1167,29 @@ export interface InsightsCompetenceMatrixResponse {
   };
 }
 
+/** Wiersz listy kontrolnej zamknięć (`GET /api/insights/hit-ratio-closures`). */
+export interface HitRatioClosureRow {
+  job_id: number;
+  title: string;
+  client_id: number | null;
+  client_name: string | null;
+  close_reason: JobCloseReason | null;
+  close_notes: string | null;
+  duplicate_of_job_id: number | null;
+  closed_at: string | null;
+  closed_by_name: string | null;
+  delivery_lead_name: string | null;
+}
+
+/** Zamknięcia w grupach hit ratio od 12.10.2026 (21.10.2026). */
+export interface HitRatioClosuresResponse {
+  since: string;
+  counts: { won: number; lost: number; neutral: number; unreviewed: number };
+  hit_ratio: number | null;
+  neutral: HitRatioClosureRow[];
+  unreviewed: HitRatioClosureRow[];
+}
+
 export const insightsQueryKeys = {
   board: (p: InsightsPeriodParams) => ["insights", "board", p] as const,
   clientsRanking: (p: InsightsPeriodParams) =>
@@ -908,18 +1206,48 @@ export const insightsQueryKeys = {
     ["insights", "recruitment", "team-activity", p, limit ?? null] as const,
   inviteLinks: (p: InsightsPeriodParams) =>
     ["insights", "recruitment", "invite-links", p] as const,
+  linkPeople: (p: InsightsPeriodParams) =>
+    ["insights", "recruitment", "link-people", p] as const,
+  sources: (p: InsightsPeriodParams) => ["insights", "sources", p] as const,
+  sourceOffers: (p: InsightsPeriodParams, source: SourceKey, limit: number) =>
+    ["insights", "sources", "offers", p, source, limit] as const,
+  sourceLinks: (p: InsightsPeriodParams, source: SourceKey) =>
+    ["insights", "sources", "links", p, source] as const,
+  sourcePeople: (p: InsightsPeriodParams, filter: SourcePeopleFilter, limit: number) =>
+    ["insights", "sources", "people", p, filter, limit] as const,
   hiringManagers: (p: InsightsPeriodParams) =>
     ["insights", "clients", "hiring-managers", p] as const,
   // Siatka rok-do-roku NIE zależy od paska okresu — patrzy na pełne lata
   // kalendarzowe, więc klucz nie może nieść `period`.
   boardYoY: (p: InsightsYoYParams) => ["insights", "board", "yoy", p] as const,
+  boardFlows: (p: InsightsPeriodParams) => ["insights", "board", "flows", p] as const,
   dlPortfolio: (p: InsightsPeriodParams) =>
     ["insights", "delivery-leads", "portfolio", p] as const,
   competenceMatrix: () =>
     ["insights", "recruitment", "competence-matrix"] as const,
+  // Stan na dziś — bez okresu w kluczu.
+  inFlight: () => ["insights", "recruitment", "in-flight"] as const,
+  inFlightMe: (scope: InFlightScope) =>
+    ["insights", "recruitment", "in-flight", "me", scope] as const,
+  teamGoals: () => ["insights", "recruitment", "team-goals"] as const,
+  weeklyTrend: (weeks: number) =>
+    ["insights", "recruitment", "weekly-trend", weeks] as const,
+  hitRatioClosures: () => ["insights", "hit-ratio-closures"] as const,
 };
 
 export const insightsBoardApi = {
+  hitRatioClosures: () =>
+    api
+      .get<HitRatioClosuresResponse>("/api/insights/hit-ratio-closures")
+      .then((r) => r.data),
+
+  boardFlows: (p: InsightsPeriodParams) =>
+    api
+      .get<InsightsBoardFlowsResponse>("/api/insights/board/flows", {
+        params: periodQuery(p),
+      })
+      .then((r) => r.data),
+
   board: (p: InsightsPeriodParams) =>
     api
       .get<InsightsBoardResponse>("/api/insights/board", {

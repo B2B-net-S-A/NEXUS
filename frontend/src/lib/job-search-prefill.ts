@@ -174,6 +174,21 @@ const WORK_MODE_TOKENS = new Set([
 // „Warszawa lub okolice", „Kraków i okolica", „Gdańsk + okolice (hybrydowo)":
 // dopisek o okolicy i nawiasy nie są nazwą miasta — dosłowne „Warszawa lub
 // okolice" nie pasowało do żadnego kandydata (test manualny 21.09.2026).
+// Kraj i adres to nie miasto. „Polska (lokalizacja obowiązkowa)” szła jako
+// filtr miasta „Polska” i wycinała 91% osób, które zespół wybrał do takich
+// rekrutacji (audyt 26.09.2026); „ul. Chmielna 89” nie pasuje do nikogo.
+const COUNTRY_TOKENS = new Set([
+  "polska",
+  "cała polska",
+  "cala polska",
+  "poland",
+  "pl",
+  "europa",
+  "europe",
+  "ue",
+  "eu",
+]);
+const ADDRESS_PART = /^(?:ul|al|pl|os)\.?\s|\d/i;
 const NEARBY_SUFFIX = /\s*(?:(?:lub|i|oraz|albo|\+|&)\s*)?okolic[aey]?\b.*$/i;
 const PARENTHETICAL = /\([^)]*\)/g;
 // Alternatywy zapisane słowami („Warszawa lub Kraków") to kilka miast.
@@ -192,6 +207,8 @@ export function parseJobLocationCities(location?: string | null): string[] {
     const city = part.trim();
     if (!city) continue;
     if (WORK_MODE_TOKENS.has(city.toLowerCase())) continue;
+    if (COUNTRY_TOKENS.has(city.toLowerCase())) continue;
+    if (ADDRESS_PART.test(city)) continue;
     const key = city.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);

@@ -9,6 +9,8 @@ Artura: plakietka, nie ukrycie). Brak odpowiedzi nigdy nie ukrywa.
 
 from types import SimpleNamespace
 
+import pytest
+
 from app.services.dealbreaker_filters import (
     DealbreakerInputs,
     DealbreakerResult,
@@ -19,6 +21,16 @@ from app.services.dealbreaker_filters import (
     work_time_fit_status,
     work_time_mismatch,
 )
+
+
+@pytest.fixture(autouse=True)
+def _v8_must_gate(monkeypatch):
+    """Te testy opisują bramkę v8 (każde must-technologia, budżet i dni
+    ukrywają) — od 30.09.2026 to wyłącznik awaryjny ``MUST_GATE_MODE=all``.
+    Tryb domyślny (krytyczne) pilnuje ``test_critical_gate.py``."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "MUST_GATE_MODE", "all")
 
 
 def _cand(cid=1, **kw):
@@ -59,6 +71,7 @@ def test_employment_only_is_hidden_with_its_own_reason():
 def test_employment_only_wins_over_budget_and_survives_rubric_kill_switch(
     monkeypatch,
 ):
+
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "RUBRIC_DEALBREAKERS_ENABLED", False)

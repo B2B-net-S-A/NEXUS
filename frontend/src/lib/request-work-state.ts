@@ -50,7 +50,7 @@ export const STATE_HINT: Record<VisibleState, string> = {
   searching:
     "Ktoś musi dziś szukać i wysyłać ludzi. Tylko te requesty dostają osoby z przydziału i są na daily.",
   champion:
-    "DL oznaczył championa. Nie szukamy dalej, ludzie są zwolnieni. Jeśli champion odpadnie, request wraca do „Szukamy”.",
+    "DL wskazał championów. Nie szukamy dalej, ludzie są zwolnieni. Gdy odpadnie ostatni champion, request sam wraca do „Szukamy”.",
   client_silent:
     "Request jest otwarty, ale klient nie odpowiada i nikt nad nim nie pracuje. Wraca sam, gdy klient przyśle termin albo feedback.",
   finished:

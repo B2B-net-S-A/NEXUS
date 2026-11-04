@@ -3,6 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 
 import { DebriefDialog } from "@/components/calendar/cycle/DebriefDialog";
+import { invalidateAfterPipelineMove } from "@/lib/pipeline-move-invalidation";
 
 /**
  * Bramka „telefon po rozmowie u klienta” na tablicy rekrutacji (pipeline v4,
@@ -17,22 +18,34 @@ import { DebriefDialog } from "@/components/calendar/cycle/DebriefDialog";
  * po rozmowie, której jeszcze nie było.
  *
  * Debrief zapisuje się pod wydarzeniem rozmowy (`eventId`); `jobId` służy
- * odświeżeniu tablicy (odznaka „Debrief ✓” na karcie) — oba klucze kanbana,
- * jak po każdym ruchu.
+ * odświeżeniu tablicy (odznaka „Debrief ✓” na karcie) i panelu osoby —
+ * ta sama lista co po każdym ruchu (`invalidateAfterPipelineMove`).
+ *
+ * `eventId = null` (20.10.2026): para była w „Rozmowie z klientem”, ale
+ * rozmowy nie ma w kalendarzu NEXUSA — okno pyta, kiedy była, i zapisuje
+ * pytania pary (`candidateId`, `jobId`).
  */
 export function DebriefRequiredDialog({
   open,
   onOpenChange,
   eventId,
+  candidateId,
   candidateName,
   jobId,
+  initialQuestions,
+  submitLabel = "Zapisz i przenieś dalej",
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  eventId: number;
+  eventId: number | null;
+  candidateId: number;
   candidateName: string;
   jobId: number;
+  /** Pytania dołożone przy otwarciu — podpowiedź z notatki. */
+  initialQuestions?: string[];
+  /** Panel osoby zapisuje bez ruchu karty — „Zapisz pytania”. */
+  submitLabel?: string;
   onSaved: () => void;
 }) {
   const qc = useQueryClient();
@@ -41,12 +54,13 @@ export function DebriefRequiredDialog({
       open={open}
       onOpenChange={onOpenChange}
       eventId={eventId}
-      title="Telefon po rozmowie — pytania klienta"
+      pair={{ candidateId, jobId }}
+      initialQuestions={initialQuestions}
+      title={eventId == null ? "Pytania z rozmowy u klienta" : "Telefon po rozmowie — pytania klienta"}
       description={candidateName}
-      submitLabel="Zapisz i przenieś dalej"
+      submitLabel={submitLabel}
       onSaved={() => {
-        qc.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-        qc.invalidateQueries({ queryKey: ["kanban", jobId] });
+        invalidateAfterPipelineMove(qc, jobId);
         onSaved();
       }}
       intro={

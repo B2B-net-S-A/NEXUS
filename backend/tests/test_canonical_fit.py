@@ -105,7 +105,7 @@ async def test_recommendations_remeasure_retrieval_scores_and_keep_unknown(monke
         api, "resolve_active_profile", AsyncMock(return_value=DEFAULT_PROFILE)
     )
     monkeypatch.setattr(
-        api, "resolve_delivery_lead_client_ids", AsyncMock(return_value=None)
+        api, "resolve_delivery_lead_org_client_ids", AsyncMock(return_value=None)
     )
     monkeypatch.setattr(api, "assert_delivery_lead_client_visible", lambda *_: None)
     monkeypatch.setattr(

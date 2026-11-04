@@ -14,6 +14,15 @@ class Settings(BaseSettings):
     # Application
     APP_NAME: str = "Nexus ATS"
     DEBUG: bool = False
+    # Staging na laptopie (docs/staging-laptop-plan.md): `staging` = pełna kopia
+    # produkcji bez wyjścia na świat — pętle w tle domyślnie stoją, a HTTP idzie
+    # tylko do hostów z listy (`app/core/staging.py`).
+    NEXUS_ENV: str = "production"
+    # Pętle w tle tylko w procesie z blokadą doradczą (`core/background_leader.py`).
+    BACKGROUND_LEADER_LOCK_ENABLED: bool = True
+    # Hosty spoza sieci lokalnej dozwolone na stagingu obok dostawców AI
+    # (po przecinku). Na produkcji bez znaczenia.
+    STAGING_EXTRA_ALLOWED_HOSTS: str = ""
     SECRET_KEY: str = "change-me-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8  # 8 hours
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
@@ -65,6 +74,10 @@ class Settings(BaseSettings):
     # n.s. — koszt i opóźnienie bez zysku. Włączenie = `RERANKER_ENABLED=true`
     # w Coolify; kod ścieżki zostaje (graceful passthrough przy błędzie API).
     VOYAGE_RERANK_MODEL: str = "rerank-2.5"
+    # Adapter wektora zapytania oferta→kandydat (`services/query_adapter.py`,
+    # macierz `app/data/query_adapter.npz`). Włączenie tylko po A/B oceny
+    # kanonicznej (`scripts/eval_ab_run.py` ramię `query-adapter`).
+    QUERY_ADAPTER_ENABLED: bool = False
     RERANKER_ENABLED: bool = False
 
     # ── AI matching telemetry (plan PR2) ──────────────────────────────────────
@@ -152,6 +165,15 @@ class Settings(BaseSettings):
     # wskazującym nową) i przełącza się RAZEM z QDRANT_COLLECTION — oba wpisy
     # są w _SCORING_CACHE_INPUTS, więc flip unieważnia cache score'ów.
     AI_TEXT_SCHEMA_V3: bool = False
+    # Wariant kontrolny v3 bez sekcji [NOTES] (26.09.2026) — do pomiaru
+    # przecieku etykiety z notatek (docs/embedding-v3-ab-runbook.md); na
+    # produkcji wyłącznie razem z kolekcją zbudowaną tym wariantem.
+    # True = zachowanie sprzed przełącznika. Świadomie POZA
+    # _SCORING_CACHE_INPUTS: nowy klucz w digeście unieważniłby cały cache
+    # score'ów przy wdrożeniu, a wariant bez notatek żyje zawsze we własnej
+    # kolekcji (QDRANT_COLLECTION jest w digeście), więc klucz cache i tak się
+    # różni. Nie przełączaj tej flagi w miejscu na aktywnej kolekcji.
+    AI_TEXT_SCHEMA_V3_NOTES: bool = True
 
     # Runda 2: unia pul z kilku sformułowań zapytania (pełny tekst oferty +
     # tytuł/seniority + lista skilli). Warianty decydują o CZŁONKOSTWIE puli;
@@ -193,7 +215,12 @@ class Settings(BaseSettings):
     # Podniesienie do 1000 jest bezpieczne dopiero po zbatchowaniu zapytań
     # per-para w scoringu (`build_job_scoring_context`) — bez tego zimna pula
     # 1000 to ~2000 round-tripów do bazy na jedno żądanie.
-    MATCH_POOL_SIZE: int = 1000
+    # 2000 = wartość z produkcji, ustawiona po pomiarze z 18.08.2026. Domyślne
+    # 3000 z audytu 30.09 porównywało pulę z 1000, a produkcja miała już 2000.
+    # Pomiar 03.11.2026 (decyzja Artura), 621 wysłanych ze 164 rekrutacji:
+    # 3000 daje w puli 90,8% zamiast 87,8%, ale w top 20 tylko 287 osób zamiast
+    # 286, a `/recommendations` i `/ai-matches` są o 30–40% wolniejsze.
+    MATCH_POOL_SIZE: int = 2000
     # Warstwa bez sygnału jest USUWANA z budżetu zamiast dostawać stałą liczbę
     # punktów. Zmierzone na prodzie 2026-08-10, dlaczego to nie jest kosmetyka:
     #   * 90% ofert nie ma `nice_skills` → stara reguła dawała tam WSZYSTKIM 0/10,
@@ -295,7 +322,7 @@ class Settings(BaseSettings):
     # i mapowanie błędów — `services/llm_providers.py`.
     OPENAI_API_KEY: str = ""
     DEEPSEEK_API_KEY: str = ""
-    CLAUDE_MODEL_CV: str = "claude-sonnet-5"
+    CLAUDE_MODEL_CV: str = "claude-sonnet-5-5"
     # Fala 3: model dla biegu MASOWEGO. Osobny od CLAUDE_MODEL_CV, żeby zmiana
     # ekonomiki backfillu nie degradowała po cichu interaktywnej ścieżki
     # rekrutera (upload CV → profil). Do 16.09.2026 Haiku (~$0,004/CV); badanie
@@ -405,12 +432,53 @@ class Settings(BaseSettings):
     # `scoring_service._SCORING_CACHE_INPUTS` (dealbreakery działają PO
     # scoringu, nie zmieniają punktacji, którą cache przechowuje).
     RUBRIC_DEALBREAKERS_ENABLED: bool = True
+    # Bramka must (30.09.2026): `critical` = ukrywają wyłącznie umiejętności
+    # krytyczne (decyzja DL albo podpowiedź z historii, `critical_skills`);
+    # `all` = awaryjny powrót do bramki v8 (każde must-technologia ukrywa).
+    MUST_GATE_MODE: str = "critical"
+    # Warstwa `prior_screening` w ocenie AI (07.10.2026): odpowiedzi kandydata
+    # z wcześniejszych rozmów na te same pytania. OFF = odcisk żądania
+    # i rozbicie wyniku bajt w bajt jak bez warstwy; włączenie dopiero po
+    # pomiarze (`scripts/eval_prior_screening.py`).
+    PRIOR_SCREENING_LAYER_ENABLED: bool = False
     # Rozmiar puli trybu semantycznego w RĘCZNEJ wyszukiwarce kandydatów.
     # To jednocześnie SUFIT liczby wyników, którą widzi rekruter, i liczba
     # dokumentów wysyłanych do rerankera Voyage przy KAŻDYM żądaniu strony
     # (endpoint jest bezstanowy). Pokrętło istnieje, żeby dało się zmierzyć
     # 200 vs 100 evalem bez deployu — patrz `_hybrid_pool_size` w api/search.py.
     SEARCH_HYBRID_POOL_SIZE: int = 200
+    # Słowa kluczowe listy kandydatów przez indeks tekstu złożonego
+    # (`keyword_fold_fts`, `content_fold_fts`, migracja 0385) zamiast regexu po
+    # `keyword_doc`/CV/notatkach — audyt 25.09.2026: „java” 0,9 s, „c#” 5,9 s.
+    # Domyślnie OFF: włączamy po porównaniu wyników starej i nowej ścieżki
+    # (`scripts/compare_keyword_fold_fts.py`) i po uzupełnieniu kolumn przez
+    # pętlę `keyword_corpus_backfill` (do tego czasu zawsze stara ścieżka).
+    KEYWORD_SEARCH_FOLDED_FTS: bool = False
+    # Lista kandydatów: filtr, sortowanie i `count(*) OVER()` po samych
+    # identyfikatorach (filtr raz), pełne wiersze tylko dla strony
+    # (`_list_page_ids_first`).
+    # Wyniki i kolejność bez zmian; `false` wraca do `count(*) OVER()` na
+    # pełnych wierszach (385 ms bez filtra, audyt 25.09.2026).
+    CANDIDATE_LIST_IDS_FIRST: bool = True
+    # Kolejność „Dopasowanie” (`sort=match`, `services/candidate_match_order.py`):
+    # podobieństwo wektora rekrutacji / wierszy wymagań do kandydatów. Test na
+    # 120 rekrutacjach (25.09.2026): pierwsza strona z właściwą osobą w 83%
+    # rekrutacji zamiast 33% przy „najnowsi”. `false` = „najnowsi” z informacją
+    # w `sort_applied`.
+    CANDIDATE_MATCH_SORT: bool = True
+    # „Szukaj ręcznie” w `sort=match`: pierwsze N osób kolejności wektorowej
+    # układa się ponownie pełną oceną „Dop.” (`canonical_fit.score_candidates`),
+    # w obrębie tych samych grup („Mile widziane”, braki danych). Test na 120
+    # rekrutacjach (26.09.2026): MRR 0,283 → 0,472 przy N=100; koszt ~350 ms
+    # dla 200 osób (potem pamięć kolejności). 0 = wyłączone.
+    CANDIDATE_MATCH_RERANK_TOP: int = 200
+    # „Szukaj w bazie” / „Szukaj ręcznie” w rekrutacji (jest „Dop.”): czy grupy
+    # „Mile widziane” (must spoza krytycznych, miasto, kategoria) idą PRZED
+    # oceną. Od 19.10.2026 nie (zgłoszenie „najpierw najbardziej dopasowani”,
+    # pomiar w `eval_manual_search_order --groups`) — lista idzie według „Dop.”,
+    # a te sygnały liczą się w samej ocenie. True = kolejność sprzed 19.10.
+    # Lista bez rekrutacji (brak „Dop.”) zawsze zostaje przy grupach.
+    CANDIDATE_MATCH_JOB_PREFERRED_GROUPS: bool = False
     # Jednorazowa migracja zapisanych wyszukiwań kandydatów na wspólną semantykę
     # filtrów (`services/saved_search_migration.py`) przy starcie skanera alertów.
     # Domyślnie OFF: migracja wstrzymuje alerty zapisów, których wynik się
@@ -434,6 +502,10 @@ class Settings(BaseSettings):
     # `HYBRID_POOL_ENABLED`, inaczej dwie dźwignie są nie do rozplątania.
     TALENT_RADAR_STRUCTURED_SKILLS_ENABLED: bool = False
     QDRANT_PASSAGES_COLLECTION: str = "nexus_cv_passages"
+    # Jarvis czyta umowy ramowe klientów (0426, decyzja Artura 09.10.2026):
+    # fragmenty umów idą do Voyage po wektory. Wyłączenie zostawia wyszukiwanie
+    # po słowach — nic z treści umów nie trafia wtedy do Voyage.
+    FRAMEWORK_CONTRACT_EMBEDDINGS_ENABLED: bool = True
     CV_ENRICHMENT_ENABLED: bool = True  # kill-switch without redeploy
     # Darmowe sito duplikatów przed płatnym odczytem CV (`/from-cv`, 18.09.2026).
     # Wyłącznik istnieje, bo sito czyta e-mail i telefon REGEXEM z nagłówka, a nie
@@ -468,6 +540,8 @@ class Settings(BaseSettings):
     #   add     — kandydat jest dodawany na etap „Ogłoszenia" (decyzja z 17.09).
     # Puste = `propose`, chyba że ustawiono alias `AUTO_MATCH_DRY_RUN`.
     AUTO_MATCH_MODE: Optional[str] = None
+    # Próg w skali „Dop.” (kanoniczny fit, profil wag bez użytkownika — od
+    # 21.10.2026; wcześniej stary scoring z wagami wbudowanymi).
     AUTO_MATCH_MIN_SCORE: float = 70.0
     AUTO_MATCH_REQUIRE_MUST: bool = True
     AUTO_MATCH_MAX_JOBS_PER_CANDIDATE: int = 3
@@ -478,21 +552,64 @@ class Settings(BaseSettings):
     # ── Automatyczny pełny przegląd bazy (21.09.2026) ────────────────────────
     # Nocna pętla (okno w `BUSINESS_TZ`) uruchamia pełny przegląd bazy dla
     # rekrutacji opublikowanych albo istotnie zmienionych od ostatniego
-    # przeglądu automatycznego. Wynik (top-K po regule `is_good_match`) trafia
-    # do skrzynki „Propozycje" (źródło `full_base`). False = pętla kończy się
-    # przed startem, nic się nie dzieje (stan sprzed 21.09).
+    # przeglądu automatycznego. Wynik (każda osoba powyżej progu po regule
+    # `is_good_match`) trafia do skrzynki „Propozycje" (źródło `full_base`).
+    # False = pętla kończy się przed startem, nic się nie dzieje (stan sprzed
+    # 21.09).
     AUTO_FULL_REVIEW_ENABLED: bool = True
-    # audyt 22.09 r2 (PROD-03): 5/noc — przegląd to ~190 MB, 20/noc zapełniało wolumen.
-    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 5
+    # audyt 22.09 r2 (PROD-03): 5/noc — przegląd to ~190 MB, 20/noc zapełniało
+    # wolumen. 30.09.2026 (decyzja Artura): co noc wszystkie rekrutacje w pracy
+    # (~18) — dysk trzyma retencja zastąpionych przeglądów automatycznych
+    # (jeden na rekrutację, ~75 MB; `candidate_search_retention`).
+    # 02.11.2026 (decyzja Artura): 48, bo w pracy jest 187 rekrutacji, a 66 pul
+    # miało ponad 6 dni. Przegląd trwa ok. 5 min, więc okno 01–05 więcej nie
+    # zmieści; pełne pokrycie wymaga przeglądu przyrostowego.
+    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 48
+    # NIEUŻYWANE od 07.10.2026 (decyzja Artura: propozycje bez limitu, tylko
+    # próg). Zostaje, bo czytają je skrypty audytów w `docs/audits/`.
     AUTO_FULL_REVIEW_TOP_K: int = 60
-    # Osobny próg, bo pełny przegląd punktuje kanonicznym fitem, a auto-match
-    # nowych CV starszym scoringiem — wspólny próg stroiłby dwa różne pomiary.
+    # Ta sama skala co AUTO_MATCH_MIN_SCORE (od 21.10.2026 oba automaty liczą
+    # kanonicznym fitem z profilem bez użytkownika); osobne pokrętła zostają,
+    # bo nocny przegląd i nowe CV stroi się niezależnie.
     AUTO_FULL_REVIEW_MIN_SCORE: float = 70.0
+    # Najlepsze N zamiast sztywnego progu (decyzja Artura 28.10.2026): gdy od
+    # progu jest mniej osób, nocny przegląd dopełnia propozycje najlepszymi
+    # dopuszczonymi spod progu do łącznie tylu. Nikogo od progu nie obcina.
+    # Na 38 rekrutacjach 61% osób dodanych ręcznie miało 50–70%, a z 60–70%
+    # wyszło więcej wysłanych CV niż z ≥ 70%. 0 = sam próg (stan sprzed zmiany).
+    AUTO_FULL_REVIEW_MIN_COUNT: int = 40
+    # Znani zespołowi wyżej w „Propozycjach z bazy” (badanie 06.10.2026,
+    # decyzja Artura 07.10.2026; `services/known_people_signal.py`). Procent
+    # dopasowania bez zmian — punkty historii wpływają WYŁĄCZNIE na kolejność.
+    # Punkty w skali dopasowania: 0,05 kosinusa na podobną rekrutację i 0,06 za
+    # niedawną weryfikację z badania × ~50 pkt dopasowania na 1,0 kosinusa.
+    KNOWN_PEOPLE_BOOST_ENABLED: bool = False
+    KNOWN_PEOPLE_SIMILAR_JOBS: int = 25
+    KNOWN_PEOPLE_RECENT_DAYS: int = 90
+    KNOWN_PEOPLE_POINTS_PER_SIMILAR_JOB: float = 2.5
+    KNOWN_PEOPLE_POINTS_RECENT: float = 3.0
     AUTO_FULL_REVIEW_WINDOW_START_HOUR: int = 1
     AUTO_FULL_REVIEW_WINDOW_END_HOUR: int = 5
     AUTO_FULL_REVIEW_INTERVAL_SECONDS: int = 60
     # Zdarzenia rekrutacji starsze niż tyle dni nie uruchamiają przeglądu.
     AUTO_FULL_REVIEW_EVENT_LOOKBACK_DAYS: int = 14
+    # Silnik „System trzyma Nowych na 20” (decyzje Artura 23.10.2026,
+    # `services/new_column_autofill.py`): w dni robocze 7–19 dopełnia kolumnę
+    # „Nowi” każdej rekrutacji w pracy osobami z puli nocnego przeglądu.
+    # False = pętla kończy się przed startem (stan sprzed 23.10).
+    NEW_COLUMN_AUTOFILL_ENABLED: bool = False
+    NEW_COLUMN_AUTOFILL_INTERVAL_SECONDS: int = 60
+    # Bezpiecznik: najwyżej tyle dodań na tick (każde = odczyt CV z magazynu
+    # i zapis kopii). Pierwszy przebieg (~2–3 tys. osób) rozkłada się w czasie.
+    NEW_COLUMN_AUTOFILL_MAX_PER_TICK: int = 100
+    # Nowi w bazie najpierw (decyzja Artura z 03.11.2026): osoba do 14 dni w bazie,
+    # od progu i bez uwag wchodzi do „Nowych” także ponad 20 i stoi na początku
+    # kolejki. False = „Nowi” i „Propozycje z bazy” jak przed tą zmianą.
+    NEW_COLUMN_FRESH_FIRST_ENABLED: bool = True
+    # Odbiorcy raportu poniedziałkowego „Jakość podpowiedzi systemu”
+    # (`services/autofill_quality.py`): adresy kont po przecinku. Puste =
+    # aktywni admini.
+    AUTOFILL_REPORT_RECIPIENT_EMAILS: str = ""
 
     # ── Auto-CV po ruchu na „Zweryfikowany" (21.09.2026) ─────────────────────
     # Po commicie pojedynczego ruchu na etap „Zweryfikowany" system w tle
@@ -502,6 +619,11 @@ class Settings(BaseSettings):
     # wejścia = pominięcie z Activity `cv_auto_generate_skipped`. False = brak
     # jakiegokolwiek efektu po ruchu (stan sprzed 21.09).
     CV_AUTO_GENERATE_ON_VERIFIED: bool = True
+    # 21.10.2026 (zgłoszenie zespołu, decyzja Artura): ruch na „Zweryfikowany”
+    # nie generuje CV — rekruter potwierdza w karcie plik, odpowiedzi
+    # i dodatkowe notatki, potem klika „Generuj CV”. Automat zostaje przy QC
+    # istniejącego CV pary. True = generacja od razu po ruchu (stan 21.09–21.10).
+    CV_AUTO_GENERATE_WITHOUT_CONFIRMATION: bool = False
     # Pobranie CV klienta, którego centralna polityka wymaga zrzutu zgody RODO
     # (PKO BP), jest zablokowane (409 `consent_required`), dopóki zrzut nie jest
     # dołączony — generacja przechodzi, zgodę można dołączyć po niej. False =
@@ -514,6 +636,37 @@ class Settings(BaseSettings):
     # chyba że QC przechodzi albo Delivery Lead/admin je obszedł. False =
     # ruch bez sprawdzenia (QC dalej liczy się na żądanie i na tablicy).
     CV_QC_GATE_ENABLED: bool = True
+    # QC doradza, nie blokuje (decyzja Artura 12.10.2026, na czas wdrażania
+    # zespołu): „Przepuść mimo QC” ma każdy, kto przesuwa karty, a Delivery
+    # Lead dostaje dzwonek i może cofnąć kartę do poprawy. False = obejście
+    # wraca wyłącznie do osoby z uprawnieniem `recruitment_manage`.
+    CV_QC_ADVISORY: bool = True
+    # AI na zaznaczonym fragmencie w edytorze CV (Edytor CV 2, PR 3). False =
+    # trasa odpowiada „chwilowo niedostępne”, edytor działa dalej bez AI.
+    CV_SELECTION_AI_ENABLED: bool = True
+    # Polecenie własnymi słowami dla całego CV (Edytor CV 2, PR 4). False =
+    # trasa odpowiada „chwilowo niedostępne”, edytor działa dalej.
+    CV_EDITOR_COMMAND_ENABLED: bool = True
+
+    # ── Bramka „Zweryfikowany” (decyzja Artura 04.10.2026, D1) ──────────────
+    # Wejście na „Zweryfikowany” z kolumn Nowi/Screening wymaga arkusza
+    # screeningu (albo odpowiedzi w karcie rekomendacji) i stawki kandydata
+    # (w profilu, na wcześniejszym etapie albo w tym samym ruchu) — 409
+    # `VERIFIED_REQUIREMENTS_MISSING`. Zwrot DL z „QC CV” do poprawy nie jest
+    # bramkowany. False = wyłącznik awaryjny: zachowanie sprzed 04.10.2026.
+    VERIFIED_GATE_ENABLED: bool = True
+    # Minimum dla Delivery Leada (decyzja Artura 21.10.2026): lokalizacja,
+    # tryb pracy, dostępność, „Dlaczego ten kandydat” i pola dołożone w karcie
+    # klienta. False = wyłącznik awaryjny: bramka liczy tylko arkusz i stawkę.
+    VERIFIED_MINIMUM_FIELDS_ENABLED: bool = True
+    # Delivery Lead przesuwa bez bramek pól (decyzja Artura 22.10.2026):
+    # osoba z uprawnieniem `recruitment_manage` przechodzi bez arkusza,
+    # stawki, minimum i debriefu — braki zostają przypomnieniem
+    # (`pipeline_move_rules.skips_fill_gates`). False = DL jak rekruter.
+    DL_SKIPS_FILL_GATES: bool = True
+    # D2 (04.10.2026): ręczny ruch na „Zatrudniony” wymaga pola „jak
+    # podpisano” (`hired_signed_via`). False = wyłącznik awaryjny.
+    HIRED_SIGNED_VIA_REQUIRED: bool = True
 
     # ── Jarvis — asystent-agent w shellu (0330, zastępuje MINDY) ─────────────
     # Wyłącznik całej funkcji: false = maskotka mówi „nie działam teraz”, trasy
@@ -524,7 +677,11 @@ class Settings(BaseSettings):
     JARVIS_MAX_STEPS: int = 8
     # Budżet czasu całej tury (sekundy) — pętla nie zacznie kroku po terminie.
     JARVIS_TURN_TIMEOUT_SECONDS: float = 90.0
-    JARVIS_MAX_TOKENS_PER_STEP: int = 1500
+    # 4000, nie 1500 (audyt 25.09.2026): krok z narzędziem i dłuższą odpowiedzią
+    # (lista, tabela) był ucinany `max_tokens` — ucięty `tool_use` jest
+    # wyrzucany, a użytkownik musiał pisać „dalej”. Krótkie odpowiedzi
+    # wymusza prompt, nie ten limit.
+    JARVIS_MAX_TOKENS_PER_STEP: int = 4000
     # Ile ostatnich wiadomości rozmowy idzie do modelu (koszt tokenów).
     JARVIS_HISTORY_WINDOW: int = 20
     # Miękki dzienny licznik tur na osobę: INFORMUJE, nie blokuje (NEXUS nie ma
@@ -532,6 +689,51 @@ class Settings(BaseSettings):
     JARVIS_DAILY_SOFT_LIMIT: int = 50
     # Rozmowy starsze niż tyle dni są kasowane (dane osobowe w treści).
     JARVIS_RETENTION_DAYS: int = 30
+
+    # Zgłoszenia z linku rekrutacji (0404, decyzja Artura 29.09.2026): osoba
+    # z formularza `/r/<slug>` trafia do „Nowi” dopiero po przeglądzie AI
+    # w tle (`application_screening`). Wyłączenie = zachowanie sprzed 0404:
+    # proces otwiera się od razu w requeście; oczekujące oceny pętla wtedy
+    # dodaje bez modelu („AI nie oceniło”), więc nikt nie zostaje w zawieszeniu.
+    # Domyślnie OFF do pomiaru na produkcji (`scripts/eval_application_screening`
+    # — żadna zweryfikowana osoba nie może dostać `not_fit`); włączenie przez
+    # workflow „Coolify set env”.
+    APPLICATION_SCREENING_ENABLED: bool = False
+
+    # Karta rekomendacji (0413): składanie karty z notatek rekrutera (pętla
+    # `recommendation_card_import` i przeliczenie przy zapisie notatki).
+    # Wyłączona = karty z notatek nie powstają; API karty i pola wpisane
+    # ręcznie działają bez niej. Włączenie przez workflow „Coolify set env”.
+    RECOMMENDATION_CARD_IMPORT_ENABLED: bool = False
+    # Karta rekomendacji z notatki rekrutera i „Ułóż w zdanie” (0421, decyzje
+    # Artura 06.10.2026). Wyłączona = okno karty bez kafli „Wgraj notatkę” /
+    # „Wklej tekst”, bez przycisków „Ułóż w zdanie”, a trasy odpowiadają 404.
+    # Ręczne wypełnianie karty i arkusza działa bez zmian. Włączenie po
+    # pomiarze (`scripts/eval_recommendation_card_note.py`) przez workflow
+    # „Coolify set env”.
+    RECOMMENDATION_CARD_ASSIST_ENABLED: bool = False
+    # Odpowiedzi z notatek (karty rekomendacji) do arkusza screeningu pary
+    # (decyzje Artura 07.10.2026 — zmienia regułę 0413). Arkusz z notatki ma
+    # pochodzenie `note_sync`, od razu widzi go klient i liczy się w ocenie
+    # pary. Automat nigdy nie dotyka arkusza wypełnionego przez człowieka.
+    # Wyłączony = przeliczenie karty nie pisze arkusza; jednorazowe
+    # uzupełnienie historii (`/api/admin/screening-note-backfill`) działa
+    # niezależnie. Włączenie przez workflow „Coolify set env” po przeglądzie
+    # próby uzupełnienia.
+    SCREENING_NOTE_SYNC_ENABLED: bool = False
+    # Etap 1b: odpowiedzi także z notatek INNYCH rodzajów niż karta (czytelnych
+    # dla AI, przypiętych do pary) — tylko gdy karta pary nie ma odpowiedzi,
+    # tylko przypięcia po treści pytania z progiem 0,6. Działa razem
+    # z SCREENING_NOTE_SYNC_ENABLED; wyłączony = arkusze z tych notatek są
+    # czyszczone przy najbliższym przeliczeniu pary.
+    SCREENING_NOTE_SYNC_OTHER_NOTES_ENABLED: bool = False
+
+    # „Stawka od” (0414): filtry, AI i plakietki budżetu czytają najniższą
+    # stawkę kandydata z ostatnich 18 miesięcy (karty rekomendacji, etapy,
+    # zmiany profilu, zgłoszenia) zamiast stawki zapisanej ostatnio w profilu.
+    # Wyłączenie = zachowanie sprzed 0414 (czytamy profil) i stop pętli
+    # przeliczeń — bez deployu, przez workflow „Coolify set env”.
+    CANDIDATE_RATE_FROM_ENABLED: bool = True
 
     # Akademia (0369): pętla naboru z ogłoszeń i sortowania Luną co 10 min.
     # Bez programów nic nie robi; wyłączenie nie blokuje przycisku na ekranie.
@@ -556,6 +758,13 @@ class Settings(BaseSettings):
     # wygrywają. Obu naraz Anthropic nie przyjmuje — dozwolone mają pierwszeństwo.
     JARVIS_WEB_ALLOWED_DOMAINS: str = ""
     JARVIS_WEB_BLOCKED_DOMAINS: str = ""
+
+    # „Champion po ludzku” (0403): research w internecie dla technologii, ról
+    # i opisów klientów, których nie ma jeszcze w bazie. Wyłącznik bez deployu
+    # i dzienny sufit (licznik w pamięci procesu — backend to jeden uvicorn).
+    PLAIN_KNOWLEDGE_WEB_ENABLED: bool = True
+    PLAIN_KNOWLEDGE_RESEARCH_DAILY_LIMIT: int = 200
+    PLAIN_KNOWLEDGE_MAX_SEARCHES: int = 3
     AUTO_MATCH_MAX_ATTEMPTS: int = 3
     AUTO_MATCH_STALE_HOURS: int = 48
     # ── „Moi ludzie" (21.09.2026) ────────────────────────────────────────────
@@ -580,10 +789,10 @@ class Settings(BaseSettings):
     # Order-PDF extraction ("Zczytaj dane z dokumentu" w przedłużeniu). Kill-switch
     # bez redeploya, obok bramki AIFeatureKey.order_parser (master → feature → limit).
     ORDER_EXTRACTION_ENABLED: bool = True
-    # F7: GPT-6 Luna (decyzja 22.09.2026 po pomiarze; 21.09 był powrót z GPT-5.6
-    # Luna na Sonneta). Rejestr `ai_models` honoruje to pole jako legacy
-    # override, więc domyślna wartość MUSI zgadzać się z rejestrem.
-    ORDER_PARSER_MODEL: str = "gpt-6-luna"
+    # F7: Sonnet 5 (decyzja 25.09.2026 — GPT-6 Luna ciągle oznaczała odczyt jako
+    # niepewny, jak wcześniej GPT-5.6 Luna). Rejestr `ai_models` honoruje to pole
+    # jako legacy override, więc domyślna wartość MUSI zgadzać się z rejestrem.
+    ORDER_PARSER_MODEL: str = "claude-sonnet-5"
     # ── Zamówienia z maila (ticket zamowienia@b2bnetwork.pl) ──────────────
     # Skrzynka kopii w M365 czytana przez Graph (hosting robi kopię przychodzących
     # na tę skrzynkę; oryginały zostają). Kill-switch PRZED pętlą: wyłączona
@@ -613,6 +822,11 @@ class Settings(BaseSettings):
     ORDER_MAIL_POLL_INTERVAL_MINUTES: int = 60
     ORDER_MAIL_INITIAL_LOOKBACK_DAYS: int = 7
     ORDER_MAIL_OVERLAP_HOURS: int = 2
+    # Mail bez wpisu w dzienniku (błąd `/attachments`, brak `contentBytes`)
+    # trzyma znacznik skrzynki najwyżej tyle godzin; starszy dostaje wpis
+    # „Nieudane” i przestaje trzymać — inaczej jeden trwale zepsuty mail
+    # kazałby co godzinę pobierać załączniki wszystkich późniejszych.
+    ORDER_MAIL_UNPROCESSED_HOLD_HOURS: int = 24
     ORDER_MAIL_MAX_ATTACHMENT_MB: int = 25
     # CSV domen nadawców, z których przyjmujemy załączniki; pusta = wszystkie
     # (rozpoznanie klienta i tak wymaga numeru rejestrowego z rejestru, a
@@ -728,6 +942,25 @@ class Settings(BaseSettings):
     # Limit tempa dla wywołań uwierzytelnianych kluczem API (slowapi, klucz = IP).
     SERVICE_ACCOUNT_RATE_LIMIT: str = "60/minute"
 
+    # ── Wtyczka LinkedIn (nagłówek X-Extension-Key, migracja 0608) ───────────
+    # Odcięcie wszystkich wtyczek naraz jednym env-em. Ważność połączenia:
+    # po tym czasie rekruter łączy wtyczkę ponownie jednym kliknięciem.
+    # Limit to odczyty stron LinkedIna na osobę dziennie (profil albo strona
+    # wyników = 1) — chroni konta Recruiter przed wyglądem automatu.
+    LINKEDIN_EXTENSION_ENABLED: bool = True
+    LINKEDIN_EXTENSION_TTL_DAYS: int = 180
+    LINKEDIN_EXTENSION_DAILY_READ_LIMIT: int = 150
+    # Id wtyczki z Chrome Web Store (niepubliczna) i id wersji deweloperskich,
+    # po przecinku. Strona „Połącz wtyczkę” przekazuje klucz tylko do nich.
+    LINKEDIN_EXTENSION_IDS: str = ""
+
+    # API integracyjne v1 (`/api/integrations/v1`, 0443): limit per KONTO
+    # serwisowe i trasę (nie per IP — automatyzacje z jednej chmury dzielą IP).
+    # Odczyt ze stronicowaniem do 500 wierszy mieści się w 120/min z zapasem;
+    # zapisy rozliczeń idą po jednym, więc 30/min to sufit, nie cel.
+    INTEGRATIONS_V1_READ_RATE_LIMIT: str = "120/minute"
+    INTEGRATIONS_V1_WRITE_RATE_LIMIT: str = "30/minute"
+
     # CORS — tight by default; widen via env CORS_ORIGINS='["https://app"]'
     CORS_ORIGINS: List[str] = ["http://localhost:3000"]
 
@@ -753,13 +986,6 @@ class Settings(BaseSettings):
     # Alert do DL o braku feedbacku klienta — przed końcem dnia pracy.
     CLIENT_FEEDBACK_ALERT_HOUR: int = 16
     CLIENT_FEEDBACK_ALERT_MINUTE: int = 30
-    # "Zweryfikowany kandydat" utknął w cv_sent od X godzin → alert do DL.
-    DL_STAGE_STALE_HOURS: int = 6
-    # Górna granica okna: nie alertuj kandydatów zalegających w cv_sent dłużej
-    # niż X dni. Bez tego limitu historyczny backlog (np. 10k+ kandydatów z
-    # importów nigdy nieprzesuniętych) odpalał alert codziennie — patrz
-    # incydent notifications 2026-05-22.
-    DL_STAGE_STALE_MAX_DAYS: int = 14
     # Kandydat na nieterminalnym etapie bez zmiany od X dni → alert do rekrutera.
     STAGE_STUCK_DAYS: int = 7
     STAGE_STUCK_MAX_DAYS: int = 30  # starszych nie przypominamy (backlog importu)
@@ -807,6 +1033,22 @@ class Settings(BaseSettings):
     # bramkowany przez SMTP_ENABLED. Progi jako dni.
     JOB_DEADLINE_ALERTS_ENABLED: bool = True
     JOB_DEADLINE_ALERT_THRESHOLDS_DAYS: tuple[int, ...] = (7, 3, 1)
+    # Rekrutacje bez ruchu (28.10.2026, `services/job_idle.py`): przypomnienia
+    # po 14 i 21 dniach, zamknięcie po 28. Kill-switch całości bez redeploya.
+    JOB_IDLE_ENABLED: bool = True
+    # Maile CPro od Nordei (02.11.2026, `services/cpro_mail.py`): zamknięcia,
+    # odrzucenia i dzwonki. Kill-switch całości bez redeploya; pojedyncze reguły
+    # wyłącza się w Ustawieniach → CPro. Maile starsze niż data nie są czytane.
+    CPRO_MAIL_ENABLED: bool = True
+    CPRO_MAIL_SINCE: str = "2026-10-12"
+
+    # ── Maile do zespołu (07.10.2026) ────────────────────────────────────────
+    # Wyłączniki awaryjne pętli; o tym, CO wychodzi, decyduje admin
+    # w Ustawieniach → Powiadomienia (`notification_delivery`, domyślnie OFF).
+    # Kolejka maili natychmiast (`tasks/notification_email_outbox.py`).
+    NOTIFICATION_EMAIL_OUTBOX_ENABLED: bool = True
+    # Poranny skrót „Twój dzień w NEXUSIE” (`tasks/daily_digest_email.py`).
+    DAILY_DIGEST_EMAIL_ENABLED: bool = True
 
     # ── Phase 14: post-interview feedback reminders ──────────────────────────
     # 3-stopniowy ping rekruterowi/DL po zakończonym interview.
@@ -816,6 +1058,14 @@ class Settings(BaseSettings):
     # 0338: okno „zadzwoń do kandydata po rozmowie u klienta” (min od końca).
     # Agenda „Rozmowy u klienta” pokazuje odliczanie do jego końca.
     POST_INTERVIEW_CALL_WINDOW_MINUTES: int = 30
+    # 20.10.2026: bramka „pytania klienta przed Umową” także dla par, które
+    # weszły w etap „Rozmowa z klientem” bez terminu w kalendarzu NEXUSA
+    # (88 z 99 par w 30 dniach). ``false`` = bramka znowu tylko przy rozmowie
+    # w kalendarzu (``services/debrief_gate.missing_debrief``).
+    DEBRIEF_GATE_WITHOUT_EVENT: bool = True
+    # Po ilu godzinach w etapie „Rozmowa z klientem” bez terminu i bez pytań
+    # okienko „Rozmowy” pokazuje „Uzupełnij pytania z rozmowy u klienta”.
+    QUESTIONS_MISSING_AFTER_HOURS: int = 24
     # Po ilu minutach od end_time interview z status=scheduled → auto-flip na
     # completed (sygnał, że event się odbył, nawet jeśli nikt go ręcznie nie
     # oznaczył). 10 min grace period absorbuje opóźnienia.
@@ -887,6 +1137,15 @@ class Settings(BaseSettings):
     ANALYTICS_V1_MODULES: str = ""
     # KPI Coach v2 — wysyłka nudge'y po dry-run parity (plan PR 4).
     KPI_COACH_V2_NUDGES_ENABLED: bool = False
+
+    @field_validator("NEXUS_ENV")
+    @classmethod
+    def _validate_nexus_env(cls, v: str) -> str:
+        allowed = {"production", "staging"}
+        normalized = v.strip().lower()
+        if normalized not in allowed:
+            raise ValueError(f"NEXUS_ENV must be one of {sorted(allowed)}")
+        return normalized
 
     @field_validator("ANALYTICS_V1_MODE")
     @classmethod
@@ -1038,15 +1297,40 @@ class Settings(BaseSettings):
     TEAMS_PREP_CLIENT_SECRET: str = ""
     # Zakładanie prepów przez aplikację. OFF = trasa prepów odpowiada 503.
     TEAMS_PREP_APP_ONLY_ENABLED: bool = False
+    # 0487 (20.10.2026, decyzja Artura): wybór terminu przez rekrutera od razu
+    # wpisuje rozmowę do kalendarza, DL tylko odpisuje klientowi. OFF = jak
+    # przed 0487 (wybór czeka na „Potwierdź” DL-a).
+    SLOT_CHOICE_CONFIRMS: bool = True
     # PATCH spotkania z automatycznym nagrywaniem/transkrypcją po utworzeniu.
     TEAMS_PREP_AUTO_TRANSCRIBE: bool = True
+    # Język mowy prepu/follow-upu ustawiany przed startem transkrypcji.
+    TEAMS_PREP_SPOKEN_LANGUAGE: str = "pl-PL"
     # Pętla pobierająca transkrypty (kill-switch — OFF kończy ją przed pętlą).
     TEAMS_PREP_TRANSCRIPTS_ENABLED: bool = False
+    # Transkrypty spotkań handlowców (0628). OFF do czasu konfiguracji Microsoft
+    # z ``docs/teams-prep-setup.md``; bez niej Graph odpowiadałby 403.
+    SALES_TEAMS_TRANSCRIPTS_ENABLED: bool = False
     TEAMS_PREP_POLL_MINUTES: int = 10
     # Od kiedy po końcu spotkania pytamy o transkrypt i jak długo czekamy,
     # zanim prep dostanie stan „bez nagrania”.
     TEAMS_PREP_FETCH_DELAY_MINUTES: int = 10
     TEAMS_PREP_FETCH_GIVE_UP_HOURS: int = 48
+    # ── Dokumenty kontraktów z SharePointa (ticket 9, 0402, 29.09.2026) ─────
+    # Folder „Umowy pracowników” (podfolder „Nazwisko Imię” na osobę) ↔
+    # zakładka Dokumenty kontraktu. Dostęp app-only przez OSOBNĄ rejestrację
+    # („NEXUS Contract Documents”) z `Sites.Selected` nadanym WYŁĄCZNIE na
+    # witrynę z folderem — rejestracja nie widzi żadnej innej witryny ani
+    # skrzynki. Tenant = M365_MAIL_TENANT_ID. Bez poświadczeń panel mówi
+    # „dokończ konfigurację w Azure”, a sonda zdrowia = `unconfigured`.
+    CONTRACT_DOCS_SP_CLIENT_ID: str = ""
+    CONTRACT_DOCS_SP_CLIENT_SECRET: str = ""
+    # Link do folderu podaje admin w panelu (zapis w app_settings). Repo jest
+    # publiczne, więc linku udostępnienia nie trzymamy w kodzie.
+    # Synchronizacja w obie strony po pierwszym pobraniu. OFF = pętla robi
+    # tylko dokończenie przerwanych przebiegów pierwszego pobrania.
+    CONTRACT_DOCS_SP_SYNC_ENABLED: bool = False
+    CONTRACT_DOCS_SP_SYNC_MINUTES: int = 60
+
     # Progi oceny prepu (liczy kod, nie model). Udział kandydata = jego czas
     # mówienia / (kandydat + zespół).
     PREP_REVIEW_GOOD_COVERAGE: float = 0.8
@@ -1135,7 +1419,7 @@ class Settings(BaseSettings):
 
     # ── AAD group-based RBAC (Phase 7.2) ─────────────────────────────────────
     # Kill-switch. When False the SSO callback skips Graph /me/memberOf entirely
-    # and falls back to legacy behaviour (new SSO users land as ``recruiter``,
+    # and falls back to legacy behaviour (new SSO users land as ``employee``,
     # existing users keep their role). Flip to True in Coolify env vault AFTER
     # ``AAD_GROUP_ROLE_MAP_JSON`` is populated and admin consent for the
     # ``GroupMember.Read.All`` Graph scope has been granted in the Azure app
@@ -1209,54 +1493,23 @@ class Settings(BaseSettings):
     # state pump is the webhook handler.
     AUTENTI_SWEEPER_INTERVAL_SECONDS: int = 3600
 
-    # ── In-house QES signing (Faza 1+ — drop Autenti, single-vendor KIR) ────
-    # Kill-switch: when False, /api/signing/* write endpoints return 503 and
-    # the signing sweeper loop exits immediately. Default OFF until KIR
-    # (Szafir SDK + mSzafir) is contracted and creds provisioned. See
-    # docs/in-house-qes-signature-plan.md.
-    SIGNING_ENABLED: bool = False
-    # Default provider for new signatures: ``szafir_sdk`` (card, client-side)
-    # | ``mszafir_oneshot`` (cloud) | ``upload_validate`` | ``autenti`` (legacy).
-    SIGNING_PROVIDER: str = "szafir_sdk"
-    # Token TTL for the public /sign/{token} signing links (days).
-    SIGNING_LINK_EXPIRY_DAYS: int = 14
-    # Imiona i nazwiska osób podpisujących umowy B2B po stronie firmy (CSV).
-    # Finalizacja sprawdza, że każdy podpis spoza kandydata należy do jednej
-    # z nich (SIG-02). Puste = drugi podpis nie jest weryfikowany imiennie,
-    # ale nadal musi to być INNA tożsamość niż kandydat.
-    SIGNING_COMPANY_SIGNER_NAMES: str = ""
-    # Signing sweeper cadence (timeout sweep, attach retry, expiry). Clamped
-    # to >=300s in the loop.
-    SIGNING_SWEEPER_INTERVAL_SECONDS: int = 3600
-
     # ── Signature dispatch reconciler (M5-P0.9, restart-safe recovery) ──────
     # Every signature sender persists a `draft` row and hands the actual send
     # to a background task. A restart between the 202 and completion orphans
     # the row at draft/sending forever — the expiry sweepers only touch
     # sent/in_progress. This reconciler marks such rows `failed` + notifies the
-    # sender to resend. Covers all rails; each row gated by its provider's
-    # kill-switch (AUTENTI_ENABLED / SIGNING_ENABLED). Loop no-ops when both off.
+    # sender to resend. Autenti rows only; loop no-ops when AUTENTI_ENABLED off.
     # Interval clamped >=300s; grace clamped >=60s in the loop.
     SIGNATURE_RECONCILE_INTERVAL_SECONDS: int = 600
     SIGNATURE_RECONCILE_GRACE_SECONDS: int = 600
 
-    # KIR Szafir SDK (pas główny — podpis kartą client-side). Asset/licence
-    # config filled from KIR onboarding (Faza 0). Web Module JS URL is served
-    # to the /sign page; empty = SDK pas unavailable (UI hides it).
-    QTSP_SZAFIR_SDK_ENABLED: bool = False
-    QTSP_SZAFIR_WEB_MODULE_URL: str = ""
-    QTSP_SZAFIR_LICENSE_KEY: str = ""
-
-    # KIR mSzafir One Shot (pas zapasowy — cert jednorazowy w chmurze). API
-    # shape confirmed in Faza 0; empty creds = mSzafir pas returns 503.
-    QTSP_MSZAFIR_ENABLED: bool = False
-    QTSP_MSZAFIR_BASE_URL: str = ""
-    QTSP_MSZAFIR_API_KEY_ID: str = ""
-    QTSP_MSZAFIR_API_KEY_SECRET: str = ""
-
     # EU DSS validation sidecar (autorytatywny "is QES"). Empty = validation
     # falls back to pyHanko trust-chain only (non-authoritative).
     DSS_VALIDATION_URL: str = ""
+    # Podpis umowy B2B w NEXUSIE (0499): kto rozstrzyga „kwalifikowany”.
+    # ``pyhanko`` (domyślnie, decyzja Artura 21.10.2026) — lista zaufanych UE
+    # w procesie backendu; ``dss`` — sidecar EU DSS pod DSS_VALIDATION_URL.
+    B2B_ESIGN_VALIDATOR: str = "pyhanko"
 
     # ── Proxycurl LinkedIn tracking (Phase: LinkedIn sync) ──────────────────
     # Kill-switch: when False OR API key empty, sync loop exits immediately
@@ -1325,8 +1578,12 @@ class Settings(BaseSettings):
     # TRAFFIT_CLIENT_ID, TRAFFIT_CLIENT_SECRET, TRAFFIT_THROTTLE_RPS) are read
     # from the environment by TraffitConfig.from_env() — NOT declared here.
     #
-    # Kill-switch: when False the loop exits immediately and POST
-    # /api/admin/traffit/sync returns 503. Default OFF until activated.
+    # WYŁĄCZONY NA STAŁE od 14.10.2026 (decyzja Artura, moduł
+    # `app/services/traffit_retired.py`): `TRAFFIT_SYNC_ENABLED` i
+    # `CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED` są zawsze False niezależnie od
+    # env (walidator `_force_traffit_flags_off` niżej), pętla nie startuje,
+    # a POST /api/admin/traffit/* odpowiadają 410. Pola zostają, bo czytają je
+    # zamrożenie wyścigów, analityka i kolejka kontaktów.
 
     # ── COMPASS: dni robocze (decyzja D5) ────────────────────────────────
     # Mianownik wskaznikow „na dzien". Do 2026-08-31 Power Calling dzielil
@@ -1342,6 +1599,95 @@ class Settings(BaseSettings):
     COMPASS_AVAILABILITY_URL: str = ""
     COMPASS_AVAILABILITY_SECRET: str = ""
     RECRUITMENT_ALLOCATION_ENABLED: bool = False
+
+    # ── „Ludzie w NEXUSIE” (16.10.2026) ─────────────────────────────────
+    # Główny wyłącznik całego programu (moduły kadrowe, opieka, sprzęt,
+    # sprawy, rozliczenia, e-teczka, umowy z ludźmi, faktury do klientów).
+    # Wyłączony = trasy 404 dla wszystkich, także admina, bez śladu w menu,
+    # Ustawieniach i na ekranach klienta/kontraktu, pętle nie startują
+    # (`app/services/hr/program.py`). Artur 18.10.2026: włączamy dopiero po
+    # dopracowaniu integracji i z danymi — nie pokazujemy pustych modułów.
+    # Włączenie wyłącznie workflow „Coolify set env”.
+    HR_PROGRAM_ENABLED: bool = False
+    # Przy włączonym programie moduły włącza admin w `app_settings['hr_modules']`
+    # (bez wdrożenia); env niesie tylko wyłączniki pętli i sekrety.
+    # `HR_LOOPS_ENABLED=false` zatrzymuje wszystkie pętle modułu (testy, awaria).
+    HR_LOOPS_ENABLED: bool = True
+    # Microsoft 365 dla urlopów: off = nic nie wychodzi; simulate = dokładne
+    # żądania lądują w `hr_m365_operations.simulated_request`; live = Graph.
+    HR_M365_MODE: str = "off"
+    # Portal konsultanta (02.11.2026). Wyłącznik jest w `app_settings`, tu tylko to,
+    # czego nie ma bez konfiguracji po stronie M365 i dostawcy SMS. Puste = odmowa.
+    # Konto wsparcie@: nadawca linków i organizator rozmów.
+    CONSULTANT_PORTAL_MAILBOX: str = ""
+    # Skrzynka rozliczenia@ czytana przez Graph (dokumenty konsultantów).
+    CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX: str = ""
+    # `disabled` albo `log` (tylko NEXUS_ENV=staging i testy; patrz consultant_portal/sms.py).
+    CONSULTANT_PORTAL_SMS_PROVIDER: str = "disabled"
+    # Lista UPN (po przecinku), którym wolno zapisać skrzynkę w trybie live —
+    # pusta = wszystkim. Pierwsze przełączenie idzie na jedną skrzynkę testową.
+    HR_M365_MAILBOX_ALLOWLIST: str = ""
+    # Rejestracja „NEXUS Kadry” (D3): APPLICATION MailboxSettings.ReadWrite
+    # i Calendars.ReadWrite, zawężone rolami Exchange do skrzynek zespołu.
+    # Tenant = M365_MAIL_TENANT_ID (jak prepy w Teams).
+    HR_M365_CLIENT_ID: str = ""
+    HR_M365_CLIENT_SECRET: str = ""
+    # Data wygaśnięcia sekretu rejestracji „NEXUS Kadry” (RRRR-MM-DD, jak w Entra
+    # ID). Ustawiana razem z sekretem przez workflow „Coolify set env” przy każdej
+    # rotacji. Sonda `hr_m365` i alarm do adminów 30/14/7/1 dni przed terminem
+    # (`app/services/hr/m365/secret_expiry.py`); pusta albo błędna = „nie znamy”.
+    HR_M365_CLIENT_SECRET_EXPIRES_ON: Optional[date] = None
+    # Konto NEXUSA idzie za kontem Microsoft 365 (decyzja Artura 22.10.2026,
+    # `app/services/m365_account_sweep.py`): konto z `azure_oid`, którego nie ma
+    # w Entra ID (404) albo jest tam zablokowane, jest wyłączane. Rejestracja
+    # „NEXUS Kadry” (User.Read.All), niezależnie od HR_PROGRAM_ENABLED.
+    # off = pętla nie startuje; report = log bez zapisu (domyślnie);
+    # enforce = wyłącza. Zmiana wyłącznie workflow „Coolify set env”.
+    M365_ACCOUNT_SWEEP_MODE: str = "report"
+    # Więcej kont do wyłączenia w jednym przebiegu = alarm i żadnej zmiany.
+    M365_ACCOUNT_SWEEP_MAX_PER_RUN: int = 10
+    # Sprzęt ↔ Intune (etap 4, D9): off = nic nie czytamy (do zgody administratora na
+    # APPLICATION DeviceManagementManagedDevices.Read.All w rejestracji „NEXUS Kadry”);
+    # simulate = fikcyjna lista urządzeń; live = Graph, raz na dobę od 05:30.
+    EQUIPMENT_INTUNE_MODE: str = "off"
+    # Administracja@ (Sprawy, autoodpowiedzi, komunikaty) — opis ról
+    # w `app/services/admin_cases/mailbox.py`. ADMIN_CASES_MAILBOX = adres
+    # widoczny dla ludzi; ADMIN_CASES_M365_MAILBOX = skrzynka M365, którą NEXUS
+    # czyta i z której wysyła (pusta = ta sama co ADMIN_CASES_MAILBOX).
+    ADMIN_CASES_MAILBOX: str = ""
+    ADMIN_CASES_M365_MAILBOX: str = ""
+    ADMIN_CASES_MAIL_INGEST_ENABLED: bool = False
+    # Zgody, etap 2 (20.10.2026): odpowiedź „approved” na mail o zgodzie.
+    # HR_APPROVALS_REPLY_MAILBOX = skrzynka M365 (zgody@), na którą mail do
+    # decydującego ma Reply-To i którą czyta `services/hr/approvals/mail_reader.py`
+    # rejestracją „NEXUS Kadry”. Bez obu zmiennych mail jest jak w etapie 1.
+    HR_APPROVALS_REPLY_MAILBOX: str = ""
+    HR_APPROVALS_MAIL_REPLY_ENABLED: bool = False
+    # Rozliczenia zespołu (etap 4, R1): faktury od osób na B2B z KSeF 2.0 — tylko
+    # odczyt, spółka jako nabywca (`app/services/hr/ksef/`). Tryb: off = nic nie
+    # wychodzi (domyślnie); simulate = pliki z `KSEF_SIMULATE_DIR` (lokalnie);
+    # test / demo / prod = API MF. Pusty NIP albo token = integracja wyłączona.
+    KSEF_MODE: str = "off"
+    # NIP spółki (kontekst logowania w KSeF, 10 cyfr).
+    KSEF_CONTEXT_NIP: str = ""
+    # Token KSeF spółki z uprawnieniem „odczyt faktur” (InvoiceRead). Sekret —
+    # tylko przez workflow „Coolify set env”, nigdy w logach.
+    KSEF_TOKEN: str = ""
+    # Katalog trybu simulate (`metadata.json` + pliki XML); pusty = `tests/data/ksef`.
+    KSEF_SIMULATE_DIR: str = ""
+    # Biała lista VAT (wykaz podatników, `app/services/hr/white_list.py`):
+    # off = bez zapytań (domyślnie), simulate = fikcyjne wpisy lokalnie,
+    # test = wl-test.mf.gov.pl, live = wl-api.mf.gov.pl.
+    WHITE_LIST_MODE: str = "off"
+    # EBI24 (obieg dokumentów Finansów, `app/services/ebi24/`) — tylko odczyt.
+    # off = nic nie wychodzi (domyślnie), uat = test-api.ebi24.pl, prod = api.ebi24.pl.
+    # Klucz komunikacji i sekret dają dostęp do danych konta — tylko przez workflow
+    # „Coolify set env”, nigdy w logach. Pusty któryś z czterech = wyłączone.
+    EBI24_MODE: str = "off"
+    EBI24_USER_UUID: str = ""
+    EBI24_ACCOUNT_UUID: str = ""
+    EBI24_COMMUNICATION_KEY: str = ""
+    EBI24_SECRET_PHRASE: str = ""
 
     COMPASS_WORKDAYS_ENABLED: bool = False
     COMPASS_WORKDAYS_URL: str = ""
@@ -1384,20 +1730,79 @@ class Settings(BaseSettings):
     # Nie loguje sekretu; przy złym formacie nie wywraca startu (log + no-op).
     COMPASS_INTEGRATION_BOOTSTRAP_KEY: str = ""
 
-    # ── Multiposting (0360): Pracuj.pl i JustJoinIT ─────────────────────────
-    # Szkielet bez dokumentacji API portali: flagi OFF = portal niewidoczny
-    # w UI, publikacja 409, worker kończy się przed pętlą. Włączona flaga bez
-    # adresu i klucza = `checks.job_portals: misconfigured`.
+    # ── Multiposting (0360/0381): Pracuj.pl, JustJoin.IT, RocketJobs ────────
+    # Flagi OFF = portal niewidoczny w UI, publikacja 409, worker kończy się
+    # przed pętlą. Pracuj.pl czeka na dokumentację API (adres + klucz).
     PORTAL_PRACUJ_ENABLED: bool = False
     PORTAL_PRACUJ_API_URL: str = ""
     PORTAL_PRACUJ_API_KEY: str = ""
+    # 0381: JustJoin.IT i RocketJobs to jedno Employer Public API (1EP,
+    # `integrations.rocketjobs.com/docs/1ep`) — dwie flagi (dwa portale dla
+    # rekrutera), jeden adres, jedna aplikacja OAuth i jedno połączone konto
+    # firmy (`job_board_connections`). Portal jest „ready” dopiero przy
+    # fladze + client_id/secret/redirect_uri + aktywnym połączeniu.
     PORTAL_JJIT_ENABLED: bool = False
-    PORTAL_JJIT_API_URL: str = ""
-    PORTAL_JJIT_API_KEY: str = ""
+    PORTAL_ROCKETJOBS_ENABLED: bool = False
+    PORTAL_JJIT_API_URL: str = "https://jobboardcore-external.justjoin.it/external-api"
+    JJIT_OAUTH_CLIENT_ID: str = ""
+    JJIT_OAUTH_CLIENT_SECRET: str = ""
+    # Adres zarejestrowany u dostawcy — na hoście API, jak M365:
+    # https://api.nexus.dynaminds.pl/api/job-boards/jjit/callback
+    JJIT_OAUTH_REDIRECT_URI: str = ""
+    JJIT_OAUTH_SCOPE: str = "profile offline_access"
+    # Statyczny klucz API (JWT ważny do 2 lat) — tryb serwer-serwer, który
+    # rekomenduje dostawca (29.09.2026). Ustawiony = portale nie potrzebują
+    # połączenia OAuth w Ustawieniach; pusty = dotychczasowy tryb OAuth.
+    # Wyłącznie przez workflow „Coolify set env” z `value_from_secret`.
+    JJIT_STATIC_ACCESS_TOKEN: str = ""
+    # Nadpisanie jednostki organizacyjnej odczytanej z `/oauth/me` (gdy konto
+    # ma kilka jednostek albo claim nie przychodzi).
+    PORTAL_JJIT_ORGANIZATION_UNIT_ID: str = ""
+    PORTAL_ROCKETJOBS_ORGANIZATION_UNIT_ID: str = ""
+    PORTAL_JJIT_HTTP_TIMEOUT_SECONDS: float = 30.0
     JOB_PORTAL_WORKER_INTERVAL_SECONDS: int = 60
     JOB_PORTAL_MAX_ATTEMPTS: int = 5
+    # Co ile godzin worker sprawdza stan żywych ogłoszeń (wygasłe/usunięte).
+    JOB_PORTAL_STATUS_SYNC_HOURS: int = 6
 
     TRAFFIT_SYNC_ENABLED: bool = False
+
+    @field_validator("HR_M365_CLIENT_SECRET_EXPIRES_ON", mode="before")
+    @classmethod
+    def _lenient_secret_expiry(cls, v: object) -> object:
+        """Literówka w dacie nie może zatrzymać startu backendu.
+
+        Pole jest informacyjne (sonda i alarm), więc pusta albo nieczytelna
+        wartość to „nie znamy daty” — sonda `hr_m365` mówi to sama.
+        """
+        if v is None or isinstance(v, date):
+            return v
+        text = str(v).strip()
+        if not text:
+            return None
+        try:
+            return date.fromisoformat(text)
+        except ValueError:
+            warnings.warn(
+                "HR_M365_CLIENT_SECRET_EXPIRES_ON nie jest datą RRRR-MM-DD — pomijam",
+                stacklevel=2,
+            )
+            return None
+
+    @field_validator("TRAFFIT_SYNC_ENABLED", "CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED")
+    @classmethod
+    def _force_traffit_flags_off(cls, v: bool) -> bool:
+        """Traffit wyłączony na stałe (decyzja Artura 14.10.2026).
+
+        Wartość z env przegrywa zawsze, jak przy `AAD_GROUP_RBAC_ENABLED`: do
+        14.10 import wyłączała sama zmienna, którą dało się włączyć z powrotem.
+        Flaga „włączona” bez działającego importu kazałaby zamrożeniu wyścigów
+        czekać na znacznik `__daily__`, którego już nie będzie. Testy historii
+        importera ustawiają flagę `monkeypatch.setattr` na żywym obiekcie
+        ustawień, co omija walidator. Szczegóły: `app/services/traffit_retired.py`.
+        """
+        return False
+
     # Skutki uboczne dla etapów przychodzących z importu.
     #
     # Import pisze do `candidate_stages` surowym SQL-em (świadomie — warstwa
@@ -1473,6 +1878,11 @@ class Settings(BaseSettings):
     # resumable via an `after_id` cursor, full reconcile only — delta already
     # scopes itself to the rows it just touched.
     TRAFFIT_SYNC_ENRICH_NAMES_LIMIT: int = 500
+    # Rekrutacja notatek z Traffita (29.09.2026): globalny feed aktywności jej
+    # nie niesie, więc faza aktywności pyta `/employees/{id}/activities` dla
+    # kandydatów z NOWYMI notatkami w biegu. Sufit osób na bieg (5 zapytań/s);
+    # 0 = wyłączone. Resztę domyka naprawa z panelu admina.
+    TRAFFIT_SYNC_NOTE_RECRUITMENT_LIMIT: int = 500
     # Sufit fazy candidates_cv_fields (parse pól skills/city/years dla
     # kandydatów dotkniętych w biegu; ~$0,008/CV na Haiku). Nocna delta to
     # zwykle dziesiątki wierszy — 200 ogranicza patologiczny bieg do ~$1,6.
@@ -1496,6 +1906,12 @@ class Settings(BaseSettings):
     # może przepinać ludzi wysłanych do klienta rok temu.
     TRAFFIT_IMPORT_REASSIGN_ENABLED: bool = True
     TRAFFIT_IMPORT_REASSIGN_WINDOW_DAYS: int = 7
+    # 08.10.2026 (decyzja Artura): po fazie `pipelines` osoba od Cpro dostaje
+    # jeden dzwonek z mailem o kartach Nordei, które w Traffit nadal stoją
+    # w kolejce „Wysłać do Cpro” (`services/cpro_queue_reminder.py`). Okno =
+    # jak dawno karta mogła wejść do kolejki, żeby jeszcze o niej przypominać.
+    TRAFFIT_CPRO_REMINDER_ENABLED: bool = True
+    TRAFFIT_CPRO_REMINDER_WINDOW_DAYS: int = 7
     # DATA-03/04: retencja kolejek i dzienników automatów (pętla co 6 h).
     QUEUE_RETENTION_ENABLED: bool = True
     QUEUE_RETENTION_INTERVAL_SECONDS: int = 6 * 3600
@@ -1578,6 +1994,7 @@ class Settings(BaseSettings):
     CANDIDATE_CONTACT_ASSIGNMENT_ENABLED: bool = False
     # Enables the strict read-only recruitment_history poller.  This still
     # requires CANDIDATE_CONTACT_ENABLED and valid Traffit read credentials.
+    # Od 14.10.2026 zawsze False (Traffit wyłączony, `_force_traffit_flags_off`).
     CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED: bool = False
     # Required cutover boundary for automatic intake.  Rows older than this
     # timestamp remain neutral historical data and never consume queue slots.
@@ -1729,6 +2146,13 @@ class Settings(BaseSettings):
     # `emit` nie zapisuje niczego. Trasy odczytu zostają (log historyczny musi
     # dać się przeczytać nawet po wyłączeniu generowania nowych wpisów).
     DL_ALERTS_ENABLED: bool = True
+    # Zakres klientów Delivery Leada w modułach Delivery (Klienci, Kontrakty,
+    # Zamówienia, skrzynka zamówień). `assigned` = tylko klienci z wierszem
+    # w `delivery_lead_client_assignments` (decyzja Artura 25.09.2026);
+    # `all` = stan z #1365 (wszyscy klienci), wyłącznik bez deployu.
+    # Rekrutacje, generator B2B i pulpity zostają org-wide niezależnie od
+    # tej wartości. Każda inna wartość niż `all` znaczy `assigned`.
+    DL_CLIENT_SCOPE: str = "assigned"
     # Co ile godzin przemiata warunki. 24 h jak sąsiednie skanery — te alerty
     # dotyczą spraw mierzonych w dniach, nie w minutach.
     DL_ALERTS_INTERVAL_HOURS: float = 24.0
@@ -1774,6 +2198,13 @@ class Settings(BaseSettings):
     # zostaje globalny i bezwzględny („mało MD" ma znaczyć to samo u każdego
     # klienta), a ten jest wczesnym ostrzeżeniem dla klientów z listy wyżej.
     DL_ALERT_MD_BASE_USAGE_PERCENT: float = 80.0
+
+    # ── Licznik użycia obszarów (przegląd najmniejszych dostępów) ───────────
+    # Zbieranie osoba × obszar × dzień. Domyślnie WYŁĄCZONE: to dane o aktywności
+    # pracowników, więc włącza je wyłącznie decyzja Artura (workflow „Coolify set
+    # env”). `docs/claude/uprawnienia/licznik-uzycia-obszarow.md`.
+    ACCESS_USAGE_COUNTER_ENABLED: bool = False
+    ACCESS_USAGE_RETENTION_DAYS: int = 90
 
     # ── Finanse → Zmiany w zamówieniach: Braki ──────────────────────────────
     # Kill-switch detektora braków (zamówienie zakończone bez następcy):
@@ -1913,12 +2344,15 @@ class Settings(BaseSettings):
         # docstring). Misspelled roles in env would otherwise silently no-op
         # at login → user blocked with confusing 403.
         from app.models.user import UserRole
+        from app.services.role_merge import normalize_role_value
 
         # ``user`` is retained in the Python/PG enum only for rolling-deploy
         # compatibility.  It is no longer a provisionable persona.
         valid_roles = {r.value for r in UserRole if r is not UserRole.user}
         out: dict[str, str] = {}
         for group_id, role in parsed.items():
+            # Mapa zapisana przed 0411 może wskazywać `tac` albo `sourcer`.
+            role = normalize_role_value(role) if isinstance(role, str) else role
             if role not in valid_roles:
                 raise ValueError(
                     f"AAD_GROUP_ROLE_MAP_JSON contains unknown role {role!r} "

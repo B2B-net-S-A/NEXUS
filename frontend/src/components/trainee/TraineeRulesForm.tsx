@@ -112,7 +112,10 @@ function RulesEditor({ saved }: { saved: TraineeRules }) {
   const [error, setError] = useState<string | null>(null);
   const save = useSaveTraineeRules();
   const { rules, errors } = useMemo(() => rulesFromDraft(draft), [draft]);
-  const previewRules = useDebounced(rules, 500);
+  // Każdy podgląd to świeże liczenie puli (~kilka–kilkanaście s CPU po stronie
+  // serwera). 1,5 s zamiast 0,5 s, bo pisanie liczby cyfra po cyfrze wysyłało
+  // podgląd dla każdej cyfry (runda 6 audytu).
+  const previewRules = useDebounced(rules, 1500);
   const preview = useTraineeRulesPreview(previewRules);
 
   const setNumber = (name: NumberRuleKey, value: string) => {

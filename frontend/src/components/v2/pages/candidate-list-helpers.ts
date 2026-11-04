@@ -25,13 +25,16 @@ export interface CandidateLite {
   years_it_experience?: number | null;
 }
 
+/** First LETTER of the field — skips brackets and digits („[ACTIVE] Jan” → „A”, never „[”). */
+function firstLetter(value: string | null | undefined): string {
+  return value?.match(/\p{L}/u)?.[0] ?? "";
+}
+
 /** Initials are the first letters of the first-name and last-name fields. */
 export function getCandidateInitials(
   candidate: Pick<CandidateLite, "name" | "lastname">,
 ): string {
-  const first = candidate.name?.trim().charAt(0) ?? "";
-  const last = candidate.lastname?.trim().charAt(0) ?? "";
-  return `${first}${last}`.toUpperCase();
+  return `${firstLetter(candidate.name)}${firstLetter(candidate.lastname)}`.toUpperCase();
 }
 
 /** Best-effort extractor for the candidate's CURRENT job title.

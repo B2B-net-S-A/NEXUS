@@ -557,6 +557,45 @@ async def test_full_name_query_matches_only_exact_pair(
             await db.commit()
 
 
+def test_single_letters_are_not_keywords_and_v2_says_why():
+    """K4 cofnięte po przeglądzie PR #2056: „R” i „C” jako słowo kluczowe
+    łapały prawie całą bazę (token ``r`` z „2019 r.”, ``c`` z „C++”). Lista
+    v1 (alerty starych zapisów) pomija je jak dotąd; v2 odmawia zdaniem,
+    zamiast cicho szukać bez nich."""
+    from app.services.advanced_candidate_search import _clean, build_advanced_filter
+    from app.services.keyword_terms import KeywordTooShort
+
+    assert _clean(["C", "x", "r", "Java"]) == ["Java"]
+    assert build_advanced_filter(["R"], None, None, None) is None
+    with pytest.raises(KeywordTooShort) as caught:
+        build_advanced_filter(
+            ["Java"], None, None, [["R", "Python"]], whole_words=True, reject_short=True
+        )
+    message = str(caught.value)
+    assert "„R”" in message and "Umiejętności" in message
+
+
+@pytest.mark.asyncio
+async def test_v2_list_and_search_refuse_single_letter_keyword(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    resp = await app_client.get(
+        "/api/candidates",
+        params={"semantics_version": 2, "q_any_group": "R|Python"},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert "Umiejętności" in resp.json()["detail"]
+
+    resp = await app_client.post(
+        "/api/search/candidates",
+        json={"semantics_version": 2, "q_all": ["C"]},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert "Umiejętności" in resp.json()["detail"]
+
+
 def test_fold_polish_helper():
     """The Python fold must mirror the SQL `lower(translate(...))` of
     `search_doc_unaccented` (migration 0159), including NFD → NFC handling."""

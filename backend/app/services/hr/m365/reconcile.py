@@ -1,0 +1,684 @@
+"""Uzgadnianie skrzynek z urlopami — raz dziennie po 7:00 (Warszawa).
+
+Siatka pod wykonawcą kolejki: sam niczego nie zapisuje w skrzynkach, tylko
+czyta je i dokłada operacje do ``hr_m365_operations`` (te przechodzą przez
+tryby, listę skrzynek i ponowienia wykonawcy). Dla każdej skrzynki zespołu:
+
+1. **autoodpowiedź** — zatwierdzony urlop (co najmniej pełny dzień), który
+   trwa albo zaczyna się jutro, a w skrzynce nie ma jego autoodpowiedzi →
+   ``set_oof`` z nowym kluczem (dzień uzgadniania). Nie dokładamy, gdy:
+   czeka operacja tego urlopu, osoba ma własną autoodpowiedź, albo nasza już
+   raz weszła, a osoba ją wyłączyła (np. wróciła wcześniej). „Osoba
+   wyłączyła” tylko wtedy, gdy ``set_oof`` tego urlopu był naszym ostatnim
+   zapisem autoodpowiedzi w tej skrzynce — jeśli po nim weszła autoodpowiedź
+   innego urlopu albo nasze zdjęcie (anulowanie wcześniejszego urlopu), stan
+   skrzynki wynika z naszej operacji i autoodpowiedź wraca;
+2. **przekierowania** — reguła NEXUSA albo Compassa bez urlopu, który właśnie
+   trwa (urlop się skończył, został anulowany, zgoda cofnięta, albo urlopu
+   w ogóle nie ma — sierota) → ``forward_rule_close``; urlop ze zgodą, który
+   trwa i nie ma reguły → ``forward_rule_open``; reguła Compassa trwającego
+   urlopu → przejęcie (``forward_rule_open`` przepisuje ją na NEXUSA);
+3. **wydarzenia po symulacji** (tylko ``live``) — zatwierdzony urlop, który
+   się nie skończył, a jego ostatnia operacja kalendarza to symulowane
+   ``calendar_event_upsert`` → ``calendar_event_upsert`` na nowo;
+4. **nieobecność ustawiona w Outlooku bez wniosku** — własna autoodpowiedź
+   osoby z harmonogramem, której dni nie pokrywa żaden wniosek → wniosek
+   ``source='outlook_oof'`` (``leave_outlook``, tylko przy włączonym module
+   urlopów). Autoodpowiedź bez dat zostaje na liście „własnych
+   autoodpowiedzi” w karcie (``custom_oof_detected``). Wnioski z Outlooka nie
+   dostają od nas autoodpowiedzi ani wydarzenia — osoba ma swoją.
+
+Po przejściu ``simulate`` → ``live`` operacje ``simulated`` są dla
+uzgadniania niewykonane (do ponowienia): w skrzynce nic się nie zmieniło.
+W trybie ``simulate`` liczą się jak ``done`` — inaczej symulacja dokładałaby
+operacje codziennie.
+
+Rezerwacja w ``hr_job_runs`` (``kind = hr_m365_reconcile``, klucz = dzień):
+drugi przebieg tego samego dnia nic nie robi. „Uzgodnij teraz” w karcie
+(``run_manual``) omija rezerwację dnia i godzinę 7:00; przed równoległym
+przebiegiem (ręcznym albo dziennym) chroni wspólna blokada ``LOCK_KIND``. Odczyt skrzynki nieudany =
+„nie wiadomo”, a nie „pusto” — wtedy niczego nie wnioskujemy. Skrzynek osób,
+które odeszły (konto wyłączone albo kartoteka ``exited``), nie czytamy wcale —
+licznik ``skipped_exited``, nie ``read_errors``. Błąd skrzynki, której przebieg
+nie czytał, jest zdejmowany (``stale_errors_cleared``): karta „Skrzynki z błędem”
+ma pokazywać to, co można naprawić.
+"""
+
+from __future__ import annotations
+
+import logging
+import uuid
+from collections import defaultdict
+from collections.abc import Collection
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+from typing import Any, Optional
+
+from sqlalchemy import func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.hr_leave import HrM365MailboxState, HrM365Operation, LeaveRequest
+from app.models.hr_profile import EmployeeProfile
+from app.models.user import User
+from app.services.hr import job_runs, leave_outlook
+from app.services.hr.m365 import forward_rules, oof_state
+from app.services.hr.m365.executor import (
+    allowlist,
+    current_mode,
+    enqueue_at,
+    exited_profiles,
+    forward_should_be_active,
+    leave_day_totals,
+    left_company,
+    mailbox_address,
+    save_mailbox_state,
+    set_oof_payload,
+    utc_now,
+    warsaw_hour,
+    warsaw_today,
+)
+from app.services.hr.m365.ops import GraphMailboxOps, MailboxError, MailboxOps
+from app.services.hr.m365.simulated import SimulatedMailboxOps
+from app.services.hr.modules import HrModule, load_modules
+from app.services.hr_foundation_schema import EmploymentStatus
+
+logger = logging.getLogger(__name__)
+
+JOB_KIND = "hr_m365_reconcile"
+#: Blokada przebiegu (dzienny i ręczny) — jeden wiersz, przejmowany po zakończeniu.
+LOCK_KIND = "hr_m365_reconcile_lock"
+LOCK_KEY = "run"
+ALREADY_RUNNING = "already_running"
+RECONCILE_HOUR = 7
+#: Górna granica skrzynek na przebieg (zespół to dziś kilkadziesiąt osób).
+MAX_MAILBOXES = 300
+
+_LIVE_STATUSES = ("pending", "running")
+
+
+def executed_statuses(mode: str) -> tuple[str, ...]:
+    """Statusy „operacja weszła do skrzynki” w danym trybie.
+
+    W ``live`` symulowana operacja niczego w skrzynce nie zmieniła — jest do
+    ponowienia (przegląd 16.10.2026, D19).
+    """
+
+    return ("done",) if mode == "live" else ("done", "simulated")
+
+
+async def _candidate_leaves(db: AsyncSession, today: date) -> list[LeaveRequest]:
+    """Zatwierdzone urlopy, które trwają albo zaczynają się jutro."""
+
+    rows = await db.scalars(
+        select(LeaveRequest)
+        .where(
+            LeaveRequest.status == "approved",
+            LeaveRequest.end_date >= today,
+            LeaveRequest.start_date <= today + timedelta(days=1),
+        )
+        .order_by(LeaveRequest.start_date, LeaveRequest.id)
+    )
+    return list(rows.all())
+
+
+async def _latest_ops(
+    db: AsyncSession, leave_ids: list[uuid.UUID]
+) -> tuple[dict[uuid.UUID, HrM365Operation], dict[uuid.UUID, HrM365Operation]]:
+    """Ostatnia operacja autoodpowiedzi i ostatnia operacja przekierowania urlopu."""
+
+    if not leave_ids:
+        return {}, {}
+    rows = await db.scalars(
+        select(HrM365Operation)
+        .where(
+            HrM365Operation.leave_request_id.in_(leave_ids),
+            HrM365Operation.kind.in_(
+                ("set_oof", "forward_rule_open", "forward_rule_close")
+            ),
+        )
+        .order_by(HrM365Operation.id)
+    )
+    oof: dict[uuid.UUID, HrM365Operation] = {}
+    forward: dict[uuid.UUID, HrM365Operation] = {}
+    for op in rows.all():
+        target = oof if op.kind == "set_oof" else forward
+        target[op.leave_request_id] = op  # type: ignore[index]
+    return oof, forward
+
+
+async def _last_oof_writes(
+    db: AsyncSession, user_ids: Collection[int], executed: tuple[str, ...]
+) -> dict[int, HrM365Operation]:
+    """Id ostatniej naszej operacji, która zapisała autoodpowiedź, per osoba.
+
+    ``set_oof`` wykonane zawsze pisze; ``clear_oof`` wykonane — tylko gdy
+    zdjęło naszą autoodpowiedź (zastaną wyłączoną kończy jako ``skipped``).
+    Kolejność według wykonania (``done_at``), nie kolejki: odroczona operacja
+    wcześniejszego wiersza mogła wejść później.
+    """
+
+    if not user_ids:
+        return {}
+    rows = await db.scalars(
+        select(HrM365Operation)
+        .where(
+            HrM365Operation.user_id.in_(list(user_ids)),
+            HrM365Operation.kind.in_(("set_oof", "clear_oof")),
+            HrM365Operation.status.in_(executed),
+        )
+        .distinct(HrM365Operation.user_id)
+        .order_by(
+            HrM365Operation.user_id,
+            HrM365Operation.done_at.desc().nulls_last(),
+            HrM365Operation.id.desc(),
+        )
+    )
+    return {op.user_id: op for op in rows.all()}
+
+
+async def _simulated_calendar(
+    db: AsyncSession, today: date
+) -> dict[int, list[HrM365Operation]]:
+    """Urlopy, których wydarzenie powstało tylko w symulacji (ostatnia operacja
+    kalendarza to symulowane ``calendar_event_upsert``), per osoba."""
+
+    ranked = (
+        select(
+            HrM365Operation.id,
+            func.row_number()
+            .over(
+                partition_by=HrM365Operation.leave_request_id,
+                order_by=HrM365Operation.id.desc(),
+            )
+            .label("rank"),
+        )
+        .join(LeaveRequest, LeaveRequest.id == HrM365Operation.leave_request_id)
+        .where(
+            HrM365Operation.kind.in_(
+                ("calendar_event_upsert", "calendar_event_delete")
+            ),
+            LeaveRequest.status == "approved",
+            LeaveRequest.end_date >= today,
+        )
+        .subquery()
+    )
+    rows = await db.scalars(
+        select(HrM365Operation)
+        .join(ranked, ranked.c.id == HrM365Operation.id)
+        .where(
+            ranked.c.rank == 1,
+            HrM365Operation.kind == "calendar_event_upsert",
+            HrM365Operation.status == "simulated",
+        )
+        .order_by(HrM365Operation.id)
+    )
+    out: dict[int, list[HrM365Operation]] = defaultdict(list)
+    for op in rows.all():
+        out[op.user_id].append(op)
+    return out
+
+
+async def mailbox_users(
+    db: AsyncSession, owner_ids: set[int], only: Optional[Collection[int]]
+) -> list[User]:
+    """Skrzynki zespołu (kartoteka nie ``exited``) i właściciele urlopów.
+
+    Właściciel urlopu bez kartoteki wchodzi — jego urlop też ma autoodpowiedź
+    i reguły do uzgodnienia. Osoba, która odeszła (konto wyłączone albo
+    kartoteka ``exited``), nie wchodzi: patrz ``left_company``.
+    """
+
+    staff = select(EmployeeProfile.user_id).where(
+        EmployeeProfile.employment_status != EmploymentStatus.exited
+    )
+    members = User.id.in_(staff)
+    if owner_ids:
+        members = members | User.id.in_(owner_ids)
+    query = select(User).where(
+        User.is_active.is_(True),
+        User.id.not_in(exited_profiles()),
+        members,
+    )
+    if only is not None:
+        query = query.where(User.id.in_(list(only)))
+    rows = await db.scalars(query.order_by(User.id).limit(MAX_MAILBOXES))
+    return list(rows.all())
+
+
+def _needs_oof(
+    current: dict[str, Any],
+    leave: LeaveRequest,
+    latest: Optional[HrM365Operation],
+    now: datetime,
+    *,
+    executed: tuple[str, ...],
+    last_write: Optional[HrM365Operation],
+) -> bool:
+    if oof_state.matches_leave(current, leave.start_date, leave.end_date):
+        return False
+    if latest is not None and latest.status in _LIVE_STATUSES:
+        return False
+    if oof_state.user_custom_active(current, now):
+        return False
+    if latest is None or latest.status not in executed:
+        return True
+    if oof_state.is_disabled(current) and (
+        last_write is None or last_write.id == latest.id
+    ):
+        # Nasza autoodpowiedź weszła jako ostatni nasz zapis, a osoba ją
+        # wyłączyła — nie włączamy na nowo. Późniejszy nasz zapis (inny urlop
+        # albo zdjęcie przy anulowaniu) znaczy, że wyłączyliśmy ją my.
+        return False
+    if _later_leave_took_over(leave, latest, last_write):
+        # Po naszej autoodpowiedzi tego urlopu weszła autoodpowiedź urlopu,
+        # który zaczyna się nie wcześniej. Wykonawca pisze taką tylko do
+        # skrzynki bez naszej trwającej (``blocking_until``) — czyli osoba
+        # wyłączyła tę (np. wróciła wcześniej). Nie odbieramy późniejszemu.
+        return False
+    return True
+
+
+def _later_leave_took_over(
+    leave: LeaveRequest,
+    latest: HrM365Operation,
+    last_write: Optional[HrM365Operation],
+) -> bool:
+    if last_write is None or last_write.id == latest.id:
+        return False
+    if last_write.kind != "set_oof" or last_write.leave_request_id == leave.id:
+        return False
+    raw = (last_write.payload or {}).get("start")
+    try:
+        other_start = date.fromisoformat(str(raw))
+    except ValueError:
+        return False
+    return other_start >= leave.start_date
+
+
+def _forward_open_pending(
+    latest: Optional[HrM365Operation], executed: tuple[str, ...]
+) -> bool:
+    """Ostatnia operacja przekierowania to otwarcie, które czeka albo weszło."""
+
+    return (
+        latest is not None
+        and latest.kind == "forward_rule_open"
+        and latest.status in (*_LIVE_STATUSES, *executed)
+    )
+
+
+async def _reconcile(
+    db: AsyncSession,
+    ops: MailboxOps,
+    mode: str,
+    now: datetime,
+    today: date,
+    only: Optional[Collection[int]] = None,
+) -> dict[str, Any]:
+    counts: dict[str, Any] = defaultdict(int)
+    executed = executed_statuses(mode)
+    create_requests = (await load_modules(db)).get(HrModule.leave, False)
+    leaves = await _candidate_leaves(db, today)
+    leave_ids = [leave.id for leave in leaves]
+    totals = await leave_day_totals(db, leave_ids)
+    latest_oof, latest_forward = await _latest_ops(db, leave_ids)
+    by_user: dict[int, list[LeaveRequest]] = defaultdict(list)
+    for leave in leaves:
+        by_user[leave.user_id].append(leave)
+    last_writes = await _last_oof_writes(db, set(by_user), executed)
+    calendar_redo = await _simulated_calendar(db, today) if mode == "live" else {}
+
+    owners = set(by_user) | set(calendar_redo)
+    if only is not None:
+        owners &= set(only)
+    left = await left_company(db, owners)
+    if left:
+        # Urlop osoby, która odeszła — nie czytamy skrzynki poza zakresem
+        # aplikacji (403) i nie liczymy tego jako błąd odczytu.
+        counts["skipped_exited"] = len(left)
+
+    allowed = allowlist() if mode == "live" else frozenset()
+    day_key = today.isoformat()
+    read_ids: set[int] = set()
+    for user in await mailbox_users(db, owners, only):
+        upn = mailbox_address(user)
+        if upn is None:
+            continue
+        if allowed and upn.lower() not in allowed:
+            counts["not_allowlisted"] += 1
+            continue
+        counts["mailboxes"] += 1
+        read_ids.add(user.id)
+        user_leaves = by_user.get(user.id, [])
+        error: Optional[str] = None
+        custom_flag: Optional[bool] = None
+
+        # 1. Autoodpowiedź.
+        try:
+            current = await ops.get_auto_replies(upn)
+        except MailboxError as exc:
+            current = None
+            error = exc.label
+            counts["read_errors"] += 1
+        if current is not None:
+            custom_flag = oof_state.user_custom_active(current, now)
+            if custom_flag and create_requests:
+                await _requests_from_custom_oof(db, user, current, today, counts)
+            for leave in user_leaves:
+                if leave.source == leave_outlook.SOURCE:
+                    continue  # osoba ma własną autoodpowiedź — nie nadpisujemy
+                total = totals.get(leave.id, Decimal("0"))
+                if total < Decimal("1"):
+                    continue  # pół dnia nie dostaje autoodpowiedzi
+                if not _needs_oof(
+                    current,
+                    leave,
+                    latest_oof.get(leave.id),
+                    now,
+                    executed=executed,
+                    last_write=last_writes.get(user.id),
+                ):
+                    continue
+                payload = await set_oof_payload(db, leave, total)
+                if payload is None:
+                    continue
+                if await enqueue_at(
+                    db,
+                    user_id=user.id,
+                    kind="set_oof",
+                    dedupe_key=f"leave:{leave.id}:set_oof:reconcile:{day_key}",
+                    payload=payload,
+                    leave_request_id=leave.id,
+                ):
+                    counts["oof_enqueued"] += 1
+
+        # 2. Przekierowania.
+        try:
+            rules = await ops.list_rules(upn)
+        except MailboxError as exc:
+            rules = None
+            error = error or exc.label
+            counts["read_errors"] += 1
+        if rules is not None:
+            active = {
+                str(leave.id): leave
+                for leave in user_leaves
+                if forward_should_be_active(leave, today)
+            }
+            managed: list[tuple[dict[str, Any], str]] = []
+            for rule in rules:
+                leave_id = forward_rules.parse_leave_id(rule.get("displayName"))
+                if leave_id and rule.get("id"):
+                    managed.append((rule, leave_id))
+            stray_ids = {leave_id for _, leave_id in managed if leave_id not in active}
+            existing = await _existing_leaves(db, stray_ids, user.id)
+            seen: set[str] = set()
+            for rule, leave_id in managed:
+                seen.add(leave_id)
+                leave = active.get(leave_id)
+                if leave is not None:
+                    if forward_rules.is_compass_rule(rule.get("displayName")):
+                        if await enqueue_at(
+                            db,
+                            user_id=user.id,
+                            kind="forward_rule_open",
+                            dedupe_key=f"leave:{leave_id}:forward_rule_open:takeover",
+                            payload=_forward_payload(leave, "takeover"),
+                            leave_request_id=leave.id,
+                        ):
+                            counts["forward_takeover"] += 1
+                    continue
+                if await enqueue_at(
+                    db,
+                    user_id=user.id,
+                    kind="forward_rule_close",
+                    dedupe_key=f"reconcile:{day_key}:forward_rule_close:{user.id}:{leave_id}",
+                    payload={
+                        "leave_id": leave_id,
+                        "rule_name": rule.get("displayName"),
+                        "reason": "orphan" if leave_id not in existing else "ended",
+                    },
+                    leave_request_id=uuid.UUID(leave_id)
+                    if leave_id in existing
+                    else None,
+                ):
+                    counts["forward_close_enqueued"] += 1
+            for leave_id, leave in active.items():
+                if leave_id in seen or _forward_open_pending(
+                    latest_forward.get(leave.id), executed
+                ):
+                    continue
+                if await enqueue_at(
+                    db,
+                    user_id=user.id,
+                    kind="forward_rule_open",
+                    dedupe_key=f"leave:{leave_id}:forward_rule_open:reconcile:{day_key}",
+                    payload=_forward_payload(leave, "reconcile"),
+                    leave_request_id=leave.id,
+                ):
+                    counts["forward_open_enqueued"] += 1
+
+        # 3. Wydarzenia, które powstały tylko w symulacji.
+        for op in calendar_redo.get(user.id, []):
+            if await enqueue_at(
+                db,
+                user_id=user.id,
+                kind="calendar_event_upsert",
+                dedupe_key=f"leave:{op.leave_request_id}:calendar_event_upsert:reconcile:{day_key}",
+                payload=dict(op.payload or {}),
+                leave_request_id=op.leave_request_id,
+            ):
+                counts["calendar_enqueued"] += 1
+
+        if mode == "live":
+            await save_mailbox_state(
+                db,
+                user.id,
+                custom_oof=custom_flag,
+                last_error=error,
+                reconciled_at=now if error is None else None,
+            )
+        await db.commit()
+    if mode == "live":
+        cleared = await _clear_stale_errors(db, read_ids, only)
+        if cleared:
+            counts["stale_errors_cleared"] = cleared
+        await db.commit()
+    return dict(counts)
+
+
+async def _clear_stale_errors(
+    db: AsyncSession, read_ids: set[int], only: Optional[Collection[int]]
+) -> int:
+    """Zdejmuje błąd skrzynek, których ten przebieg nie czytał.
+
+    Osoba po odejściu i konto spoza kartoteki bez urlopu nie wchodzą do
+    przeglądu, więc ich błąd nie miał jak zniknąć i wyglądał jak bieżący
+    (prod 02.11.2026: 11 z 18 pozycji na karcie). Gdy taka skrzynka znów wejdzie
+    do przeglądu, odczyt zapisze błąd od nowa.
+    """
+
+    query = update(HrM365MailboxState).where(
+        HrM365MailboxState.last_error.is_not(None),
+        HrM365MailboxState.user_id.not_in(read_ids),
+    )
+    if only is not None:
+        query = query.where(HrM365MailboxState.user_id.in_(list(only)))
+    result = await db.execute(
+        query.values(last_error=None).execution_options(synchronize_session=False)
+    )
+    return result.rowcount or 0
+
+
+async def _requests_from_custom_oof(
+    db: AsyncSession,
+    user: User,
+    current: dict[str, Any],
+    today: date,
+    counts: dict[str, Any],
+) -> None:
+    """Krok 4 — wniosek z własnej autoodpowiedzi; awaria nie zatrzymuje przebiegu."""
+
+    try:
+        async with db.begin_nested():
+            found = await leave_outlook.from_custom_oof(
+                db, user=user, setting=current, today=today
+            )
+    except Exception:  # noqa: BLE001 — jedna skrzynka nie zatrzymuje uzgadniania
+        logger.exception("hr_m365_reconcile: outlook leave for user %s failed", user.id)
+        counts["oof_request_errors"] += 1
+        return
+    for key, value in found.items():
+        counts[key] += value
+
+
+async def _existing_leaves(
+    db: AsyncSession, leave_ids: set[str], user_id: int
+) -> set[str]:
+    """Które id z nazw reguł to urlopy TEJ osoby w NEXUSIE (reszta to sieroty)."""
+
+    parsed = []
+    for value in leave_ids:
+        try:
+            parsed.append(uuid.UUID(value))
+        except ValueError:
+            continue
+    if not parsed:
+        return set()
+    rows = await db.scalars(
+        select(LeaveRequest.id).where(
+            LeaveRequest.id.in_(parsed), LeaveRequest.user_id == user_id
+        )
+    )
+    return {str(value) for value in rows.all()}
+
+
+def _forward_payload(leave: LeaveRequest, reason: str) -> dict[str, Any]:
+    return {
+        "start": leave.start_date.isoformat(),
+        "end": leave.end_date.isoformat(),
+        "substitute_user_id": leave.substitute_user_id,
+        "rule_name": forward_rules.rule_name(str(leave.id)),
+        "reason": reason,
+    }
+
+
+async def _locked_pass(
+    db: AsyncSession,
+    *,
+    ops: Optional[MailboxOps],
+    mode: str,
+    now: datetime,
+    today: date,
+    user_ids: Optional[Collection[int]],
+) -> tuple[str, dict[str, Any]]:
+    """Przebieg pod blokadą ``LOCK_KIND``: ``(status, liczby)``.
+
+    ``status`` = ``done`` / ``failed`` / ``ALREADY_RUNNING`` (inny przebieg ma
+    blokadę — dzienny poczeka, ręczny dostaje odmowę).
+    """
+
+    lock_id = await job_runs.claim(db, LOCK_KIND, LOCK_KEY, now, retake_done=True)
+    if lock_id is None:
+        return ALREADY_RUNNING, {}
+    own_ops = ops is None
+    active_ops: MailboxOps = ops or (
+        SimulatedMailboxOps() if mode == "simulate" else GraphMailboxOps()
+    )
+    try:
+        counts = await _reconcile(db, active_ops, mode, now, today, user_ids)
+    except Exception as exc:  # noqa: BLE001 — przebieg do ponowienia, nie cichy sukces
+        logger.exception("hr_m365_reconcile failed")
+        await db.rollback()
+        await job_runs.finish(
+            db, lock_id, status="failed", counts={}, error=type(exc).__name__
+        )
+        return "failed", {"failed": type(exc).__name__}
+    finally:
+        if own_ops:
+            await active_ops.aclose()
+    await job_runs.finish(db, lock_id, status="done", counts=counts)
+    return "done", counts
+
+
+def _unavailable(mode: str, ops: Optional[MailboxOps]) -> Optional[str]:
+    if mode == "off":
+        return "disabled"
+    if mode == "live" and ops is None:
+        from app.services.hr.m365.auth import credentials_configured
+
+        if not credentials_configured():
+            return "no_credentials"
+    return None
+
+
+async def run_once(
+    db: AsyncSession,
+    *,
+    ops: Optional[MailboxOps] = None,
+    mode: Optional[str] = None,
+    now: Optional[datetime] = None,
+    user_ids: Optional[Collection[int]] = None,
+) -> dict[str, Any]:
+    """Jeden przebieg dziennie po 7:00; wcześniej i powtórnie — nic.
+
+    ``user_ids`` zawęża przegląd do wskazanych skrzynek (testy).
+    """
+
+    mode = mode or current_mode()
+    if mode == "off":
+        return {"status": "disabled"}
+    now = now or utc_now()
+    today = warsaw_today(now)
+    if warsaw_hour(now) < RECONCILE_HOUR:
+        return {"mode": mode, "skipped": "before_07"}
+    if _unavailable(mode, ops) == "no_credentials":
+        return {"mode": mode, "skipped": "no_credentials"}
+
+    run_id = await job_runs.claim(db, JOB_KIND, today.isoformat(), now)
+    if run_id is None:
+        return {"mode": mode, "skipped": "already_ran"}
+
+    status, counts = await _locked_pass(
+        db, ops=ops, mode=mode, now=now, today=today, user_ids=user_ids
+    )
+    if status == ALREADY_RUNNING:
+        # Trwa „Uzgodnij teraz” — dzień zostaje do ponowienia w kolejnym obrocie pętli.
+        await job_runs.finish(
+            db, run_id, status="failed", counts={}, error=ALREADY_RUNNING
+        )
+        return {"mode": mode, "skipped": ALREADY_RUNNING}
+    if status == "failed":
+        await job_runs.finish(
+            db, run_id, status="failed", counts={}, error=counts["failed"]
+        )
+        return {"mode": mode, **counts}
+    await job_runs.finish(db, run_id, status="done", counts=counts)
+    return {"mode": mode, **counts}
+
+
+async def run_manual(
+    db: AsyncSession,
+    *,
+    ops: Optional[MailboxOps] = None,
+    mode: Optional[str] = None,
+    now: Optional[datetime] = None,
+    user_ids: Optional[Collection[int]] = None,
+) -> dict[str, Any]:
+    """„Uzgodnij teraz” — przebieg na żądanie Kadr, bez rezerwacji dnia i bez 7:00.
+
+    Wynik: ``{"status": "done" | "failed" | "disabled" | "no_credentials" |
+    "already_running", "mode": …, "counts": {…}}``. Dzienna rezerwacja zostaje
+    nietknięta — przebieg o 7:00 i tak się odbędzie (dokłada tylko to, czego
+    brakuje: klucze operacji są dzienne).
+    """
+
+    mode = mode or current_mode()
+    blocked = _unavailable(mode, ops)
+    if blocked is not None:
+        return {"status": blocked, "mode": mode, "counts": {}}
+    now = now or utc_now()
+    status, counts = await _locked_pass(
+        db, ops=ops, mode=mode, now=now, today=warsaw_today(now), user_ids=user_ids
+    )
+    return {"status": status, "mode": mode, "counts": counts}

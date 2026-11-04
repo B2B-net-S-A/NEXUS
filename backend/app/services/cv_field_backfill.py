@@ -32,8 +32,10 @@ Zasady, które nie są kosmetyką:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
+from datetime import datetime
 from typing import Any, Optional, Sequence
 
 from sqlalchemy import func, or_, select, text
@@ -81,11 +83,38 @@ _CITY_EMPTY = or_(Candidate.city.is_(None), func.trim(Candidate.city) == "")
 _YEARS_EMPTY = Candidate.years_it_experience.is_(None)
 
 
+# Runda 10 (R10-N8-3): znacznik „ten tekst CV już odczytano, a pola celu
+# i tak zostały puste” (np. CV bez miasta). Bez niego wiersz zostawał
+# w scope na zawsze i każdy bieg — admin od `after_id=0` albo nocna faza
+# `candidates_cv_fields` — płacił za niego LLM od nowa. Lustro `NO_RESULT_KEY`
+# z `experience_backfill`, ale przypięte do skrótu TEKSTU CV: nowe CV (inny
+# tekst) wraca do scope'u samo. `md5` w Postgresie liczy bajty UTF-8, więc
+# zgadza się z `hashlib.md5(tekst.encode())`.
+READ_MARK_KEY = "_cv_fields_read_md5"
+_NOT_ALREADY_READ = text(
+    "coalesce(candidates.cv_extracted_data->>'_cv_fields_read_md5', '') "
+    "<> md5(candidates.raw_cv_text)"
+)
+
+
+def cv_text_digest(raw_cv_text: str) -> str:
+    return hashlib.md5(raw_cv_text.encode("utf-8")).hexdigest()  # noqa: S324 — skrót tożsamości tekstu, nie kryptografia
+
+
+def _mark_read(candidate: Candidate) -> None:
+    raw = candidate.cv_extracted_data
+    extracted = dict(raw) if isinstance(raw, dict) else {}
+    extracted[READ_MARK_KEY] = cv_text_digest(candidate.raw_cv_text or "")
+    # Nowy obiekt, nie mutacja — JSONB bez `MutableDict` nie widzi zmian w miejscu.
+    candidate.cv_extracted_data = extracted
+
+
 def _scope_filter():
     return (
         Candidate.raw_cv_text.isnot(None),
         func.length(Candidate.raw_cv_text) >= MIN_CV_CHARS,
         or_(_SKILLS_EMPTY, _CITY_EMPTY, _YEARS_EMPTY),
+        _NOT_ALREADY_READ,
     )
 
 
@@ -129,6 +158,8 @@ async def backfill_cv_fields(
     after_id: int = 0,
     until_id: Optional[int] = None,
     candidate_ids: Optional[Sequence[int]] = None,
+    updated_since: Optional[datetime] = None,
+    updated_before: Optional[datetime] = None,
     progress: Optional[dict[str, Any]] = None,
     calibration_log_path: Optional[str] = None,
 ) -> dict[str, Any]:
@@ -144,6 +175,13 @@ async def backfill_cv_fields(
     scope), a wąskim gardłem jest latencja LLM, nie CPU. Bez górnej granicy
     każdy proces po wyczerpaniu swojego zakresu wszedłby w zakres sąsiada
     i płacił drugi raz za wiersze, których sąsiad jeszcze nie doszedł.
+
+    `updated_since`/`updated_before` (przedział `[od, do)` po `updated_at`)
+    wyznaczają OKNO nocnego syncu (runda 6 audytu): faza
+    `candidates_cv_fields` przechodzi okno po `id` i zapamiętuje pozycję
+    (`last_id`), bo lista id całego okna przekazana jako `candidate_ids`
+    przepadała po limicie, a przy dużym oknie przekraczała limit parametrów
+    zapytania.
     """
 
     if candidate_ids is not None and len(candidate_ids) == 0:
@@ -158,6 +196,7 @@ async def backfill_cv_fields(
     stats.setdefault("processed", 0)
     stats.setdefault("updated", 0)
     stats.setdefault("skipped_no_result", 0)
+    stats.setdefault("marked_read_incomplete", 0)
     stats.setdefault("errors", 0)
     # ID wierszy, które padły. Bez nich faza `candidates_cv_fields` w nocnym
     # syncu raportuje anonimowe "errors: N", a taki błąd jest dla kwarantanny
@@ -214,6 +253,10 @@ async def backfill_cv_fields(
             conditions = [Candidate.id > cursor, *_scope_filter()]
             if until_id is not None:
                 conditions.append(Candidate.id <= until_id)
+            if updated_since is not None:
+                conditions.append(Candidate.updated_at >= updated_since)
+            if updated_before is not None:
+                conditions.append(Candidate.updated_at < updated_before)
             if candidate_ids is not None:
                 # Tryb delta nocnego syncu: wyłącznie kandydaci dotknięci w tym
                 # biegu. Scope filter nadal obowiązuje (płacą tylko wiersze
@@ -235,9 +278,6 @@ async def backfill_cv_fields(
                 break
 
             for candidate in rows:
-                cursor = candidate.id
-                stats["last_id"] = candidate.id
-
                 if limit and stats["processed"] >= limit:
                     stats["stopped_reason"] = "limit"
                     return stats
@@ -246,6 +286,12 @@ async def backfill_cv_fields(
                     # się jako advisory i wyścigowy, więc bieg ma własny sufit.
                     stats["stopped_reason"] = "max_calls"
                     return stats
+                # Runda 10 (R10-N8-4): kursor przesuwa się dopiero PO sprawdzeniu
+                # limitów — `last_id` to wznowienie (`after_id`), więc nie może
+                # wskazywać wiersza, którego ten bieg nie przerobił.
+                previous_last_id = stats["last_id"]
+                cursor = candidate.id
+                stats["last_id"] = candidate.id
 
                 stats["processed"] += 1
                 empty_before = _empty_now(candidate)
@@ -262,6 +308,8 @@ async def backfill_cv_fields(
                         )
                 except AIQuotaExceeded as quota_exc:
                     # Hamulec organizacyjny — zatrzymuje BIEG, nie wiersz.
+                    # Wiersz nieodczytany: wznowienie ma go wziąć jeszcze raz.
+                    stats["last_id"] = previous_last_id
                     stats["stopped_reason"] = f"quota: {quota_exc}"
                     logger.warning("[cv-backfill] stop przez kwotę: %s", quota_exc)
                     return stats
@@ -307,11 +355,11 @@ async def backfill_cv_fields(
                     if email_taken:
                         parsed = {k: v for k, v in parsed.items() if k != "email"}
                         stats["email_collisions"] += 1
+                        # Bez adresu w logu (runda 7 audytu) — to dane osoby.
                         logger.info(
-                            "[cv-backfill] id=%s: e-mail %r należy już do innego "
-                            "kandydata — pole pominięte, reszta wiersza idzie",
+                            "[cv-backfill] id=%s: e-mail z CV należy już do "
+                            "innego kandydata — pole pominięte, reszta wiersza idzie",
                             candidate.id,
-                            email_value,
                         )
 
                 try:
@@ -322,6 +370,11 @@ async def backfill_cv_fields(
                         _apply_cv_enrichment(
                             candidate, parsed, policy=CvWritePolicy.FILL_EMPTY
                         )
+                        if _empty_now(candidate):
+                            # Odczyt się udał, ale CV nie niesie brakującego
+                            # pola — nie płać za ten sam tekst drugi raz.
+                            _mark_read(candidate)
+                            stats["marked_read_incomplete"] += 1
                         await db.flush()
                 except Exception as exc:  # noqa: BLE001 — wiersz, nie bieg
                     stats["errors"] += 1

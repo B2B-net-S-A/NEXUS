@@ -104,17 +104,35 @@ describe("ClientPlaybookCard", () => {
     });
   });
 
+  it("nie pokazuje off-limit nawet, gdy stary backend go przyśle (R9-N4-8)", async () => {
+    // Funkcja usunięta 27.09.2026 decyzją Artura — karta nie ma już tego faktu.
+    routeGet({
+      [PLAYBOOK_URL]: () => ({
+        ...makeClientPlaybook(),
+        off_limits: { months: 12, scope: "Cały bank", notes: "stara notatka" },
+      }),
+      [CV_RULE_URL]: () => makeCvRule(),
+    });
+    const { unmount } = renderCard();
+    expect(await screen.findByText(HEADER)).toBeInTheDocument();
+    expect(screen.queryByText(/off-limit/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Cały bank/)).not.toBeInTheDocument();
+    unmount();
+    renderCard({ variant: "compact" });
+    expect(await screen.findByText("SLA 5 dni")).toBeInTheDocument();
+    expect(screen.queryByText(/off-limit/i)).not.toBeInTheDocument();
+  });
+
   it("renderuje nagłówek z nazwą i wersją, fakty, markdown i dokumenty", async () => {
     renderCard();
     expect(await screen.findByText(HEADER)).toBeInTheDocument();
     expect(screen.getByText(/wersja 3/)).toBeInTheDocument();
     expect(screen.getByText(/zaktualizował Artur/)).toBeInTheDocument();
 
-    // Fakty (KeyFacts) — liczby, polityka stawek, off-limit z umowy.
+    // Fakty (KeyFacts) — liczby, polityka stawek.
     expect(
       screen.getByText("Maks. 180 PLN/h B2B, bez negocjacji po wysyłce CV."),
     ).toBeInTheDocument();
-    expect(screen.getByText("12 mies. · Cały bank")).toBeInTheDocument();
     expect(
       screen.getByText("Skandynawski bank, zespoły produktowe, praca po angielsku."),
     ).toBeInTheDocument();
@@ -261,7 +279,6 @@ describe("ClientPlaybookCard", () => {
     expect(screen.getByText("limit CV 4")).toBeInTheDocument();
     expect(screen.getByText("blokada 48 h")).toBeInTheDocument();
     expect(screen.getByText("karencja 90 dni")).toBeInTheDocument();
-    expect(screen.getByText("off-limit 12 mies.")).toBeInTheDocument();
     expect(await screen.findByText("CV: EN")).toBeInTheDocument();
     expect(
       screen.getByText("plik: B2B_Analityk Biznesowy_Jan Kowalski.docx"),

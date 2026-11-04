@@ -10,7 +10,6 @@ function user(overrides: Partial<AdminUser>): AdminUser {
     name: "Osoba",
     role: "recruiter",
     roles: ["recruiter"],
-    recruiter_role: null,
     is_active: true,
     activity_count: 0,
     last_activity: null,
@@ -28,7 +27,7 @@ describe("filterAdminUsers", () => {
       name: "Anna Test",
       email: "anna@example.com",
       role: "delivery_lead",
-      roles: ["delivery_lead", "tac"],
+      roles: ["delivery_lead", "head_of_recruitment"],
     }),
     user({ id: 3, name: "Beata Nieaktywna", email: "b@example.com", is_active: false }),
   ];
@@ -41,12 +40,22 @@ describe("filterAdminUsers", () => {
 
   it("filtr roli uwzględnia role dodatkowe i łączy się ze statusem", () => {
     expect(
-      filterAdminUsers(users, { status: "all", role: "tac", search: "" }).map((u) => u.id),
+      filterAdminUsers(users, { status: "all", role: "head_of_recruitment", search: "" }).map((u) => u.id),
     ).toEqual([2]);
     expect(
       filterAdminUsers(users, { status: "active", role: "recruiter", search: "" }).map(
         (u) => u.id,
       ),
     ).toEqual([1]);
+  });
+
+  it("„Do decyzji” zostawia tylko konta czekające po pierwszym logowaniu (0612)", () => {
+    const withPending = [
+      ...users,
+      user({ id: 4, name: "Nowa Osoba", role: "employee", roles: ["employee"], setup_pending_since: "2026-10-28T08:00:00Z" }),
+    ];
+    expect(
+      filterAdminUsers(withPending, { status: "active", role: "all", search: "", pending: true }).map((u) => u.id),
+    ).toEqual([4]);
   });
 });

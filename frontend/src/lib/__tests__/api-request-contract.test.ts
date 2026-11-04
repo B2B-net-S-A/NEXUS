@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { adminApi, api, recommendationsApi } from "@/lib/api";
-import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
+import { FILE_UPLOAD_TIMEOUT_MS, SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 
 /**
  * Kształt requestu wychodzącego z PRAWDZIWEJ instancji `api`.
@@ -86,6 +86,26 @@ describe("api — kontrakt requestu wychodzącego", () => {
     expect(captured[0].timeout).toBe(SLOW_ENDPOINT_TIMEOUT_MS);
   });
 
+  it("plik bez własnego timeoutu dostaje sufit wysyłki, JSON zostaje przy 30 s", async () => {
+    const form = new FormData();
+    form.append("file", new File(["%PDF-1.4"], "skan.pdf", { type: "application/pdf" }));
+    const multipart = { headers: { "Content-Type": "multipart/form-data" } };
+
+    await api.post("/api/orders/groups/1/file", form, multipart);
+    await api.post("/api/orders/groups/1", { note: "x" });
+    await api.post("/api/orders/groups/1/file", form, { ...multipart, timeout: 30_000 });
+
+    expect(captured).toHaveLength(3);
+    // Skan 25 MB na wolnym łączu nie mieści się w 30 s: przeglądarka zrywa
+    // wysyłkę, a backend nie widzi żadnego POST-a (umowa ramowa, 23.10.2026).
+    expect(captured[0].isFormData).toBe(true);
+    expect(captured[0].timeout).toBe(FILE_UPLOAD_TIMEOUT_MS);
+    expect(captured[1].timeout).toBe(30_000);
+    // Jawny timeout wywołania wygrywa z sufitem wysyłki — także równy
+    // domyślnemu, bo interceptor odróżnia „nie podano” od „podano 30 s”.
+    expect(captured[2].timeout).toBe(30_000);
+  });
+
   it("dokleja token z localStorage i trafia w skonfigurowany baseURL", async () => {
     localStorage.setItem("access_token", "TOKEN123");
     try {
@@ -100,11 +120,15 @@ describe("api — kontrakt requestu wychodzącego", () => {
     expect(api.defaults.baseURL).toBeTruthy();
   });
 
-  it("wysyła wersję polityki i zbiorczą zmianę uprawnień roli", async () => {
-    await adminApi.updateRoleSectionPermissions(7, [
-      { role: "recruiter", section: "delivery", access: "read" },
-      { role: "recruiter", section: "finance", access: "none" },
-    ]);
+  it("wysyła wersję polityki i przełączone uprawnienia roli", async () => {
+    await adminApi.updateRoleSectionPermissions(
+      7,
+      [],
+      [
+        { role: "finance", action: "clients_edit", access: "manage" },
+        { role: "finance", action: "amounts_edit", access: "none" },
+      ],
+    );
 
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({
@@ -113,17 +137,24 @@ describe("api — kontrakt requestu wychodzącego", () => {
     });
     expect(JSON.parse(String(captured[0].data))).toEqual({
       revision: 7,
-      changes: [
-        { role: "recruiter", section: "delivery", access: "read" },
-        { role: "recruiter", section: "finance", access: "none" },
+      changes: [],
+      action_changes: [
+        { role: "finance", action: "clients_edit", access: "manage" },
+        { role: "finance", action: "amounts_edit", access: "none" },
       ],
     });
   });
 
-  it("wysyła inherit jako usunięcie wyjątku użytkownika", async () => {
-    await adminApi.updateUserSectionPermissions(42, 8, [
-      { section: "delivery", access: "inherit" },
-    ]);
+  it("nadaje osobie uprawnienie przez manage, a zdejmuje przez inherit", async () => {
+    await adminApi.updateUserSectionPermissions(
+      42,
+      8,
+      [{ section: "delivery", access: "inherit" }],
+      [
+        { action: "contracts_orders_edit", access: "manage" },
+        { action: "clients_edit", access: "inherit" },
+      ],
+    );
 
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({
@@ -133,6 +164,31 @@ describe("api — kontrakt requestu wychodzącego", () => {
     expect(JSON.parse(String(captured[0].data))).toEqual({
       revision: 8,
       changes: [{ section: "delivery", access: "inherit" }],
+      action_changes: [
+        { action: "contracts_orders_edit", access: "manage" },
+        { action: "clients_edit", access: "inherit" },
+      ],
+    });
+  });
+
+  it("bez zmian akcji nie wysyła pustego action_changes", async () => {
+    await adminApi.updateUserSectionPermissions(42, 8, [
+      { section: "finance", access: "inherit" },
+    ]);
+
+    expect(JSON.parse(String(captured[0].data))).toEqual({
+      revision: 8,
+      changes: [{ section: "finance", access: "inherit" }],
+    });
+  });
+
+  it("czyta dodatkowe uprawnienia jednej osoby", async () => {
+    await adminApi.getUserPermissions(42);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toMatchObject({
+      method: "get",
+      url: "/api/admin/section-permissions/users/42",
     });
   });
 });

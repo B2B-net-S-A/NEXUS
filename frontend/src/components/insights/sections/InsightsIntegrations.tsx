@@ -117,7 +117,8 @@ function SourceCard({ summary }: { summary: IntegrationSourceSummary }) {
       {run ? (
         <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
           <div>
-            <dt className="text-muted-foreground">Nowi w Traffit</dt>
+            {/* Od 14.10.2026 runner nie zakłada kandydatów w Traffit (Traffit wyłączony). */}
+            <dt className="text-muted-foreground">Nowi kandydaci</dt>
             <dd className="text-lg font-semibold text-foreground">{fmtNumber(stat(run, "created"))}</dd>
           </div>
           <div>
@@ -248,7 +249,7 @@ export function InsightsIntegrations() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label={`Nowi kandydaci (${days} dni)`} value={fmtNumber(totals.created)} icon={UserPlus} color="green" />
-        <KpiCard label="Duplikaty (znani w Traffit)" value={fmtNumber(totals.duplicates)} icon={Copy} color="blue" />
+        <KpiCard label="Duplikaty (znani w Traffit do 14.10.2026)" value={fmtNumber(totals.duplicates)} icon={Copy} color="blue" />
         <KpiCard label="Dodani do rekrutacji" value={fmtNumber(totals.nexus_jobs)} icon={Target} color="purple" sub="auto-match ≥ próg + must-have" />
         <KpiCard label="Błędy" value={fmtNumber(totals.errors)} icon={XCircle} color={totals.errors > 0 ? "red" : "blue"} />
       </div>
@@ -270,9 +271,14 @@ export function InsightsIntegrations() {
       )}
 
       <div>
-        <h3 className="text-sm font-semibold text-foreground mb-2">Ostatnie błędy</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-2">Niedokończone zgłoszenia</h3>
+        {data.resolved_error_count > 0 && (
+          <p className="text-sm text-muted-foreground mb-2">
+            Zgłoszenia z błędem dokończone później: {fmtNumber(data.resolved_error_count)}. Nie ma ich na liście.
+          </p>
+        )}
         {data.recent_errors.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Brak błędów w wybranym oknie.</p>
+          <p className="text-sm text-muted-foreground">Brak niedokończonych zgłoszeń w wybranym oknie.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -282,6 +288,7 @@ export function InsightsIntegrations() {
                   <th className="py-1.5 pr-3 font-medium">Źródło</th>
                   <th className="py-1.5 pr-3 font-medium">Kandydat</th>
                   <th className="py-1.5 pr-3 font-medium">Oferta</th>
+                  <th className="py-1.5 pr-3 font-medium" title="Nieudane próby w wybranym oknie, od ostatniego sukcesu">Próby</th>
                   <th className="py-1.5 font-medium">Błąd</th>
                 </tr>
               </thead>
@@ -300,12 +307,18 @@ export function InsightsIntegrations() {
                       )}
                     </td>
                     <td className="py-1.5 pr-3 max-w-[16rem] truncate" title={e.offer_title ?? ""}>{e.offer_title || "—"}</td>
+                    <td className="py-1.5 pr-3 tabular-nums">{e.attempts}</td>
                     <td className="py-1.5 text-rose-500 break-words">{e.error || "—"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+        )}
+        {data.unfinished_error_count > data.recent_errors.length && (
+          <p className="text-xs text-muted-foreground mt-2">
+            Pokazano {data.recent_errors.length} najnowszych z {fmtNumber(data.unfinished_error_count)}.
+          </p>
         )}
       </div>
     </section>

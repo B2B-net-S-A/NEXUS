@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from"react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from"react";
 import Link from"next/link";
+import dynamic from"next/dynamic";
 import { keepPreviousData, useQuery, useQueryClient } from"@tanstack/react-query";
 import {
  AlertTriangle,
@@ -11,6 +12,7 @@ import {
  ChevronsUpDown,
  Download,
  FileText,
+ FileWarning,
  Plus,
  Search,
  TrendingUp,
@@ -26,11 +28,19 @@ import {
  CONTRACT_STATUS_VARIANT,
 } from"@/lib/contract-register";
 import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
+import { ListDetailLayout } from"@/components/ds/ListDetailLayout";
+import { rowActivationProps, useRowNavigation } from"@/hooks/useRowNavigation";
 import { TruncatedText } from"@/components/ds/TruncatedText";
+import { StatusDot, type StatusDotTone } from"@/components/ds/StatusDot";
+import { CALM_EMPTY, CALM_UNIT } from"@/lib/calm-table";
+import {
+ WIDE_HIDDEN,
+ WIDE_ONLY_CELL,
+ WIDE_ONLY_COL,
+ WIDE_TABLE_CONTAINER,
+} from"@/lib/wide-table";
 import { useCapability } from"@/hooks/useCapability";
-import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
-import { Card } from"@/components/ui/card";
 import { Checkbox } from"@/components/ui/checkbox";
 import { Input } from"@/components/ui/input";
 import {
@@ -39,6 +49,9 @@ import {
  PopoverTrigger,
 } from"@/components/ui/popover";
 import { ContractsBulkActionsBarV2 } from"@/components/v2/modals/ContractsBulkActionsBar";
+import { PlacementsExportDialog } from "@/components/v2/modals/PlacementsExportDialog";
+import { ContractAgreementRecordDialog } from "@/components/contracts/ContractAgreementRecordDialog";
+import { placementsExportFilename, type PlacementsRange } from "@/lib/placements-export";
 import {
  Table,
  TableBody,
@@ -66,12 +79,33 @@ import {
  takeContractsListScroll,
 } from "@/lib/contracts-list-navigation";
 import { localTodayIso } from "@/lib/client-order-list";
+import { hasAnyPermission, hasPermission } from "@/lib/permissions";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
-import {
- hasAnalyticsCapability,
- hasRole,
- useAuthStore,
-} from "@/store/auth";
+import { hasAnalyticsCapability, hasRole, useAuthStore } from "@/store/auth";
+
+// Panel ładowany leniwie: niesie okna zakończenia, aneksów i dokumentów, których
+// lista bez otwartego panelu nie potrzebuje.
+const ContractSidePanel = dynamic(
+ () =>
+ import("@/components/contracts/ContractSidePanel").then(
+ (m) => m.ContractSidePanel,
+ ),
+ {
+ ssr: false,
+ loading: () => (
+ <p className="p-4 text-sm text-muted-foreground">Ładowanie kontraktu…</p>
+ ),
+ },
+);
+
+/** Klik w link, przycisk albo kwadracik w komórce nie otwiera panelu. */
+function clickFromInteractive(event: MouseEvent<HTMLElement>): boolean {
+ const target = event.target instanceof Element ? event.target : null;
+ const el = target?.closest(
+"a,button,input,select,textarea,label,[role=checkbox],[data-row-stop]",
+ );
+ return el != null && el !== event.currentTarget;
+}
 
 interface ContractGroupMemberRow {
  id: number;
@@ -153,11 +187,23 @@ export const CONTRACT_STATUS_BADGE: Record<string, ContractStatusBadge> = {
  void: { label: "Anulowany", variant: "danger" },
 };
 
+// Status w wierszu to kropka + etykieta (makiety 02.10.2026): plakietka
+// w każdym wierszu robiła z kolumny szum. Ton wynika z tego samego wariantu,
+// co dawna plakietka, więc mapa statusów ma nadal jedno źródło.
+const STATUS_DOT_TONE: Record<ContractStatusBadge["variant"], StatusDotTone> = {
+ success: "success",
+ warning: "warning",
+ danger: "danger",
+ info: "info",
+ neutral: "neutral",
+ soft: "neutral",
+};
+
 function marginColor(margin: number | undefined, rateClient: number | undefined) {
- if (margin == null) return"text-muted-foreground";
+ if (margin == null) return CALM_EMPTY;
  if (rateClient == null || rateClient === 0) return"text-foreground";
  const pct = (margin / rateClient) * 100;
- if (pct < 15) return"text-destructive font-bold";
+ if (pct < 15) return"text-destructive font-semibold";
  if (pct < 25) return"text-warning-muted-foreground font-semibold";
  return"text-success-muted-foreground font-semibold";
 }
@@ -269,9 +315,53 @@ function RateUnitSuffix({ unit }: { unit?: string | null }) {
  const suffix = contractRateUnitSuffix(unit);
  if (!suffix) return null;
  return (
- <span className="ml-0.5 font-sans text-[10px] font-normal text-muted-foreground">
+ <span className="ml-0.5 text-[10px] font-normal text-muted-foreground">
  {suffix}
  </span>
+ );
+}
+
+/** Jednostka domyślna rejestru — stoi raz, w nagłówku kolumn stawek. */
+const DEFAULT_RATE_UNIT_LABEL = "zł/h";
+
+/**
+ * Wiersz w jednostce domyślnej (stawka godzinowa, obie strony w PLN) pokazuje
+ * same liczby — „zł/h” stoi w nagłówku. Każdy inny (zł/MD, zł/mc, inna
+ * waluta, brak jednostki) zostaje przy pełnym zapisie z walutą i jednostką,
+ * żeby kwota nie udawała stawki godzinowej w złotych.
+ */
+function usesDefaultRateUnit(
+ row: RateCurrencyRow & { rate_unit?: string | null },
+): boolean {
+ return (
+ row.rate_unit === "hourly" &&
+ clientCurrency(row).toUpperCase() === "PLN" &&
+ candidateCurrency(row).toUpperCase() === "PLN"
+ );
+}
+
+const BARE_AMOUNT = new Intl.NumberFormat("pl-PL", {
+ minimumFractionDigits: 2,
+ maximumFractionDigits: 3,
+});
+
+function RateAmount({
+ value,
+ currency,
+ unit,
+ bare,
+}: {
+ value: number;
+ currency: string;
+ unit?: string | null;
+ bare: boolean;
+}) {
+ if (bare) return <>{BARE_AMOUNT.format(value)}</>;
+ return (
+ <>
+ {formatCurrency(value, currency)}
+ <RateUnitSuffix unit={unit} />
+ </>
  );
 }
 
@@ -386,6 +476,7 @@ function SortableHead({
  sort,
  onSort,
  align = "left",
+ unit,
  children,
 }: {
  label: string;
@@ -393,6 +484,8 @@ function SortableHead({
  sort: ContractsSort;
  onSort: (key: ContractSortKey) => void;
  align?: "left" | "right";
+ /** Jednostka kolumny („zł/h”) — drobnym drukiem obok nazwy. */
+ unit?: string;
  children?: ReactNode;
 }) {
  const active = sort.by === sortKey;
@@ -419,7 +512,10 @@ function SortableHead({
  active && "text-foreground",
  )}
  >
+ <span>
  {label}
+ {unit && <> <span className={CALM_UNIT}>{unit}</span></>}
+ </span>
  <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
  </button>
  </span>
@@ -471,10 +567,11 @@ function DateRangeFields({
  );
 }
 
-function MobileFieldLabel({ children }: { children: string }) {
+function MobileFieldLabel({ children, unit }: { children: string; unit?: string }) {
  return (
  <span className="mb-1 hidden text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground max-xl:block">
  {children}
+ {unit && <> <span className={CALM_UNIT}>{unit}</span></>}
  </span>
  );
 }
@@ -482,13 +579,49 @@ function MobileFieldLabel({ children }: { children: string }) {
 interface ContractsListV2Props {
  /** Reactive search string from the App Router; omitted in isolated embeds/tests. */
  navigationSearch?: string;
+ /** Przełącznik trybów modułu — pod tytułem, jak w makiecie B. */
+ modeTabs?: ReactNode;
+ /** Pierwsza kontrolka paska filtrów (wybór klienta). */
+ toolbarLead?: ReactNode;
 }
 
-export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {}) {
+export function ContractsListV2({
+ navigationSearch,
+ modeTabs,
+ toolbarLead,
+}: ContractsListV2Props = {}) {
  const user = useAuthStore((state) => state.user);
- const canSeeFinance =
- hasRole(user, "admin") || hasAnalyticsCapability(user, "view_finance");
- const canSeeContractAnalytics = hasRole(user, "admin", "finance");
+ const impersonating = useAuthStore((state) => state.realUser !== null);
+ // Analityka = zbiorcze kwoty firmy: uprawnienie „Wyniki firmy” (02.11.2026).
+ const canSeeContractAnalytics = hasPermission(user, "company_results");
+ // Raport „Kontrakty bez zamówienia" = uprawnienie „Moduł Finanse" (strona
+ // i trasa raportu pytają o to samo).
+ const canSeeOrderlessReport = hasPermission(user, "finance_module");
+ // Eksport = trasa `FinanceReadUser`, czyli capability `view_finance`, którą
+ // backend wyprowadza z „Modułu Finanse".
+ const canExport =
+ canSeeOrderlessReport || hasAnalyticsCapability(user, "view_finance");
+ // Kolumny stawek widzi też posiadacz „Stawki i kwoty: podgląd" — kwoty
+ // klientów spoza jego zakresu serwer i tak redaguje wiersz po wierszu.
+ const canSeeFinance = canExport || hasPermission(user, "amounts_view");
+ // Marża przy każdym wierszu i plik z całą firmą to wynik firmy („Wyniki
+ // firmy”, decyzja Artura 02.11.2026). Delivery Lead widzi swój portfel.
+ const canSeeMargin =
+ canSeeFinance && (canSeeContractAnalytics || hasRole(user, "delivery_lead"));
+ // Zaznaczanie i pasek akcji zbiorczych: przedłużenie („Kontrakty
+ // i zamówienia: tworzenie i edycja") albo „Oznacz zakończone" („Zakończenie
+ // współpracy…"). Sam odczyt Delivery nie dostaje martwych pól wyboru.
+ const canBulkAct =
+ !impersonating &&
+ hasAnyPermission(user, "contracts_orders_edit", "contract_status");
+ // Rozwiązanie umowy z wiersza listy — to samo uprawnienie co
+ // „Zakończ współpracę”.
+ const canRecordAgreement = !impersonating && hasPermission(user, "contract_status");
+ const [recordAgreementFor, setRecordAgreementFor] = useState<{
+ id: number;
+ candidateName: string | null;
+ projectEnd: string | null;
+ } | null>(null);
  // Queryless `/contracts` is a fresh module entry (Active by default). Every
  // in-module change is encoded back into the URL, including an explicit
  // `status=all`, so a return from details can never be confused with a new
@@ -512,6 +645,11 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  // "Pokaż" button. Decoupled from the stored `ending` status (cron-maintained)
  // so it always matches the date-based /api/contracts/expiring banner.
  const [endingSoon, setEndingSoon] = useState(initialListState.state.endingSoon);
+ // „Umowa nierozwiązana” (decyzja Artura 28.10.2026): zakończone i kończące się
+ // projekty B2B bez zapisanego rozwiązania umowy — lista zaległych porozumień.
+ const [agreementNotTerminated, setAgreementNotTerminated] = useState(
+ initialListState.state.agreementNotTerminated,
+ );
  const [dateRange, setDateRange] = useState<ContractsDateRange>(() => ({
  startFrom: initialListState.state.startFrom,
  startTo: initialListState.state.startTo,
@@ -523,9 +661,16 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  dir: initialListState.state.sortDir,
  }));
  const [page, setPage] = useState(initialListState.state.page);
+ // Kontrakt otwarty w bocznym panelu (`?contract=`). Wybór NIE zeruje strony
+ // ani filtrów — to podgląd, nie zawężenie listy.
+ const [openContractId, setOpenContractId] = useState<number | null>(
+ initialListState.state.selected ?? null,
+ );
  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+ const listRef = useRef<HTMLDivElement>(null);
  const [toast, setToast] = useState<string | null>(null);
  const [exporting, setExporting] = useState(false);
+ const [placementsOpen, setPlacementsOpen] = useState(false);
  const queryClient = useQueryClient();
  const restoredScroll = useRef(false);
  const ownNavigationUrl = useRef<string | null>(null);
@@ -537,12 +682,24 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  statusFilter,
  typeFilter,
  endingSoon,
+ agreementNotTerminated,
  ...dateRange,
  sortBy: sort.by,
  sortDir: sort.dir,
  page,
+ selected: openContractId ?? undefined,
  }),
- [search, statusFilter, typeFilter, endingSoon, dateRange, sort, page],
+ [
+ search,
+ statusFilter,
+ typeFilter,
+ endingSoon,
+ agreementNotTerminated,
+ dateRange,
+ sort,
+ page,
+ openContractId,
+ ],
  );
 
  // Keep the current list entry self-contained. `replaceState` deliberately
@@ -573,6 +730,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  setStatusFilter(next.statusFilter);
  setTypeFilter(next.typeFilter);
  setEndingSoon(next.endingSoon);
+ setAgreementNotTerminated(next.agreementNotTerminated);
  setDateRange({
  startFrom: next.startFrom,
  startTo: next.startTo,
@@ -581,6 +739,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  });
  setSort({ by: next.sortBy, dir: next.sortDir });
  setPage(next.page);
+ setOpenContractId(next.selected ?? null);
  }, [navigationSearch]);
 
  // Do zapytania idzie wartość zdebouncowana, do inputa surowa — inaczej każde
@@ -621,7 +780,16 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  // when nothing is selected.)
  useEffect(() => {
  setSelectedIds((prev) => (prev.size === 0 ? prev : new Set()));
- }, [search, statusFilter, typeFilter, endingSoon, appliedDates, sort, page]);
+ }, [
+ search,
+ statusFilter,
+ typeFilter,
+ endingSoon,
+ agreementNotTerminated,
+ appliedDates,
+ sort,
+ page,
+ ]);
 
  const flashToast = (msg: string) => {
  setToast(msg);
@@ -642,6 +810,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  statusFilter.forEach((s) => params.append("status", s));
  typeFilter.forEach((t) => params.append("contract_type", t));
  if (endingSoon) params.set("expiring_in_days", "30");
+ if (agreementNotTerminated) params.set("agreement_not_terminated", "true");
  if (appliedDates.startFrom) params.set("start_from", appliedDates.startFrom);
  if (appliedDates.startTo) params.set("start_to", appliedDates.startTo);
  if (appliedDates.orderEndFrom) {
@@ -673,12 +842,81 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  }
  };
 
- // Bramka „Nowy kontrakt" = POST /api/contracts (TacPlus). Z rejestru, NIE
- // z lokalnej listy ról — to właśnie ten wzorzec rozjeżdżał się z backendem
+ // Ticket 10: kontrakty bez zamówienia w zakładce „Dokumenty” (cała firma,
+ // bez filtrów listy — raport odpowiada na pytanie o wszystkie kontrakty).
+ // Backend: uprawnienie „Moduł Finanse" (`FinanceModuleUser`), stąd ta sama
+ // bramka co Analityka.
+ const doMissingOrdersReport = async () => {
+ if (exporting) return;
+ setExporting(true);
+ try {
+ const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
+ const res = await fetch(`${apiBase}/api/contracts/missing-orders-report`, {
+ headers: getAuthenticatedRequestHeaders(),
+ });
+ if (!res.ok) {
+ flashToast("Nie udało się pobrać raportu kontraktów bez zamówienia.");
+ return;
+ }
+ const blob = await res.blob();
+ const url = URL.createObjectURL(blob);
+ const a = document.createElement("a");
+ a.href = url;
+ a.download = `kontrakty-bez-zamowienia-${localTodayIso()}.xlsx`;
+ document.body.appendChild(a);
+ a.click();
+ document.body.removeChild(a);
+ setTimeout(() => URL.revokeObjectURL(url), 60_000);
+ } catch {
+ flashToast("Nie udało się pobrać raportu kontraktów bez zamówienia.");
+ } finally {
+ setExporting(false);
+ }
+ };
+
+ // Eksport „Placementy”: kontrakty ze startem w okresie w układzie arkusza
+ // Delivery (DL, rekruter, akceptacja, podpis, premia). Okres zamiast filtrów
+ // listy — arkusz liczy placementy po starcie, nie po tym, co widać na ekranie.
+ const doPlacementsExport = async (range: PlacementsRange): Promise<boolean> => {
+ if (exporting) return false;
+ setExporting(true);
+ try {
+ const params = new URLSearchParams({
+ start_from: range.from,
+ start_to: range.to,
+ });
+ const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
+ const res = await fetch(`${apiBase}/api/contracts/export/placements?${params}`, {
+ headers: getAuthenticatedRequestHeaders(),
+ });
+ if (!res.ok) {
+ flashToast("Nie udało się pobrać placementów.");
+ return false;
+ }
+ const blob = await res.blob();
+ const url = URL.createObjectURL(blob);
+ const a = document.createElement("a");
+ a.href = url;
+ a.download = placementsExportFilename(range);
+ document.body.appendChild(a);
+ a.click();
+ document.body.removeChild(a);
+ setTimeout(() => URL.revokeObjectURL(url), 60_000);
+ return true;
+ } catch {
+ flashToast("Nie udało się pobrać placementów.");
+ return false;
+ } finally {
+ setExporting(false);
+ }
+ };
+
+ // Bramka „Nowy kontrakt" = POST /api/contracts. Z rejestru capability, NIE
+ // z lokalnej reguły — to właśnie ten wzorzec rozjeżdżał się z backendem
  // (audyt F-19).
  const canCreateContract = useCapability("contract.create");
 
- const { data, isLoading, isError, error, refetch } = useQuery({
+ const { data, isLoading, isError, error, refetch, isPlaceholderData } = useQuery({
  queryKey: [
  "contracts-v2",
  debouncedSearch,
@@ -688,6 +926,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  appliedDates,
  sort,
  page,
+ agreementNotTerminated,
  ],
  queryFn: () =>
  api
@@ -697,6 +936,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  status: statusFilter.length ? statusFilter : undefined,
  contract_type: typeFilter.length ? typeFilter : undefined,
  expiring_in_days: endingSoon ? 30 : undefined,
+ agreement_not_terminated: agreementNotTerminated || undefined,
  start_from: appliedDates.startFrom || undefined,
  start_to: appliedDates.startTo || undefined,
  order_end_from: appliedDates.orderEndFrom || undefined,
@@ -724,7 +964,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  staleTime: 5 * 60 * 1000,
  });
 
- const items: ContractRow[] = data?.items ?? [];
+ const items = useMemo<ContractRow[]>(() => data?.items ?? [], [data]);
  const total = data?.total ?? 0;
  const contractorsTotal = data?.contractors_total ?? total;
  const contractsTotal = data?.contracts_total ?? total;
@@ -789,18 +1029,78 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  [expiring]
  );
 
- return (
- <div className="max-w-[1400px] mx-auto space-y-4">
- {/* Header */}
- <div className="flex items-end justify-between flex-wrap gap-3">
- <div>
- <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
- Delivery · Kontrakty
- </p>
- <h1 className="font-semibold text-3xl font-extrabold tracking-heading-tight text-foreground mt-1">
- Kontrakty
- </h1>
- <p className="text-sm text-muted-foreground mt-1">
+ // Kolejność wierszy na ekranie = kolejność ↑/↓. Wiersz osoby otwiera umowę
+ // główną (`c.id`), pas klienta — umowę tego klienta.
+ const rowKeys = useMemo(
+ () =>
+ items.flatMap((i) =>
+ i.group_members?.length
+ ? i.group_members.map((m) => String(m.id))
+ : [String(i.id)],
+ ),
+ [items],
+ );
+ const previews = useMemo(() => {
+ const map = new Map<
+ number,
+ { candidate_name?: string | null; client_name?: string | null; job_title?: string | null; status?: string | null }
+ >();
+ for (const i of items) {
+ const members = i.group_members?.length ? i.group_members : [rowAsGroupMember(i)];
+ for (const m of members) {
+ map.set(m.id, {
+ candidate_name: i.candidate_name,
+ client_name: m.client_name,
+ job_title: m.job_title,
+ status: m.status,
+ });
+ }
+ }
+ return map;
+ }, [items]);
+ const openContract = (id: number) => setOpenContractId(id);
+ const closePanel = () => setOpenContractId(null);
+ useRowNavigation({
+ keys: rowKeys,
+ activeKey: openContractId != null ? String(openContractId) : null,
+ onChange: (key) => setOpenContractId(Number(key)),
+ containerRef: listRef,
+ enabled: openContractId != null,
+ });
+
+ // Zmiana filtrów zostawia panel tylko wtedy, gdy kontrakt nadal jest na
+ // liście — inaczej panel mówiłby o wierszu, którego nie widać. Wejście
+ // z adresu (`?contract=`) nie jest zmianą filtrów i panelu nie zamyka.
+ const recheckOpenRow = useRef(false);
+ const filtersSignature = JSON.stringify([
+ debouncedSearch,
+ statusFilter,
+ typeFilter,
+ endingSoon,
+ agreementNotTerminated,
+ appliedDates,
+ ]);
+ const previousFilters = useRef(filtersSignature);
+ useEffect(() => {
+ if (previousFilters.current === filtersSignature) return;
+ previousFilters.current = filtersSignature;
+ recheckOpenRow.current = true;
+ }, [filtersSignature]);
+ useEffect(() => {
+ if (!recheckOpenRow.current || isLoading || isPlaceholderData) return;
+ recheckOpenRow.current = false;
+ if (openContractId == null) return;
+ if (!rowKeys.includes(String(openContractId))) setOpenContractId(null);
+ }, [rowKeys, isLoading, isPlaceholderData, openContractId, filtersSignature]);
+
+ const listContent = (
+ <div className="space-y-3">
+ {/* Nagłówek zwarty: tytuł i licznik w jednej linii — laptop 1280×720
+ ma zobaczyć tabelę w górnych 60% okna. */}
+ <div className="flex flex-wrap items-center justify-between gap-2">
+ <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+ <h1 className="text-lg font-semibold text-foreground">Kontrakty</h1>
+ <p className="text-xs text-muted-foreground">
  {isLoading
  ?"Ładowanie…"
  : failed
@@ -821,13 +1121,15 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  </Button>
  </Link>
  )}
- {canSeeFinance && <Popover>
+ {canExport && <Popover>
  <PopoverTrigger asChild>
  <Button size="sm" variant="outline" disabled={exporting}>
  <Download className="h-4 w-4" /> {exporting ? "Eksportuję…" : "Eksport"}
  </Button>
  </PopoverTrigger>
- <PopoverContent align="end" className="w-44 p-1">
+ <PopoverContent align="end" className="w-auto min-w-44 p-1">
+ {canSeeContractAnalytics && (
+ <>
  <button
  onClick={() => doExport("xlsx")}
  className="block w-full text-left px-3 py-1.5 text-sm rounded-md hover:bg-primary/10"
@@ -840,8 +1142,43 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  >
  CSV
  </button>
+ </>
+ )}
+ <button
+ onClick={() => setPlacementsOpen(true)}
+ className="block w-full whitespace-nowrap text-left px-3 py-1.5 text-sm rounded-md hover:bg-primary/10"
+ >
+ Placementy (.xlsx)
+ </button>
+ {canSeeOrderlessReport && (
+ <>
+ <div className="my-1 h-px bg-border" aria-hidden="true" />
+ <button
+ onClick={() => void doMissingOrdersReport()}
+ className="block w-full whitespace-nowrap text-left px-3 py-1.5 text-sm rounded-md hover:bg-primary/10"
+ >
+ Kontrakty bez zamówienia (.xlsx)
+ </button>
+ </>
+ )}
  </PopoverContent>
  </Popover>}
+ {recordAgreementFor && (
+ <ContractAgreementRecordDialog
+ contractId={recordAgreementFor.id}
+ candidateName={recordAgreementFor.candidateName}
+ projectEnd={recordAgreementFor.projectEnd}
+ onClose={() => setRecordAgreementFor(null)}
+ />
+ )}
+ {canExport && (
+ <PlacementsExportDialog
+ open={placementsOpen}
+ onOpenChange={setPlacementsOpen}
+ busy={exporting}
+ onExport={doPlacementsExport}
+ />
+ )}
  {canCreateContract && (
  <Link href="/contracts/new">
  <Button size="sm" variant="primary">
@@ -852,42 +1189,14 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  </div>
  </div>
 
- {/* Expiring alert */}
- {expiringCount > 0 && (
- <Card className="flex items-center gap-3 border-warning/25 bg-warning-muted p-4!">
- <AlertTriangle className="h-5 w-5 shrink-0 text-warning-muted-foreground" />
- <div className="flex-1">
- <p className="text-sm font-semibold text-warning-muted-foreground">
- {expiringBannerText(expiringCount)}
- </p>
- <p className="text-xs text-warning-muted-foreground">
- Sprawdź, czy wymagają przedłużenia albo wypowiedzenia.
- </p>
- </div>
- <Button
- size="sm"
- variant="outline"
- onClick={() => {
- // Surface exactly the contracts the banner counts. The banner reads
- // the date-based /api/contracts/expiring (end_date within 30 days),
- // so filter the list the same way via `expiring_in_days` — not the
- // stored `ending` status, which is a cron-maintained set disjoint
- // from the banner's and would show the wrong rows (or none).
- setEndingSoon(true);
- setStatusFilter([]);
- setSearch("");
- setPage(1);
- }}
- >
- Pokaż
- </Button>
- </Card>
- )}
+ {modeTabs}
 
- {/* Filters */}
- <div className="flex gap-2 flex-wrap">
- <div className="flex-1 min-w-[240px] max-w-lg">
+ {/* Filtry — wszystkie kontrolki mają 32 px wysokości (h-8). */}
+ <div className="flex flex-wrap items-center gap-2">
+ {toolbarLead}
+ <div className="flex-1 min-w-[220px] max-w-md">
  <Input
+ className="h-8"
  leadingIcon={<Search className="h-4 w-4" />}
  placeholder="Szukaj po kandydacie, kliencie, pozycji…"
  value={search}
@@ -907,7 +1216,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  options={CONTRACT_STATUS_OPTIONS}
  placeholder="Wszystkie statusy"
  searchPlaceholder="Szukaj statusu…"
- triggerWidthClass="w-[180px]"
+ triggerWidthClass="w-[170px] h-8 text-xs"
  triggerLabel={(n) =>
  n === 1
  ? (CONTRACT_STATUS_OPTIONS.find((o) => o.value === statusFilter[0])
@@ -924,7 +1233,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  options={CONTRACT_TYPE_OPTIONS}
  placeholder="Typ"
  searchPlaceholder="Szukaj typu…"
- triggerWidthClass="w-[180px]"
+ triggerWidthClass="w-[140px] h-8 text-xs"
  triggerLabel={(n) =>
  n === 1
  ? (CONTRACT_TYPE_OPTIONS.find((o) => o.value === typeFilter[0])
@@ -973,6 +1282,38 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  </Button>
  </PopoverContent>
  </Popover>
+ {/* „Umowa nierozwiązana” (decyzja Artura 28.10.2026): zaległe rozwiązania
+ umów B2B po zakończeniu projektu. Filtr idzie na wszystkie statusy
+ (zbiór to Zakończony + Kończący się); wyłączenie wraca do domyślnych. */}
+ <Button
+ size="sm"
+ variant="outline"
+ aria-pressed={agreementNotTerminated}
+ data-tour="contracts.list.agreement-not-terminated"
+ className={cn(
+ "gap-1.5",
+ agreementNotTerminated &&
+ "border-warning/40 bg-warning-muted text-warning-muted-foreground hover:bg-warning-muted",
+ )}
+ title="Kontrakty B2B zakończone albo kończące się, w których nie zapisano rozwiązania umowy"
+ onClick={() => {
+ if (agreementNotTerminated) {
+ setAgreementNotTerminated(false);
+ if (statusFilter.length === 0) {
+ setStatusFilter([...DEFAULT_CONTRACT_STATUS_FILTER]);
+ }
+ } else {
+ setAgreementNotTerminated(true);
+ setStatusFilter([]);
+ setEndingSoon(false);
+ }
+ setPage(1);
+ }}
+ >
+ <FileWarning className="h-4 w-4" aria-hidden="true" />
+ Umowa nierozwiązana
+ {agreementNotTerminated && <X className="h-3.5 w-3.5" aria-hidden="true" />}
+ </Button>
  {dateChip && (
  <Button
  size="sm"
@@ -999,11 +1340,42 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  <X className="h-3.5 w-3.5" />
  </Button>
  )}
+ {/* Baner „kończą się w ciągu 30 dni" — w linii paska filtrów, nie jako
+ osobna karta nad tabelą. „Pokaż" działa jak dotąd. */}
+ {expiringCount > 0 && (
+ <div
+ role="status"
+ className="ml-auto flex h-8 items-center gap-2 rounded-md border border-warning/25 bg-warning-muted px-2 text-xs text-warning-muted-foreground"
+ title="Sprawdź, czy wymagają przedłużenia albo wypowiedzenia."
+ >
+ <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+ <span className="font-semibold">{expiringBannerText(expiringCount)}</span>
+ <Button
+ size="sm"
+ variant="outline"
+ className="h-6 px-2"
+ onClick={() => {
+ // Surface exactly the contracts the banner counts. The banner reads
+ // the date-based /api/contracts/expiring (end_date within 30 days),
+ // so filter the list the same way via `expiring_in_days` — not the
+ // stored `ending` status, which is a cron-maintained set disjoint
+ // from the banner's and would show the wrong rows (or none).
+ setEndingSoon(true);
+ setStatusFilter([]);
+ setSearch("");
+ setPage(1);
+ }}
+ >
+ Pokaż
+ </Button>
+ </div>
+ )}
  </div>
 
- {/* Bulk actions belong to the same effective Admin/DL audience as contract
- creation. Read-only Delivery users must not be offered inert selectors. */}
- {canCreateContract && (
+ {/* Pasek akcji zbiorczych dla posiadaczy przedłużania ALBO zakończenia
+ współpracy (każdy przycisk ma własne uprawnienie w samym pasku). Sam
+ odczyt Delivery nie dostaje martwych pól wyboru. */}
+ {canBulkAct && (
  <ContractsBulkActionsBarV2
  selectedIds={selectedIds}
  onClear={() => setSelectedIds(new Set())}
@@ -1023,6 +1395,10 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
 
  {/* Compact client-band table. One semantic row per contract keeps every
  client/date/rate/status tuple aligned; the candidate cell spans the group. */}
+ {/* Szeroka tabela (≥ 1700 px): rekrutacja, koniec umowy i start
+ zamówienia mają własne kolumny zamiast drobnego druku pod klientem
+ i datami. Szerokości obu układów sumują się do 100%. */}
+ <div className={WIDE_TABLE_CONTAINER}>
  <Table
  density="compact"
  className="table-fixed text-xs max-xl:block"
@@ -1031,31 +1407,37 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  <colgroup className="max-xl:hidden">
  {canSeeFinance ? (
  <>
- <col className="w-[15%]" />
- <col className="w-[14%]" />
- <col className="w-[9.5%]" />
- <col className="w-[11%]" />
- <col className="w-[12%]" />
- <col className="w-[12.5%]" />
- <col className="w-[9%]" />
- <col className="w-[7%]" />
- <col className="w-[10%]" />
+ <col className="w-[15%] @min-[1700px]:w-[13%]" />
+ <col className="w-[14%] @min-[1700px]:w-[11%]" />
+ <col className={cn(WIDE_ONLY_COL, "w-[13%]")} />
+ <col className="w-[9.5%] @min-[1700px]:w-[7%]" />
+ <col className={cn(WIDE_ONLY_COL, "w-[7%]")} />
+ <col className={cn(WIDE_ONLY_COL, "w-[7%]")} />
+ <col className="w-[11%] @min-[1700px]:w-[8%]" />
+ <col className="w-[12%] @min-[1700px]:w-[8%]" />
+ <col className="w-[12.5%] @min-[1700px]:w-[8.5%]" />
+ <col className="w-[9%] @min-[1700px]:w-[7%]" />
+ <col className="w-[7%] @min-[1700px]:w-[5%]" />
+ <col className="w-[10%] @min-[1700px]:w-[5.5%]" />
  </>
  ) : (
  <>
- <col className="w-[24%]" />
- <col className="w-[24%]" />
- <col className="w-[14%]" />
- <col className="w-[14%]" />
- <col className="w-[10%]" />
- <col className="w-[14%]" />
+ <col className="w-[24%] @min-[1700px]:w-[16%]" />
+ <col className="w-[24%] @min-[1700px]:w-[14%]" />
+ <col className={cn(WIDE_ONLY_COL, "w-[18%]")} />
+ <col className="w-[14%] @min-[1700px]:w-[9%]" />
+ <col className={cn(WIDE_ONLY_COL, "w-[9%]")} />
+ <col className={cn(WIDE_ONLY_COL, "w-[9%]")} />
+ <col className="w-[14%] @min-[1700px]:w-[9%]" />
+ <col className="w-[10%] @min-[1700px]:w-[7%]" />
+ <col className="w-[14%] @min-[1700px]:w-[9%]" />
  </>
  )}
  </colgroup>
  <TableHeader className="max-xl:hidden">
  <TableRow>
  <SortableHead label="Kandydat" sortKey="candidate" sort={sort} onSort={onSort}>
- {canCreateContract && (
+ {canBulkAct && (
  <Checkbox
  checked={
  allVisibleSelected
@@ -1072,12 +1454,15 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  )}
  </SortableHead>
  <SortableHead label="Klient" sortKey="client" sort={sort} onSort={onSort} />
+ <TableHead className={cn(WIDE_ONLY_CELL, "px-2")}>Rekrutacja</TableHead>
  <SortableHead
  label="Data rozpoczęcia"
  sortKey="start_date"
  sort={sort}
  onSort={onSort}
  />
+ <TableHead className={cn(WIDE_ONLY_CELL, "px-2")}>Koniec umowy</TableHead>
+ <TableHead className={cn(WIDE_ONLY_CELL, "px-2")}>Start zamówienia</TableHead>
  <SortableHead
  label="Data zakończenia zamówienia"
  sortKey="order_end_date"
@@ -1092,6 +1477,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  sort={sort}
  onSort={onSort}
  align="right"
+ unit={DEFAULT_RATE_UNIT_LABEL}
  />
  <SortableHead
  label="Stawka przychodowa"
@@ -1099,14 +1485,18 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  sort={sort}
  onSort={onSort}
  align="right"
+ unit={DEFAULT_RATE_UNIT_LABEL}
  />
+ {canSeeMargin && (
  <SortableHead
  label="Marża"
  sortKey="margin"
  sort={sort}
  onSort={onSort}
  align="right"
+ unit={DEFAULT_RATE_UNIT_LABEL}
  />
+ )}
  </>
  )}
  <SortableHead label="Typ" sortKey="contract_type" sort={sort} onSort={onSort} />
@@ -1116,7 +1506,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  {viewState === "loading" ? (
  <TableBody className="max-xl:block max-xl:w-full">
  <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
- <TableCell colSpan={canSeeFinance ? 9 : 6} className="text-center py-10 text-muted-foreground max-xl:block max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? (canSeeMargin ? 12 : 11) : 9} className="text-center py-10 text-muted-foreground max-xl:block max-xl:w-full">
  Ładowanie…
  </TableCell>
  </TableRow>
@@ -1124,13 +1514,13 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  ) : failed ? (
  <TableBody className="max-xl:block max-xl:w-full">
  <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
- <TableCell colSpan={canSeeFinance ? 9 : 6} className="p-0 max-xl:block max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? (canSeeMargin ? 12 : 11) : 9} className="p-0 max-xl:block max-xl:w-full">
  <QueryStateNotice
  state={viewState as "forbidden" | "not_found" | "error"}
  className="border-0"
  description={
  viewState === "forbidden"
- ?"Twoja rola nie ma dostępu do rejestru kontraktów (stawki i marże). Rejestr NIE jest pusty."
+ ?"Nie masz uprawnienia do rejestru kontraktów. Rejestr NIE jest pusty — poproś administratora o dostęp (Ustawienia → Zespół i dostęp → Osoby i role)."
  : undefined
  }
  onRetry={() => void refetch()}
@@ -1141,7 +1531,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  ) : viewState === "empty" ? (
  <TableBody className="max-xl:block max-xl:w-full">
  <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
- <TableCell colSpan={canSeeFinance ? 9 : 6} className="text-center py-10 max-xl:block max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? (canSeeMargin ? 12 : 11) : 9} className="text-center py-10 max-xl:block max-xl:w-full">
  <FileText className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
  <p className="text-sm text-muted-foreground">
  Brak kontraktów spełniających kryteria.
@@ -1176,27 +1566,34 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  const statusBadge = m.status
  ? CONTRACT_STATUS_BADGE[m.status]
  : undefined;
+ const bareAmounts = usesDefaultRateUnit(m);
  const futureStart = futureStartLabel(
  m.status,
  m.start_date,
  todayIso,
  );
 
+ const panelOpen = openContractId === m.id;
  return (
  <TableRow
  key={m.id}
  data-contract-member={m.id}
  interactive
  selected={rowSelected}
+ {...rowActivationProps(String(m.id), () => openContract(m.id))}
+ aria-selected={panelOpen}
+ data-tour="contracts.list.row"
+ data-selected={panelOpen || undefined}
+ // Spokojna tabela: jedna cienka linia między wierszami, bez
+ // zebry. Wyróżnia się tylko wiersz zaznaczony i ten, którego
+ // panel jest otwarty.
  className={cn(
- "h-auto min-h-10",
+ "h-auto xl:h-[50px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
  rowSelected
  ?"bg-primary/10!"
- : memberIndex % 2 === 0
- ?"bg-info-muted/35"
- :"bg-primary/[0.04]",
- memberIndex === members.length - 1 &&
- "xl:border-border! xl:border-b-2!",
+ : panelOpen
+ ?"bg-primary/5! shadow-[inset_3px_0_0_0_hsl(var(--primary))]"
+ : undefined,
  "max-xl:grid max-xl:h-auto max-xl:grid-cols-2 max-xl:bg-card",
  )}
  >
@@ -1204,11 +1601,19 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  <TableCell
  rowSpan={members.length}
  data-label="Kandydat"
- className="align-top bg-card px-2 py-2 max-xl:col-span-2 max-xl:block max-xl:border-b max-xl:border-border max-xl:bg-muted/40"
- onClick={(e) => e.stopPropagation()}
+ className={cn(
+ "align-top px-2 py-2 max-xl:col-span-2 max-xl:block max-xl:border-b max-xl:border-border max-xl:bg-muted/40",
+ openContractId === c.id && "bg-primary/5",
+ )}
+ // Komórka osoby otwiera umowę główną (`c.id`), nie pas,
+ // w którym akurat leży; kwadracik i link zostają sobą.
+ onClick={(e) => {
+ e.stopPropagation();
+ if (!clickFromInteractive(e)) openContract(c.id);
+ }}
  >
  <div className="flex min-w-0 items-start gap-2">
- {canCreateContract && (
+ {canBulkAct && (
  <Checkbox
  checked={rowSelected}
  onCheckedChange={() => toggleIds(rowIds)}
@@ -1229,7 +1634,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  {c.candidate_name ?? `#${c.id}`}
  </Link>
  {liveClientCount > 1 && (
- <div className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+ <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
  pracuje u {liveClientCount} klientów
  </div>
  )}
@@ -1240,13 +1645,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
 
  <TableCell
  data-label="Klient"
- className={cn(
- "border-l-2 px-2 py-1.5 align-top",
- memberIndex % 2 === 0
- ?"border-l-info/60"
- :"border-l-primary/70",
- "max-xl:block max-xl:min-w-0 max-xl:border-b max-xl:border-b-border/60",
- )}
+ className="px-2 py-1.5 align-top max-xl:block max-xl:min-w-0 max-xl:border-b max-xl:border-b-border/60"
  >
  <MobileFieldLabel>Klient</MobileFieldLabel>
  <Link
@@ -1259,9 +1658,22 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  </TruncatedText>
  </Link>
  {m.job_title && (
- <TruncatedText className="max-w-full text-[10px] leading-4 text-muted-foreground">
+ <TruncatedText className={cn("max-w-full text-[11px] leading-4 text-muted-foreground", WIDE_HIDDEN)}>
  {m.job_title}
  </TruncatedText>
+ )}
+ </TableCell>
+
+ <TableCell
+ data-testid="contract-job-cell"
+ className={cn(WIDE_ONLY_CELL, "px-2 py-1.5 align-top")}
+ >
+ {m.job_title ? (
+ <TruncatedText className="max-w-full text-[12px] leading-4">
+ {m.job_title}
+ </TruncatedText>
+ ) : (
+ <span className={cn("text-[12px]", CALM_EMPTY)}>—</span>
  )}
  </TableCell>
 
@@ -1271,15 +1683,38 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  >
  <MobileFieldLabel>Data rozpoczęcia</MobileFieldLabel>
  <div className="whitespace-nowrap text-[12px] font-medium leading-4 text-foreground">
- {m.start_date ? <CompactDate value={m.start_date} /> : "—"}
+ {m.start_date ? <CompactDate value={m.start_date} /> : <span className={CALM_EMPTY}>—</span>}
  </div>
  {m.end_date && (
  <div
- className="whitespace-nowrap text-[10px] leading-4 text-muted-foreground"
+ className={cn("whitespace-nowrap text-[11px] leading-4 text-muted-foreground", WIDE_HIDDEN)}
  title="Data zakończenia umowy"
  >
  umowa do <CompactDate value={m.end_date} />
  </div>
+ )}
+ </TableCell>
+
+ <TableCell
+ data-testid="contract-end-cell"
+ title="Data zakończenia umowy"
+ className={cn(WIDE_ONLY_CELL, "px-2 py-1.5 align-top whitespace-nowrap text-[12px] leading-4")}
+ >
+ {m.end_date ? (
+ <CompactDate value={m.end_date} />
+ ) : (
+ <span className={CALM_EMPTY}>—</span>
+ )}
+ </TableCell>
+ <TableCell
+ data-testid="contract-order-start-cell"
+ title="Początek okresu zamówienia — z najnowszego uzupełnionego zamówienia tej osoby."
+ className={cn(WIDE_ONLY_CELL, "px-2 py-1.5 align-top whitespace-nowrap text-[12px] leading-4")}
+ >
+ {m.client_order_start_date ? (
+ <CompactDate value={m.client_order_start_date} />
+ ) : (
+ <span className={CALM_EMPTY}>—</span>
  )}
  </TableCell>
 
@@ -1300,7 +1735,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  "bezterminowo"
  )}
  </div>
- <div className="whitespace-nowrap text-[10px] leading-4 text-muted-foreground">
+ <div className={cn("whitespace-nowrap text-[11px] leading-4 text-muted-foreground", WIDE_HIDDEN)}>
  zam. od <CompactDate value={m.client_order_start_date} />
  </div>
  </>
@@ -1312,7 +1747,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  <CompactDate value={m.latest_order_end_date} />
  </div>
  ) : (
- <span className="text-[12px] text-muted-foreground">—</span>
+ <span className={cn("text-[12px]", CALM_EMPTY)}>—</span>
  )}
  </TableCell>
 
@@ -1320,37 +1755,46 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  <>
  <TableCell
  data-label="Stawka kosztowa"
- className="px-2 py-1.5 text-right align-top font-mono text-[12px] leading-5 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
+ className="px-2 py-1.5 text-right align-top tabular-nums text-[12px] leading-4 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
  >
- <MobileFieldLabel>Stawka kosztowa</MobileFieldLabel>
+ <MobileFieldLabel unit={bareAmounts ? DEFAULT_RATE_UNIT_LABEL : undefined}>Stawka kosztowa</MobileFieldLabel>
  {m.rate_candidate != null ? (
- <>
- {formatCurrency(m.rate_candidate, candidateCurrency(m))}
- <RateUnitSuffix unit={m.rate_unit} />
- </>
+ <RateAmount
+ value={m.rate_candidate}
+ currency={candidateCurrency(m)}
+ unit={m.rate_unit}
+ bare={bareAmounts}
+ />
  ) : (
-"—"
+ <span className={CALM_EMPTY}>—</span>
  )}
  </TableCell>
  <TableCell
  data-label="Stawka przychodowa"
- className="px-2 py-1.5 text-right align-top font-mono text-[12px] font-semibold leading-5 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
+ className="px-2 py-1.5 text-right align-top tabular-nums text-[12px] leading-4 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
  >
- <MobileFieldLabel>Stawka przychodowa</MobileFieldLabel>
+ <MobileFieldLabel unit={bareAmounts ? DEFAULT_RATE_UNIT_LABEL : undefined}>Stawka przychodowa</MobileFieldLabel>
  {m.rate_client != null ? (
- <>
- {formatCurrency(m.rate_client, clientCurrency(m))}
- <RateUnitSuffix unit={m.rate_unit} />
- </>
+ <RateAmount
+ value={m.rate_client}
+ currency={clientCurrency(m)}
+ unit={m.rate_unit}
+ bare={bareAmounts}
+ />
  ) : (
-"—"
+ <span className={CALM_EMPTY}>—</span>
  )}
  </TableCell>
+ {canSeeMargin && (
  <TableCell
  data-label="Marża"
- className="px-2 py-1.5 text-right align-top font-mono text-[12px] leading-4 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
+ className="px-2 py-1.5 text-right align-top tabular-nums text-[12px] leading-4 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
  >
- <MobileFieldLabel>Marża</MobileFieldLabel>
+ <MobileFieldLabel unit={bareAmounts ? DEFAULT_RATE_UNIT_LABEL : undefined}>Marża</MobileFieldLabel>
+ {/* Marża = różnica stawek w jednostce kontraktu — ta sama
+ jednostka co przy stawkach obok: w nagłówku (zł/h) albo,
+ dla wiersza w innej jednostce, przy kwocie (bez niej
+ „43 zł” czytało się jak kwota miesięczna). */}
  <span
  className={marginColor(
  comparableMargin ?? undefined,
@@ -1358,19 +1802,21 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  )}
  >
  {comparableMargin != null
- ? formatCurrency(comparableMargin, clientCurrency(m))
+ ? bareAmounts
+ ? BARE_AMOUNT.format(comparableMargin)
+ : formatCurrency(comparableMargin, clientCurrency(m))
  :"—"}
  </span>
- {/* Marża = różnica stawek w jednostce kontraktu — ta sama
- końcówka co przy stawkach obok (bez niej „43 zł” czytało
- się jak kwota miesięczna). */}
- {comparableMargin != null && <RateUnitSuffix unit={m.rate_unit} />}
+ {comparableMargin != null && !bareAmounts && (
+ <RateUnitSuffix unit={m.rate_unit} />
+ )}
  {marginPct && (
- <span className="block text-[10px] font-sans text-muted-foreground">
+ <span className="block text-[11px] font-normal text-muted-foreground">
  {marginPct}
  </span>
  )}
  </TableCell>
+ )}
  </>
  )}
 
@@ -1379,9 +1825,13 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  className="px-2 py-1.5 align-top max-xl:block"
  >
  <MobileFieldLabel>Typ</MobileFieldLabel>
- <Badge size="md" variant="soft" className="max-w-full px-1.5 text-[11px]">
- {m.contract_type ??"—"}
- </Badge>
+ {m.contract_type ? (
+ <span className="block truncate text-[11px] font-medium uppercase leading-4 tracking-[0.03em] text-muted-foreground">
+ {m.contract_type}
+ </span>
+ ) : (
+ <span className={cn("text-[12px]", CALM_EMPTY)}>—</span>
+ )}
  </TableCell>
  <TableCell
  data-label="Status"
@@ -1389,23 +1839,41 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  >
  <MobileFieldLabel>Status</MobileFieldLabel>
  {m.status ? (
- <Badge
- size="md"
- variant={statusBadge?.variant ??"neutral"}
- className="max-w-full px-1.5 text-[11px]"
+ <StatusDot
+ tone={STATUS_DOT_TONE[statusBadge?.variant ??"neutral"]}
+ className="max-w-full"
+ note={
+ futureStart ? (
+ <span data-testid="contract-future-start">{futureStart}</span>
+ ) : undefined
+ }
  >
  {statusBadge?.label ?? m.status}
- </Badge>
+ </StatusDot>
  ) : (
- <span className="text-xs text-muted-foreground">—</span>
+ <span className={cn("text-xs", CALM_EMPTY)}>—</span>
  )}
- {futureStart && (
- <span
- className="mt-0.5 block text-[11px] font-medium text-info-muted-foreground"
- data-testid="contract-future-start"
+ {/* Zgłoszenie zespołu 29.10.2026: rozwiązanie umowy podpisane
+ poza NEXUSEM zapisuje się wprost z listy „Umowa nierozwiązana”. */}
+ {canRecordAgreement &&
+ agreementNotTerminated &&
+ m.contract_type === "b2b" &&
+ (m.status === "ended" || m.status === "ending") && (
+ <button
+ type="button"
+ onClick={(e) => {
+ e.stopPropagation();
+ setRecordAgreementFor({
+ id: m.id,
+ candidateName: c.candidate_name ?? null,
+ projectEnd: m.end_date ?? null,
+ });
+ }}
+ className="mt-1 block whitespace-nowrap rounded-md border border-border bg-card px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-muted"
+ title="Porozumienie albo wypowiedzenie podpisane poza NEXUSEM"
  >
- {futureStart}
- </span>
+ + Rozwiązanie
+ </button>
  )}
  </TableCell>
  </TableRow>
@@ -1416,12 +1884,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  })
  )}
  </Table>
-
- {toast && (
- <div className="fixed bottom-24 right-4 z-9999 px-4 py-3 rounded-lg shadow-md text-sm bg-card text-foreground">
- {toast}
  </div>
- )}
 
  {/* Pagination */}
  {viewState === "ready" && total > pageSize && (
@@ -1442,6 +1905,36 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  Następna
  </Button>
  </div>
+ </div>
+ )}
+ </div>
+ );
+
+ const openPreview = openContractId != null ? previews.get(openContractId) : undefined;
+
+ return (
+ <div ref={listRef}>
+ <ListDetailLayout
+ list={listContent}
+ onClose={closePanel}
+ panelLabel="Szczegóły kontraktu"
+ panel={
+ openContractId != null ? (
+ <ContractSidePanel
+ key={openContractId}
+ contractId={openContractId}
+ onClose={closePanel}
+ preview={openPreview}
+ returnTarget={returnTarget}
+ source="contracts"
+ onSelectContract={openContract}
+ />
+ ) : null
+ }
+ />
+ {toast && (
+ <div className="fixed bottom-24 right-4 z-9999 px-4 py-3 rounded-lg shadow-md text-sm bg-card text-foreground">
+ {toast}
  </div>
  )}
  </div>

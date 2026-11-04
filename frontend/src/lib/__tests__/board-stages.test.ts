@@ -6,6 +6,7 @@ import {
   foldBoardColumns,
   SETTABLE_BADGES,
   boardColumnStep,
+  isAtClientColumn,
   isCproStageName,
   impliedBadges,
   isQcStageName,
@@ -80,7 +81,7 @@ describe("foldBoardColumns", () => {
       "QC CV",
       "CV wysłane",
       "Rozmowa u klienta",
-      "Umowa",
+      "Akceptacja i umowa",
       "Zatrudniony",
     ]);
     expect(folded.columns.map((c) => c.key)).toEqual(BOARD_COLUMN_ORDER);
@@ -91,7 +92,33 @@ describe("foldBoardColumns", () => {
     const nordea = foldBoardColumns(template, { cproEnabled: true });
     const sent = nordea.columns.find((c) => c.key === "cv_sent")!;
     expect(sent.label).toBe("Wysłane do Cpro");
-    expect(nordea.columns.map((c) => c.key)).toEqual(BOARD_COLUMN_ORDER);
+  });
+
+  it("u Nordei kolejka Cpro to własna kolumna „Do Cpro” zaraz po „QC CV” (26.10.2026)", () => {
+    const nordea = foldBoardColumns(template, { cproEnabled: true });
+    expect(nordea.columns.map((c) => c.label)).toEqual([
+      "Nowi",
+      "Screening",
+      "Zweryfikowany",
+      "QC CV",
+      "Do Cpro",
+      "Wysłane do Cpro",
+      "Rozmowa u klienta",
+      "Akceptacja i umowa",
+      "Zatrudniony",
+    ]);
+    const qc = nordea.columns.find((c) => c.key === "cv_qc" && !c.cproQueue)!;
+    expect(qc.items.map((i) => i.id)).toEqual([3]);
+    const cpro = nordea.columns.find((c) => c.cproQueue)!;
+    expect(cpro.key).toBe("cv_qc");
+    expect(cpro.host.label).toBe("Wysłać do Cpro");
+    expect(cpro.items.map((i) => i.id)).toEqual([4]);
+    expect(nordea.badgeByItemId.get(4)).toBe("cpro");
+  });
+
+  it("poza Nordeą etap Cpro z szablonu zostaje znacznikiem w „QC CV”", () => {
+    expect(folded.columns.some((c) => c.cproQueue)).toBe(false);
+    expect(folded.columns.map((c) => c.key)).toEqual(BOARD_COLUMN_ORDER);
   });
 
   it("kolumna-host to etap bez odznaki; karty z etapów-odznak są w tej samej kolumnie", () => {
@@ -172,7 +199,7 @@ describe("foldBoardColumns", () => {
       "QC CV",
       "CV wysłane",
       "Rozmowa u klienta",
-      "Umowa",
+      "Akceptacja i umowa",
       "Zatrudniony",
     ]);
     const accept = traffit.columns.find((c) => c.key === "contract")!;
@@ -189,10 +216,54 @@ describe("foldBoardColumns", () => {
   });
 });
 
+describe("kolejność kart w kolumnie Tablicy (16.10.2026)", () => {
+  const card = (id: number, moved_at: string | null) => ({ id, moved_at });
+  const column = (label: string, stage: string, items: Array<{ id: number; moved_at: string | null }>) => ({
+    label,
+    stage,
+    category: "internal",
+    items,
+    count: items.length,
+  });
+
+  it("kolumna złożona z kilku etapów: najświeższe wejście na etap na górze, remis → wyższy numer karty", () => {
+    // Ten sam klucz co serwer (`_newest_first`): bez tego karty z etapu-odznaki
+    // (Cpro) stały zawsze pod kartami gospodarza, choćby weszły dziś.
+    const folded = foldBoardColumns([
+      column("QC CV", "interview", [card(3, "2026-10-13T09:00:00Z"), card(4, "2026-10-16T08:00:00+00:00")]),
+      column("Wysłać do Cpro", "new", [card(5, "2026-10-15T09:00:00Z"), card(2, "2026-10-16T08:00:00Z")]),
+    ]);
+    const qc = folded.columns.find((c) => c.key === "cv_qc")!;
+    expect(qc.items.map((i) => i.id)).toEqual([4, 2, 5, 3]);
+  });
+
+  it("karta bez czasu wejścia stoi pod kartami z czasem, w kolejności z serwera", () => {
+    const folded = foldBoardColumns([
+      column("QC CV", "interview", [card(7, null), card(3, null)]),
+      column("Wysłać do Cpro", "new", [card(5, "2026-10-15T09:00:00Z")]),
+    ]);
+    const qc = folded.columns.find((c) => c.key === "cv_qc")!;
+    expect(qc.items.map((i) => i.id)).toEqual([5, 7, 3]);
+  });
+});
+
 describe("znaczniki ustawiane z panelu", () => {
   it("DZ i Cpro zniknęły z przełączników — Cpro ustawia strzałka", () => {
-    expect(SETTABLE_BADGES).toEqual(["contract_signed"]);
+    expect(SETTABLE_BADGES).toEqual(["contract_sent", "contract_signed"]);
     expect(impliedBadges("cpro")).toEqual(["cpro"]);
     expect(impliedBadges(null)).toEqual([]);
+  });
+});
+
+describe("isAtClientColumn (D3, 14.10.2026)", () => {
+  it("od „CV wysłane” w prawo — osoba jest już u klienta", () => {
+    expect(["cv_sent", "client_interview", "contract", "hired"].every((key) => isAtClientColumn(key as never))).toBe(true);
+  });
+
+  it("przed wysyłką i zamknięci — nie (z kolumny „Zamknięci” nie wynika, czy CV wyszło)", () => {
+    for (const key of ["new", "screening", "verified", "cv_qc", "closed"]) {
+      expect(isAtClientColumn(key as never)).toBe(false);
+    }
+    expect(isAtClientColumn(null)).toBe(false);
   });
 });

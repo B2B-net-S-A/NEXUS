@@ -39,7 +39,7 @@ function fullUser(role: "delivery_lead" | "recruiter"): User {
     email: `${role}@example.com`,
     name: isDeliveryLead ? "Delivery Lead" : "Recruiter",
     role,
-    roles: isDeliveryLead ? ["delivery_lead", "tac"] : ["recruiter", "sourcer"],
+    roles: isDeliveryLead ? ["delivery_lead", "recruiter"] : ["recruiter"],
     profile_completed: true,
     profile_completed_at: "2026-07-31T08:00:00Z",
     force_password_change: false,
@@ -166,7 +166,7 @@ describe("role onboarding forms", () => {
     expect(useAuthStore.getState().user).toEqual(refreshedUser)
     expect(useAuthStore.getState().user?.roles).toEqual([
       "delivery_lead",
-      "tac",
+      "recruiter",
     ])
     expect(useAuthStore.getState().user?.available_dashboard_presets).toEqual([
       "delivery-lead",

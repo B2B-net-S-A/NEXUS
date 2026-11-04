@@ -119,13 +119,13 @@ export function HelpSpotlight({ onShown, onMissing }: Props) {
   return (
     <div className="pointer-events-none fixed inset-0 z-[60]" aria-hidden data-testid="help-spotlight">
       <div
-        className="absolute rounded-lg ring-2 ring-primary transition-all duration-200"
+        className="absolute rounded-lg transition-all duration-200"
         style={{
           top: box.top,
           left: box.left,
           width: box.width,
           height: box.height,
-          boxShadow: "0 0 0 9999px rgb(0 0 0 / 0.35)",
+          boxShadow: "0 0 0 3px hsl(var(--primary)), 0 0 0 9999px rgb(0 0 0 / 0.35)",
         }}
       />
     </div>

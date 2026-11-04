@@ -20,8 +20,10 @@ import { MoreHorizontal } from "lucide-react";
 
 import { candidatesApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { EMPLOYMENT_ONLY_WARNING_PL } from "@/lib/proposals-merge";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { cn } from "@/lib/utils";
+import { EmploymentPill } from "@/components/ds/EmploymentMarker";
 import { useToast } from "@/components/Toast";
 import { candidatePipelinesQueryKey } from "@/components/CandidatePipelinesWidget";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
@@ -128,6 +130,7 @@ const SOURCE_PILL_CLASS: Record<ProposalSource, string> = {
   similar_projects: "bg-info-muted text-info-muted-foreground",
   recommendation: "bg-success-muted text-success-muted-foreground",
   marketplace: "bg-warning-muted text-warning-muted-foreground",
+  job_board: "bg-info-muted text-info-muted-foreground",
 };
 
 const BADGE_CLASS: Record<RowBadgeTone, string> = {
@@ -258,6 +261,13 @@ function ProposalNameCell({ row }: { row: ProposalPersonRow }) {
   return (
     <span className="flex min-w-0 items-center gap-1.5">
       <span className="min-w-0 truncate font-semibold">{row.fullName}</span>
+      {row.employment ? (
+        <EmploymentPill
+          marker={row.employment}
+          label={{ clients: "none", date: "short" }}
+          className="shrink-0"
+        />
+      ) : null}
       {row.isNew ? (
         <span className="inline-flex h-[18px] shrink-0 items-center rounded bg-primary/10 px-1.5 text-[10px] font-semibold text-primary">
           nowa
@@ -411,15 +421,22 @@ export function PeopleTable({
           width: "minmax(0,1.5fr)",
           render: (row) =>
             row.kind === "proposal" ? (
-              row.handoverNote ? (
+              row.handoverNote || row.warnings.includes("employment_only") ? (
                 <span className="flex min-w-0 flex-col">
                   <span title={row.reason ?? undefined}>{dash(row.reason)}</span>
-                  <span
-                    className="line-clamp-2 text-xs text-muted-foreground"
-                    title={row.handoverNote}
-                  >
-                    {row.handoverNote}
-                  </span>
+                  {row.warnings.includes("employment_only") ? (
+                    <span className={cn(pillBase, "w-fit", BADGE_CLASS.warning)}>
+                      {EMPLOYMENT_ONLY_WARNING_PL}
+                    </span>
+                  ) : null}
+                  {row.handoverNote ? (
+                    <span
+                      className="line-clamp-2 text-xs text-muted-foreground"
+                      title={row.handoverNote}
+                    >
+                      {row.handoverNote}
+                    </span>
+                  ) : null}
                 </span>
               ) : (
                 <span title={row.reason ?? undefined}>{dash(row.reason)}</span>

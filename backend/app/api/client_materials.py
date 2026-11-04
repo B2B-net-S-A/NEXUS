@@ -13,8 +13,12 @@ Contract terms (singleton per client, upsert)
   GET    /clients/{client_id}/contract-terms       (can_view_legal_documents)
   PUT    /clients/{client_id}/contract-terms       (can_edit_legal_documents)
 
-Aktualnie całość podlega bramce Delivery. TCM może czytać one-pagery, ale nie
-warunki prawne; Admin i przypisany DL mogą zapisywać, a Finance ma odczyt.
+Całość podlega bramce Delivery. Materiały (one-pagery) czyta każdy z podglądem
+Delivery, zapisuje „Klienci: dodawanie i edycja”. Warunki umów to dokumenty
+prawne: odczyt wymaga „Stawki i kwoty: podgląd” (dlatego Talent Community
+Manager ich domyślnie nie widzi), zapis — dodatkowo „Kontrakty i zamówienia:
+tworzenie i edycja”; konto z rolą Delivery Leada działa u klientów
+z przypisania. Odmowa nazywa brakujące uprawnienie.
 """
 
 from typing import Annotated, List, Optional
@@ -26,6 +30,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
+from app.api.permission_access import (
+    AmountsViewUser,
+    ClientsEditUser,
+    ContractsOrdersEditUser,
+)
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -46,7 +56,9 @@ from app.services.client_access import (
 )
 
 
-router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
+router = APIRouter(
+    dependencies=[*DELIVERY_SECTION_DEPENDENCIES, *DELIVERY_CLIENT_SCOPE_DEPENDENCIES]
+)
 
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
@@ -78,10 +90,11 @@ async def _require_material_write(
     allowed = access.can_edit_legal_documents if legal else access.can_edit_materials
     if not allowed:
         if legal:
-            raise deny(
-                "zapis dokumentów prawnych wymaga roli admin lub przypisanego DL"
+            raise access.legal_denial(
+                "zapis dokumentów prawnych wymaga roli admin lub przypisanego DL",
+                write=True,
             )
-        raise deny("zapis materiałów wymaga roli admin lub Delivery Lead")
+        raise access.edit_denial("zapis materiałów wymaga roli admin lub Delivery Lead")
 
 
 async def require_client_material_read_access(
@@ -98,9 +111,11 @@ async def require_client_material_read_access(
 
 async def require_client_material_write_access(
     client_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: ClientsEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> User:
+    # „Klienci: dodawanie i edycja” jako zależność — odmowa nazywa uprawnienie,
+    # zanim sięgniemy do bazy; zakres klienta rozstrzyga ``ClientAccess``.
     # Zapis tylko na widocznym kliencie (usunięty/scalony/ukryty → 404, S1).
     await assert_client_writable(db, client_id)
     await _require_material_write(db, current_user, client_id)
@@ -109,21 +124,26 @@ async def require_client_material_write_access(
 
 async def require_client_legal_read_access(
     client_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ) -> User:
+    # Warunki umów to dokument prawny (kwoty, terminy płatności): odczyt
+    # deklaruje „Stawki i kwoty: podgląd”, zakres klienta — ``ClientAccess``.
     await _assert_client(db, client_id)
     access = await resolve_client_access(db, current_user, client_id)
     if not access.can_view_legal_documents:
-        raise deny("warunki umów wymagają jawnego przypisania klienta")
+        raise access.legal_denial("warunki umów wymagają jawnego przypisania klienta")
     return current_user
 
 
 async def require_client_legal_write_access(
     client_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: ContractsOrdersEditUser,
+    _amounts_viewer: AmountsViewUser,
     db: AsyncSession = Depends(get_db),
 ) -> User:
+    # Zapis dokumentu prawnego: „Kontrakty i zamówienia: tworzenie i edycja”
+    # razem z podglądem kwot; konto z rolą DL — u klienta z przypisania.
     await assert_client_writable(db, client_id)
     await _require_material_write(db, current_user, client_id, legal=True)
     return current_user
@@ -181,9 +201,6 @@ async def _terms_to_response(
     return ClientContractTermsResponse(
         id=terms.id,
         client_id=terms.client_id,
-        off_limits_months=terms.off_limits_months,
-        off_limits_scope=terms.off_limits_scope,
-        off_limits_notes=terms.off_limits_notes,
         internalization_fee_pct=terms.internalization_fee_pct,
         internalization_min_months=terms.internalization_min_months,
         internalization_notice_days=terms.internalization_notice_days,

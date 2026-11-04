@@ -1,0 +1,90 @@
+{
+  "_comment": "Tytuł dla rekrutera (0380). Czytają go OBA: backend/tests/test_job_working_title.py (compose_working_title) i frontend/src/lib/__tests__/job-names.test.ts (composeWorkingTitle). Zmiana reguły = zmiana tego pliku i obu implementacji.",
+  "cases": [
+    {
+      "name": "pełny komplet",
+      "input": {"role": "Java Developer", "must": ["Java", "Kafka", "Spring"], "min_years": 5, "domain": "Payments"},
+      "expected": "Java Developer · Java, Kafka · 5+ lat · Payments"
+    },
+    {
+      "name": "zamiennik po „lub” nie wchodzi do tytułu",
+      "input": {"role": "Java Developer", "must": ["Kafka lub RabbitMQ", "Spring Boot lub Spring"], "min_years": null, "domain": null},
+      "expected": "Java Developer · Kafka, Spring Boot"
+    },
+    {
+      "name": "bez lat i dziedziny",
+      "input": {"role": "Tester manualny", "must": ["Selenium"], "min_years": null, "domain": null},
+      "expected": "Tester manualny · Selenium"
+    },
+    {
+      "name": "same must-have bez roli",
+      "input": {"role": null, "must": ["Python", "Django"], "min_years": 3, "domain": null},
+      "expected": "Python, Django · 3+ lata"
+    },
+    {
+      "name": "nic do złożenia",
+      "input": {"role": "  ", "must": [], "min_years": 5, "domain": "Bankowość"},
+      "expected": null
+    },
+    {
+      "name": "duplikaty i puste pozycje must",
+      "input": {"role": "DevOps", "must": ["", "AWS", "aws", {"name": "Terraform"}], "min_years": 0, "domain": ""},
+      "expected": "DevOps · AWS, Terraform"
+    },
+    {
+      "name": "odmiana: 1 rok",
+      "input": {"role": "Analityk", "must": [], "min_years": 1, "domain": null},
+      "expected": "Analityk · 1+ rok"
+    },
+    {
+      "name": "odmiana: 12 lat",
+      "input": {"role": "Architekt", "must": [], "min_years": 12, "domain": null},
+      "expected": "Architekt · 12+ lat"
+    },
+    {
+      "name": "odmiana: 22 lata",
+      "input": {"role": "Architekt", "must": [], "min_years": 22, "domain": null},
+      "expected": "Architekt · 22+ lata"
+    },
+    {
+      "name": "białe znaki zwinięte",
+      "input": {"role": "  Senior   Java\nDeveloper ", "must": [" Java "], "min_years": null, "domain": " Płatności "},
+      "expected": "Senior Java Developer · Java · Płatności"
+    },
+    {
+      "name": "zdanie w must-have nie wchodzi do tytułu",
+      "input": {"role": "Analityk Biznesowo-Systemowy KYC/AML", "must": ["Minimum 5 lat doświadczenia w analizie biznesowej", "SQL"], "min_years": 5, "domain": null},
+      "expected": "Analityk Biznesowo-Systemowy KYC/AML · SQL · 5+ lat"
+    },
+    {
+      "name": "CI/CD i PL/SQL to nazwy, nie zdania",
+      "input": {"role": "DevOps", "must": ["CI/CD", "PL/SQL", "Docker"], "min_years": null, "domain": null},
+      "expected": "DevOps · CI/CD, PL/SQL"
+    },
+    {
+      "name": "C++, .NET i nawias zostają",
+      "input": {"role": "Programista", "must": [".NET", "React (Hooks)", "C++"], "min_years": null, "domain": null},
+      "expected": "Programista · .NET, React (Hooks)"
+    },
+    {
+      "name": "same zdania w must-have — zostaje rola, lata i dziedzina",
+      "input": {"role": "Analityk", "must": ["Znajomość procesów KYC, AML", "Bardzo dobra komunikacja z biznesem"], "min_years": 5, "domain": "Bankowość"},
+      "expected": "Analityk · 5+ lat · Bankowość"
+    },
+    {
+      "name": "same zdania i brak roli — nic do złożenia",
+      "input": {"role": null, "must": ["Minimum 5 lat doświadczenia w analizie biznesowej"], "min_years": 5, "domain": "Bankowość"},
+      "expected": null
+    },
+    {
+      "name": "zdanie na początku nie zabiera miejsca technologii",
+      "input": {"role": "Java Developer", "must": ["Minimum 5 lat doświadczenia w programowaniu", "Java", "Kafka", "Spring"], "min_years": null, "domain": null},
+      "expected": "Java Developer · Java, Kafka"
+    },
+    {
+      "name": "granice: trzy słowa i 40 znaków zostają, znaki zdania odpadają",
+      "input": {"role": "Inżynier", "must": ["Znajomość języka angielskiego B2", "Java – zaawansowany", "Bazy: Oracle", "Docker; Kubernetes", "Pneumonoultramicroscopicsilicovolcanoconiosis", "Apache Kafka Streams", "Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"], "min_years": null, "domain": null},
+      "expected": "Inżynier · Apache Kafka Streams, Bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ]
+}

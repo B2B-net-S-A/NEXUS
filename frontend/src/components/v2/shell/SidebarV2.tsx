@@ -31,8 +31,10 @@ import { useSidebarPinned } from "./useSidebarPinned";
 import { PaletteSwitcher } from "./PaletteSwitcher";
 import { KidsModeToggleButton, ThemeToggleButton } from "./ThemeControls";
 import { hasSectionAccess } from "@/lib/section-access";
+import { useHrNavState } from "@/lib/api/hr";
 import { hasCapability } from "@/lib/capabilities";
 import { useOrderMailPendingCount } from "@/components/order-mail/useOrderMailPendingCount";
+import { useDlSendQueue } from "@/lib/api/boardTasks";
 import {
   resolveNavHref,
   visibleMoreGroups,
@@ -84,19 +86,14 @@ export function SidebarV2({
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
   const canUseContactQueue =
     hasSectionAccess(user, "sourcing") &&
-    hasRole(
-      user,
-      "talent_community_manager",
-      "tac",
-      "recruiter",
-      "sourcer",
-    );
+    hasRole(user, "talent_community_manager", "recruiter");
   const contactFeature = useCandidateContactFeature({
     queryEnabled: canUseContactQueue,
   });
   // Szyna = rdzeń pracy w grupach z nagłówkami, reszta pod „Więcej". Bramka
   // widoczności jest w rejestrze jedna — obie listy to ten sam zbiór, podzielony.
-  const navOptions = { contactQueueEnabled: contactFeature.enabled };
+  const hrNav = useHrNavState(user);
+  const navOptions = { contactQueueEnabled: contactFeature.enabled, hr: hrNav };
   const primaryGroups = visiblePrimaryGroups(user, navOptions);
   const moreGroups = visibleMoreGroups(user, navOptions);
 
@@ -131,16 +128,21 @@ export function SidebarV2({
   const expanded = hovered || pinned || mobileOpen;
   const collapsed = !expanded;
 
-  // Rekrutacje i Kandydaci NIE mają licznika (22.09.2026): liczyły wszystkie
-  // opublikowane rekrutacje i kandydatów dodanych dziś (głównie nocny import
-  // Traffita), więc stale świeciły „99+" jak nieprzeczytane sprawy, choć nie
-  // wymagały żadnej akcji. Licznik w menu ma znaczyć „masz coś do zrobienia".
+  // Licznik w menu ma znaczyć „masz coś do zrobienia". Rekrutacje i Kandydaci
+  // nie liczą wszystkich opublikowanych rekrutacji ani kandydatów dodanych dziś
+  // (22.09.2026: głównie nocny import Traffita — stale świeciło „99+", choć
+  // nic nie wymagało akcji). Od 13.10.2026 „Rekrutacje” mają licznik u
+  // Delivery Leada: ile osób czeka na JEGO wysyłkę do klienta — ten sam stan
+  // co licznik w górnym pasku (jedno zapytanie, ten sam klucz).
   // Skrzynka zamówień jest trybem Kontraktów — jej licznik stoi przy nich.
   const orderMailPending = useOrderMailPendingCount(
     hasCapability(user, "nav.order_mail"),
   );
+  const dlSendReady = useDlSendQueue(hasRole(user, "delivery_lead")).data
+    ?.ready_total;
   const badgeCounts: BadgeCounts = {
     ...(orderMailPending ? { orderMail: orderMailPending } : {}),
+    ...(dlSendReady ? { dlSend: dlSendReady } : {}),
   };
   const isActive = (href: string) => isNavItemActive(pathname, href);
   const isEntryActive = (entry: NavEntry) =>
@@ -170,6 +172,9 @@ export function SidebarV2({
       // Rozwinięcie pod kursorem tylko dla MYSZY: stuknięcie na tablecie
       // emituje `mouseenter`, więc nakładka 240 px otwierała się na każde
       // dotknięcie ikony i zasłaniała treść.
+      // Panel osoby na całą szerokość okna zdejmuje z menu `z-40`
+      // (reguła `[data-app-sidebar]` w `globals.css`) i je zakrywa.
+      data-app-sidebar=""
       onPointerEnter={(e) => {
         if (e.pointerType === "mouse" && !mobileOpen) setHovered(true);
       }}

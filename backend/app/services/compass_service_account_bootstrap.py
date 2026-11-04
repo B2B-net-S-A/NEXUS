@@ -28,12 +28,22 @@ CZTERY WŁASNOŚCI, KTÓRE TRZYMAJĄ TO BEZPIECZNYM
    `test_key_cannot_reach_domain_data`).
 4. **Nie wywraca startu.** Zły format klucza albo błąd bazy → log + no-op,
    nigdy wyjątek z lifespanu. Sekret nie trafia do logu.
+5. **Klucz raz wydany nie wraca po usunięciu** (runda 9, R9-N9-2). Do tej
+   rundy skasowanie konta (albo samego wiersza klucza) kasowało też ślad
+   idempotencji, więc następny start z tą samą — być może wyciekłą — wartością
+   w env zakładał konto i klucz od nowa. Każdy `key_id` założony tym
+   mechanizmem (i każdy klucz kasowany razem z kontem) trafia do nagrobka
+   ``app_settings['service_account_retired_key_ids']``; bootstrap nie zakłada
+   ponownie klucza z nagrobka, dopóki wiersza klucza nie ma. `key_id` to jawny
+   prefiks wartości — sekretu nie zapisujemy.
 """
 
 import hashlib
+import json
 import logging
+from collections.abc import Iterable
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -55,6 +65,46 @@ _ACCOUNT_NAME = "Compass contractor sync"
 _KEY_LABEL = "compass-integration-bootstrap"
 _SCOPE = ServiceScope.contractors_read.value
 
+# Runda 9 (R9-N9-2): nagrobek key_id kluczy, które kiedykolwiek istniały.
+RETIRED_KEYS_SETTING = "service_account_retired_key_ids"
+
+_RETIRE_UPSERT = text(
+    """
+    INSERT INTO app_settings (key, value, updated_at)
+    VALUES (:key, CAST(:patch AS jsonb), NOW())
+    ON CONFLICT (key) DO UPDATE SET
+        value = app_settings.value || EXCLUDED.value,
+        updated_at = NOW()
+    """
+)
+
+
+async def retire_key_ids(db: AsyncSession, key_ids: Iterable[str]) -> None:
+    """Zapisz ``key_id`` do nagrobka (scalenie JSONB, idempotentne).
+
+    Nie commituje — wołający zapisuje razem ze swoją operacją.
+    """
+    patch = {str(k): True for k in key_ids if k}
+    if not patch:
+        return
+    await db.execute(
+        _RETIRE_UPSERT,
+        {"key": RETIRED_KEYS_SETTING, "patch": json.dumps(patch)},
+    )
+
+
+async def _is_retired(db: AsyncSession, key_id: str) -> bool:
+    row = (
+        await db.execute(
+            text(
+                "SELECT (value -> CAST(:key_id AS text)) IS NOT NULL "
+                "FROM app_settings WHERE key = :key"
+            ),
+            {"key": RETIRED_KEYS_SETTING, "key_id": key_id},
+        )
+    ).scalar_one_or_none()
+    return bool(row)
+
 
 def _sha256_hex(value: str) -> str:
     """Skrót sekretu — kontrakt bazy (patrz ``service_account_auth._sha256_hex``).
@@ -70,7 +120,8 @@ async def ensure_bootstrap_service_account(db: AsyncSession) -> str | None:
     """Idempotentnie zakłada konto+klucz z ``COMPASS_INTEGRATION_BOOTSTRAP_KEY``.
 
     Zwraca krótki status do logu: ``None`` gdy bramka wyłączona, w innym razie
-    jeden z ``"created"`` / ``"exists"`` / ``"malformed_key"`` / ``"error: …"``.
+    jeden z ``"created"`` / ``"exists"`` / ``"retired"`` / ``"malformed_key"`` /
+    ``"error: …"``.
     """
     raw = (settings.COMPASS_INTEGRATION_BOOTSTRAP_KEY or "").strip()
     if not raw:
@@ -92,7 +143,20 @@ async def ensure_bootstrap_service_account(db: AsyncSession) -> str | None:
         if existing.scalar_one_or_none() is not None:
             # Klucz już istnieje — nic nie robimy. To jest gwarancja
             # idempotencji przy każdym kolejnym starcie z tą samą wartością.
+            # Dopisujemy go do nagrobka (klucze założone przed rundą 9), żeby
+            # po skasowaniu wiersza nie wrócił z env.
+            await retire_key_ids(db, [key_id])
+            await db.commit()
             return "exists"
+
+        if await _is_retired(db, key_id):
+            # Klucz kiedyś istniał i został usunięty — nie odtwarzamy go.
+            logger.warning(
+                "compass_bootstrap: klucz %s był usunięty — nie zakładam go ponownie; "
+                "wyczyść COMPASS_INTEGRATION_BOOTSTRAP_KEY albo podaj nowy klucz",
+                key_id,
+            )
+            return "retired"
 
         account = (
             await db.execute(
@@ -124,13 +188,20 @@ async def ensure_bootstrap_service_account(db: AsyncSession) -> str | None:
                 expires_at=default_expires_at(None),
             )
         )
+        await retire_key_ids(db, [key_id])
         await db.commit()
         logger.info("compass_bootstrap: klucz konta serwisowego założony (%s)", key_id)
         return "created"
     except Exception as exc:  # noqa: BLE001 — provisioning nie może ubić startu
         await db.rollback()
-        logger.warning("compass_bootstrap: provisioning nieudany: %s", exc)
+        logger.warning(
+            "compass_bootstrap: provisioning nieudany (%s)", type(exc).__name__
+        )
         return f"error: {type(exc).__name__}"
 
 
-__all__ = ["ensure_bootstrap_service_account"]
+__all__ = [
+    "RETIRED_KEYS_SETTING",
+    "ensure_bootstrap_service_account",
+    "retire_key_ids",
+]

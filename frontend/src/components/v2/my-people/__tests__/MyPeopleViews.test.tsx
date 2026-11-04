@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 
 import type { ForJobResponse } from "@/lib/api/myPeople";
 import { contextFromPath, shouldCloseOnEscape } from "../MyPeoplePanel";
-import { ForJobView, PeopleListView } from "../MyPeopleViews";
+import { ForJobView, FromLinksView, PeopleListView } from "../MyPeopleViews";
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
@@ -123,7 +123,21 @@ describe("ForJobView", () => {
 });
 
 describe("PeopleListView", () => {
-  it("does not offer adding a working person", () => {
+  it("pozwala dodać osobę z grupy „Pracują” i mówi, u kogo pracuje", () => {
+    const onAdd = vi.fn();
+    const marker = {
+      phase: "working" as const,
+      source: "contract" as const,
+      clients: [
+        {
+          client_id: 3,
+          client_name: "Bank Przykładowy",
+          contract_id: 30,
+          phase: "working" as const,
+          order_end_date: "2026-12-31",
+        },
+      ],
+    };
     render(
       <PeopleListView
         active={[]}
@@ -133,16 +147,76 @@ describe("PeopleListView", () => {
             last_sent_at: null, last_sent_job_title: null, last_sent_client_name: null,
             sent_count: 1, days_since_last_send: null, expected_rate_hourly: null,
             availability_status: null, city: null, source: "auto", active_processes: 0,
-            working: true, snoozed: false, snooze_reason: null, snoozed_at: null, new_matches: 0,
+            working: true, employment_marker: marker,
+            snoozed: false, snooze_reason: null, snoozed_at: null, new_matches: 0,
           },
         ]}
         snoozed={[]}
         categories={[]}
-        actions={{ onAdd: vi.fn(), onSnooze: vi.fn() }}
+        actions={{ onAdd, onSnooze: vi.fn() }}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /Pracują/ }));
-    expect(screen.getByText("Pracuje Test")).toBeTruthy();
-    expect(screen.queryByLabelText("Dodaj do rekrutacji: Pracuje Test")).toBeNull();
+    expect(screen.getByText("Pracuje u nas · Bank Przykładowy · do 31.12.2026")).toBeTruthy();
+    // Do 12.10.2026 przycisku nie było — pracującej osoby nie dało się dodać.
+    fireEvent.click(screen.getByLabelText("Dodaj do rekrutacji: Pracuje Test"));
+    expect(onAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ candidate_id: 9, employment_marker: marker }),
+    );
+  });
+});
+
+describe("FromLinksView", () => {
+  const base = {
+    applied_at: "2026-10-28T09:12:00Z",
+    was_duplicate: false,
+    current_job_id: null,
+    current_job_title: null,
+    screening_status: null,
+    screening_outcome: null,
+  };
+
+  it("pokazuje oba rodzaje linków i to, czy osoba jest na głównej liście", () => {
+    const onAdd = vi.fn();
+    render(
+      <FromLinksView
+        onAdd={onAdd}
+        people={[
+          {
+            ...base,
+            candidate_id: 1,
+            full_name: "Celina Fikcyjna",
+            kind: "job",
+            slug: "java-7kq2",
+            job_id: 101,
+            job_title: "Senior Java Developer",
+            current_stage: "new",
+            in_my_people: false,
+          },
+          {
+            ...base,
+            candidate_id: 2,
+            full_name: "Damian Testowy",
+            kind: "recruiter",
+            slug: "marta-n",
+            job_id: null,
+            job_title: null,
+            current_stage: null,
+            in_my_people: true,
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByText("link do rekrutacji")).toBeInTheDocument();
+    expect(screen.getByText("link ogólny")).toBeInTheDocument();
+    expect(screen.getByText(/Nowy · poza listą/)).toBeInTheDocument();
+    expect(screen.getByText(/W bazie, bez nowej rekrutacji · także na liście/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj do rekrutacji: Celina Fikcyjna" }));
+    expect(onAdd).toHaveBeenCalledWith({ candidate_id: 1, full_name: "Celina Fikcyjna" });
+  });
+
+  it("pusty stan mówi, co się tu pojawi", () => {
+    render(<FromLinksView people={[]} />);
+    expect(screen.getByText("Nikt jeszcze nie zgłosił się z Twoich linków")).toBeInTheDocument();
   });
 });

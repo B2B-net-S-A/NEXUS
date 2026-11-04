@@ -60,7 +60,9 @@ def _mint_access_token(
         "sub": str(user_id),
         "role": role,
         "type": "access",
-        "iat": iat,
+        # Format produkcyjny od rundy 13: ``iat`` z ułamkiem. Całkowite ``iat``
+        # wybite po wdrożeniu rundy 13 jest przy ustawionej podłodze odrzucane.
+        "iat": iat.timestamp(),
         "exp": iat + timedelta(hours=1),
         "av": authorization_version,
     }
@@ -76,7 +78,9 @@ def _mint_refresh_token(
     payload = {
         "sub": str(user_id),
         "type": "refresh",
-        "iat": iat,
+        # Format produkcyjny od rundy 13: ``iat`` z ułamkiem. Całkowite ``iat``
+        # wybite po wdrożeniu rundy 13 jest przy ustawionej podłodze odrzucane.
+        "iat": iat.timestamp(),
         "exp": iat + timedelta(days=1),
         "av": authorization_version,
     }
@@ -180,7 +184,7 @@ async def test_token_before_self_change_is_rejected_after(
         },
         headers=headers,
     )
-    assert resp.status_code == 204, resp.text
+    assert resp.status_code == 200, resp.text
 
     # Floor zapisany w DB.
     assert await _tokens_valid_after(fresh_user["id"]) is not None
@@ -191,6 +195,17 @@ async def test_token_before_self_change_is_rejected_after(
         "Token wybity przed zmianą hasła musi być odrzucony 401 po zmianie — "
         "inaczej wykradziony token przeżywa reset hasła."
     )
+
+    # Runda 12 (BACK-2): bieżąca sesja dostaje nową parę tokenów, wybitą po
+    # podłodze — zmiana hasła nie wylogowuje osoby, która ją zrobiła.
+    tokens = resp.json()
+    fresh_headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    me = await app_client.get("/api/auth/me", headers=fresh_headers)
+    assert me.status_code == 200, me.text
+    refreshed = await app_client.post(
+        "/api/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+    )
+    assert refreshed.status_code == 200, refreshed.text
 
 
 async def test_new_token_after_change_still_works(

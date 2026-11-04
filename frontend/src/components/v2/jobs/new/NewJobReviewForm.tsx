@@ -1,25 +1,72 @@
 "use client";
 
-import { useId, useState, type KeyboardEvent } from "react";
-import { ChevronDown, ChevronRight, Plus, Trash2, X } from "lucide-react";
+/**
+ * Formularz strony `/jobs/new` w sześciu sekcjach (decyzje Artura 02.10.2026,
+ * makiety https://claude.ai/artifact/UPDv1tSQBeo5t9kLW6WJoH): 1 Nazwa ·
+ * 2 Wymagania (słowa kluczowe) · 3 Warunki · 4 O projekcie · 5 Pytania do
+ * kandydata · 6 Kategoria i zespół (`NewJobTeamStep`). Pasek sekcji nad
+ * formularzem mówi, w której sekcji czegoś brakuje.
+ *
+ * Od 10.10.2026 (D2, D3) formularz stoi na stronie zawsze, a odczyt maila,
+ * pliku albo szablonu wypełnia tylko puste pola. Tam, gdzie odczyt ma inną
+ * wartość niż wpisana, pod etykietą pola stoi propozycja (`IntakeOfferChip`).
+ */
 
+import {
+  createContext,
+  useContext,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
+import { Check, ChevronDown, ChevronRight, Plus, Trash2, X } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
+import { OfficeDaysField } from "@/components/jobs/OfficeDaysField";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { ChampionExperienceFields } from "@/components/champion/ChampionExperienceFields";
-import { hasExperience } from "@/lib/champion-experience";
+import { screeningQuestionHint } from "@/lib/screening-question-hint";
+import { RequirementRowsEditor } from "@/components/champion/RequirementRowsEditor";
+import { TalkChecksPanel } from "@/components/champion/TalkChecksPanel";
+import { addTalkItem, joinLanguage } from "@/lib/champion-experience";
+import type { RowCriticalState, TalkItem } from "@/lib/requirement-rows";
+import type { IntakeOffer, IntakeUnit } from "@/lib/job-intake-fill";
+import { IntakeOfferChip } from "./IntakeOfferChip";
 import {
   FIELD_BASIS_LABEL,
+  FORM_SECTIONS,
+  MISSING_LABEL,
+  approveQuestions,
+  budgetRangeError,
+  clientReferenceFor,
+  droppedRequirementsText,
+  editQuestion,
+  effectiveWorkingTitle,
+  filledQuestions,
+  joinCities,
   markEdited,
+  missingBySection,
+  newManualQuestion,
   newQuestionKey,
+  sectionAnchor,
+  unapprovedQuestions,
   type FieldBasis,
+  type FormSection,
   type IntakeForm,
   type ProvenanceKey,
   type IntakeQuestionForm,
   type MissingCode,
   type QuestionOrigin,
   type RemotePolicyValue,
+  splitCities,
 } from "@/lib/job-request-intake";
+import { blurNumberInputOnWheel } from "@/lib/number-input";
 
 const WORK_MODES: { value: RemotePolicyValue; label: string }[] = [
   { value: "remote", label: "Zdalnie" },
@@ -33,6 +80,12 @@ const ORIGIN_LABEL: Record<QuestionOrigin, string> = {
   template: "z podobnej rekrutacji",
   manual: "dopisane",
 };
+
+export const BUDGET_HELP_TEXT =
+  "Jedna stawka — wpisz tylko „do”. Plakietka „ponad budżet” liczy się od górnej granicy i nikogo nie ukrywa.";
+
+export const DEAL_BREAKER_REQUIRED_TEXT =
+  "Wpisz odpowiedź, która dyskwalifikuje kandydata — bez niej rekrutacja nie trafi do searchu.";
 
 /** „2 pytania”, „5 pytań”, „22 pytania” — polska odmiana liczebnika. */
 export function questionsLabel(n: number): string {
@@ -57,7 +110,7 @@ export function ProvenanceChip({ basis }: { basis?: FieldBasis }) {
     <span
       className={cn(
         "rounded-full px-2 py-0.5 text-[11px] font-medium",
-        basis === "request" && "bg-primary/10 text-primary",
+        (basis === "request" || basis === "document") && "bg-primary/10 text-primary",
         basis === "client_history" && "bg-info-muted text-info-muted-foreground",
         basis === "ai" && "border border-dashed border-primary/50 text-primary",
         basis === "manual" && "bg-muted text-muted-foreground",
@@ -69,47 +122,141 @@ export function ProvenanceChip({ basis }: { basis?: FieldBasis }) {
   );
 }
 
+/** Zdanie pod polem, którego brakuje — zależy od tego, skąd formularz był wypełniany. */
+export const MISSING_NOTE_TEXT = {
+  request: "Brak w requeście — uzupełnij",
+  template: "Brak w szablonie — uzupełnij",
+  manual: "Uzupełnij przed publikacją",
+} as const;
+
+export type MissingNoteSource = keyof typeof MISSING_NOTE_TEXT;
+
+/**
+ * To, czego pola formularza potrzebują od strony, a co nie jest wartością
+ * pola: propozycje z odczytu i zdanie o braku. Kontekst zamiast przekazywania
+ * przez każdą sekcję — pól jest kilkadziesiąt.
+ */
+interface FormHints {
+  offers: ReadonlyMap<IntakeUnit, IntakeOffer>;
+  onAcceptOffer: (offer: IntakeOffer) => void;
+  onDismissOffer: (offer: IntakeOffer) => void;
+  missingText: string;
+}
+
+const FormHintsContext = createContext<FormHints>({
+  offers: new Map(),
+  onAcceptOffer: () => undefined,
+  onDismissOffer: () => undefined,
+  missingText: MISSING_NOTE_TEXT.request,
+});
+
+const TEXT_ENTRY =
+  "input:not([type='hidden']):not([type='checkbox']):not([type='radio']):not(:disabled), textarea:not(:disabled), select:not(:disabled), [role='combobox']:not(:disabled)";
+const FOCUSABLE = `${TEXT_ENTRY}, input:not([type='hidden']):not(:disabled), button:not(:disabled), [tabindex]:not([tabindex='-1'])`;
+
+/**
+ * Po „Użyj” / „Zostaw” propozycja znika razem z klikniętym przyciskiem. Fokus
+ * przechodzi wcześniej do pola, którego dotyczyła: pierwszej kontrolki za
+ * propozycją w tym samym polu (etykieta → propozycja → pole). Najpierw pole do
+ * wpisywania — przy liście wymagań pierwszym przyciskiem jest „Usuń frazę”,
+ * a Enter wciśnięty drugi raz nie może niczego skasować. Bez tego klawiatura
+ * wracała na początek strony po każdej z kilkunastu propozycji.
+ */
+function focusFieldAfter(chip: HTMLElement | null) {
+  if (!chip) return;
+  const after = (root: ParentNode, selector: string) =>
+    [...root.querySelectorAll<HTMLElement>(selector)].find(
+      (node) =>
+        !chip.contains(node) &&
+        Boolean(chip.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING),
+    );
+  const field = chip.parentElement ?? document;
+  (after(field, TEXT_ENTRY) ?? after(field, FOCUSABLE) ?? after(document, TEXT_ENTRY))?.focus();
+}
+
+/** Propozycja z odczytu dla pola (albo nic, gdy odczyt jej nie zostawił). */
+function FieldOffer({ unit }: { unit?: IntakeUnit }) {
+  const { offers, onAcceptOffer, onDismissOffer } = useContext(FormHintsContext);
+  const chipRef = useRef<HTMLDivElement | null>(null);
+  const offer = unit ? offers.get(unit) : undefined;
+  if (!offer) return null;
+  return (
+    <IntakeOfferChip
+      ref={chipRef}
+      offer={offer}
+      onUse={() => {
+        focusFieldAfter(chipRef.current);
+        onAcceptOffer(offer);
+      }}
+      onDismiss={() => {
+        focusFieldAfter(chipRef.current);
+        onDismissOffer(offer);
+      }}
+    />
+  );
+}
+
 function FieldLabel({
   htmlFor,
+  id,
   children,
   hint,
   missing,
   basis,
+  offerUnit,
 }: {
   htmlFor?: string;
+  /** Dla pól bez `<label for>` (combobox) — cel `aria-labelledby`. */
+  id?: string;
   children: React.ReactNode;
   hint?: string | null;
   missing?: boolean;
   basis?: FieldBasis;
+  /** Jednostka odczytu, której propozycja stoi pod tą etykietą. */
+  offerUnit?: IntakeUnit;
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-2">
-      <span className="inline-flex items-baseline gap-2">
-        {htmlFor ? (
-          <label
-            htmlFor={htmlFor}
-            className="text-sm font-medium text-foreground"
-          >
-            {children}
-          </label>
-        ) : (
-          <span className="text-sm font-medium text-foreground">{children}</span>
-        )}
-        <ProvenanceChip basis={basis} />
-      </span>
-      {!missing && hint ? (
-        <span className="text-xs text-muted-foreground">{hint}</span>
-      ) : null}
-    </div>
+    <>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="inline-flex items-baseline gap-2">
+          {htmlFor ? (
+            <label
+              htmlFor={htmlFor}
+              className="text-sm font-medium text-foreground"
+            >
+              {children}
+            </label>
+          ) : (
+            <span id={id} className="text-sm font-medium text-foreground">
+              {children}
+            </span>
+          )}
+          <ProvenanceChip basis={basis} />
+        </span>
+        {!missing && hint ? (
+          <span className="text-xs text-muted-foreground">{hint}</span>
+        ) : null}
+      </div>
+      <FieldOffer unit={offerUnit} />
+    </>
   );
+}
+
+/** Pole lat: puste albo 0–40 (to samo co `seniority_min_years` w Championie). */
+function parseYears(raw: string): number | null {
+  if (!raw.trim()) return null;
+  const n = Math.round(Number(raw));
+  if (!Number.isFinite(n)) return null;
+  return Math.min(40, Math.max(0, n));
 }
 
 /** Pod polem, nie obok etykiety — w wąskiej kolumnie łamała się i przesuwała pole. */
 function MissingNote({ show }: { show: boolean }) {
+  const { missingText } = useContext(FormHintsContext);
   if (!show) return null;
   return (
     <span className="text-xs font-medium text-warning-muted-foreground">
-      Brak w requeście — uzupełnij
+      {missingText}
     </span>
   );
 }
@@ -122,6 +269,7 @@ function TagListInput({
   missing,
   placeholder,
   basis,
+  offerUnit,
 }: {
   label: string;
   values: string[];
@@ -130,6 +278,7 @@ function TagListInput({
   missing?: boolean;
   placeholder: string;
   basis?: FieldBasis;
+  offerUnit?: IntakeUnit;
 }) {
   const inputId = useId();
   const [draft, setDraft] = useState("");
@@ -160,7 +309,7 @@ function TagListInput({
 
   return (
     <div className="flex flex-col gap-2">
-      <FieldLabel htmlFor={inputId} missing={missing} basis={basis}>
+      <FieldLabel htmlFor={inputId} missing={missing} basis={basis} offerUnit={offerUnit}>
         {label}
       </FieldLabel>
       <div
@@ -190,6 +339,9 @@ function TagListInput({
             </button>
           </span>
         ))}
+        {/* Runda 12 (FRONTB): `w-0` — bez szerokości pole liczyło minimum
+            kolumny z domyślnego `size=20` (~270 px, zależne od fontu systemu),
+            a formularz na 360 px miał kilka px zapasu. */}
         <input
           id={inputId}
           value={draft}
@@ -197,7 +349,7 @@ function TagListInput({
           onKeyDown={onKeyDown}
           onBlur={commit}
           placeholder={values.length === 0 ? placeholder : "dodaj…"}
-          className="h-7 min-w-[8rem] flex-1 bg-transparent px-1 text-sm text-foreground outline-hidden placeholder:text-muted-foreground"
+          className="h-7 w-0 min-w-[8rem] flex-1 bg-transparent px-1 text-sm text-foreground outline-hidden placeholder:text-muted-foreground"
         />
       </div>
       <MissingNote show={!!missing} />
@@ -205,32 +357,306 @@ function TagListInput({
   );
 }
 
-interface NewJobReviewFormProps {
-  form: IntakeForm;
-  onChange: (updater: (form: IntakeForm) => IntakeForm) => void;
-  missing: MissingCode[];
-  /** Po odczycie przez AI braki są podświetlane; w trybie ręcznym nie. */
-  highlightMissing: boolean;
+type FormUpdater = (updater: (form: IntakeForm) => IntakeForm) => void;
+
+function SectionCard({
+  section,
+  number,
+  title,
+  hint,
+  warn,
+  children,
+}: {
+  section: FormSection;
+  number: number;
+  title: string;
+  hint?: string;
+  warn?: boolean;
+  children: ReactNode;
+}) {
+  const id = sectionAnchor(section);
+  return (
+    <section
+      id={id}
+      aria-labelledby={`${id}-title`}
+      // Pasek sekcji jest przyklejony — `scroll-mt` zostawia mu miejsce.
+      className={cn(
+        "flex scroll-mt-28 flex-col gap-5 rounded-xl border border-border bg-card p-4 sm:p-6",
+        warn && "border-warning",
+      )}
+    >
+      <div>
+        <h2 id={`${id}-title`} className="text-base font-semibold text-foreground">
+          {number} · {title}
+        </h2>
+        {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+      </div>
+      {children}
+    </section>
+  );
 }
 
-/** Krok 2 strony `/jobs/new`: pola, które wymaga „Przekaż do searchu”. */
+/**
+ * Pasek sekcji nad formularzem: ✓ przy sekcji bez braków, liczba braków przy
+ * pozostałych. Kliknięcie przewija do sekcji. Stopka strony mówi to samo
+ * listą — pasek pokazuje, GDZIE to poprawić.
+ */
+export function NewJobSectionNav({ missing }: { missing: readonly MissingCode[] }) {
+  const bySection = missingBySection(missing);
+  return (
+    <nav
+      aria-label="Sekcje formularza"
+      className="sticky top-0 z-10 -mx-1 flex gap-1.5 overflow-x-auto rounded-xl border border-border bg-card/95 p-1.5 backdrop-blur supports-[backdrop-filter]:bg-card/80 [@media(max-height:600px)]:static"
+    >
+      {FORM_SECTIONS.map((section, index) => {
+        const codes = bySection[section.id];
+        const done = codes.length === 0;
+        return (
+          <a
+            key={section.id}
+            href={`#${sectionAnchor(section.id)}`}
+            title={done ? undefined : `Brakuje: ${codes.map((c) => MISSING_LABEL[c]).join(", ")}`}
+            className={cn(
+              "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-accent",
+              done ? "text-muted-foreground" : "bg-warning-muted text-warning-muted-foreground",
+            )}
+            onClick={(event) => {
+              const target = document.getElementById(sectionAnchor(section.id));
+              if (!target) return;
+              event.preventDefault();
+              target.scrollIntoView?.({ behavior: "smooth", block: "start" });
+            }}
+          >
+            {index + 1} {section.label}
+            {done ? (
+              <Check className="h-3.5 w-3.5 text-success" aria-label="gotowe" />
+            ) : (
+              <span
+                className="flex h-4 min-w-4 items-center justify-center rounded-full bg-warning px-1 text-[11px] font-bold text-warning-foreground"
+                aria-label={`brakuje: ${codes.length}`}
+              >
+                {codes.length}
+              </span>
+            )}
+          </a>
+        );
+      })}
+    </nav>
+  );
+}
+
+/**
+ * Numer u klienta bez osobnego pola (02.10.2026): system czyta go z nazwy
+ * i mówi, co rozpoznał. „To nie ten numer” pozwala wpisać inny albo żaden.
+ */
+function ClientReferenceLine({ form, onChange }: { form: IntakeForm; onChange: FormUpdater }) {
+  const inputId = useId();
+  const reference = clientReferenceFor(form);
+  if (form.referenceOverride != null) {
+    return (
+      <div className="flex flex-wrap items-center gap-2" data-testid="client-reference">
+        <label htmlFor={inputId} className="text-xs font-medium text-foreground">
+          Numer u klienta
+        </label>
+        <Input
+          id={inputId}
+          value={form.referenceOverride}
+          maxLength={120}
+          onChange={(e) => onChange((f) => ({ ...f, referenceOverride: e.target.value }))}
+          placeholder="np. ZOB 48213 — puste = bez numeru"
+          className="h-8 w-56"
+        />
+        <button
+          type="button"
+          className="text-xs font-medium text-primary hover:underline"
+          onClick={() => onChange((f) => ({ ...f, referenceOverride: null }))}
+        >
+          Wróć do numeru z nazwy
+        </button>
+      </div>
+    );
+  }
+  return (
+    <p className="text-xs text-muted-foreground" data-testid="client-reference">
+      {reference ? (
+        <>
+          Numer u klienta rozpoznany:{" "}
+          <strong className="font-semibold text-foreground">{reference}</strong> — trafi do CV
+          i nazwy pliku.{" "}
+        </>
+      ) : (
+        <>Nie widzę numeru zapytania w nazwie. </>
+      )}
+      <button
+        type="button"
+        className="font-medium text-primary hover:underline"
+        onClick={() => onChange((f) => ({ ...f, referenceOverride: reference }))}
+      >
+        {reference ? "To nie ten numer" : "Wpisz numer"}
+      </button>
+    </p>
+  );
+}
+
+/**
+ * Tytuł dla rekrutera (0380) składa się sam z roli, wymagań, lat i dziedziny —
+ * ta sama reguła co na serwerze. Do 02.10 był osobnym polem, które powtarzało
+ * wymagania; teraz to podgląd z „Zmień”. Nigdy nie idzie do klienta.
+ */
+function WorkingTitleLine({
+  form,
+  onChange,
+  criticalInfo,
+}: {
+  form: IntakeForm;
+  onChange: FormUpdater;
+  /** Które wiersze serwer uznał za technologie (P10) — `null` = jeszcze nie wiadomo. */
+  criticalInfo: RowCriticalState["info"];
+}) {
+  const id = useId();
+  const value = effectiveWorkingTitle(form, criticalInfo);
+  if (!form.workingTitleTouched) {
+    return (
+      <div className="flex flex-col gap-1" data-testid="working-title-field">
+        <span className="text-xs text-muted-foreground">
+          Zespół zobaczy na listach (składa się samo z wymagań)
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-foreground">
+            {value || "uzupełni się z roli i słów kluczowych"}
+          </span>
+          <button
+            type="button"
+            className="text-xs font-medium text-primary hover:underline"
+            onClick={() =>
+              onChange((f) => ({ ...f, workingTitle: value, workingTitleTouched: true }))
+            }
+          >
+            Zmień
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2" data-testid="working-title-field">
+      <FieldLabel htmlFor={id} basis="manual" hint="widzi go tylko zespół">
+        Tytuł dla zespołu
+      </FieldLabel>
+      <Input
+        id={id}
+        value={form.workingTitle}
+        maxLength={255}
+        onChange={(e) => onChange((f) => ({ ...f, workingTitle: e.target.value }))}
+      />
+      <button
+        type="button"
+        className="self-start text-xs font-medium text-primary hover:underline"
+        onClick={() => onChange((f) => ({ ...f, workingTitle: "", workingTitleTouched: false }))}
+      >
+        Wróć do podpowiedzi
+      </button>
+    </div>
+  );
+}
+
+interface NewJobReviewFormProps {
+  form: IntakeForm;
+  onChange: FormUpdater;
+  missing: MissingCode[];
+  /**
+   * Braki podświetlone w polach: po odczycie, przy szablonie i po próbie
+   * utworzenia. Przed nimi mówi o nich tylko pasek sekcji i stopka.
+   */
+  highlightMissing: boolean;
+  /** Skąd formularz był wypełniany — od tego zależy zdanie pod brakującym polem. */
+  missingSource?: MissingNoteSource;
+  /** Propozycje z odczytu: pole ma już wartość, a odczyt podał inną. */
+  offers?: readonly IntakeOffer[];
+  onAcceptOffer?: (offer: IntakeOffer) => void;
+  onDismissOffer?: (offer: IntakeOffer) => void;
+  /** Wybrany klient — lista kontaktów do wyboru hiring managera. */
+  clientId: number | null;
+  /** Harness `/preview/new-job`: bez zapytania o liczbę osób w bazie. */
+  countEnabled?: boolean;
+  /** Co serwer wie o wierszach wymagań (`useRowCriticalInfo`). */
+  criticalInfo: RowCriticalState;
+  /** Ile osób zostawiają krytyczne razem — „Utwórz” pyta poniżej 20 (D2). */
+  onCriticalCountChange?: (count: number | null | undefined) => void;
+  /** Sekcja 6 „Kategoria i zespół” (`NewJobTeamStep`) — stoi przed „Dodatkowe”. */
+  team?: ReactNode;
+  /**
+   * Audyt 06.10.2026 (P9): „Utwórz” bez nazwy od klienta — komunikat przy
+   * polu. `null` = brak komunikatu.
+   */
+  clientTitleError?: string | null;
+}
+
+const NO_OFFERS: readonly IntakeOffer[] = [];
+const ignoreOffer = () => undefined;
+
+/** Formularz strony `/jobs/new`: sekcje 1–5 i „Dodatkowe”. */
 export function NewJobReviewForm({
+  missingSource = "request",
+  offers = NO_OFFERS,
+  onAcceptOffer = ignoreOffer,
+  onDismissOffer = ignoreOffer,
+  ...sections
+}: NewJobReviewFormProps) {
+  const hints = useMemo<FormHints>(
+    () => ({
+      offers: new Map(offers.map((offer) => [offer.unit, offer])),
+      onAcceptOffer,
+      onDismissOffer,
+      missingText: MISSING_NOTE_TEXT[missingSource],
+    }),
+    [offers, onAcceptOffer, onDismissOffer, missingSource],
+  );
+  return (
+    <FormHintsContext.Provider value={hints}>
+      <ReviewSections {...sections} />
+    </FormHintsContext.Provider>
+  );
+}
+
+type ReviewSectionsProps = Omit<
+  NewJobReviewFormProps,
+  "missingSource" | "offers" | "onAcceptOffer" | "onDismissOffer"
+>;
+
+function ReviewSections({
   form,
   onChange,
   missing,
   highlightMissing,
-}: NewJobReviewFormProps) {
+  clientId,
+  countEnabled = true,
+  criticalInfo,
+  onCriticalCountChange,
+  team,
+  clientTitleError = null,
+}: ReviewSectionsProps) {
+  const hints = useContext(FormHintsContext);
   const ids = {
+    hiringManager: useId(),
     title: useId(),
+    deadline: useId(),
+    deadlineTime: useId(),
+    deadlineNotProvided: useId(),
+    headcount: useId(),
+    clientTitle: useId(),
     rate: useId(),
+    rateMin: useId(),
     days: useId(),
-    city: useId(),
+    years: useId(),
+    language: useId(),
     start: useId(),
+    contract: useId(),
     about: useId(),
     resp: useId(),
+    selling: useId(),
   };
-  const isMissing = (code: MissingCode) =>
-    highlightMissing && missing.includes(code);
+  const isMissing = (code: MissingCode) => highlightMissing && missing.includes(code);
   const set = <K extends keyof IntakeForm>(
     key: K,
     value: IntakeForm[K],
@@ -241,101 +667,310 @@ export function NewJobReviewForm({
       return provenanceKey ? markEdited(next, provenanceKey) : next;
     });
   const basis = (key: ProvenanceKey) => form.provenance?.[key];
-  const officeNeeded =
-    form.remotePolicy !== "" && form.remotePolicy !== "remote";
-
-  const updateQuestion = (key: string, patch: Partial<IntakeQuestionForm>) =>
-    onChange((f) => ({
-      ...f,
-      questions: f.questions.map((q) =>
-        q.key === key ? { ...q, ...patch } : q,
-      ),
-    }));
-  const removeQuestion = (key: string) =>
-    onChange((f) => ({
-      ...f,
-      questions: f.questions.filter((q) => q.key !== key),
-    }));
-  const addQuestion = () =>
-    onChange((f) => ({
-      ...f,
-      questions: [
-        ...f.questions,
-        {
-          key: newQuestionKey(),
-          question: "",
-          idealAnswer: "",
-          origin: "manual",
-        },
-      ],
-    }));
-  const filledCount = form.questions.filter((q) => q.question.trim()).length;
+  const officeNeeded = form.remotePolicy !== "" && form.remotePolicy !== "remote";
 
   return (
     <div className="flex flex-col gap-4">
-      <section className="flex flex-col gap-5 rounded-xl border border-border bg-card p-4 sm:p-6">
+      <SectionCard
+        section="name"
+        number={1}
+        title="Nazwa"
+        warn={isMissing("role") || isMissing("hiring_manager")}
+      >
         <div className="flex flex-col gap-2">
           <FieldLabel
-            htmlFor={ids.title}
-            missing={isMissing("role")}
-            basis={basis("role")}
+            htmlFor={ids.clientTitle}
+            basis={basis("client_title")}
+            hint="tak, jak napisał klient"
+            offerUnit="clientTitle"
           >
-            Rola
+            Nazwa od klienta, razem z numerem
           </FieldLabel>
           <Input
-            id={ids.title}
-            value={form.title}
-            onChange={(e) => set("title", e.target.value, "role")}
-            placeholder="np. Senior Java Developer"
-            className={cn(isMissing("role") && MISSING_RING)}
+            id={ids.clientTitle}
+            value={form.clientTitle}
+            onChange={(e) => set("clientTitle", e.target.value, "client_title")}
+            placeholder="np. Programista Java (ZOB 48213)"
+            aria-invalid={clientTitleError ? true : undefined}
+            aria-describedby={clientTitleError ? `${ids.clientTitle}-error` : undefined}
+            className={cn(clientTitleError && MISSING_RING)}
           />
-          <MissingNote show={isMissing("role")} />
+          {clientTitleError ? (
+            <p
+              id={`${ids.clientTitle}-error`}
+              role="alert"
+              className="text-xs text-destructive"
+              data-testid="new-job-client-title-error"
+            >
+              {clientTitleError}
+            </p>
+          ) : null}
+          <ClientReferenceLine form={form} onChange={onChange} />
         </div>
 
-        <TagListInput
-          label="Must-have"
-          values={form.must}
-          onChange={(v) => set("must", v, "must")}
-          basis={basis("must")}
-          tone="primary"
-          missing={isMissing("must")}
-          placeholder="np. Java, Spring Boot — Enter dodaje"
-        />
-        <TagListInput
-          label="Mile widziane"
-          values={form.nice}
-          onChange={(v) => set("nice", v, "nice")}
-          basis={basis("nice")}
-          tone="muted"
-          placeholder="opcjonalnie"
-        />
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="flex flex-col gap-2">
+            <FieldLabel
+              htmlFor={ids.title}
+              missing={isMissing("role")}
+              basis={basis("role")}
+              offerUnit="title"
+            >
+              Rola
+            </FieldLabel>
+            <Input
+              id={ids.title}
+              value={form.title}
+              onChange={(e) => set("title", e.target.value, "role")}
+              placeholder="np. Senior Java Developer"
+              className={cn(isMissing("role") && MISSING_RING)}
+            />
+            <MissingNote show={isMissing("role")} />
+          </div>
+          {/* 25.09.2026: kto zamawia po stronie klienta — z listy kontaktów
+              albo wpisany; nowa osoba trafi do kontaktów klienta przy zapisie. */}
+          <div className="flex flex-col gap-2" data-testid="new-job-hiring-manager">
+            <FieldLabel
+              id={ids.hiringManager}
+              basis={basis("hiring_manager")}
+              missing={isMissing("hiring_manager")}
+              offerUnit="hiringManager"
+            >
+              Hiring manager
+            </FieldLabel>
+            <div
+              className={cn(
+                "rounded-lg",
+                isMissing("hiring_manager") && MISSING_RING,
+              )}
+            >
+              <HiringManagerCombobox
+                clientId={clientId}
+                value={form.hiringManager}
+                onChange={(value) =>
+                  onChange((f) =>
+                    markEdited(
+                      {
+                        ...f,
+                        hiringManager: value,
+                        // Wybrana osoba zdejmuje „Klient nie podał”.
+                        hiringManagerNotProvided: value ? false : f.hiringManagerNotProvided,
+                      },
+                      "hiring_manager",
+                    ),
+                  )
+                }
+                labelledBy={ids.hiringManager}
+                notProvided={form.hiringManagerNotProvided}
+                onNotProvidedChange={(notProvided) =>
+                  onChange((f) => ({
+                    ...f,
+                    hiringManagerNotProvided: notProvided,
+                    hiringManager: notProvided ? null : f.hiringManager,
+                  }))
+                }
+              />
+            </div>
+            <MissingNote show={isMissing("hiring_manager")} />
+          </div>
+        </div>
 
+        <WorkingTitleLine form={form} onChange={onChange} criticalInfo={criticalInfo.info} />
+      </SectionCard>
+
+      <SectionCard
+        section="requirements"
+        number={2}
+        title="Wymagania — słowa kluczowe"
+        hint="Jedna lista. Po tych słowach szukamy w bazie, a krytyczne ukrywają w propozycjach AI osoby, które ich nie mają. Słowa w jednym wierszu to warianty (wystarczy jedno)."
+        warn={isMissing("must") || isMissing("critical")}
+      >
+        <div className="flex flex-col gap-2" data-testid="new-job-requirements">
+          <div className="flex justify-end">
+            <ProvenanceChip basis={basis("requirements")} />
+          </div>
+          <FieldOffer unit="rows" />
+          <RequirementRowsEditor
+            rows={form.rows}
+            onRowsChange={(rows) => onChange((f) => markEdited({ ...f, rows }, "requirements"))}
+            noCritical={form.noCritical}
+            onNoCriticalChange={(noCritical) => onChange((f) => ({ ...f, noCritical }))}
+            exclude={form.searchExclude}
+            onExcludeChange={(searchExclude) => onChange((f) => ({ ...f, searchExclude }))}
+            critical={criticalInfo}
+            invalid={isMissing("must")}
+            criticalMissing={isMissing("critical")}
+            countEnabled={countEnabled}
+            onMoveToTalk={(item: TalkItem) =>
+              onChange((f) =>
+                item.kind === "language"
+                  ? { ...f, language: joinLanguage(f.language, item.name) }
+                  : {
+                      ...f,
+                      experience: {
+                        ...f.experience,
+                        [item.kind]: addTalkItem(f.experience[item.kind] ?? [], item.name, item.level),
+                      },
+                    },
+              )
+            }
+            onCriticalCountChange={onCriticalCountChange}
+          />
+          {isMissing("decision") ? (
+            <span className="text-xs font-medium text-warning-muted-foreground">
+              Zdecyduj przy zdaniach: słowa do szukania czy „Do rozmowy”.
+            </span>
+          ) : null}
+          {/* Audyt 06.10.2026 (N3): co kod zmienił w odczycie i czego nie
+              zmieścił — na wierzchu, nie w zwiniętych zdaniach klienta. */}
+          {form.intakeNotes.length > 0 || form.droppedRequirements.length > 0 ? (
+            <ul
+              role="note"
+              aria-label="Uwagi z odczytu maila"
+              className="flex flex-col gap-1 rounded-lg border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+              data-testid="new-job-intake-advisories"
+            >
+              {form.intakeNotes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+              {droppedRequirementsText(form.droppedRequirements) ? (
+                <li>{droppedRequirementsText(form.droppedRequirements)}</li>
+              ) : null}
+            </ul>
+          ) : null}
+          {basis("experience") ? (
+            <div className="flex justify-end">
+              <ProvenanceChip basis={basis("experience")} />
+            </div>
+          ) : null}
+          <TalkChecksPanel
+            value={form.experience}
+            onChange={(experience) => set("experience", experience, "experience")}
+            language={form.language}
+          />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="flex flex-col gap-2">
+            <FieldLabel htmlFor={ids.years} hint="opcjonalnie" offerUnit="seniorityYears">
+              Lata doświadczenia
+            </FieldLabel>
+            <Input
+              id={ids.years}
+              type="number"
+              onWheel={blurNumberInputOnWheel}
+              min={0}
+              max={40}
+              value={form.seniorityYears ?? ""}
+              onChange={(e) => set("seniorityYears", parseYears(e.target.value))}
+              placeholder="np. 5"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <FieldLabel htmlFor={ids.language} hint="opcjonalnie" offerUnit="language">
+              Język pracy
+            </FieldLabel>
+            <Input
+              id={ids.language}
+              value={form.language}
+              onChange={(e) => set("language", e.target.value)}
+              placeholder="np. PL, EN B2"
+            />
+          </div>
+        </div>
+
+        {form.descriptive.length > 0 ? (
+          <details className="rounded-lg bg-muted px-3 py-2 text-sm" data-testid="new-job-descriptive">
+            <summary className="cursor-pointer font-medium text-foreground">
+              Zdania klienta, które nie są słowami kluczowymi ({form.descriptive.length})
+            </summary>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Zostają w profilu dla rekrutera i generatora CV, ale nie filtrują kandydatów.
+            </p>
+            <ul className="mt-2 flex flex-col gap-1.5">
+              {form.descriptive.map((sentence) => (
+                <li key={sentence} className="flex items-start gap-2 text-sm text-foreground">
+                  <span className="min-w-0 flex-1">„{sentence}”</span>
+                  <button
+                    type="button"
+                    aria-label={`Usuń zdanie: ${sentence}`}
+                    className="hit-area rounded p-0.5 text-muted-foreground hover:bg-card hover:text-foreground"
+                    onClick={() =>
+                      onChange((f) => ({
+                        ...f,
+                        descriptive: f.descriptive.filter((item) => item !== sentence),
+                      }))
+                    }
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+      </SectionCard>
+
+      <SectionCard
+        section="terms"
+        number={3}
+        title="Warunki"
+        warn={
+          isMissing("budget") ||
+          isMissing("work_mode") ||
+          isMissing("office_days") ||
+          isMissing("office_city") ||
+          isMissing("deadline") ||
+          isMissing("headcount")
+        }
+      >
         <div className="grid gap-4 md:grid-flow-row-dense md:grid-cols-2 lg:grid-cols-4">
           <div className="flex flex-col gap-2">
             <FieldLabel
               htmlFor={ids.rate}
               missing={isMissing("budget")}
               basis={basis("rate")}
+              offerUnit="budget"
             >
               Budżet PLN/h
             </FieldLabel>
-            <Input
-              id={ids.rate}
-              inputMode="decimal"
-              value={form.rateBudget}
-              onChange={(e) => set("rateBudget", e.target.value, "rate")}
-              placeholder="np. 160"
-              className={cn(isMissing("budget") && MISSING_RING)}
-            />
-            <MissingNote show={isMissing("budget")} />
-            {form.rateNote && (
-              <span className="text-xs text-muted-foreground">
-                {form.rateNote}
+            {/* 0420: przedział „od–do”; budżetem jest „do”, „od” jest opcjonalne. */}
+            <div className="flex items-center gap-1.5">
+              <Input
+                id={ids.rateMin}
+                aria-label="Budżet PLN/h od (opcjonalnie)"
+                inputMode="decimal"
+                value={form.rateBudgetMin}
+                onChange={(e) => set("rateBudgetMin", e.target.value, "rate")}
+                placeholder="od"
+                className={cn("min-w-0", budgetRangeError(form) && MISSING_RING)}
+              />
+              <span aria-hidden className="text-muted-foreground">–</span>
+              <Input
+                id={ids.rate}
+                inputMode="decimal"
+                value={form.rateBudget}
+                onChange={(e) => set("rateBudget", e.target.value, "rate")}
+                placeholder="do"
+                className={cn("min-w-0", isMissing("budget") && MISSING_RING)}
+              />
+            </div>
+            {budgetRangeError(form) ? (
+              <span className="text-xs font-medium text-warning-muted-foreground">
+                {budgetRangeError(form)}
               </span>
+            ) : (
+              <MissingNote show={isMissing("budget")} />
             )}
+            {form.rateNote && (
+              <span className="text-xs text-muted-foreground">{form.rateNote}</span>
+            )}
+            <span className="text-xs text-muted-foreground">{BUDGET_HELP_TEXT}</span>
           </div>
           <div className="flex flex-col gap-2 md:col-span-2">
-            <FieldLabel missing={isMissing("work_mode")}>Tryb pracy</FieldLabel>
+            <FieldLabel missing={isMissing("work_mode")} offerUnit="workMode">
+              Tryb pracy
+            </FieldLabel>
             <div
               role="radiogroup"
               aria-label="Tryb pracy"
@@ -352,7 +987,19 @@ export function NewJobReviewForm({
                     type="button"
                     role="radio"
                     aria-checked={active}
-                    onClick={() => set("remotePolicy", mode.value)}
+                    onClick={() =>
+                      onChange((f) =>
+                        // Dni w miesiącu są tylko przy hybrydzie (0407).
+                        mode.value !== "hybrid" && f.onsiteDaysPeriod === "month"
+                          ? {
+                              ...f,
+                              remotePolicy: mode.value,
+                              onsiteDays: "",
+                              onsiteDaysPeriod: "week",
+                            }
+                          : { ...f, remotePolicy: mode.value },
+                      )
+                    }
                     className={cn(
                       "min-h-9 min-w-0 flex-1 rounded-md px-1 text-sm leading-tight transition-colors",
                       active
@@ -368,47 +1015,131 @@ export function NewJobReviewForm({
             <MissingNote show={isMissing("work_mode")} />
           </div>
           <div className="flex flex-col gap-2">
-            <FieldLabel
-              htmlFor={ids.days}
-              missing={officeNeeded && isMissing("office_days")}
-            >
+            <FieldLabel htmlFor={ids.days} missing={officeNeeded && isMissing("office_days")}>
               Dni w biurze
             </FieldLabel>
-            <Input
+            <OfficeDaysField
               id={ids.days}
-              type="number"
-              min={0}
-              max={7}
               disabled={!officeNeeded}
-              value={officeNeeded ? form.onsiteDays : ""}
-              onChange={(e) => set("onsiteDays", e.target.value)}
-              placeholder={officeNeeded ? "np. 2" : "—"}
-              className={cn(
-                officeNeeded && isMissing("office_days") && MISSING_RING,
-              )}
+              allowMonth={form.remotePolicy === "hybrid"}
+              value={form.onsiteDays}
+              period={form.onsiteDaysPeriod}
+              onValueChange={(v) => set("onsiteDays", v)}
+              onPeriodChange={(p) => set("onsiteDaysPeriod", p)}
+              inputClassName={cn(officeNeeded && isMissing("office_days") && MISSING_RING)}
             />
             <MissingNote show={officeNeeded && isMissing("office_days")} />
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          {officeNeeded && (
-            <div className="flex flex-col gap-2">
-              <FieldLabel htmlFor={ids.city} missing={isMissing("office_city")}>
-                Miasto biura
-              </FieldLabel>
+        <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <div className="flex flex-col gap-2" data-testid="new-job-deadline">
+            <FieldLabel
+              htmlFor={ids.deadline}
+              missing={isMissing("deadline")}
+              basis={basis("deadline")}
+              offerUnit="deadline"
+            >
+              Termin
+            </FieldLabel>
+            <div className="flex flex-wrap items-center gap-2">
               <Input
-                id={ids.city}
-                value={form.city}
-                onChange={(e) => set("city", e.target.value)}
-                placeholder="np. Warszawa"
-                className={cn(isMissing("office_city") && MISSING_RING)}
+                id={ids.deadline}
+                type="date"
+                value={form.deadline}
+                disabled={form.deadlineNotProvided}
+                onChange={(e) =>
+                  onChange((f) =>
+                    markEdited(
+                      {
+                        ...f,
+                        deadline: e.target.value,
+                        deadlineTime: e.target.value ? f.deadlineTime : "",
+                        deadlineNotProvided: e.target.value ? false : f.deadlineNotProvided,
+                      },
+                      "deadline",
+                    ),
+                  )
+                }
+                className={cn("w-0 min-w-[10rem] flex-1", isMissing("deadline") && MISSING_RING)}
               />
-              <MissingNote show={isMissing("office_city")} />
+              <Input
+                id={ids.deadlineTime}
+                type="time"
+                aria-label="Godzina terminu (opcjonalnie)"
+                value={form.deadlineTime}
+                disabled={form.deadlineNotProvided || !form.deadline}
+                onChange={(e) =>
+                  onChange((f) => markEdited({ ...f, deadlineTime: e.target.value }, "deadline"))
+                }
+                className="w-32"
+              />
             </div>
-          )}
+            <label
+              htmlFor={ids.deadlineNotProvided}
+              className="inline-flex cursor-pointer items-center gap-2 text-sm text-foreground"
+            >
+              <Checkbox
+                id={ids.deadlineNotProvided}
+                checked={form.deadlineNotProvided}
+                onCheckedChange={(checked) =>
+                  onChange((f) => ({
+                    ...f,
+                    deadlineNotProvided: checked === true,
+                    deadline: checked === true ? "" : f.deadline,
+                    deadlineTime: checked === true ? "" : f.deadlineTime,
+                  }))
+                }
+              />
+              Klient nie podał
+            </label>
+            <MissingNote show={isMissing("deadline")} />
+          </div>
           <div className="flex flex-col gap-2">
-            <FieldLabel htmlFor={ids.start} hint="opcjonalnie">
+            <FieldLabel
+              htmlFor={ids.headcount}
+              missing={isMissing("headcount")}
+              basis={basis("headcount")}
+              offerUnit="headcount"
+            >
+              Liczba osób
+            </FieldLabel>
+            <Input
+              id={ids.headcount}
+              type="number"
+              inputMode="numeric"
+              onWheel={blurNumberInputOnWheel}
+              min={1}
+              max={99}
+              value={form.headcount}
+              onChange={(e) =>
+                onChange((f) => markEdited({ ...f, headcount: e.target.value }, "headcount"))
+              }
+              className={cn(isMissing("headcount") && MISSING_RING)}
+            />
+            <MissingNote show={isMissing("headcount")} />
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {officeNeeded ? (
+            <TagListInput
+              label="Miasta biura"
+              values={splitCities(form.city)}
+              onChange={(v) => set("city", joinCities(v))}
+              tone="muted"
+              missing={isMissing("office_city")}
+              placeholder="np. Warszawa, Gdańsk — Enter dodaje"
+              offerUnit="city"
+            />
+          ) : hints.offers.has("city") ? (
+            // Przy pracy zdalnej pola miast nie ma — propozycja nie może zniknąć.
+            <div className="flex flex-col gap-2">
+              <FieldLabel offerUnit="city">Miasta biura</FieldLabel>
+            </div>
+          ) : null}
+          <div className="flex flex-col gap-2">
+            <FieldLabel htmlFor={ids.start} hint="opcjonalnie" offerUnit="startDate">
               Start
             </FieldLabel>
             <Input
@@ -418,16 +1149,30 @@ export function NewJobReviewForm({
               onChange={(e) => set("startDate", e.target.value)}
             />
           </div>
+          <div className="flex flex-col gap-2">
+            <FieldLabel htmlFor={ids.contract} hint="opcjonalnie" offerUnit="contractLength">
+              Długość projektu
+            </FieldLabel>
+            <Input
+              id={ids.contract}
+              value={form.contractLength}
+              onChange={(e) => set("contractLength", e.target.value)}
+              placeholder="np. 6 mies. z przedłużeniem"
+            />
+          </div>
         </div>
+      </SectionCard>
 
+      <SectionCard section="project" number={4} title="O projekcie" warn={isMissing("context")}>
         <div className="flex flex-col gap-2">
           <FieldLabel
             htmlFor={ids.about}
             missing={isMissing("context")}
             hint="2 zdania"
             basis={basis("about")}
+            offerUnit="about"
           >
-            O projekcie
+            Co to za projekt
           </FieldLabel>
           <Textarea
             id={ids.about}
@@ -441,7 +1186,7 @@ export function NewJobReviewForm({
         </div>
         {form.responsibilities && (
           <div className="flex flex-col gap-2">
-            <FieldLabel htmlFor={ids.resp} hint="opcjonalnie">
+            <FieldLabel htmlFor={ids.resp} hint="opcjonalnie" offerUnit="responsibilities">
               Obowiązki
             </FieldLabel>
             <Textarea
@@ -452,111 +1197,218 @@ export function NewJobReviewForm({
             />
           </div>
         )}
-      </section>
-
-      <section
-        aria-labelledby="new-job-questions"
-        className={cn(
-          "flex flex-col gap-3 rounded-xl border border-border bg-card p-4 sm:p-6",
-          isMissing("questions") && "border-warning",
-        )}
-      >
-        <div className="flex items-baseline justify-between gap-2">
-          <h2
-            id="new-job-questions"
-            className="text-base font-semibold text-foreground"
+        <div className="flex flex-col gap-2">
+          <FieldLabel
+            htmlFor={ids.selling}
+            basis={basis("selling_points")}
+            hint="opcjonalnie"
+            offerUnit="sellingPoints"
           >
-            Pytania screeningowe
-          </h2>
-          <span
-            className={cn(
-              "text-xs",
-              filledCount < 2
-                ? "font-medium text-warning-muted-foreground"
-                : "text-muted-foreground",
-            )}
-          >
-            {filledCount < 2
-              ? `${filledCount} z 2 wymaganych`
-              : questionsLabel(filledCount)}
-          </span>
+            Co przekona kandydata
+          </FieldLabel>
+          <Textarea
+            id={ids.selling}
+            rows={2}
+            value={form.sellingPoints}
+            onChange={(e) => set("sellingPoints", e.target.value, "selling_points")}
+            placeholder="np. nowy zespół, greenfield, 4 dni zdalnie"
+          />
         </div>
-        {form.questions.map((q, i) => (
-          <div
-            key={q.key}
-            className={cn(
-              "flex flex-col gap-2 rounded-lg border p-3",
-              q.origin === "ai"
-                ? "border-dashed border-primary/40 bg-primary/5"
-                : "border-border",
-            )}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs text-muted-foreground">
-                Pytanie {i + 1} · {ORIGIN_LABEL[q.origin]}
-              </span>
-              <button
-                type="button"
-                aria-label={`Usuń pytanie ${i + 1}`}
-                className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => removeQuestion(q.key)}
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-            <Input
-              aria-label={`Treść pytania ${i + 1}`}
-              value={q.question}
-              onChange={(e) =>
-                updateQuestion(q.key, { question: e.target.value })
-              }
-              placeholder="Pytanie do kandydata"
-            />
-            <Input
-              aria-label={`Dobra odpowiedź na pytanie ${i + 1}`}
-              value={q.idealAnswer}
-              onChange={(e) =>
-                updateQuestion(q.key, { idealAnswer: e.target.value })
-              }
-              placeholder="Dobra odpowiedź — czego szukać (opcjonalnie)"
-              className="text-muted-foreground"
-            />
-          </div>
-        ))}
-        <button
-          type="button"
-          onClick={addQuestion}
-          className="inline-flex items-center gap-1.5 self-start text-sm font-medium text-primary hover:underline"
-        >
-          <Plus className="h-4 w-4" /> Dodaj pytanie
-        </button>
-      </section>
+      </SectionCard>
 
-      <ChampionProposalSection form={form} onChange={onChange} />
+      <QuestionsSection form={form} onChange={onChange} isMissing={isMissing} />
+
+      {team}
+
+      <AdditionalSection form={form} onChange={onChange} />
     </div>
   );
 }
 
 /**
- * „Reszta profilu Championa — propozycja”: to, co Luna zaproponowała poza
- * minimum do searchu. Nic tu nie blokuje „Utwórz” — wszystko trafia do
- * profilu i da się poprawić później w zakładce Championa.
+ * Pytania do kandydata: pytanie, dobra odpowiedź i odpowiedź, która odpada.
+ * AI proponuje komplet; Delivery Lead poprawia albo zatwierdza — bez tego
+ * i bez deal breakera przy każdym pytaniu rekrutacja nie idzie do searchu.
  */
-function ChampionProposalSection({
+function QuestionsSection({
   form,
   onChange,
+  isMissing,
 }: {
   form: IntakeForm;
-  onChange: (updater: (form: IntakeForm) => IntakeForm) => void;
+  onChange: FormUpdater;
+  isMissing: (code: MissingCode) => boolean;
 }) {
-  const [open, setOpen] = useState(true);
-  const ids = {
-    keywords: useId(),
-    companies: useId(),
-    selling: useId(),
-    language: useId(),
-    contract: useId(),
-  };
+  const filled = filledQuestions(form);
+  const pending = unapprovedQuestions(form);
+  const approvable = pending.filter((q) => q.dealBreaker.trim());
+  const warn =
+    isMissing("questions") || isMissing("deal_breaker") || isMissing("questions_review");
+  const edit = (
+    key: string,
+    patch: Partial<Pick<IntakeQuestionForm, "question" | "idealAnswer" | "dealBreaker">>,
+  ) => onChange((f) => markEdited(editQuestion(f, key, patch), "questions"));
+
+  return (
+    <SectionCard
+      section="questions"
+      number={5}
+      title="Pytania do kandydata"
+      hint="AI proponuje pytanie, dobrą odpowiedź i odpowiedź, która dyskwalifikuje. Popraw albo zatwierdź."
+      warn={warn}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span
+          className={cn(
+            "text-xs",
+            filled.length < 2 || pending.length > 0
+              ? "font-medium text-warning-muted-foreground"
+              : "text-muted-foreground",
+          )}
+          aria-live="polite"
+        >
+          {filled.length < 2
+            ? `${filled.length} z 2 wymaganych`
+            : pending.length > 0
+              ? `Zatwierdzone ${filled.length - pending.length} z ${filled.length}`
+              : `${questionsLabel(filled.length)} — wszystkie zatwierdzone`}
+        </span>
+        {pending.length > 0 ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={approvable.length === 0}
+            title={
+              approvable.length === 0
+                ? "Najpierw wpisz przy pytaniach odpowiedź, która odpada"
+                : undefined
+            }
+            onClick={() => onChange((f) => approveQuestions(f))}
+          >
+            Zatwierdź wszystkie
+          </Button>
+        ) : null}
+      </div>
+      <FieldOffer unit="questions" />
+      {form.questions.map((q, i) => {
+        const n = i + 1;
+        const noBreaker = q.question.trim().length > 0 && !q.dealBreaker.trim();
+        return (
+          <div
+            key={q.key}
+            className={cn(
+              "flex flex-col gap-2 rounded-lg border p-3",
+              q.approved ? "border-border" : "border-dashed border-primary/40 bg-primary/5",
+            )}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs text-muted-foreground">
+                Pytanie {n} · {ORIGIN_LABEL[q.origin]}
+              </span>
+              <span className="flex items-center gap-1">
+                {q.approved ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-success-muted px-2 py-0.5 text-[11px] font-medium text-success-muted-foreground">
+                    <Check className="h-3 w-3" aria-hidden /> Zatwierdzone
+                  </span>
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!q.question.trim() || noBreaker}
+                    title={noBreaker ? "Najpierw wpisz odpowiedź, która odpada" : undefined}
+                    aria-label={`Zatwierdź pytanie ${n}`}
+                    onClick={() => onChange((f) => approveQuestions(f, q.key))}
+                  >
+                    Zatwierdź
+                  </Button>
+                )}
+                <button
+                  type="button"
+                  aria-label={`Usuń pytanie ${n}`}
+                  className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={() =>
+                    onChange((f) => ({
+                      ...f,
+                      questions: f.questions.filter((item) => item.key !== q.key),
+                    }))
+                  }
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </span>
+            </div>
+            <Input
+              aria-label={`Treść pytania ${n}`}
+              value={q.question}
+              onChange={(e) => edit(q.key, { question: e.target.value })}
+              placeholder="Pytanie do kandydata"
+            />
+            {screeningQuestionHint(q.question) ? (
+              <span className="text-xs text-warning-muted-foreground">
+                {screeningQuestionHint(q.question)}
+              </span>
+            ) : null}
+            <div className="grid gap-2 md:grid-cols-2">
+              <label className="flex flex-col gap-1 text-xs font-medium text-success-muted-foreground">
+                Dobra odpowiedź
+                <Textarea
+                  aria-label={`Dobra odpowiedź na pytanie ${n}`}
+                  rows={2}
+                  value={q.idealAnswer}
+                  onChange={(e) => edit(q.key, { idealAnswer: e.target.value })}
+                  placeholder="Czego szukać w odpowiedzi"
+                  className="font-normal text-foreground"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-destructive-muted-foreground">
+                Odpada, gdy… (wymagane)
+                <Textarea
+                  aria-label={`Odpowiedź, która odpada, na pytanie ${n}`}
+                  rows={2}
+                  value={q.dealBreaker}
+                  onChange={(e) => edit(q.key, { dealBreaker: e.target.value })}
+                  placeholder="Odpowiedź, która dyskwalifikuje kandydata"
+                  className={cn(
+                    "font-normal text-foreground",
+                    noBreaker && isMissing("deal_breaker") && MISSING_RING,
+                  )}
+                />
+              </label>
+            </div>
+            {noBreaker && isMissing("deal_breaker") ? (
+              <span className="text-xs font-medium text-warning-muted-foreground">
+                {DEAL_BREAKER_REQUIRED_TEXT}
+              </span>
+            ) : null}
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        onClick={() =>
+          onChange((f) => ({ ...f, questions: [...f.questions, newManualQuestion()] }))
+        }
+        className="inline-flex items-center gap-1.5 self-start text-sm font-medium text-primary hover:underline"
+      >
+        <Plus className="h-4 w-4" /> Dodaj pytanie
+      </button>
+    </SectionCard>
+  );
+}
+
+/**
+ * „Dodatkowe — nie blokuje utworzenia”: to, co AI zaproponowało poza sześcioma
+ * sekcjami. Wszystko trafia do profilu i da się poprawić później w zakładce
+ * Championa.
+ */
+function AdditionalSection({ form, onChange }: { form: IntakeForm; onChange: FormUpdater }) {
+  const [opened, setOpen] = useState(false);
+  // Propozycja w zwiniętej sekcji byłaby niewidoczna — wtedy sekcja jest otwarta.
+  const hasOffer = useContext(FormHintsContext).offers.has("targetCompanies");
+  const open = opened || hasOffer;
+  const ids = { companies: useId(), body: useId() };
   const set = <K extends keyof IntakeForm>(
     key: K,
     value: IntakeForm[K],
@@ -567,25 +1419,24 @@ function ChampionProposalSection({
       return provenanceKey ? markEdited(next, provenanceKey) : next;
     });
   const basis = (key: ProvenanceKey) => form.provenance?.[key];
-  const filled = [
-    hasExperience(form.experience),
-    Boolean(form.searchKeywords.trim() || form.targetCompanies.trim()),
-    form.disqualifiers.length > 0,
-    Boolean(form.sellingPoints.trim()),
-    form.askClient.length > 0,
-  ].filter(Boolean).length;
+  const summary = [
+    form.targetCompanies.trim() ? "firmy docelowe" : null,
+    form.disqualifiers.length > 0 ? `kogo odrzucamy od razu (${form.disqualifiers.length})` : null,
+    form.askClient.length > 0 ? `do dopytania u klienta (${form.askClient.length})` : null,
+  ].filter(Boolean);
 
   return (
     <section
-      aria-labelledby="new-job-proposal"
+      aria-labelledby="new-job-additional"
       className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4 sm:p-6"
-      data-testid="new-job-champion-proposal"
+      data-testid="new-job-additional"
     >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex items-center justify-between gap-2 text-left"
+        aria-controls={ids.body}
+        className="flex flex-wrap items-center justify-between gap-2 text-left"
       >
         <span className="inline-flex items-center gap-2">
           {open ? (
@@ -593,119 +1444,56 @@ function ChampionProposalSection({
           ) : (
             <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
           )}
-          <span id="new-job-proposal" className="text-base font-semibold text-foreground">
-            Reszta profilu Championa — propozycja
+          <span id="new-job-additional" className="text-base font-semibold text-foreground">
+            Dodatkowe — nie blokuje utworzenia
           </span>
         </span>
         <span className="text-xs text-muted-foreground">
-          {filled} z 5 grup wypełnione · nie blokuje utworzenia
+          {summary.length > 0
+            ? summary.join(" · ")
+            : "firmy docelowe · kogo odrzucamy od razu · do dopytania u klienta"}
         </span>
       </button>
 
-      {open ? (
-        <div className="flex flex-col gap-5">
-          <div className="flex flex-col gap-2">
-            <FieldLabel basis={basis("experience")} hint="dziedzina, certyfikaty, regulacje">
-              Doświadczenie poza stackiem
-            </FieldLabel>
-            <ChampionExperienceFields
-              value={form.experience}
-              onChange={(experience) => set("experience", experience, "experience")}
-              showNotes={false}
-            />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <FieldLabel htmlFor={ids.keywords} basis={basis("search_keywords")}>
-                Frazy do wyszukiwarki
-              </FieldLabel>
-              <Textarea
-                id={ids.keywords}
-                rows={2}
-                value={form.searchKeywords}
-                onChange={(e) =>
-                  set("searchKeywords", e.target.value, "search_keywords")
-                }
-                placeholder="np. tester manualny, płatności kartowe, ISTQB"
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <FieldLabel htmlFor={ids.companies} basis={basis("target_companies")}>
-                Firmy docelowe
-              </FieldLabel>
-              <Textarea
-                id={ids.companies}
-                rows={2}
-                value={form.targetCompanies}
-                onChange={(e) =>
-                  set("targetCompanies", e.target.value, "target_companies")
-                }
-                placeholder="opcjonalnie"
-              />
-            </div>
-          </div>
-
-          <TagListInput
-            label="Kogo odrzucamy od razu"
-            values={form.disqualifiers}
-            onChange={(v) => set("disqualifiers", v, "disqualifiers")}
-            basis={basis("disqualifiers")}
-            tone="muted"
-            placeholder="opcjonalnie — np. brak polskiego"
+      <div id={ids.body} hidden={!open} className={cn(open && "flex flex-col gap-5")}>
+        <div className="flex flex-col gap-2">
+          <FieldLabel
+            htmlFor={ids.companies}
+            basis={basis("target_companies")}
+            offerUnit="targetCompanies"
+          >
+            Firmy docelowe
+          </FieldLabel>
+          <Textarea
+            id={ids.companies}
+            rows={2}
+            value={form.targetCompanies}
+            onChange={(e) => set("targetCompanies", e.target.value, "target_companies")}
+            placeholder="opcjonalnie"
           />
-
-          <div className="flex flex-col gap-2">
-            <FieldLabel htmlFor={ids.selling} basis={basis("selling_points")}>
-              Co przekona kandydata
-            </FieldLabel>
-            <Textarea
-              id={ids.selling}
-              rows={2}
-              value={form.sellingPoints}
-              onChange={(e) => set("sellingPoints", e.target.value, "selling_points")}
-              placeholder="np. nowy zespół, greenfield, 4 dni zdalnie"
-            />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <FieldLabel htmlFor={ids.language} hint="opcjonalnie">
-                Język pracy
-              </FieldLabel>
-              <Input
-                id={ids.language}
-                value={form.language}
-                onChange={(e) => set("language", e.target.value)}
-                placeholder="np. PL, EN B2"
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <FieldLabel htmlFor={ids.contract} hint="opcjonalnie">
-                Długość projektu
-              </FieldLabel>
-              <Input
-                id={ids.contract}
-                value={form.contractLength}
-                onChange={(e) => set("contractLength", e.target.value)}
-                placeholder="np. 6 mies. z przedłużeniem"
-              />
-            </div>
-          </div>
-
-          <AskClientEditor
-            items={form.askClient}
-            basis={basis("ask_client")}
-            onChange={(askClient) => set("askClient", askClient, "ask_client")}
-          />
-
-          <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-            Po utworzeniu AI podsumuje historię klienta — za co odrzucał kandydatów
-            i o co pytał na rozmowach. Zobaczysz to w profilu Championa, w sekcji
-            „8 · Wiedza z rozmów”.
-          </p>
         </div>
-      ) : null}
+
+        <TagListInput
+          label="Kogo odrzucamy od razu"
+          values={form.disqualifiers}
+          onChange={(v) => set("disqualifiers", v, "disqualifiers")}
+          basis={basis("disqualifiers")}
+          tone="muted"
+          placeholder="opcjonalnie — np. brak polskiego"
+        />
+
+        <AskClientEditor
+          items={form.askClient}
+          basis={basis("ask_client")}
+          onChange={(askClient) => set("askClient", askClient, "ask_client")}
+        />
+
+        <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+          Po utworzeniu AI podsumuje historię klienta — za co odrzucał kandydatów
+          i o co pytał na rozmowach. Zobaczysz to w profilu Championa, w sekcji
+          „8 · Wiedza z rozmów”.
+        </p>
+      </div>
     </section>
   );
 }

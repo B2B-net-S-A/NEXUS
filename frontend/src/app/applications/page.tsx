@@ -16,6 +16,8 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { ERASED_CANDIDATE_CONFIRM, erasedCandidateMessage } from "@/lib/erased-candidate";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -39,6 +41,7 @@ import { useToast } from "@/components/Toast";
 import { safeExternalHref } from "@/lib/safe-href";
 import { cn } from "@/lib/utils";
 
+import { formatPhone } from "@/lib/phone-format";
 /** Zgłoszenie starsze niż to jest sygnałem, że kolejka nie ma właściciela. */
 const STALE_AFTER_HOURS = 24;
 
@@ -107,6 +110,7 @@ export default function ApplicationsQueuePage() {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   const [busyId, setBusyId] = useState<number | null>(null);
+  const { askConfirm, confirmDialog } = useConfirmV2();
 
   const { data = [], isLoading, isError } = useQuery({
     queryKey: ["application-submissions", "pending_review"],
@@ -115,8 +119,15 @@ export default function ApplicationsQueuePage() {
   });
 
   const resolve = useMutation({
-    mutationFn: ({ id, action }: { id: number; action: ApplicationResolveAction }) =>
-      applicationSubmissionsApi.resolve(id, action),
+    mutationFn: ({
+      id,
+      action,
+      confirmErased,
+    }: {
+      id: number;
+      action: ApplicationResolveAction;
+      confirmErased?: boolean;
+    }) => applicationSubmissionsApi.resolve(id, action, confirmErased),
     onSuccess: (result) => {
       showSuccess(
         result.candidate_id
@@ -125,7 +136,15 @@ export default function ApplicationsQueuePage() {
       );
       queryClient.invalidateQueries({ queryKey: ["application-submissions"] });
     },
-    onError: (err: unknown) => {
+    onError: (err: unknown, variables) => {
+      if (erasedCandidateMessage(err)) {
+        void askConfirm(ERASED_CANDIDATE_CONFIRM).then((confirmed) => {
+          if (!confirmed) return;
+          setBusyId(variables.id);
+          resolve.mutate({ ...variables, confirmErased: true });
+        });
+        return;
+      }
       showError(apiErrorMessage(err, "Nie udało się rozstrzygnąć zgłoszenia."));
     },
     onSettled: () => setBusyId(null),
@@ -146,6 +165,7 @@ export default function ApplicationsQueuePage() {
 
   return (
     <main className="mx-auto max-w-[1100px] space-y-6 md:px-6 md:py-6">
+      {confirmDialog}
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -231,7 +251,7 @@ export default function ApplicationsQueuePage() {
                   </p>
                   <p className="truncate text-sm text-muted-foreground">
                     {s.submitted_email}
-                    {s.submitted_phone ? ` · ${s.submitted_phone}` : ""}
+                    {s.submitted_phone ? ` · ${formatPhone(s.submitted_phone)}` : ""}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs">

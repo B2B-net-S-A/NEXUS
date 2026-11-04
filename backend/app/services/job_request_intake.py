@@ -19,34 +19,68 @@ Zasady, które łatwo cofnąć „przy okazji”:
   stackiem” (dziedzina, certyfikaty, regulacje) wchodzą wyłącznie z cytatem
   obecnym w mailu. Propozycje (frazy, firmy docelowe, argumenty, pytania do
   klienta) niosą ``provenance`` — formularz mówi DL, skąd pochodzą.
+* **Od v5 (25.09.2026) wymagania do wyszukiwania w bazie.** 2–4 wiersze
+  (słowa w wierszu = warianty), a każde słowo MUSI stać w mailu jako całe
+  słowo (`_word_in_text` — `_in_text` to podłańcuch, „go” przeszłoby
+  w „google”). Słowo spoza maila odpada; DL poprawia wiersze na formularzu.
+* **Od v10 (02.10.2026) wymagania to JEDNA lista słów kluczowych**
+  (`requirements`): wiersz = wymaganie, słowa = warianty, poziom must albo
+  nice. Te same reguły co wiersze wyszukiwania (każde słowo z maila, jeden
+  angielski odpowiednik). `must`, `nice` i `search_requirements` są z nich
+  wyprowadzone (`champion_requirement_rows.derive`), a zdania klienta, które
+  nie są słowami kluczowymi, wracają jako `descriptive_requirements`.
+  Odpowiedź w starym kształcie (`must` + `search.requirements`) jest dalej
+  czytana po staremu, a wiersze powstają z niej przez `rows_from_legacy`.
+* **Pytanie niesie dobrą odpowiedź I odpowiedź dyskwalifikującą** — obie to
+  propozycje dla DL, który je zatwierdza albo poprawia.
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from dataclasses import asdict, dataclass, field
-from typing import Any, Optional
+import time
+from dataclasses import asdict, dataclass, field, replace
+from datetime import date as date_type
+from typing import Any, Awaitable, Callable, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client import Client
-from app.services import champion_intake
+from app.schemas.champion import STACK_ITEM_MAX_CHARS
+from app.services.skill_inflection import dictionary_base_name, inflected_in_text
+from app.services import champion_intake, keyword_suggest, office_days
 from app.services.champion_document import folded
+from app.services.job_working_title import reference_from_title, reference_swallows_role
 from app.services.llm_prompts import JOB_REQUEST_INTAKE
 
 logger = logging.getLogger(__name__)
 
 MAX_REQUEST_CHARS = 20_000
 MIN_REQUEST_CHARS = 30
-MAX_MUST = 10
+# 30.09.2026: must 1:1 z maila (bez limitu 10); sufit chroni tylko formularz.
+MAX_MUST = 25
 MAX_NICE = 8
 MAX_QUESTIONS = 6
 MAX_EVIDENCE = 40
 MAX_EXPERIENCE = 8
 MAX_ASK_CLIENT = 5
 MAX_DISQUALIFIERS = 8
+# 02.10.2026: wiersze wymagań są też listą must — limit jak w zapisie profilu.
+MAX_SEARCH_ROWS = 10
+MAX_DESCRIPTIVE = 12
+MAX_SEARCH_WORDS = 6
+# 27.10.2026: słowa z CV obok frazy klienta (`cv_words`) — najwyżej dwa na wiersz,
+# a całe sprawdzanie w bazie ma sufit czasu, bo odczyt czeka na nie z formularzem.
+MAX_CV_WORDS = 2
+REACH_TIMEOUT_S = 8.0
+MAX_OFFICE_CITIES = 5
+# Lata w dziedzinie ponad staż całkowity (albo ponad ten sufit bez stażu) to
+# pomyłka modelu — „10 lat w bankowości” przy „5+ lat doświadczenia”.
+MAX_DOMAIN_YEARS_WITHOUT_SENIORITY = 25
+# Rdzeń słowa z gwiazdką („bankow*”) — krótszy łapałby przypadkowe słowa.
+MIN_SEARCH_STEM = 4
 _BASES = ("request", "client_history", "ai")
 
 _WORK_MODES = {
@@ -69,6 +103,12 @@ MISSING_OFFICE_DAYS = "office_days"
 MISSING_OFFICE_CITY = "office_city"
 MISSING_CONTEXT = "context"
 MISSING_QUESTIONS = "questions"
+MISSING_SEARCH = "search"
+# 30.09.2026: DL potwierdza umiejętności krytyczne (albo „Brak krytycznych”),
+# gdy MUST ma co najmniej jedną technologię ze słownika.
+MISSING_CRITICAL = "critical"
+# 02.10.2026: każde pytanie screeningowe mówi też, która odpowiedź dyskwalifikuje.
+MISSING_DEAL_BREAKER = "deal_breaker"
 
 
 @dataclass(frozen=True)
@@ -76,6 +116,7 @@ class IntakeQuestion:
     question: str
     ideal_answer: str
     from_request: bool
+    deal_breaker: str = ""
 
 
 @dataclass(frozen=True)
@@ -85,11 +126,17 @@ class RequestIntake:
     nice: list[str] = field(default_factory=list)
     seniority_min_years: Optional[int] = None
     rate_budget_hourly: Optional[float] = None
+    # 0420: „od” z przedziału „60–80” — tylko do wyświetlania; budżet = góra.
+    rate_budget_hourly_min: Optional[float] = None
     rate_quote: Optional[str] = None
     rate_note: Optional[str] = None
     remote_policy: Optional[str] = None
     onsite_days_per_week: Optional[int] = None
+    # 0407: „N dni w miesiącu”; gdy podane, tygodniowe jest z niego wyliczone.
+    onsite_days_per_month: Optional[int] = None
+    # Lista miast po przecinku (zapis `jobs.location`), polskie nazwy.
     office_city: Optional[str] = None
+    office_cities: list[str] = field(default_factory=list)
     start_date: Optional[str] = None
     project_about: Optional[str] = None
     responsibilities: Optional[str] = None
@@ -102,13 +149,52 @@ class RequestIntake:
     experience: dict[str, list[dict[str, Any]]] = field(
         default_factory=lambda: {"domains": [], "certifications": [], "regulations": []}
     )
-    search_keywords: Optional[str] = None
     target_companies: Optional[str] = None
     disqualifiers: list[str] = field(default_factory=list)
+    # ── od v5 (25.09.2026): wymagania do wyszukiwania w bazie (sekcja 2) ──
+    # Wiersz = wymaganie, słowa = warianty; każde słowo dosłownie z maila.
+    search_requirements: list[list[str]] = field(default_factory=list)
+    # ── od v10 (02.10.2026): jedna lista wymagań ──
+    # `[{"words": [...], "level": "must"|"nice"}]` — źródło dla `must`, `nice`
+    # i `search_requirements`; krytyczne wybiera DL na formularzu.
+    requirements: list[dict[str, Any]] = field(default_factory=list)
+    # Dosłowne zdania klienta, które nie są słowami kluczowymi (i wersje).
+    descriptive_requirements: list[str] = field(default_factory=list)
     selling_points: Optional[str] = None
     ask_client: list[str] = field(default_factory=list)
     # Ścieżka pola formularza → "request" | "client_history" | "ai".
     provenance: dict[str, str] = field(default_factory=dict)
+    # ── od v3 (0380): trzy nazwy rekrutacji ──
+    # Dosłowne fragmenty zapytania: nazwa stanowiska od klienta i jego numer.
+    client_title: Optional[str] = None
+    client_reference: Optional[str] = None
+    # Tytuł dla rekrutera złożony KODEM z pól wyżej (`job_working_title`).
+    working_title_suggestion: Optional[str] = None
+    # ── od v4 (25.09.2026): hiring manager z treści requestu ──
+    # Dosłowne cytaty (zwykle podpis maila). `hiring_manager_contact_id` to
+    # istniejący kontakt klienta dopasowany KODEM (`job_hiring_manager`) —
+    # nazwy kontaktów nie trafiają do promptu.
+    hiring_manager_name: Optional[str] = None
+    hiring_manager_position: Optional[str] = None
+    hiring_manager_email: Optional[str] = None
+    hiring_manager_contact_id: Optional[int] = None
+    # Imię i nazwisko z KONTAKTU (pisownia z bazy), gdy dopasowano.
+    hiring_manager_contact_name: Optional[str] = None
+    # ── od v7 (27.09.2026): uwagi dla DL z normalizacji odczytu ──
+    advisories: list[str] = field(default_factory=list)
+    # ── od v11 (04.10.2026): termin i liczba osób — tylko z dosłownym cytatem ──
+    # `deadline` = "RRRR-MM-DD" (rok z kalendarza firmy, gdy mail go nie
+    # podaje), `deadline_time` = "HH:MM", `headcount` = 1–50.
+    deadline: Optional[str] = None
+    deadline_time: Optional[str] = None
+    headcount: Optional[int] = None
+    # ── 06.10.2026 (N3): wiersze, które nie zmieściły się w limitach ──
+    # (10 „musi mieć”, 20 „mile widziane”) — etykiety; formularz je pokazuje.
+    dropped: list[str] = field(default_factory=list)
+    # ── od v14 (27.10.2026): słowa z CV obok frazy klienta ──
+    # Pierwsze słowo wiersza → propozycja modelu. `apply_people_reach` podmienia
+    # wiersz tylko po sprawdzeniu w bazie; formularz tego pola nie czyta.
+    cv_words: dict[str, list[str]] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -121,6 +207,21 @@ def _text(value: Any, limit: int) -> Optional[str]:
     return cleaned[:limit] or None
 
 
+def _requirement(value: Any) -> Optional[str]:
+    """Wymaganie słowami klienta — całe, do limitu pozycji stacku Championa.
+
+    Do 02.10.2026 każda pozycja była cięta na 80. znaku, w pół słowa
+    („…i tworzenie d”), choć od v8 must idzie 1:1 z maila i bywa zdaniem.
+    Pozycja dłuższa niż limit stacku kończy się na granicy słowa i „…”.
+    """
+    cleaned = _text(value, 10_000)
+    if not cleaned or len(cleaned) <= STACK_ITEM_MAX_CHARS:
+        return cleaned
+    head = cleaned[: STACK_ITEM_MAX_CHARS - 1]
+    cut = head.rsplit(" ", 1)[0] if " " in head else head
+    return cut.rstrip(" ,;:-–") + "…"
+
+
 def _names(value: Any, limit: int) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -128,7 +229,7 @@ def _names(value: Any, limit: int) -> list[str]:
     out: list[str] = []
     for item in value:
         name = item.get("name") if isinstance(item, dict) else item
-        cleaned = _text(name, 80)
+        cleaned = _requirement(name)
         if not cleaned:
             continue
         key = cleaned.casefold()
@@ -159,6 +260,471 @@ def _in_text(fragment: str, folded_text: str) -> bool:
     return _fold(fragment) in folded_text
 
 
+# ── v11: termin i liczba osób ───────────────────────────────────────────────
+
+_PL_MONTHS: dict[str, int] = {
+    # dopełniacz („do 17 października”) i mianownik, bez polskich znaków
+    "stycznia": 1,
+    "styczen": 1,
+    "lutego": 2,
+    "luty": 2,
+    "marca": 3,
+    "marzec": 3,
+    "kwietnia": 4,
+    "kwiecien": 4,
+    "maja": 5,
+    "maj": 5,
+    "czerwca": 6,
+    "czerwiec": 6,
+    "lipca": 7,
+    "lipiec": 7,
+    "sierpnia": 8,
+    "sierpien": 8,
+    "wrzesnia": 9,
+    "wrzesien": 9,
+    "pazdziernika": 10,
+    "pazdziernik": 10,
+    "listopada": 11,
+    "listopad": 11,
+    "grudnia": 12,
+    "grudzien": 12,
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+}
+_ASAP_RE = re.compile(
+    r"\b(?:asap|jak najszybciej|jak najwczesniej|od zaraz|od reki|niezwlocznie|"
+    r"pilne|pilnie|immediately)\b"
+)
+_ISO_DATE_RE = re.compile(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b")
+_NUMERIC_DATE_RE = re.compile(
+    r"\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2}|\d{4}))?(?![./-]?\d)"
+)
+_WORD_DATE_RE = re.compile(r"\b(\d{1,2})\s+([a-z]+)(?:\s+(\d{4}))?")
+_TIME_RE = re.compile(
+    r"(?:\b(\d{1,2})[:.](\d{2})\b)|(?:\bgodz(?:ina|iny|\.)?\s*(\d{1,2})(?![:.]\d)\b)"
+)
+_NUMBER_WORDS: dict[str, int] = {}
+for _value, _words in {
+    1: "jeden jedna jednego jedno jednej one",
+    2: "dwa dwie dwoch dwoje dwojke dwojka dwu two",
+    3: "trzy trzech troje trojke trojka three",
+    4: "cztery czterech czworo czworke four",
+    5: "piec pieciu piecioro five",
+    6: "szesc szesciu szescioro six",
+    7: "siedem siedmiu siedmioro seven",
+    8: "osiem osmiu osmioro eight",
+    9: "dziewiec dziewieciu dziewiecioro nine",
+    10: "dziesiec dziesieciu dziesiecioro ten",
+}.items():
+    for _word in _words.split():
+        _NUMBER_WORDS[folded(_word)] = _value
+
+
+def _safe_date(year: int, month: int, day: int) -> Optional[date_type]:
+    try:
+        return date_type(year, month, day)
+    except ValueError:
+        return None
+
+
+def _with_inferred_year(month: int, day: int, today: date_type) -> Optional[date_type]:
+    """Bez roku w mailu: najbliższy taki dzień — w tym roku albo, gdy minął, w następnym."""
+    found = _safe_date(today.year, month, day)
+    if found is not None and found < today:
+        found = _safe_date(today.year + 1, month, day)
+    return found
+
+
+def parse_deadline_date(raw: str, *, today: date_type) -> Optional[str]:
+    """Data terminu z napisu z maila → "RRRR-MM-DD" albo ``None``.
+
+    Rozumie RRRR-MM-DD, DD.MM.RRRR (też ``/`` i ``-``, rok dwucyfrowy), DD.MM
+    i „17 października [2026]”. Bez roku — rok z kalendarza firmy, a data,
+    która w tym roku już minęła, to przyszły rok. „ASAP”, „jak najszybciej”
+    i inne bez daty = ``None`` (to nie termin).
+    """
+    text = folded(raw or "")
+    if not text.strip() or (_ASAP_RE.search(text) and not re.search(r"\d", text)):
+        return None
+    for match in _ISO_DATE_RE.finditer(text):
+        found = _safe_date(*(int(g) for g in match.groups()))
+        if found:
+            return found.isoformat()
+    for match in _WORD_DATE_RE.finditer(text):
+        month = _PL_MONTHS.get(match.group(2))
+        if month is None:
+            continue
+        day = int(match.group(1))
+        found = (
+            _safe_date(int(match.group(3)), month, day)
+            if match.group(3)
+            else _with_inferred_year(month, day, today)
+        )
+        if found:
+            return found.isoformat()
+    for match in _NUMERIC_DATE_RE.finditer(text):
+        day, month = int(match.group(1)), int(match.group(2))
+        if match.group(3):
+            year = int(match.group(3))
+            found = _safe_date(year + 2000 if year < 100 else year, month, day)
+        else:
+            found = _with_inferred_year(month, day, today)
+        if found:
+            return found.isoformat()
+    return None
+
+
+def _times_in(text: str) -> set[str]:
+    out: set[str] = set()
+    for hour, minute, bare_hour in _TIME_RE.findall(folded(text)):
+        h = int(hour or bare_hour)
+        m = int(minute) if minute else 0
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            out.add(f"{h:02d}:{m:02d}")
+    return out
+
+
+def _normalize_time(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r"\s*(\d{1,2})(?:[:.](\d{2}))?\s*", value)
+    if not match:
+        return None
+    hour, minute = int(match.group(1)), int(match.group(2) or 0)
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _deadline(
+    data: dict[str, Any], folded_text: str
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """(data, godzina, cytat) terminu — wyłącznie z cytatu obecnego w mailu."""
+    from app.core.scheduling import business_today
+
+    quote = _text(data.get("deadline_quote"), 300)
+    if not quote or not _in_text(quote, folded_text):
+        return None, None, None
+    raw = _text(data.get("deadline"), 80)
+    # Data, którą podał model, musi stać w cytacie — inaczej czytamy sam cytat.
+    source = raw if raw and _in_text(raw, _fold(quote)) else quote
+    parsed = parse_deadline_date(source, today=business_today())
+    if parsed is None:
+        return None, None, None
+    time_value = _normalize_time(data.get("deadline_time"))
+    if time_value is not None and time_value not in _times_in(quote):
+        time_value = None
+    return parsed, time_value, quote
+
+
+def _number_in_quote(number: int, quote: str) -> bool:
+    words = re.findall(r"[a-z0-9]+", folded(quote))
+    return any(
+        (word.isdigit() and int(word) == number) or _NUMBER_WORDS.get(word) == number
+        for word in words
+    )
+
+
+def _headcount(
+    data: dict[str, Any], folded_text: str
+) -> tuple[Optional[int], Optional[str]]:
+    """Liczba osób 1–50 — tylko gdy cytat z maila ją zawiera (cyfrą albo słowem)."""
+    quote = _text(data.get("headcount_quote"), 300)
+    number = _int_in(data.get("headcount"), 1, 50)
+    if number is None or not quote or not _in_text(quote, folded_text):
+        return None, None
+    if not _number_in_quote(number, quote):
+        return None, None
+    return number, quote
+
+
+def _word_in_text(word: str, folded_text: str) -> bool:
+    """Całe słowo (albo fraza) w tekście — nie kawałek innego słowa."""
+    needle = _fold(word)
+    if not needle:
+        return False
+    pattern = r"(?<![0-9a-z])" + re.escape(needle) + r"(?![0-9a-z])"
+    return re.search(pattern, folded_text) is not None
+
+
+# Runda 8 (R8-N12-2): cytat stawki wybiera model i może go uciąć tuż przed
+# słowem, które zmienia znaczenie kwoty („150 zł/h” z „150 zł/h brutto”,
+# „do 150 zł/h lub 1200 zł/MD”). Gramatyka `pln_hourly_bounds` widzi tylko
+# cytat, więc sąsiedztwo cytatu w tej samej linii maila sprawdzamy osobno.
+# Jednostki czasu tylko po liczbie/walucie — „start za miesiąc” nie jest
+# stawką miesięczną.
+_RATE_CONTEXT_CHARS = 60
+_RATE_CONTEXT_CONFLICT = re.compile(
+    r"(?<![0-9a-z])(?:brutto|gross|md|man ?-?days?|dniowk[a-z]*)(?![0-9a-z])"
+    r"|(?:[0-9]|pln|zl) ?(?:/|za|per|na) ?(?:1 ?)?"
+    r"(?:dzien|d|day|mies[a-z]*|m-c|mc|month)(?![0-9a-z])"
+    r"|(?:[0-9]|pln|zl) ?(?:dziennie|miesiecznie|daily|monthly)(?![0-9a-z])"
+    r"|(?<![0-9a-z])(?:eur|euro|usd|chf|gbp)(?![0-9a-z])|[€$£]"
+)
+
+
+def rate_quote_context_conflict(quote: str, source_text: str) -> Optional[str]:
+    """Słowo z sąsiedztwa cytatu stawki, które przeczy „PLN/h netto”, albo None.
+
+    Okno to linia źródła, w której stoi cytat, przycięta do
+    ``_RATE_CONTEXT_CHARS`` znaków z każdej strony. Każde wystąpienie cytatu
+    jest sprawdzane — wystarczy jedno podejrzane, żeby budżet wpisał człowiek.
+    """
+    needle = _fold(quote)
+    if not needle:
+        return None
+    windows: list[str] = []
+    for line in str(source_text or "").splitlines():
+        folded_line = _fold(line)
+        start = folded_line.find(needle)
+        while start >= 0:
+            end = start + len(needle)
+            windows.append(
+                folded_line[max(0, start - _RATE_CONTEXT_CHARS) : start]
+                + " "
+                + folded_line[end : end + _RATE_CONTEXT_CHARS]
+            )
+            start = folded_line.find(needle, end)
+    if not windows:  # cytat łamie linię — okno z całego tekstu
+        folded_text = _fold(str(source_text or ""))
+        start = folded_text.find(needle)
+        if start >= 0:
+            end = start + len(needle)
+            windows.append(
+                folded_text[max(0, start - _RATE_CONTEXT_CHARS) : start]
+                + " "
+                + folded_text[end : end + _RATE_CONTEXT_CHARS]
+            )
+    for window in windows:
+        hit = _RATE_CONTEXT_CONFLICT.search(window)
+        if hit:
+            return hit.group(0).strip()
+    return None
+
+
+def _technology_keys() -> set[str]:
+    return {
+        key
+        for entry in keyword_suggest.catalog()
+        for key in (entry.key, *entry.alias_keys)
+    }
+
+
+def _search_stem(word: str) -> Optional[str]:
+    """Rdzeń słowa z gwiazdką (``bankow*`` → ``bankow``) albo ``None``."""
+    stem = word[:-1].strip()
+    needle = _fold(stem)
+    # Jedno słowo — wyszukiwarka zna gwiazdkę na końcu słowa, nie frazy.
+    if "*" in stem or " " in needle or len(needle) < MIN_SEARCH_STEM:
+        return None
+    return stem
+
+
+def _grounded_search_word(
+    word: str, folded_text: str, technologies: set[str]
+) -> Optional[str]:
+    """Słowo wiersza, jeśli stoi w mailu; ``None``, gdy go tam nie ma.
+
+    Rdzeń z gwiazdką (``bankow*``) przechodzi, gdy zaczyna słowo z maila
+    i ma co najmniej ``MIN_SEARCH_STEM`` liter — wyszukiwarka szuka całych
+    słów, więc „bankowości” nie znalazłoby „bankowość” ani „bankowy”.
+    Gwiazdka przy nazwie technologii ze słownika znika: „Java*” łapałoby
+    JavaScript.
+    """
+    if not word.endswith("*"):
+        # 06.10.2026 (P1): technologia ze słownika w mailu bywa odmieniona.
+        # „Javy” zapisuje się jako „Java”, a „Java” od modelu przechodzi, gdy
+        # w mailu stoi jej odmiana — wspólna reguła odmiany (`skill_inflection`).
+        def known(name: str) -> bool:
+            return keyword_suggest.fold(name) in technologies
+
+        if _word_in_text(word, folded_text):
+            return dictionary_base_name(word, known=known) or word
+        if known(word) and inflected_in_text(word, folded_text):
+            return word
+        return None
+    stem = _search_stem(word)
+    if stem is None:
+        return None
+    if re.search(r"(?<![0-9a-z])" + re.escape(_fold(stem)), folded_text) is None:
+        return None
+    if keyword_suggest.fold(stem) in technologies:
+        return stem if _word_in_text(stem, folded_text) else None
+    return word
+
+
+_POLISH_LETTERS = frozenset("ąćęłńóśźż")
+
+
+def _translated_search_word(word: str, technologies: set[str]) -> Optional[str]:
+    """Angielski odpowiednik słowa z maila (decyzja Artura 25.09.2026) —
+    jedyne słowo wiersza, którego może nie być w mailu. Nigdy technologia
+    (tę klient musiałby dopuścić sam) ani słowo z polskimi literami (to nie
+    jest odpowiednik, tylko inna forma, której w mailu nie ma)."""
+    if _POLISH_LETTERS & set(word.casefold()):
+        return None
+    if word.endswith("*"):
+        stem = _search_stem(word)
+        if stem is None or keyword_suggest.fold(stem) in technologies:
+            return None
+        return word
+    return None if keyword_suggest.fold(word) in technologies else word
+
+
+def _ground_row(
+    words: Any, folded_text: str, technologies: set[str]
+) -> tuple[Optional[list[str]], bool]:
+    """Jeden wiersz wymagań: słowa z maila i najwyżej jeden angielski
+    odpowiednik, tylko obok słowa z maila. ``(None, False)``, gdy żadne słowo
+    wiersza nie stoi w mailu. Drugi element: czy wiersz niesie odpowiednik."""
+    from app.services.skill_normalize import strip_version
+
+    row: list[str] = []
+    grounded = 0
+    extra: Optional[str] = None
+    for raw in words if isinstance(words, list) else [words]:
+        word = _text(raw, 100)
+        if not word:
+            continue
+        word = " ".join(word.replace("|", " ").split())
+        # Jednoliterowa technologia ze słownika („C”, „R”) to słowo (P4).
+        if len(word) < 2 and keyword_suggest.fold(word) not in technologies:
+            continue
+        kept = _grounded_search_word(word, folded_text, technologies)
+        is_extra = kept is None
+        if is_extra:
+            if extra is not None:
+                continue
+            kept = _translated_search_word(word, technologies)
+        elif not kept.endswith("*"):
+            # Wersja zawęża do osób, które napisały ten sam numer („Java 17+”).
+            # Tylko przy technologii ze słownika — „ISO 27001” to nazwa.
+            base, version = strip_version(kept)
+            if version and keyword_suggest.fold(base) in technologies:
+                kept = base
+        if kept is None or kept.casefold() in {w.casefold() for w in row}:
+            continue
+        if is_extra:
+            extra = kept
+        else:
+            grounded += 1
+        row.append(kept)
+        if len(row) >= MAX_SEARCH_WORDS:
+            break
+    return (row, extra is not None) if grounded else (None, False)
+
+
+def _search_rows(value: Any, folded_text: str) -> tuple[list[list[str]], bool]:
+    """Wiersze wymagań do wyszukiwania (kształt sprzed v10). Drugi element:
+    czy któryś wiersz niesie odpowiednik (wtedy to „propozycja AI”)."""
+    if not isinstance(value, list):
+        return [], False
+    technologies = _technology_keys()
+    rows: list[list[str]] = []
+    translated = False
+    for raw_row in value:
+        row, has_extra = _ground_row(raw_row, folded_text, technologies)
+        if row is None:
+            continue
+        if row not in rows:
+            rows.append(row)
+            translated = translated or has_extra
+        if len(rows) >= MAX_SEARCH_ROWS:
+            break
+    return rows, translated
+
+
+@dataclass(frozen=True)
+class _RowsReading:
+    rows: list[dict[str, Any]]
+    must_translated: bool
+    nice_translated: bool
+    # Wiersze modelu bez żadnego słowa z maila (pominięte) i wiersze, które
+    # nie zmieściły się w limitach (N3) — formularz pokazuje je jako uwagi.
+    unfounded: list[str]
+    dropped: list[str]
+    # Pierwsze słowo wiersza → słowa, którymi ludzie piszą to w CV (propozycja
+    # modelu; o podmianie decyduje liczba osób w bazie, `apply_people_reach`).
+    cv_words: dict[str, list[str]] = field(default_factory=dict)
+
+
+def _cv_words(value: Any, row: list[str]) -> list[str]:
+    """Słowa z CV z odpowiedzi modelu: krótkie słowa kluczowe spoza wiersza."""
+    from app.services.champion_requirement_rows import KEYWORD_MAX_CHARS
+
+    taken = {word.casefold() for word in row}
+    out: list[str] = []
+    for raw in value if isinstance(value, list) else []:
+        word = _text(raw, KEYWORD_MAX_CHARS)
+        if not word:
+            continue
+        word = " ".join(word.replace("|", " ").split())
+        if len(word) < 2 or word.casefold() in taken:
+            continue
+        taken.add(word.casefold())
+        out.append(word)
+        if len(out) >= MAX_CV_WORDS:
+            break
+    return out
+
+
+def _requirement_rows(value: Any, folded_text: str) -> _RowsReading:
+    """Wiersze wymagań v10 (słowa z maila, must albo nice) z listą tego, co
+    odpadło.
+
+    Te same reguły słów co `_search_rows`; poziom to must albo nice —
+    krytyczne wybiera Delivery Lead, nie model."""
+    from app.services.champion_requirement_rows import split_rows
+
+    technologies = _technology_keys()
+    rows: list[dict[str, Any]] = []
+    translated = {"must": False, "nice": False}
+    unfounded: list[str] = []
+    cv_words: dict[str, list[str]] = {}
+    nice_count = 0
+    for item in value if isinstance(value, list) else []:
+        if not isinstance(item, dict):
+            continue
+        level = "nice" if item.get("level") == "nice" else "must"
+        if level == "nice" and nice_count >= MAX_NICE:
+            continue
+        row, has_extra = _ground_row(item.get("words"), folded_text, technologies)
+        if row is None:
+            raw_words = item.get("words")
+            first = (
+                raw_words[0] if isinstance(raw_words, list) and raw_words else raw_words
+            )
+            label = _text(first, 100)
+            if label and label not in unfounded:
+                unfounded.append(label)
+            continue
+        nice_count += level == "nice"
+        translated[level] = translated[level] or has_extra
+        rows.append({"words": row, "level": level})
+        alternatives = _cv_words(item.get("cv_words"), row)
+        if alternatives:
+            cv_words.setdefault(row[0], alternatives)
+    cleaned, dropped = split_rows(rows)
+    return _RowsReading(
+        rows=cleaned,
+        must_translated=translated["must"],
+        nice_translated=translated["nice"],
+        unfounded=unfounded,
+        dropped=dropped,
+        cv_words=cv_words,
+    )
+
+
 def _questions(value: Any) -> list[IntakeQuestion]:
     if not isinstance(value, list):
         return []
@@ -174,6 +740,7 @@ def _questions(value: Any) -> list[IntakeQuestion]:
                 question=question,
                 ideal_answer=_text(item.get("ideal_answer"), 500) or "",
                 from_request=bool(item.get("from_request")),
+                deal_breaker=_text(item.get("deal_breaker"), 500) or "",
             )
         )
         if len(out) >= MAX_QUESTIONS:
@@ -183,6 +750,31 @@ def _questions(value: Any) -> list[IntakeQuestion]:
 
 def _basis(value: Any, default: str = "ai") -> str:
     return value if isinstance(value, str) and value in _BASES else default
+
+
+_EXPERIENCE_QUOTE_MIN = 4
+_NAME_STEM_MIN = 4
+
+
+def _quote_backs_name(quote: str, name: str) -> bool:
+    """Cytat sekcji 4 musi dotyczyć nazwy pozycji (R8-N12-6).
+
+    Do rundy 8 wystarczał DOWOLNY fragment maila — także „a” — więc pozycja
+    zgadnięta przez model wyglądała na formularzu jak wyczytana. Cytat ma
+    ``_EXPERIENCE_QUOTE_MIN`` znaków i zawiera któreś słowo nazwy albo jego
+    rdzeń (pierwsze ``_NAME_STEM_MIN`` liter — „bankowość” ↔ „bankowym”).
+    Słowa krótsze niż rdzeń muszą stać w cytacie w całości („AML”, „ISO”).
+    """
+    folded_quote = _fold(quote)
+    if len(folded_quote) < _EXPERIENCE_QUOTE_MIN:
+        return False
+    for word in re.findall(r"[0-9a-z]+", _fold(name)):
+        if len(word) < _NAME_STEM_MIN:
+            if _word_in_text(word, folded_quote):
+                return True
+        elif word[:_NAME_STEM_MIN] in folded_quote:
+            return True
+    return False
 
 
 def _experience(value: Any, folded_text: str) -> dict[str, list[dict[str, Any]]]:
@@ -203,6 +795,8 @@ def _experience(value: Any, folded_text: str) -> dict[str, list[dict[str, Any]]]
             name = _text(raw.get("name"), 120)
             quote = _text(raw.get("quote"), 300)
             if not name or not quote or not _in_text(quote, folded_text):
+                continue
+            if not _quote_backs_name(quote, name):
                 continue
             if name.casefold() in seen:
                 continue
@@ -236,6 +830,97 @@ def _strings(value: Any, limit: int, cap: int) -> list[str]:
     return out
 
 
+# ── v7: must = technologie, miasta = słownik miejscowości ───────────────────
+
+_CITY_SPLIT = re.compile(
+    r"\s*(?:[,;/|]|\s(?:lub|albo|oraz|or|and|i)\s)\s*", re.IGNORECASE
+)
+_CITY_NOISE = re.compile(r"\([^)]*\)|\b(?:okolice|okolic[ay]|biuro w|biuro)\b", re.I)
+
+
+def _office_cities(data: dict[str, Any]) -> list[str]:
+    """Miasta biura: nazwa ze słownika miejscowości (polska), inaczej jak w mailu.
+
+    Model zwraca listę (v7) albo — starszy kształt — jedno pole tekstowe
+    („Gdansk or Warsaw”); oba idą przez ten sam podział.
+    """
+    from app.services import pl_places
+
+    raw = data.get("office_cities")
+    items = raw if isinstance(raw, list) else [data.get("office_city")]
+    out: list[str] = []
+    for item in items:
+        text = _text(item, 200)
+        if not text:
+            continue
+        for part in _CITY_SPLIT.split(_CITY_NOISE.sub(" ", text)):
+            name = " ".join(part.split()).strip(" .-")
+            if len(name) < 2:
+                continue
+            if pl_places.place_key(name) in {"trojmiasto", "tricity"}:
+                name = "Trójmiasto"
+            else:
+                place = pl_places.resolve(name)
+                if place is not None:
+                    name = place.name
+            if name.casefold() not in {c.casefold() for c in out}:
+                out.append(name)
+            if len(out) >= MAX_OFFICE_CITIES:
+                return out
+    return out
+
+
+def normalize_must(
+    must: list[str], nice: list[str]
+) -> tuple[list[str], list[str], Optional[str], list[str]]:
+    """Must 1:1 z maila: (must, nice, język, uwagi dla DL) — 30.09.2026.
+
+    Must nie ukrywa już kandydatów (ukrywają tylko umiejętności krytyczne,
+    `critical_skills`), więc pozycje zostają słowami klienta, z wersją
+    i w kolejności z maila. Duplikaty znikają; pozycja językowa zostaje
+    w must i dodatkowo trafia do pola języka; nice nie powtarza must.
+    """
+    from app.services.must_gate_terms import ignored_reason
+
+    out: list[str] = []
+    language: Optional[str] = None
+    for label in must:
+        if not isinstance(label, str) or not label.strip():
+            continue
+        name = " ".join(label.split())
+        if name.casefold() in {m.casefold() for m in out}:
+            continue
+        out.append(name)
+        if language is None and ignored_reason(name) == "language":
+            language = name
+    merged_nice = [n for n in nice if n.casefold() not in {m.casefold() for m in out}][
+        :MAX_NICE
+    ]
+    return out, merged_nice, language, []
+
+
+def _label_in_text(name: str, folded_text: str) -> bool:
+    return all(_word_in_text(part, folded_text) for part in name.split(" lub "))
+
+
+def _check_domain_years(
+    experience: dict[str, list[dict[str, Any]]], seniority: Optional[int]
+) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
+    ceiling = seniority if seniority is not None else MAX_DOMAIN_YEARS_WITHOUT_SENIORITY
+    notes: list[str] = []
+    domains: list[dict[str, Any]] = []
+    for item in experience.get("domains", []):
+        years = item.get("min_years")
+        if years is not None and years > ceiling:
+            notes.append(
+                f"Lata w dziedzinie „{item['name']}” ({years}) przekraczają "
+                "wymagany staż — sprawdź w mailu."
+            )
+            item = {**item, "min_years": None}
+        domains.append(item)
+    return {**experience, "domains": domains}, notes
+
+
 def missing_fields(
     *,
     role_name: Optional[str],
@@ -247,6 +932,8 @@ def missing_fields(
     project_about: Optional[str],
     responsibilities: Optional[str],
     questions: list[IntakeQuestion],
+    search_requirements: list[list[str]],
+    critical: Optional[list[str]] = None,
 ) -> list[str]:
     """Braki wobec „Przekaż do searchu” — lustro `job_readiness`."""
     missing: list[str] = []
@@ -265,9 +952,22 @@ def missing_fields(
             missing.append(MISSING_OFFICE_CITY)
     if not (project_about or responsibilities):
         missing.append(MISSING_CONTEXT)
-    if len([q for q in questions if q.question.strip()]) < 2:
+    filled = [q for q in questions if q.question.strip()]
+    if len(filled) < 2:
         missing.append(MISSING_QUESTIONS)
+    if any(not q.deal_breaker.strip() for q in filled):
+        missing.append(MISSING_DEAL_BREAKER)
+    if not any(row for row in search_requirements):
+        missing.append(MISSING_SEARCH)
+    if critical is None and _has_critical_candidates(must):
+        missing.append(MISSING_CRITICAL)
     return missing
+
+
+def _has_critical_candidates(must: list[str]) -> bool:
+    from app.services.must_gate_terms import critical_eligible
+
+    return any(critical_eligible(label) for label in must)
 
 
 def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
@@ -277,35 +977,70 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
 
     rate_quote = _text(data.get("rate_quote"), 200)
     rate_budget: Optional[float] = None
+    rate_budget_min: Optional[float] = None
     rate_note: Optional[str] = None
     if rate_quote and not _in_text(rate_quote, folded_text):
         rate_quote = None
-    if rate_quote:
+    context_conflict = (
+        rate_quote_context_conflict(rate_quote, request_text) if rate_quote else None
+    )
+    if rate_quote and context_conflict:
+        rate_note = (
+            f"W requeście obok „{rate_quote}” jest „{context_conflict}” — to nie "
+            "jest stawka w PLN/h netto. Wpisz budżet ręcznie."
+        )
+    elif rate_quote:
         # Audyt 22.09 r2 (REC-07): tylko cytat z JAWNĄ walutą i jednostką
         # godzinową (`pln_hourly_bounds`). `document_rate` przyjmuje też gołą
         # liczbę („1100”), którą rekruter pisze równie często jako stawkę za MD
         # — budżet 1100 PLN/h to cicha pomyłka o rząd wielkości.
         bounds = champion_intake.pln_hourly_bounds(rate_quote)
         value = champion_intake.rate(bounds[1]) if bounds else None
-        if value is None:
+        # 06.10.2026: goły PRZEDZIAŁ („Stawka: 60-80”) w paśmie godzinowym
+        # to podpowiedź, zawsze z prośbą o sprawdzenie. Goła pojedyncza
+        # liczba dalej nie jest budżetem (REC-07).
+        bare = champion_intake.bare_hourly_range(rate_quote) if value is None else None
+        if bare is not None:
+            rate_budget_min, rate_budget = bare
+            rate_note = (
+                f"W requeście jest „{rate_quote}” bez waluty i jednostki — "
+                "przyjęto jako PLN/h netto. Sprawdź."
+            )
+        elif value is None:
             rate_note = (
                 f"W requeście jest „{rate_quote}” — to nie jest stawka w PLN/h "
                 "netto (brak waluty albo jednostki). Wpisz budżet ręcznie."
             )
         else:
             rate_budget = value
-            # „do 170 zł/h” to po prostu budżet 170; notatka tylko przy
-            # prawdziwym przedziale, bo tam budżetem jest jego GÓRA.
+            # „do 170 zł/h” to po prostu budżet 170; przedział daje też „od”,
+            # a budżetem zostaje jego GÓRA.
             if 0 < bounds[0] < bounds[1]:
-                rate_note = f"„{rate_quote}” — przyjęto górną granicę jako budżet."
+                rate_budget_min = bounds[0]
+                rate_note = (
+                    f"„{rate_quote}” — przedział: „od” {bounds[0]:g}, "
+                    f"budżetem jest górna granica {bounds[1]:g} zł/h."
+                )
 
     work_mode = _text(data.get("work_mode"), 30)
     remote_policy = _WORK_MODES.get((work_mode or "").casefold())
     onsite_days = _int_in(data.get("onsite_days_per_week"), 0, 7)
-    office_city = _text(data.get("office_city"), 120)
+    onsite_days_month = _int_in(data.get("onsite_days_per_month"), 1, 22)
+    if onsite_days_month is not None:
+        if remote_policy in (None, "hybrid"):
+            # „Raz w miesiącu” bez trybu to i tak praca hybrydowa.
+            remote_policy = "hybrid"
+            onsite_days, onsite_days_month = office_days.normalize(
+                onsite_days, onsite_days_month
+            )
+        else:
+            onsite_days_month = None
+    office_cities = _office_cities(data)
     if remote_policy == "remote":
         onsite_days = None
-        office_city = None
+        onsite_days_month = None
+        office_cities = []
+    office_city = ", ".join(office_cities)[:255] or None
 
     start_date = (
         champion_intake.date(data.get("start_date")) if data.get("start_date") else None
@@ -322,23 +1057,124 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         evidence.append(rate_quote)
 
     role_name = _text(data.get("role_name"), 255)
-    must = _names(data.get("must"), MAX_MUST)
-    nice = [
-        n
-        for n in _names(data.get("nice"), MAX_NICE)
-        if n.casefold() not in {m.casefold() for m in must}
+    # Nazwa i numer od klienta: tylko dosłowny fragment zapytania — inaczej
+    # do CV i do Cpro poszłoby coś, czego klient nie napisał.
+    client_title = _text(data.get("client_title"), 255)
+    if client_title and not _in_text(client_title, folded_text):
+        client_title = None
+    client_reference = _text(data.get("client_reference"), 120)
+    if client_reference and not _in_text(client_reference, folded_text):
+        client_reference = None
+    # D5 (15.10.2026): numer w znanym formacie z cytowanej nazwy wygrywa
+    # z kodem, który model wziął za numer („PEP4989” przy „… (42970)”). Kilka
+    # numerów nie jest cytatem — wtedy pole zostaje puste, a serwer przy
+    # zakładaniu rekrutacji czyta je z nazwy (`reference_from_title`).
+    from_title = reference_from_title(client_title)
+    if from_title and not (client_reference and reference_from_title(client_reference)):
+        client_reference = from_title if _in_text(from_title, folded_text) else None
+    # 21.10.2026: cytat nazwy roli to nie numer („PL_IT_Developer_expert_TP#40379”
+    # przy tej samej nazwie od klienta) — CV dostawały w nagłówku sam numer.
+    if reference_swallows_role(client_title, client_reference):
+        client_reference = (
+            from_title if from_title and _in_text(from_title, folded_text) else None
+        )
+    # Hiring manager: ta sama reguła dosłownego cytatu. Bez imienia i nazwiska
+    # stanowisko i e-mail nie mają kogo opisać, więc odpadają razem z nim.
+    hm_name = _text(data.get("hiring_manager_name"), 255)
+    if hm_name and not _in_text(hm_name, folded_text):
+        hm_name = None
+    hm_position = _text(data.get("hiring_manager_position"), 255) if hm_name else None
+    if hm_position and not _in_text(hm_position, folded_text):
+        hm_position = None
+    hm_email = _text(data.get("hiring_manager_email"), 255) if hm_name else None
+    if hm_email and ("@" not in hm_email or not _in_text(hm_email, folded_text)):
+        hm_email = None
+    deadline, deadline_time, deadline_quote = _deadline(data, folded_text)
+    headcount, headcount_quote = _headcount(data, folded_text)
+    for quote in (
+        client_title,
+        client_reference,
+        hm_name,
+        deadline_quote,
+        headcount_quote,
+    ):
+        if quote and quote not in evidence:
+            evidence.append(quote)
+    search = data.get("search") if isinstance(data.get("search"), dict) else {}
+    descriptive = [
+        text
+        for text in _strings(data.get("descriptive_requirements"), MAX_DESCRIPTIVE, 300)
+        if _in_text(text, folded_text)
     ]
+    advisories: list[str] = []
+    dropped: list[str] = []
+    cv_words: dict[str, list[str]] = {}
+    if isinstance(data.get("requirements"), list):
+        from app.services.champion_requirement_rows import derive, overflow_note
+        from app.services.must_gate_terms import ignored_reason
+
+        reading = _requirement_rows(data["requirements"], folded_text)
+        requirements = reading.rows
+        must_translated = reading.must_translated
+        nice_translated = reading.nice_translated
+        dropped = reading.dropped
+        cv_words = reading.cv_words
+        for label in reading.unfounded:
+            advisories.append(
+                f"„{label}” nie stoi w treści requestu — wiersz pominięty. "
+                "Dopisz go, jeśli klient tego wymaga."
+            )
+        if dropped:
+            advisories.append(overflow_note(dropped))
+        derived = derive(requirements)
+        must = [item["name"] for item in derived["must"]]
+        nice = [item["name"] for item in derived["nice"]]
+        search_requirements = derived["requirements"]
+        search_translated = must_translated
+        must_language = next(
+            (text for text in descriptive if ignored_reason(text) == "language"), None
+        )
+        must_basis = "ai" if must_translated else "request"
+        nice_basis = "ai" if nice_translated else "request"
+    else:
+        # Odpowiedź w kształcie sprzed v10: must słowami klienta i osobne
+        # wiersze wyszukiwania. Wiersze formularza powstają tą samą zamianą,
+        # której używa „Uprość do słów kluczowych”.
+        from app.services.champion_requirement_rows import rows_from_legacy
+
+        must, nice, must_language, advisories = normalize_must(
+            _names(data.get("must"), MAX_MUST), _names(data.get("nice"), MAX_NICE)
+        )
+        search_requirements, search_translated = _search_rows(
+            search.get("requirements"), folded_text
+        )
+        legacy = rows_from_legacy(
+            must=must, nice=nice, requirements=search_requirements
+        )
+        requirements = legacy["rows"]
+        descriptive = [*descriptive, *legacy["descriptive"]][:MAX_DESCRIPTIVE]
+        # Runda 8 (R8-N12-6): „z maila” tylko wtedy, gdy każda technologia stoi
+        # w mailu jako całe słowo — technologia dopisana przez model to
+        # „propozycja AI”, nie cytat klienta.
+        must_basis, nice_basis = (
+            "request"
+            if all(_label_in_text(name, folded_text) for name in names)
+            else "ai"
+            for names in (must, nice)
+        )
     project_about = _text(data.get("project_about"), 600)
     responsibilities = _text(data.get("responsibilities"), 2000)
     questions = _questions(data.get("screening_questions"))
 
-    experience = _experience(data.get("experience"), folded_text)
+    experience, year_notes = _check_domain_years(
+        _experience(data.get("experience"), folded_text),
+        _int_in(data.get("seniority_min_years"), 0, 40),
+    )
+    advisories.extend(year_notes)
     for items in experience.values():
         for item in items:
             if item["quote"] not in evidence:
                 evidence.append(item["quote"])
-    search = data.get("search") if isinstance(data.get("search"), dict) else {}
-    search_keywords = _text(search.get("keywords"), 500)
     target_companies = _text(search.get("target_companies"), 500)
     disqualifiers = _strings(search.get("disqualifiers"), MAX_DISQUALIFIERS, 200)
     selling_raw = data.get("selling_points")
@@ -347,22 +1183,26 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     ask_client = _strings(data.get("ask_client"), MAX_ASK_CLIENT, 300)
 
     provenance: dict[str, str] = {}
+    seniority_min_years = _int_in(data.get("seniority_min_years"), 0, 40)
     for key, present in (
         ("role", role_name),
-        ("must", must),
-        ("nice", nice),
-        ("seniority", data.get("seniority_min_years") is not None),
+        ("seniority", seniority_min_years is not None),
         ("rate", rate_budget is not None),
         ("work_mode", remote_policy),
         ("about", project_about),
         ("responsibilities", responsibilities),
         ("experience", any(experience.values())),
+        ("search_requirements", search_requirements),
     ):
         if present:
             provenance[key] = "request"
+    if search_translated:
+        provenance["search_requirements"] = "ai"
+    for key, names, basis in (("must", must, must_basis), ("nice", nice, nice_basis)):
+        if names:
+            provenance[key] = basis
     search_basis = _basis(search.get("basis"))
     for key, present in (
-        ("search_keywords", search_keywords),
         ("target_companies", target_companies),
         ("disqualifiers", disqualifiers),
     ):
@@ -376,18 +1216,46 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         )
     if ask_client:
         provenance["ask_client"] = "ai"
+    for key, present in (
+        ("client_title", client_title),
+        ("client_reference", client_reference),
+        ("hiring_manager", hm_name),
+        ("deadline", deadline),
+        ("headcount", headcount),
+    ):
+        if present:
+            provenance[key] = "request"
+
+    from app.services.job_working_title import compose_working_title
+
+    working_title_suggestion = compose_working_title(
+        role_name,
+        must,
+        seniority_min_years,
+        next(
+            (
+                d["name"]
+                for d in experience.get("domains", [])
+                if d.get("level") == "must"
+            ),
+            None,
+        ),
+    )
 
     return RequestIntake(
         role_name=role_name,
         must=must,
         nice=nice,
-        seniority_min_years=_int_in(data.get("seniority_min_years"), 0, 40),
+        seniority_min_years=seniority_min_years,
         rate_budget_hourly=rate_budget,
+        rate_budget_hourly_min=rate_budget_min,
         rate_quote=rate_quote,
         rate_note=rate_note,
         remote_policy=remote_policy,
         onsite_days_per_week=onsite_days,
+        onsite_days_per_month=onsite_days_month,
         office_city=office_city,
+        office_cities=office_cities,
         start_date=start_date,
         project_about=project_about,
         responsibilities=responsibilities,
@@ -403,16 +1271,31 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
             project_about=project_about,
             responsibilities=responsibilities,
             questions=questions,
+            search_requirements=search_requirements,
         ),
-        language=_text(data.get("language"), 50),
+        language=_text(data.get("language"), 50) or _text(must_language, 50),
         contract_length=_text(data.get("contract_length"), 255),
         experience=experience,
-        search_keywords=search_keywords,
         target_companies=target_companies,
         disqualifiers=disqualifiers,
+        search_requirements=search_requirements,
+        requirements=requirements,
+        descriptive_requirements=descriptive,
         selling_points=selling_points,
         ask_client=ask_client,
         provenance=provenance,
+        client_title=client_title,
+        client_reference=client_reference,
+        working_title_suggestion=working_title_suggestion,
+        hiring_manager_name=hm_name,
+        hiring_manager_position=hm_position,
+        hiring_manager_email=hm_email,
+        advisories=advisories,
+        deadline=deadline,
+        deadline_time=deadline_time,
+        headcount=headcount,
+        dropped=dropped,
+        cv_words=cv_words,
     )
 
 
@@ -450,4 +1333,176 @@ async def read_request(
         system_prompt=JOB_REQUEST_INTAKE.system_prompt or "",
         max_tokens=6000,
     )
-    return normalize_model_output(raw, text)
+    read = await apply_people_reach(db, normalize_model_output(raw, text))
+    return await match_hiring_manager(db, client_id=client_id, intake=read)
+
+
+def _people(count: int) -> str:
+    """„1 osoba”, „3 osoby”, „12 osób” — jak `peopleCountLabel` na ekranie."""
+    if count == 1:
+        return "1 osoba"
+    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        return f"{count} osoby"
+    return f"{count} osób"
+
+
+async def swap_rare_rows(
+    intake: RequestIntake,
+    count: Callable[[list[str]], Awaitable[Optional[int]]],
+    *,
+    deadline: Optional[float] = None,
+) -> RequestIntake:
+    """Wiersz z frazą klienta, której w bazie ma mniej niż 20 osób, szuka po
+    słowie z CV; fraza idzie do „Rekruter sprawdza w rozmowie”.
+
+    Pomiar 27.10.2026 (129 Profili Championa): pojęcia przepisane z requestu
+    („Crisis plans”, „Manual recovery procedures”) miały 0 osób, a słowa, którymi
+    ludzie piszą to w CV („Crisis Management”) — setki. Podmiana tylko wtedy,
+    gdy słowo z CV samo ma co najmniej 20 osób (to samo zapytanie co „W bazie”);
+    inaczej wiersz zostaje, jak go odczytano, a edytor ostrzega jak dotąd.
+    ``count`` zwraca liczbę osób dla słów wiersza albo ``None`` (nie wiadomo).
+    """
+    from app.services.champion_requirement_rows import derive, row_label
+    from app.services.job_working_title import compose_working_title
+    from app.services.requirement_reach import PEOPLE_MIN
+
+    stop = deadline if deadline is not None else time.monotonic() + REACH_TIMEOUT_S
+    rows = [{**row, "words": list(row["words"])} for row in intake.requirements]
+    talk = list(intake.experience.get("skills") or [])
+    notes: list[str] = []
+    swapped_levels: set[str] = set()
+    for index, row in enumerate(rows):
+        suggestions = intake.cv_words.get(row["words"][0]) if row["words"] else None
+        if not suggestions:
+            continue
+        if time.monotonic() > stop:
+            break
+        reach = await count(row["words"])
+        if reach is None or reach >= PEOPLE_MIN:
+            continue
+        found: list[str] = []
+        for word in suggestions:
+            if time.monotonic() > stop:
+                break
+            people = await count([word])
+            if people is not None and people >= PEOPLE_MIN:
+                found.append(word)
+        if not found:
+            continue
+        # Słowo, które jest już innym wierszem, nie wchodzi jako wariant — wiersz
+        # spełniałby każdy z tamtym słowem. Gdy zostają tylko takie, wiersz znika.
+        elsewhere = {
+            word.casefold()
+            for other, kept in enumerate(rows)
+            if other != index
+            for word in kept["words"]
+        }
+        label = row_label(row["words"])
+        level = "nice" if row["level"] == "nice" else "must"
+        rows[index] = {
+            **row,
+            "words": [w for w in found if w.casefold() not in elsewhere],
+        }
+        swapped_levels.add(level)
+        if label.casefold() not in {
+            str(item.get("name", "")).casefold() for item in talk
+        }:
+            talk.append({"name": label, "level": level})
+        kept = rows[index]["words"]
+        cv_label = " / ".join(f"„{word}”" for word in kept or found)
+        search = (
+            f"Wiersz szuka po {cv_label}" if kept else f"Szuka już wiersz {cv_label}"
+        )
+        notes.append(
+            f"„{label}” — w bazie {_people(reach)}. {search} "
+            f"(tak piszą to w CV), a „{label}” sprawdzi rekruter w rozmowie."
+        )
+    if not swapped_levels:
+        return intake
+    unique = [row for row in rows if row["words"]]
+    derived = derive(unique)
+    must = [item["name"] for item in derived["must"]]
+    nice = [item["name"] for item in derived["nice"]]
+    provenance = dict(intake.provenance)
+    # Słowa z CV nie stoją w mailu — to propozycja AI, nie cytat klienta.
+    if "must" in swapped_levels:
+        provenance["must"] = "ai"
+        provenance["search_requirements"] = "ai"
+    if "nice" in swapped_levels:
+        provenance["nice"] = "ai"
+    return replace(
+        intake,
+        requirements=unique,
+        must=must,
+        nice=nice,
+        search_requirements=derived["requirements"],
+        experience={**intake.experience, "skills": talk},
+        advisories=[*intake.advisories, *notes],
+        provenance=provenance,
+        working_title_suggestion=compose_working_title(
+            intake.role_name,
+            must,
+            intake.seniority_min_years,
+            next(
+                (
+                    d["name"]
+                    for d in intake.experience.get("domains", [])
+                    if d.get("level") == "must"
+                ),
+                None,
+            ),
+        ),
+    )
+
+
+async def apply_people_reach(db: AsyncSession, intake: RequestIntake) -> RequestIntake:
+    """`swap_rare_rows` z licznikiem „W bazie”. Awaria bazy nie psuje odczytu —
+    zostają wiersze, jak je odczytano."""
+    if not intake.cv_words:
+        return intake
+    from app.services.requirement_reach import people_reach
+
+    async def count(words: list[str]) -> Optional[int]:
+        return await people_reach(db, words)
+
+    try:
+        # Savepoint: padnięte zapytanie nie może zostawić sesji w przerwanej
+        # transakcji, w której `ai_feature` zapisuje zużycie.
+        async with db.begin_nested():
+            return await swap_rare_rows(intake, count)
+    except Exception:  # noqa: BLE001 — sprawdzenie w bazie to dodatek, nie warunek odczytu
+        logger.warning("job_request_intake: people reach unavailable", exc_info=True)
+        return intake
+
+
+async def match_hiring_manager(
+    db: AsyncSession, *, client_id: int, intake: RequestIntake
+) -> RequestIntake:
+    """Wskazuje istniejący kontakt klienta, jeśli to ta sama osoba co w mailu.
+
+    Tym samym matcherem co zapis HM (`job_hiring_manager`), żeby podpowiedź
+    i zapis nie rozjechały się (podpowiedź „nowa osoba”, zapis „istniejący”).
+    Awaria dopasowania nie psuje odczytu — zostaje sama podpowiedź nazwiska.
+    """
+    if not intake.hiring_manager_name:
+        return intake
+    from app.services.job_hiring_manager import match_client_contact
+
+    try:
+        async with db.begin_nested():
+            contact = await match_client_contact(
+                db,
+                client_id=client_id,
+                name=intake.hiring_manager_name,
+                email=intake.hiring_manager_email,
+            )
+    except Exception:  # noqa: BLE001 — podpowiedź to dodatek, nie warunek odczytu
+        logger.warning("job_request_intake: hiring manager match failed", exc_info=True)
+        return intake
+    if contact is None:
+        return intake
+    return replace(
+        intake,
+        hiring_manager_contact_id=contact.id,
+        hiring_manager_contact_name=contact.name,
+    )

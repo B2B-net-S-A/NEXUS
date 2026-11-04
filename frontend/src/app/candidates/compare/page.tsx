@@ -24,7 +24,13 @@ import {
 } from "@/components/v2/pages/candidate-list-helpers";
 import { formatExperienceDate } from "@/components/v2/pages/candidate-profile-helpers";
 import { decodeCompareBackHref } from "@/lib/url-filters";
-import { profileCompleteness, skillLevelLabel } from "./compare-helpers";
+import {
+  candidateSkillSources,
+  profileCompleteness,
+  skillLevelLabel,
+  verifiedOnlySkills,
+  type CandidateSkillSource,
+} from "./compare-helpers";
 import {
   candidateSearchApi,
   type MatchScoresResponse,
@@ -39,6 +45,8 @@ import { unmeasuredReason } from "@/lib/match-breakdown";
 import { isForbiddenError } from "@/lib/view-state";
 import { Button } from "@/components/ui/button";
 import { JobPicker, type JobPickerJob } from "@/components/v2/recruitment/JobPicker";
+import { jobDisplayTitle } from "@/lib/job-names";
+import { contractAvailability, contractAvailabilityText } from "@/lib/contract-availability";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -87,19 +95,19 @@ function CompletenessBadge({ score }: { score: number }) {
 
 // ── Dopasowanie do wybranej rekrutacji (B6) ───────────────────────────────────
 
-/** Nazwy umiejętności kandydata, bez wielkości liter. */
-function candidateSkillSet(candidate: { skills?: unknown }): Set<string> {
-  const skills: unknown[] = Array.isArray(candidate?.skills) ? candidate.skills : [];
-  return new Set(
-    skills
-      .map((s) => (typeof s === "string" ? s : (s as { name?: unknown })?.name))
-      .filter((s): s is string => typeof s === "string" && s.trim() !== "")
-      .map((s) => s.trim().toLowerCase()),
-  );
-}
-
-function groupMet(group: MatchingRequirement, skills: Set<string>): boolean {
-  return group.any_of.some((name) => skills.has(name.trim().toLowerCase()));
+/** Czy grupa wymagań jest spełniona i z którego źródła (lista umiejętności
+ *  wygrywa z „Zweryfikowanymi technologiami”). `null` = brak. */
+function groupMet(
+  group: MatchingRequirement,
+  skills: Map<string, CandidateSkillSource>,
+): CandidateSkillSource | null {
+  let found: CandidateSkillSource | null = null;
+  for (const name of group.any_of) {
+    const source = skills.get(name.trim().toLowerCase());
+    if (source === "skills") return "skills";
+    if (source) found = source;
+  }
+  return found;
 }
 
 /**
@@ -149,7 +157,7 @@ function MustHaveList({
   candidate,
   requirements,
 }: {
-  candidate: { skills?: unknown };
+  candidate: { skills?: unknown; verified_tech?: unknown };
   requirements: UseQueryResult<MatchingRequirements>;
 }) {
   if (requirements.isError) {
@@ -168,7 +176,7 @@ function MustHaveList({
   if (must.length === 0) {
     return <p className="text-xs text-muted-foreground">Rekrutacja nie ma wymagań obowiązkowych.</p>;
   }
-  const skills = candidateSkillSet(candidate);
+  const skills = candidateSkillSources(candidate);
   return (
     <ul className="space-y-1">
       {must.map((group, i) => {
@@ -178,7 +186,15 @@ function MustHaveList({
           <li key={`${label}-${i}`} className="flex items-center justify-between gap-2 text-xs">
             <span className="truncate text-foreground">{label}</span>
             {met ? (
-              <span className="inline-flex items-center gap-1 text-success" aria-label={`${label}: jest w umiejętnościach`}>
+              <span
+                className="inline-flex items-center gap-1 text-success"
+                aria-label={
+                  met === "verified"
+                    ? `${label}: potwierdzone na screeningu`
+                    : `${label}: jest w umiejętnościach`
+                }
+                title={met === "verified" ? "potwierdzone na screeningu" : undefined}
+              >
                 <Check className="h-3.5 w-3.5" aria-hidden="true" />✓
               </span>
             ) : (
@@ -206,8 +222,16 @@ function CandidateCompareCard({ candidate, job }: { candidate: any; job?: Compar
   const avatarColor = getAvatarColor(fullName);
   const score = profileCompleteness(candidate);
   const formattedLocation = formatCandidateLocation(candidate.location);
+  // Żywa umowa (15.10.2026): termin z umowy, nie ze screeningu.
+  const contractAvail = contractAvailability(
+    candidate.employment_marker,
+    candidate.availability_date,
+  );
 
   const skills: any[] = Array.isArray(candidate.skills) ? candidate.skills : [];
+  // Runda 10 (F18): „Zweryfikowane technologie” — profil pokazuje je w tej
+  // samej sekcji jako „potwierdzone na screeningu”.
+  const verifiedOnly = verifiedOnlySkills(candidate);
   const experience: any[] = Array.isArray(candidate.experience) ? candidate.experience : [];
   const languages: any[] = Array.isArray(candidate.languages) ? candidate.languages : [];
   // Kolumna `tags` miesza napisy z obiektami importu (`{type:"traffit_source",…}`);
@@ -274,9 +298,11 @@ function CandidateCompareCard({ candidate, job }: { candidate: any; job?: Compar
         <div className="flex justify-between">
           <span className="text-muted-foreground">Dostępność:</span>
           <span className="font-medium">
-            {candidate.availability_date
-              ? new Date(candidate.availability_date).toLocaleDateString("pl-PL")
-              : "—"}
+            {contractAvail
+              ? contractAvailabilityText(contractAvail)
+              : candidate.availability_date
+                ? new Date(candidate.availability_date).toLocaleDateString("pl-PL")
+                : "—"}
           </span>
         </div>
         <div className="flex justify-between">
@@ -307,7 +333,7 @@ function CandidateCompareCard({ candidate, job }: { candidate: any; job?: Compar
       )}
 
       {/* Skills */}
-      {skills.length > 0 && (
+      {(skills.length > 0 || verifiedOnly.length > 0) && (
         <div className="px-5 py-3 border-b border-border dark:border-border">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Umiejętności</h4>
           <div className="space-y-1.5">
@@ -316,6 +342,15 @@ function CandidateCompareCard({ candidate, job }: { candidate: any; job?: Compar
               const level = typeof s === "object" ? s.level : undefined;
               return <SkillRow key={i} name={name} level={level} />;
             })}
+            {verifiedOnly.slice(0, 8).map((name) => (
+              <div key={`verified-${name}`} className="flex items-center justify-between gap-2 text-xs">
+                <span className="truncate text-foreground">{name}</span>
+                <span className="inline-flex shrink-0 items-center gap-1 text-success">
+                  <Check className="h-3 w-3" aria-hidden="true" />
+                  potwierdzone na screeningu
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -444,7 +479,16 @@ function CompareCandidatesInner() {
   const jobInfo = useQuery({
     queryKey: ["compare-job", jobId],
     queryFn: () =>
-      api.get(`/api/jobs/${jobId}`).then((r) => r.data as { id: number; title?: string | null; client_name?: string | null }),
+      api.get(`/api/jobs/${jobId}`).then(
+        (r) =>
+          r.data as {
+            id: number;
+            title?: string | null;
+            working_title?: string | null;
+            client_reference?: string | null;
+            client_name?: string | null;
+          },
+      ),
     enabled: jobId !== null && pickedTitle?.id !== jobId,
     retry: false,
   });
@@ -466,7 +510,13 @@ function CompareCandidatesInner() {
     pickedTitle?.id === jobId
       ? pickedTitle
       : jobInfo.data
-        ? { id: jobInfo.data.id, title: jobInfo.data.title ?? `Rekrutacja #${jobId}`, client_name: jobInfo.data.client_name }
+        ? {
+            id: jobInfo.data.id,
+            title: jobInfo.data.title ?? `Rekrutacja #${jobId}`,
+            working_title: jobInfo.data.working_title,
+            client_reference: jobInfo.data.client_reference,
+            client_name: jobInfo.data.client_name,
+          }
         : jobId !== null
           ? { id: jobId, title: `Rekrutacja #${jobId}` }
           : null;
@@ -511,7 +561,7 @@ function CompareCandidatesInner() {
             <>
               <span className="text-muted-foreground">Dopasowanie do:</span>
               <strong data-testid="compare-job">
-                {jobLabel.title}
+                {jobDisplayTitle(jobLabel)}
                 {jobLabel.client_name ? ` · ${jobLabel.client_name}` : ""}
               </strong>
               <Button type="button" size="sm" variant="ghost" onClick={() => setPickerOpen((o) => !o)}>
@@ -531,7 +581,7 @@ function CompareCandidatesInner() {
             </>
           )}
         </div>
-        {pickerOpen && <JobPicker value={jobLabel} onChange={setJobInUrl} scope="all" />}
+        {pickerOpen && <JobPicker value={jobLabel} onChange={setJobInUrl} />}
       </section>
 
 

@@ -44,7 +44,12 @@ export interface CreateInviteLinkInput {
 
 export type PublicProfileStatus = "none" | "draft" | "approved";
 
-export type FindingCode = "client_name" | "money" | "contact" | "person_name";
+export type FindingCode =
+  | "client_name"
+  | "money"
+  | "contact"
+  | "person_name"
+  | "internal_code";
 
 export interface PublicProfileFinding {
   code: FindingCode | string;
@@ -63,6 +68,7 @@ export interface PublicJobParams {
   city: string | null;
   remote_policy: "remote" | "hybrid" | "onsite" | null;
   onsite_days_per_week: number | null;
+  onsite_days_per_month?: number | null;
   seniority: string | null;
   contract: string | null;
   start: string | null;
@@ -95,8 +101,28 @@ export interface JobPublicProfile {
   show_on_recruiter_page: boolean;
   approved_at: string | null;
   approved_by_name: string | null;
+  /** Zatwierdzony, ale pola zamrożone w migawce zmieniły się w rekrutacji. */
+  approved_content_stale: boolean;
   findings: PublicProfileFinding[];
   preview: PublicJobPreview | null;
+  /**
+   * Wersja, którą dziś widzi kandydat; `null` = strona daje 404 (opis nigdy
+   * niezatwierdzony). Poprawki po zatwierdzeniu nie zdejmują strony —
+   * `pending_changes` mówi, że czekają na zatwierdzenie.
+   */
+  live: PublicProfileLive | null;
+  /** Szablon graficzny wybrany przez rekrutera (0478); `null` = domyślny. */
+  theme: string | null;
+  /** Domyślny szablon według roli z tytułu, potem kategorii (liczy backend). */
+  theme_default: string;
+}
+
+export interface PublicProfileLive {
+  title: string;
+  subtitle: string | null;
+  about: string | null;
+  sections: PublicProfileSections;
+  pending_changes: boolean;
 }
 
 export interface JobPublicProfileInput {
@@ -127,6 +153,8 @@ export interface CareerLinkState {
     public_url: string;
     created_at: string;
     visit_count: number | null;
+    /** „O mnie” na stronie rekrutera (etap 6); starszy backend: brak. */
+    about?: string | null;
   } | null;
   stats: {
     days: number;
@@ -139,6 +167,82 @@ export interface CareerLinkState {
   base_url?: string | null;
   /** Prefiks stałego linku, np. `https://kariera.dynaminds.pl/` albo `…/kariera/p/`. */
   recruiter_base_url?: string | null;
+}
+
+/** Lejek linku w oknie (etap 4 linków). `visits` = od początku istnienia linku. */
+export interface LinkResultCounts {
+  /** W wybranym okresie, z dziennych wejść; `null` = od początku. */
+  visits_in_period?: number | null;
+  visits: number;
+  applications: number;
+  new_candidates: number;
+  existing_candidates: number;
+  in_process: number;
+  verified: number;
+  cv_sent: number;
+  hired: number;
+}
+
+export type LinkResultState = "live" | "not_live" | "closed" | "expired" | "revoked";
+
+export interface LinkResultRow extends LinkResultCounts {
+  kind: "job" | "recruiter";
+  slug: string | null;
+  public_url: string | null;
+  job_id: number | null;
+  /** Tytuł dla rekrutera — ekran wewnętrzny. */
+  job_title: string | null;
+  state: LinkResultState;
+}
+
+export interface LinkResults {
+  /** `null` = od początku. */
+  days: number | null;
+  /** Pierwszy dzień z zapisanymi wejściami; starszych dat nie ma. */
+  visits_tracked_from?: string | null;
+  totals: LinkResultCounts;
+  links: LinkResultRow[];
+}
+
+/** 30, 90 albo 0 (= od początku). */
+export type LinkResultsPeriod = 30 | 90 | 0;
+
+/** Link rekrutacji w zespole: czyj, skąd się wziął i co przyniósł. */
+export interface JobTeamLink {
+  owner_id: number;
+  owner_name: string;
+  slug: string | null;
+  label: string | null;
+  created_at: string;
+  visits: number;
+  applications: number;
+  state: "active" | "expired" | "revoked";
+}
+
+/** Jedno zgłoszenie z linku osoby: kto, z którego linku i gdzie jest teraz. */
+export interface LinkPerson {
+  candidate_id: number;
+  full_name: string;
+  applied_at: string;
+  was_duplicate: boolean;
+  kind: "job" | "recruiter";
+  slug: string | null;
+  job_id: number | null;
+  job_title: string | null;
+  current_stage: string | null;
+  current_job_id: number | null;
+  current_job_title: string | null;
+  screening_status: string | null;
+  screening_outcome: string | null;
+  in_my_people: boolean;
+}
+
+export interface LinkPeople {
+  /** `null` = od początku. */
+  days: number | null;
+  total: number;
+  truncated: boolean;
+  people: LinkPerson[];
 }
 
 export interface SlugAvailability {
@@ -164,6 +268,12 @@ export const shareablePublishedJobsQueryKey = (q = "") =>
 /** Jedna rekrutacja wskazana z kontekstu (`defaultJobId`) — jej status, nie obecność na liście. */
 export const shareableJobQueryKey = (jobId: number) =>
   ["career-share", "job", jobId] as const;
+export const linkResultsQueryKey = (days: LinkResultsPeriod) =>
+  ["career-link", "results", days] as const;
+export const linkPeopleQueryKey = (days: LinkResultsPeriod) =>
+  ["career-link", "people", days] as const;
+export const jobTeamLinksQueryKey = (jobId: number) =>
+  ["career-link", "job-team", jobId] as const;
 export const slugAvailabilityQueryKey = (slug: string) =>
   ["career-link", "slug-available", slug] as const;
 
@@ -202,8 +312,26 @@ export function normalizePublicProfile(
     show_on_recruiter_page: r.show_on_recruiter_page ?? true,
     approved_at: r.approved_at ?? null,
     approved_by_name: r.approved_by_name ?? null,
+    approved_content_stale: r.approved_content_stale === true,
     findings: Array.isArray(r.findings) ? r.findings : [],
     preview: r.preview ?? null,
+    live: normalizeLive(r.live),
+    theme: typeof r.theme === "string" && r.theme ? r.theme : null,
+    theme_default:
+      typeof r.theme_default === "string" && r.theme_default ? r.theme_default : "terminal",
+  };
+}
+
+function normalizeLive(raw: unknown): PublicProfileLive | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Partial<PublicProfileLive>;
+  if (typeof r.title !== "string") return null;
+  return {
+    title: r.title,
+    subtitle: typeof r.subtitle === "string" ? r.subtitle : null,
+    about: typeof r.about === "string" ? r.about : null,
+    sections: { ...DEFAULT_SECTIONS, ...(r.sections ?? {}) },
+    pending_changes: r.pending_changes === true,
   };
 }
 
@@ -237,6 +365,20 @@ export const careerLinksApi = {
       status: typeof d.status === "string" ? d.status : undefined,
     };
   },
+  getLinkPeople: async (days: LinkResultsPeriod): Promise<LinkPeople> => {
+    const res = await api.get("/api/me/career-link/people", { params: { days } });
+    return res.data as LinkPeople;
+  },
+
+  getJobTeamLinks: async (jobId: number): Promise<JobTeamLink[]> => {
+    const res = await api.get(`/api/jobs/${jobId}/link-results`);
+    return res.data as JobTeamLink[];
+  },
+
+  getLinkResults: async (days: LinkResultsPeriod): Promise<LinkResults> => {
+    const res = await api.get("/api/me/career-link/results", { params: { days } });
+    return res.data as LinkResults;
+  },
   listInviteLinks: async (): Promise<InviteLink[]> => {
     const res = await api.get("/api/invite-links", { params: { mine: true } });
     return asArray<InviteLink>(res.data);
@@ -266,6 +408,10 @@ export const careerLinksApi = {
   saveCareerLink: async (slug: string): Promise<void> => {
     await api.put("/api/me/career-link", { slug });
   },
+  /** „O mnie” na stronie rekrutera; pusty tekst usuwa. Adres zostaje bez zmian. */
+  saveCareerAbout: async (slug: string, about: string): Promise<void> => {
+    await api.put("/api/me/career-link", { slug, about });
+  },
   disableCareerLink: async (): Promise<void> => {
     await api.delete("/api/me/career-link");
   },
@@ -290,6 +436,17 @@ export const careerLinksApi = {
     input: JobPublicProfileInput,
   ): Promise<JobPublicProfile> => {
     const res = await api.put(`/api/jobs/${jobId}/public-profile`, input);
+    return normalizePublicProfile(jobId, res.data);
+  },
+  /**
+   * Sam szablon graficzny (0478) — bez pól treści, więc nie zapisuje szkicu
+   * z formularza i nie cofa zatwierdzenia. `null` = wróć do domyślnego.
+   */
+  savePublicProfileTheme: async (
+    jobId: number,
+    theme: string | null,
+  ): Promise<JobPublicProfile> => {
+    const res = await api.put(`/api/jobs/${jobId}/public-profile`, { theme });
     return normalizePublicProfile(jobId, res.data);
   },
   draftPublicProfile: async (jobId: number): Promise<PublicProfileDraft> => {
@@ -317,6 +474,18 @@ export function findingsFromApproveError(
   if (!detail || typeof detail !== "object" || Array.isArray(detail)) return null;
   const { code, findings } = detail as { code?: unknown; findings?: unknown };
   if (code !== "PUBLIC_PROFILE_FINDINGS" || !Array.isArray(findings)) return null;
+  return findings as PublicProfileFinding[];
+}
+
+/** Znaleziska z odmowy zapisu „O mnie” (422 `CAREER_ABOUT_FINDINGS`) albo `null`. */
+export function findingsFromAboutError(error: unknown): PublicProfileFinding[] | null {
+  const response = (error as { response?: { status?: unknown; data?: unknown } })
+    ?.response;
+  if (response?.status !== 422) return null;
+  const detail = (response.data as { detail?: unknown } | null)?.detail;
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) return null;
+  const { code, findings } = detail as { code?: unknown; findings?: unknown };
+  if (code !== "CAREER_ABOUT_FINDINGS" || !Array.isArray(findings)) return null;
   return findings as PublicProfileFinding[];
 }
 
@@ -352,6 +521,30 @@ export function useInviteLinks(enabled: boolean) {
     queryKey: inviteLinksQueryKey(),
     queryFn: careerLinksApi.listInviteLinks,
     enabled,
+  });
+}
+
+export function useLinkResults(enabled: boolean, days: LinkResultsPeriod) {
+  return useQuery({
+    queryKey: linkResultsQueryKey(days),
+    queryFn: () => careerLinksApi.getLinkResults(days),
+    enabled,
+  });
+}
+
+export function useLinkPeople(enabled: boolean, days: LinkResultsPeriod) {
+  return useQuery({
+    queryKey: linkPeopleQueryKey(days),
+    queryFn: () => careerLinksApi.getLinkPeople(days),
+    enabled,
+  });
+}
+
+export function useJobTeamLinks(enabled: boolean, jobId: number | null) {
+  return useQuery({
+    queryKey: jobTeamLinksQueryKey(jobId ?? 0),
+    queryFn: () => careerLinksApi.getJobTeamLinks(jobId as number),
+    enabled: enabled && jobId != null,
   });
 }
 

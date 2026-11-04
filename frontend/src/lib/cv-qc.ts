@@ -2,11 +2,22 @@
 //
 // Sprawdzenia liczy serwer (`GET /api/pipeline/stages/{id}/qc`); tu wyłącznie
 // czyste funkcje: podświetlenie terminów w tekście CV, podział CV na
-// stanowiska (czerwona krawędź przy roli z brakiem), rozbiór `**pogrubienia**`
+// stanowiska (krawędź przy roli z brakiem), podział sprawdzeń na „do poprawy
+// / warto poprawić / w porządku”, powody obejścia, rozbiór `**pogrubienia**`
 // z propozycji AI i kody błędów. Wszystko zwraca TEKST — nic nie trafia na
 // stronę jako HTML.
 
-import type { QcCheck, QcCvBlock, QcFixKind, QcItem } from "@/lib/api/cvQc";
+import type {
+  QcCheck,
+  QcCvBlock,
+  QcDismissReason,
+  QcFix,
+  QcFixKind,
+  QcItem,
+  QcRoleState,
+  QcRoleStateKind,
+  QcSearchSource,
+} from "@/lib/api/cvQc";
 
 // ── Podświetlenie terminów ───────────────────────────────────────────────────
 //
@@ -36,6 +47,12 @@ function termSource(term: string): string | null {
   const left = WORD.test(text[0]) ? "(?<![\\p{L}\\p{N}_])" : "";
   const right = WORD.test(text[text.length - 1]) ? "(?![\\p{L}\\p{N}_])" : "";
   return `${left}${core}${right}`;
+}
+
+/** Wyrażenie na jeden termin z granicami słowa jak wyżej; `null` dla pustego. */
+export function termRegExp(term: string): RegExp | null {
+  const source = termSource(term);
+  return source ? new RegExp(source, "giu") : null;
 }
 
 /** Alternatywy wymagania („Java lub Kotlin") — jak `requirement_contract.alternatives`. */
@@ -117,29 +134,38 @@ export interface RoleGap {
   role: string;
   /** Numer stanowiska w CV (`role_index` z serwera) — pewniejszy niż etykieta. */
   roleIndex: number | null;
+  /** Wszystkie braki w tej roli — krytyczne pierwsze. */
   requirements: string[];
+  /** Umiejętności krytyczne bez opisu w tej roli — te zatrzymują wysyłkę. */
+  blocking: string[];
 }
 
-/** Braki w stanowiskach (`must_in_roles`) pogrupowane po roli. */
+/** Sprawdzenia z brakami w stanowiskach; krytyczne przed pozostałymi must-have. */
+const ROLE_GAP_CHECKS = ["critical_skills", "must_in_roles"];
+
+/** Braki w stanowiskach (krytyczne i pozostałe must-have) pogrupowane po roli. */
 export function roleGaps(checks: QcCheck[]): RoleGap[] {
   const byRole = new Map<string, RoleGap>();
-  for (const check of checks) {
-    if (check.key !== "must_in_roles" || check.status !== "fail") continue;
-    for (const item of check.items) {
-      const role = item.role?.trim();
-      if (!role) continue;
-      const roleIndex = typeof item.role_index === "number" ? item.role_index : null;
-      const key = roleIndex != null ? `#${roleIndex}` : role;
-      const gap = byRole.get(key) ?? { role, roleIndex, requirements: [] };
-      const req = item.requirement?.trim();
-      if (req && !gap.requirements.includes(req)) gap.requirements.push(req);
-      byRole.set(key, gap);
+  for (const key of ROLE_GAP_CHECKS) {
+    for (const check of checks) {
+      if (check.key !== key || check.status !== "fail") continue;
+      for (const item of check.items) {
+        const role = item.role?.trim();
+        if (!role) continue;
+        const roleIndex = typeof item.role_index === "number" ? item.role_index : null;
+        const id = roleIndex != null ? `#${roleIndex}` : role;
+        const gap = byRole.get(id) ?? { role, roleIndex, requirements: [], blocking: [] };
+        const req = item.requirement?.trim();
+        if (req && !gap.requirements.includes(req)) gap.requirements.push(req);
+        if (req && check.severity === "blocking" && !gap.blocking.includes(req)) gap.blocking.push(req);
+        byRole.set(id, gap);
+      }
     }
   }
   return [...byRole.values()];
 }
 
-function normalize(value: string): string {
+export function normalizeQcText(value: string): string {
   return value
     .toLocaleLowerCase("pl")
     .normalize("NFKD")
@@ -150,23 +176,27 @@ function normalize(value: string): string {
 
 /** Części etykiety roli: „Allegro — Senior Java Dev · 2019–2022" → [allegro, senior java dev].
  *  Lata odpadają — CV pisze daty w innym formacie niż etykieta. */
-function roleParts(role: string): string[] {
+export function roleLabelParts(role: string): string[] {
   return role
     .split(/\s+[—–\-·|]\s+|,\s+/)
-    .map(normalize)
+    .map(normalizeQcText)
     .filter((p) => p.length >= 2 && !/\d{4}/.test(p));
 }
+
+/** Sekcja bloku z klauzulą zgody RODO (lustro `dz_review.RODO_SECTION`). */
+export const RODO_SECTION = "rodo";
 
 export interface CvSegment {
   /** Kolejne bloki CV należące do segmentu. */
   blocks: QcCvBlock[];
-  /** Brak w tym stanowisku (czerwona krawędź) — `null` = segment bez braków. */
+  /** Brak w tym stanowisku (krawędź z boku) — `null` = segment bez braków. */
   gap: RoleGap | null;
 }
 
 /**
  * Dzieli CV na segmenty: stanowisko = blok `section: "role"` + wszystko do
- * następnej roli albo nagłówka. Brak trafia do segmentu po `role_index`
+ * następnej roli, nagłówka albo klauzuli zgody RODO (stoi tuż po ostatnim
+ * stanowisku, ale nie jest jego treścią). Brak trafia do segmentu po `role_index`
  * (n-te stanowisko w sekcji doświadczenia — lustro `cv_qc.cv_roles`), a bez
  * numeru — gdy tekst segmentu zawiera KAŻDĄ część etykiety roli (pracodawca
  * i stanowisko bywają w dwóch blokach). Brak bez dopasowania nie znika —
@@ -179,10 +209,18 @@ export function segmentCv(blocks: QcCvBlock[], gaps: RoleGap[]): CvSegment[] {
   let inExperience = false;
   let roleCount = 0;
   for (const block of blocks) {
-    // Nagłówek sekcji stoi sam — nie należy do stanowiska nad nim.
-    if (block.kind === "h") {
+    // Nagłówek sekcji (h1/h2) stoi sam — nie należy do stanowiska nad nim.
+    // Śródtytuł h3/h4 w opisie roli zostaje w roli, jak w `cv_roles` na
+    // serwerze; nagłówek bez poziomu (starszy wynik) kończy rolę jak dotąd.
+    if (block.kind === "h" && (block.level ?? 1) <= 2) {
       segments.push({ blocks: [block], gap: null });
       inExperience = block.section === "experience";
+      current = null;
+      continue;
+    }
+    if (block.section === RODO_SECTION) {
+      segments.push({ blocks: [block], gap: null });
+      inExperience = false;
       current = null;
       continue;
     }
@@ -203,10 +241,10 @@ export function segmentCv(blocks: QcCvBlock[], gaps: RoleGap[]): CvSegment[] {
   }
   for (const segment of segments) {
     if (segment.gap || !segment.blocks.some((b) => b.section === "role")) continue;
-    const text = normalize(segment.blocks.map((b) => b.runs.map((r) => r.t).join("")).join(" "));
+    const text = normalizeQcText(segment.blocks.map((b) => b.runs.map((r) => r.t).join("")).join(" "));
     const gap = gaps.find((g) => {
       if (used.has(g) || g.roleIndex != null) return false;
-      const parts = roleParts(g.role);
+      const parts = roleLabelParts(g.role);
       return parts.length > 0 && parts.every((p) => text.includes(p));
     });
     if (gap) {
@@ -215,6 +253,403 @@ export function segmentCv(blocks: QcCvBlock[], gaps: RoleGap[]): CvSegment[] {
     }
   }
   return segments;
+}
+
+// ── Co jest do poprawy, co jest uwagą, co jest w porządku ────────────────────
+
+export interface QcTask {
+  /** Stabilny klucz: sprawdzenie + nazwa. */
+  id: string;
+  check: QcCheck;
+  /** Wymaganie albo termin; `null` = pozycja bez nazwy (np. brak CV, stawka w CV). */
+  name: string | null;
+  items: QcItem[];
+}
+
+/**
+ * Rzeczy do poprawy w jednym niezaliczonym sprawdzeniu: jedno wymaganie (także
+ * w kilku rolach) to jedna rzecz, pozycja bez nazwy liczy się sama. Lustro
+ * `cv_qc._tasks` — suma po blokujących = `blocking_failed` z serwera, więc
+ * okno, chip na Tablicy i komunikat bramki podają tę samą liczbę.
+ */
+export function checkTasks(check: QcCheck): QcTask[] {
+  const groups = new Map<string, QcTask>();
+  check.items.forEach((item, n) => {
+    const name = item.requirement || item.term || null;
+    const key = name ?? `#${n}`;
+    const task = groups.get(key) ?? { id: `${check.key}:${key}`, check, name, items: [] };
+    task.items.push(item);
+    groups.set(key, task);
+  });
+  if (groups.size === 0) return [{ id: `${check.key}:#0`, check, name: null, items: [] }];
+  return [...groups.values()];
+}
+
+export interface QcSplit {
+  /** Zatrzymują wysyłkę — „Do poprawy przed wysłaniem". */
+  tasks: QcTask[];
+  /** Uwagi i sprawdzenia do obejrzenia ręcznie — „Warto poprawić — nie blokuje". */
+  notes: QcCheck[];
+  /**
+   * Uwagi wyciszone w „Jakość QC” (`muted`, D6) — widać je jako informację,
+   * nie liczą się do „Warto poprawić” (lustro `cv_qc.summarize`).
+   */
+  muted: QcCheck[];
+  /** Zaliczone. */
+  passed: QcCheck[];
+  /** Nie dotyczą tego CV albo tej rekrutacji. */
+  skipped: QcCheck[];
+}
+
+export function splitChecks(checks: QcCheck[]): QcSplit {
+  const split: QcSplit = { tasks: [], notes: [], muted: [], passed: [], skipped: [] };
+  for (const check of checks) {
+    if (check.status === "pass") split.passed.push(check);
+    else if (check.status === "skip") split.skipped.push(check);
+    else if (check.status === "fail" && check.severity === "blocking") split.tasks.push(...checkTasks(check));
+    // Blokad serwer nigdy nie wycisza — `muted` dotyczy tylko uwag.
+    else if (check.muted && check.severity === "warning") split.muted.push(check);
+    else split.notes.push(check);
+  }
+  return split;
+}
+
+export function blockingTasks(checks: QcCheck[]): QcTask[] {
+  return splitChecks(checks).tasks;
+}
+
+// ── Uwagi generatora, które QC już pokazuje (13.10.2026) ─────────────────────
+//
+// Generator zapisuje brakujące wymaganie jako „MUST-HAVE: X”, a QC ma dla
+// tego samego wymagania pozycję z miejscem w CV i przyciskiem naprawy. Jedna
+// rzecz nie może liczyć się dwa razy — ani w karcie „CV do klienta”, ani
+// w liście „Do poprawy” edytora.
+
+/** Sprawdzenia QC z pozycją na wymaganie must-have (krytyczne i pozostałe). */
+const MUST_REQUIREMENT_CHECKS: ReadonlySet<string> = new Set(["must_in_cv", "critical_skills"]);
+
+/**
+ * Wymaganie z uwagi generatora „MUST-HAVE: X” — bez dopisku po myślniku,
+ * w nawiasie albo po średniku. `null` dla innych uwag.
+ */
+export function mustHaveWarningName(text: string): string | null {
+  const match = /^\s*MUST-HAVE\s*:\s*(.+)$/i.exec(text);
+  if (!match) return null;
+  const name = match[1]
+    .split(/\s+[—–-]\s+|\s*[(;]/)[0]
+    .replace(/[.,:]+$/, "")
+    .trim();
+  return name || null;
+}
+
+function containsTerm(haystack: string, term: string): boolean {
+  const pattern = termRegExp(term);
+  return pattern != null && new RegExp(pattern.source, "iu").test(haystack);
+}
+
+/** To samo wymaganie: równe po normalizacji albo jedno stoi w drugim jako całe słowo („Kafka” ↔ „Apache Kafka”). */
+export function sameRequirement(name: string, requirement: string): boolean {
+  const left = normalizeQcText(name);
+  if (!left) return false;
+  return requirementAlternatives(requirement).some((alternative) => {
+    const right = normalizeQcText(alternative);
+    if (!right) return false;
+    return left === right || containsTerm(left, right) || containsTerm(right, left);
+  });
+}
+
+/**
+ * Czy QC ma pozycję o tym wymaganiu w `must_in_cv` albo `critical_skills` —
+ * do poprawy, jako informację albo pominiętą („To nieprawda”). Zaliczone
+ * sprawdzenie bez pozycji nie zdejmuje uwagi generatora.
+ */
+export function qcCoversRequirement(checks: readonly QcCheck[], name: string): boolean {
+  return checks.some(
+    (check) =>
+      MUST_REQUIREMENT_CHECKS.has(check.key) &&
+      [...check.items, ...(check.info ?? []), ...(check.dismissed_items ?? [])].some((item) => {
+        const requirement = (item.requirement ?? item.term ?? "").trim();
+        return requirement !== "" && sameRequirement(name, requirement);
+      }),
+  );
+}
+
+/** Uwagi generatora bez „MUST-HAVE: X”, gdy QC ma już pozycję tego wymagania. */
+export function warningsBeyondQc<T extends { text: string }>(
+  warnings: readonly T[],
+  checks: readonly QcCheck[],
+): { kept: T[]; covered: T[] } {
+  const kept: T[] = [];
+  const covered: T[] = [];
+  for (const warning of warnings) {
+    const name = mustHaveWarningName(warning.text);
+    if (name && qcCoversRequirement(checks, name)) covered.push(warning);
+    else kept.push(warning);
+  }
+  return { kept, covered };
+}
+
+/** „1 rzecz", „2 rzeczy", „5 rzeczy". */
+export function thingsLabel(count: number): string {
+  return count === 1 ? "1 rzecz" : `${count} rzeczy`;
+}
+
+/** Odmiana po liczbie: `[1, 2–4, 5+]` → „1 inna", „3 inne", „7 innych". */
+export function countForm(count: number, forms: [string, string, string]): string {
+  if (count === 1) return `1 ${forms[0]}`;
+  const few = count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14);
+  return `${count} ${few ? forms[1] : forms[2]}`;
+}
+
+/**
+ * Wynik QC w liczbach — jedna reguła dla karty Tablicy i panelu osoby
+ * (18.10.2026): blokujące „do poprawy” i nieblokujące „uwagi” osobno. Karta
+ * sumowała obie, panel liczył tylko blokujące, więc ta sama osoba miała
+ * „QC: 2 do poprawy” na karcie i „1 rzecz do poprawy” w panelu.
+ */
+export function qcWarningsText(warnings: number): string {
+  return countForm(warnings, ["uwaga", "uwagi", "uwag"]);
+}
+
+export function qcCountsText(blocking: number, warnings: number): string {
+  const parts: string[] = [];
+  if (blocking > 0) parts.push(`${blocking} do poprawy`);
+  if (warnings > 0) parts.push(qcWarningsText(warnings));
+  return parts.join(" · ");
+}
+
+/** Ile nazw pokazuje jedna linia uwagi — reszta jako „i N innych". */
+const NOTE_NAMES_SHOWN = 3;
+
+/** Jedna linia pod uwagą: nazwy pozycji („Kafka, JUnit i 4 inne") albo opis jedynej pozycji. */
+export function notePreview(check: QcCheck): string | null {
+  const names: string[] = [];
+  for (const item of check.items) {
+    const name = (item.requirement || item.term || "").trim();
+    if (name && !names.includes(name)) names.push(name);
+  }
+  if (names.length === 0) return check.items[0]?.detail?.trim() || null;
+  const rest = names.length - NOTE_NAMES_SHOWN;
+  const head = names.slice(0, NOTE_NAMES_SHOWN).join(", ");
+  return rest > 0 ? `${head} i ${countForm(rest, ["inne", "inne", "innych"])}` : head;
+}
+
+/** Krótki tytuł rzeczy do poprawy (karta w oknie QC, lista w oknie obejścia). */
+/** Rzecz w oknie obejścia (D4, 17.10.2026): tytuł i klucze pozycji do etykiety „QC się myli”. */
+export interface QcPendingItem {
+  title: string;
+  /** Klucze pozycji QC tej rzeczy (krytyczna w kilku rolach = kilka kluczy). */
+  keys: string[];
+  /** Blokadę da się oznaczyć „QC się myli” — brak CV i reguły klienta nie. */
+  labelable: boolean;
+}
+
+export function taskPendingItem(task: QcTask): QcPendingItem {
+  const keys = task.items.map((item) => item.key).filter((key): key is string => !!key);
+  return {
+    title: taskTitle(task),
+    keys,
+    labelable: keys.length > 0 && task.check.severity === "blocking" && !QC_NOT_DISMISSABLE.has(task.check.key),
+  };
+}
+
+export function taskTitle(task: QcTask): string {
+  const { check, name, items } = task;
+  if (!name) return items[0]?.detail?.trim() || check.label;
+  if (check.key === "critical_skills") {
+    const roles = items.filter((i) => i.role).length;
+    if (roles === 1) return `${name} — brak opisu w 1 roli`;
+    if (roles > 1) return `${name} — brak opisu w ${roles} rolach`;
+    if (items.some((i) => i.similar)) return `${name} — w oryginale pod inną nazwą?`;
+    return items.some((i) => i.fix === "ask_candidate")
+      ? `${name} — brak w CV i w oryginale`
+      : `${name} — brak w CV`;
+  }
+  if (check.key === "no_unsupported") {
+    const term = (items[0]?.term ?? name).trim() || name;
+    if (items[0]?.similar) return `${term} — w oryginale pod inną nazwą?`;
+    return `${term} — jest w CV, a nie ma tego w oryginale`;
+  }
+  return name;
+}
+
+/** Skąd rzecz pochodzi — plakietka na karcie. */
+export const QC_TASK_TAG: Record<string, string> = {
+  cv_present: "CV firmowe",
+  critical_skills: "umiejętność krytyczna",
+  no_unsupported: "zgodność z oryginałem",
+  client_rules: "reguły klienta",
+};
+
+// ── Dowód z oryginału i „rola po roli" ───────────────────────────────────────
+
+/**
+ * Czy oryginał mówi, co kandydat robił z umiejętnością w tych rolach: `true`,
+ * gdy choć jedna pozycja stoi na zdaniu z opisu roli albo nie niesie dowodu
+ * (przebieg sprzed 12.10.2026). `false` = same listy technologii i nazwy
+ * stanowisk — AI nie ma z czego ułożyć zdania, trzeba zapytać kandydata.
+ */
+export function originalDescribesSkill(items: QcItem[]): boolean {
+  return items.some((item) => !item.evidence_kind || item.evidence_kind === "description");
+}
+
+/** Co stoi w CV firmowym w roli z brakiem — z opisu pozycji (`cv_qc._role_items`). */
+export function companyCvRoleState(item: QcItem): string {
+  return item.detail?.trim().startsWith("Jest tylko na liście technologii")
+    ? "tylko na liście technologii"
+    : "brak w tej roli";
+}
+
+export const QC_ROLE_STATE_LABEL: Record<QcRoleStateKind, string> = {
+  described: "opisane w CV firmowym",
+  missing: "brakuje zdania w CV firmowym",
+  listed_only: "w oryginale tylko na liście technologii albo w nazwie stanowiska — zdanie nie jest wymagane",
+  not_in_original: "oryginał nie pokazuje tej umiejętności w tej roli — opis nie jest wymagany",
+  unverified: "odczyt CV nie ma opisu tej roli — sprawdź ręcznie",
+};
+
+export const QC_SEARCH_SOURCE_LABEL: Record<QcSearchSource, string> = {
+  cv: "CV firmowe",
+  original: "oryginał",
+  answers: "odpowiedzi",
+  notes: "notatki",
+};
+
+export const QC_FIX_SOURCE_LABEL: Record<QcFix["source"], string> = {
+  original: "oryginalne CV",
+  answers: "odpowiedź kandydata",
+  notes: "notatka rekrutera",
+};
+
+export interface RoleStateGroup {
+  requirement: string;
+  roles: QcRoleState[];
+}
+
+/** „Rola po roli" pogrupowana po wymaganiu, w kolejności z serwera. */
+export function groupRoleStates(roles: QcRoleState[]): RoleStateGroup[] {
+  const groups = new Map<string, RoleStateGroup>();
+  for (const role of roles) {
+    const group = groups.get(role.requirement) ?? { requirement: role.requirement, roles: [] };
+    group.roles.push(role);
+    groups.set(role.requirement, group);
+  }
+  return [...groups.values()];
+}
+
+// ── Miejsce pozycji w tekście CV (edytor) ────────────────────────────────────
+
+/**
+ * Gdzie w CV leży to, czego dotyczy pozycja: stanowisko (numer w sekcji
+ * doświadczenia albo etykieta), termin w tekście (opcjonalnie w danej roli)
+ * albo cała linia. Edytor CV zamienia to na pozycję w dokumencie
+ * (`lib/cv-editor-issues.ts`); okno QC z tego nie korzysta.
+ */
+export type IssueTarget =
+  | { kind: "role"; roleIndex: number | null; label: string | null }
+  | { kind: "term"; term: string; roleIndex: number | null; label: string | null }
+  | { kind: "line"; text: string };
+
+/** Miejsce pozycji QC w CV; `null` = pozycja dotyczy całego CV (np. brak zgody). */
+export function itemTarget(item: QcItem): IssueTarget | null {
+  const roleIndex = typeof item.role_index === "number" ? item.role_index : null;
+  const label = item.role?.trim() || null;
+  const term = item.term?.trim();
+  if (term) return { kind: "term", term, roleIndex, label };
+  if (roleIndex != null || label) return { kind: "role", roleIndex, label };
+  return null;
+}
+
+// ── „Przepuść mimo QC" ───────────────────────────────────────────────────────
+
+/** Lustro `cv_qc.OVERRIDE_REASONS` (pilnuje `test_qc_override_reasons_mirror`). */
+export const QC_OVERRIDE_REASONS = [
+  { code: "client_short_cv", label: "Klient prosił o krótsze CV" },
+  { code: "confirmed_in_call", label: "Kandydat potwierdził to w rozmowie, w CV tego nie ma" },
+  { code: "requirement_not_applicable", label: "To wymaganie nie dotyczy tej roli" },
+  { code: "other", label: "Inny powód" },
+];
+
+export type QcOverrideReason = "client_short_cv" | "confirmed_in_call" | "requirement_not_applicable" | "other";
+
+export const QC_OVERRIDE_NOTE_MAX = 900;
+
+/** Zdanie błędu formularza obejścia albo `null`, gdy można wysłać. */
+/** Lustro `cv_qc.CONFIRM_TEXT_MIN`: potwierdzenie musi mówić, co powiedział kandydat. */
+export const QC_CONFIRM_TEXT_MIN = 15;
+
+export function qcOverrideError(reason: QcOverrideReason | null, note: string): string | null {
+  if (!reason) return "Wybierz powód.";
+  const clean = note.trim();
+  if (clean.length > QC_OVERRIDE_NOTE_MAX) return `Opis może mieć najwyżej ${QC_OVERRIDE_NOTE_MAX} znaków.`;
+  if (reason === "confirmed_in_call" && clean.length < QC_CONFIRM_TEXT_MIN) {
+    return `Wpisz, co dokładnie powiedział kandydat (co najmniej ${QC_CONFIRM_TEXT_MIN} znaków). To zdanie zobaczy Delivery Lead.`;
+  }
+  if (reason === "other" && !clean) return "Przy „Inny powód” napisz, dlaczego przepuszczasz.";
+  return null;
+}
+
+// ── „To nieprawda” (D5, 13.10.2026) ─────────────────────────────────────────
+
+/** Lustro `cv_finding_dismissals.REASONS`; trzy pierwsze to „QC się myli” (liczą się do trafności). */
+export const QC_DISMISS_REASONS: ReadonlyArray<{ code: QcDismissReason; label: string }> = [
+  { code: "in_cv", label: "Jest w CV — QC tego nie znalazło" },
+  { code: "other_name", label: "Jest w źródłach pod inną nazwą" },
+  { code: "wrong_place", label: "Dotyczy innej roli albo sekcji" },
+  { code: "not_needed", label: "Nie dotyczy tej rekrutacji" },
+  { code: "other", label: "Inny powód" },
+];
+
+/** Brak CV i reguły klienta (stawka, kontakt, zgoda RODO) — tych uwag nie da się pominąć. */
+export const QC_NOT_DISMISSABLE: ReadonlySet<string> = new Set(["cv_present", "client_rules"]);
+
+/** Komunikat po pominięciu — „Zostaw tę kolejność” to wybór rekrutera, nie „nieprawda”. */
+export function qcDismissedMessage(reason: QcDismissReason): string {
+  return reason === "kept_order" ? "Kolejność zostaje — QC przeliczone." : "Oznaczono jako nieprawdę — QC przeliczone.";
+}
+
+export const QC_DISMISS_NOTE_MAX = 500;
+export const QC_DISMISS_QUOTE_MAX = 300;
+
+/** Kto może pominąć tę pozycję: bez klucza (przebieg sprzed 13.10) i w regułach klienta — nikt. */
+export function canDismissItem(check: QcCheck, item: QcItem, canDismissBlocking: boolean): boolean {
+  if (!item.key || QC_NOT_DISMISSABLE.has(check.key)) return false;
+  return check.severity !== "blocking" || canDismissBlocking;
+}
+
+/** „Pod inną nazwą” przy treści spoza oryginału wymaga fragmentu źródła (serwer go szuka). */
+export function dismissNeedsQuote(checkKey: string, reason: QcDismissReason | null): boolean {
+  return checkKey === "no_unsupported" && reason === "other_name";
+}
+
+/** Zdanie błędu formularza „To nieprawda” albo `null`, gdy można wysłać. */
+export function qcDismissError(
+  reason: QcDismissReason | null,
+  note: string,
+  quote: string | null,
+): string | null {
+  if (!reason) return "Wybierz powód.";
+  const clean = note.trim();
+  if (clean.length > QC_DISMISS_NOTE_MAX) return `Opis może mieć najwyżej ${QC_DISMISS_NOTE_MAX} znaków.`;
+  if (reason === "other" && !clean) return "Przy „Inny powód” opisz, dlaczego uwaga jest nieprawdziwa.";
+  if (quote !== null) {
+    const fragment = quote.trim();
+    if (!fragment) return "Wklej fragment oryginału, notatki albo odpowiedzi, w którym to stoi.";
+    if (fragment.length > QC_DISMISS_QUOTE_MAX) return `Fragment może mieć najwyżej ${QC_DISMISS_QUOTE_MAX} znaków.`;
+  }
+  return null;
+}
+
+export interface DismissedQcItem {
+  check: QcCheck;
+  item: QcItem;
+}
+
+/** Pominięte pozycje ze wszystkich sprawdzeń (także tych, które po pominięciu przechodzą). */
+export function dismissedQcItems(checks: QcCheck[]): DismissedQcItem[] {
+  return checks.flatMap((check) =>
+    (check.dismissed_items ?? []).filter((item) => item.dismissal).map((item) => ({ check, item })),
+  );
 }
 
 // ── Akcje naprawy ────────────────────────────────────────────────────────────

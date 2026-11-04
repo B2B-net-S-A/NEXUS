@@ -136,6 +136,12 @@ async def start_search(
             raise HTTPException(422, "Podaj request lub profil Championa")
     if not await db.get(Client, job.client_id):
         raise HTTPException(404, "Klient nie istnieje")
+    if payload.radar is not None:
+        from app.services.client_access import assert_client_assignable
+
+        # Runda 9 (R9-N5-8): Radar nie startuje przeglądu dla klienta
+        # usuniętego albo scalonego (422 z nazwą rekordu głównego).
+        await assert_client_assignable(db, job.client_id)
     from app.services.champion_intake import enforce_operation
 
     enforce_operation(job, "search", force=payload.radar is not None)
@@ -199,28 +205,28 @@ async def latest_run_for_job(
 
     _search_access(user)
     await _authorized_job(db, user, job_id)
-    run = await db.scalar(
-        select(CandidateSearchRun)
-        .where(
-            CandidateSearchRun.job_id == job_id,
-            CandidateSearchRun.state.in_(store.FINISHED_STATES),
-            or_(
-                CandidateSearchRun.created_by == user.id,
-                CandidateSearchRun.version_trace["origin"].astext == "auto",
-                CandidateSearchRun.metrics["origin"].astext == "auto",
-            ),
+
+    def _latest(states):
+        return (
+            select(CandidateSearchRun)
+            .where(
+                CandidateSearchRun.job_id == job_id,
+                CandidateSearchRun.state.in_(states),
+                or_(
+                    CandidateSearchRun.created_by == user.id,
+                    CandidateSearchRun.version_trace["origin"].astext == "auto",
+                    CandidateSearchRun.metrics["origin"].astext == "auto",
+                ),
+            )
+            .order_by(
+                CandidateSearchRun.completed_at.desc().nullslast(),
+                CandidateSearchRun.created_at.desc(),
+            )
+            .limit(1)
         )
-        .order_by(
-            CandidateSearchRun.completed_at.desc().nullslast(),
-            CandidateSearchRun.created_at.desc(),
-        )
-        .limit(1)
-    )
-    if run is None:
-        return {"job_id": job_id, "run": None}
-    return {
-        "job_id": job_id,
-        "run": {
+
+    def _shape(run):
+        return {
             "run_id": run.id,
             "state": run.state,
             "completed_at": run.completed_at,
@@ -228,7 +234,28 @@ async def latest_run_for_job(
             or (run.metrics or {}).get("origin")
             or "manual",
             "own": run.created_by == user.id,
-        },
+        }
+
+    # Runda 9 (R9-N5-5): nowszy przegląd `failed` (np. nocny automat po
+    # awarii) przykrywał udany ranking — ekran adoptował awarię i pokazywał
+    # „uruchom ponownie” zamiast gotowych wyników. Najpierw najnowszy przegląd
+    # z wynikami; awaria nowsza od niego idzie osobnym polem.
+    run = await db.scalar(_latest(store.RESULT_STATES))
+    failure = await db.scalar(_latest(("failed",)))
+    if run is None:
+        # Bez wyniku awaria zostaje odpowiedzią (ekran mówi „nie udało się”).
+        run, failure = failure, None
+    if run is None:
+        return {"job_id": job_id, "run": None, "latest_failure": None}
+    newer_failure = (
+        failure is not None
+        and failure.completed_at is not None
+        and (run.completed_at is None or failure.completed_at > run.completed_at)
+    )
+    return {
+        "job_id": job_id,
+        "run": _shape(run),
+        "latest_failure": _shape(failure) if newer_failure else None,
     }
 
 
@@ -337,6 +364,14 @@ async def search_results(
     decisions = await evaluate_candidates_for_job(
         db, job=job, candidate_ids=list(current), now=datetime.now(timezone.utc)
     )
+    # Znacznik „Pracuje u nas” jedzie OBOK plakietki — nie wchodzi do
+    # `annotation`, więc zmiana zamówienia nie oznacza rankingu jako zmienionego.
+    from app.core.scheduling import business_today
+    from app.services.employment_marker import load_employment_markers
+
+    employment_markers = await load_employment_markers(
+        db, list(current), today=business_today(), job_client_id=job.client_id
+    )
     from app.services.eligibility_annotation import eligibility_annotation
     from app.services.match_telemetry_service import (
         ImpressionEntry,
@@ -441,17 +476,39 @@ async def search_results(
                     ),
                 )
             )
-        results.append(
-            {
-                "match": details,
-                "candidate": shape_radar_candidate(current[row.candidate_id]),
-                "fit_score": fit_score,
-                "measurement": measurement,
-                "breakdown": breakdown,
-                "requirements": requirements,
-                "eligibility": annotation,
+        # Budżet i dni w biurze nie ukrywają (v9, 30.09.2026) — wiersz niesie
+        # plakietkę z chwili przeglądu; przy zmienionych danych jej nie ma.
+        frozen_filters = (row.evidence or {}).get("filters") or {}
+        fit = (
+            None
+            if row_changed
+            else {
+                "rate": frozen_filters.get("rate"),
+                "office": frozen_filters.get("office"),
             }
         )
+        # „Tylko zdalnie” przy hybrydzie (07.10.2026) — tylko w przeglądach,
+        # które to pole zapisały; starsze zostają w dotychczasowym kształcie.
+        if fit is not None and "remote" in frozen_filters:
+            fit["remote"] = frozen_filters["remote"]
+        # Wcześniejsze rozmowy (07.10.2026) — tylko w przeglądach liczonych
+        # z warstwą `prior_screening`; pozostałe bez zmiany kształtu.
+        if fit is not None and "prior_screening" in frozen_filters:
+            fit["prior_screening"] = frozen_filters["prior_screening"]
+        item = {
+            "match": details,
+            "candidate": shape_radar_candidate(current[row.candidate_id]),
+            "fit_score": fit_score,
+            "measurement": measurement,
+            "breakdown": breakdown,
+            "requirements": requirements,
+            "eligibility": annotation,
+            "employment_marker": employment_markers.get(row.candidate_id),
+            "fit": fit,
+        }
+        if not row_changed and "prior_screening" in (row.evidence or {}):
+            item["prior_screening"] = row.evidence["prior_screening"]
+        results.append(item)
     from app.services.dealbreaker_filters import resolve_job_budget_hourly
 
     if impressions:

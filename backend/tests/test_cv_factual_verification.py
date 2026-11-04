@@ -387,6 +387,29 @@ def test_invalid_evidence_is_not_counted_as_a_correct_semantic_rejection(monkeyp
     assert caught.value.reason == "invalid_evidence"
 
 
+def test_bad_citation_does_not_hide_the_reviewers_real_objections(monkeypatch):
+    # Do 13.10.2026 jeden błędny cytat rzucał wyjątek bez odrzuconych twierdzeń,
+    # więc rekruter widział pomyłkę recenzenta zamiast jego zastrzeżeń.
+    def respond(content, *a, **k):
+        body = review_response(content)
+        claims = body["claims"]
+        claims[0]["status"] = "unsupported"
+        claims[0]["evidence"] = []
+        claims[1]["evidence"] = []
+        return json.dumps(body)
+
+    monkeypatch.setattr(gate, "analyze_with_ai", respond)
+    with pytest.raises(gate.FactualVerificationError) as caught:
+        run_gate()
+    error = caught.value
+    assert error.reason == "semantic_rejection"
+    assert len(error.paths) == 2
+    assert sorted(error.statuses[path] for path in error.paths) == [
+        "invalid_evidence",
+        "unsupported",
+    ]
+
+
 def test_versioned_diagnostic_corpus_and_scoring_distinguish_errors():
     from scripts.eval_cv_factual_gate import load_cases, score
 
@@ -521,3 +544,16 @@ def test_narrative_why_points_are_context_not_claims(monkeypatch):
     claimed = {path for r in requests for path in r["claims"]}
     assert not any(path.startswith("/why_points") for path in claimed)
     assert requests[0]["final_document"]["why_points"] == data["why_points"]
+
+
+def test_bad_citation_is_a_soft_verify_warning_not_a_certain_gap():
+    from app.services.cv_generator_b2b.final_review import review_warnings
+
+    report = {
+        "status": "advisory",
+        "paths": ["/position", "/name"],
+        "statuses": {"/position": "unsupported", "/name": "invalid_evidence"},
+    }
+    warnings = review_warnings(report, DOCUMENT, "pl")
+    assert warnings[0].startswith("BRAK POKRYCIA (kontrola AI)")
+    assert warnings[1].startswith("WERYFIKUJ (kontrola AI)")

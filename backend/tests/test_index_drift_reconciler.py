@@ -309,3 +309,232 @@ def test_the_loop_passes_the_published_predicate_only_for_jobs():
 
     src = inspect.getsource(task.index_drift_reconciler_loop)
     assert "_job_is_published if entity_type == outbox.JOB else None" in src
+
+
+# ── Runda 8 (R8-N11-4): kandydat, którego intencja umarła ──────────────────
+
+
+async def _add_event(db, candidate_id: int, *, status: str, hash_value: str = "h"):
+    db.add(
+        IndexOutboxEvent(
+            entity_type=outbox.CANDIDATE,
+            entity_id=candidate_id,
+            entity_revision=1,
+            desired_hash=hash_value,
+            indexed_hash=hash_value if status == "done" else None,
+            indexed_revision=1 if status == "done" else None,
+            operation="upsert" if hash_value else "delete",
+            status=status,
+            attempts=5 if status == "dead" else 0,
+        )
+    )
+    await db.flush()
+
+
+@pytest.mark.asyncio
+async def test_candidate_whose_only_intent_died_is_revived():
+    """Qdrant leżał dłużej niż budżet prób: intencja `dead`, żadnego `done`.
+
+    Do rundy 8 reconciler traktował takiego kandydata jak „nigdy nie
+    widzianego" i pomijał go — nie dostawał wektora nigdy.
+    """
+    async with AsyncSessionLocal() as db:
+        cand = await _fresh_candidate(db)
+        await _add_event(db, cand.id, status="dead")
+        result = await rec.reconcile_once(
+            db,
+            entity_type=outbox.CANDIDATE,
+            cursor=cand.id - 1,
+            batch=1,
+            revive_dead_unseen=True,
+        )
+        assert result.revived == 1
+        assert len(await _pending_ids(db, cand.id)) == 1
+        # Drugi przebieg nie dubluje intencji w toku.
+        await rec.reconcile_once(
+            db,
+            entity_type=outbox.CANDIDATE,
+            cursor=cand.id - 1,
+            batch=1,
+            revive_dead_unseen=True,
+        )
+        assert len(await _pending_ids(db, cand.id)) == 1
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_candidate_that_died_again_after_revival_is_not_revived_twice():
+    """Przegląd rundy 8: kandydat bez tekstu do embeddingu wraca jako `dead`
+    po każdej próbie — wznowienie jest jednorazowe, inaczej kolejka rosła
+    o 5 prób na każdy pełny przebieg."""
+    async with AsyncSessionLocal() as db:
+        cand = await _fresh_candidate(db)
+        await _add_event(db, cand.id, status="dead")
+        await _add_event(db, cand.id, status="dead")
+        result = await rec.reconcile_once(
+            db,
+            entity_type=outbox.CANDIDATE,
+            cursor=cand.id - 1,
+            batch=1,
+            revive_dead_unseen=True,
+        )
+        assert result.revived == 0
+        assert await _pending_ids(db, cand.id) == []
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_quarantined_candidate_with_an_old_dead_intent_is_not_revived():
+    """Kwarantanna zostawia `done` z pustym haszem — nie wolno jej odwrócić."""
+    async with AsyncSessionLocal() as db:
+        cand = await _fresh_candidate(db)
+        await _add_event(db, cand.id, status="dead")
+        await _add_event(db, cand.id, status="done", hash_value="")
+        result = await rec.reconcile_once(
+            db,
+            entity_type=outbox.CANDIDATE,
+            cursor=cand.id - 1,
+            batch=1,
+            revive_dead_unseen=True,
+        )
+        assert result.revived == 0
+        assert await _pending_ids(db, cand.id) == []
+        await db.rollback()
+
+
+def test_the_loop_revives_candidates_and_syncs_job_statuses():
+    import inspect
+
+    from app.tasks import index_drift_reconciler_task as task
+
+    src = inspect.getsource(task.index_drift_reconciler_loop)
+    assert "revive_dead_unseen=entity_type == outbox.CANDIDATE" in src
+    assert "sync_job_status=entity_type == outbox.JOB" in src
+
+
+# ── Runda 8 (R8-N11-2): status oferty w payloadzie Qdranta ─────────────────
+
+
+@pytest.mark.asyncio
+async def test_job_status_drift_in_payload_is_repaired(monkeypatch):
+    """Archiwum Traffita/0378 zamyka rekrutacje SQL-em — payload mówił dalej
+    „published" i zajmował pulę ofert. Reconciler porównuje i poprawia."""
+    from types import SimpleNamespace
+
+    from app.models.job import JobStatus
+    from app.services import embedding_service
+
+    rows = [
+        SimpleNamespace(id=1, status=JobStatus.closed),
+        SimpleNamespace(id=2, status=JobStatus.published),
+        SimpleNamespace(id=3, status=JobStatus.published),
+    ]
+    written: dict = {}
+
+    async def _payload(_ids):
+        # Punktu 3 nie ma w Qdrancie.
+        return {1: "published", 2: "published"}
+
+    async def _sync(statuses):
+        written.update(statuses)
+        return len(statuses)
+
+    monkeypatch.setattr(embedding_service, "job_payload_statuses", _payload)
+    monkeypatch.setattr(embedding_service, "sync_job_status_payloads", _sync)
+
+    assert await rec._sync_job_statuses(rows) == 1
+    assert written == {1: "closed"}
+
+
+@pytest.mark.asyncio
+async def test_job_status_sync_is_silent_when_qdrant_is_unknown(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.models.job import JobStatus
+    from app.services import embedding_service
+
+    async def _unknown(_ids):
+        return None
+
+    async def _never(_statuses):  # pragma: no cover — nie może być wołane
+        raise AssertionError("zapis bez odczytu")
+
+    monkeypatch.setattr(embedding_service, "job_payload_statuses", _unknown)
+    monkeypatch.setattr(embedding_service, "sync_job_status_payloads", _never)
+    rows = [SimpleNamespace(id=1, status=JobStatus.closed)]
+    assert await rec._sync_job_statuses(rows) == 0
+
+
+# ── Badanie 06.10.2026: nowi kandydaci i trwały kursor ─────────────────────
+
+
+@pytest.mark.asyncio
+async def test_newest_first_checks_highest_ids_and_skips_in_flight_intents():
+    """Zwykły przebieg idzie od najniższych id i trwa ~11 h, a deploy zaczynał go
+    od zera — nowi kandydaci (najwyższe id) nie byli sprawdzani nigdy. Przebieg
+    `newest_first` bierze najwyższe id i nie dopisuje drugiej intencji temu,
+    kto już czeka w kolejce."""
+    async with AsyncSessionLocal() as db:
+        older = await _fresh_candidate(db)
+        newer = await _fresh_candidate(db)
+        await _record_indexed(db, older, hash_value="stale-older")
+        await _record_indexed(db, newer, hash_value="stale-newer")
+        db.add(
+            IndexOutboxEvent(
+                entity_type=outbox.CANDIDATE,
+                entity_id=newer.id,
+                entity_revision=2,
+                desired_hash="already-queued",
+                operation="upsert",
+                status="pending",
+            )
+        )
+        await db.flush()
+
+        result = await rec.reconcile_once(
+            db, entity_type=outbox.CANDIDATE, batch=2, newest_first=True
+        )
+
+        assert result.scanned == 2
+        assert result.next_cursor is None, "przebieg najnowszych nie ma kursora"
+        assert result.drifted == 2
+        assert len(await _pending_ids(db, older.id)) == 1
+        assert len(await _pending_ids(db, newer.id)) == 1, "duplikat intencji"
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_cursor_state_survives_a_restart():
+    from app.tasks import index_drift_reconciler_task as task
+
+    try:
+        await task.save_cursors({outbox.CANDIDATE: 4321, outbox.JOB: 17})
+        assert await task.load_cursors() == {outbox.CANDIDATE: 4321, outbox.JOB: 17}
+
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                text(
+                    "UPDATE app_settings SET value = CAST(:v AS jsonb) WHERE key = :k"
+                ),
+                {"k": task.STATE_KEY, "v": '{"candidate": "x", "job": -5}'},
+            )
+            await db.commit()
+        # Zepsuty stan to start od zera, nie wywrotka pętli.
+        assert await task.load_cursors() == {outbox.CANDIDATE: 0, outbox.JOB: 0}
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                text("DELETE FROM app_settings WHERE key = :k"), {"k": task.STATE_KEY}
+            )
+            await db.commit()
+
+
+def test_the_loop_reads_and_saves_the_cursor_and_checks_newest_first():
+    import inspect
+
+    from app.tasks import index_drift_reconciler_task as task
+
+    src = inspect.getsource(task.index_drift_reconciler_loop)
+    assert "await load_cursors()" in src
+    assert "await save_cursors(cursors)" in src
+    assert "newest_first=True" in src

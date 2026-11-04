@@ -36,12 +36,14 @@ Reguły, które łatwo cofnąć:
 
 from __future__ import annotations
 
+import enum
 import hashlib
 import json
 import logging
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import Any, Literal, Optional
 
 from sqlalchemy import select, text
@@ -50,6 +52,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
 from app.models.candidate import Candidate
+from app.services.candidate_name_rules import without_name_markers
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +69,11 @@ _POLYMORPHIC: tuple[tuple[str, str, str, str], ...] = (
     ("activities", "entity_type", "candidate", "entity_id"),
     ("notifications", "related_entity_type", "candidate", "related_entity_id"),
     ("traffit_entity_links", "entity_type", "candidate", "nexus_entity_id"),
+    # Powiązania rozmów Jarvisa: po nich ``jarvis.erasure`` kasuje rozmowy przy
+    # usunięciu osoby (art. 17). Bez przepięcia rozmowa o duplikacie przeżywała
+    # usunięcie ocalałego (runda 6 audytu). Klucz główny bez ``id`` — kolizje
+    # usuwa ``_move_polymorphic`` przed UPDATE.
+    ("jarvis_conversation_entities", "entity_type", "candidate", "entity_id"),
 )
 
 # Konflikt unikalności, w którym o zwycięzcy decyduje STAN wiersza, nie data:
@@ -82,6 +90,27 @@ _SKIP_TABLES: dict[str, str] = {
     # Kolejka indeksu: wiersz duplikatu zostaje i dostaje zadanie „delete",
     # ocalały dostaje świeże przeliczenie wektora.
     "match_index_outbox": "kolejka indeksu wektorowego",
+    # Migawki pełnego przeglądu bazy: wiersze duplikatu kasuje
+    # `candidate_search_store.erase_candidate` (runda 8, R8-N11-6) i ogradza
+    # przeglądy w toku. Przepięcie łamało kompletność migawki (PK
+    # `(run_id, candidate_id)`), więc `finish_run` rzucał ValueError przy każdej
+    # próbie, aż przegląd kończył się `failed` z nieczytelnym kodem.
+    "candidate_search_results": "migawki przeglądów bazy (erase_candidate)",
+}
+
+# Runda 9 (R9-N8-2): tabele, w których konfliktu unikalności NIGDY nie
+# rozstrzyga DELETE — wiersz niesie plik CV (decyzja Artura 26.09.2026: „nie
+# usuwać nigdy żadnych CV”). Indeks → zmiana, która wyjmuje przegrany wiersz
+# spod predykatu indeksu częściowego, zostawiając plik. Nieznany indeks
+# unikalny w takiej tabeli = scalenie wycofane (409), nie kasowanie.
+_NEUTRALIZE: dict[str, dict[str, str]] = {
+    "candidate_documents": {
+        # Dwa główne CV: przegrany przestaje być główny, zostaje w galerii.
+        "ux_candidate_documents_active_primary_cv": "is_primary = false",
+        # Ta sama treść w obu profilach: oba wiersze zostają (inne nazwy,
+        # daty, pochodzenie) — przegrany traci tylko odcisk treści.
+        "ux_candidate_documents_candidate_sha": "content_sha256 = NULL",
+    },
 }
 
 Choice = Literal["survivor", "duplicate"]
@@ -101,8 +130,41 @@ MERGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("profile_about", "O sobie"),
     ("legal_name", "Nazwa firmy"),
     ("nip", "NIP"),
+    # Runda 9 (R9-N8-1): fakty, bez których bramki dopasowań i rekruter
+    # pracowali na profilu duplikatu — do tej pory znikały razem z nim.
+    ("expected_rate_hourly", "Stawka B2B (zł/h netto)"),
+    ("work_time_preference", "Wymiar pracy"),
+    ("max_onsite_days_per_week", "Dni w biurze (najwyżej)"),
+    ("preferences", "Preferencje"),
+    ("skills", "Umiejętności"),
+    ("experience", "Doświadczenie"),
+    ("education", "Wykształcenie"),
 )
 _FIELD_NAMES = {name for name, _ in MERGE_FIELDS}
+
+# Runda 9 (R9-N8-1): pola, o których NIE decyduje człowiek — bardziej
+# restrykcyjna wartość wygrywa zawsze (czarna lista, „tylko umowa o pracę”,
+# brak zgody). Wybór „ładniejszego” profilu nie może zdjąć czarnej listy ani
+# wpuścić do dopasowań osoby, która nie przejdzie na B2B. Wartość pusta
+# (``None``) nie jest informacją — bierzemy drugą stronę.
+_RESTRICTIVE_RANK: dict[str, dict[Any, int]] = {
+    "status": {"blacklisted": 1, "active": 0, "passive": 0},
+    "b2b_willingness": {"employment_only": 2, "would_switch": 1, "b2b": 0},
+    "accepts_below_min_rate": {False: 1, True: 0},
+    "accepts_more_office_days": {False: 1, True: 0},
+}
+RESTRICTIVE_FIELDS: tuple[tuple[str, str], ...] = (
+    ("status", "Status w bazie"),
+    ("b2b_willingness", "Gotowość na B2B"),
+    ("accepts_below_min_rate", "Zgoda na stawkę poniżej minimum"),
+    ("accepts_more_office_days", "Zgoda na więcej dni w biurze"),
+)
+# Zgoda dotyczy konkretnej wartości (minimum stawki, limitu dni). Gdy wartość
+# przechodzi z drugiego profilu i się różni, zgoda idzie razem z nią.
+_CONSENT_OF: dict[str, str] = {
+    "accepts_below_min_rate": "expected_rate_hourly",
+    "accepts_more_office_days": "max_onsite_days_per_week",
+}
 
 
 class MergeError(Exception):
@@ -426,20 +488,59 @@ async def _all_conflicts(
 # ── Pola profilu ─────────────────────────────────────────────────────────────
 
 
+def _list_label(item: Any) -> str:
+    if isinstance(item, dict):
+        for key in ("name", "role", "company", "school", "degree", "field"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return "…"
+    return str(item)
+
+
 def _display(value: Any) -> Any:
     if isinstance(value, (date, datetime)):
         return value.isoformat()
+    if isinstance(value, enum.Enum):
+        return value.value
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, list):
+        # Okno scalania pokazuje wartości tekstem — lista obiektów jako
+        # „[object Object]” byłaby nieczytelna.
+        labels = [_list_label(item) for item in value[:5]]
+        more = f" (+{len(value) - 5})" if len(value) > 5 else ""
+        return ", ".join(labels) + more
+    if isinstance(value, dict):
+        encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+        return encoded if len(encoded) <= 200 else encoded[:199] + "…"
     return value
 
 
 def _is_empty(value: Any) -> bool:
-    return value is None or (isinstance(value, str) and not value.strip())
+    return (
+        value is None
+        or (isinstance(value, str) and not value.strip())
+        or (isinstance(value, (list, dict)) and not value)
+    )
 
 
 def _same(a: Any, b: Any) -> bool:
     if isinstance(a, str) and isinstance(b, str):
         return a.strip().casefold() == b.strip().casefold()
     return a == b
+
+
+def _raw(value: Any) -> Any:
+    return value.value if isinstance(value, enum.Enum) else value
+
+
+def restrictive_choice(name: str, s_val: Any, d_val: Any) -> Choice:
+    """Która strona niesie bardziej restrykcyjną wartość (remis = ocalały)."""
+    rank = _RESTRICTIVE_RANK[name]
+    s_rank = rank.get(_raw(s_val), -1) if s_val is not None else -1
+    d_rank = rank.get(_raw(d_val), -1) if d_val is not None else -1
+    return "duplicate" if d_rank > s_rank else "survivor"
 
 
 def field_plan(survivor: Candidate, duplicate: Candidate) -> list[dict[str, Any]]:
@@ -463,6 +564,23 @@ def field_plan(survivor: Candidate, duplicate: Candidate) -> list[dict[str, Any]
                 "default": "duplicate"
                 if _is_empty(s_val) and not _is_empty(d_val)
                 else "survivor",
+            }
+        )
+    for name, label in RESTRICTIVE_FIELDS:
+        s_val = getattr(survivor, name)
+        d_val = getattr(duplicate, name)
+        if s_val is None and d_val is None:
+            continue
+        out.append(
+            {
+                "field": name,
+                "label": label,
+                "survivor": _display(s_val),
+                "duplicate": _display(d_val),
+                # Nie do wyboru — rozstrzyga reguła (bardziej restrykcyjne).
+                "conflict": False,
+                "rule": "restrictive",
+                "default": restrictive_choice(name, s_val, d_val),
             }
         )
     return out
@@ -711,6 +829,24 @@ async def _stamp_academy_reapplied(
     )
 
 
+async def _refuse_academy_equipment(db: AsyncSession, keys: list[str]) -> None:
+    """Przegrane zgłoszenie Akademii z niezwróconym sprzętem — scalenie 409.
+
+    Zwrócone wydanie traci posiadacza (FK ``SET NULL``, historia zostaje
+    w protokole); niezwróconego nie zostawiamy „wydanego nikomu” (0465).
+    Zgłoszenie, które przechodzi na ocalałego, zabiera sprzęt ze sobą.
+    """
+    from app.services.equipment.registry import (
+        ACADEMY_EQUIPMENT_HELD,
+        active_academy_assignments,
+    )
+
+    if keys and await active_academy_assignments(
+        db, application_ids=[int(key) for key in keys]
+    ):
+        raise MergeError(409, "academy_equipment_active", ACADEMY_EQUIPMENT_HELD)
+
+
 async def _delete_keys(
     db: AsyncSession, ref: Reference, key: str, keys: list[str], ids: tuple[int, int]
 ) -> int:
@@ -766,6 +902,67 @@ async def _repoint(
     return result.rowcount or 0
 
 
+async def _neutralize_conflicts(
+    db: AsyncSession,
+    ref: Reference,
+    indexes: dict[str, list[UniqueIndex]],
+    key: str,
+    neutralize: dict[str, str],
+    *,
+    ids: tuple[int, int],
+) -> int:
+    """Konflikty w tabeli z plikami: przegrany wiersz zmieniony, nigdy usunięty.
+
+    Indeksy po kolei — zmiana po pierwszym (np. zdjęcie „głównego”) zmienia
+    pary drugiego, więc każdy liczony jest na bieżącym stanie.
+    """
+    survivor_id, duplicate_id = ids
+    plain, expression = _relevant_indexes(indexes, ref)
+    if expression:
+        raise _unresolvable(ref.table)
+    ts_col = await _timestamp_column(db, ref.table)
+    changed = 0
+    for idx in plain:
+        pairs: dict[str, set[str]] = {}
+        for dup_key, surv_key in await _conflict_pairs(
+            db, ref, idx, key, survivor_id=survivor_id, duplicate_id=duplicate_id
+        ):
+            pairs.setdefault(dup_key, set()).add(surv_key)
+        if not pairs:
+            continue
+        clause = neutralize.get(idx.name)
+        if clause is None:
+            raise _unresolvable(ref.table)
+        stamps: dict[str, Any] = {}
+        if ts_col is not None:
+            every = set(pairs) | {k for keys in pairs.values() for k in keys}
+            stamps = await _timestamps(db, ref, key, ts_col, every, ids)
+        losers: set[str] = set()
+        for dup_key, surv_keys in pairs.items():
+            dup_ts = stamps.get(dup_key)
+            newer = dup_ts is not None and all(
+                stamps.get(k) is not None and dup_ts > stamps[k] for k in surv_keys
+            )
+            if newer:
+                losers.update(surv_keys)
+            else:
+                losers.add(dup_key)
+        try:
+            async with db.begin_nested():
+                result = await db.execute(
+                    text(
+                        f"UPDATE {ref.table} SET {clause} "
+                        f"WHERE {ref.column} IN (:a, :b) "
+                        f"AND {key}::text = ANY(:keys)"
+                    ),
+                    {"a": ids[0], "b": ids[1], "keys": sorted(losers)},
+                )
+        except DBAPIError as exc:
+            raise _unresolvable(ref.table) from exc
+        changed += result.rowcount or 0
+    return changed
+
+
 async def _move_reference(
     db: AsyncSession,
     ref: Reference,
@@ -778,6 +975,15 @@ async def _move_reference(
 
     key, _key_type = await _row_key(db, ref.table)
     ids = (survivor_id, duplicate_id)
+    neutralize = _NEUTRALIZE.get(ref.table)
+    if neutralize is not None:
+        replaced = await _neutralize_conflicts(
+            db, ref, indexes, key, neutralize, ids=ids
+        )
+        moved = await _repoint(
+            db, ref, survivor_id=survivor_id, duplicate_id=duplicate_id
+        )
+        return {"moved": moved, "replaced": replaced}
     pairs, _expression = await _all_conflicts(
         db, ref, indexes, key, survivor_id=survivor_id, duplicate_id=duplicate_id
     )
@@ -821,6 +1027,7 @@ async def _move_reference(
         if ref.table == "academy_applications":
             for kept, dropped in reapplied:
                 await _stamp_academy_reapplied(db, ref, key, kept, dropped)
+            await _refuse_academy_equipment(db, [*drop_survivor, *drop_duplicate])
         replaced += await _delete_keys(db, ref, key, sorted(drop_survivor), ids)
         replaced += await _delete_keys(db, ref, key, drop_duplicate, ids)
     moved = await _repoint(db, ref, survivor_id=survivor_id, duplicate_id=duplicate_id)
@@ -845,6 +1052,19 @@ async def _move_polymorphic(
             params["d_link"] = f"/candidates/{duplicate_id}(?![0-9])"
             params["s_link"] = f"/candidates/{survivor_id}"
             extra = ", link = regexp_replace(link, :d_link, :s_link)"
+        if table == "jarvis_conversation_entities":
+            # Rozmowa powiązana z obiema osobami: wiersz duplikatu jest
+            # powtórzeniem wiersza ocalałego (PK bez kolumny ``id``).
+            await db.execute(
+                text(
+                    "DELETE FROM jarvis_conversation_entities AS d "
+                    "WHERE d.entity_type = :t AND d.entity_id = :d "
+                    "AND EXISTS (SELECT 1 FROM jarvis_conversation_entities AS s "
+                    "WHERE s.conversation_id = d.conversation_id "
+                    "AND s.entity_type = :t AND s.entity_id = :s)"
+                ),
+                params,
+            )
         sql = text(
             f"UPDATE {table} SET {id_col} = :s{extra} "
             f"WHERE {type_col} = :t AND {id_col} = :d"
@@ -886,7 +1106,109 @@ async def _move_polymorphic(
                         text(f"DELETE FROM {table} WHERE id = :id"), {"id": row_id}
                     )
         moved[table] = count
+    if "notifications" in existing:
+        moved["notification_links"] = await _repoint_notification_links(
+            db, survivor_id=survivor_id, duplicate_id=duplicate_id
+        )
     return moved
+
+
+async def _repoint_notification_links(
+    db: AsyncSession, *, survivor_id: int, duplicate_id: int
+) -> int:
+    """Linki powiadomień INNYCH typów niż ``candidate`` też wskazują osobę.
+
+    Runda 6 audytu (RODO-03, bliźniak usunięcia): pętla wyżej przepisuje link
+    wyłącznie przy ``related_entity_type = 'candidate'``, a etap
+    (``candidate_stage``), follow-up czy dzwonek zgłoszenia niosą
+    ``/candidates/{id}`` albo ``?candidate={id}`` — po scaleniu prowadziły do
+    404 i nie znikały przy późniejszym usunięciu ocalałego. Wzorce wspólne
+    z usuwaniem (``candidate_erasure_leftovers``).
+    """
+    from app.services.candidate_erasure_leftovers import candidate_link_rewrites
+
+    touched = 0
+    for pattern, replacement in candidate_link_rewrites(duplicate_id, survivor_id):
+        result = await db.execute(
+            text(
+                "UPDATE notifications SET link = regexp_replace(link, :p, :r, 'g') "
+                "WHERE link ~ :p"
+            ),
+            {"p": pattern, "r": replacement},
+        )
+        touched += result.rowcount or 0
+    return touched
+
+
+_UNSET = object()
+
+
+def _legacy_cv(candidate: Candidate) -> Optional[dict[str, Any]]:
+    """Główne CV z kolumn ``candidates`` (sprzed ``candidate_documents``)."""
+    if not candidate.cv_storage_key and not candidate.cv_file_content:
+        return None
+    return {
+        "filename": candidate.cv_filename or "cv",
+        "storage_key": candidate.cv_storage_key,
+        "content": None if candidate.cv_storage_key else candidate.cv_file_content,
+        "raw_cv_text": candidate.raw_cv_text,
+    }
+
+
+async def _keep_duplicate_legacy_cv(
+    db: AsyncSession, survivor: Candidate, cv: Optional[dict[str, Any]]
+) -> None:
+    """Runda 9 (R9-N8-2): CV z kolumn duplikatu nie może zniknąć z wierszem.
+
+    Ocalały bez własnego CV przejmuje je w tych samych kolumnach; ocalały
+    z CV dostaje je jako dodatkowy dokument (nie główny). Tej samej treści
+    (ten sam klucz magazynu / te same bajty) nie dublujemy.
+    """
+    if cv is None:
+        return
+    if not survivor.cv_storage_key and not survivor.cv_file_content:
+        survivor.cv_filename = cv["filename"]
+        survivor.cv_storage_key = cv["storage_key"]
+        survivor.cv_file_content = cv["content"]
+        if not survivor.raw_cv_text and cv["raw_cv_text"]:
+            survivor.raw_cv_text = cv["raw_cv_text"]
+        return
+    if cv["storage_key"] and cv["storage_key"] == survivor.cv_storage_key:
+        return
+    from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
+
+    sha = hashlib.sha256(cv["content"]).hexdigest() if cv["content"] else None
+    if cv["storage_key"]:
+        exists = await db.scalar(
+            select(CandidateDocument.id).where(
+                CandidateDocument.candidate_id == survivor.id,
+                CandidateDocument.storage_key == cv["storage_key"],
+            )
+        )
+    else:
+        exists = await db.scalar(
+            select(CandidateDocument.id).where(
+                CandidateDocument.candidate_id == survivor.id,
+                CandidateDocument.content_sha256 == sha,
+                CandidateDocument.source_deleted_at.is_(None),
+            )
+        )
+    if exists is not None:
+        return
+    db.add(
+        CandidateDocument(
+            candidate_id=survivor.id,
+            filename=cv["filename"][:500],
+            storage_key=cv["storage_key"],
+            file_content=cv["content"],
+            size_bytes=len(cv["content"]) if cv["content"] else None,
+            document_kind=CandidateDocumentKind.cv,
+            is_primary=False,
+            uploaded_at=datetime.now(timezone.utc),
+            external_source="manual",
+            content_sha256=sha,
+        )
+    )
 
 
 def _validated_choices(
@@ -940,7 +1262,11 @@ async def execute_merge(
     assert survivor is not None and duplicate is not None
 
     # Stan duplikatu PRZED usunięciem wiersza.
-    dup_values = {name: getattr(duplicate, name) for name in _FIELD_NAMES}
+    dup_values = {
+        name: getattr(duplicate, name)
+        for name in _FIELD_NAMES | {n for n, _ in RESTRICTIVE_FIELDS}
+    }
+    dup_cv = _legacy_cv(duplicate)
     dup_tags = list(duplicate.tags) if isinstance(duplicate.tags, list) else []
     dup_external = _external(duplicate)
     dup_contact = {
@@ -951,6 +1277,26 @@ async def execute_merge(
         "merged_at": datetime.now(timezone.utc).isoformat(),
     }
 
+    from app.services import candidate_search_store
+
+    search_erasure = await candidate_search_store.erase_candidate(db, duplicate_id)
+
+    from app.services import recommendation_card_import, recommendation_cards
+
+    # 0413: karta rekomendacji ma własną regułę — pola wpisane ręcznie z obu
+    # kart się łączą, zamiast „nowsza karta wygrywa”.
+    await recommendation_cards.merge_manual_fields(
+        db, survivor_id=survivor_id, duplicate_id=duplicate_id
+    )
+    from app.services import screening_form
+
+    # 0424: historia formularza screeningu duplikatu przechodzi w całości —
+    # numery wersji powyżej ostatniej wersji ocalałego. Ogólny resolver
+    # unikalności („nowszy wiersz wygrywa”) skasowałby kolidujące wersje.
+    await screening_form.merge_versions(
+        db, survivor_id=survivor_id, duplicate_id=duplicate_id
+    )
+
     indexes = await unique_indexes(db)
     moved: dict[str, dict[str, int]] = {}
     for ref in await _usable_references(db):
@@ -959,6 +1305,7 @@ async def execute_merge(
         )
         if stats["moved"] or stats["replaced"]:
             moved[f"{ref.table}.{ref.column}"] = stats
+    await recommendation_card_import.after_candidate_merge(db, survivor_id=survivor_id)
     polymorphic = await _move_polymorphic(
         db, survivor_id=survivor_id, duplicate_id=duplicate_id
     )
@@ -972,13 +1319,29 @@ async def execute_merge(
     )
 
     updates: dict[str, Any] = {}
+    sources: dict[str, Choice] = {}
     for spec in plan.fields:
         name = spec["field"]
         source = (
             picked.get(name, spec["default"]) if spec["conflict"] else spec["default"]
         )
+        sources[name] = source
         if source == "duplicate":
             updates[name] = dup_values[name]
+    # Zgoda jest związana z wartością, której dotyczy: gdy stawka / limit dni
+    # przechodzi z duplikatu i różni się od ocalałego, zgoda idzie z nią
+    # (restrykcyjne porównanie dwóch zgód na RÓŻNE liczby nie ma sensu).
+    # Przy tej samej wartości obie zgody dotyczą tego samego — wtedy reguła
+    # restrykcyjna z planu zostaje.
+    for consent, value_field in _CONSENT_OF.items():
+        if _same(getattr(survivor, value_field), dup_values[value_field]):
+            continue
+        if sources.get(value_field) == "duplicate":
+            updates[consent] = dup_values[consent]
+        else:
+            updates.pop(consent, None)
+    rate_from_duplicate = "expected_rate_hourly" in updates
+    new_rate = updates.pop("expected_rate_hourly", None)
 
     custom = (
         dict(survivor.custom_fields) if isinstance(survivor.custom_fields, dict) else {}
@@ -991,14 +1354,31 @@ async def execute_merge(
     if dup_external is not None and _external(survivor) is None:
         survivor.external_source, survivor.external_id = dup_external
 
+    # Imię przejęte z duplikatu nie przenosi dopisku (D6, 13.10.2026).
+    for identity_field in ("name", "lastname"):
+        if isinstance(updates.get(identity_field), str):
+            updates[identity_field] = without_name_markers(updates[identity_field])
     if updates:
         from app.services.candidate_identity_ownership import (
             lock_changed_traffit_identity_fields,
         )
 
         lock_changed_traffit_identity_fields(survivor, updates, user_id=user_id)
-        for name, value in updates.items():
-            setattr(survivor, name, value)
+    rate_consent = updates.pop("accepts_below_min_rate", _UNSET)
+    for name, value in updates.items():
+        setattr(survivor, name, value)
+    if rate_from_duplicate:
+        from app.services.candidate_profile_rate import write_profile_rate
+
+        # Kanoniczny zapis stawki (wersja, waluta, czas) — i czyści zgodę na
+        # niższą stawkę, która dotyczyła poprzedniej liczby.
+        write_profile_rate(survivor, new_rate, source="candidate_merge")
+        updates["expected_rate_hourly"] = new_rate
+    if rate_consent is not _UNSET:
+        survivor.accepts_below_min_rate = rate_consent
+        updates["accepts_below_min_rate"] = rate_consent
+
+    await _keep_duplicate_legacy_cv(db, survivor, dup_cv)
 
     survivor_tags = list(survivor.tags) if isinstance(survivor.tags, list) else []
     folded = {t.casefold() for t in survivor_tags if isinstance(t, str)}
@@ -1024,6 +1404,7 @@ async def execute_merge(
                 "replaced_rows": replaced_rows,
                 "tables": sorted(moved),
                 "fields_from_duplicate": sorted(updates),
+                "search_runs_failed": search_erasure["search_runs_failed"],
             },
         )
     )

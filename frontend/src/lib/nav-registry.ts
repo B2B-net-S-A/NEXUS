@@ -11,6 +11,7 @@ import {
   Briefcase,
   Building2,
   Calendar,
+  CalendarClock,
   FileSignature,
   FileText,
   GraduationCap,
@@ -21,32 +22,38 @@ import {
   HelpCircle,
   Inbox,
   LayoutDashboard,
+  Laptop,
   Lightbulb,
   PhoneCall,
   Radar,
   Search,
   Settings,
-  Sparkles,
   Star,
   Store,
+  TrendingUp,
+  UserRound,
   Users,
   Wallet,
+  HeartHandshake,
 } from "lucide-react";
 import type { ComponentType } from "react";
 
 import { hasActionAccess, type ProductAction } from "@/lib/action-access";
 import {
+  CAPABILITY_PERMISSIONS,
   CAPABILITY_ROLES,
   hasCapability,
   type Capability,
 } from "@/lib/capabilities";
 import { dashboardHref } from "@/lib/dashboard-presets";
+import { hasPermission, type Permission } from "@/lib/permissions";
 import {
   hasSectionAccess,
   type ProductSection,
 } from "@/lib/section-access";
 import {
   hasRole,
+  isBoardOnly,
   isTraineeOnly,
   type User,
   type UserRole,
@@ -56,9 +63,19 @@ export type NavIcon = ComponentType<{ className?: string }>;
 
 export type NavBadgeKey =
   | "applicationSubmissions"
-  | "orderMail";
+  | "orderMail"
+  | "dlSend";
 
-export type NavFeatureFlag = "contactQueue";
+export type NavFeatureFlag =
+  | "contactQueue"
+  // „Ludzie w NEXUSIE” (16.10.2026): pozycje modułu kadrowego. O widoczności
+  // decyduje `/api/hr/config` (przełącznik modułu + kartoteka albo uprawnienie
+  // z grupy „Ludzie”) — patrz `hrNavState` w `lib/api/hr.ts`.
+  | "hrMyTime"
+  | "hrPeople"
+  | "hrEquipment"
+  | "hrCare"
+  | "hrBackOffice";
 
 export type NavSectionKey =
   | "sourcing"
@@ -77,7 +94,11 @@ export type NavUser =
   | null
   | undefined;
 
-export type NavVisibilityOptions = { contactQueueEnabled: boolean };
+export type NavVisibilityOptions = {
+  contactQueueEnabled: boolean;
+  /** Stan modułu kadrowego; brak = pozycje „Ludzi w NEXUSIE” ukryte. */
+  hr?: { myTime: boolean; people: boolean; equipment: boolean; care: boolean; backOffice?: boolean };
+};
 
 /** Użytkownik, dla którego liczy się adres docelowy pozycji (`resolveHref`). */
 export type NavHrefUser = Parameters<typeof dashboardHref>[0];
@@ -106,11 +127,18 @@ export type NavEntry = {
   icon: NavIcon;
   section: NavSectionKey;
   roles?: UserRole[];
+  /**
+   * Uprawnienie z ekranu Osoby i role, bez którego pozycji nie ma — Delivery
+   * („Klienci, kontrakty i zamówienia: podgląd”) i Finanse („Moduł Finanse”).
+   * Te wejścia nie mają listy ról: kto ma uprawnienie, ten widzi pozycję.
+   */
+  permission?: Permission;
   action?: ProductAction;
   /**
-   * Capability z `lib/capabilities.ts`, której lista ról ma być lustrem tej
-   * pozycji. Sidebar jej NIE sprawdza (bramkuje sekcją i `roles`, jak dotąd);
-   * paleta dokłada ją jako drugi filtr, a zgodność obu list pilnuje test.
+   * Capability z `lib/capabilities.ts`, której bramka (lista ról albo
+   * uprawnienie) ma być lustrem tej pozycji. Sidebar jej NIE sprawdza
+   * (bramkuje sekcją, `roles` i `permission`); paleta dokłada ją jako drugi
+   * filtr, a zgodność obu pilnuje test.
    */
   capability?: Capability;
   badgeKey?: NavBadgeKey;
@@ -119,7 +147,7 @@ export type NavEntry = {
    * `primary` = pozycja stoi na szynie (w jednej z grup `NAV_PRIMARY_GROUPS`);
    * `more` = w wysuwanym panelu „Więcej". Podział jest per WPIS, niezależny od
    * roli: o tym, KTO co widzi, decyduje wyłącznie bramka widoczności (sekcja /
-   * role / akcja / flaga). Rdzeń pracy każdej persony jest `primary` — „Praca"
+   * role / uprawnienie / akcja / flaga). Rdzeń pracy każdej persony jest `primary` — „Praca"
    * (Dashboard, Rekrutacje, Kandydaci, Kalendarz), „Klienci i umowy" (Klienci,
    * Kontrakty, Finanse) i „Firma" (Insights) — więc rekruter widzi pięć
    * pozycji, a admin osiem, bez osobnych drzew per rola.
@@ -240,23 +268,10 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Do przedzwonienia",
     icon: PhoneCall,
     section: "sourcing",
-    roles: ["talent_community_manager", "tac", "recruiter", "sourcer"],
+    roles: ["talent_community_manager", "recruiter"],
     featureFlag: "contactQueue",
     placement: "more",
     moreGroup: "daily",
-    inPalette: true,
-  },
-  {
-    id: "cv-generator",
-    moreHint: "CV firmowe kandydata pod rekrutację",
-    href: "/cv-generator",
-    label: "Generator CV",
-    icon: Sparkles,
-    section: "sourcing",
-    // Generacja = CandidateWriteAccess — viewer `user` dostałby 403.
-    roles: [...CAPABILITY_ROLES["candidate.write"]],
-    placement: "more",
-    moreGroup: "documents",
     inPalette: true,
   },
   // Dostęp do Generatora Umów B2B jest konfigurowany osobno od sekcji
@@ -297,9 +312,9 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     // zawężenia) i `nav.talent_radar` w lib/capabilities.ts.
     //
     // Od 21.09.2026 radar to tryb ekranu „Kandydaci" (`?mode=request`) i nie
-    // stoi w menu — tylko w palecie. Kto NIE ma `nav.candidates` (np. viewer
-    // `user`), nie wejdzie na /candidates, więc dla niego adres zostaje
-    // samodzielną stroną /talent-radar (działa dla każdej roli).
+    // stoi w menu — tylko w palecie. Kto NIE ma `nav.candidates`, nie wejdzie
+    // na /candidates, więc dla niego adres zostaje samodzielną stroną
+    // /talent-radar (działa dla każdej roli).
     id: "talent-radar",
     href: "/talent-radar",
     resolveHref: (user) =>
@@ -360,6 +375,84 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     section: "pipeline",
     placement: "primary",
     inPalette: true,
+    // Tylko Delivery Lead z kimś gotowym do wysłania do klienta (13.10.2026).
+    badgeKey: "dlSend",
+  },
+  {
+    // Stany requestów (0371): ustawia DL, nadzoruje HoR i admin — lustro
+    // bramki strony `/jobs/review-states` i API `request_work_states`.
+    // W menu nie stoi (wejście jest na liście rekrutacji), paleta ma skrót.
+    id: "request-review-states",
+    href: "/jobs/review-states",
+    label: "Porządek w requestach",
+    icon: Briefcase,
+    section: "pipeline",
+    roles: ["admin", "delivery_lead", "head_of_recruitment"],
+    placement: "primary",
+    paletteKeywords: ["requesty", "stany", "klient milczy", "szukamy", "porządek"],
+    inPalette: true,
+    inSidebar: false,
+  },
+  {
+    // Strona kariery do uzupełnienia (21.10.2026): otwarte rekrutacje bez
+    // strony kariery, „Opublikuj i następna”. W menu nie stoi (wejście jest
+    // na liście rekrutacji), paleta ma skrót.
+    id: "career-queue",
+    href: "/jobs/strona-kariery",
+    label: "Strona kariery do uzupełnienia",
+    icon: Briefcase,
+    section: "pipeline",
+    placement: "primary",
+    paletteKeywords: ["kariera", "ogłoszenie", "strona kariery", "opublikuj", "link"],
+    inPalette: true,
+    inSidebar: false,
+  },
+  {
+    // Ogłoszenia do nadrobienia (27.10.2026): rekrutacje bez strony kariery,
+    // Pracuj.pl albo JustJoin.IT — tu prowadzi zbiorczy mail przypomnień.
+    // W menu nie stoi, paleta ma skrót.
+    id: "missing-ads",
+    href: "/jobs/ogloszenia",
+    label: "Ogłoszenia do nadrobienia",
+    icon: Briefcase,
+    section: "pipeline",
+    placement: "primary",
+    paletteKeywords: ["ogłoszenia", "pracuj", "justjoin", "kariera", "nadrobić", "przypomnienia"],
+    inPalette: true,
+    inSidebar: false,
+  },
+  {
+    // Umowy przedwstępne (0506, 21.10.2026): prośby DL / HoR / rekrutera przy
+    // osobach — stan, ważność, termin B2B, decyzje o karze. W menu nie stoi
+    // (wejście z listy rekrutacji i kafelka), paleta ma skrót.
+    id: "pre-contracts",
+    href: "/jobs/umowy-przedwstepne",
+    label: "Umowy przedwstępne",
+    icon: Briefcase,
+    section: "pipeline",
+    // Bramka API przedwstępnych: Viewer ma odczyt Rekrutacji, a API mu odmawia
+    // (audyt F54, 22.10.2026). Rada nadzorcza otwiera samą listę z palety
+    // (decyzja Artura 23.10.2026).
+    roles: [...CAPABILITY_ROLES["pre_contract.work"]],
+    capability: "pre_contract.work",
+    placement: "primary",
+    paletteKeywords: ["przedwstępna", "umowa przedwstępna", "kara", "wyłączność", "podpis"],
+    inPalette: true,
+    inSidebar: false,
+  },
+  {
+    // Daily (04.10.2026): pulpit „Requesty i obłożenie” na całą stronę —
+    // „Zmiany od wczoraj” na górze i kategorie po kolei. Ta sama bramka co
+    // „Rekrutacje” (sekcja Pipeline); w menu nie stoi, wejście jest z kafelka.
+    id: "jobs-daily",
+    href: "/jobs/daily",
+    label: "Przegląd requestów",
+    icon: Briefcase,
+    section: "pipeline",
+    placement: "primary",
+    paletteKeywords: ["daily", "requesty", "obłożenie"],
+    inPalette: true,
+    inSidebar: false,
   },
   {
     id: "calendar",
@@ -386,7 +479,11 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "more",
     moreGroup: "daily",
     paletteKeywords: ["akademia rekrutera", "nabór", "szkolenie"],
-    inPalette: true,
+    // Ukryte z menu i palety 17.10.2026 (decyzja Artura): na razie
+    // z programu nie korzystamy. Strona i API działają dalej — to tylko
+    // zdjęcie wejścia z nawigacji.
+    inSidebar: false,
+    inPalette: false,
   },
   {
     // Praktykanci (0374): postęp programu, próbka jakości, decyzja po
@@ -402,14 +499,20 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "more",
     moreGroup: "daily",
     paletteKeywords: ["praktykant", "telefony", "lista telefonów", "program"],
-    inPalette: true,
+    // Ukryte z menu i palety 17.10.2026 razem z Akademią (decyzja Artura).
+    inSidebar: false,
+    inPalette: false,
   },
+  // Pozycje Delivery i Finansów nie mają listy ról: wejście daje uprawnienie
+  // z ekranu Osoby i role — to samo, którego wymaga ich capability (jedna
+  // kopia, jak `roles` wyżej). Sekcja zostaje sufitem (stary wyjątek osoby).
   {
     id: "clients",
     href: "/clients",
     label: "Klienci",
     icon: Building2,
     section: "delivery",
+    permission: CAPABILITY_PERMISSIONS["nav.clients"],
     capability: "nav.clients",
     placement: "primary",
     inPalette: true,
@@ -424,6 +527,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Moi klienci",
     icon: Briefcase,
     section: "delivery",
+    permission: CAPABILITY_PERMISSIONS["nav.my_clients"],
     capability: "nav.my_clients",
     placement: "primary",
     paletteKeywords: ["panel klientów", "portfel", "moi klienci"],
@@ -431,13 +535,14 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     inSidebar: false,
   },
   {
-    // Zamówienia z maila są częścią Delivery. Backend daje TCM wyłącznie
-    // bezpieczny odczyt, a DL widzi wszystkich klientów bez obcych kwot.
+    // Zamówienia z maila są częścią Delivery. Sam podgląd daje bezpieczny
+    // odczyt; kwoty i „Zastosuj” rozstrzyga serwer flagami wpisu.
     id: "order-mail",
     href: "/contracts?view=order-mail",
     label: "Skrzynka zamówień (zamówienia z maila)",
     icon: Inbox,
     section: "delivery",
+    permission: CAPABILITY_PERMISSIONS["nav.order_mail"],
     capability: "nav.order_mail",
     placement: "primary",
     paletteKeywords: ["zamówienia z maila", "skrzynka", "order mail"],
@@ -450,6 +555,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Kluczowe relacje z klientami",
     icon: Heart,
     section: "delivery",
+    permission: CAPABILITY_PERMISSIONS["nav.my_relationships"],
     capability: "nav.my_relationships",
     placement: "primary",
     paletteKeywords: ["moje relacje", "kontakty", "relacje"],
@@ -459,15 +565,16 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
   // „Kontrakty" to jeden workspace z dwoma trybami (Obsługa kontraktorów /
   // Rejestr kontraktów); dawna pozycja „Kontraktorzy" została wchłonięta —
   // /contractors przekierowuje do /contracts?view=operations, a tryb operacyjny
-  // jest bramkowany rolami wewnątrz strony. Backend zwraca TCM bezpieczny
-  // rejestr bez stawek; DL widzi wszystkich klientów, a stawki tylko dla
-  // przypisanych. Dokumenty mają osobny gate.
+  // jest bramkowany wewnątrz strony. Kto nie ma podglądu kwot, dostaje
+  // z backendu rejestr bez stawek; Delivery Lead widzi stawki tylko u klientów
+  // z przypisania. Dokumenty mają osobny gate.
   {
     id: "contracts",
     href: "/contracts",
     label: "Kontrakty",
     icon: FileText,
     section: "delivery",
+    permission: CAPABILITY_PERMISSIONS["nav.contracts"],
     capability: "nav.contracts",
     // Plakietka = dokumenty w Skrzynce zamówień czekające na sprawdzenie
     // (skrzynka jest trybem Kontraktów, nie ma własnej pozycji).
@@ -492,8 +599,85 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Finanse",
     icon: Wallet,
     section: "finance",
+    permission: CAPABILITY_PERMISSIONS["nav.finance"],
     capability: "nav.finance",
     placement: "primary",
+    inPalette: true,
+  },
+  // Sprzedaż (Atlas → NEXUS, 26.10.2026): firmy, szanse, kontakty, zadania.
+  // Bez sekcji produktu (jak „Ludzie”) — decyduje uprawnienie „Sprzedaż: podgląd”.
+  {
+    id: "sales",
+    href: "/sales",
+    label: "Sprzedaż",
+    icon: TrendingUp,
+    section: "system",
+    permission: CAPABILITY_PERMISSIONS["nav.sales"],
+    capability: "nav.sales",
+    placement: "primary",
+    paletteKeywords: ["sprzedaż", "szanse", "lejek", "firmy", "atlas", "crm"],
+    inPalette: true,
+  },
+  // „Ludzie w NEXUSIE” (16.10.2026). Sekcja „system” = bez sekcji produktu;
+  // widoczność rozstrzyga flaga z `/api/hr/config`, a każdą trasę serwer.
+  {
+    id: "my-time",
+    href: "/my-time",
+    label: "Moja współpraca",
+    icon: CalendarClock,
+    section: "system",
+    featureFlag: "hrMyTime",
+    placement: "primary",
+    inPalette: true,
+  },
+  {
+    id: "people",
+    href: "/people",
+    label: "Ludzie",
+    icon: UserRound,
+    section: "system",
+    featureFlag: "hrPeople",
+    placement: "primary",
+    inPalette: true,
+  },
+  {
+    id: "equipment",
+    href: "/equipment",
+    label: "Sprzęt",
+    icon: Laptop,
+    section: "system",
+    featureFlag: "hrEquipment",
+    placement: "primary",
+    inPalette: true,
+  },
+  // Opieka nad konsultantami (moduł `care`): opiekunowie kontraktów (DL, TCM),
+  // Head of Recruitment (kolejka technologii) i admin — oraz od 22.10.2026
+  // osoby ze sprawami administracja@ (same sprawy). Kto widzi pozycję, liczy
+  // `hrNavState` (`CARE_ROLES`, `casesInCare`). Sekcja „system”, bo HoR nie ma
+  // Delivery — trasy `/api/care` i tak bronią zakresu DL.
+  {
+    id: "care",
+    href: "/care",
+    label: "Opieka nad konsultantami",
+    icon: HeartHandshake,
+    section: "system",
+    featureFlag: "hrCare",
+    placement: "primary",
+    paletteKeywords: ["opieka", "konsultanci", "przepięcia", "technologie"],
+    inPalette: true,
+  },
+  // Kolejka spraw back office'u (moduł `back_office`, decyzja Artura 02.11.2026):
+  // przy włączonym module zastępuje pozycję „Opieka nad konsultantami”, a stare
+  // linki `/care` dalej otwierają ten sam ekran.
+  {
+    id: "back-office",
+    href: "/back-office",
+    label: "Back office",
+    icon: HeartHandshake,
+    section: "system",
+    featureFlag: "hrBackOffice",
+    placement: "primary",
+    paletteKeywords: ["opieka", "konsultanci", "sprawy", "kolejka", "premie", "umowy"],
     inPalette: true,
   },
   {
@@ -537,9 +721,17 @@ export const NAV_PRIMARY_GROUPS: readonly {
   title: string;
   ids: readonly string[];
 }[] = [
-  { key: "work", title: "Praca", ids: ["dashboard", "jobs", "candidates", "calendar"] },
-  { key: "clients", title: "Klienci i umowy", ids: ["clients", "contracts", "finance"] },
-  { key: "company", title: "Firma", ids: ["insights"] },
+  {
+    key: "work",
+    title: "Praca",
+    ids: ["dashboard", "jobs", "candidates", "calendar", "my-time"],
+  },
+  {
+    key: "clients",
+    title: "Klienci i umowy",
+    ids: ["sales", "clients", "contracts", "care", "back-office", "finance"],
+  },
+  { key: "company", title: "Firma", ids: ["insights", "people", "equipment"] },
 ];
 
 /** Kolejność pozycji na szynie (id wpisów) — spłaszczone `NAV_PRIMARY_GROUPS`. */
@@ -560,8 +752,27 @@ function featureFlagOn(
   switch (flag) {
     case "contactQueue":
       return opts.contactQueueEnabled;
+    case "hrMyTime":
+      return opts.hr?.myTime ?? false;
+    case "hrPeople":
+      return opts.hr?.people ?? false;
+    case "hrEquipment":
+      return opts.hr?.equipment ?? false;
+    case "hrCare":
+      return (opts.hr?.care ?? false) && !opts.hr?.backOffice;
+    case "hrBackOffice":
+      return opts.hr?.backOffice ?? false;
   }
 }
+
+// „pre-contracts” (23.10.2026) jest tylko w palecie — menu boczne Rady dalej
+// ma Insights, Pomoc i Ustawienia.
+const BOARD_NAV_IDS: ReadonlySet<string> = new Set([
+  "insights",
+  "help",
+  "settings",
+  "pre-contracts",
+]);
 
 function isEntryVisible(
   entry: NavEntry,
@@ -571,10 +782,15 @@ function isEntryVisible(
   // Praktykant ma własną powłokę z jednym ekranem — żadnej pozycji menu,
   // także tych bez sekcji produktu (Pomoc, Ustawienia).
   if (isTraineeOnly(user)) return false;
+  // Rada nadzorcza (0490) ma tylko Insights, własne konto, Pomoc i listę umów
+  // przedwstępnych — reszta menu (np. „Mój czas”, gdy ma kartotekę) i tak
+  // odbiłaby w middleware.
+  if (isBoardOnly(user)) return BOARD_NAV_IDS.has(entry.id);
   const productSection = SECTION_META_BY_KEY.get(entry.section)?.section;
   return (
     (!productSection || hasSectionAccess(user, productSection)) &&
     (!entry.roles || hasRole(user, ...entry.roles)) &&
+    (!entry.permission || hasPermission(user, entry.permission)) &&
     (!entry.action || hasActionAccess(user, entry.action)) &&
     featureFlagOn(entry.featureFlag, opts)
   );
@@ -606,9 +822,9 @@ export function visibleNavEntries(
  * dostawała cztery pozycje (Dashboard · Finanse · Pomoc · Ustawienia), mimo że
  * KAŻDA lista `roles` już ją wymienia — backend przepuszcza ją wszędzie tam,
  * gdzie recruitera (decyzja 19.08), więc menu było jedyną warstwą, która ją
- * odcinała. Własny moduł „Finanse" jest filtrowany przez autorytatywny
- * `section: "finance"`, dzięki czemu działa też indywidualny wyjątek nadany
- * w panelu uprawnień.
+ * odcinała. Własny moduł „Finanse" jest filtrowany uprawnieniem „Moduł
+ * Finanse” (z niego wynika sekcja), dzięki czemu wejście widzi też osoba,
+ * której administrator nadał je na ekranie Osoby i role.
  */
 export function visibleNavSections(
   user: NavUser,

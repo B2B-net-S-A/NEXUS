@@ -1,9 +1,9 @@
 {
-  "entry": "d48eee80da5d4ffcfc0d9a7418d75c3bfb52d5fdfbae588dec97df5dd79a4e1a",
+  "entry": "64e909ffe71be86517a5aa4db2e61d4af5129bdafda8ef602cde39460a4db960",
   "guide": "client.orders",
   "sources": {
-    "frontend/src/components/client-profile/orders/AssignToOrderModal.tsx": "4276f76150fef4dd46b0844348ecdf774b3e8428352693930ca8c4ffa424bcbd",
-    "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "68a0670907c527a19f6c65a612deb03a6a159c95e39cb38368c2a4ae0b2463a9",
-    "frontend/src/components/client-profile/orders/OrderGroupCard.tsx": "3f9ca72cb97cb09e3b2f2658bf8eb9ec219f8965150e39bb73e927cb8158e882"
+    "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "940b1ac06f2da29bf3f6081d327d3529667a6ba7c91370086fbb41dd007d62aa",
+    "frontend/src/components/client-profile/orders/OrderLinePanel.tsx": "087ba4188b94b68d79f2512e660eb929c8816ab267ad362161e990b90bdd1ddc",
+    "frontend/src/components/client-profile/orders/OrdersTable.tsx": "8d6dec2349bb870c9552fb16b13e5e589faac776c705e2b235c53e494903d88d"
   }
 }

@@ -26,8 +26,9 @@ klienta, a nazwisko dopisuje Finanse ręcznie.
 
 from __future__ import annotations
 
-import io
+import os
 import re
+import tempfile
 import unicodedata
 import zipfile
 from dataclasses import dataclass
@@ -79,15 +80,36 @@ class OrderPdfEntry:
     uploaded_at: Optional[datetime]
 
     @property
+    def period_invalid(self) -> bool:
+        return period_reversed(self.start, self.end)
+
+    @property
     def download_name(self) -> str:
         return build_download_name(
             self.original_name, self.consultant_lastname, self.start, self.end
         )
 
 
-def format_period(start: date, end: Optional[date]) -> str:
-    """``DD.MM.RRRR-DD.MM.RRRR``; brak końca = ``DD.MM.RRRR-bezterminowo``."""
+# Runda 10 (F10): zamówienie zapisane przed walidacją okresu (24.09.2026)
+# potrafi mieć koniec przed startem — np. „Dodaj przedłużenie” z tym samym PDF-em
+# dało 01.01.2027–31.12.2026 obok poprawnego 01.10–31.12.2026. Lista, nazwa
+# pliku i ZIP nie podają takiego okresu jak poprawnego — mówią, że jest do
+# sprawdzenia. Wiersza nie poprawiamy tutaj: widok jest tylko do odczytu.
+INVALID_PERIOD_LABEL = "okres-do-sprawdzenia"
 
+
+def period_reversed(start: Optional[date], end: Optional[date]) -> bool:
+    return start is not None and end is not None and end < start
+
+
+def format_period(start: date, end: Optional[date]) -> str:
+    """``DD.MM.RRRR-DD.MM.RRRR``; brak końca = ``DD.MM.RRRR-bezterminowo``.
+
+    Koniec przed startem = ``okres-do-sprawdzenia`` (bez dat, które by kłamały).
+    """
+
+    if period_reversed(start, end):
+        return INVALID_PERIOD_LABEL
     tail = end.strftime("%d.%m.%Y") if end is not None else OPEN_ENDED_LABEL
     return f"{start.strftime('%d.%m.%Y')}-{tail}"
 
@@ -528,8 +550,11 @@ def _zip_date(value: Optional[date]) -> str:
     return value.strftime("%d.%m.%Y") if value is not None else OPEN_ENDED_LABEL
 
 
+_ZIP_SUFFIX = re.compile(r"\.[a-z0-9]{1,5}")
+
+
 def zip_member_name(entry: OrderPdfEntry) -> str:
-    """``[Klient]_[NrZam]_[Nazwisko]_[Typ]_[DataOd]-[DataDo].pdf``.
+    """``[Klient]_[NrZam]_[Nazwisko]_[Typ]_[DataOd]-[DataDo].<rozszerzenie>``.
 
     Brakujący człon dostaje zaślepkę zamiast znikać — nazwa ma zawsze tyle
     samo członów, więc pliki sortują się i czytają tak samo.
@@ -540,9 +565,17 @@ def zip_member_name(entry: OrderPdfEntry) -> str:
         ascii_slug(entry.order_number) or "bez-numeru",
         ascii_slug(entry.consultant_lastname) or "bez-nazwiska",
         _ZIP_TYPE_LABELS[entry.entry_type],
-        f"{_zip_date(entry.start)}-{_zip_date(entry.end)}",
+        INVALID_PERIOD_LABEL
+        if entry.period_invalid
+        else f"{_zip_date(entry.start)}-{_zip_date(entry.end)}",
     ]
-    return "_".join(parts) + ".pdf"
+    # Runda 8 (R8-N6-3): rozszerzenie z oryginału, jak w pobraniu
+    # pojedynczym — zamówienie w Wordzie z końcówką ``.pdf`` nie otwierało
+    # się w archiwum. Nazwa w ZIP-ie jest ASCII, więc dziwna końcówka = ``.pdf``.
+    suffix = PurePath((entry.original_name or "").replace("\\", "/")).suffix.lower()
+    if not _ZIP_SUFFIX.fullmatch(suffix):
+        suffix = ".pdf"
+    return "_".join(parts) + suffix
 
 
 def client_zip_name(client_name: str, year: int, month: int) -> str:
@@ -553,22 +586,52 @@ def month_zip_name(year: int, month: int) -> str:
     return f"Zamowienia_{year}-{month:02d}.zip"
 
 
-def build_zip(
+def build_zip_file(
     files: list[tuple[OrderPdfEntry, Optional[str]]],
     *,
     client_folders: bool,
-) -> bytes:
-    """Archiwum z plikami ``(wpis, ścieżka bezwzględna | None)``.
+) -> str:
+    """Archiwum z plikami ``(wpis, ścieżka bezwzględna | None)`` — ścieżka pliku.
+
+    ZIP powstaje w pliku tymczasowym, nie w pamięci (runda 6 audytu): wersja
+    z ``BytesIO`` + ``getvalue()`` trzymała archiwum dwa razy naraz w jedynym
+    procesie uvicorna, a miesiąc PDF-ów bywa duży. Wołający oddaje plik
+    strumieniem i USUWA go po wysłaniu (``BackgroundTask``); przy błędzie
+    budowy plik jest usuwany tutaj.
 
     Plik, którego nie ma na dysku, nie wywraca archiwum: jego nazwa trafia do
     ``BRAKUJACE_PLIKI.txt`` — pusty ZIP bez wyjaśnienia wyglądałby jak
     kompletny.
     """
 
-    buffer = io.BytesIO()
+    handle = tempfile.NamedTemporaryFile(
+        prefix="zamowienia-", suffix=".zip", delete=False
+    )
+    try:
+        with handle:
+            _write_zip(handle, files, client_folders=client_folders)
+    except BaseException:
+        remove_file_quietly(handle.name)
+        raise
+    return handle.name
+
+
+def remove_file_quietly(path: str) -> None:
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+
+
+def _write_zip(
+    target,
+    files: list[tuple[OrderPdfEntry, Optional[str]]],
+    *,
+    client_folders: bool,
+) -> None:
     used: set[str] = set()
     missing: list[str] = []
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for entry, path in files:
             name = zip_member_name(entry)
             if client_folders:
@@ -591,7 +654,6 @@ def build_zip(
                 + "\n".join(missing)
                 + "\n",
             )
-    return buffer.getvalue()
 
 
 # ── Pobrania per osoba ──────────────────────────────────────────────────────

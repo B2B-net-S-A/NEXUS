@@ -156,9 +156,9 @@ async def _role_headers(
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-async def _tac_headers(app_client: AsyncClient) -> dict[str, str]:
-    """Zaloguj świeżego TAC-a (rola bez VIEW_FINANCE) — do testu redakcji."""
-    return await _role_headers(app_client, "tac")
+async def _recruiter_headers(app_client: AsyncClient) -> dict[str, str]:
+    """Zaloguj świeżego rekrutera (rola bez VIEW_FINANCE) — do testu redakcji."""
+    return await _role_headers(app_client, "recruiter")
 
 
 # ── 1. Zgrupowana lista ──────────────────────────────────────────────────────
@@ -427,8 +427,47 @@ async def test_grouped_list_redacts_member_rates_for_non_finance(app_client):
         assert member["margin"] is None
 
 
-async def test_grouped_list_and_siblings_give_dl_all_clients_with_redaction(app_client):
-    """DL widzi umowy obu klientów, ale finanse tylko klienta przypisanego."""
+async def test_grouped_list_and_siblings_limit_dl_to_assigned_clients(app_client):
+    """Od 25.09.2026 DL widzi w Kontraktach wyłącznie przypisanych klientów.
+
+    Grupa osoby, zakładki „inne umowy tej osoby” i detal kończą się na
+    portfelu DL — umowa u klienta bez przypisania nie wychodzi nigdzie.
+    """
+    marker = f"Dla{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    client_a = await _seed_client(f"PortfelDL {marker}")
+    client_b = await _seed_client(f"ObcyKlient {marker}")
+    id_a = await _seed_contract(cand, client_a)
+    id_b = await _seed_contract(cand, client_b)
+
+    dl_headers = await _role_headers(
+        app_client, "delivery_lead", assigned_client_id=client_a
+    )
+
+    grouped = await app_client.get(
+        "/api/contracts",
+        params={"q": marker, "group_by_candidate": "true", "page_size": 50},
+        headers=dl_headers,
+    )
+    assert grouped.status_code == 200, grouped.text
+    body = grouped.json()
+    assert body["total"] == 1
+    [row] = body["items"]
+    assert {member["id"] for member in row["group_members"]} == {id_a}
+
+    detail = await app_client.get(f"/api/contracts/{id_a}", headers=dl_headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["related_contracts"] == []
+
+    outside = await app_client.get(f"/api/contracts/{id_b}", headers=dl_headers)
+    assert outside.status_code == 403, outside.text
+
+
+async def test_grouped_list_and_siblings_give_dl_all_clients_with_redaction(
+    app_client, monkeypatch
+):
+    """``DL_CLIENT_SCOPE=all`` (stan z #1365): obu klientów, finanse jednego."""
+    monkeypatch.setattr(settings, "DL_CLIENT_SCOPE", "all")
     marker = f"Dls{uuid.uuid4().hex[:6]}"
     cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
     client_a = await _seed_client(f"PortfelDL {marker}")
@@ -564,11 +603,10 @@ async def test_second_client_is_not_a_duplicate(app_client, app_auth_headers):
 
 
 async def test_add_project_active_creates_linked_draft_order_without_signature(
-    app_client, app_auth_headers, monkeypatch
+    app_client, app_auth_headers
 ):
     """„Dodaj kolejny projekt” is one transaction: active Contract + draft Order."""
 
-    monkeypatch.setattr(settings, "SIGNING_ENABLED", True)
     marker = f"Ord{uuid.uuid4().hex[:6]}"
     cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
     cli_a = await _seed_client(f"Pierwszy {marker}")
@@ -1401,11 +1439,11 @@ async def test_force_delete_signed_requires_admin_and_exact_confirmation(
         marker, cid, cand, signature_status="signed_both", client_id=cli
     )
 
-    tac_headers = await _tac_headers(app_client)
+    recruiter_headers = await _recruiter_headers(app_client)
     denied = await app_client.post(
         f"/api/contracts/{cid}/force-delete-signed",
         json={"confirmation": f"Multi {marker}"},
-        headers=tac_headers,
+        headers=recruiter_headers,
     )
     assert denied.status_code == 403, denied.text
 

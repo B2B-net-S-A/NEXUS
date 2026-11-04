@@ -22,7 +22,7 @@ from app.models.competence_category import (
     UserCompetenceCategory,
 )
 from app.models.cc_feedback import CcSuggestionOverride, JobSecondaryCc
-from app.models.invite_link import CandidateInviteLink
+from app.models.invite_link import CandidateInviteLink, CandidateInviteLinkVisitDay
 from app.models.application_submission import (  # noqa: F401
     ApplicationSubmission,
     ApplicationSubmissionStatus,
@@ -46,7 +46,11 @@ from app.models.candidate_pin import CandidatePin
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.note import Note
 from app.models.contract import Contract, ContractTerminationReason
-from app.models.contract_document import ContractDocument, ContractDocumentType
+from app.models.contract_document import (
+    ContractDocument,
+    ContractDocumentFolder,
+    ContractDocumentType,
+)
 from app.models.contract_equipment import (
     ContractEquipment,
     EquipmentItemType,
@@ -68,8 +72,19 @@ from app.models.contract_template import ContractTemplate
 from app.models.b2b_contract_role import B2BContractRole, B2BRoleCategory
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.b2b_signing_request import B2BSigningRequest
+from app.models.pre_contract import (  # noqa: F401
+    PreContractEvent,
+    PreContractRequest,
+    PreContractWatcher,
+)
 from app.models.b2b_contract_document import B2BContractDocument
 from app.models.b2b_register_import import B2BRegisterImportRow, B2BRegisterImportRun
+from app.models.contract_doc_sharepoint import (
+    ContractDocSpItem,
+    ContractDocSpRun,
+    ContractDocSpRunItem,
+)
 from app.models.b2b_generated_contract_status_event import (
     B2BGeneratedContractStatusEvent,
 )
@@ -83,6 +98,7 @@ from app.models.email_template import EmailTemplate
 from app.models.user_email_template import UserEmailTemplate
 from app.models.teams_channel import TeamsNotificationChannel
 from app.models.job_posting import JobPosting
+from app.models.job_board_connection import JobBoardConnection
 from app.models.call import Call
 from app.models.candidate_contact import (
     CandidateContactCase,
@@ -123,6 +139,12 @@ from app.models.client_cv_rule_publication import ClientCvRulePublication
 from app.models.client_cv_rule_preview import ClientCvRulePreview
 from app.models.client_playbook import ClientPlaybook
 from app.models.client_playbook_event import ClientPlaybookEvent
+from app.models.plain_knowledge import (  # noqa: F401
+    JobPlainBrief,
+    PlainKnowledgeEvent,
+    PlainTerm,
+    RoleProfile,
+)
 from app.models.client_cleanup import ClientCleanupRun, PurgedClient
 from app.models.critical_event import CriticalEvent
 from app.models.order_change_check import OrderChangeCheck, OrderPdfDownload
@@ -169,6 +191,10 @@ from app.models.champion_suggestion import (
     SuggestionStatus,
 )
 from app.models.app_setting import AppSetting
+from app.models.scoring_weight_change import (
+    ScoringWeightChange,
+    ScoringWeightMeasurement,
+)
 from app.models.kpi_target import KpiRoleDefault, UserKpiTarget
 from app.models.kpi_target_event import KpiTargetEvent
 from app.models.kpi_email_report_run import KpiEmailReportRun
@@ -198,6 +224,7 @@ from app.models.interview_feedback import (
     InterviewFeedback,
     NextStepPreference,
 )
+from app.models.cpro_mail import CproMailEvent  # noqa: F401
 from app.models.m365 import (
     Email,
     EmailAttachment,
@@ -274,7 +301,6 @@ from app.models.client_required_document import (
 )
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.document_signature_event import DocumentSignatureEvent
-from app.models.signature_link import SignatureLink
 from app.models.client_framework_contract import (
     ClientFrameworkContract,
     FrameworkContractSignedVia,
@@ -319,6 +345,11 @@ from app.models.service_account import (  # noqa: F401
     ServiceAccountKey,
     ServiceScope,
 )
+from app.models.linkedin_extension import (  # noqa: F401
+    LinkedinExtensionConnection,
+)
+from app.models.candidate_ai_assessment import CandidateAiAssessment  # noqa: F401
+from app.models.cv_generator_feedback import CvGeneratorFeedback  # noqa: F401
 from app.models.candidate_source_event import (
     CandidateSourceEvent,
     SourceChannel,
@@ -352,6 +383,7 @@ __all__ = [
     "CcSuggestionOverride",
     "JobSecondaryCc",
     "CandidateInviteLink",
+    "CandidateInviteLinkVisitDay",
     "ApplicationSubmission",
     "ApplicationSubmissionStatus",
     "Client",
@@ -367,6 +399,7 @@ __all__ = [
     "Contract",
     "ContractTerminationReason",
     "ContractDocument",
+    "ContractDocumentFolder",
     "ContractDocumentType",
     "ContractEquipment",
     "EquipmentItemType",
@@ -387,9 +420,13 @@ __all__ = [
     "B2BRoleCategory",
     "B2BContractDetail",
     "B2BGeneratedContract",
+    "B2BSigningRequest",
     "B2BContractDocument",
     "B2BRegisterImportRow",
     "B2BRegisterImportRun",
+    "ContractDocSpItem",
+    "ContractDocSpRun",
+    "ContractDocSpRunItem",
     "B2BGeneratedContractStatusEvent",
     "CvGeneratedDocument",
     "Invoice",
@@ -402,6 +439,7 @@ __all__ = [
     "UserEmailTemplate",
     "TeamsNotificationChannel",
     "JobPosting",
+    "JobBoardConnection",
     "Call",
     "CandidateContactCase",
     "CandidateContactEvent",
@@ -432,6 +470,10 @@ __all__ = [
     "ClientCvRulePreview",
     "ClientPlaybook",
     "ClientPlaybookEvent",
+    "JobPlainBrief",
+    "PlainKnowledgeEvent",
+    "PlainTerm",
+    "RoleProfile",
     "ClientCleanupRun",
     "PurgedClient",
     "CriticalEvent",
@@ -477,6 +519,8 @@ __all__ = [
     "SuggestionSource",
     "SuggestionStatus",
     "AppSetting",
+    "ScoringWeightChange",
+    "ScoringWeightMeasurement",
     "KpiRoleDefault",
     "UserKpiTarget",
     "KpiTargetEvent",
@@ -563,7 +607,6 @@ __all__ = [
     "ClientDocStatus",
     "DocumentSignature",
     "DocumentSignatureEvent",
-    "SignatureLink",
     "SignatureStatus",
     "ClientFrameworkContract",
     "FrameworkContractStatus",
@@ -695,12 +738,21 @@ from app.models.jarvis import (  # noqa: F401
     JarvisAction,
     JarvisConversation,
     JarvisConversationEntity,
+    JarvisGap,
     JarvisMessage,
     JarvisUiEvent,
 )
 from app.models.mail_delivery import MailDeliveryState  # noqa: F401
 from app.models.job_proposal import JobProposal  # noqa: F401
-from app.models.job_similar_link import JobSimilarLink  # noqa: F401
+from app.models.job_autofill_pool import JobAutofillPool  # noqa: F401
+from app.models.autofill_feedback import AutofillFeedback  # noqa: F401
+from app.models.autofill_quality_report import AutofillQualityReport  # noqa: F401
+from app.models.candidate_job_owner import (  # noqa: F401
+    CandidateJobOwner,
+    CandidateJobOwnerEvent,
+)
+from app.models.pair_departure_care import PairDepartureCare  # noqa: F401
+from app.models.job_similar_link import JobSimilarLink, JobTwinDismissal  # noqa: F401
 from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride  # noqa: F401
 
 # 0369: Akademia — nabór do programów szkoleniowych.
@@ -733,13 +785,26 @@ from app.models.trainee import (  # noqa: F401
 from app.models.prep_meeting import (  # noqa: F401
     PrepMeeting,
     PrepReview,
+    PrepReviewConfigVersion,
     PrepTranscript,
 )
 
 # 0372: follow-up z kandydatem, gdy klient milczy — wyniki telefonów.
 from app.models.candidate_followup import CandidateFollowup  # noqa: F401
+from app.models.followup_meeting import FollowupMeeting  # noqa: F401
+
+# 0388: nagrobki usuniętych kandydatów dla syncu Traffita (RODO, runda 6).
+from app.models.purged_candidate import PurgedCandidate  # noqa: F401
+
+# 0390: wskaźniki do zachowanych CV usuniętych kandydatów (runda 9, R9-N7-12).
+from app.models.retained_candidate_file import RetainedCandidateFile  # noqa: F401
+
+# 0391: nagrobki notatek z Traffita usuniętych w NEXUSIE (runda 10, R10-N6-1).
+from app.models.deleted_note_source import DeletedNoteSource  # noqa: F401
 
 # 0361: przebiegi QC CV (Rekrutacja v5) — bramka przed „CV wysłane”/Cpro.
+from app.models.cv_finding_dismissal import CvFindingDismissal  # noqa: F401
+from app.models.cv_stage_draft_snapshot import CvStageDraftSnapshot  # noqa: F401
 from app.models.cv_qc_run import CvQcRun  # noqa: F401
 from app.models.competition_period_closure import (  # noqa: F401
     CompetitionPeriodClosure,
@@ -747,3 +812,101 @@ from app.models.competition_period_closure import (  # noqa: F401
 
 # 0371: kto pracuje nad requestem (automat przydziału + ręczne dodanie).
 from app.models.job_work_assignment import JobWorkAssignment  # noqa: F401
+from app.models.job_previous_recruiter import JobPreviousRecruiter  # noqa: F401
+
+# 0450: championi rekrutacji — osoby, które klient chce (D1–D9, 15.10.2026).
+from app.models.job_champion import JobChampion  # noqa: F401
+
+# 0404: ocena zgłoszeń z linku rekrutacji przez AI przed wejściem do „Nowi”.
+from app.models.application_screening import ApplicationScreening  # noqa: F401
+
+# 0413: karta rekomendacji pary (kandydat, rekrutacja).
+from app.models.recommendation_card import RecommendationCard  # noqa: F401
+
+# 0416: niedokończone formularze „Nowa rekrutacja” na koncie autora.
+from app.models.job_intake_form import JobIntakeForm  # noqa: F401
+from app.models.job_file import JobFile  # noqa: F401
+from app.models.candidate_client_form import CandidateClientForm  # noqa: F401
+
+# 0626: wzór „Karty przed CV” klienta (Credit Agricole).
+from app.models.client_cover_sheet_template import ClientCoverSheetTemplate  # noqa: F401
+
+# 0430: ogłoszenie rekrutacji do wklejenia na portale.
+from app.models.job_ad import JobAd  # noqa: F401
+from app.models.job_ad_publication import JobAdPublication  # noqa: F401
+from app.models.job_ad_channel_skip import JobAdChannelSkip  # noqa: F401
+
+# 0418: zmiana stawki kandydata w trakcie procesu.
+from app.models.candidate_rate_change import CandidateRateChange  # noqa: F401
+
+# 0424: historia jednego formularza screeningu pary (kandydat, rekrutacja).
+from app.models.screening_form_version import ScreeningFormVersion  # noqa: F401
+
+# 0426: fragmenty tekstu umów ramowych klientów (Jarvis czyta umowy).
+from app.models.client_framework_contract_chunk import (  # noqa: F401
+    ClientFrameworkContractChunk,
+)
+
+# 0438: decyzje „Wymagania do poprawy” (porządki wymagań otwartych rekrutacji).
+from app.models.requirement_cleanup import (  # noqa: F401
+    RequirementCleanupDecision,
+)
+
+# 0443: paragony zapisów API integracyjnego v1 (idempotencja + rejestr).
+from app.models.integration_write_receipt import (  # noqa: F401
+    IntegrationWriteReceipt,
+)
+
+# 0448: kanał zdarzeń i webhooki API integracyjnego v1.
+from app.models.integration_event import (  # noqa: F401
+    IntegrationEvent,
+    IntegrationEventOutbox,
+    IntegrationWebhook,
+)
+
+# 0455: „Ludzie w NEXUSIE” — kartoteka pracownika, pule urlopowe, dni wolne
+# firmy, ślad HR, rezerwacje zadań i import z Compassa.
+from app.models.hr_profile import (  # noqa: F401
+    CompanyDayOff,
+    EmployeeProfile,
+    LeaveEntitlement,
+)
+from app.models.hr_ops import (  # noqa: F401
+    HrAuditEvent,
+    HrImportBatch,
+    HrImportIdMap,
+    HrJobRun,
+)
+
+# 0457–0465: moduły „Ludzi w NEXUSIE” — import modułu rejestruje modele
+# (nazwy klas importuj z modułu, np. ``from app.models.hr_leave import …``).
+from app.models import hr_leave as _hr_leave_models  # noqa: F401,E402
+from app.models import hr_time as _hr_time_models  # noqa: F401,E402
+from app.models import hr_payroll as _hr_payroll_models  # noqa: F401,E402
+from app.models import hr_lifecycle as _hr_lifecycle_models  # noqa: F401,E402
+from app.models import contract_care as _contract_care_models  # noqa: F401,E402
+from app.models import client_structure as _client_structure_models  # noqa: F401,E402
+from app.models import care_announcement as _care_announcement_models  # noqa: F401,E402
+from app.models import hr_settlement as _hr_settlement_models  # noqa: F401,E402
+from app.models import hr_document as _hr_document_models  # noqa: F401,E402
+from app.models import hr_agreement as _hr_agreement_models  # noqa: F401,E402
+from app.models import hr_approval as _hr_approval_models  # noqa: F401,E402
+from app.models import client_sales_invoice as _client_sales_invoice_models  # noqa: F401,E402
+from app.models import admin_case as _admin_case_models  # noqa: F401,E402
+from app.models import equipment as _equipment_models  # noqa: F401,E402
+from app.models import equipment_intune as _equipment_intune_models  # noqa: F401,E402
+from app.models import consultant_portal as _consultant_portal_models  # noqa: F401,E402
+from app.models import academy_logistics as _academy_logistics_models  # noqa: F401,E402
+
+# 0601: Sprzedaż (Atlas → NEXUS) — lejki, firmy, kontakty, szanse, aktywności.
+from app.models import sales as _sales_models  # noqa: F401,E402
+
+# 0619: „Ogłoszenia” na pulpicie (HoR i admin publikują, przeczytane per osoba).
+from app.models import announcement as _announcement_models  # noqa: F401,E402
+
+# 0625: Nowości do przeklikania — postęp osoby przy nowości.
+from app.models import novelty as _novelty_models  # noqa: F401,E402
+from app.models import access_usage as _access_usage_models  # noqa: F401,E402
+
+# 0639: panel klienta pod linkiem z CV.
+from app.models import client_panel as _client_panel_models  # noqa: F401,E402

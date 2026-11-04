@@ -4,6 +4,35 @@
 // ZERO zapytań — każdy klucz jest zasiany, a interceptor odcina sieć, więc
 // strona nie przerzuca na /login (pilnuje `harness-seeds.test.ts`).
 // Zapis układu w podglądzie kończy się komunikatem o błędzie — to zamierzone.
+//
+// Domyślnie pulpit Head of Recruitment: „Czeka na Ciebie” zaczyna się od
+// propozycji automatu przydziału (trzy przypadki: osoba z 1. priorytetem,
+// osoba bez requestów, osoba na urlopie) z banerem o braku
+// danych o urlopach; „Zmień” otwiera listę osób z zasianego obłożenia.
+// Pod propozycjami „Nowe rekrutacje — kto prowadzi”: prowadzący z automatu,
+// wskazany ręcznie, propozycja czekająca na akceptację, automat w trakcie
+// przydziału, „Przyjmujemy kandydatów” i rekrutacja bez prowadzącego. W wariantach
+// „CV w drodze” (nic nie czeka) ta lista stoi sama, we własnej ramce.
+// „Rekrutacje do dokończenia albo zamknięcia” (stary szkic z odliczaniem do
+// zamknięcia, rekrutacja bez przekazania, niedokończony formularz) stoi
+// w panelu wariantu „Pulpit z kafelkami”, a w wariancie „CV w drodze: pasek”
+// — sama, we własnej ramce.
+// `?as=recruiter|tcm|dl|dlr|hor|admin|finance` (04.10.2026) — persona roli;
+// domyślny wariant „Układ roli” pokazuje pulpit konta bez zapisanego układu
+// (`uses_role_layout`) i „Czeka na Ciebie” z przepływem rekrutacji (rekruter,
+// TCM, DL) albo pracą Finansów. Propozycje i „kto prowadzi” — Head i admin.
+// `?as=dl` + „Pulpit z kafelkami” (13.10.2026): nad panelem stoi pas „Do
+// wysłania do klienta” — trzy gotowe osoby w trzech tonach pilności (dwie
+// z jednej rekrutacji, więc z „porównaj”; jedna ponad budżet), jedna jeszcze
+// u rekrutera (QC do poprawy) i jedna z importu Traffita. W wariantach bez
+// zadań pas mówi jednym zdaniem, że nikt nie czeka. Sam pas: `/preview/dl-send`.
+// „Wymagania do poprawy” (13.10.2026, D4) — DL, Head i admin, warianty „Układ
+// roli” i „Pulpit z kafelkami”: rekrutacja z propozycją („Pokaż zmiany” otwiera
+// zasiane porównanie) i rekrutacja bez słów do szukania („Uzupełnij”).
+// „Do uzupełnienia” (21.10.2026): wariant z kafelkiem `to_complete` na górze
+// siatki — umowa do zamknięcia, rekrutacje do dokończenia i wymagania stoją
+// w kafelku, a w panelu zostaje umowa do potwierdzenia. W „Pulpicie
+// z kafelkami” (bez kafelka) panel ma linię „Przenieś na pulpit”.
 
 import { useEffect, useState } from "react";
 import { AxiosError } from "axios";
@@ -20,19 +49,63 @@ import {
   type MetricResult,
 } from "@/lib/api/dashboardMetrics";
 import { myPeopleSummaryQueryKey } from "@/lib/api/myPeople";
+import { ESIGN_MINE_KEY } from "@/lib/api/b2bEsign";
+import { MY_CLIENTS_CARDS_QUERY_KEY } from "@/components/v2/dashboard/MyClientsAlertsPanel";
+import {
+  MY_RECRUITMENTS_QUERY_KEY,
+  type MyRecruitmentRow,
+} from "@/components/v2/dashboard/custom/MyRecruitmentsTile";
+import { MY_WEEK_QUERY_KEY } from "@/components/v2/dashboard/custom/MyWeekTile";
+import {
+  CLOSING_CANDIDATES_QUERY_KEY,
+  type ClosingCandidatesResponse,
+} from "@/lib/closing-candidates";
+import {
+  SYSTEM_STATUS_QUERY_KEY,
+  type HealthResponse,
+} from "@/components/v2/dashboard/custom/SystemStatusTile";
+import {
+  TEAM_SIGNALS_QUERY_KEY,
+  type TeamSignal,
+} from "@/components/v2/dashboard/custom/TeamSignalsTile";
+import { interviewCycleQueryKey } from "@/lib/api/interviewCycle";
+import { ORDER_CHANGES_SUMMARY_KEY } from "@/lib/api/finance";
+import type { MyKpiPanel } from "@/lib/api";
+import type { CycleOverview } from "@/lib/interview-cycle";
 import {
   BOARD_TASKS_QUERY_KEY,
   CPRO_SENDER_QUERY_KEY,
+  type AllocationProposalRow,
   type BoardTaskRow,
   type BoardTasksResponse,
   type CproSender,
+  type CvInTransit,
+  type CvTransitRow,
+  type FinanceBlock,
+  type FlowBlock,
+  type NewJobLeadRow,
+  type PendingJobs,
+  type PrepAttentionRow,
+  type RequirementFixRow,
+  type UnfinishedJobForm,
 } from "@/lib/api/boardTasks";
+import {
+  requirementProposalKey,
+  type RequirementProposalResponse,
+} from "@/lib/requirement-proposal-api";
+import {
+  REQUEST_BOARD_QUERY_KEY,
+  type LoadPerson,
+  type RequestBoard,
+} from "@/lib/api/requestAllocation";
 import {
   USER_DASHBOARD_QUERY_KEY,
   type DashboardTile,
   type UserDashboardResponse,
 } from "@/lib/api/userDashboard";
 import { TILE_TEMPLATES } from "@/lib/dashboard-tiles/catalog";
+import { candidateContactQueryKeys } from "@/lib/candidate-contact";
+import type { UserRole } from "@/store/auth";
 import { useAuthStore } from "@/store/auth";
 
 const tpl = (key: string) => TILE_TEMPLATES.find((t) => t.key === key)!;
@@ -77,6 +150,20 @@ const TILES: DashboardTile[] = [
       ],
     },
   },
+  { id: "t10", type: "closing_candidates", x: 0, y: 10, w: 12, h: 6, config: {} },
+];
+
+const TILES_TO_COMPLETE: DashboardTile[] = [
+  { id: "t0", type: "to_complete", x: 0, y: 0, w: 12, h: 5, config: {} },
+  ...TILES.map((t) => ({ ...t, y: t.y + 5 })),
+];
+
+// „Czeka na Ciebie” jako kafelek (23.10.2026, Head of Recruitment i admin):
+// panel stoi w kafelku pod „Do uzupełnienia”, nie nad siatką.
+const TILES_BOARD_TASKS: DashboardTile[] = [
+  { id: "t0", type: "to_complete", x: 0, y: 0, w: 12, h: 5, config: {} },
+  { id: "tb", type: "board_tasks", x: 0, y: 5, w: 12, h: 6, config: {} },
+  ...TILES.map((t) => ({ ...t, y: t.y + 11 })),
 ];
 
 const CATALOG: MetricCatalog = {
@@ -86,7 +173,7 @@ const CATALOG: MetricCatalog = {
     { key: "jobs", label: "Rekrutacje", available: true, reason: null, measures: [{ key: "open_now", label: "Rekrutacje otwarte teraz", snapshot: true }], group_by: ["none", "client", "recruiter", "competence_category"], filters: ["client_ids", "competence_category_ids"], supports_author: true },
     { key: "contracts", label: "Kontrakty", available: true, reason: null, measures: [{ key: "active_now", label: "Aktywne kontrakty teraz", snapshot: true }], group_by: ["none", "client"], filters: ["client_ids"], supports_author: false },
     { key: "orders", label: "Zamówienia", available: true, reason: null, measures: [{ key: "ending_30_days", label: "Kończące się w ciągu 30 dni", snapshot: true }], group_by: ["none", "client"], filters: ["client_ids"], supports_author: false },
-    { key: "finance", label: "Finanse", available: false, reason: "Kwoty widzą Finanse, administrator i Delivery Lead dla swoich klientów.", measures: [{ key: "margin", label: "Marża miesięczna (PLN)", snapshot: false }], group_by: ["none", "month", "client"], filters: ["client_ids"], supports_author: false },
+    { key: "finance", label: "Finanse", available: false, reason: "Kwoty widzą osoby z uprawnieniem „Stawki i kwoty: podgląd” (Delivery Lead: u swoich klientów).", measures: [{ key: "margin", label: "Marża miesięczna (PLN)", snapshot: false }], group_by: ["none", "month", "client"], filters: ["client_ids"], supports_author: false },
   ],
   authors: ["me", "team"],
   stages: [
@@ -115,7 +202,7 @@ const taskRow = (over: Partial<BoardTaskRow>): BoardTaskRow => ({
   job_id: 1,
   job_title: "Senior Java Developer",
   client_id: 11,
-  client_name: "Nordea",
+  client_name: "Bank Północny",
   since: daysAgo(1),
   process_state_version: 1,
   target_stage_def_id: 5,
@@ -126,14 +213,19 @@ const taskRow = (over: Partial<BoardTaskRow>): BoardTaskRow => ({
 const BOARD_TASKS: BoardTasksResponse = {
   window_days: 14,
   can_send_to_client: true,
+  can_set_cpro_sender: true,
   dl_review_window_days: 30,
+  // „Do wysłania do klienta” (13.10.2026): gotowe (QC zdane albo przepuszczone)
+  // w trzech tonach pilności, karta jeszcze u rekrutera i etap z importu.
   dl_review: [
-    taskRow({ stage_id: 101, candidate_id: 201, candidate_name: "Joanna Wiśniewska", client_name: "PKO BP", since: daysAgo(4), qc_status: "passed" }),
-    taskRow({ stage_id: 102, candidate_id: 202, candidate_name: "Tomasz Lewandowski", job_title: "Data Engineer", client_name: "PKO BP", since: daysAgo(2), qc_status: "failed", qc_blocking_failed: 2 }),
-    taskRow({ stage_id: 103, candidate_id: 203, candidate_name: "Karolina Dąbrowska", job_title: "Tester Manualny", client_name: "Tauron", since: daysAgo(0), qc_status: "overridden" }),
+    taskRow({ stage_id: 101, candidate_id: 201, candidate_name: "Joanna Wiśniewska", job_id: 901, client_name: "Bank Kappa", since: daysAgo(6), ready: true, ready_since: daysAgo(4), waiting_workdays: 3, urgency: "late", handed_over_by_name: "Marta Kowalczyk", expected_rate_value: 150, expected_rate_unit: "hourly", expected_rate_currency: "PLN", budget_min_hourly: null, budget_max_hourly: 170, deadline: daysAgo(-11).slice(0, 10), qc_status: "passed", card_status: "complete", card_missing: 0 }),
+    taskRow({ stage_id: 104, candidate_id: 204, candidate_name: "Piotr Makietowy", job_id: 901, client_name: "Bank Kappa", since: daysAgo(2), ready: true, ready_since: daysAgo(1), waiting_workdays: 1, urgency: "due", handed_over_by_name: "Marta Kowalczyk", expected_rate_value: 175, expected_rate_unit: "hourly", expected_rate_currency: "PLN", budget_min_hourly: null, budget_max_hourly: 170, deadline: daysAgo(-11).slice(0, 10), qc_status: "passed", card_status: "partial", card_missing: 1 }),
+    taskRow({ stage_id: 103, candidate_id: 203, candidate_name: "Karolina Dąbrowska", job_id: 903, job_title: "Tester Manualny", client_name: "Energetyka Wzorcowa", since: daysAgo(0), ready: true, ready_since: daysAgo(0), waiting_workdays: 0, urgency: "fresh", handed_over_by_name: "Jan Dąb", expected_rate_value: 900, expected_rate_unit: "daily", expected_rate_currency: "PLN", budget_min_hourly: 110, budget_max_hourly: 130, deadline: null, qc_status: "overridden" }),
+    taskRow({ stage_id: 102, candidate_id: 202, candidate_name: "Tomasz Lewandowski", job_id: 902, job_title: "Data Engineer", client_name: "Bank Kappa", since: daysAgo(2), ready: false, ready_since: null, waiting_workdays: 0, urgency: null, handed_over_by_name: "Jan Dąb", expected_rate_value: 145, expected_rate_unit: "hourly", expected_rate_currency: "PLN", budget_min_hourly: null, budget_max_hourly: 160, qc_status: "failed", qc_blocking_failed: 2, card_status: "partial", card_missing: 3 }),
+    taskRow({ stage_id: 105, candidate_id: 205, candidate_name: "Ewa Przeniesiona", job_id: 902, job_title: "Data Engineer", client_name: "Bank Kappa", since: daysAgo(41), ready: false, ready_since: null, waiting_workdays: 0, urgency: null, imported: true, handed_over_by_name: null, qc_status: "unchecked", card_status: null }),
   ],
   cpro_to_send: [
-    taskRow({ kind: "cpro_to_send", stage_id: 111, candidate_id: 211, candidate_name: "Michał Wójcik", assignee_id: 1, assignee_name: "Artur Twardowski", since: daysAgo(1) }),
+    taskRow({ kind: "cpro_to_send", stage_id: 111, candidate_id: 211, candidate_name: "Michał Wójcik", assignee_id: 1, assignee_name: "Adam Wzorcowy", since: daysAgo(1) }),
     taskRow({ kind: "cpro_to_send", stage_id: 112, candidate_id: 212, candidate_name: "Agnieszka Kamińska", job_title: "Business Analyst", since: daysAgo(3) }),
   ],
   cpro_sent: [
@@ -141,7 +233,588 @@ const BOARD_TASKS: BoardTasksResponse = {
   ],
 };
 
-function seededClient(tiles: DashboardTile[]): QueryClient {
+// Propozycje automatu przydziału do akceptacji (dane fikcyjne). Kolejność jak
+// z serwera: P1 na górze, potem najdłużej czekające.
+const proposal = (over: Partial<AllocationProposalRow>): AllocationProposalRow => ({
+  job_id: 1,
+  title: "Request",
+  client_name: "Bank Północny",
+  category_id: 2,
+  category_name: "Development",
+  category_slug: "software_development",
+  delivery_lead_name: "Marta Kowalczyk",
+  priority_level: "p2",
+  deadline: null,
+  sent: 0,
+  user_id: 1,
+  user_name: "Osoba",
+  fit: "first",
+  load: 0,
+  leave_until: null,
+  base_matches: null,
+  proposed_at: daysAgo(0),
+  ...over,
+});
+const ALLOCATION_PROPOSALS: AllocationProposalRow[] = [
+  proposal({ job_id: 301, title: "Full Stack Java Developer · Spring Boot", priority_level: "p1", deadline: "2026-10-10", user_id: 41, user_name: "Marek Wzorcowy", fit: "first", load: 2, proposed_at: daysAgo(1) }),
+  proposal({ job_id: 302, title: "Administrator chmury · Azure, Terraform", client_name: "Fundusz Przykładowy", category_id: 1, category_name: "Infra & Operations & Security / Data & AI", category_slug: "infrastructure_operations", delivery_lead_name: "Piotr Zieliński", user_id: 42, user_name: "Ewa Fikcyjna", fit: "first", load: 0, base_matches: 22 }),
+  proposal({ job_id: 303, title: "Tester automatyzujący · Python, Robot Framework", category_id: 4, category_name: "QA", category_slug: "security_quality", sent: 1, user_id: 43, user_name: "Tomasz Makietowy", fit: "other", load: 4, leave_until: "2026-10-09" }),
+];
+
+// „Nowe rekrutacje P1 — kto prowadzi” (dane fikcyjne): po jednym wierszu na
+// każdy stan prowadzącego i początek cyklu, jeden wiersz, który wrócił. Tylko
+// P1 (14.10.2026). Lista informacyjna — nie dokłada nic do „Czeka na Ciebie”.
+const jobLead = (over: Partial<NewJobLeadRow>): NewJobLeadRow => ({
+  job_id: 1,
+  title: "Rekrutacja",
+  client_name: "Bank Północny",
+  category_id: 2,
+  category_name: "Development",
+  category_slug: "software_development",
+  participants: 6,
+  priority_level: "p1",
+  delivery_lead_name: "Marta Kowalczyk",
+  handed_off_at: daysAgo(0),
+  since_reason: "handoff",
+  lead_user_id: null,
+  lead_name: null,
+  lead_role: null,
+  lead_source: null,
+  assigned_by_name: null,
+  proposed: false,
+  pending_reason: null,
+  ...over,
+});
+const NEW_JOB_LEADS: NewJobLeadRow[] = [
+  jobLead({ job_id: 311, title: "Backend Developer · Kotlin, Spring", lead_user_id: 45, lead_name: "Julia Testowa", lead_role: "recruiter", lead_source: "auto" }),
+  jobLead({ job_id: 312, title: "Inżynier danych · Spark, Airflow", client_name: "Fundusz Przykładowy", category_id: 1, category_name: "Infra & Operations & Security / Data & AI", category_slug: "infrastructure_operations", participants: 4, delivery_lead_name: "Piotr Zieliński", lead_user_id: 44, lead_name: "Kinga Przykładowa", lead_role: "recruiter", lead_source: "manual", assigned_by_name: "Piotr Zieliński", handed_off_at: daysAgo(1), since_reason: "reopen" }),
+  jobLead({ job_id: 301, title: "Full Stack Java Developer · Spring Boot", lead_user_id: 41, lead_name: "Marek Wzorcowy", lead_role: "recruiter", lead_source: "auto", proposed: true, handed_off_at: daysAgo(1) }),
+  jobLead({ job_id: 313, title: "Analityk biznesowy · bankowość", client_name: "Bank Kappa", category_id: 5, category_name: "Management & Delivery (PM & BA)", category_slug: "management_delivery", participants: 3, pending_reason: "assigning" }),
+  // Wrócił: Head of Recruitment potwierdził Kingę, potem automat dał Maję.
+  jobLead({ job_id: 314, title: "Tester manualny · aplikacje mobilne", client_name: "Ubezpieczenia Wzorcowe", category_id: 4, category_name: "QA", category_slug: "security_quality", participants: 1, lead_user_id: 46, lead_name: "Maja Próbna", lead_role: "recruiter", lead_source: "auto", returned_from_user_id: 44, returned_from_name: "Kinga Przykładowa", handed_off_at: daysAgo(2) }),
+  jobLead({ job_id: 315, title: "Administrator sieci · Cisco", client_name: "Energetyka Wzorcowa", category_id: null, category_name: null, category_slug: null, participants: 0, pending_reason: "none", handed_off_at: daysAgo(3), since_reason: "p1" }),
+  jobLead({ job_id: 316, title: "Projektant UX · aplikacje webowe", client_name: "Bank Kappa", category_id: 2, category_name: "Development", category_slug: "software_development", participants: 0, pending_reason: "not_handed_off", handed_off_at: daysAgo(5) }),
+];
+
+// Obłożenie dla listy „Zmień” — te same osoby co w propozycjach i kilka wolnych.
+const loadPerson = (over: Partial<LoadPerson> & Pick<LoadPerson, "user_id" | "name">): LoadPerson => ({
+  count: 0,
+  proposed: 0,
+  leave_until: null,
+  requests: [],
+  ...over,
+});
+const REQUEST_BOARD: RequestBoard = {
+  mode: "shadow",
+  availability_known: false,
+  groups: [],
+  requests: [],
+  load: [
+    loadPerson({
+      user_id: 44,
+      name: "Kinga Przykładowa",
+      count: 4,
+      outside_p1: 2,
+      requests: [
+        { job_id: 311, title: "Java Developer · Spring Boot", client_name: "Bank Północny", deadline: "2026-10-14", proposed: false },
+        { job_id: 312, title: "Tester automatyzujący · Python", client_name: "Fundusz Przykładowy", deadline: "2026-10-16", proposed: false },
+        { job_id: 313, title: "Analityk danych · SQL, Power BI", client_name: "Bank Północny", deadline: null, proposed: false },
+        { job_id: 314, title: "DevOps Engineer · Azure", client_name: "Ubezpieczyciel Testowy", deadline: "2026-10-21", proposed: false },
+      ],
+    }),
+    loadPerson({ user_id: 43, name: "Tomasz Makietowy", count: 4, proposed: 1, leave_until: "2026-10-09" }),
+    loadPerson({ user_id: 41, name: "Marek Wzorcowy", count: 2, proposed: 1 }),
+    loadPerson({ user_id: 45, name: "Julia Testowa", count: 1 }),
+    loadPerson({ user_id: 42, name: "Ewa Fikcyjna", count: 0, proposed: 1 }),
+    loadPerson({ user_id: 46, name: "Maja Próbna", count: 0 }),
+    loadPerson({ user_id: 47, name: "Olga Wymyślona", count: 3, outside_p1: 5 }),
+    loadPerson({ user_id: 48, name: "Paweł Zmyślony", count: 3, leave_until: "2026-10-15" }),
+    loadPerson({ user_id: 49, name: "Renata Makietowa-Przykładowska", count: 2 }),
+    loadPerson({ user_id: 50, name: "Szymon Fikcyjny", count: 1, outside_p1: 1 }),
+  ],
+  changes: [],
+};
+
+type Persona = "hor" | "recruiter" | "tcm" | "dl" | "dlr" | "admin" | "finance";
+
+const PERSONAS: Record<Persona, { label: string; roles: UserRole[] }> = {
+  recruiter: { label: "Rekruter", roles: ["recruiter"] },
+  tcm: { label: "Talent Community Manager", roles: ["talent_community_manager"] },
+  dl: { label: "Delivery Lead", roles: ["delivery_lead"] },
+  dlr: { label: "Delivery Lead + Rekruter", roles: ["delivery_lead", "recruiter"] },
+  hor: { label: "Head of Recruitment", roles: ["head_of_recruitment", "delivery_lead"] },
+  admin: { label: "Administrator", roles: ["admin"] },
+  finance: { label: "Finanse", roles: ["finance"] },
+};
+
+function parsePersona(value: string | null): Persona {
+  return value && value in PERSONAS ? (value as Persona) : "hor";
+}
+
+// „Twój ruch” (04.10.2026) — przepływ rekrutacji i praca Finansów (dane fikcyjne).
+const flowPair = (over: Partial<FlowBlock["claimed"][number]>): FlowBlock["claimed"][number] => ({
+  candidate_id: 1,
+  candidate_name: "Kandydat",
+  job_id: 501,
+  job_title: "Senior Java Developer",
+  job_working_title: null,
+  client_name: "Bank Północny",
+  since: daysAgo(1),
+  claimed_until: null,
+  missing: [],
+  qc_status: null,
+  ...over,
+});
+const FLOW: FlowBlock = {
+  applies: true,
+  new_requests: [
+    { job_id: 504, job_title: "Programista Python · Django", job_working_title: "Python · Django · 4+ lat", client_name: "Bank Kappa", assigned_at: daysAgo(0), assigned_by_name: "Piotr Zieliński" },
+    { job_id: 505, job_title: "Analityk systemowy · UML", job_working_title: null, client_name: "Fundusz Przykładowy", assigned_at: daysAgo(2), assigned_by_name: null },
+  ],
+  new_request_days: 3,
+  postings: [
+    { job_id: 501, job_title: "Senior Java Developer", client_name: "Bank Północny", count: 46, oldest_at: daysAgo(9) },
+    { job_id: 502, job_title: "Tester automatyzujący · Python", client_name: "Bank Kappa", count: 18, oldest_at: daysAgo(4) },
+    { job_id: 503, job_title: "Administrator chmury · Azure", client_name: "Fundusz Przykładowy", count: 7, oldest_at: daysAgo(2) },
+  ],
+  postings_total: 71,
+  claimed: [
+    flowPair({ candidate_id: 601, candidate_name: "Marta Fikcyjna", claimed_until: new Date(Date.now() + 5 * 3_600_000).toISOString() }),
+  ],
+  screening: [
+    flowPair({ candidate_id: 602, candidate_name: "Piotr Wzorcowy", missing: ["sheet", "rate"], since: daysAgo(3) }),
+    flowPair({ candidate_id: 603, candidate_name: "Alicja Makietowa", job_id: 502, job_title: "Tester automatyzujący · Python", client_name: "Bank Kappa", missing: ["rate"] }),
+    // 13.10.2026: rekrutacja bez pytań screeningowych — brakuje oceny, nie arkusza.
+    flowPair({ candidate_id: 605, candidate_name: "Olga Bezpytań", job_id: 503, job_title: "Analityk raportów podatkowych", client_name: "Bank Kappa", missing: ["why_candidate", "rate"] }),
+  ],
+  verified: [flowPair({ candidate_id: 604, candidate_name: "Kamil Przykładowy", since: daysAgo(2) })],
+  waiting_client: [],
+  waiting_client_days: 7,
+  unsigned_contracts: [],
+  order_mail_review: 0,
+  // 07.10.2026: najlepsze propozycje nocnego przeglądu (dane fikcyjne).
+  top_proposals: [
+    {
+      job_id: 501,
+      job_title: "Senior Java Developer",
+      job_working_title: null,
+      client_name: "Bank Północny",
+      total: 143,
+      people: [
+        { candidate_id: 701, candidate_name: "Joanna Przykładowa", score: 91 },
+        { candidate_id: 702, candidate_name: "Tomasz Makietowy", score: 88 },
+        { candidate_id: 703, candidate_name: "Ewa Wzorcowa", score: 86 },
+      ],
+    },
+    {
+      job_id: 502,
+      job_title: "Tester automatyzujący · Python",
+      job_working_title: null,
+      client_name: "Bank Kappa",
+      total: 2,
+      people: [
+        { candidate_id: 704, candidate_name: "Michał Fikcyjny", score: 79 },
+        { candidate_id: 705, candidate_name: "Olga Testowa", score: 74 },
+      ],
+    },
+  ],
+  top_proposals_per_job: 3,
+  // 23.10.2026: osoby od silnika „Nowi na 20” po terminie decyzji.
+  autofill_decisions: [
+    {
+      job_id: 501,
+      job_title: "Senior Java Developer",
+      job_working_title: null,
+      client_name: "Bank Przykładowy",
+      candidate_id: 9701,
+      candidate_name: "Ewa Systemowa",
+      score: 81,
+      waiting_days: 3,
+    },
+    {
+      job_id: 501,
+      job_title: "Senior Java Developer",
+      job_working_title: null,
+      client_name: "Bank Przykładowy",
+      candidate_id: 9702,
+      candidate_name: "Karol Dobrany",
+      score: 63,
+      waiting_days: 2,
+    },
+  ],
+  autofill_decisions_total: 2,
+};
+const DL_FLOW: FlowBlock = {
+  ...FLOW,
+  waiting_client: [
+    flowPair({ candidate_id: 611, candidate_name: "Ewa Zmyślona", since: daysAgo(11) }),
+    flowPair({ candidate_id: 612, candidate_name: "Jan Fikcyjny", job_id: 503, job_title: "Administrator chmury · Azure", client_name: "Fundusz Przykładowy", since: daysAgo(8) }),
+  ],
+  unsigned_contracts: [
+    { id: 71, contract_number: "1734/2026", partner_name: "Kod i Chmura Jan Fikcyjny", client_name: "Bank Północny", created_at: daysAgo(4) },
+    { id: 72, contract_number: "1741/2026", partner_name: "Anna Przykładowa IT", client_name: "Telekom Zachód", created_at: daysAgo(3), esign_status: "sent" },
+  ],
+  order_mail_review: 2,
+};
+const FINANCE: FinanceBlock = {
+  gaps_open: 3,
+  pdfs_new: 12,
+  order_mail_failed: 1,
+  hired_without_order: [flowPair({ candidate_id: 621, candidate_name: "Robert Makietowy", since: daysAgo(6) })],
+  hired_without_order_total: 1,
+};
+
+const TODAY_ISO = new Date().toISOString().slice(0, 10);
+const cyclePair = (id: number, name: string, client: string) => ({
+  candidate_id: id,
+  candidate_name: name,
+  candidate_email: null,
+  job_id: 501,
+  job_title: "Senior Java Developer",
+  client_id: 11,
+  client_name: client,
+});
+const CYCLE: CycleOverview = {
+  generated_at: new Date().toISOString(),
+  scope: "mine",
+  call_window_minutes: 30,
+  items: [],
+  agenda: [
+    { ...cyclePair(701, "Anna Zielińska", "Bank Północny"), kind: "prep", start: `${TODAY_ISO}T07:30:00Z`, end: `${TODAY_ISO}T08:00:00Z`, event_id: 1, slot_request_id: null, online_meeting_url: null, done: true },
+    { ...cyclePair(701, "Anna Zielińska", "Bank Północny"), kind: "interview", start: `${TODAY_ISO}T10:00:00Z`, end: `${TODAY_ISO}T11:00:00Z`, event_id: 2, slot_request_id: null, online_meeting_url: null, done: false },
+    { ...cyclePair(702, "Tomasz Wzorcowy", "Bank Kappa"), kind: "prep2", start: `${TODAY_ISO}T13:00:00Z`, end: `${TODAY_ISO}T13:30:00Z`, event_id: 3, slot_request_id: null, online_meeting_url: null, done: false },
+  ],
+  todos: [
+    { ...cyclePair(703, "Karolina Fikcyjna", "Bank Kappa"), kind: "debrief_overdue", priority: 1, due: daysAgo(1), event_id: 4, slot_request_id: null },
+  ],
+  truncated: false,
+};
+
+const MY_WEEK: MyKpiPanel = {
+  role: "recruiter",
+  applies: true,
+  weryfikacje: { day: 2, week: 9, month: 31 },
+  rekomendacje: { day: 1, week: 6, month: 19 },
+  interview_month: 5,
+  akceptacje_month: 1,
+  placementy_month: 1,
+  cv_to_base: null,
+  precision: { value_pct: 72, verified: 25, sent: 18, target_pct: 75, window_days: 30 },
+  target_verifications_daily: 4,
+  target_placements_monthly: 1,
+  target_precision_pct: 75,
+};
+
+const TEAM_SIGNALS: { items: TeamSignal[] } = {
+  items: [
+    { kind: "no_one_sent", count: 6, label: "rekrutacji otwartych ponad 14 dni bez wysłanego CV", href: "/jobs?open=1&sent=none" },
+    { kind: "overdue", count: 3, label: "rekrutacje po terminie", href: "/jobs?open=1&deadline=overdue" },
+    { kind: "stale_postings", count: 214, label: "osób czeka w Ogłoszeniach ponad 3 dni" },
+    { kind: "stale_jobs", count: 4, label: "rekrutacje bez ruchu od 14 dni", report: "stale_jobs" },
+  ],
+};
+
+const HEALTH: HealthResponse = {
+  status: "healthy",
+  version: "cb15211a0c",
+  checks: {
+    traffit: "degraded",
+    order_mail: "healthy",
+    background_tasks: "healthy",
+    migrations: "healthy",
+    m365_mail: "unknown",
+    qdrant: "healthy",
+    voyage: "healthy",
+    anthropic: "healthy",
+  },
+};
+
+const recruitmentRow = (over: Partial<MyRecruitmentRow>): MyRecruitmentRow => ({
+  id: 501,
+  title: "Senior Java Developer",
+  client_name: "Bank Północny",
+  deadline: TODAY_ISO,
+  delivery_lead_id: 1,
+  recruiters: [],
+  stage_breakdown: { posting: 46, new: 4, screening: 2, verified: 1, cv_sent: 3, client_interview: 1 },
+  ...over,
+});
+// „Kandydaci do zamknięcia” (dane fikcyjne): koszt w godzinach, przychód
+// w MD, brak stawki kandydata — trzy sposoby liczenia marży.
+const CLOSING_CANDIDATES: ClosingCandidatesResponse = {
+  total: 3,
+  step_counts: { accepted: 1, sent: 1, signed: 1 },
+  show_client_rate: true,
+  rows: [
+    {
+      candidate_id: 9101,
+      candidate_name: "Jan Przykładowy",
+      job_id: 501,
+      job_title: "Senior Java Developer",
+      job_working_title: null,
+      client_name: "Bank Północny",
+      step: "accepted",
+      since: daysAgo(4),
+      delivery_lead_name: "Anna Nowak",
+      recruiter_name: "Piotr Zieliński",
+      candidate_rate_value: "120.00",
+      candidate_rate_unit: "hourly",
+      candidate_rate_currency: "PLN",
+      client_rate_value: "1200.00",
+      client_rate_unit: "daily",
+      client_rate_currency: "PLN",
+    },
+    {
+      candidate_id: 9102,
+      candidate_name: "Ewa Wzorcowa",
+      job_id: 502,
+      job_title: "Tester automatyzujący · Python",
+      job_working_title: null,
+      client_name: "Bank Kappa",
+      step: "sent",
+      since: daysAgo(2),
+      delivery_lead_name: "Anna Nowak",
+      recruiter_name: "Marta Kowalczyk",
+      candidate_rate_value: "110.00",
+      candidate_rate_unit: "hourly",
+      candidate_rate_currency: "PLN",
+      client_rate_value: "135.00",
+      client_rate_unit: "hourly",
+      client_rate_currency: "PLN",
+    },
+    {
+      candidate_id: 9103,
+      candidate_name: "Tomasz Testowy",
+      job_id: 503,
+      job_title: "Administrator chmury · Azure",
+      job_working_title: null,
+      client_name: "Fundusz Przykładowy",
+      step: "signed",
+      since: daysAgo(1),
+      delivery_lead_name: null,
+      recruiter_name: "Piotr Zieliński",
+      candidate_rate_value: null,
+      candidate_rate_unit: null,
+      candidate_rate_currency: null,
+      client_rate_value: "150.00",
+      client_rate_unit: "hourly",
+      client_rate_currency: "PLN",
+    },
+  ],
+};
+const MY_RECRUITMENTS = {
+  total: 3,
+  items: [
+    recruitmentRow({}),
+    recruitmentRow({ id: 502, title: "Tester automatyzujący · Python", client_name: "Bank Kappa", deadline: null, stage_breakdown: { posting: 18, new: 2, screening: 1 } }),
+    recruitmentRow({ id: 503, title: "Administrator chmury · Azure", client_name: "Fundusz Przykładowy", deadline: "2026-11-15", stage_breakdown: { new: 3, cv_sent: 2 } }),
+  ],
+};
+
+const transitRow = (over: Partial<CvTransitRow>): CvTransitRow => ({
+  kind: "in_review",
+  stage_id: 301,
+  candidate_id: 401,
+  candidate_name: "Adam Wrona",
+  job_id: 900,
+  job_title: "Java Developer",
+  job_working_title: "Java · Spring · 5+ lat",
+  client_name: "Bank Kappa",
+  since: daysAgo(1),
+  actor_name: null,
+  holder_name: null,
+  reason: null,
+  ...over,
+});
+
+const TRANSIT_INFO: Pick<CvInTransit, "in_review" | "sent"> = {
+  in_review: [
+    transitRow({ stage_id: 311, candidate_id: 411, candidate_name: "Tomasz Żak", job_working_title: "DevOps · AWS · Terraform", client_name: "Energetyka Wzorcowa", holder_name: "Jan Dąb", since: daysAgo(3) }),
+    transitRow({ stage_id: 312, candidate_id: 412, candidate_name: "Karolina Mróz", holder_name: "Marta Kowalczyk", since: daysAgo(1) }),
+    transitRow({ kind: "cpro_queue", stage_id: 313, candidate_id: 413, candidate_name: "Michał Kruk", job_working_title: "Analityk biznesowy · bankowość", client_name: "Bank Północny", holder_name: "Adam Wzorcowy", since: daysAgo(0) }),
+  ],
+  sent: [
+    transitRow({ kind: "sent", stage_id: 321, candidate_id: 421, candidate_name: "Anna Sroka", actor_name: "Marta Kowalczyk", since: daysAgo(1) }),
+    transitRow({ kind: "sent", stage_id: 322, candidate_id: 422, candidate_name: "Paweł Gil", job_working_title: "Tester automatyzujący · Selenium", client_name: "Ubezpieczenia Wzorcowe", actor_name: "Jan Dąb", since: daysAgo(4) }),
+  ],
+};
+
+function transit(returned: CvTransitRow[], info = TRANSIT_INFO): CvInTransit {
+  return {
+    returned,
+    ...info,
+    returned_total: returned.length,
+    in_review_total: info.in_review.length,
+    sent_total: info.sent.length,
+    returned_window_days: 14,
+    sent_window_days: 7,
+  };
+}
+
+const TRANSIT_RETURNED = transit([
+  transitRow({ kind: "rejected_by_dl", stage_id: 331, candidate_id: 431, candidate_name: "Adam Wrona", actor_name: "Marta Kowalczyk", reason: "stawka ponad budżet", since: daysAgo(0) }),
+  transitRow({ kind: "sent_back", stage_id: 332, candidate_id: 432, candidate_name: "Julia Bąk", job_working_title: "Tester automatyzujący · Selenium", client_name: "Ubezpieczenia Wzorcowe", actor_name: "Jan Dąb", remark: "Dopisz Selenium Grid do ostatniego projektu i popraw daty w drugiej roli.", since: daysAgo(1) }),
+]);
+
+// „Rekrutacje do dokończenia albo zamknięcia” (dane fikcyjne): stary szkic,
+// który system zamknie sam, i rekrutacja opublikowana bez przekazania do
+// searchu. Termin zamknięcia za kilka dni od dziś (`RRRR-MM-DD`).
+const dayAhead = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString().slice(0, 10);
+const PENDING_JOBS: PendingJobs = {
+  autoclose_on: dayAhead(5),
+  items: [
+    {
+      job_id: 801,
+      title: "Analityk danych",
+      client_name: "Bank Kappa",
+      kind: "legacy_draft",
+      created_at: daysAgo(12),
+      delivery_lead_name: "Marta Kowalczyk",
+      missing: ["Budżet PLN/h", "Tryb pracy", "Pytania screeningowe", "Wymagania do wyszukiwania w bazie"],
+    },
+    {
+      job_id: 802,
+      title: "Tester automatyzujący",
+      client_name: "Ubezpieczenia Wzorcowe",
+      kind: "published_not_handed_off",
+      created_at: daysAgo(6),
+      delivery_lead_name: "Jan Dąb",
+      missing: ["Opis projektu"],
+    },
+  ],
+};
+const UNFINISHED_FORMS: UnfinishedJobForm[] = [
+  { id: 1, label: "Java Developer", client_name: "Bank Północny", updated_at: daysAgo(3) },
+];
+
+// „Wymagania do poprawy” (dane fikcyjne): jedna rekrutacja do zatwierdzenia,
+// druga bez słów do szukania — tej zatwierdzić się nie da.
+// Prepy przed rozmową u klienta (23.10.2026): w wariancie z kafelkiem
+// „Do uzupełnienia” stoją w kafelku, w „Pulpicie z kafelkami” — w panelu.
+const PREP_ATTENTION: PrepAttentionRow[] = [
+  { reason: "missing", prep_no: 1, candidate_id: 801, candidate_name: "Adam Pokazowy", job_id: 61, job_title: "Architekt IT · Pega", interview_event_id: 901, interview_start: `${TODAY_ISO}T08:00:00Z`, prep_event_id: null, owner_id: 1, urgent: true },
+  { reason: "weak", prep_no: 1, candidate_id: 802, candidate_name: "Joanna Przykładowa", job_id: 62, job_title: "Tester automatyzujący · C#", interview_event_id: 902, interview_start: `${TODAY_ISO}T11:00:00Z`, prep_event_id: 1902, owner_id: 1, urgent: true },
+  { reason: "missing", prep_no: 2, candidate_id: 803, candidate_name: "Michał Testowy", job_id: 63, job_title: "Analityk systemowy · UML", interview_event_id: 903, interview_start: "2030-01-15T12:30:00Z", prep_event_id: null, owner_id: 1, urgent: false },
+];
+
+const REQUIREMENT_FIXES: RequirementFixRow[] = [
+  {
+    job_id: 803,
+    title: "Programista Java · Spring",
+    reasons: [
+      { code: "prose_rows", text: "zdania w wymaganiach — wyszukiwanie ich nie znajdzie" },
+      { code: "paren", text: "komentarz w nawiasie wyłącza technologię z wyszukiwania" },
+    ],
+    can_apply: true,
+    rows: 4,
+    talk: 2,
+  },
+  {
+    job_id: 804,
+    title: "Analityk biznesowy · bankowość",
+    reasons: [{ code: "no_search_words", text: "brak słów do szukania — propozycje AI się nie pojawią" }],
+    can_apply: false,
+    rows: 0,
+    talk: 3,
+  },
+];
+const REQUIREMENT_PROPOSAL: RequirementProposalResponse = {
+  can_decide: true,
+  proposal: {
+    job_id: 803,
+    reasons: REQUIREMENT_FIXES[0].reasons,
+    before: {
+      must: [
+        "Java 17 (najlepiej z doświadczeniem w migracjach)",
+        "Spring Boot",
+        "Doświadczenie w pracy z klientem z sektora finansowego",
+        "Komunikatywność i samodzielność",
+      ],
+      critical: ["Doświadczenie w pracy z klientem z sektora finansowego"],
+      language: null,
+    },
+    after: {
+      rows: [
+        { words: ["Java"], level: "must" },
+        { words: ["Spring Boot", "Spring"], level: "must" },
+        { words: ["Kafka", "RabbitMQ"], level: "nice" },
+        { words: ["Docker"], level: "nice" },
+      ],
+      critical: [],
+      talk: [
+        { name: "Praca z klientem z sektora finansowego", kind: "domains", level: "must" },
+        { name: "Komunikatywność i samodzielność", kind: "skills", level: "nice" },
+      ],
+      language: "angielski B2",
+    },
+    profile_hash: "0".repeat(64),
+    contract_reviewed: true,
+    can_apply: true,
+  },
+};
+
+const NO_TASKS: BoardTasksResponse = {
+  window_days: 14,
+  dl_review_window_days: 30,
+  dl_review: [],
+  cpro_to_send: [],
+  cpro_sent: [],
+};
+
+// Umowy z Generatora: jedna do potwierdzenia (zostaje w panelu) i jedna do
+// zamknięcia (kafelek „Do uzupełnienia”).
+const AGREEMENTS: BoardTasksResponse["agreements"] = {
+  to_confirm: [
+    {
+      generated_id: 901,
+      contract_number: "1702/2026",
+      reason: "requested",
+      candidate_id: 77,
+      candidate_name: "Ewa Przykładowa",
+      job_id: 801,
+      job_title: "Senior Java Developer",
+      client_name: "Bank Północny",
+      since: daysAgo(2),
+      requested_by_name: "Marek Dąb",
+      contract_id: null,
+    },
+  ],
+  to_close: [
+    {
+      generated_id: 902,
+      contract_number: "1645/2026",
+      reason: "closed_signed_active",
+      candidate_id: 78,
+      candidate_name: "Łukasz Testowy",
+      job_id: 802,
+      job_title: "Pega Developer",
+      client_name: "Fintera",
+      since: daysAgo(9),
+      requested_by_name: null,
+      contract_id: 4410,
+    },
+  ],
+  waiting_on_others: [],
+};
+
+type Variant = "role" | "filled" | "todo" | "panel" | "empty" | "bar" | "bar-empty";
+
+const VARIANT_LABEL: Record<Variant, string> = {
+  role: "Układ roli",
+  filled: "Pulpit z kafelkami",
+  todo: "Do uzupełnienia",
+  panel: "Czeka na Ciebie w kafelku",
+  empty: "Pusty pulpit",
+  bar: "CV w drodze: pasek",
+  "bar-empty": "CV w drodze: pusto",
+};
+
+function seededClient(
+  tiles: DashboardTile[],
+  boardTasks: BoardTasksResponse,
+  persona: Persona,
+  roleLayout = false,
+): QueryClient {
   const qc = new QueryClient({
     defaultOptions: {
       queries: { staleTime: Infinity, retry: false, refetchOnMount: false, refetchOnWindowFocus: false },
@@ -149,22 +822,81 @@ function seededClient(tiles: DashboardTile[]): QueryClient {
   });
   qc.setQueryData<UserDashboardResponse>(USER_DASHBOARD_QUERY_KEY, {
     tiles,
-    version: 3,
+    version: roleLayout ? 0 : 3,
     dropped_tiles: [],
+    uses_role_layout: roleLayout,
   });
   qc.setQueryData(METRIC_CATALOG_QUERY_KEY, CATALOG);
-  qc.setQueryData<BoardTasksResponse>(BOARD_TASKS_QUERY_KEY, BOARD_TASKS);
+  // Propozycje i „Nowe rekrutacje — kto prowadzi” dostaje wyłącznie osoba,
+  // która o przydziale decyduje — jak z serwera.
+  const decides = persona === "hor" || persona === "admin";
+  const withFlow: BoardTasksResponse = {
+    ...boardTasks,
+    flow:
+      persona === "dl" || persona === "dlr"
+        ? DL_FLOW
+        : persona === "recruiter" || persona === "tcm"
+          ? FLOW
+          : null,
+    finance: persona === "finance" ? FINANCE : null,
+    ...(persona === "finance" ? { cv_in_transit: null, dl_review: [], cpro_to_send: [], cpro_sent: [] } : {}),
+    // Rekrutacje do dokończenia serwer daje tylko DL-owi, Headowi i adminowi.
+    ...(persona === "dl" || persona === "dlr" || decides ? {} : { pending_jobs: null }),
+    // Porządki wymagań — tak samo: DL swoich, Head i admin wszystkich.
+    ...(persona === "dl" || persona === "dlr" || decides ? {} : { requirement_fixes: [] }),
+  };
+  qc.setQueryData<BoardTasksResponse>(
+    BOARD_TASKS_QUERY_KEY,
+    decides
+      ? {
+          ...withFlow,
+          can_decide_proposals: true,
+          allocation_leave_known: false,
+          allocation_proposals: ALLOCATION_PROPOSALS,
+          new_job_leads: NEW_JOB_LEADS,
+        }
+      : { ...withFlow, can_decide_proposals: false },
+  );
+  // Nowe kafelki układu ról (04.10.2026).
+  qc.setQueryData<RequirementProposalResponse>(requirementProposalKey(803), REQUIREMENT_PROPOSAL);
+  qc.setQueryData<CycleOverview>(interviewCycleQueryKey("mine"), CYCLE);
+  qc.setQueryData<CycleOverview>(interviewCycleQueryKey("jobs"), { ...CYCLE, scope: "jobs" });
+  qc.setQueryData<MyKpiPanel>(MY_WEEK_QUERY_KEY, MY_WEEK);
+  qc.setQueryData(TEAM_SIGNALS_QUERY_KEY, TEAM_SIGNALS);
+  qc.setQueryData<HealthResponse>(SYSTEM_STATUS_QUERY_KEY, HEALTH);
+  qc.setQueryData(MY_RECRUITMENTS_QUERY_KEY, MY_RECRUITMENTS);
+  qc.setQueryData(CLOSING_CANDIDATES_QUERY_KEY, CLOSING_CANDIDATES);
+  qc.setQueryData(MY_CLIENTS_CARDS_QUERY_KEY, { cards: [], total: 0 });
+  qc.setQueryData(ORDER_CHANGES_SUMMARY_KEY, {
+    period: { year: 2026, month: 10, label: "październik 2026" },
+    tabs: {},
+    todo: 7,
+  });
+  // Każdy szablon metryki z katalogu ma wynik — układy ról sięgają po różne.
+  for (const t of TILE_TEMPLATES) {
+    if (!t.config.metric) continue;
+    const key = metricQueryKey(t.config.metric);
+    if (qc.getQueryData(key) !== undefined) continue;
+    qc.setQueryData(key, metricResult({ value: 12, previous_value: 9 }));
+  }
+  // „Zmień” czyta obłożenie z pulpitu „Requesty i obłożenie”. Znacznik czasu
+  // w przyszłości: dane nigdy nie są „stare”, więc otwarcie listy nie próbuje
+  // ich odświeżyć (zero zapytań).
+  qc.setQueryData<RequestBoard>(REQUEST_BOARD_QUERY_KEY, REQUEST_BOARD, {
+    updatedAt: Date.now() + 24 * 60 * 60 * 1000,
+  });
   qc.setQueryData<CproSender>(CPRO_SENDER_QUERY_KEY, {
     user_id: 1,
-    user_name: "Artur Twardowski",
+    user_name: "Adam Wzorcowy",
     until: null,
     fallback_user_id: null,
     fallback_user_name: null,
-    set_by_name: "Artur Twardowski",
+    set_by_name: "Adam Wzorcowy",
     set_at: daysAgo(3),
+    can_set: true,
   });
   qc.setQueryData(["users-directory", "cpro-assignees"], [
-    { id: 1, name: "Artur Twardowski" },
+    { id: 1, name: "Adam Wzorcowy" },
     { id: 7, name: "Marta Kowalczyk" },
     { id: 8, name: "Piotr Zieliński" },
   ]);
@@ -190,11 +922,11 @@ function seededClient(tiles: DashboardTile[]): QueryClient {
       value: 9,
       scope_applied: "all",
       series: [
-        { key: "1", label: "Nordea", value: 3 },
-        { key: "2", label: "PKO BP", value: 2 },
-        { key: "3", label: "Alior", value: 2 },
-        { key: "4", label: "Orlen", value: 1 },
-        { key: "5", label: "BIK", value: 1 },
+        { key: "1", label: "Bank Północny", value: 3 },
+        { key: "2", label: "Bank Kappa", value: 2 },
+        { key: "3", label: "Bank Lambda", value: 2 },
+        { key: "4", label: "Paliwa Przykładowe", value: 1 },
+        { key: "5", label: "Biuro Gamma", value: 1 },
       ],
     }),
   );
@@ -207,9 +939,9 @@ function seededClient(tiles: DashboardTile[]): QueryClient {
     }),
   );
   qc.setQueryData(["dashboard", "calendar-today", warsawDay()], [
-    { id: 1, title: "Rozmowa: Anna Zielińska", start_time: new Date().toISOString().slice(0, 10) + "T08:00:00Z", all_day: false, candidate_name: "Anna Zielińska", client_name: "Nordea" },
+    { id: 1, title: "Rozmowa: Anna Zielińska", start_time: new Date().toISOString().slice(0, 10) + "T08:00:00Z", all_day: false, candidate_name: "Anna Zielińska", client_name: "Bank Północny" },
     { id: 2, title: "Screening telefoniczny", start_time: new Date().toISOString().slice(0, 10) + "T10:30:00Z", all_day: false, candidate_name: "Piotr Lis", client_name: null },
-    { id: 3, title: "Preparation meeting", start_time: new Date().toISOString().slice(0, 10) + "T13:00:00Z", all_day: false, candidate_name: null, client_name: "Orlen" },
+    { id: 3, title: "Preparation meeting", start_time: new Date().toISOString().slice(0, 10) + "T13:00:00Z", all_day: false, candidate_name: null, client_name: "Paliwa Przykładowe" },
   ]);
   qc.setQueryData(myPeopleSummaryQueryKey, {
     total: 37,
@@ -222,46 +954,145 @@ function seededClient(tiles: DashboardTile[]): QueryClient {
   });
   // Stałe klucze pickerów kreatora (`harness-seeds.test.ts`).
   qc.setQueryData(["dashboard-metric-clients"], []);
+  // Kontakt z kandydatem włączony — kafelki TCM i nadzoru kontaktu u Heada.
+  qc.setQueryData(candidateContactQueryKeys.status(), {
+    enabled: true,
+    assignment_enabled: true,
+    traffit_intake_enabled: true,
+  });
+  qc.setQueryData(candidateContactQueryKeys.queue(), {
+    items: [],
+    utilization: { used: 6, capacity: 20 },
+  });
+  qc.setQueryData(candidateContactQueryKeys.oversight(), {
+    counters: { overdue: 2, unassigned: 1, awaiting_capacity: 0, blocked_no_phone: 3 },
+    items: [],
+  });
   qc.setQueryData(["competence-categories-active"], []);
+  // Podpis w NEXUSIE (etap 1b): pas „Czeka na Twój podpis za B2B Network”.
+  qc.setQueryData(ESIGN_MINE_KEY, [
+    {
+      id: 31,
+      generated_contract_id: 72,
+      status: "contractor_signed",
+      contractor_name: "Ewa Przykładowa",
+      contractor_email: null,
+      company_signer_id: 1,
+      company_signer_name: "Osoba Testowa",
+      sent_at: daysAgo(3),
+      expires_at: daysAgo(-11),
+      contractor_signed_at: daysAgo(0),
+      completed_at: null,
+      closed_at: null,
+      close_reason: null,
+      contract_number: "1741/2026",
+      client_name: "Telekom Zachód",
+    },
+  ]);
   return qc;
 }
 
 export default function CustomDashboardPreview() {
-  const [ready, setReady] = useState(false);
-  const [variant, setVariant] = useState<"filled" | "empty">("filled");
-  const [filled] = useState(() => seededClient(TILES));
-  const [empty] = useState(() => seededClient([]));
+  const [persona, setPersona] = useState<Persona | null>(null);
+  const [variant, setVariant] = useState<Variant>("role");
+  const [clients, setClients] = useState<Record<Variant, QueryClient> | null>(null);
 
   useEffect(() => {
     const blocker = api.interceptors.request.use((config) =>
       Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config)),
     );
+    const as = parsePersona(new URLSearchParams(window.location.search).get("as"));
+    const meta = PERSONAS[as];
     useAuthStore.setState({
       user: {
         id: 1,
         email: "preview@example.com",
-        name: "Preview Rekruter",
-        role: "recruiter",
-        roles: ["recruiter", "delivery_lead"],
+        name: `Preview ${meta.label}`,
+        role: meta.roles[0],
+        roles: meta.roles,
         profile_completed: true,
         profile_completed_at: null,
         force_password_change: false,
         force_password_change_at: null,
       } as never,
+      realUser: null,
       hydrated: true,
     });
-    setReady(true);
+    setClients({
+      role: seededClient(
+        [],
+        {
+          ...NO_TASKS,
+          cv_in_transit: TRANSIT_RETURNED,
+          pending_jobs: PENDING_JOBS,
+          requirement_fixes: REQUIREMENT_FIXES,
+        },
+        as,
+        true,
+      ),
+      filled: seededClient(
+        TILES,
+        {
+          ...BOARD_TASKS,
+          cv_in_transit: TRANSIT_RETURNED,
+          pending_jobs: PENDING_JOBS,
+          unfinished_forms: UNFINISHED_FORMS,
+          requirement_fixes: REQUIREMENT_FIXES,
+          agreements: AGREEMENTS,
+          prep_attention: PREP_ATTENTION,
+        },
+        as,
+      ),
+      todo: seededClient(
+        TILES_TO_COMPLETE,
+        {
+          ...BOARD_TASKS,
+          cv_in_transit: TRANSIT_RETURNED,
+          pending_jobs: PENDING_JOBS,
+          unfinished_forms: UNFINISHED_FORMS,
+          requirement_fixes: REQUIREMENT_FIXES,
+          agreements: AGREEMENTS,
+          prep_attention: PREP_ATTENTION,
+        },
+        as,
+      ),
+      panel: seededClient(
+        TILES_BOARD_TASKS,
+        {
+          ...BOARD_TASKS,
+          cv_in_transit: TRANSIT_RETURNED,
+          pending_jobs: PENDING_JOBS,
+          unfinished_forms: UNFINISHED_FORMS,
+          requirement_fixes: REQUIREMENT_FIXES,
+          agreements: AGREEMENTS,
+          prep_attention: PREP_ATTENTION,
+        },
+        as,
+      ),
+      empty: seededClient([], { ...BOARD_TASKS, cv_in_transit: TRANSIT_RETURNED }, as),
+      bar: seededClient(
+        TILES,
+        { ...NO_TASKS, cv_in_transit: transit([]), pending_jobs: PENDING_JOBS, unfinished_forms: UNFINISHED_FORMS },
+        as,
+      ),
+      "bar-empty": seededClient(
+        TILES,
+        { ...NO_TASKS, cv_in_transit: transit([], { in_review: [], sent: [] }) },
+        as,
+      ),
+    });
+    setPersona(as);
     return () => api.interceptors.request.eject(blocker);
   }, []);
 
-  if (!ready) return <div className="p-8 text-sm text-muted-foreground">Ładowanie…</div>;
+  if (!persona || !clients) return <div className="p-8 text-sm text-muted-foreground">Ładowanie…</div>;
 
   return (
     <ToastProvider>
       <div className="min-h-screen bg-background">
-        <div className="flex gap-2 border-b border-border px-6 py-3 text-sm">
+        <div className="flex flex-wrap gap-2 border-b border-border px-6 py-3 text-sm">
           <span className="text-muted-foreground">Podgląd:</span>
-          {(["filled", "empty"] as const).map((v) => (
+          {(Object.keys(VARIANT_LABEL) as Variant[]).map((v) => (
             <button
               key={v}
               type="button"
@@ -269,13 +1100,25 @@ export default function CustomDashboardPreview() {
               onClick={() => setVariant(v)}
               className={variant === v ? "font-semibold text-primary" : "text-foreground"}
             >
-              {v === "filled" ? "Pulpit z kafelkami" : "Pusty pulpit"}
+              {VARIANT_LABEL[v]}
             </button>
           ))}
+          <span className="ml-auto flex flex-wrap gap-x-3 text-muted-foreground">
+            {(Object.keys(PERSONAS) as Persona[]).map((p) => (
+              <a
+                key={p}
+                href={`?as=${p}`}
+                aria-current={persona === p ? "page" : undefined}
+                className={persona === p ? "font-semibold text-primary" : "hover:underline"}
+              >
+                {PERSONAS[p].label}
+              </a>
+            ))}
+          </span>
         </div>
         {/* Padding powłoki (`<main>` ma `p-4 md:p-6`) — pulpit nie dokłada własnego. */}
         <div className="p-4 md:p-6">
-          <QueryClientProvider key={variant} client={variant === "filled" ? filled : empty}>
+          <QueryClientProvider key={variant} client={clients[variant]}>
             <CustomDashboard />
           </QueryClientProvider>
         </div>

@@ -55,13 +55,14 @@ from app.analytics.scope import (
     ensure_user_scope,
     organization_scope,
 )
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, require_permission
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.call import Call
 from app.models.traffit_sync_state import TraffitSyncState
 from app.models.user import User
+from app.services.action_permissions import ProductAction, has_permission
 
 logger = logging.getLogger(__name__)
 router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
@@ -575,12 +576,16 @@ def _finance_quality(warnings: list[str], flag: str = "complete") -> QualityPayl
     return QualityPayload(status=status, warnings=warnings)
 
 
-# ── Finanse i zarząd — VIEW_FINANCE ──────────────────────────────────────────
+# ── Finanse i zarząd — „Wyniki firmy” ──────────────────────────────────────────
 
 
-@router.get("/finance/summary", response_model=AnalyticsEnvelope)
+@router.get(
+    "/finance/summary",
+    response_model=AnalyticsEnvelope,
+    dependencies=INSIGHTS_SECTION_DEPENDENCIES,
+)
 async def get_finance_summary(
-    current_user: User = Depends(require_capability(AnalyticsCapability.VIEW_FINANCE)),
+    current_user: User = Depends(require_permission(ProductAction.company_results)),
     _: None = Depends(_analytics_enabled),
     period: Period = Depends(_parse_period),
     db: AsyncSession = Depends(get_db),
@@ -602,9 +607,13 @@ async def get_finance_summary(
     )
 
 
-@router.get("/finance/trend", response_model=AnalyticsEnvelope)
+@router.get(
+    "/finance/trend",
+    response_model=AnalyticsEnvelope,
+    dependencies=INSIGHTS_SECTION_DEPENDENCIES,
+)
 async def get_finance_trend(
-    current_user: User = Depends(require_capability(AnalyticsCapability.VIEW_FINANCE)),
+    current_user: User = Depends(require_permission(ProductAction.company_results)),
     _: None = Depends(_analytics_enabled),
     period: Period = Depends(_parse_period),
     months: int = Query(12, ge=1, le=36),
@@ -635,9 +644,13 @@ async def get_finance_trend(
     )
 
 
-@router.get("/finance/clients", response_model=AnalyticsEnvelope)
+@router.get(
+    "/finance/clients",
+    response_model=AnalyticsEnvelope,
+    dependencies=INSIGHTS_SECTION_DEPENDENCIES,
+)
 async def get_finance_clients(
-    current_user: User = Depends(require_capability(AnalyticsCapability.VIEW_FINANCE)),
+    current_user: User = Depends(require_permission(ProductAction.company_results)),
     _: None = Depends(_analytics_enabled),
     period: Period = Depends(_parse_period),
     db: AsyncSession = Depends(get_db),
@@ -659,9 +672,13 @@ async def get_finance_clients(
     )
 
 
-@router.get("/executive/board", response_model=AnalyticsEnvelope)
+@router.get(
+    "/executive/board",
+    response_model=AnalyticsEnvelope,
+    dependencies=INSIGHTS_SECTION_DEPENDENCIES,
+)
 async def get_executive_board(
-    current_user: User = Depends(require_capability(AnalyticsCapability.VIEW_FINANCE)),
+    current_user: User = Depends(require_permission(ProductAction.company_results)),
     _: None = Depends(_analytics_enabled),
     period: Period = Depends(_parse_period),
     db: AsyncSession = Depends(get_db),
@@ -694,8 +711,8 @@ async def get_commercial_tenders(
     period: Period = Depends(_parse_period),
     db: AsyncSession = Depends(get_db),
 ):
-    """Przetargi: operacyjnie dla TAC+ (bez kwot); kwoty tylko z VIEW_FINANCE."""
-    include_values = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
+    """Przetargi: operacyjnie dla TAC+ (bez kwot); kwoty tylko z „Wyników firmy”."""
+    include_values = has_permission(current_user, ProductAction.company_results)
     return await _cached_envelope(
         endpoint="commercial-tenders",
         user=current_user,

@@ -138,14 +138,106 @@ def _quarantined_cv_language_source_refs(
     return tuple(refs)
 
 
+@dataclass(frozen=True)
+class ReplacedPrimaryCv:
+    """Stan sprzed wgrania albo wyboru nowego głównego CV.
+
+    Podaje go żądanie, które zrobiło z pliku główne CV. Sama obecność tego
+    obiektu mówi bramce tożsamości, że plik niczego jeszcze w profilu nie
+    zapisał (odczyt biegnie PO bramce), więc zgodność `cv_filename` z jego nazwą
+    nie dowodzi, skąd pochodzą fakty — także wtedy, gdy profil nie miał
+    wcześniej żadnego głównego dokumentu (`document_id=None`).
+    """
+
+    document_id: int | None
+    cv_filename: str | None
+
+
+async def _hand_primary_back(
+    db: AsyncSession,
+    *,
+    candidate: Candidate,
+    quarantined: CandidateDocument,
+    replaced: ReplacedPrimaryCv,
+    source_kind: SourceKind,
+    source_id: int,
+) -> None:
+    """Przywróć wybór CV sprzed wgrania pliku, który trafił do kwarantanny.
+
+    Fakty w profilu zostają nietknięte — nie pochodzą z tego pliku. Wraca tylko
+    wybór głównego CV i wskaźnik `cv_filename`, a profil dostaje znacznik, po
+    którym ekran mówi, że wgrane CV nie zasiliło danych.
+    """
+    previous = None
+    if replaced.document_id is not None:
+        # Flaga musi zejść z pliku w kwarantannie, zanim dostanie ją poprzedni:
+        # `ux_candidate_documents_active_primary_cv` pozwala na jedno główne
+        # CV, a jeden flush wysłałby oba UPDATE-y w kolejności id.
+        await db.flush()
+        previous = await db.scalar(
+            select(CandidateDocument).where(
+                CandidateDocument.id == replaced.document_id,
+                CandidateDocument.candidate_id == candidate.id,
+                CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                CandidateDocument.source_deleted_at.is_(None),
+                CandidateDocument.outdated_at.is_(None),
+            )
+        )
+    if previous is not None:
+        previous.is_primary = True
+    if candidate.cv_filename == quarantined.filename:
+        # Upload przejął wskaźnik pliku. Stara nazwa równa nowej oznacza, że
+        # kopia na dysku jest już nadpisana — wtedy wskaźnika nie ma do czego
+        # przywrócić.
+        restored = previous.filename if previous is not None else replaced.cv_filename
+        candidate.cv_filename = (
+            restored
+            if previous is not None or restored != quarantined.filename
+            else None
+        )
+    _raw = candidate.cv_extracted_data
+    extracted = dict(_raw) if isinstance(_raw, dict) else {}
+    extracted["_identity_quarantine_source"] = {"kind": source_kind, "id": source_id}
+    candidate.cv_extracted_data = extracted
+
+
+async def _restore_stage_copies(
+    db: AsyncSession, *, candidate: Candidate, document: CandidateDocument
+) -> None:
+    """Kopie CV etapu z pliku w kwarantannie wracają do bieżącego CV osoby.
+
+    13.10.2026 („Nowe CV w rekrutacji”): CV wgrane z rekrutacji staje się od
+    razu kopią CV etapu, a bramka biegnie po zapisie. Bez tego kopia etapu
+    zostawała z CV innej osoby — w podglądzie, w pobraniu i w przeglądzie
+    zgodności, który czyta ją jako oryginał tej osoby.
+    """
+    from app.services.candidate_stage_cv_service import (
+        restore_stage_copies_after_quarantine,
+    )
+
+    await restore_stage_copies_after_quarantine(
+        db, candidate=candidate, quarantined_sha256=document.content_sha256
+    )
+
+
 async def _clear_quarantined_cv_projection(
     db: AsyncSession,
     *,
     candidate_id: int,
     source_kind: SourceKind,
     source_id: int,
+    replaced_primary: ReplacedPrimaryCv | None = None,
 ) -> dict[str, Any]:
-    """Remove only facts provably projected from the quarantined CV source."""
+    """Remove only facts provably projected from the quarantined CV source.
+
+    `replaced_primary` podaje żądanie, które właśnie zrobiło z pliku główne CV
+    (wgranie albo „Ustaw jako główne CV”). Plik przejmuje flagę i `cv_filename`
+    od razu, a odczyt biegnie dopiero po bramce tożsamości — więc zgodność nazwy
+    pliku nie dowodzi wtedy, że fakty w profilu pochodzą z niego. Pochodzą
+    z wcześniejszego CV albo importu właściwej osoby i zostają (12.10.2026: nowe
+    CV jest domyślnie głównym; 91% profili nie ma zapisanego dokumentu
+    źródłowego). `None` = ponowny odczyt pliku, który już był głównym CV.
+    """
 
     if source_kind in {"note", "talent_radar_cv"}:
         return {"cleared_fields": 0, "tombstoned_languages": 0}
@@ -193,11 +285,20 @@ async def _clear_quarantined_cv_projection(
     owns_projection = (
         source_kind == "legacy_cv" and not legacy_has_newer_document
     ) or (projected_document_id == source_id)
+    # Plik właśnie stał się głównym CV i nie był nim wcześniej (ponowne
+    # wgranie TEGO SAMEGO głównego pliku to zwykły ponowny odczyt).
+    freshly_selected = (
+        document is not None
+        and replaced_primary is not None
+        and replaced_primary.document_id != source_id
+        and not owns_projection
+    )
     if (
         document is not None
         and document.is_primary
         and candidate.cv_filename
         and candidate.cv_filename == document.filename
+        and not freshly_selected
     ):
         owns_projection = True
     if document is not None:
@@ -205,8 +306,87 @@ async def _clear_quarantined_cv_projection(
         # rows have no source_document_id provenance.
         document.is_primary = False
     if not owns_projection:
+        if freshly_selected and document is not None and replaced_primary is not None:
+            await _hand_primary_back(
+                db,
+                candidate=candidate,
+                quarantined=document,
+                replaced=replaced_primary,
+                source_kind=source_kind,
+                source_id=source_id,
+            )
+        if document is not None:
+            await _restore_stage_copies(db, candidate=candidate, document=document)
         return {"cleared_fields": 0, "tombstoned_languages": 0}
 
+    stats = await _clear_cv_projection(
+        db,
+        candidate=candidate,
+        extracted=extracted,
+        source_kind=source_kind,
+        source_id=source_id,
+        document_filename=document.filename if document is not None else None,
+        document_hash=document.content_sha256 if document is not None else None,
+    )
+    if document is not None:
+        await _restore_stage_copies(db, candidate=candidate, document=document)
+    return stats
+
+
+async def clear_foreign_cv_projection(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    document_id: int,
+    document_hash: str | None,
+) -> dict[str, Any]:
+    """Wyczyść z profilu fakty odczytane z CV innej osoby (naprawa danych).
+
+    Audyt 22.10.2026 (F114, decyzja Artura): skrypty naprawcze po cudzym CV
+    z maila (`m365_document_repair`, `m365_unreadable_name_rematch`) odpinały
+    plik, a tekst CV, umiejętności, podsumowanie AI i wektor z tego pliku
+    zostawały. Wołający sam rozstrzyga, że projekcja pochodzi z tego pliku,
+    i sam prowadzi główne CV, wskaźnik `cv_filename` i kopie CV etapu — tu
+    zostaje czyszczenie jak w kwarantannie tożsamości.
+    """
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id).with_for_update()
+    )
+    if candidate is None:
+        return {"cleared_fields": 0, "tombstoned_languages": 0}
+    _extracted_raw = candidate.cv_extracted_data
+    extracted = dict(_extracted_raw) if isinstance(_extracted_raw, dict) else {}
+    stats = await _clear_cv_projection(
+        db,
+        candidate=candidate,
+        extracted=extracted,
+        source_kind="document",
+        source_id=document_id,
+        document_filename=None,
+        document_hash=document_hash,
+        keep_contact=True,
+    )
+    await _purge_candidate_summary_cache(db, candidate_id)
+    return stats
+
+
+async def _clear_cv_projection(
+    db: AsyncSession,
+    *,
+    candidate: Candidate,
+    extracted: dict[str, Any],
+    source_kind: SourceKind,
+    source_id: int,
+    document_filename: str | None,
+    document_hash: str | None,
+    keep_contact: bool = False,
+) -> dict[str, Any]:
+    """Fakty z CV-źródła znikają z profilu, wektor idzie do skasowania.
+
+    `keep_contact` (naprawa danych, F114): e-mail, telefon, miasto i LinkedIn
+    zostają, bo odczyt mógł pochodzić z własnego załącznika osoby.
+    """
+    candidate_id = candidate.id
     cleared_fields: list[str] = []
 
     def clear_if_equal(attribute: str, parsed_key: str) -> None:
@@ -222,13 +402,17 @@ async def _clear_quarantined_cv_projection(
     candidate.raw_cv_text = None
     cleared_fields.append("raw_cv_text")
     if source_kind == "legacy_cv" or (
-        document is not None and candidate.cv_filename == document.filename
+        document_filename is not None and candidate.cv_filename == document_filename
     ):
         candidate.cv_filename = None
         cleared_fields.append("cv_filename")
     candidate.cv_parsed_at = None
     cleared_fields.append("cv_parsed_at")
-    if candidate.ai_summary is not None:
+    # Podsumowanie poprawione ręcznie (blokada z 12.10.2026) nie jest faktem
+    # z CV — zostaje jak ręcznie poprawiona historia pracy.
+    if candidate.ai_summary is not None and not extracted.get(
+        "_manual_override_ai_summary"
+    ):
         candidate.ai_summary = None
         cleared_fields.append("ai_summary")
 
@@ -242,7 +426,7 @@ async def _clear_quarantined_cv_projection(
     ):
         candidate.education = []
         cleared_fields.append("education")
-    from app.services.cv_enrichment import cv_experience_entries
+    from app.services.cv_enrichment import NON_CV_EXTRACTED_KEYS, cv_experience_entries
 
     # Ten sam kształt, który zapisał `_apply_cv_enrichment` (także stanowiska
     # z datami z odczytu v6) — inaczej doświadczenie złej osoby zostawałoby.
@@ -262,9 +446,10 @@ async def _clear_quarantined_cv_projection(
         candidate.years_it_experience = None
         cleared_fields.append("years_it_experience")
 
-    clear_if_equal("email", "email")
-    clear_if_equal("phone", "phone")
-    clear_if_equal("city", "city")
+    if not keep_contact:
+        clear_if_equal("email", "email")
+        clear_if_equal("phone", "phone")
+        clear_if_equal("city", "city")
     if "city" in cleared_fields:
         projected_location = project_candidate_location(
             candidate.city,
@@ -273,18 +458,24 @@ async def _clear_quarantined_cv_projection(
         if candidate.location != projected_location:
             candidate.location = projected_location
             cleared_fields.append("location")
-    if extracted.get("linkedin_url") and candidate.linkedin == extracted.get(
-        "linkedin_url"
+    if (
+        not keep_contact
+        and extracted.get("linkedin_url")
+        and candidate.linkedin == extracted.get("linkedin_url")
     ):
         candidate.linkedin = None
         cleared_fields.append("linkedin")
 
     # Keep only explicit locks and integration-owned metadata. Raw parser
     # output can itself describe the wrong person.
+    # Runda 9 (R9-N8-3): fakty z notatek i pochodzenie importu nie pochodzą
+    # z tego CV — kwarantanna CV ich nie kasuje.
     candidate.cv_extracted_data = {
         key: value
         for key, value in extracted.items()
-        if key.startswith("_manual_override_") or key.startswith("traffit_")
+        if key.startswith("_manual_override_")
+        or key.startswith("traffit_")
+        or key in NON_CV_EXTRACTED_KEYS
     }
     candidate.cv_extracted_data["_identity_quarantine_source"] = {
         "kind": source_kind,
@@ -295,7 +486,7 @@ async def _clear_quarantined_cv_projection(
         candidate_id=candidate_id,
         source_kind=source_kind,
         source_id=source_id,
-        document_hash=document.content_sha256 if document is not None else None,
+        document_hash=document_hash,
     )
     language_rows = list(
         (
@@ -399,6 +590,20 @@ def normalize_person_name_part(value: Any) -> str:
     decomposed = unicodedata.normalize("NFKD", translated)
     ascii_text = "".join(char for char in decomposed if not unicodedata.combining(char))
     return _NON_ALNUM_RE.sub("", ascii_text.casefold())
+
+
+def identity_unreadable(first_name: Any, last_name: Any) -> bool:
+    """Imię albo nazwisko jest wpisane, ale normalizacja nic z niego nie zostawia.
+
+    Tak jest z zapisem cyrylicą: porównanie z odczytem CV zawsze kończy się
+    ``inconclusive``, więc bramka nie odróżnia CV tej osoby od cudzego.
+    """
+
+    for value in (first_name, last_name):
+        raw = str(value or "").strip()
+        if raw.casefold() not in _PLACEHOLDERS and not normalize_person_name_part(raw):
+            return True
+    return False
 
 
 def _fingerprint(first: str, last: str) -> str:
@@ -532,6 +737,7 @@ async def record_detected_identity(
     observed_first_name: Any,
     observed_last_name: Any,
     provenance: str,
+    replaced_primary: ReplacedPrimaryCv | None = None,
 ) -> CandidateSourceIdentityReview:
     """Persist an automatic decision without weakening a manual decision."""
 
@@ -572,6 +778,7 @@ async def record_detected_identity(
                 candidate_id=candidate.id,
                 source_kind=source_kind,
                 source_id=source_id,
+                replaced_primary=replaced_primary,
             )
         return row
     if row is None:
@@ -604,6 +811,7 @@ async def record_detected_identity(
             candidate_id=candidate.id,
             source_kind=source_kind,
             source_id=source_id,
+            replaced_primary=replaced_primary,
         )
     if row.is_quarantined:
         candidate_audit.record_candidate_audit(

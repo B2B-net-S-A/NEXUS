@@ -2,17 +2,33 @@
 
 import { useEffect, useState } from "react";
 import { Menu, Search } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { BreadcrumbV2 } from "./BreadcrumbV2";
 import { QuickActionsV2, type QuickActionModal } from "./QuickActionsV2";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
-import { NotificationsDropdown } from "@/components/NotificationsDropdown";
 import { MyKpiWidget } from "@/components/v2/kpi/MyKpiWidget";
-import { PaletteSwitcher } from "./PaletteSwitcher";
+import { MyLeagueWidget } from "@/components/v2/league/MyLeagueWidget";
+import { AppearanceMenu } from "./AppearanceMenu";
 import { MyPeopleTopbarButton } from "@/components/v2/my-people/MyPeopleLauncher";
-import { KidsModeToggleButton, ThemeToggleButton } from "./ThemeControls";
+import { ChatNotificationsDropdown } from "./ChatNotificationsDropdown";
+import { CvNotificationsDropdown } from "./CvNotificationsDropdown";
+import { JobsNotificationsDropdown } from "./JobsNotificationsDropdown";
+import { ContractsNotificationsDropdown } from "./ContractsNotificationsDropdown";
+import { AbsentTodayButton } from "@/components/hr/leave/AbsentTodayButton";
+import { ConsentsTopbarButton } from "@/components/hr/approvals/ConsentsTopbarButton";
+import { BonusDecisionsTopbarButton } from "@/components/hr/payroll/BonusDecisionsTopbarButton";
+import { InterviewNotificationsDropdown } from "./InterviewNotificationsDropdown";
+import { hasSectionAccess } from "@/lib/section-access";
+import { useAuthStore } from "@/store/auth";
+import {
+  TOPBAR_ACTIONS_CLASS,
+  TOPBAR_BREADCRUMB_CLASS,
+  TOPBAR_HEADER_CLASS,
+  TOPBAR_SEARCH_CLASS,
+} from "./topbar-layout";
+import { P0TopbarButton } from "@/components/v2/jobs/p0/P0TopbarButton";
+import { NoveltiesTopbarButton } from "@/components/novelties/NoveltiesTopbarButton";
 
 interface Props {
   onOpenMobileSidebar: () => void;
@@ -28,6 +44,16 @@ export function TopbarV2({
   onOpenCommandPalette,
 }: Props) {
   const [isMac, setIsMac] = useState(false);
+  // „Pracownik” (0456) i inne konta bez sekcji pracy nie przeszukują kandydatów,
+  // rekrutacji ani klientów — paleta służy im tylko do przejścia na ekran.
+  // Przed odczytem konta (`user === null` do `hydrate()`) zostaje podpowiedź
+  // większości, inaczej pole na chwilę mówi „Przejdź do ekranu…” każdemu.
+  const user = useAuthStore((state) => state.user);
+  const searchesWork =
+    user === null ||
+    (["sourcing", "pipeline", "delivery"] as const).some((section) =>
+      hasSectionAccess(user, section),
+    );
 
   useEffect(() => {
     if (typeof navigator !== "undefined") {
@@ -36,12 +62,7 @@ export function TopbarV2({
   }, []);
 
   return (
-    <header
-      className={cn(
-        "h-12 shrink-0 flex items-center gap-2 sm:gap-3 px-3 md:px-5",
-        "bg-background border-b border-border"
-      )}
-    >
+    <header className={TOPBAR_HEADER_CLASS}>
       <button
         onClick={onOpenMobileSidebar}
         aria-label="Otwórz menu"
@@ -50,40 +71,52 @@ export function TopbarV2({
         <Menu className="h-4 w-4" />
       </button>
 
-      {/* Okruszki kurczą się (`md:flex-initial`, nie `flex-none`) — na
-          tablecie nie wypychają dzwonka i „Dodaj” poza ekran. */}
-      <div className="hidden md:flex min-w-0 max-w-[360px] flex-1 md:flex-initial">
+      <div className={TOPBAR_BREADCRUMB_CLASS}>
         <BreadcrumbV2 />
       </div>
 
       <button
         onClick={onOpenCommandPalette}
         aria-label="Otwórz wyszukiwanie"
-        className={cn(
-          "flex-1 min-w-0 max-w-md mx-auto flex items-center gap-2 h-8 px-3",
-          "rounded-md border border-border",
-          "bg-muted/50 hover:bg-muted transition-colors",
-          "text-left text-sm text-muted-foreground"
-        )}
+        className={TOPBAR_SEARCH_CLASS}
       >
         <Search className="h-4 w-4 shrink-0" />
-        <span className="truncate">Szukaj kandydatów, rekrutacji, klientów…</span>
+        <span className="truncate">
+          {searchesWork ? "Szukaj kandydatów, rekrutacji, klientów…" : "Przejdź do ekranu…"}
+        </span>
         <div className="ml-auto hidden sm:flex items-center gap-1 shrink-0">
           <Kbd>{isMac ? "⌘" : "Ctrl"}</Kbd>
           <Kbd>K</Kbd>
         </div>
       </button>
 
-      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+      <div className={TOPBAR_ACTIONS_CLASS}>
+        {/* P0 — ultrapilne rekrutacje (27.10.2026): u każdego, przed resztą. */}
+        <P0TopbarButton />
+        {/* Nowości do przeklikania (28.10.2026) — tylko gdy coś czeka. */}
+        <NoveltiesTopbarButton />
+        {/* Liga Mistrzów: miejsce i punkty kwartału — nie ściska się, cele oddają segmenty. */}
+        <MyLeagueWidget className="hidden md:block" />
         <MyKpiWidget variant="compact" className="hidden md:block" />
-        {/* Na telefonie przełączniki wyglądu są w szufladzie nawigacji. */}
-        <div className="hidden sm:flex items-center gap-2">
-          <PaletteSwitcher />
-          <KidsModeToggleButton />
-          <ThemeToggleButton />
+        {/* Motyw, tryb gry i tryb ciemny w jednym menu; na telefonie osobno w szufladzie nawigacji. */}
+        <div className="hidden sm:flex items-center">
+          <AppearanceMenu />
         </div>
+        {/* Bez dzwonka (16.10.2026): każda ikona ma jeden temat —
+            `docs/claude/powiadomienia/pasek-tematy-bez-dzwonka.md`. */}
         <MyPeopleTopbarButton />
-        <NotificationsDropdown />
+        {/* Stan, nie zdarzenia: moje CV; u DL pigułka kolejki „Do wysłania”. */}
+        <CvNotificationsDropdown />
+        <JobsNotificationsDropdown />
+        <ContractsNotificationsDropdown />
+        <ChatNotificationsDropdown />
+        <InterviewNotificationsDropdown />
+        {/* Zgody na wydatki i premie do decyzji (0483); przy zerze jej nie ma. */}
+        <ConsentsTopbarButton />
+        {/* Premie i vouchery do decyzji Płac (30.10.2026); przy zerze jej nie ma. */}
+        <BonusDecisionsTopbarButton />
+        {/* „Ludzie w NEXUSIE”: nieobecni dziś (moduł urlopów); przy zerze go nie ma. */}
+        <AbsentTodayButton />
         <QuickActionsV2
           externalModal={pendingModal}
           onExternalModalClear={onClearPendingModal}

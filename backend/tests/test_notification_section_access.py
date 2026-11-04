@@ -138,6 +138,9 @@ def test_list_count_and_read_mutations_share_one_visibility_predicate() -> None:
         notifications.get_unread_count,
         notifications.mark_as_read,
         notifications.mark_all_read,
+        notifications.mark_chat_threads_read,
+        notifications.list_interview_notifications,
+        notifications.mark_interview_notifications_read,
     ):
         assert "_notification_visibility(current_user)" in inspect.getsource(endpoint)
 
@@ -157,6 +160,58 @@ def test_realtime_event_policy_blocks_revoked_sections() -> None:
     assert not user_can_receive_realtime_event(revoked, event)
     assert user_can_receive_realtime_event(pipeline, event)
     assert not user_can_receive_realtime_event(revoked, {"type": "kpi_nudge"})
+
+
+def test_chat_announcement_follows_the_notification_gate_not_just_the_section() -> None:
+    """Zapowiedź wiadomości czatu (dymek) = bramka wiersza: sekcja i wyciszenie."""
+    pipeline = _user(pipeline="read")
+    sourcing = _user(sourcing="read")
+
+    def announcement(event_type: str, kind: str, entity: str) -> dict:
+        return {
+            "type": event_type,
+            "data": {
+                "notification_type": kind,
+                "related_entity_type": entity,
+                "link": "/jobs/7?tab=chat&msg=1",
+            },
+        }
+
+    job_message = announcement("chat:notify", "job_chat_message", "job_chat_message")
+    job_mention = announcement("chat:notify", "job_chat_mention", "job_chat_message")
+    candidate_message = announcement(
+        "candidate-chat:notify", "job_chat_message", "candidate_chat_message"
+    )
+
+    assert user_can_receive_realtime_event(pipeline, job_message)
+    assert not user_can_receive_realtime_event(sourcing, job_message)
+    assert user_can_receive_realtime_event(sourcing, candidate_message)
+    assert not user_can_receive_realtime_event(pipeline, candidate_message)
+    assert not user_can_receive_realtime_event(pipeline, {"type": "chat:notify"})
+
+    pipeline.muted_notification_categories = {"chat": "2026-10-09T08:00:00+00:00"}
+    assert not user_can_receive_realtime_event(pipeline, job_message)
+    # Wzmianki nie da się wyciszyć — dymek o niej dochodzi.
+    assert user_can_receive_realtime_event(pipeline, job_mention)
+
+
+def test_my_people_match_event_follows_the_notification_gate() -> None:
+    """Zdarzenie „Moi ludzie” (16.10.2026) nie ma wiersza, ale ma bramkę typu
+    ``my_people_match``: sekcja i wyciszona kategoria. Domyślne ``True`` bramki
+    puściłoby nazwiska do każdego otwartego gniazda."""
+    revoked = _user()
+    pipeline = _user(pipeline="read")
+    event = {
+        "type": "my_people:match",
+        "data": {"job_id": 7, "title": "Nowa rekrutacja", "link": "/jobs/7?people=1"},
+    }
+
+    assert user_can_receive_realtime_event(pipeline, event)
+    assert not user_can_receive_realtime_event(revoked, event)
+    assert not user_can_receive_realtime_event(pipeline, {"type": "my_people:match"})
+
+    pipeline.muted_notification_categories = {"candidates": "2026-10-16T08:00:00+00:00"}
+    assert not user_can_receive_realtime_event(pipeline, event)
 
 
 @pytest.mark.asyncio

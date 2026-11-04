@@ -19,6 +19,11 @@
   report for current identity values that differ from the latest unresolved
   manual submission or were preserved by the first-sync bootstrap guard. It
   never repairs data or backfills identity ownership.
+- ``POST /api/admin/candidates/scraper-rates/revert?dry_run=true`` — cofnięcie
+  stawek profilu wpisanych przez scrapery jako ręczne (audyt 06.10.2026, D5).
+  Próba oddaje liczby i przykłady z samymi ID; ``dry_run=false`` wymaga
+  ``expected`` równego liczbie kandydatów z próby. Reguły:
+  ``services/scraper_rate_revert.py``.
 
 RBAC: admin only (``AdminUser`` dependency).
 """
@@ -26,17 +31,19 @@ RBAC: admin only (``AdminUser`` dependency).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import func, literal, select, union_all
+from sqlalchemy import func, literal, select, text, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
 from app.core.database import AsyncSessionLocal, get_db
+from app.core.tasks import spawn
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.services import candidate_audit
@@ -47,9 +54,141 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Single-flight in-memory job state. A backfill is a one-off operation; if the
-# container restarts mid-run the job is resumable (it only targets rows still
-# marked "?"), so we don't need durable state.
+# ── Trwały postęp backfilli (Runda 10, R10-N8-4) ────────────────────────────
+# Stan biegu żyje w pamięci procesu, a Coolify restartuje kontener przy każdym
+# pushu na main. Bez zapisu kursora status po restarcie wraca do zera, a bieg
+# startuje od id 0 i płaci drugi raz (cv-fields, daty) albo przemiata od nowa
+# konwój pominiętych (kategorie). Co `_PROGRESS_EVERY_ROWS` wierszy i na końcu
+# biegu zapisujemy kursor i parametry w `app_settings`; status go pokazuje,
+# a start bez jawnego kursora wznawia od niego (jawne `after_id=0` = od nowa).
+_PROGRESS_KEY_PREFIX = "admin_backfill_progress:"
+_PROGRESS_EVERY_ROWS = 50
+_PROGRESS_POLL_SECONDS = 5.0
+
+
+def _progress_key(name: str) -> str:
+    return f"{_PROGRESS_KEY_PREFIX}{name}"
+
+
+async def _save_progress(name: str, job: dict[str, Any], keys: tuple[str, ...]) -> None:
+    payload = {k: job.get(k) for k in keys if k in job}
+    payload["saved_at"] = datetime.now(timezone.utc).isoformat()
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                text(
+                    "INSERT INTO app_settings (key, value) "
+                    "VALUES (:key, CAST(:value AS jsonb)) "
+                    "ON CONFLICT (key) DO UPDATE "
+                    "SET value = EXCLUDED.value, updated_at = now()"
+                ),
+                {"key": _progress_key(name), "value": json.dumps(payload, default=str)},
+            )
+            await db.commit()
+    except Exception as exc:  # noqa: BLE001 — zapis postępu nie może zabić biegu
+        logger.warning(
+            "[admin-backfill] zapis postępu %s nie powiódł się (%s)",
+            name,
+            type(exc).__name__,
+        )
+
+
+async def _load_progress(name: str) -> Optional[dict[str, Any]]:
+    try:
+        async with AsyncSessionLocal() as db:
+            value = await db.scalar(
+                text("SELECT value FROM app_settings WHERE key = :key"),
+                {"key": _progress_key(name)},
+            )
+    except Exception as exc:  # noqa: BLE001 — status ma działać bez zapisu
+        logger.warning(
+            "[admin-backfill] odczyt postępu %s nie powiódł się (%s)",
+            name,
+            type(exc).__name__,
+        )
+        return None
+    return value if isinstance(value, dict) else None
+
+
+async def _keep_progress(
+    name: str, job: dict[str, Any], keys: tuple[str, ...], stop: asyncio.Event
+) -> None:
+    saved_processed = 0
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=_PROGRESS_POLL_SECONDS)
+        except asyncio.TimeoutError:
+            pass
+        if stop.is_set():
+            return
+        processed = int(job.get("processed") or 0)
+        if processed - saved_processed >= _PROGRESS_EVERY_ROWS:
+            await _save_progress(name, job, keys)
+            saved_processed = processed
+
+
+def _start_progress_keeper(
+    name: str, job: dict[str, Any], keys: tuple[str, ...]
+) -> tuple[asyncio.Event, asyncio.Task[Any]]:
+    stop = asyncio.Event()
+    return stop, spawn(_keep_progress(name, job, keys, stop), f"{name}_progress")
+
+
+async def _finish_progress(
+    name: str,
+    job: dict[str, Any],
+    keys: tuple[str, ...],
+    keeper: tuple[asyncio.Event, asyncio.Task[Any]],
+) -> None:
+    stop, task = keeper
+    stop.set()
+    try:
+        await task
+    except Exception:  # noqa: BLE001 — strażnik postępu nie może zabić biegu
+        pass
+    await _save_progress(name, job, (*keys, "complete"))
+
+
+def _cursor_from(
+    saved: Optional[dict[str, Any]],
+    cursor_key: str,
+    params: Optional[dict[str, Any]] = None,
+) -> int:
+    """Kursor wznowienia z zapisanego postępu; 0, gdy bieg doszedł do końca.
+
+    Zapis z innymi parametrami (np. inny `only_missing`) nie jest wznowieniem
+    tego biegu — wtedy od początku.
+    """
+    if not saved or saved.get("complete"):
+        return 0
+    for key, value in (params or {}).items():
+        if saved.get(key) != value:
+            return 0
+    cursor = saved.get(cursor_key)
+    return cursor if isinstance(cursor, int) and cursor > 0 else 0
+
+
+async def _resume_cursor(
+    name: str, cursor_key: str, params: Optional[dict[str, Any]] = None
+) -> int:
+    return _cursor_from(await _load_progress(name), cursor_key, params)
+
+
+async def _status_with_saved(
+    name: str,
+    job: dict[str, Any],
+    cursor_key: str,
+    params: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    saved = await _load_progress(name)
+    out = dict(job)
+    out["saved_progress"] = saved
+    out["resume_after_id"] = _cursor_from(saved, cursor_key, params)
+    return out
+
+
+# Single-flight in-memory job state; kursor i parametry biegu trafiają też do
+# `app_settings` (patrz „Trwały postęp backfilli” wyżej).
 _JOB: dict[str, Any] = {
     "running": False,
     "total": 0,
@@ -64,7 +203,25 @@ _JOB: dict[str, Any] = {
 }
 
 
-async def _run_backfill(limit: Optional[int], prefer_llm: bool) -> None:
+_NAMES_PROGRESS = "names"
+_NAMES_KEYS = (
+    "total",
+    "processed",
+    "resolved",
+    "unresolved",
+    "errors",
+    "after_id",
+    "cursor_id",
+    "limit",
+    "prefer_llm",
+    "stopped_reason",
+    "started_at",
+    "finished_at",
+    "last_error",
+)
+
+
+async def _run_backfill(limit: Optional[int], prefer_llm: bool, after_id: int) -> None:
     _JOB.update(
         running=True,
         total=0,
@@ -75,19 +232,34 @@ async def _run_backfill(limit: Optional[int], prefer_llm: bool) -> None:
         started_at=datetime.now(timezone.utc).isoformat(),
         finished_at=None,
         limit=limit,
+        prefer_llm=prefer_llm,
+        after_id=after_id,
+        cursor_id=after_id,
+        stopped_reason=None,
+        complete=False,
         last_error=None,
     )
+    keeper = _start_progress_keeper(_NAMES_PROGRESS, _JOB, _NAMES_KEYS)
     try:
         async with AsyncSessionLocal() as db:
             await backfill_missing_names(
-                db, limit=limit, prefer_llm=prefer_llm, progress=_JOB
+                db,
+                limit=limit,
+                after_id=after_id,
+                prefer_llm=prefer_llm,
+                progress=_JOB,
             )
+        # Paczka krótsza niż limit = ogon „?” osiągnięty; następny bieg od 0.
+        _JOB["complete"] = not _JOB.get("stopped_reason") and (
+            limit is None or int(_JOB.get("total") or 0) < limit
+        )
     except Exception as e:  # noqa: BLE001 — never crash the background task
         _JOB["last_error"] = repr(e)
         logger.exception("[backfill-names] job crashed")
     finally:
         _JOB["running"] = False
         _JOB["finished_at"] = datetime.now(timezone.utc).isoformat()
+        await _finish_progress(_NAMES_PROGRESS, _JOB, _NAMES_KEYS, keeper)
 
 
 @router.post("/backfill-names")
@@ -104,21 +276,41 @@ async def trigger_backfill_names(
         description="Use the LLM CV parser (name+email+phone+skills). When "
         "false, falls back to regex + filename-derived name only.",
     ),
+    after_id: Optional[int] = Query(
+        default=None,
+        ge=0,
+        description="Kursor: tylko kandydaci o id > after_id. Bez parametru "
+        "bieg wznawia od zapisanego `resume_after_id` (0 = od początku). "
+        "Zbiór „?” się nie kurczy, więc bez kursora każdy bieg z `limit` "
+        "płaciłby za ten sam prefiks.",
+    ),
 ) -> dict[str, Any]:
     """Kick a name-backfill run in the background. Admin only."""
+    # Runda 10 (R10-N8-5): kursor jak w fazie `candidates_enrich_names`.
+    if after_id is None:
+        after_id = await _resume_cursor(_NAMES_PROGRESS, "cursor_id")
+    # Runda 10 (R10-N8-2): sprawdzenie i rezerwacja bez punktu oddania pętli
+    # między nimi — flaga stoi, zanim wróci odpowiedź, nie dopiero gdy zadanie
+    # w tle ruszy (dwa szybkie POST-y odpalały dwa płatne biegi).
     if _JOB["running"]:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A backfill run is already in progress",
         )
-    asyncio.create_task(_run_backfill(limit, prefer_llm))
-    return {"status": "started", "limit": limit, "prefer_llm": prefer_llm}
+    _JOB["running"] = True
+    spawn(_run_backfill(limit, prefer_llm, after_id), "backfill_names")
+    return {
+        "status": "started",
+        "limit": limit,
+        "prefer_llm": prefer_llm,
+        "after_id": after_id,
+    }
 
 
 @router.get("/backfill-names/status")
 async def backfill_names_status(_admin: AdminUser) -> dict[str, Any]:
-    """Current backfill progress (in-memory; resets on container restart)."""
-    return dict(_JOB)
+    """Bieżący postęp + zapisany kursor (`resume_after_id`) po restarcie."""
+    return await _status_with_saved(_NAMES_PROGRESS, _JOB, "cursor_id")
 
 
 # ── Competence-category backfill ────────────────────────────────────────────
@@ -143,6 +335,24 @@ _CC_JOB: dict[str, Any] = {
 }
 
 
+_CC_PROGRESS = "cc"
+_CC_KEYS = (
+    "total",
+    "processed",
+    "assigned",
+    "skipped",
+    "errors",
+    "only_missing",
+    "only_slugs",
+    "start_after_id",
+    "last_id",
+    "limit",
+    "started_at",
+    "finished_at",
+    "last_error",
+)
+
+
 async def _run_cc_backfill(
     limit: Optional[int],
     only_missing: bool,
@@ -164,8 +374,10 @@ async def _run_cc_backfill(
         started_at=datetime.now(timezone.utc).isoformat(),
         finished_at=None,
         limit=limit,
+        complete=False,
         last_error=None,
     )
+    keeper = _start_progress_keeper(_CC_PROGRESS, _CC_JOB, _CC_KEYS)
     try:
         async with AsyncSessionLocal() as db:
             await backfill_candidate_ccs(
@@ -176,12 +388,14 @@ async def _run_cc_backfill(
                 only_slugs=only_slugs,
                 progress=_CC_JOB,
             )
+        _CC_JOB["complete"] = limit is None or int(_CC_JOB.get("total") or 0) < limit
     except Exception as e:  # noqa: BLE001 — never crash the background task
         _CC_JOB["last_error"] = repr(e)
         logger.exception("[backfill-cc] job crashed")
     finally:
         _CC_JOB["running"] = False
         _CC_JOB["finished_at"] = datetime.now(timezone.utc).isoformat()
+        await _finish_progress(_CC_PROGRESS, _CC_JOB, _CC_KEYS, keeper)
 
 
 @router.post("/backfill-cc")
@@ -200,13 +414,13 @@ async def trigger_backfill_cc(
         "touches already-classified or manually-curated profiles. Set false to "
         "re-classify every candidate (still skips manual assignments).",
     ),
-    start_after_id: int = Query(
-        default=0,
+    start_after_id: Optional[int] = Query(
+        default=None,
         ge=0,
         description="Resume cursor: scan only candidates with id > this value. "
-        "Pass the `last_id` watermark from a previous (interrupted) run so a "
-        "container restart continues the pass instead of rescanning the "
-        "low-signal skipped convoy from id 0.",
+        "Omitted = resume from the saved `resume_after_id` of an unfinished run "
+        "with the same only_missing/only_slug (0 = from the start); pass 0 "
+        "explicitly to rescan from the beginning.",
     ),
     only_slug: list[str] = Query(
         default=[],
@@ -216,13 +430,22 @@ async def trigger_backfill_cc(
     ),
 ) -> dict[str, Any]:
     """Kick a competence-category backfill in the background. Admin only."""
+    if start_after_id is None:
+        start_after_id = await _resume_cursor(
+            _CC_PROGRESS,
+            "last_id",
+            {"only_missing": only_missing, "only_slugs": list(only_slug)},
+        )
+    # Runda 10 (R10-N8-2): sprawdzenie i rezerwacja synchronicznie, przed spawn.
     if _CC_JOB["running"]:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A competence-category backfill is already in progress",
         )
-    asyncio.create_task(
-        _run_cc_backfill(limit, only_missing, start_after_id, only_slug or None)
+    _CC_JOB["running"] = True
+    spawn(
+        _run_cc_backfill(limit, only_missing, start_after_id, only_slug or None),
+        "backfill_cc",
     )
     return {
         "status": "started",
@@ -235,8 +458,15 @@ async def trigger_backfill_cc(
 
 @router.get("/backfill-cc/status")
 async def backfill_cc_status(_admin: AdminUser) -> dict[str, Any]:
-    """Current competence-category backfill progress (in-memory)."""
-    return dict(_CC_JOB)
+    """Bieżący postęp + zapisany kursor (`resume_after_id`) po restarcie.
+
+    `resume_after_id` liczony dla parametrów zapisanego biegu.
+    """
+    saved = await _load_progress(_CC_PROGRESS)
+    out = dict(_CC_JOB)
+    out["saved_progress"] = saved
+    out["resume_after_id"] = _cursor_from(saved, "last_id")
+    return out
 
 
 # ── Fala 3: masowe uzupełnianie pól z CV ────────────────────────────────────
@@ -245,6 +475,22 @@ async def backfill_cc_status(_admin: AdminUser) -> dict[str, Any]:
 # endpoint jest ścieżką produkcyjną; CLI (scripts/backfill_cv_fields.py) — dev.
 
 _CV_FIELDS_JOB: dict[str, Any] = {"running": False}
+_CV_FIELDS_PROGRESS = "cv_fields"
+_CV_FIELDS_KEYS = (
+    "processed",
+    "updated",
+    "skipped_no_result",
+    "marked_read_incomplete",
+    "errors",
+    "after_id",
+    "last_id",
+    "limit",
+    "stopped_reason",
+    "usage",
+    "started_at",
+    "finished_at",
+    "last_error",
+)
 
 
 async def _run_cv_fields_backfill(
@@ -259,7 +505,11 @@ async def _run_cv_fields_backfill(
         finished_at=None,
         limit=limit,
         after_id=after_id,
+        complete=False,
         last_error=None,
+    )
+    keeper = _start_progress_keeper(
+        _CV_FIELDS_PROGRESS, _CV_FIELDS_JOB, _CV_FIELDS_KEYS
     )
     try:
         async with AsyncSessionLocal() as db:
@@ -270,12 +520,16 @@ async def _run_cv_fields_backfill(
                 progress=_CV_FIELDS_JOB,
                 calibration_log_path=calibration_log,
             )
+        _CV_FIELDS_JOB["complete"] = _CV_FIELDS_JOB.get("stopped_reason") == "done"
     except Exception as e:  # noqa: BLE001 — never crash the background task
         _CV_FIELDS_JOB["last_error"] = repr(e)
         logger.exception("[cv-fields-backfill] job crashed")
     finally:
         _CV_FIELDS_JOB["running"] = False
         _CV_FIELDS_JOB["finished_at"] = datetime.now(timezone.utc).isoformat()
+        await _finish_progress(
+            _CV_FIELDS_PROGRESS, _CV_FIELDS_JOB, _CV_FIELDS_KEYS, keeper
+        )
 
 
 @router.post("/backfill-cv-fields")
@@ -287,10 +541,11 @@ async def trigger_backfill_cv_fields(
         description="Sufit wierszy w tym biegu (np. 200 na kalibrację). "
         "Bez limitu bieg idzie do końca scope'u albo do CV_BACKFILL_MAX_CALLS.",
     ),
-    after_id: int = Query(
-        default=0,
+    after_id: Optional[int] = Query(
+        default=None,
         ge=0,
-        description="Wznów od tego candidate_id (kursor z pola last_id statusu).",
+        description="Wznów od tego candidate_id. Bez parametru — od zapisanego "
+        "`resume_after_id` przerwanego biegu (0 = od początku).",
     ),
     dry_run: bool = Query(
         default=True,
@@ -309,26 +564,33 @@ async def trigger_backfill_cv_fields(
     liczy się jako puste. Kwota: AIFeatureKey.cv_backfill — osobny kubełek od
     interaktywnego cv_parser.
     """
+    if after_id is None:
+        after_id = await _resume_cursor(_CV_FIELDS_PROGRESS, "last_id")
     if dry_run:
         from app.services.cv_field_backfill import count_scope
 
         async with AsyncSessionLocal() as db:
             scope = await count_scope(db, after_id=after_id)
-        return {"status": "dry_run", **scope}
+        return {"status": "dry_run", "after_id": after_id, **scope}
 
+    # Runda 10 (R10-N8-2): sprawdzenie i rezerwacja synchronicznie, przed spawn.
     if _CV_FIELDS_JOB.get("running"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A cv-fields backfill run is already in progress",
         )
-    asyncio.create_task(_run_cv_fields_backfill(limit, after_id, calibration_log))
+    _CV_FIELDS_JOB["running"] = True
+    spawn(
+        _run_cv_fields_backfill(limit, after_id, calibration_log),
+        "backfill_cv_fields",
+    )
     return {"status": "started", "limit": limit, "after_id": after_id}
 
 
 @router.get("/backfill-cv-fields/status")
 async def backfill_cv_fields_status(_admin: AdminUser) -> dict[str, Any]:
-    """Live progress biegu (in-memory; kursor last_id pozwala wznowić po restarcie)."""
-    return dict(_CV_FIELDS_JOB)
+    """Bieżący postęp + zapisany kursor (`resume_after_id`) po restarcie."""
+    return await _status_with_saved(_CV_FIELDS_PROGRESS, _CV_FIELDS_JOB, "last_id")
 
 
 # ── Daty w `experience` z tekstu CV ─────────────────────────────────────────
@@ -336,6 +598,22 @@ async def backfill_cv_fields_status(_admin: AdminUser) -> dict[str, Any]:
 # a status ma być czytelny bez zgadywania, który bieg właśnie się liczy.
 
 _EXP_DATES_JOB: dict[str, Any] = {"running": False}
+_EXP_DATES_PROGRESS = "experience_dates"
+_EXP_DATES_KEYS = (
+    "processed",
+    "updated",
+    "skipped_no_result",
+    "skipped_no_dates",
+    "errors",
+    "after_id",
+    "last_id",
+    "limit",
+    "stopped_reason",
+    "usage",
+    "started_at",
+    "finished_at",
+    "last_error",
+)
 
 
 async def _run_experience_dates_backfill(limit: Optional[int], after_id: int) -> None:
@@ -348,19 +626,27 @@ async def _run_experience_dates_backfill(limit: Optional[int], after_id: int) ->
         finished_at=None,
         limit=limit,
         after_id=after_id,
+        complete=False,
         last_error=None,
+    )
+    keeper = _start_progress_keeper(
+        _EXP_DATES_PROGRESS, _EXP_DATES_JOB, _EXP_DATES_KEYS
     )
     try:
         async with AsyncSessionLocal() as db:
             await backfill_experience_dates(
                 db, limit=limit, after_id=after_id, progress=_EXP_DATES_JOB
             )
+        _EXP_DATES_JOB["complete"] = _EXP_DATES_JOB.get("stopped_reason") == "done"
     except Exception as e:  # noqa: BLE001 — never crash the background task
         _EXP_DATES_JOB["last_error"] = repr(e)
         logger.exception("[experience-dates-backfill] job crashed")
     finally:
         _EXP_DATES_JOB["running"] = False
         _EXP_DATES_JOB["finished_at"] = datetime.now(timezone.utc).isoformat()
+        await _finish_progress(
+            _EXP_DATES_PROGRESS, _EXP_DATES_JOB, _EXP_DATES_KEYS, keeper
+        )
 
 
 @router.post("/backfill-experience-dates")
@@ -372,10 +658,11 @@ async def trigger_backfill_experience_dates(
         description="Sufit wierszy w tym biegu (np. 100 na kalibrację). "
         "Bez limitu bieg idzie do końca scope'u albo do CV_BACKFILL_MAX_CALLS.",
     ),
-    after_id: int = Query(
-        default=0,
+    after_id: Optional[int] = Query(
+        default=None,
         ge=0,
-        description="Wznów od tego candidate_id (kursor z pola last_id statusu).",
+        description="Wznów od tego candidate_id. Bez parametru — od zapisanego "
+        "`resume_after_id` przerwanego biegu (0 = od początku).",
     ),
     dry_run: bool = Query(
         default=True,
@@ -389,26 +676,33 @@ async def trigger_backfill_experience_dates(
     CV, bez ręcznej blokady. Zapis tylko gdy odczyt niesie choć jedną datę;
     stare firmy nieobecne w odczycie zostają bez dat. Kwota: `cv_backfill`.
     """
+    if after_id is None:
+        after_id = await _resume_cursor(_EXP_DATES_PROGRESS, "last_id")
     if dry_run:
         from app.services.experience_backfill import count_scope
 
         async with AsyncSessionLocal() as db:
             scope = await count_scope(db, after_id=after_id)
-        return {"status": "dry_run", **scope}
+        return {"status": "dry_run", "after_id": after_id, **scope}
 
+    # Runda 10 (R10-N8-2): sprawdzenie i rezerwacja synchronicznie, przed spawn.
     if _EXP_DATES_JOB.get("running"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An experience-dates backfill run is already in progress",
         )
-    asyncio.create_task(_run_experience_dates_backfill(limit, after_id))
+    _EXP_DATES_JOB["running"] = True
+    spawn(
+        _run_experience_dates_backfill(limit, after_id),
+        "backfill_experience_dates",
+    )
     return {"status": "started", "limit": limit, "after_id": after_id}
 
 
 @router.get("/backfill-experience-dates/status")
 async def backfill_experience_dates_status(_admin: AdminUser) -> dict[str, Any]:
-    """Live progress biegu (in-memory; kursor last_id pozwala wznowić po restarcie)."""
-    return dict(_EXP_DATES_JOB)
+    """Bieżący postęp + zapisany kursor (`resume_after_id`) po restarcie."""
+    return await _status_with_saved(_EXP_DATES_PROGRESS, _EXP_DATES_JOB, "last_id")
 
 
 # ── Read-only audit: manual identity submissions overwritten later ───────────
@@ -811,3 +1105,47 @@ async def suspected_name_overwrites(
         "candidates": suspects,
         "limitations": list(_NAME_OVERWRITE_LIMITATIONS),
     }
+
+
+@router.post("/scraper-rates/revert")
+async def revert_scraper_rates(
+    admin: AdminUser,
+    dry_run: bool = Query(True),
+    expected: Optional[int] = Query(None, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Cofnij stawki profilu wpisane przez scrapery (D5, 06.10.2026).
+
+    Zapis wymaga ``expected`` równego liczbie kandydatów z próby — gdy dane
+    zmieniły się od próby, odpowiedź to 409 i nic się nie zapisuje.
+    """
+    from app.services import scraper_rate_revert
+
+    if not dry_run:
+        # Jeden zapis naraz; plan liczymy już pod blokadą.
+        await scraper_rate_revert.lock_for_apply(db)
+    plan, counts = await scraper_rate_revert.build_plan(db)
+    if dry_run:
+        return {
+            "dry_run": True,
+            "counts": counts,
+            "sample": scraper_rate_revert.sample(plan),
+        }
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Nie ma stawek do cofnięcia — wszystkie zostały już cofnięte "
+            "albo zmienione później przez człowieka.",
+        )
+    if expected is None or expected != len(plan):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Liczba kandydatów do cofnięcia różni się od próby "
+                f"(teraz {len(plan)}). Uruchom próbę (dry_run=true) jeszcze raz "
+                "i podaj jej wynik w parametrze expected."
+            ),
+        )
+    run = await scraper_rate_revert.apply_plan(db, plan, counts, user_id=admin.id)
+    await db.commit()
+    return {"dry_run": False, "counts": run["counts"]}

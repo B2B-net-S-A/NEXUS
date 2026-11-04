@@ -18,7 +18,7 @@ import json
 import logging
 import math
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -60,6 +60,8 @@ _BREAKDOWN_LAYERS = (
     "location",
     "availability",
     "champion_fit",
+    # Tylko gdy warstwa była liczona (`PRIOR_SCREENING_LAYER_ENABLED`).
+    "prior_screening",
 )
 
 
@@ -423,8 +425,20 @@ PIPELINE_ADD_SOURCES = frozenset(
         "proposal_inbox",
         "recommendation",
         "my_people",
+        # 14.10.2026: „Pasuje też do” pod osobą dodaną do innej rekrutacji.
+        "also_fits",
+        # 29.10.2026: „+ Dodaj inną rekrutację” w „Screening dla” (ręcznie).
+        "also_manual",
+        # 22.10.2026: zakładka „Podobni” na profilu kandydata.
+        "similar_candidates",
+        # Audyt 06.10.2026 (U2): dodanie tokenem integracji (scraper) — bez
+        # tego kodu zajmowało klucze z `reason_code` NULL obok ludzkich.
+        "integration",
     }
 )
+# Źródła nadawane przez SERWER, nigdy przyjmowane z żądania (`BulkAddSource`
+# ich nie zna — człowiek nie podpisze dodania jako „integracja”).
+SERVER_ONLY_ADD_SOURCES = frozenset({"integration"})
 
 # Surfaces that show the TEAM a run nobody on it started (the automatic
 # proposals run). Only they may pin an add to a run owned by someone else.
@@ -453,7 +467,10 @@ _VERIFIED_RUN_CANDIDATES = text(
                 )
             )
           )
-      AND r.job_id = :job_id
+      AND (
+            r.job_id = :job_id
+            OR (r.job_id IS NULL AND r.created_by = :user_id)
+          )
       AND i.candidate_id = ANY(:ids)
     """
 )
@@ -491,6 +508,40 @@ async def _verified_run_candidates(
         return set()
 
 
+async def latest_process_ids(
+    db: AsyncSession, job_id: int, candidate_ids: Sequence[int]
+) -> dict[int, int]:
+    """Kandydat → id najnowszego procesu w tej rekrutacji (klucz ``event_id``,
+    U2). Wołać po dodaniu — proces, który dodanie otworzyło, jest najnowszy.
+    Nigdy nie rzuca: bez procesu klucz zostaje w dawnym kształcie."""
+    from sqlalchemy import func, select
+
+    from app.models.recruitment_process import RecruitmentProcess
+
+    ids = list(dict.fromkeys(int(cid) for cid in candidate_ids))
+    if not ids:
+        return {}
+    try:
+        async with db.begin_nested():
+            rows = (
+                await db.execute(
+                    select(
+                        RecruitmentProcess.candidate_id,
+                        func.max(RecruitmentProcess.id),
+                    )
+                    .where(
+                        RecruitmentProcess.job_id == job_id,
+                        RecruitmentProcess.candidate_id.in_(ids),
+                    )
+                    .group_by(RecruitmentProcess.candidate_id)
+                )
+            ).all()
+    except Exception as exc:  # noqa: BLE001 — telemetria nie psuje dodania
+        logger.warning("[telemetry] process lookup failed: %s", exc)
+        return {}
+    return {int(cid): int(pid) for cid, pid in rows if pid is not None}
+
+
 async def emit_pipeline_additions(
     *,
     job_id: int,
@@ -498,6 +549,7 @@ async def emit_pipeline_additions(
     user_id: Optional[int],
     run_id: Optional[str] = None,
     source: Optional[str] = None,
+    process_ids: Optional[Mapping[int, int]] = None,
 ) -> int:
     """``add_to_pipeline`` outcomes for candidates just added to a pipeline.
 
@@ -513,6 +565,11 @@ async def emit_pipeline_additions(
     the add came from (``reason_code``). Same idempotency key shape as
     ``emit_match_outcome``. One session for the whole batch, at most
     ``MAX_ROWS_PER_CALL`` rows. Never raises; returns the number of NEW rows.
+
+    ``process_ids`` (audyt 06.10.2026, U2): kandydat → id procesu, który to
+    dodanie otworzyło. Wchodzi do ``event_id``, więc ponowne dodanie tej samej
+    osoby (po „Usuń z rekrutacji”) jest nowym zdarzeniem — do tej daty para
+    dodana pięć razy dawała jeden wpis (``ON CONFLICT DO NOTHING``).
     """
     ids = list(dict.fromkeys(int(cid) for cid in candidate_ids))[:MAX_ROWS_PER_CALL]
     if not telemetry_enabled() or not ids:
@@ -529,10 +586,13 @@ async def emit_pipeline_additions(
         params = []
         for cid in ids:
             attributed = run_id if cid in shown else None
+            process_id = (process_ids or {}).get(cid)
+            suffix = f":p{process_id}" if process_id is not None else ""
             params.append(
                 {
                     "event_id": (
                         f"add_to_pipeline:{attributed or 'norun'}:{job_id}:{cid}"
+                        f"{suffix}"
                     ),
                     "run_id": attributed,
                     "candidate_id": cid,

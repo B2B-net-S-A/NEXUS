@@ -16,6 +16,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // wewnątrz `vi.hoisted` — inaczej fabryka sięga po niezainicjalizowaną stałą.
 const { bulkMarkEnded } = vi.hoisted(() => ({ bulkMarkEnded: vi.fn() }));
 
+// Okno „Zakończ współpracę” przechodzi routerem do generatora porozumienia
+// (tylko przy jednej umowie) — zbiorczo nie nawiguje, ale hook musi istnieć.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return {
@@ -25,19 +31,22 @@ vi.mock("@/lib/api", async () => {
   };
 });
 
-vi.mock("@/components/RequireRole", () => ({
-  RequireRole: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}));
-
+import { useAuthStore } from "@/store/auth";
+import { permissionSnapshot } from "@/__tests__/fixtures/permission-snapshot";
 import { ContractsBulkActionsBarV2 } from "../ContractsBulkActionsBar";
 
-function renderBar() {
+/** Pasek czyta konto z prawdziwego store'u — tak jak na ekranie. */
+function signIn(user: Record<string, unknown>, realUser: unknown = null) {
+  useAuthStore.setState({ user, realUser, hydrated: true } as never);
+}
+
+function renderBar(selectedIds: number[] = [7, 9]) {
   const onDone = vi.fn();
   const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   render(
     <QueryClientProvider client={qc}>
     <ContractsBulkActionsBarV2
-      selectedIds={new Set([7, 9])}
+      selectedIds={new Set(selectedIds)}
       onClear={vi.fn()}
       onDone={onDone}
       onSelectAllVisible={vi.fn()}
@@ -61,6 +70,7 @@ function fillAndSubmit() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  signIn({ id: 1, role: "delivery_lead", roles: ["delivery_lead"] });
 });
 
 afterEach(() => cleanup());
@@ -103,5 +113,88 @@ describe("ContractsBulkActionsBarV2 — Oznacz zakończone", () => {
     // Okno zostaje otwarte — użytkownik widzi, czego dyspozycja dotyczyła.
     expect(screen.getByRole("button", { name: "Zakończ" })).toBeInTheDocument();
     expect(onDone).not.toHaveBeenCalled();
+  });
+});
+
+describe("ContractsBulkActionsBarV2 — każda akcja ma własne uprawnienie", () => {
+  const extendButtons = () =>
+    screen.queryAllByRole("button", { name: /^\+(3|6|12)m$/ });
+  const endButton = () =>
+    screen.queryByRole("button", { name: /Oznacz zakończone/ });
+
+  it("Delivery Lead (oba uprawnienia domyślnie) widzi przedłużanie i zakończenie", () => {
+    renderBar();
+
+    expect(extendButtons()).toHaveLength(3);
+    expect(endButton()).toBeInTheDocument();
+  });
+
+  it("Talent Community Manager kończy współpracę, ale nie przedłuża", () => {
+    signIn({ id: 2, role: "talent_community_manager" });
+    renderBar();
+
+    expect(endButton()).toBeInTheDocument();
+    expect(extendButtons()).toHaveLength(0);
+  });
+
+  it("Finanse przedłużają, ale nie kończą współpracy", () => {
+    signIn({ id: 3, role: "finance" });
+    renderBar();
+
+    expect(extendButtons()).toHaveLength(3);
+    expect(endButton()).not.toBeInTheDocument();
+  });
+
+  it("rekruter z nadanym uprawnieniem widzi dokładnie tę akcję, którą dostał", () => {
+    signIn({
+      id: 4,
+      role: "recruiter",
+      effective_action_access: permissionSnapshot("contract_status"),
+    });
+    renderBar();
+    expect(endButton()).toBeInTheDocument();
+    expect(extendButtons()).toHaveLength(0);
+    cleanup();
+
+    signIn({
+      id: 4,
+      role: "recruiter",
+      effective_action_access: permissionSnapshot("contracts_orders_edit"),
+    });
+    renderBar();
+    expect(extendButtons()).toHaveLength(3);
+    expect(endButton()).not.toBeInTheDocument();
+  });
+
+  it("Delivery Lead z wyłączonym zakończeniem współpracy nie widzi „Oznacz zakończone”", () => {
+    signIn({
+      id: 5,
+      role: "delivery_lead",
+      effective_action_access: permissionSnapshot("contracts_orders_edit"),
+    });
+    renderBar();
+
+    expect(extendButtons()).toHaveLength(3);
+    expect(endButton()).not.toBeInTheDocument();
+  });
+
+  it("konto bez żadnego z dwóch uprawnień nie dostaje paska ani zaznaczania", () => {
+    signIn({ id: 6, role: "recruiter" });
+    renderBar([]);
+
+    expect(screen.queryByText(/Zaznacz widoczne/)).not.toBeInTheDocument();
+    expect(endButton()).not.toBeInTheDocument();
+    expect(extendButtons()).toHaveLength(0);
+  });
+
+  it("w podglądzie jako inny użytkownik pasek znika — serwer i tak odmówi zapisu", () => {
+    signIn(
+      { id: 7, role: "delivery_lead", roles: ["delivery_lead"] },
+      { id: 1, role: "admin" },
+    );
+    renderBar();
+
+    expect(endButton()).not.toBeInTheDocument();
+    expect(extendButtons()).toHaveLength(0);
   });
 });

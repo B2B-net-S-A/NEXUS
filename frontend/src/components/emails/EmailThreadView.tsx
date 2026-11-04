@@ -34,10 +34,18 @@ import {
   MAX_DEPTH,
 } from "@/lib/email-threading";
 
+import {
+  blankMessageLabel,
+  isInviteReply,
+  NO_CONTENT_LABEL,
+} from "@/lib/email-blank-message";
+import { planThreadReply, type ReplyPlan } from "@/lib/email-reply-target";
 import EmailCompose from "./EmailCompose";
 
 interface EmailThreadViewProps {
   candidateId: number;
+  /** Adres kandydata — „Odpowiedz” celuje wyłącznie w jego maile. */
+  candidateEmail?: string | null;
   conversationId: string;
   onClose: () => void;
 }
@@ -118,7 +126,11 @@ function ThreadMessageCard({
 
   // Only fetch the full body once the card is expanded — keeps the initial
   // open of a long thread cheap.
-  const { data: fullMessage } = useQuery({
+  const {
+    data: fullMessage,
+    isLoading: isLoadingMessage,
+    isError: isMessageError,
+  } = useQuery({
     queryKey: ["email", email.id],
     queryFn: () => microsoft365Api.getEmail(email.id).then((r) => r.data),
     enabled: expanded,
@@ -139,6 +151,9 @@ function ThreadMessageCard({
     : email.from_address;
   const initials = initialsOf(email.from_name, email.from_address);
   const tone = avatarToneFor(email.from_address);
+  const message = fullMessage ?? email;
+  const inviteReply = isInviteReply(message);
+  const plainText = fullMessage?.body_text ?? email.body_text ?? "";
 
   // Download via authenticated fetch → same-origin blob. A raw <a href> to the
   // backend 401s: the JWT lives in localStorage (not a cookie), so a plain
@@ -206,7 +221,7 @@ function ThreadMessageCard({
               <span className="text-xs text-muted-foreground">
                 {formatRelativeTime(email.received_at)}
               </span>
-              {email.direction === "sent" && (
+              {email.sent_from_nexus && (
                 <span className="rounded bg-primary/15 text-primary text-[10px] px-1.5 py-0.5">
                   Wysłane z ATS
                 </span>
@@ -225,7 +240,7 @@ function ThreadMessageCard({
             </div>
             {!expanded && (
               <p className="text-xs text-muted-foreground truncate mt-0.5">
-                {email.body_preview ?? ""}
+                {blankMessageLabel(email) ?? email.body_preview ?? ""}
               </p>
             )}
           </div>
@@ -254,12 +269,21 @@ function ThreadMessageCard({
                 className="prose prose-sm relative isolate max-w-none break-words text-foreground [contain:paint] [&_img]:h-auto [&_img]:max-w-full [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto"
                 dangerouslySetInnerHTML={{ __html: bodyHtml }}
               />
-            ) : fullMessage?.body_text || email.body_text ? (
+            ) : plainText.trim() ? (
               <pre className="whitespace-pre-wrap text-sm text-foreground font-sans">
-                {fullMessage?.body_text ?? email.body_text ?? ""}
+                {plainText}
               </pre>
-            ) : (
+            ) : isLoadingMessage ? (
               <p className="text-sm text-muted-foreground">Wczytuję wiadomość...</p>
+            ) : isMessageError ? (
+              <Alert
+                variant="error"
+                description="Nie udało się wczytać wiadomości."
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {blankMessageLabel(message) ?? NO_CONTENT_LABEL}
+              </p>
             )}
 
             {!!fullMessage?.attachments?.length && (
@@ -294,18 +318,20 @@ function ThreadMessageCard({
               </div>
             )}
 
-            <div className="pt-2 flex justify-end">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onReply(email);
-                }}
-                className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 bg-primary hover:bg-primary/90 text-white rounded-md"
-              >
-                <Reply className="h-3.5 w-3.5" />
-                Odpowiedz
-              </button>
-            </div>
+            {!inviteReply && (
+              <div className="pt-2 flex justify-end">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onReply(email);
+                  }}
+                  className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 bg-primary hover:bg-primary/90 text-white rounded-md"
+                >
+                  <Reply className="h-3.5 w-3.5" />
+                  Odpowiedz
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -315,10 +341,11 @@ function ThreadMessageCard({
 
 export default function EmailThreadView({
   candidateId,
+  candidateEmail = null,
   conversationId,
   onClose,
 }: EmailThreadViewProps) {
-  const [replyTarget, setReplyTarget] = useState<EmailMessage | null>(null);
+  const [replyPlan, setReplyPlan] = useState<ReplyPlan>(null);
 
   const {
     data: messages,
@@ -339,10 +366,15 @@ export default function EmailThreadView({
     return flattenThread(buildThreadTree(messages));
   }, [messages]);
 
+  // Pusta odpowiedź na zaproszenie nie zasłania rozmowy: wątek otwiera się na
+  // ostatniej wiadomości z treścią i bierze z niej tytuł.
+  const openNode =
+    flatNodes.findLast((node) => blankMessageLabel(node.email) === null) ??
+    flatNodes[flatNodes.length - 1];
   const subject = isLoading
     ? "Wątek email"
-    : (messages?.[messages.length - 1]?.subject ?? "(bez tematu)");
-  const latestId = flatNodes[flatNodes.length - 1]?.email.id ?? null;
+    : (openNode?.email.subject ?? "(bez tematu)");
+  const latestId = openNode?.email.id ?? null;
 
   const messageCount = messages?.length ?? 0;
   const unreadCount = useMemo(
@@ -399,7 +431,7 @@ export default function EmailThreadView({
                 email={node.email}
                 depth={Math.min(node.depth, MAX_DEPTH)}
                 initiallyExpanded={node.email.id === latestId}
-                onReply={(e) => setReplyTarget(e)}
+                onReply={(e) => setReplyPlan(planThreadReply(messages ?? [], e, candidateEmail))}
               />
             ))
           )}
@@ -415,7 +447,7 @@ export default function EmailThreadView({
           </button>
           {latestId !== null && messages && messages.length > 0 && (
             <button
-              onClick={() => setReplyTarget(messages[messages.length - 1])}
+              onClick={() => setReplyPlan(planThreadReply(messages, undefined, candidateEmail))}
               className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 bg-primary hover:bg-primary/90 text-white rounded-lg"
             >
               <Reply className="h-4 w-4" />
@@ -425,13 +457,22 @@ export default function EmailThreadView({
         </div>
       </DialogContent>
 
-      {replyTarget && (
+      {replyPlan?.mode === "reply" && (
         <EmailCompose
           mode="reply"
           candidateId={candidateId}
-          candidateName={replyTarget.from_name ?? replyTarget.from_address}
-          replyTo={replyTarget}
-          onClose={() => setReplyTarget(null)}
+          candidateName={replyPlan.replyTo.from_name ?? replyPlan.replyTo.from_address}
+          replyTo={replyPlan.replyTo}
+          onClose={() => setReplyPlan(null)}
+        />
+      )}
+      {replyPlan?.mode === "new" && (
+        <EmailCompose
+          mode="new"
+          candidateId={candidateId}
+          candidateName={replyPlan.defaultTo}
+          defaultTo={replyPlan.defaultTo}
+          onClose={() => setReplyPlan(null)}
         />
       )}
     </Dialog>

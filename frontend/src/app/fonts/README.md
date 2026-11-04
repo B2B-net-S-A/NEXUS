@@ -23,6 +23,7 @@ przeglądarkę użytkownika.
 | `Inter-Cyrillic.woff2`   | Inter   | zmienna `100 900`   | **tylko cyrylica**, za `unicode-range` |
 | `Poppins-{400..800}.woff2` | Poppins | 400/500/600/700/800 | statyczne (Poppins nie ma VF)     |
 | `Baloo2-Variable.woff2`  | Baloo 2 | zmienna `400..800`  | oś `wght` (jedyna); tryb „kids"   |
+| `Geist-{400,500,700,800}.woff2` | Geist | 400/500/700/800 | strona kariery (`components/career/fonts.ts`); 400/500 z `Geist[wght].ttf` (google/fonts, OFL) przez `fonttools varLib.instancer` + `pyftsubset` na tym samym zestawie znaków co 700 |
 
 Pliki łacińskie zawierają **latin + latin-ext w jednym woff2** (Google serwuje
 to jako dwa osobne pliki z `unicode-range`; rozbijanie tego u nas nic nie da,
@@ -74,8 +75,15 @@ Fredoka miała `300..700`, ale najniższa waga i tak nie była używana.
   więc licencja jest jedna)
 - `ofl/poppins/Poppins-{Regular,Medium,SemiBold,Bold,ExtraBold}.ttf` + `ofl/poppins/OFL.txt` → `Poppins-OFL.txt`
 - `ofl/baloo2/Baloo2[wght].ttf` + `ofl/baloo2/OFL.txt` → `Baloo2-OFL.txt`
+- `ofl/montserrat/Montserrat[wght].ttf` + `ofl/montserrat/OFL.txt` → `Montserrat-OFL.txt`
+  (14.10.2026: `Montserrat-Variable.woff2` oraz stałe grubości `Montserrat-200/500/600.woff2`
+  wycięte instancerem; latin + latin-ext, ten sam przepis co niżej)
+- Source Sans 3 (`SourceSans3-latin.woff2`, `SourceSans3-latin-ext.woff2`, oś `wght` 200–900)
+  → `SourceSans3-OFL.txt` (28.10.2026: krój tekstu z brand booka B2B Network dla szablonów
+  ogłoszeń na stronie kariery; podzbiory Google Fonts latin i latin-ext, deklarowane
+  zwykłym `@font-face` z `unicode-range` w `components/career/layouts/brandFonts.css`)
 
-Wszystkie trzy: **SIL Open Font License 1.1** (potwierdzone w `METADATA.pb`:
+Wszystkie (także Montserrat, niżej): **SIL Open Font License 1.1** (potwierdzone w `METADATA.pb`:
 `license: "OFL"` oraz w nagłówkach dołączonych plików `*-OFL.txt`). OFL 1.1
 pozwala na redystrybucję plików fontów — także zmodyfikowanych (subset) — pod
 warunkiem dołączenia treści licencji i noty o prawach autorskich, i zabrania
@@ -174,7 +182,7 @@ aplikacja wewnętrzna ich nie potrzebuje, więc nie płaci za nie ani bajta).
 | `Geist-700.woff2`, `Geist-800.woff2` | Geist       | 700, 800    | npm `geist@1.7.2`, `Geist-Variable.ttf` instancjonowany na `wght` |
 | `JetBrainsMono-{400,500,700}.woff2` | JetBrains Mono | 400/500/700 | npm `jetbrains-mono@1.0.6` (webfonts v2.242) |
 | `JetBrainsMono-400-Italic.woff2`  | JetBrains Mono | 400 italic  | jw.                                             |
-| `Geist-800.ttf`, `JetBrainsMono-400.ttf` | —       | —           | te same źródła, **TTF** dla grafik Open Graph (`next/og` / satori nie czyta woff2) |
+| `Montserrat-{600,800}.ttf`, `SourceSans3-{400,600}.ttf` | — | — | **TTF** dla grafik Open Graph (`next/og` / satori nie czyta woff2), od 29.10.2026; instancje `Montserrat-Variable.woff2` i `SourceSans3-latin{,-ext}.woff2` (latin i latin-ext złączone `fontTools.merge`), subset latin + latin-ext + `– — „ ” … → €` |
 
 Licencje: `Geist-OFL.txt`, `JetBrainsMono-OFL.txt` (obie SIL OFL 1.1).
 Subset jak wyżej: latin + latin-ext w jednym pliku, bez hintingu, ten sam
@@ -185,9 +193,25 @@ w terminalowym motywie strony. Odtworzenie:
 G = "Geist-Variable.ttf"
 build(G, "Geist-700.woff2", pin={"wght": 700})
 build(G, "Geist-800.woff2", pin={"wght": 800})
-build(G, "Geist-800.ttf",   pin={"wght": 800}, flavor=None)
 for w, style in [(400, "Regular"), (500, "Medium"), (700, "Bold")]:
     build(f"JetBrainsMono-{style}.woff2", f"JetBrainsMono-{w}.woff2")
 build("JetBrainsMono-Italic.woff2",  "JetBrainsMono-400-Italic.woff2")
-build("JetBrainsMono-Regular.woff2", "JetBrainsMono-400.ttf", flavor=None)
 ```
+
+## Montserrat — czcionka plików CV (14.10.2026)
+
+Pliki CV w Wordzie (szablon firmowy, `backend/app/services/cv_approved_docx.py`,
+`cv_generator_b2b/docx_renderer.py`) piszą nazwy „Montserrat”, „Montserrat
+Medium”, „Montserrat SemiBold” i „Montserrat ExtraLight”. Podgląd pliku
+(`docx-preview`) wstawia te nazwy dosłownie, bez zapasu, więc bez czcionki
+w aplikacji CV rysowało się w Times New Roman — stąd skargi „podgląd wygląda
+okropnie, a po pobraniu normalnie” (Word ma w pliku zamiennik Calibri).
+
+Dlatego Montserrat jest zadeklarowana zwykłym `@font-face` w `globals.css`,
+a nie przez `next/font/local` (ten nadaje rodzinie własną, haszowaną nazwę).
+Zmienna `Montserrat-Variable.woff2` obsługuje rodzinę „Montserrat” we
+wszystkich grubościach; odmiany nazwane osobno dostały stałe instancje
+(`instancer.instantiateVariableFont(font, {"wght": 200|500|600})`) i są
+zadeklarowane z `font-weight: 400`, żeby pogrubienie w nich dorysowała
+przeglądarka, tak jak robi to Word. Licencja: SIL OFL 1.1, bez Reserved Font
+Name, `Montserrat-OFL.txt` obok plików.

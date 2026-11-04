@@ -9,19 +9,21 @@ from __future__ import annotations
 
 import contextlib
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
+from app.models.activity import Activity
 from app.models.app_setting import AppSetting
 from app.models.candidate import Candidate
 from app.models.client import Client
+from app.models.cv_qc_run import CvQcRun
 from app.models.job import Job, JobStatus, RemotePolicy
 from app.models.job_collaborator import JobCollaborator
 from app.models.pipeline_template import (
@@ -121,9 +123,29 @@ def test_recruiter_sees_only_own_cpro_tasks() -> None:
     assert mine[svc.KIND_DL_REVIEW] == []
 
 
-def test_hor_sees_own_cpro_then_unassigned_but_never_someone_elses() -> None:
-    """Decyzja Artura 24.09.2026: kolejka Cpro jest wyłącznie osoby od Cpro.
-    Admin i HoR widzą ją tylko wtedy, gdy nikt nie jest ustawiony."""
+def test_hor_never_sees_the_queue_of_the_firm_sender() -> None:
+    """Decyzja Artura 24.09.2026: kolejka Cpro jest wyłącznie osoby od Cpro."""
+    snap = svc.BoardTaskSnapshot(
+        tasks=[
+            _task(svc.KIND_CPRO_TO_SEND, stage_id=1, assignee_id=71),
+            _task(svc.KIND_CPRO_SENT, stage_id=4, assignee_id=71),
+        ],
+        firm_sender_id=71,
+    )
+    for role in (UserRole.head_of_recruitment, UserRole.admin):
+        mine = svc.tasks_for_user(snap, _user(60, role), portfolio=frozenset())
+        assert mine[svc.KIND_CPRO_TO_SEND] == []
+        assert mine[svc.KIND_CPRO_SENT] == []
+    sender = svc.tasks_for_user(
+        snap, _user(71, UserRole.recruiter), portfolio=frozenset()
+    )
+    assert [t.stage_id for t in sender[svc.KIND_CPRO_TO_SEND]] == [1]
+
+
+def test_without_firm_sender_hor_sees_fallback_tasks_too() -> None:
+    """Audyt 25.09.2026: bez osoby na firmę zadanie z osobą ZAPASOWĄ
+    (`jobs.cpro_sender_id`) widzi ta osoba ORAZ admin i HoR — inaczej nikt,
+    kto może ustawić osobę firmową, nie wiedział, że kolejka stoi."""
     old = datetime.now(timezone.utc) - timedelta(days=3)
     snap = svc.BoardTaskSnapshot(
         tasks=[
@@ -136,8 +158,158 @@ def test_hor_sees_own_cpro_then_unassigned_but_never_someone_elses() -> None:
     )
     for role in (UserRole.head_of_recruitment, UserRole.admin):
         mine = svc.tasks_for_user(snap, _user(60, role), portfolio=frozenset())
-        assert [t.stage_id for t in mine[svc.KIND_CPRO_TO_SEND]] == [3, 2]
+        assert [t.stage_id for t in mine[svc.KIND_CPRO_TO_SEND]] == [3, 1, 2]
         assert mine[svc.KIND_CPRO_SENT] == []
+    fallback = svc.tasks_for_user(
+        snap, _user(71, UserRole.recruiter), portfolio=frozenset()
+    )
+    assert [t.stage_id for t in fallback[svc.KIND_CPRO_TO_SEND]] == [1]
+    assert [t.stage_id for t in fallback[svc.KIND_CPRO_SENT]] == [4]
+
+
+class _DigestDb:
+    """Minimalna sesja dla `digest_counts`: lista aktywnych użytkowników."""
+
+    def __init__(self, users: list) -> None:
+        self._users = users
+
+    async def scalars(self, _query):
+        return SimpleNamespace(all=lambda: self._users)
+
+
+@pytest.mark.asyncio
+async def test_digest_counts_fallback_tasks_for_hor_without_firm_sender() -> None:
+    """Poranny skrót liczy tak jak panel: bez osoby na firmę HoR dostaje
+    także zadania z osobą zapasową, a zapasowa osoba — swoje, raz."""
+    hor = _user(60, UserRole.head_of_recruitment)
+    fallback_hor = _user(61, UserRole.head_of_recruitment)
+    tasks = [
+        _task(svc.KIND_CPRO_TO_SEND, stage_id=1, assignee_id=70),
+        _task(svc.KIND_CPRO_TO_SEND, stage_id=2, assignee_id=None),
+        _task(svc.KIND_CPRO_TO_SEND, stage_id=3, assignee_id=61),
+    ]
+    counts = await svc.digest_counts(
+        _DigestDb([hor, fallback_hor]), svc.BoardTaskSnapshot(tasks=tasks)
+    )
+    assert counts[70].cpro_mine == 1
+    assert counts[60].cpro_unassigned == 3
+    assert counts[61].cpro_mine == 1 and counts[61].cpro_unassigned == 2
+
+    with_firm = await svc.digest_counts(
+        _DigestDb([hor, fallback_hor]),
+        svc.BoardTaskSnapshot(
+            tasks=[_task(svc.KIND_CPRO_TO_SEND, stage_id=1, assignee_id=70)],
+            firm_sender_id=70,
+        ),
+    )
+    assert with_firm[70].cpro_mine == 1
+    assert 60 not in with_firm and 61 not in with_firm
+
+
+@pytest.mark.asyncio
+async def test_digest_counts_only_cards_ready_to_send_and_names_who_waits_longest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """13.10.2026: do tej daty każda karta w „QC CV” liczyła się Delivery
+    Leadowi — także z QC do poprawy, gdzie ruch ma rekruter. Skrót liczy tylko
+    gotowe do wysłania i wymienia dwie osoby czekające najdłużej."""
+
+    async def no_portfolio(_db, _user_id: int) -> frozenset[int]:
+        return frozenset()
+
+    monkeypatch.setattr(svc, "dl_portfolio_client_ids", no_portfolio)
+    dl = _user(50, UserRole.delivery_lead)
+
+    def ready(stage_id: int, name: str, since: datetime, **kw) -> svc.BoardTask:
+        return _task(
+            svc.KIND_DL_REVIEW,
+            stage_id=stage_id,
+            candidate_name=name,
+            delivery_lead_id=50,
+            since=since - timedelta(days=2),
+            ready=True,
+            ready_since=since,
+            **kw,
+        )
+
+    tasks = [
+        ready(1, "Tomasz Wilk", datetime(2026, 10, 10, 9, 0, tzinfo=timezone.utc)),
+        ready(
+            2, "Marta Anna Zielińska", datetime(2026, 10, 7, 15, tzinfo=timezone.utc)
+        ),
+        ready(3, "Ola", datetime(2026, 10, 13, 6, 0, tzinfo=timezone.utc)),
+        # QC do poprawy albo niesprawdzone — karta jest jeszcze u rekrutera.
+        _task(svc.KIND_DL_REVIEW, stage_id=4, delivery_lead_id=50, ready=False),
+        # Etap z importu Traffita, którego nikt nie ruszył w NEXUSIE.
+        ready(
+            5,
+            "Jan Import",
+            datetime(2026, 9, 1, 9, 0, tzinfo=timezone.utc),
+            imported=True,
+        ),
+        # Gotowa karta innego Delivery Leada.
+        _task(
+            svc.KIND_DL_REVIEW,
+            stage_id=6,
+            delivery_lead_id=51,
+            ready=True,
+            ready_since=datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc),
+        ),
+    ]
+    counts = await svc.digest_counts(
+        _DigestDb([dl]),
+        svc.BoardTaskSnapshot(tasks=tasks),
+        today=date(2026, 10, 13),
+    )
+    assert set(counts) == {50}
+    line = counts[50]
+    assert line.dl_review == 3
+    assert line.dl_review_people == (("Marta Z.", 6), ("Tomasz W.", 3))
+    # Imiona są treścią dzwonka, nie licznikiem.
+    assert line.total == 3
+    assert svc.digest_message(line) == (
+        "Do wysłania do klienta: Marta Z. (6 dni), Tomasz W. (3 dni) i 1 inna osoba"
+    )
+
+    # Sama karta „jeszcze u rekrutera” nie daje Delivery Leadowi dzwonka.
+    not_ready = await svc.digest_counts(
+        _DigestDb([dl]),
+        svc.BoardTaskSnapshot(tasks=[tasks[3]]),
+        today=date(2026, 10, 13),
+    )
+    assert not_ready == {}
+
+
+@pytest.mark.asyncio
+async def test_digest_counts_waiting_days_in_the_company_calendar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """22:30 UTC w październiku to już następny dzień w Warszawie — karta
+    gotowa „dziś” nie może czekać „1 dzień”."""
+
+    async def no_portfolio(_db, _user_id: int) -> frozenset[int]:
+        return frozenset()
+
+    monkeypatch.setattr(svc, "dl_portfolio_client_ids", no_portfolio)
+    task = _task(
+        svc.KIND_DL_REVIEW,
+        candidate_name="Ewa Kowalska",
+        delivery_lead_id=50,
+        ready=True,
+        ready_since=datetime(2026, 10, 12, 22, 30, tzinfo=timezone.utc),
+    )
+    snapshot = svc.BoardTaskSnapshot(tasks=[task])
+    db = _DigestDb([_user(50, UserRole.delivery_lead)])
+
+    same_day = await svc.digest_counts(db, snapshot, today=date(2026, 10, 13))
+    assert same_day[50].dl_review_people == (("Ewa K.", 0),)
+    assert svc.digest_message(same_day[50]) == "Do wysłania do klienta: Ewa K."
+
+    next_day = await svc.digest_counts(db, snapshot, today=date(2026, 10, 14))
+    assert next_day[50].dl_review_people == (("Ewa K.", 1),)
+    assert svc.digest_message(next_day[50]) == (
+        "Do wysłania do klienta: Ewa K. (1 dzień)"
+    )
 
 
 def test_delivery_lead_never_sees_the_cpro_queue() -> None:
@@ -216,12 +388,61 @@ def test_task_dict_carries_qc_and_return_stage() -> None:
 @pytest.mark.parametrize(
     ("line", "text"),
     [
-        (svc.DigestLine(dl_review=1), "1 osoba czeka na Twój przegląd"),
-        (svc.DigestLine(dl_review=3), "3 osoby czekają na Twój przegląd"),
+        # Linia bez imion (złożona poza `digest_counts`) — sama liczba.
+        (svc.DigestLine(dl_review=1), "1 osoba do wysłania do klienta"),
+        (svc.DigestLine(dl_review=3), "3 osoby do wysłania do klienta"),
         (
             svc.DigestLine(dl_review=5, cpro_mine=2),
-            "5 osób czeka na Twój przegląd · "
+            "5 osób do wysłania do klienta · "
             "2 osoby w kolejce Cpro do wysłania przez Ciebie",
+        ),
+        # Imiona: dni tylko od 1, „i N innych” tylko ponad wymienione osoby.
+        (
+            svc.DigestLine(dl_review=1, dl_review_people=(("Marta Z.", 0),)),
+            "Do wysłania do klienta: Marta Z.",
+        ),
+        (
+            svc.DigestLine(
+                dl_review=2, dl_review_people=(("Marta Z.", 1), ("Tomasz W.", 0))
+            ),
+            "Do wysłania do klienta: Marta Z. (1 dzień), Tomasz W.",
+        ),
+        (
+            svc.DigestLine(
+                dl_review=3, dl_review_people=(("Marta Z.", 2), ("Tomasz W.", 2))
+            ),
+            "Do wysłania do klienta: Marta Z. (2 dni), Tomasz W. (2 dni) "
+            "i 1 inna osoba",
+        ),
+        (
+            svc.DigestLine(
+                dl_review=5, dl_review_people=(("Marta Z.", 6), ("Tomasz W.", 3))
+            ),
+            "Do wysłania do klienta: Marta Z. (6 dni), Tomasz W. (3 dni) "
+            "i 3 inne osoby",
+        ),
+        (
+            svc.DigestLine(
+                dl_review=7,
+                cpro_mine=1,
+                dl_review_people=(("Marta Z.", 22), ("Tomasz W.", 5)),
+            ),
+            "Do wysłania do klienta: Marta Z. (22 dni), Tomasz W. (5 dni) "
+            "i 5 innych osób · 1 osoba w kolejce Cpro do wysłania przez Ciebie",
+        ),
+        (
+            svc.DigestLine(
+                dl_review=14, dl_review_people=(("Marta Z.", 6), ("Tomasz W.", 3))
+            ),
+            "Do wysłania do klienta: Marta Z. (6 dni), Tomasz W. (3 dni) "
+            "i 12 innych osób",
+        ),
+        (
+            svc.DigestLine(
+                dl_review=24, dl_review_people=(("Marta Z.", 6), ("Tomasz W.", 3))
+            ),
+            "Do wysłania do klienta: Marta Z. (6 dni), Tomasz W. (3 dni) "
+            "i 22 inne osoby",
         ),
         (
             svc.DigestLine(cpro_mine=1),
@@ -236,6 +457,22 @@ def test_task_dict_carries_qc_and_return_stage() -> None:
 def test_digest_message_is_one_polish_sentence(line: svc.DigestLine, text: str) -> None:
     assert svc.digest_message(line) == text
     assert "DZ" not in svc.digest_message(line)
+
+
+@pytest.mark.parametrize(
+    ("name", "short"),
+    [
+        ("Marta Zielińska", "Marta Z."),
+        ("Jan Maria Rokita", "Jan R."),
+        ("  Anna   Nowak-Kowalska ", "Anna N."),
+        ("Ola", "Ola"),
+        ("Kandydat", "Kandydat"),
+    ],
+)
+def test_digest_short_name_is_first_name_and_last_initial(
+    name: str, short: str
+) -> None:
+    assert svc._short_name(name) == short
 
 
 # ── Integracyjne: ruch, typowanie, lista ─────────────────────────────────────
@@ -279,7 +516,7 @@ async def _login(client: AsyncClient, creds: dict[str, str]) -> dict[str, str]:
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-async def _seed_world() -> dict:
+async def _seed_world(*, champion_profile: dict | None = None) -> dict:
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         cli = Client(name=f"Nordea BT {unique}")
@@ -327,6 +564,7 @@ async def _seed_world() -> dict:
             remote_policy=RemotePolicy.hybrid,
             client_id=cli.id,
             pipeline_template_id=tpl.id,
+            champion_profile=champion_profile,
         )
         db.add(job)
         await db.commit()
@@ -334,9 +572,28 @@ async def _seed_world() -> dict:
             "client_id": cli.id,
             "candidate_id": cand.id,
             "job_id": job.id,
+            "job_title": job.title,
             "template_id": tpl.id,
             "defs": {k: d.id for k, d in defs.items()},
         }
+
+
+async def seed_entry_row(candidate_id: int, job_id: int) -> None:
+    """Osoba jest już w rekrutacji („Nowi”) — dopiero wtedy `/move` przenosi
+    ją dalej. Runda 9 (R9-N11-4): para BEZ wiersza wchodzi wyłącznie do
+    „Nowych”/„Screeningu”, jak przy dodaniu przez bulk-add."""
+    from app.models.recruitment_pipeline import PipelineStage
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateStage(
+                candidate_id=candidate_id,
+                job_id=job_id,
+                stage=PipelineStage.new,
+                moved_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+            )
+        )
+        await db.commit()
 
 
 async def _cleanup(world: dict, user_ids: list[int]) -> None:
@@ -388,6 +645,25 @@ async def restore_cpro_sender():
             await db.commit()
 
 
+async def clear_cpro_sender() -> None:
+    """Nikt nie wysyła do Cpro — bez trasy PUT, którą od 25.09.2026 woła
+    wyłącznie admin albo DL Nordei (testy HoR czyszczą stan wprost)."""
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(AppSetting).where(AppSetting.key == cpro_sender.SETTING_KEY)
+        )
+        await db.commit()
+
+
+# Akceptacja do kolejki Cpro (13.10.2026): Delivery Lead i stawka do Cpro.
+CPRO_RATE = {
+    "client_rate_value": "158",
+    "client_rate_unit": "hourly",
+    "client_rate_currency": "PLN",
+}
+
+
 async def _move(client: AsyncClient, headers: dict, world: dict, key: str, **extra):
     resp = await client.post(
         "/api/pipeline/move",
@@ -408,29 +684,53 @@ async def test_nordea_cpro_queue_with_one_sender_for_the_company(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     world = await _seed_world()
+    await seed_entry_row(world["candidate_id"], world["job_id"])
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
     other_id, other_creds = await _seed_user(UserRole.recruiter)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
     hor = await _login(api_client, hor_creds)
     rec = await _login(api_client, rec_creds)
+    dl = await _login(api_client, dl_creds)
     cid, defs = world["candidate_id"], world["defs"]
     try:
         async with restore_cpro_sender():
             # Nikt nie wysyła — zadanie jest nieprzypisane, HoR je widzi.
-            cleared = await api_client.put(
-                "/api/board-tasks/cpro/sender", headers=hor, json={"user_id": None}
-            )
-            assert cleared.status_code == 200, cleared.text
+            await clear_cpro_sender()
 
             await _move(api_client, hor, world, "verified")
             await _move(api_client, hor, world, "qc")
             queue = (await api_client.get("/api/board-tasks", headers=hor)).json()
-            # U Nordei osoba w QC CV nie czeka na przegląd DL.
+            # Przegląd DL (u Nordei: akceptacja do Cpro) nie jest zadaniem HoR.
             assert _rows(queue, "dl_review", cid) == []
             assert "dz" not in queue and "can_approve_dz" not in queue
 
-            await _move(api_client, rec, world, "cpro")
+            # 13.10.2026: rekruter nie wkłada osoby do kolejki Cpro —
+            # akceptuje Delivery Lead i wpisuje stawkę do Cpro.
+            refused = await api_client.post(
+                "/api/pipeline/move",
+                headers=rec,
+                json={
+                    "candidate_id": cid,
+                    "job_id": world["job_id"],
+                    "stage_def_id": defs["cpro"],
+                },
+            )
+            assert refused.status_code == 403, refused.text
+            assert "Delivery Lead" in refused.json()["detail"]["message"]
+            no_rate = await api_client.post(
+                "/api/pipeline/move",
+                headers=dl,
+                json={
+                    "candidate_id": cid,
+                    "job_id": world["job_id"],
+                    "stage_def_id": defs["cpro"],
+                },
+            )
+            assert no_rate.status_code == 422, no_rate.text
+            assert "stawkę do Cpro" in no_rate.json()["detail"]
+            await _move(api_client, dl, world, "cpro", **CPRO_RATE)
             queue = (await api_client.get("/api/board-tasks", headers=hor)).json()
             todo = _rows(queue, "cpro_to_send", cid)
             assert len(todo) == 1 and todo[0]["assignee_id"] is None
@@ -440,10 +740,19 @@ async def test_nordea_cpro_queue_with_one_sender_for_the_company(
             rec_queue = (await api_client.get("/api/board-tasks", headers=rec)).json()
             assert _rows(rec_queue, "cpro_to_send", cid) == []
 
-            # Rekruter ustawia SIEBIE jako osobę od Cpro — dla całej firmy.
-            put = await api_client.put(
+            # Rekruter nie ustawia siebie (decyzja 25.09.2026 — osoba od Cpro
+            # widzi stawki do klienta); ustawia go admin, dla całej firmy.
+            self_set = await api_client.put(
                 "/api/board-tasks/cpro/sender",
                 headers=rec,
+                json={"user_id": rec_id, "until": None},
+            )
+            assert self_set.status_code == 403, self_set.text
+            _admin_id, admin_creds = await _seed_user(UserRole.admin)
+            admin = await _login(api_client, admin_creds)
+            put = await api_client.put(
+                "/api/board-tasks/cpro/sender",
+                headers=admin,
                 json={"user_id": rec_id, "until": None},
             )
             assert put.status_code == 200, put.text
@@ -465,7 +774,10 @@ async def test_nordea_cpro_queue_with_one_sender_for_the_company(
             assert item["return_stage_def_id"] == defs["qc"]
             assert item["qc_status"] == "unchecked"
             assert item["cv"] is None
-            assert item["client_rate_value"] is None
+            # Stawka z akceptacji i kto zaakceptował — komplet dla osoby od Cpro.
+            assert item["client_rate_value"] == 158.0
+            assert item["accepted"] is True and item["accepted_by_name"]
+            assert item["accepted_at"] is not None
             before_sent = cpro["sent_today"]
 
             # Stawkę do klienta widzi HoR i osoba od Cpro, inny rekruter nie
@@ -503,7 +815,7 @@ async def test_nordea_cpro_queue_with_one_sender_for_the_company(
             ).json()
             assert cpro["sent_today"] == before_sent + 1
     finally:
-        await _cleanup(world, [hor_id, rec_id, other_id])
+        await _cleanup(world, [hor_id, rec_id, other_id, dl_id])
 
 
 def test_removed_dz_routes_are_gone() -> None:
@@ -523,6 +835,7 @@ async def test_cpro_queue_ignores_non_nordea_clients(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     world = await _seed_world()
+    await seed_entry_row(world["candidate_id"], world["job_id"])
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
     dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
@@ -632,6 +945,31 @@ async def test_dl_review_lists_people_in_the_qc_column_not_in_verified(
         assert row["qc_status"] == "unchecked"
         assert queue["dl_review_window_days"] == svc.DL_REVIEW_WINDOW_DAYS
 
+        # DL cofa kartę z „QC CV” na „Zweryfikowany”, rekruter oddaje ją
+        # z powrotem do QC: nowszy wiersz „Zweryfikowany” to cofnięcie, nie
+        # weryfikacja — przegląd dalej wskazuje pierwszego weryfikującego,
+        # jak premia rekrutera (zgłoszenie 21.10.2026).
+        async with AsyncSessionLocal() as db:
+            now = datetime.now(timezone.utc)
+            for key, legacy, mover, seconds in (
+                ("verified", "verified", dl_in_id, 1),
+                ("qc", "interview", rec_id, 2),
+            ):
+                db.add(
+                    CandidateStage(
+                        candidate_id=cid,
+                        job_id=jid,
+                        stage=legacy,
+                        stage_def_id=defs[key],
+                        moved_by=mover,
+                        moved_at=now + timedelta(seconds=seconds),
+                    )
+                )
+            await db.commit()
+        queue = (await api_client.get("/api/board-tasks", headers=dl_in)).json()
+        (row,) = _rows(queue, "dl_review", cid)
+        assert row["verified_by_id"] == hor_id
+
         assert (
             _rows(
                 (await api_client.get("/api/board-tasks", headers=rec)).json(),
@@ -652,14 +990,123 @@ async def test_dl_review_lists_people_in_the_qc_column_not_in_verified(
         assert len(_rows(dl_queue, "dl_review", cid)) == 1
         assert dl_queue["can_send_to_client"] is True
 
-        # Poranny skrót liczy przegląd DL.
+        # Poranny skrót: QC niesprawdzone, więc karta jest jeszcze u rekrutera
+        # — Delivery Leadowi nie liczy się nic (13.10.2026).
         async with AsyncSessionLocal() as db:
             snapshot = await svc.load_snapshot(db)
             counts = await svc.digest_counts(db, snapshot)
-        assert counts[dl_in_id].dl_review >= 1
+        assert dl_in_id not in counts
+        assert dl_out_id not in counts
+
+        # QC zdane — ruch ma Delivery Lead: skrót liczy kartę i mówi, o kogo chodzi.
+        async with AsyncSessionLocal() as db:
+            db.add(
+                CvQcRun(
+                    candidate_id=cid,
+                    job_id=jid,
+                    passed=True,
+                    blocking_failed=0,
+                    warnings_count=0,
+                    result={},
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            snapshot = await svc.load_snapshot(db)
+            counts = await svc.digest_counts(db, snapshot)
+        assert counts[dl_in_id].dl_review == 1
+        # Kandydat z `_seed_world`: „Ewa BT…”.
+        assert [name for name, _days in counts[dl_in_id].dl_review_people] == ["Ewa B."]
         assert dl_out_id not in counts
     finally:
         await _cleanup(world, [hor_id, rec_id, dl_in_id, dl_out_id])
+
+
+@pytest.mark.asyncio
+async def test_dl_review_row_for_one_pair_matches_the_dashboard_row(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Przegląd otwierany z Tablicy i z dzwonka bierze wiersz z serwera.
+
+    Do 04.10.2026 Tablica składała wiersz w przeglądarce — bez etapu CV po
+    QC, osoby weryfikującej i stanu karty. `/dl-review-row` to ta sama
+    reguła co lista na pulpicie, bez okna czasu (karta w „QC CV” dłużej niż
+    okno pulpitu też się otwiera). Rekruter dostaje 403, osoba poza „QC CV” 404.
+    """
+
+    world = await _seed_world()
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    rec = await _login(api_client, rec_creds)
+    dl = await _login(api_client, dl_creds)
+    cid, jid, defs = world["candidate_id"], world["job_id"], world["defs"]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, jid)
+        job.delivery_lead_id = dl_id
+        await db.commit()
+    url = f"/api/board-tasks/dl-review-row?candidate_id={cid}&job_id={jid}"
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                CandidateStage(
+                    candidate_id=cid,
+                    job_id=jid,
+                    stage="screening",
+                    stage_def_id=defs["screening"],
+                    moved_by=rec_id,
+                    screening_answers={"answers": [], "overall_fit": "fit"},
+                    moved_at=datetime.now(timezone.utc) - timedelta(hours=2),
+                )
+            )
+            await db.commit()
+        await _move(
+            api_client,
+            rec,
+            world,
+            "verified",
+            expected_rate_value="140",
+            expected_rate_unit="hourly",
+            expected_rate_currency="PLN",
+        )
+        not_yet = await api_client.get(url, headers=dl)
+        assert not_yet.status_code == 404, not_yet.text
+
+        await _move(api_client, rec, world, "qc")
+        denied = await api_client.get(url, headers=rec)
+        assert denied.status_code == 403, denied.text
+
+        got = await api_client.get(url, headers=dl)
+        assert got.status_code == 200, got.text
+        body = got.json()
+        assert body["can_send_to_client"] is True
+        row = body["row"]
+        dashboard = _rows(
+            (await api_client.get("/api/board-tasks", headers=dl)).json(),
+            "dl_review",
+            cid,
+        )
+        assert dashboard == [row]
+        assert row["verified_by_id"] == rec_id
+        assert row["screening_stage_id"] is not None
+
+        # Karta stoi w „QC CV” dłużej niż okno pulpitu — przegląd i tak się otwiera.
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(CandidateStage)
+                .where(CandidateStage.candidate_id == cid)
+                .values(
+                    moved_at=datetime.now(timezone.utc)
+                    - timedelta(days=svc.DL_REVIEW_WINDOW_DAYS + 10)
+                )
+            )
+            await db.commit()
+        old = await api_client.get(url, headers=dl)
+        assert old.status_code == 200, old.text
+        assert old.json()["row"]["stage_id"] == row["stage_id"]
+    finally:
+        await _cleanup(world, [rec_id, dl_id])
 
 
 @pytest.mark.asyncio
@@ -670,17 +1117,38 @@ async def test_assignee_on_ready_move_still_sets_the_job_fallback(
     (`jobs.cpro_sender_id`), który obowiązuje, gdy nikt nie wysyła na firmę."""
 
     world = await _seed_world()
+    await seed_entry_row(world["candidate_id"], world["job_id"])
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
-    rec_id, _ = await _seed_user(UserRole.recruiter)
+    admin_id, admin_creds = await _seed_user(UserRole.admin)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
     hor = await _login(api_client, hor_creds)
+    admin = await _login(api_client, admin_creds)
+    rec = await _login(api_client, rec_creds)
     cid, jid = world["candidate_id"], world["job_id"]
     try:
         async with restore_cpro_sender():
-            await api_client.put(
-                "/api/board-tasks/cpro/sender", headers=hor, json={"user_id": None}
+            await clear_cpro_sender()
+            # Wskazanie osoby przy ruchu = ustawienie osoby od Cpro rekrutacji —
+            # tylko admin albo DL Nordei (przegląd PR #1844). Rekruter nie może
+            # wskazać sam siebie (widziałby stawki do klienta), HoR też nie.
+            for headers in (rec, hor):
+                refused = await api_client.post(
+                    "/api/pipeline/move",
+                    headers=headers,
+                    json={
+                        "candidate_id": cid,
+                        "job_id": jid,
+                        "stage_def_id": world["defs"]["cpro"],
+                        "task_assignee_id": rec_id,
+                    },
+                )
+                assert refused.status_code == 403, refused.text
+            async with AsyncSessionLocal() as db:
+                assert (await db.get(Job, jid)).cpro_sender_id is None
+            await _move(
+                api_client, admin, world, "cpro", task_assignee_id=rec_id, **CPRO_RATE
             )
-            await _move(api_client, hor, world, "cpro", task_assignee_id=rec_id)
             async with AsyncSessionLocal() as db:
                 assert (await db.get(Job, jid)).cpro_sender_id == rec_id
             async with AsyncSessionLocal() as db:
@@ -692,7 +1160,7 @@ async def test_assignee_on_ready_move_still_sets_the_job_fallback(
             ]
             assert todo[0].assignee_id == rec_id
     finally:
-        await _cleanup(world, [hor_id, rec_id])
+        await _cleanup(world, [hor_id, admin_id, rec_id])
 
 
 async def test_open_recruitment_without_dl_gets_the_clients_head_dl() -> None:
@@ -757,3 +1225,789 @@ async def test_open_recruitment_without_dl_gets_the_clients_head_dl() -> None:
             )
             await db.commit()
         await _cleanup(world, [head_id, other_id])
+
+
+# ── Propozycje automatu przydziału w „Czeka na Ciebie” (02.10.2026) ─────────
+
+
+async def _seed_allocation_proposal(user_id: int, lead_id: int) -> dict:
+    from app.models.job import JobPriority
+    from app.models.job_work_assignment import JobWorkAssignment
+
+    unique = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"BT alloc {unique}")
+        db.add(cli)
+        await db.flush()
+        job = Job(
+            title=f"BT alloc {unique}",
+            status=JobStatus.published,
+            work_state="searching",
+            client_id=cli.id,
+            delivery_lead_id=lead_id,
+            priority=JobPriority.urgent,
+        )
+        db.add(job)
+        await db.flush()
+        db.add(
+            JobWorkAssignment(
+                job_id=job.id,
+                user_id=user_id,
+                role="recruiter",
+                source="auto",
+                state="proposed",
+                assigned_at=datetime.now(timezone.utc) - timedelta(minutes=3),
+            )
+        )
+        await db.commit()
+        return {"job_id": job.id, "client_id": cli.id, "client_name": cli.name}
+
+
+async def _drop_allocation_proposal(seeded: dict) -> None:
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(Job).where(Job.id == seeded["job_id"]))
+        await db.execute(delete(Client).where(Client.id == seeded["client_id"]))
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_allocation_proposals_reach_only_those_who_decide(
+    api_client: AsyncClient,
+) -> None:
+    """Propozycje automatu akceptuje Head of Recruitment (i admin) — tylko oni
+    dostają wiersze. Delivery Lead i rekruter widzą pustą listę: propozycja
+    nikogo jeszcze do niczego nie zobowiązuje."""
+
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    seeded = await _seed_allocation_proposal(rec_id, dl_id)
+    try:
+        hor = await _login(api_client, hor_creds)
+        resp = await api_client.get("/api/board-tasks", headers=hor)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["can_decide_proposals"] is True
+        # Compass jest w testach wyłączony — urlopów nie znamy.
+        assert body["allocation_leave_known"] is False
+        (row,) = [
+            r for r in body["allocation_proposals"] if r["job_id"] == seeded["job_id"]
+        ]
+        async with AsyncSessionLocal() as db:
+            rec_name = await db.scalar(select(User.name).where(User.id == rec_id))
+            dl_name = await db.scalar(select(User.name).where(User.id == dl_id))
+        assert row["title"].startswith("BT alloc ")
+        assert row["client_name"] == seeded["client_name"]
+        assert (row["user_id"], row["user_name"], row["role"]) == (
+            rec_id,
+            rec_name,
+            "recruiter",
+        )
+        assert row["delivery_lead_name"] == dl_name
+        assert row["priority_level"] == "p1"
+        assert row["fit"] == "other"
+        assert (row["load"], row["sent"]) == (0, 0)
+        assert row["leave_until"] is None and row["base_matches"] is None
+        assert row["category_id"] is None and row["deadline"] is None
+        assert row["proposed_at"] is not None
+
+        for creds in (dl_creds, rec_creds):
+            headers = await _login(api_client, creds)
+            other = (await api_client.get("/api/board-tasks", headers=headers)).json()
+            assert other["can_decide_proposals"] is False
+            assert other["allocation_proposals"] == []
+            assert other["allocation_leave_known"] is False
+    finally:
+        await _drop_allocation_proposal(seeded)
+
+
+@pytest.mark.asyncio
+async def test_board_tasks_survive_a_failure_while_loading_proposals(
+    api_client: AsyncClient, monkeypatch
+) -> None:
+    """``GET /api/board-tasks`` zasila każdy pulpit — padnięte zapytanie
+    o propozycje daje pustą listę, a nie 500 całej kolejki."""
+
+    from app.services import request_allocation_proposals
+
+    async def boom(_db):
+        raise RuntimeError("proposals down")
+
+    monkeypatch.setattr(request_allocation_proposals, "load_pending", boom)
+    _, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    resp = await api_client.get("/api/board-tasks", headers=hor)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["allocation_proposals"] == []
+    assert body["can_decide_proposals"] is True
+    # Reszta kolejki liczy się normalnie.
+    assert isinstance(body["cpro_to_send"], list)
+
+
+# ── „Kto prowadzi nowe rekrutacje” dla Head of Recruitment ──────────────────
+
+
+async def _seed_job_leads(hor_id: int, dl_id: int) -> dict:
+    """Rekrutacje P1 przekazane do searchu przed chwilą: z prowadzącym automatu,
+    wskazanym przez Delivery Leada albo Head of Recruitment, z samą propozycją
+    i bez nikogo — oraz takie, których na liście być nie ma (bez priorytetu,
+    „Przyjmujemy”, champion, dawno, zamknięta)."""
+    from app.models.competence_category import CompetenceCategory
+    from app.models.job import JobPriority
+    from app.models.job_collaborator import JobCollaboratorSource
+    from app.models.job_work_assignment import JobWorkAssignment
+
+    unique = uuid.uuid4().hex[:8]
+    now = datetime.now(timezone.utc)
+    people = {}
+    for key in (
+        "auto",
+        "manual",
+        "by_head",
+        "owner",
+        "proposed",
+        "participant",
+        "removed",
+    ):
+        people[key], _ = await _seed_user(UserRole.recruiter)
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"BT leads {unique}")
+        category = CompetenceCategory(
+            slug=f"bt-leads-{unique}",
+            name_pl=f"Kategoria {unique}",
+            name_en=f"Category {unique}",
+            description="kategoria testowa listy prowadzących",
+        )
+        db.add_all([cli, category])
+        await db.flush()
+
+        def job(key: str, *, handed_off: timedelta, **fields) -> Job:
+            row = Job(
+                title=f"BT leads {key} {unique}",
+                status=fields.pop("status", JobStatus.published),
+                work_state=fields.pop("work_state", "searching"),
+                work_state_changed_at=now - handed_off,
+                # Przekazanie do searchu stawia `is_open` (audyt 06.10.2026, H7:
+                # opublikowana bez przekazania ma własny wiersz w kolejce).
+                is_open=fields.pop("is_open", True),
+                # Lista jest tylko dla P1 (decyzja Artura 14.10.2026).
+                priority=fields.pop("priority", JobPriority.urgent),
+                client_id=cli.id,
+                delivery_lead_id=dl_id,
+                **fields,
+            )
+            db.add(row)
+            return row
+
+        fresh = timedelta(seconds=20)
+        long_ago = timedelta(days=10)
+        jobs = {
+            "auto": job(
+                "auto",
+                handed_off=fresh,
+                recruiter_id=people["auto"],
+                competence_category_id=category.id,
+                working_title=f"BT leads tytuł roboczy {unique}",
+            ),
+            "manual": job("manual", handed_off=fresh),
+            # Prowadzącego wpisał Head of Recruitment — to już decyzja (D1).
+            "by_head": job("by-head", handed_off=fresh),
+            "owner": job("owner", handed_off=fresh, recruiter_id=people["owner"]),
+            "proposed": job("proposed", handed_off=fresh),
+            "fresh_empty": job("fresh-empty", handed_off=fresh),
+            "stale_empty": job("stale-empty", handed_off=timedelta(minutes=5)),
+            # Ponownie otwarta przed chwilą: cykl od wpisu `reopen`.
+            "reopened": job("reopened", handed_off=fresh, recruiter_id=people["auto"]),
+            # Przekazana dawno, na P1 przed chwilą: nowy cykl od wejścia na P1.
+            "raised": job("raised", handed_off=long_ago),
+            # Przekazana dawno; „Klient milczy” → „Szukamy” przed chwilą to ciąg
+            # tego samego cyklu, mimo świeżej daty zmiany stanu.
+            "woken": job("woken", handed_off=fresh),
+            "not_handed_off": job(
+                "not-handed-off",
+                handed_off=timedelta(days=20),
+                work_state="to_review",
+                is_open=False,
+            ),
+            # Poza listą.
+            "standard": job("standard", handed_off=fresh, priority=JobPriority.medium),
+            "passive": job("passive", handed_off=fresh, priority=JobPriority.low),
+            "champion": job("champion", handed_off=fresh, champion_found_at=now),
+            "old": job("old", handed_off=timedelta(days=8)),
+            "to_review": job("to-review", handed_off=fresh, work_state="to_review"),
+            "closed": job("closed", handed_off=fresh, status=JobStatus.closed),
+            "standard_not_handed_off": job(
+                "standard-not-handed-off",
+                handed_off=timedelta(days=20),
+                work_state="to_review",
+                is_open=False,
+                priority=JobPriority.medium,
+            ),
+        }
+        await db.flush()
+
+        def entered(key: str, *, ago: timedelta, **details) -> Activity:
+            return Activity(
+                entity_type="job",
+                entity_id=jobs[key].id,
+                action=details.pop("action", "work_state_changed"),
+                details=details,
+                created_at=now - ago,
+            )
+
+        db.add_all(
+            [
+                JobWorkAssignment(
+                    job_id=jobs["auto"].id,
+                    user_id=people["auto"],
+                    role="recruiter",
+                    source="auto",
+                    state="active",
+                    assigned_at=now,
+                ),
+                JobWorkAssignment(
+                    job_id=jobs["manual"].id,
+                    user_id=people["manual"],
+                    role="recruiter",
+                    source="manual",
+                    state="active",
+                    assigned_at=now,
+                    assigned_by=dl_id,
+                ),
+                JobWorkAssignment(
+                    job_id=jobs["by_head"].id,
+                    user_id=people["by_head"],
+                    role="recruiter",
+                    source="manual",
+                    state="active",
+                    assigned_at=now,
+                    assigned_by=hor_id,
+                ),
+                JobWorkAssignment(
+                    job_id=jobs["proposed"].id,
+                    user_id=people["proposed"],
+                    role="recruiter",
+                    source="auto",
+                    state="proposed",
+                    assigned_at=now,
+                ),
+                JobCollaborator(
+                    job_id=jobs["auto"].id,
+                    user_id=people["participant"],
+                    source=JobCollaboratorSource.auto_cc,
+                ),
+                JobCollaborator(
+                    job_id=jobs["auto"].id,
+                    user_id=people["auto"],
+                    source=JobCollaboratorSource.auto_cc,
+                ),
+                # Zdjęty z rekrutacji i dopisany ręcznie nie są „z kategorii”.
+                JobCollaborator(
+                    job_id=jobs["auto"].id,
+                    user_id=people["removed"],
+                    source=JobCollaboratorSource.auto_cc,
+                    removed_from_auto_cc=True,
+                ),
+                JobCollaborator(
+                    job_id=jobs["auto"].id,
+                    user_id=people["manual"],
+                    source=JobCollaboratorSource.manual,
+                ),
+                entered(
+                    "reopened",
+                    ago=fresh,
+                    **{"from": "to_review", "to": "searching", "reason": "reopen"},
+                ),
+                entered(
+                    "raised",
+                    ago=long_ago,
+                    **{"from": "to_review", "to": "searching", "reason": "handoff"},
+                ),
+                entered(
+                    "raised",
+                    ago=timedelta(seconds=30),
+                    action="priority_changed",
+                    **{"from": "p2", "to": "p1"},
+                ),
+                entered(
+                    "woken",
+                    ago=long_ago,
+                    **{"from": "to_review", "to": "searching", "reason": "handoff"},
+                ),
+                entered(
+                    "woken",
+                    ago=fresh,
+                    **{
+                        "from": "client_silent",
+                        "to": "searching",
+                        "reason": "client_stage",
+                    },
+                ),
+            ]
+        )
+        await db.commit()
+        return {
+            "unique": unique,
+            "people": people,
+            "jobs": {key: row.id for key, row in jobs.items()},
+            "client_id": cli.id,
+            "client_name": cli.name,
+            "category_id": category.id,
+            "category_name": category.name_pl,
+            "category_slug": category.slug,
+        }
+
+
+async def _drop_job_leads(seeded: dict) -> None:
+    from app.models.competence_category import CompetenceCategory
+    from app.models.recruitment_priority import (
+        RecruitmentPriorityAssignment,
+        RecruitmentPriorityDemand,
+    )
+
+    job_ids = list(seeded["jobs"].values())
+    async with AsyncSessionLocal() as db:
+        # `/owner` przy przekazanej rekrutacji zakłada wpisy planu priorytetów
+        # (`assign_operator`) — FK bez kaskady.
+        await db.execute(
+            delete(RecruitmentPriorityAssignment).where(
+                RecruitmentPriorityAssignment.job_id.in_(job_ids)
+            )
+        )
+        await db.execute(
+            delete(RecruitmentPriorityDemand).where(
+                RecruitmentPriorityDemand.job_id.in_(job_ids)
+            )
+        )
+        await db.execute(
+            delete(Activity).where(
+                Activity.entity_type == "job",
+                Activity.entity_id.in_(job_ids),
+            )
+        )
+        await db.execute(delete(Job).where(Job.id.in_(job_ids)))
+        await db.execute(delete(Client).where(Client.id == seeded["client_id"]))
+        await db.execute(
+            delete(CompetenceCategory).where(
+                CompetenceCategory.id == seeded["category_id"]
+            )
+        )
+        await db.commit()
+
+
+def _patch_job_leads(monkeypatch, *, mode: str) -> None:
+    """Wspólna baza testowa: lista bez limitu wierszy (cudze świeże rekrutacje
+    nie wypchną naszych) i z trybem automatu ustawionym przez test."""
+    from app.services import new_job_leads, recruitment_allocation
+
+    async def fixed_mode(_db) -> str:
+        return mode
+
+    monkeypatch.setattr(new_job_leads, "MAX_ROWS", 100_000)
+    monkeypatch.setattr(recruitment_allocation, "effective_allocation_mode", fixed_mode)
+
+
+@pytest.mark.asyncio
+async def test_new_job_leads_show_who_leads_fresh_handoffs(
+    api_client: AsyncClient, monkeypatch
+) -> None:
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    dl_id, _ = await _seed_user(UserRole.delivery_lead)
+    seeded = await _seed_job_leads(hor_id, dl_id)
+    jobs, people = seeded["jobs"], seeded["people"]
+    try:
+        _patch_job_leads(monkeypatch, mode="auto")
+        hor = await _login(api_client, hor_creds)
+        resp = await api_client.get("/api/board-tasks", headers=hor)
+        assert resp.status_code == 200, resp.text
+        listed = resp.json()["new_job_leads"]
+        mine = {row["job_id"]: row for row in listed if row["job_id"] in jobs.values()}
+        # Tylko P1 bez championa, z cyklem z ostatnich 7 dni (14.10.2026).
+        # Prowadzący wpisany przez Head of Recruitment to już decyzja.
+        # Opublikowana P1 bez przekazania wchodzi zawsze (H7, audyt 06.10.2026).
+        assert set(mine) == {
+            jobs[key]
+            for key in (
+                "auto",
+                "manual",
+                "owner",
+                "proposed",
+                "fresh_empty",
+                "stale_empty",
+                "reopened",
+                "raised",
+                "not_handed_off",
+            )
+        }
+        assert mine[jobs["not_handed_off"]]["pending_reason"] == "not_handed_off"
+        assert mine[jobs["not_handed_off"]]["lead_user_id"] is None
+        # Od najnowszego cyklu; nieprzekazane na końcu.
+        handed = [r for r in listed if r["pending_reason"] != "not_handed_off"]
+        handed_off = [datetime.fromisoformat(row["handed_off_at"]) for row in handed]
+        assert handed_off == sorted(handed_off, reverse=True)
+        assert listed[len(handed) :] == [
+            r for r in listed if r["pending_reason"] == "not_handed_off"
+        ]
+
+        async with AsyncSessionLocal() as db:
+            names = dict(
+                (
+                    await db.execute(
+                        select(User.id, User.name).where(
+                            User.id.in_([hor_id, dl_id, *people.values()])
+                        )
+                    )
+                ).all()
+            )
+
+        auto = mine[jobs["auto"]]
+        assert auto["title"] == f"BT leads tytuł roboczy {seeded['unique']}"
+        assert auto["client_name"] == seeded["client_name"]
+        assert (
+            auto["category_id"],
+            auto["category_name"],
+            auto["category_slug"],
+        ) == (
+            seeded["category_id"],
+            seeded["category_name"],
+            seeded["category_slug"],
+        )
+        assert auto["participants"] == 2
+        assert auto["priority_level"] == "p1"
+        assert auto["delivery_lead_name"] == names[dl_id]
+        assert auto["handed_off_at"] is not None
+        assert auto["since_reason"] == "handoff"
+        assert (auto["lead_user_id"], auto["lead_name"], auto["lead_role"]) == (
+            people["auto"],
+            names[people["auto"]],
+            "recruiter",
+        )
+        assert auto["lead_source"] == "auto"
+        assert auto["assigned_by_name"] is None
+        assert auto["proposed"] is False and auto["pending_reason"] is None
+        assert auto["returned_from_user_id"] is None
+        assert auto["returned_from_name"] is None
+
+        manual = mine[jobs["manual"]]
+        assert manual["title"] == f"BT leads manual {seeded['unique']}"
+        assert (manual["lead_user_id"], manual["lead_role"]) == (
+            people["manual"],
+            "recruiter",
+        )
+        assert manual["lead_source"] == "manual"
+        assert manual["assigned_by_name"] == names[dl_id]
+        assert manual["participants"] == 0 and manual["category_id"] is None
+
+        # Prowadzący wpisany ręcznie, bez wiersza przypisania.
+        owner = mine[jobs["owner"]]
+        assert (owner["lead_user_id"], owner["lead_source"]) == (
+            people["owner"],
+            "manual",
+        )
+        assert owner["proposed"] is False and owner["pending_reason"] is None
+
+        # Sama propozycja automatu: pola opisują osobę proponowaną.
+        proposed = mine[jobs["proposed"]]
+        assert (proposed["lead_user_id"], proposed["lead_name"]) == (
+            people["proposed"],
+            names[people["proposed"]],
+        )
+        assert proposed["proposed"] is True
+        assert proposed["lead_source"] == "auto"
+        assert proposed["pending_reason"] is None
+
+        # Nikt nie prowadzi.
+        assert mine[jobs["fresh_empty"]]["pending_reason"] == "assigning"
+        assert mine[jobs["stale_empty"]]["pending_reason"] == "none"
+        for key in ("fresh_empty", "stale_empty"):
+            row = mine[jobs[key]]
+            assert row["lead_user_id"] is None and row["lead_name"] is None
+            assert row["lead_source"] is None and row["proposed"] is False
+
+        # Początek cyklu: ponowne otwarcie i wejście na P1.
+        assert mine[jobs["reopened"]]["since_reason"] == "reopen"
+        raised = mine[jobs["raised"]]
+        assert raised["since_reason"] == "p1"
+        assert datetime.now(timezone.utc) - datetime.fromisoformat(
+            raised["handed_off_at"]
+        ) < timedelta(minutes=5)
+
+        # Automat tylko proponuje (albo jest wyłączony): świeżo przekazana
+        # rekrutacja bez nikogo nie jest „w trakcie przydziału”.
+        _patch_job_leads(monkeypatch, mode="shadow")
+        resp = await api_client.get("/api/board-tasks", headers=hor)
+        again = {row["job_id"]: row for row in resp.json()["new_job_leads"]}
+        assert again[jobs["fresh_empty"]]["pending_reason"] == "none"
+    finally:
+        await _drop_job_leads(seeded)
+
+
+@pytest.mark.asyncio
+async def test_new_job_lead_disappears_after_confirm_or_change(
+    api_client: AsyncClient, monkeypatch
+) -> None:
+    """Decyzja Artura 07.10.2026: „Potwierdź” albo „Zmień” przez Head of
+    Recruitment zdejmuje rekrutację z listy; nieaktualna osoba = 409."""
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    dl_id, _ = await _seed_user(UserRole.delivery_lead)
+    seeded = await _seed_job_leads(hor_id, dl_id)
+    jobs, people = seeded["jobs"], seeded["people"]
+
+    async def listed(headers) -> dict[int, dict]:
+        resp = await api_client.get("/api/board-tasks", headers=headers)
+        assert resp.status_code == 200, resp.text
+        return {row["job_id"]: row for row in resp.json()["new_job_leads"]}
+
+    try:
+        _patch_job_leads(monkeypatch, mode="auto")
+        hor = await _login(api_client, hor_creds)
+        assert {jobs["auto"], jobs["manual"]} <= set(await listed(hor))
+
+        # Potwierdzenie innej osoby niż dzisiejszy prowadzący — odmowa.
+        stale = await api_client.post(
+            f"/api/request-board/jobs/{jobs['auto']}/lead-confirmation",
+            json={"lead_user_id": people["manual"]},
+            headers=hor,
+        )
+        assert stale.status_code == 409, stale.text
+
+        confirmed = await api_client.post(
+            f"/api/request-board/jobs/{jobs['auto']}/lead-confirmation",
+            json={"lead_user_id": people["auto"]},
+            headers=hor,
+        )
+        assert confirmed.status_code == 200, confirmed.text
+
+        # Zmiana prowadzącego przez Head of Recruitment też jest decyzją.
+        changed = await api_client.post(
+            f"/api/jobs/{jobs['manual']}/owner",
+            json={"user_id": people["participant"]},
+            headers=hor,
+        )
+        assert changed.status_code == 200, changed.text
+
+        after = await listed(hor)
+        assert jobs["auto"] not in after
+        assert jobs["manual"] not in after
+        # Pozostałe wiersze zostają.
+        assert jobs["owner"] in after
+
+        # Prowadzący zmienił się po potwierdzeniu (tu: ktoś zdjął potwierdzoną
+        # osobę i wskazał inną) — rekrutacja wraca na listę i mówi, kto był.
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Activity)
+                .where(
+                    Activity.entity_type == "job",
+                    Activity.entity_id == jobs["auto"],
+                    Activity.action == "new_job_lead_confirmed",
+                )
+                .values(details={"lead_user_id": people["proposed"], "via": "confirm"})
+            )
+            await db.commit()
+            proposed_name = await db.scalar(
+                select(User.name).where(User.id == people["proposed"])
+            )
+        back = (await listed(hor))[jobs["auto"]]
+        assert back["returned_from_user_id"] == people["proposed"]
+        assert back["returned_from_name"] == proposed_name
+    finally:
+        await _drop_job_leads(seeded)
+
+
+@pytest.mark.asyncio
+async def test_team_set_by_head_of_recruitment_on_another_screen_is_a_decision(
+    api_client: AsyncClient, monkeypatch
+) -> None:
+    """Uwagi Head of Recruitment 14.10.2026 (D1): zespół ustawiony na pulpicie
+    „Requesty i obłożenie” zdejmuje rekrutację z listy tak jak „Potwierdź”.
+    Ta sama zmiana zrobiona przez Delivery Leada nie jest decyzją Head of
+    Recruitment — wiersz zostaje."""
+    from app.services import new_job_leads
+
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    dl_id, _ = await _seed_user(UserRole.delivery_lead)
+    seeded = await _seed_job_leads(hor_id, dl_id)
+    jobs, people = seeded["jobs"], seeded["people"]
+
+    async def listed_ids(headers) -> set[int]:
+        resp = await api_client.get("/api/board-tasks", headers=headers)
+        assert resp.status_code == 200, resp.text
+        return {row["job_id"] for row in resp.json()["new_job_leads"]}
+
+    try:
+        _patch_job_leads(monkeypatch, mode="shadow")
+        hor = await _login(api_client, hor_creds)
+        assert jobs["owner"] in await listed_ids(hor)
+
+        # Druga osoba z pulpitu — prowadzący zostaje, decyzja dotyczy zespołu.
+        added = await api_client.post(
+            f"/api/request-board/jobs/{jobs['owner']}/people",
+            json={"user_id": people["participant"]},
+            headers=hor,
+        )
+        assert added.status_code == 200, added.text
+        assert jobs["owner"] not in await listed_ids(hor)
+
+        # Delivery Lead (ta sama ścieżka zapisu) niczego nie potwierdza.
+        async with AsyncSessionLocal() as db:
+            dl = await db.get(User, dl_id)
+            await new_job_leads.record_team_decision(
+                db, job_id=jobs["auto"], actor=dl, via="team_change"
+            )
+            await db.commit()
+        assert jobs["auto"] in await listed_ids(hor)
+    finally:
+        await _drop_job_leads(seeded)
+
+
+@pytest.mark.asyncio
+async def test_new_job_lead_stays_confirmed_after_champion_moves_the_state_date(
+    api_client: AsyncClient, monkeypatch
+) -> None:
+    """D2 (14.10.2026): „Mamy championa” przesuwa `work_state_changed_at`
+    (blokady automatu), ale nie zaczyna nowego cyklu listy — potwierdzona
+    rekrutacja nie wraca. Na produkcji wracała jako „przekazano dziś”."""
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    dl_id, _ = await _seed_user(UserRole.delivery_lead)
+    seeded = await _seed_job_leads(hor_id, dl_id)
+    jobs, people = seeded["jobs"], seeded["people"]
+
+    async def listed_ids(headers) -> set[int]:
+        resp = await api_client.get("/api/board-tasks", headers=headers)
+        assert resp.status_code == 200, resp.text
+        return {row["job_id"] for row in resp.json()["new_job_leads"]}
+
+    try:
+        _patch_job_leads(monkeypatch, mode="shadow")
+        hor = await _login(api_client, hor_creds)
+        confirmed = await api_client.post(
+            f"/api/request-board/jobs/{jobs['reopened']}/lead-confirmation",
+            json={"lead_user_id": people["auto"]},
+            headers=hor,
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        assert jobs["reopened"] not in await listed_ids(hor)
+
+        # To samo, co robi przełącznik „Mamy championa” (job_similar.py).
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Job)
+                .where(Job.id == jobs["reopened"])
+                .values(work_state_changed_at=datetime.now(timezone.utc))
+            )
+            await db.commit()
+        assert jobs["reopened"] not in await listed_ids(hor)
+    finally:
+        await _drop_job_leads(seeded)
+
+
+@pytest.mark.asyncio
+async def test_priority_change_leaves_a_level_trail(
+    api_client: AsyncClient,
+) -> None:
+    """Zmiana poziomu priorytetu zapisuje `priority_changed` (od niej liczy się
+    wejście na P1); ten sam poziom — nic."""
+    from app.models.job import JobPriority
+
+    _, admin_creds = await _seed_user(UserRole.admin)
+    unique = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"BT prio {unique}")
+        db.add(cli)
+        await db.flush()
+        row = Job(
+            title=f"BT prio {unique}",
+            status=JobStatus.published,
+            client_id=cli.id,
+            priority=JobPriority.medium,
+        )
+        db.add(row)
+        await db.commit()
+        job_id, client_id = row.id, cli.id
+
+    async def trail() -> list[dict]:
+        async with AsyncSessionLocal() as db:
+            return list(
+                (
+                    await db.scalars(
+                        select(Activity.details)
+                        .where(
+                            Activity.entity_type == "job",
+                            Activity.entity_id == job_id,
+                            Activity.action == "priority_changed",
+                        )
+                        .order_by(Activity.id)
+                    )
+                ).all()
+            )
+
+    try:
+        admin = await _login(api_client, admin_creds)
+        for value in ("urgent", "high", "medium"):
+            resp = await api_client.patch(
+                f"/api/jobs/{job_id}", json={"priority": value}, headers=admin
+            )
+            assert resp.status_code == 200, resp.text
+        assert await trail() == [
+            {"from": "p2", "to": "p1"},
+            {"from": "p1", "to": "p2"},
+        ]
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(Activity).where(
+                    Activity.entity_type == "job", Activity.entity_id == job_id
+                )
+            )
+            await db.execute(delete(Job).where(Job.id == job_id))
+            await db.execute(delete(Client).where(Client.id == client_id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_new_job_leads_reach_only_admin_and_head_of_recruitment(
+    api_client: AsyncClient, monkeypatch
+) -> None:
+    hor_id, _ = await _seed_user(UserRole.head_of_recruitment)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    _, rec_creds = await _seed_user(UserRole.recruiter)
+    _, admin_creds = await _seed_user(UserRole.admin)
+    seeded = await _seed_job_leads(hor_id, dl_id)
+    try:
+        _patch_job_leads(monkeypatch, mode="shadow")
+        for creds in (dl_creds, rec_creds):
+            headers = await _login(api_client, creds)
+            resp = await api_client.get("/api/board-tasks", headers=headers)
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["new_job_leads"] == []
+
+        admin = await _login(api_client, admin_creds)
+        resp = await api_client.get("/api/board-tasks", headers=admin)
+        assert resp.status_code == 200, resp.text
+        assert seeded["jobs"]["auto"] in {
+            row["job_id"] for row in resp.json()["new_job_leads"]
+        }
+    finally:
+        await _drop_job_leads(seeded)
+
+
+@pytest.mark.asyncio
+async def test_board_tasks_survive_a_failure_while_loading_job_leads(
+    api_client: AsyncClient, monkeypatch
+) -> None:
+    from app.services import new_job_leads
+
+    async def boom(_db, *, now):
+        raise RuntimeError("job leads down")
+
+    monkeypatch.setattr(new_job_leads, "load_new_job_leads", boom)
+    _, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    resp = await api_client.get("/api/board-tasks", headers=hor)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["new_job_leads"] == []
+    # Reszta kolejki liczy się normalnie.
+    assert isinstance(body["cpro_to_send"], list)

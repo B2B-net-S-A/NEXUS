@@ -51,3 +51,33 @@ def test_supported_model_retains_sampling_and_extra_body_precedence():
         {"temperature": 0, "extra_body": {"temperature": 0.3, "metadata": {"x": 1}}},
         model="claude-haiku-4-5",
     ) == {"extra_body": {"temperature": 0.3, "metadata": {"x": 1}}}
+
+
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        ("claude-sonnet-5-5", "between_tools"),
+        ("claude-sonnet-5", "disabled"),
+        ("claude-haiku-5-5", "disabled"),
+    ],
+)
+def test_disabled_thinking_is_sent_in_the_form_the_model_accepts(model, expected):
+    """Sonnet 5.5 odrzuca `disabled` kodem 400, a `between_tools` przyjmuje
+    wyłącznie on, więc ponowienie na innym modelu musi wrócić do `disabled`."""
+    caller_kwargs = {"max_tokens": 1, "thinking": {"type": "disabled"}}
+
+    sent = _sdk_request_kwargs(caller_kwargs, model=model)
+
+    assert sent["thinking"] == {"type": expected}
+    assert caller_kwargs["thinking"] == {"type": "disabled"}
+
+
+def test_other_thinking_settings_reach_sonnet_55_unchanged():
+    sent = _sdk_request_kwargs(
+        {"max_tokens": 1, "thinking": {"type": "adaptive"}},
+        model="claude-sonnet-5-5",
+    )
+    assert sent["thinking"] == {"type": "adaptive"}
+    assert "thinking" not in _sdk_request_kwargs(
+        {"max_tokens": 1}, model="claude-sonnet-5-5"
+    )

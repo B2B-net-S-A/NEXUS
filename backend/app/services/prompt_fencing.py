@@ -19,9 +19,15 @@ import json
 import re
 from typing import Any
 
+# Między `<`, `/` i nazwą model nie widzi różnicy dla odstępów, znaków zerowej
+# szerokości ani ukośnika wstecznego: `<\/` daje `json_for_prompt`, a `<`,
+# U+200B i `/cv>` wygląda jak zwykłe zamknięcie (audyt 48 h, 13.10.2026).
+_GAP = r"[\s\u00ad\u180e\u200b-\u200f\u2060-\u2064\ufeff]*"
 _TAG_RE = re.compile(
-    r"<(?=\s*/?\s*(?:cv|screening_notes|champion_profile|source_facts|"
-    r"previous_screening|candidate_notes|new_questions|"
+    rf"<(?={_GAP}\\*{_GAP}/?{_GAP}(?:cv|screening_notes|champion_profile|source_facts|"
+    r"previous_screening|candidate_[a-z_]+|new_questions|interview_note|"
+    r"card_fields|screening_questions|keywords|question_text|"
+    r"cv_[a-z_]+|original_[a-z_]+|recruiter_[a-z_]+|previous_proposals|"
     r"client_[a-z_]+|system|assistant|user|developer|instructions?)\b)",
     re.IGNORECASE,
 )
@@ -34,6 +40,23 @@ def neutralize_tags(text: str | None) -> str:
     if not text:
         return ""
     return _TAG_RE.sub(_LOOKALIKE, text)
+
+
+# Odwrotność `neutralize_tags`: podmieniony znak tylko tam, gdzie stoi przed
+# nazwą znacznika (wzorzec budowany z `_TAG_RE`, żeby lista nazw była jedna).
+_NEUTRALIZED_RE = re.compile(_LOOKALIKE + _TAG_RE.pattern[1:], re.IGNORECASE)
+
+
+def restore_tags(text: str | None) -> str:
+    """Tekst skopiowany przez model z ogrodzonych danych — w pierwotnej postaci.
+
+    Ogrodzenie podmienia `<` także w zwykłej treści, która wygląda jak znacznik
+    (`Flux<User>` w CV programisty). Model cytuje to, co widzi; kontrola „cytat
+    stoi w źródle” porównuje z prawdziwym tekstem, więc cytat trzeba odwrócić.
+    """
+    if not text:
+        return ""
+    return _NEUTRALIZED_RE.sub("<", text)
 
 
 def fence(tag: str, text: str | None) -> str:

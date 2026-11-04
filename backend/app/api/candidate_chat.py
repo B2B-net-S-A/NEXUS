@@ -9,6 +9,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import and_, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import (
@@ -48,7 +49,12 @@ from app.services.candidate_membership import (
     list_candidate_chat_member_ids,
     list_candidate_chat_members,
 )
+from app.services import chat_notifications
 from app.services.chat_reactions import aggregate_candidate_reactions
+from app.services.mention_dispatch import (
+    refresh_chat_message_snippets,
+    retract_chat_message_notifications,
+)
 from app.services.mention_parser import parse_mentions_candidate
 
 
@@ -189,6 +195,10 @@ async def _serialize_many(
     return out
 
 
+def _message_link(candidate_id: int, msg_id: int) -> str:
+    return f"/candidates/{candidate_id}?tab=chat&msg={msg_id}"
+
+
 async def _broadcast(
     db: AsyncSession,
     candidate_id: int,
@@ -225,6 +235,9 @@ async def list_messages(
     if before_id is not None:
         q = q.where(CandidateChatMessage.id < before_id)
     if search:
+        # Runda 10 (R10-N6-9): `search_vector` indeksuje treść także po
+        # miękkim usunięciu — trafienie zdradzało, co było w usuniętej.
+        q = q.where(CandidateChatMessage.is_deleted.is_(False))
         q = q.where(
             CandidateChatMessage.search_vector.op("@@")(
                 func.plainto_tsquery("simple", search)
@@ -294,7 +307,7 @@ async def create_message(
 
     member_ids = await list_candidate_chat_member_ids(db, candidate_id)
     target_ids = [uid for uid in member_ids if uid != current_user.id]
-    link = f"/candidates/{candidate_id}?tab=chat&msg={msg.id}"
+    link = _message_link(candidate_id, msg.id)
     snippet = _reply_preview(data.content, limit=140)
 
     for uid in target_ids:
@@ -339,6 +352,17 @@ async def create_message(
             },
         },
     )
+    await chat_notifications.notify_recipients(
+        db,
+        notify_user,
+        kind="candidate",
+        entity_id=candidate_id,
+        link=link,
+        author_name=current_user.name,
+        preview=snippet,
+        message_recipient_ids=target_ids,
+        mention_recipient_ids=mentioned_ids,
+    )
     return payload
 
 
@@ -366,6 +390,17 @@ async def edit_message(
     msg.is_edited = True
     msg.edited_at = datetime.now(timezone.utc)
 
+    old_mentions = set(
+        (
+            await db.execute(
+                select(CandidateChatMention.user_id).where(
+                    CandidateChatMention.message_id == msg.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     await db.execute(
         CandidateChatMention.__table__.delete().where(
             CandidateChatMention.message_id == msg.id
@@ -375,6 +410,30 @@ async def edit_message(
     new_mentions = [uid for uid in new_mentions if uid != current_user.id]
     for uid in new_mentions:
         db.add(CandidateChatMention(message_id=msg.id, user_id=uid))
+
+    link = _message_link(candidate_id, msg.id)
+    snippet = _reply_preview(data.content, limit=140)
+    # Runda 10 (R10-N6-3): dzwonek i mail zastępczy niosły pierwotną treść.
+    await refresh_chat_message_snippets(
+        db,
+        related_entity_type="candidate_chat_message",
+        link=link,
+        message_created_at=msg.created_at,
+        snippet=snippet,
+    )
+    # Runda 10 (R10-N6-10): wzmianka dopisana przy edycji powiadamia.
+    for uid in sorted(set(new_mentions) - old_mentions):
+        db.add(
+            Notification(
+                user_id=uid,
+                title=f"{current_user.name} oznaczył(a) Cię w czacie kandydata",
+                message=snippet,
+                link=link,
+                notification_type=NotificationType.job_chat_mention,
+                related_entity_type="candidate_chat_message",
+                related_entity_id=None,  # chat notifications nie używają dedup
+            )
+        )
 
     await db.commit()
     await db.refresh(msg)
@@ -418,6 +477,14 @@ async def delete_message(
     msg.pinned = False
     msg.pinned_at = None
     msg.pinned_by = None
+    # Runda 10 (R10-N6-3): usunięta treść nie zostaje w dzwonku i nie wychodzi
+    # mailem zastępczym po 15 min.
+    await retract_chat_message_notifications(
+        db,
+        related_entity_type="candidate_chat_message",
+        link=_message_link(candidate_id, msg.id),
+        message_created_at=msg.created_at,
+    )
     await db.commit()
     await _broadcast(
         db,
@@ -557,31 +624,37 @@ async def mark_read(
             )
         )
     ).scalar()
-    state = (
-        await db.execute(
-            select(CandidateChatReadState).where(
-                and_(
-                    CandidateChatReadState.candidate_id == candidate_id,
-                    CandidateChatReadState.user_id == current_user.id,
-                )
-            )
-        )
-    ).scalar_one_or_none()
+    # Atomowy upsert (lustro ``job_chat.mark_read``) — równoległe PUT-y nie
+    # wywracają się na uq_candidate_chat_read_state_candidate_user.
     now = datetime.now(timezone.utc)
-    if state is None:
-        state = CandidateChatReadState(
-            candidate_id=candidate_id,
-            user_id=current_user.id,
-            last_read_message_id=last_id,
-            last_read_at=now,
+    stmt = pg_insert(CandidateChatReadState).values(
+        candidate_id=candidate_id,
+        user_id=current_user.id,
+        last_read_message_id=last_id,
+        last_read_at=now,
+    )
+    await db.execute(
+        stmt.on_conflict_do_update(
+            constraint="uq_candidate_chat_read_state_candidate_user",
+            set_={
+                "last_read_message_id": func.greatest(
+                    CandidateChatReadState.last_read_message_id,
+                    stmt.excluded.last_read_message_id,
+                ),
+                "last_read_at": stmt.excluded.last_read_at,
+            },
         )
-        db.add(state)
-    else:
-        state.last_read_message_id = last_id
-        state.last_read_at = now
+    )
+    # Wejście do czatu gasi jego powiadomienia (lustro ``job_chat.mark_read``).
+    cleared = await chat_notifications.mark_read(
+        db, current_user.id, kind="candidate", entity_id=candidate_id
+    )
     await db.commit()
     return CandidateChatUnreadCount(
-        candidate_id=candidate_id, unread_count=0, last_read_message_id=last_id
+        candidate_id=candidate_id,
+        unread_count=0,
+        last_read_message_id=last_id,
+        notifications_cleared=cleared,
     )
 
 
@@ -658,7 +731,8 @@ async def add_reaction(
     if msg.is_deleted:
         raise HTTPException(status_code=400, detail="Nie można reagować na usuniętą.")
 
-    emoji = (payload or {}).get("emoji", "").strip()
+    emoji = (payload or {}).get("emoji")
+    emoji = emoji.strip() if isinstance(emoji, str) else ""
     if not emoji or len(emoji) > 16:
         raise HTTPException(
             status_code=400, detail="Emoji jest wymagane (max 16 znaków)."

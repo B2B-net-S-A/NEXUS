@@ -3,7 +3,8 @@ Artura 23.09.2026; Screening od 24.09.2026).
 
 Osoba, którą rekruter sam dodał do rekrutacji (albo wziął z propozycji
 przyciskiem „Biorę"), jest przez ``CLAIM_HOURS`` na jego wyłączność W TEJ
-rekrutacji. Chodzi o chaos: dwóch rekruterów dzwoniących do tej samej osoby
+rekrutacji. Od 19.10.2026 także osoba, która zgłosiła się z jego linku do
+rekrutacji (``link_claim_kwargs``). Chodzi o chaos: dwóch rekruterów dzwoniących do tej samej osoby
 w sprawie tej samej rekrutacji. Po upływie blokady każdy z zespołu może osobę
 przejąć; wcześniej — wyłącznie admin, Delivery Lead albo Head of Recruitment.
 
@@ -20,7 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
@@ -33,7 +34,8 @@ from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User, UserRole
 from app.services.board_stage_badges import CLAIM_COLUMNS as _CLAIM_COLUMNS
 from app.services.board_stage_badges import NEW_COLUMN as _NEW_COLUMN
-from app.services.board_stage_badges import board_column_for
+from app.services import pair_owner
+from app.services.board_stage_badges import SCREENING_COLUMN, board_column_for
 
 CLAIM_HOURS = 12
 NEW_COLUMN = _NEW_COLUMN
@@ -54,6 +56,12 @@ ENTRY_PROPOSAL = "proposal"
 ENTRY_REASSIGN = "reassign"
 ENTRY_AUTO_MATCH = "auto_match"
 ENTRY_IMPORT = "import"
+# 0515 (23.10.2026): silnik dopełniania „Nowych” — bez blokady 12 h, osobę
+# bierze pierwszy, kto ją ruszy (`services/new_column_autofill.py`).
+ENTRY_SYSTEM = "system"
+# Wejścia, w których osobę do rekrutacji dodał człowiek — tylko one zamykają
+# jej propozycję jako ``added`` (audyt 06.10.2026 R5, decyzja 07.10.2026).
+HUMAN_ENTRY_SOURCES = frozenset({ENTRY_ADDED_MANUAL, ENTRY_PROPOSAL, ENTRY_REASSIGN})
 ENTRY_SOURCES = frozenset(
     {
         ENTRY_ADDED_MANUAL,
@@ -62,6 +70,7 @@ ENTRY_SOURCES = frozenset(
         ENTRY_REASSIGN,
         ENTRY_AUTO_MATCH,
         ENTRY_IMPORT,
+        ENTRY_SYSTEM,
     }
 )
 
@@ -79,24 +88,78 @@ class ClaimState:
 
 def is_integration_request(request: object) -> bool:
     """Czy żądanie przyszło od integracji (token klienta OAuth, np. scraper
-    pracuj.pl / JJIT), a nie od człowieka.
+    pracuj.pl / JJIT, albo klucz API integracyjnego v1), a nie od człowieka.
 
     Integracja dodaje kandydatów sama — to wejście z automatu, bez 12 h
     blokady na koncie integracji (decyzja 23.09.2026: blokada należy się
-    wyłącznie człowiekowi, który dodał osobę ręcznie).
+    wyłącznie człowiekowi, który dodał osobę ręcznie). Klucz API
+    (``request.state.service_principal``, 15.10.2026) podlega tym samym
+    regułom: osoba, która się nie zgłosiła, trafia do propozycji.
     """
     state = getattr(request, "state", None)
-    return bool(getattr(state, "oauth_client_id", None))
+    return bool(
+        getattr(state, "oauth_client_id", None)
+        or getattr(state, "service_principal", None)
+    )
 
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def claim_state(process: Optional[RecruitmentProcess]) -> ClaimState:
-    if process is None:
+def claim_state(
+    process: Optional[RecruitmentProcess],
+    inactive_user_ids: frozenset[int] | set[int] = frozenset(),
+) -> ClaimState:
+    """Blokada procesu. Blokada konta nieaktywnego = brak blokady (runda 8,
+    R8-N8-7): nieaktywne konto nie prowadzi nikogo, więc nie wiąże zespołu."""
+
+    if process is None or process.claimed_by_user_id in inactive_user_ids:
         return ClaimState(None, None)
     return ClaimState(process.claimed_by_user_id, process.claimed_until)
+
+
+async def inactive_holders(
+    db: AsyncSession, processes: Iterable[Optional[RecruitmentProcess]]
+) -> set[int]:
+    """Id nieaktywnych kont trzymających blokady tych procesów — jedno zapytanie."""
+
+    ids = {
+        p.claimed_by_user_id
+        for p in processes
+        if p is not None and p.claimed_by_user_id is not None
+    }
+    if not ids:
+        return set()
+    return set(
+        (
+            await db.execute(
+                select(User.id).where(User.id.in_(ids), User.is_active.is_(False))
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+async def link_claim_kwargs(
+    db: AsyncSession, link_owner_id: Optional[int]
+) -> dict[str, Optional[int]]:
+    """Blokada 12 h i właściciel procesu dla karty ze zgłoszenia z linku
+    rekrutacji (etap 2 linków, decyzja Artura 19.10.2026).
+
+    Osoba z linku jest właściciela linku tak samo jak osoba, którą sam dodał.
+    12 h liczy się od otwarcia karty w „Nowi” (po przeglądzie AI), nie od
+    wysłania formularza. Nieaktywne konto = bez blokady i bez właściciela
+    z linku (tak jak ``claim_state`` ignoruje blokady nieaktywnych kont).
+    Argumenty dla ``open_process``.
+    """
+    owner_id = None
+    if link_owner_id is not None:
+        owner_id = await db.scalar(
+            select(User.id).where(User.id == link_owner_id, User.is_active.is_(True))
+        )
+    return {"claim_for_user_id": owner_id, "process_owner_user_id": owner_id}
 
 
 def can_override(user: User) -> bool:
@@ -141,6 +204,49 @@ async def stage_column(db: AsyncSession, stage: CandidateStage) -> str:
     )
 
 
+async def take_unowned_on_screening(
+    db: AsyncSession,
+    *,
+    previous: Optional[CandidateStage],
+    moved: CandidateStage,
+    user_id: int,
+) -> bool:
+    """Ruch człowieka z „Nowych” do „Screeningu” bierze kartę bez osoby jak
+    „Biorę” (zgłoszenie rekruterki i decyzja Artura z 28.10.2026, wariant A).
+
+    Karta bez osoby to osoba od systemu („Nowi na 20”) albo karta bez osoby
+    dodającej („Brak danych”) — bez „Prowadzi” i bez nikogo z „Biorę”.
+    Karta dodana przez człowieka zostaje u niego: kto chce ją wziąć, klika
+    „Biorę”. Wołający pilnuje, że ruch robi człowiek, nie integracja.
+    """
+    if previous is None or await stage_column(db, previous) != NEW_COLUMN:
+        return False
+    if await stage_column(db, moved) != SCREENING_COLUMN:
+        return False
+    process = await load_process(
+        db, candidate_id=moved.candidate_id, job_id=moved.job_id
+    )
+    if process is None or process.claimed_by_user_id is not None:
+        return False
+    if process.entry_source != ENTRY_SYSTEM:
+        adder = await db.scalar(
+            select(CandidateStage.moved_by)
+            .where(
+                CandidateStage.candidate_id == moved.candidate_id,
+                CandidateStage.job_id == moved.job_id,
+            )
+            .order_by(CandidateStage.moved_at.asc(), CandidateStage.id.asc())
+            .limit(1)
+        )
+        if adder is not None:
+            return False
+    pair = (moved.candidate_id, moved.job_id)
+    if (await pair_owner.owner_ids(db, [pair])).get(pair) is not None:
+        return False
+    set_claim(process, user_id)
+    return True
+
+
 async def load_process(
     db: AsyncSession, *, candidate_id: int, job_id: int
 ) -> Optional[RecruitmentProcess]:
@@ -180,8 +286,8 @@ async def assert_can_act(
     rozstrzygają spory o osobę.
     """
 
-    state = claim_state(process)
     moment = now or utcnow()
+    state = claim_state(process, await inactive_holders(db, [process]))
     if not state.active(moment) or state.user_id == user.id or can_override(user):
         return
     # Blokada dotyczy wyłącznie „Nowych" i „Screeningu". Import z Traffita i synchronizacja
@@ -213,10 +319,15 @@ async def assert_can_act(
     )
 
 
-def can_take(process: Optional[RecruitmentProcess], user: User, now: datetime) -> bool:
+def can_take(
+    process: Optional[RecruitmentProcess],
+    user: User,
+    now: datetime,
+    inactive_user_ids: frozenset[int] | set[int] = frozenset(),
+) -> bool:
     """Czy ``user`` może kliknąć „Biorę"/„Przejmij" na tej karcie."""
 
-    state = claim_state(process)
+    state = claim_state(process, inactive_user_ids)
     if state.user_id == user.id and state.active(now):
         return False
     return not state.active(now) or can_override(user)

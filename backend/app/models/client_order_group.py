@@ -379,6 +379,10 @@ class ClientOrderGroupMdConsumption(Base, TimestampMixin):
     created_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # 0419: podział zejścia na konsultantów (``[{"order_id": 1, "md": "4.5"}]``)
+    # zapisany ręcznie w panelu zamówienia. ``md_reported`` jest sumą i to ona
+    # liczy pulę; ``NULL`` = zapis bez podziału (import albo sama suma).
+    breakdown: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
 
     group = relationship("ClientOrderGroup", back_populates="md_consumptions")
     author = relationship("User", foreign_keys=[created_by_user_id])

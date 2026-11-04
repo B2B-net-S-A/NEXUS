@@ -24,11 +24,16 @@ from app.services.section_permissions import (
     SectionAccess,
     section_access_for_user,
 )
+from app.services.dl_send_queue import STALE_WORKDAYS
 from app.services.insights_person_scope import outside_scope_user_ids
 from app.services.insights_team_signals import (
     LOW_PRECISION_PCT,
+    NO_ONE_SENT_DAYS,
     STALE_JOB_DAYS,
+    STALE_POSTING_DAYS,
     current_team_panel,
+    dl_send_stale,
+    flow_signals,
     people_payload,
     stale_jobs,
     team_people,
@@ -78,7 +83,9 @@ async def insights_team_people(
     today = business_today()
     # v2 (24.09.2026): precyzja jako kohorta i konta administracyjne poza
     # tabelą — stary kształt z cache'u nie może przeżyć wdrożenia.
-    cache_key = f"insights:team:people:v2:{resolved.cache_suffix}:{today}"
+    # v3 (17.10.2026): pole `unattributed` (wiersz „Bez osoby z zasługą”).
+    # v4 (22.10.2026): akceptacje, cel placementów (miesiąc) i „w drodze”.
+    cache_key = f"insights:team:people:v4:{resolved.cache_suffix}:{today}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
@@ -142,7 +149,9 @@ async def _attention_base(db: AsyncSession, *, today: date) -> list[dict]:
     odpowiedź nie czyta — teraz liczymy tylko bieżący miesiąc. Wynik nie
     zależy od osoby, więc klucz jest jeden na dzień.
     """
-    cache_key = f"insights:team:attention:base:v2:{today}"
+    # v3 (04.10.2026): sygnały „Gdzie stoi” z pulpitu Heada i admina.
+    # v4 (13.10.2026): gotowe CV czekające na wysyłkę do klienta.
+    cache_key = f"insights:team:attention:base:v4:{today}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
@@ -158,6 +167,65 @@ async def _attention_base(db: AsyncSession, *, today: date) -> list[dict]:
                     "count": len(stale),
                     "label": f"rekrutacji bez żadnego ruchu od {STALE_JOB_DAYS} dni",
                     "report": "bez-ruchu",
+                }
+            )
+
+        flow = await flow_signals(db, now=now, today=today)
+        if flow["no_one_sent"]:
+            items.append(
+                {
+                    "kind": "no_one_sent",
+                    "count": flow["no_one_sent"],
+                    "label": (
+                        "rekrutacji w pracy, z których nikogo nie wysłano do klienta "
+                        f"od {NO_ONE_SENT_DAYS} dni"
+                    ),
+                    "report": None,
+                    "href": "/jobs?open=1&sent=none",
+                }
+            )
+        if flow["overdue"]:
+            items.append(
+                {
+                    "kind": "overdue",
+                    "count": flow["overdue"],
+                    "label": "rekrutacji w pracy po terminie klienta",
+                    "report": None,
+                    "href": "/jobs?open=1&deadline=overdue",
+                }
+            )
+        # 13.10.2026: kolejka „Do wysłania do klienta” — gotowe CV, które
+        # czeka u Delivery Leada dzień dłużej, niż rekruter czeka z „Przypomnij”.
+        # Sygnał z innego modułu — jego awaria nie może zabrać Head of
+        # Recruitment całego „Gdzie stoi” (savepoint, sesja jedzie dalej).
+        try:
+            async with db.begin_nested():
+                send_stale = await dl_send_stale(db, now=now)
+        except Exception:  # noqa: BLE001
+            logger.exception("team attention: nie udało się policzyć dl_send_stale")
+            send_stale = 0
+        if send_stale:
+            items.append(
+                {
+                    "kind": "dl_send_stale",
+                    "count": send_stale,
+                    "label": (
+                        f"CV czeka na wysyłkę do klienta {STALE_WORKDAYS}+ dni robocze"
+                    ),
+                    "report": None,
+                    "href": "/jobs?open=1&tosend=stale",
+                }
+            )
+        if flow["stale_postings"]:
+            items.append(
+                {
+                    "kind": "stale_postings",
+                    "count": flow["stale_postings"],
+                    "label": (
+                        f"zgłoszeń z ogłoszeń czeka ponad {STALE_POSTING_DAYS} dni "
+                        f"(w {flow['stale_postings_jobs']} rekrutacjach)"
+                    ),
+                    "report": None,
                 }
             )
 

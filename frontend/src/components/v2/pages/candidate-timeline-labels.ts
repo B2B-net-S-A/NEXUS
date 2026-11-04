@@ -27,6 +27,7 @@ export function candidateStageLabel(stage: string | null | undefined): string {
 const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   created: "Utworzono profil kandydata",
   created_from_cv: "Utworzono profil z CV",
+  recreated_after_erasure: "Adres należał do profilu trwale usuniętego",
   updated: "Zaktualizowano profil",
   deleted: "Usunięto",
   imported: "Zaimportowano kandydata",
@@ -35,9 +36,13 @@ const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   document_uploaded: "Dodano plik",
   document_downloaded: "Pobrano plik",
   document_url_issued: "Wygenerowano link do pliku",
+  // 0435: „Usuń z profilu” w zakładce „Pliki” (admin, Head of Recruitment).
+  candidate_document_removed: "Usunięto plik z profilu",
   cv_downloaded: "Pobrano CV",
   bulk_cv_downloaded: "Pobrano CV (pobieranie zbiorcze)",
   export_requested: "Wyeksportowano dane kandydata",
+  // 0418: zmiana stawki w trakcie procesu (szczegóły w historii stawek).
+  candidate_rate_change_requested: "Zmieniono stawkę kandydata w rekrutacji",
   b2b_cv_generated: "Wygenerowano CV",
   assigned_to_job: "Dodano do rekrutacji",
   removed_from_recruitment: "Usunięto z rekrutacji",
@@ -45,8 +50,13 @@ const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   hired: "Zatrudniono",
   engagement_updated: "Zaktualizowano zaangażowanie",
   application_submission_resolved: "Rozpatrzono zgłoszenie kandydata",
+  // 0404: przegląd AI zgłoszenia z linku rekrutacji i „Dodaj mimo to”.
+  application_screened: "AI przejrzało zgłoszenie z ogłoszenia",
+  application_screening_overridden: "Dodano do rekrutacji mimo odrzucenia przez AI",
   rejection_email_cancelled_on_restore:
     "Anulowano email odrzucenia po przywróceniu kandydata",
+  // 17.10.2026 (D3): drugi mail do tej samej osoby dołączony do czekającego.
+  rejection_email_merged: "Połączono maile odrzucenia w jeden wspólny",
   bulk_action_executed: "Wykonano akcję zbiorczą",
   sensitive_operation_blocked: "Zablokowano operację wymagającą uprawnień",
   candidate_languages_replaced: "Zaktualizowano języki",
@@ -60,6 +70,17 @@ const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   candidate_identity_restored_from_traffit:
     "Przywrócono dane osobowe z Traffita",
   candidate_hard_deleted: "Trwale usunięto profil",
+  // 17.10.2026: okno „Czarna lista…” w profilu i w panelu osoby.
+  candidate_blacklisted: "Dodano do czarnej listy",
+  candidate_blacklist_removed: "Zdjęto z czarnej listy",
+  // 12.10.2026: zatrudnienie osoby, która ma już trwającą umowę u innego
+  // klienta — odpowiedź rekrutera z okna „Potwierdź zatrudnienie”.
+  candidate_hired_engagement_switch:
+    "Zatrudniono w kolejnej rekrutacji: przechodzi do nowego klienta, obecna współpraca się kończy",
+  candidate_hired_engagement_parallel:
+    "Zatrudniono w kolejnej rekrutacji: będzie pracować równolegle u obu klientów",
+  candidate_hired_engagement_ask_dl:
+    "Zatrudniono w kolejnej rekrutacji: o obecnej współpracy zdecyduje Delivery Lead",
   note_added: "Dodano notatkę",
 };
 

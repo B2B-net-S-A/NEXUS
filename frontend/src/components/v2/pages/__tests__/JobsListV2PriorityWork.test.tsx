@@ -5,7 +5,6 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { JobsListV2 } from "@/components/v2/pages/JobsListV2"
 import { useAuthStore } from "@/store/auth"
-import { useUiStore } from "@/store/ui"
 
 const getMock = vi.fn()
 
@@ -16,7 +15,7 @@ vi.mock("@/lib/api", () => ({
   default: {
     get: (...args: unknown[]) => getMock(...args),
   },
-  // Liczniki filtrów „Szybkie" — lista woła je przy każdym renderze; ten plik
+  // Liczniki paska filtrów — lista woła je przy każdym renderze; ten plik
   // ich nie testuje, więc atrapa oddaje puste liczby.
   jobsApi: {
     quickCounts: () =>
@@ -78,7 +77,11 @@ vi.mock("@/components/v2/filters/CompetenceCategoryMultiSelect", () => ({
 // renderuje listę bez ToastProvidera — dok ma własne testy
 // (`JobReadinessDock.test.tsx`), tu jest poza zakresem.
 vi.mock("@/components/v2/jobs/JobReadinessDock", () => ({
-  JobReadinessDock: () => null,
+  // Plakietki Priority Work stoją w Podglądzie — atrapa pokazuje sekcję
+  // szczegółów, którą przekazuje lista.
+  JobReadinessDock: ({ listDetails }: { listDetails?: React.ReactNode }) => (
+    <div>{listDetails}</div>
+  ),
 }))
 
 function renderJobs() {
@@ -121,7 +124,6 @@ describe("JobsListV2 Priority Work", () => {
       hydrated: true,
     })
     getMock.mockReset()
-    useUiStore.setState({ jobsView: "tiles" })
     getMock.mockResolvedValue({
       data: {
         items: [
@@ -147,8 +149,11 @@ describe("JobsListV2 Priority Work", () => {
     })
   })
 
-  it("renders assignment and carry-over as separate badges", async () => {
+  it("renders assignment and carry-over as separate badges in the preview", async () => {
     renderJobs()
+    await userEvent.setup().click(
+      await screen.findByRole("button", { name: "Podgląd: Senior Java Developer" }),
+    )
 
     expect(
       await screen.findByText("Plan A · TAC / mieszany"),
@@ -156,51 +161,16 @@ describe("JobsListV2 Priority Work", () => {
     expect(screen.getByText("Carry-over: 2")).toBeInTheDocument()
   })
 
-  it("sends the selected Priority Work filter to GET /api/jobs", async () => {
-    const user = userEvent.setup()
+  // Filtra Priority Work na liście nie ma (25.09.2026 — w historii nie
+  // powstał ani jeden plan); plakietki zostają w Podglądzie.
+  it("does not send priority_work — the list has no Priority Work filter", async () => {
     renderJobs()
     await waitFor(() => expect(jobsCalls()).toHaveLength(1))
-
-    await user.click(
-      screen.getByRole("combobox", { name: "Filtr Priority Work" }),
-    )
-    await user.click(
-      screen.getByRole("option", { name: "Przydzielone w planie" }),
-    )
-
-    await waitFor(() => {
-      const latestCall = jobsCalls().at(-1)
-      expect(latestCall?.[1]).toMatchObject({
-        params: expect.objectContaining({ priority_work: "assigned" }),
-      })
-    })
-  })
-
-  it("opisuje brak TAC-a jako brak opiekuna TAC, nie primary klienta", async () => {
-    getMock.mockResolvedValue({
-      data: {
-        items: [
-          {
-            id: 102,
-            title: "Data Engineer",
-            status: "published",
-            headcount: 1,
-            candidates_count: 0,
-            tac_id: null,
-          },
-        ],
-        total: 1,
-        page: 1,
-        page_size: 20,
-      },
-    })
-
-    renderJobs()
-
-    // Filtr w kolumnie „Szybkie" i plakietka w wierszu — ta sama etykieta.
     expect(
-      (await screen.findAllByText("Brak opiekuna TAC")).length,
-    ).toBeGreaterThan(0)
-    expect(screen.queryByText(/primary TAC/i)).not.toBeInTheDocument()
+      screen.queryByRole("combobox", { name: "Filtr Priority Work" }),
+    ).not.toBeInTheDocument()
+    expect(jobsCalls().at(-1)?.[1]).not.toMatchObject({
+      params: expect.objectContaining({ priority_work: expect.anything() }),
+    })
   })
 })

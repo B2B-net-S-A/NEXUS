@@ -25,19 +25,19 @@ describe("detectNotePersonMismatch", () => {
   it("porównuje bez diakrytyków i wielkości liter", () => {
     expect(
       detectNotePersonMismatch(
-        "imię i nazwisko: LUKASZ WDOWKA",
+        "imię i nazwisko: LUKASZ KLODKOWY",
         "Łukasz",
-        "Wdówka",
+        "Kłódkowy",
       ),
     ).toBeNull();
   });
 
-  it("nie ostrzega przy literówce nazwiska, gdy imię pasuje (Treper vs Teper)", () => {
+  it("nie ostrzega przy literówce nazwiska, gdy imię pasuje (Trester vs Tester)", () => {
     expect(
       detectNotePersonMismatch(
-        "Imię i nazwisko: Konrad Treper",
+        "Imię i nazwisko: Konrad Trester",
         "Konrad",
-        "Teper",
+        "Tester",
       ),
     ).toBeNull();
   });
@@ -57,7 +57,7 @@ describe("detectNotePersonMismatch", () => {
       detectNotePersonMismatch(
         "<li>Imię i nazwisko: Kateryna</li><li>Stawka: 60 zł/h</li>",
         "Kateryna",
-        "Vynova",
+        "Przykładowa",
       ),
     ).toBeNull();
     expect(

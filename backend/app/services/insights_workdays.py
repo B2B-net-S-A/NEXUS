@@ -102,6 +102,10 @@ class WorkdaySyncResult:
     matched_users: int = 0
     unmatched_compass_emails: list[str] = field(default_factory=list)
     nexus_users_without_compass: list[str] = field(default_factory=list)
+    # Runda 9 (R9-N9-7): wiersze feedu dla tego samego (osoba, okres) —
+    # powtórzone z tymi samymi liczbami są zlewane, sprzeczne pomijane.
+    duplicate_rows: int = 0
+    conflicting_periods: int = 0
     basis: str | None = None
     error: str | None = None
 
@@ -115,6 +119,8 @@ class WorkdaySyncResult:
             # bez adresów nie da się naprawić konkretnego przypadku.
             "unmatched_compass_emails": sorted(self.unmatched_compass_emails),
             "nexus_users_without_compass": sorted(self.nexus_users_without_compass),
+            "duplicate_rows": self.duplicate_rows,
+            "conflicting_periods": self.conflicting_periods,
             "basis": self.basis,
             "error": self.error,
         }
@@ -148,27 +154,41 @@ async def fetch_workdays(date_from: date, date_to: date, bucket: str = "month") 
 
 
 async def sync_workdays(
-    db: AsyncSession, date_from: date, date_to: date, bucket: str = "month"
+    db: AsyncSession,
+    date_from: date,
+    date_to: date,
+    bucket: str = "month",
+    *,
+    source: str = "compass",
 ) -> WorkdaySyncResult:
-    """Zaciągnij dni robocze i zapisz je idempotentnie."""
+    """Zaciągnij dni robocze i zapisz je idempotentnie.
+
+    ``source="nexus"`` liczy te same wiersze z urlopów NEXUSA („Ludzie
+    w NEXUSIE”, krok 6) — bez sieci i bez flag Compassa.
+    """
     result = WorkdaySyncResult()
     result.months_requested = (
         (date_to.year - date_from.year) * 12 + (date_to.month - date_from.month) + 1
     )
 
-    if not settings.COMPASS_WORKDAYS_ENABLED:
-        result.error = "disabled"
-        return result
-    if not settings.COMPASS_WORKDAYS_URL or not settings.COMPASS_WORKDAYS_SECRET:
-        result.error = "unconfigured"
-        return result
+    if source == "nexus":
+        from app.services.hr.availability_local import local_workdays_payload
 
-    try:
-        payload = await fetch_workdays(date_from, date_to, bucket)
-    except Exception as exc:  # noqa: BLE001 — awaria COMPASSA nie może wywalić NEXUSA
-        logger.warning("compass_workdays_fetch_failed error=%s", exc)
-        result.error = f"fetch_failed: {exc}"
-        return result
+        payload = await local_workdays_payload(db, date_from, date_to, bucket)
+    else:
+        if not settings.COMPASS_WORKDAYS_ENABLED:
+            result.error = "disabled"
+            return result
+        if not settings.COMPASS_WORKDAYS_URL or not settings.COMPASS_WORKDAYS_SECRET:
+            result.error = "unconfigured"
+            return result
+
+        try:
+            payload = await fetch_workdays(date_from, date_to, bucket)
+        except Exception as exc:  # noqa: BLE001 — awaria COMPASSA nie może wywalić NEXUSA
+            logger.warning("compass_workdays_fetch_failed error=%s", exc)
+            result.error = f"fetch_failed: {exc}"
+            return result
 
     result.basis = payload.get("basis")
     if result.basis and result.basis != EXPECTED_BASIS:
@@ -195,7 +215,11 @@ async def sync_workdays(
 
     seen_emails: set[str] = set()
     matched_user_ids: set[int] = set()
-    to_write: list[dict] = []
+    # Runda 9 (R9-N9-7): klucz = więz `uq_user_workday_period`. Dwa wiersze tej
+    # samej osoby i okresu w jednym INSERT … ON CONFLICT dawały „ON CONFLICT DO
+    # UPDATE command cannot affect row a second time” i cały przebieg padał.
+    by_key: dict[tuple[int, date, date], dict] = {}
+    conflicting: set[tuple[int, date, date]] = set()
 
     for row in rows:
         email = str(row.get("email") or "").strip().lower()
@@ -211,19 +235,29 @@ async def sync_workdays(
         if p_start is None or p_end is None:
             continue
         matched_user_ids.add(user_id)
-        to_write.append(
-            {
-                "user_id": user_id,
-                "period_start": p_start,
-                "period_end": p_end,
-                "business_days": int(row.get("business_days") or 0),
-                "absence_days": float(row.get("absence_days") or 0),
-                "working_days": float(row.get("working_days") or 0),
-                "basis": EXPECTED_BASIS,
-                "source": "compass",
-                "synced_at": datetime.now(timezone.utc),
-            }
-        )
+        values = {
+            "user_id": user_id,
+            "period_start": p_start,
+            "period_end": p_end,
+            "business_days": int(row.get("business_days") or 0),
+            "absence_days": float(row.get("absence_days") or 0),
+            "working_days": float(row.get("working_days") or 0),
+            "basis": EXPECTED_BASIS,
+            "source": source,
+            "synced_at": datetime.now(timezone.utc),
+        }
+        key = (user_id, p_start, p_end)
+        previous = by_key.get(key)
+        if previous is None:
+            by_key[key] = values
+            continue
+        result.duplicate_rows += 1
+        numbers = ("business_days", "absence_days", "working_days")
+        if any(previous[n] != values[n] for n in numbers):
+            conflicting.add(key)
+
+    result.conflicting_periods = len(conflicting)
+    to_write = [v for k, v in by_key.items() if k not in conflicting]
 
     # Druga strona rachunku: kto w NEXUSIE nie ma odpowiednika w COMPASSIE.
     # Bez tej listy mianownik wyglądałby na kompletny przy 72% pokryciu.
@@ -266,6 +300,9 @@ async def race_workdays_to_date(
     Decyzja Artura 23.09.2026 (plan PR3): plakietka ma liczbę ZAWSZE, a jej
     źródło mówi, ile wiemy. Każda osoba dostaje wpis:
 
+    * ``"nexus"`` — urlopy NEXUSA (``hr_availability_source = local``): dni
+      robocze, które upłynęły, minus zatwierdzona nieobecność na nich
+      (``person_workdays``). Przy tym źródle dwie gałęzie niżej nie biegną.
     * ``"compass"`` — COMPASS zna nieobecności w tym oknie: miesiąc zamknięty
       (wiersz miesięczny = pełny miesiąc minus zatwierdzony urlop) albo miesiąc
       trwający, w którym COMPASS nie ma ŻADNEGO urlopu (wtedy dni kalendarzowe,
@@ -282,6 +319,17 @@ async def race_workdays_to_date(
     """
     if not user_ids:
         return {}
+    from app.services.person_workdays import nexus_absences_known, workdays_by_user
+
+    if await nexus_absences_known(db):
+        # Urlopy NEXUSA znają każdy dzień, więc także trwający miesiąc liczy
+        # dni pracy do dziś (decyzja Artura 28.10.2026, `person_workdays`).
+
+        last = min(today, month_end)
+        if last < month_start:
+            return {uid: (0.0, "nexus") for uid in user_ids}
+        worked = await workdays_by_user(db, user_ids, month_start, last)
+        return {uid: (worked[int(uid)], "nexus") for uid in user_ids}
     rows = (
         await db.execute(
             select(

@@ -4,8 +4,8 @@ Konta administracyjne są poza rankingami osób — jak w Hall of Fame. Reguła 
 to `competitions.HALL_OF_FAME_ROLES` (sourcer, TAC, rekruter, Delivery Lead,
 Head of Recruitment) plus Talent Community Manager: TCM rekomenduje i domyka
 placementy jak rekruter, a decyzja Artura dotyczyła wyłącznie kont admina.
-Admin, Finanse i inne konta bez takiej roli lądują w jednym wierszu
-„Konta administracyjne".
+Admin, Finanse, inne konta bez takiej roli i konta integracji lądują w jednym
+wierszu „Konta administracyjne".
 
 Powód: na produkcji konto administracyjne miało 32 z 77 placementów Q3 (42%)
 w „Analizie placementów" — jako jedna „osoba" na czele rankingu, choć to
@@ -41,6 +41,11 @@ async def outside_scope_user_ids(
 ) -> set[int]:
     """Istniejące konta z ``user_ids`` bez żadnej z ``PEOPLE_TABLE_ROLES``.
 
+    Do tego konta integracji (``oauth_clients.acting_user_id``, np. scrapery):
+    mają rolę TCM, bo przez nią idzie RBAC zapisu kandydatów, ale to nie osoby
+    — w październiku 2026 prowadziły ranking aktywności z 11 639 akcji przy 397
+    pierwszej osoby (decyzja Artura 30.10.2026).
+
     Konto, którego już nie ma w ``users``, NIE trafia do zbioru — jego dorobek
     zostaje tam, gdzie był (wiersz „Nieznany użytkownik”), bo nie wiemy, czy
     było administracyjne.
@@ -54,7 +59,12 @@ async def outside_scope_user_ids(
             SELECT u.id
             FROM users u
             WHERE u.id = ANY(:ids)
-              AND NOT COALESCE({_HOF_ROLE_PREDICATE}, FALSE)
+              AND (
+                NOT COALESCE({_HOF_ROLE_PREDICATE}, FALSE)
+                OR EXISTS (
+                    SELECT 1 FROM oauth_clients oc WHERE oc.acting_user_id = u.id
+                )
+              )
             """
         ),
         {"ids": ids, "roles": list(PEOPLE_TABLE_ROLES)},

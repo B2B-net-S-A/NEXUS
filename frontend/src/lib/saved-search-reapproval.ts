@@ -17,6 +17,8 @@ export const REAPPROVAL_RULE_LABELS: Record<string, string> = {
   experience_traffit_fallback:
     "staż bierze pod uwagę także przedział zaimportowany z Traffita",
   text_person_literal: "wpisany tekst jest teraz szukany jako imię i nazwisko",
+  screening_skills:
+    "filtr umiejętności liczy też umiejętności potwierdzone w screeningu",
   other: "ujednolicone zasady filtrów listy i wyszukiwarki",
 };
 

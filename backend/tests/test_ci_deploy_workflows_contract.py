@@ -19,6 +19,7 @@ cichym refaktorem:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -119,7 +120,9 @@ def test_backend_coverage_measures_branches_and_blocks_regressions() -> None:
     assert "needs.backend-coverage-combine.result" in gate["steps"][0]["run"]
 
     frontend_steps = ci["jobs"]["frontend-vitest"]["steps"]
-    assert "npm run test:coverage" in _step(frontend_steps, "Vitest with coverage")["run"]
+    assert (
+        "npm run test:coverage" in _step(frontend_steps, "Vitest with coverage")["run"]
+    )
     artifact = _step(frontend_steps, "Upload frontend coverage (artifact)")
     assert artifact["with"]["path"] == "frontend/coverage/lcov.info"
     vitest_config = (_WORKFLOWS.parents[1] / "frontend" / "vitest.config.ts").read_text(
@@ -208,9 +211,26 @@ def test_deploy_version_summary_runs_always() -> None:
     checkout = _step(steps, "Checkout (tylko .github/scripts)")
     assert checkout["with"]["sparse-checkout"] == ".github/scripts"
     precheck = _step(steps, "Skip if release already live (burst coalescing)")
-    assert precheck["if"] == "${{ github.event_name != 'workflow_dispatch' }}"
-    assert '[ "$version" = "$RELEASE_SHA" ]' in precheck["run"]
-    assert precheck["run"].count('echo "skip=true" >> "$GITHUB_OUTPUT"') == 1
+    # 18.10.2026: pomijanie rebuildu dotyczy też ręcznego biegu; omija je
+    # tylko `force_rebuild=true`. Regułę ma skrypt, nie powłoka.
+    assert precheck["if"] == (
+        "${{ !(github.event_name == 'workflow_dispatch' && "
+        "(inputs.force_rebuild == true || inputs.force_rebuild == 'true')) }}"
+    )
+    assert "deploy_needed.py" in precheck["run"]
+    assert 'echo "skip=true"' not in precheck["run"]
+    run = precheck["run"]
+    assert run.index('echo "skip=false"') < run.index("deploy_needed.py")
+    # Wartości zmiennych (sekrety) nie lądują w pliku — tylko klucz i data zmiany.
+    assert "{key, updated_at}" in precheck["run"]
+    assert precheck["env"]["ENV_UNKNOWN"] == (
+        "${{ (github.event_name != 'workflow_dispatch' || env.WINDOW_SLOT == 'true') "
+        "&& '--env-unknown-is-unchanged' || '' }}"
+    )
+    # Skrypt szuka tych kroków w historii biegów po nazwie.
+    names = [s.get("name") for s in steps]
+    assert "Trigger deployment" in names
+    assert "Wait for deployment to finish (fail fast on server-side failure)" in names
 
 
 # ── F03: pomiar przerwy (plan skracania przerwy, Etap 0) ──────────────────
@@ -345,8 +365,8 @@ def test_frontend_required_context_always_reports_even_when_skipped() -> None:
 def test_e2e_stack_verifies_the_merge_queue_not_every_pr_push() -> None:
     """226 przebiegów na PR-ach, 3 czerwone, 0 bramek: 1 506 min za sygnał.
 
-    W kolejce ten sam sygnał BLOKUJE wejście na main, czyli po raz pierwszy coś
-    znaczy. `pull_request` wraca w dniu, w którym „E2E stack (ci-chromium)”
+    W kolejce też nie blokuje, ale czerwony bieg trafia na PR przez
+    `queue-failure-feedback.yml`. `pull_request` wraca w dniu, w którym „E2E stack (ci-chromium)”
     zostanie wymaganym kontekstem rulesetu.
     """
     triggers = _triggers(_load("e2e.yml"))
@@ -641,27 +661,121 @@ def test_gitleaks_also_scans_every_commit_of_the_pr_and_merge_group() -> None:
     assert "exit 1" in commits["run"], "Brak zakresu = czerwień, nie cichy pass."
 
 
-def test_deploy_freezes_at_night_and_catches_up_in_the_morning() -> None:
-    """PROD-04: automatyczny deploy w oknie ciszy (domyślnie 0-7 Warszawa)
-    jest odraczany; poranny `schedule` wdraża zaległe merge'e."""
+def test_deploy_waits_for_the_evening_window() -> None:
+    """Decyzja Artura 14.10.2026: wdrożenia tylko 18:00–08:00 (Warszawa).
+
+    Okno ciszy `8-18` obowiązuje bez zmiennej repo, także ręczny dispatch
+    (np. z „Coolify set env”); omija je tylko `emergency` z powodem. Zaległe
+    merge'e dnia wdraża wieczorny `schedule` — kilka slotów, bo cron GitHuba
+    potrafi przyjść z kilkugodzinnym opóźnieniem albo wcale (26.09.2026)."""
     deploy = _load("deploy.yml")
     crons = [entry["cron"] for entry in _triggers(deploy)["schedule"]]
-    assert crons == ["15 5,6 * * *"], "05:15Z = 07:15 latem, 06:15Z = 07:15 zimą."
+    assert crons == ["23 16,17,18,19,20,21 * * *", "23 4 * * *"], (
+        "16:23Z = 18:23 latem, 17:23Z = 18:23 zimą; 04:23Z = zapas przed 08:00."
+    )
     select = deploy["jobs"]["select"]
     assert "github.event_name == 'schedule'" in select["if"]
     assert "github.ref == 'refs/heads/main'" in select["if"]
     step = _step(select["steps"], "Wybierz wydanie")
     freeze = step["env"]["FREEZE_WINDOW"]
-    assert "vars.DEPLOY_FREEZE_WINDOW" in freeze and "'0-7'" in freeze
-    assert "github.event_name != 'workflow_dispatch'" in freeze, (
-        "Ręczny deploy nie pyta o okno ciszy."
+    assert freeze == "8-18", (
+        "Okno ciszy 18:00–08:00 obowiązuje bez zmiennej repo i dla ręcznego dispatchu."
     )
+    quiet = _step(select["steps"], "Poczekaj na ciszę na mainie (grupowanie deployów)")
+    assert quiet["env"]["FREEZE_WINDOW"] == freeze
     assert '--freeze-window "$FREEZE_WINDOW"' in step["run"]
     assert "$SCHEDULED" in step["run"]
-    assert (
-        step["env"]["SCHEDULED"]
-        == "${{ github.event_name == 'schedule' && '--scheduled' || '' }}"
+    assert step["env"]["SCHEDULED"] == (
+        "${{ (github.event_name == 'schedule' || env.WINDOW_SLOT == 'true') "
+        "&& '--scheduled' || '' }}"
     )
+
+    inputs = _triggers(deploy)["workflow_dispatch"]["inputs"]
+    assert inputs["emergency"]["type"] == "boolean"
+    assert inputs["emergency"]["default"] is False
+    assert inputs["reason"]["type"] == "string"
+    assert step["env"]["EMERGENCY"] == (
+        "${{ github.event_name == 'workflow_dispatch' && inputs.emergency "
+        "&& '--emergency' || '' }}"
+    )
+    # Powód idzie przez `env:` — wpisany przez człowieka tekst nie może
+    # trafić do treści skryptu przez interpolację `${{ }}`.
+    assert step["env"]["DEPLOY_REASON"] == "${{ inputs.reason }}"
+    assert '--reason "$DEPLOY_REASON"' in step["run"]
+    assert "inputs.reason" not in step["run"]
+
+
+def test_freeze_window_hours_live_only_in_code() -> None:
+    """29.10.2026: okno przesunięte 22.10 na 18:00–08:00 dalej działało do 19:00,
+    bo `vars.DEPLOY_FREEZE_WINDOW` (stare `7-19`) miało pierwszeństwo przed
+    wartością w kodzie. Godziny okna stoją wyłącznie w workflowach."""
+    for path in sorted(_WORKFLOWS.glob("*.yml")):
+        raw = path.read_text(encoding="utf-8")
+        assert "vars.DEPLOY_FREEZE_WINDOW" not in raw, (
+            f"{path.name}: godziny okna z kodu, nie ze zmiennej repo"
+        )
+        for value in re.findall(r"FREEZE_WINDOW:\s*(.+)", raw):
+            assert value.strip() == '"8-18"', f"{path.name}: okno {value.strip()}"
+
+
+def test_window_slot_dispatch_behaves_like_the_evening_schedule() -> None:
+    """Budzik `deploy-window` (15.10.2026) uruchamia Deploy przez API, bo cron
+    GitHuba przychodzi z kilkugodzinnym opóźnieniem albo wcale. Jego dispatch
+    ma się zachować jak `schedule`: odroczenie w dzień bez czerwieni, pominięcie
+    rebuildu, gdy produkcja ma już HEAD, i alarmy, bo nikt go nie ogląda."""
+    deploy = _load("deploy.yml")
+    slot = _triggers(deploy)["workflow_dispatch"]["inputs"]["window_slot"]
+    assert slot["type"] == "boolean" and slot["default"] is False
+    assert deploy["env"]["WINDOW_SLOT"] == (
+        "${{ github.event_name == 'workflow_dispatch' && "
+        "(inputs.window_slot == true || inputs.window_slot == 'true') }}"
+    )
+    alarm_if = (
+        "${{ failure() && (github.event_name != 'workflow_dispatch' "
+        "|| env.WINDOW_SLOT == 'true') }}"
+    )
+    select_steps = deploy["jobs"]["select"]["steps"]
+    assert _step(select_steps, "Alarm — wybór wydania padł")["if"] == alarm_if
+    deploy_steps = deploy["jobs"]["deploy"]["steps"]
+    assert _step(deploy_steps, "Alarm — czerwony deploy")["if"] == alarm_if
+    trigger = _step(deploy_steps, "Trigger deployment")
+    assert "window_slot" not in trigger["env"]["FORCE_REBUILD"], (
+        "Slot okna nigdy nie przebudowuje bez cache."
+    )
+
+
+def test_uptime_probe_alerts_on_a_night_without_deploy() -> None:
+    """Wieczorny cron może nie przyjść — w dzień sonda sprawdza, czy noc
+    wdrożyła merge'e sprzed 08:00, i otwiera/zamyka jedno issue."""
+    job = _load("uptime-probe.yml")["jobs"]["night-deploy"]
+    assert job["if"] == "${{ github.event_name == 'schedule' }}"
+    assert job["permissions"]["issues"] == "write"
+    check = _step(job["steps"], "Czy noc wdrożyła merge'e sprzed 08:00?")
+    assert "select_release_sha.py night-check" in check["run"]
+    assert check["env"]["FREEZE_WINDOW"] == "8-18"
+    marker = "Deploy NEXUS — noc bez wdrożenia"
+    assert marker in _step(job["steps"], "Alarm — noc bez wdrożenia")["run"]
+    assert marker in _step(job["steps"], "Zamknij alarm nocy")["run"]
+
+
+def test_queue_maintenance_redeploy_respects_the_window() -> None:
+    """`mode=redeploy` buduje produkcję z pominięciem `deploy.yml` — bez
+    bramki okna byłby bocznymi drzwiami do przebudowy w ciągu dnia."""
+    wf = _load("coolify-queue-maintenance.yml")
+    inputs = _triggers(wf)["workflow_dispatch"]["inputs"]
+    assert inputs["emergency"]["type"] == "boolean"
+    assert inputs["emergency"]["default"] is False
+    steps = wf["jobs"]["maintain"]["steps"]
+    names = [step.get("name") for step in steps]
+    gate = _step(steps, "Okno wdrożeń 18:00–08:00")
+    assert names.index("Okno wdrożeń 18:00–08:00") < names.index(
+        "Cancel stuck deployments"
+    )
+    assert gate["if"] == "${{ inputs.mode == 'redeploy' }}"
+    assert gate["env"]["FREEZE_WINDOW"] == "8-18"
+    assert "select_release_sha.py in-freeze" in gate["run"]
+    assert "inputs.reason" not in gate["run"]
+    assert gate["env"]["REASON"] == "${{ inputs.reason }}"
 
 
 def test_held_and_red_deploys_open_and_close_an_issue() -> None:
@@ -742,7 +856,7 @@ def test_queue_failure_feedback_reports_ejected_merge_group_runs() -> None:
     wyrzucane po 4–6 razy, bo nikt nie mówił sesji, że PR wypadł."""
     wf = _load("queue-failure-feedback.yml")
     trigger = _triggers(wf)["workflow_run"]
-    assert trigger["workflows"] == ["CI"]
+    assert trigger["workflows"] == ["CI", "E2E (Playwright)"]
     assert trigger["types"] == ["completed"]
     job = wf["jobs"]["feedback"]
     condition = " ".join(str(job["if"]).split())
@@ -754,3 +868,244 @@ def test_queue_failure_feedback_reports_ejected_merge_group_runs() -> None:
         "queue_failure_feedback.py"
         in _step(job["steps"], "Status i komentarz na PR-ach z grupy")["run"]
     )
+
+
+def test_preview_harnesses_run_in_queue_when_group_touches_frontend() -> None:
+    """27.10.2026 #2692 i #2732 zepsuły testy harnessów, a krok był w kolejce
+    wyłączony: zielona kolejka, 5 czerwonych nocy (#2745). Filtr ma złapać obie
+    zmiany i odpuścić grupę bez frontendu (102 z 361 grup z 26.10–02.11)."""
+    steps = _load("e2e.yml")["jobs"]["stack"]["steps"]
+    scope = _step(steps, "Czy grupa dotyka frontendu?")
+    assert scope["id"] == "preview-scope"
+    assert "github.event.merge_group.base_sha" in scope["env"]["BASE_SHA"]
+
+    preview = _step(steps, "Playwright — harnessy /preview/* (preview-chromium)")
+    condition = preview["if"]
+    assert "github.event_name != 'merge_group'" in condition
+    assert "steps.preview-scope.outputs.run == 'true'" in condition
+
+    pattern = re.search(r"grep -E '([^']+)'", scope["run"]).group(1)
+    for touched in (
+        "frontend/src/components/v2/request-board/RequestBoardFilters.tsx",  # #2692
+        "frontend/src/components/QueryProvider.tsx",  # #2732
+        "frontend/e2e/responsive-preview.spec.ts",
+        "docker-compose.e2e.yml",
+        ".github/workflows/e2e.yml",
+    ):
+        assert re.search(pattern, touched), touched
+    for untouched in ("backend/app/main.py", "docs/claude/podstawy/ci-gotchas.md"):
+        assert not re.search(pattern, untouched), untouched
+
+
+# ── Runda 6 audytu (26.09.2026) — artefakty biegów przeciw produkcji ──────
+
+
+def test_e2e_against_production_uploads_no_playwright_report() -> None:
+    """W5: raport Playwrighta z biegu przeciw produkcji (trace, wideo, zrzuty)
+    niesie token konta E2E z localStorage i odpowiedzi API z danymi z bazy,
+    a artefakt publicznego repo pobierze każdy. Job ``playwright`` zawsze
+    celuje w produkcję; raport zostaje tylko w ``stack`` (pusta baza CI)."""
+    jobs = _load("e2e.yml")["jobs"]
+    prod_uploads = [
+        s for s in jobs["playwright"]["steps"] if "upload-artifact" in s.get("uses", "")
+    ]
+    assert not prod_uploads, "Job `playwright` (produkcja) wgrywa artefakt."
+    stack_upload = _step(jobs["stack"]["steps"], "Upload report on failure")
+    assert "frontend/playwright-report/" in stack_upload["with"]["path"]
+
+
+def test_playwright_records_traces_only_against_a_local_stack() -> None:
+    """W5, druga warstwa: trace/wideo/zrzuty nagrywane są wyłącznie przy celu
+    lokalnym — gdyby ktoś przywrócił upload, raport z produkcji będzie pusty."""
+    config = (
+        Path(__file__).parents[2] / "frontend" / "playwright.config.ts"
+    ).read_text(encoding="utf-8")
+    assert "isLocalTarget" in config
+    for literal in (
+        'trace: "retain-on-failure"',
+        'video: "retain-on-failure"',
+        'screenshot: "only-on-failure"',
+    ):
+        assert literal not in config, f"{literal} bez warunku celu lokalnego"
+
+
+# ── Runda 10 (R10-N10-1): harnessy /preview/* publiczne tylko na stacku E2E ──
+
+
+def test_preview_harness_flag_is_limited_to_the_e2e_stack() -> None:
+    """Na produkcji `/preview/*` wymaga logowania. Flagę builda, która otwiera
+    harnessy bez sesji, niesie wyłącznie stack E2E — compose czytane przez
+    Coolify nie mogą jej przekazać, a publiczny `preview-chromium` chodzi na
+    stacku, nie przeciw produkcji."""
+    repo = _WORKFLOWS.parents[1]
+    stack = yaml.safe_load(
+        (repo / "docker-compose.e2e.yml").read_text(encoding="utf-8")
+    )
+    args = stack["services"]["frontend"]["build"]["args"]
+    assert args["NEXT_PUBLIC_PREVIEW_PUBLIC"] == "1"
+    for name in (
+        "docker-compose.yml",
+        "docker-compose.prod.yml",
+        "docker-compose.override.yml",
+    ):
+        path = repo / name
+        if path.exists():
+            assert "NEXT_PUBLIC_PREVIEW_PUBLIC" not in path.read_text(
+                encoding="utf-8"
+            ), name
+
+    e2e = _load("e2e.yml")
+    stack_runs = "\n".join(
+        str(step.get("run", "")) for step in e2e["jobs"]["stack"]["steps"]
+    )
+    assert "--project=preview-chromium" in stack_runs
+    prod_runs = "\n".join(
+        str(step.get("run", "")) for step in e2e["jobs"]["playwright"]["steps"]
+    )
+    assert "preview-chromium" not in prod_runs
+
+
+def test_coolify_deploy_webhook_is_called_with_post() -> None:
+    """Coolify od 01.10.2026 odrzuca GET na /api/v1/deploy (HTTP 405), więc
+    każde wywołanie webhooka deployu musi iść POST-em."""
+    for name in ("deploy.yml", "coolify-queue-maintenance.yml"):
+        raw = (_WORKFLOWS / name).read_text(encoding="utf-8")
+        calls = re.findall(r"curl[^\n]*(?:\\\n[^\n]*)*?/api/v1/deploy\?", raw)
+        assert calls, name
+        for call in calls:
+            assert "-X POST" in call and "-X GET" not in call, (name, call)
+
+
+def test_migration_rechain_probes_the_token_before_checkout() -> None:
+    """22–28.10.2026: `QUEUE_BOT_TOKEN` wygasł (API: 401 Bad credentials), krok
+    „Sprawdź token” patrzył tylko, czy sekret jest niepusty, a checkout z tym
+    tokenem padał na `could not read Username` — 20 czerwonych biegów bez
+    słowa o tokenie, #2724 i #2741 przepinane ręcznie."""
+    steps = _load("migration-rechain.yml")["jobs"]["rechain"]["steps"]
+    token = _step(steps, "Sprawdź token")
+    run = token["run"]
+    assert token["env"]["GH_TOKEN"] == "${{ secrets.QUEUE_BOT_TOKEN }}"
+    assert 'gh api "repos/$REPO"' in run, "Token trzeba sprawdzić w API, nie tylko -z."
+    assert ".permissions.push" in run, "PAT bez Contents: write i tak nie wypchnie."
+    assert "ok=false" in run and "::warning::" in run
+    assert "exit 1" not in run, "Zły token = ostrzeżenie, nie czerwony bieg."
+    assert steps.index(token) == 0
+    for step in steps[1:]:
+        assert "steps.token.outputs.ok == 'true'" in step.get("if", ""), step.get("name")
+
+
+def test_migration_prs_wait_in_the_lane_before_auto_merge() -> None:
+    """25–28.10.2026: 54 z 54 czerwonych bramek kolejki to dwie głowy
+    Alembica — kilka PR-ów z migracją naraz w kolejce wywracało każdą grupę
+    od drugiej, także PR-y bez migracji. W kolejce jest najwyżej jeden."""
+    job = _load("auto-enqueue.yml")["jobs"]["enqueue"]
+    assert "'czeka-na-migracje'" in job["if"], "Zaparkowany PR nie wraca po pushu."
+    run = job["steps"][0]["run"]
+    lane = run.index('python3 "$lane" admit')
+    assert run.index("gh pr view") < lane < run.index("--squash --auto")
+    assert "contents/.github/scripts/queue_migration_lane.py?ref=main" in run, (
+        "Skrypt z maina, nie z gałęzi PR-a — w kroku jest PAT."
+    )
+    lane_src = (_WORKFLOWS.parent / "scripts" / "queue_migration_lane.py").read_text(
+        encoding="utf-8"
+    )
+    code = re.search(r"^WAIT_EXIT = (\d+)$", lane_src, re.M).group(1)
+    assert f'"$rc" -eq {code}' in run, "Kod „czekaj” w skrypcie i w kroku."
+    # Krok biegnie pod `bash -e`: bez `|| rc=$?` kod inny niż 0 kończy job na
+    # czerwono, zanim `rc` zostanie odczytany, a „wpuszczam jak dawniej” nie działa.
+    admit_line = next(line for line in run.splitlines() if "admit --repo" in line)
+    assert admit_line.rstrip().endswith("|| rc=$?"), admit_line
+
+
+def test_queue_runs_the_migration_lane_after_every_group_check() -> None:
+    wf = _load("queue-migration-lane.yml")
+    run_trigger = _triggers(wf)["workflow_run"]
+    assert set(run_trigger["workflows"]) == {"CI Gate", "CI"}
+    assert run_trigger["branches"] == ["gh-readonly-queue/**"]
+    assert wf["concurrency"]["cancel-in-progress"] is False
+    job = wf["jobs"]["lane"]
+    assert "merge_group" in job["if"]
+    step = _step(job["steps"], "Pilnuj pasa migracji")
+    assert step["env"]["GH_TOKEN"] == "${{ secrets.QUEUE_BOT_TOKEN }}", (
+        "Etykieta zdjęta tokenem Actions nie uruchomi auto-enqueue."
+    )
+    assert "queue_migration_lane.py" in step["run"] and "enforce" in step["run"]
+
+
+def test_rechain_parks_the_lane_before_pushing() -> None:
+    steps = _load("migration-rechain.yml")["jobs"]["rechain"]["steps"]
+    copy = _step(steps, "Skrypty z maina do katalogu tymczasowego")
+    assert ".github/scripts/queue_migration_lane.py" in copy["run"]
+    lane = _step(steps, "Pas migracji przed przepięciem")
+    assert lane["env"]["GH_TOKEN"] == "${{ secrets.QUEUE_BOT_TOKEN }}"
+    assert '"$RUNNER_TEMP/queue_migration_lane.py"' in lane["run"]
+    assert steps.index(lane) < steps.index(_step(steps, "Przepnij")), (
+        "Najpierw etykiety, potem push — inaczej auto-enqueue wrzuci wszystkich."
+    )
+    after = _step(steps, "Pas migracji po przepięciu (kolej następnego)")
+    assert steps.index(after) > steps.index(_step(steps, "Przepnij")), (
+        "Kolej dostaje dopiero przepięty PR, a pusty pas nikt inny nie obudzi."
+    )
+    assert after["env"]["GH_TOKEN"] == "${{ secrets.QUEUE_BOT_TOKEN }}"
+    assert '"$RUNNER_TEMP/queue_migration_lane.py"' in after["run"]
+    assert "!cancelled()" in after["if"], "Błąd przepięcia jednego PR-a nie wstrzymuje pasa."
+
+
+def test_lane_asks_for_rechain_with_the_actions_token() -> None:
+    """PR wypadł z kolejki, a main się nie zmienił: bez tego nic nie przepnie
+    PR-a, który stał na jego migracji. `QUEUE_BOT_TOKEN` nie ma „Actions”."""
+    job = _load("queue-migration-lane.yml")["jobs"]["lane"]
+    assert job["permissions"]["actions"] == "write"
+    lane = _step(job["steps"], "Pilnuj pasa migracji")
+    step = _step(job["steps"], "Przepnij po wypadnięciu z pasa")
+    assert job["steps"].index(lane) < job["steps"].index(step)
+    assert lane["id"] == "lane"
+    assert step["if"] == "steps.lane.outputs.rechain == 'true'"
+    assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert "migration-rechain.yml" in step["run"] and "dry_run=false" in step["run"], (
+        "Ręczny bieg ma domyślnie dry_run=true, czyli nie przepiąłby niczego."
+    )
+    # Bieg przepięcia sam nie woła kolejnego: `enforce` po nim nie czyta `rechain`.
+    rechain = _load("migration-rechain.yml")["jobs"]["rechain"]["steps"]
+    assert not any("gh workflow run" in s.get("run", "") for s in rechain)
+
+
+def test_missing_parent_stub_runs_only_on_pull_requests() -> None:
+    """Drugi PR w pasie ma rodzica w PR-ze przed nim. W kolejce zaślepki być nie
+    może: gdy pierwszy wypadnie, czerwona „Jedna głowa” trzyma sierotę poza mainem."""
+    name = "Zaślepka rodzica z PR-a przed tym w pasie"
+    gate = _load("ci-gate.yml")["jobs"]["backend-fast"]["steps"]
+    stub = _step(gate, name)
+    assert stub["if"] == "${{ github.event_name == 'pull_request' }}"
+    assert "--stub-missing-parent" in stub["run"]
+    assert gate.index(stub) < gate.index(_step(gate, "Jedna głowa Alembica"))
+
+    job = _load("ci.yml")["jobs"]["backend-pr-tests"]
+    assert job["if"] == "${{ github.event_name == 'pull_request' }}"
+    sieve = job["steps"]
+    stub = _step(sieve, name)
+    assert "--stub-missing-parent" in stub["run"]
+    assert sieve.index(stub) < sieve.index(_step(sieve, "Apply migrations"))
+
+    for wf in ("ci-gate.yml", "ci.yml"):
+        for job_name, job in _load(wf)["jobs"].items():
+            for step in job.get("steps", []):
+                if "--stub-missing-parent" not in step.get("run", ""):
+                    continue
+                on_pr_only = "pull_request" in step.get("if", "") or (
+                    "== 'pull_request'" in job.get("if", "")
+                )
+                assert on_pr_only, (wf, job_name, step.get("name"))
+
+
+def test_two_heads_in_the_queue_cancel_the_groups_full_ci() -> None:
+    job = _load("ci-gate.yml")["jobs"]["backend-fast"]
+    assert job["permissions"]["actions"] == "write"
+    steps = job["steps"]
+    heads = _step(steps, "Jedna głowa Alembica")
+    cancel = _step(steps, "Anuluj pełne CI grupy z dwiema głowami")
+    assert heads["id"] == "heads"
+    assert steps.index(cancel) == steps.index(heads) + 1
+    assert "steps.heads.outcome == 'failure'" in cancel["if"]
+    assert "github.event_name == 'merge_group'" in cancel["if"]
+    assert "(ci|e2e)" in cancel["run"] and "gh run cancel" in cancel["run"]

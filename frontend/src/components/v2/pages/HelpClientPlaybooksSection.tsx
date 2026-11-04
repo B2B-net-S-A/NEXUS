@@ -30,7 +30,10 @@ import { ClientPlaybookCard } from "@/components/client-playbook/ClientPlaybookC
 import { EmptyState } from "@/components/ds/EmptyState";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Input } from "@/components/ui/input";
-import { useClientPlaybooksOverview } from "@/lib/client-playbooks";
+import {
+  clientPlaybookEditHref,
+  useClientPlaybooksOverview,
+} from "@/lib/client-playbooks";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
@@ -206,7 +209,7 @@ export function HelpClientPlaybooksSection() {
           <ClientPlaybookCard
             clientId={selectedId}
             variant="full"
-            editHref={`/clients/${selectedId}?tab=zasady`}
+            editHref={clientPlaybookEditHref(selectedId)}
           />
         )}
       </section>

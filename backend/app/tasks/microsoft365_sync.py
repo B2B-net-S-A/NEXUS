@@ -14,12 +14,13 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.encryption import TokenCipherNotConfigured
+from app.models.app_setting import AppSetting
 from app.models.calendar_event import CalendarEvent
 from app.models.m365 import (
     Email,
@@ -144,7 +145,7 @@ async def _tick(interval: int) -> None:
         # execution session below to close the role-change race.
         eligible_connections: list[M365Connection] = []
         for connection in connections:
-            if await connection_owner_is_eligible(db, connection):
+            if await connection_owner_is_eligible(db, connection, sales_ok=True):
                 eligible_connections.append(connection)
         connections = eligible_connections
 
@@ -159,7 +160,7 @@ async def _tick(interval: int) -> None:
                 fresh = await db.get(M365Connection, conn_id)
                 if fresh is None or not fresh.is_active:
                     continue
-                if not await connection_owner_is_eligible(db, fresh):
+                if not await connection_owner_is_eligible(db, fresh, sales_ok=True):
                     logger.warning(
                         "m365 scheduled sync refused for ineligible connection_id=%s",
                         conn_id,
@@ -205,6 +206,8 @@ async def _tick(interval: int) -> None:
 #   - `match_method=manual` rows are already linked (skipped by NULL filter).
 #   - We never touch a row that someone manually re-linked — only rows still
 #     in the `unmatched` state.
+#   - Ręcznie ODPIĘTY mail (`unmatched` + `matched_by_user_id`) też jest
+#     decyzją i nie wraca do kandydata (runda 6 audytu).
 
 
 @dataclass(frozen=True)
@@ -263,22 +266,51 @@ async def _rematch_pass(db: AsyncSession) -> RematchStats:
     batch_size = max(1, settings.M365_REMATCH_BATCH_SIZE)
     cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
 
+    # Runda 9 (R9-N10-13): bez kursora każdy bieg brał te same `batch_size`
+    # najnowszych niedopasowanych maili (poczta spoza kandydatów zostaje
+    # niedopasowana na zawsze), więc starsze w oknie nigdy nie były ponawiane.
+    # Kursor (received_at, id) idzie od najnowszych w dół i zawija się na
+    # początek, gdy paczka jest niepełna.
+    cursor_row = await db.get(AppSetting, REMATCH_CURSOR_KEY)
+    cursor = _parse_rematch_cursor(cursor_row.value if cursor_row else None, cutoff)
+
     stmt = (
         select(Email)
         .where(
             Email.candidate_id.is_(None),
             Email.match_method == EmailMatchMethod.unmatched,
             Email.received_at > cutoff,
+            # Runda 6 audytu: ręcznie odpięty mail (decyzja rekrutera) i mail
+            # prywatny (kategoria wyłączona z NEXUSA) nie są przypinane.
+            Email.matched_by_user_id.is_(None),
+            Email.is_private_filtered.is_(False),
         )
-        .order_by(Email.received_at.desc())
+        .order_by(Email.received_at.desc(), Email.id.desc())
         .limit(batch_size)
     )
+    if cursor is not None:
+        stmt = stmt.where(tuple_(Email.received_at, Email.id) < tuple_(*cursor))
     result = await db.execute(stmt)
     candidates_to_try = list(result.scalars().all())
+
+    cursor_changed = False
+    if len(candidates_to_try) >= batch_size:
+        last = candidates_to_try[-1]
+        value = {"received_at": last.received_at.isoformat(), "id": last.id}
+        if cursor_row is None:
+            db.add(AppSetting(key=REMATCH_CURSOR_KEY, value=value))
+        else:
+            cursor_row.value = value
+        cursor_changed = True
+    elif cursor_row is not None and cursor_row.value:
+        # Koniec okna — następny bieg zaczyna od najnowszych.
+        cursor_row.value = {}
+        cursor_changed = True
 
     processed = 0
     matched = 0
     owner_eligibility: dict[int, bool] = {}
+    owner_mailbox: dict[int, str | None] = {}
     for email in candidates_to_try:
         if email.user_id not in owner_eligibility:
             owner_eligibility[email.user_id] = (
@@ -287,12 +319,20 @@ async def _rematch_pass(db: AsyncSession) -> RematchStats:
         if not owner_eligibility[email.user_id]:
             continue
         processed += 1
+        if email.user_id not in owner_mailbox:
+            owner_mailbox[email.user_id] = await db.scalar(
+                select(M365Connection.mailbox_upn).where(
+                    M365Connection.user_id == email.user_id
+                )
+            )
         dto = IncomingMessage(
             from_address=email.from_address or "",
             to_addresses=_addresses(email.to_addresses),
             cc_addresses=_addresses(email.cc_addresses),
             subject=email.subject,
             conversation_id=email.m365_conversation_id,
+            # Runda 6 audytu: adres skrzynki nie wskazuje kandydata (lustro syncu).
+            owner_address=owner_mailbox[email.user_id],
         )
         try:
             m = await matcher_mod.match(db, dto)
@@ -321,10 +361,31 @@ async def _rematch_pass(db: AsyncSession) -> RematchStats:
         email.matched_at = datetime.now(timezone.utc)
         matched += 1
 
-    if matched:
+    if matched or cursor_changed:
         await db.commit()
 
     return RematchStats(processed=processed, matched=matched)
+
+
+REMATCH_CURSOR_KEY = "m365_rematch_cursor"
+
+
+def _parse_rematch_cursor(
+    value: object, cutoff: datetime
+) -> tuple[datetime, int] | None:
+    """Kursor z `app_settings` albo None (brak, uszkodzony, spoza okna)."""
+    if not isinstance(value, dict):
+        return None
+    try:
+        received_at = datetime.fromisoformat(str(value["received_at"]))
+        email_id = int(value["id"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if received_at.tzinfo is None:
+        received_at = received_at.replace(tzinfo=timezone.utc)
+    if received_at <= cutoff:
+        return None
+    return received_at, email_id
 
 
 def _addresses(raw: object) -> list[str]:
@@ -419,7 +480,7 @@ async def _renewal_tick(db: AsyncSession) -> None:
                 await db.delete(sub)
             await db.commit()
             continue
-        if not await connection_owner_is_eligible(db, conn):
+        if not await connection_owner_is_eligible(db, conn, sales_ok=True):
             logger.warning(
                 "subscription renewal refused for ineligible connection_id=%s",
                 conn_id,
@@ -427,7 +488,7 @@ async def _renewal_tick(db: AsyncSession) -> None:
             continue
 
         try:
-            async with GraphClient(conn, db) as gc:
+            async with GraphClient(conn, db, sales_ok=True) as gc:
                 for sub in subs:
                     try:
                         await m365_webhooks.renew(db, gc, sub)
@@ -469,7 +530,7 @@ async def _backfill_missing_subscriptions(db: AsyncSession) -> None:
         return
 
     for conn in connections:
-        if not await connection_owner_is_eligible(db, conn):
+        if not await connection_owner_is_eligible(db, conn, sales_ok=True):
             continue
         existing_result = await db.execute(
             select(GraphSubscription.resource).where(
@@ -594,7 +655,13 @@ async def _recording_discovery_pass(db: AsyncSession) -> RecordingDiscoveryStats
             CalendarEvent.end_time < settle_cutoff,
             CalendarEvent.end_time > lookback_cutoff,
         )
-        .order_by(CalendarEvent.end_time.desc())
+        # Runda 7 (R7-N5-1): najpierw nigdy nie sprawdzane, potem najdawniej
+        # sprawdzane — bez tego co 6 h skanowane były te same najnowsze
+        # wydarzenia, a starsze w oknie nigdy.
+        .order_by(
+            CalendarEvent.recording_discovered_at.asc().nulls_first(),
+            CalendarEvent.end_time.desc(),
+        )
         .limit(batch_size)
     )
     result = await db.execute(stmt)
@@ -602,42 +669,61 @@ async def _recording_discovery_pass(db: AsyncSession) -> RecordingDiscoveryStats
 
     processed = 0
     matched = 0
+    # Runda 8 (R8-V3-6): stempel `recording_discovered_at` dostaje KAŻDE
+    # wydarzenie z paczki — także pominięte (bez organizatora, organizator bez
+    # połączenia M365, błąd Graphu). Bez tego przy `nulls_first` takie wiersze
+    # zajmowały całą paczkę co przebieg i zagładzały resztę. Stempel tylko
+    # przesuwa wiersz na koniec kolejki; `recording_url IS NULL` wraca do niego
+    # w kolejnych przebiegach (np. po ponownym połączeniu konta).
+    skipped_ids: list[int] = []
+    # Pola czytane PRZED Graphem: rollback paczki jednego organizatora wygasza
+    # wszystkie obiekty sesji, a odczyt wygaszonego atrybutu w sesji async to
+    # MissingGreenlet dla kolejnych paczek.
+    snapshot = {
+        id(event): (event.id, event.online_meeting_url, event.end_time)
+        for event in events
+    }
     # Group by organiser so we open one GraphClient per connection — token
     # decrypt + httpx session setup is non-trivial work to do per event.
     by_organiser: dict[int, list[CalendarEvent]] = {}
     for event in events:
         if event.created_by is None:
-            # No organiser → no OneDrive to scan. Skip silently.
+            # No organiser → no OneDrive to scan.
+            skipped_ids.append(event.id)
             continue
         by_organiser.setdefault(event.created_by, []).append(event)
 
     for user_id, batch in by_organiser.items():
+        batch_ids = [snapshot[id(event)][0] for event in batch]
         conn = await _active_connection_for_user(db, user_id)
         if conn is None:
-            # No live M365 connection for the organiser — leave events alone,
-            # next pass will retry once the user reconnects.
+            # No live M365 connection for the organiser — rotate the events to
+            # the back; a later pass retries once the user reconnects.
+            skipped_ids.extend(batch_ids)
             continue
+        conn_id = conn.id
 
         try:
             async with GraphClient(conn, db) as gc:
                 for event in batch:
+                    event_id, meeting_url, end_time = snapshot[id(event)]
                     processed += 1
+                    # Mark the scan as having happened either way (also on a
+                    # Graph error) so the next pass deprioritises this row.
+                    event.recording_discovered_at = now
                     try:
                         url = await find_meeting_recording(
                             gc,
-                            online_meeting_url=event.online_meeting_url,
-                            event_end_at=event.end_time,  # type: ignore[arg-type]
+                            online_meeting_url=meeting_url,
+                            event_end_at=end_time,  # type: ignore[arg-type]
                         )
                     except asyncio.CancelledError:
                         raise
                     except Exception:  # noqa: BLE001
                         logger.exception(
-                            "recording discovery failed for event id=%s", event.id
+                            "recording discovery failed for event id=%s", event_id
                         )
                         continue
-                    # Mark the scan as having happened either way so the
-                    # next pass can deprioritise "looked but not found" rows.
-                    event.recording_discovered_at = now
                     if url:
                         event.recording_url = url[:998]
                         matched += 1
@@ -646,15 +732,29 @@ async def _recording_discovery_pass(db: AsyncSession) -> RecordingDiscoveryStats
             # Sync loop already handles this for the connection; skip silently
             # to avoid Sentry flood (we run every 6h vs sync's 5 min).
             logger.warning(
-                "recording discovery skip: conn=%s token undecryptable", conn.id
+                "recording discovery skip: conn=%s token undecryptable", conn_id
             )
+            await db.rollback()
+            skipped_ids.extend(batch_ids)
         except Exception:  # noqa: BLE001
             logger.exception(
                 "recording discovery: connection %s failed (batch=%d)",
-                conn.id,
+                conn_id,
                 len(batch),
             )
             await db.rollback()
+            skipped_ids.extend(batch_ids)
+
+    if skipped_ids:
+        # UPDATE po id zebranych przed Graphem — po rollbacku obiekty są
+        # wygaszone, a rollback innej paczki cofnąłby stempel ustawiony wcześniej.
+        await db.execute(
+            update(CalendarEvent)
+            .where(CalendarEvent.id.in_(skipped_ids))
+            .values(recording_discovered_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        await db.commit()
 
     return RecordingDiscoveryStats(processed=processed, matched=matched)
 

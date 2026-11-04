@@ -118,11 +118,14 @@ async def get_kpis(
             # PR 4 (plan analytics): ranking z kanonicznej atrybucji
             # (VERIFIER_ANCHORED_CTE / view analytics_first_milestones) —
             # te same liczby co panel „Moje KPI" i panel zespołu.
-            from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+            from app.services.credited_snapshot import (
+                CREDITED_FROM_SNAPSHOT_CTE,
+                credited_bind,
+            )
 
             leaderboard_result = await db.execute(
                 text(
-                    VERIFIER_ANCHORED_CTE
+                    CREDITED_FROM_SNAPSHOT_CTE
                     + """
                     SELECT u.id, u.name,
                            count(*) AS total_milestones,
@@ -136,7 +139,7 @@ async def get_kpis(
                     LIMIT 5
                     """
                 ),
-                {"month_start": first_of_month},
+                {"month_start": first_of_month, **await credited_bind(db)},
             )
             top_recruiters = [
                 {

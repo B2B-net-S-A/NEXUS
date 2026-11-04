@@ -9,6 +9,8 @@ import {
 } from "@/lib/request-status";
 import {
   selectedSentCount,
+  similarityHint,
+  similarityLabel,
   type SimilarJobItem,
 } from "@/lib/similar-jobs-api";
 
@@ -29,6 +31,16 @@ function item(id: number, sent: number): SimilarJobItem {
 describe("podobne rekrutacje (0341)", () => {
   it("liczy osoby do przepięcia z zaznaczonych rekrutacji", () => {
     expect(selectedSentCount([item(1, 3), item(2, 5)], new Set([2]))).toBe(5);
+  });
+
+  it("wektor rekrutacji pokazuje „≈ N%”, dawny wzór — „N%” (30.09.2026)", () => {
+    expect(similarityLabel({ similarity: 72, similarity_kind: "vector" })).toBe("≈ 72%");
+    expect(similarityLabel({ similarity: 58, similarity_kind: "lexical" })).toBe("58%");
+    // Starsza odpowiedź bez rodzaju miary = dawny wzór.
+    expect(similarityLabel({ similarity: 80 })).toBe("80%");
+    expect(similarityLabel({ similarity: null, similarity_kind: null })).toBeNull();
+    expect(similarityHint({ similarity: 72, similarity_kind: "vector" })).toMatch(/wektor/);
+    expect(similarityHint({ similarity: null })).toBeUndefined();
   });
 
   it("odmienia „osoba” po polsku", () => {

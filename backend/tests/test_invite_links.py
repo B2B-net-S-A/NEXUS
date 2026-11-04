@@ -26,6 +26,7 @@ from sqlalchemy import select, update
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
+from tests.public_profile_helpers import approve_public_profile
 from app.models.candidate import Candidate
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job, JobStatus, RemotePolicy
@@ -76,7 +77,11 @@ async def _seed_job(status: JobStatus = JobStatus.published) -> int:
         db.add(job)
         await db.commit()
         await db.refresh(job)
-        return job.id
+    # Runda 10 (R10-N10-9): formularz `/apply/{token}` wymaga zatwierdzonego
+    # opisu publicznego, jak `/r/{slug}`.
+    if status is JobStatus.published:
+        await approve_public_profile(job.id)
+    return job.id
 
 
 async def _login(client: AsyncClient, email: str, password: str) -> dict[str, str]:
@@ -556,6 +561,7 @@ async def test_get_candidate_returns_invite_source(inv_client: AsyncClient):
             "first_name": "Anna",
             "last_name": "Linkowa",
             "email": applicant_email,
+            "utm_source": "linkedin",
         },
         files={"cv": ("cv.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")},
     )
@@ -575,6 +581,11 @@ async def test_get_candidate_returns_invite_source(inv_client: AsyncClient):
     assert body["invite_source"]["label"] == "LI kwiecień"
     assert body["invite_source"]["created_by_name"]  # recruiter name filled
     assert body["invite_source"]["previous_created_by_name"] is None
+    # Profil mówi „Link do rekrutacji · wejście z LinkedIn” — rodzaj linku
+    # i utm z formularza muszą dojść do odpowiedzi.
+    assert body["invite_source"]["link_kind"] == "job"
+    assert body["invite_source"]["utm_source"] == "linkedin"
+    assert body["invite_source"]["was_duplicate"] is False
 
 
 @pytest.mark.asyncio
@@ -725,6 +736,12 @@ async def test_reapply_audits_candidate_without_changing_owner(
         assert submission is not None
         assert cand_act.details["submission_id"] == submission.id
 
+    # Profil nie może podać Y jako tego, kto dodał osobę — zgłoszenie było
+    # ponowne, rekord założył X (przegląd gałęzi 19.10.2026).
+    detail = await inv_client.get(f"/api/candidates/{cand_id}", headers=headers_y)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["invite_source"]["was_duplicate"] is True
+
 
 @pytest.mark.asyncio
 async def test_post_apply_task_auto_assigns_competence_category(
@@ -828,3 +845,56 @@ async def test_closed_job_cannot_get_a_link(inv_client: AsyncClient):
         "/api/invite-links", json={"job_id": job_id}, headers=headers
     )
     assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_failed_owner_notification_does_not_500_a_saved_application(
+    inv_client: AsyncClient, monkeypatch
+):
+    """Runda 9 (R9-X1-4): nieudany dzwonek robi rollback, który wygasza link.
+
+    Mail potwierdzenia czytał potem ``ref.link.job_id`` — leniwe doładowanie
+    w sesji async (MissingGreenlet) dawało 500 po zapisanym zgłoszeniu.
+    """
+    uid, email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(inv_client, email, password)
+    job_id = await _seed_job()
+    token = (
+        await inv_client.post(
+            "/api/invite-links",
+            json={"job_id": job_id, "expires_in_days": 30},
+            headers=headers,
+        )
+    ).json()["token"]
+
+    async def _broken_emit(*_args, **_kwargs):
+        raise RuntimeError("dzwonek padł")
+
+    seen: dict = {}
+
+    async def _capture_confirmation(db, **kwargs):
+        seen.update(kwargs)
+
+    monkeypatch.setattr("app.services.notification_triggers.emit", _broken_emit)
+    monkeypatch.setattr(
+        "app.services.application_confirmation_email.schedule_confirmation",
+        _capture_confirmation,
+    )
+    applicant_email = f"applicant-{uuid.uuid4().hex[:6]}@example.com"
+    resp = await inv_client.post(
+        f"/api/public/apply/{token}",
+        data={
+            "consent": "true",
+            "first_name": "Jan",
+            "last_name": "Kowalski",
+            "email": applicant_email,
+        },
+        files={"cv": ("cv.pdf", io.BytesIO(b"%PDF-1.4 minimal"), "application/pdf")},
+    )
+    assert resp.status_code == 201, resp.text
+    assert seen["job_id"] == job_id
+    async with AsyncSessionLocal() as db:
+        cand = await db.scalar(
+            select(Candidate).where(Candidate.email == applicant_email)
+        )
+        assert cand is not None

@@ -69,6 +69,7 @@ const GENERIC_ACTION_LABELS: Record<string, string> = {
   hired: "Zatrudniono",
   terminated: "Zakończono współpracę",
   bulk_marked_ended: "Zakończono zbiorczo",
+  agreement_termination_recorded: "Zapisano rozwiązanie umowy",
   note_added: "Dodano notatkę",
   document_uploaded: "Dodano plik",
   document_deleted: "Usunięto plik",
@@ -77,6 +78,9 @@ const GENERIC_ACTION_LABELS: Record<string, string> = {
   owner_assigned: "Przypisano opiekuna",
   owner_released: "Zwolniono opiekuna",
   collaborator_added: "Dodano współpracownika",
+  recruiters_parked: "Zespół do poprzednich rekruterów",
+  recruiters_restored: "Poprzedni rekruterzy wrócili",
+  previous_recruiter_dismissed: "Usunięto z poprzednich rekruterów",
   champion_profile_updated: "Zaktualizowano profil Championa",
   champion_verification_updated: "Zaktualizowano weryfikację Championa",
 };

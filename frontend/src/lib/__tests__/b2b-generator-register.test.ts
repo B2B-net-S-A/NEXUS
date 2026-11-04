@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { B2BGeneratedContractRow } from "@/lib/api";
 import {
+  annexRatesSummary,
   canCorrectInForm,
   contractStatusOptions,
   existingContractFor,
@@ -328,5 +329,30 @@ describe("needsContractLink (ticket 1460/2026)", () => {
     expect(
       needsContractLink({ signature_status: "signed_both", contract_id: null, source: "excel" }),
     ).toBe(false);
+  });
+});
+
+
+describe("stawki z aneksu w wierszu rejestru", () => {
+  it("summarises annex rates with optional dates and client", () => {
+    expect(
+      annexRatesSummary([
+        { rate: 150, from: null, to: "2026-12-31", client_id: null, client_name: null },
+        {
+          rate: 160.5,
+          from: "2027-01-01",
+          to: null,
+          client_id: 4,
+          client_name: "Bank Pocztowy S.A.",
+        },
+      ]),
+    ).toBe("150 zł/h do 31.12.2026; 160,50 zł/h od 01.01.2027 · Bank Pocztowy S.A.");
+    expect(annexRatesSummary(null)).toBeNull();
+    expect(annexRatesSummary([])).toBeNull();
+  });
+
+  it("knows the annex generator tab", () => {
+    expect(generatorTabFromParam("annexes")).toBe("annexes");
+    expect(generatorTabFromParam("aneksy")).toBe("annexes");
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { visibleNavSections as sidebarVisibleNavSections } from "@/components/v2/shell/SidebarV2";
 import {
+  CAPABILITY_PERMISSIONS,
   CAPABILITY_ROLES,
   hasCapability,
   type Capability,
@@ -23,10 +24,17 @@ import {
 } from "@/lib/nav-registry";
 import type { UserRole } from "@/store/auth";
 
+import { accessSnapshot } from "./fixtures/access-snapshot";
+
 // Rejestr jest wspólnym źródłem sidebara i palety ⌘K. Ten plik pilnuje trzech
 // rzeczy, które refaktor mógł po cichu zmienić: zgodności z rejestrem
 // capability, DOKŁADNEJ listy pozycji per rola (zamrożonej ze starego, ręcznie
 // pisanego `NAV_SECTIONS`) oraz tego, że paleta nie pokazuje więcej niż menu.
+//
+// `userOf(role)` to sama rola, czyli profil bez kompletu uprawnień z serwera:
+// pozycje Delivery i Finansów widzą wtedy DOMYŚLNI posiadacze uprawnień.
+// Co się dzieje po przełączeniu uprawnienia, pilnuje blok „menu idzie za
+// uprawnieniem”.
 
 const ALL_ROLES: UserRole[] = [
   "admin",
@@ -34,9 +42,7 @@ const ALL_ROLES: UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
-  "tac",
   "recruiter",
-  "sourcer",
   "user",
   "trainee",
 ];
@@ -94,9 +100,14 @@ describe("rejestr nawigacji — spójność wpisów", () => {
     expect(
       NAV_PRIMARY_GROUPS.map((group) => [group.title, [...group.ids]]),
     ).toEqual([
-      ["Praca", ["dashboard", "jobs", "candidates", "calendar"]],
-      ["Klienci i umowy", ["clients", "contracts", "finance"]],
-      ["Firma", ["insights"]],
+      // „Ludzie w NEXUSIE” (16.10.2026): „Mój czas”, „Ludzie”, „Sprzęt” —
+      // widoczne tylko przy włączonym module (flaga z `/api/hr/config`).
+      ["Praca", ["dashboard", "jobs", "candidates", "calendar", "my-time"]],
+      // Opieka nad konsultantami (moduł `care`) obok Kontraktów.
+      // Sprzedaż (Atlas → NEXUS, 26.10.2026) na czele grupy — od szansy do klienta.
+      // Przy module `back_office` członek zespołu ma „Back office” zamiast „Opieki”.
+      ["Klienci i umowy", ["sales", "clients", "contracts", "care", "back-office", "finance"]],
+      ["Firma", ["insights", "people", "equipment"]],
     ]);
   });
 });
@@ -138,7 +149,12 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
       ["Firma", ["/insights"]],
     ];
     expect(groupsOf("finance")).toEqual(full);
-    expect(groupsOf("admin")).toEqual(full);
+    // Sprzedaż domyślnie ma tylko admin (uprawnienie „Sprzedaż: podgląd”).
+    expect(groupsOf("admin")).toEqual([
+      full[0],
+      ["Klienci i umowy", ["/sales", "/clients", "/contracts", "/finance"]],
+      full[2],
+    ]);
     for (const role of MENU_ROLES) {
       for (const group of visiblePrimaryGroups(userOf(role), opts)) {
         expect(group.items.length).toBeGreaterThan(0);
@@ -179,6 +195,7 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
       "/jobs",
       "/candidates",
       "/calendar",
+      "/sales",
       "/clients",
       "/contracts",
       "/finance",
@@ -192,8 +209,9 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
   it("„Więcej” grupuje resztę; puste grupy odpadają", () => {
     const groups = visibleMoreGroups(userOf("recruiter"), opts);
     expect(groups.map((group) => [group.title, group.items.map((i) => i.label)])).toEqual([
-      ["Codzienna praca", ["Do przedzwonienia", "Akademia"]],
-      ["Dokumenty", ["Generator CV", "Generator Umów B2B"]],
+      // Akademia zdjęta z „Więcej” 17.10.2026.
+      ["Codzienna praca", ["Do przedzwonienia"]],
+      ["Dokumenty", ["Generator Umów B2B"]],
       ["System", ["Pomoc", "Ustawienia"]],
     ]);
     const admin = visibleMoreGroups(userOf("admin"), opts);
@@ -222,7 +240,7 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
   });
 });
 
-describe("rejestr nawigacji ↔ CAPABILITY_ROLES", () => {
+describe("rejestr nawigacji ↔ rejestr capability", () => {
   const withCapability = NAV_REGISTRY.filter((entry) => entry.capability);
 
   it("są wpisy z capability (test nie przechodzi na pustym zbiorze)", () => {
@@ -237,17 +255,123 @@ describe("rejestr nawigacji ↔ CAPABILITY_ROLES", () => {
       expect(sorted(entry.roles)).toEqual(sorted(CAPABILITY_ROLES[capability]));
     });
 
+    it(`${entry.href}: \`permission\` jest tym samym uprawnieniem co ${capability}`, () => {
+      // Capability z uprawnienia nie ma listy ról — wpis menu też nie.
+      expect(entry.permission).toBe(CAPABILITY_PERMISSIONS[capability]);
+      if (entry.permission) expect(entry.roles).toBeUndefined();
+    });
+
     it(`${entry.href}: widoczne dokładnie dla ról z ${capability}`, () => {
-      // Obejmuje też wpisy BEZ `roles` (bramkowane samą sekcją, np. Delivery
-      // i Finanse) — tam lustrem jest domyślna polityka sekcji.
+      // Użytkownik to sama rola, więc dla wpisów z uprawnieniem (Delivery,
+      // Finanse) liczą się domyślni posiadacze uprawnienia.
       const seeing = ALL_ROLES.filter((role) =>
         visibleNavEntries(userOf(role), { contactQueueEnabled: true }).some(
           (visible) => visible.id === entry.id,
         ),
       );
-      expect(sorted(seeing)).toEqual(sorted(CAPABILITY_ROLES[capability]));
+      expect(sorted(seeing)).toEqual(
+        sorted(ALL_ROLES.filter((role) => hasCapability(userOf(role), capability))),
+      );
     });
   }
+
+  it("Delivery i Finanse to wpisy z uprawnieniem — żaden nie zostaje przy samej sekcji", () => {
+    const gated = NAV_REGISTRY.filter(
+      (entry) => entry.section === "delivery" || entry.section === "finance",
+    );
+    expect(gated.map((entry) => [entry.id, entry.permission])).toEqual([
+      ["clients", "delivery_view"],
+      ["my-clients", "delivery_view"],
+      ["order-mail", "delivery_view"],
+      ["my-relationships", "delivery_view"],
+      ["contracts", "delivery_view"],
+      ["finance", "finance_module"],
+    ]);
+  });
+});
+
+describe("menu idzie za uprawnieniem, nie za rolą", () => {
+  const opts = { contactQueueEnabled: false };
+  const hrefs = (user: Parameters<typeof visibleNavHrefs>[0]) =>
+    visibleNavHrefs(user, opts);
+  const paletteIds = (user: Parameters<typeof visibleNavHrefs>[0]) =>
+    visiblePaletteEntries(user, opts, (capability) =>
+      hasCapability(user, capability),
+    ).map((entry) => entry.id);
+
+  it("rekruter z nadanym podglądem Delivery dostaje Klientów i Kontrakty (menu i paleta)", () => {
+    const viewer = accessSnapshot("recruiter", { grant: ["delivery_view"] });
+    expect(hrefs(viewer)).toEqual(expect.arrayContaining(["/clients", "/contracts"]));
+    expect(hrefs(viewer)).not.toContain("/finance");
+    expect(paletteIds(viewer)).toEqual(
+      expect.arrayContaining([
+        "clients",
+        "my-clients",
+        "order-mail",
+        "my-relationships",
+        "contracts",
+      ]),
+    );
+    expect(
+      visiblePrimaryGroups(viewer, opts).map((group) => group.title),
+    ).toEqual(["Praca", "Klienci i umowy", "Firma"]);
+  });
+
+  it("Delivery Lead bez podglądu Delivery traci obie pozycje i grupę szyny", () => {
+    const lead = accessSnapshot("delivery_lead", {
+      revoke: [
+        "delivery_view",
+        "clients_edit",
+        "contracts_orders_edit",
+        "contract_status",
+        "amounts_view",
+      ],
+    });
+    expect(hrefs(lead)).not.toContain("/clients");
+    expect(hrefs(lead)).not.toContain("/contracts");
+    expect(paletteIds(lead)).not.toContain("clients");
+    expect(
+      visiblePrimaryGroups(lead, opts).map((group) => group.title),
+    ).toEqual(["Praca", "Firma"]);
+  });
+
+  it("„Finanse” widzi posiadacz „Moduł Finanse”, kto by nim nie był", () => {
+    const granted = accessSnapshot("head_of_recruitment", { grant: ["finance_module"] });
+    expect(hrefs(granted)).toContain("/finance");
+    expect(paletteIds(granted)).toContain("finance");
+
+    const revoked = accessSnapshot("finance", { revoke: ["finance_module"] });
+    expect(hrefs(revoked)).not.toContain("/finance");
+    expect(paletteIds(revoked)).not.toContain("finance");
+    // Kontrakty zostają: „Kontrakty i zamówienia” Finanse mają nadal.
+    expect(hrefs(revoked)).toContain("/contracts");
+  });
+
+  it("stary profil z samą sekcją Delivery (bez uprawnienia) nie pokazuje pozycji", () => {
+    // Wyjątek sekcji sprzed 0410 już niczego nie otwiera — dostęp do Delivery
+    // wynika z uprawnień. Bez tego menu prowadziłoby do ekranu z samymi 403.
+    const legacy = {
+      role: "recruiter" as const,
+      roles: ["recruiter" as const],
+      effective_section_access: {
+        sourcing: "write" as const,
+        pipeline: "write" as const,
+        delivery: "read" as const,
+        insights: "read" as const,
+        finance: "read" as const,
+        system_admin: "none" as const,
+      },
+    };
+    expect(hrefs(legacy)).not.toContain("/clients");
+    expect(hrefs(legacy)).not.toContain("/contracts");
+    expect(hrefs(legacy)).not.toContain("/finance");
+  });
+
+  it("sufit sekcji zostaje: uprawnienie przy sekcji ograniczonej do zera nie pokazuje pozycji", () => {
+    const capped = accessSnapshot("delivery_lead", { sectionCaps: { delivery: "none" } });
+    expect(hrefs(capped)).not.toContain("/clients");
+    expect(hrefs(capped)).not.toContain("/contracts");
+  });
 });
 
 describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne jak przed refaktorem", () => {
@@ -258,14 +382,12 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
   const SOURCING_OPERATIONAL = [
     "/dashboard",
     "/candidates",
-    "/cv-generator",
     "/contracts/b2b-generator",
-    // „/talents" i „/sourcing/marketplace" zdjęte z menu 21.09.2026.
+    // „/talents" i „/sourcing/marketplace" zdjęte z menu 21.09.2026,
+    // „/cv-generator" 13.10.2026.
   ];
-  // Akademia (0369) — w „Więcej”, ta sama bramka co Kalendarz.
-  const PIPELINE = ["/jobs", "/calendar", "/academy"];
-  // Panel „Praktykanci” (0374) — tylko admin i Head of Recruitment.
-  const PIPELINE_WITH_TRAINEES = [...PIPELINE, "/trainees"];
+  // Akademia i Praktykanci zdjęci z menu 17.10.2026.
+  const PIPELINE = ["/jobs", "/calendar"];
   const DELIVERY = ["/clients", "/contracts"];
   const INSIGHTS = ["/insights"];
   const SYSTEM = ["/help", "/settings"];
@@ -286,10 +408,12 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
     ],
     admin: [
       ...SOURCING_OPERATIONAL,
-      ...PIPELINE_WITH_TRAINEES,
+      ...PIPELINE,
       ...DELIVERY,
       ...INSIGHTS,
       "/finance",
+      // Sprzedaż (26.10.2026): sekcja „System” (bez sekcji produktu), uprawnienie admina.
+      "/sales",
       ...SYSTEM,
     ],
     finance: [
@@ -303,19 +427,12 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
     // HoR nie rozpatruje zgłoszeń (UAT A-B02) i nie ma sekcji Delivery.
     head_of_recruitment: [
       ...SOURCING_OPERATIONAL,
-      ...PIPELINE_WITH_TRAINEES,
+      ...PIPELINE,
       ...INSIGHTS,
       ...SYSTEM,
     ],
-    // Legacy viewer (0 kont): Kalendarz i Generator CV zdjęte 22.09.2026 —
-    // backend (RecruitmentReadAccess / CandidateWriteAccess) i tak go odcina.
-    user: [
-      "/dashboard",
-      "/contracts/b2b-generator",
-      "/jobs",
-      "/insights",
-      ...SYSTEM,
-    ],
+    // Wycofywany viewer (0 kont): od 0637 bez żadnej sekcji.
+    user: [...SYSTEM],
     // Praktykant (0374): jeden ekran, bez menu — nawet bez Pomocy i Ustawień.
     trainee: [],
   };
@@ -332,7 +449,7 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
     const withQueue = (role: UserRole) =>
       sidebarHrefs(role, true).includes("/candidates/contact-queue");
     expect(ALL_ROLES.filter(withQueue).sort()).toEqual(
-      sorted(["talent_community_manager", "tac", "recruiter", "sourcer"]),
+      sorted(["talent_community_manager", "recruiter"]),
     );
     // Pozycja stoi tuż za „Kandydaci” (Wyszukiwarka zeszła z menu).
     const recruiter = sidebarHrefs("recruiter", true);
@@ -427,9 +544,10 @@ describe("paleta ⌘K ⊆ sidebar", () => {
   });
 
   it("bez `nav.candidates` Talent Radar prowadzi na samodzielną stronę /talent-radar", () => {
-    // Radar jest dla KAŻDEJ roli (19.08), a /candidates tylko dla `nav.candidates`.
+    // Radar jest dla KAŻDEJ roli z sekcją Sourcing (19.08), a /candidates tylko
+    // dla `nav.candidates`. Viewer bez sekcji (0637) nie ma w palecie żadnego.
     expect(hasCapability(userOf("user"), "nav.candidates")).toBe(false);
-    expect(paletteHref("user", "talent-radar")).toBe("/talent-radar");
+    expect(paletteHref("user", "talent-radar")).toBeUndefined();
     expect(paletteHref("user", "candidate-search")).toBeUndefined();
     // Odebrana sekcja Sourcing też odcina /candidates — adres wraca do radaru.
     const noSourcing = {
@@ -457,6 +575,20 @@ describe("paleta ⌘K ⊆ sidebar", () => {
   });
 });
 
+describe("Generator CV zdjęty z nawigacji (13.10.2026)", () => {
+  const opts = { contactQueueEnabled: true };
+  it("nie ma go w menu ani w palecie dla żadnej roli — CV powstaje w ścieżce rekrutacji", () => {
+    for (const role of ALL_ROLES) {
+      const user = userOf(role);
+      const hrefs = [
+        ...visibleNavHrefs(user, opts),
+        ...visiblePaletteEntries(user, opts, () => true).map((e) => e.href),
+      ];
+      expect(hrefs).not.toContain("/cv-generator");
+    }
+  });
+});
+
 describe("Talenty i Targ zdjęte z nawigacji (21.09.2026)", () => {
   const opts = { contactQueueEnabled: true };
   it("nie ma ich w menu ani w palecie dla żadnej roli, strony dalej istnieją", () => {
@@ -469,5 +601,23 @@ describe("Talenty i Targ zdjęte z nawigacji (21.09.2026)", () => {
       expect(hrefs).not.toContain("/talents");
       expect(hrefs).not.toContain("/sourcing/marketplace");
     }
+  });
+});
+
+describe("Akademia i Praktykanci zdjęci z nawigacji (17.10.2026)", () => {
+  const opts = { contactQueueEnabled: true };
+  it("nie ma ich w menu ani w palecie dla żadnej roli, strony dalej istnieją", () => {
+    for (const role of ALL_ROLES) {
+      const user = userOf(role);
+      const hrefs = [
+        ...visibleNavHrefs(user, opts),
+        ...visiblePaletteEntries(user, opts, () => true).map((e) => e.href),
+      ];
+      expect(hrefs).not.toContain("/academy");
+      expect(hrefs).not.toContain("/trainees");
+    }
+    expect(NAV_REGISTRY.map((entry) => entry.href)).toEqual(
+      expect.arrayContaining(["/academy", "/trainees"]),
+    );
   });
 });

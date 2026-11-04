@@ -28,9 +28,7 @@ ROLES = [
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
     UserRole.finance,
     UserRole.user,
 ]
@@ -143,8 +141,13 @@ OPERATIONAL_ENDPOINTS = [
 # Delivery mutations additionally pass through the section boundary. Od
 # 22.09.2026 alias trasy to DeliveryLeadPlus (TAC i tak nie miał sekcji).
 DELIVERY_WRITE_ENDPOINTS = [
-    ("POST", "/api/contracts"),
     ("POST", "/api/clients"),
+]
+
+# Kontrakt zakłada posiadacz „Kontrakty i zamówienia: tworzenie i edycja” —
+# domyślnie Delivery Lead i (decyzja Artura 02.10.2026) Finanse.
+CONTRACT_WRITE_ENDPOINTS = [
+    ("POST", "/api/contracts"),
 ]
 
 # Delivery reads: TCM and Finance are organization-wide, while DL is narrowed
@@ -157,7 +160,7 @@ DELIVERY_READ_ENDPOINTS = [
 # Opaque legal artefacts are narrower than TCM's safe Delivery projection.
 DELIVERY_LEGAL_READ_ENDPOINTS = [
     ("GET", "/api/contracts/99999999/documents"),
-    ("GET", "/api/signing/contracts/99999999/signatures"),
+    ("GET", "/api/autenti/contracts/99999999/signatures"),
 ]
 
 # Endpointy wymagające RecruiterPlus (wszyscy poza `user`):
@@ -194,15 +197,14 @@ ADMIN_ONLY_ENDPOINTS = [
 ROLE_SETS = {
     "admin_only": {UserRole.admin},
     "delivery_lead_plus": {UserRole.admin, UserRole.delivery_lead},
+    "contract_write": {UserRole.admin, UserRole.delivery_lead, UserRole.finance},
     # Od 2026-09-17 head_of_recruitment ma parytet z rekruterem (decyzja Artura).
     "recruiter_plus": {
         UserRole.admin,
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
         UserRole.finance,
     },
     # R0: operacyjni = wszyscy poza read-only viewerem `user` (z HoR).
@@ -211,9 +213,7 @@ ROLE_SETS = {
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
         UserRole.finance,
     },
     # R0: VIEW_TEAM_KPI — cudze KPI.
@@ -233,9 +233,7 @@ ROLE_SETS = {
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
-        UserRole.tac,
         UserRole.recruiter,
-        UserRole.sourcer,
         UserRole.finance,
     },
     "delivery_read": {
@@ -296,9 +294,15 @@ async def test_get_read_endpoints_open_to_all_authenticated(
     role_headers: tuple[UserRole, dict[str, str]],
     path: str,
 ):
-    """Lista kandydatów/ofert/kontraktów/klientów — każdy zalogowany user widzi."""
+    """Lista kandydatów/ofert/kontraktów/klientów — każdy zalogowany user widzi.
+
+    Poza wycofywanym Viewerem: od 0637 nie ma żadnej sekcji.
+    """
     role, headers = role_headers
     resp = await rbac_client.get(path, headers=headers)
+    if role is UserRole.user:
+        assert resp.status_code == 403
+        return
     # 200 lub 404/422 (np. brak parametru) — ale NIE 403 i NIE 5xx.
     assert resp.status_code != 403, (
         f"[{role.value}] GET {path} unexpectedly forbidden (status={resp.status_code})"
@@ -461,6 +465,27 @@ async def test_delivery_writes_require_delivery_write_section(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("method,path", CONTRACT_WRITE_ENDPOINTS)
+async def test_contract_writes_follow_the_contract_editing_permission(
+    rbac_client: AsyncClient,
+    role_headers: tuple[UserRole, dict[str, str]],
+    method: str,
+    path: str,
+):
+    role, headers = role_headers
+    resp = await rbac_client.request(method, path, headers=headers, json={})
+    if role in ROLE_SETS["contract_write"]:
+        assert resp.status_code != 403, (
+            f"[{role.value}] {method} {path} got 403 but should be allowed"
+        )
+        assert resp.status_code < 500
+    else:
+        assert resp.status_code == 403, (
+            f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
+        )
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("method,path", RECRUITER_PLUS_ENDPOINTS)
 async def test_recruiter_plus_endpoints_reject_viewer(
     rbac_client: AsyncClient,
@@ -533,7 +558,11 @@ async def test_inactive_user_cannot_login(rbac_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_change_password_rejects_wrong_current(rbac_client: AsyncClient):
-    """Weryfikacja current_password — złe hasło → 401 bez zmiany hasha."""
+    """Weryfikacja current_password — złe hasło → 400 bez zmiany hasha.
+
+    400, nie 401 (R10-N15-2): front wylogowuje przy każdym 401, więc
+    literówka w aktualnym haśle kończyła sesję zamiast pokazać komunikat.
+    """
     email, password = await _seed_user(UserRole.recruiter)
     headers = await _login(rbac_client, email, password)
 
@@ -542,7 +571,8 @@ async def test_change_password_rejects_wrong_current(rbac_client: AsyncClient):
         headers=headers,
         json={"current_password": "wrong-password-xxx", "new_password": "brandnew123"},
     )
-    assert resp.status_code == 401
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Aktualne hasło jest nieprawidłowe."
 
     # Stare hasło wciąż działa — nie zostało nadpisane
     ok = await rbac_client.post(
@@ -595,7 +625,8 @@ async def test_change_password_happy_path_updates_hash(
         headers=headers,
         json={"current_password": old_password, "new_password": new_password},
     )
-    assert resp.status_code == 204
+    assert resp.status_code == 200, resp.text
+    assert set(resp.json()) >= {"access_token", "refresh_token", "token_type"}
 
     # Stare hasło już nie pasuje
     bad = await rbac_client.post(
@@ -745,7 +776,6 @@ async def test_me_returns_analytics_capabilities(
     if role is UserRole.admin:
         assert "view_finance" in caps and "admin_analytics" in caps
     if role in {
-        UserRole.tac,
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
@@ -834,19 +864,19 @@ async def test_secondary_admin_role_passes_admin_guards(rbac_client: AsyncClient
     "path",
     ["/api/admin/clients-overview", "/api/admin/clients-overview/by-dl"],
 )
-async def test_clients_overview_requires_view_finance(
+async def test_clients_overview_requires_company_results(
     rbac_client: AsyncClient,
     role_headers: tuple[UserRole, dict[str, str]],
     path: str,
 ):
-    """P0.1: globalny revenue/marża per klient i DL → Finance/Admin.
+    """P0.1: globalny revenue/marża per klient i DL → „Wyniki firmy” (admin).
 
-    HoR traci dostęp (dotąd HeadOfRecruitmentPlus — HoR widział lifetime revenue
-    mimo braku VIEW_FINANCE).
+    HoR stracił dostęp w P0.1, a Finanse 02.11.2026 (praca na pojedynczych
+    rekordach).
     """
     role, headers = role_headers
     resp = await rbac_client.get(path, headers=headers)
-    if role in {UserRole.admin, UserRole.finance}:
+    if role == UserRole.admin:
         assert resp.status_code != 403, f"[{role.value}] {path} got 403 but should pass"
         assert resp.status_code < 500
     else:

@@ -88,7 +88,7 @@ export default async function ApplyPage({ params }: PageProps) {
  </div>
  <div className="leading-tight">
  <div className="text-xs font-semibold tracking-eyebrow uppercase text-primary">
- Nexus · Dynaminds
+ B2B Network
  </div>
  <div className="text-[11px] text-muted-foreground">
  Aplikacja na stanowisko
@@ -132,7 +132,7 @@ export default async function ApplyPage({ params }: PageProps) {
  </section>
 
  <footer className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between text-[11px] text-muted-foreground pt-6">
- <span>Twoje dane trafią wyłącznie do rekrutera Dynaminds.</span>
+ <span>Twoje dane trafią wyłącznie do rekrutera B2B Network.</span>
  <span className="font-semibold text-foreground">
  Define tomorrow.
  </span>

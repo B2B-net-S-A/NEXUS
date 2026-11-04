@@ -14,7 +14,17 @@ describe("candidate timeline labels", () => {
     expect(activityActionLabel("document_downloaded")).toBe("Pobrano plik");
     expect(activityActionLabel("cv_uploaded")).toBe("Wgrano CV");
     expect(activityActionLabel("updated")).toBe("Zaktualizowano profil");
+    // Odpowiedź „Co z obecną współpracą?” — osobna akcja na każdą odpowiedź,
+    // bo oś czasu nie czyta szczegółów wpisu.
+    expect(activityActionLabel("candidate_hired_engagement_parallel")).toBe(
+      "Zatrudniono w kolejnej rekrutacji: będzie pracować równolegle u obu klientów",
+    );
+    expect(activityActionLabel("candidate_hired_engagement_ask_dl")).toContain("zdecyduje Delivery Lead");
+    expect(activityActionLabel("candidate_hired_engagement_switch")).toContain("obecna współpraca się kończy");
     expect(activityActionLabel("created")).toBe("Utworzono profil kandydata");
+    // 17.10.2026: okno „Czarna lista…”.
+    expect(activityActionLabel("candidate_blacklisted")).toBe("Dodano do czarnej listy");
+    expect(activityActionLabel("candidate_blacklist_removed")).toBe("Zdjęto z czarnej listy");
   });
 
   it("never returns an unknown slug verbatim", () => {
@@ -50,5 +60,13 @@ describe("fileTypeLabel", () => {
     ).toBe("Dokument Word");
     expect(fileTypeLabel("application/octet-stream", "skan.xyz")).toBe("Plik XYZ");
     expect(fileTypeLabel("application/octet-stream", "bez-rozszerzenia")).toBeNull();
+  });
+});
+
+describe("wpis o adresie trwale usuniętego profilu", () => {
+  it("ma polską etykietę, nie surowy slug", () => {
+    expect(activityActionLabel("recreated_after_erasure")).toBe(
+      "Adres należał do profilu trwale usuniętego",
+    );
   });
 });

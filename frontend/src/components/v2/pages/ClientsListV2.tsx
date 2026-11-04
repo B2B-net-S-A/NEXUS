@@ -2,6 +2,7 @@
 
 import {
   type KeyboardEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useRef,
@@ -9,7 +10,8 @@ import {
 } from "react";
 import Link from "next/link";
 import { apiErrorMessage } from "@/lib/api-error";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
@@ -35,7 +37,14 @@ import {
 } from "@/lib/api";
 import { AppModal } from "@/components/ds/AppModal";
 import { InactiveClientsCleanupDialog } from "@/components/clients/InactiveClientsCleanupDialog";
+import { isClientPickerQueryKey } from "@/lib/client-selection";
 import { cn } from "@/lib/utils";
+import { CALM_EMPTY, CALM_HEAD, CALM_SUBLINE } from "@/lib/calm-table";
+import {
+  WIDE_HIDDEN,
+  WIDE_ONLY_CELL,
+  WIDE_TABLE_CONTAINER,
+} from "@/lib/wide-table";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import {
@@ -44,13 +53,15 @@ import {
   type ViewState,
 } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { hasRole, mayExportFiles, useAuthStore } from "@/store/auth";
 import {
   CLIENTS_MINE_ROLES,
+  clientsMineToggleAvailable,
   resolveClientsMine,
 } from "@/lib/clients-workspace";
 import { AddClientModal } from "@/components/AppShell";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -100,7 +111,11 @@ const CATEGORY_META: Record<
 > = {
   active: {
     title: "Aktywni klienci",
-    description: "Klienci z podpisaną współpracą",
+    // Runda 10 (F07): zakładkę ustawia manifest portfela albo ręczne
+    // przeniesienie (przy dodaniu — zakładka, w której dodano klienta),
+    // niezależnie od „Statusu klienta” i umów. Dawny opis „z podpisaną
+    // współpracą” nie był prawdą dla prospektów dodanych w tej zakładce.
+    description: "Bieżący portfel — także prospekty przed podpisaniem umowy",
     icon: CheckCircle2,
     iconClassName: "bg-success-muted text-success-muted-foreground",
   },
@@ -120,12 +135,15 @@ const CATEGORY_META: Record<
 
 const STATUS_META: Record<
   ClientDirectoryItem["client_status"],
-  { label: string; variant: "success" | "neutral" | "soft" }
+  { label: string; tone: StatusDotTone }
 > = {
-  active: { label: "Aktywny", variant: "success" },
-  inactive: { label: "Nieaktywny", variant: "neutral" },
-  prospect: { label: "Prospekt", variant: "soft" },
+  active: { label: "Aktywny", tone: "success" },
+  inactive: { label: "Nieaktywny", tone: "neutral" },
+  prospect: { label: "Prospekt", tone: "neutral" },
 };
+
+/** Brak wartości w komórce — przygaszony, żeby nie udawał danej. */
+const EMPTY_CELL = <span className={CALM_EMPTY}>—</span>;
 
 function parseCategory(value: string | null): ClientDirectoryCategory {
   return CATEGORY_ORDER.includes(value as ClientDirectoryCategory)
@@ -194,8 +212,13 @@ function countLabel(
   return `${count} ${noun}`;
 }
 
-export function ClientsListV2() {
-  const router = useRouter();
+export function ClientsListV2({
+  modeTabs,
+}: {
+  /** Przełącznik trybów modułu (Lista / Kluczowe relacje) — pod tytułem. */
+  modeTabs?: ReactNode;
+} = {}) {
+  const urlWriter = useUrlWriter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -206,7 +229,10 @@ export function ClientsListV2() {
   const user = useAuthStore((state) => state.user);
   // „Moi / Wszyscy" (dawny osobny „Panel klientów"). Tylko osoby z
   // przypisaniem klienta (DL, TAC) mają „Moich"; dla nich to widok domyślny.
-  const mineAvailable = hasRole(user, ...CLIENTS_MINE_ROLES);
+  const mineAvailable = clientsMineToggleAvailable(
+    hasRole(user, ...CLIENTS_MINE_ROLES),
+    user?.delivery_client_scope,
+  );
   const mine = resolveClientsMine(mineAvailable, searchParams.get("mine"));
 
   const [category, setCategory] =
@@ -249,9 +275,10 @@ export function ClientsListV2() {
       else params.delete("q");
       params.set("page", String(next.page));
       const href = `${pathname || "/clients"}?${params.toString()}`;
-      router[mode](href, { scroll: false });
+      if (mode === "push") urlWriter.pushUrl(href);
+      else urlWriter.replaceUrl(href);
     },
-    [pathname, router, searchParams],
+    [pathname, urlWriter, searchParams],
   );
 
   // Canonical URL makes the default state copyable too, while invalid or
@@ -329,7 +356,9 @@ export function ClientsListV2() {
   const canManagePortfolio = useCapability("client.portfolio.manage");
   // The actions column only exists for portfolio managers, so table-wide
   // colSpans (skeleton, empty, error) must track it.
-  const columnCount = canManagePortfolio ? 7 : 6;
+  // Z trzema kolumnami szerokiej tabeli — w wąskiej są ukryte, a `colSpan`
+  // ponad liczbę widocznych kolumn niczego nie dokłada.
+  const columnCount = canManagePortfolio ? 10 : 9;
   const items = data?.items ?? [];
   const totalRows = data?.total_rows ?? 0;
   const totalClients = data?.total_clients ?? 0;
@@ -386,9 +415,7 @@ export function ClientsListV2() {
     else params.set("mine", next ? "1" : "0");
     params.set("page", "1");
     setPage(1);
-    router.replace(`${pathname || "/clients"}?${params.toString()}`, {
-      scroll: false,
-    });
+    urlWriter.replaceUrl(`${pathname || "/clients"}?${params.toString()}`);
   };
 
   const goToPage = (next: number) => {
@@ -408,6 +435,9 @@ export function ClientsListV2() {
     setShowAdd(false);
     setToast(message);
     void queryClient.invalidateQueries({ queryKey: ["clients-directory"] });
+    void queryClient.invalidateQueries({
+      predicate: (query) => isClientPickerQueryKey(query.queryKey),
+    });
     setTimeout(() => setToast(null), 3000);
   };
 
@@ -415,6 +445,11 @@ export function ClientsListV2() {
     setPlacementTarget(null);
     setToast(message);
     void queryClient.invalidateQueries({ queryKey: ["clients-directory"] });
+    // Zakładka decyduje, czy klienta da się wybrać w Rekrutacjach
+    // i Kontraktach — listy wyboru muszą to zobaczyć od razu.
+    void queryClient.invalidateQueries({
+      predicate: (query) => isClientPickerQueryKey(query.queryKey),
+    });
     setTimeout(() => setToast(null), 3000);
   };
 
@@ -465,17 +500,14 @@ export function ClientsListV2() {
   };
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
-            Delivery · Klienci
-          </p>
-          <h1 className="mt-1 text-3xl font-extrabold tracking-heading-tight text-foreground">
-            Klienci
-          </h1>
+    <div className="space-y-3">
+      {/* Nagłówek zwarty jak w Kontraktach (wersja B): tytuł i licznik w jednej
+          linii — laptop 1280×720 ma zobaczyć tabelę w górnych 60% okna. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+          <h1 className="text-lg font-semibold text-foreground">Klienci</h1>
           <p
-            className="mt-1 text-sm text-muted-foreground"
+            className="text-xs text-muted-foreground"
             aria-live="polite"
           >
             {isLoading
@@ -509,30 +541,32 @@ export function ClientsListV2() {
               Czyszczenie listy
             </Button>
           ) : null}
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button size="sm" variant="outline" disabled={exporting}>
-                <Download className="h-4 w-4" aria-hidden="true" />
-                {exporting ? "Eksportuję…" : "Eksport"}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-44 p-1">
-              <button
-                type="button"
-                onClick={() => void doExport("xlsx")}
-                className="block w-full rounded-md px-3 py-1.5 text-left text-sm hover:bg-primary/10"
-              >
-                Excel (.xlsx)
-              </button>
-              <button
-                type="button"
-                onClick={() => void doExport("csv")}
-                className="block w-full rounded-md px-3 py-1.5 text-left text-sm hover:bg-primary/10"
-              >
-                CSV
-              </button>
-            </PopoverContent>
-          </Popover>
+          {mayExportFiles(user) ? (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button size="sm" variant="outline" disabled={exporting}>
+                  <Download className="h-4 w-4" aria-hidden="true" />
+                  {exporting ? "Eksportuję…" : "Eksport"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-44 p-1">
+                <button
+                  type="button"
+                  onClick={() => void doExport("xlsx")}
+                  className="block w-full rounded-md px-3 py-1.5 text-left text-sm hover:bg-primary/10"
+                >
+                  Excel (.xlsx)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void doExport("csv")}
+                  className="block w-full rounded-md px-3 py-1.5 text-left text-sm hover:bg-primary/10"
+                >
+                  CSV
+                </button>
+              </PopoverContent>
+            </Popover>
+          ) : null}
           {canCreateClient ? (
             <Button
               size="sm"
@@ -546,48 +580,99 @@ export function ClientsListV2() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-end gap-4">
-      {mineAvailable ? (
+      {modeTabs}
+
+      {/* Jeden pasek: kategorie jako pigułki, „Moi / Wszyscy” i wyszukiwarka
+          (32 px) — zamiast trzech dużych kafli i pola z etykietą nad nim. */}
+      <div className="flex flex-wrap items-center gap-2">
         <div
-          role="radiogroup"
-          aria-label="Zakres listy klientów"
-          className="inline-flex items-center gap-1 rounded-lg border border-border bg-muted/40 p-1"
+          role="tablist"
+          aria-label="Kategorie klientów"
+          className="flex flex-wrap items-center gap-1.5"
         >
-          {([
-            [true, "Moi klienci"],
-            [false, "Wszyscy"],
-          ] as const).map(([value, label]) => (
-            <button
-              key={label}
-              type="button"
-              role="radio"
-              aria-checked={mine === value}
-              onClick={() => selectMine(value)}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                mine === value
-                  ? "bg-background text-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {label}
-            </button>
-          ))}
+          {CATEGORY_ORDER.map((itemCategory) => {
+            const meta = CATEGORY_META[itemCategory];
+            const Icon = meta.icon;
+            const selected = itemCategory === category;
+            return (
+              <button
+                id={`clients-category-${itemCategory}`}
+                key={itemCategory}
+                type="button"
+                role="tab"
+                aria-label={`${meta.title}, ${countLabel(
+                  counts[itemCategory],
+                  "klient",
+                  "klientów",
+                  "klientów",
+                )}`}
+                title={meta.description}
+                aria-selected={selected}
+                aria-controls="client-directory-panel"
+                tabIndex={selected ? 0 : -1}
+                onClick={() => selectCategory(itemCategory)}
+                onKeyDown={(event) =>
+                  handleCategoryKeyDown(event, itemCategory)
+                }
+                className={cn(
+                  "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors pointer-coarse:h-10",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  selected
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground",
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                {meta.title}
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 text-[11px] font-semibold leading-5 tabular-nums",
+                    selected ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
+                  )}
+                >
+                  {counts[itemCategory]}
+                </span>
+              </button>
+            );
+          })}
         </div>
-      ) : null}
-      <div className="w-full max-w-lg">
-        <label
-          htmlFor="client-directory-search"
-          className="mb-1.5 block text-sm font-medium text-foreground"
-        >
-          Wyszukaj klienta
-        </label>
-        <div className="relative">
+        {mineAvailable ? (
+          <div
+            role="radiogroup"
+            aria-label="Zakres listy klientów"
+            className="inline-flex h-8 items-center gap-0.5 rounded-md border border-border bg-muted/40 p-0.5"
+          >
+            {([
+              [true, "Moi klienci"],
+              [false, "Wszyscy"],
+            ] as const).map(([value, label]) => (
+              <button
+                key={label}
+                type="button"
+                role="radio"
+                aria-checked={mine === value}
+                onClick={() => selectMine(value)}
+                className={cn(
+                  "h-full rounded px-2.5 text-xs font-medium transition-colors",
+                  mine === value
+                    ? "bg-background text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <div className="relative min-w-[220px] max-w-sm flex-1">
+          <label htmlFor="client-directory-search" className="sr-only">
+            Wyszukaj klienta
+          </label>
           <Input
             id="client-directory-search"
             leadingIcon={<Search className="h-4 w-4" />}
-            className={cn(search && "pr-10")}
-            placeholder="Nazwa firmy lub branża"
+            className={cn("h-8", search && "pr-10")}
+            placeholder="Szukaj w kategorii: nazwa firmy lub branża"
             value={search}
             onChange={(event) => {
               searchSyncTarget.current = null;
@@ -600,88 +685,16 @@ export function ClientsListV2() {
             <button
               type="button"
               onClick={clearSearch}
-              className="absolute right-2 top-1/2 inline-flex h-7 w-7 pointer-coarse:h-9 pointer-coarse:w-9 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="absolute right-1 top-1/2 inline-flex h-6 w-6 pointer-coarse:h-9 pointer-coarse:w-9 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label="Wyczyść wyszukiwanie"
             >
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
           ) : null}
+          <p id="client-directory-search-help" className="sr-only">
+            Wyszukiwanie obejmuje tylko aktualnie wybraną kategorię.
+          </p>
         </div>
-        <p
-          id="client-directory-search-help"
-          className="mt-1.5 text-xs text-muted-foreground"
-        >
-          Wyszukiwanie obejmuje tylko aktualnie wybraną kategorię.
-        </p>
-      </div>
-      </div>
-
-      <div
-        role="tablist"
-        aria-label="Kategorie klientów"
-        className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3"
-      >
-        {CATEGORY_ORDER.map((itemCategory) => {
-          const meta = CATEGORY_META[itemCategory];
-          const Icon = meta.icon;
-          const selected = itemCategory === category;
-          return (
-            <button
-              id={`clients-category-${itemCategory}`}
-              key={itemCategory}
-              type="button"
-              role="tab"
-              aria-label={`${meta.title}, ${countLabel(
-                counts[itemCategory],
-                "klient",
-                "klientów",
-                "klientów",
-              )}`}
-              aria-selected={selected}
-              aria-controls="client-directory-panel"
-              tabIndex={selected ? 0 : -1}
-              onClick={() => selectCategory(itemCategory)}
-              onKeyDown={(event) =>
-                handleCategoryKeyDown(event, itemCategory)
-              }
-              className={cn(
-                // Na telefonie trzy kafle jeden pod drugim zajmowały ~330 px
-                // wysokości — opis schodzi do `sm`, kafel robi się niższy.
-                "flex items-center gap-3 rounded-xl border bg-card p-3 text-left transition-colors sm:min-h-24 sm:p-4",
-                "hover:border-primary/50 hover:bg-primary/5",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                selected
-                  ? "border-primary bg-primary/5 shadow-sm"
-                  : "border-border",
-              )}
-            >
-              <span
-                className={cn(
-                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:h-11 sm:w-11",
-                  meta.iconClassName,
-                )}
-              >
-                <Icon className="h-5 w-5" aria-hidden="true" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-foreground">
-                  {meta.title}
-                </span>
-                <span className="mt-0.5 hidden text-xs text-muted-foreground sm:block">
-                  {meta.description}
-                </span>
-              </span>
-              <span
-                className={cn(
-                  "text-xl font-semibold tabular-nums",
-                  selected ? "text-primary" : "text-foreground",
-                )}
-              >
-                {counts[itemCategory]}
-              </span>
-            </button>
-          );
-        })}
       </div>
 
       <section
@@ -691,17 +704,28 @@ export function ClientsListV2() {
         aria-busy={isFetching}
       >
         <TooltipProvider delayDuration={200}>
-          <Table density="cozy" className="min-w-[900px]">
+          {/* Szeroka tabela (≥ 1700 px): nazwa prawna i zakres mają własne
+              kolumny, a „konsultanci / kontrakty” rozdzielają się na dwie. */}
+          <div className={WIDE_TABLE_CONTAINER}>
+          <Table density="compact" className="min-w-[900px]">
             <TableHeader>
               <TableRow>
                 {/* Pierwsza kolumna przyklejona: tabela ma 900 px, na telefonie
                     po przewinięciu w bok wiadomo, czyj to wiersz. */}
-                <TableHead className="sticky left-0 z-10 bg-background">Firma</TableHead>
-                <TableHead>Branża</TableHead>
-                <TableHead>Aktywni konsultanci / kontrakty</TableHead>
-                <TableHead>Start umowy</TableHead>
-                <TableHead>Koniec umowy</TableHead>
-                <TableHead>
+                <TableHead className={cn(CALM_HEAD, "sticky left-0 z-10 bg-background")}>Firma</TableHead>
+                <TableHead className={cn(CALM_HEAD, WIDE_ONLY_CELL)}>Nazwa prawna</TableHead>
+                <TableHead className={cn(CALM_HEAD, WIDE_ONLY_CELL)}>Zakres</TableHead>
+                {/* W układzie zwartym branża stoi drobnym drukiem pod nazwą
+                    firmy — własną kolumnę ma dopiero szeroka tabela. */}
+                <TableHead className={cn(CALM_HEAD, WIDE_ONLY_CELL)}>Branża</TableHead>
+                <TableHead className={CALM_HEAD}>
+                  Aktywni konsultanci
+                  <span className={WIDE_HIDDEN}> / kontrakty</span>
+                </TableHead>
+                <TableHead className={cn(CALM_HEAD, WIDE_ONLY_CELL)}>Aktywne kontrakty</TableHead>
+                <TableHead className={CALM_HEAD}>Start umowy</TableHead>
+                <TableHead className={CALM_HEAD}>Koniec umowy</TableHead>
+                <TableHead className={CALM_HEAD}>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span
@@ -722,14 +746,14 @@ export function ClientsListV2() {
                   </Tooltip>
                 </TableHead>
                 {canManagePortfolio ? (
-                  <TableHead className="text-right">Akcje</TableHead>
+                  <TableHead className={cn(CALM_HEAD, "text-right")}>Akcje</TableHead>
                 ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
               {viewState === "loading" ? (
                 Array.from({ length: 5 }, (_, index) => (
-                  <TableRow key={`client-skeleton-${index}`}>
+                  <TableRow key={`client-skeleton-${index}`} className="h-[46px]">
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Skeleton className="h-8 w-8 rounded-full" />
@@ -739,7 +763,7 @@ export function ClientsListV2() {
                         </div>
                       </div>
                     </TableCell>
-                    {Array.from({ length: columnCount - 1 }, (_, cellIndex) => (
+                    {Array.from({ length: columnCount - 5 }, (_, cellIndex) => (
                       <TableCell key={cellIndex}>
                         <Skeleton className="h-4 w-24" />
                       </TableCell>
@@ -860,8 +884,17 @@ export function ClientsListV2() {
                     item.category !== item.category_base ||
                     item.contract_start_override !== null ||
                     item.contract_end_override !== null;
+                  const legalName =
+                    item.legal_name && item.legal_name !== item.display_name
+                      ? item.legal_name
+                      : null;
+                  // Drobny druk pod nazwą (układ zwarty): nazwa prawna, branża
+                  // i zakres. W szerokiej tabeli każde ma własną kolumnę.
+                  const subline = [legalName, item.industry, item.scope_label].filter(
+                    (part): part is string => Boolean(part),
+                  );
                   return (
-                    <TableRow key={item.scope_id} interactive>
+                    <TableRow key={item.scope_id} interactive className="h-[46px]">
                       {/* Nieprzezroczyste tło przyklejonej komórki zasłaniałoby
                           podświetlenie wiersza (`hover:bg-primary/10`) — ten sam
                           odcień nakładamy gradientem na `bg-card`. */}
@@ -880,9 +913,23 @@ export function ClientsListV2() {
                               <span className="block font-medium text-foreground">
                                 {item.display_name}
                               </span>
-                              {item.scope_label ? (
-                                <span className="mt-0.5 block text-xs text-muted-foreground">
-                                  {item.scope_label}
+                              {subline.length > 0 ? (
+                                <span
+                                  className={cn(
+                                    CALM_SUBLINE,
+                                    "max-w-[420px] truncate",
+                                    WIDE_HIDDEN,
+                                  )}
+                                  title={subline.join(" · ")}
+                                >
+                                  {subline.map((part, index) => (
+                                    <span key={`${index}-${part}`}>
+                                      {index > 0 ? (
+                                        <span aria-hidden="true"> · </span>
+                                      ) : null}
+                                      <span>{part}</span>
+                                    </span>
+                                  ))}
                                 </span>
                               ) : null}
                             </span>
@@ -904,17 +951,33 @@ export function ClientsListV2() {
                           ) : null}
                         </div>
                       </TableCell>
-                      <TableCell>{item.industry || "—"}</TableCell>
+                      <TableCell className={WIDE_ONLY_CELL} data-testid="client-legal-name-cell">
+                        {legalName ?? EMPTY_CELL}
+                      </TableCell>
+                      <TableCell className={WIDE_ONLY_CELL} data-testid="client-scope-cell">
+                        {item.scope_label || EMPTY_CELL}
+                      </TableCell>
+                      <TableCell className={WIDE_ONLY_CELL} data-testid="client-industry-cell">
+                        {item.industry || EMPTY_CELL}
+                      </TableCell>
                       <TableCell>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <span
                               className="inline-flex cursor-help items-center gap-1.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                               tabIndex={0}
-                              aria-label={`${item.active_consultants_count} aktywnych konsultantów i ${item.active_contracts_count} aktywnych kontraktów u klienta, łącznie we wszystkich zakresach`}
+                              aria-label={
+                                item.consultants_scope === "scope"
+                                  ? `${item.active_consultants_count} aktywnych konsultantów i ${item.active_contracts_count} aktywnych kontraktów przypiętych do umowy ramowej tego zakresu`
+                                  : `${item.active_consultants_count} aktywnych konsultantów i ${item.active_contracts_count} aktywnych kontraktów u klienta, łącznie we wszystkich zakresach`
+                              }
                             >
                               <span className="font-medium tabular-nums">
-                                {item.active_consultants_count} / {item.active_contracts_count}
+                                {item.active_consultants_count}
+                                <span className={WIDE_HIDDEN}>
+                                  {" / "}
+                                  {item.active_contracts_count}
+                                </span>
                               </span>
                               <Info
                                 className="h-3.5 w-3.5 text-muted-foreground"
@@ -923,25 +986,36 @@ export function ClientsListV2() {
                             </span>
                           </TooltipTrigger>
                           <TooltipContent>
-                            Liczba dla całego klienta: aktywni konsultanci /
-                            aktywne kontrakty, łącznie we wszystkich zakresach.
+                            {item.consultants_scope === "scope"
+                              ? "Tylko ten zakres: aktywni konsultanci / aktywne kontrakty, których zamówienie jest przypięte do umowy ramowej tego zakresu."
+                              : "Liczba dla całego klienta: aktywni konsultanci / aktywne kontrakty, łącznie we wszystkich zakresach. Kontrakty przypięte do umowy ramowej innego zakresu liczą się tylko tam."}
                           </TooltipContent>
                         </Tooltip>
                       </TableCell>
-                      <TableCell>
-                        {formatDirectoryDate(item.effective_date)}
+                      <TableCell
+                        className={cn(WIDE_ONLY_CELL, "font-medium tabular-nums")}
+                        data-testid="client-contracts-count-cell"
+                      >
+                        {item.active_contracts_count}
                       </TableCell>
-                      <TableCell>{contractEndLabel(item)}</TableCell>
+                      <TableCell className="whitespace-nowrap tabular-nums">
+                        {item.effective_date
+                          ? formatDirectoryDate(item.effective_date)
+                          : EMPTY_CELL}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap tabular-nums">
+                        {hasContractPeriod(item)
+                          ? contractEndLabel(item)
+                          : EMPTY_CELL}
+                      </TableCell>
                       <TableCell>
-                        <Badge size="sm" variant={status.variant}>
-                          {status.label}
-                        </Badge>
+                        <StatusDot tone={status.tone}>{status.label}</StatusDot>
                       </TableCell>
                       {canManagePortfolio ? (
                         <TableCell className="text-right">
                           <Button
                             size="sm"
-                            variant="outline"
+                            variant="ghost"
                             onClick={() => setPlacementTarget(item)}
                           >
                             <PenLine className="h-4 w-4" aria-hidden="true" />
@@ -955,6 +1029,7 @@ export function ClientsListV2() {
               )}
             </TableBody>
           </Table>
+          </div>
         </TooltipProvider>
       </section>
 

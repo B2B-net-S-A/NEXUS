@@ -19,8 +19,13 @@ export default function ForbiddenPage() {
           403 — Brak uprawnień
         </h1>
 
+        {/* O dostępie decyduje uprawnienie konta, nie sama rola. Strona nie wie,
+            którego uprawnienia zabrakło, więc go nie nazywa — wskazuje, kto
+            i gdzie może je nadać. */}
         <p className="text-sm text-muted-foreground dark:text-muted-foreground mb-6">
-          Ta sekcja jest zastrzeżona dla innych ról.
+          Nie masz uprawnienia do tej części aplikacji. Jeśli jej potrzebujesz,
+          poproś administratora o dostęp (Ustawienia → Zespół i dostęp → Osoby
+          i role).
           {user && (
             <>
               <br />

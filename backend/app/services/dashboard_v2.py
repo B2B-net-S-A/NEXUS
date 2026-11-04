@@ -1642,8 +1642,11 @@ def _competition_entry(
     # Review: nie `or 0` — legalne 0 zostaje zerem, ale None/brak klucza też
     # ma dać 0 bez połykania innych falsy wartości.
     metric = raw.get("metric_value")
+    # `rank: None` z `award_ranked_rows` = osoba bez miejsca w klasyfikacji
+    # (niezakwalifikowana, wykluczona) — nie podstawiamy jej numeru z pozycji.
+    rank = raw["rank"] if "rank" in raw else fallback_rank
     return CompetitionRankingEntry(
-        rank=int(raw.get("rank") or fallback_rank),
+        rank=int(rank) if rank is not None else None,
         user_id=raw["user_id"],
         name=raw["name"],
         metric_value=metric if metric is not None else 0,
@@ -1906,13 +1909,16 @@ async def _compute_recruitment_stats_dashboard(
             )
             for idx, entry in enumerate(league["ranked"])
         ]
+        # Podium = miejsca 1–3 kolejności nagrodowej, nie pierwsze trzy wiersze:
+        # niezakwalifikowany stoi na liście bez miejsca (`rank: None`).
+        podium = [e for e in entries if e.rank is not None and e.rank <= 3]
         quarterly_league = RecruitmentQuarterlyLeague(
             period=league["period"],
             days_remaining=league["days_remaining"],
             points_formula=league["points_formula"],
             prizes_pln=prizes,
             requirement=league["requirement"],
-            top3=entries[:3],
+            top3=podium,
             full_ranking=entries,
         )
 

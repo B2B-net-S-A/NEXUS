@@ -19,6 +19,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.candidate_access import (
@@ -46,7 +47,7 @@ from app.services.pipeline_eligibility import (
 from app.services.access_scope import (
     apply_delivery_lead_client_scope,
     assert_delivery_lead_client_visible,
-    resolve_delivery_lead_client_ids,
+    resolve_delivery_lead_org_client_ids,
 )
 from app.services.recruitment_process_commands import open_process
 from app.services.embedding_service import (
@@ -74,6 +75,13 @@ from app.schemas.similar_job_candidates import (
     SimilarJobOut,
 )
 from app.services.canonical_text import build_job_query_variants
+from app.services.client_identity import client_display_name
+from app.services.contract_availability import (
+    attach_contract_free,
+    availability_status_hidden,
+    contract_free_by_clause,
+    load_contract_free,
+)
 from app.services.retrieval_pool import retrieve_candidate_pool
 from app.services.section_permissions import SectionAccess
 from app.core.scheduling import business_today
@@ -114,11 +122,20 @@ def _score_breakdown_payload(
 
 
 def _shape_recommended_job(job: Job, *, include_finance: bool = False) -> dict:
-    """Candidate→job response projection with capability-aware budget fields."""
+    """Candidate→job response projection with capability-aware budget fields.
 
+    ``working_title``, ``client_reference`` i ``client_name``: okno „Przypisz
+    do rekrutacji” nazywa rekrutację jak jej nagłówek (16.10.2026). Klient
+    musi być wczytany razem z rekrutacją (``selectinload(Job.client)``).
+    """
+
+    client = job.client
     return {
         "id": job.id,
         "title": job.title,
+        "working_title": job.working_title,
+        "client_reference": job.client_reference,
+        "client_name": client_display_name(client) if client is not None else None,
         "client_id": job.client_id,
         "location": job.location,
         "salary_min": job.salary_min if include_finance else None,
@@ -310,7 +327,7 @@ async def _recommend_candidates_core(
         raise HTTPException(status_code=404, detail="Job not found")
     assert_delivery_lead_client_visible(
         job.client_id,
-        await resolve_delivery_lead_client_ids(current_user, db),
+        await resolve_delivery_lead_org_client_ids(current_user, db),
     )
 
     # ── Location filter (post-scoring; mirrors legacy /ai-matches PR #424) ────
@@ -623,8 +640,14 @@ async def pipeline_match_scores(
 # ── Historical candidates from similar jobs (Phase 14) ───────────────────────
 
 
-def _derive_availability(candidate: Candidate) -> str:
-    """Map candidate availability state into a tri-value badge label."""
+def _derive_availability(candidate: Candidate, *, status_hidden: bool = False) -> str:
+    """Map candidate availability state into a tri-value badge label.
+
+    ``status_hidden`` — osoba ma żywą umowę (15.10.2026, S3): status z profilu
+    się nie liczy, plakietka mówi „nie wiadomo”, a termin niesie znacznik.
+    """
+    if status_hidden:
+        return "unknown"
     status = getattr(candidate, "availability_status", None)
     if status == AvailabilityStatus.actively_looking:
         return "available"
@@ -749,6 +772,8 @@ async def candidates_from_similar_jobs(
     )
     hidden_ineligible = before_gate - len(cand_rows)
     cand_by_id = {c.id: c for c in cand_rows}
+    # Żywa umowa = status z profilu się nie liczy (15.10.2026, S3).
+    contract_free = await load_contract_free(db, cand_by_id)
 
     def _availability_sort_key(c: HistoricalCandidateOut) -> tuple[int, float]:
         # 0 = available (show first), 1 = unknown, 2 = busy — within each
@@ -788,7 +813,10 @@ async def candidates_from_similar_jobs(
                     )
                     for s in hc.sources
                 ],
-                current_availability=_derive_availability(c),  # type: ignore[arg-type]
+                current_availability=_derive_availability(  # type: ignore[arg-type]
+                    c,
+                    status_hidden=availability_status_hidden(contract_free.get(c.id)),
+                ),
                 current_status=c.status.value if c.status else None,
                 same_client=hc.same_client,
                 rejected_by_same_client=hc.rejected_by_same_client,
@@ -875,7 +903,9 @@ async def recommend_jobs_for_candidate(
     candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
+    delivery_lead_client_ids = await resolve_delivery_lead_org_client_ids(
+        current_user, db
+    )
     include_finance = user_has_capability(
         current_user, AnalyticsCapability.VIEW_FINANCE
     )
@@ -957,7 +987,7 @@ async def recommend_jobs_for_candidate(
             },
         }
 
-    job_query = select(Job).where(Job.id.in_(job_ids))
+    job_query = select(Job).options(selectinload(Job.client)).where(Job.id.in_(job_ids))
     job_query = apply_delivery_lead_client_scope(
         job_query,
         Job.client_id,
@@ -1141,6 +1171,14 @@ async def refresh_job_criteria(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    # Audyt 06.10.2026 (P7): przy wierszach wymagań kolumny idą za Championem.
+    from app.services.champion_requirement_rows import (
+        ROWS_OWN_COLUMNS_DETAIL,
+        profile_has_rows,
+    )
+
+    if profile_has_rows(job.champion_profile):
+        raise HTTPException(status_code=409, detail=ROWS_OWN_COLUMNS_DETAIL)
 
     criteria = await _generate_criteria_with_ollama(job)
     if not criteria:
@@ -1149,14 +1187,30 @@ async def refresh_job_criteria(
     job.must_skills = criteria.get("must_skills") or []
     job.nice_skills = criteria.get("nice_skills") or []
     job.criteria_generated_at = datetime.now(timezone.utc)
+    # Tytuł dla rekrutera zawiera must-have (runda 4 audytu 25.09.2026).
+    from app.services.job_working_title import refresh_working_title
+
+    await refresh_working_title(db, job)
     await db.commit()
     await db.refresh(job)
 
-    # Re-embed with fresh criteria
-    try:
-        await embed_job(job_id, db)
-    except Exception as e:  # pragma: no cover
-        logger.warning(f"[refresh-criteria] embed failed: {e}")
+    # Runda 10 (R10-N7-6): nowe must/nice to zmiana wejść dopasowania — tak jak
+    # PATCH rekrutacji: ponowny wektor, cache wyników i migawka propozycji jako
+    # nieaktualne (`refresh_job_matching`), a dla opublikowanej zdarzenie dla
+    # automatów (auto-match, nocny przegląd) i ponowny skan Targu.
+    from app.services.job_matching_refresh import refresh_job_matching
+
+    await refresh_job_matching(job_id, db)
+    await db.refresh(job)
+    if job.status == JobStatus.published:
+        from app.services.auto_match_outbox import enqueue_job_safe
+
+        await enqueue_job_safe(job_id)
+    if settings.MARKETPLACE_ENABLED:
+        from app.core.tasks import spawn
+        from app.services.marketplace_service import run_marketplace_scan_safe
+
+        spawn(run_marketplace_scan_safe(job_id), "marketplace_scan:refresh_criteria")
 
     return {
         "job_id": job_id,
@@ -1182,6 +1236,14 @@ async def generate_job_criteria_preview(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    # Audyt 06.10.2026 (P7): przy wierszach wymagań kolumny idą za Championem.
+    from app.services.champion_requirement_rows import (
+        ROWS_OWN_COLUMNS_DETAIL,
+        profile_has_rows,
+    )
+
+    if profile_has_rows(job.champion_profile):
+        raise HTTPException(status_code=409, detail=ROWS_OWN_COLUMNS_DETAIL)
 
     criteria = await _generate_criteria_with_ollama(job)
     source = "ollama" if criteria and "_source" in criteria else "heuristic"
@@ -1286,6 +1348,10 @@ async def assign_candidate_to_job(
     # uniform 403 for non-members (admin / head_of_recruitment bypass).
     await ensure_job_membership(db, current_user, job_id)
 
+    from app.services import candidate_claim
+
+    from_integration = candidate_claim.is_integration_request(request)
+
     # Skip if already in pipeline
     existing = await db.scalar(
         select(func.count(CandidateStage.id)).where(
@@ -1294,6 +1360,16 @@ async def assign_candidate_to_job(
         )
     )
     if existing:
+        # 13.10.2026: karta w „Zamkniętych” to nie „już w rekrutacji”. Do tej
+        # daty odpowiedź 200 czytała się na ekranach jako „Przypisano”, choć
+        # osoba stała odrzucona. Człowiek dostaje odmowę z etapem, dniem
+        # i celem ruchu, który kartę przywraca; integracja jak dotąd.
+        if not from_integration:
+            from app.api.proposals_bulk import closed_card_skip
+
+            closed = await closed_card_skip(db, job=job, candidate=candidate)
+            if closed is not None:
+                raise _closed_card_conflict(closed)
         return {"status": "already_in_pipeline", "count": existing}
 
     # Eligibility gate (SEARCH-P0-04) — the shared pipeline gate, same policy
@@ -1308,6 +1384,42 @@ async def assign_candidate_to_job(
         job=job,
         now=datetime.now(timezone.utc),
     )
+
+    if not from_integration:
+        # Audyt 06.10.2026 (U1): człowiek dodaje tą samą drogą co z okna
+        # rekrutacji (`add_candidates_to_job`) — etap „Nowi” (nie „Ogłoszenia”
+        # z plakietką „nikt nie rozmawiał”), blokada 12 h dla dodającego,
+        # zamknięcie propozycji i telemetria źródła `candidate_list` zamiast
+        # zgadywania przeglądu (zawyżało pozytywy C2).
+        return await _assign_by_human(
+            db, job=job, candidate_id=candidate_id, user=current_user
+        )
+
+    if from_integration:
+        # 06.10.2026: integracja wstawia kartę tylko przy dowodzie zgłoszenia
+        # do TEJ rekrutacji; bez niego osoba czeka w „Do przejrzenia”
+        # (`services/integration_intake.py`). Kształt odpowiedzi bez zmian,
+        # `status = "proposed"` i puste `stage_id`.
+        from app.api.proposals_bulk import propose_candidates_for_job
+        from app.services.integration_intake import (
+            candidates_with_application_evidence,
+        )
+
+        applied = await candidates_with_application_evidence(
+            db, job_id=job_id, candidate_ids=[candidate_id]
+        )
+        if candidate_id not in applied:
+            proposal = await propose_candidates_for_job(
+                db, job=job, candidate_ids=[candidate_id], entry_meta=None
+            )
+            await db.commit()
+            return {
+                "status": "proposed" if proposal.proposed else "skipped",
+                "candidate_id": candidate_id,
+                "job_id": job_id,
+                "stage_id": None,
+                "stage_def_id": None,
+            }
 
     # Resolve initial stage from the job's template
     template_id = job.pipeline_template_id
@@ -1332,9 +1444,6 @@ async def assign_candidate_to_job(
         except ValueError:
             legacy_enum = PipelineStage.new
 
-    from app.services import candidate_claim
-
-    from_integration = candidate_claim.is_integration_request(request)
     stage = await open_process(
         db,
         candidate_id=candidate_id,
@@ -1374,6 +1483,79 @@ async def assign_candidate_to_job(
         "job_id": job_id,
         "stage_id": stage.id,
         "stage_def_id": stage.stage_def_id,
+    }
+
+
+def _closed_card_conflict(row) -> HTTPException:
+    """409 dla zamkniętej karty: zdanie dla człowieka i cel ruchu dla okna."""
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "closed_in_job",
+            "message": row.reason_label,
+            "closed": row.closed.model_dump() if row.closed is not None else None,
+        },
+    )
+
+
+async def _assign_by_human(
+    db: AsyncSession, *, job: Job, candidate_id: int, user: User
+) -> dict:
+    """„Przypisz do rekrutacji” z listy kandydatów i profilu (U1).
+
+    Bramki (już w procesie, czarna lista, weto HM) sprawdził wołający tymi
+    samymi zapytaniami co dotąd, więc odpowiedzi 200/409 mają dawny kształt.
+    ``skipped`` z ``add_candidates_to_job`` to wyścig po tym sprawdzeniu —
+    mapowany na te same odpowiedzi.
+    """
+    from app.api.proposals_bulk import add_candidates_to_job
+    from app.services import candidate_claim
+    from app.services.match_telemetry_service import (
+        emit_pipeline_additions,
+        latest_process_ids,
+    )
+    from app.services.pipeline_realtime import broadcast_pipeline_changed
+
+    result = await add_candidates_to_job(
+        db,
+        job=job,
+        candidate_ids=[candidate_id],
+        actor_user_id=user.id,
+        entry_source=candidate_claim.ENTRY_ADDED_MANUAL,
+        claim=True,
+        mark_proposals=True,
+    )
+    if not result.added:
+        skipped = result.skipped[0] if result.skipped else None
+        await db.rollback()
+        if skipped is not None and skipped.reason == "closed_in_job":
+            raise _closed_card_conflict(skipped)
+        if skipped is not None and skipped.reason == "already_in_job":
+            return {"status": "already_in_pipeline", "count": 1}
+        raise HTTPException(
+            status_code=409,
+            detail=(skipped.reason_label if skipped else None)
+            or "Nie można dodać tej osoby do rekrutacji.",
+        )
+    stage_id = result.stage_ids[candidate_id]
+    stage = await db.get(CandidateStage, stage_id)
+    stage_def_id = stage.stage_def_id if stage is not None else None
+    process_ids = await latest_process_ids(db, job.id, [candidate_id])
+    await db.commit()
+    await broadcast_pipeline_changed(db, job.id, user.id)
+    await emit_pipeline_additions(
+        job_id=job.id,
+        candidate_ids=[candidate_id],
+        user_id=user.id,
+        source="candidate_list",
+        process_ids=process_ids,
+    )
+    return {
+        "status": "assigned",
+        "candidate_id": candidate_id,
+        "job_id": job.id,
+        "stage_id": stage_id,
+        "stage_def_id": stage_def_id,
     }
 
 
@@ -1437,7 +1619,11 @@ def _shape_seek_candidate(c: Candidate) -> dict:
 def _shape_seek_job(j: Job, *, include_finance: bool = False) -> dict:
     return {
         "id": j.id,
+        # `title` = nazwa od klienta (mail z listą rekrutacji do kandydata);
+        # karta pokazuje nazwę jak nagłówek rekrutacji (0380).
         "title": j.title,
+        "working_title": j.working_title,
+        "client_reference": j.client_reference,
         "client_id": j.client_id,
         "location": j.location,
         "salary_min": j.salary_min if include_finance else None,
@@ -1554,7 +1740,9 @@ async def seeking_contractors(
     include_finance = user_has_capability(
         current_user, AnalyticsCapability.VIEW_FINANCE
     )
-    delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
+    delivery_lead_client_ids = await resolve_delivery_lead_org_client_ids(
+        current_user, db
+    )
 
     # 1. Build the candidate pool (union of two sources).
     horizon = business_today() + timedelta(days=horizon_days)
@@ -1585,7 +1773,11 @@ async def seeking_contractors(
                 "current_client_id": client_id,
             }
 
-    # Source B: candidates with availability_status in the "looking" set
+    # Source B: candidates with availability_status in the "looking" set.
+    # Osoba z żywą umową nie „szuka projektu” przez status z profilu
+    # (15.10.2026, S3), chyba że wg znacznika kończy pracę u nas w horyzoncie.
+    # Źródło A widzi tylko `contracts.end_date`, którego umowa B2B nie ma przed
+    # ręcznym zakończeniem — kończący zamówienie wchodzili dotąd tylko tędy.
     looking_ids: set[int] = set()
     if delivery_lead_client_ids is None:
         looking_rows = await db.execute(
@@ -1597,9 +1789,28 @@ async def seeking_contractors(
                     ]
                 ),
                 Candidate.status != CandidateStatus.blacklisted,
+                # R10-N7-5: „tylko umowa o pracę" nie jest kandydatem do
+                # żadnej rekrutacji (pracujemy na B2B) — lustro dealbreakera.
+                Candidate.b2b_willingness.is_distinct_from("employment_only"),
+                contract_free_by_clause(Candidate.id, horizon + timedelta(days=1)),
             )
         )
         looking_ids = {row[0] for row in looking_rows.all()}
+    if ending_meta:
+        employment_only = set(
+            (
+                await db.execute(
+                    select(Candidate.id).where(
+                        Candidate.id.in_(list(ending_meta)),
+                        Candidate.b2b_willingness == "employment_only",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for cid in employment_only:
+            ending_meta.pop(cid, None)
 
     # Pełna pula PRZED obcięciem — `total` musi opisywać ilu jest konsultantów,
     # nie ile ich zmieściło się na stronie. Wcześniej `total` liczyło już
@@ -1706,9 +1917,24 @@ async def seeking_contractors(
     # ładowane hurtowo raz na stronę. Kolejność wierszy i wyniki bez zmian.
     page_candidate_ids = [c.id for c in candidates]
     conflicts_by_candidate = await load_active_conflicts_bulk(db, page_candidate_ids)
+    # R10-N7-5: rekrutacje, w których osoba już jest (także odrzucona), nie są
+    # „dopasowaniem" — lustro `/candidates/{id}/recommendations`. Jedno
+    # zapytanie na stronę.
+    staged_pairs: set[tuple[int, int]] = {
+        (int(cid), int(jid))
+        for cid, jid in (
+            await db.execute(
+                select(CandidateStage.candidate_id, CandidateStage.job_id)
+                .where(CandidateStage.candidate_id.in_(page_candidate_ids))
+                .distinct()
+            )
+        ).all()
+    }
     scoring_contexts = await build_jobs_scoring_contexts(
         db, all_open_jobs, page_candidate_ids
     )
+    # Dostępność z żywej umowy raz na stronę, nie raz na parę (15.10.2026).
+    await attach_contract_free(db, candidates)
 
     semantic_slots = asyncio.Semaphore(_SEEKING_SEMANTIC_CONCURRENCY)
 
@@ -1755,6 +1981,7 @@ async def seeking_contractors(
             # Pusty wiersz z flagą degradacji jest uczciwszy niż wiersz
             # wypełniony losowymi ofertami.
             scoring_pool = []
+        scoring_pool = [j for j in scoring_pool if (cand.id, j.id) not in staged_pairs]
 
         # 2b. Apply user filters (incl. industry_blocklist via CandidateConflict)
         filtered, _stats = await apply_user_filters(

@@ -1,23 +1,43 @@
 import { forgetCvGenerationRequest } from "./cv-generation-request";
+import type { PipelineMovePayload, PipelineMoveResult } from "@/lib/pipeline-move-core";
 import { reviewBeforeFinalize, type CvReviewState } from "./cv-approval-request";
 import axios, { AxiosError } from "axios";
 import { messageFromApiResponse } from "./api-error";
-import { apiSupportsCorrelation, probeTelemetryCapability } from "./telemetry-capability";
+import type { ConsentUploadResult } from "./consent-check";
+import {
+  apiSupportsCorrelation,
+  apiWantsUsageScreen,
+  probeTelemetryCapability,
+} from "./telemetry-capability";
+import { usageScreen } from "./usage-screen";
 
-import { SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
+import { FILE_UPLOAD_TIMEOUT_MS, isClientTimeout, SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
 import { clearSessionArtifacts, getAccessToken } from "./session";
 import type { WorkMode } from "./work-mode";
 import type { CallFactsPatch } from "./candidate-call-facts";
 import type { RequestStatus } from "./request-status";
+import type { RequestStage } from "./request-stage";
+import type { CompanyVerification } from "./b2b-registry-check";
+import type { DocumentFolder, DocumentFoldersResponse } from "./contract-document-folders";
 import { recordRefusal, refusalCode } from "./help/refusal-tracker";
+import {
+  askOffLimits,
+  OFF_LIMITS_HEADER,
+  offLimitsDeclinedMessage,
+  offLimitsHeaderValue,
+  offLimitsOthersInRequest,
+  offLimitsPeopleFrom,
+} from "./off-limits";
 import type {
-  RoleActionPermissionChange,
+  AdminPermissionsSnapshot,
+  AdminUserPermissionsResponse,
+  RolePermissionChange,
+  UserPermissionChange,
+} from "./admin-permissions";
+import type {
   RoleSectionPermissionChange,
   SectionPermissionMutationResponse,
-  SectionPermissionsResponse,
-  UserActionPermissionChange,
   UserSectionPermissionChange,
-  UserSectionPermissionsResponse,
 } from "./section-access";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -36,8 +56,25 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 export const api = axios.create({
   baseURL: API_BASE,
-  timeout: DEFAULT_REQUEST_TIMEOUT_MS,
   headers: { "Content-Type": "application/json" },
+});
+
+// Domyślny sufit ustawia ten interceptor, a nie `axios.create`: axios scala
+// domyślne pola instancji z polami wywołania, zanim zobaczy je interceptor,
+// więc przy `timeout` w instancji nie da się odróżnić „wywołanie nie podało”
+// od „podało 30 s”. Bez niego w instancji niepodany `timeout` dochodzi tu
+// jako 0 (domyślne axiosa). Żądanie z plikiem dostaje dłuższy sufit
+// `FILE_UPLOAD_TIMEOUT_MS` — powód w `lib/http-timeouts.ts`. Jawny `timeout`
+// wywołania zawsze wygrywa; świadomie nieskończonego `timeout: 0` nikt nie
+// używa, więc 0 znaczy tu „nie podano”.
+api.interceptors.request.use((config) => {
+  if (!config.timeout) {
+    config.timeout =
+      typeof FormData !== "undefined" && config.data instanceof FormData
+        ? FILE_UPLOAD_TIMEOUT_MS
+        : DEFAULT_REQUEST_TIMEOUT_MS;
+  }
+  return config;
 });
 
 // Etykiety pól kontraktu żyją w `lib/api-error.ts` (czysty moduł tłumaczenia
@@ -135,6 +172,12 @@ api.interceptors.request.use((config) => {
     if (impersonateId && !isAuthEndpoint) {
       config.headers["X-Impersonate-User-Id"] = impersonateId;
     }
+    // Licznik użycia obszarów liczy ekran, na którym osoba jest, bo pulpit sam
+    // odpytuje wiele obszarów. Karta w tle się nie liczy: to odpytywanie, nie praca.
+    if (apiWantsUsageScreen() && document.visibilityState === "visible") {
+      const screen = usageScreen(window.location.pathname);
+      if (screen) config.headers["X-Nexus-Screen"] = screen;
+    }
   }
   return config;
 });
@@ -198,18 +241,9 @@ function transientRetryDelayMs(attempts: number): number {
 
 type RetryableConfig = { _transientRetryCount?: number };
 
-/**
- * Timeout po stronie PRZEGLĄDARKI (sufit instancji albo per-request
- * `SLOW_ENDPOINT_TIMEOUT_MS`). Żądanie dotarło i backend nadal je liczy —
- * powtórka nie skraca oczekiwania, tylko mnoży pracę i koszt modelu
- * (`lib/http-timeouts.ts` opisuje dokładnie ten tryb awarii). Nie powtarzamy
- * takiego błędu żadnym czasownikiem.
- */
-function isClientTimeout(err: AxiosError): boolean {
-  return err.code === "ECONNABORTED" || err.code === "ETIMEDOUT";
-}
-
 function isRetryable(err: AxiosError, method: string): boolean {
+  // Timeout przeglądarki: żądanie dotarło i backend nadal je liczy — nie
+  // powtarzamy takiego błędu żadnym czasownikiem (`lib/http-timeouts.ts`).
   if (isClientTimeout(err)) return false;
   if (IDEMPOTENT_METHODS.has(method)) {
     return !err.response || TRANSIENT_RETRY_STATUSES.has(err.response.status);
@@ -243,6 +277,39 @@ api.interceptors.response.use(
     await new Promise((r) => setTimeout(r, delay));
     return api.request(config);
   }
+);
+
+// Off-limits (21.10.2026): osoba z firmy, z której nie wyciągamy ludzi →
+// okno „Czy sama się do nas zgłosiła?” i jedno ponowienie TEGO SAMEGO żądania
+// z odpowiedziami w nagłówku. „Nie, to my” = błąd z czytelnym zdaniem,
+// które wołający pokazuje jak każdy inny (`apiErrorMessage`).
+type OffLimitsConfig = { _offLimitsAsked?: boolean };
+
+api.interceptors.response.use(
+  (res) => res,
+  async (err: AxiosError) => {
+    const config = err.config as (typeof err.config & OffLimitsConfig) | undefined;
+    const people = offLimitsPeopleFrom(err);
+    if (!config || !people || config._offLimitsAsked || typeof window === "undefined") {
+      return Promise.reject(err);
+    }
+    // Partia (audyt 22.10.2026): „Nie” przy osobach z okna nie zatrzymuje
+    // reszty — serwer wpisze je do `skipped`, pozostałe doda.
+    const othersInRequest = offLimitsOthersInRequest(config.data, people);
+    const answers = await askOffLimits(people, { othersInRequest });
+    const header = answers ? offLimitsHeaderValue(answers, othersInRequest) : null;
+    if (!header) {
+      if (err.response) {
+        err.response.data = {
+          detail: { code: "off_limits_declined", message: offLimitsDeclinedMessage(people) },
+        };
+      }
+      return Promise.reject(err);
+    }
+    config._offLimitsAsked = true;
+    config.headers[OFF_LIMITS_HEADER] = header;
+    return api.request(config);
+  },
 );
 
 // Session-expired auto-redirect.
@@ -346,6 +413,8 @@ export interface ClientDirectoryItem {
   industry: string | null;
   active_consultants_count: number;
   active_contracts_count: number;
+  /** `scope` = liczy tylko kontrakty przypięte do umowy ramowej tego zakresu. */
+  consultants_scope?: "scope" | "client";
   /** EFFECTIVE values: a manual placement override wins over the manifest/MSA. */
   effective_date: string | null;
   expiry_date: string | null;
@@ -629,6 +698,14 @@ export interface KpiResult {
   progress_pct: number;
   state: KpiState;
   deadline_hours_left: number;
+  /**
+   * Nazwa bez okresu — podpis segmentu w liczniku górnego paska. Pola dodane
+   * 13.10.2026 są opcjonalne: karta otwarta przed wdrożeniem dostaje je dopiero
+   * po odświeżeniu backendu, a licznik ma wtedy zapas (`title_pl`).
+   */
+  short_title_pl?: string;
+  /** Cel × tempo okresu „na teraz” — kreska tempa na pasku postępu. */
+  expected_count?: number;
 }
 
 /** Cel lidera — DL: portfel w kwartale, HoR / TCM: zespół. */
@@ -637,12 +714,16 @@ export interface KpiGoal {
   title_pl: string;
   period: KpiPeriod | "quarter";
   unit: "count" | "pct";
+  /** 0 przy `state: null` = celu jeszcze nie ma (DL bez zamkniętych rekrutacji). */
   target: number;
   /** null = niepoliczony (np. hit ratio bez requestów) — nigdy zero. */
   current: number | null;
   progress_pct: number | null;
   state: KpiState | null;
   note: string | null;
+  short_title_pl?: string;
+  /** Cel × tempo okresu „na teraz”; null = cel bez tempa. */
+  expected?: number | null;
 }
 
 export interface MyKpiGoals {
@@ -650,6 +731,18 @@ export interface MyKpiGoals {
   scope_label: string;
   people: number | null;
   goals: KpiGoal[];
+  /** Delivery Lead: rekrutacje zamknięte w kwartale (podstawa celu placementów). */
+  closed_requests?: number | null;
+  /** Delivery Lead: zamknięte jako „nie liczy się” — poza podstawą celu (21.10.2026). */
+  closed_neutral?: number | null;
+  /** Delivery Lead: „Sam przekazał” w tym miesiącu — procesy, które sam zweryfikował (22.10.2026). */
+  own_handoffs?: {
+    verified: number;
+    cv_sent: number;
+    hired: number;
+    /** Match (22.10.2026): z tego wysłani przez DL-a do innych jego rekrutacji. */
+    match?: number;
+  } | null;
 }
 
 /** Liczniki „Moje KPI" — dzień, tydzień i miesiąc kalendarzowy. */
@@ -684,7 +777,6 @@ export interface MyKpiPanel {
   };
   target_verifications_daily: number;
   target_placements_monthly: number;
-  target_cv_added_daily: number | null;
   target_precision_pct: number;
 }
 
@@ -751,6 +843,9 @@ export const candidatesApi = {
       rate_value: number | null;
       rate_unit?: RateUnit;
       rate_currency?: string;
+      // Zmiana po wysyłce CV (20.10.2026): powód i słowa DL-a.
+      reason?: "client_negotiated" | "send_mistake" | "other";
+      note?: string | null;
     },
   ) =>
     api.patch(
@@ -776,9 +871,47 @@ export const candidatesApi = {
   // Usuń kandydata z rekrutacji — kasuje całą obecność w pipeline tej oferty
   // (wszystkie etapy + kaskadowo snapshoty CV / share-tokeny / maile odrzucenia).
   // Operacja korekcyjna, odrębna od reject/withdrawn.
-  removeFromRecruitment: (candidateId: number, jobId: number) =>
-    api.delete(`/api/candidates/${candidateId}/recruitments/${jobId}`),
+  // `quickUndo` (14.10.2026): „Cofnij” zaraz po „+ Dodaj” w oknie źródeł —
+  // serwer przyjmuje go tylko do 15 min, przy jednym wierszu etapu bez arkusza.
+  removeFromRecruitment: (candidateId: number, jobId: number, options?: { quickUndo?: boolean }) =>
+    api.delete(
+      `/api/candidates/${candidateId}/recruitments/${jobId}`,
+      options?.quickUndo ? { params: { quick_undo: true } } : undefined,
+    ),
+  // Czarna lista (17.10.2026): jedno okno „Czarna lista…”. `global` blokuje
+  // (status `blacklisted`, 409 `already_blacklisted`), `client` zakłada
+  // konflikt-ostrzeżenie u klienta. Powód 5–2000 znaków, inaczej 422.
+  addToBlacklist: (candidateId: number, payload: CandidateBlacklistPayload) =>
+    api.post<CandidateBlacklistAddResponse>(`/api/candidates/${candidateId}/blacklist`, payload),
+  // Zdjęcie czarnej listy „u nas” — admin, Delivery Lead, Head of Recruitment
+  // (reszta 403), 409 `not_blacklisted`.
+  removeFromBlacklist: (candidateId: number, payload: { reason: string }) =>
+    api.post<{ status: string; blacklist: null }>(
+      `/api/candidates/${candidateId}/blacklist/remove`,
+      payload,
+    ),
 };
+
+/** Wpis czarnej listy „u nas” (`blacklist` w `GET /api/candidates/{id}`).
+ *  Wpisy sprzed 17.10.2026 mają wszystkie pola `null`. */
+export interface CandidateBlacklistInfo {
+  since: string | null;
+  by_user_id: number | null;
+  by_name: string | null;
+  reason: string | null;
+}
+
+export type CandidateBlacklistScope = "global" | "client";
+
+export interface CandidateBlacklistPayload {
+  scope: CandidateBlacklistScope;
+  client_id: number | null;
+  reason: string;
+}
+
+export type CandidateBlacklistAddResponse =
+  | { scope: "global"; status: "blacklisted"; blacklist: CandidateBlacklistInfo }
+  | { scope: "client"; conflict: ConflictRow };
 
 export type CandidateLanguageCefrLevel =
   | "A1"
@@ -796,7 +929,8 @@ export type CandidateLanguageProvenance =
   | "tr_legacy"
   | "csv"
   | "legacy"
-  | "unknown";
+  | "unknown"
+  | "notes";
 
 export interface CandidateLanguage {
   id: number;
@@ -822,6 +956,8 @@ export interface CandidateLanguageInput {
   cefr_level: CandidateLanguageCefrLevel | null;
   is_native: boolean;
   is_level_unknown: boolean;
+  /** Język spoza listy okna („Inny…”) — kod wyprowadzony z nazwy. */
+  other?: boolean;
 }
 
 export interface CandidateProfileRate {
@@ -890,10 +1026,12 @@ export const candidateFactsApi = {
     candidateId: number,
     amount: string | null,
     etag: string,
+    // „To jego minimum” (0414) — starsze niższe stawki przestają się liczyć.
+    isMinimum = false,
   ) => {
     const response = await api.patch<CandidateProfileRate>(
       `/api/candidates/${candidateId}/profile-rate`,
-      { amount },
+      isMinimum ? { amount, is_minimum: true } : { amount },
       { headers: { "If-Match": etag } },
     );
     return { data: response.data, etag: responseEtag(response.headers) };
@@ -1078,17 +1216,18 @@ export const adminApi = {
   getTalentRadarImportStatus: (taskId: string) =>
     api.get<ImportTaskStatus>(`/api/admin/import-talent-radar/${taskId}`),
   listImportTasks: () => api.get<ImportTaskStatus[]>("/api/admin/import-tasks"),
+  /** Uprawnienia ról: dziewięć przełączników + liczba osób z każdą rolą. */
   getSectionPermissions: () =>
-    api.get<SectionPermissionsResponse>("/api/admin/section-permissions"),
-  searchUserSectionPermissions: (search = "") =>
-    api.get<UserSectionPermissionsResponse>(
-      "/api/admin/section-permissions/users",
-      { params: search.trim() ? { search: search.trim() } : undefined },
+    api.get<AdminPermissionsSnapshot>("/api/admin/section-permissions"),
+  /** Uprawnienia jednej osoby (okno „Edytuj użytkownika”). */
+  getUserPermissions: (userId: number) =>
+    api.get<AdminUserPermissionsResponse>(
+      `/api/admin/section-permissions/users/${userId}`,
     ),
   updateRoleSectionPermissions: (
     revision: number,
     changes: RoleSectionPermissionChange[],
-    actionChanges: RoleActionPermissionChange[] = [],
+    actionChanges: RolePermissionChange[] = [],
   ) =>
     api.put<SectionPermissionMutationResponse>(
       "/api/admin/section-permissions/roles",
@@ -1104,7 +1243,7 @@ export const adminApi = {
     userId: number,
     revision: number,
     changes: UserSectionPermissionChange[],
-    actionChanges: UserActionPermissionChange[] = [],
+    actionChanges: UserPermissionChange[] = [],
   ) =>
     api.put<SectionPermissionMutationResponse>(
       `/api/admin/section-permissions/users/${userId}`,
@@ -1120,13 +1259,11 @@ export const adminApi = {
 
 // ── Reports ───────────────────────────────────────────────────────────────────
 export const reportsApi = {
-  recruitment: (params: { period?: string; recruitment_type?: string }) =>
+  recruitment: (params: { period?: string }) =>
     api.get("/api/reports/recruitment", { params }),
   sales: () => api.get("/api/reports/sales"),
   deliveryLeads: (params: { period?: string }) =>
     api.get("/api/reports/delivery-leads", { params }),
-  tenders: (params: { period?: string }) =>
-    api.get("/api/reports/tenders", { params }),
   inviteLinks: (params: { period?: string }) =>
     api.get("/api/reports/invite-links", { params }),
 };
@@ -1170,32 +1307,6 @@ export const prepKitApi = {
       { job_id, candidate_id },
       { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
     ),
-};
-
-// ── AI Writer ─────────────────────────────────────────────────────────────────
-export const aiWriterApi = {
-  // Saved-job descriptions use a factual template; generateJob uses the model.
-  // The shared timeout accommodates the slower model-backed route.
-  generateJobDescription: (data: {
-    title: string;
-    client_name?: string;
-    requirements?: string;
-    seniority?: string;
-  }) =>
-    api.post("/api/ai/generate-job-description", data, {
-      timeout: SLOW_ENDPOINT_TIMEOUT_MS,
-    }),
-
-  generateJob: (data: {
-    title: string;
-    client?: string;
-    seniority?: string;
-    skills?: string[];
-    description_hint?: string;
-  }) =>
-    api.post("/api/ai/generate-job", data, {
-      timeout: SLOW_ENDPOINT_TIMEOUT_MS,
-    }),
 };
 
 // ── AI Matching ───────────────────────────────────────────────────────────────
@@ -1271,12 +1382,17 @@ export const matchingApi = {
           | "ok"
           | "days_exceeded"
           | "over_consented"
+          // Za mało dni, bo kandydat chce tylko zdalnie — mówi to `remote_fit`.
+          | "remote_only"
           | "city_mismatch"
           | "unknown"
           | "not_required";
         /** Wymiar pracy z rozmowy praktykanta wobec `Job.work_mode` — plakietka,
          *  nie ukrycie (24.09.2026). Opcjonalne: starszy backend go nie wysyła. */
         work_time_fit?: WorkTimeFit;
+        /** „Tylko zdalnie” z notatek przy rekrutacji hybrydowej — plakietka
+         *  (07.10.2026). Opcjonalne: starszy backend go nie wysyła. */
+        remote_fit?: "prefers_remote" | "ok" | "not_required";
         /** Must-have z `rubrics.must_skills`, których TEMU kandydatowi brakuje
          *  — węższe niż `gaps` (to porównuje z `required_skills`, który bywa
          *  wywiedziony regexem; `missing_must` tylko z jawnym must bramki). */
@@ -1291,12 +1407,15 @@ export const matchingApi = {
       },
     }),
   // Shared base fit (0-100); pipeline membership also includes unknown scores.
+  // `exclusions` (16.10.2026): kogo wyszukiwanie by ukryło — wynik i tak jest
+  // w `scores`, a `missing_critical` to krytyczne bez śladu w profilu/CV/notatkach.
   pipelineScores: (jobId: number) =>
     api.get<{
       job_id: number;
       profile_id: number;
       scores: Record<string, number>;
       pipeline_candidate_ids: number[];
+      exclusions?: Record<string, { reason: string; missing_critical: string[] }>;
     }>(`/api/jobs/${jobId}/pipeline-scores`),
 };
 
@@ -1550,6 +1669,32 @@ export interface JobQuickCounts {
    */
   request_status?: Partial<Record<RequestStatus, number>>;
   request_status_mine?: Partial<Record<RequestStatus, number>>;
+  /**
+   * Pigułki „Stan requestu” paska filtrów (25.09.2026) — to samo wyrażenie co
+   * filtr `request_stage`; `_mine` w zakresie „Moje”.
+   */
+  request_stage?: Partial<Record<RequestStage, number>>;
+  request_stage_mine?: Partial<Record<RequestStage, number>>;
+  /**
+   * Przełączniki „Po terminie” / „Bez rekrutera” / „Nikogo nie wysłano”:
+   * `attention` w zakresie „Otwarte”, `attention_mine` w „Moje”. Zakres
+   * „Wszystkie” nie ma liczb (objąłby archiwum).
+   */
+  attention?: JobAttentionCounts;
+  attention_mine?: JobAttentionCounts;
+  /**
+   * Zakres „Moja kategoria” (02.10.2026): niezamknięte rekrutacje, których
+   * główna kategoria kompetencji jest jedną z kategorii zalogowanej osoby —
+   * ten sam predykat co filtr `my_category=true`. `null` = osoba nie ma
+   * kategorii; brak pola = starszy backend (bez liczby).
+   */
+  my_category?: number | null;
+}
+
+export interface JobAttentionCounts {
+  overdue: number;
+  nobody_working: number;
+  nobody_sent: number;
 }
 
 /** Pola `JobResponse`, które czyta przełącznik „prowadzona w NEXUSIE" (0325). */
@@ -1561,6 +1706,39 @@ export interface JobManagedInNexus {
   managed_in_nexus_by?: number | null;
 }
 
+/** Kanał pracy przy przekazaniu do searchu (lustro `JobHandoffButton`). */
+export type JobHandoffChannel = "linkedin" | "database" | "mixed";
+
+/**
+ * Ciało `POST /api/jobs/{id}/publish`. Ponowne otwarcie zamkniętej rekrutacji
+ * zostawia dotychczasowego rekrutera (`assignment_mode: "keep"`, 09.10.2026)
+ * i niesie opcjonalny powód; „Dokończ i opublikuj” wskazuje automat
+ * (`assignment_mode`) albo osobę (`recruiter_id`) i kanał.
+ */
+export type JobPublishPayload =
+  | {
+      assignment_mode: "keep";
+      reason?: string | null;
+      /**
+       * „Priorytet po otwarciu” (14.10.2026): przy P1 wracają „Poprzedni
+       * rekruterzy”, przy innym zostają wśród poprzednich. Brak = obecny.
+       */
+      priority?: "urgent" | "high" | "medium" | "low";
+    }
+  | ((
+      | { assignment_mode: "automatic"; recruiter_id?: never }
+      | { recruiter_id: number; assignment_mode?: never }
+    ) & {
+      channel: JobHandoffChannel;
+      reason?: string | null;
+    });
+
+/** Pozycja braku z `GET /api/jobs/{id}/readiness` (`blocker_items`). */
+export interface JobReadinessBlockerItem {
+  code: string;
+  message: string;
+}
+
 export const jobsApi = {
   list: (params?: Record<string, unknown>) => api.get("/api/jobs", { params }),
   /**
@@ -1570,7 +1748,11 @@ export const jobsApi = {
    * użytkownika (strefa czasowa), a licznik ma zgadzać się z listą co do
    * wiersza.
    */
-  quickCounts: (params?: { deadline_from?: string; deadline_to?: string }) =>
+  quickCounts: (params?: {
+    deadline_from?: string;
+    deadline_to?: string;
+    overdue_to?: string;
+  }) =>
     api.get<JobQuickCounts>("/api/jobs/quick-counts", { params }),
   get: (id: number) => api.get(`/api/jobs/${id}`),
   create: (data: Record<string, unknown>) => api.post("/api/jobs", data),
@@ -1591,11 +1773,42 @@ export const jobsApi = {
    * jest „Zamknij jako przegraną" w profilu klienta; ten helper istnieje, żeby
    * krok 08 nie wołał surowego `api.post` obok niego.
    */
-  close: (id: number, reason: string, notes?: string | null) =>
+  close: (
+    id: number,
+    reason: string,
+    notes?: string | null,
+    /** Potwierdzenie ostrzeżenia o osobach w toku (409 `active_cards_warning`). */
+    acknowledgeActiveCards = false,
+    /** Przy „Duplikat”: rekrutacja, która zostaje (21.10.2026). */
+    duplicateOfJobId: number | null = null,
+  ) =>
     api.post(`/api/jobs/${id}/close`, {
       reason,
       notes: notes?.trim() || null,
+      ...(duplicateOfJobId != null ? { duplicate_of_job_id: duplicateOfJobId } : {}),
+      ...(acknowledgeActiveCards ? { acknowledge_active_cards: true } : {}),
     }),
+  /**
+   * „Zmień powód zamknięcia” zamkniętej rekrutacji (21.10.2026). Ta sama
+   * walidacja co zamknięcie: 422 `close_notes_required`, `close_reason_has_hire`…
+   */
+  changeCloseReason: (
+    id: number,
+    body: { reason: string; notes?: string | null; duplicateOfJobId?: number | null },
+  ) =>
+    api.patch(`/api/jobs/${id}/close-reason`, {
+      reason: body.reason,
+      notes: body.notes?.trim() || null,
+      duplicate_of_job_id: body.duplicateOfJobId ?? null,
+    }),
+  /**
+   * „Otwórz ponownie” zamkniętą rekrutację albo „Dokończ i opublikuj” stary
+   * szkic / rekrutację opublikowaną bez przekazania (04.10.2026). Przechodzi
+   * bramkę przekazania: 422 `{code: "job_not_ready", message, blockers:
+   * [{code, message}]}` — patrz `lib/job-gate-errors.ts`.
+   */
+  publish: (id: number, payload: JobPublishPayload) =>
+    api.post(`/api/jobs/${id}/publish`, payload),
   /** 0325: osobna trasa (nie PATCH) — własny wpis audytowy; `enabled=false` tylko admin/DL (403). */
   setManagedInNexus: (id: number, enabled: boolean) =>
     api.post<JobManagedInNexus>(`/api/jobs/${id}/manage-in-nexus`, { enabled }),
@@ -1832,6 +2045,15 @@ export interface InterviewFeedbackRow {
   decision: string | null;
   client_questions: string | null;
   feedback_summary: string | null;
+  /** Debrief po rozmowie u klienta (strona kandydata) — czy przyjmie ofertę. */
+  offer_acceptance?: "yes" | "likely" | "no" | "unknown" | null;
+  /** Debrief: warunek kandydata (np. wyższa stawka, druga oferta). */
+  acceptance_condition?: string | null;
+  no_client_questions?: boolean;
+  updated_at?: string | null;
+  /** Tylko lista: kto zapisał i kiedy była rozmowa. */
+  author_name?: string | null;
+  calendar_event_start?: string | null;
 }
 
 export const interviewFeedbackApi = {
@@ -2112,8 +2334,31 @@ export const contractsApi = {
     }),
   deleteDocument: (contractId: number, documentId: number) =>
     api.delete(`/api/contracts/${contractId}/documents/${documentId}`),
+  // 0494: foldery w zakładce Dokumenty (`lib/contract-document-folders.ts`).
+  documentFolders: (id: number) =>
+    api.get<DocumentFoldersResponse>(`/api/contracts/${id}/document-folders`),
+  createDocumentFolder: (id: number, payload: { name: string; document_ids?: number[] }) =>
+    api.post<{ folder: DocumentFolder; moved: number }>(
+      `/api/contracts/${id}/document-folders`,
+      payload,
+    ),
+  renameDocumentFolder: (id: number, folderId: number, name: string) =>
+    api.patch<DocumentFolder>(`/api/contracts/${id}/document-folders/${folderId}`, { name }),
+  renameOrdersFolder: (id: number, name: string) =>
+    api.patch<{ orders_folder_name: string }>(
+      `/api/contracts/${id}/document-folders/orders`,
+      { name },
+    ),
+  deleteDocumentFolder: (id: number, folderId: number) =>
+    api.delete<{ released: number }>(`/api/contracts/${id}/document-folders/${folderId}`),
+  moveDocuments: (id: number, payload: { document_ids: number[]; folder_id: number | null }) =>
+    api.post<{ moved: number }>(`/api/contracts/${id}/documents/move`, payload),
   terminate: (id: number, payload: ContractTerminateRequest) =>
     api.post(`/api/contracts/${id}/terminate`, payload),
+  // Rozwiązanie umowy podpisane poza NEXUSEM — dopisane do zakończonego
+  // kontraktu (zgłoszenie 29.10.2026).
+  recordAgreementTermination: (id: number, payload: AgreementTerminationPayload) =>
+    api.put(`/api/contracts/${id}/agreement-termination`, payload),
   // „Cofnij zakończenie" (pomyłka) — podgląd i wykonanie (0368).
   terminationReversalPreview: (id: number) =>
     api.get<ContractTerminationReversalPlan>(
@@ -2142,6 +2387,12 @@ export const contractsApi = {
     api.get<ContractBenchmarkComparison>(`/api/contracts/${id}/benchmark`),
   notesTimeline: (id: number) =>
     api.get<ContractTimelineItem[]>(`/api/contracts/${id}/notes`),
+  // Runda 10 (F03): notatka dodawana wprost przy kontrakcie (trafia też do
+  // profilu kandydata tego kontraktu).
+  createNote: (
+    id: number,
+    payload: { content: string; note_type?: "general" | "call" | "meeting" | "email" },
+  ) => api.post<ContractTimelineItem>(`/api/contracts/${id}/notes`, payload),
   // Editable draft (migracja 0058)
   draft: {
     get: (id: number) =>
@@ -2688,31 +2939,14 @@ export const pipelineApi = {
       params: jobId !== undefined ? { job_id: jobId } : undefined,
     }),
   kanban: (jobId: number) => api.get(`/api/pipeline/kanban/${jobId}`),
-  move: (data: {
-    candidate_id: number;
-    job_id: number;
-    stage?: string;
-    stage_def_id?: number;
-    notes?: string;
-    rating?: number;
-    rejection_reason_id?: number;
-    expected_rate_value?: number | string;
-    expected_rate_unit?: RateUnit;
-    expected_rate_currency?: string;
-    /** F05: wersja procesu z karty; rozjazd = 409 PIPELINE_VERSION_CONFLICT. */
-    expected_state_version?: number;
-    /** 17.09.2026: powtórka ruchu po 409 ELIGIBILITY_WARNING („Przenieś mimo to"). */
-    acknowledge_eligibility?: boolean;
-    /** Pipeline v4: stawka do klienta w tym samym żądaniu co „CV wysłane". */
-    client_rate_value?: number;
-    client_rate_unit?: RateUnit;
-    client_rate_currency?: string;
-  }) => api.post("/api/pipeline/move", data),
+  /** Jedyny klient ruchu karty — kształt żądania: `lib/pipeline-move-core.ts`. */
+  move: (data: PipelineMovePayload) =>
+    api.post<PipelineMoveResult>("/api/pipeline/move", data),
 };
 
 // ── Recommendations (Phase 2) ────────────────────────────────────────────────
 export interface LayerPoints {
-  points: number;
+  points: number | null;
   max: number;
   reason: string;
 }
@@ -2728,6 +2962,8 @@ export interface ScoreBreakdown {
   availability: LayerPoints;
   /** Phase 10: Champion screening layer — optional for backwards-compat. */
   champion_fit?: LayerPoints;
+  /** Odpowiedzi z wcześniejszych rozmów (07.10.2026) — tylko gdy warstwa była liczona. */
+  prior_screening?: LayerPoints & { status?: string };
   matching_must: string[];
   gap_must: string[];
   matching_nice: string[];
@@ -2783,6 +3019,7 @@ export interface CandidateMatch {
 export type HiddenReason =
   | "employment_only"
   | "over_budget"
+  | "no_data"
   | "missing_must"
   | "office_days_exceeded"
   | "office_city_mismatch"
@@ -2798,10 +3035,17 @@ export type HiddenCounters = Partial<Record<HiddenReason, number>>;
  *  jest ciche (reguła „awaria ≠ pustka"). */
 export const HIDDEN_LABELS_PL: Record<HiddenReason, string> = {
   employment_only: "tylko umowa o pracę",
+  // 30.09.2026 (bramka MUST v9): budżet i dni w biurze to tylko plakietki
+  // (`lib/fit-badges.ts`), liczniki `over_budget` i `office_days_exceeded`
+  // są zawsze 0. Etykiety zostają na wypadek `MUST_GATE_MODE=all` (powrót do
+  // v8) — wtedy ukrywanie nie może być ciche.
   over_budget: "powyżej budżetu rekrutacji",
-  missing_must: "bez technologii must-have",
+  // 27.09.2026: must liczy się z profilu, CV i notatek; osoby bez żadnych
+  // danych są ukrywane osobno.
+  no_data: "bez CV, umiejętności i notatek",
+  missing_must: "bez technologii must-have (profil, CV, notatki)",
   office_days_exceeded: "za mało dni w biurze",
-  office_city_mismatch: "inne miasto niż biuro",
+  office_city_mismatch: "inne miasto niż biuro (4+ dni w biurze)",
   remote_only: "tylko-zdalnych",
   work_time_mismatch: "inny wymiar pracy (full-time/part-time)",
 };
@@ -2885,6 +3129,10 @@ export interface JobMatch {
   job: {
     id: number;
     title: string;
+    // Nazwy jak w nagłówku rekrutacji (16.10.2026).
+    working_title?: string | null;
+    client_reference?: string | null;
+    client_name?: string | null;
     client_id: number | null;
     location: string | null;
     salary_min: number | null;
@@ -2926,9 +3174,13 @@ export interface CandidatePipelineRow {
   job_id: number;
   job_title: string | null;
   client_id: number | null;
+  /** Status rekrutacji („published”, „closed”…); starszy serwer go nie podaje. */
+  job_status?: string | null;
   stage_name: string | null;
   stage_category: string | null;
   is_terminal: boolean;
+  /** Kolumna Tablicy (`board_column_for`): „closed” obejmuje listę rezerwową, „hired” osobno. */
+  board_column?: string;
   moved_at: string | null;
   days_in_stage: number;
   rating: number | null;
@@ -3034,6 +3286,12 @@ export const phase5Api = {
   diagnostics: () => api.get("/api/embed-diagnostics"),
   initCollections: () => api.post("/api/embed-init"),
   clientsLookup: () => api.get<{ id: number; name: string }[]>("/api/clients-lookup"),
+  /** Wybór klienta w Rekrutacjach i Kontraktach: tylko zakładki „Aktywni”
+   * i „Relacyjni” katalogu klientów (filtry list biorą `clientsLookup`). */
+  selectableClientsLookup: () =>
+    api.get<{ id: number; name: string }[]>("/api/clients-lookup", {
+      params: { contract_eligible: true },
+    }),
   jobsLookup: () => api.get<{ id: number; title: string }[]>("/api/jobs-lookup"),
   rateHistory: {
     list: (candidateId: number) =>
@@ -3162,29 +3420,6 @@ export const savedSearchesApi = {
     ),
 };
 
-// ── Candidate Pins (Phase 4 — short-list workflow) ─────────────────────────
-
-export interface CandidatePinBrief {
-  id: number;
-  name: string | null;
-  lastname: string | null;
-  email: string | null;
-  avatar_url: string | null;
-}
-
-export interface CandidatePinRow {
-  id: number;
-  candidate_id: number;
-  note: string | null;
-  pinned_at: string;
-  candidate: CandidatePinBrief;
-}
-
-export interface CandidatePinToggleResponse {
-  pinned: boolean;
-  pin: CandidatePinRow | null;
-}
-
 // ── Generator Umów B2B ────────────────────────────────────────────────────────
 
 export interface B2BRole {
@@ -3237,43 +3472,90 @@ export interface B2BGenerateResult {
   language: string;
 }
 
-// ── In-house QES signing (drop Autenti) ─────────────────────────────────────
-export interface SignForSignatureResult {
-  signature_id: number;
-  contract_id: number;
-  status: string;
-  sign_url: string;
+export type B2BContractVariant = "jdg" | "company";
+
+export interface B2BCompanyRepresentative {
+  /** Puste, gdy publiczne API KRS zamaskowało imię i nazwisko. */
+  name: string | null;
+  function: string | null;
 }
 
-export const signingApi = {
-  sendForSignature: (
-    contractId: number,
-    body?: {
-      provider?: "szafir_sdk" | "mszafir_oneshot" | "upload_validate";
-      signature_type?: "SES" | "AdES" | "QES";
-      expires_in_days?: number;
-      company_signer_user_id?: number;
-      message_pl?: string;
-    },
-  ) =>
-    api
-      .post<SignForSignatureResult>(
-        `/api/signing/contracts/${contractId}/send-for-signature`,
-        body ?? {},
-      )
-      .then((r) => r.data),
-  listSignatures: (contractId: number) =>
-    api
-      .get(`/api/signing/contracts/${contractId}/signatures`)
-      .then((r) => r.data),
-  // Offline (e-mail) flow: record the contract as sent → pipeline "Umowa wysłana".
-  markSentOffline: (contractId: number) =>
-    api
-      .post(`/api/signing/contracts/${contractId}/mark-sent-offline`, {})
-      .then((r) => r.data),
-};
+/**
+ * Umowa zlecenia z Generatora (26.10.2026) — `POST /api/b2b-generator/mandate/render`.
+ * `home_address`, `id_document` i `pesel` idą tylko do pliku; serwer ich nie
+ * zapisuje (puste = kropki do wpisania ręcznie).
+ */
+/** Wymiar etatu w „Szczegółach administracyjnych” (0524). */
+export type AgreementFte = "1" | "0.75" | "0.5" | "0.25";
 
-export interface B2BRenderPayload {
+/**
+ * „Szczegóły administracyjne” umowy (0524, 26.10.2026): wpisuje się
+ * replacement i FTE. Rekruter i DL to odbiorcy premii z reguły automatu
+ * (`B2BAgreementAdminDefaults`) — nie idą w żądaniu. Przy umowie z rekrutacją
+ * serwer wymaga obu pól (422).
+ */
+export interface AgreementAdminFields {
+  is_replacement?: boolean | null;
+  replaced_contract_id?: number | null;
+  fte?: AgreementFte | null;
+}
+
+/** Kontraktor do „Replacement za kogo” — bez kwot. */
+export interface B2BReplaceableContract {
+  contract_id: number;
+  candidate_id: number | null;
+  client_id: number | null;
+  name: string;
+  client_name: string | null;
+  job_title: string | null;
+  status: "active" | "ending" | "ended" | string;
+  start_date: string | null;
+  end_date: string | null;
+}
+
+/** Odbiorca premii z placementu — pokazany w kafelku, nie wybierany. */
+export interface B2BPlacementPerson {
+  user_id: number;
+  name: string;
+  /** pair_owner | verifier (rekruter); job | job_lead | client_head | client_assignment (DL). */
+  source: string;
+  source_label: string;
+}
+
+export interface B2BAgreementAdminDefaults {
+  /** Klient rekrutacji — „Replacement za kogo” zaczyna od jego kontraktorów. */
+  client_id: number | null;
+  client_name: string | null;
+  recruiter: B2BPlacementPerson | null;
+  delivery_lead: B2BPlacementPerson | null;
+  /** Tytuł rekrutacji mówi o zastępstwie. */
+  replacement_from_title: boolean;
+  /** Jedyny pasujący kontraktor u klienta — inaczej null. */
+  replaced: B2BReplaceableContract | null;
+}
+
+export interface B2BMandatePayload extends AgreementAdminFields {
+  candidate_id: number | null;
+  job_id: number | null;
+  client_name: string | null;
+  signing_date: string;
+  period_from: string;
+  period_to: string;
+  gender: "m" | "f";
+  partner_name: string;
+  partner_instrumental: string | null;
+  partner_email: string | null;
+  partner_phone: string | null;
+  home_address: string | null;
+  id_document: string | null;
+  pesel: string | null;
+  tasks: string[];
+  gross_hourly_rate: number;
+  with_dpa: boolean;
+  dpa_purpose: string | null;
+}
+
+export interface B2BRenderPayload extends AgreementAdminFields {
   candidate_id?: number | null;
   job_id?: number | null;
   role_id?: number | null;
@@ -3283,6 +3565,8 @@ export interface B2BRenderPayload {
   partner_instrumental?: string | null;
   partner_legal_name?: string | null;
   partner_business_address?: string | null;
+  /** JDG bez stałego miejsca w CEIDG → „pod adresem do doręczeń”. */
+  partner_address_for_service?: boolean;
   partner_correspondence_address?: string | null;
   partner_nip?: string | null;
   /**
@@ -3295,6 +3579,26 @@ export interface B2BRenderPayload {
   partner_regon?: string | null;
   partner_email?: string | null;
   partner_phone?: string | null;
+  /**
+   * Wariant umowy (ticket 8): „jdg” = wzór dotychczasowy, „company” =
+   * komparycja z KRS, § 12 o osobach skierowanych i osoba skierowana
+   * w Załączniku nr 3. Brak pola = „jdg”.
+   */
+  contract_variant?: B2BContractVariant;
+  partner_krs?: string | null;
+  /** Miejscowość siedziby (mianownik, z KRS) — umowa EN. */
+  partner_seat?: string | null;
+  /** Fraza po „z siedzibą” w umowie PL („w Warszawie”). */
+  partner_seat_locative?: string | null;
+  /** Sąd rejestrowy razem z wydziałem. */
+  partner_registry_court?: string | null;
+  partner_share_capital?: string | null;
+  partner_representative_name?: string | null;
+  partner_representative_function?: string | null;
+  /** Fraza po „reprezentowaną przez” (biernik) — auto, edytowalna. */
+  partner_representation?: string | null;
+  /** Osoba skierowana (Zał. 3) — serwer i tak bierze ją z rekrutacji. */
+  assigned_person_name?: string | null;
   client_name?: string | null;
   project_city?: string | null;
   project_description?: string | null;
@@ -3382,14 +3686,31 @@ export const b2bGeneratorApi = {
    */
   generatedForm: (id: number) =>
     api
-      .get<{ id: number; contract_number: string; form: B2BRenderPayload }>(
-        `/api/b2b-generator/generated/${id}/form`,
-      )
+      .get<{
+        id: number;
+        contract_number: string;
+        form: B2BRenderPayload;
+        /** Osoba z „Replacement za kogo” — do odtworzenia wyboru (0524). */
+        replaced?: B2BReplaceableContract | null;
+      }>(`/api/b2b-generator/generated/${id}/form`)
       .then((r) => r.data),
   rerenderGenerated: (id: number, body: B2BRenderPayload) =>
     api.post(`/api/b2b-generator/generated/${id}/rerender`, body, {
       responseType: "blob",
     }),
+  renderMandateDocx: (body: B2BMandatePayload) =>
+    api.post("/api/b2b-generator/mandate/render", body, {
+      params: { format: "docx" },
+      responseType: "blob",
+    }),
+  renderMandateHtml: (body: B2BMandatePayload) =>
+    api
+      .post<{ html: string; contract_number: string | null }>(
+        "/api/b2b-generator/mandate/render",
+        body,
+        { params: { format: "html" } },
+      )
+      .then((r) => r.data),
   renderHtml: (body: B2BRenderPayload) =>
     api
       .post<{ html: string; contract_number: string | null }>(
@@ -3407,12 +3728,30 @@ export const b2bGeneratorApi = {
         regon: string | null;
         krs: string | null;
         address: string | null;
+        // Rodzaj adresu z CEIDG; null = rejestr tego nie powiedział.
+        address_kind?: "place_of_business" | "service" | null;
         source: string | null;
         // Gotowa klasyfikacja z backendu, nie `source`/`krs` do interpretacji
         // tutaj: `source` przychodzi w czterech niespójnych formatach, a wiedzę
         // o obu rejestrach jednocześnie ma tylko warstwa serwisowa.
         entity_type: "sole_trader" | "company" | null;
+        // Dane komparycji spółki z odpisów KRS (tylko spółki z numerem KRS).
+        seat?: string | null;
+        registry_court?: string | null;
+        share_capital?: string | null;
+        representatives?: B2BCompanyRepresentative[];
+        representation_method?: string | null;
       }>("/api/b2b-generator/company-lookup", { params })
+      .then((r) => r.data),
+  /** Najnowsze dane firmy z CEIDG/KRS + ostrzeżenia, tuż przed „Pobierz DOCX”
+   *  (ticket 6). Zawsze 200 — niedostępny rejestr to `status: "unverified"`. */
+  companyVerification: (params: { nip?: string; krs?: string }) =>
+    api
+      .get<CompanyVerification>("/api/b2b-generator/company-verification", {
+        params,
+        // Rejestr bywa wolny (CEIDG + szczegóły wpisu + odpis KRS).
+        timeout: 45_000,
+      })
       .then((r) => r.data),
   clientsLookup: () =>
     api
@@ -3447,6 +3786,8 @@ export const b2bGeneratorApi = {
           ...(params.businessDataAnnexPending
             ? { business_data_annex_pending: true }
             : {}),
+          ...(params.candidateId ? { candidate_id: params.candidateId } : {}),
+          ...(params.author ? { author: params.author } : {}),
         },
         // `repeat`, nie domyślny `brackets`: FastAPI czyta listę wyłącznie jako
         // powtórzony parametr. Axios domyślnie wysłałby `contract_status[]=…`,
@@ -3482,6 +3823,50 @@ export const b2bGeneratorApi = {
       .post<B2BConfirmFullySignedResult>(
         `/api/b2b-generator/generated/${id}/confirm-fully-signed`,
         body,
+      )
+      .then((r) => r.data),
+  /** Podpisany egzemplarz umowy (PDF, JPG, PNG) → Dokumenty kontraktu (0496). */
+  attachSignedFile: (id: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api
+      .post<B2BGeneratedContractRow>(
+        `/api/b2b-generator/generated/${id}/signed-file`,
+        form,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      )
+      .then((r) => r.data);
+  },
+  /**
+   * „Replacement za kogo” (0524): kontraktorzy klienta (najpierw ci, którzy
+   * odeszli) albo — bez klienta — cały NEXUS po frazie (min. 2 znaki).
+   */
+  replacementOptions: (params: {
+    clientId?: number | null;
+    q?: string;
+    excludeCandidateId?: number | null;
+  }) =>
+    api
+      .get<B2BReplaceableContract[]>("/api/b2b-generator/replacement-options", {
+        params: {
+          client_id: params.clientId ?? undefined,
+          q: params.q || undefined,
+          exclude_candidate_id: params.excludeCandidateId ?? undefined,
+        },
+      })
+      .then((r) => r.data),
+  /** Podpowiedzi formularza umowy z rekrutacji (panel osoby i Generator). */
+  prefill: (candidateId: number, jobId: number) =>
+    api
+      .get<B2BAgreementPrefill>("/api/b2b-generator/prefill", {
+        params: { candidate_id: candidateId, job_id: jobId },
+      })
+      .then((r) => r.data),
+  /** Rekruter prosi DL-a / TCM o potwierdzenie podpisu (D1, 04.10.2026). */
+  requestSignature: (id: number) =>
+    api
+      .post<B2BSignatureRequestResult>(
+        `/api/b2b-generator/generated/${id}/signature-request`,
       )
       .then((r) => r.data),
   /** Powiąż podpisaną umowę bez kontraktora z istniejącym kontraktem. */
@@ -3585,6 +3970,50 @@ export interface B2BGeneratedListParams {
   source?: B2BRegisterSource;
   /** Kolejka umów czekających na aneks „uzupełnienie danych firmy”. */
   businessDataAnnexPending?: boolean;
+  /** Umowy jednej osoby (panel osoby w rekrutacji). */
+  candidateId?: number;
+  /** `recruiter` — tylko umowy wygenerowane przez rekruterów (04.10.2026). */
+  author?: "recruiter";
+}
+
+/** Podpowiedzi formularza umowy z rekrutacji (`GET /prefill`, 04.10.2026). */
+export interface B2BAgreementPrefill {
+  candidate_id: number;
+  job_id: number;
+  rate: {
+    value: number;
+    /** card — karta rekomendacji; this_job — okno „Zweryfikowany”; rate_from — „Stawka od”. */
+    source: "card" | "this_job" | "rate_from";
+    at: string | null;
+  } | null;
+  start_date: string | null;
+  availability_text: string | null;
+  client_rate: { value: number; unit: string | null; currency: string | null } | null;
+  client_rate_redacted: boolean;
+  /** Stawka kandydata z etapu TEJ rekrutacji (D7) — wyłącznie z rekrutacji,
+   *  nigdy „Stawka od”. Różnica ze stawką umowy = notka pod polem. */
+  recruitment_rate?: {
+    value: number;
+    unit: string | null;
+    currency: string | null;
+    at: string | null;
+    job_title: string | null;
+  } | null;
+  existing: {
+    id: number;
+    contract_number: string;
+    contract_status: B2BContractStatus;
+    signature_status: B2BSignatureStatus;
+  } | null;
+  /** Kafelek „Szczegóły administracyjne” (0524) — tylko odpowiedź Generatora. */
+  admin?: B2BAgreementAdminDefaults | null;
+}
+
+export interface B2BSignatureRequestResult {
+  /** false = prośba sprzed mniej niż doby, dzwonek nie poszedł drugi raz. */
+  sent: boolean;
+  requested_at: string | null;
+  recipient_names: string[];
 }
 
 /** Wpis dziennika zmian statusu — dialog „Historia statusów". */
@@ -3601,6 +4030,10 @@ export interface B2BStatusEvent {
   client_name: string | null;
   changed_by_name: string | null;
   created_at: string | null;
+  /** Etap 1b (21.10.2026): `esign` = wpis z wysyłki do podpisu w NEXUSIE,
+   *  treść w `label`, `id` ujemne. */
+  kind?: "status" | "esign";
+  label?: string | null;
   /** Zmiana wykonana przez zakończenie kontraktu (0367): kontrakt, koniec
    *  projektu i dane rozwiązania umowy. `null` dla ręcznych zmian. */
   details?: {
@@ -3659,6 +4092,10 @@ export interface B2BGeneratedContractRow {
   signing_date: string | null;
   created_at: string | null;
   created_by_name: string | null;
+  /** Rola główna autora (filtr „Wygenerowane przez rekruterów”). */
+  created_by_role?: string | null;
+  /** Kolumna Tablicy pary w tej rekrutacji (`board_column_for`). */
+  pair_column?: string | null;
   signature_status: B2BSignatureStatus;
   signature_source: B2BSignatureSource | null;
   contract_status: B2BContractStatus;
@@ -3681,9 +4118,42 @@ export interface B2BGeneratedContractRow {
   job_title: string | null;
   canonical_client_name: string | null;
   signed_at: string | null;
+  /** 0514: dzień podpisu umowy (`YYYY-MM-DD`); `signed_at` to chwila oznaczenia. */
+  signed_on?: string | null;
   signed_by_name: string | null;
   can_confirm_signed: boolean;
   blocked_reason: string | null;
+  /** 0496: podpisany egzemplarz w Dokumentach kontraktu (`null` = brak). */
+  signed_document_id?: number | null;
+  /** Czy to konto dołączy albo podmieni podpisany plik (jak oznaczenie podpisu). */
+  can_attach_signed_file?: boolean;
+  /** Podpis w NEXUSIE (0499): ostatnia wysyłka i co to konto może zrobić. */
+  esign?: {
+    request_id: number;
+    status: "sent" | "contractor_signed" | "completed" | "withdrawn" | "expired";
+    contractor_signed_at: string | null;
+    completed_at: string | null;
+    expires_at: string;
+    company_signer_name: string | null;
+    /** Kontraktor z wygasłego linku poprosił o nowy (27.10.2026). */
+    renewal_requested_at?: string | null;
+    /** Osoby z NEXUSA w DW wysyłki (27.10.2026). */
+    cc_names?: string[];
+    /** Kto obsługuje wysyłkę; urlop dziś (moduł „Urlopy”) i zastępca. */
+    handled_by_name?: string | null;
+    handler_absent_until?: string | null;
+    handler_substitute_name?: string | null;
+  } | null;
+  can_send_esign?: boolean;
+  can_withdraw_esign?: boolean;
+  /** „Przedłuż termin” — link działa (27.10.2026). */
+  can_extend_esign?: boolean;
+  /** „Wyślij nowy link” — po terminie, ten sam PDF, umowa bez poprawek. */
+  can_relink_esign?: boolean;
+  /** „Przejmij obsługę” — obsługuje ktoś inny (zastępstwo, 27.10.2026). */
+  can_take_over_esign?: boolean;
+  /** Czy to konto pobierze plik podpisany przez obie strony w NEXUSIE. */
+  can_download_signed_esign?: boolean;
   can_delete: boolean;
   can_edit: boolean;
   can_download: boolean;
@@ -3700,6 +4170,8 @@ export interface B2BGeneratedContractRow {
    * wysyła; brak = umowa z generatora.
    */
   source?: B2BRegisterSource;
+  /** Wersja wzoru umowy (0362); `null` = nieznana — okresu wypowiedzenia nie liczymy. */
+  template_version?: string | null;
   /** Numer dokładnie jak w Excelu („264A”, „bez numeru”). */
   raw_contract_number?: string | null;
   position?: string | null;
@@ -3712,6 +4184,42 @@ export interface B2BGeneratedContractRow {
   business_data_annex_done_at?: string | null;
   /** Wiersza nie było w ostatnio wgranym pliku Excela. */
   excel_missing_since?: string | null;
+  /**
+   * Stawki z ostatniego aneksu zmiany stawki (Generator aneksów) — zmieniają
+   * się już przy wygenerowaniu aneksu. `null` = brak aneksu albo stawki tej
+   * umowy są dla bieżącej osoby niewidoczne.
+   */
+  annex_rates?: B2BAnnexRate[] | null;
+  /**
+   * Najnowszy nieanulowany aneks do umowy i liczba takich aneksów — etykieta
+   * pod nazwą Partnera. Firma, NIP i data startu zmieniają się w wierszu już
+   * przy wygenerowaniu aneksu; etykieta mówi, skąd ta zmiana.
+   */
+  latest_annex?: B2BRegisterAnnex | null;
+  annex_count?: number;
+  /**
+   * Data rozpoczęcia sprzed aneksu zmiany daty startu i stan tego aneksu:
+   * przed podpisem „stara → nowa”, po podpisie stara przekreślona.
+   */
+  start_date_before?: string | null;
+  start_date_annex_state?: B2BRegisterAnnex["state"] | null;
+}
+
+/** Najnowszy aneks do umowy z rejestru — bez kwot (te niesie `annex_rates`). */
+export interface B2BRegisterAnnex {
+  document_id: number;
+  document_type: string;
+  state: "waiting" | "signed_pending" | "in_force" | "cancelled";
+  effective_date: string | null;
+}
+
+/** Pozycja stawki z aneksu w wierszu rejestru. */
+export interface B2BAnnexRate {
+  rate: number;
+  from: string | null;
+  to: string | null;
+  client_id: number | null;
+  client_name: string | null;
 }
 
 export type B2BRegisterSource = "generator" | "excel";
@@ -3745,6 +4253,12 @@ export interface B2BRegisterImportCounters {
   annex_matched: number;
   annex_unmatched: number;
   annex_done: number;
+  /** Osoby zdjęte z arkusza „Bez działalności” — flaga aneksu zdjęta. */
+  annex_cleared?: number;
+  /** Flaga aneksu postawiona na umowie wydanej w NEXUSIE. */
+  generator_annex_flagged?: number;
+  /** Data podpisania, której nie udało się odczytać (umowa „W trakcie”). */
+  signing_dates_unparsed?: number;
 }
 
 export interface B2BRegisterImportReport {
@@ -3804,6 +4318,8 @@ export interface B2BConfirmFullySignedRequest {
    * pozostałych odmów (duplikaty, inny klient, umowa podpisana) nie obchodzi.
    */
   keep_existing_contract_terms?: boolean;
+  /** 0514: dzień podpisu (`YYYY-MM-DD`); brak = dziś w kalendarzu firmy. */
+  signed_on?: string;
 }
 
 export interface B2BConfirmFullySignedResult {
@@ -3839,18 +4355,6 @@ export interface B2BUopCheckResult {
   summary: string;
 }
 
-export const candidatePinsApi = {
-  list: () => api.get<CandidatePinRow[]>("/api/candidates/pins"),
-  getState: (candidateId: number) =>
-    api.get<CandidatePinToggleResponse>(`/api/candidates/${candidateId}/pin`),
-  toggle: (candidateId: number, note?: string) =>
-    api.post<CandidatePinToggleResponse>(
-      `/api/candidates/${candidateId}/pin`,
-      note ? { note } : {},
-    ),
-  remove: (candidateId: number) =>
-    api.delete(`/api/candidates/${candidateId}/pin`),
-};
 
 export interface MatchHistoryRow {
   id: number;
@@ -4452,7 +4956,170 @@ export const scoringWeightsApi = {
   update: (id: number, payload: ScoringWeightProfileCreate) =>
     api.patch<ScoringWeightProfile>(`/api/scoring-weights/${id}`, payload),
   remove: (id: number) => api.delete(`/api/scoring-weights/${id}`),
+  panel: () => api.get<RankingPanelState>("/api/scoring-weights/panel"),
+  saveDraft: (payload: RankingPanelWeights) =>
+    api.put<RankingPanelState>("/api/scoring-weights/panel/draft", payload),
+  saveKnownPoints: (payload: Omit<RankingKnownPoints, "max">) =>
+    api.put<RankingPanelState>("/api/scoring-weights/panel/known-points", payload),
+  discardDraft: () => api.delete("/api/scoring-weights/panel/draft"),
+  measurement: () =>
+    api.get<{ measurement: RankingMeasurement | null }>(
+      "/api/scoring-weights/panel/measurement",
+    ),
+  startMeasurement: () =>
+    api.post<{ measurement: RankingMeasurement | null }>(
+      "/api/scoring-weights/panel/measurements",
+    ),
+  publish: (reason: string | null) =>
+    api.post<RankingPanelState>("/api/scoring-weights/panel/publish", { reason }),
+  restore: (changeId: number) =>
+    api.post<RankingPanelState>(
+      `/api/scoring-weights/panel/history/${changeId}/restore`,
+    ),
+  previewJobs: () =>
+    api.get<{ jobs: RankingPreviewJob[] }>("/api/scoring-weights/panel/preview/jobs"),
+  preview: (jobId: number) =>
+    api.get<RankingPreview>(`/api/scoring-weights/panel/preview/${jobId}`),
 };
+
+// ── Panel „Ranking kandydatów” (21.10.2026) ─────────────────────────────────
+
+/** Trzy ważności i próg nocnych propozycji — to, co zmienia Head of Recruitment. */
+export interface RankingPanelWeights {
+  semantic: number;
+  skills: number;
+  location: number;
+  threshold: number;
+}
+
+export type RankingLayer = "semantic" | "skills" | "salary" | "location" | "availability";
+
+export interface RankingMetrics {
+  page1_hit: number;
+  median_first: number | null;
+  top50_share: number;
+  mrr: number;
+  proposals: number;
+}
+
+export interface RankingMeasurementResult {
+  jobs: number;
+  before: RankingMetrics;
+  after: RankingMetrics;
+  max_drop_pt: number;
+  needs_reason: boolean;
+  biggest_changes: { job_id: number; title: string; before: number; after: number }[];
+  duration_s?: number;
+}
+
+export interface RankingMeasurement {
+  id: number;
+  status: "queued" | "running" | "done" | "failed";
+  error: string | null;
+  progress: { done: number; target: number; at?: string } | null;
+  result: RankingMeasurementResult | null;
+  draft: RankingPanelWeights;
+  baseline: { panel: RankingPanelWeights; threshold: number };
+  /** Pomiar dotyczy obecnego szkicu i obecnych opublikowanych wag. */
+  fresh: boolean;
+  created_at: string;
+  finished_at: string | null;
+}
+
+/** Stan przed/po: publikacja z panelu (`panel`) albo profil z edycji admina. */
+export interface RankingChangeSnapshot {
+  panel?: RankingPanelWeights;
+  threshold?: number;
+  weights?: Record<string, number> | null;
+  name?: string;
+  user_id?: number | null;
+  client_id?: number | null;
+  active?: boolean;
+}
+
+export interface RankingChange {
+  id: number;
+  created_at: string;
+  kind: "publish" | "admin_edit";
+  actor_name: string | null;
+  profile_id: number | null;
+  before: RankingChangeSnapshot;
+  after: RankingChangeSnapshot;
+  reason: string | null;
+  measurement: {
+    id: number;
+    jobs: number;
+    before: RankingMetrics;
+    after: RankingMetrics;
+    max_drop_pt: number;
+  } | null;
+}
+
+/** Punkty kolejki w „Nowych”: „znamy tę osobę” (`known_queue_points`). */
+export interface RankingKnownPoints {
+  client: number;
+  note_recent: number;
+  note_older: number;
+  max: number;
+}
+
+export interface RankingPanelState {
+  known_points: RankingKnownPoints;
+  published: {
+    weights: RankingPanelWeights;
+    shares: Record<RankingLayer, number>;
+    source: "profile" | "built_in";
+    profile_id: number | null;
+    updated_at: string | null;
+    threshold_source: "setting" | "env";
+  };
+  draft: {
+    weights: RankingPanelWeights;
+    shares: Record<RankingLayer, number>;
+    updated_at: string;
+    updated_by_name: string | null;
+    restored_from: number | null;
+  } | null;
+  fixed: { salary: number; availability: number };
+  limits: { threshold_min: number; threshold_max: number };
+  scoped_profiles: { id: number; name: string; client_id: number | null; user_id: number | null }[];
+  history: RankingChange[];
+  measurement: RankingMeasurement | null;
+  can_edit: boolean;
+}
+
+export interface RankingPreviewJob {
+  job_id: number;
+  title: string;
+  location: string | null;
+  positives: number;
+}
+
+/** Składniki oceny jednej osoby: [ułamek punktów, maks./waga, oceniona]. */
+export interface RankingComponents {
+  candidate_id: number;
+  layers: Record<RankingLayer, [number, number, boolean]>;
+  extra: [number, number] | null;
+  factor: number;
+  matched_must: number;
+  must_total: number;
+}
+
+export interface RankingPreviewPerson extends RankingComponents {
+  vector_rank: number;
+  name: string;
+  city: string | null;
+  positive: boolean;
+}
+
+export interface RankingPreview {
+  job_id: number;
+  title: string;
+  location: string | null;
+  positives: number;
+  renormalize: boolean;
+  people: RankingPreviewPerson[];
+}
 
 // ── Champion Profile (Phase 10) ─────────────────────────────────────────────
 
@@ -4465,6 +5132,8 @@ export interface ChampionBasics {
   rate_raw?: string | null;
   work_mode?: string | null;
   onsite_days_per_week?: number | null;
+  /** 0407: „N dni w miesiącu”; gdy ustawione, dni w tygodniu wylicza serwer. */
+  onsite_days_per_month?: number | null;
   /** LOKALIZACJA BIURA — gdzie jest praca. Nazwa klucza jest historyczna. */
   candidate_location_pref?: string | null;
   /** JĘZYK PRACY wymagany od kandydata. Język dokumentu CV to `ClientCvRule.cv_language`. */
@@ -4472,15 +5141,25 @@ export interface ChampionBasics {
   start_date?: string | null;
   /** Termin na dostarczenie kandydatów do TEJ oferty. */
   deadline?: string | null;
+  /** Godzina tego terminu `GG:MM`, czas Europe/Warsaw. */
+  deadline_time?: string | null;
   contract_length?: string | null;
 }
 
 /** Sekcja 2 — co wpisać w wyszukiwarkę. */
 export interface ChampionSearch {
+  /** Frazy do LinkedIna — szukanie poza NEXUSEM. */
   keywords: string;
   target_companies: string;
   disqualifiers: string[];
   notes: string;
+  /**
+   * Wymagania do wyszukiwania w bazie (25.09.2026): wiersz = wymaganie,
+   * słowa w wierszu = warianty. Start „Szukaj ręcznie”; handoff wymaga
+   * co najmniej jednego. Stare profile ich nie mają.
+   */
+  requirements?: string[][];
+  exclude?: string[];
   /** Kanały ze starego szablonu — bez UI, trzymane dla zgodności danych. */
   sources?: Array<"internal_base" | "linkedin" | "ad" | "referrals" | "other">;
 }
@@ -4494,6 +5173,23 @@ export interface ChampionStack {
   must: StackItem[];
   nice: StackItem[];
   notes: string;
+  /**
+   * Umiejętności krytyczne (30.09.2026, `lib/critical-skills.ts`): 0–3 pozycje
+   * z `must`, które ukrywają kandydatów. Brak klucza / `null` = DL nie
+   * zdecydował (działa podpowiedź z historii), `[]` = „Brak krytycznych”.
+   */
+  critical?: string[] | null;
+  /**
+   * Wiersze wymagań (02.10.2026, `lib/requirement-rows.ts`): gdy są, `must`,
+   * `nice`, `critical` i `search.requirements` są z nich wyprowadzone przez
+   * serwer. Brak klucza / `null` = profil prowadzony starymi polami. `key` to
+   * klucz Reacta w edytorze — serwer go nie zna i nie zapisuje.
+   */
+  rows?: {
+    key?: string;
+    words: string[];
+    level: "critical" | "must" | "nice";
+  }[] | null;
 }
 
 /** Sekcja 4 — doświadczenie poza stackiem (09.2026). */
@@ -4507,12 +5203,14 @@ export interface ExperienceItem {
   note?: string;
 }
 
-export type ExperienceKind = "domains" | "certifications" | "regulations";
+export type ExperienceKind = "domains" | "certifications" | "regulations" | "skills";
 
 export interface ChampionExperience {
   domains: ExperienceItem[];
   certifications: ExperienceItem[];
   regulations: ExperienceItem[];
+  /** „Rekruter sprawdza w rozmowie” (13.10.2026) — profil sprzed tej daty go nie ma. */
+  skills?: ExperienceItem[];
   notes: string;
 }
 
@@ -4673,8 +5371,9 @@ export const EMPTY_CHAMPION_BRIEFING: ChampionBriefing = { status: "pending" };
 /**
  * Profil Championa — sekcje szablonu (09.2026).
  *
- * `verification`, `briefing`, `recommended_searches` i `client_history` NIE są sekcjami: serwer
+ * `verification`, `briefing` i `client_history` NIE są sekcjami: serwer
  * stempluje je własnymi endpointami, a zwykły zapis profilu ich nie dotyka.
+ * (`recommended_searches` — dane usuniętego 25.09.2026 panelu — front ich nie czyta.)
  */
 export interface ChampionProfile {
   intake?: { policy_version: number; template_version?: string | null; unresolved: Record<string, string>; document_context?: Record<string, string>; applied_by?: number | null; applied_at?: string | null } | null;
@@ -4690,7 +5389,6 @@ export interface ChampionProfile {
   client_history?: ClientHistorySummary;
   verification?: ChampionVerification;
   briefing?: ChampionBriefing;
-  recommended_searches?: RecommendedSearch[];
   /**
    * Ingest provenance (`app/schemas/champion.py::ChampionProfile.provenance`,
    * flattened back onto the top level by its custom `model_dump`). Present
@@ -4719,7 +5417,14 @@ export const EMPTY_CHAMPION_PROFILE: ChampionProfile = {
     deadline: null,
     contract_length: null,
   },
-  search: { keywords: "", target_companies: "", disqualifiers: [], notes: "" },
+  search: {
+    keywords: "",
+    target_companies: "",
+    disqualifiers: [],
+    notes: "",
+    requirements: [],
+    exclude: [],
+  },
   stack: { must: [], nice: [], notes: "" },
   experience: EMPTY_CHAMPION_EXPERIENCE,
   project: { about: "", responsibilities: "" },
@@ -4755,6 +5460,7 @@ export interface ChampionJobValues {
   [key: string]: unknown;
   rate_value?: number | null;
   onsite_days_per_week?: number | null;
+  onsite_days_per_month?: number | null;
   work_mode?: "onsite" | "hybrid" | "remote" | null;
   candidate_location_pref?: string | null;
   must?: string | null;
@@ -4763,6 +5469,8 @@ export interface ChampionJobValues {
   role_name?: string | null;
   /** PR 1 — termin na kandydatów (ISO), jw. */
   deadline?: string | null;
+  /** Godzina terminu `GG:MM`; przy starszym backendzie brak klucza. */
+  deadline_time?: string | null;
 }
 
 export interface ChampionProfileResponse {
@@ -4772,6 +5480,26 @@ export interface ChampionProfileResponse {
   job_id: number;
   job_title?: string;
   champion_profile: ChampionProfile | Record<string, never>;
+  /** Krytyczne: decyzja DL, podpowiedź i to, na czym działa bramka (30.09.2026). */
+  critical_resolution?: import("@/lib/critical-skills").CriticalResolution;
+  /**
+   * Słowa lupy „Szukaj w CV” dla każdego wymagania (16.10.2026): etykieta →
+   * opcje i warianty nazw tak, jak czyta je bramka. Brak klucza = starszy serwer.
+   */
+  requirement_find_words?: Record<string, string[]>;
+  /**
+   * Pełne brzmienie wymagania do czytania (30.10.2026): etykieta → „Agile lub
+   * Prince2”. Tylko gdy wiersz ma zamienniki spoza etykiety; klucze i krytyczne
+   * zostają po etykiecie.
+   */
+  requirement_full_labels?: Record<string, string>;
+  /**
+   * Audyt 06.10.2026 (N2): odcisk SAMEGO profilu. Edytor odsyła go w zapisie
+   * jako `expected_profile_hash`; profil zmieniony od wczytania = 409.
+   */
+  profile_hash?: string;
+  /** Tylko odpowiedź `PUT`: uwagi zapisu (np. krytyczna, która przestała być technologią). */
+  notices?: string[];
 }
 
 export interface ChampionVerificationRequest {
@@ -4801,7 +5529,8 @@ export interface ChampionConsultantSuggestion {
 export const championApi = {
   get: (jobId: number) =>
     api.get<ChampionProfileResponse>(`/api/jobs/${jobId}/champion-profile`),
-  put: (jobId: number, profile: ChampionProfile) =>
+  // Ładunek bywa częściowy (serwer scala sekcje) i niesie `expected_profile_hash`.
+  put: (jobId: number, profile: ChampionProfile | Record<string, unknown>) =>
     api.put<ChampionProfileResponse>(`/api/jobs/${jobId}/champion-profile`, profile),
   verify: (jobId: number, payload: ChampionVerificationRequest) =>
     api.post<ChampionProfileResponse>(
@@ -4839,49 +5568,7 @@ export const championApi = {
       undefined,
       { timeout: SLOW_ENDPOINT_TIMEOUT_MS }
     ),
-  generateRecommendedSearches: (jobId: number) =>
-    api.post<ChampionProfileResponse>(
-      `/api/jobs/${jobId}/champion-profile/recommended-searches/generate`,
-      undefined,
-      { timeout: SLOW_ENDPOINT_TIMEOUT_MS }
-    ),
-  decideRecommendedSearch: (
-    jobId: number,
-    searchId: string,
-    action: "approve" | "reject" | "reset"
-  ) =>
-    api.post<ChampionProfileResponse>(
-      `/api/jobs/${jobId}/champion-profile/recommended-searches/decision`,
-      { search_id: searchId, action }
-    ),
 };
-
-// ── Champion recommended searches (AI-proposed, DL-approved) ────────────────
-
-export interface RecommendedSearchParams {
-  q_all?: string[];
-  q_any_groups?: string[][];
-  q_none?: string[];
-  skills_must?: string[];
-  skills_any?: string[];
-  skills_none?: string[];
-  experience_years_min?: number | null;
-  experience_years_max?: number | null;
-  location_cities?: string[];
-}
-
-export interface RecommendedSearch {
-  id: string;
-  name: string;
-  rationale: string;
-  params: RecommendedSearchParams;
-  status: "proposed" | "approved" | "rejected";
-  saved_search_id?: number | null;
-  generated_at?: string | null;
-  decided_by_id?: number | null;
-  decided_by_name?: string | null;
-  decided_at?: string | null;
-}
 
 // ── Champion Profile AI Intake (Phase 14) ──────────────────────────────────
 
@@ -5079,14 +5766,33 @@ export interface HistoricalMatchesResponse {
 
 // Screening answers
 
+export type ScreeningAnswerOrigin =
+  | "manual"
+  | "reassign_suggested"
+  | "note_import"
+  | "phrased"
+  | "note_sync";
+
 export interface ScreeningAnswerItem {
   question_id: string;
   response: string;
   deal_breaker_hit: boolean;
-  /** `reassign_suggested` = przyjęta podpowiedź Luny (przepięcie, 23.09.2026). */
-  origin?: "manual" | "reassign_suggested";
+  /**
+   * `reassign_suggested` = przyjęta podpowiedź Luny (przepięcie, 23.09.2026);
+   * `note_import` = przyjęta z notatki w oknie karty, `phrased` = zdanie
+   * ułożone z haseł rekrutera (0421), `note_sync` = przepisana z notatki
+   * (karty z Traffita) przez automat (07.10.2026).
+   */
+  origin?: ScreeningAnswerOrigin;
+  /** Hasła rekrutera, z których powstało zdanie — tylko dla zespołu (0421). */
+  keywords?: string | null;
   /** Pytanie pominięte przy przepięciu — nie idzie do klienta ani do dopasowania. */
   skipped?: boolean;
+  /**
+   * Treść pytania z chwili odpowiedzi (02.10.2026) — stempluje serwer, bo
+   * identyfikatory pytań są pozycyjne. `null` = pytanie usunięte z profilu.
+   */
+  question_text?: string | null;
 }
 
 /** „Sprawdź w rozmowie” — pozycja sekcji 4 Championa po rozmowie z kandydatem. */
@@ -5115,25 +5821,57 @@ export interface ScreeningReassignSource {
   date: string | null;
 }
 
+/**
+ * Skąd Luna może podpowiadać: `reassign` = osoba przepięta (odpowiedzi
+ * i notatki z rekrutacji źródłowej), `history` = wcześniejsze rozmowy w innych
+ * rekrutacjach (od 02.10.2026).
+ */
+export type ScreeningSuggestionKind = "reassign" | "history";
+
+/**
+ * Dlaczego arkusz przyjmuje „Pomiń brakujące” (12.10.2026): przepięcie
+ * z panelu, wcześniejsza rozmowa screeningowa w innej rekrutacji albo osoba
+ * zatrudniona przez nas. `null` = nie przyjmuje.
+ */
+export type ScreeningSkipReason = "reassign" | "earlier_screening" | "employed";
+
 export interface ScreeningReassignContext {
   stage_id: number;
+  candidate_id?: number;
   available: boolean;
+  kind?: ScreeningSuggestionKind | null;
   source: ScreeningReassignSource | null;
   previous_answers_count: number;
+  earlier_conversations?: number;
+  /** Serwer sprzed 12.10.2026 nie zna pola — wtedy pomija się tylko przy przepięciu. */
+  skip_reason?: ScreeningSkipReason | null;
+}
+
+/** Rozmowa, z której pochodzi podpowiadana odpowiedź. */
+export interface ScreeningSuggestionSource {
+  job_id: number;
+  job_title: string;
+  client_name: string | null;
+  date: string | null;
 }
 
 export interface ScreeningReassignSuggestion {
   question_id: string;
+  /** Z wcześniejszej odpowiedzi — dosłowna odpowiedź kandydata; z notatki — zdanie Luny. */
   text: string;
   source_kind: "answer" | "note";
   source_quote: string;
   confidence: "high" | "medium" | "low";
+  source?: ScreeningSuggestionSource | null;
+  /** Pytanie, na które kandydat wtedy odpowiadał. */
+  source_question?: string | null;
 }
 
 export interface ScreeningReassignSuggestionsResponse {
   stage_id: number;
   available: boolean;
   message: string | null;
+  kind?: ScreeningSuggestionKind | null;
   source: ScreeningReassignSource | null;
   suggestions: ScreeningReassignSuggestion[];
 }
@@ -5151,12 +5889,12 @@ export interface StageScreeningResponse {
 export const screeningApi = {
   getForStage: (stageId: number) =>
     api.get<StageScreeningResponse>(`/api/pipeline/stages/${stageId}/screening`),
-  /** Przepięcie: skąd osoba przyszła — bez wywołania modelu. */
+  /** Czy są wcześniejsze rozmowy, z których Luna może podpowiadać — bez wywołania modelu. */
   reassignContext: (stageId: number) =>
     api.get<ScreeningReassignContext>(
       `/api/pipeline/stages/${stageId}/screening/reassign-context`,
     ),
-  /** Przepięcie: podpowiedzi Luny (płatne wywołanie modelu, nic nie zapisuje). */
+  /** Podpowiedzi Luny z wcześniejszych rozmów (płatne wywołanie modelu, nic nie zapisuje). */
   reassignSuggestions: (stageId: number) =>
     api.post<ScreeningReassignSuggestionsResponse>(
       `/api/pipeline/stages/${stageId}/screening/reassign-suggestions`,
@@ -5167,15 +5905,8 @@ export const screeningApi = {
       match_percent: number;
       screening_answers: ScreeningAnswers;
     }>(`/api/pipeline/stages/${stageId}/screening`, answers),
-  // Phase 12 — client-shareable token for the Champion card.
-  createShareToken: (stageId: number, expiresInDays = 30) =>
-    api.post<{
-      token: string;
-      expires_at: string;
-      share_url_suffix: string;
-    }>(`/api/pipeline/stages/${stageId}/share-token?expires_in_days=${expiresInDays}`),
-  revokeShareToken: (token: string) =>
-    api.delete(`/api/pipeline/stages/share-token/${token}`),
+  // 0424 (D2): link do karty Championa dla klienta usunięty — serwer
+  // odpowiada na tworzenie 410 `CHAMPION_SHARE_REMOVED`.
 };
 
 // ── Saved searches (used by the candidates list filter toolbar) ──────────────
@@ -5215,6 +5946,9 @@ export interface M365ConnectionStatus {
   // (e.g. server-side encryption key rotated). Renders an amber CTA banner.
   requires_reconnect?: boolean;
   max_attachment_mb?: number;
+  /** Dokąd trafia poczta skrzynki (28.10.2026): karty kandydatów i/lub Sprzedaż. */
+  mail_to_candidates?: boolean;
+  mail_to_sales?: boolean;
 }
 
 export interface EmailAttachmentPreview {
@@ -5255,6 +5989,8 @@ export interface EmailMessage {
   candidate_id?: number | null;
   /** Stan wysyłki z NEXUSA: pending / sent / uncertain; null = z synchronizacji. */
   send_state?: "pending" | "sent" | "uncertain" | null;
+  /** Wysłane z NEXUSA; false także dla poczty wysłanej wprost z Outlooka. */
+  sent_from_nexus?: boolean;
   attachments?: EmailAttachmentPreview[];
 }
 
@@ -5486,7 +6222,9 @@ export type InterviewQuestionSource =
   | "manual"
   | "auto_generated"
   | "imported_from_champion"
-  | "client_debrief";
+  | "client_debrief"
+  // 0383: archiwum pytań z rozmów (Excel rekruterów sprzed NEXUSA).
+  | "legacy_import";
 
 export type InterviewQuestionTypeLiteral =
   | "technical"
@@ -5512,6 +6250,7 @@ export type SuggestionTier =
   | "pinned"
   | "legacy_champion"
   | "client_debrief"
+  | "client_archive"
   | "tier_1_same_cc"
   | "tier_2_secondary_cc"
   | "tier_3_client_knowledge"
@@ -5585,6 +6324,8 @@ export interface ListInterviewQuestionsParams {
   client_id?: number;
   q?: string;
   limit?: number;
+  /** Dołącz archiwum pytań z rozmów (domyślnie ukryte — ~tysiąc pytań u klienta). */
+  include_archive?: boolean;
 }
 
 export const interviewQuestionsApi = {
@@ -5902,12 +6643,67 @@ export type CVBrandedStatus = "none" | "draft" | "finalized";
 export type CVTemplate = "standard" | "blind";
 export type CVLanguage = "pl" | "en";
 
+/**
+ * Skąd przyszła treść CV wybranego zamiast generacji (12.10.2026): CV etapu
+ * z innej rekrutacji, przepięcie, plik z dysku albo z profilu. `selected_at`
+ * to chwila wyboru — karta proponuje „Użyj nowej wersji” tylko dla generacji
+ * młodszych od niej.
+ */
+export interface CVBrandedOrigin {
+  kind: "stage_copy" | "reassign" | "upload" | "profile_file" | "generated_other_job";
+  label?: string | null;
+  job_id?: number | null;
+  selected_at?: string | null;
+}
+
+/** Gotowe CV etapu tej osoby z innej rekrutacji — jedno na rekrutację. */
+export interface StageCvSourceItem {
+  job_id: number;
+  /** Wiersz etapu, na którym leży to CV — do podglądu treści. */
+  stage_id: number;
+  job_title?: string | null;
+  reference_number?: string | null;
+  client_name?: string | null;
+  status: "draft" | "finalized";
+  version?: number;
+  language?: string | null;
+  blind?: boolean;
+  updated_at?: string | null;
+  updated_by_name?: string | null;
+  /** Ten sam klient i źródło ma zrzut zgody — pojedzie z kopią. */
+  consent_carried?: boolean;
+}
+
+/** Wynik „Napisz od nowa” (PR 5) — tylko w odpowiedzi na podmianę z `keep_edits`. */
+export interface CVBrandedRewrite {
+  /** Części zostawione w wersji rekrutera, np. „Logistyka 24”. */
+  kept: string[];
+  /** `false` = ręcznych poprawek nie dało się rozpoznać — wzięta cała nowa wersja. */
+  recognized: boolean;
+  can_restore: boolean;
+}
+
 export interface CVBrandedState {
+  rewrite?: CVBrandedRewrite | null;
   presentation_review?: { status: string; message?: string; manual_fields?: string[]; checked_fields?: string[]; reason?: string } | null;
+  /** Domyślne wyrównanie treści w pliku Word (reguła klienta, decyzja J1 14.10.2026). */
+  text_align?: "justify" | "left";
   docx_available?: boolean;
   docx_filename?: string | null;
+  /** Nazwa pliku także dla szkicu, a przy ręcznej zmianie nazwa ze wzoru klienta. */
+  current_filename?: string | null;
+  pattern_filename?: string | null;
   generated_document_id?: number | null;
   from_generator?: boolean;
+  /** Skąd treść: generator, plik Word z profilu kandydata albo stary szablon. */
+  source?: "generator" | "document" | "legacy" | null;
+  /** Kopia wybrana zamiast generacji; `null` = CV z generatora tej pary. */
+  origin?: CVBrandedOrigin | null;
+  /** Wymóg zrzutu zgody zamrożony na CV etapu i to, czy CV ma własny obraz. */
+  consent_required?: boolean;
+  consent_attached?: boolean;
+  /** Wymagana zgoda, a CV jej nie ma — pobranie odpowie 409. */
+  consent_missing?: boolean;
   edit_revision: number;
   version: number;
   candidate_stage_id: number | null;
@@ -5923,7 +6719,41 @@ export interface CVBrandedState {
   finalized_by_name: string | null;
   snapshot_filename: string | null;
   rendered_from_default: boolean;
+  /** Etap bez własnego CV: wiersz etapu tej pary z CV firmowym (runda 11, F23). */
+  pair_source_stage_id?: number | null;
+  pair_source_status?: CVBrandedStatus | null;
 }
+
+/**
+ * Wynik „Wgraj nowe CV” w rekrutacji (`…/cv/original/upload`, 15.10.2026).
+ * `outcome` mówi, czym plik się stał: CV kandydata (`original`, także brak
+ * pola w starszych odpowiedziach), CV do klienta pary (`client_cv`, wiersz
+ * `client_cv_stage_id`) albo tylko plikiem w profilu, bo klient ma już CV
+ * tej osoby (`client_cv_kept`).
+ */
+export interface StageCvUploadResult extends CVOriginalSnapshot {
+  outcome?: "original" | "client_cv" | "client_cv_kept";
+  client_cv?: CVBrandedState | null;
+  client_cv_stage_id?: number | null;
+  /** Co zastąpiło: nic, nieprzejrzane auto-CV albo CV po potwierdzeniu. */
+  replaced?: "none" | "auto_cv" | "confirmed" | null;
+  /** „Cofnij” w komunikacie — tylko gdy nie zastąpiliśmy niczyjej pracy. */
+  undo_available?: boolean;
+  stored_in_profile?: boolean;
+  uploaded_filename?: string | null;
+  /** Dokument profilu z wgranym plikiem — karta potwierdza go jako plik CV. */
+  uploaded_document_id?: number | null;
+  /**
+   * CV do klienta po nowym CV (29.10.2026): generuje się samo, pytamy,
+   * czeka na potwierdzenia, zablokowane po „CV wysłane”, klient bierze formularz.
+   */
+  company_cv?: NewCvCompanyCvPlan | null;
+  company_cv_stage_id?: number | null;
+  company_cv_status?: string | null;
+  regenerating_document_id?: number | null;
+}
+
+export type NewCvCompanyCvPlan = "regenerating" | "ask" | "confirm" | "locked" | "none";
 
 export interface CVBrandedFinalizeResponseT {
   edit_revision: number;
@@ -5998,14 +6828,101 @@ export const candidateStageCvApi = {
       api.post<CVOriginalSnapshot>(
         `/api/candidates/stages/${stageId}/cv/original/refresh`,
       ),
+    /**
+     * Nowe CV z rekrutacji: główne CV profilu i kopia CV etapu naraz. Plik
+     * nazwany jak CV do klienta („B2B_…docx”) serwer zapisuje jako CV do
+     * klienta (15.10.2026). `mode: "original"` wymusza CV kandydata („Cofnij”),
+     * `replaceClientCv` — podmianę CV do klienta, które ktoś już poprawiał.
+     */
+    /**
+     * `mode`: „original” = „Cofnij” po wgraniu CV do klienta; „candidate” =
+     * „Dodaj CV” w profilu (29.10.2026) — CV kandydata bez rozpoznawania po nazwie.
+     */
+    upload: (
+      stageId: number,
+      file: File,
+      options?: { mode?: "original" | "candidate"; replaceClientCv?: boolean },
+    ) => {
+      const form = new FormData();
+      form.append("file", file);
+      if (options?.mode) form.append("mode", options.mode);
+      if (options?.replaceClientCv) form.append("replace_client_cv", "true");
+      return api.post<StageCvUploadResult>(
+        `/api/candidates/stages/${stageId}/cv/original/upload`,
+        form,
+        { headers: { "Content-Type": "multipart/form-data" }, timeout: SLOW_ENDPOINT_TIMEOUT_MS },
+      );
+    },
   },
   branded: {
-    selectGenerated: (stageId: number, generated_document_id: number, expected_revision: number, document_version_id?: number) =>
+    selectGenerated: (
+      stageId: number,
+      generated_document_id: number,
+      expected_revision: number,
+      document_version_id?: number,
+      options?: { keepEdits?: boolean },
+    ) =>
       api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/select-generated`, {
-        generated_document_id, expected_revision, ...(document_version_id ? { document_version_id } : {}),
+        generated_document_id,
+        expected_revision,
+        ...(document_version_id ? { document_version_id } : {}),
+        // „Napisz od nowa” (PR 5): ręcznie poprawione części szkicu zostają.
+        ...(options?.keepEdits ? { keep_edits: true } : {}),
       }),
+    /**
+     * „Generuj z nowego CV” (29.10.2026): nowa wersja z Oryginału CV rekrutacji
+     * z tymi samymi źródłami; gotowa zastąpi CV, jeśli nikt go nie zmieni.
+     */
+    regenerateFromOriginal: (stageId: number, expected_revision: number) =>
+      api.post<{ generated_document_id: number; company_cv_stage_id: number }>(
+        `/api/candidates/stages/${stageId}/cv/branded/regenerate-from-original`,
+        { expected_revision },
+      ),
+    /** „Wróć do poprzedniej” — szkic sprzed ostatniej podmiany nową generacją. */
+    restorePrevious: (stageId: number, expected_revision: number) =>
+      api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/restore-previous`, {
+        expected_revision,
+      }),
+    /** „Odrzuć to CV i zacznij od nowa” (21.10.2026) — karta wraca do „brak”, treść do historii. */
+    discard: (stageId: number, expected_revision: number) =>
+      api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/discard`, {
+        expected_revision,
+      }),
+    /** Plik Word z profilu kandydata → szkic CV firmowego (bez AI). */
+    selectDocument: (stageId: number, document_id: number, expected_revision: number) =>
+      api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/select-document`, {
+        document_id, expected_revision,
+      }),
+    /** Gotowe CV etapu tej osoby z INNYCH rekrutacji (bez zapisu). */
+    sources: (stageId: number) =>
+      api.get<{ items: StageCvSourceItem[] }>(`/api/candidates/stages/${stageId}/cv/branded/sources`),
+    /** CV etapu z innej rekrutacji (z poprawkami rekrutera) → szkic tej. */
+    selectStageCv: (stageId: number, source_job_id: number, expected_revision: number) =>
+      api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/select-stage-cv`, {
+        source_job_id, expected_revision,
+      }),
+    /** Plik Word z dysku → szkic (bez AI; plik nie trafia do plików kandydata). */
+    uploadDocx: (stageId: number, file: File, expected_revision: number) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("expected_revision", String(expected_revision));
+      return api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/upload`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      });
+    },
+    /** Zrzut zgody RODO dla CV etapu bez dokumentu generatora (kopia). */
+    attachConsent: (stageId: number, consentToken: string) =>
+      api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/consent`, {
+        consent_screenshot_token: consentToken,
+      }, { timeout: SLOW_ENDPOINT_TIMEOUT_MS }),
     get: (stageId: number) =>
       api.get<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded`),
+    rename: (stageId: number, filename: string) =>
+      api.patch<{ filename: string; pattern_filename?: string | null }>(
+        `/api/candidates/stages/${stageId}/cv/branded/filename`,
+        { filename },
+      ),
     update: (
       stageId: number,
       payload:
@@ -6064,34 +6981,6 @@ export const candidateStageCvApi = {
   },
 };
 
-// ── Generator CV B2B — publiczny link (interaktywne CV) ─────────────────────
-
-export interface CvGeneratedShareCreateResp {
-  document_version_id?: number | null;
-  token: string;
-  expires_at: string;
-  share_url_suffix: string;
-  generated_id: number;
-  revoke_key: string;
-  max_views?: number | null;
-  interactive_available: boolean;
-}
-
-export interface CvGeneratedShareListItem {
-  document_version_id?: number | null;
-  revoke_key: string;
-  token_preview: string;
-  created_at?: string | null;
-  created_by_name?: string | null;
-  expires_at?: string | null;
-  revoked: boolean;
-  revoked_at?: string | null;
-  revoke_reason?: string | null;
-  view_count: number;
-  max_views?: number | null;
-  last_viewed_at?: string | null;
-}
-
 export const cvGeneratedEditorApi = {
   get: (id: number) => api.get<CVBrandedState>(`/api/cv-generator/generated/${id}/editor`),
   update: (id: number, payload: { content_html: string; expected_revision: number } | { template?: CVTemplate; language?: CVLanguage; expected_revision: number }) =>
@@ -6104,43 +6993,7 @@ export const cvGeneratedEditorApi = {
     cancelReviewedCv(`/api/cv-generator/generated/${id}/editor`, reviewId, payload),
 };
 
-export interface CvGeneratedApprovedVersion {
-  id: number;
-  version: number;
-  approved_at: string;
-  language: string | null;
-  job_title: string | null;
-}
-
-export const cvGeneratedShareApi = {
-  approve: (generatedId: number) => api.post<{ document_version_id: number; version: number }>(`/api/cv-generator/generated/${generatedId}/approve`),
-  approvedVersions: (generatedId: number) =>
-    api.get<CvGeneratedApprovedVersion[]>(`/api/cv-generator/generated/${generatedId}/approved-versions`),
-  // Token v2-only: sekret zwracany raz, w DB tylko SHA-256.
-  create: (generatedId: number, expiresInDays = 14, maxViews?: number, documentVersionId?: number) =>
-    api.post<CvGeneratedShareCreateResp>(
-      `/api/cv-generator/generated/${generatedId}/share-token`,
-      null,
-      {
-        params: {
-          expires_in_days: expiresInDays,
-          ...(documentVersionId ? { document_version_id: documentVersionId } : {}),
-          ...(maxViews ? { max_views: maxViews } : {}),
-        },
-      },
-    ),
-  list: (generatedId: number) =>
-    api.get<CvGeneratedShareListItem[]>(
-      `/api/cv-generator/generated/${generatedId}/share-tokens`,
-    ),
-  revoke: (tokenOrKey: string, reason?: string) =>
-    api.delete<{ ok: boolean; already_revoked: boolean }>(
-      `/api/cv-generator/generated/share-token/${tokenOrKey}`,
-      reason ? { params: { reason } } : undefined,
-    ),
-};
-
-// ── Generator CV v3 (lista „Moje CV”, osoba spoza bazy, zgoda po generacji) ──
+// ── Generator CV v3 (wygenerowane CV, zgoda po generacji) ──────────────────
 
 /** Wynik niezależnej kontroli AI treści (0327) — same liczby, bez cytatów. */
 export interface CvFactualReviewSummary {
@@ -6150,7 +7003,7 @@ export interface CvFactualReviewSummary {
   reason?: string | null;
 }
 
-/** Wiersz `GET /api/cv-generator/generated` — lista „Moje CV” i widok wyniku. */
+/** Wiersz `GET /api/cv-generator/generated` — pliki kandydata i widok wyniku. */
 export interface GeneratedCvItem {
   id: number;
   approved_version_id?: number | null;
@@ -6186,6 +7039,17 @@ export interface GeneratedCvItem {
   consent_required?: boolean;
   /** Zrzutu jeszcze nie ma — pobranie DOCX/HTML kończy się 409. */
   consent_missing?: boolean;
+  /**
+   * Wiersz etapu rekrutacji, do którego podpięto ten dokument (D4, 14.10.2026).
+   * Gdy jest, „Pobierz” w profilu daje CV etapu z poprawkami z edytora i po QC
+   * (`fetchStageCvFile`), a nie surowy plik generatora.
+   */
+  stage_cv_stage_id?: number | null;
+  stage_cv_status?: "draft" | "finalized" | null;
+  stage_cv_updated_at?: string | null;
+  stage_cv_finalized_at?: string | null;
+  /** Odrzucone „Odrzuć to CV” w karcie „CV do klienta” (audyt 22.10). */
+  discarded?: boolean;
 }
 
 export interface CvGeneratedListParams {
@@ -6197,14 +7061,6 @@ export interface CvGeneratedListParams {
   stage_id?: number;
   before_id?: number;
   limit?: number;
-}
-
-/** Podobna osoba w bazie dla wgranego pliku CV (`POST /identify-upload`). */
-export interface CvIdentifyMatch {
-  candidate_id: number;
-  full_name: string;
-  /** Kody: `identical_file`, `email_exact`, `phone_exact` (bez wywołania modelu). */
-  match_reasons: string[];
 }
 
 /** Wynik dołączenia / wymiany zrzutu zgody w gotowym CV (cały pakiet). */
@@ -6237,26 +7093,38 @@ export interface CvGeneratePayload {
   consent_screenshot_token?: string;
   /** Tylko bez procesu: notatki idą do tego CV, nie do profilu kandydata. */
   screening_notes?: string;
+  /** „Z czego powstało” (D4): rodzaje materiału dla modelu — tylko z etapem. */
+  sources?: { answers: boolean; notes: boolean; transcripts: boolean; prep: boolean };
+  /** „Napisz od nowa: krócej, więcej o Kafce” — forma i akcenty, nie fakty (PR 5). */
+  instruction?: string;
 }
 
 export const cvGeneratorApi = {
   listGenerated: (params: CvGeneratedListParams) =>
     api.get<GeneratedCvItem[]>("/api/cv-generator/generated", { params }),
-  identifyUpload: (file: File) => {
+  /**
+   * Zrzut zgody dla JUŻ wygenerowanego CV — podpis przypisania do wiersza.
+   * `overrideReason`: zapis zrzutu, który AI uznało za niepasujący (27.10.2026).
+   */
+  uploadConsentForGenerated: (generatedId: number, file: File, overrideReason?: string) => {
     const fd = new FormData();
-    fd.append("cv_file", file);
-    return api.post<{ matches: CvIdentifyMatch[] }>(
-      "/api/cv-generator/identify-upload",
+    fd.append("file", file);
+    fd.append("generated_id", String(generatedId));
+    if (overrideReason) fd.append("override_reason", overrideReason);
+    return api.post<ConsentUploadResult>(
+      "/api/cv-generator/consent-screenshot",
       fd,
       { headers: { "Content-Type": "multipart/form-data" }, timeout: 60_000 },
     );
   },
-  /** Zrzut zgody dla JUŻ wygenerowanego CV — podpis przypisania do wiersza. */
-  uploadConsentForGenerated: (generatedId: number, file: File) => {
+  /** Zrzut zgody dla CV etapu bez dokumentu generatora — przypisanie do etapu. */
+  uploadConsentForStage: (candidateId: number, stageId: number, file: File, overrideReason?: string) => {
     const fd = new FormData();
     fd.append("file", file);
-    fd.append("generated_id", String(generatedId));
-    return api.post<{ consent_token: string; filename: string }>(
+    fd.append("candidate_id", String(candidateId));
+    fd.append("stage_id", String(stageId));
+    if (overrideReason) fd.append("override_reason", overrideReason);
+    return api.post<ConsentUploadResult>(
       "/api/cv-generator/consent-screenshot",
       fd,
       { headers: { "Content-Type": "multipart/form-data" }, timeout: 60_000 },
@@ -6406,6 +7274,165 @@ export const oauthClientsApi = {
     api.delete<void>(`/api/settings/oauth-clients/${id}`),
 };
 
+// ── Settings → Klucze API / konta serwisowe (`X-API-Key`, API integracyjne v1) ─
+// Sekret klucza przychodzi WYŁĄCZNIE w odpowiedzi na wydanie klucza
+// (`ServiceAccountKeyCreateResponse.api_key`) — metadane nie mają na niego pola.
+
+export interface ServiceAccountKeyDto {
+  key_id: string;
+  label: string;
+  created_at: string;
+  created_by: number | null;
+  expires_at: string;
+  revoked_at: string | null;
+  revoked_by: number | null;
+  revoke_reason: string | null;
+  last_used_at: string | null;
+  last_used_ip: string | null;
+}
+
+export interface ServiceAccountDto {
+  id: number;
+  slug: string;
+  name: string;
+  description: string | null;
+  scopes: string[];
+  is_active: boolean;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+  keys: ServiceAccountKeyDto[];
+}
+
+export interface ServiceAccountCreatePayload {
+  slug: string;
+  name: string;
+  description?: string | null;
+  scopes: string[];
+}
+
+export interface ServiceAccountUpdatePayload {
+  name?: string;
+  description?: string | null;
+  scopes?: string[];
+  is_active?: boolean;
+}
+
+export interface ServiceAccountKeyCreatePayload {
+  label: string;
+  expires_in_days?: number;
+}
+
+export interface ServiceAccountKeyCreateResponse {
+  key: ServiceAccountKeyDto;
+  api_key: string;
+}
+
+export interface ServiceAccountConfigDto {
+  enabled: boolean;
+  default_ttl_days: number;
+  max_ttl_days: number;
+  header: string;
+}
+
+/** Zapis wykonany kluczem przez API integracyjne v1 (bez treści żądania). */
+export interface ServiceAccountWriteDto {
+  id: number;
+  key_id: string;
+  method: string;
+  route: string;
+  state: string;
+  status_code: number | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+/** Webhook konta (API v1 `/webhooks`) — bez sekretu; adres bez parametrów zapytania. */
+export interface ServiceAccountWebhookDto {
+  id: number;
+  url: string;
+  /** Pusta lista = wszystkie zdarzenia, które konto widzi. */
+  event_types: string[];
+  is_active: boolean;
+  last_event_id: number;
+  failure_count: number;
+  next_attempt_at: string | null;
+  disabled_reason: string | null;
+  disabled_at: string | null;
+  last_delivery_at: string | null;
+  last_status: number | null;
+  last_error: string | null;
+  test_pending: boolean;
+  created_at: string;
+}
+
+const SERVICE_ACCOUNTS_URL = "/api/settings/service-accounts";
+
+// ── Wtyczka LinkedIn (`/api/extension/*`, migracja 0608) ─────────────────────
+// Strona `/extension/connect` łączy wtyczkę z kontem; Ustawienia → Wtyczka
+// LinkedIn pokazują połączenia i odłączają je. Pozostałe trasy woła sama
+// wtyczka kluczem `X-Extension-Key` (kontrakt: `extension/API.md`).
+export interface ExtensionConnectResponse {
+  key: string;
+  user: { id: number; name: string; initials: string };
+  expires_at: string;
+  api_base: string;
+  frontend_url: string;
+}
+
+export interface ExtensionConnectionDto {
+  key_id: string;
+  user_id: number;
+  user_name: string;
+  extension_version: string | null;
+  created_at: string;
+  expires_at: string;
+  last_used_at: string | null;
+  reads_today: number;
+  adds_today: number;
+}
+
+export interface ExtensionConnectionsResponse {
+  items: ExtensionConnectionDto[];
+  reads_limit: number;
+}
+
+export const linkedinExtensionApi = {
+  connect: (payload: { extension_id: string; extension_version: string | null }) =>
+    api.post<ExtensionConnectResponse>("/api/extension/connect", payload),
+  connections: () => api.get<ExtensionConnectionsResponse>("/api/extension/connections"),
+  revoke: (keyId: string) =>
+    api.post<void>(`/api/extension/connections/${encodeURIComponent(keyId)}/revoke`),
+};
+
+export const serviceAccountsApi = {
+  list: () => api.get<ServiceAccountDto[]>(SERVICE_ACCOUNTS_URL),
+  scopes: () => api.get<ScopeInfoDto[]>(`${SERVICE_ACCOUNTS_URL}/scopes`),
+  config: () => api.get<ServiceAccountConfigDto>(`${SERVICE_ACCOUNTS_URL}/config`),
+  create: (payload: ServiceAccountCreatePayload) =>
+    api.post<ServiceAccountDto>(SERVICE_ACCOUNTS_URL, payload),
+  update: (id: number, payload: ServiceAccountUpdatePayload) =>
+    api.patch<ServiceAccountDto>(`${SERVICE_ACCOUNTS_URL}/${id}`, payload),
+  remove: (id: number) => api.delete<void>(`${SERVICE_ACCOUNTS_URL}/${id}`),
+  issueKey: (id: number, payload: ServiceAccountKeyCreatePayload) =>
+    api.post<ServiceAccountKeyCreateResponse>(
+      `${SERVICE_ACCOUNTS_URL}/${id}/keys`,
+      payload,
+    ),
+  // `key_id` ma postać `v2$<hex>` — `$` w ścieżce musi być zakodowany.
+  revokeKey: (id: number, keyId: string, reason: string | null) =>
+    api.post<ServiceAccountKeyDto>(
+      `${SERVICE_ACCOUNTS_URL}/${id}/keys/${encodeURIComponent(keyId)}/revoke`,
+      { reason },
+    ),
+  writes: (id: number, limit = 50) =>
+    api.get<ServiceAccountWriteDto[]>(`${SERVICE_ACCOUNTS_URL}/${id}/writes`, {
+      params: { limit },
+    }),
+  webhooks: (id: number) =>
+    api.get<ServiceAccountWebhookDto[]>(`${SERVICE_ACCOUNTS_URL}/${id}/webhooks`),
+};
+
 // ── Multi-source attribution (Traffit gap #4) ────────────────────────────────
 
 export type SourceChannel =
@@ -6415,7 +7442,9 @@ export type SourceChannel =
   | "email"
   | "posting"
   | "referral"
-  | "import_csv";
+  | "import_csv"
+  | "career_link_general"
+  | "career_link_job";
 
 export interface CandidateSourceEventDto {
   id: number;
@@ -6743,8 +7772,6 @@ export interface SyncAgentsResponse {
 }
 
 export const callsApi = {
-  getForCandidate: (candidateId: number) =>
-    api.get<Call[]>(`/api/candidates/${candidateId}/calls`).then((r) => r.data),
   getStats: () => api.get<CallStats>("/api/calls/stats").then((r) => r.data),
 };
 
@@ -6862,11 +7889,11 @@ export const applicationSubmissionsApi = {
         params: { status, limit: APPLICATION_SUBMISSIONS_PAGE_LIMIT },
       })
       .then((r) => r.data),
-  resolve: (id: number, action: ApplicationResolveAction) =>
+  resolve: (id: number, action: ApplicationResolveAction, confirmErased = false) =>
     api
       .post<ApplicationResolveResult>(
         `/api/application-submissions/${id}/resolve`,
-        { action },
+        confirmErased ? { action, confirm_erased: true } : { action },
       )
       .then((r) => r.data),
 };

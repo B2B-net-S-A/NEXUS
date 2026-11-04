@@ -1,0 +1,285 @@
+"""Które pozycje must bramkują i w jakiej postaci (decyzja Artura 27.09.2026).
+
+Bramka działa tylko na nazwach technologii: wersje odcięte, przykłady klienta
+jako „którakolwiek”, język/branża/metodyki/miękkie/role nie ukrywają nikogo.
+Przypadki wprost z maili klientów z 25.09.2026.
+"""
+
+import pytest
+
+from app.services.must_gate_terms import gate_requirement, ignored_reason
+from app.services.skill_normalize import strip_version
+
+
+@pytest.mark.parametrize(
+    "label, options",
+    [
+        ("Java 8+", ("Java",)),
+        ("React.js (v18 or higher)", ("React.js",)),
+        ("Windows Server 2019", ("Windows Server",)),
+        (".NET 6", (".NET",)),
+        ("CI/CD tools like Bitbucket, Jenkins", ("CI/CD", "Bitbucket", "Jenkins")),
+        ("Bazy danych (Oracle, PostgreSQL)", ("Oracle", "PostgreSQL")),
+        ("Senior Java Developer", ("Java",)),
+        ("Kafka lub RabbitMQ", ("Kafka", "RabbitMQ")),
+        ("Temenos T24 / Temenos Transact", ("Temenos T24", "Temenos Transact")),
+        ("Spring Boot", ("Spring Boot",)),
+        ("C#", ("C#",)),
+        ("Node.js", ("Node.js",)),
+        ("oracle/pl/sql", ("oracle", "pl/sql")),
+        ("Java (minimalna 11)", ("Java",)),
+        ("Oracle (min. 19c)", ("Oracle",)),
+    ],
+)
+def test_technology_labels_gate_with_normalized_options(label, options):
+    requirement = gate_requirement(label)
+    assert requirement is not None and requirement.options == options
+    assert requirement.label == label
+
+
+@pytest.mark.parametrize(
+    "label, reason",
+    [
+        ("język angielski", "language"),
+        ("English B2", "language"),
+        ("bankowość", "domain"),
+        ("KYC / AML", "domain"),
+        ("GDPR", "domain"),
+        ("Agile", "category"),
+        ("Hybrid cloud architecture", "category"),
+        ("narzędzie CASE", "category"),
+        ("Good communication skills", "soft"),
+        ("Developer", "role"),
+        ("python i bash", "prose"),
+        # Komentarz po myślniku i wstęp „znajomość …” zostają prozą: odcięte
+        # dawały odmiany („Kafki”) i zdania jako fałszywe technologie.
+        ("apache kafka – minimum 4 lata komercyjnego doświadczenia", "prose"),
+        ("bardzo dobra znajomość Kafki", "prose"),
+        ("3 lata w technologiach Java/Spring/Groovy", "prose"),
+        ("qTest lub podobne narzędzie do zarządzania testami", "category"),
+    ],
+)
+def test_non_technology_labels_do_not_gate(label, reason):
+    assert gate_requirement(label) is None
+    assert ignored_reason(label) == reason
+
+
+@pytest.mark.parametrize(
+    "name, base, version",
+    [
+        ("Java 8+", "Java", "8+"),
+        ("Python 3.x", "Python", "3.x"),
+        ("Java 7/8", "Java", "7/8"),
+        ("Java 11 or higher", "Java", "11 or higher"),
+        # Produkcja 30.09.2026: słowna wersja w nawiasie wyłączała całą
+        # pozycję z bramki i z wyboru krytycznych („Java (minimalna 11)”).
+        ("Java (minimalna 11)", "Java", "minimalna 11"),
+        ("Java (min. 11)", "Java", "min. 11"),
+        ("Oracle (min. 19c)", "Oracle", "min. 19c"),
+        ("Java (minimum 17)", "Java", "minimum 17"),
+        ("Java (od 11)", "Java", "od 11"),
+        ("Java (wersja 17+)", "Java", "wersja 17+"),
+        ("Java min. 11", "Java", "min. 11"),
+        ("Angular (version 16 or higher)", "Angular", "version 16 or higher"),
+        ("ES6", "ES6", None),
+        ("OAuth2", "OAuth2", None),
+        ("Log4j", "Log4j", None),
+    ],
+)
+def test_strip_version(name, base, version):
+    assert strip_version(name) == (base, version)
+
+
+# ── Reguła ze słownikiem (audyt 30.09.2026, B2) ──────────────────────────────
+from tests.taxonomy_fixture import hydrated_taxonomy  # noqa: E402
+from app.services.must_gate_terms import critical_eligible  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "label, reason",
+    [
+        # Nazwy ze słownika, które są rolą albo metodyką — do 30.09 skrót
+        # `in ALIAS_MAP` przepuszczał je jako technologię.
+        ("QA", "role"),
+        ("quality assurance", "role"),
+        ("software developer", "role"),
+        ("backend developer", "role"),
+        ("IT analysis", "role"),
+        ("release manager", "role"),
+        ("Scrum", "category"),
+        # Przykłady z nawiasu po ZDANIU nie są wymogiem.
+        ("Doświadczenie z integracją systemów (on-premise, hybrid, cloud)", "prose"),
+        (
+            "Umiejętność pracy w dynamicznym środowisku IT (DevOps / Application Operations)",
+            "prose",
+        ),
+        ("Wykształcenie wyższe kierunkowe (informatyka, matematyka)", "prose"),
+    ],
+)
+def test_taxonomy_roles_methodologies_and_prose_heads_do_not_gate(label, reason):
+    with hydrated_taxonomy():
+        assert gate_requirement(label) is None
+        assert ignored_reason(label) == reason
+
+
+@pytest.mark.parametrize(
+    "label, options",
+    [
+        ("Java 11+", ("Java",)),
+        ("Bazy danych (Oracle, PostgreSQL)", ("Oracle", "PostgreSQL")),
+        ("Znajomość baz danych (np. Oracle, PostgreSQL)", ("Oracle", "PostgreSQL")),
+        # CI/CD jest w słowniku metodyką — nie opcją, ale głowa przykładów zostaje.
+        ("CI/CD tools like Bitbucket, Jenkins", ("Bitbucket", "Jenkins")),
+        ("Pega", ("Pega",)),
+        ("UML", ("UML",)),
+    ],
+)
+def test_taxonomy_technologies_still_gate(label, options):
+    with hydrated_taxonomy():
+        requirement = gate_requirement(label)
+        assert requirement is not None and requirement.options == options
+
+
+@pytest.mark.parametrize(
+    "label, eligible",
+    [
+        ("Java 11+", True),
+        ("Angular", True),
+        ("React.js (v18 or higher)", True),
+        ("Kafka lub RabbitMQ", False),  # RabbitMQ spoza słownika
+        ("Docker/Kubernetes", True),
+        ("Pega", True),  # narzędzie — technologia w sensie bramki
+        ("BPMN", True),  # standard
+        ("Temenos T24", False),  # bramkuje w punktach, słownik go nie zna
+        ("QA", False),
+        ("Scrum", False),
+        ("team player", False),
+        ("dostępność asap / maksymalnie 1 miesiąc", False),
+    ],
+)
+def test_critical_eligibility_requires_every_option_in_taxonomy(label, eligible):
+    with hydrated_taxonomy():
+        assert critical_eligible(label) is eligible
+
+
+def test_critical_eligibility_is_false_without_taxonomy():
+    assert critical_eligible("Java") is False
+
+
+# ── Wybór Delivery Leada (09.10.2026): każda fraza, szukamy słów wiersza ────
+def test_requirement_with_options_adds_row_words_to_a_phrase():
+    from app.services.must_gate_terms import requirement_with_options
+
+    with hydrated_taxonomy():
+        # Fraza spoza technologii sama nie bramkuje…
+        assert gate_requirement("bankowość") is None
+        assert requirement_with_options("bankowość") is None
+        # …ale ze słowami wiersza staje się wymaganiem „którekolwiek z nich”.
+        phrase = requirement_with_options(
+            "bankowość", {"bankowość": ("bankowość", "bankow*", "banking")}
+        )
+        assert phrase is not None
+        assert phrase.options == ("bankowość", "bankow*", "banking")
+        # Technologia: słowa wiersza dochodzą do nazw z reguły, bez powtórek.
+        tech = requirement_with_options("Kafka", {"Kafka": ("kafka", "kolejki")})
+        assert tech is not None
+        assert [o.lower() for o in tech.options] == ["kafka", "kolejki"]
+        # Bez wpisu wynik jest taki jak z samej reguły.
+        assert requirement_with_options("Kafka", {"Java": ("jvm",)}) == gate_requirement(
+            "Kafka"
+        )
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "QA",
+        "IT analysis",
+        "Data engineering",
+        "IT operations",
+        "Test automation",
+        "IT consulting",
+        "Quality assurance",
+        "PMO",
+        "System administration",
+    ],
+)
+def test_practices_outside_the_dictionary_do_not_gate(label):
+    """30.09.2026: praktyki i role spoza słownika przechodziły regułę
+    składniową; wysłani „mieli” je w 0–37% przypadków (audyt B2)."""
+    assert gate_requirement(label) is None
+
+
+# ── 13.10.2026: nawias po technologii to komentarz, nie opcje ───────────────
+# Pomiar na produkcji: „SQL (bardzo dobra znajomość)” i „JMeter (narzędzie do
+# testowania wydajności)” wypadały z bramki i z punktów w całości, a „Python
+# (DAG-i Airflow, ETL, API, LLM)” zamieniał się w alternatywę spełnianą przez
+# każdego z „API” w CV.
+
+from tests.taxonomy_fixture import PROD_LIKE_SKILLS  # noqa: E402
+
+PAREN_SKILLS = {
+    **PROD_LIKE_SKILLS,
+    "SQL": ("database", ()),
+    "JMeter": ("qa", ()),
+    "Airflow": ("data", ("apache airflow",)),
+    "RabbitMQ": ("messaging", ()),
+    "Google Cloud Platform": ("cloud", ("gcp",)),
+    "WebDriver": ("qa", ()),
+}
+
+
+@pytest.mark.parametrize(
+    "label, options",
+    [
+        ("SQL (bardzo dobra znajomość)", ("SQL",)),
+        ("JMeter (narzędzie do testowania wydajności)", ("JMeter",)),
+        ("Selenium (testy UI)", ("Selenium",)),
+        ("Python (DAG-i Airflow, ETL, API, LLM)", ("Python",)),
+        ("Kafka (lub RabbitMQ)", ("Kafka", "RabbitMQ")),
+        ("Kafka (lub podobne)", ("Kafka",)),
+        ("Java (np. Spring Boot)", ("Java", "Spring Boot")),
+        ("SQL (PostgreSQL, Oracle)", ("SQL", "PostgreSQL", "Oracle")),
+        ("Docker/Kubernetes (konteneryzacja)", ("Docker", "Kubernetes")),
+        (
+            "Google Cloud Platform (GCP) (praktyczne doświadczenie)",
+            ("Google Cloud Platform", "GCP"),
+        ),
+        # Wstęp wokół jednej nazwy ze słownika.
+        ("Bardzo dobra znajomość SQL", ("SQL",)),
+        ("Good knowledge of Kafka", ("Kafka",)),
+        # Bez zmian względem 30.09.2026.
+        ("Bazy danych (Oracle, PostgreSQL)", ("Oracle", "PostgreSQL")),
+        ("Znajomość baz danych (np. Oracle, PostgreSQL)", ("Oracle", "PostgreSQL")),
+        ("Java (minimalna 11)", ("Java",)),
+        ("CI/CD tools like Bitbucket, Jenkins", ("Bitbucket", "Jenkins")),
+    ],
+)
+def test_parenthesis_after_technology_is_a_comment(label, options):
+    with hydrated_taxonomy(PAREN_SKILLS):
+        requirement = gate_requirement(label)
+        assert requirement is not None and requirement.options == options
+        assert requirement.label == label
+
+
+@pytest.mark.parametrize(
+    "label, reason",
+    [
+        # Odmiana spoza słownika i zdanie z nawiasem zostają prozą.
+        ("bardzo dobra znajomość Kafki", "prose"),
+        ("Doświadczenie z integracją systemów (on-premise, hybrid, cloud)", "prose"),
+        ("doświadczenie w przetargach", "prose"),
+        # Rola ze słownika z komentarzem nadal nie bramkuje.
+        ("QA (testy manualne)", "category"),
+    ],
+)
+def test_parenthesis_does_not_turn_prose_into_a_technology(label, reason):
+    with hydrated_taxonomy(PAREN_SKILLS):
+        assert gate_requirement(label) is None
+        assert ignored_reason(label) == reason
+
+
+def test_top_n_is_part_of_the_name_not_a_version():
+    assert strip_version("OWASP Top 10") == ("OWASP Top 10", None)
+    assert strip_version("CWE Top 25") == ("CWE Top 25", None)
+    assert strip_version("Java 17") == ("Java", "17")

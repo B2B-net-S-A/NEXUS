@@ -50,6 +50,10 @@ class ClientCvRule(Base, TimestampMixin):
             name="ck_cv_highlight_policy",
         ),
         CheckConstraint(
+            "cv_text_align IN ('justify', 'left')",
+            name="ck_client_cv_rules_text_align",
+        ),
+        CheckConstraint(
             "cv_language IS NULL OR cv_language IN ('pl', 'en')",
             name="ck_client_cv_rules_language",
         ),
@@ -202,6 +206,14 @@ class ClientCvRule(Base, TimestampMixin):
     )
     highlight_terms: Mapped[Optional[list]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql")
+    )
+    # Wyrównanie treści CV (decyzja J1, 14.10.2026): domyślnie wyjustowane.
+    # Zamrażane w `client_rule_snapshot` przy generacji (`cv_text_align.py`).
+    cv_text_align: Mapped[str] = mapped_column(
+        String(8),
+        nullable=False,
+        default="justify",
+        server_default="justify",
     )
 
     # Draft edits never replace the published recipe or live client flags.

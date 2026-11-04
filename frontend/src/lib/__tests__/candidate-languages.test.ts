@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  LANGUAGE_OPTIONS,
   describeLanguageFilter,
+  isListedLanguageCode,
+  otherLanguageCode,
+  searchLanguageOptions,
   languageFilterToUnified,
   normalizeLanguageFilters,
   parseLanguageFilter,
@@ -35,5 +39,25 @@ describe("candidate-languages", () => {
     expect(unifiedLanguageToFilter({ code: "EN", min_level: "b2" })).toBe("en:B2");
     expect(unifiedLanguageToFilter({ code: "DE" })).toBe("de");
     expect(unifiedLanguageToFilter("EN")).toBeNull();
+  });
+
+  it("jedna lista ~30 języków z unikalnymi kodami", () => {
+    expect(LANGUAGE_OPTIONS.length).toBeGreaterThanOrEqual(30);
+    const codes = LANGUAGE_OPTIONS.map((o) => o.code);
+    expect(new Set(codes).size).toBe(codes.length);
+  });
+
+  it("szuka po nazwie bez polskich znaków i po kodzie", () => {
+    expect(searchLanguageOptions("slowack").map((o) => o.code)).toEqual(["sk"]);
+    expect(searchLanguageOptions("ŁOTEW").map((o) => o.code)).toEqual(["lv"]);
+    expect(searchLanguageOptions("ja").map((o) => o.code)).toContain("ja");
+    expect(searchLanguageOptions("  ")).toHaveLength(LANGUAGE_OPTIONS.length);
+  });
+
+  it("kod „Innego…” wynika z nazwy, a lista zna tylko swoje kody", () => {
+    expect(otherLanguageCode("Kataloński")).toBe("katalonski");
+    expect(otherLanguageCode("  Łużycki górny ")).toBe("luzycki-gorny");
+    expect(isListedLanguageCode("EN")).toBe(true);
+    expect(isListedLanguageCode("katalonski")).toBe(false);
   });
 });

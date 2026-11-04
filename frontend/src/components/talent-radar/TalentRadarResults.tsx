@@ -23,6 +23,8 @@ import { Alert } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
 import { HIDDEN_LABELS_PL, type HiddenReason } from "@/lib/api";
 import { encodeTalentRadarBackRef } from "@/lib/url-filters";
+import { EmploymentPill } from "@/components/ds/EmploymentMarker";
+import { markerCoversEligibility } from "@/lib/employment-marker";
 import { cn } from "@/lib/utils";
 import { httpStatusFromError, resolveViewState } from "@/lib/view-state";
 import type {
@@ -227,11 +229,21 @@ export function TalentRadarResults({
                 .join(" · ")}
               score={result.total}
               reasons={matchReasons(result)}
+              badge={
+                result.employment_marker ? (
+                  <EmploymentPill marker={result.employment_marker} />
+                ) : undefined
+              }
               notice={
                 // Konflikt z klientem (czarna lista klienta / NDA / konkurent)
                 // od 17.09.2026 nie wyklucza z radaru — kandydat jest na
-                // liście z powodem. Czerwień tylko dla weta HM.
-                result.eligibility ? (
+                // liście z powodem. Czerwień tylko dla weta HM. „Pracuje
+                // u tego klienta” mówi już znacznik — bez dubla.
+                result.eligibility &&
+                !markerCoversEligibility(
+                  result.employment_marker,
+                  result.eligibility.reason_code,
+                ) ? (
                   <p
                     className={cn(
                       "flex items-start gap-1.5 rounded-md border px-2.5 py-1.5 text-xs",

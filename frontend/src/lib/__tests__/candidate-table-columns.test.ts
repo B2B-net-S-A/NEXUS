@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   candidateGridLayout,
+  selectableCandidateColumns,
   toggleCandidateColumn,
   visibleCandidateColumns,
+  withStageMatchColumn,
 } from "@/lib/candidate-table-columns";
 
 const ids = (hidden: string[] | null) => visibleCandidateColumns(hidden).map((c) => c.id);
@@ -19,6 +21,52 @@ describe("kolumny tabeli kandydatów", () => {
       "cv",
       "assign",
     ]);
+  });
+
+  it("szeroki ekran pokazuje domyślnie także „Ostatnią rozmowę”; laptop i „Szukaj ręcznie” — nie", () => {
+    const at = (hidden: string[] | null, options: { wide?: boolean; forJob?: boolean }) =>
+      visibleCandidateColumns(hidden, options).map((c) => c.id);
+    expect(at(null, { wide: true })).toContain("last_contact");
+    // Laptop: domyślna tabela mieści się na styk, kolumna zostaje do włączenia.
+    expect(at(null, {})).not.toContain("last_contact");
+    expect(at(null, { forJob: true, wide: true })).not.toContain("last_contact");
+  });
+
+  it("zapisany wybór nie zależy od szerokości okna, w którym go zapisano", () => {
+    const at = (hidden: string[] | null, wide: boolean) =>
+      visibleCandidateColumns(hidden, { wide }).map((c) => c.id);
+    // Przełączenie INNEJ kolumny na dużym monitorze nie przykleja „Ostatniej
+    // rozmowy” do laptopa (wypychałaby „Przypisz” poza ekran)…
+    const savedWide = toggleCandidateColumn(null, "email", { wide: true });
+    expect(at(savedWide, true)).toContain("last_contact");
+    expect(at(savedWide, false)).not.toContain("last_contact");
+    // …a przełączenie na laptopie nie chowa jej na dużym monitorze.
+    const savedNarrow = toggleCandidateColumn(null, "email", { wide: false });
+    expect(at(savedNarrow, false)).not.toContain("last_contact");
+    expect(at(savedNarrow, true)).toContain("last_contact");
+    // Wybór zapisany przed tą zmianą: id na liście ukrytych = brak decyzji (idzie
+    // za oknem), brak id = osoba sama włączyła kolumnę (zostaje także na laptopie).
+    const legacyDefault = ["email", "location", "experience", "last_contact", "added"];
+    expect(at(legacyDefault, true)).toContain("last_contact");
+    expect(at(legacyDefault, false)).not.toContain("last_contact");
+    expect(at(["email", "location", "experience", "added"], false)).toContain("last_contact");
+  });
+
+  it("jawne włączenie albo wyłączenie „Ostatniej rozmowy” obowiązuje na każdym ekranie", () => {
+    const at = (hidden: string[] | null, wide: boolean) =>
+      visibleCandidateColumns(hidden, { wide }).map((c) => c.id);
+    const off = toggleCandidateColumn(null, "last_contact", { wide: true });
+    expect(at(off, true)).not.toContain("last_contact");
+    expect(at(off, false)).not.toContain("last_contact");
+    const on = toggleCandidateColumn(null, "last_contact", { wide: false });
+    expect(at(on, false)).toContain("last_contact");
+    expect(at(on, true)).toContain("last_contact");
+    // Kolejne przełączenia innych kolumn nie gubią decyzji…
+    const onPlusEmail = toggleCandidateColumn(on, "email", { wide: false });
+    expect(at(onPlusEmail, false)).toEqual(expect.arrayContaining(["last_contact", "email"]));
+    // …a ponowne kliknięcie ją odwraca.
+    const offAgain = toggleCandidateColumn(onPlusEmail, "last_contact", { wide: false });
+    expect(at(offAgain, true)).not.toContain("last_contact");
   });
 
   it("kolumn wymaganych nie da się ukryć, nieznane id są ignorowane", () => {
@@ -40,5 +88,46 @@ describe("kolumny tabeli kandydatów", () => {
     // 8 kolumn danych → 8 odstępów gap-3 (12 px) + px-4 z obu stron (32 px).
     // Bez odstępów i paddingu wiersz był szerszy od kontenera i ucinał „Przypisz”.
     expect(layout.minWidth).toBe(32 + 168 + 150 + 132 + 72 + 88 + 112 + 52 + 104 + 8 * 12 + 32);
+  });
+});
+
+describe("„Szukaj ręcznie” z rekrutacji", () => {
+  it("ma kolumnę dopasowania, a telefon domyślnie schowany — tabela mieści się w oknie", () => {
+    const forJob = visibleCandidateColumns(null, { forJob: true }).map((c) => c.id);
+    expect(forJob).toContain("fit");
+    expect(forJob).not.toContain("phone");
+    expect(ids(null)).not.toContain("fit");
+    expect(candidateGridLayout(visibleCandidateColumns(null, { forJob: true })).minWidth).toBeLessThanOrEqual(1040);
+  });
+});
+
+describe("„Dodany na etap” (filtr etapu, 19.10.2026)", () => {
+  it("nie ma jej w wyborze „Kolumny” ani bez filtra", () => {
+    expect(selectableCandidateColumns().map((c) => c.id)).not.toContain("stage_match");
+    expect(ids(null)).not.toContain("stage_match");
+    expect(withStageMatchColumn(visibleCandidateColumns(null), false).map((c) => c.id)).toEqual(
+      ids(null),
+    );
+  });
+
+  it("z filtrem stoi za „Kandydatem”; na laptopie w miejscu „Ostatniego stanowiska” i tabela dalej się mieści", () => {
+    const laptop = withStageMatchColumn(visibleCandidateColumns(null), true);
+    expect(laptop.map((c) => c.id)).toEqual([
+      "candidate",
+      "stage_match",
+      "phone",
+      "rate",
+      "availability",
+      "process",
+      "cv",
+      "assign",
+    ]);
+    expect(candidateGridLayout(laptop).minWidth).toBeLessThanOrEqual(
+      candidateGridLayout(visibleCandidateColumns(null)).minWidth,
+    );
+    const wide = withStageMatchColumn(visibleCandidateColumns(null, { wide: true }), true, {
+      wide: true,
+    }).map((c) => c.id);
+    expect(wide.slice(0, 3)).toEqual(["candidate", "stage_match", "position"]);
   });
 });

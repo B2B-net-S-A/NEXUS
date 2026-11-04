@@ -37,6 +37,17 @@ def business_today(tz: str = DEFAULT_TZ) -> date:
     return local_now(tz).date()
 
 
+def business_date(moment: datetime, tz: str = DEFAULT_TZ) -> date:
+    """Dzień kalendarza firmy, na który wypada ``moment`` (``business_today``
+    dla podanej chwili — pętle w tle dostają „teraz” jako argument).
+
+    Chwila bez strefy to czas firmy (jak w ``is_business_day``).
+    """
+    zone = ZoneInfo(tz)
+    local = moment.astimezone(zone) if moment.tzinfo else moment.replace(tzinfo=zone)
+    return local.date()
+
+
 @dataclass(frozen=True)
 class PeriodBounds:
     """Granice lokalnego okresu kalendarzowego przeliczone do UTC.
@@ -87,6 +98,16 @@ def local_quarter_bounds(day: date, tz: str = DEFAULT_TZ) -> PeriodBounds:
         start_utc=start.astimezone(timezone.utc),
         end_utc=end.astimezone(timezone.utc),
     )
+
+
+def local_day_start_utc(day: date, tz: str = DEFAULT_TZ) -> datetime:
+    """Północ dnia ``day`` w kalendarzu firmy, jako chwila UTC.
+
+    ``datetime(d.year, d.month, d.day, tzinfo=timezone.utc)`` to północ UTC —
+    w Warszawie 01:00/02:00, więc zdarzenia z pierwszych godzin dnia wypadały
+    z filtra „od dnia X” (runda 2 audytu 25.09.2026, Akademia).
+    """
+    return datetime.combine(day, time.min, tzinfo=ZoneInfo(tz)).astimezone(timezone.utc)
 
 
 @dataclass(frozen=True)

@@ -1,5 +1,11 @@
 "use client";
 
+import { useUrlSyncedState, useUrlWriter, writeUrlParams } from "@/lib/url-selection";
+import {
+  readAdMailIntent,
+  withoutAdMailParams,
+  type AdMailIntent,
+} from "@/lib/job-ad-mail-intent";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -7,26 +13,29 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api, { jobChatApi, matchingApi } from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
-import { canEditJobContent, jobEditScope } from "@/lib/job-edit-access";
+import { useHydrated } from "@/hooks/useHydrated";
+import {
+  canEditJobContent,
+  hasFullJobEditFallback,
+  jobEditScope,
+  jobPublishAction,
+} from "@/lib/job-edit-access";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { PipelineBoardGate } from "@/components/v2/jobs/PipelineBoardGate";
 import { EditJobModal } from "@/components/AppShell";
-import { AIJobWriterModal } from "@/components/v2/jobs/AIJobWriterModal";
-import { RequestStatusBadge } from "@/components/v2/jobs/JobListCells";
-import { SimilarJobsDialog } from "@/components/v2/jobs/SimilarJobsDialog";
+import { JobAdWindow } from "@/components/v2/job-ad/JobAdWindow";
+import { JobChampionsStatus } from "@/components/v2/jobs/JobChampionsStatus";
 import { CHAMPION_ROLES, requestStatusOf } from "@/lib/request-status";
-import { similarJobsApi, useSimilarJobs } from "@/lib/similar-jobs-api";
-import { toggleChampionFound } from "@/lib/champion-found-toggle";
 import { useToast } from "@/components/Toast";
 import { countHired } from "@/lib/pipeline-flow";
-import { buildJobHeaderKpis } from "@/lib/job-header-kpis";
 import { jobBudgetHourly } from "@/lib/job-budget";
 import { positiveIntParam } from "@/lib/client-tab";
 import { resolveUrlTab } from "@/lib/url-tab";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
-import { buildJobHeaderSubtitle } from "@/lib/job-header-subtitle";
-import type { FullSearchSummary } from "@/lib/full-search-summary";
+import { jobHeaderFacts } from "@/lib/job-header-facts";
+import { recruitersOf, workingRecruiters } from "@/lib/job-team";
+import { invalidateJobTeam } from "@/lib/job-team-cache";
 import {
   JOB_DETAIL_DEFAULT_VIEW,
   readJobDetailUrlState,
@@ -37,32 +46,54 @@ import {
   type JobOrderSection,
 } from "@/lib/job-detail-routing";
 import { jobProposalsApi, jobProposalsKeys } from "@/lib/job-proposals-api";
-import { proposalsBulkApi, shortlistApi } from "@/lib/candidate-search-api";
+import { useClearJobTopic } from "@/lib/api/jobTopic";
+import { shortlistApi } from "@/lib/candidate-search-api";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
-import { ChampionSectionNav } from "@/components/v2/jobs/ChampionSectionNav";
-import { JobSummaryCard } from "@/components/v2/jobs/JobSummaryCard";
-import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
+import { ChampionWorkspace } from "@/components/champion/ChampionWorkspace";
+import {
+  resolveChampionTab,
+  type ChampionBlock,
+  type ChampionTab,
+} from "@/lib/champion-blocks";
+import { JobCloseReasonBadge } from "@/components/v2/jobs/JobCloseReasonBadge";
+import { JobCloseWithReasonDialog } from "@/components/v2/jobs/JobCloseWithReasonDialog";
+import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
+import { JobIdleBanner } from "@/components/v2/jobs/JobIdleBanner";
+import { JobCproBanner } from "@/components/v2/jobs/JobCproBanner";
+import { fetchJobCproEvents } from "@/lib/cpro-events-api";
+import { fetchJobIdle, jobIdleKey, snoozeJobIdle } from "@/lib/job-idle-api";
+import { apiErrorMessage } from "@/lib/api-error";
+import { scrollToWhenReady } from "@/components/v2/recruitment/OrderMissingBlock";
 import {
   ManagedInNexusChip,
   ManagedInTraffitNotice,
 } from "@/components/v2/jobs/ManagedInNexusSwitch";
-import { JobRecruitmentPath } from "@/components/v2/jobs/JobRecruitmentPath";
+import { CandidateSourcesStrip } from "@/components/v2/jobs/CandidateSourcesStrip";
+import { AddedByFilterButton } from "@/components/v2/jobs/AddedByFilter";
+import { JobPriorityMenu } from "@/components/v2/jobs/JobPriorityMenu";
+import { JobP0Strip } from "@/components/v2/jobs/p0/JobP0Strip";
+import { JobRecruiterFact } from "@/components/v2/jobs/JobRecruiterFact";
+import { useJobTeamPermissions } from "@/components/v2/jobs/useJobTeamPermissions";
+import { useRailCollapsed } from "@/components/v2/shell/OpenTabsRail";
 import {
-  buildRecruitmentPath,
-  nearestStep as computeNearestStep,
-  summarizeBoard,
-  type NearestStep,
-  type PathStepKey,
-} from "@/lib/job-recruitment-path";
-import type { BoardColumnKey } from "@/lib/board-stages";
+  JOB_HEADER_COLLAPSED_DEFAULT,
+  jobHeaderCollapsedKey,
+} from "@/lib/job-header-preferences";
+import { priorityLevelOf } from "@/lib/request-priority";
+import {
+  ADDED_BY_PARAM,
+  addedByOptions,
+  addedByParam,
+  parseAddedBy,
+  peopleInProgress,
+  type AddedByFilter,
+} from "@/lib/board-added-by";
+import { closeReasonLabel } from "@/lib/job-close-reasons";
+import { closedOnLabel } from "@/lib/job-closed-waiting";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { AddCandidateFromCVModal } from "@/components/v2/modals/AddCandidateFromCVModal";
-import {
-  AddCandidatesPanel,
-  type AddCandidatesTab,
-} from "@/components/v2/recruitment/AddCandidatesPanel";
-import { assignErrorMessage } from "@/lib/assign-error";
+import { AddCandidatesPanel } from "@/components/v2/recruitment/AddCandidatesPanel";
 import {
   JobShortlist,
   jobShortlistQueryKey,
@@ -70,18 +101,11 @@ import {
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { cn } from "@/lib/utils";
 import { useTabsStore } from "@/store/tabs";
+import { useMyPeoplePanel } from "@/store/my-people";
 import { hasRole, useAuthStore } from "@/store/auth";
+import { hasPermission } from "@/lib/permissions";
 import { hasSectionAccess } from "@/lib/section-access";
 import { ActiveViewers } from "@/components/v2/presence/ActiveViewers";
-import { useLocalStorageFlag } from "@/lib/use-local-storage-flag";
-import {
-  JOB_HEADER_COLLAPSED_DEFAULT,
-  JOB_HEADER_COLLAPSED_STORAGE_KEY,
-} from "@/lib/job-header-preferences";
-import {
-  JOB_CHAMPION_DOCK_COLLAPSED_DEFAULT,
-  JOB_CHAMPION_DOCK_COLLAPSED_STORAGE_KEY,
-} from "@/lib/job-dock-preferences";
 import {
   JobDetailCompactHeader,
   type JobDetailTab,
@@ -101,32 +125,26 @@ import { RequestRequirementsRail } from "@/components/v2/recruitment/RequestRequ
 import { JobAIActions } from "@/components/v2/recruitment/JobAIActions";
 import { EmailTemplateModal } from "@/components/v2/recruitment/EmailTemplateModal";
 import { OrderSlideOver } from "@/components/v2/recruitment/slideovers/OrderSlideOver";
+import { jobClientTitle, jobDisplayTitle } from "@/lib/job-names";
+import { copyClientReference } from "@/components/v2/jobs/ClientReferenceChip";
 import { QuestionBankSlideOver } from "@/components/v2/recruitment/slideovers/QuestionBankSlideOver";
+import { ClientPanelSlideOver } from "@/components/v2/recruitment/slideovers/ClientPanelSlideOver";
+import { JobFilesSlideOver } from "@/components/v2/recruitment/slideovers/JobFilesSlideOver";
+import { fetchJobFiles, jobFilesKey } from "@/lib/api/jobFiles";
 import { HistoryChatSlideOver } from "@/components/v2/recruitment/slideovers/HistoryChatSlideOver";
-import { ManualSearchSlideOver } from "@/components/v2/recruitment/slideovers/ManualSearchSlideOver";
 import type {
+  CandidateWindowTab,
   PersonPanelSection,
   RecruitmentSegment,
   RecruitmentSlideOver,
 } from "@/components/v2/recruitment/types";
-
-// ── Recruitment type config ───────────────────────────────────────────────────
-
-const RECRUITMENT_TYPE_CONFIG: Record<
-  string,
-  { label: string; variant: "soft" | "success" | "warning" }
-> = {
-  body_leasing: { label: "Body Leasing", variant: "soft" },
-  sales_project: { label: "Sprzedaż", variant: "success" },
-  tender: { label: "Przetarg", variant: "warning" },
-};
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 /**
  * Widoki rekrutacji (wersja 3) — każdy może stać w `?tab=`: „Tabela"
  * (`people`, domyślny), „Tablica" (`board`, kanban z przeciąganiem) i pełne
- * „Zlecenie i Champion" (`champion`).
+ * „Profil Championa" (`champion`).
  */
 const JOB_DETAIL_TABS: readonly JobDetailView[] = ["people", "board", "champion"];
 
@@ -155,94 +173,69 @@ const JOB_DETAIL_TAB_ALIASES: Readonly<Record<string, JobDetailView>> = {
   notes: "people",
 };
 
-/** KPI nagłówka mówią dawnym słownikiem zakładek. */
-const KPI_TAB_FOR_VIEW: Record<JobDetailView, JobDetailTab> = {
-  people: "pipeline",
-  board: "pipeline",
-  champion: "champion",
-};
-
 const DEFAULT_SEGMENT: RecruitmentSegment = "in-process";
 
-/**
- * Stan trzymany w adresie. Efekt zależy od WARTOŚCI wyczytanej z adresu, nie
- * od tożsamości `searchParams`: miękka nawigacja App Routera (klik
- * w powiadomienie na tej samej rekrutacji) zmienia adres bez odmontowania
- * strony, a inicjalizator `useState` odpala się raz. `null` z adresu NIE
- * cofa ręcznego wyboru — parametr, który zniknął, to nie polecenie.
- */
-function useUrlSyncedState<T extends string>(fromUrl: T | null, fallback: T | null) {
-  const [value, setValue] = useState<T | null>(fromUrl ?? fallback);
-  useEffect(() => {
-    if (fromUrl !== null) setValue(fromUrl);
-  }, [fromUrl]);
-  return [value, setValue] as const;
-}
-
-/** Podmienia parametry bieżącego adresu bez dokładania wpisu w historii. */
-function writeUrlParams(patch: Record<string, string | null>) {
-  if (typeof window === "undefined") return;
-  const url = new URL(window.location.href);
-  for (const [name, value] of Object.entries(patch)) {
-    if (value == null) url.searchParams.delete(name);
-    else url.searchParams.set(name, value);
-  }
-  const next = `${url.pathname}${url.search}${url.hash}`;
-  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  if (next !== current) window.history.replaceState(window.history.state, "", next);
-}
+/** Widok „Profil Championa”: zakładki albo pełny formularz (`?mode=edit`). */
+type ChampionMode = "view" | "edit";
 
 export default function JobDetailPage() {
   const { id } = useParams();
   const jobId = Number(id);
+  // Okienko „Rekrutacje” w górnym pasku: wejście na ekran gasi nowości tej
+  // rekrutacji (tylko własne) — jak wejście do czatu gasi rozmowę.
+  useClearJobTopic(jobId);
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
   const openTab = useTabsStore((s) => s.openTab);
   const queryClient = useQueryClient();
-  const { showError } = useToast();
+  const { showError, showSuccess } = useToast();
   const authUser = useAuthStore((s) => s.user);
   const impersonating = useAuthStore((s) => s.realUser !== null);
   const isAdmin = hasRole(authUser, "admin");
-  // 0325: powrót rekrutacji do Traffita — tylko admin / Delivery Lead.
-  const canRevertManaged = isAdmin || hasRole(authUser, "delivery_lead");
-  // Lustro `GATE_ROLES` doku gotowości: `GET /jobs/{id}/readiness` to
-  // `DeliveryLeadPlus` — dla innych ról zapytanie zawsze kończy się 403.
-  const canSeeReadinessGate = isAdmin || hasRole(authUser, "delivery_lead");
+  // Uprawnienie „Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta” —
+  // domyślnie administrator i Delivery Lead, ale rozstrzyga panel „Osoby
+  // i role”, nie rola. Serwer pyta o nie przy zamknięciu rekrutacji, bramce
+  // gotowości, przekazaniu do searchu i powrocie rekrutacji do Traffita.
+  const canManageRecruitment = hasPermission(authUser, "recruitment_manage");
+  // 0325: powrót rekrutacji do Traffita.
+  const canRevertManaged = canManageRecruitment;
+  // Lustro bramki doku gotowości: bez uprawnienia `GET /jobs/{id}/readiness`
+  // zawsze kończy się 403, więc zapytanie nie jest wysyłane.
+  const canSeeReadinessGate = canManageRecruitment;
   const canWritePipeline =
     !impersonating && hasSectionAccess(authUser, "pipeline", "write");
-  // PATCH /api/jobs/{id} to TacPlus — a TacPlus nie obejmuje HoR. Przez rejestr,
-  // żeby nie hodować drugiej listy ról obok niego (F-19).
+  // Pełna redakcja rekrutacji (PATCH /api/jobs/{id}). Przez rejestr, żeby nie
+  // hodować drugiej reguły obok niego (F-19).
   const canUpdateJob = useCapability("job.update");
-  // 0341: „Mamy championa" oznacza Delivery Lead (lustro `_CHAMPION_ROLES`).
+  // Championów wskazuje Delivery Lead (lustro `_CHAMPION_ROLES`, D2 15.10.2026).
   const canMarkChampion =
     canWritePipeline && CHAMPION_ROLES.some((role) => hasRole(authUser, role));
-  const [similarOpen, setSimilarOpen] = useState(false);
-  const [championPending, setChampionPending] = useState(false);
-  const similarJobs = useSimilarJobs(jobId, canWritePipeline);
+  // Okienko „Championi tej rekrutacji” — otwiera je plakietka statusu i menu „⋯”.
+  const [championsOpen, setChampionsOpen] = useState(false);
   // POST /api/invite-links → RecruiterPlus. Ta sama capability bramkuje akcję
   // na liście ofert — bez niej read-only `user` widział tu przycisk wiodący
   // prosto w 403 (audyt F-19).
   const canCreateInviteLink = useCapability("invite_link.create");
   const canOpenCandidateProfile = useCapability("nav.candidates");
-  const [showAIWriter, setShowAIWriter] = useState(false);
+  const canOpenMyPeople = useCapability("nav.my_people");
+  const openMyPeople = useMyPeoplePanel((s) => s.openPanel);
+  // Wejście z maila przypomnienia o ogłoszeniu (27.10.2026): okno „Ogłoszenie”
+  // na kanale, „Nie publikujemy” albo „Przypomnij”. Efekt, nie inicjalizator
+  // `useState` — link z maila może przyjść przy już otwartej rekrutacji.
+  const [showJobAd, setShowJobAd] = useState(false);
+  const [adIntent, setAdIntent] = useState<AdMailIntent | null>(null);
   const [showEditJob, setShowEditJob] = useState(false);
   const [showInviteLink, setShowInviteLink] = useState(false);
   const [showAddCandidates, setShowAddCandidates] = useState(false);
-  // Rekrutacja v5: panel „Dodaj kandydatów" — jedno wejście z nagłówka
-  // i z kolumny „Nowi" (przegląd bazy AI, propozycje, Moi ludzie, nazwisko/CV).
-  const [addPanelTab, setAddPanelTab] = useState<AddCandidatesTab | null>(null);
+  // „Przeszukaj całą bazę (AI)” z menu „⋯” — licznik żądań; okno źródeł
+  // startuje przegląd raz na każdą nową wartość (nigdy z adresu).
+  const [fullReviewRequest, setFullReviewRequest] = useState<number | null>(null);
   const [showAddFromCv, setShowAddFromCv] = useState(false);
   const [emailCandidateId, setEmailCandidateId] = useState<number | null>(null);
-  // „Ścieżka rekrutacji": skok do kolumny Tablicy (przewinięcie + podświetlenie).
-  const [boardFocus, setBoardFocus] = useState<{ column: BoardColumnKey; seq: number } | null>(
-    null,
-  );
   // Narzędzia AI administratora z menu „…" — niezależnie od tego, czy
   // jakakolwiek propozycja jest zaznaczona.
   const [showAiTools, setShowAiTools] = useState(false);
-  // Opis oferty potrafi mieć kilkaset linii — domyślnie zwinięty.
-  const [showFullDescription, setShowFullDescription] = useState(false);
 
   // ── Stan w adresie: widok, segment, sekcja panelu, okno wysuwane ─────────
   const searchKey = searchParams?.toString() ?? "";
@@ -283,6 +276,58 @@ export default function JobDetailPage() {
     urlState.orderSection,
     null,
   );
+  // Okno „Kandydaci do dodania”: `?win=add&wintab=similar|postings|base|search|manual`.
+  const [sourceTab, setSourceTab] = useUrlSyncedState<CandidateWindowTab>(
+    urlState.sourceTab,
+    null,
+  );
+  // „Profil Championa” (04.10.2026): zakładki `?ptab=brief|tech|client|team`
+  // (stare `readiness`/`announce` z panelu bocznego czytane jak Brief/Zespół)
+  // i pełny formularz `?mode=edit` (stare `?intake=1` otwiera go z panelem AI).
+  const modeFromUrl: ChampionMode | null =
+    searchParams?.get("mode") === "edit" || searchParams?.get("intake") === "1"
+      ? "edit"
+      : searchParams?.get("mode") === "view"
+        ? "view"
+        : null;
+  const [championModeState, setChampionModeState] = useUrlSyncedState<ChampionMode>(
+    modeFromUrl,
+    "view",
+  );
+  const ptabRaw = searchParams?.get("ptab");
+  const [championTab, setChampionTab] = useUrlSyncedState<ChampionTab>(
+    resolveChampionTab(ptabRaw),
+    "brief",
+  );
+  // Stary link do zakładki „Ogłoszenie” panelu rozwija od razu portale.
+  const [portalsFocus, setPortalsFocus] = useState(ptabRaw === "announce");
+  // Szuflada edycji bloku Briefu (`ChampionWorkspace`); tu, bo otwiera ją też
+  // okno „Kandydaci do dodania” („Uzupełnij wymagania do wyszukiwania”).
+  const [championEditBlock, setChampionEditBlock] = useState<ChampionBlock | null>(null);
+  // Edytor zostaje zamontowany po pierwszym wejściu w „Edytuj” — przełączenie
+  // na „Podgląd” go tylko chowa, więc niezapisany szkic nie ginie.
+  const [championEditorMounted, setChampionEditorMounted] = useState(false);
+  const [championDirty, setChampionDirty] = useState(false);
+  useEffect(() => {
+    if (championModeState === "edit") setChampionEditorMounted(true);
+  }, [championModeState]);
+  const [showCloseJob, setShowCloseJob] = useState(false);
+  const [showChangeCloseReason, setShowChangeCloseReason] = useState(false);
+  // „Otwórz ponownie” / „Dokończ i opublikuj” (04.10.2026): menu „⋯” albo
+  // `?reopen=1` (okno edycji, pulpit „Czeka na Ciebie”). Parametr znika po
+  // zamknięciu okna, żeby odświeżenie go nie otwierało ponownie.
+  const [reopenRequest, setReopenRequest] = useUrlSyncedState<"1">(
+    searchParams?.get("reopen") === "1" ? "1" : null,
+    null,
+  );
+  const changeReopenOpen = useCallback(
+    (next: boolean) => {
+      setReopenRequest(next ? "1" : null);
+      if (!next) writeUrlParams({ reopen: null });
+    },
+    [setReopenRequest],
+  );
+
   // Tryb „Tabela" usunięty (decyzja Artura 22.09.2026): rekrutacja to Tablica.
   // `tab=people` zostaje wyłącznie dla pełnej listy „Do przejrzenia"
   // (propozycje z bazy i shortlista — makieta 4). Każdy inny dawny adres
@@ -298,9 +343,46 @@ export default function JobDetailPage() {
       writeUrlParams({
         tab: view === JOB_DETAIL_DEFAULT_VIEW ? null : view,
         ...(view === "board" ? { seg: null, panel: null } : {}),
+        ...(view !== "champion" ? { mode: null, ptab: null, intake: null } : {}),
       });
     },
     [setViewState, setSegmentState],
+  );
+  const selectChampionMode = useCallback(
+    (mode: ChampionMode) => {
+      setChampionModeState(mode);
+      writeUrlParams({ mode: mode === "edit" ? "edit" : null, intake: null });
+    },
+    [setChampionModeState],
+  );
+  const selectChampionTab = useCallback(
+    (tab: ChampionTab) => {
+      setChampionTab(tab);
+      writeUrlParams({ ptab: tab === "brief" ? null : tab });
+    },
+    [setChampionTab],
+  );
+  /**
+   * Wejście na „Profil Championa”: zakładka (także stare `readiness`/
+   * `announce` z okna „Zlecenie”), pełny formularz albo szuflada bloku.
+   */
+  const openChampion = useCallback(
+    (
+      opts: {
+        panelTab?: ChampionTab | "readiness" | "announce";
+        edit?: boolean;
+        block?: ChampionBlock;
+      } = {},
+    ) => {
+      selectView("champion");
+      const tab = opts.panelTab ? resolveChampionTab(opts.panelTab) : opts.block ? "brief" : null;
+      if (opts.panelTab === "announce") setPortalsFocus(true);
+      if (tab) selectChampionTab(tab);
+      if (opts.edit) selectChampionMode("edit");
+      else if (tab) selectChampionMode("view");
+      if (opts.block) setChampionEditBlock(opts.block);
+    },
+    [selectView, selectChampionTab, selectChampionMode],
   );
   const selectSegment = useCallback(
     (next: RecruitmentSegment) => {
@@ -319,28 +401,62 @@ export default function JobDetailPage() {
   const openSlideOver = useCallback(
     (
       kind: RecruitmentSlideOver,
-      opts: { historyTab?: JobHistoryChatTab; orderSection?: JobOrderSection } = {},
+      opts: {
+        historyTab?: JobHistoryChatTab;
+        orderSection?: JobOrderSection;
+        sourceTab?: CandidateWindowTab;
+      } = {},
     ) => {
-      setSlideOverState(kind);
-      setHistoryTab(kind === "history-chat" ? (opts.historyTab ?? "all") : null);
-      setOrderSection(kind === "order" ? (opts.orderSection ?? null) : null);
+      // Dawne „Podobne rekrutacje” i „Szukaj ręcznie” to zakładki okna źródeł.
+      const target: RecruitmentSlideOver =
+        kind === "similar" || kind === "manual-search" ? "add" : kind;
+      const source: CandidateWindowTab | null =
+        target === "add"
+          ? kind === "similar"
+            ? "similar"
+            : kind === "manual-search"
+              ? "manual"
+              : (opts.sourceTab ?? "base")
+          : null;
+      setSlideOverState(target);
+      setHistoryTab(target === "history-chat" ? (opts.historyTab ?? "all") : null);
+      setOrderSection(target === "order" ? (opts.orderSection ?? null) : null);
+      setSourceTab(source);
       writeUrlParams({
-        win: kind,
-        wintab: opts.historyTab ?? opts.orderSection ?? null,
+        win: target,
+        wintab: opts.historyTab ?? opts.orderSection ?? source ?? null,
       });
     },
-    [setSlideOverState, setHistoryTab, setOrderSection],
+    [setSlideOverState, setHistoryTab, setOrderSection, setSourceTab],
   );
   const closeSlideOver = useCallback(() => {
     setSlideOverState(null);
     setHistoryTab(null);
     setOrderSection(null);
+    setSourceTab(null);
     writeUrlParams({ win: null, wintab: null });
-  }, [setSlideOverState, setHistoryTab, setOrderSection]);
+  }, [setSlideOverState, setHistoryTab, setOrderSection, setSourceTab]);
+  /** Kafle nad Tablicą i zakładki okna „Kandydaci do dodania”. */
+  const openSources = useCallback(
+    (tab: CandidateWindowTab) => openSlideOver("add", { sourceTab: tab }),
+    [openSlideOver],
+  );
   const slideOverOpenChange = (kind: RecruitmentSlideOver) => (open: boolean) => {
     if (open) openSlideOver(kind);
     else if (slideOver === kind) closeSlideOver();
   };
+
+  // Stare wejścia do sekcji okna „Zlecenie” (`?win=order&wintab=team|portals|close`
+  // — podpowiedź „Obsada kompletna”, powrót z `/jobs/new` po nieudanej
+  // publikacji na portalu). Od 29.09.2026 te sekcje żyją w panelu obok
+  // Profilu Championa, a zamknięcie w menu „⋯” — link prowadzi tam wprost.
+  useEffect(() => {
+    if (slideOver !== "order" || !orderSection) return;
+    if (orderSection === "close") setShowCloseJob(true);
+    else if (orderSection === "team") openChampion({ panelTab: "team" });
+    else if (orderSection === "portals") openChampion({ panelTab: "announce" });
+    closeSlideOver();
+  }, [slideOver, orderSection, openChampion, closeSlideOver]);
 
   // Stary adres (`?tab=chat`, `?tab=screening`, `?highlight=ai-proposals`…)
   // przepisujemy na nowy kształt — `replace`, nie `push`: stary adres nie ma
@@ -385,18 +501,9 @@ export default function JobDetailPage() {
   // `?candidate=<id>` (powiadomienia, wzmianka w notatce, „Wróć do rekrutacji")
   // — otwórz tę osobę: panel w „Tabeli", dok na „Tablicy".
   const linkedCandidateId = positiveIntParam(searchParams?.get("candidate") ?? null);
-  // Zwijanie panelu „Zespół i priorytet" (pełny widok „Zlecenie i Champion")
-  // oraz — na „Tablicy" — wysokość kolumn. Preferencja globalna w localStorage.
-  const [headerCollapsed, setHeaderCollapsed] = useLocalStorageFlag(
-    JOB_HEADER_COLLAPSED_STORAGE_KEY,
-    JOB_HEADER_COLLAPSED_DEFAULT,
-  );
-  // Zwijanie doku „Gotowość" na widoku Championa — patrz
-  // `lib/job-dock-preferences.ts`.
-  const [championDockCollapsed, setChampionDockCollapsed] = useLocalStorageFlag(
-    JOB_CHAMPION_DOCK_COLLAPSED_STORAGE_KEY,
-    JOB_CHAMPION_DOCK_COLLAPSED_DEFAULT,
-  );
+  // `&review=1` (dzwonek „CV do przeglądu”): poza dokiem otwiera przegląd DL.
+  const linkedReview = searchParams?.get("review") === "1";
+
 
   // Parametr jest jednorazowy: po otwarciu osoby znika z adresu, żeby
   // odświeżenie strony albo zamknięcie panelu nie otwierało jej ponownie.
@@ -405,6 +512,7 @@ export default function JobDetailPage() {
     const next = new URLSearchParams(searchParams?.toString() ?? "");
     if (!next.has("candidate")) return;
     next.delete("candidate");
+    next.delete("review");
     const query = next.toString();
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }, [pathname, router, searchParams]);
@@ -420,6 +528,16 @@ export default function JobDetailPage() {
     refetchOnWindowFocus: true,
   });
 
+  // Liczba przy „Pliki” w menu „⋯”. Ten sam klucz czyta okno plików, więc
+  // dodanie albo usunięcie pliku odświeża też liczbę.
+  const { data: jobFiles } = useQuery({
+    queryKey: jobFilesKey({ kind: "job", id: Number(id) }),
+    queryFn: () => fetchJobFiles({ kind: "job", id: Number(id) }),
+    enabled: !!id && Number.isFinite(Number(id)),
+    staleTime: 30_000,
+    retry: false,
+  });
+
   const {
     data: job,
     isLoading: jobLoading,
@@ -429,34 +547,17 @@ export default function JobDetailPage() {
   } = useQuery({
     queryKey: ["job", id],
     queryFn: () => api.get(`/api/jobs/${id}`).then((r) => r.data),
+    // Globalnie wyłączone od 27.10.2026 (`QueryProvider`); tu zostaje — zmiana
+    // z drugiej karty (własna, więc bez `pipeline_changed`) wraca po powrocie.
+    refetchOnWindowFocus: true,
   });
 
-  // Delivery Lead rekrutacji (M03-B03): `GET /api/jobs/{id}` niesie tylko
-  // `delivery_lead_id`, więc nazwisko bierzemy z katalogu użytkowników —
-  // tego samego, z którego okno edycji wybiera DL. Katalog zwraca wyłącznie
-  // aktywne konta i jest za `OperationalUser`: brak trafienia albo 403
-  // (viewer) po prostu nie dokłada segmentu, zamiast udawać „brak DL".
-  const deliveryLeadId: number | null = job?.delivery_lead_id ?? null;
-  const { data: deliveryLeadDirectory } = useQuery<
-    Array<{ id: number; name?: string | null; email?: string | null }>
-  >({
-    queryKey: ["users-directory", "delivery-lead-roles"],
-    queryFn: () =>
-      api
-        .get("/api/users", {
-          params: { roles: ["delivery_lead", "admin", "head_of_recruitment"] },
-          paramsSerializer: { indexes: null },
-        })
-        .then((r) => r.data),
-    enabled: deliveryLeadId != null,
-    staleTime: 5 * 60_000,
+  // Co NEXUS zrobił sam z maili CPro (02.11.2026).
+  const { data: cproEvents } = useQuery({
+    queryKey: ["job-cpro-events", id],
+    queryFn: () => fetchJobCproEvents(Number(id)),
     retry: false,
   });
-  const deliveryLeadName: string | null = useMemo(() => {
-    if (deliveryLeadId == null) return null;
-    const match = deliveryLeadDirectory?.find((u) => u.id === deliveryLeadId);
-    return match?.name || match?.email || null;
-  }, [deliveryLeadDirectory, deliveryLeadId]);
 
   const {
     data: kanban,
@@ -473,6 +574,9 @@ export default function JobDetailPage() {
   } = useQuery({
     queryKey: ["kanban", id],
     queryFn: () => api.get(`/api/pipeline/kanban/${id}`).then((r) => r.data),
+    // Jak wyżej: własny ruch z drugiej karty nie przychodzi gniazdem
+    // (serwer pomija autora), więc Tablica odświeża się przy powrocie.
+    refetchOnWindowFocus: true,
   });
 
   const kanbanViewState = resolveViewState({
@@ -500,6 +604,60 @@ export default function JobDetailPage() {
     queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
   }, [queryClient, id]);
 
+  // „Otwórz w panelu” z okna „Dodaj z CV”: ten sam jednorazowy `?candidate=`
+  // co powiadomienia — dok otwiera się na świeżej Tablicy, gdy karta już jest.
+  const urlWriter = useUrlWriter();
+
+  useEffect(() => {
+    const intent = readAdMailIntent(searchParams);
+    if (!intent) return;
+    setAdIntent(intent);
+    setShowJobAd(true);
+    // F5 nie otwiera okna drugi raz (`maile-z-przyciskami-akcji.md`).
+    urlWriter.replaceUrl(
+      withoutAdMailParams(window.location.search) || window.location.pathname,
+    );
+  }, [searchParams, urlWriter]);
+  const openPersonPanel = useCallback(
+    (candidateId: number) => {
+      if (!showBoard) selectView("board");
+      invalidateKanban();
+      const next = new URLSearchParams(window.location.search);
+      next.set("candidate", String(candidateId));
+      urlWriter.replaceUrl(`?${next.toString()}`);
+    },
+    [showBoard, selectView, invalidateKanban, urlWriter],
+  );
+
+  // Filtr „Kto dodał” Tablicy (14.10.2026, D2–D3): żyje tylko w adresie
+  // (`?added_by=<numer>|none`), nowe wejście w rekrutację pokazuje wszystkich.
+  // Zapis przez `useUrlWriter` — `useSearchParams` widzi zmianę, a strona nie
+  // przewija się na górę (`docs/claude/ui/parametry-adresu-…`).
+  const addedByRaw = searchParams?.get(ADDED_BY_PARAM) ?? null;
+  const addedBy = useMemo(() => parseAddedBy(addedByRaw), [addedByRaw]);
+  const setAddedBy = useCallback(
+    (filter: AddedByFilter) => {
+      const next = new URLSearchParams(window.location.search);
+      const value = addedByParam(filter);
+      if (value) next.set(ADDED_BY_PARAM, value);
+      else next.delete(ADDED_BY_PARAM);
+      const query = next.toString();
+      urlWriter.replaceUrl(query ? `?${query}` : window.location.pathname);
+    },
+    [urlWriter],
+  );
+  // Te same liczby co menu w panelu osoby: osoby w toku na Tablicy.
+  const addedByMenuOptions = useMemo(
+    () =>
+      kanban
+        ? addedByOptions(peopleInProgress(kanban.columns, kanban.off_template?.items ?? []), {
+            id: authUser?.id ?? null,
+            name: authUser?.name ?? null,
+          })
+        : null,
+    [kanban, authUser?.id, authUser?.name],
+  );
+
   // Osoby już w rekrutacji (także odrzucone i „poza szablonem") — nie
   // pojawiają się w propozycjach. `undefined` dopóki tablica się nie wczyta:
   // segment propozycji pyta wtedy o nie sam.
@@ -526,6 +684,14 @@ export default function JobDetailPage() {
     const s = pipelineScores?.scores;
     if (s) {
       for (const [cid, score] of Object.entries(s)) m.set(Number(cid), score);
+    }
+    return m;
+  }, [pipelineScores]);
+  // Krytyczne bez śladu u osoby — plakietka „brak: …” obok pierścienia.
+  const criticalGapMap = useMemo(() => {
+    const m = new Map<number, string[]>();
+    for (const [cid, exclusion] of Object.entries(pipelineScores?.exclusions ?? {})) {
+      if (exclusion.missing_critical.length) m.set(Number(cid), exclusion.missing_critical);
     }
     return m;
   }, [pipelineScores]);
@@ -562,6 +728,15 @@ export default function JobDetailPage() {
     staleTime: 30_000,
     retry: false,
   });
+  // Priorytet i „Rekruter” w nagłówku (14.10.2026) — te same prawa co zakładka
+  // „Zespół” (`useJobTeamPermissions`).
+  const { editScope: teamEditScope, canSetPriority } = useJobTeamPermissions(job);
+  // „Zwiń” nagłówka (K-D5) — pamiętane per osoba, domyślnie rozwinięty.
+  const [headerCollapsed, toggleHeaderCollapsed] = useRailCollapsed(
+    jobHeaderCollapsedKey(authUser?.id),
+    JOB_HEADER_COLLAPSED_DEFAULT,
+  );
+
   const orderMissingCount: number | null = useMemo(() => {
     const data = readinessQuery.data;
     if (!readinessQuery.isSuccess || !data) return null;
@@ -569,142 +744,38 @@ export default function JobDetailPage() {
     return Array.isArray(data.blockers) ? data.blockers.length : null;
   }, [readinessQuery.data, readinessQuery.isSuccess]);
 
-  // ── Jobbar: podtytuł i klaster KPI ───────────────────────────────────────
-  //
-  // Ranking czytany WYŁĄCZNIE z cache'u (`enabled: false`) — publikuje go
-  // segment propozycji, gdy ma żywy przegląd bazy. Brak w cache'u = „—".
-  const { data: ranking = null } = useQuery<FullSearchSummary | null>({
-    queryKey: ["full-search-summary", authUser?.id, Number(id)],
-    queryFn: async () => null,
-    enabled: false,
-  });
-  const headerKpis = useMemo(
-    () =>
-      buildJobHeaderKpis({
-        tab: KPI_TAB_FOR_VIEW[activeView],
-        columns: kanban ? kanbanColumns : null,
-        ranking,
-      }),
-    [activeView, kanban, kanbanColumns, ranking],
-  );
-  const headerSubtitle = useMemo(() => {
-    if (!job) return [];
-    return buildJobHeaderSubtitle({
-      location: job.location,
-      remotePolicy: job.remote_policy,
-      rateBudgetHourly: jobBudgetHourly(job),
-      salaryMin: job.salary_min,
-      salaryMax: job.salary_max,
-      deadline: job.deadline,
-      ownerName: job.primary_owner?.name,
-      deliveryLeadName,
-      // Widok „jedna tabela" obejmuje wszystkie kroki naraz, więc decydent
-      // i obsada — dawniej tylko na krokach 07/08 — są w linijce zawsze.
-      hiringManagerName: job.hiring_manager_name,
-      hired: kanban ? countHired(kanbanColumns) : null,
-      headcount: job.headcount,
-    });
-  }, [job, kanban, kanbanColumns, deliveryLeadName]);
-
-  // ── „Ścieżka rekrutacji" + „Najbliższy krok" (24.09.2026) ─────────────
-  // Z danych, które strona już ma: tablica, bramka gotowości zlecenia i liczba
-  // propozycji opublikowana przez kolumnę „Nowi" (`visibleProposalsQuery`).
-  const cproEnabled = job?.cpro_enabled === true;
-  const boardSummary = useMemo(
-    () => (kanban ? summarizeBoard(kanbanColumns, { cproEnabled }) : null),
-    [kanban, kanbanColumns, cproEnabled],
-  );
-  const proposalsCount: number | null =
-    visibleProposalsQuery.data ??
-    (openProposalsQuery.isSuccess ? openProposalsQuery.data.total : null);
-  const pathSteps = useMemo(
-    () =>
-      buildRecruitmentPath({
-        orderMissing: orderMissingCount,
-        board: boardSummary,
-        proposals: proposalsCount,
-        headcount: typeof job?.headcount === "number" ? job.headcount : null,
-      }),
-    [orderMissingCount, boardSummary, proposalsCount, job?.headcount],
-  );
-  const nearest = useMemo(
-    () =>
-      computeNearestStep({
-        orderMissing: orderMissingCount,
-        board: boardSummary,
-        proposals: proposalsCount,
-        canAddCandidates: canWritePipeline,
-      }),
-    [orderMissingCount, boardSummary, proposalsCount, canWritePipeline],
-  );
-  const focusBoardColumn = useCallback(
-    (column: BoardColumnKey) => {
-      if (!showBoard) selectView("board");
-      setBoardFocus((prev) => ({ column, seq: (prev?.seq ?? 0) + 1 }));
-    },
-    [showBoard, selectView],
-  );
-  const openProposals = useCallback(() => {
-    if (canWritePipeline) {
-      setAddPanelTab("proposals");
-      return;
-    }
-    // Bez zapisu panel dodawania się nie otworzy — pełna lista propozycji.
-    selectView("people");
-    selectSegment("proposals");
-  }, [canWritePipeline, selectView, selectSegment]);
-  const handlePathStep = useCallback(
-    (key: PathStepKey) => {
-      switch (key) {
-        case "order":
-          openSlideOver("order");
-          return;
-        case "candidates":
-          openProposals();
-          return;
-        case "cv":
-          focusBoardColumn(
-            (boardSummary?.counts.cv_qc ?? 0) > 0 ||
-              (boardSummary?.cproQueue ?? 0) > 0 ||
-              !(boardSummary?.counts.cv_sent ?? 0)
-              ? "cv_qc"
-              : "cv_sent",
-          );
-          return;
-        case "interviews":
-          focusBoardColumn("client_interview");
-          return;
-        case "contract":
-          focusBoardColumn("contract");
-          return;
-      }
-    },
-    [openSlideOver, openProposals, focusBoardColumn, boardSummary],
-  );
-  const handleNearest = useCallback(
-    (step: NearestStep) => {
-      const action = step.action;
-      if (action.kind === "order") openSlideOver("order");
-      else if (action.kind === "column") focusBoardColumn(action.column);
-      else if (action.tab === "proposals") openProposals();
-      else if (canWritePipeline) setAddPanelTab("search");
-    },
-    [openSlideOver, focusBoardColumn, openProposals, canWritePipeline],
-  );
-
   // Auto-open tab when job data loads
   useEffect(() => {
     if (job) {
-      openTab("job", Number(id), job.title);
+      openTab("job", Number(id), jobDisplayTitle(job), job.client_reference);
     }
   }, [job, id, openTab]);
 
-  const handleUseDescription = useCallback(async (description: string) => {
-    if (!canWritePipeline) return;
-    await api.patch(`/api/jobs/${id}`, { description });
-    await queryClient.invalidateQueries({ queryKey: ["job", id] });
-  }, [canWritePipeline, id, queryClient]);
+  // Rekrutacja bez ruchu (28.10.2026): pasek z „Zamknij…” i „Jeszcze trwa”
+  // dla tych, którzy mogą ją zamknąć; serwer liczy dni i odmawia reszcie.
+  const idleEnabled = Boolean(job && job.status === "published" && canManageRecruitment);
+  const { data: jobIdle } = useQuery({
+    queryKey: jobIdleKey(jobId),
+    queryFn: () => fetchJobIdle(jobId),
+    enabled: idleEnabled,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+  const [idleSnoozing, setIdleSnoozing] = useState(false);
+  const onIdleSnooze = useCallback(async () => {
+    setIdleSnoozing(true);
+    try {
+      const next = await snoozeJobIdle(jobId);
+      queryClient.setQueryData(jobIdleKey(jobId), next);
+      showSuccess("Odłożone o 14 dni. NEXUS zapyta znowu, jeśli nic się nie ruszy.");
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się odłożyć przypomnienia."));
+    } finally {
+      setIdleSnoozing(false);
+    }
+  }, [jobId, queryClient, showError, showSuccess]);
 
+  const hydrated = useHydrated();
   // 403 (brak uprawnień) i 5xx (awaria) NIE mogą udawać „nie znaleziono" —
   // to dokładnie ten wzorzec, przez który 403 na GET czytało się jako utratę
   // danych (audyt F-20).
@@ -714,7 +785,10 @@ export default function JobDetailPage() {
     error: jobError,
     isEmpty: !job,
   });
-  if (jobViewState === "loading")
+  // Okruszek w powłoce czyta rekrutację pod tym samym kluczem i hydratuje się
+  // wcześniej — jego odpowiedź bywała w cache'u, zanim React doszedł do tej
+  // strony. Do końca hydratacji ten sam stan co z serwera („Ładowanie...”).
+  if (!hydrated || jobViewState === "loading")
     return <div className="p-6 text-muted-foreground">Ładowanie...</div>;
   if (jobViewState !== "ready")
     return (
@@ -741,19 +815,78 @@ export default function JobDetailPage() {
   });
   const canEditJob = editScope === "full";
   const canEditJobContentFields = editScope !== "none";
+  // Zamknięcie rekrutacji (`POST /api/jobs/{id}/close`) wymaga uprawnienia do
+  // jej prowadzenia. Zapis w rekrutacjach i dostęp do tej rekrutacji niesie
+  // `editScope`.
+  const canCloseJob = canEditJobContentFields && canManageRecruitment;
+  // Ponowne otwarcie i dokończenie to publikacja z przekazaniem — ta sama
+  // bramka co zamknięcie (`POST /publish` = `POST /handoff` + cykl życia).
+  const publishAction = canCloseJob ? jobPublishAction(job) : null;
+  // Wskazanie championów (D2): serwer odmawia przy zamkniętej i „Zakończonej”
+  // rekrutacji (409), więc tam plakietka tylko pokazuje listę.
+  const canEditChampions =
+    canMarkChampion && job.status !== "closed" && job.work_state !== "finished";
+  // Plakietka statusu stoi przy znanym statusie requestu (starszy cache —
+  // „Aktywna/Szkic”); okienko championów kotwiczy się na niej.
+  const championsStatusShown = requestStatusOf(job.request_status) != null;
   const canEditChampion = canEditJobContent(job, {
     canWritePipeline,
-    // Lustro `PUT /champion-profile` sprzed pola `can_edit` (DeliveryLeadPlus).
-    fallback: isAdmin || hasRole(authUser, "delivery_lead"),
+    // Odpowiedź bez pola `can_edit` (starszy cache): pełną redakcję rekrutacji
+    // daje uprawnienie do jej prowadzenia.
+    fallback: hasFullJobEditFallback(authUser),
   });
+  // Bez prawa edycji zawsze „Podgląd” — nawet ze starym linkiem `?mode=edit`.
+  const championMode: ChampionMode =
+    canEditChampion && championModeState === "edit" ? "edit" : "view";
+  const renderChampionEditor =
+    canEditChampion && (championMode === "edit" || championEditorMounted);
   const onEdit = canEditJobContentFields ? () => setShowEditJob(true) : undefined;
   const onWriteAnnouncement = canEditJobContentFields
-    ? () => setShowAIWriter(true)
+    ? () => setShowJobAd(true)
     : undefined;
+  // Kropki przy „Ogłoszenie” w nagłówku (21.10.2026): strona kariery
+  // i aktywne ogłoszenia na portalach z `GET /api/jobs/{id}`.
+  const adPortals: ReadonlyArray<{ portal?: string }> = Array.isArray(job.ad_publications)
+    ? job.ad_publications
+    : [];
+  const adChannels = {
+    career: job.career_page === true,
+    pracuj: adPortals.some((item) => item.portal === "pracuj"),
+    jjit: adPortals.some((item) => item.portal === "jjit"),
+  };
   const onGenerateInviteLink =
     canWritePipeline && job.status === "published" && canCreateInviteLink
       ? () => setShowInviteLink(true)
       : undefined;
+  const copyJobLink = () => {
+    const url = `${window.location.origin}/jobs/${jobId}`;
+    // `navigator.clipboard` nie istnieje w niezabezpieczonym kontekście —
+    // bez tej gałęzi klik nic by nie robił i wyglądał na zepsuty.
+    if (!navigator?.clipboard?.writeText) {
+      showError("Przeglądarka nie pozwala skopiować linku.");
+      return;
+    }
+    void navigator.clipboard
+      .writeText(url)
+      .then(() => showSuccess("Skopiowano link do rekrutacji."))
+      .catch(() => showError("Nie udało się skopiować linku."));
+  };
+  // Filtr „Kto dodał” — w linii źródeł nagłówka, a w zwiniętym nagłówku
+  // (gdy włączony) w linii tytułu.
+  const addedByButton =
+    showBoard && addedByMenuOptions ? (
+      <AddedByFilterButton options={addedByMenuOptions} value={addedBy} onChange={setAddedBy} />
+    ) : undefined;
+  const recruiterFact = (compact: boolean) => (
+    <JobRecruiterFact
+      jobId={jobId}
+      jobTitle={jobDisplayTitle(job)}
+      job={job}
+      canEdit={teamEditScope !== "none"}
+      onOpenTeam={() => openChampion({ panelTab: "team" })}
+      compact={compact}
+    />
+  );
   const kanbanQueryState = {
     isLoading: kanbanLoading,
     isError: kanbanIsError,
@@ -765,26 +898,31 @@ export default function JobDetailPage() {
   return (
     <div className="space-y-2">
       <JobDetailCompactHeader
-        title={job.title}
-        clientName={job.client_name}
+        title={jobDisplayTitle(job)}
         referenceNumber={job.reference_number}
+        clientTitle={jobClientTitle(job)}
+        clientReference={job.client_reference}
+        onCopyClientReference={(reference) =>
+          void copyClientReference(reference, { showSuccess, showError })
+        }
         badges={
           <>
-            {job.recruitment_type &&
-            RECRUITMENT_TYPE_CONFIG[job.recruitment_type] ? (
-              <Badge
-                variant={
-                  RECRUITMENT_TYPE_CONFIG[job.recruitment_type].variant
-                }
-              >
-                {RECRUITMENT_TYPE_CONFIG[job.recruitment_type].label}
-              </Badge>
-            ) : null}
             {/* Status requestu (0341) zastępuje techniczny „Aktywna/Szkic" —
-                ta sama reguła co kolumna „Status" na liście. */}
-            {requestStatusOf(job.request_status) ? (
-              <RequestStatusBadge status={job.request_status} />
-            ) : (
+                ta sama reguła co kolumna „Status" na liście. Od 15.10.2026 (D2)
+                to też jedyne miejsce wskazywania championów. */}
+            {championsStatusShown ? (
+              <JobChampionsStatus
+                jobId={jobId}
+                job={job}
+                canEdit={canEditChampions}
+                open={championsOpen}
+                onOpenChange={setChampionsOpen}
+                cproEnabled={job.cpro_enabled === true}
+                onOpenPerson={openPersonPanel}
+              />
+            ) : job.status === "closed" ? null : (
+              // Zamknięta bez statusu requestu: „Zamknięta · powód” niżej
+              // (`JobCloseReasonBadge`); ze statusem plakietka mówi sam powód.
               <Badge
                 variant={
                   job.status === "published"
@@ -801,6 +939,13 @@ export default function JobDetailPage() {
                     : job.status}
               </Badge>
             )}
+            {job.status === "closed" ? (
+              <JobCloseReasonBadge
+                reason={job.close_reason}
+                notes={job.close_notes}
+                statusShown={championsStatusShown}
+              />
+            ) : null}
             {!canWritePipeline ? (
               <Badge variant="info">Tylko odczyt</Badge>
             ) : null}
@@ -813,25 +958,54 @@ export default function JobDetailPage() {
             <ManagedInTraffitNotice job={job} canSwitch={canEditJob} />
           </>
         }
-        // Jedna linia faktów zamiast rzędu odznak z ikonami: lokalizacja, tryb
-        // pracy, budżet, widełki, deadline, właściciel, DL, hiring manager
-        // i obsada.
-        subtitle={
-          headerSubtitle.length > 0 ? (
-            <span className="text-[12px]">{headerSubtitle.join(" · ")}</span>
-          ) : undefined
+        // Klient · Budżet · Tryb pracy (02.10.2026) i od 14.10.2026 „Rekruter”
+        // z okienkiem zespołu. DL, hiring manager i termin — „Profil Championa”.
+        facts={jobHeaderFacts(job)}
+        // P0 — ultrapilne przez 24 h (27.10.2026): do kiedy, kto i po co.
+        p0Strip={
+          <JobP0Strip jobId={jobId} job={job} canSet={job.can_set_p0 === true} />
         }
-        path={
-          activeView !== "champion" ? (
-            <JobRecruitmentPath
-              steps={pathSteps}
-              nearest={nearest}
-              onStepClick={handlePathStep}
-              onNearestClick={handleNearest}
+        priority={
+          <JobPriorityMenu
+            jobId={jobId}
+            level={priorityLevelOf(job)}
+            canSet={canSetPriority}
+            p0={job}
+            canSetP0={job.can_set_p0 === true}
+            // Delivery Lead tej rekrutacji prosi o P0 (28.10.2026).
+            canRequestP0={job.can_request_p0 === true}
+            p0RequestPending={Boolean(job.p0_requested_at)}
+            jobTitle={job.working_title || job.title}
+            // P1 wstrzymany, bo mamy championa (D6, 15.10.2026).
+            paused={job.priority_paused === true}
+            // Zejście z P1 przenosi zespół do „Poprzedni rekruter” — menu pyta.
+            team={{
+              workingNames: workingRecruiters(recruitersOf(job)).map((p) => p.name),
+              closed: job.status === "closed",
+            }}
+          />
+        }
+        recruiter={recruiterFact(false)}
+        recruiterCompact={recruiterFact(true)}
+        // Źródła kandydatów i „Kto dodał” — trzecia linia nagłówka, tylko na
+        // Tablicy i dopiero z wczytaną Tablicą (jak dawny pasek nad nią).
+        sources={
+          showBoard && kanban ? (
+            <CandidateSourcesStrip
+              jobId={jobId}
+              job={job}
+              canSeeSimilar={canWritePipeline}
+              onOpen={openSources}
+              onAddByName={canWritePipeline ? () => setShowAddCandidates(true) : undefined}
+              onAddFromCv={canWritePipeline ? () => setShowAddFromCv(true) : undefined}
             />
           ) : undefined
         }
-        kpis={headerKpis}
+        sourcesTrailing={addedByButton}
+        collapsed={headerCollapsed}
+        onToggleCollapsed={toggleHeaderCollapsed}
+        // Zwinięty nagłówek nie chowa WŁĄCZONEGO filtra Tablicy.
+        collapsedExtras={addedBy.kind !== "all" ? addedByButton : undefined}
         presence={
           <ActiveViewers
             resourceType="job"
@@ -840,6 +1014,9 @@ export default function JobDetailPage() {
         }
         activeView={showBoard ? "board" : activeView}
         onViewChange={selectView}
+        viewHref={(view) =>
+          view === JOB_DETAIL_DEFAULT_VIEW ? `/jobs/${id}` : `/jobs/${id}?tab=${view}`
+        }
         // „Zlecenie" otwiera okno na KAŻDYM widoku — także na „Zlecenie
         // i Champion": portale, zespół i „Zamknij rekrutację" mieszkają tylko
         // w tym oknie, więc muszą być osiągalne zewsząd.
@@ -849,78 +1026,35 @@ export default function JobDetailPage() {
         }
         orderMissingCount={orderMissingCount}
         onOpenHistoryChat={() => openSlideOver("history-chat")}
-        onOpenQuestions={() => openSlideOver("questions")}
-        onOpenSimilar={canWritePipeline ? () => setSimilarOpen(true) : undefined}
-        // Odpowiedź spoza kontraktu (brak list) = brak odznaki, nie wywrotka.
-        similarLinkedCount={
-          Array.isArray(similarJobs.data?.linked) ? similarJobs.data.linked.length : null
-        }
-        similarSuggestedCount={
-          Array.isArray(similarJobs.data?.suggestions)
-            ? similarJobs.data.suggestions.filter((s) => s.sent_count > 0).length
-            : null
-        }
-        championFound={job.champion_found_at != null}
-        championPending={championPending}
-        onToggleChampion={
-          canMarkChampion
-            ? async () => {
-                setChampionPending(true);
-                try {
-                  // REC-05: odmowa serwera → toast, nie cisza.
-                  await toggleChampionFound({
-                    jobId,
-                    found: job.champion_found_at == null,
-                    save: similarJobsApi.setChampionFound,
-                    refresh: async () => {
-                      await queryClient.invalidateQueries({ queryKey: ["job", id] });
-                      void queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
-                    },
-                    onError: showError,
-                  });
-                } finally {
-                  setChampionPending(false);
-                }
+        onOpenFiles={() => openSlideOver("files")}
+        filesCount={jobFiles?.items.length}
+        // Ta sama bramka co zamknięcie rekrutacji: serwer wymaga prawa do jej
+        // prowadzenia i dostępu do tej rekrutacji, a bez niego odda 403.
+        onOpenClientPanel={canCloseJob ? () => openSlideOver("client-panel") : undefined}
+        onEditFullChampion={canEditChampion ? () => openChampion({ edit: true }) : undefined}
+        onAddByName={canWritePipeline ? () => setShowAddCandidates(true) : undefined}
+        onAddFromCv={canWritePipeline ? () => setShowAddFromCv(true) : undefined}
+        onOpenMyPeople={canOpenMyPeople ? openMyPeople : undefined}
+        onStartFullReview={
+          canWritePipeline
+            ? () => {
+                setFullReviewRequest((prev) => (prev ?? 0) + 1);
+                openSources("base");
               }
             : undefined
         }
-        onAddCandidate={canWritePipeline ? () => setAddPanelTab("search") : undefined}
         onEdit={onEdit}
         onWriteAnnouncement={onWriteAnnouncement}
+        adChannels={adChannels}
         onGenerateInviteLink={onGenerateInviteLink}
         chatUnreadCount={chatUnread?.unread_count ?? 0}
-        // Panel „Zespół i priorytet" żyje teraz w oknie „Zlecenie". Zostaje
-        // w nagłówku wyłącznie na pełnym widoku „Zlecenie i Champion".
-        {...(activeView === "champion"
-          ? {
-              contextOpen: !headerCollapsed,
-              onContextOpenChange: (open: boolean) => setHeaderCollapsed(!open),
-              contextContent: (
-                <>
-                  <p className="text-xs text-muted-foreground">
-                    Właściciela, hiring managera i Priority Work znajdziesz
-                    w zakładce „Zespół i priorytet" doku obok Profilu Championa.
-                  </p>
-                  {job.description ? (
-                    <div className="border-t border-border pt-3">
-                      <button
-                        type="button"
-                        onClick={() => setShowFullDescription((value) => !value)}
-                        className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-                      >
-                        {showFullDescription ? "Ukryj opis ▲" : "Pokaż opis ▼"}
-                      </button>
-                      {showFullDescription ? (
-                        <div className="mt-2 whitespace-pre-line text-sm text-muted-foreground">
-                          {job.description}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </>
-              ),
-            }
-          : {})}
+        onCopyLink={copyJobLink}
+        onCloseJob={canCloseJob && job.status !== "closed" ? () => setShowCloseJob(true) : undefined}
+        onReopenJob={publishAction === "reopen" ? () => changeReopenOpen(true) : undefined}
+        onChangeCloseReason={
+          canCloseJob && job.status === "closed" ? () => setShowChangeCloseReason(true) : undefined
+        }
+        onFinishJob={publishAction === "finish" ? () => changeReopenOpen(true) : undefined}
       />
 
       {/* Edit Job Modal */}
@@ -929,29 +1063,33 @@ export default function JobDetailPage() {
           job={job}
           scope={canEditJob ? "full" : "content"}
           onClose={() => setShowEditJob(false)}
+          onRequestPublish={publishAction ? () => changeReopenOpen(true) : undefined}
           onSuccess={() => {
-            queryClient.invalidateQueries({ queryKey: ["job", id] });
+            // Okno zmienia też rekrutera i kolejne osoby — odświeżamy
+            // rekrutację, listę /jobs z licznikami i pulpit obłożenia.
+            invalidateJobTeam(queryClient, jobId);
             setShowEditJob(false);
           }}
         />
       )}
 
-      {similarOpen && (
-        <SimilarJobsDialog
+      {/* Ogłoszenie: strona kariery, Pracuj.pl, JustJoin.IT */}
+      {canEditJobContentFields && showJobAd && (
+        <JobAdWindow
           jobId={jobId}
+          jobTitle={jobDisplayTitle(job)}
+          jobClosed={job.status === "closed"}
+          focusChannel={adIntent?.focus ?? (adIntent?.remind ? "kariera" : null)}
+          openSkip={adIntent?.skip ?? false}
+          askRemind={adIntent?.remind ?? false}
+          openSend={adIntent?.send ?? false}
           open
-          onOpenChange={(v) => {
-            if (!v) setSimilarOpen(false);
+          onClose={() => {
+            setShowJobAd(false);
+            setAdIntent(null);
+            // Kropki w nagłówku: publikacja w oknie zmienia stronę kariery i portale.
+            void refetchJob();
           }}
-        />
-      )}
-
-      {/* AI Writer Modal */}
-      {canEditJobContentFields && showAIWriter && (
-        <AIJobWriterModal
-          job={job}
-          onClose={() => setShowAIWriter(false)}
-          onUse={handleUseDescription}
         />
       )}
 
@@ -962,31 +1100,41 @@ export default function JobDetailPage() {
         defaultJobId={Number(id)}
       />
 
+      {/* Okno „Kandydaci do dodania” (02.10.2026) — `?win=add&wintab=<źródło>`;
+          dawne `?win=similar` otwiera zakładkę „Podobne rekrutacje”, a dawne
+          okno „Szukaj ręcznie” (`?win=manual-search`) zakładkę `manual`
+          (14.10.2026). Bez prawa zapisu okno jest do odczytu. */}
       <AddCandidatesPanel
-        open={canWritePipeline && addPanelTab !== null}
-        onOpenChange={(open) => {
-          if (!open) setAddPanelTab(null);
-        }}
+        open={slideOver === "add"}
+        onOpenChange={slideOverOpenChange("add")}
         jobId={jobId}
-        initialTab={addPanelTab ?? "search"}
+        job={job}
+        tab={sourceTab ?? "base"}
+        onTabChange={openSources}
         budgetHourly={jobBudgetHourly(job)}
-        location={job.location ?? null}
         pipelineCandidateIds={pipelineCandidateIds}
         readOnly={!canWritePipeline}
-        onOpenManualSearch={() => openSlideOver("manual-search")}
-        onOpenQuickAdd={() => setShowAddCandidates(true)}
-        onOpenFromCv={() => setShowAddFromCv(true)}
+        onManualAdded={invalidateKanban}
+        onOpenChampionSearch={() =>
+          openChampion(canEditChampion ? { block: "search" } : {})
+        }
+        onOpenFullList={() => {
+          selectView("people");
+          selectSegment("proposals");
+        }}
+        fullReviewRequest={fullReviewRequest}
+        onFullReviewHandled={() => setFullReviewRequest(null)}
       />
+      {/* Okno samo dodaje osobę do „Nowych” i pokazuje wynik (13.10.2026):
+          osoba z bazy dostaje CV na górę profilu, osoba w toku — nowe CV przy
+          zgłoszeniu, zamknięta karta — „Przywróć”. Pominięcie (czarna lista,
+          weto HM) zostaje w oknie zamiast zielonego dodania (audyt 05.10.2026). */}
       <AddCandidateFromCVModal
         open={canWritePipeline && showAddFromCv}
         onOpenChange={setShowAddFromCv}
-        onAdded={(candidateId) => {
-          // Nowy kandydat z CV od razu trafia do „Nowych" tej rekrutacji.
-          void proposalsBulkApi
-            .add(jobId, { candidate_ids: [candidateId], source: "quick_add" })
-            .then(() => invalidateKanban())
-            .catch((error) => showError(assignErrorMessage(error)));
-        }}
+        job={{ id: jobId, title: jobDisplayTitle(job) }}
+        onChanged={invalidateKanban}
+        onOpenPerson={openPersonPanel}
       />
 
       {/* Quick search + bulk-add candidates to this job */}
@@ -994,7 +1142,7 @@ export default function JobDetailPage() {
         open={canWritePipeline && showAddCandidates}
         onClose={() => setShowAddCandidates(false)}
         jobId={Number(id)}
-        jobTitle={job.title}
+        jobTitle={jobDisplayTitle(job)}
       />
 
       {/* Narzędzia AI administratora (kryteria, scoring, embedding) — wejście
@@ -1035,7 +1183,7 @@ export default function JobDetailPage() {
         jobId={jobId}
         canEdit={canEditJob}
         canEditContent={canEditJobContentFields}
-        onNavigate={() => selectView("champion")}
+        onNavigate={(_target, opts) => openChampion(opts)}
         onOpenSlideOver={openSlideOver}
         onEdit={() => setShowEditJob(true)}
         onOpenAiWriter={onWriteAnnouncement}
@@ -1043,12 +1191,59 @@ export default function JobDetailPage() {
         initialSection={orderSection}
         hiredCount={kanban ? countHired(kanbanColumns) : 0}
       />
+      {canCloseJob && job.status !== "closed" ? (
+        <JobCloseWithReasonDialog
+          open={showCloseJob}
+          onOpenChange={setShowCloseJob}
+          jobId={jobId}
+          jobTitle={job.title ?? `Rekrutacja #${jobId}`}
+          clientId={job.client_id ?? null}
+          defaultReason={kanban && countHired(kanbanColumns) > 0 ? "filled_by_us" : null}
+        />
+      ) : null}
+      {canCloseJob && job.status === "closed" ? (
+        <JobCloseWithReasonDialog
+          mode="change"
+          open={showChangeCloseReason}
+          onOpenChange={setShowChangeCloseReason}
+          jobId={jobId}
+          jobTitle={job.title ?? `Rekrutacja #${jobId}`}
+          clientId={job.client_id ?? null}
+          initial={{
+            reason: job.close_reason ?? null,
+            notes: job.close_notes ?? null,
+            duplicateOfJobId: job.duplicate_of_job_id ?? null,
+          }}
+        />
+      ) : null}
+      {publishAction ? (
+        <JobReopenDialog
+          jobId={jobId}
+          open={reopenRequest === "1"}
+          onOpenChange={changeReopenOpen}
+          mode={publishAction}
+          recruiter={job.primary_owner ?? null}
+          onOpenChampion={() => openChampion({ edit: canEditChampion })}
+          onOpenTeam={() => openChampion({ panelTab: "team" })}
+        />
+      ) : null}
       <QuestionBankSlideOver
         open={slideOver === "questions"}
         onOpenChange={slideOverOpenChange("questions")}
         jobId={jobId}
         clientId={job.client_id ?? null}
         readOnly={!canWritePipeline}
+      />
+      <JobFilesSlideOver
+        open={slideOver === "files"}
+        onOpenChange={slideOverOpenChange("files")}
+        jobId={jobId}
+        readOnly={!canEditJobContentFields}
+      />
+      <ClientPanelSlideOver
+        open={slideOver === "client-panel" && canCloseJob}
+        onOpenChange={slideOverOpenChange("client-panel")}
+        jobId={jobId}
       />
       <HistoryChatSlideOver
         open={slideOver === "history-chat"}
@@ -1059,14 +1254,6 @@ export default function JobDetailPage() {
         initialTab={historyTab ?? "all"}
         chatUnreadCount={chatUnread?.unread_count ?? 0}
         columns={kanban ? kanbanColumns : undefined}
-      />
-      <ManualSearchSlideOver
-        open={slideOver === "manual-search"}
-        onOpenChange={slideOverOpenChange("manual-search")}
-        jobId={jobId}
-        job={job}
-        readOnly={!canWritePipeline}
-        onBulkAdded={invalidateKanban}
       />
 
       {/* ── „Do przejrzenia" — pełna lista (makieta 4): propozycje z bazy
@@ -1127,7 +1314,7 @@ export default function JobDetailPage() {
               readOnly={!canWritePipeline}
               canOpenProfile={canOpenCandidateProfile}
               highlight={highlightProposals}
-              onOpenManualSearch={() => openSlideOver("manual-search")}
+              onOpenManualSearch={() => openSources("manual")}
               onOpenQuickAdd={() => setShowAddCandidates(true)}
               onWriteEmail={setEmailCandidateId}
               // Dawna lewa kolumna AI Matching: lista wymagań + ich edycja.
@@ -1170,9 +1357,23 @@ export default function JobDetailPage() {
         </div>
       )}
 
-      {/* ── Widok „Tablica": kanban bez zmian (przeciąganie, filtry, dok) ── */}
+      {/* ── Widok „Tablica": kafle źródeł, kanban z przeciąganiem, dok osoby ── */}
       {showBoard && (
         <div>
+          <JobCproBanner
+            jobId={jobId}
+            events={cproEvents}
+            onChangeReason={canCloseJob && job.status === "closed" ? () => setShowChangeCloseReason(true) : undefined}
+            onReopen={publishAction === "reopen" ? () => changeReopenOpen(true) : undefined}
+          />
+          {canCloseJob && job.status === "published" ? (
+            <JobIdleBanner
+              idle={jobIdle}
+              onClose={() => setShowCloseJob(true)}
+              onSnooze={() => void onIdleSnooze()}
+              snoozing={idleSnoozing}
+            />
+          ) : null}
           <PipelineBoardGate
             state={kanbanViewState}
             hasData={Boolean(kanban)}
@@ -1184,10 +1385,12 @@ export default function JobDetailPage() {
               jobId={jobId}
               jobTitle={job?.title}
               scoreMap={scoreMap}
+              criticalGapMap={criticalGapMap}
               scoresLoading={scoresLoading}
-              // Panel „Zespół i priorytet" nie stoi już nad tablicą — kolumny
-              // dostają pełną wysokość.
-              headerCollapsed
+              // „Zwiń” nagłówka (K-D5) przesuwa Tablicę — zmiana to sygnał do
+              // ponownego pomiaru wysokości kolumn (także po wczytaniu
+              // zapamiętanego stanu tuż po wejściu).
+              headerCollapsed={headerCollapsed}
               readOnly={!canWritePipeline}
               // SLA klienta na kolumnie Screening i w lewej kolumnie — ten sam
               // klucz zapytania karty klienta co panel osoby.
@@ -1200,13 +1403,14 @@ export default function JobDetailPage() {
                 kanbanIsFetching || panelSection ? null : linkedCandidateId
               }
               onInitialDockHandled={clearCandidateParam}
+              initialDockOpensReview={linkedReview}
               // Warsztaty osoby (dawny panel „Tabeli") otwierane z doku.
               workbenchContext={{
                 clientId: job.client_id ?? null,
                 clientName: job.client_name ?? null,
                 onMoved: invalidateKanban,
                 onTabChange: handleLegacyTab,
-                canCloseJob: canUpdateJob,
+                canCloseJob,
                 headcount: typeof job.headcount === "number" ? job.headcount : null,
                 jobClosed: job.status === "closed",
                 onRequestCloseJob: () => openSlideOver("order", { orderSection: "close" }),
@@ -1214,10 +1418,22 @@ export default function JobDetailPage() {
               kanbanQueryState={kanbanQueryState}
               // „Gotowy do Cpro" — odznaka wyłącznie u Nordei (serwer).
               cproEnabled={job.cpro_enabled === true}
-              // „Ścieżka rekrutacji" / „Najbliższy krok" → skok do kolumny.
-              focusColumnRequest={boardFocus}
-              // Rekrutacja v5: „Przejrzyj" i „Znajdź w bazie (AI)" w kolumnie Nowi.
-              onOpenAddCandidates={canWritePipeline ? (tab) => setAddPanelTab(tab) : undefined}
+              // Przegląd przed wysłaniem do klienta należy do patrzącego
+              // (Delivery Lead rekrutacji albo portfel klienta) — liczy serwer.
+              viewerOwnsDlReview={kanban?.viewer_owns_dl_review === true}
+              // Filtr „Kto dodał” (14.10.2026): chowa karty i zawęża kolejkę panelu.
+              addedBy={addedBy}
+              onAddedByChange={setAddedBy}
+              // Zamknięta rekrutacja (28.10.2026): pasek z osobami patrzącego,
+              // którym trzeba dać znać.
+              closedJob={
+                job.status === "closed"
+                  ? {
+                      closedOn: closedOnLabel(job.closed_at),
+                      reasonLabel: job.close_reason ? closeReasonLabel(job.close_reason) : null,
+                    }
+                  : null
+              }
               // `?candidate=&panel=` (także linki zapisane w powiadomieniach):
               // od razu warsztat tej osoby na właściwej sekcji.
               initialWorkbench={
@@ -1234,57 +1450,95 @@ export default function JobDetailPage() {
         </div>
       )}
 
-      {/* ── Widok „Zlecenie i Champion" — pełna strona, bez zmian ────────── */}
+      {/* ── Widok „Profil Championa” (04.10.2026): cztery zakładki albo pełny
+          formularz (`?mode=edit`, menu „⋯ → Edytuj Profil Championa”). ── */}
       {activeView === "champion" && (
-        // Szerokość edytora jest tu celem, nie efektem ubocznym: przy 1440 px
-        // (sidebar 240 + zwinięta szyna kart) spis sekcji 230 i dok 360
-        // zostawiały edytorowi 451 px. Dlatego spis sekcji pokazuje się
-        // dopiero od `2xl` — poniżej każda sekcja edytora i tak ma nagłówek
-        // z chipem stanu — a na `xl` siatka ma dwie kolumny: edytor i dok.
-        // Dok jest zwijalny WYŁĄCZNIE od `xl` (węziej stoi pod edytorem).
-        // Literały klas muszą być PEŁNE (Tailwind skanuje kod źródłowy, nie
-        // interpoluje fragmentów w runtime) — stąd gałęzie zamiast
-        // wstrzykiwanej szerokości.
-        <div
-          className={cn(
-            "grid grid-cols-1 gap-4",
-            championDockCollapsed
-              ? "xl:grid-cols-[minmax(0,1fr)_44px] 2xl:grid-cols-[230px_minmax(0,1fr)_44px]"
-              : "xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[230px_minmax(0,1fr)_360px]",
-          )}
-        >
-          <aside className="hidden 2xl:block 2xl:sticky 2xl:top-4 2xl:self-start">
-            <ChampionSectionNav jobId={Number(id)} />
-          </aside>
+        <div className="space-y-3" data-testid="job-champion-view">
+          {championMode === "edit" ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => selectChampionMode("view")}
+                className="inline-flex h-8 items-center gap-1 rounded-lg border border-border bg-card px-3 text-[13px] font-medium text-foreground hover:bg-accent"
+                data-testid="champion-back-to-tabs"
+              >
+                ← Wróć do Profilu Championa
+                {championDirty ? (
+                  <span className="ml-1.5 text-[11px] font-medium text-warning">● niezapisane</span>
+                ) : null}
+              </button>
+              <p className="text-[13px] text-muted-foreground">
+                Cały profil naraz. Zmiany zapisuje „Zapisz” na pasku sekcji.
+              </p>
+            </div>
+          ) : null}
 
-          <div className="min-w-0 space-y-4">
-            <JobSummaryCard
+          {/* Edytor zostaje zamontowany po pierwszym wejściu — powrót do zakładek
+              go tylko chowa, więc niezapisany szkic nie ginie. */}
+          {renderChampionEditor ? (
+            <div hidden={championMode !== "edit"} data-testid="champion-editor-slot">
+              <ChampionProfileEditor
+                jobId={Number(id)}
+                clientId={job?.client_id ?? null}
+                // `can_edit` z serwera (rekruter prowadzący i współpracownicy od
+                // 22.09.2026); bez pola — lustro DeliveryLeadPlus (P1-02).
+                canEdit={canEditChampion}
+                // Stare linki `?intake=1` (sprzed `/jobs/new`) otwierają panel
+                // „Wklej opis” od razu z opisem rekrutacji.
+                intakeDefaultOpen={searchParams?.get("intake") === "1"}
+                intakeSeedText={job?.description ?? undefined}
+                layout="workspace"
+                onDirtyChange={setChampionDirty}
+              />
+            </div>
+          ) : null}
+          {championMode === "view" && championDirty && renderChampionEditor ? (
+            <div
+              className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/30 bg-warning-muted px-3 py-2 text-[13px] text-warning-muted-foreground"
+              data-testid="champion-unsaved-full-form"
+            >
+              Masz niezapisane zmiany w pełnym formularzu.
+              <button
+                type="button"
+                onClick={() => selectChampionMode("edit")}
+                className="font-medium text-foreground underline underline-offset-2"
+              >
+                Wróć do formularza
+              </button>
+            </div>
+          ) : null}
+          {championMode === "view" ? (
+            <ChampionWorkspace
+              jobId={Number(id)}
               job={job}
-              onEdit={onEdit}
+              tab={championTab ?? "brief"}
+              onTabChange={selectChampionTab}
+              editBlock={championEditBlock}
+              onEditBlockChange={setChampionEditBlock}
+              fullFormDirty={championDirty && renderChampionEditor}
+              canEditChampion={canEditChampion}
+              canVerifyChampion={
+                canEditChampion && hasRole(authUser, "admin", "delivery_lead")
+              }
+              canWritePipeline={canWritePipeline}
+              canSeeGate={
+                canSeeReadinessGate && hasSectionAccess(authUser, "pipeline", "read")
+              }
+              canEditJob={canEditJob}
+              canEditJobContent={canEditJobContentFields}
+              onEditJob={() => setShowEditJob(true)}
+              onEditFull={(anchor) => {
+                selectChampionMode("edit");
+                if (anchor) scrollToWhenReady(anchor);
+              }}
+              onOpenManualSearch={
+                canWritePipeline ? () => openSources("manual") : undefined
+              }
+              onWriteAnnouncement={onWriteAnnouncement}
+              onGenerateInviteLink={onGenerateInviteLink}
+              portalsFocus={portalsFocus}
             />
-            <ChampionProfileEditor
-              jobId={Number(id)}
-              clientId={job?.client_id ?? null}
-              // `can_edit` z serwera (rekruter prowadzący i współpracownicy od
-              // 22.09.2026); bez pola — lustro DeliveryLeadPlus (P1-02), żeby
-              // nikt nie wypełniał formularza, który skończy się 403.
-              canEdit={canEditChampion}
-              // `CreateJobModal` ląduje tu z `?intake=1` gdy nowa rekrutacja
-              // ma opis do podania AI (stare linki; od 22.09.2026 `/jobs/new`) — otwiera panel „Wklej
-              // opis" od razu, zamiast zmuszać DL-a do odnalezienia go samemu.
-              intakeDefaultOpen={searchParams?.get("intake") === "1"}
-              intakeSeedText={job?.description ?? undefined}
-            />
-          </div>
-
-          <aside className="xl:sticky xl:top-4 xl:self-start" data-help="job.champion.readiness">
-            <JobReadinessDock
-              jobId={Number(id)}
-              variant="champion"
-              collapsed={championDockCollapsed}
-              onCollapsedChange={setChampionDockCollapsed}
-            />
-          </aside>
+          ) : null}
         </div>
       )}
     </div>

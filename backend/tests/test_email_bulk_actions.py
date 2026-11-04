@@ -203,8 +203,10 @@ async def test_bulk_unlink_happy(
     assert after.candidate_id is None
     assert after.match_method == EmailMatchMethod.unmatched
     assert after.match_confidence is None
-    assert after.matched_at is None
-    assert after.matched_by_user_id is None
+    # Runda 6 audytu (M365-5): odpięcie jest decyzją — kto i kiedy odpiął,
+    # żeby sync i rematch nie przypięły maila z powrotem.
+    assert after.matched_at is not None
+    assert after.matched_by_user_id == admin_user_id
 
 
 # ── RBAC ─────────────────────────────────────────────────────────────────────

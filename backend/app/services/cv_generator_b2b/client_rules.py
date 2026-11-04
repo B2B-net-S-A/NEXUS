@@ -107,6 +107,8 @@ class CvRuleSnapshot:
     glossary: tuple[tuple[str, str], ...] = ()
     highlight_policy: str = "technologies"
     highlight_terms: tuple[str, ...] = ()
+    # „justify” albo „left” — czytają oba renderery Worda (`cv_text_align.py`).
+    text_align: str = "justify"
     # Wersja reguły — stemplowana na wygenerowanym CV.
     version: int | None = None
     managed_policy: dict | None = None
@@ -173,6 +175,9 @@ def snapshot_rule(rule: Optional[ClientCvRule]) -> Optional[CvRuleSnapshot]:
         managed_policy=getattr(rule, "managed_policy", None),
         highlight_policy=getattr(rule, "highlight_policy", None) or "technologies",
         highlight_terms=tuple(getattr(rule, "highlight_terms", None) or []),
+        text_align=(
+            "left" if getattr(rule, "cv_text_align", None) == "left" else "justify"
+        ),
         filename_pattern=rule.filename_pattern,
         spaces_to_underscores=bool(rule.spaces_to_underscores),
         cv_language=rule.cv_language,

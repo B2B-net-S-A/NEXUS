@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type React from "react";
 import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -44,7 +45,29 @@ vi.mock("@/lib/api/candidateFollowups", () => ({
   useCandidateFollowup: () => ({ data: undefined }),
 }));
 
+// Ustalenia z kart rekomendacji (03.10.2026) — domyślnie brak kart.
+const cardOverview = vi.hoisted(() => ({ data: undefined as unknown }));
+vi.mock("@/lib/api/candidateCards", () => ({
+  useCandidateCardOverview: () => ({ data: cardOverview.data }),
+}));
+
+// 0418 (D4): okno stawki pyta o trwające procesy — domyślnie brak procesów.
+const rateChanges = vi.hoisted(() => ({
+  processes: [] as unknown[],
+  create: vi.fn(),
+}));
+vi.mock("@/lib/rate-change", () => ({
+  activeProcessesQueryKey: (id: number) => ["rate-changes", "active-processes", id],
+  rateChangesApi: {
+    activeProcesses: () => Promise.resolve(rateChanges.processes),
+    create: (...a: unknown[]) => rateChanges.create(...a),
+  },
+}));
+
+const apiPatch = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", () => ({
+  __esModule: true,
+  default: { patch: apiPatch },
   candidateFactsApi: {
     getLanguages: vi.fn(),
     updateLanguages: vi.fn(),
@@ -98,10 +121,17 @@ type FactsCandidate = ComponentProps<
   typeof CandidateProfileFactsBar
 >["candidate"];
 
-function renderBar(candidateOverrides: Partial<FactsCandidate> = {}) {
+let lastClient: QueryClient | null = null;
+
+function renderBar(
+  candidateOverrides: Partial<FactsCandidate> = {},
+  layout: "grid" | "column" | "proposal" = "grid",
+  lead?: React.ReactNode,
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  lastClient = client;
   return render(
     <QueryClientProvider client={client}>
       <CandidateProfileFactsBar
@@ -113,6 +143,8 @@ function renderBar(candidateOverrides: Partial<FactsCandidate> = {}) {
           availability_date: "2026-08-15",
           ...candidateOverrides,
         }}
+        layout={layout}
+        lead={lead}
       />
     </QueryClientProvider>,
   );
@@ -122,7 +154,70 @@ describe("CandidateProfileFactsBar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     auth.role = "recruiter";
+    cardOverview.data = undefined;
     prepareApi();
+  });
+
+  it("tryb pracy z odrzucenia pokazuje źródło: data i rekrutacja (14.10.2026)", () => {
+    renderBar({
+      preferences: {
+        remote_modes: ["remote"],
+        _work_mode_origin: {
+          source: "rejection",
+          at: "2026-10-14T08:30:00+00:00",
+          job_title: "Java Developer",
+          by_name: "Rekruter A",
+        },
+      },
+      max_onsite_days_per_week: 0,
+    });
+    expect(screen.getByText("Tylko zdalnie")).toBeInTheDocument();
+    expect(
+      screen.getByText("z odrzucenia · 14.10.2026 · Java Developer"),
+    ).toHaveAttribute("data-fact-origin");
+  });
+
+  it("pod wartością z profilu pokazuje, co i kiedy ustalono w rozmowie, oraz narodowość ze screeningu", async () => {
+    const fact = (key: string, label: string, raw: string, extra: object = {}) => ({
+      key,
+      label,
+      raw,
+      value: null,
+      level: null,
+      at: "2026-09-28T09:00:00+00:00",
+      source: "note",
+      author_name: "Marta Testowa",
+      job_id: 10,
+      job_title: "Senior Java Developer",
+      ...extra,
+    });
+    cardOverview.data = {
+      candidate_id: 7,
+      conversations: [],
+      note_links: [],
+      facts: [
+        // Profil ma 160 zł/h, w rozmowie padło 135 — linia mówi o różnicy.
+        fact("rate", "Stawka", "135 zł/h", { value: 135 }),
+        fact("availability", "Dostępność", "1 miesiąc"),
+        fact("nationality", "Narodowość", "polska", { source: "manual" }),
+      ],
+    };
+    renderBar();
+
+    expect(await screen.findByText("160 PLN netto/h")).toBeInTheDocument();
+    expect(screen.getByText("rozmowa 28.09.2026: 135 zł/h")).toBeInTheDocument();
+    expect(screen.getByText("rozmowa 28.09.2026: 1 miesiąc")).toBeInTheDocument();
+    expect(screen.getByText("Narodowość")).toBeInTheDocument();
+    expect(screen.getByText("polska")).toBeInTheDocument();
+    expect(screen.getByText("wpisane w screeningu 28.09.2026")).toBeInTheDocument();
+  });
+
+  it("bez kart rekomendacji pasek nie ma linii źródła ani narodowości", async () => {
+    renderBar();
+
+    await screen.findByText("Angielski · C1");
+    expect(document.querySelector("[data-fact-origin]")).toBeNull();
+    expect(screen.queryByText("Narodowość")).toBeNull();
   });
 
   it("shows typed facts and fixed B2B PLN net/hour semantics", async () => {
@@ -208,6 +303,7 @@ describe("CandidateProfileFactsBar", () => {
             cefr_level: "C1",
             is_native: false,
             is_level_unknown: false,
+            other: false,
           },
         ],
         '"candidate-languages-7-v3"',
@@ -215,7 +311,7 @@ describe("CandidateProfileFactsBar", () => {
     );
   });
 
-  it("generates a valid code when a new language is added", async () => {
+  it("picks a new language from the searchable list — the code follows the choice", async () => {
     mockedFactsApi.getLanguages.mockResolvedValue({
       data: { candidate_id: 7, version: 3, languages: [] },
       etag: '"candidate-languages-7-v3"',
@@ -235,9 +331,11 @@ describe("CandidateProfileFactsBar", () => {
       await screen.findByRole("button", { name: "Edytuj języki" }),
     );
     await user.click(screen.getByRole("button", { name: "Dodaj język" }));
-    await user.type(screen.getByLabelText("Język"), "Angielski");
-
-    expect(screen.getByLabelText("Kod")).toHaveValue("en");
+    expect(screen.queryByLabelText("Kod")).not.toBeInTheDocument();
+    await user.click(screen.getByLabelText("Język"));
+    await user.type(screen.getByPlaceholderText("Szukaj języka…"), "hiszp");
+    expect(screen.queryByRole("option", { name: "angielski" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "hiszpański" }));
     await user.click(screen.getByRole("button", { name: "Zapisz języki" }));
 
     await waitFor(() =>
@@ -245,11 +343,12 @@ describe("CandidateProfileFactsBar", () => {
         7,
         [
           {
-            language_code: "en",
-            language_name: "Angielski",
+            language_code: "es",
+            language_name: "hiszpański",
             cefr_level: null,
             is_native: false,
             is_level_unknown: true,
+            other: false,
           },
         ],
         '"candidate-languages-7-v3"',
@@ -257,26 +356,25 @@ describe("CandidateProfileFactsBar", () => {
     );
   });
 
-  it("accepts the full 16-character language-code boundary", async () => {
-    const boundaryCode = "a123456789012345";
+  it("saves a language outside the list as „Inny…” with a code derived from its name", async () => {
+    mockedFactsApi.getLanguages.mockResolvedValue({
+      data: { candidate_id: 7, version: 3, languages: [] },
+      etag: '"candidate-languages-7-v3"',
+    });
     mockedFactsApi.updateLanguages.mockResolvedValue({
-      data: {
-        candidate_id: 7,
-        version: 4,
-        languages: [{ ...language, language_code: boundaryCode }],
-      },
+      data: { candidate_id: 7, version: 4, languages: [] },
       etag: '"candidate-languages-7-v4"',
     });
     const user = userEvent.setup();
     renderBar();
 
-    await screen.findByText("Angielski · C1");
     await user.click(
-      screen.getByRole("button", { name: "Edytuj języki" }),
+      await screen.findByRole("button", { name: "Edytuj języki" }),
     );
-    const code = screen.getByLabelText("Kod");
-    await user.clear(code);
-    await user.type(code, boundaryCode);
+    await user.click(screen.getByRole("button", { name: "Dodaj język" }));
+    await user.click(screen.getByLabelText("Język"));
+    await user.click(screen.getByRole("option", { name: "Inny…" }));
+    await user.type(screen.getByLabelText("Nazwa języka"), "Kataloński");
     await user.click(screen.getByRole("button", { name: "Zapisz języki" }));
 
     await waitFor(() =>
@@ -284,11 +382,12 @@ describe("CandidateProfileFactsBar", () => {
         7,
         [
           {
-            language_code: boundaryCode,
-            language_name: "Angielski",
-            cefr_level: "C1",
+            language_code: "katalonski",
+            language_name: "Kataloński",
+            cefr_level: null,
             is_native: false,
-            is_level_unknown: false,
+            is_level_unknown: true,
+            other: true,
           },
         ],
         '"candidate-languages-7-v3"',
@@ -307,22 +406,22 @@ describe("CandidateProfileFactsBar", () => {
     await user.click(
       screen.getByRole("button", { name: "Edytuj języki" }),
     );
-    const name = screen.getByLabelText("Język");
-    await user.clear(name);
-    await user.type(name, "English");
+    await user.click(screen.getByLabelText("Język"));
+    await user.click(screen.getByRole("option", { name: "niemiecki" }));
     await user.click(screen.getByRole("button", { name: "Zapisz języki" }));
 
     expect(
       await screen.findByText(/Zachowaliśmy Twój draft/i),
     ).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByLabelText("Język")).toHaveValue("English");
+    expect(screen.getByLabelText("Język")).toHaveTextContent("niemiecki");
   });
 
-  it("saves canonical city and country through the existing location endpoint", async () => {
+  it("saves the changed city through the existing location endpoint", async () => {
     mockedProfileApi.updateLocation.mockResolvedValue({ data: {} } as never);
     const user = userEvent.setup();
     renderBar();
+    const spy = vi.spyOn(lastClient!, "invalidateQueries");
 
     await user.click(
       await screen.findByRole("button", { name: "Edytuj lokalizację" }),
@@ -335,11 +434,17 @@ describe("CandidateProfileFactsBar", () => {
     );
 
     await waitFor(() =>
+      // 04.10.2026: wysyłamy tylko zmienione pola — nietknięty kraj nie
+      // dostaje ręcznej blokady przed kolejnym odczytem CV.
       expect(mockedProfileApi.updateLocation).toHaveBeenCalledWith(7, {
         city: "Kraków",
-        country: "PL",
       }),
     );
+    // R10-N15-10: miasto pod nazwiskiem na liście i w podglądzie też.
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith({ queryKey: ["candidates-v2"] }),
+    );
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["candidate-quick-view", 7] });
   });
 
   it("saves the B2B rate with profile-rate ETag and no selectable unit", async () => {
@@ -378,6 +483,50 @@ describe("CandidateProfileFactsBar", () => {
       ),
     );
     expect(screen.queryByLabelText(/waluta|jednostka/i)).not.toBeInTheDocument();
+  });
+
+  it("asks about active processes and changes the rate in the checked ones", async () => {
+    rateChanges.processes = [
+      { job_id: 41, job_title: "Java Developer", client_name: "Klient A", board_column: "cv_sent", current_label: "160 zł/h" },
+      { job_id: 42, job_title: "Tester", client_name: null, board_column: "verified", current_label: null },
+    ];
+    rateChanges.create.mockResolvedValue({ unchanged: false, change: { id: 1 } });
+    mockedFactsApi.updateProfileRate.mockResolvedValue({
+      data: {
+        candidate_id: 7,
+        amount: "175.00",
+        currency: "PLN",
+        unit: "hour",
+        tax_basis: "net",
+        contract_type: "b2b",
+        version: 3,
+        updated_at: "2026-07-30T10:00:00Z",
+      },
+      etag: '"candidate-profile-rate-7-v3"',
+    });
+    const user = userEvent.setup();
+    renderBar();
+    await screen.findByText("160 PLN netto/h", {}, { timeout: 5_000 });
+    await user.click(screen.getByRole("button", { name: "Edytuj globalną stawkę B2B" }));
+    const list = await screen.findByTestId("profile-rate-processes");
+    expect(list).toHaveTextContent("Java Developer");
+    // Odznaczenie drugiego procesu — stawka zmieni się tylko w pierwszym.
+    await user.click(screen.getAllByRole("checkbox", { checked: true })[1]);
+    const input = screen.getByLabelText("Kwota");
+    await user.clear(input);
+    await user.type(input, "175");
+    await user.click(screen.getByRole("button", { name: "Zapisz stawkę" }));
+    await waitFor(() => expect(rateChanges.create).toHaveBeenCalledTimes(1));
+    expect(rateChanges.create).toHaveBeenCalledWith({
+      candidate_id: 7,
+      job_id: 41,
+      amount: "175",
+      unit: "hourly",
+      reason: "other",
+      source: "profile",
+    });
+    expect(showSuccess).toHaveBeenCalledWith("Stawka zapisana w profilu i w 1 procesie.");
+    rateChanges.processes = [];
   });
 
   it("accepts the full NUMERIC(10,2) profile-rate boundary", async () => {
@@ -518,9 +667,6 @@ describe("CandidateProfileFactsBar", () => {
 
     await user.click(editLanguages);
     expect(screen.getByLabelText("Język").classList.contains("min-h-11")).toBe(
-      true,
-    );
-    expect(screen.getByLabelText("Kod").classList.contains("min-h-11")).toBe(
       true,
     );
     expect(screen.getByLabelText("Poziom").classList.contains("h-11")).toBe(
@@ -717,5 +863,217 @@ describe("CandidateProfileFactsBar", () => {
     expect(
       screen.queryByLabelText("Fakty z rozmowy telefonicznej"),
     ).not.toBeInTheDocument();
+  });
+
+  describe("karta „Podsumowanie” w lewej kolumnie (04.10.2026)", () => {
+    it("ma nagłówek „Podsumowanie”, a ołówki pokazuje dopiero „Edytuj”", async () => {
+      const user = userEvent.setup();
+      renderBar({}, "column");
+      expect(
+        screen.getByRole("heading", { name: "Podsumowanie" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Edytuj lokalizację" })).toBeNull();
+
+      await user.click(screen.getByRole("button", { name: "Edytuj" }));
+      expect(
+        await screen.findByRole("button", { name: "Edytuj lokalizację" }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Gotowe" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    });
+
+    it("zapisuje dostępność tylko ze zmienionymi polami", async () => {
+      apiPatch.mockResolvedValue({ data: {} });
+      const user = userEvent.setup();
+      renderBar({ notice_period: 1, notice_period_unit: "months" }, "column");
+
+      await user.click(screen.getByRole("button", { name: "Edytuj" }));
+      await user.click(await screen.findByRole("button", { name: "Edytuj dostępność" }));
+      await user.selectOptions(screen.getByLabelText("Czy szuka pracy"), "actively_looking");
+      await user.click(screen.getByRole("button", { name: "Zapisz dostępność" }));
+
+      await waitFor(() =>
+        expect(apiPatch).toHaveBeenCalledWith("/api/candidates/7", {
+          availability_status: "actively_looking",
+        }),
+      );
+    });
+
+    it("bez prawa zapisu nie ma przycisku „Edytuj”", () => {
+      auth.role = "user";
+      renderBar({}, "column");
+      expect(screen.queryByRole("button", { name: "Edytuj" })).toBeNull();
+    });
+  });
+
+  describe("karta „Do propozycji” (13.10.2026, decyzja E1)", () => {
+    it("jedna linia na fakt: termin dostępności bez statusu, tryb i miasto w wierszu „Praca”", async () => {
+      renderBar(
+        { preferences: { remote_modes: ["remote"] } } as Partial<FactsCandidate>,
+        "proposal",
+        <p>Ramka zatrudnienia</p>,
+      );
+      expect(screen.getByRole("heading", { name: "Do propozycji" })).toBeInTheDocument();
+      expect(screen.getByText("Ramka zatrudnienia")).toBeInTheDocument();
+      // Status („Otwarty/a na oferty”) stoi w pigułce paska osoby — tu tylko termin.
+      expect(screen.getByText("od 15.08.2026")).toBeInTheDocument();
+      expect(screen.queryByText(/Otwarty\/a na oferty/)).toBeNull();
+      expect(screen.getByText("Praca")).toBeInTheDocument();
+      expect(screen.getByText(/Warszawa, PL/)).toBeInTheDocument();
+      expect(screen.queryByText("Miasto")).toBeNull();
+      // Bez edycji nie ma ołówków.
+      expect(screen.queryByRole("button", { name: "Edytuj lokalizację" })).toBeNull();
+    });
+
+    it("źródło faktu to kropka z okienkiem, nie osobna linia", async () => {
+      cardOverview.data = {
+        candidate_id: 7,
+        conversations: [],
+        note_links: [],
+        facts: [
+          {
+            key: "availability",
+            label: "Dostępność",
+            raw: "ASAP",
+            value: null,
+            level: null,
+            at: "2026-09-30T12:00:00+00:00",
+            source: "note",
+            author_name: "Marta Testowa",
+            job_id: 10,
+            job_title: "Senior Java Developer",
+          },
+        ],
+      };
+      const user = userEvent.setup();
+      renderBar({}, "proposal");
+      const dot = screen.getByRole("button", { name: /^Źródło:/ });
+      expect(document.querySelector("[data-fact-origin]")).toBeNull();
+      await user.click(dot);
+      expect(await screen.findByText("rozmowa 30.09.2026: ASAP")).toHaveAttribute("data-fact-origin");
+    });
+
+    it("po „Edytuj” tryb pracy i miasto rozdzielają się na wiersze z ołówkami", async () => {
+      const user = userEvent.setup();
+      renderBar({}, "proposal");
+      await user.click(screen.getByRole("button", { name: "Edytuj" }));
+      expect(await screen.findByRole("button", { name: "Edytuj lokalizację" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Edytuj tryb pracy" })).toBeInTheDocument();
+      expect(screen.getByText("Miasto")).toBeInTheDocument();
+      expect(screen.queryByText("Praca")).toBeNull();
+    });
+  });
+});
+
+describe("osoba pracująca u nas — dostępność i stawka z umowy (15.10.2026)", () => {
+  const marker = {
+    phase: "working" as const,
+    source: "contract" as const,
+    clients: [
+      {
+        client_id: 3,
+        client_name: "Bank Przykładowy",
+        phase: "working" as const,
+        order_end_date: "2026-11-30",
+        delivery_lead_name: "Anna Nowak",
+      },
+    ],
+    free_from: "2026-12-01",
+    free_from_basis: "work_end" as const,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    auth.role = "recruiter";
+    cardOverview.data = undefined;
+    prepareApi();
+  });
+
+  it("termin z umowy zamiast daty ze screeningu, z zieloną kropką i datą z profilu w dymku", async () => {
+    const user = userEvent.setup();
+    renderBar(
+      { availability_date: "2026-09-01", employment_marker: marker },
+      "proposal",
+    );
+
+    expect(screen.getByText("od 01.12.2026")).toBeInTheDocument();
+    expect(screen.queryByText("od 01.09.2026")).toBeNull();
+    const dot = screen.getByRole("button", { name: /Źródło: Z kontraktu/ });
+    expect(dot).toHaveAttribute("data-origin-tone", "contract");
+    await user.click(dot);
+    expect(
+      await screen.findByText(/W profilu: od 01\.09\.2026 — wcześniej niż koniec pracy/),
+    ).toBeInTheDocument();
+  });
+
+  it("„Stawka u nas” ze stawki umowy, także gdy profil mówi co innego", async () => {
+    renderBar(
+      {
+        employment_marker: marker,
+        rate_from_hourly: "150.00",
+        rate_from_source: "contract",
+        rate_from_at: "2026-09-01T00:00:00+02:00",
+        rate_observation_count: 3,
+      },
+      "proposal",
+    );
+
+    expect(await screen.findByText("Stawka u nas")).toBeInTheDocument();
+    expect(screen.getByText("150 PLN netto/h")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Źródło: Z umowy z Bank Przykładowy/ }),
+    ).toHaveAttribute("data-origin-tone", "contract");
+    expect(screen.queryByText("Stawka od")).toBeNull();
+  });
+
+  it("R4 (17.10.2026): „Stawka u nas” z linią „zadeklarowana od” przy niższej deklaracji", async () => {
+    renderBar(
+      {
+        employment_marker: marker,
+        rate_from_hourly: "150.00",
+        rate_from_source: "contract",
+        rate_declared_from_hourly: "90.00",
+        rate_declared_from_at: "2026-10-08T14:30:45Z",
+      },
+      "column",
+    );
+
+    expect(await screen.findByText("Stawka u nas")).toBeInTheDocument();
+    expect(screen.getByTestId("rate-declared-from")).toHaveTextContent("zadeklarowana od 90 zł/h (10.2026)");
+  });
+
+  it("bez umowy linii „zadeklarowana od” nie ma", async () => {
+    renderBar({ rate_from_hourly: "90.00", rate_from_source: "card", rate_declared_from_hourly: "80.00" }, "column");
+    expect(await screen.findByText("Stawka od")).toBeInTheDocument();
+    expect(screen.queryByTestId("rate-declared-from")).toBeNull();
+  });
+
+  it("okno dostępności mówi, do kiedy osoba pracuje i kto ustala wcześniejsze odejście", async () => {
+    const user = userEvent.setup();
+    renderBar({ employment_marker: marker }, "column");
+
+    await user.click(screen.getByRole("button", { name: "Edytuj" }));
+    await user.click(await screen.findByRole("button", { name: "Edytuj dostępność" }));
+
+    const note = await screen.findByTestId("availability-contract-note");
+    expect(note).toHaveTextContent("Pracuje u nas do 30.11.2026 (Bank Przykładowy)");
+    expect(note).toHaveTextContent("Delivery Lead (Anna Nowak)");
+    // S4 (15.10.2026): ręczny wpis statusu nie znika bez słowa.
+    expect(note).toHaveTextContent("status „Czy szuka pracy” jest ukryty");
+  });
+
+  it("bez daty końca zamówienia wiersz to mówi, a nie pokazuje starej daty", () => {
+    renderBar(
+      {
+        availability_date: "2026-09-01",
+        employment_marker: { ...marker, free_from: null, free_from_basis: "no_end_date" },
+      },
+      "proposal",
+    );
+
+    expect(screen.getByText("Bez daty końca zamówienia")).toBeInTheDocument();
+    expect(screen.queryByText(/01\.09\.2026/)).toBeNull();
   });
 });

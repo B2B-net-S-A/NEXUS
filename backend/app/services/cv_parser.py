@@ -42,7 +42,8 @@ from app.core.config import settings
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002 — adnotacja parse_cv
 from app.services.llm_prompts import CV_ENRICHMENT, PromptTemplate
 from app.models.ai_feature import AIFeatureKey
-from app.services.ai_models import model_for
+from app.services.ai_models import model_chain_for, model_for
+from app.services.cv_technology_grounding import drop_untraced_technologies
 
 logger = logging.getLogger(__name__)
 
@@ -70,16 +71,24 @@ _LINKEDIN_URL_RE = re.compile(
 
 # Simplified RFC 5322 — sufficient for CV headers; avoids pathological
 # edge cases (quoted locals, IP literals) which never appear in CVs.
+# Runda 8: lookbehind + kwantyfikator zaborczy — dopasowanie startuje tylko
+# na początku ciągu znaków lokalnych, więc 16 KB tekstu bez „@” to czas
+# liniowy (wcześniej ~4 s, kwadratowo po pozycjach startu). Wynik bez zmian.
 _EMAIL_RE = re.compile(
-    r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+    r"(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]++@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
 )
 
-# PL phone numbers: optional +48/48 prefix, then 9 digits with optional
-# separators (space, dash, dot, non-breaking space). Captures the raw match —
-# callers may normalize to "+48 XXX XXX XXX" if needed.
+# PL phone numbers: 9 digits, optionally after +48 / 0048, with separators
+# (space, dash, dot, non-breaking space). The match is a WHOLE run of digits
+# and separators within one line, and `_extract_phone_from_text` judges the
+# run by its digit count (14.10.2026): taking the first nine digits of a longer
+# run turned job dates („03.2018 - 12.2021” → „03.2018 - 12.2”), salary ranges,
+# PESEL, NIP and account numbers into phones, and the old trailing `\s*` kept
+# the newline after a real number. Captures the raw match — callers may
+# normalize to "+48 XXX XXX XXX" if needed.
 _PHONE_PL_RE = re.compile(
-    r"(?:(?:\+|00)\s*48[\s.\-]*)?"  # optional country code
-    r"(?:\d[\s.\-]*){9}",  # exactly 9 digits with separators
+    r"(?<![\w+])"  # a run starts here, not inside a word or number
+    r"\+?\d(?:(?:[^\S\r\n]|[.\-]){0,3}\d)*",  # digits, ≤3 separators between
 )
 
 # Honorific/role tokens that should NOT appear in a detected first/last name.
@@ -113,10 +122,11 @@ def _extract_email_from_text(cv_text: str) -> Optional[str]:
 
 
 def _extract_phone_from_text(cv_text: str) -> Optional[str]:
-    """Return the first PL phone match from the CV, trimmed.
+    """Return the first PL phone number in the CV, as written.
 
-    We only accept matches whose digit-only form is 9 or 11 digits (with
-    country code) to reduce false positives on salary figures / years.
+    A run of digits counts only as a whole: 9 digits, 11 with a leading
+    "+48" or 13 with "0048". Anything longer or shorter (dates of a job,
+    salary ranges, PESEL, NIP, account numbers) is not a phone.
     """
     if not cv_text:
         return None
@@ -124,9 +134,13 @@ def _extract_phone_from_text(cv_text: str) -> Optional[str]:
     head = "\n".join(cv_text.splitlines()[:20])
     for source in (head, cv_text):
         for match in _PHONE_PL_RE.finditer(source):
-            raw = match.group(0).strip(" .-")
+            raw = match.group(0)
             digits = re.sub(r"\D", "", raw)
-            if len(digits) in (9, 11):
+            if (
+                len(digits) == 9
+                or (len(digits) == 11 and raw.startswith("+48"))
+                or (len(digits) == 13 and digits.startswith("0048"))
+            ):
                 return raw
     return None
 
@@ -649,6 +663,21 @@ def _cv_input_for(template: PromptTemplate, cv_text: str) -> str:
     return cv_text[:8000]
 
 
+def _user_content(template: PromptTemplate, cv_input: str) -> list[dict[str, Any]]:
+    """Stałe instrukcje jako blok z cache'em, a CV w osobnym bloku za nim.
+
+    Instrukcje mają ok. 1950 tokenów, a 95% wywołań dzieli mniej niż 5 minut.
+    Znacznik stoi przed CV, bo znacznik za CV płaci za zapis, którego nikt nie
+    odczyta. Dostawcy spoza Anthropic sklejają bloki w ten sam tekst.
+    """
+    slot = "\x00cv\x00"
+    head, tail = template.render(cv_text=slot).split(slot)
+    return [
+        {"type": "text", "text": head, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": cv_input + tail},
+    ]
+
+
 def _max_tokens_for(template: PromptTemplate) -> int:
     """Sufit odpowiedzi; dla v7 podniesiony z 6000 do 8000 (18.09.2026).
 
@@ -676,8 +705,8 @@ def _timeouts_for(template: PromptTemplate) -> dict:
 def _strip_json_fences(raw: str) -> str:
     """Strip ```json ... ``` markdown fences that LLMs occasionally emit.
 
-    Mirrors the behaviour in app/api/ai_writer.py:259-263 so both Claude call-
-    sites share the same unwrap logic.
+    The same unwrap as the other JSON-returning Claude call sites (for example
+    `job_public_profile._parse_draft`).
     """
     raw = raw.strip()
     if raw.startswith("```"):
@@ -790,7 +819,7 @@ async def _parse_with_claude(
     if not api_key_configured(chosen_model) or not settings.CV_ENRICHMENT_ENABLED:
         return None
     try:
-        user_prompt = template.render(cv_text=_cv_input_for(template, cv_text))
+        user_content = _user_content(template, _cv_input_for(template, cv_text))
         # `call_claude` jest synchroniczne (sam robi timeout+retry) — offload,
         # żeby wielosekundowy round-trip nie blokował jednowątkowego event loopu.
         message = await run_in_threadpool(
@@ -800,7 +829,7 @@ async def _parse_with_claude(
             # przeciążeniu dostawcy schodzi na model parsera CV, a nie od razu
             # do Ollamy/regexu.
             fallback_models=[
-                m for m in (model_for(AIFeatureKey.cv_parser),) if m != chosen_model
+                m for m in model_chain_for(AIFeatureKey.cv_parser) if m != chosen_model
             ],
             # v6 dokłada listę stanowisk z datami — 2000 tokenów obcinało JSON
             # dłuższych CV, a obcięta odpowiedź spada do regexu. v7 (technologie
@@ -813,7 +842,7 @@ async def _parse_with_claude(
             # — the pin only matters when a Claude 5 model is configured.
             thinking={"type": "disabled"},
             system=template.system_prompt or "",
-            messages=[{"role": "user", "content": user_prompt}],
+            messages=[{"role": "user", "content": user_content}],
             api_key=settings.ANTHROPIC_API_KEY or None,
         )
         # Claude 5 models can lead with a non-text block (e.g. a thinking
@@ -840,6 +869,7 @@ async def _parse_with_claude(
             )
         if not isinstance(data, dict):
             return None
+        drop_untraced_technologies(data, cv_text)
         data["_source"] = f"claude:{template.name}:v{template.version}"
         # `message.usage` szło dotąd do kosza — a bez niego każdy kosztorys
         # biegu masowego jest zgadywanką. Zapis do payloadu (ląduje w

@@ -84,6 +84,14 @@ _JOB_EXTRA_PATTERNS: dict[str, tuple[str, ...]] = {
         r"tableau",
         r"\bqlik\b",
         r"business intel",
+        # Runda 10 (R10-N8-12): polskie role danych. „Architekt danych” brał
+        # software (architekt), „analiza danych” — management (analiz),
+        # „Inżynier danych” nie trafiał nigdzie (hybryda). Jawne role, nie
+        # gołe „danych” — „Administrator baz danych” zostaje przy infra.
+        r"(?:architekt|inżynier|inzynier)\w*\s+danych",
+        r"analiz\w*\s+danych",
+        r"hurtowni\w*\s+danych",
+        r"\bbi\b",
     ),
     # Polish analyst/manager family + tech-lead roles.
     "management": (

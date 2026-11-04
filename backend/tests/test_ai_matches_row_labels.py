@@ -191,9 +191,11 @@ class TestOfficeFitStatus:
 
 @pytest.mark.unit
 class TestBuildMatchInfoRubricLabels:
-    def test_missing_must_lists_gaps_only_for_candidates_with_a_skill_signal(
+    def test_missing_must_lists_gaps_also_for_candidates_without_data(
         self,
     ) -> None:
+        """Od v8 (27.09.2026) brak danych nie zwalnia z must — plakietka mówi
+        to samo co bramka, która takiego kandydata ukrywa jako `no_data`."""
         inputs = DealbreakerInputs(must_skills=("python",))
         has_signal = _candidate(skills=[{"name": "Java"}])
         info = _build_match_info(has_signal, ["java"], inputs=inputs)
@@ -201,7 +203,7 @@ class TestBuildMatchInfoRubricLabels:
 
         no_signal = _candidate()
         info_no_signal = _build_match_info(no_signal, ["java"], inputs=inputs)
-        assert info_no_signal["missing_must"] == []
+        assert info_no_signal["missing_must"] == ["python"]
 
     def test_missing_must_is_empty_when_gate_has_nothing_to_require(self) -> None:
         """`gaps` (regex/prosa) może coś pokazać, `missing_must` — nigdy, gdy
@@ -341,6 +343,7 @@ def _match(body: dict, cid: int) -> dict | None:
     return None
 
 
+@pytest.mark.usefixtures("v8_must_gate")
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_ai_matches_rows_carry_rubric_labels_on_both_branches(

@@ -147,16 +147,19 @@ async def _cleanup(*, candidate_ids: list[int], job_ids: list[int]) -> None:
 
 @pytest.mark.asyncio
 async def test_my_team_returns_tac_metrics_for_dl(app_client: AsyncClient):
-    """DL widzi przypisany TAC z poprawnymi active_jobs + active_candidates."""
+    """DL widzi przypisaną osobę z poprawnymi active_jobs + active_candidates.
+
+    Roli TAC nie ma od 0411 — w macierzy TAC ↔ DL stoi rekruter.
+    """
     dl_id, dl_email, dl_pw = await _seed_user("delivery_lead")
-    tac_id, _, _ = await _seed_user("tac")
+    tac_id, _, _ = await _seed_user("recruiter")
     await _assign_tac_to_dl(tac_id, dl_id)
 
     # Setup: 2 jobs dla TAC, jeden published, jeden draft (nie powinien być liczony)
     job_pub = await _seed_job(status="published", tac_id=tac_id)
     job_draft = await _seed_job(status="draft", tac_id=tac_id)
     # Job innego TAC (nie powinien być liczony)
-    other_tac_id, _, _ = await _seed_user("tac")
+    other_tac_id, _, _ = await _seed_user("recruiter")
     job_other = await _seed_job(status="published", tac_id=other_tac_id)
 
     # 2 kandydatów na published jobie TAC: jeden aktywny, jeden hired (terminal)

@@ -90,6 +90,14 @@ class Client(Base, TimestampMixin):
         Boolean, nullable=False, default=True, server_default="true"
     )
 
+    # Co idzie do klienta: „company_cv” (CV firmowe z generatora) albo
+    # „client_form” (formularz klienta z Plików rekrutacji wypełniany przez
+    # NEXUS — np. formularz CV ze SWZ Centrum e-Zdrowia). Prowadzone z edytora
+    # reguły CV jak flagi wyżej. Migracja 0521, ``client_form_schema.py``.
+    cv_client_document: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="company_cv", server_default="company_cv"
+    )
+
     # External source tracking — Traffit / future imports.
     # Migracja 0071 dodaje partial unique index na (external_source, external_id).
     external_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)

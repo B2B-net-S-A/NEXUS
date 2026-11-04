@@ -28,6 +28,34 @@ from app.services import champion_view
 TEXT_SCHEMA_V1 = "text-v1-legacy"
 TEXT_SCHEMA_V2 = "text-v2-canonical"
 TEXT_SCHEMA_V3 = "text-v3-cv-notes"
+# Wariant kontrolny v3 BEZ sekcji [NOTES] (AI_TEXT_SCHEMA_V3_NOTES=false) —
+# wyłącznie do pomiaru przecieku etykiety: notatki powstają w trakcie procesu
+# rekrutacji, więc ich wpływ na eval trzeba umieć odjąć. Osobny stempel, bo to
+# inna przestrzeń wektorów niż pełne v3.
+TEXT_SCHEMA_V3_NO_NOTES = "text-v3-cv"
+
+
+def v3_notes_enabled() -> bool:
+    """Czy tekst v3 niesie sekcję [NOTES] (domyślnie tak)."""
+    from app.core.config import settings
+
+    return bool(getattr(settings, "AI_TEXT_SCHEMA_V3_NOTES", True))
+
+
+def active_text_schema() -> str:
+    """Stempel schematu tekstu kandydata w bieżącej konfiguracji.
+
+    Kolejność jak w dyspozytorze ``embedding_service._build_candidate_text``:
+    v3 wygrywa z v2, v2 z v1.
+    """
+    from app.core.config import settings
+
+    if getattr(settings, "AI_TEXT_SCHEMA_V3", False):
+        return TEXT_SCHEMA_V3 if v3_notes_enabled() else TEXT_SCHEMA_V3_NO_NOTES
+    if getattr(settings, "AI_TEXT_SCHEMA_V2", False):
+        return TEXT_SCHEMA_V2
+    return TEXT_SCHEMA_V1
+
 
 # Fields that must never be embedded (PII / noise).
 _PII_FIELDS = frozenset(
@@ -242,18 +270,24 @@ def _notes_section(candidate) -> str | None:
     return "[NOTES] " + ", ".join(uniq)
 
 
-def build_candidate_text_v3(candidate) -> str:
+def build_candidate_text_v3(candidate, *, include_notes: bool | None = None) -> str:
     """v2 + pełne CV zawsze (nie fallback) + fakty potwierdzone w notatkach.
 
     Różnice względem v2 są dokładnie dwie i obie mają zmierzone uzasadnienie
     (patrz komentarz przy `_V3_CV_CAP`): CV przestaje być fallbackiem i wchodzi
     ZAWSZE (bramkowane jakością, cap 12k), a sekcja [NOTES] niesie umiejętności
     potwierdzone w rozmowach. PII nadal nie wchodzi.
+
+    ``include_notes=None`` czyta ``AI_TEXT_SCHEMA_V3_NOTES`` (domyślnie True,
+    czyli tekst bajt w bajt taki jak przed wprowadzeniem przełącznika).
+    ``False`` to wariant kontrolny do pomiaru przecieku etykiety z notatek.
     """
+    if include_notes is None:
+        include_notes = v3_notes_enabled()
     base = build_candidate_text_v2(candidate)
     sections = [base] if base else []
 
-    notes = _notes_section(candidate)
+    notes = _notes_section(candidate) if include_notes else None
     if notes:
         sections.append(notes)
 

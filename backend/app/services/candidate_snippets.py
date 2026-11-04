@@ -30,7 +30,7 @@ via ``notes_contents``.
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Iterator, Optional
 
 from app.models.candidate import Candidate
 from app.services.text_cleaning import clean_rich_text, flatten_json_text
@@ -99,46 +99,45 @@ def _render_window(text: str, span_start: int, span_end: int) -> str:
 def _field_corpus(
     candidate: Candidate,
     notes_contents: Optional[list[str]],
-) -> list[tuple[str, str]]:
+) -> Iterator[tuple[str, str]]:
     """Priority-ordered ``(label, cleaned_text)`` blocks to scan.
 
     Label prefixes the window so the recruiter knows where the match came from
     ("CV: …", "Umiejętności: …"). Content-rich fields come first; bare identity
     fields (phone / email / name) are last-resort explainers. The set covers the
     same columns the DB search matches on, so every ``q_all`` term is findable.
+
+    Generator (runda 7, R7-N10-5): ``extract_snippet`` przerywa, gdy pokryje
+    wszystkie słowa — reszta pól (z notatkami) nie jest już czyszczona.
     """
-    blocks: list[tuple[str, str]] = [
-        ("CV", clean_rich_text(candidate.raw_cv_text)),
-        ("AI", clean_rich_text(candidate.ai_summary)),
-        ("Kategoria", clean_rich_text(candidate.competence_category)),
-        ("Uwagi", clean_rich_text(candidate.engagement_notes)),
-        ("Doświadczenie", clean_rich_text(flatten_json_text(candidate.experience))),
-        ("Umiejętności", clean_rich_text(flatten_json_text(candidate.skills))),
-        ("Tagi", clean_rich_text(flatten_json_text(candidate.tags))),
-        ("Wykształcenie", clean_rich_text(flatten_json_text(candidate.education))),
-        ("Języki", clean_rich_text(flatten_json_text(candidate.languages))),
-        ("Stanowisko LinkedIn", clean_rich_text(candidate.linkedin_current_title)),
-        ("Firma LinkedIn", clean_rich_text(candidate.linkedin_current_company)),
-        ("Lokalizacja", clean_rich_text(candidate.location)),
-        ("Miasto", clean_rich_text(candidate.city)),
+    raw_blocks: list[tuple[str, Any]] = [
+        ("CV", lambda: candidate.raw_cv_text),
+        ("AI", lambda: candidate.ai_summary),
+        ("Kategoria", lambda: candidate.competence_category),
+        ("Uwagi", lambda: candidate.engagement_notes),
+        ("Doświadczenie", lambda: flatten_json_text(candidate.experience)),
+        ("Umiejętności", lambda: flatten_json_text(candidate.skills)),
+        ("Tagi", lambda: flatten_json_text(candidate.tags)),
+        ("Wykształcenie", lambda: flatten_json_text(candidate.education)),
+        ("Języki", lambda: flatten_json_text(candidate.languages)),
+        ("Stanowisko LinkedIn", lambda: candidate.linkedin_current_title),
+        ("Firma LinkedIn", lambda: candidate.linkedin_current_company),
+        ("Lokalizacja", lambda: candidate.location),
+        ("Miasto", lambda: candidate.city),
     ]
+    for label, getter in raw_blocks:
+        yield label, clean_rich_text(getter())
     # Notes sit in a separate table — the API layer batches them and passes the
     # raw content list in. Each cleaned note is its own scannable block.
-    if notes_contents:
-        for note in notes_contents:
-            blocks.append(("Notatka", clean_rich_text(note)))
+    for note in notes_contents or []:
+        yield "Notatka", clean_rich_text(note)
     # Identity fields last: only surfaced when nothing richer explains the match.
-    blocks.extend(
-        [
-            ("Telefon", clean_rich_text(candidate.phone)),
-            ("Email", clean_rich_text(candidate.email)),
-            (
-                "Kandydat",
-                clean_rich_text(f"{candidate.name or ''} {candidate.lastname or ''}"),
-            ),
-        ]
+    yield "Telefon", clean_rich_text(candidate.phone)
+    yield "Email", clean_rich_text(candidate.email)
+    yield (
+        "Kandydat",
+        clean_rich_text(f"{candidate.name or ''} {candidate.lastname or ''}"),
     )
-    return blocks
 
 
 def extract_snippet(
@@ -257,75 +256,67 @@ def _experience_roles(candidate: Candidate) -> str:
 
 
 def _structured_corpus(
-    candidate: Candidate, notes_contents: Optional[list[str]]
-) -> list[tuple[str, str]]:
+    candidate: Candidate,
+    notes_contents: Optional[list[str]],
+    screening_skills: Optional[list[str]] = None,
+) -> Iterator[tuple[str, Any]]:
     """Pola korpusu słów kluczowych (``keyword_corpus``), każde osobno.
 
     Te same pola co wyszukiwanie — bez podsumowania AI, kluczy i poziomów
     JSON-ów — inaczej wycinek pokazywałby trafienie, po którym osoba wcale
     nie została znaleziona (albo nie pokazywał tego, po którym została).
+
+    Runda 7 (R7-N10-5): generator SUROWYCH wartości — wołający czyści pole
+    (``clean_rich_text``) dopiero wtedy, gdy zakres je dopuszcza i nie ma
+    jeszcze ``_MAX_FIELDS`` pól. Dawniej cały korpus (z setkami notatek-maili)
+    był czyszczony z góry dla każdej osoby na stronie.
     """
     from app.services import keyword_corpus as kc
 
     def attr(name: str) -> Any:
         return getattr(candidate, name, None)
 
-    linkedin = " · ".join(
-        p
-        for p in (attr("linkedin_current_title"), attr("linkedin_current_company"))
-        if p
+    yield "Treść CV", attr("raw_cv_text")
+    yield "Stanowisko", kc.title_text(candidate, _experience_roles(candidate))
+    yield "Umiejętności", kc.skills_text(candidate, screening_skills)
+    yield "Doświadczenie", kc.json_text(attr("experience"), kc.EXPERIENCE_KEYS)
+    yield "O sobie", attr("profile_about")
+    yield "Certyfikaty", kc.traffit_value(candidate, "traffit_certificates")
+    yield (
+        "Poprzedni pracodawcy",
+        kc.traffit_value(candidate, "traffit_previous_employers"),
     )
-    education = " · ".join(
-        p
-        for p in (
-            kc.json_text(attr("education"), kc.EDUCATION_KEYS),
-            kc.traffit_value(candidate, "traffit_education"),
-        )
-        if p
+    yield "Uwagi", attr("engagement_notes")
+    yield "Tagi", kc.json_text(attr("tags"), kc.TAG_KEYS)
+    yield (
+        "Wykształcenie",
+        " · ".join(
+            p
+            for p in (
+                kc.json_text(attr("education"), kc.EDUCATION_KEYS),
+                kc.traffit_value(candidate, "traffit_education"),
+            )
+            if p
+        ),
     )
-    blocks: list[tuple[str, str]] = [
-        ("Treść CV", clean_rich_text(attr("raw_cv_text"))),
-        (
-            "Stanowisko",
-            clean_rich_text(kc.title_text(candidate, _experience_roles(candidate))),
+    yield "Języki", kc.json_text(attr("languages"), kc.LANGUAGE_KEYS)
+    yield (
+        "LinkedIn",
+        " · ".join(
+            p
+            for p in (
+                attr("linkedin_current_title"),
+                attr("linkedin_current_company"),
+            )
+            if p
         ),
-        ("Umiejętności", clean_rich_text(kc.skills_text(candidate))),
-        (
-            "Doświadczenie",
-            clean_rich_text(kc.json_text(attr("experience"), kc.EXPERIENCE_KEYS)),
-        ),
-        ("O sobie", clean_rich_text(attr("profile_about"))),
-        (
-            "Certyfikaty",
-            clean_rich_text(kc.traffit_value(candidate, "traffit_certificates")),
-        ),
-        (
-            "Poprzedni pracodawcy",
-            clean_rich_text(kc.traffit_value(candidate, "traffit_previous_employers")),
-        ),
-        ("Uwagi", clean_rich_text(attr("engagement_notes"))),
-        ("Tagi", clean_rich_text(kc.json_text(attr("tags"), kc.TAG_KEYS))),
-        ("Wykształcenie", clean_rich_text(education)),
-        ("Języki", clean_rich_text(kc.json_text(attr("languages"), kc.LANGUAGE_KEYS))),
-        ("LinkedIn", clean_rich_text(linkedin)),
-        ("Lokalizacja", clean_rich_text(attr("location") or attr("city"))),
-        (
-            "Narodowość",
-            clean_rich_text(kc.traffit_value(candidate, "traffit_nationality")),
-        ),
-    ]
+    )
+    yield "Lokalizacja", attr("location") or attr("city")
+    yield "Narodowość", kc.traffit_value(candidate, "traffit_nationality")
     for note in notes_contents or []:
-        blocks.append(("Notatka", clean_rich_text(note)))
-    blocks.extend(
-        [
-            ("Email", clean_rich_text(attr("email"))),
-            (
-                "Kandydat",
-                clean_rich_text(f"{attr('name') or ''} {attr('lastname') or ''}"),
-            ),
-        ]
-    )
-    return blocks
+        yield "Notatka", note
+    yield "Email", attr("email")
+    yield "Kandydat", f"{attr('name') or ''} {attr('lastname') or ''}"
 
 
 def _term_patterns(terms: list[str], whole_words: bool) -> list:
@@ -345,6 +336,34 @@ def _term_patterns(terms: list[str], whole_words: bool) -> list:
     return patterns
 
 
+def _folded_term_patterns(terms: list[str]) -> list:
+    """Wzorce do tekstu złożonego (``keyword_corpus.fold_text``) — przy
+    korpusie złożonym filtr znajduje „Kraków” dla „krakow”, więc wycinek musi
+    go też pokazać. Pusta lista, gdy ścieżka złożona jest wyłączona."""
+    from app.services import keyword_corpus
+    from app.services.keyword_terms import KeywordTerm, parse_keyword, py_regex
+
+    if not keyword_corpus.folded_search_enabled():
+        return []
+    patterns = []
+    for raw in terms:
+        term = parse_keyword(raw)
+        if term is None:
+            continue
+        folded = keyword_corpus.fold_text(term.text)
+        patterns.append(
+            py_regex(
+                KeywordTerm(
+                    raw=term.raw,
+                    text=" ".join(folded.split()),
+                    open_end=term.open_end,
+                    open_start=term.open_start,
+                )
+            )
+        )
+    return patterns
+
+
 def extract_field_snippets(
     candidate: Candidate,
     terms: list[str],
@@ -352,26 +371,46 @@ def extract_field_snippets(
     *,
     whole_words: bool = True,
     scope: str = "all",
+    screening_skills: Optional[list[str]] = None,
 ) -> list[dict]:
     """Lista ``{"field", "text", "highlights": [[start, end], …]}`` — każde pole
     z trafieniem (najwyżej ``_MAX_FIELDS``), w każdym do ``_FIELD_WINDOWS``
-    okien. ``highlights`` to zakresy znaków w ``text`` do pogrubienia."""
+    okien. ``highlights`` to zakresy znaków w ``text`` do pogrubienia.
+
+    ``screening_skills`` — umiejętności potwierdzone w screeningu
+    (``load_screening_confirmed_skills``); trafiają do pola „Umiejętności”, tak
+    jak do korpusu i zakresu „Umiejętności” filtra (runda 12, SEARCH)."""
     patterns = _term_patterns(terms, whole_words)
     if not patterns:
         return []
+    folded_patterns = _folded_term_patterns(terms) if whole_words else []
     allowed = _SCOPE_FIELDS.get(scope)
     out: list[dict] = []
-    for label, text in _structured_corpus(candidate, notes_contents):
+    for label, raw in _structured_corpus(candidate, notes_contents, screening_skills):
         if len(out) >= _MAX_FIELDS:
             break
-        if not text or (allowed is not None and label not in allowed):
+        if not raw or (allowed is not None and label not in allowed):
             continue
-        spans: list[tuple[int, int]] = []
+        text = clean_rich_text(raw)
+        if not text:
+            continue
+        found: set[tuple[int, int]] = set()
         for pattern in patterns:
-            spans.extend((m.start(), m.end()) for m in pattern.finditer(text))
-        if not spans:
+            found.update((m.start(), m.end()) for m in pattern.finditer(text))
+        if folded_patterns:
+            from app.services.keyword_corpus import fold_text_with_offsets
+
+            # Pozycje w tekście złożonym przez mapę na oryginał (R7-X3-4).
+            folded_text, starts, ends = fold_text_with_offsets(text)
+            for pattern in folded_patterns:
+                found.update(
+                    (starts[m.start()], ends[m.end() - 1])
+                    for m in pattern.finditer(folded_text)
+                    if m.end() > m.start()
+                )
+        if not found:
             continue
-        spans.sort()
+        spans = sorted(found)
         windows = _coalesce(spans, _MERGE_GAP)[:_FIELD_WINDOWS]
         pieces: list[str] = []
         highlights: list[list[int]] = []
@@ -444,3 +483,32 @@ def snippets_as_text(snippets: list[dict]) -> Optional[str]:
     if len(text) > _MAX_SNIPPET_LEN:
         text = text[: _MAX_SNIPPET_LEN - 1].rstrip() + "…"
     return text
+
+
+async def load_screening_confirmed_skills(
+    db: Any, candidate_ids: list[int]
+) -> dict[int, list[str]]:
+    """Umiejętności potwierdzone w screeningu dla strony listy — jedno zapytanie,
+    ta sama reguła co korpus (``keyword_corpus.screening_skill_rows_sql``)."""
+    if not candidate_ids:
+        return {}
+    from sqlalchemy import text
+
+    from app.services import keyword_corpus as kc
+
+    rows = await db.execute(
+        text(
+            kc.screening_skill_rows_sql("sn.candidate_id = ANY(:candidate_ids)")
+            + "\n        ORDER BY sn.id"
+        ),
+        {"candidate_ids": list(candidate_ids)},
+    )
+    out: dict[int, list[str]] = {}
+    for candidate_id, skill in rows.all():
+        name = str(skill or "").strip()
+        if not name:
+            continue
+        names = out.setdefault(candidate_id, [])
+        if name.lower() not in {n.lower() for n in names}:
+            names.append(name)
+    return out

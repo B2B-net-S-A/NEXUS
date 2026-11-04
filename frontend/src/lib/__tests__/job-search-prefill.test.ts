@@ -63,6 +63,21 @@ describe("parseJobLocationCities", () => {
     expect(parseJobLocationCities("Warszawa / warszawa")).toEqual(["Warszawa"]);
   });
 
+  it("drops a country — „Polska” is not a city (audit 26.09.2026)", () => {
+    // Lokalizacja 1 443 par z 12 miesięcy; jako „miasto” wycinała 91%
+    // osób, które zespół zweryfikował albo wysłał klientowi.
+    expect(parseJobLocationCities("Polska (lokalizacja obowiązkowa)")).toEqual([]);
+    expect(parseJobLocationCities("Polska")).toEqual([]);
+    expect(parseJobLocationCities("Cała Polska / zdalnie")).toEqual([]);
+    expect(parseJobLocationCities("Poland, remote")).toEqual([]);
+    expect(parseJobLocationCities("Warszawa, Polska")).toEqual(["Warszawa"]);
+  });
+
+  it("drops a street address after the city", () => {
+    expect(parseJobLocationCities("Warszawa, ul. Chmielna 89")).toEqual(["Warszawa"]);
+    expect(parseJobLocationCities("Kraków, al. Pokoju 1")).toEqual(["Kraków"]);
+  });
+
   it("handles null / empty", () => {
     expect(parseJobLocationCities(null)).toEqual([]);
     expect(parseJobLocationCities("")).toEqual([]);

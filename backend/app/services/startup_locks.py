@@ -11,8 +11,56 @@ table, so the container that is still serving traffic stalls with it.
 
 from __future__ import annotations
 
+import os
+import re
+
 BOOT_LOCK_TIMEOUT = "10s"
+# Runda 10 (R10-N12-2): sufit pojedynczej instrukcji ``alembic upgrade`` przy
+# starcie. Hojny, bo migracje danych bywają długie (0143 liczyła się minutami);
+# chroni przed wiszeniem, nie przed pracą. ``ALEMBIC_STATEMENT_TIMEOUT`` /
+# ``ALEMBIC_LOCK_TIMEOUT`` w env podnoszą go dla migracji, która naprawdę
+# potrzebuje więcej.
+ALEMBIC_STATEMENT_TIMEOUT = "20min"
 _LOCK_NOT_AVAILABLE = "55P03"
+_PG_DURATION = re.compile(r"^\d{1,7}\s*(ms|s|min|h|d)?$")
+
+
+def _duration(env_name: str, default: str) -> str:
+    value = (os.environ.get(env_name) or "").strip()
+    return value if _PG_DURATION.match(value) else default
+
+
+def apply_migration_session_limits(connection) -> dict[str, str]:
+    """Ustaw ``lock_timeout`` i ``statement_timeout`` na sesji alembica.
+
+    Runda 10 (R10-N12-2): ``alembic upgrade heads`` przy starcie nie miał
+    żadnego limitu. Migracja z DDL wdrożona w trakcie nocnego ``pg_dump``
+    czekała na ACCESS EXCLUSIVE do końca zrzutu, a stary kontener był już
+    zatrzymany — API leżało przez cały zrzut. Z limitem pada szybko (55P03)
+    i idzie istniejącą ścieżką „degraded + siatka + ponowienie przy
+    następnym starcie”.
+
+    Ustawienia są SESYJNE (``set_config(..., false)``), więc obejmują też
+    bloki ``autocommit_block()`` z ``CREATE INDEX CONCURRENTLY``. Transakcję
+    otwartą przez ``SELECT`` zatwierdzamy od razu: gdyby została otwarta,
+    ``context.begin_transaction()`` alembica uznałby ją za cudzą i nie
+    zatwierdziłby migracji.
+    """
+    from sqlalchemy import text
+
+    limits = {
+        "lock_timeout": _duration("ALEMBIC_LOCK_TIMEOUT", BOOT_LOCK_TIMEOUT),
+        "statement_timeout": _duration(
+            "ALEMBIC_STATEMENT_TIMEOUT", ALEMBIC_STATEMENT_TIMEOUT
+        ),
+    }
+    for name, value in limits.items():
+        connection.execute(
+            text("SELECT set_config(:name, :value, false)"),
+            {"name": name, "value": value},
+        )
+    connection.commit()
+    return limits
 
 
 def is_lock_timeout(exc: BaseException) -> bool:

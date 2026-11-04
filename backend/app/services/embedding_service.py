@@ -574,21 +574,17 @@ async def _record_failed_embed_intent(candidate_id: int, db: AsyncSession) -> No
     Piszemy w sesji WOŁAJĄCEGO (bez commita): intencja ma się utrwalić dokładnie
     wtedy, gdy utrwali się kandydat, którego dotyczy.
 
-    `worker_enabled()` jest warunkiem KONIECZNYM, nie ostrożnością: przy
-    włączonym workerze to ON woła `embed_candidate` (`_default_reindex`) i sam
-    prowadzi księgowość prób (`attempts` → `failed`/`dead`). Dopisanie stamtąd
-    nowego zdarzenia zamieniłoby każdą nieudaną próbę drenażu w kolejny wiersz
-    kolejki — podczas awarii providera kolejka rosłaby wykładniczo, a licznik
-    prób przestałby cokolwiek znaczyć.
+    O tym, czy zapisać intencję, decyduje WOŁAJĄCY (`record_intent` w
+    `embed_candidate`), nie `worker_enabled()`. Worker (`_default_reindex`) sam
+    prowadzi księgowość prób, więc przekazuje `record_intent=False` — dopisanie
+    stamtąd nowego zdarzenia zamieniłoby każdą nieudaną próbę drenażu w kolejny
+    wiersz kolejki. Runda 8 (R8-N11-1): do tej rundy funkcja pytała
+    `worker_enabled()`, więc przy workerze ON i outboxie OFF nieudany embed
+    INLINE (żądanie HTTP, nie worker) nie zostawiał nic — a reconciler pomija
+    kandydatów bez historii, więc taki kandydat nie dostawał wektora nigdy.
     """
-    from app.services.index_outbox_service import (
-        CANDIDATE,
-        record_bulk_reindex,
-        worker_enabled,
-    )
+    from app.services.index_outbox_service import CANDIDATE, record_bulk_reindex
 
-    if worker_enabled():
-        return
     try:
         await record_bulk_reindex(db, CANDIDATE, [candidate_id])
     except Exception as exc:  # noqa: BLE001 — zapis intencji jest best-effort
@@ -599,14 +595,23 @@ async def _record_failed_embed_intent(candidate_id: int, db: AsyncSession) -> No
         )
 
 
-async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
+async def embed_candidate(
+    candidate_id: int, db: AsyncSession, *, record_intent: bool = True
+) -> bool:
     """
     Generate an embedding for a candidate and upsert it into Qdrant.
     Returns True on success, False on failure.
 
     Porażka providera zostawia dodatkowo trwałą intencję reindeksu
     (:func:`_record_failed_embed_intent`) — bez niej „nie udało się" znikało
-    razem z requestem.
+    razem z requestem. Worker outboxu przekazuje ``record_intent=False``
+    (sam liczy próby); każda ścieżka inline zostawia intencję.
+
+    Sesja należy do WOŁAJĄCEGO: stempel ``embedding_id`` jest tylko
+    ``flush``-owany. Runda 8 (R8-N11-5): ``commit`` w środku zatwierdzał całą
+    transakcję wołającego — zgłoszenie z formularza kariery wołało to w
+    savepoincie PRZED zapisem zgody i CV, więc błąd dalszego kroku zostawiał
+    kandydata bez zgody i bez CV. Commit robi wołający (``get_db``, worker).
     """
     from app.models.candidate import Candidate
 
@@ -624,7 +629,8 @@ async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
 
         embedding = await generate_embedding(text)
         if embedding is None:
-            await _record_failed_embed_intent(candidate_id, db)
+            if record_intent:
+                await _record_failed_embed_intent(candidate_id, db)
             return False
 
         # Upsert into Qdrant
@@ -658,14 +664,15 @@ async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
 
         # Update embedding_id on the candidate record
         candidate.embedding_id = str(candidate_id)
-        await db.commit()
+        await db.flush()
 
         logger.info(f"[Embed] Candidate {candidate_id} embedded and stored in Qdrant.")
         return True
 
     except Exception as e:
         logger.error(f"[Embed] Failed to embed candidate {candidate_id}: {e}")
-        await _record_failed_embed_intent(candidate_id, db)
+        if record_intent:
+            await _record_failed_embed_intent(candidate_id, db)
         return False
 
 
@@ -1190,6 +1197,13 @@ def _build_job_text_v1(job, *, max_field_chars: int | None = 1200) -> str:
         loc = basics.get("candidate_location_pref")
         if isinstance(loc, str) and loc.strip():
             parts.append(f"lokalizacja: {loc}")
+        # „Rekruter sprawdza w rozmowie” (13.10.2026): zdania, które do tej daty
+        # stały w must i trafiały tu przez kolumnę `must_skills`. Tylko gdy są —
+        # tekst rekrutacji bez nich zostaje bajt w bajt.
+        for item in champion_view.experience(champion).get("skills") or []:
+            name = item.get("name")
+            if isinstance(name, str) and name.strip():
+                parts.append(name[:160])
 
     # Must / nice skills names
     for bucket_name, bucket in (("must", job.must_skills), ("nice", job.nice_skills)):
@@ -1251,7 +1265,7 @@ async def embed_job(job_id: int, db: AsyncSession) -> bool:
                             # więc `top_k=50` dawało ~9 wyników — sufit
                             # rekomendacji, którego nie dało się podnieść
                             # inaczej niż pobierając całą kolekcję.
-                            "status": getattr(job.status, "value", job.status) or "",
+                            "status": job_status_value(job.status),
                         },
                     )
                 ],
@@ -1308,14 +1322,103 @@ async def embed_job(job_id: int, db: AsyncSession) -> bool:
         return False
 
 
+def job_status_value(status) -> str:
+    """Status oferty w kształcie payloadu punktu (``embed_job``)."""
+    return getattr(status, "value", status) or ""
+
+
+async def job_payload_statuses(job_ids: Sequence[int]) -> Optional[dict[int, str]]:
+    """``status`` z payloadu punktów ofert. ``None`` = „nie wiem" (awaria).
+
+    Oferta bez punktu nie trafia do słownika. Bez wektorów — tylko payload.
+    """
+    ids = [int(j) for j in job_ids]
+    if not ids:
+        return {}
+
+    def _retrieve():
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        return client.retrieve(
+            collection_name=_jobs_collection(),
+            ids=ids,
+            with_payload=["status"],
+            with_vectors=False,
+        )
+
+    try:
+        points = await _run_qdrant(_retrieve)
+    except Exception as exc:  # noqa: BLE001 — odczyt pomocniczy, best-effort
+        logger.warning("[Embed] odczyt statusów ofert z Qdranta padł: %s", exc)
+        return None
+    return {int(p.id): str((p.payload or {}).get("status") or "") for p in points}
+
+
+async def sync_job_status_payloads(statuses: dict[int, str]) -> int:
+    """Zapisz ``status`` w payloadzie punktów ofert — bez Voyage'a.
+
+    Runda 8 (R8-N11-2): status trafiał do payloadu wyłącznie przy embedzie,
+    a zmiana statusu (PATCH, publikacja, zamknięcie, archiwum Traffita) nie
+    zmienia tekstu embeddingu. Rekrutacja otwarta ponownie z payloadem
+    „closed" znikała z filtra `search_jobs_semantic(statuses=…)`, a zamknięta
+    z payloadem „published" dalej zajmowała pulę. Best-effort: nigdy nie rzuca,
+    zwraca liczbę zaktualizowanych punktów. Punkt, którego nie ma, pomija
+    (wektor powstanie przy embedzie — już z właściwym statusem).
+    """
+    by_status: dict[str, list[int]] = {}
+    for job_id, status in statuses.items():
+        by_status.setdefault(status, []).append(int(job_id))
+    if not by_status:
+        return 0
+
+    def _set_one(status: str, ids: list[int]):
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        existing = [
+            int(p.id)
+            for p in client.retrieve(
+                collection_name=_jobs_collection(),
+                ids=ids,
+                with_payload=False,
+                with_vectors=False,
+            )
+        ]
+        if existing:
+            client.set_payload(
+                collection_name=_jobs_collection(),
+                payload={"status": status},
+                points=existing,
+            )
+        return len(existing)
+
+    updated = 0
+    for status, ids in by_status.items():
+        try:
+            updated += await _run_qdrant(lambda s=status, i=ids: _set_one(s, i))
+        except Exception as exc:  # noqa: BLE001 — payload dogoni reconciler
+            logger.warning(
+                "[Embed] zapis statusu %s w payloadzie %s ofert padł: %s",
+                status,
+                len(ids),
+                exc,
+            )
+    return updated
+
+
 async def search_jobs_semantic(
     query: str,
     top_k: int = 20,
     *,
     raise_on_error: bool = False,
     statuses: Optional[Sequence[str]] = None,
+    job_ids: Optional[Sequence[int]] = None,
 ) -> list[dict]:
     """Embed *query* and return top-k closest job ids from nexus_jobs.
+
+    ``job_ids`` zawęża wyszukiwanie do wskazanych rekrutacji: tak mierzy się
+    podobieństwo do konkretnej rekrutacji, także spoza czołówki ``top_k``.
 
     The *query* text (candidate profile, CV extract or free-text search) is the
     search input against a corpus of job *documents*, so it MUST be embedded
@@ -1349,6 +1452,7 @@ async def search_jobs_semantic(
         from qdrant_client.models import (
             FieldCondition,
             Filter,
+            HasIdCondition,
             IsEmptyCondition,
             MatchAny,
             PayloadField,
@@ -1372,6 +1476,8 @@ async def search_jobs_semantic(
             if statuses
             else None
         )
+        if job_ids is not None:
+            query_filter = Filter(should=[HasIdCondition(has_id=list(job_ids))])
         hits = client.search(
             collection_name=_jobs_collection(),
             query_vector=embedding,
@@ -1510,4 +1616,196 @@ async def search_similar_jobs_by_job_id(
         return await _run_qdrant(_run)
     except Exception as e:
         logger.error("[Search] search_similar_jobs_by_job_id error: %s", e)
+        return None
+
+
+# ── Podobne rekrutacje: sąsiedzi w kolekcji OFERT (30.09.2026) ─────────────
+# Ranking „Podobnych rekrutacji” (`job_similarity`) liczy kosinus wektorów
+# rekrutacji zamiast wzoru leksykalnego. Oba odczyty zawężają wyniki do puli
+# wskazanej przez wołającego (`HasIdCondition`) i NIE przesyłają wektora
+# referencji — Qdrant sam czyta go po id punktu (Query API, `query=<id>`).
+# `None` = „nie wiem” (Qdrant nie odpowiedział): wołający wraca wtedy do wzoru
+# leksykalnego, a nie pokazuje pustki.
+
+_SIMILAR_JOBS_TIMEOUT_SECONDS = 2
+_SIMILAR_JOBS_BATCH = 16
+
+
+def _similar_jobs_filter(candidate_ids: Sequence[int], exclude: Sequence[int]):
+    from qdrant_client.models import Filter, HasIdCondition
+
+    return Filter(
+        must=[HasIdCondition(has_id=list(candidate_ids))],
+        must_not=[HasIdCondition(has_id=list(exclude))] if exclude else None,
+    )
+
+
+async def nearest_jobs_for_job_ids(
+    ref_job_ids: Sequence[int],
+    candidate_ids: Sequence[int],
+    *,
+    exclude: Optional[dict[int, Sequence[int]]] = None,
+    limit: int = 60,
+) -> Optional[dict[int, list[tuple[int, float]]]]:
+    """Najbliższe rekrutacje (kosinus) dla wielu rekrutacji naraz.
+
+    Zwraca ``{ref_id: [(job_id, kosinus), …]}`` malejąco, wyłącznie spośród
+    ``candidate_ids`` i bez samej referencji oraz ``exclude[ref_id]``.
+    Referencja BEZ wektora w kolekcji nie ma klucza w wyniku (wołający liczy
+    ją wzorem leksykalnym); ``None`` = Qdrant nie odpowiedział.
+    """
+    refs = list(dict.fromkeys(int(r) for r in ref_job_ids))
+    pool = sorted({int(c) for c in candidate_ids})
+    if not refs:
+        return {}
+    exclude = exclude or {}
+
+    def _run() -> dict[int, list[tuple[int, float]]]:
+        from qdrant_client import QdrantClient
+        from qdrant_client.models import QueryRequest
+
+        client = QdrantClient(
+            host=settings.QDRANT_HOST,
+            port=settings.QDRANT_PORT,
+            timeout=_SIMILAR_JOBS_TIMEOUT_SECONDS,
+        )
+        # Zapytanie po id punktu, którego nie ma, wywraca CAŁĄ paczkę — więc
+        # najpierw ustalamy, które referencje mają wektor.
+        present = {
+            int(p.id)
+            for p in client.retrieve(
+                collection_name=_jobs_collection(),
+                ids=refs,
+                with_payload=False,
+                with_vectors=False,
+            )
+        }
+        ordered = [r for r in refs if r in present]
+        out: dict[int, list[tuple[int, float]]] = {r: [] for r in ordered}
+        if not pool or not ordered:
+            return out
+        for start in range(0, len(ordered), _SIMILAR_JOBS_BATCH):
+            chunk = ordered[start : start + _SIMILAR_JOBS_BATCH]
+            requests = []
+            for ref in chunk:
+                skip = {ref, *(int(x) for x in exclude.get(ref, ()))}
+                requests.append(
+                    QueryRequest(
+                        query=ref,
+                        filter=_similar_jobs_filter(pool, sorted(skip)),
+                        limit=limit,
+                        with_payload=False,
+                    )
+                )
+            responses = client.query_batch_points(
+                collection_name=_jobs_collection(), requests=requests
+            )
+            for ref, response in zip(chunk, responses):
+                out[ref] = [
+                    (int(point.id), float(point.score))
+                    for point in response.points
+                    if int(point.id) != ref
+                ]
+        return out
+
+    try:
+        return await _run_qdrant(_run)
+    except Exception as e:  # noqa: BLE001 — „nie wiem”, wołający wraca do wzoru
+        logger.warning("[Search] nearest_jobs_for_job_ids failed: %s", e)
+        return None
+
+
+async def nearest_jobs_for_vector(
+    vector: Sequence[float],
+    candidate_ids: Sequence[int],
+    *,
+    exclude: Sequence[int] = (),
+    limit: int = 60,
+) -> Optional[list[tuple[int, float]]]:
+    """Najbliższe rekrutacje dla wektora spoza kolekcji (szkic na /jobs/new).
+
+    Ta sama pula i ten sam kształt co :func:`nearest_jobs_for_job_ids`;
+    ``None`` = Qdrant nie odpowiedział.
+    """
+    pool = sorted({int(c) for c in candidate_ids})
+    if not pool:
+        return []
+
+    def _run() -> list[tuple[int, float]]:
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(
+            host=settings.QDRANT_HOST,
+            port=settings.QDRANT_PORT,
+            timeout=_SIMILAR_JOBS_TIMEOUT_SECONDS,
+        )
+        response = client.query_points(
+            collection_name=_jobs_collection(),
+            query=list(vector),
+            query_filter=_similar_jobs_filter(pool, sorted(set(exclude))),
+            limit=limit,
+            with_payload=False,
+        )
+        return [(int(point.id), float(point.score)) for point in response.points]
+
+    try:
+        return await _run_qdrant(_run)
+    except Exception as e:  # noqa: BLE001 — „nie wiem”, wołający wraca do wzoru
+        logger.warning("[Search] nearest_jobs_for_vector failed: %s", e)
+        return None
+
+
+# ── Podobni kandydaci: sąsiedzi w kolekcji KANDYDATÓW (22.10.2026) ─────────
+# Zakładka „Podobni” na profilu kandydata. Jak przy rekrutacjach: Qdrant sam
+# czyta wektor referencji po id punktu (`query=<id>`), więc nic nie liczymy
+# w Voyage'u. `None` = „nie wiem” (Qdrant nie odpowiedział), `[]` bez wektora
+# referencji = „ta osoba nie ma wektora” — wołający mówi to wprost.
+
+_SIMILAR_CANDIDATES_TIMEOUT_SECONDS = 2
+
+
+async def nearest_candidates(
+    candidate_id: int, *, limit: int
+) -> Optional[tuple[bool, list[tuple[int, float]]]]:
+    """``(ma_wektor, [(kandydat, kosinus), …])`` malejąco, bez samej osoby.
+
+    ``None`` = Qdrant nie odpowiedział.
+    """
+    ref = int(candidate_id)
+
+    def _run() -> tuple[bool, list[tuple[int, float]]]:
+        from qdrant_client import QdrantClient
+        from qdrant_client.models import Filter, HasIdCondition
+
+        client = QdrantClient(
+            host=settings.QDRANT_HOST,
+            port=settings.QDRANT_PORT,
+            timeout=_SIMILAR_CANDIDATES_TIMEOUT_SECONDS,
+        )
+        # Zapytanie po id punktu, którego nie ma, kończy się błędem — najpierw
+        # sprawdzamy, czy osoba ma wektor.
+        if not client.retrieve(
+            collection_name=_collection(),
+            ids=[ref],
+            with_payload=False,
+            with_vectors=False,
+        ):
+            return False, []
+        response = client.query_points(
+            collection_name=_collection(),
+            query=ref,
+            query_filter=Filter(must_not=[HasIdCondition(has_id=[ref])]),
+            limit=limit,
+            with_payload=False,
+        )
+        return True, [
+            (int(point.id), float(point.score))
+            for point in response.points
+            if int(point.id) != ref
+        ]
+
+    try:
+        return await _run_qdrant(_run)
+    except Exception as e:  # noqa: BLE001 — „nie wiem”, ekran mówi to wprost
+        logger.warning("[Search] nearest_candidates failed: %s", e)
         return None

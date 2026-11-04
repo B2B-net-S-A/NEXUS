@@ -28,6 +28,7 @@ import {
   type MetricResult,
 } from "@/lib/api/dashboardMetrics"
 import type { MetricDefinition, TileChart, TileType } from "@/lib/api/userDashboard"
+import { orderedMetricNotes } from "@/lib/dashboard-tiles/layout"
 import { cn } from "@/lib/utils"
 
 const numberFormat = new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 0 })
@@ -215,7 +216,7 @@ export function MetricResultView({
       </div>
       {result.notes.length > 0 ? (
         <p className="text-[11px] leading-snug text-muted-foreground" title={result.notes.join(" ")}>
-          {result.notes[0]}
+          {orderedMetricNotes(result.notes)[0]}
         </p>
       ) : null}
     </div>

@@ -84,6 +84,48 @@ async def test_assignment_progress_requires_verified_before_cv_sent_in_same_atte
     assert params == {"assignment_ids": [77]}
 
 
+async def test_milestone_counts_scope_the_process_windows_to_the_asked_assignments() -> (
+    None
+):
+    """29.09.2026: panel Priority Work jednej rekrutacji czekał 16 s.
+
+    Przy JEDNYM przypisaniu planer Postgresa liczył okna procesów dla całej
+    historii firmy (15,7 s na produkcji; przy 16 przypisaniach 0,5 s).
+    Zawężenie `process_windows` do par (kandydat, rekrutacja) pytanych
+    przypisań daje 0,06 s i ten sam wynik — `LEAD` jest partycjonowany właśnie
+    po tej parze, a zapytanie nie czyta gałęzi `legacy_*`.
+    """
+    result = MagicMock()
+    result.all.return_value = []
+    db = SimpleNamespace(execute=AsyncMock(return_value=result))
+
+    await policy.assignment_milestone_counts(db, [16])
+
+    statement, params = db.execute.await_args.args
+    sql = " ".join(str(statement).lower().split())
+    process_windows = sql.split("first_classified as")[0]
+    assert "(rp.candidate_id, rp.job_id) in (" in process_windows
+    assert (
+        "scope.eligibility_assignment_id = any(cast(:assignment_ids as integer[]))"
+        in process_windows
+    )
+    assert params == {"assignment_ids": [16]}
+
+
+def test_scoped_cte_is_the_kpi_cte_plus_only_the_scope() -> None:
+    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+
+    scoped = policy._scoped_verifier_anchored_cte()
+    extra = scoped.replace(
+        VERIFIER_ANCHORED_CTE.split("WHERE rp.opened_at IS NOT NULL")[0], "", 1
+    )
+    # Wspólne CTE (KPI, wyścigi płacące nagrody) zostaje nietknięte.
+    assert VERIFIER_ANCHORED_CTE.count("scope.eligibility_assignment_id") == 0
+    assert scoped.count("scope.eligibility_assignment_id") == 1
+    assert len(scoped) > len(VERIFIER_ANCHORED_CTE)
+    assert extra
+
+
 def _milestone_db(*batches: list[SimpleNamespace]) -> SimpleNamespace:
     results = []
     for batch in batches:
@@ -219,6 +261,57 @@ async def test_require_existing_is_inert_at_mode_off(monkeypatch) -> None:
     assert decision.priority_compliant is None
     assert decision.assignment_owner_user_id == 33
     current_assignment.assert_not_awaited()
+
+
+async def test_sourcing_pause_never_blocks_at_mode_off(monkeypatch) -> None:
+    # 02.10.2026: włączenie automatu przydziału (RECRUITMENT_ALLOCATION_ENABLED)
+    # przy wyłączonym Priority Work nie może odrzucać pracy człowieka. Do tej
+    # daty bramka „poszukiwania wstrzymane” stała PRZED `mode_off`, więc
+    # dodanie kandydata do każdej rekrutacji z `needs_sourcing = false`
+    # (czyli nieprzekazanej jeszcze do searchu) kończyłoby się odmową.
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "RECRUITMENT_ALLOCATION_ENABLED", True)
+    monkeypatch.setattr(
+        policy, "effective_priority_mode", AsyncMock(return_value=PriorityMode.off)
+    )
+    db = AsyncMock()
+    db.scalar.return_value = False  # needs_sourcing = false
+
+    decision = await policy.decide_priority_work_access(
+        db,
+        candidate_id=11,
+        job_id=22,
+        actor_user_id=33,
+        continuation_exists=False,
+    )
+
+    assert decision.allowed is True
+    assert decision.reason is policy.PriorityWorkReason.mode_off
+    db.scalar.assert_not_awaited()
+
+
+@pytest.mark.parametrize("mode", [PriorityMode.shadow, PriorityMode.enforce])
+async def test_sourcing_pause_still_blocks_when_priority_work_is_on(
+    monkeypatch, mode: PriorityMode
+) -> None:
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "RECRUITMENT_ALLOCATION_ENABLED", True)
+    monkeypatch.setattr(policy, "effective_priority_mode", AsyncMock(return_value=mode))
+    db = AsyncMock()
+    db.scalar.return_value = False
+
+    decision = await policy.decide_priority_work_access(
+        db,
+        candidate_id=11,
+        job_id=22,
+        actor_user_id=33,
+        continuation_exists=False,
+    )
+
+    assert decision.allowed is False
+    assert decision.reason is policy.PriorityWorkReason.sourcing_paused
 
 
 @pytest.mark.parametrize("mode", [PriorityMode.shadow, PriorityMode.enforce])

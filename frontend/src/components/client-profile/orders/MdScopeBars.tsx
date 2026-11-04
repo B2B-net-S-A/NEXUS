@@ -28,13 +28,15 @@ function ScopeBar({
       <span className="w-[4.5rem] shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
+      {/* W ciasnej komórce ustępuje pasek, nie liczby — inaczej „184 / 190 MD”
+          wchodziło pod przycisk „Zużycie” w tabeli zamówień. */}
       <div
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(Math.min(100, pct ?? 0))}
         aria-label={`${label} — wykorzystano MD`}
-        className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted"
+        className="h-1.5 w-24 min-w-10 shrink overflow-hidden rounded-full bg-muted"
       >
         <div
           className={cn(

@@ -35,6 +35,13 @@ vi.mock("@/lib/api/interviewCycle", () => ({
     data: [{ id: 5, text: "Jak skalujesz Kafkę?", created_at: null }],
     refetch: vi.fn(),
   }),
+  useClientQuestionArchive: () => ({
+    isPending: false,
+    isError: false,
+    isSuccess: false,
+    data: undefined,
+    refetch: vi.fn(),
+  }),
 }));
 
 const dl = {

@@ -24,6 +24,14 @@ function originOf(raw: string | undefined): string | null {
   }
 }
 
+/**
+ * Dokumenty stron (bez `/_next/` i plików z rozszerzeniem). Przeglądarka nie
+ * może ich przechowywać: karta przywrócona z jej pamięci ładowała stary
+ * dokument, a z nim pliki JS sprzed kilku wdrożeń (12.10.2026). Pliki
+ * `/_next/static/*` zostają z rocznym `immutable` — nowy dokument wskazuje nowe.
+ */
+export const DOCUMENT_PATHS = "/((?!_next/|.*\\..*).*)";
+
 /** Endpoint `security` Sentry z publicznego DSN (report-uri CSP). */
 export function sentryCspReportUri(dsn: string | undefined): string | null {
   if (!dsn) return null;
@@ -57,11 +65,23 @@ export function buildSecurityHeaders(
 
   const reportOnly = [
     "default-src 'self'",
-    join("script-src 'self' 'unsafe-inline'", !isProd && "'unsafe-eval'"),
+    // Cloudflare (proxy przed frontem) sam wstrzykuje beacon Web Analytics —
+    // bez tych źródeł każda wizyta dawała raport CSP w Sentry (NEXUS-FE-19).
+    join(
+      "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
+      !isProd && "'unsafe-eval'",
+    ),
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     join("img-src 'self' data: blob: https:", api),
     "font-src 'self' data: https://fonts.gstatic.com",
-    join("connect-src 'self'", api, ws, sentryOrigin, !isProd && "ws: http://localhost:*"),
+    join(
+      "connect-src 'self'",
+      api,
+      ws,
+      sentryOrigin,
+      "https://cloudflareinsights.com",
+      !isProd && "ws: http://localhost:*",
+    ),
     "frame-src 'self' blob:",
     "worker-src 'self' blob:",
     "media-src 'self' blob: https:",
@@ -164,6 +184,10 @@ const nextConfig: NextConfig = {
       {
         source: "/:path*",
         headers: buildSecurityHeaders(),
+      },
+      {
+        source: DOCUMENT_PATHS,
+        headers: [{ key: "Cache-Control", value: "no-store" }],
       },
     ];
   },

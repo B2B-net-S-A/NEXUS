@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import api from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { assignErrorMessage } from "@/lib/assign-error";
 import { useToast } from "@/components/Toast";
 import { ModalShell } from "./CloseJobAsLostModal";
@@ -39,7 +40,13 @@ export function AddCandidateToJobModal({
     return () => clearTimeout(t);
   }, [q]);
 
-  const { data: candidates = [], isFetching } = useQuery<CandidateSearchItem[]>({
+  const {
+    data: candidates = [],
+    isFetching,
+    isError,
+    isSuccess,
+    error,
+  } = useQuery<CandidateSearchItem[]>({
     queryKey: ["client-profile-candidate-search", debouncedQ],
     queryFn: async () => {
       if (!debouncedQ) return [];
@@ -64,6 +71,10 @@ export function AddCandidateToJobModal({
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["client-profile", clientId] });
+      // Tablica rekrutacji ma dwa klucze (id jako napis i jako liczba) —
+      // bez obu nowa osoba nie pojawia się w „Nowych” (runda 6 audytu).
+      queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+      queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
       showSuccess("Kandydat dodany do pipeline");
       onClose();
     },
@@ -95,7 +106,13 @@ export function AddCandidateToJobModal({
           </p>
         ) : isFetching ? (
           <p className="text-xs text-muted-foreground text-center py-6">Szukam...</p>
-        ) : candidates.length === 0 ? (
+        ) : isError ? (
+          // Awaria to nie „brak wyników” — pusta lista czytałaby się jak
+          // „nie ma takiej osoby w bazie” (runda 6 audytu).
+          <p role="alert" className="text-xs text-destructive text-center py-6">
+            {apiErrorMessage(error, "Nie udało się wyszukać kandydatów.")}
+          </p>
+        ) : !isSuccess ? null : candidates.length === 0 ? (
           <p className="text-xs text-muted-foreground text-center py-6">
             Brak wyników dla „{debouncedQ}".
           </p>

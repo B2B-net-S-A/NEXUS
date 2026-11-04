@@ -155,6 +155,41 @@ describe("PeriodPicker — podpis okna", () => {
   });
 });
 
+describe("PeriodPicker — „Zakres dat”", () => {
+  it("wysyła wybrane daty bez offsetu i zamyka okno", () => {
+    const onChange = vi.fn();
+    renderPicker({ value: { period: "month", offset: 0 }, onChange });
+    fireEvent.click(screen.getByRole("button", { name: "Zakres dat" }));
+    fireEvent.change(screen.getByLabelText("Data od"), { target: { value: "2026-10-19" } });
+    fireEvent.change(screen.getByLabelText("Data do"), { target: { value: "2026-10-31" } });
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż" }));
+    expect(onChange).toHaveBeenCalledWith({
+      period: "custom",
+      date_from: "2026-10-19",
+      date_to: "2026-10-31",
+    });
+    expect(screen.queryByTestId("period-range")).toBeNull();
+  });
+
+  it("odwrócone daty i zakres ponad limit blokują przycisk i to piszą", () => {
+    renderPicker({ value: { period: "month", offset: 0 } });
+    fireEvent.click(screen.getByRole("button", { name: "Zakres dat" }));
+    fireEvent.change(screen.getByLabelText("Data od"), { target: { value: "2026-10-31" } });
+    fireEvent.change(screen.getByLabelText("Data do"), { target: { value: "2026-10-19" } });
+    expect(screen.getByText(/późniejsza/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Pokaż" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Data od"), { target: { value: "2024-01-01" } });
+    expect(screen.getByText(/Najdłuższy zakres/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Pokaż" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("krótki zakres zaznacza „Zakres dat”, nie „Wszystko”", () => {
+    renderPicker({ value: { period: "custom", date_from: "2026-10-19", date_to: "2026-10-31" } });
+    expect(screen.getByRole("button", { name: "Zakres dat" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Wszystko" }).getAttribute("aria-pressed")).toBe("false");
+  });
+});
+
 describe("PeriodPicker — granulacja „Wszystko”", () => {
   it("mapuje się na custom i NIE przekracza limitu backendu", () => {
     const onChange = vi.fn();
@@ -308,5 +343,37 @@ describe("PeriodPicker — eksport CSV", () => {
       [["Rekomendacje", 'a;b "c"', null]],
     );
     expect(csv).toBe('Etap;Uwaga;Liczba\r\nRekomendacje;"a;b ""c""";');
+  });
+
+  it("chroni komórki tekstowe przed formułą (runda 6 audytu)", () => {
+    const csv = buildInsightsCsv(
+      ["Osoba", "Telefon", "Liczba"],
+      [["=HYPERLINK(\"http://x\";\"a\")", "+48 600 100 200", -3]],
+    );
+    expect(csv).toBe(
+      'Osoba;Telefon;Liczba\r\n"\'=HYPERLINK(""http://x"";""a"")";+48 600 100 200;-3',
+    );
+  });
+});
+
+describe("PeriodPicker — dni sprzed NEXUS-a (decyzja Artura 18.10.2026)", () => {
+  it("okno przed 12.10.2026 mówi, że liczby są z DynaReportera", () => {
+    renderPicker({ value: { period: "month", offset: 0 }, resolved: AUGUST });
+    expect(screen.getByTestId("insights-history-note")).toHaveTextContent(
+      "Dni do 11.10.2026 pochodzą z DynaReportera",
+    );
+  });
+
+  it("okno od 12.10.2026 nie ma zdania o DynaReporterze", () => {
+    renderPicker({
+      value: { period: "week", offset: 0 },
+      resolved: {
+        kind: "week",
+        start: "2026-10-12T00:00:00+02:00",
+        end: "2026-10-19T00:00:00+02:00",
+        timezone: TZ,
+      },
+    });
+    expect(screen.queryByTestId("insights-history-note")).not.toBeInTheDocument();
   });
 });

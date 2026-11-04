@@ -125,22 +125,15 @@ function formatDateShort(iso: string | null): string | null {
   }
 }
 
-function formatFee(
+// `fee_rate` to zawsze MIESIĘCZNA marża kontraktu. Do rundy 6 audytu
+// etykieta szła z jednostki stawek kontraktu, więc marża/mc stała z „/h”.
+export function formatFee(
   fee: number | null,
   currency: string | null,
-  unit: string | null,
 ): string | null {
   if (fee === null) return null;
   const cur = currency ?? "PLN";
-  const unitLabel =
-    unit === "monthly"
-      ? "/mc"
-      : unit === "daily"
-        ? "/dz"
-        : unit === "hourly"
-          ? "/h"
-          : "";
-  return `+${fee.toLocaleString("pl-PL")} ${cur}${unitLabel}`;
+  return `+${fee.toLocaleString("pl-PL")} ${cur}/mc`;
 }
 
 function similarityTone(pct: number): string {
@@ -475,7 +468,7 @@ function RequestHistoryRow({
     entry.similarity_source === "sql_same_client"
       ? "Ten sam klient"
       : "Podobieństwo semantyczne";
-  const fee = formatFee(entry.fee_rate, entry.fee_currency, entry.rate_unit);
+  const fee = formatFee(entry.fee_rate, entry.fee_currency);
 
   return (
     <li className="border border-border dark:border-border rounded-lg p-3 bg-card dark:bg-card space-y-2">

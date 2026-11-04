@@ -27,6 +27,10 @@ class CurationError(Exception):
     """Błąd domenowy kuracji (mapowany na 4xx w API)."""
 
 
+class CurationConflict(CurationError):
+    """Nazwa albo alias koliduje z inną umiejętnością (409 w API)."""
+
+
 async def _skill_by_id(db: AsyncSession, skill_id: int) -> Skill:
     skill = await db.get(Skill, skill_id)
     if skill is None:
@@ -41,18 +45,56 @@ async def _term_by_id(db: AsyncSession, term_id: int) -> CortexUnmatchedTerm:
     return term
 
 
+async def _other_skill_named(
+    db: AsyncSession, name_lc: str, *, exclude_skill_id: Optional[int] = None
+) -> Optional[Skill]:
+    query = select(Skill).where(func.lower(Skill.canonical_name) == name_lc)
+    if exclude_skill_id is not None:
+        query = query.where(Skill.id != exclude_skill_id)
+    return await db.scalar(query.limit(1))
+
+
+async def _alias_owner(db: AsyncSession, alias_lc: str) -> Optional[Skill]:
+    return await db.scalar(
+        select(Skill)
+        .join(SkillAlias, SkillAlias.skill_id == Skill.id)
+        .where(func.lower(SkillAlias.alias) == alias_lc)
+        .limit(1)
+    )
+
+
 async def _add_alias(db: AsyncSession, skill_id: int, alias: str) -> bool:
-    """Dodaj alias (lowercase) do skilla. Zwraca True jeśli wstawiono nowy."""
+    """Dodaj alias (lowercase) do skilla. Zwraca True jeśli wstawiono nowy,
+    False jeśli ten skill już go ma.
+
+    Runda 9 (R9-N13-3): alias równy nazwie INNEJ umiejętności albo należący do
+    innej umiejętności to konflikt (409), nie ciche pominięcie. Mapa aliasów
+    scoringu (``refresh_alias_map``) daje aliasowi pierwszeństwo przed nazwą
+    kanoniczną, więc alias „java” dopisany do JavaScriptu przepinał Javę
+    w całym dopasowaniu."""
     alias_lc = alias.strip().lower()
     if not alias_lc:
         raise CurationError("Alias nie może być pusty")
+    named = await _other_skill_named(db, alias_lc, exclude_skill_id=skill_id)
+    if named is not None:
+        raise CurationConflict(
+            f"„{alias_lc}” to nazwa innej umiejętności ({named.canonical_name}) "
+            "— nie może być aliasem."
+        )
     stmt = (
         pg_insert(SkillAlias)
         .values(skill_id=skill_id, alias=alias_lc)
         .on_conflict_do_nothing(index_elements=["alias"])
         .returning(SkillAlias.id)
     )
-    return (await db.execute(stmt)).scalar() is not None
+    if (await db.execute(stmt)).scalar() is not None:
+        return True
+    owner = await _alias_owner(db, alias_lc)
+    if owner is not None and owner.id != skill_id:
+        raise CurationConflict(
+            f"Alias „{alias_lc}” należy już do umiejętności {owner.canonical_name}."
+        )
+    return False
 
 
 async def map_term_to_skill(
@@ -106,6 +148,13 @@ async def create_skill(
     )
     if existing is not None:
         raise CurationError(f"Skill o nazwie '{name}' już istnieje (id={existing.id})")
+    # Runda 9 (R9-N13-3): nazwa równa istniejącemu aliasowi dawała umiejętność
+    # nieosiągalną — mapa scoringu kieruje ten tekst na właściciela aliasu.
+    alias_owner = await _alias_owner(db, name.lower())
+    if alias_owner is not None:
+        raise CurationConflict(
+            f"„{name}” jest już aliasem umiejętności {alias_owner.canonical_name}."
+        )
 
     skill = Skill(canonical_name=name, category=category)
     db.add(skill)

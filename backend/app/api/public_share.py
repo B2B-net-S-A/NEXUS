@@ -12,7 +12,7 @@ import os
 import pathlib
 import hashlib
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import aiofiles
@@ -35,21 +35,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
-from app.schemas.champion import client_safe_screening
-from app.services import champion_view
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_document_version import CvDocumentVersion
-from app.models.champion_share import ChampionCardShareToken
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_generated_share import CvGeneratedShareToken
 from app.models.cv_share_token import CVShareToken
 from app.services.cv_public_document import public_cv_document
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job
-from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -65,113 +61,19 @@ router = APIRouter()
 async def get_public_champion_card(
     token: str,
     request: Request,  # required by slowapi limiter
-    db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Client-facing read of a filled Champion card. Rate-limited: 30 req/min per IP.
-
-    Returns 404 when the token is unknown, revoked, or expired. The response
-    shape is slimmed down — no internal fields (scores, stage ids) — so that
-    the client only sees what the recruiter meant to share.
-    """
-    # Limiter dodany, bo to była JEDYNA trasa w tym pliku bez niego, a
-    # `rate_limit.py` ma `default_limits=[]` — nic jej nie przykrywało. Każde
-    # trafienie to cztery sekwencyjne round-tripy do produkcyjnego Postgresa
-    # bez uwierzytelnienia, a przy poprawnym tokenie odpowiedź niesie PII
-    # kandydata. Reguła WAF Cloudflare jest zawężona do `/api/auth/*`, więc ta
-    # ścieżka szła na wprost.
-    # Dual-read (same pattern as CVShareToken): v2 rows match the SHA-256 digest
-    # of the incoming secret; legacy rows kept the raw secret in the PK and are
-    # matched directly, scoped to token_sha256 IS NULL so they age out on expiry.
-    import hashlib
-
-    digest = hashlib.sha256(token.encode()).hexdigest()
-    row: Optional[ChampionCardShareToken] = await db.scalar(
-        select(ChampionCardShareToken).where(
-            (ChampionCardShareToken.token_sha256 == digest)
-            | (
-                (ChampionCardShareToken.token == token)
-                & (ChampionCardShareToken.token_sha256.is_(None))
-            )
-        )
+    """Karta Championa dla klienta — wyłączona (410)."""
+    # D2 (07.10.2026): z NEXUSA nic nie idzie do klienta, a migracja 0424
+    # odwołała wszystkie tokeny. Odpowiedź nie czyta bazy — nie zdradza ani
+    # istnienia tokenu, ani danych kandydata. Limit zostaje (strażnik
+    # `test_public_surface_hardening.py`), bo trasa dalej jest publiczna.
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "CHAMPION_SHARE_REMOVED",
+            "message": "Ten link do karty kandydata jest już nieważny.",
+        },
     )
-    if row is None or row.revoked:
-        raise HTTPException(
-            status_code=404, detail="Link nie istnieje lub został odwołany."
-        )
-    if row.expires_at is not None and row.expires_at < datetime.now(timezone.utc):
-        raise HTTPException(status_code=404, detail="Link wygasł.")
-
-    stage = await db.scalar(
-        select(CandidateStage).where(CandidateStage.id == row.candidate_stage_id)
-    )
-    if stage is None:
-        raise HTTPException(status_code=404, detail="Karta nie jest już dostępna.")
-    candidate = await db.scalar(
-        select(Candidate).where(Candidate.id == stage.candidate_id)
-    )
-    job = await db.scalar(select(Job).where(Job.id == stage.job_id))
-
-    return {
-        "candidate": {
-            "name": candidate.name if candidate else None,
-            "lastname": candidate.lastname if candidate else None,
-            "competence_category": candidate.competence_category if candidate else None,
-            "location": candidate.location if candidate else None,
-            "years_it_experience": candidate.years_it_experience if candidate else None,
-        },
-        "job": {
-            "title": job.title if job else None,
-            "location": job.location if job else None,
-            "seniority": job.seniority.value if job and job.seniority else None,
-        },
-        "champion_profile": _public_champion_projection(job),
-        # Wersja dla klienta: bez pytań pominiętych przy przepięciu i bez
-        # notatki wewnętrznej (Pipeline v4, 23.09.2026).
-        "screening_answers": client_safe_screening(stage.screening_answers),
-        "expires_at": row.expires_at.isoformat() if row.expires_at else None,
-    }
-
-
-def _public_champion_projection(job) -> dict:
-    """Wycinek Championa dla karty udostępnianej hiring managerowi.
-
-    Whitelist, nie surowy dokument. Do 09.2026 endpoint zwracał
-    `job.champion_profile` w całości, więc każdy z linkiem dostawał w JSON-ie
-    także rzeczy, których karta nigdy nie renderowała: NASZĄ stawkę dla
-    kandydata (`rate_value`), listę firm docelowych, dyskwalifikatory i reguły
-    priorytetu klienta. Niewidoczne na ekranie, ale obecne w odpowiedzi —
-    a odbiorcą tego linku jest strona trzecia.
-
-    Przy okazji stabilizuje kontrakt dla frontu: karta czyta jeden kształt
-    niezależnie od tego, czy oferta ma profil sprzed czy po przebudowie.
-    """
-    raw = (getattr(job, "champion_profile", None) if job else None) or {}
-    if not isinstance(raw, dict) or not raw:
-        return {}
-    basics = champion_view.basics(raw)
-    project = champion_view.project(raw)
-    stack = champion_view.stack(raw)
-    return {
-        # Świadomie BEZ `rate_value`, `role_name` i długości kontraktu — karta
-        # ma powiedzieć hiring managerowi, w jakim trybie pracuje kandydat,
-        # a nie ile nam płaci jego klient.
-        "basics": {
-            "onsite_days_per_week": basics.get("onsite_days_per_week"),
-            "language": basics.get("language"),
-        },
-        "project": {
-            "about": project.get("about") or "",
-            "responsibilities": project.get("responsibilities") or "",
-        },
-        "stack": {
-            "must": [
-                {"name": item.get("name")}
-                for item in (stack.get("must") or [])
-                if isinstance(item, dict) and item.get("name")
-            ],
-        },
-        "screening_questions": champion_view.screening_questions(raw),
-    }
 
 
 # ── CV per rekrutacja — public share (Faza 4) ──────────────────────────────
@@ -301,11 +203,20 @@ async def get_public_cv(
     from app.services.cv_packages import public_documents
 
     package = await public_documents(db, getattr(row, "package_versions", None))
-    return {
-        **package,
-        "candidate_first_name": version.candidate_first_name
+    from app.services.cv_document_versions import public_first_name
+
+    # Maskowanie przy odczycie (R9-N3-1): wersje zapisane przed poprawką
+    # niosą prawdziwe imię także przy szablonie blind.
+    first_name = public_first_name(
+        version.candidate_first_name
         if version
         else (candidate.name if candidate else None),
+        version.template if version else csv.branded_template,
+        version.language if version else csv.branded_language,
+    )
+    return {
+        **package,
+        "candidate_first_name": first_name,
         "job_title": version.job_title if version else (job.title if job else None),
         "cv_html": cv_html,
         "expires_at": row.expires_at.isoformat() if row.expires_at else None,
@@ -339,6 +250,32 @@ async def _load_generated_share(token: str, db: AsyncSession) -> CvGeneratedShar
     if row.expires_at is not None and row.expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=410, detail="Link wygasł.")
     return row
+
+
+#: Jak długo po OSTATNIM dozwolonym wyświetleniu strona otwarta tym
+#: wyświetleniem może jeszcze zadawać pytania. Pytanie nie zużywa wyświetleń,
+#: więc bez okna link z wyczerpanym limitem działałby jako chat bez końca.
+CHAT_AFTER_LAST_VIEW = timedelta(hours=2)
+
+
+def chat_view_limit_exhausted(
+    max_views: Optional[int],
+    view_count: int,
+    last_viewed_at: Optional[datetime],
+    *,
+    now: datetime,
+) -> bool:
+    """Czy chat linku ma odpowiedzieć 410 z powodu limitu wyświetleń.
+
+    Limit jak w GET (audyt 25.09.2026, runda 5 — do tego dnia chat nie
+    sprawdzał go wcale): poniżej limitu chat działa i niczego nie zużywa.
+    Link wyczerpany przyjmuje pytania tylko w oknie ``CHAT_AFTER_LAST_VIEW``
+    od ostatniego wyświetlenia — ostatni dozwolony widz nie traci chatu na
+    stronie, którą właśnie otworzył, a link przekazany dalej już nic nie mówi.
+    """
+    if max_views is None or view_count < max_views:
+        return False
+    return last_viewed_at is None or now - last_viewed_at > CHAT_AFTER_LAST_VIEW
 
 
 def _generated_doc_or_404(row: CvGeneratedShareToken) -> CvGeneratedDocument:
@@ -546,9 +483,19 @@ async def post_public_generated_cv_chat(
 
     Kontekst modelu = wyłącznie client-safe payload + mapa wymagań — patrz
     `cv_generator_b2b.interactive_chat`. Warstwy limitów: rate limit (IP),
-    dzienny limit pytań per link (429), globalna kwota AI (503).
+    limit wyświetleń linku (410, bez zużywania wyświetleń), dzienny limit
+    pytań per link (429), globalna kwota AI (503).
     """
     row = await _load_generated_share(token, db)
+    if chat_view_limit_exhausted(
+        row.max_views,
+        row.view_count or 0,
+        row.last_viewed_at,
+        now=datetime.now(timezone.utc),
+    ):
+        raise HTTPException(
+            status_code=410, detail="Limit wyświetleń linku został wyczerpany."
+        )
     doc = _generated_doc_or_404(row)
     approved_context = None
     if row.document_version_id is not None:
@@ -658,11 +605,18 @@ async def _load_valid_link(token: str, db: AsyncSession) -> CandidateInviteLink:
         raise HTTPException(status_code=404, detail="Invite link expired")
     # 0339: link bez terminu żyje do zamknięcia rekrutacji — ta sama reguła
     # dla starych linków z terminem (zamknięta rekrutacja nie przyjmuje CV).
-    from app.services.job_public_profile import job_is_open
+    from app.models.job_public_profile import JobPublicProfile
+    from app.services import job_public_profile as jpp
 
     job = await db.get(Job, link.job_id)
-    if not job_is_open(job):
+    if not jpp.job_is_open(job):
         raise HTTPException(status_code=404, detail="Invite link no longer valid")
+    # Runda 10 (R10-N10-9): ta sama reguła co `/r/{slug}` — bez zatwierdzonego
+    # opisu publicznego strona pokazywała tytuł i miasto prosto z rekrutacji
+    # (nazwa klienta, kody), a formularz przyjmował zgłoszenia.
+    profile = await db.get(JobPublicProfile, link.job_id)
+    if await jpp.published_version(db, job, profile) is None:
+        raise HTTPException(status_code=404, detail="Invite link not found or revoked")
     return link
 
 
@@ -689,19 +643,27 @@ async def get_public_apply_meta(
     # Use only the first name of the recruiter for the hero line.
     recruiter_first_name = (recruiter.name or "").strip().split(" ", 1)[0]
     # 0340: tytuł publiczny — surowy `jobs.title` niesie nazwę klienta i kody.
+    # Runda 10 (R10-N10-9): parametry z zatwierdzonej migawki i przełączników
+    # sekcji, jak na stronie kariery — nie surowe `jobs.location`.
     from app.models.job_public_profile import JobPublicProfile
-    from app.services.job_public_profile import public_titles
+    from app.services.job_public_profile import published_version, visible_params
 
+    # 19.10.2026: wersja opublikowana, nie bieżący szkic — poprawki czekające
+    # na zatwierdzenie nie trafiają do kandydata.
     profile = await db.get(JobPublicProfile, job.id)
-    _default_title, public_title = await public_titles(db, job, profile)
+    version = await published_version(db, job, profile)
+    if version is None:
+        raise HTTPException(status_code=404, detail="Invite link not found or revoked")
+    public_title = version.title
+    params = visible_params(job, version.sections)
 
     return {
         "recruiter": {"first_name": recruiter_first_name or "Zespół"},
         "job": {
             "title": public_title,
-            "location": job.location,
-            "seniority": job.seniority.value if job.seniority else None,
-            "remote_policy": (job.remote_policy.value if job.remote_policy else None),
+            "location": params.get("city"),
+            "seniority": params.get("seniority"),
+            "remote_policy": params.get("remote_policy"),
         },
         "expires_at": link.expires_at.isoformat() if link.expires_at else None,
     }
@@ -726,6 +688,23 @@ def _validate_cv_file(upload: UploadFile, content: bytes) -> None:
         )
 
 
+# Runda 8 (R8-N4-8): nazwa pliku na dysku ma limit 255 BAJTÓW. Nazwa CV
+# z ~120 polskimi znakami dawała `ENAMETOOLONG` = 500 i nowy kandydat nie mógł
+# aplikować. Zapas na prefiks ``candidate_<id>_``.
+_STORED_NAME_MAX_BYTES = 180
+
+
+def _fit_filename(filename: str, max_bytes: int = _STORED_NAME_MAX_BYTES) -> str:
+    """Nazwa przycięta do ``max_bytes`` w UTF-8, z zachowanym rozszerzeniem."""
+    if len(filename.encode("utf-8")) <= max_bytes:
+        return filename
+    stem, ext = os.path.splitext(filename)
+    ext = ext if len(ext.encode("utf-8")) <= 16 else ""
+    budget = max_bytes - len(ext.encode("utf-8"))
+    cut = stem.encode("utf-8")[:budget].decode("utf-8", "ignore").rstrip()
+    return f"{cut or 'cv'}{ext}"
+
+
 async def _persist_cv(
     candidate_id: int, upload: UploadFile, content: bytes
 ) -> tuple[str, Optional[str]]:
@@ -739,7 +718,9 @@ async def _persist_cv(
     # `candidates._sanitize_upload_filename`. Wynik trafia do `cv_filename`,
     # które ścieżki pobrania doklejają do `UPLOAD_DIR`; nazwa z `/` kończyła
     # się tu `FileNotFoundError` (500 po utworzeniu kandydata).
-    filename = pathlib.Path((upload.filename or "").strip()).name or "cv.pdf"
+    filename = _fit_filename(
+        pathlib.Path((upload.filename or "").strip()).name or "cv.pdf"
+    )
     file_path = os.path.join(
         settings.UPLOAD_DIR, f"candidate_{candidate_id}_{filename}"
     )
@@ -754,8 +735,12 @@ async def _persist_cv(
             cv_text_extractor.extract_text, file_path, filename
         )
     except Exception as e:  # pragma: no cover — defensive
+        # Runda 10 (R10-N10-6): `UnsupportedCvFormat` niesie nazwę pliku CV
+        # (zwykle imię i nazwisko) — do logu idzie tylko klasa wyjątku.
         logger.warning(
-            "[apply] CV text extraction failed candidate=%s: %s", candidate_id, e
+            "[apply] CV text extraction failed candidate=%s: %s",
+            candidate_id,
+            type(e).__name__,
         )
     return filename, raw_text
 
@@ -784,7 +769,10 @@ async def _persist_submission_cv(
             )
             file_bytes = None
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[apply] inert CV object-store upload failed: %s", e)
+        # Runda 9 (R9-N7-8): wyjątek magazynu niesie klucz z nazwą pliku CV.
+        logger.warning(
+            "[apply] inert CV object-store upload failed: %s", type(e).__name__
+        )
         object_key = None
         file_bytes = content
 
@@ -803,7 +791,7 @@ async def _persist_submission_cv(
 
         raw_text = await asyncio.to_thread(_extract)
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[apply] inert CV text extraction failed: %s", e)
+        logger.warning("[apply] inert CV text extraction failed: %s", type(e).__name__)
 
     return object_key, file_bytes, raw_text
 
@@ -827,6 +815,7 @@ async def submit_public_apply(
     cv: UploadFile = File(...),
     # Zgoda (0339) — wymagana; bez niej 422 przy polu `consent`.
     consent: Optional[str] = Form(None, max_length=10),
+    consent_future: Optional[str] = Form(None, max_length=10),
     # Opcjonalne pola strony kariery, przyjmowane też tutaj (ten sam serwis).
     expected_rate_hourly: Optional[str] = Form(None, max_length=20),
     availability_date: Optional[str] = Form(None, max_length=20),
@@ -903,6 +892,7 @@ async def submit_public_apply(
             "term": utm_term,
             "content": utm_content,
         },
+        consent_future=public_apply.consent_given(consent_future),
         **optional,
     )
     return await public_apply.submit_application(
@@ -970,7 +960,11 @@ async def _invite_post_apply_task(
                 trigger="public_apply",
             )
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[apply] CV enrichment failed candidate=%s: %s", candidate_id, e)
+        logger.warning(
+            "[apply] CV enrichment failed candidate=%s: %s",
+            candidate_id,
+            type(e).__name__,
+        )
 
     # (2) CC classification + auto-assign. Needs its own session because the
     # previous task committed and closed its session. Routes through the shared
@@ -999,4 +993,8 @@ async def _invite_post_apply_task(
                     summary["primary_score"],
                 )
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[apply] CC classify failed candidate=%s: %s", candidate_id, e)
+        logger.warning(
+            "[apply] CC classify failed candidate=%s: %s",
+            candidate_id,
+            type(e).__name__,
+        )

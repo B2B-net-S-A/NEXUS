@@ -9,10 +9,15 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ getOriginal: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getOriginal: vi.fn(), preloadPdfJs: vi.fn() }));
+
+vi.mock("@/lib/pdfjs-loader", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/pdfjs-loader")>()),
+  preloadPdfJs: () => mocks.preloadPdfJs(),
+}));
 
 vi.mock("@/lib/api", () => ({
   candidateStageCvApi: {
@@ -30,6 +35,7 @@ vi.mock("@/lib/authenticated-files", () => ({
 }));
 
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
+import { fetchAuthenticatedBlob } from "@/lib/authenticated-files";
 
 function httpError(status: number) {
   return Object.assign(new Error(`HTTP ${status}`), { response: { status } });
@@ -105,5 +111,57 @@ describe("CVOriginalPreviewModal — powody pustego okna (audyt B19)", () => {
     expect(
       screen.queryByRole("document", { name: "CV oryginalne" }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("CVOriginalPreviewModal — pdf.js równolegle z plikiem (27.10.2026)", () => {
+  it("zaczyna ładować pdf.js przy otwarciu, zanim plik CV się pobierze", async () => {
+    mocks.preloadPdfJs.mockReset();
+    vi.mocked(fetchAuthenticatedBlob).mockReset();
+    // Plik „w drodze” — nigdy nie przychodzi.
+    vi.mocked(fetchAuthenticatedBlob).mockReturnValue(new Promise(() => {}));
+    mocks.getOriginal.mockResolvedValue({
+      data: {
+        candidate_stage_id: 77,
+        candidate_id: 4242,
+        job_id: 9,
+        has_snapshot: true,
+        original_cv_filename: "cv.pdf",
+        original_cv_language: "pl",
+        original_snapshot_at: "2026-10-01T10:00:00Z",
+        original_snapshot_source: "auto_create",
+        download_url: "/api/candidates/stages/77/cv/original/download",
+      },
+    });
+    renderModal();
+    await waitFor(() => expect(fetchAuthenticatedBlob).toHaveBeenCalled());
+    expect(mocks.preloadPdfJs).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("CVOriginalPreviewModal — dziennik dostępu (audyt 22.10, F25)", () => {
+  it("podgląd PDF pobiera bajty jako podgląd, nie zapis na dysk", async () => {
+    vi.mocked(fetchAuthenticatedBlob).mockReset();
+    vi.mocked(fetchAuthenticatedBlob).mockResolvedValue(new Blob(["pdf"]));
+    mocks.getOriginal.mockResolvedValue({
+      data: {
+        candidate_stage_id: 77,
+        candidate_id: 4242,
+        job_id: 9,
+        has_snapshot: true,
+        original_cv_filename: "cv.pdf",
+        original_cv_language: "pl",
+        original_snapshot_at: "2026-10-01T10:00:00Z",
+        original_snapshot_source: "auto_create",
+        download_url: "/api/candidates/stages/77/cv/original/download",
+      },
+    });
+    renderModal();
+
+    await waitFor(() =>
+      expect(fetchAuthenticatedBlob).toHaveBeenCalledWith(
+        "/api/candidates/stages/77/cv/original/download?disposition=inline",
+      ),
+    );
   });
 });

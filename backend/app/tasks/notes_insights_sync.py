@@ -33,6 +33,8 @@ from app.core.database import AsyncSessionLocal
 from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
+from app.services.candidate_notes_facts import NOTES_CHANGED_AT_KEY, clear_notes_facts
+from app.services.contract_availability import load_contract_history
 from app.services.notes_insights_extractor import (
     MIN_BLOB_CHARS,
     PROMPT_VERSION,
@@ -44,6 +46,7 @@ from app.services.notes_insights_extractor import (
     notes_fingerprint,
     stamp_no_content,
 )
+from app.services.notes_profile_fill import fill_languages_from_notes, notes_days
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +116,26 @@ def _is_due(last_synced_at: Optional[datetime], now: datetime) -> bool:
     return now.hour >= int(settings.NOTES_INSIGHTS_SYNC_HOUR_UTC)
 
 
+def _later(latest: Optional[datetime], changed_at: Any) -> Optional[datetime]:
+    """Późniejszy z: najnowszej notatki i znacznika zmiany zbioru notatek.
+
+    Zepsuty znacznik w JSONB jest pomijany — jeden wiersz nie może wywrócić
+    całego przebiegu selekcji.
+    """
+    if not isinstance(changed_at, str):
+        return latest
+    try:
+        changed = datetime.fromisoformat(changed_at)
+    except ValueError:
+        return latest
+    if changed.tzinfo is None:
+        changed = changed.replace(tzinfo=timezone.utc)
+    if latest is None:
+        return changed
+    base = latest if latest.tzinfo else latest.replace(tzinfo=timezone.utc)
+    return max(base, changed)
+
+
 async def _select_stale_candidates(limit: int) -> list[int]:
     """Kandydaci z notatką nowszą niż ich znacznik ekstrakcji (lub bez niej).
 
@@ -130,6 +153,8 @@ async def _select_stale_candidates(limit: int) -> list[int]:
                            c.cv_extracted_data->'_notes_insights'
                                ->>'_extracted_at' AS stamp_v1,
                            (c.cv_extracted_data ? '_notes_insights') AS has_ins,
+                           c.cv_extracted_data->'_notes_insights'
+                               ->>'_notes_changed_at' AS changed_at,
                            ln.latest
                     FROM candidates c
                     JOIN (
@@ -145,7 +170,7 @@ async def _select_stale_candidates(limit: int) -> list[int]:
             )
         ).all()
     stale: list[int] = []
-    for cid, stamp_v2, stamp_v1, has_ins, latest in rows:
+    for cid, stamp_v2, stamp_v1, has_ins, changed_at, latest in rows:
         # Lekka projekcja: same znaczniki zamiast całego blobu insights —
         # `legacy_row_is_fresh` i tak czyta wyłącznie te dwa pola, a pełny
         # JSONB dla ~14k wierszy to dziesiątki MB na każdy dzienny bieg.
@@ -154,6 +179,9 @@ async def _select_stale_candidates(limit: int) -> list[int]:
             if has_ins
             else None
         )
+        # Runda 10 (R10-N6-2): usunięcie notatki nie tworzy nowszej notatki,
+        # więc bez tego znacznika fakty z usuniętej notatki zostawały świeże.
+        latest = _later(latest, changed_at)
         if legacy_row_is_fresh(insights, latest):
             continue
         stale.append(int(cid))
@@ -205,6 +233,39 @@ async def _select_outdated_candidates(limit: int, exclude: set[int]) -> list[int
     return out[:limit]
 
 
+async def _clear_facts(db, cand: Candidate) -> None:
+    """Wyczyść fakty z notatek (i stawkę wpisaną przez notatki) z audytem."""
+    from app.services.match_score_cache import mark_stale_for_candidate
+
+    had_date = cand.availability_date is not None
+    rate_audit = clear_notes_facts(cand)
+    if rate_audit is not None:
+        from app.services import candidate_audit
+
+        candidate_audit.record_candidate_audit(
+            db,
+            action=candidate_audit.PROFILE_RATE_CHANGED,
+            user_id=None,
+            entity_id=cand.id,
+            details=rate_audit,
+        )
+    # Data dostępności wpisana przez notatki znika razem z nimi (07.10.2026).
+    if rate_audit is not None or (had_date and cand.availability_date is None):
+        await mark_stale_for_candidate(db, cand.id)
+
+
+# 401 zły klucz, 402 brak środków (DeepSeek), 403 konto zablokowane — każdy
+# kolejny kandydat dostałby tę samą odmowę.
+_ACCOUNT_ERROR_STATUSES = frozenset({401, 402, 403})
+
+
+def _account_error_status(exc: BaseException) -> Optional[int]:
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    return status if status in _ACCOUNT_ERROR_STATUSES else None
+
+
 async def run_notes_insights_sync() -> dict[str, Any]:
     """Jeden bieg: selekcja przeterminowanych → ekstrakcja → zapis. Zwraca statystyki."""
     from app.services.index_outbox_service import CANDIDATE, record_bulk_reindex
@@ -224,6 +285,9 @@ async def run_notes_insights_sync() -> dict[str, Any]:
         "rate_updated": 0,
         "onsite_days_filled": 0,
         "remote_modes_filled": 0,
+        "avail_date_filled": 0,
+        "avail_date_cleared": 0,
+        "languages_added": 0,
         "quota_blocked": 0,
         "upgrade_selected": 0,
     }
@@ -258,6 +322,13 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                     continue
                 blob = build_notes_blob(rows)
                 if len(blob) < MIN_BLOB_CHARS:
+                    # Runda 10 (R10-N6-2): usunięto notatkę, a reszta nie niesie
+                    # treści — `stamp_no_content` zachowałby fakty z usuniętej.
+                    # 0412 (decyzja Artura 03.10.2026: nic nie znika): fakty
+                    # kandydata, któremu po odfiltrowaniu szumu nie została
+                    # żadna czytelna notatka, ZOSTAJĄ — stempel ich nie rusza.
+                    if isinstance(prior, dict) and prior.get(NOTES_CHANGED_AT_KEY):
+                        await _clear_facts(db, cand)
                     # Stempel bez AI — inaczej klasa "no_content" wraca do
                     # selekcji każdego dnia i zjada cały budżet biegu
                     # (prod, pierwszy bieg: selected=300, skipped_short=299).
@@ -273,6 +344,22 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                     stats["quota_blocked"] += 1
                     stats["status"] = "quota_blocked"
                     break
+                except Exception as exc:
+                    status = _account_error_status(exc)
+                    if status is None:
+                        raise
+                    # Brak środków / zły klucz odrzuci KAŻDEGO kandydata tak samo.
+                    # 25.09.2026: saldo DeepSeek −0,01 USD dawało 402 ~1000 razy
+                    # na noc, każde jako osobne zdarzenie Sentry. Jedno wystarczy.
+                    logger.warning(
+                        "notes-insights: dostawca AI odrzuca konto (HTTP %s) — "
+                        "bieg zatrzymany, ponowię przy następnym",
+                        status,
+                    )
+                    stats["errors"] += 1
+                    stats["status"] = "provider_unavailable"
+                    stats["provider_error"] = f"HTTP {status}"
+                    break
                 # Refresh after the remote call, then lock only the local write.
                 # A recruiter may have changed skills/rate while Claude worked.
                 cand = await db.scalar(
@@ -283,7 +370,30 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                 )
                 if cand is None:
                     continue
-                row_stats = apply_insights(cand, parsed, fingerprint=fingerprint)
+                days = notes_days(rows)
+                row_stats = apply_insights(
+                    cand,
+                    parsed,
+                    fingerprint=fingerprint,
+                    as_of=days.availability,
+                    latest_note_day=days.latest,
+                    # „Od zaraz” ze screeningu sprzed umowy nie daje
+                    # „Szuka aktywnie” (S2, 15.10.2026).
+                    contracts=await load_contract_history(db, cid),
+                )
+                # Języki z notatek tylko dopisują brakujące (07.10.2026) —
+                # w savepoincie: błąd zapisu języków nie cofa faktów kandydata
+                # (flush PRZED savepointem — inaczej rollback zabrałby i je).
+                await db.flush()
+                try:
+                    async with db.begin_nested():
+                        added = await fill_languages_from_notes(db, cid, parsed)
+                except Exception:  # noqa: BLE001
+                    logger.exception("notes-insights: języki padły dla id=%s", cid)
+                    added = 0
+                if added:
+                    row_stats["languages_added"] = added
+                    row_stats["changed"] = 1
                 if row_stats.get("rate_audit"):
                     from app.services import candidate_audit
 
@@ -301,6 +411,9 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                     "rate_updated",
                     "onsite_days_filled",
                     "remote_modes_filled",
+                    "avail_date_filled",
+                    "avail_date_cleared",
+                    "languages_added",
                 ):
                     stats[key] += row_stats.get(key, 0)
                 if row_stats.get("changed"):

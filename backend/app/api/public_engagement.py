@@ -21,6 +21,7 @@ Uwaga przy dokładaniu tras: ten moduł NIE MOŻE dostać
 """
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -29,6 +30,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.scheduling import DEFAULT_TZ
 from app.core.rate_limit import limiter
 from app.models.engagement_token import EngagementDeclarationToken
 
@@ -90,6 +92,16 @@ async def _resolve_token(token: str, db: AsyncSession) -> EngagementDeclarationT
     if row.used_at is not None:
         raise HTTPException(status_code=410, detail="Link już został użyty.")
     return row
+
+
+def _declaration_suffix(notes: str, now: datetime) -> str:
+    """Dopisek do notatek: data w kalendarzu firmy, nie w UTC.
+
+    Runda 10 (R10-N10-10): `now` to znacznik UTC — między 00:00 a 02:00
+    w Warszawie jego data to jeszcze wczoraj.
+    """
+    day = now.astimezone(ZoneInfo(DEFAULT_TZ)).date()
+    return f"\n[deklaracja kandydata, {day.isoformat()}]: {notes.strip()}"
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -173,7 +185,7 @@ async def submit_engagement_form(
     if data.notes:
         # Append, nie nadpisuj — rekruter mógł mieć tam już swoje notatki.
         prev = (candidate.engagement_notes or "").strip()
-        suffix = f"\n[deklaracja kandydata, {now:%Y-%m-%d}]: {data.notes.strip()}"
+        suffix = _declaration_suffix(data.notes, now)
         candidate.engagement_notes = (prev + suffix).strip() if prev else suffix.strip()
 
     await db.commit()

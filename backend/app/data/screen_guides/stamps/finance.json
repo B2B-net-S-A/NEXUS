@@ -1,9 +1,9 @@
 {
-  "entry": "91db8e99e3f284eeaaed523fec8ba15c6a9fee84a8162be57c74d72e66835fdb",
+  "entry": "e976ba5f2ccd8a4a35ff37c065317e428e691e42895940e39049c37ee4db55e4",
   "guide": "finance",
   "sources": {
-    "frontend/src/app/finance/page.tsx": "4535cf4f8b206c7d4b7a10b15a61a47665aaa5c36038cb91801606a962cbec21",
-    "frontend/src/components/finance/MdImportWorkspace.tsx": "4d8c3cc28c85a28adcd9b802c829ebccd20c229b11480331a86e76ebb7d9ac51",
-    "frontend/src/components/finance/OrderChangesPanel.tsx": "bc54f17fc595fa8a457c54b7b150499e7cb529c8243e9d7f8ab8ce84c4108c93"
+    "frontend/src/app/finance/page.tsx": "0a41766be43103dff382ce82932cdeac748de7130ee88167efc97ac8e98afce1",
+    "frontend/src/components/finance/MdImportWorkspace.tsx": "e8c1dc1d0647147687534b19c3e8699c0be4c5005ee1077811d360868f421986",
+    "frontend/src/components/finance/OrderChangesPanel.tsx": "d6c9252529ac61dc69a8f3b41166f08e9b5449bbe1f37fac10bbdc2397d6f663"
   }
 }

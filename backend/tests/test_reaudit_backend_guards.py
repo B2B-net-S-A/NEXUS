@@ -68,7 +68,8 @@ async def _headers_for(
                     client_id=assigned_client_id,
                 )
             )
-        elif assigned_client_id is not None and role is UserRole.tac:
+        elif assigned_client_id is not None and role is UserRole.recruiter:
+            # Historyczne przypisanie opiekuna klienta (do 0411 rola TAC).
             db.add(
                 ClientTacAssignment(
                     tac_user_id=user.id,
@@ -111,9 +112,7 @@ _OVERVIEW_ROLES = [
     "delivery_lead",
     "talent_community_manager",
     "finance",
-    "tac",
     "recruiter",
-    "sourcer",
     "user",
 ]
 _OVERVIEW_OPERATIONAL = {
@@ -122,9 +121,7 @@ _OVERVIEW_OPERATIONAL = {
     "delivery_lead",
     "talent_community_manager",
     "finance",
-    "tac",
     "recruiter",
-    "sourcer",
 }
 
 
@@ -274,10 +271,25 @@ async def test_client_orders_list_shows_finance_to_assigned_delivery_lead(
     assert body["can_manage_finance"] is True
 
 
-async def test_client_orders_visible_but_redacted_for_unassigned_delivery_lead(
+async def test_client_orders_denied_for_unassigned_delivery_lead(
     app_client: AsyncClient,
 ) -> None:
-    """Każdy DL widzi zamówienia klienta, ale kwoty tylko po przypisaniu."""
+    """Od 25.09.2026 DL widzi zamówienia wyłącznie przypisanych klientów."""
+    client_id, _order_id, _contract_id = await _seed_client_order()
+    dl = await _headers_for(app_client, "delivery_lead", assigned_client_id=None)
+
+    resp = await app_client.get(f"/api/clients/{client_id}/orders", headers=dl)
+    assert resp.status_code == 403, resp.text
+
+
+async def test_client_orders_visible_but_redacted_for_unassigned_delivery_lead(
+    app_client: AsyncClient,
+    monkeypatch,
+) -> None:
+    """``DL_CLIENT_SCOPE=all`` (stan z #1365): widać, ale bez kwot."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "DL_CLIENT_SCOPE", "all")
     client_id, _order_id, contract_id = await _seed_client_order()
     dl = await _headers_for(app_client, "delivery_lead", assigned_client_id=None)
 
@@ -325,47 +337,44 @@ async def test_get_order_shows_finance_to_assigned_delivery_lead(
     assert body["rate_client"] is not None
 
 
-async def test_head_of_recruitment_never_gains_order_finance(
-    app_client: AsyncClient,
-) -> None:
+async def test_head_of_recruitment_never_gains_order_finance() -> None:
     """HoR nie zyskuje kwot ani ich zapisu przy poszerzeniu dla DL.
 
-    Sekcja Delivery odcina HoR przed handlerem, a lokalny predykat pozostaje
-    drugą warstwą: samo przekazanie ``dl_assigned=True`` nie może zmienić
-    innej persony w Delivery Leada.
+    Sekcja Delivery odcina HoR przed handlerem, a lokalna reguła pozostaje
+    drugą warstwą: sam klient „w granicy przypisań" nie może zmienić innej
+    persony w Delivery Leada — bez uprawnień do zamówień i kwot nie ma ani
+    odczytu, ani zapisu kwot.
     """
     from app.api import client_orders
+    from app.models.user import User
     from app.models.user import UserRole as Role
 
-    class _FakeUser:
-        def __init__(self, role: Role) -> None:
-            self._roles = {role}
+    def _account(role: Role) -> User:
+        return User(
+            id=1, email=f"{role.value}@example.com", role=role, roles=[role.value]
+        )
 
-        def has_role(self, role: Role) -> bool:
-            return role in self._roles
-
-        def get_all_roles(self) -> list[Role]:
-            return list(self._roles)
-
+    client_id = 77
     for role in (Role.head_of_recruitment, Role.tac, Role.recruiter):
-        assert (
-            client_orders._can_manage_order_finance(_FakeUser(role), dl_assigned=True)
-            is False
-        ), f"{role.value} nie może zarządzać kwotami zamówień"
+        amounts = client_orders._order_amounts_within(
+            _account(role), client_id, frozenset({client_id})
+        )
+        assert amounts.can_write is False, (
+            f"{role.value} nie może zarządzać kwotami zamówień"
+        )
+        assert amounts.can_read is False, f"{role.value} nie widzi kwot zamówień"
 
     # A przypisany DL — może; nieprzypisany nie.
-    assert (
-        client_orders._can_manage_order_finance(
-            _FakeUser(Role.delivery_lead), dl_assigned=True
-        )
-        is True
+    lead = _account(Role.delivery_lead)
+    assigned = client_orders._order_amounts_within(
+        lead, client_id, frozenset({client_id})
     )
-    assert (
-        client_orders._can_manage_order_finance(
-            _FakeUser(Role.delivery_lead), dl_assigned=False
-        )
-        is False
-    )
+    assert assigned.can_write is True and assigned.can_read is True
+    unassigned = client_orders._order_amounts_within(lead, client_id, frozenset({5}))
+    assert unassigned.can_write is False and unassigned.can_read is False
+    # Brak granicy u konta z rolą DL to błąd wołającego — kończy się odmową.
+    missing = client_orders._order_amounts_within(lead, client_id, None)
+    assert missing.can_write is False and missing.can_read is False
 
 
 async def test_only_assigned_delivery_lead_can_rewrite_order_rate_unit(
@@ -428,23 +437,19 @@ async def test_only_assigned_delivery_lead_can_rewrite_order_rate_unit(
     )
 
 
-async def test_client_order_structured_reads_are_global_but_file_stays_assigned(
+async def test_client_order_reads_and_file_require_dl_assignment(
     app_client: AsyncClient,
 ) -> None:
+    """Od 25.09.2026 lista, detal i plik zamówienia — tylko przypisany DL."""
     client_id, order_id, _contract_id = await _seed_client_order()
 
     list_path = f"/api/clients/{client_id}/orders"
     detail_path = f"/api/clients/{client_id}/orders/{order_id}"
     file_path = f"/api/clients/{client_id}/orders/{order_id}/file"
     unassigned = await _headers_for(app_client, "delivery_lead")
-    allowed_list = await app_client.get(list_path, headers=unassigned)
-    assert allowed_list.status_code == 200, allowed_list.text
-    assert allowed_list.json()["can_manage_finance"] is False
-    allowed_detail = await app_client.get(detail_path, headers=unassigned)
-    assert allowed_detail.status_code == 200, allowed_detail.text
-    assert allowed_detail.json()["rate_client"] is None
-    denied_file = await app_client.get(file_path, headers=unassigned)
-    assert denied_file.status_code == 403, denied_file.text
+    for path in (list_path, detail_path, file_path):
+        denied = await app_client.get(path, headers=unassigned)
+        assert denied.status_code == 403, denied.text
 
     assigned = await _headers_for(
         app_client,
@@ -458,10 +463,13 @@ async def test_client_order_structured_reads_are_global_but_file_stays_assigned(
     missing_file = await app_client.get(file_path, headers=assigned)
     assert missing_file.status_code == 404, missing_file.text
 
-    # A legacy TAC-client relationship must not reopen the Delivery section.
-    tac = await _headers_for(app_client, "tac", assigned_client_id=client_id)
+    # A legacy TAC-client relationship (`ClientTacAssignment`, dziś konto
+    # rekrutera) must not reopen the Delivery section.
+    guardian = await _headers_for(
+        app_client, "recruiter", assigned_client_id=client_id
+    )
     for path in (list_path, detail_path, file_path):
-        denied = await app_client.get(path, headers=tac)
+        denied = await app_client.get(path, headers=guardian)
         assert denied.status_code == 403, denied.text
 
 

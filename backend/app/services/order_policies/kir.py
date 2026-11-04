@@ -26,6 +26,7 @@ from app.services.order_policies._shared import (
     clean_person_name,
     clear_field,
     date_range_first,
+    model_concerns,
     normalize_amount,
     set_field,
 )
@@ -95,7 +96,8 @@ def apply_kir_order_policy(
     if rows and not result.consultant_rows:
         result.consultant_rows = rows
 
-    reasons: list[str] = []
+    # Zastrzeżenia modelu zostają — reguła ich nie zastępuje (runda 6 audytu).
+    reasons: list[str] = model_concerns(result)
     if result.title is None:
         reasons.append("Nie znaleziono numeru „L.dz. KIR/…” — sprawdź numer zamówienia")
     if not (start and end):
@@ -104,6 +106,6 @@ def apply_kir_order_policy(
         reasons.append(
             "Nie rozpoznano jednej stawki „zł netto/h” przy nazwisku — sprawdź stawkę"
         )
-    result.uncertain_reasons = reasons
+    result.uncertain_reasons = list(dict.fromkeys(reasons))
     result.uncertain = bool(reasons)
     return result

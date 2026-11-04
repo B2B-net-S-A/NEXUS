@@ -10,6 +10,7 @@
  */
 
 import { useState } from "react"
+import Link from "next/link"
 import { useQueryClient } from "@tanstack/react-query"
 import { Plus, X } from "lucide-react"
 
@@ -23,20 +24,16 @@ import {
   COMPETENCE_TEAM_QUERY_KEY,
   deleteTeamAssignment,
   putTeamAssignment,
-  putTeamRules,
   setAllocationExcluded,
   useCompetenceTeam,
   type CompetenceTeam,
   type TeamCategory,
   type TeamPerson,
-  type TeamRules,
 } from "@/lib/api/requestAllocation"
 import { resolveViewState } from "@/lib/view-state"
 
 const ROLE_LABEL: Record<string, string> = {
   recruiter: "rekruter",
-  sourcer: "sourcer",
-  tac: "TAC",
   delivery_lead: "DL",
 }
 
@@ -60,7 +57,6 @@ export interface CompetenceTeamActions {
   assign: (userId: number, categoryId: number, priority: 1 | 2) => void
   remove: (assignmentId: number) => void
   exclude: (userId: number, excluded: boolean) => void
-  saveRules: (rules: TeamRules) => void
 }
 
 function PersonChip({
@@ -166,57 +162,6 @@ function AddToCategory({
   )
 }
 
-function RulesForm({
-  rules,
-  onSave,
-}: {
-  rules: TeamRules
-  onSave: (rules: TeamRules) => void
-}) {
-  const [threshold, setThreshold] = useState(String(rules.sourcer_threshold))
-  const [time, setTime] = useState(rules.review_time)
-  return (
-    <section
-      aria-label="Zasady przydziału"
-      className="grid gap-4 rounded-lg border border-border bg-card p-4 md:grid-cols-[repeat(3,minmax(0,1fr))_auto] md:items-end"
-    >
-      <label className="flex flex-col gap-1 text-sm text-muted-foreground">
-        Sourcer wystarczy, gdy w bazie jest co najmniej
-        <span className="flex items-center gap-2 text-foreground">
-          <input
-            type="number"
-            min={1}
-            max={500}
-            className="h-10 w-24 rounded-md border border-input bg-background px-2"
-            value={threshold}
-            onChange={(e) => setThreshold(e.target.value)}
-          />
-          pasujących osób
-        </span>
-      </label>
-      <label className="flex flex-col gap-1 text-sm text-muted-foreground">
-        Codzienny przegląd przydziałów o
-        <input
-          type="time"
-          className="h-10 w-32 rounded-md border border-input bg-background px-2 text-foreground"
-          value={time}
-          onChange={(e) => setTime(e.target.value)}
-        />
-      </label>
-      <p className="text-sm text-muted-foreground">
-        Urlopy biorę z Compassa. Osoba bez kategorii nie dostaje requestów automatycznie.
-      </p>
-      <Button
-        onClick={() =>
-          onSave({ sourcer_threshold: Number(threshold), review_time: time })
-        }
-      >
-        Zapisz zasady
-      </Button>
-    </section>
-  )
-}
-
 export function CompetenceTeamView({
   team,
   actions,
@@ -227,9 +172,11 @@ export function CompetenceTeamView({
   const people = team.people
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
+      {/* Obok tabeli dopiero od 2xl: od 20.10.2026 panel stoi w Ustawieniach obok
+          lewej kolumny i przy 1280 px „Bez kategorii” ściskało tabelę do inicjałów. */}
+      <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start">
         <div className="min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-card">
-          <div className="grid grid-cols-[240px_minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-border px-5 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <div className="grid grid-cols-[200px_minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-border px-5 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             <div>Kategoria</div>
             <div>1. priorytet</div>
             <div>2. priorytet</div>
@@ -237,7 +184,7 @@ export function CompetenceTeamView({
           {team.categories.map((category) => (
             <div
               key={category.id}
-              className="grid grid-cols-[240px_minmax(0,1fr)_minmax(0,1fr)] items-start gap-4 border-b border-border px-5 py-4 last:border-0"
+              className="grid grid-cols-[200px_minmax(0,1fr)_minmax(0,1fr)] items-start gap-4 border-b border-border px-5 py-4 last:border-0"
             >
               <div className="flex flex-col gap-1.5">
                 <Badge variant={competenceTone(category.slug)} size="md" className="self-start">
@@ -272,7 +219,7 @@ export function CompetenceTeamView({
           </p>
         </div>
 
-        <aside className="flex w-full flex-col gap-4 xl:w-[340px] xl:shrink-0">
+        <aside className="flex w-full flex-col gap-4 2xl:w-[340px] 2xl:shrink-0">
           <section
             aria-label="Bez kategorii"
             className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4"
@@ -324,7 +271,16 @@ export function CompetenceTeamView({
           </section>
         </aside>
       </div>
-      <RulesForm key={`${team.rules.sourcer_threshold}-${team.rules.review_time}`} rules={team.rules} onSave={actions.saveRules} />
+      <p className="text-sm text-muted-foreground">
+        Godzina przeglądu, P2, limit na osobę i pozostałe zasady automatu są w zakładce{" "}
+        <Link
+          href="/settings/team-structure?zakladka=automat"
+          className="font-medium text-primary underline-offset-2 hover:underline"
+        >
+          Automat przydziału
+        </Link>
+        .
+      </p>
     </div>
   )
 }
@@ -373,8 +329,6 @@ export function CompetenceTeamPanel() {
             () => setAllocationExcluded(userId, excluded),
             "Nie udało się zmienić przydziału osoby.",
           ),
-        saveRules: (rules) =>
-          run(() => putTeamRules(rules), "Nie udało się zapisać zasad.", "Zasady zapisane."),
       }}
     />
   )

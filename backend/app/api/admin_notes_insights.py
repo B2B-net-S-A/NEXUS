@@ -4,6 +4,18 @@
   postęp w ``GET /api/admin/traffit/sync/status`` — wiersz ``notes_insights``
   w ``traffit_sync_state``, ten endpoint czyta wszystkie fazy).
 
+- ``POST /api/admin/notes-insights/client-rates?dry_run=true`` — wpisy Delivery
+  Leada o stawce do klienta („Wyślijmy za 161 zł/h”) → pole stawki etapu.
+  Próba oddaje liczby i nic nie zapisuje; ``dry_run=false`` wymaga podania
+  liczby wierszy z próby (``expected=``). Reguły: ``services/client_rate_notes.py``.
+  Od 07.10.2026 także krótkie wpisy „X/Y” (X — stawka do klienta).
+
+- ``POST /api/admin/notes-insights/profile-fill?dry_run=true`` — fakty z już
+  odczytanych notatek do PUSTYCH pól profilu (dostępność od dnia notatki,
+  okres wypowiedzenia, lata, tryb pracy, języki). Ta sama reguła co nocna
+  ekstrakcja, bez modelu; próba → ``expected=`` → paragon.
+  Reguły: ``services/notes_profile_backfill.py``.
+
 RBAC: admin JWT. Świadomie bez scope'u konta serwisowego na start — pętla
 dzienna obsługuje rutynę sama, trigger jest do aktywacji i nadganiania
 zaległości (operator odpala kilka razy, każdy bieg zjada kolejny budżet).
@@ -12,17 +24,41 @@ zaległości (operator odpala kilka razy, każdy bieg zjada kolejny budżet).
 # UWAGA: bez `from __future__ import annotations` — PEP 563 + slowapi #579
 # zamienia Annotated guardy w wymagane parametry QUERY (trap z CLAUDE.md).
 
-import asyncio
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
 from app.core.config import settings
+from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.core.tasks import spawn
+from app.services import client_rate_notes, notes_profile_backfill
 from app.tasks.notes_insights_sync import run_and_persist, sync_is_running
 
 router = APIRouter()
+
+# Runda 10 (R10-N8-2): rezerwacja biegu ustawiana SYNCHRONICZNIE w handlerze.
+# `sync_is_running()` widzi dopiero zajęty lock, a zadanie z `spawn` bierze go
+# w kolejnej iteracji pętli zdarzeń — dwa szybkie POST-y przechodziły oba
+# sprawdzenia, a drugi bieg czekał na lock i wykonywał się po pierwszym
+# (drugi raz płatny odczyt notatek).
+_manual_reserved = False
+
+
+async def _run_manual() -> None:
+    global _manual_reserved
+    try:
+        # Bieg pętli dziennej mógł wystartować między POST-em a tym krokiem —
+        # wtedy nie kolejkujemy drugiego biegu za nim. Od sprawdzenia do
+        # wejścia pod lock nie ma punktu oddania pętli (wolny lock bierze się
+        # bez czekania).
+        if sync_is_running():
+            return
+        await run_and_persist()
+    finally:
+        _manual_reserved = False
 
 
 @router.post("/sync")
@@ -37,15 +73,115 @@ async def trigger_notes_insights_sync(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Notes insights sync disabled (NOTES_INSIGHTS_SYNC_ENABLED=false)",
         )
-    if sync_is_running():
+    global _manual_reserved
+    if _manual_reserved or sync_is_running():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A notes insights run is already in progress",
         )
 
-    asyncio.create_task(run_and_persist())
+    _manual_reserved = True
+    # `spawn`: trzymana referencja i log porażki (goły `create_task` — nie).
+    spawn(_run_manual(), "notes_insights_sync")
     return {
         "status": "started",
         "batch_limit": settings.NOTES_INSIGHTS_SYNC_BATCH_LIMIT,
         "status_surface": "/api/admin/traffit/sync/status (phase=notes_insights)",
     }
+
+
+@router.post("/client-rates")
+@limiter.limit("10/minute")
+async def backfill_client_rates_from_notes(
+    request: Request,
+    admin: AdminUser,
+    dry_run: bool = Query(True),
+    expected: Optional[int] = Query(None, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Stawka do klienta z jednoznacznych wpisów Delivery Leada w notatkach.
+
+    Uzupełnia wyłącznie puste pola (para bez stawki na żadnym wierszu etapu);
+    notatek nie zmienia. Zapis wymaga ``expected`` równego liczbie wierszy
+    z próby — gdy dane zmieniły się od próby, odpowiedź to 409 i nic się nie
+    zapisuje. ``request`` — wymóg slowapi.
+    """
+    if not dry_run:
+        # Jeden zapis naraz; plan liczymy już pod blokadą.
+        await client_rate_notes.lock_for_apply(db)
+    plan, counts = await client_rate_notes.build_plan(db)
+    if dry_run:
+        return {
+            "dry_run": True,
+            "counts": counts,
+            # Same ID i kwota — bez nazwisk; trasa jest tylko dla admina.
+            "sample": [
+                {
+                    "stage_id": item.stage_id,
+                    "job_id": item.job_id,
+                    "note_id": item.note_id,
+                    "value": str(item.value),
+                }
+                for item in plan[:20]
+            ],
+        }
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Nie ma czego uzupełnić — wszystkie jednoznaczne wpisy są już w polach.",
+        )
+    if expected is None or expected != len(plan):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Liczba wierszy do uzupełnienia różni się od próby "
+                f"(teraz {len(plan)}). Uruchom próbę (dry_run=true) jeszcze raz "
+                "i podaj jej wynik w parametrze expected."
+            ),
+        )
+    receipt = await client_rate_notes.apply_plan(db, plan, counts, user_id=admin.id)
+    return {"dry_run": False, "counts": receipt["counts"]}
+
+
+@router.post("/profile-fill")
+@limiter.limit("10/minute")
+async def backfill_profile_from_notes(
+    request: Request,
+    admin: AdminUser,
+    dry_run: bool = Query(True),
+    expected: Optional[int] = Query(None, ge=0),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Fakty z zapisanych odczytów notatek do pustych pól profilu.
+
+    Nic nie nadpisuje (poza datą dostępności, którą wcześniej wpisały same
+    notatki). Zapis wymaga ``expected`` równego liczbie kandydatów z próby —
+    gdy dane zmieniły się od próby, odpowiedź to 409 i nic się nie zapisuje.
+    ``request`` — wymóg slowapi.
+    """
+    admin_id = admin.id
+    if not dry_run:
+        await notes_profile_backfill.lock_for_apply(db)
+    plan, counts = await notes_profile_backfill.build_plan(db)
+    if dry_run:
+        return {
+            "dry_run": True,
+            "counts": counts,
+            "sample": notes_profile_backfill.sample(plan),
+        }
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Nie ma czego uzupełnić — puste pola z faktami z notatek są już wypełnione.",
+        )
+    if expected is None or expected != len(plan):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Liczba kandydatów do uzupełnienia różni się od próby "
+                f"(teraz {len(plan)}). Uruchom próbę (dry_run=true) jeszcze raz "
+                "i podaj jej wynik w parametrze expected."
+            ),
+        )
+    run = await notes_profile_backfill.apply_plan(db, plan, counts, user_id=admin_id)
+    return {"dry_run": False, "counts": run["counts"]}

@@ -9,8 +9,9 @@ Kontrakty:
   się nikt i nikt nie dostaje dzwonka „system dodał kandydata";
 - ``proposed`` blokuje ponowną ocenę tej samej wersji CV jak inne decyzje;
 - ostrzeżenia blokujące (konflikt z klientem) nadal dają ``penalized``;
-- JEDEN dzienny digest na (rekrutacja, odbiorca), kolejne propozycje tego dnia
-  podbijają licznik w tym samym wpisie.
+- propozycja NIE dzwoni od razu: od 06.10.2026 (audyt, R3) zespół dostaje
+  JEDEN poranny dzwonek „Do przejrzenia” na (rekrutacja, Rekruter) z liczbą
+  osób z nocnego przeglądu i z nowych CV (``proposals_morning_bell``).
 """
 
 from __future__ import annotations
@@ -40,14 +41,6 @@ def test_mode_resolution(monkeypatch, mode, alias, expected):
     monkeypatch.setattr(settings, "AUTO_MATCH_MODE", mode)
     monkeypatch.setattr(settings, "AUTO_MATCH_DRY_RUN", alias)
     assert auto_match_mode() == expected
-
-
-def test_digest_wording():
-    assert ams._digest_text(1) == "1 nowa propozycja z nowych CV"
-    assert ams._digest_text(3) == "3 nowe propozycje z nowych CV"
-    assert ams._digest_text(5) == "5 nowych propozycji z nowych CV"
-    assert ams._digest_text(12) == "12 nowych propozycji z nowych CV"
-    assert ams._digest_text(22) == "22 nowe propozycje z nowych CV"
 
 
 def test_digest_type_is_visible_to_its_recipients():
@@ -118,7 +111,7 @@ async def test_propose_mode_writes_a_proposal_and_nothing_to_the_pipeline(monkey
     from app.models.activity import Activity
     from app.models.candidate import Candidate
     from app.models.job_proposal import JobProposal
-    from app.models.notification import Notification, NotificationType
+    from app.models.notification import Notification
     from app.models.recruitment_pipeline import CandidateStage
 
     ids = await _world(monkeypatch)
@@ -149,7 +142,12 @@ async def test_propose_mode_writes_a_proposal_and_nothing_to_the_pipeline(monkey
             assert (proposal.source, proposal.status) == ("new_cv", "proposed")
             assert proposal.candidate_id == ids["candidate"]
             assert proposal.cv_revision == "rev-1"
-            assert proposal.evidence == {"matched_must": ["Python"]}
+            # 13.10.2026 (B3): wymagania ze statusem dla karty propozycji —
+            # bez „✕”, brak w liście umiejętności to „unknown”.
+            assert proposal.evidence == {
+                "matched_must": ["Python"],
+                "requirements": [{"name": "Python", "level": "must", "status": "met"}],
+            }
             assert float(proposal.score) == 86.0
             log = (
                 await db.execute(
@@ -166,11 +164,8 @@ async def test_propose_mode_writes_a_proposal_and_nothing_to_the_pipeline(monkey
                     select(Notification).where(Notification.user_id == ids["owner"])
                 )
             ).all()
-            assert [n.notification_type for n in notes] == [
-                NotificationType.auto_match_proposals
-            ]
-            assert notes[0].link == f"/jobs/{ids['job']}?tab=similar"
-            assert notes[0].title.startswith("1 nowa propozycja z nowych CV")
+            # Bez dzwonka od razu — informuje poranny dzwonek „Do przejrzenia”.
+            assert notes == []
             [event] = (
                 await db.scalars(
                     select(Activity).where(
@@ -187,13 +182,17 @@ async def test_propose_mode_writes_a_proposal_and_nothing_to_the_pipeline(monkey
 
 
 @needs_db
-async def test_second_proposal_of_the_day_updates_the_same_digest(monkeypatch):
-    from sqlalchemy import select
+async def test_morning_bell_counts_fresh_proposals_once_a_day(monkeypatch):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from sqlalchemy import select, text
 
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
     from app.models.candidate_auto_match import CandidateMatchOutbox
-    from app.models.notification import Notification
+    from app.models.notification import Notification, NotificationType
+    from app.services import proposals_morning_bell as bell
 
     ids = await _world(monkeypatch)
     extra_id = None
@@ -201,10 +200,6 @@ async def test_second_proposal_of_the_day_updates_the_same_digest(monkeypatch):
         _stub_ranking(monkeypatch, job_hits={ids["job"]: 0.91}, candidate_hits={})
         await _candidate_event(ids)
         async with AsyncSessionLocal() as db:
-            note = await db.scalar(
-                select(Notification).where(Notification.user_id == ids["owner"])
-            )
-            note.is_read = True
             extra = Candidate(name="Druga", lastname="Propozycja")
             db.add(extra)
             await db.commit()
@@ -220,16 +215,34 @@ async def test_second_proposal_of_the_day_updates_the_same_digest(monkeypatch):
             await ams.run_candidate_event(db, event)
             event.status = "done"
             await db.commit()
+
+        # Środa 9:01 w przeszłości: okno od wtorku 8:00 obejmuje propozycje
+        # zapisane przed chwilą. Stan dzwonka (wspólna baza) zaczyna od zera.
+        warsaw = ZoneInfo(settings.BUSINESS_TZ)
+        now = datetime(2026, 10, 7, 9, 1, tzinfo=warsaw)
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                text("DELETE FROM app_settings WHERE key = :k"),
+                {"k": bell.STATE_KEY},
+            )
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            await bell.send_morning_bells(db, now)
+            await db.commit()
+            # Drugi tick tego samego dnia nic nie wysyła.
+            assert await bell.send_morning_bells(db, now) == 0
         async with AsyncSessionLocal() as db:
             notes = (
                 await db.scalars(
                     select(Notification).where(Notification.user_id == ids["owner"])
                 )
             ).all()
-            assert len(notes) == 1
-            assert notes[0].title.startswith("2 nowe propozycje z nowych CV")
-            # Podbity licznik wraca jako nieprzeczytany.
-            assert notes[0].is_read is False
+            assert [n.notification_type for n in notes] == [
+                NotificationType.auto_match_proposals
+            ]
+            assert notes[0].link == f"/jobs/{ids['job']}?tab=similar"
+            assert notes[0].title.startswith("Do przejrzenia: 2 nowe osoby — ")
+            assert "Druga Propozycja" in notes[0].message
     finally:
         await _purge_proposals(ids)
         if extra_id is not None:
@@ -255,8 +268,6 @@ async def test_second_proposal_of_the_day_updates_the_same_digest(monkeypatch):
 
 @needs_db
 async def test_blocking_warning_is_never_proposed(monkeypatch):
-    from types import SimpleNamespace
-
     from sqlalchemy import func, select
 
     from app.core.database import AsyncSessionLocal
@@ -267,21 +278,11 @@ async def test_blocking_warning_is_never_proposed(monkeypatch):
     try:
         _stub_ranking(monkeypatch, job_hits={ids["job"]: 0.91}, candidate_hits={})
 
-        async def rank_jobs(candidate, jobs, db, *, similarity_map=None, contexts=None):
-            return [
-                SimpleNamespace(
-                    candidate_id=candidate.id,
-                    job_id=j.id,
-                    total=95.0,
-                    matching_must=["Python"],
-                    gap_must=[],
-                    penalties=[],
-                    warnings=["active_conflict"],
-                )
-                for j in jobs
-            ]
+        # Kanoniczny fit nie niesie ostrzeżeń — sprawdza je osobna funkcja.
+        async def conflict(candidate, job, db, context=None):
+            return [], ["active_conflict"]
 
-        monkeypatch.setattr(scoring_service, "rank_jobs_for_candidate", rank_jobs)
+        monkeypatch.setattr(scoring_service, "_check_penalties_and_warnings", conflict)
         result = await _candidate_event(ids)
         assert result["decisions"] == {"penalized": 1}
         async with AsyncSessionLocal() as db:
@@ -352,3 +353,74 @@ def test_job_event_is_recorded_even_when_auto_match_is_off(monkeypatch):
     monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_ENABLED", False)
     # Oba wyłączniki OFF = stan sprzed automatów: nic nie jest zapisywane.
     assert outbox.job_events_enabled() is False
+
+
+@needs_db
+async def test_job_change_without_new_people_does_not_ring_the_bell(monkeypatch):
+    """Runda 6 audytu (A6-2): każda zmiana rekrutacji ocenia wszystkich od
+    nowa, a dzwonek liczył PRZETWORZONE pary — „1 nowa propozycja” przy
+    każdej edycji, choć w skrzynce nikt nowy się nie pojawił."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import func, select, update
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.activity import Activity
+    from app.models.candidate_auto_match import CandidateMatchOutbox
+    from app.models.job import Job
+    from app.models.notification import Notification
+
+    ids = await _world(monkeypatch)
+    try:
+        _stub_ranking(
+            monkeypatch,
+            job_hits={ids["job"]: 0.91},
+            candidate_hits={ids["candidate"]: 0.91},
+        )
+        first = await _candidate_event(ids)
+        assert first["decisions"] == {"proposed": 1}
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                Notification.__table__.delete().where(
+                    Notification.user_id == ids["owner"]
+                )
+            )
+            # Zmiana rekrutacji PO decyzji — dziennik jej nie blokuje.
+            await db.execute(
+                update(Job)
+                .where(Job.id == ids["job"])
+                .values(updated_at=datetime.now(timezone.utc) + timedelta(seconds=1))
+            )
+            await db.commit()
+            event = CandidateMatchOutbox(
+                job_id=ids["job"], trigger="job_publish", status="processing"
+            )
+            db.add(event)
+            await db.commit()
+            again = await ams.run_job_event(db, event)
+        assert again["decisions"] == {"proposed": 1}
+        assert again["notified"] == 0
+        async with AsyncSessionLocal() as db:
+            assert (
+                await db.scalar(
+                    select(func.count())
+                    .select_from(Notification)
+                    .where(Notification.user_id == ids["owner"])
+                )
+                == 0
+            )
+            assert (
+                await db.scalar(
+                    select(func.count())
+                    .select_from(Activity)
+                    .where(
+                        Activity.entity_type == "job_automation",
+                        Activity.entity_id == ids["job"],
+                        Activity.action == "auto_match_proposed",
+                    )
+                )
+                == 1
+            )
+    finally:
+        await _purge_proposals(ids)
+        await _cleanup(ids)

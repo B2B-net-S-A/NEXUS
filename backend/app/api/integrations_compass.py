@@ -45,16 +45,16 @@ i ``/api/users``. Eksport musi więc stać obok nich, nie pod nimi.
 import logging
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import ContractorsReadCaller
+from app.api.deps import ContractorsReadCaller, PeopleRosterReadCaller
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.core.scheduling import business_today
-from app.models.client_order import ClientOrderStatus
+from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract
 from app.services.client_identity import client_display_name
 from app.services.contract_service import CONTRACTOR_STATUSES
@@ -92,7 +92,14 @@ def _lacks_current_order(contract: Contract, today) -> bool:
     for order in contract.client_orders or ():
         if order.status in _DEAD_ORDER_STATUSES:
             continue
-        if is_current_order_period(order.start_date, order.end_date, today):
+        # Runda 9 (R9-N9-8): linia zamówienia MD/kosztowego zwykle nie niesie
+        # własnych dat — okres ma grupa (lustro `order_excel_export`). Bez tego
+        # konsultant z linią bez dat wychodził „bez projektu” nawet przy
+        # zamówieniu zakończonym rok temu albo zaczynającym się za pół roku.
+        group = order.order_group if order.order_group_id is not None else None
+        start = order.start_date or (group.start_date if group else None)
+        end = order.end_date or (group.end_date if group else None)
+        if is_current_order_period(start, end, today):
             return False
     return True
 
@@ -130,7 +137,7 @@ async def export_contractors(
             # Bez tego `_lacks_current_order` sięgnąłby po relację leniwie,
             # a w sesji async lazy-load to nie wolniejszy odczyt, tylko
             # `MissingGreenlet` — czyli 500 bez nagłówków CORS.
-            selectinload(Contract.client_orders),
+            selectinload(Contract.client_orders).selectinload(ClientOrder.order_group),
         )
         .where(Contract.status.in_(_EXPORT_STATUSES))
         # Ten sam filtr co w rejestrze kontraktorów. Umowa odpięta po usunięciu
@@ -192,3 +199,28 @@ async def export_contractors(
         "total": total,
         "has_more": (page * page_size) < total,
     }
+
+
+@router.get("/roster")
+@limiter.limit(_service_rate_limit)
+async def export_roster(
+    request: Request,
+    _caller: PeopleRosterReadCaller,
+    db: AsyncSession = Depends(get_db),
+):
+    """Lista osób z kartotek NEXUSA dla COMPASSA („Ludzie w NEXUSIE”, E4).
+
+    Wydawana dopiero po włączeniu modułu wejścia/odejścia — do tego czasu
+    źródłem listy jest Compass. Pusta lista to awaria (Compass nie może z niej
+    wnioskować, że wszyscy odeszli), więc 503 zamiast pustej odpowiedzi.
+    """
+    from app.services.hr import modules as hr_modules
+    from app.services.hr.roster_export import RosterEmptyError, roster_payload
+
+    if not (await hr_modules.load_modules(db)).get("lifecycle"):
+        raise HTTPException(404, "Lista osób jeszcze nie jest wydawana.")
+    try:
+        return await roster_payload(db)
+    except RosterEmptyError:
+        logger.error("compass roster export refused: empty roster")
+        raise HTTPException(503, "Lista osób jest pusta — eksport wstrzymany.")

@@ -47,6 +47,8 @@ SHARED_HELPERS: dict[str, str] = {
     "ranking_anchor": "tests._ranking_anchor",
     "_anchor_contract": "tests._ranking_anchor",
     "anchor_contract": "tests._ranking_anchor",
+    "grant_permissions": "tests._permission_grants",
+    "role_permission": "tests._permission_grants",
 }
 
 

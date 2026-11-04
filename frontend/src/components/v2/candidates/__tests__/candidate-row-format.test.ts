@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  availabilityCellSecondLine,
   availabilityCellText,
   candidatesCountLabel,
   lastContactText,
@@ -19,23 +20,65 @@ describe("candidate-row-format", () => {
     expect(availabilityCellText({})).toBeNull();
   });
 
-  it("w procesie: zatrudnienie wygrywa, zamknięte rekrutacje się nie liczą", () => {
-    expect(processCell({ state: "employed_at_client", client_name: "PKO BP" }, [])).toEqual({
-      text: "Pracuje u nas · PKO BP",
-      tone: "employed",
-    });
+  it("dostępność z notatki: druga linia z dniem „stan na”, pełny opis w dymku", () => {
+    const fromNotes = {
+      availability_date: "2023-05-04",
+      availability_from_notes: { as_of: "2023-05-04", basis: "asap" },
+    };
+    expect(availabilityCellText(fromNotes)).toBe("od 04.05");
+    const second = availabilityCellSecondLine(fromNotes);
+    expect(second?.text).toBe("z notatki · 04.05.2023");
+    expect(second?.title).toContain("stan na 04.05.2023");
+    expect(second?.title).toContain("„Od zaraz”");
+    // Bez dnia notatki — samo pochodzenie.
     expect(
-      processCell(null, [
+      availabilityCellSecondLine({
+        availability_date: "2026-11-01",
+        availability_from_notes: { as_of: null, basis: "month" },
+      })?.text,
+    ).toBe("z notatki");
+    // Data wpisana przez człowieka albo brak daty — bez drugiej linii.
+    expect(availabilityCellSecondLine({ availability_date: "2026-11-01" })).toBeNull();
+    expect(
+      availabilityCellSecondLine({
+        availability_date: null,
+        availability_from_notes: { as_of: "2023-05-04", basis: "asap" },
+      }),
+    ).toBeNull();
+  });
+
+  it("dostępność osoby z żywą umową: termin z umowy i „z kontraktu” w drugiej linii (15.10.2026)", () => {
+    const row = {
+      availability_date: "2026-09-01",
+      employment_marker: {
+        phase: "working" as const,
+        source: "contract" as const,
+        clients: [{ client_name: "Bank Przykładowy", phase: "working" as const }],
+        free_from: "2026-12-01",
+        free_from_basis: "work_end" as const,
+      },
+    };
+    expect(availabilityCellText(row)).toBe("od 01.12");
+    expect(availabilityCellSecondLine(row)).toEqual({
+      text: "z kontraktu · Bank Przykładowy",
+      title: expect.stringContaining("W profilu: od 01.09.2026"),
+    });
+  });
+
+  it("w procesie: liczba rekrutacji w toku, zamknięte się nie liczą", () => {
+    expect(
+      processCell([
         { job_id: 1, job_title: "A", stage: "verified", moved_at: "2026-09-01T00:00:00Z" },
         { job_id: 2, job_title: "B", stage: "client_interview", moved_at: "2026-09-10T00:00:00Z" },
         { job_id: 3, job_title: "C", stage: "hired", moved_at: "2026-09-20T00:00:00Z" },
       ]),
-    ).toEqual({ text: "2 procesy · Rozmowa u klienta", tone: "process" });
-    expect(
-      processCell(null, [{ job_id: 1, job_title: "A", stage: "new" }])?.text,
-    ).toBe("1 proces · Nowy");
-    expect(processCell(null, [{ job_id: 1, job_title: "A", stage: "rejected" }])).toBeNull();
-    expect(processCell(undefined, null)).toBeNull();
+    ).toEqual({ text: "2 procesy · Rozmowa u klienta" });
+    expect(processCell([{ job_id: 1, job_title: "A", stage: "new" }])?.text).toBe("1 proces · Nowy");
+    // Sam etap końcowy (także „Zatrudniony”) to brak procesu w toku —
+    // zatrudnienie pokazuje znacznik pod nazwiskiem, nie ta kolumna.
+    expect(processCell([{ job_id: 1, job_title: "A", stage: "rejected" }])).toBeNull();
+    expect(processCell([{ job_id: 1, job_title: "A", stage: "hired" }])).toBeNull();
+    expect(processCell(null)).toBeNull();
   });
 
   it("stawka w zł/h, obca waluta wprost, zero = brak", () => {

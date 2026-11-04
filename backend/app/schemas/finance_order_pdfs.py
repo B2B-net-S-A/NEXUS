@@ -26,6 +26,8 @@ class OrderPdfFile(BaseModel):
     consultant_name: Optional[str]
     start: date
     end: Optional[date]
+    # Runda 10 (F10): koniec przed startem — okres do sprawdzenia, nie wynik.
+    period_invalid: bool = False
     entry_type: Literal["new", "extension", "amendment"]
     status: Optional[str]
     order_number: Optional[str]

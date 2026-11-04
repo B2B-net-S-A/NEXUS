@@ -225,18 +225,19 @@ async def _board(
 
 
 @pytest.mark.asyncio
-async def test_board_is_reachable_only_for_admin_and_finance(
+async def test_board_is_reachable_only_for_admin_and_the_board(
     board_client: AsyncClient,
 ):
-    """Widok Firma: admin · finance (decyzja Artura 24.09.2026).
+    """Widok Firma: admin · Rada (decyzja Artura 02.11.2026).
 
     Head of Recruitment wchodził tu od 21.09 — od 24.09 nie widzi pieniędzy.
-    Kwoty NIE są redagowane dla ról z dostępem, a pozostałe role dostają 403
-    — nie pustkę, która czytałaby się jak utrata danych.
+    Finanse wchodziły do 02.11 — pracują na pojedynczych rekordach. Kwoty NIE
+    są redagowane dla ról z dostępem, a pozostałe role dostają 403 — nie pustkę,
+    która czytałaby się jak utrata danych.
     """
     for role in (
         UserRole.admin,
-        UserRole.finance,
+        UserRole.board,
     ):
         _, email, password = await _seed_user(role, "rbac")
         headers = await _login(board_client, email, password)
@@ -247,11 +248,10 @@ async def test_board_is_reachable_only_for_admin_and_finance(
         assert "revenue_monthly_pln" in body["kpis"]["finance"], role.value
 
     for role in (
+        UserRole.finance,
         UserRole.head_of_recruitment,
-        UserRole.sourcer,
         UserRole.recruiter,
         UserRole.delivery_lead,
-        UserRole.tac,
         UserRole.user,
     ):
         _, email, password = await _seed_user(role, "rbac-denied")
@@ -279,12 +279,14 @@ async def test_window_is_half_open_and_excludes_the_next_period(
     """
     _, email, password = await _seed_user(UserRole.admin, "halfopen")
     headers = await _login(board_client, email, password)
-    params = _window("2013-03-01", "2013-03-31")
+    # Okno po 12.10.2026: wcześniejsze ruchy Tablicy nie liczą się do statystyk
+    # (migracja 0467) — test sprawdza półotwartość okna, nie historię.
+    params = _window("2033-03-01", "2033-03-31")
 
     before = await _board(board_client, headers, params)
-    assert before["period"]["start"].startswith("2013-03-01")
+    assert before["period"]["start"].startswith("2033-03-01")
     # end = pierwszy dzień POZA oknem.
-    assert before["period"]["end"].startswith("2013-04-01")
+    assert before["period"]["end"].startswith("2033-04-01")
     baseline = before["kpis"]["placements"]
 
     _, job_id, cand_id = await _seed_client_job_candidate()
@@ -292,14 +294,14 @@ async def test_window_is_half_open_and_excludes_the_next_period(
         cand_id,
         job_id,
         PipelineStage.hired,
-        datetime(2013, 3, 15, 12, tzinfo=timezone.utc),
+        datetime(2033, 3, 15, 12, tzinfo=timezone.utc),
     )
     _, out_job, out_cand = await _seed_client_job_candidate()
     await _seed_stage(
         out_cand,
         out_job,
         PipelineStage.hired,
-        datetime(2013, 4, 1, 12, tzinfo=timezone.utc),
+        datetime(2033, 4, 1, 12, tzinfo=timezone.utc),
     )
 
     after = await _board(board_client, headers, params)
@@ -321,7 +323,7 @@ async def test_placements_use_the_milestone_view_not_raw_stage_rows(
     """
     _, email, password = await _seed_user(UserRole.admin, "dedup")
     headers = await _login(board_client, email, password)
-    params = _window("2014-05-01", "2014-05-31")
+    params = _window("2034-05-01", "2034-05-31")
 
     baseline = (await _board(board_client, headers, params))["kpis"]["placements"]
 
@@ -330,13 +332,13 @@ async def test_placements_use_the_milestone_view_not_raw_stage_rows(
         cand_id,
         job_id,
         PipelineStage.hired,
-        datetime(2014, 5, 10, 9, tzinfo=timezone.utc),
+        datetime(2034, 5, 10, 9, tzinfo=timezone.utc),
     )
     await _seed_stage(
         cand_id,
         job_id,
         PipelineStage.hired,
-        datetime(2014, 5, 20, 9, tzinfo=timezone.utc),
+        datetime(2034, 5, 20, 9, tzinfo=timezone.utc),
     )
 
     after = await _board(board_client, headers, params)
@@ -544,3 +546,84 @@ async def test_invalid_period_returns_422_not_500(board_client: AsyncClient):
         BOARD_URL, headers=headers, params={"period": "custom"}
     )
     assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_margin_percent_ignores_revenue_without_a_cost_leg(
+    board_client: AsyncClient,
+):
+    """Audyt 25.09.2026: marża % Rady dzieliła marżę przez przychód WSZYSTKICH
+    kontraktów, także bez stawki kosztowej — duży przychód bez kosztu zaniżał
+    procent bez żadnego sygnału. Mianownik to przychód kontraktów ze znaną
+    marżą (jak ``contract_analytics._margin_pct``)."""
+    _, email, password = await _seed_user(UserRole.admin, "mpct")
+    headers = await _login(board_client, email, password)
+    params = _window("2017-06-01", "2017-06-30")
+
+    client_id, _job_id, cand_id = await _seed_client_job_candidate()
+    await _seed_contract(
+        client_id=client_id,
+        candidate_id=cand_id,
+        start=date(2017, 1, 1),
+        end=date(2017, 12, 31),
+        rate_client=Decimal("20000.00"),
+        rate_candidate=Decimal("15000.00"),
+        currency="PLN",
+    )
+    before = (await _board(board_client, headers, params))["kpis"]["finance"]
+    assert before["margin_pct"] is not None
+
+    _, _job2, cand2 = await _seed_client_job_candidate()
+    await _seed_contract(
+        client_id=client_id,
+        candidate_id=cand2,
+        start=date(2017, 1, 1),
+        end=date(2017, 12, 31),
+        rate_client=Decimal("9000000.00"),
+        rate_candidate=None,
+        currency="PLN",
+    )
+    after = (await _board(board_client, headers, params))["kpis"]["finance"]
+
+    assert after["revenue_monthly_pln"] >= before["revenue_monthly_pln"] + 8_999_999
+    assert after["contracts_without_cost_leg"] >= 1
+    assert after["margin_pct"] == pytest.approx(before["margin_pct"])
+
+
+@pytest.mark.asyncio
+async def test_placements_of_ongoing_month_compare_with_the_same_stretch():
+    """Runda 6 audytu: miesiąc W TOKU (1–10 września) porównujemy z 1–10
+    sierpnia, nie z całym sierpniem — ta sama reguła co widok Zespół
+    (`previous_matching_window`). Placement z 20 sierpnia jest poza odcinkiem."""
+    from app.analytics.periods import resolve_period
+    from app.services.insights_board import compute_board
+
+    today = date(2035, 9, 10)
+    resolved = resolve_period("month", anchor=today)
+
+    async def _previous() -> tuple[int, dict]:
+        async with AsyncSessionLocal() as db:
+            board = await compute_board(db, resolved, today=today)
+        comparison = board["comparison"]
+        return comparison["placements"]["previous"], comparison
+
+    baseline, comparison = await _previous()
+    window = comparison["placements_previous_window"]
+    assert window["same_stretch"] is True
+    assert window["start"].startswith("2035-08-01")
+    assert window["end"].startswith("2035-08-11")
+
+    for day in (5, 20):
+        _, job_id, cand_id = await _seed_client_job_candidate()
+        await _seed_stage(
+            cand_id,
+            job_id,
+            PipelineStage.hired,
+            datetime(2035, 8, day, 12, tzinfo=timezone.utc),
+        )
+
+    after, _ = await _previous()
+    assert after == baseline + 1, (
+        "placement z 20 sierpnia wszedł do porównania z 1–10 września — "
+        "trwający okres porównany z pełnym poprzednim"
+    )

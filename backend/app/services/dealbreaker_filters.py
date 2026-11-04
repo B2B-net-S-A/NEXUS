@@ -10,7 +10,10 @@ Trzy żelazne zasady, każda okupiona zmierzonym wypadkiem:
 1. **Nieznany PRZECHODZI.** Wycinamy wyłącznie na POZYTYWNEJ wiedzy
    (stawka znana i ponad budżet; `remote_only is True`). Filtr stażu przy
    pokryciu 1,2% zredukował kiedyś lejek 11 091 → 45 — brak danych nie jest
-   dowodem niedopasowania.
+   dowodem niedopasowania. WYJĄTEK (decyzja Artura 27.09.2026): must-have.
+   Technologia, której nie ma w profilu, CV ani notatkach, ukrywa; kandydat
+   bez żadnych danych też (powód ``no_data``) — wcześniej to on wypełniał
+   nocne propozycje zamiast ludzi z danymi.
 2. **Twardy sufit BEZ marginesu i BEZ osobnego uzbrajania (decyzja
    produktowa Artura, 19.08).** Wpisana/znana stawka budżetu ukrywa każdą
    ZNANĄ stawkę kandydata powyżej niej (strict ``>``; równa przechodzi),
@@ -35,7 +38,7 @@ dla których odmawia go warstwa salary (brak polityki konwersji).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 from app.core.config import settings
 
@@ -63,10 +66,12 @@ def resolve_job_budget_hourly(job) -> Optional[float]:
 
 def _candidate_rate_pln_hourly(candidate) -> Optional[float]:
     """Stawka kandydata w PLN/h albo None (nieznana / niekanoniczna waluta)."""
-    rate = getattr(candidate, "expected_rate_hourly", None)
+    # „Stawka od” (0414) — przed przeliczeniem kandydata stawka profilu.
+    from app.services.candidate_rate_from import effective_rate
+
+    rate, currency = effective_rate(candidate)
     if rate is None:
         return None
-    currency = getattr(candidate, "expected_rate_currency", None)
     # Historical acceptance of an unlabeled profile amount is not evidence
     # that it can be compared with this request's PLN budget.
     if str(currency or "").strip().upper() != "PLN":
@@ -149,14 +154,41 @@ def work_time_fit_status(candidate, inputs: "DealbreakerInputs") -> str:
 
 
 def remote_only_refuses_office(candidate) -> bool:
-    """True tylko przy POZYTYWNYM „wyłącznie zdalnie" z notatek.
+    """True tylko przy POZYTYWNYM „wyłącznie zdalnie" — z profilu albo z notatek.
 
-    Źródło: ``_notes_insights.preferences.remote_only`` — pole strukturalne
-    ekstrakcji rozmów (True u 1 382 kandydatów, False u 5 893; reszta to
-    nieznane i PRZECHODZI). Świadomie nie zgadujemy z wolnego tekstu.
+    Źródła: profil (0 dni w biurze albo sam tryb „zdalnie”) i
+    ``_notes_insights.preferences.remote_only`` — pole strukturalne ekstrakcji
+    rozmów (True u 1 382 kandydatów, False u 5 893; reszta to nieznane
+    i PRZECHODZI). Świadomie nie zgadujemy z wolnego tekstu.
+
+    Runda 9 (R9-N8-6): notatka jest słabszym źródłem niż profil. Profil,
+    który jej przeczy — tryb hybrydowy/stacjonarny, limit dni w biurze większy
+    od zera albo zgoda na więcej dni — wygrywa; o biurze decyduje wtedy bramka
+    dni (``office_days_exceeded``).
+
+    D4 (14.10.2026): profil „tylko zdalnie” waży tyle samo co notatka. Pisze
+    go odrzucenie „Nie akceptuje trybu pracy”, telefon praktykanta albo
+    rekruter ołówkiem — wcześniej taki profil przy rekrutacji hybrydowej bez
+    liczby dni nie dawał żadnego ostrzeżenia. Pomiar 14.10: 1 607 profili
+    „tylko zdalnie”, z czego 286 bez tego samego w notatkach.
     """
     from app.services.location_utils import _notes_insights_dict
 
+    if candidate_consents_more_office_days(candidate):
+        return False
+    days = getattr(candidate, "max_onsite_days_per_week", None)
+    if isinstance(days, int) and not isinstance(days, bool) and days > 0:
+        return False
+    profile_prefs = getattr(candidate, "preferences", None)
+    modes = (
+        profile_prefs.get("remote_modes") if isinstance(profile_prefs, dict) else None
+    )
+    if isinstance(modes, list) and {"hybrid", "onsite"} & set(modes):
+        return False
+    if days == 0 and not isinstance(days, bool):
+        return True
+    if isinstance(modes, list) and modes == ["remote"]:
+        return True
     ins = _notes_insights_dict(candidate)
     if ins is None:
         return False
@@ -164,6 +196,10 @@ def remote_only_refuses_office(candidate) -> bool:
     if not isinstance(prefs, dict):
         return False
     return prefs.get("remote_only") is True
+
+
+# Od tylu dni w biurze inne miasto kandydata ukrywa (niżej — plakietka).
+OFFICE_CITY_HARD_MIN_DAYS = 4
 
 
 @dataclass(frozen=True)
@@ -195,10 +231,58 @@ class DealbreakerInputs:
     job_work_mode: Optional[str] = None
     verification_job_id: Optional[int] = None
     verification_fingerprint: Optional[str] = None
+    # Tryb pracy rekrutacji (onsite | hybrid | remote) — decyduje, czy inne
+    # miasto ukrywa, czy tylko ostrzega (`office_city_is_hard`).
+    remote_policy: Optional[str] = None
+    # 30.09.2026: skąd są krytyczne (`dl` | `suggested` | `none`; `None` =
+    # tryb `all` albo radar) i technologie must+nice, dla których dowód z CV
+    # i notatek dołącza się RAZ na paczkę (bramka, plakietki, ocena).
+    critical_source: Optional[str] = None
+    evidence_labels: tuple[str, ...] = ()
+    # „Tylko zdalnie” z notatek UKRYWA wyłącznie przy pracy (prawie)
+    # stacjonarnej albo przy jawnym „wyklucz tylko zdalnych”; przy hybrydzie
+    # 1–3 dni to plakietka `remote_fit` (decyzja Artura 07.10.2026 — 76% osób
+    # z tą flagą, które zespół zweryfikował do biura, wysłano do klienta).
+    # Domyślnie True: wołający bez `inputs` zachowuje się jak dotąd.
+    remote_only_hides: bool = True
+    # Słowa wierszy krytycznych z wyboru Delivery Leada (09.10.2026): etykieta
+    # → słowa, których bramka szuka w profilu, CV i notatkach. Dzięki nim
+    # krytyczna może być dowolna fraza, nie tylko nazwa technologii
+    # (`critical_skills.critical_gate_options`). Krotka par — dataclass
+    # pozostaje haszowalna.
+    critical_options: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+    @property
+    def gate_options(self) -> dict[str, tuple[str, ...]]:
+        """``critical_options`` jako słownik dla funkcji dowodu."""
+        return dict(self.critical_options)
+
+    @property
+    def gate_evidence_labels(self) -> tuple[str, ...]:
+        """Etykiety do ``attach_gate_evidence`` — nadzbiór ``must_skills``."""
+        labels = list(self.evidence_labels)
+        for label in self.must_skills:
+            if label not in labels:
+                labels.append(label)
+        return tuple(labels)
 
     @property
     def requires_office_days(self) -> bool:
         return (self.onsite_days_per_week or 0) > 0
+
+    @property
+    def office_city_is_hard(self) -> bool:
+        """Inne miasto UKRYWA tylko przy pracy (prawie) stacjonarnej.
+
+        Decyzja Artura 27.09.2026 (wariant C): hybryda 1–3 dni w biurze —
+        kandydat z innego miasta zostaje z plakietką „inne miasto” (dojazd,
+        relokacja); 4–5 dni albo tryb stacjonarny — ukrywa jak dotąd. Zespół
+        dodawał do hybryd w Warszawie ludzi z Krakowa czy Łodzi (70 ze 150
+        w rekrutacjach z 25.09), a bramka ich chowała.
+        """
+        return (self.onsite_days_per_week or 0) >= OFFICE_CITY_HARD_MIN_DAYS or (
+            self.remote_policy == "onsite"
+        )
 
 
 def missing_must_skills(
@@ -208,33 +292,31 @@ def missing_must_skills(
     include_unknown: bool = False,
     verification_job_id=None,
     verification_fingerprint=None,
+    options: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> list[str]:
-    """Must-have, których kandydatowi BRAKUJE — „nieznany przechodzi".
+    """Must-have, których kandydat NIE MA nigdzie: profil, CV, notatki.
 
-    Pusta `must` → `[]` (nie ma czego wymagać). Kandydat bez ŻADNEGO sygnału
-    umiejętności (`candidate_known_skill_names` puste — ani `skills`, ani
-    `verified_tech`, ani CV) → `[]` też: brak danych nie jest dowodem
-    niedopasowania, tylko brakiem wiedzy. Tagi NIE czynią umiejętności
-    „znanymi” (UAT M02-B01: kandydat z samym tagiem „QA-E2E” był ukrywany
-    w każdym pełnym przeglądzie) — tag pasujący do must nadal się liczy. Porównanie idzie przez `skill_present`
-    (tolerancja `postgresql`/`postgres`, `node.js`/`nodejs`) — TĘ SAMĄ funkcję,
-    której używają chipy ✓/✗ na `/ai-matches`.
+    Decyzja Artura 27.09.2026: must jest spełniony, gdy technologia stoi na
+    liście umiejętności (``skill_present`` — ta sama tolerancja co chipy ✓/✗),
+    w tekście profilu, w CV albo w notatkach rekruterów (dowód z
+    ``must_text_evidence.attach_gate_evidence``; bez niego — sam profil i CV).
+    Wymaganie z kilkoma opcjami („A lub B”, przykłady klienta) spełnia
+    dowolna. Weryfikacja rekrutera (``reviewed_gate_status``) ma pierwszeństwo.
 
-    `include_unknown=True` implements an explicitly selected missing-proof
-    exclusion policy; it does not turn missing evidence into proven inability.
+    Kandydat bez żadnych danych NIE przechodzi już automatycznie — ma
+    wszystkie must „brakujące”, a ``apply_dealbreakers`` liczy go jako
+    ``no_data``. ``include_unknown`` dotyczy tylko weryfikacji „nieznane”.
     """
     if not must:
         return []
-    from app.services.scoring_service import (
-        candidate_known_skill_names,
-        candidate_skill_names,
-        skill_present,
-    )
-
+    from app.services.must_gate_terms import requirement_with_options
+    from app.services.must_text_evidence import evidence_for, text_met_labels
     from app.services.requirement_verification import reviewed_gate_status
+    from app.services.scoring_service import candidate_skill_names, skill_present
 
     cand_skills = candidate_skill_names(candidate)
-    has_known_skills = bool(candidate_known_skill_names(candidate))
+    evidence = evidence_for(candidate, must)
+    text_met: Optional[frozenset[str]] = evidence.met if evidence else None
     missing = []
     for label in must:
         review = reviewed_gate_status(
@@ -247,12 +329,19 @@ def missing_must_skills(
             continue
         if review == "not_met" or (review == "unknown" and include_unknown):
             missing.append(label)
-        elif (
-            review is None
-            and (has_known_skills or include_unknown)
-            and not skill_present(label, cand_skills)
+            continue
+        requirement = requirement_with_options(label, options)
+        names = requirement.options if requirement else (label,)
+        if skill_present(label, cand_skills) or any(
+            skill_present(name, cand_skills) for name in names
         ):
-            missing.append(label)
+            continue
+        if text_met is None:
+            # Bez dołączonego dowodu (testy, ścieżki bez bazy) — profil i CV.
+            text_met = text_met_labels(candidate, must, options=options)
+        if label in text_met:
+            continue
+        missing.append(label)
     return missing
 
 
@@ -424,7 +513,20 @@ _GATE_MAX_CHARS = 40
 
 
 def is_gate_eligible_must(name: str) -> bool:
-    """Czy ten wpis `must_skills` nadaje się na TWARDĄ bramkę.
+    """Czy ten wpis `must_skills` bramkuje (27.09.2026: tylko technologie).
+
+    Reguła żyje w `must_gate_terms.gate_requirement`: wersje odcięte („Java 8+”
+    → Java), przykłady klienta jako jedno wymaganie („CI/CD tools like
+    Bitbucket, Jenkins” → CI/CD lub Bitbucket lub Jenkins), języki, branże,
+    metodyki, role i umiejętności miękkie nie bramkują.
+    """
+    from app.services.must_gate_terms import gate_requirement
+
+    return gate_requirement(name) is not None
+
+
+def is_syntactic_technology_name(name: str) -> bool:
+    """Czy pojedyncza NAZWA wygląda na technologię, a nie na punkt wymagań.
 
     Bramka porównuje wpis z umiejętnościami kandydata jako CAŁY STRING, więc
     działa wyłącznie dla wpisów będących NAZWĄ technologii. W produkcji 70%
@@ -434,11 +536,6 @@ def is_gate_eligible_must(name: str) -> bool:
     jako umiejętności — więc bramka ukrywała KAŻDEGO, kto ma jakiekolwiek
     umiejętności, i zostawiała listę pustą.
     """
-    from app.services.requirement_contract import alternatives
-
-    options = alternatives(name or "")
-    if len(options) > 1:
-        return all(is_gate_eligible_must(option) for option in options)
     text = (name or "").strip()
     if not text or len(text) > _GATE_MAX_CHARS:
         return False
@@ -467,6 +564,12 @@ def gate_eligible_must_skills(must: Sequence[str]) -> list[str]:
     return [m for m in must if is_gate_eligible_must(m)]
 
 
+def _has_any_data(candidate) -> bool:
+    from app.services.must_text_evidence import evidence_for, has_any_data
+
+    return has_any_data(candidate, evidence_for(candidate, ()))
+
+
 def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
     """Rozwiąż rubryki JEDNEJ oferty raz, dla wszystkich pięciu powierzchni.
 
@@ -487,8 +590,42 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
     # przepisane z ogłoszenia zostają w scoringu i w bramce gotowości, ale nie
     # ukrywają nikogo — patrz `gate_eligible_must_skills`.
     declared_must = tuple(job_explicit_must_skills(job))
-    must = tuple(gate_eligible_must_skills(declared_must))
+    eligible_must = tuple(gate_eligible_must_skills(declared_must))
+    critical_source: Optional[str] = None
+    critical_options: dict[str, tuple[str, ...]] = {}
+    from app.services.critical_skills import (
+        critical_gate_options,
+        effective_critical,
+        gate_mode,
+    )
+
+    if gate_mode() == "critical":
+        # 30.09.2026: ukrywają tylko umiejętności krytyczne (decyzja DL albo
+        # podpowiedź z historii); reszta must daje punkty (audyt B1/B2).
+        resolution = effective_critical(job)
+        chosen = set(resolution.labels)
+        if resolution.source == "dl":
+            # 09.10.2026: o tym, co jest krytyczne, decyduje Delivery Lead —
+            # także fraza spoza technologii. Szukamy wtedy słów jej wiersza.
+            must = tuple(m for m in declared_must if m in chosen)
+            critical_options = critical_gate_options(job)
+        else:
+            must = tuple(m for m in eligible_must if m in chosen)
+        critical_source = resolution.source
+    else:
+        must = eligible_must
     must_ignored = tuple(m for m in declared_must if m not in set(must))
+    evidence_labels = _evidence_labels(job, eligible_must)
+    # Słowa wszystkich wierszy „musi mieć” do oceny (02.11.2026). Bramka czyta
+    # dalej tylko swoje: etykiety z `must` mają wyłącznie `critical_options`.
+    critical_options = {
+        **{
+            label: words
+            for label, words in _must_evidence_options(job).items()
+            if label not in set(must)
+        },
+        **critical_options,
+    }
 
     days = getattr(job, "onsite_days_per_week", None)
     office_location = getattr(job, "office_location", None) or getattr(
@@ -513,10 +650,16 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
 
     office_tokens = frozenset(location_tokens(office_location))
     policy = resolve_effective_remote_policy(job)
+    explicit_remote_exclusion = bool(getattr(job, "exclude_remote_only", False))
     wants_office = (
         bool(days and days > 0)
         or policy in ("onsite", "hybrid")
-        or bool(getattr(job, "exclude_remote_only", False))
+        or explicit_remote_exclusion
+    )
+    remote_only_hides = (
+        bool(days and days >= OFFICE_CITY_HARD_MIN_DAYS)
+        or policy == "onsite"
+        or explicit_remote_exclusion
     )
 
     work_mode = getattr(job, "work_mode", None)
@@ -530,7 +673,49 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
         office_tokens=office_tokens,
         wants_office=wants_office,
         job_work_mode=work_mode if isinstance(work_mode, str) else None,
+        remote_policy=policy,
+        critical_source=critical_source,
+        evidence_labels=evidence_labels,
+        remote_only_hides=remote_only_hides,
+        critical_options=tuple(critical_options.items()),
     )
+
+
+def _must_evidence_options(job) -> dict[str, tuple[str, ...]]:
+    from app.services.critical_skills import must_evidence_options
+
+    try:
+        return must_evidence_options(job)
+    except Exception:  # noqa: BLE001 — obiekt bez pól oferty (radar, atrapa)
+        return {}
+
+
+def _evidence_labels(job, eligible_must: Sequence[str]) -> tuple[str, ...]:
+    """Technologie must i nice oferty, które da się sprawdzić w CV i notatkach.
+
+    Obejmuje też must, które ocena wyciąga z opisu (``job_skill_requirements``
+    sięga dalej niż wymagania podane wprost) — inaczej ``_score_skills`` nie
+    widziałoby dowodu z CV dla tych pozycji (pomiar 30.09.2026 na produkcji).
+    """
+    from app.services.scoring_service import job_skill_requirements
+
+    try:
+        reqs = job_skill_requirements(job)
+        must_scored = list(reqs.get("must") or [])
+        scored = must_scored + list(reqs.get("nice") or [])
+    except Exception:  # noqa: BLE001 — obiekt bez pól oferty (radar, atrapa)
+        must_scored = []
+        scored = []
+    out = list(eligible_must)
+    for label in gate_eligible_must_skills(scored):
+        if label not in out:
+            out.append(label)
+    # „Musi mieć” spoza słownika też ma dowód (02.11.2026): szuka własnych słów
+    # (`must_evidence_options`), a bramka i tak czyta wyłącznie swoje etykiety.
+    for label in must_scored:
+        if label not in out:
+            out.append(label)
+    return tuple(out)
 
 
 def rate_fit_status(candidate, inputs: DealbreakerInputs) -> str:
@@ -552,19 +737,23 @@ def rate_fit_status(candidate, inputs: DealbreakerInputs) -> str:
 
 
 def office_fit_status(candidate, inputs: DealbreakerInputs) -> str:
-    """`"ok" | "days_exceeded" | "over_consented" | "city_mismatch" | "unknown" |
-    "not_required"`.
+    """`"ok" | "days_exceeded" | "over_consented" | "remote_only" |
+    "city_mismatch" | "unknown" | "not_required"`.
 
     `"not_required"` gdy oferta w ogóle nie wymaga jawnej liczby dni w biurze —
     odróżnia „biuro nas nie dotyczy" od „nie wiemy, ile dni". `"over_consented"`:
     oferta chce więcej dni niż deklaracja kandydata, ale kandydat zgodził się
-    w rozmowie na telefon z taką ofertą.
+    w rozmowie na telefon z taką ofertą. `"remote_only"` (14.10.2026): za mało
+    dni, bo kandydat chce tylko zdalnie — mówi to już plakietka
+    `remote_fit_status`, więc dni nie dają drugiej („Mniej dni w biurze”).
     """
     if not inputs.requires_office_days:
         return "not_required"
     if office_days_exceeded(candidate, inputs.onsite_days_per_week):
         if candidate_consents_more_office_days(candidate):
             return "over_consented"
+        if remote_fit_status(candidate, inputs) == "prefers_remote":
+            return "remote_only"
         return "days_exceeded"
     if office_city_mismatch(
         candidate, inputs.office_tokens, required_days=inputs.onsite_days_per_week
@@ -576,11 +765,29 @@ def office_fit_status(candidate, inputs: DealbreakerInputs) -> str:
     return "ok"
 
 
+def remote_fit_status(candidate, inputs: DealbreakerInputs) -> str:
+    """`"prefers_remote" | "ok" | "not_required"` — plakietka „tylko zdalnie”.
+
+    `"prefers_remote"`: rekrutacja chce biura, ale tylko w trybie hybrydowym
+    (nie ukrywamy — rekruter widzi ostrzeżenie), a z notatek wiadomo, że
+    kandydat chce pracować wyłącznie zdalnie. Gdy rekrutacja jest stacjonarna,
+    taki kandydat jest ukryty i plakietki nie zobaczy nikt.
+    """
+    if not inputs.wants_office:
+        return "not_required"
+    if not inputs.remote_only_hides and remote_only_refuses_office(candidate):
+        return "prefers_remote"
+    return "ok"
+
+
 @dataclass
 class DealbreakerResult:
     kept: list = field(default_factory=list)
     hidden_employment_only: int = 0
     hidden_over_budget: int = 0
+    # 27.09.2026: brak must I brak jakichkolwiek danych (CV, umiejętności,
+    # notatki) — „nic o nim nie wiemy”, osobno od „nie ma Kafki”.
+    hidden_no_data: int = 0
     hidden_missing_must: int = 0
     hidden_office_days_exceeded: int = 0
     hidden_office_city_mismatch: int = 0
@@ -593,11 +800,12 @@ class DealbreakerResult:
 
     def hidden_meta(self) -> dict:
         # Kolejność kluczy = kolejność powodów w pętli `apply_dealbreakers`
-        # (tylko etat → budżet → must-have → dni w biurze → miasto →
+        # (tylko etat → budżet → brak danych → must-have → dni w biurze → miasto →
         # tylko-zdalnie); `work_time_mismatch` zawsze 0 od 24.09.2026.
         return {
             "employment_only": self.hidden_employment_only,
             "over_budget": self.hidden_over_budget,
+            "no_data": self.hidden_no_data,
             "missing_must": self.hidden_missing_must,
             "office_days_exceeded": self.hidden_office_days_exceeded,
             "office_city_mismatch": self.hidden_office_city_mismatch,
@@ -641,7 +849,8 @@ def apply_dealbreakers(
     zgodność wsteczna z wywołaniami sprzed 0278, które nie znają ``inputs``.
 
     Kolejność powodów jest deterministyczna i STAŁA: tylko etat → budżet →
-    must-have → dni w biurze → miasto biura → tylko-zdalnie.
+    must-have (``no_data``, gdy o kandydacie nic nie wiadomo) → dni w biurze →
+    miasto biura (tylko 4+ dni albo stacjonarnie) → tylko-zdalnie.
     Pierwszy pasujący powód wygrywa — kandydat łapiący kilka naraz nie migruje
     między licznikami.
 
@@ -672,13 +881,28 @@ def apply_dealbreakers(
     if exclude_remote_only is None:
         exclude_remote_only = bool(effective_inputs.wants_office)
 
+    from app.services.critical_skills import gate_mode
+
+    # 30.09.2026 (decyzje Artura): budżet i dni w biurze tylko plakietka
+    # (`rate_fit_status`, `office_fit_status`) — ukrywały 32% i 8% osób,
+    # które zespół potem wysyłał; kandydat bez żadnych danych ukryty zawsze.
+    # `MUST_GATE_MODE=all` przywraca zachowanie v8 w całości.
+    critical_mode = gate_mode() == "critical"
     result = DealbreakerResult()
-    budget_active = exclude_over_budget and effective_budget is not None
+    budget_active = (
+        exclude_over_budget and effective_budget is not None and not critical_mode
+    )
     must_active = exclude_missing_must and bool(effective_inputs.must_skills)
-    days_active = exclude_office_days_exceeded and effective_inputs.requires_office_days
+    days_active = (
+        exclude_office_days_exceeded
+        and effective_inputs.requires_office_days
+        and not critical_mode
+    )
+    no_data_always = critical_mode and rubrics_enabled
     city_active = (
         exclude_office_city_mismatch
         and effective_inputs.requires_office_days
+        and effective_inputs.office_city_is_hard
         and bool(effective_inputs.office_tokens)
     )
 
@@ -697,16 +921,31 @@ def apply_dealbreakers(
             if (candidate_id := getattr(candidate, "id", None)) is not None:
                 result.exclusion_reasons[candidate_id] = "over_budget"
             continue
+        if no_data_always and not _has_any_data(candidate):
+            result.hidden_no_data += 1
+            if (candidate_id := getattr(candidate, "id", None)) is not None:
+                result.exclusion_reasons[candidate_id] = "no_data"
+            continue
         if must_active and missing_must_skills(
             candidate,
             effective_inputs.must_skills,
             include_unknown=effective_inputs.exclude_unknown_skill_evidence,
             verification_job_id=effective_inputs.verification_job_id,
             verification_fingerprint=effective_inputs.verification_fingerprint,
+            options=effective_inputs.gate_options,
         ):
-            result.hidden_missing_must += 1
+            from app.services.must_text_evidence import evidence_for, has_any_data
+
+            if not has_any_data(
+                candidate, evidence_for(candidate, effective_inputs.must_skills)
+            ):
+                result.hidden_no_data += 1
+                reason = "no_data"
+            else:
+                result.hidden_missing_must += 1
+                reason = "missing_must"
             if (candidate_id := getattr(candidate, "id", None)) is not None:
-                result.exclusion_reasons[candidate_id] = "missing_must"
+                result.exclusion_reasons[candidate_id] = reason
             continue
         if (
             days_active
@@ -726,7 +965,11 @@ def apply_dealbreakers(
             if (candidate_id := getattr(candidate, "id", None)) is not None:
                 result.exclusion_reasons[candidate_id] = "office_city_mismatch"
             continue
-        if exclude_remote_only and remote_only_refuses_office(candidate):
+        if (
+            exclude_remote_only
+            and effective_inputs.remote_only_hides
+            and remote_only_refuses_office(candidate)
+        ):
             result.hidden_remote_only += 1
             if (candidate_id := getattr(candidate, "id", None)) is not None:
                 result.exclusion_reasons[candidate_id] = "remote_only"

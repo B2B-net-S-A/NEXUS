@@ -2,7 +2,7 @@
 
 /**
  * Karta klienta — renderer TYLKO DO ODCZYTU standardów współpracy per klient
- * (SLA, limity, polityka stawek, off-limit z umowy, „co powiedzieć
+ * (SLA, limity, polityka stawek, „co powiedzieć
  * kandydatowi", reguły priorytetu, zasady procesu, onboarding, dokumenty).
  *
  * Dwa warianty:
@@ -23,7 +23,7 @@
  * nie blokuje karty — dostaje podpowiedź przy fakcie.
  *
  * Akcja edycji ma dwa tryby i nigdy oba naraz: `editHref` (link, np. do
- * profilu klienta `/clients/<id>?tab=zasady`) albo `onEdit` (przycisk —
+ * ustawień `/settings/cv-rules?client=<id>&tab=playbook`) albo `onEdit` (przycisk —
  * edycja w miejscu w profilu klienta). Pokazywana tylko z capability
  * `client_playbook.manage`; sam odczyt karty jest org-wide.
  */
@@ -33,6 +33,7 @@ import { BookOpen, ExternalLink, Pencil } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { SourceLinks, WebOriginChip } from "@/components/champion/plain/PlainBits";
 import { EmptyState } from "@/components/ds/EmptyState";
 import { KeyFacts, type KeyFact } from "@/components/ds/KeyFacts";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -40,10 +41,10 @@ import { buttonVariants } from "@/components/ui/button";
 import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner";
 import { useCapability } from "@/hooks/useCapability";
 import {
-  formatOffLimits,
   isPlaybookEmpty,
   useClientPlaybook,
   PLAYBOOK_FIELD_LABELS,
+  VERIFIED_EXTRA_FIELD_OPTIONS,
   type ClientPlaybook,
   type PlaybookDocument,
 } from "@/lib/client-playbooks";
@@ -55,7 +56,7 @@ import { resolveViewState } from "@/lib/view-state";
 export interface ClientPlaybookCardProps {
   clientId: number;
   variant: "full" | "compact";
-  /** Link „Edytuj kartę" / „Załóż kartę" (np. do profilu klienta `/clients/<id>?tab=zasady`); pokazywany TYLKO z capability. */
+  /** Link „Edytuj kartę" / „Załóż kartę" (np. `clientPlaybookEditHref(id)` — edytor w Ustawieniach); pokazywany TYLKO z capability. */
   editHref?: string | null;
   /** Alternatywa dla `editHref`: przycisk zamiast linku (edycja w miejscu w profilu klienta). Nie podawaj obu. */
   onEdit?: () => void;
@@ -217,12 +218,6 @@ function FullCard({
       value: playbook.rate_policy,
     },
     {
-      id: "off_limits",
-      label: PLAYBOOK_FIELD_LABELS.off_limits,
-      value: formatOffLimits(playbook.off_limits),
-      hint: playbook.off_limits?.notes ?? undefined,
-    },
-    {
       id: "cv_filename",
       label: "Nazwa pliku CV (z reguły CV)",
       value: rule ? (rule.filename_preview ?? rule.filename_pattern) : null,
@@ -237,44 +232,53 @@ function FullCard({
   ];
 
   return (
-    <article className={cn("space-y-5", className)} data-testid="client-playbook-card">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold text-foreground">
-            {`Karta klienta${playbook.client_name ? ` — ${playbook.client_name}` : ""}`}
-          </h3>
-          <p className="text-xs text-muted-foreground">{metaLine(playbook)}</p>
-        </div>
+    <article
+      className={cn("@container space-y-4", className)}
+      data-testid="client-playbook-card"
+    >
+      {/* Jedna linia: tytuł, wersja, edycja — na wąskim ekranie się zawija. */}
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <h3 className="text-[13px] font-semibold text-foreground">
+          {`Karta klienta${playbook.client_name ? ` — ${playbook.client_name}` : ""}`}
+        </h3>
+        <p className="text-xs text-muted-foreground">{metaLine(playbook)}</p>
         {onEdit ? (
           <button
             type="button"
             onClick={onEdit}
-            className={buttonVariants({ variant: "outline", size: "sm" })}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "ml-auto")}
             data-testid="client-playbook-edit"
           >
-            <Pencil className="h-4 w-4" aria-hidden /> Edytuj kartę
+            <Pencil className="h-3.5 w-3.5" aria-hidden /> Edytuj kartę
           </button>
         ) : editHref ? (
           <Link
             href={editHref}
-            className={buttonVariants({ variant: "outline", size: "sm" })}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "ml-auto")}
             data-testid="client-playbook-edit"
           >
-            <Pencil className="h-4 w-4" aria-hidden /> Edytuj kartę
+            <Pencil className="h-3.5 w-3.5" aria-hidden /> Edytuj kartę
           </Link>
         ) : null}
       </header>
 
-      <KeyFacts columns={3} density="compact" facts={facts} />
+      <KeyFacts columns={4} density="compact" facts={facts} />
 
-      <TextBlock
-        title={PLAYBOOK_FIELD_LABELS.about_for_candidate}
-        text={playbook.about_for_candidate}
-      />
-      <TextBlock title={PLAYBOOK_FIELD_LABELS.priority_rules} text={playbook.priority_rules} />
-      <MarkdownBlock title="Zasady procesu rekrutacji" md={playbook.process_rules_md} />
-      <MarkdownBlock title="Onboarding po akceptacji" md={playbook.onboarding_md} />
-      <DocumentsBlock documents={playbook.documents} />
+      {/* Bloki treści obok siebie, gdy karta ma na to miejsce (szerokość
+          karty, nie okna — ta sama karta stoi w profilu klienta i w Pomocy). */}
+      <div className="grid items-start gap-x-8 gap-y-4 @4xl:grid-cols-2">
+        <TextBlock
+          title={PLAYBOOK_FIELD_LABELS.about_for_candidate}
+          text={playbook.about_for_candidate}
+          web={playbook.about_for_candidate_origin === "web"}
+          sources={playbook.about_for_candidate_sources}
+        />
+        <TextBlock title={PLAYBOOK_FIELD_LABELS.priority_rules} text={playbook.priority_rules} />
+        <MarkdownBlock title="Zasady procesu rekrutacji" md={playbook.process_rules_md} />
+        <MarkdownBlock title="Onboarding po akceptacji" md={playbook.onboarding_md} />
+        <DocumentsBlock documents={playbook.documents} />
+        <VerifiedRequiredBlock fields={playbook.verified_required_fields ?? []} />
+      </div>
     </article>
   );
 }
@@ -287,12 +291,27 @@ function BlockTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-function TextBlock({ title, text }: { title: string; text: string | null }) {
+function TextBlock({
+  title,
+  text,
+  web = false,
+  sources,
+}: {
+  title: string;
+  text: string | null;
+  /** Tekst ułożony z publicznych źródeł — plakietka „z internetu” i źródła. */
+  web?: boolean;
+  sources?: { url: string; title: string | null }[];
+}) {
   if (!text?.trim()) return null;
   return (
     <section>
-      <BlockTitle>{title}</BlockTitle>
+      <div className="flex flex-wrap items-center gap-2">
+        <BlockTitle>{title}</BlockTitle>
+        {web ? <WebOriginChip className="mb-1" /> : null}
+      </div>
       <p className="whitespace-pre-wrap text-sm text-foreground">{text}</p>
+      {web ? <SourceLinks sources={sources} className="mt-1" /> : null}
     </section>
   );
 }
@@ -306,6 +325,18 @@ function MarkdownBlock({ title, md }: { title: string; md: string | null }) {
       <div className="prose prose-sm max-w-none prose-headings:font-semibold prose-headings:text-foreground prose-a:text-primary">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{md}</ReactMarkdown>
       </div>
+    </section>
+  );
+}
+
+/** D3 (21.10.2026): pola, które klient dokłada do minimum przed „Zweryfikowany”. */
+function VerifiedRequiredBlock({ fields }: { fields: string[] }) {
+  const labels = VERIFIED_EXTRA_FIELD_OPTIONS.filter((o) => fields.includes(o.key)).map((o) => o.label);
+  if (labels.length === 0) return null;
+  return (
+    <section>
+      <BlockTitle>{PLAYBOOK_FIELD_LABELS.verified_required_fields}</BlockTitle>
+      <p className="text-sm text-foreground">{labels.join(", ")}</p>
     </section>
   );
 }
@@ -360,9 +391,6 @@ function compactChips(playbook: ClientPlaybook, rule: ClientCvRule | null): stri
   if (playbook.multi_project_cooldown_days != null) {
     chips.push(`karencja ${playbook.multi_project_cooldown_days} dni`);
   }
-  const off = playbook.off_limits;
-  if (off?.months != null) chips.push(`off-limit ${off.months} mies.`);
-  else if (off?.scope?.trim()) chips.push(`off-limit: ${off.scope.trim()}`);
   if (rule?.cv_language) chips.push(`CV: ${rule.cv_language.toUpperCase()}`);
   if (rule?.filename_preview) chips.push(`plik: ${rule.filename_preview}`);
   if (playbook.rate_policy?.trim()) {
@@ -437,9 +465,17 @@ function CompactCard({
         </p>
       ) : null}
       {playbook.about_for_candidate ? (
-        <p className="whitespace-pre-wrap text-xs text-muted-foreground">
-          {playbook.about_for_candidate}
-        </p>
+        <div className="space-y-1">
+          <p className="whitespace-pre-wrap text-xs text-muted-foreground">
+            {playbook.about_for_candidate}
+          </p>
+          {playbook.about_for_candidate_origin === "web" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <WebOriginChip />
+              <SourceLinks sources={playbook.about_for_candidate_sources} />
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );

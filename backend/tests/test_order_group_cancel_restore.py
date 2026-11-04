@@ -239,3 +239,82 @@ async def test_cancel_and_restore_forbidden_for_excluded_roles(
             _url(client_id, group["id"], action), json={}, headers=headers
         )
         assert resp.status_code == 403, f"{role} {action} -> {resp.status_code}"
+
+
+async def _event_count(group_id: int, event_type: str) -> int:
+    async with AsyncSessionLocal() as db:
+        return len(
+            (
+                await db.scalars(
+                    select(ClientOrderGroupEvent.id).where(
+                        ClientOrderGroupEvent.group_id == group_id,
+                        ClientOrderGroupEvent.event_type == event_type,
+                    )
+                )
+            ).all()
+        )
+
+
+async def test_parallel_close_and_reopen_happen_once(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Audyt 25.09.2026: status sprawdzany dopiero pod blokadą nagłówka.
+
+    Dwa równoległe „Zakończ” przechodziły oba (status czytany przed
+    blokadami) — drugie zapisywało drugie „Zakończono zamówienie” z pustą
+    listą linii, a „Przywróć” odtwarzało wtedy stan z tego pustego wpisu.
+    """
+    import asyncio
+
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_md_line(contracts[0]), _md_line(contracts[1])],
+    )
+    closure = business_today().isoformat()
+
+    first, second = await asyncio.gather(
+        app_client.post(
+            _url(client_id, group["id"], "close"),
+            json={"closure_date": closure},
+            headers=app_auth_headers,
+        ),
+        app_client.post(
+            _url(client_id, group["id"], "close"),
+            json={"closure_date": closure},
+            headers=app_auth_headers,
+        ),
+    )
+    assert sorted([first.status_code, second.status_code]) == [200, 409], (
+        first.text,
+        second.text,
+    )
+    assert await _event_count(group["id"], "zakonczenie") == 1
+
+    again = await app_client.post(
+        _url(client_id, group["id"], "close"),
+        json={"closure_date": closure},
+        headers=app_auth_headers,
+    )
+    assert again.status_code == 409
+    assert await _event_count(group["id"], "zakonczenie") == 1
+
+    first, second = await asyncio.gather(
+        app_client.post(
+            _url(client_id, group["id"], "reopen"), headers=app_auth_headers
+        ),
+        app_client.post(
+            _url(client_id, group["id"], "reopen"), headers=app_auth_headers
+        ),
+    )
+    assert sorted([first.status_code, second.status_code]) == [200, 409], (
+        first.text,
+        second.text,
+    )
+    assert await _event_count(group["id"], "przywrocenie") == 1
+    after, _ = await _group_state(group["id"])
+    assert after.status == "active"
+    assert after.closure_date is None

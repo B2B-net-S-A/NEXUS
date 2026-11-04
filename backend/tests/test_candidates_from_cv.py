@@ -3,11 +3,16 @@
 Covers:
   * Happy path: CV → new candidate with contact fields populated
   * Dedup: 409 when the parsed email matches an existing candidate
-  * Force: ?force=true creates the candidate and still reports duplicates
+  * Force: ?force=true still refuses a taken e-mail (no second profile)
+  * 12.10.2026 — ta sama osoba = ten sam e-mail: imiennik, ten sam telefon
+    i ten sam LinkedIn z INNYM adresem zakładają nowy profil
+  * 22.10.2026 — ten sam telefon ORAZ to samo imię i nazwisko (inny e-mail)
+    → 409 z `existing_candidate_id`; `?force=true` zakłada profil
 """
 
 from __future__ import annotations
 
+import uuid
 from io import BytesIO
 
 import pytest
@@ -165,54 +170,214 @@ async def test_from_cv_returns_409_on_duplicate_email(
         await _cleanup_candidate(FAKE_PARSED["email"])
 
 
+def _unique_pdf_bytes() -> bytes:
+    """Inna treść przy każdym wywołaniu — sito identycznego pliku nie może
+    przesłonić reguły e-maila."""
+    return f"%PDF-1.4 {uuid.uuid4().hex}".encode()
+
+
+def _person(unique: str, **fields) -> dict:
+    base = {
+        "first_name": "Regula",
+        "last_name": f"Email{unique}",
+        "email": f"regula-{unique}@example.com",
+        "phone": None,
+        "linkedin_url": None,
+        "_confidence": {},
+        "_source": "claude:test",
+    }
+    return {**base, **fields}
+
+
+async def _post_cv(client: AsyncClient, headers: dict, *, force: bool = False):
+    return await client.post(
+        f"/api/candidates/from-cv{'?force=true' if force else ''}",
+        headers=headers,
+        files={"file": ("cv.pdf", _unique_pdf_bytes(), "application/pdf")},
+    )
+
+
 @pytest.mark.asyncio
-async def test_from_cv_force_bypasses_dedup(
+async def test_from_cv_force_does_not_create_a_second_profile_with_the_same_email(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """?force=true creates the candidate even when a duplicate exists."""
-    # Use a distinct email so we can cleanup both candidates independently.
-    payload = dict(FAKE_PARSED)
-    payload["email"] = "force.test@example.com"
-    payload["first_name"] = "Force"
-    payload["last_name"] = "Tester"
-    _patch_parser_and_extractor(monkeypatch, payload)
-    await _cleanup_candidate(payload["email"])
-
-    files = {"file": ("force.pdf", _fake_pdf_bytes(), "application/pdf")}
-
-    created_ids: list[int] = []
+    """`?force=true` omija sito, ale zajęty e-mail odmawia mimo to."""
+    unique = uuid.uuid4().hex[:8]
+    person = _person(unique)
+    _patch_parser_and_extractor(monkeypatch, person)
     try:
-        first = await app_client.post(
-            "/api/candidates/from-cv",
-            headers=app_auth_headers,
-            files=files,
-        )
+        first = await _post_cv(app_client, app_auth_headers)
         assert first.status_code == 201, first.text
-        created_ids.append(first.json()["candidate"]["id"])
 
-        # Force override — note ?force=true
-        second = await app_client.post(
-            "/api/candidates/from-cv?force=true",
-            headers=app_auth_headers,
-            files={"file": ("force2.pdf", _fake_pdf_bytes(), "application/pdf")},
-        )
-        # email has UNIQUE constraint so the second insert will hit a DB
-        # violation — we accept either 201 (if DB lets it through because of
-        # a different email detection path) or 409/500 from the DB. What we
-        # assert is that the dedup-soft-block didn't swallow it.
-        assert second.status_code in (201, 409, 500), second.text
-        if second.status_code == 201:
-            created_ids.append(second.json()["candidate"]["id"])
-            assert len(second.json()["duplicates"]) >= 1
+        second = await _post_cv(app_client, app_auth_headers, force=True)
+        assert second.status_code == 409, second.text
+        assert second.json()["detail"] == "Kandydat z tym adresem e-mail już istnieje."
     finally:
-        # Cleanup all candidates with the shared email.
-        async with AsyncSessionLocal() as db:
-            for cid in created_ids:
-                row = await db.scalar(select(Candidate).where(Candidate.id == cid))
-                if row:
-                    await db.delete(row)
+        await _cleanup_candidate(person["email"])
+
+
+@pytest.mark.asyncio
+async def test_from_cv_namesake_with_other_email_is_created(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """To samo imię i nazwisko, inny e-mail = inna osoba, bez odmowy."""
+    unique = uuid.uuid4().hex[:8]
+    first_person = _person(unique)
+    namesake = _person(unique, email=f"imiennik-{unique}@example.com")
+    try:
+        _patch_parser_and_extractor(monkeypatch, first_person)
+        first = await _post_cv(app_client, app_auth_headers)
+        assert first.status_code == 201, first.text
+
+        _patch_parser_and_extractor(monkeypatch, namesake)
+        second = await _post_cv(app_client, app_auth_headers)
+        assert second.status_code == 201, second.text
+        assert second.json()["candidate"]["id"] != first.json()["candidate"]["id"]
+        assert second.json()["duplicates"] == []
+    finally:
+        await _cleanup_candidate(first_person["email"])
+        await _cleanup_candidate(namesake["email"])
+
+
+@pytest.mark.asyncio
+async def test_from_cv_same_phone_and_linkedin_other_email_is_created(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Wspólny telefon i ten sam LinkedIn nie robią z dwóch adresów jednej osoby."""
+    unique = uuid.uuid4().hex[:8]
+    shared = {
+        "phone": "+48 512 9" + f"{uuid.uuid4().int % 100000:05d}",
+        "linkedin_url": f"https://linkedin.com/in/regula-{unique}",
+    }
+    first_person = _person(unique, **shared)
+    other_person = _person(
+        unique,
+        first_name="Inna",
+        last_name=f"Osoba{unique}",
+        email=f"inna-{unique}@example.com",
+        **shared,
+    )
+    try:
+        _patch_parser_and_extractor(monkeypatch, first_person)
+        first = await _post_cv(app_client, app_auth_headers)
+        assert first.status_code == 201, first.text
+
+        _patch_parser_and_extractor(monkeypatch, other_person)
+        second = await _post_cv(app_client, app_auth_headers)
+        assert second.status_code == 201, second.text
+    finally:
+        await _cleanup_candidate(first_person["email"])
+        await _cleanup_candidate(other_person["email"])
+
+
+async def _insert_existing(**fields) -> int:
+    """Profil sprzed scrapera (import z Traffita): telefon w innym zapisie."""
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(source="traffit", **fields)
+        db.add(candidate)
+        await db.commit()
+        return candidate.id
+
+
+async def _cleanup_candidate_id(candidate_id: int) -> None:
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Candidate, candidate_id)
+        if row:
+            await db.delete(row)
             await db.commit()
-        await _cleanup_candidate(payload["email"])
+
+
+def _random_phone_digits() -> str:
+    return "79" + f"{uuid.uuid4().int % 10_000_000:07d}"
+
+
+@pytest.mark.asyncio
+async def test_from_cv_same_phone_and_full_name_other_email_is_409_with_existing_id(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Scraper JustJoin 20–22.10.2026: panel nie podaje telefonu, CV go ma,
+    e-mail inny niż w starym profilu → powstawał drugi profil tej samej osoby.
+    Telefon z CV + to samo imię i nazwisko wskazują stary profil."""
+    unique = uuid.uuid4().hex[:8]
+    digits = _random_phone_digits()
+    existing_id = await _insert_existing(
+        name="Regula",
+        lastname=f"Telefon{unique}",
+        email=f"stary-{unique}@example.com",
+        phone=f"{digits[:3]}-{digits[3:6]}-{digits[6:]}",
+    )
+    person = _person(
+        unique,
+        first_name="REGULA",
+        last_name=f" telefon{unique} ",
+        email=f"nowy-{unique}@example.com",
+        phone=f"+48 {digits[:3]} {digits[3:6]} {digits[6:]}",
+    )
+    try:
+        _patch_parser_and_extractor(monkeypatch, person)
+        resp = await _post_cv(app_client, app_auth_headers)
+        assert resp.status_code == 409, resp.text
+        detail = resp.json()["detail"]
+        assert detail["existing_candidate_id"] == existing_id
+        assert detail["matches"][0]["match_reasons"] == ["phone_exact", "name_exact"]
+    finally:
+        await _cleanup_candidate(person["email"])
+        await _cleanup_candidate_id(existing_id)
+
+
+@pytest.mark.asyncio
+async def test_from_cv_same_phone_and_full_name_with_force_is_created(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Telefon z imieniem to dopasowanie, nie dowód jak e-mail — rekruter
+    może założyć osobny profil („Załóż osobny profil” = `?force=true`)."""
+    unique = uuid.uuid4().hex[:8]
+    digits = _random_phone_digits()
+    existing_id = await _insert_existing(
+        name="Regula",
+        lastname=f"Telefon{unique}",
+        email=f"stary-{unique}@example.com",
+        phone=digits,
+    )
+    person = _person(
+        unique,
+        last_name=f"Telefon{unique}",
+        email=f"nowy-{unique}@example.com",
+        phone=f"+48{digits}",
+    )
+    try:
+        _patch_parser_and_extractor(monkeypatch, person)
+        resp = await _post_cv(app_client, app_auth_headers, force=True)
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["candidate"]["id"] != existing_id
+    finally:
+        await _cleanup_candidate(person["email"])
+        await _cleanup_candidate_id(existing_id)
+
+
+@pytest.mark.asyncio
+async def test_from_cv_same_email_in_other_case_is_409_with_existing_id(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Odmowa bez `force` wskazuje profil — okna i klient JustJoin dodają
+    wtedy CV do niego, więc `detail` musi zostać słownikiem."""
+    unique = uuid.uuid4().hex[:8]
+    person = _person(unique)
+    try:
+        _patch_parser_and_extractor(monkeypatch, person)
+        first = await _post_cv(app_client, app_auth_headers)
+        assert first.status_code == 201, first.text
+
+        _patch_parser_and_extractor(
+            monkeypatch, _person(unique, email=person["email"].upper())
+        )
+        second = await _post_cv(app_client, app_auth_headers)
+        assert second.status_code == 409, second.text
+        detail = second.json()["detail"]
+        assert detail["existing_candidate_id"] == first.json()["candidate"]["id"]
+        assert detail["matches"][0]["match_reasons"] == ["email_exact"]
+    finally:
+        await _cleanup_candidate(person["email"])
 
 
 @pytest.mark.asyncio
@@ -230,3 +395,212 @@ async def test_from_cv_rejects_empty_text(
         files=files,
     )
     assert resp.status_code == 400
+
+
+async def _tombstone_email(email: str) -> None:
+    from app.models.purged_candidate import PurgedCandidate
+    from app.services.candidate_audit import (
+        EMAIL_TOMBSTONE_SOURCE,
+        candidate_email_tombstone,
+    )
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            PurgedCandidate(
+                external_source=EMAIL_TOMBSTONE_SOURCE,
+                external_id_hash=candidate_email_tombstone(email),
+            )
+        )
+        await db.commit()
+
+
+async def _erasure_traces(candidate_id: int) -> list[dict]:
+    from app.models.activity import Activity
+
+    async with AsyncSessionLocal() as db:
+        rows = await db.scalars(
+            select(Activity).where(
+                Activity.entity_type == "candidate",
+                Activity.entity_id == candidate_id,
+                Activity.action == "recreated_after_erasure",
+            )
+        )
+        return [row.details for row in rows]
+
+
+@pytest.mark.asyncio
+async def test_from_cv_erased_address_asks_the_recruiter_and_force_does_not_skip_it(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Adres z nagrobka: człowiek dostaje pytanie, zgoda zostawia ślad w historii."""
+    email = f"erased-{uuid.uuid4().hex[:10]}@example.com"
+    _patch_parser_and_extractor(
+        monkeypatch, {**FAKE_PARSED, "email": email, "phone": None}
+    )
+    await _tombstone_email(email)
+    files = {"file": ("cv.pdf", _fake_pdf_bytes(), "application/pdf")}
+
+    for query in ("", "?force=true"):
+        refused = await app_client.post(
+            f"/api/candidates/from-cv{query}", headers=app_auth_headers, files=files
+        )
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["detail"]["code"] == "candidate_erased"
+    async with AsyncSessionLocal() as db:
+        assert (
+            await db.scalar(select(Candidate.id).where(Candidate.email == email))
+            is None
+        )
+
+    confirmed = await app_client.post(
+        "/api/candidates/from-cv?confirm_erased=true",
+        headers=app_auth_headers,
+        files=files,
+    )
+    try:
+        assert confirmed.status_code == 201, confirmed.text
+        new_id = confirmed.json()["candidate"]["id"]
+        assert await _erasure_traces(new_id) == [{"via": "screen"}]
+    finally:
+        await _cleanup_candidate(email)
+
+
+@pytest.mark.asyncio
+async def test_from_cv_from_a_portal_scraper_passes_with_a_trace(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Osoba zgłosiła się sama na portalu: profil powstaje, historia to mówi."""
+    from app.services import candidate_claim
+
+    email = f"erased-{uuid.uuid4().hex[:10]}@example.com"
+    _patch_parser_and_extractor(
+        monkeypatch, {**FAKE_PARSED, "email": email, "phone": None}
+    )
+    monkeypatch.setattr(candidate_claim, "is_integration_request", lambda _r: True)
+    await _tombstone_email(email)
+
+    resp = await app_client.post(
+        "/api/candidates/from-cv",
+        headers=app_auth_headers,
+        files={"file": ("cv.pdf", _fake_pdf_bytes(), "application/pdf")},
+    )
+    try:
+        assert resp.status_code == 201, resp.text
+        new_id = resp.json()["candidate"]["id"]
+        assert await _erasure_traces(new_id) == [{"via": "self_application"}]
+    finally:
+        await _cleanup_candidate(email)
+
+
+@pytest.mark.asyncio
+async def test_from_cv_address_without_a_tombstone_leaves_no_trace(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    email = f"fresh-{uuid.uuid4().hex[:10]}@example.com"
+    _patch_parser_and_extractor(
+        monkeypatch, {**FAKE_PARSED, "email": email, "phone": None}
+    )
+    resp = await app_client.post(
+        "/api/candidates/from-cv",
+        headers=app_auth_headers,
+        files={"file": ("cv.pdf", _fake_pdf_bytes(), "application/pdf")},
+    )
+    try:
+        assert resp.status_code == 201, resp.text
+        assert await _erasure_traces(resp.json()["candidate"]["id"]) == []
+    finally:
+        await _cleanup_candidate(email)
+
+
+@pytest.mark.asyncio
+async def test_add_window_erased_address_asks_and_matches_other_case(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    email = f"erased-{uuid.uuid4().hex[:10]}@example.com"
+    await _tombstone_email(email)
+    payload = {"name": "Anna", "lastname": "Wraca", "email": email.upper()}
+
+    refused = await app_client.post(
+        "/api/candidates", headers=app_auth_headers, json=payload
+    )
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["code"] == "candidate_erased"
+
+    confirmed = await app_client.post(
+        "/api/candidates?confirm_erased=true", headers=app_auth_headers, json=payload
+    )
+    try:
+        assert confirmed.status_code == 201, confirmed.text
+        assert await _erasure_traces(confirmed.json()["id"]) == [{"via": "screen"}]
+    finally:
+        async with AsyncSessionLocal() as db:
+            row = await db.get(Candidate, confirmed.json()["id"])
+            if row:
+                await db.delete(row)
+                await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_csv_and_bulk_import_skip_an_erased_address(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    erased = f"erased-{uuid.uuid4().hex[:10]}@example.com"
+    fresh = f"fresh-{uuid.uuid4().hex[:10]}@example.com"
+    await _tombstone_email(erased)
+
+    csv_resp = await app_client.post(
+        "/api/import/candidates",
+        files={
+            "file": (
+                "k.csv",
+                f"name,lastname,email\nAnna,Wraca,{erased}\nJan,Nowy,{fresh}\n",
+                "text/csv",
+            )
+        },
+        headers=app_auth_headers,
+    )
+    assert csv_resp.status_code == 200, csv_resp.text
+    body = csv_resp.json()
+    assert (body["imported"], body["skipped"]) == (1, 1)
+    assert "trwale usuni" in next(
+        row["reason"] for row in body["details"] if row["status"] == "skipped"
+    )
+
+    bulk = await app_client.post(
+        "/api/candidates/bulk-import",
+        json=[{"name": "Anna", "lastname": "Wraca", "email": erased.upper()}],
+        headers=app_auth_headers,
+    )
+    assert bulk.status_code == 201, bulk.text
+    assert bulk.json()["created"] == 0
+    assert bulk.json()["items"][0]["status"] == "skipped"
+    assert bulk.json()["items"][0]["reason"] == "candidate_erased"
+
+    async with AsyncSessionLocal() as db:
+        assert (
+            await db.scalar(select(Candidate.id).where(Candidate.email == erased))
+            is None
+        )
+    await _cleanup_candidate(fresh)
+
+
+@pytest.mark.asyncio
+async def test_add_window_address_with_a_live_owner_is_a_plain_duplicate(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Żywy profil z adresem z nagrobka: zwykły duplikat, bez pytania o powrót."""
+    email = f"erased-{uuid.uuid4().hex[:10]}@example.com"
+    await _tombstone_email(email)
+    async with AsyncSessionLocal() as db:
+        db.add(Candidate(name="Jan", lastname="Zywy", email=email))
+        await db.commit()
+    try:
+        resp = await app_client.post(
+            "/api/candidates",
+            headers=app_auth_headers,
+            json={"name": "Anna", "lastname": "Inna", "email": email},
+        )
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"] == "Kandydat z tym adresem e-mail już istnieje."
+    finally:
+        await _cleanup_candidate(email)

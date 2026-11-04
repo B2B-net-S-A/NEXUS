@@ -1,0 +1,894 @@
+{
+ "_comment": "Spis funkcji Kontraktów i Zamówień klienta (wersja B z panelem, 29.09.2026, makieta https://claude.ai/artifact/4kiwKRJxukyHVYmWdydUoS). `file` + `marker` wskazują, gdzie funkcja żyje DZIŚ; przy przenosinach zmienia się `file`, wpis zostaje. Usunięcie wpisu wymaga `removed_reason` i decyzji Artura. Pilnuje tego lib/__tests__/orders-contracts-feature-parity.test.ts.",
+ "features": [
+  {
+   "id": "k.modes",
+   "opis": "Tryby: Rejestr kontraktów · Obsługa kontraktorów · Skrzynka zamówień z licznikiem",
+   "file": "app/contracts/page.tsx",
+   "marker": "Skrzynka zamówień",
+   "b_home": "Pasek trybów nad tabelą"
+  },
+  {
+   "id": "k.count",
+   "opis": "Licznik kontraktorów i aktywnych kontraktów",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "kontraktorów",
+   "b_home": "Nagłówek strony"
+  },
+  {
+   "id": "k.analytics",
+   "opis": "Analityka (admin, Finanse)",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "Analityka",
+   "b_home": "Nagłówek, przycisk"
+  },
+  {
+   "id": "k.export",
+   "opis": "Eksport Excel i CSV",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "Eksport",
+   "b_home": "Nagłówek, menu „Eksport”"
+  },
+  {
+   "id": "k.export-placements",
+   "opis": "Eksport „Placementy” — kontrakty ze startem w okresie w układzie arkusza Delivery (DL, rekruter, akceptacja, podpis, premia)",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "Placementy (.xlsx)",
+   "b_home": "Nagłówek, menu „Eksport”"
+  },
+  {
+   "id": "k.new",
+   "opis": "Nowy kontrakt",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "canCreateContract",
+   "b_home": "Nagłówek, przycisk główny"
+  },
+  {
+   "id": "k.expiring-banner",
+   "opis": "Baner kontraktów kończących się w 30 dni",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "kończy się",
+   "b_home": "Pasek filtrów"
+  },
+  {
+   "id": "k.client-picker",
+   "opis": "Wybór klienta: lista globalna albo rejestr klienta",
+   "file": "app/contracts/page.tsx",
+   "marker": "ContractsClientPicker",
+   "b_home": "Pierwszy przycisk paska filtrów"
+  },
+  {
+   "id": "k.search",
+   "opis": "Szukaj po kandydacie, kliencie, pozycji",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "placeholder=",
+   "b_home": "Pasek filtrów"
+  },
+  {
+   "id": "k.status-type",
+   "opis": "Status i typ umowy",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "contract_type",
+   "b_home": "Pasek filtrów"
+  },
+  {
+   "id": "k.dates",
+   "opis": "Filtry dat startu i końca zamówienia",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "dateRangeChipText",
+   "b_home": "Okienko „Daty”"
+  },
+  {
+   "id": "k.chips",
+   "opis": "Chipy aktywnych filtrów",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "Usuń filtr dat",
+   "b_home": "Pod paskiem filtrów"
+  },
+  {
+   "id": "k.agreement-not-terminated-filter",
+   "opis": "Filtr „Umowa nierozwiązana”: zakończone i kończące się kontrakty B2B bez rozwiązania umowy",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "Umowa nierozwiązana",
+   "b_home": "Pasek filtrów"
+  },
+  {
+   "id": "k.columns",
+   "opis": "Kolumny z sortowaniem",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "SortableHead",
+   "b_home": "Tabela"
+  },
+  {
+   "id": "k.grouping",
+   "opis": "Grupowanie po osobie, „pracuje u N klientów”",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "pracuje u",
+   "b_home": "Tabela, podwiersze"
+  },
+  {
+   "id": "k.finance-redact",
+   "opis": "Kwoty tylko z dostępem do finansów",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "canSeeFinance",
+   "b_home": "Tabela i panel"
+  },
+  {
+   "id": "k.future-start",
+   "opis": "„startuje DD.MM”, koniec zamówienia",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "startuje",
+   "b_home": "Kolumny Status i Koniec zamówienia"
+  },
+  {
+   "id": "k.row-panel",
+   "opis": "Klik w wiersz otwiera panel, nazwisko zostaje linkiem",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "ContractSidePanel",
+   "b_home": "Tabela → panel"
+  },
+  {
+   "id": "k.select",
+   "opis": "Zaznaczanie osoby i „Zaznacz wszystkie”",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "Zaznacz wszystkie",
+   "b_home": "Kwadracik w wierszu"
+  },
+  {
+   "id": "k.bulk",
+   "opis": "Pasek zbiorczy (+3m/+6m/+12m, oznacz zakończone)",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "ContractsBulkActionsBar",
+   "b_home": "Pływający pasek"
+  },
+  {
+   "id": "k.states",
+   "opis": "Ładowanie, błąd, 403, pusty wynik",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "NIE jest pusty",
+   "b_home": "Bez zmian"
+  },
+  {
+   "id": "k.url",
+   "opis": "Stronicowanie i stan w adresie, ?contract=",
+   "file": "lib/contracts-list-navigation.ts",
+   "marker": "selected",
+   "b_home": "Adres"
+  },
+  {
+   "id": "k.client-register",
+   "opis": "Rejestr klienta: Nr projektu, Pula godzin, Prolongata",
+   "file": "components/contracts/ClientContractRegister.tsx",
+   "marker": "Prolongata",
+   "b_home": "Tabela + panel"
+  },
+  {
+   "id": "k.operations",
+   "opis": "Obsługa kontraktorów: Do uzupełnienia, Zakończ projekt",
+   "file": "components/v2/pages/ContractorsListV2.tsx",
+   "marker": "Zakończ projekt",
+   "b_home": "Tabela + panel"
+  },
+  {
+   "id": "k.order-mail",
+   "opis": "Skrzynka zamówień z maila",
+   "file": "components/order-mail/OrderMailQueue.tsx",
+   "marker": "Przelicz plan",
+   "b_home": "Bez zmian"
+  },
+  {
+   "id": "k.p.facts",
+   "opis": "Umowa i zamówienie u klienta",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "DetailFacts",
+   "b_home": "Panel: sekcje"
+  },
+  {
+   "id": "k.p.contact",
+   "opis": "E-mail i telefon z edycją",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "ContractCandidateContactRow",
+   "b_home": "Panel: Kontakt"
+  },
+  {
+   "id": "k.p.status",
+   "opis": "Zmień status",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "ContractStatusControl",
+   "b_home": "Panel"
+  },
+  {
+   "id": "k.p.terminate",
+   "opis": "Zakończ współpracę",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "ContractTerminationDialog",
+   "b_home": "Panel, okno bez zmian"
+  },
+  {
+   "id": "k.p.recovery",
+   "opis": "Cofnij zakończenie i Powrót po przerwie",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "Powrót po przerwie",
+   "b_home": "Panel"
+  },
+  {
+   "id": "k.p.annex",
+   "opis": "Aneksy",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "Wygeneruj dokument",
+   "b_home": "Panel: menu „Aneks”"
+  },
+  {
+   "id": "k.annex.register",
+   "opis": "Rejestr aneksów: lista, jeden status, oznaczenie podpisu, skan, powiązanie z kontraktem, historia",
+   "file": "components/v2/b2b-generator/documents/AnnexRegister.tsx",
+   "marker": "Rejestr aneksów",
+   "b_home": "Generator umów: zakładka „Generator aneksów”"
+  },
+  {
+   "id": "k.annex.subject",
+   "opis": "Nowy aneks: wybór osoby — umowa z rejestru albo kontrakt bez umowy w rejestrze",
+   "file": "components/v2/b2b-generator/documents/AnnexSubjectPicker.tsx",
+   "marker": "Dla kogo jest aneks?",
+   "b_home": "Generator umów: zakładka „Generator aneksów”"
+  },
+  {
+   "id": "k.annex.row-label",
+   "opis": "Etykieta najnowszego aneksu i data startu przed/po na wierszu umowy",
+   "file": "components/v2/b2b-generator/RegisterAnnexLabel.tsx",
+   "marker": "RegisterAnnexLabel",
+   "b_home": "Generator umów: zakładka „Umowy bieżące”"
+  },
+  {
+   "id": "k.annex.contract-tab",
+   "opis": "Zakładka Aneksy: aneks z generatora od wygenerowania, źródło, plik aneksu i „Dołącz skan”",
+   "file": "components/ContractAmendmentsTab.tsx",
+   "marker": "contract-annex-documents",
+   "b_home": "Strona kontraktu: zakładka „Aneksy”"
+  },
+  {
+   "id": "k.p.more",
+   "opis": "Edytuj, Dodaj projekt, Generuj z szablonu, Przepnij, Usuń",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "Przepnij",
+   "b_home": "Panel: menu „⋯”"
+  },
+  {
+   "id": "k.p.docs",
+   "opis": "Dokumenty z oznaczeniem SharePointa",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "DOC_TYPE_LABEL",
+   "b_home": "Panel: 3 ostatnie"
+  },
+  {
+   "id": "k.p.timeline",
+   "opis": "Timeline",
+   "file": "components/contracts/ContractSidePanel.tsx",
+   "marker": "contract-activities",
+   "b_home": "Panel: 3 ostatnie"
+  },
+  {
+   "id": "k.page",
+   "opis": "Pełna strona kontraktu",
+   "file": "app/contracts/[id]/page.tsx",
+   "marker": "Onboarding",
+   "b_home": "Strona kontraktu"
+  },
+  {
+   "id": "c.header",
+   "opis": "Nagłówek klienta w jednej linii, menu „Więcej o kliencie”",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "Więcej o kliencie",
+   "b_home": "Nagłówek"
+  },
+  {
+   "id": "c.tabs",
+   "opis": "Zakładki klienta",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "ClientMdImportsTab",
+   "b_home": "Pod nagłówkiem"
+  },
+  {
+   "id": "o.new",
+   "opis": "Nowe zamówienie",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "Nowe zamówienie",
+   "b_home": "Pasek"
+  },
+  {
+   "id": "o.pills",
+   "opis": "Pigułki z licznikami + „Wymaga decyzji”",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "Wymaga decyzji",
+   "b_home": "Pasek"
+  },
+  {
+   "id": "o.search",
+   "opis": "Szukaj po numerze albo nazwisku",
+   "file": "components/client-profile/orders/OrderListControls.tsx",
+   "marker": "Szukaj po numerze",
+   "b_home": "Pasek"
+  },
+  {
+   "id": "o.excel",
+   "opis": "Pobierz do Excela",
+   "file": "components/client-profile/orders/OrderListControls.tsx",
+   "marker": "Pobierz do Excela",
+   "b_home": "Pasek"
+  },
+  {
+   "id": "o.filters",
+   "opis": "Filtry i sortowanie",
+   "file": "components/client-profile/orders/OrderListControls.tsx",
+   "marker": "Filtry i sortowanie",
+   "b_home": "Okienko"
+  },
+  {
+   "id": "o.sections",
+   "opis": "Sekcje MD, Kosztowe, Okresowe i filtr typu",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "TYPE_FILTERS",
+   "b_home": "Sekcje tabeli"
+  },
+  {
+   "id": "o.nordea",
+   "opis": "Import Nordea z CSV",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "NordeaOrderImportPanel",
+   "b_home": "Pasek"
+  },
+  {
+   "id": "o.deeplink",
+   "opis": "Linki ?order= / ?group= / ?contract= otwierają panel",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "focusContractId",
+   "b_home": "Panel"
+  },
+  {
+   "id": "o.order-mail-doc",
+   "opis": "?orderMailDoc= otwiera okno z PDF-em",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "orderMailDoc",
+   "b_home": "Bez zmian"
+  },
+  {
+   "id": "o.states",
+   "opis": "Wczytywanie, błąd, puste stany",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "isSuccess",
+   "b_home": "Bez zmian"
+  },
+  {
+   "id": "p.row",
+   "opis": "Wiersz kontraktora okresowego",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "ContractPersonLink",
+   "b_home": "Wiersz i panel"
+  },
+  {
+   "id": "p.ending",
+   "opis": "„kończy się za N dni”",
+   "file": "components/client-profile/orders/contractor-order-row.ts",
+   "marker": "kończy się",
+   "b_home": "Kolumna „Stan”"
+  },
+  {
+   "id": "p.no-order",
+   "opis": "„Brak aktywnego zamówienia” i „Brak zamówienia”",
+   "file": "components/client-profile/orders/contractor-order-row.ts",
+   "marker": "Brak aktywnego zamówienia",
+   "b_home": "Kolumna „Stan”"
+  },
+  {
+   "id": "p.inline",
+   "opis": "Edycja w miejscu numeru, okresu, stawek",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "InlinePeriod",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.cez",
+   "opis": "Umowa wykonawcza CeZ",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "executive",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.job",
+   "opis": "„z rekrutacji”",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Z rekrutacji",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.complete",
+   "opis": "Uzupełnij zamówienie",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Uzupełnij zamówienie",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.extend",
+   "opis": "Dodaj przedłużenie",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Dodaj przedłużenie",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.close",
+   "opis": "Zakończ zamówienie",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Zakończ zamówienie",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.delete",
+   "opis": "Usuń zamówienie",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Usuń zamówienie",
+   "b_home": "Panel, menu „⋯”"
+  },
+  {
+   "id": "p.draft",
+   "opis": "Usuń szkic, Przypisz do zamówienia",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Usuń szkic",
+   "b_home": "Panel karty szkicu"
+  },
+  {
+   "id": "p.terminate",
+   "opis": "Zakończ współpracę z bramką ról",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "canManageContractStatus",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.future",
+   "opis": "Przyszłe zamówienia",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Brak przyszłych zamówień",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.history",
+   "opis": "Historia zamówień z PDF",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Historia zamówień",
+   "b_home": "Panel"
+  },
+  {
+   "id": "p.pdf",
+   "opis": "PDF bieżącego zamówienia",
+   "file": "components/client-profile/orders/ContractorOrderPanel.tsx",
+   "marker": "Pobierz",
+   "b_home": "Panel"
+  },
+  {
+   "id": "g.row",
+   "opis": "Wiersz zamówienia MD/kosztowego",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "Zamówienie nr",
+   "b_home": "Tabela i panel"
+  },
+  {
+   "id": "g.bars",
+   "opis": "Paski budżetu i baner wyczerpania",
+   "file": "components/client-profile/orders/order-group-parts.tsx",
+   "marker": "SharedMdBudgetBar",
+   "b_home": "Wiersz i panel"
+  },
+  {
+   "id": "g.add",
+   "opis": "Dodaj konsultanta",
+   "file": "components/client-profile/orders/OrderGroupPanel.tsx",
+   "marker": "Dodaj konsultanta",
+   "b_home": "Panel"
+  },
+  {
+   "id": "g.complete",
+   "opis": "Uzupełnij zamówienie",
+   "file": "components/client-profile/orders/OrderGroupPanel.tsx",
+   "marker": "Uzupełnij zamówienie",
+   "b_home": "Panel"
+  },
+  {
+   "id": "g.extend",
+   "opis": "Dodaj przedłużenie",
+   "file": "components/client-profile/orders/OrderGroupPanel.tsx",
+   "marker": "Dodaj przedłużenie",
+   "b_home": "Panel"
+  },
+  {
+   "id": "g.lifecycle",
+   "opis": "Zakończ/Przywróć, Anuluj, Usuń całe",
+   "file": "components/client-profile/orders/OrderGroupPanel.tsx",
+   "marker": "Usuń całe zamówienie",
+   "b_home": "Panel, menu „⋯”"
+  },
+  {
+   "id": "g.future",
+   "opis": "Przyszłe zamówienia",
+   "file": "components/client-profile/orders/order-group-parts.tsx",
+   "marker": "Przyszłe zamówienia",
+   "b_home": "Wiersz i panel"
+  },
+  {
+   "id": "g.history",
+   "opis": "Historia zamówienia",
+   "file": "components/client-profile/orders/OrderGroupPanel.tsx",
+   "marker": "OrderHistoryPanel",
+   "b_home": "Panel, zakładka"
+  },
+  {
+   "id": "g.pdf",
+   "opis": "PDF zamówienia",
+   "file": "components/client-profile/orders/OrderGroupPanel.tsx",
+   "marker": "Pobierz",
+   "b_home": "Panel"
+  },
+  {
+   "id": "g.shared-consumptions",
+   "opis": "Zejścia wspólnej puli MD: edycja per konsultant i usunięcie miesiąca",
+   "file": "components/client-profile/orders/OrderGroupPanel.tsx",
+   "marker": "SharedMdConsumptionsSection",
+   "b_home": "Panel, sekcja „Zejścia MD”"
+  },
+  {
+   "id": "l.badges",
+   "opis": "Odznaki osoby",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "Dołączona",
+   "b_home": "Wiersz"
+  },
+  {
+   "id": "l.relations",
+   "opis": "Relacje „przejęła po”, „zastąpiony przez”",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "przejęła po",
+   "b_home": "Wiersz i panel"
+  },
+  {
+   "id": "l.missing",
+   "opis": "Brak zejścia, nierozliczone",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "Nierozliczone",
+   "b_home": "Kolumna „Uwagi”"
+  },
+  {
+   "id": "l.rates",
+   "opis": "Stawki, „—” bez finansów",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "canViewFinance",
+   "b_home": "Kolumny"
+  },
+  {
+   "id": "l.budget",
+   "opis": "Budżet osoby",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "MdBudgetBar",
+   "b_home": "Kolumna „Zostało MD”"
+  },
+  {
+   "id": "l.consumption-btn",
+   "opis": "Przycisk „Zużycie”",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "ConsumptionButton",
+   "b_home": "Kolumna „Zużycie”"
+  },
+  {
+   "id": "l.consumption",
+   "opis": "Zużycie MD po miesiącach z edycją",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "LineConsumptionTable",
+   "b_home": "Panel, zakładka"
+  },
+  {
+   "id": "l.cost-consumption",
+   "opis": "Zużycie zamówienia kosztowego po miesiącach (kwoty, wspólny budżet) z edycją",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "CostConsumptionTab",
+   "b_home": "Panel, zakładka „Zużycie”"
+  },
+  {
+   "id": "l.edit",
+   "opis": "Edytuj linię / stawki",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "Edytuj stawki",
+   "b_home": "Panel"
+  },
+  {
+   "id": "l.swap",
+   "opis": "Zamień kontraktora",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "swapBlockedReason",
+   "b_home": "Panel"
+  },
+  {
+   "id": "l.remove",
+   "opis": "Usuń konsultanta z zamówienia",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "Więcej akcji konsultanta",
+   "b_home": "Panel, menu „⋯”"
+  },
+  {
+   "id": "l.manual",
+   "opis": "Kto i kiedy dodał osobę do zamówienia, PDF podpięty do profilu",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "Dodano do zamówienia",
+   "b_home": "Panel, Szczegóły"
+  },
+  {
+   "id": "e.section",
+   "opis": "Zakończone (N) · N wymaga decyzji",
+   "file": "components/client-profile/orders/OrdersTable.tsx",
+   "marker": "wymaga decyzji",
+   "b_home": "Zwijany wiersz"
+  },
+  {
+   "id": "e.state",
+   "opis": "Status zakończenia, wykorzystanie",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "nie wracają do puli",
+   "b_home": "Wiersz i panel"
+  },
+  {
+   "id": "e.decide",
+   "opis": "Podejmij decyzję",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "Podejmij decyzję",
+   "b_home": "Panel"
+  },
+  {
+   "id": "e.pool",
+   "opis": "Decyzja o puli MD",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "OffboardingDecisionModal",
+   "b_home": "Okno z panelu"
+  },
+  {
+   "id": "e.change",
+   "opis": "Zmień decyzję, „Oczekuje na decyzję”",
+   "file": "components/client-profile/orders/OrderLinePanel.tsx",
+   "marker": "Oczekuje na decyzję",
+   "b_home": "Panel"
+  },
+  {
+   "id": "e.replace",
+   "opis": "Zastąp kimś innym, Przypisz do zamówienia",
+   "file": "components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+   "marker": "EndedLineDecisionDialog",
+   "b_home": "Okna z panelu"
+  },
+  {
+   "id": "x.alert",
+   "opis": "Alert DL „Podejmij decyzję” otwiera panel",
+   "file": "lib/client-order-list.ts",
+   "marker": "lineId",
+   "b_home": "Panel decyzji"
+  },
+  {
+   "id": "x.imports",
+   "opis": "Zakładka „Importy MD”",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "Importy MD",
+   "b_home": "Profil klienta: „Więcej” w pasku zakładek (22.10.2026)"
+  },
+  {
+   "id": "k.care-tab",
+   "opis": "Zakładka „Opieka” kontraktu = karta konsultanta (22.10.2026): zdrowie relacji z „dlaczego”, cztery liczby, „Następny krok”, „Co wiemy o projekcie”, sprawy, jedna „Historia” z filtrami, plan kontaktów, „Więcej” (opiekun, rytm, pominięcie punktu) — moduł „care”",
+   "file": "app/contracts/[id]/page.tsx",
+   "marker": "ContractCareTab",
+   "b_home": "Strona kontraktu: zakładka „Opieka”"
+  },
+  {
+   "id": "k.care-tab.conversation",
+   "opis": "Okno „Rozmowa” z karty konsultanta: dzisiejsza rozmowa, „Co u klienta” (dawna karta technologiczna), pytania z mapy klienta, „Coś do załatwienia?”",
+   "file": "components/care/ConversationDialog.tsx",
+   "marker": "ClientStateSection",
+   "b_home": "Strona kontraktu: zakładka „Opieka”, „Zapisz rozmowę”"
+  },
+  {
+   "id": "k.care-tab.tech-card-edit",
+   "opis": "Edycja starej karty technologicznej — „Edytuj” przy karcie w „Historii” (przycisk „Karta technologiczna” zastąpiło okno „Rozmowa”, 22.10.2026)",
+   "file": "components/care/ContractCareTab.tsx",
+   "marker": "TechCardDialog",
+   "b_home": "Strona kontraktu: zakładka „Opieka”, „Historia”"
+  },
+  {
+   "id": "k.care-tab.owner",
+   "opis": "Zmiana opiekuna kontraktu (dawny wybór w zakładce „Opieka”) — „Więcej” → „Zmień opiekuna” z powodem",
+   "file": "components/care/card/ConsultantCard.tsx",
+   "marker": "Zmień opiekuna",
+   "b_home": "Karta konsultanta: menu „Więcej”"
+  },
+  {
+   "id": "k.care-tab.cases",
+   "opis": "Sprawy konsultanta w karcie i „+ Nowa sprawa” z kontraktem",
+   "file": "components/care/card/ConsultantCard.tsx",
+   "marker": "Nowa sprawa",
+   "b_home": "Karta konsultanta: sekcja „Sprawy”"
+  },
+  {
+   "id": "c.tech-tab",
+   "opis": "Mapa technologii klienta z czterech źródeł (moduł „care”) — od 22.10.2026 widok „Mapa” zakładki „Ludzie i technologie” (dawne `?tab=technologie` przekierowuje)",
+   "file": "components/care/client/ClientPeopleTechTab.tsx",
+   "marker": "ClientTechnologiesTab",
+   "b_home": "Profil klienta: zakładka „Ludzie i technologie” → widok „Mapa”"
+  },
+  {
+   "id": "c.org-tab",
+   "opis": "Drzewo osób klienta: działy, osoby, menedżerowie naszych konsultantów, prośby o opinię i zapis opinii (moduł „care”, D8–D11) — od 22.10.2026 widok „Drzewo osób” zakładki „Ludzie i technologie” (dawne `?tab=struktura` przekierowuje)",
+   "file": "components/care/client/ClientPeopleTechTab.tsx",
+   "marker": "ClientPeopleTab",
+   "b_home": "Profil klienta: zakładka „Ludzie i technologie” → widok „Drzewo osób”"
+  },
+  {
+   "id": "c.people-tech",
+   "opis": "Zakładka „Ludzie i technologie” (`?tab=ludzie`, moduł „care”) zaraz po „Kontaktach klienta”: pięć liczb kompletności wiedzy, widoki Działy / Drzewo osób / Mapa (tabela)",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "ClientPeopleTechTab",
+   "b_home": "Profil klienta: zakładka „Ludzie i technologie”"
+  },
+  {
+   "id": "c.departments",
+   "opis": "Widok „Działy”: karta działu z menedżerem naszych i „Podlega pod” (ze stanowiskiem), stanem opinii, „Nasi (N)” z kropką zdrowia, technologiami z siłą źródeł, „Szukają: …” (rekrutacje, sygnał z rozmowy, „w bazie N pasujących”), luką działu z osobą do dopytania; z prawej luki („pytanie w najbliższej rozmowie”), ludzie poza działami z „Przypisz dział”, dostawcy u klienta, notatki o stacku. Domyślny opiekun klienta — „Zespół opiekunów” → „Ustawienia przydziału” (22.10.2026)",
+   "file": "components/care/client/DepartmentsView.tsx",
+   "marker": "Szukają: ",
+   "b_home": "Profil klienta: „Ludzie i technologie” → widok „Działy”"
+  },
+  {
+   "id": "c.approval-bar",
+   "opis": "Pasek „Do zatwierdzenia”: jedna propozycja automatu struktury (Zatwierdź / Zmień / Pomiń) i „Wszystkie propozycje (N)” z pełnym panelem",
+   "file": "components/care/client/ApprovalBar.tsx",
+   "marker": "Wszystkie propozycje",
+   "b_home": "Profil klienta: „Ludzie i technologie” nad widokami"
+  },
+  {
+   "id": "c.tabs-more",
+   "opis": "„Więcej” w pasku zakładek klienta: Delivery Lead (z „Wiedzą o kliencie”), Importy MD, Faktury, Analityka; wybrana stoi w pasku",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "Więcej sekcji klienta",
+   "b_home": "Pasek zakładek klienta"
+  },
+  {
+   "id": "c.tab-sales",
+   "opis": "Zakładka „Sprzedaż” klienta (pod „Więcej”, uprawnienie „Sprzedaż: podgląd”): powiązana firma sprzedaży i jej szanse (27.10.2026)",
+   "file": "components/sales/ClientSalesTab.tsx",
+   "marker": "Firma w Sprzedaży:",
+   "b_home": "Pasek zakładek klienta"
+  },
+  {
+   "id": "c.people-tech.header-actions",
+   "opis": "„Zapisz opinię menedżera” i „Nowa rekrutacja z działu” w nagłówku profilu klienta przy otwartej zakładce „Ludzie i technologie” (makieta P5, 22.10.2026)",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "PeopleTechHeaderActions",
+   "b_home": "Profil klienta: nagłówek przy zakładce „Ludzie i technologie”"
+  },
+  {
+   "id": "c.knowledge-stack",
+   "opis": "Delivery Lead → Wiedza o kliencie: notatki „Stack technologiczny” do czytania, dopisuje się je w „Ludziach i technologiach” (jedno wejście, R2 22.10.2026)",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "Dopisz w Ludziach i technologiach",
+   "b_home": "Profil klienta: „Więcej” → Delivery Lead → Wiedza o kliencie"
+  },
+  {
+   "id": "c.contact-area",
+   "opis": "Formularz kontaktu klienta: „Dział” ze słownika działów klienta („Nowy dział…”) i „Podlega pod” przy otwartym module opieki",
+   "file": "app/clients/[id]/page.tsx",
+   "marker": "ContactOrgFields",
+   "b_home": "Profil klienta: „Kontakty klienta” → formularz kontaktu"
+  },
+  {
+   "id": "k.client-manager",
+   "opis": "„Menedżer u klienta” na kontrakcie (kontakt klienta, podpowiedź „Przypnij”) w sekcji „Osadzenie u klienta” i w faktach kontraktu",
+   "file": "app/contracts/[id]/page.tsx",
+   "marker": "Menedżer u klienta",
+   "b_home": "Strona kontraktu: fakty i edycja „Osadzenie u klienta”"
+  },
+  {
+   "id": "k.client-feedback",
+   "opis": "Historia opinii klienta o konsultancie w zakładce „Opieka” kontraktu",
+   "file": "app/contracts/[id]/page.tsx",
+   "marker": "ContractFeedbackHistory",
+   "b_home": "Strona kontraktu: zakładka „Opieka”"
+  },
+  {
+   "id": "k.equipment-tab",
+   "opis": "Zakładka „Sprzęt” kontraktu: wpisy ręczne (dodaj, zwrócono, usuń) i termin zwrotu z dzwonkiem 14 dni",
+   "file": "components/contracts/ContractEquipmentTab.tsx",
+   "marker": "Dodaj sprzęt",
+   "b_home": "Strona kontraktu: zakładka „Sprzęt”"
+  },
+  {
+   "id": "k.equipment-register-issue",
+   "opis": "Wydanie z magazynu z protokołem recepcji (moduł „Sprzęt”)",
+   "file": "components/contracts/ContractEquipmentTab.tsx",
+   "marker": "Wydaj z magazynu",
+   "b_home": "Zakładka „Sprzęt” kontraktu, nad tabelą"
+  },
+  {
+   "id": "k.equipment-register-return",
+   "opis": "Zwrot pozycji z magazynu przez recepcję (protokół zwrotu)",
+   "file": "components/contracts/ContractEquipmentTab.tsx",
+   "marker": "zwrot przyjmuje recepcja",
+   "b_home": "Zakładka „Sprzęt” kontraktu, wiersz pozycji"
+  },
+  {
+   "id": "k.termination-equipment-return",
+   "opis": "Zakończenie współpracy: lista sprzętu do zwrotu i zadanie odbioru dla recepcji",
+   "file": "components/contracts/ContractTerminationDialog.tsx",
+   "marker": "Zwrot sprzętu",
+   "b_home": "Okno „Zakończ współpracę”"
+  },
+  {
+   "id": "k.docs.sections",
+   "opis": "Dokumenty kontraktu: sekcja „Aktualna umowa” (pliki poza folderami) zawsze nad folderami",
+   "file": "components/ContractDocumentsTab.tsx",
+   "marker": "pliki poza folderami",
+   "b_home": "Strona kontraktu: zakładka „Dokumenty”"
+  },
+  {
+   "id": "k.docs.folders",
+   "opis": "Foldery w Dokumentach: „Nowy folder”, zwijanie, liczba plików, rozmiar, data, „Zmień nazwę”, „Usuń” (pliki wracają na listę główną)",
+   "file": "components/contracts/documents/FolderHeaderRow.tsx",
+   "marker": "Zmień nazwę",
+   "b_home": "Strona kontraktu: zakładka „Dokumenty”, sekcja „Foldery”"
+  },
+  {
+   "id": "k.docs.move",
+   "opis": "Checkbox przy pliku i pasek: „Przenieś do”, „Nowy folder z zaznaczonych”, „Anuluj”",
+   "file": "components/contracts/documents/SelectionBar.tsx",
+   "marker": "Nowy folder z zaznaczonych",
+   "b_home": "Strona kontraktu: zakładka „Dokumenty”, pasek nad listą"
+  },
+  {
+   "id": "k.docs.orders-folder",
+   "opis": "Automatyczny folder „Zamówienia”: dokumenty typu Zamówienie i PDF-y z zakładki Zamówienia (dawna sekcja „Dokumenty zamówień”)",
+   "file": "components/contracts/documents/FolderHeaderRow.tsx",
+   "marker": "automatyczny",
+   "b_home": "Strona kontraktu: zakładka „Dokumenty”, folder „Zamówienia”"
+  },
+  {
+   "id": "k.docs.suggestion",
+   "opis": "Podpowiedź „Poprzednia umowa – nr …” z numeru umowy w nazwach plików",
+   "file": "components/contracts/documents/FolderSuggestionBanner.tsx",
+   "marker": "wyglądają",
+   "b_home": "Strona kontraktu: zakładka „Dokumenty”, ramka nad listą"
+  },
+  {
+   "id": "k.docs.upload",
+   "opis": "„Dodaj plik”: typ, data ważności i folder (zamówienie zawsze do „Zamówień”)",
+   "file": "components/contracts/documents/UploadDocumentDialog.tsx",
+   "marker": "Aktualna umowa (bez folderu)",
+   "b_home": "Strona kontraktu: zakładka „Dokumenty”, przycisk „Dodaj plik”"
+  },
+  {
+   "id": "k.termination-agreement-plan",
+   "opis": "Zakończenie współpracy: obowiązkowe „Co z umową B2B?”, zakaz konkurencji i przejście do generatora porozumienia z datami",
+   "file": "components/contracts/ContractTerminationDialog.tsx",
+   "marker": "Co z umową B2B?",
+   "b_home": "Okno „Zakończ współpracę”"
+  },
+  {
+   "id": "k.termination-agreement-reminder",
+   "opis": "Zakończony kontrakt z nierozwiązaną umową B2B: ostrzeżenie i „Przygotuj porozumienie”",
+   "file": "app/contracts/[id]/page.tsx",
+   "marker": "agreement-not-terminated",
+   "b_home": "Strona kontraktu: karta „Zakończenie współpracy”"
+  },
+  {
+   "id": "k.agreement-recorded-outside-nexus",
+   "opis": "Rozwiązanie umowy B2B podpisane poza NEXUSEM: okno „Zapisz rozwiązanie umowy” na karcie kontraktu",
+   "file": "app/contracts/[id]/page.tsx",
+   "marker": "Zapisz rozwiązanie umowy",
+   "b_home": "Strona kontraktu: przypomnienie o nierozwiązanej umowie"
+  },
+  {
+   "id": "k.agreement-recorded-from-list",
+   "opis": "„+ Rozwiązanie” w wierszu listy „Umowa nierozwiązana” otwiera to samo okno",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "+ Rozwiązanie",
+   "b_home": "Tabela, kolumna Status"
+  }
+ ]
+}

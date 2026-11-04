@@ -1,24 +1,30 @@
 "use client";
 
 /**
- * Harness wizualny zamówienia MD z zakresami podstawa + opcja (Centrum
- * e-Zdrowia, Faza B). Renderuje PRODUKCYJNY `OrderGroupCard` na zamrożonych
- * danych: cache react-query zasiany ze `staleTime: Infinity` i domyślnym
- * `queryFn`, które odrzuca LOKALNIE — strona nie robi ani jednego zapytania
- * (ten sam wzorzec co `/preview/order-lifecycle`).
+ * Harness wizualny zamówienia MD z zakresami podstawa + opcja (umowy
+ * wykonawcze, Faza B). Renderuje PRODUKCYJNĄ tabelę zamówień z panelami
+ * (wersja B, 29.09.2026) na zamrożonych danych: cache react-query zasiany ze
+ * `staleTime: Infinity` i domyślnym `queryFn`, które odrzuca LOKALNIE —
+ * strona nie robi ani jednego zapytania (ten sam wzorzec co
+ * `/preview/order-lifecycle`).
  *
- * Dwa warianty tej samej karty stoją obok siebie celowo: z kwotami (rola
- * z finansami) i bez (`contract_value_pln: null`) — różnica ma być widoczna
- * na jednym ekranie, a nie zależeć od tego, kto akurat patrzy.
+ * Dwa warianty tego samego zamówienia stoją obok siebie celowo: z kwotami
+ * (rola z finansami) i bez (`contract_value_pln: null`) — różnica ma być
+ * widoczna na jednym ekranie, a nie zależeć od tego, kto akurat patrzy.
+ * Pierwszy wariant otwiera od wejścia panel zamówienia (nagłówek umowy
+ * z wartością), kliknięcie wiersza — panel osoby.
  *
- * Nazwiska zmyślone. Numery umów w formacie CeZ są przykładowe.
+ * Nazwiska zmyślone. Numery umów w formacie umów wykonawczych są przykładowe.
  */
 
 import { useMemo } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { OrderGroupCard } from "@/components/client-profile/orders/OrderGroupCard";
-import { lineConsumptionsQueryKey } from "@/components/client-profile/orders/LineMonthlyHistoryDialog";
+import {
+  OrderGroupsHarness,
+  OrderGroupsHarnessGroup,
+  seedOrderGroupPanels,
+} from "@/app/preview/order-groups-harness";
 import type {
   LineConsumptionRow,
   OrderGroupListResponse,
@@ -154,7 +160,7 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
   return {
     id: 910,
     client_id: CLIENT_ID,
-    order_number: "CeZ/242/2025/Z-7",
+    order_number: "IPR/942/2031/Z-7",
     start_date: "2025-10-01",
     end_date: "2026-12-31",
     notes: null,
@@ -176,7 +182,7 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
     md_budget_remaining: null,
     md_budget_manual_adjustment: null,
     predecessor_group_id: null,
-    filename: "CeZ-242-2025-Z-7.pdf",
+    filename: "IPR-942-2031-Z-7.pdf",
     has_file: true,
     content_type: "application/pdf",
     size_bytes: 120_000,
@@ -184,7 +190,7 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
     can_add_consultant: true,
     executive_contract: {
       id: 71,
-      number: "CeZ/242/2025",
+      number: "IPR/942/2031",
       status: "active",
       framework_contract_id: 12,
       project_part: "cz2",
@@ -208,10 +214,10 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
   };
 }
 
-// Przyszłe zamówienie pod kartą — sekcja w ciaśniejszym układzie CeZ.
+// Przyszłe zamówienie pod kartą — sekcja w ciaśniejszym układzie umów wykonawczych.
 const FUTURE = group({
   id: 912,
-  order_number: "CeZ/242/2025/Z-9",
+  order_number: "IPR/942/2031/Z-9",
   start_date: "2027-01-01",
   end_date: null,
   md_positions_total: 360,
@@ -235,7 +241,7 @@ const FUTURE = group({
 const WITH_FINANCE = group({ future_orders: [FUTURE] });
 const WITHOUT_FINANCE = group({
   id: 911,
-  order_number: "CeZ/242/2025/Z-8",
+  order_number: "IPR/942/2031/Z-8",
   contract_value_pln: null,
   used_value_pln: null,
   lines: LINES.map((item) => ({
@@ -285,8 +291,8 @@ const CASES: Array<{ title: string; why: string; group: OrderGroupRead }> = [
     why:
       "Nagłówek: umowa wykonawcza z częścią, pasek MD pozycji i wartość umowy w PLN. " +
       "Wiersze: podstawa + opcja z zużyciem, brak opcji w umowie, osoba zastąpiona " +
-      "z przejściem „→ następca”, następca z zerowym zużyciem. Kalendarz przy wierszu " +
-      "otwiera rozliczenia miesięczne (zasiane dla pierwszej osoby).",
+      "z przejściem „→ następca”, następca z zerowym zużyciem. „Zużycie” przy wierszu " +
+      "otwiera rozliczenia miesięczne w panelu (zasiane dla pierwszej osoby).",
     group: WITH_FINANCE,
   },
   {
@@ -297,8 +303,6 @@ const CASES: Array<{ title: string; why: string; group: OrderGroupRead }> = [
     group: WITHOUT_FINANCE,
   },
 ];
-
-function noop() {}
 
 export default function OrderMdScopesPreview() {
   const queryClient = useMemo(() => {
@@ -319,57 +323,45 @@ export default function OrderMdScopesPreview() {
       total_groups: CASES.length,
       total_consultants: LINES.length,
     });
-    for (const item of CASES) {
-      qc.setQueryData(["order-group-events", CLIENT_ID, item.group.id], { events: [] });
-      for (const row of item.group.lines) {
-        // Pierwsza osoba ma wpisy, reszta pusty stan — oba do obejrzenia.
-        qc.setQueryData(lineConsumptionsQueryKey(CLIENT_ID, item.group.id, row.id), {
-          rows: row.id === 1 ? CONSUMPTIONS : [],
-        });
-      }
-    }
+    // Pierwsza osoba ma wpisy zużycia, reszta pusty stan — oba do obejrzenia.
+    seedOrderGroupPanels(
+      qc,
+      CLIENT_ID,
+      CASES.map((item) => item.group),
+      { consumptions: { 1: { rows: CONSUMPTIONS } } },
+    );
     return qc;
   }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
-      <main className="mx-auto flex max-w-5xl flex-col gap-8 p-8">
+      <main className="mx-auto flex max-w-6xl flex-col gap-8 p-4 sm:p-8">
         <header>
           <h1 className="text-lg font-semibold">
-            Harness — zamówienie MD z zakresami (podstawa + opcja, CeZ)
+            Harness — zamówienie MD z zakresami (podstawa + opcja, umowy wykonawcze)
           </h1>
           <p className="text-sm text-muted-foreground">
             Publiczny podgląd na zamrożonych danych. Zero zapytań do API.
           </p>
         </header>
 
-        {CASES.map((item) => (
-          <section key={item.group.id} className="flex flex-col gap-2">
-            <div>
-              <h2 className="text-sm font-semibold">{item.title}</h2>
-              <p className="text-xs text-muted-foreground">{item.why}</p>
-            </div>
-            <OrderGroupCard
-              clientId={CLIENT_ID}
-              group={item.group}
-              canManage
-              canManageLifecycle
-              onAddConsultant={noop}
-              onEditGroup={noop}
-              onEditLine={noop}
-              onSwapLine={noop}
-              onDeleteLine={noop}
-              onResolveOffboarding={noop}
-              onKeepHistory={noop}
-              onReplaceLine={noop}
-              onDeleteGroup={noop}
-              onCloseGroup={noop}
-              onReopenGroup={noop}
-              onExtendGroup={noop}
-              onFocusGroup={noop}
-            />
-          </section>
-        ))}
+        <OrderGroupsHarnessGroup>
+          {CASES.map((item) => (
+            <section key={item.group.id} className="flex flex-col gap-2">
+              <div>
+                <h2 className="text-sm font-semibold">{item.title}</h2>
+                <p className="text-xs text-muted-foreground">{item.why}</p>
+              </div>
+              <OrderGroupsHarness
+                clientId={CLIENT_ID}
+                groups={[item.group]}
+                initialSelection={
+                  item.group === WITH_FINANCE ? { kind: "group", groupId: item.group.id } : null
+                }
+              />
+            </section>
+          ))}
+        </OrderGroupsHarnessGroup>
       </main>
     </QueryClientProvider>
   );

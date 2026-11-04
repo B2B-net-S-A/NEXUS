@@ -158,7 +158,9 @@ def main():
         put(nexus_id, nexus_env, "COMPASS_AVAILABILITY_ENABLED", "true")
         put(nexus_id, nexus_env, "RECRUITMENT_ALLOCATION_ENABLED", "true")
         restart_id = nexus_id
-    result = api("GET", "/deploy?uuid=" + restart_id + "&force=false")
+    # Coolify od 01.10.2026 przyjmuje deploy wyłącznie POST-em (GET = 405),
+    # tak jak w deploy.yml po #1964.
+    result = api("POST", "/deploy?uuid=" + restart_id + "&force=false")
     print(
         json.dumps(
             {

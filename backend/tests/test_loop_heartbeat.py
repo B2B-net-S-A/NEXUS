@@ -73,6 +73,7 @@ def _background_task_names() -> set[str]:
         if (
             isinstance(node, ast.Assign)
             and isinstance(node.value, ast.Dict)
+            and node.value.keys  # pusty słownik startowy przed przejęciem pętli
             and any(
                 isinstance(t, ast.Attribute) and t.attr == "background_tasks"
                 for t in node.targets

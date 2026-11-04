@@ -34,6 +34,31 @@ export function competenceTone(
   return (resolved && CC_TONE[resolved]) || "neutral"
 }
 
+/**
+ * Krótkie nazwy czterech kategorii — do wierszy tabel i wąskich paneli, gdzie
+ * pełna nazwa („Infra & Operations & Security / Data & AI”) się nie mieści.
+ */
+const CC_SHORT_LABEL: Record<string, string> = {
+  infrastructure_operations: "Infra",
+  software_development: "Dev",
+  security_quality: "QA",
+  management_delivery: "PM & BA",
+};
+
+/**
+ * Krótka nazwa kategorii po slugu; `null` dla nieznanego slugu — wołający
+ * pokazuje wtedy pełną nazwę z katalogu, nigdy surowy klucz.
+ */
+export function competenceShortLabel(
+  slug: string | null | undefined,
+): string | null {
+  const resolved = resolveSlug(slug);
+  if (!resolved || !Object.prototype.hasOwnProperty.call(CC_SHORT_LABEL, resolved)) {
+    return null;
+  }
+  return CC_SHORT_LABEL[resolved];
+}
+
 function resolveSlug(slug: string | null | undefined): string | null {
   if (!slug) return null;
   return RETIRED_SLUG_ALIAS[slug] ?? slug;

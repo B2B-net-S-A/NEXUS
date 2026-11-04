@@ -6,17 +6,19 @@
  */
 
 import * as React from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useUrlWriter } from "@/lib/url-selection";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { EmptyState } from "@/components/ds/EmptyState";
 import { useToast } from "@/components/Toast";
-import { bulkFailureMessage } from "@/lib/academy-flow";
+import { bulkFailureMessage, withReplacedApplication } from "@/lib/academy-flow";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   academyApi,
   academyKeys,
   type AcademyApplication,
+  type AcademyCounts,
   type ActionBody,
 } from "@/lib/api/academy";
 import { downloadBlob } from "@/lib/authenticated-files";
@@ -32,7 +34,7 @@ function parseView(value: string | null): AcademyView {
 }
 
 export function AcademyScreen({ programId }: { programId: number }) {
-  const router = useRouter();
+  const { replaceUrl } = useUrlWriter();
   const pathname = usePathname();
   const params = useSearchParams();
   const view = parseView(params.get("view"));
@@ -68,18 +70,21 @@ export function AcademyScreen({ programId }: { programId: number }) {
     if (next === "edition") search.delete("view");
     else search.set("view", next);
     const qs = search.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    replaceUrl(qs ? `${pathname}?${qs}` : pathname);
   };
 
   const refreshAll = () =>
     queryClient.invalidateQueries({ queryKey: academyKeys.all });
 
+  // Wiersz i liczniki statusów od razu, potem odświeżenie listy — liczniki
+  // pochodne (Luna odłożyła, powroty wykluczonych) liczy tylko serwer.
   const replaceRow = (row: AcademyApplication) => {
     queryClient.setQueryData(
       academyKeys.applications(programId),
-      (old: { items: AcademyApplication[]; counts: Record<string, number> } | undefined) =>
-        old ? { ...old, items: old.items.map((a) => (a.id === row.id ? row : a)) } : old,
+      (old: { items: AcademyApplication[]; counts: AcademyCounts } | undefined) =>
+        withReplacedApplication(old, row),
     );
+    void queryClient.invalidateQueries({ queryKey: academyKeys.applications(programId) });
   };
 
   const handlers: AcademyHandlers = {

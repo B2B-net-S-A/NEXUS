@@ -25,11 +25,23 @@ from app.schemas.candidate_profile_facts import CandidateLanguageWrite
 from app.schemas.pipeline import STAGE_LABELS
 from app.services import candidate_audit
 from app.services.candidate_identity_quarantine import source_is_eligible_clause
+from app.services.candidate_language_writer import KNOWN_LANGUAGE_CODES
 from app.services.client_identity import client_display_name_expression
 
 
 class CandidateNotFoundError(LookupError):
     """Raised when a candidate-scoped fact targets a missing candidate."""
+
+
+class UnknownLanguageCodeError(ValueError):
+    """Kod języka spoza listy bez oznaczenia „Inny…” (`other: true`)."""
+
+    def __init__(self, language_name: str) -> None:
+        self.language_name = language_name
+        super().__init__(
+            f"Język „{language_name}” nie jest na liście. Wybierz go z listy "
+            "albo zaznacz „Inny…”."
+        )
 
 
 class ProfileFactsVersionConflictError(RuntimeError):
@@ -144,6 +156,13 @@ async def replace_candidate_languages(
         _language_audit_snapshot(row) for row in all_rows if row.deleted_at is None
     ]
     existing_by_code = {row.language_code: row for row in all_rows}
+    for language in languages:
+        if (
+            language.language_code not in KNOWN_LANGUAGE_CODES
+            and not language.other
+            and language.language_code not in existing_by_code
+        ):
+            raise UnknownLanguageCodeError(language.language_name)
     desired_by_code = {language.language_code: language for language in languages}
     now = datetime.now(timezone.utc)
 
@@ -256,7 +275,13 @@ async def update_candidate_profile_rate(
     amount: Decimal | None,
     expected_version: int,
     actor_id: int,
+    meaning: str = "expectation",
 ) -> Candidate:
+    """Zapis stawki profilu przez człowieka.
+
+    ``meaning="minimum"`` (0414): „to jego minimum” — starsze, niższe stawki
+    przestają się liczyć do „Stawki od” (`candidate_rate_from`).
+    """
     candidate = await get_candidate_profile_rate(
         db,
         candidate_id,
@@ -267,7 +292,12 @@ async def update_candidate_profile_rate(
 
     from app.services.candidate_profile_rate import write_profile_rate
 
-    details = write_profile_rate(candidate, amount, source="manual")
+    is_minimum = meaning == "minimum" and amount is not None
+    details = write_profile_rate(
+        candidate, amount, source="manual_minimum" if is_minimum else "manual"
+    )
+    if is_minimum:
+        details["rate_meaning"] = "minimum"
     extracted = (
         dict(candidate.cv_extracted_data)
         if isinstance(candidate.cv_extracted_data, dict)
@@ -294,6 +324,9 @@ async def update_candidate_profile_rate(
 
     await mark_stale_for_candidate(db, candidate_id)
     await db.flush()
+    from app.services.candidate_rate_from import recompute_safely
+
+    await recompute_safely(db, [candidate_id])
     return candidate
 
 

@@ -429,6 +429,70 @@ async def test_contract_without_a_start_date_counts_as_current_in_utilization():
     assert key in population.active_keys
 
 
+@pytest.mark.parametrize(
+    ("order_offset", "current"),
+    [(1, False), (-1, True)],
+    ids=["order-starts-tomorrow", "order-started-yesterday"],
+)
+async def test_dateless_contract_asks_its_orders_whether_it_already_runs(
+    order_offset, current
+):
+    """Audyt 25.09.2026 (reguła S5): kontrakt bez daty startu, którego jedyne
+    zamówienie zaczyna się jutro, jest PLANOWANY — tak liczy profil klienta
+    i katalog. Analityka (margin-totals, ranking, utylizacja) liczyła go jako
+    obecny, więc ten sam klient miał inne MRR w Finansach niż na profilu."""
+    pytest.importorskip("asyncpg")
+    from app.api.contract_analytics import _load_live_contracts, _started_by
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.services.contractor_identity import candidate_identity_key
+
+    marker = uuid.uuid4().hex[:8]
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Start z zamówienia {marker}")
+        person = Candidate(name="Planowany", lastname=f"Konsultant{marker}")
+        db.add_all([client, person])
+        await db.flush()
+        contract = Contract(
+            candidate_id=person.id,
+            client_id=client.id,
+            contract_type=ContractType.b2b,
+            status=ContractStatus.active,
+            start_date=None,
+            rate_unit=RateUnit.monthly,
+            rate_client=Decimal("20000"),
+            rate_candidate=Decimal("15000"),
+        )
+        db.add(contract)
+        await db.flush()
+        db.add(
+            ClientOrder(
+                client_id=client.id,
+                contract_id=contract.id,
+                title=f"ZAM-{marker}",
+                status=ClientOrderStatus.active,
+                order_type="periodic",
+                rate_unit=RateUnit.monthly,
+                start_date=today + timedelta(days=order_offset),
+            )
+        )
+        await db.commit()
+        contract_id = contract.id
+        key = candidate_identity_key(person)
+
+        live_ids = {c.id for c in await _load_live_contracts(db, today)}
+        counted = await db.scalar(
+            select(func.count(Contract.id)).where(
+                Contract.id == contract_id, _started_by(today)
+            )
+        )
+        population = await consultant_population(db)
+
+    assert (contract_id in live_ids) is current
+    assert counted == (1 if current else 0)
+    assert (key in population.active_keys) is current
+
+
 async def test_shortened_contract_counts_as_ended_early(
     app_client: AsyncClient, app_auth_headers: dict
 ):
@@ -514,3 +578,64 @@ async def test_forecast_month_label_is_polish_whatever_the_locale(
     assert resp.json()["months"][0]["month_label"] == (
         f"{MONTH_LABELS_PL[today.month - 1]} {today.year}"
     )
+
+
+async def test_forecast_starts_a_dateless_contract_with_its_future_order(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Runda 8 (R8-N13-2): kontrakt bez daty startu, którego jedyne zamówienie
+    startuje za 60 dni, jest planowany (reguła S5). Prognoza liczyła go od
+    bieżącego miesiąca i zawyżała dwa pierwsze miesiące wykresu."""
+    pytest.importorskip("asyncpg")
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    async def _forecast() -> list[dict]:
+        resp = await app_client.get(
+            "/api/contract-analytics/revenue-forecast?horizon_months=6",
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["months"]
+
+    before = await _forecast()
+    marker = uuid.uuid4().hex[:8]
+    today = business_today()
+    order_start = today + timedelta(days=60)
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Prognoza planowana {marker}")
+        person = Candidate(name="Prognoza", lastname=f"Planowana{marker}")
+        db.add_all([client, person])
+        await db.flush()
+        contract = Contract(
+            candidate_id=person.id,
+            client_id=client.id,
+            contract_type=ContractType.b2b,
+            status=ContractStatus.active,
+            start_date=None,
+            rate_unit=RateUnit.monthly,
+            rate_client=Decimal("20000"),
+            rate_candidate=Decimal("15000"),
+        )
+        db.add(contract)
+        await db.flush()
+        db.add(
+            ClientOrder(
+                client_id=client.id,
+                contract_id=contract.id,
+                title=f"ZAM-{marker}",
+                status=ClientOrderStatus.active,
+                order_type="periodic",
+                rate_unit=RateUnit.monthly,
+                start_date=order_start,
+            )
+        )
+        await db.commit()
+    after = await _forecast()
+
+    start_key = order_start.strftime("%Y-%m")
+    for month_before, month_after in zip(before, after):
+        delta = float(month_after["revenue"]) - float(month_before["revenue"])
+        if month_after["month"] < start_key:
+            assert delta == 0, month_after["month"]
+        else:
+            assert delta == 20000, month_after["month"]

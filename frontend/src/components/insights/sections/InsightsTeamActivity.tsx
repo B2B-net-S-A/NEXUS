@@ -20,9 +20,12 @@ interface Props {
 const ACTIVITY_COLUMNS = [
   { key: "candidates_added", label: "Kandydaci", heat: "bg-primary" },
   { key: "screenings", label: "Screeningi", heat: "bg-indigo-500" },
-  { key: "interviews", label: "Rozmowy", heat: "bg-purple-500" },
+  { key: "interviews", label: "Rozmowy u klienta", heat: "bg-purple-500" },
   { key: "placements", label: "Placementy", heat: "bg-green-500" },
   { key: "calls", label: "Telefony", heat: "bg-orange-500" },
+  // Etap 4 linków (19.10.2026): osoby ze zgłoszeń przez linki tej osoby —
+  // nowe i już w bazie. Poza kolumną „Razem”.
+  { key: "link_candidates", label: "Z linków", heat: "bg-primary" },
 ] as const;
 
 /**
@@ -103,7 +106,14 @@ export function InsightsTeamActivity({ period, limit = 20 }: Props) {
                       {c.label}
                     </th>
                   ))}
-                  <th className="text-right font-medium py-2 px-2">Razem</th>
+                  {/* Runda 10 (R10-N2-1): Razem ≠ suma kolumn — rozmowy
+                      i placementy to ruchy etapów, już policzone w akcjach. */}
+                  <th
+                    className="text-right font-medium py-2 px-2"
+                    title="Czynności wykonane w NEXUSIE: dodani kandydaci, ruchy etapów, notatki, CV, czat, zapisane screeningi i telefony. Rozmowy u klienta i placementy nie są doliczane osobno."
+                  >
+                    Razem
+                  </th>
                   {/* Mianownik paska to LIDER okna (decyzja, nie udział w sumie
                       — wartości nie sumują się do 100%; UAT B26). */}
                   <th

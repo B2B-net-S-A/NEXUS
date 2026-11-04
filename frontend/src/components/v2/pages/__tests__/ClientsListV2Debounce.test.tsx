@@ -165,18 +165,27 @@ describe("ClientsListV2 — katalog klientów", () => {
       expect(
         screen.getByRole("tab", { name: /^Klienci relacyjni/i }),
       ).toHaveTextContent("4");
+      // jsdom nie liczy CSS: kolumny szerokiej tabeli (≥ 1700 px) są w DOM
+      // z klasą `hidden`, więc układ wąski i szeroki sprawdzamy osobno.
+      const headers = screen.getAllByRole("columnheader");
+      const wideOnly = (header: HTMLElement) =>
+        header.className.includes("@min-[1700px]:table-cell");
       expect(
-        screen
-          .getAllByRole("columnheader")
+        headers
+          .filter((header) => !wideOnly(header))
           .map((header) => header.textContent?.trim()),
       ).toEqual([
         "Firma",
-        "Branża",
         "Aktywni konsultanci / kontrakty",
         "Start umowy",
         "Koniec umowy",
         "Status klienta",
       ]);
+      // Branża w układzie zwartym stoi drobnym drukiem pod nazwą firmy;
+      // własną kolumnę ma dopiero szeroka tabela.
+      expect(
+        headers.filter(wideOnly).map((header) => header.textContent?.trim()),
+      ).toEqual(["Nazwa prawna", "Zakres", "Branża", "Aktywne kontrakty"]);
       expect(screen.getByText("2 zakresy dla 1 klienta")).toBeVisible();
       expect(
         screen.queryByRole("columnheader", { name: "Hit ratio" }),
@@ -190,14 +199,30 @@ describe("ClientsListV2 — katalog klientów", () => {
 
       expect(screen.getByText("01.02.2026")).toBeVisible();
       expect(screen.getByText("Bezterminowa")).toBeVisible();
-      expect(screen.getByText("Bankowość")).toBeVisible();
-      expect(screen.getByText("Technology")).toBeVisible();
+      // Nazwa prawna, branża i zakres stoją pod nazwą firmy, a w szerokiej
+      // tabeli we własnych kolumnach.
+      expect(screen.getAllByText("Bankowość")).toHaveLength(2);
+      expect(screen.getAllByText("Technology")).toHaveLength(2);
+      expect(screen.getAllByText("Banking & Finance")).toHaveLength(4);
+      expect(screen.getAllByTestId("client-industry-cell")[0]).toHaveTextContent(
+        "Banking & Finance",
+      );
+      expect(
+        screen.getAllByText("Nordea Bank Abp Spółka Akcyjna Oddział w Polsce"),
+      ).toHaveLength(4);
+      // Status to kropka z etykietą, nie plakietka.
+      expect(screen.getAllByText("Aktywny")).toHaveLength(2);
+      expect(screen.getAllByTestId("client-scope-cell")[0]).toHaveTextContent(
+        "Bankowość",
+      );
+      expect(
+        screen.getAllByTestId("client-legal-name-cell")[0],
+      ).toHaveTextContent("Nordea Bank Abp Spółka Akcyjna Oddział w Polsce");
       expect(
         within(
-          // \s* — nazwa firmy i etykieta zakresu to sąsiednie inline spany;
-          // jsdom 30 liczy accessible name po browserowemu (bez sztucznej
-          // spacji między nimi), jsdom 25 spację wstawiał.
-          screen.getByRole("row", { name: /Nordea ABP\s*Technology/i }),
+          // Pod nazwą firmy stoi drobny druk: nazwa prawna · branża · zakres;
+          // wiersz rozpoznajemy po nazwie firmy i zakresie.
+          screen.getByRole("row", { name: /Nordea ABP.*Technology/i }),
         ).getAllByText("—"),
       ).toHaveLength(2);
       expect(

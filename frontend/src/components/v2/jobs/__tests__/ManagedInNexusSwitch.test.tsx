@@ -113,24 +113,10 @@ describe("ManagedInNexusChip", () => {
     );
   });
 
-  it("does not open the revert dialog without permission", () => {
-    renderWithQuery(<ManagedInNexusChip job={managedJob} canRevert={false} />);
-    fireEvent.click(screen.getByTestId("managed-in-nexus-chip"));
-    expect(screen.queryByText(MANAGED_IN_NEXUS_LABELS.revertTitle)).not.toBeInTheDocument();
-    expect(mocks.setManagedInNexus).not.toHaveBeenCalled();
-  });
-
-  it("reverts to Traffit after confirmation when allowed", async () => {
-    mocks.setManagedInNexus.mockResolvedValue({ data: traffitJob });
+  it("is plain information — no way back to Traffit since 14.10.2026", () => {
     renderWithQuery(<ManagedInNexusChip job={managedJob} canRevert />);
     fireEvent.click(screen.getByTestId("managed-in-nexus-chip"));
-    expect(await screen.findByText(MANAGED_IN_NEXUS_LABELS.revertTitle)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId("managed-in-nexus-revert-confirm"));
-
-    await waitFor(() => expect(mocks.setManagedInNexus).toHaveBeenCalledWith(7, false));
-    await waitFor(() =>
-      expect(mocks.showSuccess).toHaveBeenCalledWith(MANAGED_IN_NEXUS_LABELS.revertedToast),
-    );
+    expect(screen.queryByTestId("managed-in-nexus-revert-confirm")).not.toBeInTheDocument();
+    expect(mocks.setManagedInNexus).not.toHaveBeenCalled();
   });
 });

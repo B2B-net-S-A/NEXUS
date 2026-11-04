@@ -15,6 +15,8 @@ from app.models.notification import Notification, NotificationType
 from app.services import candidate_search_store as store
 from app.services.full_candidate_scan import CandidateEvaluation, load_snapshot_batch
 from app.services.full_search_measurement import measure_candidates, request_vector
+from app.services.query_adapter import adapt_job_query
+from app.services.contract_availability import attach_contract_free
 from app.services.notification_access import notification_recipient_has_access
 from app.services.request_matching_context import RequestMatchingContext
 from app.services.search_telemetry import SearchTelemetry, stage
@@ -130,18 +132,46 @@ def _is_transient(exc: BaseException) -> bool:
     )
 
 
-async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
+def _missing_critical(candidate, reason: str, inputs) -> list[str]:
+    """Wymagania bramki, których osoba nie ma w profilu, CV ani notatkach."""
+    if reason not in ("missing_must", "no_data"):
+        return []
+    from app.services.dealbreaker_filters import missing_must_skills
+
+    return missing_must_skills(
+        candidate,
+        inputs.must_skills,
+        include_unknown=inputs.exclude_unknown_skill_evidence,
+        verification_job_id=inputs.verification_job_id,
+        verification_fingerprint=inputs.verification_fingerprint,
+        options=inputs.gate_options,
+    )
+
+
+async def evaluate_batch(
+    db, request: RequestMatchingContext, batch, vector, *, score_excluded=False
+):
     # Reuse the established visibility policy, including visible assignment
     # blocks and the invariant that global blacklist remains hidden.
+    #
+    # ``score_excluded`` (Tablica, 16.10.2026): osoba już w rekrutacji dostaje
+    # wynik także wtedy, gdy deal-breaker ukryłby ją w wyszukiwaniu — wiersz
+    # zostaje ``eligible=False`` z powodem, a brakujące krytyczne idą w dowodzie.
+    # Globalna czarna lista (``eligibility_hidden``) nadal bez wyniku.
     from app.api.matching import _gate_and_dealbreakers
-    from app.services.dealbreaker_filters import rate_fit_status
+    from app.services.dealbreaker_filters import (
+        office_fit_status,
+        rate_fit_status,
+        remote_fit_status,
+    )
     from app.services.location_utils import location_tokens
     from app.services.requirement_contract import (
         requirements_for_job,
         evaluate_requirements,
         search_dealbreaker_inputs,
     )
-    from app.services.canonical_fit import score_pair
+    from app.services import prior_screening
+    from app.services.canonical_fit import score_pair, uses_prior_screening
 
     with stage("sql_load"):
         candidates = await load_snapshot_batch(db, batch)
@@ -159,8 +189,25 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
             exclusion_reasons=exclusion_reasons,
         )
     visible = {candidate.id for candidate in kept}
+    rescored = (
+        {
+            cid
+            for cid, reason in exclusion_reasons.items()
+            if reason != "eligibility_hidden" and cid not in visible
+        }
+        if score_excluded
+        else set()
+    )
+    scored = [c for c in candidates.values() if c.id in visible or c.id in rescored]
+    with_prior = uses_prior_screening(request)
+    if with_prior:
+        with stage("sql_load"):
+            await prior_screening.attach_prior_screening(db, target, scored)
+    # Dostępność z żywej umowy raz na pulę (15.10.2026).
+    with stage("sql_load"):
+        await attach_contract_free(db, scored)
     with stage("retrieval") as outcome:
-        measurements = await measure_candidates(vector, kept)
+        measurements = await measure_candidates(vector, scored)
         outcome["failed"] = any(
             m.status == "unavailable" for m in measurements.values()
         )
@@ -170,6 +217,26 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
         if index and index % YIELD_EVERY == 0:
             await asyncio.sleep(0)
         if cid not in visible:
+            reason = exclusion_reasons.get(cid, "eligibility_or_filter")
+            if cid in rescored:
+                measurement = measurements[cid]
+                fit = await score_pair(db, request, candidate, measurement)
+                results.append(
+                    CandidateEvaluation(
+                        cid,
+                        versions[cid],
+                        False,
+                        fit.fit_score,
+                        measurement.status,
+                        evidence={
+                            "missing_critical": _missing_critical(
+                                candidate, reason, inputs
+                            )
+                        },
+                        exclusion_reasons=(reason,),
+                    )
+                )
+                continue
             results.append(
                 CandidateEvaluation(
                     cid,
@@ -177,9 +244,7 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
                     False,
                     None,
                     "unavailable",
-                    exclusion_reasons=(
-                        exclusion_reasons.get(cid, "eligibility_or_filter"),
-                    ),
+                    exclusion_reasons=(reason,),
                 )
             )
             continue
@@ -187,6 +252,32 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
         fit = await score_pair(db, request, candidate, measurement)
         breakdown = fit.breakdown
         requirements = evaluate_requirements(criteria, candidate, job_id=target.id)
+        evidence = {
+            "breakdown": breakdown.as_dict(),
+            "requirements": requirements,
+            "filters": {
+                "skills": [
+                    " lub ".join(r["any_of"]).lower()
+                    for r in requirements
+                    if r["status"] == "met"
+                ],
+                "rate": rate_fit_status(candidate, inputs),
+                # Inne miasto przy hybrydzie 1–3 dni nie ukrywa —
+                # wiersz niesie plakietkę (27.09.2026).
+                "office": office_fit_status(candidate, inputs),
+                # „Tylko zdalnie” przy hybrydzie (07.10.2026).
+                "remote": remote_fit_status(candidate, inputs),
+                "locations": sorted(location_tokens(candidate.location)),
+            },
+            "eligibility": annotations.get(cid),
+            "brief_status": request.brief_status,
+        }
+        if with_prior:
+            # Pytania TEJ rekrutacji z dopasowaną wcześniejszą odpowiedzią —
+            # bez tytułu, klienta i treści odpowiedzi z innej rekrutacji.
+            prior = prior_screening.evaluate(candidate, target)
+            evidence["filters"]["prior_screening"] = prior.status if prior else None
+            evidence["prior_screening"] = prior.evidence() if prior else []
         results.append(
             CandidateEvaluation(
                 cid,
@@ -194,21 +285,7 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
                 True,
                 fit.fit_score,
                 measurement.status,
-                evidence={
-                    "breakdown": breakdown.as_dict(),
-                    "requirements": requirements,
-                    "filters": {
-                        "skills": [
-                            " lub ".join(r["any_of"]).lower()
-                            for r in requirements
-                            if r["status"] == "met"
-                        ],
-                        "rate": rate_fit_status(candidate, inputs),
-                        "locations": sorted(location_tokens(candidate.location)),
-                    },
-                    "eligibility": annotations.get(cid),
-                    "brief_status": request.brief_status,
-                },
+                evidence=evidence,
             )
         )
     return results
@@ -276,7 +353,7 @@ async def _execute_claimed(run_id: str, token: str):
     with telemetry.activate(), stage("query_embedding") as outcome:
         try:
             async with asyncio.timeout(QUERY_TIMEOUT_SECONDS):
-                vector = await request_vector(request.query_text)
+                vector = adapt_job_query(await request_vector(request.query_text))
             outcome["failed"] = vector is None
         except Exception:
             # Account for the population as unknown instead of retrying a

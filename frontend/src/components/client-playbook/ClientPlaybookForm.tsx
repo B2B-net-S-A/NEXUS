@@ -8,8 +8,7 @@
  * walidacji, ani zapisu.
  *
  * Niezależny od reguły CV: „Zapisz kartę" zapisuje tylko kartę i nie wymaga
- * zatwierdzenia (zapis = obowiązuje, D2). Off-limit jest TYLKO DO ODCZYTU —
- * pochodzi z warunków umowy ramowej (zakładka Umowy), nie z karty.
+ * zatwierdzenia (zapis = obowiązuje, D2).
  *
  * Awaria odczytu ma własną gałąź — nie może udawać „klient nie ma karty",
  * bo to zaprasza do wpisania karty, która już istnieje. Delivery Lead spoza
@@ -28,13 +27,13 @@ import { extractErrorMsg } from "@/lib/api";
 import {
   CLIENT_PLAYBOOKS_OVERVIEW_KEY,
   clientPlaybooksApi,
-  formatOffLimits,
   playbookFormToPayload,
   playbookToForm,
   useClientPlaybookHistory,
   PLAYBOOK_EVENT_LABELS,
   PLAYBOOK_FIELD_LABELS,
   PLAYBOOK_LIMITS,
+  VERIFIED_EXTRA_FIELD_OPTIONS,
   type ClientPlaybook,
   type PlaybookEvent,
   type PlaybookForm,
@@ -189,26 +188,6 @@ export function ClientPlaybookForm({ clientId, onSaved }: ClientPlaybookFormProp
         />
       </fieldset>
 
-      {/* Off-limit — TYLKO ODCZYT (precedens: język CV w edytorze Championa).
-          Źródłem prawdy jest umowa ramowa; edytowalne pole obok niej byłoby
-          drugim źródłem, które przy pierwszej zmianie zaczyna kłamać. */}
-      <div>
-        <span className="mb-1 block text-xs font-medium">{PLAYBOOK_FIELD_LABELS.off_limits}</span>
-        <div
-          className="flex items-center rounded-md border bg-muted/60 px-3 py-2 text-sm"
-          data-testid="playbook-off-limits"
-        >
-          {formatOffLimits(playbook?.off_limits ?? null) ?? (
-            <span className="text-muted-foreground">
-              brak — ustala się w warunkach umowy
-            </span>
-          )}
-        </div>
-        {playbook?.off_limits?.notes ? (
-          <p className="mt-1 text-xs text-muted-foreground">{playbook.off_limits.notes}</p>
-        ) : null}
-      </div>
-
       <div>
         <label htmlFor="playbook-rate-policy" className="mb-1 block text-xs font-medium">
           {PLAYBOOK_FIELD_LABELS.rate_policy}
@@ -325,6 +304,34 @@ export function ClientPlaybookForm({ clientId, onSaved }: ClientPlaybookFormProp
         <p className="text-xs text-muted-foreground">
           Wiersz bez nazwy albo bez linku nie zostanie zapisany.
         </p>
+      </fieldset>
+
+      <fieldset className="space-y-1.5" data-testid="playbook-verified-required">
+        <legend className="text-xs font-medium">{PLAYBOOK_FIELD_LABELS.verified_required_fields}</legend>
+        <p className="text-xs text-muted-foreground">
+          Lokalizację, tryb pracy, dostępność i „Dlaczego ten kandydat” rekruter wpisuje zawsze. Zaznaczone
+          pola też zatrzymają przekazanie osoby na „Zweryfikowany”, dopóki ich nie wpisze.
+        </p>
+        {VERIFIED_EXTRA_FIELD_OPTIONS.map((option) => {
+          const checked = form.verified_required_fields.includes(option.key);
+          return (
+            <label key={option.key} className="flex items-center gap-2 text-sm pointer-coarse:min-h-10">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() =>
+                  set(
+                    "verified_required_fields",
+                    checked
+                      ? form.verified_required_fields.filter((key) => key !== option.key)
+                      : [...form.verified_required_fields, option.key],
+                  )
+                }
+              />
+              {option.label}
+            </label>
+          );
+        })}
       </fieldset>
 
       {error ? (

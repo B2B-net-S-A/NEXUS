@@ -34,6 +34,7 @@ import { extractErrorMsg } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 
+import { formatPhone } from "@/lib/phone-format";
 type QueueFilter = "all" | "due" | "callbacks" | "exceptions";
 
 const ACTIONABLE_STATUSES = new Set(["queued", "callback_due"]);
@@ -467,7 +468,7 @@ export function ContactQueueWorkspace({
                         })}
                       >
                         <Phone aria-hidden className="h-4 w-4" />
-                        {item.candidate.phone}
+                        {formatPhone(item.candidate.phone)}
                       </a>
                     ) : (
                       <Badge variant="danger">

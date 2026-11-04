@@ -69,10 +69,14 @@ async def list_cc_recruiters(
     db: AsyncSession = Depends(get_db),
     priority: Optional[int] = Query(None, ge=1, le=2),
 ):
-    """Return users assigned to the given Competence Category.
+    """Return ACTIVE users assigned to the given Competence Category.
 
     Filter `priority` narrows to sourcer tier (1 = 1st priority, 2 = 2nd).
     When unset, returns everyone — primary DL + all sourcers for the CC.
+
+    Nieaktywne konta są pomijane (02.10.2026): na produkcji zostały zdublowane,
+    wyłączone konta z przypisaną kategorią, a lista zasila blok „Kategoria”
+    w panelu rekrutacji — pokazywałaby osoby, które nie mogą wziąć requestu.
     """
     cc = await db.scalar(
         select(CompetenceCategory).where(CompetenceCategory.id == cc_id)
@@ -83,7 +87,10 @@ async def list_cc_recruiters(
     stmt = (
         select(UserCompetenceCategory, User)
         .join(User, UserCompetenceCategory.user_id == User.id)
-        .where(UserCompetenceCategory.competence_category_id == cc_id)
+        .where(
+            UserCompetenceCategory.competence_category_id == cc_id,
+            User.is_active.is_(True),
+        )
     )
     if priority is not None:
         stmt = stmt.where(UserCompetenceCategory.priority == priority)

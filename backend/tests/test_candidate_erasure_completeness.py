@@ -20,7 +20,6 @@ from __future__ import annotations
 import hashlib
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from httpx import AsyncClient
@@ -224,18 +223,12 @@ async def test_hard_delete_audit_records_revoked_share_links(
     assert row.details.get("share_tokens_revoked") == 1
 
 
-async def test_hard_delete_cleans_private_job_source_via_ledger_with_retry(
+async def test_hard_delete_keeps_the_private_job_source_file(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """Awaria storage nie blokuje usunięcia — plik czeka w rejestrze kasowań.
-
-    Do 14.09.2026 handler kasował obiekty PRZED commitem: awaria w środku
-    pętli dawała 503 i rollback wiersza, ale nie obiektów skasowanych chwilę
-    wcześniej (audyt Codexa, F04). Teraz w żądaniu storage nie jest wołany
-    wcale: klucz źródła prywatnego ląduje w `cv_source_cleanup` w tej samej
-    transakcji co usunięcie, a kasuje go pętla tła — z ponowieniem, gdy
-    storage akurat pada.
-    """
+    """Decyzja Artura 26.09.2026: „nie usuwać nigdy żadnych CV” — usunięcie
+    kandydata nie woła storage i nie zapisuje intencji kasowania pliku
+    źródłowego generatora (do tego dnia szedł do `cv_source_cleanup`)."""
     from unittest.mock import Mock
 
     from sqlalchemy import select
@@ -243,7 +236,7 @@ async def test_hard_delete_cleans_private_job_source_via_ledger_with_retry(
     from app.models.candidate import Candidate
     from app.models.cv_generation_job import CvGenerationJob
     from app.models.cv_source_cleanup import CvSourceCleanup
-    from app.services import cv_source_cleanup, object_storage
+    from app.services import object_storage
 
     (
         candidate_id,
@@ -261,9 +254,8 @@ async def test_hard_delete_cleans_private_job_source_via_ledger_with_retry(
         )
         db.add(job)
         await db.commit()
-        job_id = job.id
     monkeypatch.setattr(object_storage, "is_available", lambda: True)
-    in_request = Mock(side_effect=RuntimeError("temporary storage failure"))
+    in_request = Mock(side_effect=RuntimeError("storage nie może być wołany"))
     monkeypatch.setattr(object_storage, "delete_cv", in_request)
 
     response = await app_client.delete(
@@ -273,54 +265,12 @@ async def test_hard_delete_cleans_private_job_source_via_ledger_with_retry(
     in_request.assert_not_called()
     async with AsyncSessionLocal() as db:
         assert await db.get(Candidate, candidate_id) is None
-        assert await db.get(CvGenerationJob, job_id) is None
         intent = await db.scalar(
             select(CvSourceCleanup).where(
                 CvSourceCleanup.storage_key == "synthetic-private-source"
             )
         )
-        assert intent is not None, "klucz źródła musi czekać w rejestrze"
-        assert intent.attempts == 0
-
-    # Pętla tła: pierwsza próba pada → wiersz zostaje z ponowieniem,
-    # druga (storage wrócił) → obiekt skasowany, wiersz zdjęty.
-    calls: list[str] = []
-    storage_down = True
-
-    async def _fake_run(fn, key):
-        assert fn is object_storage.delete_cv
-        if storage_down:
-            raise RuntimeError("temporary storage failure")
-        calls.append(key)
-
-    monkeypatch.setattr(cv_source_cleanup, "run_in_threadpool", _fake_run)
-    async with AsyncSessionLocal() as db:
-        await cv_source_cleanup.clean_pending_sources(db, limit=200)
-    async with AsyncSessionLocal() as db:
-        intent = await db.scalar(
-            select(CvSourceCleanup).where(
-                CvSourceCleanup.storage_key == "synthetic-private-source"
-            )
-        )
-        assert intent is not None
-        assert intent.attempts == 1
-        # Ponowienie jest odłożone w czasie — test nie czeka, tylko je przybliża.
-        intent.next_attempt_at = datetime.now(timezone.utc) - timedelta(seconds=1)
-        await db.commit()
-
-    storage_down = False
-    async with AsyncSessionLocal() as db:
-        await cv_source_cleanup.clean_pending_sources(db, limit=200)
-    assert calls == ["synthetic-private-source"]
-    async with AsyncSessionLocal() as db:
-        assert (
-            await db.scalar(
-                select(CvSourceCleanup).where(
-                    CvSourceCleanup.storage_key == "synthetic-private-source"
-                )
-            )
-            is None
-        )
+        assert intent is None, "usunięcie kandydata nie może kasować CV"
 
 
 async def test_hard_delete_waits_for_active_cv_generation(

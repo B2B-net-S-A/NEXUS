@@ -5,9 +5,11 @@ P0.6a containment: ``GET .../amendments`` (list) i ``.../amendments/{id}/file``
 więc read-only viewer (``user``) oraz recruiter/sourcer mogli iterować i pobierać
 dokumenty prawne (aneksy) dowolnego klienta. Po zmianie chroni je scope
 ``resolve_client_access.can_view_legal_documents`` oraz centralna granica
-sekcji Delivery. Admin/Finance mają nadzór organizacyjny, a Delivery Lead
-dostęp wyłącznie przez jawną relację z klientem. TCM widzi bezpieczne dane
-Delivery, ale nie surowe dokumenty prawne; pozostałe role nie wchodzą do sekcji.
+sekcji Delivery. Od 0410 odczyt wymaga uprawnienia „Stawki i kwoty: podgląd”:
+domyślnie Admin/Finance mają nadzór organizacyjny, a Delivery Lead dostęp
+wyłącznie przez jawną relację z klientem. TCM widzi bezpieczne dane Delivery,
+ale nie surowe dokumenty prawne (nie ma podglądu kwot — odmowa to nazywa);
+pozostałe role nie wchodzą do sekcji.
 """
 
 from __future__ import annotations
@@ -22,9 +24,7 @@ ALLOWED_ROLES = ["admin", "delivery_lead", "finance"]
 DENIED_ROLES = [
     "head_of_recruitment",
     "talent_community_manager",
-    "tac",
     "recruiter",
-    "sourcer",
     "user",
 ]
 
@@ -37,10 +37,7 @@ async def _headers_for(
 ) -> dict[str, str]:
     from app.core.database import AsyncSessionLocal
     from app.core.security import hash_password
-    from app.models.team_structure import (
-        ClientTacAssignment,
-        DeliveryLeadClientAssignment,
-    )
+    from app.models.team_structure import DeliveryLeadClientAssignment
     from app.models.user import User, UserRole
 
     email = f"amd-{role_value}-{uuid.uuid4().hex[:8]}@example.com"
@@ -60,15 +57,6 @@ async def _headers_for(
                 DeliveryLeadClientAssignment(
                     delivery_lead_user_id=user.id,
                     client_id=client_id,
-                )
-            )
-        if client_id is not None and role_value == UserRole.tac.value:
-            db.add(
-                ClientTacAssignment(
-                    tac_user_id=user.id,
-                    client_id=client_id,
-                    is_primary=False,
-                    is_first_priority_for_tac=True,
                 )
             )
         await db.commit()
@@ -111,12 +99,13 @@ async def test_denied_roles_cannot_list_amendments(
     headers = await _headers_for(app_client, role_value)
     r = await app_client.get(_list_url(client_id, fc_id), headers=headers)
     assert r.status_code == 403, f"{role_value} → {r.status_code}: {r.text}"
-    expected_code = (
-        "client_access_denied"
-        if role_value == "talent_community_manager"
-        else "section_access_denied"
-    )
-    assert expected_code in r.text
+    # Trasa deklaruje „Stawki i kwoty: podgląd”, więc odmowa nazywa to
+    # uprawnienie zamiast mówić o roli albo sekcji: TCM ma podgląd Delivery
+    # bez kwot (odmawia bramka uprawnienia), a role bez Delivery zatrzymuje
+    # bramka sekcji — z tą samą nazwą brakującej pozycji.
+    detail = r.json()["detail"]
+    assert detail["code"] == "permission_denied", r.text
+    assert detail["permission"] == "amounts_view"
 
 
 @pytest.mark.parametrize("role_value", ALLOWED_ROLES)

@@ -1,40 +1,63 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Literal, Any, List, Optional
 
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import (
+    BaseModel,
+    EmailStr,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
 from app.models.job import (
     JobCloseReason,
     JobPriority,
     JobStatus,
-    RecruitmentType,
     RemotePolicy,
     Seniority,
     WorkMode,
 )
 from app.schemas.candidate import _normalize_skill_list
+from app.schemas.job_ad_publication import JobAdPublicationOut
+from app.schemas.job_team import JobPreviousRecruiterOut, JobRecruiterOut
 from app.schemas.matching_requirements import MatchingRequirements
+from app.services.job_p0 import is_active as job_p0_active
+from app.services.job_priority import default_priority_for_new_job, level_of
 
 
 class JobCreate(BaseModel):
-    title: str
+    # Runda 9 (R9-N15-5): długości = kolumny `jobs`; dłuższy napis dawał
+    # `StringDataRightTruncation`, czyli 500 bez CORS zamiast 422.
+    title: str = Field(max_length=255)
     description: Optional[str] = None
     requirements: Optional[str] = None
-    location: Optional[str] = None
+    location: Optional[str] = Field(default=None, max_length=255)
     salary_min: Optional[int] = None
     salary_max: Optional[int] = None
     # Budżet PLN/h dla kandydata (dealbreaker-switch; 0235).
     rate_budget_hourly: Optional[float] = Field(default=None, gt=0, le=2000)
+    # 0420: „od” z przedziału budżetu — tylko do wyświetlania; budżetem jest
+    # górna granica (`rate_budget_hourly`, services/job_budget_range.py).
+    rate_budget_hourly_min: Optional[float] = Field(default=None, gt=0, le=2000)
     # 0278: bez domyślnej — „nieznane” jest stanem uczciwym, „hybrid” domyślne
     # kłamało dla każdej oferty, której nikt ręcznie nie ustawił.
     remote_policy: Optional[RemotePolicy] = None
     # Trzecia rubryka rekrutacji (obok must-have i rate_budget_hourly, 0278).
     onsite_days_per_week: Optional[int] = Field(default=None, ge=0, le=7)
-    status: JobStatus = JobStatus.draft
-    priority: JobPriority = JobPriority.medium
+    # „N dni w miesiącu” (0407) — gdy podane, dni w tygodniu wylicza serwer.
+    onsite_days_per_month: Optional[int] = Field(default=None, ge=1, le=22)
+    # Rekrutacja bez szkiców (04.10.2026): pola ``status`` NIE MA — serwer
+    # zawsze zakłada rekrutację opublikowaną i przekazaną do searchu. Stary
+    # klient wysyłający ``status`` jest ignorowany (``extra`` = ignore).
+    # Bez pola nowa rekrutacja dostaje P1 (08.10.2026, `services/job_priority`).
+    priority: JobPriority = Field(default_factory=default_priority_for_new_job)
     needs_sourcing: bool = False
-    recruitment_type: RecruitmentType = RecruitmentType.body_leasing
     deadline: Optional[date] = None
+    # 0406: godzina terminu (Europe/Warsaw); bez daty zapis ją czyści.
+    deadline_time: Optional[time] = None
+    # 0415: „Klient nie podał terminu” — wymagana decyzja, gdy brak daty.
+    deadline_not_provided: bool = False
     # client_id: required od migracji 0120 (2026-05-27). NOT NULL na DB.
     # Tworzenie joba bez klienta zwraca 422 — orphan recordy nigdy nie wpadną
     # na listę /jobs (patrz QA sweep PR fix/qa-jobs-orphan-cleanup).
@@ -46,7 +69,7 @@ class JobCreate(BaseModel):
     tac_id: Optional[int] = None
     delivery_lead_id: Optional[int] = None
     # Hiring manager — Contact w firmie klienta odpowiedzialny za rekrutację
-    # (migracja 0097, 2026-05-11). Nullable, validated że należy do client_id.
+    # (migracja 0097, 2026-05-11). Nullable; od 25.09.2026 musi należeć do client_id.
     hiring_manager_contact_id: Optional[int] = None
     portals: Optional[Any] = None
 
@@ -57,15 +80,22 @@ class JobCreate(BaseModel):
     nice_skills: Optional[List[Any]] = None
     seniority: Optional[Seniority] = None
     work_mode: WorkMode = WorkMode.fulltime
-    headcount: int = 1
-    reference_number: Optional[str] = None
-    industry: Optional[str] = None
-    subcategory: Optional[str] = None
+    # Audyt 06.10.2026 (N6): bez domyślnej „1” — 55 z 55 rekrutacji miało 1,
+    # bo formularz ją podstawiał. `None` przysłane wprost = „DL nie podał”
+    # (bramka przekazania), pominięte = 1 dla innych wołających.
+    headcount: Optional[int] = Field(default=None, ge=1, le=1000)
+    reference_number: Optional[str] = Field(default=None, max_length=50)
+    # 0380: numer zapytania klienta i tytuł dla rekrutera (`job_working_title`).
+    # Brak ``working_title`` = składa go serwer i przelicza przy zmianach.
+    client_reference: Optional[str] = Field(default=None, max_length=120)
+    working_title: Optional[str] = Field(default=None, max_length=255)
+    industry: Optional[str] = Field(default=None, max_length=50)
+    subcategory: Optional[str] = Field(default=None, max_length=100)
     custom_fields: Optional[dict] = None
     pipeline_template_id: Optional[int] = None
     # Phase 15 / Phase D: programme / ART tag — free-text, optional.
     # Auto-populated by `extract_train_name` when left empty.
-    train_name: Optional[str] = None
+    train_name: Optional[str] = Field(default=None, max_length=128)
 
     # AI CC matching (migracja 0041). Jeśli `competence_category_id` podane —
     # używamy jawnie; jeśli None + `auto_suggest_cc=true` — classifier wybiera
@@ -87,28 +117,74 @@ class JobCreate(BaseModel):
     # constraint (job_id, question_id).
     copy_questions: bool = False
 
+    # ── Rekrutacja bez szkiców (04.10.2026) ─────────────────────────────────
+    # Utworzenie = Profil Championa + decyzja o hiring managerze + przekazanie
+    # do searchu + publikacja w JEDNEJ transakcji. Brak czegokolwiek, czego
+    # wymaga bramka przekazania, = 422 ``job_not_ready`` i żadnego wiersza.
+    champion_profile: dict
+    hiring_manager: "JobCreateHiringManager"
+    handoff: "JobHandoffRequest"
+    # Rekrutacje wskazane jako podobne już przy tworzeniu (ta sama bramka
+    # dostępu co ``POST /jobs/{id}/similar``).
+    similar_job_ids: List[int] = Field(default_factory=list, max_length=20)
+    # Delivery Lead zmienił podpowiedź kategorii — wpis ``CcSuggestionOverride``
+    # w tej samej transakcji (tylko admin i Delivery Lead, jak trasa
+    # ``/cc-override``; dla innych pomijany).
+    cc_override: Optional["JobCreateCcOverride"] = None
+    # Niedokończony formularz na koncie autora — kasowany razem z utworzeniem.
+    intake_form_id: Optional[int] = Field(default=None, gt=0)
+
     @field_validator("must_skills", "nice_skills", mode="before")
     @classmethod
     def _normalize_skills(cls, v: Any) -> Any:
         return _normalize_skill_list(v)
 
+    @model_validator(mode="after")
+    def _budget_range(self) -> "JobCreate":
+        from app.services.job_budget_range import MSG_MIN_NOT_BELOW_MAX, min_below_max
+
+        if not min_below_max(self.rate_budget_hourly_min, self.rate_budget_hourly):
+            raise ValueError(MSG_MIN_NOT_BELOW_MAX)
+        return self
+
+
+_JOB_UPDATE_NOT_NULL_FIELDS = {
+    "title": "Nazwa rekrutacji",
+    "status": "Status",
+    "priority": "Priorytet",
+    "needs_sourcing": "Potrzebny search",
+    "work_mode": "Wymiar pracy",
+    "headcount": "Liczba osób",
+    "client_id": "Klient",
+    "hiring_manager_not_provided": "Hiring manager: klient nie podał",
+    "deadline_not_provided": "Termin: klient nie podał",
+}
+
 
 class JobUpdate(BaseModel):
-    title: Optional[str] = None
+    title: Optional[str] = Field(default=None, max_length=255)
     description: Optional[str] = None
     requirements: Optional[str] = None
-    location: Optional[str] = None
+    location: Optional[str] = Field(default=None, max_length=255)
     salary_min: Optional[int] = None
     salary_max: Optional[int] = None
     # Budżet PLN/h dla kandydata (dealbreaker-switch; 0235).
     rate_budget_hourly: Optional[float] = Field(default=None, gt=0, le=2000)
+    # 0420: „od” z przedziału budżetu — tylko do wyświetlania; budżetem jest
+    # górna granica (`rate_budget_hourly`, services/job_budget_range.py).
+    rate_budget_hourly_min: Optional[float] = Field(default=None, gt=0, le=2000)
     remote_policy: Optional[RemotePolicy] = None
     onsite_days_per_week: Optional[int] = Field(default=None, ge=0, le=7)
+    onsite_days_per_month: Optional[int] = Field(default=None, ge=1, le=22)
     status: Optional[JobStatus] = None
     priority: Optional[JobPriority] = None
     needs_sourcing: Optional[bool] = None
-    recruitment_type: Optional[RecruitmentType] = None
     deadline: Optional[date] = None
+    # 0406: godzina terminu (Europe/Warsaw); bez daty zapis ją czyści.
+    deadline_time: Optional[time] = None
+    # 0415: „Klient nie podał” — zapis daty / kontaktu i tak zeruje flagę.
+    deadline_not_provided: Optional[bool] = None
+    hiring_manager_not_provided: Optional[bool] = None
     client_id: Optional[int] = None
     recruiter_id: Optional[int] = None
     tac_id: Optional[int] = None
@@ -123,21 +199,39 @@ class JobUpdate(BaseModel):
     nice_skills: Optional[List[Any]] = None
     seniority: Optional[Seniority] = None
     work_mode: Optional[WorkMode] = None
-    headcount: Optional[int] = None
-    reference_number: Optional[str] = None
-    industry: Optional[str] = None
-    subcategory: Optional[str] = None
+    headcount: Optional[int] = Field(default=None, ge=1, le=1000)
+    reference_number: Optional[str] = Field(default=None, max_length=50)
+    client_reference: Optional[str] = Field(default=None, max_length=120)
+    # Wartość = ręczny tytuł (automat wyłączony); pusty napis albo null =
+    # powrót do tytułu składanego automatycznie.
+    working_title: Optional[str] = Field(default=None, max_length=255)
+    industry: Optional[str] = Field(default=None, max_length=50)
+    subcategory: Optional[str] = Field(default=None, max_length=100)
     custom_fields: Optional[dict] = None
     pipeline_template_id: Optional[int] = None
     competence_category_id: Optional[int] = None
     secondary_cc_ids: Optional[List[int]] = None
     # Phase 15 / Phase D: allow DL to set/override train_name explicitly.
-    train_name: Optional[str] = None
+    train_name: Optional[str] = Field(default=None, max_length=128)
 
     @field_validator("must_skills", "nice_skills", mode="before")
     @classmethod
     def _normalize_skills(cls, v: Any) -> Any:
         return _normalize_skill_list(v)
+
+    # Kolumny NOT NULL w `jobs` (runda 6 audytu): pole pominięte zostaje bez
+    # zmian, ale jawny `null` był wpisywany w wiersz i kończył się 500
+    # z bazy. Walidator nie biegnie dla pola pominiętego (brak
+    # `validate_default`), więc łapie wyłącznie jawne `null`.
+    @field_validator(*_JOB_UPDATE_NOT_NULL_FIELDS, mode="before")
+    @classmethod
+    def _reject_null_for_required_columns(cls, v: Any, info: Any) -> Any:
+        if v is None:
+            raise ValueError(
+                f"Pole „{_JOB_UPDATE_NOT_NULL_FIELDS[info.field_name]}” "
+                "nie może być puste."
+            )
+        return v
 
 
 class CcSuggestion(BaseModel):
@@ -175,6 +269,9 @@ class UserBrief(BaseModel):
     name: str
     role: Optional[str] = None
     roles: list[str] = Field(default_factory=list)
+    # Runda 9 (R9-V2-2): nieaktywny prowadzący = brak prowadzącego (front
+    # pokazuje wtedy „Przejmij”, a `POST …/claim` je przyjmuje).
+    is_active: bool = True
 
     model_config = {"from_attributes": True}
 
@@ -186,6 +283,13 @@ class UserBrief(BaseModel):
         return getattr(v, "value", str(v))
 
 
+class JobCollaboratorBrief(UserBrief):
+    """Współpracownik rekrutacji: ``manual`` (dodany ręcznie) albo ``auto_cc``
+    (cała kategoria kompetencji). „Rekruterem” rekrutacji są tylko ręczni."""
+
+    source: str = "manual"
+
+
 class JobResponse(BaseModel):
     id: int
     title: str
@@ -195,9 +299,11 @@ class JobResponse(BaseModel):
     salary_min: Optional[int]
     salary_max: Optional[int]
     rate_budget_hourly: Optional[float] = None
+    rate_budget_hourly_min: Optional[float] = None
     # 0278: nullable — patrz komentarz w JobCreate.
     remote_policy: Optional[RemotePolicy] = None
     onsite_days_per_week: Optional[int] = None
+    onsite_days_per_month: Optional[int] = None
     status: JobStatus
     # Czy rekrutacja jest aktywnie prowadzona w NEXUSIE (0270). NIE to samo co
     # `status`, który jest lustrem Traffita — patrz `models/job.py`.
@@ -212,6 +318,14 @@ class JobResponse(BaseModel):
     needs_sourcing: bool = False
     # 0341: Delivery Lead oznaczył „Mamy championa" — dalej nie szukamy.
     champion_found_at: Optional[datetime] = None
+    # 0450 (D1–D9, 15.10.2026): championi — osoby wskazane przez DL
+    # (``[{candidate_id, name}]``), liczba miejsc (``max(headcount, 1)``),
+    # zatrudnieni (tylko detal) i P1 wstrzymany przez championa.
+    # ``None`` u konta podglądu (``redact_job_for_viewer``).
+    champions: Optional[list[dict[str, Any]]] = Field(default_factory=list)
+    champion_seats: Optional[int] = 1
+    hired_count: int = 0
+    priority_paused: bool = False
     # 0341: status requestu liczony przez `job_similarity.request_status_expr`
     # (closed · filled · contract · champion · incomplete · searching).
     request_status: Optional[str] = None
@@ -225,8 +339,9 @@ class JobResponse(BaseModel):
     # 0353: osoba, która wysyła do Cpro kandydatów tej rekrutacji (Nordea).
     cpro_sender_id: Optional[int] = None
     cpro_sender_name: Optional[str] = None
-    recruitment_type: RecruitmentType
     deadline: Optional[date]
+    deadline_time: Optional[time] = None
+    deadline_not_provided: bool = False
     client_id: Optional[int]
     client_name: Optional[str] = None  # denormalized (coalesce(display_name, name))
     recruiter_id: Optional[int]
@@ -234,6 +349,7 @@ class JobResponse(BaseModel):
     delivery_lead_id: Optional[int] = None
     hiring_manager_contact_id: Optional[int] = None
     hiring_manager_name: Optional[str] = None  # denormalized
+    hiring_manager_not_provided: bool = False
     created_by: Optional[int]
     portals: Optional[Any]
     matching_requirements: Optional[MatchingRequirements] = None
@@ -244,6 +360,9 @@ class JobResponse(BaseModel):
     work_mode: WorkMode = WorkMode.fulltime
     headcount: int = 1
     reference_number: Optional[str] = None
+    client_reference: Optional[str] = None
+    working_title: Optional[str] = None
+    working_title_auto: bool = True
     industry: Optional[str] = None
     subcategory: Optional[str] = None
     custom_fields: Optional[Any] = None
@@ -256,6 +375,7 @@ class JobResponse(BaseModel):
     closed_at: Optional[datetime] = None
     close_reason: Optional[JobCloseReason] = None
     close_notes: Optional[str] = None
+    duplicate_of_job_id: Optional[int] = None
     # Phase 15 / Phase D: programme tag surfaced to UI for autocomplete.
     train_name: Optional[str] = None
     # Hydrated ownership data added by api/jobs.get_job and assign/release
@@ -263,7 +383,25 @@ class JobResponse(BaseModel):
     # ``UserBrief`` so the UI does not need to do a second fetch to render the
     # owner badge. Both are ``None``/empty when the job is unassigned.
     primary_owner: Optional[UserBrief] = None
-    collaborators: list[UserBrief] = []
+    collaborators: list[JobCollaboratorBrief] = []
+    # Rola „Rekruter” (02.10.2026): osoby, które pracują nad rekrutacją —
+    # prowadzący, aktywne przypisania i ręcznie dopisani współpracownicy —
+    # plus propozycje automatu z ``proposed=True`` (`services/job_team`).
+    # Wypełniają lista i ``GET /api/jobs/{id}``; inne odpowiedzi niosą pustą.
+    recruiters: list[JobRecruiterOut] = []
+    # „Poprzedni rekruter” — osoby uśpione przy zejściu z P1 albo zamknięciu.
+    previous_recruiters: list[JobPreviousRecruiterOut] = []
+    # Aktywne ogłoszenia wklejone ręcznie na portalach (0432); wypełnia lista
+    # i `GET /api/jobs/{id}` (`job_ad.publications.for_jobs`).
+    ad_publications: list[JobAdPublicationOut] = []
+    # Otwarta rekrutacja wisi na stronie kariery (21.10.2026, kropka „Kariera”).
+    career_page: bool = False
+    # Delivery Lead rozwinięty do ``UserBrief`` — wypełniają lista
+    # (``GET /api/jobs``, „DL: …” obok rekrutera; zgłoszenie 30.09.2026) i
+    # ``GET /api/jobs/{id}`` (Brief Profilu Championa, 04.10.2026).
+    # Nazwa inna niż relacja ORM `Job.delivery_lead` — `model_validate(job)`
+    # czytałby ją leniwie (MissingGreenlet → 500 na liście).
+    delivery_lead_user: Optional[UserBrief] = None
     # Czy bieżący użytkownik może zapisać „stawkę do klienta" w tej rekrutacji
     # (`user_can_write_client_rate`: role zarządcze/Finanse albo właściciel/
     # twórca rekrutacji). Ustawiane tylko przez `GET /api/jobs/{id}`; tablica
@@ -276,10 +414,61 @@ class JobResponse(BaseModel):
     # Ustawiane tylko przez `GET /api/jobs/{id}`.
     can_edit: Optional[bool] = None
     can_manage: Optional[bool] = None
+    # Czy bieżący użytkownik przydziela i zdejmuje rekruterów (bramka
+    # `/owner`: admin, Delivery Lead, Head of Recruitment) i czy ustawia
+    # priorytet (te role + TAC). Head of Recruitment ma oba bez `can_manage`.
+    # Ustawiane tylko przez `GET /api/jobs/{id}`.
+    can_staff: Optional[bool] = None
+    can_set_priority: Optional[bool] = None
+    # 0525: P0 — ultrapilne przez 24 h (`services/job_p0`). Termin i powód
+    # z wiersza; `is_p0` mówi, czy P0 nadal obowiązuje. Kto ustawił i czy
+    # bieżący użytkownik może ustawiać — tylko `GET /api/jobs/{id}`.
+    p0_until: Optional[datetime] = None
+    p0_reason: Optional[str] = None
+    p0_set_at: Optional[datetime] = None
+    p0_set_by_name: Optional[str] = None
+    can_set_p0: Optional[bool] = None
+    # 0609: oczekująca prośba Delivery Leada o P0 i czy ten użytkownik może
+    # o nie prosić (DL tej rekrutacji) — tylko `GET /api/jobs/{id}`.
+    p0_request_reason: Optional[str] = None
+    p0_request_duration: Optional[str] = None
+    p0_requested_at: Optional[datetime] = None
+    can_request_p0: Optional[bool] = None
+    # Migawka dopasowań z przekazania do searchu — tylko odpowiedź
+    # ``POST /api/jobs`` (rekrutacja bez szkiców, 04.10.2026).
+    snapshot_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @computed_field
+    @property
+    def is_p0(self) -> bool:
+        """P0 obowiązuje: rekrutacja otwarta, termin jeszcze nie minął."""
+        return job_p0_active(self)
+
+    @computed_field
+    @property
+    def priority_level(self) -> str:
+        """Priorytet w trzech poziomach: ``p1`` · ``p2`` · ``accepting``.
+
+        Ekrany i filtry mówią poziomami, kolumna zostaje przy czterech
+        wartościach enuma (`services/job_priority`). Pole wyliczane, żeby każda
+        odpowiedź (lista, szczegóły, PATCH) niosła je tą samą regułą.
+        """
+        return level_of(self.priority)
+
+    @computed_field
+    @property
+    def opened_effective_at(self) -> datetime:
+        """Data otwarcia do pokazania: ``opened_at``, a bez niej ``created_at``.
+
+        ``opened_at`` stempluje tylko import Traffita — rekrutacja założona
+        w NEXUSIE ma je puste. Filtr ``opened_from``/``opened_to`` listy liczy
+        tą samą wartością.
+        """
+        return self.opened_at or self.created_at
 
     @computed_field
     @property
@@ -312,6 +501,18 @@ class JobResponse(BaseModel):
 
         return resolve_job_budget_hourly(self)
 
+    @computed_field
+    @property
+    def effective_budget_hourly_min(self) -> Optional[float]:
+        """Dolna granica budżetu („60–80 zł/h”) — tylko do wyświetlania.
+
+        Jawne „od” albo przedział z tekstu stawki Championa; None, gdy nie
+        jest mniejsze od budżetu (`job_budget_range.effective_min`).
+        """
+        from app.services.job_budget_range import effective_min
+
+        return effective_min(self)
+
 
 class JobList(BaseModel):
     items: list[JobResponse]
@@ -341,12 +542,111 @@ class JobCloseRequest(BaseModel):
 
     reason: JobCloseReason
     notes: Optional[str] = None
+    # 21.10.2026: przy `duplicate` — rekrutacja, która zostaje (opcjonalnie).
+    duplicate_of_job_id: Optional[int] = None
+    # 13.10.2026: zamknięcie przy osobach w toku wymaga potwierdzenia —
+    # bez niego trasa odpowiada 409 `active_cards_warning` z liczbami.
+    acknowledge_active_cards: bool = False
+
+
+class JobCloseReasonUpdate(BaseModel):
+    """Body `PATCH /api/jobs/{id}/close-reason` — zmiana powodu zamkniętej
+    rekrutacji (21.10.2026). Data zamknięcia zostaje."""
+
+    reason: JobCloseReason
+    notes: Optional[str] = None
+    duplicate_of_job_id: Optional[int] = None
 
 
 class JobManageInNexusRequest(BaseModel):
     """Body `POST /api/jobs/{id}/manage-in-nexus`."""
 
     enabled: bool
+
+
+class HiringManagerNewPerson(BaseModel):
+    """Osoba wpisana ręcznie — serwis zakłada ją jako kontakt klienta."""
+
+    name: str = Field(min_length=1, max_length=255)
+    position: Optional[str] = Field(default=None, max_length=255)
+    email: Optional[EmailStr] = None
+
+    @field_validator("position", "email", mode="before")
+    @classmethod
+    def _blank_is_none(cls, value: Any) -> Any:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+
+class JobHiringManagerRequest(BaseModel):
+    """Body `PUT /api/jobs/{id}/hiring-manager` — dokładnie jedno z czterech.
+
+    ``not_provided`` (0415) = „Klient nie podał” — wymagana decyzja bramki
+    przekazania, gdy hiring managera nie ma.
+    """
+
+    contact_id: Optional[int] = Field(default=None, gt=0)
+    new_person: Optional[HiringManagerNewPerson] = None
+    clear: bool = False
+    not_provided: bool = False
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> "JobHiringManagerRequest":
+        chosen = sum(
+            (
+                self.contact_id is not None,
+                self.new_person is not None,
+                self.clear,
+                self.not_provided,
+            )
+        )
+        if chosen != 1:
+            raise ValueError(
+                "Wybierz osobę z listy, wpisz nową, zaznacz „Klient nie podał” "
+                "albo wyczyść pole — jedno z czterech."
+            )
+        return self
+
+
+class JobCreateHiringManager(BaseModel):
+    """Hiring manager przy zakładaniu rekrutacji — kontakt, nowa osoba albo
+    „Klient nie podał”. Pustej decyzji nie ma (rekrutacja bez szkiców)."""
+
+    contact_id: Optional[int] = Field(default=None, gt=0)
+    new_person: Optional[HiringManagerNewPerson] = None
+    not_provided: bool = False
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> "JobCreateHiringManager":
+        chosen = sum(
+            (
+                self.contact_id is not None,
+                self.new_person is not None,
+                self.not_provided,
+            )
+        )
+        if chosen != 1:
+            raise ValueError(
+                "Wybierz hiring managera z listy, wpisz nową osobę albo zaznacz "
+                "„Klient nie podał”."
+            )
+        return self
+
+
+class JobCreateCcOverride(BaseModel):
+    """Podpowiedź kategorii, którą Delivery Lead zmienił przy zakładaniu."""
+
+    suggested_cc_id: Optional[int] = Field(default=None, gt=0)
+    suggested_score: Optional[float] = None
+
+
+class HiringManagerOption(BaseModel):
+    """Pozycja listy wyboru HM — bez danych kontaktowych."""
+
+    id: int
+    name: str
+    position: Optional[str] = None
 
 
 class JobHandoffRequest(BaseModel):
@@ -362,3 +662,25 @@ class JobHandoffRequest(BaseModel):
     assignment_mode: Literal["manual", "automatic"] = "manual"
     channel: Literal["linkedin", "database", "mixed"] = "linkedin"
     top_k: Optional[int] = Field(default=None, gt=0)
+
+
+class JobPublishRequest(JobHandoffRequest):
+    """Body `POST /api/jobs/{id}/publish` — ponowne otwarcie rekrutacji.
+
+    Otwarcie zamkniętej rekrutacji (i dokończenie starego szkicu) przechodzi
+    tę samą bramkę co przekazanie do searchu, więc niesie przekazanie.
+
+    ``assignment_mode="keep"`` (09.10.2026, tylko tutaj — nie w ``/handoff``
+    ani przy zakładaniu): ponowne otwarcie ZAMKNIĘTEJ rekrutacji bez wyboru
+    rekrutera. Zostaje dotychczasowy; gdy go nie ma, przydziela automat albo
+    wskazuje Head of Recruitment.
+    """
+
+    assignment_mode: Literal["manual", "automatic", "keep"] = "manual"
+    reason: Optional[str] = Field(default=None, max_length=500)
+    # „Priorytet po otwarciu” (14.10.2026): przy P1 wracają „Poprzedni
+    # rekruterzy”, przy innym zostają wśród poprzednich. Brak = obecny poziom.
+    priority: Optional[JobPriority] = None
+
+
+JobCreate.model_rebuild()

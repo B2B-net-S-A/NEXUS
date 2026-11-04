@@ -153,3 +153,10 @@ def test_min_rate_rejects_nonsense(value, unit) -> None:
 def test_answered_pct() -> None:
     assert r.answered_pct(3, 1) == 75.0
     assert r.answered_pct(0, 0) is None
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan"), "1e999"])
+def test_normalize_rules_ignores_non_finite_numbers(value):
+    """R9-N13-9: `PUT /api/trainee/rules` z 1e999 dawało OverflowError → 500."""
+    rules = r.normalize_rules({"rate_stale_months": value})
+    assert rules["rate_stale_months"] == r.DEFAULT_RULES["rate_stale_months"]

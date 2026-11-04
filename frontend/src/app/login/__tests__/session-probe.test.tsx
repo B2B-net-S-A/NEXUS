@@ -212,6 +212,35 @@ describe("LoginPage — walidacja zastanej sesji (F-18)", () => {
     expect(localStorage.getItem("access_token")).toBe(VALID_TOKEN);
   });
 
+  it("logowanie formularzem → jedno przejście z postLoginDestination, bez drugiej sondy sesji", async () => {
+    // 17.10.2026: `setAuth` z formularza zmieniał `token` i odpalał sondę,
+    // która robiła `router.replace(next)` z pominięciem `postLoginDestination`
+    // — „Pracownik” przechodził przez `/`, a onboarding mógł zostać nadpisany.
+    const employee = { ...ME, role: "employee", roles: ["employee"] };
+    apiPost.mockResolvedValue({ data: { access_token: VALID_TOKEN } });
+    apiGet.mockImplementation((url: string) => {
+      if (String(url) === "/api/auth/methods") {
+        return Promise.resolve({ data: { password: true, microsoft: true, self_registration: false } });
+      }
+      if (String(url) === "/api/auth/me") return Promise.resolve({ data: employee });
+      return Promise.reject(new Error(`unexpected GET ${url}`));
+    });
+
+    render(<LoginPage />);
+    const { fireEvent } = await import("@testing-library/react");
+    fireEvent.change(await screen.findByLabelText(/Email/), {
+      target: { value: "pracownik@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText(/Hasło/), { target: { value: "x" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zaloguj się" }));
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/my-time"));
+    // Dać efektom szansę — sonda nie może dołożyć własnego przekierowania.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(replaceMock).not.toHaveBeenCalled();
+    expect(meCalls()).toBe(1);
+  });
+
   it("brak tokenu → żadnej walidacji, zwykły ekran logowania", async () => {
     render(<LoginPage />);
 

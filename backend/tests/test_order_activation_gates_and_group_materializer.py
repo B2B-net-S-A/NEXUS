@@ -741,8 +741,8 @@ def test_md_quantity_sets_the_complete_budget_and_mirrors_the_rate(monkeypatch):
     assert order.md_input_mode == "md"
     assert order.md_input_value == Decimal("20")
     assert order.md_total == Decimal("20")
-    # Lustro stawki jest kwantyzowane JAWNIE do skali kolumn linii (12,2).
-    assert order.md_rate_revenue == Decimal("164.38")
+    # Lustro stawki jest kwantyzowane JAWNIE do skali kolumn linii (12,3, 0419).
+    assert order.md_rate_revenue == Decimal("164.375")
 
 
 def test_md_quantity_none_clears_the_whole_budget(monkeypatch):
@@ -1039,8 +1039,10 @@ def test_group_number_comes_from_the_title_and_rejects_the_placeholder():
 
 
 def test_md_rate_quantization_is_explicit_half_up():
-    assert md_rate_from_order_rate(Decimal("164.375")) == Decimal("164.38")
-    assert md_rate_from_order_rate(Decimal("1550.000")) == Decimal("1550.00")
+    # Od 0419 linia MD trzyma trzy miejsca — 164.375 (Alior) przechodzi bez cięcia.
+    assert md_rate_from_order_rate(Decimal("164.375")) == Decimal("164.375")
+    assert md_rate_from_order_rate(Decimal("164.3755")) == Decimal("164.376")
+    assert md_rate_from_order_rate(Decimal("1550.000")) == Decimal("1550.000")
     assert md_rate_from_order_rate(None) is None
 
 

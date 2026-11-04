@@ -2,8 +2,9 @@
 
 D7: /insights jest jawnie otwarte dla KAŻDEJ zalogowanej roli (decyzja Artura
 2026-08-31, plan §0 D7) — z wyjątkiem ``/ranking`` (przychody i MRR, zakładka
-Rada/Firma): od 24.09.2026 tylko admin · finance (``BoardReader``;
-Head of Recruitment nie widzi pieniędzy — decyzja Artura). Kwoty NIE są tu redagowane. Nie zastępuj guardów
+Rada/Firma): od 24.09.2026 tylko uprawnienie „Moduł Finanse” albo (od 0490)
+rola Rada nadzorcza (``BoardReader``; domyślnie admin i Finanse — Head of
+Recruitment nie widzi pieniędzy, decyzja Artura). Kwoty NIE są tu redagowane. Nie zastępuj guardów
 ``CurrentUser``/``BoardReader`` żadną capability — ``VIEW_FINANCE`` steruje 40+ innymi
 powierzchniami (``analytics/capabilities.py:64-115``) i jego poszerzenie
 wyciekłoby stawki konsultantów daleko poza Insights.
@@ -180,8 +181,9 @@ async def insights_clients_ranking(
 ):
     """Ranking klientów: przychód lifetime, aktywne MRR, marża/mc, Head DL.
 
-    Widok Firma: tylko admin · finance (``BoardReader``, decyzja Artura
-    24.09.2026 — Head of Recruitment nie widzi pieniędzy). Skuteczność per klient (``/hit-ratio``)
+    Widok Firma: uprawnienie „Moduł Finanse” albo Rada nadzorcza
+    (``BoardReader``; domyślnie admin i Finanse — decyzja Artura 24.09.2026:
+    Head of Recruitment nie widzi pieniędzy). Skuteczność per klient (``/hit-ratio``)
     i hiring managerowie zostają otwarci dla każdej roli (D7).
 
     Okres steruje wyłącznie DNIEM WYCENY — którym krokiem harmonogramu stawek
@@ -350,7 +352,7 @@ async def insights_clients_hit_ratio(
     excluded_key = ",".join(sorted(r.value for r in excluded))
 
     cache_key = (
-        f"insights:clients:hit-ratio:v1:{resolved.cache_suffix}"
+        f"insights:clients:hit-ratio:v2:{resolved.cache_suffix}"
         f":{min_closed}:{sort}:{excluded_key}:{drop_pp}:{at_risk_min_closed}"
     )
     cached = await cache_get(cache_key)
@@ -466,7 +468,8 @@ async def insights_hiring_managers(
     Dwie rzeczy, które koperta mówi WPROST, bo bez nich kolumna znaczy co
     innego, niż wygląda:
 
-    1. Okno filtruje REKRUTACJE po ``Job.created_at``. Kontrakty liczone są dla
+    1. Okno filtruje REKRUTACJE po dacie otwarcia (``opened_at``, bez niej
+       ``created_at``). Kontrakty liczone są dla
        rekrutacji z okna, niezależnie od tego, kiedy same powstały — umowę
        z rekrutacji otwartej w lipcu zwykle podpisuje się później.
     2. ``contracts_active`` to MIGAWKA NA DZIŚ. ``ContractStatus`` nie ma
@@ -476,7 +479,7 @@ async def insights_hiring_managers(
     """
     resolved = _resolve(period, offset, anchor, date_from, date_to)
 
-    cache_key = f"insights:clients:hiring-managers:v1:{resolved.cache_suffix}:{limit}"
+    cache_key = f"insights:clients:hiring-managers:v2:{resolved.cache_suffix}:{limit}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
@@ -530,11 +533,11 @@ async def insights_hiring_managers(
         # komplet.
         "truncated": max(len(rows) - len(visible), 0),
         "scope": {
-            "jobs": "job_created_at_in_window",
+            "jobs": "job_opened_at_in_window",
             "contracts": "contracts_of_jobs_in_window",
             "contracts_active_is_snapshot_now": True,
             "note": (
-                "Okno filtruje rekrutacje po dacie utworzenia; kontrakty liczą "
+                "Okno filtruje rekrutacje po dacie otwarcia; kontrakty liczą "
                 "się dla tych rekrutacji niezależnie od własnej daty. "
                 "„Aktywni” to stan NA DZIŚ — statusy kontraktów nie mają "
                 "historii, więc stanu z końca okna nie da się odtworzyć."

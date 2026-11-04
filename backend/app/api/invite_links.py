@@ -37,8 +37,8 @@ from app.services.priority_work_policy import (
     assert_priority_work_access,
     current_priority_assignment,
 )
-from app.services.career_slugs import generate_job_slug, job_link_url
-from app.services.job_public_profile import job_is_open, public_titles
+from app.services.career_slugs import job_link_url
+from app.services.job_public_profile import job_is_open, public_titles, safe_job_slug
 from app.services.priority_work_service import audit_event
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -185,7 +185,7 @@ async def create_invite_link(
     # Slug z tytułu publicznego — surowy tytuł niesie nazwę klienta i kody.
     profile = await db.get(JobPublicProfile, job.id)
     _default_title, public_title = await public_titles(db, job, profile)
-    slug = await generate_job_slug(db, public_title)
+    slug = await safe_job_slug(db, job, public_title)
     # v2 when an encryption key is configured: PK = non-secret revoke key, the
     # secret lives only as a SHA-256 (for lookup) and Fernet ciphertext (so the
     # list can rebuild the URL). Fall back to the legacy plaintext PK if no key

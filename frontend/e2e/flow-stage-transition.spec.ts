@@ -10,6 +10,7 @@ import { test, expect, expectStatus, jsonOf } from "./helpers/api";
 import { createCandidate, createClient, createJob } from "./helpers/entities";
 
 interface StageResponse {
+  id: number;
   candidate_id: number;
   stage: string;
   process_state_version: number;
@@ -63,11 +64,14 @@ test.describe("Pipeline rekrutacji @stack", () => {
     await expect(page).not.toHaveURL(/tab=pipeline/);
 
     // Ruch z nieaktualną wersją procesu jest odrzucany bez zapisu (F05).
+    // Cel to „Nowi”: od 05.10.2026 skok ze Screeningu na „Zweryfikowany”
+    // i dalej zatrzymuje wcześniej bramka arkusza i stawki
+    // (VERIFIED_REQUIREMENTS_MISSING), więc do porównania wersji nie dochodzi.
     const stale = await admin.api.post("/api/pipeline/move", {
       data: {
         candidate_id: candidate.id,
         job_id: job.id,
-        stage: "prep_call",
+        stage: "new",
         expected_state_version: screening.process_state_version + 1,
       },
     });
@@ -129,7 +133,7 @@ test.describe("Pipeline rekrutacji @stack", () => {
 
     // `?candidate=` otwiera dok tej osoby na Tablicy (jak link z powiadomienia).
     await page.goto(`/jobs/${job.id}?candidate=${candidate.id}`);
-    const panel = page.getByRole("complementary", { name: "Karta kandydata" });
+    const panel = page.getByRole("complementary", { name: "Panel osoby" });
     await expect(panel.getByText(fullName)).toBeVisible();
 
     // Ten sam `usePipelineMove` co przeciąganie — ruch na „Screening" nie otwiera okna.
@@ -178,17 +182,8 @@ test.describe("Pipeline rekrutacji @stack", () => {
       .filter({ has: page.getByRole("link", { name: fullName }) })
       .first();
     await expect(card).toBeVisible();
-    // Puste kolumny są domyślnie ukryte (store/ui.ts hideEmptyKanbanColumns),
-    // a świeża rekrutacja ma tylko jedną niepustą — bez celu strzałka nic nie robi.
-    // Przełącznik „Ukryj puste kolumny" (aria-pressed = puste ukryte) wyłączamy
-    // jawnie; do 22.09.2026 nazywał się „Kolumny: pokaż puste" i test po
-    // zmianie nazwy nic nie klikał, więc karta nie miała dokąd pojechać.
-    // Od 22.09.2026 przełącznik siedzi w „Filtry ▾" (makieta 2).
-    await page.getByRole("button", { name: /^Filtry/ }).click();
-    const hideEmpty = page.getByRole("button", { name: "Ukryj puste kolumny" });
-    await expect(hideEmpty).toBeVisible();
-    if ((await hideEmpty.getAttribute("aria-pressed")) === "true") await hideEmpty.click();
-    await expect(hideEmpty).toHaveAttribute("aria-pressed", "false");
+    // Od 25.10.2026 Tablica zawsze pokazuje puste kolumny (bez przełącznika
+    // w menu „⋯”), więc karta ma dokąd pojechać bez żadnego przygotowania.
     // Przeciąganie klawiaturą (@hello-pangea/dnd): Spacja podnosi kartę,
     // strzałka przenosi ją do sąsiedniej kolumny, Spacja upuszcza.
     await card.focus();
@@ -219,6 +214,57 @@ test.describe("Pipeline rekrutacji @stack", () => {
     const client = await createClient(admin.api);
     const job = await createJob(admin.api, client.id, { salary_min: 8000, salary_max: 10000 });
     const candidate = await createCandidate(admin.api);
+    // Runda 9 (R9-N11-4): osoba spoza rekrutacji wchodzi wyłącznie do „Nowych”
+    // albo „Screeningu” — najpierw wejście, potem ruch na „Zweryfikowany”.
+    const entry = await jsonOf<StageResponse>(
+      await admin.api.post("/api/pipeline/move", {
+        data: { candidate_id: candidate.id, job_id: job.id, stage: "new" },
+      }),
+      200,
+      "wejście do Nowych"
+    );
+    // D1 (04.10.2026): „Zweryfikowany” wymaga arkusza screeningu i stawki.
+    await expectStatus(
+      await admin.api.post(`/api/pipeline/stages/${entry.id}/screening`, {
+        data: {
+          answers: [{ question_id: "q1", response: "Trzy lata komercyjnie" }],
+          overall_fit: "fit",
+        },
+      }),
+      200,
+      "arkusz screeningu przed „Zweryfikowany”"
+    );
+    // Minimum dla Delivery Leada (21.10.2026): bez lokalizacji, trybu pracy,
+    // dostępności i „Dlaczego ten kandydat” bramka zwraca 409
+    // VERIFIED_REQUIREMENTS_MISSING. Uzupełniamy je tym samym zapisem co okno
+    // „Uzupełnij przed przekazaniem” (`MinimumFieldsDialog`).
+    const form = await jsonOf<{ version: number; state_token: string }>(
+      await admin.api.get("/api/screening-form", {
+        params: { candidate_id: candidate.id, job_id: job.id },
+      }),
+      200,
+      "stan formularza screeningu"
+    );
+    await expectStatus(
+      await admin.api.put("/api/screening-form", {
+        data: {
+          candidate_id: candidate.id,
+          job_id: job.id,
+          expected_version: form.version,
+          state_token: form.state_token,
+          card: {
+            fields: {
+              location: "Warszawa",
+              work_mode: "hybryda, 2 dni w biurze",
+              availability: "od zaraz",
+              recommendation: "Trzy lata komercyjnie w tej samej technologii.",
+            },
+          },
+        },
+      }),
+      200,
+      "minimum dla DL przed „Zweryfikowany”"
+    );
 
     const verified = await jsonOf<StageResponse & {
       verification_status: string;

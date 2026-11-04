@@ -127,3 +127,34 @@ def test_unknown_action_is_422():
     with pytest.raises(AcademyActionError) as err:
         _apply("new", ActionInput("teleport"))
     assert err.value.status_code == 422
+
+
+# ── runda 8 audytu (26.09.2026) ────────────────────────────────────────────
+
+
+def test_signed_person_can_withdraw_before_the_edition():
+    """R8-N2-7 (decyzja Artura 26.09.2026): „W akademii” ma wyjście."""
+    changes = _apply("signed", ActionInput("withdraw", reason="Zrezygnował sam"))
+    assert changes["status"] == "withdrew"
+    assert changes["closed_stage"] == "signed"
+    # Wykluczenie po podpisie dalej nie wchodzi w grę.
+    with pytest.raises(AcademyActionError):
+        _apply("signed", ActionInput("reject", reason="x"))
+
+
+def test_restore_starts_over_without_old_reapplication_and_contract():
+    """R8-N2-8: „aplikował ponownie” sprzed przywrócenia nie wraca przy
+    kolejnym wykluczeniu; umowa i edycja dotyczą poprzedniego podejścia."""
+    changes = _apply("withdrew", ActionInput("restore"))
+    for key in ("reapplied_at", "contract_sent_at", "signed_at", "cohort_month"):
+        assert key in changes and changes[key] is None
+
+
+@pytest.mark.parametrize("action", ["reject", "withdraw"])
+def test_leaving_before_the_meeting_frees_the_session(action):
+    """R8-N2-9: wykluczony albo zrezygnowany nie wisi na liście terminu."""
+    changes = _apply("scheduled", ActionInput(action, reason="Nie pasuje"))
+    assert changes["session_id"] is None
+    # Kto był na spotkaniu, zostaje przy terminie (historia).
+    later = _apply("task_passed", ActionInput(action, reason="Nie pasuje"))
+    assert "session_id" not in later

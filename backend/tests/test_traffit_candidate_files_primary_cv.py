@@ -119,3 +119,24 @@ async def test_unrelated_integrity_error_propagates() -> None:
     with pytest.raises(IntegrityError):
         await imp._upsert_candidate_document(_doc(True))
     assert db.doc_inserts == []
+
+
+class _RecordingDB(_FakeDB):
+    def __init__(self):
+        super().__init__(fail_primary=False)
+        self.demote_sql: list[str] = []
+
+    async def execute(self, stmt, params=None):
+        if not (params or {}).get("external_source"):
+            self.demote_sql.append(str(stmt))
+        return await super().execute(stmt, params)
+
+
+@pytest.mark.asyncio
+async def test_demote_touches_only_traffit_copies() -> None:
+    """Runda 6 audytu: nowy plik z Traffita nie może odebrać flagi „główne CV”
+    plikowi wgranemu w NEXUSIE — lustro reguły _RESYNC_STALE_CV_POINTER."""
+    db = _RecordingDB()
+    await _importer(db)._upsert_candidate_document(_doc(True))
+    assert len(db.demote_sql) == 1
+    assert "external_source = 'traffit'" in db.demote_sql[0]

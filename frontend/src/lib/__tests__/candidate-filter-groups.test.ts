@@ -9,6 +9,7 @@ import {
 } from "@/lib/candidate-filter-groups";
 
 const NO_STAGE = {
+  columns: [],
   stages: [],
   currentOnly: false,
   clientIds: [],
@@ -32,6 +33,31 @@ describe("rateSummary", () => {
 
   it("zero jest wartością, nie brakiem", () => {
     expect(rateSummary({ rateMin: 0, rateMax: null })).toBe("od 0 zł/h");
+  });
+});
+
+describe("D5/D6: podsumowania stawki i lokalizacji (19.10.2026)", () => {
+  it("stawka z ukrytymi brakami", () => {
+    expect(rateSummary({ rateMin: null, rateMax: 55, hideUnknownRate: true })).toBe(
+      "do 55 zł/h · bez stawki: ukryte",
+    );
+    // Sam wybór bez progu stawki nic nie znaczy.
+    expect(rateSummary({ rateMin: null, rateMax: null, hideUnknownRate: true })).toBeNull();
+  });
+
+  it("kilka miast z promieniami, województwo i ukryte braki", () => {
+    const filters = withFilters({
+      locationPlaces: [
+        { city: "Warszawa", radiusKm: 30 },
+        { city: "Łódź", radiusKm: null },
+      ],
+      voivodeships: ["pomorskie"],
+      hideUnknownLocation: true,
+    });
+    expect(locationSummary(filters)).toBe(
+      "Warszawa +30 km, Łódź, pomorskie · bez miasta: ukryte",
+    );
+    expect(filterGroupCounts(filters, NO_STAGE, NO_SKILLS).location).toBe(3);
   });
 });
 
@@ -108,18 +134,43 @@ describe("filterGroupCounts", () => {
       history: 6,
       skills: 2,
       availability: 1,
-      // język + status + dwa słowa z drugiej grupy „którekolwiek”
-      more: 4,
+      // język + status; wszystkie wiersze słów kluczowych stoją na pasku
+      // nad tabelą (25.09.2026), więc „Więcej filtrów” ich nie liczy
+      more: 2,
     });
+  });
+
+  it("„Dodany na etap”: każda kolumna liczy się w „Rekrutacje i historia”", () => {
+    const counts = filterGroupCounts(
+      withFilters({}),
+      { ...NO_STAGE, columns: ["cv_qc", "cv_sent"], movedByIds: [7] },
+      NO_SKILLS,
+    );
+    expect(counts.history).toBe(3);
+  });
+
+  it("blok „Rekrutacje”: tryb i klienci liczą się w „Rekrutacje i historia”", () => {
+    const idle = filterGroupCounts(
+      withFilters({ recruitmentPresence: "not_in_process" }),
+      NO_STAGE,
+      NO_SKILLS,
+    );
+    expect(idle.history).toBe(1);
+    const scoped = filterGroupCounts(
+      withFilters({ recruitmentIds: [1], recruitmentClientIds: [3, 4] }),
+      NO_STAGE,
+      NO_SKILLS,
+    );
+    expect(scoped.history).toBe(3);
   });
 });
 
 describe("isChipShownOnFilterBar", () => {
   it("ukrywa chipy z wartością na pasku, zostawia resztę", () => {
-    for (const key of ["rate", "loc", "q_scope", "woj:śląskie", "remote:hybrid", "q_all:java", "q_any:0:spring", "q_none:junior"]) {
+    for (const key of ["rate", "loc", "q_scope", "woj:śląskie", "remote:hybrid", "q_all:java", "q_any:0:spring", "q_any:3:react", "q_none:junior"]) {
       expect(isChipShownOnFilterBar(key)).toBe(true);
     }
-    for (const key of ["q", "status:active", "lang:en:B2", "q_any:1:react", "client_hist:3"]) {
+    for (const key of ["q", "status:active", "lang:en:B2", "client_hist:3"]) {
       expect(isChipShownOnFilterBar(key)).toBe(false);
     }
   });

@@ -21,6 +21,10 @@ from sqlalchemy import Integer, case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
+from app.api.section_access import (
+    INSIGHTS_SECTION_DEPENDENCIES,
+    SOURCING_SECTION_DEPENDENCIES,
+)
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_source_event import (
@@ -34,11 +38,7 @@ from app.schemas.candidate_source_event import (
     SourceFunnelRow,
     SourceReportResponse,
 )
-
-from app.api.section_access import (
-    INSIGHTS_SECTION_DEPENDENCIES,
-    SOURCING_SECTION_DEPENDENCIES,
-)
+from app.services import competition_history
 
 router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
@@ -160,7 +160,10 @@ async def report_sources(
     importu, nie pozyskania (audyt statystyk 14.09.2026, A05).
     """
     period_end = datetime.now(timezone.utc)
-    period_start = period_end - timedelta(days=days)
+    # Źródła i zatrudnienia z NEXUS-a liczymy od 12.10.2026 (decyzja Artura
+    # 18.10.2026): wcześniej to import Traffita, a DynaReporter źródeł nie
+    # prowadził. `period_start` w odpowiedzi mówi, od kiedy liczy okno.
+    period_start = competition_history.board_start(period_end - timedelta(days=days))
 
     # PR 4 (plan analytics §3.2): hired liczony jako DISTINCT kandydaci —
     # wcześniej flaga sumowana per EVENT (kandydat z 3 eventami w kanale

@@ -418,6 +418,59 @@ async def test_handover_creates_trainee_proposal(app_client) -> None:
 
 @needs_db
 @pytest.mark.asyncio
+async def test_handover_of_employment_only_candidate_passes_with_a_warning(
+    app_client,
+) -> None:
+    """Runda 2 audytu 25.09.2026, decyzja Artura: osobę „tylko umowa o pracę”
+    praktykant przekazuje, a rekruter widzi to na karcie propozycji."""
+    from sqlalchemy import select
+
+    from app.api.job_proposals import _trainee_handovers
+    from app.core.database import AsyncSessionLocal
+    from app.models.job_proposal import JobProposal
+    from app.services.job_similarity import reset_pool_cache
+
+    skill = "Java"
+    async with AsyncSessionLocal() as db:
+        trainee, jobs = await _world(db, skill=skill)
+        cand = await _candidate(db, skill=skill)
+        await _list_with(db, trainee, [cand])
+        await db.commit()
+        trainee_id, cand_id, job_id = trainee.id, cand.id, jobs[0].id
+
+    reset_pool_cache()
+    headers = _headers(trainee_id, "trainee")
+    body = (await app_client.get("/api/trainee/today", headers=headers)).json()
+    item_id = next(i["id"] for i in body["items"] if i["candidate_id"] == cand_id)
+    saved = await app_client.post(
+        f"/api/trainee/items/{item_id}/call",
+        headers=headers,
+        json={"b2b_willingness": "employment_only"},
+    )
+    assert saved.status_code == 200, saved.text
+    resp = await app_client.post(
+        f"/api/trainee/items/{item_id}/handover",
+        headers=headers,
+        json={"job_id": job_id, "note": "Tylko etat"},
+    )
+    assert resp.status_code == 200, resp.text
+    async with AsyncSessionLocal() as db:
+        proposal = await db.scalar(
+            select(JobProposal).where(
+                JobProposal.job_id == job_id,
+                JobProposal.candidate_id == cand_id,
+                JobProposal.source == "trainee",
+            )
+        )
+        assert proposal is not None
+        assert proposal.evidence["trainee"]["employment_only"] is True
+        handovers = await _trainee_handovers(db, job_id, [cand_id])
+    assert handovers[cand_id]["employment_only"] is True
+    assert handovers[cand_id]["note"] == "Tylko etat"
+
+
+@needs_db
+@pytest.mark.asyncio
 async def test_promotion_changes_role_and_ends_program(app_client) -> None:
     from sqlalchemy import select
 
@@ -443,7 +496,10 @@ async def test_promotion_changes_role_and_ends_program(app_client) -> None:
         json={"action": "promote", "role": "admin"},
     )
     assert resp.status_code == 422
+    assert resp.json()["detail"] == "Awans tylko na rekrutera."
 
+    # Otwarta karta ze starą wersją aplikacji wysyła jeszcze „sourcer” — od
+    # 0411 to rekruter (stara wartość celowo: zgodność wejścia).
     resp = await app_client.post(
         f"/api/trainee/programs/{trainee_id}/decision",
         headers=hor_headers,
@@ -452,8 +508,8 @@ async def test_promotion_changes_role_and_ends_program(app_client) -> None:
     assert resp.status_code == 200, resp.text
     async with AsyncSessionLocal() as db:
         user = await db.get(User, trainee_id)
-        assert user.role == UserRole.sourcer
-        assert user.roles == ["sourcer"]
+        assert user.role == UserRole.recruiter
+        assert user.roles == ["recruiter"]
         program = await db.scalar(
             select(TraineeProgram).where(TraineeProgram.user_id == trainee_id)
         )
@@ -817,3 +873,49 @@ async def test_recruiter_corrects_call_facts_with_audit(app_client) -> None:
         }
         kept = apply_dealbreakers([saved], inputs=DealbreakerInputs()).kept
     assert [c.id for c in kept] == [cand_id]
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_handover_refuses_a_job_the_candidate_is_already_in(app_client) -> None:
+    """R10-N7-9: osoba już w rekrutacji — rekrutacja znika z listy pasujących,
+    a przekazanie daje 409 (skrzynka i tak by jej nie pokazała)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from app.services.job_similarity import reset_pool_cache
+
+    skill = "Java"
+    async with AsyncSessionLocal() as db:
+        trainee, jobs = await _world(db, skill=skill)
+        cand = await _candidate(db, skill=skill)
+        await _list_with(db, trainee, [cand])
+        await db.flush()
+        db.add(
+            CandidateStage(
+                candidate_id=cand.id, job_id=jobs[0].id, stage=PipelineStage.new
+            )
+        )
+        await db.commit()
+        trainee_id, cand_id, job_id = trainee.id, cand.id, jobs[0].id
+
+    reset_pool_cache()
+    headers = _headers(trainee_id, "trainee")
+    body = (await app_client.get("/api/trainee/today", headers=headers)).json()
+    item_id = next(i["id"] for i in body["items"] if i["candidate_id"] == cand_id)
+    saved = await app_client.post(
+        f"/api/trainee/items/{item_id}/call",
+        headers=headers,
+        json={"b2b_willingness": "b2b"},
+    )
+    assert saved.status_code == 200, saved.text
+    open_jobs = await app_client.get(
+        f"/api/trainee/items/{item_id}/open-jobs", headers=headers
+    )
+    assert open_jobs.status_code == 200, open_jobs.text
+    assert job_id not in {row["job_id"] for row in open_jobs.json()}
+    resp = await app_client.post(
+        f"/api/trainee/items/{item_id}/handover",
+        headers=headers,
+        json={"job_id": job_id, "note": "Zna Javę"},
+    )
+    assert resp.status_code == 409, resp.text

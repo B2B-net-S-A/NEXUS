@@ -8,31 +8,12 @@
  */
 
 import { hasRole, type UserRole } from "@/store/auth";
-
-export const JOB_STATUS_VALUES = ["draft", "published", "closed"] as const;
-
-export type JobStatusFilterValue = (typeof JOB_STATUS_VALUES)[number];
-
-const VALID: ReadonlySet<JobStatusFilterValue> = new Set(JOB_STATUS_VALUES);
-
-function isJobStatus(value: string): value is JobStatusFilterValue {
-  // Zawężenie po zbiorze typowanym na union, nie na `string` — inaczej strażnik
-  // typu jest formalnie niepoprawny (TypeScript uwierzyłby mu na słowo dla
-  // dowolnego stringa).
-  return (VALID as ReadonlySet<string>).has(value);
-}
-
-/**
- * `?status=published&status=draft` → `["published", "draft"]`.
- *
- * Wartości spoza kontraktu są odrzucane, a nie przepuszczane do API — ręcznie
- * podrasowany URL ma dać pusty filtr, nie 422 z backendu.
- */
-export function initialStatusFromUrl(
-  params: URLSearchParams,
-): JobStatusFilterValue[] {
-  return params.getAll("status").filter(isJobStatus);
-}
+import {
+  PRIORITY_LEVELS,
+  isPriorityLevel,
+  type PriorityLevel,
+} from "@/lib/request-priority";
+import type { RequestStage } from "@/lib/request-stage";
 
 /**
  * Role, które PROWADZĄ rekrutacje — dla nich lista startuje w „Moich".
@@ -43,8 +24,6 @@ export function initialStatusFromUrl(
  */
 export const RECRUITMENT_RUNNING_ROLES: readonly UserRole[] = [
   "recruiter",
-  "sourcer",
-  "tac",
   "talent_community_manager",
   "delivery_lead",
 ];
@@ -52,12 +31,20 @@ export const RECRUITMENT_RUNNING_ROLES: readonly UserRole[] = [
 type ScopeUser = Parameters<typeof hasRole>[0];
 
 /**
- * Zakres listy: „Moje" (prowadzę albo współpracuję), „Otwarte" (wszystko poza
+ * Zakres listy: „Moje" (jestem Rekruterem albo Delivery Leadem, bez
+ * zamkniętych), „Moja kategoria" (niezamknięte rekrutacje z mojej kategorii
+ * kompetencji — do wzięcia, nie moje; 02.10.2026), „Otwarte" (wszystko poza
  * zamkniętymi — backend `open_only`) albo „Wszystkie" (cały rejestr).
  */
-export type JobScope = "mine" | "open" | "all";
+export type JobScope = "mine" | "category" | "open" | "all";
 
-export const JOB_SCOPE_VALUES: readonly JobScope[] = ["mine", "open", "all"];
+/** Kolejność przełącznika zakresu na ekranie. */
+export const JOB_SCOPE_VALUES: readonly JobScope[] = [
+  "mine",
+  "category",
+  "open",
+  "all",
+];
 
 /**
  * Domyślny zakres użytkownika. Semantyka `hasRole` — konto wielorolowe
@@ -70,16 +57,38 @@ export function defaultScopeForUser(user: ScopeUser): JobScope {
 
 /**
  * Jawny zakres z adresu (zawsze wygrywa z domyślnym roli):
- * `?mine=1` → „Moje", `?open=1` → „Otwarte", `?mine=0` → „Wszystkie"
- * (stare linki pulpitu `mine=0&status=published` znaczą to samo co dotąd),
- * brak → `null` = „obowiązuje domyślny roli". `mine=0&open=1` → „Otwarte":
- * `mine=0` mówiło dawniej tylko „nie moje", a `open=1` zawęża dalej.
+ * `?mine=1` → „Moje", `?mycat=1` → „Moja kategoria", `?open=1` → „Otwarte",
+ * `?mine=0` → „Wszystkie" (stare linki pulpitu `mine=0&status=published`
+ * znaczą to samo co dotąd), brak → `null` = „obowiązuje domyślny roli".
+ * `mine=0&open=1` → „Otwarte": `mine=0` mówiło dawniej tylko „nie moje",
+ * a `open=1` zawęża dalej. Przy kilku kluczach naraz wygrywa węższy zakres.
  */
 export function scopeOverrideFromUrl(params: URLSearchParams): JobScope | null {
   if (params.get("mine") === "1") return "mine";
+  if (params.get("mycat") === "1") return "category";
   if (params.get("open") === "1") return "open";
   if (params.get("mine") === "0") return "all";
   return null;
+}
+
+/**
+ * Czy zalogowana osoba ma kategorię kompetencji. Wiemy to z liczników listy
+ * (`quick-counts.my_category`): liczba = ma, `null` albo brak pola = nie ma,
+ * a dopóki liczniki nie przyszły — jeszcze nie wiadomo.
+ */
+export type CategoryScopeState = "available" | "unavailable" | "pending";
+
+/**
+ * Jawny wybór zakresu po uwzględnieniu kategorii osoby. „Moja kategoria"
+ * istnieje tylko dla osoby z kategorią — `?mycat=1` u kogoś bez kategorii
+ * (link od kolegi, zakładka sprzed zmiany składu kategorii) znaczy „bez
+ * wyboru", czyli zakres domyślny roli. Póki nie wiadomo, wybór zostaje.
+ */
+export function effectiveScopeOverride(
+  override: JobScope | null,
+  category: CategoryScopeState,
+): JobScope | null {
+  return override === "category" && category === "unavailable" ? null : override;
 }
 
 /** Zakres faktycznie obowiązujący: jawny wybór albo domyślny roli. */
@@ -91,32 +100,22 @@ export function resolveScope(
 }
 
 /**
- * Zakres „Otwarte” (`open_only`) i status „Zamknięta” wykluczają się — lista
- * była zawsze pusta (audyt 24.09.2026). Wybrany status „Zamknięta” wygrywa:
- * zakres przechodzi na „Wszystkie” (w adresie `mine=0`). „Moje” zostaje —
- * moje zamknięte to poprawne pytanie.
+ * Parametry zakresu dla `GET /api/jobs` (i klucza zapytania). „Moje" to moje
+ * NIEZAMKNIĘTE (decyzja Artura 26.09.2026) — zamknięte, w tym archiwum
+ * z Traffita, widać wyłącznie we „Wszystkie"; liczniki `quick-counts`
+ * zakresu „Moje" liczą tym samym warunkiem. „Moja kategoria" idzie SAMA
+ * (`my_category=true`): serwer sam ogranicza ją do niezamkniętych.
  */
-export function scopeForStatuses(
-  scope: JobScope,
-  statuses: readonly string[],
-): JobScope {
-  return scope === "open" && statuses.includes("closed") ? "all" : scope;
-}
-
-/** Jawny wybór „Otwarte” zdejmuje status „Zamknięta” (lustro wyżej). */
-export function statusesForScope<S extends string>(
-  scope: JobScope,
-  statuses: readonly S[],
-): S[] {
-  return scope === "open" ? statuses.filter((s) => s !== "closed") : [...statuses];
-}
-
-/** Parametry zakresu dla `GET /api/jobs` (i klucza zapytania). */
 export function scopeQueryFlags(scope: JobScope): {
   mine: boolean;
+  myCategory: boolean;
   openOnly: boolean;
 } {
-  return { mine: scope === "mine", openOnly: scope === "open" };
+  return {
+    mine: scope === "mine",
+    myCategory: scope === "category",
+    openOnly: scope === "mine" || scope === "open",
+  };
 }
 
 // ── Typ, termin, sortowanie (M03-B01) ─────────────────────────────────────
@@ -126,16 +125,6 @@ export function scopeQueryFlags(scope: JobScope): {
 // wysłany koledze wracały do pełnej listy bez żadnego sygnału, że zawężenie
 // przepadło. Teraz lista zapisuje je (razem ze statusem i „moimi") do URL-a,
 // a przy montowaniu odtwarza.
-
-// Wartości `recruitment_type` z backendu (`RecruitmentType`). `all` = brak
-// parametru — nigdy nie trafia do URL-a ani do API.
-export const JOB_TYPE_VALUES = [
-  "all",
-  "body_leasing",
-  "sales_project",
-  "tender",
-] as const;
-export type JobTypeFilterValue = (typeof JOB_TYPE_VALUES)[number];
 
 export const JOB_DEADLINE_PRESETS = [
   "any",
@@ -246,6 +235,23 @@ export function sentQueryParams(value: JobSentFilterValue): {
   return { min_sent: Number(value) };
 }
 
+// ── „Do wysłania do klienta” (kolejka Delivery Leada, 13.10.2026) ─────────
+
+/**
+ * `""` = dowolnie, `mine` = rekrutacje, w których gotowa osoba czeka na
+ * wysyłkę zalogowanego Delivery Leada, `stale` = cała firma: gotowa osoba
+ * czeka 3 dni robocze albo dłużej. Co znaczy „gotowa”, liczy serwer.
+ */
+export const JOB_TO_SEND_VALUES = ["", "mine", "stale"] as const;
+export type JobToSendFilterValue = (typeof JOB_TO_SEND_VALUES)[number];
+
+/** Filtr → `dl_send` backendu; „dowolnie” nie wysyła parametru. */
+export function toSendQueryParams(value: JobToSendFilterValue | undefined): {
+  dl_send?: Exclude<JobToSendFilterValue, "">;
+} {
+  return value ? { dl_send: value } : {};
+}
+
 export const JOB_SORT_VALUES = [
   "attention",
   "newest",
@@ -256,8 +262,8 @@ export type JobSortFilterValue = (typeof JOB_SORT_VALUES)[number];
 
 /**
  * Domyślne sortowanie zależy od zakresu: w „Moich" pierwsze są rekrutacje,
- * w których ruch należy do rekrutera (`sort=attention`), w „Otwartych"
- * i „Wszystkich" — najnowsze, jak dotąd. Wartość domyślna dla danego zakresu
+ * w których ruch należy do rekrutera (`sort=attention`), w „Mojej kategorii",
+ * „Otwartych" i „Wszystkich" — najnowsze. Wartość domyślna dla danego zakresu
  * NIE trafia do adresu, więc `/jobs` i `/jobs?mine=0` zostają czyste.
  */
 export function defaultSortForScope(scope: JobScope): JobSortFilterValue {
@@ -275,11 +281,6 @@ function pickFromUrl<T extends string>(
   return raw != null && (allowed as readonly string[]).includes(raw)
     ? (raw as T)
     : fallback;
-}
-
-/** `?type=tender` → `"tender"`; brak/nieznana wartość → `"all"`. */
-export function initialTypeFromUrl(params: URLSearchParams): JobTypeFilterValue {
-  return pickFromUrl(params, "type", JOB_TYPE_VALUES, "all");
 }
 
 /** `?deadline=none` → `"none"`; brak/nieznana wartość → `"any"`. */
@@ -308,14 +309,6 @@ export function sortOverrideFromUrl(
 // kategorie kompetencji, przełączniki i Priority Work ginęły po F5 i po
 // „Wstecz" z profilu rekrutacji — bez sygnału, że zawężenie przepadło.
 
-export const JOB_PRIORITY_WORK_VALUES = [
-  "any",
-  "assigned",
-  "carry_over",
-  "either",
-] as const;
-export type JobPriorityWorkFilterValue = (typeof JOB_PRIORITY_WORK_VALUES)[number];
-
 /** `?q=java` → `"java"`; brak → `""`. */
 export function initialSearchFromUrl(params: URLSearchParams): string {
   return params.get("q") ?? "";
@@ -327,7 +320,7 @@ export function initialSearchFromUrl(params: URLSearchParams): string {
  */
 export function initialIdsFromUrl(
   params: URLSearchParams,
-  key: "responsible" | "client" | "cc" | "lead",
+  key: "client" | "cc" | "lead" | "who",
 ): number[] {
   const out: number[] = [];
   for (const raw of params.getAll(key)) {
@@ -340,13 +333,10 @@ export function initialIdsFromUrl(
 
 /**
  * Przełącznik zapisany jako `?klucz=1`; wszystko inne → `false`.
- * `open=1` NIE jest już przełącznikiem — to zakres „Otwarte"
+ * `open=1` NIE jest przełącznikiem — to zakres „Otwarte"
  * (`scopeOverrideFromUrl`).
  */
-export function initialFlagFromUrl(
-  params: URLSearchParams,
-  key: "sourcing" | "active_search" | "no_owner",
-): boolean {
+export function initialFlagFromUrl(params: URLSearchParams, key: "nobody"): boolean {
   return params.get(key) === "1";
 }
 
@@ -355,61 +345,183 @@ export function initialSentFromUrl(params: URLSearchParams): JobSentFilterValue 
   return pickFromUrl(params, "sent", JOB_SENT_VALUES, "any");
 }
 
-/** `?priority=carry_over` → `"carry_over"`; brak/nieznana → `"any"`. */
-export function initialPriorityWorkFromUrl(
+/**
+ * `?tosend=mine` → `"mine"`; brak/nieznana wartość → `""`. Na te adresy
+ * prowadzą licznik „Do wysłania” w górnym pasku (`/jobs?open=1&tosend=mine`)
+ * i sygnał dla Head of Recruitment (`…&tosend=stale`).
+ */
+export function initialToSendFromUrl(params: URLSearchParams): JobToSendFilterValue {
+  return pickFromUrl(params, "tosend", JOB_TO_SEND_VALUES, "");
+}
+
+// ── Priorytet i data otwarcia (02.10.2026) ────────────────────────────────
+
+/** Poziomy w kolejności ekranu (P1 · P2 · Przyjmujemy), bez powtórzeń. */
+function orderedPriorityLevels(values: readonly string[]): PriorityLevel[] {
+  return PRIORITY_LEVELS.filter((level) => values.includes(level));
+}
+
+/**
+ * `?prio=p1,accepting` → `["p1", "accepting"]`. Klucz to `prio`, NIE
+ * `priority`: `priority` należał do filtra Priority Work sprzed 25.09.2026
+ * i jest zdejmowany z adresu (`MANAGED_KEYS`). Nieznana wartość odpada.
+ */
+export function initialPriorityLevelsFromUrl(
   params: URLSearchParams,
-): JobPriorityWorkFilterValue {
-  return pickFromUrl(params, "priority", JOB_PRIORITY_WORK_VALUES, "any");
+): PriorityLevel[] {
+  const raw = params
+    .getAll("prio")
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter(isPriorityLevel);
+  return orderedPriorityLevels(raw);
+}
+
+/** Zakres „Data otwarcia" (od–do, obie daty włącznie); puste pole = brak granicy. */
+export interface JobOpenedRange {
+  from?: string;
+  to?: string;
+}
+
+/** Granice, które przyjmuje serwer (`FILTER_DATE_MIN` / `FILTER_DATE_MAX`). */
+const FILTER_DATE_MIN = "1900-01-01";
+const FILTER_DATE_MAX = "2100-12-31";
+
+/**
+ * Data, którą można wysłać jako granicę zakresu: prawdziwy dzień kalendarza
+ * z lat 1900–2100. Pole daty podczas wpisywania roku oddaje wartości pośrednie
+ * („0002-10-01", „0020-10-01"…), a filtry tej listy działają od razu — bez
+ * tej bramki każda cyfra roku kończyłaby się odpowiedzią 422.
+ */
+export function isFilterDate(value: string | null | undefined): value is string {
+  if (!value || !ISO_DATE.test(value)) return false;
+  if (value < FILTER_DATE_MIN || value > FILTER_DATE_MAX) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+/** `?op_from=2026-09-01&op_to=2026-09-30` → zakres (tylko poprawne daty). */
+export function initialOpenedRangeFromUrl(params: URLSearchParams): JobOpenedRange {
+  const from = params.get("op_from");
+  const to = params.get("op_to");
+  return {
+    from: isFilterDate(from) ? from : undefined,
+    to: isFilterDate(to) ? to : undefined,
+  };
+}
+
+/** Data „od" późniejsza niż „do" — taki zakres nie zawęża niczego. */
+export function openedRangeReversed(range: JobOpenedRange): boolean {
+  return isFilterDate(range.from) && isFilterDate(range.to) && range.from > range.to;
+}
+
+/**
+ * „Data otwarcia" → `opened_from` / `opened_to` listy. Doby liczy SERWER
+ * w kalendarzu firmy (Europe/Warsaw), więc idą same daty. Odwrócony zakres
+ * i niepełna data nie są wysyłane wcale: serwer odpowiada na nie 422, a to
+ * tylko pomyłka w trakcie wpisywania drugiej daty — pasek prosi o poprawkę.
+ */
+export function openedQueryParams(range: JobOpenedRange = {}): {
+  opened_from?: string;
+  opened_to?: string;
+} {
+  if (openedRangeReversed(range)) return {};
+  const out: { opened_from?: string; opened_to?: string } = {};
+  if (isFilterDate(range.from)) out.opened_from = range.from;
+  if (isFilterDate(range.to)) out.opened_to = range.to;
+  return out;
 }
 
 export interface JobsListUrlState {
-  status: readonly JobStatusFilterValue[];
   scope: JobScope;
   /** Domyślny zakres ROLI (`defaultScopeForUser`) — jego nie zapisujemy. */
   defaultScope: JobScope;
-  type: JobTypeFilterValue;
   deadline: JobDeadlinePreset;
   /** Granice presetu `range` — zapisywane tylko przy nim. */
   deadlineRange?: JobDeadlineRange;
   sort: JobSortFilterValue;
   q?: string;
-  responsibleIds?: readonly number[];
+  /** Pigułki „Stan requestu” (`stage`, LUB). */
+  stages?: readonly RequestStage[];
   clientIds?: readonly number[];
   ccIds?: readonly number[];
   deliveryLeadIds?: readonly number[];
+  /** „Rekruter” — id osób (`who`). */
+  workedBy?: readonly number[];
+  /** „Bez rekrutera” (`nobody=1`). */
+  nobodyWorking?: boolean;
   sent?: JobSentFilterValue;
-  needsSourcing?: boolean;
-  activeInSearch?: boolean;
-  noOwnerOnly?: boolean;
-  priorityWork?: JobPriorityWorkFilterValue;
+  /** „Do wysłania do klienta” (`tosend=mine` / `tosend=stale`). */
+  toSend?: JobToSendFilterValue;
+  /** „Priorytet” (`prio=p1,accepting`). */
+  priorityLevels?: readonly PriorityLevel[];
+  /** „Data otwarcia” (`op_from` / `op_to`). */
+  openedRange?: JobOpenedRange;
+  /**
+   * Zakres trafia do adresu także wtedy, gdy równa się domyślnemu roli —
+   * dla nietkniętego linku z jawnym zakresem (`/jobs?mine=1` u rekrutera).
+   * Bez tego pierwszy zapis robiłby z niego goły adres, a goły adres znaczy
+   * „ostatni widok osoby” (`lib/jobs-list-memory.ts`).
+   */
+  keepScope?: boolean;
 }
 
 const SCOPE_URL: Record<JobScope, [key: string, value: string]> = {
   mine: ["mine", "1"],
+  category: ["mycat", "1"],
   open: ["open", "1"],
   all: ["mine", "0"],
 };
 
-const MANAGED_KEYS = [
-  "status",
+/** Klucze, z których lista odtwarza widok (`rs`/`ws` — stare, mapowane na pigułki stanu). */
+const READ_KEYS = [
   "mine",
-  "type",
+  "mycat",
+  "open",
   "deadline",
   "dl_from",
   "dl_to",
   "sort",
-  "lead",
-  "sent",
   "q",
-  "responsible",
+  "stage",
   "client",
   "cc",
+  "lead",
+  "who",
+  "nobody",
+  "sent",
+  "tosend",
+  "prio",
+  "op_from",
+  "op_to",
+  "rs",
+  "ws",
+] as const;
+
+const MANAGED_KEYS = [
+  ...READ_KEYS,
+  // Klucze kolumny filtrów sprzed 25.09.2026 (typ, status, osoba
+  // odpowiedzialna, „Szybkie”, Priority Work). Lista ich już nie czyta —
+  // zapisane zakładki przeglądarki działają, a pierwszy zapis filtrów
+  // zdejmuje je z adresu. `priority` to dawny filtr Priority Work —
+  // priorytet rekrutacji ma własny klucz `prio`.
+  "type",
+  "status",
+  "responsible",
   "sourcing",
   "active_search",
-  "open",
   "no_owner",
   "priority",
 ] as const;
+
+/**
+ * Czy adres niesie widok listy (link z pulpitu, powiadomienia, „Wstecz”).
+ * Adres bez tych kluczy — także z samymi martwymi kluczami sprzed
+ * 25.09.2026 — jest goły: lista otwiera wtedy ostatni widok osoby.
+ */
+export function hasJobsListParams(params: URLSearchParams): boolean {
+  return READ_KEYS.some((key) => params.has(key));
+}
 
 /**
  * Stan filtrów → querystring (bez `?`). Wartości domyślne NIE są zapisywane,
@@ -417,7 +529,8 @@ const MANAGED_KEYS = [
  * nie zarządza, zostają nietknięte.
  *
  * Zakres trafia do adresu tylko wtedy, gdy różni się od domyślnego ROLI
- * (`mine=0`/`open=1` u rekrutera, `mine=1`/`mine=0` u admina). Sortowanie:
+ * (`mine=0`/`open=1` u rekrutera, `mine=1`/`mine=0` u admina) albo przy
+ * `keepScope` (nietknięty link z jawnym zakresem). Sortowanie:
  * tylko gdy różni się od domyślnego dla bieżącego zakresu.
  */
 export function encodeJobsListUrl(
@@ -426,12 +539,10 @@ export function encodeJobsListUrl(
 ): string {
   const next = new URLSearchParams(current);
   for (const key of MANAGED_KEYS) next.delete(key);
-  for (const status of state.status) next.append("status", status);
-  if (state.scope !== state.defaultScope) {
+  if (state.scope !== state.defaultScope || state.keepScope) {
     const [key, value] = SCOPE_URL[state.scope];
     next.set(key, value);
   }
-  if (state.type !== "all") next.set("type", state.type);
   if (state.deadline !== "any") next.set("deadline", state.deadline);
   if (state.deadline === "range") {
     const { from, to } = state.deadlineRange ?? {};
@@ -441,16 +552,18 @@ export function encodeJobsListUrl(
   if (state.sort !== defaultSortForScope(state.scope)) next.set("sort", state.sort);
   const q = state.q?.trim();
   if (q) next.set("q", q);
-  for (const id of state.responsibleIds ?? []) next.append("responsible", String(id));
+  for (const stage of state.stages ?? []) next.append("stage", stage);
   for (const id of state.clientIds ?? []) next.append("client", String(id));
   for (const id of state.ccIds ?? []) next.append("cc", String(id));
   for (const id of state.deliveryLeadIds ?? []) next.append("lead", String(id));
+  for (const id of state.workedBy ?? []) next.append("who", String(id));
+  if (state.nobodyWorking) next.set("nobody", "1");
   if (state.sent && state.sent !== "any") next.set("sent", state.sent);
-  if (state.needsSourcing) next.set("sourcing", "1");
-  if (state.activeInSearch) next.set("active_search", "1");
-  if (state.noOwnerOnly) next.set("no_owner", "1");
-  if (state.priorityWork && state.priorityWork !== "any") {
-    next.set("priority", state.priorityWork);
-  }
+  if (state.toSend) next.set("tosend", state.toSend);
+  const levels = orderedPriorityLevels(state.priorityLevels ?? []);
+  if (levels.length > 0) next.set("prio", levels.join(","));
+  const { from: openedFrom, to: openedTo } = state.openedRange ?? {};
+  if (isFilterDate(openedFrom)) next.set("op_from", openedFrom);
+  if (isFilterDate(openedTo)) next.set("op_to", openedTo);
   return next.toString();
 }

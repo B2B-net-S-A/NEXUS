@@ -75,6 +75,16 @@ class TalentPool(Base):
         index=True,
     )
 
+    # Lista kandydatów „Tylko ja” / „Widzi zespół” (migracja 0520). Liczy się
+    # tylko przy `is_personal`: False = pulę widzi wyłącznie właściciel (nawet
+    # admin jej nie dostaje). Reguła w `services/talent_pool_visibility.py`.
+    team_visible: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default="true",
+        nullable=False,
+    )
+
     # External source tracking — Traffit / future imports.
     # Migracja 0074 dodaje partial unique index na (external_source, external_id).
     external_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)

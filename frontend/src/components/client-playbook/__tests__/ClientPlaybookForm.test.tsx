@@ -18,7 +18,7 @@ import {
  *  * po zapisie invaliduje kartę, listę w Pomocy i historię — inaczej karta
  *    obok formularza pokazywałaby starą wersję;
  *  * awaria odczytu NIE udaje pustej karty;
- *  * off-limit jest tylko do odczytu (źródłem prawdy jest umowa ramowa).
+ *  * formularz nie ma pola off-limit (funkcja usunięta 27.09.2026, R9-N4-8).
  */
 
 const mocks = vi.hoisted(() => ({
@@ -54,6 +54,7 @@ const PAYLOAD_KEYS = [
   "process_rules_md",
   "onboarding_md",
   "documents",
+  "verified_required_fields",
 ];
 
 function makeQueryClient() {
@@ -121,6 +122,20 @@ describe("ClientPlaybookForm", () => {
     expect(screen.getByText(/Karta klienta · wersja 4/)).toBeInTheDocument();
     // Dwa podglądy markdown + historia renderują się przy każdej zmianie pola;
     // pod obciążeniem (pełny pakiet) domyślne 5 s bywa za mało.
+  }, 15_000);
+
+  // D3 (21.10.2026): pola, które klient dokłada do minimum przed „Zweryfikowany”.
+  it("zaznaczone pola wymagane przed „Zweryfikowany” idą w PUT w stałej kolejności", async () => {
+    renderForm();
+    const section = await screen.findByTestId("playbook-verified-required");
+    expect(section).toHaveTextContent("Lokalizację, tryb pracy, dostępność i „Dlaczego ten kandydat” rekruter wpisuje zawsze");
+    fireEvent.click(within(section).getByLabelText("Angielski"));
+    fireEvent.click(within(section).getByLabelText("Motywacja"));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz kartę" }));
+
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
+    const [, body] = mocks.put.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body.verified_required_fields).toEqual(["motivation", "english"]);
   }, 15_000);
 
   it("po zapisie invaliduje kartę, listę ustawień i historię", async () => {
@@ -193,13 +208,11 @@ describe("ClientPlaybookForm", () => {
     expect(mocks.get).toHaveBeenCalledWith(HISTORY_URL, { params: { limit: 10 } });
   });
 
-  it("off-limit jest tylko do odczytu", async () => {
+  it("nie ma pola off-limit (funkcja usunięta, R9-N4-8)", async () => {
     renderForm();
     await screen.findByLabelText(SLA_LABEL);
 
-    expect(screen.getByTestId("playbook-off-limits")).toHaveTextContent("12 mies. · Cały bank");
-    expect(screen.queryByLabelText("Off-limit (z warunków umowy)")).not.toBeInTheDocument();
-    // Etykieta jest, ale jako opis pola do odczytu, nie <label> kontrolki.
-    expect(screen.getByText("Off-limit (z warunków umowy)")).toBeInTheDocument();
+    expect(screen.queryByTestId("playbook-off-limits")).not.toBeInTheDocument();
+    expect(screen.queryByText(/off-limit/i)).not.toBeInTheDocument();
   });
 });

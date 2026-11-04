@@ -22,6 +22,7 @@
 import { useState } from "react";
 import {
   AlertTriangle,
+  AlignJustify,
   CheckCircle2,
   ChevronRight,
   FileText,
@@ -48,6 +49,7 @@ import {
   type LintResponse,
 } from "@/lib/cv-rules";
 import { Button } from "@/components/ui/button";
+import { CoverSheetTemplateSection } from "@/components/cv-rules/CoverSheetTemplateSection";
 
 const TOKENS = ["{STANOWISKO}", "{IMIE_NAZWISKO}", "{PROJEKT}", "{DATA}"];
 
@@ -242,6 +244,33 @@ export function CvRuleSettingsTab({
         subtitle="Jak klient chce dostać dokument. To ustawia się najczęściej."
         always
       >
+        <fieldset className="space-y-1.5" data-testid="cvrule-client-document">
+          <legend className="mb-1 text-xs font-medium">Dokument do klienta</legend>
+          {(
+            [
+              ["company_cv", "CV firmowe", "Generator CV w szablonie B2B.net — jak dotąd."],
+              [
+                "client_form",
+                "Formularz klienta",
+                "NEXUS wypełnia wzór z Plików rekrutacji (np. formularz CV ze SWZ) z CV, screeningu i notatek. CV firmowe nie powstaje samo, a braki formularza tylko przypominają przed „QC CV”.",
+              ],
+            ] as const
+          ).map(([value, title, hint]) => (
+            <label key={value} className="flex items-start gap-2 text-sm">
+              <input
+                type="radio"
+                name="cvrule-client-document"
+                className="mt-1"
+                checked={form.cv_client_document === value}
+                onChange={() => set("cv_client_document", value)}
+              />
+              <span>
+                {title}
+                <span className="block text-xs text-muted-foreground">{hint}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
         <div>
           <label className="mb-1 block text-xs font-medium" htmlFor="cvrule-pattern">
             Wzór nazwy pliku CV
@@ -318,6 +347,9 @@ export function CvRuleSettingsTab({
         </div>
       </Group>
 
+      {/* 29.10.2026: wzór „Karty przed CV” — zapis od razu, osobno od reguły. */}
+      <CoverSheetTemplateSection clientId={clientId} />
+
       <Group icon={Wand2} title="Pogrubienia w CV" subtitle="Ta sama reguła w DOCX, HTML i publicznym CV; niezależnie od trybu redakcji." always>
         <label className="block text-xs font-medium" htmlFor="cvrule-highlights">Co pogrubiać</label>
         <select id="cvrule-highlights" value={form.highlight_policy}
@@ -336,6 +368,17 @@ export function CvRuleSettingsTab({
             className="w-full rounded-md border px-3 py-2 text-sm" placeholder={"Python\nPostgreSQL"} />
         </div> : null}
         <p className="text-xs text-muted-foreground">Wyróżnienie nie dopisuje umiejętności. Pozycje bez pokrycia w źródłach są pomijane; podgląd pokaże ostrzeżenie. Nagłówki sekcji zachowują swój styl.</p>
+      </Group>
+
+      <Group icon={AlignJustify} title="Wyrównanie tekstu w CV" subtitle="Punkty i akapity w pliku Word dla klienta." always>
+        <label className="block text-xs font-medium" htmlFor="cvrule-text-align">Wyrównanie</label>
+        <select id="cvrule-text-align" value={form.cv_text_align}
+          onChange={(event) => set("cv_text_align", event.target.value as CvRuleForm["cv_text_align"])}
+          className="w-full rounded-md border px-3 py-2 text-sm">
+          <option value="justify">Wyjustowane (domyślnie)</option>
+          <option value="left">Do lewej</option>
+        </select>
+        <p className="text-xs text-muted-foreground">Dotyczy nowych CV tego klienta. Rekruter może zmienić wyrównanie wybranego akapitu w edytorze. Nagłówki i tabela edukacji zostają do lewej.</p>
       </Group>
 
       {/* ── GRUPA 2: Wskazówki dla generatora ── */}

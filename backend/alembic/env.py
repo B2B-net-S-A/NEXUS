@@ -32,6 +32,11 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection):
+    # Runda 10 (R10-N12-2): limity czekania na zamki i czasu instrukcji —
+    # bez nich migracja wdrożona w trakcie nocnego pg_dump wieszała start.
+    from app.services.startup_locks import apply_migration_session_limits
+
+    apply_migration_session_limits(connection)
     context.configure(connection=connection, target_metadata=target_metadata)
     with context.begin_transaction():
         context.run_migrations()

@@ -3,9 +3,10 @@
 Następca `GET /api/reports/board`, usuniętego 15.09.2026 (liczył powtórne
 zatrudnienia z surowych wierszy etapów i nie miał już konsumenta — audyt
 statystyk 14.09). Numery linii `reports.py` niżej opisują kod sprzed usunięcia.
-Dostęp: kokpit z kwotami — admin · finance (``BoardReader``); tabele
-rok-do-roku — także Head of Recruitment, ale bez metryk pieniężnych
-(``BoardTrendReader``, decyzja Artura 24.09.2026: HoR nie widzi pieniędzy).
+Dostęp: kokpit z kwotami — uprawnienie „Moduł Finanse” albo rola Rada
+nadzorcza (``BoardReader``; domyślnie admin i Finanse); tabele rok-do-roku —
+także Head of Recruitment, ale bez metryk pieniężnych (``BoardTrendReader``,
+decyzja Artura 24.09.2026: HoR nie widzi pieniędzy).
 
 Sześć defektów oryginału, których ten moduł NIE portuje:
 
@@ -90,10 +91,11 @@ from app.analytics.periods import (
 )
 from app.api.deps import BoardReader, BoardTrendReader
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
-from app.core.cache import cache_get, cache_set
+from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
 from app.core.rate_limit import limiter
-from app.models.user import UserRole
+from app.core.scheduling import local_day_start_utc, local_now
+from app.services.action_permissions import reads_board_money
 from app.services.insights_board_yoy import (
     DEFAULT_YEARS,
     MAX_YEARS,
@@ -102,6 +104,9 @@ from app.services.insights_board_yoy import (
     without_money,
 )
 from app.services.insights_board import _today_warsaw, compute_board
+from app.services.insights_board_flows import compute_board_flows
+from app.services import competition_history
+from app.services.hit_ratio_closures import hit_ratio_closures
 
 logger = logging.getLogger(__name__)
 
@@ -148,9 +153,9 @@ async def insights_board(
 ):
     """Kokpit zarządu dla okna [start, end).
 
-    Widok Firma: tylko admin · finance (``BoardReader``, decyzja Artura
-    24.09.2026 — Head of Recruitment nie widzi pieniędzy). Kwoty NIE są
-    redagowane. Nie zastępuj tego guardu
+    Widok Firma: uprawnienie „Moduł Finanse” albo Rada nadzorcza
+    (``BoardReader``; domyślnie admin i Finanse — decyzja Artura 24.09.2026:
+    Head of Recruitment nie widzi pieniędzy). Kwoty NIE są redagowane. Nie zastępuj tego guardu
     capability — `VIEW_FINANCE` steruje 40+ innymi powierzchniami
     (`app/analytics/capabilities.py:64-115`), a HoR go nie ma.
     """
@@ -160,14 +165,47 @@ async def insights_board(
     # dołożenie okresu bez zmiany klucza podałoby liczby jednego okna pod
     # etykietą drugiego. `v1` bumpujemy przy każdej zmianie formuły — inaczej
     # stara liczba wisi przez TTL pod nową etykietą.
-    cache_key = f"insights:board:v1:{resolved.cache_suffix}"
+    # v2 + dzień (runda 6 audytu): placementy okresu w toku porównujemy z tym
+    # samym odcinkiem poprzedniego okresu, a ten odcinek rośnie z każdym dniem.
+    today = _today_warsaw()
+    cache_key = f"insights:board:v3:{resolved.cache_suffix}:{today.isoformat()}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
 
-    result = await compute_board(db, resolved, today=_today_warsaw())
+    result = await compute_board(db, resolved, today=today)
     await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
     return result
+
+
+@router.get("/board/flows")
+@limiter.limit("30/minute")
+async def insights_board_flows(
+    request: Request,
+    current_user: BoardReader,
+    db: AsyncSession = Depends(get_db),
+    period: str = Query("quarter", pattern="^(day|week|month|quarter|year|custom)$"),
+    offset: int = Query(0),
+    anchor: Optional[date] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+):
+    """Firma: ruch konsultantów (przyszli / odeszli / netto), kontrakty
+    kończące się w 30 dni bez kontynuacji i popyt (rekrutacje).
+
+    Ta sama bramka co kokpit (`BoardReader`): ruch kontraktów to dane
+    Delivery, a obok stoją kwoty — HoR widzi rekrutację w widoku Zespół.
+    """
+    resolved = _resolve(period, offset, anchor, date_from, date_to)
+    today = _today_warsaw()
+    cache_key = f"insights:board:flows:v1:{resolved.cache_suffix}:{today.isoformat()}"
+    async with cache_single_flight(cache_key, db=db):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
+        result = await compute_board_flows(db, resolved, today=today, now=local_now())
+        await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+        return result
 
 
 @router.get("/board/yoy")
@@ -198,9 +236,11 @@ async def insights_board_yoy(
     „ostatnie 12 miesięcy" podpisaną nazwami miesięcy, czyli dwie różne rzeczy
     pod jedną etykietą. Okno wybiera się latami.
 
-    Admin · finance · Head of Recruitment (``BoardTrendReader``). Head of
-    Recruitment dostaje odpowiedź BEZ metryk pieniężnych (decyzja Artura
-    24.09.2026) — redakcja na gotowym wyniku, cache jeden dla wszystkich.
+    „Moduł Finanse” · Rada nadzorcza · Head of Recruitment
+    (``BoardTrendReader``). Kto wchodzi tu rolą Head of Recruitment bez
+    uprawnienia „Moduł Finanse”, dostaje
+    odpowiedź BEZ metryk pieniężnych (decyzja Artura 24.09.2026) — redakcja
+    na gotowym wyniku, cache jeden dla wszystkich.
     """
     resolved_years = resolve_years(end_year, years, _today_warsaw())
     # Klucz niesie LATA i dzień — bez daty siatka z wczoraj wisiałaby przez TTL
@@ -211,8 +251,34 @@ async def insights_board_yoy(
     )
     result = await cache_get(cache_key)
     if result is None:
-        result = await compute_board_yoy(db, resolved_years, today)
-        await cache_set(cache_key, result, ttl_seconds=YOY_CACHE_TTL_SECONDS)
-    if current_user.has_any_role(UserRole.admin, UserRole.finance):
+        # Jeden wykonawca (runda 7, R7-N10-6): dwa równoległe wejścia admina
+        # i Finansów liczyły wcześniej 60 wycen wszystkich kontraktów dwa razy.
+        async with cache_single_flight(cache_key, db=db):
+            result = await cache_get(cache_key)
+            if result is None:
+                result = await compute_board_yoy(db, resolved_years, today)
+                await cache_set(cache_key, result, ttl_seconds=YOY_CACHE_TTL_SECONDS)
+    if reads_board_money(current_user):
         return result
     return without_money(result)
+
+
+@router.get("/hit-ratio-closures")
+async def insights_hit_ratio_closures(
+    current_user: BoardTrendReader,
+    db: AsyncSession = Depends(get_db),
+    date_from: Optional[date] = Query(
+        None, description="od dnia (domyślnie 12.10.2026 — start Tablicy)"
+    ),
+):
+    """Zamknięcia w grupach hit ratio i lista kontrolna (21.10.2026).
+
+    Wyłączenia „nie liczy się” z uzasadnieniem i osobą oraz zamknięcia bez
+    powodu do przejrzenia. Bez kwot — „Moduł Finanse” albo Head of Recruitment
+    (``BoardTrendReader``), jak rok do roku. Bez cache: po „Zmień powód” lista
+    ma od razu pokazać nowy stan.
+    """
+    start = competition_history.cutover_utc()
+    if date_from is not None:
+        start = max(start, local_day_start_utc(date_from))
+    return await hit_ratio_closures(db, start=start, end=None)

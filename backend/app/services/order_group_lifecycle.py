@@ -35,7 +35,7 @@ from app.models.contract import Contract
 from app.services.client_order_lines import record_event
 from app.services.contract_lifecycle import (
     lock_order_group_lines,
-    sync_contract_to_live_order,
+    sync_contract_to_live_order_nightly,
 )
 from app.services.multi_consultant_orders import EVENT_MANUAL_EDIT, EVENT_ORDER_CLOSED
 from app.services.shared_md_orders import (
@@ -218,12 +218,11 @@ async def materialize_scheduled_order_groups(
                     line.filled_at = now
                 contract = await db.get(Contract, line.contract_id)
                 if contract is not None:
-                    await sync_contract_to_live_order(
+                    await sync_contract_to_live_order_nightly(
                         db,
                         contract,
                         order_start=line.start_date,
                         order_end=line.end_date,
-                        actor_id=None,
                         today=boundary_day,
                     )
 

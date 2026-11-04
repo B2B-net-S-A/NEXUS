@@ -60,10 +60,12 @@ def is_auto_run(run) -> bool:
     return isinstance(trace, dict) and trace.get(ORIGIN_KEY) == ORIGIN_AUTO
 
 
-def auto_origin_clause():
-    """SQL: przegląd automatyczny (NULL-safe — brak klucza to przegląd ręczny)."""
+def auto_origin_clause(run=CandidateSearchRun):
+    """SQL: przegląd automatyczny (NULL-safe — brak klucza to przegląd ręczny).
+
+    ``run`` — model albo alias (retencja porównuje przegląd z nowszym)."""
     return func.coalesce(
-        CandidateSearchRun.version_trace[ORIGIN_KEY].astext, literal("manual")
+        run.version_trace[ORIGIN_KEY].astext, literal("manual")
     ) == literal(ORIGIN_AUTO)
 
 
@@ -259,11 +261,17 @@ async def reap_stalled_runs(db, *, stalled_after: timedelta) -> list[str]:
 async def erase_candidate(db, candidate_id: int) -> dict:
     """Remove one candidate's snapshot rows from every run (RODO erasure).
 
-    Finished runs simply lose the row. An active run cannot: ``finish_run``
-    requires every snapshot ID to stay accounted for, so the run is failed
-    first (the author restarts it) and then loses the row as well. Runs are
-    locked before their rows, in the same order as ``save_batch``. The caller
-    owns the transaction — the candidate delete commits it.
+    Finished runs simply lose the row. An active run loses it too, and its
+    ``population_size`` shrinks by the same number under the run lock, so
+    ``finish_run`` still accounts for the whole snapshot. Until round 9
+    (R9-N5-7) every active run containing the person was FAILED instead — one
+    erasure killed every running three-minute scan (and every nightly review)
+    that had this candidate in its population, i.e. practically all of them.
+    Runs are locked before their rows, in the same order as ``save_batch``;
+    a worker holding a batch with the erased row updates zero rows for it
+    (``state == 'pending'`` guard). ``search_runs_failed`` stays in the result
+    (always 0) for the audit shape. The caller owns the transaction — the
+    candidate delete commits it.
     """
     active_ids = list(
         (
@@ -282,15 +290,34 @@ async def erase_candidate(db, candidate_id: int) -> dict:
             )
         ).all()
     )
-    failed = 0
-    for run_id in active_ids:
-        failed += int(await fail_run(db, run_id, "candidate_erased"))
     removed = await db.execute(
-        delete(CandidateSearchResult).where(
-            CandidateSearchResult.candidate_id == candidate_id
-        )
+        delete(CandidateSearchResult)
+        .where(CandidateSearchResult.candidate_id == candidate_id)
+        .returning(CandidateSearchResult.run_id)
     )
-    return {"search_rows_deleted": removed.rowcount or 0, "search_runs_failed": failed}
+    per_run: dict[str, int] = {}
+    for run_id in removed.scalars().all():
+        per_run[run_id] = per_run.get(run_id, 0) + 1
+    shrunk = 0
+    for run_id in active_ids:
+        count = per_run.get(run_id, 0)
+        if not count:
+            continue
+        await db.execute(
+            update(CandidateSearchRun)
+            .where(CandidateSearchRun.id == run_id)
+            .values(
+                population_size=func.greatest(
+                    CandidateSearchRun.population_size - count, 0
+                )
+            )
+        )
+        shrunk += 1
+    return {
+        "search_rows_deleted": sum(per_run.values()),
+        "search_runs_failed": 0,
+        "search_runs_shrunk": shrunk,
+    }
 
 
 async def _locked_run(db, run_id: str, token: str):
@@ -388,6 +415,8 @@ async def save_metrics(db, run_id: str, token: str, metrics: dict):
 EXCLUSION_CATEGORIES = (
     "employment_only",
     "over_budget",
+    # 27.09.2026: brak must i brak CV, umiejętności oraz notatek.
+    "no_data",
     "missing_must",
     "office_days_exceeded",
     "office_city_mismatch",
@@ -454,14 +483,32 @@ async def run_counts(db, run_id: str) -> dict:
     return counts
 
 
+# K12 (audyt 06.10.2026): przegląd z 7 niezmierzonymi na 3 087 widocznych był
+# na stałe „częściowy”, a ekran mówił to jak o awarii. Pojedynczy niezmierzeni
+# mają własną plakietkę („Ocena niepełna”), więc cały przegląd jest pełny,
+# dopóki takich osób jest mniej niż 1% widocznych.
+UNMEASURED_PARTIAL_SHARE = 0.01
+
+
+def run_state_for(counts: dict) -> str:
+    """„complete” albo „partial” z liczników ``run_counts``."""
+    if counts.get("failed"):
+        return "partial"
+    unmeasured = int(counts.get("needs_verification") or 0)
+    if unmeasured == 0:
+        return "complete"
+    eligible = int(counts.get("eligible") or 0)
+    if eligible <= 0 or unmeasured >= UNMEASURED_PARTIAL_SHARE * eligible:
+        return "partial"
+    return "complete"
+
+
 async def finish_run(db, run_id: str, token: str):
     run = await _locked_run(db, run_id, token)
     counts = await run_counts(db, run_id)
     if counts["pending"] or counts["population"] != run.population_size:
         raise ValueError("Cannot finalize a run with unaccounted population")
-    run.state = (
-        "partial" if counts["failed"] or counts["needs_verification"] else "complete"
-    )
+    run.state = run_state_for(counts)
     run.completed_at = datetime.now(timezone.utc)
     run.metrics = {
         **(run.metrics or {}),

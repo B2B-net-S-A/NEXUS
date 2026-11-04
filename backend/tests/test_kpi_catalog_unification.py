@@ -30,6 +30,7 @@ from app.services.kpi_catalog import (
     KPI_CATALOG,
     KPI_ID_ALIASES,
     RETIRED_KPI_IDS,
+    WITHDRAWN_KPI_TITLES,
     canonical_kpi_id,
     get_kpi,
 )
@@ -37,9 +38,10 @@ from app.services.kpi_engine import evaluate_user_kpis
 from app.services.kpi_goals import compute_my_goals
 from app.services.kpi_targets import resolve_kpi_target, resolve_org_target
 from app.services.metric_definitions import DL_HIT_RATIO_TARGET_PCT
+from app.services.role_merge import RETIRED_ROLE_VALUES
 
 WARSAW = ZoneInfo("Europe/Warsaw")
-_OPERATORS = (UserRole.recruiter, UserRole.sourcer, UserRole.tac)
+_OPERATORS = (UserRole.recruiter,)
 
 
 # ── Decyzje Artura 22.09.2026 — liczby przypięte ────────────────────────────
@@ -53,30 +55,56 @@ def test_decided_targets_are_pinned():
 
     for role in _OPERATORS:
         assert targets("monthly_placements")[role] == 1
-        assert targets("daily_new_candidates")[role] == 5
         assert targets("daily_first_verifications")[role] == 4
         assert targets("monthly_precision")[role] == 75
-    assert targets("weekly_cvs_sent") == {UserRole.recruiter: 15, UserRole.tac: 12}
+    # Od 0411 jedna rola: rekruter 15 (do 0411 rekruter 15 / TAC 12 / sourcer brak).
+    assert targets("weekly_cvs_sent") == {UserRole.recruiter: 15}
+
+
+def test_new_candidates_goal_is_withdrawn():
+    """Decyzja Artura 13.10.2026: nie ma już celu dodawania kandydatów do bazy."""
+    assert get_kpi("daily_new_candidates") is None
+    assert get_kpi("cv_added_daily") is None
+    assert "daily_new_candidates" in WITHDRAWN_KPI_TITLES
+    assert not set(WITHDRAWN_KPI_TITLES) & {k.kpi_id for k in KPI_CATALOG}
 
 
 def test_panel_ids_are_aliases_of_catalog_ids():
     assert canonical_kpi_id("verifications_daily") == "daily_first_verifications"
-    assert canonical_kpi_id("cv_added_daily") == "daily_new_candidates"
     assert canonical_kpi_id("placements_monthly") == "monthly_placements"
     assert canonical_kpi_id("precision_monthly") == "monthly_precision"
     assert get_kpi("placements_monthly") is get_kpi("monthly_placements")
 
 
 def test_normalization_constants_mirror_the_catalog():
-    """Moduł SQL nie importuje kodu aplikacji — kopie stałych muszą się zgadzać."""
-    assert dict(norm.KPI_ID_RENAMES) == KPI_ID_ALIASES
+    """Moduł SQL nie importuje kodu aplikacji — kopie stałych muszą się zgadzać.
+
+    Stałe 0346 są zamrożone razem z migracją i znają role wycofane w 0411
+    (sourcer, TAC) oraz cel wycofany 13.10.2026 (`WITHDRAWN_KPI_TITLES`) —
+    z katalogiem porównujemy tylko wiersze ról i celów, które istnieją.
+    """
+    live_renames = {
+        old: new
+        for old, new in dict(norm.KPI_ID_RENAMES).items()
+        if new not in WITHDRAWN_KPI_TITLES
+    }
+    assert live_renames == KPI_ID_ALIASES
     assert tuple(norm.RETIRED_KPI_IDS) == tuple(RETIRED_KPI_IDS)
     from_catalog = {
         (kpi.kpi_id, role.value, value)
         for kpi in KPI_CATALOG
         for role, value in kpi.default_targets.items()
     }
-    assert set(norm.CATALOG_DEFAULT_ROWS) == from_catalog
+    frozen_for_live_roles = {
+        row
+        for row in norm.CATALOG_DEFAULT_ROWS
+        if row[1] not in RETIRED_ROLE_VALUES and row[0] not in WITHDRAWN_KPI_TITLES
+    }
+    assert frozen_for_live_roles == from_catalog
+    # Zamrożony SQL nadal zna wycofane role — nie wolno go „posprzątać”.
+    assert {row[1] for row in norm.CATALOG_DEFAULT_ROWS} > {
+        role.value for kpi in KPI_CATALOG for role in kpi.default_targets
+    }
 
 
 def test_single_dl_hit_ratio_constant():
@@ -140,14 +168,14 @@ async def test_normalization_sql_renames_retires_and_drops_seed_copies():
         rows = [
             # martwe id z 0034
             (UserRole.recruiter, "daily_activity_count", 10),
-            (UserRole.tac, "weekly_screenings", 7),
+            (UserRole.recruiter, "weekly_screenings", 7),
             # seed 0034 pod kanonicznym id + seed 0124 pod starym id
             (UserRole.recruiter, "monthly_placements", 2),
             (UserRole.recruiter, "placements_monthly", 1),
             (UserRole.recruiter, "daily_new_candidates", 3),
             (UserRole.recruiter, "cv_added_daily", 5),
             # świadome odstępstwo — ZOSTAJE
-            (UserRole.tac, "verifications_daily", 6),
+            (UserRole.recruiter, "verifications_daily", 6),
         ]
         for role, kpi_id, value in rows:
             db.add(KpiRoleDefault(role=role, kpi_id=kpi_id, target_value=value))
@@ -184,7 +212,7 @@ async def test_normalization_sql_renames_retires_and_drops_seed_copies():
         await db.rollback()
 
     # Tylko świadome odstępstwo przeżywa — pod kanonicznym id.
-    assert left == {(UserRole.tac, "daily_first_verifications"): 6}
+    assert left == {(UserRole.recruiter, "daily_first_verifications"): 6}
     # Osobisty cel przepisany, nie skasowany (równy domyślnemu czy nie).
     assert [(r.kpi_id, r.target_value) for r in personal] == [("monthly_placements", 4)]
     assert marker == 1
@@ -194,35 +222,71 @@ async def test_normalization_sql_renames_retires_and_drops_seed_copies():
 
 
 @pytest.mark.asyncio
-async def test_hybrid_delivery_lead_with_tac_role_gets_tac_targets():
-    """Produkcja: DL 90/91/101 z rolą TAC dostawali cel 0 i pusty widget."""
+async def test_hybrid_delivery_lead_with_recruiter_role_gets_recruiter_targets():
+    """Produkcja: DL 90/91/101 z dodatkową rolą operacyjną (do 0411 TAC, dziś
+    rekruter) dostawali cel 0 i pusty widget."""
     uid = await _seed_user(
         UserRole.delivery_lead,
-        roles=[UserRole.delivery_lead, UserRole.tac],
-        label="dltac",
+        roles=[UserRole.delivery_lead, UserRole.recruiter],
+        label="dlrec",
     )
     async with AsyncSessionLocal() as db:
         user = await db.get(User, uid)
-        assert await resolve_kpi_target(db, user=user, kpi_id="weekly_cvs_sent") == 12
-        assert (
-            await resolve_kpi_target(db, user=user, kpi_id="daily_new_candidates") == 5
-        )
+        assert await resolve_kpi_target(db, user=user, kpi_id="weekly_cvs_sent") == 15
         results = await evaluate_user_kpis(db, user=user)
     by_id = {r.kpi_id: r.target for r in results}
     assert by_id["daily_first_verifications"] == 4
     assert by_id["monthly_placements"] == 1
     # Precyzja nie jest licznikiem narastającym — nie trafia do KPI Coach.
     assert "monthly_precision" not in by_id
+    # Cel wycofany 13.10.2026 nie wraca do widgetu.
+    assert "daily_new_candidates" not in by_id
 
 
 @pytest.mark.asyncio
-async def test_max_across_roles_and_personal_override_wins():
-    uid = await _seed_user(
-        UserRole.tac, roles=[UserRole.tac, UserRole.recruiter], label="max"
-    )
+async def test_withdrawn_goal_rows_stay_in_db_but_are_not_read():
+    """Wiersze celu „Nowi kandydaci dziś” zostały w bazie (bez migracji), więc
+    resolver nie może ich czytać — inaczej cel wróciłby każdemu, kto zapyta po id."""
+    uid = await _seed_user(UserRole.recruiter, label="withdrawn")
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text(
+                "DELETE FROM kpi_role_defaults WHERE role = 'recruiter' "
+                "AND kpi_id IN ('daily_new_candidates', 'cv_added_daily')"
+            )
+        )
+        db.add_all(
+            [
+                KpiRoleDefault(
+                    role=UserRole.recruiter,
+                    kpi_id="daily_new_candidates",
+                    target_value=5,
+                ),
+                UserKpiTarget(
+                    user_id=uid, kpi_id="daily_new_candidates", target_value=7
+                ),
+                UserKpiTarget(user_id=uid, kpi_id="cv_added_daily", target_value=9),
+            ]
+        )
+        await db.flush()
+        user = await db.get(User, uid)
+        assert (
+            await resolve_kpi_target(db, user=user, kpi_id="daily_new_candidates") == 0
+        )
+        assert await resolve_kpi_target(db, user=user, kpi_id="cv_added_daily") == 0
+        assert await resolve_org_target(db, "daily_new_candidates") == 0
+        ids = {r.kpi_id for r in await evaluate_user_kpis(db, user=user)}
+        assert "daily_new_candidates" not in ids
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_personal_override_wins_over_the_role_target():
+    uid = await _seed_user(UserRole.recruiter, label="max")
     async with AsyncSessionLocal() as db:
         user = await db.get(User, uid)
-        # TAC 12, rekruter 15 → maksimum.
+        # Cel roli z katalogu (od 0411 cele ma tylko rekruter, więc „maksimum
+        # z ról” nie ma już czego porównywać).
         assert await resolve_kpi_target(db, user=user, kpi_id="weekly_cvs_sent") == 15
         db.add(UserKpiTarget(user_id=uid, kpi_id="weekly_cvs_sent", target_value=3))
         await db.flush()
@@ -279,19 +343,24 @@ async def test_calls_kpi_absent_when_cloudtalk_disabled(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_delivery_lead_goals_use_league_numbers():
+async def test_delivery_lead_without_closed_recruitments_has_no_placement_target():
     dl_id = await _seed_user(UserRole.delivery_lead, label="dlgoal")
     now = datetime.now(timezone.utc)
     async with AsyncSessionLocal() as db:
         user = await db.get(User, dl_id)
         empty = await compute_my_goals(db, user=user, now=now)
     assert empty.kind == "delivery_lead"
+    assert empty.closed_requests == 0
     by_id = {g.goal_id: g for g in empty.goals}
     # Bez requestów hit ratio jest NIEPOLICZONE, nie zerem.
     assert by_id["dl_hit_ratio_quarter"].current is None
     assert by_id["dl_hit_ratio_quarter"].state is None
     assert by_id["dl_hit_ratio_quarter"].target == DL_HIT_RATIO_TARGET_PCT
-    assert by_id["dl_placements_quarter"].target == 3
+    # Cel placementów to 30% zamkniętych rekrutacji (13.10.2026), nie stałe 3
+    # z ligi — bez zamkniętych nie ma jeszcze celu ani stanu.
+    assert by_id["dl_placements_quarter"].target == 0
+    assert by_id["dl_placements_quarter"].state is None
+    assert "po zamknięciu pierwszej" in by_id["dl_placements_quarter"].note
 
 
 @pytest.mark.asyncio
@@ -309,7 +378,9 @@ async def test_delivery_lead_goals_count_portfolio_placements():
             title=f"KpiGoal {uuid.uuid4().hex[:6]}",
             client_id=client.id,
             delivery_lead_id=dl_id,
-            recruitment_type=RecruitmentType.body_leasing,
+            # Typów rekrutacji nie ma (25.09.2026): stara wartość w martwej
+            # kolumnie nie wyklucza rekrutacji z ligi DL ani z celów.
+            recruitment_type=RecruitmentType.tender,
             # Mianownik hit ratio = rekrutacje ZAMKNIĘTE w kwartale (definicja
             # ligi DL od 22.09.2026, `competitions.dl_portfolio_counts`).
             closed_at=now - timedelta(minutes=1),
@@ -333,7 +404,11 @@ async def test_delivery_lead_goals_count_portfolio_placements():
         user = await db.get(User, dl_id)
         goals = await compute_my_goals(db, user=user, now=now)
     by_id = {g.goal_id: g for g in goals.goals}
+    assert goals.closed_requests == 1
     assert by_id["dl_placements_quarter"].current == 1
+    # 30% z 1 zamkniętej rekrutacji, w górę = 1 placement.
+    assert by_id["dl_placements_quarter"].target == 1
+    assert by_id["dl_placements_quarter"].state == "hit"
     assert by_id["dl_hit_ratio_quarter"].current == 100.0
     assert by_id["dl_hit_ratio_quarter"].state == "hit"
 
@@ -414,12 +489,22 @@ async def test_goals_endpoint_shapes(api_client: AsyncClient):
         "scope_label": "",
         "people": None,
         "goals": [],
+        "closed_requests": None,
+        # 21.10.2026: zamknięcia „nie liczy się” — tylko Delivery Lead.
+        "closed_neutral": None,
+        # 22.10.2026: „Sam przekazał” — tylko Delivery Lead.
+        "own_handoffs": None,
     }
 
     dl = await _headers(api_client, UserRole.delivery_lead)
     resp = await api_client.get("/api/kpis/me/goals", headers=dl)
     assert resp.status_code == 200, resp.text
-    assert resp.json()["kind"] == "delivery_lead"
+    body = resp.json()
+    assert body["kind"] == "delivery_lead"
+    assert body["closed_requests"] == 0
+    assert body["closed_neutral"] == 0
+    assert body["own_handoffs"] == {"verified": 0, "cv_sent": 0, "hired": 0, "match": 0}
+    assert {g["short_title_pl"] for g in body["goals"]} == {"Hit ratio", "Placementy"}
 
 
 @pytest.mark.asyncio
@@ -445,7 +530,7 @@ async def test_seniority_pool_includes_secondary_path_role():
 
     uid = await _seed_user(
         UserRole.delivery_lead,
-        roles=[UserRole.delivery_lead, UserRole.tac],
+        roles=[UserRole.delivery_lead, UserRole.recruiter],
         label="snr",
     )
     async with AsyncSessionLocal() as db:
@@ -465,4 +550,4 @@ async def test_seniority_pool_includes_secondary_path_role():
         )
     row = next((r for r in result.rows if r.user_id == uid), None)
     assert row is not None
-    assert row.role == "tac"
+    assert row.role == "recruiter"

@@ -36,6 +36,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.scheduling import business_today
 from app.models.activity import Activity
+from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import (
     GROUP_STATUS_ACTIVE,
@@ -64,12 +65,15 @@ from app.models.dl_alert import (
     ALERT_PERIODIC_ORDER_ENDING,
 )
 from app.models.order_change_event import FIELD_END_DATE, OrderChangeEvent
+from app.services.b2b_contract_end_date import is_b2b
+from app.services.client_identity import client_display_name
 from app.services.client_order_lines import (
     consultant_display_name,
     recompute_remaining,
     record_event,
 )
 from app.services.contract_lifecycle import assert_transition
+from app.services.contract_return_after_break import existing_return
 from app.services.dl_alerts import resolve_entity_alerts
 from app.services.multi_consultant_orders import EVENT_MD_OFFBOARDING_RESTORED
 from app.services.order_md_exhaustion import (
@@ -250,8 +254,8 @@ async def reversal_available(db: AsyncSession, contract: Contract) -> bool:
     )
     if snapshot is not None:
         return True
-    if contract.terminated_at is None:
-        return False
+    # Bez warunku na `terminated_at`: powrót bezterminowy czyści je od
+    # 02.11.2026, a sprawa o pulę MD czeka dalej.
     return bool(await _pending_cases(db, contract.id))
 
 
@@ -485,9 +489,35 @@ async def _history_contract_end_date(
     Skrócenie umowy zostawia aneks ``early_termination`` ze starą datą; bez
     niego umowa była bezterminowa (reguła umów B2B) albo kończyła się właśnie
     wtedy — i wtedy nie ma czego cofać w samej dacie.
+
+    Umowa zlecenie i o pracę bez aneksu zachowuje BIEŻĄCĄ datę końca (audyt
+    25.09.2026): tam data końca jest częścią umowy, a nie śladem zakończenia,
+    więc jej wyzerowanie zamieniałoby umowę terminową w bezterminową, której
+    nikt nie podpisał. Wyjątek: data końca RÓWNA dacie zakończenia jest śladem
+    samego zakończenia (``/terminate`` wpisuje ją umowie bezterminowej bez
+    aneksu) — wtedy umowa wraca bezterminowa jak dawniej. Zachowana zostawiała
+    plan „Aktywny z minioną datą końca”, który nocny cron kończył ponownie
+    razem z przywróconymi zamówieniami (audyt 25.09.2026, runda 2).
+
+    Śladem jest tylko data zapisana przez RĘCZNE zakończenie
+    (``terminated_at``). Umowę zakończoną przez nocny cron (data końca
+    minęła, ``terminated_at`` puste) plan liczy z ``terminated_on =
+    end_date``, więc sama równość była tautologią: umowa zlecenie z datą
+    w treści wracała bezterminowa, a bloker ``end_date_passed`` nie miał
+    czego złapać (audyt 25.09.2026, runda 3).
     """
+    fallback = (
+        None
+        if is_b2b(contract.contract_type)
+        or (
+            contract.terminated_at is not None
+            and terminated_on is not None
+            and contract.end_date == terminated_on
+        )
+        else contract.end_date
+    )
     if terminated_on is None:
-        return None
+        return fallback
     amendment = await db.scalar(
         select(ContractAmendment)
         .where(
@@ -500,7 +530,7 @@ async def _history_contract_end_date(
     )
     if amendment is not None and isinstance(amendment.old_values, dict):
         return _parse_date(amendment.old_values.get("end_date"))
-    return None
+    return fallback
 
 
 async def _add_blockers(db: AsyncSession, plan: ReversalPlan) -> None:
@@ -510,6 +540,68 @@ async def _add_blockers(db: AsyncSession, plan: ReversalPlan) -> None:
             {
                 "code": "contract_void",
                 "message": "Kontrakt jest unieważniony — nie ma czego przywracać.",
+            }
+        )
+    # Runda 8 (R8-V1-1): klient usunięty albo scalony nie ma profilu ani
+    # rejestru — przywrócony kontrakt i zamówienia liczyłyby się do MRR
+    # u klienta, którego nikt nie widzi.
+    client = await db.scalar(select(Client).where(Client.id == contract.client_id))
+    if client is not None and (
+        client.deleted_at is not None or client.merged_into_client_id is not None
+    ):
+        plan.blockers.append(
+            {
+                "code": (
+                    "client_deleted"
+                    if client.deleted_at is not None
+                    else "client_merged"
+                ),
+                "message": (
+                    f"Klient „{client_display_name(client)}” został "
+                    + ("usunięty" if client.deleted_at is not None else "scalony")
+                    + " — zakończenia kontraktu tego klienta nie da się cofnąć."
+                ),
+            }
+        )
+    # Umowa, która wróciłaby „Aktywna” albo „Kończąca się” z MINIONĄ datą
+    # końca, zostałaby zakończona ponownie najbliższej nocy (cron
+    # `_promote_statuses`): zamówienia, które cofnięcie przywraca, zamknęłyby
+    # się znowu, a z nimi wróciłyby sprawy puli MD i alerty DL. Taka umowa
+    # naprawdę się skończyła — najpierw przedłużenie aneksem (audyt 25.09.2026,
+    # runda 2).
+    if (
+        plan.status_target in (ContractStatus.active, ContractStatus.ending)
+        and plan.end_date_target is not None
+        and plan.end_date_target < business_today()
+    ):
+        plan.blockers.append(
+            {
+                "code": "end_date_passed",
+                "end_date": plan.end_date_target.isoformat(),
+                "message": (
+                    "Umowa skończyła się "
+                    f"{plan.end_date_target.strftime('%d.%m.%Y')} — przedłuż ją "
+                    "aneksem, zanim cofniesz zakończenie."
+                ),
+            }
+        )
+    # „Powrót po przerwie” założył już NOWY kontrakt tej osoby (z przypisaniami
+    # na zamówieniach). Cofnięcie zakończenia starego dałoby jednej osobie dwa
+    # żywe kontrakty i dwie linie w tym samym zamówieniu — dwa razy liczone
+    # MD i przychód (audyt 25.09.2026, runda 4).
+    returned = await existing_return(db, contract.id)
+    if returned is not None:
+        plan.blockers.append(
+            {
+                "code": "returned_after_break",
+                "contract_id": returned.id,
+                "message": (
+                    "Dla tej osoby utworzono już „Powrót po przerwie” — "
+                    f"kontrakt #{returned.id}. Cofnięcie zakończenia dałoby "
+                    "jej dwa kontrakty i dwa przypisania na zamówieniach. "
+                    "Jeśli powrót założono przez pomyłkę, najpierw unieważnij "
+                    f"kontrakt #{returned.id}."
+                ),
             }
         )
     case_query = select(ClientOrderOffboardingCase).where(
@@ -611,6 +703,8 @@ async def build_reversal_plan(
         )
         await _plan_from_snapshot(db, plan, snapshot)
     else:
+        # Świadomie `terminated_at` przed `end_date`: tą datą „Zakończ współpracę”
+        # ucięło zamówienia, a plan szuka ich po niej (`OrderChangeEvent.new_date`).
         terminated_on = contract.terminated_at or (
             pending[0].effective_date if pending else contract.end_date
         )
@@ -641,6 +735,18 @@ async def build_reversal_plan(
     today = business_today()
     if plan.status_target == ContractStatus.ended and (
         plan.end_date_target is None or plan.end_date_target > today
+    ):
+        plan.status_target = ContractStatus.active
+    # „Kończący się" przed zakończeniem (nocny cron przestawia active → ending
+    # 30 dni przed datą końca, zanim ktoś zakończy umowę) wraca jako
+    # „Kończący się" tylko z datą końca od dziś w przód — bez daty albo
+    # z datą minioną taki status nie istnieje (`_status_after_end_date_change`),
+    # więc celem jest „Aktywny" (minioną datę i tak blokuje `end_date_passed`
+    # w `_add_blockers`). Maszyna stanów nie
+    # zna `ended → ending`; wykonanie idzie `ended → active → ending`
+    # (`_status_path`). Do 25.09.2026 cel `ending` kończył się 409.
+    if plan.status_target == ContractStatus.ending and (
+        plan.end_date_target is None or plan.end_date_target < today
     ):
         plan.status_target = ContractStatus.active
 
@@ -693,6 +799,22 @@ def _import_json(row: Any, item: OrderRestore) -> dict[str, Any]:
 # ── Wykonanie ───────────────────────────────────────────────────────────────
 
 
+def _status_path(
+    current: ContractStatus, target: ContractStatus
+) -> list[ContractStatus]:
+    """Kolejne statusy od ``current`` do ``target`` po legalnych krawędziach.
+
+    Jedyny przypadek dwóch kroków: zakończona umowa wracająca do „Kończący
+    się" — `ended → active → ending`, ta sama droga co w
+    `_status_after_termination` (korekta daty zakończonej umowy na przyszłą).
+    """
+    if target == current:
+        return []
+    if current == ContractStatus.ended and target == ContractStatus.ending:
+        return [ContractStatus.active, ContractStatus.ending]
+    return [target]
+
+
 def _describe_restore(item: OrderRestore, contract_id: int) -> str:
     horizon = (
         "bezterminowo"
@@ -719,9 +841,10 @@ async def execute_reversal(
 
     # 1. Kontrakt.
     current = ContractStatus(_value(contract.status))
-    if plan.status_target != current:
-        assert_transition(current, plan.status_target)
-        contract.status = plan.status_target
+    for step in _status_path(current, plan.status_target):
+        assert_transition(current, step)
+        current = step
+    contract.status = plan.status_target
     contract.end_date = plan.end_date_target
     contract.terminated_at = plan.terminated_at_target
     contract.termination_reason = (

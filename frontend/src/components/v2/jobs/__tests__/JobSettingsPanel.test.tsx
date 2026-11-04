@@ -1,24 +1,37 @@
 /**
- * `JobSettingsPanel` — „Ustawienia zlecenia" w zakładce „Zespół" doku.
+ * `JobSettingsPanel` — karta zakładki „Zespół” doku gotowości.
  *
- * Od 22.09.2026 dwa pola: Delivery Lead i Deadline. Owner (TAC), Szablon
- * procesu, Kategoria kompetencji, Program / Train i Priorytet zniknęły
- * z tworzenia i z ustawień (decyzja Artura przy stronie `/jobs/new`).
+ * Od 02.10.2026 pięć wierszy w stałej kolejności: Delivery Lead → Rekruter →
+ * Kategoria → Termin → Priorytet (decyzja Artura, feedback Head of
+ * Recruitment). Priorytet wrócił w trzech poziomach — do tej daty test
+ * pilnował, że go tu NIE ma.
+ * Owner (TAC), szablon procesu i Program / Train nadal ustawia backend.
  *
- * Każdy wiersz zapisuje NATYCHMIAST po zmianie przez `PATCH /api/jobs/{id}`
- * z JEDNYM polem.
+ * Delivery Lead i Termin zapisują przez `PATCH /api/jobs/{id}` z JEDNYM polem,
+ * priorytet — kliknięciem poziomu.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { JobSettingsPanel } from "@/components/v2/jobs/JobSettingsPanel";
+import {
+  JobSettingsPanel,
+  type JobSettingsPanelProps,
+} from "@/components/v2/jobs/JobSettingsPanel";
+import { BOARD_TASKS_QUERY_KEY } from "@/lib/api/boardTasks";
+import { REQUEST_BOARD_QUERY_KEY } from "@/lib/api/requestAllocation";
 
 const getMock = vi.fn();
 const patchMock = vi.fn();
 const clientTeamGetMock = vi.fn();
+const categoriesListMock = vi.fn();
+const toast = vi.hoisted(() => ({
+  showSuccess: vi.fn(),
+  showError: vi.fn(),
+  showInfo: vi.fn(),
+}));
 
 vi.mock("@/lib/api", () => ({
   default: {
@@ -28,7 +41,11 @@ vi.mock("@/lib/api", () => ({
   clientTeamApi: {
     get: (...args: unknown[]) => clientTeamGetMock(...args),
   },
+  competenceCategoriesApi: {
+    list: (...args: unknown[]) => categoriesListMock(...args),
+  },
 }));
+vi.mock("@/components/Toast", () => ({ useToast: () => toast }));
 
 const clientTeamFixture = {
   tacs: [],
@@ -49,55 +66,110 @@ const dlDirectoryFixture = [
   { id: 22, name: "Zwykły DL", email: "zwykly@example.com" },
 ];
 
-const baseProps = {
+const baseProps: JobSettingsPanelProps = {
   jobId: 501,
   clientId: 42,
-  deliveryLeadId: null as number | null,
-  deadline: null as string | null,
+  deliveryLeadId: null,
+  deadline: null,
+  deadlineTime: null,
   canEdit: true,
+  categoryId: null,
+  priorityLevel: "p2",
+  canSetPriority: true,
 };
 
-function renderPanel(props: Partial<typeof baseProps> = {}) {
+function panel(props: Partial<JobSettingsPanelProps> = {}) {
+  return <JobSettingsPanel {...baseProps} {...props} />;
+}
+
+function renderPanel(props: Partial<JobSettingsPanelProps> = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   const invalidateSpy = vi.spyOn(client, "invalidateQueries");
   const view = render(
-    <QueryClientProvider client={client}>
-      <JobSettingsPanel {...baseProps} {...props} />
-    </QueryClientProvider>,
+    <QueryClientProvider client={client}>{panel(props)}</QueryClientProvider>,
   );
-  return { client, invalidateSpy, ...view };
+  const invalidatedKeys = () =>
+    invalidateSpy.mock.calls.map(
+      (call) => (call[0] as { queryKey: unknown[] })?.queryKey,
+    );
+  return {
+    client,
+    invalidatedKeys,
+    rerenderPanel: (next: Partial<JobSettingsPanelProps>) =>
+      view.rerender(
+        <QueryClientProvider client={client}>{panel(next)}</QueryClientProvider>,
+      ),
+    ...view,
+  };
 }
+
+const priorityGroup = () => screen.getByRole("radiogroup", { name: "Priorytet" });
+const priorityOption = (name: string) =>
+  within(priorityGroup()).getByRole("radio", { name });
 
 beforeEach(() => {
   getMock.mockReset();
   patchMock.mockReset();
   clientTeamGetMock.mockReset();
+  categoriesListMock.mockReset();
+  toast.showSuccess.mockReset();
+  toast.showError.mockReset();
+  toast.showInfo.mockReset();
   getMock.mockImplementation((url: string) =>
     Promise.resolve({ data: url === "/api/users" ? dlDirectoryFixture : {} }),
   );
   clientTeamGetMock.mockResolvedValue({ data: clientTeamFixture });
+  categoriesListMock.mockResolvedValue([]);
   patchMock.mockResolvedValue({ data: {} });
 });
 
-describe("JobSettingsPanel — read view", () => {
-  it("ma wyłącznie Delivery Leada i Deadline", async () => {
-    renderPanel();
+describe("JobSettingsPanel — karta zespołu", () => {
+  it("ma sześć wierszy w kolejności: Delivery Lead, Rekruter, Kategoria, Termin, Liczba osób, Priorytet", async () => {
+    renderPanel({ recruiters: <span>osoby przy rekrutacji</span>, headcount: 2 });
 
-    expect(screen.getByText("Ustawienia zlecenia")).toBeInTheDocument();
-    expect(await screen.findByText("nie przypisano")).toBeInTheDocument();
-    expect(screen.getByText("nie ustawiono")).toBeInTheDocument();
-    expect(screen.getAllByText("Zmień")).toHaveLength(2);
+    const card = screen.getByRole("region", { name: "Zespół, termin i priorytet" });
+    expect(await within(card).findByText("nie przypisano")).toBeInTheDocument();
+    const labels = within(card)
+      .getAllByText(/^(Delivery Lead|Rekruter|Kategoria|Termin|Liczba osób|Priorytet)$/)
+      .map((node) => node.textContent);
+    expect(labels).toEqual([
+      "Delivery Lead",
+      "Rekruter",
+      "Kategoria",
+      "Termin",
+      "Liczba osób",
+      "Priorytet",
+    ]);
+    expect(within(card).getByText("osoby przy rekrutacji")).toBeInTheDocument();
+    expect(within(card).getByText("nie ustawiono")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zmień: Delivery Lead" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zmień: Termin" })).toBeInTheDocument();
+  });
+
+  it("nie ma starych nazw ani pól, które ustawia backend", async () => {
+    renderPanel({ recruiters: <span>osoby przy rekrutacji</span> });
+    await screen.findByText("nie przypisano");
+
     for (const gone of [
+      "Ustawienia zlecenia",
+      "Deadline",
+      "Właściciel projektu",
+      "Współpracownicy",
       "Owner (TAC)",
       "Szablon procesu",
       "Kat. kompetencji",
       "Program / Train",
-      "Priorytet",
     ]) {
       expect(screen.queryByText(gone)).not.toBeInTheDocument();
     }
+  });
+
+  it("bez treści wiersza „Rekruter” wiersza nie ma (karta bywa użyta bez obsady)", async () => {
+    renderPanel();
+    await screen.findByText("nie przypisano");
+    expect(screen.queryByText("Rekruter")).not.toBeInTheDocument();
   });
 
   it('pokazuje "✓ Head DL klienta" dla przypisanego head DL i "Nadpisane" dla innego', async () => {
@@ -110,7 +182,7 @@ describe("JobSettingsPanel — read view", () => {
 });
 
 describe("JobSettingsPanel — canEdit=false", () => {
-  it('chowa wszystkie linki "Zmień"', () => {
+  it('chowa linki "Zmień" przy Delivery Leadzie i terminie', () => {
     renderPanel({ canEdit: false });
     expect(screen.queryByText("Zmień")).not.toBeInTheDocument();
   });
@@ -121,7 +193,7 @@ describe("JobSettingsPanel — Delivery Lead", () => {
     const user = userEvent.setup();
     renderPanel();
 
-    await user.click(screen.getAllByText("Zmień")[0]);
+    await user.click(screen.getByRole("button", { name: "Zmień: Delivery Lead" }));
     await screen.findByLabelText("Delivery Lead");
 
     const call = getMock.mock.calls.find(([url]) => url === "/api/users");
@@ -133,39 +205,160 @@ describe("JobSettingsPanel — Delivery Lead", () => {
 
   it("wybór DL-a wysyła PATCH {delivery_lead_id: 22} i unieważnia zależne widoki", async () => {
     const user = userEvent.setup();
-    const { invalidateSpy } = renderPanel();
+    const { invalidatedKeys } = renderPanel();
 
-    await user.click(screen.getAllByText("Zmień")[0]);
+    await user.click(screen.getByRole("button", { name: "Zmień: Delivery Lead" }));
     const select = await screen.findByLabelText("Delivery Lead");
     await user.selectOptions(select, "22");
 
     await waitFor(() =>
       expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", { delivery_lead_id: 22 }),
     );
-    const keys = invalidateSpy.mock.calls.map(
-      (call) => (call[0] as { queryKey: unknown[] })?.queryKey,
-    );
+    const keys = invalidatedKeys();
     expect(keys).toContainEqual(["job-readiness", 501]);
     expect(keys).toContainEqual(["jobs-v2"]);
+    // Delivery Lead jest kolumną i filtrem także na pulpicie „Requesty i obłożenie”.
+    expect(keys).toContainEqual(REQUEST_BOARD_QUERY_KEY);
     await waitFor(() =>
       expect(screen.queryByLabelText("Delivery Lead")).not.toBeInTheDocument(),
     );
   });
 });
 
-describe("JobSettingsPanel — Deadline", () => {
-  it("zmiana deadline'u wysyła PATCH {deadline: \"2026-12-01\"}", async () => {
+describe("JobSettingsPanel — Termin", () => {
+  it("zapis samej daty wysyła PATCH {deadline, deadline_time: null, deadline_not_provided: false}", async () => {
     const user = userEvent.setup();
     renderPanel();
 
-    await user.click(screen.getAllByText("Zmień")[1]);
-    const input = await screen.findByLabelText("Deadline");
+    await user.click(screen.getByRole("button", { name: "Zmień: Termin" }));
+    const input = await screen.findByLabelText("Termin");
     await user.clear(input);
     await user.type(input, "2026-12-01");
+    await user.click(screen.getByText("Zapisz"));
 
     await waitFor(() =>
-      expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", { deadline: "2026-12-01" }),
+      expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", {
+        deadline: "2026-12-01",
+        deadline_time: null,
+        deadline_not_provided: false,
+      }),
     );
+  });
+
+  it("data z godziną idzie jednym zapisem, a widok pokazuje „01.10.2026, 12:00”", async () => {
+    const user = userEvent.setup();
+    renderPanel({ deadline: "2026-10-01", deadlineTime: null });
+
+    await user.click(screen.getByRole("button", { name: "Zmień: Termin" }));
+    const time = await screen.findByLabelText("Godzina terminu");
+    await user.type(time, "12:00");
+    await user.click(screen.getByText("Zapisz"));
+
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", {
+        deadline: "2026-10-01",
+        deadline_time: "12:00",
+        deadline_not_provided: false,
+      }),
+    );
+
+    renderPanel({ deadline: "2026-10-01", deadlineTime: "12:00:00" });
+    expect(screen.getByText("01.10.2026, 12:00")).toBeInTheDocument();
+  });
+
+  it("godzina jest zablokowana bez daty", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByRole("button", { name: "Zmień: Termin" }));
+    expect(await screen.findByLabelText("Godzina terminu")).toBeDisabled();
+  });
+});
+
+describe("JobSettingsPanel — termin „Klient nie podał” (04.10.2026)", () => {
+  it("zaznaczenie wyłącza datę i zapisuje {deadline_not_provided: true, deadline: null}", async () => {
+    const user = userEvent.setup();
+    renderPanel({ deadline: "2026-12-01" });
+
+    await user.click(screen.getByRole("button", { name: "Zmień: Termin" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Klient nie podał" }));
+    expect(screen.getByLabelText("Termin")).toBeDisabled();
+    await user.click(screen.getByText("Zapisz"));
+
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", {
+        deadline: null,
+        deadline_time: null,
+        deadline_not_provided: true,
+      }),
+    );
+  });
+
+  it("bez daty, z decyzją „Klient nie podał”, widok mówi to wprost", () => {
+    renderPanel({ deadlineNotProvided: true });
+    expect(screen.getByText("Klient nie podał")).toBeInTheDocument();
+  });
+
+  it("decyzję czyta też z rekrutacji w cache'u, gdy dok jej nie podaje", () => {
+    const { client } = renderPanel();
+    client.setQueryData(["job", "501"], { deadline_not_provided: true, headcount: 3 });
+    return waitFor(() => {
+      expect(screen.getByText("Klient nie podał")).toBeInTheDocument();
+      expect(screen.getByText("3")).toBeInTheDocument();
+    });
+  });
+
+  it("odmowa `handoff_regression` stoi przy polu razem z brakami", async () => {
+    patchMock.mockRejectedValueOnce({
+      response: {
+        status: 422,
+        data: {
+          detail: {
+            code: "handoff_regression",
+            message: "Rekrutacja w pracy straciłaby termin.",
+            blockers: [{ code: "deadline", message: "Podaj termin albo zaznacz „Klient nie podał”." }],
+          },
+        },
+      },
+    });
+    const user = userEvent.setup();
+    renderPanel({ deadline: "2026-12-01" });
+
+    await user.click(screen.getByRole("button", { name: "Zmień: Termin" }));
+    await user.clear(await screen.findByLabelText("Termin"));
+    await user.click(screen.getByText("Zapisz"));
+
+    expect(
+      await screen.findByText(
+        "Rekrutacja w pracy straciłaby termin. Podaj termin albo zaznacz „Klient nie podał”.",
+      ),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("JobSettingsPanel — Liczba osób (04.10.2026)", () => {
+  it("zapisuje PATCH {headcount} i odrzuca zero", async () => {
+    const user = userEvent.setup();
+    renderPanel({ headcount: 1 });
+
+    await user.click(screen.getByRole("button", { name: "Zmień: Liczba osób" }));
+    const input = await screen.findByLabelText("Liczba osób");
+    await user.clear(input);
+    await user.type(input, "0");
+    expect(screen.getByText("Podaj liczbę od 1 w górę.")).toBeInTheDocument();
+    expect(screen.getByText("Zapisz")).toBeDisabled();
+
+    await user.clear(input);
+    await user.type(input, "3");
+    await user.click(screen.getByText("Zapisz"));
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", { headcount: 3 }),
+    );
+  });
+
+  it("pokazuje „Zatrudnieni: X z N”, gdy wołający zna liczbę zatrudnionych", () => {
+    renderPanel({ headcount: 3, hiredCount: 1 });
+    expect(screen.getByText("Zatrudnieni: 1 z 3")).toBeInTheDocument();
   });
 });
 
@@ -177,11 +370,225 @@ describe("JobSettingsPanel — błąd zapisu", () => {
     const user = userEvent.setup();
     renderPanel();
 
-    await user.click(screen.getAllByText("Zmień")[0]);
+    await user.click(screen.getByRole("button", { name: "Zmień: Delivery Lead" }));
     const select = await screen.findByLabelText("Delivery Lead");
     await user.selectOptions(select, "22");
 
     expect(await screen.findByText("Błąd serwera")).toBeInTheDocument();
     expect(screen.getByLabelText("Delivery Lead")).toBeInTheDocument();
+  });
+});
+
+describe("JobSettingsPanel — Priorytet", () => {
+  it("pokazuje trzy poziomy z zaznaczonym bieżącym", () => {
+    renderPanel({ priorityLevel: "p1" });
+
+    expect(
+      within(priorityGroup())
+        .getAllByRole("radio")
+        .map((radio) => radio.textContent),
+    ).toEqual(["P1 Pilne", "Bez priorytetu", "Przyjmujemy kandydatów"]);
+    expect(priorityOption("P1 Pilne")).toBeChecked();
+    expect(priorityOption("Bez priorytetu")).not.toBeChecked();
+  });
+
+  it.each([
+    ["P1 Pilne", "urgent"],
+    ["Przyjmujemy kandydatów", "low"],
+  ])("kliknięcie „%s” zapisuje PATCH {priority: %s} i odświeża obsadę wszędzie", async (label, raw) => {
+    const user = userEvent.setup();
+    const { invalidatedKeys } = renderPanel({ priorityLevel: "p2" });
+
+    await user.click(priorityOption(label));
+
+    // Wybór widać od razu, bez czekania na serwer.
+    expect(priorityOption(label)).toBeChecked();
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", { priority: raw }),
+    );
+    await waitFor(() => expect(invalidatedKeys()).toContainEqual(["job", "501"]));
+    const keys = invalidatedKeys();
+    for (const key of [
+      ["job", 501],
+      ["jobs-v2"],
+      ["jobs-quick-counts"],
+      REQUEST_BOARD_QUERY_KEY,
+      BOARD_TASKS_QUERY_KEY,
+    ]) {
+      expect(keys).toContainEqual(key);
+    }
+    expect(toast.showError).not.toHaveBeenCalled();
+  });
+
+  it("powrót na P2 zapisuje „medium”", async () => {
+    const user = userEvent.setup();
+    renderPanel({ priorityLevel: "p1" });
+
+    await user.click(priorityOption("Bez priorytetu"));
+
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", { priority: "medium" }),
+    );
+  });
+
+  describe("zejście z P1 przenosi zespół do „Poprzedni rekruter” (14.10.2026)", () => {
+    const team = { workingNames: ["Anna Kowalska", "Piotr Nowak"] };
+
+    it("pyta przed zapisem i zapisuje dopiero po potwierdzeniu", async () => {
+      const user = userEvent.setup();
+      renderPanel({ priorityLevel: "p1", priorityTeam: team });
+
+      await user.click(priorityOption("Bez priorytetu"));
+
+      const dialog = await screen.findByRole("dialog");
+      expect(dialog).toHaveTextContent("Zdjąć priorytet P1?");
+      expect(dialog).toHaveTextContent(
+        "Anna Kowalska i Piotr Nowak przejdą do „Poprzedni rekruter”",
+      );
+      expect(patchMock).not.toHaveBeenCalled();
+      await user.click(
+        within(dialog).getByRole("button", { name: "Zmień na „Bez priorytetu”" }),
+      );
+      await waitFor(() =>
+        expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", { priority: "medium" }),
+      );
+    });
+
+    it("anulowanie zostawia P1 i niczego nie zapisuje", async () => {
+      const user = userEvent.setup();
+      renderPanel({ priorityLevel: "p1", priorityTeam: team });
+
+      await user.click(priorityOption("Przyjmujemy kandydatów"));
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: "Anuluj" }));
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(priorityOption("P1 Pilne")).toBeChecked();
+      expect(patchMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["bez zespołu", { workingNames: [] }],
+      ["przy zamkniętej rekrutacji", { ...team, closed: true }],
+    ])("%s zapisuje od razu", async (_label, priorityTeam) => {
+      const user = userEvent.setup();
+      renderPanel({ priorityLevel: "p1", priorityTeam });
+
+      await user.click(priorityOption("Bez priorytetu"));
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      await waitFor(() =>
+        expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", { priority: "medium" }),
+      );
+    });
+
+    it("powrót na P1 nie pyta", async () => {
+      const user = userEvent.setup();
+      renderPanel({ priorityLevel: "p2", priorityTeam: team });
+
+      await user.click(priorityOption("P1 Pilne"));
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      await waitFor(() =>
+        expect(patchMock).toHaveBeenCalledWith("/api/jobs/501", { priority: "urgent" }),
+      );
+    });
+  });
+
+  it("wiersz „Poprzedni rekruter” stoi zaraz pod „Rekruter”, gdy dok go podaje", () => {
+    renderPanel({
+      recruiters: <span>obsada</span>,
+      previousRecruiters: <span>Anna Kowalska</span>,
+    });
+
+    const labels = screen
+      .getAllByText(/^(Rekruter|Poprzedni rekruter|Kategoria)$/)
+      .map((node) => node.textContent);
+    expect(labels).toEqual(["Rekruter", "Poprzedni rekruter", "Kategoria"]);
+  });
+
+  it("kliknięcie zaznaczonego poziomu niczego nie zapisuje", async () => {
+    const user = userEvent.setup();
+    renderPanel({ priorityLevel: "p2" });
+
+    await user.click(priorityOption("Bez priorytetu"));
+
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+
+  it("odmowa serwera cofa wybór i pokazuje jego komunikat", async () => {
+    patchMock.mockRejectedValueOnce({
+      response: {
+        status: 403,
+        data: { detail: "Priorytet tej rekrutacji ustawia jej Delivery Lead." },
+      },
+    });
+    const user = userEvent.setup();
+    const { invalidatedKeys } = renderPanel({ priorityLevel: "p2" });
+
+    await user.click(priorityOption("P1 Pilne"));
+
+    await waitFor(() =>
+      expect(toast.showError).toHaveBeenCalledWith(
+        "Priorytet tej rekrutacji ustawia jej Delivery Lead.",
+      ),
+    );
+    expect(priorityOption("Bez priorytetu")).toBeChecked();
+    expect(priorityOption("P1 Pilne")).not.toBeChecked();
+    // Także po odmowie: ekran mógł pokazywać nieaktualny stan.
+    expect(invalidatedKeys()).toContainEqual(["job", "501"]);
+  });
+
+  it("strzałki zapisują po kolei i zostaje ostatni wybór, nie poziom ze środka", async () => {
+    // Pierwszy zapis czeka — drugi nie może go wyprzedzić ani zostać cofnięty.
+    let releaseFirst: () => void = () => undefined;
+    patchMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseFirst = () => resolve({ data: {} });
+        }),
+    );
+    const user = userEvent.setup();
+    const { rerenderPanel } = renderPanel({ priorityLevel: "p1" });
+
+    priorityOption("P1 Pilne").focus();
+    await user.keyboard("{ArrowRight}{ArrowRight}");
+
+    expect(priorityOption("Przyjmujemy kandydatów")).toBeChecked();
+    expect(patchMock).toHaveBeenCalledTimes(1);
+    expect(patchMock).toHaveBeenLastCalledWith("/api/jobs/501", { priority: "medium" });
+
+    // Odświeżona rekrutacja po pierwszym zapisie (P2) nie cofa przełącznika,
+    // dopóki drugi zapis jest w drodze.
+    rerenderPanel({ priorityLevel: "p2" });
+    expect(priorityOption("Przyjmujemy kandydatów")).toBeChecked();
+
+    releaseFirst();
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(2));
+    expect(patchMock).toHaveBeenLastCalledWith("/api/jobs/501", { priority: "low" });
+    expect(priorityOption("Przyjmujemy kandydatów")).toBeChecked();
+  });
+
+  it("nowa wartość z serwera (zmiana innej osoby) przestawia przełącznik", () => {
+    const { rerenderPanel } = renderPanel({ priorityLevel: "p2" });
+    expect(priorityOption("Bez priorytetu")).toBeChecked();
+
+    rerenderPanel({ priorityLevel: "p1" });
+
+    expect(priorityOption("P1 Pilne")).toBeChecked();
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["p1", "P1 Pilne"],
+    ["p2", "Bez priorytetu"],
+    ["accepting", "Przyjmujemy kandydatów"],
+  ] as const)("bez prawa zmiany poziom %s jest tylko tekstem „%s”", (level, label) => {
+    renderPanel({ priorityLevel: level, canSetPriority: false });
+
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(screen.getByText("Priorytet")).toBeInTheDocument();
+    expect(screen.getByText(label)).toBeInTheDocument();
   });
 });

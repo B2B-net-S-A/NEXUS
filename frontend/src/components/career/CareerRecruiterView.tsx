@@ -1,131 +1,162 @@
 import type { CareerRecruiterResponse } from "@/lib/career/api";
-import { jobHandle, recruiterLogin, remoteLabel } from "@/lib/career/format";
+import { categoryChips } from "@/lib/career/board";
+import { genitiveName, jobLocationLabel } from "@/lib/career/format";
 import { careerHref, careerVisibleUrl, type CareerBase } from "@/lib/career/host";
 
+import { BrandArc, BrandPage, brandStyles as s } from "./brand/BrandShell";
 import { CareerApplyForm, type CareerApplyFormProps } from "./CareerApplyForm";
-import { CareerFooter } from "./CareerFooter";
-import { CareerHero, Cmd } from "./CareerHero";
 import { CareerSubmitGate } from "./CareerSubmitGate";
-import { TerminalChrome } from "./TerminalChrome";
+import { CareerThemeScope } from "./CareerThemeScope";
+import { DEFAULT_CAREER_THEME, type CareerThemeId } from "./themes";
 
-function locationLabel(job: CareerRecruiterResponse["jobs"][number]): string {
-  const city = job.city?.trim().toLocaleLowerCase("pl-PL");
-  const mode = remoteLabel(job.remote_policy);
-  if (job.remote_policy === "remote") return mode ?? "";
-  return [city, mode].filter(Boolean).join(" · ");
-}
+const APPLY_ID = "aplikuj";
 
-/** Stały link rekrutera (`/<slug>`): „zostaw CV raz" + lista jego rekrutacji. */
+/**
+ * Stały link rekrutera (`/<slug>`, etap 6 — makieta 6d): inicjał zamiast
+ * zdjęcia, samo imię (bez nazwiska i kontaktu — reguła strony kariery),
+ * „O mnie”, plakietki kategorii, rekrutacje osoby, formularz „Zostaw CV
+ * u <imię>” i odesłanie do tablicy wszystkich rekrutacji. Od 29.10.2026
+ * w barwach marki B2B Network jak szablony ogłoszeń, nie w oknie terminala.
+ *
+ * Komponent prezentacyjny — dane przychodzą z serwera (strona) albo z mocków
+ * (harness `/preview/kariera`). Awaria API nie dociera tutaj: strona rzuca
+ * błąd (`error.tsx`), więc pusta lista znaczy „brak otwartych rekrutacji”.
+ */
 export function CareerRecruiterView({
   data,
   base,
   host,
+  theme = DEFAULT_CAREER_THEME,
   formPreview,
 }: {
   data: CareerRecruiterResponse;
   base: CareerBase;
   host: string;
+  theme?: CareerThemeId;
   formPreview?: CareerApplyFormProps["preview"];
 }) {
   const { recruiter, jobs } = data;
   const rodoHref = careerHref(base, { to: "rodo" });
-  const chromePath = `~/dynaminds/kariera/${recruiter.slug} — zsh`;
+  const homeHref = careerHref(base, { to: "home" });
+  const hostLabel = careerVisibleUrl(host, base, { to: "recruiter", slug: recruiter.slug });
+  const initial = recruiter.first_name.trim().charAt(0).toLocaleUpperCase("pl-PL") || "B";
+  const about = recruiter.about?.trim() || null;
+  const chips = categoryChips(jobs);
+  const atName = genitiveName(recruiter.first_name);
 
   return (
-    <CareerSubmitGate
-      thanks={{
-        variant: "general",
-        recruiterFirstName: recruiter.first_name,
-        chromePath,
-        recruiterPageHref: null,
-      }}
-    >
-      <TerminalChrome path={chromePath} />
-      <main className="kr-main kr-main-general">
-        <div className="kr-col">
-          <CareerHero
-            login={recruiterLogin(recruiter.first_name)}
-            whoamiNote="rekrutacje IT"
-            catPath="witaj.txt"
-            title={{ first: "Szukasz kolejnego", second: "projektu IT?" }}
-          >
-            <span className="kr-c">
-              {"// zostaw CV raz — odezwę się, gdy pojawi się projekt dla Ciebie"}
-            </span>
-          </CareerHero>
+    <CareerThemeScope theme={theme}>
+      <CareerSubmitGate
+        thanks={{
+          variant: "general",
+          recruiterFirstName: recruiter.first_name,
+          homeHref,
+          rodoHref,
+          hostLabel,
+          recruiterPageHref: null,
+        }}
+      >
+        <BrandPage
+          homeHref={homeHref}
+          cta={{ href: `#${APPLY_ID}`, label: "Zostaw CV" }}
+          rodoHref={rodoHref}
+          hostLabel={hostLabel}
+        >
+          <main className={s.main}>
+            <div className={s.hero}>
+              <div className={s.glow} aria-hidden="true" />
+              <BrandArc />
+              <div className={`${s.wrap} ${s.heroInner} ${s.recGrid}`}>
+                <div>
+                  <div className={s.recId}>
+                    <span className={s.initial} aria-hidden="true">
+                      {initial}
+                    </span>
+                    <span className={s.recRole}>
+                      <b>B2B Network</b>
+                      Zespół rekrutacji IT
+                    </span>
+                  </div>
+                  <h1 className={s.title}>
+                    {recruiter.first_name}. <span className={s.titleTail}>Rekrutuję w IT.</span>
+                  </h1>
+                  {about ? (
+                    <p className={s.about}>{about}</p>
+                  ) : (
+                    <p className={s.about}>
+                      Zostaw CV raz — odezwę się, gdy pojawi się projekt dla Ciebie.
+                    </p>
+                  )}
+                  {chips.length > 0 ? (
+                    <ul className={`${s.chips} ${s.recChips}`} aria-label="Rekrutuję w obszarach">
+                      {chips.map((chip) => (
+                        <li key={chip} className={s.tag}>
+                          {chip}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
 
-          <section aria-label="Jak to działa">
-            <Cmd>./jak-to-dziala</Cmd>
-            <ol className="kr-checks" style={{ listStyle: "none", margin: 0, padding: 0 }}>
-              <li className="kr-ok">
-                <span className="kr-r">[01]</span>
-                <span className="kr-g">
-                  zostawiasz_cv <span className="kr-c">{"// dwie minuty, raz"}</span>
-                </span>
-              </li>
-              <li className="kr-ok">
-                <span className="kr-r">[02]</span>
-                <span className="kr-g">
-                  dopasowujemy <span className="kr-c">{"// do nowych i trwających projektów"}</span>
-                </span>
-              </li>
-              <li className="kr-ok">
-                <span className="kr-r">[03]</span>
-                <span className="kr-g">
-                  dostajesz_propozycję{" "}
-                  <span className="kr-c">{"// Ty decydujesz, czy wchodzisz"}</span>
-                </span>
-              </li>
-            </ol>
-          </section>
-
-          {jobs.length > 0 ? (
-            <section aria-label="Otwarte rekrutacje">
-              <Cmd>ls -l ~/{recruiter.slug}/rekrutacje</Cmd>
-              <div className="kr-list">
-                <div className="kr-row kr-row-head" aria-hidden="true">
-                  <span>STANOWISKO</span>
-                  <span className="kr-row-loc">LOKALIZACJA</span>
-                  <span />
+                  <section className={s.recJobs} aria-label="Otwarte rekrutacje">
+                    <h2 className={s.sectionTitle}>Moje otwarte rekrutacje</h2>
+                    {jobs.length > 0 ? (
+                      <ul className={s.jobRows}>
+                        {jobs.map((job) => {
+                          const where = jobLocationLabel(job);
+                          return (
+                            <li key={job.slug}>
+                              <a className={s.jobRow} href={careerHref(base, { to: "job", slug: job.slug })}>
+                                <span className={s.jobRowText}>
+                                  <span className={s.jobRowTitle}>{job.title}</span>
+                                  {where ? <span className={s.jobRowMeta}>{where}</span> : null}
+                                </span>
+                                <span className={s.jobRowGo} aria-hidden="true">
+                                  Aplikuj →
+                                </span>
+                              </a>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : (
+                      <p className={s.note}>
+                        Teraz nie mam otwartych rekrutacji na tej stronie — zostaw CV, odezwę się
+                        z pierwszym pasującym projektem.
+                      </p>
+                    )}
+                  </section>
                 </div>
-                <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                  {jobs.map((job) => (
-                    <li key={job.slug}>
-                      <a className="kr-row" href={careerHref(base, { to: "job", slug: job.slug })}>
-                        <span>{jobHandle(job)}</span>
-                        <span className="kr-g kr-row-loc">{locationLabel(job)}</span>
-                        <span className="kr-r kr-row-open">otwórz →</span>
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </section>
-          ) : null}
-        </div>
 
-        <aside id="aplikuj" className="kr-form-box" aria-label="Dołącz do bazy">
-          <div className="kr-form-bar">
-            <span>
-              <span className="kr-r" aria-hidden="true">
-                ${" "}
-              </span>
-              ./dolacz-do-bazy.sh
-            </span>
-            <span className="kr-g">~2 min</span>
-          </div>
-          <CareerApplyForm
-            linkSlug={recruiter.slug}
-            variant="general"
-            rodoHref={rodoHref}
-            preview={formPreview}
-          />
-        </aside>
-      </main>
-      <CareerFooter
-        rodoHref={rodoHref}
-        hostLabel={careerVisibleUrl(host, base, { to: "recruiter", slug: recruiter.slug })}
-      />
-    </CareerSubmitGate>
+                <aside
+                  id={APPLY_ID}
+                  tabIndex={-1}
+                  className={`${s.apply} ${s.recForm}`}
+                  aria-label={`Zostaw CV u ${atName}`}
+                >
+                  <h2 className={s.applyTitle}>
+                    {jobs.length > 0 ? "Nic nie pasuje? " : ""}Zostaw CV u {atName}.
+                  </h2>
+                  <p className={s.note}>Odezwę się, gdy pojawi się projekt w Twojej technologii.</p>
+                  <div className={`${s.form}`} style={{ marginTop: 24 }}>
+                    <CareerApplyForm
+                      linkSlug={recruiter.slug}
+                      variant="general"
+                      rodoHref={rodoHref}
+                      preview={formPreview}
+                      tone="plain"
+                    />
+                  </div>
+                </aside>
+              </div>
+            </div>
+            <nav className={`${s.wrap} ${s.recAll}`} aria-label="Wszystkie rekrutacje">
+              <a className={s.btnOutline} href={homeHref}>
+                Wszystkie otwarte rekrutacje B2B Network →
+              </a>
+            </nav>
+          </main>
+        </BrandPage>
+      </CareerSubmitGate>
+    </CareerThemeScope>
   );
 }

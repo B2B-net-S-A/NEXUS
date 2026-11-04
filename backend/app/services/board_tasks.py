@@ -20,27 +20,35 @@ Delivery Leada:
   klienta) albo odrzuci. Osoby w „Zweryfikowanym" nie są już w przeglądzie —
   ich CV nie przeszło jeszcze przez QC, więc DL nie ma czego oglądać.
 
-Okno: ruch z ostatnich ``WINDOW_DAYS`` dni (wysłane do Cpro), a praca do
-zrobienia (przegląd DL, do wysłania do Cpro) — ``DL_REVIEW_WINDOW_DAYS``.
-Import z Traffita zostawia na opublikowanych rekrutacjach setki osób sprzed
-roku — kolejka z nimi byłaby listą, której nikt nie przeczyta.
+Okno: ruch z ostatnich ``WINDOW_DAYS`` dni (wysłane do Cpro), a do wysłania
+do Cpro — ``DL_REVIEW_WINDOW_DAYS``. Import z Traffita zostawia na
+opublikowanych rekrutacjach setki osób sprzed roku — kolejka z nimi byłaby
+listą, której nikt nie przeczyta.
+
+Przegląd DL nie ma okna czasu (13.10.2026): wiersze liczy
+`services/dl_send_queue.py` — ta sama reguła dla pulpitu, górnego paska,
+porannego skrótu i listy rekrutacji. Karta stojąca w „QC CV” ponad 30 dni
+znikała stąd bez śladu, choć na Tablicy stała dalej.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Iterable, Optional
 
 from sqlalchemy import or_, select, text, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_today
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User, UserRole
-from app.services import cpro_sender
+from app.services import cpro_sender, recommendation_cards
+from app.services.stage_verifier import first_verifier
 from app.services.board_stage_badges import (
     cpro_enabled_for_client,
     foreign_stage_target,
@@ -51,6 +59,8 @@ from app.services.board_stage_badges import (
 
 if TYPE_CHECKING:
     from app.services.candidate_followups import DigestCounts
+
+logger = logging.getLogger(__name__)
 
 WINDOW_DAYS = 14
 DL_REVIEW_WINDOW_DAYS = 30
@@ -84,6 +94,8 @@ class TemplateStages:
     """Etapy szablonu, między którymi chodzi kolejka."""
 
     verified_ids: frozenset[int]
+    # Etap, na który przegląd DL cofa kartę do poprawy („Zweryfikowany”).
+    verified_id: Optional[int]
     qc_ids: frozenset[int]
     qc_id: Optional[int]
     cpro_ids: frozenset[int]
@@ -126,11 +138,39 @@ class BoardTask:
     # od 24.09.2026 tylko zapas, gdy nikt nie wysyła do Cpro na firmę.
     job_sender_id: Optional[int] = None
     job_sender_name: Optional[str] = None
-    # Etap QC CV szablonu rekrutacji — „Zwróć do rekrutera" z kolejki Cpro.
+    # Etap powrotu do poprawy: z kolejki Cpro — „QC CV”, z przeglądu DL —
+    # „Zweryfikowany”.
     return_stage_def_id: Optional[int] = None
+    # Stan karty rekomendacji pary (przegląd DL): complete|partial|empty;
+    # ``None`` = para nie ma karty.
+    card_status: Optional[str] = None
+    card_missing: int = 0
     # Wynik QC CV pary (`cv_qc.pair_statuses`): passed|failed|overridden|unchecked.
     qc_status: Optional[str] = None
     qc_blocking_failed: int = 0
+    # 0380: ``job_title`` = nazwa od klienta (tekst kopiowany do Cpro);
+    # ekrany wewnętrzne pokazują tytuł dla rekrutera, gdy jest.
+    job_working_title: Optional[str] = None
+    client_reference: Optional[str] = None
+    # „Do wysłania do klienta” (`services/dl_send_queue.py`, 13.10.2026).
+    # ``ready`` — QC zdane albo przepuszczone, ruch ma Delivery Lead; reszta
+    # kolumny „QC CV” jest jeszcze u rekrutera. ``ready_since`` — od kiedy
+    # (wejście do kolumny albo zaliczenie QC, co później); od niego liczą się
+    # dni robocze i pilność. ``imported`` — bieżący etap pochodzi z importu
+    # Traffita i nikt nie ruszył karty w NEXUSIE: nie budzi liczników ani
+    # przypomnień (decyzja Artura 11.10.2026).
+    ready: bool = False
+    ready_since: Optional[datetime] = None
+    waiting_workdays: int = 0
+    urgency: Optional[str] = None
+    imported: bool = False
+    handed_over_by_name: Optional[str] = None
+    budget_min_hourly: Optional[float] = None
+    budget_max_hourly: Optional[float] = None
+    deadline: Optional[date] = None
+    # Przegląd DL u Nordei (13.10.2026): akceptacja do kolejki Cpro zamiast
+    # wysyłki do klienta — ``target_stage_def_id`` to wtedy etap Cpro.
+    cpro: bool = False
 
     def as_dict(self) -> dict:
         return {
@@ -140,6 +180,8 @@ class BoardTask:
             "candidate_name": self.candidate_name,
             "job_id": self.job_id,
             "job_title": self.job_title,
+            "job_working_title": self.job_working_title,
+            "client_reference": self.client_reference,
             "client_id": self.client_id,
             "client_name": self.client_name,
             "since": self.since,
@@ -160,6 +202,18 @@ class BoardTask:
             "return_stage_def_id": self.return_stage_def_id,
             "qc_status": self.qc_status,
             "qc_blocking_failed": self.qc_blocking_failed,
+            "card_status": self.card_status,
+            "card_missing": self.card_missing,
+            "ready": self.ready,
+            "ready_since": self.ready_since,
+            "waiting_workdays": self.waiting_workdays,
+            "urgency": self.urgency,
+            "imported": self.imported,
+            "handed_over_by_name": self.handed_over_by_name,
+            "budget_min_hourly": self.budget_min_hourly,
+            "budget_max_hourly": self.budget_max_hourly,
+            "deadline": self.deadline,
+            "cpro": self.cpro,
         }
 
 
@@ -202,6 +256,7 @@ def classify_template(defs: Iterable[PipelineStageDef]) -> TemplateStages:
             cv_sent.append(d.id)
     return TemplateStages(
         verified_ids=frozenset(verified),
+        verified_id=verified[0] if verified else None,
         qc_ids=frozenset(qc),
         qc_id=qc[0] if qc else None,
         cpro_ids=frozenset(cpro),
@@ -271,12 +326,25 @@ _LATEST_SQL = text(
            -- w oknie ma w oknie także swój NAJNOWSZY wiersz. Bez tego zapytanie
            -- sortowało całą historię etapów przy każdym odczycie pulpitu.
            AND cs.moved_at >= :since
+           -- Jedna para (przegląd DL otwierany z Tablicy albo z dzwonka):
+           -- bez okna czasu, żeby karta stojąca w QC CV dłużej niż okno
+           -- pulpitu też dała się przejrzeć.
+           AND (
+               CAST(:pair_candidate_id AS INTEGER) IS NULL
+               OR (cs.candidate_id = :pair_candidate_id AND cs.job_id = :pair_job_id)
+           )
+           -- Jedna rekrutacja (porównanie przeglądu DL, D10): też bez okna.
+           AND (CAST(:only_job_id AS INTEGER) IS NULL OR cs.job_id = :only_job_id)
          ORDER BY cs.candidate_id, cs.job_id, cs.moved_at DESC, cs.id DESC
     )
     SELECT l.id, l.candidate_id, l.job_id, l.stage_def_id, l.moved_at,
-           l.moved_by, l.task_assignee_id, j.cpro_sender_id,
+           l.moved_by,
+           -- Osoby zapasowe kolejki Cpro tylko z aktywnym kontem — martwe
+           -- konto trzymało zadanie, którego nikt nie widział (runda 4).
+           CASE WHEN ta.is_active THEN l.task_assignee_id END AS task_assignee_id,
+           CASE WHEN js.is_active THEN j.cpro_sender_id END AS cpro_sender_id,
            COALESCE(j.pipeline_template_id, :default_template_id) AS template_id,
-           j.title, j.client_id,
+           j.title, j.working_title, j.client_reference, j.client_id,
            -- Nieaktywny DL rekrutacji = jak brak DL-a: przegląd idzie do
            -- portfela klienta, zamiast do konta, którego nikt nie czyta.
            CASE WHEN dl.is_active THEN j.delivery_lead_id END AS delivery_lead_id,
@@ -287,6 +355,8 @@ _LATEST_SQL = text(
       JOIN candidates c ON c.id = l.candidate_id
       LEFT JOIN clients cl ON cl.id = j.client_id
       LEFT JOIN users dl ON dl.id = j.delivery_lead_id
+      LEFT JOIN users ta ON ta.id = l.task_assignee_id
+      LEFT JOIN users js ON js.id = j.cpro_sender_id
      WHERE l.moved_at >= :since
        AND l.stage_def_id = ANY(:stage_def_ids)
     """
@@ -294,9 +364,19 @@ _LATEST_SQL = text(
 
 
 async def load_snapshot(
-    db: AsyncSession, *, now: Optional[datetime] = None
+    db: AsyncSession,
+    *,
+    now: Optional[datetime] = None,
+    pair: Optional[tuple[int, int]] = None,
+    job_id: Optional[int] = None,
 ) -> BoardTaskSnapshot:
-    """Jedno przejście po najnowszych wierszach opublikowanych rekrutacji."""
+    """Jedno przejście po najnowszych wierszach opublikowanych rekrutacji.
+
+    ``pair`` = (kandydat, rekrutacja) zawęża migawkę do jednej pary i zdejmuje
+    okno czasu — ta sama reguła zadania co na pulpicie, dla przeglądu DL
+    otwieranego z Tablicy albo z dzwonka. ``job_id`` zawęża do jednej
+    rekrutacji, też bez okna (porównanie kolejki przeglądu DL, D10).
+    """
 
     now = now or datetime.now(timezone.utc)
     catalog = await _catalog(db)
@@ -324,8 +404,16 @@ async def load_snapshot(
             _LATEST_SQL,
             {
                 "default_template_id": default_template_id,
-                "since": now - timedelta(days=max(WINDOW_DAYS, DL_REVIEW_WINDOW_DAYS)),
+                # Jedna para (wiersz przeglądu DL) — bez dolnej granicy czasu.
+                "since": (
+                    datetime.min.replace(tzinfo=timezone.utc)
+                    if pair is not None or job_id is not None
+                    else now - timedelta(days=max(WINDOW_DAYS, DL_REVIEW_WINDOW_DAYS))
+                ),
                 "stage_def_ids": sorted(relevant),
+                "pair_candidate_id": pair[0] if pair is not None else None,
+                "pair_job_id": pair[1] if pair is not None else None,
+                "only_job_id": job_id,
             },
         )
     ).all()
@@ -350,6 +438,8 @@ async def load_snapshot(
             candidate_name=name,
             job_id=r.job_id,
             job_title=r.title,
+            job_working_title=r.working_title,
+            client_reference=r.client_reference,
             client_id=r.client_id,
             client_name=r.client_name,
             since=r.moved_at,
@@ -358,18 +448,8 @@ async def load_snapshot(
             delivery_lead_id=r.delivery_lead_id,
             template_id=r.template_id,
         )
-        nordea = cpro_enabled_for_client(r.client_id)
-        in_qc = effective in stages.qc_ids
-        if not nordea:
-            if in_qc:
-                tasks.append(
-                    BoardTask(
-                        kind=KIND_DL_REVIEW,
-                        target_stage_def_id=stages.cv_sent_id,
-                        rejected_stage_def_id=stages.rejected_id,
-                        **base,
-                    )
-                )
+        if not cpro_enabled_for_client(r.client_id):
+            # Przegląd DL liczy `dl_send_queue` (niżej) — bez okna czasu.
             continue
         if effective in stages.cpro_ids:
             tasks.append(
@@ -394,9 +474,23 @@ async def load_snapshot(
                 )
             )
 
+    from app.services import dl_send_queue  # noqa: PLC0415 — cykl importu
+
+    review = await dl_send_queue.load_rows(
+        db,
+        scope=dl_send_queue.Scope(pair=pair, job_id=job_id),
+        now=now,
+        catalog=catalog,
+        default_template_id=default_template_id,
+    )
+    tasks.extend(review)
+
     await _attach_dl_review_details(db, catalog, tasks)
     await _attach_qc_statuses(db, tasks)
+    await _attach_card_states(db, tasks)
     await _attach_versions_and_names(db, tasks)
+    await dl_send_queue.attach_handed_over_names(db, review)
+    await dl_send_queue.attach_budget(db, review)
     tasks.sort(key=lambda t: t.since)
     return BoardTaskSnapshot(tasks=tasks, firm_sender_id=firm_sender_id)
 
@@ -448,8 +542,32 @@ async def _attach_versions_and_names(db: AsyncSession, tasks: list[BoardTask]) -
             t.verified_by_name = names.get(t.verified_by_id)
 
 
+async def _attach_card_states(db: AsyncSession, tasks: list[BoardTask]) -> None:
+    """Stan karty rekomendacji dla przeglądu DL — bez treści pól."""
+
+    review = [t for t in tasks if t.kind == KIND_DL_REVIEW]
+    if not review:
+        return
+    # Karta jest dodatkiem do przeglądu — awaria jej odczytu nie może położyć
+    # całej kolejki „Czeka na Ciebie”. Savepoint, bo sesja żądania jedzie dalej.
+    try:
+        async with db.begin_nested():
+            states = await recommendation_cards.summaries_for_pairs(
+                db, {(t.candidate_id, t.job_id) for t in review}
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("board_tasks: nie udało się odczytać stanu kart rekomendacji")
+        return
+    for t in review:
+        state = states.get((t.candidate_id, t.job_id))
+        if state is not None:
+            t.card_status = str(state["status"])
+            t.card_missing = len(state["missing"])  # type: ignore[arg-type]
+
+
 async def _attach_qc_statuses(db: AsyncSession, tasks: list[BoardTask]) -> None:
-    wanted = [t for t in tasks if t.kind in (KIND_DL_REVIEW, KIND_CPRO_TO_SEND)]
+    # Wiersze przeglądu DL mają stan QC z `dl_send_queue.attach_readiness`.
+    wanted = [t for t in tasks if t.kind == KIND_CPRO_TO_SEND]
     if not wanted:
         return
     from app.services.move_requirements import qc_statuses  # noqa: PLC0415
@@ -466,10 +584,12 @@ async def _attach_dl_review_details(
 ) -> None:
     """Dla przeglądu DL: wiersz weryfikacji (kto, kiedy, stawka) i screening.
 
-    Najnowszy wiersz pary to etap QC CV, więc weryfikację szukamy wstecz
-    w historii pary — ostatni wiersz, który na
-    tablicy tej rekrutacji stoi na etapie ``verified``. Arkusz screeningu leży
-    na wierszu, na którym go wypełniono (zwykle „Screening").
+    Najnowszy wiersz pary to etap QC CV, więc weryfikację szukamy w historii
+    pary — wśród wierszy, które na tablicy tej rekrutacji stoją na etapie
+    ``verified``, pierwszy weryfikujący (``stage_verifier.first_verifier``,
+    jak premia rekrutera; cofnięcie karty przez DL to nie weryfikacja).
+    Arkusz screeningu leży na wierszu, na którym go wypełniono (zwykle
+    „Screening").
     """
 
     review = [t for t in tasks if t.kind == KIND_DL_REVIEW]
@@ -485,6 +605,7 @@ async def _attach_dl_review_details(
                 CandidateStage.stage_def_id,
                 CandidateStage.moved_at,
                 CandidateStage.moved_by,
+                CandidateStage.approved_at,
                 CandidateStage.expected_rate_value,
                 CandidateStage.expected_rate_unit,
                 CandidateStage.expected_rate_currency,
@@ -501,27 +622,29 @@ async def _attach_dl_review_details(
         history.setdefault((row.candidate_id, row.job_id), []).append(row)
     for t in review:
         stages = catalog.stages.get(t.template_id) if t.template_id else None
+        rate_found = False
+        verified_row = None
         for row in history.get((t.candidate_id, t.job_id), []):
+            # Stawka = NAJNOWSZA niepusta w parze (0418, 04.10.2026). Korekta
+            # stawki zapisuje się na najnowszym wierszu (np. QC CV), więc
+            # wiersz „Zweryfikowany” pokazywał DL-owi stawkę sprzed zmiany.
+            if not rate_found and row.expected_rate_value is not None:
+                rate_found = True
+                t.expected_rate_value = float(row.expected_rate_value)
+                t.expected_rate_unit = row.expected_rate_unit
+                t.expected_rate_currency = row.expected_rate_currency
             if (
-                t.verified_at is None
-                and stages is not None
+                stages is not None
                 and row.stage_def_id is not None
                 and catalog.effective_def_id(t.template_id, row.stage_def_id)
                 in stages.verified_ids
             ):
-                t.verified_by_id = row.moved_by
-                t.verified_at = row.moved_at
-                t.expected_rate_value = (
-                    float(row.expected_rate_value)
-                    if row.expected_rate_value is not None
-                    else None
-                )
-                t.expected_rate_unit = row.expected_rate_unit
-                t.expected_rate_currency = row.expected_rate_currency
+                verified_row = first_verifier(verified_row, row)
             if t.screening_stage_id is None and row.has_screening:
                 t.screening_stage_id = row.id
-            if t.verified_at is not None and t.screening_stage_id is not None:
-                break
+        if verified_row is not None:
+            t.verified_by_id = verified_row.moved_by
+            t.verified_at = verified_row.moved_at
 
 
 async def dl_portfolio_client_ids(db: AsyncSession, user_id: int) -> frozenset[int]:
@@ -540,31 +663,56 @@ def _sees_all(user: User) -> bool:
     return user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
 
 
-def _sees_dl_review(task: BoardTask, user: User, portfolio: frozenset[int]) -> bool:
-    """Przegląd DL należy wyłącznie do Delivery Leada rekrutacji.
+def reviews_as_dl(
+    user: User,
+    *,
+    delivery_lead_id: Optional[int],
+    client_id: Optional[int],
+    portfolio: frozenset[int],
+) -> bool:
+    """Czy przegląd przed wysłaniem do klienta w tej rekrutacji należy do ``user``.
 
-    Delivery Lead wpisany w rekrutacji (``jobs.delivery_lead_id``) wygrywa;
-    bez niego (zanim `job_delivery_lead_fill` uzupełni pole) — Delivery Lead
-    z portfelem klienta. Admin i Head of Recruitment go nie widzą (decyzja
-    Artura 24.09.2026), chyba że sami mają rolę Delivery Leada.
+    Delivery Lead wpisany w rekrutacji (``jobs.delivery_lead_id``, tylko
+    aktywne konto — nieaktywne podaj jako ``None``) wygrywa; bez niego (zanim
+    `job_delivery_lead_fill` uzupełni pole) — Delivery Lead z portfelem
+    klienta. Admin i Head of Recruitment go nie mają (decyzja Artura
+    24.09.2026), chyba że sami mają rolę Delivery Leada. Lustro w SQL:
+    `dl_send_queue.reviewer_scope_clause`.
     """
 
     if not user.has_role(UserRole.delivery_lead):
         return False
-    if task.delivery_lead_id is not None:
-        return task.delivery_lead_id == user.id
-    return task.client_id is not None and task.client_id in portfolio
+    if delivery_lead_id is not None:
+        return delivery_lead_id == user.id
+    return client_id is not None and client_id in portfolio
 
 
-def _sees_cpro(task: BoardTask, user: User) -> bool:
+def _sees_dl_review(task: BoardTask, user: User, portfolio: frozenset[int]) -> bool:
+    """Przegląd DL należy wyłącznie do Delivery Leada rekrutacji (`reviews_as_dl`)."""
+
+    return reviews_as_dl(
+        user,
+        delivery_lead_id=task.delivery_lead_id,
+        client_id=task.client_id,
+        portfolio=portfolio,
+    )
+
+
+def _sees_cpro(task: BoardTask, user: User, firm_sender_id: Optional[int]) -> bool:
     """Kolejka Cpro jest wyłącznie osoby od Cpro.
 
-    Gdy nikt nie jest ustawiony, zadania do wrzucenia widzi admin i Head of
-    Recruitment — żeby ktoś mógł ustawić osobę (jedyne miejsce to ten panel).
+    Gdy nikt nie jest ustawiony NA FIRMĘ, zadania do wrzucenia widzi też admin
+    i Head of Recruitment — żeby ktoś mógł ustawić osobę (jedyne miejsce to ten
+    panel). Dotyczy to także zadań z osobą zapasową (``jobs.cpro_sender_id``,
+    ``task_assignee_id``): bez tego kolejka z samymi zapasami nie miała nikogo,
+    kto zauważy brak osoby firmowej (audyt 25.09.2026). Zapasowa osoba widzi
+    swoje zadania zawsze.
     """
 
-    if task.assignee_id is not None:
-        return task.assignee_id == user.id
+    if task.assignee_id is not None and task.assignee_id == user.id:
+        return True
+    if firm_sender_id is not None:
+        return False
     return task.kind == KIND_CPRO_TO_SEND and _sees_all(user)
 
 
@@ -575,8 +723,9 @@ def tasks_for_user(
 
     * Przegląd DL: wyłącznie Delivery Lead — rekrutacje przypięte do niego
       (w rekrutacji albo przez portfel klienta).
-    * Do wrzucenia i wysłane do Cpro: tylko osoba od Cpro; do wrzucenia —
-      także admin i HoR, gdy nikt nie jest ustawiony.
+    * Do wrzucenia i wysłane do Cpro: tylko osoba od Cpro (albo zapasowa
+      osoba rekrutacji); do wrzucenia — także admin i HoR, gdy nikt nie jest
+      ustawiony na firmę.
     """
 
     out: dict[str, list[BoardTask]] = {
@@ -589,7 +738,7 @@ def tasks_for_user(
             if _sees_dl_review(t, user, portfolio):
                 out[t.kind].append(t)
         elif t.kind in (KIND_CPRO_TO_SEND, KIND_CPRO_SENT):
-            if _sees_cpro(t, user):
+            if _sees_cpro(t, user, snapshot.firm_sender_id):
                 out[t.kind].append(t)
     # Moje zadania Cpro na górze, potem nieprzypisane.
     out[KIND_CPRO_TO_SEND].sort(
@@ -602,14 +751,29 @@ def tasks_for_user(
 class DigestLine:
     cpro_mine: int = 0
     cpro_unassigned: int = 0
+    # 13.10.2026: tylko wiersze „Do wysłania do klienta”, które budzą Delivery
+    # Leada (`dl_send_queue.counts_for_reviewer`) — karta z QC do poprawy jest
+    # jeszcze u rekrutera, a etap z importu Traffita nie budzi nikogo.
     dl_review: int = 0
+    # Najwyżej dwie najdłużej czekające osoby: (krótkie imię, dni kalendarzowe
+    # od gotowości). Treść dzwonka, nie licznik — nie wchodzi do ``total``.
+    dl_review_people: tuple[tuple[str, int], ...] = ()
     # 0372: follow-upy z kandydatami na dziś (w tym zaległe).
     followups: int = 0
     followups_overdue: int = 0
+    # 04.10.2026: rekrutacje do dokończenia (stare szkice, opublikowane bez
+    # przekazania) — `pending_job_completion.digest_counts`.
+    pending_jobs: int = 0
 
     @property
     def total(self) -> int:
-        return self.cpro_mine + self.cpro_unassigned + self.dl_review + self.followups
+        return (
+            self.cpro_mine
+            + self.cpro_unassigned
+            + self.dl_review
+            + self.followups
+            + self.pending_jobs
+        )
 
 
 async def digest_counts(
@@ -617,24 +781,43 @@ async def digest_counts(
     snapshot: BoardTaskSnapshot,
     *,
     followups: Optional[dict[int, "DigestCounts"]] = None,
+    pending_jobs: Optional[dict[int, int]] = None,
+    today: Optional[date] = None,
 ) -> dict[int, DigestLine]:
     """Poranny skrót: kto ma co do zrobienia (tylko to, co wymaga ruchu).
 
     Wysłane do Cpro nie są zadaniem — czekamy na Nordeę — więc skrót ich nie
     liczy. Osoba od Cpro dostaje liczbę osób w kolejce; kolejka bez nikogo
-    ustawionego trafia do Head of Recruitment. Przegląd DL — ta sama reguła co
-    panel (`_sees_dl_review`). Follow-upy (``followups`` — liczby telefonów
+    ustawionego NA FIRMĘ trafia do Head of Recruitment (także ta z osobą
+    zapasową rekrutacji — lustro `_sees_cpro`). Przegląd DL — ta sama reguła co
+    panel (`_sees_dl_review`), ale tylko wiersze gotowe do wysłania
+    (`dl_send_queue.counts_for_reviewer`, 13.10.2026): do tej daty skrót mówił
+    Delivery Leadowi „sprawdź” także o kartach z QC do poprawy, na których
+    ruch miał rekruter. Follow-upy (``followups`` — liczby telefonów
     per dzwoniący z ``candidate_followups.digest_counts``) dostaje każda rola,
-    nie tylko DL i HoR.
+    nie tylko DL i HoR. Rekrutacje do dokończenia (``pending_jobs`` — liczby
+    per osoba z ``pending_job_completion.digest_counts``) dochodzą tak samo.
+    ``today`` — dzień w kalendarzu firmy, od którego liczą się dni czekania
+    (domyślnie `business_today()`).
     """
 
     followups = followups or {}
+    pending_jobs = pending_jobs or {}
     if not snapshot.tasks:
-        return {
+        lines = {
             uid: DigestLine(followups=c.due, followups_overdue=c.overdue)
             for uid, c in followups.items()
             if c.due
         }
+        for uid, count in pending_jobs.items():
+            if count:
+                line = lines.get(uid, DigestLine())
+                lines[uid] = DigestLine(
+                    followups=line.followups,
+                    followups_overdue=line.followups_overdue,
+                    pending_jobs=count,
+                )
+        return lines
     users = (
         await db.scalars(
             select(User).where(
@@ -651,7 +834,11 @@ async def digest_counts(
         if u.has_role(UserRole.delivery_lead):
             portfolios[u.id] = await dl_portfolio_client_ids(db, u.id)
 
+    from app.services import dl_send_queue  # noqa: PLC0415 — cykl importu
+
     counts: dict[int, dict[str, int]] = {}
+    # Gotowe wiersze per osoba — z nich imiona najdłużej czekających.
+    ready: dict[int, list[BoardTask]] = {}
 
     def bump(uid: int, key: str) -> None:
         counts.setdefault(uid, {"cpro_mine": 0, "cpro_unassigned": 0, "dl_review": 0})[
@@ -662,14 +849,21 @@ async def digest_counts(
         if t.kind == KIND_CPRO_TO_SEND:
             if t.assignee_id is not None:
                 bump(t.assignee_id, "cpro_mine")
+            if snapshot.firm_sender_id is not None:
                 continue
+            # Nikt nie jest ustawiony na firmę — HoR widzi to zadanie w panelu
+            # (`_sees_cpro`), więc skrót liczy je tak samo, także gdy ma osobę
+            # zapasową. Zapasowa osoba liczy je raz, jako swoje.
             for u in users:
-                if u.has_role(UserRole.head_of_recruitment):
+                if u.has_role(UserRole.head_of_recruitment) and u.id != t.assignee_id:
                     bump(u.id, "cpro_unassigned")
         elif t.kind == KIND_DL_REVIEW:
+            if not dl_send_queue.counts_for_reviewer(t):
+                continue
             for u in users:
                 if _sees_dl_review(t, u, portfolios.get(u.id, frozenset())):
                     bump(u.id, "dl_review")
+                    ready.setdefault(u.id, []).append(t)
     for uid, c in followups.items():
         if c.due:
             line = counts.setdefault(
@@ -677,15 +871,74 @@ async def digest_counts(
             )
             line["followups"] = c.due
             line["followups_overdue"] = c.overdue
-    return {uid: DigestLine(**c) for uid, c in counts.items()}
+    for uid, count in pending_jobs.items():
+        if count:
+            line = counts.setdefault(
+                uid, {"cpro_mine": 0, "cpro_unassigned": 0, "dl_review": 0}
+            )
+            line["pending_jobs"] = count
+    today = today or business_today()
+    return {
+        uid: DigestLine(
+            **c, dl_review_people=_longest_waiting(ready.get(uid, []), today)
+        )
+        for uid, c in counts.items()
+    }
+
+
+# Ile osób dzwonek wymienia z imienia — reszta idzie liczbą („i 3 inne osoby”).
+_DIGEST_NAMED_PEOPLE = 2
+
+
+def _short_name(name: str) -> str:
+    """„Marta Zielińska” → „Marta Z.”; jedno słowo zostaje bez zmian."""
+
+    words = name.split()
+    if len(words) < 2:
+        return name.strip()
+    return f"{words[0]} {words[-1][0]}."
+
+
+def _longest_waiting(
+    tasks: list[BoardTask], today: date
+) -> tuple[tuple[str, int], ...]:
+    """Najdłużej czekające osoby: (krótkie imię, dni od gotowości).
+
+    Dni kalendarzowe w kalendarzu firmy, a nie doby od chwili gotowości —
+    karta gotowa wczoraj o 16:00 dziś rano „czeka 1 dzień”.
+    """
+
+    from app.services import dl_send_queue  # noqa: PLC0415 — cykl importu
+
+    ordered = sorted(tasks, key=lambda t: t.ready_since or t.since)
+    return tuple(
+        (
+            _short_name(t.candidate_name),
+            (today - dl_send_queue.local_date(t.ready_since or t.since)).days,
+        )
+        for t in ordered[:_DIGEST_NAMED_PEOPLE]
+    )
+
+
+def _dl_send_phrase(line: DigestLine) -> str:
+    """„Do wysłania do klienta: Marta Z. (6 dni), Tomasz W. i 3 inne osoby”."""
+
+    if not line.dl_review_people:
+        # Linia złożona bez imion (poza `digest_counts`) — sama liczba.
+        return f"{_people(line.dl_review)} do wysłania do klienta"
+    named = ", ".join(
+        f"{name} ({_days(days)})" if days >= 1 else name
+        for name, days in line.dl_review_people
+    )
+    rest = line.dl_review - len(line.dl_review_people)
+    tail = f" i {_other_people(rest)}" if rest > 0 else ""
+    return f"Do wysłania do klienta: {named}{tail}"
 
 
 def digest_message(line: DigestLine) -> str:
     parts: list[str] = []
     if line.dl_review:
-        parts.append(
-            f"{_people(line.dl_review)} {_waits(line.dl_review)} na Twój przegląd"
-        )
+        parts.append(_dl_send_phrase(line))
     if line.cpro_mine:
         parts.append(
             f"{_people(line.cpro_mine)} w kolejce Cpro do wysłania przez Ciebie"
@@ -700,6 +953,12 @@ def digest_message(line: DigestLine) -> str:
             f"{_people(line.cpro_unassigned)} w kolejce Cpro — "
             "nikt nie jest ustawiony do wysyłki"
         )
+    if line.pending_jobs:
+        from app.services.pending_job_completion import (  # noqa: PLC0415
+            pending_jobs_phrase,
+        )
+
+        parts.append(pending_jobs_phrase(line.pending_jobs))
     return " · ".join(parts)
 
 
@@ -707,8 +966,16 @@ def _few(n: int) -> bool:
     return 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14
 
 
-def _waits(n: int) -> str:
-    return "czekają" if _few(n) else "czeka"
+def _days(n: int) -> str:
+    return "1 dzień" if n == 1 else f"{n} dni"
+
+
+def _other_people(n: int) -> str:
+    if n == 1:
+        return "1 inna osoba"
+    if _few(n):
+        return f"{n} inne osoby"
+    return f"{n} innych osób"
 
 
 def _followups(n: int) -> str:
@@ -754,9 +1021,7 @@ _ASSIGNEE_ROLES: tuple[UserRole, ...] = (
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.recruiter,
-    UserRole.sourcer,
 )
 
 
@@ -800,7 +1065,10 @@ async def ensure_assignee_can_move(
     from sqlalchemy.dialects.postgresql import insert as pg_insert  # noqa: PLC0415
 
     from app.api.recruitment_access import ensure_job_membership  # noqa: PLC0415
-    from app.models.job_collaborator import JobCollaborator  # noqa: PLC0415
+    from app.models.job_collaborator import (  # noqa: PLC0415
+        JobCollaborator,
+        JobCollaboratorSource,
+    )
 
     try:
         await ensure_job_membership(db, assignee, job_id)
@@ -821,7 +1089,13 @@ async def ensure_assignee_can_move(
     await db.execute(
         stmt.on_conflict_do_update(
             constraint="uq_job_collaborators_job_user",
-            set_={"removed_from_auto_cc": False, "removed_at": None},
+            # Osoba wskazana imiennie zostaje `manual` — wiersza `auto_cc`
+            # pilnuje synchronizacja z kategorią i mogłaby go zdjąć.
+            set_={
+                "source": JobCollaboratorSource.manual,
+                "removed_from_auto_cc": False,
+                "removed_at": None,
+            },
         )
     )
     return True

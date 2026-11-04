@@ -612,3 +612,123 @@ async def test_outbox_is_atomic_and_failed_sweep_is_retryable(monkeypatch):
     finally:
         if not already_registered:
             event.remove(Session, "after_flush", _after_flush)
+
+
+# ── Przebieg przy wyłączonym Compassie i sprzątanie outboxa (02.10.2026) ────
+
+
+async def test_issue_check_runs_at_most_once_per_ten_minutes():
+    from datetime import timedelta
+
+    from app.tasks.recruitment_allocation import ISSUES_CHECK_EVERY, _issues_check_due
+
+    now = datetime.now(timezone.utc)
+    assert ISSUES_CHECK_EVERY == timedelta(minutes=10)
+    assert _issues_check_due(None, now)
+    assert _issues_check_due("not-a-date", now)
+    assert not _issues_check_due((now - timedelta(minutes=9)).isoformat(), now)
+    assert _issues_check_due((now - timedelta(minutes=10)).isoformat(), now)
+
+
+def _sweep_doubles(monkeypatch, worker, *, issues):
+    from unittest.mock import AsyncMock
+
+    workloads = AsyncMock(return_value={})
+    found = AsyncMock(return_value=issues)
+    monkeypatch.setattr(worker, "load_workloads", workloads)
+    monkeypatch.setattr(worker, "allocation_issues", found)
+    monkeypatch.setattr(worker, "reconcile_favorite_work", AsyncMock())
+    monkeypatch.setattr(
+        worker, "run_request_allocation", AsyncMock(return_value={"assigned": 0})
+    )
+    return workloads, found
+
+
+async def test_sweep_skips_workloads_when_compass_is_off_and_purges_old_events(
+    monkeypatch,
+):
+    """Przy wyłączonym Compassie przebieg nie czyta 70 tys. procesów co 30 s
+    i nie budzi nikogo alertem „brak danych o urlopach”, a obsłużone zdarzenia
+    starsze niż doba znikają z outboxa."""
+    from datetime import timedelta
+
+    from app.models.recruitment_allocation import RecruitmentAllocationEvent
+    from app.tasks import recruitment_allocation as worker
+
+    monkeypatch.setattr(settings, "COMPASS_AVAILABILITY_ENABLED", False)
+    workloads, found = _sweep_doubles(
+        monkeypatch, worker, issues=[{"reason": "availability_stale"}]
+    )
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        old = RecruitmentAllocationEvent(
+            topic="ci-old", processed_at=now - timedelta(days=2)
+        )
+        recent = RecruitmentAllocationEvent(
+            topic="ci-recent", processed_at=now - timedelta(hours=1)
+        )
+        waiting = RecruitmentAllocationEvent(topic="ci-waiting")
+        db.add_all([old, recent, waiting])
+        await db.commit()
+        old_id, recent_id, waiting_id = old.id, recent.id, waiting.id
+
+    async with AsyncSessionLocal() as db:
+        await worker.run_allocation_sweep(db)
+        state = await db.get(RecruitmentAllocationState, 1, populate_existing=True)
+        stats = dict(state.stats)
+
+    workloads.assert_not_awaited()
+    found.assert_not_awaited()
+    assert stats["issues"] == []
+    assert stats["issues_checked_at"] is None
+    async with AsyncSessionLocal() as db:
+        assert await db.get(RecruitmentAllocationEvent, old_id) is None
+        assert await db.get(RecruitmentAllocationEvent, recent_id) is not None
+        # Zdarzenie czekające jest stemplowane w tym przebiegu, nie kasowane.
+        assert (
+            await db.get(RecruitmentAllocationEvent, waiting_id)
+        ).processed_at is not None
+
+
+async def test_sweep_checks_issues_once_per_interval_when_compass_is_on(monkeypatch):
+    from datetime import timedelta
+    from unittest.mock import AsyncMock
+
+    from sqlalchemy.dialects.postgresql import insert
+
+    from app.tasks import recruitment_allocation as worker
+
+    monkeypatch.setattr(settings, "COMPASS_AVAILABILITY_ENABLED", True)
+    workloads, found = _sweep_doubles(monkeypatch, worker, issues=[])
+    monkeypatch.setattr(
+        worker, "workforce_context", AsyncMock(return_value=WorkforceContext(fresh=True))
+    )
+
+    async def sweep_with_last_check(minutes_ago: int) -> tuple[dict, str]:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                insert(RecruitmentAllocationState).values(id=1).on_conflict_do_nothing()
+            )
+            state = await db.get(RecruitmentAllocationState, 1, populate_existing=True)
+            checked = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+            state.stats = {
+                **(state.stats or {}),
+                "issues": [],
+                "issues_checked_at": checked.isoformat(),
+            }
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            await worker.run_allocation_sweep(db)
+            state = await db.get(RecruitmentAllocationState, 1, populate_existing=True)
+            return dict(state.stats), checked.isoformat()
+
+    stats, checked = await sweep_with_last_check(1)
+    workloads.assert_not_awaited()
+    found.assert_not_awaited()
+    # Między sprawdzeniami zostaje poprzedni wynik i jego znacznik czasu.
+    assert stats["issues_checked_at"] == checked
+
+    stats, checked = await sweep_with_last_check(11)
+    workloads.assert_awaited_once()
+    found.assert_awaited_once()
+    assert stats["issues_checked_at"] != checked

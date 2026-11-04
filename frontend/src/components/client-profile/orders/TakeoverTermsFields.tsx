@@ -11,6 +11,8 @@ import {
   sourceRemainingMd,
   transferPreview,
 } from "@/lib/order-takeover";
+import { OrderCurrencySelect } from "@/components/orders/OrderRateUnitToggle";
+import { normalizeRateField } from "@/lib/rate-unit";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { formatDate } from "@/types/client-profile";
 
@@ -26,11 +28,26 @@ export interface TakeoverTermsValue {
   entryDate: string;
   rateCost: string;
   rateRevenue: string;
+  /** Waluty stawek (ticket 10.2026); serwer przelicza je do PLN/MD po kursie
+   *  z dnia wejścia — tak samo jak przy „Dodaj konsultanta”. */
+  costCurrency: string;
+  revenueCurrency: string;
   method: MdTransferMethod | null;
 }
 
 export function emptyTakeoverTerms(entryDate: string, rateCost = ""): TakeoverTermsValue {
-  return { entryDate, rateCost, rateRevenue: "", method: null };
+  return {
+    entryDate,
+    rateCost,
+    rateRevenue: "",
+    costCurrency: "PLN",
+    revenueCurrency: "PLN",
+    method: null,
+  };
+}
+
+function moneyLabel(currency: string): string {
+  return currency === "PLN" ? "zł" : currency;
 }
 
 /** Czy da się zapisać — ta sama reguła, której pilnuje serwer. */
@@ -68,6 +85,8 @@ export function toTakeoverInput(
     entry_date: value.entryDate,
     rate_cost: parseDecimalInput(value.rateCost) as number,
     rate_revenue: parseDecimalInput(value.rateRevenue) as number,
+    rate_candidate_currency: value.costCurrency,
+    rate_client_currency: value.revenueCurrency,
     md_transfer_method: effectiveTransferMethod(departing.pool_unit, value.method),
     expected_case_version:
       departing.offboarding_case?.status === "pending"
@@ -98,7 +117,10 @@ export function TakeoverTermsFields({
     unit: departing.pool_unit,
     remaining: sourceRemainingMd(departing),
     departingRate: sourceDepartingRate(departing),
-    incomingRate: parseDecimalInput(value.rateRevenue),
+    // Stawka w obcej walucie nie porówna się ze stawką odchodzącego (PLN/MD)
+    // bez kursu — liczbę MD policzy serwer przy zapisie.
+    incomingRate:
+      value.revenueCurrency === "PLN" ? parseDecimalInput(value.rateRevenue) : null,
   });
   const set = (patch: Partial<TakeoverTermsValue>) => onChange({ ...value, ...patch });
   const scheduled = departing.takeover_source === "leaving";
@@ -120,7 +142,7 @@ export function TakeoverTermsFields({
         </div>
         <div>
           <label htmlFor={`${idPrefix}-cost`} className={labelClass}>
-            Stawka koszt (zł/MD) *
+            Stawka koszt ({moneyLabel(value.costCurrency)}/MD) *
           </label>
           <input
             id={`${idPrefix}-cost`}
@@ -129,7 +151,13 @@ export function TakeoverTermsFields({
             onChange={(event) =>
               set({ rateCost: sanitizeDecimalInput(event.target.value) })
             }
+            onBlur={(event) => set({ rateCost: normalizeRateField(event.target.value) })}
             className={inputClass}
+          />
+          <OrderCurrencySelect
+            value={value.costCurrency}
+            onChange={(currency) => set({ costCurrency: currency })}
+            label="Waluta stawki kosztowej"
           />
           {costNote ? (
             <p className="mt-1 text-xs text-muted-foreground">{costNote}</p>
@@ -137,7 +165,7 @@ export function TakeoverTermsFields({
         </div>
         <div>
           <label htmlFor={`${idPrefix}-revenue`} className={labelClass}>
-            Stawka przychód (zł/MD) *
+            Stawka przychód ({moneyLabel(value.revenueCurrency)}/MD) *
           </label>
           <input
             id={`${idPrefix}-revenue`}
@@ -146,7 +174,13 @@ export function TakeoverTermsFields({
             onChange={(event) =>
               set({ rateRevenue: sanitizeDecimalInput(event.target.value) })
             }
+            onBlur={(event) => set({ rateRevenue: normalizeRateField(event.target.value) })}
             className={inputClass}
+          />
+          <OrderCurrencySelect
+            value={value.revenueCurrency}
+            onChange={(currency) => set({ revenueCurrency: currency })}
+            label="Waluta stawki przychodowej"
           />
         </div>
       </div>
@@ -158,6 +192,9 @@ export function TakeoverTermsFields({
         departingName={departing.consultant_name}
         value={value.method}
         onChange={(method) => set({ method })}
+        pendingIncomingLabel={
+          value.revenueCurrency === "PLN" ? undefined : "po kursie przy zapisie"
+        }
       />
 
       {scheduled ? (

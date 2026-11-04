@@ -1,9 +1,13 @@
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional, Sequence
+from dataclasses import dataclass
+from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 import asyncio
 import hashlib
 import io
+import json
 import logging
 import re
 import tempfile
@@ -18,6 +22,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Path,
     Query,
     Request,
     Response,
@@ -25,6 +30,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse, StreamingResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from sqlalchemy import (
     ARRAY,
@@ -38,6 +44,7 @@ from sqlalchemy import (
     or_,
     select,
     text,
+    true,
     update,
 )
 from sqlalchemy.exc import IntegrityError
@@ -46,9 +53,20 @@ from sqlalchemy.orm import aliased, selectinload
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.scheduling import business_today
-from app.core.http_headers import content_disposition
-from app.core.rate_limit import limiter
+from app.core.export_safety import safe_row
+from app.core.scheduling import DEFAULT_TZ, business_today
+from app.services.pipeline_next_action import (
+    StageColumn,
+    group_key_for_column,
+    next_action_for,
+)
+from app.core.http_headers import (
+    INLINE_SAFE_MEDIA_TYPES,
+    content_disposition,
+    safe_document_disposition,
+)
+from app.core.rate_limit import limiter, user_or_ip_key
+from app.core.tasks import spawn
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
 from app.models.candidate_document import (
     CandidateDocument,
@@ -56,35 +74,41 @@ from app.models.candidate_document import (
 )
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.contract import Contract, ContractStatus, RateUnit
-from app.models.cv_generated_document import CvGeneratedDocument
-from app.models.cv_generated_share import CvGeneratedShareToken
-from app.models.index_outbox import IndexOutboxEvent
 from app.models.activity import Activity
 from app.models.invite_link import CandidateInviteLink
+from app.models.candidate_source_event import CandidateSourceEvent, SourceChannel
 from app.models.user_activity import UserActivity, UserActionType
-from app.models.note import Note
+from app.models.note import SYSTEM_NOTE_SOURCE, Note
+from app.services import candidate_recruitment_filter as recruitment_filter
+from app.services import candidate_stage_column as stage_column_filter
+from app.services import note_kinds
+from app.services.keyword_terms import KeywordTooShort
 from app.models.notification import Notification, NotificationType
 from app.models.pipeline_template import PipelineStageDef, RejectionReason
+from app.models.recruitment_process import RecruitmentProcess
 from app.models.candidate_stage_removal import CandidateStageRemoval
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_priority import PriorityChannel
 from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.talent_pool import TalentPoolMembership
+from app.services import talent_pool_visibility
 from app.models.user import User, UserRole
 from app.schemas.candidate import (
     CandidateCreate,
     CandidateCvHighlights,
+    CandidateCVPreview,
     CandidateDocumentOut,
     CandidateDocumentUpdate,
     CandidateEngagementUpdate,
     ActiveRecruitmentBrief,
+    StageMatchBrief,
+    AvailabilityFromNotes,
     CandidateFromCVDuplicate,
     CandidateFromCVResponse,
-    CandidateFromLinkedInCreate,
-    CandidateFromLinkedInResponse,
     CandidateLinkedinSyncResponse,
     CandidateList,
+    CandidateLocationDistance,
     CandidateLocationUpdate,
     CandidateQuickViewAvailability,
     CandidateQuickViewCandidate,
@@ -101,17 +125,19 @@ from app.schemas.candidate import (
     CandidateUpdate,
     EmploymentEngagement,
     EmploymentInfo,
+    EmploymentMarker,
     EmploymentState,
     InviteSourceBrief,
     LinkedinSnapshotSummary,
     MatchStats,
     TalentPoolBrief,
 )
-from app.models.linkedin_snapshot import LinkedinSyncStatus
 from app.models.recruitment_pipeline import STAGE_CATEGORY, PipelineStage, StageCategory
 from app.schemas.pipeline import ClientRateUpdate, STAGE_LABELS
 from app.services.match_score_cache import bulk_get_or_compute
-from app.services.critical_events import record_executed
+from app.services.notes_profile_fill import availability_origin
+from app.services.candidate_added_date import added_to_base_sql
+from app.services.process_entry_meta import auto_match_badge
 from app.services.rejection_reason_labels import rejection_reason_label
 from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services.candidate_contact_hooks import (
@@ -126,16 +152,30 @@ from app.services.scoring_service import (
     resolve_active_profile,
     summarize_match_stats,
 )
-from app.services.dedup_service import find_candidate_duplicates
+from app.services.employment_marker import (
+    ContractRow,
+    ending_soon_exists,
+    markers_from_rows,
+    rows_from_candidate,
+)
+from app.services.candidate_blacklist import load_blacklist_info
+from app.services.dedup_service import (
+    find_candidate_by_email,
+    find_candidate_by_phone_and_name,
+    find_candidate_duplicates,
+)
 from app.schemas.pipeline import HiringManagerVetoBrief
 from app.services.hiring_manager_verdicts import (
     load_all_vetoes_for_candidate,
-    load_manager_rejections,
 )
 from app.services.experience_end import sql_current_end_literals
 from app.services.polish_ilike import contains_pattern
+from app.services.candidate_search_predicates import (
+    FILTER_DATE_MAX,
+    FILTER_DATE_MIN,
+    business_date_range,
+)
 from app.services.pipeline_eligibility import assert_candidate_move_eligible
-from app.services.pipeline_latest import current_hired_stage_exists
 from app.services.text_cleaning import clean_rich_text
 from app.services.note_mention_render import (
     build_traffit_user_label_map,
@@ -145,6 +185,7 @@ from app.services.note_mention_render import (
 from app.api.deps import RecruiterPlus
 from app.api.candidate_access import (
     CandidateDocumentAccess,
+    CandidateDocumentRemoveAccess,
     CandidateExportAccess,
     CandidateHardDeleteAccess,
     CandidatePIIAccess,
@@ -152,10 +193,17 @@ from app.api.candidate_access import (
     CandidateSearchAccess,
     CandidateWriteAccess,
     CANDIDATE_DOCUMENT_ROLES,
+    CandidateBulkCvAccess,
     CANDIDATE_WRITE_ROLES,
+    NOT_READ_ONLY,
     client_rate_write_allowed,
+    client_rate_write_denied,
     resolve_client_rate_write,
+    hidden_send_note_ids,
+    note_content_hidden,
+    note_rate_visibility_clause,
     user_can_view_client_rate,
+    visible_note_content,
 )
 from app.api.financial_access import (
     has_financial_access,
@@ -167,8 +215,14 @@ from app.api.recruitment_access import (
     job_read_scope_clause,
 )
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
-from app.services import candidate_audit
-from app.services.candidate_audit import candidate_subject_reference
+from app.services import (
+    candidate_audit,
+    candidate_hard_delete,
+    client_rate_correction,
+    cv_download_policy,
+)
+from app.services.candidate_rate_from import declared_rate_from, rate_summary
+from app.services.stage_client_rate import latest_client_rates
 from app.services.candidate_monthly_rate_retirement import (
     RETIRED_MONTHLY_FILTER_KEYS,
     reject_retired_candidate_rate,
@@ -184,9 +238,17 @@ from app.services.candidate_location_writer import (
     apply_candidate_location_from_source,
     normalize_candidate_location,
 )
+from app.services.candidate_name_rules import (
+    NAME_MARKER_ERROR_TYPE,
+    find_name_markers,
+    name_marker_message,
+    strip_name_markers,
+    without_name_markers,
+)
 from app.services.candidate_identity_ownership import (
     identity_sync_state,
     lock_changed_traffit_identity_fields,
+    lock_changed_traffit_synced_fields,
     restore_traffit_identity_fields,
 )
 from app.services.recruitment_process_commands import (
@@ -196,11 +258,20 @@ from app.services.recruitment_process_commands import (
     void_process,
 )
 from app.services.notification_access import filter_notification_recipients
+from app.services.write_author import WriteAuthor
 from app.api import ws as ws_manager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
+
+# Primary keys of candidates/jobs/documents are PostgreSQL ``integer`` (int4).
+# Python ``int`` is unbounded, so without an explicit bound an oversized path
+# segment (e.g. /candidates/99999999999) passes FastAPI validation and then
+# blows up inside asyncpg's int4 encoder (OverflowError -> DBAPIError -> 500).
+# Bounding the path params makes FastAPI answer 422 before any query is sent.
+_INT32_MAX = 2_147_483_647
+DbIdPath = Annotated[int, Path(ge=1, le=_INT32_MAX)]
 
 
 def _candidate_history_response_for_user(response: dict, current_user) -> dict:  # type: ignore[no-untyped-def]
@@ -215,6 +286,8 @@ def _candidate_history_response_for_user(response: dict, current_user) -> dict: 
     if not can_view_client_rate:
         for entry in response.get("jobs", []):
             entry["client_rate"] = None
+            # Notatka z wysyłki niesie cenę dla klienta (12.10.2026).
+            entry["client_rate_note"] = None
     if not has_financial_access(current_user):
         response["contracts"] = [
             redact_financial_fields(contract)
@@ -225,6 +298,49 @@ def _candidate_history_response_for_user(response: dict, current_user) -> dict: 
     return response
 
 
+async def _attach_rate_hints(
+    db: AsyncSession, candidate_id: int, jobs_map: dict, *, show_client_rate: bool
+) -> None:
+    """Stawki pary, których nie ma na etapie, a leżą w notatkach (12.10.2026).
+
+    Para z czasów Traffita ma etapy bez kwot: oczekiwanie kandydata jest
+    w karcie rekomendacji, cena wysłania — w notatce Delivery Leada z dnia
+    wysyłki. Zakładka „Rekrutacje” pokazuje je jako podpowiedź obok pustego
+    pola; stawką stają się dopiero po zapisie. Awaria odczytu nie zabiera
+    historii rekrutacji — zostaje samo „—”.
+    """
+    from app.services import recruitment_rate_hints
+
+    for entry in jobs_map.values():
+        entry["expected_rate_hint"] = None
+        entry["client_rate_note"] = None
+    without_candidate_rate = [
+        job_id for job_id, entry in jobs_map.items() if entry["expected_rate"] is None
+    ]
+    without_client_rate = [
+        job_id
+        for job_id, entry in jobs_map.items()
+        if show_client_rate and entry["client_rate"] is None
+    ]
+    try:
+        async with db.begin_nested():
+            rates = await recruitment_rate_hints.candidate_rates(
+                db, candidate_id, without_candidate_rate
+            )
+            notes = await recruitment_rate_hints.send_notes(
+                db, candidate_id, without_client_rate
+            )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "rate hints failed for candidate=%s", candidate_id, exc_info=True
+        )
+        return
+    for job_id, hint in rates.items():
+        jobs_map[job_id]["expected_rate_hint"] = hint
+    for job_id, note in notes.items():
+        jobs_map[job_id]["client_rate_note"] = note
+
+
 class DuplicateCheckPayload(BaseModel):
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
@@ -232,6 +348,22 @@ class DuplicateCheckPayload(BaseModel):
     name: Optional[str] = None
     lastname: Optional[str] = None
     exclude_candidate_id: Optional[int] = None
+
+
+# Data filtra listy: poza zakresem = 422, nie przepełnienie `date` i 500.
+FilterDate = Annotated[date, Field(ge=FILTER_DATE_MIN, le=FILTER_DATE_MAX)]
+# Kolumna Tablicy (`candidate_stage_column.STAGE_COLUMNS`, front `BoardColumnKey`).
+StageColumnKey = Literal[
+    "new",
+    "screening",
+    "verified",
+    "cv_qc",
+    "cv_sent",
+    "client_interview",
+    "contract",
+    "hired",
+    "closed",
+]
 
 
 class CandidateFilterSpec(BaseModel):
@@ -252,6 +384,14 @@ class CandidateFilterSpec(BaseModel):
     skills_required_any_groups: Optional[list[str]] = None
     skills_preferred: Optional[list[str]] = None
     skills_excluded: Optional[list[str]] = None
+    # „Mile widziane” poza umiejętnościami — wyłącznie kolejność, nigdy nie
+    # tną (audyt 26.09.2026: miasto i kategoria rekrutacji jako filtry wycinały
+    # 55,6% osób, które zespół potem wybrał; wiersze nietechniczne łączone przez
+    # I — 61%). Każde spełnione miasto/kategoria/wiersz to +1 obok
+    # `skills_preferred`.
+    location_preferred: Optional[list[str]] = None
+    competence_category_preferred: Optional[list[int]] = None
+    q_preferred_group: Optional[list[str]] = None
     tags: Optional[list[str]] = None
     # Języki: "kod" albo "kod:POZIOM" (`candidate_search_predicates.language_clauses`).
     languages: Optional[list[str]] = None
@@ -265,6 +405,11 @@ class CandidateFilterSpec(BaseModel):
     text_mode: Optional[Literal["auto", "literal", "semantic"]] = None
     # Ukryj osoby BEZ danych dla aktywnych filtrów lokalizacji/stażu/stawki.
     hide_unknown: Optional[bool] = None
+    # D5 (19.10.2026): to samo, ale tylko dla stawki / tylko dla miasta —
+    # wybór „pokaż na końcu / ukryj” w okienku samego filtru. Same nigdy nie
+    # poszerzają wyniku (`candidate_search_predicates.Semantics`).
+    hide_unknown_rate: Optional[bool] = None
+    hide_unknown_location: Optional[bool] = None
     # Brak (v1) = DOKŁADNIE dotychczasowe wyniki listy (na tym stoją alerty
     # zapisanych wyszukiwań). 2 = semantyka wspólna z wyszukiwarką.
     semantics_version: Optional[int] = Field(None, ge=1, le=2)
@@ -287,6 +432,11 @@ class CandidateFilterSpec(BaseModel):
     worked_at_client_id: Optional[list[int]] = None
     recruitment_id: Optional[list[int]] = None
     recruitment_match: Literal["assigned", "not_assigned"] = "assigned"
+    # Blok „Rekrutacje” (12.10.2026): zakres „wszystkie rekrutacje klienta”
+    # (LUB z `recruitment_id`, kierunek z `recruitment_match`) oraz pytania bez
+    # zakresu — był / nie był w jakiejkolwiek rekrutacji, nie ma procesu w toku.
+    recruitment_client_id: Optional[list[int]] = None
+    recruitment_presence: Optional[Literal["never", "ever", "not_in_process"]] = None
     recently_changed_jobs: Optional[int] = Field(None, ge=1, le=3)
     open_to: Optional[list[str]] = None
     q_all: Optional[list[str]] = None
@@ -298,26 +448,34 @@ class CandidateFilterSpec(BaseModel):
     # Promień w km od miasta z `location` i województwa (`pl_places`).
     location_radius_km: Optional[int] = Field(None, ge=1, le=300)
     voivodeship: Optional[list[str]] = None
+    # D6 (19.10.2026): kilka miast, każde z własnym promieniem
+    # (`"Warszawa:30"`, `"Łódź"`) — SUMA z województwami
+    # (`candidate_search_predicates.location_places_clause`).
+    location_places: Optional[list[str]] = None
     # Kontakt z kandydatem w okresie (notatki, rozmowy, maile z Traffita).
     contacted: Optional[Literal["yes", "no"]] = None
-    contacted_from: Optional[date] = None
-    contacted_to: Optional[date] = None
+    contacted_from: Optional[FilterDate] = None
+    contacted_to: Optional[FilterDate] = None
     contacted_by: Optional[list[int]] = None
     pipeline_stage: Optional[list[PipelineStage]] = None
     stage_category: Optional[list[StageCategory]] = None
     stage_current_only: Optional[bool] = None
     stage_moved_by: Optional[list[int]] = None
-    stage_moved_after: Optional[date] = None
-    stage_moved_before: Optional[date] = None
+    stage_moved_after: Optional[FilterDate] = None
+    stage_moved_before: Optional[FilterDate] = None
     stage_client_id: Optional[list[int]] = None
+    # „Dodany na etap” (19.10.2026): kolumny Tablicy zamiast kodów etapu —
+    # „QC CV” to nazwa etapu szablonu, nie kod (`candidate_stage_column`).
+    # LUB z `pipeline_stage`, na tym samym przejściu co kto/kiedy/klient.
+    stage_column: Optional[list[StageColumnKey]] = None
     # "Data wysłania do klienta" — dedykowany filtr po dacie rekomendacji
     # kandydata do klienta (przejście na etap `cv_sent`). Niezależny od
     # ogólnego rodzinnego filtra `stage_*`: dopasowuje kandydatów z DOWOLNYM
     # ruchem na `cv_sent` w oknie dat (historycznie), inclusive `YYYY-MM-DD`.
-    sent_to_client_from: Optional[date] = None
-    sent_to_client_to: Optional[date] = None
+    sent_to_client_from: Optional[FilterDate] = None
+    sent_to_client_to: Optional[FilterDate] = None
     competence_category_id: Optional[list[int]] = None
-    sort: Literal["newest", "oldest", "name", "relevance"] = "newest"
+    sort: Literal["newest", "oldest", "name", "relevance", "match"] = "newest"
     id_after: Optional[int] = Field(None, ge=1)
     updated_after: Optional[datetime] = None
     # Skaner alertów zapisanych wyszukiwań: zmiana wiersza ALBO nowa notatka /
@@ -330,6 +488,16 @@ class CandidateFilterSpec(BaseModel):
     def reject_retired_monthly_rate(cls, value):  # type: ignore[no-untyped-def]
         return reject_retired_candidate_rate(value)
 
+    @field_validator("location_places")
+    @classmethod
+    def location_places_are_valid(cls, value):  # type: ignore[no-untyped-def]
+        """Ten sam kształt co w GET listy (`_reject_invalid_location_places`)
+        — eksport „z filtra” dostaje 422 z walidacji ciała."""
+        from app.services import candidate_search_predicates as predicates
+
+        predicates.parse_location_places(value)
+        return value
+
     @field_validator("remote_policy", mode="before")
     @classmethod
     def coerce_legacy_remote_policy(cls, value):
@@ -337,6 +505,24 @@ class CandidateFilterSpec(BaseModel):
         if isinstance(value, str):
             return [value]
         return value
+
+    @model_validator(mode="after")
+    def ranges_are_ordered(self) -> "CandidateFilterSpec":
+        """Odwrócony przedział stawki/stażu to 422 — ta sama reguła co
+        wyszukiwarka (UAT B28, runda 2 audytu 25.09.2026). Eksport „z filtra”
+        (POST) dostaje ją z walidacji ciała; GET listy sprawdza wcześniej
+        (`_reject_reversed_ranges`), bo tam spec powstaje w handlerze."""
+        from app.schemas.candidate_search import (  # noqa: PLC0415
+            EXPERIENCE_RANGE_REVERSED_MSG,
+            RATE_RANGE_REVERSED_MSG,
+            raise_if_range_reversed,
+        )
+
+        raise_if_range_reversed(
+            self.min_experience, self.max_experience, EXPERIENCE_RANGE_REVERSED_MSG
+        )
+        raise_if_range_reversed(self.min_rate, self.max_rate, RATE_RANGE_REVERSED_MSG)
+        return self
 
 
 class CandidateExportRequest(BaseModel):
@@ -355,8 +541,44 @@ class CandidateExportRequest(BaseModel):
         return unique_ids
 
 
+def _reject_invalid_location_places(values: Optional[list[str]]) -> None:
+    """422 po polsku dla złej listy `location_places` (za dużo miast, zły
+    promień) — przed zbudowaniem `CandidateFilterSpec`, jak zakresy wyżej."""
+    from app.services import candidate_search_predicates as predicates  # noqa: PLC0415
+
+    try:
+        predicates.parse_location_places(values)
+    except predicates.InvalidLocationPlaces as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+
 def _build_response(data: dict) -> dict:
     return {"success": True, "data": data}
+
+
+def _reject_reversed_ranges(
+    *,
+    min_rate: Optional[Decimal],
+    max_rate: Optional[Decimal],
+    min_experience: Optional[int],
+    max_experience: Optional[int],
+) -> None:
+    """422 po polsku dla odwróconego zakresu na liście — przed zbudowaniem
+    `CandidateFilterSpec`, którego błąd walidacji w handlerze byłby 500."""
+    from app.schemas.candidate_search import reversed_range_message  # noqa: PLC0415
+
+    message = reversed_range_message(
+        experience_min=min_experience,
+        experience_max=max_experience,
+        rate_min=min_rate,
+        rate_max=max_rate,
+    )
+    if message is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=message
+        )
 
 
 def _reject_retired_candidate_query(request: Request) -> None:
@@ -383,7 +605,43 @@ _NOTE_PREVIEW_MAX_CHARS = 220
 # wartości to krótkie kategorie ("Po CV", "Rezygnacja przez Kandydata", max ~37 zn.),
 # ten cap jest tylko bezpiecznikiem na patologiczny free-text z natywnego flow.
 _REJECTION_REASON_MAX_CHARS = 400
+# Wycinki pod wynikiem: najwyżej tyle najnowszych (pasujących) notatek na osobę.
+_SNIPPET_NOTES_PER_CANDIDATE = 20
 _RATE_UNIT_SHORT = {"hourly": "/h", "daily": "/d", "monthly": "/mc"}
+
+
+async def _contact_attempt_counts(
+    db: AsyncSession, candidate_ids: list[int]
+) -> dict[int, int]:
+    """Próby kontaktu bez rozmowy: notatki „nie odebrał” i nieodebrane telefony.
+
+    Lista praktykanta i koordynacja kontaktu zapisują „nie odbiera” jako
+    połączenie (``calls``), nie notatkę — liczymy oba źródła. Dwa zapytania
+    po ``candidate_id`` strony.
+    """
+    counts: dict[int, int] = {}
+    if not candidate_ids:
+        return counts
+    from app.models.call import Call, CallStatus
+
+    for stmt in (
+        select(Note.candidate_id, func.count())
+        .where(
+            Note.candidate_id.in_(candidate_ids),
+            Note.parent_note_id.is_(None),
+            Note.kind == note_kinds.CONTACT_ATTEMPT,
+        )
+        .group_by(Note.candidate_id),
+        select(Call.candidate_id, func.count())
+        .where(
+            Call.candidate_id.in_(candidate_ids),
+            or_(Call.status == CallStatus.missed, Call.contact_outcome == "no_answer"),
+        )
+        .group_by(Call.candidate_id),
+    ):
+        for candidate_id, count in (await db.execute(stmt)).all():
+            counts[candidate_id] = counts.get(candidate_id, 0) + count
+    return counts
 
 
 def _format_note_preview(raw: str, max_chars: int = _NOTE_PREVIEW_MAX_CHARS) -> str:
@@ -397,6 +655,42 @@ def _format_note_preview(raw: str, max_chars: int = _NOTE_PREVIEW_MAX_CHARS) -> 
     if len(text_only) <= max_chars:
         return text_only
     return text_only[: max_chars - 1].rstrip() + "…"
+
+
+def _list_note_preview(viewer: User, row: Any, send_ids: frozenset[int]) -> str:
+    """Podgląd notatki na liście („Ostatnia rozmowa”, „ostatnia notatka”).
+
+    ``row`` niesie ``id``, ``kind``, ``author_id`` i ``content``. Notatka DL-a
+    z wysyłki (``send_ids`` z ``hidden_send_note_ids``) dostaje zdanie
+    zastępcze jak w Historii profilu — decyzja C, 14.10.2026.
+    """
+    return _format_note_preview(
+        visible_note_content(viewer, row, send_note=row.id in send_ids) or ""
+    )
+
+
+def _snippet_notes_by_candidate(
+    viewer: User, rows: Sequence[Any], send_ids: frozenset[int]
+) -> dict[int, list[str]]:
+    """Treści notatek do wycinków wyszukiwania, bez zakrytych dla ``viewer``.
+
+    Wycinek nie ma zdania zastępczego, więc notatka DL-a z wysyłki (decyzja C,
+    14.10.2026) po prostu nie jest jego źródłem — jak wpis ``dl_rate``
+    (``note_rate_visibility_clause`` w zapytaniu).
+    """
+    out: dict[int, list[str]] = {}
+    for row in rows:
+        if row.candidate_id is None or not row.content:
+            continue
+        if note_content_hidden(
+            viewer,
+            kind=row.kind,
+            author_id=row.author_id,
+            send_note=row.id in send_ids,
+        ):
+            continue
+        out.setdefault(row.candidate_id, []).append(row.content)
+    return out
 
 
 def _format_rejection_reason(
@@ -486,27 +780,21 @@ def _candidate_list_options():
     )
 
 
+_EMPLOYMENT_FILTER_VALUES = frozenset({"at_client", "available", "ending_soon"})
+
+
 def _at_client_predicate():
     """
     Derived SQL predicate: candidate is currently employed at one of our
-    clients. True when ANY of:
-      • a live Contract (``active`` or date-driven ``ending``), OR
-      • an active `current_employment` conflict, OR
-      • a recruitment whose LATEST stage is `hired`.
+    clients — a live Contract (``active`` or date-driven ``ending``). Drives
+    the inverse `employment=available` filter too, via
+    `not_(_at_client_predicate())`.
 
-    The hired-stage clause is what makes `employment=at_client` return the real
-    placed-consultant population. `candidate_stages.stage='hired'` is documented
-    as "Zatrudniony / kontrakt aktywny" and is the signal the Traffit import
-    populated — the `contracts` table was never backfilled, so the contract /
-    conflict clauses alone matched ~1 row out of ~700 placed consultants.
-
-    `candidate_stages` is append-only history, so "currently hired" means a
-    `hired` row with no later move for the same job (mirrored in
-    `_derive_employment`; the SQL rule lives in
-    `pipeline_latest.current_hired_stage_exists`). Drives the inverse
-    `employment=available` filter too, via `not_(_at_client_predicate())`.
+    Od 17.10.2026 (decyzja Artura) tylko umowa: ręczny konflikt
+    `current_employment` i etap „Zatrudniony” bez umowy nie są już sygnałem
+    — tak samo jak w znaczniku „Pracuje u nas” (`services/employment_marker`).
     """
-    contract_exists = (
+    return (
         select(1)
         .where(
             and_(
@@ -516,19 +804,6 @@ def _at_client_predicate():
         )
         .exists()
     )
-    conflict_exists = (
-        select(1)
-        .where(
-            and_(
-                CandidateConflict.candidate_id == Candidate.id,
-                CandidateConflict.type == ConflictType.current_employment,
-                CandidateConflict.active.is_(True),
-            )
-        )
-        .exists()
-    )
-    hired_latest_exists = current_hired_stage_exists(Candidate.id)
-    return or_(contract_exists, conflict_exists, hired_latest_exists)
 
 
 # `end` wpisu doświadczenia po przycięciu i bez wielkości liter — porównywane
@@ -712,12 +987,30 @@ def _talent_pools_for(candidate: Candidate) -> list[TalentPoolBrief]:
 
     Safe to call only when `pool_memberships.pool` is eager-loaded via
     `_candidate_list_options()` (otherwise raises MissingGreenlet in async).
+
+    Bez list „Tylko ja” (0520) — także dla ich właściciela: ta odpowiedź nie
+    zna patrzącego, a właściciel widzi swoje listy w „Na listę” na profilu.
     """
     return [
         TalentPoolBrief(id=m.pool.id, name=m.pool.name)
         for m in (candidate.pool_memberships or [])
-        if m.pool is not None
+        if m.pool is not None and talent_pool_visibility.is_public(m.pool)
     ]
+
+
+async def _page_employment_markers(
+    db: AsyncSession, candidates: Sequence[Candidate]
+) -> dict[int, EmploymentMarker]:
+    """Znaczniki „Pracuje u nas” dla osób wczytanych z `_candidate_list_options`.
+
+    Umowy są już w pamięci, więc lista — gorąca ścieżka — nie dokłada o nie
+    zapytań; zamówienia i Delivery Leadzi dochodzą tylko, gdy na stronie jest
+    ktoś z umową.
+    """
+    contracts: list[ContractRow] = []
+    for candidate in candidates:
+        contracts.extend(rows_from_candidate(candidate))
+    return await markers_from_rows(db, contracts, today=business_today())
 
 
 def _candidate_to_response(candidate: Candidate) -> CandidateResponse:
@@ -730,8 +1023,12 @@ def _candidate_to_response(candidate: Candidate) -> CandidateResponse:
     """
     payload = CandidateResponse.model_validate(candidate)
     raw_identity_sync = identity_sync_state(candidate)
+    notes_origin = availability_origin(candidate)
     return payload.model_copy(
         update={
+            "availability_from_notes": (
+                AvailabilityFromNotes(**notes_origin) if notes_origin else None
+            ),
             "employment": _derive_employment(candidate),
             "talent_pools": _talent_pools_for(candidate),
             "identity_sync": (
@@ -746,15 +1043,13 @@ def _candidate_to_response(candidate: Candidate) -> CandidateResponse:
 def _derive_employment(candidate: Candidate) -> EmploymentInfo:
     """
     Compute EmploymentInfo from eager-loaded `contracts` + `conflicts` +
-    `pipeline_stages`. Preference order: live Contract (``active`` or
-    date-driven ``ending``; source of truth) →
-    active current_employment conflict (manual flag) → currently hired
-    (latest pipeline stage == `hired`) → on_bench (has history, incl. past
-    placements) → external (never engaged).
+    `pipeline_stages`. Live Contract (``active`` or date-driven ``ending``)
+    = employed_at_client → on_bench (has history, incl. past placements and
+    old manual flags) → external (never engaged).
 
-    Requires `pipeline_stages → job → client` eager-loaded (see
-    `_candidate_list_options`) — otherwise the `hired` branch lazy-loads and
-    raises MissingGreenlet in async.
+    Od 17.10.2026 (decyzja Artura) zatrudnienie wynika wyłącznie z umowy:
+    ręczny konflikt `current_employment` i etap „Zatrudniony” bez umowy
+    dają już tylko `on_bench` — tak jak znacznik „Pracuje u nas”.
     """
     active_contracts = [
         c
@@ -794,62 +1089,6 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
             ],
         )
 
-    active_conflicts = [
-        cf
-        for cf in (candidate.conflicts or [])
-        if cf.active and cf.type == ConflictType.current_employment
-    ]
-    if active_conflicts:
-        chosen = active_conflicts[0]
-        return EmploymentInfo(
-            state=EmploymentState.employed_at_client,
-            client_id=chosen.client_id,
-            client_name=client_display_name(chosen.client) if chosen.client else None,
-            contract_end_date=None,
-            source="conflict",
-        )
-
-    # Pipeline signal: candidate currently sits at `hired` in some recruitment.
-    # `candidate_stages` is append-only history, so "current" = the latest row
-    # per job. Mirrors the hired-latest clause in `_at_client_predicate`.
-    latest_stage_by_job: dict[int, CandidateStage] = {}
-    for st in candidate.pipeline_stages or []:
-        cur = latest_stage_by_job.get(st.job_id)
-        if cur is None or (st.moved_at, st.id) > (cur.moved_at, cur.id):
-            latest_stage_by_job[st.job_id] = st
-    hired_now = [
-        st for st in latest_stage_by_job.values() if st.stage == PipelineStage.hired
-    ]
-    if hired_now:
-        chosen = max(hired_now, key=lambda s: (s.moved_at, s.id))
-        client = chosen.job.client if chosen.job else None
-        matching_contracts = [
-            contract
-            for contract in (candidate.contracts or [])
-            if contract.job_id == chosen.job_id
-            and contract.status
-            in (
-                ContractStatus.draft,
-                ContractStatus.ready_for_signature,
-                ContractStatus.active,
-                ContractStatus.ending,
-            )
-        ]
-        linked_contract = (
-            max(matching_contracts, key=lambda contract: contract.id)
-            if matching_contracts
-            else None
-        )
-        return EmploymentInfo(
-            state=EmploymentState.employed_at_client,
-            client_id=client.id if client else None,
-            client_name=client_display_name(client) if client else None,
-            contract_id=linked_contract.id if linked_contract else None,
-            job_id=chosen.job_id,
-            contract_end_date=None,
-            source="pipeline",
-        )
-
     ever_hired = any(
         st.stage == PipelineStage.hired for st in (candidate.pipeline_stages or [])
     )
@@ -887,6 +1126,15 @@ async def _resolve_semantic_text(db: AsyncSession, filters: "CandidateFilterSpec
         return None, None
     interpretation = await search_predicates.interpret_text(db, q_stripped)
     if not semantics.unified or filters.text_mode not in ("auto", "semantic"):
+        return None, interpretation
+    # Tekst wyglądający na osobę (także nieznane słowo z końcówką nazwiska,
+    # które inaczej poszłoby po znaczeniu) — dopasowanie dosłowne.
+    if (
+        await search_predicates.person_text_match(
+            db, q_stripped, semantics, filters.text_mode
+        )
+        is not None
+    ):
         return None, interpretation
     forced = search_predicates.text_mode_to_apply(
         semantics, filters.text_mode, interpretation
@@ -934,6 +1182,316 @@ def _changed_after_clause(moment: datetime):
     )
 
 
+@dataclass(frozen=True)
+class _StageFilter:
+    """Filtr etapu listy: etap (kod albo kolumna Tablicy) + kto / kiedy / klient.
+
+    Wszystkie pola opisują TEN SAM wiersz `candidate_stages` („kto przesunął
+    osobę NA ten etap i kiedy”). Ten sam warunek czyta filtr listy
+    (`exists_clause`) i podpis przy wierszu (`_stage_matches`), więc lista nie
+    pokaże innego przejścia niż to, które ją przepuściło.
+    """
+
+    spec: "CandidateFilterSpec"
+    stage_values: tuple[PipelineStage, ...]
+    column_rule: Optional[stage_column_filter.StageColumnRule]
+    moved_after_dt: Optional[datetime]
+    moved_before_dt: Optional[datetime]
+
+    @property
+    def has_stage(self) -> bool:
+        return bool(self.stage_values) or self.column_rule is not None
+
+    @property
+    def has_move_filter(self) -> bool:
+        f = self.spec
+        return bool(
+            f.stage_moved_by
+            or self.moved_after_dt is not None
+            or self.moved_before_dt is not None
+            or f.stage_client_id
+        )
+
+    @property
+    def active(self) -> bool:
+        return self.has_stage or self.has_move_filter
+
+    @property
+    def current_only(self) -> bool:
+        """Tryb „tylko obecny etap pary” (najnowszy wiersz pary).
+
+        Bez jawnego `stage_current_only` sam etap = obecny, a kto/kiedy/klient
+        = historia („wszyscy, których Jan dodał na Zweryfikowanego w maju”,
+        także ci, którzy poszli dalej). Obecny etap ma sens tylko z etapem.
+        """
+
+        f = self.spec
+        effective = (
+            not self.has_move_filter
+            if f.stage_current_only is None
+            else f.stage_current_only
+        )
+        return effective and self.has_stage
+
+    def _move_predicates(self, moved_by_col, moved_at_col, job_id_col) -> list:
+        f = self.spec
+        predicates: list = []
+        if f.stage_moved_by:
+            real_ids = [uid for uid in f.stage_moved_by if uid != 0]
+            include_null = 0 in f.stage_moved_by
+            if include_null and real_ids:
+                predicates.append(
+                    or_(moved_by_col.is_(None), moved_by_col.in_(real_ids))
+                )
+            elif include_null:
+                predicates.append(moved_by_col.is_(None))
+            elif real_ids:
+                predicates.append(moved_by_col.in_(real_ids))
+        if self.moved_after_dt is not None:
+            predicates.append(moved_at_col >= self.moved_after_dt)
+        if self.moved_before_dt is not None:
+            predicates.append(moved_at_col < self.moved_before_dt)
+        if f.stage_client_id:
+            predicates.append(
+                select(1)
+                .select_from(Job)
+                .where(Job.id == job_id_col, Job.client_id.in_(f.stage_client_id))
+                .exists()
+            )
+        # Filtr etapu razem z filtrem rekrutacji („przypisany”) opisuje etap
+        # W TEJ rekrutacji, nie w dowolnej. Bez tego lista „Nowi” rekrutacji
+        # liczyła osoby, które są „Nowe” gdziekolwiek indziej, i nie zgadzała
+        # się z kolumną kanbanu tej rekrutacji. Nie przełącza trybu na
+        # historyczny — to zawężenie pary, nie filtr ruchu.
+        if f.recruitment_match != "not_assigned":
+            in_scope = recruitment_filter.job_in_scope(
+                job_id_col, f.recruitment_id, f.recruitment_client_id
+            )
+            if in_scope is not None:
+                predicates.append(in_scope)
+        return predicates
+
+    def row_conditions(self, row) -> list:
+        """Warunki na wierszu etapu (`CandidateStage` albo `latest.c`)."""
+
+        conditions: list = []
+        stage_parts: list = []
+        if self.stage_values:
+            stage_parts.append(row.stage.in_(self.stage_values))
+        if self.column_rule is not None:
+            stage_parts.append(
+                stage_column_filter.column_clause(
+                    self.column_rule, row.stage_def_id, row.stage
+                )
+            )
+        if len(stage_parts) == 1:
+            conditions.append(stage_parts[0])
+        elif stage_parts:
+            conditions.append(or_(*stage_parts))
+        conditions.extend(self._move_predicates(row.moved_by, row.moved_at, row.job_id))
+        return conditions
+
+    def rows(self):
+        """Źródło wierszy: najnowszy wiersz pary (obecny etap) albo cała historia."""
+
+        if not self.current_only:
+            return CandidateStage
+        return (
+            select(
+                CandidateStage.id,
+                CandidateStage.candidate_id,
+                CandidateStage.job_id,
+                CandidateStage.stage,
+                CandidateStage.stage_def_id,
+                CandidateStage.moved_by,
+                CandidateStage.moved_at,
+            )
+            .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
+            .order_by(
+                CandidateStage.candidate_id,
+                CandidateStage.job_id,
+                CandidateStage.moved_at.desc(),
+                CandidateStage.id.desc(),
+            )
+            .subquery()
+        )
+
+    def exists_clause(self):
+        source = self.rows()
+        if source is CandidateStage:
+            return (
+                select(1)
+                .where(
+                    CandidateStage.candidate_id == Candidate.id,
+                    *self.row_conditions(CandidateStage),
+                )
+                .exists()
+            )
+        return (
+            select(1)
+            .select_from(source)
+            .where(
+                source.c.candidate_id == Candidate.id,
+                *self.row_conditions(source.c),
+            )
+            .exists()
+        )
+
+
+async def _resolve_stage_filter(
+    db: AsyncSession, f: "CandidateFilterSpec"
+) -> _StageFilter:
+    requested_stages: set[PipelineStage] = set(f.pipeline_stage or [])
+    if f.stage_category:
+        categories = set(f.stage_category)
+        requested_stages.update(
+            stage
+            for stage, category in STAGE_CATEGORY.items()
+            if category in categories
+        )
+    # Doba w kalendarzu firmy (Europe/Warsaw) — ta sama reguła co „kontakt”.
+    moved_after_dt, moved_before_dt = business_date_range(
+        f.stage_moved_after, f.stage_moved_before
+    )
+    return _StageFilter(
+        spec=f,
+        stage_values=tuple(requested_stages),
+        column_rule=await stage_column_filter.load_column_rule(db, f.stage_column),
+        moved_after_dt=moved_after_dt,
+        moved_before_dt=moved_before_dt,
+    )
+
+
+def _stage_matches_statement(stage_filter: _StageFilter, candidate_ids: list[int]):
+    """Zapytanie podpisu przejścia dla osób ze strony wyniku.
+
+    `jobs` dołączamy pod aliasem: warunek „klient etapu” z `row_conditions`
+    to `EXISTS (SELECT 1 FROM jobs …)`, który przy złączeniu z samą tabelą
+    `jobs` korelował się z nim i zostawał bez FROM (500 w CI, 19.10.2026).
+    """
+
+    source = stage_filter.rows()
+    row = CandidateStage if source is CandidateStage else source.c
+    mover = aliased(User)
+    job = aliased(Job)
+    return (
+        select(
+            row.candidate_id,
+            row.job_id,
+            row.stage,
+            row.moved_at,
+            mover.name.label("moved_by_name"),
+            job.title,
+            job.working_title,
+            job.client_reference,
+            client_display_name_expression().label("client_name"),
+            PipelineStageDef.name.label("def_name"),
+            PipelineStageDef.category.label("def_category"),
+            PipelineStageDef.terminal_type.label("def_terminal_type"),
+        )
+        .select_from(source)
+        .join(job, job.id == row.job_id)
+        .outerjoin(Client, Client.id == job.client_id)
+        .outerjoin(mover, mover.id == row.moved_by)
+        .outerjoin(PipelineStageDef, PipelineStageDef.id == row.stage_def_id)
+        .where(row.candidate_id.in_(candidate_ids), *stage_filter.row_conditions(row))
+        .distinct(row.candidate_id)
+        .order_by(row.candidate_id, row.moved_at.desc(), row.id.desc())
+    )
+
+
+async def _stage_matches(
+    db: AsyncSession, stage_filter: _StageFilter, candidate_ids: list[int]
+) -> dict[int, StageMatchBrief]:
+    """Najnowsze przejście spełniające filtr etapu — tylko dla osób ze strony."""
+
+    if not candidate_ids or not stage_filter.active:
+        return {}
+    stmt = _stage_matches_statement(stage_filter, candidate_ids)
+    out: dict[int, StageMatchBrief] = {}
+    for r in (await db.execute(stmt)).all():
+        out[r.candidate_id] = StageMatchBrief(
+            column=stage_column_filter.row_column(
+                r.def_name,
+                r.stage,
+                category=r.def_category,
+                terminal_type=r.def_terminal_type,
+            ),
+            moved_at=r.moved_at,
+            moved_by_name=r.moved_by_name,
+            job_id=r.job_id,
+            job_title=r.title,
+            job_working_title=r.working_title,
+            job_client_reference=r.client_reference,
+            client_name=r.client_name,
+        )
+    return out
+
+
+def _list_semantics(f: CandidateFilterSpec):
+    """Semantyka listy z wersji i trzech przełączników braków danych."""
+    from app.services import candidate_search_predicates as predicates
+
+    return predicates.semantics_for(
+        "list",
+        f.semantics_version,
+        f.hide_unknown,
+        hide_unknown_rate=f.hide_unknown_rate,
+        hide_unknown_location=f.hide_unknown_location,
+    )
+
+
+def _list_location_places(f: CandidateFilterSpec):
+    """Pary miasto–promień z `location_places` plus pojedyncze `location`
+    (z `location_radius_km`) i `location_cities` z tego samego żądania."""
+    from app.services import candidate_search_predicates as predicates
+
+    extra: list[str] = []
+    if f.location:
+        extra.append(
+            f"{f.location}:{f.location_radius_km}"
+            if f.location_radius_km
+            else f.location
+        )
+    extra.extend(c for c in (f.location_cities or []) if c and c.strip())
+    return predicates.parse_location_places([*(f.location_places or []), *extra])
+
+
+def _radius_places(f: CandidateFilterSpec):
+    """Środki promieni do opisu wiersza „16 km od Warszawy” (bez zapytań)."""
+    from app.services import candidate_search_predicates as predicates
+
+    if f.location_places:
+        return [p for p in _list_location_places(f) if p.radius_km]
+    if f.location and f.location_radius_km:
+        return [predicates.LocationPlace(f.location, f.location_radius_km)]
+    return []
+
+
+def _location_filter_active(f: CandidateFilterSpec) -> bool:
+    return bool(f.location or f.location_cities or f.voivodeship or f.location_places)
+
+
+def _unknown_rank_expr(f: CandidateFilterSpec):
+    """Ile aktywnych filtrów stawki/lokalizacji/stażu wiersz przeszedł na
+    brak danych (`unknown_count_rank`) albo ``None``: v1, globalne
+    `hide_unknown` albo żaden z tych filtrów nie działa (braki i tak nie
+    wchodzą wtedy do wyniku)."""
+    from app.services import candidate_search_predicates as predicates
+
+    if f.semantics_version != 2 or f.hide_unknown:
+        return None
+    return predicates.unknown_count_rank(
+        location_active=_location_filter_active(f) and not f.hide_unknown_location,
+        country_active=bool(f.country) and not f.hide_unknown_location,
+        experience_active=(
+            f.min_experience is not None or f.max_experience is not None
+        ),
+        rate_active=(f.min_rate is not None or f.max_rate is not None)
+        and not f.hide_unknown_rate,
+    )
+
+
 async def _build_candidate_filtered_query(
     db: AsyncSession,
     filters: CandidateFilterSpec,
@@ -967,25 +1525,31 @@ async def _build_candidate_filtered_query(
     # Filtry wspólne z `POST /api/search/candidates` czytamy WYŁĄCZNIE przez
     # `candidate_search_predicates` — lokalna kopia któregokolwiek z nich to
     # powrót do 11 rozjazdów z 07.2026 (`test_search_engines_contract.py`).
-    sem = predicates.semantics_for("list", f.semantics_version, f.hide_unknown)
+    sem = _list_semantics(f)
     status_clause = predicates.status_clause(f.status)
     if status_clause is not None:
         query = query.where(status_clause)
     if f.employment:
-        invalid = [e for e in f.employment if e not in {"at_client", "available"}]
+        invalid = [e for e in f.employment if e not in _EMPLOYMENT_FILTER_VALUES]
         if invalid:
             raise HTTPException(
                 status_code=422,
                 detail=(
                     f"Invalid employment values: {invalid}. "
-                    "Allowed: 'at_client', 'available'."
+                    "Allowed: 'at_client', 'available', 'ending_soon'."
                 ),
             )
+        # Filtr działa dla JEDNEJ wartości; każde połączenie = brak filtra
+        # (tak jak dotąd {at_client, available}).
         emp_set = set(f.employment)
         if emp_set == {"at_client"}:
             query = query.where(_at_client_predicate())
         elif emp_set == {"available"}:
             query = query.where(not_(_at_client_predicate()))
+        elif emp_set == {"ending_soon"}:
+            query = query.where(
+                ending_soon_exists(Candidate.id, today=business_today())
+            )
     availability_clause = predicates.availability_clause(f.availability)
     if availability_clause is not None:
         query = query.where(availability_clause)
@@ -1000,40 +1564,58 @@ async def _build_candidate_filtered_query(
     # Zapis w formacie wspólnym (v3) przenosi `location` do `location_cities`
     # — przy jednym mieście to ono jest środkiem (inaczej alert zapisu
     # „Kraków + 50 km” zgłaszałby wyłącznie Kraków).
-    radius_center = f.location or (
-        f.location_cities[0]
-        if f.location_radius_km and f.location_cities and len(f.location_cities) == 1
-        else None
-    )
-    radius_active = bool(f.location_radius_km and radius_center)
-    text_cities = (
-        []
-        if radius_active
-        else ([f.location] if f.location else []) + list(f.location_cities or [])
-    )
-    for location_clause in predicates.location_clauses(
-        text_cities,
-        f.country,
-        sem,
-        scope=f.location_scope,
-    ):
-        query = query.where(location_clause)
-    try:
-        geo = predicates.geo_clause(
-            center=radius_center if radius_active else None,
-            radius_km=f.location_radius_km if radius_active else None,
-            voivodeships=f.voivodeship,
-            sem=sem,
+    if f.location_places:
+        # D6 (19.10.2026): lista miast z promieniami = SUMA z województwami.
+        # Pojedyncze `location`/`location_cities` z tego samego żądania
+        # dokładają się do tej samej sumy; kraj zostaje osobnym warunkiem.
+        try:
+            location_union = predicates.location_places_clause(
+                _list_location_places(f), f.voivodeship, sem
+            )
+        except (predicates.UnknownPlace, predicates.InvalidLocationPlaces) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if location_union is not None:
+            query = query.where(location_union)
+        for location_clause in predicates.location_clauses([], f.country, sem):
+            query = query.where(location_clause)
+    else:
+        radius_center = f.location or (
+            f.location_cities[0]
+            if f.location_radius_km
+            and f.location_cities
+            and len(f.location_cities) == 1
+            else None
         )
-    except predicates.UnknownPlace as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if geo is not None:
-        query = query.where(geo)
+        radius_active = bool(f.location_radius_km and radius_center)
+        text_cities = (
+            []
+            if radius_active
+            else ([f.location] if f.location else []) + list(f.location_cities or [])
+        )
+        for location_clause in predicates.location_clauses(
+            text_cities,
+            f.country,
+            sem,
+            scope=f.location_scope,
+        ):
+            query = query.where(location_clause)
+        try:
+            geo = predicates.geo_clause(
+                center=radius_center if radius_active else None,
+                radius_km=f.location_radius_km if radius_active else None,
+                voivodeships=f.voivodeship,
+                sem=sem,
+            )
+        except predicates.UnknownPlace as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if geo is not None:
+            query = query.where(geo)
     contact = predicates.contact_clause(
         mode=f.contacted,
         date_from=f.contacted_from,
         date_to=f.contacted_to,
         by_user_ids=f.contacted_by,
+        real_contact_only=sem.unified,
     )
     if contact is not None:
         query = query.where(contact)
@@ -1057,7 +1639,16 @@ async def _build_candidate_filtered_query(
             Candidate.id.in_(semantic_pool_ids) if semantic_pool_ids else false()
         )
     elif f.q:
-        literal_clause = await predicates.prepare_literal_text(db, f.q)
+        # v2 + `text_mode=auto`: osoba o dokładnie takim nazwisku = bez gałęzi
+        # literówek (`person_text_match`); v1 i brak `text_mode` — bez zmian.
+        person_match = await predicates.person_text_match(db, f.q, sem, f.text_mode)
+        try:
+            literal_clause = await predicates.prepare_literal_text(
+                db, f.q, person_match=person_match, short_whole_word=sem.unified
+            )
+        except predicates.LiteralTextTooShort as exc:
+            # `q` z samych spacji wokół jednej litery przechodzi `min_length=2`.
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         if literal_clause is not None:
             query = query.where(literal_clause)
 
@@ -1065,7 +1656,11 @@ async def _build_candidate_filtered_query(
         q_all=f.q_all, q_any=f.q_any, q_none=f.q_none, q_any_groups=f.q_any_group
     )
     q_any_groups = q_groups.as_lists()
-    advanced = q_groups.clause(sem, f.q_scope)
+    try:
+        advanced = q_groups.clause(sem, f.q_scope)
+    except KeywordTooShort as exc:
+        # v2: „R”/„C” jako słowo kluczowe znajdowały prawie całą bazę.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if advanced is not None:
         query = query.where(advanced)
 
@@ -1081,9 +1676,9 @@ async def _build_candidate_filtered_query(
         skills_preferred=f.skills_preferred,
         skills_excluded=f.skills_excluded,
     )
-    for skill_clause in predicates.skills_required_clauses(skill_buckets):
+    for skill_clause in predicates.skills_required_clauses(skill_buckets, sem):
         query = query.where(skill_clause)
-    for skill_clause in predicates.skills_excluded_clauses(skill_buckets):
+    for skill_clause in predicates.skills_excluded_clauses(skill_buckets, sem):
         query = query.where(skill_clause)
 
     if f.remote_policy:
@@ -1144,162 +1739,33 @@ async def _build_candidate_filtered_query(
         query = query.where(_current_title_predicate(f.current_title))
     if f.worked_at_client_id:
         query = query.where(_worked_at_client_predicate(f.worked_at_client_id))
-    if f.recruitment_id:
-        in_recruitment = (
-            select(1)
-            .where(
-                and_(
-                    CandidateStage.candidate_id == Candidate.id,
-                    CandidateStage.job_id.in_(f.recruitment_id),
-                )
-            )
-            .exists()
-        )
-        query = query.where(
-            ~in_recruitment if f.recruitment_match == "not_assigned" else in_recruitment
-        )
+    recruitment_scope = recruitment_filter.scope_clause(
+        f.recruitment_id, f.recruitment_client_id, f.recruitment_match
+    )
+    if recruitment_scope is not None:
+        query = query.where(recruitment_scope)
+    recruitment_presence = recruitment_filter.presence_clause(f.recruitment_presence)
+    if recruitment_presence is not None:
+        query = query.where(recruitment_presence)
     if f.recently_changed_jobs in (1, 2, 3):
         cutoff = datetime.now(timezone.utc) - timedelta(
             days=30 * f.recently_changed_jobs
         )
         query = query.where(Candidate.linkedin_employment_changed_at >= cutoff)
 
-    requested_stages: set[PipelineStage] = set(f.pipeline_stage or [])
-    if f.stage_category:
-        categories = set(f.stage_category)
-        requested_stages.update(
-            stage
-            for stage, category in STAGE_CATEGORY.items()
-            if category in categories
-        )
-
-    moved_after_dt = (
-        datetime.combine(f.stage_moved_after, datetime.min.time(), tzinfo=timezone.utc)
-        if f.stage_moved_after
-        else None
-    )
-    moved_before_dt = (
-        datetime.combine(
-            f.stage_moved_before + timedelta(days=1),
-            datetime.min.time(),
-            tzinfo=timezone.utc,
-        )
-        if f.stage_moved_before
-        else None
-    )
-
-    def move_predicates(moved_by_col, moved_at_col, job_id_col) -> list:
-        predicates: list = []
-        if f.stage_moved_by:
-            real_ids = [uid for uid in f.stage_moved_by if uid != 0]
-            include_null = 0 in f.stage_moved_by
-            if include_null and real_ids:
-                predicates.append(
-                    or_(moved_by_col.is_(None), moved_by_col.in_(real_ids))
-                )
-            elif include_null:
-                predicates.append(moved_by_col.is_(None))
-            elif real_ids:
-                predicates.append(moved_by_col.in_(real_ids))
-        if moved_after_dt is not None:
-            predicates.append(moved_at_col >= moved_after_dt)
-        if moved_before_dt is not None:
-            predicates.append(moved_at_col < moved_before_dt)
-        if f.stage_client_id:
-            predicates.append(
-                select(1)
-                .select_from(Job)
-                .where(Job.id == job_id_col, Job.client_id.in_(f.stage_client_id))
-                .exists()
-            )
-        # Filtr etapu razem z filtrem rekrutacji („przypisany”) opisuje etap
-        # W TEJ rekrutacji, nie w dowolnej. Bez tego lista „Nowi” rekrutacji
-        # liczyła osoby, które są „Nowe” gdziekolwiek indziej, i nie zgadzała
-        # się z kolumną kanbanu tej rekrutacji. Nie przełącza trybu na
-        # historyczny — to zawężenie pary, nie filtr ruchu.
-        if f.recruitment_id and f.recruitment_match != "not_assigned":
-            predicates.append(job_id_col.in_(f.recruitment_id))
-        return predicates
-
-    has_move_filter = bool(
-        f.stage_moved_by
-        or moved_after_dt is not None
-        or moved_before_dt is not None
-        or f.stage_client_id
-    )
-    effective_current_only = (
-        not has_move_filter if f.stage_current_only is None else f.stage_current_only
-    )
-    if requested_stages or has_move_filter:
-        stage_values = list(requested_stages)
-        if effective_current_only and stage_values:
-            latest_per_pair = (
-                select(
-                    CandidateStage.candidate_id,
-                    CandidateStage.job_id,
-                    CandidateStage.stage,
-                    CandidateStage.moved_by,
-                    CandidateStage.moved_at,
-                )
-                .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
-                .order_by(
-                    CandidateStage.candidate_id,
-                    CandidateStage.job_id,
-                    CandidateStage.moved_at.desc(),
-                    CandidateStage.id.desc(),
-                )
-                .subquery()
-            )
-            conditions = [
-                latest_per_pair.c.candidate_id == Candidate.id,
-                latest_per_pair.c.stage.in_(stage_values),
-            ]
-            conditions.extend(
-                move_predicates(
-                    latest_per_pair.c.moved_by,
-                    latest_per_pair.c.moved_at,
-                    latest_per_pair.c.job_id,
-                )
-            )
-            stage_exists = (
-                select(1).select_from(latest_per_pair).where(*conditions).exists()
-            )
-        else:
-            conditions = [CandidateStage.candidate_id == Candidate.id]
-            if stage_values:
-                conditions.append(CandidateStage.stage.in_(stage_values))
-            conditions.extend(
-                move_predicates(
-                    CandidateStage.moved_by,
-                    CandidateStage.moved_at,
-                    CandidateStage.job_id,
-                )
-            )
-            stage_exists = select(1).where(*conditions).exists()
-        query = query.where(stage_exists)
+    stage_filter = await _resolve_stage_filter(db, f)
+    if stage_filter.active:
+        query = query.where(stage_filter.exists_clause())
 
     # "Data wysłania do klienta" — dedykowany, niezależny filtr po dacie
     # rekomendacji kandydata do klienta (przejście na etap `cv_sent`). Świadomie
     # HISTORYCZNY i osobny od rodzinnego `stage_*`: „kogo wysłaliśmy do klienta
     # w maju" to fakt o zdarzeniu (`cv_sent`), nie o bieżącym etapie — kandydat,
     # który po wysyłce poszedł na rozmowę u klienta, nadal się liczy. Zakres dat
-    # włącznie, jak przy `stage_moved_*`: dolna granica = 00:00 UTC dnia `from`,
-    # górna = 00:00 UTC dnia PO `to` (cały dzień `to` w środku).
-    sent_from_dt = (
-        datetime.combine(
-            f.sent_to_client_from, datetime.min.time(), tzinfo=timezone.utc
-        )
-        if f.sent_to_client_from
-        else None
-    )
-    sent_to_dt = (
-        datetime.combine(
-            f.sent_to_client_to + timedelta(days=1),
-            datetime.min.time(),
-            tzinfo=timezone.utc,
-        )
-        if f.sent_to_client_to
-        else None
+    # włącznie, jak przy `stage_moved_*`: dolna granica = 00:00 dnia `from`,
+    # górna = 00:00 dnia PO `to` — doba w kalendarzu firmy (Europe/Warsaw).
+    sent_from_dt, sent_to_dt = business_date_range(
+        f.sent_to_client_from, f.sent_to_client_to
     )
     if sent_from_dt is not None or sent_to_dt is not None:
         sent_conditions = [
@@ -1349,30 +1815,110 @@ def _apply_candidate_sort(
     sortowanie — tak samo jak chipy podbijające ranking w wyszukiwarce
     (decyzja 17.09.2026); żądany `sort` rozstrzyga w obrębie tej samej liczby
     trafień. Bez `skills_preferred` kolejność jest dokładnie taka jak dotąd."""
-    from app.services import candidate_search_predicates as predicates
-
-    preferred_rank = predicates.skills_preferred_rank(
-        predicates.skill_buckets_from_list(skills_preferred=filters.skills_preferred)
-    )
+    preferred_rank, unknown_rank = _sort_prefix_exprs(filters)
     if preferred_rank is not None:
         query = query.order_by(preferred_rank.desc())
+    if unknown_rank is not None:
+        query = query.order_by(unknown_rank.asc())
+    return _apply_requested_sort(query, filters, q_any_groups, pool_order=pool_order)
+
+
+def _preferred_rank(filters: CandidateFilterSpec):
+    """Suma punktów „Mile widziane”: umiejętności, miasta, kategorii i wierszy
+    słów. ``None`` bez żadnego z nich — kolejność dokładnie jak dotąd."""
+    from app.services import candidate_search_predicates as predicates  # noqa: PLC0415
+    from app.services.advanced_candidate_search import (  # noqa: PLC0415
+        build_advanced_filter,
+    )
+
+    points = []
+    skills_rank = predicates.skills_preferred_rank(
+        predicates.skill_buckets_from_list(skills_preferred=filters.skills_preferred),
+        predicates.semantics_for(
+            "list", filters.semantics_version, filters.hide_unknown
+        ),
+    )
+    if skills_rank is not None:
+        points.append(skills_rank)
+    cities = [c for c in (filters.location_preferred or []) if c and c.strip()]
+    if cities:
+        # Jedno miasto wystarczy: kandydat mieszka w jednym, więc suma miast
+        # dawałaby punkt za to samo dwa razy (miasto + lokalizacja).
+        points.append(case((or_(*predicates.city_match_clauses(cities)), 1), else_=0))
+    if filters.competence_category_preferred:
+        sem = predicates.semantics_for("list", 2, False)
+        cc = predicates.competence_category_clause(
+            filters.competence_category_preferred, sem
+        )
+        if cc is not None:
+            points.append(case((cc, 1), else_=0))
+    for group in filters.q_preferred_group or []:
+        words = predicates.split_pipe_group(group)
+        # K6 (audyt 06.10.2026): ten sam zakres pola co słowa kluczowe —
+        # „Mile widziane” przy zakresie „Stanowisko” nie liczy CV.
+        clause = build_advanced_filter(
+            None, None, None, [words], whole_words=True, scope=filters.q_scope
+        )
+        if clause is not None:
+            points.append(case((clause, 1), else_=0))
+    if not points:
+        return None
+    total = points[0]
+    for point in points[1:]:
+        total = total + point
+    return total
+
+
+def _relevance_without_text_means_match(
+    filters: CandidateFilterSpec, pool_ids: Optional[list[int]]
+) -> CandidateFilterSpec:
+    """K6 (audyt 06.10.2026): „trafność” przy samych słowach kluczowych
+    (bez tekstu i bez puli semantycznej) to podobieństwo trigramowe imienia
+    i e-maila do słów — kolejność w praktyce losowa. Wtedy „Dopasowanie”."""
+    if filters.sort != "relevance" or pool_ids is not None:
+        return filters
+    if (filters.q or "").strip():
+        return filters
+    if not (
+        filters.q_all
+        or filters.q_any
+        or filters.q_any_group
+        or filters.q_preferred_group
+    ):
+        return filters
+    return filters.model_copy(update={"sort": "match"})
+
+
+def _sort_prefix_exprs(filters: CandidateFilterSpec):
+    """(„Mile widziane” malejąco, liczba braków rosnąco) — wyrażenia albo ``None``.
+
+    Wspólne dla każdego sortowania i dla kolejności „Dopasowanie”
+    (``candidate_match_order``), żeby oba liczyły je tak samo."""
+    preferred_rank = _preferred_rank(filters)
     # v2: osoby przepuszczone „na brak danych" (plakietka „brak …") idą za
     # osobami z potwierdzonym dopasowaniem — w obrębie tej samej liczby braków
     # obowiązuje żądany `sort`. Przy `hide_unknown` braków nie ma w wyniku.
-    if filters.semantics_version == 2 and not filters.hide_unknown:
-        unknown_rank = predicates.unknown_count_rank(
-            location_active=bool(
-                filters.location or filters.location_cities or filters.voivodeship
-            ),
-            country_active=bool(filters.country),
-            experience_active=(
-                filters.min_experience is not None or filters.max_experience is not None
-            ),
-            rate_active=filters.min_rate is not None or filters.max_rate is not None,
-        )
-        if unknown_rank is not None:
-            query = query.order_by(unknown_rank.asc())
-    return _apply_requested_sort(query, filters, q_any_groups, pool_order=pool_order)
+    unknown_rank = _unknown_rank_expr(filters)
+    return preferred_rank, unknown_rank
+
+
+def order_by_id_list(query, ids: list[int]):
+    """Posortuj ``select(Candidate…)`` w kolejności listy identyfikatorów.
+
+    Runda 9 (R9-N14-3): ``array_position`` przeszukuje tablicę od początku dla
+    KAŻDEGO wiersza — przy eksporcie kilkudziesięciu tysięcy osób w kolejności
+    „Dopasowanie” to kwadratowy koszt sortowania. ``unnest … WITH ORDINALITY``
+    daje pozycję złączeniem, a LEFT JOIN zostawia wiersze spoza listy na końcu
+    (jak NULL z ``array_position``), z ``id`` jako stabilnym rozstrzygnięciem.
+    """
+    position = (
+        func.unnest(literal(list(ids), type_=ARRAY(Integer)))
+        .table_valued("candidate_id", with_ordinality="position")
+        .render_derived(name="id_order")
+    )
+    return query.outerjoin(position, position.c.candidate_id == Candidate.id).order_by(
+        position.c.position.asc().nullslast(), Candidate.id.asc()
+    )
 
 
 def _apply_requested_sort(
@@ -1391,8 +1937,11 @@ def _apply_requested_sort(
             ).asc(),
             Candidate.id.asc(),
         )
+    # „Najnowsi” / „Najstarsi” po „w bazie od” (0437), nie po chwili wstawienia
+    # do NEXUSA — 43 tys. osób z Traffita ma tam dzień importu. Wyrażenie jest
+    # dokładnie tym z indeksu `ix_candidates_added_to_base_id`.
     if filters.sort == "oldest":
-        return query.order_by(Candidate.created_at.asc(), Candidate.id.asc())
+        return query.order_by(added_to_base_sql(Candidate).asc(), Candidate.id.asc())
     if filters.sort == "name":
         # Etykieta w UI brzmi „Nazwisko (A-Z)", więc kluczem wiodącym jest
         # NAZWISKO — dotąd sortowaliśmy po imieniu i lista tylko wyglądała na
@@ -1443,7 +1992,195 @@ def _apply_requested_sort(
                 )
                 ordering.insert(0, exact_email.asc())
             return query.order_by(*ordering)
-    return query.order_by(Candidate.created_at.desc(), Candidate.id.desc())
+    return query.order_by(added_to_base_sql(Candidate).desc(), Candidate.id.desc())
+
+
+async def _list_page_ids_first(
+    db: AsyncSession,
+    filters: CandidateFilterSpec,
+    *,
+    pool_ids: Optional[list[int]],
+    page: int,
+    page_size: int,
+) -> tuple[list[Candidate], int, list[list[str]], Optional[int]]:
+    """Strona listy: identyfikatory z liczbą w jednym przebiegu, potem pełne wiersze.
+
+    Audyt 25.09.2026: ``count(*) OVER()`` na ``select(Candidate)`` przepuszczał
+    przez sortowanie CAŁY wynik ze wszystkimi kolumnami (tekst CV, JSON-y) —
+    bez filtra 170 MB na dysk tymczasowy i 385 ms. Tu to samo okno liczy się
+    na samych identyfikatorach (bez filtra ~50 ms), więc filtr słów kluczowych
+    wykonuje się RAZ — osobne ``count(*)`` liczyłoby drogi regex dwa razy.
+    Relacje i szerokie kolumny ładują się tylko dla strony. Kolejność, liczba
+    i zachowanie strony poza zakresem — jak dotąd. Przy aktywnym filtrze
+    stawki/lokalizacji/stażu to samo okno liczy osoby z danymi
+    (``known_count``, D5) — bez dodatkowego zapytania.
+    """
+    query, q_any_groups = await _build_candidate_filtered_query(
+        db, filters, semantic_pool_ids=pool_ids
+    )
+    ids_query = query.with_only_columns(Candidate.id)
+    page_query = _apply_candidate_sort(
+        ids_query, filters, q_any_groups, pool_order=pool_ids
+    )
+    rows = (
+        await db.execute(
+            _with_window_counts(page_query, filters)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    ).all()
+    if not rows:
+        total = 0
+        if page > 1:
+            # Strona poza zakresem: okno nie niesie sumy (brak wierszy).
+            total = int(
+                await db.scalar(
+                    select(func.count()).select_from(
+                        ids_query.order_by(None).subquery()
+                    )
+                )
+                or 0
+            )
+        return [], total, q_any_groups, None
+    page_ids = [row[0] for row in rows]
+    total = int(rows[0].total_count)
+    loaded = (
+        await db.execute(
+            select(Candidate)
+            .options(*_candidate_list_options())
+            .where(Candidate.id.in_(page_ids))
+        )
+    ).scalars()
+    by_id = {candidate.id: candidate for candidate in loaded}
+    return (
+        [by_id[cid] for cid in page_ids if cid in by_id],
+        total,
+        q_any_groups,
+        _known_count_from_row(rows[0]),
+    )
+
+
+def _with_window_counts(query, filters: CandidateFilterSpec):
+    """``count(*) OVER ()`` jako ``total_count`` i — gdy działa filtr
+    stawki/lokalizacji/stażu z osobami bez danych w wyniku — ``count(*)
+    FILTER (WHERE braków = 0) OVER ()`` jako ``known_count`` w tym samym
+    przebiegu."""
+    query = query.add_columns(func.count().over().label("total_count"))
+    rank = _unknown_rank_expr(filters)
+    if rank is not None:
+        query = query.add_columns(
+            func.count().filter(rank == 0).over().label("known_count")
+        )
+    return query
+
+
+def _known_count_from_row(row) -> Optional[int]:
+    known = getattr(row, "known_count", None)
+    return int(known) if known is not None else None
+
+
+async def _list_page_match(
+    db: AsyncSession,
+    user,
+    filters: CandidateFilterSpec,
+    *,
+    pool_ids: Optional[list[int]],
+    page: int,
+    page_size: int,
+) -> Optional[tuple[list[Candidate], int, list[list[str]], Optional[int]]]:
+    """Strona w kolejności „Dopasowanie” albo ``None`` (wołający: „najnowsi”)."""
+    from app.services import candidate_match_order
+
+    # K11 (audyt 06.10.2026): kolejność liczona bez wykluczenia osób
+    # z rekrutacji — odpadają one przy odczycie strony (`ordered_result`).
+    query, q_any_groups = await _build_candidate_filtered_query(
+        db,
+        candidate_match_order.order_base_filters(filters),
+        semantic_pool_ids=pool_ids,
+    )
+    ids_query = query.with_only_columns(Candidate.id)
+    prefix = _sort_prefix_exprs(filters)
+    result = await candidate_match_order.ordered_result(
+        db, user, filters, ids_query, q_any_groups, prefix
+    )
+    if result is None:
+        return None
+    ordered = result.ids
+    page_ids = ordered[(page - 1) * page_size : page * page_size]
+    if not page_ids:
+        return [], len(ordered), q_any_groups, None
+    page_ids = await candidate_match_order.rerank_page(
+        db, result, ids_query, prefix, page_ids
+    )
+    loaded = (
+        await db.execute(
+            select(Candidate)
+            .options(*_candidate_list_options())
+            .where(Candidate.id.in_(page_ids))
+        )
+    ).scalars()
+    by_id = {candidate.id: candidate for candidate in loaded}
+    return (
+        [by_id[cid] for cid in page_ids if cid in by_id],
+        len(ordered),
+        q_any_groups,
+        await _known_count_match(db, filters, pool_ids),
+    )
+
+
+async def _known_count_match(
+    db: AsyncSession, filters: CandidateFilterSpec, pool_ids: Optional[list[int]]
+) -> Optional[int]:
+    """Kolejność „Dopasowanie” trzyma w pamięci same identyfikatory, więc
+    liczba osób z danymi (D5) to jedno ``count`` po tych samych filtrach (z
+    wykluczeniem osób z rekrutacji, jak ``total``) — wyłącznie przy aktywnym
+    filtrze stawki/lokalizacji/stażu."""
+    rank = _unknown_rank_expr(filters)
+    if rank is None:
+        return None
+    query, _ = await _build_candidate_filtered_query(
+        db, filters, semantic_pool_ids=pool_ids
+    )
+    ids_query = query.with_only_columns(Candidate.id).where(rank == 0)
+    return int(
+        await db.scalar(select(func.count()).select_from(ids_query.subquery())) or 0
+    )
+
+
+async def _list_page_window_count(
+    db: AsyncSession,
+    filters: CandidateFilterSpec,
+    *,
+    pool_ids: Optional[list[int]],
+    page: int,
+    page_size: int,
+) -> tuple[list[Candidate], int, list[list[str]], Optional[int]]:
+    """Dawna ścieżka (``CANDIDATE_LIST_IDS_FIRST=false``): jedno zapytanie
+    z ``count(*) OVER()`` na pełnych wierszach."""
+    query, q_any_groups = await _build_candidate_filtered_query(
+        db, filters, load_list_relations=True, semantic_pool_ids=pool_ids
+    )
+    filtered_query = query
+    query = _apply_candidate_sort(query, filters, q_any_groups, pool_order=pool_ids)
+    query = query.offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(_with_window_counts(query, filters))
+    rows = result.all()
+    items = [row[0] for row in rows]
+    total = rows[0].total_count if rows else 0
+    if not rows and page > 1:
+        # Strona poza zakresem (np. po usunięciu kandydatów albo z URL-a) nie ma
+        # wierszy, więc okno `count() OVER()` nie niesie sumy. Bez osobnego
+        # zliczenia lista mówiła „0 wyników” i nie dawała paginacji do powrotu.
+        total = int(
+            await db.scalar(select(func.count()).select_from(filtered_query.subquery()))
+            or 0
+        )
+    return (
+        items,
+        total,
+        q_any_groups,
+        (_known_count_from_row(rows[0]) if rows else None),
+    )
 
 
 @router.get("", response_model=CandidateList)
@@ -1524,6 +2261,27 @@ async def list_candidates(
             "are ordered first, ahead of the requested `sort`."
         ),
     ),
+    location_preferred: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Mile widziane: miasto — ranking only, never filters. Repeat the "
+            "param; a candidate living in ANY of them gets +1."
+        ),
+    ),
+    competence_category_preferred: Optional[list[int]] = Query(
+        None,
+        description=(
+            "Mile widziane: kategoria kompetencji (główna lub poboczna) — "
+            "ranking only, never filters."
+        ),
+    ),
+    q_preferred_group: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Mile widziane: wiersz słów kluczowych (`a|b`, całe słowa jak "
+            "`q_any_group`) — ranking only, never filters; +1 per matched row."
+        ),
+    ),
     skills_excluded: Optional[list[str]] = Query(
         None,
         description="Wyklucz: — HARD filter, none of the listed skills may be present.",
@@ -1584,6 +2342,21 @@ async def list_candidates(
             "Hide candidates with NO data for the active location / experience / "
             "rate filters. Under `semantics_version=2` they stay by default and "
             "each row lists them in `unknown_fields`."
+        ),
+    ),
+    hide_unknown_rate: Optional[bool] = Query(
+        None,
+        description=(
+            "`true` hides candidates with no (comparable) rate for the active "
+            "rate filter only. Never widens the result: absent/`false` = as "
+            "without the flag (`hide_unknown` and `semantics_version` decide)."
+        ),
+    ),
+    hide_unknown_location: Optional[bool] = Query(
+        None,
+        description=(
+            "`true` hides candidates with no city/location (or country) for the "
+            "active location filters only. Never widens the result."
         ),
     ),
     semantics_version: Optional[int] = Query(
@@ -1671,6 +2444,15 @@ async def list_candidates(
             "ON-style queries per page; no N+1."
         ),
     ),
+    include_last_talk: bool = Query(
+        False,
+        description=(
+            "When true, each candidate gets `last_talk_at`, `last_talk_by`, "
+            "`last_talk_preview` (newest note from the „Rozmowy” tab) and "
+            "`contact_attempts` (number of „nie odebrał” notes). Two queries "
+            "per page; no N+1."
+        ),
+    ),
     match_threshold: float = Query(
         _MATCH_STATS_DEFAULT_THRESHOLD,
         ge=0.0,
@@ -1684,11 +2466,12 @@ async def list_candidates(
     employment: Optional[list[str]] = Query(
         None,
         description=(
-            "Derived employment filter — one or more of {'at_client', 'available'}. "
-            "Repeat the param for multi-select. 'at_client' = consultant is employed "
-            "at one of our clients (active contract OR active current_employment "
-            "conflict); 'available' = the inverse. Empty = no filter. Multiple "
-            "values OR-combined (effectively shows everyone if both selected)."
+            "Derived employment filter — one of {'at_client', 'available', "
+            "'ending_soon'}. 'at_client' = consultant is ours (live contract OR "
+            "active current_employment conflict OR current `hired` stage); "
+            "'available' = the inverse; 'ending_soon' = works for us and the "
+            "order ends within 60 days without continuation. Empty = no filter. "
+            "Only a single value filters; any combination shows everyone."
         ),
     ),
     availability: Optional[list[AvailabilityStatus]] = Query(
@@ -1770,7 +2553,26 @@ async def list_candidates(
         description=(
             "Direction for `recruitment_id`: `assigned` (in the pipeline of any "
             "selected recruitment) or `not_assigned` (in none of them). Ignored "
-            "when `recruitment_id` is empty."
+            "when both `recruitment_id` and `recruitment_client_id` are empty."
+        ),
+    ),
+    recruitment_client_id: Optional[list[int]] = Query(
+        None,
+        description=(
+            "Scope by client: every recruitment of these clients (any status, "
+            "including ones created later). OR-combined with `recruitment_id` "
+            "into one scope; `recruitment_match` decides the direction."
+        ),
+    ),
+    recruitment_presence: Optional[str] = Query(
+        None,
+        pattern="^(never|ever|not_in_process)$",
+        description=(
+            "Recruitment history without naming a recruitment: `never` (no "
+            "`candidate_stages` row at all), `ever` (at least one), "
+            "`not_in_process` (no pair whose latest stage is non-terminal on a "
+            "non-closed recruitment — the rule of the list's process column). "
+            "Combines with the scope filter by AND."
         ),
     ),
     recently_changed_jobs: Optional[int] = Query(
@@ -1849,6 +2651,17 @@ async def list_candidates(
         None,
         description="Polish voivodeships (`mazowieckie`), any of. Repeat the param.",
     ),
+    location_places: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Cities with their own radius — repeat the param: `Warszawa:30` "
+            "(30 km around), `Łódź` (the city itself). At most 10, radius "
+            "1–300 km. A candidate matches ANY city, ANY radius or ANY "
+            "`voivodeship` (union); `location`/`location_cities` in the same "
+            "request join that union. Without this param `location` and "
+            "`voivodeship` keep combining with AND."
+        ),
+    ),
     contacted: Optional[Literal["yes", "no"]] = Query(
         None,
         description=(
@@ -1857,10 +2670,16 @@ async def list_candidates(
         ),
     ),
     contacted_from: Optional[date] = Query(
-        None, description="Contact period start (inclusive)."
+        None,
+        ge=FILTER_DATE_MIN,
+        le=FILTER_DATE_MAX,
+        description="Contact period start (inclusive).",
     ),
     contacted_to: Optional[date] = Query(
-        None, description="Contact period end (inclusive)."
+        None,
+        ge=FILTER_DATE_MIN,
+        le=FILTER_DATE_MAX,
+        description="Contact period end (inclusive).",
     ),
     contacted_by: Optional[list[int]] = Query(
         None, description="Only contacts made by these users."
@@ -1923,19 +2742,23 @@ async def list_candidates(
     ),
     stage_moved_after: Optional[date] = Query(
         None,
+        ge=FILTER_DATE_MIN,
+        le=FILTER_DATE_MAX,
         description=(
             "Filter by WHEN the candidate was moved onto the matched stage — "
             "lower bound (inclusive), `YYYY-MM-DD`. Matches "
-            "`CandidateStage.moved_at >= 00:00 UTC` of this day. Correlated "
+            "`CandidateStage.moved_at >= 00:00 Europe/Warsaw` of this day. Correlated "
             "with the stage filter exactly like `stage_moved_by`."
         ),
     ),
     stage_moved_before: Optional[date] = Query(
         None,
+        ge=FILTER_DATE_MIN,
+        le=FILTER_DATE_MAX,
         description=(
             "Filter by WHEN the candidate was moved onto the matched stage — "
             "upper bound (inclusive), `YYYY-MM-DD`. Matches "
-            "`CandidateStage.moved_at < 00:00 UTC` of the NEXT day, so the "
+            "`CandidateStage.moved_at < 00:00 Europe/Warsaw` of the NEXT day, so the "
             "whole `before` day is included."
         ),
     ),
@@ -1955,23 +2778,42 @@ async def list_candidates(
             "the candidate's CURRENT move per job-pair instead."
         ),
     ),
+    stage_column: Optional[list[StageColumnKey]] = Query(
+        None,
+        description=(
+            "„Dodany na etap” — Board column(s) (`new`, `screening`, "
+            "`verified`, `cv_qc`, `cv_sent`, `client_interview`, `contract`, "
+            "`hired`, `closed`), OR-combined with each other and with "
+            "`pipeline_stage`. The column comes from the stage-template NAME "
+            "plus the row's stage code — the same rule as the Board "
+            "(`board_column_for`): „QC CV” is a template stage with code "
+            "`interview`. Correlated with `stage_moved_by` / `stage_moved_*` / "
+            "`stage_client_id` on the SAME move and resolved CURRENT vs "
+            "HISTORICAL exactly like `pipeline_stage`. With any stage filter "
+            "each item carries `stage_match` (newest matching move)."
+        ),
+    ),
     sent_to_client_from: Optional[date] = Query(
         None,
+        ge=FILTER_DATE_MIN,
+        le=FILTER_DATE_MAX,
         description=(
             "Send-date filter (Data wysłania do klienta) — lower bound "
             "(inclusive), `YYYY-MM-DD`. Matches candidates who reached the "
             "`cv_sent` stage (CV wysłane do klienta / rekomendacja) with "
-            "`CandidateStage.moved_at >= 00:00 UTC` of this day. Independent of "
+            "`CandidateStage.moved_at >= 00:00 Europe/Warsaw` of this day. Independent of "
             "`pipeline_stage`/`stage_*`; always HISTORICAL — any `cv_sent` move "
             "in the window counts, even if the candidate has since advanced."
         ),
     ),
     sent_to_client_to: Optional[date] = Query(
         None,
+        ge=FILTER_DATE_MIN,
+        le=FILTER_DATE_MAX,
         description=(
             "Send-date filter (Data wysłania do klienta) — upper bound "
             "(inclusive), `YYYY-MM-DD`. Matches `cv_sent` moves with "
-            "`CandidateStage.moved_at < 00:00 UTC` of the NEXT day, so the whole "
+            "`CandidateStage.moved_at < 00:00 Europe/Warsaw` of the NEXT day, so the whole "
             "`to` day is included. Pairs with `sent_to_client_from`."
         ),
     ),
@@ -1986,9 +2828,13 @@ async def list_candidates(
     ),
     sort: str = Query(
         "newest",
-        pattern="^(newest|oldest|name|relevance)$",
+        pattern="^(newest|oldest|name|relevance|match)$",
         description=(
             "Sort order. 'newest' = created_at DESC; 'oldest' = created_at ASC; "
+            "'match' = similarity to the recruitment (single `recruitment_id` + "
+            "`recruitment_match=not_assigned`) or to the keyword rows — falls "
+            "back to 'newest' (see `sort_applied`) when there is nothing to "
+            "compare with or the vector store fails; "
             "'name' = name ASC, lastname ASC; 'relevance' = trigram similarity "
             "between query phrase and name+lastname+email DESC (auto-falls "
             "back to 'newest' when no `q` / `q_all` / `q_any` is provided). "
@@ -2027,6 +2873,13 @@ async def list_candidates(
     ),
 ):
     _reject_retired_candidate_query(request)
+    _reject_reversed_ranges(
+        min_rate=min_rate,
+        max_rate=max_rate,
+        min_experience=min_experience,
+        max_experience=max_experience,
+    )
+    _reject_invalid_location_places(location_places)
     filters = CandidateFilterSpec(
         status=status,
         location=location,
@@ -2039,6 +2892,9 @@ async def list_candidates(
         skills_required_any_groups=skills_required_any_groups,
         skills_preferred=skills_preferred,
         skills_excluded=skills_excluded,
+        location_preferred=location_preferred,
+        competence_category_preferred=competence_category_preferred,
+        q_preferred_group=q_preferred_group,
         tags=tags,
         languages=languages,
         country=country,
@@ -2046,6 +2902,8 @@ async def list_candidates(
         location_scope=location_scope,
         text_mode=text_mode,
         hide_unknown=hide_unknown,
+        hide_unknown_rate=hide_unknown_rate,
+        hide_unknown_location=hide_unknown_location,
         semantics_version=semantics_version,
         remote_policy=remote_policy,
         min_rate=min_rate,
@@ -2056,13 +2914,19 @@ async def list_candidates(
         employment=employment,
         availability=availability,
         added_by_user_id=added_by_user_id,
-        talent_pool_id=talent_pool_id,
+        # Cudza lista „Tylko ja” nie filtruje (0520): sama odpowiedź
+        # zdradzałaby, kto na niej jest.
+        talent_pool_id=await talent_pool_visibility.visible_pool_ids(
+            db, current_user.id, talent_pool_id
+        ),
         current_company=current_company,
         past_company=past_company,
         current_title=current_title,
         worked_at_client_id=worked_at_client_id,
         recruitment_id=recruitment_id,
         recruitment_match=recruitment_match,
+        recruitment_client_id=recruitment_client_id,
+        recruitment_presence=recruitment_presence,
         recently_changed_jobs=recently_changed_jobs,
         open_to=open_to,
         q_all=q_all,
@@ -2072,6 +2936,7 @@ async def list_candidates(
         q_scope=q_scope,
         location_radius_km=location_radius_km,
         voivodeship=voivodeship,
+        location_places=location_places,
         contacted=contacted,
         contacted_from=contacted_from,
         contacted_to=contacted_to,
@@ -2083,6 +2948,7 @@ async def list_candidates(
         stage_moved_after=stage_moved_after,
         stage_moved_before=stage_moved_before,
         stage_client_id=stage_client_id,
+        stage_column=stage_column,
         sent_to_client_from=sent_to_client_from,
         sent_to_client_to=sent_to_client_to,
         competence_category_id=competence_category_id,
@@ -2093,9 +2959,7 @@ async def list_candidates(
     )
     from app.services import candidate_search_predicates as search_predicates
 
-    list_semantics = search_predicates.semantics_for(
-        "list", semantics_version, hide_unknown
-    )
+    list_semantics = _list_semantics(filters)
     # Tekst `q` w trybie semantycznym — WYŁĄCZNIE v2 z jawnym `text_mode`
     # auto/semantic. v1 i żądania bez `text_mode` (alerty zapisanych wyszukiwań
     # odtwarzają zapisane parametry) zostają przy dopasowaniu dosłownym.
@@ -2103,39 +2967,34 @@ async def list_candidates(
     semantic_pool, text_interpretation = await _resolve_semantic_text(db, filters)
     if semantic_pool is not None and "sort" not in request.query_params:
         filters = filters.model_copy(update={"sort": "relevance"})
-    query, q_any_groups = await _build_candidate_filtered_query(
-        db,
-        filters,
-        load_list_relations=True,
-        semantic_pool_ids=semantic_pool.ids if semantic_pool is not None else None,
-    )
-    filtered_query = query
-    query = _apply_candidate_sort(
-        query,
-        filters,
-        q_any_groups,
-        pool_order=semantic_pool.ids if semantic_pool is not None else None,
-    )
-    query = query.offset((page - 1) * page_size).limit(page_size)
-    # Single pass: `count(*) OVER()` carries the full (pre-LIMIT) filtered total
-    # on every returned row, so the search filter executes once for both the
-    # page and the count. No partition/order in the window → it counts the whole
-    # filtered set, matching the previous `count(query.subquery())` exactly (the
-    # base query has no row-fanning joins — all relations are selectinload'd).
-    # Empty result → no rows → total 0.
-    result = await db.execute(
-        query.add_columns(func.count().over().label("total_count"))
-    )
-    rows = result.all()
-    items = [row[0] for row in rows]
-    total = rows[0].total_count if rows else 0
-    if not rows and page > 1:
-        # Strona poza zakresem (np. po usunięciu kandydatów albo z URL-a) nie ma
-        # wierszy, więc okno `count() OVER()` nie niesie sumy. Bez osobnego
-        # zliczenia lista mówiła „0 wyników” i nie dawała paginacji do powrotu.
-        total = int(
-            await db.scalar(select(func.count()).select_from(filtered_query.subquery()))
-            or 0
+    pool_ids = semantic_pool.ids if semantic_pool is not None else None
+    filters = _relevance_without_text_means_match(filters, pool_ids)
+    sort_applied = filters.sort
+    match_page = None
+    if filters.sort == "match":
+        if settings.CANDIDATE_MATCH_SORT:
+            match_page = await _list_page_match(
+                db,
+                current_user,
+                filters,
+                pool_ids=pool_ids,
+                page=page,
+                page_size=page_size,
+            )
+        if match_page is None:
+            # Brak wektora (brak kontekstu, dostępu, awaria Voyage/Qdranta)
+            # albo przełącznik OFF — „najnowsi”, a odpowiedź mówi to wprost.
+            sort_applied = "newest"
+            filters = filters.model_copy(update={"sort": "newest"})
+    if match_page is not None:
+        items, total, q_any_groups, known_count = match_page
+    elif settings.CANDIDATE_LIST_IDS_FIRST:
+        items, total, q_any_groups, known_count = await _list_page_ids_first(
+            db, filters, pool_ids=pool_ids, page=page, page_size=page_size
+        )
+    else:
+        items, total, q_any_groups, known_count = await _list_page_window_count(
+            db, filters, pool_ids=pool_ids, page=page, page_size=page_size
         )
 
     # Phase D1: resolve which weight profile to use for the match-stats column.
@@ -2264,6 +3123,8 @@ async def list_candidates(
                 latest_per_pair.c.job_id,
                 latest_per_pair.c.stage,
                 Job.title,
+                Job.working_title,
+                Job.client_reference,
                 client_display_name_expression().label("client_name"),
                 latest_per_pair.c.moved_at,
                 mover.name.label("moved_by_name"),
@@ -2281,6 +3142,8 @@ async def list_candidates(
             job_id,
             stage,
             job_title,
+            job_working_title,
+            job_client_reference,
             client_name,
             moved_at,
             moved_by_name,
@@ -2289,6 +3152,8 @@ async def list_candidates(
                 ActiveRecruitmentBrief(
                     job_id=job_id,
                     job_title=job_title or "—",
+                    job_working_title=job_working_title,
+                    job_client_reference=job_client_reference,
                     client_name=client_name,
                     stage=stage,
                     moved_at=moved_at,
@@ -2296,18 +3161,62 @@ async def list_candidates(
                 )
             )
 
+    # „Ostatnia rozmowa” (03.10.2026): najnowsza notatka z zakładki „Rozmowy”
+    # z datą i autorem oraz liczba prób kontaktu. Dwa zapytania na stronę.
+    # Podgląd powstaje niżej, po rozpoznaniu notatek z wysyłki (decyzja C).
+    last_talk_by_candidate: dict[int, tuple[datetime, Optional[str], str]] = {}
+    contact_attempts_by_candidate: dict[int, int] = {}
+    last_talk_rows: list[Any] = []
+    if include_last_talk and items:
+        page_ids = [c.id for c in items]
+        last_talk_stmt = (
+            select(
+                Note.candidate_id,
+                Note.created_at,
+                User.name.label("author_name"),
+                Note.content,
+                Note.id,
+                Note.kind,
+                Note.author_id,
+            )
+            .outerjoin(User, User.id == Note.author_id)
+            .where(
+                Note.candidate_id.in_(page_ids),
+                Note.parent_note_id.is_(None),
+                Note.source_deleted_at.is_(None),
+                note_kinds.talks_clause(),
+            )
+            .distinct(Note.candidate_id)
+            .order_by(Note.candidate_id, Note.created_at.desc(), Note.id.desc())
+        )
+        last_talk_rows = list((await db.execute(last_talk_stmt)).all())
+        contact_attempts_by_candidate = await _contact_attempt_counts(db, page_ids)
+
     # Last-activity aggregation (Phase „Search inline visibility"). 3 DISTINCT ON
     # queries po jednym SQL per page: najnowsza notatka, najnowszy rejection,
     # najnowsza pozaiownnio-zerowana stawka z pipeline'u. Brak N+1.
     last_note_by_candidate: dict[int, str] = {}
     last_rejection_by_candidate: dict[int, str] = {}
     last_rate_by_candidate: dict[int, str] = {}
+    last_note_rows: list[Any] = []
     if include_last_activity and items:
         candidate_ids = [c.id for c in items]
 
         last_note_stmt = (
-            select(Note.candidate_id, Note.content)
-            .where(Note.candidate_id.in_(candidate_ids))
+            select(
+                Note.candidate_id,
+                Note.content,
+                Note.id,
+                Note.kind,
+                Note.author_id,
+            )
+            .where(
+                Note.candidate_id.in_(candidate_ids),
+                # 0412: wpis automatu ani notatka ze stawką do klienta nie są
+                # „ostatnią notatką” na liście.
+                note_kinds.not_automat_clause(),
+                note_rate_visibility_clause(current_user),
+            )
             .distinct(Note.candidate_id)
             .order_by(
                 Note.candidate_id,
@@ -2315,10 +3224,11 @@ async def list_candidates(
                 Note.id.desc(),
             )
         )
-        for cand_id, content in (await db.execute(last_note_stmt)).all():
-            if cand_id is None or not content:
-                continue
-            last_note_by_candidate[cand_id] = _format_note_preview(content)
+        last_note_rows = [
+            row
+            for row in (await db.execute(last_note_stmt)).all()
+            if row.candidate_id is not None and row.content
+        ]
 
         last_rejection_stmt = (
             select(
@@ -2390,6 +3300,7 @@ async def list_candidates(
         extract_field_snippets,
         extract_search_terms,
         extract_snippet,
+        load_screening_confirmed_skills,
         snippets_as_text,
     )
 
@@ -2400,14 +3311,72 @@ async def list_candidates(
         t for t in extract_search_terms(None, q_all, q_any, q_any_groups) if t
     ]
     notes_by_candidate: dict[int, list[str]] = {}
+    snippet_note_rows: list[Any] = []
     if search_terms and items:
-        notes_stmt = select(Note.candidate_id, Note.content).where(
-            Note.candidate_id.in_([c.id for c in items])
+        # Runda 7 (R7-N10-5): przy słowach kluczowych tylko notatki z trafieniem,
+        # zawsze najwyżej `_SNIPPET_NOTES_PER_CANDIDATE` najnowszych na osobę
+        # i ucięte jak indeks — osoba z setkami maili z Traffita nie może
+        # zamieniać strony listy w megabajty tekstu czyszczone w pętli zdarzeń.
+        from app.services.advanced_candidate_search import note_snippet_match
+        from app.services.keyword_corpus import NOTE_CAP
+
+        note_conditions = [
+            Note.candidate_id.in_([c.id for c in items]),
+            note_kinds.searchable_clause(),
+            note_rate_visibility_clause(current_user),
+        ]
+        if list_semantics.unified and keyword_terms_for_snippets:
+            note_match = note_snippet_match(keyword_terms_for_snippets)
+            if note_match is not None:
+                note_conditions.append(note_match)
+        ranked_notes = (
+            select(
+                Note.candidate_id.label("candidate_id"),
+                func.left(Note.content, NOTE_CAP).label("content"),
+                Note.id.label("id"),
+                Note.kind.label("kind"),
+                Note.author_id.label("author_id"),
+                func.row_number()
+                .over(
+                    partition_by=Note.candidate_id,
+                    order_by=(Note.created_at.desc(), Note.id.desc()),
+                )
+                .label("rn"),
+            )
+            .where(*note_conditions)
+            .subquery()
         )
-        for cid, content in (await db.execute(notes_stmt)).all():
-            if cid is None or not content:
-                continue
-            notes_by_candidate.setdefault(cid, []).append(content)
+        notes_stmt = select(
+            ranked_notes.c.candidate_id,
+            ranked_notes.c.content,
+            ranked_notes.c.id,
+            ranked_notes.c.kind,
+            ranked_notes.c.author_id,
+        ).where(ranked_notes.c.rn <= _SNIPPET_NOTES_PER_CANDIDATE)
+        snippet_note_rows = list((await db.execute(notes_stmt)).all())
+
+    # Decyzja C (14.10.2026): notatka DL-a z wysyłki („Wysłany 150/100-110”)
+    # niesie cenę dla klienta. Jedno rozpoznanie na stronę dla „Ostatniej
+    # rozmowy”, „ostatniej notatki” i wycinków — dwa zapytania, zero dla roli
+    # ze stawką do klienta.
+    page_send_ids = await hidden_send_note_ids(
+        db,
+        current_user,
+        [row.id for row in (*last_talk_rows, *last_note_rows, *snippet_note_rows)],
+    )
+    for row in last_talk_rows:
+        last_talk_by_candidate[row.candidate_id] = (
+            row.created_at,
+            row.author_name,
+            _list_note_preview(current_user, row, page_send_ids),
+        )
+    for row in last_note_rows:
+        last_note_by_candidate[row.candidate_id] = _list_note_preview(
+            current_user, row, page_send_ids
+        )
+    notes_by_candidate = _snippet_notes_by_candidate(
+        current_user, snippet_note_rows, page_send_ids
+    )
 
     contact_case_by_candidate = await load_contact_case_summaries(
         db, [candidate.id for candidate in items]
@@ -2426,7 +3395,41 @@ async def list_candidates(
             .distinct()
         )
         candidates_with_cv = {row[0] for row in cv_rows.all()}
+    field_snippets_by_candidate: dict[int, list[dict]] = {}
+    if list_semantics.unified and keyword_terms_for_snippets and items:
+        # Runda 12 (SEARCH): umiejętności potwierdzone w screeningu są w korpusie
+        # i w zakresie „Umiejętności” — wycinek musi je widzieć, inaczej osoba
+        # znaleziona wyłącznie po nich nie ma pod wynikiem żadnego trafienia.
+        screening_skills_by_candidate = (
+            await load_screening_confirmed_skills(db, [c.id for c in items])
+            if q_scope in ("all", "skills")
+            else {}
+        )
+
+        # Czyszczenie i dopasowanie tekstu CV i notatek poza pętlą zdarzeń
+        # (R7-N10-5); obiekty są już załadowane, sesja w tym czasie stoi.
+        def _page_field_snippets() -> dict[int, list[dict]]:
+            return {
+                cand.id: extract_field_snippets(
+                    cand,
+                    keyword_terms_for_snippets,
+                    notes_contents=notes_by_candidate.get(cand.id),
+                    whole_words=True,
+                    scope=q_scope,
+                    screening_skills=screening_skills_by_candidate.get(cand.id),
+                )
+                for cand in items
+            }
+
+        field_snippets_by_candidate = await asyncio.to_thread(_page_field_snippets)
+    employment_markers = await _page_employment_markers(db, items)
+    # Filtr etapu: kiedy i kto przesunął osobę na wybrany etap — jedno
+    # zapytanie dla osób ze strony, tym samym warunkiem co filtr.
+    stage_match_by_candidate = await _stage_matches(
+        db, await _resolve_stage_filter(db, filters), [c.id for c in items]
+    )
     response_items: list[CandidateResponse] = []
+    distance_places = _radius_places(filters)
     for cand in items:
         payload = _candidate_to_response(cand)
         payload = payload.model_copy(
@@ -2435,22 +3438,39 @@ async def list_candidates(
         # Strip detail-only sync/snapshot state from list responses. Identity
         # ownership carries source values used by the editor and would only
         # bloat every candidate tile; detail/mutation responses keep it.
+        # `cv_extracted_data` (cały odczyt CV) czyta wyłącznie profil — na
+        # liście był ~⅔ odpowiedzi (25.09.2026: 267 z 409 KB na 25 osób).
         payload = payload.model_copy(
             update={
                 "linkedin_snapshots": None,
                 "identity_sync": None,
+                "cv_extracted_data": None,
                 "has_cv_document": cand.id in candidates_with_cv,
+                "employment_marker": employment_markers.get(cand.id),
             }
         )
         stats = match_stats_by_candidate.get(cand.id)
         if stats is not None:
             payload = payload.model_copy(update={"match_stats": stats})
+        stage_match = stage_match_by_candidate.get(cand.id)
+        if stage_match is not None:
+            payload = payload.model_copy(update={"stage_match": stage_match})
         if include_active_recruitments:
             payload = payload.model_copy(
                 update={
                     "active_recruitments": active_recruitments_by_candidate.get(
                         cand.id, []
                     )
+                }
+            )
+        if include_last_talk:
+            talk = last_talk_by_candidate.get(cand.id)
+            payload = payload.model_copy(
+                update={
+                    "last_talk_at": talk[0] if talk else None,
+                    "last_talk_by": talk[1] if talk else None,
+                    "last_talk_preview": talk[2] if talk else None,
+                    "contact_attempts": contact_attempts_by_candidate.get(cand.id, 0),
                 }
             )
         if include_last_activity:
@@ -2462,13 +3482,7 @@ async def list_candidates(
                 }
             )
         if list_semantics.unified and keyword_terms_for_snippets:
-            field_snippets = extract_field_snippets(
-                cand,
-                keyword_terms_for_snippets,
-                notes_contents=notes_by_candidate.get(cand.id),
-                whole_words=True,
-                scope=q_scope,
-            )
+            field_snippets = field_snippets_by_candidate.get(cand.id, [])
             payload = payload.model_copy(
                 update={
                     "match_snippets": [MatchSnippet(**x) for x in field_snippets],
@@ -2488,9 +3502,7 @@ async def list_candidates(
                 update={
                     "unknown_fields": search_predicates.unknown_fields_for(
                         cand,
-                        location_active=bool(
-                            location or location_cities or voivodeship
-                        ),
+                        location_active=_location_filter_active(filters),
                         country_active=bool(country),
                         experience_active=(
                             min_experience is not None or max_experience is not None
@@ -2499,6 +3511,12 @@ async def list_candidates(
                     )
                 }
             )
+        if distance_places:
+            distance = search_predicates.place_distance(cand, distance_places)
+            if distance is not None:
+                payload = payload.model_copy(
+                    update={"location_distance": CandidateLocationDistance(**distance)}
+                )
         response_items.append(payload)
 
     # „Rozumiem to jako…": `text_mode_applied` mówi, co NAPRAWDĘ zrobiono
@@ -2514,7 +3532,15 @@ async def list_candidates(
         text_mode_applied = "semantic"
     else:
         text_mode_applied = "literal" if q_stripped else "none"
+    # „Nie ma nikogo o tym nazwisku — pokazujemy podobne”: front mówi to przy
+    # liczbie wyników. Wynik pamiętany 60 s, więc to nie drugie zapytanie.
+    text_match = None
+    if text_mode_applied == "literal":
+        text_match = await search_predicates.person_text_match(
+            db, q_stripped, list_semantics, filters.text_mode
+        )
     return CandidateList(
+        text_match=text_match,
         items=response_items,
         total=total,
         page=page,
@@ -2525,6 +3551,8 @@ async def list_candidates(
         result_cap_reached=bool(
             semantic_pool is not None and semantic_pool.cap_reached
         ),
+        sort_applied=sort_applied,
+        known_match_count=known_count,
     )
 
 
@@ -2626,24 +3654,110 @@ async def suggest_titles(
     Groups by lowercased role — same MVP trade-off (collapses "Senior Engineer"
     / "senior engineer" to one suggestion).
     """
-    pat = contains_pattern(q.strip().lower()) if q.strip() else ""
-    sql = text(
-        "SELECT lower(elem->>'role') AS role, COUNT(DISTINCT c.id) AS n "
-        "FROM candidates c, "
-        "jsonb_array_elements("
-        "CASE WHEN jsonb_typeof(c.experience) = 'array' "
-        "THEN c.experience ELSE '[]'::jsonb END"
-        ") AS elem "
-        "WHERE elem ? 'role' "
-        "AND elem->>'role' IS NOT NULL "
-        "AND elem->>'role' <> '' "
-        "AND (:pat = '' OR lower(elem->>'role') LIKE :pat) "
-        "GROUP BY lower(elem->>'role') "
-        "ORDER BY n DESC, role ASC "
-        "LIMIT :lim"
+    from app.services.keyword_suggest import suggest_titles as _suggest_titles
+
+    rows = await _suggest_titles(db, q, limit)
+    return [TitleSuggestion(name=name, count=n) for name, n in rows]
+
+
+# ── Autocomplete: słowa kluczowe wyszukiwania ręcznego ──────────────────────
+
+
+class KeywordSuggestion(BaseModel):
+    """Podpowiedź do pola słów kluczowych (``services/keyword_suggest``)."""
+
+    label: str
+    kind: Literal["skill", "term", "title", "prefix"]
+    insert: str
+    alias: Optional[str] = None
+    category: Optional[str] = None
+    # Przybliżenie z indeksu pełnotekstowego; ``None`` = nie policzono.
+    count: Optional[int] = None
+    # Warianty do „+ z wariantami” (``skill_variants``, odpowiedniki ``term_suggestions``).
+    variants: list[str] = []
+
+
+class KeywordSuggestResponse(BaseModel):
+    items: list[KeywordSuggestion]
+    wildcard: Optional[KeywordSuggestion] = None
+
+
+@router.get("/keywords/suggest", response_model=KeywordSuggestResponse)
+@limiter.limit("120/minute", key_func=user_or_ip_key)
+async def suggest_keywords(
+    request: Request,
+    current_user: CandidateSearchAccess,
+    db: AsyncSession = Depends(get_db),
+    q: str = Query("", max_length=100),
+    limit: int = Query(6, ge=1, le=10),
+) -> KeywordSuggestResponse:
+    """Technologie ze słownika (z aliasami) i stanowiska do pól „Zawiera
+    wszystkie / którekolwiek / żadnego” oraz koszyków umiejętności."""
+    from app.services import keyword_suggest
+
+    result = await keyword_suggest.suggest(db, q, limit)
+    return KeywordSuggestResponse(
+        items=[KeywordSuggestion(**item.__dict__) for item in result.items],
+        wildcard=(
+            KeywordSuggestion(**result.wildcard.__dict__) if result.wildcard else None
+        ),
     )
-    result = await db.execute(sql, {"pat": pat, "lim": limit})
-    return [TitleSuggestion(name=row[0], count=int(row[1])) for row in result]
+
+
+_CLASSIFY_CITY_POPULATION = 20_000
+
+
+class KeywordClassifyResponse(BaseModel):
+    skills: list[str]
+    # Wszystkie słowa to nazwy technologii i żadne nie jest nazwiskiem ani
+    # miejscowością — front zamienia je wtedy na wiersze wymagań.
+    as_requirements: bool
+    # Gotowe wiersze (warianty LUB): alias zostaje obok nazwy kanonicznej,
+    # żeby wiersz nie zawężał wyniku do frazy (runda 6 audytu).
+    rows: list[list[str]] = []
+
+
+@router.get("/keywords/classify", response_model=KeywordClassifyResponse)
+@limiter.limit("120/minute", key_func=user_or_ip_key)
+async def classify_keywords(
+    request: Request,
+    current_user: CandidateSearchAccess,
+    db: AsyncSession = Depends(get_db),
+    q: str = Query("", max_length=200),
+    context: Literal["top", "rows"] = Query("rows"),
+) -> KeywordClassifyResponse:
+    """Górne pole listy: czy wpisano same nazwy technologii (decyzja Artura
+    25.09.2026). Wtedy lista szuka ich jak wierszy wymagań — wszyscy ze słowem,
+    a nie 200 osób „po znaczeniu”. Słowo, które jest też miejscowością,
+    zostawia tekst bez zmian.
+
+    Imię/nazwisko w bazie sprawdzamy WYŁĄCZNIE dla górnego pola
+    (``context=top``) — tam ktoś mógł wpisać osobę. K8 (audyt 06.10.2026):
+    przy wierszu wymagań „SAP”, „Ada”, „Julia” nigdy nie były technologią,
+    bo w bazie jest ktoś o takim nazwisku."""
+    from app.services import keyword_suggest, pl_places
+    from app.services import candidate_search_predicates as predicates
+
+    result = keyword_suggest.classify_skills(q)
+    if not result.all_skills:
+        return KeywordClassifyResponse(
+            skills=list(result.skills), as_requirements=False
+        )
+    for word in keyword_suggest.fold(q).replace(",", " ").split():
+        place = pl_places.resolve(word)
+        # Tylko miasta (≥ 20 tys.) — jak podpowiedź lokalizacji w wierszach
+        # wymagań: „Kotlin” to też wieś, a nikt nie szuka jej w tym polu.
+        if (place is not None and place.population >= _CLASSIFY_CITY_POPULATION) or (
+            context == "top" and await predicates.person_token_exists(db, word)
+        ):
+            return KeywordClassifyResponse(
+                skills=list(result.skills), as_requirements=False
+            )
+    return KeywordClassifyResponse(
+        skills=list(result.skills),
+        as_requirements=True,
+        rows=[list(row) for row in result.rows],
+    )
 
 
 # ── Bulk export (Phase 7b.4) ────────────────────────────────────────────────
@@ -2663,6 +3777,8 @@ _EXPORT_COLUMNS = [
     "status",
     "source",
     "expected_rate_hourly_pln_net_b2b",
+    # „Stawka od” (0414) — najniższa stawka z 18 miesięcy, po niej filtruje lista.
+    "rate_from_hourly_pln",
     "availability_date",
     "champion",
     "created_at",
@@ -2690,24 +3806,30 @@ def _row_for_export(c: Candidate) -> list:
         c.expected_rate_hourly,
         c.expected_rate_currency,
     )
-    return [
-        c.id,
-        c.name or "",
-        c.lastname or "",
-        c.email or "",
-        c.phone or "",
-        c.location or "",
-        c.competence_category or "",
-        c.years_it_experience if c.years_it_experience is not None else "",
-        _skill_names_flat(c.skills),
-        _skill_names_flat(c.tags),
-        c.status.value if c.status else "",
-        c.source or "",
-        profile_rate if profile_rate is not None else "",
-        c.availability_date.isoformat() if c.availability_date else "",
-        "true" if c.champion else "false",
-        c.created_at.isoformat() if c.created_at else "",
-    ]
+    rate_from = rate_summary(c)["rate_from_hourly"]
+    # Imię, nazwisko i lokalizacja przychodzą też z publicznego formularza
+    # strony kariery — tekst nie może zostać formułą w Excelu (safe_row).
+    return safe_row(
+        [
+            c.id,
+            c.name or "",
+            c.lastname or "",
+            c.email or "",
+            c.phone or "",
+            c.location or "",
+            c.competence_category or "",
+            c.years_it_experience if c.years_it_experience is not None else "",
+            _skill_names_flat(c.skills),
+            _skill_names_flat(c.tags),
+            c.status.value if c.status else "",
+            c.source or "",
+            profile_rate if profile_rate is not None else "",
+            rate_from if rate_from is not None else "",
+            c.availability_date.isoformat() if c.availability_date else "",
+            "true" if c.champion else "false",
+            c.created_at.isoformat() if c.created_at else "",
+        ]
+    )
 
 
 @router.get("/export")
@@ -2777,27 +3899,36 @@ async def export_candidates(
 
     filename = f"candidates_{ts}.csv"
     return StreamingResponse(
-        _stream_candidate_csv(db, query),
+        _stream_candidate_csv(query),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
-async def _stream_candidate_csv(db: AsyncSession, query):
-    """Yield bounded CSV chunks while candidates are streamed from Postgres."""
+async def _stream_candidate_csv(query):
+    """Yield bounded CSV chunks while candidates are streamed from Postgres.
+
+    Runda 9 (R9-X1-2): własna sesja. Sesja żądania (``get_db``) zamyka się
+    przed wysłaniem odpowiedzi, a ten generator biegnie dopiero w trakcie jej
+    wysyłania — zamknięta sesja pobrałaby nowe połączenie, którego nikt by
+    nie zwolnił.
+    """
     import csv
     from io import StringIO
+
+    from app.core.database import AsyncSessionLocal
 
     buffer = StringIO()
     writer = csv.writer(buffer, quoting=csv.QUOTE_MINIMAL)
     writer.writerow(_EXPORT_COLUMNS)
-    stream = await db.stream_scalars(query.execution_options(yield_per=500))
-    async for candidate in stream:
-        writer.writerow(_row_for_export(candidate))
-        if buffer.tell() >= 64 * 1024:
-            yield buffer.getvalue()
-            buffer.seek(0)
-            buffer.truncate(0)
+    async with AsyncSessionLocal() as stream_db:
+        stream = await stream_db.stream_scalars(query.execution_options(yield_per=500))
+        async for candidate in stream:
+            writer.writerow(_row_for_export(candidate))
+            if buffer.tell() >= 64 * 1024:
+                yield buffer.getvalue()
+                buffer.seek(0)
+                buffer.truncate(0)
     if buffer.tell():
         yield buffer.getvalue()
 
@@ -2851,6 +3982,9 @@ async def export_candidates_v2(
             detail="candidate_ids must contain positive integers",
         )
 
+    # Liczba osób w pliku dla alarmu masowego pobierania (0508): eksport
+    # z filtrem ma zawsze puste ``candidate_ids`` (audyt 22.10, F24).
+    row_count = len(unique_ids)
     if payload.scope == "selected":
         if not unique_ids:
             raise HTTPException(
@@ -2880,9 +4014,20 @@ async def export_candidates_v2(
                 detail="scope='filtered' does not accept candidate_ids",
             )
         export_filters = payload.filters
+        if export_filters.talent_pool_id:
+            export_filters = export_filters.model_copy(
+                update={
+                    "talent_pool_id": await talent_pool_visibility.visible_pool_ids(
+                        db, current_user.id, export_filters.talent_pool_id
+                    )
+                }
+            )
         export_pool, _ = await _resolve_semantic_text(db, export_filters)
         if export_pool is not None and "sort" not in export_filters.model_fields_set:
             export_filters = export_filters.model_copy(update={"sort": "relevance"})
+        export_filters = _relevance_without_text_means_match(
+            export_filters, export_pool.ids if export_pool is not None else None
+        )
         query, q_any_groups = await _build_candidate_filtered_query(
             db,
             export_filters,
@@ -2890,6 +4035,7 @@ async def export_candidates_v2(
         )
         total_query = select(func.count()).select_from(query.order_by(None).subquery())
         total = int(await db.scalar(total_query) or 0)
+        row_count = total
         if total > payload.limit:
             raise HTTPException(
                 status_code=422,
@@ -2898,12 +4044,43 @@ async def export_candidates_v2(
                     f"{payload.limit}. Narrow the filters or raise the limit."
                 ),
             )
-        query = _apply_candidate_sort(
-            query,
-            export_filters,
-            q_any_groups,
-            pool_order=export_pool.ids if export_pool is not None else None,
-        )
+        # „Dopasowanie” (runda 6 audytu): plik ma kolejność ekranu — ta sama
+        # funkcja co lista (`_list_page_match`). `_apply_requested_sort` nie
+        # zna „match”, więc eksport wychodził od najnowszych. Brak wektora
+        # albo przełącznik OFF = „najnowsi”, jak na liście.
+        match_ids = None
+        if export_filters.sort == "match":
+            if settings.CANDIDATE_MATCH_SORT:
+                from app.services import candidate_match_order
+
+                # Ta sama pamięć kolejności co lista (K11): liczona bez
+                # wykluczenia osób z rekrutacji, wykluczenie przy odczycie.
+                order_query, _ = await _build_candidate_filtered_query(
+                    db,
+                    candidate_match_order.order_base_filters(export_filters),
+                    semantic_pool_ids=(
+                        export_pool.ids if export_pool is not None else None
+                    ),
+                )
+                match_ids = await candidate_match_order.ordered_ids(
+                    db,
+                    current_user,
+                    export_filters,
+                    order_query.with_only_columns(Candidate.id),
+                    q_any_groups,
+                    _sort_prefix_exprs(export_filters),
+                )
+            if match_ids is None:
+                export_filters = export_filters.model_copy(update={"sort": "newest"})
+        if match_ids is not None:
+            query = order_by_id_list(query, match_ids)
+        else:
+            query = _apply_candidate_sort(
+                query,
+                export_filters,
+                q_any_groups,
+                pool_order=export_pool.ids if export_pool is not None else None,
+            )
 
     # Immutable audit — scope + format only, no PII / filter values.
     candidate_audit.record_candidate_audit(
@@ -2915,6 +4092,7 @@ async def export_candidates_v2(
             "format": payload.format,
             "scope": payload.scope,
             "selected_count": len(unique_ids),
+            "row_count": row_count,
             "limit": payload.limit,
         },
     )
@@ -2935,18 +4113,48 @@ async def export_candidates_v2(
         )
 
     return StreamingResponse(
-        _stream_candidate_csv(db, query),
+        _stream_candidate_csv(query),
         media_type="text/csv; charset=utf-8",
         headers=headers,
     )
 
 
-@router.post("", response_model=CandidateResponse, status_code=status.HTTP_201_CREATED)
-async def create_candidate(
-    data: CandidateCreate,
-    current_user: RecruiterPlus,
-    db: AsyncSession = Depends(get_db),
-):
+def _reject_name_markers(fields: dict[str, Any]) -> None:
+    """Imię/nazwisko wpisane RĘCZNIE z dopiskiem → 422 przy polu (D6, 13.10.2026).
+
+    „[ACTIVE]”, „(zaakceptowany)”, „(czarna lista)” mają w NEXUSIE własne pola
+    (Dostępność, Status, zatrudnienie z umowy). Reguła: ``candidate_name_rules``.
+    Celowo w handlerach, nie w ``CandidateCreate`` — ten sam schemat waliduje
+    zbiorcze dodawanie (tam dopisek zdejmujemy po cichu) i resztę formularza
+    `/from-cv` z imieniem zastępczym „-”.
+    """
+    detail = [
+        {
+            "loc": ["body", field],
+            "msg": name_marker_message(),
+            "type": NAME_MARKER_ERROR_TYPE,
+        }
+        for field, value in fields.items()
+        if isinstance(value, str) and find_name_markers(value)
+    ]
+    if detail:
+        raise HTTPException(status_code=422, detail=detail)
+
+
+async def apply_candidate_create(
+    db: AsyncSession, data: CandidateCreate, *, author: WriteAuthor
+) -> Candidate:
+    """Ciało `POST /api/candidates` BEZ commita — ekran i API v1 (15.10.2026).
+
+    Ten sam zapis dla osoby z ekranu i dla klucza API
+    (``POST /api/integrations/v1/candidates``): duplikat e-maila → 409, wpis
+    ``Activity``, dzwonek adminów i Head of Recruitment (WebSocket po
+    commicie), karta Teams i kolejka indeksu. Konto serwisowe
+    (``author.user_id is None``) nie dostaje wpisu ``UserActivity`` — to
+    ranking ludzi, a kolumna ``user_id`` jest NOT NULL. Odmowę dopisków
+    w imieniu robi wołający, bo nazwy pól w błędzie są różne na ekranie
+    i w API v1. Commit — wołający (ekran: ``get_db``, v1: paragon).
+    """
     candidate = Candidate(**data.model_dump())
     apply_candidate_location_from_source(
         candidate,
@@ -2954,16 +4162,16 @@ async def create_candidate(
         country=candidate.country,
         overwrite_existing=True,
     )
-    candidate.created_by = current_user.id
+    candidate.created_by = author.user_id
     # `candidates.email` ma unikalny indeks. Bez tej obsługi duplikat kończył się
     # IntegrityError przy flush → 500 („nieoczekiwany błąd serwera"), a scenariusz
     # E2E „duplikat e-maila" przechodził tylko dlatego, że akceptował każdy status
     # poniżej 500 (audyt QA 14.09.2026). Sprawdzenie przed zapisem daje czytelną
     # odmowę; SAVEPOINT łapie wyścig dwóch równoległych zapisów tego samego adresu.
     duplicate_message = "Kandydat z tym adresem e-mail już istnieje."
-    if candidate.email and await db.scalar(
-        select(Candidate.id).where(Candidate.email == candidate.email)
-    ):
+    # Bez rozróżniania wielkości liter (12.10.2026): unikalny indeks jest na
+    # surowej kolumnie, więc „Jan@…” i „jan@…” zakładały dwa profile.
+    if candidate.email and await find_candidate_by_email(db, candidate.email):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=duplicate_message
         )
@@ -2981,21 +4189,22 @@ async def create_candidate(
         entity_type="candidate",
         entity_id=candidate.id,
         action="created",
-        user_id=current_user.id,
+        user_id=author.user_id,
         details={"name": f"{candidate.name} {candidate.lastname}"},
     )
     db.add(activity)
-    user_activity = UserActivity(
-        user_id=current_user.id,
-        action_type=UserActionType.candidate_added,
-        entity_type="candidate",
-        entity_id=candidate.id,
-        details={
-            "name": f"{candidate.name} {candidate.lastname}",
-            "source": candidate.source,
-        },
-    )
-    db.add(user_activity)
+    if author.user_id is not None:
+        user_activity = UserActivity(
+            user_id=author.user_id,
+            action_type=UserActionType.candidate_added,
+            entity_type="candidate",
+            entity_id=candidate.id,
+            details={
+                "name": f"{candidate.name} {candidate.lastname}",
+                "source": candidate.source,
+            },
+        )
+        db.add(user_activity)
     await db.flush()
 
     # Notify all managers/admins about new candidate (real-time).
@@ -3017,7 +4226,7 @@ async def create_candidate(
     )
     notif_ids = []
     for mgr in managers:
-        if mgr.id != current_user.id:
+        if mgr.id != author.user_id:
             notif = Notification(
                 user_id=mgr.id,
                 title="Nowy kandydat dodany",
@@ -3028,21 +4237,25 @@ async def create_candidate(
             db.add(notif)
             notif_ids.append((mgr.id, notif))
     await db.flush()
+    # Runda 9 (R9-N2-5): zdarzenie wychodzi dopiero po commicie żądania.
+    from app.services.notification_ws_after_commit import queue_ws_notification
+
     for mgr_id, notif in notif_ids:
-        await ws_manager.notify_user(
-            mgr_id,
-            {
-                "type": "notification",
-                "data": {
-                    "id": notif.id,
-                    "title": notif.title,
-                    "message": notif.message,
-                    "link": notif.link,
-                    "notification_type": NotificationType.candidate_added.value,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                },
+        payload = {
+            "type": "notification",
+            "data": {
+                "id": notif.id,
+                "title": notif.title,
+                "message": notif.message,
+                "link": notif.link,
+                "notification_type": NotificationType.candidate_added.value,
+                "created_at": datetime.now(timezone.utc).isoformat(),
             },
-        )
+        }
+        if not queue_ws_notification(
+            db, user_id=mgr_id, event_payload=payload, row=notif
+        ):
+            await ws_manager.notify_user(mgr_id, payload)
 
     await db.refresh(candidate)
     # Phase 7.6 — fire-and-forget Teams card to all subscribed channels.
@@ -3057,9 +4270,12 @@ async def create_candidate(
 
         teams_db_payload = candidate_payload(
             candidate=candidate,
-            recruiter_name=current_user.name or current_user.email,
+            recruiter_name=author.label,
         )
-        asyncio.create_task(notify_teams("candidate_added", teams_db_payload))
+        spawn(
+            notify_teams("candidate_added", teams_db_payload),
+            "teams_notify:candidate_added",
+        )
     except Exception as exc:  # noqa: BLE001 — never block create on a notifier
         logger.warning("Teams notify (candidate_added) scheduling failed: %s", exc)
 
@@ -3076,6 +4292,40 @@ async def create_candidate(
         await schedule_or_embed_candidate(candidate.id, db)
     except Exception as exc:  # noqa: BLE001 — indexing is best-effort
         logger.warning("Indexing new candidate %s failed: %s", candidate.id, exc)
+    return candidate
+
+
+@router.post("", response_model=CandidateResponse, status_code=status.HTTP_201_CREATED)
+async def create_candidate(
+    data: CandidateCreate,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+    confirm_erased: bool = Query(
+        default=False,
+        description="Rekruter wie, że adres należał do profilu trwale usuniętego.",
+    ),
+):
+    from app.services.candidate_erasure_leftovers import (
+        VIA_SCREEN,
+        email_was_erased,
+        erased_email_conflict,
+        record_recreated_after_erasure,
+    )
+
+    _reject_name_markers({"name": data.name, "lastname": data.lastname})
+    # Adres z żywym właścicielem to zwykły duplikat (409 niżej), nie powrót.
+    erased_email = not await find_candidate_by_email(
+        db, data.email
+    ) and await email_was_erased(db, data.email)
+    if erased_email and not confirm_erased:
+        raise erased_email_conflict()
+    candidate = await apply_candidate_create(
+        db, data, author=WriteAuthor.person(current_user)
+    )
+    if erased_email:
+        record_recreated_after_erasure(
+            db, candidate.id, user_id=current_user.id, via=VIA_SCREEN
+        )
 
     # Reload with eager-loaded contracts/conflicts so _derive_employment has data.
     reloaded = await db.execute(
@@ -3087,7 +4337,7 @@ async def create_candidate(
     return _candidate_to_response(full)
 
 
-# ── Chrome extension: POST /api/candidates/from-linkedin ────────────────────
+# ── LinkedIn profile helpers ─────────────────────────────────────────────
 
 
 _LINKEDIN_STALE_DAYS = 7
@@ -3118,8 +4368,10 @@ def _derive_names_from_preview(
     if preview is not None:
         name = getattr(preview, "name", None)
         lastname = getattr(preview, "lastname", None)
-    name = (name or "").strip()
-    lastname = (lastname or "").strip()
+    # Dopisek z podglądu strony (D6, 13.10.2026) znika bez odmowy; pole, które
+    # było samym dopiskiem, dostaje fallback niżej.
+    name = strip_name_markers((name or "").strip())[0]
+    lastname = strip_name_markers((lastname or "").strip())[0]
     if not name and not lastname:
         slug = _slug_from_linkedin_url(normalized_url) or "Profile"
         return "LinkedIn", slug
@@ -3180,15 +4432,15 @@ async def _assign_candidate_to_job(
     # zapisujące `CandidateStage` (`/api/pipeline/move`, rekomendacje, bulk).
     # Blokuje twardo globalną czarną listę; konflikty z klientem (czarna lista
     # klienta / NDA / konkurent) są od 17.09.2026 ostrzeżeniem i tu nie
-    # blokują — dokładnie jak w kanbanie. `enforce_manager_verdict=False`, bo
-    # weto hiring managera rozstrzyga wywołujący (degraduje je do
-    # `assignment_skipped_reason` zamiast 409).
+    # blokują — dokładnie jak w kanbanie. Weto hiring managera sprawdza ta
+    # wspólna bramka; wtyczka zamienia odmowę 409 na powód pominięcia
+    # rekrutacji zamiast otwierać proces z pominięciem weta.
     await assert_candidate_move_eligible(
         db,
         candidate_id=candidate_id,
         job=job,
         now=datetime.now(timezone.utc),
-        enforce_manager_verdict=False,
+        enforce_manager_verdict=True,
     )
 
     stage_row = await open_process(
@@ -3233,204 +4485,6 @@ def _is_sync_stale(
     return synced_at < threshold
 
 
-@router.post(
-    "/from-linkedin",
-    response_model=CandidateFromLinkedInResponse,
-    status_code=status.HTTP_201_CREATED,
-    responses={200: {"model": CandidateFromLinkedInResponse}},
-)
-async def create_candidate_from_linkedin(
-    data: CandidateFromLinkedInCreate,
-    current_user: RecruiterPlus,
-    background_tasks: BackgroundTasks,
-    response: Response,
-    db: AsyncSession = Depends(get_db),
-):
-    """One-click "Dodaj z LinkedIn" from the NEXUS Chrome extension.
-
-    Flow:
-    1. Normalize LinkedIn URL (reject company/jobs/invalid).
-    2. Dedup against existing candidates via slug match.
-       - If found → return ``action="existing"``; opcjonalnie przypisz do job;
-         odpal resync gdy stary >7d.
-    3. Otherwise create a stub (``name``/``lastname`` from preview or fallback),
-       opcjonalnie przypisz do job (atomicznie), queue Proxycurl enrichment.
-    """
-    from app.services.proxycurl import normalize_linkedin_url
-
-    normalized = normalize_linkedin_url(data.linkedin_url)
-    if not normalized:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Invalid LinkedIn profile URL. Expected a "
-                "'linkedin.com/in/<slug>' profile link."
-            ),
-        )
-
-    target_stage = data.stage or PipelineStage.new
-
-    # ── Dedup fast-path ────────────────────────────────────────────────────
-    duplicates = await find_candidate_duplicates(db, linkedin=normalized)
-    if duplicates:
-        match = duplicates[0]
-        existing_id: int = match["candidate_id"]
-        existing = await db.scalar(select(Candidate).where(Candidate.id == existing_id))
-        assert existing is not None  # find_candidate_duplicates just returned it
-
-        assigned_job: Optional[int] = None
-        assignment_skipped: Optional[str] = None
-        if data.job_id is not None:
-            already = await db.scalar(
-                select(CandidateStage).where(
-                    CandidateStage.candidate_id == existing_id,
-                    CandidateStage.job_id == data.job_id,
-                )
-            )
-            if already is None:
-                # Dedup landed on someone we already have — so they may already
-                # carry a rejection from this job's hiring manager. Skip the
-                # assignment rather than 409 the whole request: the candidate
-                # data is still worth saving, and the extension has no sensible
-                # way to recover from a hard failure here.
-                job_row = await db.scalar(select(Job).where(Job.id == data.job_id))
-                verdict = None
-                if job_row is not None:
-                    verdicts = await load_manager_rejections(
-                        db, job=job_row, candidate_ids=[existing_id]
-                    )
-                    verdict = verdicts.get(existing_id)
-                if verdict is not None:
-                    assignment_skipped = verdict.as_polish_detail()
-                else:
-                    try:
-                        await _assign_candidate_to_job(
-                            db=db,
-                            candidate_id=existing_id,
-                            job_id=data.job_id,
-                            stage=target_stage,
-                            user_id=current_user.id,
-                        )
-                    except HTTPException as exc:
-                        # 409 z bramki dopuszczalności (globalna czarna lista)
-                        # degradujemy tak samo jak weto managera:
-                        # dane kandydata zapisujemy, przypisania nie robimy,
-                        # a wtyczka pokazuje polski powód. Twarde 409 wywaliłoby
-                        # cały zapis, a wtyczka nie ma jak się z tego podnieść.
-                        if exc.status_code != status.HTTP_409_CONFLICT:
-                            raise
-                        assignment_skipped = str(exc.detail)
-            if assignment_skipped is None:
-                assigned_job = data.job_id
-
-        resync = _is_sync_stale(existing.linkedin_synced_at)
-        if resync:
-            background_tasks.add_task(_enrich_linkedin_background, existing_id)
-
-        await db.commit()
-
-        response.status_code = status.HTTP_200_OK
-        return CandidateFromLinkedInResponse(
-            action="existing",
-            candidate_id=existing_id,
-            name=f"{existing.name} {existing.lastname}".strip(),
-            linkedin_url=existing.linkedin or normalized,
-            linkedin_sync_status=existing.linkedin_sync_status
-            or LinkedinSyncStatus.disabled,
-            assigned_to_job_id=assigned_job,
-            assignment_skipped_reason=assignment_skipped,
-            profile_url_path=f"/candidates/{existing_id}",
-            resync_scheduled=resync,
-        )
-
-    # ── Create stub ────────────────────────────────────────────────────────
-    name, lastname = _derive_names_from_preview(data.preview, normalized)
-    preview_location: Optional[str] = (
-        data.preview.location if data.preview is not None else None
-    )
-    canonical_location = normalize_candidate_location(raw_location=preview_location)
-
-    candidate = Candidate(
-        name=name,
-        lastname=lastname,
-        linkedin=normalized,
-        city=canonical_location.city,
-        country=canonical_location.country,
-        location=canonical_location.projection,
-        source="linkedin_extension",
-        created_by=current_user.id,
-        tags=data.tags or None,
-        ai_summary=data.notes,
-    )
-    db.add(candidate)
-    await db.flush()
-
-    db.add(
-        Activity(
-            entity_type="candidate",
-            entity_id=candidate.id,
-            action="created",
-            user_id=current_user.id,
-            details={
-                "name": f"{candidate.name} {candidate.lastname}",
-                "source": "linkedin_extension",
-                "linkedin_url": normalized,
-            },
-        )
-    )
-    db.add(
-        UserActivity(
-            user_id=current_user.id,
-            action_type=UserActionType.candidate_added,
-            entity_type="candidate",
-            entity_id=candidate.id,
-            details={
-                "name": f"{candidate.name} {candidate.lastname}",
-                "source": "linkedin_extension",
-            },
-        )
-    )
-
-    assigned_job_id: Optional[int] = None
-    if data.job_id is not None:
-        await _assign_candidate_to_job(
-            db=db,
-            candidate_id=candidate.id,
-            job_id=data.job_id,
-            stage=target_stage,
-            user_id=current_user.id,
-        )
-        assigned_job_id = data.job_id
-
-    await db.commit()
-    await db.refresh(candidate)
-
-    # Same gap as the manual create above: a candidate imported from LinkedIn
-    # was never indexed, so the extension could add someone the recruiter then
-    # could not find through matching.
-    try:
-        from app.services.index_outbox_service import schedule_or_embed_candidate
-
-        await schedule_or_embed_candidate(candidate.id, db)
-    except Exception as exc:  # noqa: BLE001 — indexing is best-effort
-        logger.warning("Indexing LinkedIn candidate %s failed: %s", candidate.id, exc)
-
-    # Background enrichment — runs AFTER the response is returned to the client.
-    background_tasks.add_task(_enrich_linkedin_background, candidate.id)
-
-    return CandidateFromLinkedInResponse(
-        action="created",
-        candidate_id=candidate.id,
-        name=f"{candidate.name} {candidate.lastname}".strip(),
-        linkedin_url=normalized,
-        linkedin_sync_status=candidate.linkedin_sync_status
-        or LinkedinSyncStatus.disabled,
-        assigned_to_job_id=assigned_job_id,
-        profile_url_path=f"/candidates/{candidate.id}",
-        resync_scheduled=False,
-    )
-
-
 async def _resolve_invite_source(
     candidate_id: int, db: AsyncSession
 ) -> Optional[InviteSourceBrief]:
@@ -3468,6 +4522,9 @@ async def _resolve_invite_source(
     # stays the only way to resolve them and any activity row written before
     # the digest was recorded.
     label: Optional[str] = None
+    # Rodzaj linku zapisuje zgłoszenie od wprowadzenia stałych linków
+    # rekrutera (0339); starsze wpisy biorą go z rekordu linku poniżej.
+    link_kind = details.get("link_kind")
     conditions = []
     if isinstance(token_digest, str) and token_digest:
         conditions.append(CandidateInviteLink.token_sha256 == token_digest)
@@ -3483,6 +4540,33 @@ async def _resolve_invite_source(
         link = await db.scalar(select(CandidateInviteLink).where(or_(*conditions)))
         if link is not None:
             label = link.label
+            link_kind = link_kind or link.kind
+    if link_kind not in ("job", "recruiter"):
+        link_kind = None
+
+    # utm z tego samego zgłoszenia: wpis źródła powstaje w tej samej transakcji
+    # co Activity, więc bierzemy najnowszy wpis „posting” nie późniejszy niż
+    # zgłoszenie (z zapasem na zegar) — ponowne zgłoszenie bez utm nie
+    # odziedziczy utm z poprzedniego.
+    utm_source = await db.scalar(
+        select(CandidateSourceEvent.utm_source)
+        .where(
+            CandidateSourceEvent.candidate_id == candidate_id,
+            CandidateSourceEvent.channel.in_(
+                (
+                    SourceChannel.posting,
+                    SourceChannel.career_link_general,
+                    SourceChannel.career_link_job,
+                )
+            ),
+            CandidateSourceEvent.captured_at
+            <= activity.created_at + timedelta(minutes=5),
+        )
+        .order_by(
+            CandidateSourceEvent.captured_at.desc(), CandidateSourceEvent.id.desc()
+        )
+        .limit(1)
+    )
 
     # Recruiter names — activity.user_id is the new owner; previous_created_by
     # (if any) is the recruiter replaced by this apply.
@@ -3504,6 +4588,9 @@ async def _resolve_invite_source(
         created_by_name=created_by_name,
         applied_at=activity.created_at,
         previous_created_by_name=previous_created_by_name,
+        link_kind=link_kind,
+        utm_source=(utm_source or "").strip()[:120] or None,
+        was_duplicate=details.get("was_duplicate") is True,
     )
 
 
@@ -3597,7 +4684,7 @@ async def check_exists(
 
 @router.get("/{candidate_id}", response_model=CandidateResponse)
 async def get_candidate(
-    candidate_id: int,
+    candidate_id: DbIdPath,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
@@ -3610,6 +4697,8 @@ async def get_candidate(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     payload = _candidate_to_response(candidate)
+    # R4 (17.10.2026): przy żywej umowie „zadeklarowana od” — tylko profil.
+    payload = payload.model_copy(update=await declared_rate_from(db, candidate))
     invite_source = await _resolve_invite_source(candidate_id, db)
     contact_case = (await load_contact_case_summaries(db, [candidate_id])).get(
         candidate_id
@@ -3627,12 +4716,15 @@ async def get_candidate(
         if candidate.call_facts_verified_by_user_id is not None
         else None
     )
+    employment_markers = await _page_employment_markers(db, [candidate])
     return payload.model_copy(
         update={
             "invite_source": invite_source,
             "linkedin_snapshots": snapshots,
             "contact_case": contact_case,
             "call_facts_verified_by_name": verified_by_name,
+            "employment_marker": employment_markers.get(candidate.id),
+            "blacklist": await load_blacklist_info(db, candidate),
         }
     )
 
@@ -3644,6 +4736,7 @@ async def get_candidate(
 async def get_candidate_quick_view(
     candidate_id: int,
     current_user: CandidatePIIAccess,
+    exclude_job_id: Optional[int] = Query(default=None, gt=0),
     db: AsyncSession = Depends(get_db),
 ):
     """Typed, bounded projection used by the candidate quick-view drawer.
@@ -3680,6 +4773,13 @@ async def get_candidate_quick_view(
             CandidateStage.moved_by,
         )
         .where(CandidateStage.candidate_id == candidate_id)
+        # Panel osoby w rekrutacji pyta o INNE rekrutacje (14.10.2026) — bieżąca
+        # zajmowała jedno z miejsc, więc „…i N więcej” nigdy się nie pokazało.
+        .where(
+            CandidateStage.job_id != exclude_job_id
+            if exclude_job_id is not None
+            else true()
+        )
         .distinct(CandidateStage.job_id)
         .order_by(
             CandidateStage.job_id,
@@ -3694,10 +4794,13 @@ async def get_candidate_quick_view(
             select(
                 latest_per_job,
                 Job.title.label("job_title"),
+                Job.working_title.label("job_working_title"),
+                Job.client_reference.label("job_client_reference"),
                 client_display_name_expression().label("client_name"),
                 mover.name.label("moved_by_name"),
                 PipelineStageDef.name.label("stage_def_name"),
                 PipelineStageDef.is_terminal.label("stage_def_terminal"),
+                func.count().over().label("total"),
             )
             .select_from(latest_per_job)
             .join(Job, Job.id == latest_per_job.c.job_id)
@@ -3728,13 +4831,18 @@ async def get_candidate_quick_view(
                 latest_per_job.c.moved_at.desc(),
                 latest_per_job.c.stage_id.desc(),
             )
-            .limit(3)
+            .limit(4)
         )
     ).all()
+    current_recruitments_total = (
+        int(recruitment_rows[0].total) if recruitment_rows else 0
+    )
     current_recruitments = [
         CandidateQuickViewRecruitment(
             job_id=row.job_id,
             job_title=row.job_title or f"Rekrutacja #{row.job_id}",
+            job_working_title=row.job_working_title,
+            job_client_reference=row.job_client_reference,
             client_name=row.client_name,
             stage_id=row.stage_id,
             stage_name=row.stage_def_name
@@ -3755,27 +4863,55 @@ async def get_candidate_quick_view(
             .where(
                 Note.candidate_id == candidate_id,
                 Note.source_deleted_at.is_(None),
+                # 0399: podgląd pokazuje notatki główne — przypięte pierwsze,
+                # bez odpowiedzi i bez wpisów automatów.
+                Note.parent_note_id.is_(None),
+                note_kinds.not_automat_clause(),
+                # 03.10.2026: „ostatnia notatka” to ostatnia ROZMOWA — próba
+                # kontaktu, wpis Delivery Leada i mail nie zasłaniają jej.
+                # Przypięta notatka zostaje bez względu na rodzaj.
+                or_(Note.pinned_at.is_not(None), note_kinds.talks_clause()),
             )
-            .order_by(Note.created_at.desc(), Note.id.desc())
+            .order_by(
+                Note.pinned_at.is_(None),
+                Note.pinned_at.desc(),
+                Note.created_at.desc(),
+                Note.id.desc(),
+            )
             .limit(3)
         )
     ).all()
     mention_labels = await build_traffit_user_label_map(
         db, collect_traffit_user_ids(note.content for note, _ in note_rows)
     )
+    # Decyzja C (14.10.2026): notatka DL-a z wysyłki — bez ceny dla klienta.
+    send_ids = await hidden_send_note_ids(
+        db, current_user, [note.id for note, _ in note_rows]
+    )
     recent_notes = [
         CandidateQuickViewNote(
             id=note.id,
-            content=format_quick_view_note_content(note.content, mention_labels),
+            content=format_quick_view_note_content(
+                visible_note_content(current_user, note, send_note=note.id in send_ids),
+                mention_labels,
+            ),
             created_at=note.created_at,
             author_name=author_name,
+            pinned=note.pinned_at is not None,
         )
         for note, author_name in note_rows
     ]
 
+    contact_attempts = (await _contact_attempt_counts(db, [candidate_id])).get(
+        candidate_id, 0
+    )
+
     quick_view_contact_case = (
         await load_contact_case_summaries(db, [candidate_id])
     ).get(candidate_id)
+    notes_origin = availability_origin(candidate)
+    quick_notes_origin = AvailabilityFromNotes(**notes_origin) if notes_origin else None
+    employment_markers = await _page_employment_markers(db, [candidate])
     return CandidateQuickViewResponse(
         candidate=CandidateQuickViewCandidate(
             id=candidate.id,
@@ -3790,12 +4926,15 @@ async def get_candidate_quick_view(
             ),
             status=candidate.status,
             employment=_derive_employment(candidate),
+            employment_marker=employment_markers.get(candidate.id),
+            blacklist=await load_blacklist_info(db, candidate),
             competence_category_id=candidate.competence_category_id,
             competence_category=candidate.competence_category,
             skills=candidate.skills,
             contact_case=quick_view_contact_case,
             expected_rate_hourly=candidate.expected_rate_hourly,
             expected_rate_currency=candidate.expected_rate_currency,
+            **rate_summary(candidate),
         ),
         current_position=CandidateQuickViewPosition(
             **resolve_current_position(candidate)
@@ -3803,18 +4942,18 @@ async def get_candidate_quick_view(
         availability=CandidateQuickViewAvailability(
             status=candidate.availability_status,
             available_from=candidate.availability_date,
+            available_from_notes=quick_notes_origin,
             notice_period=candidate.notice_period,
             notice_period_unit=candidate.notice_period_unit,
         ),
         source=CandidateQuickViewSource(**resolve_source(candidate)),
         current_recruitments=current_recruitments,
+        current_recruitments_total=current_recruitments_total,
         recent_notes=recent_notes,
+        contact_attempts=contact_attempts,
         cv_highlights=CandidateCvHighlights(**resolve_cv_highlights(candidate)),
         capabilities=CandidateQuickViewCapabilities(
             can_assign=current_user.has_any_role(*CANDIDATE_WRITE_ROLES),
-            can_mark_employed=current_user.has_any_role(
-                UserRole.admin, UserRole.delivery_lead
-            ),
             can_view_documents=current_user.has_any_role(*CANDIDATE_DOCUMENT_ROLES),
             can_open_full_profile=True,
         ),
@@ -3827,21 +4966,29 @@ async def get_candidate_quick_view(
 # dodatkowo nie pozwala im wypychać użytecznych aktywności spod `limit`.
 #   - `traffit:Zmiana etapu` (170k) duplikuje wpisy `stage_change` (PR #416)
 #   - `traffit:Notatka`      (40k)  duplikuje realne wpisy `Note` ("Notatka — …")
-# Pozostałe `traffit:*` (Tag-dodany, Plik-dodany, Email, …) niosą content —
+#   - `traffit:Email`, `traffit:Reply`, `traffit:Rozmowa telefoniczna`,
+#     `traffit:Spotkanie` — promocja (`TraffitImporter.promote_notes`) robi
+#     z nich notatki, więc na osi czasu stały dwa razy (decyzja 29.09.2026).
+# Pozostałe `traffit:*` (Tag-dodany, Plik-dodany, …) niosą content —
 # ich NIE ukrywamy. `activities.action` jest NOT NULL → notin_ bezpieczne.
 _HIDDEN_TIMELINE_ACTIONS = (
     "traffit:Zmiana etapu",
     "traffit:Notatka",
+    "traffit:Email",
+    "traffit:Reply",
+    "traffit:Rozmowa telefoniczna",
+    "traffit:Spotkanie",
     # Financial audit event: its details carry the client rate, and the
     # timeline feed is served to non-finance roles without redaction (P1-11).
     candidate_audit.CLIENT_RATE_CHANGED,
     candidate_audit.PROFILE_RATE_CHANGED,
+    candidate_audit.PROFILE_RATE_SCRAPER_REVERTED,
 )
 
 
 @router.get("/{candidate_id}/timeline")
 async def get_candidate_timeline(
-    candidate_id: int,
+    candidate_id: DbIdPath,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
@@ -3870,37 +5017,98 @@ async def get_candidate_timeline(
             User.name.label("author_name"),
             User.email.label("author_email"),
             Job.title.label("job_title"),
+            Job.working_title.label("job_working_title"),
+            Job.client_reference.label("job_client_reference"),
         )
         .outerjoin(User, Note.author_id == User.id)
         .outerjoin(Job, Note.job_id == Job.id)
         .where(Note.candidate_id == candidate_id)
+        # 0399: odpowiedzi nie są osobnymi wpisami — jadą pod notatką główną.
+        .where(Note.parent_note_id.is_(None))
         .order_by(Note.created_at.desc())
         .limit(limit)
     )
     notes_rows = notes_result.all()
+    reply_rows: list = []
+    note_ids = [note.id for note, *_ in notes_rows]
+    if note_ids:
+        reply_rows = (
+            await db.execute(
+                select(Note, User.name.label("author_name"))
+                .outerjoin(User, Note.author_id == User.id)
+                .where(Note.parent_note_id.in_(note_ids))
+                .order_by(Note.created_at.asc(), Note.id.asc())
+            )
+        ).all()
     # Legacy Traffit notes embed @mentions as `$$user_NN$$` markers (NN = Traffit
     # user id). Resolve them to "@Imię Nazwisko" for display via users.external_id,
     # in a separate `content_rendered` field — raw `content` stays intact so
     # editing preserves the original token/HTML wrapper.
     mention_label_map = await build_traffit_user_label_map(
-        db, collect_traffit_user_ids(note.content for note, *_ in notes_rows)
+        db,
+        collect_traffit_user_ids(
+            note.content for note, *_ in [*notes_rows, *reply_rows]
+        ),
     )
-    for note, author_name, author_email, job_title in notes_rows:
+    # Decyzja C (14.10.2026): notatka DL-a z wysyłki („Wysłany 150/100-110”)
+    # niesie cenę dla klienta — zakryta jak `dl_rate` dla roli bez tej stawki.
+    send_ids = await hidden_send_note_ids(
+        db, current_user, [note.id for note, *_ in [*notes_rows, *reply_rows]]
+    )
+    replies_by_note: dict[int, list[dict]] = {}
+    for reply, reply_author in reply_rows:
+        reply_content = visible_note_content(
+            current_user, reply, send_note=reply.id in send_ids
+        )
+        replies_by_note.setdefault(reply.parent_note_id, []).append(
+            {
+                "id": reply.id,
+                "timestamp": (
+                    reply.created_at.isoformat() if reply.created_at else None
+                ),
+                "content": reply_content,
+                "content_rendered": render_traffit_mentions(
+                    reply_content, mention_label_map
+                ),
+                "author_id": reply.author_id,
+                "author_name": reply_author,
+            }
+        )
+    for (
+        note,
+        author_name,
+        author_email,
+        job_title,
+        job_working_title,
+        job_client_reference,
+    ) in notes_rows:
+        send_note = note.id in send_ids
+        content = visible_note_content(current_user, note, send_note=send_note)
         timeline.append(
             {
                 "type": "note",
                 "id": note.id,
                 "timestamp": note.created_at.isoformat() if note.created_at else None,
                 "note_type": note.note_type.value if note.note_type else None,
-                "content": note.content,
-                "content_rendered": render_traffit_mentions(
-                    note.content, mention_label_map
+                "content": content,
+                "content_rendered": render_traffit_mentions(content, mention_label_map),
+                "kind": note.kind,
+                "content_hidden": note_content_hidden(
+                    current_user,
+                    kind=note.kind,
+                    author_id=note.author_id,
+                    send_note=send_note,
                 ),
                 "author_id": note.author_id,
                 "author_name": author_name,
                 "author_email": author_email,
                 "job_id": note.job_id,
                 "job_title": job_title,
+                "job_working_title": job_working_title,
+                "job_client_reference": job_client_reference,
+                "is_system": note.external_source == SYSTEM_NOTE_SOURCE,
+                "pinned": note.pinned_at is not None,
+                "replies": replies_by_note.get(note.id, []),
             }
         )
 
@@ -3909,14 +5117,26 @@ async def get_candidate_timeline(
     # ruchów z importu Traffit, stąd outerjoin + Optional name.
     mover = aliased(User)
     stages_result = await db.execute(
-        select(CandidateStage, Job.title, mover.name.label("moved_by_name"))
+        select(
+            CandidateStage,
+            Job.title,
+            Job.working_title,
+            Job.client_reference,
+            mover.name.label("moved_by_name"),
+        )
         .join(Job, CandidateStage.job_id == Job.id)
         .outerjoin(mover, mover.id == CandidateStage.moved_by)
         .where(CandidateStage.candidate_id == candidate_id)
         .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
         .limit(limit)
     )
-    for stage, job_title, moved_by_name in stages_result.all():
+    for (
+        stage,
+        job_title,
+        job_working_title,
+        job_client_reference,
+        moved_by_name,
+    ) in stages_result.all():
         timeline.append(
             {
                 "type": "stage_change",
@@ -3925,6 +5145,8 @@ async def get_candidate_timeline(
                 "stage": stage.stage.value,
                 "job_id": stage.job_id,
                 "job_title": job_title,
+                "job_working_title": job_working_title,
+                "job_client_reference": job_client_reference,
                 "moved_by": stage.moved_by,
                 "moved_by_name": moved_by_name,
                 "rating": stage.rating,
@@ -4048,9 +5270,78 @@ async def get_candidate_hiring_manager_vetoes(
     ]
 
 
+_HISTORY_ENDED_STAGES = frozenset({"rejected", "withdrawn", "hired", "onboarding"})
+
+
+def _history_stage_column(
+    stage: PipelineStage,
+    *,
+    stage_def_id: Optional[int],
+    name: Optional[str],
+    legacy: Any,
+    category: Any,
+    terminal: Any,
+    order: Optional[int],
+) -> StageColumn:
+    """Kolumna etapu do reguły „kto ma ruch” — z definicji, a bez niej z enuma."""
+    if stage_def_id is not None and (legacy is not None or category is not None):
+        return StageColumn.from_stage_def(
+            SimpleNamespace(
+                legacy_enum_value=legacy,
+                category=category,
+                terminal_type=terminal,
+                name=name,
+                order=order,
+                id=stage_def_id,
+            )
+        )
+    return StageColumn(
+        stage=stage.value,
+        category=getattr(STAGE_CATEGORY.get(stage), "value", None),
+        name=STAGE_LABELS.get(stage),
+    )
+
+
+def _history_in_progress(
+    entry: dict, latest: Optional[tuple[StageColumn, Optional[datetime]]]
+) -> bool:
+    if latest is None or entry.get("job_status") == "closed":
+        return False
+    return str(entry.get("latest_stage") or "") not in _HISTORY_ENDED_STAGES
+
+
+def _history_next_action_owner(
+    entry: dict,
+    latest: Optional[tuple[StageColumn, Optional[datetime]]],
+    *,
+    today: date,
+    interview_badge: Optional[dict] = None,
+) -> Optional[str]:
+    """Właściciel następnego kroku (`next_action_for`) albo `None` dla zakończonych.
+
+    ``interview_badge`` — odznaka terminarza pary (`interview_badges_for_job`),
+    z której reguła bierze fazę cyklu rozmowy u klienta, jak karta na Tablicy.
+    """
+    if not _history_in_progress(entry, latest):
+        return None
+    column, moved_at = latest
+    days = None
+    if moved_at is not None:
+        days = max(0, (today - moved_at.astimezone(ZoneInfo(DEFAULT_TZ)).date()).days)
+    badge = interview_badge or {}
+    owner = next_action_for(
+        column,
+        days_in_stage=days,
+        group=group_key_for_column(column),
+        interview_phase=badge.get("phase"),
+        interview_date=badge.get("interview_date"),
+    ).owner
+    return None if owner == "none" else owner
+
+
 @router.get("/{candidate_id}/history")
 async def get_candidate_history(
-    candidate_id: int,
+    candidate_id: DbIdPath,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
@@ -4067,9 +5358,20 @@ async def get_candidate_history(
         select(
             CandidateStage,
             Job.title,
+            Job.working_title,
+            Job.client_reference,
             Job.status.label("job_status"),
             RejectionReason.name.label("rejection_reason_name"),
             client_display_name_expression().label("client_name"),
+            # Runda 10 (F04): nazwa etapu szablonu — profil składa etap w
+            # kolumnę Tablicy tą samą regułą co tablica (`placeStage`).
+            PipelineStageDef.name.label("stage_def_name"),
+            # 04.10.2026: definicja etapu do reguły „kto ma ruch”
+            # (`next_action_owner`) — ta sama co karta na Tablicy.
+            PipelineStageDef.legacy_enum_value.label("stage_def_legacy"),
+            PipelineStageDef.category.label("stage_def_category"),
+            PipelineStageDef.terminal_type.label("stage_def_terminal"),
+            PipelineStageDef.order.label("stage_def_order"),
         )
         .join(Job, CandidateStage.job_id == Job.id)
         .outerjoin(Client, Client.id == Job.client_id)
@@ -4077,32 +5379,69 @@ async def get_candidate_history(
             RejectionReason,
             RejectionReason.id == CandidateStage.rejection_reason_id,
         )
+        .outerjoin(PipelineStageDef, PipelineStageDef.id == CandidateStage.stage_def_id)
         .where(CandidateStage.candidate_id == candidate_id)
         .where(job_read_scope_clause(current_user, CandidateStage.job_id))
         .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
     )
+    # Runda 10 (F04): źródło wejścia do rekrutacji (najnowsza próba procesu) —
+    # ręczne dodanie nie może się czytać jak „z ogłoszenia".
+    entry_rows = {
+        row.job_id: row
+        for row in (
+            await db.execute(
+                select(
+                    RecruitmentProcess.job_id,
+                    RecruitmentProcess.entry_source,
+                    RecruitmentProcess.entry_meta,
+                )
+                .where(RecruitmentProcess.candidate_id == candidate_id)
+                .order_by(RecruitmentProcess.attempt_no.asc())
+            )
+        ).all()
+    }
+    entry_sources = {job_id: row.entry_source for job_id, row in entry_rows.items()}
+    # 0399: wynik auto-matcha przy procesie (dawniej notatka w historii).
+    entry_auto_match = {
+        job_id: auto_match_badge(row.entry_meta) for job_id, row in entry_rows.items()
+    }
 
     # Group by job
     # Decyzja 23.09.2026: stawki do klienta nie widzą rekruter, sourcer i TAC.
     show_client_rate = user_can_view_client_rate(current_user)
     jobs_map: dict = {}
+    latest_columns: dict[int, tuple[StageColumn, Optional[datetime]]] = {}
     for (
         stage,
         job_title,
+        job_working_title,
+        job_client_reference,
         job_status,
         rejection_reason_name,
         client_name,
+        stage_def_name,
+        stage_def_legacy,
+        stage_def_category,
+        stage_def_terminal,
+        stage_def_order,
     ) in stages_result.all():
         job_id = stage.job_id
         if job_id not in jobs_map:
             jobs_map[job_id] = {
                 "job_id": job_id,
+                # `job_title` = nazwa od klienta: z niej profil rozpoznaje kody
+                # CV dla klientów. Ekran pokazuje nazwę jak nagłówek rekrutacji.
                 "job_title": job_title,
+                "job_working_title": job_working_title,
+                "job_client_reference": job_client_reference,
                 "job_status": job_status,
                 # Klient rekrutacji — karta na profilu mówi, u kogo jest proces.
                 "client_name": client_name,
                 "stages": [],
                 "latest_stage": None,
+                "latest_stage_name": None,
+                "entry_source": entry_sources.get(job_id),
+                "entry_auto_match": entry_auto_match.get(job_id),
                 # latest_stage_id wskazuje na najnowszy CandidateStage row
                 # (potrzebne dla CV-per-rekrutacja: api wybiera stage_id by
                 # wczytać snapshot oryginalnego CV i brandowane CV draft).
@@ -4128,6 +5467,7 @@ async def get_candidate_history(
             {
                 "stage_id": stage.id,
                 "stage": stage.stage.value,
+                "stage_name": stage_def_name,
                 "moved_at": stage.moved_at.isoformat() if stage.moved_at else None,
                 "rating": stage.rating,
                 "notes": stage.notes,
@@ -4164,7 +5504,56 @@ async def get_candidate_history(
             if not entry["last_seen"] or moved_at > entry["last_seen"]:
                 entry["last_seen"] = moved_at
                 entry["latest_stage"] = stage.stage.value
+                entry["latest_stage_name"] = stage_def_name
                 entry["latest_stage_id"] = stage.id
+                latest_columns[job_id] = (
+                    _history_stage_column(
+                        stage.stage,
+                        stage_def_id=stage.stage_def_id,
+                        name=stage_def_name,
+                        legacy=stage_def_legacy,
+                        category=stage_def_category,
+                        terminal=stage_def_terminal,
+                        order=stage_def_order,
+                    ),
+                    stage.moved_at,
+                )
+
+    # 04.10.2026: „kto ma ruch” w procesie w toku — profil pokazuje go
+    # w „Teraz” tą samą regułą co karta na Tablicy. Zakończone = `None`.
+    today = business_today()
+    # 05.10.2026: na etapach klienta krok zależy od cyklu rozmowy (wybór
+    # terminu, potwierdzenie, prep, telefon) — odznaka tej samej funkcji co
+    # Tablica, tylko dla procesów w toku po stronie klienta (zwykle 0–2).
+    interview_badges: dict[int, dict] = {}
+    client_jobs = [
+        job_id
+        for job_id, entry in jobs_map.items()
+        if _history_in_progress(entry, latest_columns.get(job_id))
+        and group_key_for_column(latest_columns[job_id][0]) == "client"
+    ]
+    if client_jobs:
+        from app.services.interview_cycle import interview_badges_for_job
+
+        for job_id in client_jobs:
+            badge = (
+                await interview_badges_for_job(
+                    db, job_id=job_id, candidate_ids=[candidate_id]
+                )
+            ).get(candidate_id)
+            if badge is not None:
+                interview_badges[job_id] = badge
+    for job_id, entry in jobs_map.items():
+        entry["next_action_owner"] = _history_next_action_owner(
+            entry,
+            latest_columns.get(job_id),
+            today=today,
+            interview_badge=interview_badges.get(job_id),
+        )
+
+    await _attach_rate_hints(
+        db, candidate_id, jobs_map, show_client_rate=show_client_rate
+    )
 
     # Contracts
     from app.models.contract import Contract
@@ -4228,8 +5617,8 @@ async def get_candidate_history(
 
 @router.patch("/{candidate_id}/recruitments/{job_id}/client-rate")
 async def set_recruitment_client_rate(
-    candidate_id: int,
-    job_id: int,
+    candidate_id: DbIdPath,
+    job_id: DbIdPath,
     payload: ClientRateUpdate,
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
@@ -4244,19 +5633,33 @@ async def set_recruitment_client_rate(
     `rate_value=None` czyści stawkę. Każdy ruch na nowy etap startuje z pustą
     stawką — wtedy wystarczy uzupełnić ją ponownie.
     """
-    # Bramka: `resolve_client_rate_write` — admin albo Delivery Lead z zapisem
-    # w sekcji (decyzja Artura 23.09.2026; do tej daty także TAC, HoR, TCM,
-    # Finanse i właściciel rekrutacji). Ta sama funkcja zasila
+    # Bramka: `resolve_client_rate_write` — uprawnienie „Rekrutacje:
+    # zakładanie, zamykanie, wysyłka CV do klienta” (domyślnie admin i Delivery
+    # Lead) z zapisem w sekcji (decyzja Artura 23.09.2026; do tej daty także
+    # TAC, HoR, TCM, Finanse i właściciel rekrutacji). Ta sama funkcja zasila
     # `can_write_client_rate` w `GET /api/jobs/{id}`. Zmiana audytowana
     # old→new poniżej.
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if job is None:
         raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
     if not await resolve_client_rate_write(db, current_user, job):
+        raise client_rate_write_denied()
+    if payload.note and payload.note.strip() and payload.reason is None:
+        raise HTTPException(status_code=422, detail="Wybierz powód zmiany stawki.")
+    # Po zamówieniu stawkę zmienia się w zamówieniu (decyzja Artura 20.10.2026).
+    lock = await client_rate_correction.order_lock(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
+    if lock is not None:
         raise HTTPException(
-            status_code=403,
-            detail="Stawkę do klienta zapisuje Delivery Lead albo admin.",
+            status_code=409, detail=client_rate_correction.order_lock_message(lock)
         )
+    # Stawka pary sprzed zmiany: ruch na kolejny etap zaczyna wiersz bez
+    # stawki, więc „stara” kwota z samego najnowszego wiersza bywa pusta,
+    # choć CV poszło za konkretną cenę.
+    pair_before = (await latest_client_rates(db, [(candidate_id, job_id)])).get(
+        (candidate_id, job_id)
+    )
 
     latest, previous_rate = await update_latest_client_rate(
         db,
@@ -4275,6 +5678,8 @@ async def set_recruitment_client_rate(
         ),
     )
     previous_value, old_unit, old_currency = previous_rate
+    if previous_value is None and pair_before is not None:
+        previous_value, old_unit, old_currency = pair_before
     old_value = float(previous_value) if previous_value is not None else None
 
     new_value = (
@@ -4283,24 +5688,44 @@ async def set_recruitment_client_rate(
         else None
     )
 
+    details: dict[str, Any] = {
+        "job_id": job_id,
+        "stage_id": latest.id,
+        "old_client_rate": old_value,
+        "old_client_rate_unit": getattr(old_unit, "value", old_unit),
+        "old_client_rate_currency": old_currency,
+        "new_client_rate": new_value,
+        "new_client_rate_unit": getattr(
+            latest.client_rate_unit, "value", latest.client_rate_unit
+        ),
+        "new_client_rate_currency": latest.client_rate_currency,
+    }
+    if payload.reason is not None:
+        details["reason"] = payload.reason
+        rate_old = client_rate_correction.rate_from_details(details, "old")
+        rate_new = client_rate_correction.rate_from_details(details, "new")
+        note = client_rate_correction.record_note(
+            db,
+            candidate_id=candidate_id,
+            job_id=job_id,
+            author_id=current_user.id,
+            content=client_rate_correction.note_content(
+                rate_old, rate_new, payload.reason, payload.note
+            ),
+        )
+        await db.flush()
+        details["note_id"] = note.id
+
     # Immutable audit trail (old→new). Kept out of the candidate timeline feed
     # (`_HIDDEN_TIMELINE_ACTIONS`) because that feed is visible to non-finance
     # roles without financial redaction — the rate value must not leak there.
+    # Powód to kod, słowa DL-a leżą w notatce `dl_rate` (`note_id`).
     candidate_audit.record_candidate_audit(
         db,
         action=candidate_audit.CLIENT_RATE_CHANGED,
         user_id=current_user.id,
         entity_id=candidate_id,
-        details={
-            "job_id": job_id,
-            "stage_id": latest.id,
-            "old_client_rate": old_value,
-            "old_client_rate_unit": old_unit,
-            "old_client_rate_currency": old_currency,
-            "new_client_rate": new_value,
-            "new_client_rate_unit": latest.client_rate_unit,
-            "new_client_rate_currency": latest.client_rate_currency,
-        },
+        details=details,
     )
 
     await db.commit()
@@ -4321,10 +5746,50 @@ async def set_recruitment_client_rate(
     }
 
 
+@router.get("/{candidate_id}/recruitments/{job_id}/client-rate/history")
+async def get_recruitment_client_rate_history(
+    candidate_id: DbIdPath,
+    job_id: DbIdPath,
+    current_user: CandidatePIIAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Stawka do klienta pary: za ile poszło CV, zmiany po wysyłce i blokada.
+
+    GET /api/candidates/{candidate_id}/recruitments/{job_id}/client-rate/history
+
+    Te same osoby co stawkę do klienta (``user_can_view_client_rate``);
+    rekruter dostaje 403. ``order_lock`` ≠ null = para ma zamówienie, a stawkę
+    zmienia się w nim (decyzja Artura 20.10.2026). ``can_write`` liczy ta sama
+    funkcja co bramka ``PATCH …/client-rate`` i jest fałszem przy blokadzie.
+    """
+    if not user_can_view_client_rate(current_user):
+        raise HTTPException(
+            status_code=403, detail="Stawki do klienta nie widzi ta rola."
+        )
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if job is None:
+        raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
+    payload = await client_rate_correction.history(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
+    lock = await client_rate_correction.order_lock(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
+    payload["order_lock"] = lock
+    payload["can_write"] = lock is None and await resolve_client_rate_write(
+        db, current_user, job
+    )
+    payload["reasons"] = [
+        {"value": value, "label": label}
+        for value, label in client_rate_correction.REASONS.items()
+    ]
+    return payload
+
+
 @router.patch("/{candidate_id}/recruitments/{job_id}/expected-rate")
 async def set_recruitment_expected_rate(
-    candidate_id: int,
-    job_id: int,
+    candidate_id: DbIdPath,
+    job_id: DbIdPath,
     payload: ClientRateUpdate,
     current_user: RecruitmentRateEditAccess,
     db: AsyncSession = Depends(get_db),
@@ -4352,23 +5817,55 @@ async def set_recruitment_expected_rate(
     # w ogóle, membership decyduje o KTÓREJ rekrutacji.
     await ensure_job_membership(db, current_user, job_id)
 
-    latest, _job = await update_latest_expected_rate(
-        db,
-        candidate_id=candidate_id,
-        job_id=job_id,
-        rate_value=payload.rate_value,
-        rate_unit=(
-            (payload.rate_unit or RateUnit.monthly).value
-            if payload.rate_value is not None
-            else None
-        ),
-        rate_currency=(
-            (payload.rate_currency or "PLN")[:3].upper()
-            if payload.rate_value is not None
-            else None
-        ),
-    )
+    pending_emails: list = []
+    if payload.rate_value is not None:
+        # 0418: każda zmiana stawki w procesie idzie jedną regułą — ślad,
+        # powiadomienie DL/HoR od „Zweryfikowany”, zadanie DL po wysłaniu CV.
+        from app.services import candidate_rate_change
+
+        result = await candidate_rate_change.change_rate(
+            db,
+            candidate_id=candidate_id,
+            job_id=job_id,
+            amount=payload.rate_value,
+            unit=(payload.rate_unit or RateUnit.monthly).value,
+            currency=(payload.rate_currency or "PLN")[:3].upper(),
+            source="recruitments_tab",
+            reason="other",
+            actor=current_user,
+        )
+        pending_emails = result.emails
+        latest = await db.scalar(
+            select(CandidateStage)
+            .where(
+                CandidateStage.candidate_id == candidate_id,
+                CandidateStage.job_id == job_id,
+            )
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+            .limit(1)
+        )
+        if latest is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Ten kandydat nie bierze udziału w tej rekrutacji.",
+            )
+    else:
+        latest, _job = await update_latest_expected_rate(
+            db,
+            candidate_id=candidate_id,
+            job_id=job_id,
+            rate_value=None,
+            rate_unit=None,
+            rate_currency=None,
+        )
+        from app.services.candidate_rate_from import recompute_safely
+
+        await recompute_safely(db, [candidate_id])
     await db.commit()
+    if pending_emails:
+        from app.services.candidate_rate_change import send_pending_emails
+
+        await send_pending_emails(pending_emails)
     await db.refresh(latest)
 
     return {
@@ -4388,10 +5885,18 @@ async def set_recruitment_expected_rate(
 
 @router.delete("/{candidate_id}/recruitments/{job_id}")
 async def remove_candidate_from_recruitment(
-    candidate_id: int,
-    job_id: int,
+    candidate_id: DbIdPath,
+    job_id: DbIdPath,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
+    quick_undo: bool = Query(
+        False,
+        description=(
+            "„Cofnij” zaraz po „+ Dodaj” w oknie „Kandydaci do dodania”: tylko "
+            "do 15 min od wejścia, przy jednym wierszu etapu bez arkusza; "
+            "osoba wraca na listę propozycji."
+        ),
+    ),
 ):
     """Usuń kandydata z rekrutacji (oferty) — kasuje całą jego obecność w
     pipeline tej oferty.
@@ -4442,6 +5947,58 @@ async def remove_candidate_from_recruitment(
             detail="Ten kandydat nie bierze udziału w tej rekrutacji.",
         )
 
+    # Runda 10 (R10-V2-7): mail odrzucenia, którego wysyłka już ruszyła,
+    # wychodzi niezależnie od usunięcia — a kaskada skasowałaby jego wiersz,
+    # więc wynik wysyłki nie miałby gdzie się zapisać. `/cancel` w tej samej
+    # sytuacji odpowiada 409; blokada wiersza serializuje z pętlą wysyłki.
+    from app.services.rejection_email_scheduler import (
+        pending_rows_covering,
+        send_in_progress,
+    )
+
+    pending_mails = await pending_rows_covering(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
+    if any(send_in_progress(row) for row in pending_mails):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Nie można teraz usunąć — mail odrzucenia do tej osoby właśnie "
+                "wychodzi. Spróbuj ponownie za kilka minut."
+            ),
+        )
+
+    # Runda 9 (R9-N11-5): usunięcie to też ruch osoby — blokada 12 h
+    # („Nowi”/„Screening” zarezerwowane przez kogoś innego) obowiązuje jak
+    # przy `/move`. Admin, DL i HoR przechodzą (`candidate_claim.can_override`).
+    from app.services import candidate_claim
+
+    await candidate_claim.assert_can_act(
+        db,
+        process=await candidate_claim.load_process(
+            db, candidate_id=candidate_id, job_id=job_id
+        ),
+        user=current_user,
+    )
+    # Runda 9 (R9-N11-5): weto hiring managera liczy się z wierszy
+    # `rejected` po spotkaniu z nim. Usunięcie osoby z rekrutacji, w której
+    # HM ją odrzucił, kasowało te wiersze — i razem z nimi weto we wszystkich
+    # rekrutacjach tego managera. Zdejmuje je wyłącznie admin albo HoR.
+    if not current_user.has_any_role(UserRole.admin, UserRole.head_of_recruitment):
+        from app.services.hiring_manager_verdicts import pair_carries_manager_veto
+
+        if await pair_carries_manager_veto(
+            db, candidate_id=candidate_id, job_id=job_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Nie można usunąć — hiring manager odrzucił tę osobę "
+                    "po rozmowie w tej rekrutacji, a usunięcie zdjęłoby "
+                    "jego weto. Zrobi to admin albo Head of Recruitment."
+                ),
+            )
+
     # Resource scope: to najbardziej destrukcyjna trasa w module — kasuje
     # WSZYSTKIE `CandidateStage` pary, a kaskadą snapshoty CV, share-tokeny i
     # zaplanowane maile odrzucenia. Guard `hired`/kontrakt niżej ogranicza CO
@@ -4481,6 +6038,23 @@ async def remove_candidate_from_recruitment(
 
     job_title = await db.scalar(select(Job.title).where(Job.id == job_id))
     removed_stages = [s.stage.value for s in stage_rows]
+    # Wejście osoby do rekrutacji — czytane PRZED skasowaniem wierszy etapu.
+    entered_at = min(s.created_at for s in stage_rows)
+    if quick_undo:
+        # „Cofnij” z listy to cofnięcie pomyłki, nie korekta procesu: osoba,
+        # która ma już ruch albo zapisany screening, schodzi z rekrutacji tylko
+        # z panelu osoby, z potwierdzeniem (przegląd 14.10.2026).
+        from app.services.job_proposals import quick_undo_allowed
+
+        if not quick_undo_allowed(stage_rows, entered_at=entered_at):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Tej osoby nie cofniesz już z listy — jest w rekrutacji dłużej "
+                    "niż 15 minut albo ma ruch lub zapisany screening. Usuń ją "
+                    "z rekrutacji w panelu osoby."
+                ),
+            )
 
     # Zarchiwizuj PRZED skasowaniem. Korekta nadal usuwa kandydata z pipeline'u
     # — to jej cel i UX się nie zmienia — ale dowód przebiegu procesu zostaje.
@@ -4492,7 +6066,12 @@ async def remove_candidate_from_recruitment(
     # filtrować w 132 zapytaniach w 64 plikach, a pierwsze pominięte pokazywałoby
     # skasowaną rekrutację jako żywą. Tu zmienia się jedno miejsce zapisu i zero
     # ścieżek odczytu.
-    ordered = sorted(stage_rows, key=lambda s: (s.moved_at or s.created_at, s.id))
+    from app.services.candidate_stage_removal_snapshot import (
+        ordered_stage_rows,
+        stage_removal_snapshot,
+    )
+
+    ordered = ordered_stage_rows(stage_rows)
     db.add(
         CandidateStageRemoval(
             candidate_id=candidate_id,
@@ -4502,29 +6081,7 @@ async def remove_candidate_from_recruitment(
             # `if not stage_rows` wyżej zwraca 404, więc lista jest niepusta.
             last_stage=ordered[-1].stage.value,
             stage_count=len(stage_rows),
-            stages_snapshot=[
-                {
-                    "id": s.id,
-                    "stage": s.stage.value,
-                    "stage_def_id": s.stage_def_id,
-                    "moved_at": s.moved_at.isoformat() if s.moved_at else None,
-                    "moved_by": s.moved_by,
-                    "notes": s.notes,
-                    "rejection_reason_id": s.rejection_reason_id,
-                    "client_rate_value": (
-                        float(s.client_rate_value)
-                        if s.client_rate_value is not None
-                        else None
-                    ),
-                    "expected_rate_value": (
-                        float(s.expected_rate_value)
-                        if s.expected_rate_value is not None
-                        else None
-                    ),
-                    "created_at": s.created_at.isoformat() if s.created_at else None,
-                }
-                for s in ordered
-            ],
+            stages_snapshot=stage_removal_snapshot(ordered),
         )
     )
     await db.flush()
@@ -4560,6 +6117,16 @@ async def remove_candidate_from_recruitment(
             reason="removed_from_recruitment",
         )
 
+    # „Cofnij” zaraz po „+ Dodaj” w oknie „Kandydaci do dodania” (14.10.2026):
+    # osoba wraca na listę propozycji tej rekrutacji. Zwykłe usunięcie
+    # (korekta z panelu osoby) propozycji nie przywraca.
+    if quick_undo:
+        from app.services.job_proposals import reopen_after_quick_undo
+
+        await reopen_after_quick_undo(
+            db, job_id=job_id, candidate_id=candidate_id, entered_at=entered_at
+        )
+
     db.add(
         Activity(
             entity_type="candidate",
@@ -4578,6 +6145,13 @@ async def remove_candidate_from_recruitment(
     actor_id = current_user.id
     removed_stage_count = len(stage_rows)
     await db.commit()
+    # 0450 (D7): osoba usunięta z rekrutacji przestaje być jej championem.
+    # Po commicie, we własnej transakcji (blokady przydział → rekrutacja).
+    from app.services import job_champions  # noqa: PLC0415
+
+    await job_champions.reconcile_after_commit(
+        db, job_id=job_id, candidate_ids=[candidate_id], actor_id=actor_id
+    )
     # Live kanban: the rest of the team re-reads the board (best-effort).
     await broadcast_pipeline_changed(db, job_id, actor_id)
 
@@ -4620,11 +6194,38 @@ async def list_candidate_documents(
     result = await db.execute(
         stmt.order_by(
             CandidateDocument.is_primary.desc(),
-            CandidateDocument.uploaded_at.desc().nulls_last(),
-            CandidateDocument.created_at.desc(),
+            func.coalesce(
+                CandidateDocument.uploaded_at, CandidateDocument.created_at
+            ).desc(),
+            CandidateDocument.id.desc(),
         )
     )
-    return list(result.scalars().all())
+    return await _documents_with_people(db, list(result.scalars().all()))
+
+
+async def _documents_with_people(
+    db: AsyncSession, documents: list[CandidateDocument]
+) -> list[CandidateDocumentOut]:
+    """Dokumenty z nazwiskami osoby, która wgrała plik i oznaczyła go jako
+    nieaktualny — jedno zapytanie o konta na całą listę (0400)."""
+
+    user_ids = {
+        user_id
+        for document in documents
+        for user_id in (document.uploaded_by, document.outdated_by)
+        if user_id is not None
+    }
+    names: dict[int, str] = {}
+    if user_ids:
+        rows = await db.execute(select(User.id, User.name).where(User.id.in_(user_ids)))
+        names = {row.id: row.name for row in rows}
+    out: list[CandidateDocumentOut] = []
+    for document in documents:
+        item = CandidateDocumentOut.model_validate(document)
+        item.uploaded_by_name = names.get(document.uploaded_by or 0)
+        item.outdated_by_name = names.get(document.outdated_by or 0)
+        out.append(item)
+    return out
 
 
 @router.patch(
@@ -4667,6 +6268,17 @@ async def update_candidate_document(
                 status_code=422,
                 detail="Only a document classified as CV can be primary",
             )
+        # 0400: nieaktualne CV nie wraca jako główne — najpierw „Cofnij”
+        # (w tym samym żądaniu wolno: `outdated: false` + `is_primary: true`).
+        if doc.outdated_at is not None and payload.outdated is not False:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "To CV jest oznaczone jako nieaktualne. Cofnij oznaczenie, "
+                    "zanim ustawisz je jako główne."
+                ),
+            )
+        replaced_primary = await _primary_cv_before_change(db, candidate_id)
         await db.execute(
             update(CandidateDocument)
             .where(
@@ -4681,6 +6293,21 @@ async def update_candidate_document(
     elif payload.is_primary is False:
         doc.is_primary = False
 
+    if payload.outdated is True:
+        # Główne CV czytają profil, generator i QC — oznaczenie go jako
+        # nieaktualne zostawiłoby kandydata z nieaktualnym „głównym” plikiem.
+        if doc.is_primary:
+            raise HTTPException(
+                status_code=409,
+                detail="Najpierw ustaw inne CV jako główne.",
+            )
+        if doc.outdated_at is None:
+            doc.outdated_at = datetime.now(timezone.utc)
+            doc.outdated_by = current_user.id
+    elif payload.outdated is False:
+        doc.outdated_at = None
+        doc.outdated_by = None
+
     await db.commit()
     await db.refresh(doc)
 
@@ -4691,16 +6318,78 @@ async def update_candidate_document(
             doc_id,
             doc.content_sha256,
             actor_user_id=current_user.id,
+            replaced_primary=replaced_primary,
         )
 
-    return doc
+    return (await _documents_with_people(db, [doc]))[0]
+
+
+@router.delete(
+    "/{candidate_id}/documents/{doc_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def remove_candidate_document(
+    candidate_id: DbIdPath,
+    doc_id: DbIdPath,
+    current_user: CandidateDocumentRemoveAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Usuń plik z profilu kandydata (admin, Head of Recruitment).
+
+    Plik znika z listy plików, podglądu, generatora CV i QC. Po usunięciu
+    głównego CV profil nie ma głównego CV, dopóki ktoś nie wskaże innego.
+    """
+    # Szczegóły poza publicznym `/openapi.json`: nic nie jest kasowane (decyzja
+    # 26.09.2026) — wiersz i plik w magazynie zostają, patrz
+    # `services/candidate_document_removal.py`.
+    from app.services.candidate_document_removal import (
+        remove_candidate_document as mark_document_removed,
+    )
+
+    # Ta sama blokada wiersza kandydata co przy wgraniu i wyborze głównego CV.
+    candidate = await db.scalar(
+        select(Candidate)
+        .where(Candidate.id == candidate_id)
+        .with_for_update(of=Candidate)
+    )
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    doc = await db.scalar(
+        select(CandidateDocument).where(
+            CandidateDocument.id == doc_id,
+            CandidateDocument.candidate_id == candidate_id,
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+    )
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    was_primary = doc.is_primary
+    await mark_document_removed(
+        db, candidate=candidate, document=doc, actor_id=current_user.id
+    )
+
+    # Bez nazwy pliku — nazwa CV to zwykle imię i nazwisko (`details` bez PII).
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.DOCUMENT_REMOVED,
+        user_id=current_user.id,
+        entity_id=candidate_id,
+        details={
+            "doc_id": doc_id,
+            "document_kind": doc.document_kind.value,
+            "was_primary": was_primary,
+        },
+    )
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/{candidate_id}/cv/reparse", status_code=202)
 @limiter.limit("10/minute")
 async def reparse_primary_cv(
     request: Request,
-    candidate_id: int,
+    candidate_id: DbIdPath,
     background_tasks: BackgroundTasks,
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
@@ -4738,14 +6427,21 @@ async def reparse_primary_cv(
         document.id,
         document.content_sha256,
         actor_user_id=current_user.id,
+        force_read=True,
     )
     return {"status": "queued", "document_id": document.id}
 
 
+# Reguła „inline tylko dla bezpiecznych typów” żyje w `core/http_headers.py`
+# (czytają ją też pliki rekrutacji, 0428); nazwy zostają dla wołających tutaj.
+_INLINE_SAFE_MEDIA_TYPES = INLINE_SAFE_MEDIA_TYPES
+_safe_document_disposition = safe_document_disposition
+
+
 @router.get("/{candidate_id}/documents/{doc_id}/content")
 async def download_candidate_document(
-    candidate_id: int,
-    doc_id: int,
+    candidate_id: DbIdPath,
+    doc_id: DbIdPath,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
     disposition: Literal["attachment", "inline"] = Query(
@@ -4772,13 +6468,21 @@ async def download_candidate_document(
 
     filename = doc.filename or f"document-{doc.id}"
     media_type = doc.content_type or "application/octet-stream"
+    if disposition == "attachment":
+        await cv_download_policy.ensure_can_save_file(
+            db, current_user, filename=filename, content_type=doc.content_type
+        )
+    # Do dziennika to, o co prosił klient: nagłówek pliku Word zawsze jest
+    # `attachment`, a jego podgląd nie może liczyć się jako zapis na dysk.
+    requested_disposition = disposition
+    disposition = _safe_document_disposition(media_type, disposition)
 
     candidate_audit.record_candidate_audit(
         db,
         action=candidate_audit.DOCUMENT_DOWNLOADED,
         user_id=current_user.id,
         entity_id=candidate_id,
-        details={"doc_id": doc_id, "disposition": disposition},
+        details={"doc_id": doc_id, "disposition": requested_disposition},
     )
     await db.commit()
 
@@ -4800,8 +6504,8 @@ async def download_candidate_document(
             # CV/document streams from Hetzner Object Storage. Matches the
             # pattern in cv_source.py and asyncio.to_thread usage below.
             content = await asyncio.to_thread(download_cv, doc.storage_key)
-            return StreamingResponse(
-                io.BytesIO(content),
+            return Response(
+                content,
                 media_type=media_type,
                 headers={
                     "Content-Disposition": content_disposition(filename, disposition),
@@ -4817,8 +6521,8 @@ async def download_candidate_document(
     if not doc.file_content:
         raise HTTPException(status_code=404, detail="Document content not available")
 
-    return StreamingResponse(
-        io.BytesIO(doc.file_content),
+    return Response(
+        doc.file_content,
         media_type=media_type,
         headers={
             "Content-Disposition": content_disposition(filename, disposition),
@@ -4829,8 +6533,8 @@ async def download_candidate_document(
 
 @router.get("/{candidate_id}/documents/{doc_id}/url")
 async def get_candidate_document_url(
-    candidate_id: int,
-    doc_id: int,
+    candidate_id: DbIdPath,
+    doc_id: DbIdPath,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
     disposition: Literal["attachment", "inline"] = Query(
@@ -4866,6 +6570,12 @@ async def get_candidate_document_url(
         raise HTTPException(status_code=404, detail="Document not found")
 
     filename = doc.filename or f"document-{doc.id}"
+    if disposition == "attachment":
+        await cv_download_policy.ensure_can_save_file(
+            db, current_user, filename=filename, content_type=doc.content_type
+        )
+    # Presigned URL renderuje się na originie bucketu — ta sama allowlista.
+    disposition = _safe_document_disposition(doc.content_type, disposition)
 
     candidate_audit.record_candidate_audit(
         db,
@@ -4906,7 +6616,7 @@ async def get_candidate_document_url(
 
 @router.get("/{candidate_id}/risk")
 async def get_candidate_risk(
-    candidate_id: int,
+    candidate_id: DbIdPath,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
@@ -4972,9 +6682,12 @@ _EMBEDDING_TEXT_FIELDS = frozenset(
 )
 
 
+_MISSING = object()
+
+
 @router.patch("/{candidate_id}", response_model=CandidateResponse)
 async def update_candidate(
-    candidate_id: int,
+    candidate_id: DbIdPath,
     data: CandidateUpdate,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
@@ -4988,6 +6701,16 @@ async def update_candidate(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     updates = data.model_dump(exclude_unset=True)
+    # D6 (13.10.2026): odmowa tylko dla pola, które się ZMIENIA — oba okna
+    # edycji wysyłają imię i nazwisko przy każdym zapisie, a stary dopisek
+    # z importu nie może blokować edycji telefonu.
+    _reject_name_markers(
+        {
+            field: updates[field]
+            for field in ("name", "lastname")
+            if field in updates and updates[field] != getattr(candidate, field)
+        }
+    )
     activity_details = dict(updates)
     if {"expected_rate_hourly", "expected_rate_currency"} & updates.keys():
         raise HTTPException(
@@ -4998,6 +6721,21 @@ async def update_candidate(
                     "Globalną stawkę B2B edytuj przez "
                     f"/api/candidates/{candidate_id}/profile-rate z If-Match."
                 ),
+            },
+        )
+    # 17.10.2026: czarna lista „u nas” tylko przez okno „Czarna lista…”
+    # (`api/candidate_blacklist.py`) — z osobą, datą i powodem.
+    new_status = updates.get("status")
+    if (
+        "status" in updates
+        and new_status != candidate.status
+        and CandidateStatus.blacklisted in (new_status, candidate.status)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "candidate_blacklist_dedicated_endpoint",
+                "message": "Czarną listę ustawiasz w menu profilu → „Czarna lista…”.",
             },
         )
 
@@ -5015,19 +6753,34 @@ async def update_candidate(
             entity_id=candidate.id,
             details={"fields": manual_identity_locks, "owner": "nexus"},
         )
+    # Runda 10 (R10-N11-2/3): telefon, e-mail, LinkedIn i status poprawione
+    # tutaj nie wracają przy nocnym syncu Traffita.
+    manual_synced = lock_changed_traffit_synced_fields(
+        candidate, updates, user_id=current_user.id
+    )
+    if manual_synced:
+        activity_details["manual_sync_locks"] = manual_synced
 
     # Phase D4: flag manual edits to `experience` so a subsequent CV upload
     # does not silently overwrite recruiter-curated data with AI extraction.
-    if {"experience", "skills"} & updates.keys():
+    # 12.10.2026 (decyzja Artura): to samo dla lat doświadczenia, wykształcenia
+    # i podsumowania — nowe główne CV odświeża profil (`CvWritePolicy.REFRESH`),
+    # a te trzy pola nie miały blokady. Blokuje dopiero faktyczna zmiana
+    # wartości, nie samo przysłanie pola.
+    manually_edited = [f for f in ("experience", "skills") if f in updates] + [
+        f
+        for f in ("years_it_experience", "education", "ai_summary")
+        if f in updates and updates[f] != getattr(candidate, f)
+    ]
+    if manually_edited:
         # A non-empty list is truthy, so `or {}` does not catch it and `dict()`
         # raises — a 500 on exactly the rows that already broke the sync.
         _raw_extracted = candidate.cv_extracted_data
         current_extracted = (
             dict(_raw_extracted) if isinstance(_raw_extracted, dict) else {}
         )
-        for field in ("experience", "skills"):
-            if field in updates:
-                current_extracted[f"_manual_override_{field}"] = True
+        for field in manually_edited:
+            current_extracted[f"_manual_override_{field}"] = True
         updates["cv_extracted_data"] = current_extracted
 
     # `preferences` scala się PŁYTKO (0278): klucz z payloadu nadpisuje, klucz
@@ -5052,8 +6805,34 @@ async def update_candidate(
         # NOWY obiekt → ORM widzi zmianę; flag_modified zbędne.
         updates["preferences"] = current
 
+    # Runda 9 (R9-N8-8): e-mail innego kandydata dawał IntegrityError → 500.
+    # Ta sama odmowa co przy zakładaniu (POST); SAVEPOINT niżej łapie wyścig.
+    duplicate_message = "Kandydat z tym adresem e-mail już istnieje."
+    new_email = updates.get("email")
+    if new_email and new_email != candidate.email:
+        if await find_candidate_by_email(
+            db, new_email, exclude_candidate_id=candidate.id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=duplicate_message
+            )
+
+    from app.services.candidate_notes_facts import (
+        drop_work_mode_origin_if_changed,
+        profile_work_mode,
+        set_office_days_limit,
+    )
+
+    work_mode_before = profile_work_mode(candidate)
+    office_days = updates.pop("max_onsite_days_per_week", _MISSING)
     for field, value in updates.items():
         setattr(candidate, field, value)
+    if office_days is not _MISSING:
+        # Runda 9 (R9-N8-5): zmiana limitu dni czyści zgodę na więcej dni.
+        set_office_days_limit(candidate, office_days)
+        updates["max_onsite_days_per_week"] = office_days
+    # Ręczna zmiana trybu pracy zdejmuje „z odrzucenia · …” (14.10.2026).
+    drop_work_mode_origin_if_changed(candidate, work_mode_before)
     activity = Activity(
         entity_type="candidate",
         entity_id=candidate.id,
@@ -5074,7 +6853,15 @@ async def update_candidate(
     # could get overwritten by the in-memory state read. Flush first, then
     # reload with eager-loaded relations so `_derive_employment` sees current
     # contracts/conflicts.
-    await db.flush()
+    try:
+        async with db.begin_nested():
+            await db.flush()
+    except IntegrityError as exc:
+        if new_email and "email" in str(exc.orig):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=duplicate_message
+            ) from exc
+        raise
 
     # Re-embed when embedding-text fields changed (AI-P0-04). Without this, the
     # profile-edit PATCH updated the row but left the vector index on stale
@@ -5180,7 +6967,7 @@ async def restore_candidate_identity_from_traffit(
 
 @router.delete("/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_candidate(
-    candidate_id: int,
+    candidate_id: DbIdPath,
     current_user: CandidateHardDeleteAccess,
     db: AsyncSession = Depends(get_db),
 ):
@@ -5218,262 +7005,18 @@ async def delete_candidate(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Kandydat nie znaleziony"
         )
-
-    # Serialize erasure with new source rows referencing this candidate.
-    await db.refresh(candidate, with_for_update=True)
-
-    # Klucze plików trzeba zebrać TERAZ — po `db.delete()` wiersze już nie
-    # istnieją, a bez klucza nie da się skasować obiektu ze storage.
-    storage_keys: list[str] = []
-    if candidate.cv_storage_key:
-        storage_keys.append(candidate.cv_storage_key)
-    document_keys = await db.execute(
-        select(CandidateDocument.storage_key).where(
-            CandidateDocument.candidate_id == candidate_id,
-            CandidateDocument.storage_key.is_not(None),
-        )
-    )
-    storage_keys.extend(k for k in document_keys.scalars().all() if k)
-
-    from app.services.cv_source_cleanup import schedule_source_cleanup
-    from app.services.cv_source_erasure import detach_candidate_job_sources
-
-    storage_keys.extend(await detach_candidate_job_sources(db, candidate_id))
-
-    # Audyt 22.09 r2 (CAND-02, art. 17 RODO): zgłoszenia z formularza
-    # aplikacyjnego niosą CV (bajty albo klucz w storage), kontakt i zgodę.
-    # FK `matched_candidate_id` to SET NULL, więc bez tego przeżywały
-    # usunięcie profilu. Bierzemy te dopasowane do kandydata i te z jego
-    # adresem e-mail (zgłoszenie sprzed dopasowania nie ma FK); zgody
-    # zgłoszeń kaskadują z wiersza, ale liczymy je do dowodu wykonania.
-    from app.services.application_submission_erasure import (
-        erase_candidate_submissions,
-    )
-
-    submission_erasure = await erase_candidate_submissions(
-        db, candidate_id=candidate_id, email=candidate.email
-    )
-    storage_keys.extend(submission_erasure.pop("storage_keys"))
-
-    # audyt 22.09 r2 (PROD-02): kopie snapshotów CV etapów w object storage
-    # (`stage-cv/<candidate_id>/…`) znikają razem z osobą — wiersze
-    # `candidate_stage_cvs` kaskadują, obiekty w storage nie.
-    from app.services.candidate_stage_cv_service import snapshot_keys_for_candidate
-
-    storage_keys.extend(await snapshot_keys_for_candidate(db, candidate_id))
-    storage_keys = sorted(set(storage_keys))
-
-    # Pseudonimizacja umów PRZED usunięciem: `SET NULL` zadziała w bazie sam,
-    # ale zerwie jedyne powiązanie między fakturami jednego podmiotu.
-    # Fail-closed ZOSTAJE (bez możliwości pseudonimizacji umów nie wolno usunąć
-    # kandydata), ale nieobsłużony `RuntimeError` dawał operatorowi gołe
-    # „Internal Server Error", a przyczynę — brak
-    # `CANDIDATE_IDENTITY_FINGERPRINT_KEY` — tylko w logach. 503, bo to problem
-    # konfiguracji serwera, nie błąd żądania.
+    # Cała operacja w `app/services/candidate_hard_delete.py` — tę samą ścieżkę
+    # woła jednorazowe sprzątanie rekordów testowych z produkcji (20.10.2026).
     try:
-        subject_ref = candidate_subject_reference(candidate_id)
-    except RuntimeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
-        ) from exc
-    contracts_detached = (
-        await db.execute(
-            update(Contract)
-            .where(
-                Contract.candidate_id == candidate_id,
-                Contract.candidate_subject_ref.is_(None),
-            )
-            .values(candidate_subject_ref=subject_ref)
+        outcome = await candidate_hard_delete.erase_candidate(
+            db, candidate, actor=current_user
         )
-    ).rowcount
-
-    # Kontakt do konsultanta skopiowany na umowę (migracja 0316) MUSI zniknąć
-    # razem z osobą. Wiersz umowy celowo zostaje (wiszą na nim podpisy i
-    # faktury), ale e-mail i telefon to dokładnie te dane, których dotyczy
-    # art. 17 — zostawione tu przeżyłyby usunięcie profilu w ciszy, bo żaden
-    # ekran nie mówi, że umowa trzyma własną kopię. Osobny UPDATE, nie
-    # rozszerzenie tego wyżej: tamten jest zawężony do umów jeszcze nie
-    # ostemplowanych, a czyścić trzeba WSZYSTKIE umowy tej osoby.
-    await db.execute(
-        update(Contract)
-        .where(Contract.candidate_id == candidate_id)
-        .values(candidate_email=None, candidate_phone=None)
-    )
-
-    # Odwołanie publicznych linków do WYGENEROWANYCH CV tej osoby. `cv_generated
-    # _documents.candidate_id` to `SET NULL`, więc dokument (a z nim
-    # `render_payload` = pełne CV) przeżywa usunięcie — a token, który go
-    # odblokowuje, kaskaduje z dokumentu, nie z kandydata. Bez tego
-    # `/api/public/cv-i/{token}` dalej serwowałby CV usuniętej osoby hiring
-    # managerowi u klienta przez cały TTL linku (do 90 dni), a jego czat AI
-    # dalej odpowiadałby na nowe pytania o nią. Dwie pozostałe rodziny tokenów
-    # (`champion_share`, `cv_share_token`) kaskadują z kandydata i znikają same.
-    now = datetime.now(timezone.utc)
-    tokens_revoked = (
-        await db.execute(
-            update(CvGeneratedShareToken)
-            .where(
-                CvGeneratedShareToken.generated_document_id.in_(
-                    select(CvGeneratedDocument.id).where(
-                        CvGeneratedDocument.candidate_id == candidate_id
-                    )
-                ),
-                CvGeneratedShareToken.revoked.is_(False),
-            )
-            .values(
-                revoked=True,
-                revoked_at=now,
-                revoked_by=current_user.id,
-                revoke_reason="candidate_erasure",
-            )
-        )
-    ).rowcount
-
-    # Wiersze pełnego przeglądu bazy (`candidate_search_results`) nie mają FK
-    # na kandydata — celowo, żeby migawka przeżyła zmianę w trakcie przeglądu —
-    # więc kaskada ich nie zabierze, a niosą dowody dopasowania tej osoby.
-    # Aktywny przegląd nie może po prostu stracić wiersza (`finish_run` wymaga
-    # rozliczenia całej migawki), więc najpierw jest oznaczany jako `failed`
-    # i jego autor uruchamia go ponownie.
-    from app.services.candidate_search_store import erase_candidate
-
-    search_erasure = await erase_candidate(db, candidate_id)
-
-    # Rozmowy Jarvisa, w których padły dane tej osoby (0330) — treść to JSON,
-    # więc kaskada FK jej nie sięga; powiązanie trzyma
-    # `jarvis_conversation_entities`.
-    from app.services.jarvis.erasure import erase_candidate as erase_jarvis_candidate
-
-    jarvis_erasure = await erase_jarvis_candidate(db, candidate_id)
-    # Skrzynka „Propozycje" (0333): FK ma ON DELETE CASCADE, więc wiersze i tak
-    # znikną razem z kandydatem — kasujemy je JAWNIE, żeby liczba trafiła do
-    # dowodu wykonania żądania z art. 17 (kaskada nie zostawia śladu).
-    from sqlalchemy import delete as sa_delete
-
-    from app.models.job_proposal import JobProposal
-
-    search_erasure["job_proposals_deleted"] = (
-        await db.execute(
-            sa_delete(JobProposal).where(JobProposal.candidate_id == candidate_id)
-        )
-    ).rowcount or 0
-    # Prepy w Teams (0370): transkrypty i oceny idą kaskadą z kandydatem —
-    # kasujemy je jawnie, żeby liczba trafiła do dowodu wykonania art. 17.
-    # Kopia nagrania/transkryptu w M365 organizatora podlega retencji tenanta.
-    from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
-
-    search_erasure["prep_transcripts_deleted"] = (
-        await db.execute(
-            sa_delete(PrepTranscript).where(PrepTranscript.candidate_id == candidate_id)
-        )
-    ).rowcount or 0
-    await db.execute(
-        sa_delete(PrepReview).where(PrepReview.candidate_id == candidate_id)
-    )
-    await db.execute(
-        sa_delete(PrepMeeting).where(PrepMeeting.candidate_id == candidate_id)
-    )
-
-    # Audyt PRZED usunięciem, żeby ślad przetrwał operację. `Activity` nie ma
-    # FK na kandydata z CASCADE dla tej ścieżki — patrz test kontraktowy.
-    # `share_tokens_revoked` jest tu, bo inaczej odwołanie publicznych linków
-    # nie zostawiałoby żadnego śladu w dowodzie wykonania żądania z art. 17 —
-    # z tego samego powodu liczby wierszy przeglądu bazy.
-    candidate_audit.record_candidate_audit(
-        db,
-        action=candidate_audit.HARD_DELETED,
-        user_id=current_user.id,
-        entity_id=candidate_id,
-        details={
-            "operation": "hard_delete",
-            "contracts_detached": contracts_detached,
-            "storage_objects": len(storage_keys),
-            "storage_cleanup": "scheduled",
-            "share_tokens_revoked": tokens_revoked,
-            "subject_ref": subject_ref,
-            **search_erasure,
-            **jarvis_erasure,
-            **submission_erasure,
-        },
-    )
-    # Historia zdarzeń (Ustawienia). Wpis przeżywa usunięcie, więc NIE niesie
-    # imienia i nazwiska — to byłoby zachowanie danych osoby, którą właśnie
-    # usuwamy (art. 17 RODO). Identyfikuje ją pseudonim, ten sam co na
-    # odpiętych umowach i w audycie kandydata.
-    await record_executed(
-        db,
-        actor=current_user,
-        event_type="candidate.delete",
-        entity_type="contractor",
-        entity_id=candidate_id,
-        entity_label=f"Kandydat #{candidate_id}",
-        reason=(
-            "Profil usunięty trwale (RODO). Dziennik nie przechowuje danych "
-            "osobowych — osobę identyfikuje pseudonim na odpiętych umowach."
-        ),
-        details={
-            "subject_ref": subject_ref,
-            "contracts_detached": contracts_detached,
-            "storage_objects": len(storage_keys),
-        },
-    )
-
-    # Trwały retry kasowania wektora — ten sam kontrakt, którego używa
-    # kwarantanna tożsamości (`candidate_identity_quarantine`). `match_index
-    # _outbox` nie ma FK na `candidates`, więc wiersz przeżywa usunięcie i
-    # worker dokończy sprzątanie, gdy Qdrant wróci. Bez niego wartość zwracana
-    # przez `delete_candidate_embedding` (a ono NIE rzuca — łapie wyjątek u
-    # siebie i zwraca False) była porzucana i wektor z nazwiskiem oraz
-    # fragmentami CV zostawał w indeksie na zawsze.
-    db.add(
-        IndexOutboxEvent(
-            entity_type="candidate",
-            entity_id=candidate_id,
-            entity_revision=int(now.timestamp() * 1_000_000),
-            desired_hash="",
-            operation="delete",
-            status="pending",
-        )
-    )
-
-    # Pliki NIE są kasowane w żądaniu. Do 09.2026 pętla `delete_cv` szła po
-    # `flush()`, a błąd w jej środku kończył się 503 „usunięcie wycofane
-    # w całości" — ale rollback SQL nie przywraca obiektów skasowanych już
-    # wcześniej w tej pętli, więc „w całości" było nieprawdą: kandydat wracał
-    # do bazy bez części swoich plików. Zamiast tego każdy klucz trafia do
-    # trwałego rejestru kasowań (`cv_source_cleanup`, ten sam wzorzec co
-    # `IndexOutboxEvent` wyżej dla Qdranta): wiersz commituje się RAZEM
-    # z usunięciem, więc albo znika i kandydat, i intencja kasowania jego
-    # plików, albo nic. Pętla `cv_source_cleanup` (main.py) kasuje obiekty
-    # w tle z ponowieniami i backoffem — niedostępny storage odkłada
-    # sprzątanie, nie blokuje usunięcia.
-    for key in storage_keys:
-        await schedule_source_cleanup(db, key)
-
-    await db.delete(candidate)
-    # Flush PRZED commitem: kaskady w bazie wykonują się tutaj, więc ewentualny
-    # FK bez `ON DELETE` wywali się czytelnie, a rejestr kasowań wycofa się
-    # razem z usunięciem.
-    await db.flush()
-
+    except candidate_hard_delete.CandidateEraseBlocked as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     await db.commit()
-
-    # Natychmiastowa próba kasowania wektora. Nieudana NIE jest błędem żądania —
-    # usunięcie w bazie już się stało, a wiersz outboxu wyżej gwarantuje retry.
-    from app.services.embedding_service import delete_candidate_embedding
-
-    try:
-        deleted = await delete_candidate_embedding(candidate_id)
-    except Exception:  # noqa: BLE001 — retry stoi w outboxie
-        deleted = False
-        logger.exception("Qdrant cleanup raised for deleted candidate %s", candidate_id)
-    if not deleted:
-        logger.error(
-            "[delete_candidate] natychmiastowe kasowanie wektora nieudane; "
-            "trwały retry zakolejkowany candidate=%s (odwołanych linków: %s)",
-            candidate_id,
-            tokens_revoked,
-        )
+    await candidate_hard_delete.finish_after_commit(
+        db, outcome, actor_id=current_user.id
+    )
 
 
 # CV-enrichment helpers live in app.services.cv_enrichment so the Traffit
@@ -5491,6 +7034,8 @@ from app.services.candidate_language_writer import (  # noqa: E402
     sync_candidate_languages_from_source,
 )
 from app.services.candidate_identity_quarantine import (  # noqa: E402
+    ReplacedPrimaryCv,
+    get_identity_review,
     record_detected_identity,
 )
 
@@ -5503,6 +7048,7 @@ async def _parsed_source_is_quarantined(
     source_kind: Literal["document", "legacy_cv"],
     source_id: int,
     provenance: str,
+    replaced_primary: Optional[ReplacedPrimaryCv] = None,
 ) -> bool:
     """Persist the identity decision before any parsed CV fact is projected."""
 
@@ -5514,8 +7060,32 @@ async def _parsed_source_is_quarantined(
         observed_first_name=parsed.get("first_name"),
         observed_last_name=parsed.get("last_name"),
         provenance=provenance,
+        replaced_primary=replaced_primary,
     )
     return review.is_quarantined
+
+
+async def _primary_cv_before_change(
+    db: AsyncSession, candidate_id: int
+) -> ReplacedPrimaryCv:
+    """Główne CV i wskaźnik pliku — odczytane PRZED wgraniem albo wyborem nowego.
+
+    Nowe główne CV przejmuje flagę i `cv_filename` od razu, a bramka tożsamości
+    biegnie w tle. Gdy plik okaże się CV innej osoby, kwarantanna przywraca ten
+    stan zamiast czyścić profil właściwej osoby.
+    """
+    document_id = await db.scalar(
+        select(CandidateDocument.id).where(
+            CandidateDocument.candidate_id == candidate_id,
+            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+            CandidateDocument.is_primary.is_(True),
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+    )
+    cv_filename = await db.scalar(
+        select(Candidate.cv_filename).where(Candidate.id == candidate_id)
+    )
+    return ReplacedPrimaryCv(document_id=document_id, cv_filename=cv_filename)
 
 
 async def _auto_assign_primary_cc(candidate: Candidate, db: AsyncSession) -> None:
@@ -5535,6 +7105,7 @@ async def _store_candidate_document(
     external_source: str,
     document_kind: CandidateDocumentKind = CandidateDocumentKind.cv,
     is_primary: bool = True,
+    uploaded_by: Optional[int] = None,
 ) -> CandidateDocument:
     """Persist one candidate attachment with content-level deduplication.
 
@@ -5594,6 +7165,13 @@ async def _store_candidate_document(
         existing.content_type = content_type or None
         existing.size_bytes = len(content)
         existing.uploaded_at = datetime.now(timezone.utc)
+        if uploaded_by is not None:
+            existing.uploaded_by = uploaded_by
+        if existing.is_primary:
+            # Ten sam plik wgrany ponownie jako aktualne CV zdejmuje plakietkę
+            # „nieaktualne” — główne CV nie może jej nosić.
+            existing.outdated_at = None
+            existing.outdated_by = None
         await db.flush()
         return existing
 
@@ -5614,10 +7192,12 @@ async def _store_candidate_document(
             )
             file_content = None
     except Exception as exc:  # pragma: no cover - storage fallback
+        # Runda 9 (R9-N7-8): komunikat wyjątku magazynu niesie URL z kluczem
+        # (nazwa pliku CV = imię i nazwisko) — do logu tylko klasa wyjątku.
         logger.warning(
             "[candidate_documents] storage upload failed candidate=%s: %s",
             candidate_id,
-            exc,
+            type(exc).__name__,
         )
 
     document = CandidateDocument(
@@ -5630,6 +7210,7 @@ async def _store_candidate_document(
         document_kind=document_kind,
         is_primary=is_primary,
         uploaded_at=datetime.now(timezone.utc),
+        uploaded_by=uploaded_by,
         external_source=external_source,
         content_sha256=digest,
     )
@@ -5647,6 +7228,7 @@ async def _store_candidate_cv_document(
     content_type: Optional[str],
     external_source: str,
     is_primary: bool = True,
+    uploaded_by: Optional[int] = None,
 ) -> CandidateDocument:
     """Persist one CV version with content-level deduplication."""
 
@@ -5659,6 +7241,7 @@ async def _store_candidate_cv_document(
         external_source=external_source,
         document_kind=CandidateDocumentKind.cv,
         is_primary=is_primary,
+        uploaded_by=uploaded_by,
     )
 
 
@@ -5674,19 +7257,37 @@ async def _candidate_document_bytes(
     return document.file_content or b""
 
 
+async def _relock_candidate(db: AsyncSession, candidate_id: int) -> Optional[Candidate]:
+    return await db.scalar(
+        select(Candidate)
+        .where(Candidate.id == candidate_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    )
+
+
 async def _enrich_candidate_from_document_task(
     candidate_id: int,
     document_id: int,
     expected_hash: Optional[str] = None,
     trigger: str = "cv_upload",
     actor_user_id: Optional[int] = None,
+    replaced_primary: Optional[ReplacedPrimaryCv] = None,
+    force_read: bool = False,
 ) -> None:
-    """Extract and enrich from the still-current primary CV version."""
+    """Extract and enrich from the still-current primary CV version.
+
+    Plik, którego odczyt profil już ma, nie idzie do modelu drugi raz (03.11.2026):
+    ten sam plik wgrany ponownie brał 793 z 7853 płatnych odczytów w 30 dni, a na
+    profilu nie zmieniał nic. `force_read` = człowiek albo narzędzie prosi o nowy
+    odczyt mimo to (`/cv/reparse`, naprawa dokumentów M365).
+    """
 
     from app.core.database import AsyncSessionLocal
     from app.services import cv_text_extractor
     from app.services.cv_ingest_service import finish_cv_ingest
     from app.services.cv_parser import parse_cv
+    from app.services.cv_upload_dedup import profile_holds_read_of_file
 
     async with AsyncSessionLocal() as db:
         temp_path: Optional[str] = None
@@ -5711,6 +7312,27 @@ async def _enrich_candidate_from_document_task(
                 and document.content_sha256 != expected_hash
             ):
                 return
+            if not force_read and profile_holds_read_of_file(
+                candidate.cv_extracted_data,
+                raw_cv_text=candidate.raw_cv_text,
+                content_sha256=document.content_sha256,
+            ):
+                # Plik z kwarantanny musi wrócić przez bramkę tożsamości: to ona
+                # oddaje główne CV poprzedniemu plikowi.
+                review = await get_identity_review(
+                    db,
+                    candidate_id=candidate_id,
+                    source_kind="document",
+                    source_id=document.id,
+                )
+                if review is not None and not review.is_quarantined:
+                    logger.info(
+                        "[cv_enrich] plik już odczytany, bez modelu "
+                        "candidate=%s document=%s",
+                        candidate_id,
+                        document_id,
+                    )
+                    return
 
             content = await _candidate_document_bytes(db, document)
             if not content:
@@ -5730,6 +7352,12 @@ async def _enrich_candidate_from_document_task(
             # `_assert_declared`. `db=` włącza kwotę na PŁATNYM kroku wewnątrz
             # parsera — wyczerpana gasi tylko Claude'a, fallbacki zostają.
             parsed = await parse_cv(raw_text, db=db, user_id=actor_user_id)
+            # Runda 9 (R9-N8-4): odczyt modelu trwa, a rekruter w tym czasie
+            # edytuje profil — zapis idzie na świeżo odczytanym, zablokowanym
+            # wierszu, nie na kopii sprzed wywołania modelu.
+            candidate = await _relock_candidate(db, candidate_id)
+            if candidate is None:
+                return
 
             current_primary = await db.scalar(
                 select(CandidateDocument.id).where(
@@ -5748,6 +7376,7 @@ async def _enrich_candidate_from_document_task(
                 source_kind="document",
                 source_id=document.id,
                 provenance="cv_parser:document",
+                replaced_primary=replaced_primary,
             ):
                 # Keep the source available for human review, but do not let a
                 # confirmed different person alter the candidate projection.
@@ -5842,7 +7471,13 @@ async def _enrich_candidate_cv_task(
             if not candidate or not candidate.raw_cv_text:
                 return
 
-            parsed = await parse_cv(candidate.raw_cv_text, db=db, user_id=actor_user_id)
+            parsed_text = candidate.raw_cv_text
+            parsed = await parse_cv(parsed_text, db=db, user_id=actor_user_id)
+            # Runda 9 (R9-N8-4): świeży, zablokowany wiersz po wywołaniu modelu;
+            # tekst zmieniony w międzyczasie = odczyt nieaktualny, nic nie piszemy.
+            candidate = await _relock_candidate(db, candidate_id)
+            if candidate is None or candidate.raw_cv_text != parsed_text:
+                return
             if source_document_id is not None:
                 still_primary = (
                     await db.execute(
@@ -5956,66 +7591,50 @@ def _raise_from_cv_duplicate_conflict(rows: list[dict]) -> None:
     )
 
 
-@router.post(
-    "/from-cv",
-    response_model=CandidateFromCVResponse,
-    status_code=status.HTTP_201_CREATED,
-    responses={
-        status.HTTP_409_CONFLICT: {
-            "description": "A candidate that closely matches the parsed CV "
-            "already exists (by email, phone, LinkedIn, or name). The response "
-            "body carries `existing_candidate_id` + `matches` so the UI can "
-            "offer 'open existing' / 'save anyway' actions.",
-        }
-    },
+# Odczyt CV przed zapisem kandydata (29.09.2026): okno „Dodaj kandydata”
+# czyta wgrane CV, wypełnia formularz, a zapis (`/from-cv`) bierze TEN SAM
+# odczyt z OGRANICZONEJ pamięci procesu (`services/cv_preview_cache.py`, klucz
+# = SHA-256 treści pliku) — model płaci raz. Nie `app/core/cache.py`: tamten
+# nie ma limitu ani sprzątania, a tekst CV to dziesiątki KB.
+_TAKEN_EMAIL_MESSAGE = "Kandydat z tym adresem e-mail już istnieje."
+
+# Pola formularza „Dodaj kandydata” spoza kontaktu, które `/from-cv` przyjmuje
+# w polu `candidate` (JSON) i waliduje tak samo jak `POST /api/candidates` —
+# jedna transakcja, bez PATCH-a po utworzeniu.
+_FROM_CV_EXTRA_FIELDS = frozenset(
+    {
+        "country",
+        "availability_date",
+        "notice_period",
+        "notice_period_unit",
+        "source",
+        "status",
+        "availability_status",
+        "tags",
+        "years_it_experience",
+        "champion",
+        "verifier_id",
+        "verified_tech",
+        "preferences",
+        "max_onsite_days_per_week",
+    }
 )
-async def create_candidate_from_cv(
-    current_user: RecruiterPlus,
-    db: AsyncSession = Depends(get_db),
-    file: UploadFile = File(...),
-    force: bool = Query(
-        default=False,
-        description="When true, bypass dedup check and create the candidate "
-        "even if a close match exists. The duplicates array on the response "
-        "is still populated for audit.",
-    ),
-):
-    """One-shot onboarding: PDF/DOCX CV in → new Candidate out.
 
-    Flow:
-      1. Save upload to disk + extract raw text (PDF / DOCX / TXT).
-      2. Run `parse_cv()` to pull contact fields, skills, education, etc.
-      3. Scan for duplicates via `find_candidate_duplicates` — return 409
-         with `existing_candidate_id` unless `?force=true`.
-      4. Insert a Candidate, apply enrichment (contact fields, summary,
-         experience), and auto-assign a primary Competence Category.
-      5. Kick off embedding + match-cache invalidation in the background.
 
-    `name` / `lastname` default to the placeholder "Nieznane" when the LLM
-    could not extract them — they're NOT NULL columns, and the frontend flags
-    them as low confidence so the recruiter completes them before saving.
+async def _extract_uploaded_cv_text(
+    content: bytes, *, safe_name: str, client_filename: Optional[str]
+) -> str:
+    """Tekst CV z bajtów uploadu (plik roboczy o losowej nazwie, zawsze sprzątany).
+
+    Nazwa pliku roboczego jest losowa: dawne `from_cv_tmp_<nazwa klienta>`
+    dzieliło jedną ścieżkę między równoległymi żądaniami z tym samym `CV.pdf`.
     """
     import asyncio
 
+    from app.core.log_safety import safe_filename as log_safe_filename
     from app.services import cv_text_extractor
-    from app.services.cv_parser import parse_cv
-    from app.services.cv_upload_dedup import find_duplicates_without_llm
 
-    # 1 — persist the upload and extract text
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    safe_name = _sanitize_upload_filename(file.filename, fallback="upload.pdf")
-    # Size gate BEFORE any disk write or extraction, and a bounded read so an
-    # oversized file never lands in memory whole — same helper as the other
-    # CV upload routes (`upload_cv`, `upload_candidate_document`).
-    content = await _read_upload_bounded(file, label="CV file")
-
-    # Scratch file for the extractor (it only reads from a path). The name is
-    # random on purpose: it used to be `from_cv_tmp_<client filename>`, so two
-    # recruiters uploading `CV.pdf` in the same second shared ONE path — the
-    # second write overwrote the first mid-extraction and the first request's
-    # `os.remove` deleted the second one's file. Each request now owns its file
-    # and drops it right after extraction; the permanent copy is written later
-    # from the in-memory bytes, so nothing is renamed across requests.
     ext = os.path.splitext(safe_name)[1].lower() or ".bin"
     with tempfile.NamedTemporaryFile(
         prefix="nexus_from_cv_", suffix=ext, dir=settings.UPLOAD_DIR, delete=False
@@ -6027,7 +7646,7 @@ async def create_candidate_from_cv(
     try:
         try:
             raw_text = await asyncio.to_thread(
-                cv_text_extractor.extract_text, tmp_path, file.filename or ""
+                cv_text_extractor.extract_text, tmp_path, client_filename or ""
             )
         except cv_text_extractor.UnsupportedCvFormat as e:
             raise HTTPException(
@@ -6035,7 +7654,7 @@ async def create_candidate_from_cv(
                 detail=f"Unsupported CV format: {e}",
             ) from e
         except Exception as e:
-            logger.warning("[from-cv] text extraction failed: %s", e)
+            logger.warning("[from-cv] text extraction failed: %s", type(e).__name__)
     finally:
         try:
             os.remove(tmp_path)
@@ -6043,53 +7662,454 @@ async def create_candidate_from_cv(
             pass
 
     if not raw_text or not raw_text.strip():
+        # Bez tego 5 zgłoszeń z portalu (10.2026) nie dało się zdiagnozować: scraper
+        # kasuje pliki, a w logu nie było ani formatu, ani rozmiaru.
+        logger.warning(
+            "[from-cv] brak tekstu: %s, format %s, %d B",
+            log_safe_filename(safe_name),
+            cv_text_extractor.sniff_extension_bytes(content),
+            len(content),
+        )
         raise HTTPException(
             status_code=400,
-            detail="Could not extract any text from the uploaded CV file.",
+            detail="Nie udało się odczytać tekstu z pliku CV.",
         )
+    return raw_text
 
-    # 1b — DARMOWE sito duplikatów PRZED płatnym odczytem (18.09.2026).
-    # Kroki 2 i 3 są w tej kolejności od początku, więc każdy duplikat płacił
-    # najpierw za odczyt modelem, a dopiero potem dostawał 409. W imporcie
-    # masowym duplikat jest regułą: zmierzone 9739 płatnych odczytów dało 689
-    # kandydatów. Sito jest jednostronne — trafi, to oszczędza; nie trafi, to
-    # nic nie przesądza, więc skan w kroku 3 ZOSTAJE (patrz `cv_upload_dedup`).
-    if not force and settings.FROM_CV_SIEVE_ENABLED:
-        cheap_rows = await find_duplicates_without_llm(
-            db, content=content, raw_text=raw_text
-        )
-        if cheap_rows:
-            _raise_from_cv_duplicate_conflict(cheap_rows)
 
-    # 2 — parse structured facts
-    parsed = await parse_cv(raw_text, db=db, user_id=current_user.id)
+# Pole formularza „Dodaj kandydata” → klucz odczytu CV.
+_FROM_CV_FORM_FIELDS: dict[str, str] = {
+    "name": "first_name",
+    "lastname": "last_name",
+    "email": "email",
+    "phone": "phone",
+    "city": "city",
+    "linkedin": "linkedin_url",
+}
 
-    # 3 — dedup scan
-    dup_rows = await find_candidate_duplicates(
-        db,
-        email=parsed.get("email"),
-        phone=parsed.get("phone"),
-        linkedin=parsed.get("linkedin_url"),
-        name=parsed.get("first_name"),
-        lastname=parsed.get("last_name"),
+
+def _cleared_form_fields(value: Optional[str]) -> list[str]:
+    """`cleared=email,city` → znane pola formularza; nieznane pomijamy."""
+    if not value:
+        return []
+    return [
+        key
+        for key in (part.strip() for part in value.split(","))
+        if key in _FROM_CV_FORM_FIELDS
+    ]
+
+
+def _clean_override(value: Optional[str], limit: int) -> Optional[str]:
+    """`None` = pola nie przysłano (zostaje odczyt CV); `""` = rekruter pole
+    wyczyścił (wartość z CV NIE wraca); inaczej przycięta wartość."""
+    if value is None:
+        return None
+    return " ".join(value.split())[:limit]
+
+
+def _body_error(field: str, message: str) -> HTTPException:
+    return HTTPException(
+        status_code=422,
+        detail=[{"loc": ["body", field], "msg": message, "type": "value_error"}],
     )
-    duplicates = _from_cv_duplicates(dup_rows)
-    if duplicates and not force:
-        _raise_from_cv_duplicate_conflict(dup_rows)
+
+
+def _validated_from_cv_extras(raw: Optional[str]) -> dict[str, Any]:
+    """Pola `candidate` (JSON) z `/from-cv` — walidacja jak `POST /api/candidates`.
+
+    Idzie PRZED płatnym odczytem i przed jakimkolwiek zapisem: zła wartość to
+    422 bez kandydata w bazie i bez wydanych pieniędzy.
+    """
+    from pydantic import ValidationError
+
+    if raw is None or not raw.strip():
+        return {}
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        raise _body_error("candidate", "Nieprawidłowe dane formularza.") from None
+    if not isinstance(data, dict):
+        raise _body_error("candidate", "Nieprawidłowe dane formularza.")
+    unknown = sorted(set(data) - _FROM_CV_EXTRA_FIELDS)
+    if unknown:
+        raise _body_error(unknown[0], "Tego pola nie można ustawić przy dodaniu z CV.")
+    try:
+        validated = CandidateCreate.model_validate(
+            {**data, "name": "-", "lastname": "-"}
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {
+                    "loc": ["body", *(str(part) for part in error["loc"])],
+                    "msg": str(error.get("msg", "Nieprawidłowa wartość")),
+                    "type": str(error.get("type", "value_error")),
+                }
+                for error in exc.errors()
+            ],
+        ) from None
+    return validated.model_dump(include=set(data))
+
+
+def _apply_from_cv_overrides(
+    parsed: dict[str, Any], overrides: dict[str, Optional[str]]
+) -> dict[str, Any]:
+    """Wartości wpisane przez rekrutera w formularzu wygrywają z odczytem CV.
+
+    Kopia — odczyt w pamięci procesu zostaje nietknięty. Tożsamość kandydata
+    i sprawdzenie źródła CV idą po scalonych wartościach: rekruter potwierdził
+    osobę, więc poprawione nazwisko nie może odesłać CV do kwarantanny.
+    """
+    import copy
+
+    # Głęboka kopia: dalsze kroki zapisu dopisują do list odczytu, a odczyt
+    # w pamięci procesu musi zostać taki, jaki oddał model.
+    merged = copy.deepcopy(parsed)
+    for key, value in overrides.items():
+        if value is None:
+            continue
+        # Pusty napis = pole świadomie wyczyszczone: wartość z CV nie wraca
+        # (ani do profilu, ani do skanu duplikatów).
+        merged[key] = value or None
+    return merged
+
+
+def _cv_preview_response(sha256: str, parsed: dict[str, Any]) -> CandidateCVPreview:
+    def _text(key: str) -> Optional[str]:
+        value = parsed.get(key)
+        if not isinstance(value, str):
+            return None
+        return value.strip() or None
+
+    confidence = {
+        str(key): float(value)
+        for key, value in (parsed.get("_confidence") or {}).items()
+        if isinstance(value, (int, float))
+    }
+
+    def _name(key: str) -> Optional[str]:
+        # Dopisek odczytany z CV nie trafia do formularza — zapis tego pola
+        # z dopiskiem dostałby 422 (D6, 13.10.2026).
+        value = _text(key)
+        if value is None:
+            return None
+        return strip_name_markers(value)[0] or None
+
+    return CandidateCVPreview(
+        cv_sha256=sha256,
+        name=_name("first_name"),
+        lastname=_name("last_name"),
+        email=_text("email"),
+        phone=_text("phone"),
+        city=_text("city"),
+        linkedin=_text("linkedin_url"),
+        current_position=_text("current_position"),
+        confidence=confidence,
+        source=_text("_source"),
+    )
+
+
+async def _read_cv_for_new_candidate(
+    db: AsyncSession,
+    *,
+    content: bytes,
+    safe_name: str,
+    client_filename: Optional[str],
+    user_id: int,
+    force: bool,
+    remember: bool,
+    form_email: Optional[str] = None,
+) -> tuple[str, dict[str, Any]]:
+    """Tekst i odczyt CV — z pamięci procesu albo jednym płatnym wywołaniem.
+
+    Darmowe sito duplikatów idzie PRZED płatnym odczytem (18.09.2026): każdy
+    duplikat płacił wcześniej za odczyt modelem, a dopiero potem dostawał 409
+    (9739 płatnych odczytów dało 689 kandydatów). Sito jest jednostronne —
+    trafi, to oszczędza; nie trafi, to nic nie przesądza, więc skan po
+    odczycie w `/from-cv` ZOSTAJE.
+
+    `remember=True` (tylko `/cv/preview`) trzyma wynik 30 min pod skrótem
+    SHA-256 treści pliku. `/from-cv` wyłącznie z niego CZYTA — masowy import
+    CV (tysiące plików) nie może zapełnić pamięci jedynego procesu.
+    """
+    from app.core.cache import cache_single_flight
+    from app.services.cv_parser import parse_cv
+    from app.services.cv_preview_cache import preview_cache
+    from app.services.cv_upload_dedup import find_duplicates_without_llm
+
+    sha256 = hashlib.sha256(content).hexdigest()
+
+    async def _free_sieve(raw_text: str) -> None:
+        if not force and settings.FROM_CV_SIEVE_ENABLED:
+            cheap_rows = await find_duplicates_without_llm(
+                db, content=content, raw_text=raw_text, form_email=form_email
+            )
+            if cheap_rows:
+                _raise_from_cv_duplicate_conflict(cheap_rows)
+
+    cached = preview_cache.get(sha256)
+    if cached is None:
+        # Blokada per plik (bez wartości w `core.cache`) — dwa równoległe
+        # podglądy tego samego CV płacą raz.
+        async with cache_single_flight(f"cv_preview_parse:{sha256}", db=db):
+            cached = preview_cache.get(sha256)
+            if cached is None:
+                raw_text = await _extract_uploaded_cv_text(
+                    content, safe_name=safe_name, client_filename=client_filename
+                )
+                await _free_sieve(raw_text)
+                parsed = await parse_cv(raw_text, db=db, user_id=user_id)
+                if remember:
+                    preview_cache.set(sha256, parsed=parsed, raw_text=raw_text)
+                return raw_text, parsed
+    # Odczyt z pamięci: sito biegnie i tak (bez `force`) — podgląd „Wczytaj
+    # mimo to” nie może zwolnić zapisu z wykrycia duplikatu.
+    raw_text = cached.raw_text
+    if raw_text is None:
+        raw_text = await _extract_uploaded_cv_text(
+            content, safe_name=safe_name, client_filename=client_filename
+        )
+    await _free_sieve(raw_text)
+    return raw_text, cached.parsed
+
+
+@router.post(
+    "/cv/preview",
+    response_model=CandidateCVPreview,
+    responses={
+        status.HTTP_409_CONFLICT: {
+            "description": "Darmowe sito znalazło kandydata z tym CV "
+            "(kształt jak w `/from-cv`); `?force=true` czyta mimo to.",
+        }
+    },
+)
+@limiter.limit("30/minute", key_func=user_or_ip_key)
+async def preview_candidate_cv(
+    request: Request,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+    force: bool = Query(default=False),
+):
+    """Przeczytaj CV i oddaj pola formularza „Dodaj kandydata” — BEZ zapisu.
+
+    Ta sama bramka, odczyt i kwota AI co `/from-cv`. Odczyt zostaje 30 min
+    w pamięci procesu pod skrótem treści pliku, więc zapis przez `/from-cv`
+    z tym samym plikiem nie woła modelu drugi raz.
+    """
+    safe_name = _sanitize_upload_filename(file.filename, fallback="upload.pdf")
+    content = await _read_upload_bounded(file, label="CV file")
+    _raw_text, parsed = await _read_cv_for_new_candidate(
+        db,
+        content=content,
+        safe_name=safe_name,
+        client_filename=file.filename,
+        user_id=current_user.id,
+        force=force,
+        remember=True,
+    )
+    return _cv_preview_response(hashlib.sha256(content).hexdigest(), parsed)
+
+
+@router.post(
+    "/from-cv",
+    response_model=CandidateFromCVResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        status.HTTP_409_CONFLICT: {
+            "description": "Kandydat z tym adresem e-mail już istnieje, "
+            "ten sam plik jest już w czyimś profilu albo (bez `force`) jest "
+            "kandydat z tym telefonem oraz imieniem i nazwiskiem. Odpowiedź niesie "
+            "`existing_candidate_id` + `matches`, żeby okno mogło dodać CV do "
+            "tego profilu albo go otworzyć.",
+        }
+    },
+)
+async def create_candidate_from_cv(
+    request: Request,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+    force: bool = Query(
+        default=False,
+        description="True pomija sito identycznego pliku i adresu z nagłówka. "
+        "Adres e-mail zajęty przez innego kandydata odmawia mimo to.",
+    ),
+    confirm_erased: bool = Query(
+        default=False,
+        description="Rekruter wie, że adres należał do profilu trwale usuniętego.",
+    ),
+    name: Optional[str] = Form(default=None),
+    lastname: Optional[str] = Form(default=None),
+    email: Optional[str] = Form(default=None),
+    phone: Optional[str] = Form(default=None),
+    city: Optional[str] = Form(default=None),
+    linkedin: Optional[str] = Form(default=None),
+    candidate_fields: Optional[str] = Form(default=None, alias="candidate"),
+    cleared: Optional[str] = Form(default=None),
+):
+    """One-shot onboarding: PDF/DOCX CV in → new Candidate out.
+
+    Flow:
+      1. Extract raw text (PDF / DOCX / TXT).
+      2. Run `parse_cv()` to pull contact fields, skills, education, etc.
+         — albo weź odczyt z `/cv/preview` (ten sam plik, 30 min).
+      3. Pola formularza (`name`, `lastname`, `email`, `phone`, `city`,
+         `linkedin`) wygrywają z odczytem.
+      4. Ta sama osoba = ten sam e-mail (`find_candidate_by_email`) — 409
+         z `existing_candidate_id`; przy `?force=true` 409 ze zdaniem przy polu.
+         Bez `force` także ten sam telefon ORAZ imię i nazwisko
+         (`find_candidate_by_phone_and_name`) — 409 z `existing_candidate_id`.
+      5. Insert a Candidate, apply enrichment (contact fields, summary,
+         experience), and auto-assign a primary Competence Category.
+
+    `name` / `lastname` default to the placeholder "Nieznane" when the LLM
+    could not extract them — they're NOT NULL columns, and the frontend flags
+    them as low confidence so the recruiter completes them before saving.
+    """
+    # 1 — bounded read BEFORE any disk write or extraction.
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    safe_name = _sanitize_upload_filename(file.filename, fallback="upload.pdf")
+    content = await _read_upload_bounded(file, label="CV file")
+
+    # 1a — reszta formularza i e-mail walidowane PRZED płatnym odczytem.
+    # Imię i nazwisko wpisane w formularzu z dopiskiem → 422 (D6, 13.10.2026).
+    _reject_name_markers(
+        {"name": _clean_override(name, 100), "lastname": _clean_override(lastname, 100)}
+    )
+    extras = _validated_from_cv_extras(candidate_fields)
+    email_override = _clean_override(email, 255)
+    if email_override:
+        from pydantic import EmailStr, TypeAdapter, ValidationError
+
+        try:
+            email_override = TypeAdapter(EmailStr).validate_python(email_override)
+        except ValidationError as exc:
+            raise _body_error(
+                "email", str(exc.errors()[0].get("msg", "Nieprawidłowy e-mail"))
+            ) from None
+
+    # 1b/2 — darmowe sito duplikatów, potem odczyt (albo odczyt z podglądu).
+    # Pola świadomie wyczyszczone w formularzu. FastAPI zamienia pusty napis
+    # z formularza multipart na brak pola, więc `""` nie dociera — lista
+    # przychodzi osobno (`cleared=email,city`).
+    cleared_fields = _cleared_form_fields(cleared)
+    raw_text, parsed = await _read_cv_for_new_candidate(
+        db,
+        content=content,
+        safe_name=safe_name,
+        client_filename=file.filename,
+        user_id=current_user.id,
+        force=force,
+        remember=False,
+        # Adres z formularza wygrywa z nagłówkiem pliku także w sicie.
+        form_email="" if "email" in cleared_fields else email_override,
+    )
+    overrides: dict[str, Optional[str]] = {
+        "first_name": _clean_override(name, 100),
+        "last_name": _clean_override(lastname, 100),
+        "email": email_override,
+        "phone": _clean_override(phone, 50),
+        "city": _clean_override(city, 100),
+        "linkedin_url": _clean_override(linkedin, 500),
+    }
+    for form_key in cleared_fields:
+        overrides[_FROM_CV_FORM_FIELDS[form_key]] = ""
+    parsed = _apply_from_cv_overrides(parsed, overrides)
+    # Imię odczytane z CV traci dopisek po cichu (D6) — w kopii odczytu, żeby
+    # bramka tożsamości i uzupełnianie profilu widziały to samo imię.
+    for key in ("first_name", "last_name"):
+        value = parsed.get(key)
+        if isinstance(value, str) and value.strip():
+            parsed[key] = strip_name_markers(value.strip())[0] or None
+
+    # 3 — ta sama osoba = ten sam e-mail (decyzja Artura, 12.10.2026), po
+    # scaleniu z polami formularza. Telefon, LinkedIn oraz imię i nazwisko
+    # osobno nie odmawiają: inny e-mail to inna osoba (wyjątek: krok 3b). JEDNO sprawdzenie na oba tryby:
+    # bez `force` odmowa niesie `existing_candidate_id` (okna i klient JustJoin
+    # dodają wtedy CV do tego profilu), z `force` zostaje zdanie przy polu —
+    # drugiego profilu z tym samym adresem nie zakładamy (jak `POST /api/candidates`).
+    same_email_rows = await find_candidate_by_email(db, parsed.get("email"))
+    if same_email_rows:
+        if not force:
+            _raise_from_cv_duplicate_conflict(same_email_rows)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_TAKEN_EMAIL_MESSAGE
+        )
+    # 3b — ten sam telefon ORAZ to samo imię i nazwisko (decyzja Artura,
+    # 22.10.2026): scraper JustJoin zakładał drugi profil, bo e-mail z CV był
+    # inny niż w starym profilu. Sam telefon nie odmawia (numery wspólne dla
+    # kilku osób). To dopasowanie, nie dowód jak e-mail — `force` je pomija.
+    if not force:
+        same_person_rows = await find_candidate_by_phone_and_name(
+            db,
+            phone=parsed.get("phone"),
+            name=parsed.get("first_name"),
+            lastname=parsed.get("last_name"),
+        )
+        if same_person_rows:
+            _raise_from_cv_duplicate_conflict(same_person_rows)
+
+    # 3c — adres z nagrobka (decyzja Artura, 03.11.2026): człowiek dostaje
+    # pytanie niezależnie od `force`, bo `force` dotyczy duplikatów. Scraper
+    # portalu nie pyta: osoba zgłosiła się sama, więc zostaje tylko ślad.
+    from app.services import candidate_claim
+    from app.services.candidate_erasure_leftovers import (
+        VIA_SCREEN,
+        VIA_SELF_APPLICATION,
+        email_was_erased,
+        erased_email_conflict,
+        record_recreated_after_erasure,
+    )
+
+    from_integration = candidate_claim.is_integration_request(request)
+    erased_email = await email_was_erased(db, parsed.get("email"))
+    if erased_email and not (from_integration or confirm_erased):
+        raise erased_email_conflict()
 
     # 4 — insert and enrich
     first_name = (parsed.get("first_name") or "").strip() or _CV_PLACEHOLDER_NAME
     last_name = (parsed.get("last_name") or "").strip() or _CV_PLACEHOLDER_NAME
+    # E-mail w INSERT-cie, nie dopiero w uzupełnianiu z CV (ta sama postać co
+    # `_apply_cv_contact_fields`): dwa równoległe zapisy tego samego adresu
+    # mijały sprawdzenie wyżej, a drugi padał na unikalnym indeksie przy
+    # uzupełnianiu → 500 (audyt 13.10.2026). Teraz SAVEPOINT i 409 jak
+    # w `POST /api/candidates`, z profilem, który wygrał wyścig.
+    new_email = str(parsed.get("email") or "").strip().lower()[:255] or None
     candidate = Candidate(
         name=first_name[:100],
         lastname=last_name[:100],
+        email=new_email,
         raw_cv_text=raw_text,
         cv_filename=safe_name,
         source="cv_upload",
         created_by=current_user.id,
     )
-    db.add(candidate)
-    await db.flush()  # allocate id so the file can carry it in its name
+    # Reszta formularza (zwalidowana na wejściu) przed odczytem CV: FILL_EMPTY
+    # nie nadpisze tego, co rekruter ustawił.
+    for field, value in extras.items():
+        setattr(candidate, field, value)
+    try:
+        async with db.begin_nested():
+            db.add(candidate)
+            await db.flush()  # allocate id so the file can carry it in its name
+    except IntegrityError as exc:
+        if not (new_email and "email" in str(exc.orig)):
+            raise
+        winner_rows = await find_candidate_by_email(db, new_email)
+        if winner_rows and not force:
+            _raise_from_cv_duplicate_conflict(winner_rows)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_TAKEN_EMAIL_MESSAGE
+        ) from exc
+    if erased_email:
+        record_recreated_after_erasure(
+            db,
+            candidate.id,
+            user_id=current_user.id,
+            via=VIA_SELF_APPLICATION if from_integration else VIA_SCREEN,
+        )
 
     # Permanent, candidate-scoped copy written from the bytes we already hold
     # (legacy `/cv-download` path); no rename of a shared scratch file.
@@ -6100,7 +8120,12 @@ async def create_candidate_from_cv(
         async with aiofiles.open(final_path, "wb") as f:
             await f.write(content)
     except OSError as e:
-        logger.warning("[from-cv] writing %s failed: %s", final_path, e)
+        # Ścieżka i komunikat OSError niosą nazwę pliku CV (runda 7, R7-V5-2).
+        logger.warning(
+            "[from-cv] writing CV copy for candidate %s failed (%s)",
+            candidate.id,
+            type(e).__name__,
+        )
 
     document = await _store_candidate_cv_document(
         db,
@@ -6110,6 +8135,7 @@ async def create_candidate_from_cv(
         content_type=file.content_type,
         external_source="from_cv",
         is_primary=True,
+        uploaded_by=current_user.id,
     )
     # The candidate identity is initialized from this same parse, but persist
     # the match provenance so every document has an explicit review state.
@@ -6161,6 +8187,10 @@ async def create_candidate_from_cv(
     )
 
     await db.commit()
+    # Odczyt z podglądu zrobił swoje — kandydat zapisany, zwalniamy pamięć.
+    from app.services.cv_preview_cache import preview_cache
+
+    preview_cache.pop(hashlib.sha256(content).hexdigest())
 
     reloaded = await db.execute(
         select(Candidate)
@@ -6173,7 +8203,9 @@ async def create_candidate_from_cv(
     return CandidateFromCVResponse(
         candidate=_candidate_to_response(full),
         confidence=confidence,
-        duplicates=duplicates,
+        # Zostaje w kształcie odpowiedzi dla dotychczasowych klientów; od
+        # 12.10.2026 zawsze puste — trafienie po e-mailu kończy się 409.
+        duplicates=[],
         source=parsed.get("_source"),
     )
 
@@ -6237,8 +8269,13 @@ def _sanitize_upload_filename(raw_filename: Optional[str], *, fallback: str) -> 
     """
     import pathlib
 
+    from app.api.public_share import _fit_filename
+
     name = pathlib.Path((raw_filename or "").strip()).name
-    return name or fallback
+    # Runda 9 (R9-N7-3): nazwa trafia na dysk jako `candidate_<id>_<nazwa>`,
+    # a nazwa pliku ma limit 255 BAJTÓW — CV z długą polską nazwą dawało
+    # `ENAMETOOLONG` = 500. Ta sama reguła co formularz kariery.
+    return _fit_filename(name) if name else fallback
 
 
 def _candidate_cv_disk_path(
@@ -6312,7 +8349,7 @@ async def _ingest_candidate_cv_file(
     content: bytes,
     safe_filename: str,
     content_type: Optional[str],
-    user_id: int,
+    user_id: Optional[int],
     external_source: str = "manual",
 ) -> CandidateDocument:
     """Persist an uploaded CV: disk copy, document row and audit trail.
@@ -6322,6 +8359,10 @@ async def _ingest_candidate_cv_file(
     box. Text extraction and every derived projection run after an identity
     decision in ``_enrich_candidate_from_document_task``. Does NOT commit —
     the caller owns the transaction and post-commit task.
+
+    ``user_id=None`` — klucz API v1 (``POST /api/integrations/v1/candidates/
+    {id}/cv``, 15.10.2026): ``Activity`` bez osoby (stempel ``details.via``),
+    bez ``UserActivity`` (ranking ludzi, ``user_id`` NOT NULL).
     """
     candidate_id = candidate.id
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -6344,6 +8385,7 @@ async def _ingest_candidate_cv_file(
         content_type=content_type,
         external_source=external_source,
         is_primary=True,
+        uploaded_by=user_id,
     )
     db.add(
         Activity(
@@ -6354,13 +8396,53 @@ async def _ingest_candidate_cv_file(
             details={"filename": safe_filename},
         )
     )
+    if user_id is not None:
+        db.add(
+            UserActivity(
+                user_id=user_id,
+                action_type=UserActionType.cv_uploaded,
+                entity_type="candidate",
+                entity_id=candidate_id,
+                details={"filename": safe_filename},
+            )
+        )
+    return document
+
+
+async def _attach_candidate_document(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    safe_filename: str,
+    content: bytes,
+    content_type: Optional[str],
+    kind: CandidateDocumentKind,
+    user_id: Optional[int],
+) -> CandidateDocument:
+    """Plik w teczce kandydata bez ścieżki głównego CV — BEZ commita.
+
+    Zapis z deduplikacją po SHA i wpis ``Activity``. Wspólne dla
+    `POST /{id}/documents` i API v1 (CV wgrane z ``make_primary=false``, gdy
+    osoba ma już główne CV); ``user_id=None`` = klucz API.
+    """
+    document = await _store_candidate_document(
+        db,
+        candidate_id=candidate_id,
+        filename=safe_filename,
+        content=content,
+        content_type=content_type,
+        external_source="manual",
+        document_kind=kind,
+        is_primary=False,
+        uploaded_by=user_id,
+    )
     db.add(
-        UserActivity(
-            user_id=user_id,
-            action_type=UserActionType.cv_uploaded,
+        Activity(
             entity_type="candidate",
             entity_id=candidate_id,
-            details={"filename": safe_filename},
+            action="document_uploaded",
+            user_id=user_id,
+            details={"filename": safe_filename, "document_kind": kind.value},
         )
     )
     return document
@@ -6373,6 +8455,7 @@ async def _after_cv_commit(
     candidate: Candidate,
     document: CandidateDocument,
     actor_user_id: Optional[int] = None,
+    replaced_primary: Optional[ReplacedPrimaryCv] = None,
 ) -> None:
     """Schedule identity-gated extraction/enrichment once the row is durable."""
     candidate_id = candidate.id
@@ -6384,12 +8467,13 @@ async def _after_cv_commit(
         document.id,
         document.content_sha256,
         actor_user_id=actor_user_id,
+        replaced_primary=replaced_primary,
     )
 
 
 @router.post("/{candidate_id}/cv", response_model=CandidateResponse)
 async def upload_cv(
-    candidate_id: int,
+    candidate_id: DbIdPath,
     current_user: RecruiterPlus,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
@@ -6425,6 +8509,7 @@ async def upload_cv(
         )
     safe_filename = _sanitize_upload_filename(raw_filename, fallback="upload.pdf")
 
+    replaced_primary = await _primary_cv_before_change(db, candidate_id)
     document = await _ingest_candidate_cv_file(
         db,
         candidate=candidate,
@@ -6441,6 +8526,7 @@ async def upload_cv(
         candidate=candidate,
         document=document,
         actor_user_id=current_user.id,
+        replaced_primary=replaced_primary,
     )
 
     # Re-fetch with eager-loaded relations so CandidateResponse can build
@@ -6527,16 +8613,9 @@ async def upload_candidate_document(
         )
 
     if kind == CandidateDocumentKind.cv:
+        replaced_primary = await _primary_cv_before_change(db, candidate_id)
         if not is_primary:
-            has_primary_cv = await db.scalar(
-                select(CandidateDocument.id).where(
-                    CandidateDocument.candidate_id == candidate_id,
-                    CandidateDocument.document_kind == CandidateDocumentKind.cv,
-                    CandidateDocument.is_primary.is_(True),
-                    CandidateDocument.source_deleted_at.is_(None),
-                )
-            )
-            is_primary = has_primary_cv is None
+            is_primary = replaced_primary.document_id is None
         if is_primary:
             document = await _ingest_candidate_cv_file(
                 db,
@@ -6555,36 +8634,27 @@ async def upload_candidate_document(
                 candidate=candidate,
                 document=document,
                 actor_user_id=current_user.id,
+                replaced_primary=replaced_primary,
             )
-            return document
+            return (await _documents_with_people(db, [document]))[0]
 
-    document = await _store_candidate_document(
+    document = await _attach_candidate_document(
         db,
         candidate_id=candidate_id,
-        filename=safe_filename,
+        safe_filename=safe_filename,
         content=content,
         content_type=resolved_content_type,
-        external_source="manual",
-        document_kind=kind,
-        is_primary=False,
-    )
-    db.add(
-        Activity(
-            entity_type="candidate",
-            entity_id=candidate_id,
-            action="document_uploaded",
-            user_id=current_user.id,
-            details={"filename": safe_filename, "document_kind": kind.value},
-        )
+        kind=kind,
+        user_id=current_user.id,
     )
     await db.commit()
     await db.refresh(document)
-    return document
+    return (await _documents_with_people(db, [document]))[0]
 
 
 @router.get("/{candidate_id}/cv-download")
 async def download_cv(
-    candidate_id: int,
+    candidate_id: DbIdPath,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ):
@@ -6598,6 +8668,9 @@ async def download_cv(
     file_path = _candidate_cv_disk_path(candidate_id, candidate.cv_filename)
     if file_path is None or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="CV file not found on disk")
+    await cv_download_policy.ensure_can_save_file(
+        db, current_user, filename=candidate.cv_filename, content_type=None
+    )
     candidate_audit.record_candidate_audit(
         db,
         action=candidate_audit.CV_DOWNLOADED,
@@ -6631,16 +8704,23 @@ def _bulk_cv_archive_name() -> str:
     return f"nexus-cvs-{business_today().isoformat()}.zip"
 
 
-@router.post("/bulk-cv-download")
+@router.post("/bulk-cv-download", dependencies=NOT_READ_ONLY)
 async def bulk_cv_download(
     payload: BulkCvDownloadRequest,
-    current_user: CandidateDocumentAccess,
+    current_user: CandidateBulkCvAccess,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Download multiple candidate CVs as a single ZIP archive.
 
     Skips candidates without an uploaded CV or missing file on disk and reports
     them in the `_manifest.txt` entry included at the archive root.
+
+    Runda 9 (R9-N7-6): CV bierze się z GŁÓWNEGO dokumentu kandydata
+    (``cv_source.get_current_cv`` — ta sama reguła co generator i kopie etapów),
+    a stare pola ``cv_filename``/``cv_storage_key`` są tylko zapasem. Do tej
+    zmiany paczka oddawała CV sprzed wgrania nowej wersji albo „brak CV” osobie,
+    która ma plik w dokumentach. Archiwum powstaje w pliku tymczasowym, nie
+    w pamięci procesu webowego (200 CV po kilka MB).
     """
     requested_ids = list(dict.fromkeys(payload.candidate_ids))
 
@@ -6651,107 +8731,106 @@ async def bulk_cv_download(
     included = 0
     skipped = 0
 
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_STORED) as zf:
-        for cid in requested_ids:
-            candidate = candidates_by_id.get(cid)
-            if candidate is None:
-                manifest_rows.append(f"{cid}\t\t\t\tskipped_not_found")
-                skipped += 1
-                continue
-            if not candidate.cv_filename:
-                manifest_rows.append(
-                    f"{cid}\t{candidate.name}\t{candidate.lastname}\t\tskipped_no_cv"
-                )
-                skipped += 1
-                continue
+    tmp = tempfile.NamedTemporaryFile(prefix="nexus-cvs-", suffix=".zip", delete=False)
+    tmp.close()
+    archive_path = tmp.name
+    try:
+        with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_STORED) as zf:
+            for cid in requested_ids:
+                candidate = candidates_by_id.get(cid)
+                if candidate is None:
+                    manifest_rows.append(f"{cid}\t\t\t\tskipped_not_found")
+                    skipped += 1
+                    continue
 
-            # Niebezpieczna nazwa = brak pliku na dysku; CV może nadal przyjść
-            # z object storage albo BYTEA niżej.
-            file_path = _candidate_cv_disk_path(candidate.id, candidate.cv_filename)
-            data: bytes | None = None
-            if file_path is not None and os.path.exists(file_path):
-                try:
-                    async with aiofiles.open(file_path, "rb") as f:
-                        data = await f.read()
-                except OSError as err:
-                    logger.warning(
-                        "bulk_cv_download: failed to read %s: %s", file_path, err
+                data, filename = await _bulk_cv_bytes(db, candidate)
+                if data is None:
+                    status_label = (
+                        "skipped_file_missing"
+                        if candidate.cv_filename
+                        else "skipped_no_cv"
                     )
-            elif candidate.cv_storage_key:
-                # Round 2 migracja (audit-2026-05-07): CV w Hetzner Object Storage.
-                from app.services.object_storage import (
-                    download_cv as _download_cv,
-                    is_available as _storage_available,
+                    manifest_rows.append(
+                        f"{cid}\t{candidate.name}\t{candidate.lastname}\t"
+                        f"{candidate.cv_filename or ''}\t{status_label}"
+                    )
+                    skipped += 1
+                    continue
+
+                ext = os.path.splitext(filename or "")[1] or ".pdf"
+                entry_name = (
+                    f"{_sanitize_zip_component(candidate.lastname)}_"
+                    f"{_sanitize_zip_component(candidate.name)}_"
+                    f"{candidate.id}{_sanitize_zip_component(ext)}"
                 )
-
-                if _storage_available():
-                    try:
-                        # Sync boto3 download — offload so the loop is not
-                        # blocked for each of up to 200 CVs in this bulk request.
-                        data = await asyncio.to_thread(
-                            _download_cv, candidate.cv_storage_key
-                        )
-                    except Exception as err:
-                        logger.warning(
-                            "bulk_cv_download: storage fetch failed for %s: %s",
-                            candidate.id,
-                            err,
-                        )
-                # Fallback do BYTEA jeśli storage nie odpowiada — przed
-                # finalize-delete-bytea oba mogą współistnieć.
-                if data is None and candidate.cv_file_content:
-                    data = candidate.cv_file_content
-            elif candidate.cv_file_content:
-                data = candidate.cv_file_content
-
-            if data is None:
+                await asyncio.to_thread(zf.writestr, entry_name, data)
                 manifest_rows.append(
                     f"{cid}\t{candidate.name}\t{candidate.lastname}\t"
-                    f"{candidate.cv_filename}\tskipped_file_missing"
+                    f"{filename}\tincluded"
                 )
-                skipped += 1
-                continue
+                included += 1
 
-            ext = os.path.splitext(candidate.cv_filename)[1] or ".pdf"
-            entry_name = (
-                f"{_sanitize_zip_component(candidate.lastname)}_"
-                f"{_sanitize_zip_component(candidate.name)}_"
-                f"{candidate.id}{ext}"
-            )
-            zf.writestr(entry_name, data)
-            manifest_rows.append(
-                f"{cid}\t{candidate.name}\t{candidate.lastname}\t"
-                f"{candidate.cv_filename}\tincluded"
-            )
-            included += 1
+            zf.writestr("_manifest.txt", "\n".join(manifest_rows) + "\n")
 
-        zf.writestr("_manifest.txt", "\n".join(manifest_rows) + "\n")
-
-    candidate_audit.record_candidate_audit(
-        db,
-        action=candidate_audit.BULK_CV_DOWNLOADED,
-        user_id=current_user.id,
-        details={
-            "requested_count": len(requested_ids),
-            "included_count": included,
-            "skipped_count": skipped,
-        },
-    )
-    await db.commit()
+        candidate_audit.record_candidate_audit(
+            db,
+            action=candidate_audit.BULK_CV_DOWNLOADED,
+            user_id=current_user.id,
+            details={
+                "requested_count": len(requested_ids),
+                "included_count": included,
+                "skipped_count": skipped,
+            },
+        )
+        await db.commit()
+    except BaseException:
+        os.remove(archive_path)
+        raise
 
     archive_name = _bulk_cv_archive_name()
     headers = {
-        "Content-Disposition": f'attachment; filename="{archive_name}"',
         "X-Included-Count": str(included),
         "X-Skipped-Count": str(skipped),
         "Access-Control-Expose-Headers": "Content-Disposition, X-Included-Count, X-Skipped-Count",
     }
-    return Response(
-        content=buffer.getvalue(),
+    return FileResponse(
+        archive_path,
         media_type="application/zip",
+        filename=archive_name,
         headers=headers,
+        background=BackgroundTask(os.remove, archive_path),
     )
+
+
+async def _bulk_cv_bytes(
+    db: AsyncSession, candidate: Candidate
+) -> tuple[Optional[bytes], Optional[str]]:
+    """Bajty i nazwa CV kandydata do paczki: główny dokument, potem stare pola."""
+    from app.services.cv_source import get_current_cv
+
+    current = await get_current_cv(db, candidate)
+    if current is not None and current.source.startswith("document_"):
+        return current.content, current.filename
+
+    # Stary zapis na dysku (`candidate_<id>_<cv_filename>`), którego
+    # `get_current_cv` nie zna. Niebezpieczna nazwa = brak pliku na dysku.
+    if candidate.cv_filename:
+        file_path = _candidate_cv_disk_path(candidate.id, candidate.cv_filename)
+        if file_path is not None and os.path.exists(file_path):
+            try:
+                async with aiofiles.open(file_path, "rb") as f:
+                    return await f.read(), candidate.cv_filename
+            except OSError as err:
+                # Ścieżka niesie nazwę pliku CV (imię i nazwisko) — do logu
+                # tylko id kandydata i klasa błędu (runda 6 audytu).
+                logger.warning(
+                    "bulk_cv_download: failed to read CV of candidate=%s: %s",
+                    candidate.id,
+                    type(err).__name__,
+                )
+    if current is not None:
+        return current.content, current.filename
+    return None, None
 
 
 @router.post("/bulk-import", status_code=status.HTTP_201_CREATED)
@@ -6764,10 +8843,30 @@ async def bulk_import_candidates(
 
     from pydantic import ValidationError
 
+    from app.services.candidate_erasure_leftovers import (
+        ERASED_EMAIL_CODE,
+        email_was_erased,
+    )
+    from app.services.candidate_name_rules import has_blacklist_marker
+
     created: list[int] = []
     item_results: list[dict[str, Any]] = []
     for index, raw_item in enumerate(data):
         raw = dict(raw_item)
+        # Import zbiorczy nie odmawia przez dopisek w imieniu — zdejmuje go
+        # przed walidacją (D6, 13.10.2026). Czarna lista z surowego imienia
+        # idzie najpierw do statusu, także wbrew `status` z pliku — jak korekta
+        # 0436; do 14.10.2026 osoba wchodziła jako aktywna (audyt 13.10, pkt 22).
+        raw_names = [
+            raw[field]
+            for field in ("name", "lastname")
+            if isinstance(raw.get(field), str)
+        ]
+        if has_blacklist_marker(*raw_names):
+            raw["status"] = CandidateStatus.blacklisted.value
+        for name_field in ("name", "lastname"):
+            if isinstance(raw.get(name_field), str):
+                raw[name_field] = without_name_markers(raw[name_field])
         raw_languages = raw.pop("languages", None)
         language_present = "languages" in raw_item
         field_errors: list[dict[str, str]] = []
@@ -6818,6 +8917,17 @@ async def bulk_import_candidates(
                         }
                         for error in exc.errors()
                     ],
+                }
+            )
+            continue
+
+        if await email_was_erased(db, item.email):
+            item_results.append(
+                {
+                    "index": index,
+                    "status": "skipped",
+                    "field_errors": field_errors,
+                    "reason": ERASED_EMAIL_CODE,
                 }
             )
             continue
@@ -6878,6 +8988,24 @@ async def bulk_import_candidates(
                 "field_errors": field_errors,
             }
         )
+    # Runda 10 (R10-N13-8): intencja indeksu jak w imporcie CSV — bez niej
+    # kandydat nigdy nie trafiał do Qdranta (reconciler nie kolejkuje encji
+    # „nigdy niewidzianych”). Ścieżka masowa: sam INSERT, bez embeddingu
+    # w pętli; savepoint, bo błąd kolejki nie może zabrać importu.
+    if created:
+        try:
+            from app.services.index_outbox_service import (
+                CANDIDATE,
+                record_bulk_reindex,
+            )
+
+            async with db.begin_nested():
+                await record_bulk_reindex(db, CANDIDATE, created)
+        except Exception as exc:  # noqa: BLE001 - nigdy nie wywracaj importu
+            logger.warning(
+                "Recording reindex intent for bulk import failed: %s",
+                type(exc).__name__,
+            )
     activity = Activity(
         entity_type="candidate",
         entity_id=0,
@@ -6898,8 +9026,9 @@ async def check_duplicates(
     """
     Return candidates matching the provided identifiers (email/phone/linkedin/name+lastname).
 
-    Non-blocking — the API does not reject on duplicates. Callers (UI import modals,
-    create/update flows) decide how to react. Used for duplicate-warning banners.
+    Non-blocking — the API does not reject on duplicates. Podpowiedzi dla
+    człowieka (okno scalania wysyła wszystkie pola). Okno „Dodaj kandydata”
+    wysyła sam e-mail: ta sama osoba = ten sam e-mail (12.10.2026).
     """
     return await find_candidate_duplicates(
         db,
@@ -7208,6 +9337,15 @@ async def assign_candidate_cc(
     )
     if not cc:
         raise HTTPException(status_code=404, detail="Competence Category not found")
+    # Runda 9 (R9-N8-13): nieistniejący kandydat dawał naruszenie FK → 500.
+    # Blokada wiersza szereguje też dwa równoległe „główna kategoria”.
+    if (
+        await db.scalar(
+            select(Candidate.id).where(Candidate.id == candidate_id).with_for_update()
+        )
+        is None
+    ):
+        raise HTTPException(status_code=404, detail="Nie znaleziono kandydata.")
 
     # If assigning as primary: clear previous primary for this candidate
     if body.is_primary:
@@ -7238,13 +9376,19 @@ async def assign_candidate_cc(
     )
     await db.execute(stmt)
 
-    # Backwards-compat: keep legacy single FK in sync when primary flagged
-    if body.is_primary:
-        candidate = await db.scalar(
-            select(Candidate).where(Candidate.id == candidate_id)
-        )
-        if candidate:
+    # Backwards-compat: keep legacy single FK in sync when primary flagged.
+    # Runda 10 (R10-N8-6): razem ze slugiem `competence_category` — czytają go
+    # karta dla klienta, prep-kit, tekst embeddingu i wyszukiwarka; sam FK
+    # zostawiał tam starą kategorię AI (lustro `apply_candidate_cc_scores`).
+    candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
+    if candidate:
+        if body.is_primary:
             candidate.competence_category_id = body.competence_category_id
+            candidate.competence_category = cc.slug
+        elif candidate.competence_category_id == body.competence_category_id:
+            # Dotychczasowa główna zdegradowana do pobocznej — główną zostaje „brak”.
+            candidate.competence_category_id = None
+            candidate.competence_category = None
     await db.commit()
 
     return CandidateCcOut(
@@ -7270,6 +9414,10 @@ async def unassign_candidate_cc(
     """Remove a CC assignment from a candidate."""
     from app.models.competence_category import CandidateCompetenceCategory
 
+    # Runda 10 (R10-N8-7): ta sama blokada co przy przydziale i w backfillu CC.
+    await db.execute(
+        select(Candidate.id).where(Candidate.id == candidate_id).with_for_update()
+    )
     link = await db.scalar(
         select(CandidateCompetenceCategory).where(
             CandidateCompetenceCategory.candidate_id == candidate_id,
@@ -7285,8 +9433,11 @@ async def unassign_candidate_cc(
         candidate = await db.scalar(
             select(Candidate).where(Candidate.id == candidate_id)
         )
-        if candidate and candidate.competence_category_id == cc_id:
+        if candidate and candidate.competence_category_id in (cc_id, None):
             candidate.competence_category_id = None
+            # Runda 10 (R10-N8-6): slug razem z FK, inaczej karta klienta,
+            # prep-kit i embedding dalej widzą zdjętą kategorię.
+            candidate.competence_category = None
     await db.commit()
 
 

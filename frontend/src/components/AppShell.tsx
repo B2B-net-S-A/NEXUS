@@ -23,7 +23,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   X, Loader2, ChevronRight, Plus,
-  UserPlus, Briefcase, Building2, CalendarPlus,
+  UserPlus, Briefcase, Building2, CalendarPlus, FileText, Upload,
 } from "lucide-react";
 import api, {
   candidateProfileApi,
@@ -36,11 +36,46 @@ import type {
   ClientTeamResponse,
 } from "@/lib/api";
 import { useCapability } from "@/hooks/useCapability";
-import { editableTagText, mergeEditedTags, structuredTagLabels } from "@/lib/candidate-tags";
+import { editableTagText, structuredTagLabels } from "@/lib/candidate-tags";
+import { formatDeadlineTime } from "@/lib/job-deadline";
+import { changedCandidateFields, tagChanges } from "@/lib/candidate-edit-diff";
 import { useClickOutside } from "@/lib/use-click-outside";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { emailFieldError } from "@/lib/email-field-error";
+import { nameFieldErrors, type NameFieldErrors } from "@/lib/name-field-error";
+import {
+  CV_ACCEPT,
+  CV_FIELD_LABELS,
+  attachCvFormData,
+  changedFormKeys,
+  duplicateMatchesFromConflict,
+  cvKnownFields,
+  extraFieldsForCv,
+  fillEmptyFromCv,
+  fromCvFormEntries,
+  fromCvOverrides,
+  isPhoneAndNameMatch,
+  isSameFileMatch,
+  type CandidateCvPreview,
+  type CvFormField,
+} from "@/lib/add-candidate-cv";
+import { ERASED_CANDIDATE_CONFIRM, erasedCandidateMessage } from "@/lib/erased-candidate";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { isClientTimeout, SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
+import { ExistingCandidateNotice } from "@/components/v2/candidates/ExistingCandidateNotice";
+import { ExistingClientNotice } from "@/components/clients/ExistingClientNotice";
+import { clientDuplicateWarningFrom, type SameNameClient } from "@/lib/client-duplicate";
+import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
+import { availabilityContractNote } from "@/lib/contract-availability";
+import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { defaultMeetingWindow } from "@/lib/meeting-defaults";
 import { newClientRequestId } from "@/lib/client-request-id";
+import {
+  jobNamesDraft,
+  jobNamesPatch,
+  type JobNames,
+  type JobNamesDraft,
+} from "@/lib/job-names";
 import {
   invalidAttendeeEmails,
   splitAttendeeEmails,
@@ -49,6 +84,35 @@ import {
   CandidateCombobox,
   type CandidateChoice,
 } from "@/components/calendar/CandidateCombobox";
+import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
+import { jobGateErrorText, jobGateRefusal } from "@/lib/job-gate-errors";
+import {
+  activeCardsWarningFrom,
+  closeAnywayLabel,
+  type ActiveCardsWarning,
+} from "@/lib/job-close";
+import { ActiveCardsNotice } from "@/components/v2/jobs/JobCloseWithReasonDialog";
+import { OfficeDaysField } from "@/components/jobs/OfficeDaysField";
+import {
+  officeDaysFields,
+  officeDaysFormValue,
+  type OfficeDaysPeriod,
+} from "@/lib/office-days";
+import { JobCollaboratorsField } from "@/components/jobs/JobCollaboratorsField";
+import { withCurrentClient } from "@/lib/client-selection";
+import {
+  collaboratorChanges,
+  hasCollaboratorChanges,
+  hasRecruiterRole,
+  manualCollaboratorIds,
+  saveCollaboratorChanges,
+} from "@/lib/job-collaborators";
+import { ownerIsPrevious, previousRecruitersOf } from "@/lib/job-team";
+import {
+  sameChoice,
+  saveHiringManager,
+  type HiringManagerChoice,
+} from "@/lib/hiring-manager";
 
 // ── Breadcrumb helper ────────────────────────────────────────────────────────
 
@@ -256,8 +320,20 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
  * gorsze od jego braku: czytnik ekranu ogłasza nazwę, po której nie da się
  * nawigować.
  */
-function FieldGroup({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
+function FieldGroup({
+  label,
+  required,
+  error,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  /** Runda 10 (F05): komunikat błędu tego pola — pod kontrolką, nie na górze formularza. */
+  error?: string | null;
+  children: React.ReactNode;
+}) {
   const generatedId = useId();
+  const errorId = `${generatedId}-error`;
   let controlId: string | undefined;
 
   const labelled = Children.map(children, (child) => {
@@ -266,9 +342,13 @@ function FieldGroup({ label, required, children }: { label: string; required?: b
     const own = (child.props as { id?: string }).id;
     const nextId = own ?? generatedId;
     controlId = nextId;
-    if (own) return child;
+    const errorProps = error
+      ? { "aria-invalid": true, "aria-describedby": errorId }
+      : {};
+    if (own && !error) return child;
     return cloneElement(child as React.ReactElement<{ id?: string }>, {
       id: nextId,
+      ...errorProps,
     });
   });
 
@@ -281,6 +361,11 @@ function FieldGroup({ label, required, children }: { label: string; required?: b
         {label} {required && <span className="text-destructive">*</span>}
       </label>
       {labelled}
+      {error ? (
+        <p id={errorId} role="alert" className="mt-1 text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -341,7 +426,7 @@ function ErrorBanner({ error }: { error: string }) {
  * Komunikat błędu do stanu typu string. Handlery w tym pliku czytały wprost
  * `err.response.data.detail`, a `detail` bywa NIE-STRINGIEM:
  *   - obiektem `{feature, reason, used, limit}` — 503 o wyczerpanej kwocie AI
- *     (`ai_writer.py`, jedno kliknięcie admina w Ustawienia → AI od tego stanu),
+ *     (bramka funkcji AI, jedno kliknięcie admina w Ustawienia → AI od tego stanu),
  *   - obiektem `{message, ...}` — konflikty domenowe,
  *   - tablicą `{msg, loc}` — 422 z Pydantica.
  * Taka wartość trafiała do stanu i była renderowana jako dziecko Reacta, co
@@ -425,6 +510,17 @@ const EMPTY_CANDIDATE: CandidateFormData = {
   pref_industries: "", pref_contract_types: [], pref_excluded_clients: "",
   pref_office_cities: "", max_onsite_days_per_week: "",
 };
+
+/** Pola kontaktu wysyłane do `/from-cv` osobno (reszta w polu `candidate`, notatka osobno). */
+const CV_SAVED_FORM_KEYS: ReadonlySet<string> = new Set([
+  "name",
+  "lastname",
+  "email",
+  "phone",
+  "city",
+  "linkedin",
+  "notes",
+]);
 
 type VerifiedTechItem = string | { name?: string; skill?: string } | null;
 
@@ -539,6 +635,29 @@ function candidateFormToPayload(form: CandidateFormData) {
   };
 }
 
+/**
+ * Runda 10 (F-extra): pole „Notatki” formularza kandydata nie trafiało do
+ * żadnego zapisu — `candidateFormToPayload` go nie wysyła, a kandydat nie ma
+ * kolumny notatek (notatki to osobne wiersze `notes`). Tekst z pola zapisujemy
+ * teraz jako notatkę kandydata (`POST /api/notes`) po udanym zapisie profilu.
+ * Zwraca `false`, gdy notatki nie udało się zapisać (profil i tak zapisany).
+ */
+async function saveCandidateFormNote(candidateId: number, notes: string): Promise<boolean> {
+  const content = notes.trim();
+  if (!content) return true;
+  try {
+    await api.post("/api/notes", {
+      candidate_id: candidateId,
+      content,
+      note_type: "general",
+    });
+    return true;
+  } catch (err) {
+    console.error("[candidate-form] note save failed", err);
+    return false;
+  }
+}
+
 function CandidateFormFields({
   form,
   onChange,
@@ -548,6 +667,10 @@ function CandidateFormFields({
   clients,
   importedTagLabels = [],
   collapseSecondary = false,
+  emailError = null,
+  nameErrors = null,
+  afterContact = null,
+  availabilityNote = null,
 }: {
   form: CandidateFormData;
   onChange: (k: keyof CandidateFormData, v: string) => void;
@@ -562,7 +685,22 @@ function CandidateFormFields({
    * reszta pod „Więcej danych”. Edycja profilu pokazuje wszystko jak dotąd.
    */
   collapseSecondary?: boolean;
+  /** Runda 10 (F05): błąd e-maila z serwera — przy polu, z fokusem na nim. */
+  emailError?: string | null;
+  /** 13.10.2026 (D6): odmowa dopisku w imieniu/nazwisku („[ACTIVE] Jan”) — przy polu. */
+  nameErrors?: NameFieldErrors | null;
+  /** „Dodaj kandydata”: ramka pod wierszem e-mail/telefon (ten adres już jest w bazie). */
+  afterContact?: React.ReactNode;
+  /**
+   * Edycja osoby z żywą umową (S4, 15.10.2026): ramka przy „Dyspozycyjności”
+   * — status jest ukryty do końca współpracy (`availabilityContractNote`).
+   */
+  availabilityNote?: string | null;
 }) {
+  const emailInputId = useId();
+  useEffect(() => {
+    if (emailError) document.getElementById(emailInputId)?.focus();
+  }, [emailError, emailInputId]);
   const CB = ({
     field,
     value,
@@ -635,19 +773,12 @@ function CandidateFormFields({
           </div>
         </FieldGroup>
       </div>
+      {/* Bez pola „Status” (17.10.2026): czarną listę ustawia okno „Czarna
+          lista…” z powodem i autorem, a PATCH odrzuca zmianę statusu. */}
       <div className="grid grid-cols-2 gap-3">
         <FieldGroup label="Dostępność">
           <Input type="date" value={form.availability_date} onChange={e => onChange("availability_date", e.target.value)} />
         </FieldGroup>
-        <FieldGroup label="Status">
-          <Select value={form.status} onChange={e => onChange("status", e.target.value)}>
-            <option value="active">Aktywny</option>
-            <option value="passive">Pasywny</option>
-            <option value="blacklisted">Zablokowany</option>
-          </Select>
-        </FieldGroup>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
         <FieldGroup label="Dyspozycyjność">
           <Select
             value={form.availability_status}
@@ -659,14 +790,18 @@ function CandidateFormFields({
             <option value="not_looking">Nie szuka</option>
           </Select>
         </FieldGroup>
-        <FieldGroup label="Aktualnie u klienta (opcjonalnie)">
-          <div className="text-xs text-muted-foreground dark:text-muted-foreground px-3 py-2 bg-muted dark:bg-card/40 rounded-lg">
-            W profilu kandydata: <strong>Podsumowanie → Dane handlowe → Dodaj konflikt</strong>,
-            typ <strong>Obecne zatrudnienie</strong> (albo „Oznacz jako zatrudnionego”
-            w szybkim podglądzie). Dzięki temu karta dostanie burgundowy alert „U KLIENTA”.
-          </div>
-        </FieldGroup>
       </div>
+      {availabilityNote ? (
+        <p
+          data-testid="edit-availability-contract-note"
+          className="rounded-lg bg-success-muted px-3 py-2 text-xs leading-5 text-success-muted-foreground"
+        >
+          {availabilityNote}
+        </p>
+      ) : null}
+      <p className="text-xs text-muted-foreground" data-testid="candidate-form-status-note">
+        „Pracuje u nas” wynika z umowy w Kontraktach. Czarną listę ustawiasz w menu profilu → „Czarna lista…”.
+      </p>
       <FieldGroup label="Tagi (rozdzielone przecinkami)">
         <Input value={form.tags} onChange={e => onChange("tags", e.target.value)} placeholder="React, TypeScript, Remote..." />
         {importedTagLabels.length > 0 && (
@@ -675,9 +810,12 @@ function CandidateFormFields({
           </p>
         )}
       </FieldGroup>
-      <FieldGroup label="Notatki">
+      <FieldGroup label="Nowa notatka (opcjonalnie)">
         <Textarea value={form.notes} onChange={e => onChange("notes", e.target.value)} rows={3} placeholder="Dodatkowe informacje..." />
       </FieldGroup>
+      <p className="-mt-2 text-xs text-muted-foreground">
+        Notatka trafi do zakładki Historia w profilu kandydata.
+      </p>
 
       {/* ── Dane strukturalne ───────────────────────────────────────────── */}
       <div className="pt-2 border-t border-border dark:border-border">
@@ -804,18 +942,19 @@ function CandidateFormFields({
   return (
     <>
       <div className="grid grid-cols-2 gap-3">
-        <FieldGroup label="Imię" required>
+        <FieldGroup label="Imię" required error={nameErrors?.name ?? null}>
           <Input value={form.name} onChange={e => onChange("name", e.target.value)} placeholder="Jan" />
         </FieldGroup>
-        <FieldGroup label="Nazwisko" required>
+        <FieldGroup label="Nazwisko" required error={nameErrors?.lastname ?? null}>
           <Input value={form.lastname} onChange={e => onChange("lastname", e.target.value)} placeholder="Kowalski" />
         </FieldGroup>
-        <FieldGroup label="Email">
-          <Input type="email" value={form.email} onChange={e => onChange("email", e.target.value)} placeholder="jan@mail.pl" />
+        <FieldGroup label="Email" error={emailError}>
+          <Input id={emailInputId} type="email" value={form.email} onChange={e => onChange("email", e.target.value)} placeholder="jan@mail.pl" />
         </FieldGroup>
         <FieldGroup label="Telefon">
           <Input type="tel" value={form.phone} onChange={e => onChange("phone", e.target.value)} placeholder="+48 500..." />
         </FieldGroup>
+        {afterContact ? <div className="col-span-2">{afterContact}</div> : null}
         <FieldGroup label="Miasto">
           <Input value={form.city} onChange={e => onChange("city", e.target.value)} placeholder="Warszawa" />
         </FieldGroup>
@@ -843,45 +982,61 @@ interface DuplicateCandidateHit {
   match_reasons: string[];
 }
 
-type DuplicateIdentityFields = Pick<CandidateFormData, "email" | "phone" | "linkedin" | "name" | "lastname">;
-
 /**
- * Tożsamość sprawdzana automatycznie — te same pola, po których dopasowuje
- * backend (`dedup_service`: e-mail, telefon, LinkedIn, imię+nazwisko). Zmiana
- * któregokolwiek = nowe sprawdzenie; inaczej zapis użyłby wyniku sprzed
- * wpisania nazwiska albo profilu LinkedIn istniejącej osoby.
+ * Tożsamość sprawdzana automatycznie: sam e-mail. Ta sama osoba = ten sam
+ * e-mail (decyzja Artura, 12.10.2026) — telefon, LinkedIn oraz imię i nazwisko
+ * nie robią z dwóch adresów jednej osoby. Do tej decyzji okno pytało o
+ * wszystkie pola i pokazywało np. 34 obcych osób z „linkedin.com” w polu
+ * LinkedIn jako „podobnych kandydatów”. Pusty klucz = nie ma czego sprawdzać.
  */
-function duplicateIdentityKey(form: DuplicateIdentityFields): string {
-  return JSON.stringify([
-    form.email.trim().toLowerCase(),
-    form.phone.trim(),
-    form.linkedin.trim().toLowerCase(),
-    form.name.trim().toLowerCase(),
-    form.lastname.trim().toLowerCase(),
-  ]);
-}
-
-/** Czy jest z czym porównać: kontakt, LinkedIn albo pełne imię i nazwisko. */
-function hasDuplicateIdentity(form: DuplicateIdentityFields): boolean {
-  return Boolean(
-    form.email.trim() ||
-      form.phone.trim() ||
-      form.linkedin.trim() ||
-      (form.name.trim() && form.lastname.trim()),
-  );
+function duplicateIdentityKey(form: Pick<CandidateFormData, "email">): string {
+  return form.email.trim().toLowerCase();
 }
 
 const DUPLICATE_CHECK_DEBOUNCE_MS = 400;
 
-export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (msg: string) => void }) {
+export function AddCandidateModal({
+  onClose,
+  onSuccess,
+  onCreated,
+}: {
+  onClose: () => void;
+  onSuccess: (msg: string) => void;
+  /**
+   * Id kandydata — np. okno rekrutacji dodaje go od razu do „Nowych”. Także
+   * po „Dodaj to CV do profilu”: wtedy to id osoby, która już była w bazie.
+   */
+  /** Imię i nazwisko — „Dodani teraz” w „Szukaj ręcznie” (15.10.2026). */
+  onCreated?: (candidateId: number, fullName?: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const { askConfirm, confirmDialog } = useConfirmV2();
   const [form, setForm] = useState<CandidateFormData>(EMPTY_CANDIDATE);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [duplicates, setDuplicates] = useState<DuplicateCandidateHit[]>([]);
-  // Klucz tożsamości (e-mail, telefon, LinkedIn, imię i nazwisko), dla którego `duplicates` jest aktualne.
+  // Kandydat z e-mailem z formularza — ta sama osoba, więc zamiast zapisu jest ramka.
+  const [existing, setExisting] = useState<DuplicateCandidateHit | null>(null);
+  // E-mail, dla którego `existing` jest aktualne.
   const [checkedKey, setCheckedKey] = useState<string>(() => duplicateIdentityKey(EMPTY_CANDIDATE));
-  // Zapis zatrzymany na trafieniach — rekruter wybiera „Otwórz istniejącego” albo „Zapisz mimo to”.
-  const [decisionPending, setDecisionPending] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [nameErrors, setNameErrors] = useState<NameFieldErrors | null>(null);
+  // „Wgraj CV (opcjonalnie)”: odczyt CV wypełnia puste pola, a zapis idzie
+  // przez `/from-cv` z polami formularza (serwer bierze ten sam odczyt).
+  const [cvFile, setCvFile] = useState<File | null>(null);
+  const [cvReading, setCvReading] = useState(false);
+  const [cvError, setCvError] = useState<string | null>(null);
+  const [cvFilled, setCvFilled] = useState<CvFormField[]>([]);
+  // Pola, dla których odczyt CV dał wartość — wyczyszczone idą jako jawne "".
+  const [cvKnown, setCvKnown] = useState<CvFormField[]>([]);
+  const [cvConflict, setCvConflict] = useState<DuplicateCandidateHit[] | null>(null);
+  // „Wczytaj mimo to”: rekruter kazał czytać plik mimo odmowy sita, więc zapis
+  // też idzie z `force` — inaczej sito odmówiłoby drugi raz, a okno nie ma już
+  // „Zapisz mimo to”.
+  const [cvForced, setCvForced] = useState(false);
+  const [attaching, setAttaching] = useState(false);
+  const [cvDragOver, setCvDragOver] = useState(false);
+  const cvInputRef = useRef<HTMLInputElement>(null);
+  const cvReadSeqRef = useRef(0);
   const checkSeqRef = useRef(0);
   const formRef = useRef(form);
   formRef.current = form;
@@ -897,7 +1052,11 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
   const users = usersData ?? [];
   const clients = clientsData ?? [];
 
-  const onChange = (k: keyof CandidateFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const onChange = (k: keyof CandidateFormData, v: string) => {
+    if (k === "email") setEmailError(null);
+    if (k === "name" || k === "lastname") setNameErrors(null);
+    setForm(f => ({ ...f, [k]: v }));
+  };
   const onToggle = (k: "champion", v: boolean) => setForm(f => ({ ...f, [k]: v }));
   const onMulti = (
     k: "pref_remote_modes" | "pref_contract_types",
@@ -911,115 +1070,360 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
     });
 
   /**
-   * Sprawdza duplikaty dla migawki formularza. Każde wywołanie unieważnia
-   * wcześniejsze w locie (licznik), więc spóźniona odpowiedź dla starego
-   * e-maila nie nadpisze wyniku dla bieżącego. Zwraca trafienia tego
-   * wywołania (fail-open: błąd usługi = brak trafień, nie blokada zapisu).
+   * Sprawdza, czy e-mail z migawki formularza ma już kandydat. Każde wywołanie
+   * unieważnia wcześniejsze w locie (licznik), więc spóźniona odpowiedź dla
+   * starego e-maila nie nadpisze wyniku dla bieżącego. Zwraca trafienie tego
+   * wywołania (fail-open: błąd usługi = brak trafienia, nie blokada zapisu —
+   * zajęty adres i tak odrzuci serwer).
    */
-  const checkDuplicates = async (snapshot: CandidateFormData): Promise<DuplicateCandidateHit[]> => {
+  const checkDuplicates = async (snapshot: CandidateFormData): Promise<DuplicateCandidateHit | null> => {
     const seq = ++checkSeqRef.current;
     const key = duplicateIdentityKey(snapshot);
-    if (!hasDuplicateIdentity(snapshot)) {
-      setDuplicates([]);
+    if (!key) {
+      setExisting(null);
       setCheckedKey(key);
-      return [];
+      return null;
     }
-    let hits: DuplicateCandidateHit[] = [];
+    let hit: DuplicateCandidateHit | null = null;
     try {
       const res = await api.post("/api/candidates/check-duplicates", {
-        email: snapshot.email || undefined,
-        phone: snapshot.phone || undefined,
-        linkedin: snapshot.linkedin || undefined,
-        name: snapshot.name || undefined,
-        lastname: snapshot.lastname || undefined,
+        email: snapshot.email.trim(),
       });
-      hits = Array.isArray(res?.data) ? res.data : [];
+      hit = Array.isArray(res?.data) ? res.data[0] ?? null : null;
     } catch (err) {
       console.error("Duplicate check failed: ", err);
     }
     if (seq === checkSeqRef.current) {
-      setDuplicates(hits);
+      setExisting(hit);
       setCheckedKey(key);
     }
-    return hits;
+    return hit;
   };
 
   const debouncedIdentityKey = useDebouncedValue(duplicateIdentityKey(form), DUPLICATE_CHECK_DEBOUNCE_MS);
   useEffect(() => {
     const snapshot = formRef.current;
-    // Pierwszy render z pustym formularzem — nic do sprawdzenia.
-    if (!hasDuplicateIdentity(snapshot) && duplicates.length === 0) return;
+    // Pierwszy render z pustym e-mailem — nic do sprawdzenia.
+    if (!duplicateIdentityKey(snapshot) && !existing) return;
     // Klucz się zmienił w trakcie opóźnienia — kolejne wywołanie efektu sprawdzi świeży stan.
     if (duplicateIdentityKey(snapshot) !== debouncedIdentityKey) return;
     void checkDuplicates(snapshot);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedIdentityKey]);
 
-  const currentKey = duplicateIdentityKey(form);
-  const showDecision = decisionPending && duplicates.length > 0 && currentKey === checkedKey;
+  /**
+   * Trafienie znane tylko z odmowy zapisu (adres z CV przy pustym polu e-mail)
+   * dotyczy pliku — znika razem z nim, żeby ramka nie blokowała ręcznego wpisu.
+   */
+  const dropFileOnlyHit = () => {
+    if (!duplicateIdentityKey(formRef.current)) setExisting(null);
+  };
 
-  const saveCandidate = async (force: boolean) => {
-    if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
-    setSaving(true); setError("");
+  const readCv = async (file: File, force = false) => {
+    const seq = ++cvReadSeqRef.current;
+    setCvFile(file);
+    setCvForced(force);
+    setCvReading(true);
+    setCvError(null);
+    setCvConflict(null);
+    dropFileOnlyHit();
     try {
-      if (!force) {
-        // Szybki zapis przed końcem debounce: sprawdź to, co jest w polach teraz.
-        const hits = currentKey === checkedKey ? duplicates : await checkDuplicates(form);
-        if (hits.length > 0) {
-          setDecisionPending(true);
-          return;
-        }
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await api.post<CandidateCvPreview>(
+        `/api/candidates/cv/preview${force ? "?force=true" : ""}`,
+        fd,
+        // Odczyt liczy model: 12.10.2026 serwer odpowiedział po 36,8 s, a okno
+        // na domyślnych 30 s pokazało „Nie udało się przeczytać CV”.
+        { headers: { "Content-Type": "multipart/form-data" }, timeout: SLOW_ENDPOINT_TIMEOUT_MS },
+      );
+      if (seq !== cvReadSeqRef.current) return;
+      // Uzupełniamy tylko PUSTE pola — to, co rekruter zdążył wpisać, zostaje.
+      const { form: next, filled } = fillEmptyFromCv(formRef.current, res.data);
+      setForm(next);
+      setCvFilled(filled);
+      setCvKnown(cvKnownFields(res.data));
+    } catch (err) {
+      if (seq !== cvReadSeqRef.current) return;
+      const matches = duplicateMatchesFromConflict(err);
+      if (matches && matches.length > 0) {
+        setCvConflict(matches);
+      } else if (isClientTimeout(err)) {
+        // Serwer kończy odczyt i trzyma go 30 min — druga próba jest szybka.
+        setCvError(
+          "Odczyt CV trwa dłużej niż zwykle. Spróbuj ponownie za chwilę albo uzupełnij pola ręcznie — plik i tak dodamy przy zapisie.",
+        );
+      } else {
+        setCvError(formErrorMsg(err, "Nie udało się przeczytać CV. Uzupełnij pola ręcznie albo wgraj inny plik."));
       }
-      await api.post("/api/candidates", candidateFormToPayload(form));
-      onSuccess("Kandydat dodany pomyślnie");
+    } finally {
+      if (seq === cvReadSeqRef.current) setCvReading(false);
+    }
+  };
+
+  const pickCv = (file: File | undefined | null) => {
+    if (!file) return;
+    void readCv(file);
+  };
+
+  const removeCv = () => {
+    cvReadSeqRef.current += 1;
+    setCvFile(null);
+    setCvForced(false);
+    setCvReading(false);
+    setCvError(null);
+    setCvConflict(null);
+    setCvFilled([]);
+    setCvKnown([]);
+    dropFileOnlyHit();
+  };
+
+  /**
+   * Zapis z plikiem CV: JEDNO żądanie `/from-cv` — pola kontaktu (wyczyszczone
+   * jako jawne "") i reszta formularza w polu `candidate`. Serwer waliduje
+   * całość przed odczytem i zapisem, więc błąd nie zostawia połowy kandydata.
+   */
+  const saveFromCv = async (
+    file: File,
+    force: boolean,
+    confirmErased: boolean,
+  ): Promise<number> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    for (const [key, value] of fromCvFormEntries(fromCvOverrides(form, cvKnown))) {
+      fd.append(key, value);
+    }
+    const extra = extraFieldsForCv(
+      candidateFormToPayload(form) as Record<string, unknown>,
+      changedFormKeys(
+        form as unknown as Record<string, unknown>,
+        EMPTY_CANDIDATE as unknown as Record<string, unknown>,
+        CV_SAVED_FORM_KEYS,
+      ),
+    );
+    if (Object.keys(extra).length > 0) fd.append("candidate", JSON.stringify(extra));
+    const params = [force && "force=true", confirmErased && "confirm_erased=true"].filter(Boolean);
+    const created = await api.post(
+      `/api/candidates/from-cv${params.length ? `?${params.join("&")}` : ""}`,
+      fd,
+      // Bez odczytu w pamięci serwera (np. po wdrożeniu) zapis czyta CV modelem.
+      { headers: { "Content-Type": "multipart/form-data" }, timeout: SLOW_ENDPOINT_TIMEOUT_MS },
+    );
+    return Number(created?.data?.candidate?.id);
+  };
+
+  const currentKey = duplicateIdentityKey(form);
+  // Ramka dotyczy e-maila, który jest w polu TERAZ — nie wyniku sprzed poprawki.
+  const existingNow = currentKey === checkedKey ? existing : null;
+
+  const saveCandidate = async (confirmErased = false) => {
+    if (cvReading) { setError("Poczekaj, aż skończymy czytać CV."); return; }
+    if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
+    setSaving(true); setError(""); setEmailError(null);
+    try {
+      // Szybki zapis przed końcem debounce: sprawdź e-mail, który jest w polu teraz.
+      const hit = currentKey === checkedKey ? existing : await checkDuplicates(form);
+      // Ten sam e-mail = ta sama osoba: zamiast zapisu jest ramka z akcjami.
+      if (hit) return;
+      const createdId = cvFile
+        ? await saveFromCv(cvFile, cvForced, confirmErased)
+        : Number(
+            (
+              await api.post(
+                `/api/candidates${confirmErased ? "?confirm_erased=true" : ""}`,
+                candidateFormToPayload(form),
+              )
+            )?.data?.id,
+          );
+      const noteSaved = Number.isFinite(createdId)
+        ? await saveCandidateFormNote(createdId, form.notes)
+        : !form.notes.trim();
+      if (Number.isFinite(createdId)) onCreated?.(createdId, `${form.name} ${form.lastname}`.trim());
+      onSuccess(
+        noteSaved
+          ? "Kandydat dodany pomyślnie"
+          : "Kandydat dodany, ale notatki nie udało się zapisać — dodaj ją w profilu kandydata",
+      );
       onClose();
     } catch (err: any) {
-      setError(formErrorMsg(err, "Błąd podczas zapisywania"));
+      if (erasedCandidateMessage(err)) {
+        if (await askConfirm(ERASED_CANDIDATE_CONFIRM)) await saveCandidate(true);
+        return;
+      }
+      const emailMsg = emailFieldError(err);
+      const nameMsgs = nameFieldErrors(err);
+      const conflictMatches = duplicateMatchesFromConflict(err);
+      if (nameMsgs) {
+        setNameErrors(nameMsgs);
+      } else if (emailMsg) {
+        setEmailError(emailMsg);
+      } else if (conflictMatches && conflictMatches.length > 0) {
+        // `/from-cv` odmówił przy zapisie: ten sam plik już jest w czyimś
+        // profilu, adres e-mail (znany serwerowi z odczytu CV) ma kandydat
+        // albo telefon z CV z tym samym imieniem i nazwiskiem. Plik i telefon
+        // idą do ramki przy CV, która ma „Wczytaj mimo to” (zapis z `force`).
+        if (isSameFileMatch(conflictMatches[0]) || isPhoneAndNameMatch(conflictMatches[0])) {
+          setCvConflict(conflictMatches);
+        } else {
+          setExisting(conflictMatches[0]);
+          setCheckedKey(currentKey);
+        }
+      } else if (isClientTimeout(err)) {
+        setError(
+          "Zapis trwa dłużej niż zwykle. Zanim spróbujesz ponownie, sprawdź listę kandydatów — ta osoba mogła już zostać dodana.",
+        );
+      } else {
+        setError(formErrorMsg(err, "Błąd podczas zapisywania"));
+      }
     } finally { setSaving(false); }
+  };
+
+  /**
+   * „Dodaj to CV do profilu”: plik idzie jako główne CV osoby, która już jest
+   * w bazie — serwer czyta je w tle i odświeża profil. Bez płatnego odczytu
+   * w tym żądaniu, więc na domyślnym limicie.
+   */
+  const attachCvTo = async (match: DuplicateCandidateHit) => {
+    if (!cvFile) return;
+    setAttaching(true); setError("");
+    try {
+      await api.post(`/api/candidates/${match.candidate_id}/documents`, attachCvFormData(cvFile), {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      invalidateCandidateMutation(queryClient, match.candidate_id, "document");
+      void queryClient.invalidateQueries({ queryKey: candidateQueryKeys.quickView(match.candidate_id) });
+      // W oknie rekrutacji ta osoba trafia też do „Nowych” — jak nowy kandydat.
+      onCreated?.(match.candidate_id, `${match.name} ${match.lastname}`.trim());
+      onSuccess("CV dodane do profilu. AI czyta je w tle — profil odświeży się za około minutę.");
+      onClose();
+    } catch (err) {
+      setError(formErrorMsg(err, "Nie udało się dodać CV do profilu."));
+    } finally { setAttaching(false); }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await saveCandidate(false);
+    await saveCandidate();
   };
+
+  const cvConflictHit = cvConflict?.[0] ?? null;
+  const cvConflictSameFile = cvConflictHit ? isSameFileMatch(cvConflictHit) : false;
+  // Ta sama osoba po e-mailu z formularza — wystarczy jedna ramka (pod polem).
+  const showCvConflict =
+    cvConflictHit !== null &&
+    cvFile !== null &&
+    (cvConflictSameFile || existingNow?.candidate_id !== cvConflictHit.candidate_id);
+
+  const cvUploader = (
+    <div
+      className={
+        "rounded-lg border border-dashed p-3 transition-colors " +
+        (cvDragOver ? "border-primary bg-primary/5" : "border-border bg-background/30")
+      }
+      onDragOver={(event) => {
+        event.preventDefault();
+        setCvDragOver(true);
+      }}
+      onDragLeave={() => setCvDragOver(false)}
+      onDrop={(event) => {
+        event.preventDefault();
+        setCvDragOver(false);
+        pickCv(event.dataTransfer.files?.[0]);
+      }}
+    >
+      <input
+        ref={cvInputRef}
+        type="file"
+        accept={CV_ACCEPT}
+        className="sr-only"
+        aria-label="Wgraj CV (opcjonalnie)"
+        data-testid="add-candidate-cv-input"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          pickCv(file);
+        }}
+      />
+      {cvFile ? (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <FileText className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+          <span className="min-w-0 truncate font-medium text-foreground">{cvFile.name}</span>
+          {cvReading ? (
+            <span role="status" className="inline-flex items-center gap-1.5 text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Czytam CV… to może potrwać do minuty
+            </span>
+          ) : null}
+          <button
+            type="button"
+            onClick={removeCv}
+            className="ml-auto text-xs text-muted-foreground hover:text-foreground hover:underline"
+          >
+            Usuń plik
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => cvInputRef.current?.click()}
+            className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-medium hover:bg-muted"
+          >
+            <Upload className="h-4 w-4" aria-hidden="true" /> Wgraj CV (opcjonalnie)
+          </button>
+          <span className="text-xs text-muted-foreground">
+            Przeczytamy CV i uzupełnimy puste pola. PDF, DOC(X), ODT, RTF, TXT — albo przeciągnij plik tutaj.
+          </span>
+        </div>
+      )}
+      {cvFile && !cvReading && cvFilled.length > 0 ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Uzupełniono z CV: {cvFilled.map((field) => CV_FIELD_LABELS[field]).join(", ")}. Sprawdź przed zapisem.
+        </p>
+      ) : null}
+      {cvFile && !cvReading && !cvError && !cvConflict && cvFilled.length === 0 ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          CV zostanie dodane do profilu przy zapisie.
+        </p>
+      ) : null}
+      {cvError ? (
+        <p role="alert" className="mt-2 text-xs text-destructive">
+          {cvError}{" "}
+          {cvFile ? (
+            <button
+              type="button"
+              onClick={() => void readCv(cvFile, cvForced)}
+              className="font-medium underline underline-offset-2 hover:no-underline"
+            >
+              Spróbuj ponownie
+            </button>
+          ) : null}
+        </p>
+      ) : null}
+      {showCvConflict && cvConflictHit && cvFile ? (
+        <ExistingCandidateNotice
+          className="mt-2"
+          match={cvConflictHit}
+          sameFile={cvConflictSameFile}
+          onAttachCv={cvConflictSameFile ? undefined : () => void attachCvTo(cvConflictHit)}
+          hint={
+            isPhoneAndNameMatch(cvConflictHit)
+              ? "Ten sam telefon oraz imię i nazwisko co w CV. To inna osoba? „Wczytaj mimo to” i zapisz."
+              : undefined
+          }
+          attaching={attaching}
+          onOpenProfile={onClose}
+          onReadAnyway={() => void readCv(cvFile, true)}
+        />
+      ) : null}
+    </div>
+  );
 
   return (
     <Modal title="Dodaj kandydata" onClose={onClose} wide>
+      {confirmDialog}
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
+        {cvUploader}
         {error && <ErrorBanner error={error} />}
-        {duplicates.length > 0 && (
-          <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-900/20 p-3 space-y-2">
-            <div className="flex items-start gap-2">
-              <span className="text-amber-700 dark:text-amber-300 font-medium text-sm">
-                ⚠️ Znaleziono {duplicates.length} podobnego kandydata w bazie:
-              </span>
-            </div>
-            <ul className="space-y-1 text-sm">
-              {duplicates.slice(0, 5).map((d) => (
-                <li key={d.candidate_id} className="flex items-center justify-between">
-                  <span className="text-foreground dark:text-muted-foreground">
-                    {d.name} {d.lastname}
-                    {d.email ? ` (${d.email})` : ""}
-                    <span className="ml-2 text-xs text-amber-700">
-                      score {d.match_score} · {d.match_reasons.join(", ")}
-                    </span>
-                  </span>
-                  <a
-                    href={`/candidates/${d.candidate_id}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-primary hover:underline text-xs"
-                  >
-                    Otwórz profil ↗
-                  </a>
-                </li>
-              ))}
-            </ul>
-            <p className="text-xs text-amber-800">
-              Możesz kontynuować, jeśli masz pewność że to inny kandydat.
-            </p>
-          </div>
-        )}
         <CandidateFormFields
           form={form}
           onChange={onChange}
@@ -1028,60 +1432,49 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
           users={users}
           clients={clients}
           collapseSecondary
+          emailError={emailError}
+          nameErrors={nameErrors}
+          afterContact={
+            existingNow ? (
+              <ExistingCandidateNotice
+                match={existingNow}
+                onAttachCv={cvFile ? () => void attachCvTo(existingNow) : undefined}
+                attaching={attaching}
+                onOpenProfile={onClose}
+                // Trafienie znane tylko z odmowy zapisu (adres z CV, pole
+                // e-mail puste): wczytanie mimo to wstawia ten adres do
+                // formularza, gdzie da się go poprawić albo wyczyścić.
+                onReadAnyway={
+                  cvFile && !currentKey ? () => void readCv(cvFile, true) : undefined
+                }
+                hint={
+                  cvFile
+                    ? undefined
+                    : "Masz nowe CV tej osoby? Wgraj plik wyżej — dodamy go do tego profilu."
+                }
+              />
+            ) : null
+          }
         />
-        {showDecision ? (
-          <div
-            role="alert"
-            className="space-y-3 rounded-md border border-amber-300 bg-amber-50 p-3 dark:bg-amber-900/20"
-          >
-            <p className="text-sm font-medium text-foreground">
-              Ten kandydat może już być w bazie: {duplicates[0].name} {duplicates[0].lastname}
-              {duplicates[0].email ? ` (${duplicates[0].email})` : ""}.
-            </p>
-            <div className="flex flex-wrap justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setDecisionPending(false)}
-                className="h-10 px-4 text-sm text-muted-foreground hover:text-foreground rounded-lg transition-colors"
-              >
-                Wróć do formularza
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void saveCandidate(true)}
-                className="h-10 px-4 text-sm font-medium rounded-lg border border-border bg-card hover:bg-muted disabled:opacity-60 transition-colors"
-              >
-                Zapisz mimo to
-              </button>
-              <Link
-                href={`/candidates/${duplicates[0].candidate_id}`}
-                onClick={onClose}
-                className="inline-flex h-10 items-center px-4 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-medium transition-all"
-              >
-                Otwórz istniejącego
-              </Link>
-            </div>
-          </div>
-        ) : (
-          <div className="flex justify-end items-center gap-3 pt-1">
-            <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
-            <SaveButton saving={saving} label="Dodaj kandydata" />
-          </div>
-        )}
+        <div className="flex justify-end items-center gap-3 pt-1">
+          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
+          {/* Ten sam e-mail = ta sama osoba: zapis zastępują akcje w ramce pod polem. */}
+          {existingNow ? null : <SaveButton saving={saving} label="Dodaj kandydata" />}
+        </div>
       </form>
     </Modal>
   );
 }
 
 export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidate: any; onClose: () => void; onSuccess: (msg: string) => void }) {
-  const [initialIdentity] = useState(() => ({
-    name: candidate.name ?? "",
-    lastname: candidate.lastname ?? "",
-  }));
-  const [form, setForm] = useState<CandidateFormData>(() => candidateToForm(candidate));
+  // Stan z chwili otwarcia — zapis wysyła tylko różnice względem niego
+  // (runda 9, R9-N8-7), żeby nie cofać zmian zrobionych w międzyczasie.
+  const [initialForm] = useState<CandidateFormData>(() => candidateToForm(candidate));
+  const [form, setForm] = useState<CandidateFormData>(initialForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [nameErrors, setNameErrors] = useState<NameFieldErrors | null>(null);
 
   const { data: usersData } = useQuery({
     queryKey: ["users-list-for-candidate"],
@@ -1094,7 +1487,11 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
   const users = usersData ?? [];
   const clients = clientsData ?? [];
 
-  const onChange = (k: keyof CandidateFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const onChange = (k: keyof CandidateFormData, v: string) => {
+    if (k === "email") setEmailError(null);
+    if (k === "name" || k === "lastname") setNameErrors(null);
+    setForm(f => ({ ...f, [k]: v }));
+  };
   const onToggle = (k: "champion", v: boolean) => setForm(f => ({ ...f, [k]: v }));
   const onMulti = (
     k: "pref_remote_modes" | "pref_contract_types",
@@ -1109,32 +1506,43 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
-    setSaving(true); setError("");
+    // Spacje wokół imienia nie są zmianą (przejęte z dawnej „Korekty imienia
+    // i nazwiska”, 13.10.2026) — porównujemy i wysyłamy wartości przycięte.
+    const trimmedForm = { ...form, name: form.name.trim(), lastname: form.lastname.trim() };
+    const trimmedInitial = { ...initialForm, name: initialForm.name.trim(), lastname: initialForm.lastname.trim() };
+    if (!trimmedForm.name || !trimmedForm.lastname) { setError("Imię i nazwisko są wymagane"); return; }
+    setSaving(true); setError(""); setEmailError(null); setNameErrors(null);
     try {
-      const {
-        city: _city,
-        country: _country,
-        name: nextName,
-        lastname: nextLastname,
-        ...nonIdentityPayload
-      } =
-        candidateFormToPayload(form);
-      const profilePayload: Omit<typeof nonIdentityPayload, "tags"> & {
-        name?: string;
-        lastname?: string;
-        tags?: unknown[];
-      } = { ...nonIdentityPayload, tags: mergeEditedTags(form.tags, candidate.tags) };
-      // Niezmienione tagi nie jadą w PATCH (backend zastępuje całą listę).
-      if (profilePayload.tags === undefined) delete profilePayload.tags;
-      // Nie wysyłaj pól tożsamości tylko dlatego, że pełny modal zawsze je
-      // renderuje. W przeciwnym razie nocny sync między otwarciem a zapisem
-      // telefonu zamieniłby starą wartość formularza w fałszywy manual lock.
-      if (nextName !== initialIdentity.name) profilePayload.name = nextName;
-      if (nextLastname !== initialIdentity.lastname) {
-        profilePayload.lastname = nextLastname;
+      // Status nie jedzie nigdy (17.10.2026): formularz nie ma już tego pola,
+      // czarną listę zmienia okno „Czarna lista…”, a PATCH odrzuca zmianę
+      // statusu na/z `blacklisted` (422).
+      const { city: _city, country: _country, tags: _tags, status: _status, ...nextPayload } =
+        candidateFormToPayload(trimmedForm);
+      const { city: _c0, country: _k0, tags: _t0, status: _s0, ...initialPayload } =
+        candidateFormToPayload(trimmedInitial);
+      // Tylko zmienione pola. Pole tożsamości wysłane „przy okazji” zamieniłoby
+      // też wartość z nocnego syncu w fałszywą ręczną blokadę.
+      const profilePayload = changedCandidateFields(initialPayload, nextPayload);
+      // Wyczyszczony e-mail albo telefon = jawne `null` (`undefined` znikało
+      // z JSON-a, więc adresu nie dało się usunąć — umiała to tylko dawna
+      // „Korekta imienia i nazwiska”).
+      for (const key of ["email", "phone"] as const) {
+        if (key in profilePayload && profilePayload[key] === undefined) profilePayload[key] = null;
       }
-      await api.patch(`/api/candidates/${candidate.id}`, profilePayload);
+      if (Object.keys(profilePayload).length) {
+        await api.patch(`/api/candidates/${candidate.id}`, profilePayload);
+      }
+      // Tagi pojedynczo: PATCH zastępuje całą listę, więc tag dodany w tym
+      // czasie przez kolegę (i obiekty importu) by znikał.
+      // Najpierw usunięcia: przy limicie 50 tagów podmiana jednego tagu
+      // inaczej kończyła się 422 na dodaniu.
+      const { add, remove } = tagChanges(initialForm.tags, form.tags);
+      for (const tag of remove) {
+        await api.delete(`/api/candidates/${candidate.id}/tags`, { params: { tag } });
+      }
+      for (const tag of add) {
+        await api.post(`/api/candidates/${candidate.id}/tags`, { tag });
+      }
 
       const nextCity = form.city.trim();
       const nextCountry = form.country.trim().toUpperCase();
@@ -1146,10 +1554,19 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
           country: nextCountry || null,
         });
       }
-      onSuccess("Kandydat zaktualizowany");
+      const noteSaved = await saveCandidateFormNote(candidate.id, form.notes);
+      onSuccess(
+        noteSaved
+          ? "Kandydat zaktualizowany"
+          : "Kandydat zaktualizowany, ale notatki nie udało się zapisać — dodaj ją w profilu kandydata",
+      );
       onClose();
     } catch (err: any) {
-      setError(formErrorMsg(err, "Błąd podczas zapisywania"));
+      const emailMsg = emailFieldError(err);
+      const nameMsgs = nameFieldErrors(err);
+      if (nameMsgs) setNameErrors(nameMsgs);
+      else if (emailMsg) setEmailError(emailMsg);
+      else setError(formErrorMsg(err, "Błąd podczas zapisywania"));
     } finally { setSaving(false); }
   };
 
@@ -1165,6 +1582,9 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
           users={users}
           clients={clients}
           importedTagLabels={structuredTagLabels(candidate.tags)}
+          emailError={emailError}
+          nameErrors={nameErrors}
+          availabilityNote={availabilityContractNote(candidate.employment_marker)}
         />
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
@@ -1180,7 +1600,6 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
 interface JobFormData {
   title: string;
   client_id: string;
-  recruitment_type: string;
   status: string;
   description: string;
   requirements: string;
@@ -1188,19 +1607,21 @@ interface JobFormData {
   remote_policy: string;
   // Trzecia rubryka rekrutacji (0278) — obok must-have i rate_budget_hourly.
   onsite_days_per_week: string;
+  // 0407: „w tygodniu” | „w miesiącu” — pole wyżej trzyma liczbę w tej jednostce.
+  onsite_days_period: OfficeDaysPeriod;
   salary_min: string;
   salary_max: string;
   rate_budget_hourly: string;
+  // 0420: „od” z przedziału budżetu — tylko do wyświetlania.
+  rate_budget_hourly_min: string;
   priority: string;
   deadline: string;
+  deadline_time: string;
   recruiter_id: string;
   // Owner requestu (TAC) + Delivery Lead. Jedyny TAC klienta może być
   // podpowiedziany; przy kilku równorzędnych TAC-ach wybór musi być jawny.
   tac_id: string;
   delivery_lead_id: string;
-  // Hiring manager po stronie klienta — Contact w firmie klienta odpowiedzialny
-  // za rekrutację (migracja 0097, 2026-05-11). Autocomplete z Contacts klienta.
-  hiring_manager_contact_id: string;
   pipeline_template_id: string;
   // AI CC matching (migracja 0041)
   competence_category_id: string;
@@ -1209,32 +1630,100 @@ interface JobFormData {
   train_name: string;
 }
 
+/** Ręcznie dopisani współpracownicy bez „Poprzednich rekruterów” (14.10.2026). */
+function workingCollaboratorIds(job: any): number[] {
+  const parked = new Set(previousRecruitersOf(job).map((person) => person.user_id));
+  return manualCollaboratorIds(job.collaborators).filter((id) => !parked.has(id));
+}
+
 function jobToForm(j: any): JobFormData {
   return {
     title: j.title ?? "",
     client_id: j.client_id ? String(j.client_id) : "",
-    recruitment_type: j.recruitment_type ?? "body_leasing",
     status: j.status ?? "draft",
     description: j.description ?? "",
     requirements: j.requirements ?? "",
     location: j.location ?? "",
     remote_policy: j.remote_policy ?? "",
-    onsite_days_per_week: j.onsite_days_per_week != null ? String(j.onsite_days_per_week) : "",
+    onsite_days_per_week: officeDaysFormValue(j.onsite_days_per_week, j.onsite_days_per_month).value,
+    onsite_days_period: officeDaysFormValue(j.onsite_days_per_week, j.onsite_days_per_month).period,
     salary_min: j.salary_min ? String(j.salary_min) : "",
     salary_max: j.salary_max ? String(j.salary_max) : "",
     rate_budget_hourly: j.rate_budget_hourly ? String(j.rate_budget_hourly) : "",
+    rate_budget_hourly_min: j.rate_budget_hourly_min ? String(j.rate_budget_hourly_min) : "",
     priority: j.priority ?? "medium",
     deadline: j.deadline ? j.deadline.slice(0, 10) : "",
-    recruiter_id: j.recruiter_id ? String(j.recruiter_id) : "",
+    deadline_time: formatDeadlineTime(j.deadline_time) ?? "",
+    // „Poprzedni rekruter” (14.10.2026) nie prowadzi — pole zostaje puste.
+    recruiter_id: j.recruiter_id && !ownerIsPrevious(j) ? String(j.recruiter_id) : "",
     tac_id: j.tac_id ? String(j.tac_id) : "",
     delivery_lead_id: j.delivery_lead_id ? String(j.delivery_lead_id) : "",
-    hiring_manager_contact_id: j.hiring_manager_contact_id
-      ? String(j.hiring_manager_contact_id)
-      : "",
     pipeline_template_id: j.pipeline_template_id ? String(j.pipeline_template_id) : "",
     competence_category_id: j.competence_category_id ? String(j.competence_category_id) : "",
     train_name: j.train_name ?? "",
   };
+}
+
+// Hiring manager po stronie klienta (migracja 0097) — osobny stan formularza,
+// bo zapisuje go `PUT /api/jobs/{id}/hiring-manager`, która umie też założyć
+// nową osobę jako kontakt klienta (25.09.2026).
+function jobHiringManager(j: any): HiringManagerChoice | null {
+  return j.hiring_manager_contact_id && j.hiring_manager_name
+    ? { kind: "contact", id: j.hiring_manager_contact_id, name: j.hiring_manager_name }
+    : null;
+}
+
+/**
+ * Status w oknie edycji (04.10.2026, „Rekrutacja bez szkiców”): rekrutację
+ * w pracy da się tu tylko zamknąć. Zamkniętą otwiera „Otwórz ponownie”,
+ * a stary szkic kończy „Dokończ i opublikuj” — oba przechodzą bramkę
+ * przekazania (`POST /publish`), więc nie są zwykłą zmianą statusu.
+ */
+function JobStatusField({
+  originalStatus,
+  value,
+  onChange,
+  jobId,
+  onRequestPublish,
+}: {
+  originalStatus: string;
+  value: string;
+  onChange: (value: string) => void;
+  jobId: number;
+  onRequestPublish?: () => void;
+}) {
+  if (originalStatus === "published") {
+    return (
+      <FieldGroup label="Status">
+        <Select value={value} onChange={e => onChange(e.target.value)}>
+          <option value="published">W pracy</option>
+          <option value="closed">Zamknięta</option>
+        </Select>
+      </FieldGroup>
+    );
+  }
+  const closed = originalStatus === "closed";
+  const actionLabel = closed ? "Otwórz ponownie" : "Dokończ i opublikuj";
+  const actionClass = "text-xs font-medium text-primary hover:underline";
+  return (
+    <div>
+      <span className="block text-xs font-medium text-muted-foreground mb-1">Status</span>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-h-10">
+        <span className="text-sm text-foreground" data-testid="job-status-readonly">
+          {closed ? "Zamknięta" : "Szkic (do dokończenia)"}
+        </span>
+        {onRequestPublish ? (
+          <button type="button" className={actionClass} onClick={onRequestPublish}>
+            {actionLabel}
+          </button>
+        ) : (
+          <a className={actionClass} href={`/jobs/${jobId}?reopen=1`}>
+            {actionLabel}
+          </a>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function JobFormFields({
@@ -1242,12 +1731,33 @@ function JobFormFields({
   onChange,
   clients,
   users,
+  hiringManager,
+  onHiringManagerChange,
+  hiringManagerNotProvided,
+  onHiringManagerNotProvidedChange,
+  collaborators,
+  onCollaboratorsChange,
+  knownCollaborators,
+  jobId,
+  originalStatus,
+  onRequestPublish,
 }: {
   form: JobFormData;
   onChange: (k: keyof JobFormData, v: string) => void;
   clients: any[];
   users: any[];
+  hiringManager: HiringManagerChoice | null;
+  onHiringManagerChange: (value: HiringManagerChoice | null) => void;
+  hiringManagerNotProvided: boolean;
+  onHiringManagerNotProvidedChange: (value: boolean) => void;
+  collaborators: number[];
+  onCollaboratorsChange: (ids: number[]) => void;
+  knownCollaborators?: ReadonlyArray<{ id: number; name?: string | null }>;
+  jobId: number;
+  originalStatus: string;
+  onRequestPublish?: () => void;
 }) {
+  const hiringManagerLabelId = useId();
   // 22.09.2026 (strona `/jobs/new`): TAC, Program/Train, typ rekrutacji,
   // widełki PLN/mies., priorytet, szablon procesu i kategoria kompetencji
   // zniknęły z tworzenia I z edycji — ustawia je backend, dane zostają.
@@ -1265,33 +1775,6 @@ function JobFormFields({
   });
   const headDl = clientTeam?.delivery_leads.find(d => d.is_head);
 
-  // Hiring manager autocomplete — fetch Contacts klienta (2026-05-11).
-  // Key relationships first (gwiazdka), potem alfabetycznie.
-  const { data: clientContacts = [] } = useQuery<Array<{
-    id: number;
-    name: string;
-    position: string | null;
-    is_decision_maker: boolean;
-    is_key_relationship: boolean;
-    relationship_strength: string | null;
-  }>>({
-    queryKey: ["client-contacts-for-hiring-manager", clientIdNum],
-    queryFn: async () => {
-      if (clientIdNum === null) return [];
-      const res = await api.get(`/api/clients/${clientIdNum}/contacts`);
-      return res.data;
-    },
-    enabled: clientIdNum !== null,
-    staleTime: 30_000,
-  });
-  const sortedContactsForHM = [...clientContacts].sort((a, b) => {
-    if (a.is_key_relationship !== b.is_key_relationship)
-      return a.is_key_relationship ? -1 : 1;
-    if (a.is_decision_maker !== b.is_decision_maker)
-      return a.is_decision_maker ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
-
   // Auto-fill Delivery Leada z head DL klienta, gdy pole puste.
   useEffect(() => {
     if (!clientTeam) return;
@@ -1303,6 +1786,12 @@ function JobFormFields({
 
   const dlAssignableUsers = users.filter((u: any) =>
     ["delivery_lead", "admin", "head_of_recruitment"].includes(u.role ?? "")
+  );
+  // Pole „Rekruter”: tylko rola rekrutera, główna albo dodatkowa (14.10.2026,
+  // lustro `_OWNERSHIP_ELIGIBLE_ROLES`). Wpisany wcześniej rekruter bez tej roli
+  // zostaje na liście, żeby zapis bez zmiany pola go nie gubił.
+  const recruiterOptions = users.filter(
+    (u: any) => String(u.id) === form.recruiter_id || hasRecruiterRole(u),
   );
   return (
     <>
@@ -1316,15 +1805,31 @@ function JobFormFields({
         </Select>
       </FieldGroup>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <FieldGroup label="Status">
-          <Select value={form.status} onChange={e => onChange("status", e.target.value)}>
-            <option value="draft">Draft</option>
-            <option value="published">Opublikowana</option>
-            <option value="closed">Zamknięta</option>
-          </Select>
-        </FieldGroup>
+        <JobStatusField
+          originalStatus={originalStatus}
+          value={form.status}
+          onChange={v => onChange("status", v)}
+          jobId={jobId}
+          onRequestPublish={onRequestPublish}
+        />
         <FieldGroup label="Deadline">
-          <Input type="date" value={form.deadline} onChange={e => onChange("deadline", e.target.value)} />
+          <div className="flex gap-2">
+            <Input
+              type="date"
+              aria-label="Deadline"
+              value={form.deadline}
+              onChange={e => onChange("deadline", e.target.value)}
+              className="w-0 min-w-0 flex-1"
+            />
+            <Input
+              type="time"
+              aria-label="Godzina terminu"
+              disabled={!form.deadline}
+              value={form.deadline ? form.deadline_time : ""}
+              onChange={e => onChange("deadline_time", e.target.value)}
+              className="w-28 shrink-0"
+            />
+          </div>
         </FieldGroup>
       </div>
       <FieldGroup label="Opis">
@@ -1353,14 +1858,13 @@ function JobFormFields({
             <option value="remote">Remote</option>
           </Select>
         </FieldGroup>
-        <FieldGroup label="Dni w biurze / tydzień">
-          <Input
-            type="number"
-            min={0}
-            max={7}
+        <FieldGroup label="Dni w biurze">
+          <OfficeDaysField
+            allowMonth={form.remote_policy === "hybrid"}
             value={form.onsite_days_per_week}
-            onChange={e => onChange("onsite_days_per_week", e.target.value)}
-            placeholder="np. 2"
+            period={form.onsite_days_period}
+            onValueChange={v => onChange("onsite_days_per_week", v)}
+            onPeriodChange={p => onChange("onsite_days_period", p)}
           />
         </FieldGroup>
       </div>
@@ -1369,18 +1873,35 @@ function JobFormFields({
           PLN/h, ale importy/seed trzymają tam PLN/mies. — scoring odmawia tej
           kolumny właśnie przez to. To pole jest ZAWSZE PLN/h. */}
       <FieldGroup label="Budżet PLN/h dla kandydata (switch „poza budżetem”)">
-        <Input type="number" value={form.rate_budget_hourly} onChange={e => onChange("rate_budget_hourly", e.target.value)} placeholder="np. 150 — puste = użyjemy stawki Championa" />
+        {/* 0420: przedział „od–do” — budżetem jest „do”, „od” jest opcjonalne. */}
+        <div className="flex items-center gap-1.5">
+          <Input type="number" aria-label="Budżet PLN/h od (opcjonalnie)" className="w-28 shrink-0" value={form.rate_budget_hourly_min} onChange={e => onChange("rate_budget_hourly_min", e.target.value)} placeholder="od" />
+          <span aria-hidden className="text-muted-foreground">–</span>
+          <Input type="number" value={form.rate_budget_hourly} onChange={e => onChange("rate_budget_hourly", e.target.value)} placeholder="do, np. 150 — puste = użyjemy stawki Championa" />
+        </div>
       </FieldGroup>
-      <FieldGroup label="Rekruter prowadzący">
+      {/* 02.10.2026: rola nazywa się „Rekruter” (dawniej „Rekruter prowadzący”
+          i „Współpracownicy”) — zmieniły się tylko etykiety, zapis jest ten sam. */}
+      <FieldGroup label="Rekruter">
         <Select value={form.recruiter_id} onChange={e => onChange("recruiter_id", e.target.value)}>
-          <option value="">— nieprzypisany —</option>
-          {users.map((u: any) => (
+          <option value="">— bez rekrutera —</option>
+          {recruiterOptions.map((u: any) => (
             <option key={u.id} value={u.id}>
               {u.name || u.full_name || u.email}
               {u.role ? ` (${u.role})` : ""}
             </option>
           ))}
         </Select>
+      </FieldGroup>
+      {/* Decyzja 29.09.2026: kilka osób pracuje nad rekrutacją — pierwsza
+          siedzi w polu wyżej, kolejne tutaj (liczą się w filtrze „Rekruter”). */}
+      <FieldGroup label="Kolejne osoby">
+        <JobCollaboratorsField
+          value={collaborators}
+          onChange={onCollaboratorsChange}
+          primaryOwnerId={form.recruiter_id ? Number(form.recruiter_id) : null}
+          knownUsers={knownCollaborators}
+        />
       </FieldGroup>
       <FieldGroup label="Delivery Lead">
         <Select value={form.delivery_lead_id} onChange={e => onChange("delivery_lead_id", e.target.value)}>
@@ -1403,34 +1924,27 @@ function JobFormFields({
           </p>
         )}
       </FieldGroup>
-      <FieldGroup label="Hiring manager (osoba zatrudniająca u klienta)">
-        <Select
-          value={form.hiring_manager_contact_id}
-          onChange={e => onChange("hiring_manager_contact_id", e.target.value)}
-          disabled={!form.client_id}
+      {/* Nie `FieldGroup`: wiąże etykietę tylko z Input/Select/Textarea,
+          a combobox dostaje nazwę przez `aria-labelledby`. */}
+      <div>
+        <span
+          id={hiringManagerLabelId}
+          className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1"
         >
-          <option value="">— brak hiring managera —</option>
-          {sortedContactsForHM.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.is_key_relationship ? "★ " : ""}
-              {c.name}
-              {c.position ? ` · ${c.position}` : ""}
-              {c.is_decision_maker ? " (decydent)" : ""}
-              {c.relationship_strength ? ` · ${c.relationship_strength}` : ""}
-            </option>
-          ))}
-        </Select>
-        {!form.client_id && (
-          <p className="text-[11px] text-muted-foreground mt-1">
-            Najpierw wybierz klienta, żeby zobaczyć listę kontaktów.
-          </p>
-        )}
-        {form.client_id && sortedContactsForHM.length === 0 && (
-          <p className="text-[11px] text-amber-700 mt-1">
-            Brak kontaktów u tego klienta. Dodaj kontakt w zakładce Zespół klienta.
-          </p>
-        )}
-      </FieldGroup>
+          Hiring manager (osoba zatrudniająca u klienta)
+        </span>
+        <HiringManagerCombobox
+          clientId={clientIdNum}
+          value={hiringManager}
+          onChange={onHiringManagerChange}
+          labelledBy={hiringManagerLabelId}
+          notProvided={hiringManagerNotProvided}
+          onNotProvidedChange={(checked) => {
+            onHiringManagerNotProvidedChange(checked);
+            if (checked) onHiringManagerChange(null);
+          }}
+        />
+      </div>
     </>
   );
 }
@@ -1443,25 +1957,105 @@ function JobFormFields({
  * ich i NIE wysyłamy w PATCH (backend czyta `model_fields_set`, więc wartości
  * w bazie zostają nietknięte). Patrz `lib/job-edit-access.ts`.
  */
+/**
+ * Numer u klienta i tytuł dla rekrutera (0380). „Tytuł stanowiska” wyżej
+ * zostaje nazwą od klienta — to ona idzie do klienta w CV i do Cpro.
+ */
+function JobNamesFields({
+  job,
+  names,
+  onChange,
+}: {
+  job: JobNames;
+  names: JobNamesDraft;
+  onChange: (next: JobNamesDraft) => void;
+}) {
+  const shown = names.workingTitleManual ? names.workingTitle : (job.working_title ?? "");
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <FieldGroup label="Numer u klienta">
+        <Input
+          value={names.clientReference}
+          maxLength={120}
+          onChange={(e) => onChange({ ...names, clientReference: e.target.value })}
+          placeholder="np. ZOB 48213"
+        />
+      </FieldGroup>
+      <div className="sm:col-span-2">
+        <FieldGroup label="Tytuł dla rekrutera">
+          <Input
+            value={shown}
+            maxLength={255}
+            onChange={(e) =>
+              onChange({ ...names, workingTitle: e.target.value, workingTitleManual: true })
+            }
+            placeholder="składa się sam z roli, must-have i lat doświadczenia"
+          />
+        </FieldGroup>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {names.workingTitleManual ? (
+            <button
+              type="button"
+              className="font-medium text-primary hover:underline"
+              onClick={() => onChange({ ...names, workingTitle: "", workingTitleManual: false })}
+            >
+              Przywróć automatyczny
+            </button>
+          ) : (
+            "Automatyczny — zmieni się po zmianie profilu. Widzi go tylko zespół."
+          )}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function EditJobModal({
   job,
   onClose,
   onSuccess,
   scope = "full",
+  onRequestPublish,
 }: {
   job: any;
   onClose: () => void;
   onSuccess: (msg: string) => void;
   scope?: "full" | "content";
+  /**
+   * „Otwórz ponownie” / „Dokończ i opublikuj” przy zamkniętej rekrutacji albo
+   * starym szkicu — strona rekrutacji zamyka okno i otwiera `JobReopenDialog`.
+   * Bez propsa link prowadzi do `/jobs/{id}?reopen=1`.
+   */
+  onRequestPublish?: () => void;
 }) {
   const [form, setForm] = useState<JobFormData>(() => jobToForm(job));
+  // Zamknięcie statusem przy osobach w toku (13.10.2026): serwer zatrzymuje
+  // pierwszy zapis ostrzeżeniem, drugi idzie z potwierdzeniem.
+  const [activeCards, setActiveCards] = useState<ActiveCardsWarning | null>(null);
+  const [hiringManager, setHiringManager] = useState<HiringManagerChoice | null>(
+    () => jobHiringManager(job),
+  );
+  const [hmNotProvided, setHmNotProvided] = useState<boolean>(
+    () => job.hiring_manager_not_provided === true && !jobHiringManager(job),
+  );
+  // 0380: numer u klienta i tytuł dla rekrutera — osobny szkic, bo PATCH
+  // wysyła je tylko po zmianie (pusty tytuł = powrót do automatu).
+  const [names, setNames] = useState<JobNamesDraft>(() => jobNamesDraft(job));
+  // „Kolejne osoby” dopisane ręcznie (bez `auto_cc`) — zapis osobnymi trasami po PATCH-u.
+  // „Poprzedni rekruterzy” (14.10.2026) nie pracują: okno ich nie podsuwa, a
+  // porównanie zmian ich pomija — inaczej zapis bez zmian by ich zdejmował.
+  const [collaborators, setCollaborators] = useState<number[]>(() =>
+    workingCollaboratorIds(job),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const contentOnly = scope === "content";
 
+  // Tylko Aktywni i Relacyjni; bieżący klient rekrutacji zostaje na liście,
+  // nawet jeśli przeszedł do „Nieaktywnych” (`withCurrentClient`).
   const { data: clientsData } = useQuery({
-    queryKey: ["clients-list-qa"],
-    queryFn: () => phase5Api.clientsLookup().then(r => r.data),
+    queryKey: ["clients-lookup-job-edit", "contract-eligible"],
+    queryFn: () => phase5Api.selectableClientsLookup().then(r => r.data),
     enabled: !contentOnly,
   });
   const { data: usersData } = useQuery({
@@ -1469,12 +2063,33 @@ export function EditJobModal({
     queryFn: () => api.get("/api/users").then(r => r.data),
     enabled: !contentOnly,
   });
-  const clients = clientsData ?? [];
+  const clients = withCurrentClient(
+    clientsData ?? [],
+    job.client_id,
+    job.client_name,
+  );
   const users = usersData ?? [];
 
   const onChange = (k: keyof JobFormData, v: string) =>
     setForm((current) => {
+      if (
+        k === "remote_policy" &&
+        v !== "hybrid" &&
+        current.onsite_days_period === "month"
+      ) {
+        // Dni w miesiącu są tylko przy hybrydzie (0407).
+        return {
+          ...current,
+          remote_policy: v,
+          onsite_days_per_week: "",
+          onsite_days_period: "week",
+        };
+      }
       if (k === "client_id" && current.client_id !== v) {
+        // Hiring manager to osoba z firmy klienta — przy zmianie klienta
+        // znika (serwer robi to samo, `update_job`).
+        setHiringManager(null);
+        setHmNotProvided(false);
         return {
           ...current,
           client_id: v,
@@ -1483,6 +2098,23 @@ export function EditJobModal({
       }
       return { ...current, [k]: v };
     });
+
+  // Po PATCH-u rekrutacji — jej awaria nie cofa zapisu, tylko mówi, co nie weszło.
+  /** `null` = zapisane (albo bez zmian); inaczej polskie zdanie o błędzie. */
+  const saveCollaborators = async (primaryOwnerId: number | null): Promise<string | null> => {
+    const changes = collaboratorChanges(
+      workingCollaboratorIds(job),
+      collaborators,
+      primaryOwnerId,
+      ownerIsPrevious(job) ? null : (job.recruiter_id ?? null),
+    );
+    if (!hasCollaboratorChanges(changes)) return null;
+    return saveCollaboratorChanges(job.id, changes);
+  };
+
+  // Ostrzeżenie dotyczy tylko zapisu, który zamyka — cofnięcie statusu je chowa.
+  const closingWarning =
+    form.status === "closed" && job.status !== "closed" ? activeCards : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1493,15 +2125,24 @@ export function EditJobModal({
         await api.patch(`/api/jobs/${job.id}`, {
           description: form.description || undefined,
           requirements: form.requirements || undefined,
+          ...jobNamesPatch(job, names),
         });
+        const failure = await saveCollaborators(job.recruiter_id ?? null);
+        if (failure) {
+          setError(`Rekrutacja zapisana, ale ${failure}.`);
+          return;
+        }
         onSuccess("Rekrutacja zaktualizowana");
         onClose();
         return;
       }
-      await api.patch(`/api/jobs/${job.id}`, {
+      const payload = {
         title: form.title,
         client_id: form.client_id ? Number(form.client_id) : undefined,
-        status: form.status,
+        // Status jedzie TYLKO przy zamknięciu (04.10.2026): szkic nie istnieje
+        // (422 `draft_not_allowed`), a otwarcie idzie przez „Otwórz ponownie”
+        // (409 `reopen_required`). Pozostałe zapisy nie dotykają statusu.
+        ...(form.status === "closed" && job.status !== "closed" ? { status: "closed" } : {}),
         description: form.description || undefined,
         requirements: form.requirements || undefined,
         location: form.location || undefined,
@@ -1509,27 +2150,79 @@ export function EditJobModal({
         // (zachowałoby stary, wybrany wcześniej tryb w PATCH — patrz tac_id
         // niżej po ten sam wzorzec).
         remote_policy: form.remote_policy || null,
-        onsite_days_per_week:
-          form.onsite_days_per_week === "" ? null : Number(form.onsite_days_per_week),
+        ...officeDaysFields(
+          form.onsite_days_per_week,
+          form.onsite_days_period,
+          form.remote_policy || null,
+        ),
         // Czyszczalne (`null`, nie `undefined`): PATCH z pustym polem musi
         // móc zdjąć wcześniej ustawiony budżet, np. gdy DL chce z powrotem
         // polegać na stawce z Profilu Championa (`resolve_job_budget_hourly`
         // preferuje kolumnę, więc bez tego budżetu nie dałoby się cofnąć).
         rate_budget_hourly: form.rate_budget_hourly ? Number(form.rate_budget_hourly) : null,
+        rate_budget_hourly_min: form.rate_budget_hourly_min ? Number(form.rate_budget_hourly_min) : null,
         deadline: form.deadline || undefined,
-        recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,
+        // Godzina istnieje tylko przy dacie (422 bez niej). Pusta data w tym
+        // oknie niczego nie czyści (`undefined` wyżej), więc godzina też milczy.
+        ...(form.deadline ? { deadline_time: form.deadline_time || null } : {}),
+        // „— bez rekrutera —” przy rekrutacji, która miała rekrutera = jawny
+        // `null`: serwer zdejmuje go jak „Zdejmij”. Do 14.10.2026 szło
+        // `undefined`, pole wypadało z PATCH-a i rekruter wracał po odświeżeniu.
+        // Pole puste od otwarcia nie jedzie wcale — formularz powstaje raz,
+        // a w tym czasie rekrutera mógł wpisać automat albo pulpit.
+        recruiter_id: form.recruiter_id
+          ? Number(form.recruiter_id)
+          : job.recruiter_id && !ownerIsPrevious(job)
+            ? null
+            : undefined,
         // Pola usunięte z formularza 22.09.2026 (TAC, typ, widełki, priorytet,
         // szablon, kategoria, Program/Train) NIE są wysyłane — PATCH czyta
         // `model_fields_set`, więc wartości w bazie zostają nietknięte.
         delivery_lead_id: form.delivery_lead_id ? Number(form.delivery_lead_id) : null,
-        hiring_manager_contact_id: form.hiring_manager_contact_id
-          ? Number(form.hiring_manager_contact_id)
-          : null,
-      });
+        ...jobNamesPatch(job, names),
+      };
+      if (closingWarning) {
+        await api.patch(`/api/jobs/${job.id}`, payload, {
+          params: { acknowledge_active_cards: true },
+        });
+      } else {
+        await api.patch(`/api/jobs/${job.id}`, payload);
+      }
+      // Hiring manager i kolejne osoby to dwa niezależne zapisy po
+      // rekrutacji — błąd jednego nie może pominąć drugiego.
+      const failures: string[] = [];
+      const hmNotProvidedChanged =
+        hmNotProvided && !(job.hiring_manager_not_provided === true && !jobHiringManager(job));
+      if (hmNotProvidedChanged || !sameChoice(hiringManager, jobHiringManager(job))) {
+        try {
+          await saveHiringManager(job.id, hiringManager, hmNotProvided);
+        } catch (err: any) {
+          failures.push(`hiring manager nie (${jobGateErrorText(err, "błąd zapisu")})`);
+        }
+      }
+      const collaboratorFailure = await saveCollaborators(
+        form.recruiter_id ? Number(form.recruiter_id) : null,
+      );
+      if (collaboratorFailure) failures.push(collaboratorFailure);
+      if (failures.length > 0) {
+        setError(`Rekrutacja zapisana, ale ${failures.join("; ")}.`);
+        return;
+      }
       onSuccess("Rekrutacja zaktualizowana");
       onClose();
     } catch (err: any) {
-      setError(formErrorMsg(err, "Błąd podczas zapisywania"));
+      const warning = activeCardsWarningFrom(err);
+      if (warning) {
+        setActiveCards(warning);
+        return;
+      }
+      // Odmowy bramki (`handoff_regression`, `draft_not_allowed`,
+      // `reopen_required`) niosą braki — pokazujemy je razem ze zdaniem.
+      setError(
+        jobGateRefusal(err)
+          ? jobGateErrorText(err, "Błąd podczas zapisywania")
+          : formErrorMsg(err, "Błąd podczas zapisywania"),
+      );
     } finally { setSaving(false); }
   };
 
@@ -1537,24 +2230,65 @@ export function EditJobModal({
     <Modal title={`Edytuj: ${job.title}`} onClose={onClose} wide>
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
+        {closingWarning ? <ActiveCardsNotice warning={closingWarning} /> : null}
         {contentOnly ? (
           <>
+            <JobNamesFields job={job} names={names} onChange={setNames} />
             <FieldGroup label="Opis">
               <Textarea value={form.description} onChange={e => onChange("description", e.target.value)} rows={6} placeholder="Opis stanowiska..." />
             </FieldGroup>
             <FieldGroup label="Wymagania">
               <Textarea value={form.requirements} onChange={e => onChange("requirements", e.target.value)} rows={4} placeholder="Wymagania techniczne..." />
             </FieldGroup>
+            <FieldGroup label="Kolejne osoby">
+              <JobCollaboratorsField
+                value={collaborators}
+                onChange={setCollaborators}
+                primaryOwnerId={job.recruiter_id ?? null}
+                knownUsers={job.collaborators}
+              />
+            </FieldGroup>
             <p className="text-xs text-muted-foreground">
-              Klienta, budżet, zespół, termin i status rekrutacji zmienia Delivery Lead.
+              Klienta, budżet, termin i status rekrutacji zmienia Delivery Lead. Rekrutera przydziela Delivery Lead albo Head of Recruitment.
             </p>
           </>
         ) : (
-          <JobFormFields form={form} onChange={onChange} clients={clients} users={users} />
+          <>
+            <JobFormFields
+              form={form}
+              onChange={onChange}
+              clients={clients}
+              users={users}
+              hiringManager={hiringManager}
+              onHiringManagerChange={setHiringManager}
+              hiringManagerNotProvided={hmNotProvided}
+              onHiringManagerNotProvidedChange={setHmNotProvided}
+              collaborators={collaborators}
+              onCollaboratorsChange={setCollaborators}
+              knownCollaborators={job.collaborators}
+              jobId={job.id}
+              originalStatus={job.status ?? "draft"}
+              onRequestPublish={
+                onRequestPublish
+                  ? () => {
+                      onClose();
+                      onRequestPublish();
+                    }
+                  : undefined
+              }
+            />
+            <JobNamesFields job={job} names={names} onChange={setNames} />
+          </>
         )}
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
-          <SaveButton saving={saving} label="Zapisz zmiany" />
+          <SaveButton saving={saving} label={
+              !closingWarning
+                ? "Zapisz zmiany"
+                : closingWarning.recipients.length > 0
+                  ? closeAnywayLabel(closingWarning, "Zapisz, zamknij")
+                  : "Zapisz i zamknij mimo to"
+            } />
         </div>
       </form>
     </Modal>
@@ -1592,13 +2326,17 @@ function clientToForm(c: any): ClientFormData {
   };
 }
 
-function ClientFormFields({ form, onChange, onCheckbox, nameRequired = true }: {
+function ClientFormFields({ form, onChange, onCheckbox, nameRequired = true, showNotes = true }: {
   form: ClientFormData;
   onChange: (k: keyof ClientFormData, v: string) => void;
   onCheckbox: (k: keyof ClientFormData, v: boolean) => void;
   /** Edycja pozwala wyczyścić nazwę (powrót do nazwy źródłowej z Traffita) —
       tworzenie nadal jej wymaga. */
   nameRequired?: boolean;
+  /** Notatki klienta idą razem z danymi prawnymi (uprawnienie „Stawki i kwoty:
+      podgląd”). Konto bez niego nie dostaje ich z API — puste pole wyglądałoby
+      jak brak notatek i kusiło do nadpisania. */
+  showNotes?: boolean;
 }) {
   return (
     <>
@@ -1636,9 +2374,11 @@ function ClientFormFields({ form, onChange, onCheckbox, nameRequired = true }: {
       <FieldGroup label="Adres">
         <Input value={form.address} onChange={e => onChange("address", e.target.value)} placeholder="ul. Przykładowa 1, Warszawa" />
       </FieldGroup>
-      <FieldGroup label="Notatki">
-        <Textarea value={form.notes} onChange={e => onChange("notes", e.target.value)} rows={3} placeholder="Dodatkowe informacje..." />
-      </FieldGroup>
+      {showNotes && (
+        <FieldGroup label="Notatki">
+          <Textarea value={form.notes} onChange={e => onChange("notes", e.target.value)} rows={3} placeholder="Dodatkowe informacje..." />
+        </FieldGroup>
+      )}
       <label className="flex items-center gap-2 cursor-pointer">
         <input
           type="checkbox"
@@ -1664,12 +2404,21 @@ export function AddClientModal({
   const [form, setForm] = useState<ClientFormData>(EMPTY_CLIENT);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // 409 `client_duplicate_warning`: klient o tej nazwie już jest (Energa, 22.10.2026).
+  const [sameName, setSameName] = useState<SameNameClient[] | null>(null);
 
-  const onChange = (k: keyof ClientFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const onChange = (k: keyof ClientFormData, v: string) => {
+    if (k === "name") setSameName(null);
+    setForm(f => ({ ...f, [k]: v }));
+  };
   const onCheckbox = (k: keyof ClientFormData, v: boolean) => setForm(f => ({ ...f, [k]: v }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    await save(false);
+  };
+
+  const save = async (acknowledgeDuplicate: boolean) => {
     if (!form.name) { setError("Nazwa firmy jest wymagana"); return; }
     setSaving(true); setError("");
     try {
@@ -1688,13 +2437,16 @@ export function AddClientModal({
         {
           params: {
             portfolio_category: category ?? "active",
+            ...(acknowledgeDuplicate ? { acknowledge_duplicate: true } : {}),
           },
         },
       );
       onSuccess("Firma dodana pomyślnie");
       onClose();
     } catch (err: any) {
-      setError(formErrorMsg(err, "Błąd podczas zapisywania"));
+      const duplicates = clientDuplicateWarningFrom(err);
+      if (duplicates?.length) setSameName(duplicates);
+      else setError(formErrorMsg(err, "Błąd podczas zapisywania"));
     } finally { setSaving(false); }
   };
 
@@ -1703,6 +2455,14 @@ export function AddClientModal({
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
         <ClientFormFields form={form} onChange={onChange} onCheckbox={onCheckbox} />
+        {sameName ? (
+          <ExistingClientNotice
+            clients={sameName}
+            saving={saving}
+            onOpenProfile={onClose}
+            onAddAnyway={() => void save(true)}
+          />
+        ) : null}
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
           <SaveButton saving={saving} label="Dodaj firmę" />
@@ -1721,6 +2481,9 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
   // Nazwa z chwili otwarcia (GET zwraca nazwę EFEKTYWNĄ = display_name ?? name)
   // — dirty-check decyduje, czy w ogóle wysyłamy display_name.
   const [initialName] = useState<string>(() => clientToForm(client).name);
+  const [initialNotes] = useState<string>(() => clientToForm(client).notes);
+  // Odpowiedź bez pola `notes` = projekcja bez danych prawnych klienta.
+  const notesVisible = client?.notes !== undefined;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -1738,8 +2501,13 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
         status: form.status,
         nda_signed: form.nda_signed,
         contract_type: form.contract_type || null,
-        notes: form.notes || null,
       };
+      // Notatki wysyłamy tylko po zmianie: konto bez podglądu danych prawnych
+      // nie dostaje ich z API, więc bezwarunkowe `notes: null` kasowałoby
+      // cudzy wpis przy zapisie np. samej branży.
+      if (notesVisible && form.notes !== initialNotes) {
+        payload.notes = form.notes || null;
+      }
       // Edycja nazwy pisze do sync-odpornego `display_name` — Traffit nadpisuje
       // `name` przy każdym daily sync, a wyświetlanie i tak robi
       // coalesce(display_name, name). Wysyłamy TYLKO gdy pole faktycznie
@@ -1761,7 +2529,7 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
     <Modal title={`Edytuj: ${client.name}`} onClose={onClose} wide>
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
-        <ClientFormFields form={form} onChange={onChange} onCheckbox={onCheckbox} nameRequired={false} />
+        <ClientFormFields form={form} onChange={onChange} onCheckbox={onCheckbox} nameRequired={false} showNotes={notesVisible} />
         {/* Reguły CV mają WŁASNĄ tabelę i własny zapis — celowo poza payloadem
             PATCH klienta i poza `ClientFormFields`, który jest współdzielony
             z oknem DODAWANIA klienta. Zakładanie reguł przy tworzeniu firmy

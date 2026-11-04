@@ -22,6 +22,7 @@ from app.services.workforce_availability import (
 )
 from app.api.calendar_access import (
     user_can_mutate_event,
+    user_can_view_event,
     personal_event_visibility_filter,
 )
 
@@ -345,6 +346,23 @@ def test_calendar_substitute_can_complete_open_event_but_cannot_read_unrelated_h
         )
 
 
+def test_creator_keeps_edit_of_open_event_handed_to_another_owner():
+    # DL zakłada rozmowę u klienta z rekruterem jako właścicielem operacyjnym.
+    # Lista pokazuje jej to wydarzenie (`created_by`), więc odczyt i edycja nie
+    # mogą kończyć się 404 „Wydarzenie nie znalezione” (Credit Agricole, 29.10).
+    with Session() as session:
+        creator, owner, stranger = user(1), user(3), user(4)
+        session.add_all([creator, owner, stranger])
+        event = CalendarEvent(
+            created_by=1, operational_owner_id=3, status=EventStatus.scheduled
+        )
+        assert user_can_view_event(event, creator)
+        assert user_can_mutate_event(event, creator)
+        assert user_can_mutate_event(event, owner)
+        assert not user_can_view_event(event, stranger)
+        assert not user_can_mutate_event(event, stranger)
+
+
 def test_favorite_pause_is_visible_and_does_not_block_lower_priority_work():
     from app.services.priority_work_service import assignment_gate_states
     from app.models.recruitment_priority import PriorityMemberStatus
@@ -416,3 +434,59 @@ def test_cover_scope_requires_open_work_and_the_same_owners_membership():
             UPDATE candidate_contact_cases SET state='completed';
         """)
         assert visible_jobs() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("compass_enabled", "fresh", "leave_policy", "allowed"),
+    [
+        # Urlopy z Compassa wyłączone: danych nie będzie, automat rusza bez nich.
+        (False, False, "wait", True),
+        # Włączone, ale nieaktualne: request mógłby dostać ktoś na urlopie.
+        (True, False, "wait", False),
+        (True, True, "wait", True),
+        # Zasada „Przydzielaj” z Ustawień (29.10.2026): nie czeka na urlopy.
+        (True, False, "ignore", True),
+    ],
+)
+async def test_auto_mode_waits_for_compass_only_when_compass_is_enabled(
+    monkeypatch, compass_enabled: bool, fresh: bool, leave_policy: str, allowed: bool
+):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from fastapi import HTTPException
+
+    from app.api import recruitment_allocation as api
+    from app.services.request_allocation_rules import AllocationRules
+
+    monkeypatch.setattr(
+        api,
+        "load_rules",
+        AsyncMock(return_value=AllocationRules(leave_policy=leave_policy)),
+    )
+    monkeypatch.setattr(api.settings, "RECRUITMENT_ALLOCATION_ENABLED", True)
+    monkeypatch.setattr(api.settings, "COMPASS_AVAILABILITY_ENABLED", compass_enabled)
+    monkeypatch.setattr(api, "allocation_lock", AsyncMock())
+    monkeypatch.setattr(
+        api, "workforce_context", AsyncMock(return_value=SimpleNamespace(fresh=fresh))
+    )
+    state = SimpleNamespace(mode="shadow")
+    db = SimpleNamespace(
+        execute=AsyncMock(),
+        get=AsyncMock(return_value=state),
+        add=MagicMock(),
+        commit=AsyncMock(),
+    )
+    call = api.set_allocation_mode(
+        api.AllocationModeUpdate(mode="auto"), SimpleNamespace(id=1), db
+    )
+    if allowed:
+        assert await call == {"mode": "auto"}
+        db.commit.assert_awaited_once()
+        return
+    with pytest.raises(HTTPException) as refused:
+        await call
+    assert refused.value.status_code == 409
+    assert refused.value.detail == "Najpierw przywróć aktualne dane o urlopach"
+    assert state.mode == "shadow"
+    db.commit.assert_not_awaited()

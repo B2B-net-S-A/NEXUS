@@ -29,6 +29,7 @@ from app.services.auto_match_rules import is_good_match  # noqa: F401 — reguł
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.oauth_client import OAuthClient
+from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -50,18 +51,54 @@ class MatchResult:
     skipped: list[dict] = field(default_factory=list)
 
 
+async def _pick_oauth_client(db) -> OAuthClient:
+    """Jedyny włączony klient OAuth o nazwie ``JJIT_OAUTH_CLIENT_NAME``.
+
+    Runda 9 (R9-N9-11): nazwa klienta OAuth nie jest unikalna, a ``scalar``
+    brał dowolny pierwszy wiersz — drugi klient o tej samej nazwie (np. kopia
+    założona przez admina z innymi scope'ami albo innym użytkownikiem
+    serwisowym) mógł po cichu przejąć tożsamość importu. Filtr: włączony,
+    z użytkownikiem serwisowym; więcej niż jeden = odmowa.
+    """
+    rows = (
+        (
+            await db.execute(
+                select(OAuthClient).where(
+                    OAuthClient.name == settings.JJIT_OAUTH_CLIENT_NAME,
+                    OAuthClient.enabled.is_(True),
+                    OAuthClient.acting_user_id.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not rows:
+        raise NexusClientError(
+            f"klient OAuth '{settings.JJIT_OAUTH_CLIENT_NAME}' nie istnieje / wyłączony / bez acting_user"
+        )
+    if len(rows) > 1:
+        raise NexusClientError(
+            f"klient OAuth '{settings.JJIT_OAUTH_CLIENT_NAME}' jest niejednoznaczny "
+            f"({len(rows)} włączonych o tej nazwie) — zostaw jeden"
+        )
+    return rows[0]
+
+
 async def mint_client_token() -> str:
     from app.api.oauth_token import _create_client_token
 
     async with AsyncSessionLocal() as db:
-        client = await db.scalar(
-            select(OAuthClient).where(
-                OAuthClient.name == settings.JJIT_OAUTH_CLIENT_NAME
-            )
-        )
-    if client is None or not client.enabled or client.acting_user_id is None:
+        client = await _pick_oauth_client(db)
+        acting_user = await db.get(User, client.acting_user_id)
+    # Runda 9 (R9-N9-1): token i tak zostałby odrzucony w ``deps`` — tu mówimy
+    # od razu, DLACZEGO import nie ruszy, zamiast 401 na pierwszym żądaniu.
+    if acting_user is None or not acting_user.is_active:
+        raise NexusClientError("acting_user klienta OAuth jest nieaktywny")
+    if acting_user.has_role(UserRole.admin):
         raise NexusClientError(
-            f"klient OAuth '{settings.JJIT_OAUTH_CLIENT_NAME}' nie istnieje / wyłączony / bez acting_user"
+            "acting_user klienta OAuth ma rolę admina — integracja potrzebuje "
+            "konta z rolą operacyjną"
         )
     scopes = [s for s in (client.scopes or []) if s.endswith(":write")] or list(
         client.scopes or []
@@ -177,17 +214,26 @@ class NexusLoopbackClient:
         return out
 
     async def add_to_job(
-        self, job_id: int, candidate_id: int, note: str
+        self, job_id: int, candidate_id: int, rec: dict
     ) -> tuple[bool, str]:
+        must_hit = list(rec.get("matching_must") or [])
         resp = await self._request(
             "POST",
             f"/api/jobs/{job_id}/proposals/bulk",
             json={
                 "candidate_ids": [candidate_id],
-                "note": note[:2000],
+                # 0399: bez notatki — wynik jedzie jako dane procesu
+                # (plakietka „Auto-match 67/100 · JJIT” przy rekrutacji).
+                "auto_match": {
+                    "score": max(0.0, min(100.0, float(rec.get("score") or 0))),
+                    "source": "jjit",
+                    "must_hit": [str(m)[:80] for m in must_hit[:8]],
+                    "must_total": len(must_hit) + len(rec.get("gap_must") or []),
+                },
                 "tags": ["auto-match", "jjit"],
-                # Kandydaci z ogłoszeń lądują w „Ogłoszeniach" (etap `posting`,
-                # migracja 0317), nie w „Nowi" — rekruter przenosi ręcznie.
+                # Serwer z ``auto_match`` od integracji zakłada propozycję
+                # w „Do przejrzenia” (30.09.2026) — etap i tagi czyta tylko
+                # starszy serwer, który jeszcze dodawał kartę na „Ogłoszenia”.
                 "initial_stage_legacy": "posting",
             },
             timeout=60,
@@ -195,7 +241,11 @@ class NexusLoopbackClient:
         if resp.status_code != 200:
             return False, f"HTTP {resp.status_code}: {resp.text[:120]}"
         body = resp.json()
-        if candidate_id in (body.get("added") or []):
+        # Od 30.09.2026 dopasowanie z portalu trafia do „Do przejrzenia”
+        # (``proposed``), nie na Tablicę — to też udane dopasowanie.
+        if candidate_id in (body.get("added") or []) or candidate_id in (
+            body.get("proposed") or []
+        ):
             return True, ""
         for row in body.get("skipped") or []:
             if row.get("candidate_id") == candidate_id:
@@ -246,13 +296,9 @@ class NexusLoopbackClient:
             )
         ]
         for rec in good:
-            rec_note = (
-                f"{note}\nAuto-match score: {rec['score']:.0f}/100 ({candidate_name})\n"
-                f"Must-have trafione: {', '.join(rec['matching_must'][:8]) or '—'}"
-            )
             try:
                 added, reason = await self.add_to_job(
-                    rec["job_id"], result.candidate_id, rec_note
+                    rec["job_id"], result.candidate_id, rec
                 )
             except Exception as e:  # noqa: BLE001
                 added, reason = False, str(e)[:120]

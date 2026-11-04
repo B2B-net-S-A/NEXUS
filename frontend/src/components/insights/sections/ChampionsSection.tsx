@@ -1,13 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Award,
   ChevronDown,
   ChevronUp,
-  Clock,
   Crown,
   Loader2,
   Medal,
@@ -18,7 +17,13 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { DL_HIT_RATIO_LEAGUE_NOTE } from "@/lib/insights-views";
+import {
+  dlLeagueByHitRatio,
+  isClosedQuarter,
+  type CompetitionClosure,
+} from "@/lib/insights-races-api";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
+import { ClosureNote, PeriodCountdown, SourceNote } from "./CompetitionPeriod";
 import { count, money, pct } from "./InsightsFormat";
 import { SectionError } from "./_shared";
 
@@ -43,14 +48,18 @@ import { SectionError } from "./_shared";
 
 // ── Kontrakt z `/api/competitions/current` ──────────────────────────────
 
-/** Pozycja rankingu: `RankedUser.to_dict()` + `rank`/`prize_pln` dla top3. */
+/**
+ * Pozycja rankingu: `RankedUser.to_dict()` + `rank`/`prize_pln`/`tied`
+ * z kolejności nagrodowej (`award_ranked_rows`). `rank: null` = osoba bez
+ * miejsca w klasyfikacji (niezakwalifikowana albo wykluczona).
+ */
 interface LeagueEntry {
   user_id: number;
   name: string;
   /** Punkty (Liga Rekrutacja) albo placementy (Liga DL). */
   metric_value: number;
   hit_ratio?: number | null;
-  rank?: number;
+  rank?: number | null;
   prize_pln?: number | null;
   role?: string | null;
   placements?: number | null;
@@ -61,7 +70,14 @@ interface LeagueEntry {
   /** Brak pola = zakwalifikowany (lustro `extras.get("qualified", True)`). */
   qualified?: boolean;
   required_placements?: number | null;
+  /** Liga DL od Q4 2026: próg zamkniętych rekrutacji. */
+  required_closed_requests?: number | null;
   disqualification_reasons?: string[] | null;
+  /**
+   * Miejsce podium objęte remisem, którego regulamin nie rozstrzyga —
+   * kolejność i nagrodę ustali admin przy zamknięciu okresu (`award_order`).
+   */
+  tied?: boolean;
 }
 
 interface PointsFormula {
@@ -70,12 +86,16 @@ interface PointsFormula {
   recommendation: number;
 }
 
-interface CompetitionPayload {
+/**
+ * `is_frozen`, `closure_status`, `source`, `source_note` — z `CompetitionClosure`
+ * (okresy rozliczone z DynaReportera i mieszane Q4 2026).
+ */
+interface CompetitionPayload extends CompetitionClosure {
   type: string;
+  /** Kwartał w zapisie backendu: „Q3 2026". */
   period: string;
   top3: LeagueEntry[];
   full_ranking: LeagueEntry[];
-  is_frozen: boolean;
   target_pct?: number | null;
   days_remaining?: number | null;
   prize_pool_pln?: number | null;
@@ -144,8 +164,6 @@ const RANK_FLEX_ORDER: Record<PodiumRank, string> = {
 };
 
 const ROLE_LABEL: Record<string, string> = {
-  sourcer: "Sourcer",
-  tac: "TAC",
   recruiter: "Rekruter",
   delivery_lead: "Delivery Lead",
   head_of_recruitment: "Head of Recruitment",
@@ -158,6 +176,7 @@ const DISQUALIFICATION_REASON: Record<string, string> = {
   MIN_PLACEMENTS_NOT_MET: "Brakuje placementu do progu",
   MIN_VERIFICATIONS_NOT_MET: "Za mało weryfikacji",
   MIN_PRECISION_NOT_MET: "Za niska skuteczność rekomendacji",
+  MIN_CLOSED_REQUESTS_NOT_MET: "Za mało zamkniętych rekrutacji",
 };
 
 /**
@@ -174,16 +193,25 @@ function describeDisqualification(entry: LeagueEntry): string | null {
     .map((code) => {
       const label =
         DISQUALIFICATION_REASON[code] ?? `Warunek niespełniony: ${code}`;
-      return code === "MIN_PLACEMENTS_NOT_MET" &&
-        entry.required_placements !== null &&
-        entry.required_placements !== undefined
-        ? `${label} (wymagane: ${entry.required_placements})`
+      const required =
+        code === "MIN_PLACEMENTS_NOT_MET"
+          ? entry.required_placements
+          : code === "MIN_CLOSED_REQUESTS_NOT_MET"
+            ? entry.required_closed_requests
+            : null;
+      return required !== null && required !== undefined
+        ? `${label} (wymagane: ${required})`
         : label;
     })
     .join(" · ");
 }
 
-type LeagueVariant = "points" | "placements";
+/**
+ * `points` — Liga Rekrutacja; `placements` — Liga DL do Q3 2026 (placementy,
+ * próg hit ratio, nagrody); `hit_ratio` — Liga DL od Q4 2026 (ranking po hit
+ * ratio, bez nagród, decyzja Artura 25.10.2026).
+ */
+type LeagueVariant = "points" | "placements" | "hit_ratio";
 
 /** Rozbicie pod liczbą — „9P / 25I / 60R" w Lidze Rekrutacja, hit ratio w DL. */
 function breakdownLabel(entry: LeagueEntry, variant: LeagueVariant): string {
@@ -192,12 +220,16 @@ function breakdownLabel(entry: LeagueEntry, variant: LeagueVariant): string {
       entry.recommendations,
     )}R`;
   }
+  if (variant === "hit_ratio") {
+    // `metric_value` ligi DL to placementy; mianownik — rekrutacje zamknięte.
+    return `${count(entry.metric_value)} placem. / ${count(entry.requests)} zamkn.`;
+  }
   return `hit ratio ${pct(entry.hit_ratio)} · ${count(entry.requests)} zapytań`;
 }
 
-/** Polska odmiana — „1 dzień / 2 dni / 5 dni". */
-function daysPl(n: number): string {
-  return `${n} ${Math.abs(n) === 1 ? "dzień" : "dni"}`;
+/** Wynik w dużej liczbie: hit ratio w lidze DL od Q4 2026, inaczej `metric_value`. */
+function mainValue(entry: LeagueEntry, variant: LeagueVariant): string {
+  return variant === "hit_ratio" ? pct(entry.hit_ratio) : count(entry.metric_value);
 }
 
 function PodiumColumn({
@@ -253,7 +285,7 @@ function PodiumColumn({
         {entry ? (
           <>
             <p className={cn("mt-1 text-2xl font-extrabold", style.value)}>
-              {count(entry.metric_value)}{" "}
+              {mainValue(entry, variant)}{" "}
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {metricLabel}
               </span>
@@ -261,7 +293,16 @@ function PodiumColumn({
             <p className="text-xs text-muted-foreground">
               {breakdownLabel(entry, variant)}
             </p>
-            {entry.prize_pln ? (
+            {entry.tied ? (
+              // Remis na płatnym miejscu: backend nie przypisuje kwoty, dopóki
+              // admin nie ustali kolejności — tak samo jak po zamrożeniu.
+              <p
+                className="mt-1 rounded border border-warning/25 bg-warning-muted px-1.5 py-0.5 text-[11px] font-medium text-warning-muted-foreground"
+                data-testid={`league-tie-${rank}`}
+              >
+                Remis do rozstrzygnięcia
+              </p>
+            ) : entry.prize_pln ? (
               // Nagroda przy niezakwalifikowanym jest WARUNKOWA: backend dokleja
               // `prize_pln` po samym indeksie, a `qualified_for_award` filtruje
               // dopiero wypłatę. Sucha kwota obok „brakuje placementu" obiecywałaby
@@ -324,12 +365,15 @@ function PodiumColumn({
 
 function LeagueCard({
   competitionType,
+  period,
   title,
   subtitle,
   variant,
   metricLabel,
 }: {
   competitionType: string;
+  /** Kwartał („Q3 2026") albo `null` = bieżący. */
+  period: string | null;
   title: string;
   subtitle: string;
   variant: LeagueVariant;
@@ -342,10 +386,16 @@ function LeagueCard({
     useQuery<CompetitionPayload>({
       // Prefiks `insights` — żeby „Odśwież" z paska narzędzi (invalidacja po
       // prefiksie) obejmowało także Ligę.
-      queryKey: ["insights", "champions", competitionType],
+      queryKey: ["insights", "champions", competitionType, period ?? "current"],
+      // Bieżący kwartał BEZ `period` — to samo zapytanie co przed wyborem
+      // okresu, więc i ten sam wpis w cache serwera (`current:<typ>:`).
       queryFn: () =>
         api
-          .get(`/api/competitions/current?type=${competitionType}`)
+          .get(
+            period
+              ? `/api/competitions/current?type=${competitionType}&period=${encodeURIComponent(period)}`
+              : `/api/competitions/current?type=${competitionType}`,
+          )
           .then((r) => r.data),
       staleTime: 5 * 60 * 1000,
     });
@@ -364,11 +414,14 @@ function LeagueCard({
     top3.map((entry, index) => [entry.rank ?? index + 1, entry]),
   );
   const podiumIds = new Set(top3.map((entry) => entry.user_id));
-  // `full_ranking` nie niesie `rank` — numer bierzemy z pozycji, tak jak
-  // backend przy budowie podium.
+  // Numer miejsca liczy backend (`award_ranked_rows`) — ta sama kolejność
+  // nagrodowa co podium. Osoba niezakwalifikowana albo wykluczona ma
+  // `rank: null`: stoi na liście bez numeru. Do 25.09.2026 numer brano
+  // z pozycji w liście, więc niezakwalifikowany lider i zwycięzca podium
+  // mieli oba „#1”.
   const rest = fullRanking
-    .map((entry, index) => ({ entry, rank: index + 1 }))
-    .filter((row) => !podiumIds.has(row.entry.user_id));
+    .filter((entry) => !podiumIds.has(entry.user_id))
+    .map((entry) => ({ entry, rank: entry.rank ?? null }));
   // Miejsca 4–8 i własny wiersz widać od razu (przebudowa 24.09.2026: liga
   // ma być czytelna bez klikania). Reszta za „Pokaż wszystkich".
   const visibleRest = showAll
@@ -379,6 +432,13 @@ function LeagueCard({
   const hiddenCount = rest.length - visibleRest.length;
 
   const prizes = data?.quarterly_prizes_pln ?? null;
+  const shownPeriod = data?.period ?? period;
+  const noWinner = data?.closure_status === "no_winner";
+  // Starszy backend nie zna `is_frozen` dla minionego kwartału i liczy
+  // `days_remaining` z dzisiaj — miniony kwartał rozpoznajemy więc także po
+  // samym okresie.
+  const periodClosed = shownPeriod ? isClosedQuarter(shownPeriod) : false;
+  const periodOver = data?.is_frozen === true || periodClosed;
 
   return (
     <article className="flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xs">
@@ -392,19 +452,20 @@ function LeagueCard({
         </div>
         <div className="shrink-0 text-right">
           <p className="text-xs font-semibold uppercase tracking-wider text-primary">
-            {data?.period ?? "—"}
+            {shownPeriod ?? "—"}
           </p>
-          <p className="mt-0.5 flex items-center justify-end gap-1 text-xs text-muted-foreground">
-            <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-            {/* `null` to „nie wiemy, ile zostało", nie „zero dni". */}
-            {data?.days_remaining === null || data?.days_remaining === undefined
-              ? "—"
-              : `Zostało ${daysPl(data.days_remaining)}`}
-          </p>
+          <div className="mt-0.5 flex justify-end">
+            <PeriodCountdown
+              frozen={data?.is_frozen === true}
+              closed={periodClosed}
+              daysRemaining={data?.days_remaining}
+            />
+          </div>
         </div>
       </header>
 
       <div className="flex flex-1 flex-col gap-4 p-4">
+        <SourceNote closure={data} />
         {viewState === "loading" ? (
           <div className="flex items-center justify-center py-10">
             <Loader2
@@ -425,11 +486,17 @@ function LeagueCard({
               aria-hidden="true"
             />
             <p className="text-sm font-medium text-foreground">
-              Brak wyników w tym kwartale
+              {/* Zamknięty okres bez zwycięzcy mówi to wprost — „brak wyników"
+                  przy rozliczonym kwartale czytałby się jak niedoczytane dane. */}
+              {noWinner
+                ? "Brak zwycięzcy w tym okresie"
+                : "Brak wyników w tym kwartale"}
             </p>
             <p className="max-w-sm text-xs text-muted-foreground">
-              Nikt nie odnotował jeszcze punktowanych zdarzeń. To pusty ranking,
-              nie błąd pobierania.
+              {periodOver
+                ? "Nikt nie odnotował punktowanych zdarzeń w tym kwartale."
+                : "Nikt nie odnotował jeszcze punktowanych zdarzeń."}{" "}
+              To pusty ranking, nie błąd pobierania.
             </p>
             {data?.requirement ? (
               <p className="max-w-sm text-xs text-muted-foreground">
@@ -439,6 +506,9 @@ function LeagueCard({
           </div>
         ) : (
           <>
+            {/* Remis do decyzji admina i okres bez zwycięzcy stoją NAD podium:
+                bez tego zdania zamrożone podium czyta się jak rozstrzygnięte. */}
+            <ClosureNote closure={data} />
             <ol className="flex list-none items-end justify-center gap-2 sm:gap-3">
               {([1, 2, 3] as PodiumRank[]).map((rank) => (
                 <PodiumColumn
@@ -452,61 +522,74 @@ function LeagueCard({
               ))}
             </ol>
 
-            <div className="rounded-lg border border-border bg-muted/40 p-3">
-              <p className="flex items-center gap-2 text-xs font-medium text-foreground">
-                <TrendingUp className="h-3.5 w-3.5" aria-hidden="true" />
-                {/* Liga DL nie ma formuły punktowej — nagłówek „System
-                    punktowy" nad zdaniem „bez przeliczania na punkty" sam
-                    sobie przeczy. */}
-                {data?.points_formula ? "System punktowy" : "Zasada rankingu"}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {data?.points_formula ? (
-                  <>
-                    Placement{" "}
-                    <strong className="text-foreground">
-                      {data.points_formula.placement} pkt
-                    </strong>{" "}
-                    · Interview{" "}
-                    <strong className="text-foreground">
-                      {data.points_formula.interview} pkt
-                    </strong>{" "}
-                    · Rekomendacja{" "}
-                    <strong className="text-foreground">
-                      {data.points_formula.recommendation} pkt
-                    </strong>
-                  </>
-                ) : (
-                  // Liga DL nie przelicza na punkty — milczący kafel sugerowałby,
-                  // że formuła istnieje, tylko się nie doczytała.
-                  "Ranking liczy placementy — bez przeliczania na punkty."
-                )}
-              </p>
-              {variant === "placements" ? (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {DL_HIT_RATIO_LEAGUE_NOTE}
-                </p>
-              ) : null}
-              {data?.prize_pool_pln ? (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Pula nagród: {money(data.prize_pool_pln)}
-                </p>
-              ) : null}
-            </div>
+            {/* Zasady czyta się raz — zwinięte pod podium (22.10.2026), żeby
+                lista osób była zaraz pod miejscami. Treść bez zmian. */}
+            <details className="group rounded-lg border border-border bg-card">
+              <summary className="flex min-h-10 cursor-pointer items-center justify-between gap-2 px-3 text-xs font-semibold text-foreground">
+                {data?.requirement ? "Zasady ligi i warunek udziału" : "Zasady ligi"}
+                <span className="text-primary group-open:hidden">Pokaż ▾</span>
+                <span className="hidden text-primary group-open:inline">Zwiń ▴</span>
+              </summary>
+              <div className="space-y-2 border-t border-border p-3">
+                <div className="rounded-lg border border-border bg-muted/40 p-3">
+                  <p className="flex items-center gap-2 text-xs font-medium text-foreground">
+                    <TrendingUp className="h-3.5 w-3.5" aria-hidden="true" />
+                    {/* Liga DL nie ma formuły punktowej — nagłówek „System
+                        punktowy" nad zdaniem „bez przeliczania na punkty" sam
+                        sobie przeczy. */}
+                    {data?.points_formula ? "System punktowy" : "Zasada rankingu"}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {data?.points_formula ? (
+                      <>
+                        Placement{" "}
+                        <strong className="text-foreground">
+                          {data.points_formula.placement} pkt
+                        </strong>{" "}
+                        · Rozmowa u klienta{" "}
+                        <strong className="text-foreground">
+                          {data.points_formula.interview} pkt
+                        </strong>{" "}
+                        · Rekomendacja{" "}
+                        <strong className="text-foreground">
+                          {data.points_formula.recommendation} pkt
+                        </strong>
+                      </>
+                    ) : variant === "hit_ratio" ? (
+                      "Ranking liczy hit ratio: placementy ÷ rekrutacje zamknięte w kwartale. Przy równym procencie wyżej jest więcej placementów. Liga DL nie ma nagród — to statystyka."
+                    ) : (
+                      // Liga DL nie przelicza na punkty — milczący kafel sugerowałby,
+                      // że formuła istnieje, tylko się nie doczytała.
+                      "Ranking liczy placementy — bez przeliczania na punkty."
+                    )}
+                  </p>
+                  {variant !== "points" ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {DL_HIT_RATIO_LEAGUE_NOTE}
+                    </p>
+                  ) : null}
+                  {data?.prize_pool_pln ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Pula nagród: {money(data.prize_pool_pln)}
+                    </p>
+                  ) : null}
+                </div>
 
-            {data?.requirement ? (
-              <div className="rounded-lg border border-warning/25 bg-warning-muted p-3 text-warning-muted-foreground">
-                <p className="flex items-center gap-2 text-xs font-medium">
-                  <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-                  Warunek udziału
-                </p>
-                <p className="mt-1 text-xs">{data.requirement}</p>
-                <p className="mt-1 text-[11px] opacity-90">
-                  Osoby poniżej progu ZOSTAJĄ w rankingu — oznaczamy je, nie
-                  ukrywamy.
-                </p>
+                {data?.requirement ? (
+                  <div className="rounded-lg border border-warning/25 bg-warning-muted p-3 text-warning-muted-foreground">
+                    <p className="flex items-center gap-2 text-xs font-medium">
+                      <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                      Warunek udziału
+                    </p>
+                    <p className="mt-1 text-xs">{data.requirement}</p>
+                    <p className="mt-1 text-[11px] opacity-90">
+                      Osoby poniżej progu ZOSTAJĄ w rankingu — oznaczamy je, nie
+                      ukrywamy.
+                    </p>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            </details>
 
             {rest.length > 0 ? (
               <div>
@@ -528,8 +611,15 @@ function LeagueCard({
                           )}
                         >
                           <div className="flex min-w-0 items-center gap-3">
-                            <span className="w-7 shrink-0 text-xs font-semibold text-muted-foreground">
-                              #{rank}
+                            <span
+                              className="w-7 shrink-0 text-xs font-semibold text-muted-foreground"
+                              title={
+                                rank === null
+                                  ? "Bez miejsca w klasyfikacji nagrodowej"
+                                  : undefined
+                              }
+                            >
+                              {rank === null ? "—" : `#${rank}`}
                             </span>
                             <div className="min-w-0">
                               <p className="truncate text-sm font-medium text-foreground">
@@ -539,22 +629,25 @@ function LeagueCard({
                                     (Ty)
                                   </span>
                                 ) : null}
-                                {disqualified ? (
-                                  <span className="ml-2 text-xs font-normal text-warning-muted-foreground">
-                                    ({disqualified})
-                                  </span>
-                                ) : null}
                               </p>
                               <p className="text-xs text-muted-foreground">
                                 {ROLE_LABEL[entry.role ?? ""] ??
                                   entry.role ??
                                   "—"}
                               </p>
+                              {/* Powód we własnej linii, zawijany — dwa powody ligi DL
+                                  (placementy i zamknięte rekrutacje) obok nazwiska
+                                  ucinały się w połowie drugiego. */}
+                              {disqualified ? (
+                                <p className="text-xs text-warning-muted-foreground">
+                                  {disqualified}
+                                </p>
+                              ) : null}
                             </div>
                           </div>
                           <div className="shrink-0 text-right">
                             <p className="text-sm font-bold text-foreground">
-                              {count(entry.metric_value)} {metricLabel}
+                              {mainValue(entry, variant)} {metricLabel}
                             </p>
                             <p className="text-xs text-muted-foreground">
                               {breakdownLabel(entry, variant)}
@@ -592,16 +685,28 @@ function LeagueCard({
 
 // ── Sekcja ──────────────────────────────────────────────────────────────
 
-export function ChampionsSection() {
+export function ChampionsSection({
+  period = null,
+  action,
+}: {
+  /** Kwartał („Q3 2026") albo `null` = bieżący. Obie ligi idą za nim razem. */
+  period?: string | null;
+  /** Wybór kwartału obok nagłówka — renderuje go widok, który trzyma stan. */
+  action?: ReactNode;
+} = {}) {
   return (
     <section className="space-y-4">
-      <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
-        <Award className="h-5 w-5 text-warning" aria-hidden="true" />
-        Liga Mistrzów — kwartalni championi
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+          <Award className="h-5 w-5 text-warning" aria-hidden="true" />
+          Liga Mistrzów — kwartalni championi
+        </h2>
+        {action}
+      </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <LeagueCard
           competitionType="quarterly_champions_recruiter"
+          period={period}
           title="Liga Mistrzów Rekrutacja"
           subtitle="Kwartalny ranking punktowy zespołu rekrutacji"
           variant="points"
@@ -610,13 +715,25 @@ export function ChampionsSection() {
           // kłamał przy `metric_value` będącym sumą punktów.
           metricLabel="pkt"
         />
-        <LeagueCard
-          competitionType="quarterly_champions_dl"
-          title="Liga Mistrzów DL"
-          subtitle="Kwartalne podium Delivery Leadów"
-          variant="placements"
-          metricLabel="placementów"
-        />
+        {dlLeagueByHitRatio(period) ? (
+          <LeagueCard
+            competitionType="quarterly_champions_dl"
+            period={period}
+            title="Liga Mistrzów DL"
+            subtitle="Ranking Delivery Leadów po hit ratio · bez nagród"
+            variant="hit_ratio"
+            metricLabel="hit ratio"
+          />
+        ) : (
+          <LeagueCard
+            competitionType="quarterly_champions_dl"
+            period={period}
+            title="Liga Mistrzów DL"
+            subtitle="Kwartalne podium Delivery Leadów"
+            variant="placements"
+            metricLabel="placementów"
+          />
+        )}
       </div>
     </section>
   );
